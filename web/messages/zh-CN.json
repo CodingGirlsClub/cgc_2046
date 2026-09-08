@@ -461,9 +461,7 @@
     "hostOpenclackyDesc": "桌面客户端 + CGC-2046 连接器扩展，自动完成 MCP 配置。",
     "hostOmpDesc": "手动在项目 .mcp.json 写入 cgc-2046 条目。",
     "hostOpencodeDesc": "手动在项目根目录 opencode.json 写入 cgc-2046 条目。",
-    "hostDshDesc": "DSH 宿主接入。",
-    "dshComingSoon": "即将推出",
-    "dshComingSoonDesc": "DSH 接入流程尚未开放，敬请期待；现在可先选择 OpenClacky、OMP 或 opencode 完成接入。",
+    "hostDshDesc": "安装 dsh-cgc-all 插件家族后，在 DSH 面板粘贴 token 完成接入。",
     "manageTokensLink": "已有 token 记录？前往 MCP 页管理 →",
     "connectedBadge": "已接入 ✓",
     "reviewGuide": "重新查看引导",
@@ -992,7 +990,12 @@
     "installCgcServer": "打开 CGC OpenClacky 一键安装链接并完成安装",
     "bundledExtension": "启动后侧边栏会直接出现「CGC-2046」，无需单独安装扩展。",
     "oneClickConnectDesc": "安装 CGC OpenClacky 后，打开本机 OpenClacky，在 CGC-2046 面板点击「连接网站」。助手会通过浏览器引导你登录 CGC，并自动完成 MCP 配置和连接检查，无需手动生成或复制 token。",
-    "openCgcOpenclacky": "打开 CGC OpenClacky"
+    "openCgcOpenclacky": "打开 CGC OpenClacky",
+    "step1Dsh": "安装 DSH 插件家族",
+    "dshInstallDesc": "在 DSH（最低版本 <code>0.1.2</code>）中执行以下命令，安装 CGC-2046 插件家族（dsh-cgc-all）：",
+    "dshManualFlowDesc": "装好后回到下方第 ③ 步签发连接 token，然后在 DSH 侧边栏「CGC-2046」面板的连接表单中粘贴 token 完成接入——DSH 没有自动连接，这是唯一流程。",
+    "dshIntegrityHint": "包名完整性：dsh-cgc-all 由 CodingGirlsClub 官方组织发布（npm provenance 可验证）。安装前请核对来源，谨防同名仿冒包窃取 token。",
+    "dshClipboardHint": "token 明文只显示一次；粘贴到面板后建议清空剪贴板，避免经剪贴板同步残留在其它设备。"
   },
   "workspaceAccount": {
     "loadFailed": "加载资料失败",

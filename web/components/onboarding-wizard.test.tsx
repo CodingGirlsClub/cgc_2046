@@ -53,28 +53,37 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		// ③ OpenClacky 默认路径由宿主内置助手发起；OMP/opencode 仍覆盖 token fallback。
 	});
 
-	it("宿主门控：选中 DSH 呈「即将推出」说明且 ②③ hidden 隐藏（不卸载，AE3/P2）", async () => {
+	it("DSH 卡已启用：无「即将推出」badge；选中后 ②③ 可见，② 渲染安装指引，③ 渲染签发面板（U10/R17）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
-		expect(
-			screen.queryByText(/DSH 接入流程尚未开放/),
-		).not.toBeInTheDocument();
+		// DSH 卡无「即将推出」badge 与占位说明
+		expect(screen.queryByText("即将推出")).not.toBeInTheDocument();
 
 		fireEvent.click(await screen.findByRole("radio", { name: /DSH/ }));
 
-		expect(screen.getByText(/DSH 接入流程尚未开放/)).toBeInTheDocument();
-		// ②③ hidden 隐藏而非卸载：stepper 项仍在文档中但不可见（P2 保一次性明文）
-		expect(screen.getByTestId("onboarding-step-2")).not.toBeVisible();
-		expect(screen.getByTestId("onboarding-step-3")).not.toBeVisible();
-		// ③ 签发面不随 DSH 卸载：签发按钮仍在文档中（hidden: true 才查得到）
+		// 选中 DSH 后 ②③ 可见（不再 hidden 隐藏）
+		expect(screen.getByTestId("onboarding-step-2")).toBeVisible();
+		expect(screen.getByTestId("onboarding-step-3")).toBeVisible();
+
+		// ② 安装指引：安装命令（--profile web 必带，KTD9）+ 最低 DSH 版本
 		expect(
-			screen.getByRole("button", { name: /签发新 token/, hidden: true }),
-		).not.toBeVisible();
-		// ② 宿主内容仍按 host 条件渲染：DSH 无宿主内容可展示
-		expect(screen.queryByTitle("下载 OpenClacky")).not.toBeInTheDocument();
+			screen.getByRole("heading", { name: "安装 DSH 插件家族" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("dsh plugin --profile web add dsh-cgc-all"),
+		).toBeInTheDocument();
+		expect(screen.getByText("0.1.2")).toBeInTheDocument();
+		// 包名完整性提示指向 CodingGirlsClub org（RSK1）+ 粘贴后清空剪贴板指引（RSK7）
+		expect(screen.getByText(/CodingGirlsClub 官方组织发布/)).toBeInTheDocument();
+		expect(screen.getByText(/清空剪贴板/)).toBeInTheDocument();
+
+		// ③ 复用 McpTokenIssuePanel 签发面板
+		expect(
+			screen.getByRole("button", { name: /签发新 token/ }),
+		).toBeVisible();
 	});
 
-	it("回归（P2）：签发后切 DSH 再切回，一次性明文不丢（②③ hidden 隐藏而非卸载）", async () => {
+	it("回归（P2）：签发后切 DSH 再切回，一次性明文不丢（②③ 不再隐藏/卸载）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
 
@@ -82,7 +91,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			await screen.findByRole("button", { name: /签发新 token/ }),
 		);
 		fireEvent.change(
-		screen.getByPlaceholderText("如：我的 MacBook · OMP"),
+			screen.getByPlaceholderText("如：我的 MacBook · OMP"),
 			{ target: { value: "新设备" } },
 		);
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));
@@ -90,9 +99,11 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		// 一次性明文已展示（服务端 token 已签发，用户尚未点「我已保存」）
 		expect(await screen.findByText("cgc_wizard_plain_token")).toBeVisible();
 
-		// 切 DSH：②③ hidden 隐藏——旧实现此处卸载面板，明文永久丢失
+		// 切 DSH：②③ 不再 hidden 隐藏，签发面板与明文保持可见
 		fireEvent.click(screen.getByRole("radio", { name: /DSH/ }));
-		expect(screen.getByText("cgc_wizard_plain_token")).not.toBeVisible();
+		expect(screen.getByText("cgc_wizard_plain_token")).toBeVisible();
+		expect(screen.getByTestId("onboarding-step-2")).toBeVisible();
+		expect(screen.getByTestId("onboarding-step-3")).toBeVisible();
 
 		// 切回 OMP：组件未被卸载，明文仍可见
 		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
@@ -240,7 +251,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		).not.toBeInTheDocument();
 	});
 
-	it("stepper 当前步（C：选中态样式与 aria-current）：默认停在 ③ 签发；选中 DSH 停在 ①", async () => {
+	it("stepper 当前步（C：选中态样式与 aria-current）：四宿主一致停在 ③ 签发", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
 		await screen.findByRole("radio", { name: /OpenClacky/ });
@@ -252,14 +263,14 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			"aria-current",
 		);
 
+		// 选中 DSH：②③ 可见且当前步仍停在 ③（DSH 启用后与其他宿主一致）
 		fireEvent.click(screen.getByRole("radio", { name: /DSH/ }));
-		expect(screen.getByTestId("onboarding-step-1")).toHaveAttribute(
+		expect(screen.getByTestId("onboarding-step-3")).toBeVisible();
+		expect(screen.getByTestId("onboarding-step-3")).toHaveAttribute(
 			"aria-current",
 			"step",
 		);
-		// DSH 态 ③ hidden 隐藏（不卸载，P2）且不带 aria-current（AE3 可见行为不变）
-		expect(screen.getByTestId("onboarding-step-3")).not.toBeVisible();
-		expect(screen.getByTestId("onboarding-step-3")).not.toHaveAttribute(
+		expect(screen.getByTestId("onboarding-step-1")).not.toHaveAttribute(
 			"aria-current",
 		);
 	});
