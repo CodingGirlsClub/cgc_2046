@@ -305,7 +305,8 @@ class DiscoveryPanelViewTest < Minitest::Test
   end
 
   def test_dynamic_values_escaped
-    assert_includes VIEW, "function escapeHtml("
+    # ⑦:转义实现归一共享骨架;面板侧锚别名在场 + 调用点转义
+    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
     assert_includes VIEW, "escapeHtml(item.title)"
     assert_includes VIEW, "escapeHtml(item.kind)"
   end

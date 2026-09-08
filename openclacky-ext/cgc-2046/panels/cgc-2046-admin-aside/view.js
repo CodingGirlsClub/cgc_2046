@@ -21,14 +21,15 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
   const AGENT = "cgc-admin";
   const ADMIN_ROLES = ["owner", "admin"];
   const POLL_MS = 10000;
   const EVENT_REFRESH_DEBOUNCE_MS = 400;
   let root = null;
-  let pollTimer = null;
+  let pollStop = null;
   let refreshDebouncer = null;
 
   const state = {
@@ -51,11 +52,8 @@
     lastRefresh: ""
   };
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
+  const escapeHtml = Kit.escapeHtml;
+  const rawGet = Kit.rawGet;
 
   // 任务 kind 中文标签(与 hub TASK_KINDS 同口径)
   const TASK_KINDS = {
@@ -123,12 +121,7 @@
     return ((ORDER_STATUS[status] || {}).rank != null) ? ORDER_STATUS[status].rank : 3;
   }
 
-  async function rawGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { status: res.status });
-    return body;
-  }
+
 
   // 只显示 admin/owner 角色的工作台
   function loadWorkspaces() {
@@ -272,15 +265,7 @@
       window.prompt("复制以下指令:", text);
       return;
     }
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
+    Kit.injectIntoComposer(input, send, text);
   }
 
   // 待办行 → 处理指令(台名前缀消歧:待办跨台聚合,agent 按名称切换上下文;
@@ -769,12 +754,11 @@
     root.className = "cgaa-root";
     container.appendChild(root);
     boot();
-    if (pollTimer) clearInterval(pollTimer);  // 重复 mount(多 cgc-admin 会话)不叠加轮询
-    pollTimer = setInterval(async function () {
-      if (!root || !document.contains(root) || document.hidden) return;
+    if (pollStop) pollStop();  // 重复 mount(多 cgc-admin 会话)不叠加轮询
+    pollStop = Kit.poll(POLL_MS, async function () {
       try { await refreshData(); } catch (e) { /* 静默 */ }
       renderPanel();
-    }, POLL_MS);
+    }, { container: function () { return root; } });
   }, {
     agents: [AGENT],
     order: 20,
