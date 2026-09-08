@@ -764,6 +764,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const courseKindFetch = calls.urls.some(function (u) {
       return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=course") >= 0;
     });
+    // P4:draft 课展开动作排(发布/取消 + 对话修改 + 网站编辑深链;无「结束」)
+    const draftActionsOk = html2.indexOf("发布") >= 0 && html2.indexOf("取消") >= 0 &&
+      html2.indexOf("结束") < 0 && html2.indexOf("✎ 对话修改") >= 0 &&
+      html2.indexOf("/w/acme/courses/c-1") >= 0;
+    const c1Launch = panel.querySelectorAll("[data-lc-action]").filter(function (b) {
+      return b.getAttribute("data-lc-id") === "c-1" && b.getAttribute("data-lc-action") === "launch";
+    })[0];
+    ((c1Launch && c1Launch.listeners.click) || []).forEach(function (fn) { fn(); });
+    const lcInject = globalThis.__prompted || "";
+    const c1Edit = panel.querySelectorAll("[data-edit-inject]").filter(function (b) {
+      return b.getAttribute("data-lc-id") === "c-1";
+    })[0];
+    ((c1Edit && c1Edit.listeners.click) || []).forEach(function (fn) { fn(); });
+    const editInject = globalThis.__prompted || "";
     // P1:可行动报名行(pending)点击 → 注入含 list_enrollments + enrollment_id
     const enrollRows = panel.querySelectorAll("[data-enroll-offering]");
     ((enrollRows[0] && enrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
@@ -780,6 +794,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       .filter(function (b) { return b.getAttribute("data-enroll-kind") === "event"; });
     ((evEnrollRows[0] && evEnrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
     const evEnrollInject = globalThis.__prompted || "";
+    // P4:open 活动展开动作排(结束/取消 + 活动编辑深链;c-1 已收起故无「发布」)
+    const html3 = container.innerHTML;
+    const openActionsOk = html3.indexOf("结束") >= 0 && html3.indexOf("取消") >= 0 &&
+      html3.indexOf("发布") < 0 && html3.indexOf("/w/acme/events/ev-1") >= 0;
     // P3:创建活动动作注入
     const eventBtn = panel.querySelectorAll("[data-action]")
       .filter(function (b) { return b.getAttribute("data-action") === "create-event"; })[0];
@@ -807,6 +825,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       course_drilldown_fetches_enrollments: enrollFetched && html2.includes("小安") && html2.includes("待审批"),
       course_drilldown_kind: courseKindFetch,
       event_drilldown_kind: eventKindFetch,
+      draft_row_actions: draftActionsOk,
+      launch_action_injects: lcInject.includes("launch_course") && lcInject.includes("course_id=c-1"),
+      edit_action_injects: editInject.includes("update_course") && editInject.includes("course_id=c-1"),
+      open_row_actions: openActionsOk,
       event_enroll_injects: evEnrollInject.includes("活动") && evEnrollInject.includes("kind=event"),
       create_event_action_injects: eventInject.includes("创建一场新活动"),
       pending_enroll_injects: enrollInject.includes("list_enrollments") && enrollInject.includes("e-1"),
