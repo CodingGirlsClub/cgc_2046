@@ -5,12 +5,14 @@ vi.mock("./apollo-client", () => ({
 }));
 
 import { client } from "./apollo-client";
-import { createOffering, fetchWorkspaceOfferings, formatDeadline, updateOffering } from "./events";
+import { createOffering, fetchMyEnrollment, fetchWorkspaceOfferings, formatDeadline, updateOffering } from "./events";
 import {
 	CREATE_COURSE,
 	CREATE_EVENT,
 	LIST_COURSES,
 	LIST_EVENTS,
+	MY_COURSE_ENROLLMENT,
+	MY_EVENT_ENROLLMENT,
 	type OfferingItem,
 	UPDATE_COURSE,
 	UPDATE_EVENT,
@@ -310,5 +312,38 @@ describe("fetchWorkspaceOfferings 列表读取（对齐公开面 F4：network-on
 
 		expect(queryMock.mock.calls[0][0]).toMatchObject({ query: LIST_COURSES });
 		expect(rows).toEqual([offering]);
+	});
+});
+
+describe("fetchMyEnrollment 活跃报名读取（支付后 onPaid 刷新不得吃缓存旧态）", () => {
+	it("event：network-only + 返回 results[0]", async () => {
+		const row = { id: "enr-1", status: "confirmed" };
+		queryMock.mockResolvedValue({
+			data: { enrollments: { results: [row] } },
+		} as never);
+
+		const result = await fetchMyEnrollment("evt-1", "event", "user-1");
+
+		expect(queryMock.mock.calls[0][0]).toEqual({
+			query: MY_EVENT_ENROLLMENT,
+			variables: { eventId: "evt-1", userId: "user-1" },
+			fetchPolicy: "network-only",
+		});
+		expect(result).toEqual(row);
+	});
+
+	it("course：network-only + 无活跃报名返回 null", async () => {
+		queryMock.mockResolvedValue({
+			data: { enrollments: { results: [] } },
+		} as never);
+
+		const result = await fetchMyEnrollment("crs-1", "course", "user-1");
+
+		expect(queryMock.mock.calls[0][0]).toEqual({
+			query: MY_COURSE_ENROLLMENT,
+			variables: { courseId: "crs-1", userId: "user-1" },
+			fetchPolicy: "network-only",
+		});
+		expect(result).toBeNull();
 	});
 });
