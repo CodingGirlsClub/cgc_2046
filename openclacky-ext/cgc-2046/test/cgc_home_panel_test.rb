@@ -1,16 +1,11 @@
 # frozen_string_literal: true
 
-# 「程序媛汇 2046」hub 面板静态断言(S1-S4 重构)。
+# 「程序媛汇 2046」hub 面板合同断言(S1-S4 重构;⑧后行为面迁移)。
 #
-# hub 是唯一侧栏入口(sidebar.nav.top,替代已删除的 workspace 连接面板):
-#   - 连接管理迁移:状态卡 / DELETE 断开(CSRF 自愈锚在 PanelCsrfSelfHealTest)/ 跳网站;
-#   - 身份区 + Workspace 选择器 + 我的任务(沿用原 LS key,用户选择不丢);
-#   - 角色感知功能目录:全员(和助手对话/发现活动/我的课程)+
-#     tutor(教研工作台)+ platform_admin(平台管理);
-#   - 一键进助手会话:POST /api/sessions {agent_profile}(青狮工作台同款通道);
-#   - 事件订阅 tool_used / mcp_error。
-#
-# DOM 级驱动留手动冒烟(与发现/课程面板同口径);本文件钉可静态锚定的合同。
+# ⑧:面板的 DOM 行为(pill/目录/会话启动/断开自愈/任务聚合/事件订阅/XSS 转义)
+# 已迁至 JS 行为级 harness(test/panel_behavior_harness.js 的 home_hub /
+# home_unconnected / home_tasks_failed 场景,Node 直接驱动 view.js 断言);
+# 本文件只保留 harness 覆盖不了的静态合同:ext.yml manifest 与后端路由。
 #
 # 运行(需项目 mise 环境)：cd openclacky-ext/cgc-2046 && mise exec -- ruby test/cgc_home_panel_test.rb
 
@@ -22,18 +17,8 @@ EXT_ROOT = File.expand_path("..", __dir__)
 ROOT_LICENSE = File.read(File.expand_path("../../../LICENSE", __dir__))
 
 class CgcHomePanelTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
-  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
 
   # ---- 注册与位置:唯一侧栏入口,挂顶部 ----
-  def test_registers_home_workspace_and_top_nav
-    assert_includes VIEW, 'const HOME_ID = "cgc"'
-    assert_includes VIEW, "Clacky.ext.ui.registerWorkspace(HOME_ID"
-    assert_includes VIEW, "程序媛汇 2046"
-    # 顶部挂载(青狮工作台同款位置),不是底部 sidebar.nav
-    assert_includes VIEW, 'Clacky.ext.ui.mount("sidebar.nav.top"'
-    refute_includes VIEW, 'mount("sidebar.nav"', "hub 是唯一入口,不再挂底部导航位"
-  end
 
   def test_ext_yml_registers_cgc_panel_without_workspace_panel
     assert_includes EXT_YML, "- id: cgc\n"
@@ -45,48 +30,10 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes EXT_YML, "- id: cgc-2046-discovery"
   end
 
-  # ---- 连接管理迁移(原 workspace 面板职责) ----
-  # 设计反馈:MCP 已连接 pill + 未连接态「连接助手」按钮 + 最近会话区
-  def test_pill_and_connect_entry
-    assert_includes VIEW, "MCP 已连接"
-    assert_includes VIEW, 'discEl.dataset.mode === "connect"'
-    assert_includes VIEW, "连接网站"
-    assert_includes VIEW, "已断开连接,可点「连接网站」重新连接"
-    # 副标题透出端点/Token(原状态卡信息不丢失)
-    assert_includes VIEW, "Token 已配置"
-  end
 
-  # 连接网站:confirm → 创建会话 → 注入 CDP 自动连接请求(token 不进对话)
-  def test_connect_website_flow
-    assert_includes VIEW, "startConnectSession"
-    assert_includes VIEW, "将自动打开 CGC 网站签发并复制 token"
-    assert_includes VIEW, "injectIntoComposer"
-    assert_includes VIEW, "CDP 自动连接"
-    # ⑦:注入管道归一共享骨架;面板侧锚委托调用(禁用补发/textContent 语义在 Kit)
-    assert_includes VIEW, "Kit.injectIntoComposer(input, send, text)"
-    refute_includes VIEW, "input.value = text"
-  end
 
-  def test_focus_refresh_reloads_workspaces
-    # hub 焦点重拉:角色目录判定/身份区自动刷新;未连接态不拉
-    assert_includes VIEW, 'document.addEventListener("visibilitychange"'
-    assert_includes VIEW, "loadWorkspaces(currentContainer)"
-    assert_includes VIEW, "!configured) return"
-  end
 
-  def test_recent_sessions_section
-    assert_includes VIEW, '"/api/sessions?limit=50"'
-    assert_includes VIEW, "s.agent_profile === AGENT_PROFILE"
-    assert_includes VIEW, "Clacky.Router.navigate(\"session\""
-    assert_includes VIEW, "cgc-recent-sessions"
-    assert_includes VIEW, "is-running"
-  end
 
-  # 真机回归:WEBrick header 对未发送的键返回空数组(truthy),request_header
-  # 的 || 链曾被空数组短路 → 带 Content-Type 的写请求也 415。钉死空数组剔除。
-  def test_request_header_skips_empty_array_keys
-    assert_includes KIT, "body: \"{}\"", "DELETE 须带空 JSON body(fetch 规范:无 body 不发送 Content-Type;⑦后实现在共享骨架)"
-  end
 
   # 任务 kind 中文标签 + 可点击跳转对应面板
   # cgc-admin agent + hub 工作台管理卡
@@ -95,14 +42,6 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes EXT_YML, "agents/cgc-admin/system_prompt.md"
   end
 
-  def test_hub_admin_card_for_owner_admin
-    assert_includes VIEW, "ADMIN_ROLES"
-    assert_includes VIEW, "wsadmin"
-    assert_includes VIEW, "工作台管理"
-    assert_includes VIEW, "创建课程·成员·审批·邀请"
-    assert_includes VIEW, "startAdminSession"
-    assert_includes VIEW, '"cgc-admin"'
-  end
 
   # handler 新路由
   def test_workspace_courses_route
@@ -111,106 +50,17 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes handler, "list_workspace_courses"
   end
 
-  def test_task_kind_labels_and_navigation
-    assert_includes VIEW, "TASK_KINDS"
-    assert_includes VIEW, '"教研审核"'
-    assert_includes VIEW, "taskKindLabel"
-    assert_includes VIEW, "data-task-panel"
-  end
 
-  def test_connection_management_migrated
-    assert_includes VIEW, 'API + "/status"'
-    # ⑦:DELETE 连接(CSRF 自愈)委托共享骨架;面板侧锚调用,实现在 Kit
-    assert_includes VIEW, 'Kit.apiDelete("/connect")'
-    assert_includes KIT, "X-CGC-CSRF-Token"
-    # 连接/token 状态收敛为 header 状态 pill(视觉重构);csrf 自愈与 web_url 保留
-    assert_includes VIEW, "cgc-state-pill"
-    assert_includes VIEW, "已连接"
-    assert_includes KIT, "csrf_token"
-    assert_includes VIEW, "web_url"
-  end
 
-  def test_workspace_selection_keeps_storage_key
-    # 沿用原 LS key:已连接用户的持久化选择不丢失
-    assert_includes VIEW, '"cgc2046.workspacePanel.workspaceId"'
-    assert_includes VIEW, "localStorage.getItem(LS_WORKSPACE)"
-  end
 
-  def test_tasks_and_identity_migrated
-    assert_includes VIEW, 'API + "/me/workspaces"'
-    assert_includes VIEW, 'API + "/tasks?workspace_id="'
-    assert_includes VIEW, "is_platform_admin"
-    assert_includes VIEW, "/settings/members"
-  end
 
-  # 待办聚合所有工作台(问题4-B):不按选中台过滤,行首带台名
-  def test_tasks_aggregate_all_workspaces
-    assert_includes VIEW, "Promise.allSettled(workspaces.map"
-    assert_includes VIEW, 't._ws_name ? "[" + t._ws_name + "] " : ""'
-    refute_includes VIEW, '"/tasks?workspace_id=" + encodeURIComponent(selectedWorkspaceId)'
-  end
 
-  # 全部失败 ≠ 暂无待办:空态会掩盖后端不可用/token 过期
-  def test_tasks_all_failed_renders_error_not_empty
-    assert_includes VIEW, "fulfilled.length === 0"
-    assert_includes VIEW, "待办加载失败"
-  end
 
-  # ---- 角色感知功能目录 ----
-  def test_role_aware_catalog
-    # 全员三卡
-    assert_includes VIEW, "和助手对话"
-    assert_includes VIEW, "发现活动"
-    assert_includes VIEW, "我的课程"
-    # 教研卡按角色显隐(tutor-only,与课程面板 EDIT_ROLES 同口径)
-    assert_includes VIEW, 'const EDIT_ROLES = ["tutor"]'
-    assert_includes VIEW, "教研工作台"
-    # 平台管理卡按 is_platform_admin
-    assert_includes VIEW, "平台管理"
-    # 目录卡直达隐藏功能页
-    assert_includes VIEW, 'const DISCOVERY_ID = "cgc-2046-discovery"'
-    assert_includes VIEW, 'const COURSE_ID = "cgc-2046-course"'
-    assert_includes VIEW, "Clacky.ext.ui.openWorkspace(spec.target)"
-  end
 
-  def test_unconnected_guide_renders_catalog_hint
-    assert_includes VIEW, "cgc-connect-guide"
-    assert_includes VIEW, "cgc2046-onboarding"
-  end
 
-  # ---- 一键进助手会话(青狮工作台同款通道) ----
-  def test_assistant_session_launch
-    assert_includes VIEW, 'const AGENT_PROFILE = "cgc-assistant"'
-    assert_includes VIEW, '"/api/sessions"'
-    assert_includes VIEW, "agent_profile: AGENT_PROFILE"
-    assert_includes VIEW, "source: \"manual\""
-    # 会话打开通道:Sessions API 优先,Router 兜底(宿主版本差异)
-    assert_includes VIEW, "Clacky.Sessions.add(session)"
-    assert_includes VIEW, "Clacky.Sessions.select(session.id)"
-    assert_includes VIEW, 'Clacky.Router.navigate("session"'
-    # 防重复点击
-    assert_includes VIEW, "sessionBusy"
-  end
 
-  # ---- 事件订阅迁移(最近活动区) ----
-  def test_event_subscriptions
-    assert_includes VIEW, 'Clacky.ext.subscribe("ext.cgc-2046.tool_used"'
-    assert_includes VIEW, 'Clacky.ext.subscribe("ext.cgc-2046.mcp_error"'
-  end
 
-  # ---- 安全纪律 ----
-  def test_dynamic_values_escaped
-    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
-    assert_includes VIEW, "escapeHtml(spec.title)"
-    assert_includes VIEW, "escapeHtml(spec.desc)"
-    assert_includes VIEW, "escapeHtml(w.workspace_id)"
-  end
 
-  def test_no_token_render_surface
-    refute_includes VIEW, "Authorization"
-    # fetch 的请求头字样(headers:)允许存在,但不得触碰 MCP 条目的 headers/token 值
-    refute_includes VIEW, "Bearer"
-  end
 end
 
 # ---- 三 agent 单包分发 + tutor/admin 薄壳合同 ----
@@ -321,10 +171,8 @@ class CdpAutoConnectDocsTest < Minitest::Test
   end
 end
 
-# ---- P1 教研侧边栏 + 共创入口静态锚 ----
+# ---- P1 教研侧边栏:行为面已迁 harness(tutor_aside_boot 场景),此处保留 manifest 合同 ----
 class TutorAsidePanelTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/cgc-2046-tutor-aside/view.js", __dir__))
-  CURRICULUM_VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
 
   def test_ext_yml_registers_tutor_agent_and_aside
     assert_includes EXT_YML, "- id: cgc-tutor"
@@ -333,172 +181,12 @@ class TutorAsidePanelTest < Minitest::Test
     assert_includes EXT_YML, "attach: [cgc-tutor]"
   end
 
-  # 课程发现同教研工作台: tutor 角色台的 list_workspace_courses(权限=有份更新的课),
-  # 不再用报名视角(/me/enrollments 看不到未报名的被指派课程)
-  # 课程状态徽标(aside): 区分课程发布状态与教研周期(发布后新周期从 draft 重计)
-  def test_course_status_badge_renders
-    assert_includes VIEW, "courseStatusBadge"
-    assert_includes VIEW, "已发布"
-    assert_includes VIEW, "cgta-course-badge"
-  end
-
-  def test_aside_course_discovery_by_tutor_role
-    assert_includes VIEW, '"/me/workspaces"'
-    assert_includes VIEW, '"/workspace/courses?workspace_id="'
-    assert_includes VIEW, '(w.roles || []).indexOf("tutor") >= 0'
-    refute_includes VIEW, 'rawGet("/me/enrollments")'
-  end
-
-  def test_aside_mount_and_sync
-    # attach cgc-tutor 的 session.aside;推拉结合(draft_saved/tool_used 事件 → 防抖拉)
-    # + 10s 轮询兜底;version 签名变化才重渲染
-    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
-    assert_includes VIEW, "agents: [AGENT]"
-    assert_includes VIEW, 'ctx.agentProfile !== AGENT'
-    assert_includes VIEW, 'subscribe("ext.cgc-2046.draft_saved"'
-    assert_includes VIEW, 'subscribe("ext.cgc-2046.tool_used"'
-    assert_includes VIEW, "POLL_MS = 10000"
-    assert_includes VIEW, "function signature()"
-  end
-
-  # #5 质量报告摘要卡:quality_check/review 态显示 score/阈值/违规/审核 CTA
-  # #2 展开态记忆 + agent 改动 issue 自动展开高亮
-  def test_issue_expand_memory_and_auto_expand
-    assert_includes VIEW, "cgc2046.tutorAside.openIssues"
-    assert_includes VIEW, "changedIssues"
-    assert_includes VIEW, "state.prevContent"
-    assert_includes VIEW, "is-changed"
-    assert_includes VIEW, '"toggle"'
-    assert_includes VIEW, "data-issue="
-  end
-
-  def test_quality_report_card
-    assert_includes VIEW, "function qualityReportCard()"
-    assert_includes VIEW, '"quality_check" && st !== "review"'
-    assert_includes VIEW, "latest_quality_report"
-    assert_includes VIEW, "gate_violations"
-    assert_includes VIEW, "quality_threshold"
-    assert_includes VIEW, "达标"
-    assert_includes VIEW, "未达标"
-    assert_includes VIEW, "data-goto-review"
-    assert_includes VIEW, "去工作台审核发布"
-  end
-
-  def test_per_objective_rewrite_action
-    # 局部 AI 动作:✎ 定向重写——位置(objective_id+issue_id)自动携带,
-    # tutor 只说改成什么;重写/扩展二选一(prompt 确认/取消/放弃三态)
-    assert_includes CURRICULUM_VIEW2, "data-rewrite" if defined?(CURRICULUM_VIEW2)
-    assert_includes VIEW, "data-rewrite"
-    assert_includes VIEW, "cgta-obj-edit"
-    assert_includes VIEW, "injectRewrite"
-    assert_includes VIEW, "objective_id: " + '" + objId'
-    assert_includes VIEW, "保持 objective_id 不变"
-    assert_includes VIEW, "其它目标/单元一律不动"
-    assert_includes VIEW, "我的修改意图是"
-  end
-
-  def test_aside_shares_course_selection_and_scope
-    # 与教研工作台共享课程选择 key;作用域按课程归属台
-    assert_includes VIEW, "cgc2046.curriculum.courseId"
-    assert_includes VIEW, "function scopeOf(courseId)"
-    assert_includes VIEW, "在教研工作台打开"
-  end
-
-  def test_cocreate_entry_and_prep_stepper
-    # 共创入口创建 cgc-tutor 会话并注入教研指令;prep 流程条展示态 + 推进走会话注入
-    assert_includes CURRICULUM_VIEW, "coCreateWithTutor"
-    assert_includes CURRICULUM_VIEW, 'agent_profile: "cgc-tutor"'
-    assert_includes CURRICULUM_VIEW, "get_course_content 与 get_prep_status 读取现状"
-    assert_includes CURRICULUM_VIEW, "prepStepper"
-    assert_includes CURRICULUM_VIEW, 'data-testid="prep-stepper"'
-    assert_includes CURRICULUM_VIEW, 'data-testid="prep-action"'
-    assert_includes CURRICULUM_VIEW, "approve_prep"
-    assert_includes CURRICULUM_VIEW, "request_changes_prep"
-  end
 
 end
 
 # ---- 管理侧边栏(attach cgc-admin) ----
 class AdminAsidePanelTest < Minitest::Test
-  VIEW = File.read(File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__))
 
-  def test_mount_and_attach
-    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
-    assert_includes VIEW, "agents: [AGENT]"
-    assert_includes VIEW, '"cgc-admin"'
-    assert_includes VIEW, "工作台管理"
-  end
-
-  def test_data_and_actions
-    assert_includes VIEW, '"/me/workspaces"'
-    assert_includes VIEW, '"/tasks?workspace_id="'
-    assert_includes VIEW, "ADMIN_ROLES"
-    assert_includes VIEW, "Promise.allSettled(state.workspaces.map"
-    assert_includes VIEW, 't._ws_name ? "[" + t._ws_name + "] " : ""'
-    assert_includes VIEW, "data-action"
-    assert_includes VIEW, "创建课程"
-    assert_includes VIEW, "邀请成员"
-    assert_includes VIEW, "injectIntoComposer"
-    assert_includes VIEW, "POLL_MS = 10000"
-  end
-
-  # P0 协作闭环:待办行可点注入 + 动作按域分组 + web 深链 + tool_used 事件驱动刷新
-  def test_p0_collaboration_loop
-    assert_includes VIEW, "data-task-idx"
-    assert_includes VIEW, "taskPrompt"
-    assert_includes VIEW, "先调用 list_my_tasks 获取该待办详情"
-    assert_includes VIEW, "ACTION_GROUPS"
-    assert_includes VIEW, "加入申请"
-    assert_includes VIEW, "WEB_LINKS"
-    assert_includes VIEW, "/settings/members"
-    assert_includes VIEW, "/settings/join-policy"
-    assert_includes VIEW, 'data-link-url'
-    assert_includes VIEW, 'Clacky.ext.subscribe("ext.cgc-2046.tool_used"'
-    assert_includes VIEW, "EVENT_REFRESH_DEBOUNCE_MS"
-    assert_includes VIEW, "refreshData"
-    assert_includes VIEW, '"/status"'
-    assert_includes VIEW, "loadStatus"
-  end
-
-  # P1 读投影 + P3 供给统一:供给区(课程+活动 kind 徽章/下钻报名) + 订单区(非终态优先) + 透传路由
-  def test_p1_p3_read_projection
-    assert_includes VIEW, '"/workspace/courses?workspace_id="'
-    assert_includes VIEW, '"/workspace/events?workspace_id="'
-    assert_includes VIEW, '"/workspace/enrollments?workspace_id="'
-    assert_includes VIEW, '"/workspace/orders?workspace_id="'
-    assert_includes VIEW, "loadCourses"
-    assert_includes VIEW, "loadEvents"
-    assert_includes VIEW, "loadOrders"
-    assert_includes VIEW, "loadEnrollments"
-    assert_includes VIEW, "renderSupplySection"
-    assert_includes VIEW, "renderOrdersSection"
-    assert_includes VIEW, "data-offering-kind"
-    assert_includes VIEW, "data-offering-id"
-    assert_includes VIEW, "data-enroll-kind"
-    assert_includes VIEW, "data-order-idx"
-    assert_includes VIEW, "expandedOfferingId"
-    assert_includes VIEW, "refund_failed"
-    assert_includes VIEW, "enrollPrompt"
-    assert_includes VIEW, "orderPrompt"
-    assert_includes VIEW, "list_enrollments kind="
-    assert_includes VIEW, "KIND_LABEL"
-    assert_includes VIEW, "ENROLL_BADGE"
-    assert_includes VIEW, "create-event"
-    # 错误隔离:扩展/后端部署错配(新扩展连旧后端)时活动面失败不拖死课程面
-    assert_includes VIEW, "state.coursesError && state.eventsError"
-    assert_includes VIEW, "课程加载失败。"
-    assert_includes VIEW, "活动加载失败。"
-    # P4 对象级动作排:生命周期按状态门注入(launch/close/cancel × course/event
-    # 工具名拼接) + 对话轻改注入 + 网站编辑深链(复用 data-link-url handler)
-    assert_includes VIEW, "LIFECYCLE_ACTIONS"
-    assert_includes VIEW, "renderOfferingActions"
-    assert_includes VIEW, "lifecyclePrompt"
-    assert_includes VIEW, "editPrompt"
-    assert_includes VIEW, "data-lc-action"
-    assert_includes VIEW, "data-edit-inject"
-    assert_includes VIEW, '"/courses/"'
-    assert_includes VIEW, '"/events/"'
-  end
   def test_p1_routes_registered
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
     assert_includes handler, 'get "/workspace/orders"'
@@ -515,44 +203,8 @@ end
 
 class CgcLearnPanelTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-learn/view.js", __dir__))
-  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
 
-  # 挂载合同:仅 CGC 助手会话(agents 过滤 + ctx 双保险);session.aside 是
-  # TABBED_SLOT,必须带 tab(宿主 ext.js TABBED_SLOTS 约束)
-  # 学习地图优化:注入保草稿 + Resume 置顶大卡
-  def test_inject_preserves_user_draft
-    # 注入前读输入框已有内容,追加为「我的补充问题」——不覆盖用户草稿
-    assert_includes VIEW, "const draft = (input.textContent || \"\").trim();"
-    assert_includes VIEW, "我的补充问题"
-  end
-
-  def test_resume_card_first_screen
-    # Resume 置顶大卡(qingclaw 渐变+eyebrow 骨架):到期复习优先,否则 next_action
-    assert_includes VIEW, "cgla-continue"
-    assert_includes VIEW, "cgla-eyebrow"
-    assert_includes VIEW, "继续复习"
-    assert_includes VIEW, "继续学习"
-    assert_includes VIEW, "dueReview"
-    assert_includes VIEW, "cgla-continue-button"
-  end
-
-  # #3 材料快捷动作:目标行 📎 hover 显示 → 点击就地展开材料链接
-  def test_materials_quick_action
-    assert_includes VIEW, "materialsOf"
-    assert_includes VIEW, "data-mats"
-    assert_includes VIEW, "cgla-obj-mats"
-    assert_includes VIEW, "cgla-mats-panel"
-    assert_includes VIEW, "cgla-mat-ref"
-  end
-
-  def test_session_aside_mount_contract
-    assert_includes VIEW, 'Clacky.ext.ui.mount("session.aside"'
-    assert_includes VIEW, "agents: [AGENT]"
-    assert_includes VIEW, 'ctx.agentProfile !== AGENT'
-    assert_includes VIEW, "tab: {"
-    assert_includes VIEW, "学习地图"
-  end
 
   def test_ext_yml_attaches_to_assistant
     assert_includes EXT_YML, "- id: cgc-2046-learn"
@@ -560,22 +212,6 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes EXT_YML, "attach: [cgc-assistant]"
   end
 
-  # 注入管道(qingclaw sendLessonPrompt 同款):填输入框 + dispatch + 点发送;
-  # 输入框缺失时兜底剪贴板/prompt,不得静默失败
-  def test_inject_pipeline
-    assert_includes VIEW, 'document.getElementById("user-input")'
-    assert_includes VIEW, 'document.getElementById("btn-send")'
-    # 宿主 #user-input 是 contenteditable DIV:textContent 注入(真机实证,
-    # value 赋值 Composer.text 读不到);发送按钮禁用(订阅确认前)时待启用补发
-    # ⑦:填值/dispatch/点发/补发归一共享骨架;面板侧锚草稿保护与委托调用
-    assert_includes VIEW, "const draft = (input.textContent || \"\").trim();"
-    assert_includes VIEW, "Kit.injectIntoComposer(input, send, finalText)"
-    refute_includes VIEW, "input.value = text"
-    assert_includes KIT, 'new Event("input", { bubbles: true })'
-    assert_includes KIT, "send.disabled"
-    assert_includes KIT, "send.click()"
-    assert_includes VIEW, "navigator.clipboard.writeText"
-  end
 
   # 指令口径分侧防漂移:learn 面板全口径(学习+到期复习);course 页 goLearn
   # 为泛学习入口(无 objective,七步循环口径),复习口吻归 learn 侧
@@ -588,26 +224,6 @@ class CgcLearnPanelTest < Minitest::Test
     end
   end
 
-  # 数据面:报名列表 + 学习状态;错误/空态收敛在面板内,不打扰会话
-  def test_data_channels_and_states
-    assert_includes VIEW, 'apiGet("/me/enrollments")'
-    assert_includes VIEW, 'apiGet("/learning_state?workspace_id="'
-    assert_includes VIEW, "data-testid=\"learn-error\""
-    assert_includes VIEW, "data-testid=\"learn-empty\""
-    assert_includes VIEW, "data-testid=\"learn-next\""
-  end
 
-  def test_dynamic_values_escaped
-    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
-    assert_includes VIEW, "escapeHtml(c.title)"
-    assert_includes VIEW, "escapeHtml(o.title || o.id)"
-    assert_includes VIEW, "m.title || m.id"
-    assert_includes VIEW, "escapeHtml(objTitle)"
-    assert_includes VIEW, "escapeHtml(reason)"
-  end
 
-  # 锁定目标不可点(无 data-inject),防越先修注入
-  def test_locked_objectives_not_injectable
-    assert_includes VIEW, '(locked ? "" : \' data-inject="'
-  end
 end

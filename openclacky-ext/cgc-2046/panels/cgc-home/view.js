@@ -50,6 +50,7 @@
   let workspaces = [];        // [{ workspace_id, name, slug, roles }]
   let isPlatformAdmin = false;
   let selectedWorkspaceId = "";
+  let sessionBusy = false;    // 会话创建中(防重复点击)
   const escapeHtml = Kit.escapeHtml;
 
 
