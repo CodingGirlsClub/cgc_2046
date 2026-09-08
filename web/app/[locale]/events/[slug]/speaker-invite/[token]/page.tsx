@@ -14,8 +14,9 @@
 import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/auth-provider";
+import { formatDeadline } from "@/lib/events";
 import {
 	acceptSpeakerInvitation,
 	declineSpeakerInvitation,
@@ -30,19 +31,6 @@ type DecisionState =
 	| { kind: "accepted" }
 	| { kind: "declined" }
 	| { kind: "error"; message: string };
-
-function formatScheduledAt(datetime: string | null, undecided: string): string {
-	if (!datetime) return undecided;
-	const d = new Date(datetime);
-	if (Number.isNaN(d.getTime())) return undecided;
-	return d.toLocaleString("zh-CN", {
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
 
 /**
  * 决策失败文案映射（对齐 offerings 面 U2 纪律：不透传 GraphQL 原文）：
@@ -62,6 +50,7 @@ function friendlyDecisionError(
 
 export default function Page() {
 	const t = useTranslations("speakerInvite");
+	const locale = useLocale();
 	const params = useParams<{ slug: string; token: string }>();
 	const slug = params?.slug ?? "";
 	const token = params?.token ?? "";
@@ -180,7 +169,7 @@ export default function Page() {
 							{t("topic")}<strong>{card.topic ?? t("topicEmpty")}</strong>
 						</span>
 						<span className="text-ink">
-							{t("time")}<strong>{formatScheduledAt(card.scheduledAt, t("undecided"))}</strong>
+							{t("time")}<strong>{formatDeadline(card.scheduledAt, t("undecided"), locale)}</strong>
 						</span>
 					</div>
 
