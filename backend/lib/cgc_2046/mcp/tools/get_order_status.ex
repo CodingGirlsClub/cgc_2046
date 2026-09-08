@@ -83,7 +83,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   defp latest_order(enrollment, actor) do
     Order
     |> Ash.Query.filter(enrollment_id == ^enrollment.id)
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(50)
     |> Ash.read(actor: actor)
     |> case do
