@@ -43,6 +43,10 @@ defmodule Cgc2046.Reconciliation.Finding do
      registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1：
      缓存经异步信号覆盖写，丢投不重试窗口的上游漂移由本规则看护；
      宽限一拍对齐 cron，与规10 同形）
+  13. `:fund_action_burst` — 资金写动作频次告警（R3）：窗口内同一 actor 同类
+      资金写治理动作（:order_refund / :order_refund_retry / :waive_payment）
+      超阈值（默认 1h / 5 笔，app env 可调）；entity = 操作人（:user），
+      detail 带 per-action 计数；纯查询告警面，不含处置语义
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -80,7 +84,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     :capacity_projection_drift,
     :occupancy_exceeds_capacity,
     # ADR-0009 Fable 5 HIGH-1：账本缓存 vs offering 真值的上游漂移看护
-    :ledger_cache_drift
+    :ledger_cache_drift,
+    # 规13（R3）：资金写动作频次告警（同 actor 窗口内同类资金写超阈值）
+    :fund_action_burst
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）
@@ -97,7 +103,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     :course,
     :oban_job,
     :workflow_run,
-    :payment_order
+    :payment_order,
+    # 规13 的操作人（actor）实体
+    :user
   ]
 
   attributes do

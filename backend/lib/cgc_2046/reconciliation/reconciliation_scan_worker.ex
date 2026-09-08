@@ -2,10 +2,10 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   @moduledoc """
   对账扫描 worker（E-10 #125）。
 
-  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十二条规则 →
+  Oban cron 每 10 分钟一拍（config.exs crontab 第 5 项），扫十三条规则 →
   落 `reconciliation_findings`（`Cgc2046.Reconciliation.Finding`）。
 
-  ## 规则（枚举见 Finding moduledoc；1-7 = E-10，8-11 = ADR-0009 U7 名额账本，12 = Fable 5 HIGH-1 缓存漂移）
+  ## 规则（枚举见 Finding moduledoc；1-7 = E-10，8-11 = ADR-0009 U7 名额账本，12 = Fable 5 HIGH-1 缓存漂移，13 = R3 资金写频次告警）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot->>'enrollment_id'` join
@@ -40,6 +40,10 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   12. `:ledger_cache_drift` — 账本三列缓存漂移于 offering 真值
      （status / capacity / registration_deadline 异步覆盖写的丢投窗口看护；
      无宽限——缓存≠真值即报,在途瞬时命中下一拍自消;规12 锚点缝隙修复,见 scan_rule12 注释）
+  13. `:fund_action_burst` — 资金写动作频次告警（R3）：窗口内同一 actor 同类
+      资金写治理动作（:order_refund / :order_refund_retry / :waive_payment）
+      超阈值 → 按 actor 一行 Finding；纯查询 admin_action_logs 不动资金链路，
+      首次发现补 Logger.warning（ops 告警通道），频率回落下一拍自消
 
   ## 刷新语义（D2）
 
@@ -133,7 +137,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       {:ledger_occupancy_mismatch, fn -> scan_rule9() end},
       {:capacity_projection_drift, fn -> scan_rule10() end},
       {:occupancy_exceeds_capacity, fn -> scan_rule11() end},
-      {:ledger_cache_drift, fn -> scan_rule12() end}
+      {:ledger_cache_drift, fn -> scan_rule12() end},
+      {:fund_action_burst, fn -> scan_rule13() end}
     ]
   end
 
@@ -147,16 +152,19 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   defp upsert_finding(rule, candidate) do
     case existing_finding(rule, candidate.entity_type, candidate.entity_id) do
       nil ->
-        Finding
-        |> Ash.Changeset.for_create(:create, %{
-          rule: rule,
-          entity_type: candidate.entity_type,
-          entity_id: candidate.entity_id,
-          workspace_id: candidate.workspace_id,
-          detail: candidate.detail
-        })
-        |> Ash.create(authorize?: false)
-        |> handle_write(rule, candidate.entity_type, candidate.entity_id)
+        result =
+          Finding
+          |> Ash.Changeset.for_create(:create, %{
+            rule: rule,
+            entity_type: candidate.entity_type,
+            entity_id: candidate.entity_id,
+            workspace_id: candidate.workspace_id,
+            detail: candidate.detail
+          })
+          |> Ash.create(authorize?: false)
+
+        maybe_warn_new(rule, candidate, result)
+        handle_write(result, rule, candidate.entity_type, candidate.entity_id)
 
       finding ->
         finding
@@ -738,4 +746,77 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   defp drift_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp drift_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp drift_value(value), do: value
+
+  # ── 规13：资金写动作频次告警（R3；:fund_action_burst）-----------------------
+  #
+  # 近 window 秒内同一 actor 的同类资金写治理动作超 threshold 笔 → 按 actor
+  # 一行 Finding（detail 带 per-action 计数与最近发生时间）。**纯查询**
+  # admin_action_logs，不触碰资金链路任何写路径；Repo 直查与规8-12 同口径。
+  # actor_id IS NULL 的系统动作（event/course_cancel_batch_refund 批量退款）
+  # 显式排除——批量是系统驱动非人为滥用面，且本就不在监控枚举内。
+  #
+  # 窗口/阈值 app env 可调（config :cgc_2046, __MODULE__,
+  # fund_action_burst_window_seconds: / fund_action_burst_threshold:），
+  # 默认 3600 秒 / 5 笔（严格大于才命中）。Finding 刷新语义天然适配告警
+  # 生命周期：爆发后频率回落 → 下一拍未命中删除（告警自消）；首次发现经
+  # maybe_warn_new 补一条 Logger.warning（ops 日志告警通道），finding 存续
+  # 期间 refresh 不重复刷——天然节流。
+  @fund_burst_actions [:order_refund, :order_refund_retry, :waive_payment]
+  @fund_burst_default_window_seconds 3600
+  @fund_burst_default_threshold 5
+
+  defp scan_rule13 do
+    {window, threshold} = fund_burst_config()
+
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT actor_id, action, COUNT(*)::int AS n, MAX(inserted_at)::text AS latest_at
+        FROM admin_action_logs
+        WHERE action = ANY($1)
+          AND actor_id IS NOT NULL
+          AND inserted_at > NOW() - ($2 || ' seconds')::interval
+        GROUP BY actor_id, action
+        HAVING COUNT(*) > $3
+        ORDER BY actor_id
+        """,
+        [Enum.map(@fund_burst_actions, &Atom.to_string/1), Integer.to_string(window), threshold]
+      )
+
+    rows
+    |> Enum.group_by(fn [actor_id, _action, _n, _latest_at] -> actor_id end)
+    |> Enum.map(fn {actor_id, action_rows} ->
+      %{
+        entity_type: :user,
+        entity_id: Ecto.UUID.load!(actor_id),
+        workspace_id: nil,
+        detail: %{
+          "actions" =>
+            Enum.map(action_rows, fn [_actor_id, action, n, latest_at] ->
+              %{"action" => action, "count" => n, "latest_at" => latest_at}
+            end),
+          "window_seconds" => window,
+          "threshold" => threshold
+        }
+      }
+    end)
+  end
+
+  defp fund_burst_config do
+    conf = Application.get_env(:cgc_2046, __MODULE__, [])
+
+    {Keyword.get(conf, :fund_action_burst_window_seconds, @fund_burst_default_window_seconds),
+     Keyword.get(conf, :fund_action_burst_threshold, @fund_burst_default_threshold)}
+  end
+
+  # 规13 首次发现补 ops 告警日志（Finding 面之外的「通知」通道）；其余规则
+  # 与其余结果（refresh / 写失败交 handle_write 记录）不重复刷。
+  defp maybe_warn_new(:fund_action_burst, candidate, {:ok, _}) do
+    Logger.warning(
+      "reconciliation: fund action burst — actor #{candidate.entity_id} " <>
+        "exceeded threshold: #{inspect(candidate.detail["actions"])}"
+    )
+  end
+
+  defp maybe_warn_new(_rule, _candidate, _result), do: :ok
 end
