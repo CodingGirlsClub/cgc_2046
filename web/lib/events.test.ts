@@ -5,15 +5,20 @@ vi.mock("./apollo-client", () => ({
 }));
 
 import { client } from "./apollo-client";
-import { createOffering, formatDeadline, updateOffering } from "./events";
+import { createOffering, fetchWorkspaceOfferings, formatDeadline, updateOffering } from "./events";
 import {
 	CREATE_COURSE,
 	CREATE_EVENT,
+	LIST_COURSES,
+	LIST_EVENTS,
+	type OfferingItem,
 	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
 
 const mutateMock = vi.mocked(client.mutate);
+const queryMock = vi.mocked(client.query);
+
 
 function ok(field: string) {
 	return { data: { [field]: { result: { id: "off-1" }, errors: [] } } } as never;
@@ -21,6 +26,7 @@ function ok(field: string) {
 
 beforeEach(() => {
 	mutateMock.mockReset();
+	queryMock.mockReset();
 });
 
 describe("createOffering input 组装（U5/R14：时间落键 + venue 组 JsonString map，KTD5）", () => {
@@ -252,5 +258,57 @@ describe("formatDeadline locale（F7：/en 页面日期随 locale 派生）", ()
 	it("null/非法值 → undecidedLabel（与 locale 无关）", () => {
 		expect(formatDeadline(null, "未定", "en")).toBe("未定");
 		expect(formatDeadline("not-a-date", "未定", "en")).toBe("未定");
+	});
+});
+
+describe("fetchWorkspaceOfferings 列表读取（对齐公开面 F4：network-only）", () => {
+	const offering: OfferingItem = {
+		id: "off-1",
+		workspaceId: "ws-1",
+		title: "线下工作坊",
+		slug: "workshop",
+		status: "open",
+		visibility: "public",
+		enrollmentPolicy: "open",
+		capacity: 20,
+		confirmedCount: 3,
+		registrationDeadline: "2026-09-01T04:00:00.000Z",
+		pricingEnabled: false,
+		priceTiers: null,
+	};
+
+	it("event：返回 listEvents.results 原样映射", async () => {
+		queryMock.mockResolvedValue({
+			data: { listEvents: { results: [offering] } },
+		} as never);
+
+		const rows = await fetchWorkspaceOfferings("ws-1", "event");
+
+		expect(rows).toEqual([offering]);
+	});
+
+	it("回归锚：client.query 声明 fetchPolicy network-only（防创建后回列表吃缓存旧数据）", async () => {
+		queryMock.mockResolvedValue({
+			data: { listEvents: { results: [] } },
+		} as never);
+
+		await fetchWorkspaceOfferings("ws-1", "event");
+
+		expect(queryMock.mock.calls[0][0]).toEqual({
+			query: LIST_EVENTS,
+			variables: { workspaceId: "ws-1" },
+			fetchPolicy: "network-only",
+		});
+	});
+
+	it("course：用 LIST_COURSES 且结果取自 listCourses.results", async () => {
+		queryMock.mockResolvedValue({
+			data: { listCourses: { results: [offering] } },
+		} as never);
+
+		const rows = await fetchWorkspaceOfferings("ws-1", "course");
+
+		expect(queryMock.mock.calls[0][0]).toMatchObject({ query: LIST_COURSES });
+		expect(rows).toEqual([offering]);
 	});
 });
