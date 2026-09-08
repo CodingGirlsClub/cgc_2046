@@ -3,8 +3,9 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
   web GraphQL 注册/登录入口编排层（ADR-0010 批次 3：自 Cgc2046Web.GraphqlSchema 抽离）。
 
   收容 signUpWithPhone / updateMyPhone / wechatLoginStart / requestPasswordReset /
-  resetPassword 等 web resolver 的领域编排：固定窗口 ETS 限流族、注册建号 + 默认
-  工作台入座、换绑、微信扫码发起、密码重置错误分类与 telemetry。
+  resetPassword / requestPhoneCode（候选③收编：发码编排 + 登录限流 key 归一化）等
+  web resolver 的领域编排：固定窗口 ETS 限流族、注册建号 + 默认工作台入座、换绑、
+  微信扫码发起、密码重置错误分类与 telemetry、短信发码 issue → deliver 编排。
 
   与 Cgc2046.Accounts.SignInFlow 的分工：SignInFlow 是跨端共享的登录原子步骤
   （find-or-create / token 签发 / 吊销 / 入座），被 web 与小程序等多入口复用；
@@ -362,6 +363,95 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
 
       {:error, error} ->
         {:error, to_ash_graphql_errors(error, context, action)}
+    end
+  end
+
+  # ── 手机验证码发码编排（2026-09-08 架构评审候选③自 GraphqlSchema 抽离）─────
+
+  @doc """
+  请求发送手机验证码（plan 002 U3；限流在 resolver 层
+  `check_phone_code_request_limits/2` 先行，本函数只做 issue → deliver 编排）。
+
+  发码统一响应：SendCloud 失败外的所有分支 `sent: true`（防枚举）；
+  deliver 失败冒泡为 `sent: false` + retryAfterSeconds（plan U3.4——M4 修复：
+  此前结果被丢弃恒 `sent: true`，用户看到已发送但短信不存在）。
+  """
+  @spec request_phone_code(String.t(), atom() | String.t()) ::
+          {:ok, %{sent: boolean(), retry_after_seconds: integer()}} | {:error, keyword()}
+  def request_phone_code(phone, purpose) do
+    purpose_atom = phone_code_purpose_atom(purpose)
+
+    case Cgc2046.Accounts.PhoneVerificationCode.issue(phone, purpose_atom) do
+      {:ok, code, send_request_id} ->
+        case deliver_phone_code(phone, code, send_request_id) do
+          :ok ->
+            {:ok, %{sent: true, retry_after_seconds: 60}}
+
+          {:error, reason} ->
+            Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
+            {:ok, %{sent: false, retry_after_seconds: 60}}
+        end
+
+      {:error, reason} ->
+        Logger.warning("[request_phone_code] issue failed: #{inspect(reason)}")
+        {:error, message: "Failed to send verification code", code: "sms_send_failed"}
+    end
+  end
+
+  @doc """
+  signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email/1 同）；
+  手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
+  非法输入原样保留（保持与认证失败路径一致的计数语义）。
+  """
+  @spec normalize_login(term()) :: String.t()
+  def normalize_login(login) do
+    login = to_string(login)
+
+    if String.contains?(login, "@") do
+      String.downcase(String.trim(login))
+    else
+      case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+        {:ok, phone} -> phone
+        {:error, :invalid} -> login
+      end
+    end
+  end
+
+  @doc "email 归一化：trim + downcase（登录/注册输入统一口径）。"
+  @spec normalize_email(term()) :: String.t()
+  def normalize_email(email) do
+    email
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  # Absinthe enum 内部值（"login"/"wechat_bind"/"register"/"change_phone"）→ 资源原子
+  defp phone_code_purpose_atom(:login), do: :login
+  defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
+  defp phone_code_purpose_atom(:register), do: :register
+  defp phone_code_purpose_atom(:change_phone), do: :change_phone
+  defp phone_code_purpose_atom("login"), do: :login
+  defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
+  defp phone_code_purpose_atom("register"), do: :register
+  defp phone_code_purpose_atom("change_phone"), do: :change_phone
+
+  defp deliver_phone_code(phone, code, send_request_id) do
+    sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
+
+    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
+      template_id = Keyword.fetch!(sms, :template_id)
+
+      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
+        phone,
+        template_id,
+        %{"code" => code},
+        send_request_id
+      )
+    else
+      # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
+      Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
+      :ok
     end
   end
 end
