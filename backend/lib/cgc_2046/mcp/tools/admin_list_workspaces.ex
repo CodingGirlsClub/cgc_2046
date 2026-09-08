@@ -15,11 +15,8 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaces do
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.Workspace
+  alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
-
-  require Ash.Query
-
-  @limit 50
 
   schema do
     field(:search, :string, description: "按工作台名称 / slug 模糊过滤（可选）")
@@ -33,10 +30,9 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaces do
 
         Workspace
         |> Ash.Query.for_read(:read)
-        |> maybe_search(search)
+        |> AdminList.maybe_workspace_search(search)
         |> Ash.Query.load(:member_count)
-        |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-        |> Ash.Query.limit(@limit)
+        |> AdminList.recent()
         |> Ash.read(actor: actor)
         |> case do
           {:ok, workspaces} ->
@@ -51,14 +47,6 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaces do
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
-  end
-
-  # 与 GraphQL maybe_workspace_search 同形：name / slug contains OR
-  defp maybe_search(query, nil), do: query
-  defp maybe_search(query, ""), do: query
-
-  defp maybe_search(query, search) do
-    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
   end
 
   defp to_row(workspace) do
