@@ -297,7 +297,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "provisional_title"
       assert payload["content"] =~ "管理模式不创作课程内容"
 
-      assert payload["version"] == "2026-09-05.1"
+      assert payload["version"] == "2026-09-08.1"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do

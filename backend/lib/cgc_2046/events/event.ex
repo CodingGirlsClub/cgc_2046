@@ -27,6 +27,13 @@ defmodule Cgc2046.Events.Event do
   alias Cgc2046.StatusTransition
 
   @status_values [:draft, :open, :closed, :cancelled]
+
+  # 合法状态枚举的对外读面（list_workspace_events 过滤校验消费；
+  # @doc false public 先例同 Course.status_values）
+  @doc false
+  @spec status_values() :: [atom()]
+  def status_values, do: @status_values
+
   @enrollment_policy_values [:open, :request, :invite_only]
   @visibility_values [:public, :workspace]
 

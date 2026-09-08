@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(59,role-agent-journeys-v2 S8 学习 v2 后):
+  工具集(68,role-agent-journeys-v2 S3 event 管理面后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -19,11 +19,15 @@ defmodule Cgc2046.Mcp.Server do
     admin_demote_user(委托 accounts 域既有 action + LogAdminAction 留痕)
   - 工作台管理面(S3,R17-R19 + R21 前半;member-only 门 + 工具层
     Role.manage_role?/1 判定,Owner/Admin 专属;写走确认流两段式快速失败):
-    Course 生命周期 create_course(唯一直接写——零输入草稿可逆低风险,title 缺省
+    Course 生命周期 create_course(直接写——零输入草稿可逆低风险,title 缺省
     生成「未命名课程 <hex8>」+ provisional_title 标记,launch 命名门拦截) /
     update_course(pricing_enabled true→false 摘要含批量免缴影响) / launch_course /
-    close_course / cancel_course(终态不可逆提示);报名管理 list_course_enrollments
-    (读,报名人摘要投影) / confirm_enrollment / reject_enrollment / waive_payment
+    close_course / cancel_course(终态不可逆提示);Event 生命周期 create_event
+    (直接写,title 必填,venue/sponsorship 为活动独有概念) / update_event /
+    launch_event / close_event / cancel_event + member-only 发现面
+    list_workspace_courses / list_workspace_events(含报名状态徽章);
+    报名管理 list_enrollments(读,kind 必填 event|course 分派,报名人摘要投影) /
+    confirm_enrollment / reject_enrollment / waive_payment
     (委托 Admission 既有 action,免缴同事务作废 pending 单 + 补发 completed);
     订单 list_workspace_orders(读) / refund_order / retry_refund(委托 Payments
     既有 CAS action);加入策略 update_join_policy
@@ -110,16 +114,23 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminPromoteUser)
   component(Cgc2046.Mcp.Tools.AdminDemoteUser)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
-  # 工具面 30 → 43（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
-  # 两段式快速失败，create_course 为唯一直接写——零输入草稿可逆低风险；
-  # list_workspace_courses 为 member-only 课程发现面，#366）
+  # 工具面 30 → 49（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
+  # 两段式快速失败，create_course / create_event 为直接写——草稿可逆低风险；
+  # list_workspace_courses / list_workspace_events 为 member-only 发现面，#366；
+  # event 六件镜像 course 生命周期 + 列表，venue/sponsorship 为活动独有概念）
   component(Cgc2046.Mcp.Tools.CreateCourse)
   component(Cgc2046.Mcp.Tools.ListWorkspaceCourses)
   component(Cgc2046.Mcp.Tools.UpdateCourse)
   component(Cgc2046.Mcp.Tools.LaunchCourse)
   component(Cgc2046.Mcp.Tools.CloseCourse)
   component(Cgc2046.Mcp.Tools.CancelCourse)
-  component(Cgc2046.Mcp.Tools.ListCourseEnrollments)
+  component(Cgc2046.Mcp.Tools.CreateEvent)
+  component(Cgc2046.Mcp.Tools.ListWorkspaceEvents)
+  component(Cgc2046.Mcp.Tools.UpdateEvent)
+  component(Cgc2046.Mcp.Tools.LaunchEvent)
+  component(Cgc2046.Mcp.Tools.CloseEvent)
+  component(Cgc2046.Mcp.Tools.CancelEvent)
+  component(Cgc2046.Mcp.Tools.ListEnrollments)
   component(Cgc2046.Mcp.Tools.ConfirmEnrollment)
   component(Cgc2046.Mcp.Tools.RejectEnrollment)
   component(Cgc2046.Mcp.Tools.WaivePayment)
@@ -127,7 +138,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.RefundOrder)
   component(Cgc2046.Mcp.Tools.RetryRefund)
   component(Cgc2046.Mcp.Tools.UpdateJoinPolicy)
-  # 课程教研流程九工具（role-agent-journeys-v2 S5，R22-R28）：工具面 43 → 52
+  # 课程教研流程九工具（role-agent-journeys-v2 S5，R22-R28）：工具面 49 → 58
   # （member-only 门 + 工具层角色判定；策略调整/门禁覆盖/审核发布三件走确认流，
   # 域逻辑宿主 Curriculum.Prep）
   component(Cgc2046.Mcp.Tools.GetPrepStatus)
@@ -139,10 +150,10 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.OverridePrepGate)
   component(Cgc2046.Mcp.Tools.ApprovePrep)
   component(Cgc2046.Mcp.Tools.RequestChangesPrep)
-  # 课程版本读（role-agent-journeys-v2 S6，R29/R38）：工具面 52 → 53
+  # 课程版本读（role-agent-journeys-v2 S6，R29/R38）：工具面 58 → 59
   # （deferred 族 +1：发布即冻结的不可变内容快照，授权三分支在工具层）
   component(Cgc2046.Mcp.Tools.GetCourseRevision)
-  # 学员旅程五工具（role-agent-journeys-v2 S7，R30-R35）：工具面 53 → 58
+  # 学员旅程五工具（role-agent-journeys-v2 S7，R30-R35）：工具面 59 → 64
   # （发现/报名/支付；create_enrollment 为唯一直接写——客户端确认契约，
   # 幂等重放；订单摘要渠道凭据红线）
   component(Cgc2046.Mcp.Tools.DiscoverOfferings)
@@ -150,7 +161,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.CreateEnrollment)
   component(Cgc2046.Mcp.Tools.GetMyEnrollments)
   component(Cgc2046.Mcp.Tools.GetOrderStatus)
-  # 学习循环 v2（role-agent-journeys-v2 S8，R36-R44；ADR-0011）：工具面 58 → 59
+  # 学习循环 v2（role-agent-journeys-v2 S8，R36-R44；ADR-0011）：工具面 64 → 68
   # （-2 学习记录读写随 LearningRecord 退役，+3 学习 v2：run 幂等启动/
   # 不可变评价提交/状态投影——掌握由账本纯投影，agent 永不直写）
   component(Cgc2046.Mcp.Tools.StartLearningRun)
