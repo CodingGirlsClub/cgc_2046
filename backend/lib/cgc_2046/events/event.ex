@@ -421,6 +421,22 @@ defmodule Cgc2046.Events.Event do
         end
       end)
 
+      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
+      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
+      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      change(fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :slug) and
+             Ash.Changeset.get_data(changeset, :status) != :draft do
+          Ash.Changeset.add_error(
+            changeset,
+            field: :slug,
+            message: "slug is locked once the offering is published (editable in draft only)"
+          )
+        else
+          changeset
+        end
+      end)
+
       # R9 关闭收费批量免费确认（organizer-payment U3，KTD4）：true→false 时
       # 同事务对 payment_pending 报名逐条复用免缴三元组。
       change({Cgc2046.Admission.Changes.WaivePendingOnPricingDisable, kind: :event})
@@ -581,6 +597,15 @@ defmodule Cgc2046.Events.Event do
     read :get_by_slug do
       get_by([:slug])
     end
+
+    # list_events 专用（#411/enrollment.ex:177-181 同款）：keyset 分页要求稳定
+    # 唯一序，UUID v4 主键时间无序——无显式 sort 时列表顺序契约上无保证。
+    # inserted_at desc + id 兜底（同秒平票 tiebreaker 保 keyset 序唯一）。
+    read :list_events do
+      description("活动列表（graphql list_events；按插入时间倒序）")
+      prepare(build(sort: [inserted_at: :desc, id: :asc]))
+      pagination(keyset?: true, default_limit: 250)
+    end
   end
 
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
@@ -615,6 +640,14 @@ defmodule Cgc2046.Events.Event do
   # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
+
+  identities do
+    # all_tenants?：slug 全局唯一（公开路由段无 workspace 前缀）；否则 :attribute
+    # 多租户会把 workspace_id 并入冲突目标，与 events_slug_index 全局索引不匹配
+    # （42P10；Curriculum.CourseRevision.unique_course_number 同款判据）。
+    # 名 :slug ↔ 既有索引 events_slug_index，保 generate_migrations --check 零漂移。
+    identity(:slug, [:slug], all_tenants?: true)
+  end
 
   postgres do
     table("events")
@@ -662,7 +695,7 @@ defmodule Cgc2046.Events.Event do
     type(:event)
 
     queries do
-      list(:list_events, :read, description: "工作台的活动列表（#40 展示页）")
+      list(:list_events, :list_events, description: "工作台的活动列表（#40 展示页）")
       read_one(:get_event, :get_by_id, description: "按 id 获取活动（#40）")
       read_one(:get_event_by_slug, :get_by_slug, description: "按 slug 获取（E-5 公开宿主页）")
     end

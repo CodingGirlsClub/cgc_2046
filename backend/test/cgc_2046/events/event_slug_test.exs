@@ -90,4 +90,152 @@ defmodule Cgc2046.Events.EventSlugTest do
              )
              |> Ash.create(tenant: workspace.id, actor: admin)
   end
+
+  test "create 撞 slug（同 workspace）拒绝并给字段级错误" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    assert {:ok, _event} = create_event(workspace, admin, %{slug: "taken-same-ws"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             create_event(workspace, admin, %{slug: "taken-same-ws"})
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "create 撞 slug（跨 workspace）拒绝：slug 全局唯一而非 per-workspace 唯一" do
+    admin = Fixtures.platform_admin()
+    workspace_a = Fixtures.create_workspace(admin)
+    workspace_b = Fixtures.create_workspace(admin)
+
+    assert {:ok, _event} = create_event(workspace_a, admin, %{slug: "taken-across-ws"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             create_event(workspace_b, admin, %{slug: "taken-across-ws"})
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "update 撞 slug 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, _a} = create_event(workspace, admin, %{slug: "taken-update-a"})
+    {:ok, b} = create_event(workspace, admin, %{slug: "taken-update-b"})
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             b
+             |> Ash.Changeset.for_update(:update, %{slug: "taken-update-a"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "Course create 撞 slug 拒绝并给字段级错误" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    create_course = fn ->
+      Course
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Slug Course", enrollment_policy: :open, slug: "taken-course-slug"},
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, actor: admin)
+    end
+
+    assert {:ok, _course} = create_course.()
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} = create_course.()
+
+    assert Enum.any?(errors, &(Exception.message(&1) =~ "already been taken"))
+  end
+
+  test "open 后改 slug 拒绝（Event）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, event} = create_event(workspace, admin, %{slug: "lock-open-event"})
+    {:ok, launched} = launch(event, workspace, admin)
+    assert launched.status == :open
+
+    assert {:error, error} =
+             launched
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Event, event.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-open-event"
+  end
+
+  test "closed 后改 slug 仍拒绝（Event）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    {:ok, event} = create_event(workspace, admin, %{slug: "lock-closed-event"})
+    {:ok, launched} = launch(event, workspace, admin)
+    {:ok, closed} = close(launched, workspace, admin)
+    assert closed.status == :closed
+
+    assert {:error, error} =
+             closed
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Event, event.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-closed-event"
+  end
+
+  test "Course 同构：open 后改 slug 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+
+    {:ok, course} =
+      Course
+      |> Ash.Changeset.for_create(
+        :create,
+        %{title: "Slug Course", enrollment_policy: :open, slug: "lock-open-course"},
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, actor: admin)
+
+    {:ok, launched} = launch(course, workspace, admin)
+    assert launched.status == :open
+
+    assert {:error, error} =
+             launched
+             |> Ash.Changeset.for_update(:update, %{slug: "new-slug"},
+               tenant: workspace.id,
+               actor: admin
+             )
+             |> Ash.update(tenant: workspace.id, actor: admin)
+
+    assert Exception.message(error) =~ "slug is locked"
+
+    assert Ash.get!(Course, course.id, tenant: workspace.id, authorize?: false).slug ==
+             "lock-open-course"
+  end
+
+  defp launch(entity, workspace, actor) do
+    entity
+    |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update(tenant: workspace.id, actor: actor)
+  end
+
+  defp close(entity, workspace, actor) do
+    entity
+    |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: actor)
+    |> Ash.update(tenant: workspace.id, actor: actor)
+  end
 end

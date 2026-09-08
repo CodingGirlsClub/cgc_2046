@@ -8,7 +8,7 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
 
   数据面同 web 管理页（`Admission.Enrollment` read policy：Owner/Admin 见本租户
   全部）。授权锚 = workspace：默认 fail-closed member 门之外，本工具层再做
-  Owner/Admin 判定（`Role.manage_role?/1`），非管理角色成员快速拒绝并落
+  Owner/Admin 判定（`Rbac.manage?/2` 单源），非管理角色成员快速拒绝并落
   ToolCallLog 审计。
 
   返回紧凑行：enrollment_id / 报名人摘要（id/email/display_name）/ 状态 /
@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role, User}
+  alias Cgc2046.Accounts.{Rbac, User}
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
@@ -48,11 +48,11 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_enrollments", fn actor, workspace_id, params ->
-        offering_id = params["offering_id"] || params[:offering_id]
-        status = params["status"] || params[:status]
+        offering_id = params["offering_id"]
+        status = params["status"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"] || params[:kind]),
+             {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]),
              {:ok, offering} <- fetch_offering(actor, workspace_id, kind, offering_id),
              {:ok, status} <- parse_status(status) do
           # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计
@@ -91,7 +91,7 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to list enrollments"}

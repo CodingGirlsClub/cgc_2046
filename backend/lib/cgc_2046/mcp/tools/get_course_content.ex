@@ -6,7 +6,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   course 无教研产出的明确错误(agent 侧可提示等待教研)。
 
   授权(KTD2/M4):仅课程所在 workspace 的教研工作面——tutor ∪ owner/admin
-  (与 save_course_content 同一谓词 `LearnerAuthorization.staff?/2`)。学员与
+  (与 save_course_content 同一谓词 `Authorization.staff?/2`)。学员与
   run 持有者的内容读面是 `get_course_revision`(仅最新 published 快照)——
   草稿不成为意外的学员 API。
 
@@ -18,7 +18,8 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
-  alias Cgc2046.Mcp.Tools.LearnerAuthorization
+  alias Cgc2046.Courses.Course
+  alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
 
   schema do
@@ -30,10 +31,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_course_content", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize_staff(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, output} <- fetch_content(workspace_id, course_id) do
           content = output.data || %{}
 
@@ -64,24 +65,12 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   end
 
   # M4:tutor ∪ owner/admin(save_course_content 同款判定,同一谓词模块
-  # LearnerAuthorization.staff?/2);learner/volunteer/无差异标签成员/学员/持有者拒。
+  # Authorization.staff?/2);learner/volunteer/无差异标签成员/学员/持有者拒。
   defp authorize_staff(actor, workspace_id) do
-    if LearnerAuthorization.staff?(actor, workspace_id) do
+    if Authorization.staff?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: tutor, owner or admin required"}
-    end
-  end
-
-  # 课程元数据(title/slug,key 派生原料);授权已在工具层发生,
-  # authorize?: false 直读(save_learning_records fetch_course 同款纪律)
-  defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
+import Taro, { useDidShow, useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
@@ -34,7 +34,9 @@ export default function EventDetailPage() {
     }
   }, [id, kind])
 
-  useEffect(() => { void load() }, [load])
+  // 报名/登录后 navigateBack 回本页不 remount：useDidShow 重载详情
+  //（my-enrollments/discover/workspace/profile 同款）
+  useDidShow(() => { void load() })
 
   const register = async () => {
     if (!item) return

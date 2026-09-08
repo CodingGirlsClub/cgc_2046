@@ -41,10 +41,10 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "save_step_output", fn actor, workspace_id, params ->
-        run_id = params["run_id"] || params[:run_id]
-        step_key = params["step_key"] || params[:step_key]
-        output = params["output"] || params[:output] || %{}
-        reason = params["reason"] || params[:reason]
+        run_id = params["run_id"]
+        step_key = params["step_key"]
+        output = params["output"] || %{}
+        reason = params["reason"]
 
         with {:ok, run} <- fetch_run(workspace_id, run_id),
              :ok <- authorize(actor, workspace_id, run, step_key),

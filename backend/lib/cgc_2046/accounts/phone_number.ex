@@ -38,4 +38,20 @@ defmodule Cgc2046.Accounts.PhoneNumber do
       true -> {:ok, "+" <> cc <> digits}
     end
   end
+
+  @doc """
+  显示掩码（2026-09-08 架构评审候选③自 GraphqlSchema 抽离）：前 6 字符 +
+  `****` + 后 4（`+8615578793094` → `+86155****3094`）；异常短号
+  （normalize 已保证 +区号号码，理论不可达）全掩码防泄露。
+  """
+  @spec mask(String.t() | nil) :: String.t() | nil
+  def mask(nil), do: nil
+
+  def mask(phone) when is_binary(phone) do
+    if String.length(phone) > 10 do
+      String.slice(phone, 0, 6) <> "****" <> String.slice(phone, -4, 4)
+    else
+      String.duplicate("*", String.length(phone))
+    end
+  end
 end

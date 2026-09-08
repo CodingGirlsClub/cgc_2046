@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.Wrapper
 
@@ -94,7 +94,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to create events"}
@@ -112,9 +112,5 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
     |> Map.new(fn field -> {String.to_existing_atom(field), take_value(params, field)} end)
   end
 
-  defp take_value(params, field) do
-    if Map.has_key?(params, field),
-      do: params[field],
-      else: Map.get(params, String.to_existing_atom(field))
-  end
+  defp take_value(params, field), do: Map.get(params, field)
 end

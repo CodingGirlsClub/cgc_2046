@@ -69,8 +69,8 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "submit_learning_attempt", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        objective_id = params["objective_id"] || params[:objective_id]
+        course_id = params["course_id"]
+        objective_id = params["objective_id"]
 
         with :ok <- ensure_enrolled(actor, workspace_id, course_id),
              {:ok, run} <- active_run(actor, workspace_id, course_id),
@@ -95,10 +95,10 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
               objective_id: objective_id,
               evidence: evidence,
               rubric_results: rubric_results,
-              passed: params["passed"] == true || params[:passed] == true,
+              passed: params["passed"] == true,
               rationale: rationale,
               confidence: confidence,
-              agent_meta: params["agent_meta"] || params[:agent_meta] || %{}
+              agent_meta: params["agent_meta"] || %{}
             }
           )
         end
@@ -155,7 +155,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
   # rubric_results 规整为 string 键 map(MCP 入参经 Jason 解码已是 string 键,
   # 直调/测试路径可能给 atom 键)+ 精确覆盖校验(判据单源 Mastery.rubric_exact?/2)
   defp validate_rubric(params, objective) do
-    case params["rubric_results"] || params[:rubric_results] do
+    case params["rubric_results"] do
       results when is_list(results) ->
         normalized = Enum.map(results, &normalize_result/1)
 
@@ -189,7 +189,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
   end
 
   defp validate_confidence(params) do
-    case params["confidence"] || params[:confidence] do
+    case params["confidence"] do
       value when is_float(value) and value >= 0.0 and value <= 1.0 ->
         {:ok, value}
 
@@ -202,7 +202,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
   end
 
   defp non_empty(params, key) do
-    case params[key] || params[String.to_atom(key)] do
+    case params[key] do
       value when is_binary(value) ->
         if String.trim(value) == "", do: {:error, "#{key} must be non-empty"}, else: {:ok, value}
 

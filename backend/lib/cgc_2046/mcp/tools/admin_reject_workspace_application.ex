@@ -33,8 +33,8 @@ defmodule Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication do
       Wrapper.run(frame, params, "admin_reject_workspace_application", fn actor,
                                                                           _workspace_id,
                                                                           params ->
-        application_id = params["application_id"] || params[:application_id]
-        reason = params["rejection_reason"] || params[:rejection_reason]
+        application_id = params["application_id"]
+        reason = params["rejection_reason"]
 
         with {:ok, application} <- fetch_application(actor, application_id) do
           # 非终态快速失败（与 admin_approve_workspace_application 同款纪律）

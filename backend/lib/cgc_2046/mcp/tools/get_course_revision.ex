@@ -22,7 +22,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum
-  alias Cgc2046.Mcp.Tools.LearnerAuthorization
+  alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
 
   schema do
@@ -36,10 +36,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_course_revision", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        revision_number = params["revision_number"] || params[:revision_number]
+        course_id = params["course_id"]
+        revision_number = params["revision_number"]
 
-        with {:ok, course} <- fetch_course(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, latest} <- fetch_latest_revision(workspace_id, course.id),
              :ok <- authorize(actor, workspace_id, course.id, latest, revision_number),
              {:ok, revision} <-
@@ -61,18 +61,6 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
 
-  # 课程存在性（租户收紧）；授权在工具层发生，authorize?: false 直读
-  # （get_course_content fetch_course 同款纪律）。
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
-    end
-  end
-
   # 授权三段：成员任意版本；confirmed 学员仅最新（缺省或显式等于最新号）；
   # 其余拒绝。latest 为 nil（从未发布）时学员只放行缺省读（随后报无版本）。
   defp authorize(actor, workspace_id, course_id, latest, revision_number) do
@@ -80,7 +68,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
       member?(actor, workspace_id) ->
         :ok
 
-      LearnerAuthorization.confirmed_enrollment?(actor, workspace_id, course_id) ->
+      Authorization.confirmed_enrollment?(actor, workspace_id, course_id) ->
         if revision_number == nil || (latest != nil && revision_number == latest.number) do
           :ok
         else
