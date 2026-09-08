@@ -14,7 +14,7 @@
 import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   allowedTransitions,
   canManageEvents,
@@ -232,6 +232,7 @@ function OfferingRow({
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
+  const locale = useLocale();
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
   return (
     <Link
@@ -255,6 +256,7 @@ function OfferingRow({
               deadline: formatDeadline(
                 offering.registrationDeadline,
                 tCommon("noDeadline"),
+                locale,
               ),
             })}
           </span>
@@ -431,6 +433,7 @@ export function OfferingDetailPage({
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
+  const locale = useLocale();
   const {
     ws,
     readOnlyVisitor,
@@ -1004,6 +1007,7 @@ export function OfferingDetailPage({
                     {formatDeadline(
                       offering.registrationDeadline,
                       tCommon("noDeadline"),
+                      locale,
                     )}
                   </Field>
                   <Field label={t("fieldCapacity")}>
