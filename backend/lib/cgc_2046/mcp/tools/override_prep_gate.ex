@@ -30,7 +30,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
         reason = params["reason"] || params[:reason]
 
         with {:ok, reason} <- require_reason(reason),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              :ok <- authorize(actor, workspace_id, run),
              :ok <- require_overridable(run) do
@@ -63,7 +63,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
     course_id = params["course_id"]
 
     with {:ok, reason} <- require_reason(params["reason"]),
-         {:ok, course} <- fetch_course(workspace_id, course_id),
+         {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
          :ok <- authorize(actor, workspace_id, run),
          {:ok, updated, outcome} <- Prep.override_gate(run, actor, reason) do
@@ -107,16 +107,6 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   end
 
   defp require_reason(_reason), do: {:error, "reason is required (override is audited)"}
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
-    end
-  end
 
   defp fetch_run(course) do
     case Prep.fetch_run(course.id, course.workspace_id) do
