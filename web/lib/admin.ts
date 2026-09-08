@@ -154,7 +154,7 @@ export async function createApplication(
   return (
     data?.createWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "errors.submitApplicationFailed", code: "no_data" }],
+      errors: [],
     }
   );
 }
@@ -283,7 +283,7 @@ export async function approveApplication(
   return (
     data?.approveWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "errors.approveRequestFailed", code: "no_data" }],
+      errors: [],
     }
   );
 }
@@ -301,7 +301,7 @@ export async function rejectApplication(
   return (
     data?.rejectWorkspaceApplication ?? {
       result: null,
-      errors: [{ message: "errors.rejectRequestFailed", code: "no_data" }],
+      errors: [],
     }
   );
 }
@@ -341,7 +341,7 @@ export async function createWorkspaceWithOwner(
   return (
     data?.createWorkspace ?? {
       result: null,
-      errors: [{ message: "errors.createWorkspaceFailed", code: "no_data" }],
+      errors: [],
     }
   );
 }
@@ -366,7 +366,7 @@ export async function reassignWorkspaceOwner(
   return (
     data?.reassignWorkspaceOwner ?? {
       result: null,
-      errors: [{ message: "errors.reassignOwnerFailed", code: "no_data" }],
+      errors: [],
     }
   );
 }
