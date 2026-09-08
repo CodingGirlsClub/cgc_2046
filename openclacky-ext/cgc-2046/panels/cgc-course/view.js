@@ -18,7 +18,8 @@
 // (contenteditable 管道,token 不出现;objective 粒度,复习条目自动切复习口吻)。
 // 本面板不再有任何直接写学习状态的通道(学习记录写回只发生在会话工具调用)。
 //
-// 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml。
+// 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml;注入指令的
+// UGC 字段一律 Kit.oneLine/safeId 中和,末尾带 Kit.DATA_NOTE(见共享骨架注释)。
 
 (() => {
   "use strict";
@@ -276,30 +277,34 @@
     // 会话输入框,必须先切会话,否则注入落空——真机实证)
     const learning = state.learning || {};
     const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
-    const title = (state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {}).title || "本课程";
+    const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
+    const title = Kit.oneLine(course.title || "本课程");
     const review = (learning.review_queue || []).find(function (e) {
       return e && String(e.objective_id) === String(objectiveId);
     });
-    const objTitle = obj.title || objectiveId;
+    const objTitle = Kit.oneLine(obj.title || objectiveId);
+    // id 非白名单形态(空格/换行/中文/引号等)不下发该参数——防伪造指令结构
+    const objIdSafe = Kit.safeId(objectiveId);
+    const wsIdSafe = Kit.safeId(course.workspaceId || state.workspaceId);
+    const idLine = objIdSafe
+      ? "(objective_id: " + objIdSafe + (wsIdSafe ? ", workspace_id: " + wsIdSafe : "") + ")"
+      : (wsIdSafe ? "(workspace_id: " + wsIdSafe + ")" : null);
     const lines = review
       ? [
           "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
-          "(objective_id: " + objectiveId + ")",
+          idLine,
           "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
           "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
           "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
         ]
       : [
           "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
-          "(objective_id: " + objectiveId + ")",
+          idLine,
           "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
           "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
           "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
         ];
-    const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
-    const wsId = (course.workspaceId) || state.workspaceId;
-    const instruction = lines.join("\n").replace("(objective_id: " + objectiveId + ")",
-      "(objective_id: " + objectiveId + ", workspace_id: " + wsId + ")");
+    const instruction = lines.filter(Boolean).concat([Kit.DATA_NOTE]).join("\n");
 
     fetch("/api/sessions", {
       method: "POST",
@@ -333,9 +338,11 @@
     const next = (state.learning || {}).next_action || {};
     if (next.objective_id) {
       goLearnObjective(next.objective_id);
-    } else {
-      goLearnObjective((state.learning && state.learning.objectives || [])[0]);
+      return;
     }
+    // fallback 传首目标 id(原误传 objectives[0] 对象本身)
+    const first = (state.learning && state.learning.objectives || [])[0];
+    if (first && first.id != null) goLearnObjective(first.id);
   }
 
   // ---- 渲染 ----
