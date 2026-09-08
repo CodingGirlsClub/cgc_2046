@@ -44,6 +44,7 @@
     "pricing_disable_actor_required",
     "pricing_disable_batch_limit",
     "registration_failed",
+    "sms_send_failed",
     "speaker_invitation_duplicate_invitation",
     "speaker_invitation_event_not_found",
     "speaker_invitation_event_not_open",

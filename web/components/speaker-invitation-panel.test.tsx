@@ -100,7 +100,7 @@ describe("SpeakerInvitationPanel（Owner 入口：Event 详情页）", () => {
 		expect(await screen.findByRole("button", { name: "已复制" })).toBeInTheDocument();
 	});
 
-	it("创建失败展示后端错误消息（如重复邀请）", async () => {
+	it("创建撞单：不透传后端英文原文，映射为可操作指引", async () => {
 		createSpeakerInvitation.mockResolvedValue({
 			result: null,
 			plainToken: null,
@@ -117,8 +117,11 @@ describe("SpeakerInvitationPanel（Owner 入口：Event 详情页）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "创建邀请" }));
 
 		expect(
-			await screen.findByText("an active invitation for this speaker already exists"),
+			await screen.findByText("该嘉宾已有进行中的邀请，请到列表重发"),
 		).toBeInTheDocument();
+		expect(
+			screen.queryByText(/active invitation .* already exists/),
+		).not.toBeInTheDocument();
 	});
 
 	it("invited 行展示重发按钮（有邮箱=重发）；点击后持新链接，成功提示不含送达承诺", async () => {
@@ -157,7 +160,7 @@ describe("SpeakerInvitationPanel（Owner 入口：Event 详情页）", () => {
 		expect(screen.queryByRole("button", { name: "重发" })).not.toBeInTheDocument();
 	});
 
-	it("重发失败展示后端错误消息（如终态竞态）", async () => {
+	it("重发遇未知后端错误：不透传原文，兜底重发失败文案", async () => {
 		resendSpeakerInvitation.mockResolvedValue({
 			result: null,
 			plainToken: null,
@@ -173,7 +176,8 @@ describe("SpeakerInvitationPanel（Owner 入口：Event 详情页）", () => {
 		await screen.findByText("张三");
 		fireEvent.click(await screen.findByRole("button", { name: "重发" }));
 
-		expect(await screen.findByText(/no longer pending/)).toBeInTheDocument();
+		expect(await screen.findByText("重发失败")).toBeInTheDocument();
+		expect(screen.queryByText(/no longer pending/)).not.toBeInTheDocument();
 	});
 
 	it("A 行请求进行中：B 行重发按钮同步禁用（与全局 guard 一致）", async () => {
