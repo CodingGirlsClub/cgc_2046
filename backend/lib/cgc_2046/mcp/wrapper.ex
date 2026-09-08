@@ -71,8 +71,9 @@ defmodule Cgc2046.Mcp.Wrapper do
   @spec run(map(), map(), String.t(), fun()) :: result()
   def run(frame, params, tool_name, fun) do
     started = System.monotonic_time(:millisecond)
+    params = normalize_keys(params)
     actor = frame.assigns[:current_user]
-    workspace_id = params["workspace_id"] || params[:workspace_id]
+    workspace_id = params["workspace_id"]
 
     result =
       with :ok <- check_actor(actor),
@@ -92,6 +93,18 @@ defmodule Cgc2046.Mcp.Wrapper do
 
     result
   end
+
+  # 键归一（2026-09-08 架构评审候选②）：Anubis 线上路径恒为 string 键（JSON
+  # 解码），atom 键仅来自测试直调 Tool.execute。进 fun 前归一一次（仅顶层键），
+  # 工具内不再 `params["x"] || params[:x]` 双键收参。
+  defp normalize_keys(params) when is_map(params) and not is_struct(params) do
+    Map.new(params, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      kv -> kv
+    end)
+  end
+
+  defp normalize_keys(params), do: params
 
   # ---- 派生门控（架构深化 C：立场随工具走）----
 
