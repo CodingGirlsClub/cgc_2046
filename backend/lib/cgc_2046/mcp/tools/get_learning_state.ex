@@ -24,13 +24,14 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
 
   授权(`membership: :deferred`,工具层判定):workspace 成员 ∪ 本人
   confirmed enrollment ∪ 本人学习 run 持有者(「曾学过」读面,含课程
-  close/cancel 后)——`LearnerAuthorization.authorize/3`。
+  close/cancel 后)——`Authorization.authorize/3`。
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Learning.Runs
-  alias Cgc2046.Mcp.Tools.{LearnerAuthorization, Response}
+  alias Cgc2046.Learning.Authorization
+  alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
 
   schema do
@@ -44,7 +45,7 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
       Wrapper.run(frame, params, "get_learning_state", fn actor, workspace_id, params ->
         course_id = params["course_id"]
 
-        with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
+        with :ok <- Authorization.authorize(actor, workspace_id, course_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id) do
           {:ok, serialize(Runs.learning_state(actor, course))}
         end

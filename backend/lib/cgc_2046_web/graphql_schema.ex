@@ -157,7 +157,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
     field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
       resolve(fn _, _, %{context: context} ->
-        with_actor(context, &resolve_my_learning_runs/1)
+        with_actor(context, &Cgc2046.Learning.Runs.my_learning_runs/1)
       end)
     end
 
@@ -183,7 +183,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:slug, non_null(:string))
 
       resolve(fn _, args, _ ->
-        resolve_course_map(args[:slug])
+        Cgc2046.Courses.CourseProjection.map_by_slug(args[:slug])
       end)
     end
 
@@ -193,7 +193,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_learning_detail(actor, args[:course_id])
+          Cgc2046.Courses.CourseProjection.learning_detail(actor, args[:course_id])
         end)
       end)
     end
@@ -204,7 +204,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{course_id: course_id}, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_content(actor, course_id)
+          Cgc2046.Courses.CourseProjection.content(actor, course_id)
         end)
       end)
     end
@@ -215,7 +215,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{course_id: course_id}, %{context: context} ->
         with_actor(context, fn actor ->
-          resolve_course_draft(actor, course_id)
+          Cgc2046.Courses.CourseProjection.draft(actor, course_id)
         end)
       end)
     end
@@ -250,9 +250,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                |> Ash.Query.for_read(:get_by_id, %{id: course_id})
                |> Ash.read_one(authorize?: false) do
             {:ok, %{} = course} ->
-              roles = Cgc2046.Accounts.MembershipContext.role_names(actor, course.workspace_id)
-
-              if Enum.any?(roles, &Cgc2046.Accounts.Role.manage_role?/1) or :tutor in roles do
+              if Cgc2046.Accounts.Rbac.staff?(actor, course.workspace_id) do
                 {:ok, Cgc2046.Learning.Analytics.for_course(course)}
               else
                 {:ok, nil}
@@ -2373,40 +2371,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
-  # U7(#180/R10):公开课程地图。可见性硬编码 open+public(resolver 显式判定,
-  # 匿名面);成员视角走管理页/工作台课程列表,不经本查询;其余 → {:ok, nil}。
-  # goal-only 投影(object :course_map_issue 无 checklist 字段)。
-  defp resolve_course_map(slug) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_slug, %{slug: slug})
-         |> Ash.read_one(authorize?: false) do
-      {:ok, %{} = course} ->
-        if course.status == :open and course.visibility == :public do
-          {:ok, build_course_map(course)}
-        else
-          {:ok, nil}
-        end
-
-      _ ->
-        {:ok, nil}
-    end
-  end
-
-  defp build_course_map(course) do
-    # S6（R29）：内容源 = 当前 published CourseRevision（发布即冻结，草稿后续
-    # 编辑不影响公开面）；无 revision 的存量课程回退草稿读面（旧行为）。
-    # 投影形状（goal-only）不变——公开 SDL 零 diff。
-    content = Cgc2046.Courses.Course.published_content(course) || %{}
-
-    %{
-      course_id: course.id,
-      title: course.title,
-      slug: course.slug,
-      goals: content["goals"] || [],
-      issues: Cgc2046.Curriculum.issue_map_rows(course, content)
-    }
-  end
-
   # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI；metadata v1 不暴露，落 DB 备用）
   object :admin_action_log do
     field(:id, non_null(:id))
@@ -2430,125 +2394,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:last_seen_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
   end
-
-  # U7(#180/R11):学员视角课程学习详情(抽屉数据)。恒 actor——授权 = 学员侧
-  # 三层(成员 ∪ confirmed enrollment ∪ 记忆持有者,LearnerAuthorization 同源);
-  # 无他人视角可构造(查询无 user_id 参数)。无权限/无课程 → {:ok, nil}
-  # (404 语义,不泄露存在性)。
-  # S8（ADR-0011）：薄壳直调 Runs.learning_state/2（与 MCP get_learning_state
-  # 同源单源）；三层授权（成员 ∪ confirmed enrollment ∪ 学习 run 持有者）；
-  # 无权限/无课程 → {:ok, nil}（不泄存在性）。
-  defp resolve_course_learning_detail(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         :ok <-
-           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
-             actor,
-             course.workspace_id,
-             course.id
-           ) do
-      {:ok, build_course_learning_detail(actor, course)}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # Web reader content surface. The authorization decision is made before the
-  # authorize?: false domain read; anonymous callers and non-enrolled outsiders
-  # receive a non-enumerating nil result.
-  defp resolve_course_content(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         :ok <-
-           Cgc2046.Mcp.Tools.LearnerAuthorization.authorize(
-             actor,
-             course.workspace_id,
-             course.id
-           ),
-         {:ok, revision} <- Cgc2046.Curriculum.latest_revision(course.workspace_id, course.id),
-         %{} = revision <- revision do
-      {:ok,
-       %{
-         course_id: course.id,
-         title: course.title,
-         revision_number: revision.number,
-         published_at: revision.published_at,
-         content: revision.content || %{}
-       }}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # H6 课程草稿读面：课程 fetch 与角色判定同 course_learning_analytics（tutor ∪
-  # owner/admin），无权/课程不存在统一 nil（不泄露存在性）。数据源 = Curriculum
-  # Output 活文档草稿（content_output/2 单一读入口，无草稿 → version/content
-  # 为 nil）。prepState 取 Prep 现有读面 fetch_run/2 + prep_state/1——纯读零
-  # 副作用：不沿用 get_prep_status 的 ensure_active_run 懒开（GraphQL query 不
-  # 得带写效应），无活动 prep run → null。
-  defp resolve_course_draft(actor, course_id) do
-    with %{} = course <- fetch_course_for_detail(course_id),
-         true <- course_staff_actor?(actor, course.workspace_id),
-         {:ok, output} <- Cgc2046.Curriculum.content_output(course.workspace_id, course.id) do
-      prep_run = Cgc2046.Curriculum.Prep.fetch_run(course.id, course.workspace_id)
-
-      {:ok,
-       %{
-         course_id: course.id,
-         title: course.title,
-         version: output && output.version,
-         prep_state: prep_run && Cgc2046.Curriculum.Prep.prep_state(prep_run),
-         updated_at: output && output.updated_at,
-         content: output && (output.data || %{})
-       }}
-    else
-      _ -> {:ok, nil}
-    end
-  end
-
-  # tutor ∪ owner/admin 判定（course_learning_analytics resolver 同款口径）
-  defp course_staff_actor?(actor, workspace_id) do
-    actor
-    |> Cgc2046.Accounts.MembershipContext.role_names(workspace_id)
-    |> Enum.any?(&(&1 == :tutor or Cgc2046.Accounts.Role.manage_role?(&1)))
-  end
-
-  # 学习详情 = Runs.learning_state 投影组装（objective 口径；S8 全量切换——
-  # issue/checklist 学习语义随 LearningRecord 退役）
-  defp build_course_learning_detail(actor, course) do
-    state = Cgc2046.Learning.Runs.learning_state(actor, course)
-
-    %{
-      course_id: course.id,
-      title: course.title,
-      slug: course.slug,
-      run: state.run,
-      revision_number: state.revision_number,
-      stale_revision: state.stale_revision,
-      review_queue: state.review_queue,
-      objectives: state.objectives,
-      next_action: state.next_action,
-      progress: state.progress
-    }
-  end
-
-  # #217 旁路读取（D 类·显式判定前置）：Course 直读定位，门禁由调用方
-  # resolve_course_learning_detail 的 LearnerAuthorization 三层判定
-  # （成员 ∪ confirmed enrollment ∪ 记忆持有者）承担，无权限 → nil。
-  defp fetch_course_for_detail(course_id) do
-    Cgc2046.Courses.Course
-    |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %{} = course} -> course
-      _ -> nil
-    end
-  end
-
-  # #217 旁路读取（D 类·本人锚）：filter user_id == actor.id 仅读本人学习
-  # 记录，且仅在 LearnerAuthorization 判定通过后到达。
-
-  # 抽屉形状:course 元信息 + goals + issues(story 全文 + checklist 逐条与
-  # 本人记录合成:done/evidence/recorded_at)+ 汇总 progress(同 myLearningRuns
-  # 投影单源 LearningProgress)。
 
   # plan 020 U2.1：本人 MCP 工具调用活动流。
   # policy（显式判定，与 Wrapper 成员门槛同源）：workspace 成员 + 仅本人。
@@ -2586,38 +2431,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end
     else
       {:error, [message: "forbidden", code: "forbidden"]}
-    end
-  end
-
-  defp resolve_my_learning_runs(actor) do
-    case read_confirmed_enrollments(actor) do
-      {:ok, enrollments} ->
-        rows =
-          Enum.flat_map(enrollments, fn enrollment ->
-            enrollment
-            |> read_learning_runs()
-            |> Enum.map(&Cgc2046.Learning.RunProjection.project_run(&1, enrollment, actor))
-            |> Enum.reject(&is_nil/1)
-          end)
-
-        {:ok, rows}
-
-      {:error, _reason} ->
-        {:ok, []}
-    end
-  end
-
-  defp read_confirmed_enrollments(actor) do
-    Cgc2046.Admission.Enrollment
-    |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
-    |> Ash.Query.filter(status == :confirmed)
-    |> Ash.Query.load(:target_title)
-    |> Ash.Query.limit(250)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, %{results: results}} -> {:ok, results}
-      {:ok, results} when is_list(results) -> {:ok, results}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -2659,39 +2472,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       rejection_reason: enrollment.rejection_reason,
       inserted_at: enrollment.inserted_at
     }
-  end
-
-  # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
-  # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
-  # workspace_id 一致性校验，RunProjection.project_run 再校验
-  # enrollment.user_id == actor.id（双重本人锚）。
-  defp read_learning_runs(enrollment) do
-    Cgc2046.Workflows.WorkflowRun
-    |> Ash.Query.filter(subject_enrollment_id == ^enrollment.id)
-    |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
-    |> case do
-      {:ok, runs} ->
-        Enum.flat_map(runs, fn run ->
-          if run.workspace_id != enrollment.workspace_id do
-            []
-          else
-            # #217 旁路读取（D 类）：run 关系加载（definition 投影元数据），
-            # 本人锚同 read_learning_runs（enrollment.user_id == actor.id）。
-            case Ash.load(
-                   run,
-                   [definition: [:type, :node_def, steps: [:step_key, :title]]],
-                   tenant: run.workspace_id,
-                   authorize?: false
-                 ) do
-              {:ok, loaded_run} -> [loaded_run]
-              {:error, _reason} -> []
-            end
-          end
-        end)
-
-      {:error, _reason} ->
-        []
-    end
   end
 
   # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
