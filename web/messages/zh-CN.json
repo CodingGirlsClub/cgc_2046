@@ -643,6 +643,8 @@
     "decisionHint": "接受后请产出分享材料；婉拒即结束，链接一次性生效。",
     "actionFailed": "操作失败，邀请链接可能已失效",
     "actionFailedShort": "操作失败",
+    "decideForbidden": "只有被邀请的嘉宾账号才能接受此邀请",
+    "decideInviterCannotDecide": "这是你自己发出的邀请，请把链接转给嘉宾",
     "youAreInviter": "这是你发出的邀请",
     "youAreInviterDesc": "请把链接复制后转给嘉宾。你自己不能用这条链接接受或婉拒。"
   },

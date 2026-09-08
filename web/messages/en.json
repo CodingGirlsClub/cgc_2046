@@ -643,6 +643,8 @@
     "decisionHint": "After accepting, please prepare the talk materials; declining ends here — the link works once.",
     "actionFailed": "Action failed. The invite link may have expired.",
     "actionFailedShort": "Action failed",
+    "decideForbidden": "Only the invited speaker account can accept this invitation",
+    "decideInviterCannotDecide": "You sent this invitation yourself — copy the link and share it with the speaker",
     "youAreInviter": "This is an invitation you sent",
     "youAreInviterDesc": "Copy the link and share it with the speaker. You cannot accept or decline it yourself."
   },
