@@ -75,6 +75,7 @@ defmodule Cgc2046.Mcp.Tools.WaivePayment do
              status: to_string(confirmed.status),
              user_id: confirmed.user_id,
              course_id: confirmed.course_id,
+             event_id: confirmed.event_id,
              approved_by: confirmed.approved_by,
              approved_at: confirmed.approved_at
            }}

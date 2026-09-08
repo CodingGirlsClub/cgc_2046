@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
 
   **红线(R49):响应为纯聚合计数,永不含 evidence / rubric_results /
   rationale 正文**——分析面不读聊天/证据内容(服务端本无聊天;证据归
-  LearningAttempt 账本,Owner 结果面 = list_course_enrollments +
+  LearningAttempt 账本,Owner 结果面 = list_enrollments +
   list_workspace_orders + 本工具 run_stats,不另建)。
   """
   use Anubis.Server.Component, type: :tool

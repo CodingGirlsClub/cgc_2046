@@ -441,6 +441,57 @@ class AdminAsidePanelTest < Minitest::Test
     assert_includes VIEW, "POLL_MS = 10000"
   end
 
+  # P0 协作闭环:待办行可点注入 + 动作按域分组 + web 深链 + tool_used 事件驱动刷新
+  def test_p0_collaboration_loop
+    assert_includes VIEW, "data-task-idx"
+    assert_includes VIEW, "taskPrompt"
+    assert_includes VIEW, "先调用 list_my_tasks 获取该待办详情"
+    assert_includes VIEW, "ACTION_GROUPS"
+    assert_includes VIEW, "加入申请"
+    assert_includes VIEW, "WEB_LINKS"
+    assert_includes VIEW, "/settings/members"
+    assert_includes VIEW, "/settings/join-policy"
+    assert_includes VIEW, 'data-link-url'
+    assert_includes VIEW, 'Clacky.ext.subscribe("ext.cgc-2046.tool_used"'
+    assert_includes VIEW, "EVENT_REFRESH_DEBOUNCE_MS"
+    assert_includes VIEW, "refreshData"
+    assert_includes VIEW, '"/status"'
+    assert_includes VIEW, "loadStatus"
+  end
+
+  # P1 读投影 + P3 供给统一:供给区(课程+活动 kind 徽章/下钻报名) + 订单区(非终态优先) + 透传路由
+  def test_p1_p3_read_projection
+    assert_includes VIEW, '"/workspace/courses?workspace_id="'
+    assert_includes VIEW, '"/workspace/events?workspace_id="'
+    assert_includes VIEW, '"/workspace/enrollments?workspace_id="'
+    assert_includes VIEW, '"/workspace/orders?workspace_id="'
+    assert_includes VIEW, "loadCourses"
+    assert_includes VIEW, "loadEvents"
+    assert_includes VIEW, "loadOrders"
+    assert_includes VIEW, "loadEnrollments"
+    assert_includes VIEW, "renderSupplySection"
+    assert_includes VIEW, "renderOrdersSection"
+    assert_includes VIEW, "data-offering-kind"
+    assert_includes VIEW, "data-offering-id"
+    assert_includes VIEW, "data-enroll-kind"
+    assert_includes VIEW, "data-order-idx"
+    assert_includes VIEW, "expandedOfferingId"
+    assert_includes VIEW, "refund_failed"
+    assert_includes VIEW, "enrollPrompt"
+    assert_includes VIEW, "orderPrompt"
+    assert_includes VIEW, "list_enrollments kind="
+    assert_includes VIEW, "KIND_LABEL"
+    assert_includes VIEW, "ENROLL_BADGE"
+    assert_includes VIEW, "create-event"
+  end
+  def test_p1_routes_registered
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, 'get "/workspace/orders"'
+    assert_includes handler, 'get "/workspace/enrollments"'
+    assert_includes handler, '"list_workspace_orders"'
+    assert_includes handler, '"list_enrollments"'
+  end
+
   def test_ext_yml_registered
     assert_includes EXT_YML, "- id: cgc-2046-admin-aside"
     assert_includes EXT_YML, "attach: [cgc-admin]"

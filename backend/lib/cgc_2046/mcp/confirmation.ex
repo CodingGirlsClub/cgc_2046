@@ -179,9 +179,9 @@ defmodule Cgc2046.Mcp.Confirmation do
     Cgc2046.Mcp.Tools.AdminDemoteUser.execute_confirmed(actor, params)
   end
 
-  # 工作台管理面确认流（role-agent-journeys-v2 S3，工具面 30 → 43）：
-  # Course 生命周期四写 + 报名三写 + 订单两写 + 加入策略；create_course 为
-  # 直接写工具（零输入草稿可逆低风险），不经确认流
+  # 工作台管理面确认流（role-agent-journeys-v2 S3，工具面 30 → 49）：
+  # Course 生命周期四写 + Event 生命周期四写 + 报名三写 + 订单两写 + 加入策略；
+  # create_course / create_event 为直接写工具（草稿可逆低风险），不经确认流
   defp execute("update_course", actor, params) do
     Cgc2046.Mcp.Tools.UpdateCourse.execute_confirmed(actor, params)
   end
@@ -196,6 +196,22 @@ defmodule Cgc2046.Mcp.Confirmation do
 
   defp execute("cancel_course", actor, params) do
     Cgc2046.Mcp.Tools.CancelCourse.execute_confirmed(actor, params)
+  end
+
+  defp execute("update_event", actor, params) do
+    Cgc2046.Mcp.Tools.UpdateEvent.execute_confirmed(actor, params)
+  end
+
+  defp execute("launch_event", actor, params) do
+    Cgc2046.Mcp.Tools.LaunchEvent.execute_confirmed(actor, params)
+  end
+
+  defp execute("close_event", actor, params) do
+    Cgc2046.Mcp.Tools.CloseEvent.execute_confirmed(actor, params)
+  end
+
+  defp execute("cancel_event", actor, params) do
+    Cgc2046.Mcp.Tools.CancelEvent.execute_confirmed(actor, params)
   end
 
   defp execute("confirm_enrollment", actor, params) do

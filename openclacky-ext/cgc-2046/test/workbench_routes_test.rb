@@ -293,6 +293,94 @@ class WorkbenchRoutesTest < Minitest::Test
     assert_equal 200, halt.status
     assert_equal [["cgc-2046", "list_my_tasks", { "workspace_id" => WS }]], registry.calls
   end
+
+  # ---- P1 管理读面:/workspace/orders 与 /workspace/enrollments 透传 ----
+
+  ORDERS_PAYLOAD = { "orders" => [], "count" => 0, "more" => false }.freeze
+  ENROLLMENTS_PAYLOAD = { "enrollments" => [], "count" => 0, "kind" => "course" }.freeze
+
+  def test_workspace_orders_transfers_list_workspace_orders
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(ORDERS_PAYLOAD) }] })
+
+    halt = invoke(:get, "/workspace/orders", build(registry: registry, query: { "workspace_id" => WS }))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "list_workspace_orders", body["tool"]
+    assert_equal ORDERS_PAYLOAD, body["result"]
+    assert_equal [["cgc-2046", "list_workspace_orders", { "workspace_id" => WS }]], registry.calls
+  end
+
+  def test_workspace_orders_missing_workspace_id_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/workspace/orders", build(registry: registry))
+
+    assert_equal 400, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
+    assert_empty registry.calls
+  end
+
+  def test_workspace_enrollments_transfers_kind_and_offering_id
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate(ENROLLMENTS_PAYLOAD) }] })
+
+    halt = invoke(:get, "/workspace/enrollments",
+                  build(registry: registry,
+                        query: { "workspace_id" => WS, "kind" => "course", "offering_id" => "c-1" }))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "list_enrollments", body["tool"]
+    assert_equal [["cgc-2046", "list_enrollments",
+                   { "workspace_id" => WS, "kind" => "course", "offering_id" => "c-1" }]], registry.calls
+  end
+
+  def test_workspace_enrollments_missing_params_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/workspace/enrollments",
+                  build(registry: registry, query: { "workspace_id" => WS }))
+
+    assert_equal 400, halt.status
+    error = JSON.parse(halt.payload)["error"]
+    assert_includes error, "kind"
+    assert_includes error, "offering_id"
+    assert_empty registry.calls
+  end
+
+  def test_workspace_enrollments_not_connected_503
+    registry = FakeRegistry.new(configured: false)
+
+    halt = invoke(:get, "/workspace/enrollments",
+                  build(registry: registry,
+                        query: { "workspace_id" => WS, "kind" => "course", "offering_id" => "c-1" }))
+
+    assert_equal 503, halt.status
+    assert_empty registry.calls
+  end
+
+  # ---- P3 活动供给面:/workspace/events 透传 ----
+
+  def test_workspace_events_transfers_list_workspace_events
+    registry = FakeRegistry.new(result: { "content" => [{ "text" => JSON.generate({ "events" => [], "count" => 0 }) }] })
+
+    halt = invoke(:get, "/workspace/events", build(registry: registry, query: { "workspace_id" => WS }))
+
+    assert_equal 200, halt.status
+    body = JSON.parse(halt.payload)
+    assert_equal "list_workspace_events", body["tool"]
+    assert_equal [["cgc-2046", "list_workspace_events", { "workspace_id" => WS }]], registry.calls
+  end
+
+  def test_workspace_events_missing_workspace_id_400
+    registry = FakeRegistry.new
+
+    halt = invoke(:get, "/workspace/events", build(registry: registry))
+
+    assert_equal 400, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "workspace_id"
+    assert_empty registry.calls
+  end
 end
 
 # ---- 面板 view.js 结构静态断言(S1-extension 的可测面;DOM 级留手动冒烟) ----

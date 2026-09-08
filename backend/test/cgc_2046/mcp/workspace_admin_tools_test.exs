@@ -5,8 +5,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
   - 授权：plain member / tutor / learner / 非成员对全部 13 工具一律 forbidden
     （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定）
-  - 读：list_course_enrollments / list_workspace_orders 只回本工作台行
-    （跨租户隔离：第二工作台的课程/报名/订单不漏；他台 course_id ≡ not found）
+  - 读：list_enrollments / list_workspace_orders 只回本工作台行
+    （跨租户隔离：第二工作台的活动/课程/报名/订单不漏；他台 offering_id ≡ not found）
   - 写：needs_confirmation → 无副作用 → confirm → domain effect → 审计行
     （create_course 为唯一直接写）；cancel 路径不留副作用（refund_order /
     update_course）
@@ -35,7 +35,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     ConfirmOperation,
     CreateCourse,
     LaunchCourse,
-    ListCourseEnrollments,
+    ListEnrollments,
     ListWorkspaceOrders,
     RefundOrder,
     RejectEnrollment,
@@ -59,7 +59,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     "launch_course" => LaunchCourse,
     "close_course" => CloseCourse,
     "cancel_course" => CancelCourse,
-    "list_course_enrollments" => ListCourseEnrollments,
+    "list_enrollments" => ListEnrollments,
     "confirm_enrollment" => ConfirmEnrollment,
     "reject_enrollment" => RejectEnrollment,
     "waive_payment" => WaivePayment,
@@ -642,7 +642,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     end
   end
 
-  describe "list_course_enrollments（读）" do
+  describe "list_enrollments（读，kind=course 分派）" do
     test "Owner 见本课程报名（报名人摘要/状态/档位），status 过滤生效" do
       owner = Fixtures.platform_admin("s3-lce-owner")
       workspace = Fixtures.create_workspace(owner)
@@ -654,8 +654,12 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       assert {:reply, _, _} =
                reply =
-               ListCourseEnrollments.execute(
-                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+               ListEnrollments.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "kind" => "course",
+                   "offering_id" => course.id
+                 },
                  frame_for(owner)
                )
 
@@ -673,10 +677,11 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       # 免费课程的 confirmed 报名不在本课程列表；status 过滤收窄
       assert {:reply, _, _} =
                filtered =
-               ListCourseEnrollments.execute(
+               ListEnrollments.execute(
                  %{
                    "workspace_id" => workspace.id,
-                   "course_id" => free_enrollment.course_id,
+                   "kind" => "course",
+                   "offering_id" => free_enrollment.course_id,
                    "status" => "confirmed"
                  },
                  frame_for(owner)
@@ -685,7 +690,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       assert decode_reply(filtered)["count"] == 1
     end
 
-    test "跨租户隔离：他工作台课程/报名不漏；他工作台 course_id = not found" do
+    test "跨租户隔离：他工作台课程/报名不漏；他工作台 offering_id = not found" do
       owner_a = Fixtures.platform_admin("s3-lce-owner-a")
       workspace_a = Fixtures.create_workspace(owner_a)
       course_a = open_course(workspace_a, owner_a)
@@ -700,8 +705,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       {:reply, _, _} =
         reply =
-        ListCourseEnrollments.execute(
-          %{"workspace_id" => workspace_a.id, "course_id" => course_a.id},
+        ListEnrollments.execute(
+          %{"workspace_id" => workspace_a.id, "kind" => "course", "offering_id" => course_a.id},
           frame_for(owner_a)
         )
 
@@ -713,8 +718,12 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       # workspace_a 上下文 + workspace_b 的 course_id → not found（不泄存在性）
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
-               ListCourseEnrollments.execute(
-                 %{"workspace_id" => workspace_a.id, "course_id" => course_b.id},
+               ListEnrollments.execute(
+                 %{
+                   "workspace_id" => workspace_a.id,
+                   "kind" => "course",
+                   "offering_id" => course_b.id
+                 },
                  frame_for(owner_a)
                )
 
