@@ -198,6 +198,28 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       # 直接写：不经 pending
       assert pending_count() == 0
     end
+
+    test "显式 false 布尔落库（sponsorship/curriculum 域默认 true，丢弃=false 即回归）" do
+      owner = Fixtures.platform_admin("s3-ev-cc-false-owner")
+      workspace = Fixtures.create_workspace(owner)
+
+      assert {:reply, _, _} =
+               reply =
+               CreateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "title" => "无赞助无教研活动",
+                   "sponsorship_enabled" => false,
+                   "curriculum_enabled" => false
+                 },
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      event = Ash.get!(Event, payload["event_id"], authorize?: false, tenant: workspace.id)
+      assert event.sponsorship_enabled == false
+      assert event.curriculum_enabled == false
+    end
   end
 
   describe "update_event（确认流）" do
