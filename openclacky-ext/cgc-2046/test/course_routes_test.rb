@@ -207,6 +207,7 @@ end
 
 class CoursePanelViewTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
+  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
 
   def test_panel_registers_workspace
     assert_includes VIEW, 'Clacky.ext.ui.registerWorkspace'
@@ -255,7 +256,7 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, 'fetch("/api/sessions"'
     assert_includes VIEW, "Clacky.Sessions.select(session.id)"
     assert_includes VIEW, "injectIntoComposer"
-    assert_includes VIEW, "input.textContent = text"
+    assert_includes VIEW, "Kit.injectIntoComposer(input, send, text)"
     assert_includes VIEW, "七步学习循环"
     assert_includes VIEW, "这是一次到期复习"
     assert_includes VIEW, "submit_learning_attempt"
@@ -306,10 +307,13 @@ class CoursePanelViewTest < Minitest::Test
   end
 
   def test_polling_signature_and_lifecycle
-    assert_includes VIEW, "setInterval"
-    assert_includes VIEW, "clearInterval"
+    # ⑦:定时器/可见性守卫归一共享骨架 Kit.poll;面板侧锚委托调用 + 签名与周期
+    assert_includes VIEW, "Kit.poll(POLL_MS, pollTick"
+    assert_includes VIEW, 'detach: "stop"'
     assert_includes VIEW, "POLL_MS = 10000"
     assert_includes VIEW, "learningSignature"
-    assert_includes VIEW, "document.hidden"
+    assert_includes KIT, "setInterval"
+    assert_includes KIT, "clearInterval"
+    assert_includes KIT, "document.hidden"
   end
 end

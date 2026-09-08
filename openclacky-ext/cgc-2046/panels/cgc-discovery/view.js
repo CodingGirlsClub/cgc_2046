@@ -31,9 +31,9 @@
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
 
-  const API = "/api/ext/cgc-2046";
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
   const WS_ID = "cgc-2046-discovery";
-  let csrfToken = "";                 // advisor F2:写路由 CSRF token(经 /status 同源下发)
   const PAY_POLL_MS = 5000;               // AE7:支付状态 5s 轮询
   const PAY_POLL_CAP_MS = 10 * 60 * 1000; // 轮询 10 分钟上限
   let currentContainer = null;
@@ -51,11 +51,7 @@
   // 进行中的支付:enrollmentId → { workspaceId, checkoutUrl, startedAt }
   const activePayments = {};
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
+  const escapeHtml = Kit.escapeHtml;
 
   // ---- 标签映射(中文) ----
   // offering 状态徽章
@@ -127,41 +123,9 @@
   }
 
   // ---- 数据加载 ----
-  async function apiGet(path) {
-    const headers = { Accept: "application/json" };
-    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    const res = await fetch(API + path, { headers: headers });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
-
-  // 重取 CSRF token(宿主热重载会轮换进程级 token——advisor R2 自愈路径)
-  async function refreshCsrf() {
-    try {
-      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
-      const body = await res.json().catch(function () { return {}; });
-      if (res.ok && body.csrf_token) { csrfToken = String(body.csrf_token); return true; }
-    } catch (e) { /* 静默 */ }
-    return false;
-  }
-
-  function postHeaders() {
-    const headers = { "Content-Type": "application/json", Accept: "application/json" };
-    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    return headers;
-  }
-
-  // 报名提交:POST JSON;错误体挂 status/body;403-on-CSRF 重取 token 重试一次
-  async function apiPost(path, payload) {
-    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    if (res.status === 403 && (await refreshCsrf())) {
-      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    }
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
+  // loopback 读写与 CSRF 自愈走共享骨架;/status 响应顺带喂 token(省一次请求)
+  const apiGet = Kit.apiGet;
+  const apiPost = Kit.apiPost;
 
   async function loadOfferings() {
     state.view = "loading";
@@ -178,7 +142,7 @@
       const result = listRes.result || {};
       state.items = Array.isArray(result.offerings) ? result.offerings : [];
       state.webUrl = statusRes.web_url || "";
-      if (statusRes.csrf_token) csrfToken = String(statusRes.csrf_token);
+      Kit.csrfFromStatus(statusRes);
       state.view = state.items.length === 0 ? "empty" : "list";
     } catch (e) {
       state.error = e;

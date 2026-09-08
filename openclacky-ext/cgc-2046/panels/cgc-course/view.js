@@ -23,15 +23,15 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-course";
   const TEACH_ID = "cgc-2046-curriculum";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
-  let csrfToken = "";                 // 预留(本面板现无写端点,保持与其它面板一致)
   const POLL_MS = 10000;
   let currentContainer = null;
-  let pollTimer = null;
+  let pollStop = null;
 
   // ---- 面板状态 ----
   const state = {
@@ -53,59 +53,10 @@
     signed: false       // learningSignature(轮询变更检测)
   };
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-
-  function safeMaterialUrl(material) {
-    if (!material || material.kind === "text" || material.kind === "markdown") return null;
-    const url = material.url;
-    if (typeof url !== "string" || !/^https:\/\//i.test(url)) return null;
-    return url;
-  }
-
-  function markdownMarkup(body) {
-    return String(body || "").split(/\n+/).map(function (line) {
-      var s = escapeHtml(line.trim());
-      if (!s) return "";
-      s = s.replace(/^###\s+(.+)$/, "<h5>$1</h5>").replace(/^##\s+(.+)$/, "<h4>$1</h4>").replace(/^#\s+(.+)$/, "<h3>$1</h3>");
-      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
-      s = s.replace(/\[([^\]]+)\]\((https:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      return /^[-*]\s+/.test(s) ? "<li>" + s.replace(/^[-*]\s+/, "") + "</li>" : "<p>" + s + "</p>";
-    }).join("");
-  }
-
-  // M2 typed 分派 + scheme 门:web/image 仅 https: 进链接/img;video 仅
-  // bilibili + 合法 BV 号出外链;text/markdown 标题+正文;legacy {title,ref}
-  // 只显示标题 + 重存提示,ref 永不进 href。插值一律 escapeHtml。
-  function materialMarkup(material) {
-    if (!material) return "";
-    var title = escapeHtml(material.title || "材料");
-    if (material.ref || !material.kind) {
-      return '<span class="cglc-material">' + title +
-        ' <span class="cgch-empty">需重新保存为 typed Material</span></span>';
-    }
-    if (material.kind === "text") return '<div class="cglc-material cglc-material-text"><strong>' + title + '</strong><p>' + escapeHtml(material.body || "") + '</p></div>';
-    if (material.kind === "markdown") return '<div class="cglc-material cglc-material-markdown"><strong>' + title + '</strong>' + markdownMarkup(material.body) + '</div>';
-    if (material.kind === "image") {
-      var imageUrl = safeMaterialUrl(material);
-      if (!imageUrl || !material.alt_text) return '<span class="cglc-material">' + title + '</span>';
-      return '<figure class="cglc-material"><img src="' + escapeHtml(imageUrl) + '" alt="' + escapeHtml(material.alt_text) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>图片加载失败</span><figcaption>' + title + (material.caption ? "：" + escapeHtml(material.caption) : "") + '</figcaption></figure>';
-    }
-    if (material.kind === "video") {
-      if (material.provider !== "bilibili" || !/^BV[0-9A-Za-z]{10}$/.test(String(material.external_id || ""))) return '<span class="cglc-material">' + title + '</span>';
-      var videoUrl = "https://www.bilibili.com/video/" + encodeURIComponent(material.external_id);
-      return '<a class="cglc-material cgch-mat-ref cglc-video" href="' + videoUrl + '" target="_blank" rel="noopener noreferrer">▶ ' + title + '</a>';
-    }
-    var url = safeMaterialUrl(material);
-    return url ? '<a class="cglc-material cgch-mat-ref" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : '<span class="cglc-material">' + title + '</span>';
-  }
-
-  function materialLinkMarkup(material) {
-    return materialMarkup(material);
-  }
+  const escapeHtml = Kit.escapeHtml;
+  // typed Material 渲染走共享骨架;cglc- 为本面板 CSS 命名空间
+  function materialMarkup(material) { return Kit.materialMarkup(material, "cglc"); }
+  function materialLinkMarkup(material) { return materialMarkup(material); }
 
   const EDIT_ROLES = ["tutor"];
 
@@ -116,33 +67,29 @@
   }
 
   // ---- 数据加载 ----
-  async function rawGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { body, status: res.status });
-    return body;
-  }
+  const rawGet = Kit.rawGet;
+  // GET 自动拼当前作用域 query(空串也拼,与原拷贝一致)
+  function apiGet(path) { return Kit.apiGet(path, state.workspaceId); }
 
-  async function apiGet(path) {
-    const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    return rawGet(path + sep + "workspace_id=" + encodeURIComponent(state.workspaceId));
-  }
+
 
   // ---- 轮询(R11 收敛:只探 learning_state 签名;编辑无此面板不再挂起) ----
   function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    if (pollStop) { pollStop(); pollStop = null; }
   }
 
   function startPolling() {
     stopPolling();
-    pollTimer = setInterval(pollTick, POLL_MS);
+    pollStop = Kit.poll(POLL_MS, pollTick, {
+      container: function () { return currentContainer; },
+      detach: "stop"
+    });
   }
 
   let pollInFlight = false;
 
   async function pollTick() {
-    if (!currentContainer || !document.contains(currentContainer)) { stopPolling(); return; }
-    if (document.hidden || pollInFlight) return;
+    if (pollInFlight) return;
     if (state.loading || state.loadingBoot || !state.selectedCourseId) return;
     if (state.error) return;
     pollInFlight = true;
@@ -321,16 +268,7 @@
       window.prompt("复制以下指令到会话开始学习:", text);
       return;
     }
-    // 宿主 #user-input 是 contenteditable DIV:textContent 注入(value 是 expando)
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
+    Kit.injectIntoComposer(input, send, text);
   }
 
   function goLearnObjective(objectiveId) {
