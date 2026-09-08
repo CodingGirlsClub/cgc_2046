@@ -263,7 +263,7 @@ defmodule Cgc2046.Accounts.Invitation do
       # 生成 token 并存储 hash；明文 token 仅通过 metadata 一次性返回，不落库
       change(fn changeset, _context ->
         token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
-        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+        {:ok, token_hash} = Cgc2046.Accounts.TokenCredential.hash(token)
 
         changeset
         |> Ash.Changeset.change_attribute(:token_hash, token_hash)
