@@ -31,7 +31,7 @@ defmodule Cgc2046.Mcp.Tools.StartLearningRun do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "start_learning_run", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         case Runs.start(actor, workspace_id, course_id) do
           {:ok, run, created_or_existing} ->

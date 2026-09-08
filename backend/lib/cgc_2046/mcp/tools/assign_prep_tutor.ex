@@ -29,8 +29,8 @@ defmodule Cgc2046.Mcp.Tools.AssignPrepTutor do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "assign_prep_tutor", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        tutor_user_id = params["tutor_user_id"] || params[:tutor_user_id]
+        course_id = params["course_id"]
+        tutor_user_id = params["tutor_user_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),

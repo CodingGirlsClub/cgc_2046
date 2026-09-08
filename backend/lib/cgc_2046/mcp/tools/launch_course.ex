@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchCourse do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "launch_course", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor) do

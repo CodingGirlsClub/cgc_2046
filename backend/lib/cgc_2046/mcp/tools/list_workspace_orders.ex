@@ -28,7 +28,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_workspace_orders", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id) do
           # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计。

@@ -39,7 +39,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_audit_logs", fn actor, _workspace_id, params ->
-        source = params["source"] || params[:source]
+        source = params["source"]
 
         with {:ok, source} <- parse_source(source),
              {:ok, rows} <- read_source(source, actor) do

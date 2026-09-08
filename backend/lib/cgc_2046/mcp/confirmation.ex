@@ -11,11 +11,12 @@ defmodule Cgc2046.Mcp.Confirmation do
      到对应工具的 `execute_confirmed/2` 真正落库
   3. 取消走 `cancel/2`。
 
-  确认后的 effect 分派见私有 `execute/3`：每个高风险工具一个函数子句，
-  调用该工具自身的 `execute_confirmed/2`；新增高风险工具时加一个 `execute/3` 子句。
+  确认后的 effect 分派见私有 `execute/3`：从组件注册表派生
+  （`Wrapper.executor_for/1`，name → 导出 `execute_confirmed/2` 的 handler module）。
   """
 
   alias Cgc2046.Mcp.PendingOperation
+  alias Cgc2046.Mcp.Wrapper
 
   require Logger
 
@@ -138,124 +139,13 @@ defmodule Cgc2046.Mcp.Confirmation do
     end
   end
 
-  # 确认后的 effect 直接分派：Confirmation 直接持有每个工具的确认执行知识。
-  # 新增高风险工具时加一个子句，调用该工具自身的 execute_confirmed/2。
-  defp execute("create_invitation", actor, params) do
-    Cgc2046.Mcp.Tools.CreateInvitation.execute_confirmed(actor, params)
-  end
-
-  # 成员管理确认流（#240，工具面 12 → 15）
-  defp execute("approve_join_request", actor, params) do
-    Cgc2046.Mcp.Tools.ApproveJoinRequest.execute_confirmed(actor, params)
-  end
-
-  defp execute("assign_roles", actor, params) do
-    Cgc2046.Mcp.Tools.AssignRoles.execute_confirmed(actor, params)
-  end
-
-  # 平台治理确认流（role-agent-journeys-v2 S2，工具面 20 → 30）：
-  # 全部委托 accounts 域既有 action（LogAdminAction 留痕在域 action 内同事务落库）
-  defp execute("admin_approve_workspace_application", actor, params) do
-    Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication.execute_confirmed(actor, params)
-  end
-
-  defp execute("admin_reject_workspace_application", actor, params) do
-    Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication.execute_confirmed(actor, params)
-  end
-
-  defp execute("admin_create_workspace", actor, params) do
-    Cgc2046.Mcp.Tools.AdminCreateWorkspace.execute_confirmed(actor, params)
-  end
-
-  defp execute("admin_reassign_workspace_owner", actor, params) do
-    Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner.execute_confirmed(actor, params)
-  end
-
-  defp execute("admin_promote_user", actor, params) do
-    Cgc2046.Mcp.Tools.AdminPromoteUser.execute_confirmed(actor, params)
-  end
-
-  defp execute("admin_demote_user", actor, params) do
-    Cgc2046.Mcp.Tools.AdminDemoteUser.execute_confirmed(actor, params)
-  end
-
-  # 工作台管理面确认流（role-agent-journeys-v2 S3，工具面 30 → 49）：
-  # Course 生命周期四写 + Event 生命周期四写 + 报名三写 + 订单两写 + 加入策略；
-  # create_course / create_event 为直接写工具（草稿可逆低风险），不经确认流
-  defp execute("update_course", actor, params) do
-    Cgc2046.Mcp.Tools.UpdateCourse.execute_confirmed(actor, params)
-  end
-
-  defp execute("launch_course", actor, params) do
-    Cgc2046.Mcp.Tools.LaunchCourse.execute_confirmed(actor, params)
-  end
-
-  defp execute("close_course", actor, params) do
-    Cgc2046.Mcp.Tools.CloseCourse.execute_confirmed(actor, params)
-  end
-
-  defp execute("cancel_course", actor, params) do
-    Cgc2046.Mcp.Tools.CancelCourse.execute_confirmed(actor, params)
-  end
-
-  defp execute("update_event", actor, params) do
-    Cgc2046.Mcp.Tools.UpdateEvent.execute_confirmed(actor, params)
-  end
-
-  defp execute("launch_event", actor, params) do
-    Cgc2046.Mcp.Tools.LaunchEvent.execute_confirmed(actor, params)
-  end
-
-  defp execute("close_event", actor, params) do
-    Cgc2046.Mcp.Tools.CloseEvent.execute_confirmed(actor, params)
-  end
-
-  defp execute("cancel_event", actor, params) do
-    Cgc2046.Mcp.Tools.CancelEvent.execute_confirmed(actor, params)
-  end
-
-  defp execute("confirm_enrollment", actor, params) do
-    Cgc2046.Mcp.Tools.ConfirmEnrollment.execute_confirmed(actor, params)
-  end
-
-  defp execute("reject_enrollment", actor, params) do
-    Cgc2046.Mcp.Tools.RejectEnrollment.execute_confirmed(actor, params)
-  end
-
-  defp execute("waive_payment", actor, params) do
-    Cgc2046.Mcp.Tools.WaivePayment.execute_confirmed(actor, params)
-  end
-
-  defp execute("refund_order", actor, params) do
-    Cgc2046.Mcp.Tools.RefundOrder.execute_confirmed(actor, params)
-  end
-
-  defp execute("retry_refund", actor, params) do
-    Cgc2046.Mcp.Tools.RetryRefund.execute_confirmed(actor, params)
-  end
-
-  defp execute("update_join_policy", actor, params) do
-    Cgc2046.Mcp.Tools.UpdateJoinPolicy.execute_confirmed(actor, params)
-  end
-
-  # 课程教研流程确认流（role-agent-journeys-v2 S5，工具面 43 → 52）：
-  # 策略调整 / 门禁覆盖 / 审核发布三高风险写；其余六件（读状态/指派/认领/
-  # 提交检查/质量报告/请求修改）为直接写
-  defp execute("update_prep_policy", actor, params) do
-    Cgc2046.Mcp.Tools.UpdatePrepPolicy.execute_confirmed(actor, params)
-  end
-
-  defp execute("override_prep_gate", actor, params) do
-    Cgc2046.Mcp.Tools.OverridePrepGate.execute_confirmed(actor, params)
-  end
-
-  defp execute("approve_prep", actor, params) do
-    Cgc2046.Mcp.Tools.ApprovePrep.execute_confirmed(actor, params)
-  end
-
-  # fallback：防御性处理未知 tool（理论上 request 写入的 tool 名与分派覆盖一致，
-  # 但数据异常时不泄露 params/actor 结构）
-  defp execute(tool, _actor, _params) do
-    {:error, "no executor for tool #{tool}"}
+  # 确认后的 effect 分派派生自组件注册表（`Wrapper.executor_for/1`）：工具导出
+  # `execute_confirmed/2` 即可被分派，无第二注册点。兜底覆盖数据异常
+  # （pending.tool 指向已下线/未注册工具），不泄露 params/actor 结构。
+  defp execute(tool_name, actor, params) do
+    case Wrapper.executor_for(tool_name) do
+      {:ok, module} -> module.execute_confirmed(actor, params)
+      :error -> {:error, "no executor for tool #{tool_name}"}
+    end
   end
 end

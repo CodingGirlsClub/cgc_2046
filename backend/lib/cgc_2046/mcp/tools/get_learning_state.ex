@@ -42,7 +42,7 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_learning_state", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- LearnerAuthorization.authorize(actor, workspace_id, course_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id) do

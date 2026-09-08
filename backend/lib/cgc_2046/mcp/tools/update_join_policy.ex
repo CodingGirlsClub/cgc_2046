@@ -38,7 +38,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "update_join_policy", fn actor, workspace_id, params ->
-        join_policy = params["join_policy"] || params[:join_policy]
+        join_policy = params["join_policy"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, join_policy} <- parse_join_policy(join_policy),
