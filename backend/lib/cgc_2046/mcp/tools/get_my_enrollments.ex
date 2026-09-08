@@ -73,7 +73,7 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
   defp read_my_enrollments(actor) do
     Enrollment
     |> Ash.Query.filter(user_id == ^actor.id)
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(@limit)
     |> Ash.read(actor: actor)
     |> case do
@@ -130,7 +130,7 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
 
     Order
     |> Ash.Query.filter(enrollment_id in ^ids)
-    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.read(actor: actor)
     |> case do
       {:ok, orders} ->

@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role, Workspace}
+  alias Cgc2046.Accounts.{Rbac, Workspace}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
   @join_policies ~w(open request invite_only)
@@ -38,7 +38,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "update_join_policy", fn actor, workspace_id, params ->
-        join_policy = params["join_policy"] || params[:join_policy]
+        join_policy = params["join_policy"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, join_policy} <- parse_join_policy(join_policy),
@@ -96,7 +96,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to update join policy"}

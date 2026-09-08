@@ -25,9 +25,9 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "approve_prep", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
-        with {:ok, course} <- fetch_course(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              :ok <- authorize(actor, workspace_id, run),
              :ok <- require_review(run) do
@@ -55,7 +55,7 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
     workspace_id = params["workspace_id"]
     course_id = params["course_id"]
 
-    with {:ok, course} <- fetch_course(workspace_id, course_id),
+    with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
          :ok <- authorize(actor, workspace_id, run),
          {:ok, updated} <- Prep.approve(run, actor) do
@@ -87,16 +87,6 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
       :ok
     else
       {:error, "prep is not awaiting review (prep_state=#{Prep.prep_state(run)})"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

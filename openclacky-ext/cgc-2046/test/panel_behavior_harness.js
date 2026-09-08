@@ -218,6 +218,7 @@ function makeEl(tag) {
     appendChild(c) { node.children.push(c); return c; },
     contains() { return true; },
     scrollIntoView() {},
+    dispatchEvent() {},   // ⑧ Kit.injectIntoComposer 触发 input 事件,假 DOM 无需分发
     classList: { add() {}, remove() {}, toggle() {} },
   };
   Object.defineProperty(node, "innerHTML", {
@@ -249,6 +250,35 @@ function makeEl(tag) {
       if (found) return found;
       node._ids[id] = makeEl("div");
       return node._ids[id];
+    }
+    // [data-body='x'] 属性选择器(cgc-learn 两段式渲染:卡骨架 → 内容搬运进
+    // body div):代理节点,innerHTML 读写直接落宿主 _html 中对应空 div 内
+    const bm = /^\[data-body='([^']+)'\]$/.exec(sel);
+    if (bm) {
+      const sub = { tagName: "div", textContent: "", style: {}, dataset: {}, className: "", listeners: {},
+        addEventListener(t, fn) { (sub.listeners[t] = sub.listeners[t] || []).push(fn); },
+        setAttribute() {}, getAttribute() { return null; }, appendChild(c) { return c; },
+        contains() { return true; }, scrollIntoView() {}, dispatchEvent() {},
+        classList: { add() {}, remove() {}, toggle() {} } };
+      const mark = 'data-body="' + bm[1] + '"';
+      Object.defineProperty(sub, "innerHTML", {
+        get() {
+          const i = node._html.indexOf(mark);
+          if (i < 0) return "";
+          const start = node._html.indexOf(">", i) + 1;
+          const end = node._html.indexOf("</div>", start);
+          return end < 0 ? "" : node._html.slice(start, end);
+        },
+        set(v) {
+          const i = node._html.indexOf(mark);
+          if (i < 0) return;
+          const start = node._html.indexOf(">", i) + 1;
+          const end = node._html.indexOf("</div>", start);
+          if (end < 0) return;
+          node._html = node._html.slice(0, start) + String(v) + node._html.slice(end);
+        },
+      });
+      return sub;
     }
     return null;
   };
@@ -295,13 +325,32 @@ function makeEl(tag) {
       }
       return node._rowOps.btns[sel];
     }
+    // 通用 [data-x] 属性选择器 fallback(admin-aside 待办行/动作钮/深链钮):
+    // 同按 html 快照缓存;匹配整个标签并提取全部 data-* 属性(兄弟属性如
+    // data-enroll-idx 与选择器属性共存,bind handler 按属性组合取数)
+    const gm = /^\[(data-[a-z-]+)\]$/.exec(sel);
+    if (gm) {
+      if (!node._dataBtns || node._dataBtns.html !== html) node._dataBtns = { html: html, btns: {} };
+      if (!node._dataBtns.btns[sel]) {
+        const re = new RegExp('<[^>]*' + gm[1] + '="[^"]*"[^>]*>', "g");
+        const out = []; let m;
+        while ((m = re.exec(html))) {
+          const b = makeEl("button");
+          const attrRe = /(data-[a-z-]+)="([^"]*)"/g; let am;
+          while ((am = attrRe.exec(m[0]))) b.dataset[am[1]] = am[2];
+          out.push(b);
+        }
+        node._dataBtns.btns[sel] = out;
+      }
+      return node._dataBtns.btns[sel];
+    }
     return [];
   };
   return node;
 }
 function el(tag) { return makeEl(tag); }
 
-const calls = { fetches: [] };
+const calls = { fetches: [], urls: [] };
 const RESPONDERS = {
   "/api/ext/cgc-2046/learning_state?workspace_id=": null, // 占位说明:实际匹配按 path 前缀在 fetch stub 内处理
   "/api/ext/cgc-2046/me/workspaces": () => ({
@@ -327,11 +376,30 @@ const RESPONDERS = {
 };
 
 globalThis.window = globalThis;
+// admin-aside 注入路径 stub:宿主输入框缺席时 injectIntoComposer 走 window.prompt
+// fallback——harness 不 stub 输入框,断言等价物 __prompted 文案
+globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == null ? "" : text); };
+// home disconnect 连接确认框(home_hub 场景驱动确认路径);alert 捕获失败提示
+globalThis.confirm = () => true;
+globalThis.alert = (m) => { (globalThis.__alerts = globalThis.__alerts || []).push(String(m)); };
+// learn_boot_and_inject:宿主会话输入框(contenteditable DIV,预置草稿验追加保护)+ 发送按钮
+const __domById = {};
+if (scenario === "learn_boot_and_inject") {
+  const __input = el("div");
+  __input.textContent = "我的补充问题草稿";
+  const __send = el("button");
+  __send.disabled = false;
+  __send.click = () => { globalThis.__sendClicked = (globalThis.__sendClicked || 0) + 1; };
+  __domById["user-input"] = __input;
+  __domById["btn-send"] = __send;
+}
+// 深链打开捕获
+globalThis.open = (url) => { (globalThis.__opened = globalThis.__opened || []).push(String(url)); };
 globalThis.document = {
   hidden: false,
-  addEventListener() {},
+  addEventListener(t, fn) { (globalThis.__docListeners = globalThis.__docListeners || {}); (globalThis.__docListeners[t] = globalThis.__docListeners[t] || []).push(fn); },
   createElement: el,
-  getElementById() { return null; },
+  getElementById(id) { return __domById[id] || null; },
   querySelector() { return null; },
   querySelectorAll() { return []; },
   head: el("head"),
@@ -347,7 +415,136 @@ globalThis.localStorage = {
 globalThis.fetch = async (url, opts) => {
   const path = String(url).split("?")[0];
   calls.fetches.push(path);
+  calls.urls.push(String(url));   // 完整 url(P3 断言 query 里的 kind 分派)
 
+  // admin_aside 场景:一个 owner 台(编程少女台/acme) + 一个 member-only 台(应被
+  // ADMIN_ROLES 过滤);待办含报名审批/加入申请两行;status 透传 web_url(深链基址)
+  if (scenario === "admin_aside") {
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-a1", name: "编程少女台", slug: "acme", roles: ["owner"] },
+        { workspace_id: "ws-b2", name: "普通成员台", slug: "plain", roles: ["member"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/tasks") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [
+        { kind: "enrollment_approval", context_title: "Python 入门营", requester_name: "小安" },
+        { kind: "join_request", requester_name: "阿珍" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured: true, web_url: "https://codingirlsclub.com" }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/courses") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { courses: [
+        { course_id: "c-1", title: "Python 入门", status: "draft", prep_state: "review" },
+        { course_id: "c-2", title: "数据科学营", status: "open", prep_state: null },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/events") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { count: 1, events: [
+        { event_id: "ev-1", title: "线下沙龙", status: "open", enrollment_badge: "enrolling", slug: "salon-1" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/enrollments") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        count: 2, offering_title: "Python 入门",
+        enrollments: [
+          { enrollment_id: "e-1", user: { id: "u1", email: "an@x.com", display_name: "小安" },
+            status: "pending", tier: { id: "t1", name: "标准档", amount_cents: 19900 } },
+          { enrollment_id: "e-2", user: { id: "u2", email: "zhen@x.com", display_name: "阿珍" },
+            status: "confirmed", tier: null },
+        ],
+      } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/orders") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        count: 3, more: false,
+        orders: [
+          { order_id: "o-1", status: "paid", amount_cents: 19900, tier_name: "标准档",
+            enrollment: { enrollment_id: "e-9", learner_email: "a@x.com", enrollment_status: "confirmed" },
+            offering: { course_id: "c-2", event_id: null }, provider: "alipay" },
+          { order_id: "o-2", status: "refund_failed", amount_cents: 9900, tier_name: "早鸟",
+            enrollment: { enrollment_id: "e-8", learner_email: "b@x.com", enrollment_status: "cancelled" },
+            offering: { course_id: "c-1", event_id: null }, provider: "alipay" },
+          { order_id: "o-3", status: "pending", amount_cents: 5000, tier_name: "标准档",
+            enrollment: { enrollment_id: "e-7", learner_email: "c@x.com", enrollment_status: "payment_pending" },
+            offering: { course_id: "c-1", event_id: null }, provider: "wxpay" },
+        ],
+      } }) };
+    }
+  }
+  // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
+  if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed") {
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => (scenario === "home_unconnected"
+        ? { ok: true, configured: false, web_url: "https://codingirlsclub.com" }
+        : { ok: true, configured: true, web_url: "https://codingirlsclub.com", csrf_token: "tok-1" }) };
+    }
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-h1", name: "编程少女台<img src=x onerror=alert(1)>", slug: "acme", roles: ["owner"] },
+        { workspace_id: "ws-h2", name: "普通成员台", slug: "plain", roles: ["member"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/tasks") {
+      // 跨台聚合:ws-h1 有 1 条报名审批;ws-h2 单台 403(allSettled 跳过不拖空白单)
+      // home_tasks_failed:两台皆 403 → 全部失败必须渲染错误态(≠ 暂无待办空态)
+      if (scenario === "home_tasks_failed") {
+        return { ok: false, status: 403, json: async () => ({ error: "forbidden" }) };
+      }
+      if (String(url).indexOf("workspace_id=ws-h2") >= 0) {
+        return { ok: false, status: 403, json: async () => ({ error: "forbidden" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [
+        { kind: "enrollment_approval", context_title: "Python 入门营", requester_name: "小安" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/activity") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, activity: [] }) };
+    }
+    if (path === "/api/ext/cgc-2046/connect" && opts && opts.method === "DELETE") {
+      globalThis.__deleteBodies = (globalThis.__deleteBodies || []).concat(String(opts.body || ""));
+      globalThis.__deleteAttempts = (globalThis.__deleteAttempts || 0) + 1;
+      if (globalThis.__deleteAttempts === 1) {
+        return { ok: false, status: 403, json: async () => ({ error: "forbidden", csrf_token: "tok-fresh" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    if (path === "/api/sessions") {
+      if (opts && opts.method === "POST") {
+        globalThis.__sessionPostBody = JSON.parse(String(opts.body || "{}"));
+        return { ok: true, status: 200, json: async () => ({ session: { id: "sess-1", agent_profile: globalThis.__sessionPostBody.agent_profile, name: globalThis.__sessionPostBody.name } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ sessions: [
+        { id: "sess-old", name: "旧诊断会话", agent_profile: "cgc-assistant", status: "running", updated_at: "2026-09-08T10:00:00Z" },
+        { id: "sess-other", name: "别的助手会话", agent_profile: "other-agent", status: "idle", updated_at: "2026-09-08T11:00:00Z" },
+      ] }) };
+    }
+  }
+  // ⑧ tutor_aside_boot:session.aside 挂载 + tutor 台课程发现 + 草稿拉取链
+  if (scenario === "tutor_aside_boot") {
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-t9", name: "教研台", slug: "teach", roles: ["tutor"] },
+        { workspace_id: "ws-m1", name: "学员台", slug: "plain", roles: ["member"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/courses") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { courses: [
+        { course_id: "c-9", title: "教研草稿课", status: "draft" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/courses/c-9/content") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { version: 2, course_title: "教研草稿课",
+        issues: [{ id: "i-1", kind: "handwork", title: "单元一", chapter_id: "",
+          story: { as_a: "", given: [], goal: "", materials: [], checklist: [] },
+          objectives: [{ id: "o-1", title: "目标一" }] }] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/courses/c-9/prep") {
+      return { ok: false, status: 404, json: async () => ({ error: "no prep" }) };
+    }
+  }
   // 编辑器场景(editor_delimiter_roundtrip / editor_remove_row_with_empty /
   // editor_remove_chapter_clears_refs):tutor 台 + 一门课 + 场景草稿;POST 捕获 body
   if (scenario === "editor_delimiter_roundtrip" || scenario === "editor_remove_row_with_empty" ||
@@ -381,11 +578,13 @@ globalThis.fetch = async (url, opts) => {
         ok: true,
         result: {
           objectives: [
-            { id: "obj-1", title: "零成员公开课", mastery: "developing", attempt_count: 0, required: true, locked: false, issue_id: "issue-1" }
+            { id: "obj-1", title: "配置开发环境", mastery: "developing", attempt_count: 0, required: true, locked: false, issue_id: "issue-1" },
+            // ⑧ learn_boot_and_inject:locked 目标永不渲染注入点
+            { id: "obj-2", title: "进阶锁定目标", mastery: "unstarted", attempt_count: 0, required: true, locked: true, issue_id: "issue-1" }
           ],
           progress: { mastered_required: 0, total_required: 1, complete: false },
           next_action: { objective_id: "obj-1", reason: "从这里开始" },
-          review_queue: []
+          review_queue: [{ objective_id: "obj-1", title: "配置开发环境", due: "今天" }]
         }
       })
     };
@@ -409,19 +608,42 @@ globalThis.Clacky = {
     pure: false,
     ui: {
       registerWorkspace(id, spec) { globalThis.__registered = { id, spec }; },
-      mount() {},
+      // admin-aside 等 session.aside 面板:捕获 mount 回调与 opts,场景段手动驱动
+      mount(slot, cb, opts) { globalThis.__mounted = { slot, cb, opts }; },
       openWorkspace() {},
     },
+    // 事件订阅捕获(ext.cgc-2046.tool_used / mcp_error):场景段手动触发
+    subscribe(event, fn) {
+      globalThis.__subs = globalThis.__subs || {};
+      (globalThis.__subs[event] = globalThis.__subs[event] || []).push(fn);
+    },
   },
+  // ⑧ home_hub:/api/sessions 创建后的会话列表通道(cgc-home localSessions/select)
+  Sessions: {
+    all: [],
+    add(s) { this.all.push(s); },
+    renderList() {},
+    select(id) { globalThis.__sessionSelected = id; },
+  },
+  // ⑧ toast 捕获(home disconnect 成功提示等)
+  Modal: { toast(msg) { (globalThis.__toasts = globalThis.__toasts || []).push(String(msg)); } },
+  // ⑧ 最近会话行点击导航(cgc-home data-session 行 → session 页)
+  Router: { navigate(name, params) { globalThis.__navigated = { name: name, params: params }; } },
 };
 
+// ⑦ 共享骨架:业务面板 view.js 顶部依赖 window.CgcKit(ext.yml 首位声明注入);
+// harness 复刻装载顺序——先 require 同扩展 panels/shared/view.js 再加载目标
+require(require("path").resolve(require("path").dirname(viewPath), "..", "shared", "view.js"));
+if (!globalThis.CgcKit) { console.error("FAIL: 共享骨架 CgcKit 未挂载"); process.exit(1); }
 require(require("path").resolve(viewPath));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
+  // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
+  const MOUNT_SCENARIOS = { admin_aside: 1, learn_boot_and_inject: 1, tutor_aside_boot: 1 };
   const { spec } = globalThis.__registered || {};
-  if (!spec || typeof spec.render !== "function") {
+  if (!MOUNT_SCENARIOS[scenario] && (!spec || typeof spec.render !== "function")) {
     console.error("FAIL: registerWorkspace 未捕获 render");
     process.exit(1);
   }
@@ -603,6 +825,373 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + html.slice(0, 1200));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // admin_aside(P0):session.aside 挂载 + 待办行可点注入 + 动作分组注入 +
+  // web 深链 + tool_used 事件驱动刷新(debounce 后 /tasks 重拉)
+  if (scenario === "admin_aside") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    if (mounted.slot !== "session.aside") { console.error("FAIL: slot ≠ session.aside"); process.exit(1); }
+
+    // agentProfile 不匹配不渲染(attach cgc-admin 纪律)
+    const stray = el("div");
+    mounted.cb(stray, { agentProfile: "cgc-tutor", sessionId: "s-x" });
+
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-admin", sessionId: "s1" });
+    await sleep(50);   // boot:workspaces → tasks + status
+
+    // 查询锚在面板根(container.children[0] = view.js 的 root)——bind 绑定的
+    // listener 缓存在同一节点的 html 快照上,从容器层查询拿到的是另一批节点
+    const panel = container.children[0];
+    const html = container.innerHTML;
+    const taskRows = panel.querySelectorAll("[data-task-idx]");
+    const actions = panel.querySelectorAll("[data-action]");
+    const links = panel.querySelectorAll("[data-link-url]");
+
+
+    // 点击第一行待办(报名审批) → prompt fallback 注入处理指令
+    ((taskRows[0] && taskRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const taskInject = globalThis.__prompted || "";
+    // 点击「加入申请」动作钮 → 注入
+    const joinBtn = actions.filter(function (b) { return b.getAttribute("data-action") === "join-requests"; })[0];
+    ((joinBtn && joinBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const actionInject = globalThis.__prompted || "";
+    // 点击首个深链(成员) → window.open
+    ((links[0] && links[0].listeners.click) || []).forEach(function (fn) { fn(); });
+
+    // 事件驱动刷新:ok 事件 debounce 后重拉 /tasks;error 事件不触发
+    const tasksFetches = function () {
+      return calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/tasks"; }).length;
+    };
+    const beforeOk = tasksFetches();
+    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) { fn({ status: "error" }); });
+    await sleep(500);
+    const afterError = tasksFetches();
+    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) { fn({ status: "ok" }); });
+    await sleep(800);  // debounce 400ms + 重拉渲染余量(原 500ms 在批量负载下偶发不足)
+    const afterOk = tasksFetches();
+
+    // P3:供给区统一投影(课程+活动,kind 徽章;draft 课叠教研徽章,open 活动叠报名徽章)
+    const supplyOk = html.includes("课程与活动(3)") &&
+      html.includes("Python 入门") && html.includes("数据科学营") && html.includes("线下沙龙") &&
+      html.includes("草稿") && html.includes("待审核") && html.includes("报名中") &&
+      html.includes(">课程</span>") && html.includes(">活动</span>") &&
+      html.includes("cgaa-badge-kind-course") && html.includes("cgaa-badge-kind-event");
+    // P1:订单区非终态优先(refund_failed 首行)
+    const ordersOk = html.indexOf("退款失败") >= 0 &&
+      html.indexOf("退款失败") < html.indexOf("待支付") &&
+      html.indexOf("待支付") < html.indexOf("已支付") &&
+      html.includes("¥99.00");
+    // P1:课程行点击展开报名队列(懒加载 /workspace/enrollments)
+    const offeringBtns = panel.querySelectorAll("[data-offering-id]");
+    const c1 = offeringBtns.filter(function (b) { return b.getAttribute("data-offering-id") === "c-1"; })[0];
+    ((c1 && c1.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+    const html2 = container.innerHTML;
+    const enrollFetched = calls.fetches.includes("/api/ext/cgc-2046/workspace/enrollments");
+    const courseKindFetch = calls.urls.some(function (u) {
+      return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=course") >= 0;
+    });
+    // P4:draft 课展开动作排(发布/取消 + 对话修改 + 网站编辑深链;无「结束」)
+    const draftActionsOk = html2.indexOf("发布") >= 0 && html2.indexOf("取消") >= 0 &&
+      html2.indexOf("结束") < 0 && html2.indexOf("✎ 对话修改") >= 0 &&
+      html2.indexOf("/w/acme/courses/c-1") >= 0;
+    const c1Launch = panel.querySelectorAll("[data-lc-action]").filter(function (b) {
+      return b.getAttribute("data-lc-id") === "c-1" && b.getAttribute("data-lc-action") === "launch";
+    })[0];
+    ((c1Launch && c1Launch.listeners.click) || []).forEach(function (fn) { fn(); });
+    const lcInject = globalThis.__prompted || "";
+    const c1Edit = panel.querySelectorAll("[data-edit-inject]").filter(function (b) {
+      return b.getAttribute("data-lc-id") === "c-1";
+    })[0];
+    ((c1Edit && c1Edit.listeners.click) || []).forEach(function (fn) { fn(); });
+    const editInject = globalThis.__prompted || "";
+    // P1:可行动报名行(pending)点击 → 注入含 list_enrollments + enrollment_id
+    const enrollRows = panel.querySelectorAll("[data-enroll-offering]");
+    ((enrollRows[0] && enrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const enrollInject = globalThis.__prompted || "";
+    // P3:活动行点击下钻(kind=event 分派);活动报名行注入带 event 语义
+    const ev1 = panel.querySelectorAll("[data-offering-id]")
+      .filter(function (b) { return b.getAttribute("data-offering-id") === "ev-1"; })[0];
+    ((ev1 && ev1.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+    const eventKindFetch = calls.urls.some(function (u) {
+      return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=event") >= 0;
+    });
+    const evEnrollRows = panel.querySelectorAll("[data-enroll-offering]")
+      .filter(function (b) { return b.getAttribute("data-enroll-kind") === "event"; });
+    ((evEnrollRows[0] && evEnrollRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const evEnrollInject = globalThis.__prompted || "";
+    // P4:open 活动展开动作排(结束/取消 + 活动编辑深链;c-1 已收起故无「发布」)
+    const html3 = container.innerHTML;
+    const openActionsOk = html3.indexOf("结束") >= 0 && html3.indexOf("取消") >= 0 &&
+      html3.indexOf("发布") < 0 && html3.indexOf("/w/acme/events/ev-1") >= 0;
+    // P3:创建活动动作注入
+    const eventBtn = panel.querySelectorAll("[data-action]")
+      .filter(function (b) { return b.getAttribute("data-action") === "create-event"; })[0];
+    ((eventBtn && eventBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const eventInject = globalThis.__prompted || "";
+    // P1:订单首行(refund_failed o-2)点击 → 注入查看指令
+    const orderRows = panel.querySelectorAll("[data-order-idx]");
+    ((orderRows[0] && orderRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const orderInject = globalThis.__prompted || "";
+    const checks = {
+      wrong_agent_not_rendered: stray.innerHTML === "",
+
+      admin_workspace_rendered: html.includes("编程少女台"),
+      member_only_filtered: !html.includes("普通成员台"),
+      task_rows_clickable: taskRows.length === 2,
+      task_row_injects_prompt: taskInject.includes("报名审批") && taskInject.includes("Python 入门营") &&
+        taskInject.includes("[编程少女台]") && taskInject.includes("list_my_tasks"),
+      action_group_injects: actionInject.includes("待审批加入申请"),
+      deeplinks_rendered: links.length === 8 &&
+        (links[0].getAttribute("data-link-url") || "").includes("/w/acme/settings/members"),
+      deeplink_opens: (globalThis.__opened || []).some(function (u) { return u.indexOf("/w/acme/settings/members") >= 0; }),
+      error_event_no_refresh: afterError === beforeOk,
+      supply_section_rendered: supplyOk,
+      orders_attention_sorted: ordersOk,
+      course_drilldown_fetches_enrollments: enrollFetched && html2.includes("小安") && html2.includes("待审批"),
+      course_drilldown_kind: courseKindFetch,
+      event_drilldown_kind: eventKindFetch,
+      draft_row_actions: draftActionsOk,
+      launch_action_injects: lcInject.includes("launch_course") && lcInject.includes("course_id=c-1"),
+      edit_action_injects: editInject.includes("update_course") && editInject.includes("course_id=c-1"),
+      open_row_actions: openActionsOk,
+      event_enroll_injects: evEnrollInject.includes("活动") && evEnrollInject.includes("kind=event"),
+      create_event_action_injects: eventInject.includes("创建一场新活动"),
+      pending_enroll_injects: enrollInject.includes("list_enrollments") && enrollInject.includes("e-1"),
+      order_row_injects: orderInject.includes("o-2"),
+      ok_event_refreshes: afterOk > afterError,
+    };
+
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 1000));
+      console.error("prompted: " + taskInject);
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // ⑧ home_hub(cgc-home 行为迁移):已连接态渲染(状态 pill/角色目录/XSS 转义)
+  // + 管理会话启动(POST /api/sessions → select → 注入指令) + 断开连接 403 CSRF 自愈
+  if (scenario === "home_hub") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(150);   // boot:status → workspaces/tasks/activity/sessions
+
+    const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const bootHtml = container.innerHTML;
+
+    // owner 角色 → 「工作台管理」目录卡;点击 → 建管理会话(绑定节点缓存在
+    // #cgc-catalog 子节点的 html 快照上,场景段必须从同一子节点查询)
+    const catalogEl = container.querySelector("#cgc-catalog");
+    const cards = catalogEl.querySelectorAll("[data-catalog]");
+    const wsadmin = cards.filter(function (b) { return b.getAttribute("data-catalog") === "wsadmin"; })[0];
+    ((wsadmin && wsadmin.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(1700);  // startAdminSession 的注入延迟 setTimeout(1500)
+
+    // 断开连接:首次 DELETE 403 → Kit CSRF 自愈(403 body 换 token) → 重试 200
+    const discBtn = container.querySelector("#cgc-disconnect");
+    const discHandlers = (discBtn && discBtn.listeners.click) || [];
+    for (const fn of discHandlers) await fn();
+    await sleep(100);
+
+    // 最近会话行(仅 cgc-assistant 会话入列)点击 → Router.navigate 进会话
+    const sessRows = container.querySelector("#cgc-recent-sessions").querySelectorAll("[data-session]");
+    ((sessRows[0] && sessRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+
+    // 事件总线:tool_used 推送 → 活动区渲染
+    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) {
+      fn({ type: "tool_used", tool: "list_my_tasks", status: "ok" });
+    });
+    const htmlAfterEvent = container.innerHTML;
+
+    // 聚焦重拉:visibilitychange(未隐藏且已连接)→ loadWorkspaces 重拉
+    const wsFetchesBefore = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/me/workspaces"; }).length;
+    (globalThis.__docListeners["visibilitychange"] || []).forEach(function (fn) { fn(); });
+    await sleep(50);
+    const wsFetchesAfter = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/me/workspaces"; }).length;
+
+    // 工作台切换:沿用旧 LS key,已持久化选择不丢失
+    const wrap = container.querySelector("#cgc-identity-wrap");
+    ((wrap.listeners.change) || []).forEach(function (fn) { fn({ target: { id: "cgc-ws-select", value: "ws-h2" } }); });
+    await sleep(50);
+
+    const statusFetches = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/status"; }).length;
+    const reg = globalThis.__registered || {};
+    const checks = {
+      pill_connected: pillText.indexOf("已连接") >= 0,
+      nav_mount_top: !!(globalThis.__mounted && globalThis.__mounted.slot === "sidebar.nav.top" &&
+        globalThis.__mounted.opts && globalThis.__mounted.opts.workspace === "cgc"),
+      admin_card_rendered: bootHtml.indexOf('data-catalog="wsadmin"') >= 0 && bootHtml.indexOf("工作台管理") >= 0,
+      tutor_card_gated_by_role: bootHtml.indexOf('data-catalog="tutor"') < 0,
+      xss_escaped: bootHtml.indexOf("<img src=x onerror") < 0 && bootHtml.indexOf("&lt;img") >= 0,
+      tasks_aggregated_cross_workspace: bootHtml.indexOf("报名审批") >= 0 && bootHtml.indexOf("Python 入门营") >= 0,
+      tasks_partial_failure_tolerated: bootHtml.indexOf("待办加载失败") < 0,
+      recent_session_filtered_by_agent: bootHtml.indexOf("旧诊断会话") >= 0 && bootHtml.indexOf("别的助手会话") < 0,
+      session_row_navigates: !!(globalThis.__navigated && globalThis.__navigated.name === "session" && globalThis.__navigated.params.id === "sess-old"),
+      focus_reload_refetches_workspaces: wsFetchesAfter === wsFetchesBefore + 1,
+      workspace_selection_keeps_storage_key: store.get("cgc2046.workspacePanel.workspaceId") === "ws-h2",
+      tool_used_renders_activity: htmlAfterEvent.indexOf("list_my_tasks") >= 0,
+      token_not_rendered_to_dom: bootHtml.indexOf("tok-1") < 0 && htmlAfterEvent.indexOf("tok-1") < 0,
+      session_posted_admin: !!(globalThis.__sessionPostBody && globalThis.__sessionPostBody.agent_profile === "cgc-admin"),
+      session_selected: globalThis.__sessionSelected === "sess-1",
+      admin_instruction_injected: (globalThis.__prompted || "").indexOf("管理助手") >= 0 &&
+        (globalThis.__prompted || "").indexOf("list_my_workspaces") >= 0,
+      delete_retried_on_403: (globalThis.__deleteAttempts || 0) === 2,
+
+      delete_sends_empty_json_body: (globalThis.__deleteBodies || []).length === 2 &&
+        (globalThis.__deleteBodies || []).every(function (b) { return b === "{}"; }),
+      status_refreshed_after_disconnect: statusFetches >= 2,
+      disconnect_toast: (globalThis.__toasts || []).some(function (t) { return t.indexOf("已断开") >= 0; }),
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + bootHtml.slice(0, 800));
+      console.error("pill: " + pillText + " | prompted: " + (globalThis.__prompted || "") + " | toasts: " + JSON.stringify(globalThis.__toasts || []));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+
+  // ⑧ home_unconnected:未连接态渲染连接引导(pill/引导卡),目录收起为提示
+  if (scenario === "home_unconnected") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(150);
+
+    const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const html = container.innerHTML;
+    const checks = {
+      pill_unconnected: pillText.indexOf("未连接") >= 0,
+      guide_rendered: html.indexOf("cgc-connect-guide") >= 0 && html.indexOf("还未连接 CGC-2046") >= 0,
+      catalog_not_rendered: html.indexOf("data-catalog=") < 0,
+      onboarding_hint: html.indexOf("cgc2046-onboarding") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // ⑧ home_tasks_failed:全部工作台 tasks 请求失败 → 渲染错误态而非「暂无待办」
+  // (空态会掩盖后端不可用/token 过期——与被选中台遮蔽同款静默错)
+  if (scenario === "home_tasks_failed") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(150);
+    const html = container.innerHTML;
+    const checks = {
+      tasks_all_failed_renders_error: html.indexOf("待办加载失败") >= 0,
+      not_silent_empty: html.indexOf("暂无待办") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+  // ⑧ learn_boot_and_inject(cgc-learn 行为迁移):boot 列表渲染(掌握度/复习/锁定)
+  // + 学习目标注入(草稿保留追加 + 发送点击) + 复习注入(到期复习文案)
+  if (scenario === "learn_boot_and_inject") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-assistant", sessionId: "s-l1" });
+    await sleep(150);   // boot:enrollments → learning_state + revision
+
+    const panel = container.children[0];   // learn 渲染进子 root,绑定节点缓存其上
+    const html = container.innerHTML;
+    const input = __domById["user-input"];
+
+    const injectBtns = panel.querySelectorAll("[data-inject]");
+    const learnBtn = injectBtns.filter(function (b) { return b.getAttribute("data-inject") === "obj-1" && !b.getAttribute("data-review"); })[0];
+    ((learnBtn && learnBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const afterLearnText = input ? input.textContent : "";
+    const learnSent = globalThis.__sendClicked || 0;
+
+    const reviewBtn = injectBtns.filter(function (b) { return b.getAttribute("data-review") === "1"; })[0];
+    ((reviewBtn && reviewBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const afterReviewText = input ? input.textContent : "";
+
+    const checks = {
+      mounted_as_assistant_aside: mounted.slot === "session.aside" &&
+        !!(mounted.opts && (mounted.opts.agents || []).indexOf("cgc-assistant") >= 0),
+      course_listed: html.indexOf("零成员公开课") >= 0,
+      mastery_rendered: html.indexOf("学习中") >= 0,
+      // 到期复习优先于 next_action(设计语义):resume 卡取复习条目
+      resume_card_prioritizes_review: html.indexOf("继续复习") >= 0 && html.indexOf("配置开发环境") >= 0,
+      locked_not_injectable: html.indexOf("进阶锁定目标") >= 0 && html.indexOf('data-inject="obj-2"') < 0,
+      review_entry_rendered: !!reviewBtn,
+      draft_preserved: afterLearnText.indexOf("我的补充问题草稿") >= 0,
+      instruction_appended: afterLearnText.indexOf("配置开发环境") >= 0,
+      send_clicked: learnSent > 0,
+      review_prompt_marked: afterReviewText.indexOf("到期复习") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      console.error("input: " + afterLearnText.slice(0, 300));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // ⑧ tutor_aside_boot(cgc-tutor aside 行为迁移):session.aside 挂载门控 +
+  // tutor 台课程发现(学员台过滤) + 自动选课后的 content/prep 草稿拉取
+  if (scenario === "tutor_aside_boot") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    if (mounted.slot !== "session.aside") { console.error("FAIL: slot ≠ session.aside"); process.exit(1); }
+
+    // agentProfile 不匹配不渲染(attach cgc-tutor 纪律)
+    const stray = el("div");
+    mounted.cb(stray, { agentProfile: "cgc-admin", sessionId: "s-x" });
+
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-tutor", sessionId: "s-t1" });
+    await sleep(150);   // loadCourses → 自动选首门 → refreshDraft(content+prep)
+
+    const html = container.innerHTML;
+    const checks = {
+      wrong_agent_not_rendered: stray.innerHTML === "",
+      tutor_workspace_scoped: calls.urls.some(function (u) {
+        return u.indexOf("/workspace/courses?workspace_id=ws-t9") >= 0;
+      }) && !calls.urls.some(function (u) { return u.indexOf("workspace_id=ws-m1") >= 0; }),
+      course_rendered: html.indexOf("教研草稿课") >= 0,
+      draft_badge_rendered: html.indexOf("未发布") >= 0,
+      content_fetched: calls.urls.some(function (u) { return u.indexOf("/courses/c-9/content") >= 0; }),
+      prep_fetched: calls.urls.some(function (u) { return u.indexOf("/courses/c-9/prep") >= 0; }),
+      objective_rendered: html.indexOf("目标一") >= 0,
+      poll_started: timers.length >= 1,
+      rewrite_button_rendered: html.indexOf('data-rewrite="o-1"') >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      console.error("urls: " + JSON.stringify(calls.urls));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

@@ -17,8 +17,8 @@ defmodule Cgc2046.Mcp.Tools.GetStepOutput do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_step_output", fn actor, workspace_id, params ->
-        run_id = params["run_id"] || params[:run_id]
-        step_key = params["step_key"] || params[:step_key]
+        run_id = params["run_id"]
+        step_key = params["step_key"]
 
         case Cgc2046.Workflows.WorkflowRun
              |> Ash.Query.for_read(:get_by_id, %{id: run_id})

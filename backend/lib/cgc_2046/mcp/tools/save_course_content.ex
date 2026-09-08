@@ -14,8 +14,8 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.MembershipContext
-  alias Cgc2046.Accounts.Role
+  alias Cgc2046.Accounts.Rbac
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Curriculum.Output
 
@@ -40,12 +40,12 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "save_course_content", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        content = params["content"] || params[:content]
-        base_version = params["base_version"] || params[:base_version]
+        course_id = params["course_id"]
+        content = params["content"]
+        base_version = params["base_version"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, output} <- save_output(actor, workspace_id, course, content, base_version) do
           mirror_to_run(course, content)
 
@@ -60,25 +60,10 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   # tutor ∪ owner/admin(R6):管理角色豁免 + tutor 显式放行;
   # learner/volunteer/无差异标签成员拒。
   defp authorize(actor, workspace_id) do
-    roles = MembershipContext.role_names(actor, workspace_id)
-
-    if Enum.any?(roles, &Role.manage_role?/1) or :tutor in roles do
+    if Rbac.staff?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: tutor, owner or admin required"}
-    end
-  end
-
-  # 读取 authorize?: false(授权在工具层;ensure 只读 workflow_run_id/status)。
-  # tenant: workspace_id 收紧课程归属(F1):Course 为 global?(true) 租户资源,
-  # 不带 tenant 会全表读——A 租户成员可用 B 租户 course_id 越权占位课程内容
-  defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

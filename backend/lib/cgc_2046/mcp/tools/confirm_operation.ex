@@ -19,7 +19,7 @@ defmodule Cgc2046.Mcp.Tools.ConfirmOperation do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "confirm_operation", fn actor, _workspace_id, params ->
-        Confirmation.confirm(actor, params["pending_id"] || params[:pending_id])
+        Confirmation.confirm(actor, params["pending_id"])
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)

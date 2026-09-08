@@ -32,7 +32,7 @@ defmodule Cgc2046.Learning.Runs do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.{Content, CourseRevision}
-  alias Cgc2046.Learning.{Attempt, Mastery, NextAction, ReviewSchedule}
+  alias Cgc2046.Learning.{Attempt, Mastery, NextAction, ReviewSchedule, RunProjection}
   alias Cgc2046.Workflows.{WorkflowDefinition, WorkflowRun}
 
   # 停滞阈值（天，D6-③）：LearningProgressWorker 提醒与 ReconciliationScanWorker
@@ -114,7 +114,7 @@ defmodule Cgc2046.Learning.Runs do
           {:ok, WorkflowRun.t(), :existing | :created} | {:error, String.t()}
   def start(actor, workspace_id, course_id) do
     with :ok <- ensure_enrolled(actor, workspace_id, course_id),
-         {:ok, course} <- fetch_course(workspace_id, course_id),
+         {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, revision} <- fetch_current_revision(workspace_id, course),
          {:ok, definition} <- fetch_learning_definition(workspace_id),
          {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, course_id) do
@@ -336,23 +336,89 @@ defmodule Cgc2046.Learning.Runs do
     }
   end
 
+  @doc """
+  本人学习 run 投影列表（myLearningRuns 读面，2026-09-08 架构评审候选③自
+  `Cgc2046Web.GraphqlSchema` 抽离；#217 旁路读取，D 类·本人锚）：
+
+  本人 confirmed enrollments（`:my_enrollments` read policy 门控 + 本人锚）
+  → 逐 enrollment 读 learning WorkflowRun（tenant 收紧 + workspace_id 一致性
+  校验 + definition 投影元数据加载）→ `RunProjection.project_run/3`。
+  enrollment 读失败降级 `[]`（附挂信息不阻断主读，与 discover_offerings
+  同纪律）。
+  """
+  @spec my_learning_runs(term()) :: {:ok, [map()]}
+  def my_learning_runs(actor) do
+    case read_confirmed_enrollments(actor) do
+      {:ok, enrollments} ->
+        rows =
+          Enum.flat_map(enrollments, fn enrollment ->
+            enrollment
+            |> learning_runs_for()
+            |> Enum.map(&RunProjection.project_run(&1, enrollment, actor))
+            |> Enum.reject(&is_nil/1)
+          end)
+
+        {:ok, rows}
+
+      {:error, _reason} ->
+        {:ok, []}
+    end
+  end
+
   # --- 私有实现 -----------------------------------------------------------------
+
+  defp read_confirmed_enrollments(actor) do
+    Enrollment
+    |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
+    |> Ash.Query.filter(status == :confirmed)
+    |> Ash.Query.load(:target_title)
+    |> Ash.Query.limit(250)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, %{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
+  # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
+  # workspace_id 一致性校验，RunProjection.project_run 再校验
+  # enrollment.user_id == actor.id（双重本人锚）。
+  defp learning_runs_for(enrollment) do
+    WorkflowRun
+    |> Ash.Query.filter(subject_enrollment_id == ^enrollment.id)
+    |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
+    |> case do
+      {:ok, runs} ->
+        Enum.flat_map(runs, fn run ->
+          if run.workspace_id != enrollment.workspace_id do
+            []
+          else
+            # #217 旁路读取（D 类）：run 关系加载（definition 投影元数据），
+            # 本人锚同上（enrollment.user_id == actor.id）。
+            case Ash.load(
+                   run,
+                   [definition: [:type, :node_def, steps: [:step_key, :title]]],
+                   tenant: run.workspace_id,
+                   authorize?: false
+                 ) do
+              {:ok, loaded_run} -> [loaded_run]
+              {:error, _reason} -> []
+            end
+          end
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
 
   defp ensure_enrolled(actor, workspace_id, course_id) do
     if confirmed_enrollment?(actor, workspace_id, course_id) do
       :ok
     else
       {:error, "forbidden: confirmed enrollment required to start learning"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

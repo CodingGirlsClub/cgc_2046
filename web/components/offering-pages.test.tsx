@@ -835,6 +835,23 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
     },
   );
 
+  it("slug 撞唯一索引 → 映射为可操作指引，不透传原文", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: null,
+      errors: [{ message: "slug: has already been taken" }],
+    });
+
+    await renderManageDetail("event", offeringRow({}));
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText("保存失败：链接名（slug）已被占用，请换一个。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/already been taken/)).not.toBeInTheDocument();
+  });
+
   it("未知错误（网络异常）走兜底文案，不透传原始 message", async () => {
     mocks.updateOffering.mockRejectedValueOnce(
       new Error("Network request failed"),

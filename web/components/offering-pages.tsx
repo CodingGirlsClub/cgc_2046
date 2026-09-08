@@ -14,7 +14,7 @@
 import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   allowedTransitions,
   canManageEvents,
@@ -96,6 +96,10 @@ function friendlyOfferingError(
   }
   if (/failed: status changed concurrently/.test(raw)) {
     return "saveConcurrentError";
+  }
+  // slug 撞全局唯一索引(#447 identity 化后的字段级错误)→ 可操作指引
+  if (/already been taken/.test(raw)) {
+    return "saveSlugTaken";
   }
   return fallback;
 }
@@ -232,6 +236,7 @@ function OfferingRow({
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
+  const locale = useLocale();
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
   return (
     <Link
@@ -255,6 +260,7 @@ function OfferingRow({
               deadline: formatDeadline(
                 offering.registrationDeadline,
                 tCommon("noDeadline"),
+                locale,
               ),
             })}
           </span>
@@ -431,6 +437,7 @@ export function OfferingDetailPage({
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
+  const locale = useLocale();
   const {
     ws,
     readOnlyVisitor,
@@ -1004,6 +1011,7 @@ export function OfferingDetailPage({
                     {formatDeadline(
                       offering.registrationDeadline,
                       tCommon("noDeadline"),
+                      locale,
                     )}
                   </Field>
                   <Field label={t("fieldCapacity")}>

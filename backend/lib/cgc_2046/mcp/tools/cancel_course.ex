@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.CancelCourse do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
@@ -26,10 +26,10 @@ defmodule Cgc2046.Mcp.Tools.CancelCourse do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "cancel_course", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(actor, workspace_id, course_id) do
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor) do
           if course.status != :open do
             {:error, "cannot cancel from status=#{course.status}（仅 open 可取消）"}
           else
@@ -59,7 +59,7 @@ defmodule Cgc2046.Mcp.Tools.CancelCourse do
     workspace_id = params["workspace_id"]
     course_id = params["course_id"]
 
-    with {:ok, course} <- fetch_course(actor, workspace_id, course_id) do
+    with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor) do
       case course
            |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace_id)
            |> Ash.update(actor: actor, tenant: workspace_id) do
@@ -86,29 +86,10 @@ defmodule Cgc2046.Mcp.Tools.CancelCourse do
 
   # Owner/Admin 专属（S3）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to cancel courses"}
-    end
-  end
-
-  # tenant 收紧课程归属：他租户 course_id 与不存在同一「not found」，不泄露存在性
-  defp fetch_course(actor, workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(actor: actor, tenant: workspace_id) do
-      {:ok, nil} ->
-        {:error, "course not found: #{course_id}"}
-
-      {:ok, course} ->
-        {:ok, course}
-
-      {:error, %Ash.Error.Forbidden{}} ->
-        {:error, "forbidden: not allowed to read course #{course_id}"}
-
-      {:error, _} ->
-        {:error, "failed to load course"}
     end
   end
 end

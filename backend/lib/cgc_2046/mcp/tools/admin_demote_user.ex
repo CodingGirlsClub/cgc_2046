@@ -31,7 +31,7 @@ defmodule Cgc2046.Mcp.Tools.AdminDemoteUser do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_demote_user", fn actor, _workspace_id, params ->
-        user_id = params["user_id"] || params[:user_id]
+        user_id = params["user_id"]
 
         with {:ok, user} <- fetch_user(actor, user_id) do
           # 非管理员快速失败（domain 的 not_platform_admin 在 confirm 段兜底）

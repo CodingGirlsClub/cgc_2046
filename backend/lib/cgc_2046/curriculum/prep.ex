@@ -45,7 +45,7 @@ defmodule Cgc2046.Curriculum.Prep do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{MembershipContext, Role}
+  alias Cgc2046.Accounts.{MembershipContext, Rbac}
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.{CourseRevision, Output, PrepGate, PrepInstantiator}
   alias Cgc2046.Repo
@@ -214,13 +214,9 @@ defmodule Cgc2046.Curriculum.Prep do
 
   # --- 角色判定助手（工具层授权用） -------------------------------------------
 
-  @doc "actor 是否目标工作台 Owner/Admin。"
+  @doc "actor 是否目标工作台 Owner/Admin（判定单源 `Rbac.manage?/2` 的委托）。"
   @spec manage?(term(), String.t()) :: boolean()
-  def manage?(actor, workspace_id) do
-    actor
-    |> MembershipContext.role_names(workspace_id)
-    |> Enum.any?(&Role.manage_role?/1)
-  end
+  def manage?(actor, workspace_id), do: Rbac.manage?(actor, workspace_id)
 
   @doc "actor 是否持有目标工作台 tutor 角色。"
   @spec tutor?(term(), String.t()) :: boolean()

@@ -145,9 +145,13 @@ export async function fetchWorkspaceOfferings(
 ): Promise<OfferingItem[]> {
 	const query = QUERY_BY_KIND[kind].list;
 
+	// network-only（对齐公开面 F4 纪律，public-offerings.ts）：cache-first 会让
+	// 创建/变更后返回列表吃到旧缓存（mutation 不带 refetchQueries，Apollo 无法
+	// 自动把新实体并入列表查询）。
 	const { data } = await client.query({
 		query,
 		variables: { workspaceId },
+		fetchPolicy: "network-only",
 	});
 
 	const result = data as unknown as Record<
@@ -235,7 +239,7 @@ export async function createOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
+		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [] }
 	);
 }
 
@@ -262,7 +266,7 @@ export async function updateOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
+		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [] }
 	);
 }
 
@@ -279,7 +283,7 @@ export async function transitionOffering(
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
 		result[MUTATION_FIELDS[kind][transition]] ??
-		{ result: null, errors: [{ message: "errors.noResponse" }] }
+		{ result: null, errors: [] }
 	);
 }
 

@@ -47,13 +47,14 @@ function entry(
 	};
 }
 
-// 只取 slug 的精简版；filter 与 PUBLIC_LIST_*（lib/graphql/events.ts）保持一致
+// 只取 slug 的精简版；filter 与 PUBLIC_LIST_*（lib/graphql/events.ts）保持一致。
+// first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
 const PUBLIC_SLUGS_QUERY = `
 	query SitemapPublicSlugs {
-		listEvents(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+		listEvents(first: 250, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
 			results { slug }
 		}
-		listCourses(filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+		listCourses(first: 250, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
 			results { slug }
 		}
 	}

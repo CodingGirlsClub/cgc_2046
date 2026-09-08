@@ -419,6 +419,22 @@ defmodule Cgc2046.Courses.Course do
         end
       end)
 
+      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
+      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
+      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      change(fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :slug) and
+             Ash.Changeset.get_data(changeset, :status) != :draft do
+          Ash.Changeset.add_error(
+            changeset,
+            field: :slug,
+            message: "slug is locked once the offering is published (editable in draft only)"
+          )
+        else
+          changeset
+        end
+      end)
+
       # S3：设置真实标题即清除临时占位标记（provisional_title 不可由调用方直写）
       change(fn changeset, _context ->
         case Ash.Changeset.fetch_change(changeset, :title) do
@@ -664,6 +680,15 @@ defmodule Cgc2046.Courses.Course do
     read :get_by_slug do
       get_by([:slug])
     end
+
+    # list_courses 专用（#411/enrollment.ex:177-181 同款）：keyset 分页要求稳定
+    # 唯一序，UUID v4 主键时间无序——无显式 sort 时列表顺序契约上无保证。
+    # inserted_at desc + id 兜底（同秒平票 tiebreaker 保 keyset 序唯一）。
+    read :list_courses do
+      description("课程列表（graphql list_courses；按插入时间倒序）")
+      prepare(build(sort: [inserted_at: :desc, id: :asc]))
+      pagination(keyset?: true, default_limit: 250)
+    end
   end
 
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map，只组装业务键；
@@ -805,6 +830,12 @@ defmodule Cgc2046.Courses.Course do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :courses, to_status)
 
+  identities do
+    # all_tenants?：slug 全局唯一；否则 :attribute 多租户会把 workspace_id 并入
+    # 冲突目标，与 courses_slug_index 全局索引不匹配（42P10，event.ex 同款）。
+    identity(:slug, [:slug], all_tenants?: true)
+  end
+
   postgres do
     table("courses")
     repo(Cgc2046.Repo)
@@ -857,7 +888,7 @@ defmodule Cgc2046.Courses.Course do
     relationships([])
 
     queries do
-      list(:list_courses, :read, description: "工作台的课程列表（#40 展示页）")
+      list(:list_courses, :list_courses, description: "工作台的课程列表（#40 展示页）")
       read_one(:get_course, :get_by_id, description: "按 id 获取课程（#40）")
       read_one(:get_course_by_slug, :get_by_slug, description: "按 slug 获取（E-5 公开宿主页）")
     end
@@ -886,5 +917,47 @@ defmodule Cgc2046.Courses.Course do
       :registration_deadline,
       :inserted_at
     ])
+  end
+
+  # ── 租户收紧读取端口（MCP 工具面单源，2026-09-08 架构评审候选①）────────────
+
+  @doc """
+  按租户收紧读取课程（MCP 工具层唯一入口，取代 18 份工具内私有 fetch_course
+  拷贝）。**不变量：必须带 `tenant: workspace_id`**——Course 为全局资源，
+  不带 tenant 会全表读，A 租户成员可用 B 租户 course_id 越权（他租户 id 与
+  不存在同一 `not found`，不泄露存在性）。
+
+  两变体（语义逐工具保真，勿合并）：
+  - 默认 `authorize?: false`——授权已在工具层完成（Wrapper member-only 门 +
+    工具内角色判定），读取只取存在性/字段；
+  - `actor: actor`——走授权读（lifecycle 工具 cancel/close/launch/update 原样），
+    命中 field policy 拒绝时映到 forbidden 文案。
+
+  错误字符串是 interface 的一部分（全部消费方为 MCP 工具，文案契约逐字保留）。
+  """
+  @spec fetch_scoped(String.t(), String.t(), keyword()) ::
+          {:ok, t()} | {:error, String.t()}
+  def fetch_scoped(workspace_id, course_id, opts \\ []) do
+    read_opts =
+      case Keyword.fetch(opts, :actor) do
+        {:ok, actor} -> [actor: actor, tenant: workspace_id]
+        :error -> [authorize?: false, tenant: workspace_id]
+      end
+
+    case __MODULE__
+         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
+         |> Ash.read_one(read_opts) do
+      {:ok, nil} ->
+        {:error, "course not found: #{course_id}"}
+
+      {:ok, course} ->
+        {:ok, course}
+
+      {:error, %Ash.Error.Forbidden{}} ->
+        {:error, "forbidden: not allowed to read course #{course_id}"}
+
+      {:error, _} ->
+        {:error, "failed to load course"}
+    end
   end
 end

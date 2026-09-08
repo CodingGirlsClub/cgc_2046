@@ -42,10 +42,10 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_create_workspace", fn actor, _workspace_id, params ->
-        name = params["name"] || params[:name]
-        slug = params["slug"] || params[:slug] || default_slug(name)
-        owner_user_id = params["owner_user_id"] || params[:owner_user_id]
-        owner_email = params["owner_email"] || params[:owner_email]
+        name = params["name"]
+        slug = params["slug"] || default_slug(name)
+        owner_user_id = params["owner_user_id"]
+        owner_email = params["owner_email"]
 
         with :ok <- validate_owner_designation(owner_user_id, owner_email),
              {:ok, owner_summary} <- owner_summary(actor, owner_user_id, owner_email) do

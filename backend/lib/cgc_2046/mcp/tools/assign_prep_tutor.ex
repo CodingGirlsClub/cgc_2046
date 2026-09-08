@@ -29,11 +29,11 @@ defmodule Cgc2046.Mcp.Tools.AssignPrepTutor do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "assign_prep_tutor", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        tutor_user_id = params["tutor_user_id"] || params[:tutor_user_id]
+        course_id = params["course_id"]
+        tutor_user_id = params["tutor_user_id"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              :ok <- require_tutor_role(tutor_user_id, workspace_id),
              {:ok, updated} <- Prep.assign_tutor(run, tutor_user_id, actor) do
@@ -63,16 +63,6 @@ defmodule Cgc2046.Mcp.Tools.AssignPrepTutor do
     else
       {:error,
        "tutor_user_id #{tutor_user_id} does not hold tutor role in workspace #{workspace_id}"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

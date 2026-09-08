@@ -15,11 +15,8 @@ defmodule Cgc2046.Mcp.Tools.AdminListUsers do
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.User
+  alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
-
-  require Ash.Query
-
-  @limit 50
 
   schema do
     field(:search, :string, description: "按邮箱 / 显示名模糊过滤（可选）")
@@ -29,13 +26,12 @@ defmodule Cgc2046.Mcp.Tools.AdminListUsers do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_users", fn actor, _workspace_id, params ->
-        search = params["search"] || params[:search]
+        search = params["search"]
 
         User
         |> Ash.Query.for_read(:read)
-        |> maybe_search(search)
-        |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-        |> Ash.Query.limit(@limit)
+        |> AdminList.maybe_user_search(search)
+        |> AdminList.recent()
         |> Ash.read(actor: actor)
         |> case do
           {:ok, users} ->
@@ -50,14 +46,6 @@ defmodule Cgc2046.Mcp.Tools.AdminListUsers do
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
-  end
-
-  # 与 GraphQL maybe_user_search 同形：email（ci_string）/ display_name contains OR
-  defp maybe_search(query, nil), do: query
-  defp maybe_search(query, ""), do: query
-
-  defp maybe_search(query, search) do
-    Ash.Query.filter(query, contains(email, ^search) or contains(display_name, ^search))
   end
 
   defp to_row(user) do
