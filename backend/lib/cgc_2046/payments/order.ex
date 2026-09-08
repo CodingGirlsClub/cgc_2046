@@ -543,8 +543,8 @@ defmodule Cgc2046.Payments.Order do
       create(:create_order, :create_for_enrollment)
       create(:replace_provider, :replace_provider)
       update(:cancel_order, :cancel_pending)
-      update(:refund_order, :refund)
-      update(:retry_refund, :retry_refund)
+      # refund/retry_refund 的 web 面入口改为手写两段确认 mutation
+      # （graphql_schema.ex + Cgc2046Web.PaymentConfirmation，复用 Mcp.PendingOperation）
     end
   end
 

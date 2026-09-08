@@ -282,15 +282,6 @@ type InviteBatch {
   insertedAt: DateTime!
 }
 
-"The result of the :waive_payment mutation"
-type WaivePaymentResult {
-  "The successful result of the mutation"
-  result: Enrollment
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
 "The result of the :cancel_enrollment mutation"
 type CancelEnrollmentResult {
   "The successful result of the mutation"
@@ -3658,24 +3649,6 @@ type User {
   joinedAt: DateTime
 }
 
-"The result of the :retry_refund mutation"
-type RetryRefundResult {
-  "The successful result of the mutation"
-  result: Order
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
-"The result of the :refund_order mutation"
-type RefundOrderResult {
-  "The successful result of the mutation"
-  result: Order
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
 "The result of the :cancel_order mutation"
 type CancelOrderResult {
   "The successful result of the mutation"
@@ -5877,6 +5850,24 @@ type AcceptInvitationResult {
   errors: [MutationError!]!
 }
 
+type PendingOperationConfirmation {
+  "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
+  pendingId: ID
+
+  summary: String
+
+  errors: [MutationError!]!
+}
+
+type OperationResolution {
+  "confirmOperation\/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
+  pendingId: ID
+
+  status: String
+
+  errors: [MutationError!]!
+}
+
 type SpeakerInvitationCard {
   "token 公开卡片：邀请主题\/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
   status: String!
@@ -6113,6 +6104,21 @@ type RootMutationType {
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
 
+  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
+  refundOrder(id: ID!): PendingOperationConfirmation
+
+  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
+  retryRefund(id: ID!): PendingOperationConfirmation
+
+  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
+  waivePayment(id: ID!): PendingOperationConfirmation
+
+  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
+  confirmOperation(pendingId: ID!): OperationResolution
+
+  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
+  cancelOperation(pendingId: ID!): OperationResolution
+
   "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
   createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
 
@@ -6157,12 +6163,6 @@ type RootMutationType {
 
   "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
   cancelOrder(id: ID!): CancelOrderResult!
-
-  "管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）"
-  refundOrder(id: ID!): RefundOrderResult!
-
-  "管理员重试退款：refund_failed → refunding 重入退款链（R17）"
-  retryRefund(id: ID!): RetryRefundResult!
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
@@ -6244,9 +6244,6 @@ type RootMutationType {
 
   "报名人取消报名；confirmed\/payment_pending 报名释放名额"
   cancelEnrollment(id: ID!): CancelEnrollmentResult!
-
-  "Owner\/Admin\/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18）"
-  waivePayment(id: ID!): WaivePaymentResult!
 
   createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
 

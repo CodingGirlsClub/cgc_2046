@@ -1,15 +1,18 @@
 defmodule Cgc2046.Mcp.Confirmation do
   @moduledoc """
-  高风险工具确认流（D8 two-tool 模式 / D-D3）。
+  高风险操作确认流（D8 two-tool 模式 / D-D3）。
 
   链路（无 confirm 不落业务库）：
 
-  1. 高风险 tool 的 execute 先调 `request/4`（不执行业务）：
-     建 PendingOperation → 返回 `{:needs_confirmation, %{pending_id, summary}}`
-  2. 用户在客户端确认 → agent 调 `confirm_operation` tool → `confirm/2`：
+  1. 高风险操作的入口先调 `request/4`（不执行业务）：MCP 工具的 execute，
+     或 web GraphQL mutation（经 `Cgc2046Web.PaymentConfirmation`，tool 名与
+     对应 MCP 工具同名）——建 PendingOperation → 返回
+     `{:needs_confirmation, %{pending_id, summary}}`
+  2. 用户在客户端确认 → 确认入口（MCP `confirm_operation` 工具 / GraphQL
+     `confirmOperation` mutation）→ `confirm/2`：
      校验 pending 归属/状态/有效期 → 标记 confirmed → 按 `pending.tool` 直接分派
      到对应工具的 `execute_confirmed/2` 真正落库
-  3. 取消走 `cancel/2`。
+  3. 取消走 `cancel/2`（web 面对应 `cancelOperation` mutation）。
 
   确认后的 effect 分派见私有 `execute/3`：从组件注册表派生
   （`Wrapper.executor_for/1`，name → 导出 `execute_confirmed/2` 的 handler module）。
