@@ -190,4 +190,26 @@ defmodule Cgc2046.Accounts.Rbac do
         :ok
     end
   end
+
+  # ── 角色谓词（MCP 工具层授权面单源，2026-09-08 架构评审候选①）────────────
+  # 工具层「Owner/Admin 专属」「tutor ∪ 管理」两族判定曾以私有函数散于 21 个
+  # 工具文件，靠注释互相指认；收敛于此，判定语义真源仍在 Rbac（MembershipContext
+  # 为数据 seam 不变）。消费方：mcp/tools 各工具 authorize + Curriculum.Prep.
+  # manage?/LearnerAuthorization.staff?（委托）。
+
+  @doc "actor 在目标工作台是否持任一管理角色（owner/admin，多角色并集）。"
+  @spec manage?(term(), String.t()) :: boolean()
+  def manage?(actor, workspace_id) do
+    actor
+    |> MembershipContext.role_names(workspace_id)
+    |> Enum.any?(&Role.manage_role?/1)
+  end
+
+  @doc "课程教研工作面 staff 判定：tutor ∪ 管理角色（owner/admin）。"
+  @spec staff?(term(), String.t()) :: boolean()
+  def staff?(actor, workspace_id) do
+    actor
+    |> MembershipContext.role_names(workspace_id)
+    |> Enum.any?(&(Role.manage_role?(&1) or &1 == :tutor))
+  end
 end

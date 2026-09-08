@@ -40,7 +40,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
         course_id = params["course_id"] || params[:course_id]
         report = params["report"] || params[:report]
 
-        with {:ok, course} <- fetch_course(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              :ok <- authorize(actor, workspace_id, run),
              {:ok, report} <- validate_report(report),
@@ -105,16 +105,6 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
          |> Ash.read_one(authorize?: false, tenant: workspace_id) do
       {:ok, %Course{status: status}} -> status
       _ -> :unknown
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

@@ -15,8 +15,8 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   授权 = Wrapper 默认 fail-closed member 门（`list_my_tasks` 同款）：
   workspace member 可读全部状态（含 draft）——域 read policy 对 member
   收窄 draft（`Offering.ActorReadsOffering`），本面读门禁在 Wrapper 层
-  已真实发生，课程直读走 `authorize?: false`（`get_course_content`
-  fetch_course 同款纪律）。
+  已真实发生，课程直读走 `authorize?: false`（`Course.fetch_scoped/3`
+  纪律）。
   """
 
   use Anubis.Server.Component, type: :tool
