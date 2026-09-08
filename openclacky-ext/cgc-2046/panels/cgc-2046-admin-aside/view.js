@@ -108,12 +108,14 @@
   };
 
   // 订单状态与管理关注序(refund_failed 可重试最前,终态垫底)
+  // attention = 非终态(待支付/退款中/退款失败)——侧栏只渲染这些「需要注意」的;
+  // 终态(已支付/已退款/已取消/已过期)可达性在 agent 对话与 web 订单页
   const ORDER_STATUS = {
-    pending: { label: "待支付", rank: 2 },
+    pending: { label: "待支付", rank: 2, attention: true },
     paid: { label: "已支付", rank: 3 },
-    refunding: { label: "退款中", rank: 1 },
+    refunding: { label: "退款中", rank: 1, attention: true },
     refunded: { label: "已退款", rank: 4 },
-    refund_failed: { label: "退款失败", rank: 0, warn: true },
+    refund_failed: { label: "退款失败", rank: 0, warn: true, attention: true },
     cancelled: { label: "已取消", rank: 5 },
     expired: { label: "已过期", rank: 5 }
   };
@@ -524,28 +526,37 @@
     return html + '</div>';
   }
 
-  // 订单区(非终态优先;无订单不渲染——管理员不需要被「没有订单」打扰)
+  // 订单区 = 注意力面:只渲染非终态(refund_failed 置顶),帽 5 行防待支付风暴;
+  // 终态与帽外订单问助手(list_workspace_orders)或走 web 订单页。
+  // 无非终态 = 无需要注意的订单,整区不渲染(同「无订单不渲染」哲学)
+  const ORDER_ATTENTION_CAP = 5;
   function renderOrdersSection() {
     if (state.ordersError) {
       return '<div class="cgaa-sec-label">订单</div><div class="cgaa-empty">订单加载失败。</div>';
     }
-    if (state.orders.length === 0) return "";
-    let html = '<div class="cgaa-sec-label">订单（' + state.orders.length +
-      (state.ordersMore ? "+" : "") + '）</div>';
-    html += '<div class="cgaa-order-list">' + state.orders.map(function (o, idx) {
-      const st = ORDER_STATUS[o.status] || { label: o.status || "", rank: 3 };
-      const who = (o.enrollment && o.enrollment.learner_email) || "";
-      const tier = o.tier_name ? " · " + o.tier_name : "";
-      return '<button class="cgaa-order" type="button" data-order-idx="' + idx + '"' +
+    const attention = state.orders
+      .map(function (o, idx) { return { o: o, idx: idx }; })
+      .filter(function (r) { return (ORDER_STATUS[r.o.status] || {}).attention; })
+      .sort(function (a, b) { return orderRank(a.o.status) - orderRank(b.o.status); });
+    if (attention.length === 0) return "";
+    const shown = attention.slice(0, ORDER_ATTENTION_CAP);
+    const hidden = attention.length - shown.length;
+    let html = '<div class="cgaa-sec-label">订单需处理（' + attention.length + '）</div>';
+    html += '<div class="cgaa-order-list">' + shown.map(function (r) {
+      const st = ORDER_STATUS[r.o.status] || { label: r.o.status || "", rank: 3 };
+      const who = (r.o.enrollment && r.o.enrollment.learner_email) || "";
+      const tier = r.o.tier_name ? " · " + r.o.tier_name : "";
+      return '<button class="cgaa-order" type="button" data-order-idx="' + r.idx + '"' +
         ' data-testid="cgaa-order">' +
-        '<span class="cgaa-order-amt">' + escapeHtml(money(o.amount_cents)) + '</span>' +
+        '<span class="cgaa-order-amt">' + escapeHtml(money(r.o.amount_cents)) + '</span>' +
         '<span class="cgaa-badge' + (st.warn ? " cgaa-badge-warn" : "") + '">' + escapeHtml(st.label) + '</span>' +
         '<span class="cgaa-order-who">' + escapeHtml(who + tier) + '</span>' +
         '<span class="cgaa-task-go">›</span>' +
       '</button>';
     }).join("") + '</div>';
-    if (state.ordersMore) {
-      html += '<div class="cgaa-more">更多订单见网站管理页（支付）。</div>';
+    if (hidden > 0 || state.ordersMore) {
+      html += '<div class="cgaa-more">还有 ' + hidden + ' 笔非终态' +
+        (state.ordersMore ? "（后端还有更多）" : "") + '，问助手看全部。</div>';
     }
     return html;
   }
