@@ -314,6 +314,67 @@ class McpConfigTest < Minitest::Test
     end
   end
 
+  # chmod 时序（安全修复）：chmod 必须发生在内容写入之后——写入期间 tmp 始终 0600，
+  # 重写既有 0644 文件时含 token 内容不得以放宽权限落盘。
+  def test_persist_chmods_tmp_only_after_content_is_written
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "mcp.json")
+      File.write(path, "{}")
+      File.chmod(0o644, path) # 既有 0644：修复前 tmp 会在写入前被 chmod 放宽到 0644
+
+      events = [] # [event, payload]：write 记写入瞬间 tmp 实际 mode；chmod 记 mode 实参
+
+      orig_chmod = File.method(:chmod)
+      File.define_singleton_method(:chmod) do |mode, target|
+        events << [:chmod, mode]
+        orig_chmod.call(mode, target)
+      end
+
+      orig_open = File.method(:open)
+      File.define_singleton_method(:open) do |*args, &blk|
+        # 只包装 persist_text 的 tmp 创建路径（排他写标志）；其余 File.open 透传
+        if blk && args[1] == (File::WRONLY | File::CREAT | File::EXCL)
+          tmp_path = args[0]
+          wrapped = lambda do |f|
+            orig_write = f.method(:write)
+            f.define_singleton_method(:write) do |*wargs, &wblk|
+              events << [:write, File.stat(tmp_path).mode & 0o777]
+              orig_write.call(*wargs, &wblk)
+            end
+            blk.call(f)
+          end
+          orig_open.call(*args, &wrapped)
+        else
+          orig_open.call(*args, &blk)
+        end
+      end
+
+      begin
+        Cgc2046McpConfig.persist(path, { "a" => 1 })
+      ensure
+        File.define_singleton_method(:chmod, orig_chmod)
+        File.define_singleton_method(:open, orig_open)
+      end
+
+      writes = events.select { |op, _| op == :write }
+      refute_empty writes, "必须经 f.write 写入 tmp"
+
+      # 核心安全断言：内容写入瞬间 tmp 必须仍是创建时的 0600（即便最终 mode 是 0644）
+      writes.each do |_, mode_at_write|
+        assert_equal 0o600, mode_at_write, "写入瞬间 tmp 必须保持 0600，不得先放宽权限再写内容"
+      end
+
+      # 时序断言：chmod（定稿 mode）必须发生在内容写入之后、rename 之前
+      write_at = events.index { |op, _| op == :write }
+      chmod_at = events.index { |op, _| op == :chmod }
+      refute_nil chmod_at, "必须在 rename 前 chmod 定稿 tmp"
+      assert_operator write_at, :<, chmod_at, "chmod 必须发生在内容写入之后"
+
+      # 最终语义不变：既有 0644 保留
+      assert_equal 0o644, File.stat(path).mode & 0o777
+    end
+  end
+
   # ---- remove_server（断开连接：移除 cgc-2046 条目，其它 server 无损）----
 
   def test_remove_server_removes_cgc_preserving_others
