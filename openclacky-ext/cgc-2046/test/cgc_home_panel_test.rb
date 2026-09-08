@@ -483,6 +483,10 @@ class AdminAsidePanelTest < Minitest::Test
     assert_includes VIEW, "KIND_LABEL"
     assert_includes VIEW, "ENROLL_BADGE"
     assert_includes VIEW, "create-event"
+    # 错误隔离:扩展/后端部署错配(新扩展连旧后端)时活动面失败不拖死课程面
+    assert_includes VIEW, "state.coursesError && state.eventsError"
+    assert_includes VIEW, "课程加载失败。"
+    assert_includes VIEW, "活动加载失败。"
   end
   def test_p1_routes_registered
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
