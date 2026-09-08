@@ -111,6 +111,7 @@ curl -sS -X DELETE "http://127.0.0.1:7070/api/ext/cgc-2046/connect" -H "Content-
 - 无剪贴板 CLI 的环境首选备选 A（用户亲手把 token 写入 0600 临时文件、agent 管道读取、成功后删除）；对话粘贴是最后手段（备选 B），token 会留在会话记录中——skill 会明示代价并建议撤销后改走无留痕通道重签。
 - MCP 工具结果（如 `invitation_token` 明文）会被客户端运行时记入会话记录，这是既定事实；我们的纪律是不主动把凭证写进额外文件/日志。
 - status 端点只返回 `configured` / `url` / `token_configured`（布尔）/ `web_url`，永不返回 headers 或 token；面板与 handler 均不渲染 token。
+- 所有扩展路由要求请求 `Host` 头为 loopback（`127.0.0.0/8`、`localhost`、`[::1]`，防 DNS rebinding 绕过 Origin 校验）；缺失或非 loopback 一律 403 `host not allowed`。
 - connect 的条目名写死 `cgc-2046`，不会改动 mcp.json 里的其它 server 条目；更新时保留该条目上的未知额外键；`DELETE /connect` 只移除 `cgc-2046` 条目。
 
 ## Known limitations

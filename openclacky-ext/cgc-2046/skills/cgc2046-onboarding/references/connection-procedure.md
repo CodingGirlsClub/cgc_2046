@@ -108,6 +108,8 @@ CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_POR
 
 要点：connect 是写端点，需带 `X-CGC-CSRF-Token` 头——`CGC_CSRF` 变量先经 `GET /status`（无 Origin 的本地 curl 放行）取回进程级 token；跨站网页因 Origin 校验读不到该 token，这是防 CSRF 劫持的通道（伪造 connect 可改写 mcp.json 指向攻击者 URL，最高危写端点，不可豁免）。
 
+所有扩展路由还要求请求的 `Host` 头是 loopback（`127.0.0.0/8`、`localhost`、`[::1]`，防 DNS rebinding 绕过 Origin 校验）；上面的命令默认走 `127.0.0.1` 天然满足。**若把 `CLACKY_SERVER_HOST` 显式设成非 loopback 值（如局域网 IP 或域名），请求会得 403 `host not allowed`**——这不是 bug，是安全边界，改用 loopback 地址重试即可。
+
 其他要点：
 
 - token 全程经管道传递，**不出现在 argv 和命令行字面量里**，不写入会话记录；
