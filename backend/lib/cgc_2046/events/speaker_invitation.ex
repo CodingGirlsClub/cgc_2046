@@ -410,11 +410,40 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     end
   end
 
-  @doc "SHA256 哈希（hex，与 Invitation/Mcp.Token 同模式）"
+  @doc "SHA256 哈希（hex）——实现单源 `Accounts.TokenCredential.hash/1`（候选③收编）。"
   @spec hash_token(String.t()) :: String.t()
   def hash_token(token) when is_binary(token) and token != "" do
-    :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+    {:ok, hash} = Cgc2046.Accounts.TokenCredential.hash(token)
+    hash
   end
+
+  @doc """
+  SpeakerInvitation 决策（accept/decline，2026-09-08 架构评审候选③自
+  GraphqlSchema 抽离）：token 即凭据——按 token_hash 定位邀请
+  （`Accounts.TokenCredential.fetch/2`；read policy 不适用：token 持有者
+  非成员），action 内复验 token 有效/未过期/未使用（统一错误，不防枚举）。
+
+  返回 `{:ok, invitation}` | `{:error, :unauthorized}`（actor 缺失）|
+  `{:error, :invalid_token}`（未命中，含已用/过期由 action 复验失败上抛的
+  update error 不在此列）| `{:error, update_error}`。payload 形状映射留在
+  GraphQL resolver（SDL adapter）。
+  """
+  @spec decide(term(), term(), :accept_invitation | :decline_invitation) ::
+          {:ok, __MODULE__.t()} | {:error, term()}
+  def decide(actor, token, action) do
+    with {:ok, actor} <- require_actor(actor),
+         {:ok, invitation} <- Cgc2046.Accounts.TokenCredential.fetch(__MODULE__, token) do
+      invitation
+      |> Ash.Changeset.for_update(action, %{token: token},
+        actor: actor,
+        tenant: invitation.workspace_id
+      )
+      |> Ash.update(tenant: invitation.workspace_id, actor: actor)
+    end
+  end
+
+  defp require_actor(nil), do: {:error, :unauthorized}
+  defp require_actor(actor), do: {:ok, actor}
 
   @doc """
   Owner/Admin 重发 / 重新生成邀请链接（KD2/KD3）：重新生成 token——旧链接

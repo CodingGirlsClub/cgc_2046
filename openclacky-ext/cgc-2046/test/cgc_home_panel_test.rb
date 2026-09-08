@@ -11,6 +11,10 @@
 
 require "minitest/autorun"
 
+gem_spec = Gem::Specification.find_by_name("openclacky")
+require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
+require_relative "../api/handler"
+
 EXT_YML = File.read(File.expand_path("../ext.yml", __dir__))
 EXT_README = File.read(File.expand_path("../README.md", __dir__))
 EXT_ROOT = File.expand_path("..", __dir__)
@@ -188,9 +192,11 @@ end
 class AdminAsidePanelTest < Minitest::Test
 
   def test_p1_routes_registered
+    # 路由声明表化后断言注册结果(原断言钉的是被消除的逐路由 `get "..."` 调用文本)
+    routes = Cgc2046Ext.routes.map { |r| [r.method, r.pattern] }
+    assert_includes routes, [:get, "/workspace/orders"]
+    assert_includes routes, [:get, "/workspace/enrollments"]
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
-    assert_includes handler, 'get "/workspace/orders"'
-    assert_includes handler, 'get "/workspace/enrollments"'
     assert_includes handler, '"list_workspace_orders"'
     assert_includes handler, '"list_enrollments"'
   end

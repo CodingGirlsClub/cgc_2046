@@ -239,7 +239,7 @@ export async function createOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
+		result[MUTATION_FIELDS[kind].create] ?? { result: null, errors: [] }
 	);
 }
 
@@ -266,7 +266,7 @@ export async function updateOffering(
 
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
-		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [{ message: "errors.noResponse" }] }
+		result[MUTATION_FIELDS[kind].update] ?? { result: null, errors: [] }
 	);
 }
 
@@ -283,7 +283,7 @@ export async function transitionOffering(
 	const result = data as unknown as Record<string, OfferingMutationResult>;
 	return (
 		result[MUTATION_FIELDS[kind][transition]] ??
-		{ result: null, errors: [{ message: "errors.noResponse" }] }
+		{ result: null, errors: [] }
 	);
 }
 

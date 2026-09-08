@@ -5,6 +5,8 @@ defmodule Cgc2046Web.GraphqlSchema do
   require Ash.Query
   require Ash.Expr
 
+  alias Cgc2046.AdminList
+
   use AshGraphql,
     domains: [
       Cgc2046.Admission,
@@ -86,7 +88,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :my_phone, :string do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, fn actor ->
-          {:ok, mask_phone(actor.phone)}
+          {:ok, Cgc2046.Accounts.PhoneNumber.mask(actor.phone)}
         end)
       end)
     end
@@ -328,7 +330,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.User,
-          fn q, args -> maybe_user_search(q, args[:search]) end,
+          fn q, args -> AdminList.maybe_user_search(q, args[:search]) end,
           &load_membership_counts/2
         )
       )
@@ -343,7 +345,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.Workspace,
-          fn q, args -> maybe_workspace_search(q, args[:search]) end,
+          fn q, args -> AdminList.maybe_workspace_search(q, args[:search]) end,
           admin_result(Cgc2046.Accounts.Workspace, Cgc2046.Accounts),
           pre_read: fn q -> Ash.Query.load(q, :member_count) end
         )
@@ -360,7 +362,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(
         admin_list(
           Cgc2046.Accounts.WorkspaceApplication,
-          fn q, args -> maybe_status_filter(q, args[:status]) end,
+          fn q, args -> AdminList.maybe_status_filter(q, args[:status]) end,
           admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
         )
       )
@@ -393,9 +395,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Mcp.ToolCallLog,
           fn q, args ->
             q
-            |> maybe_workspace_filter(args[:workspace_id])
-            |> maybe_status_filter(args[:status], :result_status)
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_status_filter(args[:status], :result_status)
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
         )
@@ -416,9 +418,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Mcp.PendingOperation,
           fn q, args ->
             q
-            |> maybe_workspace_filter(args[:workspace_id])
-            |> maybe_pending_status_filter(args[:status])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_pending_status_filter(args[:status])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
         )
@@ -439,9 +441,9 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Workflows.SignalLog,
           fn q, args ->
             q
-            |> maybe_real_workspace_filter(args[:workspace_id])
-            |> maybe_signal_type_filter(args[:signal_type])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
+            |> AdminList.maybe_signal_type_filter(args[:signal_type])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Workflows)
         )
@@ -461,8 +463,8 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Accounts.AdminActionLog,
           fn q, args ->
             q
-            |> maybe_action_filter(args[:action])
-            |> maybe_time_range_filter(args)
+            |> AdminList.maybe_action_filter(args[:action])
+            |> AdminList.maybe_time_range_filter(args)
           end,
           admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.Accounts)
         )
@@ -482,10 +484,10 @@ defmodule Cgc2046Web.GraphqlSchema do
           Cgc2046.Reconciliation.Finding,
           fn q, args ->
             q
-            # atom 约束字段精确过滤（非枚举值静默忽略，同 maybe_status_filter 语义）
-            |> maybe_status_filter(args[:rule], :rule)
-            |> maybe_status_filter(args[:entity_type], :entity_type)
-            |> maybe_real_workspace_filter(args[:workspace_id])
+            # atom 约束字段精确过滤（非枚举值静默忽略，同 AdminList.maybe_status_filter 语义）
+            |> AdminList.maybe_status_filter(args[:rule], :rule)
+            |> AdminList.maybe_status_filter(args[:entity_type], :entity_type)
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
           end,
           admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
         )
@@ -501,7 +503,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       middleware(Cgc2046Web.Plugs.RateLimit,
         key_path: [:login],
-        normalize: &normalize_login/1
+        normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_login/1
       )
 
       resolve(fn _, %{login: login, password: password}, _ ->
@@ -566,7 +568,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{phone: raw_phone, purpose: purpose}, %{context: context} ->
         with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_request_limits(context, phone) do
-          request_phone_code(phone, purpose)
+          Cgc2046.Accounts.WebAuthFlow.request_phone_code(phone, purpose)
         else
           {:error, :invalid} ->
             {:error, message: "Invalid phone number", code: "invalid_phone"}
@@ -773,11 +775,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       middleware(
         Cgc2046Web.Plugs.RateLimit,
         key_path: [:email],
-        normalize: &normalize_email/1
+        normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_email/1
       )
 
       resolve(fn _, %{email: email}, %{context: context} ->
-        email = normalize_email(email)
+        email = Cgc2046.Accounts.WebAuthFlow.normalize_email(email)
 
         case Cgc2046.Accounts.WebAuthFlow.check_password_reset_request_limits(context, email) do
           :ok ->
@@ -993,10 +995,12 @@ defmodule Cgc2046Web.GraphqlSchema do
           # 两个条件都匹配才放行（token 是凭证，与 validateInvitation 信息面一致），
           # 不匹配返回 not_found，不泄露邀请存在性。accept action 的
           # authorize_if(actor_present()) 与 before_action token 复验仍完整生效。
-          # token_credential_fetch 以 extra_filter: [id: id] 保留双因子，nil 塌缩为
+          # TokenCredential.fetch 以 extra_filter: [id: id] 保留双因子，nil 塌缩为
           # :invalid_token，由调用方映射回 accept_not_found_errors（not_found 语义）。
           with {:ok, invitation} <-
-                 token_credential_fetch(Cgc2046.Accounts.Invitation, token, id: id),
+                 Cgc2046.Accounts.TokenCredential.fetch(Cgc2046.Accounts.Invitation, token,
+                   id: id
+                 ),
                {:ok, accepted} <-
                  invitation
                  |> Ash.Changeset.for_update(:accept, %{token: token})
@@ -2013,79 +2017,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   defp unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
 
-  defp normalize_email(email) do
-    email
-    |> to_string()
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
-
-  # 发码统一响应：SendCloud 失败外的所有分支 sent: true（防枚举）；
-  # deliver 失败冒泡为 sent:false + retryAfterSeconds（plan U3.4——M4 修复：
-  # 此前结果被丢弃恒 sent:true，用户看到已发送但短信不存在）。
-  defp request_phone_code(phone, purpose) do
-    purpose_atom = phone_code_purpose_atom(purpose)
-
-    case Cgc2046.Accounts.PhoneVerificationCode.issue(phone, purpose_atom) do
-      {:ok, code, send_request_id} ->
-        case deliver_phone_code(phone, code, send_request_id) do
-          :ok ->
-            {:ok, %{sent: true, retry_after_seconds: 60}}
-
-          {:error, reason} ->
-            Logger.warning("[request_phone_code] sms deliver failed: #{inspect(reason)}")
-            {:ok, %{sent: false, retry_after_seconds: 60}}
-        end
-
-      {:error, reason} ->
-        Logger.warning("[request_phone_code] issue failed: #{inspect(reason)}")
-        {:error, message: "Failed to send verification code", code: "sms_send_failed"}
-    end
-  end
-
-  # Absinthe enum 内部值（"login"/"wechat_bind"/"register"/"change_phone"）→ 资源原子
-  defp phone_code_purpose_atom(:login), do: :login
-  defp phone_code_purpose_atom(:wechat_bind), do: :wechat_bind
-  defp phone_code_purpose_atom(:register), do: :register
-  defp phone_code_purpose_atom(:change_phone), do: :change_phone
-  defp phone_code_purpose_atom("login"), do: :login
-  defp phone_code_purpose_atom("wechat_bind"), do: :wechat_bind
-  defp phone_code_purpose_atom("register"), do: :register
-  defp phone_code_purpose_atom("change_phone"), do: :change_phone
-
-  defp deliver_phone_code(phone, code, send_request_id) do
-    sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
-
-    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
-      template_id = Keyword.fetch!(sms, :template_id)
-
-      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
-        phone,
-        template_id,
-        %{"code" => code},
-        send_request_id
-      )
-    else
-      # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
-      Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
-      :ok
-    end
-  end
-
-  # 掩码：前 6 字符 + **** + 后 4（+8615578793094 → +86155****3094）；
-  # 异常短号（normalize 已保证 +区号号码，理论不可达）全掩码防泄露。
-  defp mask_phone(nil), do: nil
-
-  defp mask_phone(phone) when is_binary(phone) do
-    if String.length(phone) > 10 do
-      String.slice(phone, 0, 6) <> "****" <> String.slice(phone, -4, 4)
-    else
-      String.duplicate("*", String.length(phone))
-    end
-  end
-
   defp sign_in_with_phone_code(phone, code, context) do
     case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
       {:ok, user} ->
@@ -2106,22 +2037,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email 同）；
-  # 手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
-  # 非法输入原样保留（保持与认证失败路径一致的计数语义）。
-  defp normalize_login(login) do
-    login = to_string(login)
-
-    if String.contains?(login, "@") do
-      String.downcase(String.trim(login))
-    else
-      case Cgc2046.Accounts.PhoneNumber.normalize(login) do
-        {:ok, phone} -> phone
-        {:error, :invalid} -> login
-      end
-    end
-  end
-
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的
   # 错误协议一致；只取最小形状字段，避免 vars/short_message 等内部字段进响应。
@@ -2138,25 +2053,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
   end
 
-  # SpeakerInvitation 决策（accept/decline）：token 即凭据——按 token_hash 定位邀请
-  # （read policy 不适用：token 持有者非成员），action 内复验 token 有效/未过期/未使用
-  # （统一错误，不防枚举）。无效 token 与已用/过期同形返回 payload errors。
+  # SpeakerInvitation 决策（accept/decline）的 SDL adapter：领域编排在
+  # `Events.SpeakerInvitation.decide/3`（token 即凭据定位 + action 复验）；
+  # 此处只映射 payload 形状——无效 token 与已用/过期同形返回 payload errors
+  # （不防枚举），未登录走 unauthorized 顶层 error。
   defp decide_speaker_invitation(%{context: context}, token, action) do
-    with %{actor: actor} when not is_nil(actor) <- context,
-         {:ok, invitation} <-
-           token_credential_fetch(Cgc2046.Events.SpeakerInvitation, token) do
-      invitation
-      |> Ash.Changeset.for_update(action, %{token: token},
-        actor: actor,
-        tenant: invitation.workspace_id
-      )
-      |> Ash.update(tenant: invitation.workspace_id, actor: actor)
-      |> speaker_invitation_action_result(context, action)
-    else
-      %{} ->
+    case Cgc2046.Events.SpeakerInvitation.decide(context[:actor], token, action) do
+      {:ok, invitation} ->
+        {:ok, %{result: invitation, errors: []}}
+
+      {:error, :unauthorized} ->
         {:error, unauthorized_error()}
 
-      _ ->
+      {:error, :invalid_token} ->
         {:ok,
          %{
            result: nil,
@@ -2167,34 +2076,11 @@ defmodule Cgc2046Web.GraphqlSchema do
              }
            ]
          }}
+
+      {:error, error} ->
+        speaker_invitation_action_result({:error, error}, context, action)
     end
   end
-
-  # 持 token 资源定位组合子（PR-E D4）：token 即凭据——sha256(hex lower) 哈希 →
-  # token_hash 精确匹配 → read_one(authorize?: false)（不走 read policy）。
-  # token 空/非 binary 或未命中任何记录 → {:error, :invalid_token}（nil 塌缩，不泄露
-  # 存在性）；真实读错误原样上抛（流① accept_invitation 需区分 invalid_token 与
-  # real error）。extra_filter 追加双因子（accept_invitation 的 [id: id]）。
-  # 消费方：accept_invitation（流①）/ decide_speaker_invitation（流②）。
-  defp token_credential_fetch(resource, token, extra_filter \\ :none) do
-    with {:ok, hash} <- credential_hash(token) do
-      filters = if extra_filter == :none, do: [], else: extra_filter
-
-      resource
-      |> Ash.Query.do_filter(filters ++ [token_hash: hash])
-      |> Ash.read_one(authorize?: false)
-      |> case do
-        {:ok, nil} -> {:error, :invalid_token}
-        result -> result
-      end
-    end
-  end
-
-  defp credential_hash(token) when is_binary(token) and token != "" do
-    {:ok, :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)}
-  end
-
-  defp credential_hash(_), do: {:error, :invalid_token}
 
   # SpeakerInvitation action 结果 → payload（result + errors 两段式，同 sign_up 错误协议）
   defp speaker_invitation_action_result({:ok, invitation}, _context, _action) do
@@ -2528,7 +2414,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         |> Ash.Query.for_read(:read)
         |> filter_fn.(args)
         |> pre_read.()
-        |> paginate(args[:first], args[:after])
+        |> AdminList.paginate(args[:first], args[:after])
         |> Ash.read(actor: actor)
         |> post_fn.(context)
       end)
@@ -2538,135 +2424,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   # admin 列表 read 结果 → map_error（统一 :read action；resource/domain 按 query 闭包）
   defp admin_result(resource, domain) do
     fn result, context -> map_error(result, context, :read, resource, domain) end
-  end
-
-  # search 模糊过滤（字段静态，search 运行时值经 ^ pin 注入）：
-  # - maybe_user_search：email（ci_string）/ display_name contains OR
-  # - maybe_workspace_search：name / slug contains OR
-  defp maybe_user_search(query, nil), do: query
-  defp maybe_user_search(query, ""), do: query
-
-  defp maybe_user_search(query, search) do
-    Ash.Query.filter(
-      query,
-      contains(email, ^search) or contains(display_name, ^search)
-    )
-  end
-
-  defp maybe_workspace_search(query, nil), do: query
-  defp maybe_workspace_search(query, ""), do: query
-
-  defp maybe_workspace_search(query, search) do
-    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
-  end
-
-  # status 过滤（atom 约束字段；非枚举值静默忽略过滤——to_existing_atom 防 atom 表污染）。
-  # field 参数化：WorkspaceApplication/PendingOperation 是 :status，ToolCallLog 是 :result_status。
-  defp maybe_status_filter(query, status, field \\ :status)
-
-  defp maybe_status_filter(query, nil, _field), do: query
-
-  defp maybe_status_filter(query, status, field) do
-    case String.to_existing_atom(status) do
-      # keyword 整体 ^ pin：字段名运行时化（宏模板内未 pin 变量会被当字段引用）
-      atom -> Ash.Query.filter(query, ^[{field, atom}])
-    end
-  rescue
-    ArgumentError -> query
-  end
-
-  # #117 PendingOperation 状态过滤：expired 不落库（读时派生 calculation，不能下推 SQL），
-  # 特判为 status == :pending and expires_at < now（与 effective_status 同语义）；
-  # 其余枚举值走通用 maybe_status_filter。
-  defp maybe_pending_status_filter(query, nil), do: query
-
-  defp maybe_pending_status_filter(query, "expired") do
-    now = DateTime.utc_now()
-    Ash.Query.filter(query, status == :pending and expires_at < ^now)
-  end
-
-  defp maybe_pending_status_filter(query, status), do: maybe_status_filter(query, status)
-
-  # #117 SignalLog 信号类型过滤（自由 string 精确匹配，如 "workflow.approval"；空串忽略）
-  defp maybe_signal_type_filter(query, nil), do: query
-  defp maybe_signal_type_filter(query, ""), do: query
-
-  defp maybe_signal_type_filter(query, signal_type) do
-    Ash.Query.filter(query, signal_type == ^signal_type)
-  end
-
-  # #117 时间范围过滤（inserted_at）：inserted_after → >=，inserted_before → <=。
-  # Absinthe :datetime 标量已把 ISO8601 解析为 DateTime；nil 分支不过滤。
-  defp maybe_time_range_filter(query, args) do
-    query
-    |> maybe_inserted_after(args[:inserted_after])
-    |> maybe_inserted_before(args[:inserted_before])
-  end
-
-  defp maybe_inserted_after(query, nil), do: query
-
-  defp maybe_inserted_after(query, dt) do
-    Ash.Query.filter(query, inserted_at >= ^dt)
-  end
-
-  defp maybe_inserted_before(query, nil), do: query
-
-  defp maybe_inserted_before(query, dt) do
-    Ash.Query.filter(query, inserted_at <= ^dt)
-  end
-
-  # #116 action 过滤（AdminActionLog.action 是 atom 约束；非枚举值静默忽略过滤，
-  # 与 maybe_status_filter 的 rescue 回退一致——to_existing_atom 防 atom 表污染）
-  defp maybe_action_filter(query, nil), do: query
-
-  defp maybe_action_filter(query, action) do
-    case String.to_existing_atom(action) do
-      atom -> Ash.Query.filter(query, action == ^atom)
-    end
-  rescue
-    ArgumentError -> query
-  end
-
-  # D5：ToolCallLog / PendingOperation 的 workspace_id 在 params JSONB 内
-  defp maybe_workspace_filter(query, nil), do: query
-
-  defp maybe_workspace_filter(query, workspace_id) do
-    # params->>'workspace_id' 是 JSONB text 提取，与 uuid 字符串比较。
-    # 不显式调 expr/1（非宏函数无法处理 ^ pin）——filter/2 宏的 expression
-    # 分支内部 require Ash.Expr 并解析 pin，故直接传 fragment 表达式。
-    ws_id = to_string(workspace_id)
-    Ash.Query.filter(query, fragment("params->>'workspace_id' = ?", ^ws_id))
-  end
-
-  # B1（advisor02）：SignalLog / WorkflowRun 有真实 workspace_id 列（非 params JSONB），
-  # 用真实列过滤（区别于 maybe_workspace_filter 的 JSONB 版本）。
-  defp maybe_real_workspace_filter(query, nil), do: query
-
-  defp maybe_real_workspace_filter(query, workspace_id) do
-    Ash.Query.filter(query, workspace_id == ^workspace_id)
-  end
-
-  # 分页：first 限条数（默认 50），after 为上一页已返回的条数（offset）。
-  # offset 分页对 admin 内部列表足够（数据量有限），避免手写 keyset cursor
-  # 的 datetime 解析复杂度；排序按 inserted_at+id 稳定。
-  defp paginate(query, first, after_offset) do
-    query
-    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(first || 50)
-    |> maybe_offset(after_offset)
-  end
-
-  defp maybe_offset(query, nil), do: query
-
-  # B2（advisor02）：GraphQL arg(:after, :string) 声明为 string，Ash.Query.offset
-  # 期望 integer——这里显式转换；非法值（非数字）rescue 回退 0（忽略分页偏移）。
-  defp maybe_offset(query, offset) when is_integer(offset), do: Ash.Query.offset(query, offset)
-
-  defp maybe_offset(query, offset) when is_binary(offset) do
-    case Integer.parse(offset) do
-      {n, ""} when n >= 0 -> Ash.Query.offset(query, n)
-      _ -> query
-    end
   end
 
   # Ash.read 结果 → Absinthe 结果（错误统一走 to_ash_graphql_errors）
