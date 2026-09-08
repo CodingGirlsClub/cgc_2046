@@ -15,12 +15,12 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.WorkspaceApplication
+  alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
 
   require Ash.Query
 
   @statuses ~w(pending approved rejected expired)
-  @limit 50
 
   schema do
     field(:status, :string, description: "按状态过滤（pending|approved|rejected|expired，默认 pending）")
@@ -41,8 +41,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
           |> Ash.Query.for_read(:read)
           |> Ash.Query.filter(status == ^status_atom)
           |> Ash.Query.load(:applicant)
-          |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-          |> Ash.Query.limit(@limit)
+          |> AdminList.recent()
           |> Ash.read(actor: actor)
           |> case do
             {:ok, applications} ->

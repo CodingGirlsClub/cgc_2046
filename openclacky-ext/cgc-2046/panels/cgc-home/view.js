@@ -25,8 +25,10 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
+  const API = Kit.API;
   const HOME_ID = "cgc";
   const DISCOVERY_ID = "cgc-2046-discovery";
   const TEACH_ID = "cgc-2046-curriculum";
@@ -42,19 +44,15 @@
   let events = [];            // { type, tool, status, at }
   let mcpError = null;        // 最近连接异常文本(横幅)
   let currentContainer = null;
-  let csrfToken = "";         // 写路由 CSRF token(refresh 时经 /status 同源缓存)
+
   let configured = false;
   let webUrl = "";
   let workspaces = [];        // [{ workspace_id, name, slug, roles }]
   let isPlatformAdmin = false;
   let selectedWorkspaceId = "";
   let sessionBusy = false;    // 会话创建中(防重复点击)
+  const escapeHtml = Kit.escapeHtml;
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
 
   function toast(message, type) {
     if (Clacky.Modal && typeof Clacky.Modal.toast === "function") {
@@ -367,26 +365,6 @@
       });
   }
 
-  // contenteditable 注入(宿主 #user-input 是 DIV 非 textarea;发送按钮订阅确认前
-  // 禁用,轮询待启用补发——cgc-learn 面板真机实证同款管道)
-  function injectIntoComposer(text) {
-    const input = document.getElementById("user-input");
-    const send = document.getElementById("btn-send");
-    if (!input || !send) {
-      toast("请在新会话中输入「连接 CGC-2046」开始自动连接", "info");
-      return;
-    }
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
-  }
-
   // ---- 工作台管理助手(cgc-admin):创建会话并注入管理指令 ----
   function startAdminSession() {
     if (sessionBusy) return;
@@ -431,6 +409,10 @@
       });
   }
 
+  // contenteditable 注入(宿主 #user-input 是 DIV 非 textarea;发送按钮订阅确认前
+  // 禁用,轮询待启用补发——cgc-learn 面板真机实证同款管道,走共享骨架)。
+  // 历史注:本文件曾有两个 injectIntoComposer 定义(372 toast 兜底被 434 prompt
+  // 兜底覆盖为死代码);归一保留 prompt 兜底语义(原生效行为)。
   function injectIntoComposer(text) {
     const input = document.getElementById("user-input");
     const send = document.getElementById("btn-send");
@@ -438,15 +420,7 @@
       window.prompt("复制以下指令到管理会话:", text);
       return;
     }
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
+    Kit.injectIntoComposer(input, send, text);
   }
 
   // ---- 一键进助手会话(S3;青狮工作台 view.js 同款通道) ----
@@ -789,7 +763,7 @@
     }
 
     configured = !!st.configured;
-    if (st.csrf_token) csrfToken = String(st.csrf_token);
+    Kit.csrfFromStatus(st);
     webUrl = st.web_url || "";
 
     setPill(configured ? "MCP 已连接" : "未连接", configured ? "cgch-pill-on" : "cgch-pill-off");
@@ -831,17 +805,7 @@
     discEl.disabled = true;
 
     try {
-      const headers = { "Content-Type": "application/json", Accept: "application/json" };
-      if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-      // body:"{}" 必带——fetch 规范:无 body 的请求浏览器不发送 Content-Type,
-      // guard_write! 的 415 检查会误拦(真机实证)
-      let res = await fetch(API + "/connect", { method: "DELETE", headers: headers, body: "{}" });
-      if (res.status === 403 && (await refreshCsrf())) {
-        headers["X-CGC-CSRF-Token"] = csrfToken;
-        res = await fetch(API + "/connect", { method: "DELETE", headers: headers, body: "{}" });
-      }
-      const body = await res.json().catch(function () { return {}; });
-      if (!res.ok || !body.ok) throw new Error(body.error || ("HTTP " + res.status));
+      await Kit.apiDelete("/connect");
       toast("已断开连接,可点「连接网站」重新连接", "success");
       await refresh(container);
     } catch (e) {
@@ -850,15 +814,7 @@
     }
   }
 
-  // 重取 CSRF token(宿主热重载会轮换进程级 token——403-on-CSRF 自愈路径)
-  async function refreshCsrf() {
-    try {
-      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
-      const body = await res.json().catch(function () { return {}; });
-      if (res.ok && body.csrf_token) { csrfToken = String(body.csrf_token); return true; }
-    } catch (e) { /* 静默 */ }
-    return false;
-  }
+
 
   // ---- 扩展事件总线订阅 ----
   function onToolUsed(payload) {

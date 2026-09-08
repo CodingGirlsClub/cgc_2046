@@ -6,11 +6,21 @@ defmodule Cgc2046.AdminList do
 
   全部为 `Ash.Query` 纯变换（query in → query out），无 IO、无授权判定
   （门控在调用方：web 侧 `with_admin`、MCP 侧 Wrapper 派生门控）。
-  消费方：graphql_schema 的 8 个 admin_* 列表 query；后续 MCP `admin_*`
-  工具的同形手搓（架构评审候选④）收编时也以此为家。
+  消费方：graphql_schema 的 admin_* 列表 query（maybe_* 组合子 + paginate）
+  与 MCP `admin_list_*` 工具（maybe_*_search + recent「倒序封顶」骨架）。
   """
 
   require Ash.Query
+
+  # 「倒序封顶」读取骨架（web 侧 paginate 与 MCP admin_* 工具共用）：
+  # <sort_key> desc + id desc 稳定决胜 + limit 封顶。MCP 工具无分页偏移，
+  # 直接用本函数；web 侧带 offset 的走 paginate/3。
+  # sort_key 默认 inserted_at；Reconciliation.Finding 按「最近出现」排（last_seen_at）。
+  def recent(query, sort_key \\ :inserted_at, limit \\ 50) do
+    query
+    |> Ash.Query.sort([{sort_key, :desc}, {:id, :desc}])
+    |> Ash.Query.limit(limit)
+  end
 
   # search 模糊过滤（字段静态，search 运行时值经 ^ pin 注入）：
   # - maybe_user_search：email（ci_string）/ display_name contains OR
