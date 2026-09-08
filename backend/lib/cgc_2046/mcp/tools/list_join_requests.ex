@@ -31,7 +31,7 @@ defmodule Cgc2046.Mcp.Tools.ListJoinRequests do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_join_requests", fn actor, workspace_id, params ->
-        status = params["status"] || params[:status] || "pending"
+        status = params["status"] || "pending"
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, status} <- parse_status(status) do

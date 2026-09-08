@@ -29,7 +29,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "submit_prep_for_check", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course, actor),

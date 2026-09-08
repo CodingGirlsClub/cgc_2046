@@ -32,7 +32,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
       Wrapper.run(frame, params, "admin_list_workspace_applications", fn actor,
                                                                          _workspace_id,
                                                                          params ->
-        status = params["status"] || params[:status] || "pending"
+        status = params["status"] || "pending"
 
         with {:ok, status} <- parse_status(status) do
           status_atom = String.to_existing_atom(status)

@@ -101,11 +101,11 @@ defmodule Cgc2046.Mcp.Tools.CreateCourse do
   defp take_fields(params, fields) do
     fields
     |> Enum.filter(fn field ->
-      value = params[field] || params[String.to_existing_atom(field)]
+      value = params[field]
       not is_nil(value)
     end)
     |> Map.new(fn field ->
-      {String.to_existing_atom(field), params[field] || params[String.to_existing_atom(field)]}
+      {String.to_existing_atom(field), params[field]}
     end)
   end
 end

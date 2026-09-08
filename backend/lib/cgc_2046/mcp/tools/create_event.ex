@@ -112,9 +112,5 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
     |> Map.new(fn field -> {String.to_existing_atom(field), take_value(params, field)} end)
   end
 
-  defp take_value(params, field) do
-    if Map.has_key?(params, field),
-      do: params[field],
-      else: Map.get(params, String.to_existing_atom(field))
-  end
+  defp take_value(params, field), do: Map.get(params, field)
 end

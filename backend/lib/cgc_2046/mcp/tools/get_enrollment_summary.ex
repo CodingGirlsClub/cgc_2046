@@ -48,9 +48,9 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_enrollment_summary", fn actor, workspace_id, params ->
-        offering_id = params["offering_id"] || params[:offering_id]
+        offering_id = params["offering_id"]
 
-        with {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"] || params[:kind]),
+        with {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]),
              {:ok, offering} <- fetch_offering(actor, workspace_id, kind, offering_id) do
           {:ok, to_summary(actor, kind, offering, workspace_id)}
         end
