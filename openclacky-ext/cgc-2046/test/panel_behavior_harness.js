@@ -503,6 +503,10 @@ globalThis.Clacky = {
   },
 };
 
+// ⑦ 共享骨架:业务面板 view.js 顶部依赖 window.CgcKit(ext.yml 首位声明注入);
+// harness 复刻装载顺序——先 require 同扩展 panels/shared/view.js 再加载目标
+require(require("path").resolve(require("path").dirname(viewPath), "..", "shared", "view.js"));
+if (!globalThis.CgcKit) { console.error("FAIL: 共享骨架 CgcKit 未挂载"); process.exit(1); }
 require(require("path").resolve(viewPath));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

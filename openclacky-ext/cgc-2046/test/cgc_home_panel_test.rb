@@ -23,6 +23,7 @@ ROOT_LICENSE = File.read(File.expand_path("../../../LICENSE", __dir__))
 
 class CgcHomePanelTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
 
   # ---- 注册与位置:唯一侧栏入口,挂顶部 ----
   def test_registers_home_workspace_and_top_nav
@@ -61,10 +62,9 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes VIEW, "将自动打开 CGC 网站签发并复制 token"
     assert_includes VIEW, "injectIntoComposer"
     assert_includes VIEW, "CDP 自动连接"
-    # contenteditable 注入 + 禁用按钮补发(cgc-learn 同款真机实证管道)
-    assert_includes VIEW, "input.textContent = text"
+    # ⑦:注入管道归一共享骨架;面板侧锚委托调用(禁用补发/textContent 语义在 Kit)
+    assert_includes VIEW, "Kit.injectIntoComposer(input, send, text)"
     refute_includes VIEW, "input.value = text"
-    assert_includes VIEW, "send.disabled"
   end
 
   def test_focus_refresh_reloads_workspaces
@@ -85,7 +85,7 @@ class CgcHomePanelTest < Minitest::Test
   # 真机回归:WEBrick header 对未发送的键返回空数组(truthy),request_header
   # 的 || 链曾被空数组短路 → 带 Content-Type 的写请求也 415。钉死空数组剔除。
   def test_request_header_skips_empty_array_keys
-    assert_includes VIEW, "body: \"{}\"", "DELETE 须带空 JSON body(fetch 规范:无 body 不发送 Content-Type)"
+    assert_includes KIT, "body: \"{}\"", "DELETE 须带空 JSON body(fetch 规范:无 body 不发送 Content-Type;⑦后实现在共享骨架)"
   end
 
   # 任务 kind 中文标签 + 可点击跳转对应面板
@@ -120,12 +120,13 @@ class CgcHomePanelTest < Minitest::Test
 
   def test_connection_management_migrated
     assert_includes VIEW, 'API + "/status"'
-    assert_includes VIEW, 'API + "/connect", { method: "DELETE"'
-    assert_includes VIEW, "X-CGC-CSRF-Token"
+    # ⑦:DELETE 连接(CSRF 自愈)委托共享骨架;面板侧锚调用,实现在 Kit
+    assert_includes VIEW, 'Kit.apiDelete("/connect")'
+    assert_includes KIT, "X-CGC-CSRF-Token"
     # 连接/token 状态收敛为 header 状态 pill(视觉重构);csrf 自愈与 web_url 保留
     assert_includes VIEW, "cgc-state-pill"
     assert_includes VIEW, "已连接"
-    assert_includes VIEW, "csrf_token"
+    assert_includes KIT, "csrf_token"
     assert_includes VIEW, "web_url"
   end
 
@@ -199,7 +200,7 @@ class CgcHomePanelTest < Minitest::Test
 
   # ---- 安全纪律 ----
   def test_dynamic_values_escaped
-    assert_includes VIEW, "function escapeHtml("
+    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
     assert_includes VIEW, "escapeHtml(spec.title)"
     assert_includes VIEW, "escapeHtml(spec.desc)"
     assert_includes VIEW, "escapeHtml(w.workspace_id)"
@@ -514,6 +515,7 @@ end
 
 class CgcLearnPanelTest < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-learn/view.js", __dir__))
+  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
   COURSE_VIEW = File.read(File.expand_path("../panels/cgc-course/view.js", __dir__))
 
   # 挂载合同:仅 CGC 助手会话(agents 过滤 + ctx 双保险);session.aside 是
@@ -565,11 +567,13 @@ class CgcLearnPanelTest < Minitest::Test
     assert_includes VIEW, 'document.getElementById("btn-send")'
     # 宿主 #user-input 是 contenteditable DIV:textContent 注入(真机实证,
     # value 赋值 Composer.text 读不到);发送按钮禁用(订阅确认前)时待启用补发
-    assert_includes VIEW, "input.textContent = finalText"
+    # ⑦:填值/dispatch/点发/补发归一共享骨架;面板侧锚草稿保护与委托调用
+    assert_includes VIEW, "const draft = (input.textContent || \"\").trim();"
+    assert_includes VIEW, "Kit.injectIntoComposer(input, send, finalText)"
     refute_includes VIEW, "input.value = text"
-    assert_includes VIEW, 'new Event("input", { bubbles: true })'
-    assert_includes VIEW, "send.disabled"
-    assert_includes VIEW, "send.click()"
+    assert_includes KIT, 'new Event("input", { bubbles: true })'
+    assert_includes KIT, "send.disabled"
+    assert_includes KIT, "send.click()"
     assert_includes VIEW, "navigator.clipboard.writeText"
   end
 
@@ -594,7 +598,7 @@ class CgcLearnPanelTest < Minitest::Test
   end
 
   def test_dynamic_values_escaped
-    assert_includes VIEW, "function escapeHtml("
+    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
     assert_includes VIEW, "escapeHtml(c.title)"
     assert_includes VIEW, "escapeHtml(o.title || o.id)"
     assert_includes VIEW, "m.title || m.id"

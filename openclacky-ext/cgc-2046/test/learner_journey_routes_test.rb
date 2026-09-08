@@ -637,29 +637,35 @@ class PanelCsrfSelfHealTest < Minitest::Test
   TEACH_VIEW = File.read(File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__))
   # S4:workspace 面板已删,disconnect 职责迁入 cgc-home hub 面板
   HOME_VIEW = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+  # ⑦:自愈实现归一面板共享骨架(panels/shared/view.js),各面板写路径经
+  # Kit.apiPost/apiDelete 获得;在场锚从面板拷贝改指骨架,面板侧锚调用委托
+  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
   HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
   COURSE_VIEW_PATH = File.expand_path("../panels/cgc-course/view.js", __dir__)
 
   def test_discovery_api_post_retries_once_on_csrf_403
-    assert_includes DISCOVERY_VIEW, "async function refreshCsrf()"
-    assert_includes DISCOVERY_VIEW, 'res.status === 403 && (await refreshCsrf())'
+    assert_includes DISCOVERY_VIEW, "const apiPost = Kit.apiPost"
+    assert_includes KIT, "async function refreshCsrf()"
+    assert_includes KIT, 'res.status === 403 && (await refreshCsrf())'
     # 重试只一次(无循环):403 分支后无再次重试的嵌套
-    refute_includes DISCOVERY_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    refute_includes KIT, "refreshCsrf())) && (await refreshCsrf()"
   end
 
   def test_course_api_post_retries_once_on_csrf_403
     # 教研拆出后,course 写端点(apiPost)在 teach 面板;学习中心无写面
-    assert_includes TEACH_VIEW, "async function refreshCsrf()"
-    assert_includes TEACH_VIEW, 'res.status === 403 && (await refreshCsrf())'
-    refute_includes TEACH_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    assert_includes TEACH_VIEW, "const apiPost = Kit.apiPost"
+    assert_includes KIT, "async function refreshCsrf()"
+    assert_includes KIT, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes KIT, "refreshCsrf())) && (await refreshCsrf()"
     # 学习中心无写请求
     refute_includes COURSE_VIEW, "apiPost"
   end
   # workspace 面板 disconnect（DELETE）与 POST 写路由同规：带 token + 403 自愈一次
   def test_workspace_api_delete_retries_once_on_csrf_403
-    assert_includes HOME_VIEW, "async function refreshCsrf()"
-    assert_includes HOME_VIEW, 'res.status === 403 && (await refreshCsrf())'
-    refute_includes HOME_VIEW, "refreshCsrf())) && (await refreshCsrf()"
+    assert_includes HOME_VIEW, "Kit.apiDelete"
+    assert_includes KIT, "async function refreshCsrf()"
+    assert_includes KIT, 'res.status === 403 && (await refreshCsrf())'
+    refute_includes KIT, "refreshCsrf())) && (await refreshCsrf()"
   end
 
   # advisor R3:harness 的 csrf_retry_self_heal 场景已删除——该场景在
@@ -885,6 +891,7 @@ end
 
 class DiscoveryPanelV2Test < Minitest::Test
   VIEW = File.read(File.expand_path("../panels/cgc-discovery/view.js", __dir__))
+  KIT = File.read(File.expand_path("../panels/shared/view.js", __dir__))
 
   def test_data_source_is_discover_not_offerings
     # S7:列表源切换到 /discover(合并面孔);旧 /offerings 读取整体移除
@@ -944,7 +951,8 @@ class DiscoveryPanelV2Test < Minitest::Test
 
   def test_submit_posts_enrollments
     assert_includes VIEW, 'apiPost("/enrollments"'
-    assert_includes VIEW, 'method: "POST"'
+    # ⑦:POST 传输层(method/body 序列化/CSRF)归一共享骨架
+    assert_includes KIT, 'method: "POST"'
     assert_includes VIEW, "offering_id: item.id"
     assert_includes VIEW, "body.tier_id"
   end
@@ -1004,7 +1012,8 @@ class DiscoveryPanelV2Test < Minitest::Test
   end
 
   def test_dynamic_values_escaped
-    assert_includes VIEW, "function escapeHtml("
+    # ⑦:转义实现归一共享骨架;面板侧锚别名在场 + 调用点转义
+    assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
     assert_includes VIEW, "escapeHtml(item.title)"
     assert_includes VIEW, "escapeHtml(item.kind)"
     assert_includes VIEW, "escapeHtml(t.name"
