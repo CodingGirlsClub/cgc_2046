@@ -80,7 +80,12 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/tasks"]
     assert_includes routes, [:post, "/courses/:course_id/content"]
     assert_includes routes, [:get, "/courses/:course_id/prep"]
-    assert_equal 22, Cgc2046Ext.routes.size  # +/activity +/workspace/courses
+    # P1 管理读面新增两路由(订单/供给报名队列透传,管理侧栏数据源)
+    assert_includes routes, [:get, "/workspace/orders"]
+    assert_includes routes, [:get, "/workspace/enrollments"]
+    # P3 活动供给面新增一路由(list_workspace_events 透传)
+    assert_includes routes, [:get, "/workspace/events"]
+    assert_equal 25, Cgc2046Ext.routes.size  # +/activity +/workspace/courses|orders|enrollments|events
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 

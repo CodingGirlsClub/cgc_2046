@@ -401,6 +401,61 @@ class Cgc2046Ext < Clacky::ApiExtension
     end
   end
 
+  # GET /api/ext/cgc-2046/workspace/events?workspace_id=
+  # 工作台全部活动(含 draft;P3 起与课程同面):管理侧栏供给区的活动数据源。
+  get "/workspace/events" do
+    guard_origin!
+    workspace_id = route_params_value("workspace_id")
+    if workspace_id.empty?
+      json({ error: "workspace_id is required" }, status: 400)
+    else
+      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
+        self, "list_workspace_events", { "workspace_id" => workspace_id }
+      )
+      json(outcome[:body], status: outcome[:status])
+    end
+  end
+
+  # GET /api/ext/cgc-2046/workspace/orders?workspace_id=
+  # 工作台订单(Owner/Admin 管理读,role-agent-journeys-v2 S3):管理侧栏订单区
+  # 数据源。keyset 首页封顶 200,more 透传(超出走 web 管理页深挖);非终态
+  # 排序是面板侧展示逻辑,不在本端点。
+  get "/workspace/orders" do
+    guard_origin!
+    workspace_id = route_params_value("workspace_id")
+    if workspace_id.empty?
+      json({ error: "workspace_id is required" }, status: 400)
+    else
+      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
+        self, "list_workspace_orders", { "workspace_id" => workspace_id }
+      )
+      json(outcome[:body], status: outcome[:status])
+    end
+  end
+
+  # GET /api/ext/cgc-2046/workspace/enrollments?workspace_id=&kind=&offering_id=
+  # 供给报名队列(Owner/Admin 管理读):管理侧栏供给区的下钻数据源。
+  # kind=course|event 必填分派(P2 起活动同面),三参缺一 → 400(不下发 registry)。
+  get "/workspace/enrollments" do
+    guard_origin!
+    workspace_id = route_params_value("workspace_id")
+    kind         = route_params_value("kind")
+    offering_id  = route_params_value("offering_id")
+    missing = []
+    missing << "workspace_id" if workspace_id.empty?
+    missing << "kind" if kind.empty?
+    missing << "offering_id" if offering_id.empty?
+    if missing.any?
+      json({ error: missing.join(" / ") + " is required" }, status: 400)
+    else
+      outcome = Cgc2046WorkbenchRoutes.call_workbench_tool(
+        self, "list_enrollments",
+        { "workspace_id" => workspace_id, "kind" => kind, "offering_id" => offering_id }
+      )
+      json(outcome[:body], status: outcome[:status])
+    end
+  end
+
   # GET /api/ext/cgc-2046/activity
   # 最近 CGC 助手调用记录(历史回放):扫描宿主全部会话消息中
   # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息

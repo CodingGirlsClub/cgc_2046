@@ -78,6 +78,7 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
              status: to_string(rejected.status),
              user_id: rejected.user_id,
              course_id: rejected.course_id,
+             event_id: rejected.event_id,
              rejection_reason: rejected.rejection_reason
            }}
 
