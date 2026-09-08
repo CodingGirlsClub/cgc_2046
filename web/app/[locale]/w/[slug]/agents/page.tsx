@@ -24,6 +24,7 @@ import { useAuthed } from "@/lib/use-authed";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { fetchMyMcpTokens, type McpTokenItem } from "@/lib/mcp";
 import { fetchMyWorkspaceToolCalls, type AgentActivityItem } from "@/lib/agents";
+import { formatDateTime } from "@/lib/format";
 
 /** 活动流状态展示元信息（色点 class + 中文 label） */
 const ACTIVITY_STATUS_META: Record<string, { className: string; labelKey: string }> = {
@@ -35,16 +36,6 @@ const ACTIVITY_STATUS_META: Record<string, { className: string; labelKey: string
 
 function activityMeta(status: string) {
 	return ACTIVITY_STATUS_META[status] ?? { className: "agents-activity-dot--muted", labelKey: status };
-}
-
-
-function formatActivityTime(iso: string): string {
-	return new Date(iso).toLocaleString("zh-CN", {
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
 }
 
 
@@ -80,7 +71,7 @@ function ActivitySection({ items }: { items: AgentActivityItem[] }) {
 									<span className="agents-activity__status">{t(meta.labelKey)}</span>
 								</div>
 								<div className="agents-activity__meta">
-									<span>{formatActivityTime(item.insertedAt)}</span>
+									<span>{formatDateTime(item.insertedAt)}</span>
 									{item.latencyMs !== null && <span>{item.latencyMs}ms</span>}
 								</div>
 								{item.errorMessage && (
