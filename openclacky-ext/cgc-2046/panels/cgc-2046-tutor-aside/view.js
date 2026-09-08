@@ -203,7 +203,8 @@
     }
 
     if (report && report.summary) {
-      html += '<div class="cgta-quality-summary">' + escapeHtml(report.summary.slice(0, 120)) + '</div>';
+      // summary 是服务端数据,非字符串(对象/数组)时 .slice 直接抛错崩渲染
+      html += '<div class="cgta-quality-summary">' + escapeHtml(String(report.summary || "").slice(0, 120)) + '</div>';
     }
 
     if (st === "review") {
@@ -397,7 +398,8 @@
     inner += '<button id="cgta-open-workbench" class="cgta-open" type="button">在教研工作台打开 →</button>';
 
     root.innerHTML = html;
-    const selBody = root.querySelector("[data-body='" + state.selectedCourseId + "']");
+    // courseId 是服务端数据,未转义拼选择器在含引号/右方括号时抛 SyntaxError 崩面板
+    const selBody = root.querySelector("[data-body='" + CSS.escape(state.selectedCourseId) + "']");
     if (selBody) selBody.innerHTML = inner;
 
     bindHead();
