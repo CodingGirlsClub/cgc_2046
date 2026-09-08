@@ -18,6 +18,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.Tools.LearnerAuthorization
   alias Cgc2046.Mcp.Wrapper
 
@@ -33,7 +34,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
         course_id = params["course_id"] || params[:course_id]
 
         with :ok <- authorize_staff(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, output} <- fetch_content(workspace_id, course_id) do
           content = output.data || %{}
 
@@ -70,18 +71,6 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
       :ok
     else
       {:error, "forbidden: tutor, owner or admin required"}
-    end
-  end
-
-  # 课程元数据(title/slug,key 派生原料);授权已在工具层发生,
-  # authorize?: false 直读(save_learning_records fetch_course 同款纪律)
-  defp fetch_course(workspace_id, course_id) do
-    case Cgc2046.Courses.Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 
