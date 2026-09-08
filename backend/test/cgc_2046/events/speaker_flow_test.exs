@@ -796,6 +796,31 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
 
       assert {:error, %Ash.Error.Forbidden{}} = SpeakerInvitation.resend(invitation, member)
     end
+
+    test "未过期邀请重发：保留原 expires_at（操作者设定不丢）" do
+      admin = Fixtures.platform_admin("spk-resend-keep-exp")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      original_expires_at = DateTime.add(DateTime.utc_now(), 3, :day)
+
+      {:ok, invitation, _token} =
+        SpeakerInvitation.issue(
+          %{
+            event_id: event.id,
+            speaker_name: "嘉宾保留",
+            speaker_email: "resend-keep@example.com",
+            expires_at: original_expires_at
+          },
+          admin,
+          workspace.id
+        )
+
+      assert {:ok, updated, _new_token} = SpeakerInvitation.resend(invitation, admin)
+
+      # utc_datetime 秒精度：重发不改未过期的 expires_at（与原值相差 ≤ 2 秒）
+      assert abs(DateTime.diff(updated.expires_at, original_expires_at, :second)) <= 2
+    end
   end
 
   test "并发 resend CAS（M1）：stale token_hash 的第二次重发被拒", %{} do
@@ -823,7 +848,7 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
     assert {:ok, _u2, _t2} = SpeakerInvitation.resend(fresh, admin)
   end
 
-  test "过期邀请重发即续期（HIGH 修订）：清空 expires_at，新链接即刻可决策", %{} do
+  test "过期邀请重发即续期（HIGH 修订）：续期 now+7d，新链接即刻可决策", %{} do
     admin = Fixtures.platform_admin("spk-resend-expired")
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
@@ -849,9 +874,15 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
         [Ecto.UUID.dump!(invitation.id)]
       )
 
+    # 回拨后必须回库重读：stale struct 的 expires_at 停在创建时的未来值，
+    # 拿它调 resend 会走错分支（误保留而非续期）
+    expired = Ash.get!(SpeakerInvitation, invitation.id, authorize?: false)
+
     # R6「一键自救」：拒绝重发会与未终态唯一索引叠加成死锁，故重发必须救活
-    assert {:ok, updated, new_token} = SpeakerInvitation.resend(invitation, admin)
-    assert is_nil(updated.expires_at)
+    assert {:ok, updated, new_token} = SpeakerInvitation.resend(expired, admin)
+
+    # 续期 now+7d（不再清空为 nil）：落库值距现在 167–168 小时（7 天减执行耗时）
+    assert DateTime.diff(updated.expires_at, DateTime.utc_now(), :hour) in 167..168
 
     # 新链接即刻可用（card 无过期守卫拦截）；旧 token 作废
     assert {:ok, %{status: "invited"}} = SpeakerInvitations.card(new_token)
