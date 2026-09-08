@@ -30,8 +30,8 @@ defmodule Cgc2046.Mcp.Tools.RejectEnrollment do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "reject_enrollment", fn actor, workspace_id, params ->
-        enrollment_id = params["enrollment_id"] || params[:enrollment_id]
-        reason = params["rejection_reason"] || params[:rejection_reason]
+        enrollment_id = params["enrollment_id"]
+        reason = params["rejection_reason"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, enrollment_id) do

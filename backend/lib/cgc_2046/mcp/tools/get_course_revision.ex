@@ -36,8 +36,8 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_course_revision", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        revision_number = params["revision_number"] || params[:revision_number]
+        course_id = params["course_id"]
+        revision_number = params["revision_number"]
 
         with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, latest} <- fetch_latest_revision(workspace_id, course.id),

@@ -39,8 +39,8 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "assign_roles", fn actor, workspace_id, params ->
-        membership_id = params["membership_id"] || params[:membership_id]
-        role_names = params["role_names"] || params[:role_names] || []
+        membership_id = params["membership_id"]
+        role_names = params["role_names"] || []
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, role_names} <- parse_role_names(role_names),

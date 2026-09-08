@@ -38,7 +38,7 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_order_status", fn actor, workspace_id, params ->
-        enrollment_id = params["enrollment_id"] || params[:enrollment_id]
+        enrollment_id = params["enrollment_id"]
 
         with {:ok, enrollment} <- fetch_enrollment(workspace_id, enrollment_id),
              :ok <- enrollee_only(enrollment, actor),

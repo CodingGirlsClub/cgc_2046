@@ -41,9 +41,9 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_reconciliation_findings", fn actor, _ws, params ->
-        with {:ok, rule} <- parse_rule(params["rule"] || params[:rule]),
+        with {:ok, rule} <- parse_rule(params["rule"]),
              {:ok, workspace_id} <-
-               parse_workspace_id(params["workspace_id"] || params[:workspace_id]),
+               parse_workspace_id(params["workspace_id"]),
              {:ok, rows} <- read_findings(actor, rule, workspace_id) do
           {:ok, %{count: length(rows), findings: rows}}
         end

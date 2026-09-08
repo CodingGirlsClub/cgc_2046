@@ -37,8 +37,8 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "submit_prep_quality_report", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        report = params["report"] || params[:report]
+        course_id = params["course_id"]
+        report = params["report"]
 
         with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
