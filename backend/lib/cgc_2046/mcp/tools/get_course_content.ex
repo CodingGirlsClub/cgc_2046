@@ -31,7 +31,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_course_content", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize_staff(actor, workspace_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),

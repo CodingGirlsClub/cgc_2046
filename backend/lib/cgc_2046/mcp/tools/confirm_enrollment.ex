@@ -31,7 +31,7 @@ defmodule Cgc2046.Mcp.Tools.ConfirmEnrollment do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "confirm_enrollment", fn actor, workspace_id, params ->
-        enrollment_id = params["enrollment_id"] || params[:enrollment_id]
+        enrollment_id = params["enrollment_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, enrollment_id) do

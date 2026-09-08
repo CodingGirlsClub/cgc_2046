@@ -40,9 +40,9 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "save_course_content", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
-        content = params["content"] || params[:content]
-        base_version = params["base_version"] || params[:base_version]
+        course_id = params["course_id"]
+        content = params["content"]
+        base_version = params["base_version"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),

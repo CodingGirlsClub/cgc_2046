@@ -39,7 +39,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "list_workspace_courses", fn _actor, workspace_id, params ->
-        with {:ok, status} <- parse_status(params["status"] || params[:status]),
+        with {:ok, status} <- parse_status(params["status"]),
              {:ok, rows} <- read_courses(workspace_id, status) do
           {:ok, %{count: length(rows), courses: rows}}
         end

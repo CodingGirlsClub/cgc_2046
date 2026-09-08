@@ -34,14 +34,14 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "create_invitation", fn _actor, workspace_id, params ->
-        target = params["target_email"] || params[:target_email]
+        target = params["target_email"]
 
-        roles = params["preauthorized_role_names"] || params[:preauthorized_role_names] || []
+        roles = params["preauthorized_role_names"] || []
 
         roles_str =
           if is_list(roles) and roles != [], do: "（预授权角色: #{Enum.join(roles, ", ")}）", else: ""
 
-        courses_str = courses_summary(params["prep_course_ids"] || params[:prep_course_ids])
+        courses_str = courses_summary(params["prep_course_ids"])
 
         summary =
           if target do

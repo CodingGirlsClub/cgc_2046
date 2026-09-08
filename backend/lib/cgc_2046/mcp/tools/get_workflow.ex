@@ -17,7 +17,7 @@ defmodule Cgc2046.Mcp.Tools.GetWorkflow do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "get_workflow", fn actor, workspace_id, params ->
-        run_id = params["run_id"] || params[:run_id]
+        run_id = params["run_id"]
 
         case Cgc2046.Workflows.WorkflowRun
              |> Ash.Query.for_read(:get_by_id, %{id: run_id})

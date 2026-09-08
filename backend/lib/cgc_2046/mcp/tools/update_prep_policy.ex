@@ -36,7 +36,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "update_prep_policy", fn actor, workspace_id, params ->
-        course_id = params["course_id"] || params[:course_id]
+        course_id = params["course_id"]
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
@@ -156,11 +156,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     end
   end
 
-  defp param(params, key) do
-    if Map.has_key?(params, key),
-      do: params[key],
-      else: Map.get(params, String.to_existing_atom(key))
-  end
+  defp param(params, key), do: Map.get(params, key)
 
   defp policy_summary(policy) do
     "review_required=#{policy["review_required"]}, " <>

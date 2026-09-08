@@ -33,7 +33,7 @@ defmodule Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication do
       Wrapper.run(frame, params, "admin_approve_workspace_application", fn actor,
                                                                            _workspace_id,
                                                                            params ->
-        application_id = params["application_id"] || params[:application_id]
+        application_id = params["application_id"]
 
         with {:ok, application} <- fetch_application(actor, application_id) do
           # 非终态快速失败：已处理申请不值得建 pending（终态/过期的并发拦截仍由
