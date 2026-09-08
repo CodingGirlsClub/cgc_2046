@@ -167,6 +167,21 @@
     return url;
   }
 
+  // safeWebUrl:导航类外链 scheme 门(web_url/checkout_url/深链)——https 任意
+  // host;http 仅 loopback(README 文档化的本地联调形态)。new URL 判定:协议
+  // 归一小写、相对路径/无协议解析失败即拒、tab 走私按浏览器实际行为拒;
+  // 其余(javascript:/data:/file:/非字符串)一律 null。非法 ≡ 未配置,
+  // 各 sink 走既有"隐藏/退化"降级,不建新 UI 态。
+  function safeWebUrl(url) {
+    if (typeof url !== "string") return null;
+    let u;
+    try { u = new URL(url); } catch (e) { return null; }
+    if (u.protocol === "https:") return url;
+    if (u.protocol === "http:" &&
+        (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "[::1]")) return url;
+    return null;
+  }
+
   // 行内 markdown 小子集:标题/加粗/行内代码/https 链接/列表项;插值先转义
   function markdownMarkup(body) {
     return String(body || "").split(/\n+/).map(function (line) {
@@ -218,6 +233,7 @@
     injectIntoComposer: injectIntoComposer,
     poll: poll,
     safeMaterialUrl: safeMaterialUrl,
+    safeWebUrl: safeWebUrl,
     markdownMarkup: markdownMarkup,
     materialMarkup: materialMarkup
   };

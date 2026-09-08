@@ -222,7 +222,8 @@
   // web_url 透传(深链基址);未配置/未连接时静默——深链区隐藏
   function loadStatus() {
     return rawGet("/status").then(function (body) {
-      state.webUrl = (body.web_url || "").toString();
+      // scheme 门(安全评审低危#4):非法 scheme ≡ 未配置,深链区整体隐藏
+      state.webUrl = Kit.safeWebUrl(body.web_url) || "";
     }).catch(function () { state.webUrl = ""; });
   }
 
@@ -668,8 +669,10 @@
     root.querySelectorAll("[data-link-url]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const url = btn.getAttribute("data-link-url");
-        // scheme 白名单 + noopener(webUrl 来自 /status 透传,防配置污染注入 javascript:)
-        if (url && /^https?:\/\//.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+        // scheme 门 + noopener(webUrl 来自 /status 透传,防配置污染注入 javascript:);
+        // 门归一 Kit.safeWebUrl(https 或 loopback http,与全仓导航 URL 同口径)
+        const safe = Kit.safeWebUrl(url);
+        if (safe) window.open(safe, "_blank", "noopener,noreferrer");
       });
     });
   }
