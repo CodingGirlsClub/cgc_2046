@@ -149,7 +149,7 @@ export const LIST_EVENTS: TypedDocumentNode<
   { workspaceId: string }
 > = gql`
   query ListEvents($workspaceId: ID!) {
-    listEvents(filter: { workspaceId: { eq: $workspaceId } }) {
+    listEvents(first: 250, filter: { workspaceId: { eq: $workspaceId } }) {
       results {
         id
         workspaceId
@@ -172,7 +172,7 @@ export const LIST_COURSES: TypedDocumentNode<
   { workspaceId: string }
 > = gql`
   query ListCourses($workspaceId: ID!) {
-    listCourses(filter: { workspaceId: { eq: $workspaceId } }) {
+    listCourses(first: 250, filter: { workspaceId: { eq: $workspaceId } }) {
       results {
         id
         workspaceId
@@ -495,18 +495,19 @@ export interface PublicOfferingItem {
   sponsorshipTiers?: string[] | null;
 }
 
+// first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
 export const PUBLIC_LIST_EVENTS: TypedDocumentNode<{
   listEvents: { results: PublicOfferingItem[] };
 }> = gql`
   query PublicListEvents {
     listEvents(
+      first: 250,
       filter: { status: { eq: "open" }, visibility: { eq: "public" } }
     ) {
       results {
         id
         slug
         title
-        description
         status
         visibility
         enrollmentPolicy
@@ -520,18 +521,19 @@ export const PUBLIC_LIST_EVENTS: TypedDocumentNode<{
   }
 `;
 
+// first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
 export const PUBLIC_LIST_COURSES: TypedDocumentNode<{
   listCourses: { results: PublicOfferingItem[] };
 }> = gql`
   query PublicListCourses {
     listCourses(
+      first: 250,
       filter: { status: { eq: "open" }, visibility: { eq: "public" } }
     ) {
       results {
         id
         slug
         title
-        description
         status
         visibility
         enrollmentPolicy
