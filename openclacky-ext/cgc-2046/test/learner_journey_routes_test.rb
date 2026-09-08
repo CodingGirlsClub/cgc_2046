@@ -137,7 +137,7 @@ class LearnerJourneyRoutesTest < Minitest::Test
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key)
   #   POST body 在 req.body(JSON 字符串);GET query 在 req.query,不进 @params
-  def build(registry:, body: nil, query: {}, params: {}, header: {})
+  def build(registry:, body: nil, query: {}, params: {}, header: { "Host" => "127.0.0.1:7070" })
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query, header))
     inst.instance_variable_set(:@params, params)
@@ -153,7 +153,8 @@ class LearnerJourneyRoutesTest < Minitest::Test
 
   # POST /enrollments 的面板同款写头（advisor F2：json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
 
   def enroll(registry:, body:)
@@ -515,10 +516,11 @@ class LearnerJourneyRoutesTest < Minitest::Test
   def test_learning_start_posts_and_requires_csrf
     registry = FakeRegistry.new
 
-    # 缺 token → 403,零 call（guard_write!）
+
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(JSON.generate({ "workspace_id" => WS, "course_id" => OFF }), {},
-                                                  { "Content-Type" => "application/json" })
+                                                  { "Content-Type" => "application/json",
+                                                    "Host" => "127.0.0.1:7070" })
     )
     inst.instance_variable_set(:@params, {})
     inst.instance_variable_set(:@http_server, FakeServer.new(registry))

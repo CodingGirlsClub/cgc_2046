@@ -60,7 +60,8 @@ class HandlerRequestTest < Minitest::Test
 
   # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
 
   def test_routes_registered
@@ -375,7 +376,8 @@ class HandlerRequestTest < Minitest::Test
 
     stub_fs(old_text: old) do |persisted|
       halt = invoke(:delete, "/connect",
-                    build(registry: registry, header: { "Content-Type" => "application/json" }))
+                    build(registry: registry, header: { "Content-Type" => "application/json",
+                                                        "Host" => "127.0.0.1:7070" }))
 
       assert_equal 403, halt.status
       assert_includes JSON.parse(halt.payload)["error"], "CSRF"
@@ -402,6 +404,72 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+
+  # ---- DNS rebinding 防线:Host 钉死 loopback ----
+  # 攻击形态:受害者浏览攻击者页面,攻击者把自家域名 A 记录翻成 127.0.0.1,
+  # 浏览器带 Host: evil.example 直连宿主——Origin==Host 同源比对整体失效,
+  # /status 可读(CSRF token 泄漏)→ connect 可伪造(mcp.json 改写指向攻击者
+  # MCP server)。宿主默认绑 127.0.0.1,合法 Host 只会是 loopback。
+  def test_loopback_host_predicate_table
+    assert Cgc2046Ext.loopback_host?("127.0.0.1:7070")
+    assert Cgc2046Ext.loopback_host?("127.0.0.1")
+    assert Cgc2046Ext.loopback_host?("127.0.0.2:7070"), "127/8 全段均为 loopback"
+    assert Cgc2046Ext.loopback_host?("localhost:7070")
+    assert Cgc2046Ext.loopback_host?("[::1]:7070")
+    assert Cgc2046Ext.loopback_host?("[::1]")
+    assert Cgc2046Ext.loopback_host?("::1"), "裸 IPv6 无端口不得误剥尾段"
+
+    refute Cgc2046Ext.loopback_host?("evil.example")
+    refute Cgc2046Ext.loopback_host?("evil.example:7070")
+    refute Cgc2046Ext.loopback_host?("127.0.0.1.evil.example"), "loopback 前缀域名欺骗"
+    refute Cgc2046Ext.loopback_host?("evil127.0.0.1")
+    refute Cgc2046Ext.loopback_host?("")
+    refute Cgc2046Ext.loopback_host?(nil)
+  end
+
+  # rebinding 读面:Host 非 loopback 时 /status 必须 403(CSRF token 不外泄)
+  def test_status_rebinding_host_403
+    halt = invoke(:get, "/status", build(header: { "Host" => "evil.example:7070",
+                                                   "Origin" => "http://evil.example:7070" }))
+
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "host not allowed"
+    refute_includes halt.payload, "csrf_token", "rebinding 下 CSRF token 不得出响应"
+  end
+
+  # rebinding 写面:有效 CSRF + 同 Host Origin 也必须 403,零写盘零 reload
+  def test_connect_rebinding_host_403_zero_writes
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:post, "/connect",
+                    build(body: JSON.generate("token" => TOKEN),
+                          header: { "Content-Type" => "application/json",
+                                    "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+                                    "Host" => "evil.example:7070",
+                                    "Origin" => "http://evil.example:7070" },
+                          registry: registry))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "host not allowed"
+      assert_empty persisted, "rebinding 伪造 connect 不得写盘"
+      assert_equal 0, registry.reload_count
+    end
+  end
+
+  # 缺 Host(HTTP/1.0)失败关闭:写路由 403,零写盘
+  def test_connect_missing_host_403
+    stub_fs(old_text: nil) do |persisted|
+      halt = invoke(:post, "/connect",
+                    build(body: JSON.generate("token" => TOKEN),
+                          header: { "Content-Type" => "application/json",
+                                    "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }))
+
+      assert_equal 403, halt.status
+      assert_empty persisted
+    end
+  end
   def test_disconnect_reload_failure_rolls_back_and_reloads_again
     old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => URL, "headers" => { "Authorization" => "Bearer tok_old" }
@@ -432,7 +500,9 @@ class HandlerRequestTest < Minitest::Test
       "Content-Type" => [],
       "content-type" => ["application/json"],
       "X-CGC-CSRF-Token" => [],
-      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token]
+      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token],
+      "Host" => [],
+      "host" => ["127.0.0.1:7070"]
     }
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new("{}", {}, header))
@@ -526,7 +596,8 @@ class OnboardingCallerContractTest < Minitest::Test
   end
 
   def skill_curl_shape(token_header: true)
-    h = { "Content-Type" => "application/json" }
+    # curl 恒发 Host（HTTP/1.1 必填）；Host 钉死 loopback 后契约形态必须携带
+    h = { "Content-Type" => "application/json", "Host" => "127.0.0.1:7070" }
     h["X-CGC-CSRF-Token"] = Cgc2046Ext.csrf_token if token_header
     h
   end
