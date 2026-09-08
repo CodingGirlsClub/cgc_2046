@@ -745,7 +745,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const afterOk = tasksFetches();
 
     // P3:供给区统一投影(课程+活动,kind 徽章;draft 课叠教研徽章,open 活动叠报名徽章)
-    const supplyOk = html.includes("供给(3)") &&
+    const supplyOk = html.includes("课程与活动(3)") &&
       html.includes("Python 入门") && html.includes("数据科学营") && html.includes("线下沙龙") &&
       html.includes("草稿") && html.includes("待审核") && html.includes("报名中") &&
       html.includes(">课程</span>") && html.includes(">活动</span>");
