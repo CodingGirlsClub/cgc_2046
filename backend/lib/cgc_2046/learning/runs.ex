@@ -114,7 +114,7 @@ defmodule Cgc2046.Learning.Runs do
           {:ok, WorkflowRun.t(), :existing | :created} | {:error, String.t()}
   def start(actor, workspace_id, course_id) do
     with :ok <- ensure_enrolled(actor, workspace_id, course_id),
-         {:ok, course} <- fetch_course(workspace_id, course_id),
+         {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, revision} <- fetch_current_revision(workspace_id, course),
          {:ok, definition} <- fetch_learning_definition(workspace_id),
          {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, course_id) do
@@ -343,16 +343,6 @@ defmodule Cgc2046.Learning.Runs do
       :ok
     else
       {:error, "forbidden: confirmed enrollment required to start learning"}
-    end
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
     end
   end
 

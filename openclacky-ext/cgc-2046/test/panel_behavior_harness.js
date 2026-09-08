@@ -748,7 +748,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const supplyOk = html.includes("课程与活动(3)") &&
       html.includes("Python 入门") && html.includes("数据科学营") && html.includes("线下沙龙") &&
       html.includes("草稿") && html.includes("待审核") && html.includes("报名中") &&
-      html.includes(">课程</span>") && html.includes(">活动</span>");
+      html.includes(">课程</span>") && html.includes(">活动</span>") &&
+      html.includes("cgaa-badge-kind-course") && html.includes("cgaa-badge-kind-event");
     // P1:订单区非终态优先(refund_failed 首行)
     const ordersOk = html.indexOf("退款失败") >= 0 &&
       html.indexOf("退款失败") < html.indexOf("待支付") &&

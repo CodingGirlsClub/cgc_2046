@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.ListJoinRequests do
   """
   use Anubis.Server.Component, type: :tool
 
-  alias Cgc2046.Accounts.{JoinRequest, MembershipContext, Role}
+  alias Cgc2046.Accounts.{JoinRequest, Rbac, Role}
   alias Cgc2046.Mcp.Wrapper
 
   @statuses ~w(pending approved rejected expired)
@@ -78,7 +78,7 @@ defmodule Cgc2046.Mcp.Tools.ListJoinRequests do
 
   # Owner/Admin 专属（#240）：工具层管理角色判定，非管理角色成员快速拒绝
   defp authorize(actor, workspace_id) do
-    if actor |> MembershipContext.role_names(workspace_id) |> Enum.any?(&Role.manage_role?/1) do
+    if Rbac.manage?(actor, workspace_id) do
       :ok
     else
       {:error, "forbidden: owner or admin required to list join requests"}

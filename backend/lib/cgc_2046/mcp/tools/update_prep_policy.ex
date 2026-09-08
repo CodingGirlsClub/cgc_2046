@@ -39,7 +39,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
         course_id = params["course_id"] || params[:course_id]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, course} <- fetch_course(workspace_id, course_id),
+             {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
              {:ok, run} <- fetch_run(course),
              {:ok, patch} <- collect_patch(params, workspace_id),
              :ok <- require_updatable(run) do
@@ -68,7 +68,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     workspace_id = params["workspace_id"]
     course_id = params["course_id"]
 
-    with {:ok, course} <- fetch_course(workspace_id, course_id),
+    with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
          {:ok, patch} <- collect_patch(params, workspace_id),
          :ok <- authorize(actor, workspace_id),
@@ -166,16 +166,6 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     "review_required=#{policy["review_required"]}, " <>
       "quality_threshold=#{policy["quality_threshold"]}, " <>
       "reviewer_user_id=#{inspect(policy["reviewer_user_id"])}"
-  end
-
-  defp fetch_course(workspace_id, course_id) do
-    case Course
-         |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-         |> Ash.read_one(authorize?: false, tenant: workspace_id) do
-      {:ok, nil} -> {:error, "course not found: #{course_id}"}
-      {:ok, course} -> {:ok, course}
-      {:error, _} -> {:error, "failed to load course"}
-    end
   end
 
   defp fetch_run(course) do

@@ -131,6 +131,7 @@
 
 - **定义**：平台自研的授权模型：角色（租户内 Role 实体）× 操作 × 资源；多角色取并集，命中任一角色即放行。
 - **架构位置**：MCP 调用 = 用户本人身份 + 网站 RBAC 强制（D6）。Agent 权限 = 用户权限，越权被拒。不采用编译期写死的 `ash_rbac`。
+- **工具层角色谓词单源（2026-09-08 架构评审候选①）**：MCP 工具 authorize 两族判定收编于 `Cgc2046.Accounts.Rbac`——`manage?(actor, workspace_id)`（owner/admin 并集）与 `staff?(actor, workspace_id)`（tutor ∪ 管理，课程教研工作面）。此前以私有函数散于 21 个工具文件靠注释互相指认；`Curriculum.Prep.manage?/2` 与 `LearnerAuthorization.staff?/2`（web/MCP 两 seam 消费）保留 interface 改为委托。判定语义真源在 Rbac 不变，MembershipContext 仍为数据 seam。
 
 ### Agent 两层授权（取并集）
 
@@ -352,6 +353,7 @@
 
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+- **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])`（取代 18 份工具内私有 fetch_course 拷贝）。不变量 = 必带 `tenant:`（Course 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
 
 ### provisional_title（课程临时占位标题标记，Course-only）
 
