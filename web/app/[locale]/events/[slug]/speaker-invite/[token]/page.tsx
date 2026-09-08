@@ -44,6 +44,22 @@ function formatScheduledAt(datetime: string | null, undecided: string): string {
 	});
 }
 
+/**
+ * 决策失败文案映射（对齐 offerings 面 U2 纪律：不透传 GraphQL 原文）：
+ * 已知后端模式映射为 i18n 键，未知一律兜底 actionFailed。
+ */
+function friendlyDecisionError(
+	message: string | null | undefined,
+	t: ReturnType<typeof useTranslations>,
+): string {
+	const raw = message ?? "";
+	if (/invalid, expired or already used/.test(raw)) return t("actionFailed");
+	if (/only the invited speaker account/.test(raw)) return t("decideForbidden");
+	if (/sender cannot accept or decline/.test(raw)) return t("decideInviterCannotDecide");
+	if (/no longer pending/.test(raw)) return t("actionFailed");
+	return t("actionFailed");
+}
+
 export default function Page() {
 	const t = useTranslations("speakerInvite");
 	const params = useParams<{ slug: string; token: string }>();
@@ -100,13 +116,14 @@ export default function Page() {
 			} else {
 				setDecision({
 					kind: "error",
-					message: res.errors[0]?.message ?? t("actionFailed"),
+					message: friendlyDecisionError(res.errors[0]?.message, t),
 				});
 			}
 		} catch (e: unknown) {
+			console.error(e);
 			setDecision({
 				kind: "error",
-				message: e instanceof Error ? e.message : t("actionFailedShort"),
+				message: t("actionFailedShort"),
 			});
 		}
 	}

@@ -119,7 +119,7 @@ describe("/events/[slug]/speaker-invite/[token] Speaker 着陆页", () => {
 		expect(screen.queryByRole("button", { name: "婉拒" })).not.toBeInTheDocument();
 	});
 
-	it("决策失败（如已用 token）展示错误消息", async () => {
+	it("决策失败（已用 token）不透传后端原文，渲染映射文案", async () => {
 		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
 		acceptSpeakerInvitation.mockResolvedValue({
 			result: null,
@@ -129,8 +129,37 @@ describe("/events/[slug]/speaker-invite/[token] Speaker 着陆页", () => {
 
 		fireEvent.click(await screen.findByRole("button", { name: "接受邀请" }));
 
-		expect(
-			await screen.findByText("invitation token is invalid, expired or already used"),
-		).toBeInTheDocument();
+		expect(await screen.findByText("操作失败，邀请链接可能已失效")).toBeInTheDocument();
+		expect(screen.queryByText(/invitation token is invalid/)).toBeNull();
+	});
+
+	it("卡片请求 reject（网络失败）→ 统一错误态，不透传异常 message", async () => {
+		fetchSpeakerInvitationCard.mockRejectedValue(new Error("network down"));
+		render(<SpeakerInvitePage />);
+
+		expect(await screen.findByText("邀请链接无效或已失效")).toBeInTheDocument();
+		expect(screen.queryByText(/network down/)).toBeNull();
+	});
+
+	it("决策抛异常 → 兜底短文案，不透传异常 message", async () => {
+		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
+		acceptSpeakerInvitation.mockRejectedValue(new Error("boom"));
+		render(<SpeakerInvitePage />);
+
+		fireEvent.click(await screen.findByRole("button", { name: "接受邀请" }));
+
+		expect(await screen.findByText("操作失败")).toBeInTheDocument();
+		expect(screen.queryByText(/boom/)).toBeNull();
+	});
+
+	it("决策进行中（busy）两按钮均禁用，防双击", async () => {
+		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
+		acceptSpeakerInvitation.mockReturnValue(new Promise(() => {}));
+		render(<SpeakerInvitePage />);
+
+		fireEvent.click(await screen.findByRole("button", { name: "接受邀请" }));
+
+		expect(await screen.findByRole("button", { name: "处理中…" })).toBeDisabled();
+		expect(screen.getByRole("button", { name: "婉拒" })).toBeDisabled();
 	});
 });
