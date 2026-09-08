@@ -22,7 +22,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum
-  alias Cgc2046.Mcp.Tools.LearnerAuthorization
+  alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
 
   schema do
@@ -68,7 +68,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
       member?(actor, workspace_id) ->
         :ok
 
-      LearnerAuthorization.confirmed_enrollment?(actor, workspace_id, course_id) ->
+      Authorization.confirmed_enrollment?(actor, workspace_id, course_id) ->
         if revision_number == nil || (latest != nil && revision_number == latest.number) do
           :ok
         else
