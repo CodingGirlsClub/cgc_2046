@@ -17,11 +17,11 @@
 (() => {
   "use strict";
   if (!window.Clacky || !Clacky.ext || Clacky.ext.pure) return;
+  const Kit = window.CgcKit;
+  if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
-  const API = "/api/ext/cgc-2046";
   const WS_ID = "cgc-2046-curriculum";
   const STORE_KEY = "cgc2046.coursePanel.workspaceId";
-  let csrfToken = "";
   let currentContainer = null;
 
   const state = {
@@ -34,11 +34,8 @@
     saving: false, saveError: null, conflict: null
   };
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
+  const escapeHtml = Kit.escapeHtml;
+  const rawGet = Kit.rawGet;
 
   // 教研权限按**课程归属工作台**判定(跨台角色:uat 台 learner + 2046 台 tutor
   // 时,编辑 2046 的课是合法的);无权限视图仅在用户任何台都没有教研角色时出现
@@ -63,55 +60,15 @@
     });
   }
 
-  async function rawGet(path) {
-    const res = await fetch(API + path, { headers: { Accept: "application/json" } });
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.error || ("HTTP " + res.status)), { body, status: res.status });
-    return body;
-  }
-
   // 作用域 = 所选课程归属工作台(跨台教研;boot 台仅作无课程上下文时兜底)
   function scopeOf(courseId) {
     const course = state.courses.find(function (c) { return c.courseId === (courseId || state.selectedCourseId); });
     return (course && course.workspaceId) || state.workspaceId;
   }
 
-  async function apiGet(path) {
-    const sep = path.indexOf("?") >= 0 ? "&" : "?";
-    return rawGet(path + sep + "workspace_id=" + encodeURIComponent(scopeOf()));
-  }
-
-  function postHeaders() {
-    const headers = { "Content-Type": "application/json", Accept: "application/json" };
-    if (csrfToken) headers["X-CGC-CSRF-Token"] = csrfToken;
-    return headers;
-  }
-
-  async function ensureCsrf() {
-    if (csrfToken) return;
-    try {
-      const res = await fetch(API + "/status", { headers: { Accept: "application/json" } });
-      const body = await res.json().catch(function () { return {}; });
-      if (res.ok && body.csrf_token) csrfToken = String(body.csrf_token);
-    } catch (e) { /* 静默 */ }
-  }
-
-  async function refreshCsrf() {
-    csrfToken = "";
-    await ensureCsrf();
-    return !!csrfToken;
-  }
-
-  async function apiPost(path, payload) {
-    await ensureCsrf();
-    let res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    if (res.status === 403 && (await refreshCsrf())) {
-      res = await fetch(API + path, { method: "POST", headers: postHeaders(), body: JSON.stringify(payload) });
-    }
-    const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw Object.assign(new Error(body.message || body.error || "HTTP " + res.status), { body, status: res.status });
-    return body;
-  }
+  // GET 自动拼作用域 query;写端点(CSRF 自愈)走共享骨架
+  function apiGet(path) { return Kit.apiGet(path, scopeOf()); }
+  const apiPost = Kit.apiPost;
 
   // ---- 草稿版本:进入编辑时拉取的 get_course_content 顶层 version;缺失按 0 ----
   function draftVersion() {
@@ -201,15 +158,7 @@
       window.prompt("复制以下指令到教研会话开始共创:", text);
       return;
     }
-    input.textContent = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    send.click();
-    if (send.disabled) {
-      const timer = setInterval(function () {
-        if (!send.disabled) { clearInterval(timer); send.click(); }
-      }, 200);
-      setTimeout(function () { clearInterval(timer); }, 8000);
-    }
+    Kit.injectIntoComposer(input, send, text);
   }
 
   // ---- prep 流程条(P1:状态展示 + 推进动作走会话注入;面板=状态,会话=执行) ----

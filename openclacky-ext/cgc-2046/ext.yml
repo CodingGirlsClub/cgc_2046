@@ -18,8 +18,14 @@ config:
 contributes:
   api: api/handler.rb
   panels:
-    # S1-S4 重构:单一入口 hub 面板(替代原 workspace 连接面板,挂侧栏顶部;
-    # 发现/课程保留为隐藏功能页,经目录卡 openWorkspace 直达)
+    # 共享骨架首位声明:宿主按声明顺序注入 <script>(loader.rb resolve_units +
+    # http_server.rb container_ext_script_tags 语义),先于业务面板挂 window.CgcKit;
+    # 无 attach、无 agent 引用、不 mount UI → 永不显示
+    - id: cgc-2046-shared
+      title: CGC Shared Kit
+      description: Shared panel skeleton (loopback fetch, CSRF self-heal, inject pipe, polling, material markup)
+      description_zh: 面板共享骨架(loopback 封装/CSRF 自愈/注入管道/轮询/材料渲染)
+      view: panels/shared/view.js
     - id: cgc
       title: CGC 2046
       title_zh: 程序媛汇 2046
