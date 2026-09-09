@@ -10,6 +10,11 @@
 # 模块级互斥 + 0600 排他 tmp + 原子 rename；reload 失败逐字节回滚并二次 reload）。
 # 本 adapter 只保留请求校验与结果翻译。
 #
+# 运行时加固（P1）：宿主 Registry#reload 只 teardown「从配置中消失」的 server，
+# 同名重配会复用已启动的旧 client（进程级长连接缓存）——connect/disconnect 的
+# reloader 统一经 teardown_and_reload_registry：先关闭并移除 cgc-2046 的既有
+# client 缓存，再 reload 强制下次调用按新 spec 重建，杜绝旧 token/旧 server 续用。
+#
 # 数据面(各面板 → MCP 工具透传)收进 ROUTES 声明表：一条声明 = method + path +
 # face + 工具名 + 字段契约，dispatch_route 统一走「guard → 逐字段 400 校验 →
 # Cgc2046CourseRoutes.call_tool(503/502/500/409 分层)透传 → json」。
@@ -53,9 +58,9 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("mcp url is not configured", status: 422) if url.empty?
     error!("mcp url must start with http:// or https://", status: 422) unless url.match?(%r{\Ahttps?://})
 
-    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe：registry 惰性创建，
-    # 尚未创建时 reload 是 no-op，下次用到会读新文件）
-    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
+    # 注入 reloader：把宿主私有 registry 翻译成 callable——先 teardown 既有
+    # client 缓存再 reload（nil-safe：registry 惰性创建，尚未创建时整体 no-op）
+    reloader = -> { teardown_and_reload_registry }
 
     result = Cgc2046McpConfig.connect_server(
       name: SERVER_NAME,
@@ -97,8 +102,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
   delete "/connect" do
     guard_write!
-    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe）
-    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
+    # 注入 reloader：同 connect——先 teardown 既有 client 缓存再 reload（nil-safe）
+    reloader = -> { teardown_and_reload_registry }
 
     result = Cgc2046McpConfig.disconnect_server(name: SERVER_NAME, reloader: reloader)
     json(ok: true, removed: result[:removed])
@@ -279,6 +284,34 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
   private
+
+  # connect/disconnect 共享的 registry 刷新：先关闭并移除 cgc-2046 的既有 client
+  # 缓存，再 reload 强制重建。
+  #
+  # 宿主取证（openclacky 1.5.13 lib/clacky/mcp/registry.rb）：
+  #   - Registry#reload 只清理 old_names - @servers.keys（配置中消失的条目），
+  #     同名 server 重配不会触碰已启动 client——不先 teardown 的话 connect 换
+  #     账号后数据面继续走旧 token/旧 server；
+  #   - 无公开单 server teardown API（shutdown 会杀掉全部 MCP server，过重）；
+  #     宿主自身的清理模式（reload 对消失条目、reaper 对 idle client）统一是
+  #     @lock 下 @clients.delete(name)&.stop，Client#stop 幂等安全——此处照搬
+  #     同一模式触达（与既有 send(:mcp_registry) 同级别私有访问，非猴子补丁）。
+  #
+  # nil-safe：registry 尚未创建 / 宿主私有缓存形状变化时跳过 teardown 仍 reload。
+  # 失败路径：teardown 先于 reload 成功而 reload 抛错时，落盘由 Cgc2046McpConfig
+  # 逐字节回滚 + 二次本方法（teardown 幂等 no-op，reload 载回旧配置）——安全方向
+  # 始终正确：旧 client 绝不复用。
+  def teardown_and_reload_registry
+    registry = @http_server&.send(:mcp_registry)
+    return unless registry
+
+    lock    = registry.instance_variable_get(:@lock)
+    clients = registry.instance_variable_get(:@clients)
+    if clients.is_a?(Hash) && lock.respond_to?(:synchronize)
+      lock.synchronize { clients.delete(SERVER_NAME)&.stop }
+    end
+    registry.reload
+  end
 
   # 声明表统一派发:guard → 逐字段校验装配参数 → call_tool 透传 → json。
   def dispatch_route(decl)
