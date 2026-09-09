@@ -20,33 +20,39 @@ CGC-2046 是 CGC OpenClacky 内置的连接器扩展：把 CGC-2046 工作台接
 openclacky-ext/cgc-2046/
   ext.yml                          # manifest（id 与目录名一致；config.mcp_url 是唯一改 URL 的点）
   api/
-    handler.rb                     # 薄 DSL 层：路由 + 上下文 + error! 惯例 + origin/CSRF 收口
+    handler.rb                     # 路由骨架：connect/status/skills sync/activity 手写 + error! 惯例 + origin/CSRF 收口；
+                                   #   透传数据面收进 ROUTES 声明表（原 offering/workbench/learner_routes 已并入）
     mcp_config.rb                  # mcp.json read-merge-write 纯逻辑（不依赖 clacky gem，含原子写）
-    course_routes.rb               # 课程数据面 + 共享 call_tool 管道（503/502/500 分层，409 冲突映射）
-    offering_routes.rb             # 发现面板公开浏览数据面（复用 course_routes 管道）
-    workbench_routes.rb            # 工作台身份数据面（workspaces/playbook/tasks）
-    learner_routes.rb              # Learner 发现/报名/支付数据面（S7）
+    course_routes.rb               # 共享 call_tool 管道（503/502/500 分层，409 冲突映射）+ 课程数据面；
+                                   #   offering/workbench/learner 透传路由共用该管道
   panels/
+    shared/view.js                 # 面板共享骨架（loopback 封装/CSRF 自愈/注入管道/轮询/材料渲染；
+                                   #   首位声明先注入 window.CgcKit，无 attach 不显示）
     cgc-home/view.js               # 「程序媛汇 2046」hub（唯一入口:连接/身份/任务/角色目录/助手会话）
     cgc-course/view.js             # 课程学习隐藏功能页（列表/详情/草稿编辑/轮询）
+    cgc-2046-curriculum/view.js    # 教研工作台面板（草稿编辑器 + prep 流程，tutor 入口）
     cgc-discovery/view.js          # 发现隐藏功能页（合并流 + 报名确认卡 + 支付轮询）
+    cgc-learn/view.js              # 学习地图（attach cgc-assistant：目标地图/待复习/一键注入会话）
+    cgc-2046-tutor-aside/view.js   # 教研侧栏（attach cgc-tutor：草稿树/版本/prep 状态实时同步）
+    cgc-2046-admin-aside/view.js   # 管理侧栏（attach cgc-admin：待办审批/供给/订单/快捷入口/深链）
   agents/
     cgc-assistant/system_prompt.md # 通用工作台助手
     cgc-tutor/system_prompt.md     # tutor playbook 安全薄壳（章节边界重拉）
     cgc-admin/system_prompt.md     # workspace_admin playbook 安全薄壳
+    cgc-tutor/video/               # 教研配套视频执行物料（方法见平台侧私有 playbook 增量）
+      scene_template.py            # 16:9 场景骨架
+      check_env.sh                 # Manim/TTS/ffmpeg/LaTeX/品牌素材自检
+      scripts/fish_tts.py          # Fish Audio TTS（stdlib）
+      assets/                      # CGC 品牌 logo（品牌卡 / 角标）
   skills/cgc2046-onboarding/
     SKILL.md                       # 连接引导流程（剪贴板管道主流程）
-  agents/cgc-tutor/video/        # 教研配套视频执行物料（方法见平台侧私有 playbook 增量）
-    scene_template.py              # 16:9 场景骨架
-    check_env.sh                   # Manim/TTS/ffmpeg/LaTeX/品牌素材自检
-    scripts/fish_tts.py            # Fish Audio TTS（stdlib）
-    assets/                        # CGC 品牌 logo（品牌卡 / 角标）
+    references/connection-procedure.md # 连接步骤参考
   hooks/
     after_tool_use.rb              # CGC MCP 调用后推 tool_used / mcp_error 事件
     on_tool_error.rb               # 工具异常文本命中 CGC 形态时推 mcp_error 事件
     credential.rb                  # 两 hook 共享的凭证脱敏正则
-  bin/pack                         # 打包脚本（symlink → ext pack → ext verify）
-  test/
+  bin/pack                         # 打包脚本（symlink → ext pack → ext verify）；随 repo 不入包（.gitignore 排除）
+  test/                            # 测试随 repo 不入包（.gitignore 排除，见「测试」一节）
     mcp_config_test.rb             # 纯逻辑单测（minitest，stdlib）
     handler_routes_test.rb         # 请求级测试（fake req + Halt 捕获，不落盘）
     offering_routes_test.rb        # 发现路由 + 面板/prompt 静态断言（FakeRegistry + allocate 先例）
@@ -55,6 +61,7 @@ openclacky-ext/cgc-2046/
     workbench_routes_test.rb       # 工作台路由
     hooks_test.rb                  # 生命周期钩子
     learner_journey_routes_test.rb # Learner 路由 + guard 收口 + 面板静态断言（S7）
+    video_pipeline_assets_test.rb  # 视频物料契约（模板/自检/素材/key 安全）
     cgc_home_panel_test.rb         # hub 面板静态断言（注册/目录/会话通道/安全纪律）
     panel_behavior_harness.js      # 面板行为级 harness（node 驱动 view.js，DOM 断言）
 ```
@@ -121,7 +128,7 @@ curl -sS -X DELETE "http://127.0.0.1:7070/api/ext/cgc-2046/connect" -H "Content-
 
 ## 测试
 
-需在项目 mise 环境（Ruby 4.x，系统 ruby 2.6 无 openclacky gem）：
+需在项目 mise 环境（Ruby 4.x，系统 ruby 2.6 无 openclacky gem）。test/ 与 bin/ 经本目录 `.gitignore` 排除、不进 ext pack 发布包（packager 严格遵守容器 .gitignore），仅随 repo 供开发与验收运行：
 
 ```bash
 cd openclacky-ext/cgc-2046
