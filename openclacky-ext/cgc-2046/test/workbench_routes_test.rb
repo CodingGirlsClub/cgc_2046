@@ -88,12 +88,12 @@ class WorkbenchRoutesTest < Minitest::Test
   #   GET query 在 req.query(WEBrick),不进 @params
   # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
-
-  def build(registry:, query: {}, params: {}, header: {})
+  def build(registry:, query: {}, params: {}, header: { "Host" => "127.0.0.1:7070" })
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(nil, query, {}))
+    inst.instance_variable_set(:@req, FakeReq.new(nil, query, header))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
