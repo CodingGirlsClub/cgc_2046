@@ -352,18 +352,18 @@ export function OfferingsListPage({
         </header>
 
         {loadError ? (
-          <div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
+          <div className="mt-8 rounded-large border border-line bg-card p-6 text-sm text-ink-3">
             {t("loadFailed")}
           </div>
         ) : wsLoading || rows === null ? (
-          <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
+          <div className="mt-8 h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
         ) : rows.length === 0 ? (
-          <div className="rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
+          <div className="mt-8 rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
             {t("empty", { label: labelsT(label) })}
             {manage ? t("emptyCreateHint", { label: labelsT(label) }) : t("emptyWaitHint")}
           </div>
         ) : (
-          <div className="grid gap-3">
+          <div className="mt-8 grid gap-3">
             {rows.map((offering) => (
               <OfferingRow
                 key={offering.id}
@@ -482,7 +482,11 @@ export function OfferingDetailPage({
   // 已报名；无行 → 报名表单。
   const [enrollState, setEnrollState] = useState<{
     id: string;
-    enrollment: { id: string; status: string } | null;
+    enrollment: {
+      id: string;
+      status: string;
+      approvalDeadline?: string | null;
+    } | null;
     status: "loading" | "ok" | "error";
   }>({ id: "", enrollment: null, status: "loading" });
   const [enrollBusy, setEnrollBusy] = useState(false);
@@ -499,6 +503,9 @@ export function OfferingDetailPage({
     tierName: string | null;
     title: string;
   } | null>(null);
+  // 渲染期时间快照（react-hooks/purity：渲染体不得直接调 Date.now；仓内
+  // payment-checkout-dialog/approval-chip 同款惰性初始化）
+  const [nowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!id) return;
@@ -955,6 +962,44 @@ export function OfferingDetailPage({
     }
   }
 
+  // 报名成功/已报名后的后续出口（P0-1）：课程给「进入课程」主 CTA——未开课
+  // 按 startsAt 分叉文案（课程内容未就绪时不把用户送进空阅读页）；活动无内容
+  // 页，只给「我的参与」次级出口。submitState 成功态与回访态共用。
+  function enrollmentFollowUp() {
+    if (!offering) return null;
+    const startsAtMs = offering.startsAt
+      ? new Date(offering.startsAt).getTime()
+      : null;
+    const notStarted = startsAtMs !== null && startsAtMs > nowMs;
+    return (
+      <div className="mt-2 grid gap-2 justify-self-start">
+        {kind === "course" ? (
+          <Link
+            href={`/learning/courses/${offering.id}`}
+            data-testid="enrollment-enter-course"
+            className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+          >
+            {notStarted
+              ? t("enterCourseAfterStart", {
+                  time: formatDeadline(
+                    offering.startsAt ?? null,
+                    tCommon("timeTbd"),
+                    locale,
+                  ),
+                })
+              : t("enterCourse")}
+          </Link>
+        ) : null}
+        <Link
+          href="/participations"
+          className="text-[13px] text-accent hover:underline"
+        >
+          {t("viewInParticipations")}
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
@@ -998,7 +1043,7 @@ export function OfferingDetailPage({
               </div>
             </header>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
               <div className="rounded-large border border-line bg-card p-6">
                 <h2 className="text-sm font-medium text-ink">
                   {t("basicInfo")}
@@ -1335,12 +1380,13 @@ export function OfferingDetailPage({
               ) : null}
             </div>
 
-            {/* E-5 #50 G3：工作台详情页报名入口（open + 本人无既有报名；复用
-						    submitEnrollment，鉴权后端管） */}
+            {/* E-5 #50 G3：工作台详情页报名入口（本人无既有报名；复用
+						    submitEnrollment，鉴权后端管）。P1-5：卡片渲染不再以
+						    open 为门——课程关闭后已报名状态仍可见；open 只约束
+						    「报名操作」分支（非 open 显示报名已关闭）。 */}
             {!wsLoading &&
             ws &&
             !readOnlyVisitor &&
-            offering.status === "open" &&
             userId !== null &&
             enrollState.id === id &&
             enrollState.status === "ok" ? (
@@ -1375,6 +1421,8 @@ export function OfferingDetailPage({
                         >
                           {t("continuePay")}
                         </button>
+                      ) : submitState.kind === "confirmed" ? (
+                        enrollmentFollowUp()
                       ) : null}
                     </div>
                   ) : enrollState.enrollment?.status === "payment_pending" ? (
@@ -1396,13 +1444,37 @@ export function OfferingDetailPage({
                       </button>
                     </div>
                   ) : enrollState.enrollment?.status === "pending" ? (
-                    <p className="text-[13px] text-ink-3">
-                      {t("pendingApproval", { label: labelsT(label) })}
-                    </p>
+                    <div className="grid gap-2">
+                      <p className="text-[13px] text-ink-3">
+                        {t("pendingApproval", { label: labelsT(label) })}
+                      </p>
+                      {enrollState.enrollment.approvalDeadline ? (
+                        <p className="text-[13px] text-ink-3">
+                          {t("approvalDeadline", {
+                            time: formatDeadline(
+                              enrollState.enrollment.approvalDeadline,
+                              tCommon("timeTbd"),
+                              locale,
+                            ),
+                          })}
+                        </p>
+                      ) : null}
+                      <Link
+                        href="/participations"
+                        className="justify-self-start text-[13px] text-accent hover:underline"
+                      >
+                        {t("viewInParticipations")}
+                      </Link>
+                    </div>
                   ) : enrollState.enrollment ? (
-                    <p className="text-[13px] text-ink-3">
-                      {t("enrolled", { label: labelsT(label) })}
-                    </p>
+                    <div className="grid gap-2">
+                      <p className="text-[13px] text-ink-3">
+                        {t("enrolled", { label: labelsT(label) })}
+                      </p>
+                      {enrollmentFollowUp()}
+                    </div>
+                  ) : offering.status !== "open" ? (
+                    <p className="text-[13px] text-ink-3">{t("enrollClosed")}</p>
                   ) : (
                     <div className="grid gap-3">
                       {submitState.kind === "error" ? (
@@ -1833,7 +1905,7 @@ export function OfferingNewPage({
           </div>
         </header>
 
-        <div className="max-w-xl rounded-large border border-line bg-card p-6">
+        <div className="mt-8 max-w-xl rounded-large border border-line bg-card p-6">
           <div className="grid gap-4">
             <label className="block">
               <span className="block text-[13px] text-ink-3">

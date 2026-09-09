@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.Tools.Response do
       pending_id: pending_id,
       summary: summary,
       hint:
-        "请向用户展示摘要并询问是否确认。用户确认后调用 confirm_operation(pending_id)，取消则调用 cancel_operation(pending_id)。"
+        "请向用户展示摘要，并用宿主内置 ask_user 弹卡片让用户点击选择：点「确认执行」后调用 confirm_operation(pending_id)，点「取消」调用 cancel_operation(pending_id)；无人在场（auto_reply）一律按取消处理。"
     }
 
     {:reply, Response.text(Response.tool(), Jason.encode!(payload)), frame}

@@ -524,6 +524,27 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
   }
 
+  function renderCourse(id: string, status = "open") {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id,
+      title: "示例课程",
+      status,
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    render(<OfferingDetailPage slug="demo" id={id} kind="course" />);
+  }
+
   it("payment_pending 既有报名 → 待支付卡（名额已保留 + 继续支付开收银模态框），不渲染报名表单", async () => {
     mocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-pending",
@@ -567,6 +588,91 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     renderOpen();
 
     expect(await screen.findByText(/申请审批中/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("课程 confirmed 既有报名 → 「进入课程」直达 /learning/courses/:id（P0-1）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-course",
+      status: "confirmed",
+    });
+
+    renderCourse("course-1");
+
+    const link = await screen.findByTestId("enrollment-enter-course");
+    expect(link.getAttribute("href")).toContain("/learning/courses/course-1");
+    expect(link.textContent).toContain("进入课程");
+    expect(
+      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("课程未开课（startsAt 在未来）→ CTA 分叉为开课提示文案（P0-1）", async () => {
+    const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "course-future",
+      title: "未来课程",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      startsAt: future,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-future",
+      status: "confirmed",
+    });
+
+    render(<OfferingDetailPage slug="demo" id="course-future" kind="course" />);
+
+    const link = await screen.findByTestId("enrollment-enter-course");
+    expect(link.textContent).toContain("开课后在此学习");
+  });
+
+  it("活动 confirmed 既有报名 → 无「进入课程」，只给「我的参与」出口（P0-1）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-event",
+      status: "confirmed",
+    });
+
+    renderOpen();
+
+    expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("enrollment-enter-course"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("课程关闭后 confirmed 仍渲染状态卡与入口（P1-5：open 门不再吞已报名状态）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-closed",
+      status: "confirmed",
+    });
+
+    renderCourse("course-closed", "closed");
+
+    expect(await screen.findByText("你已报名该课程。")).toBeInTheDocument();
+    expect(screen.getByTestId("enrollment-enter-course")).toBeInTheDocument();
+  });
+
+  it("课程关闭且未报名 → 「报名已关闭」，不渲染报名按钮（P1-5）", async () => {
+    renderCourse("course-closed-none", "closed");
+
+    expect(await screen.findByText("报名已关闭。")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "报名" }),
     ).not.toBeInTheDocument();

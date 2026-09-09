@@ -2,26 +2,85 @@
 # CGC-2046 扩展打包脚本
 #
 # 流程（契约 §11.2）：
-#   1. 把 repo 内源目录 symlink 到 openclacky 开发层 ~/.clacky/ext/local/cgc-2046
+#   1. 取容器的 git 跟踪文件集合，把工作区内容复制到临时目录
+#      ——openclacky ext pack 按目录文件打包，直接打源目录会把 .gitignore
+#      排除的残留（__pycache__/*.pyc 等已删除实现的字节码）带进产物
+#   2. 把临时目录 symlink 到 openclacky 开发层 ~/.clacky/ext/local/cgc-2046
 #      （symlink 根目录安全；容器内部不得有嵌套 symlink——本包保持无 symlink）
-#   2. openclacky ext pack → openclacky-ext/dist/cgc-2046.zip
+#   3. openclacky ext pack → openclacky-ext/dist/cgc-2046.zip
 #      （dist 在容器目录外，避免上次 zip 被打进新包）
-#   3. openclacky ext verify 做结构校验
+# 4. 校验 ZIP 清单：无 .pyc/.pyo/__pycache__/.DS_Store 等禁入项，且文件
+#      集合与「git 跟踪集合减 .gitignore 忽略项」完全一致（与 stage 同源）；
+#      违规即删除产物并以非零码失败
+#   5. openclacky ext verify 做结构校验
 #
 # 用法：openclacky-ext/cgc-2046/bin/pack
 set -eu
 
+SLUG=cgc-2046
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$SRC/../.." && pwd)"
 DIST="$REPO/openclacky-ext/dist"
 LOCAL_DIR="$HOME/.clacky/ext/local"
+ZIP="$DIST/$SLUG.zip"
 
 mkdir -p "$LOCAL_DIR"
-ln -sfn "$SRC" "$LOCAL_DIR/cgc-2046"
+
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/cgc-2046-pack.XXXXXX")"
+# 无论成败：开发层 symlink 指回真实源目录，临时目录清掉
+cleanup() {
+  ln -sfn "$SRC" "$LOCAL_DIR/$SLUG"
+  rm -rf "$STAGE"
+}
+# 1. 干净文件集合 = git 跟踪集合减去容器 .gitignore 忽略项，取工作区内容
+#    （含已 add 未 commit 的新文件，排除 untracked 残留）。宿主 ext pack
+#    尊重容器 .gitignore（test/、bin/ 是开发面，不进发布产物——T6 发布语义），
+#    期望集与 stage 必须同源，否则清单全等比对永远失败（T6×T15 组合缺陷）。
+#    容器内文件名不含换行（repo 约束），tr 换成换行分隔是安全的。
+git -C "$SRC" ls-files -z -- . | tr '\0' '\n' | LC_ALL=C sort | while IFS= read -r rel; do
+  # --no-index:纯 .gitignore 规则判定——check-ignore 对已跟踪文件恒答「不忽略」
+  git -C "$SRC" check-ignore --no-index -q "$rel" || printf '%s\n' "$rel"
+done > "$STAGE/filelist.txt"
+
+while IFS= read -r rel; do
+  [ -f "$SRC/$rel" ] || {
+    echo "pack: tracked file missing in worktree: $rel (commit or stash first)" >&2
+    exit 1
+  }
+  mkdir -p "$STAGE/$SLUG/$(dirname "$rel")"
+  cp -p "$SRC/$rel" "$STAGE/$SLUG/$rel"
+done < "$STAGE/filelist.txt"
+
+ln -sfn "$STAGE/$SLUG" "$LOCAL_DIR/$SLUG"
 
 mkdir -p "$DIST"
-openclacky ext pack cgc-2046 --out "$DIST"
+openclacky ext pack "$SLUG" --out "$DIST"
 
+# 4. 产物清单校验：先查禁入项，再与 git 跟踪集合做全等比对
+entries="$(unzip -Z1 "$ZIP")"
+
+bad="$(printf '%s\n' "$entries" | grep -E '(^|/)__pycache__/|\.py[co]$|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|(^|/)(Thumbs\.db|desktop\.ini)$|(^|/)\.(git|svn|hg|idea|vscode)(/|$)' || true)"
+
+actual="$(printf '%s\n' "$entries" | grep -v '/$' | sed "s|^$SLUG/||" | LC_ALL=C sort)"
+expected="$(cat "$STAGE/filelist.txt")"
+
+if [ -n "$bad" ] || [ "$actual" != "$expected" ]; then
+  echo "pack: zip manifest check FAILED, removing $ZIP" >&2
+  if [ -n "$bad" ]; then
+    echo "forbidden entries:" >&2
+    printf '%s\n' "$bad" >&2
+  fi
+  if [ "$actual" != "$expected" ]; then
+    printf '%s\n' "$expected" > "$STAGE/expected.txt"
+    printf '%s\n' "$actual" > "$STAGE/actual.txt"
+    diff -u "$STAGE/expected.txt" "$STAGE/actual.txt" >&2 || true
+  fi
+  rm -f "$ZIP"
+  exit 1
+fi
+
+# 复位 symlink 后再 verify，让结构校验跑在真实源目录上（与原行为一致）
+ln -sfn "$SRC" "$LOCAL_DIR/$SLUG"
 openclacky ext verify
 
-echo "packed: $DIST/cgc-2046.zip"
+echo "packed: $ZIP (manifest OK: $(printf '%s\n' "$actual" | wc -l | tr -d ' ') files, all git-tracked)"

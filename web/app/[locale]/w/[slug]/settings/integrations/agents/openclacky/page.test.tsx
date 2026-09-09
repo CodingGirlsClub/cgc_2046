@@ -61,7 +61,7 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 			screen.getByRole("heading", { name: "① 安装 OpenClacky" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "② CGC-2046 连接器已内置" }),
+			screen.getByRole("heading", { name: "② 安装 CGC-2046 连接器扩展" }),
 		).toBeInTheDocument();
 		expect(
 			screen.getByRole("heading", { name: "③ 生成连接 token" }),
@@ -75,11 +75,24 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 		);
 	});
 
-	it("CGC Server 内置扩展路径：引导文案不指向公共市场", async () => {
+	it("扩展转自托管分发：终端一条命令安装 + 复制按钮", async () => {
 		render(<AgentsOpenclackyPage />);
 
-		expect(screen.getByText(/CGC OpenClacky 提供的一键安装链接/)).toBeInTheDocument();
-		expect(screen.getByText(/无需单独安装扩展/)).toBeInTheDocument();
+		expect(
+			screen.getByText(/执行下面这条命令安装 CGC-2046 连接器扩展/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip",
+				{ selector: "code" },
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "复制命令" }),
+		).toBeInTheDocument();
+		// 市场旧路径与一键包内置提示均已移除
+		expect(screen.queryByText(/扩展市场/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/一键安装包已内置/)).not.toBeInTheDocument();
 		expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
 	});
 

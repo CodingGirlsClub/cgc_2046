@@ -7,6 +7,9 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     （key/策略快照固化/course.workflow_run_id 回写）；非 draft 守卫与无定义跳过
   - 黄金链路（review ON）：指派 → 内容 → 门禁 → 报告 → 审核 → 发布全链落库；
     自审（策略指定 reviewer 为 tutor 本人）放行
+  - 审批绑定草稿版本（P2）：确认窗内草稿被改 → 旧确认拒发布（无副作用）；
+    重新审核绑定新版本 → 可发布且 revision = 新草稿；修复前在途的未绑定
+    pending 拒发并提示重新审核
   - review OFF：策略确认流改 review_required=false → 报告达标直接发布
   - 门禁失败：无内容 / 临时标题保持 authoring 且违规落 facts；launch 域 action
     与 MCP confirm 段同被教研门拦截（「课程须完成教研流程后发布」）；
@@ -44,6 +47,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     OverridePrepGate,
     RequestChangesPrep,
     SaveCourseContent,
+    SaveStepOutput,
     SubmitPrepForCheck,
     SubmitPrepQualityReport,
     UpdatePrepPolicy
@@ -55,6 +59,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   alias Cgc2046.Workflows.{
     SignalPublishWorker,
     SignalSubscriber,
+    Step,
     WorkflowDefinition,
     WorkflowRun
   }
@@ -270,6 +275,64 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       },
       frame_for(user)
     )
+  end
+
+  # P2 审批绑定布置：推进到 review（v1 草稿），reviewer 发起 approve 建 pending（绑定 v1）
+  defp drive_to_pending_approval(suffix) do
+    owner = Fixtures.platform_admin("s5-bind-#{suffix}-owner")
+    workspace = Fixtures.create_workspace(owner)
+    tutor = Fixtures.register_user("s5-bind-#{suffix}-tutor")
+    Fixtures.add_member(workspace, tutor, [:tutor])
+    reviewer = Fixtures.register_user("s5-bind-#{suffix}-reviewer")
+    Fixtures.add_member(workspace, reviewer, [])
+
+    {course, run} = course_with_prep(workspace, owner, %{title: "审批绑定 #{suffix}"})
+
+    assert {:reply, _, _} =
+             AssignPrepTutor.execute(
+               %{
+                 "workspace_id" => workspace.id,
+                 "course_id" => course.id,
+                 "tutor_user_id" => tutor.id
+               },
+               frame_for(owner)
+             )
+
+    assert :ok = drive_to_quality_check(workspace, course, tutor)
+    assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
+    assert decode(report_reply)["prep_state"] == "review"
+
+    assert {:reply, _, _} =
+             approve_reply =
+             ApprovePrep.execute(
+               %{"workspace_id" => workspace.id, "course_id" => course.id},
+               frame_for(reviewer)
+             )
+
+    payload = decode(approve_reply)
+    assert payload["status"] == "needs_confirmation"
+
+    {owner, workspace, course, run, tutor, reviewer, payload}
+  end
+
+  # 结构合法但未经审核的 v2（换掉 goals 与首卡标题）
+  defp tampered_content do
+    content_fixture()
+    |> Map.put("goals", ["未审核的替换目标"])
+    |> put_in(["issues", Access.at(0), "title"], "未审核的替换课程")
+  end
+
+  defp tamper_draft(tutor, workspace, course) do
+    assert {:reply, _, _} =
+             SaveCourseContent.execute(
+               %{
+                 "workspace_id" => workspace.id,
+                 "course_id" => course.id,
+                 "content" => tampered_content(),
+                 "base_version" => 1
+               },
+               frame_for(tutor)
+             )
   end
 
   # ── 实例化（course.created → prep run，R22） -----------------------------------
@@ -545,6 +608,99 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       confirmed = confirm!(tutor, decode(approve_reply)["pending_id"])
       assert confirmed["result"]["prep_state"] == "published"
       assert Ash.get!(Course, course.id, authorize?: false).status == :open
+    end
+  end
+
+  # ── 审批绑定草稿版本（P2 安全修复） ---------------------------------------------
+
+  describe "审批绑定草稿版本（P2）" do
+    test "确认窗内草稿被改（v1→v2）→ 旧确认被拒：不发布，课程仍 draft、run 仍 review、无 revision" do
+      {_owner, workspace, course, run, tutor, reviewer, payload} =
+        drive_to_pending_approval("stale")
+
+      pending_id = payload["pending_id"]
+
+      # tutor 在确认窗内写入结构合法的 v2（base_version 1 → version 2）
+      tamper_draft(tutor, workspace, course)
+
+      # 确认旧操作（绑定 v1）→ 发布事务内核验版本不符，整体回滚
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = confirm(reviewer, pending_id)
+
+      assert msg =~ "draft changed since approval"
+      assert msg =~ "reviewed version 1"
+      assert msg =~ "current version 2"
+
+      # 无发布副作用：课程仍 draft、run 仍 review、无 revision
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+
+      final = reload_run(run, workspace)
+      assert final.status == :running
+      assert Prep.prep_state(final) == "review"
+      assert revisions(course, workspace) == []
+
+      # 审核摘要点名绑定版本（确认人可见「审的是哪版」）
+      assert payload["summary"] =~ "v1"
+    end
+
+    test "旧确认被拒后重新审核（绑定 v2）→ 新确认可发布，revision 快照 = v2" do
+      {_owner, workspace, course, run, tutor, reviewer, payload} =
+        drive_to_pending_approval("reaudit")
+
+      tamper_draft(tutor, workspace, course)
+
+      pending_id = payload["pending_id"]
+
+      # 旧确认失效
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = confirm(reviewer, pending_id)
+      assert msg =~ "draft changed since approval"
+
+      # 对新草稿重新审核：新 pending 绑定 v2
+      assert {:reply, _, _} =
+               approve_reply =
+               ApprovePrep.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(reviewer)
+               )
+
+      reapprove_payload = decode(approve_reply)
+      assert reapprove_payload["status"] == "needs_confirmation"
+      assert reapprove_payload["summary"] =~ "v2"
+
+      # 新确认发布 v2：revision 快照逐字节等于 v2 草稿
+      confirmed = confirm!(reviewer, reapprove_payload["pending_id"])
+      assert confirmed["status"] == "confirmed"
+      assert confirmed["result"]["prep_state"] == "published"
+      assert confirmed["result"]["course_status"] == "open"
+
+      assert [revision] = revisions(course, workspace)
+      assert revision.content == tampered_content()
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+      final = reload_run(run, workspace)
+      assert final.status == :succeeded
+      assert final.facts["approved_by"] == reviewer.id
+    end
+
+    test "未绑定版本的存量 pending（修复前在途）→ confirm 拒绝发布，提示重新审核" do
+      {_owner, workspace, course, run, _tutor, reviewer, payload} =
+        drive_to_pending_approval("unbound")
+
+      pending_id = payload["pending_id"]
+
+      # 模拟修复前在途 pending：抹掉 params 里的 draft_version 键
+      {:ok, _} =
+        Repo.query(
+          "UPDATE mcp_pending_operations SET params = params - 'draft_version' WHERE id = $1",
+          [
+            Ecto.UUID.dump!(pending_id)
+          ]
+        )
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = confirm(reviewer, pending_id)
+      assert msg =~ "not bound to a draft version"
+
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+      assert Prep.prep_state(reload_run(run, workspace)) == "review"
     end
   end
 
@@ -1528,8 +1684,8 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
   describe "PrepGate 纯函数" do
     test "无内容 / 临时标题 / 空 goals / 空 issues / 形状非法逐条报违规" do
-      course = %Course{provisional_title: false}
-      provisional = %Course{provisional_title: true}
+      course = %Course{provisional_title: false, slug: "c-gate"}
+      provisional = %Course{provisional_title: true, slug: "c-gate"}
 
       valid_issue = %{
         "id" => "i1",
@@ -1579,8 +1735,44 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert %{passed: true, violations: []} = PrepGate.check(course, output)
     end
 
+    test "slug 门禁：空 slug / 非法格式报违规，合法 slug 放行（发布后锁定，draft 期是唯一窗口）" do
+      valid_issue = %{
+        "id" => "i1",
+        "kind" => "handwork",
+        "title" => "卡",
+        "story" => %{"checklist" => [%{"id" => "c1", "text" => "项"}]},
+        "objectives" => [
+          %{"id" => "o1", "title" => "单元一", "rubric" => [%{"id" => "r1", "text" => "达标"}]}
+        ]
+      }
+
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [valid_issue]}}
+
+      # slug 为空（存量课曾以 null 一路发布到 open）→ 拦截
+      assert %{passed: false, violations: [nil_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: nil}, output)
+
+      assert nil_slug_msg =~ "slug 为空"
+
+      # slug 空串 → 同拦截
+      assert %{passed: false, violations: [blank_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: ""}, output)
+
+      assert blank_slug_msg =~ "slug 为空"
+
+      # 非法格式（大写/斜杠）→ 拦截
+      assert %{passed: false, violations: [bad_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: "Bad/Slug"}, output)
+
+      assert bad_slug_msg =~ "slug 格式非法"
+
+      # 合法 slug → 通过（同 fixture 其余项合规）
+      assert %{passed: true, violations: []} =
+               PrepGate.check(%Course{provisional_title: false, slug: "grade-8-physics"}, output)
+    end
+
     test "S6 objectives 门禁：v1-only 草稿 / 全部选修 / 先修成环 / 先修引用不存在逐条报违规" do
-      course = %Course{provisional_title: false}
+      course = %Course{provisional_title: false, slug: "c-gate"}
 
       v1_issue = %{
         "id" => "i1",
@@ -1647,7 +1839,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     end
 
     test "材料协议违规复用 Content.material_violations 报告（位置路径 + 错误码，H3/H4）" do
-      course = %Course{provisional_title: false}
+      course = %Course{provisional_title: false, slug: "c-gate"}
 
       issue = %{
         "id" => "i1",
@@ -1937,6 +2129,178 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
                )
 
       assert domain_msg =~ "invalid prep_state transition"
+    end
+  end
+
+  # ── save_step_output 治理边界（P1 安全修复 2026-09-09） --------------------------
+
+  describe "save_step_output 治理边界（P1）" do
+    test "已指派 tutor 经通用写工具篡改 prep_policy_override → 拒绝，策略不变" do
+      owner = Fixtures.platform_admin("s5-p1-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-p1-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "P1 篡改"})
+
+      # 漏洞前提：已指派 tutor 拿到 run ID（认领 → authoring + assignee）
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
+               SaveStepOutput.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "run_id" => run.id,
+                   "step_key" => "prep_policy_override",
+                   "output" => %{"review_required" => false, "quality_threshold" => 0}
+                 },
+                 frame_for(tutor)
+               )
+
+      assert msg =~ "reserved fact key"
+
+      reloaded = reload_run(run, workspace)
+      refute Map.has_key?(reloaded.facts, "prep_policy_override")
+      assert Prep.policy(reloaded)["review_required"] == true
+      assert Prep.policy(reloaded)["quality_threshold"] == 80
+    end
+
+    test "保留 key 对 owner/admin 同样拒绝（通用入口非策略工具）" do
+      owner = Fixtures.platform_admin("s5-p1-owner2")
+      workspace = Fixtures.create_workspace(owner)
+      {_course, run} = course_with_prep(workspace, owner, %{title: "P1 owner"})
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
+               SaveStepOutput.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "run_id" => run.id,
+                   "step_key" => "prep_state",
+                   "output" => %{"state" => "published"}
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "reserved fact key"
+      assert Prep.prep_state(reload_run(run, workspace)) == "draft"
+    end
+
+    test "未知 step_key（Step 行不存在）fail-closed：tutor 写任意 step 产出被拒" do
+      owner = Fixtures.platform_admin("s5-p1-owner3")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-p1-tutor3")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "P1 未知 step"})
+
+      assert {:reply, _, _} =
+               ClaimPrepAuthoring.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
+               SaveStepOutput.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "run_id" => run.id,
+                   "step_key" => "arbitrary_notes",
+                   "output" => %{"x" => 1}
+                 },
+                 frame_for(tutor)
+               )
+
+      assert msg =~ "unauthorized to signal step arbitrary_notes"
+      refute Map.has_key?(reload_run(run, workspace).facts, "arbitrary_notes")
+    end
+
+    test "Step 行存在未配置角色 → 成员写 step 产出放行（收紧不误伤正常路径）" do
+      owner = Fixtures.platform_admin("s5-p1-owner4")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-p1-tutor4")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "P1 正常写"})
+
+      # prep definition 上建 Step 行（无 StepRole = 未配置授权 = 不限制）
+      {:ok, _step} =
+        Step
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            definition_id: run.definition_id,
+            step_key: "tutor_notes",
+            title: "tutor_notes",
+            type: :manual
+          },
+          tenant: workspace.id,
+          actor: owner
+        )
+        |> Ash.create(tenant: workspace.id, actor: owner)
+
+      assert {:reply, _, _} =
+               reply =
+               SaveStepOutput.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "run_id" => run.id,
+                   "step_key" => "tutor_notes",
+                   "output" => %{"note" => "草稿要点"}
+                 },
+                 frame_for(tutor)
+               )
+
+      assert decode(reply)["step_key"] == "tutor_notes"
+      assert reload_run(run, workspace).facts["tutor_notes"] == %{"note" => "草稿要点"}
+    end
+
+    test "专用策略工具正常路径不回归：通用入口被拒后 owner 确认流改策略成功" do
+      owner = Fixtures.platform_admin("s5-p1-owner5")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-p1-tutor5")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      {course, run} = course_with_prep(workspace, owner, %{title: "P1 专用工具"})
+
+      # 同一字段：通用入口（tutor/owner 均）拒
+      for actor <- [tutor, owner] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
+                 SaveStepOutput.execute(
+                   %{
+                     "workspace_id" => workspace.id,
+                     "run_id" => run.id,
+                     "step_key" => "prep_policy_override",
+                     "output" => %{"review_required" => false}
+                   },
+                   frame_for(actor)
+                 )
+
+        assert msg =~ "reserved fact key"
+      end
+
+      # 专用工具确认流写同一字段成功
+      assert {:reply, _, _} =
+               policy_reply =
+               UpdatePrepPolicy.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "course_id" => course.id,
+                   "review_required" => false
+                 },
+                 frame_for(owner)
+               )
+
+      policy_payload = decode(policy_reply)
+      confirmed = confirm!(owner, policy_payload["pending_id"])
+      assert confirmed["result"]["policy"]["review_required"] == false
+
+      reloaded = reload_run(run, workspace)
+      assert reloaded.facts["prep_policy_override"]["review_required"] == false
+      assert Prep.policy(reloaded)["review_required"] == false
     end
   end
 

@@ -155,6 +155,17 @@ class AfterToolUseHookTest < Minitest::Test
     assert_equal "ok", ev[:data][:status]
   end
 
+  def test_accepts_json_string_arguments_without_crash
+    # 宿主可能传入未 parse 的 JSON 字符串参数（曾对 String 调 dig 抛 TypeError，
+    # 使每次 invoke_skill 后 hook 报错）。字符串形态必须与 Hash 形态行为一致。
+    args_json = JSON.generate({ "skill_name" => "mcp:cgc-2046", "task" => "执行 save_course_content 保存草稿" })
+    trigger({ name: "invoke_skill", arguments: args_json }, { "message" => "ok" })
+
+    types = @agent.emitted.map { |ev| ev[:type] }
+    assert_includes types, "ext.cgc-2046.tool_used", "字符串参数应同样推工具事件"
+    assert_includes types, "ext.cgc-2046.draft_saved", "task 内含 save_course_content 应推草稿保存信号"
+  end
+
   def test_emits_mcp_error_when_subagent_summary_reports_connection_failure
     # 真实路径：subagent 内 curl 失败不抛异常，错误文本进 subagent summary
     summary = "调用 get_workspace_context 失败：MCP server 'cgc-2046' error on initialize: " \
@@ -229,6 +240,20 @@ class AfterToolUseHookTest < Minitest::Test
     err = @agent.emitted.find { |e| e[:type] == "ext.cgc-2046.mcp_error" }
     refute_nil err
     refute_includes err[:data][:error], "cgc_YWyY0WdE"
+  end
+
+  def test_error_snippet_redacts_before_truncating_at_window_edge
+    # 截断窗口左缘落在 token 中间的场景：先截后抹会裁掉 cgc_ 前缀，token 尾部
+    # （≥8 字符）不再命中正则而泄露；修复后先全文脱敏再截窗，窗口内只剩 <redacted>
+    token = "cgc_YWyY0WdE_jLf8NkbhPRfAU-mz0xaOTZ4sHLS_5x8c2c"
+    summary = "x" * 100 + token + " " + "y" * 20 + " Connection refused"
+    trigger({ name: "invoke_skill", arguments: { "skill_name" => "mcp:cgc-2046" } },
+            { "skill_type" => "subagent", "result" => summary })
+
+    err = @agent.emitted.find { |e| e[:type] == "ext.cgc-2046.mcp_error" }
+    refute_nil err
+    refute_includes err[:data][:error], "NkbhPRfAU", "窗口边缘裁掉 cgc_ 前缀后 token 尾部不得泄露"
+    assert_includes err[:data][:error], "<redacted>"
   end
 
   def test_redacts_bare_jwt_in_error_snippet

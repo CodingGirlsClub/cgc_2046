@@ -32,13 +32,18 @@ defmodule Cgc2046.Mcp.Confirmation do
           {:needs_confirmation, %{pending_id: String.t(), summary: String.t()}}
           | {:error, String.t()}
   def request(actor, tool_name, params, summary) do
+    # PendingOperation.params 是 two-tool 事务数据（confirm 时原样喂给
+    # execute_confirmed/2 落业务库），**必须落完整 params**——Redact 脱敏/截断
+    # 只作用于审计路径（ToolCallLog，由 Wrapper 落行时处理）。在此脱敏会把
+    # ">1KB reason 被截断 → 确认执行拿到残缺的 payload"这类死锁引进来，
+    # 敏感键替换同理（"token" 命名参数被换成 "[REDACTED]" 后执行即坏）。
     case PendingOperation
          |> Ash.Changeset.for_create(
            :pend,
            %{
              user_id: actor.id,
              tool: tool_name,
-             params: Cgc2046.Mcp.Redact.call(params),
+             params: params,
              summary: summary
            },
            authorize?: false

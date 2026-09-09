@@ -1,8 +1,8 @@
 defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
   @moduledoc """
-  016 draft 读收紧的 GraphQL HTTP 层：get/slug/count 的 not_found 同形、
-  speaker card 例外、list_for_event 统一错误、sponsorship not_open、
-  以及无 workspaceId 的全局 list sentinel。
+  016 draft 读收紧 + cancelled 不对成员展示的 GraphQL HTTP 层：get/slug/count
+  的 not_found 同形、speaker card 例外、list_for_event 统一错误、
+  sponsorship not_open、以及无 workspaceId 的全局 list sentinel。
   """
 
   use Cgc2046Web.ConnCase, async: true
@@ -14,7 +14,7 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
 
   @missing_id "00000000-0000-4000-8000-000000000099"
 
-  describe "member draft get / slug / count" do
+  describe "member draft/cancelled get / slug / count" do
     test "member 对 draft event/course get 与随机不存在 id 错误同形" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
       event_draft = create_draft(Event, workspace, owner, "GQL Event Draft")
@@ -28,6 +28,36 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
       course_draft_res = graphql(get_course_query(course_draft.id), token)
       course_missing_res = graphql(get_course_query(@missing_id), token)
       assert_same_not_found(course_draft_res, course_missing_res, "getCourse")
+    end
+
+    test "member 对 cancelled event/course get 与随机不存在 id 错误同形" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+
+      cancelled_event =
+        EventFixtures.create_event(workspace, owner, %{title: "GQL Cancelled Event"})
+
+      cancelled_course =
+        EventFixtures.create_course(workspace, owner, %{title: "GQL Cancelled Course"})
+
+      {:ok, _} =
+        cancelled_event
+        |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id, actor: owner)
+        |> Ash.update(tenant: workspace.id, actor: owner)
+
+      {:ok, _} =
+        cancelled_course
+        |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id, actor: owner)
+        |> Ash.update(tenant: workspace.id, actor: owner)
+
+      token = sign_in_token(member)
+
+      event_cancelled_res = graphql(get_event_query(cancelled_event.id), token)
+      event_missing_res = graphql(get_event_query(@missing_id), token)
+      assert_same_not_found(event_cancelled_res, event_missing_res, "getEvent")
+
+      course_cancelled_res = graphql(get_course_query(cancelled_course.id), token)
+      course_missing_res = graphql(get_course_query(@missing_id), token)
+      assert_same_not_found(course_cancelled_res, course_missing_res, "getCourse")
     end
 
     test "member getEventBySlug draft → 与不存在 slug 同形 null" do
@@ -50,12 +80,23 @@ defmodule Cgc2046Web.GraphqlOfferingDraftVisibilityTest do
       assert_same_not_found(draft_res, missing_res, "getCourseBySlug")
     end
 
-    test "listEvents/listCourses count 对 member 不计 draft" do
+    test "listEvents/listCourses count 对 member 不计 draft/cancelled" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
       _draft_event = create_draft(Event, workspace, owner, "Hidden Event Draft")
       _draft_course = create_draft(Course, workspace, owner, "Hidden Course Draft")
       open_event = EventFixtures.create_event(workspace, owner, %{title: "Visible Event"})
       open_course = EventFixtures.create_course(workspace, owner, %{title: "Visible Course"})
+
+      for entity <- [
+            EventFixtures.create_event(workspace, owner, %{title: "Hidden Cancelled Event"}),
+            EventFixtures.create_course(workspace, owner, %{title: "Hidden Cancelled Course"})
+          ] do
+        {:ok, _} =
+          entity
+          |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id, actor: owner)
+          |> Ash.update(tenant: workspace.id, actor: owner)
+      end
+
       token = sign_in_token(member)
 
       events =

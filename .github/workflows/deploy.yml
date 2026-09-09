@@ -89,7 +89,10 @@ jobs:
           backend=false; web=false
           while IFS= read -r f; do
             case "$f" in
-              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml) backend=true ;;
+              # openclacky-ext/cgc-2046/ 也触发 backend：扩展分发 zip 寄生在
+              # backend 镜像（priv/static/ext，由 backend job 在 docker build
+              # 前生成），扩展发版必须重建 backend 产物，否则线上 /ext/* 停在旧版
+              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml|openclacky-ext/cgc-2046/*) backend=true ;;
               web/*)     web=true ;;
             esac
           done <<<"$files"
@@ -142,6 +145,36 @@ jobs:
       - name: Clean private checkout
         if: always()
         run: rm -rf backend/tmp/cgc-playbooks
+
+      # 扩展自托管分发产物：cgc-2046.zip + cgc-2046.json → backend/priv/static/ext/
+      # （gitignored，本步是唯一生产者）。必须在 kamal deploy 之前完成——kamal
+      # 在 runner 本地构建镜像，Dockerfile 的 COPY backend/ . 把工作区产物带进
+      # build stage，mix release 再将 priv/static 捆进 release，运行时经
+      # Plug.Static 在 /ext/* 服务（static_paths 已加 "ext"）。
+      # openclacky-ext/cgc-2046-only 变更能走到这里，依赖 changes job 的同名
+      # path 触发 backend=true（见上方 detect step）。
+      - name: Build extension distribution artifacts
+        run: |
+          # bin/pack 依赖宿主 CLI 的 ext pack/verify；runner 无预装，现装
+          gem install openclacky --no-document
+          # 打包脚本自带清单全等校验与 ext verify（见脚本头注释），失败即非零
+          openclacky-ext/cgc-2046/bin/pack
+          mkdir -p backend/priv/static/ext
+          cp openclacky-ext/dist/cgc-2046.zip backend/priv/static/ext/
+          # 版本元信息与 zip 同源生成：version 取 ext.yml，sha256 算刚拷入的
+          # 产物——面板升级端点（/api/ext/cgc-2046/update_info）以此 json 为准，
+          # 三键契约（version/download_path/sha256）不得增减
+          ruby -ryaml -rjson -rdigest -e '
+            version = YAML.load_file("openclacky-ext/cgc-2046/ext.yml").fetch("version")
+            sha256 = Digest::SHA256.file("backend/priv/static/ext/cgc-2046.zip").hexdigest
+            File.write("backend/priv/static/ext/cgc-2046.json", JSON.generate(
+              { version: version, download_path: "/ext/cgc-2046.zip", sha256: sha256 }
+            ))
+          '
+          # fail-closed 产物断言：zip 非空、json 可解析且 version 非空——
+          # 缺产物却放行会让 /ext/* 404 上线，用户安装命令静默失败
+          test -s backend/priv/static/ext/cgc-2046.zip
+          ruby -rjson -e 'abort "cgc-2046.json: version missing" if JSON.parse(File.read("backend/priv/static/ext/cgc-2046.json"))["version"].to_s.empty?'
 
       - run: gem install kamal --no-document
       - name: Setup SSH

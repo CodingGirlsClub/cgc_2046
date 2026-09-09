@@ -137,7 +137,7 @@ class LearnerJourneyRoutesTest < Minitest::Test
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key)
   #   POST body 在 req.body(JSON 字符串);GET query 在 req.query,不进 @params
-  def build(registry:, body: nil, query: {}, params: {}, header: {})
+  def build(registry:, body: nil, query: {}, params: {}, header: { "Host" => "127.0.0.1:7070" })
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(body && JSON.generate(body), query, header))
     inst.instance_variable_set(:@params, params)
@@ -153,7 +153,8 @@ class LearnerJourneyRoutesTest < Minitest::Test
 
   # POST /enrollments 的面板同款写头（advisor F2：json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
 
   def enroll(registry:, body:)
@@ -515,10 +516,11 @@ class LearnerJourneyRoutesTest < Minitest::Test
   def test_learning_start_posts_and_requires_csrf
     registry = FakeRegistry.new
 
-    # 缺 token → 403,零 call（guard_write!）
+
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(JSON.generate({ "workspace_id" => WS, "course_id" => OFF }), {},
-                                                  { "Content-Type" => "application/json" })
+                                                  { "Content-Type" => "application/json",
+                                                    "Host" => "127.0.0.1:7070" })
     )
     inst.instance_variable_set(:@params, {})
     inst.instance_variable_set(:@http_server, FakeServer.new(registry))
@@ -754,6 +756,48 @@ class CurriculumEditorRoundtripTest < Minitest::Test
     assert_includes out, "OK editor_remove_chapter_clears_refs"
     assert_includes out, '"chapter_removed":true'
     assert_includes out, '"issue_refs_cleared":true'
+  end
+end
+
+# ---- 安全评审中危 #1:UGC 字段 prompt-injection 中和(Node harness 行为证据) ----
+
+class PanelUgcInjectionNeutralizationTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  LEARN_VIEW = File.expand_path("../panels/cgc-learn/view.js", __dir__)
+  ADMIN_ASIDE_VIEW = File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__)
+
+  def test_learn_instruction_neutralizes_malicious_ugc
+    # 含换行的课程/目标标题(伪造多行指令)→ 注入文本折单行且带 DATA_NOTE;
+    # 非法 objective_id(空格/换行/中文)→ 该参数不下发,原文不出现
+    out, status = Open3.capture2e("node", HARNESS, LEARN_VIEW, "learn_ugc_injection")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK learn_ugc_injection"
+    assert_includes out, '"course_title_folded":true'
+    assert_includes out, '"objective_title_folded":true'
+    assert_includes out, '"no_forged_instruction_line":true'
+    assert_includes out, '"valid_objective_id_kept":true'
+    assert_includes out, '"data_note_appended":true'
+    assert_includes out, '"invalid_id_param_dropped":true'
+    assert_includes out, '"invalid_id_raw_absent":true'
+  end
+
+  def test_admin_aside_instruction_neutralizes_malicious_ugc
+    # 恶意待办标题/未知 kind 折行,非法 order_id 不下发,全部带 DATA_NOTE;
+    # P2:恶意报名人姓名/邮箱(含 display_name 缺省走 email 分支)与待办
+    # requester_name fallback 第三级不进指令本体,指令 = 固定动作 + id + DATA_NOTE
+    out, status = Open3.capture2e("node", HARNESS, ADMIN_ASIDE_VIEW, "admin_aside_ugc")
+    assert status.success?, "harness 失败: #{out}"
+    assert_includes out, "OK admin_aside_ugc"
+    assert_includes out, '"task_title_folded":true'
+    assert_includes out, '"requester_name_excluded":true'
+    assert_includes out, '"unknown_kind_folded":true'
+    assert_includes out, '"bad_order_id_dropped":true'
+    assert_includes out, '"order_prompt_intact":true'
+    assert_includes out, '"enroll_rows_rendered":true'
+    assert_includes out, '"enrollee_name_excluded":true'
+    assert_includes out, '"enrollee_email_excluded":true'
+    assert_includes out, '"enroll_prompt_fixed_action":true'
+    assert_includes out, '"email_prompt_fixed_action":true'
   end
 end
 
@@ -997,8 +1041,9 @@ class DiscoveryPanelV2Test < Minitest::Test
     assert_includes VIEW, 'data-testid="panel-pay-link"'
     assert_includes VIEW, 'target="_blank"'
     assert_includes VIEW, 'rel="noopener noreferrer"'
-    assert_includes VIEW, '/^https?:\/\//'
-    assert_includes VIEW, 'window.open(result.checkout_url, "_blank", "noopener")'
+    # 安全评审低危#4:scheme 门归一 Kit.safeWebUrl(https 或 loopback http)
+    assert_includes VIEW, "Kit.safeWebUrl"
+    assert_includes VIEW, 'window.open(safeCheckout, "_blank", "noopener")'
   end
 
   def test_detail_link_and_refresh_kept
@@ -1058,5 +1103,142 @@ class CoursePanelEnrollmentListTest < Minitest::Test
     assert_includes VIEW, "learningSignature"
     assert_includes VIEW, "goLearnObjective"
     refute_includes VIEW, '"/records"'
+  end
+end
+
+# ---- 安全评审低危#4:web_url/checkout_url scheme 门(harness 三场景驱动 + 静态锚) ----
+
+class WebUrlSchemeGateTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  SHARED_VIEW = File.expand_path("../panels/shared/view.js", __dir__)
+  HOME_VIEW = File.expand_path("../panels/cgc-home/view.js", __dir__)
+  DISCOVERY_VIEW = File.expand_path("../panels/cgc-discovery/view.js", __dir__)
+  ADMIN_ASIDE_VIEW = File.read(File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__))
+
+  def run_harness(view, scenario)
+    out, status = Open3.capture2e("node", HARNESS, view, scenario)
+    assert status.success?, "harness 失败: #{out}"
+    out
+  end
+
+  def assert_all_checks(out, keys)
+    keys.each { |k| assert_includes out, "\"#{k}\":true" }
+  end
+
+  def test_kit_safe_url_truth_table
+    # 纯谓词真值表:https 任意 host;http 仅 loopback;javascript:/data:/file:/
+    # 相对路径/无协议/非字符串一律 null;tab 走私按浏览器实际行为拒
+    out = run_harness(SHARED_VIEW, "kit_safe_url")
+    assert_all_checks(out, [
+      "helper_exported", "https_ok", "https_uppercase_ok", "localhost_http_ok",
+      "loopback_ip_http_ok", "ipv6_loopback_http_ok", "plain_http_rejected",
+      "lan_ip_http_rejected", "localhost_subdomain_rejected", "javascript_rejected",
+      "javascript_comment_smuggle_rejected", "tab_smuggle_javascript_rejected",
+      "data_rejected", "file_rejected", "relative_rejected", "protocol_less_rejected",
+      "non_string_rejected",
+    ])
+  end
+
+  def test_home_panel_gates_web_url_sinks
+    # 行为证据:javascript: web_url → 打开网站锚隐藏/管理深链不渲染/平台管理卡
+    # 不渲染(非法 ≡ 未配置);http://localhost:3000(README 联调形态)→ 全部放行,
+    # 平台管理卡点击 window.open localhost
+    out = run_harness(HOME_VIEW, "home_weburl_gate")
+    assert_all_checks(out, [
+      "bad_scheme_anchor_hidden", "bad_scheme_manage_hidden", "platform_admin_card_hidden",
+      "localhost_anchor_shown", "localhost_manage_link", "platform_admin_card_shown",
+      "admin_card_opens_localhost",
+    ])
+  end
+
+  def test_discovery_panel_gates_detail_and_escapes_href
+    # 行为证据:javascript: web_url → 条目标题退化纯文本(无锚);合法 https 但含
+    # 引号 → href 必须转义(属性逃逸),详情路径 /events/<slug> 正确
+    out = run_harness(DISCOVERY_VIEW, "discovery_weburl_gate")
+    assert_all_checks(out, [
+      "bad_scheme_no_anchor", "title_degrades_plain", "detail_anchor_rendered",
+      "attr_breakout_escaped", "detail_url_correct",
+    ])
+  end
+
+  def test_admin_aside_deep_link_gate_unified
+    # 口径归一:深链 click 门从 /^https?:\/\// 收紧为 Kit.safeWebUrl
+    # (admin_aside harness 场景的 https 深链路径回归由既有场景覆盖)
+    assert_includes ADMIN_ASIDE_VIEW, "Kit.safeWebUrl"
+    refute_includes ADMIN_ASIDE_VIEW, "/^https?:\/\//"
+  end
+end
+
+# ---- harness 场景全量接线 ----
+# 欠账根因:场景加进 harness 无人强制接进 CI,红绿防护存在却不跑
+# (安全评审 2026-09 清点:18 个显式场景仅 3 个有 wrapper)。本类两层:
+#   1) 逐场景 wrapper —— 每个场景都有 CI 入口;
+#   2) meta 守卫 —— harness 场景全集必须 ⊆ 全部 .rb 的 run_harness 接线集,
+#      新加场景不接线直接红。
+
+class HarnessScenarioWiringTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  VIEWS = {
+    "shared"    => File.expand_path("../panels/shared/view.js", __dir__),
+    "home"      => File.expand_path("../panels/cgc-home/view.js", __dir__),
+    "discovery" => File.expand_path("../panels/cgc-discovery/view.js", __dir__),
+    "course"    => File.expand_path("../panels/cgc-course/view.js", __dir__),
+    "teach"     => File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__),
+    "learn"     => File.expand_path("../panels/cgc-learn/view.js", __dir__),
+    "admin"     => File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__),
+    "tutor"     => File.expand_path("../panels/cgc-2046-tutor-aside/view.js", __dir__),
+  }.freeze
+
+  # 场景 -> 面板视图(与 harness 头部用法一致;断言强度在 harness 内部的
+  # checks 非零退出,wrapper 只保证场景真的在 CI 里跑)
+  SCENARIOS = {
+    "zero_member_confirmed"        => "course",
+    "learner_typed_materials"      => "course",
+    "editor_delimiter_roundtrip"   => "teach",
+    "editor_remove_chapter_clears_refs" => "teach",
+    "editor_remove_row_with_empty" => "teach",
+    "learn_boot_and_inject"        => "learn",
+    "learn_ugc_injection"          => "learn",
+    "learn_quote_course_id"        => "learn",
+    "learn_malformed_next_action"  => "learn",
+    "admin_aside"                  => "admin",
+    "admin_aside_ugc"              => "admin",
+    "tutor_aside_boot"             => "tutor",
+    "tutor_aside_malformed"        => "tutor",
+    "home_hub"                     => "home",
+    "home_unconnected"             => "home",
+    "home_tasks_failed"            => "home",
+    "home_upgrade"                 => "home",
+  }.freeze
+
+  def run_harness(view, scenario)
+    out, status = Open3.capture2e("node", HARNESS, view, scenario)
+    assert status.success?, "harness #{scenario} 失败: #{out}"
+    out
+  end
+
+  SCENARIOS.each do |scenario, view_key|
+    define_method("test_harness_#{scenario}") do
+      out = run_harness(VIEWS.fetch(view_key), scenario)
+      assert_includes out, "OK #{scenario}"
+    end
+  end
+
+  def test_every_harness_scenario_is_wired
+    # harness 场景全集(显式 scenario === 分支 + 默认分支 zero_member_confirmed)
+    # 必须 ⊆ test/*.rb 中所有 run_harness(_, "name") 接线集合
+    harness_src = File.read(HARNESS)
+    all = harness_src.scan(/scenario === "([a-z_0-9]+)"/).flatten.uniq
+    # 本类 SCENARIOS 声明表经 define_method 用变量调用,不产生字面量——
+    # wired 名单须并入其 keys,否则新场景接进 SCENARIOS 反而误红
+    wired = Dir[File.expand_path("*.rb", __dir__)].flat_map do |f|
+      File.read(f).scan(/run_harness\([^,]+,\s*"([a-z_0-9]+)"/)
+    end.flatten.uniq | SCENARIOS.keys
+    missing = all - wired
+    assert_empty missing, <<~MSG
+      harness 场景无 .rb 接线,红绿防护不进 CI:#{missing.join(", ")}
+      补法:learner_journey_routes_test.rb 的 HarnessScenarioWiringTest.SCENARIOS
+      加一行,或在既有 wrapper 类加 run_harness(VIEW, "<场景>")。
+    MSG
   end
 end

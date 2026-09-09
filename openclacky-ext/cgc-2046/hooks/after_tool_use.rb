@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（面板「最近活动」区）。
+# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（管理/教研侧栏刷新闭环消费）。
 #
 # 事件: after_tool_use —— 宿主回调签名 (call, result, agent)
 #   （agent.rb: @hooks.trigger(:after_tool_use, call, result)，任何工具调用后触发）
@@ -17,6 +17,7 @@
 #
 # 成功事件 persist: true（里程碑，刷新后仍在消息流）；失败 persist: false。
 
+require "json"
 require_relative "credential"
 
 module Cgc2046HookUse
@@ -30,6 +31,15 @@ module Cgc2046HookUse
   # @return [Boolean] 工具层是否成功（无 error 键即成功；subagent 正常结束即成功）
   def self.ok?(result)
     !(result.is_a?(Hash) && (result[:error] || result["error"]))
+  end
+
+  # @param call [Object] 工具调用
+  # @return [Hash] arguments 规范化为 Hash——宿主传入的调用参数可能是未 parse 的
+  #   JSON 字符串（对 String 调 dig 会抛 TypeError），统一在这里收敛
+  def self.arguments(call)
+    args = call.is_a?(Hash) ? (call[:arguments] || call["arguments"]) : nil
+    args = JSON.parse(args) if args.is_a?(String)
+    args.is_a?(Hash) ? args : {}
   end
 
   # @param result [Hash] invoke_skill 的返回
@@ -48,26 +58,31 @@ module Cgc2046HookUse
   # @param result [Object] invoke_skill 返回
   # @return [Boolean] 是否发生了教研草稿保存
   def self.draft_saved?(call, result)
-    task = call.dig(:arguments, "task") || call.dig(:arguments, :task) || ""
+    args = arguments(call)
+    task = args["task"] || args[:task] || ""
     task.to_s.match?(DRAFT_SAVED_PATTERN) || summary(result).match?(DRAFT_SAVED_PATTERN)
   end
 
   # @param text [String] summary 全文
   # @return [String, nil] 错误片段（匹配处前后 120 字符，抹凭证；无命中 nil）
   def self.error_snippet(text)
-    m = text.match(MCP_ERROR_PATTERN)
+    # 先全文脱敏再截取窗口（对齐 Cgc2046HookError.redact 语义）：先截后抹会让
+    # 窗口边缘裁掉 cgc_ 前缀，token 尾部逃过正则泄露；脱敏改变文本长度，
+    # 匹配与偏移计算必须在脱敏后文本上进行
+    redacted = text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+    m = redacted.match(MCP_ERROR_PATTERN)
     return nil unless m
 
     start_at = [m.begin(0) - 60, 0].max
-    snippet = text[start_at, 240].to_s
-    snippet.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+    redacted[start_at, 240].to_s
   end
 end
 
 Clacky::ExtensionHookRegistry.add do |call, result, agent|
-  next unless call && call[:name] == "invoke_skill"
+  next unless call.is_a?(Hash) && call[:name] == "invoke_skill"
 
-  skill = call.dig(:arguments, "skill_name") || call.dig(:arguments, :skill_name)
+  args = Cgc2046HookUse.arguments(call)
+  skill = args["skill_name"] || args[:skill_name]
   next unless Cgc2046HookUse::SKILL_NAMES.include?(skill)
 
   ok = Cgc2046HookUse.ok?(result)

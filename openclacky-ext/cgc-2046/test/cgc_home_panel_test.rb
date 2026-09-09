@@ -16,7 +16,8 @@ require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
 require_relative "../api/handler"
 
 EXT_YML = File.read(File.expand_path("../ext.yml", __dir__))
-EXT_README = File.read(File.expand_path("../README.md", __dir__))
+# 开发者向合同已随 README 重写(用户向)迁 DEVELOPMENT.md——薄壳断言读该文件
+EXT_DEV_DOC = File.read(File.expand_path("../DEVELOPMENT.md", __dir__))
 EXT_ROOT = File.expand_path("..", __dir__)
 ROOT_LICENSE = File.read(File.expand_path("../../../LICENSE", __dir__))
 
@@ -32,6 +33,43 @@ class CgcHomePanelTest < Minitest::Test
     # 隐藏功能页仍注册(目录卡 openWorkspace 直达)
     assert_includes EXT_YML, "- id: cgc-2046-course"
     assert_includes EXT_YML, "- id: cgc-2046-discovery"
+  end
+
+  # ---- 版本徽标与升级:防状态信息复活,防升级通道删失 ----
+
+  def test_home_panel_no_endpoint_or_token_subtitle
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    refute_includes view, '"端点 "', "端点 URL 属敏感运维细节,不在 hub 副标题透出"
+    refute_includes view, "Token 已配置", "token 状态不在 hub 副标题透出"
+  end
+
+  def test_home_panel_version_badge_and_upgrade_channel
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, 'id="cgc-version-badge"'
+    assert_includes view, 'id="cgc-upgrade"'
+    # 升级数据源 = 扩展自有 /update_info(loopback);安装执行仍复用宿主 install 通道
+    assert_includes view, '/update_info'
+    assert_includes view, '/api/store/extension/install'
+    refute_includes view, '/api/store/extension?id=', "市场查询通道已移除(自托管分发)"
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, 'get "/version"'
+    assert_includes handler, 'get "/update_info"'
+  end
+
+  # ---- 会话区 Tab 与活动区移除 ----
+
+  def test_home_panel_session_tabs_and_no_activity_section
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, 'data-tab="all"'
+    assert_includes view, 'data-tab="cgc-assistant"'
+    assert_includes view, 'data-tab="cgc-admin"'
+    assert_includes view, 'data-tab="cgc-tutor"'
+    assert_includes view, '"2046 助手"'
+    refute_includes view, 'id="cgc-activity"', "「最近活动」区已删除"
+    refute_includes view, "最近活动"
+    refute_includes view, "loadHistory", "活动历史回放已随活动区删除"
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    refute_includes handler, 'get "/activity"', "/activity 路由随活动区删除"
   end
 
 
@@ -120,11 +158,12 @@ class AgentThinShellContractTest < Minitest::Test
   end
 
   def test_readme_describes_tutor_and_admin_as_runtime_playbook_shells
+    # 用户向 README 不再出现 agent id;薄壳合同在 DEVELOPMENT.md
     %w[cgc-assistant cgc-tutor cgc-admin].each do |agent|
-      assert_includes EXT_README, "`#{agent}`"
+      assert_includes EXT_DEV_DOC, "`#{agent}`"
     end
-    assert_includes EXT_README, "启动时拉取"
-    assert_includes EXT_README, "`cgc-tutor` 与 `cgc-admin` 是安全薄壳"
+    assert_includes EXT_DEV_DOC, "启动时拉取"
+    assert_includes EXT_DEV_DOC, "`cgc-tutor` 与 `cgc-admin` 是安全薄壳"
   end
 
   def test_manifest_stays_one_agpl_package_with_three_agents

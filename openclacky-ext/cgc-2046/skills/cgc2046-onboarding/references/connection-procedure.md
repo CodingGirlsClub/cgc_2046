@@ -13,13 +13,41 @@ description: 引导用户完成 CGC-2046 连接配置。当用户首次连接 CG
 
 用户安装 CGC OpenClacky 后，打开内置的 CGC-2046 面板并点击「连接网站」。面板会创建一个连接会话，把连接请求注入 `cgc-assistant`；助手按本节完成全流程。用户不需要先打开 MCP 页、创建 token 或复制 token。
 
-1. **检查本地宿主**：确认扩展 API、`cgc-assistant` 和宿主 browser 工具可用。若面板已创建连接会话，继续使用当前会话，不要重复创建。
+1. **检查本地宿主**：确认扩展 API、`cgc-assistant` 和宿主 browser 工具可用，并确认 `node --version` ≥ 22（browser daemon 与 CDP 脚本都依赖）。若面板已创建连接会话，继续使用当前会话，不要重复创建。缺 node 或 daemon 起不来时先走下方「环境自举」，不要直接降级。
 2. **接管真实浏览器**：优先使用宿主 `browser` 工具（CDP autoConnect），打开 CGC 工作台 MCP 页。必须接管用户日常浏览器，以复用登录态；不要要求用户手动开启 remote debugging。
 3. **处理登录态**：如果页面在登录页，告诉用户“请在刚打开的浏览器里登录 CGC，登录完成后告诉我继续”。不要代填密码或验证码。用户确认后重新检查页面。
 4. **自动签发**：登录成功后，只撤销名称以 `openclacky-auto-` 开头的旧自动 token，保留用户手动创建的 token；签发新的 `openclacky-auto-<YYYYMMDD>` token。
 5. **安全复制**：点击一次性 token 的复制按钮，但不要读取、打印或转述明文；直接把剪贴板通过 stdin 管道交给本地 connect API。
 6. **写入并验证**：调用本扩展 `/api/ext/cgc-2046/connect`，成功后调用 `/status`，再通过 MCP registry 做真实连接检查。只有 `ok:true`、`configured:true` 且 MCP 握手成功才向用户报告完成。
 7. **恢复策略**：浏览器登录失败、用户取消或连接检查失败时，保留可重试状态，说明具体下一步；不要让用户回网站手工配置，除非自动路径确实不可用。
+
+### 环境自举（缺 node 时先修复，不要直接降级）
+
+宿主 `browser` 工具（chrome-devtools-mcp daemon）与「原生 CDP 中间路径」都依赖本机
+Node ≥22（CDP 脚本用全局 `WebSocket`；daemon 由 BrowserManager 以 node 进程拉起）。
+用户新装的机器常没有 node——此时两条自动路径同时不可用。**先修复环境再连接**：
+自动路径的登录态接管与安全管道体验显著好于手工 fallback，缺环境不等于只能手工。
+
+1. **判定信号**（任一即进入自举）：
+   - `node --version` 不存在或版本 < 22；
+   - `curl -s http://127.0.0.1:7070/api/browser/status` 持续 `daemon_running:false`，
+     且 `~/.clacky/logger/clacky-*.log` 显示拉起 daemon 时 spawn node/npx 失败（ENOENT）。
+2. **安装方式由你当场按用户系统自行判断**——操作系统、已有包管理器、官方安装包、
+   用户目录 tarball 均可，本文不钉死命令。三条硬约束：
+   - 装系统软件前先一句话告知用户要装什么、为什么（自动连接依赖 Node.js），
+     用户同意再装；
+   - 你无法交互输入 sudo 密码——优先免 sudo 方案（brew、官方 tarball 解到用户目录等）；
+     只有用户明确同意时才执行 sudo 命令；
+   - 目标版本 Node ≥22（npm 随 node 自带，无需单独安装）。
+3. **装完必须验证，再回首选路径**：
+   - `node --version` ≥ 22；
+   - `pkill -f chrome-devtools-mcp` 让 BrowserManager 重拉 daemon，随后
+     `/api/browser/status` 返回 `daemon_running:true`。
+4. **宿主 PATH 坑**：从桌面图标启动的 OpenClacky 进程 PATH 不含 shell rc 里的目录
+   （如 `~/.local/bin`、brew 前缀）——node 装好了 daemon 仍报 ENOENT 时，让用户
+   **完全退出并重启 OpenClacky**（或从终端启动）后再验证；不要在此空转重试。
+5. 用户拒绝安装、或安装/验证失败 → 回退下方「备用路径：手工 token」——它只依赖
+   ruby + curl，不需要 node。
 
 ### browser 工具「Target crashed」排障（先修再用）
 
@@ -107,6 +135,8 @@ CGC_CSRF=$(curl -sS "http://${CLACKY_SERVER_HOST:-127.0.0.1}:${CLACKY_SERVER_POR
 ```
 
 要点：connect 是写端点，需带 `X-CGC-CSRF-Token` 头——`CGC_CSRF` 变量先经 `GET /status`（无 Origin 的本地 curl 放行）取回进程级 token；跨站网页因 Origin 校验读不到该 token，这是防 CSRF 劫持的通道（伪造 connect 可改写 mcp.json 指向攻击者 URL，最高危写端点，不可豁免）。
+
+所有扩展路由还要求请求的 `Host` 头是 loopback（`127.0.0.0/8`、`localhost`、`[::1]`，防 DNS rebinding 绕过 Origin 校验）；上面的命令默认走 `127.0.0.1` 天然满足。**若把 `CLACKY_SERVER_HOST` 显式设成非 loopback 值（如局域网 IP 或域名），请求会得 403 `host not allowed`**——这不是 bug，是安全边界，改用 loopback 地址重试即可。
 
 其他要点：
 

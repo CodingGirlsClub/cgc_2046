@@ -373,6 +373,26 @@ defmodule Cgc2046.Learning.LearningFlowTest do
 
       assert fetch_run(run.id, workspace.id).facts == %{}
     end
+
+    test "学员豁免不覆盖治理保留 key：学员写 prep_policy_override 被拒（P1）" do
+      admin = Fixtures.platform_admin("lf-reserved")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{})
+      learner = Fixtures.register_user("lf-reserved-learner")
+      {:ok, enrollment} = enroll(event, learner)
+      published = create_learning_definition(workspace, admin)
+      instantiate(enrollment)
+      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
+
+      # 学员本人 + 学习 run（豁免双前提都满足）——保留 key 拒绝先于授权判定
+      assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
+               save_output(learner, workspace, run, "prep_policy_override", %{
+                 "review_required" => false
+               })
+
+      assert msg =~ "reserved fact key"
+      assert fetch_run(run.id, workspace.id).facts == %{}
+    end
   end
 
   describe "完成判定（验收 3；U4 升级：全 issue Done）" do

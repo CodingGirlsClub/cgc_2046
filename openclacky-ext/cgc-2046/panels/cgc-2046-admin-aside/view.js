@@ -54,6 +54,10 @@
 
   const escapeHtml = Kit.escapeHtml;
   const rawGet = Kit.rawGet;
+  // 用户可控文本(姓名/标题/邮箱)进注入指令前中性化:换行/制表等折成单空格、
+  // 封顶 80 字符,防伪造多行指令结构(写操作仍由 agent 两段式确认门兜底);
+  // id 一律 Kit.safeId 白名单,非法不下发;指令末尾带 Kit.DATA_NOTE
+  const oneLine = Kit.oneLine;
 
   // 任务 kind 中文标签(与 hub TASK_KINDS 同口径)
   const TASK_KINDS = {
@@ -63,7 +67,7 @@
     sponsorship_review: { label: "赞助审核" }
   };
   function taskKindLabel(kind) {
-    return (TASK_KINDS[kind] || {}).label || kind || "";
+    return (TASK_KINDS[kind] || {}).label || oneLine(kind) || "";
   }
 
   // 供给状态徽章(课程/活动同 status 值域;draft 课叠 prep_state 徽章,open 活动
@@ -222,7 +226,8 @@
   // web_url 透传(深链基址);未配置/未连接时静默——深链区隐藏
   function loadStatus() {
     return rawGet("/status").then(function (body) {
-      state.webUrl = (body.web_url || "").toString();
+      // scheme 门(安全评审低危#4):非法 scheme ≡ 未配置,深链区整体隐藏
+      state.webUrl = Kit.safeWebUrl(body.web_url) || "";
     }).catch(function () { state.webUrl = ""; });
   }
 
@@ -253,12 +258,6 @@
     }
   }
 
-  // 用户可控文本(姓名/标题/邮箱)进注入指令前中性化:换行/制表等折成空格,
-  // 防伪造多行指令结构(写操作仍由 agent 两段式确认门兜底)
-  function oneLine(s) {
-    return String(s == null ? "" : s).replace(/[\r\n\t\u2028\u2029]+/g, " ").trim();
-  }
-
   // 注入管理指令(当前已在 cgc-admin 会话,直接注入不创建)
   function injectIntoComposer(text) {
     const input = document.getElementById("user-input");
@@ -271,38 +270,48 @@
   }
 
   // 待办行 → 处理指令(台名前缀消歧:待办跨台聚合,agent 按名称切换上下文;
-  // 行只带语义,id 由 agent 调 list_my_tasks 自取)
+  // 行只带语义,id 由 agent 调 list_my_tasks 自取)。
+  // P2 安全边界:requester_name 是任意注册用户可控 UGC,不进指令本体——
+  // 无 context_title/title 时不带标题段,申请人由 agent 调 list_my_tasks 的
+  // 工具结果以数据身份(非指令特权位)呈现
   function taskPrompt(t) {
     const ws = t._ws_name ? "[" + oneLine(t._ws_name) + "] " : "";
-    const title = oneLine(t.context_title || t.title || t.requester_name || "");
-    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办：" + title +
-      "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。";
+    const title = oneLine(t.context_title || t.title || "");
+    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办" + (title ? "：" + title : "") +
+      "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。\n" + Kit.DATA_NOTE;
   }
 
-  // 生命周期动作 → 注入指令(带 MCP 来源 id;提醒 agent 两段式:先看确认摘要)
+  // 生命周期动作 → 注入指令(带 MCP 来源 id;提醒 agent 两段式:先看确认摘要,用 ask_user 卡片确认)
   function lifecyclePrompt(kind, action, offeringId) {
     const offering = offeringById(offeringId) || {};
     const tool = action + "_" + kind;
+    const oid = Kit.safeId(offeringId);
     return "请" + LC_VERB[action] + KIND_LABEL[kind] + "「" + oneLine(offering.title || "") + "」" +
-      "(" + kind + "_id=" + offeringId + "；调用 " + tool + " 先给我看确认摘要，我同意后再执行）。";
+      "(" + (oid ? kind + "_id=" + oid + "；" : "") + "调用 " + tool +
+      " 先给我看确认摘要，用 ask_user 弹卡片让我点击确认后再执行）。\n" + Kit.DATA_NOTE;
   }
 
   // 对话轻改 → 注入指令(单字段轻改走对话;重编辑由「网站编辑」深链承接)
   function editPrompt(kind, offeringId) {
     const offering = offeringById(offeringId) || {};
+    const oid = Kit.safeId(offeringId);
     return "我想修改" + KIND_LABEL[kind] + "「" + oneLine(offering.title || "") + "」的设置" +
-      "(" + kind + "_id=" + offeringId + "；先告诉我 update_" + kind +
-      " 可改哪些字段，我说一项你改一项，走确认流）。";
+      "(" + (oid ? kind + "_id=" + oid + "；" : "") + "先告诉我 update_" + kind +
+      " 可改哪些字段，我说一项你改一项，走确认流）。\n" + Kit.DATA_NOTE;
   }
 
-  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id 来自 MCP
-  // 返回,可信标识直接带上,agent 无需先列表)
+  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id/enrollment_id
+  // 来自 MCP 返回,可信标识直接带上,agent 无需先列表)。
+  // P2 安全边界:报名人姓名/邮箱是任意注册用户可控 UGC,一律不进指令本体——
+  // 指令 = 固定动作 + 记录 id;姓名/邮箱由 agent 调 list_enrollments 的工具结果
+  // 以数据身份(非指令特权位)呈现
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
-    const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
-    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
-      "（list_enrollments kind=" + kind + " offering_id=" + offeringId +
-      " 确认详情后，按确认流处理，enrollment_id=" + row.enrollment_id + "）。";
+    const oid = Kit.safeId(offeringId);
+    const eid = Kit.safeId(row.enrollment_id);
+    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」的报名" +
+      "（list_enrollments kind=" + kind + (oid ? " offering_id=" + oid : "") +
+      " 确认详情后，按确认流处理" + (eid ? "，enrollment_id=" + eid : "") + "）。\n" + Kit.DATA_NOTE;
   }
 
   // 供给查找(课程/活动统一,id 均 UUID 不撞)
@@ -317,9 +326,10 @@
 
   // 订单行 → 查看指令(写动作由 agent 对话引导,行点击不直接发起退款)
   function orderPrompt(row) {
-    const label = (ORDER_STATUS[row.status] || {}).label || row.status || "";
-    return "请查看订单 " + row.order_id + " 的状态与关联报名，告诉我可执行的管理动作" +
-      "（当前状态 " + label + "）。";
+    const label = (ORDER_STATUS[row.status] || {}).label || oneLine(row.status) || "";
+    const oid = Kit.safeId(row.order_id);
+    return "请查看订单" + (oid ? " " + oid : "") + " 的状态与关联报名，告诉我可执行的管理动作" +
+      "（当前状态 " + label + "）。\n" + Kit.DATA_NOTE;
   }
 
   // 当前选中工作台(深链锚)
@@ -668,8 +678,10 @@
     root.querySelectorAll("[data-link-url]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const url = btn.getAttribute("data-link-url");
-        // scheme 白名单 + noopener(webUrl 来自 /status 透传,防配置污染注入 javascript:)
-        if (url && /^https?:\/\//.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+        // scheme 门 + noopener(webUrl 来自 /status 透传,防配置污染注入 javascript:);
+        // 门归一 Kit.safeWebUrl(https 或 loopback http,与全仓导航 URL 同口径)
+        const safe = Kit.safeWebUrl(url);
+        if (safe) window.open(safe, "_blank", "noopener,noreferrer");
       });
     });
   }
