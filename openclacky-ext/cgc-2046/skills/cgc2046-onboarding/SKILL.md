@@ -1,6 +1,6 @@
 ---
 name: cgc2046-onboarding
-description: 首次连接 CGC-2046、面板点击「连接网站」、或 MCP 连接错误/401 时使用。优先面板触发的浏览器/CDP 自动连接；自动路径不可用时才使用剪贴板或临时文件 fallback。
+description: 首次连接 CGC-2046、面板点击「连接网站」、MCP 连接错误/401、或自动连接因缺少 node 等本机环境不可用时使用。优先面板触发的浏览器/CDP 自动连接；缺运行环境时先按用户系统自举安装（Node ≥22），自举失败或用户拒绝才使用剪贴板或临时文件 fallback。
 ---
 
 # CGC-2046 连接引导
@@ -15,10 +15,10 @@ description: 首次连接 CGC-2046、面板点击「连接网站」、或 MCP �
 
 ## 路由
 
-1. 检查扩展 API、`cgc-assistant` 与宿主 browser/CDP 是否可用。
-2. 可用时执行面板一键连接：打开 MCP 页、提醒用户登录、自动签发一次性 token、通过 stdin 调用 connect，再验证 status 和 MCP registry。
-3. browser 集成层故障但 Chrome CDP 可用时，读取 [原生 CDP 流程](references/connection-procedure.md)。
-4. 自动路径不可用时，执行 [手工 token 与 fallback 流程](references/connection-procedure.md)。
+1. 检查扩展 API、`cgc-assistant` 与宿主 browser/CDP 是否可用，并确认自动路径的环境依赖（Node ≥22）。缺 node 或 browser daemon 起不来时，先按 [环境自举](references/connection-procedure.md) 修复——不要直接降级手工流程。
+2. 环境就绪后执行面板一键连接：打开 MCP 页、提醒用户登录、自动签发一次性 token、通过 stdin 调用 connect，再验证 status 和 MCP registry。
+3. browser 集成层故障但 Chrome CDP 可用时（node 已就绪），读取 [原生 CDP 流程](references/connection-procedure.md)。
+4. 环境自举失败、用户拒绝安装等自动路径确实不可用时，执行 [手工 token 与 fallback 流程](references/connection-procedure.md)——该路径只依赖 ruby + curl，不需要 node。
 
 ## 故障处理
 
