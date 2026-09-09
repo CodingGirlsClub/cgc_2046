@@ -117,25 +117,58 @@ defmodule Cgc2046.Admission.Enrollment do
 
         titles =
           fallback_rows
-          |> Enum.group_by(& &1.workspace_id)
-          |> Enum.reduce(%{}, fn {workspace_id, rows}, acc ->
-            ids_by_kind =
-              %{
-                event: rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
-                course: rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-              }
-              |> Enum.reject(fn {_kind, ids} -> ids == [] end)
-              |> Map.new()
-
-            Map.merge(
-              acc,
-              Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id)
-            )
+          |> grouped_ids_by_kind()
+          |> Enum.reduce(%{}, fn {workspace_id, ids_by_kind}, acc ->
+            Map.merge(acc, Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
           end)
 
         Enum.map(enrollments, fn enrollment ->
           snapshot_target_title(enrollment) ||
             target_title_from_offerings(enrollment, titles)
+        end)
+      end
+    )
+
+    # 日程化旅程 P2a：starts_at/venue 两公开字段共用本私有计算的一次批量
+    # schedule fetch（load 依赖去重，startsAt+venue 同选不重复查询）。
+    calculate(:target_schedule, :map,
+      load: [:workspace_id, :event_id, :course_id],
+      calculation: fn enrollments, _opts ->
+        schedules =
+          enrollments
+          |> grouped_ids_by_kind()
+          |> Enum.reduce(%{}, fn {workspace_id, ids_by_kind}, acc ->
+            Map.merge(acc, Cgc2046.Offering.fetch_schedule_by_ids(ids_by_kind, workspace_id))
+          end)
+
+        Enum.map(enrollments, fn enrollment ->
+          Map.get(schedules, enrollment.event_id || enrollment.course_id)
+        end)
+      end
+    )
+
+    calculate(:starts_at, :utc_datetime,
+      public?: true,
+      load: [:target_schedule],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          case enrollment.target_schedule do
+            %{starts_at: starts_at} -> starts_at
+            _ -> nil
+          end
+        end)
+      end
+    )
+
+    calculate(:venue, :string,
+      public?: true,
+      load: [:target_schedule],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          case enrollment.target_schedule do
+            %{venue: venue} -> venue
+            _ -> nil
+          end
         end)
       end
     )
@@ -555,6 +588,24 @@ defmodule Cgc2046.Admission.Enrollment do
     do: Map.get(titles, id, "报名项目")
 
   defp target_title_from_offerings(_enrollment, _titles), do: "报名项目"
+
+  # 批量计算共用：按 workspace 分组提取 event/course 双键 id（空组剔除），
+  # 供 Cgc2046.Offering 的 fetch_*_by_ids 保持 per-kind per-tenant 批量形状。
+  defp grouped_ids_by_kind(enrollments) do
+    enrollments
+    |> Enum.group_by(& &1.workspace_id)
+    |> Map.new(fn {workspace_id, rows} ->
+      ids_by_kind =
+        %{
+          event: rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
+          course: rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+        }
+        |> Enum.reject(fn {_kind, ids} -> ids == [] end)
+        |> Map.new()
+
+      {workspace_id, ids_by_kind}
+    end)
+  end
 
   defp prepare_create(changeset) do
     event_id = Ash.Changeset.get_attribute(changeset, :event_id)

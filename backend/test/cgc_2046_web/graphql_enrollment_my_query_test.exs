@@ -210,6 +210,119 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     refute "submissionPayload" in field_names
   end
 
+  test "myEnrollments 返回目标供给物日程化字段 startsAt/venue（日程化旅程 P2a）" do
+    admin = Fixtures.platform_admin("my-enrollments-schedule-admin")
+    workspace_a = Fixtures.create_workspace(admin, %{name: "日程工作台 A"})
+    workspace_b = Fixtures.create_workspace(admin, %{name: "日程工作台 B"})
+    learner = Fixtures.register_user("my-enrollments-schedule-learner")
+
+    starts_at = DateTime.utc_now() |> DateTime.add(5, :day) |> DateTime.truncate(:second)
+
+    venue = %{
+      "country" => "中国",
+      "province" => "浙江省",
+      "city" => "杭州市",
+      "district" => "西湖区"
+    }
+
+    event =
+      EventFixtures.create_event(workspace_a, admin, %{
+        title: "日程活动",
+        starts_at: starts_at,
+        venue: venue
+      })
+
+    course =
+      EventFixtures.create_course(workspace_a, admin, %{title: "日程课程", starts_at: starts_at})
+
+    no_schedule_event = EventFixtures.create_event(workspace_b, admin, %{title: "无日程活动"})
+
+    # 三条报名跨两工作台、event/course 混合：单列表查询下逐行取值正确
+    # （批量 fetch 逐条匹配而非按首行/错位填充的回归面）。
+    event_enrollment = create_enrollment(workspace_a, learner, %{event_id: event.id})
+    course_enrollment = create_enrollment(workspace_a, learner, %{course_id: course.id})
+    bare_enrollment = create_enrollment(workspace_b, learner, %{event_id: no_schedule_event.id})
+
+    response =
+      graphql(
+        """
+        query {
+          myEnrollments(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {
+            results { id startsAt venue }
+          }
+        }
+        """,
+        sign_in_token(learner)
+      )
+
+    assert %{"data" => %{"myEnrollments" => %{"results" => rows}}} = response
+    assert length(rows) == 3
+
+    event_row = Enum.find(rows, &(&1["id"] == event_enrollment.id))
+    assert event_row["startsAt"] == DateTime.to_iso8601(starts_at)
+    assert event_row["venue"] == "杭州市西湖区"
+
+    course_row = Enum.find(rows, &(&1["id"] == course_enrollment.id))
+    assert course_row["startsAt"] == DateTime.to_iso8601(starts_at)
+    assert is_nil(course_row["venue"])
+
+    bare_row = Enum.find(rows, &(&1["id"] == bare_enrollment.id))
+    assert is_nil(bare_row["startsAt"])
+    assert is_nil(bare_row["venue"])
+  end
+
+  test "myEnrollments 日程化字段支持 GraphQL alias（review F5：手写 object 无 resolver 时 alias 崩溃）" do
+    admin = Fixtures.platform_admin("my-enrollments-alias-admin")
+    workspace = Fixtures.create_workspace(admin)
+    learner = Fixtures.register_user("my-enrollments-alias-learner")
+
+    starts_at = DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.truncate(:second)
+
+    venue = %{
+      "country" => "中国",
+      "province" => "浙江省",
+      "city" => "杭州市",
+      "district" => "西湖区"
+    }
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        title: "alias 活动",
+        starts_at: starts_at,
+        venue: venue
+      })
+
+    _enrollment = create_enrollment(workspace, learner, %{event_id: event.id})
+
+    response =
+      graphql(
+        """
+        query {
+          myEnrollments(first: 1) {
+            results { when: startsAt where: venue title: targetTitle }
+          }
+        }
+        """,
+        sign_in_token(learner)
+      )
+
+    assert %{
+             "data" => %{
+               "myEnrollments" => %{
+                 "results" => [
+                   %{
+                     "when" => when_value,
+                     "where" => "杭州市西湖区",
+                     "title" => "alias 活动"
+                   }
+                 ]
+               }
+             }
+           } = response
+
+    assert when_value == DateTime.to_iso8601(starts_at)
+  end
+
   defp create_enrollment(workspace, user, attrs) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, Map.merge(%{user_id: user.id}, attrs),
