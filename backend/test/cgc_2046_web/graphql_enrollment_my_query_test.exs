@@ -270,6 +270,7 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert is_nil(bare_row["startsAt"])
     assert is_nil(bare_row["venue"])
   end
+
   test "myEnrollments 日程化字段支持 GraphQL alias（review F5：手写 object 无 resolver 时 alias 崩溃）" do
     admin = Fixtures.platform_admin("my-enrollments-alias-admin")
     workspace = Fixtures.create_workspace(admin)
@@ -321,7 +322,6 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
 
     assert when_value == DateTime.to_iso8601(starts_at)
   end
-
 
   defp create_enrollment(workspace, user, attrs) do
     Enrollment
