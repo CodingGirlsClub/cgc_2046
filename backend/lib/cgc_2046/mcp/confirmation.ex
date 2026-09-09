@@ -97,6 +97,30 @@ defmodule Cgc2046.Mcp.Confirmation do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # 确认流错误 code 契约单源（#241 四清单机械联动）。
+  #
+  # code 必须在 domain 层显式出现——`ErrorCodeContract` 只扫 lib/cgc_2046/**，
+  # web GraphQL 面（graphql_schema.ex / PaymentConfirmation）不得自造 code，
+  # 否则 web messages 的文案键不在 priv/error_codes_contract.json 中，contract
+  # test 红灯。AST 扫描收 `code: "literal"` 形态（见 collect/2）。
+  # ---------------------------------------------------------------------------
+  @confirm_failed %{code: "operation_confirm_failed"}
+  @cancel_failed %{code: "operation_cancel_failed"}
+  @unavailable %{code: "operation_unavailable"}
+
+  @doc "confirm/2 失败的契约 code（不存在/非本人/已过期/effect 失败）"
+  @spec confirm_failed_code() :: String.t()
+  def confirm_failed_code, do: @confirm_failed.code
+
+  @doc "cancel/2 失败的契约 code（不存在/非本人/非 pending）"
+  @spec cancel_failed_code() :: String.t()
+  def cancel_failed_code, do: @cancel_failed.code
+
+  @doc "request/4 失败的契约 code（pending 建不起来）"
+  @spec unavailable_code() :: String.t()
+  def unavailable_code, do: @unavailable.code
+
   defp fetch_own(actor, pending_id) do
     case Ash.get(PendingOperation, pending_id, authorize?: false) do
       {:ok, nil} ->

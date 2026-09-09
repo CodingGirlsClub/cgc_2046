@@ -1361,7 +1361,12 @@ defmodule Cgc2046Web.GraphqlSchema do
                %{
                  pending_id: nil,
                  status: nil,
-                 errors: [mutation_error_payload(message, "operation_confirm_failed")]
+                 errors: [
+                   mutation_error_payload(
+                     message,
+                     Cgc2046.Mcp.Confirmation.confirm_failed_code()
+                   )
+                 ]
                }}
           end
         end)
@@ -1383,7 +1388,12 @@ defmodule Cgc2046Web.GraphqlSchema do
                %{
                  pending_id: nil,
                  status: nil,
-                 errors: [mutation_error_payload(message, "operation_cancel_failed")]
+                 errors: [
+                   mutation_error_payload(
+                     message,
+                     Cgc2046.Mcp.Confirmation.cancel_failed_code()
+                   )
+                 ]
                }}
           end
         end)
