@@ -659,6 +659,8 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
 export interface MyEnrollmentRow {
   id: string;
   status: string;
+  /** 审批截止时间（pending 态展示用；confirmed/payment_pending 为 null） */
+  approvalDeadline?: string | null;
   /** 报名对象（活动/课程）标题——仅 MY_ENROLLMENT 选取（/orders/new 下单上下文交接用） */
   targetTitle?: string | null;
 }
@@ -678,6 +680,7 @@ export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
       results {
         id
         status
+        approvalDeadline
       }
     }
   }
@@ -698,6 +701,7 @@ export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
       results {
         id
         status
+        approvalDeadline
       }
     }
   }
