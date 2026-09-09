@@ -103,6 +103,34 @@ export const MY_ENROLLMENTS: TypedDocumentNode<
   }
 `;
 
+/** 本人活跃报名行（列表页「我的报名状态」用；自视角，无 userId 变量） */
+export interface ActiveEnrollmentRow {
+  id: string;
+  status: EnrollmentStatus;
+  courseId: string | null;
+  eventId: string | null;
+}
+
+/** 列表页批量取数：只取活跃态（终态不挡再报名，也不显示状态）。 */
+export const MY_ACTIVE_ENROLLMENTS: TypedDocumentNode<
+  { myEnrollments: { results: ActiveEnrollmentRow[] } },
+  Record<string, never>
+> = gql`
+  query MyActiveEnrollments {
+    myEnrollments(
+      filter: { status: { in: ["pending", "payment_pending", "confirmed"] } }
+      first: 250
+    ) {
+      results {
+        id
+        status
+        courseId
+        eventId
+      }
+    }
+  }
+`;
+
 export const MY_SPONSORSHIPS: TypedDocumentNode<
   { mySponsorships: KeysetPage<ParticipationSponsorship> },
   ParticipationPageVariables

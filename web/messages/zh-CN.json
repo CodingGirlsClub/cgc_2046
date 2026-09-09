@@ -1316,6 +1316,11 @@
     "viewInParticipations": "在「我的参与」查看",
     "enrollClosed": "报名已关闭。",
     "approvalDeadline": "审批截止：{time}",
+    "myEnrollStatus": {
+      "pending": "审批中",
+      "payment_pending": "待支付",
+      "confirmed": "已报名"
+    },
     "requestHint": "提交后需 Owner/Admin 审批，通过后确认名额。",
     "chooseTier": "选择价格档位",
     "noTier": "当前无可售档位，请联系组织者。",

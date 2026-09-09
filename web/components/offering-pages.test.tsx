@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
   fetchOffering: vi.fn(),
+  fetchMyActiveEnrollments: vi.fn(),
   fetchMyEnrollment: vi.fn(),
   fetchPendingCount: vi.fn(),
   fetchWorkspaceOfferings: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/events", () => ({
   canManageEvents: (myAbilities: string[] = []) =>
     myAbilities.includes("manage_events"),
   createOffering: mocks.createOffering,
+  fetchMyActiveEnrollments: mocks.fetchMyActiveEnrollments,
   fetchMyEnrollment: mocks.fetchMyEnrollment,
   fetchOffering: mocks.fetchOffering,
   fetchPendingCount: mocks.fetchPendingCount,
@@ -62,8 +64,12 @@ vi.mock("@/lib/use-workspace-by-slug", () => ({
   useWorkspaceBySlug: mocks.useWorkspaceBySlug,
 }));
 
+// 可变的登录态（未登录分支用）；beforeEach 复位为已登录
+const authState = vi.hoisted(() => ({
+  current: { authed: true, confirmed: true, userId: "user-1" as string | null },
+}));
 vi.mock("@/lib/use-authed", () => ({
-  useAuthed: () => ({ authed: true, confirmed: true, userId: "user-1" }),
+  useAuthed: () => authState.current,
 }));
 
 vi.mock("@/components/workspace-shell", () => ({
@@ -174,6 +180,8 @@ function renderManageDetail(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authState.current = { authed: true, confirmed: true, userId: "user-1" };
+  mocks.fetchMyActiveEnrollments.mockResolvedValue([]);
   mocks.fetchMyEnrollment.mockResolvedValue(null);
   mocks.fetchPendingCount.mockResolvedValue(0);
   mocks.fetchWorkspaceOfferings.mockResolvedValue([]);
@@ -201,6 +209,88 @@ describe("OfferingsListPage 页头", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/草稿/)).not.toBeInTheDocument();
     expect(screen.getByText(new RegExp(`${label}与报名`))).toBeInTheDocument();
+  });
+});
+
+describe("OfferingsListPage 个人报名状态", () => {
+  const COURSE_A = {
+    id: "course-a",
+    workspaceId: "workspace-1",
+    title: "课程 A",
+    status: "open",
+    visibility: "workspace",
+    enrollmentPolicy: "open",
+    capacity: null,
+    confirmedCount: 0,
+    registrationDeadline: null,
+    pricingEnabled: false,
+    priceTiers: null,
+  };
+  const COURSE_B = { ...COURSE_A, id: "course-b", title: "课程 B" };
+
+  it("已报名课程渲染「已报名」徽标，未报名行不渲染", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A, COURSE_B]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      { id: "enr-1", status: "confirmed", courseId: "course-a", eventId: null },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByText("课程 A")).toBeInTheDocument();
+    const badge = screen.getByTestId("my-enrollment-confirmed");
+    expect(badge).toHaveTextContent("已报名");
+    // 只有已报名那一行有徽标
+    expect(screen.getAllByTestId(/^my-enrollment-/)).toHaveLength(1);
+  });
+
+  it("待支付与审批中各自渲染对应文案", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A, COURSE_B]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      {
+        id: "enr-2",
+        status: "payment_pending",
+        courseId: "course-a",
+        eventId: null,
+      },
+      { id: "enr-3", status: "pending", courseId: "course-b", eventId: null },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByTestId("my-enrollment-payment_pending")).toHaveTextContent(
+      "待支付",
+    );
+    expect(screen.getByTestId("my-enrollment-pending")).toHaveTextContent("审批中");
+  });
+
+  it("活动列表按 eventId 对齐：课程报名不串到活动行", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([
+      { ...COURSE_A, id: "event-a", title: "活动 A" },
+    ]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      { id: "enr-c", status: "confirmed", courseId: "event-a", eventId: null },
+      { id: "enr-e", status: "pending", courseId: null, eventId: "event-a" },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="event" />);
+
+    expect(await screen.findByTestId("my-enrollment-pending")).toHaveTextContent(
+      "审批中",
+    );
+    expect(
+      screen.queryByTestId("my-enrollment-confirmed"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("未登录：不发报名查询，也不渲染徽标", async () => {
+    authState.current = { authed: false, confirmed: true, userId: null };
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByText("课程 A")).toBeInTheDocument();
+    expect(mocks.fetchMyActiveEnrollments).not.toHaveBeenCalled();
+    expect(screen.queryByTestId(/^my-enrollment-/)).not.toBeInTheDocument();
   });
 });
 
@@ -676,6 +766,39 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     expect(
       screen.queryByRole("button", { name: "报名" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("英文 locale 已报名态渲染 CTA（回归：offerings en 键缺失 → MISSING_MESSAGE）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "course-en",
+      title: "EN Course",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-en",
+      status: "confirmed",
+    });
+
+    render(<OfferingDetailPage slug="demo" id="course-en" kind="course" />, {
+      locale: "en",
+    });
+
+    expect(await screen.findByText("Enter course")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "View in My participations" }),
+    ).toBeInTheDocument();
   });
 });
 
