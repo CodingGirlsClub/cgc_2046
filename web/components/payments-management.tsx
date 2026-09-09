@@ -6,10 +6,12 @@
  * - 统计卡：workspacePaymentStats（JsonString，U10 决策 3——parsePaymentStats
  *   解析 snake_case int 键）；已收/待收/已退三分量。
  * - 订单列表：workspaceOrders（状态筛选 + tier/报名人信息计算字段）。
- * - 退款（R15）：paid 单 → refundOrder（确认弹窗，两步式同 participations
- *   取消报名先例）；refund_failed 单可再退（后端 start_refund 只吃 paid，此处
- *   v1 列出面只对 paid 提供入口）。
- * - 免缴（R18）：enrollmentStatus === payment_pending 的行 → waivePayment。
+ * - 退款（R15）：paid 单 → refundOrder 后端两段确认（首调建 pending 返回后端
+ *   摘要，弹层确认经 confirmOperation 才真正执行；交互状态机收敛在
+ *   lib/use-payment-operation）；refund_failed 单可再退（后端 start_refund
+ *   只吃 paid，此处 v1 列出面只对 paid 提供入口）。
+ * - 免缴（R18）：enrollmentStatus === payment_pending 的行 → waivePayment
+ *   （同款两段确认）。
  * - 门控：manage = myAbilities 含 manage_members（Owner/Admin）；按钮渲染
  *   面门控 + 后端 policy 兜底（双保险）。
  *
@@ -19,13 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
-import {
-	REFUND_ORDER,
-	WAIVE_PAYMENT,
-	WORKSPACE_ORDERS,
-	WORKSPACE_PAYMENT_STATS,
-	type Order,
-} from "@/lib/graphql/orders";
+import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
 import {
 	ORDER_STATUS_LABEL,
 	PROVIDER_LABEL,
@@ -33,7 +29,7 @@ import {
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
-import { usePaymentErrorTranslator } from "@/lib/payment-errors";
+import { usePaymentOperation } from "@/lib/use-payment-operation";
 import { fetchWorkspaceOfferings } from "@/lib/events";
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
@@ -178,7 +174,6 @@ export default function PaymentsManagement({
 	workspaceId: string;
 	manage: boolean;
 }) {
-	const translatePaymentError = usePaymentErrorTranslator();
 	const t = useTranslations("payments");
 	const labelsT = useTranslations();
 	const statusFilters = [
@@ -201,9 +196,11 @@ export default function PaymentsManagement({
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
 	const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
-	const [busy, setBusy] = useState(false);
-	const [refundTarget, setRefundTarget] = useState<Order | null>(null);
-	const [actionError, setActionError] = useState<string | null>(null);
+	// 退款/免缴两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
+	const { pendingOp, busy, actionError, request, confirm, cancel } = usePaymentOperation({
+		t,
+		onCompleted: () => Promise.all([load(statusFilter), loadStats()]).then(() => undefined),
+	});
 
 	async function load(filter: string, offeringId: string = offeringFilter) {
 		setLoadState("loading");
@@ -264,67 +261,6 @@ export default function PaymentsManagement({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [workspaceId]);
 
-	async function confirmRefund() {
-		if (!refundTarget) return;
-		setBusy(true);
-		setActionError(null);
-		try {
-			const { data } = await client.mutate({
-				mutation: REFUND_ORDER,
-				variables: { id: refundTarget.id },
-			});
-			if (data?.refundOrder?.result) {
-				setRefundTarget(null);
-				await Promise.all([load(statusFilter), loadStats()]);
-			} else {
-				setActionError(
-					translatePaymentError(
-						data?.refundOrder?.errors?.[0]?.code,
-						t("refundFailed"),
-					),
-				);
-			}
-		} catch (e) {
-			setActionError(
-				translatePaymentError(
-					e instanceof Error ? e.message : null,
-					t("refundFailed"),
-				),
-			);
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function waive(order: Order) {
-		setBusy(true);
-		setActionError(null);
-		try {
-			const { data } = await client.mutate({
-				mutation: WAIVE_PAYMENT,
-				variables: { id: order.enrollmentId },
-			});
-			if (data?.waivePayment?.result) {
-				await Promise.all([load(statusFilter), loadStats()]);
-			} else {
-				setActionError(
-					translatePaymentError(
-						data?.waivePayment?.errors?.[0]?.code,
-						t("waiveFailed"),
-					),
-				);
-			}
-		} catch (e) {
-			setActionError(
-				translatePaymentError(
-					e instanceof Error ? e.message : null,
-					t("waiveFailed"),
-				),
-			);
-		} finally {
-			setBusy(false);
-		}
-	}
 
 	return (
 		<div className="grid gap-4">
@@ -380,33 +316,34 @@ export default function PaymentsManagement({
 					</p>
 				) : null}
 
-				{refundTarget ? (
+				{pendingOp ? (
 					<div
 						className="mt-3 rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
 						role="group"
-						aria-label={t("confirmRefund")}
+						aria-label={t("confirmTitle")}
 					>
-						<p className="text-sm text-amber-200">
-							{t("refundConfirm")}（¥{formatAmount(refundTarget.amountCents)}）
+						{/* 摘要由后端生成（含金额/渠道/后果），前端只透传 */}
+						<p className="text-sm text-amber-200" data-testid="op-summary">
+							{pendingOp.summary}
 						</p>
 						<div className="mt-3 flex flex-wrap gap-2">
 							<button
 								type="button"
 								className="join-button join-button--primary"
 								disabled={busy}
-								onClick={() => void confirmRefund()}
-								data-testid="refund-confirm"
+								onClick={() => void confirm()}
+								data-testid="op-confirm"
 							>
-								{busy ? t("refundBusy") : t("confirmRefund")}
+								{busy ? t("confirmBusy") : t("confirmExecute")}
 							</button>
 							<button
 								type="button"
 								className="join-button"
 								disabled={busy}
-								onClick={() => setRefundTarget(null)}
-								data-testid="refund-cancel"
+								onClick={() => void cancel()}
+								data-testid="op-cancel"
 							>
-								{t("refundCancel")}
+								{t("confirmCancel")}
 							</button>
 						</div>
 					</div>
@@ -449,8 +386,8 @@ export default function PaymentsManagement({
 										order={order}
 										manage={manage}
 										busy={busy}
-										onRequestRefund={setRefundTarget}
-										onWaive={(o) => void waive(o)}
+										onRequestRefund={(o) => void request("refund", o.id)}
+										onWaive={(o) => void request("waive", o.enrollmentId)}
 									/>
 								))}
 							</tbody>

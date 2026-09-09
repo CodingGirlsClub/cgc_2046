@@ -180,38 +180,257 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       assert stats_c["collected_cents"] == 19_900
     end
 
-    test "retryRefund：refund_failed → refunding + job 入队；paid 被拒；权限矩阵" do
+    test "retryRefund 两段确认：首调建 pending 不落库，confirm 后 refund_failed → refunding + job 入队；paid 被拒；权限矩阵" do
       %{owner: owner, member: member, admin: admin, workspace: workspace} = managed_workspace()
 
       platform = Fixtures.platform_admin("retry-platform")
       learner = refund_failed_enrollment(workspace, owner, "retry-failed")
       order_id = order_id_of(enrollment_id_of(learner))
 
-      # 普通成员 403
-      assert [%{"message" => _}] =
-               gql_errors(graphql(retry_mutation(order_id), sign_in_token(member)))
+      # 普通成员：读权门即拦截（read policy 过滤后同 not_found，不泄露订单存在性）
+      assert [%{"code" => "not_found"}] =
+               payload_errors(
+                 graphql(retry_mutation(order_id), sign_in_token(member)),
+                 "retryRefund"
+               )
 
-      # paid 单调用被拒（状态守卫）
+      # paid 单首调即状态快速失败（不建 pending）
       paid_learner = paid_enrollment(workspace, owner, "retry-paid")
       paid_order_id = order_id_of(enrollment_id_of(paid_learner))
 
-      assert [%{"message" => _} | _] =
-               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(owner)))
+      assert [%{"code" => "order_already_processed"}] =
+               payload_errors(
+                 graphql(retry_mutation(paid_order_id), sign_in_token(owner)),
+                 "retryRefund"
+               )
 
-      # Owner：refund_failed → refunding + 退款 job 入队
-      assert %{"data" => %{"retryRefund" => %{"result" => %{"status" => "refunding"}}}} =
-               graphql(retry_mutation(order_id), sign_in_token(owner))
+      # Owner 首调：建 pending 返回后端摘要，不落业务库（仍 refund_failed、无退款 job）
+      assert %{
+               "data" => %{
+                 "retryRefund" => %{
+                   "pendingId" => pending_id,
+                   "summary" => summary,
+                   "errors" => []
+                 }
+               }
+             } = graphql(retry_mutation(order_id), sign_in_token(owner))
 
-      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order_id})
+      assert summary =~ "重试退款"
+      assert Ash.get!(Order, order_id, authorize?: false).status == :refund_failed
+      refute_enqueued(worker: PaymentRefundWorker)
 
-      # Admin / PlatformAdmin 同权（矩阵收尾：用 paid 单验证不再 403 即状态错误）
-      assert [%{"message" => msg}] =
-               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(admin)))
+      # confirm 后真正执行：refunding + job 入队（发起人随 job 下传）
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(owner))
 
-      assert msg =~ "already" or msg =~ "processed"
+      assert Ash.get!(Order, order_id, authorize?: false).status == :refunding
 
-      assert [%{"message" => _}] =
-               gql_errors(graphql(retry_mutation(paid_order_id), sign_in_token(platform)))
+      assert_enqueued(
+        worker: PaymentRefundWorker,
+        args: %{"order_id" => order_id, "initiator_user_id" => owner.id}
+      )
+
+      # Admin / PlatformAdmin 同权（首调过管理权预检；paid 单止于状态预检，证明已过授权门）
+      assert [%{"code" => "order_already_processed"}] =
+               payload_errors(
+                 graphql(retry_mutation(paid_order_id), sign_in_token(admin)),
+                 "retryRefund"
+               )
+
+      assert [%{"code" => "order_already_processed"}] =
+               payload_errors(
+                 graphql(retry_mutation(paid_order_id), sign_in_token(platform)),
+                 "retryRefund"
+               )
+    end
+  end
+
+  describe "支付操作两段确认流（web 面 R2 对齐：无 confirm 不落业务库）" do
+    test "platform_admin 跨租户 refundOrder：首调只建 pending；confirm 后 CAS/审计/worker 路径不变" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      platform = Fixtures.platform_admin("refund-platform")
+      learner = paid_enrollment(workspace, owner, "refund-target")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      # 首调：PlatformAdmin 跨租户有退款兜底权（R19）可发起——但只建 pending，
+      # 不落业务库：订单仍 paid、无退款 job、无审计行；摘要由后端生成
+      assert %{
+               "data" => %{
+                 "refundOrder" => %{
+                   "pendingId" => pending_id,
+                   "summary" => summary,
+                   "errors" => []
+                 }
+               }
+             } = graphql(refund_mutation(order_id), sign_in_token(platform))
+
+      assert summary =~ "退款 ¥199.00"
+      assert Ash.get!(Order, order_id, authorize?: false).status == :paid
+      refute_enqueued(worker: PaymentRefundWorker)
+      assert admin_action_logs(:order_refund) == []
+
+      # confirm：真正执行——CAS paid → refunding + 退款 job 入队 + LogAdminAction 审计
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(platform))
+
+      assert Ash.get!(Order, order_id, authorize?: false).status == :refunding
+
+      assert_enqueued(
+        worker: PaymentRefundWorker,
+        args: %{"order_id" => order_id, "initiator_user_id" => platform.id}
+      )
+
+      assert [%{action: :order_refund, actor_id: actor_id}] = admin_action_logs(:order_refund)
+      assert actor_id == platform.id
+    end
+
+    test "cancelOperation：取消后不执行（订单仍 paid、无 job）；取消后再 confirm 被拒" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      learner = paid_enrollment(workspace, owner, "cancel-target")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      assert %{"data" => %{"refundOrder" => %{"pendingId" => pending_id, "errors" => []}}} =
+               graphql(refund_mutation(order_id), sign_in_token(owner))
+
+      assert %{"data" => %{"cancelOperation" => %{"status" => "cancelled", "errors" => []}}} =
+               graphql(cancel_mutation(pending_id), sign_in_token(owner))
+
+      assert Ash.get!(Order, order_id, authorize?: false).status == :paid
+      refute_enqueued(worker: PaymentRefundWorker)
+
+      # 取消后同 pending 不可再 confirm（状态机 cancelled 终态）
+      assert %{
+               "data" => %{
+                 "confirmOperation" => %{
+                   "status" => nil,
+                   "errors" => [%{"code" => "operation_confirm_failed"}]
+                 }
+               }
+             } = graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      assert Ash.get!(Order, order_id, authorize?: false).status == :paid
+      refute_enqueued(worker: PaymentRefundWorker)
+    end
+
+    test "过期 pending 拒绝确认（expires_at 过后读时派生 expired）" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      learner = paid_enrollment(workspace, owner, "expired-target")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      assert %{"data" => %{"refundOrder" => %{"pendingId" => pending_id, "errors" => []}}} =
+               graphql(refund_mutation(order_id), sign_in_token(owner))
+
+      # expires_at 直接拨到过去（读时派生 expired；async 测试不动全局 TTL env）
+      Cgc2046.Repo.query!(
+        "UPDATE mcp_pending_operations SET expires_at = NOW() - interval '1 minute' WHERE id = $1",
+        [Ecto.UUID.dump!(pending_id)]
+      )
+
+      assert %{
+               "data" => %{
+                 "confirmOperation" => %{
+                   "status" => nil,
+                   "errors" => [%{"code" => "operation_confirm_failed"}]
+                 }
+               }
+             } = graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      assert Ash.get!(Order, order_id, authorize?: false).status == :paid
+      refute_enqueued(worker: PaymentRefundWorker)
+    end
+
+    test "pending 仅本人可确认/取消（同工作台另一管理员一律 not found，不泄露存在性）" do
+      %{owner: owner, admin: admin, workspace: workspace} = managed_workspace()
+      learner = paid_enrollment(workspace, owner, "ownership-target")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      assert %{"data" => %{"refundOrder" => %{"pendingId" => pending_id, "errors" => []}}} =
+               graphql(refund_mutation(order_id), sign_in_token(owner))
+
+      assert %{
+               "data" => %{
+                 "confirmOperation" => %{
+                   "errors" => [
+                     %{
+                       "code" => "operation_confirm_failed",
+                       "message" => "pending operation not found"
+                     }
+                   ]
+                 }
+               }
+             } = graphql(confirm_mutation(pending_id), sign_in_token(admin))
+
+      assert %{
+               "data" => %{
+                 "cancelOperation" => %{
+                   "errors" => [%{"code" => "operation_cancel_failed"}]
+                 }
+               }
+             } = graphql(cancel_mutation(pending_id), sign_in_token(admin))
+
+      # 本人 confirm 仍可用
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      assert Ash.get!(Order, order_id, authorize?: false).status == :refunding
+    end
+
+    test "双确认：第二次 confirm 同 pending 被拒（confirmed 终态不可重复执行）" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      learner = paid_enrollment(workspace, owner, "double-confirm-target")
+      order_id = order_id_of(enrollment_id_of(learner))
+
+      assert %{"data" => %{"refundOrder" => %{"pendingId" => pending_id, "errors" => []}}} =
+               graphql(refund_mutation(order_id), sign_in_token(owner))
+
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      assert %{
+               "data" => %{
+                 "confirmOperation" => %{
+                   "status" => nil,
+                   "errors" => [%{"code" => "operation_confirm_failed"}]
+                 }
+               }
+             } = graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      # 退款 job 只入队一次（无重复退款）
+      assert length(all_enqueued(worker: PaymentRefundWorker)) == 1
+    end
+
+    test "waivePayment 两段：首调报名仍 payment_pending；confirm 后 confirmed + 关联订单作废 + 审计" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      learner = pending_enrollment(workspace, owner, "waive-target")
+      enrollment_id = enrollment_id_of(learner)
+      order = order_of(learner)
+
+      assert Ash.get!(Enrollment, enrollment_id, authorize?: false).status == :payment_pending
+
+      # 首调：只建 pending，报名/订单不变；摘要由后端生成
+      assert %{
+               "data" => %{
+                 "waivePayment" => %{
+                   "pendingId" => pending_id,
+                   "summary" => summary,
+                   "errors" => []
+                 }
+               }
+             } = graphql(waive_mutation(enrollment_id), sign_in_token(owner))
+
+      assert summary =~ "免缴"
+      assert Ash.get!(Enrollment, enrollment_id, authorize?: false).status == :payment_pending
+      assert Ash.get!(Order, order.id, authorize?: false).status == :pending
+      assert admin_action_logs(:waive_payment) == []
+
+      # confirm：payment_pending → confirmed + 关联 pending 订单作废 + 审计 :waive_payment
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(owner))
+
+      assert Ash.get!(Enrollment, enrollment_id, authorize?: false).status == :confirmed
+      assert Ash.get!(Order, order.id, authorize?: false).status == :cancelled
+      assert [%{action: :waive_payment, actor_id: actor_id}] = admin_action_logs(:waive_payment)
+      assert actor_id == owner.id
     end
   end
 
@@ -268,8 +487,12 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
           {:ok, %{status: :refunded, amount_cents: 19_900, transaction_id: "txn-tpl-1"}}
       )
 
-      assert %{"data" => %{"refundOrder" => %{"result" => %{"status" => "refunding"}}}} =
+      # 两段确认：首调建 pending，confirm 才真正发起退款（initiator 两段同操作）
+      assert %{"data" => %{"refundOrder" => %{"pendingId" => pending_id, "errors" => []}}} =
                graphql(refund_mutation(order_id), sign_in_token(initiator))
+
+      assert %{"data" => %{"confirmOperation" => %{"status" => "confirmed", "errors" => []}}} =
+               graphql(confirm_mutation(pending_id), sign_in_token(initiator))
 
       assert_enqueued(
         worker: PaymentRefundWorker,
@@ -547,8 +770,45 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     """
     mutation {
       retryRefund(id: "#{order_id}") {
-        result { id status }
-        errors { message }
+        pendingId
+        summary
+        errors { message code }
+      }
+    }
+    """
+  end
+
+  defp waive_mutation(enrollment_id) do
+    """
+    mutation {
+      waivePayment(id: "#{enrollment_id}") {
+        pendingId
+        summary
+        errors { message code }
+      }
+    }
+    """
+  end
+
+  defp confirm_mutation(pending_id) do
+    """
+    mutation {
+      confirmOperation(pendingId: "#{pending_id}") {
+        pendingId
+        status
+        errors { message code }
+      }
+    }
+    """
+  end
+
+  defp cancel_mutation(pending_id) do
+    """
+    mutation {
+      cancelOperation(pendingId: "#{pending_id}") {
+        pendingId
+        status
+        errors { message code }
       }
     }
     """
@@ -643,8 +903,9 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     """
     mutation {
       refundOrder(id: "#{order_id}") {
-        result { id status }
-        errors { message }
+        pendingId
+        summary
+        errors { message code }
       }
     }
     """
@@ -660,28 +921,28 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     end
   end
 
-  defp gql_errors(response) do
+  # 两段确认 mutation 的业务错误在 payload errors 通道（与自动 mutation 同款）；
+  # 顶层 errors（未登录等）一并覆盖
+  defp payload_errors(response, key) do
     case response do
-      %{"errors" => errors} ->
-        errors
-
-      %{"data" => %{"retryRefund" => %{"errors" => errors}}} ->
-        errors
-
-      %{"data" => %{"workspaceOrders" => %{"results" => [_ | _]}}} ->
-        []
-
-      _ ->
-        []
+      %{"errors" => errors} -> errors
+      %{"data" => %{^key => %{"errors" => errors}}} -> errors
     end
   end
 
   defp gql_errors(response) do
     case response do
       %{"errors" => errors} -> errors
-      %{"data" => %{"workspaceOrders" => %{"results" => [_ | _]}}} -> []
       _ -> []
     end
+  end
+
+  defp admin_action_logs(action) do
+    require Ecto.Query
+
+    Cgc2046.Repo.all(
+      Ecto.Query.from(log in Cgc2046.Accounts.AdminActionLog, where: log.action == ^action)
+    )
   end
 
   defp sign_in_token(user) do

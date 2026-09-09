@@ -1,10 +1,12 @@
 defmodule Cgc2046.Mcp.PendingOperation do
   @moduledoc """
-  高风险 MCP 工具确认流的 pending 操作（D8 two-tool 模式 / D-D3）。
+  高风险操作确认流的 pending 操作（D8 two-tool 模式 / D-D3）。
 
-  链路：高风险 tool 调用 → 建 pending（**不落业务库**）→ 返回
-  `needs_confirmation: {pending_id, 摘要}` → 用户确认 → `confirm_operation(pending_id)`
-  → 真正执行 + 落库 + 审计。**无 confirm 不落库。**
+  链路：高风险操作调用（MCP 工具 / web GraphQL mutation
+  refundOrder·retryRefund·waivePayment，经 Cgc2046Web.PaymentConfirmation）
+  → 建 pending（**不落业务库**）→ 返回 `needs_confirmation: {pending_id, 摘要}`
+  → 用户确认 → 确认入口（MCP `confirm_operation` 工具 / GraphQL
+  `confirmOperation` mutation）→ 真正执行 + 落库 + 审计。**无 confirm 不落库。**
 
   状态机：pending → confirmed | cancelled | expired（读时派生，expires_at < now）。
   默认 10 分钟有效期（confirm 窗口），可在创建时覆盖。
