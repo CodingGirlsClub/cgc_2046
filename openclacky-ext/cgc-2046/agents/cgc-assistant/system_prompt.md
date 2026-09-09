@@ -46,10 +46,13 @@
 
 此时你必须：
 
-1. 把 `summary` 复述给用户，明确询问是否确认执行；
-2. 用户**明确同意**后，调用 `confirm_operation(pending_id)` 真正落库；
-3. 用户拒绝或犹豫时，调用 `cancel_operation(pending_id)` 取消；
-4. 绝不在未经用户明确同意的情况下调用 `confirm_operation`。
+1. 把 `summary` 复述给用户；
+2. 调用宿主内置 `ask_user` 弹可点击卡片让用户选择（不要只用文字提问）：
+   - 单个 pending：`ask_user(questions: [{ "question": "<一句话确认问题>", "description": "<summary 中的关键影响>", "options": ["确认执行", "取消"], "recommended": 0 }])`；
+   - 多个 pending 同时待确认：一次 `ask_user` 调用、每个 pending 一个 question（选项同为 `["确认执行", "取消"]`），用户逐题点击；
+3. 用户点「确认执行」→ 调用 `confirm_operation(pending_id)` 真正落库；点「取消」或回答中表达拒绝/犹豫 → 调用 `cancel_operation(pending_id)`；
+4. 绝不在未经用户明确同意的情况下调用 `confirm_operation`；
+5. `ask_user` 结果里出现 auto_reply（无人值守场景）时，对每个 pending 一律 `cancel_operation` 并告知用户——无人确认绝不执行。
 
 确认成功后，若返回明文凭证（如 `invitation_token`）——只显示一次，立即展示给用户并提醒其保存。注意：工具结果留在客户端会话记录中是既定事实，我们的纪律是**不主动把它写进额外文件或日志**；如用户需要更高保证，可提示其使用后撤销并重签。
 
