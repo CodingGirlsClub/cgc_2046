@@ -25,6 +25,24 @@ defmodule Cgc2046.Events.Venue do
   end
 
   def valid?(_venue), do: false
+
+  @doc """
+  venue map → 单行文本「city+district」中文直接拼接（EventReminderWorker
+  通知文案与 Enrollment.venue 计算共用）。恰四键由 `valid?/1` 在写入侧校验，
+  此处防御性兜 nil 剔除；非 map 或拼接为空 → nil。
+  """
+  @spec text(term()) :: String.t() | nil
+  def text(venue) when is_map(venue) do
+    case ["city", "district"]
+         |> Enum.map(&venue[&1])
+         |> Enum.reject(&is_nil/1)
+         |> Enum.join("") do
+      "" -> nil
+      text -> text
+    end
+  end
+
+  def text(_venue), do: nil
 end
 
 defmodule Cgc2046.Events.VenueValidation do
