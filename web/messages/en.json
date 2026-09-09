@@ -543,7 +543,8 @@
     "enrolledMsg": "Enrollment successful",
     "reconciling": "Syncing…",
     "reconcileFailed": "Couldn't re-sync the latest status. Submitting stays locked until it succeeds.",
-    "resync": "Re-sync"
+    "resync": "Re-sync",
+    "viewInLearning": "View in My learning"
   },
   "apply": {
     "loading": "Loading…",
@@ -1093,7 +1094,9 @@
     "retry": "Retry",
     "timeTbd": "Time to be determined",
     "venueTbd": "Venue to be determined",
-    "redirectingToDefaultProfile": "Redirecting to your default workspace profile…"
+    "redirectingToDefaultProfile": "Redirecting to your default workspace profile…",
+    "addToGoogleCalendar": "Add to Google Calendar",
+    "downloadIcs": "Download .ics"
   },
   "participations": {
     "cancelConfirm": "Cancelling releases the slot immediately. This cannot be undone.",
@@ -1128,7 +1131,7 @@
     "confirming": "Confirming sign-in status…",
     "breadcrumbHome": "Workspaces",
     "title": "My participations",
-    "subtitle": "Learning progress, enrollments and sponsorship intents.",
+    "subtitle": "Your enrollments and sponsorship intents.",
     "enrollmentsTitle": "My enrollments",
     "enrollmentsDesc": "Enrollment status and slot changes sync here.",
     "discoverEvents": "Discover events",
@@ -1136,16 +1139,17 @@
     "enrollLoadError": "Failed to load enrollment records. Please refresh and retry.",
     "activeSection": "Active",
     "noActive": "No active enrollments.",
-    "endedSection": "Ended",
-    "noEnded": "No ended enrollments.",
+    "endedSection": "Closed",
+    "noEnded": "No closed enrollments.",
     "loadMore": "Load more",
     "sponsorshipsTitle": "My sponsorships",
     "sponsorshipsDesc": "Sponsorship intent status and deliverable records.",
     "sponsorLoadError": "Failed to load sponsorship records. Please refresh and retry.",
     "noSponsorships": "No sponsorship intents yet.",
-    "learningTitle": "My learning",
-    "learningDesc": "View learning progress per course; click to expand issue details.",
-    "learningLoadError": "Failed to load learning progress. Please refresh and retry."
+    "upcomingSection": "Upcoming",
+    "pastSection": "Ended",
+    "startsAt": "Starts: {time}",
+    "venue": "Venue: {venue}"
   },
   "approvals": {
     "kindEnrollmentCourse": "Course enrollment",
@@ -1348,7 +1352,8 @@
     "createSubtitle": "Created as draft; published to open enrollment",
     "titleRequired": "Title (required)",
     "visibility": "Visibility",
-    "openCurriculum": "Open course governance"
+    "openCurriculum": "Open course governance",
+    "viewInLearning": "View in My learning"
   },
   "checkout": {
     "orderFailed": "Failed to place the order. Please try again.",
@@ -1896,7 +1901,6 @@
     }
   },
   "learning": {
-    "tabLearning": "Learning",
     "tabEnrollments": "Enrollments",
     "tabSponsorships": "Sponsorships",
     "navAria": "My participations sections",
@@ -2055,6 +2059,7 @@
     "catalog": "Discover courses",
     "courses": "My courses",
     "loading": "Loading courses…",
-    "error": "Failed to load courses. Try again."
+    "error": "Failed to load courses. Try again.",
+    "myParticipations": "My enrollments"
   }
 }

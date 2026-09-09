@@ -694,9 +694,8 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     const link = await screen.findByTestId("enrollment-enter-course");
     expect(link.getAttribute("href")).toContain("/learning/courses/course-1");
     expect(link.textContent).toContain("进入课程");
-    expect(
-      screen.getByRole("link", { name: /在「我的参与」查看/ }),
-    ).toBeInTheDocument();
+    const follow = screen.getByRole("link", { name: /在「我的学习」查看/ });
+    expect(follow.getAttribute("href")).toContain("/learning");
   });
 
   it("课程未开课（startsAt 在未来）→ CTA 分叉为开课提示文案（P0-1）", async () => {
@@ -730,7 +729,7 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     expect(link.textContent).toContain("开课后在此学习");
   });
 
-  it("活动 confirmed 既有报名 → 无「进入课程」，只给「我的参与」出口（P0-1）", async () => {
+  it("活动 confirmed 既有报名 → 无「进入课程」；出口落 enrollments tab + 「添加日历」（P0-1/P1a）", async () => {
     mocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-event",
       status: "confirmed",
@@ -742,8 +741,48 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     expect(
       screen.queryByTestId("enrollment-enter-course"),
     ).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /在「我的参与」查看/ });
+    expect(link.getAttribute("href")).toContain("/participations?tab=enrollments");
+    // P1a：详情 mock 无 startsAt → 不渲染添加日历
+    expect(screen.queryByTestId("add-to-calendar")).not.toBeInTheDocument();
+  });
+
+  it("活动 confirmed 且 startsAt/venue 齐备 → 渲染「添加日历」区（P1a）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-cal",
+      title: "日历活动",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      startsAt: "2099-10-01T02:00:00.000Z",
+      endsAt: "2099-10-01T04:00:00.000Z",
+      venue: JSON.stringify({ country: "中国", province: "上海", city: "上海", district: "徐汇" }),
+      capacity: null,
+      confirmedCount: 0,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-cal",
+      status: "confirmed",
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-cal" kind="event" />);
+
+    const section = await screen.findByTestId("add-to-calendar");
+    const google = section.querySelector("a")!;
+    expect(google.getAttribute("target")).toBe("_blank");
+    const href = google.getAttribute("href")!;
+    expect(href).toContain("dates=20991001T020000Z%2F20991001T040000Z");
+    expect(new URL(href).searchParams.get("location")).toBe("中国 上海 徐汇");
     expect(
-      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+      screen.getByRole("button", { name: "下载 .ics 日历文件" }),
     ).toBeInTheDocument();
   });
 
@@ -797,7 +836,7 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
 
     expect(await screen.findByText("Enter course")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "View in My participations" }),
+      screen.getByRole("link", { name: "View in My learning" }),
     ).toBeInTheDocument();
   });
 });
