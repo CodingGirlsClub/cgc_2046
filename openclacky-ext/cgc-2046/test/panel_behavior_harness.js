@@ -590,6 +590,11 @@ globalThis.fetch = async (url, opts) => {
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
   if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed") {
+    if (path === "/api/ext/cgc-2046/version") {
+      // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走宿主市场 API,
+      // harness 不 stub /api/store → 查询失败静默,按钮保持隐藏)
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+    }
     if (path === "/api/ext/cgc-2046/status") {
       return { ok: true, status: 200, json: async () => (scenario === "home_unconnected"
         ? { ok: true, configured: false, web_url: "https://codingirlsclub.com" }
@@ -1260,6 +1265,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await sleep(150);   // boot:status → workspaces/tasks/activity/sessions
 
     const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const badgeText = (container.querySelector("#cgc-version-badge") || {}).textContent || "";
     const bootHtml = container.innerHTML;
 
     // owner 角色 → 「工作台管理」目录卡;点击 → 建管理会话(绑定节点缓存在
@@ -1301,6 +1307,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const reg = globalThis.__registered || {};
     const checks = {
       pill_connected: pillText.indexOf("已连接") >= 0,
+      version_badge_shown: bootHtml.indexOf('data-testid="cgc-version-badge"') >= 0 && badgeText === "v0.1.0",
+      endpoint_not_leaked_in_subtitle: bootHtml.indexOf("端点 ") < 0 && bootHtml.indexOf("Token 已配置") < 0,
+      upgrade_quiet_without_market: bootHtml.indexOf("升级 v") < 0 && bootHtml.indexOf("升级中") < 0,
       nav_mount_top: !!(globalThis.__mounted && globalThis.__mounted.slot === "sidebar.nav.top" &&
         globalThis.__mounted.opts && globalThis.__mounted.opts.workspace === "cgc"),
       admin_card_rendered: bootHtml.indexOf('data-catalog="wsadmin"') >= 0 && bootHtml.indexOf("工作台管理") >= 0,
