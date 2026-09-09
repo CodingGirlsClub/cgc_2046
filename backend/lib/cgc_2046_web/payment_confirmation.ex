@@ -125,7 +125,7 @@ defmodule Cgc2046Web.PaymentConfirmation do
         {:ok, %{pending_id: pending_id, summary: summary}}
 
       {:error, message} ->
-        {:error, %{message: message, code: "operation_unavailable"}}
+        {:error, %{message: message, code: Confirmation.unavailable_code()}}
     end
   end
 
