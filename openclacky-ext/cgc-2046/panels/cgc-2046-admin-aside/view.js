@@ -270,11 +270,14 @@
   }
 
   // 待办行 → 处理指令(台名前缀消歧:待办跨台聚合,agent 按名称切换上下文;
-  // 行只带语义,id 由 agent 调 list_my_tasks 自取)
+  // 行只带语义,id 由 agent 调 list_my_tasks 自取)。
+  // P2 安全边界:requester_name 是任意注册用户可控 UGC,不进指令本体——
+  // 无 context_title/title 时不带标题段,申请人由 agent 调 list_my_tasks 的
+  // 工具结果以数据身份(非指令特权位)呈现
   function taskPrompt(t) {
     const ws = t._ws_name ? "[" + oneLine(t._ws_name) + "] " : "";
-    const title = oneLine(t.context_title || t.title || t.requester_name || "");
-    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办：" + title +
+    const title = oneLine(t.context_title || t.title || "");
+    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办" + (title ? "：" + title : "") +
       "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。\n" + Kit.DATA_NOTE;
   }
 
@@ -297,14 +300,16 @@
       " 可改哪些字段，我说一项你改一项，走确认流）。\n" + Kit.DATA_NOTE;
   }
 
-  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id 来自 MCP
-  // 返回,可信标识直接带上,agent 无需先列表)
+  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id/enrollment_id
+  // 来自 MCP 返回,可信标识直接带上,agent 无需先列表)。
+  // P2 安全边界:报名人姓名/邮箱是任意注册用户可控 UGC,一律不进指令本体——
+  // 指令 = 固定动作 + 记录 id;姓名/邮箱由 agent 调 list_enrollments 的工具结果
+  // 以数据身份(非指令特权位)呈现
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
-    const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
     const oid = Kit.safeId(offeringId);
     const eid = Kit.safeId(row.enrollment_id);
-    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
+    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」的报名" +
       "（list_enrollments kind=" + kind + (oid ? " offering_id=" + oid : "") +
       " 确认详情后，按确认流处理" + (eid ? "，enrollment_id=" + eid : "") + "）。\n" + Kit.DATA_NOTE;
   }
