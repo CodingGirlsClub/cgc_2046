@@ -1,22 +1,18 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@apollo/client/react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { useAuthed } from "@/lib/use-authed";
-import LearningTab, {
-  ParticipationsTabs,
-  coursesWithoutRuns,
-} from "@/components/learning/learning-tab";
+import { ParticipationsTabs } from "@/components/learning/learning-tab";
 import {
   CANCEL_ENROLLMENT,
   ENROLLMENT_STATUS_LABEL,
   MY_ENROLLMENTS,
-  MY_LEARNING_RUNS,
   MY_SPONSORSHIPS,
   SPONSORSHIP_STATUS_LABEL,
   type KeysetPage,
@@ -24,6 +20,49 @@ import {
   type ParticipationSponsorship,
 } from "@/lib/graphql/participations";
 import SitePage from "@/components/site-page";
+
+const ACTIVE_STATUSES = new Set(["pending", "payment_pending", "confirmed"]);
+
+function startsAtMs(row: ParticipationEnrollment): number | null {
+  if (!row.startsAt) return null;
+  const ms = new Date(row.startsAt).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** P2a 时间感知分组：活跃报名拆「即将开始」（startsAt 在未来，升序）与其余；
+ * startsAt 已过但状态仍活跃的卡片单列「已结束（时间）」小节（与终态 ended 组语义不同）。 */
+export function splitEnrollments(
+  rows: ParticipationEnrollment[],
+  nowMs: number,
+): {
+  upcoming: ParticipationEnrollment[];
+  active: ParticipationEnrollment[];
+  past: ParticipationEnrollment[];
+  ended: ParticipationEnrollment[];
+} {
+  const upcoming: ParticipationEnrollment[] = [];
+  const active: ParticipationEnrollment[] = [];
+  const past: ParticipationEnrollment[] = [];
+  const ended: ParticipationEnrollment[] = [];
+  for (const row of rows) {
+    if (!ACTIVE_STATUSES.has(row.status)) {
+      ended.push(row);
+      continue;
+    }
+    const ms = startsAtMs(row);
+    if (ms === null) {
+      active.push(row);
+    } else if (ms > nowMs) {
+      upcoming.push(row);
+    } else {
+      past.push(row);
+    }
+  }
+  upcoming.sort(
+    (a, b) => (startsAtMs(a) ?? Infinity) - (startsAtMs(b) ?? Infinity),
+  );
+  return { upcoming, active, past, ended };
+}
 
 const PAGE_SIZE = 20;
 
@@ -97,6 +136,16 @@ function EnrollmentCard({
             {row.eventId ? t("kindEvent") : t("kindCourse")} ·{" "}
             {t("enrolledAt", { time: formatDateTime(row.insertedAt) })}
           </p>
+          {row.startsAt ? (
+            <p className="mt-1 text-xs text-ink-3" data-testid={`starts-at-${row.id}`}>
+              {t("startsAt", { time: formatDateTime(row.startsAt) })}
+            </p>
+          ) : null}
+          {row.venue ? (
+            <p className="mt-1 text-xs text-ink-3" data-testid={`venue-${row.id}`}>
+              {t("venue", { venue: row.venue })}
+            </p>
+          ) : null}
         </div>
         <span className="rounded-full border border-line-strong px-2.5 py-1 text-xs text-ink-2">
           {labelsT(ENROLLMENT_STATUS_LABEL[row.status])}
@@ -280,10 +329,6 @@ export default function ParticipationsPage() {
     skip: !authed,
     notifyOnNetworkStatusChange: true,
   });
-  const learningQuery = useQuery(MY_LEARNING_RUNS, {
-    skip: !authed,
-    notifyOnNetworkStatusChange: true,
-  });
 
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -295,18 +340,16 @@ export default function ParticipationsPage() {
   const sponsorshipPage = sponsorshipQuery.data?.mySponsorships;
   const enrollmentRows = enrollmentPage?.results ?? [];
   const sponsorshipRows = sponsorshipPage?.results ?? [];
-  const activeEnrollments = enrollmentRows.filter(
-    (row) =>
-      row.status === "pending" ||
-      row.status === "payment_pending" ||
-      row.status === "confirmed",
-  );
-  const endedEnrollments = enrollmentRows.filter(
-    (row) =>
-      row.status === "rejected" ||
-      row.status === "expired" ||
-      row.status === "cancelled",
-  );
+  // P2a 时间感知分组：即将开始（startsAt 未来，升序）/ 进行中 / 已结束（时间
+  // 已过但状态仍活跃）/ 终态组（rejected/expired/cancelled）。
+  // 渲染期时间快照（react-hooks/purity；仓内惰性初始化同款）
+  const [nowMs] = useState(() => Date.now());
+  const {
+    upcoming: upcomingEnrollments,
+    active: activeEnrollments,
+    past: pastEnrollments,
+    ended: endedEnrollments,
+  } = splitEnrollments(enrollmentRows, nowMs);
   const hasMoreEnrollments = enrollmentPage
     ? enrollmentPage.count == null
       ? Boolean(enrollmentPage.endKeyset)
@@ -400,16 +443,15 @@ export default function ParticipationsPage() {
     }
   }
 
-  // U8(R11):学习/报名/赞助子导航,学习默认 tab(?tab= 切换;tab 状态由
-  // URL 承载——切 tab 保留组件状态的同页分组数据在三个 query 中常驻)
+  // P2b IA 分家：/participations 只留 报名(默认)/赞助 两个 tab；学习迁至
+  // /learning，旧 ?tab=learning 链接在 effect 内 replace 过去。
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const tab: "learning" | "enrollments" | "sponsorships" =
-    tabParam === "enrollments" || tabParam === "sponsorships"
-      ? tabParam
-      : "learning";
-
-  const learningRuns = (learningQuery.data?.myLearningRuns ?? []).slice();
+  const tab: "enrollments" | "sponsorships" =
+    tabParam === "sponsorships" ? "sponsorships" : "enrollments";
+  useEffect(() => {
+    if (tabParam === "learning") router.replace("/learning");
+  }, [tabParam, router]);
 
   if (!confirmed) {
     return (
@@ -482,6 +524,26 @@ export default function ParticipationsPage() {
             ) : null}
             {!enrollmentQuery.loading && !enrollmentQuery.error ? (
               <div className="mt-5 grid gap-5">
+                {upcomingEnrollments.length > 0 ? (
+                  <div data-testid="upcoming-section">
+                    <h3 className="text-sm font-medium text-ink-2">
+                      {t("upcomingSection")}
+                    </h3>
+                    <div className="mt-2 grid gap-3">
+                      {upcomingEnrollments.map((row) => (
+                        <EnrollmentCard
+                          key={row.id}
+                          row={row}
+                          confirming={confirmingId === row.id}
+                          busy={cancellingId === row.id}
+                          onRequestCancel={() => setConfirmingId(row.id)}
+                          onConfirmCancel={() => void cancelEnrollment(row)}
+                          onKeep={() => setConfirmingId(null)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div>
                   <h3 className="text-sm font-medium text-ink-2">
                     {t("activeSection")}
@@ -530,6 +592,26 @@ export default function ParticipationsPage() {
                     </div>
                   )}
                 </div>
+                {pastEnrollments.length > 0 ? (
+                  <div data-testid="past-section">
+                    <h3 className="text-sm font-medium text-ink-2">
+                      {t("pastSection")}
+                    </h3>
+                    <div className="mt-2 grid gap-3">
+                      {pastEnrollments.map((row) => (
+                        <EnrollmentCard
+                          key={row.id}
+                          row={row}
+                          confirming={confirmingId === row.id}
+                          busy={cancellingId === row.id}
+                          onRequestCancel={() => setConfirmingId(row.id)}
+                          onConfirmCancel={() => void cancelEnrollment(row)}
+                          onKeep={() => setConfirmingId(null)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {hasMoreEnrollments ? (
                   <button
                     type="button"
@@ -589,41 +671,6 @@ export default function ParticipationsPage() {
                   ) : null}
                 </div>
               )
-            ) : null}
-          </section>
-        ) : null}
-
-        {tab === "learning" ? (
-          <section
-            aria-labelledby="participations-learning"
-            className="rounded-large border border-line bg-view p-5"
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <h2
-                  id="participations-learning"
-                  className="text-xl font-semibold text-ink"
-                >
-                  {t("learningTitle")}
-                </h2>
-                <p className="mt-1 text-sm text-ink-3">
-                  {t("learningDesc")}
-                </p>
-              </div>
-            </div>
-            {learningQuery.loading ? (
-              <p className="mt-5 text-sm text-ink-3">{t("loading")}</p>
-            ) : null}
-            {learningQuery.error ? (
-              <div className="mt-5">
-                <ErrorNotice>{t("learningLoadError")}</ErrorNotice>
-              </div>
-            ) : null}
-            {!learningQuery.loading && !learningQuery.error ? (
-              <LearningTab
-                runs={learningRuns}
-                extraCourses={coursesWithoutRuns(learningRuns, enrollmentRows)}
-              />
             ) : null}
           </section>
         ) : null}

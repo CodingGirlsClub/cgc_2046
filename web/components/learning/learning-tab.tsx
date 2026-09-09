@@ -27,16 +27,16 @@ import {
   type ObjectiveMastery,
 } from "@/components/learning/issue-bits";
 
-type Tab = "learning" | "enrollments" | "sponsorships";
+type Tab = "enrollments" | "sponsorships";
 
 export function ParticipationsTabs({ tab }: { tab: Tab }) {
   const t = useTranslations("learning");
+  // P2b IA 分家：学习迁至 /learning，/participations 只留 报名(默认)/赞助
   const tabs: Array<{ key: Tab; label: string; href: string }> = [
-    { key: "learning", label: t("tabLearning"), href: "/participations" },
     {
       key: "enrollments",
       label: t("tabEnrollments"),
-      href: "/participations?tab=enrollments",
+      href: "/participations",
     },
     {
       key: "sponsorships",
