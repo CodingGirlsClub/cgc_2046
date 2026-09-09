@@ -1208,6 +1208,7 @@ class HarnessScenarioWiringTest < Minitest::Test
     "home_hub"                     => "home",
     "home_unconnected"             => "home",
     "home_tasks_failed"            => "home",
+    "home_upgrade"                 => "home",
   }.freeze
 
   def run_harness(view, scenario)

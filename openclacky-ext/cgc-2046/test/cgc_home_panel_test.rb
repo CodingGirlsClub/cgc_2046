@@ -16,7 +16,8 @@ require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
 require_relative "../api/handler"
 
 EXT_YML = File.read(File.expand_path("../ext.yml", __dir__))
-EXT_README = File.read(File.expand_path("../README.md", __dir__))
+# 开发者向合同已随 README 重写(用户向)迁 DEVELOPMENT.md——薄壳断言读该文件
+EXT_DEV_DOC = File.read(File.expand_path("../DEVELOPMENT.md", __dir__))
 EXT_ROOT = File.expand_path("..", __dir__)
 ROOT_LICENSE = File.read(File.expand_path("../../../LICENSE", __dir__))
 
@@ -46,10 +47,13 @@ class CgcHomePanelTest < Minitest::Test
     view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
     assert_includes view, 'id="cgc-version-badge"'
     assert_includes view, 'id="cgc-upgrade"'
-    assert_includes view, '/api/store/extension?id=cgc-2046'
-    assert_includes view, 'compareVersions'
+    # 升级数据源 = 扩展自有 /update_info(loopback);安装执行仍复用宿主 install 通道
+    assert_includes view, '/update_info'
+    assert_includes view, '/api/store/extension/install'
+    refute_includes view, '/api/store/extension?id=', "市场查询通道已移除(自托管分发)"
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
     assert_includes handler, 'get "/version"'
+    assert_includes handler, 'get "/update_info"'
   end
 
   # ---- 会话区 Tab 与活动区移除 ----
@@ -154,11 +158,12 @@ class AgentThinShellContractTest < Minitest::Test
   end
 
   def test_readme_describes_tutor_and_admin_as_runtime_playbook_shells
+    # 用户向 README 不再出现 agent id;薄壳合同在 DEVELOPMENT.md
     %w[cgc-assistant cgc-tutor cgc-admin].each do |agent|
-      assert_includes EXT_README, "`#{agent}`"
+      assert_includes EXT_DEV_DOC, "`#{agent}`"
     end
-    assert_includes EXT_README, "启动时拉取"
-    assert_includes EXT_README, "`cgc-tutor` 与 `cgc-admin` 是安全薄壳"
+    assert_includes EXT_DEV_DOC, "启动时拉取"
+    assert_includes EXT_DEV_DOC, "`cgc-tutor` 与 `cgc-admin` 是安全薄壳"
   end
 
   def test_manifest_stays_one_agpl_package_with_three_agents

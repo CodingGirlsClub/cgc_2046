@@ -223,22 +223,10 @@
     });
   }
 
-  // ---- 版本徽标与市场升级(青狮工作台 /version + /api/store/extension 同款通道) ----
-  function compareVersions(left, right) {
-    const parse = (v) => {
-      const parts = String(v || "").replace(/^v/i, "").split("-", 2);
-      return { core: parts[0].split("."), pre: parts[1] || "" };
-    };
-    const a = parse(left), b = parse(right);
-    for (let i = 0; i < Math.max(a.core.length, b.core.length, 3); i++) {
-      const x = parseInt(a.core[i], 10) || 0, y = parseInt(b.core[i], 10) || 0;
-      if (x !== y) return x > y ? 1 : -1;
-    }
-    if (a.pre === b.pre) return 0;
-    if (!a.pre) return 1;
-    if (!b.pre) return -1;
-    return a.pre > b.pre ? 1 : -1;
-  }
+  // ---- 版本徽标与升级(自托管分发:/version + loopback /update_info;
+  //   安装执行复用宿主 /api/store/extension/install,数据源不再走市场查询) ----
+  // 版本比较只在 handler /update_info 一处(version_newer?),面板直接消费
+  // update_available 布尔,不再重复比较
 
   let installedVersion = "";
 
@@ -259,26 +247,22 @@
   function checkExtensionUpdate(container) {
     const btn = container.querySelector("#cgc-upgrade");
     if (!btn || !btn.isConnected) return;
-    fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } })
+    fetch(API + "/update_info", { headers: { Accept: "application/json" } })
       .then((r) => r.json())
       .then((payload) => {
-        const ext = payload && payload.extension;
-        if (!ext) return;
-        // 仅市场安装层提示升级(removable===true);local 开发层/未上架不提示
-        const marketInstall = ext.installed === true && ext.removable === true;
-        const latest = String(ext.version || "");
-        const installed = String(ext.installed_version || "") || installedVersion;
-        if (marketInstall && ext.download_url && latest && installed &&
-            compareVersions(latest, installed) > 0) {
+        if (!payload || payload.ok !== true) { btn.hidden = true; return; }
+        const latest = String(payload.latest_version || "");
+        const current = String(payload.current_version || "") || installedVersion;
+        if (latest && payload.download_url && payload.update_available === true) {
           btn.textContent = "升级 v" + latest;
-          btn.title = "CGC-2046 有新版本 v" + latest + ",当前 v" + installed;
+          btn.title = "CGC-2046 有新版本 v" + latest + ",当前 v" + current;
           btn.dataset.latest = latest;
           btn.hidden = false;
         } else {
           btn.hidden = true;
         }
       })
-      .catch(() => { /* 市场查询失败静默(未上架/离线),按钮保持隐藏 */ });
+      .catch(() => { /* 升级信息查询失败静默(离线/远端故障),按钮保持隐藏 */ });
   }
 
   async function upgradeExtension(container) {
@@ -287,14 +271,13 @@
     btn.disabled = true;
     btn.textContent = "升级中…";
     try {
-      const res = await fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } });
+      const res = await fetch(API + "/update_info", { headers: { Accept: "application/json" } });
       const payload = await res.json();
-      const ext = payload && payload.extension;
-      if (!ext || !ext.download_url) throw new Error("市场信息不可用");
+      if (!payload || payload.ok !== true || !payload.download_url) throw new Error("更新信息不可用");
       const install = await fetch("/api/store/extension/install", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ download_url: ext.download_url, name: ext.name || "CGC-2046" }),
+        body: JSON.stringify({ download_url: payload.download_url, name: "CGC-2046" }),
       });
       const ip = await install.json();
       if (ip.ok === false) throw new Error(ip.error || "安装请求失败");

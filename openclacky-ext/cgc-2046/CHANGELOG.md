@@ -4,9 +4,14 @@
 
 ## [Unreleased]
 
+### 变更
+
+- **分发渠道转自托管**：扩展不再发布到公共 Extension Marketplace。安装改为一条命令 `openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip`（zip 由 CGC-2046 官方后端分发，与网站同可用性）。已安装用户不受影响。
+- 面板「升级」按钮改查 CGC 自有版本端点（`/api/ext/cgc-2046/update_info` 透传），升级链路不依赖市场。
+
 ### 新增
 
-- hub 面板右上角版本徽标与「升级」按钮：经 Extension Marketplace 通道一键升级。
+- hub 面板右上角版本徽标与「升级」按钮：有新版本时一键升级。
 - 工作台管理侧栏支持活动管理：新增活动创建等 MCP 工具，供给区按状态提供发布 / 取消 / 结束动作。
 - 管理侧栏供给行展开区：课程与活动的对象级操作排（发布、取消、结束、对话修改、网站编辑深链）。
 - 课程学习内容按章节分组展示。
