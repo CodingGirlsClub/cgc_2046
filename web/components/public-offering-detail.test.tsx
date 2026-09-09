@@ -274,6 +274,26 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
     expect(link.textContent).toContain("进入课程");
   });
 
+  it("课程 confirmed 报名 → 次级出口落在 /learning（P0/P2b）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "course-pub2",
+      slug: "pub-course-2",
+      title: "公开课程",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-course2",
+      status: "confirmed",
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    const link = await screen.findByRole("link", { name: /在「我的学习」查看/ });
+    expect(link.getAttribute("href")).toContain("/learning");
+  });
+
   it("课程未开课（startsAt 在未来）→ CTA 分叉为开课提示文案（P0-1）", async () => {
     const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
     mocks.fetchPublicOffering.mockResolvedValue({
@@ -296,21 +316,53 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
     expect(link.textContent).toContain(`FMT(${future})`);
   });
 
-  it("活动 confirmed 报名 → 无「进入课程」，只给「我的参与」出口（P0-1）", async () => {
+  it("活动 confirmed 报名 → 无「进入课程」；出口落 enrollments tab，且有「添加日历」（P0-1/P1a）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      startsAt: "2099-10-01T02:00:00.000Z",
+      endsAt: "2099-10-01T04:00:00.000Z",
+      venue: JSON.stringify({ country: "中国", province: "上海", city: "上海", district: "徐汇" }),
+    });
     eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-evt",
+      status: "confirmed",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("public-enrollment-enter-course"),
+    ).not.toBeInTheDocument();
+    // P0：活动出口落到 /participations 的 enrollments tab
+    const link = screen.getByRole("link", { name: /在「我的参与」查看/ });
+    expect(link.getAttribute("href")).toContain("/participations?tab=enrollments");
+    // P1a：添加日历区（Google 链接 + .ics 按钮；venue 进入 location 参数）
+    const section = screen.getByTestId("add-to-calendar");
+    const google = section.querySelector("a")!;
+    expect(google.getAttribute("target")).toBe("_blank");
+    expect(google.getAttribute("rel")).toContain("noopener");
+    expect(decodeURIComponent(google.getAttribute("href")!)).toContain(
+      "calendar.google.com/calendar/render",
+    );
+    const href = google.getAttribute("href")!;
+    expect(href).toContain("dates=20991001T020000Z%2F20991001T040000Z");
+    expect(new URL(href).searchParams.get("location")).toBe("中国 上海 徐汇");
+    expect(
+      screen.getByRole("button", { name: "下载 .ics 日历文件" }),
+    ).toBeInTheDocument();
+  });
+
+  it("活动无 startsAt → 不渲染「添加日历」（P1a）", async () => {
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-evt-nodate",
       status: "confirmed",
     });
 
     renderOpen();
 
     expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("public-enrollment-enter-course"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /在「我的参与」查看/ }),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId("add-to-calendar")).not.toBeInTheDocument();
   });
 });
 

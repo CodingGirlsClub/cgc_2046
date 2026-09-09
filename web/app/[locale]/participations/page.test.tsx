@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
-import ParticipationsPage from "./page";
+import ParticipationsPage, { splitEnrollments } from "./page";
 import {
 	MY_ENROLLMENTS,
-	MY_LEARNING_RUNS,
 	MY_SPONSORSHIPS,
 	type ParticipationEnrollment,
 } from "@/lib/graphql/participations";
@@ -23,7 +22,7 @@ vi.mock("next/navigation", () => ({
 	permanentRedirect: vi.fn(),
 	useRouter: () => router,
 	usePathname: () => "/participations",
-	// U8 tab 状态由 URL ?tab= 承载;用例按需切 tab(默认学习 tab)
+	// P2b 后 tab 只剩 报名(默认)/赞助;?tab=learning 旧链接重定向 /learning
 	useSearchParams: () => new URLSearchParams(tabState.tab ? `tab=${tabState.tab}` : ""),
 }));
 vi.mock("@/lib/use-authed", () => ({ useAuthed }));
@@ -42,12 +41,14 @@ const ENROLLMENT: ParticipationEnrollment = {
 	expiredAt: null,
 	cancelledAt: null,
 	insertedAt: "2026-08-10T00:00:00Z",
+	startsAt: null,
+	venue: null,
 };
 
 const CANCELLED_ENROLLMENT = {
 	...ENROLLMENT,
 	id: "enr-old",
-	status: "cancelled",
+	status: "cancelled" as const,
 	cancelledAt: "2026-08-11T00:00:00Z",
 };
 
@@ -67,25 +68,9 @@ const SPONSORSHIP = {
 	],
 };
 
-const LEARNING_RUN = {
-	runId: "run-1",
-	enrollmentId: "enr-1",
-	targetTitle: "教研分享会",
-	status: "waiting",
-	staleRevision: false,
-	progress: { masteredRequired: 1, totalRequired: 3, complete: false },
-	nextAction: {
-		kind: "developing",
-		objectiveId: "obj-2",
-		reason: "继续攻克「变量与数据」——已有尝试但尚未达到掌握标准",
-	},
-	courseId: "course-1",
-};
-
 function mockQuery({
 	enrollments = [ENROLLMENT, CANCELLED_ENROLLMENT],
 	sponsorships = [SPONSORSHIP],
-	learningRuns = [LEARNING_RUN],
 	enrollmentPage = {},
 	sponsorshipPage = {},
 } = {}) {
@@ -120,17 +105,11 @@ function mockQuery({
 			refetch: vi.fn().mockResolvedValue(undefined),
 			fetchMore: vi.fn().mockResolvedValue(undefined),
 		},
-		learning: {
-			data: { myLearningRuns: learningRuns },
-			loading: false,
-			error: undefined,
-		},
 	};
 
 	useQuery.mockImplementation((query: unknown) => {
 		if (query === MY_ENROLLMENTS) return states.enrollments;
 		if (query === MY_SPONSORSHIPS) return states.sponsorships;
-		if (query === MY_LEARNING_RUNS) return states.learning;
 		throw new Error("unexpected query");
 	});
 
@@ -140,21 +119,29 @@ function mockQuery({
 beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "user-1" });
+	tabState.tab = null;
 });
 
 afterEach(cleanup);
 
-describe("/participations 我的参与", () => {
-	it("渲染报名、赞助交付与学习进度三段数据（U8 三 tab 分面）", () => {
-		mockQuery();
+describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", () => {
+	it("默认渲染报名 tab（含 startsAt/venue），赞助 tab 渲染交付数据", () => {
+		mockQuery({
+			enrollments: [
+				{ ...ENROLLMENT, startsAt: "2099-01-01T00:00:00Z", venue: "上海 徐汇" },
+				CANCELLED_ENROLLMENT,
+			],
+		});
 
-		// 报名 tab
-		tabState.tab = "enrollments";
+		// 默认（无 ?tab=）→ 报名 tab
 		render(<ParticipationsPage />);
 		expect(screen.getByRole("heading", { name: "我的参与" })).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "我的报名" })).toBeInTheDocument();
 		expect(screen.getByText("等待审批")).toBeInTheDocument();
 		expect(screen.getByText("已取消")).toBeInTheDocument();
+		// P2a：卡片显示开始时间与地点
+		expect(screen.getByTestId("starts-at-enr-1").textContent).toContain("开始时间");
+		expect(screen.getByTestId("venue-enr-1").textContent).toContain("上海 徐汇");
 		cleanup();
 
 		// 赞助 tab
@@ -165,24 +152,81 @@ describe("/participations 我的参与", () => {
 		expect(screen.getByText("已完成")).toBeInTheDocument();
 		expect(screen.getByText("公众号推文")).toBeInTheDocument();
 		expect(screen.getByText(/待履约/)).toBeInTheDocument();
-		cleanup();
+	});
 
-		// 学习 tab（默认）
-		tabState.tab = null;
+	it("旧 ?tab=learning 链接重定向到 /learning（P2b IA 分家）", () => {
+		mockQuery();
+		tabState.tab = "learning";
 		render(<ParticipationsPage />);
-		expect(screen.getByRole("heading", { name: "我的学习" })).toBeInTheDocument();
-		// S8 objective 口径:行内 = next_action reason + 必修掌握进度
-		expect(screen.getByText(/继续攻克「变量与数据」/)).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				(_, el) => el?.textContent === "必修已掌握 1/3",
-			),
-		).toBeInTheDocument();
-		expect(screen.getByText("等待中")).toBeInTheDocument();
+		expect(router.replace).toHaveBeenCalledWith("/learning");
+	});
+
+	it("P2a 时间感知分组：即将开始升序置顶，时间已过的活跃报名进「已结束」小节", () => {
+		const future1 = { ...ENROLLMENT, id: "enr-f1", targetTitle: "远期活动", startsAt: "2099-06-01T00:00:00Z" };
+		const future2 = { ...ENROLLMENT, id: "enr-f2", targetTitle: "近期活动", startsAt: "2099-01-01T00:00:00Z" };
+		const pastActive = { ...ENROLLMENT, id: "enr-past", targetTitle: "已举行活动", status: "confirmed" as const, startsAt: "2020-01-01T00:00:00Z" };
+		mockQuery({ enrollments: [pastActive, future1, ENROLLMENT, future2] });
+
+		render(<ParticipationsPage />);
+
+		const upcoming = screen.getByTestId("upcoming-section");
+		// 即将开始按 startsAt 升序：近期在前
+		const order = [...upcoming.querySelectorAll("article")].map((a) =>
+			a.getAttribute("data-testid"),
+		);
+		expect(order).toEqual(["enrollment-enr-f2", "enrollment-enr-f1"]);
+
+		// startsAt 已过但 status 仍 confirmed → 单独「已结束」小节，不在进行中
+		const past = screen.getByTestId("past-section");
+		expect(past.querySelector('[data-testid="enrollment-enr-past"]')).not.toBeNull();
+		const activeHead = screen.getByText("进行中").parentElement!;
+
+		expect(activeHead.querySelector('[data-testid="enrollment-enr-past"]')).toBeNull();
+	});
+	it("未登录的旧 ?tab=learning 链接 → 登录页且 next 指向 /learning（review F4）", () => {
+		useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
+		mockQuery();
+		tabState.tab = "learning";
+		render(<ParticipationsPage />);
+		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Flearning");
+		expect(router.replace).not.toHaveBeenCalledWith("/learning");
+	});
+
+	it("P2a 分组时钟每分钟推进：跨界活动自动移入「已结束」（review F1）", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-10-01T09:00:00Z"));
+			const crossing = {
+				...ENROLLMENT,
+				id: "enr-cross",
+				status: "confirmed" as const,
+				startsAt: "2026-10-01T10:00:00Z",
+			};
+			mockQuery({ enrollments: [crossing] });
+			render(<ParticipationsPage />);
+			expect(
+				screen
+					.getByTestId("upcoming-section")
+					.querySelector('[data-testid="enrollment-enr-cross"]'),
+			).not.toBeNull();
+
+			// 时间推进到活动开始之后；分组时钟下一拍（60s interval）自动重分组
+			vi.setSystemTime(new Date("2026-10-01T11:00:00Z"));
+			act(() => {
+				vi.advanceTimersByTime(60_000);
+			});
+
+			expect(
+				screen
+					.getByTestId("past-section")
+					.querySelector('[data-testid="enrollment-enr-cross"]'),
+			).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("confirmed 课程报名 → 「进入课程」直达内容页（P1-4）", () => {
-		tabState.tab = "enrollments";
 		mockQuery({
 			enrollments: [
 				{
@@ -205,12 +249,8 @@ describe("/participations 我的参与", () => {
 
 	it("未登录跳转登录页", () => {
 		useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
-		mockQuery({ enrollments: [], sponsorships: [], learningRuns: [] });
-		{
-		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
-		tabState.tab = "enrollments";
+		mockQuery({ enrollments: [], sponsorships: [] });
 		render(<ParticipationsPage />);
-	}
 
 		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fparticipations");
 	});
@@ -225,11 +265,7 @@ describe("/participations 我的参与", () => {
 				},
 			},
 		});
-		{
-		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
-		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
-	}
 
 		fireEvent.click(screen.getByRole("button", { name: "取消报名" }));
 		expect(screen.getByRole("group", { name: "确认取消报名" })).toHaveTextContent(
@@ -258,11 +294,7 @@ describe("/participations 我的参与", () => {
 				},
 			},
 		});
-		{
-		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
-		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
-	}
 
 		fireEvent.click(screen.getByRole("button", { name: "取消报名" }));
 		fireEvent.click(screen.getByRole("button", { name: "确认取消报名" }));
@@ -277,13 +309,9 @@ describe("/participations 我的参与", () => {
 			enrollmentPage: { count: 2, endKeyset: "enrollment-next" },
 			sponsorshipPage: { count: 2, endKeyset: "sponsorship-next" },
 		});
-		{
-		// 用例主体是报名/赞助面 → 报名 tab(学习为默认 tab)
-		tabState.tab = "enrollments";
 		render(<ParticipationsPage />);
-	}
 
-		// U8 tab 制:报名与赞助分屏,各屏一个「加载更多」
+		// P2b tab 制:报名与赞助分屏,各屏一个「加载更多」
 		const moreButtons = screen.getAllByRole("button", { name: "加载更多" });
 		expect(moreButtons).toHaveLength(1);
 		fireEvent.click(moreButtons[0]);
@@ -303,5 +331,29 @@ describe("/participations 我的参与", () => {
 		expect(states.sponsorships.fetchMore).toHaveBeenCalledWith(
 			expect.objectContaining({ variables: { first: 20, after: "sponsorship-next" } }),
 		);
+	});
+});
+
+describe("splitEnrollments（P2a 分组纯函数）", () => {
+	const NOW = new Date("2026-09-09T00:00:00Z").getTime();
+	const row = (over: Partial<ParticipationEnrollment>): ParticipationEnrollment => ({
+		...ENROLLMENT,
+		...over,
+	});
+
+	it("未来 startsAt 升序；无 startsAt 的活跃报名留在进行中；终态不受 startsAt 影响", () => {
+		const rows = [
+			row({ id: "b", startsAt: "2026-10-02T00:00:00Z" }),
+			row({ id: "a", startsAt: "2026-10-01T00:00:00Z" }),
+			row({ id: "no-time", startsAt: null }),
+			row({ id: "bad-time", startsAt: "not-a-date" }),
+			row({ id: "past", status: "confirmed", startsAt: "2026-01-01T00:00:00Z" }),
+			row({ id: "ended", status: "cancelled", startsAt: "2099-01-01T00:00:00Z" }),
+		];
+		const { upcoming, active, past, ended } = splitEnrollments(rows, NOW);
+		expect(upcoming.map((r) => r.id)).toEqual(["a", "b"]);
+		expect(active.map((r) => r.id)).toEqual(["no-time", "bad-time"]);
+		expect(past.map((r) => r.id)).toEqual(["past"]);
+		expect(ended.map((r) => r.id)).toEqual(["ended"]);
 	});
 });
