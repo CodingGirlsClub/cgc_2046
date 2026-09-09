@@ -41,16 +41,16 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
         roles_str =
           if is_list(roles) and roles != [], do: "（预授权角色: #{Enum.join(roles, ", ")}）", else: ""
 
-        courses_str = courses_summary(params["prep_course_ids"])
+        with {:ok, courses_str} <- courses_summary(workspace_id, params["prep_course_ids"]) do
+          summary =
+            if target do
+              "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}#{courses_str}（邮件将自动发送）"
+            else
+              "在 workspace #{workspace_id} 创建公开邀请链接#{roles_str}#{courses_str}"
+            end
 
-        summary =
-          if target do
-            "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}#{courses_str}（邮件将自动发送）"
-          else
-            "在 workspace #{workspace_id} 创建公开邀请链接#{roles_str}#{courses_str}"
-          end
-
-        Confirmation.request(frame.assigns[:current_user], "create_invitation", params, summary)
+          Confirmation.request(frame.assigns[:current_user], "create_invitation", params, summary)
+        end
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
@@ -128,20 +128,35 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
 
   defp expires_at_from(_), do: nil
 
-  # 绑定课程摘要：查课程标题，供确认流展示（查不到的资源层创建校验兜底）
-  defp courses_summary(nil), do: ""
+  # 绑定课程摘要：查课程标题，供确认流展示（查不到的资源层创建校验兜底）。
+  # 租户收紧（P2）：查询带 `tenant: workspace_id`——Course 为 global? 多租户资源，
+  # 不带 tenant 会全表读，成员可借已知 UUID 窥他租户课程标题进确认摘要；归属
+  # 校验失败即拒绝建 pending，他租户课程与不存在同一 not found（fetch_scoped
+  # 先例），不泄露存在性。确认段的创建校验仍由 Invitation.validate_prep_courses
+  # 兜底。
+  defp courses_summary(_workspace_id, nil), do: {:ok, ""}
 
-  defp courses_summary([]), do: ""
+  defp courses_summary(_workspace_id, []), do: {:ok, ""}
 
-  defp courses_summary(course_ids) when is_list(course_ids) do
-    titles =
+  defp courses_summary(workspace_id, course_ids) when is_list(course_ids) do
+    ids = course_ids |> Enum.map(&to_string/1) |> Enum.uniq()
+
+    courses =
       Course
-      |> Ash.Query.filter(id in ^Enum.map(course_ids, &to_string/1))
-      |> Ash.read!(authorize?: false)
-      |> Enum.map(&to_string(&1.title))
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.read!(authorize?: false, tenant: workspace_id)
 
-    if titles == [], do: "", else: "（绑定教研课程: #{Enum.join(titles, ", ")}）"
+    found_ids = MapSet.new(courses, & &1.id)
+
+    case Enum.reject(ids, &MapSet.member?(found_ids, &1)) do
+      [] ->
+        titles = Enum.map(courses, &to_string(&1.title))
+        {:ok, "（绑定教研课程: #{Enum.join(titles, ", ")}）"}
+
+      missing ->
+        {:error, "course not found in workspace #{workspace_id}: #{Enum.join(missing, ", ")}"}
+    end
   end
 
-  defp courses_summary(_), do: ""
+  defp courses_summary(_workspace_id, _), do: {:ok, ""}
 end
