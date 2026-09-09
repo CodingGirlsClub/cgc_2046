@@ -9,7 +9,7 @@
 # 写入加固：
 #   - 原子写：tmp 唯一名（pid + 随机后缀）0600 排他创建，写后 File.rename 覆盖
 #     （同目录，POSIX 原子，rename 为唯一提交点），杜绝截断 JSON；
-#   - 权限：新建文件 0600（含 token 的敏感配置）；重写既有文件保留原 mode
+#   - 权限：统一收紧 0600（含 token 的敏感配置）；重写既有文件不继承宽松 mode
 #     （chmod 在内容写完之后、rename 之前定稿——写入期间 tmp 始终 0600）；
 #   - tmp 文件在 ensure 中容错清理（best-effort，清理失败不覆盖原始异常）。
 #
@@ -55,8 +55,9 @@ module Cgc2046McpConfig
   # 原子写入原始文本（回滚等场景逐字节写回，不序列化、不 normalize）：
   #   1. tmp 唯一名（pid + 随机后缀），0600 排他创建（EXCL 防复用遗留文件/symlink，
   #      冲突时重新生成名字重试一次）；
-  #   2. 内容写完后、rename 之前把 tmp chmod 为最终 mode（目标原已存在则原 mode，
-  #      否则 0600）——写入期间 tmp 始终保持 0600，杜绝含 token 内容以放宽权限落盘；
+  #   2. 内容写完后、rename 之前把 tmp chmod 为最终 mode（统一 0600——重写既有
+  #      0644 等宽松权限文件不继承原 mode）——写入期间 tmp 始终保持 0600，
+  #      杜绝含 token 内容以放宽权限落盘；
   #   3. File.rename 是唯一提交点——之前的任何失败都未触碰目标文件；
   #   4. 任何失败路径 ensure 清理自己的 tmp（清理异常容错，不覆盖原始异常；
   #      不碰他人同名文件）。
@@ -65,7 +66,6 @@ module Cgc2046McpConfig
     dir = File.dirname(path)
     FileUtils.mkdir_p(dir)
 
-    final_mode = File.exist?(path) ? (File.stat(path).mode & 0o777) : 0o600
     tmp = nil
 
     begin
@@ -84,9 +84,10 @@ module Cgc2046McpConfig
       raise Errno::EEXIST, "cannot allocate unique tmp file for #{path}" if tmp.nil?
 
       # chmod 定稿位于 write 完成之后、rename（唯一提交点）之前：内容写入期间
-      # tmp 始终保持创建时的 0600，重写既有 0644 文件不会让含 token 内容以放宽
-      # 权限落盘。chmod 失败向上传播，由 ensure 清理已写内容的 tmp，绝不到达 rename。
-      File.chmod(final_mode, tmp)
+      # tmp 始终保持创建时的 0600，最终统一收紧 0600（重写既有 0644 文件不继承
+      # 宽松 mode，含 token 内容绝不以放宽权限落盘）。chmod 失败向上传播，
+      # 由 ensure 清理已写内容的 tmp，绝不到达 rename。
+      File.chmod(0o600, tmp)
       File.rename(tmp, path) # 唯一提交点
       tmp = nil
     ensure
