@@ -1319,6 +1319,11 @@
     "viewInParticipations": "View in My participations",
     "enrollClosed": "Enrollment is closed.",
     "approvalDeadline": "Approval deadline: {time}",
+    "myEnrollStatus": {
+      "pending": "Awaiting approval",
+      "payment_pending": "Payment due",
+      "confirmed": "Enrolled"
+    },
     "requestHint": "Owner/Admin approval is required; your spot is confirmed once approved.",
     "chooseTier": "Choose a pricing tier",
     "noTier": "No tiers available right now. Please contact the organizer.",

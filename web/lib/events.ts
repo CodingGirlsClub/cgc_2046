@@ -27,6 +27,10 @@ import {
 	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
+import {
+	MY_ACTIVE_ENROLLMENTS,
+	type ActiveEnrollmentRow,
+} from "./graphql/participations";
 import { client } from "./apollo-client";
 
 /**
@@ -302,6 +306,18 @@ export async function fetchPendingCount(id: string, kind: OfferingKind): Promise
 		variables: { courseId: id },
 	});
 	return data?.enrollments?.count ?? 0;
+}
+
+/**
+ * 列表页批量取本人活跃报名（自视角；终态不取——不挡再报名，也不该显示状态）。
+ * 供工作台活动/课程列表按行渲染个人报名状态；未登录调用方自行跳过。
+ */
+export async function fetchMyActiveEnrollments(): Promise<ActiveEnrollmentRow[]> {
+	const { data } = await client.query({
+		query: MY_ACTIVE_ENROLLMENTS,
+		fetchPolicy: "network-only",
+	});
+	return data?.myEnrollments?.results ?? [];
 }
 
 /**
