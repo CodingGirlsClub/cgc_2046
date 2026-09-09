@@ -55,12 +55,15 @@ module Cgc2046HookUse
   # @param text [String] summary 全文
   # @return [String, nil] 错误片段（匹配处前后 120 字符，抹凭证；无命中 nil）
   def self.error_snippet(text)
-    m = text.match(MCP_ERROR_PATTERN)
+    # 先全文脱敏再截取窗口（对齐 Cgc2046HookError.redact 语义）：先截后抹会让
+    # 窗口边缘裁掉 cgc_ 前缀，token 尾部逃过正则泄露；脱敏改变文本长度，
+    # 匹配与偏移计算必须在脱敏后文本上进行
+    redacted = text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+    m = redacted.match(MCP_ERROR_PATTERN)
     return nil unless m
 
     start_at = [m.begin(0) - 60, 0].max
-    snippet = text[start_at, 240].to_s
-    snippet.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
+    redacted[start_at, 240].to_s
   end
 end
 

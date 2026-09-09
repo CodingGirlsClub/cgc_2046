@@ -8,6 +8,10 @@
 #   3. 裸 JWT（三段 base64url，每段 ≥20 字符）。
 #
 # 两个 hook 文件 require_relative 本文件（require 幂等），无加载顺序依赖。
+#
+# 不变式：任何「先截断/截窗、后脱敏」的组合都是缺陷——截断可能裁掉
+# cgc_ 前缀或 Bearer 语境，使秘密尾部逃过 PATTERN（安全评审 P2 实证）。
+# 一切输出路径必须先全文脱敏，再做长度截取。
 
 module Cgc2046HookCredential
   PATTERN =

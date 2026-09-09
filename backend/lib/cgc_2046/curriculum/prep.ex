@@ -27,6 +27,9 @@ defmodule Cgc2046.Curriculum.Prep do
     open 只换绑）→ prep_state published + run `:complete`（succeeded）。发布后
     课程进入次 prep 周期：`ensure_active_run/2` 懒开新 run（沿用上任
     assignee）。
+  - **审批绑定草稿版本（P2 安全修复）**：`approve/3` 要求审核时点草稿版本
+    （工具层建确认 pending 时固化），发布事务内与草稿行同读比对——确认窗
+    内草稿被改 → 整体回滚，旧确认失效需重新审核；未绑定版本拒绝发布。
 
   ## 授权分工
 
@@ -127,6 +130,15 @@ defmodule Cgc2046.Curriculum.Prep do
     course
     |> PrepGate.check(output)
     |> Map.put(:draft_version, if(output, do: output.version, else: 0))
+  end
+
+  @doc "当前草稿版本（Output 乐观锁版本；无草稿 0）——审核绑定（approve_prep）的读取单源。"
+  @spec draft_version(Course.t()) :: non_neg_integer()
+  def draft_version(%Course{} = course) do
+    case fetch_output(course.id, course.workspace_id) do
+      %Output{version: version} -> version
+      nil -> 0
+    end
   end
 
   @doc "当前内容草稿行（kind=:issues, key=course_<id>；无 → nil）。"
@@ -417,12 +429,25 @@ defmodule Cgc2046.Curriculum.Prep do
     end
   end
 
-  @doc "审核通过（R28）：前置 review → 发布。"
-  @spec approve(WorkflowRun.t(), term()) :: {:ok, WorkflowRun.t()} | {:error, String.t()}
-  def approve(%WorkflowRun{} = run, actor) do
+  @doc """
+  审核通过（R28）：前置 review → 发布。**审批绑定草稿版本**（P2 安全修复）：
+  `expected_draft_version` = 审核时点草稿版本（工具层建 pending 时固化），
+  确认窗内草稿被改（版本不符）→ 发布事务整体回滚，旧确认失效，需重新审核。
+  未绑定版本（nil，如修复前在途的 pending）拒绝——不留未绑定发布路径。
+  """
+  @spec approve(WorkflowRun.t(), term(), non_neg_integer() | nil) ::
+          {:ok, WorkflowRun.t()} | {:error, String.t()}
+  def approve(%WorkflowRun{} = run, actor, expected_draft_version) do
     with :ok <- require_state(run, ["review"]),
+         :ok <- require_bound_version(expected_draft_version),
          {:ok, run} <-
-           publish(run, actor, %{"approved_by" => actor.id, "approved_at" => now_iso()}) do
+           publish(
+             run,
+             actor,
+             %{"approved_by" => actor.id, "approved_at" => now_iso()},
+             [],
+             expected_draft_version
+           ) do
       {:ok, run}
     end
   end
@@ -447,12 +472,16 @@ defmodule Cgc2046.Curriculum.Prep do
 
   1. 重读当前草稿（Output 活文档）并防御性复跑 PrepGate（必须过；提交后
      草稿可再改，不过 → 整体回滚，prep_state 不变）；
-  2. 创建不可变 CourseRevision（number = 该课程 max(number)+1，内容 = 当前
+  2. 审核绑定的草稿版本核验（`expected_draft_version` 非 nil 时）：与同一
+     行读出的 Output.version 比对，不符 → 整体回滚——发布内容恒等于审核
+     内容，无 TOCTOU 窗（P2 安全修复；nil = 无审核环节的直发路径，
+     submit_quality_report / override_gate 的 review OFF 分支不绑定）；
+  3. 创建不可变 CourseRevision（number = 该课程 max(number)+1，内容 = 当前
      草稿快照，prep_run_id/published_by_id/published_at 溯源审计列）；
-  3. 调 Courses 发布端口 `Course.bind_revision_for_publish/3`：绑定
+  4. 调 Courses 发布端口 `Course.bind_revision_for_publish/3`：绑定
      `course.current_revision_id` 并 launch（via_prep 语义不变；课程已
      open——次周期发布——跳过 launch 只换绑版本）；
-  4. prep_state → `published`、run `:complete`（succeeded）、facts 记
+  5. prep_state → `published`、run `:complete`（succeeded）、facts 记
      published_at / published_by / published_revision_id /
      published_revision_number（外加调用方 facts_patch，如 approved_by /
      gate_override / latest_quality_report）。
@@ -462,16 +491,22 @@ defmodule Cgc2046.Curriculum.Prep do
   `authorize?: false` 执行并经端口注入 `context: %{via_prep: true}` 放行
   launch 教研门（§B#10）。
   """
-  @spec publish(WorkflowRun.t(), term(), map(), [String.t()]) ::
+  @spec publish(WorkflowRun.t(), term(), map(), [String.t()], non_neg_integer() | nil) ::
           {:ok, WorkflowRun.t()} | {:error, String.t()}
-  def publish(%WorkflowRun{} = run, actor, facts_patch \\ %{}, drop \\ []) do
-    case publish_once(run, actor, facts_patch, drop) do
+  def publish(
+        %WorkflowRun{} = run,
+        actor,
+        facts_patch \\ %{},
+        drop \\ [],
+        expected_draft_version \\ nil
+      ) do
+    case publish_once(run, actor, facts_patch, drop, expected_draft_version) do
       {:error, reason} ->
         # 撞号识别在外壳（Ash 3 的 identity 冲突可能以 :revision_number_conflict
         # 哨兵或原始 changeset/Invalid 形态从事务里漏出——双态全接）→ 重读
         # max(number) 重试一次（新事务）；其余错误归一为字符串契约
         if reason == :revision_number_conflict or revision_number_conflict?(reason) do
-          case publish_once(run, actor, facts_patch, drop) do
+          case publish_once(run, actor, facts_patch, drop, expected_draft_version) do
             {:error, retried} -> {:error, error_message(retried, "publish failed")}
             other -> other
           end
@@ -486,10 +521,11 @@ defmodule Cgc2046.Curriculum.Prep do
 
   # --- 私有实现 --------------------------------------------------------------
 
-  defp publish_once(%WorkflowRun{} = run, actor, facts_patch, drop) do
+  defp publish_once(%WorkflowRun{} = run, actor, facts_patch, drop, expected_draft_version) do
     Repo.transaction(fn ->
       with {:ok, course} <- fetch_course(run),
            {:ok, output} <- guard_publishable(course),
+           :ok <- require_reviewed_draft(output, expected_draft_version),
            {:ok, revision} <- create_revision(course, output, run, actor),
            {:ok, _course} <- Course.bind_revision_for_publish(course, revision, actor),
            {:ok, completed} <- complete_run(run, actor, revision, facts_patch, drop) do
@@ -511,6 +547,18 @@ defmodule Cgc2046.Curriculum.Prep do
     else
       {:error, "publish blocked by structure gate: " <> Enum.join(gate.violations, "；")}
     end
+  end
+
+  # 审批绑定的草稿版本核验（P2）：与 guard_publishable 同一行读出的 version
+  # 比对——版本一致即内容与审核时点逐字节一致（Output 每次写入 version+1），
+  # 随后 create_revision 用同一 output 快照，发布内容恒等于审核内容。不符 →
+  # 回滚（prep_state 不变），旧确认失效需重新审核。nil = 无审核环节不绑定。
+  defp require_reviewed_draft(_output, nil), do: :ok
+  defp require_reviewed_draft(%Output{version: version}, version), do: :ok
+
+  defp require_reviewed_draft(%Output{version: version}, expected) do
+    {:error,
+     "draft changed since approval (reviewed version #{expected}, current version #{version}); request approval again"}
   end
 
   defp create_revision(%Course{} = course, %Output{} = output, run, actor) do
@@ -854,6 +902,13 @@ defmodule Cgc2046.Curriculum.Prep do
       _report -> :ok
     end
   end
+
+  # 审批必须绑定草稿版本（P2）：修复前在途 pending 无 draft_version 键——拒绝并
+  # 提示重新审核（10 分钟 TTL，旧 pending 自然过期），不留未绑定发布路径
+  defp require_bound_version(version) when is_integer(version) and version >= 0, do: :ok
+
+  defp require_bound_version(_),
+    do: {:error, "approval is not bound to a draft version; request approval again"}
 
   defp now_iso, do: DateTime.utc_now() |> DateTime.to_iso8601()
 end
