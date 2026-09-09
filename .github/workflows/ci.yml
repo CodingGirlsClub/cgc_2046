@@ -51,7 +51,7 @@ jobs:
           # 第二父(被合入分支 head)上四个 CI job 的最新结论必须全 success;
           # 无记录时结论为空串≠success → 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext")]
                   | group_by(.name) | map(sort_by(.started_at) | last | .conclusion) | unique | join(",")') || exit 0
           [ "$concls" = "success" ] || exit 0
 
@@ -258,6 +258,40 @@ jobs:
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
           ./gitleaks detect --source . --log-opts="--all" --config=.gitleaks.toml --no-banner
+
+  # 扩展质量门：cgc-2046 的分发产物由 deploy CI 的 bin/pack 产出，打包与
+  # 测试必须在 PR 阶段验证——否则「新文件忘 git add 不进包」「gitignore
+  # 误排」「handler/面板回归」这类事故要到 deploy 才爆。测试套件 =
+  # test/*.rb 全量（面板 harness 场景经 HarnessScenarioWiringTest 接线进
+  # Ruby 套件，内部 Open3 调 node）+ bin/pack 冒烟（manifest 与「git 跟踪
+  # 集 − 容器 .gitignore」全等校验 + ext verify）。本地同命令秒级。
+  ext:
+    needs: gate
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
+    if: >
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: openclacky-ext/cgc-2046
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ruby/setup-ruby@v1
+        with:
+          # openclacky gem 要求 ruby >=2.6 <4.1；对齐本地 mise（4.0.x）避免版本错位
+          ruby-version: "4.0"
+      - uses: actions/setup-node@v7
+        with:
+          # 面板 harness 经 Open3.capture2e("node", …) 驱动（与 miniprogram 同版本）
+          node-version: "24"
+      - run: gem install openclacky --no-document
+      # GHA run 默认 bash -eo pipefail：任一测试文件失败即红
+      - run: for f in test/*.rb; do ruby "$f"; done
+      - run: bin/pack
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
   # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+
