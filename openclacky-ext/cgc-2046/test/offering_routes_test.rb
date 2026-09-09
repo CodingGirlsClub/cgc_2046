@@ -74,14 +74,18 @@ class OfferingRoutesTest < Minitest::Test
     end
   end
 
-  FakeReq = Struct.new(:body, :query)
+  FakeReq = Struct.new(:body, :query, :header) do
+    def headers
+      header || {}
+    end
+  end
 
   # 宿主真实形态(course_routes_test 同款,smoke01 实证):
   #   @params = route pattern captures(symbol key,如 :id)
   #   GET query 在 req.query(WEBrick),不进 @params
-  def build(registry:, query: {}, params: {})
+  def build(registry:, query: {}, params: {}, header: { "Host" => "127.0.0.1:7070" })
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(nil, query))
+    inst.instance_variable_set(:@req, FakeReq.new(nil, query, header))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst

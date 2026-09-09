@@ -370,10 +370,15 @@ class Cgc2046Ext < Clacky::ApiExtension
     text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
   end
 
-  # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用防线) ----
+  # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用/DNS rebinding 防线) ----
   # 宿主 http server 对 loopback peer 免 access key + CORS 全开(Allow-Origin: *
   # 且 preflight echo 任意 Origin),S7 起该通道可读跨台报名/订单、写报名——
   # 在扩展入口层收口:
+  #   0) 所有路由:Host 必须是 loopback(127.0.0.0/8、localhost、[::1])——
+  #      DNS rebinding 下浏览器带攻击者域名的 Host 头直连 127.0.0.1,若只做
+  #      Origin==Host 同源比对会被整体绕过(读 /status 拿 CSRF token → 伪造
+  #      connect 改写 mcp.json 指向攻击者 MCP server);宿主默认绑 127.0.0.1,
+  #      合法请求 Host 只会是 loopback,缺失(HTTP/1.0)按失败关闭处理;
   #   1) 所有路由:Origin 存在时必须与 Host 同源(无 Origin 头的本地 curl/宿主
   #      内部调用放行),否则 403;
   #   2) 写路由(POST):Content-Type 必须 application/json(挡 text/plain 的
@@ -382,21 +387,43 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
   #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
   # 注：同源比对按 host 维度（剥端口后缀）进行。
+  LOOPBACK_HOSTS = /\A(127(?:\.\d{1,3}){3}|localhost|::1|0:0:0:0:0:0:0:1)\z/
+
   def guard_origin!
+    host = request_header("Host")
+    json({ error: "host not allowed" }, status: 403) unless self.class.loopback_host?(host)
+
     origin = request_header("Origin")
     unless origin.nil? || origin.strip.empty?
-      host = request_header("Host")
       begin
         parsed = URI.parse(origin.strip)
       rescue URI::InvalidURIError
         parsed = nil
       end
-      same = parsed.is_a?(URI::HTTP) && parsed.host && host && !host.strip.empty? &&
+      same = parsed.is_a?(URI::HTTP) && parsed.host &&
              parsed.host.downcase == host.strip.downcase.sub(/:\d+\z/, "")
       unless same
         json({ error: "cross-origin request rejected" }, status: 403)
       end
     end
+  end
+
+  # Host 头判定:剥端口/IPv6 方括号后必须落在 loopback 集合。
+  # 挂 class 方法——单测直接断言判定表,不经路由。
+  def self.loopback_host?(host_header)
+    return false if host_header.nil?
+
+    h = host_header.strip.downcase
+    return false if h.empty?
+
+    if h.start_with?("[")
+      # [::1]:7070 / [::1] → ::1
+      h = h.sub(/:\d+\z/, "").delete_prefix("[").delete_suffix("]")
+    elsif h.count(":") <= 1
+      h = h.sub(/:\d+\z/, "")
+    end
+    # 裸 IPv6(无括号)不剥端口——冒号数 >1 时按完整地址处理
+    h.match?(LOOPBACK_HOSTS)
   end
 
   def guard_write!
