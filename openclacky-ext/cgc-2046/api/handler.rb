@@ -265,7 +265,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息
   # 判定成败(subagent summary 含 "Subagent executed successfully" 为成功——
   # 与 hooks/after_tool_use 的实时事件互补:实时事件不落盘,本端点补历史)。
-  # task 摘要截断 120 字符 + 凭证脱敏,时间倒序,最近 20 条。
+  # task 摘要先全文凭证脱敏再截断 120 字符(先截后抹会把 cgc_ token 裁到
+  # 正则 {8,} 阈值之下使其前缀片段逃逸),时间倒序,最近 20 条。
   get "/activity" do
     guard_origin!
     items = []
@@ -292,7 +293,7 @@ class Cgc2046Ext < Clacky::ApiExtension
           items << {
             at: (m[:created_at] || m["created_at"]),
             status: ok ? "ok" : "error",
-            task: redact_text(args["task"].to_s.gsub(/\s+/, " ")[0, 120])
+            task: redact_text(args["task"].to_s.gsub(/\s+/, " "))[0, 120]
           }
         end
       end

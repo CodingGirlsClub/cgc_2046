@@ -231,6 +231,20 @@ class AfterToolUseHookTest < Minitest::Test
     refute_includes err[:data][:error], "cgc_YWyY0WdE"
   end
 
+  def test_error_snippet_redacts_before_truncating_at_window_edge
+    # 截断窗口左缘落在 token 中间的场景：先截后抹会裁掉 cgc_ 前缀，token 尾部
+    # （≥8 字符）不再命中正则而泄露；修复后先全文脱敏再截窗，窗口内只剩 <redacted>
+    token = "cgc_YWyY0WdE_jLf8NkbhPRfAU-mz0xaOTZ4sHLS_5x8c2c"
+    summary = "x" * 100 + token + " " + "y" * 20 + " Connection refused"
+    trigger({ name: "invoke_skill", arguments: { "skill_name" => "mcp:cgc-2046" } },
+            { "skill_type" => "subagent", "result" => summary })
+
+    err = @agent.emitted.find { |e| e[:type] == "ext.cgc-2046.mcp_error" }
+    refute_nil err
+    refute_includes err[:data][:error], "NkbhPRfAU", "窗口边缘裁掉 cgc_ 前缀后 token 尾部不得泄露"
+    assert_includes err[:data][:error], "<redacted>"
+  end
+
   def test_redacts_bare_jwt_in_error_snippet
     jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
     summary = "MCP server 'cgc-2046' failed, token: #{jwt}"
