@@ -16,7 +16,8 @@
 // (objective_id + learner playbook 七步学习循环 / 到期复习口吻,
 // 正式评价调 submit_learning_attempt)——测试锚钉两处同步的关键句。
 //
-// 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml。
+// 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml;注入指令的
+// UGC 字段一律 Kit.oneLine/safeId 中和,末尾带 Kit.DATA_NOTE(见共享骨架注释)。
 
 (() => {
   "use strict";
@@ -124,30 +125,34 @@
   function learningPrompt(objectiveId, reviewEntry) {
     const learning = state.learning || {};
     const obj = (learning.objectives || []).find(function (o) { return o.id === objectiveId; }) || {};
-    const title = (state.selected && state.selected.title) || "本课程";
-    const objTitle = obj.title || objectiveId;
-    if (reviewEntry) {
-      return [
-        "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
-        "(objective_id: " + objectiveId + ")",
-        "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
-        "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
-        "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
-      ].join("\n");
-    }
-    return [
-      "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
-      "(objective_id: " + objectiveId + ")",
-      "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
-      "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
-      "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
-    ].join("\n");
+    const title = Kit.oneLine((state.selected && state.selected.title) || "本课程");
+    const objTitle = Kit.oneLine(obj.title || objectiveId);
+    // id 非白名单形态(空格/换行/中文/引号等)不下发该参数——防伪造指令结构
+    const objIdSafe = Kit.safeId(objectiveId);
+    const idLine = objIdSafe ? "(objective_id: " + objIdSafe + ")" : null;
+    const lines = reviewEntry
+      ? [
+          "请带我复习课程《" + title + "》的学习目标「" + objTitle + "」。",
+          idLine,
+          "这是一次到期复习——先诊断我的保留度,再针对性讲解;",
+          "复习后正式评价:调用 submit_learning_attempt,evidence 写一句证据摘要,",
+          "rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
+        ]
+      : [
+          "请和我一起学习课程《" + title + "》的学习目标「" + objTitle + "」。",
+          idLine,
+          "请按 learner playbook 的七步学习循环:先 get_learning_state 读取课程地图与当前进度,",
+          "按 next_action 的 reason 从该目标开始教学;正式评价时调用 submit_learning_attempt,",
+          "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
+        ];
+    return lines.filter(Boolean).concat([Kit.DATA_NOTE]).join("\n");
   }
 
   // ---- 注入管道(qingclaw sendLessonPrompt 同款;失败兜底剪贴板) ----
   function objectiveTitle(objectiveId) {
     const o = ((state.learning || {}).objectives || []).find(function (x) { return x.id === objectiveId; });
-    return o ? (o.title || o.id) : String(objectiveId);
+    // title 是服务端数据,非字符串原样返回会在调用处 .replace 抛错崩渲染
+    return o ? String(o.title || o.id) : String(objectiveId);
   }
 
   // 从已发布 revision 中取指定 objective 的 materials(id → issue.objectives 匹配)
@@ -278,7 +283,9 @@
           : null);
     if (resume) {
       const objTitle = objectiveTitle(resume.objectiveId);
-      let reason = resume.reason || "";
+      // reason 是服务端数据,truthy 的对象/数组会穿过 ||,随后 .replace 抛错
+      // 崩渲染——String 强转对齐 tutor-aside 质量卡 summary 先例
+      let reason = String(resume.reason || "");
       reason = reason.replace(new RegExp("「" + objTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "」", "g"), "").replace(/^[,，。:：\s]+|[,，。\s]+$/g, "").slice(0, 40);
       inner +=
         '<div class="cgla-continue" data-testid="learn-next">' +
@@ -337,8 +344,9 @@
 
     root.innerHTML = html;
 
-    // 搬运:内容块填入选中课程卡 body;课程卡渲染在 content 内
-    const selBody = root.querySelector("[data-body='" + (state.selected ? state.selected.courseId : "") + "']");
+    // 搬运:内容块填入选中课程卡 body;课程卡渲染在 content 内。courseId 是
+    // 服务端数据,未转义拼选择器在含引号/右方括号时抛 SyntaxError 崩面板
+    const selBody = root.querySelector("[data-body='" + CSS.escape(state.selected ? state.selected.courseId : "") + "']");
     if (selBody) selBody.innerHTML = inner;
 
     bind();

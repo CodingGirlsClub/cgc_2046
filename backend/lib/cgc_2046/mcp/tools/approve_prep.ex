@@ -9,6 +9,11 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   prep_state → published，run 转 succeeded。
 
   确认流依据：发布是公开面副作用（课程公开报名开启）。
+
+  **审批绑定草稿版本（P2 安全修复）**：第一段建 pending 时把当前草稿版本
+  （Output.version）固化进 pending params 并写进 summary；confirm 段经
+  `Prep.approve/3` 在发布事务内核验——确认窗内 tutor 改写草稿（版本 +1）→
+  旧确认整体回滚失效，须对新草稿重新审核，杜绝「审 v1 发 v2」。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -31,14 +36,18 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
              {:ok, run} <- fetch_run(course),
              :ok <- authorize(actor, workspace_id, run),
              :ok <- require_review(run) do
+          # 绑定审核时点草稿版本（P2）：固化进 pending params，confirm 段
+          # 发布事务内核验——确认窗内草稿被改则旧确认失效
+          draft_version = Prep.draft_version(course)
+
           summary =
             "审核通过并发布课程「#{course.title}」（#{course.id}）：draft → open，" <>
-              "发布后课程公开报名开启"
+              "发布后课程公开报名开启（绑定草稿版本 v#{draft_version}；草稿变更后需重新审核）"
 
           Confirmation.request(
             frame.assigns[:current_user],
             "approve_prep",
-            params,
+            Map.put(params, "draft_version", draft_version),
             summary
           )
         end
@@ -58,7 +67,9 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
     with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, run} <- fetch_run(course),
          :ok <- authorize(actor, workspace_id, run),
-         {:ok, updated} <- Prep.approve(run, actor) do
+         # 绑定的审核草稿版本随 pending params 传入（第一段固化）；版本核验
+         # 在发布事务内完成（Prep.approve/3 → publish 的 require_reviewed_draft）
+         {:ok, updated} <- Prep.approve(run, actor, params["draft_version"]) do
       {:ok,
        %{
          course_id: course.id,

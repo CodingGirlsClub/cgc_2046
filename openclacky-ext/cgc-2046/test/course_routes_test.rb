@@ -294,7 +294,7 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "function scopeOf(courseId)"
     assert_includes VIEW, "course.workspaceId) || state.workspaceId"
     assert_includes VIEW, "scopeOf(state.selectedCourseId)"
-    assert_includes VIEW, "workspace_id: \" + wsId + \""
+    assert_includes VIEW, "workspace_id: \" + wsIdSafe + \""
     assert_includes VIEW, "optgroup"
   end
 
