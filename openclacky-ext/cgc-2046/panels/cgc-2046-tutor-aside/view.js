@@ -483,17 +483,27 @@
   // 定向重写指令:位置(objective_id + issue)自动携带,tutor 只补「改成什么」
   function injectRewrite(objId, issueId, objTitle, verb) {
     const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
-    const title = course.title || "当前课程";
+    const title = Kit.oneLine(course.title || "当前课程");
+    // id 非白名单形态(空格/换行/中文/引号等)不下发该参数——防伪造指令结构
+    const idParts = [];
+    const courseIdSafe = Kit.safeId(state.selectedCourseId);
+    const wsIdSafe = Kit.safeId(scopeOf());
+    const issueIdSafe = Kit.safeId(issueId);
+    const objIdSafe = Kit.safeId(objId);
+    if (courseIdSafe) idParts.push("course_id: " + courseIdSafe);
+    if (wsIdSafe) idParts.push("workspace_id: " + wsIdSafe);
+    if (issueIdSafe) idParts.push("issue_id: " + issueIdSafe);
+    if (objIdSafe) idParts.push("objective_id: " + objIdSafe);
     const instruction = [
-      "请" + verb + "课程《" + title + "》学习单元中的目标「" + objTitle + "」。",
-      "(course_id: " + state.selectedCourseId + ", workspace_id: " + scopeOf() +
-        (issueId ? ", issue_id: " + issueId : "") + ", objective_id: " + objId + ")",
+      "请" + verb + "课程《" + title + "》学习单元中的目标「" + Kit.oneLine(objTitle) + "」。",
+      "(" + idParts.join(", ") + ")",
       "要求:",
       "- 先 get_course_content 确认该目标的当前内容;",
-      "- 只修改这一个目标(" + (true ? "保持 objective_id 不变" : "") + "),其它目标/单元一律不动;",
+      "- 只修改这一个目标(保持 objective_id 不变),其它目标/单元一律不动;",
       "- " + (verb.indexOf("重写") >= 0
           ? "整体重写该目标的 activity/assessment/materials/rubric;"
           : "在现有内容基础上补充,不删除已有内容;") + "- 保存后汇报变更摘要。",
+      Kit.DATA_NOTE,
       "我的修改意图是:(请等我描述)"
     ].join("\n");
     createTutorSession(instruction);
