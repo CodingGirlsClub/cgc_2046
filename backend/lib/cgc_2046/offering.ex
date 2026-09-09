@@ -26,6 +26,9 @@ defmodule Cgc2046.Offering do
     保持 per-kind per-tenant 的 Ash.read 批量形状（消 N+1 不退化）。
   - `fetch_slugs_by_ids/2`：同形状批量取 slug（`%{id => slug}`，E-9 #123 审批页
     expired 重提链接按目标活动公开页 `/events/<slug>` 落点）。
+  - `fetch_schedule_by_ids/2`：同形状批量取日程化字段（`%{id => %{starts_at, venue}}`，
+    venue 为 `Events.Venue.text/1` 文本化；报名日程化旅程 P2a 的 Enrollment
+    starts_at/venue 计算数据源）。
   - 投影便利：`kind/1`、`title/1`、`workspace_id/1`（entity → 值）。
   """
 
@@ -33,6 +36,7 @@ defmodule Cgc2046.Offering do
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
+  alias Cgc2046.Events.Venue
 
   @doc """
   按 kind + id 读取供给物。默认 `authorize?: false`（匹配原五处分叉行为）；
@@ -89,6 +93,22 @@ defmodule Cgc2046.Offering do
     end)
   end
 
+  @doc """
+  批量取日程化字段：`%{event: [ids], course: [ids]}` + tenant →
+  `%{id => %{starts_at: DateTime.t() | nil, venue: String.t() | nil}}`。
+  与 `fetch_titles_by_ids/2` 同形状（per-kind per-tenant 批量读，消 N+1；
+  空 id 列表不查询）。starts_at 为供给物原始值（可 nil）；venue 为 Event
+  venue map 经 `Events.Venue.text/1` 的「city+district」文本化（Course 或无
+  venue → nil），与 event_reminder 通知文案同款。
+  """
+  @spec fetch_schedule_by_ids(%{optional(:event | :course) => [String.t()]}, String.t()) ::
+          %{String.t() => %{starts_at: DateTime.t() | nil, venue: String.t() | nil}}
+  def fetch_schedule_by_ids(ids_by_kind, tenant) do
+    Enum.reduce(ids_by_kind, %{}, fn {kind, ids}, acc ->
+      Map.merge(acc, schedule_for(resource_for(kind), ids, tenant))
+    end)
+  end
+
   @doc "entity → kind 原子（:event | :course）"
   @spec kind(Event.t() | Course.t()) :: :event | :course
   def kind(%Event{}), do: :event
@@ -120,4 +140,18 @@ defmodule Cgc2046.Offering do
       end
     end)
   end
+
+  defp schedule_for(_resource, [], _tenant), do: %{}
+
+  defp schedule_for(resource, ids, tenant) do
+    resource
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.read!(tenant: tenant, authorize?: false)
+    |> Map.new(fn offering ->
+      {offering.id, %{starts_at: offering.starts_at, venue: venue_text_for(offering)}}
+    end)
+  end
+
+  defp venue_text_for(%Event{venue: venue}) when is_map(venue), do: Venue.text(venue)
+  defp venue_text_for(_offering), do: nil
 end

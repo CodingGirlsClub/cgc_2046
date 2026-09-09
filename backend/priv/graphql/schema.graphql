@@ -5503,6 +5503,8 @@ type Enrollment {
   cancelledAt: DateTime
   insertedAt: DateTime!
   targetTitle: String
+  startsAt: DateTime
+  venue: String
 }
 
 type MyLearningRun {
