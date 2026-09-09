@@ -108,7 +108,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:delete, "/connect"]
     assert_includes routes, [:get, "/status"]
     assert_includes routes, [:get, "/version"]
-    assert_includes routes, [:post, "/skills/sync"]
+    assert_includes routes, [:get, "/update_info"]
     # U9 课程面板数据面新增三路由(纯读透传)
     # U6 发现面板数据面新增两路由(公开浏览透传,无 workspace_id 硬要求)
     # S1-extension 工作台数据面新增三路由(身份/playbook/待办透传)
@@ -124,7 +124,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/workspace/enrollments"]
     # P3 活动供给面新增一路由(list_workspace_events 透传)
     assert_includes routes, [:get, "/workspace/events"]
-    assert_equal 25, Cgc2046Ext.routes.size  # +/workspace/courses|orders|enrollments|events +/version(「最近活动」区随面板删除,/activity 路由同步移除)
+    assert_equal 26, Cgc2046Ext.routes.size  # +/update_info(自托管升级通道,替代市场查询) +/workspace/courses|orders|enrollments|events +/version(「最近活动」区随面板删除,/activity 路由同步移除)
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -422,6 +422,148 @@ class HandlerRequestTest < Minitest::Test
       assert_equal manifest["version"], JSON.parse(halt.payload)["version"],
         "路由版本必须与 ext.yml manifest 一致(面板徽标/升级判定的基准)"
     end
+  end
+
+  # ---- update_info(自托管升级通道:本地 manifest + 远端 {mcp_url origin}/ext/cgc-2046.json) ----
+
+  UPDATE_META = { "version" => "0.1.0",
+                  "config" => { "mcp_url" => "https://api.codingirlsclub.com/mcp" } }.freeze
+
+  # 记录超时/SSL/请求路径的最小 Net::HTTP 替身(error: 模拟网络层抛错)
+  class FakeHttpClient
+    attr_accessor :open_timeout, :read_timeout, :use_ssl
+    attr_reader :requested_path
+
+    def initialize(response = nil, error: nil)
+      @response = response
+      @error = error
+    end
+
+    def get(path, _headers = {})
+      @requested_path = path
+      raise @error if @error
+
+      @response
+    end
+  end
+
+  def http_ok(body)
+    res = Net::HTTPOK.new("1.1", 200, "OK")
+    res.define_singleton_method(:body) { body }
+    res
+  end
+
+  # Net::HTTP.new 手动换桩(本运行环境 minitest/mock 不可用):替换-yield-恢复
+  def with_fake_http(fake)
+    original = Net::HTTP.singleton_method(:new)
+    Net::HTTP.define_singleton_method(:new) { |*_args, **_kw| fake }
+    yield
+  ensure
+    Net::HTTP.define_singleton_method(:new, original)
+  end
+
+  def test_update_info_returns_versions_and_download_url
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal true, payload["ok"]
+      assert_equal "0.1.0", payload["current_version"], "本地版本与 /version 同源(ext.yml manifest)"
+      assert_equal "0.2.0", payload["latest_version"]
+      assert_equal "https://api.codingirlsclub.com/ext/cgc-2046.zip", payload["download_url"],
+        "download_url = mcp_url origin + 远端 download_path"
+      assert_equal true, payload["update_available"]
+
+      assert_equal "/ext/cgc-2046.json", fake.requested_path
+      assert_equal true, fake.use_ssl, "https origin 必须开 TLS"
+      assert_operator fake.open_timeout, :<=, 3, "远端只是小 JSON,超时收紧 3s 级(不拖面板 boot)"
+      assert_operator fake.read_timeout, :<=, 3
+    end
+  end
+
+  def test_update_info_no_update_when_remote_not_newer
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.1.0", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      assert_equal false, JSON.parse(halt.payload)["update_available"]
+    end
+  end
+
+  def test_update_info_502_when_remote_non_200
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(Net::HTTPInternalServerError.new("1.1", 500, "boom"))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "远端非 2xx → 502(对齐 course_routes 上游错误分层)"
+      assert_includes JSON.parse(halt.payload)["error"], "update manifest"
+    end
+  end
+
+  def test_update_info_502_when_remote_timeout
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(error: Net::OpenTimeout.new("timeout"))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "远端不可达/超时 → 502,不炸 500"
+    end
+  end
+
+  def test_update_info_502_when_manifest_unparseable_or_incomplete
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok("not json"))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+      assert_equal 502, halt.status, "JSON 解析失败 → 502"
+
+      inst2 = build
+      fake2 = FakeHttpClient.new(http_ok(JSON.generate("version" => "0.2.0")))  # 缺 download_path
+      with_fake_http(fake2) { halt = invoke(:get, "/update_info", inst2) }
+      assert_equal 502, halt.status, "清单字段缺失 → 502"
+    end
+  end
+
+  def test_update_info_500_when_local_config_missing
+    with_meta({ "version" => "0.1.0", "config" => {} }) do
+      halt = invoke(:get, "/update_info", build)
+
+      assert_equal 500, halt.status, "本地 config.mcp_url 缺失属本地故障 → 500"
+    end
+  end
+
+  def test_update_info_500_when_manifest_version_missing
+    with_meta({ "config" => UPDATE_META["config"] }) do
+      halt = invoke(:get, "/update_info", build)
+
+      assert_equal 500, halt.status, "本地 ext.yml version 读不到属 500"
+    end
+  end
+
+  def test_version_newer_semver_semantics
+    inst = build
+    newer = ->(a, b) { inst.send(:version_newer?, a, b) }
+
+    assert newer.call("0.2.0", "0.1.0")
+    assert newer.call("1.0.0", "0.9.9")
+    refute newer.call("0.1.0", "0.1.0")
+    refute newer.call("0.1.0", "0.2.0")
+    assert newer.call("v0.2.0", "0.1.0"), "v 前缀归一"
+    refute newer.call("0.1.0-beta", "0.1.0"), "预发布旧于同核心正式版"
+    assert newer.call("0.1.0", "0.1.0-beta")
   end
   def test_status_returns_web_url_from_config
     with_meta({ "config" => { "web_url" => "http://localhost:3000" } }) do

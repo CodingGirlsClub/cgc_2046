@@ -79,7 +79,7 @@ CGC 登录
 - 安装包/安装器必须把兼容版本的 OpenClacky 与 `cgc-2046` 一起交付，并在安装后把扩展放入宿主可加载的位置。
 - 发布包必须通过 `openclacky ext verify`，并在 CI 中验证 manifest 引用的每个文件存在且可加载。
 - CGC OpenClacky 的版本、内置扩展版本、安装 artifact 和下载链接必须有单一来源；升级时必须明确宿主与扩展的兼容矩阵。
-- ~~公共 Extension Marketplace 发布明确不属于本阶段~~ → **2026-09-06 决策反转**：扩展经公共 Marketplace 正式发布（首发 v0.1.0）。理由：版本号展示与更新通道直接复用宿主市场机制（`/api/store/extension*` 详情/安装端点，青狮工作台同款），零托管与带宽成本，且宿主扩展管理页原生提供版本对比与更新按钮。发布前已完成全包审查：无硬编码凭证/内部设施；`guard_origin!` 一处自曝校验边界的注释已中性化；两个 skill 显式 `protected: false` 保持明文分发。新用户主路径仍为一键安装包，用户全程无需访问市场页面；`openclacky ext publish` 需平台账号并绑定设备。
+- ~~公共 Extension Marketplace 发布明确不属于本阶段~~ → **2026-09-06 决策反转**：扩展经公共 Marketplace 正式发布（首发 v0.1.0）。理由：版本号展示与更新通道直接复用宿主市场机制（`/api/store/extension*` 详情/安装端点，青狮工作台同款），零托管与带宽成本，且宿主扩展管理页原生提供版本对比与更新按钮。发布前已完成全包审查：无硬编码凭证/内部设施；`guard_origin!` 一处自曝校验边界的注释已中性化；两个 skill 显式 `protected: false` 保持明文分发。新用户主路径仍为一键安装包，用户全程无需访问市场页面；`openclacky ext publish` 需平台账号并绑定设备。→ **2026-09-09 二次反转（撤回市场，转自托管 zip）**：分发收口到 CGC 自有设施——zip 与版本元信息由 deploy CI 经 `bin/pack` 生成放 `backend/priv/static/ext/`（gitignored），Plug.Static 服务 `https://api.codingirlsclub.com/ext/cgc-2046.{zip,json}`；安装形态为一条命令 `openclacky ext install <zip URL>`（宿主原生支持 URL 直装）。理由：分发通道与主站同可用性（对象存储方案评估否决——Cloudflare R2 的 r2.dev 子域大陆被屏蔽、自定义域要求域名 DNS 整域托管在 CF，主站 NS 在 DNSPod 不宜迁移）；升级通道改经扩展 `/api/ext/cgc-2046/update_info` loopback 透传查自有版本端点，安装执行复用宿主 `/api/store/extension/install`（接受任意 download_url），撤回市场不影响升级链路。执行顺序：端点随 deploy 上线后再 `openclacky ext unpublish cgc-2046`。
 
 ### R2. 网站连接入口
 

@@ -17,7 +17,9 @@ defmodule Cgc2046Web do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  # ext：扩展自托管分发产物（cgc-2046.zip/json，deploy CI 生成，见
+  # .github/workflows/deploy.yml「Build extension distribution artifacts」）
+  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt ext)
 
   def router do
     quote do

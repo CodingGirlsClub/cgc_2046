@@ -27,6 +27,10 @@ import {
 	UPDATE_COURSE,
 	UPDATE_EVENT,
 } from "./graphql/events";
+import {
+	MY_ACTIVE_ENROLLMENTS,
+	type ActiveEnrollmentRow,
+} from "./graphql/participations";
 import { client } from "./apollo-client";
 
 /**
@@ -305,6 +309,18 @@ export async function fetchPendingCount(id: string, kind: OfferingKind): Promise
 }
 
 /**
+ * 列表页批量取本人活跃报名（自视角；终态不取——不挡再报名，也不该显示状态）。
+ * 供工作台活动/课程列表按行渲染个人报名状态；未登录调用方自行跳过。
+ */
+export async function fetchMyActiveEnrollments(): Promise<ActiveEnrollmentRow[]> {
+	const { data } = await client.query({
+		query: MY_ACTIVE_ENROLLMENTS,
+		fetchPolicy: "network-only",
+	});
+	return data?.myEnrollments?.results ?? [];
+}
+
+/**
  * 当前用户对目标活动/课程是否有活跃报名（E-5 #50 G3 工作台详情页报名入口防重；
  * e2e #2：查询带活跃态过滤 status in [pending, payment_pending, confirmed]，
  * cancelled/expired/rejected 终态行不算「已报名」，取消后可再报名）。
@@ -317,7 +333,7 @@ export async function fetchMyEnrollment(
 	id: string,
 	kind: OfferingKind,
 	userId: string,
-): Promise<{ id: string; status: string } | null> {
+): Promise<{ id: string; status: string; approvalDeadline?: string | null } | null> {
 	// network-only（P3/F4 同款纪律）：支付成功后 onPaid 就地刷新若命中
 	// cache-first 的 payment_pending 旧值，报名区会一直停在「待支付」。
 	if (kind === "event") {

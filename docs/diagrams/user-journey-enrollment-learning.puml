@@ -1,0 +1,205 @@
+@startuml user-journey-enrollment-learning
+' ============================================================
+' 报名 → 学习 User Journey（角色泳道，修复前快照 as-is @2026-09-09）— 断点梳理
+' 事实来源：
+'   web/components/offering-pages.tsx:905-950,1338-1463（工作台详情页）
+'   web/components/public-offering-detail.tsx:300-560（公开详情页）
+'   web/app/[locale]/participations/page.tsx:64-176（EnrollmentCard）
+'   web/components/learning/learning-tab.tsx:96-160（学习 tab）
+'   web/components/learning/course-content-viewer.tsx:96-165（阅读页）
+'   backend/lib/cgc_2046/admission/enrollment.ex:190-232（create_enrollment）
+'   backend/lib/cgc_2046/learning/learning_instantiator.ex:22-99（种 run）
+'   backend/lib/cgc_2046/learning/authorization.ex（三层授权）
+'   backend/lib/cgc_2046/learning/runs.ex:349-372（my_learning_runs）
+' 状态机细节见 workflow-enrollment.puml；run 协议见 workflow-learning.puml。
+' 断点①-⑦ 对应 docs/plans/2026-09-09-enrollment-success-journey-plan.md（本地计划，未入库）
+' 修复状态（PR #497 已合入 develop，2026-09-09）：
+'   ①②③⑤ 已修复；④ 入口兜底已修复（run 缺失根因属运营侧建课流程，不在本项）；
+'   ⑥ 未实施（微信订阅消息 page 仅支持小程序路径，且小程序无课程页）；
+'   ⑦ 待讨论（学习主页信息架构收敛）。
+' ============================================================
+title 报名 → 学习 User Journey（修复前快照 as-is @2026-09-09）— 角色泳道与断点
+skinparam backgroundColor white
+skinparam noteBackgroundColor #FFF8E1
+skinparam noteBorderColor #E0A800
+
+' 泳道顺序预声明（journey 主角学员在最左）
+|Visitor/Learner|
+|前端 UI|
+|后端|
+|Tutor（教研）|
+|Owner/Admin|
+
+|Owner/Admin|
+start
+
+group 阶段一：课程准备（学习可达的两个上游前提） {
+  :创建 Course offering\n（enrollment_policy / pricing_enabled）;
+  |Tutor（教研）|
+  :编辑 curriculum 草稿\n（/w/[slug]/courses/[id]/curriculum）;
+  :publish CourseRevision;
+  note right
+    前提 A：curriculum 已发布，
+    否则阅读页只有空态
+  end note
+  |后端|
+  note left
+    前提 B：租户存在已 published 的
+    type=learning WorkflowDefinition，
+    否则 run 种不出（断点④的因）
+  end note
+}
+
+group 阶段二：报名（createEnrollment 三分支） {
+  |Visitor/Learner|
+  :浏览公开目录 /courses;
+  :进入课程详情页\n公开 /courses/[slug]\n或工作台 /w/[slug]/courses/[id];
+  if (已登录?) then (是)
+  else (否)
+    :跳转 /login，登录后回本页;
+  endif
+  :点击「报名」/「报名并支付 ¥N」;
+  |后端|
+  :createEnrollment\n（admission/enrollment.ex）;
+  if (enrollment_policy) then (request)
+    :status = pending\n+ approval_deadline;
+    |Owner/Admin|
+    :/approvals 审批;
+    if (审批结果?) then (通过)
+      |后端|
+      :confirm_enrollment\n（免费 → confirmed；收费 →\npayment_pending，支付落账后 confirmed）;
+    else (拒绝)
+      |后端|
+      :status = rejected（终态）;
+      stop
+    endif
+  else (open / invite_only)
+    if (pricing_enabled?) then (收费)
+      :status = payment_pending\n（占位 + 2h 订单窗口）;
+      |Visitor/Learner|
+      :就地支付对话框完成支付;
+      |后端|
+      :settle_paid → status = confirmed;
+    else (免费)
+      :status = confirmed;
+    endif
+  endif
+  :发 enrollment.completed 信号;
+  :LearningInstantiator 订阅种 run;
+  if (前提 B 成立?) then (是)
+    :learning run = running;
+  else (否)
+    :skip（best-effort，无 run）;
+    note right #FFD6D6
+      **断点④**：/learning 与「学习」tab
+      空态「暂无在学课程」——尽管
+      内容授权（前提 A + confirmed）
+      此时已满足
+    end note
+  endif
+}
+
+group 阶段三：报名成功后的详情页（核心断点） {
+  |前端 UI|
+  if (哪条详情页?) then (工作台 /w/[slug]/courses/[id])
+    :纯文案「你已报名该课程。」;
+    note right #FFD6D6
+      **断点①**：无跳转 / 无链接 / 无 toast；
+      支付成功 onPaid 就地刷新后同样
+      只有文案
+    end note
+  else (公开 /courses/[slug])
+    :文案 + 弱化小字链接\n「在『我的参与』查看报名状态」;
+    note right #FFD6D6
+      **断点①'**：有链接但落点是管理页
+      而非学习，CTA 强度不足
+    end note
+  endif
+  |Visitor/Learner|
+  :journey 终点 = 知道报上了;
+  note right #FFD6D6
+    **断点⑥**：enrollment.completed 无
+    用户通知 deep link；关页即失联，
+    后续全靠用户自行发现
+  end note
+}
+
+group 阶段四：学习路径（现状 = 自行发现） {
+  |Visitor/Learner|
+  :自行找到站点头部「我的学习 →」\n或工作台菜单「我的参与」;
+  note right #FFD6D6
+    **断点⑦**：/learning 与 /participations
+    （默认学习 tab）渲染同一个 LearningTab——
+    两个 URL 一份内容，双「学习主页」
+    并列，用户不知回哪个
+  end note
+  if (进哪个入口?) then (路径 1：/participations 报名 tab)
+    |前端 UI|
+    :EnrollmentCard：状态徽章\n+ 取消报名;
+    note right #FFD6D6
+      **断点②**：confirmed 卡片无
+      「进入课程」入口，卡片不可点
+    end note
+    |Visitor/Learner|
+    :死路;
+    detach
+  else (路径 2：/learning 学习 tab)
+    |前端 UI|
+    if (run 存在?) then (是)
+      :run 行「查看课程内容」\n→ /learning/courses/:id;
+    else (否 ← 断点④后果)
+      :空态;
+      |Visitor/Learner|
+      :死路;
+      detach
+    endif
+  endif
+  |后端|
+  :courseContent 查询授权\n= staff ∪ 本人 confirmed enrollment\n∪ run 持有者;
+  note right
+    授权层不依赖 run：
+    confirmed 即可读（前提 A 满足时）
+  end note
+  |前端 UI|
+  if (curriculum 已发布?) then (是)
+    :章节 → 单元 → objective 正常阅读 ✓\n+ 掌握态叠加;
+    |Visitor/Learner|
+    :开始学习（journey 应有的落点）;
+  else (否)
+    :「暂无可读课程内容」;
+    note right #FFD6D6
+      **断点⑤**：死文案——无开课时间
+      提示、无返回引导
+    end note
+  endif
+}
+
+group 阶段五：回访 {
+  |Visitor/Learner|
+  :再次打开课程详情页;
+  |前端 UI|
+  if (offering.status = open?) then (是)
+    :myEnroll 命中 → 纯文案\n「你已报名该课程。」（断点①再现）;
+  else (已关闭 / 进行中)
+    :报名卡整块不渲染;
+    note right #FFD6D6
+      **断点③**：open 门把状态展示与
+      报名操作锁死——已报名用户在
+      详情页看不到任何自己的状态
+    end note
+  endif
+}
+stop
+
+legend right
+  **断点清单（编号对应方案文档；修复状态 @PR #497）**
+  ① 详情页成功态/回访态无学习出口（工作台无链接；公开页仅弱化小字）— 已修复
+  ② 报名 tab confirmed 卡片无「进入课程」入口 — 已修复
+  ③ offering.status ≠ open 时报名卡（含已报名状态）整块消失 — 已修复
+  ④ 租户无已发布 learning 定义 → run 种不出 → 学习 tab 空态 — 入口兜底已修复（根因属运营侧）
+  ⑤ 阅读页空态死文案，无开课提示、无返回引导 — 已修复
+  ⑥ enrollment.completed 无通知 deep link，关页即失联 — 未实施（需小程序课程页）
+  ⑦ /learning ≡ /participations 学习 tab，双「学习主页」并列 — 待讨论
+end legend
+
+@enduml

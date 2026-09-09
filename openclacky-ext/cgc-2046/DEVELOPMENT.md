@@ -76,12 +76,18 @@ openclacky-ext/cgc-2046/
 # 打包（产物在 openclacky-ext/dist/，已 gitignore）
 openclacky-ext/cgc-2046/bin/pack
 
-### 开发/验收安装
+# 开发/验收安装
 openclacky ext install openclacky-ext/dist/cgc-2046.zip
+```
 
 ### 生产用户安装
-用户先用 OpenClacky 官方方式安装宿主（官网 openclacky.com 下载桌面安装器 / CLI），再从 Extension Marketplace 搜索 `cgc-2046` 安装。不存在「宿主 + 扩展捆绑」的品牌一键安装包——扩展一律经市场分发。
+用户安装宿主（CGC 品牌下载页或 OpenClacky 官网），再经自托管 zip 一条命令安装本扩展：
+
+```bash
+openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip
 ```
+
+扩展不在公共 Extension Marketplace 发布（2026-09-09 决议反转，见 `docs/plans/cgc-2046-openclacky-extension-refactor.md` R1）。zip 与版本元信息（`/ext/cgc-2046.json`）由 deploy CI 在 docker build 前经 `bin/pack` 生成，放 `backend/priv/static/ext/`（gitignored），Plug.Static 直接服务。
 
 `bin/pack` 仅用于开发和发布前验收，会把本目录 symlink 到 `~/.clacky/ext/local/cgc-2046`（openclacky 开发层），因此开发期改完文件即生效（handler 按请求热加载），无需重复打包。
 

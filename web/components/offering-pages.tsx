@@ -19,6 +19,7 @@ import {
   allowedTransitions,
   canManageEvents,
   createOffering,
+  fetchMyActiveEnrollments,
   fetchMyEnrollment,
   fetchOffering,
   fetchPendingCount,
@@ -43,6 +44,8 @@ import {
   VISIBILITY_LABEL,
 } from "@/lib/graphql/events";
 import { TEACHING_ROLE_NAMES } from "@/lib/graphql/workspace";
+import type { ActiveEnrollmentRow } from "@/lib/graphql/participations";
+
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import WorkspaceShell from "@/components/workspace-shell";
@@ -63,6 +66,15 @@ import {
 } from "@/lib/public-offerings";
 import { useAuthed } from "@/lib/use-authed";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+
+/** 列表行个人报名状态（只这三态会出现在行内；终态不显示） */
+type MyEnrollmentStatus = "pending" | "payment_pending" | "confirmed";
+
+const MY_ENROLLMENT_STATUS_LABEL: Record<MyEnrollmentStatus, string> = {
+  pending: "myEnrollStatus.pending",
+  payment_pending: "myEnrollStatus.payment_pending",
+  confirmed: "myEnrollStatus.confirmed",
+};
 
 const TRANSITION_LABEL: Record<EventTransition, string> = {
   launch: "transitionLaunch",
@@ -221,6 +233,8 @@ function Field({
 interface OfferingsState {
   wsId: string;
   rows: OfferingItem[] | null;
+  /** 本人活跃报名（行内状态徽标）；未登录 / 未就绪 = 空数组 */
+  myEnrollments: ActiveEnrollmentRow[];
   error: string | null;
 }
 
@@ -228,10 +242,13 @@ function OfferingRow({
   offering,
   slug,
   kind,
+  myStatus,
 }: {
   offering: OfferingItem;
   slug: string;
   kind: OfferingKind;
+  /** 本人对该行的活跃报名状态（无 → 不渲染徽标） */
+  myStatus?: MyEnrollmentStatus;
 }) {
   const t = useTranslations("offerings");
   const tCommon = useTranslations("common");
@@ -251,6 +268,14 @@ function OfferingRow({
           <EventStatusTag status={offering.status} />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5 text-ink-3">
+          {myStatus ? (
+            <span
+              className="inline-flex flex-none items-center rounded-full border border-accent bg-accent-mentionbg px-2 py-0.5 text-[12px] leading-4 text-[var(--accent-strong)]"
+              data-testid={`my-enrollment-${myStatus}`}
+            >
+              {t(MY_ENROLLMENT_STATUS_LABEL[myStatus])}
+            </span>
+          ) : null}
           <span>{labelsT(ENROLLMENT_POLICY_LABEL[offering.enrollmentPolicy])}</span>
           <span>·</span>
           <span>{labelsT(VISIBILITY_LABEL[offering.visibility])}</span>
@@ -284,9 +309,11 @@ export function OfferingsListPage({
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
+  const { userId } = useAuthed();
   const [state, setState] = useState<OfferingsState>({
     wsId: "",
     rows: null,
+    myEnrollments: [],
     error: null,
   });
 
@@ -295,15 +322,21 @@ export function OfferingsListPage({
 
     let cancelled = false;
 
-    fetchWorkspaceOfferings(ws.id, kind)
-      .then((rows) => {
-        if (!cancelled) setState({ wsId: ws.id, rows, error: null });
+    // 个人报名状态与列表并发取数（未登录跳过第二条；失败整块走错误态）
+    Promise.all([
+      fetchWorkspaceOfferings(ws.id, kind),
+      userId ? fetchMyActiveEnrollments() : Promise.resolve([]),
+    ])
+      .then(([rows, myEnrollments]) => {
+        if (!cancelled)
+          setState({ wsId: ws.id, rows, myEnrollments, error: null });
       })
       .catch((e: unknown) => {
         if (!cancelled) {
           setState({
             wsId: ws.id,
             rows: null,
+            myEnrollments: [],
             error: e instanceof Error ? e.message : t("loadFailed"),
           });
         }
@@ -312,11 +345,20 @@ export function OfferingsListPage({
     return () => {
       cancelled = true;
     };
-  }, [ws, kind, t]);
+  }, [ws, kind, t, userId]);
 
   const stale = ws ? state.wsId !== ws.id : false;
   const rows = stale ? null : state.rows;
   const loadError = stale ? null : state.error;
+  const myEnrollments = stale ? [] : state.myEnrollments;
+  // 行内状态索引：课程按 courseId、活动按 eventId 对齐；只收活跃态
+  const myStatusById = new Map<string, MyEnrollmentStatus>();
+  for (const enrollment of myEnrollments) {
+    const key = kind === "course" ? enrollment.courseId : enrollment.eventId;
+    if (key && enrollment.status in MY_ENROLLMENT_STATUS_LABEL) {
+      myStatusById.set(key, enrollment.status as MyEnrollmentStatus);
+    }
+  }
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
   const base = `/w/${slug}/${kind === "event" ? "events" : "courses"}`;
@@ -370,6 +412,7 @@ export function OfferingsListPage({
                 offering={offering}
                 slug={slug}
                 kind={kind}
+                myStatus={myStatusById.get(offering.id)}
               />
             ))}
           </div>
@@ -482,7 +525,11 @@ export function OfferingDetailPage({
   // 已报名；无行 → 报名表单。
   const [enrollState, setEnrollState] = useState<{
     id: string;
-    enrollment: { id: string; status: string } | null;
+    enrollment: {
+      id: string;
+      status: string;
+      approvalDeadline?: string | null;
+    } | null;
     status: "loading" | "ok" | "error";
   }>({ id: "", enrollment: null, status: "loading" });
   const [enrollBusy, setEnrollBusy] = useState(false);
@@ -499,6 +546,9 @@ export function OfferingDetailPage({
     tierName: string | null;
     title: string;
   } | null>(null);
+  // 渲染期时间快照（react-hooks/purity：渲染体不得直接调 Date.now；仓内
+  // payment-checkout-dialog/approval-chip 同款惰性初始化）
+  const [nowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!id) return;
@@ -955,6 +1005,44 @@ export function OfferingDetailPage({
     }
   }
 
+  // 报名成功/已报名后的后续出口（P0-1）：课程给「进入课程」主 CTA——未开课
+  // 按 startsAt 分叉文案（课程内容未就绪时不把用户送进空阅读页）；活动无内容
+  // 页，只给「我的参与」次级出口。submitState 成功态与回访态共用。
+  function enrollmentFollowUp() {
+    if (!offering) return null;
+    const startsAtMs = offering.startsAt
+      ? new Date(offering.startsAt).getTime()
+      : null;
+    const notStarted = startsAtMs !== null && startsAtMs > nowMs;
+    return (
+      <div className="mt-2 grid gap-2 justify-self-start">
+        {kind === "course" ? (
+          <Link
+            href={`/learning/courses/${offering.id}`}
+            data-testid="enrollment-enter-course"
+            className="justify-self-start rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+          >
+            {notStarted
+              ? t("enterCourseAfterStart", {
+                  time: formatDeadline(
+                    offering.startsAt ?? null,
+                    tCommon("timeTbd"),
+                    locale,
+                  ),
+                })
+              : t("enterCourse")}
+          </Link>
+        ) : null}
+        <Link
+          href="/participations"
+          className="text-[13px] text-accent hover:underline"
+        >
+          {t("viewInParticipations")}
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <WorkspaceShell slug={slug}>
       <div className="ws-page-main__inner">
@@ -1335,12 +1423,13 @@ export function OfferingDetailPage({
               ) : null}
             </div>
 
-            {/* E-5 #50 G3：工作台详情页报名入口（open + 本人无既有报名；复用
-						    submitEnrollment，鉴权后端管） */}
+            {/* E-5 #50 G3：工作台详情页报名入口（本人无既有报名；复用
+						    submitEnrollment，鉴权后端管）。P1-5：卡片渲染不再以
+						    open 为门——课程关闭后已报名状态仍可见；open 只约束
+						    「报名操作」分支（非 open 显示报名已关闭）。 */}
             {!wsLoading &&
             ws &&
             !readOnlyVisitor &&
-            offering.status === "open" &&
             userId !== null &&
             enrollState.id === id &&
             enrollState.status === "ok" ? (
@@ -1375,6 +1464,8 @@ export function OfferingDetailPage({
                         >
                           {t("continuePay")}
                         </button>
+                      ) : submitState.kind === "confirmed" ? (
+                        enrollmentFollowUp()
                       ) : null}
                     </div>
                   ) : enrollState.enrollment?.status === "payment_pending" ? (
@@ -1396,13 +1487,37 @@ export function OfferingDetailPage({
                       </button>
                     </div>
                   ) : enrollState.enrollment?.status === "pending" ? (
-                    <p className="text-[13px] text-ink-3">
-                      {t("pendingApproval", { label: labelsT(label) })}
-                    </p>
+                    <div className="grid gap-2">
+                      <p className="text-[13px] text-ink-3">
+                        {t("pendingApproval", { label: labelsT(label) })}
+                      </p>
+                      {enrollState.enrollment.approvalDeadline ? (
+                        <p className="text-[13px] text-ink-3">
+                          {t("approvalDeadline", {
+                            time: formatDeadline(
+                              enrollState.enrollment.approvalDeadline,
+                              tCommon("timeTbd"),
+                              locale,
+                            ),
+                          })}
+                        </p>
+                      ) : null}
+                      <Link
+                        href="/participations"
+                        className="justify-self-start text-[13px] text-accent hover:underline"
+                      >
+                        {t("viewInParticipations")}
+                      </Link>
+                    </div>
                   ) : enrollState.enrollment ? (
-                    <p className="text-[13px] text-ink-3">
-                      {t("enrolled", { label: labelsT(label) })}
-                    </p>
+                    <div className="grid gap-2">
+                      <p className="text-[13px] text-ink-3">
+                        {t("enrolled", { label: labelsT(label) })}
+                      </p>
+                      {enrollmentFollowUp()}
+                    </div>
+                  ) : offering.status !== "open" ? (
+                    <p className="text-[13px] text-ink-3">{t("enrollClosed")}</p>
                   ) : (
                     <div className="grid gap-3">
                       {submitState.kind === "error" ? (

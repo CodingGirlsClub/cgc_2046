@@ -100,7 +100,16 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   if (loading) return <p data-testid="course-content-loading">{t("loading")}</p>;
   if (error) return <p role="alert">{t("loadFailed")}</p>;
   const detail = data?.courseContent;
-  if (!detail) return <p>{t("empty")}</p>;
+  if (!detail)
+    return (
+      <div data-testid="course-content-empty">
+        <p className="font-medium text-ink">{t("empty")}</p>
+        <p className="mt-1 text-sm text-ink-3">{t("emptyHint")}</p>
+        <Link href="/learning" className="mt-3 inline-block text-[13px] text-accent hover:underline">
+          {t("openLearning")} ↗
+        </Link>
+      </div>
+    );
   const content = parseCourseContent(detail.content);
   const { issues, chapterTitle, grouped } = groupCourseIssues(content, t("chapter"));
   const objectives = issues.flatMap((issue) => issue.objectives || []);

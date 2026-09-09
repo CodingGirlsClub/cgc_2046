@@ -102,10 +102,14 @@ export default function PublicOfferingDetailPage({
   const [myEnroll, setMyEnroll] = useState<{
     id: string;
     status: string;
+    approvalDeadline?: string | null;
   } | null>(null);
   // 已完成的报名查询对应的 offering id（派生 enrollChecked，避免 effect 内
   // 同步 setState——eslint react-hooks/set-state-in-effect）
   const [enrollForId, setEnrollForId] = useState<string | null>(null);
+  // 渲染期时间快照（react-hooks/purity：渲染体不得直接调 Date.now；仓内
+  // payment-checkout-dialog/approval-chip 同款惰性初始化）
+  const [nowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!slug) return;
@@ -350,6 +354,44 @@ export default function PublicOfferingDetailPage({
     setSubmitPhase(ok ? "idle" : "reconcile_failed");
   }
 
+  // 报名成功/已报名后的后续出口（P0-1）：课程给「进入课程」主 CTA——未开课
+  // 按 startsAt 分叉文案（内容未就绪时不把用户送进空阅读页）；活动无内容页，
+  // 只给「我的参与」次级出口。submitState 成功态与回访态共用。
+  function enrollmentFollowUp() {
+    if (!offering) return null;
+    const startsAtMs = offering.startsAt
+      ? new Date(offering.startsAt).getTime()
+      : null;
+    const notStarted = startsAtMs !== null && startsAtMs > nowMs;
+    return (
+      <div className="mt-3 grid gap-2 justify-items-start">
+        {kind === "course" ? (
+          <Link
+            href={`/learning/courses/${offering.id}`}
+            data-testid="public-enrollment-enter-course"
+            className="join-button join-button--primary inline-block"
+          >
+            {notStarted
+              ? t("enterCourseAfterStart", {
+                  time: formatDeadline(
+                    offering.startsAt ?? null,
+                    tCommon("timeTbd"),
+                    locale,
+                  ),
+                })
+              : t("enterCourse")}
+          </Link>
+        ) : null}
+        <Link
+          href="/participations"
+          className="text-[13px] text-accent hover:underline"
+        >
+          {t("viewInParticipations")}
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <PublicCatalogShell activeKind={kind} mainClassName="public-detail-main">
       <div className="public-catalog-container">
@@ -508,6 +550,8 @@ export default function PublicOfferingDetailPage({
                       >
                         {t("continuePay")}
                       </button>
+                    ) : submitState.kind === "confirmed" ? (
+                      enrollmentFollowUp()
                     ) : (
                       <Link
                         href="/participations"
@@ -538,6 +582,17 @@ export default function PublicOfferingDetailPage({
                     <p className="font-medium">
                       {t("pendingApproval", { label: labelsT(label) })}
                     </p>
+                    {myEnroll.approvalDeadline ? (
+                      <p className="mt-1 text-[13px] text-ink-3">
+                        {t("approvalDeadline", {
+                          time: formatDeadline(
+                            myEnroll.approvalDeadline,
+                            tCommon("timeTbd"),
+                            locale,
+                          ),
+                        })}
+                      </p>
+                    ) : null}
                     <Link
                       href="/participations"
                       className="mt-3 inline-block text-[13px] text-accent hover:underline"
@@ -550,12 +605,7 @@ export default function PublicOfferingDetailPage({
                     <p className="font-medium">
                       {t("enrolled", { label: labelsT(label) })}
                     </p>
-                    <Link
-                      href="/participations"
-                      className="mt-3 inline-block text-[13px] text-accent hover:underline"
-                    >
-                      {t("viewInParticipations")}
-                    </Link>
+                    {enrollmentFollowUp()}
                   </div>
                 ) : !enrollChecked ? (
                   <div className="text-sm text-ink-3">
