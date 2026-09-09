@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
   fetchOffering: vi.fn(),
+  fetchMyActiveEnrollments: vi.fn(),
   fetchMyEnrollment: vi.fn(),
   fetchPendingCount: vi.fn(),
   fetchWorkspaceOfferings: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/events", () => ({
   canManageEvents: (myAbilities: string[] = []) =>
     myAbilities.includes("manage_events"),
   createOffering: mocks.createOffering,
+  fetchMyActiveEnrollments: mocks.fetchMyActiveEnrollments,
   fetchMyEnrollment: mocks.fetchMyEnrollment,
   fetchOffering: mocks.fetchOffering,
   fetchPendingCount: mocks.fetchPendingCount,
@@ -62,8 +64,12 @@ vi.mock("@/lib/use-workspace-by-slug", () => ({
   useWorkspaceBySlug: mocks.useWorkspaceBySlug,
 }));
 
+// 可变的登录态（未登录分支用）；beforeEach 复位为已登录
+const authState = vi.hoisted(() => ({
+  current: { authed: true, confirmed: true, userId: "user-1" as string | null },
+}));
 vi.mock("@/lib/use-authed", () => ({
-  useAuthed: () => ({ authed: true, confirmed: true, userId: "user-1" }),
+  useAuthed: () => authState.current,
 }));
 
 vi.mock("@/components/workspace-shell", () => ({
@@ -174,6 +180,8 @@ function renderManageDetail(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authState.current = { authed: true, confirmed: true, userId: "user-1" };
+  mocks.fetchMyActiveEnrollments.mockResolvedValue([]);
   mocks.fetchMyEnrollment.mockResolvedValue(null);
   mocks.fetchPendingCount.mockResolvedValue(0);
   mocks.fetchWorkspaceOfferings.mockResolvedValue([]);
@@ -201,6 +209,88 @@ describe("OfferingsListPage 页头", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/草稿/)).not.toBeInTheDocument();
     expect(screen.getByText(new RegExp(`${label}与报名`))).toBeInTheDocument();
+  });
+});
+
+describe("OfferingsListPage 个人报名状态", () => {
+  const COURSE_A = {
+    id: "course-a",
+    workspaceId: "workspace-1",
+    title: "课程 A",
+    status: "open",
+    visibility: "workspace",
+    enrollmentPolicy: "open",
+    capacity: null,
+    confirmedCount: 0,
+    registrationDeadline: null,
+    pricingEnabled: false,
+    priceTiers: null,
+  };
+  const COURSE_B = { ...COURSE_A, id: "course-b", title: "课程 B" };
+
+  it("已报名课程渲染「已报名」徽标，未报名行不渲染", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A, COURSE_B]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      { id: "enr-1", status: "confirmed", courseId: "course-a", eventId: null },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByText("课程 A")).toBeInTheDocument();
+    const badge = screen.getByTestId("my-enrollment-confirmed");
+    expect(badge).toHaveTextContent("已报名");
+    // 只有已报名那一行有徽标
+    expect(screen.getAllByTestId(/^my-enrollment-/)).toHaveLength(1);
+  });
+
+  it("待支付与审批中各自渲染对应文案", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A, COURSE_B]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      {
+        id: "enr-2",
+        status: "payment_pending",
+        courseId: "course-a",
+        eventId: null,
+      },
+      { id: "enr-3", status: "pending", courseId: "course-b", eventId: null },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByTestId("my-enrollment-payment_pending")).toHaveTextContent(
+      "待支付",
+    );
+    expect(screen.getByTestId("my-enrollment-pending")).toHaveTextContent("审批中");
+  });
+
+  it("活动列表按 eventId 对齐：课程报名不串到活动行", async () => {
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([
+      { ...COURSE_A, id: "event-a", title: "活动 A" },
+    ]);
+    mocks.fetchMyActiveEnrollments.mockResolvedValueOnce([
+      { id: "enr-c", status: "confirmed", courseId: "event-a", eventId: null },
+      { id: "enr-e", status: "pending", courseId: null, eventId: "event-a" },
+    ]);
+
+    render(<OfferingsListPage slug="demo" kind="event" />);
+
+    expect(await screen.findByTestId("my-enrollment-pending")).toHaveTextContent(
+      "审批中",
+    );
+    expect(
+      screen.queryByTestId("my-enrollment-confirmed"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("未登录：不发报名查询，也不渲染徽标", async () => {
+    authState.current = { authed: false, confirmed: true, userId: null };
+    mocks.fetchWorkspaceOfferings.mockResolvedValueOnce([COURSE_A]);
+
+    render(<OfferingsListPage slug="demo" kind="course" />);
+
+    expect(await screen.findByText("课程 A")).toBeInTheDocument();
+    expect(mocks.fetchMyActiveEnrollments).not.toHaveBeenCalled();
+    expect(screen.queryByTestId(/^my-enrollment-/)).not.toBeInTheDocument();
   });
 });
 
@@ -524,6 +614,27 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     render(<OfferingDetailPage slug="demo" id="event-open" kind="event" />);
   }
 
+  function renderCourse(id: string, status = "open") {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id,
+      title: "示例课程",
+      status,
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    render(<OfferingDetailPage slug="demo" id={id} kind="course" />);
+  }
+
   it("payment_pending 既有报名 → 待支付卡（名额已保留 + 继续支付开收银模态框），不渲染报名表单", async () => {
     mocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-pending",
@@ -570,6 +681,124 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     expect(
       screen.queryByRole("button", { name: "报名" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("课程 confirmed 既有报名 → 「进入课程」直达 /learning/courses/:id（P0-1）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-course",
+      status: "confirmed",
+    });
+
+    renderCourse("course-1");
+
+    const link = await screen.findByTestId("enrollment-enter-course");
+    expect(link.getAttribute("href")).toContain("/learning/courses/course-1");
+    expect(link.textContent).toContain("进入课程");
+    expect(
+      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("课程未开课（startsAt 在未来）→ CTA 分叉为开课提示文案（P0-1）", async () => {
+    const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "course-future",
+      title: "未来课程",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      startsAt: future,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-future",
+      status: "confirmed",
+    });
+
+    render(<OfferingDetailPage slug="demo" id="course-future" kind="course" />);
+
+    const link = await screen.findByTestId("enrollment-enter-course");
+    expect(link.textContent).toContain("开课后在此学习");
+  });
+
+  it("活动 confirmed 既有报名 → 无「进入课程」，只给「我的参与」出口（P0-1）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-event",
+      status: "confirmed",
+    });
+
+    renderOpen();
+
+    expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("enrollment-enter-course"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("课程关闭后 confirmed 仍渲染状态卡与入口（P1-5：open 门不再吞已报名状态）", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-closed",
+      status: "confirmed",
+    });
+
+    renderCourse("course-closed", "closed");
+
+    expect(await screen.findByText("你已报名该课程。")).toBeInTheDocument();
+    expect(screen.getByTestId("enrollment-enter-course")).toBeInTheDocument();
+  });
+
+  it("课程关闭且未报名 → 「报名已关闭」，不渲染报名按钮（P1-5）", async () => {
+    renderCourse("course-closed-none", "closed");
+
+    expect(await screen.findByText("报名已关闭。")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("英文 locale 已报名态渲染 CTA（回归：offerings en 键缺失 → MISSING_MESSAGE）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "course-en",
+      title: "EN Course",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-en",
+      status: "confirmed",
+    });
+
+    render(<OfferingDetailPage slug="demo" id="course-en" kind="course" />, {
+      locale: "en",
+    });
+
+    expect(await screen.findByText("Enter course")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "View in My participations" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -1572,8 +1801,18 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
     fireEvent.click(screen.getByTestId("pricing-toggle"));
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
 
-    expect(await screen.findByTestId("pricing-disable-guard")).toBeInTheDocument();
-    expect(await screen.findByText(/已付 3 人不退款；待付 2 人将免费确认/)).toBeInTheDocument();
+    // 守卫文案要等 stats → paid → pending 三次顺序查询落定；CI 慢机 1s 默认
+    // 上限偶发不够（flaky），与 payments-management.test.tsx 同款放宽到 3s
+    expect(
+      await screen.findByTestId("pricing-disable-guard", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /已付 3 人不退款；待付 2 人将免费确认/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("pricing-guard-cancel"));
     expect(screen.queryByTestId("pricing-disable-guard")).not.toBeInTheDocument();
@@ -1619,7 +1858,11 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
 
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    const disclosure = await screen.findByTestId("cancel-refund-disclosure");
+    const disclosure = await screen.findByTestId(
+      "cancel-refund-disclosure",
+      {},
+      { timeout: 3000 },
+    );
     expect(disclosure).toHaveTextContent("5");
     expect(disclosure).toHaveTextContent("995.00");
   });

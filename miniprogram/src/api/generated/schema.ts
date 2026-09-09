@@ -2754,6 +2754,13 @@ export type OfferingReadinessPayload = {
   ready: Scalars['Boolean']['output'];
 };
 
+export type OperationResolution = {
+  errors: Array<MutationError>;
+  /** confirmOperation/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误 */
+  pendingId?: Maybe<Scalars['ID']['output']>;
+  status?: Maybe<Scalars['String']['output']>;
+};
+
 export type Order = {
   amountCents: Scalars['Int']['output'];
   cancelReason?: Maybe<Scalars['String']['output']>;
@@ -3176,6 +3183,13 @@ export type PendingApproval = {
   workspaceSlug?: Maybe<Scalars['String']['output']>;
 };
 
+export type PendingOperationConfirmation = {
+  errors: Array<MutationError>;
+  /** refundOrder/retryRefund/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending） */
+  pendingId?: Maybe<Scalars['ID']['output']>;
+  summary?: Maybe<Scalars['String']['output']>;
+};
+
 export type PermissionMatrixPayload = {
   roles: Array<PermissionMatrixRow>;
 };
@@ -3233,14 +3247,6 @@ export type ReassignWorkspaceOwnerResult = {
   metadata?: Maybe<ReassignWorkspaceOwnerMetadata>;
   /** The successful result of the mutation */
   result?: Maybe<Workspace>;
-};
-
-/** The result of the :refund_order mutation */
-export type RefundOrderResult = {
-  /** Any errors generated, if the mutation failed */
-  errors: Array<MutationError>;
-  /** The successful result of the mutation */
-  result?: Maybe<Order>;
 };
 
 export type RejectEnrollmentInput = {
@@ -3332,14 +3338,6 @@ export type ResendSpeakerInvitationPayload = {
 
 export type ResetPasswordResult = {
   ok: Scalars['Boolean']['output'];
-};
-
-/** The result of the :retry_refund mutation */
-export type RetryRefundResult = {
-  /** Any errors generated, if the mutation failed */
-  errors: Array<MutationError>;
-  /** The successful result of the mutation */
-  result?: Maybe<Order>;
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -3476,6 +3474,8 @@ export type RootMutationType = {
   cancelEnrollment: CancelEnrollmentResult;
   /** 取消活动：open → cancelled，发 event.ended 信号 */
   cancelEvent: CancelEventResult;
+  /** 取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效） */
+  cancelOperation?: Maybe<OperationResolution>;
   /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
   cancelOrder: CancelOrderResult;
   /** 结束课程：open → closed，发 course.ended 信号 */
@@ -3486,6 +3486,8 @@ export type RootMutationType = {
   completeSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** Owner/Admin 确认 pending 报名并原子占用名额 */
   confirmEnrollment: ConfirmEnrollmentResult;
+  /** 确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试） */
+  confirmOperation?: Maybe<OperationResolution>;
   /** 创建课程（默认 status=draft） */
   createCourse: CreateCourseResult;
   /** 创建报名；open/invite_only 立即占位，request 等待审批 */
@@ -3536,8 +3538,8 @@ export type RootMutationType = {
   promoteUser?: Maybe<AdminUserPayload>;
   /** 重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请 */
   reassignWorkspaceOwner: ReassignWorkspaceOwnerResult;
-  /** 管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007） */
-  refundOrder: RefundOrderResult;
+  /** 管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行 */
+  refundOrder?: Maybe<PendingOperationConfirmation>;
   /** Owner/Admin 拒绝 pending 报名 */
   rejectEnrollment: RejectEnrollmentResult;
   /** 拒绝加入申请（Owner/Admin） */
@@ -3556,8 +3558,8 @@ export type RootMutationType = {
   resendSpeakerInvitation?: Maybe<ResendSpeakerInvitationPayload>;
   /** 使用一次性密码重置 token 设置新密码 */
   resetPassword?: Maybe<ResetPasswordResult>;
-  /** 管理员重试退款：refund_failed → refunding 重入退款链（R17） */
-  retryRefund: RetryRefundResult;
+  /** 退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链 */
+  retryRefund?: Maybe<PendingOperationConfirmation>;
   /** 撤销邀请（邀请人本人或 Owner/Admin 或平台管理员） */
   revokeInvitation: RevokeInvitationResult;
   /** 撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性） */
@@ -3594,8 +3596,8 @@ export type RootMutationType = {
   updateWorkspace: UpdateWorkspaceResult;
   /** 更新当前用户在某工作台的资料（ADR-0004 per-workspace） */
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
-  /** Owner/Admin/平台管理员免缴：payment_pending → confirmed（个案免费唯一入口，R18） */
-  waivePayment: WaivePaymentResult;
+  /** 免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认 */
+  waivePayment?: Maybe<PendingOperationConfirmation>;
   /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
   wechatLoginStart?: Maybe<WechatLoginStartResult>;
 };
@@ -3661,6 +3663,11 @@ export type RootMutationTypeCancelEventArgs = {
 };
 
 
+export type RootMutationTypeCancelOperationArgs = {
+  pendingId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCancelOrderArgs = {
   id: Scalars['ID']['input'];
 };
@@ -3683,6 +3690,11 @@ export type RootMutationTypeCompleteSpeakerInvitationArgs = {
 
 export type RootMutationTypeConfirmEnrollmentArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeConfirmOperationArgs = {
+  pendingId: Scalars['ID']['input'];
 };
 
 
@@ -5341,14 +5353,6 @@ export type User = {
   memberNumber?: Maybe<Scalars['String']['output']>;
   /** 首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致） */
   onboardingInvitationDismissedAt?: Maybe<Scalars['DateTime']['output']>;
-};
-
-/** The result of the :waive_payment mutation */
-export type WaivePaymentResult = {
-  /** Any errors generated, if the mutation failed */
-  errors: Array<MutationError>;
-  /** The successful result of the mutation */
-  result?: Maybe<Enrollment>;
 };
 
 export type WechatLoginStartResult = {

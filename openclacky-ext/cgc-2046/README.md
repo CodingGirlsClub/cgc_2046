@@ -34,8 +34,12 @@ MCP 连接出错时，面板会显示异常横幅提醒你重新连接；助手�
 
 ## 安装
 
-1. **安装 OpenClacky**：从官网 [openclacky.com](https://www.openclacky.com) 下载安装（桌面安装器或 CLI 均可，完整指南见官方文档的 Installation 一节）。
-2. **安装本扩展**：打开 OpenClacky 扩展市场（侧栏「扩展」→ 市场页），搜索 `CGC-2046`，点击扩展卡片 → 安装。
+1. **安装 OpenClacky**：从 CGC-2046 工作台的接入引导页下载安装（或 OpenClacky 官网 [openclacky.com](https://www.openclacky.com)，桌面安装器 / CLI 均可）。
+2. **安装本扩展**：在终端执行一条命令（接入引导页提供复制按钮）：
+
+   ```bash
+   openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip
+   ```
 
 安装成功后，OpenClacky 侧边栏会出现「程序媛汇 2046」入口。
 
@@ -96,7 +100,7 @@ curl -sS -X DELETE "http://127.0.0.1:7070/api/ext/cgc-2046/connect" -H "Content-
 同上，先重连。手动流程中把 `CLACKY_SERVER_HOST` 设成非本机地址（如局域网 IP）会被拒绝（403 `host not allowed`）——这是安全边界，改回 `127.0.0.1` 即可。
 
 **升级扩展**
-面板右上角出现「升级」按钮时点按即可；或在扩展市场重新搜索 `CGC-2046` 安装新版本。
+面板右上角出现「升级」按钮时点按即可（自动从 CGC-2046 官方地址下载最新版本）；或在终端重新执行上面的安装命令。
 
 ## 许可证
 
