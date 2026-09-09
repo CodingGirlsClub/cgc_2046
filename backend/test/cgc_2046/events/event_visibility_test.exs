@@ -3,7 +3,7 @@ defmodule Cgc2046.Events.EventVisibilityTest do
   E-11 #127 可见性轴测试：读策略（D9 条件式 + 016 draft 收紧）+ 匿名白名单 + 切换。
 
   - 匿名（actor=nil）仅可读 `open + visibility=public`
-  - 普通成员可读非 draft；Owner/Admin 与平台管理员可读全部生命周期
+  - 普通成员可读 open/closed；cancelled 同 draft 不对成员展示；Owner/Admin 与平台管理员可读全部生命周期
   - 非成员登录用户视同匿名
   - visibility 可随时双向切换（含 open 后，用户拍板）
   - D2 白名单：匿名读时 capacity/confirmed_count 为 %Ash.ForbiddenField{}
@@ -155,7 +155,7 @@ defmodule Cgc2046.Events.EventVisibilityTest do
     end
   end
 
-  describe "draft 读收紧（Owner/Admin + 角色组合 + 跨租户）" do
+  describe "读收紧（draft/cancelled 不对成员展示；Owner/Admin + 角色组合 + 跨租户）" do
     test "纯 Admin 可读 draft；平台管理员 bypass 仍可读 draft" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
       admin = Fixtures.register_user("vis-ws-admin")
@@ -194,7 +194,7 @@ defmodule Cgc2046.Events.EventVisibilityTest do
                reload(Event, draft_b.id, a.owner, b.workspace.id)
     end
 
-    test "成员可读非 draft 的 open/closed/cancelled × visibility 组合" do
+    test "成员可读 open/closed × visibility 组合；cancelled 对成员 NotFound" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
 
       public_open = EventFixtures.create_event(workspace, owner, %{visibility: :public})
@@ -217,7 +217,12 @@ defmodule Cgc2046.Events.EventVisibilityTest do
       assert {:ok, _} = reload(Event, public_open.id, member, workspace.id)
       assert {:ok, _} = reload(Event, workspace_open.id, member, workspace.id)
       assert {:ok, _} = reload(Event, closed.id, member, workspace.id)
-      assert {:ok, _} = reload(Event, cancelled.id, member, workspace.id)
+
+      assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+               reload(Event, cancelled.id, member, workspace.id)
+
+      # 管理面仍可读 cancelled（退款治理/审计读面）
+      assert {:ok, _} = reload(Event, cancelled.id, owner, workspace.id)
     end
 
     test "成员按 slug 读 draft Event NotFound" do

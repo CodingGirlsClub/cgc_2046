@@ -281,14 +281,14 @@
       "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。\n" + Kit.DATA_NOTE;
   }
 
-  // 生命周期动作 → 注入指令(带 MCP 来源 id;提醒 agent 两段式:先看确认摘要)
+  // 生命周期动作 → 注入指令(带 MCP 来源 id;提醒 agent 两段式:先看确认摘要,用 ask_user 卡片确认)
   function lifecyclePrompt(kind, action, offeringId) {
     const offering = offeringById(offeringId) || {};
     const tool = action + "_" + kind;
     const oid = Kit.safeId(offeringId);
     return "请" + LC_VERB[action] + KIND_LABEL[kind] + "「" + oneLine(offering.title || "") + "」" +
       "(" + (oid ? kind + "_id=" + oid + "；" : "") + "调用 " + tool +
-      " 先给我看确认摘要，我同意后再执行）。\n" + Kit.DATA_NOTE;
+      " 先给我看确认摘要，用 ask_user 弹卡片让我点击确认后再执行）。\n" + Kit.DATA_NOTE;
   }
 
   // 对话轻改 → 注入指令(单字段轻改走对话;重编辑由「网站编辑」深链承接)
