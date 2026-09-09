@@ -993,9 +993,9 @@
     "openCgcOpenclacky": "Open CGC OpenClacky",
     "step1Dsh": "Install the DSH plugin family",
     "dshInstallDesc": "In DSH (minimum version <code>0.1.2</code>), run the following command to install the CGC-2046 plugin family (dsh-cgc-all):",
-    "dshManualFlowDesc": "Once installed, return to step ③ below to issue a connection token, then paste it into the connection form of the “CGC-2046” panel in the DSH sidebar — DSH has no automatic connect; this manual flow is the only path.",
+    "dshManualFlowDesc": "Once installed, return to step ③ below to issue a connection token and copy it — then tell the agent in DSH \"connect to CGC-2046\" and it completes the connection in one step from your clipboard (the token never enters the conversation); you can also paste it manually into the connection form of the \"CGC-2046\" panel in the DSH sidebar — both paths are equivalent.",
     "dshIntegrityHint": "Package integrity: dsh-cgc-all is published by the official CodingGirlsClub organization (verifiable via npm provenance). Check the source before installing — beware of lookalike packages that steal tokens.",
-    "dshClipboardHint": "The token is shown in plain text only once; after pasting it into the panel, clear your clipboard so it doesn't linger on other devices via clipboard sync."
+    "dshClipboardHint": "The token is shown in plain text only once; clear your clipboard after connecting so it doesn't linger on other devices via clipboard sync."
   },
   "workspaceAccount": {
     "loadFailed": "Failed to load profile",
