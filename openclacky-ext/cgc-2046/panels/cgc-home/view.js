@@ -788,7 +788,7 @@
         return sessionTab === "all" || s.agent_profile === sessionTab;
       })
       .sort(function (a, b) { return sessionActivityTime(b) - sessionActivityTime(a); })
-      .slice(0, 6);
+      .slice(0, 20); // 三助手同框后 6 条太紧;接口拉 50,展示 20,滚动由卡片容器承担
 
     if (mine.length === 0) {
       const label = sessionTab === "all" ? "" : SESSION_AGENTS[sessionTab];
