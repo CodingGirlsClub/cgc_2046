@@ -1168,3 +1168,76 @@ class WebUrlSchemeGateTest < Minitest::Test
     refute_includes ADMIN_ASIDE_VIEW, "/^https?:\/\//"
   end
 end
+
+# ---- harness 场景全量接线 ----
+# 欠账根因:场景加进 harness 无人强制接进 CI,红绿防护存在却不跑
+# (安全评审 2026-09 清点:18 个显式场景仅 3 个有 wrapper)。本类两层:
+#   1) 逐场景 wrapper —— 每个场景都有 CI 入口;
+#   2) meta 守卫 —— harness 场景全集必须 ⊆ 全部 .rb 的 run_harness 接线集,
+#      新加场景不接线直接红。
+
+class HarnessScenarioWiringTest < Minitest::Test
+  HARNESS = File.expand_path("panel_behavior_harness.js", __dir__)
+  VIEWS = {
+    "shared"    => File.expand_path("../panels/shared/view.js", __dir__),
+    "home"      => File.expand_path("../panels/cgc-home/view.js", __dir__),
+    "discovery" => File.expand_path("../panels/cgc-discovery/view.js", __dir__),
+    "course"    => File.expand_path("../panels/cgc-course/view.js", __dir__),
+    "teach"     => File.expand_path("../panels/cgc-2046-curriculum/view.js", __dir__),
+    "learn"     => File.expand_path("../panels/cgc-learn/view.js", __dir__),
+    "admin"     => File.expand_path("../panels/cgc-2046-admin-aside/view.js", __dir__),
+    "tutor"     => File.expand_path("../panels/cgc-2046-tutor-aside/view.js", __dir__),
+  }.freeze
+
+  # 场景 -> 面板视图(与 harness 头部用法一致;断言强度在 harness 内部的
+  # checks 非零退出,wrapper 只保证场景真的在 CI 里跑)
+  SCENARIOS = {
+    "zero_member_confirmed"        => "course",
+    "learner_typed_materials"      => "course",
+    "editor_delimiter_roundtrip"   => "teach",
+    "editor_remove_chapter_clears_refs" => "teach",
+    "editor_remove_row_with_empty" => "teach",
+    "learn_boot_and_inject"        => "learn",
+    "learn_ugc_injection"          => "learn",
+    "learn_quote_course_id"        => "learn",
+    "learn_malformed_next_action"  => "learn",
+    "admin_aside"                  => "admin",
+    "admin_aside_ugc"              => "admin",
+    "tutor_aside_boot"             => "tutor",
+    "tutor_aside_malformed"        => "tutor",
+    "home_hub"                     => "home",
+    "home_unconnected"             => "home",
+    "home_tasks_failed"            => "home",
+  }.freeze
+
+  def run_harness(view, scenario)
+    out, status = Open3.capture2e("node", HARNESS, view, scenario)
+    assert status.success?, "harness #{scenario} 失败: #{out}"
+    out
+  end
+
+  SCENARIOS.each do |scenario, view_key|
+    define_method("test_harness_#{scenario}") do
+      out = run_harness(VIEWS.fetch(view_key), scenario)
+      assert_includes out, "OK #{scenario}"
+    end
+  end
+
+  def test_every_harness_scenario_is_wired
+    # harness 场景全集(显式 scenario === 分支 + 默认分支 zero_member_confirmed)
+    # 必须 ⊆ test/*.rb 中所有 run_harness(_, "name") 接线集合
+    harness_src = File.read(HARNESS)
+    all = harness_src.scan(/scenario === "([a-z_0-9]+)"/).flatten.uniq
+    # 本类 SCENARIOS 声明表经 define_method 用变量调用,不产生字面量——
+    # wired 名单须并入其 keys,否则新场景接进 SCENARIOS 反而误红
+    wired = Dir[File.expand_path("*.rb", __dir__)].flat_map do |f|
+      File.read(f).scan(/run_harness\([^,]+,\s*"([a-z_0-9]+)"/)
+    end.flatten.uniq | SCENARIOS.keys
+    missing = all - wired
+    assert_empty missing, <<~MSG
+      harness 场景无 .rb 接线,红绿防护不进 CI:#{missing.join(", ")}
+      补法:learner_journey_routes_test.rb 的 HarnessScenarioWiringTest.SCENARIOS
+      加一行,或在既有 wrapper 类加 run_harness(VIEW, "<场景>")。
+    MSG
+  end
+end
