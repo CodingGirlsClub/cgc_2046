@@ -504,6 +504,50 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # ---- 完整 origin 比对(scheme+host+port):本机异端口/异 scheme 防线 ----
+  # 只比 host(剥端口)挡不住本机异端口页面:localhost:8080 上的恶意页可读
+  # /status 拿 CSRF token,再借宿主全开 CORS 伪造写请求(写面含 connect/
+  # disconnect)。宿主 server 仅明文 http 监听,Origin 须逐项对齐 Host 头
+  # (含端口;Host 缺端口按 http 默认 80 归一)。
+
+  # 异端口同 host:Origin localhost:8080 ≠ Host localhost:7070 → 403,
+  # CSRF token 不外泄(旧代码只比 host,本用例旧代码放行——红转绿)
+  def test_status_origin_port_mismatch_403
+    halt = invoke(:get, "/status", build(header: { "Host" => "localhost:7070",
+                                                   "Origin" => "http://localhost:8080" }))
+
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    refute_includes halt.payload, "csrf_token", "异端口跨源请求不得拿到 CSRF token"
+  end
+
+  # scheme 不一致:https Origin 对明文 http 服务 → 403,写面零写盘零 reload
+  def test_disconnect_origin_scheme_mismatch_403
+    old = JSON.generate("mcpServers" => { "cgc-2046" => { "type" => "http", "url" => URL } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect",
+                    build(registry: registry,
+                          header: write_headers.merge("Origin" => "https://127.0.0.1:7070")))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+      assert_empty persisted, "异 scheme 跨源写不得写盘"
+      assert_equal 0, registry.reload_count
+    end
+  end
+
+  # 完整一致:Origin scheme+host+port 与 Host 逐项相等 → 放行到业务层(200)
+  def test_status_full_origin_match_passes_guard
+    stub_fs(old_text: nil) do
+      halt = invoke(:get, "/status", build(header: { "Host" => "127.0.0.1:7070",
+                                                     "Origin" => "http://127.0.0.1:7070" }))
+
+      assert_equal 200, halt.status
+    end
+  end
+
   # 缺 Host(HTTP/1.0)失败关闭:写路由 403,零写盘
   def test_connect_missing_host_403
     stub_fs(old_text: nil) do |persisted|
