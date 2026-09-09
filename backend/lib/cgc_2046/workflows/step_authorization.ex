@@ -4,7 +4,9 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
   判定 = actor 角色集合 ∩ step 执行角色集合，命中即放行（多角色并集）。
   owner/admin 豁免（管理角色类，机制委托 `Role.manage_role?/1`，单源 `Role.manage_roles/0`）。
-  Step/StepRole 未配置 = 不限制。
+  signal 口径：Step/StepRole 未配置 = 不限制；**写入口径**（`authorize_write/4`，
+  P1 安全修复 2026-09-09）：Step 行不存在（未知 step_key）fail-closed——
+  通用写工具曾借「未配置 = 不限制」把治理保留 key 写进 facts 顶层。
 
   ## fail-closed（2026-08-07 用户决策）
 
@@ -39,6 +41,26 @@ defmodule Cgc2046.Workflows.StepAuthorization do
     authorize_signal(actor, workspace_id, definition_id, step_key, &step_allowed_roles/3)
   end
 
+  @doc """
+  写入面授权（`save_step_output` 专用，P1 安全修复 2026-09-09）。
+
+  与 `authorize_signal/4` 同骨架（owner/admin 豁免短路、角色并集判定），唯一
+  差异——**Step 行不存在（未知 step_key）fail-closed**：成员写入必须命中真实
+  存在的 Step 配置。「未配置 = 不限制」是 signal 通道的旧 Engine 读语义；写
+  语义下它允许已指派 tutor 借不存在的 step_key 把 `prep_policy_override` 等
+  治理保留 key 写进 facts 顶层，绕过教研策略权限与人工审核（外部安全评审已
+  验证）。
+
+  owner/admin 豁免不读配置（与 signal 同款领域规则）；学员本人豁免由工具层
+  在本判定拒绝后兜底（`enrolled_learner?/3`），不受本收紧影响。
+  """
+  @spec authorize_write(term(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, :unauthorized | :authorization_unavailable}
+  def authorize_write(actor, workspace_id, definition_id, step_key)
+      when is_binary(workspace_id) and is_binary(definition_id) and is_binary(step_key) do
+    authorize_signal(actor, workspace_id, definition_id, step_key, &step_allowed_roles_write/3)
+  end
+
   @doc false
   # 测试缝：注入 step_allowed_roles，覆盖「读失败 → 拒绝」接线（评审点 2）。
   @spec authorize_signal(
@@ -68,6 +90,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   - owner/admin 豁免（`Role.manage_role?/1`）→ `:ok`
   - `{:ok, []}`（未配置 = 不限制）→ `:ok`
   - `{:ok, allowed}` → 角色并集命中 `:ok`，未命中 `{:error, :unauthorized}`
+  - `{:error, :unknown_step}`（写入口径：Step 行不存在）→ `{:error, :unauthorized}`（fail-closed）
   - `{:error, _}`（配置读取失败）→ `{:error, :authorization_unavailable}`（fail-closed）
   """
   @spec authorize_roles([atom], step_roles_result) ::
@@ -84,6 +107,9 @@ defmodule Cgc2046.Workflows.StepAuthorization do
 
           {:ok, allowed} ->
             if Enum.any?(roles, &(&1 in allowed)), do: :ok, else: {:error, :unauthorized}
+
+          {:error, :unknown_step} ->
+            {:error, :unauthorized}
 
           {:error, _} ->
             {:error, :authorization_unavailable}
@@ -107,7 +133,7 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   「报名学员本人」判定（E-7 #122，设计 §4.1）：actor 是 learning run 锚定
   Enrollment 的学员（`status = :confirmed` 且 `user_id = actor.id`）。
 
-  用于 save_step_output 工具层兜底：`authorize_signal/4` 因 StepRole 配置
+  用于 save_step_output 工具层兜底：`authorize_write/4` 因 StepRole 配置
   不命中而拒绝时，学习 run 仍放行学员本人（协议必然推论——学习执行在
   学员侧 BYO，学员必须能写自己的进度账本）。
 
@@ -140,9 +166,10 @@ defmodule Cgc2046.Workflows.StepAuthorization do
   end
 
   # 查 Step 行（definition_id + step_key）→ step_roles → role.name 原子列表。
-  # Step 行不存在 → {:ok, []}（未配置授权 = 不限制）。
-  # 读取失败 → {:error, _}（fail-closed，2026-08-07 用户决策——不再与「未配置」混为一谈）。
-  defp step_allowed_roles(workspace_id, definition_id, step_key) do
+  # Step 行不存在 → {:ok, :step_not_found}（口径由调用方定：signal = 不限制 /
+  # write = fail-closed）。读取失败 → {:error, _}（fail-closed，2026-08-07
+  # 用户决策——不再与「未配置」混为一谈）。
+  defp fetch_step_roles(workspace_id, definition_id, step_key) do
     case Ash.Query.filter(Step, definition_id == ^definition_id and step_key == ^step_key)
          |> Ash.read_one(tenant: workspace_id, authorize?: false) do
       {:ok, %Step{} = step} ->
@@ -154,10 +181,27 @@ defmodule Cgc2046.Workflows.StepAuthorization do
         end
 
       {:ok, nil} ->
-        {:ok, []}
+        {:ok, :step_not_found}
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  # signal 口径：Step 行不存在 = 未配置授权 = 不限制（旧 Engine 语义）。
+  defp step_allowed_roles(workspace_id, definition_id, step_key) do
+    case fetch_step_roles(workspace_id, definition_id, step_key) do
+      {:ok, :step_not_found} -> {:ok, []}
+      other -> other
+    end
+  end
+
+  # 写入口径（P1 安全修复 2026-09-09）：Step 行不存在（未知 step_key）→
+  # fail-closed——通用写工具曾借「未配置 = 不限制」把任意 key 写进 facts 顶层。
+  defp step_allowed_roles_write(workspace_id, definition_id, step_key) do
+    case fetch_step_roles(workspace_id, definition_id, step_key) do
+      {:ok, :step_not_found} -> {:error, :unknown_step}
+      other -> other
     end
   end
 end
