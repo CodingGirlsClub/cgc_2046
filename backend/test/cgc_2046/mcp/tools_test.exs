@@ -15,6 +15,8 @@ defmodule Cgc2046.Mcp.ToolsTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
+  alias Cgc2046.EventsFixtures
+
   alias Cgc2046.Mcp.Tools.{
     CancelOperation,
     ConfirmOperation,
@@ -215,6 +217,72 @@ defmodule Cgc2046.Mcp.ToolsTest do
       assert Cgc2046.Accounts.Invitation
              |> Ash.Query.filter(workspace_id == ^workspace.id)
              |> Ash.read!(authorize?: false) == []
+    end
+  end
+
+  describe "create_invitation 预览段课程租户校验（P2）" do
+    test "普通成员引用他工作台课程 UUID → 拒绝建 pending，不泄露课程标题" do
+      admin = Fixtures.platform_admin("mcp-inv-guard")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mcp-inv-guard-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      other_admin = Fixtures.platform_admin("mcp-inv-guard-other")
+      other_workspace = Fixtures.create_workspace(other_admin)
+
+      other_course =
+        EventsFixtures.create_course(other_workspace, other_admin, %{title: "他租户私有课程标题"})
+
+      assert {:error, %Anubis.MCP.Error{reason: :execution_error, message: msg}, _frame} =
+               CreateInvitation.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "preauthorized_role_names" => ["tutor"],
+                   "prep_course_ids" => [other_course.id]
+                 },
+                 frame_for(member)
+               )
+
+      # 他租户课程与不存在同一 not found；不回显标题（调用方已知 id，回显不构成泄露）
+      assert msg =~ "course not found"
+      assert msg =~ other_course.id
+      refute msg =~ "他租户私有课程标题"
+
+      # 未建 PendingOperation（预览即拒绝，确认流不可达）
+      assert PendingOperation
+             |> Ash.Query.filter(user_id == ^member.id)
+             |> Ash.read!(authorize?: false) == []
+
+      [log] = tool_logs_for(member.id, "create_invitation")
+      assert log.result_status == :error
+    end
+
+    test "引用本工作台课程 → needs_confirmation，摘要含课程标题（同租户不回归）" do
+      admin = Fixtures.platform_admin("mcp-inv-ok")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mcp-inv-ok-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      course = EventsFixtures.create_course(workspace, admin, %{title: "本工作台教研课程"})
+
+      assert {:reply, _, _} =
+               reply =
+               CreateInvitation.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "target_email" => "tutor@example.com",
+                   "preauthorized_role_names" => ["tutor"],
+                   "prep_course_ids" => [course.id]
+                 },
+                 frame_for(member)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      assert payload["summary"] =~ "本工作台教研课程"
+
+      [pending] = Ash.read!(PendingOperation, authorize?: false)
+      assert pending.id == payload["pending_id"]
     end
   end
 end
