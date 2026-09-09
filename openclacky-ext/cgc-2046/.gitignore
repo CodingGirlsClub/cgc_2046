@@ -2,5 +2,9 @@
 # 仅随 repo 分发，不进 openclacky ext pack 产物——packager 严格遵守容器
 # .gitignore（ignored 文件不入包），NEVER_PACK_DIRS 只挡 VCS/IDE 目录。
 # dist/ 由仓库顶层 .gitignore 排除，不在本容器职责。
+# DEVELOPMENT.md 为 repo 内开发文档，分发包只带面向用户的 README/CHANGELOG。
 test/
 bin/
+
+README.bak.md
+DEVELOPMENT.md

@@ -171,6 +171,9 @@ defmodule Cgc2046.Events.EventSlugTest do
 
     assert Exception.message(error) =~ "slug is locked"
 
+    # 错误须带被拒新值(可观测性:区分「参数丢失」与「锁定拦截」,2026-09-09 生产误判)
+    assert Exception.message(error) =~ ~s(Value: "new-slug")
+
     assert Ash.get!(Event, event.id, tenant: workspace.id, authorize?: false).slug ==
              "lock-open-event"
   end

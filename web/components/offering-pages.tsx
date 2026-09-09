@@ -352,18 +352,18 @@ export function OfferingsListPage({
         </header>
 
         {loadError ? (
-          <div className="rounded-large border border-line bg-card p-6 text-sm text-ink-3">
+          <div className="mt-8 rounded-large border border-line bg-card p-6 text-sm text-ink-3">
             {t("loadFailed")}
           </div>
         ) : wsLoading || rows === null ? (
-          <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
+          <div className="mt-8 h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
         ) : rows.length === 0 ? (
-          <div className="rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
+          <div className="mt-8 rounded-large border border-dashed border-line bg-card p-10 text-center text-sm text-ink-3">
             {t("empty", { label: labelsT(label) })}
             {manage ? t("emptyCreateHint", { label: labelsT(label) }) : t("emptyWaitHint")}
           </div>
         ) : (
-          <div className="grid gap-3">
+          <div className="mt-8 grid gap-3">
             {rows.map((offering) => (
               <OfferingRow
                 key={offering.id}
@@ -998,7 +998,7 @@ export function OfferingDetailPage({
               </div>
             </header>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
               <div className="rounded-large border border-line bg-card p-6">
                 <h2 className="text-sm font-medium text-ink">
                   {t("basicInfo")}
@@ -1833,7 +1833,7 @@ export function OfferingNewPage({
           </div>
         </header>
 
-        <div className="max-w-xl rounded-large border border-line bg-card p-6">
+        <div className="mt-8 max-w-xl rounded-large border border-line bg-card p-6">
           <div className="grid gap-4">
             <label className="block">
               <span className="block text-[13px] text-ink-3">

@@ -257,10 +257,10 @@
 
 - **定义**：高风险 MCP 工具的两阶段提交（D8；实现为 **two-tool 模式**，D-D3——目标客户端均不支持 elicitation）：
   1. Agent 调高风险工具 → 网站**不落库**，建 pending 记录 → 返回 `needs_confirmation: {id, 摘要}`
-  2. Agent 向用户展示摘要并征得同意（OpenClacky 语境经 `request_user_feedback` 原语弹卡片）
+  2. Agent 向用户展示摘要并征得同意（OpenClacky 语境经 `ask_user` 原语弹可点击卡片）
   3. 用户同意 → Agent 调 `confirm_operation(id)` → 网站落库 + 审计；拒绝 → `cancel_operation(id)`（pending TTL 10 分钟）
   4. **网站永远不偷偷执行：无 confirm 不落库**
-- **架构位置**：管理类写操作的安全闸门；已知风险：auto_approve 10s 倒计时自动决策（二期可加冷却期）。
+- **架构位置**：管理类写操作的安全闸门；已知风险：auto_approve 10s 倒计时自动决策（扩展 prompt 层防线已落地：ask_user 结果出现 auto_reply（无人值守）一律 cancel_operation，无人确认绝不执行）。
 
 ### pending 记录（Pending Record）
 
@@ -272,9 +272,9 @@
 - **定义**：网站对高风险工具调用的响应结构：`{id, 摘要}`，指示 Agent 进入确认流。
 - **架构位置**：MCP 协议层响应类型。
 
-### request_user_feedback（用户反馈原语）
+### ask_user（用户反馈原语）
 
-- **定义**：OpenClacky 内置的提问原语（D8 方案二）；确认流用它把可点击卡片弹到 WebUI。
+- **定义**：OpenClacky 内置的提问原语（D8 方案二；gem 1.5.11 起由 `request_user_feedback` 改名，`request_user_feedback` 保留为退役别名）；确认流用它把可点击卡片弹到 WebUI。
 - **架构位置**：OpenClacky 侧能力，非网站实现。
 
 ### confirm（确认动作）

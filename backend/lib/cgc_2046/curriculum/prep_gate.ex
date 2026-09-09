@@ -33,6 +33,7 @@ defmodule Cgc2046.Curriculum.PrepGate do
     violations =
       []
       |> check_title(course)
+      |> check_slug(course)
       |> check_content(output)
 
     %{passed: violations == [], violations: violations}
@@ -43,6 +44,24 @@ defmodule Cgc2046.Curriculum.PrepGate do
   end
 
   defp check_title(violations, _course), do: violations
+
+  # slug 发布后即锁定（lock once published），draft 期是唯一可改窗口——
+  # 空/非法 slug 必须在结构门禁被拦下，否则发布后公开短链 /courses/[slug]
+  # 永久缺失（曾发生：4 门存量课 slug 为 null 一路发布到 open）。
+  @slug_format ~r/^[a-z0-9][a-z0-9-]*$/
+
+  defp check_slug(violations, %{slug: slug}) when is_binary(slug) and slug != "" do
+    if Regex.match?(@slug_format, slug) do
+      violations
+    else
+      violations ++ ["课程 slug 格式非法（#{slug}）：须为单段小写 [a-z0-9-]，请经 update_course 修正"]
+    end
+  end
+
+  defp check_slug(violations, _course) do
+    violations ++
+      ["课程 slug 为空：公开短链 /courses/[slug] 依赖它且发布后锁定不可补——请先经 update_course 设置 slug（单段小写 [a-z0-9-]）"]
+  end
 
   defp check_content(violations, nil) do
     violations ++ ["课程内容为空：尚无经 save_course_content 保存的内容草稿"]

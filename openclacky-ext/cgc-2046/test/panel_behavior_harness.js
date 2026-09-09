@@ -590,6 +590,11 @@ globalThis.fetch = async (url, opts) => {
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
   if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed") {
+    if (path === "/api/ext/cgc-2046/version") {
+      // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走宿主市场 API,
+      // harness 不 stub /api/store → 查询失败静默,按钮保持隐藏)
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+    }
     if (path === "/api/ext/cgc-2046/status") {
       return { ok: true, status: 200, json: async () => (scenario === "home_unconnected"
         ? { ok: true, configured: false, web_url: "https://codingirlsclub.com" }
@@ -630,8 +635,11 @@ globalThis.fetch = async (url, opts) => {
         globalThis.__sessionPostBody = JSON.parse(String(opts.body || "{}"));
         return { ok: true, status: 200, json: async () => ({ session: { id: "sess-1", agent_profile: globalThis.__sessionPostBody.agent_profile, name: globalThis.__sessionPostBody.name } }) };
       }
+      // 三助手各一条 + 一条非 CGC 会话(过滤断言用)
       return { ok: true, status: 200, json: async () => ({ sessions: [
         { id: "sess-old", name: "旧诊断会话", agent_profile: "cgc-assistant", status: "running", updated_at: "2026-09-08T10:00:00Z" },
+        { id: "sess-admin", name: "工作台配置", agent_profile: "cgc-admin", status: "idle", updated_at: "2026-09-08T09:00:00Z" },
+        { id: "sess-tutor", name: "教研共创", agent_profile: "cgc-tutor", status: "idle", updated_at: "2026-09-08T08:00:00Z" },
         { id: "sess-other", name: "别的助手会话", agent_profile: "other-agent", status: "idle", updated_at: "2026-09-08T11:00:00Z" },
       ] }) };
     }
@@ -1257,9 +1265,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   if (scenario === "home_hub") {
     const container = el("div");
     spec.render(container);
-    await sleep(150);   // boot:status → workspaces/tasks/activity/sessions
+    await sleep(150);   // boot:status → workspaces/tasks/sessions
 
     const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const badgeText = (container.querySelector("#cgc-version-badge") || {}).textContent || "";
     const bootHtml = container.innerHTML;
 
     // owner 角色 → 「工作台管理」目录卡;点击 → 建管理会话(绑定节点缓存在
@@ -1276,15 +1285,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     for (const fn of discHandlers) await fn();
     await sleep(100);
 
-    // 最近会话行(仅 cgc-assistant 会话入列)点击 → Router.navigate 进会话
+    // 最近会话行(全部 Tab 默认,仅三 CGC 助手会话入列)点击 → Router.navigate 进会话
     const sessRows = container.querySelector("#cgc-recent-sessions").querySelectorAll("[data-session]");
     ((sessRows[0] && sessRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const allTabHtml = container.querySelector("#cgc-recent-sessions").innerHTML;
 
-    // 事件总线:tool_used 推送 → 活动区渲染
-    (globalThis.__subs["ext.cgc-2046.tool_used"] || []).forEach(function (fn) {
-      fn({ type: "tool_used", tool: "list_my_tasks", status: "ok" });
-    });
-    const htmlAfterEvent = container.innerHTML;
+    // Tab 切换:container 级委托 → 以 {target: tab节点} 驱动 click
+    const tutorTab = container.querySelectorAll("[data-tab]")
+      .filter(function (b) { return b.getAttribute("data-tab") === "cgc-tutor"; })[0];
+    ((container.listeners.click) || []).forEach(function (fn) { fn({ target: tutorTab }); });
+    const tutorTabHtml = container.querySelector("#cgc-recent-sessions").innerHTML;
 
     // 聚焦重拉:visibilitychange(未隐藏且已连接)→ loadWorkspaces 重拉
     const wsFetchesBefore = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/me/workspaces"; }).length;
@@ -1301,6 +1311,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const reg = globalThis.__registered || {};
     const checks = {
       pill_connected: pillText.indexOf("已连接") >= 0,
+      version_badge_shown: bootHtml.indexOf('data-testid="cgc-version-badge"') >= 0 && badgeText === "v0.1.0",
+      endpoint_not_leaked_in_subtitle: bootHtml.indexOf("端点 ") < 0 && bootHtml.indexOf("Token 已配置") < 0,
+      upgrade_quiet_without_market: bootHtml.indexOf("升级 v") < 0 && bootHtml.indexOf("升级中") < 0,
       nav_mount_top: !!(globalThis.__mounted && globalThis.__mounted.slot === "sidebar.nav.top" &&
         globalThis.__mounted.opts && globalThis.__mounted.opts.workspace === "cgc"),
       admin_card_rendered: bootHtml.indexOf('data-catalog="wsadmin"') >= 0 && bootHtml.indexOf("工作台管理") >= 0,
@@ -1308,12 +1321,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       xss_escaped: bootHtml.indexOf("<img src=x onerror") < 0 && bootHtml.indexOf("&lt;img") >= 0,
       tasks_aggregated_cross_workspace: bootHtml.indexOf("报名审批") >= 0 && bootHtml.indexOf("Python 入门营") >= 0,
       tasks_partial_failure_tolerated: bootHtml.indexOf("待办加载失败") < 0,
-      recent_session_filtered_by_agent: bootHtml.indexOf("旧诊断会话") >= 0 && bootHtml.indexOf("别的助手会话") < 0,
+      session_tabs_rendered: bootHtml.indexOf('data-tab="all"') >= 0 && bootHtml.indexOf("2046 助手") >= 0 &&
+        bootHtml.indexOf("管理助手") >= 0 && bootHtml.indexOf("教研助手") >= 0,
+      all_tab_lists_three_agents: allTabHtml.indexOf("旧诊断会话") >= 0 && allTabHtml.indexOf("工作台配置") >= 0 &&
+        allTabHtml.indexOf("教研共创") >= 0,
+      non_cgc_session_excluded: allTabHtml.indexOf("别的助手会话") < 0,
+      tab_switch_filters_by_agent: tutorTabHtml.indexOf("教研共创") >= 0 &&
+        tutorTabHtml.indexOf("旧诊断会话") < 0 && tutorTabHtml.indexOf("工作台配置") < 0,
+      activity_section_removed: bootHtml.indexOf('id="cgc-activity"') < 0 && bootHtml.indexOf("最近活动") < 0,
       session_row_navigates: !!(globalThis.__navigated && globalThis.__navigated.name === "session" && globalThis.__navigated.params.id === "sess-old"),
       focus_reload_refetches_workspaces: wsFetchesAfter === wsFetchesBefore + 1,
       workspace_selection_keeps_storage_key: store.get("cgc2046.workspacePanel.workspaceId") === "ws-h2",
-      tool_used_renders_activity: htmlAfterEvent.indexOf("list_my_tasks") >= 0,
-      token_not_rendered_to_dom: bootHtml.indexOf("tok-1") < 0 && htmlAfterEvent.indexOf("tok-1") < 0,
+      token_not_rendered_to_dom: bootHtml.indexOf("tok-1") < 0 && allTabHtml.indexOf("tok-1") < 0,
       session_posted_admin: !!(globalThis.__sessionPostBody && globalThis.__sessionPostBody.agent_profile === "cgc-admin"),
       session_selected: globalThis.__sessionSelected === "sess-1",
       admin_instruction_injected: (globalThis.__prompted || "").indexOf("管理助手") >= 0 &&

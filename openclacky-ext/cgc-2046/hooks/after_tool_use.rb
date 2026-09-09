@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（面板「最近活动」区）。
+# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（管理/教研侧栏刷新闭环消费）。
 #
 # 事件: after_tool_use —— 宿主回调签名 (call, result, agent)
 #   （agent.rb: @hooks.trigger(:after_tool_use, call, result)，任何工具调用后触发）
@@ -17,6 +17,7 @@
 #
 # 成功事件 persist: true（里程碑，刷新后仍在消息流）；失败 persist: false。
 
+require "json"
 require_relative "credential"
 
 module Cgc2046HookUse
@@ -30,6 +31,15 @@ module Cgc2046HookUse
   # @return [Boolean] 工具层是否成功（无 error 键即成功；subagent 正常结束即成功）
   def self.ok?(result)
     !(result.is_a?(Hash) && (result[:error] || result["error"]))
+  end
+
+  # @param call [Object] 工具调用
+  # @return [Hash] arguments 规范化为 Hash——宿主传入的调用参数可能是未 parse 的
+  #   JSON 字符串（对 String 调 dig 会抛 TypeError），统一在这里收敛
+  def self.arguments(call)
+    args = call.is_a?(Hash) ? (call[:arguments] || call["arguments"]) : nil
+    args = JSON.parse(args) if args.is_a?(String)
+    args.is_a?(Hash) ? args : {}
   end
 
   # @param result [Hash] invoke_skill 的返回
@@ -48,7 +58,8 @@ module Cgc2046HookUse
   # @param result [Object] invoke_skill 返回
   # @return [Boolean] 是否发生了教研草稿保存
   def self.draft_saved?(call, result)
-    task = call.dig(:arguments, "task") || call.dig(:arguments, :task) || ""
+    args = arguments(call)
+    task = args["task"] || args[:task] || ""
     task.to_s.match?(DRAFT_SAVED_PATTERN) || summary(result).match?(DRAFT_SAVED_PATTERN)
   end
 
@@ -68,9 +79,10 @@ module Cgc2046HookUse
 end
 
 Clacky::ExtensionHookRegistry.add do |call, result, agent|
-  next unless call && call[:name] == "invoke_skill"
+  next unless call.is_a?(Hash) && call[:name] == "invoke_skill"
 
-  skill = call.dig(:arguments, "skill_name") || call.dig(:arguments, :skill_name)
+  args = Cgc2046HookUse.arguments(call)
+  skill = args["skill_name"] || args[:skill_name]
   next unless Cgc2046HookUse::SKILL_NAMES.include?(skill)
 
   ok = Cgc2046HookUse.ok?(result)

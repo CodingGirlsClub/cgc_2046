@@ -1,7 +1,7 @@
 // 程序媛汇 2046 工作台 hub 面板(S1-S4 重构;视觉对齐青狮工作台设计语言)。
 //
 // 单一入口:侧栏顶部「程序媛汇 2046」(mount sidebar.nav.top,青狮工作台同款位置)。
-// 承接原 workspace 连接面板的全部职责(连接管理 / 身份区 / 任务 / 最近活动),
+// 承接原 workspace 连接面板的全部职责(连接管理 / 身份区 / 任务 / 会话入口),
 // 新增角色感知功能目录与一键进助手会话;发现与课程面板保留为隐藏功能页
 // (registerWorkspace 不挂侧栏入口),经目录卡 openWorkspace 直达。
 //
@@ -34,15 +34,21 @@
   const TEACH_ID = "cgc-2046-curriculum";
   const COURSE_ID = "cgc-2046-course";
   const AGENT_PROFILE = "cgc-assistant";
-  const EVENTS_MAX = 20;
+  // 会话 Tab 可过滤的三个助手(agent_profile → 显示名)
+  const SESSION_AGENTS = {
+    "cgc-assistant": "2046 助手",
+    "cgc-admin": "管理助手",
+    "cgc-tutor": "教研助手"
+  };
   // 沿用原 workspace 面板的存储 key:用户已持久化的选择不丢失
   const LS_WORKSPACE = "cgc2046.workspacePanel.workspaceId";
   const EDIT_ROLES = ["tutor"];
   const ADMIN_ROLES = ["owner", "admin"];
 
   // ---- 闭包状态(跨面板开关保持) ----
-  let events = [];            // { type, tool, status, at }
   let mcpError = null;        // 最近连接异常文本(横幅)
+  let sessionTab = "all";     // 会话区当前 Tab(all 或 SESSION_AGENTS 的键)
+  let allSessions = [];       // /api/sessions + 本地合并缓存(Tab 切换不重拉)
   let currentContainer = null;
 
   let configured = false;
@@ -62,37 +68,18 @@
     }
   }
 
-  function fmtTime(epoch) {
-    const d = new Date(Number(epoch) * 1000);
-    if (isNaN(d.getTime())) return "";
-    const today = new Date();
-    const sameDay = d.toDateString() === today.toDateString();
-    return sameDay ? d.toLocaleTimeString() : d.toLocaleString();
-  }
-
-  // 历史回放:实时事件不落盘(刷新即丢),从宿主会话记录回放最近调用
-  async function loadHistory() {
-    try {
-      const res = await fetch(API + "/activity", { headers: { Accept: "application/json" } });
-      const body = await res.json().catch(function () { return {}; });
-      if (!res.ok || !body.ok) return;
-      const items = Array.isArray(body.activity) ? body.activity : [];
-      if (items.length === 0) return;
-      events = items.map(function (i) {
-        return {
-          type: "tool_used",
-          task: i.task || "",
-          status: i.status === "ok" ? "ok" : "error",
-          at: fmtTime(i.at)
-        };
-      });
-      if (currentContainer) renderActivity(currentContainer);
-    } catch (e) { /* 静默:历史不可得时保持实时事件流 */ }
-  }
-
-  function pushEvent(ev) {
-    events.unshift(ev);
-    if (events.length > EVENTS_MAX) events.length = EVENTS_MAX;
+  // MCP 连接异常横幅(原活动区已删,banner 独立保留:连接错误是用户
+  // 必须看见的引导,挂在 guide-slot 下方)
+  function renderMcpBanner(container) {
+    const el = container.querySelector("#cgc-mcp-banner");
+    if (!el) return;
+    if (!mcpError) { el.innerHTML = ""; return; }
+    el.innerHTML =
+      '<div class="cgch-banner">' +
+        '<b>CGC MCP 连接异常：</b>' + escapeHtml(mcpError) +
+        '<div class="cgch-banner-hint">请运行 <code>cgc2046-onboarding</code> skill 重新连接，' +
+          '或在网站「MCP」页重新生成 token。</div>' +
+      '</div>';
   }
 
   // ---- 线性 icon(stroke currentColor,青狮同款容器) ----
@@ -143,6 +130,7 @@
               '<div class="cgch-title-row">' +
                 '<h3 class="cgch-title">程序媛汇 2046</h3>' +
                 '<span class="cgch-pill" id="cgc-state-pill" data-testid="cgc-state-pill">…</span>' +
+                '<span id="cgc-version-badge" class="cgch-version-badge" data-testid="cgc-version-badge" hidden></span>' +
               '</div>' +
               '<p class="cgch-subtitle">连接 · 身份 · 功能目录</p>' +
             '</div>' +
@@ -150,10 +138,12 @@
           '<div class="cgch-header-actions">' +
             '<a id="cgc-open-web" class="cgch-btn cgch-btn-ghost" href="#" ' +
                'target="_blank" rel="noopener noreferrer">打开网站</a>' +
+            '<button id="cgc-upgrade" class="cgch-btn" type="button" data-testid="cgc-upgrade" hidden>升级</button>' +
             '<button id="cgc-disconnect" class="cgch-btn cgch-btn-danger" type="button" disabled>断开连接</button>' +
           '</div>' +
         '</header>' +
         '<div id="cgc-guide-slot"></div>' +
+        '<div id="cgc-mcp-banner"></div>' +
         '<section class="cgch-section" id="cgc-identity-wrap">' +
           '<div class="cgch-section-header">' +
             '<div>' +
@@ -181,19 +171,16 @@
           '<div class="cgch-section-header">' +
             '<div>' +
               '<div class="cgch-section-title">最近会话</div>' +
-              '<div class="cgch-section-desc">与 CGC 助手的会话,点击继续</div>' +
+              '<div class="cgch-section-desc">三个助手的会话记录,点击继续</div>' +
+            '</div>' +
+            '<div class="cgch-tabs" id="cgc-session-tabs" role="tablist">' +
+              '<button class="cgch-tab is-active" type="button" role="tab" data-tab="all">全部</button>' +
+              '<button class="cgch-tab" type="button" role="tab" data-tab="cgc-assistant">2046 助手</button>' +
+              '<button class="cgch-tab" type="button" role="tab" data-tab="cgc-admin">管理助手</button>' +
+              '<button class="cgch-tab" type="button" role="tab" data-tab="cgc-tutor">教研助手</button>' +
             '</div>' +
           '</div>' +
           '<div class="cgch-card" id="cgc-recent-sessions" data-testid="cgc-recent-sessions"></div>' +
-        '</section>' +
-        '<section class="cgch-section">' +
-          '<div class="cgch-section-header">' +
-            '<div>' +
-              '<div class="cgch-section-title">最近活动</div>' +
-              '<div class="cgch-section-desc">CGC 助手的调用记录</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="cgch-card" id="cgc-activity"></div>' +
         '</section>' +
       '</div>';
 
@@ -206,17 +193,129 @@
         disconnect(container);
       }
     });
+    container.querySelector("#cgc-upgrade").addEventListener("click", function () {
+      upgradeExtension(container);
+    });
     container.querySelector("#cgc-identity-wrap").addEventListener("change", function (e) {
       if (e.target && e.target.id === "cgc-ws-select") selectWorkspace(container, e.target.value);
     });
     container.querySelector("#cgc-tasks-refresh").addEventListener("click", function () {
       loadTasks(container);
     });
-    renderActivity(container);
-    loadHistory();
-    loadRecentSessions();
+    loadRecentSessions(container);
+    renderMcpBanner(container);
     renderCatalog();
     refresh(container);
+    loadVersionBadge(container);
+    checkExtensionUpdate(container);
+    // tab 用 container 级事件委托:按钮在骨架层、列表在子容器,直绑节点在
+    // 异步重写后引用失效的风险归零(真实 DOM 与测试 shim 语义一致)
+    container.addEventListener("click", function (e) {
+      const t = e && e.target;
+      if (!t || typeof t.getAttribute !== "function") return;
+      const tabName = t.getAttribute("data-tab");
+      if (!tabName) return;
+      sessionTab = tabName;
+      container.querySelectorAll("[data-tab]").forEach(function (b) {
+        b.classList.toggle("is-active", b === t);
+      });
+      renderSessionRows(container);
+    });
+  }
+
+  // ---- 版本徽标与市场升级(青狮工作台 /version + /api/store/extension 同款通道) ----
+  function compareVersions(left, right) {
+    const parse = (v) => {
+      const parts = String(v || "").replace(/^v/i, "").split("-", 2);
+      return { core: parts[0].split("."), pre: parts[1] || "" };
+    };
+    const a = parse(left), b = parse(right);
+    for (let i = 0; i < Math.max(a.core.length, b.core.length, 3); i++) {
+      const x = parseInt(a.core[i], 10) || 0, y = parseInt(b.core[i], 10) || 0;
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    if (a.pre === b.pre) return 0;
+    if (!a.pre) return 1;
+    if (!b.pre) return -1;
+    return a.pre > b.pre ? 1 : -1;
+  }
+
+  let installedVersion = "";
+
+  function loadVersionBadge(container) {
+    const badge = container.querySelector("#cgc-version-badge");
+    if (!badge) return;
+    fetch(API + "/version", { headers: { Accept: "application/json" } })
+      .then((r) => r.json())
+      .then((payload) => {
+        installedVersion = String(payload.version || "").replace(/^v/i, "");
+        badge.textContent = installedVersion ? "v" + installedVersion : "";
+        badge.hidden = !installedVersion;
+        badge.title = "CGC-2046 扩展当前版本 v" + installedVersion;
+      })
+      .catch(() => { /* 版本拉取失败不影响主流程 */ });
+  }
+
+  function checkExtensionUpdate(container) {
+    const btn = container.querySelector("#cgc-upgrade");
+    if (!btn || !btn.isConnected) return;
+    fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } })
+      .then((r) => r.json())
+      .then((payload) => {
+        const ext = payload && payload.extension;
+        if (!ext) return;
+        // 仅市场安装层提示升级(removable===true);local 开发层/未上架不提示
+        const marketInstall = ext.installed === true && ext.removable === true;
+        const latest = String(ext.version || "");
+        const installed = String(ext.installed_version || "") || installedVersion;
+        if (marketInstall && ext.download_url && latest && installed &&
+            compareVersions(latest, installed) > 0) {
+          btn.textContent = "升级 v" + latest;
+          btn.title = "CGC-2046 有新版本 v" + latest + ",当前 v" + installed;
+          btn.dataset.latest = latest;
+          btn.hidden = false;
+        } else {
+          btn.hidden = true;
+        }
+      })
+      .catch(() => { /* 市场查询失败静默(未上架/离线),按钮保持隐藏 */ });
+  }
+
+  async function upgradeExtension(container) {
+    const btn = container.querySelector("#cgc-upgrade");
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "升级中…";
+    try {
+      const res = await fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } });
+      const payload = await res.json();
+      const ext = payload && payload.extension;
+      if (!ext || !ext.download_url) throw new Error("市场信息不可用");
+      const install = await fetch("/api/store/extension/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ download_url: ext.download_url, name: ext.name || "CGC-2046" }),
+      });
+      const ip = await install.json();
+      if (ip.ok === false) throw new Error(ip.error || "安装请求失败");
+      // 新版宿主异步安装:轮询 job 直到完成;旧版宿主 POST 内同步完成(无 job_id)
+      let job = ip.job_id;
+      while (job) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const s = await fetch("/api/store/extension/install/status?job_id=" + encodeURIComponent(job),
+          { headers: { Accept: "application/json" } });
+        const sp = await s.json();
+        if (sp.ok === false) throw new Error(sp.error || "安装失败");
+        if (sp.status === "done" || sp.done || sp.completed) { job = null; }
+      }
+      window.alert("CGC-2046 已升级,页面即将刷新。");
+      window.location.reload();
+    } catch (e) {
+      window.alert("升级失败:" + (e && e.message ? e.message : "未知错误") + ",可稍后重试。");
+      btn.disabled = false;
+      if (btn.dataset.latest) btn.textContent = "升级 v" + btn.dataset.latest;
+      else btn.hidden = true;
+    }
   }
 
   // ---- 状态 pill(header 右侧徽章) ----
@@ -662,10 +761,7 @@
     return Clacky.Sessions && Array.isArray(Clacky.Sessions.all) ? Clacky.Sessions.all.slice() : [];
   }
 
-  async function loadRecentSessions() {
-    const el = currentContainer && currentContainer.querySelector("#cgc-recent-sessions");
-    if (!el) return;
-    let sessions = localSessions();
+  async function loadRecentSessions(container) {
     try {
       const res = await fetch("/api/sessions?limit=50", { headers: { Accept: "application/json" } });
       const body = await res.json().catch(function () { return {}; });
@@ -674,27 +770,42 @@
       [remote, localSessions()].forEach(function (list) {
         list.forEach(function (s) { if (s && s.id) byId.set(s.id, Object.assign({}, byId.get(s.id) || {}, s)); });
       });
-      sessions = Array.from(byId.values());
-    } catch (e) { /* 拉取失败用本地列表 */ }
+      allSessions = Array.from(byId.values());
+    } catch (e) {
+      allSessions = localSessions(); // 拉取失败用本地列表
+    }
+    renderSessionRows(container);
+  }
 
-    const mine = sessions
-      .filter(function (s) { return s.agent_profile === AGENT_PROFILE; })
+  // 按当前 Tab 过滤渲染;行点击进入会话(青狮同款 Router.navigate 通道)
+  function renderSessionRows(container) {
+    const el = container && container.querySelector("#cgc-recent-sessions");
+    if (!el) return;
+
+    const mine = allSessions
+      .filter(function (s) {
+        if (!SESSION_AGENTS[s.agent_profile]) return false;
+        return sessionTab === "all" || s.agent_profile === sessionTab;
+      })
       .sort(function (a, b) { return sessionActivityTime(b) - sessionActivityTime(a); })
-      .slice(0, 6);
+      .slice(0, 20); // 三助手同框后 6 条太紧;接口拉 50,展示 20,滚动由卡片容器承担
 
     if (mine.length === 0) {
-      el.innerHTML = '<div class="cgch-empty">还没有 CGC 助手会话。点功能目录「和助手对话」开始。</div>';
+      const label = sessionTab === "all" ? "" : SESSION_AGENTS[sessionTab];
+      el.innerHTML = '<div class="cgch-empty">还没有' + escapeHtml(label) +
+        '会话。点功能目录对应卡片开始。</div>';
       return;
     }
     el.innerHTML = '<div class="cgch-row-list">' + mine.map(function (s) {
       const running = s.status === "running";
-      const meta = [s.name || "CGC-2046 助手", formatSessionTime(sessionActivityTime(s))].filter(Boolean);
+      const agentLabel = SESSION_AGENTS[s.agent_profile] || "";
+      const meta = [agentLabel, formatSessionTime(sessionActivityTime(s))].filter(Boolean).join(" · ");
       return (
         '<button class="cgch-row cgch-session-row" type="button" data-session="' + escapeHtml(s.id) + '"' +
-              ' data-testid="cgc-recent-session">' +
+              ' data-testid="cgc-recent-session" data-agent="' + escapeHtml(s.agent_profile) + '">' +
           '<span class="cgch-row-dot' + (running ? " is-running" : "") + '"></span>' +
-          '<span class="cgch-row-copy">' + escapeHtml(meta[0]) + '</span>' +
-          '<span class="cgch-row-meta">' + escapeHtml(meta[1] || "") + '</span>' +
+          '<span class="cgch-row-copy">' + escapeHtml(s.name || agentLabel + "会话") + '</span>' +
+          '<span class="cgch-row-meta">' + escapeHtml(meta) + '</span>' +
           '<span class="cgch-row-arrow">' + icon("arrow") + '</span>' +
         '</button>'
       );
@@ -709,37 +820,6 @@
     });
   }
 
-  // ---- 最近活动(事件订阅,自原 workspace 面板迁移) ----
-  function renderActivity(container) {
-    const el = container.querySelector("#cgc-activity");
-    if (!el) return;
-
-    let html = "";
-    if (mcpError) {
-      html +=
-        '<div class="cgch-banner">' +
-          '<b>CGC MCP 连接异常：</b>' + escapeHtml(mcpError) +
-          '<div class="cgch-banner-hint">请运行 <code>cgc2046-onboarding</code> skill 重新连接，' +
-            '或在网站「MCP」页重新生成 token。</div>' +
-        '</div>';
-    }
-    if (!events.length) {
-      html += '<div class="cgch-empty">暂无活动。在 OpenClacky 会话中使用 CGC 助手后，这里会显示调用记录。</div>';
-    } else {
-      const rows = events.map(function (ev) {
-        const ok = ev.status === "ok";
-        return (
-          '<div class="cgch-row">' +
-            '<span class="cgch-row-time">' + escapeHtml(ev.at) + '</span>' +
-            '<span class="cgch-row-copy">' + escapeHtml(ev.task || ev.tool || ev.type) + '</span>' +
-            '<span class="' + (ok ? "cgch-ok" : "cgch-err") + '">' + (ok ? "成功" : "失败") + '</span>' +
-          '</div>'
-        );
-      }).join("");
-      html += '<div class="cgch-row-list">' + rows + '</div>';
-    }
-    el.innerHTML = html;
-  }
 
   // ---- 连接状态 / 断开(自原 workspace 面板迁移,含 DELETE CSRF 自愈) ----
   async function refresh(container) {
@@ -755,8 +835,6 @@
     } catch (e) {
       configured = false;
       setPill("状态获取失败", "cgch-pill-off");
-      const sub2 = container.querySelector(".cgch-subtitle");
-      if (sub2) sub2.textContent = "连接 · 身份 · 功能目录";
       renderCatalog();
       if (identityEl) identityEl.style.display = "none";
       return;
@@ -769,13 +847,8 @@
     webUrl = Kit.safeWebUrl(st.web_url) || "";
 
     setPill(configured ? "MCP 已连接" : "未连接", configured ? "cgch-pill-on" : "cgch-pill-off");
-    // 原 workspace 面板状态卡信息(端点/Token)透出到副标题,重构不再丢失
-    const subtitleEl = container.querySelector(".cgch-subtitle");
-    if (subtitleEl) {
-      subtitleEl.textContent = configured
-        ? "端点 " + (st.url || "—") + (st.token_configured ? " · Token 已配置" : "")
-        : "连接 · 身份 · 功能目录";
-    }
+    // 副标题保持静态目录文案:端点 URL/Token 状态属敏感运维细节,不在 hub 透出
+    // (版本徽标独立渲染,见 loadVersion;连接状态由 pill 表达)
     const webEl = container.querySelector("#cgc-open-web");
     // 未连接态:按钮切换为「连接网站」——confirm 后创建会话并注入连接请求,
     // agent 按 onboarding「CDP 自动连接」SOP 自动完成(token 不进对话)
@@ -819,25 +892,11 @@
 
 
   // ---- 扩展事件总线订阅 ----
-  function onToolUsed(payload) {
-    pushEvent({
-      type: payload.type || "tool_used",
-      tool: payload.tool || "",
-      status: payload.status === "ok" ? "ok" : "error",
-      at: new Date().toLocaleTimeString()
-    });
-    if (currentContainer) renderActivity(currentContainer);
-  }
-
+  // tool_used 事件由 admin/tutor 侧栏消费(刷新闭环),home 面板不再订阅;
+  // mcp_error 只驱动连接异常横幅(不推对话、不落盘)。
   function onMcpError(payload) {
     mcpError = String(payload.error || "未知连接错误").slice(0, 300);
-    pushEvent({
-      type: payload.type || "mcp_error",
-      tool: payload.tool || "",
-      status: "error",
-      at: new Date().toLocaleTimeString()
-    });
-    if (currentContainer) renderActivity(currentContainer);
+    if (currentContainer) renderMcpBanner(currentContainer);
   }
 
   // ---- 样式(青狮设计语言:宿主 CSS 变量体系,明暗主题自适应) ----
@@ -893,6 +952,14 @@
   border-color: color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-border-primary));
 }
 .cgch-pill-off { color: var(--color-warning, #a16207); }
+.cgch-version-badge {
+  display: inline-flex; align-items: center; min-height: 18px; padding: 0 7px;
+  border-radius: 6px; font-size: 0.6875rem; font-weight: 650; line-height: 1;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-secondary);
+}
 .cgch-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 
 /* buttons(ghost 次级 + danger 幽灵红) */
@@ -924,6 +991,26 @@
 }
 .cgch-section-title { font-size: 0.9375rem; font-weight: 680; }
 .cgch-section-desc { margin-top: 2px; color: var(--color-text-tertiary); font-size: 0.75rem; }
+
+/* session tabs */
+.cgch-tabs {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-md, 8px);
+}
+.cgch-tab {
+  padding: 4px 10px; border: none; border-radius: calc(var(--radius-md, 8px) - 2px);
+  font-size: 0.6875rem; font-weight: 600; cursor: pointer;
+  color: var(--color-text-tertiary); background: transparent;
+  transition: color var(--transition-fast, 120ms), background var(--transition-fast, 120ms);
+}
+.cgch-tab:hover { color: var(--color-text-secondary); }
+.cgch-tab.is-active {
+  color: var(--color-text-primary);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0,0,0,0.06));
+}
 
 /* cards */
 .cgch-card {
@@ -1103,7 +1190,6 @@
   });
 
   injectStyles();
-  Clacky.ext.subscribe("ext.cgc-2046.tool_used", onToolUsed);
   Clacky.ext.subscribe("ext.cgc-2046.mcp_error", onMcpError);
   Clacky.ext.ui.registerWorkspace(HOME_ID, { title: "程序媛汇 2046", render: render });
   // order: 1——顶部 slot 内排最前(宿主 ext.js:opts.order 纵向权重,小者在前,

@@ -1,6 +1,6 @@
 defmodule Cgc2046.Offering.ActorReadsOffering do
   @moduledoc """
-  Offering 读取授权：工作台成员可读非 draft；Owner/Admin 可读全部状态。
+  Offering 读取授权：工作台成员可读 open/closed；Owner/Admin 可读全部状态。
 
   过滤器同时约束成员资格与管理角色，确保管理角色只在当前 offering 所属
   工作台内、且属于当前 actor 的 membership 上生效。
@@ -22,7 +22,7 @@ defmodule Cgc2046.Offering.ActorReadsOffering do
 
     expr(
       exists(workspace.memberships, user_id == ^actor_id) and
-        (status != :draft or
+        (status in [:open, :closed] or
            exists(
              workspace.memberships,
              user_id == ^actor_id and exists(roles, name in ^manage_roles)
