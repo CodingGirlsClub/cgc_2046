@@ -9,6 +9,7 @@
 require "minitest/autorun"
 require "json"
 require "tmpdir"
+require "monitor"
 
 gem_spec = Gem::Specification.find_by_name("openclacky")
 require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
@@ -16,7 +17,7 @@ require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
 require_relative "../api/handler"
 
 class HandlerRequestTest < Minitest::Test
-  TOKEN = "tok_test_secret_aaa"
+  TOKEN = "cgc_" + "a" * 43  # 平台生成器形态：'cgc_' + Base.url_encode64(32字节, padding:false) → 43 字符
   URL   = "http://localhost:4102/mcp"
 
   FakeReq = Struct.new(:body, :query, :header) do
@@ -25,21 +26,57 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
-  # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）
+  # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）。
+  # clients: 模拟宿主 Registry 的 @clients 私有缓存（name => client，teardown
+  # 经 ivar 触达，与宿主 reload/reaper 的清理路径同形）；events: 共享顺序日志
+  # （与 FakeClient 配合断言 teardown 先于 reload）。
   class FakeRegistry
     attr_reader :reload_count
 
-    def initialize(fail_times: 0)
+    def initialize(fail_times: 0, clients: nil, events: nil)
       @reload_count = 0
       @fail_times = fail_times
+      @lock = Monitor.new
+      @clients = clients || {}
+      @events = events
     end
 
     def reload
       @reload_count += 1
+      @events&.push(:reload)
       if @fail_times > 0
         @fail_times -= 1
         raise "registry boom"
       end
+    end
+  end
+
+  # 宿主 Clacky::Mcp::Client 的最小替身：stop 幂等，记录进共享顺序日志
+  class FakeClient
+    attr_reader :stopped
+
+    def initialize(events = nil)
+      @events = events
+      @stopped = 0
+    end
+
+    def stop
+      @stopped += 1
+      @events&.push(:stop)
+    end
+  end
+
+  # 只有公开 reload 的最小形状 registry（无 @clients/@lock ivar）——钉住
+  # teardown 的 graceful 降级：宿主私有缓存形状缺失/变化时仍 reload，不炸
+  class BareRegistry
+    attr_reader :reload_count
+
+    def initialize
+      @reload_count = 0
+    end
+
+    def reload
+      @reload_count += 1
     end
   end
 
@@ -60,7 +97,8 @@ class HandlerRequestTest < Minitest::Test
 
   # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
 
   def test_routes_registered
@@ -127,6 +165,52 @@ class HandlerRequestTest < Minitest::Test
 
       assert_equal 422, halt.status
       assert_includes JSON.parse(halt.payload)["error"], "url"
+    end
+  end
+
+  # ---- connect 字符集校验（中危 #2：非法字符写进多 client 共享的 mcp.json →
+  #      所有 client 静默坏连接，status 仍报 token_configured:true）----
+
+  # token 形态断言：CRLF/空格/引号/无 cgc_ 前缀/裸 JWT → 422，零写盘，不回显输入
+  def test_connect_token_bad_charset_422_no_write
+    bad_tokens = {
+      "crlf"      => "cgc_ZzMarkCRLF\r\nX-Injected: 1",
+      "space"     => "cgc_ZzMarkSpace extra",
+      "quote"     => "cgc_ZzMarkQuote\"",
+      "no_prefix" => "ZzMarkNoPrefix" + "a" * 40,
+      "bare_jwt"  => "ZzMarkJWT#{"e" * 21}.#{"f" * 30}.#{"g" * 30}"
+    }
+
+    bad_tokens.each do |name, tok|
+      stub_fs(old_text: nil) do |persisted, restored|
+        halt = invoke(:post, "/connect", build(body: JSON.generate("token" => tok, "url" => URL)))
+
+        assert_equal 422, halt.status, "#{name}: 非法 token 必须在 connect_server 之前 422"
+        assert_empty persisted, "#{name}: 校验失败不得写盘"
+        assert_empty restored, "#{name}: 校验失败不得产生回滚写"
+        refute_includes halt.payload, "ZzMark", "#{name}: 错误响应不得回显输入值"
+      end
+    end
+  end
+
+  # url 解析校验：CRLF/userinfo/空白/无 host → 422，零写盘，不回显输入
+  def test_connect_url_bad_shape_422_no_write
+    bad_urls = {
+      "crlf"     => "http://localhost:4102/mcp\r\nX-ZzMarkInjected: 1",
+      "userinfo" => "http://ZzMarkEvil@127.0.0.1/mcp",
+      "space"    => "http://ZzMark Space.example/mcp",
+      "no_host"  => "http:///ZzMarkPath"
+    }
+
+    bad_urls.each do |name, bad_url|
+      stub_fs(old_text: nil) do |persisted, restored|
+        halt = invoke(:post, "/connect", build(body: JSON.generate("token" => TOKEN, "url" => bad_url)))
+
+        assert_equal 422, halt.status, "#{name}: 非法 url 必须在 connect_server 之前 422"
+        assert_empty persisted, "#{name}: 校验失败不得写盘"
+        assert_empty restored, "#{name}: 校验失败不得产生回滚写"
+        refute_includes halt.payload, "ZzMark", "#{name}: 错误响应不得回显输入值"
+      end
     end
   end
 
@@ -375,7 +459,8 @@ class HandlerRequestTest < Minitest::Test
 
     stub_fs(old_text: old) do |persisted|
       halt = invoke(:delete, "/connect",
-                    build(registry: registry, header: { "Content-Type" => "application/json" }))
+                    build(registry: registry, header: { "Content-Type" => "application/json",
+                                                        "Host" => "127.0.0.1:7070" }))
 
       assert_equal 403, halt.status
       assert_includes JSON.parse(halt.payload)["error"], "CSRF"
@@ -402,6 +487,116 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+
+  # ---- DNS rebinding 防线:Host 钉死 loopback ----
+  # 攻击形态:受害者浏览攻击者页面,攻击者把自家域名 A 记录翻成 127.0.0.1,
+  # 浏览器带 Host: evil.example 直连宿主——Origin==Host 同源比对整体失效,
+  # /status 可读(CSRF token 泄漏)→ connect 可伪造(mcp.json 改写指向攻击者
+  # MCP server)。宿主默认绑 127.0.0.1,合法 Host 只会是 loopback。
+  def test_loopback_host_predicate_table
+    assert Cgc2046Ext.loopback_host?("127.0.0.1:7070")
+    assert Cgc2046Ext.loopback_host?("127.0.0.1")
+    assert Cgc2046Ext.loopback_host?("127.0.0.2:7070"), "127/8 全段均为 loopback"
+    assert Cgc2046Ext.loopback_host?("localhost:7070")
+    assert Cgc2046Ext.loopback_host?("[::1]:7070")
+    assert Cgc2046Ext.loopback_host?("[::1]")
+    assert Cgc2046Ext.loopback_host?("::1"), "裸 IPv6 无端口不得误剥尾段"
+
+    refute Cgc2046Ext.loopback_host?("evil.example")
+    refute Cgc2046Ext.loopback_host?("evil.example:7070")
+    refute Cgc2046Ext.loopback_host?("127.0.0.1.evil.example"), "loopback 前缀域名欺骗"
+    refute Cgc2046Ext.loopback_host?("evil127.0.0.1")
+    refute Cgc2046Ext.loopback_host?("")
+    refute Cgc2046Ext.loopback_host?(nil)
+  end
+
+  # rebinding 读面:Host 非 loopback 时 /status 必须 403(CSRF token 不外泄)
+  def test_status_rebinding_host_403
+    halt = invoke(:get, "/status", build(header: { "Host" => "evil.example:7070",
+                                                   "Origin" => "http://evil.example:7070" }))
+
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "host not allowed"
+    refute_includes halt.payload, "csrf_token", "rebinding 下 CSRF token 不得出响应"
+  end
+
+  # rebinding 写面:有效 CSRF + 同 Host Origin 也必须 403,零写盘零 reload
+  def test_connect_rebinding_host_403_zero_writes
+    old = JSON.generate("mcpServers" => { "other" => { "type" => "stdio", "command" => "x" } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:post, "/connect",
+                    build(body: JSON.generate("token" => TOKEN),
+                          header: { "Content-Type" => "application/json",
+                                    "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+                                    "Host" => "evil.example:7070",
+                                    "Origin" => "http://evil.example:7070" },
+                          registry: registry))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "host not allowed"
+      assert_empty persisted, "rebinding 伪造 connect 不得写盘"
+      assert_equal 0, registry.reload_count
+    end
+  end
+
+  # ---- 完整 origin 比对(scheme+host+port):本机异端口/异 scheme 防线 ----
+  # 只比 host(剥端口)挡不住本机异端口页面:localhost:8080 上的恶意页可读
+  # /status 拿 CSRF token,再借宿主全开 CORS 伪造写请求(写面含 connect/
+  # disconnect)。宿主 server 仅明文 http 监听,Origin 须逐项对齐 Host 头
+  # (含端口;Host 缺端口按 http 默认 80 归一)。
+
+  # 异端口同 host:Origin localhost:8080 ≠ Host localhost:7070 → 403,
+  # CSRF token 不外泄(旧代码只比 host,本用例旧代码放行——红转绿)
+  def test_status_origin_port_mismatch_403
+    halt = invoke(:get, "/status", build(header: { "Host" => "localhost:7070",
+                                                   "Origin" => "http://localhost:8080" }))
+
+    assert_equal 403, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+    refute_includes halt.payload, "csrf_token", "异端口跨源请求不得拿到 CSRF token"
+  end
+
+  # scheme 不一致:https Origin 对明文 http 服务 → 403,写面零写盘零 reload
+  def test_disconnect_origin_scheme_mismatch_403
+    old = JSON.generate("mcpServers" => { "cgc-2046" => { "type" => "http", "url" => URL } })
+    registry = FakeRegistry.new
+
+    stub_fs(old_text: old) do |persisted|
+      halt = invoke(:delete, "/connect",
+                    build(registry: registry,
+                          header: write_headers.merge("Origin" => "https://127.0.0.1:7070")))
+
+      assert_equal 403, halt.status
+      assert_includes JSON.parse(halt.payload)["error"], "cross-origin"
+      assert_empty persisted, "异 scheme 跨源写不得写盘"
+      assert_equal 0, registry.reload_count
+    end
+  end
+
+  # 完整一致:Origin scheme+host+port 与 Host 逐项相等 → 放行到业务层(200)
+  def test_status_full_origin_match_passes_guard
+    stub_fs(old_text: nil) do
+      halt = invoke(:get, "/status", build(header: { "Host" => "127.0.0.1:7070",
+                                                     "Origin" => "http://127.0.0.1:7070" }))
+
+      assert_equal 200, halt.status
+    end
+  end
+
+  # 缺 Host(HTTP/1.0)失败关闭:写路由 403,零写盘
+  def test_connect_missing_host_403
+    stub_fs(old_text: nil) do |persisted|
+      halt = invoke(:post, "/connect",
+                    build(body: JSON.generate("token" => TOKEN),
+                          header: { "Content-Type" => "application/json",
+                                    "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }))
+
+      assert_equal 403, halt.status
+      assert_empty persisted
+    end
+  end
   def test_disconnect_reload_failure_rolls_back_and_reloads_again
     old = JSON.generate("mcpServers" => { "cgc-2046" => {
       "type" => "http", "url" => URL, "headers" => { "Authorization" => "Bearer tok_old" }
@@ -423,6 +618,94 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # ---- P1:同名重配不得复用旧 client（teardown stale client before reload）----
+  # 宿主 Registry#reload 只清理「配置中消失」的 server；cgc-2046 同名重配后
+  # 旧 client（旧 token/旧 server 的长连接）留在 @clients 被 ensure_started 复用。
+  # reloader 必须先 @lock 下 delete&.stop，再 reload 强制下次调用按新 spec 重建。
+
+  def test_connect_teardowns_stale_client_before_reload
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://old/mcp",
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 200, halt.status
+      assert_equal 1, stale.stopped, "重配必须先 stop 旧 client（旧 token 长连接）"
+      assert_equal [:stop, :reload], events, "teardown 必须先于 reload"
+      refute registry.instance_variable_get(:@clients).key?("cgc-2046"),
+             "旧 client 必须从缓存移除，下次调用按新 spec 重建"
+      assert_equal 1, registry.reload_count
+    end
+  end
+
+  def test_disconnect_teardowns_stale_client_before_reload
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => URL,
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do
+      halt = invoke(:delete, "/connect", build(registry: registry))
+
+      assert_equal 200, halt.status
+      assert_equal true, JSON.parse(halt.payload)["removed"]
+      assert_equal 1, stale.stopped, "断开必须 stop 旧 client"
+      assert_equal [:stop, :reload], events
+      refute registry.instance_variable_get(:@clients).key?("cgc-2046")
+    end
+  end
+
+  # reload 失败回滚路径不回归：teardown 已发生（安全方向正确，旧 client 不复用），
+  # 落盘逐字节回滚；二次 reloader 的 teardown 幂等 no-op，reload 载回旧配置
+  def test_connect_reload_failure_teardown_is_idempotent_and_rolls_back
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://old/mcp",
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(fail_times: 1, clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do |_persisted, restored|
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 500, halt.status
+      assert_equal old, restored.first[1], "回滚必须写回进入时的原文 bytes"
+      assert_equal 1, stale.stopped, "teardown 幂等：二次 reloader 不得重复 stop"
+      assert_equal 2, registry.reload_count, "恢复落盘后必须 best-effort 再 reload"
+    end
+  end
+
+  # graceful 降级：宿主私有缓存形状缺失（无 @clients/@lock）时仍 reload，不炸
+  def test_connect_bare_registry_shape_still_reloads
+    registry = BareRegistry.new
+
+    stub_fs(old_text: nil) do
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 200, halt.status
+      assert_equal 1, registry.reload_count
+    end
+  end
+
   # ---- skills/sync（D11 留位）----
 
   # 真机回归:WEBrick header 未发送键 = 空数组(truthy),request_header 须剔除
@@ -432,7 +715,9 @@ class HandlerRequestTest < Minitest::Test
       "Content-Type" => [],
       "content-type" => ["application/json"],
       "X-CGC-CSRF-Token" => [],
-      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token]
+      "x-cgc-csrf-token" => [Cgc2046Ext.csrf_token],
+      "Host" => [],
+      "host" => ["127.0.0.1:7070"]
     }
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new("{}", {}, header))
@@ -448,6 +733,34 @@ class HandlerRequestTest < Minitest::Test
     assert_includes JSON.parse(halt.payload)["error"], "later slice"
   end
 
+  # ---- /activity:task 摘要先全文脱敏再截断(先截后抹的同型修复) ----
+
+  def test_activity_redacts_task_before_truncating_at_window_edge
+    # token 紧贴 120 字符窗口右缘:旧实现先截后抹,cgc_ 后被裁到 {8,} 阈值之下,
+    # token 前缀片段逃过正则泄进响应体;修复后先全文脱敏,窗口内只剩 <redacted> 残段
+    token = "cgc_YWyY0WdE_jLf8NkbhPRfAU-mz0xaOTZ4sHLS_5x8c2c"
+    task_text = "x" * 112 + token
+    messages = [
+      { role: "assistant", created_at: 1000.0, tool_calls: [
+        { id: "c1", function: { name: "invoke_skill",
+                                arguments: JSON.generate("skill_name" => "mcp:cgc-2046", "task" => task_text) } }
+      ] },
+      { role: "tool", tool_call_id: "c1", content: "Subagent executed successfully" }
+    ]
+    inst = build_with_sessions([{ messages: messages }])
+
+    halt = invoke(:get, "/activity", inst)
+
+    assert_equal 200, halt.status
+    activity = JSON.parse(halt.payload)["activity"]
+    assert_equal 1, activity.size
+    item = activity.first
+    assert_equal "ok", item["status"]
+    refute_includes item["task"], "cgc_YWyY", "窗口右缘裁断 token 后其前缀片段不得泄露"
+    assert_includes item["task"], "<redacte", "脱敏必须发生（<redacted> 自身可被窗口截断）"
+    assert_operator item["task"].length, :<=, 120
+  end
+
   private
 
   # 手动构造实例（契约 §8 先例：allocate + 塞 ivar，不需要真 WEBrick req）
@@ -455,6 +768,19 @@ class HandlerRequestTest < Minitest::Test
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(body, {}, header))
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
+    inst
+  end
+
+  # /activity 专用:fake session_manager 经 @http_server ivar 注入(对齐宿主
+  # ApiExtension#session_manager 的取值路径 @http_server.instance_variable_get)
+  def build_with_sessions(sessions)
+    sm = Object.new
+    sm.define_singleton_method(:all_sessions) { sessions }
+    server = Object.new
+    server.instance_variable_set(:@session_manager, sm)
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, FakeReq.new(nil, {}, write_headers))
+    inst.instance_variable_set(:@http_server, server)
     inst
   end
 
@@ -526,7 +852,8 @@ class OnboardingCallerContractTest < Minitest::Test
   end
 
   def skill_curl_shape(token_header: true)
-    h = { "Content-Type" => "application/json" }
+    # curl 恒发 Host（HTTP/1.1 必填）；Host 钉死 loopback 后契约形态必须携带
+    h = { "Content-Type" => "application/json", "Host" => "127.0.0.1:7070" }
     h["X-CGC-CSRF-Token"] = Cgc2046Ext.csrf_token if token_header
     h
   end

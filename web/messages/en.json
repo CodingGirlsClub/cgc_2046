@@ -461,9 +461,7 @@
     "hostOpenclackyDesc": "Desktop client + CGC-2046 connector extension; MCP is configured automatically.",
     "hostOmpDesc": "Manually add the cgc-2046 entry to the project .mcp.json.",
     "hostOpencodeDesc": "Manually add the cgc-2046 entry to opencode.json in the project root.",
-    "hostDshDesc": "Connect via the DSH host.",
-    "dshComingSoon": "Coming soon",
-    "dshComingSoonDesc": "The DSH flow is not available yet — stay tuned; for now, pick OpenClacky, OMP, or opencode to get connected.",
+    "hostDshDesc": "Install the dsh-cgc-all plugin family, then paste the token in the DSH panel to connect.",
     "manageTokensLink": "Have token records? Manage them on the MCP page →",
     "connectedBadge": "Connected ✓",
     "reviewGuide": "Review the guide",
@@ -992,7 +990,12 @@
     "installCgcServer": "Open the CGC OpenClacky installation link and complete setup",
     "bundledExtension": "After launch, “CGC-2046” appears in the sidebar; no separate extension install is needed.",
     "oneClickConnectDesc": "After installing CGC OpenClacky, open the local OpenClacky app and click “Connect website” in the CGC-2046 panel. The assistant will guide you through CGC browser login and configure MCP automatically—no token copy required.",
-    "openCgcOpenclacky": "Open CGC OpenClacky"
+    "openCgcOpenclacky": "Open CGC OpenClacky",
+    "step1Dsh": "Install the DSH plugin family",
+    "dshInstallDesc": "In DSH (minimum version <code>0.1.2</code>), run the following command to install the CGC-2046 plugin family (dsh-cgc-all):",
+    "dshManualFlowDesc": "Once installed, return to step ③ below to issue a connection token, then paste it into the connection form of the “CGC-2046” panel in the DSH sidebar — DSH has no automatic connect; this manual flow is the only path.",
+    "dshIntegrityHint": "Package integrity: dsh-cgc-all is published by the official CodingGirlsClub organization (verifiable via npm provenance). Check the source before installing — beware of lookalike packages that steal tokens.",
+    "dshClipboardHint": "The token is shown in plain text only once; after pasting it into the panel, clear your clipboard so it doesn't linger on other devices via clipboard sync."
   },
   "workspaceAccount": {
     "loadFailed": "Failed to load profile",
