@@ -1,7 +1,9 @@
 defmodule Cgc2046.Mcp.Redact do
   @moduledoc """
   MCP 审计参数脱敏（D-D8；role-agent-journeys-v2 S8 增 per-tool 白名单）：
-  落 ToolCallLog / PendingOperation 前过滤敏感键。
+  落 ToolCallLog 审计行前过滤敏感键。**只作用于审计路径**——PendingOperation.params
+  是确认流事务数据（confirm 时原样执行），落完整参数，不经本模块（见
+  `Cgc2046.Mcp.Confirmation.request/4`）。
 
   规则（按序应用）：
   1. **敏感键脱敏（全部工具）**：键名（大小写不敏感）命中敏感词列表 → 值
