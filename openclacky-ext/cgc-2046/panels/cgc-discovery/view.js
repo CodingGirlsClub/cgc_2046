@@ -141,7 +141,8 @@
       ]);
       const result = listRes.result || {};
       state.items = Array.isArray(result.offerings) ? result.offerings : [];
-      state.webUrl = statusRes.web_url || "";
+      // scheme 门(安全评审低危#4):非法 scheme ≡ 未配置,条目标题退化纯文本
+      state.webUrl = Kit.safeWebUrl(statusRes.web_url) || "";
       Kit.csrfFromStatus(statusRes);
       state.view = state.items.length === 0 ? "empty" : "list";
     } catch (e) {
@@ -225,9 +226,10 @@
         paint();
         return;
       }
-      if (typeof result.checkout_url === "string" && /^https?:\/\//.test(result.checkout_url)) {
-        window.open(result.checkout_url, "_blank", "noopener");
-        startPaymentWatch(enrollmentId, workspaceId, result.checkout_url);
+      const safeCheckout = Kit.safeWebUrl(result.checkout_url);
+      if (safeCheckout) {
+        window.open(safeCheckout, "_blank", "noopener");
+        startPaymentWatch(enrollmentId, workspaceId, safeCheckout);
         paint();
       }
     } catch (e) { /* 失败静默,用户可重新点击 */ }
@@ -369,7 +371,7 @@
     const rows = state.items.map(function (item, idx) {
       const ws = item.workspace || {};
       const title = state.webUrl && item.slug
-        ? '<a class="task-name cgc-offering-link" href="' + detailUrl(item) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.title) + '</a>'
+        ? '<a class="task-name cgc-offering-link" href="' + escapeHtml(detailUrl(item)) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.title) + '</a>'
         : '<span class="task-name">' + escapeHtml(item.title) + '</span>';
       const deadline = deadlineLabel(item.registration_deadline);
       return (
@@ -420,9 +422,10 @@
     return "";
   }
 
-  // 去支付 = 既有外链机制(anchor target=_blank);非 http(s) 的 checkout_url 不渲染链接
+  // 去支付 = 既有外链机制(anchor target=_blank);checkout_url 过 Kit.safeWebUrl
+  // scheme 门(https 或 loopback http),非法不渲染链接
   function payLink(url) {
-    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return "";
+    if (!Kit.safeWebUrl(url)) return "";
     return '<a class="cgc-btn cgc-btn-primary cgc-btn-sm" href="' + escapeHtml(url) +
            '" target="_blank" rel="noopener noreferrer" data-testid="panel-pay-link">去支付</a>';
   }
