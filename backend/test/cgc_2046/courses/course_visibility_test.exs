@@ -1,6 +1,6 @@
 defmodule Cgc2046.Courses.CourseVisibilityTest do
   @moduledoc """
-  Course 读策略同构覆盖：匿名白名单 + draft 收紧 + 角色组合 + 跨租户。
+  Course 读策略同构覆盖：匿名白名单 + draft/cancelled 收紧 + 角色组合 + 跨租户。
   """
 
   use Cgc2046.DataCase, async: true
@@ -33,7 +33,7 @@ defmodule Cgc2046.Courses.CourseVisibilityTest do
     end
   end
 
-  describe "draft 读收紧" do
+  describe "读收紧（draft/cancelled 不对成员展示）" do
     test "纯 Owner / 纯 Admin / 平台管理员可读 draft；普通成员 NotFound" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
       admin = Fixtures.register_user("course-vis-admin")
@@ -76,7 +76,7 @@ defmodule Cgc2046.Courses.CourseVisibilityTest do
                reload(draft_b.id, a.owner, b.workspace.id)
     end
 
-    test "成员可读非 draft 的 open/closed/cancelled × visibility 组合" do
+    test "成员可读 open/closed × visibility 组合；cancelled 对成员 NotFound" do
       %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
 
       public_open = EventFixtures.create_course(workspace, owner, %{visibility: :public})
@@ -99,7 +99,12 @@ defmodule Cgc2046.Courses.CourseVisibilityTest do
       assert {:ok, _} = reload(public_open.id, member, workspace.id)
       assert {:ok, _} = reload(workspace_open.id, member, workspace.id)
       assert {:ok, _} = reload(closed.id, member, workspace.id)
-      assert {:ok, _} = reload(cancelled.id, member, workspace.id)
+
+      assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+               reload(cancelled.id, member, workspace.id)
+
+      # 管理面仍可读 cancelled（退款治理/审计读面）
+      assert {:ok, _} = reload(cancelled.id, owner, workspace.id)
     end
 
     test "成员按 slug 读 draft Course NotFound" do
