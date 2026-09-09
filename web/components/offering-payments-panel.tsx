@@ -10,22 +10,16 @@
  * - 四数统计（R5）：带 offering 参数的 workspacePaymentStats（与工作区口径
  *   同源，KTD3）。
  * - 订单列表（R6）：workspaceOrders 按 event_id/course_id 筛选；默认非终态 +
- *   已退款（终态经状态筛选可见）。
- * - 行内操作（R7）：待付单免缴（waivePayment）、已付单退款（refundOrder，
- *   二次确认先例 payments-management）、refund_failed 单重试（retryRefund）。
+ * - 行内操作（R7）：待付单免缴（waivePayment）、已付单退款（refundOrder）、
+ *   refund_failed 单重试（retryRefund）——全部为后端两段确认（首调建 pending
+ *   返回后端摘要，弹层确认经 confirmOperation 才执行；状态机收敛在
+ *   lib/use-payment-operation）。
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
-import {
-	REFUND_ORDER,
-	RETRY_REFUND,
-	WAIVE_PAYMENT,
-	WORKSPACE_ORDERS,
-	WORKSPACE_PAYMENT_STATS,
-	type Order,
-} from "@/lib/graphql/orders";
+import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
 import {
 	ORDER_STATUS_LABEL,
 	PROVIDER_LABEL,
@@ -33,7 +27,7 @@ import {
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
-import { usePaymentErrorTranslator } from "@/lib/payment-errors";
+import { usePaymentOperation } from "@/lib/use-payment-operation";
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
 	pending: "bg-soft-2 text-ink-2",
@@ -67,23 +61,23 @@ export default function OfferingPaymentsPanel({
 }) {
 	const t = useTranslations("offeringPayments");
 	const labelsT = useTranslations();
-	const translatePaymentError = usePaymentErrorTranslator();
 
 	const [statusFilter, setStatusFilter] = useState("");
 	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
 	const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
-	const [busy, setBusy] = useState(false);
-	const [refundTarget, setRefundTarget] = useState<Order | null>(null);
-	const [actionError, setActionError] = useState<string | null>(null);
+	// 退款/免缴/重试两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
+	const { pendingOp, busy, actionError, request, confirm, cancel } = usePaymentOperation({
+		t,
+		onCompleted: () => Promise.all([load(statusFilter), loadStats()]).then(() => undefined),
+	});
 	// U7 keyset 分页：after = 上一页 endKeyset；满页即可能有下一页
 	const [endKeyset, setEndKeyset] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
 	// review F12：请求代守卫——筛选切换后的迟到响应不得覆写/追加新筛选的结果
 	const reqGen = useRef(0);
-
 	// 免费态收敛一行（AE4）：不拉订单/统计查询
 	const panelKey = kind === "event" ? "eventId" : "courseId";
 	async function load(filter: string) {
@@ -195,53 +189,6 @@ export default function OfferingPaymentsPanel({
 		);
 	}
 
-	async function confirmRefund() {
-		if (!refundTarget) return;
-		await runAction(REFUND_ORDER, { id: refundTarget.id }, "refundOrder", "refundFailed", () =>
-			setRefundTarget(null),
-		);
-	}
-
-	async function waive(order: Order) {
-		await runAction(WAIVE_PAYMENT, { id: order.enrollmentId }, "waivePayment", "waiveFailed");
-	}
-
-	async function retry(order: Order) {
-		await runAction(RETRY_REFUND, { id: order.id }, "retryRefund", "retryFailed");
-	}
-
-	async function runAction(
-		mutation: Parameters<typeof client.mutate>[0]["mutation"],
-		variables: Record<string, string>,
-		dataKey: string,
-		errorKey: string,
-		onOk?: () => void,
-	) {
-		setBusy(true);
-		setActionError(null);
-		try {
-			const { data } = await client.mutate({ mutation, variables });
-			// 三 mutation 返回同形状 { result, errors }（TypedDocumentNode 泛型合并困难，窄化为结构形状）
-			const payload = (data as Record<string, { result?: unknown; errors?: Array<{ code?: string }> }> | undefined)?.[dataKey];
-			if (payload?.result) {
-				onOk?.();
-				await Promise.all([load(statusFilter), loadStats()]);
-			} else {
-				setActionError(
-					translatePaymentError(payload?.errors?.[0]?.code, t(errorKey)),
-				);
-			}
-		} catch (e) {
-			setActionError(
-				translatePaymentError(
-					e instanceof Error ? e.message : null,
-					t(errorKey),
-				),
-			);
-		} finally {
-			setBusy(false);
-		}
-	}
 
 	const statusFilters = [
 		{ value: "", label: t("filterDefault") },
@@ -314,33 +261,34 @@ export default function OfferingPaymentsPanel({
 					</p>
 				) : null}
 
-				{refundTarget ? (
+				{pendingOp ? (
 					<div
 						className="mt-3 rounded-large border border-amber-400/30 bg-amber-500/10 p-3"
 						role="group"
-						aria-label={t("confirmRefund")}
+						aria-label={t("confirmTitle")}
 					>
-						<p className="text-sm text-amber-200">
-							{t("refundConfirm")}（¥{formatAmount(refundTarget.amountCents)}）
+						{/* 摘要由后端生成（含金额/渠道/后果），前端只透传 */}
+						<p className="text-sm text-amber-200" data-testid="offering-op-summary">
+							{pendingOp.summary}
 						</p>
 						<div className="mt-3 flex flex-wrap gap-2">
 							<button
 								type="button"
 								className="join-button join-button--primary"
 								disabled={busy}
-								onClick={() => void confirmRefund()}
-								data-testid="offering-refund-confirm"
+								onClick={() => void confirm()}
+								data-testid="offering-op-confirm"
 							>
-								{busy ? t("refundBusy") : t("confirmRefund")}
+								{busy ? t("confirmBusy") : t("confirmExecute")}
 							</button>
 							<button
 								type="button"
 								className="join-button"
 								disabled={busy}
-								onClick={() => setRefundTarget(null)}
-								data-testid="offering-refund-cancel"
+								onClick={() => void cancel()}
+								data-testid="offering-op-cancel"
 							>
-								{t("refundCancel")}
+								{t("confirmCancel")}
 							</button>
 						</div>
 					</div>
@@ -399,7 +347,7 @@ export default function OfferingPaymentsPanel({
 														type="button"
 														className="rounded-large border border-line px-2.5 py-1 text-xs text-ink-2 hover:border-line-strong"
 														disabled={busy}
-														onClick={() => void waive(order)}
+														onClick={() => void request("waive", order.enrollmentId)}
 														data-testid={`offering-waive-${order.id}`}
 													>
 														{t("waive")}
@@ -410,7 +358,7 @@ export default function OfferingPaymentsPanel({
 														type="button"
 														className="rounded-large border border-line px-2.5 py-1 text-xs text-ink-2 hover:border-line-strong"
 														disabled={busy}
-														onClick={() => setRefundTarget(order)}
+														onClick={() => void request("refund", order.id)}
 														data-testid={`offering-refund-${order.id}`}
 													>
 														{t("refund")}
@@ -421,7 +369,7 @@ export default function OfferingPaymentsPanel({
 														type="button"
 														className="rounded-large border border-red-400/40 px-2.5 py-1 text-xs text-red-300 hover:border-red-400"
 														disabled={busy}
-														onClick={() => void retry(order)}
+														onClick={() => void request("retry", order.id)}
 														data-testid={`offering-retry-${order.id}`}
 													>
 														{t("retryRefund")}

@@ -56,6 +56,14 @@ function statsPayload(collected: number, pending: number, refunded: number, refu
 	};
 }
 
+/** 第 index 次 client.mutate 调用的 mutation 文档名（区分两段：RefundOrder vs ConfirmOperation） */
+function mutationName(index: number): string | undefined {
+	const args = client.mutate.mock.calls[index][0] as {
+		mutation: { definitions: Array<{ name?: { value: string } }> };
+	};
+	return args.mutation.definitions[0]?.name?.value;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -149,7 +157,7 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		expect(screen.queryByTestId("waive-o1")).not.toBeInTheDocument();
 	});
 
-	it("退款两步确认流：确认后 refundOrder → 刷新列表与统计", async () => {
+	it("退款后端两段确认：首调建 pending 透传摘要 → op-confirm 发 confirmOperation → 刷新", async () => {
 		const paidOrder = ordersPayload([baseOrder]);
 		const refunding = ordersPayload([{ ...baseOrder, status: "refunding" }]);
 
@@ -160,27 +168,40 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		render(<PaymentsManagement workspaceId="ws1" manage />);
 		await screen.findByTestId("refund-o1");
 
+		// 第一段：点退款即建 pending（不落业务库），弹层透传后端生成的摘要
+		client.mutate.mockResolvedValueOnce({
+			data: {
+				refundOrder: {
+					pendingId: "p1",
+					summary: "退款 ¥199.00（渠道 wechat_native）：paid → refunding 并入队渠道退款，原路全额退回；退款即取消报名并释放名额，此操作不可恢复",
+					errors: [],
+				},
+			},
+		});
 		fireEvent.click(screen.getByTestId("refund-o1"));
 
-		// 确认弹窗（文案含金额与不可恢复提示）
-		expect(screen.getByTestId("refund-confirm")).toBeInTheDocument();
-		expect(screen.getByRole("group", { name: "确认退款" }).textContent).toContain("199.00");
-		expect(screen.getByRole("group", { name: "确认退款" }).textContent).toContain("不可恢复");
+		expect(await screen.findByRole("group", { name: "请确认操作" })).toBeInTheDocument();
+		expect(screen.getByTestId("op-summary").textContent).toContain("¥199.00");
+		expect(screen.getByTestId("op-summary").textContent).toContain("不可恢复");
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "o1" });
+		expect(mutationName(0)).toBe("RefundOrder");
 
-		client.mutate.mockResolvedValue({
-			data: { refundOrder: { result: { id: "o1", status: "refunding" }, errors: [] } },
+		// 第二段：确认 → confirmOperation(pendingId)
+		client.mutate.mockResolvedValueOnce({
+			data: { confirmOperation: { pendingId: "p1", status: "confirmed", errors: [] } },
 		});
-
-		// 动作后的重拉 mock 必须在 click 前替换（confirmRefund 的 microtask 链
+		// 动作后的重拉 mock 必须在 click 前替换（confirm 的 microtask 链
 		// 会立刻消费刷新查询，晚替换拿到的还是旧 paid 负载）
 		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
 			opts.variables.workspaceId === "ws1" ? refunding : statsPayload(0, 0, 19900),
 		);
 
-		fireEvent.click(screen.getByTestId("refund-confirm"));
+		fireEvent.click(screen.getByTestId("op-confirm"));
 
-		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
-		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "o1" });
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate.mock.calls[1][0].variables).toEqual({ pendingId: "p1" });
+		expect(mutationName(1)).toBe("ConfirmOperation");
 
 		// 动作后列表/统计重拉（refunding 徽章出现）
 		await waitFor(
@@ -189,27 +210,87 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		);
 	});
 
-	it("退款确认可取消（不发 mutation）；免缴作用于 enrollmentId", async () => {
+	it("退款弹层取消发 cancelOperation（不执行）；免缴同款两段且作用于 enrollmentId", async () => {
 		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
 			opts.variables.workspaceId === "ws1"
-				? ordersPayload([{ ...baseOrder, id: "o2", status: "pending", enrollmentStatus: "payment_pending" }])
-				: statsPayload(0, 19900, 0),
+				? ordersPayload([
+						baseOrder,
+						{ ...baseOrder, id: "o2", enrollmentId: "e2", status: "pending", enrollmentStatus: "payment_pending" },
+					])
+				: statsPayload(59700, 19900, 0),
 		);
 
 		render(<PaymentsManagement workspaceId="ws1" manage />);
-		await screen.findByTestId("waive-o2");
+		await screen.findByTestId("refund-o1");
 
-		client.mutate.mockResolvedValue({
-			data: { waivePayment: { result: { id: "e1", status: "confirmed" }, errors: [] } },
+		// 退款第一段 → 弹层 → 取消 → cancelOperation（业务永不执行）
+		client.mutate.mockResolvedValueOnce({
+			data: { refundOrder: { pendingId: "p1", summary: "退款 ¥199.00…", errors: [] } },
+		});
+		fireEvent.click(screen.getByTestId("refund-o1"));
+		await screen.findByTestId("op-cancel");
+
+		client.mutate.mockResolvedValueOnce({
+			data: { cancelOperation: { pendingId: "p1", status: "cancelled", errors: [] } },
+		});
+		fireEvent.click(screen.getByTestId("op-cancel"));
+
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate.mock.calls[1][0].variables).toEqual({ pendingId: "p1" });
+		expect(mutationName(1)).toBe("CancelOperation");
+		// 弹层关闭
+		await waitFor(() => expect(screen.queryByTestId("op-confirm")).not.toBeInTheDocument());
+
+		// 免缴：第一段目标 = 报名 id（waivePayment 作用于 enrollment）
+		client.mutate.mockResolvedValueOnce({
+			data: { waivePayment: { pendingId: "p2", summary: "免缴该报名：…", errors: [] } },
 		});
 		fireEvent.click(screen.getByTestId("waive-o2"));
+		await screen.findByTestId("op-confirm");
+		expect(client.mutate.mock.calls[2][0].variables).toEqual({ id: "e2" });
+		expect(mutationName(2)).toBe("WaivePayment");
 
-		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
-		// 免缴目标 = 报名 id（waivePayment 作用于 enrollment）
-		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "e1" });
+		client.mutate.mockResolvedValueOnce({
+			data: { confirmOperation: { pendingId: "p2", status: "confirmed", errors: [] } },
+		});
+		fireEvent.click(screen.getByTestId("op-confirm"));
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(4));
+		expect(client.mutate.mock.calls[3][0].variables).toEqual({ pendingId: "p2" });
+	});
 
-		// 退款流未触发
-		expect(client.mutate).toHaveBeenCalledTimes(1);
+	it("取消遇终态（pending 已过期/已确认）：弹层照关 + 面板级提示，不卡死", async () => {
+		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
+			opts.variables.workspaceId === "ws1"
+				? ordersPayload([baseOrder])
+				: statsPayload(19900, 0, 0),
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+		await screen.findByTestId("refund-o1");
+
+		client.mutate.mockResolvedValueOnce({
+			data: { refundOrder: { pendingId: "p-exp", summary: "退款 ¥199.00…", errors: [] } },
+		});
+		fireEvent.click(screen.getByTestId("refund-o1"));
+		await screen.findByTestId("op-cancel");
+
+		// 服务端 pending 已过期：cancelOperation 返回业务错误而非 cancelled
+		client.mutate.mockResolvedValueOnce({
+			data: {
+				cancelOperation: {
+					pendingId: null,
+					status: null,
+					errors: [{ message: "pending operation has expired", code: "operation_cancel_failed" }],
+				},
+			},
+		});
+		fireEvent.click(screen.getByTestId("op-cancel"));
+
+		// 弹层关闭（不卡死）+ 面板级错误提示（errors 命名空间文案）
+		await waitFor(() => expect(screen.queryByTestId("op-confirm")).not.toBeInTheDocument());
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"取消失败：该操作可能已被确认或取消，请刷新后核对。",
+		);
 	});
 
 	it("状态筛选：切到 paid 时 filter 变量下推", async () => {

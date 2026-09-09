@@ -1,15 +1,18 @@
 defmodule Cgc2046.Mcp.Confirmation do
   @moduledoc """
-  高风险工具确认流（D8 two-tool 模式 / D-D3）。
+  高风险操作确认流（D8 two-tool 模式 / D-D3）。
 
   链路（无 confirm 不落业务库）：
 
-  1. 高风险 tool 的 execute 先调 `request/4`（不执行业务）：
-     建 PendingOperation → 返回 `{:needs_confirmation, %{pending_id, summary}}`
-  2. 用户在客户端确认 → agent 调 `confirm_operation` tool → `confirm/2`：
+  1. 高风险操作的入口先调 `request/4`（不执行业务）：MCP 工具的 execute，
+     或 web GraphQL mutation（经 `Cgc2046Web.PaymentConfirmation`，tool 名与
+     对应 MCP 工具同名）——建 PendingOperation → 返回
+     `{:needs_confirmation, %{pending_id, summary}}`
+  2. 用户在客户端确认 → 确认入口（MCP `confirm_operation` 工具 / GraphQL
+     `confirmOperation` mutation）→ `confirm/2`：
      校验 pending 归属/状态/有效期 → 标记 confirmed → 按 `pending.tool` 直接分派
      到对应工具的 `execute_confirmed/2` 真正落库
-  3. 取消走 `cancel/2`。
+  3. 取消走 `cancel/2`（web 面对应 `cancelOperation` mutation）。
 
   确认后的 effect 分派见私有 `execute/3`：从组件注册表派生
   （`Wrapper.executor_for/1`，name → 导出 `execute_confirmed/2` 的 handler module）。
@@ -93,6 +96,30 @@ defmodule Cgc2046.Mcp.Confirmation do
       other -> other
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # 确认流错误 code 契约单源（#241 四清单机械联动）。
+  #
+  # code 必须在 domain 层显式出现——`ErrorCodeContract` 只扫 lib/cgc_2046/**，
+  # web GraphQL 面（graphql_schema.ex / PaymentConfirmation）不得自造 code，
+  # 否则 web messages 的文案键不在 priv/error_codes_contract.json 中，contract
+  # test 红灯。AST 扫描收 `code: "literal"` 形态（见 collect/2）。
+  # ---------------------------------------------------------------------------
+  @confirm_failed %{code: "operation_confirm_failed"}
+  @cancel_failed %{code: "operation_cancel_failed"}
+  @unavailable %{code: "operation_unavailable"}
+
+  @doc "confirm/2 失败的契约 code（不存在/非本人/已过期/effect 失败）"
+  @spec confirm_failed_code() :: String.t()
+  def confirm_failed_code, do: @confirm_failed.code
+
+  @doc "cancel/2 失败的契约 code（不存在/非本人/非 pending）"
+  @spec cancel_failed_code() :: String.t()
+  def cancel_failed_code, do: @cancel_failed.code
+
+  @doc "request/4 失败的契约 code（pending 建不起来）"
+  @spec unavailable_code() :: String.t()
+  def unavailable_code, do: @unavailable.code
 
   defp fetch_own(actor, pending_id) do
     case Ash.get(PendingOperation, pending_id, authorize?: false) do

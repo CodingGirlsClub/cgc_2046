@@ -22,6 +22,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   alias Cgc2046.Repo
   alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Reconciliation.ReconciliationScanWorker
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Learning.Runs
   alias Cgc2046.Workflows.WorkflowDefinition
@@ -1120,5 +1121,93 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       timestamp,
       Ecto.UUID.dump!(run.id)
     ])
+  end
+
+  # ── 规13 资金写动作频次告警（R3：admin_action_logs 纯查询告警面）------------
+
+  describe "规13 资金写动作频次告警（:fund_action_burst）" do
+    test "同 actor 窗口内 6 笔 order_refund（默认阈值 5）→ 命中；老化出窗 → 自消" do
+      actor = Fixtures.register_user("rc13-actor")
+      log_fund_actions(actor.id, :order_refund, 6)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:fund_action_burst)
+      assert finding.entity_type == :user
+      assert finding.entity_id == actor.id
+      assert finding.workspace_id == nil
+
+      assert [%{"action" => "order_refund", "count" => 6, "latest_at" => latest}] =
+               finding.detail["actions"]
+
+      assert is_binary(latest)
+      assert finding.detail["window_seconds"] == 3600
+      assert finding.detail["threshold"] == 5
+
+      # 消解：动作老化出窗 → 下一拍未命中删除（告警自消，刷新语义 D2）
+      backdate_admin_action_logs(7200)
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:fund_action_burst)
+    end
+
+    test "恰好阈值 5 笔 → 不命中（严格大于口径）" do
+      actor = Fixtures.register_user("rc13-edge")
+      log_fund_actions(actor.id, :order_refund, 5)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:fund_action_burst)
+    end
+
+    test "actor_id NULL 的系统批量动作 → 不命中（非人为滥用面）" do
+      log_fund_actions(nil, :order_refund, 6)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:fund_action_burst)
+    end
+
+    test "多类动作分别计数：refund 6 + waive 6 → 一行 finding 两条明细" do
+      actor = Fixtures.register_user("rc13-multi")
+      log_fund_actions(actor.id, :order_refund, 6)
+      log_fund_actions(actor.id, :waive_payment, 6, :enrollment)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:fund_action_burst)
+      assert finding.entity_id == actor.id
+
+      assert [
+               %{"action" => "order_refund", "count" => 6},
+               %{"action" => "waive_payment", "count" => 6}
+             ] = Enum.sort_by(finding.detail["actions"], & &1["action"])
+    end
+
+    test "窗口外动作不计入：3 笔两小时前 + 5 笔新近 → 不命中" do
+      actor = Fixtures.register_user("rc13-window")
+      log_fund_actions(actor.id, :order_refund, 3)
+      backdate_admin_action_logs(7200)
+      log_fund_actions(actor.id, :order_refund, 5)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:fund_action_burst)
+    end
+  end
+
+  defp log_fund_actions(actor_id, action, n, target_type \\ :order) do
+    for _ <- 1..n do
+      assert {:ok, _} =
+               AdminActionLog.log(%{
+                 actor_id: actor_id,
+                 action: action,
+                 target_type: target_type,
+                 target_id: Ash.UUID.generate()
+               })
+    end
+  end
+
+  defp backdate_admin_action_logs(seconds) do
+    Repo.query!(
+      "UPDATE admin_action_logs SET inserted_at = NOW() - ($1 || ' seconds')::interval",
+      [Integer.to_string(seconds)]
+    )
   end
 end

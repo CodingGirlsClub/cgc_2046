@@ -112,3 +112,6 @@ contributes:
       file: hooks/on_tool_error.rb
     - event: after_tool_use
       file: hooks/after_tool_use.rb
+    # R1 确认守门:confirm_operation 点火动作拦到宿主原生确认框(default: false fail-closed)
+    - event: before_tool_use
+      file: hooks/before_tool_use.rb
