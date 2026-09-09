@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
-import type { MutationResult } from "./shared";
+import type { MutationError, MutationResult } from "./shared";
 
 /**
  * 缴费闭环订单 GraphQL 契约（plan 024 U5/U10 + backend/priv/graphql/schema.graphql）。
@@ -9,8 +9,9 @@ import type { MutationResult } from "./shared";
  *   orderStatus 轮询（R14）、myOrders；
  * - 管理面：workspaceOrders（状态筛选 + tier/报名人信息计算字段）、
  *   workspacePaymentStats（R24；返回 JsonString——U10 决策 3：三个 snake_case
- *   int 键，经 lib/payment.parsePaymentStats 解析）、refundOrder（R15）、
- *   waivePayment（R18，作用于报名）。
+ *   int 键，经 lib/payment.parsePaymentStats 解析）；refundOrder（R15）/
+ *   retryRefund（R17）/waivePayment（R18，作用于报名）为后端两段确认
+ *   （第一段建 pending 返回后端摘要，confirmOperation/cancelOperation 收尾）。
  * - createOrder/replaceProvider 的支付凭据在 metadata.credential（JsonString：
  *   qr_code → code_url；redirect → url；jsapi 仅小程序），分派见
  *   lib/payment.dispatchCredential。
@@ -57,6 +58,24 @@ export interface CreateOrderPayload {
 }
 
 export type OrderMutationResult = MutationResult<Order>;
+
+/**
+ * 高风险支付操作两段确认（R2 对齐：refundOrder/retryRefund/waivePayment 第一段
+ * 只建 PendingOperation 不落业务库）——pendingId + 后端生成的确认摘要；
+ * errors 为业务错误（与自动 mutation 同通道，按 code 查文案）。
+ */
+export interface PendingConfirmation {
+  pendingId: string | null;
+  summary: string | null;
+  errors: MutationError[];
+}
+
+/** confirmOperation/cancelOperation 返回：status = confirmed | cancelled */
+export interface OperationResolution {
+  pendingId: string | null;
+  status: string | null;
+  errors: MutationError[];
+}
 
 /* ---------------- 学员面 ---------------- */
 
@@ -268,16 +287,18 @@ export const WORKSPACE_PAYMENT_STATS: TypedDocumentNode<
   }
 `;
 
+/**
+ * 退款（R15）：两段确认第一段——建 pending 返回后端摘要（不落业务库）；
+ * 确认/取消走 CONFIRM_OPERATION / CANCEL_OPERATION。
+ */
 export const REFUND_ORDER: TypedDocumentNode<
-  { refundOrder: OrderMutationResult },
+  { refundOrder: PendingConfirmation },
   { id: string }
 > = gql`
   mutation RefundOrder($id: ID!) {
     refundOrder(id: $id) {
-      result {
-        id
-        status
-      }
+      pendingId
+      summary
       errors {
         code
         message
@@ -286,17 +307,15 @@ export const REFUND_ORDER: TypedDocumentNode<
   }
 `;
 
-/** 免缴（R18）：作用于报名（payment_pending → confirmed），非订单 */
+/** 免缴（R18）：作用于报名（payment_pending → confirmed），非订单；两段确认第一段 */
 export const WAIVE_PAYMENT: TypedDocumentNode<
-  { waivePayment: MutationResult<{ id: string; status: string }> },
+  { waivePayment: PendingConfirmation },
   { id: string }
 > = gql`
   mutation WaivePayment($id: ID!) {
     waivePayment(id: $id) {
-      result {
-        id
-        status
-      }
+      pendingId
+      summary
       errors {
         code
         message
@@ -305,17 +324,49 @@ export const WAIVE_PAYMENT: TypedDocumentNode<
   }
 `;
 
-/** 退款失败重试（organizer-payment U4/R7）：refund_failed → refunding 重入退款链 */
+/** 退款失败重试（organizer-payment U4/R7）：refund_failed → refunding 重入退款链；两段确认第一段 */
 export const RETRY_REFUND: TypedDocumentNode<
-  { retryRefund: OrderMutationResult },
+  { retryRefund: PendingConfirmation },
   { id: string }
 > = gql`
   mutation RetryRefund($id: ID!) {
     retryRefund(id: $id) {
-      result {
-        id
-        status
+      pendingId
+      summary
+      errors {
+        code
+        message
       }
+    }
+  }
+`;
+
+/** 两段确认第二段：确认并执行 pending 操作（仅本人、pending 且未过期） */
+export const CONFIRM_OPERATION: TypedDocumentNode<
+  { confirmOperation: OperationResolution },
+  { pendingId: string }
+> = gql`
+  mutation ConfirmOperation($pendingId: ID!) {
+    confirmOperation(pendingId: $pendingId) {
+      pendingId
+      status
+      errors {
+        code
+        message
+      }
+    }
+  }
+`;
+
+/** 两段确认第二段：取消 pending 操作（仅本人、pending；取消后不执行） */
+export const CANCEL_OPERATION: TypedDocumentNode<
+  { cancelOperation: OperationResolution },
+  { pendingId: string }
+> = gql`
+  mutation CancelOperation($pendingId: ID!) {
+    cancelOperation(pendingId: $pendingId) {
+      pendingId
+      status
       errors {
         code
         message

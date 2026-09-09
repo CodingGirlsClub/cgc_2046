@@ -49,6 +49,14 @@ function statsPayload(collected: number, pending: number, refunded: number, refu
 	};
 }
 
+/** 第 index 次 client.mutate 调用的 mutation 文档名（区分两段：RetryRefund vs ConfirmOperation） */
+function mutationName(index: number): string | undefined {
+	const args = client.mutate.mock.calls[index][0] as {
+		mutation: { definitions: Array<{ name?: { value: string } }> };
+	};
+	return args.mutation.definitions[0]?.name?.value;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -172,16 +180,26 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		expect(screen.queryByTestId("offering-load-more")).not.toBeInTheDocument();
 	});
 
-	it("R7：refund_failed 行出现重试按钮，点击后 retryRefund 并刷新（此前无入口的回归对照）", async () => {
+	it("R7：refund_failed 行重试两段确认——首调建 pending 透传摘要，确认后 confirmOperation 并刷新", async () => {
 		const failed = { ...baseOrder, id: "o-failed", status: "refund_failed" };
 		client.query
 			.mockReturnValueOnce(ordersPayload([failed]))
 			.mockReturnValueOnce(statsPayload(0, 0, 0, 19900))
 			.mockReturnValueOnce(ordersPayload([{ ...failed, status: "refunding" }]))
 			.mockReturnValueOnce(statsPayload(0, 0, 0, 0));
-		client.mutate.mockResolvedValueOnce({
-			data: { retryRefund: { result: { id: "o-failed", status: "refunding" }, errors: [] } },
-		});
+		client.mutate
+			.mockResolvedValueOnce({
+				data: {
+					retryRefund: {
+						pendingId: "p-r1",
+						summary: "重试退款 ¥199.00（渠道 wechat_native）：refund_failed → refunding，重新入队渠道退款",
+						errors: [],
+					},
+				},
+			})
+			.mockResolvedValueOnce({
+				data: { confirmOperation: { pendingId: "p-r1", status: "confirmed", errors: [] } },
+			});
 
 		render(
 			<OfferingPaymentsPanel
@@ -193,18 +211,65 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			/>,
 		);
 
-		const retryButton = await screen.findByTestId("offering-retry-o-failed");
-		expect(retryButton).toBeInTheDocument();
+		// 第一段：点重试即建 pending，弹层透传后端摘要
+		fireEvent.click(await screen.findByTestId("offering-retry-o-failed"));
 
-		fireEvent.click(retryButton);
+		expect(await screen.findByTestId("offering-op-summary")).toHaveTextContent("重试退款");
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "o-failed" });
+		expect(mutationName(0)).toBe("RetryRefund");
 
-		await waitFor(() => expect(client.mutate).toHaveBeenCalled());
-		const mutateArgs = client.mutate.mock.calls[0][0] as {
-			mutation: { definitions: Array<{ name?: { value: string } }> };
-		};
-		expect(mutateArgs.mutation.definitions[0]?.name?.value).toBe("RetryRefund");
+		// 第二段：确认 → confirmOperation(pendingId)
+		fireEvent.click(screen.getByTestId("offering-op-confirm"));
 
-		// 刷新：orders 再次查询（refunding 行可见）
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate.mock.calls[1][0].variables).toEqual({ pendingId: "p-r1" });
+		expect(mutationName(1)).toBe("ConfirmOperation");
+
+		// 刷新：orders 再次查询
+		await waitFor(() => expect(client.query.mock.calls.length).toBe(4));
+	});
+
+	it("R7：paid 行退款同款两段——offering-refund 建 pending，op-confirm 执行并刷新", async () => {
+		client.query
+			.mockReturnValueOnce(ordersPayload([{ ...baseOrder }]))
+			.mockReturnValueOnce(statsPayload(19900, 0, 0))
+			.mockReturnValueOnce(ordersPayload([{ ...baseOrder, status: "refunding" }]))
+			.mockReturnValueOnce(statsPayload(0, 0, 19900));
+		client.mutate
+			.mockResolvedValueOnce({
+				data: {
+					refundOrder: {
+						pendingId: "p-f1",
+						summary: "退款 ¥199.00（渠道 wechat_native）：…此操作不可恢复",
+						errors: [],
+					},
+				},
+			})
+			.mockResolvedValueOnce({
+				data: { confirmOperation: { pendingId: "p-f1", status: "confirmed", errors: [] } },
+			});
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-1"
+				kind="event"
+				manage
+				pricingEnabled
+			/>,
+		);
+
+		fireEvent.click(await screen.findByTestId("offering-refund-o1"));
+
+		expect(await screen.findByTestId("offering-op-summary")).toHaveTextContent("退款 ¥199.00");
+		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "o1" });
+		expect(mutationName(0)).toBe("RefundOrder");
+
+		fireEvent.click(screen.getByTestId("offering-op-confirm"));
+
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate.mock.calls[1][0].variables).toEqual({ pendingId: "p-f1" });
 		await waitFor(() => expect(client.query.mock.calls.length).toBe(4));
 	});
 
