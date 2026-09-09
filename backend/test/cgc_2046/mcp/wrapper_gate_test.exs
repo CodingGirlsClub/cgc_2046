@@ -26,6 +26,8 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
 
+  require Ash.Query
+
   # 精确名单（与 server.ex 注册的 68 工具一一对应）
   @workspace_id_optional ~w(confirm_operation cancel_operation list_my_workspaces)
   @optional_deferred ~w(get_role_playbook discover_offerings get_my_enrollments)
@@ -348,6 +350,78 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
       [log] = Ash.read!(ToolCallLog, authorize?: false)
       assert is_nil(log.client_name)
       assert is_nil(log.session_id)
+    end
+  end
+
+  describe "审计字节上限（P2：拒绝请求不放大审计存储）" do
+    test "大参数被拒请求落审计为截断元数据，不落值内容；workspace_id 查询锚保留" do
+      admin = Fixtures.platform_admin("mcp-cap-a")
+      workspace = Fixtures.create_workspace(admin)
+      outsider = Fixtures.register_user("mcp-cap-a-outsider")
+      big = String.duplicate("A", 1_000_000)
+
+      assert {:error, msg} =
+               Wrapper.run(
+                 frame_for(outsider),
+                 %{"workspace_id" => workspace.id, "payload" => big},
+                 "ghost_tool",
+                 fn _, _, _ -> {:ok, %{called: true}} end
+               )
+
+      assert msg =~ "not a member"
+
+      [log] = Ash.read!(ToolCallLog, authorize?: false)
+      assert log.result_status == :forbidden
+
+      # 值内容不落审计：只留长度 + 截断标记；workspace_id（36 字节查询锚）原样保留
+      assert log.params["payload"] == %{"truncated" => true, "byte_size" => 1_000_000}
+      assert log.params["workspace_id"] == workspace.id
+      refute inspect(log.params) =~ String.duplicate("A", 100)
+
+      # 既有审计查询不回归：params->>'workspace_id' JSONB 过滤对 forbidden 截断行仍命中
+      assert [_] =
+               ToolCallLog
+               |> Ash.Query.filter(fragment("params->>'workspace_id' = ?", ^workspace.id))
+               |> Ash.read!(authorize?: false)
+    end
+
+    test "正常小参数调用审计完整（ok 路径不收窄）" do
+      admin = Fixtures.platform_admin("mcp-cap-b")
+      workspace = Fixtures.create_workspace(admin)
+
+      assert {:ok, _} =
+               Wrapper.run(
+                 frame_for(admin),
+                 %{"workspace_id" => workspace.id, "note" => "hello"},
+                 "ghost_tool",
+                 fn _, _, _ -> {:ok, %{}} end
+               )
+
+      [log] = Ash.read!(ToolCallLog, authorize?: false)
+      assert log.result_status == :ok
+      assert log.params == %{"workspace_id" => workspace.id, "note" => "hello"}
+    end
+
+    test "ok 路径大参数截断存证（preview + 原长度 + 截断标记）" do
+      admin = Fixtures.platform_admin("mcp-cap-c")
+      workspace = Fixtures.create_workspace(admin)
+      big = String.duplicate("B", 1_000_000)
+
+      assert {:ok, _} =
+               Wrapper.run(
+                 frame_for(admin),
+                 %{"workspace_id" => workspace.id, "payload" => big},
+                 "ghost_tool",
+                 fn _, _, _ -> {:ok, %{}} end
+               )
+
+      [log] = Ash.read!(ToolCallLog, authorize?: false)
+
+      assert %{"truncated" => true, "byte_size" => 1_000_000, "preview" => preview} =
+               log.params["payload"]
+
+      assert byte_size(preview) <= 256
+      assert String.starts_with?(big, preview)
     end
   end
 end
