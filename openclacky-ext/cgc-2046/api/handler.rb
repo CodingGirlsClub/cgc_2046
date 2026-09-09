@@ -47,11 +47,29 @@ class Cgc2046Ext < Clacky::ApiExtension
 
     error!("token is required", status: 422) if token.empty?
     error!("token must be at most 512 characters", status: 422) if token.length > 512
+    # 形态断言与平台生成器（'cgc_' + Base.url_encode64(32字节, padding:false)）及
+    # onboarding skill 的客户端断言同构：token 原样进 mcp.json 的 Authorization 头，
+    # 而 mcp.json 是多 client 共享配置——非法 header 字符（\r\n/空格/引号）会造成
+    # 所有 client 静默坏连接，status 却仍报 token_configured:true。错误消息不回显输入。
+    error!("token has invalid format", status: 422) unless token.match?(/\Acgc_[A-Za-z0-9_-]+\z/)
 
     url = (body["url"] || body[:url]).to_s.strip
     url = config["mcp_url"].to_s.strip if url.empty?
     error!("mcp url is not configured", status: 422) if url.empty?
     error!("mcp url must start with http:// or https://", status: 422) unless url.match?(%r{\Ahttps?://})
+
+    # 同上理由：url 同样写进多 client 共享的 mcp.json，必须是可解析的 http(s) URI——
+    # scheme 白名单、host 非空、拒绝 userinfo、拒绝任何空白/控制字符（含 \r\n）；
+    # 解析异常一律按不合法处理，错误消息不回显输入。
+    uri_valid =
+      begin
+        uri = URI.parse(url)
+        %w[http https].include?(uri.scheme) && !uri.host.to_s.empty? &&
+          uri.userinfo.nil? && !url.match?(/[\s\x00-\x1f\x7f]/)
+      rescue URI::InvalidURIError
+        false
+      end
+    error!("mcp url is invalid", status: 422) unless uri_valid
 
     # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe：registry 惰性创建，
     # 尚未创建时 reload 是 no-op，下次用到会读新文件）
