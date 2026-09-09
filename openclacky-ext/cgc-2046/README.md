@@ -93,7 +93,7 @@ openclacky ext install openclacky-ext/dist/cgc-2046.zip
 ## 配置点
 
 - `ext.yml` 顶层 `config.mcp_url`：MCP server 地址，默认生产值 `https://api.codingirlsclub.com/mcp`；本地联调优先用 connect 端点 body 的 `url` 字段覆盖（如 `http://localhost:4000/mcp`），全包唯一改 URL 的点。
-- `ext.yml` 顶层 `config.web_url`：CGC-2046 网站前端地址，默认生产值 `https://codingirlsclub.com`；面板「打开 CGC-2046 网站」用它，`status` 响应透传（未配置则面板隐藏该链接）；本地联调改本地副本。
+- `ext.yml` 顶层 `config.web_url`：CGC-2046 网站前端地址，默认生产值 `https://codingirlsclub.com`；面板「打开 CGC-2046 网站」用它，`status` 响应透传（未配置则面板隐藏该链接）；本地联调改本地副本（如 `http://localhost:3000`）。scheme 门（`CgcKit.safeWebUrl`）只放行 https 或 loopback http（`localhost`/`127.0.0.1`/`[::1]`）——其它值（含 `javascript:` 等危险 scheme、LAN IP http）一律按未配置处理：链接隐藏、深链不渲染、详情标题退化纯文本。
 - connect 端点 body 也接受 `url` 字段临时覆盖。
 
 ## 卸载
@@ -119,6 +119,7 @@ curl -sS -X DELETE "http://127.0.0.1:7070/api/ext/cgc-2046/connect" -H "Content-
 - MCP 工具结果（如 `invitation_token` 明文）会被客户端运行时记入会话记录，这是既定事实；我们的纪律是不主动把凭证写进额外文件/日志。
 - status 端点只返回 `configured` / `url` / `token_configured`（布尔）/ `web_url`，永不返回 headers 或 token；面板与 handler 均不渲染 token。
 - 所有扩展路由要求请求 `Host` 头为 loopback（`127.0.0.0/8`、`localhost`、`[::1]`，防 DNS rebinding 绕过 Origin 校验）；缺失或非 loopback 一律 403 `host not allowed`。
+- 导航类外链（`web_url` 及其拼出的深链、`checkout_url`）统一过共享骨架 `CgcKit.safeWebUrl` scheme 门：https 任意 host，http 仅 loopback，其余一律 `null`；非法 ≡ 未配置（隐藏入口/退化纯文本，不建新 UI 态）。`web_url` 来自 ext.yml config（作者可控、随包分发），本地副本可能被篡改——门是纵深防御，不是对分发包的不信任。拼进 HTML 属性的 URL 一律 `escapeHtml`（含引号的 https 也无法属性逃逸）。
 - connect 的条目名写死 `cgc-2046`，不会改动 mcp.json 里的其它 server 条目；更新时保留该条目上的未知额外键；`DELETE /connect` 只移除 `cgc-2046` 条目。
 
 ## Known limitations
