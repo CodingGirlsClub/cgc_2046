@@ -151,7 +151,8 @@
   // ---- 注入管道(qingclaw sendLessonPrompt 同款;失败兜底剪贴板) ----
   function objectiveTitle(objectiveId) {
     const o = ((state.learning || {}).objectives || []).find(function (x) { return x.id === objectiveId; });
-    return o ? (o.title || o.id) : String(objectiveId);
+    // title 是服务端数据,非字符串原样返回会在调用处 .replace 抛错崩渲染
+    return o ? String(o.title || o.id) : String(objectiveId);
   }
 
   // 从已发布 revision 中取指定 objective 的 materials(id → issue.objectives 匹配)
@@ -282,7 +283,9 @@
           : null);
     if (resume) {
       const objTitle = objectiveTitle(resume.objectiveId);
-      let reason = resume.reason || "";
+      // reason 是服务端数据,truthy 的对象/数组会穿过 ||,随后 .replace 抛错
+      // 崩渲染——String 强转对齐 tutor-aside 质量卡 summary 先例
+      let reason = String(resume.reason || "");
       reason = reason.replace(new RegExp("「" + objTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "」", "g"), "").replace(/^[,，。:：\s]+|[,，。\s]+$/g, "").slice(0, 40);
       inner +=
         '<div class="cgla-continue" data-testid="learn-next">' +
@@ -341,8 +344,9 @@
 
     root.innerHTML = html;
 
-    // 搬运:内容块填入选中课程卡 body;课程卡渲染在 content 内
-    const selBody = root.querySelector("[data-body='" + (state.selected ? state.selected.courseId : "") + "']");
+    // 搬运:内容块填入选中课程卡 body;课程卡渲染在 content 内。courseId 是
+    // 服务端数据,未转义拼选择器在含引号/右方括号时抛 SyntaxError 崩面板
+    const selBody = root.querySelector("[data-body='" + CSS.escape(state.selected ? state.selected.courseId : "") + "']");
     if (selBody) selBody.innerHTML = inner;
 
     bind();

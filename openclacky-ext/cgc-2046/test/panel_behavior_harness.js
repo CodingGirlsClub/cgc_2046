@@ -37,6 +37,8 @@ const ROUNDTRIP_ORIGINAL = {
   }]
 };
 let roundtripPosted = null;
+// tutor_aside_malformed 场景:prep 分轮(第一轮对象 summary,第二轮数组 summary)
+let prepCalls = 0;
 
 // advisor F1 回归场景 editor_remove_row_with_empty:存在空行时点后续行的
 // 删除钮,必须精确删掉该行(修复前 collectEditor 先过滤空行 → 索引错位删错)
@@ -109,6 +111,14 @@ function deepEq(a, b) {
 function unesc(s) {
   return String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+}
+// CSS 选择器转义还原(CSS.escape 的逆):\<字符> 还原字符,\XX…(1-6 位十六进制,
+// 可吞一个尾随空白)还原码点——[data-body] 代理据此取回原始 course_id
+function cssUnescape(s) {
+  return String(s).replace(/\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|([\s\S]))/g, function (m, hex, ch) {
+    if (hex) return String.fromCodePoint(parseInt(hex, 16));
+    return ch;
+  });
 }
 function extractValue(html, id) {
   const ta = new RegExp('<textarea[^>]*id="' + id + '"[^>]*>([\\s\\S]*?)</textarea>').exec(html);
@@ -252,15 +262,18 @@ function makeEl(tag) {
       return node._ids[id];
     }
     // [data-body='x'] 属性选择器(cgc-learn 两段式渲染:卡骨架 → 内容搬运进
-    // body div):代理节点,innerHTML 读写直接落宿主 _html 中对应空 div 内
-    const bm = /^\[data-body='([^']+)'\]$/.exec(sel);
+    // body div):代理节点,innerHTML 读写直接落宿主 _html 中对应空 div 内。
+    // 值来自 view.js 的 CSS.escape(courseId),可含 \' \] 等转义;先还原原始
+    // courseId 再按渲染侧同款 escapeHtml 定位标记(等价真实 DOM:选择器串解
+    // 转义后与 HTML 解析出的属性值比较)
+    const bm = /^\[data-body='((?:\\.|[^'\\])*)'\]$/.exec(sel);
     if (bm) {
       const sub = { tagName: "div", textContent: "", style: {}, dataset: {}, className: "", listeners: {},
         addEventListener(t, fn) { (sub.listeners[t] = sub.listeners[t] || []).push(fn); },
         setAttribute() {}, getAttribute() { return null; }, appendChild(c) { return c; },
         contains() { return true; }, scrollIntoView() {}, dispatchEvent() {},
         classList: { add() {}, remove() {}, toggle() {} } };
-      const mark = 'data-body="' + bm[1] + '"';
+      const mark = 'data-body="' + CgcKit.escapeHtml(cssUnescape(bm[1])) + '"';
       Object.defineProperty(sub, "innerHTML", {
         get() {
           const i = node._html.indexOf(mark);
@@ -382,6 +395,32 @@ globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == nu
 // home disconnect 连接确认框(home_hub 场景驱动确认路径);alert 捕获失败提示
 globalThis.confirm = () => true;
 globalThis.alert = (m) => { (globalThis.__alerts = globalThis.__alerts || []).push(String(m)); };
+// view.js 用宿主(Chromium)原生的 CSS.escape 拼 data-body 属性选择器;Node 无
+// CSS 对象,按 CSSOM serialize-an-identifier 复刻:控制符与首字符数字十六进制
+// 转义(带尾随空格),其余 ASCII 非白名单字符加反斜杠,U+0000 → U+FFFD
+globalThis.CSS = {
+  escape(v) {
+    const s = String(v);
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      const cu = s.charCodeAt(i);
+      if ((cu >= 0x0001 && cu <= 0x001f) || cu === 0x007f ||
+          (i === 0 && cu >= 0x0030 && cu <= 0x0039) ||
+          (i === 1 && cu >= 0x0030 && cu <= 0x0039 && s.charCodeAt(0) === 0x002d)) {
+        out += "\\" + cu.toString(16) + " ";
+      } else if (cu === 0x0000) {
+        out += "";
+      } else if (cu === 0x002d || cu === 0x005f ||
+          (cu >= 0x0030 && cu <= 0x0039) || (cu >= 0x0041 && cu <= 0x005a) ||
+          (cu >= 0x0061 && cu <= 0x007a) || cu >= 0x0080) {
+        out += s.charAt(i);
+      } else {
+        out += "\\" + s.charAt(i);
+      }
+    }
+    return out;
+  },
+};
 // learn_boot_and_inject/learn_ugc_injection:宿主会话输入框(contenteditable DIV,
 // 前者预置草稿验追加保护,后者空草稿纯指令)+ 发送按钮
 const __domById = {};
@@ -604,6 +643,68 @@ globalThis.fetch = async (url, opts) => {
       return { ok: false, status: 404, json: async () => ({ error: "no prep" }) };
     }
   }
+  // 同类兄弟缺陷:cgc-learn resume 卡 next_action.reason 与 objective.title 是
+  // 服务端数据,truthy 的对象/数组穿过 || 后 .replace 直接抛 TypeError 崩
+  // renderPanel。learn_malformed_next_action:reason 为数组、title 为对象,
+  // review_queue 置空让 next_action 路径生效
+  if (scenario === "learn_malformed_next_action" &&
+      path.startsWith("/api/ext/cgc-2046/learning_state")) {
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        ok: true,
+        result: {
+          objectives: [
+            { id: "obj-1", title: { bad: "title-object" }, mastery: "developing", attempt_count: 0, required: true, locked: false, issue_id: "issue-1" },
+          ],
+          progress: { mastered_required: 0, total_required: 1, complete: false },
+          next_action: { objective_id: "obj-1", reason: ["数组", "理由"] },
+          review_queue: []
+        }
+      })
+    };
+  }
+  // 安全评审低危 #5:course_id 是服务端数据,含单引号/右方括号时未转义的
+  // [data-body='…'] 选择器在真实浏览器抛 SyntaxError 崩 renderPanel(面板 DoS)。
+  // learn_quote_course_id:唯一 confirmed 报名课 id = q'c-1](引号+括号)
+  if (scenario === "learn_quote_course_id" && path === "/api/ext/cgc-2046/me/enrollments") {
+    return { ok: true, status: 200, json: async () => ({ ok: true, result: { enrollments: [
+      { id: "enr-q", kind: "course", status: "confirmed",
+        offering: { id: "q'c-1]", title: "引号课", slug: "quote-101" },
+        workspace: { id: "ws-q1", name: "引号台", slug: "quote" } },
+    ] } }) };
+  }
+  // 安全评审低危 #5/#6:tutor 台课程 id 同款含引号/括号;prep 质量报告 summary
+  // 第一轮为对象、第二轮(轮询驱动)为数组,两轮渲染都必须成功出质量卡。
+  // 路径注意:rawGet 走 encodeURIComponent,']' 编码为 %5D(' 原样保留)
+  if (scenario === "tutor_aside_malformed") {
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-tq", name: "教研台", slug: "teach", roles: ["tutor"] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/workspace/courses") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { courses: [
+        { course_id: "q't-1]", title: "引号草稿课", status: "draft" },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/courses/q't-1%5D/content") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { version: 1, course_title: "引号草稿课",
+        issues: [{ id: "i-1", kind: "handwork", title: "单元一", chapter_id: "",
+          story: { as_a: "", given: [], goal: "", materials: [], checklist: [] },
+          objectives: [{ id: "o-1", title: "引号目标一" }] }] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/courses/q't-1%5D/prep") {
+      prepCalls += 1;
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: prepCalls === 1
+        ? { prep_state: "quality_check", policy: { quality_threshold: 80 },
+            latest_quality_report: { score: 42, outcome: "failed", summary: { note: "对象摘要" } },
+            gate_violations: [] }
+        : { prep_state: "review", policy: { quality_threshold: 80 },
+            latest_quality_report: { score: 92, outcome: "passed", summary: ["数组摘要甲", "数组摘要乙"] },
+            gate_violations: [] } }) };
+    }
+  }
   // 编辑器场景(editor_delimiter_roundtrip / editor_remove_row_with_empty /
   // editor_remove_chapter_clears_refs):tutor 台 + 一门课 + 场景草稿;POST 捕获 body
   if (scenario === "editor_delimiter_roundtrip" || scenario === "editor_remove_row_with_empty" ||
@@ -790,7 +891,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
-  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, learn_boot_and_inject: 1, learn_ugc_injection: 1, tutor_aside_boot: 1 };
+  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, learn_boot_and_inject: 1, learn_ugc_injection: 1,
+    learn_quote_course_id: 1, learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1 };
   const { spec } = globalThis.__registered || {};
   if (!MOUNT_SCENARIOS[scenario] && (!spec || typeof spec.render !== "function")) {
     console.error("FAIL: registerWorkspace 未捕获 render");
@@ -1521,6 +1623,97 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return;
   }
 
+  // 安全评审低危 #5:course_id(服务端数据)含单引号/右方括号——修复前选择器
+  // 拼串在真实浏览器抛 SyntaxError 崩 renderPanel;修复后经 CSS.escape 找回
+  // body,内容块(目标地图/复习卡)必须搬进含引号课程卡的 body div
+  if (scenario === "learn_quote_course_id") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-assistant", sessionId: "s-q1" });
+    await sleep(200);   // boot:enrollments → learning_state + revision → renderPanel 搬运
+
+    const html = container.innerHTML;
+    const checks = {
+      // 卡骨架侧:course_id 经 escapeHtml 进属性(引号→&#39;)
+      escaped_body_attr_rendered: html.indexOf('data-body="q&#39;c-1]"') >= 0,
+      course_listed: html.indexOf("引号课") >= 0,
+      // 选择器找回 body:目标地图只渲染在 inner(经 data-body 搬运进卡),骨架不含
+      objectives_injected_into_body: html.indexOf('data-testid="learn-obj"') >= 0 && html.indexOf("配置开发环境") >= 0,
+      resume_card_rendered: html.indexOf("继续复习") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 同类兄弟缺陷回归:resume 卡非字符串 reason/title 不崩,String 强转后
+  // 按各自的 String 形态渲染(对象 → [object Object],数组 → 逗号连接)
+  if (scenario === "learn_malformed_next_action") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-assistant", sessionId: "s-m1" });
+    await sleep(200);   // boot:enrollments → learning_state + revision → renderPanel
+
+    const html = container.innerHTML;
+    const checks = {
+      resume_card_rendered: html.indexOf('data-testid="learn-next"') >= 0,
+      object_title_coerced: html.indexOf("[object Object]") >= 0,
+      array_reason_coerced: html.indexOf("数组,理由") >= 0,
+      objectives_injected_into_body: html.indexOf('data-testid="learn-obj"') >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 安全评审低危 #5/#6:tutor 台课程 id 含引号/括号 + 质量报告 summary 为
+  // 对象/数组。第一轮 prep(quality_check)summary 是对象;手动驱动一轮轮询
+  // 触发第二轮(review,prep_state 变化使签名变化 → 重渲染)summary 是数组
+  if (scenario === "tutor_aside_malformed") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-tutor", sessionId: "s-tq" });
+    await sleep(200);   // loadCourses → 自动选首课 → content + prep(对象 summary)
+
+    const html1 = container.innerHTML;
+    (timers[timers.length - 1] || function () {})();   // 手动驱动一轮轮询 → prep(数组 summary)
+    await sleep(200);
+
+    const html2 = container.innerHTML;
+    const checks = {
+      escaped_body_attr_rendered: html1.indexOf('data-body="q&#39;t-1]"') >= 0,
+      course_listed: html1.indexOf("引号草稿课") >= 0,
+      // 目标标题只渲染在 inner(经 data-body 搬运进卡),骨架不含——证明选择器找回 body
+      objective_injected_into_body: html1.indexOf("引号目标一") >= 0,
+      // 非字符串 summary 不抛错:String(对象) → "[object Object]",质量卡照常出
+      object_summary_renders: html1.indexOf("[object Object]") >= 0 && html1.indexOf("质量评分") >= 0,
+      // 轮询第二轮(数组 summary)渲染成功:String(数组) → 逗号连接
+      array_summary_renders: html2.indexOf("数组摘要甲,数组摘要乙") >= 0,
+      quality_card_after_refresh: html2.indexOf("质量评分") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html1: " + html1.slice(0, 800));
+      console.error("html2: " + html2.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
   const container = el("div");
   spec.render(container);           // 首渲染 → boot() 异步启动
   await sleep(120);                  // 等 boot + loadCourses 完成（stub 网络即时）
