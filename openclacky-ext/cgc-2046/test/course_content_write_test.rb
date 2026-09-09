@@ -83,7 +83,8 @@ class CourseContentWriteTest < Minitest::Test
   #   POST body 在 req.body(JSON 字符串);GET query 在 req.query
   # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
 
   def build(registry:, body: nil, query: {}, params: {}, header: write_headers)

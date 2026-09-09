@@ -71,12 +71,12 @@ class CourseRoutesTest < Minitest::Test
   # params 默认 {} = 无 route capture 的 /courses 路径真实形态。
   # advisor F2:写路由的面板同款头（json Content-Type + CSRF token）
   def write_headers
-    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token }
+    { "Content-Type" => "application/json", "X-CGC-CSRF-Token" => Cgc2046Ext.csrf_token,
+      "Host" => "127.0.0.1:7070" }
   end
-
-  def build(registry:, query: {}, params: {}, header: {})
+  def build(registry:, query: {}, params: {}, header: { "Host" => "127.0.0.1:7070" })
     inst = Cgc2046Ext.allocate
-    inst.instance_variable_set(:@req, FakeReq.new(nil, query, {}))
+    inst.instance_variable_set(:@req, FakeReq.new(nil, query, header))
     inst.instance_variable_set(:@params, params)
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
     inst
@@ -294,7 +294,7 @@ class CoursePanelViewTest < Minitest::Test
     assert_includes VIEW, "function scopeOf(courseId)"
     assert_includes VIEW, "course.workspaceId) || state.workspaceId"
     assert_includes VIEW, "scopeOf(state.selectedCourseId)"
-    assert_includes VIEW, "workspace_id: \" + wsId + \""
+    assert_includes VIEW, "workspace_id: \" + wsIdSafe + \""
     assert_includes VIEW, "optgroup"
   end
 

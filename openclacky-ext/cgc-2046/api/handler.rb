@@ -10,6 +10,11 @@
 # 模块级互斥 + 0600 排他 tmp + 原子 rename；reload 失败逐字节回滚并二次 reload）。
 # 本 adapter 只保留请求校验与结果翻译。
 #
+# 运行时加固（P1）：宿主 Registry#reload 只 teardown「从配置中消失」的 server，
+# 同名重配会复用已启动的旧 client（进程级长连接缓存）——connect/disconnect 的
+# reloader 统一经 teardown_and_reload_registry：先关闭并移除 cgc-2046 的既有
+# client 缓存，再 reload 强制下次调用按新 spec 重建，杜绝旧 token/旧 server 续用。
+#
 # 数据面(各面板 → MCP 工具透传)收进 ROUTES 声明表：一条声明 = method + path +
 # face + 工具名 + 字段契约，dispatch_route 统一走「guard → 逐字段 400 校验 →
 # Cgc2046CourseRoutes.call_tool(503/502/500/409 分层)透传 → json」。
@@ -47,15 +52,33 @@ class Cgc2046Ext < Clacky::ApiExtension
 
     error!("token is required", status: 422) if token.empty?
     error!("token must be at most 512 characters", status: 422) if token.length > 512
+    # 形态断言与平台生成器（'cgc_' + Base.url_encode64(32字节, padding:false)）及
+    # onboarding skill 的客户端断言同构：token 原样进 mcp.json 的 Authorization 头，
+    # 而 mcp.json 是多 client 共享配置——非法 header 字符（\r\n/空格/引号）会造成
+    # 所有 client 静默坏连接，status 却仍报 token_configured:true。错误消息不回显输入。
+    error!("token has invalid format", status: 422) unless token.match?(/\Acgc_[A-Za-z0-9_-]+\z/)
 
     url = (body["url"] || body[:url]).to_s.strip
     url = config["mcp_url"].to_s.strip if url.empty?
     error!("mcp url is not configured", status: 422) if url.empty?
     error!("mcp url must start with http:// or https://", status: 422) unless url.match?(%r{\Ahttps?://})
 
-    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe：registry 惰性创建，
-    # 尚未创建时 reload 是 no-op，下次用到会读新文件）
-    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
+    # 同上理由：url 同样写进多 client 共享的 mcp.json，必须是可解析的 http(s) URI——
+    # scheme 白名单、host 非空、拒绝 userinfo、拒绝任何空白/控制字符（含 \r\n）；
+    # 解析异常一律按不合法处理，错误消息不回显输入。
+    uri_valid =
+      begin
+        uri = URI.parse(url)
+        %w[http https].include?(uri.scheme) && !uri.host.to_s.empty? &&
+          uri.userinfo.nil? && !url.match?(/[\s\x00-\x1f\x7f]/)
+      rescue URI::InvalidURIError
+        false
+      end
+    error!("mcp url is invalid", status: 422) unless uri_valid
+
+    # 注入 reloader：把宿主私有 registry 翻译成 callable——先 teardown 既有
+    # client 缓存再 reload（nil-safe：registry 惰性创建，尚未创建时整体 no-op）
+    reloader = -> { teardown_and_reload_registry }
 
     result = Cgc2046McpConfig.connect_server(
       name: SERVER_NAME,
@@ -97,8 +120,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
   delete "/connect" do
     guard_write!
-    # 注入 reloader：把宿主私有 registry 翻译成 callable（nil-safe）
-    reloader = -> { @http_server&.send(:mcp_registry)&.reload }
+    # 注入 reloader：同 connect——先 teardown 既有 client 缓存再 reload（nil-safe）
+    reloader = -> { teardown_and_reload_registry }
 
     result = Cgc2046McpConfig.disconnect_server(name: SERVER_NAME, reloader: reloader)
     json(ok: true, removed: result[:removed])
@@ -242,7 +265,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   # invoke_skill(skill_name=mcp:cgc-2046)的工具调用,匹配 role=tool 结果消息
   # 判定成败(subagent summary 含 "Subagent executed successfully" 为成功——
   # 与 hooks/after_tool_use 的实时事件互补:实时事件不落盘,本端点补历史)。
-  # task 摘要截断 120 字符 + 凭证脱敏,时间倒序,最近 20 条。
+  # task 摘要先全文凭证脱敏再截断 120 字符(先截后抹会把 cgc_ token 裁到
+  # 正则 {8,} 阈值之下使其前缀片段逃逸),时间倒序,最近 20 条。
   get "/activity" do
     guard_origin!
     items = []
@@ -269,7 +293,7 @@ class Cgc2046Ext < Clacky::ApiExtension
           items << {
             at: (m[:created_at] || m["created_at"]),
             status: ok ? "ok" : "error",
-            task: redact_text(args["task"].to_s.gsub(/\s+/, " ")[0, 120])
+            task: redact_text(args["task"].to_s.gsub(/\s+/, " "))[0, 120]
           }
         end
       end
@@ -279,6 +303,34 @@ class Cgc2046Ext < Clacky::ApiExtension
   end
 
   private
+
+  # connect/disconnect 共享的 registry 刷新：先关闭并移除 cgc-2046 的既有 client
+  # 缓存，再 reload 强制重建。
+  #
+  # 宿主取证（openclacky 1.5.13 lib/clacky/mcp/registry.rb）：
+  #   - Registry#reload 只清理 old_names - @servers.keys（配置中消失的条目），
+  #     同名 server 重配不会触碰已启动 client——不先 teardown 的话 connect 换
+  #     账号后数据面继续走旧 token/旧 server；
+  #   - 无公开单 server teardown API（shutdown 会杀掉全部 MCP server，过重）；
+  #     宿主自身的清理模式（reload 对消失条目、reaper 对 idle client）统一是
+  #     @lock 下 @clients.delete(name)&.stop，Client#stop 幂等安全——此处照搬
+  #     同一模式触达（与既有 send(:mcp_registry) 同级别私有访问，非猴子补丁）。
+  #
+  # nil-safe：registry 尚未创建 / 宿主私有缓存形状变化时跳过 teardown 仍 reload。
+  # 失败路径：teardown 先于 reload 成功而 reload 抛错时，落盘由 Cgc2046McpConfig
+  # 逐字节回滚 + 二次本方法（teardown 幂等 no-op，reload 载回旧配置）——安全方向
+  # 始终正确：旧 client 绝不复用。
+  def teardown_and_reload_registry
+    registry = @http_server&.send(:mcp_registry)
+    return unless registry
+
+    lock    = registry.instance_variable_get(:@lock)
+    clients = registry.instance_variable_get(:@clients)
+    if clients.is_a?(Hash) && lock.respond_to?(:synchronize)
+      lock.synchronize { clients.delete(SERVER_NAME)&.stop }
+    end
+    registry.reload
+  end
 
   # 声明表统一派发:guard → 逐字段校验装配参数 → call_tool 透传 → json。
   def dispatch_route(decl)
@@ -352,10 +404,15 @@ class Cgc2046Ext < Clacky::ApiExtension
     text.gsub(Cgc2046HookCredential::PATTERN, "<redacted>")
   end
 
-  # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用防线) ----
+  # ---- advisor F2:loopback 请求来源收口(CSRF/跨站借用/DNS rebinding 防线) ----
   # 宿主 http server 对 loopback peer 免 access key + CORS 全开(Allow-Origin: *
   # 且 preflight echo 任意 Origin),S7 起该通道可读跨台报名/订单、写报名——
   # 在扩展入口层收口:
+  #   0) 所有路由:Host 必须是 loopback(127.0.0.0/8、localhost、[::1])——
+  #      DNS rebinding 下浏览器带攻击者域名的 Host 头直连 127.0.0.1,若只做
+  #      Origin==Host 同源比对会被整体绕过(读 /status 拿 CSRF token → 伪造
+  #      connect 改写 mcp.json 指向攻击者 MCP server);宿主默认绑 127.0.0.1,
+  #      合法请求 Host 只会是 loopback,缺失(HTTP/1.0)按失败关闭处理;
   #   1) 所有路由:Origin 存在时必须与 Host 同源(无 Origin 头的本地 curl/宿主
   #      内部调用放行),否则 403;
   #   2) 写路由(POST):Content-Type 必须 application/json(挡 text/plain 的
@@ -363,22 +420,75 @@ class Cgc2046Ext < Clacky::ApiExtension
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
   #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
   #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
-  # 注：同源比对按 host 维度（剥端口后缀）进行。
+  # 注：同源为完整 origin 比对（scheme+host+port）——只比 host 挡不住本机
+  #     异端口页面（localhost:8080 的恶意页可读 /status 拿 CSRF token 再
+  #     伪造写请求；宿主 CORS 全开与 loopback 免认证不补此防线）。
+  LOOPBACK_HOSTS = /\A(127(?:\.\d{1,3}){3}|localhost|::1|0:0:0:0:0:0:0:1)\z/
+
   def guard_origin!
+    host = request_header("Host")
+    json({ error: "host not allowed" }, status: 403) unless self.class.loopback_host?(host)
+
     origin = request_header("Origin")
     unless origin.nil? || origin.strip.empty?
-      host = request_header("Host")
       begin
         parsed = URI.parse(origin.strip)
       rescue URI::InvalidURIError
         parsed = nil
       end
-      same = parsed.is_a?(URI::HTTP) && parsed.host && host && !host.strip.empty? &&
-             parsed.host.downcase == host.strip.downcase.sub(/:\d+\z/, "")
-      unless same
+      unless same_origin?(parsed, host)
         json({ error: "cross-origin request rejected" }, status: 403)
       end
     end
+  end
+
+  # 完整 origin 比对：scheme+host+port 逐项对齐请求实际协议与 Host 头（含端口）。
+  # 宿主 WEBrick 仅明文 http 监听（无 TLS 配置），请求实际协议恒为 http——
+  # https Origin 即跨源，403。host 去 IPv6 方括号后小写比对；端口取显式值，
+  # Host 缺端口按 http 默认 80 归一（URI 侧 http 缺省端口同样归一为 80）。
+  # 无 Origin 的本地 curl/宿主内部调用不进此方法，放行语义不变。
+  def same_origin?(parsed, host_header)
+    return false unless parsed.is_a?(URI::HTTP) && parsed.host && parsed.scheme == "http"
+
+    h_host, h_port = self.class.split_host_header(host_header)
+    return false if h_host.nil?
+
+    parsed.hostname.downcase == h_host &&
+      parsed.port == (h_port ? h_port.to_i : URI::HTTP.default_port)
+  end
+
+  # Host 头拆分为 [host, port]：IPv6 方括号内为完整 host，冒号后为端口；
+  # host 已小写，port 为字符串或 nil（Host 缺端口）；裸 IPv6（无括号）
+  # 按冒号切开必然比对失败——失败关闭，合法浏览器恒用方括号形态。
+  def self.split_host_header(host_header)
+    s = host_header.strip.downcase
+    if s.start_with?("[")
+      close = s.index("]")
+      return [nil, nil] unless close
+
+      rest = s[(close + 1)..]
+      [s[1...close], rest.start_with?(":") ? rest[1..] : nil]
+    else
+      s.split(":", 2)
+    end
+  end
+
+  # Host 头判定:剥端口/IPv6 方括号后必须落在 loopback 集合。
+  # 挂 class 方法——单测直接断言判定表,不经路由。
+  def self.loopback_host?(host_header)
+    return false if host_header.nil?
+
+    h = host_header.strip.downcase
+    return false if h.empty?
+
+    if h.start_with?("[")
+      # [::1]:7070 / [::1] → ::1
+      h = h.sub(/:\d+\z/, "").delete_prefix("[").delete_suffix("]")
+    elsif h.count(":") <= 1
+      h = h.sub(/:\d+\z/, "")
+    end
+    # 裸 IPv6(无括号)不剥端口——冒号数 >1 时按完整地址处理
+    h.match?(LOOPBACK_HOSTS)
   end
 
   def guard_write!
