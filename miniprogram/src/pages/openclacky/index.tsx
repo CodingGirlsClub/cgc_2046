@@ -8,6 +8,9 @@ import styles from './index.module.css'
 // （weapp setClipboardData 成功后平台自带「内容已复制」toast）。
 const OPENCLACKY_SITE_URL = 'https://www.openclacky.com'
 const OPENCLACKY_CGC_INSTALL_URL = 'https://www.openclacky.com/claw/cgc'
+// 扩展自托管分发（web 接入引导同源,见 web/components/agent-connect-sections.tsx）
+const CGC_EXT_INSTALL_COMMAND =
+  'openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip'
 
 const copyUrl = (url: string) => {
   void Taro.setClipboardData({ data: url }).catch(() => {
@@ -23,7 +26,13 @@ export default function OpenClackyPage() {
       <Text className={styles.description}>小程序负责发现、报名、审批与通知。课程学习、材料创作和完整协作在你自己的 OpenClacky 中进行。</Text>
       <View className={styles.steps}>
         <View className={styles.step}><Text className={styles.number}>01</Text><Text className={styles.stepText}>在电脑上安装 OpenClacky</Text></View>
-        <View className={styles.step}><Text className={styles.number}>02</Text><Text className={styles.stepText}>安装官方 cgc-2046 连接器扩展</Text></View>
+        <View className={styles.step}>
+          <Text className={styles.number}>02</Text>
+          <Text className={styles.stepText}>安装官方 cgc-2046 连接器扩展</Text>
+          <Text className={styles.installHint} onClick={() => copyUrl(CGC_EXT_INSTALL_COMMAND)}>
+            在终端执行：{CGC_EXT_INSTALL_COMMAND}（点按复制）
+          </Text>
+        </View>
         <View className={styles.step}><Text className={styles.number}>03</Text><Text className={styles.stepText}>由扩展自动完成 CGC MCP 连接配置</Text></View>
       </View>
       <View className={styles.notice}>

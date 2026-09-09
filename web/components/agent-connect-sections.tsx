@@ -8,8 +8,8 @@
  * 原子页与向导不得各自复制出第二处内容源。
  *
  * 每个导出 = 一张 connect-step-card：
- * - OpenClacky：安装（iframe）/ 装扩展 / 生成 token 跳转卡（仅原子页用）/
- *   助手接入指引段（仅向导用；原子页该说明在 ③ 的 generateTokenDesc 里）
+ * - OpenClacky：安装（iframe）/ 装扩展（一条命令）/ 连接卡（一键连接为主，
+ *   手动 token 备用；仅原子页用）/ 助手接入指引段（仅向导用，手动 token 备用）
  * - OMP / opencode 手动配置：获取 token 跳转卡（仅原子页用）/ 写配置 / 配 token / 注意事项
  * - DSH：插件家族安装指引卡（仅向导用；手动流，无自动连接等价物，
  *   plan 2026-09-08 DSH parity U10 / R17）
@@ -110,8 +110,10 @@ export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 	);
 }
 
-/** 生成连接 token（跳转 MCP 页签发；仅原子页用，向导内嵌签发面板替代） */
-export function OpenclackyTokenLinkCard({
+/** 连接 CGC-2046（仅原子页用）：主路径 = 面板「连接网站」一键连接（token
+    不经用户手）；手动 token 为备用（自动连接不可用时，跳 MCP 页签发）。
+    向导 ③ 为内嵌签发面板 + oneClickConnect 卡，不复用本卡 */
+export function OpenclackyConnectCard({
 	slug,
 	stepNo,
 }: {
@@ -123,12 +125,25 @@ export function OpenclackyTokenLinkCard({
 		<div className="connect-step-card">
 			<h2>{stepNo ? `${stepNo} ` : ""}{t("step3Openclacky")}</h2>
 			<p className="connect-step-card__desc">
+				{t("oneClickConnectDesc")}
+			</p>
+			<div className="connect-step-card__actions">
+				<a
+					href="http://127.0.0.1:7070"
+					target="_blank"
+					rel="noopener noreferrer"
+					className="join-button join-button--primary"
+				>
+					{t("openCgcOpenclacky")}
+				</a>
+			</div>
+			<p className="connect-step-card__desc">
 				{t("generateTokenDesc")}
 			</p>
 			<div className="connect-step-card__actions">
 				<Link
 					href={`/w/${slug}/settings/integrations/agents/mcp`}
-					className="join-button join-button--primary"
+					className="join-button join-button--outline"
 				>
 					<Icon name="plus" />
 					{t("generateToken")}
