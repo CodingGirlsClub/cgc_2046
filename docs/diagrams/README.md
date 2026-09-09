@@ -135,7 +135,7 @@
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `user-journeys.puml` | ✅ | 8 类角色旅程总览：J0 BYO 三步、报名、赞助、邀请、教研、学习、运营后台 | 用户旅程与Web功能清单 |
-| `user-journey-enrollment-learning.puml` | ✅ 新 | 报名→学习 journey 角色泳道现状（as-is）：createEnrollment 三分支 → 详情页/参与列表/学习页/回访全链路，断点①-⑦红标（详情页无出口、报名卡无入口、open 门锁死、run 缺失空态、阅读页死文案、无通知 deep link、双学习主页并列） | plans/2026-09-09-enrollment-success-journey-plan.md + 前端组件/后端 enrollment·learning 源码 |
+| `user-journey-enrollment-learning.puml` | ✅ 新 | 报名→学习 journey 角色泳道**修复前快照**（as-is @2026-09-09）：createEnrollment 三分支 → 详情页/参与列表/学习页/回访全链路，断点①-⑦红标 + 修复状态（①②③⑤ 已修复；④ 入口兜底已修复；⑥ 未实施，需小程序课程页；⑦ 待讨论） | 前端组件/后端 enrollment·learning 源码 + PR #497 |
 
 ## 四、图与文档的同步约定
 

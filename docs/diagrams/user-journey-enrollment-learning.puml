@@ -1,6 +1,6 @@
 @startuml user-journey-enrollment-learning
 ' ============================================================
-' 报名 → 学习 User Journey（角色泳道，现状 as-is）— 断点梳理
+' 报名 → 学习 User Journey（角色泳道，修复前快照 as-is @2026-09-09）— 断点梳理
 ' 事实来源：
 '   web/components/offering-pages.tsx:905-950,1338-1463（工作台详情页）
 '   web/components/public-offering-detail.tsx:300-560（公开详情页）
@@ -12,9 +12,13 @@
 '   backend/lib/cgc_2046/learning/authorization.ex（三层授权）
 '   backend/lib/cgc_2046/learning/runs.ex:349-372（my_learning_runs）
 ' 状态机细节见 workflow-enrollment.puml；run 协议见 workflow-learning.puml。
-' 断点①-⑥ 对应 docs/plans/2026-09-09-enrollment-success-journey-plan.md
+' 断点①-⑦ 对应 docs/plans/2026-09-09-enrollment-success-journey-plan.md（本地计划，未入库）
+' 修复状态（PR #497 已合入 develop，2026-09-09）：
+'   ①②③⑤ 已修复；④ 入口兜底已修复（run 缺失根因属运营侧建课流程，不在本项）；
+'   ⑥ 未实施（微信订阅消息 page 仅支持小程序路径，且小程序无课程页）；
+'   ⑦ 待讨论（学习主页信息架构收敛）。
 ' ============================================================
-title 报名 → 学习 User Journey（现状 as-is）— 角色泳道与断点
+title 报名 → 学习 User Journey（修复前快照 as-is @2026-09-09）— 角色泳道与断点
 skinparam backgroundColor white
 skinparam noteBackgroundColor #FFF8E1
 skinparam noteBorderColor #E0A800
@@ -188,14 +192,14 @@ group 阶段五：回访 {
 stop
 
 legend right
-  **断点清单（编号对应方案文档）**
-  ① 详情页成功态/回访态无学习出口（工作台无链接；公开页仅弱化小字）— P0
-  ② 报名 tab confirmed 卡片无「进入课程」入口 — P1
-  ③ offering.status ≠ open 时报名卡（含已报名状态）整块消失 — P1
-  ④ 租户无已发布 learning 定义 → run 种不出 → 学习 tab 空态（授权已满足）— P1
-  ⑤ 阅读页空态死文案，无开课提示、无返回引导 — P0
-  ⑥ enrollment.completed 无通知 deep link，关页即失联 — P1
-  ⑦ /learning ≡ /participations 学习 tab，双「学习主页」并列 — P2
+  **断点清单（编号对应方案文档；修复状态 @PR #497）**
+  ① 详情页成功态/回访态无学习出口（工作台无链接；公开页仅弱化小字）— 已修复
+  ② 报名 tab confirmed 卡片无「进入课程」入口 — 已修复
+  ③ offering.status ≠ open 时报名卡（含已报名状态）整块消失 — 已修复
+  ④ 租户无已发布 learning 定义 → run 种不出 → 学习 tab 空态 — 入口兜底已修复（根因属运营侧）
+  ⑤ 阅读页空态死文案，无开课提示、无返回引导 — 已修复
+  ⑥ enrollment.completed 无通知 deep link，关页即失联 — 未实施（需小程序课程页）
+  ⑦ /learning ≡ /participations 学习 tab，双「学习主页」并列 — 待讨论
 end legend
 
 @enduml
