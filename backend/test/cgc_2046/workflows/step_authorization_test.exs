@@ -139,4 +139,73 @@ defmodule Cgc2046.Workflows.StepAuthorizationTest do
                )
     end
   end
+
+  describe "authorize_write/4（P1：未知 step_key fail-closed）" do
+    test "Step 行不存在 → {:error, :unauthorized}（与 signal 口径「不限制」分岔）" do
+      admin = Fixtures.platform_admin("stepauth-w")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("stepauth-w-member")
+      Fixtures.add_member(workspace, member)
+
+      # signal 口径不限制（回归钉测：收紧只作用写入口径）
+      assert :ok =
+               StepAuthorization.authorize_signal(
+                 member,
+                 workspace.id,
+                 Ecto.UUID.generate(),
+                 "no_such_step"
+               )
+
+      assert {:error, :unauthorized} =
+               StepAuthorization.authorize_write(
+                 member,
+                 workspace.id,
+                 Ecto.UUID.generate(),
+                 "no_such_step"
+               )
+    end
+
+    test "Step 行存在但无 StepRole → :ok（未配置 = 不限制，写入口径保持）" do
+      admin = Fixtures.platform_admin("stepauth-w2")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("stepauth-w2-member")
+      Fixtures.add_member(workspace, member)
+
+      {:ok, defn} = create_definition(workspace, admin)
+      {:ok, _step} = create_step(workspace, admin, defn)
+
+      assert :ok = StepAuthorization.authorize_write(member, workspace.id, defn.id, "approval")
+    end
+
+    test "StepRole 配置：命中放行，未命中拒绝" do
+      admin = Fixtures.platform_admin("stepauth-w3")
+      workspace = Fixtures.create_workspace(admin)
+      tutor = Fixtures.register_user("stepauth-w3-tutor")
+      member = Fixtures.register_user("stepauth-w3-member")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      Fixtures.add_member(workspace, member)
+
+      {:ok, defn} = create_definition(workspace, admin)
+      {:ok, step} = create_step(workspace, admin, defn)
+      create_step_role(workspace, admin, step, [:tutor])
+
+      assert :ok = StepAuthorization.authorize_write(tutor, workspace.id, defn.id, "approval")
+
+      assert {:error, :unauthorized} =
+               StepAuthorization.authorize_write(member, workspace.id, defn.id, "approval")
+    end
+
+    test "owner/admin 豁免：未知 step_key 也放行（豁免不依赖 Step 配置）" do
+      admin = Fixtures.platform_admin("stepauth-w4")
+      workspace = Fixtures.create_workspace(admin)
+
+      assert :ok =
+               StepAuthorization.authorize_write(
+                 admin,
+                 workspace.id,
+                 Ecto.UUID.generate(),
+                 "no_such_step"
+               )
+    end
+  end
 end
