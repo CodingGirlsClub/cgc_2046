@@ -9,6 +9,7 @@
 require "minitest/autorun"
 require "json"
 require "tmpdir"
+require "monitor"
 
 gem_spec = Gem::Specification.find_by_name("openclacky")
 require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
@@ -25,21 +26,57 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
-  # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）
+  # 记录 reload 调用次数；fail_times 控制前 N 次抛错（之后成功）。
+  # clients: 模拟宿主 Registry 的 @clients 私有缓存（name => client，teardown
+  # 经 ivar 触达，与宿主 reload/reaper 的清理路径同形）；events: 共享顺序日志
+  # （与 FakeClient 配合断言 teardown 先于 reload）。
   class FakeRegistry
     attr_reader :reload_count
 
-    def initialize(fail_times: 0)
+    def initialize(fail_times: 0, clients: nil, events: nil)
       @reload_count = 0
       @fail_times = fail_times
+      @lock = Monitor.new
+      @clients = clients || {}
+      @events = events
     end
 
     def reload
       @reload_count += 1
+      @events&.push(:reload)
       if @fail_times > 0
         @fail_times -= 1
         raise "registry boom"
       end
+    end
+  end
+
+  # 宿主 Clacky::Mcp::Client 的最小替身：stop 幂等，记录进共享顺序日志
+  class FakeClient
+    attr_reader :stopped
+
+    def initialize(events = nil)
+      @events = events
+      @stopped = 0
+    end
+
+    def stop
+      @stopped += 1
+      @events&.push(:stop)
+    end
+  end
+
+  # 只有公开 reload 的最小形状 registry（无 @clients/@lock ivar）——钉住
+  # teardown 的 graceful 降级：宿主私有缓存形状缺失/变化时仍 reload，不炸
+  class BareRegistry
+    attr_reader :reload_count
+
+    def initialize
+      @reload_count = 0
+    end
+
+    def reload
+      @reload_count += 1
     end
   end
 
@@ -488,6 +525,94 @@ class HandlerRequestTest < Minitest::Test
                    "回滚必须写回进入时的原文 bytes（cgc-2046 条目必须被恢复）"
 
       assert_equal 2, registry.reload_count, "恢复落盘后必须 best-effort 再 reload 一次"
+    end
+  end
+
+  # ---- P1:同名重配不得复用旧 client（teardown stale client before reload）----
+  # 宿主 Registry#reload 只清理「配置中消失」的 server；cgc-2046 同名重配后
+  # 旧 client（旧 token/旧 server 的长连接）留在 @clients 被 ensure_started 复用。
+  # reloader 必须先 @lock 下 delete&.stop，再 reload 强制下次调用按新 spec 重建。
+
+  def test_connect_teardowns_stale_client_before_reload
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://old/mcp",
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 200, halt.status
+      assert_equal 1, stale.stopped, "重配必须先 stop 旧 client（旧 token 长连接）"
+      assert_equal [:stop, :reload], events, "teardown 必须先于 reload"
+      refute registry.instance_variable_get(:@clients).key?("cgc-2046"),
+             "旧 client 必须从缓存移除，下次调用按新 spec 重建"
+      assert_equal 1, registry.reload_count
+    end
+  end
+
+  def test_disconnect_teardowns_stale_client_before_reload
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => URL,
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do
+      halt = invoke(:delete, "/connect", build(registry: registry))
+
+      assert_equal 200, halt.status
+      assert_equal true, JSON.parse(halt.payload)["removed"]
+      assert_equal 1, stale.stopped, "断开必须 stop 旧 client"
+      assert_equal [:stop, :reload], events
+      refute registry.instance_variable_get(:@clients).key?("cgc-2046")
+    end
+  end
+
+  # reload 失败回滚路径不回归：teardown 已发生（安全方向正确，旧 client 不复用），
+  # 落盘逐字节回滚；二次 reloader 的 teardown 幂等 no-op，reload 载回旧配置
+  def test_connect_reload_failure_teardown_is_idempotent_and_rolls_back
+    old = JSON.generate("mcpServers" => { "cgc-2046" => {
+      "type" => "http", "url" => "http://old/mcp",
+      "headers" => { "Authorization" => "Bearer tok_stale" }
+    } })
+    events = []
+    stale = FakeClient.new(events)
+    registry = FakeRegistry.new(fail_times: 1, clients: { "cgc-2046" => stale }, events: events)
+
+    stub_fs(old_text: old) do |_persisted, restored|
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 500, halt.status
+      assert_equal old, restored.first[1], "回滚必须写回进入时的原文 bytes"
+      assert_equal 1, stale.stopped, "teardown 幂等：二次 reloader 不得重复 stop"
+      assert_equal 2, registry.reload_count, "恢复落盘后必须 best-effort 再 reload"
+    end
+  end
+
+  # graceful 降级：宿主私有缓存形状缺失（无 @clients/@lock）时仍 reload，不炸
+  def test_connect_bare_registry_shape_still_reloads
+    registry = BareRegistry.new
+
+    stub_fs(old_text: nil) do
+      halt = invoke(:post, "/connect", build(
+        body: JSON.generate("token" => TOKEN, "url" => URL),
+        registry: registry
+      ))
+
+      assert_equal 200, halt.status
+      assert_equal 1, registry.reload_count
     end
   end
 
