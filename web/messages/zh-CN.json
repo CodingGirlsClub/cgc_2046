@@ -993,9 +993,9 @@
     "openCgcOpenclacky": "打开 CGC OpenClacky",
     "step1Dsh": "安装 DSH 插件家族",
     "dshInstallDesc": "在 DSH（最低版本 <code>0.1.2</code>）中执行以下命令，安装 CGC-2046 插件家族（dsh-cgc-all）：",
-    "dshManualFlowDesc": "装好后回到下方第 ③ 步签发连接 token，然后在 DSH 侧边栏「CGC-2046」面板的连接表单中粘贴 token 完成接入——DSH 没有自动连接，这是唯一流程。",
+    "dshManualFlowDesc": "装好后回到下方第 ③ 步签发连接 token 并复制——然后对 DSH 里的 agent 说「连接 CGC-2046」，它会读剪贴板一步完成接入（token 不经对话）；也可以在侧边栏「CGC-2046」面板的连接表单里手动粘贴，两者等价。",
     "dshIntegrityHint": "包名完整性：dsh-cgc-all 由 CodingGirlsClub 官方组织发布（npm provenance 可验证）。安装前请核对来源，谨防同名仿冒包窃取 token。",
-    "dshClipboardHint": "token 明文只显示一次；粘贴到面板后建议清空剪贴板，避免经剪贴板同步残留在其它设备。"
+    "dshClipboardHint": "token 明文只显示一次；连接完成后建议清空剪贴板，避免经剪贴板同步残留在其它设备。"
   },
   "workspaceAccount": {
     "loadFailed": "加载资料失败",
