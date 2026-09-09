@@ -510,6 +510,48 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       [action_log] = admin_action_logs(:application_reject, application.id)
       assert action_log.actor_id == admin.id
     end
+
+    test "HIGH-1 回归：>1KB rejection_reason 确认流端到端——PendingOperation 落完整参数，confirm 原样执行" do
+      admin = Fixtures.platform_admin("pa-rej-big-admin")
+      applicant = Fixtures.register_user("pa-rej-big-applicant")
+      application = create_workspace_application(applicant)
+      # 超 Redact 单值上限（1KB）的自由文本参数：事务数据不可截断
+      big_reason = String.duplicate("名称不合规，", 400)
+
+      {:reply, _, _} =
+        reply =
+        AdminRejectWorkspaceApplication.execute(
+          %{"application_id" => application.id, "rejection_reason" => big_reason},
+          frame_for(admin)
+        )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+
+      # PendingOperation 落完整事务参数（不脱敏不截断；截断只发生在 ToolCallLog 审计路径）
+      pending = Ash.get!(PendingOperation, payload["pending_id"], authorize?: false)
+      assert pending.params["rejection_reason"] == big_reason
+
+      {:reply, _, _} =
+        confirm_reply =
+        ConfirmOperation.execute(%{"pending_id" => payload["pending_id"]}, frame_for(admin))
+
+      confirmed = decode_reply(confirm_reply)
+      assert confirmed["result"]["status"] == "rejected"
+      assert confirmed["result"]["rejection_reason"] == big_reason
+
+      reloaded = Ash.get!(WorkspaceApplication, application.id, authorize?: false)
+      assert reloaded.status == :rejected
+      assert reloaded.rejection_reason == big_reason
+
+      # 审计路径仍然截断：ToolCallLog 的 needs_confirmation 行只留截断元数据
+      [log] = tool_logs_for(admin.id, "admin_reject_workspace_application")
+      assert log.result_status == :needs_confirmation
+      expected_size = byte_size(big_reason)
+
+      assert %{"truncated" => true, "byte_size" => ^expected_size} =
+               log.params["rejection_reason"]
+    end
   end
 
   describe "admin_create_workspace 确认流" do

@@ -48,7 +48,15 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 
 		// ② OpenClacky 内容段（共享组件，与原子页同源）
 		expect(screen.getByTitle("下载 OpenClacky")).toBeInTheDocument();
-		expect(screen.getByText(/CGC OpenClacky 提供的一键安装链接/)).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip",
+				{ selector: "code" },
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "复制命令" }),
+		).toBeInTheDocument();
 
 		// ③ OpenClacky 默认路径由宿主内置助手发起；OMP/opencode 仍覆盖 token fallback。
 	});

@@ -10,6 +10,7 @@ import { client } from "@/lib/apollo-client";
 import { useAuthed } from "@/lib/use-authed";
 import LearningTab, {
   ParticipationsTabs,
+  coursesWithoutRuns,
 } from "@/components/learning/learning-tab";
 import {
   CANCEL_ENROLLMENT,
@@ -102,6 +103,17 @@ function EnrollmentCard({
         </span>
       </div>
 
+      {row.status === "confirmed" && row.courseId ? (
+        <div className="mt-3">
+          <Link
+            href={`/learning/courses/${row.courseId}`}
+            className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line"
+            data-testid={`enter-course-${row.id}`}
+          >
+            {t("enterCourse")}
+          </Link>
+        </div>
+      ) : null}
       {row.status === "payment_pending" ? (
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <Link
@@ -608,7 +620,10 @@ export default function ParticipationsPage() {
               </div>
             ) : null}
             {!learningQuery.loading && !learningQuery.error ? (
-              <LearningTab runs={learningRuns} />
+              <LearningTab
+                runs={learningRuns}
+                extraCourses={coursesWithoutRuns(learningRuns, enrollmentRows)}
+              />
             ) : null}
           </section>
         ) : null}

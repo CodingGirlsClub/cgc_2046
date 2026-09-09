@@ -252,6 +252,66 @@ describe("公开详情页报名状态分叉（支付接续）", () => {
       screen.queryByRole("button", { name: "提交报名" }),
     ).not.toBeInTheDocument();
   });
+
+  it("课程 confirmed 报名 → 「进入课程」直达 /learning/courses/:id（P0-1）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "course-pub",
+      slug: "pub-course",
+      title: "公开课程",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-course",
+      status: "confirmed",
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    const link = await screen.findByTestId("public-enrollment-enter-course");
+    expect(link.getAttribute("href")).toContain("/learning/courses/course-pub");
+    expect(link.textContent).toContain("进入课程");
+  });
+
+  it("课程未开课（startsAt 在未来）→ CTA 分叉为开课提示文案（P0-1）", async () => {
+    const future = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "course-future",
+      slug: "future-course",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      startsAt: future,
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-future",
+      status: "confirmed",
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    const link = await screen.findByTestId("public-enrollment-enter-course");
+    expect(link.textContent).toContain("开课后在此学习");
+    expect(link.textContent).toContain(`FMT(${future})`);
+  });
+
+  it("活动 confirmed 报名 → 无「进入课程」，只给「我的参与」出口（P0-1）", async () => {
+    eventsMocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-evt",
+      status: "confirmed",
+    });
+
+    renderOpen();
+
+    expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("public-enrollment-enter-course"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /在「我的参与」查看/ }),
+    ).toBeInTheDocument();
+  });
 });
 
 

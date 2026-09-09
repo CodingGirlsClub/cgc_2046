@@ -94,7 +94,39 @@ export function learningSessionPrompt(
   ].join("\n");
 }
 
-export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
+/** 学习 tab 兜底（P1-6）：confirmed 报名中尚无 learning run 的课程。
+ * 内容授权不依赖 run（confirmed enrollment 即可读，Learning.Authorization），
+ * 入口不应随 run 缺失一起消失。同课程去重、按报名顺序。 */
+export function coursesWithoutRuns(
+  runs: MyLearningRun[],
+  enrollments: Array<{
+    status: string;
+    courseId: string | null;
+    targetTitle: string | null;
+  }>,
+): Array<{ courseId: string; title: string | null }> {
+  const withRun = new Set(
+    runs.map((run) => run.courseId).filter((id): id is string => Boolean(id)),
+  );
+  const seen = new Set<string>();
+  const extra: Array<{ courseId: string; title: string | null }> = [];
+  for (const row of enrollments) {
+    if (row.status !== "confirmed" || !row.courseId) continue;
+    if (withRun.has(row.courseId) || seen.has(row.courseId)) continue;
+    seen.add(row.courseId);
+    extra.push({ courseId: row.courseId, title: row.targetTitle });
+  }
+  return extra;
+}
+
+export default function LearningTab({
+  runs,
+  extraCourses = [],
+}: {
+  runs: MyLearningRun[];
+  /** confirmed 报名但无 learning run 的课程（P1-6 兜底入口） */
+  extraCourses?: Array<{ courseId: string; title: string | null }>;
+}) {
   const t = useTranslations("learning");
   const tRoot = useTranslations();
   // 按课程分组(courseId 为空的事件型 run 归「其他学习」组);组序 = runs 顺序
@@ -113,7 +145,7 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
 
   const [drawerCourseId, setDrawerCourseId] = useState<string | null>(null);
 
-  if (runs.length === 0) {
+  if (runs.length === 0 && extraCourses.length === 0) {
     return (
       <p className="mt-5 text-sm text-ink-3" data-testid="learning-empty">
         {t("empty")}
@@ -160,6 +192,29 @@ export default function LearningTab({ runs }: { runs: MyLearningRun[] }) {
           </section>
         );
       })}
+
+      {extraCourses.map((course) => (
+        <section
+          key={course.courseId}
+          data-testid="learning-group-no-run"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-ink-2">
+              {course.title ?? t("unnamedCourse")}
+            </h3>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-large border border-line px-4 py-3">
+            <p className="text-[13px] text-ink-3">{t("noRunHint")}</p>
+            <Link
+              href={`/learning/courses/${course.courseId}`}
+              className="learning-run-row-link"
+              data-testid="learning-course-link"
+            >
+              {t("tab.courseContent")} <span aria-hidden="true">↗</span>
+            </Link>
+          </div>
+        </section>
+      ))}
 
       {drawerCourseId ? (
         <ObjectiveDrawer

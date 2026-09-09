@@ -428,6 +428,9 @@ defmodule Cgc2046.Courses.Course do
           Ash.Changeset.add_error(
             changeset,
             field: :slug,
+            # 带被拒新值——Ash keyword add_error 不传 :value 时错误消息 Value 恒为 nil,
+            # 排障时无法区分「参数丢失」与「锁定拦截」(2026-09-09 生产实例误判过)
+            value: Ash.Changeset.get_attribute(changeset, :slug),
             message: "slug is locked once the offering is published (editable in draft only)"
           )
         else

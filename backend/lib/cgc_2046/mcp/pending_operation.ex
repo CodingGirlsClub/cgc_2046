@@ -38,7 +38,8 @@ defmodule Cgc2046.Mcp.PendingOperation do
       allow_nil?: false,
       default: %{},
       public?: true,
-      description: "待执行参数（redact 后）"
+      description:
+        "待执行参数（完整事务数据，confirm 时原样执行；脱敏/截断只在 ToolCallLog 审计路径，见 Mcp.Confirmation.request/4）"
     )
 
     attribute(:summary, :string,
