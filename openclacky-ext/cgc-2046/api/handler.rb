@@ -368,7 +368,9 @@ class Cgc2046Ext < Clacky::ApiExtension
   #      GET /status 同源下发;跨站页面读不到 /status——同为 origin 收口面)。
   #   3) 写路由含 DELETE(断开连接):同样是写端点,与 POST 同规——跨站页面
   #      可借宿主全开的 preflight 发出 cross-site DELETE,CSRF 一并拦截。
-  # 注：同源比对按 host 维度（剥端口后缀）进行。
+  # 注：同源为完整 origin 比对（scheme+host+port）——只比 host 挡不住本机
+  #     异端口页面（localhost:8080 的恶意页可读 /status 拿 CSRF token 再
+  #     伪造写请求；宿主 CORS 全开与 loopback 免认证不补此防线）。
   LOOPBACK_HOSTS = /\A(127(?:\.\d{1,3}){3}|localhost|::1|0:0:0:0:0:0:0:1)\z/
 
   def guard_origin!
@@ -382,11 +384,40 @@ class Cgc2046Ext < Clacky::ApiExtension
       rescue URI::InvalidURIError
         parsed = nil
       end
-      same = parsed.is_a?(URI::HTTP) && parsed.host &&
-             parsed.host.downcase == host.strip.downcase.sub(/:\d+\z/, "")
-      unless same
+      unless same_origin?(parsed, host)
         json({ error: "cross-origin request rejected" }, status: 403)
       end
+    end
+  end
+
+  # 完整 origin 比对：scheme+host+port 逐项对齐请求实际协议与 Host 头（含端口）。
+  # 宿主 WEBrick 仅明文 http 监听（无 TLS 配置），请求实际协议恒为 http——
+  # https Origin 即跨源，403。host 去 IPv6 方括号后小写比对；端口取显式值，
+  # Host 缺端口按 http 默认 80 归一（URI 侧 http 缺省端口同样归一为 80）。
+  # 无 Origin 的本地 curl/宿主内部调用不进此方法，放行语义不变。
+  def same_origin?(parsed, host_header)
+    return false unless parsed.is_a?(URI::HTTP) && parsed.host && parsed.scheme == "http"
+
+    h_host, h_port = self.class.split_host_header(host_header)
+    return false if h_host.nil?
+
+    parsed.hostname.downcase == h_host &&
+      parsed.port == (h_port ? h_port.to_i : URI::HTTP.default_port)
+  end
+
+  # Host 头拆分为 [host, port]：IPv6 方括号内为完整 host，冒号后为端口；
+  # host 已小写，port 为字符串或 nil（Host 缺端口）；裸 IPv6（无括号）
+  # 按冒号切开必然比对失败——失败关闭，合法浏览器恒用方括号形态。
+  def self.split_host_header(host_header)
+    s = host_header.strip.downcase
+    if s.start_with?("[")
+      close = s.index("]")
+      return [nil, nil] unless close
+
+      rest = s[(close + 1)..]
+      [s[1...close], rest.start_with?(":") ? rest[1..] : nil]
+    else
+      s.split(":", 2)
     end
   end
 
