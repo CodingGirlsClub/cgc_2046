@@ -27,6 +27,10 @@ export interface ParticipationEnrollment {
   expiredAt: string | null;
   cancelledAt: string | null;
   insertedAt: string;
+  /** 目标 event/course 的开始时间（ISO8601；后端 Enrollment.startsAt，无则 null） */
+  startsAt?: string | null;
+  /** event venue 文本化（city+district 拼接，同 event_reminder 文案；否则 null） */
+  venue?: string | null;
 }
 
 export interface SponsorshipDelivery {
@@ -96,6 +100,8 @@ export const MY_ENROLLMENTS: TypedDocumentNode<
         expiredAt
         cancelledAt
         insertedAt
+        startsAt
+        venue
       }
       startKeyset
       endKeyset

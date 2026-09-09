@@ -543,7 +543,8 @@
     "enrolledMsg": "报名成功",
     "reconciling": "同步中…",
     "reconcileFailed": "未能同步最新状态，同步成功前暂不可重复提交。",
-    "resync": "重新同步"
+    "resync": "重新同步",
+    "viewInLearning": "在「我的学习」查看"
   },
   "apply": {
     "loading": "加载中…",
@@ -1093,7 +1094,9 @@
     "retry": "重试",
     "timeTbd": "时间待定",
     "venueTbd": "地点待定",
-    "redirectingToDefaultProfile": "正在跳转到默认工作区个人资料…"
+    "redirectingToDefaultProfile": "正在跳转到默认工作区个人资料…",
+    "addToGoogleCalendar": "添加到 Google 日历",
+    "downloadIcs": "下载 .ics 日历文件"
   },
   "participations": {
     "cancelConfirm": "取消后名额将即时释放，此操作不可恢复。",
@@ -1128,7 +1131,7 @@
     "confirming": "正在确认登录状态…",
     "breadcrumbHome": "工作台",
     "title": "我的参与",
-    "subtitle": "学习进度、报名与赞助意向。",
+    "subtitle": "报名与赞助意向。",
     "enrollmentsTitle": "我的报名",
     "enrollmentsDesc": "报名状态与名额变更会同步到这里。",
     "discoverEvents": "发现活动",
@@ -1136,16 +1139,17 @@
     "enrollLoadError": "报名记录加载失败，请刷新重试。",
     "activeSection": "进行中",
     "noActive": "暂无进行中的报名。",
-    "endedSection": "已结束",
-    "noEnded": "暂无已结束的报名。",
+    "endedSection": "已终止",
+    "noEnded": "暂无已终止的报名。",
     "loadMore": "加载更多",
     "sponsorshipsTitle": "我的赞助",
     "sponsorshipsDesc": "赞助意向状态与交付履约记录。",
     "sponsorLoadError": "赞助记录加载失败，请刷新重试。",
     "noSponsorships": "暂无赞助意向。",
-    "learningTitle": "我的学习",
-    "learningDesc": "按课程查看学习进度,点击展开 issue 详情。",
-    "learningLoadError": "学习进度加载失败,请刷新重试。"
+    "upcomingSection": "即将开始",
+    "pastSection": "已结束",
+    "startsAt": "开始时间：{time}",
+    "venue": "地点：{venue}"
   },
   "approvals": {
     "kindEnrollmentCourse": "课程报名",
@@ -1348,7 +1352,8 @@
     "createSubtitle": "创建后为草稿，发布后进入开放报名",
     "titleRequired": "标题（必填）",
     "visibility": "可见性",
-    "openCurriculum": "打开课程内容治理"
+    "openCurriculum": "打开课程内容治理",
+    "viewInLearning": "在「我的学习」查看"
   },
   "checkout": {
     "orderFailed": "下单失败，请重试",
@@ -1896,7 +1901,6 @@
     }
   },
   "learning": {
-    "tabLearning": "学习",
     "tabEnrollments": "报名",
     "tabSponsorships": "赞助",
     "navAria": "我的参与分区",
@@ -2055,6 +2059,7 @@
     "catalog": "发现课程",
     "courses": "我的课程",
     "loading": "正在加载课程…",
-    "error": "课程加载失败，请刷新重试。"
+    "error": "课程加载失败，请刷新重试。",
+    "myParticipations": "我的报名"
   }
 }
