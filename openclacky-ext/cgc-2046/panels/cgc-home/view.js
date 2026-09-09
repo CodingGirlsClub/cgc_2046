@@ -143,6 +143,7 @@
               '<div class="cgch-title-row">' +
                 '<h3 class="cgch-title">程序媛汇 2046</h3>' +
                 '<span class="cgch-pill" id="cgc-state-pill" data-testid="cgc-state-pill">…</span>' +
+                '<span id="cgc-version-badge" class="cgch-version-badge" data-testid="cgc-version-badge" hidden></span>' +
               '</div>' +
               '<p class="cgch-subtitle">连接 · 身份 · 功能目录</p>' +
             '</div>' +
@@ -150,6 +151,7 @@
           '<div class="cgch-header-actions">' +
             '<a id="cgc-open-web" class="cgch-btn cgch-btn-ghost" href="#" ' +
                'target="_blank" rel="noopener noreferrer">打开网站</a>' +
+            '<button id="cgc-upgrade" class="cgch-btn" type="button" data-testid="cgc-upgrade" hidden>升级</button>' +
             '<button id="cgc-disconnect" class="cgch-btn cgch-btn-danger" type="button" disabled>断开连接</button>' +
           '</div>' +
         '</header>' +
@@ -206,6 +208,9 @@
         disconnect(container);
       }
     });
+    container.querySelector("#cgc-upgrade").addEventListener("click", function () {
+      upgradeExtension(container);
+    });
     container.querySelector("#cgc-identity-wrap").addEventListener("change", function (e) {
       if (e.target && e.target.id === "cgc-ws-select") selectWorkspace(container, e.target.value);
     });
@@ -217,6 +222,103 @@
     loadRecentSessions();
     renderCatalog();
     refresh(container);
+    loadVersionBadge(container);
+    checkExtensionUpdate(container);
+  }
+
+  // ---- 版本徽标与市场升级(青狮工作台 /version + /api/store/extension 同款通道) ----
+  function compareVersions(left, right) {
+    const parse = (v) => {
+      const parts = String(v || "").replace(/^v/i, "").split("-", 2);
+      return { core: parts[0].split("."), pre: parts[1] || "" };
+    };
+    const a = parse(left), b = parse(right);
+    for (let i = 0; i < Math.max(a.core.length, b.core.length, 3); i++) {
+      const x = parseInt(a.core[i], 10) || 0, y = parseInt(b.core[i], 10) || 0;
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    if (a.pre === b.pre) return 0;
+    if (!a.pre) return 1;
+    if (!b.pre) return -1;
+    return a.pre > b.pre ? 1 : -1;
+  }
+
+  let installedVersion = "";
+
+  function loadVersionBadge(container) {
+    const badge = container.querySelector("#cgc-version-badge");
+    if (!badge) return;
+    fetch(API + "/version", { headers: { Accept: "application/json" } })
+      .then((r) => r.json())
+      .then((payload) => {
+        installedVersion = String(payload.version || "").replace(/^v/i, "");
+        badge.textContent = installedVersion ? "v" + installedVersion : "";
+        badge.hidden = !installedVersion;
+        badge.title = "CGC-2046 扩展当前版本 v" + installedVersion;
+      })
+      .catch(() => { /* 版本拉取失败不影响主流程 */ });
+  }
+
+  function checkExtensionUpdate(container) {
+    const btn = container.querySelector("#cgc-upgrade");
+    if (!btn || !btn.isConnected) return;
+    fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } })
+      .then((r) => r.json())
+      .then((payload) => {
+        const ext = payload && payload.extension;
+        if (!ext) return;
+        // 仅市场安装层提示升级(removable===true);local 开发层/未上架不提示
+        const marketInstall = ext.installed === true && ext.removable === true;
+        const latest = String(ext.version || "");
+        const installed = String(ext.installed_version || "") || installedVersion;
+        if (marketInstall && ext.download_url && latest && installed &&
+            compareVersions(latest, installed) > 0) {
+          btn.textContent = "升级 v" + latest;
+          btn.title = "CGC-2046 有新版本 v" + latest + ",当前 v" + installed;
+          btn.dataset.latest = latest;
+          btn.hidden = false;
+        } else {
+          btn.hidden = true;
+        }
+      })
+      .catch(() => { /* 市场查询失败静默(未上架/离线),按钮保持隐藏 */ });
+  }
+
+  async function upgradeExtension(container) {
+    const btn = container.querySelector("#cgc-upgrade");
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "升级中…";
+    try {
+      const res = await fetch("/api/store/extension?id=cgc-2046", { headers: { Accept: "application/json" } });
+      const payload = await res.json();
+      const ext = payload && payload.extension;
+      if (!ext || !ext.download_url) throw new Error("市场信息不可用");
+      const install = await fetch("/api/store/extension/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ download_url: ext.download_url, name: ext.name || "CGC-2046" }),
+      });
+      const ip = await install.json();
+      if (ip.ok === false) throw new Error(ip.error || "安装请求失败");
+      // 新版宿主异步安装:轮询 job 直到完成;旧版宿主 POST 内同步完成(无 job_id)
+      let job = ip.job_id;
+      while (job) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const s = await fetch("/api/store/extension/install/status?job_id=" + encodeURIComponent(job),
+          { headers: { Accept: "application/json" } });
+        const sp = await s.json();
+        if (sp.ok === false) throw new Error(sp.error || "安装失败");
+        if (sp.status === "done" || sp.done || sp.completed) { job = null; }
+      }
+      window.alert("CGC-2046 已升级,页面即将刷新。");
+      window.location.reload();
+    } catch (e) {
+      window.alert("升级失败:" + (e && e.message ? e.message : "未知错误") + ",可稍后重试。");
+      btn.disabled = false;
+      if (btn.dataset.latest) btn.textContent = "升级 v" + btn.dataset.latest;
+      else btn.hidden = true;
+    }
   }
 
   // ---- 状态 pill(header 右侧徽章) ----
@@ -755,8 +857,6 @@
     } catch (e) {
       configured = false;
       setPill("状态获取失败", "cgch-pill-off");
-      const sub2 = container.querySelector(".cgch-subtitle");
-      if (sub2) sub2.textContent = "连接 · 身份 · 功能目录";
       renderCatalog();
       if (identityEl) identityEl.style.display = "none";
       return;
@@ -769,13 +869,8 @@
     webUrl = Kit.safeWebUrl(st.web_url) || "";
 
     setPill(configured ? "MCP 已连接" : "未连接", configured ? "cgch-pill-on" : "cgch-pill-off");
-    // 原 workspace 面板状态卡信息(端点/Token)透出到副标题,重构不再丢失
-    const subtitleEl = container.querySelector(".cgch-subtitle");
-    if (subtitleEl) {
-      subtitleEl.textContent = configured
-        ? "端点 " + (st.url || "—") + (st.token_configured ? " · Token 已配置" : "")
-        : "连接 · 身份 · 功能目录";
-    }
+    // 副标题保持静态目录文案:端点 URL/Token 状态属敏感运维细节,不在 hub 透出
+    // (版本徽标独立渲染,见 loadVersion;连接状态由 pill 表达)
     const webEl = container.querySelector("#cgc-open-web");
     // 未连接态:按钮切换为「连接网站」——confirm 后创建会话并注入连接请求,
     // agent 按 onboarding「CDP 自动连接」SOP 自动完成(token 不进对话)
@@ -893,6 +988,14 @@
   border-color: color-mix(in srgb, var(--color-accent-primary) 24%, var(--color-border-primary));
 }
 .cgch-pill-off { color: var(--color-warning, #a16207); }
+.cgch-version-badge {
+  display: inline-flex; align-items: center; min-height: 18px; padding: 0 7px;
+  border-radius: 6px; font-size: 0.6875rem; font-weight: 650; line-height: 1;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-secondary);
+}
 .cgch-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 
 /* buttons(ghost 次级 + danger 幽灵红) */

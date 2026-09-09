@@ -99,6 +99,19 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("connect failed: #{e.message}", status: 500)
   end
 
+  # GET /api/ext/cgc-2046/version
+  # 本地安装版本(ext.yml manifest;青狮工作台 /version 同款通道)。
+  # 面板据此渲染版本徽标,并与宿主市场 API(/api/store/extension)的
+  # 最新版本比对驱动「升级」按钮。无敏感信息,只需 origin 门。
+  get "/version" do
+    guard_origin!
+    json(ok: true, version: self.class.meta["version"].to_s)
+  rescue Clacky::ApiExtension::Halt
+    raise
+  rescue StandardError => e
+    error!("version lookup failed: #{e.message}", status: 500)
+  end
+
   # GET /api/ext/cgc-2046/status
   # 返回配置状态；绝不返回 headers / token。
   get "/status" do
