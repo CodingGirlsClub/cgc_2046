@@ -387,6 +387,7 @@ export default function PublicOfferingDetailPage({
         ) : null}
         {kind === "event" ? (
           <AddToCalendar
+            eventId={offering.id}
             title={offering.title}
             startsAt={offering.startsAt ?? null}
             endsAt={offering.endsAt ?? null}
