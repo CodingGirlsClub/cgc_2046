@@ -1025,9 +1025,11 @@ export type Enrollment = {
   insertedAt: Scalars['DateTime']['output'];
   inviteBatchId?: Maybe<Scalars['ID']['output']>;
   rejectionReason?: Maybe<Scalars['String']['output']>;
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
   status: Scalars['String']['output'];
   targetTitle?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  venue?: Maybe<Scalars['String']['output']>;
   workflowRunId?: Maybe<Scalars['ID']['output']>;
   workspaceId: Scalars['ID']['output'];
 };

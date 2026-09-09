@@ -34,7 +34,10 @@ export default function LearningHomePage() {
             <h1>{t("title")}</h1>
             <p>{t("subtitle")}</p>
           </div>
-          <Link href="/courses" className="learning-home__catalog-link">{t("catalog")} <span>↗</span></Link>
+          <div className="flex items-center gap-4">
+            <Link href="/participations" className="learning-home__catalog-link">{t("myParticipations")} <span>↗</span></Link>
+            <Link href="/courses" className="learning-home__catalog-link">{t("catalog")} <span>↗</span></Link>
+          </div>
         </div>
         <section className="learning-home__surface" aria-label={t("courses")}>
           {loading ? <p className="learning-home__state">{t("loading")}</p> : null}

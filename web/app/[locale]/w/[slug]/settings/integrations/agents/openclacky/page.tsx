@@ -5,8 +5,8 @@
  *
  * 三步接入引导（常驻）：
  * ① 安装 OpenClacky（官方下载页 iframe embed）
- * ② 安装 CGC-2046 连接器扩展（OpenClacky 扩展市场）
- * ③ 生成连接 token（跳转 MCP 页签发）
+ * ② 安装 CGC-2046 连接器扩展（自托管 zip 一条命令）
+ * ③ 连接 CGC-2046（面板「连接网站」一键连接为主，手动 token 备用）
  *
  * 三张内容卡为共享组件（@/components/agent-connect-sections，
  * 首公里向导复用同一内容源，per plan first-mile-onboarding R4）。
@@ -21,7 +21,7 @@ import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
 import {
 	OpenclackyInstallCard,
 	OpenclackyExtensionCard,
-	OpenclackyTokenLinkCard,
+	OpenclackyConnectCard,
 } from "@/components/agent-connect-sections";
 
 export default function AgentsOpenclackyPage() {
@@ -58,7 +58,7 @@ export default function AgentsOpenclackyPage() {
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
 					<OpenclackyInstallCard stepNo="①" />
 					<OpenclackyExtensionCard stepNo="②" />
-					<OpenclackyTokenLinkCard slug={slug} stepNo="③" />
+					<OpenclackyConnectCard slug={slug} stepNo="③" />
 				</div>
 			</div>
 		</WorkspaceShell>

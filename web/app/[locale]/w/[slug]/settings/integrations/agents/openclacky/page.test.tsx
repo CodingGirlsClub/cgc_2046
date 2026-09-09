@@ -64,7 +64,7 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 			screen.getByRole("heading", { name: "② 安装 CGC-2046 连接器扩展" }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByRole("heading", { name: "③ 生成连接 token" }),
+			screen.getByRole("heading", { name: "③ 连接 CGC-2046" }),
 		).toBeInTheDocument();
 
 		// 官方下载 iframe
@@ -96,8 +96,18 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 		expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
 	});
 
-	it("生成 token 按钮指向 MCP 页", async () => {
+	it("③ 连接卡：一键连接为主（打开本机 OpenClacky），手动 token 为备用", async () => {
 		render(<AgentsOpenclackyPage />);
+
+		// 主路径：面板「连接网站」一键连接
+		expect(
+			screen.getByText(/在「程序媛汇 2046」面板点击「连接网站」/),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("link", { name: "打开 CGC OpenClacky" }),
+		).toHaveAttribute("href", "http://127.0.0.1:7070");
+		// 备用：手动 token（标注自动连接不可用时使用）
+		expect(screen.getByText(/自动连接不可用时走手动方式/)).toBeInTheDocument();
 
 		const tokenLink = screen.getByRole("link", { name: /生成 token/ });
 		expect(tokenLink).toHaveAttribute(

@@ -1700,7 +1700,31 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:expired_at, :datetime)
     field(:cancelled_at, :datetime)
     field(:inserted_at, non_null(:datetime))
-    field(:target_title, :string)
+    # calculation 字段（target_title/starts_at/venue）：手写 object
+    # （generate_object? false）不挂 AshGraphql 的 resolve_calculation，默认
+    # MapGet 只读原字段——alias 查询时值落在
+    # calculations[{:__ash_graphql_calculation__, alias}] 而原字段保持
+    # NotLoaded，DateTime 序列化直接崩溃（review F5，存量 target_title
+    # 同类一并修）。alias 感知 resolve：alias 时读 AshGraphql 的加载槽，
+    # 无 alias 时 calculations map 优先、原字段兜底（Ash 双写）。
+    field(:target_title, :string) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :target_title)}
+      end)
+    end
+
+    # 日程化旅程 P2a：目标供给物的开始时间与场地文本（无则 null）
+    field(:starts_at, :datetime) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :starts_at)}
+      end)
+    end
+
+    field(:venue, :string) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :venue)}
+      end)
+    end
   end
 
   # U7(#180/KD8):issue 级进度,旧 manual-steps 字段(completedManualSteps/
@@ -2613,6 +2637,17 @@ defmodule Cgc2046Web.GraphqlSchema do
     with {:ok, entity} <- fetch_offering_by_id(id, actor) do
       {:ok, Cgc2046.Offering.Readiness.evaluate(entity)}
     end
+  end
+
+  # enrollment calculation 字段的 alias 感知取值（手写 object 无 AshGraphql
+  # resolve_calculation）：alias 查询读 AshGraphql 加载槽；无 alias 读
+  # calculations map（Ash 加载后写入），原字段兜底。
+  defp enrollment_calc_value(parent, %{alias: nil}, field) do
+    Map.get(parent.calculations, field) || Map.get(parent, field)
+  end
+
+  defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
+    Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
   end
 
   # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
