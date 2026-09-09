@@ -448,6 +448,34 @@ class HandlerRequestTest < Minitest::Test
     assert_includes JSON.parse(halt.payload)["error"], "later slice"
   end
 
+  # ---- /activity:task 摘要先全文脱敏再截断(先截后抹的同型修复) ----
+
+  def test_activity_redacts_task_before_truncating_at_window_edge
+    # token 紧贴 120 字符窗口右缘:旧实现先截后抹,cgc_ 后被裁到 {8,} 阈值之下,
+    # token 前缀片段逃过正则泄进响应体;修复后先全文脱敏,窗口内只剩 <redacted> 残段
+    token = "cgc_YWyY0WdE_jLf8NkbhPRfAU-mz0xaOTZ4sHLS_5x8c2c"
+    task_text = "x" * 112 + token
+    messages = [
+      { role: "assistant", created_at: 1000.0, tool_calls: [
+        { id: "c1", function: { name: "invoke_skill",
+                                arguments: JSON.generate("skill_name" => "mcp:cgc-2046", "task" => task_text) } }
+      ] },
+      { role: "tool", tool_call_id: "c1", content: "Subagent executed successfully" }
+    ]
+    inst = build_with_sessions([{ messages: messages }])
+
+    halt = invoke(:get, "/activity", inst)
+
+    assert_equal 200, halt.status
+    activity = JSON.parse(halt.payload)["activity"]
+    assert_equal 1, activity.size
+    item = activity.first
+    assert_equal "ok", item["status"]
+    refute_includes item["task"], "cgc_YWyY", "窗口右缘裁断 token 后其前缀片段不得泄露"
+    assert_includes item["task"], "<redacte", "脱敏必须发生（<redacted> 自身可被窗口截断）"
+    assert_operator item["task"].length, :<=, 120
+  end
+
   private
 
   # 手动构造实例（契约 §8 先例：allocate + 塞 ivar，不需要真 WEBrick req）
@@ -455,6 +483,19 @@ class HandlerRequestTest < Minitest::Test
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new(body, {}, header))
     inst.instance_variable_set(:@http_server, registry && FakeServer.new(registry))
+    inst
+  end
+
+  # /activity 专用:fake session_manager 经 @http_server ivar 注入(对齐宿主
+  # ApiExtension#session_manager 的取值路径 @http_server.instance_variable_get)
+  def build_with_sessions(sessions)
+    sm = Object.new
+    sm.define_singleton_method(:all_sessions) { sessions }
+    server = Object.new
+    server.instance_variable_set(:@session_manager, sm)
+    inst = Cgc2046Ext.allocate
+    inst.instance_variable_set(:@req, FakeReq.new(nil, {}, write_headers))
+    inst.instance_variable_set(:@http_server, server)
     inst
   end
 
