@@ -222,6 +222,7 @@ function makeEl(tag) {
   const node = {
     tagName: tag, textContent: "", style: {},
     dataset: {}, className: "", listeners: {}, children: [], _html: "", _ids: {},
+    isConnected: true,   // 假 DOM 节点恒在树内(cgc-home 升级按钮检查的门槛)
     addEventListener(type, fn) { (node.listeners[type] = node.listeners[type] || []).push(fn); },
     setAttribute(k, v) { node.dataset[k] = v; },
     getAttribute(k) { return node.dataset[k] || null; },
@@ -395,6 +396,8 @@ globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == nu
 // home disconnect 连接确认框(home_hub 场景驱动确认路径);alert 捕获失败提示
 globalThis.confirm = () => true;
 globalThis.alert = (m) => { (globalThis.__alerts = globalThis.__alerts || []).push(String(m)); };
+// home 升级成功后 window.location.reload() 刷新页;harness 记数替代真实刷新
+globalThis.location = { reload: () => { globalThis.__reloaded = (globalThis.__reloaded || 0) + 1; } };
 // view.js 用宿主(Chromium)原生的 CSS.escape 拼 data-body 属性选择器;Node 无
 // CSS 对象,按 CSSOM serialize-an-identifier 复刻:控制符与首字符数字十六进制
 // 转义(带尾随空格),其余 ASCII 非白名单字符加反斜杠,U+0000 → U+FFFD
@@ -589,11 +592,28 @@ globalThis.fetch = async (url, opts) => {
     } }) };
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
-  if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed") {
+  if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed" ||
+      scenario === "home_upgrade") {
     if (path === "/api/ext/cgc-2046/version") {
-      // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走宿主市场 API,
-      // harness 不 stub /api/store → 查询失败静默,按钮保持隐藏)
+      // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走扩展自有 /update_info,
+      // 除 home_upgrade 外 harness 不 stub → 查询失败静默,按钮保持隐藏)
       return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+    }
+    // home_upgrade:自托管升级通道全链——update_info 报新版 → 点击升级 →
+    // 宿主 install(任意 download_url) → job 轮询 done
+    if (scenario === "home_upgrade" && path === "/api/ext/cgc-2046/update_info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true,
+        current_version: "0.1.0", latest_version: "0.2.0",
+        download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        update_available: true }) };
+    }
+    if (scenario === "home_upgrade" && path === "/api/store/extension/install" &&
+        opts && opts.method === "POST") {
+      globalThis.__installBody = JSON.parse(String(opts.body || "{}"));
+      return { ok: true, status: 200, json: async () => ({ ok: true, job_id: "job-up1" }) };
+    }
+    if (scenario === "home_upgrade" && path === "/api/store/extension/install/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, status: "done" }) };
     }
     if (path === "/api/ext/cgc-2046/status") {
       return { ok: true, status: 200, json: async () => (scenario === "home_unconnected"
@@ -1313,7 +1333,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       pill_connected: pillText.indexOf("已连接") >= 0,
       version_badge_shown: bootHtml.indexOf('data-testid="cgc-version-badge"') >= 0 && badgeText === "v0.1.0",
       endpoint_not_leaked_in_subtitle: bootHtml.indexOf("端点 ") < 0 && bootHtml.indexOf("Token 已配置") < 0,
-      upgrade_quiet_without_market: bootHtml.indexOf("升级 v") < 0 && bootHtml.indexOf("升级中") < 0,
+      upgrade_quiet_without_update_info: bootHtml.indexOf("升级 v") < 0 && bootHtml.indexOf("升级中") < 0,
       nav_mount_top: !!(globalThis.__mounted && globalThis.__mounted.slot === "sidebar.nav.top" &&
         globalThis.__mounted.opts && globalThis.__mounted.opts.workspace === "cgc"),
       admin_card_rendered: bootHtml.indexOf('data-catalog="wsadmin"') >= 0 && bootHtml.indexOf("工作台管理") >= 0,
@@ -1349,6 +1369,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + bootHtml.slice(0, 800));
       console.error("pill: " + pillText + " | prompted: " + (globalThis.__prompted || "") + " | toasts: " + JSON.stringify(globalThis.__toasts || []));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // home_upgrade:自托管升级通道(update_info 报新版 → 按钮显示 → 点击走
+  // update_info 取 download_url → POST 宿主 install → 轮询 done → 提示并刷新)
+  if (scenario === "home_upgrade") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);   // boot:status/version/update_info 全部就位
+
+    const btn = container.querySelector("#cgc-upgrade");
+    const buttonShown = !!(btn && btn.hidden === false && btn.textContent.indexOf("升级 v0.2.0") >= 0);
+    ((btn && btn.listeners.click) || []).forEach(function (fn) { fn(); });
+    await sleep(1200);  // 安装轮询 setTimeout(1000) 后 status done
+
+    const checks = {
+      upgrade_button_shown: buttonShown,
+      install_posted_self_hosted_url: !!(globalThis.__installBody &&
+        globalThis.__installBody.download_url === "https://api.codingirlsclub.com/ext/cgc-2046.zip" &&
+        globalThis.__installBody.name === "CGC-2046"),
+      upgrade_alerted: (globalThis.__alerts || []).some(function (t) { return t.indexOf("已升级") >= 0; }),
+      page_reloaded: (globalThis.__reloaded || 0) >= 1,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("installBody: " + JSON.stringify(globalThis.__installBody || null) +
+        " | alerts: " + JSON.stringify(globalThis.__alerts || []));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
