@@ -1684,8 +1684,8 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
   describe "PrepGate 纯函数" do
     test "无内容 / 临时标题 / 空 goals / 空 issues / 形状非法逐条报违规" do
-      course = %Course{provisional_title: false}
-      provisional = %Course{provisional_title: true}
+      course = %Course{provisional_title: false, slug: "c-gate"}
+      provisional = %Course{provisional_title: true, slug: "c-gate"}
 
       valid_issue = %{
         "id" => "i1",
@@ -1735,8 +1735,44 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert %{passed: true, violations: []} = PrepGate.check(course, output)
     end
 
+    test "slug 门禁：空 slug / 非法格式报违规，合法 slug 放行（发布后锁定，draft 期是唯一窗口）" do
+      valid_issue = %{
+        "id" => "i1",
+        "kind" => "handwork",
+        "title" => "卡",
+        "story" => %{"checklist" => [%{"id" => "c1", "text" => "项"}]},
+        "objectives" => [
+          %{"id" => "o1", "title" => "单元一", "rubric" => [%{"id" => "r1", "text" => "达标"}]}
+        ]
+      }
+
+      output = %Output{data: %{"goals" => ["目标"], "issues" => [valid_issue]}}
+
+      # slug 为空（存量课曾以 null 一路发布到 open）→ 拦截
+      assert %{passed: false, violations: [nil_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: nil}, output)
+
+      assert nil_slug_msg =~ "slug 为空"
+
+      # slug 空串 → 同拦截
+      assert %{passed: false, violations: [blank_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: ""}, output)
+
+      assert blank_slug_msg =~ "slug 为空"
+
+      # 非法格式（大写/斜杠）→ 拦截
+      assert %{passed: false, violations: [bad_slug_msg]} =
+               PrepGate.check(%Course{provisional_title: false, slug: "Bad/Slug"}, output)
+
+      assert bad_slug_msg =~ "slug 格式非法"
+
+      # 合法 slug → 通过（同 fixture 其余项合规）
+      assert %{passed: true, violations: []} =
+               PrepGate.check(%Course{provisional_title: false, slug: "grade-8-physics"}, output)
+    end
+
     test "S6 objectives 门禁：v1-only 草稿 / 全部选修 / 先修成环 / 先修引用不存在逐条报违规" do
-      course = %Course{provisional_title: false}
+      course = %Course{provisional_title: false, slug: "c-gate"}
 
       v1_issue = %{
         "id" => "i1",
@@ -1803,7 +1839,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     end
 
     test "材料协议违规复用 Content.material_violations 报告（位置路径 + 错误码，H3/H4）" do
-      course = %Course{provisional_title: false}
+      course = %Course{provisional_title: false, slug: "c-gate"}
 
       issue = %{
         "id" => "i1",
