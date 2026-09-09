@@ -10,11 +10,14 @@ import { useTranslations } from "next-intl";
 import { downloadIcs, googleCalendarUrl } from "@/lib/calendar";
 
 export default function AddToCalendar({
+  eventId,
   title,
   startsAt,
   endsAt,
   venue,
 }: {
+  /** offering 稳定 ID——ICS UID 身份来源（review F2） */
+  eventId: string;
   title: string;
   startsAt: string | null | undefined;
   endsAt?: string | null;
@@ -22,7 +25,7 @@ export default function AddToCalendar({
 }) {
   const t = useTranslations("common");
   if (!startsAt) return null;
-  const input = { title, startsAt, endsAt, venue };
+  const input = { id: eventId, title, startsAt, endsAt, venue };
   return (
     <div className="flex flex-wrap items-center gap-3" data-testid="add-to-calendar">
       <a

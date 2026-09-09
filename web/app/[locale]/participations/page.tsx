@@ -342,8 +342,15 @@ export default function ParticipationsPage() {
   const sponsorshipRows = sponsorshipPage?.results ?? [];
   // P2a 时间感知分组：即将开始（startsAt 未来，升序）/ 进行中 / 已结束（时间
   // 已过但状态仍活跃）/ 终态组（rejected/expired/cancelled）。
-  // 渲染期时间快照（react-hooks/purity；仓内惰性初始化同款）
-  const [nowMs] = useState(() => Date.now());
+  // 分组时钟每分钟推进（review F1：纯挂载快照永不更新，活动开始点跨界后
+  // 仍错误归组）——approval-chip/payment-checkout-dialog 同款 interval
+  // 模式：跨界后至多 1 分钟自动重分组；render 期不取时钟
+  // （react-hooks/purity），interval 回调属仓内合规范例。
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const {
     upcoming: upcomingEnrollments,
     active: activeEnrollments,
@@ -450,8 +457,13 @@ export default function ParticipationsPage() {
   const tab: "enrollments" | "sponsorships" =
     tabParam === "sponsorships" ? "sponsorships" : "enrollments";
   useEffect(() => {
-    if (tabParam === "learning") router.replace("/learning");
-  }, [tabParam, router]);
+    // 已登录才迁移旧学习链接（review F4）：未登录走下方登录守卫且 next
+    // 指向 /learning，避免 AuthProvider 首帧 replace 直达匿名 /learning
+    // 落到「加载失败」、丢失登录接续。
+    if (tabParam === "learning" && confirmed && authed) {
+      router.replace("/learning");
+    }
+  }, [tabParam, router, confirmed, authed]);
 
   if (!confirmed) {
     return (
@@ -463,7 +475,8 @@ export default function ParticipationsPage() {
     );
   }
   if (!authed) {
-    router.replace(`/login?next=${encodeURIComponent("/participations")}`);
+    const next = tabParam === "learning" ? "/learning" : "/participations";
+    router.replace(`/login?next=${encodeURIComponent(next)}`);
     return null;
   }
 

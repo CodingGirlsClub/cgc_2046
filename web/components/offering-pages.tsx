@@ -1039,6 +1039,7 @@ export function OfferingDetailPage({
         ) : null}
         {kind === "event" ? (
           <AddToCalendar
+            eventId={offering.id}
             title={offering.title}
             startsAt={offering.startsAt ?? null}
             endsAt={offering.endsAt ?? null}

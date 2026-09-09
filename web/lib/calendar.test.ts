@@ -7,6 +7,7 @@ import {
 } from "./calendar";
 
 const BASE = {
+	id: "event-uuid-1",
 	title: "教研分享会",
 	startsAt: "2026-10-01T02:00:00.000Z",
 	endsAt: "2026-10-01T04:00:00.000Z",
@@ -28,7 +29,7 @@ describe("googleCalendarUrl（P1a 添加日历）", () => {
 
 	it("无 endsAt 按开始后 1 小时兜底；无 venue/details 不带对应参数", () => {
 		const params = new URL(
-			googleCalendarUrl({ title: "Meet & Greet, 第 2 期", startsAt: BASE.startsAt }),
+			googleCalendarUrl({ id: "e2", title: "Meet & Greet, 第 2 期", startsAt: BASE.startsAt }),
 		).searchParams;
 		expect(params.get("dates")).toBe("20261001T020000Z/20261001T030000Z");
 		expect(params.get("text")).toBe("Meet & Greet, 第 2 期");
@@ -63,6 +64,7 @@ describe("buildIcs（P1a .ics 下载内容）", () => {
 	it("转义 SUMMARY/LOCATION 中的逗号、分号、反斜杠与换行", () => {
 		const ics = buildIcs(
 			{
+				id: "e3",
 				title: "A,B;C\\D\nE",
 				startsAt: BASE.startsAt,
 				venue: "X,Y",
@@ -76,16 +78,47 @@ describe("buildIcs（P1a .ics 下载内容）", () => {
 	});
 
 	it("无 endsAt 兜底 1 小时；无 venue/details 不输出对应行", () => {
-		const ics = buildIcs({ title: "t", startsAt: BASE.startsAt });
+		const ics = buildIcs({ id: "e4", title: "t", startsAt: BASE.startsAt });
 		expect(ics).toContain("DTEND:20261001T030000Z");
 		expect(ics).not.toContain("LOCATION:");
 		expect(ics).not.toContain("DESCRIPTION:");
+	});
+
+	it("UID 用稳定活动 ID：同名同时间两个活动 UID 不同；改期 UID 不变（review F2）", () => {
+		const sameMoment = { title: BASE.title, startsAt: BASE.startsAt };
+		const first = buildIcs({ ...sameMoment, id: "event-a" });
+		const second = buildIcs({ ...sameMoment, id: "event-b" });
+		expect(first).toContain("UID:cgc-event-a@cgc2046");
+		expect(second).toContain("UID:cgc-event-b@cgc2046");
+
+		// 同一活动改期/改名 → UID 保持（日历可更新原事件而非新建）
+		const rescheduled = buildIcs({
+			id: "event-a",
+			title: "改名后的活动",
+			startsAt: "2026-11-01T02:00:00.000Z",
+		});
+		expect(rescheduled).toContain("UID:cgc-event-a@cgc2046");
+	});
+
+	it("裸 CR 与 CRLF 一并折叠为 \\n 字面量（review F3：中间回车不进 ICS 文本）", () => {
+		const ics = buildIcs({
+			id: "e5",
+			title: "A\rB",
+			startsAt: BASE.startsAt,
+			venue: "X\r\nY",
+			details: "line1\rline2",
+		});
+		expect(ics).toContain("SUMMARY:A\\nB");
+		expect(ics).toContain("LOCATION:X\\nY");
+		expect(ics).toContain("DESCRIPTION:line1\\nline2");
+		// 转义后除行尾 CRLF 外不允许残留任何 CR
+		expect(ics.replace(/\r\n/g, "")).not.toContain("\r");
 	});
 });
 
 describe("escapeIcsText", () => {
 	it("按 RFC5545 转义顺序处理（先反斜杠）", () => {
-		expect(escapeIcsText("a\\b,c;d\ne")).toBe("a\\\\b\\,c\\;d\\ne");
+		expect(escapeIcsText("a\\b,c;d\ne\rf")).toBe("a\\\\b\\,c\\;d\\ne\\nf");
 	});
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import ParticipationsPage, { splitEnrollments } from "./page";
 import {
@@ -180,7 +180,50 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		const past = screen.getByTestId("past-section");
 		expect(past.querySelector('[data-testid="enrollment-enr-past"]')).not.toBeNull();
 		const activeHead = screen.getByText("进行中").parentElement!;
+
 		expect(activeHead.querySelector('[data-testid="enrollment-enr-past"]')).toBeNull();
+	});
+	it("未登录的旧 ?tab=learning 链接 → 登录页且 next 指向 /learning（review F4）", () => {
+		useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
+		mockQuery();
+		tabState.tab = "learning";
+		render(<ParticipationsPage />);
+		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Flearning");
+		expect(router.replace).not.toHaveBeenCalledWith("/learning");
+	});
+
+	it("P2a 分组时钟每分钟推进：跨界活动自动移入「已结束」（review F1）", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-10-01T09:00:00Z"));
+			const crossing = {
+				...ENROLLMENT,
+				id: "enr-cross",
+				status: "confirmed" as const,
+				startsAt: "2026-10-01T10:00:00Z",
+			};
+			mockQuery({ enrollments: [crossing] });
+			render(<ParticipationsPage />);
+			expect(
+				screen
+					.getByTestId("upcoming-section")
+					.querySelector('[data-testid="enrollment-enr-cross"]'),
+			).not.toBeNull();
+
+			// 时间推进到活动开始之后；分组时钟下一拍（60s interval）自动重分组
+			vi.setSystemTime(new Date("2026-10-01T11:00:00Z"));
+			act(() => {
+				vi.advanceTimersByTime(60_000);
+			});
+
+			expect(
+				screen
+					.getByTestId("past-section")
+					.querySelector('[data-testid="enrollment-enr-cross"]'),
+			).not.toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("confirmed 课程报名 → 「进入课程」直达内容页（P1-4）", () => {

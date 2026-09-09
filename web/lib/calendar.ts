@@ -5,6 +5,9 @@
  */
 
 export interface CalendarEventInput {
+  /** 活动/课程稳定 ID（offering UUID）——ICS UID 身份来源；同名同时间的
+   * 两个活动不得生成同 UID，改期/改名不得变更 UID（review F2） */
+  id: string;
   title: string;
   /** 开始时间（ISO8601） */
   startsAt: string;
@@ -49,7 +52,7 @@ export function escapeIcsText(value: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
-    .replace(/\r?\n/g, "\\n");
+    .replace(/\r\n|\r|\n/g, "\\n");
 }
 
 /** 单事件 VCALENDAR 文本（CRLF 行尾；`now` 可注入以稳定 DTSTAMP） */
@@ -63,7 +66,7 @@ export function buildIcs(
     "VERSION:2.0",
     "PRODID:-//CodingGirlsClub//CGC 2046//ZH",
     "BEGIN:VEVENT",
-    `UID:cgc-${start.getTime()}-${escapeIcsText(input.title)}@cgc2046`,
+    `UID:cgc-${input.id}@cgc2046`,
     `DTSTAMP:${formatUtcBasic(now)}`,
     `DTSTART:${formatUtcBasic(start)}`,
     `DTEND:${formatUtcBasic(end)}`,
