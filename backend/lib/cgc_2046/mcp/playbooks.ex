@@ -220,8 +220,9 @@ defmodule Cgc2046.Mcp.Playbooks do
   11. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
 
   确认流纪律:上述写操作（除 create_course 与 create_event）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
-  先把 summary 复述给用户、明确征得同意后再调 confirm_operation(pending_id);用户反悔则
-  cancel_operation(pending_id);未经确认不落库。确认成功后若返回明文凭证(如 invitation_token),
+  先把 summary 复述给用户,再用宿主内置 ask_user 弹可点击卡片（选项 确认执行/取消;多个 pending 则每个 pending 一个 question）让用户点击选择:
+  点「确认执行」后调 confirm_operation(pending_id);点「取消」或反悔则 cancel_operation(pending_id);
+  ask_user 结果出现 auto_reply（无人在场）一律 cancel_operation。未经确认不落库。确认成功后若返回明文凭证(如 invitation_token),
   只展示一次并提醒用户保存,不主动写进额外文件或日志。
 
   纪律:
@@ -238,8 +239,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   工作面（admin_ 前缀平台治理工具族，is_platform_admin 全局标记专属，无工作台作用域）:
 
   1. 待办面:admin_list_workspace_applications(status 默认 pending) 查看工作台创建申请;admin_list_users(search) 查用户;admin_list_workspaces(search) 查工作台（各列表封顶 50 条，按创建时间倒序）;
-  2. 检查详情:从列表拿 application_id / user_id / workspace_id 后,先向用户复述目标对象再进入写操作;不编造标识;
-  3. 治理写（全部走 two-tool 确认流——第一次调用不落库,返回 needs_confirmation + pending_id + summary;先向用户展示摘要、明确同意后才调 confirm_operation(pending_id),用户反悔则 cancel_operation(pending_id)）:
+  3. 治理写（全部走 two-tool 确认流——第一次调用不落库,返回 needs_confirmation + pending_id + summary;先向用户展示摘要,再用宿主内置 ask_user 弹可点击卡片（选项 确认执行/取消;多个 pending 则每个 pending 一个 question）让用户点击选择:点「确认执行」后调 confirm_operation(pending_id),点「取消」或反悔则 cancel_operation(pending_id);ask_user 结果出现 auto_reply（无人在场）一律 cancel_operation）:
      - admin_approve_workspace_application(application_id) 批准申请——自动创建 workspace 且申请人入座 Owner;
      - admin_reject_workspace_application(application_id, rejection_reason?) 拒绝申请（原因会展示给申请人）;
      - admin_create_workspace(name, slug?, owner_user_id 或 owner_email) 主动创建并指定 Owner——owner_user_id 为现有用户直接入座;owner_email 路径发 pending-owner 邀请（7 天有效）,confirm 结果里的一次性明文 token 由管理员带外交付给目标邮箱,不主动写进额外文件或日志;
