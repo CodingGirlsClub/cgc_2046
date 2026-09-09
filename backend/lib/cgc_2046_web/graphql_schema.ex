@@ -1701,6 +1701,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:cancelled_at, :datetime)
     field(:inserted_at, non_null(:datetime))
     field(:target_title, :string)
+    # 日程化旅程 P2a：目标供给物的开始时间与场地文本（无则 null）
+    field(:starts_at, :datetime)
+    field(:venue, :string)
   end
 
   # U7(#180/KD8):issue 级进度,旧 manual-steps 字段(completedManualSteps/

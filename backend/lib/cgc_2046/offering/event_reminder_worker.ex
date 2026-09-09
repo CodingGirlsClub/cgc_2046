@@ -32,6 +32,7 @@ defmodule Cgc2046.Offering.EventReminderWorker do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
+  alias Cgc2046.Events.Venue
   alias Cgc2046.Notifications.Fanout
 
   @reminder_window_hours 24
@@ -104,17 +105,9 @@ defmodule Cgc2046.Offering.EventReminderWorker do
     %{"title" => entity.title, "starts_at" => DateTime.to_iso8601(entity.starts_at)}
   end
 
+  # Venue.text 空拼接返 nil；订阅消息渠道契约要求 data 值全字符串，兜 ""。
   defp maybe_put_venue(data, %Event{venue: venue}) when is_map(venue),
-    do: Map.put(data, "venue", venue_text(venue))
+    do: Map.put(data, "venue", Venue.text(venue) || "")
 
   defp maybe_put_venue(data, _entity), do: data
-
-  # thing ≤20 字由渲染层截断；city+district 中文直接拼接（恰四键已由
-  # Events.Venue 校验，防御性 Map.get 兜 nil 剔除）
-  defp venue_text(venue) do
-    ["city", "district"]
-    |> Enum.map(&venue[&1])
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join("")
-  end
 end

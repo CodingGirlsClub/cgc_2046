@@ -238,6 +238,135 @@ defmodule Cgc2046.Admission.EnrollmentTest do
              )
   end
 
+  describe "日程化字段计算 starts_at/venue（P2a）" do
+    test "event/course 混合多报名逐行取值正确，且批量加载无 N+1" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("enrollment-schedule-batch")
+
+      starts_at = DateTime.utc_now() |> DateTime.add(3, :day) |> DateTime.truncate(:second)
+
+      venue = %{
+        "country" => "中国",
+        "province" => "浙江省",
+        "city" => "杭州市",
+        "district" => "西湖区"
+      }
+
+      event_a =
+        EventFixtures.create_event(workspace, admin, %{starts_at: starts_at, venue: venue})
+
+      event_b =
+        EventFixtures.create_event(workspace, admin, %{starts_at: starts_at, venue: venue})
+
+      event_c = EventFixtures.create_event(workspace, admin)
+      course = EventFixtures.create_course(workspace, admin, %{starts_at: starts_at})
+
+      {:ok, e_a} = create_enrollment(event_a, learner)
+      {:ok, e_b} = create_enrollment(event_b, learner)
+      {:ok, e_c} = create_enrollment(event_c, learner)
+      {:ok, e_course} = create_enrollment(course, learner)
+
+      # repo query telemetry：仅认领本 tenant 参数的查询（async 套件下与其他
+      # 测试的 events/courses 查询隔离），布置在 setup 之后只观测被测读取。
+      test_pid = self()
+      handler_id = "schedule-batch-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:cgc2046, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:repo_query, metadata.query, metadata.params})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      %{results: mine} =
+        Enrollment
+        |> Ash.Query.for_read(:my_enrollments, %{}, actor: learner)
+        |> Ash.Query.load([:starts_at, :venue])
+        |> Ash.read!()
+
+      by_id = Map.new(mine, &{&1.id, &1})
+
+      assert by_id[e_a.id].starts_at == starts_at
+      assert by_id[e_a.id].venue == "杭州市西湖区"
+      assert by_id[e_b.id].starts_at == starts_at
+      assert by_id[e_b.id].venue == "杭州市西湖区"
+      assert is_nil(by_id[e_c.id].starts_at)
+      assert is_nil(by_id[e_c.id].venue)
+      assert by_id[e_course.id].starts_at == starts_at
+      assert is_nil(by_id[e_course.id].venue)
+
+      # N+1 回归面：4 条报名（3 event + 1 course）下本 tenant 的 events/courses
+      # 批量读各恰好一次；若退化为逐条读取此处随条数变红。
+      tenant_binary = Ecto.UUID.dump!(workspace.id)
+
+      offering_queries =
+        collect_repo_queries()
+        |> Enum.filter(fn {query, params} ->
+          (query =~ ~s(FROM "events") or query =~ ~s(FROM "courses")) and
+            tenant_binary in params
+        end)
+
+      assert length(offering_queries) == 2
+    end
+
+    test "starts_at 与 venue 共用一次 schedule fetch（双字段同载不重复查询）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("enrollment-schedule-shared")
+
+      starts_at = DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.truncate(:second)
+      event = EventFixtures.create_event(workspace, admin, %{starts_at: starts_at})
+      {:ok, enrollment} = create_enrollment(event, learner)
+
+      test_pid = self()
+      handler_id = "schedule-shared-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:cgc2046, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          send(test_pid, {:repo_query, metadata.query, metadata.params})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      [loaded] =
+        Enrollment
+        |> Ash.Query.filter(id == ^enrollment.id)
+        |> Ash.Query.load([:starts_at, :venue])
+        |> Ash.read!(authorize?: false)
+
+      assert loaded.starts_at == starts_at
+      assert is_nil(loaded.venue)
+
+      tenant_binary = Ecto.UUID.dump!(workspace.id)
+
+      events_queries =
+        collect_repo_queries()
+        |> Enum.count(fn {query, params} ->
+          query =~ ~s(FROM "events") and tenant_binary in params
+        end)
+
+      assert events_queries == 1
+    end
+  end
+
+  # 读干 repo_query 消息（被测读取同步完成后消息已全部入箱）
+  defp collect_repo_queries(acc \\ []) do
+    receive do
+      {:repo_query, query, params} -> collect_repo_queries([{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   describe "信号发布（enrollment.submitted / completed）" do
     test "request 策略 create 发 submitted（status=pending），不发 completed（AE1）" do
       admin = Fixtures.platform_admin()
