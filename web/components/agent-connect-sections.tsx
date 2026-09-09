@@ -43,7 +43,8 @@ export function OpenclackyInstallCard({ stepNo }: { stepNo?: string }) {
 	);
 }
 
-/** 说明 CGC OpenClacky 已内置 CGC-2046 连接器扩展 */
+/** CGC-2046 连接器扩展安装卡：CGC 一键安装包内置（跳过）或扩展市场搜索安装
+    （扩展已发布公共市场,plan cgc-2046-openclacky-extension-refactor 2026-09-06 决议） */
 export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
 	return (
@@ -62,12 +63,13 @@ export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 					listStyle: "decimal",
 				}}
 			>
+				<li style={{ lineHeight: "20px" }}>{t("openMarket")}</li>
 				<li style={{ lineHeight: "20px" }}>
-					{t("installCgcServer")}
+					{t.rich("searchExtension", {
+						code: (chunks) => <code>{chunks}</code>,
+					})}
 				</li>
-				<li style={{ lineHeight: "20px" }}>
-					{t("bundledExtension")}
-				</li>
+				<li style={{ lineHeight: "20px" }}>{t("installExtension")}</li>
 			</ol>
 			<p className="connect-step-card__desc">
 				{t("installedPanel")}
