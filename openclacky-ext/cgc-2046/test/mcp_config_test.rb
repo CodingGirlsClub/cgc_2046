@@ -146,7 +146,7 @@ class McpConfigTest < Minitest::Test
     assert_equal SPEC, result[:data]["mcpServers"]["cgc-2046"]
   end
 
-  # ---- persist / load_text（写入加固：原子写 + 0600 + mode 保留）----
+  # ---- persist / load_text（写入加固：原子写 + 统一收紧 0600）----
 
   def test_load_text_returns_nil_when_missing
     Dir.mktmpdir do |dir|
@@ -173,7 +173,9 @@ class McpConfigTest < Minitest::Test
     end
   end
 
-  def test_persist_preserves_existing_file_mode
+  def test_persist_tightens_existing_0644_file_to_0600
+    # 安全修复：本扩展管理的 mcp.json 统一收紧 0600——重写既有文件不继承宽松
+    # mode，否则原 mcp.json 为 0644 时新 token 仍以 0644 落盘
     Dir.mktmpdir do |dir|
       path = File.join(dir, "mcp.json")
       File.write(path, "{}")
@@ -181,7 +183,7 @@ class McpConfigTest < Minitest::Test
 
       Cgc2046McpConfig.persist(path, { "a" => 1 })
 
-      assert_equal 0o644, File.stat(path).mode & 0o777, "重写既有文件不得改变原 mode"
+      assert_equal 0o600, File.stat(path).mode & 0o777, "重写既有 0644 文件必须收紧为 0600"
     end
   end
 
@@ -359,7 +361,7 @@ class McpConfigTest < Minitest::Test
       writes = events.select { |op, _| op == :write }
       refute_empty writes, "必须经 f.write 写入 tmp"
 
-      # 核心安全断言：内容写入瞬间 tmp 必须仍是创建时的 0600（即便最终 mode 是 0644）
+      # 核心安全断言：内容写入瞬间 tmp 必须仍是创建时的 0600
       writes.each do |_, mode_at_write|
         assert_equal 0o600, mode_at_write, "写入瞬间 tmp 必须保持 0600，不得先放宽权限再写内容"
       end
@@ -370,8 +372,8 @@ class McpConfigTest < Minitest::Test
       refute_nil chmod_at, "必须在 rename 前 chmod 定稿 tmp"
       assert_operator write_at, :<, chmod_at, "chmod 必须发生在内容写入之后"
 
-      # 最终语义不变：既有 0644 保留
-      assert_equal 0o644, File.stat(path).mode & 0o777
+      # 最终 mode：统一收紧 0600（重写既有 0644 不继承宽松权限）
+      assert_equal 0o600, File.stat(path).mode & 0o777
     end
   end
 
