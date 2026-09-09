@@ -14,7 +14,8 @@ defmodule Cgc2046.Mcp.Wrapper do
      `is_platform_admin` 全局标记——非平台管理员一律 Forbidden，无工作台作用域
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
-     （#228），取不到时落 nil；失败不阻塞响应，记 Logger）
+     （#228），取不到时落 nil；失败不阻塞响应，记 Logger）。params 经 Redact 脱敏 +
+     字节上限截断（P2 防审计放大）；forbidden 行只落截断元数据（`Redact.metadata_only/1`）
 
   鉴权立场随工具走（架构深化 C）：豁免声明 = 各工具模块 `use
   Anubis.Server.Component` 的 `meta:` opt，本模块经
@@ -247,7 +248,7 @@ defmodule Cgc2046.Mcp.Wrapper do
       %{
         user_id: actor.id,
         tool: tool_name,
-        params: Redact.call(tool_name, params || %{}),
+        params: audit_params(tool_name, params, status),
         result_status: status,
         error_message: error_message && String.slice(error_message, 0, 500),
         latency_ms: latency_ms,
@@ -265,6 +266,20 @@ defmodule Cgc2046.Mcp.Wrapper do
       {:error, error} ->
         Logger.error("[Mcp.Wrapper] ToolCallLog write failed for #{tool_name}: #{inspect(error)}")
         :ok
+    end
+  end
+
+  # 审计 params 组装（P2 防审计放大）：所有状态先经 Redact 脱敏 + 字节上限截断
+  # 存证；forbidden（被拒绝）调用进一步降为 metadata_only——只保留参数键 / 小
+  # 标量（workspace_id 等 JSONB 查询锚）/ 长度 / 截断标记，不落值内容。大体积
+  # 参数（如向管理工具提交 4MB 字符串）即使被拒也不再完整写审计。
+  defp audit_params(tool_name, params, status) do
+    redacted = Redact.call(tool_name, params || %{})
+
+    if status == :forbidden do
+      Redact.metadata_only(redacted)
+    else
+      redacted
     end
   end
 
