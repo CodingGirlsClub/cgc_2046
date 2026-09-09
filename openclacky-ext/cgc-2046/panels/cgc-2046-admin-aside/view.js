@@ -269,11 +269,14 @@
   }
 
   // 待办行 → 处理指令(台名前缀消歧:待办跨台聚合,agent 按名称切换上下文;
-  // 行只带语义,id 由 agent 调 list_my_tasks 自取)
+  // 行只带语义,id 由 agent 调 list_my_tasks 自取)。
+  // P2 安全边界:requester_name 是任意注册用户可控 UGC,不进指令本体——
+  // 无 context_title/title 时不带标题段,申请人由 agent 调 list_my_tasks 的
+  // 工具结果以数据身份(非指令特权位)呈现
   function taskPrompt(t) {
     const ws = t._ws_name ? "[" + oneLine(t._ws_name) + "] " : "";
-    const title = oneLine(t.context_title || t.title || t.requester_name || "");
-    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办：" + title +
+    const title = oneLine(t.context_title || t.title || "");
+    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办" + (title ? "：" + title : "") +
       "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。\n" + Kit.DATA_NOTE;
   }
 
