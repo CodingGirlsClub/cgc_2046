@@ -270,6 +270,58 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert is_nil(bare_row["startsAt"])
     assert is_nil(bare_row["venue"])
   end
+  test "myEnrollments 日程化字段支持 GraphQL alias（review F5：手写 object 无 resolver 时 alias 崩溃）" do
+    admin = Fixtures.platform_admin("my-enrollments-alias-admin")
+    workspace = Fixtures.create_workspace(admin)
+    learner = Fixtures.register_user("my-enrollments-alias-learner")
+
+    starts_at = DateTime.utc_now() |> DateTime.add(2, :day) |> DateTime.truncate(:second)
+
+    venue = %{
+      "country" => "中国",
+      "province" => "浙江省",
+      "city" => "杭州市",
+      "district" => "西湖区"
+    }
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        title: "alias 活动",
+        starts_at: starts_at,
+        venue: venue
+      })
+
+    _enrollment = create_enrollment(workspace, learner, %{event_id: event.id})
+
+    response =
+      graphql(
+        """
+        query {
+          myEnrollments(first: 1) {
+            results { when: startsAt where: venue title: targetTitle }
+          }
+        }
+        """,
+        sign_in_token(learner)
+      )
+
+    assert %{
+             "data" => %{
+               "myEnrollments" => %{
+                 "results" => [
+                   %{
+                     "when" => when_value,
+                     "where" => "杭州市西湖区",
+                     "title" => "alias 活动"
+                   }
+                 ]
+               }
+             }
+           } = response
+
+    assert when_value == DateTime.to_iso8601(starts_at)
+  end
+
 
   defp create_enrollment(workspace, user, attrs) do
     Enrollment
