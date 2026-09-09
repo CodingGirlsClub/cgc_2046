@@ -12,7 +12,8 @@
 //   - S5 教研流程状态区:prep_state / 生效策略 / 门禁违规 / 质量报告
 //
 // 安全红线:只渲染 loopback 透传数据,服务端字符串一律 escapeHtml;
-// 写端点(Content-Type + CSRF,403-on-CSRF 自愈)。
+// 写端点(Content-Type + CSRF,403-on-CSRF 自愈);注入指令的 UGC 字段一律
+// Kit.oneLine/safeId 中和,末尾带 Kit.DATA_NOTE(见共享骨架注释)。
 
 (() => {
   "use strict";
@@ -115,14 +116,22 @@
   // ---- 和教研助手共创(P1:创建 cgc-tutor 会话 + 注入教研指令) ----
   function coCreateWithTutor() {
     const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
-    const title = course.title || "当前课程";
+    const title = Kit.oneLine(course.title || "当前课程");
     const version = Number.isInteger(state.content && state.content.version) ? state.content.version : "无";
+    // id 非白名单形态(空格/换行/中文/引号等)不下发该参数——防伪造指令结构
+    const idParts = [];
+    const courseIdSafe = Kit.safeId(state.selectedCourseId);
+    const wsIdSafe = Kit.safeId(scopeOf());
+    if (courseIdSafe) idParts.push("course_id: " + courseIdSafe);
+    if (wsIdSafe) idParts.push("workspace_id: " + wsIdSafe);
+    idParts.push("当前草稿版本: " + version);
     const instruction = [
       "请作为教研助手与我共创课程《" + title + "》。",
-      "(course_id: " + state.selectedCourseId + ", workspace_id: " + scopeOf() + ", 当前草稿版本: " + version + ")",
+      "(" + idParts.join(", ") + ")",
       "请先 get_course_content 与 get_prep_status 读取现状,然后向我确认本次共创的目标",
       "(从课程定位/goals 开始渐进推进);每次修改经 save_course_content 保存并汇报变更摘要。",
-      "教研侧边栏会实时显示草稿,我会在对话里给你方向与反馈。"
+      "教研侧边栏会实时显示草稿,我会在对话里给你方向与反馈。",
+      Kit.DATA_NOTE
     ].join("\n");
     coCreateWithTutorInstruction(instruction);
   }
@@ -232,8 +241,14 @@
       const action = PREP_ACTIONS[current];
       if (!action) return;
       const course = state.courses.find(function (c) { return c.courseId === state.selectedCourseId; }) || {};
-      const instruction = "课程《" + (course.title || "") + "》(course_id: " + state.selectedCourseId +
-        ", workspace_id: " + scopeOf() + ")。" + action.instruction;
+      const idParts = [];
+      const courseIdSafe = Kit.safeId(state.selectedCourseId);
+      const wsIdSafe = Kit.safeId(scopeOf());
+      if (courseIdSafe) idParts.push("course_id: " + courseIdSafe);
+      if (wsIdSafe) idParts.push("workspace_id: " + wsIdSafe);
+      const instruction = "课程《" + Kit.oneLine(course.title || "") + "》" +
+        (idParts.length ? "(" + idParts.join(", ") + ")" : "") + "。" + action.instruction +
+        "\n" + Kit.DATA_NOTE;
       coCreateWithTutorInstruction(instruction);
     });
   }
