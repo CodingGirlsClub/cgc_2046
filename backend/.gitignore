@@ -25,6 +25,11 @@ erl_crash.dump
 # Private tutor playbook copied into release artifacts during deployment.
 /priv/playbooks/
 
+
+# 扩展自托管分发产物（deploy CI 在 docker build 前生成，见
+# .github/workflows/deploy.yml「Build extension distribution artifacts」）
+/priv/static/ext/
+
 # Ignore package tarball (built via "mix hex.build").
 cgc_2046-*.tar
 
