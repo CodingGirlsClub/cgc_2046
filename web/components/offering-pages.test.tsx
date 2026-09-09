@@ -1801,8 +1801,18 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
     fireEvent.click(screen.getByTestId("pricing-toggle"));
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
 
-    expect(await screen.findByTestId("pricing-disable-guard")).toBeInTheDocument();
-    expect(await screen.findByText(/已付 3 人不退款；待付 2 人将免费确认/)).toBeInTheDocument();
+    // 守卫文案要等 stats → paid → pending 三次顺序查询落定；CI 慢机 1s 默认
+    // 上限偶发不够（flaky），与 payments-management.test.tsx 同款放宽到 3s
+    expect(
+      await screen.findByTestId("pricing-disable-guard", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /已付 3 人不退款；待付 2 人将免费确认/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("pricing-guard-cancel"));
     expect(screen.queryByTestId("pricing-disable-guard")).not.toBeInTheDocument();
@@ -1848,7 +1858,11 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
 
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    const disclosure = await screen.findByTestId("cancel-refund-disclosure");
+    const disclosure = await screen.findByTestId(
+      "cancel-refund-disclosure",
+      {},
+      { timeout: 3000 },
+    );
     expect(disclosure).toHaveTextContent("5");
     expect(disclosure).toHaveTextContent("995.00");
   });
