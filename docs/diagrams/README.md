@@ -26,6 +26,7 @@
 > - **不要写 `sequenceDiagram` 关键字** —— 该版本会误判为 sequence 图并报错；直接写 `A->>B: msg` 自动检测即可。
 > - **component 场景用 `package` + `rectangle`**，不要用 `partition` + `rectangle`（会误判为 activity）。
 > - **activity 图用 `note right` / `note`**，不要用 `note bottom`。
+> - **activity 泳道图**：泳道名不含 `空格+/`（写 `|Owner/Admin|` 而非 `|Owner / Admin|`）；不支持 `== 阶段 ==` 分隔符，阶段分组用 `group 名称 { ... }`（大括号语法，旧式无括号会告警）；文件顶部连续 `|泳道|` 声明可固定泳道顺序。
 > - **participant 别名含空格/括号时加引号**：`participant "用户 OpenClacky（Agent）" as A`。
 
 ## 二、分类体系与业界实践对照
@@ -129,11 +130,12 @@
 | `key-routing-isolation.puml` | ✅ | 幂等三层与路由隔离：request_id + 业务唯一索引 + signal idempotency_key，承载 Postgres/Redis | 报名/赞助详细设计 §6.4 + POC-2 |
 | `auth-tenant-isolation.puml` | ✅ 新 | 横切概念：四种凭证模型 + **第五面 payments webhook（无 actor 渠道验签）**、全局 vs 租户资源（+Order/WebhookEvent/LearningRecord）、审计链路（+AdminActionLog waive/退款留痕、order.paid） | mcp/token.ex + policies + webhook controller + D5/D6/D9/D12/D13 |
 
-### L4 — 用户旅程（1 张）
+### L4 — 用户旅程（2 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `user-journeys.puml` | ✅ | 8 类角色旅程总览：J0 BYO 三步、报名、赞助、邀请、教研、学习、运营后台 | 用户旅程与Web功能清单 |
+| `user-journey-enrollment-learning.puml` | ✅ 新 | 报名→学习 journey 角色泳道现状（as-is）：createEnrollment 三分支 → 详情页/参与列表/学习页/回访全链路，断点①-⑦红标（详情页无出口、报名卡无入口、open 门锁死、run 缺失空态、阅读页死文案、无通知 deep link、双学习主页并列） | plans/2026-09-09-enrollment-success-journey-plan.md + 前端组件/后端 enrollment·learning 源码 |
 
 ## 四、图与文档的同步约定
 

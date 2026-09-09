@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import ParticipationsPage from "./page";
-import { MY_ENROLLMENTS, MY_LEARNING_RUNS, MY_SPONSORSHIPS } from "@/lib/graphql/participations";
+import {
+	MY_ENROLLMENTS,
+	MY_LEARNING_RUNS,
+	MY_SPONSORSHIPS,
+	type ParticipationEnrollment,
+} from "@/lib/graphql/participations";
 
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
@@ -25,7 +30,7 @@ vi.mock("@/lib/use-authed", () => ({ useAuthed }));
 vi.mock("@apollo/client/react", () => ({ useQuery }));
 vi.mock("@/lib/apollo-client", () => ({ client: { mutate } }));
 
-const ENROLLMENT = {
+const ENROLLMENT: ParticipationEnrollment = {
 	id: "enr-1",
 	status: "pending",
 	targetTitle: "教研分享会",
@@ -174,6 +179,28 @@ describe("/participations 我的参与", () => {
 			),
 		).toBeInTheDocument();
 		expect(screen.getByText("等待中")).toBeInTheDocument();
+	});
+
+	it("confirmed 课程报名 → 「进入课程」直达内容页（P1-4）", () => {
+		tabState.tab = "enrollments";
+		mockQuery({
+			enrollments: [
+				{
+					...ENROLLMENT,
+					id: "enr-course",
+					status: "confirmed",
+					targetTitle: "示例课程",
+					eventId: null,
+					courseId: "course-42",
+				},
+			],
+		});
+
+		render(<ParticipationsPage />);
+
+		const link = screen.getByTestId("enter-course-enr-course");
+		expect(link.getAttribute("href")).toContain("/learning/courses/course-42");
+		expect(link.textContent).toContain("进入课程");
 	});
 
 	it("未登录跳转登录页", () => {
