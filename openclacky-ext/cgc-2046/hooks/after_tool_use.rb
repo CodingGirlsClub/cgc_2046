@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（面板「最近活动」区）。
+# CGC-2046 扩展 hook：主 agent 每次调用 CGC MCP server 后推事件（管理/教研侧栏刷新闭环消费）。
 #
 # 事件: after_tool_use —— 宿主回调签名 (call, result, agent)
 #   （agent.rb: @hooks.trigger(:after_tool_use, call, result)，任何工具调用后触发）

@@ -52,6 +52,22 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes handler, 'get "/version"'
   end
 
+  # ---- 会话区 Tab 与活动区移除 ----
+
+  def test_home_panel_session_tabs_and_no_activity_section
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, 'data-tab="all"'
+    assert_includes view, 'data-tab="cgc-assistant"'
+    assert_includes view, 'data-tab="cgc-admin"'
+    assert_includes view, 'data-tab="cgc-tutor"'
+    assert_includes view, '"2046 助手"'
+    refute_includes view, 'id="cgc-activity"', "「最近活动」区已删除"
+    refute_includes view, "最近活动"
+    refute_includes view, "loadHistory", "活动历史回放已随活动区删除"
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    refute_includes handler, 'get "/activity"', "/activity 路由随活动区删除"
+  end
+
 
 
 
