@@ -107,6 +107,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:post, "/connect"]
     assert_includes routes, [:delete, "/connect"]
     assert_includes routes, [:get, "/status"]
+    assert_includes routes, [:get, "/version"]
     assert_includes routes, [:post, "/skills/sync"]
     # U9 课程面板数据面新增三路由(纯读透传)
     # U6 发现面板数据面新增两路由(公开浏览透传,无 workspace_id 硬要求)
@@ -123,7 +124,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/workspace/enrollments"]
     # P3 活动供给面新增一路由(list_workspace_events 透传)
     assert_includes routes, [:get, "/workspace/events"]
-    assert_equal 25, Cgc2046Ext.routes.size  # +/activity +/workspace/courses|orders|enrollments|events
+    assert_equal 26, Cgc2046Ext.routes.size  # +/activity +/workspace/courses|orders|enrollments|events +/version
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -398,6 +399,30 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # ---- version ----
+
+  def test_version_returns_manifest_version
+    with_meta({ "version" => "0.1.0" }) do
+      halt = invoke(:get, "/version", build)
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal true, payload["ok"]
+      assert_equal "0.1.0", payload["version"]
+    end
+  end
+
+  def test_version_matches_ext_yml
+    require "yaml"
+    manifest = YAML.safe_load_file(File.expand_path("../ext.yml", __dir__))
+
+    with_meta({ "version" => manifest["version"] }) do
+      halt = invoke(:get, "/version", build)
+
+      assert_equal manifest["version"], JSON.parse(halt.payload)["version"],
+        "路由版本必须与 ext.yml manifest 一致(面板徽标/升级判定的基准)"
+    end
+  end
   def test_status_returns_web_url_from_config
     with_meta({ "config" => { "web_url" => "http://localhost:3000" } }) do
       stub_fs(old_text: nil) do

@@ -34,6 +34,24 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes EXT_YML, "- id: cgc-2046-discovery"
   end
 
+  # ---- 版本徽标与升级:防状态信息复活,防升级通道删失 ----
+
+  def test_home_panel_no_endpoint_or_token_subtitle
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    refute_includes view, '"端点 "', "端点 URL 属敏感运维细节,不在 hub 副标题透出"
+    refute_includes view, "Token 已配置", "token 状态不在 hub 副标题透出"
+  end
+
+  def test_home_panel_version_badge_and_upgrade_channel
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, 'id="cgc-version-badge"'
+    assert_includes view, 'id="cgc-upgrade"'
+    assert_includes view, '/api/store/extension?id=cgc-2046'
+    assert_includes view, 'compareVersions'
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, 'get "/version"'
+  end
+
 
 
 
