@@ -155,6 +155,17 @@ class AfterToolUseHookTest < Minitest::Test
     assert_equal "ok", ev[:data][:status]
   end
 
+  def test_accepts_json_string_arguments_without_crash
+    # 宿主可能传入未 parse 的 JSON 字符串参数（曾对 String 调 dig 抛 TypeError，
+    # 使每次 invoke_skill 后 hook 报错）。字符串形态必须与 Hash 形态行为一致。
+    args_json = JSON.generate({ "skill_name" => "mcp:cgc-2046", "task" => "执行 save_course_content 保存草稿" })
+    trigger({ name: "invoke_skill", arguments: args_json }, { "message" => "ok" })
+
+    types = @agent.emitted.map { |ev| ev[:type] }
+    assert_includes types, "ext.cgc-2046.tool_used", "字符串参数应同样推工具事件"
+    assert_includes types, "ext.cgc-2046.draft_saved", "task 内含 save_course_content 应推草稿保存信号"
+  end
+
   def test_emits_mcp_error_when_subagent_summary_reports_connection_failure
     # 真实路径：subagent 内 curl 失败不抛异常，错误文本进 subagent summary
     summary = "调用 get_workspace_context 失败：MCP server 'cgc-2046' error on initialize: " \
