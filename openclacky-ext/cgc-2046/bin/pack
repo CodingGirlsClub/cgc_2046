@@ -9,8 +9,9 @@
 #      （symlink 根目录安全；容器内部不得有嵌套 symlink——本包保持无 symlink）
 #   3. openclacky ext pack → openclacky-ext/dist/cgc-2046.zip
 #      （dist 在容器目录外，避免上次 zip 被打进新包）
-#   4. 校验 ZIP 清单：无 .pyc/.pyo/__pycache__/.DS_Store 等禁入项，且文件
-#      集合与 git 跟踪集合完全一致；违规即删除产物并以非零码失败
+# 4. 校验 ZIP 清单：无 .pyc/.pyo/__pycache__/.DS_Store 等禁入项，且文件
+#      集合与「git 跟踪集合减 .gitignore 忽略项」完全一致（与 stage 同源）；
+#      违规即删除产物并以非零码失败
 #   5. openclacky ext verify 做结构校验
 #
 # 用法：openclacky-ext/cgc-2046/bin/pack
@@ -31,19 +32,24 @@ cleanup() {
   ln -sfn "$SRC" "$LOCAL_DIR/$SLUG"
   rm -rf "$STAGE"
 }
-trap cleanup EXIT
+# 1. 干净文件集合 = git 跟踪集合减去容器 .gitignore 忽略项，取工作区内容
+#    （含已 add 未 commit 的新文件，排除 untracked 残留）。宿主 ext pack
+#    尊重容器 .gitignore（test/、bin/ 是开发面，不进发布产物——T6 发布语义），
+#    期望集与 stage 必须同源，否则清单全等比对永远失败（T6×T15 组合缺陷）。
+#    容器内文件名不含换行（repo 约束），tr 换成换行分隔是安全的。
+git -C "$SRC" ls-files -z -- . | tr '\0' '\n' | LC_ALL=C sort | while IFS= read -r rel; do
+  # --no-index:纯 .gitignore 规则判定——check-ignore 对已跟踪文件恒答「不忽略」
+  git -C "$SRC" check-ignore --no-index -q "$rel" || printf '%s\n' "$rel"
+done > "$STAGE/filelist.txt"
 
-# 1. 干净文件集合 = git 跟踪集合的工作区内容（含已 add 未 commit 的新文件，
-#    排除 untracked/ignored 残留）。容器内文件名不含换行（repo 约束），
-#    tr 换成换行分隔是安全的。
-git -C "$SRC" ls-files -z -- . | tr '\0' '\n' | while IFS= read -r rel; do
+while IFS= read -r rel; do
   [ -f "$SRC/$rel" ] || {
     echo "pack: tracked file missing in worktree: $rel (commit or stash first)" >&2
     exit 1
   }
   mkdir -p "$STAGE/$SLUG/$(dirname "$rel")"
   cp -p "$SRC/$rel" "$STAGE/$SLUG/$rel"
-done
+done < "$STAGE/filelist.txt"
 
 ln -sfn "$STAGE/$SLUG" "$LOCAL_DIR/$SLUG"
 
@@ -56,7 +62,7 @@ entries="$(unzip -Z1 "$ZIP")"
 bad="$(printf '%s\n' "$entries" | grep -E '(^|/)__pycache__/|\.py[co]$|(^|/)\.DS_Store$|(^|/)__MACOSX(/|$)|(^|/)(Thumbs\.db|desktop\.ini)$|(^|/)\.(git|svn|hg|idea|vscode)(/|$)' || true)"
 
 actual="$(printf '%s\n' "$entries" | grep -v '/$' | sed "s|^$SLUG/||" | LC_ALL=C sort)"
-expected="$(git -C "$SRC" ls-files -- . | LC_ALL=C sort)"
+expected="$(cat "$STAGE/filelist.txt")"
 
 if [ -n "$bad" ] || [ "$actual" != "$expected" ]; then
   echo "pack: zip manifest check FAILED, removing $ZIP" >&2
