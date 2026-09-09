@@ -290,10 +290,14 @@ describe("LearningTab 无 run 兜底入口（P1-6）", () => {
 });
 
 describe("ParticipationsTabs", () => {
-	it("三个 tab 导航", () => {
-		render(<ParticipationsTabs tab="learning" />);
-		expect(screen.getByTestId("tab-learning")).toBeTruthy();
-		expect(screen.getByTestId("tab-enrollments")).toBeTruthy();
-		expect(screen.getByTestId("tab-sponsorships")).toBeTruthy();
+	it("P2b 后只剩报名/赞助两个 tab，报名为 /participations 默认落点", () => {
+		render(<ParticipationsTabs tab="enrollments" />);
+		expect(screen.queryByTestId("tab-learning")).toBeNull();
+		const enrollments = screen.getByTestId("tab-enrollments");
+		expect(enrollments.getAttribute("href")).toContain("/participations");
+		expect(enrollments.getAttribute("aria-current")).toBe("page");
+		expect(
+			screen.getByTestId("tab-sponsorships").getAttribute("href"),
+		).toContain("/participations?tab=sponsorships");
 	});
 });

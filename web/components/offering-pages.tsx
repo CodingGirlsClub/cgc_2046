@@ -61,11 +61,13 @@ import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseSponsorshipTiers,
   serializeSponsorshipTier,
+  formatVenue,
   parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
 import { useAuthed } from "@/lib/use-authed";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+import AddToCalendar from "@/components/add-to-calendar";
 
 /** 列表行个人报名状态（只这三态会出现在行内；终态不显示） */
 type MyEnrollmentStatus = "pending" | "payment_pending" | "confirmed";
@@ -1006,8 +1008,10 @@ export function OfferingDetailPage({
   }
 
   // 报名成功/已报名后的后续出口（P0-1）：课程给「进入课程」主 CTA——未开课
-  // 按 startsAt 分叉文案（课程内容未就绪时不把用户送进空阅读页）；活动无内容
-  // 页，只给「我的参与」次级出口。submitState 成功态与回访态共用。
+  // 按 startsAt 分叉文案（课程内容未就绪时不把用户送进空阅读页）；活动给
+  // 「我的报名」（/participations?tab=enrollments）出口 + 「添加日历」（P1a，
+  // 有 startsAt 才渲染）。课程次级出口落在 /learning（P2b 后 /participations
+  // 不再有学习 tab）。submitState 成功态与回访态共用。
   function enrollmentFollowUp() {
     if (!offering) return null;
     const startsAtMs = offering.startsAt
@@ -1033,11 +1037,20 @@ export function OfferingDetailPage({
               : t("enterCourse")}
           </Link>
         ) : null}
+        {kind === "event" ? (
+          <AddToCalendar
+            eventId={offering.id}
+            title={offering.title}
+            startsAt={offering.startsAt ?? null}
+            endsAt={offering.endsAt ?? null}
+            venue={formatVenue(parseVenue(offering.venue))}
+          />
+        ) : null}
         <Link
-          href="/participations"
+          href={kind === "event" ? "/participations?tab=enrollments" : "/learning"}
           className="text-[13px] text-accent hover:underline"
         >
-          {t("viewInParticipations")}
+          {kind === "event" ? t("viewInParticipations") : t("viewInLearning")}
         </Link>
       </div>
     );
