@@ -3,6 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import { render } from "@/test-utils";
 import LearningTab, {
 	ParticipationsTabs,
+	coursesWithoutRuns,
 	learningSessionPrompt,
 } from "@/components/learning/learning-tab";
 import {
@@ -249,6 +250,42 @@ describe("LearningTab（S8 objective 口径）", () => {
 		expect(text).toContain("能讲懂代码");
 		expect(text).toContain("objective_id: obj-explain");
 		expect(text).toContain("七步学习循环");
+	});
+});
+
+describe("LearningTab 无 run 兜底入口（P1-6）", () => {
+	it("coursesWithoutRuns：confirmed 无 run 课程入选；有 run/非课程/非 confirmed 排除；同课程去重", () => {
+		const extra = coursesWithoutRuns([RUN_DONE], [
+			{ status: "confirmed", courseId: "course-2", targetTitle: "待开课课程" },
+			{ status: "confirmed", courseId: "course-1", targetTitle: "已有 run" },
+			{ status: "pending", courseId: "course-3", targetTitle: "审批中" },
+			{ status: "confirmed", courseId: null, targetTitle: "活动报名" },
+			{ status: "confirmed", courseId: "course-2", targetTitle: "重复报名" },
+		]);
+		expect(extra).toEqual([{ courseId: "course-2", title: "待开课课程" }]);
+	});
+
+	it("extraCourses 渲染兜底行与课程内容链接；仅兜底课程时不显示空态", () => {
+		render(
+			<LearningTab
+				runs={[]}
+				extraCourses={[{ courseId: "course-9", title: "待开课课程" }]}
+			/>,
+		);
+
+		expect(screen.queryByTestId("learning-empty")).toBeNull();
+		expect(screen.getByTestId("learning-group-no-run")).toBeTruthy();
+		expect(screen.getByText("待开课课程")).toBeTruthy();
+		expect(screen.getByText(/报名已确认/)).toBeTruthy();
+
+		const link = screen.getByTestId("learning-course-link");
+		expect(link.getAttribute("href")).toContain("/learning/courses/course-9");
+		expect(link.textContent).toContain("查看课程内容");
+	});
+
+	it("runs 与 extraCourses 均为空仍显示空态（兜底不吞真空态）", () => {
+		render(<LearningTab runs={[]} />);
+		expect(screen.getByTestId("learning-empty")).toBeTruthy();
 	});
 });
 

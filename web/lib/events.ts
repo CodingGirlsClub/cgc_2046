@@ -317,7 +317,7 @@ export async function fetchMyEnrollment(
 	id: string,
 	kind: OfferingKind,
 	userId: string,
-): Promise<{ id: string; status: string } | null> {
+): Promise<{ id: string; status: string; approvalDeadline?: string | null } | null> {
 	// network-only（P3/F4 同款纪律）：支付成功后 onPaid 就地刷新若命中
 	// cache-first 的 payment_pending 旧值，报名区会一直停在「待支付」。
 	if (kind === "event") {
