@@ -18,9 +18,11 @@
  * 原子页传各自的「① / 2.」前缀（保持原有序列外观），首公里向导不传
  * （wizard 自己的 ol 已提供 ①②③ 步骤号，避免「② 内嵌 ①②」双重编号）。
  */
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { Icon } from "@/components/icons";
+import { copyText } from "@/lib/clipboard";
 
 /* ---------------- OpenClacky（CGC OpenClacky 一键安装，扩展已内置） ---------------- */
 
@@ -43,34 +45,64 @@ export function OpenclackyInstallCard({ stepNo }: { stepNo?: string }) {
 	);
 }
 
-/** CGC-2046 连接器扩展安装卡：CGC 一键安装包内置（跳过）或扩展市场搜索安装
-    （扩展已发布公共市场,plan cgc-2046-openclacky-extension-refactor 2026-09-06 决议） */
+/** 自托管分发安装命令（分发渠道从公共市场转自托管，plan cgc-2046 扩展分发迁移） */
+const EXT_INSTALL_CMD =
+	"openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip";
+
+/** 定时器句柄（「已复制」2s 复位用；DOM/Node 两端 setTimeout 返回型不同） */
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+/** CGC-2046 连接器扩展安装卡：终端一条命令安装（zip 由 CGC 后端自托管分发） */
 export function OpenclackyExtensionCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
+	const [copied, setCopied] = useState(false);
+	const [copyFailed, setCopyFailed] = useState(false);
+	// 卸载时清理复位定时器（向导完成换树卸载本组件，旧定时器会对已卸载组件 setState）
+	const copiedTimerRef = useRef<TimerHandle | undefined>(undefined);
+	useEffect(() => () => clearTimeout(copiedTimerRef.current), []);
 	return (
 		<div className="connect-step-card">
 			<h2>{stepNo ? `${stepNo} ` : ""}{t("step2Openclacky")}</h2>
-			<p className="connect-step-card__desc">{t("extensionBundledHint")}</p>
-			<ol
-				style={{
-					margin: "0 0 0 18px",
-					padding: 0,
-					display: "grid",
-					gap: 6,
-					color: "var(--ink-3)",
-					fontSize: 13,
-					lineHeight: "20px",
-					listStyle: "decimal",
-				}}
-			>
-				<li style={{ lineHeight: "20px" }}>{t("openMarket")}</li>
-				<li style={{ lineHeight: "20px" }}>
-					{t.rich("searchExtension", {
-						code: (chunks) => <code>{chunks}</code>,
-					})}
-				</li>
-				<li style={{ lineHeight: "20px" }}>{t("installExtension")}</li>
-			</ol>
+			<p className="connect-step-card__desc">{t("extensionInstallDesc")}</p>
+			<div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+				<pre
+					style={{
+						overflowX: "auto",
+						padding: "12px 14px",
+						borderRadius: "var(--radius-small)",
+						background: "var(--soft)",
+						margin: 0,
+						fontSize: 12.5,
+						lineHeight: "18px",
+						flex: 1,
+					}}
+				>
+					<code>{EXT_INSTALL_CMD}</code>
+				</pre>
+				<button
+					type="button"
+					className="join-button join-button--outline"
+					onClick={() => {
+						void copyText(EXT_INSTALL_CMD).then((ok) => {
+							if (ok) {
+								setCopied(true);
+								setCopyFailed(false);
+								clearTimeout(copiedTimerRef.current);
+								copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+							} else {
+								setCopyFailed(true);
+							}
+						});
+					}}
+				>
+					{copied ? t("copied") : t("copyCommand")}
+				</button>
+			</div>
+			{copyFailed && (
+				<p className="connect-step-card__desc" role="alert">
+					{t("copyFailed")}
+				</p>
+			)}
 			<p className="connect-step-card__desc">
 				{t("installedPanel")}
 			</p>

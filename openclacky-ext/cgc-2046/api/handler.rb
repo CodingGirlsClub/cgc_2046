@@ -21,6 +21,7 @@
 # 特殊路由(connect/status/skills sync/activity)非透传骨架，保持手写。
 
 require "json"
+require "net/http"
 require "securerandom"
 require "uri"
 require "fileutils"
@@ -100,8 +101,8 @@ class Cgc2046Ext < Clacky::ApiExtension
 
   # GET /api/ext/cgc-2046/version
   # 本地安装版本(ext.yml manifest;青狮工作台 /version 同款通道)。
-  # 面板据此渲染版本徽标,并与宿主市场 API(/api/store/extension)的
-  # 最新版本比对驱动「升级」按钮。无敏感信息,只需 origin 门。
+  # 面板据此渲染版本徽标;升级判定数据走 /update_info(自托管分发通道)。
+  # 无敏感信息,只需 origin 门。
   get "/version" do
     guard_origin!
     json(ok: true, version: self.class.meta["version"].to_s)
@@ -109,6 +110,33 @@ class Cgc2046Ext < Clacky::ApiExtension
     raise
   rescue StandardError => e
     error!("version lookup failed: #{e.message}", status: 500)
+  end
+
+  # GET /api/ext/cgc-2046/update_info
+  # 面板升级通道数据源(自托管分发,替代原宿主市场 API /api/store/extension 查询):
+  #   current_version  = ext.yml manifest version(与 /version 同源读取,不重复实现);
+  #   latest_version   = 远端 {mcp_url origin}/ext/cgc-2046.json 的 version;
+  #   download_url     = origin + 远端 json 的 download_path;
+  #   update_available = latest 按 semver 新于 current(版本比较只此一处,
+  #                      面板直接消费该布尔,不再重复比较)。
+  # 读端点:只需 origin 门(Host loopback + 同源),无 CSRF。
+  # 错误分层(对齐 course_routes 惯例):远端不可达/超时/非 2xx/JSON 解析失败/
+  # 字段缺失 → 502;本地 manifest version 或 config.mcp_url 缺失/非法 → 500。
+  get "/update_info" do
+    guard_origin!
+    current = self.class.meta["version"].to_s
+    error!("extension manifest version missing", status: 500) if current.empty?
+
+    remote = fetch_update_manifest
+    json(ok: true,
+         current_version: current,
+         latest_version: remote[:version],
+         download_url: remote[:download_url],
+         update_available: version_newer?(remote[:version], current))
+  rescue Clacky::ApiExtension::Halt
+    raise
+  rescue StandardError => e
+    error!("update info failed: #{e.message}", status: 500)
   end
 
   # GET /api/ext/cgc-2046/status
@@ -274,6 +302,77 @@ class Cgc2046Ext < Clacky::ApiExtension
 
 
   private
+  # ---- /update_info:自托管分发版本清单 ----
+  # 远端清单固定路径(与 CGC 后端静态产物落点一致):{mcp_url origin} + 此路径
+  UPDATE_MANIFEST_PATH = "/ext/cgc-2046.json"
+  # 远端只读一次小 JSON,超时收紧到 3s 级——面板 boot 同步等待该端点,
+  # 远端故障不得拖住面板渲染(失败 → 502 → 面板静默隐藏升级按钮)
+  UPDATE_HTTP_TIMEOUT = 3
+
+  # 远端版本清单读取(测试替换接缝):origin 取自 ext.yml config.mcp_url
+  # (本地配置缺失/非法属 500);网络层收进 http_get_json 便于 stub。
+  # 一切远端失败(不可达/超时/非 2xx/JSON 解析失败/字段缺失) → 502,
+  # 不向面板回显远端响应体。
+  def fetch_update_manifest
+    raw = config["mcp_url"].to_s.strip
+    error!("mcp url is not configured", status: 500) if raw.empty?
+
+    uri = begin
+      URI.parse(raw)
+    rescue URI::InvalidURIError
+      error!("mcp url is invalid", status: 500)
+    end
+    unless %w[http https].include?(uri.scheme) && !uri.host.to_s.empty?
+      error!("mcp url is invalid", status: 500)
+    end
+
+    origin = "#{uri.scheme}://#{uri.host}"
+    origin += ":#{uri.port}" if uri.port != uri.default_port
+    data = http_get_json(uri, UPDATE_MANIFEST_PATH)
+    version = data["version"].to_s.strip
+    path = data["download_path"].to_s.strip
+    error!("update manifest malformed", status: 502) if version.empty? || path.empty?
+
+    { version: version, download_url: origin + path }
+  rescue Clacky::ApiExtension::Halt
+    raise
+  rescue StandardError => e
+    error!("update manifest fetch failed: #{e.message}", status: 502)
+  end
+
+  # Net::HTTP GET 小 JSON;非 2xx 与解析失败一律 raise,由 fetch_update_manifest 译 502
+  def http_get_json(uri, path)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == "https"
+    http.open_timeout = UPDATE_HTTP_TIMEOUT
+    http.read_timeout = UPDATE_HTTP_TIMEOUT
+    res = http.get(path, { "Accept" => "application/json" })
+    raise "update manifest HTTP #{res.code}" unless res.is_a?(Net::HTTPSuccess)
+
+    JSON.parse(res.body)
+  end
+
+  # semver 比较(与面板原 compareVersions 同语义:核心段数值逐位比较,
+  # 预发布段空 > 非空,皆非空按字典序)——candidate 严格新于 current 才 true
+  def version_newer?(candidate, current)
+    parse = lambda do |v|
+      core, pre = v.to_s.sub(/\Av/i, "").split("-", 2)
+      [core.split("."), pre.to_s]
+    end
+    a_core, a_pre = parse.call(candidate)
+    b_core, b_pre = parse.call(current)
+    [a_core.length, b_core.length, 3].max.times do |i|
+      x = a_core[i].to_i
+      y = b_core[i].to_i
+      return x > y if x != y
+    end
+    return false if a_pre == b_pre
+    return true if a_pre.empty?
+    return false if b_pre.empty?
+
+    a_pre > b_pre
+  end
+
 
   # connect/disconnect 共享的 registry 刷新：先关闭并移除 cgc-2046 的既有 client
   # 缓存，再 reload 强制重建。
