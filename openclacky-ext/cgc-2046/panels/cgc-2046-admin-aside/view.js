@@ -296,14 +296,16 @@
       " 可改哪些字段，我说一项你改一项，走确认流）。\n" + Kit.DATA_NOTE;
   }
 
-  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id 来自 MCP
-  // 返回,可信标识直接带上,agent 无需先列表)
+  // 可行动报名行(pending/payment_pending) → 处理指令(offering_id/enrollment_id
+  // 来自 MCP 返回,可信标识直接带上,agent 无需先列表)。
+  // P2 安全边界:报名人姓名/邮箱是任意注册用户可控 UGC,一律不进指令本体——
+  // 指令 = 固定动作 + 记录 id;姓名/邮箱由 agent 调 list_enrollments 的工具结果
+  // 以数据身份(非指令特权位)呈现
   function enrollPrompt(kind, offeringId, row) {
     const offering = offeringById(offeringId) || {};
-    const who = oneLine((row.user && (row.user.display_name || row.user.email)) || "该报名人");
     const oid = Kit.safeId(offeringId);
     const eid = Kit.safeId(row.enrollment_id);
-    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」中 " + who + " 的报名" +
+    return "请处理" + (KIND_LABEL[kind] || "课程/活动") + "「" + oneLine(offering.title || "") + "」的报名" +
       "（list_enrollments kind=" + kind + (oid ? " offering_id=" + oid : "") +
       " 确认详情后，按确认流处理" + (eid ? "，enrollment_id=" + eid : "") + "）。\n" + Kit.DATA_NOTE;
   }

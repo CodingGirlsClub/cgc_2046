@@ -780,7 +780,9 @@ class PanelUgcInjectionNeutralizationTest < Minitest::Test
   end
 
   def test_admin_aside_instruction_neutralizes_malicious_ugc
-    # 恶意待办标题/未知 kind 折行,非法 order_id 不下发,全部带 DATA_NOTE
+    # 恶意待办标题/未知 kind 折行,非法 order_id 不下发,全部带 DATA_NOTE;
+    # P2:恶意报名人姓名/邮箱(含 display_name 缺省走 email 分支)不进指令本体,
+    # 指令 = 固定动作 + enrollment_id + DATA_NOTE
     out, status = Open3.capture2e("node", HARNESS, ADMIN_ASIDE_VIEW, "admin_aside_ugc")
     assert status.success?, "harness 失败: #{out}"
     assert_includes out, "OK admin_aside_ugc"
@@ -788,6 +790,11 @@ class PanelUgcInjectionNeutralizationTest < Minitest::Test
     assert_includes out, '"unknown_kind_folded":true'
     assert_includes out, '"bad_order_id_dropped":true'
     assert_includes out, '"order_prompt_intact":true'
+    assert_includes out, '"enroll_rows_rendered":true'
+    assert_includes out, '"enrollee_name_excluded":true'
+    assert_includes out, '"enrollee_email_excluded":true'
+    assert_includes out, '"enroll_prompt_fixed_action":true'
+    assert_includes out, '"email_prompt_fixed_action":true'
   end
 end
 
