@@ -272,7 +272,35 @@
     Kit.injectIntoComposer(input, send, text);
   }
 
-  function goLearnObjective(objectiveId) {
+  // 学习动作反馈:点击立即给按钮 loading 态;失败在 main 顶部插内联错误条
+  // (不依赖 window.alert——客户端 webview 对原生弹窗的支持不可假设)。
+  // banner 随下一次 render() 的 innerHTML 重设自然消失。
+  function showLearnError(msg) {
+    const main = currentContainer && currentContainer.querySelector("#cglc-main");
+    if (!main) { window.alert(msg); return; }
+    let el = main.querySelector("[data-testid='panel-learn-error']");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "cgc-banner";
+      el.setAttribute("data-testid", "panel-learn-error");
+      main.insertBefore(el, main.firstChild);
+    }
+    el.textContent = msg;
+  }
+
+  function setLearnBtnBusy(btn, busy, label) {
+    if (!btn) return;
+    if (busy) {
+      if (!btn.dataset.origText) btn.dataset.origText = btn.textContent;
+      btn.disabled = true;
+      if (label) btn.textContent = label;
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.origText) { btn.textContent = btn.dataset.origText; delete btn.dataset.origText; }
+    }
+  }
+
+  function goLearnObjective(objectiveId, btn) {
     // 学习动作 = 创建/进入助手会话后注入指令(hub 同款通道;面板视图内没有
     // 会话输入框,必须先切会话,否则注入落空——真机实证)
     const learning = state.learning || {};
@@ -305,6 +333,7 @@
           "evidence 写一句证据摘要,rubric_results 精确覆盖该目标 rubric 全部 criterion id。"
         ];
     const instruction = lines.filter(Boolean).concat([Kit.DATA_NOTE]).join("\n");
+    setLearnBtnBusy(btn, true, "创建会话…");
 
     fetch("/api/sessions", {
       method: "POST",
@@ -328,21 +357,23 @@
         }
         // 会话就绪(订阅确认前 btn-send 禁用,注入管道已处理补发)
         setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+        setLearnBtnBusy(btn, false);
       })
       .catch(function (e) {
-        window.alert("打开会话失败：" + String(e.message || e));
+        setLearnBtnBusy(btn, false);
+        showLearnError("打开会话失败：" + String(e.message || e));
       });
   }
 
-  function resumeLearning() {
+  function resumeLearning(btn) {
     const next = (state.learning || {}).next_action || {};
     if (next.objective_id) {
-      goLearnObjective(next.objective_id);
+      goLearnObjective(next.objective_id, btn);
       return;
     }
     // fallback 传首目标 id(原误传 objectives[0] 对象本身)
     const first = (state.learning && state.learning.objectives || [])[0];
-    if (first && first.id != null) goLearnObjective(first.id);
+    if (first && first.id != null) goLearnObjective(first.id, btn);
   }
 
   // ---- 渲染 ----
@@ -575,9 +606,9 @@
 
     main.innerHTML = html;
     const resumeBtn = main.querySelector("[data-testid='panel-resume-btn']");
-    if (resumeBtn) resumeBtn.addEventListener("click", resumeLearning);
+    if (resumeBtn) resumeBtn.addEventListener("click", function () { resumeLearning(resumeBtn); });
     main.querySelectorAll("[data-review]").forEach(function (row) {
-      row.addEventListener("click", function () { goLearnObjective(row.getAttribute("data-review")); });
+      row.addEventListener("click", function () { goLearnObjective(row.getAttribute("data-review"), row); });
     });
   }
 
@@ -670,7 +701,7 @@
     main.innerHTML = html;
     const learnBtn = main.querySelector("[data-testid='panel-obj-learn']");
     if (learnBtn && !locked) {
-      learnBtn.addEventListener("click", function () { goLearnObjective(o.id); });
+      learnBtn.addEventListener("click", function () { goLearnObjective(o.id, learnBtn); });
     }
   }
 
