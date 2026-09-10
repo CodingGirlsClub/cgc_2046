@@ -758,6 +758,8 @@ export type CreateEnrollmentResult = {
 export type CreateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律） */
+  courseRevisionId?: InputMaybe<Scalars['ID']['input']>;
   /** 是否启用教研 workflow */
   curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
@@ -1362,6 +1364,7 @@ export type Event = {
   availablePriceTiers?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 报名名额上限；nil 表示不限 */
   capacity?: Maybe<Scalars['Int']['output']>;
+  companionCourse?: Maybe<Scalars['JsonString']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
   /** 是否启用教研 workflow */
@@ -5257,6 +5260,8 @@ export type UpdateCourseResult = {
 export type UpdateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律） */
+  courseRevisionId?: InputMaybe<Scalars['ID']['input']>;
   /** 是否启用教研 workflow */
   curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
