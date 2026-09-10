@@ -73,7 +73,7 @@ export interface MyLearningRun {
   staleRevision: boolean;
   progress: LearningProgressV2;
   nextAction: LearningNextAction | null;
-  courseId: string | null;
+  courseId: string;
 }
 
 export type ParticipationPageVariables = {

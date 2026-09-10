@@ -14,12 +14,14 @@ defmodule Cgc2046.Learning.RunProjection do
   alias Cgc2046.Learning.Runs
 
   @doc """
-  投影单个 learning run；本人锚或定义校验失败返回 nil（调用方 reject）。
+  投影单个 learning run；本人锚校验失败、或课程已取消（cancelled
+  offering 不进学习列表）返回 nil（调用方 reject）。
   `titles` = 查询侧批量反查的 `%{enrollment_id => target_title}`（展示用
   快照标题，不参与守门）。
   """
   def project_run(run, actor, titles \\ %{}) do
     definition = Map.get(run, :definition)
+    course = fetch_course(run.workspace_id, run.subject_course_id)
 
     cond do
       run.subject_user_id != actor.id ->
@@ -28,10 +30,14 @@ defmodule Cgc2046.Learning.RunProjection do
       not learning_definition?(definition) ->
         nil
 
+      # 课程取消后不再出现在学习列表（存量 run 由 Learning.RunReaper 级联
+      # 停掉；本守卫覆盖取消前已终态/未回收的行）
+      match?(%{status: :cancelled}, course) ->
+        nil
+
       true ->
         # 本人锚已立（subject_user_id 校验），learning_state 读取 run 的
         # attempts 无他人视角可构造。
-        course = fetch_course(run.workspace_id, run.subject_course_id)
         state = Runs.learning_state(actor, course)
 
         %{

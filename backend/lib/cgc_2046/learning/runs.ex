@@ -426,12 +426,20 @@ defmodule Cgc2046.Learning.Runs do
   活动/课程双通道汇入的 run 无论锚在哪条 enrollment 上都归学员本人；
   definition 投影元数据随查询加载 → `RunProjection.project_run/2`。
   读失败降级 `[]`（附挂信息不阻断主读，与 discover_offerings 同纪律）。
+
+  只投影 `subject_course_id` 非空的 run（#507）：无配套课的事件型 run 无
+  objective 循环可展示，不进学习页（event 参与语义由 myEnrollments 承担）；
+  活动挂配套课后 run 带 course 锚，正常进入学习闭环（#505 D8）；已取消
+  offering 的 run 由 `RunProjection.project_run/2` 排除。
   """
   @spec my_learning_runs(term()) :: {:ok, [map()]}
   def my_learning_runs(%{id: actor_id} = actor) do
     WorkflowRun
     |> Ash.Query.filter(
-      definition.type == :learning and subject_user_id == ^actor_id
+      # 只投影有 course 锚的 run（#507）：无配套课的事件型 run 无 objective
+      # 可展示；活动挂配套课后 run 经 D8 注入 course_id 正常进入（#505）。
+      definition.type == :learning and subject_user_id == ^actor_id and
+        not is_nil(subject_course_id)
     )
     |> Ash.Query.load(definition: [:type, :node_def, steps: [:step_key, :title]])
     |> Ash.Query.sort(inserted_at: :desc)
