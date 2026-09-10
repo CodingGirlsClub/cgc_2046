@@ -623,7 +623,7 @@ globalThis.fetch = async (url, opts) => {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-h1", name: "编程少女台<img src=x onerror=alert(1)>", slug: "acme", roles: ["owner"] },
-        { workspace_id: "ws-h2", name: "普通成员台", slug: "plain", roles: ["member"] },
+        { workspace_id: "ws-h2", name: "普通成员台", slug: "plain", roles: [] },
       ] } }) };
     }
     if (path === "/api/ext/cgc-2046/tasks") {
@@ -1338,6 +1338,7 @@ async function waitFor(cond, ms = 2000) {
     const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
     const badgeText = (container.querySelector("#cgc-version-badge") || {}).textContent || "";
     const bootHtml = container.innerHTML;
+    const bootIdentityHtml = (container.querySelector("#cgc-identity") || {}).innerHTML || "";
 
     // owner 角色 → 「工作台管理」目录卡;点击 → 建管理会话(绑定节点缓存在
     // #cgc-catalog 子节点的 html 快照上,场景段必须从同一子节点查询)
@@ -1375,6 +1376,10 @@ async function waitFor(cond, ms = 2000) {
     ((wrap.listeners.change) || []).forEach(function (fn) { fn({ target: { id: "cgc-ws-select", value: "ws-h2" } }); });
     await sleep(50);
 
+    // 切到 ws-h2(roles 空)后的身份区/选择器:基线徽章 + 标签断言素材
+    // (假 DOM querySelector 只认 #id,取槽位 innerHTML 断言)
+    const afterIdentityHtml = (container.querySelector("#cgc-identity") || {}).innerHTML || "";
+    const afterPickerHtml = (container.querySelector("#cgc-picker-slot") || {}).innerHTML || "";
     const statusFetches = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/status"; }).length;
     const reg = globalThis.__registered || {};
     const checks = {
@@ -1400,6 +1405,10 @@ async function waitFor(cond, ms = 2000) {
       session_row_navigates: !!(globalThis.__navigated && globalThis.__navigated.name === "session" && globalThis.__navigated.params.id === "sess-old"),
       focus_reload_refetches_workspaces: wsFetchesAfter === wsFetchesBefore + 1,
       workspace_selection_keeps_storage_key: store.get("cgc2046.workspacePanel.workspaceId") === "ws-h2",
+      role_chip_localized: bootIdentityHtml.indexOf(">所有者<") >= 0 && bootIdentityHtml.indexOf(">owner<") < 0,
+      member_baseline_chip_shown: afterIdentityHtml.indexOf(">成员<") >= 0,
+      picker_label_localized: afterPickerHtml.indexOf(">工作台<") >= 0 &&
+        container.innerHTML.indexOf(">Workspace<") < 0,
       token_not_rendered_to_dom: bootHtml.indexOf("tok-1") < 0 && allTabHtml.indexOf("tok-1") < 0,
       session_posted_admin: !!(globalThis.__sessionPostBody && globalThis.__sessionPostBody.agent_profile === "cgc-admin"),
       session_selected: globalThis.__sessionSelected === "sess-1",
