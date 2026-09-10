@@ -2,7 +2,7 @@
 
 本扩展面向用户的更新记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号见 `ext.yml`。
 
-## [Unreleased]
+## [0.1.2] - 2026-09-10
 
 ### 新增
 
