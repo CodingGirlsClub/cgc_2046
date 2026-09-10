@@ -5013,7 +5013,7 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
   pendingApprovalsCount: Int!
 
-  "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
+  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
   myLearningRuns: [MyLearningRun!]!
 
   "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
@@ -5523,7 +5523,7 @@ type MyLearningRun {
   staleRevision: Boolean!
   progress: LearningProgress!
   nextAction: LearningNextAction
-  courseId: ID
+  courseId: ID!
 }
 
 type CourseLearningDetail {
