@@ -590,8 +590,13 @@
     if (isPlatformAdmin) html += '<span class="cgch-chip cgch-chip-admin">平台管理模式</span>';
     if (current) {
       html += '<span class="cgch-identity-line">当前：<b>' + escapeHtml(current.name || current.slug || "") + '</b></span>';
-      (Array.isArray(current.roles) ? current.roles : []).forEach(function (r) {
-        html += '<span class="cgch-chip">' + escapeHtml(r) + '</span>';
+      const roleList = Array.isArray(current.roles) ? current.roles : [];
+      if (roleList.length === 0) {
+        // 无差异标签的普通成员给基线身份信号——「我在这台是谁」不该是空白
+        html += '<span class="cgch-chip">成员</span>';
+      }
+      roleList.forEach(function (r) {
+        html += '<span class="cgch-chip">' + escapeHtml(roleLabel(r)) + '</span>';
       });
       // 管理入口:选中工作台角色含 owner/admin 时显示网站成员管理页链接
       const roles = Array.isArray(current.roles) ? current.roles : [];
@@ -614,7 +619,7 @@
              escapeHtml(w.name || w.slug || w.workspace_id) + '</option>';
     }).join("");
     pickerEl.innerHTML =
-      '<label class="cgch-picker-label" for="cgc-ws-select">Workspace</label>' +
+      '<label class="cgch-picker-label" for="cgc-ws-select">工作台</label>' +
       '<select id="cgc-ws-select" class="cgch-select">' + opts + '</select>';
   }
 
@@ -623,6 +628,16 @@
     localStorage.setItem(LS_WORKSPACE, id);
     renderIdentity(container);
     loadTasks(container);
+  }
+
+  // 角色徽章中文标签(对齐 web 端 roleZh 约定:workspace.ts ROLE_LABEL_ZH);
+  // 未知 key 兜底原文(服务端新增角色的前向兼容)
+  const ROLE_LABELS = {
+    owner: "所有者", admin: "管理员", tutor: "教练", volunteer: "志愿者", learner: "学员"
+  };
+
+  function roleLabel(r) {
+    return ROLE_LABELS[r] || r;
   }
 
   // ---- 我的任务(session-row 行列表风格) ----
