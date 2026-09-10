@@ -1167,6 +1167,11 @@ class WebUrlSchemeGateTest < Minitest::Test
     assert_includes ADMIN_ASIDE_VIEW, "Kit.safeWebUrl"
     refute_includes ADMIN_ASIDE_VIEW, "/^https?:\/\//"
   end
+
+  def test_admin_aside_task_kinds_cover_prep_claimable_and_authoring
+    assert_includes ADMIN_ASIDE_VIEW, "教研认领"
+    assert_includes ADMIN_ASIDE_VIEW, "教研编写"
+  end
 end
 
 # ---- harness 场景全量接线 ----
@@ -1206,6 +1211,7 @@ class HarnessScenarioWiringTest < Minitest::Test
     "tutor_aside_boot"             => "tutor",
     "tutor_aside_malformed"        => "tutor",
     "home_hub"                     => "home",
+    "home_task_routing"            => "home",
     "home_unconnected"             => "home",
     "home_tasks_failed"            => "home",
     "home_upgrade"                 => "home",
