@@ -74,6 +74,8 @@ export interface OfferingItem {
   sponsorshipTiers?: string[] | null;
   /** 赞助意向截止（仅 event） */
   sponsorshipDeadline?: string | null;
+  /** 配套课程投影（JsonString，JSON.parse 后为 {id, slug, title}；仅 event；issue #505 D1） */
+  companionCourse?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -215,6 +217,7 @@ export const GET_EVENT: TypedDocumentNode<
       pricingEnabled
       availablePriceTiers
       priceTiers
+      companionCourse
     }
   }
 `;
@@ -493,6 +496,8 @@ export interface PublicOfferingItem {
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
   sponsorshipTiers?: string[] | null;
+  /** 配套课程投影（JsonString，JSON.parse 后为 {id, slug, title}；仅 event，null = 无配套课/宣讲会；issue #505 D1） */
+  companionCourse?: string | null;
 }
 
 // first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
@@ -568,6 +573,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       sponsorshipTiers
       pricingEnabled
       availablePriceTiers
+      companionCourse
     }
   }
 `;

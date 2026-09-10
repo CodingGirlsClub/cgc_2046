@@ -1939,3 +1939,44 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
     expect(await screen.findByTestId("sold-tier-warning")).toBeInTheDocument();
   });
 });
+
+describe("OfferingDetailPage 配套课程卡（issue #505 D1）", () => {
+  const COMPANION = JSON.stringify({
+    id: "course-9",
+    slug: "agent-bootcamp",
+    title: "Agent 训练营",
+  });
+
+  it("event 有配套课程 → 渲染卡片链接到工作台课程详情", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({ id: "event-1", companionCourse: COMPANION }),
+    );
+
+    const card = await screen.findByTestId("companion-course-card");
+    const link = within(card).getByRole("link", { name: /Agent 训练营/ });
+    expect(link).toHaveAttribute("href", "/w/demo/courses/course-9");
+  });
+
+  it("event 无配套课程 → 不渲染", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({ id: "event-2", companionCourse: null }),
+    );
+
+    expect(
+      screen.queryByTestId("companion-course-card"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("course 详情不渲染（kind 门）", async () => {
+    await renderManageDetail(
+      "course",
+      offeringRow({ id: "course-1", companionCourse: COMPANION }),
+    );
+
+    expect(
+      screen.queryByTestId("companion-course-card"),
+    ).not.toBeInTheDocument();
+  });
+});

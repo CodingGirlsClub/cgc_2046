@@ -59,6 +59,7 @@ import SponsorshipManagement from "@/components/sponsorship-management";
 import { formatAmount, parsePaymentStats, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
+  parseCompanionCourse,
   parseSponsorshipTiers,
   serializeSponsorshipTier,
   formatVenue,
@@ -634,6 +635,12 @@ export function OfferingDetailPage({
     TEACHING_ROLE_NAMES.includes(role),
   );
 
+  // issue #505 D1：配套课程卡（仅 event；成员视角链工作台课程详情）
+  const companionCourse =
+    kind === "event" && offering
+      ? parseCompanionCourse(offering.companionCourse)
+      : null;
+
   // pending 报名数（报名数据视图：request 策略待审批；仅管理视角发起，
   // 普通成员/匿名不发请求——U2 #127）
   useEffect(() => {
@@ -1166,6 +1173,23 @@ export function OfferingDetailPage({
                     data-testid="course-governance-link"
                   >
                     {t("openCurriculum")} ↗
+                  </Link>
+                </div>
+              ) : null}
+
+              {companionCourse ? (
+                <div
+                  className="rounded-large border border-line bg-card p-6"
+                  data-testid="companion-course-card"
+                >
+                  <h2 className="text-sm font-medium text-ink">
+                    {t("companionCourseTitle")}
+                  </h2>
+                  <Link
+                    href={`/w/${slug}/courses/${companionCourse.id}`}
+                    className="mt-4 inline-flex text-sm text-accent hover:underline"
+                  >
+                    {companionCourse.title} ↗
                   </Link>
                 </div>
               ) : null}
