@@ -1998,6 +1998,7 @@ type Event {
   "价格档位配置（PriceTier 形状，见 price_tier.ex）"
   priceTiers: [JsonString!]!
 
+  "配套课程投影（JsonString 序列化的 {id, slug, title}；null = 无配套课\/宣讲会）"
   companionCourse: JsonString
 
   availablePriceTiers: [JsonString!]

@@ -764,6 +764,11 @@ defmodule Cgc2046.Courses.Course do
   """
   def revision_published_payload(_changeset, %__MODULE__{} = course) do
     %{
+      # 幂等键自带 revision 维度（review BLOCKING 1）：emitter 缺省键是
+      # "<type>:<course_id>"，换版同键撞 SignalIdempotency 永久唯一索引 →
+      # 补种 effects 被 duplicate 吞掉。revision 维度键让每次发布独立补种；
+      # 同 revision 重复发布仍幂等（emitter put_new 保留自带值）。
+      idempotency_key: "course_revision.published:" <> course.current_revision_id,
       course_id: course.id,
       course_revision_id: course.current_revision_id,
       title: course.title

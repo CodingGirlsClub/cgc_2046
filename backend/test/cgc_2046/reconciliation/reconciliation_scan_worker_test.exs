@@ -212,6 +212,52 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:confirmed_enrollment_without_run)
     end
+
+    test "课程未发布的 confirmed 报名不命中（review 建议 2：1i 发布补种自愈前的正常中间态）" do
+      admin = Fixtures.platform_admin("rc1u-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("rc1u-learner")
+      # 未发布课程（current_revision_id = nil）
+      course = EventFixtures.create_course(workspace, admin, %{title: "未发布课"})
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          course_id: course.id,
+          user_id: learner.id
+        })
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert enrollment.status == :confirmed
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:confirmed_enrollment_without_run)
+
+      # 发布后（有锚）仍无 run → 恢复命中（1i 补种漏网的对账兜底语义不变）
+      revision =
+        Cgc2046.Curriculum.CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: %{"goals" => [], "issues" => []},
+            published_at: DateTime.utc_now()
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create!(tenant: workspace.id, authorize?: false)
+
+      course
+      |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+        tenant: workspace.id
+      )
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [finding] = findings(:confirmed_enrollment_without_run)
+      assert finding.entity_id == enrollment.id
+    end
   end
 
   # ── 规2：pending 无 approval_deadline ----------------------------------------
