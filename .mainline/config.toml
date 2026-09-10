@@ -1,6 +1,6 @@
 [mainline]
   schema_version = 1
-  main_branch = "main"
+  main_branch = "develop"
   actor_log_prefix = "refs/mainline/actors"
   require_seal_before = "push"
   remote = "origin"

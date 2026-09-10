@@ -448,7 +448,7 @@
   }
 
   // ---- 工作台管理助手(cgc-admin):创建会话并注入管理指令 ----
-  function startAdminSession() {
+  function startAdminSession(instruction) {
     if (sessionBusy) return;
     sessionBusy = true;
     setCatalogBusy("wsadmin", true);
@@ -473,14 +473,14 @@
         } else if (Clacky.Router && typeof Clacky.Router.navigate === "function") {
           Clacky.Router.navigate("session", { id: session.id });
         }
-        // 管理指令:先读身份确认权限,然后等用户指令
-        const instruction = [
+        // 管理指令:任务行点击带处理指令;目录卡默认先读身份确认权限,然后等用户指令
+        const text = instruction || [
           "请作为 CGC 管理助手帮助我。",
           "先调 list_my_workspaces 确认我的工作台与角色，",
           "然后告诉我你可以帮我做什么(创建课程/成员管理/审批/邀请)。",
           "等待我的具体需求。"
         ].join("\n");
-        setTimeout(function () { injectIntoComposer(instruction); }, 1500);
+        setTimeout(function () { injectIntoComposer(text); }, 1500);
       })
       .catch(function (e) {
         toast(String(e.message || e), "error");
@@ -506,7 +506,7 @@
   }
 
   // ---- 一键进助手会话(S3;青狮工作台 view.js 同款通道) ----
-  function startAssistantSession() {
+  function startAssistantSession(instruction) {
     if (sessionBusy) return;
     sessionBusy = true;
     setCatalogBusy("chat", true);
@@ -534,6 +534,8 @@
         } else {
           toast("会话已创建,请在会话列表中打开", "info");
         }
+        // 任务行点击带处理指令时注入(admin 版 :483 同款延迟管道)
+        if (instruction) setTimeout(function () { injectIntoComposer(instruction); }, 1500);
       })
       .catch(function (e) {
         toast(String(e.message || e), "error");
@@ -624,12 +626,16 @@
   }
 
   // ---- 我的任务(session-row 行列表风格) ----
-  // 任务 kind → 中文标签 + 目标面板(点击跳转)
+  const TEACH_PANEL = "cgc-2046-curriculum";
+  // kind → 中文标签 + 路由:prep 三类 = 教研行(tutor 跳面板,非 tutor 注入助手会话);
+  // approval 三类 = 审批行(仅 owner/admin 收得到,注入管理会话)
   const TASK_KINDS = {
-    course_prep_review:   { label: "教研审核",   panel: "cgc-2046-curriculum" },
-    enrollment_approval:  { label: "报名审批",   panel: "" },
-    join_request:         { label: "加入申请",   panel: "" },
-    sponsorship_review:   { label: "赞助审核",   panel: "" }
+    course_prep_claimable: { label: "教研认领", panel: TEACH_PANEL, prep: true },
+    course_prep_authoring: { label: "教研编写", panel: TEACH_PANEL, prep: true },
+    course_prep_review:    { label: "教研审核", panel: TEACH_PANEL, prep: true },
+    enrollment_approval:   { label: "报名审批", admin: true },
+    join_request:          { label: "加入申请", admin: true },
+    sponsorship_review:    { label: "赞助审核", admin: true }
   };
 
   function taskKindLabel(kind) {
@@ -637,9 +643,13 @@
     return meta ? meta.label : kind || "";
   }
 
-  function taskPanel(kind) {
-    const meta = TASK_KINDS[kind];
-    return meta ? meta.panel : "";
+  // 任务行注入指令(纪律对齐 admin-aside taskPrompt:ws/标题折单行,requester/
+  // 邮箱等 PII 不进指令本体,末尾 DATA_NOTE)
+  function taskInstruction(t) {
+    const ws = Kit.oneLine(t._ws_name || "");
+    const title = Kit.oneLine(t.context_title || t.title || "");
+    return "请处理 " + ws + "工作台的" + taskKindLabel(t.kind) + "待办" + (title ? "：" + title : "") +
+      "。先调用 list_my_tasks 获取该待办详情，再按 playbook 流程处理。\n" + Kit.DATA_NOTE;
   }
 
   function taskSummary(t) {
@@ -680,7 +690,7 @@
           return res.json().catch(function () { return {}; }).then(function (body) {
             if (!res.ok) throw new Error(body.error || ("HTTP " + res.status));
             const tasks = Array.isArray((body.result || {}).tasks) ? body.result.tasks : [];
-            return { name: w.name || "", tasks: tasks };
+            return { name: w.name || "", ws_id: w.workspace_id, roles: Array.isArray(w.roles) ? w.roles : [], tasks: tasks };
           });
         });
       }));
@@ -693,6 +703,8 @@
       const tasks = fulfilled.flatMap(function (r) {
         return r.value.tasks.map(function (t) {
           t._ws_name = r.value.name;
+          t._ws_id = r.value.ws_id;
+          t._ws_roles = r.value.roles;
           return t;
         });
       });
@@ -700,11 +712,9 @@
         tasksEl.innerHTML = '<div class="cgch-empty">暂无待办</div>';
         return;
       }
-      const rows = tasks.map(function (t) {
-        const panel = taskPanel(t.kind);
-        const clickable = panel ? ' data-task-panel="' + escapeHtml(panel) + '" style="cursor:pointer" data-testid="cgc-task-row"' : '';
+      const rows = tasks.map(function (t, idx) {
         return (
-          '<div class="cgch-row"' + clickable + '>' +
+          '<div class="cgch-row" data-task-idx="' + idx + '" style="cursor:pointer" data-testid="cgc-task-row">' +
             '<span class="cgch-chip">' + escapeHtml(taskKindLabel(t.kind)) + '</span>' +
             '<span class="cgch-row-copy">' + escapeHtml(t._ws_name ? "[" + t._ws_name + "] " : "") + escapeHtml(taskSummary(t)) + '</span>' +
             taskDeadline(t) +
@@ -713,9 +723,18 @@
         );
       }).join("");
       tasksEl.innerHTML = '<div class="cgch-row-list">' + rows + '</div>';
-      tasksEl.querySelectorAll("[data-task-panel]").forEach(function (row) {
+      tasksEl.querySelectorAll("[data-task-idx]").forEach(function (row) {
         row.addEventListener("click", function () {
-          Clacky.ext.ui.openWorkspace(row.getAttribute("data-task-panel"));
+          const t = tasks[Number(row.getAttribute("data-task-idx"))];
+          const meta = TASK_KINDS[t.kind] || {};
+          const roles = Array.isArray(t._ws_roles) ? t._ws_roles : [];
+          if (meta.prep && roles.indexOf("tutor") !== -1) {
+            Clacky.ext.ui.openWorkspace(meta.panel);   // 教研行 + 该台 tutor → 面板
+          } else if (meta.prep) {
+            startAssistantSession(taskInstruction(t));  // 教研行 + 非 tutor(如被指定的 reviewer) → 注入助手会话
+          } else {
+            startAdminSession(taskInstruction(t));      // 审批行(仅 owner/admin 收得到) → 注入管理会话
+          }
         });
       });
     } catch (e) {

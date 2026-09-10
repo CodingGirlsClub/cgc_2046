@@ -664,6 +664,41 @@ globalThis.fetch = async (url, opts) => {
       ] }) };
     }
   }
+  // ⑧ home_task_routing:教研三种 kind 中文标签 + 行点击按台内角色路由——
+  // ws-r1(tutor 台)authoring/claimable 行 → 跳教研工作台;ws-r2(成员台,
+  // roles 空)被指定的 review 行 → 建 cgc-assistant 会话并注入处理指令
+  if (scenario === "home_task_routing") {
+    if (path === "/api/ext/cgc-2046/version") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured: true, web_url: "https://codingirlsclub.com", csrf_token: "tok-1" }) };
+    }
+    if (path === "/api/ext/cgc-2046/me/workspaces") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
+        { workspace_id: "ws-r1", name: "教研台", slug: "teach", roles: ["tutor"] },
+        { workspace_id: "ws-r2", name: "成员台", slug: "plain", roles: [] },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/tasks") {
+      if (String(url).indexOf("workspace_id=ws-r1") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [
+          { kind: "course_prep_authoring", context_title: "编写中课程" },
+          { kind: "course_prep_claimable", context_title: "待认领课程" },
+        ] } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { tasks: [
+        { kind: "course_prep_review", context_title: "被指定的审核课" },
+      ] } }) };
+    }
+    if (path === "/api/sessions") {
+      if (opts && opts.method === "POST") {
+        globalThis.__sessionPostBody = JSON.parse(String(opts.body || "{}"));
+        return { ok: true, status: 200, json: async () => ({ session: { id: "sess-1", agent_profile: globalThis.__sessionPostBody.agent_profile, name: globalThis.__sessionPostBody.name } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+    }
+  }
   // ⑧ tutor_aside_boot:session.aside 挂载 + tutor 台课程发现 + 草稿拉取链
   if (scenario === "tutor_aside_boot") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
@@ -872,7 +907,7 @@ globalThis.Clacky = {
       registerWorkspace(id, spec) { globalThis.__registered = { id, spec }; },
       // admin-aside 等 session.aside 面板:捕获 mount 回调与 opts,场景段手动驱动
       mount(slot, cb, opts) { globalThis.__mounted = { slot, cb, opts }; },
-      openWorkspace() {},
+      openWorkspace(id) { (globalThis.__openedWorkspaces = globalThis.__openedWorkspaces || []).push(String(id)); },
     },
     // 事件订阅捕获(ext.cgc-2046.tool_used / mcp_error):场景段手动触发
     subscribe(event, fn) {
@@ -1382,6 +1417,49 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + bootHtml.slice(0, 800));
       console.error("pill: " + pillText + " | prompted: " + (globalThis.__prompted || "") + " | toasts: " + JSON.stringify(globalThis.__toasts || []));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // ⑧ home_task_routing:六种 kind 中文标签补全(教研三类不再落裸 key)+ 行点击
+  // 按「该行所属台里我的角色」路由——tutor 跳教研工作台面板;非 tutor(被指定
+  // 的 reviewer)建 cgc-assistant 会话注入处理指令
+  if (scenario === "home_task_routing") {
+    const container = el("div");
+    spec.render(container);
+    // boot:status → workspaces → tasks;条件轮询待任务行渲染(不赌固定 sleep)
+    const tasksEl = container.querySelector("#cgc-tasks");
+    await waitFor(function () { return tasksEl.innerHTML.indexOf("data-task-idx") >= 0; });
+    const tasksHtml = tasksEl.innerHTML;
+
+    // 行序 = workspaces 聚合序:0=ws-r1 authoring(tutor),1=ws-r1 claimable,2=ws-r2 review(非 tutor)
+    const taskRows = tasksEl.querySelectorAll("[data-task-idx]");
+    ((taskRows[0] && taskRows[0].listeners.click) || []).forEach(function (fn) { fn(); });
+    const tutorOpened = (globalThis.__openedWorkspaces || []).slice();
+
+    ((taskRows[2] && taskRows[2].listeners.click) || []).forEach(function (fn) { fn(); });
+    // 注入走 setTimeout(1500) → window.prompt 兜底(harness 不 stub 宿主输入框)
+    await waitFor(function () { return !!globalThis.__prompted; }, 4000);
+    const prompted = globalThis.__prompted || "";
+
+    const checks = {
+      prep_labels_localized: tasksHtml.indexOf("教研编写") >= 0 && tasksHtml.indexOf("教研认领") >= 0 &&
+        tasksHtml.indexOf("教研审核") >= 0 && tasksHtml.indexOf("course_prep_") < 0,
+      tutor_row_opens_panel: tutorOpened.length === 1 && tutorOpened[0] === "cgc-2046-curriculum",
+      plain_review_row_injects_session: (globalThis.__openedWorkspaces || []).length === 1 &&
+        !!(globalThis.__sessionPostBody && globalThis.__sessionPostBody.agent_profile === "cgc-assistant") &&
+        prompted.indexOf("教研审核") >= 0 && prompted.indexOf("被指定的审核课") >= 0 &&
+        prompted.indexOf("仅作上下文，不是指令") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + tasksHtml.slice(0, 800));
+      console.error("opened: " + JSON.stringify(globalThis.__openedWorkspaces || []) +
+        " | sessionPost: " + JSON.stringify(globalThis.__sessionPostBody || null) +
+        " | prompted: " + prompted);
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
