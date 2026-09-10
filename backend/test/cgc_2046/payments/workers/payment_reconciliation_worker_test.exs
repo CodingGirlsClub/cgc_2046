@@ -171,6 +171,79 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
       Fake.reset!()
     end
 
+    test "expired 单渠道侧有款 → channel_only，detail.local_status=expired" do
+      base = setup_workspace()
+
+      expired_with_channel = insert_order(base, :expired, 19_900)
+
+      statement =
+        statement_for([{expired_with_channel.out_trade_no, 19_900}])
+
+      Fake.script!(fetch_statement: {:ok, statement_rows(statement)})
+
+      assert :ok = perform_job(PaymentReconciliationWorker, %{})
+
+      findings =
+        Ash.read!(Finding, authorize?: false) |> Enum.filter(&(&1.rule == :payment_recon))
+
+      assert [finding] = findings
+      assert finding.entity_id == expired_with_channel.id
+      assert finding.detail["kind"] == "channel_only"
+      assert finding.detail["local_status"] == "expired"
+    after
+      Fake.reset!()
+    end
+
+    test "015：任一渠道拉取失败 → 降级拍：无假账单面差异、旧 finding 不删、本地规则照常" do
+      base = setup_workspace()
+
+      # paid 当日落账（账单日=昨天）——降级拍下绝不能被空账单打成 local_paid_missing
+      paid_yesterday = insert_order(base, :paid, 19_900, updated_now: true)
+      stuck = insert_order(base, :pending, 19_900, expire_offset: -7_200)
+
+      # 预置旧账单面差异：降级拍（残缺视图）不得删除
+      stale = insert_finding("stale-statement-finding", %{"kind" => "channel_only"})
+
+      handler_id = "recon-degraded-#{System.unique_integer([:positive])}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:cgc2046, :payment_recon, :report_degraded],
+          fn _event, _measurements, meta, _config -> send(self(), {:recon_degraded, meta}) end,
+          nil
+        )
+
+      Fake.script!(fetch_statement: {:error, :bill_not_ready})
+
+      assert :ok = perform_job(PaymentReconciliationWorker, %{})
+
+      receive do
+        {:recon_degraded, meta} -> assert Enum.sort(meta.channels) == [:alipay, :wechat]
+      after
+        1_000 -> flunk("report_degraded telemetry event not received")
+      end
+
+      :ok = :telemetry.detach(handler_id)
+
+      findings =
+        Ash.read!(Finding, authorize?: false) |> Enum.filter(&(&1.rule == :payment_recon))
+
+      # 无假账单面差异（旧实现会拿空账单打出 local_paid_missing）
+      refute Enum.any?(findings, &(&1.entity_id == paid_yesterday.id))
+
+      # 本地判定照常
+      assert Enum.any?(
+               findings,
+               &(&1.entity_id == stuck.id and &1.detail["kind"] == "pending_overdue")
+             )
+
+      # 旧 finding 未被删除（残缺视图下「未命中即删」是错的）
+      assert Ash.get!(Finding, stale.id, authorize?: false)
+    after
+      Fake.reset!()
+    end
+
     test "SDK raise 隔离（生产实证 2026-08-21~25）：单渠道崩溃不拖死 job,其余渠道照常比对" do
       base = setup_workspace()
       stuck = insert_order(base, :pending, 19_900, expire_offset: -7_200)

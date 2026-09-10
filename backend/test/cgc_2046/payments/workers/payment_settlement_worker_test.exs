@@ -274,6 +274,29 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert reload_order(order).status == :paid
       assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :confirmed
     end
+
+    # 015 落账 DB 瞬断用例（mark_paid 失败且订单仍 pending → 上抛重试）迁至
+    # payment_workers_failclosed_guard_test.exs——trigger 注入需要表级排他锁，
+    # 集中在 async: false 串行文件（复审 F2）。
+
+    test "015：refund_failed 单被迟到回调命中 → 经 retry_refund 重入退款链", ctx do
+      order = pending_order(ctx)
+      stub_channel_paid(order)
+
+      # 布置：订单已判 refund_failed（渠道拒绝后管理员未重试）
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE payments_orders SET status = 'refund_failed' WHERE id = $1",
+          [Cgc2046.Repo.uuid!(order.id)]
+        )
+
+      assert :ok = perform_settlement(order)
+
+      # retry_refund（refund_failed → refunding，after_action 自带入队 refund job）
+      assert reload_order(order).status == :refunding
+      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+      assert event_for(order).status == :processed
+    end
   end
 
   # ── 布置 ──
