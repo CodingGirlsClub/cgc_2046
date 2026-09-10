@@ -61,6 +61,8 @@
 
   // 任务 kind 中文标签(与 hub TASK_KINDS 同口径)
   const TASK_KINDS = {
+    course_prep_claimable: { label: "教研认领" },
+    course_prep_authoring: { label: "教研编写" },
     course_prep_review: { label: "教研审核" },
     enrollment_approval: { label: "报名审批" },
     join_request: { label: "加入申请" },
