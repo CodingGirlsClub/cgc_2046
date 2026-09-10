@@ -136,10 +136,10 @@
             '</div>' +
           '</div>' +
           '<div class="cgch-header-actions">' +
-            '<a id="cgc-open-web" class="cgch-btn cgch-btn-ghost" href="#" ' +
+            '<a id="cgc-open-web" class="btn-secondary" href="#" ' +
                'target="_blank" rel="noopener noreferrer">打开网站</a>' +
-            '<button id="cgc-upgrade" class="cgch-btn" type="button" data-testid="cgc-upgrade" hidden>升级</button>' +
-            '<button id="cgc-disconnect" class="cgch-btn cgch-btn-danger" type="button" disabled>断开连接</button>' +
+            '<button id="cgc-upgrade" class="btn-secondary" type="button" data-testid="cgc-upgrade" hidden>升级</button>' +
+            '<button id="cgc-disconnect" class="btn-secondary cgch-btn-danger" type="button" disabled>断开连接</button>' +
           '</div>' +
         '</header>' +
         '<div id="cgc-guide-slot"></div>' +
@@ -150,7 +150,7 @@
               '<div class="cgch-section-title">工作台</div>' +
               '<div class="cgch-section-desc">身份、角色与待办</div>' +
             '</div>' +
-            '<button id="cgc-tasks-refresh" class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button">刷新</button>' +
+            '<button id="cgc-tasks-refresh" class="btn-secondary cgch-btn-sm" type="button">刷新</button>' +
           '</div>' +
           '<div class="cgch-card">' +
             '<div class="cgch-identity" id="cgc-identity">加载中…</div>' +
@@ -595,7 +595,7 @@
       const roles = Array.isArray(current.roles) ? current.roles : [];
       const isManager = roles.indexOf("owner") !== -1 || roles.indexOf("admin") !== -1;
       if (isManager && webUrl && current.slug) {
-        html += '<a class="cgch-btn cgch-btn-ghost cgch-btn-sm" href="' +
+        html += '<a class="btn-secondary cgch-btn-sm" href="' +
                 escapeHtml(webUrl.replace(/\/+$/, "")) + '/w/' + encodeURIComponent(current.slug) +
                 '/settings/members" target="_blank" rel="noopener noreferrer">管理</a>';
       }
@@ -836,7 +836,7 @@
     // 未连接态:按钮切换为「连接网站」——confirm 后创建会话并注入连接请求,
     // agent 按 onboarding「CDP 自动连接」SOP 自动完成(token 不进对话)
     discEl.textContent = configured ? "断开连接" : "连接网站";
-    discEl.className = "cgch-btn " + (configured ? "cgch-btn-danger" : "");
+    discEl.className = "btn-secondary" + (configured ? " cgch-btn-danger" : "");
     discEl.disabled = false;
     discEl.dataset.mode = configured ? "disconnect" : "connect";
     if (webUrl) {
@@ -926,7 +926,7 @@
   display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px;
   border-radius: 999px; font-size: 0.6875rem; font-weight: 650; line-height: 1;
   color: var(--color-text-secondary);
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border-secondary);
 }
 .cgch-pill-on {
@@ -940,22 +940,13 @@
   border-radius: 6px; font-size: 0.6875rem; font-weight: 650; line-height: 1;
   font-family: var(--font-mono, ui-monospace, monospace);
   color: var(--color-text-tertiary);
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border-secondary);
 }
 .cgch-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 
-/* buttons(ghost 次级 + danger 幽灵红) */
-.cgch-btn {
-  display: inline-block; padding: 7px 14px; border-radius: var(--radius-md, 8px);
-  font-size: 0.75rem; font-weight: 650; text-decoration: none; cursor: pointer;
-  border: 1px solid var(--color-border-primary);
-  background: var(--color-bg-card);
-  color: var(--color-text-primary);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
-              color var(--transition-fast), background var(--transition-fast);
-}
-.cgch-btn:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-sm); }
+/* buttons:基类直接用宿主 .btn-secondary;此处仅保留 danger 幽灵红修饰 + sm 尺寸工具 */
+.cgch-page a.btn-secondary { text-decoration: none; }
 .cgch-btn-danger {
   color: var(--color-error, #c0392b);
   border-color: color-mix(in srgb, var(--color-error, #c0392b) 32%, var(--color-border-primary));
@@ -978,7 +969,7 @@
 /* session tabs */
 .cgch-tabs {
   display: inline-flex; align-items: center; gap: 2px; padding: 2px;
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border-secondary);
   border-radius: var(--radius-md, 8px);
 }
@@ -1040,11 +1031,6 @@
   font-size: 0.8125rem; font-family: ui-monospace, Menlo, monospace;
 }
 .cgch-input:focus { outline: none; border-color: var(--color-accent-primary); }
-.cgch-btn-primary {
-  background: var(--color-accent-primary); color: var(--color-bg-primary, #fff);
-  border-color: var(--color-accent-primary); font-weight: 650;
-}
-.cgch-btn-primary:disabled { opacity: 0.55; cursor: wait; }
 
 /* 功能目录(extension-card 同款:icon 容器/名称/状态 pill/描述/箭头) */
 .cgch-catalog-grid {
@@ -1131,7 +1117,7 @@
 .cgch-chip {
   display: inline-flex; align-items: center; padding: 0 8px; min-height: 20px;
   color: var(--color-text-secondary);
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-hover);
   border: 1px solid var(--color-border-secondary);
   border-radius: 999px; font-size: 0.6875rem; font-weight: 650; line-height: 1;
 }
