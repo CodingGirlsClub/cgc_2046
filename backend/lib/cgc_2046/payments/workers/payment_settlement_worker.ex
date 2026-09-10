@@ -21,7 +21,9 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
 
   幂等（R21）：重复投递由 webhook_events 唯一索引去重；worker 重试重入由双
   CAS 裁决（先落者赢，后到 num_rows=0 走已处理分支）。Oban 重试 max_attempts 5，
-  最终 discarded 由对账规⑥/规⑦ 死信可见。
+  重试耗尽 discarded 后由对账兜底：订单侧 U8 过期扫描（pending_overdue）与次日
+  渠道对账（channel_only / local_paid_missing）仍可见（规⑥死信白名单不含本
+  worker，落账丢失的可见性在订单侧闭环）。
   """
 
   use Oban.Worker,
@@ -136,9 +138,59 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
 
         mark_processed(event)
 
+      # mark_paid 的 CAS 在 DB 瞬断时失败且 reload 仍 pending：落账未完成。
+      # 渠道查单已确认有款且金额相符——mark_processed 会永久丢单（已收款、
+      # 不落账、不退款、不重试），必须上抛走 Oban 重试；重入从 fetch_transaction
+      # 重新查单，幂等（015 审计修复）。
+      :pending ->
+        {:error, :order_still_pending}
+
+      # 渠道确认有款而本地已判退款失败：收款无有效占位，必须重入退款链
+      # （KTD12「收款无对应占位必须原路退回」不变量）。start_refund 的 CAS 不含
+      # refund_failed，正确入口是 :retry_refund（refund_failed → refunding，
+      # after_action 自带入队 refund job；治理留痕 actor=nil 系统语义）。
+      :refund_failed ->
+        case retry_channel_refund(order) do
+          :ok -> mark_processed(event)
+          {:error, _reason} = retry_error -> retry_error
+        end
+
       other ->
         Logger.error("settlement: unexpected order status #{other} for #{order.id}")
         mark_processed(event)
+    end
+  end
+
+  # refund_failed 重入退款链（015 审计修复 + 复审 F1）。错误语义精确二分：
+  # - CAS 未命中（BusinessError code "order_already_processed"——人工 retry_refund
+  #   / 渠道回调链并发先落）= 良性，消费事件；
+  # - 其余（DB 瞬断、留痕失败等）绝不能吞——吞了会把「渠道已收款、本地无有效
+  #   占位」的单永久滞留 refund_failed 无人跟进，上抛走 Oban 重试。
+  # 分类形状与 PaymentExpiryWorker.expected_race?/1 同源（Ash.update 经
+  # Ash.Error.to_error_class/1 归一，BusinessError 原样保留在 Invalid 栈内）。
+  defp retry_channel_refund(order) do
+    case order
+         |> Ash.Changeset.for_update(:retry_refund, %{})
+         |> Ash.update(tenant: order.workspace_id, authorize?: false) do
+      {:ok, _refunding} ->
+        :ok
+
+      {:error, %Ash.Error.Invalid{errors: errors}} = result ->
+        if Enum.any?(errors, fn
+             %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
+             _ -> false
+           end) do
+          Logger.info(
+            "settlement: order #{order.id} refund retry lost CAS race, delivery consumed"
+          )
+
+          :ok
+        else
+          result
+        end
+
+      {:error, _reason} = result ->
+        result
     end
   end
 
