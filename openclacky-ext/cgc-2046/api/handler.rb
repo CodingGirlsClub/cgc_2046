@@ -117,6 +117,8 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   current_version  = ext.yml manifest version(与 /version 同源读取,不重复实现);
   #   latest_version   = 远端 {mcp_url origin}/ext/cgc-2046.json 的 version;
   #   download_url     = origin + 远端 json 的 download_path;
+  #   sha256           = 远端 json 的 sha256 透传(清单缺键时响应省略该键,
+  #                      面板指纹行优雅降级;宿主 install API 尚无 checksum 参数);
   #   update_available = latest 按 semver 新于 current(版本比较只此一处,
   #                      面板直接消费该布尔,不再重复比较)。
   # 读端点:只需 origin 门(Host loopback + 同源),无 CSRF。
@@ -128,11 +130,13 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("extension manifest version missing", status: 500) if current.empty?
 
     remote = fetch_update_manifest
-    json(ok: true,
-         current_version: current,
-         latest_version: remote[:version],
-         download_url: remote[:download_url],
-         update_available: version_newer?(remote[:version], current))
+    resp = { ok: true,
+             current_version: current,
+             latest_version: remote[:version],
+             download_url: remote[:download_url],
+             update_available: version_newer?(remote[:version], current) }
+    resp[:sha256] = remote[:sha256] unless remote[:sha256].empty?
+    json(resp)
   rescue Clacky::ApiExtension::Halt
     raise
   rescue StandardError => e
@@ -358,7 +362,17 @@ class Cgc2046Ext < Clacky::ApiExtension
     path = data["download_path"].to_s.strip
     error!("update manifest malformed", status: 502) if version.empty? || path.empty?
 
-    { version: version, download_url: origin + path }
+    # 同源语义门:download_path 必须是纯路径(以 / 开头),拒绝 userinfo
+    # 逃逸(@)、协议相对(//)、内嵌 scheme(://)、反斜杠与空白/控制字符——
+    # 否则 origin + path 拼串可逃逸同源语义(@ 前段被当 userinfo)。
+    unless path.start_with?("/") &&
+           !path.start_with?("//") &&
+           !path.match?(%r{[@\\：:]}) &&
+           !path.match?(/[\s\x00-\x1f]/)
+      error!("update manifest malformed download_path", status: 502)
+    end
+
+    { version: version, download_url: origin + path, sha256: data["sha256"].to_s }
   rescue Clacky::ApiExtension::Halt
     raise
   rescue StandardError => e

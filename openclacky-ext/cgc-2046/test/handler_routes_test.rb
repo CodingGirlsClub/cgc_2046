@@ -578,6 +578,76 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # ---- download_path 形态门(plan 022):纯路径才允许参与 origin + path 拼串 ----
+
+  def test_update_info_rejects_userinfo_path
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "@evil.com/x.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "@ 形态让 origin+path 拼串逃逸同源(前段被当 userinfo)"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_rejects_embedded_scheme
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "/x.zip://evil")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "内嵌 :// 属内嵌 scheme,拒之门外"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_rejects_protocol_relative
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "//evil.com/x.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "// 开头 = 协议相对 URL,安装会换域"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_sha256_passthrough
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip",
+        "sha256" => "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        payload["sha256"], "deploy 交付的 sha256 原样透传(安装前供面板展示指纹)"
+    end
+  end
+
+  def test_update_info_sha256_absent_graceful
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      refute JSON.parse(halt.payload).key?("sha256"), "旧 manifest 无 sha256 → 响应省略该键(优雅降级)"
+    end
+  end
+
   def test_version_newer_semver_semantics
     inst = build
     newer = ->(a, b) { inst.send(:version_newer?, a, b) }

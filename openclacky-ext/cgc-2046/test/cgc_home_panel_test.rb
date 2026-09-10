@@ -56,6 +56,15 @@ class CgcHomePanelTest < Minitest::Test
     assert_includes handler, 'get "/update_info"'
   end
 
+  # 升级链路完整性锚定(plan 022):安装前确认框 + sha256 指纹展示。
+  # 断言锚升级独有文案/键,不与 disconnect 流程的 window.confirm 混淆。
+  def test_home_panel_upgrade_confirms_with_sha256_fingerprint
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, "payload.sha256", "升级确认框必须消费 /update_info 透传的 sha256"
+    assert_includes view, "确认升级 CGC-2046 扩展", "升级路径独有确认文案"
+    assert_includes view, "window.confirm", "升级属低频高危动作,POST install 前必须经确认框"
+  end
+
   # ---- 会话区 Tab 与活动区移除 ----
 
   def test_home_panel_session_tabs_and_no_activity_section

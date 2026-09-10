@@ -275,6 +275,12 @@
       const res = await fetch(API + "/update_info", { headers: { Accept: "application/json" } });
       const payload = await res.json();
       if (!payload || payload.ok !== true || !payload.download_url) throw new Error("更新信息不可用");
+      const fp = payload.sha256 ? "\n下载指纹 sha256: " + String(payload.sha256).slice(0, 12) + "…" : "";
+      if (!window.confirm("确认升级 CGC-2046 扩展到 v" + String(payload.latest_version || "") + "?" + fp)) {
+        btn.disabled = false;
+        if (btn.dataset.latest) btn.textContent = "升级 v" + btn.dataset.latest;
+        return;
+      }
       const install = await fetch("/api/store/extension/install", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
