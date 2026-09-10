@@ -1400,6 +1400,9 @@ input UpdateEventInput {
   "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
   venue: JsonString
 
+  "配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
+  courseRevisionId: ID
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -1461,6 +1464,9 @@ input CreateEventInput {
 
   "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
   venue: JsonString
+
+  "配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
+  courseRevisionId: ID
 
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
@@ -1991,6 +1997,8 @@ type Event {
 
   "价格档位配置（PriceTier 形状，见 price_tier.ex）"
   priceTiers: [JsonString!]!
+
+  companionCourse: JsonString
 
   availablePriceTiers: [JsonString!]
 

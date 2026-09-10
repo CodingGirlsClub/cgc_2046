@@ -672,6 +672,13 @@ defmodule Cgc2046.Courses.Course do
       description("回写当前 published 课程版本（S6 发布步）")
       require_atomic?(false)
       accept([:current_revision_id])
+
+      # issue #505 1i：换绑即发布时点——信号补种存量 confirmed 报名的
+      # learning run（LearningInstantiator 订阅 course_revision.published）。
+      change(
+        {Cgc2046.Workflows.SignalEmitter,
+         type: "course_revision.published", payload: &__MODULE__.revision_published_payload/2}
+      )
     end
 
     # #40 展示页：按 id 取课程详情（GraphQL read_one）
@@ -749,6 +756,18 @@ defmodule Cgc2046.Courses.Course do
          {:ok, course} <- maybe_launch_for_publish(course, actor) do
       {:ok, course}
     end
+  end
+
+  @doc """
+  `course_revision.published` 信号 payload（SignalEmitter 远程捕获契约：
+  公开模块函数）。record = 换绑后的 Course（current_revision_id 已更新）。
+  """
+  def revision_published_payload(_changeset, %__MODULE__{} = course) do
+    %{
+      course_id: course.id,
+      course_revision_id: course.current_revision_id,
+      title: course.title
+    }
   end
 
   defp bind_current_revision(

@@ -173,6 +173,16 @@ defmodule Cgc2046.Events.Event do
       description: "结构化场地（country/province/city/district 四键，KTD5/R2）；nil 表示线上或未定"
     )
 
+    attribute(:course_revision_id, :uuid,
+      allow_nil?: true,
+      public?: false,
+      writable?: true,
+      description:
+        "配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；" <>
+          "nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，" <>
+          "属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
+    )
+
     attribute(:sponsorship_enabled, :boolean,
       allow_nil?: false,
       default: true,
@@ -213,6 +223,7 @@ defmodule Cgc2046.Events.Event do
     )
 
     create_timestamp(:inserted_at)
+
     update_timestamp(:updated_at)
   end
 
@@ -220,10 +231,22 @@ defmodule Cgc2046.Events.Event do
     validate({Cgc2046.Accounts.SponsorshipTiersValidation, []})
     validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Events.VenueValidation, []})
+    validate({Cgc2046.Events.CompanionRevisionValidation, []})
     validate({Cgc2046.Offering.ScheduleValidation, []})
   end
 
   calculations do
+    # issue #505 D1 公开读面：配套课程卡投影（id/slug/title 最小集；无锚 →
+    # nil）。load 依赖声明同 available_price_tiers 纪律（GraphQL 单独请求时
+    # Ash 补载 course_revision_id）。
+    calculate(:companion_course, :map,
+      public?: true,
+      load: [:course_revision_id],
+      calculation: fn records, _opts ->
+        Cgc2046.Events.CompanionCourse.project(records)
+      end
+    )
+
     # R2 报名面：只暴露未过 available_until 的档位（过滤逻辑在 PriceTier）。
     # load: GraphQL 单独请求本计算字段时 ash_graphql 不自动 select 依赖列,
     # price_tiers 落 NotLoaded → available_tiers 误判空(load 依赖声明后由 Ash 补载)。
@@ -286,7 +309,8 @@ defmodule Cgc2046.Events.Event do
       :sponsorship_tiers,
       :sponsorship_deadline,
       :pricing_enabled,
-      :price_tiers
+      :price_tiers,
+      :course_revision_id
     ])
 
     create :create do
@@ -309,7 +333,8 @@ defmodule Cgc2046.Events.Event do
         :sponsorship_tiers,
         :sponsorship_deadline,
         :pricing_enabled,
-        :price_tiers
+        :price_tiers,
+        :course_revision_id
       ])
 
       # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
@@ -392,7 +417,8 @@ defmodule Cgc2046.Events.Event do
         :sponsorship_tiers,
         :sponsorship_deadline,
         :pricing_enabled,
-        :price_tiers
+        :price_tiers,
+        :course_revision_id
       ])
 
       # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的
