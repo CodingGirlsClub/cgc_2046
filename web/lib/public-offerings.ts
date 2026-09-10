@@ -170,3 +170,35 @@ export function formatVenue(venue: VenueInfo | null): string | null {
 		.filter((part, index, all) => part !== "" && part !== all[index - 1]);
 	return parts.length > 0 ? parts.join(" ") : null;
 }
+
+/** 配套课程投影（companionCourse JsonString 解析后形状；issue #505 D1） */
+export interface CompanionCourseInfo {
+	id: string;
+	slug: string;
+	title: string;
+}
+
+/**
+ * companionCourse（JsonString）→ 课程卡数据；null/解析失败/缺键 → null
+ * （宣讲会无配套课为正常态）。
+ */
+export function parseCompanionCourse(
+	raw: string | null | undefined,
+): CompanionCourseInfo | null {
+	if (!raw) return null;
+	try {
+		const v: unknown = JSON.parse(raw);
+		if (typeof v !== "object" || v === null) return null;
+		const r = v as Record<string, unknown>;
+		if (
+			typeof r.id === "string" &&
+			typeof r.slug === "string" &&
+			typeof r.title === "string"
+		) {
+			return { id: r.id, slug: r.slug, title: r.title };
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}

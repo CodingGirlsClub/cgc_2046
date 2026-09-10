@@ -899,3 +899,59 @@ describe("赞助档位独占位徽标（F6 暗色 token）", () => {
     expect(container.innerHTML).not.toMatch(/bg-amber|text-amber/);
   });
 });
+
+describe("配套课程卡（issue #505 D1）", () => {
+  const COMPANION = JSON.stringify({
+    id: "course-1",
+    slug: "agent-bootcamp",
+    title: "Agent 训练营",
+  });
+
+  it("event 有配套课程 → 渲染课程卡链接到课程公开页", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      companionCourse: COMPANION,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const card = await screen.findByTestId("public-companion-course");
+    expect(card).toBeInTheDocument();
+    const link = within(card).getByRole("link", { name: "Agent 训练营" });
+    expect(link).toHaveAttribute("href", "/courses/agent-bootcamp");
+  });
+
+  it("event 无配套课程（宣讲会）→ 不渲染", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      companionCourse: null,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+
+    expect(
+      screen.queryByTestId("public-companion-course"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("course 详情页即使带字段也不渲染（kind 门）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      companionCourse: COMPANION,
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+    await screen.findByRole("button", { name: "提交报名" });
+
+    expect(
+      screen.queryByTestId("public-companion-course"),
+    ).not.toBeInTheDocument();
+  });
+});
