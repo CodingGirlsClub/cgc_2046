@@ -305,7 +305,7 @@
       '<div class="cgc-panel cgc-discovery-panel">' +
         '<div class="cgc-panel-head">' +
           '<h3 class="cgc-panel-title">CGC 发现</h3>' +
-          '<button id="cgc-back-home" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">← 返回工作台</button>' +
+          '<button id="cgc-back-home" class="btn-secondary cgc-btn-sm" type="button">← 返回工作台</button>' +
         '</div>' +
         inner +
       '</div>';
@@ -336,7 +336,7 @@
           '再打开发现面板浏览活动与课程(503)。</div>' +
       '</div>' +
       '<div class="cgc-actions">' +
-        '<button id="cgc-retry" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-retry">重试</button>' +
+        '<button id="cgc-retry" class="btn-secondary cgc-btn-sm" type="button" data-testid="panel-retry">重试</button>' +
       '</div>'
     );
     bindRetry();
@@ -347,7 +347,7 @@
       '<div class="cgc-card cgc-ev-err" data-testid="panel-error">加载失败:' +
         escapeHtml((state.error && state.error.message) || "") + '</div>' +
       '<div class="cgc-actions">' +
-        '<button id="cgc-retry" class="cgc-btn cgc-btn-secondary" type="button" data-testid="panel-retry">重试</button>' +
+        '<button id="cgc-retry" class="btn-secondary cgc-btn-sm" type="button" data-testid="panel-retry">重试</button>' +
       '</div>'
     );
     bindRetry();
@@ -409,14 +409,14 @@
         }
         const wsId = (item.workspace && item.workspace.id) || "";
         return '<span class="cgc-badge cgc-badge-pending" data-testid="panel-enroll-badge">待支付</span>' +
-               '<button class="cgc-btn cgc-btn-primary cgc-btn-sm" type="button" data-resume-pay="' + escapeHtml(enr.id) +
-                 '" data-ws="' + escapeHtml(wsId) + '" data-testid="panel-pay-resume">去支付</button>';
+        '<button class="btn-primary cgc-btn-sm" type="button" data-resume-pay="' + escapeHtml(enr.id) +
+          '" data-ws="' + escapeHtml(wsId) + '" data-testid="panel-pay-resume">去支付</button>';
       }
       return '<span class="cgc-badge cgc-badge-enr-' + escapeHtml(enr.status) + '" data-testid="panel-enroll-badge">' +
              escapeHtml(enrollmentBadge(enr.status)) + '</span>';
     }
     if (item.status === "open") {
-      return '<button class="cgc-btn cgc-btn-primary cgc-btn-sm" type="button" data-enroll="' + idx +
+      return '<button class="btn-primary cgc-btn-sm" type="button" data-enroll="' + idx +
              '" data-testid="panel-enroll">报名</button>';
     }
     return "";
@@ -426,7 +426,7 @@
   // scheme 门(https 或 loopback http),非法不渲染链接
   function payLink(url) {
     if (!Kit.safeWebUrl(url)) return "";
-    return '<a class="cgc-btn cgc-btn-primary cgc-btn-sm" href="' + escapeHtml(url) +
+    return '<a class="btn-primary cgc-btn-sm" href="' + escapeHtml(url) +
            '" target="_blank" rel="noopener noreferrer" data-testid="panel-pay-link">去支付</a>';
   }
 
@@ -442,7 +442,7 @@
         '<div class="cgc-card cgc-confirm-card cgc-ev-err" data-testid="panel-enroll-confirm">' +
           '报名摘要加载失败:' + escapeHtml(c.error.message || "") +
           '<div class="cgc-actions">' +
-            '<button id="cgc-enroll-cancel" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button" data-testid="panel-enroll-cancel">取消</button>' +
+            '<button id="cgc-enroll-cancel" class="btn-secondary cgc-btn-sm" type="button" data-testid="panel-enroll-cancel">取消</button>' +
           '</div>' +
         '</div>'
       );
@@ -486,9 +486,9 @@
         '<div class="cgc-actions">' +
           (inviteOnly
             ? ""
-            : '<button id="cgc-enroll-submit" class="cgc-btn cgc-btn-primary cgc-btn-sm" type="button" data-testid="panel-enroll-submit"' +
+            : '<button id="cgc-enroll-submit" class="btn-primary cgc-btn-sm" type="button" data-testid="panel-enroll-submit"' +
               (c.saving ? " disabled" : "") + '>' + (c.saving ? "提交中…" : "确认报名") + '</button>') +
-          '<button id="cgc-enroll-cancel" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button" data-testid="panel-enroll-cancel"' +
+          '<button id="cgc-enroll-cancel" class="btn-secondary cgc-btn-sm" type="button" data-testid="panel-enroll-cancel"' +
             (c.saving ? " disabled" : "") + '>取消</button>' +
         '</div>' +
       '</div>'
@@ -526,7 +526,7 @@
 
   function refreshRow() {
     return '<div class="cgc-actions">' +
-      '<button id="cgc-refresh" class="cgc-btn cgc-btn-secondary" type="button">刷新</button>' +
+      '<button id="cgc-refresh" class="btn-secondary cgc-btn-sm" type="button">刷新</button>' +
     '</div>';
   }
 
@@ -544,25 +544,24 @@
       ".cgc-offering-list{margin-top:10px}" +
       ".cgc-panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}" +
       ".cgc-offering-row{padding:8px 10px;border-radius:8px}" +
-      ".cgc-offering-row:hover{background:rgba(127,127,127,.12)}" +
+      ".cgc-offering-row:hover{background:var(--color-bg-hover)}" +
       ".cgc-offering-head{display:flex;justify-content:space-between;align-items:center;gap:8px}" +
       ".cgc-offering-link{color:inherit;text-decoration:none}" +
       ".cgc-offering-link:hover{text-decoration:underline}" +
-      ".cgc-offering-meta{display:flex;gap:8px;align-items:center;margin-top:3px;font-size:12px;color:#9ca3af}" +
+      ".cgc-offering-meta{display:flex;gap:8px;align-items:center;margin-top:3px;font-size:12px;color:var(--color-text-tertiary)}" +
       ".cgc-offering-actions{display:flex;gap:8px;align-items:center;margin-top:6px}" +
-      ".cgc-badge{border:1px solid var(--border,#444);border-radius:999px;padding:0 8px;font-size:11px}" +
-      ".cgc-badge-open{color:#34d399;border-color:#34d399}" +
-      ".cgc-badge-closed{color:#9ca3af}" +
-      ".cgc-badge-enr-confirmed{color:#34d399;border-color:#34d399}" +
-      ".cgc-badge-pending,.cgc-badge-enr-pending,.cgc-badge-paying{color:#fbbf24;border-color:#fbbf24}" +
-      ".cgc-badge-enr-rejected,.cgc-badge-enr-expired,.cgc-badge-enr-cancelled{color:#9ca3af}" +
+      ".cgc-badge{border:1px solid var(--color-border-primary);border-radius:999px;padding:0 8px;font-size:11px}" +
+      ".cgc-badge-open{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}" +
+      ".cgc-badge-closed{color:var(--color-text-tertiary)}" +
+      ".cgc-badge-enr-confirmed{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}" +
+      ".cgc-badge-pending,.cgc-badge-enr-pending,.cgc-badge-paying{color:var(--color-warning,#fbbf24);border-color:var(--color-warning,#fbbf24)}" +
+      ".cgc-badge-enr-rejected,.cgc-badge-enr-expired,.cgc-badge-enr-cancelled{color:var(--color-text-tertiary)}" +
       ".cgc-btn-sm{padding:2px 8px;font-size:12px;text-decoration:none}" +
-      ".cgc-btn-primary{background:#6366f1;color:#fff;border:none;border-radius:6px}" +
-      ".cgc-confirm-card{margin-top:10px;border:1px solid var(--border,#444)}" +
+      ".cgc-confirm-card{margin-top:10px;border:1px solid var(--color-border-primary)}" +
       ".cgc-confirm-title{font-size:13px;font-weight:600;margin:0 0 8px}" +
       ".cgc-confirm-row{display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px}" +
-      ".cgc-confirm-row label{color:#9ca3af;min-width:60px}" +
-      ".cgc-select{padding:4px 8px;border:1px solid var(--border,#444);border-radius:6px;background:transparent;color:inherit;font-size:12px}";
+      ".cgc-confirm-row label{color:var(--color-text-tertiary);min-width:60px}" +
+      ".cgc-select{padding:4px 8px;border:1px solid var(--color-border-primary);border-radius:6px;background:transparent;color:inherit;font-size:12px}";
     document.head.appendChild(css);
   }
 
