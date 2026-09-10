@@ -10,7 +10,6 @@ defmodule Cgc2046.Application do
     children = [
       Cgc2046Web.Telemetry,
       Cgc2046.Repo,
-      {DNSCluster, query: Application.get_env(:cgc_2046, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Cgc2046.PubSub},
       # Start a worker by calling: Cgc2046.Worker.start_link(arg)
       # {Cgc2046.Worker, arg},

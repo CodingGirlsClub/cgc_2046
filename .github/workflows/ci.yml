@@ -121,6 +121,10 @@ jobs:
       # 错误码契约工件新鲜度（#241）：domain code 子句变更未再生成即红
       - run: mix cgc2046.gen_error_codes_contract --check
       - run: mix cgc2046.check_licenses
+      # hex 退役包审计（web/miniprogram 各有 pnpm audit 对应位；hex 内置任务
+      # 零安装，命中 retired 依赖非零退出）。016 审计立项——backend 是唯一
+      # 无依赖审计门禁的工作区，而它面向公网（支付 SDK + MCP server）。
+      - run: mix hex.audit
       # snapshot 门禁：Ash resource 定义与 resource_snapshots 漂移即红
       # （schema squash 后防止资源变更不带 snapshot 提交；纯文件比对，无需 DB）
       - run: mix ash_postgres.generate_migrations --check
