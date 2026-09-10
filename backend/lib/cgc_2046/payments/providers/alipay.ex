@@ -16,6 +16,8 @@ defmodule Cgc2046.Payments.Providers.Alipay do
 
   @behaviour Cgc2046.Payments.Provider
 
+  require Logger
+
   alias Alipay.Trade
 
   @config_key :alipay_pay
@@ -196,12 +198,22 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   end
 
   # intake 层应用绑定（017 审计加固，纵深防御）：签名只证明「本密钥所签」，
-  # 不证明「发给本应用」——支付宝规范建议核对 app_id/seller_id。settlement
-  # worker 的渠道查单兜底使漏检影响受限，此处把拒绝提前到受理入口。未配置
-  # app_id（dev/test）退化为放行。公开 helper（app_id 显式传参）供契约测试
-  # 直测，不经全局 env。
+  # 不证明「发给本应用」——支付宝规范建议核对 app_id/seller_id。漏检的长尾
+  # 兜底 = settlement worker 渠道查单 + T+1 夜间对账人工处置，把拒绝提前到
+  # 受理入口可少等一个对账周期。app_id 未配置时退化为放行但显式告警（回调
+  # 低频，告警噪音可接受；复审 LOW：静默失效正是本计划要移除的模式）。
+  # 公开 helper（app_id 显式传参）供契约测试直测，不经全局 env。
   @doc false
-  def app_bound?(_params, nil), do: true
+  def app_bound?(params, app_id)
+
+  def app_bound?(_params, nil) do
+    Logger.error(
+      "alipay webhook: callback public key configured but app_id missing; " <>
+        "intake app binding is disabled (set ALIPAY_APP_ID)"
+    )
+
+    true
+  end
 
   def app_bound?(params, app_id) when is_binary(app_id) do
     params["app_id"] == app_id and
