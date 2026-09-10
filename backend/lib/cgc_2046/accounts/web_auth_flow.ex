@@ -16,6 +16,11 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
   require Logger
   require Ash.Query
 
+  # prod release 不随包分发 :mix 应用，运行时 Mix.env() 直接 UndefinedFunctionError
+  # ——必须编译期求值进模块属性（endpoint.ex 同款先例；Dockerfile 构建
+  # MIX_ENV=prod，@prod_env? 编译为 true）
+  @prod_env? Mix.env() == :prod
+
   # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
 
   # 发码四窗口限流（phone 1/60s + 5/1h + 20/1d，IP 30/1d）；固定窗口 ETS
@@ -232,17 +237,17 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
 
   def start_wechat_login(next) do
     # next 由 state 无关的 URL 参数透传(plan 002):嵌入 redirect_uri,微信回调原样带回;
-    # 开放跳转防护在 callback 页 resolveNextTarget 同源校验,此处仅透传。
+    # 开放跳转防护双端成环(017 审计加固):服务端 safe_next?/1 只放行站点相对路径,
+    # callback 页 resolveNextTarget 同源校验保持为前端兜底——此前防护仅存在于
+    # 本仓之外的前端。
     base = Application.fetch_env!(:cgc_2046, :web_base_url) <> "/login/wechat-callback"
 
     redirect_uri =
-      case next do
-        value when is_binary(value) and value != "" ->
-          # 不预编码:qr_connect_url 的 encode_query 对整个 redirect_uri 统一编码一次
-          base <> "?next=" <> value
-
-        _ ->
-          base
+      if is_binary(next) and next != "" and safe_next?(next) do
+        # 不预编码:qr_connect_url 的 encode_query 对整个 redirect_uri 统一编码一次
+        base <> "?next=" <> next
+      else
+        base
       end
 
     case Cgc2046.Accounts.WechatLoginTicket.issue() do
@@ -436,6 +441,15 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
   defp phone_code_purpose_atom("register"), do: :register
   defp phone_code_purpose_atom("change_phone"), do: :change_phone
 
+  # 站点相对路径判定（开放跳转防护的服务端半环）：单个 / 开头；拒绝协议相对
+  # （//、/\）、绝对 URL（含 ://）与控制字符。非法值直接丢弃（落默认不带 next），
+  # 不回显。
+  defp safe_next?(value) do
+    String.starts_with?(value, "/") and not String.starts_with?(value, "//") and
+      not String.starts_with?(value, "/\\") and not String.contains?(value, "://") and
+      not String.contains?(value, ["\r", "\n", "\t", "\0"])
+  end
+
   defp deliver_phone_code(phone, code, send_request_id) do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
 
@@ -449,9 +463,15 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
         send_request_id
       )
     else
-      # dev/test：SMS 凭证缺席，Logger 出码供本地联调（prod 启动时 raise，不可达）
-      Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
-      :ok
+      # dev/test：SMS 凭证缺席，Logger 出码供本地联调。prod 编译期整段剔除
+      # （017 审计加固：此前仅靠 runtime 启动 raise 的配置不变量拦——该配置
+      # 一旦放松即成日志泄露验证码；手机号不掩码因 prod 分支不存在）。
+      if @prod_env? do
+        :ok
+      else
+        Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
+        :ok
+      end
     end
   end
 end

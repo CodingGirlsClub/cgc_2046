@@ -117,6 +117,23 @@ defmodule Cgc2046Web.GraphqlWechatWebLoginTest do
       assert url =~ "wechat-callback%3Fnext%3D%2Forders%2Fabc%3Ffrom%3Denroll"
     end
 
+    # 017 审计加固：开放跳转防护的服务端半环——非站点相对路径的 next 直接
+    # 丢弃（redirect_uri 不带 next，不回显非法值），不再只依赖前端同源校验。
+    test "next 非法值（绝对 URL / 协议相对 / 反斜杠）→ 丢弃不透传" do
+      for illegal <- ["https://evil.example/path", "//evil.example", "/\\evil.example"] do
+        res =
+          build_conn()
+          |> graphql_post("""
+          mutation { wechatLoginStart(next: #{inspect(illegal)}) { qrUrl } }
+          """)
+          |> json_response(200)
+
+        assert %{"data" => %{"wechatLoginStart" => %{"qrUrl" => url}}} = res
+        refute url =~ "next%3D", "next=#{illegal} should be dropped"
+        assert url =~ "wechat-callback"
+      end
+    end
+
     test "未配置门禁：wechat_login_unavailable" do
       Application.put_env(:cgc_2046, :wechat_web, appid: nil, secret: nil)
 
