@@ -201,13 +201,6 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("disconnect failed: #{e.message}", status: 500)
   end
 
-  # POST /api/ext/cgc-2046/skills/sync
-  # 端点骨架（D11 留位）：全量/增量同步在后续切片交付。
-  post "/skills/sync" do
-    guard_write!
-    error!("skills sync ships in a later slice", status: 501)
-  end
-
   # ── 数据面面孔:一族面板透传路由共享的 503 引导文案与 500 前缀 ──────────
   # (原 offering/workbench/learner_routes 单行转发浅层收编于此;
   #  管道本体 = Cgc2046CourseRoutes.call_tool 的 503/502/500/409 错误分层。)
