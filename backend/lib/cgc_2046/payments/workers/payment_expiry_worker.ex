@@ -44,10 +44,13 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorker do
   def perform(%Oban.Job{}) do
     now = DateTime.utc_now()
 
-    expired =
+    results =
       Enum.map(@expiry_specs, fn spec ->
         {spec.resource, sweep(spec, now)}
       end)
+
+    expired =
+      Enum.map(results, fn {resource, {count, _failed?}} -> {resource, count} end)
 
     if Enum.any?(expired, fn {_resource, count} -> count > 0 end) do
       summary =
@@ -58,18 +61,43 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorker do
       Logger.info("payment expiry sweep: #{summary} expired")
     end
 
-    :ok
+    # 015 审计修复：DB 类硬失败不再折叠为 :skip——毒记录此前会每分钟静默重试
+    # 到永远（占位永不释放，只升级到 1h 后的对账规④）。整拍上抛走 Oban 重试
+    # （max_attempts 3）；重试幂等——已过期成功的单下拍不再命中过滤器，
+    # 状态守卫类预期竞态照旧 :skip 不阻塞。
+    if Enum.any?(results, fn {_resource, {_count, failed?}} -> failed? end) do
+      {:error, :expire_hard_failure}
+    else
+      :ok
+    end
   end
 
   # 列实体：SQL 下推过滤（status + 列非空 + 列 < now），不退化为全表 load。
+  # 返回 {过期数, 是否存在硬失败}。
   defp sweep(%{resource: resource, status: status, deadline: {:column, column}}, now) do
     resource
     |> Ash.Query.filter(status == ^status and not is_nil(^ref(column)) and ^ref(column) < ^now)
     |> Ash.read!(authorize?: false)
-    |> Enum.reduce(0, fn record, acc ->
+    |> Enum.reduce({0, false}, fn record, {acc, failed?} ->
       case expire_record(record) do
-        :ok -> acc + 1
-        :skip -> acc
+        :ok ->
+          {acc + 1, failed?}
+
+        :skip ->
+          {acc, failed?}
+
+        {:error, reason} ->
+          Logger.error(
+            "payment expiry: #{kind(resource)} #{record.id} expire hard failure: #{inspect(reason)}"
+          )
+
+          :telemetry.execute(
+            [:cgc2046, :payment_expiry, :expire_failed],
+            %{count: 1},
+            %{resource: kind(resource)}
+          )
+
+          {acc, true}
       end
     end)
   end
@@ -139,16 +167,40 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorker do
   # review F8：过期成功后通知构建失败（如 target_title 加载异常）不再吞为静默
   # ——上抛走 Oban 重试；但订单已 expired（终态），重选不中本单，故通知失败
   # 只记 warning 落日志（保留既有尽力而为语义），expire 主体不回滚。
+  #
+  # 015 审计修复：错误二分类——状态守卫类（并发终态变化先落库，Ash Invalid /
+  # Stale 家族）= 预期竞态，warning + :skip；其余（DB 瞬断等）= 硬失败，
+  # {:error, reason} 沿 sweep 上抛触发整拍重试。
   defp handle_expire_result(result, kind, id) do
     case result do
       {:ok, _} ->
         :ok
 
       {:error, error} ->
-        Logger.warning("payment expiry: #{kind} #{id} expire skipped: #{inspect(error)}")
-        :skip
+        if expected_race?(error) do
+          Logger.warning(
+            "payment expiry: #{kind} #{id} expire skipped (state guard): #{inspect(error)}"
+          )
+
+          :skip
+        else
+          {:error, error}
+        end
     end
   end
+
+  # 预期竞态的精确形状：Order :expire 的 CAS（claim/4）未命中 → BusinessError
+  # code "order_already_processed"（order.ex domain_error_code 显式子句）。
+  # DB 类失败走同族 BusinessError 但 code = "database_error"——那是硬失败，
+  # 绝不能误判为竞态（015 审计修复的分类依据）。
+  defp expected_race?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
+      _ -> false
+    end)
+  end
+
+  defp expected_race?(_), do: false
 
   # review F8：nil deadline = 永开放（ApprovalDeadline.not_expired? nil→true 同语义）；
   # 非 open 状态（已取消/结束）不可再报名——re_enrollable 只在 open 且未截止时 true。

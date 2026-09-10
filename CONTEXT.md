@@ -589,6 +589,6 @@
 - ~~Invitation 撤销流程（revoked 状态 + 到期清理）~~ ✅ 已实现（slice-B）
 - ~~JoinRequest 审批的角色分配方式（申请人请求 vs 审批方指定）~~ ✅ 已定稿：审批方指定（slice-B 决策 2）
 - 确认流 auto_approve 模式的冷却期（二期）
-- 平台管理员建 Workspace 的审计留痕
-- 人工步骤超时/取消语义（workflow `waiting` 状态：如报名截止后取消 run）
-- 异步 Signal 路径的幂等键与重试策略（v1 设计阶段）
+- ~~平台管理员建 Workspace 的审计留痕~~ ✅ 已实现（`accounts/workspace.ex` `:create` 挂 `LogAdminAction` 同事务留痕，#116 R10a）
+- 人工步骤超时/取消语义（workflow `waiting` 状态）：✅ 已实现 approval_timeout 过点 → expired（`ApprovalExpiryWorker` `@expiry_specs`）与显式 `:cancel` action（`workflow_run.ex`）；❌ 未做：按 offering registration_deadline 自动取消 run
+- ~~异步 Signal 路径的幂等键与重试策略~~ ✅ 已落地（`signal_idempotency.ex` Postgres 唯一约束登记 + `SignalEmitter` 缺省 idempotency_key + Oban max_attempts 8 + 订阅方 claim 去重）

@@ -2,6 +2,8 @@
 
 Issues and PRDs for this repo live as GitHub issues in `CodingGirlsClub/cgc_2046`. Use the `gh` CLI for all operations.
 
+> **Wrapper 纪律（对齐根 AGENTS.md）**：本文件所有 `gh` 命令一律经 `npx -y gh-axi` 执行——把 `gh` 读作 `gh-axi` 的透传别名，不要直接调 raw `gh`。
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
