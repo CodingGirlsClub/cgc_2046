@@ -242,6 +242,7 @@ defmodule Cgc2046.Events.Event do
     calculate(:companion_course, :map,
       public?: true,
       load: [:course_revision_id],
+      description: "配套课程投影（JsonString 序列化的 {id, slug, title}；null = 无配套课/宣讲会）",
       calculation: fn records, _opts ->
         Cgc2046.Events.CompanionCourse.project(records)
       end

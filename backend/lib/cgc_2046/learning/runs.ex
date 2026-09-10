@@ -441,6 +441,8 @@ defmodule Cgc2046.Learning.Runs do
       definition.type == :learning and subject_user_id == ^actor_id and
         not is_nil(subject_course_id)
     )
+    # 防御性上限（nit：旧实现 enrollment 侧 limit 250，run 维度对齐）
+    |> Ash.Query.limit(250)
     |> Ash.Query.load(definition: [:type, :node_def, steps: [:step_key, :title]])
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.read(authorize?: false)
@@ -472,7 +474,14 @@ defmodule Cgc2046.Learning.Runs do
       Enrollment
       |> Ash.Query.filter(id in ^ids)
       |> Ash.Query.load(:target_title)
-      |> Ash.read!(authorize?: false, tenant: workspace_id)
+      # 标题是展示附挂，读失败降级空行不阻断主读（review 建议 3：read! 会让
+      # myLearningRuns 整体 500，违反本模块「读失败降级 []」纪律）。
+      |> Ash.read(authorize?: false, tenant: workspace_id)
+      |> case do
+        {:ok, %{results: results}} -> results
+        {:ok, list} when is_list(list) -> list
+        {:error, _} -> []
+      end
     end)
     |> Map.new(&{&1.id, &1.target_title})
   end
@@ -580,6 +589,9 @@ defmodule Cgc2046.Learning.Runs do
     Ecto.ConstraintError ->
       case non_terminal_run(input["user_id"], workspace_id, input["course_revision_id"]) do
         {:ok, %WorkflowRun{} = run} -> {:ok, run, :existing}
+        # 回读空 = 撞索引方事务未提交（review 建议 1）：归一 error 而非
+        # {:ok, nil}（调用方 with/case 不匹该形状会短路或崩溃漏种）。
+        {:ok, nil} -> {:error, :collision_race}
         other -> other
       end
   end
