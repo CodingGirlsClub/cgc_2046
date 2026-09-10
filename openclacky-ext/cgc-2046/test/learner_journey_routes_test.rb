@@ -1208,13 +1208,16 @@ class HarnessScenarioWiringTest < Minitest::Test
     "learn_malformed_next_action"  => "learn",
     "admin_aside"                  => "admin",
     "admin_aside_ugc"              => "admin",
+    "admin_aside_mcp_error"        => "admin",
     "tutor_aside_boot"             => "tutor",
     "tutor_aside_malformed"        => "tutor",
+    "tutor_aside_mcp_error"        => "tutor",
     "home_hub"                     => "home",
     "home_task_routing"            => "home",
     "home_unconnected"             => "home",
     "home_tasks_failed"            => "home",
     "home_upgrade"                 => "home",
+    "home_health_degraded"         => "home",
   }.freeze
 
   def run_harness(view, scenario)

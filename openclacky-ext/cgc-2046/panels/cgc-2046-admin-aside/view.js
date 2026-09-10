@@ -31,6 +31,7 @@
   let root = null;
   let pollStop = null;
   let refreshDebouncer = null;
+  let mcpError = null;        // 最近连接异常文本(断连横幅,同 hub 口径)
 
   const state = {
     workspaces: [],       // [{ workspace_id, name, slug, roles }]
@@ -344,6 +345,27 @@
     return "¥" + (Number(cents) / 100).toFixed(2);
   }
 
+  // MCP 连接异常横幅(与 hub cgc-home 同口径:mcp_error 只记状态+重绘,
+  // 不推对话、不落盘;侧栏不自建重连动作,「前往连接」跳回 hub 点「连接网站」)
+  function onMcpError(payload) {
+    mcpError = String(payload.error || "未知连接错误").slice(0, 300);
+    if (root && document.contains(root)) renderMcpBanner(root);
+  }
+
+  function renderMcpBanner(container) {
+    const el = container.querySelector("#cgaa-mcp-banner");
+    if (!el) return;
+    if (!mcpError) { el.innerHTML = ""; return; }
+    el.innerHTML =
+      '<div class="cgaa-banner">' +
+        '<b>CGC MCP 连接异常：</b>' + escapeHtml(mcpError) +
+        '<div class="cgaa-banner-hint">请到「程序媛汇 2046」面板点击「连接网站」重新连接。</div>' +
+        '<button id="cgaa-banner-goto" class="btn-secondary" type="button">前往连接</button>' +
+      '</div>';
+    const btn = el.querySelector("#cgaa-banner-goto");
+    if (btn) btn.addEventListener("click", function () { Clacky.ext.ui.openWorkspace("cgc"); });
+  }
+
   // ---- 渲染 ----
   function renderPanel() {
     if (!root) return;
@@ -352,6 +374,7 @@
     const pendingCount = state.tasks.length;
 
     let html =
+      '<div id="cgaa-mcp-banner"></div>' +
       '<div class="cgaa-header">' +
         '<div class="cgaa-header-copy">' +
           '<div class="cgaa-title">工作台管理</div>' +
@@ -370,16 +393,19 @@
 
     if (state.loading) {
       root.innerHTML = html + '<div class="cgaa-empty">加载中…</div></div>';
+      renderMcpBanner(root);
       bind();
       return;
     }
     if (state.error) {
       root.innerHTML = html + '<div class="cgaa-empty cgaa-error">加载失败:' + escapeHtml(state.error.message || "") + '</div></div>';
+      renderMcpBanner(root);
       bind();
       return;
     }
     if (adminWsCount === 0) {
       root.innerHTML = html + '<div class="cgaa-empty">你在任何工作台都没有 Owner/Admin 角色。</div></div>';
+      renderMcpBanner(root);
       bind();
       return;
     }
@@ -446,6 +472,7 @@
 
     html += '</div>';
     root.innerHTML = html;
+    renderMcpBanner(root);
     bind();
   }
 
@@ -753,7 +780,9 @@
       ".cgaa-action:hover{border-color:var(--color-accent-primary);color:var(--color-accent-primary)}",
       ".cgaa-links{display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid var(--color-border-secondary);padding-top:10px}",
       ".cgaa-link{padding:4px 8px;border:0;background:transparent;color:var(--color-text-tertiary);font-size:0.625rem;font-weight:600;cursor:pointer;font-family:inherit;border-radius:var(--radius-sm,6px);transition:color var(--transition-fast),background var(--transition-fast)}",
-      ".cgaa-link:hover{color:var(--color-accent-primary);background:var(--color-bg-hover)}"
+      ".cgaa-link:hover{color:var(--color-accent-primary);background:var(--color-bg-hover)}",
+      ".cgaa-banner{margin:12px 16px 0;border:1px solid color-mix(in srgb,var(--color-error,#c0392b) 40%,var(--color-border-primary));background:color-mix(in srgb,var(--color-error,#c0392b) 7%,var(--color-bg-card));border-radius:var(--radius-md,8px);padding:10px 12px;color:var(--color-error,#c0392b);font-size:0.75rem;line-height:1.5}",
+      ".cgaa-banner-hint{margin-top:4px;opacity:0.85}"
     ].join("\n");
     document.head.appendChild(css);
   }
@@ -770,6 +799,9 @@
       refreshData().then(renderPanel).catch(function () { /* 静默 */ });
     }, EVENT_REFRESH_DEBOUNCE_MS);
   });
+
+  // mcp_error 只驱动断连横幅(记状态+重绘,不推对话、不落盘;重连动作归 hub)
+  Clacky.ext.subscribe("ext.cgc-2046.mcp_error", onMcpError);
 
   Clacky.ext.ui.mount("session.aside", function (container, ctx) {
     if (!ctx || ctx.agentProfile !== AGENT || !ctx.sessionId) return;
