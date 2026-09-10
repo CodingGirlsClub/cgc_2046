@@ -1,0 +1,12 @@
+# 016 审计立项：构建上下文必须是 repo 根（COPY backend/…），无此文件时本地
+# 构建会把真实凭据 .env、erl_crash.dump、宿主 arm64 的 deps/_build 全部吞进
+# build stage。**不得排除 priv/**——deploy workflow stage 的 priv/playbooks 与
+# priv/static/ext 靠 COPY backend/ . 进镜像。
+deps
+_build
+.env
+.envrc
+.kamal
+erl_crash.dump
+tmp
+**/*.dump
