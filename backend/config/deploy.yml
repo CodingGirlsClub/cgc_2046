@@ -1,6 +1,8 @@
 # Kamal: backend service（Elixir release 容器）
-# 运行方式（CI 或本地）：
-#   KAMAL_REGISTRY_PASSWORD=<TCR token> kamal deploy -c config/backend.yml
+# 真实部署链路：CI（.github/workflows/deploy.yml）用 sed 替换本文件占位符
+# （<SERVER_HOST> / <TCR_REGISTRY> / <TCR_USERNAME> / <BACKEND_DEPS_IMAGE>）
+# 生成 config/deploy.ci.yml（gitignored），随后 kamal deploy -c config/deploy.ci.yml。
+# 本地手动部署需先做同样的占位符替换（不存在 config/backend.yml，019 修正）。
 # 镜像推腾讯云 TCR 个人版（同地域内网拉取）；env 从 GitHub production
 # environment 注入进程环境，secret 类绝不写死在此文件。
 
