@@ -73,6 +73,10 @@ defmodule Cgc2046.Learning.LearningInstantiator do
              Map.get(input, "course_revision_id") || Map.get(input, :course_revision_id)
            ) do
         {:ok, %WorkflowRun{} = run} -> {:ok, run, :existing}
+        # 撞索引但回读空 = 对方事务未提交（review 建议 1）：归一 error 让
+        # effects 记日志走规1 兜底；原样返回 {:ok, nil} 会让 launch 的 with
+        # 短路、effects 的 case 崩溃，claim 已烧 → Oban 重投 duplicate → 漏种。
+        {:ok, nil} -> {:error, :collision_race}
         other -> other
       end
   end
