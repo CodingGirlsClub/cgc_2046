@@ -54,6 +54,16 @@ class CgcHomePanelTest < Minitest::Test
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
     assert_includes handler, 'get "/version"'
     assert_includes handler, 'get "/update_info"'
+
+    # 三态呈现(同版本不出现 / 有新版高亮 / 本地不落后不给 CTA)。
+    # 判定单点在 handler —— 面板只消费 version_state,不自己比版本号
+    # (面板自带比较器会与 handler 的 semver 语义漂移,旧 compareVersions 已删)
+    assert_includes view, "version_state", "面板必须消费 handler 的三态判定"
+    assert_includes view, "cgch-btn-upgrade", "有新版按钮必须带高亮 class"
+    assert_includes view, "is-ahead", "本地不落后态(降级陷阱)必须有独立呈现"
+    refute_includes view, "compareVersions", "版本比较不得在面板重复实现"
+    assert_includes handler, "def version_state"
+    assert_includes handler, "def version_same?"
   end
 
   # 升级链路完整性锚定(plan 022):安装前确认框 + sha256 指纹展示。
