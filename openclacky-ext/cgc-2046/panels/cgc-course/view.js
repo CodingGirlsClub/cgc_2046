@@ -374,7 +374,7 @@
       currentContainer.innerHTML =
         '<div class="cglc-page"><div class="cglc-main"><div class="cgc-card cgc-ev-err" data-testid="panel-error">' +
         '加载失败:' + escapeHtml(state.error.message || "") +
-        ' <button id="cgc-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">重试</button></div></div></div>';
+        ' <button id="cgc-retry" class="btn-secondary cgch-btn-sm" type="button">重试</button></div></div></div>';
       const retry = currentContainer.querySelector("#cgc-retry");
       if (retry) retry.addEventListener("click", boot);
       return;
@@ -383,7 +383,7 @@
       currentContainer.innerHTML =
         '<div class="cglc-page"><div class="cglc-main"><div class="cgc-card cgc-ev-err" data-testid="panel-ws-boot-error">' +
         'Workspace 列表加载失败:' + escapeHtml(state.bootError.message || "") +
-        ' <button id="cgc-boot-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button">重试</button></div></div></div>';
+        ' <button id="cgc-boot-retry" class="btn-secondary cgch-btn-sm" type="button">重试</button></div></div></div>';
       const retry = currentContainer.querySelector("#cgc-boot-retry");
       if (retry) retry.addEventListener("click", boot);
       return;
@@ -550,7 +550,7 @@
             '<span class="cglc-resume-text">' + escapeHtml(objectiveTitle(next.objective_id)) +
               (next.reason ? ' — ' + escapeHtml(next.reason) : "") + '</span>' +
           '</div>' +
-          '<button class="cglc-resume-btn" type="button" data-testid="panel-resume-btn">▶ 继续学习</button>' +
+          '<button class="btn-primary" type="button" data-testid="panel-resume-btn">▶ 继续学习</button>' +
         '</div>';
     }
 
@@ -565,7 +565,7 @@
             '<span class="' + (urgent ? "cgch-err" : "cglc-review-due") + '" data-testid="panel-review-due">' +
               (urgent ? "待复习恢复" : "第 " + escapeHtml(entry.milestone_days) + " 天复习到期") + '</span>' +
             '<span class="cglc-row-copy">' + escapeHtml(objectiveTitle(id)) + '</span>' +
-            '<span class="cgch-btn cgch-btn-ghost cgch-btn-sm">去学 ▶</span>' +
+            '<span class="btn-secondary cgch-btn-sm">去学 ▶</span>' +
           '</button>'
         );
       }).join("");
@@ -664,7 +664,7 @@
             ? '<span class="cglc-resume-text">' + (review.needs_review === true ? "该目标待复习恢复" : "复习到期") + '——学习时将先诊断保留度</span>'
             : '<span class="cglc-resume-text">准备好就出发,助手按七步学习循环带你掌握它</span>') +
         '</div>' +
-        '<button class="cglc-resume-btn" type="button" data-testid="panel-obj-learn"' + ctaDisabled + '>▶ 去会话学</button>' +
+        '<button class="btn-primary" type="button" data-testid="panel-obj-learn"' + ctaDisabled + '>▶ 去会话学</button>' +
       '</div>';
 
     main.innerHTML = html;
@@ -681,7 +681,7 @@
           '<b>CGC-2046 未连接。</b>' + escapeHtml(state.error.message || "") +
           '<div class="cgc-banner-hint">请先在 CGC-2046 连接面板完成连接(生成 token 并连接),再使用课程学习面板。</div>' +
         '</div>' +
-        '<div class="cgch-actions"><button id="cgc-retry" class="cgc-btn cgc-btn-secondary cgc-btn-sm" type="button" data-testid="panel-retry">重试</button></div>' +
+        '<div class="cgch-actions"><button id="cgc-retry" class="btn-secondary cgch-btn-sm" type="button" data-testid="panel-retry">重试</button></div>' +
       '</div></div>';
     currentContainer.querySelector("#cgc-retry").addEventListener("click", boot);
   }
@@ -722,8 +722,6 @@
       ".cglc-resume{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:16px 18px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 30%,var(--color-border-primary));border-radius:var(--radius-lg,10px);box-shadow:var(--shadow-sm)}",
       ".cglc-resume-copy{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}",
       ".cglc-resume-text{font-size:0.875rem}",
-      ".cglc-resume-btn{flex:none;padding:9px 18px;border:0;border-radius:var(--radius-md,8px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.8125rem;font-weight:700;cursor:pointer;transition:filter var(--transition-fast)}",
-      ".cglc-resume-btn:hover{filter:brightness(1.1)}",
       ".cglc-badge-next{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;border-radius:999px;font-size:0.6875rem;font-weight:700;color:var(--color-accent-primary);background:var(--color-accent-soft);border:1px solid color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary))}",
       ".cglc-section-title{font-weight:680;font-size:0.8125rem;margin-bottom:8px}",
       ".cglc-kv{display:flex;gap:8px;margin-bottom:6px;font-size:0.8125rem}",
@@ -737,12 +735,9 @@
       ".cgc-banner-hint{margin-top:4px;opacity:0.85}",
       ".cgch-empty{color:var(--color-text-tertiary);font-size:0.8125rem;padding:4px 0}",
       ".cgch-err{color:var(--color-error,#c0392b);font-size:0.8125rem}",
-      ".cgch-chip{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:999px;font-size:0.6875rem;font-weight:650;line-height:1}",
+      ".cgch-chip{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;color:var(--color-text-secondary);background:var(--color-bg-hover);border:1px solid var(--color-border-secondary);border-radius:999px;font-size:0.6875rem;font-weight:650;line-height:1}",
       ".cgch-chip-admin{color:var(--color-accent-primary);background:var(--color-accent-soft);border-color:color-mix(in srgb,var(--color-accent-primary) 24%,var(--color-border-primary))}",
       ".cgch-actions{display:flex;gap:8px;flex-wrap:wrap}",
-      ".cgch-btn{display:inline-block;padding:7px 14px;border-radius:var(--radius-md,8px);font-size:0.75rem;font-weight:650;text-decoration:none;cursor:pointer;border:1px solid var(--color-border-primary);background:var(--color-bg-card);color:var(--color-text-primary);transition:border-color var(--transition-fast),box-shadow var(--transition-fast)}",
-      ".cgch-btn:hover{border-color:var(--color-border-strong);box-shadow:var(--shadow-sm)}",
-      ".cgch-btn-ghost{background:transparent}",
       ".cgch-btn-sm{padding:4px 10px;font-size:0.6875rem}",
       ".cgch-row-list{display:flex;flex-direction:column}",
       ".cgch-row{display:flex;gap:10px;align-items:baseline;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);font-size:0.8125rem}",
