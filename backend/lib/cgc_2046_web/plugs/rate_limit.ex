@@ -18,6 +18,13 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   @table :cgc_rate_limiter
   @window_seconds 900
 
+  # 修剪（017 审计加固）：键含攻击者可控输入（手机号/邮箱/IP），无修剪时每个
+  # 新键永久占一行，公开端点上可被缓慢撑爆内存。周期 10min 清扫一次；删除
+  # 水平线 24h 远大于任何调用方的 window_seconds 覆盖值——早修剪会重置活跃
+  # 窗口（变相绕过限流），此水平线下绝无此风险。
+  @prune_interval_ms 600_000
+  @prune_horizon_seconds 86_400
+
   @doc false
   def table, do: @table
 
@@ -46,6 +53,7 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   @impl true
   def init(:ok) do
     :ets.new(@table, [:set, :public, :named_table, write_concurrency: true])
+    Process.send_after(self(), :prune, @prune_interval_ms)
     {:ok, %{}}
   end
 
@@ -68,6 +76,18 @@ defmodule Cgc2046Web.Plugs.RateLimit do
           {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
         )
     end
+  end
+
+  # 定期修剪（自调度，见模块头 @prune 注释）
+  @impl true
+  def handle_info(:prune, state) do
+    now = System.system_time(:second)
+    cutoff = now - @prune_horizon_seconds
+
+    :ets.select_delete(@table, [{{:"$1", :"$2", :"$3"}, [{:<, :"$3", cutoff}], [true]}])
+
+    Process.send_after(self(), :prune, @prune_interval_ms)
+    {:noreply, state}
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────
