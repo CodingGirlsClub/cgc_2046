@@ -38,16 +38,17 @@ defmodule Cgc2046.Repo.Migrations.AddLearningRunActiveUniqueIndex do
     """
 
     create_if_not_exists unique_index(
-                         :workflow_runs,
-                         [:workspace_id, :subject_user_id, :subject_course_revision_id],
-                         name: @index,
-                         where:
-                           "subject_course_revision_id IS NOT NULL AND status IN ('pending', 'running', 'waiting')"
-                       )
+                           :workflow_runs,
+                           [:workspace_id, :subject_user_id, :subject_course_revision_id],
+                           name: @index,
+                           where:
+                             "subject_course_revision_id IS NOT NULL AND status IN ('pending', 'running', 'waiting')"
+                         )
   end
 
   def down do
-    drop_if_exists index(:workflow_runs,
+    drop_if_exists index(
+                     :workflow_runs,
                      [:workspace_id, :subject_user_id, :subject_course_revision_id],
                      name: @index
                    )
