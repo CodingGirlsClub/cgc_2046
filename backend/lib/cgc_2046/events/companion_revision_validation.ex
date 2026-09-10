@@ -21,8 +21,14 @@ defmodule Cgc2046.Events.CompanionRevisionValidation do
         :ok
 
       revision_id ->
+        # tenant 解析三级回退：changeset.tenant（MCP 入口）→ create 的
+        # workspace_id argument → update 路径已加载 record 的 workspace_id
+        # （review BLOCKING 2：GraphQL updateEvent 不注入 tenant 且无
+        # workspace_id argument（#104），缺第三级会恒拒合法 revision）。
         workspace_id =
-          changeset.tenant || Ash.Changeset.get_argument(changeset, :workspace_id)
+          changeset.tenant ||
+            Ash.Changeset.get_argument(changeset, :workspace_id) ||
+            Ash.Changeset.get_data(changeset, :workspace_id)
 
         if published_revision?(workspace_id, revision_id) do
           :ok
