@@ -29,6 +29,7 @@
   if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
   const API = Kit.API;
+  const rawGet = Kit.rawGet;   // /health 探活(共享 fetch 封装:非 2xx 抛错挂 { body, status })
   const HOME_ID = "cgc";
   const DISCOVERY_ID = "cgc-2046-discovery";
   const TEACH_ID = "cgc-2046-curriculum";
@@ -869,10 +870,37 @@
     if (st.configured) {
       if (identityEl) identityEl.style.display = "";
       loadWorkspaces(container);
+      // 连接健康检查(plan 020):配置在 ≠ 连接可用,异步真实握手探活,
+      // 结果只反映在 pill/横幅,不阻塞身份区与目录渲染
+      probeConnection(container);
     } else {
       if (identityEl) identityEl.style.display = "none";
     }
     renderCatalog();
+  }
+
+  // GET /health:真实握手探测(R4)。配置在但探不通 → 「连接异常」+ 横幅引导。
+  // 探活只改 pill/横幅,不阻塞目录与身份区渲染;
+  // 三态:「MCP 已连接」(握手 OK)/「连接异常」(探不通)/「未连接」(未配置)。
+  function probeConnection(container) {
+    rawGet("/health")   // 共享封装已带 /api/ext/cgc-2046 基前缀
+      .then(function (h) {
+        if (h && h.ok && h.handshake) {
+          setPill("MCP 已连接", "cgch-pill-on");
+        } else {
+          setPill("连接异常", "cgch-pill-off");
+          mcpError = (h && h.error) ? String(h.error) : "MCP 握手未通过";
+          renderMcpBanner(container);
+        }
+      })
+      .catch(function (e) {
+        setPill("连接异常", "cgch-pill-off");
+        // rawGet 对非 2xx 抛错挂 body——502 的「连接探测失败: …」照常透出;
+        // 网络层失败(扩展服务不可达)落通用引导文案
+        mcpError = (e && e.body && e.body.error) ? String(e.body.error)
+          : "健康检查请求失败(扩展服务不可达?)";
+        renderMcpBanner(container);
+      });
   }
 
   async function disconnect(container) {

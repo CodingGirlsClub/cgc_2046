@@ -593,7 +593,7 @@ globalThis.fetch = async (url, opts) => {
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
   if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed" ||
-      scenario === "home_upgrade") {
+      scenario === "home_upgrade" || scenario === "home_health_degraded") {
     if (path === "/api/ext/cgc-2046/version") {
       // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走扩展自有 /update_info,
       // 除 home_upgrade 外 harness 不 stub → 查询失败静默,按钮保持隐藏)
@@ -619,6 +619,13 @@ globalThis.fetch = async (url, opts) => {
       return { ok: true, status: 200, json: async () => (scenario === "home_unconnected"
         ? { ok: true, configured: false, web_url: "https://codingirlsclub.com" }
         : { ok: true, configured: true, web_url: "https://codingirlsclub.com", csrf_token: "tok-1" }) };
+    }
+    // /health 探活(plan 020):home_health_degraded 走「配置在但探不通」降级响应;
+    // 其余 home 场景握手成功 stub——缺 stub 会落 fetch 兜底 404,pill 被误降级
+    if (path === "/api/ext/cgc-2046/health") {
+      return { ok: true, status: 200, json: async () => (scenario === "home_health_degraded"
+        ? { ok: false, error: "连接探测失败: TransportError" }
+        : { ok: true, handshake: true, tool_count: 2 }) };
     }
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
@@ -1537,6 +1544,34 @@ async function waitFor(cond, ms = 2000) {
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // home_health_degraded(plan 020):status「已配置」但真实握手探不通 →
+  // pill 降级「连接异常」+ 横幅引导(R5/U4 状态闭环:已配置 ≠ 连接可用,
+  // token 被撤销/服务不可达必须可见,不再误报「MCP 已连接」)
+  if (scenario === "home_health_degraded") {
+    const container = el("div");
+    spec.render(container);
+    await waitFor(function () {
+      const pill = container.querySelector("#cgc-state-pill");
+      return !!pill && pill.textContent === "连接异常";
+    });
+    const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const bannerHtml = (container.querySelector("#cgc-mcp-banner") || {}).innerHTML || "";
+    const checks = {
+      pill_degraded_exact: pillText === "连接异常",
+      banner_reconnect_guidance: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_probe_error: bannerHtml.indexOf("连接探测失败: TransportError") >= 0,
+      token_not_rendered: container.innerHTML.indexOf("tok-1") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("pill: " + pillText + " | banner: " + bannerHtml.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

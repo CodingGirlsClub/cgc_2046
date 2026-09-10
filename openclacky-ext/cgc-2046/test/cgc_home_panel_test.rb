@@ -72,6 +72,18 @@ class CgcHomePanelTest < Minitest::Test
     refute_includes handler, 'get "/activity"', "/activity 路由随活动区删除"
   end
 
+  # 连接健康检查(plan 020):hub 真实握手探活接线 + 三态 pill
+  # (「MCP 已连接」握手 OK /「连接异常」探不通 /「未连接」未配置)
+  def test_home_panel_health_probe_and_tri_state_pill
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, "probeConnection"
+    # rawGet 已带 /api/ext/cgc-2046 基前缀,面板侧只出现相对路径
+    assert_includes view, 'rawGet("/health")'
+    assert_includes view, "连接异常"
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, 'get "/health"'
+  end
+
 
 
 
