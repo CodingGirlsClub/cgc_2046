@@ -1364,6 +1364,7 @@ export type Event = {
   availablePriceTiers?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 报名名额上限；nil 表示不限 */
   capacity?: Maybe<Scalars['Int']['output']>;
+  /** 配套课程投影（JsonString 序列化的 {id, slug, title}；null = 无配套课/宣讲会） */
   companionCourse?: Maybe<Scalars['JsonString']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];

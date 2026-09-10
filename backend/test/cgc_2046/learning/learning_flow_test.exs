@@ -334,7 +334,12 @@ defmodule Cgc2046.Learning.LearningFlowTest do
 
       assert_enqueued(
         worker: SignalPublishWorker,
-        args: %{"signal_type" => "course_revision.published"}
+        args: %{
+          "signal_type" => "course_revision.published",
+          # BLOCKING 1 回归：生产幂等键必须是 revision 维度（换版独立补种；
+          # emitter 缺省 course 维度键会让换版补种被 duplicate 吞掉）。
+          "data" => %{"idempotency_key" => "course_revision.published:" <> revision.id}
+        }
       )
 
       # 投递补种信号 → 存量 confirmed 报名补种锚定 run
