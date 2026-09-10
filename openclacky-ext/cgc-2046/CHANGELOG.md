@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-10
+
 ### 变更
 
 - **分发渠道转自托管**：扩展不再发布到公共 Extension Marketplace。安装改为一条命令 `openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip`（zip 由 CGC-2046 官方后端分发，与网站同可用性）。已安装用户不受影响。
