@@ -2735,7 +2735,7 @@ export type MutationError = {
 };
 
 export type MyLearningRun = {
-  courseId?: Maybe<Scalars['ID']['output']>;
+  courseId: Scalars['ID']['output'];
   enrollmentId: Scalars['ID']['output'];
   nextAction?: Maybe<LearningNextAction>;
   progress: LearningProgress;
@@ -4059,7 +4059,7 @@ export type RootQueryType = {
   myEnrollment?: Maybe<Enrollment>;
   /** 当前用户跨工作台的报名记录 */
   myEnrollments?: Maybe<KeysetPageOfEnrollment>;
-  /** 当前用户 confirmed 报名对应的学习 run 进度（非成员可读） */
+  /** 当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外） */
   myLearningRuns: Array<MyLearningRun>;
   /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
   myMcpTokens?: Maybe<Array<Maybe<McpToken>>>;
