@@ -50,6 +50,10 @@ mix deps.get
 mix compile --warnings-as-errors
 mix format --check-formatted
 mix cgc2046.gen_rbac_contract --check   # RBAC capability/policy contract must not drift
+mix cgc2046.gen_error_codes_contract --check   # error-code contract artifact freshness (#241)
+mix cgc2046.check_licenses              # AGPL-3.0-compatible dependency gate (see §6)
+mix ash_postgres.generate_migrations --check   # Ash resource/snapshot drift gate
+mix hex.audit                           # hex retired-package audit (016)
 mix test
 ```
 
