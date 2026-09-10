@@ -13,6 +13,10 @@ require "monitor"
 
 gem_spec = Gem::Specification.find_by_name("openclacky")
 require File.join(gem_spec.gem_dir, "lib/clacky/extension/api_extension.rb")
+# /health 探测的 502 分层 rescue Clacky::Mcp::Client 错误类——单 require
+# api_extension 不加载 MCP 命名空间,与 course_routes_test 同款补 require,
+# 保证 rescue 常量在测试环境可解析(异常匹配时才解析,缺失即 NameError)。
+require File.join(gem_spec.gem_dir, "lib/clacky/mcp/client")
 
 require_relative "../api/handler"
 
@@ -80,6 +84,26 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # /health 探活(plan 020)专用 registry 替身:configured? 门 +
+  # tool_definitions(宿主在该公开 API 内 lazily cold-start 真实握手,
+  # handler 侧只钉分层与脱敏——error: 给定即 tool_definitions 抛该异常)
+  class HealthRegistry
+    def initialize(tools: nil, error: nil)
+      @tools = tools
+      @error = error
+    end
+
+    def configured?(_name)
+      true
+    end
+
+    def tool_definitions(_name)
+      raise @error if @error
+
+      @tools
+    end
+  end
+
   # handler 通过 @http_server.send(:mcp_registry) 取 registry（宿主为私有方法）
   class FakeServer
     def initialize(registry)
@@ -107,6 +131,7 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:post, "/connect"]
     assert_includes routes, [:delete, "/connect"]
     assert_includes routes, [:get, "/status"]
+    assert_includes routes, [:get, "/health"]
     assert_includes routes, [:get, "/version"]
     assert_includes routes, [:get, "/update_info"]
     # U9 课程面板数据面新增三路由(纯读透传)
@@ -124,7 +149,9 @@ class HandlerRequestTest < Minitest::Test
     assert_includes routes, [:get, "/workspace/enrollments"]
     # P3 活动供给面新增一路由(list_workspace_events 透传)
     assert_includes routes, [:get, "/workspace/events"]
-    assert_equal 26, Cgc2046Ext.routes.size  # +/update_info(自托管升级通道,替代市场查询) +/workspace/courses|orders|enrollments|events +/version(「最近活动」区随面板删除,/activity 路由同步移除)
+    assert_equal 26, Cgc2046Ext.routes.size  # +/update_info(自托管升级通道,替代市场查询) +/workspace/courses|orders|enrollments|events +/version(「最近活动」区随面板删除,/activity 路由同步移除) +/health(连接健康检查,plan 020) -/skills/sync(501 留位端点移除,plan 023)
+    refute Cgc2046Ext.routes.any? { |r| r.pattern == "/skills/sync" },
+           "skills/sync 501 留位端点已移除(plan 023)"
     assert_equal 30.0, Cgc2046Ext.class_timeout
   end
 
@@ -553,6 +580,76 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
+  # ---- download_path 形态门(plan 022):纯路径才允许参与 origin + path 拼串 ----
+
+  def test_update_info_rejects_userinfo_path
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "@evil.com/x.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "@ 形态让 origin+path 拼串逃逸同源(前段被当 userinfo)"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_rejects_embedded_scheme
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "/x.zip://evil")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "内嵌 :// 属内嵌 scheme,拒之门外"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_rejects_protocol_relative
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "9.9.9", "download_path" => "//evil.com/x.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 502, halt.status, "// 开头 = 协议相对 URL,安装会换域"
+      assert_includes JSON.parse(halt.payload)["error"], "malformed download_path"
+    end
+  end
+
+  def test_update_info_sha256_passthrough
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip",
+        "sha256" => "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        payload["sha256"], "deploy 交付的 sha256 原样透传(安装前供面板展示指纹)"
+    end
+  end
+
+  def test_update_info_sha256_absent_graceful
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      refute JSON.parse(halt.payload).key?("sha256"), "旧 manifest 无 sha256 → 响应省略该键(优雅降级)"
+    end
+  end
+
   def test_version_newer_semver_semantics
     inst = build
     newer = ->(a, b) { inst.send(:version_newer?, a, b) }
@@ -574,6 +671,37 @@ class HandlerRequestTest < Minitest::Test
         assert_equal "http://localhost:3000", JSON.parse(halt.payload)["web_url"]
       end
     end
+  end
+
+  # ---- /health（真实 MCP 握手探活:未配置 503 / 握手 OK 200 / 探测失败 502）----
+
+  # 未配置(registry 缺席/未配置 cgc-2046)→ 503 + NOT_CONNECTED 引导
+  def test_health_not_connected_503
+    halt = invoke(:get, "/health", build)
+
+    assert_equal 503, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "not connected"
+  end
+
+  # 握手 OK → 200 + handshake + tool_count(只回个数);脱敏钉:响应体
+  # 永不携带 token/凭证字段
+  def test_health_handshake_ok_200_without_token_leak
+    halt = invoke(:get, "/health", build(registry: HealthRegistry.new(tools: [{}, {}])))
+
+    assert_equal 200, halt.status
+    payload = JSON.parse(halt.payload)
+    assert_equal true, payload["handshake"]
+    assert_equal 2, payload["tool_count"]
+    refute_includes halt.payload, "token"
+  end
+
+  # 宿主探活在握手/传输层抛 TransportError → 502(与意外异常 500 分层)
+  def test_health_probe_failure_502
+    halt = invoke(:get, "/health", build(registry: HealthRegistry.new(
+      error: Clacky::Mcp::Client::TransportError.new("refused"))))
+
+    assert_equal 502, halt.status
+    assert_includes JSON.parse(halt.payload)["error"], "连接探测失败"
   end
 
   # ---- disconnect（DELETE /connect：移除 cgc-2046 条目 + reload）----
@@ -873,8 +1001,6 @@ class HandlerRequestTest < Minitest::Test
     end
   end
 
-  # ---- skills/sync（D11 留位）----
-
   # 真机回归:WEBrick header 未发送键 = 空数组(truthy),request_header 须剔除
   # 空数组再取候选,否则 Content-Type/CSRF 永远读不到(全部写请求 415/403)
   def test_write_headers_read_through_webrick_empty_array_shape
@@ -889,15 +1015,8 @@ class HandlerRequestTest < Minitest::Test
     inst = Cgc2046Ext.allocate
     inst.instance_variable_set(:@req, FakeReq.new("{}", {}, header))
 
-    halt = invoke(:post, "/skills/sync", inst)
-    assert_equal 501, halt.status, "通过 guard(415/403 之外的错误码即 guard 放行)"
-  end
-
-  def test_skills_sync_501
-    halt = invoke(:post, "/skills/sync", build(body: "{}"))
-
-    assert_equal 501, halt.status
-    assert_includes JSON.parse(halt.payload)["error"], "later slice"
+    halt = invoke(:post, "/connect", inst)
+    refute_includes [415, 403], halt.status, "通过 guard(415/403 之外即 guard 放行)"
   end
 
   private

@@ -20,8 +20,9 @@
    不因用户同时拥有 Tutor 身份而额外加载其他角色 playbook。
 2. 向用户展示返回的 `version`，然后才按 playbook 开始管理工作。playbook 只说明工作方式，
    不会扩大用户权限。
-3. 出现连接错误、401 或 `cgc-2046` server 不存在时，说明连接问题，引导用户运行
-   `cgc2046-onboarding`，并立即停止管理操作。
+3. 出现连接错误、401 或 `cgc-2046` server 不存在时，说明连接问题，告知用户到
+   「程序媛汇 2046」面板点击「连接网站」，由 cgc-assistant 完成连接（你没有
+   cgc2046-onboarding skill，不要引导用户运行它），并立即停止管理操作。
 4. 返回 `forbidden` 时，说明所需角色并停止：目标 Workspace 必须有 Owner/Admin 身份。
    不重试绕过，也不把权限错误误判为连接问题。
 5. 任何 playbook 拉取错误都必须停止，**不得凭记忆或旧 prompt 继续**。
@@ -46,4 +47,5 @@
   `cancel_operation(pending_id)`；`ask_user` 结果出现 auto_reply（无人在场）一律
   `cancel_operation`，绝不自动确认。
 - 不索取、不回显连接凭证，也不把 token、邀请凭证或其他秘密写入额外文件或日志。
-  连接凭证问题统一交给 `cgc2046-onboarding`。
+  连接凭证问题统一转介：引导用户到「程序媛汇 2046」面板点击「连接网站」，
+  由 cgc-assistant 处理（它持有 cgc2046-onboarding skill）。
