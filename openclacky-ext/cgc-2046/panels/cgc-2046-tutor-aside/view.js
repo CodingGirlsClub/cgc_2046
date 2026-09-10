@@ -24,6 +24,7 @@
   let root = null;
   let refreshTimer = null;
   let pollStop = null;
+  let mcpError = null;        // 最近连接异常文本(断连横幅,同 hub 口径)
 
   const state = {
     courses: [],          // [{ courseId, title, workspaceId }]
@@ -215,6 +216,27 @@
     return html;
   }
 
+  // MCP 连接异常横幅(与 hub cgc-home 同口径:mcp_error 只记状态+重绘,
+  // 不推对话、不落盘;侧栏不自建重连动作,「前往连接」跳回 hub 点「连接网站」)
+  function onMcpError(payload) {
+    mcpError = String(payload.error || "未知连接错误").slice(0, 300);
+    if (root && document.contains(root)) renderMcpBanner(root);
+  }
+
+  function renderMcpBanner(container) {
+    const el = container.querySelector("#cgta-mcp-banner");
+    if (!el) return;
+    if (!mcpError) { el.innerHTML = ""; return; }
+    el.innerHTML =
+      '<div class="cgta-banner">' +
+        '<b>CGC MCP 连接异常：</b>' + escapeHtml(mcpError) +
+        '<div class="cgta-banner-hint">请到「程序媛汇 2046」面板点击「连接网站」重新连接。</div>' +
+        '<button id="cgta-banner-goto" class="btn-secondary" type="button">前往连接</button>' +
+      '</div>';
+    const btn = el.querySelector("#cgta-banner-goto");
+    if (btn) btn.addEventListener("click", function () { Clacky.ext.ui.openWorkspace("cgc"); });
+  }
+
   // ---- 渲染 ----
   const PREP_STATES = ["draft", "authoring", "quality_check", "review", "published"];
   const PREP_LABELS = { draft: "草稿", authoring: "编写中", quality_check: "质检", review: "审核", published: "已发布" };
@@ -265,6 +287,7 @@
     const issuesLen = ((state.content || {}).issues || []).length;
 
     let html =
+      '<div id="cgta-mcp-banner"></div>' +
       '<div class="cgta-header">' +
         '<div class="cgta-header-copy">' +
           '<div class="cgta-title">教研产出</div>' +
@@ -283,16 +306,19 @@
 
     if (state.loading) {
       root.innerHTML = html + '<div class="cgta-empty">加载中…</div></div>';
+      renderMcpBanner(root);
       bindHead();
       return;
     }
     if (state.error) {
       root.innerHTML = html + '<div class="cgta-empty cgta-error">加载失败:' + escapeHtml(state.error.message || "") + '</div></div>';
+      renderMcpBanner(root);
       bindHead();
       return;
     }
     if (!state.courses.length) {
       root.innerHTML = html + '<div class="cgta-empty">暂无 confirmed 课程报名。</div></div>';
+      renderMcpBanner(root);
       bindHead();
       return;
     }
@@ -398,6 +424,7 @@
     inner += '<button id="cgta-open-workbench" class="cgta-open" type="button">在教研工作台打开 →</button>';
 
     root.innerHTML = html;
+    renderMcpBanner(root);
     // courseId 是服务端数据,未转义拼选择器在含引号/右方括号时抛 SyntaxError 崩面板
     const selBody = root.querySelector("[data-body='" + CSS.escape(state.selectedCourseId) + "']");
     if (selBody) selBody.innerHTML = inner;
@@ -631,6 +658,8 @@
       ".cgta-quality-violations-label{font-weight:650;color:var(--color-warning,#fbbf24)}" +
       ".cgta-quality-violation{color:var(--color-text-secondary);padding-left:8px}" +
       ".cgta-quality-summary{margin-top:6px;font-size:0.59375rem;color:var(--color-text-tertiary);line-height:1.45}" +
+      ".cgta-banner{margin:12px 16px 0;border:1px solid color-mix(in srgb,var(--color-error,#c0392b) 40%,var(--color-border-primary));background:color-mix(in srgb,var(--color-error,#c0392b) 7%,var(--color-bg-card));border-radius:var(--radius-md,8px);padding:10px 12px;color:var(--color-error,#c0392b);font-size:0.75rem;line-height:1.5}" +
+      ".cgta-banner-hint{margin-top:4px;opacity:0.85}" +
       "@media (max-width:720px){.cgta-header{padding-inline:12px}.cgta-source{padding-inline:12px}.cgta-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
@@ -662,4 +691,6 @@ document.head.appendChild(css);
   // 信号订阅:草稿保存/工具完成 → 防抖拉最新(推拉结合)
   Clacky.ext.subscribe("ext.cgc-2046.draft_saved", scheduleRefresh);
   Clacky.ext.subscribe("ext.cgc-2046.tool_used", scheduleRefresh);
+  // mcp_error 只驱动断连横幅(记状态+重绘,不推对话、不落盘;重连动作归 hub)
+  Clacky.ext.subscribe("ext.cgc-2046.mcp_error", onMcpError);
 })();
