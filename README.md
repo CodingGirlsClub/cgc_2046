@@ -22,17 +22,23 @@
 
 ```bash
 cd backend
-mix deps.get
-mix ecto.create && mix ecto.migrate
+mix setup   # deps.get + ecto.create/migrate + seeds（默认工作台 2046 + 角色 + 协议定义）
 mix phx.server
 ```
 
-Gates (also enforced in CI):
+> 种子必跑：没有默认工作台 `2046` 时，新用户注册会静默降级不入座（注册成功但
+> 所有工作台面为空、无报错指向缺种子）。
+
+Gates (also enforced in CI, see `.github/workflows/ci.yml` backend job):
 
 ```bash
 mix compile --warnings-as-errors
 mix format --check-formatted
 mix cgc2046.gen_rbac_contract --check
+mix cgc2046.gen_error_codes_contract --check
+mix cgc2046.check_licenses
+mix ash_postgres.generate_migrations --check
+mix hex.audit
 mix test
 ```
 

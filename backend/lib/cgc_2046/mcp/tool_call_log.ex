@@ -89,6 +89,19 @@ defmodule Cgc2046.Mcp.ToolCallLog do
   postgres do
     table("mcp_tool_call_logs")
     repo(Cgc2046.Repo)
+
+    # 018 审计立项：本表是增长最快的 append-only 面，此前只有 (tool)/(user_id)
+    # 索引——admin 审计页按 params->>'workspace_id' 过滤 + inserted_at 排序全靠
+    # seq scan，随行数线性劣化。表达式索引用字符串 fields（AshPostgres 原样拼
+    # 进 DDL）；concurrently 由 codegen 带进迁移（活表纪律，016 落 AGENTS.md）。
+    custom_indexes do
+      index([:inserted_at], concurrently: true)
+
+      index(["((params->>'workspace_id'))"],
+        name: "mcp_tool_call_logs_params_workspace_id_index",
+        concurrently: true
+      )
+    end
   end
 
   actions do
