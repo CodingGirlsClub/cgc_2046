@@ -6,7 +6,7 @@
 
 CGC-2046 是 CGC OpenClacky 内置的连接器扩展：把 CGC-2046 工作台接入本机 agent。安装后提供：
 
-- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（统一收紧 0600——重写既有文件不继承宽松 mode，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）；`POST /api/ext/cgc-2046/skills/sync` 为后续切片留位（当前返回 501）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST 及 `DELETE /connect`——同为写端点，跨站可借宿主全开的 preflight 发出 cross-site DELETE）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / …
+- **API 端点**：`POST /api/ext/cgc-2046/connect` 把 token + MCP URL 原子化 read-merge-write 进 `~/.clacky/mcp.json`（统一收紧 0600——重写既有文件不继承宽松 mode，类级互斥锁防并发，reload 失败自动回滚）并热重载 MCP registry；`GET /api/ext/cgc-2046/status` 查询配置状态（`configured` / `url` / `token_configured` / `web_url`，不泄漏 token）；`DELETE /api/ext/cgc-2046/connect` 断开连接（移除 `cgc-2046` 条目 + reload，同样原子写与回滚加固）。全部路由做 Origin/Host 同源校验（无 Origin 的本地 curl 放行）；写路由（POST 及 `DELETE /connect`——同为写端点，跨站可借宿主全开的 preflight 发出 cross-site DELETE）另需 `Content-Type: application/json` + `X-CGC-CSRF-Token`（进程级 token 经 `GET /status` 同源下发，防跨站伪造写——尤其 connect 可改写 mcp.json 指向）；`GET /api/ext/cgc-2046/offerings` 与 `GET /api/ext/cgc-2046/offerings/:id` 透传公开浏览工具（`list_public_offerings` / …
 - **panel**：`cgc`——「程序媛汇 2046」hub 面板（唯一侧栏入口，挂 `sidebar.nav.top` 顶部）：连接管理（状态 / 断开 / 跳转网站）+ 身份区（角色徽章 / Workspace 选择器 / 管理入口）+ 我的任务 + 角色感知功能目录（全员：和助手对话 / 发现活动 / 我的课程；tutor 加教研工作台；owner/admin 加工作台管理；platform_admin 加平台管理）+ 最近会话（三助手 Tab 过滤，点击继续）。`cgc-2046-course` 与 `cgc-2046-discovery` 为**隐藏功能页**（无侧栏入口，hub 目录卡 `openWorkspace` 直达，页头「← 返回工作台」闭环）：前者是课程学习面板（课程地图 / 草稿编辑 / 待复习队列），后者是发现面板（公开活动/课程列表 + 报名 + 支付轮询）。管理会话右侧挂 `cgc-2046-admin-aside`（`session.aside`，attach `cgc-admin`）：待办审批（跨台聚合，行可点注入处理指令）+ 供给区（课程+活动统一投影、kind 徽章，行点击下钻报名队列，待审批/待支付行注入；展开区动作排按状态门渲染——draft 可发布/取消、open 可结束/取消，注入带 id 指令走 agent 确认流；「✎ 对话修改」注入单字段轻改、「↗ 网站编辑」深链 web 详情页承接重编辑）+ 订单区（注意力面：只渲染非终态，退款失败置顶，帽 5 行 + 尾行引导问助手；终态与帽外订单走 agent/web）+ 按域分组快捷入口（供给/成员/财务，含创建课程/活动）+ 网站管理页深链（成员/权限/支付等重 UI 域跳 web 不重造）；侧栏纯读投影 + …
 - **agents**：`cgc-assistant`、`cgc-tutor`、`cgc-admin` 都先选择可信 Workspace，再在启动时拉取平台当前部署的角色 playbook 并展示版本。`cgc-tutor` 与 `cgc-admin` 是安全薄壳：角色方法与工具说明由平台下发，扩展只保留 OpenClacky 入口和不可覆盖的安全纪律；前者在教材章节边界重拉 tutor playbook，后者只拉 workspace_admin playbook。三者仍随同一个 AGPL-3.0-only 扩展分发。
 - **skill**：`cgc2046-onboarding`——首选面板触发的浏览器/CDP 自动连接（面板「连接网站」→ 注入 `cgc-assistant` → 接管真实浏览器 → 自动签发一次性 token → stdin 管道调 connect → 验证 status 与 MCP 握手）；自动路径不可用时退回剪贴板管道 / 临时文件 / 对话粘贴（最后手段）三级 fallback，细节见 `skills/cgc2046-onboarding/references/connection-procedure.md`。
@@ -56,6 +56,7 @@ openclacky-ext/cgc-2046/
     on_tool_error.rb               # 工具异常文本命中 CGC 形态时推 mcp_error 事件
     credential.rb                  # 两 hook 共享的凭证脱敏正则
   bin/pack                         # 打包脚本（symlink → ext pack → ext verify）；随 repo 不入包（.gitignore 排除）
+  bin/check-version-bump           # 版本纪律门禁（内容指纹变了就必须 bump ext.yml version）；deploy CI 调用，可本地跑
   test/                            # 测试随 repo 不入包（.gitignore 排除，见「测试」一节）
     mcp_config_test.rb             # 纯逻辑单测（minitest，stdlib）
     handler_routes_test.rb         # 请求级测试（fake req + Halt 捕获，不落盘）
@@ -90,6 +91,16 @@ openclacky ext install https://api.codingirlsclub.com/ext/cgc-2046.zip
 扩展不在公共 Extension Marketplace 发布（2026-09-09 决议反转，见 `docs/plans/cgc-2046-openclacky-extension-refactor.md` R1）。zip 与版本元信息（`/ext/cgc-2046.json`）由 deploy CI 在 docker build 前经 `bin/pack` 生成，放 `backend/priv/static/ext/`（gitignored），Plug.Static 直接服务。
 
 `bin/pack` 仅用于开发和发布前验收，会把本目录 symlink 到 `~/.clacky/ext/local/cgc-2046`（openclacky 开发层），因此开发期改完文件即生效（handler 按请求热加载），无需重复打包。
+
+**版本纪律（同版本号 ≠ 同一份产物）**：分发清单的 `version` 取 `ext.yml`，用户在面板上能否看到「升级」按钮完全取决于这个号——**分发包内容一变就必须 bump** `ext.yml` 的 `version`，并把 `CHANGELOG.md` 的 `[Unreleased]` 段落改挂到该版本号下。否则已装用户的版本号与自己相同，面板判定「版本一致」，按钮永不出现，他们静默停在旧构建（2026-09-10 线上 0.1.1 即如此：已装 0.1.1 的用户拿不到当日合入的 plan 020–023）。
+
+```bash
+# 发版前自查：比较「线上已发布产物」与「本地待发布产物」的内容指纹
+openclacky-ext/cgc-2046/bin/check-version-bump
+# 内容变了但版本没动 → 非零退出并打印修法；线上不可达/清单畸形 → 警告放行
+```
+
+deploy CI 在构建扩展产物后调用同一脚本，失败即中止部署（见 `.github/workflows/deploy.yml` 的 Enforce extension version bump on content change）。指纹按 zip 内**逐条目 sha256 + 路径聚合**计算，与 zip 字节无关：zip 含条目 mtime，重建同一份内容字节也会变，拿 zip sha256 当"内容是否变化"的判据会把纯 backend 部署误判成内容变更。新增 `bin/` 下的脚本记得 `git add -f`（`bin/` 被本目录 `.gitignore` 排除）。
 
 ## 配置点
 
