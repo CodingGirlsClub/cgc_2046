@@ -462,7 +462,7 @@ globalThis.fetch = async (url, opts) => {
 
   // admin_aside 场景:一个 owner 台(编程少女台/acme) + 一个 member-only 台(应被
   // ADMIN_ROLES 过滤);待办含报名审批/加入申请两行;status 透传 web_url(深链基址)
-  if (scenario === "admin_aside") {
+  if (scenario === "admin_aside" || scenario === "admin_aside_mcp_error") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-a1", name: "编程少女台", slug: "acme", roles: ["owner"] },
@@ -707,7 +707,7 @@ globalThis.fetch = async (url, opts) => {
     }
   }
   // ⑧ tutor_aside_boot:session.aside 挂载 + tutor 台课程发现 + 草稿拉取链
-  if (scenario === "tutor_aside_boot") {
+  if (scenario === "tutor_aside_boot" || scenario === "tutor_aside_mcp_error") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-t9", name: "教研台", slug: "teach", roles: ["tutor"] },
@@ -983,8 +983,10 @@ async function waitFor(cond, ms = 2000) {
   }
 
   // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
-  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, learn_boot_and_inject: 1, learn_ugc_injection: 1,
-    learn_quote_course_id: 1, learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1 };
+  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, admin_aside_mcp_error: 1,
+    learn_boot_and_inject: 1, learn_ugc_injection: 1, learn_quote_course_id: 1,
+    learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1,
+    tutor_aside_mcp_error: 1 };
   const { spec } = globalThis.__registered || {};
   if (!MOUNT_SCENARIOS[scenario] && (!spec || typeof spec.render !== "function")) {
     console.error("FAIL: registerWorkspace 未捕获 render");
@@ -1861,6 +1863,42 @@ async function waitFor(cond, ms = 2000) {
     return;
   }
 
+  // plan 021:断连横幅(admin-aside)——宿主 mcp_error 扇出事件 → #cgaa-mcp-banner
+  // 渲染异常文本 +「连接网站」引导,「前往连接」按钮跳回 hub(重连动作归 hub;
+  // 此前仅 hub 面板订阅 mcp_error,侧栏断连零感知)
+  if (scenario === "admin_aside_mcp_error") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-admin", sessionId: "s1" });
+    await sleep(50);   // boot:workspaces → tasks/status/courses/events/orders
+
+    (globalThis.__subs["ext.cgc-2046.mcp_error"] || []).forEach(function (fn) {
+      fn({ error: "MCP server 'cgc-2046' is not connected" });
+    });
+
+    const panel = container.children[0];
+    const banner = panel.querySelector("#cgaa-mcp-banner");
+    const bannerHtml = (banner && banner.innerHTML) || "";
+    const gotoBtn = panel.querySelector("#cgaa-banner-goto");
+    ((gotoBtn && gotoBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const checks = {
+      banner_renders_error: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_error_text: bannerHtml.indexOf("is not connected") >= 0,
+      banner_guides_connect: bannerHtml.indexOf("连接网站") >= 0,
+      goto_button_rendered: !!gotoBtn,
+      goto_opens_hub: (globalThis.__openedWorkspaces || []).indexOf("cgc") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("banner: " + bannerHtml.slice(0, 400));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
   // 安全评审低危 #5:course_id(服务端数据)含单引号/右方括号——修复前选择器
   // 拼串在真实浏览器抛 SyntaxError 崩 renderPanel;修复后经 CSS.escape 找回
   // body,内容块(目标地图/复习卡)必须搬进含引号课程卡的 body div
@@ -1947,6 +1985,42 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html1: " + html1.slice(0, 800));
       console.error("html2: " + html2.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // plan 021:断连横幅(tutor-aside)——mcp_error 扇出事件 → #cgta-mcp-banner
+  // 渲染异常文本 +「连接网站」引导,「前往连接」按钮跳回 hub(重连动作归 hub;
+  // 此前仅 hub 面板订阅 mcp_error,侧栏断连零感知)
+  if (scenario === "tutor_aside_mcp_error") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-tutor", sessionId: "s-te" });
+    await sleep(200);   // loadCourses → 自动选首课 → content + prep
+
+    (globalThis.__subs["ext.cgc-2046.mcp_error"] || []).forEach(function (fn) {
+      fn({ error: "MCP server 'cgc-2046' is not connected" });
+    });
+
+    const panel = container.children[0];
+    const banner = panel.querySelector("#cgta-mcp-banner");
+    const bannerHtml = (banner && banner.innerHTML) || "";
+    const gotoBtn = panel.querySelector("#cgta-banner-goto");
+    ((gotoBtn && gotoBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const checks = {
+      banner_renders_error: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_error_text: bannerHtml.indexOf("is not connected") >= 0,
+      banner_guides_connect: bannerHtml.indexOf("连接网站") >= 0,
+      goto_button_rendered: !!gotoBtn,
+      goto_opens_hub: (globalThis.__openedWorkspaces || []).indexOf("cgc") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("banner: " + bannerHtml.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
