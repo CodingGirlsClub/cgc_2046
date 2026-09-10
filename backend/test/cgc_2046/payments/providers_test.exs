@@ -160,6 +160,48 @@ defmodule Cgc2046.Payments.ProvidersTest do
     end
   end
 
+  describe "微信回调时间戳新鲜度（017：验签前 ±5 分钟窗口）" do
+    test "窗口内通过；超窗/非数字/非字符串拒绝" do
+      now = DateTime.to_unix(DateTime.utc_now())
+
+      assert Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(Integer.to_string(now))
+      assert Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(Integer.to_string(now - 299))
+      assert Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(Integer.to_string(now + 299))
+
+      # 边界外一律拒绝：历史通知即使签名合法也不得无限期重放
+      refute Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(Integer.to_string(now - 301))
+      refute Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(Integer.to_string(now + 301))
+      refute Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?("12ab")
+      refute Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?("garbage")
+      refute Cgc2046.Payments.Providers.WechatPay.fresh_timestamp?(nil)
+    end
+  end
+
+  describe "支付宝回调应用绑定（017：intake 纵深防御）" do
+    test "app_id 匹配通过；缺失/不匹配拒绝；seller_id 缺省可、不符拒绝" do
+      alias Cgc2046.Payments.Providers.Alipay, as: AlipayProvider
+
+      assert AlipayProvider.app_bound?(
+               %{"app_id" => "2026001", "seller_id" => "2026001"},
+               "2026001"
+             )
+
+      assert AlipayProvider.app_bound?(%{"app_id" => "2026001"}, "2026001")
+      assert AlipayProvider.app_bound?(%{"app_id" => "2026001", "seller_id" => ""}, "2026001")
+
+      refute AlipayProvider.app_bound?(%{"app_id" => "9999001"}, "2026001")
+      refute AlipayProvider.app_bound?(%{}, "2026001")
+
+      refute AlipayProvider.app_bound?(
+               %{"app_id" => "2026001", "seller_id" => "8888001"},
+               "2026001"
+             )
+
+      # 未配置 app_id（dev/test）退化为放行
+      assert AlipayProvider.app_bound?(%{"app_id" => "anything"}, nil)
+    end
+  end
+
   # ── 布置 ──
 
   defp fake_order do
