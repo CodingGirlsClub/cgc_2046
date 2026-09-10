@@ -54,7 +54,10 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
 
     field(:curriculum_enabled, :boolean, description: "是否启用教研 workflow（默认 true）")
     field(:curriculum_requirements, :map, description: "教研材料需求（audience/duration/sections 等）")
-    field(:course_revision_id, :string, description: "配套课程锚点（published course revision UUID；不提供=无配套课）")
+
+    field(:course_revision_id, :string,
+      description: "配套课程锚点（published course revision UUID；不提供=无配套课）"
+    )
   end
 
   @impl true
