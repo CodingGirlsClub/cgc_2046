@@ -427,7 +427,7 @@ class WorkspacePanelViewTest < Minitest::Test
     # ⑦:转义实现归一共享骨架;面板侧锚别名在场 + 调用点转义
     assert_includes VIEW, "const escapeHtml = Kit.escapeHtml"
     assert_includes VIEW, "escapeHtml(current.name"
-    assert_includes VIEW, "escapeHtml(r)"
+    assert_includes VIEW, "escapeHtml(roleLabel(r))"
     assert_includes VIEW, "escapeHtml(taskKindLabel(t.kind))"
     assert_includes VIEW, "escapeHtml(taskSummary(t))"
   end
