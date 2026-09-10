@@ -136,6 +136,28 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
 
         mark_processed(event)
 
+      # mark_paid 的 CAS 在 DB 瞬断时失败且 reload 仍 pending：落账未完成。
+      # 渠道查单已确认有款且金额相符——mark_processed 会永久丢单（已收款、
+      # 不落账、不退款、不重试），必须上抛走 Oban 重试；重入从 fetch_transaction
+      # 重新查单，幂等（015 审计修复）。
+      :pending ->
+        {:error, :order_still_pending}
+
+      # 渠道确认有款而本地已判退款失败：收款无有效占位，必须重入退款链
+      # （KTD12「收款无对应占位必须原路退回」不变量）。start_refund 的 CAS 不含
+      # refund_failed，正确入口是 :retry_refund（refund_failed → refunding，
+      # after_action 自带入队 refund job；治理留痕 actor=nil 系统语义）。
+      # 与管理员人工 retry_refund 先到者赢，双 CAS 幂等（015 审计修复）。
+      :refund_failed ->
+        case order
+             |> Ash.Changeset.for_update(:retry_refund, %{})
+             |> Ash.update(tenant: order.workspace_id, authorize?: false) do
+          {:ok, _refunding} -> :ok
+          {:error, _already_processed} -> :ok
+        end
+
+        mark_processed(event)
+
       other ->
         Logger.error("settlement: unexpected order status #{other} for #{order.id}")
         mark_processed(event)
