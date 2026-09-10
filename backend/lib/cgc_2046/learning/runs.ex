@@ -44,12 +44,15 @@ defmodule Cgc2046.Learning.Runs do
   # --- instance key -------------------------------------------------------------
 
   @doc """
-  学习 run 实例 key（R36）：`"learning_<enrollment_id>_<revision_id>"`；
-  revision_id 为 nil 时后缀 `"none"`（存量课程无 published revision 的宽限）。
+  学习 run 实例 key（issue #505 D8）：`"learning_<user_id>_<revision_id>"`——
+  user × revision 维度（一个学员对一个课程版本 = 一个活跃 run，活动/课程
+  双通道汇入）。key 降级为**可读标签**：去重真源 = `resumable_run/3`
+  （subject 列预查）+ workflow_runs 的 partial unique index；存量
+  enrollment 维度 key 不动，`"none"` 后缀仅存量宽限（新 run 恒带 revision）。
   """
   @spec instance_key(String.t(), String.t() | nil) :: String.t()
-  def instance_key(enrollment_id, revision_id) do
-    "learning_#{enrollment_id}_#{revision_id || "none"}"
+  def instance_key(user_id, revision_id) do
+    "learning_#{user_id}_#{revision_id || "none"}"
   end
 
   # --- 授权谓词（工具层/GraphQL 共用） --------------------------------------------
@@ -72,6 +75,89 @@ defmodule Cgc2046.Learning.Runs do
   end
 
   def confirmed_enrollment?(_actor, _workspace_id, _course_id), do: false
+
+  @doc """
+  user × revision 非终态 learning run 预查（issue #505 D8 去重真源）：
+  subject 列口径（subject_user_id × subject_course_revision_id ×
+  pending/running/waiting），instantiator claim 前与 `start/3` 共用。
+  """
+  @spec non_terminal_run(String.t(), String.t(), String.t()) ::
+          {:ok, WorkflowRun.t() | nil} | {:error, term()}
+  def non_terminal_run(user_id, workspace_id, revision_id)
+      when is_binary(user_id) and is_binary(workspace_id) and is_binary(revision_id) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :learning and
+        subject_user_id == ^user_id and
+        subject_course_revision_id == ^revision_id and
+        status in ^@active_statuses
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+  end
+
+  @doc """
+  user × revision **可 resume** learning run 预查（D8 汇流口径）：进行中
+  （pending/running/waiting）∨ 已完成（succeeded）→ 命中（同版重进 =
+  resume 查看，完成不重置学业）；failed/cancelled/expired 视为可重学，
+  返回 `{:ok, nil}` 放行新种。instantiator claim 前与 `start/3` 共用。
+  """
+  @spec resumable_run(String.t(), String.t(), String.t()) ::
+          {:ok, WorkflowRun.t() | nil} | {:error, term()}
+  def resumable_run(user_id, workspace_id, revision_id)
+      when is_binary(user_id) and is_binary(workspace_id) and is_binary(revision_id) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :learning and
+        subject_user_id == ^user_id and
+        subject_course_revision_id == ^revision_id and
+        status in ^(@active_statuses ++ [:succeeded])
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+  end
+
+  @doc """
+  挂载授权（issue #505 D4/D9）：本人对「锚定了该课程任一 revision 的活动」
+  有 confirmed 报名。与 `confirmed_enrollment?/3` 并列的独立谓词——课程
+  通道原语义不动，活动通道经 D1 索引（events.course_revision_id）反查。
+  revision 撤版不撤销授权（K1：读哪个版本由 stale_revision 话术另行约束）。
+  """
+  @spec mounted_enrollment?(term(), String.t(), String.t()) :: boolean()
+  def mounted_enrollment?(%{id: actor_id}, workspace_id, course_id)
+      when is_binary(workspace_id) and is_binary(course_id) do
+    with revision_ids when revision_ids != [] <- revision_ids_of(workspace_id, course_id),
+         event_ids when event_ids != [] <- anchored_event_ids(workspace_id, revision_ids) do
+      Enrollment
+      |> Ash.Query.filter(
+        workspace_id == ^workspace_id and user_id == ^actor_id and
+          event_id in ^event_ids and status == :confirmed
+      )
+      |> Ash.exists?(authorize?: false)
+    else
+      _ -> false
+    end
+  end
+
+  def mounted_enrollment?(_actor, _workspace_id, _course_id), do: false
+
+  defp revision_ids_of(workspace_id, course_id) do
+    Cgc2046.Curriculum.CourseRevision
+    |> Ash.Query.filter(course_id == ^course_id)
+    |> Ash.Query.select([:id])
+    |> Ash.read!(authorize?: false, tenant: workspace_id)
+    |> Enum.map(& &1.id)
+  end
+
+  defp anchored_event_ids(workspace_id, revision_ids) do
+    Cgc2046.Events.Event
+    |> Ash.Query.filter(course_revision_id in ^revision_ids)
+    |> Ash.Query.select([:id])
+    |> Ash.read!(authorize?: false, tenant: workspace_id)
+    |> Enum.map(& &1.id)
+  end
 
   @doc """
   本人学习 run 持有性（任意状态，含 close/cancel 后）：「曾学过」读面授权——
@@ -116,17 +202,16 @@ defmodule Cgc2046.Learning.Runs do
     with :ok <- ensure_enrolled(actor, workspace_id, course_id),
          {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
          {:ok, revision} <- fetch_current_revision(workspace_id, course),
-         {:ok, definition} <- fetch_learning_definition(workspace_id),
-         {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, course_id) do
-      key = instance_key(enrollment.id, revision.id)
-
-      case run_by_key(workspace_id, key) do
+         {:ok, definition} <- fetch_learning_definition(workspace_id) do
+      # D8（issue #505）：user × revision 非终态去重（subject 列预查为真源，
+      # key 降级为可读标签）——活动/课程双通道报名汇入同一 run。
+      case resumable_run(actor.id, workspace_id, revision.id) do
         {:ok, %WorkflowRun{} = run} ->
           {:ok, run, :existing}
 
         {:ok, nil} ->
-          input =
-            %{
+          with {:ok, enrollment} <- fetch_enrollment(actor, workspace_id, course_id) do
+            input = %{
               "enrollment_id" => enrollment.id,
               "user_id" => actor.id,
               "course_id" => course.id,
@@ -134,10 +219,8 @@ defmodule Cgc2046.Learning.Runs do
               "course_revision_id" => revision.id
             }
 
-          WorkflowRun.find_or_create_and_start(workspace_id, definition, input,
-            key: key,
-            start_action: :start
-          )
+            create_learning_run(workspace_id, definition, input)
+          end
       end
     end
   end
@@ -337,85 +420,60 @@ defmodule Cgc2046.Learning.Runs do
   end
 
   @doc """
-  本人学习 run 投影列表（myLearningRuns 读面，2026-09-08 架构评审候选③自
-  `Cgc2046Web.GraphqlSchema` 抽离；#217 旁路读取，D 类·本人锚）：
+  本人学习 run 投影列表（myLearningRuns 读面；issue #505 D8 user 维度）：
 
-  本人 confirmed enrollments（`:my_enrollments` read policy 门控 + 本人锚）
-  → 逐 enrollment 读 learning WorkflowRun（tenant 收紧 + workspace_id 一致性
-  校验 + definition 投影元数据加载）→ `RunProjection.project_run/3`。
-  enrollment 读失败降级 `[]`（附挂信息不阻断主读，与 discover_offerings
-  同纪律）。
+  `subject_user_id == actor.id` 直查（全局读，本人锚单条件即充分）——
+  活动/课程双通道汇入的 run 无论锚在哪条 enrollment 上都归学员本人；
+  definition 投影元数据随查询加载 → `RunProjection.project_run/2`。
+  读失败降级 `[]`（附挂信息不阻断主读，与 discover_offerings 同纪律）。
   """
   @spec my_learning_runs(term()) :: {:ok, [map()]}
-  def my_learning_runs(actor) do
-    case read_confirmed_enrollments(actor) do
-      {:ok, enrollments} ->
-        rows =
-          Enum.flat_map(enrollments, fn enrollment ->
-            enrollment
-            |> learning_runs_for()
-            |> Enum.map(&RunProjection.project_run(&1, enrollment, actor))
-            |> Enum.reject(&is_nil/1)
-          end)
-
-        {:ok, rows}
-
-      {:error, _reason} ->
-        {:ok, []}
-    end
-  end
-
-  # --- 私有实现 -----------------------------------------------------------------
-
-  defp read_confirmed_enrollments(actor) do
-    Enrollment
-    |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
-    |> Ash.Query.filter(status == :confirmed)
-    |> Ash.Query.load(:target_title)
-    |> Ash.Query.limit(250)
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, %{results: results}} -> {:ok, results}
-      {:ok, results} when is_list(results) -> {:ok, results}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # #217 旁路读取（D 类·本人 enrollment 锚）：上游 read_confirmed_enrollments
-  # 走 :my_enrollments read policy（actor 门控）；此处按 enrollment.id 过滤 +
-  # workspace_id 一致性校验，RunProjection.project_run 再校验
-  # enrollment.user_id == actor.id（双重本人锚）。
-  defp learning_runs_for(enrollment) do
+  def my_learning_runs(%{id: actor_id} = actor) do
     WorkflowRun
-    |> Ash.Query.filter(subject_enrollment_id == ^enrollment.id)
-    |> Ash.read(tenant: enrollment.workspace_id, authorize?: false)
+    |> Ash.Query.filter(
+      definition.type == :learning and subject_user_id == ^actor_id
+    )
+    |> Ash.Query.load(definition: [:type, :node_def, steps: [:step_key, :title]])
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(authorize?: false)
     |> case do
-      {:ok, runs} ->
-        Enum.flat_map(runs, fn run ->
-          if run.workspace_id != enrollment.workspace_id do
-            []
-          else
-            # #217 旁路读取（D 类）：run 关系加载（definition 投影元数据），
-            # 本人锚同上（enrollment.user_id == actor.id）。
-            case Ash.load(
-                   run,
-                   [definition: [:type, :node_def, steps: [:step_key, :title]]],
-                   tenant: run.workspace_id,
-                   authorize?: false
-                 ) do
-              {:ok, loaded_run} -> [loaded_run]
-              {:error, _reason} -> []
-            end
-          end
-        end)
-
-      {:error, _reason} ->
-        []
+      {:ok, %{results: results}} -> {:ok, project_rows(results, actor)}
+      {:ok, runs} when is_list(runs) -> {:ok, project_rows(runs, actor)}
+      {:error, _reason} -> {:ok, []}
     end
   end
 
+  def my_learning_runs(_actor), do: {:ok, []}
+
+  defp project_rows(runs, actor) do
+    titles = load_target_titles(runs)
+
+    runs
+    |> Enum.map(&RunProjection.project_run(&1, actor, titles))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # 展示用快照标题：run 锚的 enrollment 行的 target_title 计算（快照优先
+  # → offering 标题回落）；按租户分组批量读，避免逐 run N+1。
+  defp load_target_titles(runs) do
+    runs
+    |> Enum.group_by(& &1.workspace_id)
+    |> Enum.flat_map(fn {workspace_id, group} ->
+      ids = group |> Enum.map(& &1.subject_enrollment_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+      Enrollment
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.load(:target_title)
+      |> Ash.read!(authorize?: false, tenant: workspace_id)
+    end)
+    |> Map.new(&{&1.id, &1.target_title})
+  end
+
+  # D9（issue #505）：课程 confirmed 报名 ∨ 挂载授权（锚定活动的 confirmed
+  # 报名）——活动报名者在 OpenClacky 直接启动配套课学习。
   defp ensure_enrolled(actor, workspace_id, course_id) do
-    if confirmed_enrollment?(actor, workspace_id, course_id) do
+    if confirmed_enrollment?(actor, workspace_id, course_id) or
+         mounted_enrollment?(actor, workspace_id, course_id) do
       :ok
     else
       {:error, "forbidden: confirmed enrollment required to start learning"}
@@ -456,6 +514,8 @@ defmodule Cgc2046.Learning.Runs do
     end
   end
 
+  # D9：input 锚的 enrollment 行——优先课程报名行（双通道并存时课程行优先，
+  # 来源快照语义更直）；无课程行 → 挂载授权的活动报名行（最新一条）。
   defp fetch_enrollment(%{id: actor_id}, workspace_id, course_id) do
     Enrollment
     |> Ash.Query.filter(
@@ -465,19 +525,31 @@ defmodule Cgc2046.Learning.Runs do
     |> Ash.Query.limit(1)
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, nil} -> {:error, "forbidden: confirmed enrollment required to start learning"}
+      {:ok, nil} -> fetch_mounted_enrollment(actor_id, workspace_id, course_id)
       {:ok, enrollment} -> {:ok, enrollment}
       {:error, _} -> {:error, "failed to load enrollment"}
     end
   end
 
-  # 按 key 查任意状态 run（R36：终态命中也返回 existing——同版重进 = resume）
-  defp run_by_key(workspace_id, key) do
-    WorkflowRun
-    |> Ash.Query.filter(definition.type == :learning and input_snapshot["key"] == ^key)
-    |> Ash.Query.sort(inserted_at: :desc)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+  defp fetch_mounted_enrollment(actor_id, workspace_id, course_id) do
+    with revision_ids when revision_ids != [] <- revision_ids_of(workspace_id, course_id),
+         event_ids when event_ids != [] <- anchored_event_ids(workspace_id, revision_ids) do
+      Enrollment
+      |> Ash.Query.filter(
+        workspace_id == ^workspace_id and user_id == ^actor_id and
+          event_id in ^event_ids and status == :confirmed
+      )
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} -> {:error, "forbidden: confirmed enrollment required to start learning"}
+        {:ok, enrollment} -> {:ok, enrollment}
+        {:error, _} -> {:error, "failed to load enrollment"}
+      end
+    else
+      _ -> {:error, "forbidden: confirmed enrollment required to start learning"}
+    end
   end
 
   defp runs_query(%{id: actor_id}, course_id) do
@@ -486,6 +558,22 @@ defmodule Cgc2046.Learning.Runs do
       definition.type == :learning and
         subject_course_id == ^course_id and subject_user_id == ^actor_id
     )
+  end
+
+  # D8 创建路径：key 为可读标签；并发双种撞 partial unique index
+  # （subject_user_id × subject_course_revision_id 非终态唯一）→ 回读转
+  # :existing（预查与索引之间的窄窗口兜底）。
+  defp create_learning_run(workspace_id, definition, input) do
+    WorkflowRun.find_or_create_and_start(workspace_id, definition, input,
+      key: instance_key(input["user_id"], input["course_revision_id"]),
+      start_action: :start
+    )
+  rescue
+    Ecto.ConstraintError ->
+      case non_terminal_run(input["user_id"], workspace_id, input["course_revision_id"]) do
+        {:ok, %WorkflowRun{} = run} -> {:ok, run, :existing}
+        other -> other
+      end
   end
 
   # 投影用 revision 选择：run 绑旧版 → run 自己版本 + stale；否则当前版本

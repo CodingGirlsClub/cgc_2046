@@ -30,7 +30,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   @updatable_fields ~w(title description slug visibility enrollment_policy capacity
                        registration_deadline starts_at ends_at venue sponsorship_enabled
                        sponsorship_tiers sponsorship_deadline pricing_enabled price_tiers
-                       curriculum_enabled curriculum_requirements)
+                       curriculum_enabled curriculum_requirements course_revision_id)
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
@@ -45,6 +45,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
     field(:starts_at, :string, description: "活动开始时间（ISO8601）")
     field(:ends_at, :string, description: "活动结束时间（ISO8601，须晚于 starts_at）")
     field(:venue, :map, description: "结构化场地（country/province/city/district 四键）")
+    field(:course_revision_id, :string, description: "配套课程锚点（published course revision UUID；本工具不支持拆锚——nil 视为未提供，同 collect_changes 纪律）")
     field(:sponsorship_enabled, :boolean, description: "是否开放赞助入口")
     field(:sponsorship_tiers, {:list, :map}, description: "赞助档位配置（SponsorshipTier 形状）")
     field(:sponsorship_deadline, :string, description: "赞助意向截止（ISO8601）")
