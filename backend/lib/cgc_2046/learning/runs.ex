@@ -340,11 +340,15 @@ defmodule Cgc2046.Learning.Runs do
   本人学习 run 投影列表（myLearningRuns 读面，2026-09-08 架构评审候选③自
   `Cgc2046Web.GraphqlSchema` 抽离；#217 旁路读取，D 类·本人锚）：
 
-  本人 confirmed enrollments（`:my_enrollments` read policy 门控 + 本人锚）
+  本人 confirmed **课程** enrollments（`:my_enrollments` read policy 门控 + 本人锚）
   → 逐 enrollment 读 learning WorkflowRun（tenant 收紧 + workspace_id 一致性
   校验 + definition 投影元数据加载）→ `RunProjection.project_run/3`。
   enrollment 读失败降级 `[]`（附挂信息不阻断主读，与 discover_offerings
   同纪律）。
+
+  只枚举 course 型报名：event 学习不走 objective 循环（`learning_state/2` 空
+  投影），事件型 run 行在学习页无可展示信息，event 参与语义由 myEnrollments
+  承担；已取消 offering 的 run 由 `RunProjection.project_run/3` 排除。
   """
   @spec my_learning_runs(term()) :: {:ok, [map()]}
   def my_learning_runs(actor) do
@@ -371,6 +375,8 @@ defmodule Cgc2046.Learning.Runs do
     Enrollment
     |> Ash.Query.for_read(:my_enrollments, %{}, actor: actor)
     |> Ash.Query.filter(status == :confirmed)
+    # 只枚举 course 型报名（event 型无 objective 可展示，不进学习页）
+    |> Ash.Query.filter(not is_nil(course_id))
     |> Ash.Query.load(:target_title)
     |> Ash.Query.limit(250)
     |> Ash.read(actor: actor)
