@@ -254,12 +254,18 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     |> Ash.Query.filter(status == :confirmed)
     |> Ash.read!(authorize?: false)
     |> with_anchor_revisions()
-    |> Enum.reject(fn {enrollment, anchor_revision_id} ->
-      if anchor_revision_id do
-        MapSet.member?(run_pairs, {enrollment.user_id, anchor_revision_id})
-      else
-        MapSet.member?(run_enrollment_ids, enrollment.id)
-      end
+    |> Enum.reject(fn
+      # 课程未发布（无锚 course 报名）：K4 不种 run 是设计决策，发布后 1i
+      # 补种自愈——未发布窗口期不是对账异常（review 建议 2）。
+      {_enrollment, :unpublished} ->
+        true
+
+      {enrollment, anchor_revision_id} ->
+        if anchor_revision_id do
+          MapSet.member?(run_pairs, {enrollment.user_id, anchor_revision_id})
+        else
+          MapSet.member?(run_enrollment_ids, enrollment.id)
+        end
     end)
     |> Enum.map(fn {enrollment, _anchor} ->
       %{
@@ -298,8 +304,14 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
 
     Enum.map(enrollments, fn enrollment ->
       anchor =
-        (enrollment.course_id && Map.get(course_anchors, enrollment.course_id)) ||
-          (enrollment.event_id && Map.get(event_anchors, enrollment.event_id))
+        cond do
+          enrollment.course_id ->
+            # nil = 课程未发布（区别于「无锚 event 报名」），规1 排除该中间态。
+            Map.get(course_anchors, enrollment.course_id) || :unpublished
+
+          enrollment.event_id ->
+            Map.get(event_anchors, enrollment.event_id)
+        end
 
       {enrollment, anchor}
     end)
