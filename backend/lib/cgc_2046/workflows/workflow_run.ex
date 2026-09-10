@@ -157,10 +157,11 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     )
 
     # 018 审计立项：prep_state 投影 = facts["prep_state"]（Curriculum.Prep.prep_state/1
-    # 的 SQL 下推形态，不 public——仅 MCP list 面内部 load）。list_workspace_courses
-    # 列表面只为读这一个键，此前整行 load workflow_runs（facts JSONB 内含课程
-    # 内容镜像，curriculum_outputs 之外的第二份全量存储）。Elixir 侧 fallback
-    # 仍是 Prep.prep_state/1（已加载 struct 场景）。
+    # 的 SQL 下推形态，不 public——仅 MCP list 面内部 load）。**必须配合消费方
+    # 对 workflow_run 关系的 select 收窄使用**（Ash 关系 load 缺省 select 全部
+    # 属性——不收窄则 facts JSONB 照样过网，见 list_workspace_courses）。
+    # Elixir 侧既加载 struct 的同义读取 = Prep.prep_state/1（list_my_tasks 等整行
+    # 在场场景），两处语义同源。
     calculate(:prep_state, :string, expr(facts["prep_state"]))
   end
 
