@@ -6,12 +6,15 @@ defmodule Cgc2046Web.GraphqlComplexityTest do
   # 拒绝语义为 HTTP 200 + GraphQL errors（resolution 跳过、响应无 data 键），
   # 与 introspection guard 口径一致（标准 GraphQL 错误通道，非字面 4xx）。
 
-  describe "max_complexity: 250" do
+  # 016：上限 250 → 1_000（ash_graphql 1.11 起分页字段按 first/limit 折算
+  # complexity，mySponsorships=320 / inviteBatches=600 已超 250——见 router
+  # @graphql_abuse_opts 注释）。测试数值随上限同比放大，机制断言不变。
+  describe "max_complexity: 1_000" do
     test "超限别名炸弹被拒，错误含实际/上限值且不执行" do
-      # 300 个 alias 化顶层标量字段（默认每 field complexity 1）→ 300 > 250
+      # 1100 个 alias 化顶层标量字段（默认每 field complexity 1）→ 1100 > 1000
       bomb =
         "{ " <>
-          Enum.map_join(0..299, " ", fn i -> "a#{i}: pendingApprovalsCount" end) <> " }"
+          Enum.map_join(0..1099, " ", fn i -> "a#{i}: pendingApprovalsCount" end) <> " }"
 
       conn = build_conn() |> post("/api/graphql", %{"query" => bomb})
       body = json_response(conn, 200)
@@ -22,19 +25,19 @@ defmodule Cgc2046Web.GraphqlComplexityTest do
       assert Enum.any?(errors, fn e ->
                msg = e["message"] || ""
 
-               String.contains?(msg, "complexity is 300") and
-                 String.contains?(msg, "maximum is 250")
+               String.contains?(msg, "complexity is 1100") and
+                 String.contains?(msg, "maximum is 1000")
              end)
     end
 
     test "嵌套扇出同样被 complexity 上限拦截" do
-      # 60 个 alias 化 list 字段 × (1 自身 + 5 子字段) = 360 > 250；
+      # 200 个 alias 化 list 字段 × (1 自身 + 5 子字段) = 1200 > 1000；
       # 字段取自真实 schema（myWorkspacePortfolio / portfolio_item），validation 通过。
       item = "id workspaceId title url icon"
 
       bomb =
         "{ " <>
-          Enum.map_join(0..59, " ", fn i ->
+          Enum.map_join(0..199, " ", fn i ->
             "a#{i}: myWorkspacePortfolio(workspaceId: \"00000000-0000-0000-0000-000000000000\") { #{item} }"
           end) <> " }"
 
