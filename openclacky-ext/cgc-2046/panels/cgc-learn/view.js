@@ -213,7 +213,7 @@
           '<div class="cgla-title">学习地图</div>' +
           '<div class="cgla-progress-text">' + escapeHtml(progressText) + '</div>' +
         '</div>' +
-        '<button id="cgc-learn-refresh" class="cgla-sync" type="button">刷新</button>' +
+        '<button id="cgc-learn-refresh" class="btn-secondary" style="padding:6px 10px;font-size:0.6875rem;font-weight:600" type="button">刷新</button>' +
       '</div>' +
       '<div class="cgla-source">' +
         '<span class="cgla-source-dot"></span><span>目标地图</span>' +
@@ -292,7 +292,7 @@
           '<div class="cgla-eyebrow">' + escapeHtml(resume.label) + '</div>' +
           '<div class="cgla-continue-title">' + escapeHtml(objTitle) + '</div>' +
           (reason ? '<div class="cgla-continue-subtitle">' + escapeHtml(reason) + '</div>' : "") +
-          '<button class="cgla-continue-button" type="button" data-inject="' +
+          '<button class="btn-primary" style="margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700" type="button" data-inject="' +
             escapeHtml(resume.objectiveId) + '" data-testid="learn-next-cta">▶ 开始学习</button>' +
         '</div>';
     }
@@ -406,13 +406,11 @@
       ".cgla-header-copy{flex:1;min-width:0}" +
       ".cgla-title{font-size:0.9375rem;font-weight:680}" +
       ".cgla-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
-      ".cgla-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
-      ".cgla-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
       ".cgla-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
       ".cgla-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
       ".cgla-source-date{margin-left:auto}" +
       ".cgla-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
-      ".cgla-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
+      ".cgla-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-hover);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
       ".cgla-error{color:var(--color-error,#c0392b)}" +
       ".cgla-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
       ".cgla-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
@@ -429,8 +427,6 @@
       ".cgla-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
       ".cgla-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
       ".cgla-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
-      ".cgla-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
-      ".cgla-continue-button:hover{filter:brightness(1.12)}" +
       ".cgla-review{display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:0.6875rem;color:var(--color-warning,#fbbf24);border:1px dashed color-mix(in srgb,var(--color-warning,#fbbf24) 40%,var(--color-border-primary));border-radius:var(--radius-sm,6px);cursor:pointer;text-align:left;width:100%;font-family:inherit;background:transparent;transition:background var(--transition-fast)}" +
       ".cgla-review:hover{background:color-mix(in srgb,var(--color-warning,#fbbf24) 6%,transparent)}" +
       ".cgla-urgent{color:var(--color-error,#f87171);border-color:color-mix(in srgb,var(--color-error,#f87171) 40%,var(--color-border-primary))}" +
@@ -454,7 +450,7 @@
       ".cgla-obj-mats{flex:none;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:transparent;color:var(--color-text-muted);font-size:0.625rem;cursor:pointer;opacity:0;transition:opacity var(--transition-fast),color var(--transition-fast)}" +
       ".cgla-obj:hover .cgla-obj-mats{opacity:1}" +
       ".cgla-obj-mats:hover{color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
-      ".cgla-mats-panel{padding:6px 10px 6px 28px;border-top:1px dashed var(--color-border-secondary);background:var(--color-bg-subtle)}" +
+      ".cgla-mats-panel{padding:6px 10px 6px 28px;border-top:1px dashed var(--color-border-secondary);background:var(--color-bg-hover)}" +
       ".cgla-mat-item{display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:0.625rem}" +
       ".cgla-mat-title{color:var(--color-text-primary);flex:none}" +
       ".cgla-mat-ref{color:var(--color-accent-primary);text-decoration:none;word-break:break-all}" +

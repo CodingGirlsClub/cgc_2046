@@ -6,18 +6,18 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Workflows.{Step, WorkflowDefinition, WorkflowRun}
 
-  test "confirmed 学员可读自己的 run，issue 级进度口径(U7)" do
+  test "confirmed 学员可读自己的课程 run，objective 进度口径(S8)" do
     owner = Fixtures.platform_admin("my-learning-owner")
     workspace = Fixtures.create_workspace(owner)
     learner = Fixtures.register_user("my-learning-learner")
-    event = EventFixtures.create_event(workspace, owner, %{title: "学习活动"})
+    course = EventFixtures.create_course(workspace, owner, %{title: "学习课程"})
 
     enrollment =
       Enrollment
       |> Ash.Changeset.for_create(
         :create_enrollment,
         %{
-          event_id: event.id,
+          course_id: course.id,
           user_id: learner.id,
           submission_payload: %{"targetTitle" => "快照标题"}
         },
@@ -57,7 +57,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     assert waiting["enrollmentId"] == enrollment.id
     assert waiting["targetTitle"] == "快照标题"
     assert waiting["status"] == "waiting"
-    # S8(ADR-0011):objective 口径。事件型 enrollment(无 course content)→ 0/0
+    # S8(ADR-0011):objective 口径。课程无 published revision → objectives [] → 0/0
     assert waiting["progress"]["masteredRequired"] == 0
     assert waiting["progress"]["totalRequired"] == 0
     assert waiting["progress"]["complete"] == false
@@ -79,20 +79,71 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     assert %{"data" => nil, "errors" => [%{"code" => "unauthorized"}]} = response
   end
 
+  test "event 型报名不返回 run(事件学习不走 objective 循环,不参与学习页)" do
+    owner = Fixtures.platform_admin("my-learning-event-owner")
+    workspace = Fixtures.create_workspace(owner)
+    learner = Fixtures.register_user("my-learning-event-learner")
+    event = EventFixtures.create_event(workspace, owner, %{title: "学习活动"})
+
+    enrollment =
+      Enrollment
+      |> Ash.Changeset.for_create(
+        :create_enrollment,
+        %{event_id: event.id, user_id: learner.id},
+        tenant: workspace.id,
+        actor: learner
+      )
+      |> Ash.create!(tenant: workspace.id, actor: learner)
+
+    definition = create_learning_definition(workspace, owner, "outline", "review")
+    _run = create_running_run(workspace, definition, enrollment)
+
+    response = graphql(my_learning_runs_query(), sign_in_token(learner))
+    assert %{"data" => %{"myLearningRuns" => []}} = response
+  end
+
+  test "已取消课程的 confirmed 报名不返回 run" do
+    owner = Fixtures.platform_admin("my-learning-cancelled-owner")
+    workspace = Fixtures.create_workspace(owner)
+    learner = Fixtures.register_user("my-learning-cancelled-learner")
+    course = EventFixtures.create_course(workspace, owner, %{title: "将取消课程"})
+
+    enrollment =
+      Enrollment
+      |> Ash.Changeset.for_create(
+        :create_enrollment,
+        %{course_id: course.id, user_id: learner.id},
+        tenant: workspace.id,
+        actor: learner
+      )
+      |> Ash.create!(tenant: workspace.id, actor: learner)
+
+    definition = create_learning_definition(workspace, owner, "outline", "review")
+    _run = create_running_run(workspace, definition, enrollment)
+
+    # 课程取消(open → cancelled;不发 ended 信号的布景经 action 直改)
+    course
+    |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id, actor: owner)
+    |> Ash.update!(tenant: workspace.id, actor: owner)
+
+    response = graphql(my_learning_runs_query(), sign_in_token(learner))
+    assert %{"data" => %{"myLearningRuns" => []}} = response
+  end
+
   test "租户错配或他人的 enrollment anchor 均 fail-closed" do
     owner = Fixtures.platform_admin("my-learning-isolation-owner")
     workspace_a = Fixtures.create_workspace(owner)
     workspace_b = Fixtures.create_workspace(owner)
     learner_a = Fixtures.register_user("my-learning-isolation-a")
     learner_b = Fixtures.register_user("my-learning-isolation-b")
-    event_a = EventFixtures.create_event(workspace_a, owner, %{title: "A 活动"})
-    event_b = EventFixtures.create_event(workspace_b, owner, %{title: "B 活动"})
+    course_a = EventFixtures.create_course(workspace_a, owner, %{title: "A 课程"})
+    course_b = EventFixtures.create_course(workspace_b, owner, %{title: "B 课程"})
 
     enrollment_a =
       Enrollment
       |> Ash.Changeset.for_create(
         :create_enrollment,
-        %{event_id: event_a.id, user_id: learner_a.id},
+        %{course_id: course_a.id, user_id: learner_a.id},
         tenant: workspace_a.id,
         actor: learner_a
       )
@@ -102,7 +153,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       Enrollment
       |> Ash.Changeset.for_create(
         :create_enrollment,
-        %{event_id: event_b.id, user_id: learner_b.id},
+        %{course_id: course_b.id, user_id: learner_b.id},
         tenant: workspace_b.id,
         actor: learner_b
       )
@@ -174,7 +225,12 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       %{
         definition_id: definition.id,
         definition_version: definition.version,
-        input_snapshot: %{"enrollment_id" => enrollment.id, "user_id" => enrollment.user_id}
+        input_snapshot: %{
+          "enrollment_id" => enrollment.id,
+          "user_id" => enrollment.user_id,
+          # D8：course 锚随快照（真实 instantiator 同款形状；#507 过滤读此列）
+          "course_id" => enrollment.course_id
+        }
       },
       tenant: workspace.id,
       authorize?: false

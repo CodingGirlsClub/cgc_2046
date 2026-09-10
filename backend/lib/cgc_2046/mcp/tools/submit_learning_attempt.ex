@@ -109,8 +109,11 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
 
   # --- 校验链 -----------------------------------------------------------------
 
+  # D9（issue #505）：课程 confirmed 报名 ∨ 挂载授权（锚定活动的 confirmed
+  # 报名）——与 Runs.start 同一口径，活动报名者可提交配套课学习。
   defp ensure_enrolled(actor, workspace_id, course_id) do
-    if Runs.confirmed_enrollment?(actor, workspace_id, course_id) do
+    if Runs.confirmed_enrollment?(actor, workspace_id, course_id) or
+         Runs.mounted_enrollment?(actor, workspace_id, course_id) do
       :ok
     else
       {:error, "forbidden: confirmed enrollment required to submit learning attempt"}

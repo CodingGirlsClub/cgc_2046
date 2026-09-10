@@ -156,7 +156,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户 confirmed 报名对应的学习 run 进度（非成员可读）"
+    @desc "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
     field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
       resolve(fn _, _, %{context: context} ->
         with_actor(context, &Cgc2046.Learning.Runs.my_learning_runs/1)
@@ -1739,7 +1739,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:stale_revision, non_null(:boolean))
     field(:progress, non_null(:learning_progress))
     field(:next_action, :learning_next_action)
-    field(:course_id, :id)
+    field(:course_id, non_null(:id))
   end
 
   # U7(#180/R11)→S8（ADR-0011）：学员视角课程学习详情（objective 口径，

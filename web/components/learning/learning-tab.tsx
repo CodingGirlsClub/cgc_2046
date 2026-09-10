@@ -129,11 +129,11 @@ export default function LearningTab({
 }) {
   const t = useTranslations("learning");
   const tRoot = useTranslations();
-  // 按课程分组(courseId 为空的事件型 run 归「其他学习」组);组序 = runs 顺序
-  const groups: Array<{ courseId: string | null; runs: MyLearningRun[] }> = [];
+  // 按课程分组（myLearningRuns 只返回 course 型 run）;组序 = runs 顺序
+  const groups: Array<{ courseId: string; runs: MyLearningRun[] }> = [];
   const groupIndex: Record<string, number> = {};
   for (const run of runs) {
-    const key = run.courseId ?? "_none";
+    const key = run.courseId;
     const idx = groupIndex[key];
     if (idx === undefined) {
       groupIndex[key] = groups.length;
@@ -160,7 +160,7 @@ export default function LearningTab({
         const title = primary.targetTitle ?? t("unnamedCourse");
 
         return (
-          <section key={group.courseId ?? "_none"} data-testid="learning-group">
+          <section key={group.courseId} data-testid="learning-group">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-medium text-ink-2">{title}</h3>
               {primary.status ? (
@@ -177,15 +177,13 @@ export default function LearningTab({
                   className="learning-run-row-shell border-b border-line last:border-b-0"
                 >
                   <LearningRunRow run={run} onOpenDrawer={setDrawerCourseId} />
-                  {run.courseId ? (
-                    <Link
-                      href={`/learning/courses/${run.courseId}`}
-                      className="learning-run-row-link"
-                      data-testid="learning-course-link"
-                    >
-                      {t("tab.courseContent")} <span aria-hidden="true">↗</span>
-                    </Link>
-                  ) : null}
+                  <Link
+                    href={`/learning/courses/${run.courseId}`}
+                    className="learning-run-row-link"
+                    data-testid="learning-course-link"
+                  >
+                    {t("tab.courseContent")} <span aria-hidden="true">↗</span>
+                  </Link>
                 </div>
               ))}
             </div>
@@ -245,7 +243,7 @@ function LearningRunRow({
     <button
       type="button"
       data-testid="learning-run-row"
-      onClick={() => run.courseId && onOpenDrawer(run.courseId)}
+      onClick={() => onOpenDrawer(run.courseId)}
       className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-soft-2"
     >
       <span className="pt-1">
