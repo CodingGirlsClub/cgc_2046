@@ -155,6 +155,31 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("status failed: #{e.message}", status: 500)
   end
 
+  # GET /api/ext/cgc-2046/health —— 真实 MCP 握手探测(initialize + tools/list)。
+  # 只读:不调业务工具、不落审计;永不返回 token / Authorization(tool 列表只取
+  # 个数,名称/描述是服务端内容不回传)。宿主 openclacky 1.5.13 公开 API
+  # Registry#tool_definitions(lazily cold-start)失败形态:TransportError
+  # (连接拒绝/超时/坏 JSON——超时在 client 内部转 TransportError)/ McpError
+  # (JSON-RPC error;ProtocolError 其子类)。分层:未配置 503 / 握手失败 502 /
+  # 意外 500。
+  get "/health" do
+    guard_origin!
+    registry = Cgc2046CourseRoutes.connected_registry(self)
+    unless registry
+      json(Cgc2046CourseRoutes::NOT_CONNECTED, status: 503)
+    end
+    tools = registry.tool_definitions(SERVER_NAME)
+    json(ok: true, handshake: true, tool_count: tools.length)
+  rescue Clacky::Mcp::Client::TransportError, Clacky::Mcp::Client::McpError => e
+    warn "[cgc-2046] health probe failed: #{e.class}"
+    error!("连接探测失败: #{e.class}", status: 502)
+  rescue Clacky::ApiExtension::Halt
+    raise
+  rescue StandardError => e
+    warn "[cgc-2046] health probe error: #{e.class}: #{e.message.to_s.slice(0, 200)}"
+    error!("Internal error.", status: 500)
+  end
+
   # DELETE /api/ext/cgc-2046/connect
   # 移除 mcpServers["cgc-2046"] 条目并 reload MCP registry（断开连接）。
   # 事务（snapshot→remove→原子提交→reload→回滚）收在 Cgc2046McpConfig.disconnect_server。
