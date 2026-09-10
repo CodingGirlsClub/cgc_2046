@@ -7,8 +7,9 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
   Finding（rule = `:payment_recon`，entity_type = `:payment_order`，唯一键
   (rule, entity_type, entity_id)，detail.kind 区分子类）：
 
-  1. **渠道有我无**（`channel_only`）：账单行的 out_trade_no 在本地不存在或
-     已 cancelled（作废单在渠道侧有款 = 异常）；
+  1. **渠道有我无**（`channel_only`）：账单行的 out_trade_no 在本地不存在，或本地
+     已终态作废/过期——cancelled（作废单在渠道侧有款 = 异常）与 expired（过期后
+     迟到扣款且回调丢失，AE2 长尾——运营核对后走补单/退款收敛）都算；
   2. **我 paid 渠道无**（`local_paid_missing`）：本地当日落账的 paid 单不在
      当日账单（账单是日切片，比对基准 = updated_at 在账单日内的 paid 单）；
   3. **金额不符**（`amount_mismatch`）：账单行与本地单金额不一致（R20 的
@@ -19,8 +20,12 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
      （refund worker 查单重试窗 ~16s×5 之上再兜底；管理员 retry_refund 入口）。
 
   规1/2/3 依赖账单，规4/5 纯本地判定。**账单拉取失败（无权限/未出账）**：
-  Logger.error + telemetry，该渠道跳过不抛（KTD11「告警不阻塞」）——本地
-  判定规4/5 仍执行，本次报告只覆盖本地面。
+  Logger.error + telemetry，该渠道跳过不抛（KTD11「告警不阻塞」）——任一渠道
+  skipped 时本次报告**降级为纯本地面**：只执行规则4/5，规则1/2/3 整体旁路
+  （空账单 ≠ 「渠道无交易」，照跑只会产生假 local_paid_missing/channel_only，
+  2026-08-21~25 alipay 连续五日拉单失败实证），且 `delete_stale` 跳过（残缺
+  视图下删旧 Finding 会把真差异当已消解）。telemetry
+  `[:cgc2046, :payment_recon, :report_degraded]` 标记降级拍供监控。
 
   ## 刷新语义（同 ReconciliationScanWorker D2）
 
@@ -76,32 +81,57 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
     # T+1：对昨日账单（渠道出账次日可拉）
     bill_date = Date.add(DateTime.to_date(now), -1)
 
-    statement_entries =
-      @channels
-      |> Enum.flat_map(fn channel ->
+    # 渠道拉单逐渠道隔离成败（rescue 在 fetch_channel_statement 内）：
+    # 任一渠道 :skip → 账单面残缺，本次降级为纯本地面（见 moduledoc「拉取失败」）
+    {statement_entries, skipped_channels} =
+      Enum.reduce(@channels, {%{}, []}, fn channel, {entries_acc, skipped_acc} ->
         case fetch_channel_statement(channel, bill_date) do
-          {:ok, rows} -> normalize_rows(channel, rows)
-          :skip -> []
+          {:ok, rows} ->
+            entries =
+              Map.new(normalize_rows(channel, rows), fn entry -> {entry.out_trade_no, entry} end)
+
+            {Map.merge(entries_acc, entries), skipped_acc}
+
+          :skip ->
+            {entries_acc, [channel | skipped_acc]}
         end
       end)
-      |> Map.new(fn entry -> {entry.out_trade_no, entry} end)
 
-    # 本地面：paid/pending/refunding 全量（五类比对基准）+ 当日落账的 paid（规2）
-    orders =
+    # 本地面单次投影读：五类比对基准（paid/pending/refunding）+ 全量单索引
+    # （channel_only 需区分「本地已终态」与「无本地单」）合一次读取，
+    # 规则各取所需字段，两份全量 Map 不再各付一次全表读
+    all_orders =
       Order
-      |> Ash.Query.filter(status in [:paid, :pending, :refunding])
+      |> Ash.Query.select([:id, :out_trade_no, :status, :amount_cents, :updated_at, :expire_at])
       |> Ash.read!(authorize?: false)
 
-    # 全量单索引（含 cancelled）：channel_only 需区分「本地已作废」与「无本地单」
+    orders = Enum.filter(all_orders, &(&1.status in [:paid, :pending, :refunding]))
+
     local_by_trade_no =
-      Order
-      |> Ash.read!(authorize?: false)
-      |> Map.new(fn o -> {o.out_trade_no, o} end)
+      Map.new(all_orders, fn o -> {o.out_trade_no, %{id: o.id, status: o.status}} end)
 
-    candidates = diff_candidates(statement_entries, orders, local_by_trade_no, bill_date, now)
+    {candidates, statement_complete?} =
+      if skipped_channels == [] do
+        {diff_candidates(statement_entries, orders, local_by_trade_no, bill_date, now), true}
+      else
+        Logger.info(
+          "payment recon: statement fetch incomplete for #{inspect(Enum.sort(skipped_channels))} " <>
+            "on #{Date.to_iso8601(bill_date)}; report degraded to local-only rules, stale deletion skipped"
+        )
+
+        :telemetry.execute(
+          [:cgc2046, :payment_recon, :report_degraded],
+          %{count: 1},
+          %{channels: Enum.sort(skipped_channels), date: Date.to_iso8601(bill_date)}
+        )
+
+        {dedupe(pending_overdue(orders, now) ++ refunding_stuck(orders, now)), false}
+      end
 
     upsert_all(candidates)
-    delete_stale(candidates)
+
+    # 降级拍（账单面残缺）不删旧 Finding——「未命中即删」只对完整比对成立
+    if statement_complete?, do: delete_stale(candidates)
 
     :ok
   end
@@ -194,13 +224,19 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
   # ── 五类差异判定 ──────────────────────────────────────────────────────────
 
   defp diff_candidates(statement_entries, orders, local_by_trade_no, bill_date, now) do
-    # 规1：渠道有我无（本地无此单，或本地已作废——cancelled 单渠道侧有款）
+    # 规1：渠道有我无（本地无此单，或本地已终态——cancelled=作废单被支付（异常），
+    # expired=过期后迟到扣款且回调丢失（AE2 长尾）；refunding/refunded 在退款链
+    # 在途，不报）
     channel_only =
       Enum.flat_map(statement_entries, fn {out_trade_no, entry} ->
         case local_by_trade_no do
           %{^out_trade_no => order} ->
-            if order.status == :cancelled do
-              [candidate(order.id, "channel_only", entry, %{})]
+            if order.status in [:cancelled, :expired] do
+              [
+                candidate(order.id, "channel_only", entry, %{
+                  local_status: Atom.to_string(order.status)
+                })
+              ]
             else
               []
             end

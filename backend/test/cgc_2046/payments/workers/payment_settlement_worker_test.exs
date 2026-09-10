@@ -274,6 +274,59 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert reload_order(order).status == :paid
       assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :confirmed
     end
+
+    test "015：落账 DB 瞬断（mark_paid 失败且订单仍 pending）→ 上抛重试，绝不 mark_processed", ctx do
+      order = pending_order(ctx)
+      stub_channel_paid(order)
+
+      # 注入 mark_paid 的 CAS UPDATE 失败（DB 类错误形状）：pending→paid 被
+      # 数据库层拒绝。此时渠道查单已确认有款且金额相符——旧实现会走 `other`
+      # 分支 mark_processed 永久丢单（已收款、不落账、不退款、不重试）。
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_test_block_mark_paid() RETURNS trigger AS } <>
+          ~s{$$ BEGIN RAISE EXCEPTION 'test injected db failure'; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER block_mark_paid BEFORE UPDATE ON payments_orders FOR EACH ROW } <>
+          ~s{WHEN (OLD.status = 'pending' AND NEW.status = 'paid') } <>
+          ~s{EXECUTE FUNCTION cgc_test_block_mark_paid();}
+      )
+
+      assert {:error, :order_still_pending} = perform_settlement(order)
+
+      # 事件未被消费（Oban 会重试），订单仍 pending，未误触自动退款
+      assert event_for(order).status != :processed
+
+      refute_enqueued(worker: PaymentRefundWorker)
+
+      # 解除注入 → Oban 重试 → 完整落账收敛
+      Cgc2046.Repo.query!("DROP TRIGGER block_mark_paid ON payments_orders")
+      Cgc2046.Repo.query!("DROP FUNCTION cgc_test_block_mark_paid")
+
+      assert :ok = perform_settlement(order)
+      assert reload_order(order).status == :paid
+      assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :confirmed
+    end
+
+    test "015：refund_failed 单被迟到回调命中 → 经 retry_refund 重入退款链", ctx do
+      order = pending_order(ctx)
+      stub_channel_paid(order)
+
+      # 布置：订单已判 refund_failed（渠道拒绝后管理员未重试）
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE payments_orders SET status = 'refund_failed' WHERE id = $1",
+          [Cgc2046.Repo.uuid!(order.id)]
+        )
+
+      assert :ok = perform_settlement(order)
+
+      # retry_refund（refund_failed → refunding，after_action 自带入队 refund job）
+      assert reload_order(order).status == :refunding
+      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+      assert event_for(order).status == :processed
+    end
   end
 
   # ── 布置 ──
