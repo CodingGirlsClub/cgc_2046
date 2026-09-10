@@ -393,8 +393,9 @@ globalThis.window = globalThis;
 // admin-aside 注入路径 stub:宿主输入框缺席时 injectIntoComposer 走 window.prompt
 // fallback——harness 不 stub 输入框,断言等价物 __prompted 文案
 globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == null ? "" : text); };
-// home disconnect 连接确认框(home_hub 场景驱动确认路径);alert 捕获失败提示
-globalThis.confirm = () => true;
+// home disconnect 连接确认框(home_hub 场景驱动确认路径)与升级确认框
+// (home_upgrade 场景):一律放行,同时记录文案供场景断言;alert 捕获失败提示
+globalThis.confirm = (m) => { (globalThis.__confirms = globalThis.__confirms || []).push(String(m == null ? "" : m)); return true; };
 globalThis.alert = (m) => { (globalThis.__alerts = globalThis.__alerts || []).push(String(m)); };
 // home 升级成功后 window.location.reload() 刷新页;harness 记数替代真实刷新
 globalThis.location = { reload: () => { globalThis.__reloaded = (globalThis.__reloaded || 0) + 1; } };
@@ -462,7 +463,7 @@ globalThis.fetch = async (url, opts) => {
 
   // admin_aside 场景:一个 owner 台(编程少女台/acme) + 一个 member-only 台(应被
   // ADMIN_ROLES 过滤);待办含报名审批/加入申请两行;status 透传 web_url(深链基址)
-  if (scenario === "admin_aside") {
+  if (scenario === "admin_aside" || scenario === "admin_aside_mcp_error") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-a1", name: "编程少女台", slug: "acme", roles: ["owner"] },
@@ -593,11 +594,14 @@ globalThis.fetch = async (url, opts) => {
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
   if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed" ||
-      scenario === "home_upgrade") {
+      scenario === "home_upgrade" || scenario === "home_upgrade_same" ||
+      scenario === "home_upgrade_ahead" || scenario === "home_health_degraded") {
     if (path === "/api/ext/cgc-2046/version") {
       // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走扩展自有 /update_info,
-      // 除 home_upgrade 外 harness 不 stub → 查询失败静默,按钮保持隐藏)
-      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+      // 除 home_upgrade* 外 harness 不 stub → 查询失败静默,按钮保持隐藏);
+      // home_upgrade_ahead 模拟开发副本(本地 0.1.3 高于已发布 0.1.2)
+      const localVersion = scenario === "home_upgrade_ahead" ? "0.1.3" : "0.1.0";
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: localVersion }) };
     }
     // home_upgrade:自托管升级通道全链——update_info 报新版 → 点击升级 →
     // 宿主 install(任意 download_url) → job 轮询 done
@@ -605,11 +609,29 @@ globalThis.fetch = async (url, opts) => {
       return { ok: true, status: 200, json: async () => ({ ok: true,
         current_version: "0.1.0", latest_version: "0.2.0",
         download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
-        update_available: true }) };
+        sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        update_available: true, version_state: "update" }) };
+    }
+    // 版本一致(清单可达、download_url 齐全)→ 按钮仍不得出现
+    if (scenario === "home_upgrade_same" && path === "/api/ext/cgc-2046/update_info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true,
+        current_version: "0.1.0", latest_version: "0.1.0",
+        download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        update_available: false, version_state: "same" }) };
+    }
+    // 版本不同但发布版不更新(本地开发副本 0.1.3 vs 发布 0.1.2)→
+    // 只提示两版本号,不给可点 CTA(点下去是降级)
+    if (scenario === "home_upgrade_ahead" && path === "/api/ext/cgc-2046/update_info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true,
+        current_version: "0.1.3", latest_version: "0.1.2",
+        download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        update_available: false, version_state: "ahead" }) };
     }
     if (scenario === "home_upgrade" && path === "/api/store/extension/install" &&
         opts && opts.method === "POST") {
       globalThis.__installBody = JSON.parse(String(opts.body || "{}"));
+      // POST install 时点上已发生的 confirm 次数(升级确认框必须在安装前弹出)
+      globalThis.__confirmsAtInstall = (globalThis.__confirms || []).length;
       return { ok: true, status: 200, json: async () => ({ ok: true, job_id: "job-up1" }) };
     }
     if (scenario === "home_upgrade" && path === "/api/store/extension/install/status") {
@@ -620,10 +642,17 @@ globalThis.fetch = async (url, opts) => {
         ? { ok: true, configured: false, web_url: "https://codingirlsclub.com" }
         : { ok: true, configured: true, web_url: "https://codingirlsclub.com", csrf_token: "tok-1" }) };
     }
+    // /health 探活(plan 020):home_health_degraded 走「配置在但探不通」降级响应;
+    // 其余 home 场景握手成功 stub——缺 stub 会落 fetch 兜底 404,pill 被误降级
+    if (path === "/api/ext/cgc-2046/health") {
+      return { ok: true, status: 200, json: async () => (scenario === "home_health_degraded"
+        ? { ok: false, error: "连接探测失败: TransportError" }
+        : { ok: true, handshake: true, tool_count: 2 }) };
+    }
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-h1", name: "编程少女台<img src=x onerror=alert(1)>", slug: "acme", roles: ["owner"] },
-        { workspace_id: "ws-h2", name: "普通成员台", slug: "plain", roles: ["member"] },
+        { workspace_id: "ws-h2", name: "普通成员台", slug: "plain", roles: [] },
       ] } }) };
     }
     if (path === "/api/ext/cgc-2046/tasks") {
@@ -700,7 +729,7 @@ globalThis.fetch = async (url, opts) => {
     }
   }
   // ⑧ tutor_aside_boot:session.aside 挂载 + tutor 台课程发现 + 草稿拉取链
-  if (scenario === "tutor_aside_boot") {
+  if (scenario === "tutor_aside_boot" || scenario === "tutor_aside_mcp_error") {
     if (path === "/api/ext/cgc-2046/me/workspaces") {
       return { ok: true, status: 200, json: async () => ({ ok: true, result: { workspaces: [
         { workspace_id: "ws-t9", name: "教研台", slug: "teach", roles: ["tutor"] },
@@ -976,8 +1005,10 @@ async function waitFor(cond, ms = 2000) {
   }
 
   // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
-  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, learn_boot_and_inject: 1, learn_ugc_injection: 1,
-    learn_quote_course_id: 1, learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1 };
+  const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, admin_aside_mcp_error: 1,
+    learn_boot_and_inject: 1, learn_ugc_injection: 1, learn_quote_course_id: 1,
+    learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1,
+    tutor_aside_mcp_error: 1 };
   const { spec } = globalThis.__registered || {};
   if (!MOUNT_SCENARIOS[scenario] && (!spec || typeof spec.render !== "function")) {
     console.error("FAIL: registerWorkspace 未捕获 render");
@@ -1338,6 +1369,7 @@ async function waitFor(cond, ms = 2000) {
     const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
     const badgeText = (container.querySelector("#cgc-version-badge") || {}).textContent || "";
     const bootHtml = container.innerHTML;
+    const bootIdentityHtml = (container.querySelector("#cgc-identity") || {}).innerHTML || "";
 
     // owner 角色 → 「工作台管理」目录卡;点击 → 建管理会话(绑定节点缓存在
     // #cgc-catalog 子节点的 html 快照上,场景段必须从同一子节点查询)
@@ -1375,6 +1407,10 @@ async function waitFor(cond, ms = 2000) {
     ((wrap.listeners.change) || []).forEach(function (fn) { fn({ target: { id: "cgc-ws-select", value: "ws-h2" } }); });
     await sleep(50);
 
+    // 切到 ws-h2(roles 空)后的身份区/选择器:基线徽章 + 标签断言素材
+    // (假 DOM querySelector 只认 #id,取槽位 innerHTML 断言)
+    const afterIdentityHtml = (container.querySelector("#cgc-identity") || {}).innerHTML || "";
+    const afterPickerHtml = (container.querySelector("#cgc-picker-slot") || {}).innerHTML || "";
     const statusFetches = calls.fetches.filter(function (p) { return p === "/api/ext/cgc-2046/status"; }).length;
     const reg = globalThis.__registered || {};
     const checks = {
@@ -1400,6 +1436,10 @@ async function waitFor(cond, ms = 2000) {
       session_row_navigates: !!(globalThis.__navigated && globalThis.__navigated.name === "session" && globalThis.__navigated.params.id === "sess-old"),
       focus_reload_refetches_workspaces: wsFetchesAfter === wsFetchesBefore + 1,
       workspace_selection_keeps_storage_key: store.get("cgc2046.workspacePanel.workspaceId") === "ws-h2",
+      role_chip_localized: bootIdentityHtml.indexOf(">所有者<") >= 0 && bootIdentityHtml.indexOf(">owner<") < 0,
+      member_baseline_chip_shown: afterIdentityHtml.indexOf(">成员<") >= 0,
+      picker_label_localized: afterPickerHtml.indexOf(">工作台<") >= 0 &&
+        container.innerHTML.indexOf(">Workspace<") < 0,
       token_not_rendered_to_dom: bootHtml.indexOf("tok-1") < 0 && allTabHtml.indexOf("tok-1") < 0,
       session_posted_admin: !!(globalThis.__sessionPostBody && globalThis.__sessionPostBody.agent_profile === "cgc-admin"),
       session_selected: globalThis.__sessionSelected === "sess-1",
@@ -1475,22 +1515,88 @@ async function waitFor(cond, ms = 2000) {
 
     const btn = container.querySelector("#cgc-upgrade");
     const buttonShown = !!(btn && btn.hidden === false && btn.textContent.indexOf("升级 v0.2.0") >= 0);
+    // 点击会改 className/textContent,高亮与徽标断言必须在点击前取值
+    const buttonHighlighted = !!(btn && btn.className.indexOf("cgch-btn-upgrade") >= 0);
+    const badgeEl = container.querySelector("#cgc-version-badge");
+    const badgeArrow = !!(badgeEl && badgeEl.textContent === "v0.1.0 → v0.2.0" &&
+      badgeEl.className.indexOf("is-update") >= 0);
     ((btn && btn.listeners.click) || []).forEach(function (fn) { fn(); });
     await sleep(1200);  // 安装轮询 setTimeout(1000) 后 status done
 
     const checks = {
       upgrade_button_shown: buttonShown,
+      upgrade_button_highlighted: buttonHighlighted,
+      version_badge_shows_arrow: badgeArrow,
       install_posted_self_hosted_url: !!(globalThis.__installBody &&
         globalThis.__installBody.download_url === "https://api.codingirlsclub.com/ext/cgc-2046.zip" &&
         globalThis.__installBody.name === "CGC-2046"),
       upgrade_alerted: (globalThis.__alerts || []).some(function (t) { return t.indexOf("已升级") >= 0; }),
       page_reloaded: (globalThis.__reloaded || 0) >= 1,
+      // plan 022:升级确认框必须在 POST install 之前弹出,且带 sha256 指纹行
+      confirm_prompted_before_install: (globalThis.__confirmsAtInstall || 0) >= 1,
+      confirm_shows_sha256_fingerprint: (globalThis.__confirms || [])
+        .some(function (t) { return t.indexOf("sha256: ") >= 0; }),
     };
     const failed = Object.entries(checks).filter(([, v]) => !v);
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("installBody: " + JSON.stringify(globalThis.__installBody || null) +
         " | alerts: " + JSON.stringify(globalThis.__alerts || []));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 版本一致 → 「升级」按钮不出现(哪怕清单可达、download_url 齐全);
+  // 徽标保持常态 v<本地版本>,不得带任何升级高亮
+  if (scenario === "home_upgrade_same") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+
+    const btn = container.querySelector("#cgc-upgrade");
+    const badge = container.querySelector("#cgc-version-badge");
+    const checks = {
+      upgrade_button_hidden_on_same_version: !!(btn && btn.hidden === true),
+      badge_plain_on_same_version: !!(badge && badge.textContent === "v0.1.0" &&
+        badge.className === "cgch-version-badge"),
+      no_install_attempt: calls.fetches.indexOf("/api/store/extension/install") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("btn.hidden=" + (btn && btn.hidden) + " text=" + (btn && btn.textContent) +
+        " | badge=" + JSON.stringify(badge && badge.textContent) +
+        " class=" + (badge && badge.className));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 版本不同但发布版不更新(开发副本/预发布)→ 按钮照旧不出现,
+  // 徽标只把两个版本号并排提示;这里若给出可点 CTA,用户点下去就是降级
+  if (scenario === "home_upgrade_ahead") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+
+    const btn = container.querySelector("#cgc-upgrade");
+    const badge = container.querySelector("#cgc-version-badge");
+    const checks = {
+      no_downgrade_cta: !!(btn && btn.hidden === true),
+      badge_shows_both_versions: !!(badge && badge.textContent === "本地 v0.1.3 · 发布 v0.1.2"),
+      badge_marked_ahead: !!(badge && badge.className === "cgch-version-badge is-ahead"),
+      badge_explains_no_button: !!(badge && badge.title.indexOf("不提供升级按钮") >= 0),
+      no_install_attempt: calls.fetches.indexOf("/api/store/extension/install") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("btn.hidden=" + (btn && btn.hidden) +
+        " | badge=" + JSON.stringify(badge && badge.textContent) +
+        " class=" + (badge && badge.className));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
@@ -1537,6 +1643,34 @@ async function waitFor(cond, ms = 2000) {
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + html.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // home_health_degraded(plan 020):status「已配置」但真实握手探不通 →
+  // pill 降级「连接异常」+ 横幅引导(R5/U4 状态闭环:已配置 ≠ 连接可用,
+  // token 被撤销/服务不可达必须可见,不再误报「MCP 已连接」)
+  if (scenario === "home_health_degraded") {
+    const container = el("div");
+    spec.render(container);
+    await waitFor(function () {
+      const pill = container.querySelector("#cgc-state-pill");
+      return !!pill && pill.textContent === "连接异常";
+    });
+    const pillText = (container.querySelector("#cgc-state-pill") || {}).textContent || "";
+    const bannerHtml = (container.querySelector("#cgc-mcp-banner") || {}).innerHTML || "";
+    const checks = {
+      pill_degraded_exact: pillText === "连接异常",
+      banner_reconnect_guidance: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_probe_error: bannerHtml.indexOf("连接探测失败: TransportError") >= 0,
+      token_not_rendered: container.innerHTML.indexOf("tok-1") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("pill: " + pillText + " | banner: " + bannerHtml.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
@@ -1826,6 +1960,42 @@ async function waitFor(cond, ms = 2000) {
     return;
   }
 
+  // plan 021:断连横幅(admin-aside)——宿主 mcp_error 扇出事件 → #cgaa-mcp-banner
+  // 渲染异常文本 +「连接网站」引导,「前往连接」按钮跳回 hub(重连动作归 hub;
+  // 此前仅 hub 面板订阅 mcp_error,侧栏断连零感知)
+  if (scenario === "admin_aside_mcp_error") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-admin", sessionId: "s1" });
+    await sleep(50);   // boot:workspaces → tasks/status/courses/events/orders
+
+    (globalThis.__subs["ext.cgc-2046.mcp_error"] || []).forEach(function (fn) {
+      fn({ error: "MCP server 'cgc-2046' is not connected" });
+    });
+
+    const panel = container.children[0];
+    const banner = panel.querySelector("#cgaa-mcp-banner");
+    const bannerHtml = (banner && banner.innerHTML) || "";
+    const gotoBtn = panel.querySelector("#cgaa-banner-goto");
+    ((gotoBtn && gotoBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const checks = {
+      banner_renders_error: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_error_text: bannerHtml.indexOf("is not connected") >= 0,
+      banner_guides_connect: bannerHtml.indexOf("连接网站") >= 0,
+      goto_button_rendered: !!gotoBtn,
+      goto_opens_hub: (globalThis.__openedWorkspaces || []).indexOf("cgc") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("banner: " + bannerHtml.slice(0, 400));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
   // 安全评审低危 #5:course_id(服务端数据)含单引号/右方括号——修复前选择器
   // 拼串在真实浏览器抛 SyntaxError 崩 renderPanel;修复后经 CSS.escape 找回
   // body,内容块(目标地图/复习卡)必须搬进含引号课程卡的 body div
@@ -1912,6 +2082,42 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html1: " + html1.slice(0, 800));
       console.error("html2: " + html2.slice(0, 800));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // plan 021:断连横幅(tutor-aside)——mcp_error 扇出事件 → #cgta-mcp-banner
+  // 渲染异常文本 +「连接网站」引导,「前往连接」按钮跳回 hub(重连动作归 hub;
+  // 此前仅 hub 面板订阅 mcp_error,侧栏断连零感知)
+  if (scenario === "tutor_aside_mcp_error") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-tutor", sessionId: "s-te" });
+    await sleep(200);   // loadCourses → 自动选首课 → content + prep
+
+    (globalThis.__subs["ext.cgc-2046.mcp_error"] || []).forEach(function (fn) {
+      fn({ error: "MCP server 'cgc-2046' is not connected" });
+    });
+
+    const panel = container.children[0];
+    const banner = panel.querySelector("#cgta-mcp-banner");
+    const bannerHtml = (banner && banner.innerHTML) || "";
+    const gotoBtn = panel.querySelector("#cgta-banner-goto");
+    ((gotoBtn && gotoBtn.listeners.click) || []).forEach(function (fn) { fn(); });
+    const checks = {
+      banner_renders_error: bannerHtml.indexOf("CGC MCP 连接异常") >= 0,
+      banner_carries_error_text: bannerHtml.indexOf("is not connected") >= 0,
+      banner_guides_connect: bannerHtml.indexOf("连接网站") >= 0,
+      goto_button_rendered: !!gotoBtn,
+      goto_opens_hub: (globalThis.__openedWorkspaces || []).indexOf("cgc") >= 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("banner: " + bannerHtml.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

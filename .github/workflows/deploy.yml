@@ -176,6 +176,16 @@ jobs:
           test -s backend/priv/static/ext/cgc-2046.zip
           ruby -rjson -e 'abort "cgc-2046.json: version missing" if JSON.parse(File.read("backend/priv/static/ext/cgc-2046.json"))["version"].to_s.empty?'
 
+      # 版本纪律门禁（同一版本号 ≠ 同一份产物）：内容变了就必须 bump ext.yml
+      # 的 version——否则清单 version 与已装用户相同 → 面板判定「版本一致」→
+      # 「升级」按钮不出现 → 他们静默停在旧构建（2026-09-10 线上 0.1.1 就是这样
+      # 漏掉 plan 020–023 的）。比较的是**内容指纹**（zip 逐条目 sha256 聚合）而
+      # 不是 zip sha256：zip 含条目 mtime，重建同一份内容 sha256 也会变，用它判定
+      # 会把纯 backend 部署误判成「内容变了」。线上不可达/清单畸形时警告放行
+      # （环境问题不阻塞发布），细节与分支见脚本头注释。
+      - name: Enforce extension version bump on content change
+        run: openclacky-ext/cgc-2046/bin/check-version-bump
+
       - run: gem install kamal --no-document
       - name: Setup SSH
         run: |

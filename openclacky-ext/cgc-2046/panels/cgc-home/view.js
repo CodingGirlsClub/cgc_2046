@@ -29,6 +29,7 @@
   if (!Kit) return; // 共享骨架未注入(ext.yml 首位 cgc-2046-shared 异常)
 
   const API = Kit.API;
+  const rawGet = Kit.rawGet;   // /health 探活(共享 fetch 封装:非 2xx 抛错挂 { body, status })
   const HOME_ID = "cgc";
   const DISCOVERY_ID = "cgc-2046-discovery";
   const TEACH_ID = "cgc-2046-curriculum";
@@ -223,46 +224,108 @@
     });
   }
 
-  // ---- 版本徽标与升级(自托管分发:/version + loopback /update_info;
-  //   安装执行复用宿主 /api/store/extension/install,数据源不再走市场查询) ----
-  // 版本比较只在 handler /update_info 一处(version_newer?),面板直接消费
-  // update_available 布尔,不再重复比较
+  // ---- 版本徽标 + 升级 CTA:三态(same / update / ahead) ----
+  // 数据源 = /version(本地 manifest) + loopback /update_info(自托管分发);
+  // 安装执行复用宿主 /api/store/extension/install,不走市场查询。
+  // 判定单点在 handler(/update_info 的 version_state),面板只做呈现:
+  //   update → 按钮出现 + 高亮(accent 实底 + 呼吸点),徽标 v旧 → v新;
+  //   ahead  → 版本确实不同,但发布版并不更新(开发副本/预发布/形态不可比):
+  //            只提示两版本号,不给可点 CTA——这里点「升级」实为降级;
+  //   same / 未查到 → 安静态(徽标仅在版本到手时显示,按钮不出现)。
+  let installedVersion = "";   // /version(本地 manifest)
+  let publishedVersion = "";   // /update_info.latest_version
+  let reportedCurrent = "";    // /update_info.current_version(与 /version 同源,兜住两请求到达次序)
+  let upgradeDownloadUrl = "";
+  let versionState = null;     // "same" | "update" | "ahead" | null(未查到/查询失败)
+  let updateCheckFailed = false;
 
-  let installedVersion = "";
+  function currentVersionLabel() {
+    return installedVersion || reportedCurrent;
+  }
+
+  function renderVersionBadge(container) {
+    const badge = container.querySelector("#cgc-version-badge");
+    if (!badge || !badge.isConnected) return;
+    const current = currentVersionLabel();
+    if (versionState === "update" && publishedVersion) {
+      badge.className = "cgch-version-badge is-update";
+      badge.textContent = "v" + current + " → v" + publishedVersion;
+      badge.hidden = false;
+      badge.title = "CGC-2046 有新版本 v" + publishedVersion + ",当前 v" + current;
+      return;
+    }
+    if (versionState === "ahead" && publishedVersion && current) {
+      badge.className = "cgch-version-badge is-ahead";
+      badge.textContent = "本地 v" + current + " · 发布 v" + publishedVersion;
+      badge.hidden = false;
+      badge.title = "本地版本与已发布版本不一致;当前安装的不旧于发布版,不提供升级按钮";
+      return;
+    }
+    badge.className = "cgch-version-badge";
+    badge.textContent = current ? "v" + current : "";
+    badge.hidden = !current;
+    badge.title = current
+      ? "CGC-2046 扩展当前版本 v" + current + (updateCheckFailed ? ";暂时无法检查更新" : "")
+      : "";
+  }
+
+  function renderUpgradeCta(container) {
+    const btn = container.querySelector("#cgc-upgrade");
+    if (!btn || !btn.isConnected) return;
+    if (versionState === "update" && publishedVersion && upgradeDownloadUrl) {
+      btn.dataset.latest = publishedVersion;
+      btn.title = "CGC-2046 有新版本 v" + publishedVersion + ",当前 v" + currentVersionLabel();
+      btn.textContent = "升级 v" + publishedVersion;
+      // 高亮 = accent 实底 + accent-soft 外环 + ::before 呼吸点(样式见注入表)
+      btn.className = "btn-secondary cgch-btn-upgrade";
+      btn.hidden = false;
+      return;
+    }
+    btn.hidden = true;
+    btn.textContent = "升级";
+    btn.className = "btn-secondary";
+  }
 
   function loadVersionBadge(container) {
-    const badge = container.querySelector("#cgc-version-badge");
-    if (!badge) return;
+    if (!container) return;
     fetch(API + "/version", { headers: { Accept: "application/json" } })
       .then((r) => r.json())
       .then((payload) => {
         installedVersion = String(payload.version || "").replace(/^v/i, "");
-        badge.textContent = installedVersion ? "v" + installedVersion : "";
-        badge.hidden = !installedVersion;
-        badge.title = "CGC-2046 扩展当前版本 v" + installedVersion;
+        renderVersionBadge(container);
+        renderUpgradeCta(container);
       })
       .catch(() => { /* 版本拉取失败不影响主流程 */ });
   }
 
   function checkExtensionUpdate(container) {
-    const btn = container.querySelector("#cgc-upgrade");
-    if (!btn || !btn.isConnected) return;
+    if (!container) return;
     fetch(API + "/update_info", { headers: { Accept: "application/json" } })
       .then((r) => r.json())
       .then((payload) => {
-        if (!payload || payload.ok !== true) { btn.hidden = true; return; }
-        const latest = String(payload.latest_version || "");
-        const current = String(payload.current_version || "") || installedVersion;
-        if (latest && payload.download_url && payload.update_available === true) {
-          btn.textContent = "升级 v" + latest;
-          btn.title = "CGC-2046 有新版本 v" + latest + ",当前 v" + current;
-          btn.dataset.latest = latest;
-          btn.hidden = false;
-        } else {
-          btn.hidden = true;
-        }
+        if (!payload || payload.ok !== true) { markUpdateUnknown(container); return; }
+        publishedVersion = String(payload.latest_version || "").replace(/^v/i, "");
+        reportedCurrent = String(payload.current_version || "").replace(/^v/i, "");
+        upgradeDownloadUrl = String(payload.download_url || "");
+        // version_state = handler 的三态判定;只有旧 handler/测试替身时才按
+        // update_available 布尔降级(未知一律落 same,不臆测新版)
+        versionState = (typeof payload.version_state === "string" && payload.version_state)
+          ? payload.version_state
+          : (payload.update_available === true ? "update" : "same");
+        updateCheckFailed = false;
+        renderVersionBadge(container);
+        renderUpgradeCta(container);
       })
-      .catch(() => { /* 升级信息查询失败静默(离线/远端故障),按钮保持隐藏 */ });
+      .catch(() => { markUpdateUnknown(container); });
+  }
+
+  // 查询失败(离线/远端 502/超时):按钮保持隐藏(查不到≠已是最新,不臆测新版),
+  // 徽标只补一句「暂时无法检查更新」,三种失败在界面上同一副面孔
+  function markUpdateUnknown(container) {
+    versionState = null;
+    updateCheckFailed = true;
+    renderVersionBadge(container);
+    renderUpgradeCta(container);
   }
 
   async function upgradeExtension(container) {
@@ -270,10 +333,16 @@
     if (!btn || btn.disabled) return;
     btn.disabled = true;
     btn.textContent = "升级中…";
+    btn.className = "btn-secondary";   // 进行中去掉高亮,避免「可点」错觉
     try {
       const res = await fetch(API + "/update_info", { headers: { Accept: "application/json" } });
       const payload = await res.json();
       if (!payload || payload.ok !== true || !payload.download_url) throw new Error("更新信息不可用");
+      const fp = payload.sha256 ? "\n下载指纹 sha256: " + String(payload.sha256).slice(0, 12) + "…" : "";
+      if (!window.confirm("确认升级 CGC-2046 扩展到 v" + String(payload.latest_version || "") + "?" + fp)) {
+        restoreUpgradeCta(btn);
+        return;
+      }
       const install = await fetch("/api/store/extension/install", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -295,9 +364,22 @@
       window.location.reload();
     } catch (e) {
       window.alert("升级失败:" + (e && e.message ? e.message : "未知错误") + ",可稍后重试。");
-      btn.disabled = false;
-      if (btn.dataset.latest) btn.textContent = "升级 v" + btn.dataset.latest;
-      else btn.hidden = true;
+      restoreUpgradeCta(btn);
+    }
+  }
+
+  // 取消/失败后回到升级前的高亮态(而不是留一个灰掉的、看不出可点的按钮)
+  function restoreUpgradeCta(btn) {
+    if (!btn) return;
+    btn.disabled = false;
+    if (btn.dataset.latest) {
+      btn.textContent = "升级 v" + btn.dataset.latest;
+      btn.className = "btn-secondary cgch-btn-upgrade";
+      btn.hidden = false;
+    } else {
+      btn.textContent = "升级";
+      btn.className = "btn-secondary";
+      btn.hidden = true;
     }
   }
 
@@ -590,8 +672,13 @@
     if (isPlatformAdmin) html += '<span class="cgch-chip cgch-chip-admin">平台管理模式</span>';
     if (current) {
       html += '<span class="cgch-identity-line">当前：<b>' + escapeHtml(current.name || current.slug || "") + '</b></span>';
-      (Array.isArray(current.roles) ? current.roles : []).forEach(function (r) {
-        html += '<span class="cgch-chip">' + escapeHtml(r) + '</span>';
+      const roleList = Array.isArray(current.roles) ? current.roles : [];
+      if (roleList.length === 0) {
+        // 无差异标签的普通成员给基线身份信号——「我在这台是谁」不该是空白
+        html += '<span class="cgch-chip">成员</span>';
+      }
+      roleList.forEach(function (r) {
+        html += '<span class="cgch-chip">' + escapeHtml(roleLabel(r)) + '</span>';
       });
       // 管理入口:选中工作台角色含 owner/admin 时显示网站成员管理页链接
       const roles = Array.isArray(current.roles) ? current.roles : [];
@@ -614,7 +701,7 @@
              escapeHtml(w.name || w.slug || w.workspace_id) + '</option>';
     }).join("");
     pickerEl.innerHTML =
-      '<label class="cgch-picker-label" for="cgc-ws-select">Workspace</label>' +
+      '<label class="cgch-picker-label" for="cgc-ws-select">工作台</label>' +
       '<select id="cgc-ws-select" class="cgch-select">' + opts + '</select>';
   }
 
@@ -623,6 +710,16 @@
     localStorage.setItem(LS_WORKSPACE, id);
     renderIdentity(container);
     loadTasks(container);
+  }
+
+  // 角色徽章中文标签(对齐 web 端 roleZh 约定:workspace.ts ROLE_LABEL_ZH);
+  // 未知 key 兜底原文(服务端新增角色的前向兼容)
+  const ROLE_LABELS = {
+    owner: "所有者", admin: "管理员", tutor: "教练", volunteer: "志愿者", learner: "学员"
+  };
+
+  function roleLabel(r) {
+    return ROLE_LABELS[r] || r;
   }
 
   // ---- 我的任务(session-row 行列表风格) ----
@@ -869,10 +966,37 @@
     if (st.configured) {
       if (identityEl) identityEl.style.display = "";
       loadWorkspaces(container);
+      // 连接健康检查(plan 020):配置在 ≠ 连接可用,异步真实握手探活,
+      // 结果只反映在 pill/横幅,不阻塞身份区与目录渲染
+      probeConnection(container);
     } else {
       if (identityEl) identityEl.style.display = "none";
     }
     renderCatalog();
+  }
+
+  // GET /health:真实握手探测(R4)。配置在但探不通 → 「连接异常」+ 横幅引导。
+  // 探活只改 pill/横幅,不阻塞目录与身份区渲染;
+  // 三态:「MCP 已连接」(握手 OK)/「连接异常」(探不通)/「未连接」(未配置)。
+  function probeConnection(container) {
+    rawGet("/health")   // 共享封装已带 /api/ext/cgc-2046 基前缀
+      .then(function (h) {
+        if (h && h.ok && h.handshake) {
+          setPill("MCP 已连接", "cgch-pill-on");
+        } else {
+          setPill("连接异常", "cgch-pill-off");
+          mcpError = (h && h.error) ? String(h.error) : "MCP 握手未通过";
+          renderMcpBanner(container);
+        }
+      })
+      .catch(function (e) {
+        setPill("连接异常", "cgch-pill-off");
+        // rawGet 对非 2xx 抛错挂 body——502 的「连接探测失败: …」照常透出;
+        // 网络层失败(扩展服务不可达)落通用引导文案
+        mcpError = (e && e.body && e.body.error) ? String(e.body.error)
+          : "健康检查请求失败(扩展服务不可达?)";
+        renderMcpBanner(container);
+      });
   }
 
   async function disconnect(container) {
@@ -962,6 +1086,12 @@
   background: var(--color-bg-hover);
   border: 1px solid var(--color-border-secondary);
 }
+.cgch-version-badge.is-update {
+  color: var(--color-accent-primary);
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent-primary) 28%, var(--color-border-primary));
+}
+.cgch-version-badge.is-ahead { font-weight: 600; }
 .cgch-header-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 
 /* buttons:基类直接用宿主 .btn-secondary;此处仅保留 danger 幽灵红修饰 + sm 尺寸工具 */
@@ -975,6 +1105,35 @@
 }
 .cgch-btn-danger:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
 .cgch-btn-sm { padding: 4px 10px; font-size: 0.6875rem; }
+
+/* 升级 CTA 高亮:只在「发布版更新」这一种情形出现——稀有才配抢眼。
+   呼吸点用 ::before 伪元素,面板只改 textContent/className、不拼子节点
+   (行为 harness 的假 DOM 与真实 DOM 语义一致,断言落在 className 上)。 */
+.cgch-btn-upgrade {
+  color: var(--color-text-inverse, #fff);
+  background: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+  font-weight: 650;
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.cgch-btn-upgrade:hover:not(:disabled) {
+  background: var(--color-accent-hover, var(--color-accent-primary));
+  border-color: var(--color-accent-hover, var(--color-accent-primary));
+}
+.cgch-btn-upgrade:disabled { opacity: 0.6; cursor: progress; }
+.cgch-btn-upgrade::before {
+  content: ""; flex: none;
+  width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
+  background: currentColor;
+  animation: cgch-upgrade-breathe 1.9s ease-in-out infinite;
+}
+@keyframes cgch-upgrade-breathe {
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.82); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cgch-btn-upgrade::before { animation: none; }
+}
 
 /* sections */
 .cgch-section { max-width: 1120px; margin: 0 auto 26px; }

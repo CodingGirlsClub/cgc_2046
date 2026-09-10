@@ -54,6 +54,25 @@ class CgcHomePanelTest < Minitest::Test
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
     assert_includes handler, 'get "/version"'
     assert_includes handler, 'get "/update_info"'
+
+    # 三态呈现(同版本不出现 / 有新版高亮 / 本地不落后不给 CTA)。
+    # 判定单点在 handler —— 面板只消费 version_state,不自己比版本号
+    # (面板自带比较器会与 handler 的 semver 语义漂移,旧 compareVersions 已删)
+    assert_includes view, "version_state", "面板必须消费 handler 的三态判定"
+    assert_includes view, "cgch-btn-upgrade", "有新版按钮必须带高亮 class"
+    assert_includes view, "is-ahead", "本地不落后态(降级陷阱)必须有独立呈现"
+    refute_includes view, "compareVersions", "版本比较不得在面板重复实现"
+    assert_includes handler, "def version_state"
+    assert_includes handler, "def version_same?"
+  end
+
+  # 升级链路完整性锚定(plan 022):安装前确认框 + sha256 指纹展示。
+  # 断言锚升级独有文案/键,不与 disconnect 流程的 window.confirm 混淆。
+  def test_home_panel_upgrade_confirms_with_sha256_fingerprint
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, "payload.sha256", "升级确认框必须消费 /update_info 透传的 sha256"
+    assert_includes view, "确认升级 CGC-2046 扩展", "升级路径独有确认文案"
+    assert_includes view, "window.confirm", "升级属低频高危动作,POST install 前必须经确认框"
   end
 
   # ---- 会话区 Tab 与活动区移除 ----
@@ -70,6 +89,18 @@ class CgcHomePanelTest < Minitest::Test
     refute_includes view, "loadHistory", "活动历史回放已随活动区删除"
     handler = File.read(File.expand_path("../api/handler.rb", __dir__))
     refute_includes handler, 'get "/activity"', "/activity 路由随活动区删除"
+  end
+
+  # 连接健康检查(plan 020):hub 真实握手探活接线 + 三态 pill
+  # (「MCP 已连接」握手 OK /「连接异常」探不通 /「未连接」未配置)
+  def test_home_panel_health_probe_and_tri_state_pill
+    view = File.read(File.expand_path("../panels/cgc-home/view.js", __dir__))
+    assert_includes view, "probeConnection"
+    # rawGet 已带 /api/ext/cgc-2046 基前缀,面板侧只出现相对路径
+    assert_includes view, 'rawGet("/health")'
+    assert_includes view, "连接异常"
+    handler = File.read(File.expand_path("../api/handler.rb", __dir__))
+    assert_includes handler, 'get "/health"'
   end
 
 
