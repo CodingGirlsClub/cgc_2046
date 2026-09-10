@@ -225,7 +225,12 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
       %{
         definition_id: definition.id,
         definition_version: definition.version,
-        input_snapshot: %{"enrollment_id" => enrollment.id, "user_id" => enrollment.user_id}
+        input_snapshot: %{
+          "enrollment_id" => enrollment.id,
+          "user_id" => enrollment.user_id,
+          # D8：course 锚随快照（真实 instantiator 同款形状；#507 过滤读此列）
+          "course_id" => enrollment.course_id
+        }
       },
       tenant: workspace.id,
       authorize?: false

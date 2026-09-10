@@ -42,6 +42,7 @@ defmodule Cgc2046.Learning.Authorization do
     cond do
       content_member?(actor, workspace_id) -> :ok
       confirmed_enrollment?(actor, workspace_id, course_id) -> :ok
+      Runs.mounted_enrollment?(actor, workspace_id, course_id) -> :ok
       Runs.learning_run_holder?(actor, workspace_id, course_id) -> :ok
       true -> {:error, "forbidden: enrolled learner or learning run holder required"}
     end

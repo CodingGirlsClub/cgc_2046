@@ -35,6 +35,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
   alias Cgc2046.Workflows.StepRole
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
+  alias Cgc2046.Workflows.SignalPublishWorker
 
   require Ash.Query
 
@@ -96,23 +97,25 @@ defmodule Cgc2046.Learning.LearningFlowTest do
   # 常驻订阅方（崩溃隔离，测试不停掉）可能抢先 claim 并异步创建同一 run——
   # 幂等保证殊途同归，但创建时点不确定。断言统一走轮询等待（25ms × 80 = 2s 上限），
   # 消除「sync 直调 vs 异步转发进程」的竞争。
-  defp await_run(definition_id, key, attempts \\ 80) do
-    case learning_runs(definition_id, key) do
+  defp await_run(definition_id, user_id, attempts \\ 80) do
+    case learning_runs(definition_id, user_id) do
       [run] ->
         run
 
       [] when attempts > 0 ->
         Process.sleep(25)
-        await_run(definition_id, key, attempts - 1)
+        await_run(definition_id, user_id, attempts - 1)
 
       [] ->
-        flunk("learning run not created for #{key} (definition #{definition_id})")
+        flunk("learning run not created for user #{user_id} (definition #{definition_id})")
     end
   end
 
-  defp learning_runs(definition_id, key) do
+  # D8（issue #505）：run 查询锚 = subject_user_id 列（user × revision 去重
+  # 真源）；instance key 已降级为可读标签，不作断言锚。
+  defp learning_runs(definition_id, user_id) do
     WorkflowRun
-    |> Ash.Query.filter(definition_id == ^definition_id and input_snapshot["key"] == ^key)
+    |> Ash.Query.filter(definition_id == ^definition_id and subject_user_id == ^user_id)
     |> Ash.read!(authorize?: false)
   end
 
@@ -197,7 +200,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
   end
 
   describe "实例化（验收 1）" do
-    test "enrollment.completed → 种 learning run（running，key 锚定 enrollment）" do
+    test "enrollment.completed → 种 learning run（running，user × revision 锚定）" do
       admin = Fixtures.platform_admin("lf-inst")
       workspace = Fixtures.create_workspace(admin)
       event = EventFixtures.create_event(workspace, admin, %{title: "学习活动"})
@@ -208,8 +211,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       assert enrollment.status == :confirmed
       instantiate(enrollment)
 
-      key = Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)
-      run = await_run(published.id, key)
+      run = await_run(published.id, learner.id)
 
       assert run.status == :running
       assert run.definition_version == published.version
@@ -249,8 +251,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
                |> Ash.Query.filter(signal_type == "enrollment.completed")
                |> Ash.read!(authorize?: false)
 
-      key = Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)
-      _run = await_run(published.id, key)
+      _run = await_run(published.id, learner.id)
     end
 
     test "pending（未 confirmed）报名不实例化（孤儿防护）" do
@@ -267,8 +268,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       assert enrollment.status == :pending
       instantiate(enrollment)
 
-      assert learning_runs(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil)) ==
-               []
+      assert learning_runs(published.id, learner.id) == []
     end
 
     test "无 published 学习定义 → warning skip 不种 run（供对账）" do
@@ -290,6 +290,87 @@ defmodule Cgc2046.Learning.LearningFlowTest do
     end
   end
 
+  describe "1i 发布补种（course_revision.published）" do
+    test "课程报名未发布不种 run；发布换绑触发信号；投递后补种存量报名" do
+      admin = Fixtures.platform_admin("lf-reseed")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "入门课"})
+      learner = Fixtures.register_user("lf-reseed-learner")
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(
+          :create_enrollment,
+          %{course_id: course.id, user_id: learner.id}
+        )
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      published = create_learning_definition(workspace, admin)
+
+      # 课程无 published revision → 不种空协议 run（1i：等发布补种）
+      instantiate(enrollment)
+      assert learning_runs(published.id, learner.id) == []
+
+      {:ok, revision} =
+        Cgc2046.Curriculum.CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: %{"goals" => [], "issues" => []},
+            published_at: DateTime.utc_now()
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      # 发布换绑（真实 action）→ 补种信号事务内入队
+      course
+      |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+        tenant: workspace.id
+      )
+      |> Ash.update!(tenant: workspace.id, authorize?: false)
+
+      assert_enqueued(
+        worker: SignalPublishWorker,
+        args: %{"signal_type" => "course_revision.published"}
+      )
+
+      # 投递补种信号 → 存量 confirmed 报名补种锚定 run
+      assert :ok =
+               SignalSubscriber.deliver(LearningInstantiator, %{
+                 type: "course_revision.published",
+                 data: %{
+                   "course_id" => course.id,
+                   "course_revision_id" => revision.id,
+                   "workspace_id" => workspace.id,
+                   "idempotency_key" => "course_revision.published:" <> revision.id
+                 }
+               })
+
+      run = await_run(published.id, learner.id)
+      assert run.input_snapshot["course_revision_id"] == revision.id
+      assert run.input_snapshot["enrollment_id"] == enrollment.id
+      assert run.input_snapshot["course_id"] == course.id
+
+      # 重复投递（幂等键同）→ 不重复补种
+      assert :ok =
+               SignalSubscriber.deliver(LearningInstantiator, %{
+                 type: "course_revision.published",
+                 data: %{
+                   "course_id" => course.id,
+                   "course_revision_id" => revision.id,
+                   "workspace_id" => workspace.id,
+                   "idempotency_key" => "course_revision.published:" <> revision.id
+                 }
+               })
+
+      assert [%{id: only_id}] = learning_runs(published.id, learner.id)
+      assert only_id == run.id
+    end
+  end
+
   describe "授权账本写路径（验收 2）" do
     test "学员本人（非成员）写 facts，reason 随 output 同次浅合并落账本" do
       admin = Fixtures.platform_admin("lf-write")
@@ -299,7 +380,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       {:ok, enrollment} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
       instantiate(enrollment)
-      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
+      run = await_run(published.id, learner.id)
 
       reply =
         save_output(learner, workspace, run, "module_reading", %{"notes" => "读完第三章"}, "跳过了视频")
@@ -336,7 +417,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       # 放行即证明学员豁免分支生效（而非「未配置 = 不限制」路径）。
       create_step_with_role(workspace, admin, published, "module_reading", :tutor)
       instantiate(enrollment)
-      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
+      run = await_run(published.id, learner.id)
 
       reply = save_output(learner, workspace, run, "module_reading", %{"notes" => "ok"})
       assert decode_reply(reply)["step_key"] == "module_reading"
@@ -352,7 +433,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       {:ok, enrollment} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
       instantiate(enrollment)
-      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
+      run = await_run(published.id, learner.id)
 
       # 非成员非学员（outsider）
       outsider = Fixtures.register_user("lf-reject-outsider")
@@ -382,7 +463,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       {:ok, enrollment} = enroll(event, learner)
       published = create_learning_definition(workspace, admin)
       instantiate(enrollment)
-      run = await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment.id, nil))
+      run = await_run(published.id, learner.id)
 
       # 学员本人 + 学习 run（豁免双前提都满足）——保留 key 拒绝先于授权判定
       assert {:error, %Anubis.MCP.Error{message: msg}, _frame} =
@@ -407,7 +488,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       instantiate(enrollment_done)
 
       run_done =
-        await_run(published.id, Cgc2046.Learning.Runs.instance_key(enrollment_done.id, nil))
+        await_run(published.id, finisher.id)
 
       # 旧口径:写末步 facts 即完成;U4 起事件型 run 无课程内容 → 不判完成
       save_output(finisher, workspace, run_done, @final_step, %{"essay" => "毕业总结"})
@@ -434,12 +515,12 @@ defmodule Cgc2046.Learning.LearningFlowTest do
       instantiate(stale_enrollment)
 
       stale_run =
-        await_run(published.id, Cgc2046.Learning.Runs.instance_key(stale_enrollment.id, nil))
+        await_run(published.id, stale_learner.id)
 
       instantiate(fresh_enrollment)
 
       fresh_run =
-        await_run(published.id, Cgc2046.Learning.Runs.instance_key(fresh_enrollment.id, nil))
+        await_run(published.id, fresh_learner.id)
 
       insert_identity(stale_learner.id, "wechat-uid-stale")
       insert_identity(fresh_learner.id, "wechat-uid-fresh")

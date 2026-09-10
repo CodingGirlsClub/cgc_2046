@@ -1,34 +1,30 @@
 defmodule Cgc2046.Learning.RunProjection do
   @moduledoc """
   学习 run 投影组装（ADR-0010 批次 3：自 Cgc2046Web.GraphqlSchema 抽离；
-  S8 切 objective 口径——ADR-0011）。
+  S8 切 objective 口径——ADR-0011；issue #505 D8 切 user 维度）。
 
-  把 (WorkflowRun, Enrollment, actor) 三元组投影为 myLearningRuns 行：本人
-  锚链校验（#217 D 类旁路读取守门，随迁纪律保留）→ `Runs.learning_state/2`
-  单源投影（MCP 与 GraphQL 共用，ADR-0011 L6）→ 展示行组装。
-
-  resolver（GraphqlSchema.resolve_my_learning_runs）只负责 enrollment/run
-  枚举，投影规则全部收敛于此。
+  把 (WorkflowRun, actor) 二元组投影为 myLearningRuns 行：subject 列本人锚
+  （subject_user_id == actor.id，查询侧已过滤此处双保险）→
+  `Runs.learning_state/2` 单源投影（MCP 与 GraphQL 共用，ADR-0011 L6）→
+  展示行组装。D8 汇流后 run 锚的 enrollment 可以是活动或课程报名行，
+  展示元数据（title/course_id/enrollment_id）全部取自 run 自身
+  （input_snapshot 固化 title + subject 列），enrollment 链守门退役。
   """
 
   alias Cgc2046.Learning.Runs
 
   @doc """
-  投影单个 learning run；本人锚链任一校验失败、或课程已取消（cancelled
+  投影单个 learning run；本人锚校验失败、或课程已取消（cancelled
   offering 不进学习列表）返回 nil（调用方 reject）。
+  `titles` = 查询侧批量反查的 `%{enrollment_id => target_title}`（展示用
+  快照标题，不参与守门）。
   """
-  def project_run(run, enrollment, actor) do
+  def project_run(run, actor, titles \\ %{}) do
     definition = Map.get(run, :definition)
-    course = fetch_course(run.workspace_id, enrollment.course_id)
+    course = fetch_course(run.workspace_id, run.subject_course_id)
 
     cond do
-      enrollment.user_id != actor.id ->
-        nil
-
-      not anchored_to_enrollment?(run, enrollment) ->
-        nil
-
-      run.workspace_id != enrollment.workspace_id ->
+      run.subject_user_id != actor.id ->
         nil
 
       not learning_definition?(definition) ->
@@ -40,20 +36,16 @@ defmodule Cgc2046.Learning.RunProjection do
         nil
 
       true ->
-        target_title =
-          if is_binary(enrollment.target_title), do: enrollment.target_title, else: nil
-
-        # #217 旁路读取（D 类·本人锚链）：learning_state 读取 run 的 attempts
-        # （run 锚定 user_id == enrollment.user_id == actor.id 已三重校验），
-        # 无他人视角可构造。
+        # 本人锚已立（subject_user_id 校验），learning_state 读取 run 的
+        # attempts 无他人视角可构造。
         state = Runs.learning_state(actor, course)
 
         %{
           run_id: run.id,
-          enrollment_id: enrollment.id,
-          target_title: target_title,
+          enrollment_id: run.subject_enrollment_id,
+          target_title: Map.get(titles, run.subject_enrollment_id) || run_title(run),
           status: to_string(run.status),
-          course_id: enrollment.course_id,
+          course_id: run.subject_course_id,
           stale_revision: state.stale_revision,
           progress: %{
             mastered_required: state.progress.mastered_required,
@@ -64,6 +56,13 @@ defmodule Cgc2046.Learning.RunProjection do
         }
     end
   end
+
+  # 标题真源 = 创建时固化的 input_snapshot["title"]（活动/课程报名行均可
+  # 变更/删除，快照不随动）。
+  defp run_title(%{input_snapshot: %{"title" => title}}) when is_binary(title),
+    do: title
+
+  defp run_title(_run), do: nil
 
   defp next_action_row(%{kind: kind, objective_id: objective_id, reason: reason}) do
     %{kind: to_string(kind), objective_id: objective_id, reason: reason}
@@ -83,13 +82,6 @@ defmodule Cgc2046.Learning.RunProjection do
   end
 
   defp fetch_course(_workspace_id, _course_id), do: nil
-
-  # M1 收口：enrollment 锚 = subject_enrollment_id 列（迁移已保证 learning run
-  # subject 非空，create 亦强制 user_id 锚），不再从 input_snapshot 键推导授权。
-  defp anchored_to_enrollment?(%{subject_enrollment_id: id}, %{id: id}) when is_binary(id),
-    do: true
-
-  defp anchored_to_enrollment?(_run, _enrollment), do: false
 
   defp learning_definition?(%{type: :learning}), do: true
   defp learning_definition?(_definition), do: false

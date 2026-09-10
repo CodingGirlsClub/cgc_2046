@@ -11,6 +11,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
   alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Curriculum.CourseRevision
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Tools.GetPublicOffering
   alias Cgc2046.Mcp.Tools.ListPublicOfferings
@@ -123,6 +124,47 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
       assert %{"data" => %{"getEventBySlug" => nil}} =
                graphql(event_query(event.slug), sign_in_token(outsider))
+    end
+
+    test "匿名可读 companionCourse 配套课程投影（无锚 → null）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "Python 入门"})
+
+      {:ok, revision} =
+        CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: %{"goals" => [], "issues" => []},
+            published_at: DateTime.utc_now()
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      event = EventFixtures.create_event(workspace, admin, %{course_revision_id: revision.id})
+      plain_event = EventFixtures.create_event(workspace, admin, %{})
+
+      query = fn slug ->
+        """
+        query {
+          getEventBySlug(slug: "#{slug}") { id companionCourse }
+        }
+        """
+      end
+
+      assert %{"data" => %{"getEventBySlug" => result}} = anon(query.(event.slug))
+
+      decoded = Jason.decode!(result["companionCourse"])
+      assert decoded["id"] == course.id
+      assert decoded["title"] == "Python 入门"
+      assert decoded["slug"] == course.slug
+
+      assert %{"data" => %{"getEventBySlug" => plain}} = anon(query.(plain_event.slug))
+      assert plain["companionCourse"] == nil
     end
   end
 
