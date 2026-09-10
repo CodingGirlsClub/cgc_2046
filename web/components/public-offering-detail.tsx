@@ -26,6 +26,7 @@ import {
   fetchPublicOffering,
   formatVenue,
   parseSponsorshipTiers,
+  parseCompanionCourse,
   parseVenue,
   submitEnrollment,
 } from "@/lib/public-offerings";
@@ -241,6 +242,10 @@ export default function PublicOfferingDetailPage({
     offering !== null &&
     offering.sponsorshipEnabled === true &&
     sponsorshipTiers.length > 0;
+
+  // issue #505 D1：配套课程卡（仅 event；宣讲会/未配课 null 不渲染）
+  const companionCourse =
+    kind === "event" ? parseCompanionCourse(offering?.companionCourse) : null;
 
   // 收费目标：可售档位（R2 后端 availablePriceTiers 已过滤过期档，公开报名面
   // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
@@ -753,6 +758,24 @@ export default function PublicOfferingDetailPage({
                 <CourseMapSection slug={offering.slug} />
               ) : null}
 
+
+              {companionCourse ? (
+                <section
+                  className="public-detail__companion-course"
+                  aria-labelledby="public-detail-companion-course-title"
+                  data-testid="public-companion-course"
+                >
+                  <h2 id="public-detail-companion-course-title">
+                    {t("companionCourseTitle")}
+                  </h2>
+                  <Link
+                    href={`/courses/${companionCourse.slug}`}
+                    className="mt-2 inline-block rounded-large border border-line bg-soft-2 p-3 text-sm font-medium text-accent hover:underline"
+                  >
+                    {companionCourse.title}
+                  </Link>
+                </section>
+              ) : null}
               {sponsorshipOpen ? (
                 <section className="public-detail__sponsorship">
                   <h2>{t("sponsorTitle")}</h2>
