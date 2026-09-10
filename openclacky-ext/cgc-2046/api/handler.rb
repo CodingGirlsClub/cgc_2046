@@ -119,8 +119,16 @@ class Cgc2046Ext < Clacky::ApiExtension
   #   download_url     = origin + 远端 json 的 download_path;
   #   sha256           = 远端 json 的 sha256 透传(清单缺键时响应省略该键,
   #                      面板指纹行优雅降级;宿主 install API 尚无 checksum 参数);
-  #   update_available = latest 按 semver 新于 current(版本比较只此一处,
-  #                      面板直接消费该布尔,不再重复比较)。
+  #   version_state    = 面板显隐/高亮的三态判定(版本比较只此一处,面板直接
+  #                      消费,不再重复比较):
+  #                        "same"   归一化后同一版本 → 按钮不出现
+  #                        "update" 发布版严格新于本地 → 按钮出现 + 高亮
+  #                        "ahead"  版本不同但发布版不新于本地(开发副本/预发布/
+  #                                 形态不可比)→ 面板只提示两版本号,不给可点
+  #                                 CTA:此时「升级」实为降级,而宿主 install 是
+  #                                 cp_r 覆盖、不删多余文件,降级会留混合文件树
+  #   update_available = version_state == "update" 的布尔投影(旧面板兼容键,
+  #                      语义不变)。
   # 读端点:只需 origin 门(Host loopback + 同源),无 CSRF。
   # 错误分层(对齐 course_routes 惯例):远端不可达/超时/非 2xx/JSON 解析失败/
   # 字段缺失 → 502;本地 manifest version 或 config.mcp_url 缺失/非法 → 500。
@@ -130,11 +138,13 @@ class Cgc2046Ext < Clacky::ApiExtension
     error!("extension manifest version missing", status: 500) if current.empty?
 
     remote = fetch_update_manifest
+    state  = version_state(remote[:version], current)
     resp = { ok: true,
              current_version: current,
              latest_version: remote[:version],
              download_url: remote[:download_url],
-             update_available: version_newer?(remote[:version], current) }
+             update_available: state == "update",
+             version_state: state }
     resp[:sha256] = remote[:sha256] unless remote[:sha256].empty?
     json(resp)
   rescue Clacky::ApiExtension::Halt
@@ -403,6 +413,21 @@ class Cgc2046Ext < Clacky::ApiExtension
     return false if b_pre.empty?
 
     a_pre > b_pre
+  end
+
+  # 归一化等值判定:复用同一比较器——「互不新于」即同一版本。剥 v 前缀、
+  # 数值段零填充(0.1.1 == 0.1.1.0)、预发布段语义全由 version_newer? 承担,
+  # 不另立第二套 normalize(裸字符串比较会把 v0.1.1/0.1.1.0 误判成「不同」,
+  # 面板就会对着同一版本永久亮按钮)。
+  def version_same?(a, b)
+    !version_newer?(a, b) && !version_newer?(b, a)
+  end
+
+  # 面板三态判定(same/update/ahead)——比较语义单点仍在 version_newer?
+  def version_state(latest, current)
+    return "same" if version_same?(latest, current)
+
+    version_newer?(latest, current) ? "update" : "ahead"
   end
 
 
