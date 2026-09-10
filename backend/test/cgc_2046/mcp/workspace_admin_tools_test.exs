@@ -729,6 +729,27 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       assert msg =~ "course not found"
     end
+
+    test "018：载荷封顶 100 + total_count 截断前小计（§B#16 语义）" do
+      owner = Fixtures.platform_admin("s3-lce-cap-owner")
+      workspace = Fixtures.create_workspace(owner)
+      course = open_course(workspace, owner)
+
+      for i <- 1..105 do
+        enroll(course, Fixtures.register_user("s3-lce-cap-#{i}"))
+      end
+
+      {:reply, _, _} =
+        reply =
+        ListEnrollments.execute(
+          %{"workspace_id" => workspace.id, "kind" => "course", "offering_id" => course.id},
+          frame_for(owner)
+        )
+
+      payload = decode_reply(reply)
+      assert payload["count"] == 100
+      assert payload["total_count"] == 105
+    end
   end
 
   describe "confirm/reject/waive（确认流）" do

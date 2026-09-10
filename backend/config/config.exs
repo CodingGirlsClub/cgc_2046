@@ -7,6 +7,10 @@
 # General application configuration
 import Config
 
+# ash 3.33+ 必填：string 长度约束的计数口径——:codepoints 与 SQL 层一致，
+# 校验/存储两端同界（016 hex.audit 门禁带动 ash 链升级时补齐）
+config :ash, default_string_length_count: :codepoints
+
 config :cgc_2046,
   ecto_repos: [Cgc2046.Repo],
   ash_domains: [
