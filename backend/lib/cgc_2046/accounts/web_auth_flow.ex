@@ -16,8 +16,9 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
   require Logger
   require Ash.Query
 
-  # prod release 不含 Mix，运行时 Mix.env() 会回退 :dev 恰好放行泄码分支——
-  # 必须编译期求值（endpoint.ex 同款先例）
+  # prod release 不随包分发 :mix 应用，运行时 Mix.env() 直接 UndefinedFunctionError
+  # ——必须编译期求值进模块属性（endpoint.ex 同款先例；Dockerfile 构建
+  # MIX_ENV=prod，@prod_env? 编译为 true）
   @prod_env? Mix.env() == :prod
 
   # ── 手机验证码（plan 002 U3）───────────────────────────────────────────
