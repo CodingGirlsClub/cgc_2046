@@ -697,7 +697,8 @@ defmodule Cgc2046.Courses.Course do
     read :list_courses do
       description("课程列表（graphql list_courses；按插入时间倒序）")
       prepare(build(sort: [inserted_at: :desc, id: :asc]))
-      pagination(keyset?: true, default_limit: 250)
+      # 018：max_page_size 封顶——客户端任意 limit 不再是无界全表导出
+      pagination(keyset?: true, default_limit: 250, max_page_size: 250)
     end
   end
 

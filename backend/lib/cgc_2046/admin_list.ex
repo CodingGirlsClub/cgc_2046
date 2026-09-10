@@ -131,10 +131,15 @@ defmodule Cgc2046.AdminList do
   # 分页：first 限条数（默认 50），after 为上一页已返回的条数（offset）。
   # offset 分页对 admin 内部列表足够（数据量有限），避免手写 keyset cursor
   # 的 datetime 解析复杂度；排序按 inserted_at+id 稳定。
+  #
+  # 018 审计立项：first 封顶 @max_first——无上限时任意已认证客户端可传
+  # first: 10_000_000 触发全表导出（BEAM 内存尖峰 + Postgres 大排序）。
+  @max_first 200
+
   def paginate(query, first, after_offset) do
     query
     |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-    |> Ash.Query.limit(first || 50)
+    |> Ash.Query.limit(min(first || 50, @max_first))
     |> maybe_offset(after_offset)
   end
 

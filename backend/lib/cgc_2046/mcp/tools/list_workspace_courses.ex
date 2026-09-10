@@ -67,14 +67,15 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   defp parse_status(_), do: {:error, "status must be a string"}
 
   # member 门已在 Wrapper 层真实发生（非成员 forbidden 落审计）；tenant 锁
-  # 工作台归属，authorize?: false 直读全部状态（含 draft）。workflow_run
-  # 关系行一并 load——prep_state 投影消费（facts 未写 = "draft"，nil run = nil）。
+  # 工作台归属，authorize?: false 直读全部状态（含 draft）。workflow_run 关系
+  # 仅 load :prep_state calculation（SQL 下推 facts["prep_state"]，018——此前
+  # 整行 load 把 facts JSONB 里的整份课程内容镜像一并过网）。
   defp read_courses(workspace_id, status) do
     Course
     |> scope_status(status)
     |> Ash.Query.sort(inserted_at: :asc, id: :asc)
     |> Ash.Query.limit(@limit)
-    |> Ash.Query.load(:workflow_run)
+    |> Ash.Query.load(workflow_run: [:prep_state])
     |> Ash.read(authorize?: false, tenant: workspace_id)
     |> case do
       {:ok, courses} -> {:ok, Enum.map(courses, &to_row/1)}
@@ -93,7 +94,9 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
       status: course.status,
       visibility: course.visibility,
       current_revision_id: course.current_revision_id,
-      prep_state: course.workflow_run && Prep.prep_state(course.workflow_run)
+      prep_state:
+        course.workflow_run &&
+          (course.workflow_run.prep_state || Prep.prep_state(course.workflow_run))
     }
   end
 end

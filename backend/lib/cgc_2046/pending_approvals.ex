@@ -40,7 +40,22 @@ defmodule Cgc2046.PendingApprovals do
   @spec list(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(actor, opts \\ []) do
     include_expired = Keyword.get(opts, :include_expired, false)
-    managed_workspaces = managed_workspace_ids(actor)
+
+    # 018 审计立项：可选单台收窄——MCP `list_my_tasks` 等单工作台消费者传
+    # `workspace_id:` 后只查该台（每台 3 条查询 + enrich 批量装配只覆盖目标台），
+    # 不再跨台聚合后在调用方 Enum.filter 丢弃。非受管 workspace_id → 空集
+    # （与跨台聚合后过滤为空同语义）。
+    managed_workspaces =
+      case Keyword.get(opts, :workspace_id) do
+        nil ->
+          managed_workspace_ids(actor)
+
+        workspace_id ->
+          # 元素形状 = {workspace_id, allowed_levels}（collect_* 消费形状）
+          Enum.filter(managed_workspace_ids(actor), fn {ws_id, _levels} ->
+            ws_id == workspace_id
+          end)
+      end
 
     with {:ok, pending} <- collect_pending(managed_workspaces, actor),
          {:ok, expired} <- collect_expired(managed_workspaces, actor, include_expired) do
