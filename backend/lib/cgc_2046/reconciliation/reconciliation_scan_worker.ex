@@ -231,23 +231,43 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   end
 
   # ── 规1：confirmed enrollment 无 learning run -------------------------------
+  # issue #505 D8 口径：run 归属判定 = user × 锚点 revision（双通道报名汇入
+  # 同一 run——锚定的活动报名与课程报名共享一个 run，逐 enrollment 判定会
+  # 误报汇入方）。无锚报名（事件型 run）仍按 enrollment 锚判定。
+  # revision 换版后旧 run 锚旧版 → 新锚无 run 命中本规则（published 信号
+  # 补种路径的对账兜底，1i）。
 
   defp scan_rule1 do
-    learning_enrollment_ids =
+    learning_runs =
       WorkflowRun
       |> Ash.Query.filter(definition.type == :learning)
       |> Ash.read!(authorize?: false)
-      |> Enum.map(fn run -> run.input_snapshot["enrollment_id"] end)
-      |> Enum.reject(&is_nil/1)
-      |> MapSet.new()
+
+    run_pairs =
+      MapSet.new(learning_runs, fn run ->
+        {run.subject_user_id, run.subject_course_revision_id}
+      end)
+
+    run_enrollment_ids = MapSet.new(learning_runs, & &1.subject_enrollment_id)
 
     Enrollment
     |> Ash.Query.filter(status == :confirmed)
     |> Ash.read!(authorize?: false)
-    |> Enum.reject(fn enrollment ->
-      MapSet.member?(learning_enrollment_ids, enrollment.id)
+    |> with_anchor_revisions()
+    |> Enum.reject(fn
+      # 课程未发布（无锚 course 报名）：K4 不种 run 是设计决策，发布后 1i
+      # 补种自愈——未发布窗口期不是对账异常（review 建议 2）。
+      {_enrollment, :unpublished} ->
+        true
+
+      {enrollment, anchor_revision_id} ->
+        if anchor_revision_id do
+          MapSet.member?(run_pairs, {enrollment.user_id, anchor_revision_id})
+        else
+          MapSet.member?(run_enrollment_ids, enrollment.id)
+        end
     end)
-    |> Enum.map(fn enrollment ->
+    |> Enum.map(fn {enrollment, _anchor} ->
       %{
         entity_type: :enrollment,
         entity_id: enrollment.id,
@@ -258,6 +278,42 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
           user_id: enrollment.user_id
         }
       }
+    end)
+  end
+
+  # 报名锚点 revision 批量解析（D1 配套课索引口径）：course 报名锚 =
+  # Course.current_revision_id；event 报名锚 = events.course_revision_id。
+  # 无锚 → nil（事件型 run 维度）。资源均 global?(true)，跨租户直读。
+  defp with_anchor_revisions(enrollments) do
+    course_ids = enrollments |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    event_ids = enrollments |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    course_anchors =
+      Course
+      |> Ash.Query.filter(id in ^course_ids)
+      |> Ash.Query.select([:id, :current_revision_id])
+      |> Ash.read!(authorize?: false)
+      |> Map.new(&{&1.id, &1.current_revision_id})
+
+    event_anchors =
+      Event
+      |> Ash.Query.filter(id in ^event_ids)
+      |> Ash.Query.select([:id, :course_revision_id])
+      |> Ash.read!(authorize?: false)
+      |> Map.new(&{&1.id, &1.course_revision_id})
+
+    Enum.map(enrollments, fn enrollment ->
+      anchor =
+        cond do
+          enrollment.course_id ->
+            # nil = 课程未发布（区别于「无锚 event 报名」），规1 排除该中间态。
+            Map.get(course_anchors, enrollment.course_id) || :unpublished
+
+          enrollment.event_id ->
+            Map.get(event_anchors, enrollment.event_id)
+        end
+
+      {enrollment, anchor}
     end)
   end
 

@@ -900,6 +900,12 @@ if (!globalThis.CgcKit) { console.error("FAIL: 共享骨架 CgcKit 未挂载"); 
 require(require("path").resolve(viewPath));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 慢机器(CI 2 核)上固定 sleep 不可靠:懒加载 fetch + 重渲染完成时机不定。
+// 用条件轮询(20ms 步进,默认 2s 上限)替代,到点即走、不到点才等满。
+async function waitFor(cond, ms = 2000) {
+  for (let i = 0; i < ms / 20; i++) { if (cond()) return true; await sleep(20); }
+  return cond();
+}
 
 (async () => {
   // web_url scheme 门·纯谓词真值表(安全评审低危#4):viewPath = panels/shared/view.js,
@@ -1187,7 +1193,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const offeringBtns = panel.querySelectorAll("[data-offering-id]");
     const c1 = offeringBtns.filter(function (b) { return b.getAttribute("data-offering-id") === "c-1"; })[0];
     ((c1 && c1.listeners.click) || []).forEach(function (fn) { fn(); });
-    await sleep(50);
+    await waitFor(function () {
+      return calls.fetches.includes("/api/ext/cgc-2046/workspace/enrollments") &&
+        container.innerHTML.includes("小安");
+    });
     const html2 = container.innerHTML;
     const enrollFetched = calls.fetches.includes("/api/ext/cgc-2046/workspace/enrollments");
     const courseKindFetch = calls.urls.some(function (u) {
@@ -1215,7 +1224,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const ev1 = panel.querySelectorAll("[data-offering-id]")
       .filter(function (b) { return b.getAttribute("data-offering-id") === "ev-1"; })[0];
     ((ev1 && ev1.listeners.click) || []).forEach(function (fn) { fn(); });
-    await sleep(50);
+    await waitFor(function () {
+      return calls.urls.some(function (u) {
+        return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=event") >= 0;
+      }) && panel.querySelectorAll("[data-enroll-kind='event']").length > 0;
+    });
     const eventKindFetch = calls.urls.some(function (u) {
       return u.indexOf("/workspace/enrollments") >= 0 && u.indexOf("kind=event") >= 0;
     });

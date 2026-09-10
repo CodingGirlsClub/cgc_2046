@@ -249,6 +249,19 @@ defmodule Cgc2046.Curriculum.Prep do
     end
   end
 
+  @doc """
+  指定 reviewer 判定：生效策略指定了 reviewer_user_id 且即本人。
+  与 reviewer?/2 互补——后者在默认策略下恒 true（授权面，R28）；
+  本判定用于「该把审核待办推给谁」的注意力路由（list_my_tasks）。
+  """
+  @spec designated_reviewer?(WorkflowRun.t(), term()) :: boolean()
+  def designated_reviewer?(%WorkflowRun{} = run, actor) do
+    case policy(run)["reviewer_user_id"] do
+      nil -> false
+      reviewer_id when is_binary(reviewer_id) -> reviewer_id == actor.id
+    end
+  end
+
   # --- 迁移（前置断言 + facts 乐观锁写入；角色授权在工具层） -------------------
 
   @doc """

@@ -20,7 +20,7 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Curriculum.CourseRevision
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Learning.Runs
+  alias Cgc2046.Learning.{LearningInstantiator, Runs}
   alias Cgc2046.Mcp.ToolCallLog
 
   alias Cgc2046.Mcp.Tools.{
@@ -30,7 +30,7 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
     SubmitLearningAttempt
   }
 
-  alias Cgc2046.Workflows.WorkflowDefinition
+  alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
 
   require Ash.Query
 
@@ -285,7 +285,7 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
 
       run = fetch_run(payload["run_id"], ctx.workspace.id)
       assert run.input_snapshot["course_revision_id"] == ctx.revision.id
-      assert run.input_snapshot["key"] == Runs.instance_key(ctx.enrollment.id, ctx.revision.id)
+      assert run.input_snapshot["key"] == Runs.instance_key(ctx.learner.id, ctx.revision.id)
 
       assert {:reply, _, _} = again = start(ctx, ctx.learner)
       again_payload = decode(again)
@@ -308,6 +308,72 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
       assert second_payload["run_id"] != first_payload["run_id"]
       assert second_payload["revision_id"] == revision_2.id
       assert second_payload["revision_number"] == 2
+    end
+
+    test "D9/D8:锚定活动的 confirmed 报名挂载授权 start;课程再报名汇入同一 run" do
+      admin = Fixtures.platform_admin("ll-mount")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "Python 入门"})
+      revision = publish_revision(workspace, course, 1, content_fixture())
+      _definition = create_learning_definition(workspace, admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          title: "配套宣讲",
+          course_revision_id: revision.id
+        })
+
+      learner = Fixtures.register_user("ll-mount-learner")
+
+      {:ok, event_enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          event_id: event.id,
+          user_id: learner.id
+        })
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert event_enrollment.status == :confirmed
+
+      ctx = %{workspace: workspace, course: course}
+
+      # D9:无课程报名,挂载授权(锚定活动的 confirmed 报名)放行 start
+      assert {:reply, _, _} = reply = start(ctx, learner)
+      payload = decode(reply)
+      assert payload["created"] == true
+      assert payload["status"] == "running"
+
+      run = fetch_run(payload["run_id"], workspace.id)
+      assert run.input_snapshot["enrollment_id"] == event_enrollment.id
+      assert run.input_snapshot["course_revision_id"] == revision.id
+      assert run.input_snapshot["course_id"] == course.id
+
+      # D8:同一学员再报课程(双通道) → 信号路径汇入,不种新 run
+      course_enrollment = enroll(course, learner)
+
+      assert :ok =
+               SignalSubscriber.deliver(LearningInstantiator, %{
+                 type: "enrollment.completed",
+                 data: %{
+                   "enrollment_id" => course_enrollment.id,
+                   "idempotency_key" => "enrollment.completed:" <> course_enrollment.id
+                 }
+               })
+
+      # 汇流断言:该学员在此 revision 仍只有一个 run(信号路径 claim 前
+      # 预查命中,归一 :skip)
+      assert [%{id: only_run_id}] =
+               WorkflowRun
+               |> Ash.Query.filter(subject_user_id == ^learner.id)
+               |> Ash.read!(authorize?: false, tenant: workspace.id)
+
+      assert only_run_id == run.id
+
+      # 汇入后 start 重进仍 resume 同一 run
+      assert {:reply, _, _} = again = start(ctx, learner)
+      again_payload = decode(again)
+      assert again_payload["created"] == false
+      assert again_payload["run_id"] == run.id
     end
   end
 

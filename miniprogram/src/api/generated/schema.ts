@@ -758,6 +758,8 @@ export type CreateEnrollmentResult = {
 export type CreateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律） */
+  courseRevisionId?: InputMaybe<Scalars['ID']['input']>;
   /** 是否启用教研 workflow */
   curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
@@ -1362,6 +1364,8 @@ export type Event = {
   availablePriceTiers?: Maybe<Array<Scalars['JsonString']['output']>>;
   /** 报名名额上限；nil 表示不限 */
   capacity?: Maybe<Scalars['Int']['output']>;
+  /** 配套课程投影（JsonString 序列化的 {id, slug, title}；null = 无配套课/宣讲会） */
+  companionCourse?: Maybe<Scalars['JsonString']['output']>;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount: Scalars['Int']['output'];
   /** 是否启用教研 workflow */
@@ -2735,7 +2739,7 @@ export type MutationError = {
 };
 
 export type MyLearningRun = {
-  courseId?: Maybe<Scalars['ID']['output']>;
+  courseId: Scalars['ID']['output'];
   enrollmentId: Scalars['ID']['output'];
   nextAction?: Maybe<LearningNextAction>;
   progress: LearningProgress;
@@ -4059,7 +4063,7 @@ export type RootQueryType = {
   myEnrollment?: Maybe<Enrollment>;
   /** 当前用户跨工作台的报名记录 */
   myEnrollments?: Maybe<KeysetPageOfEnrollment>;
-  /** 当前用户 confirmed 报名对应的学习 run 进度（非成员可读） */
+  /** 当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外） */
   myLearningRuns: Array<MyLearningRun>;
   /** 当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人） */
   myMcpTokens?: Maybe<Array<Maybe<McpToken>>>;
@@ -5257,6 +5261,8 @@ export type UpdateCourseResult = {
 export type UpdateEventInput = {
   /** 报名名额上限；nil 表示不限 */
   capacity?: InputMaybe<Scalars['Int']['input']>;
+  /** 配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律） */
+  courseRevisionId?: InputMaybe<Scalars['ID']['input']>;
   /** 是否启用教研 workflow */
   curriculumEnabled?: InputMaybe<Scalars['Boolean']['input']>;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
