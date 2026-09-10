@@ -2450,6 +2450,60 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       # plain member（无 tutor/manage、非 assignee、reviewer 指定他人）：什么都不见
       assert list.(member) == []
     end
+
+    test "默认策略（未指定 reviewer）的 review 行只推给管理/被指派 tutor，普通成员与非指派 tutor 不见" do
+      owner = Fixtures.platform_admin("s5-tasks-def-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor_a = Fixtures.register_user("s5-tasks-def-tutor-a")
+      Fixtures.add_member(workspace, tutor_a, [:tutor])
+      tutor_b = Fixtures.register_user("s5-tasks-def-tutor-b")
+      Fixtures.add_member(workspace, tutor_b, [:tutor])
+      member = Fixtures.register_user("s5-tasks-def-member")
+      Fixtures.add_member(workspace, member, [])
+
+      definition = create_prep_definition(workspace, owner)
+
+      # 默认策略（不改 reviewer_user_id）→ 指派 tutor_a → 推进到 review
+      course = draft_course(workspace, owner, %{title: "默认策略待审核"})
+
+      {:ok, run} =
+        PrepInstantiator.launch(workspace.id, definition.id, %{
+          "course_id" => course.id,
+          "title" => course.title
+        })
+
+      {:ok, run} = Prep.assign_tutor(run, tutor_a.id, owner)
+      {:reply, _, _} = save_content(tutor_a, workspace, course)
+      {:ok, run, %{passed: true}} = Prep.submit_for_check(run, tutor_a)
+
+      {:ok, _run, :review} =
+        Prep.submit_quality_report(run, tutor_a, %{"score" => 88, "summary" => "达标"})
+
+      list = fn user ->
+        {:reply, _, _} =
+          reply = ListMyTasks.execute(%{"workspace_id" => workspace.id}, frame_for(user))
+
+        decode(reply)["tasks"]
+      end
+
+      # owner（manage）：review 行恒见
+      assert [%{"kind" => "course_prep_review", "course_id" => cid_o, "prep_state" => "review"}] =
+               list.(owner)
+
+      assert cid_o == course.id
+
+      # tutor_a（被指派，默认策略自审路径行动人）：review 行可见
+      assert [%{"kind" => "course_prep_review", "course_id" => cid_a, "prep_state" => "review"}] =
+               list.(tutor_a)
+
+      assert cid_a == course.id
+
+      # tutor_b（tutor 角色、未指派）：review 行不推
+      assert list.(tutor_b) == []
+
+      # 普通成员：什么都不见（本计划修的 bug）
+      assert list.(member) == []
+    end
   end
 
   # ── 确认窗口内撤权（§B#7：confirm 段授权兜底） ------------------------------------

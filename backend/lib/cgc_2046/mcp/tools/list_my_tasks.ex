@@ -12,8 +12,9 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
        （或 owner/admin）→ 可认领；
      - `course_prep_authoring`：actor 是被指派 tutor 且 prep_state ∈
        (authoring, quality_check) → 待生产/修订内容与提交；
-     - `course_prep_review`：prep_state == review 且 actor 是 reviewer-per-policy
-       （快照指定 reviewer 则仅本人，否则任何成员；owner/admin 恒见）→ 待审核。
+     - `course_prep_review`：prep_state == review 且 actor 有审核行动利益
+       （owner/admin 恒见；快照指定 reviewer 则仅本人；默认策略下被指派 tutor
+       自审路径可见；其余成员不推——推送面窄于 R28 授权面）→ 待审核。
 
   member-only + workspace_id 必填（fail-closed 默认，无豁免 meta）；工作台按
   id 以 actor 授权读取，不存在 → error。
@@ -102,12 +103,20 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
       assignee == actor.id and state in ["authoring", "quality_check"] ->
         "course_prep_authoring"
 
-      state == "review" and (manage or Prep.reviewer?(run, actor)) ->
+      state == "review" and review_stakeholder?(run, actor, manage) ->
         "course_prep_review"
 
       true ->
         nil
     end
+  end
+
+  # 审核行的推送面窄于授权面（授权 = R28「任何成员可审」，不变）——只推给有
+  # 行动利益的人：owner/admin（恒见）、策略指定 reviewer 本人、默认策略下的
+  # 被指派 tutor（自审路径行动人）。其余成员（含非指派 tutor）不推。
+  defp review_stakeholder?(run, actor, manage) do
+    manage or Prep.designated_reviewer?(run, actor) or
+      (is_nil(Prep.policy(run)["reviewer_user_id"]) and Prep.assignee(run) == actor.id)
   end
 
   defp prep_row(run, kind, workspace) do
