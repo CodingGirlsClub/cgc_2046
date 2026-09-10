@@ -167,20 +167,28 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
         :ok
 
       {:ok, %{status: :confirmed} = enrollment} ->
-        if waived?(enrollment) do
-          # 免缴迟到退款：钱退回，报名保持 confirmed（免缴占位不释放）
-          :ok
-        else
-          enrollment
-          |> Ash.Changeset.for_update(:cancel, %{})
-          |> Ash.update(tenant: order.workspace_id, authorize?: false)
-          |> case do
-            {:ok, _cancelled} ->
-              :ok
+        case waived?(enrollment) do
+          {:ok, true} ->
+            # 免缴迟到退款：钱退回，报名保持 confirmed（免缴占位不释放）
+            :ok
 
-            {:error, reason} ->
-              settle_cancel_failure(order, reason)
-          end
+          {:ok, false} ->
+            enrollment
+            |> Ash.Changeset.for_update(:cancel, %{})
+            |> Ash.update(tenant: order.workspace_id, authorize?: false)
+            |> case do
+              {:ok, _cancelled} ->
+                :ok
+
+              {:error, reason} ->
+                settle_cancel_failure(order, reason)
+            end
+
+          # 读失败 ≠ 非免缴（015 审计修复）：fail-closed 上抛走 Oban 重试，
+          # 经 :refunded 状态门重入收敛——与 payment_settlement_worker.waived?/1
+          # 同语义。DB 瞬断绝不能把免缴学员的已确认报名错误取消（不可逆）。
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:ok, _non_holding} ->
@@ -192,15 +200,17 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
     end
   end
 
-  # 免缴判定（同 payment_settlement_worker.waived?/1 单源语义）：waive_payment
-  # 审计行的存在性 ⇔ 免缴先落（批量免缴路径同写此审计行，KTD4）。
+  # 免缴判定（同 payment_settlement_worker.waived?/1 单源语义，fail-closed）：
+  # waive_payment 审计行的存在性 ⇔ 免缴先落（批量免缴路径同写此审计行，KTD4）；
+  # 读失败上抛 {:error, reason}——绝不折叠为 false（false 会取消已确认报名）。
   defp waived?(enrollment) do
     Cgc2046.Accounts.AdminActionLog
     |> Ash.Query.filter(action == :waive_payment and target_id == ^enrollment.id)
     |> Ash.read(authorize?: false)
     |> case do
-      {:ok, [_ | _]} -> true
-      _ -> false
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
     end
   end
 
