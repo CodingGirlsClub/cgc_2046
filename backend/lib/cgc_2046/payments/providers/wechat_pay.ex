@@ -121,6 +121,7 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
     with {:ok, client} <- fetch_client(),
          signature when is_binary(signature) <- header(headers, "wechatpay-signature"),
          timestamp when is_binary(timestamp) <- header(headers, "wechatpay-timestamp"),
+         true <- fresh_timestamp?(timestamp),
          nonce when is_binary(nonce) <- header(headers, "wechatpay-nonce"),
          serial when is_binary(serial) <- header(headers, "wechatpay-serial"),
          public_key when not is_nil(public_key) <- Certificates.get_cert(client, serial),
@@ -131,6 +132,26 @@ defmodule Cgc2046.Payments.Providers.WechatPay do
       _ -> :error
     end
   end
+
+  # 微信 APIv3 规范要求验签前校验时间戳新鲜度（±5 分钟）：历史通知即使签名
+  # 合法也可被无限期重放，反复触发渠道查单/退款评估作业（event_id 去重只挡
+  # 同一事件，不挡窗口）。超窗一律 :error；渠道真正的重试在分钟级窗口内到达。
+  # 公开 helper 供契约测试直测（同 parse_statement_csv 先例）。017 审计加固。
+  @timestamp_tolerance_seconds 300
+
+  @doc false
+  def fresh_timestamp?(timestamp) when is_binary(timestamp) do
+    case Integer.parse(timestamp) do
+      {ts, ""} when is_integer(ts) ->
+        now = DateTime.utc_now() |> DateTime.to_unix()
+        abs(now - ts) <= @timestamp_tolerance_seconds
+
+      _ ->
+        false
+    end
+  end
+
+  def fresh_timestamp?(_), do: false
 
   @impl Cgc2046.Payments.Provider
   def fetch_statement(date) do

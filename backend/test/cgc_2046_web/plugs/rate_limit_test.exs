@@ -52,4 +52,27 @@ defmodule Cgc2046Web.Plugs.RateLimitTest do
       assert :ok = Cgc2046Web.Plugs.RateLimit.check(key)
     end
   end
+
+  # 017 审计加固：键含攻击者可控输入（手机号/邮箱/IP），无修剪时每个新键
+  # 永久占一行——公开端点上可被缓慢撑爆内存。:sys.get_state 同步确保
+  # :prune 处理完成（repo 测试规范禁 Process.sleep）。
+  describe "prune（GenServer 定期清扫）" do
+    test "超过 24h 水平线的条目被删，活跃窗口条目保留" do
+      table = Cgc2046Web.Plugs.RateLimit.table()
+      now = System.system_time(:second)
+
+      stale_key = "test:1.2.3.4:stale@b.com"
+      fresh_key = "test:1.2.3.4:fresh@b.com"
+
+      assert :ets.insert(table, {stale_key, 1, now - 100_000})
+      assert :ets.insert(table, {fresh_key, 1, now})
+
+      pid = Process.whereis(Cgc2046Web.Plugs.RateLimit)
+      send(pid, :prune)
+      _ = :sys.get_state(pid)
+
+      refute :ets.member(table, stale_key)
+      assert :ets.member(table, fresh_key)
+    end
+  end
 end
