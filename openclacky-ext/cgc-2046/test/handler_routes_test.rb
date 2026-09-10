@@ -505,6 +505,7 @@ class HandlerRequestTest < Minitest::Test
       assert_equal "https://api.codingirlsclub.com/ext/cgc-2046.zip", payload["download_url"],
         "download_url = mcp_url origin + 远端 download_path"
       assert_equal true, payload["update_available"]
+      assert_equal "update", payload["version_state"], "发布版更新 → 面板出现并高亮升级按钮"
 
       assert_equal "/ext/cgc-2046.json", fake.requested_path
       assert_equal true, fake.use_ssl, "https origin 必须开 TLS"
@@ -522,7 +523,60 @@ class HandlerRequestTest < Minitest::Test
       with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
 
       assert_equal 200, halt.status
-      assert_equal false, JSON.parse(halt.payload)["update_available"]
+      payload = JSON.parse(halt.payload)
+      assert_equal false, payload["update_available"]
+      assert_equal "same", payload["version_state"], "同版本 → 面板不出现升级按钮"
+    end
+  end
+
+  # 三态判定:version_state 是面板显隐/高亮的唯一判定源。
+  # ahead = 版本不同但发布版不新于本地 —— 面板据此不给可点 CTA,
+  # 因为此刻「升级」实为降级,而宿主 install 是 cp_r 覆盖、不删多余文件。
+  def test_update_info_version_state_ahead_when_local_newer
+    with_meta(UPDATE_META) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.0.9", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      assert_equal 200, halt.status
+      payload = JSON.parse(halt.payload)
+      assert_equal "ahead", payload["version_state"]
+      assert_equal false, payload["update_available"], "ahead 不得被当成可升级态"
+    end
+  end
+
+  # 等值判定归一化:剥 v 前缀/数值段零填充由同一比较器承担 —— 面板不会因为
+  # 字面差异(线上写 v0.1.0、本地写 0.1.0)对同一版本永久亮按钮;
+  # 预发布本地版(0.1.0-rc1 vs 发布 0.1.0)则不是 same。
+  def test_update_info_version_state_normalizes_equivalent_versions
+    { "v0.1.0" => "same", "0.1.0.0" => "same", "0.1.0-rc1" => "ahead" }.each do |remote, expected|
+      with_meta(UPDATE_META) do   # 本地版本 0.1.0
+        inst = build
+        fake = FakeHttpClient.new(http_ok(JSON.generate(
+          "version" => remote, "download_path" => "/ext/cgc-2046.zip")))
+        halt = nil
+        with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+        assert_equal expected, JSON.parse(halt.payload)["version_state"],
+          "远端 #{remote} vs 本地 #{UPDATE_META['version']}"
+      end
+    end
+  end
+
+  # 预发布本地版 → 正式版发布属升级(不是 ahead);方向性必须保住
+  def test_update_info_version_state_update_from_prerelease_local
+    with_meta(UPDATE_META.merge("version" => "0.2.0-rc1")) do
+      inst = build
+      fake = FakeHttpClient.new(http_ok(JSON.generate(
+        "version" => "0.2.0", "download_path" => "/ext/cgc-2046.zip")))
+      halt = nil
+      with_fake_http(fake) { halt = invoke(:get, "/update_info", inst) }
+
+      payload = JSON.parse(halt.payload)
+      assert_equal "update", payload["version_state"]
+      assert_equal true, payload["update_available"]
     end
   end
 
