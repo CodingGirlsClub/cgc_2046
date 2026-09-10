@@ -14,7 +14,9 @@ ENV MIX_ENV=prod
 RUN mix compile && mix release
 
 # ── runtime: 仅含 release 与运行时依赖，无源码无编译器───────────
-FROM debian:bookworm-slim AS runtime
+# dated 快照与 deps 镜像同 vintage：浮动 tag 会让 NIF（bcrypt/picosat）所链的
+# OpenSSL/libstdc++ 随重建漂移，同一 SHA 两次构建产出不同运行时（016 审计修复）
+FROM debian:bookworm-20260610-slim AS runtime
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends libstdc++6 openssl libtinfo6 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \

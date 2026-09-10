@@ -12,8 +12,11 @@
 #   docker build -f backend/Dockerfile.deps -t <registry>/codingirlsclub/cgc2046-backend-deps:<lock-hash> .
 #
 # 版本与主 Dockerfile / ci.yml 完全对齐：Elixir 1.20 / OTP 29
+# MIX_ENV=prod：产物落 _build/prod/，主镜像 compile 直接命中——缺这行时
+# deps.compile 落 _build/dev/，主镜像每部署全量重编（016 审计修复）
 FROM hexpm/elixir:1.20.0-erlang-29.0-debian-bookworm-20260610-slim
 WORKDIR /app
+ENV MIX_ENV=prod
 RUN apt-get update -y && apt-get install -y --no-install-recommends git ca-certificates build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY backend/mix.exs backend/mix.lock ./
