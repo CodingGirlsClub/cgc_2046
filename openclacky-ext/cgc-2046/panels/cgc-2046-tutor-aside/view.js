@@ -209,7 +209,7 @@
 
     if (st === "review") {
       html +=
-        '<button class="cgta-quality-cta" type="button" data-goto-review>→ 去工作台审核发布</button>';
+        '<button class="btn-primary" style="display:block;width:100%;margin-top:8px;padding:6px;font-size:0.625rem;font-weight:700" type="button" data-goto-review>→ 去工作台审核发布</button>';
     }
     html += '</div>';
     return html;
@@ -273,7 +273,7 @@
             ' · ' + goalsLen + ' 目标 · ' + issuesLen + ' 单元' +
           '</div>' +
         '</div>' +
-        '<button id="cgta-refresh" class="cgta-sync" type="button">刷新</button>' +
+        '<button id="cgta-refresh" class="btn-secondary" style="padding:6px 10px;font-size:0.6875rem;font-weight:600" type="button">刷新</button>' +
       '</div>' +
       '<div class="cgta-source">' +
         '<span class="cgta-source-dot"></span><span>草稿树</span>' +
@@ -335,7 +335,7 @@
         '<div class="cgta-eyebrow">开始共创</div>' +
         '<div class="cgta-continue-title">这门课还没有任何内容</div>' +
         '<div class="cgta-continue-subtitle">点下面的按钮,让教研助手从零生成初稿</div>' +
-        '<button class="cgta-continue-button" type="button" data-cocreate>✦ 让助手开始生成</button>' +
+        '<button class="btn-primary" style="margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700" type="button" data-cocreate>✦ 让助手开始生成</button>' +
       '</div>';
     } else if (c) {
       if (goalsLen) {
@@ -561,13 +561,11 @@
       ".cgta-header-copy{flex:1;min-width:0}" +
       ".cgta-title{font-size:0.9375rem;font-weight:680}" +
       ".cgta-progress-text{margin-top:3px;color:var(--color-text-tertiary);font-size:0.6875rem}" +
-      ".cgta-sync{flex:none;margin:0;padding:6px 10px;font-size:0.6875rem;font-weight:600;border:1px solid var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
-      ".cgta-sync:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
       ".cgta-source{display:flex;align-items:center;gap:6px;padding:0 16px 12px;color:var(--color-text-tertiary);font-size:0.625rem}" +
       ".cgta-source-dot{width:6px;height:6px;background:var(--color-accent-primary);border-radius:50%;flex:none}" +
       ".cgta-source-date{margin-left:auto}" +
       ".cgta-content{display:flex;flex-direction:column;gap:10px;padding:0 12px 16px}" +
-      ".cgta-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
+      ".cgta-empty{padding:12px 14px;color:var(--color-text-secondary);background:var(--color-bg-hover);border:1px solid var(--color-border-secondary);border-radius:var(--radius-md,8px);font-size:0.6875rem;line-height:1.5}" +
       ".cgta-error{color:var(--color-error,#c0392b)}" +
       ".cgta-course{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-lg,10px)}" +
       ".cgta-course-summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 13px;cursor:pointer;list-style:none;user-select:none}" +
@@ -590,7 +588,7 @@
       ".cgta-dot.is-done{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}" +
       ".cgta-dot.is-current{color:var(--color-accent-primary);border-color:var(--color-accent-primary);font-weight:700}" +
       ".cgta-sep{width:8px;height:1px;background:var(--color-border-secondary)}" +
-      ".cgta-goals{margin:0;padding:8px 10px;border-radius:var(--radius-md,8px);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary)}" +
+      ".cgta-goals{margin:0;padding:8px 10px;border-radius:var(--radius-md,8px);background:var(--color-bg-hover);border:1px solid var(--color-border-secondary)}" +
       ".cgta-goal{font-size:0.6875rem;line-height:1.6;color:var(--color-text-secondary)}" +
       ".cgta-issue{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
       ".cgta-issue.is-changed{border-color:color-mix(in srgb,var(--color-accent-primary) 35%,var(--color-border-primary));box-shadow:inset 2px 0 0 var(--color-accent-primary)}" +
@@ -606,7 +604,7 @@
       ".cgta-obj-edit:hover{color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
       ".cgta-obj.is-target{background:color-mix(in srgb,var(--color-accent-primary) 8%,transparent);border-radius:4px}" +
       ".cgta-rewrite-menu{display:flex;gap:6px;padding:6px 8px;border-radius:6px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-accent-primary) 30%,var(--color-border-primary));margin:2px 0 6px}" +
-      ".cgta-rewrite-menu button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;border:1px solid var(--color-border-secondary);border-radius:6px;background:var(--color-bg-subtle);color:var(--color-text-primary);font-size:0.625rem;font-weight:650;cursor:pointer;font-family:inherit;transition:border-color var(--transition-fast),background var(--transition-fast)}" +
+      ".cgta-rewrite-menu button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;border:1px solid var(--color-border-secondary);border-radius:6px;background:var(--color-bg-hover);color:var(--color-text-primary);font-size:0.625rem;font-weight:650;cursor:pointer;font-family:inherit;transition:border-color var(--transition-fast),background var(--transition-fast)}" +
       ".cgta-rewrite-menu button:hover{border-color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
       ".cgta-rewrite-menu button span{font-size:0.53125rem;font-weight:400;color:var(--color-text-tertiary)}" +
       ".cgta-rewrite-menu button[data-verb=cancel]{flex:none;color:var(--color-text-tertiary);border-style:dashed}" +
@@ -614,8 +612,6 @@
       ".cgta-eyebrow{color:var(--color-accent-primary);font-size:0.625rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase}" +
       ".cgta-continue-title{margin-top:6px;font-size:0.875rem;font-weight:650;line-height:1.4}" +
       ".cgta-continue-subtitle{margin-top:4px;color:var(--color-text-secondary);font-size:0.6875rem;line-height:1.45}" +
-      ".cgta-continue-button{margin:12px 0 0;padding:7px 12px;font-size:0.6875rem;font-weight:700;color:var(--color-bg-primary,#fff);background:var(--color-accent-primary);border:0;border-radius:var(--radius-sm,6px);cursor:pointer;transition:filter var(--transition-fast)}" +
-      ".cgta-continue-button:hover{filter:brightness(1.12)}" +
       ".cgta-open{display:block;width:100%;margin-top:4px;padding:8px;border:1px dashed var(--color-border-primary);border-radius:var(--radius-sm,6px);background:transparent;color:var(--color-text-secondary);cursor:pointer;font-size:0.625rem;transition:color var(--transition-fast),border-color var(--transition-fast)}" +
       ".cgta-open:hover{color:var(--color-text-primary);border-color:var(--color-border-strong)}" +
       ".cgta-quality{padding:12px;background:var(--color-bg-card);border:1px solid color-mix(in srgb,var(--color-warning,#fbbf24) 35%,var(--color-border-primary));border-radius:var(--radius-lg,10px)}" +
@@ -635,8 +631,6 @@
       ".cgta-quality-violations-label{font-weight:650;color:var(--color-warning,#fbbf24)}" +
       ".cgta-quality-violation{color:var(--color-text-secondary);padding-left:8px}" +
       ".cgta-quality-summary{margin-top:6px;font-size:0.59375rem;color:var(--color-text-tertiary);line-height:1.45}" +
-      ".cgta-quality-cta{display:block;width:100%;margin-top:8px;padding:6px;border:0;border-radius:var(--radius-sm,6px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.625rem;font-weight:700;cursor:pointer;font-family:inherit;transition:filter var(--transition-fast)}" +
-      ".cgta-quality-cta:hover{filter:brightness(1.12)}" +
       "@media (max-width:720px){.cgta-header{padding-inline:12px}.cgta-source{padding-inline:12px}.cgta-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
