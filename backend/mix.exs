@@ -5,7 +5,8 @@ defmodule Cgc2046.MixProject do
     [
       app: :cgc_2046,
       version: "0.1.0",
-      # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder）
+      # runic（jido_runic 底层）要求 Elixir ~> 1.18（1.17 无内置 JSON.Encoder）；
+      # CI/docker 钉 1.20/OTP29，本地对齐见仓库根 .tool-versions
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -51,7 +52,6 @@ defmodule Cgc2046.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
-      {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:ash, "~> 3.31"},
       {:ash_postgres, "~> 2.11"},

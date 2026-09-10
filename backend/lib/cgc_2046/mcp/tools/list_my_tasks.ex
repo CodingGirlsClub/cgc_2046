@@ -6,7 +6,8 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
   任务读面 = 两类聚合：
 
   1. `Cgc2046.PendingApprovals`（报名 / 加入申请 / 赞助三类 pending 行，
-     已按 actor 的 owner/admin 成员资格在查询层预收窄），过滤到本工作台；
+     查询层按 actor 的 owner/admin 成员资格预收窄并按本工作台过滤
+     （`:workspace_id` opt，018 起不再跨台聚合后丢弃）；
   2. 课程教研流程行（S5，R20）——本工作台非终态 prep run 按 actor 角色分派：
      - `course_prep_claimable`：prep_state draft 且未指派，actor 持 tutor 角色
        （或 owner/admin）→ 可认领；
@@ -39,8 +40,9 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
     result =
       Wrapper.run(frame, params, "list_my_tasks", fn actor, workspace_id, _params ->
         with {:ok, workspace} <- fetch_workspace(workspace_id, actor),
-             {:ok, rows} <- PendingApprovals.list(actor) do
-          approval_tasks = Enum.filter(rows, &(&1.workspace_id == workspace.id))
+             # 按台收窄（018）：查询层只聚合目标工作台，不再跨台聚合后过滤
+             {:ok, approval_tasks} <-
+               PendingApprovals.list(actor, workspace_id: workspace.id) do
           prep_tasks = prep_tasks(actor, workspace)
 
           tasks = approval_tasks ++ prep_tasks

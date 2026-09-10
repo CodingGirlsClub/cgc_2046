@@ -109,6 +109,7 @@ custom classes must fully style the input
 - Fields which are set programmatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
 - **Snapshot 同步**：本 repo 走手写 migration 路线，`priv/resource_snapshots/repo/` 是 Ash 工具链的追踪镜像而非 source of truth。改 resource attribute 后须跑 `mix ash_postgres.generate_migrations --snapshots-only` 同步 snapshot，否则 `--check` 会报 pending codegen。CI 门禁已落地：`../.github/workflows/ci.yml` backend job 跑 `mix ash_postgres.generate_migrations --check`，snapshot 滞后会在 PR 阶段被拦红
+- **活表迁移并发纪律**（016 审计立项）：对**已存在且在生产增长的表**加索引，一律 `@disable_ddl_transaction true` + `create index(..., concurrently: true)`（失败残留 INVALID 索引需手工清理）；加约束走 NOT VALID + VALIDATE 两段式（样板 `priv/repo/migrations/20260902000000_add_occupancy_nonnegative_check.exs`）；大表回填与 DDL 拆开、分批。新表/空表不受限。反例：`20260906000003_add_workflow_run_subject_scope.exs`（三索引 + 逐行回填同事务）
 <!-- phoenix:ecto-end -->
 
 <!-- usage-rules-end -->
