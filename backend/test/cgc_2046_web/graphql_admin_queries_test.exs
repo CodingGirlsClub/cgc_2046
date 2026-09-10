@@ -1116,4 +1116,12 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
       assert invitation.preauthorized_role_names == [:owner]
     end
   end
+
+  # 018：admin 分页 first 封顶——防任意已认证客户端全表导出
+  test "AdminList.paginate first 封顶 200" do
+    query = Ash.Query.new(Cgc2046.Accounts.User)
+    clamped = Cgc2046.AdminList.paginate(query, 100_000, nil)
+
+    assert clamped.limit == 200
+  end
 end
