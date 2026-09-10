@@ -594,11 +594,14 @@ globalThis.fetch = async (url, opts) => {
   }
   // ⑧ home_hub:hub 面板已连接态(状态 pill/身份区/任务/目录) + 断开 403 自愈
   if (scenario === "home_hub" || scenario === "home_unconnected" || scenario === "home_tasks_failed" ||
-      scenario === "home_upgrade" || scenario === "home_health_degraded") {
+      scenario === "home_upgrade" || scenario === "home_upgrade_same" ||
+      scenario === "home_upgrade_ahead" || scenario === "home_health_degraded") {
     if (path === "/api/ext/cgc-2046/version") {
       // 版本徽标:面板拉本地安装版本渲染 v<version>(升级按钮走扩展自有 /update_info,
-      // 除 home_upgrade 外 harness 不 stub → 查询失败静默,按钮保持隐藏)
-      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0" }) };
+      // 除 home_upgrade* 外 harness 不 stub → 查询失败静默,按钮保持隐藏);
+      // home_upgrade_ahead 模拟开发副本(本地 0.1.3 高于已发布 0.1.2)
+      const localVersion = scenario === "home_upgrade_ahead" ? "0.1.3" : "0.1.0";
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: localVersion }) };
     }
     // home_upgrade:自托管升级通道全链——update_info 报新版 → 点击升级 →
     // 宿主 install(任意 download_url) → job 轮询 done
@@ -607,7 +610,22 @@ globalThis.fetch = async (url, opts) => {
         current_version: "0.1.0", latest_version: "0.2.0",
         download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
         sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        update_available: true }) };
+        update_available: true, version_state: "update" }) };
+    }
+    // 版本一致(清单可达、download_url 齐全)→ 按钮仍不得出现
+    if (scenario === "home_upgrade_same" && path === "/api/ext/cgc-2046/update_info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true,
+        current_version: "0.1.0", latest_version: "0.1.0",
+        download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        update_available: false, version_state: "same" }) };
+    }
+    // 版本不同但发布版不更新(本地开发副本 0.1.3 vs 发布 0.1.2)→
+    // 只提示两版本号,不给可点 CTA(点下去是降级)
+    if (scenario === "home_upgrade_ahead" && path === "/api/ext/cgc-2046/update_info") {
+      return { ok: true, status: 200, json: async () => ({ ok: true,
+        current_version: "0.1.3", latest_version: "0.1.2",
+        download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        update_available: false, version_state: "ahead" }) };
     }
     if (scenario === "home_upgrade" && path === "/api/store/extension/install" &&
         opts && opts.method === "POST") {
@@ -1497,11 +1515,18 @@ async function waitFor(cond, ms = 2000) {
 
     const btn = container.querySelector("#cgc-upgrade");
     const buttonShown = !!(btn && btn.hidden === false && btn.textContent.indexOf("升级 v0.2.0") >= 0);
+    // 点击会改 className/textContent,高亮与徽标断言必须在点击前取值
+    const buttonHighlighted = !!(btn && btn.className.indexOf("cgch-btn-upgrade") >= 0);
+    const badgeEl = container.querySelector("#cgc-version-badge");
+    const badgeArrow = !!(badgeEl && badgeEl.textContent === "v0.1.0 → v0.2.0" &&
+      badgeEl.className.indexOf("is-update") >= 0);
     ((btn && btn.listeners.click) || []).forEach(function (fn) { fn(); });
     await sleep(1200);  // 安装轮询 setTimeout(1000) 后 status done
 
     const checks = {
       upgrade_button_shown: buttonShown,
+      upgrade_button_highlighted: buttonHighlighted,
+      version_badge_shows_arrow: badgeArrow,
       install_posted_self_hosted_url: !!(globalThis.__installBody &&
         globalThis.__installBody.download_url === "https://api.codingirlsclub.com/ext/cgc-2046.zip" &&
         globalThis.__installBody.name === "CGC-2046"),
@@ -1517,6 +1542,61 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("installBody: " + JSON.stringify(globalThis.__installBody || null) +
         " | alerts: " + JSON.stringify(globalThis.__alerts || []));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 版本一致 → 「升级」按钮不出现(哪怕清单可达、download_url 齐全);
+  // 徽标保持常态 v<本地版本>,不得带任何升级高亮
+  if (scenario === "home_upgrade_same") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+
+    const btn = container.querySelector("#cgc-upgrade");
+    const badge = container.querySelector("#cgc-version-badge");
+    const checks = {
+      upgrade_button_hidden_on_same_version: !!(btn && btn.hidden === true),
+      badge_plain_on_same_version: !!(badge && badge.textContent === "v0.1.0" &&
+        badge.className === "cgch-version-badge"),
+      no_install_attempt: calls.fetches.indexOf("/api/store/extension/install") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("btn.hidden=" + (btn && btn.hidden) + " text=" + (btn && btn.textContent) +
+        " | badge=" + JSON.stringify(badge && badge.textContent) +
+        " class=" + (badge && badge.className));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // 版本不同但发布版不更新(开发副本/预发布)→ 按钮照旧不出现,
+  // 徽标只把两个版本号并排提示;这里若给出可点 CTA,用户点下去就是降级
+  if (scenario === "home_upgrade_ahead") {
+    const container = el("div");
+    spec.render(container);
+    await sleep(200);
+
+    const btn = container.querySelector("#cgc-upgrade");
+    const badge = container.querySelector("#cgc-version-badge");
+    const checks = {
+      no_downgrade_cta: !!(btn && btn.hidden === true),
+      badge_shows_both_versions: !!(badge && badge.textContent === "本地 v0.1.3 · 发布 v0.1.2"),
+      badge_marked_ahead: !!(badge && badge.className === "cgch-version-badge is-ahead"),
+      badge_explains_no_button: !!(badge && badge.title.indexOf("不提供升级按钮") >= 0),
+      no_install_attempt: calls.fetches.indexOf("/api/store/extension/install") < 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("btn.hidden=" + (btn && btn.hidden) +
+        " | badge=" + JSON.stringify(badge && badge.textContent) +
+        " class=" + (badge && badge.className));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
