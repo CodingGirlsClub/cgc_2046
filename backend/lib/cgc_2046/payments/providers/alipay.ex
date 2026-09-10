@@ -186,12 +186,26 @@ defmodule Cgc2046.Payments.Providers.Alipay do
 
       sign = params["sign"]
 
-      if is_binary(sign) and sign != "" and Alipay.Crypto.verify_callback(params, public_key) do
+      if is_binary(sign) and sign != "" and Alipay.Crypto.verify_callback(params, public_key) and
+           app_bound?(params, config()[:app_id]) do
         {:ok, params}
       else
         :error
       end
     end
+  end
+
+  # intake 层应用绑定（017 审计加固，纵深防御）：签名只证明「本密钥所签」，
+  # 不证明「发给本应用」——支付宝规范建议核对 app_id/seller_id。settlement
+  # worker 的渠道查单兜底使漏检影响受限，此处把拒绝提前到受理入口。未配置
+  # app_id（dev/test）退化为放行。公开 helper（app_id 显式传参）供契约测试
+  # 直测，不经全局 env。
+  @doc false
+  def app_bound?(_params, nil), do: true
+
+  def app_bound?(params, app_id) when is_binary(app_id) do
+    params["app_id"] == app_id and
+      (is_nil(params["seller_id"]) or params["seller_id"] == "" or params["seller_id"] == app_id)
   end
 
   @impl Cgc2046.Payments.Provider
