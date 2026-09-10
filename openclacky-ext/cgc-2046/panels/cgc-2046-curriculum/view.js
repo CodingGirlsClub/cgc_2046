@@ -227,7 +227,7 @@
       ? '<div class="cgt-stepper-hint">' + escapeHtml(action.hint) + '</div>'
       : "";
     const btn = (action && action.label && canEditCourse(state.selectedCourseId))
-      ? ' <button id="cgt-prep-action" class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button"' +
+      ? ' <button id="cgt-prep-action" class="btn-secondary cgch-btn-sm" type="button"' +
             ' data-testid="prep-action">' + escapeHtml(action.label) + '</button>'
       : "";
     return '<div class="cgt-stepper" data-testid="prep-stepper">' + dots + btn + hint + '</div>';
@@ -370,7 +370,7 @@
     if (state.editing) { main.innerHTML = renderEditor(); bindEditor(); return; }
     if (state.error) {
       main.innerHTML = '<div class="cgc-card cgc-ev-err" data-testid="prep-error">加载失败:' + escapeHtml(state.error.message || "") +
-        ' <button id="cgt-retry" class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button">重试</button></div>';
+        ' <button id="cgt-retry" class="btn-secondary cgch-btn-sm" type="button">重试</button></div>';
       const retry = main.querySelector("#cgt-retry");
       if (retry) retry.addEventListener("click", loadTeachData);
       return;
@@ -384,14 +384,14 @@
         '<div class="cgt-title-row">' +
           '<h3 class="cgt-title">' + escapeHtml(state.content.course_title || selCourse.title || "") + '</h3>' +
           courseStatusBadge(selCourse.status) +
-          '<button id="cgt-cocreate" class="cgt-cocreate" type="button" data-testid="prep-cocreate">✦ 和教研助手共创</button>' +
+          '<button id="cgt-cocreate" class="btn-primary" type="button" data-testid="prep-cocreate">✦ 和教研助手共创</button>' +
           (isNewDraft
             ? '<span class="cgch-chip">新课程 · 未保存草稿</span>'
             : (Number.isInteger(state.content.version)
               ? '<span class="cgch-chip" data-testid="prep-draft-version">草稿 v' + escapeHtml(state.content.version) + '</span>' : "")) +
         '</div>' +
         (canEditCourse(state.selectedCourseId)
-          ? '<button id="cgt-edit-toggle" class="cgch-btn cgch-btn-ghost" type="button" data-testid="prep-edit-toggle">编辑内容</button>'
+          ? '<button id="cgt-edit-toggle" class="btn-secondary" type="button" data-testid="prep-edit-toggle">编辑内容</button>'
           : '<span class="cgch-empty">当前课程归属工作台无教研角色,只读</span>') +
       '</div>';
 
@@ -536,7 +536,7 @@
     // data-add-*/data-remove-* 定位("issueIdx" / "issueIdx:itemIdx")。
     function itemRow(rowAttr, inner, removeAttr, removeVal) {
       return '<div class="cgt-item-row" ' + rowAttr + '>' + inner +
-        '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" ' +
+        '<button class="btn-secondary cgch-btn-sm" type="button" ' +
         removeAttr + '="' + removeVal + '">×</button></div>';
     }
 
@@ -589,7 +589,7 @@
         '<div class="cgc-card cgt-issue-edit" data-edit-issue="' + idx + '" data-testid="prep-issue-edit">' +
           '<div class="cgt-edit-row cgt-edit-head">' +
             '<span class="cgc-issue-key">id:' + escapeHtml(issue.id) + '</span>' +
-            '<button class="cgc-btn cgc-btn-secondary cgc-btn-mini" type="button" data-remove-issue="' + idx + '">删除</button>' +
+            '<button class="btn-secondary cgch-btn-sm" type="button" data-remove-issue="' + idx + '">删除</button>' +
           '</div>' +
           '<div class="cgt-edit-row"><label>kind</label>' +
             '<select data-f="kind">' +
@@ -606,13 +606,13 @@
           '<div class="cgt-edit-row"><label>as_a(目标学员画像)</label>' +
             '<input data-f="as_a" type="text" value="' + escapeHtml(story.as_a || "") + '"></div>' +
           '<div class="cgt-edit-row"><label>given(先修状态,每项一行)</label>' + givenRows +
-            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-given="' + idx + '">+ 添加 given</button></div>' +
+            '<button class="btn-secondary cgch-btn-sm" type="button" data-add-given="' + idx + '">+ 添加 given</button></div>' +
           '<div class="cgt-edit-row"><label>goal(完成后能独立做到什么)</label>' +
             '<input data-f="goal" type="text" value="' + escapeHtml(story.goal || "") + '"></div>' +
           '<div class="cgt-edit-row"><label>materials（typed Material：类型 + 受约束来源）</label>' + matRows +
-            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-material="' + idx + '">+ 添加材料</button></div>' +
+            '<button class="btn-secondary cgch-btn-sm" type="button" data-add-material="' + idx + '">+ 添加材料</button></div>' +
           '<div class="cgt-edit-row"><label>checklist(每条:id + 验收文本)</label>' + checkRows +
-            '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-check="' + idx + '">+ 添加 checklist</button></div>' +
+            '<button class="btn-secondary cgch-btn-sm" type="button" data-add-check="' + idx + '">+ 添加 checklist</button></div>' +
         '</div>'
       );
     }).join("");
@@ -625,18 +625,18 @@
         '<div class="cgt-edit-row"><label>课程目标 goals(每行一条)</label>' +
           '<textarea id="cgc-edit-goals" rows="3">' + escapeHtml(goalRows) + '</textarea>' +
           '<div class="cgt-parse-preview" id="cgt-preview-goals" data-testid="prep-parse-preview"></div></div>' +
-        '<div class="cgt-edit-row"><label>章节（叙事分组，不是先修关系）</label>' + chapterRows + '<button class="cgch-btn cgch-btn-ghost cgch-btn-sm" type="button" data-add-chapter="1">+ 添加章节</button></div>' +
+        '<div class="cgt-edit-row"><label>章节（叙事分组，不是先修关系）</label>' + chapterRows + '<button class="btn-secondary cgch-btn-sm" type="button" data-add-chapter="1">+ 添加章节</button></div>' +
         issueCards +
         '<div class="cgt-edit-row">' +
-          '<button id="cgc-add-issue" class="cgc-btn cgc-btn-secondary" type="button" data-testid="prep-add-issue">+ 添加 issue</button>' +
+          '<button id="cgc-add-issue" class="btn-secondary cgch-btn-sm" type="button" data-testid="prep-add-issue">+ 添加 issue</button>' +
         '</div>' +
         (state.saveError
           ? '<div class="cgc-ev-err">保存失败:' + escapeHtml(state.saveError.message || "") + '</div>'
           : "") +
         '<div class="cgc-actions">' +
-          '<button id="cgc-save" class="cgc-btn cgc-btn-primary" type="button" data-testid="prep-save"' +
+          '<button id="cgc-save" class="btn-primary" type="button" data-testid="prep-save"' +
             (state.saving ? " disabled" : "") + '>' + (state.saving ? "保存中…" : "保存草稿") + '</button>' +
-          '<button id="cgc-cancel-edit" class="cgc-btn cgc-btn-secondary" type="button">取消</button>' +
+          '<button id="cgc-cancel-edit" class="btn-secondary" type="button">取消</button>' +
         '</div>' +
       '</div>'
     );
@@ -909,10 +909,7 @@
       ".cgc-banner{border:1px solid color-mix(in srgb,var(--color-error,#c0392b) 40%,var(--color-border-primary));background:color-mix(in srgb,var(--color-error,#c0392b) 7%,var(--color-bg-card));border-radius:var(--radius-md,8px);padding:10px 12px;margin-bottom:10px;color:var(--color-error,#c0392b);font-size:0.8125rem}",
       ".cgch-empty{color:var(--color-text-tertiary);font-size:0.8125rem;padding:4px 0}",
       ".cgch-err{color:var(--color-error,#c0392b);font-size:0.8125rem}",
-      ".cgch-chip{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;color:var(--color-text-secondary);background:var(--color-bg-subtle);border:1px solid var(--color-border-secondary);border-radius:999px;font-size:0.6875rem;font-weight:650;line-height:1}",
-      ".cgch-btn{display:inline-block;padding:7px 14px;border-radius:var(--radius-md,8px);font-size:0.75rem;font-weight:650;text-decoration:none;cursor:pointer;border:1px solid var(--color-border-primary);background:var(--color-bg-card);color:var(--color-text-primary);transition:border-color var(--transition-fast),box-shadow var(--transition-fast)}",
-      ".cgch-btn:hover{border-color:var(--color-border-strong);box-shadow:var(--shadow-sm)}",
-      ".cgch-btn-ghost{background:transparent}",
+      ".cgch-chip{display:inline-flex;align-items:center;padding:0 8px;min-height:20px;color:var(--color-text-secondary);background:var(--color-bg-hover);border:1px solid var(--color-border-secondary);border-radius:999px;font-size:0.6875rem;font-weight:650;line-height:1}",
       ".cgch-btn-sm{padding:4px 10px;font-size:0.6875rem}",
       ".cgch-row-list{display:flex;flex-direction:column}",
       ".cgch-row{display:flex;gap:10px;align-items:baseline;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);font-size:0.8125rem}",
@@ -933,9 +930,7 @@
       ".cgt-st-done{color:var(--color-success,#34d399);border-color:var(--color-success,#34d399)}",
       ".cgt-st-current{color:var(--color-accent-primary);border-color:var(--color-accent-primary);background:var(--color-accent-soft)}",
       ".cgt-st-sep{width:10px;height:1px;background:var(--color-border-secondary)}",
-      ".cgt-cocreate{padding:7px 14px;border:0;border-radius:var(--radius-md,8px);background:var(--color-accent-primary);color:var(--color-bg-primary,#fff);font-size:0.75rem;font-weight:700;cursor:pointer}",
-      ".cgt-cocreate:hover{filter:brightness(1.1)}",
-      ".cgt-parse-preview{margin-top:4px;padding:4px 8px;border-radius:6px;font-size:11px;color:var(--color-text-tertiary);background:var(--color-bg-subtle,rgba(127,127,127,.08))}",
+      ".cgt-parse-preview{margin-top:4px;padding:4px 8px;border-radius:6px;font-size:11px;color:var(--color-text-tertiary);background:var(--color-bg-hover)}",
       ".cgt-item-row{display:flex;gap:6px;align-items:center;margin-bottom:4px}",
       ".cgt-item-row input{flex:1;min-width:0}",
       ".cgch-row-dot{flex:none;align-self:center;width:7px;height:7px;border-radius:999px;background:var(--color-border-secondary)}"
