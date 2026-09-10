@@ -272,12 +272,12 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         # args 只含调用方提供的键（first 可缺省）——不能用固定键 pattern match。
-        # 018：first 封顶（AdminList.paginate 同款 200 上限），防无界全表导出
+        # 018：first 封顶（与 AdminList.paginate 共用上限），防无界全表导出
         with_actor(context, fn actor ->
           resolve_my_workspace_tool_calls(
             actor,
             args[:workspace_id],
-            min(args[:first] || 50, 200)
+            min(args[:first] || 50, AdminList.max_first())
           )
         end)
       end)

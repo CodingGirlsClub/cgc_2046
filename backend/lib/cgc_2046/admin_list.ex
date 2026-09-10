@@ -136,6 +136,9 @@ defmodule Cgc2046.AdminList do
   # first: 10_000_000 触发全表导出（BEAM 内存尖峰 + Postgres 大排序）。
   @max_first 200
 
+  # 单值暴露给 web 层 clamp 复用（graphql my_workspace_tool_calls 等），防两处漂移
+  def max_first, do: @max_first
+
   def paginate(query, first, after_offset) do
     query
     |> Ash.Query.sort(inserted_at: :desc, id: :desc)

@@ -6,7 +6,8 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
   任务读面 = 两类聚合：
 
   1. `Cgc2046.PendingApprovals`（报名 / 加入申请 / 赞助三类 pending 行，
-     已按 actor 的 owner/admin 成员资格在查询层预收窄），过滤到本工作台；
+     查询层按 actor 的 owner/admin 成员资格预收窄并按本工作台过滤
+     （`:workspace_id` opt，018 起不再跨台聚合后丢弃）；
   2. 课程教研流程行（S5，R20）——本工作台非终态 prep run 按 actor 角色分派：
      - `course_prep_claimable`：prep_state draft 且未指派，actor 持 tutor 角色
        （或 owner/admin）→ 可认领；
