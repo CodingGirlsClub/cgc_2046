@@ -393,8 +393,9 @@ globalThis.window = globalThis;
 // admin-aside 注入路径 stub:宿主输入框缺席时 injectIntoComposer 走 window.prompt
 // fallback——harness 不 stub 输入框,断言等价物 __prompted 文案
 globalThis.prompt = (label, text) => { globalThis.__prompted = String(text == null ? "" : text); };
-// home disconnect 连接确认框(home_hub 场景驱动确认路径);alert 捕获失败提示
-globalThis.confirm = () => true;
+// home disconnect 连接确认框(home_hub 场景驱动确认路径)与升级确认框
+// (home_upgrade 场景):一律放行,同时记录文案供场景断言;alert 捕获失败提示
+globalThis.confirm = (m) => { (globalThis.__confirms = globalThis.__confirms || []).push(String(m == null ? "" : m)); return true; };
 globalThis.alert = (m) => { (globalThis.__alerts = globalThis.__alerts || []).push(String(m)); };
 // home 升级成功后 window.location.reload() 刷新页;harness 记数替代真实刷新
 globalThis.location = { reload: () => { globalThis.__reloaded = (globalThis.__reloaded || 0) + 1; } };
@@ -605,11 +606,14 @@ globalThis.fetch = async (url, opts) => {
       return { ok: true, status: 200, json: async () => ({ ok: true,
         current_version: "0.1.0", latest_version: "0.2.0",
         download_url: "https://api.codingirlsclub.com/ext/cgc-2046.zip",
+        sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         update_available: true }) };
     }
     if (scenario === "home_upgrade" && path === "/api/store/extension/install" &&
         opts && opts.method === "POST") {
       globalThis.__installBody = JSON.parse(String(opts.body || "{}"));
+      // POST install 时点上已发生的 confirm 次数(升级确认框必须在安装前弹出)
+      globalThis.__confirmsAtInstall = (globalThis.__confirms || []).length;
       return { ok: true, status: 200, json: async () => ({ ok: true, job_id: "job-up1" }) };
     }
     if (scenario === "home_upgrade" && path === "/api/store/extension/install/status") {
@@ -1494,6 +1498,10 @@ async function waitFor(cond, ms = 2000) {
         globalThis.__installBody.name === "CGC-2046"),
       upgrade_alerted: (globalThis.__alerts || []).some(function (t) { return t.indexOf("已升级") >= 0; }),
       page_reloaded: (globalThis.__reloaded || 0) >= 1,
+      // plan 022:升级确认框必须在 POST install 之前弹出,且带 sha256 指纹行
+      confirm_prompted_before_install: (globalThis.__confirmsAtInstall || 0) >= 1,
+      confirm_shows_sha256_fingerprint: (globalThis.__confirms || [])
+        .some(function (t) { return t.indexOf("sha256: ") >= 0; }),
     };
     const failed = Object.entries(checks).filter(([, v]) => !v);
     if (failed.length > 0) {
