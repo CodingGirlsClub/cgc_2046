@@ -13,7 +13,9 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
 
   返回紧凑行：enrollment_id / 报名人摘要（id/email/display_name）/ 状态 /
   档位（收费报名的 tier_id 快照，可按供给当前 price_tiers 解析出名称与金额）/
-  approval_deadline / inserted_at。
+  approval_deadline / inserted_at。载荷封顶 100 行 + `total_count` 截断前小计
+  （§B#16 语义，`get_my_enrollments` 同款——消费者据 total_count 判定截断页
+  非全集；018 审计立项：本工具曾是唯一不封顶的 list 工具）。
 
   报名人摘要投影：User read policy 仅本人/平台管理员（ADR-0004），本工具不向
   User 资源发起授权读——报名列表先经 Enrollment read policy + tenant 授权收窄，
@@ -33,6 +35,8 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   require Ash.Query
 
   @statuses ~w(pending payment_pending confirmed rejected expired cancelled)
+
+  @limit 100
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
@@ -55,28 +59,32 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
              {:ok, kind} <- LearnerJourney.parse_required_kind(params["kind"]),
              {:ok, offering} <- fetch_offering(actor, workspace_id, kind, offering_id),
              {:ok, status} <- parse_status(status) do
-          # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计
+          # read（非 bang）+ 错误分类：Forbidden 等错误也落 ToolCallLog 审计。
+          # 封顶 + 截断前小计（get_my_enrollments 同款：total_count 为截断前
+          # 小计，>limit 时消费者据其判定截断页非全集）
           query =
             Enrollment
             |> scope_offering(kind, offering.id)
             |> maybe_filter_status(status)
-            |> Ash.Query.sort(inserted_at: :desc)
+            |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+            |> Ash.Query.limit(@limit)
 
-          case Ash.read(query, actor: actor, tenant: workspace_id) do
-            {:ok, enrollments} ->
-              users = load_enrollees(enrollments)
+          with {:ok, enrollments} <- Ash.read(query, actor: actor, tenant: workspace_id),
+               {:ok, total_count} <- count_enrollments(kind, offering.id, status, workspace_id) do
+            users = load_enrollees(enrollments)
 
-              {:ok,
-               %{
-                 workspace_id: workspace_id,
-                 kind: to_string(kind),
-                 offering_id: offering.id,
-                 offering_title: offering.title,
-                 status: status || "all",
-                 count: length(enrollments),
-                 enrollments: Enum.map(enrollments, &to_row(&1, offering, users))
-               }}
-
+            {:ok,
+             %{
+               workspace_id: workspace_id,
+               kind: to_string(kind),
+               offering_id: offering.id,
+               offering_title: offering.title,
+               status: status || "all",
+               count: length(enrollments),
+               total_count: total_count,
+               enrollments: Enum.map(enrollments, &to_row(&1, offering, users))
+             }}
+          else
             {:error, %Ash.Error.Forbidden{}} ->
               {:error, "forbidden: not allowed to list enrollments of workspace #{workspace_id}"}
 
@@ -125,6 +133,18 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
 
   defp parse_status(_status),
     do: {:error, "invalid status (expected one of #{Enum.join(@statuses, "|")})"}
+
+  # 截断前小计（§B#16）：与列表同 scope（offering + status 过滤），不计 limit
+  defp count_enrollments(kind, offering_id, status, workspace_id) do
+    Enrollment
+    |> scope_offering(kind, offering_id)
+    |> maybe_filter_status(status)
+    |> Ash.count(tenant: workspace_id, actor: nil, authorize?: false)
+    |> case do
+      {:ok, count} -> {:ok, count}
+      {:error, _} -> {:error, "failed to count enrollments"}
+    end
+  end
 
   # filter 宏不接受任意控制流（if AST 不被识别）——kind 分支在宏外
   defp scope_offering(query, :event, offering_id),

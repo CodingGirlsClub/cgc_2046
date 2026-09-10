@@ -155,6 +155,13 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       public?: true,
       description: "run 绑定版本的步骤定义（step_key/title/type/output_schema，plan 020）"
     )
+
+    # 018 审计立项：prep_state 投影 = facts["prep_state"]（Curriculum.Prep.prep_state/1
+    # 的 SQL 下推形态，不 public——仅 MCP list 面内部 load）。list_workspace_courses
+    # 列表面只为读这一个键，此前整行 load workflow_runs（facts JSONB 内含课程
+    # 内容镜像，curriculum_outputs 之外的第二份全量存储）。Elixir 侧 fallback
+    # 仍是 Prep.prep_state/1（已加载 struct 场景）。
+    calculate(:prep_state, :string, expr(facts["prep_state"]))
   end
 
   multitenancy do

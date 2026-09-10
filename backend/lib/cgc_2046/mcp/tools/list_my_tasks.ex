@@ -39,8 +39,9 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
     result =
       Wrapper.run(frame, params, "list_my_tasks", fn actor, workspace_id, _params ->
         with {:ok, workspace} <- fetch_workspace(workspace_id, actor),
-             {:ok, rows} <- PendingApprovals.list(actor) do
-          approval_tasks = Enum.filter(rows, &(&1.workspace_id == workspace.id))
+             # 按台收窄（018）：查询层只聚合目标工作台，不再跨台聚合后过滤
+             {:ok, approval_tasks} <-
+               PendingApprovals.list(actor, workspace_id: workspace.id) do
           prep_tasks = prep_tasks(actor, workspace)
 
           tasks = approval_tasks ++ prep_tasks
