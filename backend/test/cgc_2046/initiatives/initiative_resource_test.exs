@@ -88,11 +88,16 @@ defmodule Cgc2046.Initiatives.InitiativeResourceTest do
     assert event.registration_deadline ==
              starts_at |> DateTime.add(-72 * 3600, :second) |> DateTime.truncate(:second)
 
+    assert {:error, _} =
+             event
+             |> Ash.Changeset.for_update(:update, %{deposit_enabled: false},
+               tenant: workspace.id
+             )
+             |> Ash.update(actor: admin, tenant: workspace.id)
+
     updated =
       event
-      |> Ash.Changeset.for_update(:update, %{deposit_enabled: false, min_participants: 4},
-        tenant: workspace.id
-      )
+      |> Ash.Changeset.for_update(:update, %{min_participants: 4}, tenant: workspace.id)
       |> Ash.update!(actor: admin, tenant: workspace.id)
 
     assert updated.deposit_enabled == true
