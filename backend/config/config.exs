@@ -26,7 +26,8 @@ config :cgc_2046,
     Cgc2046.Payments,
     Cgc2046.Reconciliation,
     Cgc2046.Sponsorship,
-    Cgc2046.Workflows
+    Cgc2046.Workflows,
+    Cgc2046.Initiatives
   ],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
@@ -97,7 +98,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "refund_failed" => "dev-wechat-refund-failed",
     # organizer-payment U5（R12/R13）
     "payment_received" => "dev-wechat-payment-received",
-    "payment_expired" => "dev-wechat-payment-expired"
+    "payment_expired" => "dev-wechat-payment-expired",
+    "event_qualification_confirmed" => "dev-wechat-event-qualification-confirmed",
+    "event_qualification_underfilled" => "dev-wechat-event-qualification-underfilled",
+    "event_schedule_changed" => "dev-wechat-event-schedule-changed",
+    "event_moderator_assigned" => "dev-wechat-event-moderator-assigned"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -114,7 +119,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "refund_failed" => "dev-tt-refund-failed",
     # organizer-payment U5（R12/R13）
     "payment_received" => "dev-tt-payment-received",
-    "payment_expired" => "dev-tt-payment-expired"
+    "payment_expired" => "dev-tt-payment-expired",
+    "event_qualification_confirmed" => "dev-tt-event-qualification-confirmed",
+    "event_qualification_underfilled" => "dev-tt-event-qualification-underfilled",
+    "event_schedule_changed" => "dev-tt-event-schedule-changed",
+    "event_moderator_assigned" => "dev-tt-event-moderator-assigned"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -131,7 +140,11 @@ config :cgc_2046, :miniprogram_templates, %{
     "refund_failed" => "dev-xhs-refund-failed",
     # organizer-payment U5（R12/R13）
     "payment_received" => "dev-xhs-payment-received",
-    "payment_expired" => "dev-xhs-payment-expired"
+    "payment_expired" => "dev-xhs-payment-expired",
+    "event_qualification_confirmed" => "dev-xhs-event-qualification-confirmed",
+    "event_qualification_underfilled" => "dev-xhs-event-qualification-underfilled",
+    "event_schedule_changed" => "dev-xhs-event-schedule-changed",
+    "event_moderator_assigned" => "dev-xhs-event-moderator-assigned"
   }
 }
 
