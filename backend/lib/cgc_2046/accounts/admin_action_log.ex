@@ -50,7 +50,14 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # = nil 与 CLI 系统动作同语义；每 event 一行，metadata 带批量计数）
           :event_cancel_batch_refund,
           # organizer-payment U2：Course cancelled 批量退款（R15，与 Event 同语义）
-          :course_cancel_batch_refund
+          :course_cancel_batch_refund,
+          :initiative_rule_update,
+          :initiative_create,
+          :initiative_update,
+          :initiative_open,
+          :initiative_close,
+          :event_moderator_assign,
+          :event_moderator_remove
         ]
       ],
       description: "治理动作类型"
@@ -60,7 +67,16 @@ defmodule Cgc2046.Accounts.AdminActionLog do
       allow_nil?: false,
       public?: true,
       constraints: [
-        one_of: [:workspace, :workspace_application, :user, :enrollment, :order, :event, :course]
+        one_of: [
+          :workspace,
+          :workspace_application,
+          :user,
+          :enrollment,
+          :order,
+          :event,
+          :course,
+          :initiative
+        ]
       ],
       description: "目标资源类型"
     )

@@ -441,7 +441,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 68
+      assert length(names) == 80
 
       for name <- [
             "get_workspace_context",

@@ -95,6 +95,8 @@ defmodule Cgc2046.Mcp.Server do
   # 公开浏览(U2,#293):工具面 15 → 17(membership: :public 新豁免家族,KTD3)
   component(Cgc2046.Mcp.Tools.ListPublicOfferings)
   component(Cgc2046.Mcp.Tools.GetPublicOffering)
+  component(Cgc2046.Mcp.Tools.GetPublicInitiative)
+  component(Cgc2046.Mcp.Tools.ListPublicInitiatives)
   # 角色工作台基座(role-agent-journeys-v2 S1,R2/R3/R8):工具面 17 → 20
   component(Cgc2046.Mcp.Tools.ListMyWorkspaces)
   component(Cgc2046.Mcp.Tools.GetRolePlaybook)
@@ -113,6 +115,13 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner)
   component(Cgc2046.Mcp.Tools.AdminPromoteUser)
   component(Cgc2046.Mcp.Tools.AdminDemoteUser)
+  component(Cgc2046.Mcp.Tools.AdminListInitiatives)
+  component(Cgc2046.Mcp.Tools.AdminGetInitiative)
+  component(Cgc2046.Mcp.Tools.AdminCreateInitiative)
+  component(Cgc2046.Mcp.Tools.AdminUpdateInitiative)
+  component(Cgc2046.Mcp.Tools.AdminOpenInitiative)
+  component(Cgc2046.Mcp.Tools.AdminCloseInitiative)
+  component(Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
   # 工具面 30 → 49（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
   # 两段式快速失败，create_course / create_event 为直接写——草稿可逆低风险；
@@ -130,6 +139,9 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.LaunchEvent)
   component(Cgc2046.Mcp.Tools.CloseEvent)
   component(Cgc2046.Mcp.Tools.CancelEvent)
+  component(Cgc2046.Mcp.Tools.ListEventModerators)
+  component(Cgc2046.Mcp.Tools.AssignEventModerator)
+  component(Cgc2046.Mcp.Tools.RemoveEventModerator)
   component(Cgc2046.Mcp.Tools.ListEnrollments)
   component(Cgc2046.Mcp.Tools.ConfirmEnrollment)
   component(Cgc2046.Mcp.Tools.RejectEnrollment)
