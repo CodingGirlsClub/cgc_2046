@@ -46,6 +46,14 @@ defmodule Cgc2046.Payments.Order do
       writable?: true
     )
 
+    attribute(:order_kind, :atom,
+      allow_nil?: false,
+      default: :enrollment,
+      public?: true,
+      writable?: true,
+      constraints: [one_of: [:enrollment, :deposit]]
+    )
+
     attribute(:provider, :atom,
       allow_nil?: false,
       public?: true,
@@ -196,6 +204,7 @@ defmodule Cgc2046.Payments.Order do
 
       accept([
         :enrollment_id,
+        :order_kind,
         :provider,
         :out_trade_no,
         :amount_cents,
@@ -610,6 +619,7 @@ defmodule Cgc2046.Payments.Order do
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
+      |> Ash.Changeset.force_change_attribute(:order_kind, order_kind(enrollment, target))
       |> Ash.Changeset.force_change_attribute(:provider, provider)
       |> Ash.Changeset.force_change_attribute(:out_trade_no, out_trade_no)
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
@@ -642,6 +652,7 @@ defmodule Cgc2046.Payments.Order do
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
+      |> Ash.Changeset.force_change_attribute(:order_kind, order_kind(enrollment, target))
       |> Ash.Changeset.force_change_attribute(:provider, provider)
       |> Ash.Changeset.force_change_attribute(:out_trade_no, out_trade_no)
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
@@ -734,16 +745,20 @@ defmodule Cgc2046.Payments.Order do
   defp load_target(_enrollment), do: {:error, :enrollment_required}
 
   defp load_target_row(table, id) do
+    deposit_column =
+      if table == "events", do: ", COALESCE(deposit_enabled, false)", else: ", false"
+
     case Cgc2046.Repo.query(
-           "SELECT pricing_enabled, price_tiers, registration_deadline FROM #{table} WHERE id = $1",
+           "SELECT pricing_enabled, price_tiers, registration_deadline#{deposit_column} FROM #{table} WHERE id = $1",
            [Cgc2046.Repo.uuid!(id)]
          ) do
-      {:ok, %{rows: [[pricing_enabled, price_tiers, deadline]]}} ->
+      {:ok, %{rows: [[pricing_enabled, price_tiers, deadline, deposit_enabled]]}} ->
         {:ok,
          %{
            pricing_enabled: pricing_enabled,
            price_tiers: price_tiers || [],
-           registration_deadline: deadline
+           registration_deadline: deadline,
+           deposit_enabled: deposit_enabled
          }}
 
       {:ok, %{rows: []}} ->
@@ -753,6 +768,11 @@ defmodule Cgc2046.Payments.Order do
         {:error, {:database, reason}}
     end
   end
+
+  defp order_kind(%{event_id: event_id}, %{deposit_enabled: true}) when not is_nil(event_id),
+    do: :deposit
+
+  defp order_kind(_enrollment, _target), do: :enrollment
 
   # 档位解析：报名时选的 tier_id → 当前配置中的档位（改价后下单按现价快照）
   defp resolve_tier(enrollment, target) do
@@ -941,6 +961,13 @@ defmodule Cgc2046.Payments.Order do
   end
 
   defp prepare_expire(changeset) do
+    case Cgc2046.Admission.Enrollment.lock_for_order(changeset.data.enrollment_id) do
+      {:ok, _} -> do_expire(changeset)
+      {:error, reason} -> add_domain_error(changeset, {:database, reason})
+    end
+  end
+
+  defp do_expire(changeset) do
     case claim(changeset, [:pending], "status = 'expired'") do
       {:ok, changeset} ->
         # 报名侧联动收编 Admission 端口（ADR-0009 U5 / R20，KTD6 同事务）：
