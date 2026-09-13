@@ -185,6 +185,66 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
   });
 });
 
+describe("成班徽章（R11）", () => {
+  it("short_by 渲染「还差 N 人成班」", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      qualificationStatus: "pending",
+      qualificationBadge: "short_by",
+      shortBy: 5,
+      minParticipants: 8,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByText("还差 5 人成班")).toBeInTheDocument();
+  });
+
+  it("confirmed 渲染「已成班」，cancelled 渲染「已取消」", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      qualificationStatus: "confirmed",
+      qualificationBadge: "confirmed",
+      shortBy: null,
+    });
+
+    const { unmount } = render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("已成班")).toBeInTheDocument();
+    unmount();
+
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      status: "cancelled",
+      qualificationBadge: "cancelled",
+      shortBy: null,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("已取消")).toBeInTheDocument();
+  });
+
+  it("open 徽章不渲染（与报名标签语义重复）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      qualificationBadge: "open",
+      shortBy: null,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByText("开放报名")).not.toBeInTheDocument();
+  });
+});
+
 describe("公开详情页报名状态分叉（支付接续）", () => {
   function renderOpen() {
     mocks.fetchPublicOffering.mockResolvedValue({

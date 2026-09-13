@@ -37,6 +37,7 @@ import {
   OFFERING_LABEL,
 } from "@/lib/graphql/events";
 import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
+import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
@@ -445,6 +446,12 @@ export default function PublicOfferingDetailPage({
           <article className="public-detail">
             <header className="public-detail__hero">
               <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+              {kind === "event" && (
+                <QualificationBadgeTag
+                  badge={offering.qualificationBadge}
+                  shortBy={offering.shortBy}
+                />
+              )}
               <h1>{offering.title}</h1>
             </header>
 

@@ -29,6 +29,14 @@ export type Visibility = "public" | "workspace";
  */
 export type EnrollmentBadge = "enrolling" | "starting_soon" | "closed" | "full";
 
+/** 成班事实标签（后端 QualificationBadge 投影；open = 无成班语义，详情页不展示） */
+export type QualificationBadge =
+	| "cancelled"
+	| "closed"
+	| "confirmed"
+	| "short_by"
+	| "open";
+
 /** 结构化场地（venue JsonString JSON.parse 后形状，恰四键；仅 event 有 venue 槽，course 无位置概念） */
 export interface VenueInfo {
   country: string;
@@ -125,6 +133,14 @@ export const ENROLLMENT_BADGE_LABEL: Record<EnrollmentBadge, string> = {
   starting_soon: "labels.enrollmentBadge.starting_soon",
   closed: "labels.enrollmentBadge.closed",
   full: "labels.enrollmentBadge.full",
+};
+
+export const QUALIFICATION_BADGE_LABEL: Record<QualificationBadge, string> = {
+  cancelled: "labels.qualificationBadge.cancelled",
+  closed: "labels.qualificationBadge.closed",
+  confirmed: "labels.qualificationBadge.confirmed",
+  short_by: "labels.qualificationBadge.shortBy",
+  open: "labels.qualificationBadge.open",
 };
 
 export const EVENT_STATUSES: EventStatus[] = [
@@ -492,6 +508,14 @@ export interface PublicOfferingItem {
   endsAt?: string | null;
   /** 公开派生报名标签（R6/KTD1；展示经 ENROLLMENT_BADGE_LABEL） */
   enrollmentBadge?: EnrollmentBadge | null;
+  /** 成班事实（pending/confirmed/underfilled；无成班需求的活动恒 pending） */
+  qualificationStatus?: string | null;
+  /** 成班徽章投影（后端派生；展示经 QUALIFICATION_BADGE_LABEL，"open" 详情页不展示） */
+  qualificationBadge?: QualificationBadge | null;
+  /** 距成班还差人数（badge = short_by 时有值；后端 max(min-confirmed, 0)） */
+  shortBy?: number | null;
+  /** 成班最低确认人数（null = 不判定成班） */
+  minParticipants?: number | null;
   /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有，null = 线上/未定，展示层兜底「地点待定」，R3） */
   venue?: string | null;
   /** 是否收费（公开报名面收费项须选档；R4 免费零变化） */
@@ -574,6 +598,10 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       startsAt
       endsAt
       enrollmentBadge
+      qualificationStatus
+      qualificationBadge
+      shortBy
+      minParticipants
       venue
       sponsorshipEnabled
       sponsorshipTiers
