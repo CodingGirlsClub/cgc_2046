@@ -69,6 +69,7 @@ import {
 import { useAuthed } from "@/lib/use-authed";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
 import AddToCalendar from "@/components/add-to-calendar";
+import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
 
 /** 列表行个人报名状态（只这三态会出现在行内；终态不显示） */
 type MyEnrollmentStatus = "pending" | "payment_pending" | "confirmed";
@@ -469,6 +470,7 @@ interface MetaDraft {
   /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
   pricingEnabled: boolean;
   tierDrafts: TierDraft[];
+  initiativeId: string | null;
 }
 
 export function OfferingDetailPage({
@@ -497,6 +499,7 @@ export function OfferingDetailPage({
     error: null,
   });
   const [metaDraft, setMetaDraft] = useState<MetaDraft | null>(null);
+  const [initiatives, setInitiatives] = useState<PublicInitiativeCard[]>([]);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [busyTransition, setBusyTransition] = useState<EventTransition | null>(
@@ -575,6 +578,13 @@ export function OfferingDetailPage({
       cancelled = true;
     };
   }, [id, kind, t]);
+
+  const loadInitiatives = () => {
+    if (initiatives.length > 0 || kind !== "event") return;
+    void fetchPublicInitiatives()
+      .then((rows) => setInitiatives(rows.filter((row) => row.status === "open")))
+      .catch(() => setInitiatives([]));
+  };
 
   // 我的既有报名（防重复报名；读策略仅本人可见）
   useEffect(() => {
@@ -687,6 +697,7 @@ export function OfferingDetailPage({
               // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
               pricingEnabled: offering.pricingEnabled === true,
               tierDrafts: toDraft(offering.priceTiers),
+              initiativeId: offering.initiativeId ?? null,
             }
           : null,
     [metaDraft, offering],
@@ -873,6 +884,9 @@ export function OfferingDetailPage({
         registrationDeadline: fromLocalInput(activeDraft.deadline),
         startsAt: fromLocalInput(activeDraft.startsAt),
         endsAt: fromLocalInput(activeDraft.endsAt),
+        ...(kind === "event" && (offering.initiativeId || activeDraft.initiativeId)
+          ? { initiativeId: activeDraft.initiativeId }
+          : {}),
         ...(kind === "course"
           ? {
               curriculumRequirements: buildCurriculumJson(
@@ -898,6 +912,7 @@ export function OfferingDetailPage({
             registrationDeadline: res.result.registrationDeadline,
             startsAt: res.result.startsAt ?? null,
             endsAt: res.result.endsAt ?? null,
+            initiativeId: res.result.initiativeId ?? null,
             ...(kind === "event" ? { venue: res.result.venue ?? null } : {}),
             ...(res.result.pricingEnabled !== undefined
               ? { pricingEnabled: res.result.pricingEnabled }
@@ -1301,6 +1316,25 @@ export function OfferingDetailPage({
                         setMetaDraft({ ...activeDraft, endsAt: v })
                       }
                     />
+
+                    {kind === "event" ? (
+                      <label className="block">
+                        <span className="block text-[13px] text-ink-3">{t("initiativeLabel")}</span>
+                        <select
+                          value={activeDraft.initiativeId ?? ""}
+                          onFocus={loadInitiatives}
+                          onChange={(e) => setMetaDraft({ ...activeDraft, initiativeId: e.target.value || null })}
+                          disabled={offering.status !== "draft"}
+                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-60"
+                        >
+                          <option value="">{t("initiativeNone")}</option>
+                          {initiatives.map((initiative) => (
+                            <option key={initiative.id} value={initiative.id}>{initiative.name}</option>
+                          ))}
+                        </select>
+                        {offering.status !== "draft" ? <span className="mt-1 block text-xs text-ink-3">{t("initiativeDraftOnly")}</span> : null}
+                      </label>
+                    ) : null}
 
                     {kind === "event" ? (
                       <VenueFields
@@ -1883,12 +1917,21 @@ export function OfferingNewPage({
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [venue, setVenue] = useState<VenueInfo>({ ...EMPTY_VENUE });
+  const [initiativeId, setInitiativeId] = useState<string | null>(null);
+  const [initiatives, setInitiatives] = useState<PublicInitiativeCard[]>([]);
   // 收费设置（U6/R1）：默认免费收起（AE4 免费路径零额外操作）；开启时
   // 至少一档的客户端校验对齐后端 PriceTiersValidation。
   const [pricingEnabled, setPricingEnabled] = useState(false);
   const [tierDrafts, setTierDrafts] = useState<TierDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadInitiatives = () => {
+    if (initiatives.length > 0 || kind !== "event") return;
+    void fetchPublicInitiatives()
+      .then((rows) => setInitiatives(rows.filter((row) => row.status === "open")))
+      .catch(() => setInitiatives([]));
+  };
 
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
@@ -1918,6 +1961,7 @@ export function OfferingNewPage({
         startsAt: fromLocalInput(startsAt),
         endsAt: fromLocalInput(endsAt),
         ...(kind === "event" ? { venue } : {}),
+        ...(kind === "event" && initiativeId ? { initiativeId } : {}),
         ...(pricingEnabled
           ? {
               pricingEnabled,
@@ -2070,6 +2114,23 @@ export function OfferingNewPage({
               onStartsAtChange={setStartsAt}
               onEndsAtChange={setEndsAt}
             />
+
+            {kind === "event" ? (
+              <label className="block">
+                <span className="block text-[13px] text-ink-3">{t("initiativeLabel")}</span>
+                <select
+                  value={initiativeId ?? ""}
+                  onFocus={loadInitiatives}
+                  onChange={(e) => setInitiativeId(e.target.value || null)}
+                  className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                >
+                  <option value="">{t("initiativeNone")}</option>
+                  {initiatives.map((initiative) => (
+                    <option key={initiative.id} value={initiative.id}>{initiative.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
             {kind === "event" ? (
               <VenueFields value={venue} onChange={setVenue} />

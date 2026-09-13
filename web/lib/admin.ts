@@ -12,6 +12,9 @@ import type {
   AdminUserPayload,
   AdminWorkspace,
   AdminWorkspaceApplication,
+  AdminInitiative,
+  AdminInitiativePayload,
+  AdminInitiativeRule,
   ApproveApplicationResultData,
   RejectApplicationResultData,
 } from "./graphql/admin";
@@ -24,7 +27,11 @@ import {
   LIST_SIGNAL_LOGS,
   LIST_TOOL_CALL_LOGS,
   LIST_USERS,
+  LIST_INITIATIVES,
+  GET_INITIATIVE,
+  CREATE_INITIATIVE, UPDATE_INITIATIVE, OPEN_INITIATIVE, CLOSE_INITIATIVE,
   LIST_WORKSPACE_APPLICATIONS,
+  UPSERT_INITIATIVE_RULE,
   LIST_WORKSPACES,
   MY_WORKSPACE_APPLICATIONS,
   PROMOTE_USER,
@@ -100,6 +107,35 @@ export async function fetchUsers(
   opts?: AdminListArgs,
 ): Promise<AdminUser[]> {
   return adminList(LIST_USERS, { search: search || null }, "listUsers", opts);
+}
+
+export async function fetchInitiatives(status?: string, search?: string): Promise<AdminInitiative[]> {
+	return adminList(LIST_INITIATIVES, { status: status || null, search: search || null }, "listInitiatives", { first: 200 });
+}
+export async function fetchInitiative(id: string): Promise<AdminInitiative | null> {
+  const { data } = await client.query({ query: GET_INITIATIVE, variables: { id }, fetchPolicy: "network-only" });
+  return data?.getInitiative ?? null;
+}
+export async function upsertInitiativeRule(id: string, key: string, valueJson: string, locked: boolean): Promise<{ result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> }> {
+  const { data } = await client.mutate<{ upsertInitiativeRule: { result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> } }>({ mutation: UPSERT_INITIATIVE_RULE, variables: { initiativeId: id, key, valueJson, locked } });
+  return data?.upsertInitiativeRule ?? { result: null, errors: [] };
+}
+
+export async function createInitiative(input: Record<string, unknown>): Promise<AdminInitiativePayload> {
+  const { data } = await client.mutate<{ createInitiative: AdminInitiativePayload }>({ mutation: CREATE_INITIATIVE, variables: { input } });
+  return data?.createInitiative ?? { result: null, errors: [] };
+}
+export async function updateInitiative(id: string, input: Record<string, unknown>): Promise<AdminInitiativePayload> {
+  const { data } = await client.mutate<{ updateInitiative: AdminInitiativePayload }>({ mutation: UPDATE_INITIATIVE, variables: { id, input } });
+  return data?.updateInitiative ?? { result: null, errors: [] };
+}
+export async function openInitiative(id: string): Promise<AdminInitiativePayload> {
+  const { data } = await client.mutate<{ openInitiative: AdminInitiativePayload }>({ mutation: OPEN_INITIATIVE, variables: { id } });
+  return data?.openInitiative ?? { result: null, errors: [] };
+}
+export async function closeInitiative(id: string): Promise<AdminInitiativePayload> {
+  const { data } = await client.mutate<{ closeInitiative: AdminInitiativePayload }>({ mutation: CLOSE_INITIATIVE, variables: { id } });
+  return data?.closeInitiative ?? { result: null, errors: [] };
 }
 
 /** 平台管理员：工作台列表（R13；search 匹配 name/slug） */

@@ -1276,6 +1276,9 @@
     "researchTitle": "Research",
     "editMeta": "Edit metadata",
     "fieldTitle": "Title",
+    "initiativeLabel": "Initiative",
+    "initiativeNone": "No Initiative",
+    "initiativeDraftOnly": "Initiative can only be changed while the event is a draft.",
     "capacityHint": "Capacity limit (blank = unlimited)",
     "capacityBelowOccupied": "Target capacity is below the {confirmed} occupied seats: saving is not blocked; the overage is enforced by the capacity ledger (new enrollments rejected) and settles as seats are released",
     "deadlineHint": "Enrollment closes (blank = no deadline)",
@@ -1541,7 +1544,7 @@
     "resendFailed": "Resend failed"
   },
   "admin": {
-    "loadFailed": "Failed to load. Please try again later.",
+    "loadFailed": "Failed to load.",
     "loading": "Loading…",
     "search": "Search",
     "filter": "Filter",
@@ -1688,7 +1691,19 @@
     "noOrphans": "No orphans found.",
     "openclackyDesc": "OpenClacky is the enterprise edition of Coding Girls Club's AI collaboration platform, built for deep team research collaboration. It runs on a separate server (oc.codingirlsclub.com) with its own authentication — platform accounts don't affect OpenClacky.",
     "goOpenclacky": "Go to OpenClacky (oc.codingirlsclub.com)",
-    "auditRedactionNotice": "Platform audit shows status, type, Workspace and timing only; facts, input snapshots and learning evidence are excluded."
+    "auditRedactionNotice": "Platform audit shows status, type, Workspace and timing only; facts, input snapshots and learning evidence are excluded.",
+    "navInitiatives": "Initiatives",
+    "linkInitiatives": "Initiatives",
+    "initiativesTitle": "Initiatives",
+    "initiativesDesc": "Manage platform initiatives and shared rules.",
+    "initiativesEmpty": "No initiatives",
+    "initiativeName": "Name",
+    "initiativeSlug": "Slug",
+    "initiativeStatus": "Status",
+    "initiativeAction": "Action",
+    "initiativeOpen": "Open",
+    "initiativeClose": "Close"
+    ,"initiativeCreate": "Create Initiative", "initiativeEdit": "Edit", "initiativeSave": "Save", "initiativeCancelEdit": "Cancel", "initiativeDescription": "Description"
   },
   "permissions": {
     "ability": {
@@ -2063,5 +2078,18 @@
     "loading": "Loading courses…",
     "error": "Failed to load courses. Try again.",
     "myParticipations": "My enrollments"
+  },
+  "initiatives": {
+    "loading": "Loading…",
+    "notFound": "Initiative not found",
+    "back": "Back",
+    "cities": "Cities",
+    "events": "Events",
+    "participants": "Participants",
+    "qualified": "Qualified",
+    "cancelled": "Cancelled",
+    "shortBy": "{count} more needed",
+    "open": "Open",
+    "timeTbd": "Time TBD"
   }
 }

@@ -84,6 +84,7 @@ export type OfferingDraftInput = {
 	pricingEnabled?: boolean;
 	/** 档位 JsonString 数组（caller-serializes） */
 	priceTiers?: string[];
+	initiativeId?: string | null;
 };
 
 export type OfferingUpdateInput = {
@@ -104,6 +105,7 @@ export type OfferingUpdateInput = {
 	pricingEnabled?: boolean;
 	/** 价格档位配置（每项 JSON.stringify 后作为 JsonString 提交；PriceTier 形状） */
 	priceTiers?: string[];
+	initiativeId?: string | null;
 };
 
 /**
@@ -228,6 +230,7 @@ export async function createOffering(
 				registrationDeadline: input.registrationDeadline ?? null,
 				startsAt: input.startsAt ?? null,
 				endsAt: input.endsAt ?? null,
+				...(kind === "event" && input.initiativeId !== undefined ? { initiativeId: input.initiativeId } : {}),
 				// venue 仅 event 有槽（CreateCourseInput 无此字段，下发即 GraphQL 校验错误）
 				...(kind === "event" ? { venue: venueDraftToJson(input.venue) } : {}),
 				// 定价随创建透传（U6/R1）：调用方仅在开启收费时落键，免费路径不下发
