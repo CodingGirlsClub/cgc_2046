@@ -110,8 +110,8 @@ defmodule Cgc2046.Initiatives.Public do
       slug: slug,
       hashtag: hashtag,
       description: description,
-      window_starts_at: starts,
-      window_ends_at: ends,
+      window_starts_at: to_utc_datetime(starts),
+      window_ends_at: to_utc_datetime(ends),
       status: status
     }
 
@@ -135,14 +135,19 @@ defmodule Cgc2046.Initiatives.Public do
          title: title,
          status: status,
          visibility: visibility,
-         starts_at: starts,
-         ends_at: ends,
-         registration_deadline: deadline,
+         starts_at: to_utc_datetime(starts),
+         ends_at: to_utc_datetime(ends),
+         registration_deadline: to_utc_datetime(deadline),
          venue: venue,
          confirmed_count: confirmed || 0,
          min_participants: min,
          qualification_status: qualification
        }
+
+  # 裸 SQL 绕过 Ecto 类型加载，utc_datetime 列返回 NaiveDateTime；
+  # GraphQL :datetime 标量只接受 DateTime，统一按 UTC 抬升。
+  defp to_utc_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp to_utc_datetime(value), do: value
 
   defp uuid_param(<<_::128>> = id), do: id
   defp uuid_param(id), do: Ecto.UUID.dump!(id)

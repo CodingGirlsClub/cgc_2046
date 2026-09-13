@@ -538,9 +538,33 @@ defmodule Cgc2046Web.GraphqlSchema do
             |> maybe_initiative_search(args[:search])
             |> AdminList.paginate(args[:first], args[:after])
 
-          query
-          |> Ash.read(actor: actor)
-          |> admin_result(Cgc2046.Initiatives.Initiative, Cgc2046.Initiatives).(context)
+          case Ash.read(query, actor: actor) do
+            {:ok, initiatives} ->
+              case Ash.load(initiatives, :rules, actor: actor) do
+                {:ok, loaded} ->
+                  {:ok, Enum.map(loaded, &admin_initiative_row/1)}
+
+                {:error, error} ->
+                  {:error,
+                   to_ash_graphql_errors(
+                     error,
+                     context,
+                     :read,
+                     Cgc2046.Initiatives.Initiative,
+                     Cgc2046.Initiatives
+                   )}
+              end
+
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :read,
+                 Cgc2046.Initiatives.Initiative,
+                 Cgc2046.Initiatives
+               )}
+          end
         end)
       end)
     end
