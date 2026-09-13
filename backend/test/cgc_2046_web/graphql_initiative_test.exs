@@ -64,6 +64,7 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
     event =
       EventsFixtures.create_event(workspace, admin, %{
         initiative_id: initiative.id,
+        starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
         venue: %{"country" => "中国", "province" => "湖南", "city" => "长沙", "district" => "岳麓"},
         visibility: :public
       })
@@ -76,24 +77,41 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
 
     query = """
     query { publicInitiative(slug: "#{initiative.slug}") {
-      slug eventCount cityCount cities { city events { id slug status } }
+      slug eventCount cityCount cities { city events { id slug status startsAt registrationDeadline venue archived qualificationBadge } }
     } }
     """
 
     assert %{"data" => %{"publicInitiative" => payload}} = post_graphql(query)
     assert payload["slug"] == initiative.slug
     assert payload["eventCount"] == 1
-    assert [%{"city" => "长沙", "events" => [%{"id" => id}]}] = payload["cities"]
-    assert id == event.id
+
+    assert [%{"city" => "长沙", "events" => [row]}] = payload["cities"]
+    assert row["id"] == event.id
+    assert {:ok, _, _} = DateTime.from_iso8601(row["startsAt"])
+    assert {:ok, _, _} = DateTime.from_iso8601(row["registrationDeadline"])
+    assert is_binary(row["venue"])
+    assert row["archived"] == false
+    assert is_binary(row["qualificationBadge"])
   end
 
   test "platform admin listInitiatives is protected and returns rows" do
     admin = Fixtures.platform_admin("gql-initiative-list-admin")
     initiative = open_initiative(admin)
-    query = "query { listInitiatives(status: \"open\") { id slug status } }"
+
+    query =
+      "query { listInitiatives(status: \"open\") { id slug status rules { id key valueJson locked } } }"
 
     assert %{"errors" => [%{"code" => "unauthorized"}]} = post_graphql(query)
+
     assert %{"data" => %{"listInitiatives" => rows}} = post_graphql(query, token(admin))
-    assert Enum.any?(rows, &(&1["id"] == initiative.id))
+    row = Enum.find(rows, &(&1["id"] == initiative.id))
+    assert row["status"] == "open"
+
+    assert length(row["rules"]) == 4
+
+    assert Enum.all?(row["rules"], fn rule ->
+             is_binary(rule["id"]) and is_binary(rule["key"]) and
+               is_binary(rule["valueJson"]) and is_boolean(rule["locked"])
+           end)
   end
 end

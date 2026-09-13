@@ -96,4 +96,48 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert {:error, :not_found} = Public.get_by_slug(draft.slug)
     assert {:error, :not_found} = Public.get_by_slug("missing-initiative")
   end
+
+  test "公开投影查询数与场次数无关（U4 无 N+1 回归）" do
+    admin = Fixtures.platform_admin("initiative-public-n1")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = initiative(admin, "public-n1-test")
+
+    venue = %{"city" => "长沙", "province" => "湖南", "country" => "中国", "district" => "岳麓"}
+
+    for _ <- 1..2, do: event(workspace, admin, initiative, %{venue: venue})
+
+    small = count_queries(fn -> Public.get_by_slug("public-n1-test") end)
+
+    for _ <- 1..10, do: event(workspace, admin, initiative, %{venue: venue})
+
+    large = count_queries(fn -> Public.get_by_slug("public-n1-test") end)
+
+    assert small == large
+    assert small <= 3
+  end
+
+  defp count_queries(fun) do
+    test_pid = self()
+    ref = make_ref()
+
+    :telemetry.attach(
+      {__MODULE__, ref},
+      [:cgc_2046, :repo, :query],
+      fn _event, _measurements, _metadata, _config -> send(test_pid, {:query_counted, ref}) end,
+      nil
+    )
+
+    fun.()
+    count = drain_query_messages(ref, 0)
+    :telemetry.detach({__MODULE__, ref})
+    count
+  end
+
+  defp drain_query_messages(ref, acc) do
+    receive do
+      {:query_counted, ^ref} -> drain_query_messages(ref, acc + 1)
+    after
+      0 -> acc
+    end
+  end
 end
