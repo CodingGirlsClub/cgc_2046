@@ -25,7 +25,6 @@ defmodule Cgc2046.Events.Event do
     domain: Cgc2046.Events
 
   alias Cgc2046.StatusTransition
-
   @status_values [:draft, :open, :closed, :cancelled]
 
   # 合法状态枚举的对外读面（list_workspace_events 过滤校验消费；
@@ -183,6 +182,56 @@ defmodule Cgc2046.Events.Event do
           "属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
     )
 
+    attribute(:initiative_id, :uuid,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "所属平台级 Initiative；仅草稿可挂载"
+    )
+
+    attribute(:created_by, :uuid, allow_nil?: true, public?: true, writable?: false)
+
+    attribute(:deposit_enabled, :boolean,
+      allow_nil?: false,
+      default: false,
+      public?: true,
+      writable?: true,
+      description: "是否收取活动押金（与既有报名定价分开）"
+    )
+
+    attribute(:deposit_amount_cents, :integer,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      constraints: [min: 1],
+      description: "押金金额（分）"
+    )
+
+    attribute(:min_age, :integer,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      constraints: [min: 1],
+      description: "报名最低年龄；nil 表示无年龄门槛"
+    )
+
+    attribute(:min_participants, :integer,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      constraints: [min: 1],
+      description: "成班最低确认人数；nil 表示不判定成班"
+    )
+
+    attribute(:qualification_status, :atom,
+      allow_nil?: false,
+      default: :pending,
+      public?: true,
+      writable?: false,
+      constraints: [one_of: [:pending, :confirmed, :underfilled]],
+      description: "成班事实：pending / confirmed / underfilled"
+    )
+
     attribute(:sponsorship_enabled, :boolean,
       allow_nil?: false,
       default: true,
@@ -236,6 +285,22 @@ defmodule Cgc2046.Events.Event do
   end
 
   calculations do
+    calculate(:qualification_badge, :string,
+      public?: true,
+      load: [:status, :qualification_status, :min_participants],
+      calculation: fn records, _ ->
+        Cgc2046.Events.QualificationBadge.project(records, :qualification_badge)
+      end
+    )
+
+    calculate(:short_by, :integer,
+      public?: true,
+      load: [:status, :qualification_status, :min_participants],
+      calculation: fn records, _ ->
+        Cgc2046.Events.QualificationBadge.project(records, :short_by)
+      end
+    )
+
     # issue #505 D1 公开读面：配套课程卡投影（id/slug/title 最小集；无锚 →
     # nil）。load 依赖声明同 available_price_tiers 纪律（GraphQL 单独请求时
     # Ash 补载 course_revision_id）。
@@ -290,6 +355,15 @@ defmodule Cgc2046.Events.Event do
       destination_attribute: :id,
       allow_nil?: true
     )
+
+    belongs_to(:initiative, Cgc2046.Initiatives.Initiative,
+      source_attribute: :initiative_id,
+      destination_attribute: :id,
+      allow_nil?: true,
+      define_attribute?: false
+    )
+
+    has_many(:moderators, Cgc2046.Events.EventModerator, destination_attribute: :event_id)
   end
 
   actions do
@@ -311,7 +385,12 @@ defmodule Cgc2046.Events.Event do
       :sponsorship_deadline,
       :pricing_enabled,
       :price_tiers,
-      :course_revision_id
+      :course_revision_id,
+      :initiative_id,
+      :deposit_enabled,
+      :deposit_amount_cents,
+      :min_age,
+      :min_participants
     ])
 
     create :create do
@@ -335,7 +414,12 @@ defmodule Cgc2046.Events.Event do
         :sponsorship_deadline,
         :pricing_enabled,
         :price_tiers,
-        :course_revision_id
+        :course_revision_id,
+        :initiative_id,
+        :deposit_enabled,
+        :deposit_amount_cents,
+        :min_age,
+        :min_participants
       ])
 
       # GraphQL 入口不注入 tenant（#104 同款），workspace_id 由入参提供；
@@ -347,6 +431,34 @@ defmodule Cgc2046.Events.Event do
       )
 
       change(set_attribute(:status, :draft))
+
+      change(fn changeset, context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
+        end)
+      end)
+
+      change(fn changeset, _context ->
+        case Kernel.get_in(changeset.context, [:private, :actor]) do
+          %{id: user_id} -> Ash.Changeset.force_change_attribute(changeset, :created_by, user_id)
+          _ -> changeset
+        end
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, event ->
+          result =
+            case Kernel.get_in(cs.context, [:private, :actor]) do
+              %{id: user_id} -> Cgc2046.Events.Moderators.ensure_assigned(event, user_id)
+              _ -> :ok
+            end
+
+          case result do
+            :ok -> {:ok, event}
+            {:error, reason} -> {:error, reason}
+          end
+        end)
+      end)
 
       # slug 未提供时兜底生成（公开 URL 段；唯一索引防碰撞）
       change(fn changeset, _context ->
@@ -419,8 +531,19 @@ defmodule Cgc2046.Events.Event do
         :sponsorship_deadline,
         :pricing_enabled,
         :price_tiers,
-        :course_revision_id
+        :course_revision_id,
+        :initiative_id,
+        :deposit_enabled,
+        :deposit_amount_cents,
+        :min_age,
+        :min_participants
       ])
+
+      change(fn changeset, context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
+        end)
+      end)
 
       # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的
       # changeset.data 读取会 raise（AtomicChangeset 无原数据）。本函数 change
@@ -479,6 +602,13 @@ defmodule Cgc2046.Events.Event do
          type: "offering.capacity_changed",
          payload: &__MODULE__.capacity_changed_payload/2,
          skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
+      )
+
+      change(
+        {Cgc2046.Workflows.SignalEmitter,
+         type: "event.schedule_changed",
+         payload: &__MODULE__.schedule_changed_payload/2,
+         skip_unless: &__MODULE__.schedule_changed_and_published?/2}
       )
     end
 
@@ -608,6 +738,28 @@ defmodule Cgc2046.Events.Event do
       )
     end
 
+    update :qualify do
+      description("在报名截止时一次性落成班事实；仅内部生命周期 worker 使用")
+      require_atomic?(false)
+
+      argument(:qualification_status, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:confirmed, :underfilled]]
+      )
+
+      accept([])
+
+      change(fn changeset, _context ->
+        status = Ash.Changeset.get_argument(changeset, :qualification_status)
+
+        if Ash.Changeset.get_data(changeset, :qualification_status) == :pending do
+          Ash.Changeset.force_change_attribute(changeset, :qualification_status, status)
+        else
+          Ash.Changeset.add_error(changeset, "event qualification already settled")
+        end
+      end)
+    end
+
     defaults([:read])
 
     # #14：教研 run 创建后回写产物引用（Curriculum.Instantiator 内部调用，authorize?: false）。
@@ -670,6 +822,28 @@ defmodule Cgc2046.Events.Event do
       Ash.Changeset.changing_attribute?(changeset, :registration_deadline)
   end
 
+  defp schedule_changed?(changeset) do
+    Ash.Changeset.changing_attribute?(changeset, :starts_at) or
+      Ash.Changeset.changing_attribute?(changeset, :venue)
+  end
+
+  @doc false
+  def schedule_changed_and_published?(changeset, _event),
+    do:
+      schedule_changed?(changeset) and
+        Ash.Changeset.get_data(changeset, :status) in [:open, "open", :closed, "closed"]
+
+  @doc false
+  def schedule_changed_payload(_changeset, event) do
+    %{
+      "event_id" => event.id,
+      "title" => event.title,
+      "starts_at" => event.starts_at,
+      "venue" => event.venue,
+      "idempotency_key" => "event.schedule_changed:" <> event.id <> ":" <> Ecto.UUID.generate()
+    }
+  end
+
   # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
@@ -694,6 +868,7 @@ defmodule Cgc2046.Events.Event do
       authorize_if(Cgc2046.Offering.ActorReadsOffering)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(status == :open and visibility == :public))
+      authorize_if({Cgc2046.Events.ReadsArchivedInitiativeEvent, []})
     end
 
     # 写操作：Owner/Admin（多角色并集）
