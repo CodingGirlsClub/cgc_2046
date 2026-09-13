@@ -87,6 +87,14 @@ beforeEach(() => {
 })
 
 describe('getContent 新字段透传（mapContent）', () => {
+  it.each(['closed', 'cancelled'])('留档 Event 的 %s 状态透传，详情据此隐藏报名动作', async (status) => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, status, enrollmentBadge: 'closed' }
+    })
+    const item = await new RealMiniProgramApi().getContent('event', 'event-1')
+    expect(item.status).toBe(status)
+  })
+
   it('event 有值：startsAt/endsAt/venue 原样透传，badge 解析为枚举', async () => {
     mocks.graphqlRequest.mockResolvedValue({ getEvent: EVENT_RECORD })
     const api = new RealMiniProgramApi()
