@@ -1,0 +1,176 @@
+@startuml initiative-er
+' ============================================================
+' L1 - Initiative（倡导活动）实体关系图（to-be，brainstorm 2026-09-13）
+' 状态：需求层设计稿，尚未实现；从 initiative-user-journeys.puml 四角色旅程推导。
+'   全量领域 ER 见 domain-model-er.puml；本图只画 Initiative 触及的子图。
+' 颜色：绿 = 新增实体 · 蓝 = 既有实体新增字段 · 黄 = 既有实体不改（上下文）
+' 分层：所有能力（押金 / 核销 / 18+ / 成班 / 自助取消 / 改期通知 / 主理人 / 作品）都是 Event 的，单场可独立使用；
+'   Initiative 只提供身份、规则的值与锁、跨场次入口与计数，不实现任何流程。
+' 事实来源（既有实体锚点）：
+'   backend/lib/cgc_2046/events/event.ex（workspace_id 非空租户键；venue 四键或全空；
+'     registration_deadline；pricing_enabled/price_tiers；course_revision_id）
+'   backend/lib/cgc_2046/admission/enrollment.ex（event_id/course_id 二选一；submission_payload）
+'   backend/lib/cgc_2046/accounts/portfolio_item.ex（title/description/url/icon；仅关联 user/workspace）
+'   backend/lib/cgc_2046/accounts/workspace.ex · workspace_application.ex（全局；仅平台管理员建）
+'   backend/lib/cgc_2046/payments/order.ex（enrollment 缴费订单，退款状态机）
+' 决策来源：2026-09-13 brainstorm Q1–Q8 + 补充决策 A1–A5 + #508 / #509 / #510 / #512 需求
+' ============================================================
+title Initiative（倡导活动）实体关系（to-be）— 只画触及子图
+skinparam backgroundColor white
+skinparam linetype ortho
+skinparam Entity {
+    BackgroundColor #FFF7E6
+    BorderColor #B26A00
+}
+
+' ---------- 全局资源 ----------
+entity "User（既有）" as USER {
+    * id : uuid <<PK>>
+    --
+    is_platform_admin : boolean
+}
+entity "Workspace（既有）" as WORKSPACE {
+    * id : uuid <<PK>>
+    --
+    slug : string <<UK>>
+    join_policy : open|request|invite_only
+    仅平台管理员创建；申请 → 审批；reassign_owner
+}
+entity "Initiative（新，全局）" as INITIATIVE #E8F5E9 {
+    * id : uuid <<PK>>
+    --
+    name : string
+    slug : string <<UK>>（公开页 URL 段）
+    hashtag : string（品牌标签，展示用；平台无话题实体）
+    description : text
+    window_starts_at / window_ends_at（信息性，不强制校验 Event 日期）
+    status : draft|open|closed
+    created_by : uuid <<FK>> User（平台管理员）
+}
+entity "InitiativeRule（新）" as RULE #E8F5E9 {
+    * initiative_id : uuid <<FK>>
+    * key : deposit|age_gate|min_participants|deadline_rule
+    --
+    value : json
+      deposit {enabled, amount_cents} · age_gate {min_age 18}
+      min_participants 8 · deadline_rule {hours_before_start 72}
+    locked : boolean（锁死 = Event 上该字段由 Initiative 决定、不可改；默认 = 建场时以 Initiative 值为初值、可改）
+    UK (initiative_id, key)
+}
+
+' ---------- 租户资源 ----------
+entity "Event（既有 + 新字段）" as EVENT #E3F2FD {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>（非空，租户键）
+    **initiative_id : uuid <<FK>> 可空（新；仅草稿期可设，发布后不挂不摘）**
+    slug : string <<UK>> 全局（1024-<城市>-<序号>，发布后锁定）
+    venue : json 四键 country/province/city/district 或全空
+    starts_at / ends_at
+    **min_participants : integer 可空（新，#512；来自 Initiative 默认快照）**
+    registration_deadline : datetime（由 deadline_rule 快照算出）
+    **成班判定结果 : pending|confirmed|underfilled（新，#512 v1 必须；开成数与徽章读它）**
+    改期 / 换场地 → 通知已报名者（新信号，A4）
+    capacity / enrollment_policy / visibility / status
+    course_revision_id : uuid 可空（#505 配套课）
+    **deposit_enabled / deposit_amount_cents（新，#509；Event 自身能力，单场可独立收押金）**
+    **age_gate（新，#510；Event 自身能力）**
+    挂进 Initiative 后：锁死字段的值由 Initiative 决定且不可改；默认字段以 Initiative 值为初值
+}
+entity "EventModerator（新）主理人" as MODERATOR #E8F5E9 {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    event_id : uuid <<FK>>
+    user_id : uuid <<FK>>（不要求是 Workspace 成员）
+    assigned_by : uuid <<FK>> User（Owner/Admin）
+    assigned_at : datetime
+    UK (event_id, user_id)
+    能力：扫码核销 · 看本场名单（脱敏）· 审核本场作品
+    默认：建场时创建者自动成为主理人；Owner/Admin 隐含主理人全部能力
+}
+entity "Enrollment（既有 + 新字段）" as ENROLLMENT #E3F2FD {
+    * id : uuid <<PK>>
+    --
+    workspace_id / event_id / user_id
+    status : pending|payment_pending|confirmed|rejected|expired|cancelled
+    submission_payload : json（可承载「愿意再来 / 愿意帮忙」勾选）
+    **age_confirmed_at : datetime（新，#510）**
+    **terms_version : string（新，#510）**
+    自助取消：截止前自动全额退押金（新路径，A3）；截止后 = no-show
+}
+entity "Attendance（新，#508）" as ATTENDANCE #E8F5E9 {
+    * id : uuid <<PK>>
+    --
+    workspace_id : uuid <<FK>>
+    enrollment_id : uuid <<FK>> <<UK>>（一条报名至多一条）
+    checked_in_at : datetime
+    checked_in_by : uuid <<FK>> User（须是该场主理人）
+    method : scan|manual
+}
+entity "Payments.Order（既有）" as PORDER {
+    * id : uuid <<PK>>
+    --
+    enrollment_id : uuid <<FK>>
+    amount_cents : integer（押金 6900）
+    status : pending|paid|refunding|refunded|refund_failed|cancelled|expired
+    按 #509：T+48h 已核销 → 退；未核销 → no-show 不退
+}
+entity "PortfolioItem（既有 + 新字段）作品" as PORTFOLIO #E3F2FD {
+    * id : uuid <<PK>>
+    --
+    workspace_id / user_id
+    title / description / url / icon（URL 制，无文件上传）
+    **event_id / course_id : uuid <<FK>> 可空、二选一（新：产出于哪场 / 哪门课）**
+    **approved_by / approved_at（新：主理人审核，只控 Event 页展示）**
+}
+entity "WorkflowRun :city_organizing（#513 thin）" as WFRUN {
+    * id : uuid <<PK>>
+    --
+    partition_id = workspace_id（v1 全在 2046）
+    input_snapshot : json {initiative_id, city}
+    一城一条 run；认领城市的人 = 该城各场主理人
+}
+
+' ---------- 关系 ----------
+USER ||--o{ INITIATIVE : 创建（平台管理员）
+INITIATIVE ||--o{ RULE : 逐字段规则
+INITIATIVE |o--o{ EVENT : 挂载（Event 侧 0..1，草稿期）
+WORKSPACE ||--o{ EVENT : 举办（租户）
+EVENT ||--o{ MODERATOR : 主理人 1..N
+USER ||--o{ MODERATOR : 担任
+EVENT ||--o{ ENROLLMENT : 报名
+USER ||--o{ ENROLLMENT : 报名人
+ENROLLMENT ||--o| ATTENDANCE : 到场事实
+USER ||--o{ ATTENDANCE : checked_in_by
+ENROLLMENT ||--o{ PORDER : 押金订单
+USER ||--o{ PORTFOLIO : 作品集
+EVENT |o--o{ PORTFOLIO : 产出于（可空）
+USER |o--o{ PORTFOLIO : approved_by
+INITIATIVE ||--o{ WFRUN : 城市流程（input 引用）
+
+note bottom of INITIATIVE
+  **派生关系（不建表）**
+  参与 Workspace = 挂载 Event 的 distinct workspace_id
+  城市 = 挂载 Event 的 venue.city；venue 为空的场次归「线上 / 待定」
+  公开计数 = 城市数 / 场次数 / 报名数 / 开成数（只统计 open + public 的 Event）
+  公开页入口：web H5 + 小程序 discover（微信 / 抖音 / 小红书三平台构建）（A5）
+  内部报表（退款 / no-show / 财务）不上公开页，总部用 agent 查
+end note
+
+note bottom of RULE
+  **锁死 vs 默认（Q4 / Q8）**
+  锁死：Event 上该字段的值由 Initiative 决定、不可改；总部一改全场生效（实时读还是同步写由 planning 定）
+  默认：Event 挂载时以 Initiative 值为初值（min_participants；deadline_rule → registration_deadline），之后可改、不再跟随
+  hackerstart1024：deposit 锁 · age_gate 锁 · min_participants 默认 8 · deadline_rule 默认 72h
+  可实现为 Initiative 上的内嵌 json（同 price_tiers 先例），由 planning 定
+end note
+
+note bottom of MODERATOR
+  **单一 Event 级角色（Q5）**
+  一场多人、权限一套；不是 Workspace 角色，不与 owner/admin/tutor/volunteer/learner 撞词
+  Event 的建立 / 修改 / 取消不给主理人，留在 Owner/Admin
+  按 #513 thin：认领城市 = 被指派为该城各场次主理人（数据指派，非 workflow 状态）
+end note
+
+@enduml
