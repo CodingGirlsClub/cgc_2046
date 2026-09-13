@@ -76,6 +76,8 @@ export interface OfferingItem {
   sponsorshipDeadline?: string | null;
   /** 配套课程投影（JsonString，JSON.parse 后为 {id, slug, title}；仅 event；issue #505 D1） */
   companionCourse?: string | null;
+  /** Initiative parent; writable only while Event is draft. */
+  initiativeId?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -162,6 +164,7 @@ export const LIST_EVENTS: TypedDocumentNode<
         capacity
         confirmedCount
         registrationDeadline
+        initiativeId
         pricingEnabled
         priceTiers
       }
@@ -218,6 +221,7 @@ export const GET_EVENT: TypedDocumentNode<
       availablePriceTiers
       priceTiers
       companionCourse
+      initiativeId
     }
   }
 `;
@@ -268,6 +272,7 @@ export const CREATE_EVENT: TypedDocumentNode<
         registrationDeadline
         pricingEnabled
         priceTiers
+        initiativeId
       }
       errors {
         code
@@ -323,6 +328,7 @@ export const UPDATE_EVENT: TypedDocumentNode<
         venue
         pricingEnabled
         priceTiers
+        initiativeId
       }
       errors {
         code

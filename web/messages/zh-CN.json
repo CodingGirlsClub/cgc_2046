@@ -1276,6 +1276,9 @@
     "researchTitle": "教研",
     "editMeta": "编辑元数据",
     "fieldTitle": "标题",
+    "initiativeLabel": "倡导活动",
+    "initiativeNone": "不挂载倡导活动",
+    "initiativeDraftOnly": "只有草稿活动可以更改倡导活动挂载。",
     "capacityHint": "名额上限（留空 = 不限）",
     "capacityBelowOccupied": "目标容量低于当前已占 {confirmed} 席：保存不拦截，超员部分将由账本拒新单、随取消/过期自然释放收敛",
     "deadlineHint": "报名截止（留空 = 不设截止）",
@@ -1541,7 +1544,7 @@
     "resendFailed": "重发失败"
   },
   "admin": {
-    "loadFailed": "加载失败，请稍后重试。",
+    "loadFailed": "加载失败。",
     "loading": "加载中…",
     "search": "搜索",
     "filter": "过滤",
@@ -1688,7 +1691,19 @@
     "noOrphans": "暂无孤儿发现。",
     "openclackyDesc": "OpenClacky 是 Coding Girls Club 的 AI 协作平台企业版，面向团队深度研究协作。它运行在独立服务器（oc.codingirlsclub.com），拥有独立的认证体系——本平台的账号权限与 OpenClacky 互不影响。",
     "goOpenclacky": "前往 OpenClacky（oc.codingirlsclub.com）",
-    "auditRedactionNotice": "平台审计仅显示状态、类型、Workspace 和时间；不会显示 facts、输入快照或学习证据正文。"
+    "auditRedactionNotice": "平台审计仅显示状态、类型、Workspace 和时间；不会显示 facts、输入快照或学习证据正文。",
+    "navInitiatives": "倡导活动",
+    "linkInitiatives": "倡导活动",
+    "initiativesTitle": "倡导活动",
+    "initiativesDesc": "管理平台活动及共享规则。",
+    "initiativesEmpty": "暂无活动",
+    "initiativeName": "名称",
+    "initiativeSlug": "Slug",
+    "initiativeStatus": "状态",
+    "initiativeAction": "操作",
+    "initiativeOpen": "开放",
+    "initiativeClose": "结束"
+    ,"initiativeCreate": "新建倡导活动", "initiativeEdit": "编辑", "initiativeSave": "保存", "initiativeCancelEdit": "取消", "initiativeDescription": "描述"
   },
   "permissions": {
     "ability": {
@@ -2063,5 +2078,18 @@
     "loading": "正在加载课程…",
     "error": "课程加载失败，请刷新重试。",
     "myParticipations": "我的报名"
+  },
+  "initiatives": {
+    "loading": "加载中…",
+    "notFound": "活动不存在",
+    "back": "返回",
+    "cities": "城市",
+    "events": "场次",
+    "participants": "报名人数",
+    "qualified": "已成班",
+    "cancelled": "已取消",
+    "shortBy": "还差 {count} 人",
+    "open": "开放报名",
+    "timeTbd": "时间待定"
   }
 }
