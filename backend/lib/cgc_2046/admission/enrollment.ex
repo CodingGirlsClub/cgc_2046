@@ -95,6 +95,9 @@ defmodule Cgc2046.Admission.Enrollment do
     attribute(:rejection_reason, :string, public?: true, writable?: false)
     attribute(:approval_deadline, :utc_datetime, public?: true, writable?: true)
     attribute(:expired_at, :utc_datetime, public?: true, writable?: false)
+    attribute(:age_confirmed_at, :utc_datetime, public?: true)
+    attribute(:terms_version, :string, public?: true)
+
     attribute(:cancelled_at, :utc_datetime, public?: true, writable?: false)
 
     create_timestamp(:inserted_at, public?: true)
@@ -325,6 +328,15 @@ defmodule Cgc2046.Admission.Enrollment do
 
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_cancel/1)
+      end)
+
+      # 截止前的自助取消需要把已支付押金送入既有退款队列；截止后的取消只
+      # 释放名额。该 after_action 与报名状态变更处于同一 Ash 事务，避免留下
+      # 已取消但没有退款任务的崩溃窗口。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, enrollment ->
+          enqueue_self_cancel_refunds(cs, enrollment)
+        end)
       end)
     end
 
@@ -616,6 +628,7 @@ defmodule Cgc2046.Admission.Enrollment do
     # eligible_target 的 FOR SHARE 行锁获取之前执行，外呼不持锁。
     with :ok <- check_content(changeset, actor),
          {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
+         :ok <- lock_qualification_target(event_id),
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
@@ -780,6 +793,8 @@ defmodule Cgc2046.Admission.Enrollment do
     actor = changeset.context[:private][:actor]
 
     with {:ok, kind, target_id} <- target_from_record(changeset.data),
+         :ok <- lock_qualification_target(changeset.data.event_id),
+         {:ok, _} <- lock_for_order(changeset.data.id),
          {:ok, sequence} <- reserve_capacity(kind, target_id),
          {:ok, target_status} <- confirm_target_status(kind, target_id),
          {:ok, 1} <- claim_pending(changeset.data.id, target_status, actor.id, now, nil) do
@@ -870,9 +885,9 @@ defmodule Cgc2046.Admission.Enrollment do
   end
 
   defp prepare_cancel(changeset) do
-    now = DateTime.utc_now()
-
-    with {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
+    with {:ok, event} <- lock_cancel_target(changeset.data.event_id, changeset.data.course_id),
+         now = DateTime.utc_now(),
+         {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
          :ok <- release_capacity(capacity_target),
          {:ok, _voided} <-
            Cgc2046.Payments.Order.void_pending_for_enrollment(
@@ -882,10 +897,113 @@ defmodule Cgc2046.Admission.Enrollment do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :cancelled)
       |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
+      |> Ash.Changeset.put_context(:self_cancel_before_deadline, before_deadline?(event, now))
     else
       {:error, reason} -> add_domain_error(changeset, reason)
     end
   end
+
+  defp enqueue_self_cancel_refunds(changeset, enrollment) do
+    if self_cancel_refund_eligible?(changeset, enrollment) do
+      orders =
+        Cgc2046.Payments.Order
+        |> Ash.Query.filter(
+          enrollment_id == ^enrollment.id and order_kind == :deposit and
+            status in [:paid, :refunding, :refund_failed]
+        )
+        |> Ash.read!(authorize?: false, tenant: enrollment.workspace_id)
+
+      case orders do
+        [order] -> enqueue_deposit_refund(order, enrollment)
+        [] -> {:ok, enrollment}
+        _ -> {:error, :multiple_active_deposit_orders}
+      end
+    else
+      {:ok, enrollment}
+    end
+  end
+
+  defp enqueue_deposit_refund(order, enrollment) do
+    result =
+      case order.status do
+        :paid ->
+          order
+          |> Ash.Changeset.for_update(:start_refund, %{})
+          |> Ash.update(authorize?: false, tenant: enrollment.workspace_id)
+
+        :refund_failed ->
+          order
+          |> Ash.Changeset.for_update(:retry_refund, %{})
+          |> Ash.update(authorize?: false, tenant: enrollment.workspace_id)
+
+        :refunding ->
+          {:ok, order}
+      end
+
+    with {:ok, refunding} <- result,
+         {:ok, _job} <-
+           Oban.insert(
+             Cgc2046.Payments.Workers.PaymentRefundWorker.new(%{"order_id" => refunding.id})
+           ) do
+      {:ok, enrollment}
+    end
+  end
+
+  defp self_cancel_refund_eligible?(changeset, _enrollment) do
+    Map.get(changeset.context, :self_cancel_before_deadline) == true
+  end
+
+  defp before_deadline?(%{registration_deadline: nil}, _now), do: true
+
+  defp before_deadline?(%{registration_deadline: %NaiveDateTime{} = deadline}, now),
+    do: DateTime.compare(now, DateTime.from_naive!(deadline, "Etc/UTC")) == :lt
+
+  defp before_deadline?(%{registration_deadline: deadline}, now),
+    do: DateTime.compare(now, deadline) == :lt
+
+  # All qualification-sensitive transitions acquire this lock before touching
+  # Enrollment/ledger/order rows. Read the clock after a possible lock wait.
+  defp lock_qualification_target(nil), do: :ok
+
+  defp lock_qualification_target(event_id) do
+    case Cgc2046.Repo.query(
+           "SELECT status, registration_deadline, min_participants FROM events WHERE id = $1 FOR UPDATE",
+           [Cgc2046.Repo.uuid!(event_id)]
+         ) do
+      {:ok, %{rows: [[_status, _deadline, nil]]}} ->
+        :ok
+
+      {:ok, %{rows: [[status, deadline, _minimum]]}} ->
+        if status == "open" and
+             before_deadline?(%{registration_deadline: deadline}, DateTime.utc_now()),
+           do: :ok,
+           else: {:error, :target_not_open_or_registration_closed}
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_open_or_registration_closed}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
+
+  defp lock_cancel_target(event_id, nil) when not is_nil(event_id) do
+    case Cgc2046.Repo.query(
+           "SELECT registration_deadline FROM events WHERE id = $1 FOR UPDATE",
+           [Cgc2046.Repo.uuid!(event_id)]
+         ) do
+      {:ok, %{rows: [[deadline]]}} -> {:ok, %{registration_deadline: deadline}}
+      {:ok, %{rows: []}} -> {:error, :target_not_found}
+      {:error, reason} -> {:error, {:database, reason}}
+    end
+  end
+
+  defp lock_cancel_target(nil, course_id) when not is_nil(course_id),
+    do: {:ok, %{registration_deadline: nil}}
+
+  defp lock_cancel_target(nil, nil), do: {:error, :target_not_found}
+
+  defp lock_cancel_target(_event_id, _course_id), do: {:error, :target_not_found}
 
   # 作废语义已收编至 Payments 端口 Order.void_pending_for_enrollment/2
   # （ADR-0009 Fable 5 MEDIUM-2）：R12/e2e #1——取消/免缴在离开占位态的同一
@@ -894,6 +1012,13 @@ defmodule Cgc2046.Admission.Enrollment do
   # 支付落账（U7，KTD12）：CAS payment_pending → confirmed（免缴/过期/取消竞态
   # 由 num_rows=0 上抛给 worker 走自动退款分支）。
   defp prepare_settle_paid(changeset) do
+    case lock_qualification_target(changeset.data.event_id) do
+      :ok -> do_settle_paid(changeset)
+      {:error, reason} -> add_domain_error(changeset, reason)
+    end
+  end
+
+  defp do_settle_paid(changeset) do
     sql = """
     UPDATE enrollments
     SET status = 'confirmed', updated_at = NOW()
@@ -921,7 +1046,8 @@ defmodule Cgc2046.Admission.Enrollment do
     now = DateTime.utc_now()
     actor = changeset.context[:private][:actor]
 
-    with {:ok, 1} <- claim_waive(changeset.data.id, actor.id, now),
+    with :ok <- lock_qualification_target(changeset.data.event_id),
+         {:ok, 1} <- claim_waive(changeset.data.id, actor.id, now),
          {:ok, _voided} <-
            Cgc2046.Payments.Order.void_pending_for_enrollment(changeset.data.id, "waived") do
       changeset
@@ -1031,7 +1157,8 @@ defmodule Cgc2046.Admission.Enrollment do
   defp waive_for_pricing_disable(enrollment, actor, workspace_id) do
     now = DateTime.utc_now()
 
-    with {:ok, 1} <- claim_waive(enrollment.id, actor.id, now),
+    with :ok <- lock_qualification_target(enrollment.event_id),
+         {:ok, 1} <- claim_waive(enrollment.id, actor.id, now),
          {:ok, _voided} <-
            Cgc2046.Payments.Order.void_pending_for_enrollment(enrollment.id, "waived"),
          {:ok, _log} <-
@@ -1097,7 +1224,7 @@ defmodule Cgc2046.Admission.Enrollment do
     SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers
     FROM #{table}
     WHERE id = $1 AND status = 'open'
-      AND (registration_deadline IS NULL OR registration_deadline > NOW())
+      AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
       AND (
         visibility = 'public'
         OR EXISTS (

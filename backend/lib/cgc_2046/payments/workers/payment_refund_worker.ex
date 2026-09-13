@@ -166,7 +166,7 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
       {:ok, %{status: status}} when status in [:cancelled, :expired, :rejected] ->
         :ok
 
-      {:ok, %{status: :confirmed} = enrollment} ->
+      {:ok, %{status: status} = enrollment} when status in [:confirmed, :payment_pending] ->
         case waived?(enrollment) do
           {:ok, true} ->
             # 免缴迟到退款：钱退回，报名保持 confirmed（免缴占位不释放）

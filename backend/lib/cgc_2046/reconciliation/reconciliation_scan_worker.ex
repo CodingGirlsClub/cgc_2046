@@ -83,7 +83,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   # 规3/6 判定的信号族 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）
   @dead_letter_workers [
     "Cgc2046.Workflows.SignalPublishWorker",
-    "Cgc2046.Notifications.NotificationWorker"
+    "Cgc2046.Notifications.NotificationWorker",
+    "Cgc2046.Notifications.Workers.DeliveryWorker"
   ]
 
   # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数
