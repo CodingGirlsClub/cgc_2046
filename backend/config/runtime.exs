@@ -181,7 +181,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -198,7 +204,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -215,7 +227,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     }
   }
 
