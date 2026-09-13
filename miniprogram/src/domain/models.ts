@@ -22,6 +22,9 @@ export interface CatalogItem {
   id: string
   kind: ContentKind
   title: string
+  status: string
+  qualificationBadge: QualificationBadge | null
+  shortBy: number | null
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
   registrationDeadline: string | null
   /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
@@ -41,6 +44,39 @@ export interface CatalogItem {
    * confirmed，后端仅返回活跃集——在场即「已报名」）。匿名/未报名 → null。
    */
   myEnrollment: MyEnrollmentState | null
+}
+
+export type QualificationBadge = 'cancelled' | 'closed' | 'confirmed' | 'short_by' | 'open'
+
+export interface PublicInitiativeCard {
+  id: string
+  name: string
+  slug: string
+  hashtag: string | null
+  status: 'open' | 'closed'
+}
+
+export interface PublicInitiativeEvent {
+  id: string
+  slug: string
+  title: string
+  status: 'open' | 'closed' | 'cancelled'
+  startsAt: string | null
+  endsAt: string | null
+  archived: boolean
+  qualificationBadge: QualificationBadge
+  shortBy: number | null
+}
+
+export interface PublicInitiative extends PublicInitiativeCard {
+  description: string | null
+  windowStartsAt: string | null
+  windowEndsAt: string | null
+  cityCount: number
+  eventCount: number
+  confirmedCount: number
+  qualifiedEventCount: number
+  cities: { city: string; events: PublicInitiativeEvent[] }[]
 }
 
 /** 详情页「已报名」态的本人活跃报名投影（myEnrollment 查询子集） */

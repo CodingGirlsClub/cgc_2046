@@ -120,6 +120,9 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
 
+  if (document.includes('query PublicInitiatives')) return { publicInitiatives: [] }
+  if (document.includes('query PublicInitiative(')) return { publicInitiative: null }
+
   if (document.includes('query Catalog')) {
     // #355 P2-10：CatalogSearch 带 title ilike `%kw%` 过滤变量（大小写不敏感 includes 语义）
     const filter = values.eventFilter ?? values.courseFilter

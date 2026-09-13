@@ -61,3 +61,23 @@ test('buildJoinSharePath 拼 join 路由并编码 scene', () => {
   assert.equal(buildJoinSharePath('SC_1'), '/pages/join/index?scene=SC_1')
   assert.equal(buildJoinSharePath('a b/c&d=e'), '/pages/join/index?scene=a%20b%2Fc%26d%3De')
 })
+
+test('Initiative 分享热启动按 slug 路由并编码', () => {
+  assert.equal(
+    resolveAppShowRoute({ slug: '1024 北京&周末' }, 'pages/discover/index'),
+    '/pages/initiative-detail/index?slug=1024%20%E5%8C%97%E4%BA%AC%26%E5%91%A8%E6%9C%AB'
+  )
+})
+
+test('Initiative 同 slug 不重复跳转，不同 slug 仍打开目标', () => {
+  assert.equal(resolveAppShowRoute({ slug: 'new' }, 'pages/initiative-detail/index', { slug: 'new' }), null)
+  assert.equal(
+    resolveAppShowRoute({ slug: 'new' }, 'pages/initiative-detail/index', { slug: 'old' }),
+    '/pages/initiative-detail/index?slug=new'
+  )
+})
+
+test('join scene 与 Event id 保留各自分享入口', () => {
+  assert.equal(resolveAppShowRoute({ scene: 'invite', slug: '1024' }, 'pages/discover/index'), '/pages/join/index?scene=invite')
+  assert.equal(resolveAppShowRoute({ id: 'event-1', kind: 'event', slug: '1024' }, 'pages/discover/index'), '/pages/event-detail/index?id=event-1&kind=event')
+})

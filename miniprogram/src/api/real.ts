@@ -88,6 +88,7 @@ import type {
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
+import { parseQualificationBadge } from '@/domain/initiative'
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
 import {
   activateAccount,
@@ -120,6 +121,9 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     id: record.id,
     kind,
     title: record.title,
+    status: record.status,
+    qualificationBadge: 'qualificationBadge' in record ? parseQualificationBadge(record.qualificationBadge) : null,
+    shortBy: 'shortBy' in record && typeof record.shortBy === 'number' ? record.shortBy : null,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
     registrationDeadline: record.registrationDeadline,
     pricingEnabled: record.pricingEnabled === true,
