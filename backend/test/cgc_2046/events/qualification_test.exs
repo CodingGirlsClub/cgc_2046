@@ -25,6 +25,12 @@ defmodule Cgc2046.Events.QualificationTest do
              |> Ash.create(tenant: workspace.id, actor: learner)
 
     assert enrollment.status == :confirmed
+
+    Cgc2046.Repo.query!(
+      "UPDATE events SET registration_deadline = NOW() - INTERVAL '1 hour' WHERE id = $1",
+      [Ecto.UUID.dump!(event.id)]
+    )
+
     assert {:ok, :underfilled, _recipients, 1} = Qualification.qualify(event)
     assert :skip = Qualification.qualify(event)
     assert Ash.get!(Event, event.id, authorize?: false).qualification_status == :underfilled
