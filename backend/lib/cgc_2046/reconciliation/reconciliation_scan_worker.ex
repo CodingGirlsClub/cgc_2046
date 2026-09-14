@@ -22,7 +22,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定；
      Curriculum.Instantiator 二次校验与 INSERT 竞态 / reaper cancel 失败残余窗口兜底）
-  6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker）。
+  6. `:dead_letter_job` — 死信 job（SignalPublishWorker / NotificationWorker /
+     DeliveryWorker / DepositForfeitWorker；末位为押金 no-show 结算，KTD7）。
      **Pruner 7 天窗口内判定**：oban_jobs 超出 Pruner max_age（7 天）的 discarded
      历史行不报告——死信告警只覆盖可排查窗口，历史已过期行交给 Pruner 清理。
   7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
@@ -80,11 +81,14 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # 规3/6 判定的信号族 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）
+  # 规3/6 判定的 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）。
+  # 押金 no-show 结算（KTD7）同列：其死信 = 连续三拍结算硬失败，虽由下一拍 cron
+  # 自愈，但资金终态滞留窗口必须在 /admin 对账页可见（不静默）。
   @dead_letter_workers [
     "Cgc2046.Workflows.SignalPublishWorker",
     "Cgc2046.Notifications.NotificationWorker",
-    "Cgc2046.Notifications.Workers.DeliveryWorker"
+    "Cgc2046.Notifications.Workers.DeliveryWorker",
+    "Cgc2046.Payments.Workers.DepositForfeitWorker"
   ]
 
   # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数
