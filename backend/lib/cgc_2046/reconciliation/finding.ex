@@ -7,7 +7,8 @@ defmodule Cgc2046.Reconciliation.Finding do
   命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
   「无孤儿 → 空报告」由结构保证。
 
-  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移）
+  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移；
+  13 = R3 资金写频次；14 = 押金 no-show 结算无锚）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
@@ -24,8 +25,8 @@ defmodule Cgc2046.Reconciliation.Finding do
      始于 launched，draft 期无断流，不扩）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
-  6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
-     Pruner 7 天窗口内判定，moduledoc 见 worker）
+  6. `:dead_letter_job` — 死信 job（SignalPublishWorker / NotificationWorker /
+     DeliveryWorker / DepositForfeitWorker，Pruner 7 天窗口内判定，moduledoc 见 worker）
   7. `:learning_run_stalled` — learning run 停滞（`status=running` 且最后活动时间
      （S8：最新 attempt created_at，零 attempt 回退 inserted_at）严格早于
      `Cgc2046.Learning.Runs.stagnant_cutoff/1`；与 LearningProgressWorker
@@ -47,6 +48,10 @@ defmodule Cgc2046.Reconciliation.Finding do
       资金写治理动作（:order_refund / :order_refund_retry / :waive_payment）
       超阈值（默认 1h / 5 笔，app env 可调）；entity = 操作人（:user），
       detail 带 per-action 计数；纯查询告警面，不含处置语义
+  14. `:deposit_settlement_unanchored` — 押金 no-show 结算无锚（KTD7）：`closed`
+     场 `ends_at` 为空而名下仍有 paid 押金单——结算锚点缺失、订单会静默滞留。
+     由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 产出（非本扫描 worker
+     的规则表），刷新语义同 D2（命中 upsert / 未命中删除），entity = 场（:event）
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -86,7 +91,10 @@ defmodule Cgc2046.Reconciliation.Finding do
     # ADR-0009 Fable 5 HIGH-1：账本缓存 vs offering 真值的上游漂移看护
     :ledger_cache_drift,
     # 规13（R3）：资金写动作频次告警（同 actor 窗口内同类资金写超阈值）
-    :fund_action_burst
+    :fund_action_burst,
+    # 规14（U8/KTD7）：押金 no-show 结算无锚（closed 场 ends_at 为空而仍有
+    # paid 押金单；由 DepositForfeitWorker 产出，非本扫描 worker 的规则表）
+    :deposit_settlement_unanchored
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）

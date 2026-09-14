@@ -202,7 +202,11 @@ config :cgc_2046, Oban,
        {"*/1 * * * *", Cgc2046.Payments.Workers.PaymentExpiryWorker},
        # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）夜间核对，
        # 03:23 避整点渠道尖峰；拉取失败告警不阻塞。
-       {"23 3 * * *", Cgc2046.Payments.Workers.PaymentReconciliationWorker}
+       {"23 3 * * *", Cgc2046.Payments.Workers.PaymentReconciliationWorker},
+       # 押金制 U8（R8/R9、KTD7）：no-show 结算——活动正常结束（ends_at）满 48h
+       # 的 paid 押金单逐笔 CAS 为 forfeited；10 分钟粒度相对 48h 窗口足够，
+       # 兜底（worker 死信/停机）由下一拍自愈。
+       {"*/10 * * * *", Cgc2046.Payments.Workers.DepositForfeitWorker}
      ]}
   ]
 
