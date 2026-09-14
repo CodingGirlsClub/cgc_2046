@@ -11,7 +11,7 @@ import {
 	BIND_WECHAT_WITH_PHONE,
 	graphqlErrorDetails,
 } from "@/lib/graphql/auth";
-import { navigateAfterLogin } from "./use-auth-submit";
+import { navigateAfterLogin, readAuthTarget } from "./use-auth-submit";
 import { useSmsLogin, smsErrorMessage } from "./use-sms-login";
 
 /**
@@ -32,16 +32,17 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 	const termsT = useTranslations("auth.terms");
 	const authT = useTranslations("auth");
 
-	// 绑定成功后的跳转目标（/login?bind_ticket=&next= 由 wechat-callback 透传）
+	// 绑定成功后的跳转目标（/login?bind_ticket=&next= 由 wechat-callback 透传；
+	// 后端授权页回跳时为 return_to——读取单源见 readAuthTarget）
 	const nextParam = () =>
-		typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("next");
+		typeof window === "undefined" ? null : readAuthTarget(new URLSearchParams(window.location.search));
 	const { sendCode, submit, countdown, sending, busy, error, setError } =
 		useSmsLogin();
 	const [bind, bindState] = useMutation(BIND_WECHAT_WITH_PHONE);
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const searchParams = useSearchParams();
-	const nextRaw = searchParams?.get("next") ?? null;
+	const nextRaw = readAuthTarget(searchParams);
 	const switchHref =
 		"/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 

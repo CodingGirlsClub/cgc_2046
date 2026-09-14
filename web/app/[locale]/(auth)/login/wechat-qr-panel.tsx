@@ -7,6 +7,7 @@ import {
 	WECHAT_LOGIN_START,
 	type WechatLoginStartResult,
 } from "@/lib/graphql/auth";
+import { readAuthTarget } from "./use-auth-submit";
 
 /**
  * 微信扫码登录面板（plan 002 U4/U5；advisor02 M1 按 D2 重写）。
@@ -43,8 +44,8 @@ export default function WechatQrPanel() {
 		const load = async () => {
 			setPhase("loading");
 			try {
-				// next 透传：当前 /login?next= 带入 redirect_uri（state 只防伪）
-				const next = new URLSearchParams(window.location.search).get("next");
+				// 目标透传：当前 /login?next= 或后端授权页 return_to 带入 redirect_uri（state 只防伪）
+				const next = readAuthTarget(new URLSearchParams(window.location.search));
 				const { data } = await start({ variables: { next } });
 				const res: WechatLoginStartResult | null | undefined =
 					data?.wechatLoginStart;

@@ -88,22 +88,27 @@ defmodule Cgc2046Web.Router do
   # （AuthCookiePlug 合成 bearer → load_from_bearer 载 current_user → load_actor
   # 落 Ash actor，库的 ConsentRouter 以 actor 判定授权人）；session + CSRF 是同意
   # 表单 POST（`_csrf_token` + consent_request 绑定校验）的前提。
-  # 授权页 U3 为最小可测形态（库自带视图），文案/体验由 U4 接手
-  # （自定义 consent_view + sign_in_path）。
+  # OAuthConsentPlug（U4）在 load_actor 之后提供视图所需的请求级上下文（locale 协商、
+  # 账号桥、拒绝路径的本地化 error_description），见该模块 @moduledoc。
   pipeline :oauth_consent do
     plug(:fetch_session)
     plug(:protect_from_forgery)
     plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
     plug(:load_from_bearer)
     plug(:load_actor)
+    plug(Cgc2046Web.Plugs.OAuthConsentPlug)
   end
 
   # 授权页：**必须定义在协议 scope 之前**——router 默认按定义顺序匹配，先定义
   # 更具体的 `/oauth/authorize`，否则会被 `/oauth` 前缀 forward 兜住（404）。
+  # consent_view = 平台自有同意页（U4）：账号 / 能力 / 回调地址三要素 + 中英文案。
   scope "/" do
     pipe_through(:oauth_consent)
 
-    oauth2_server_consent_routes(oauth2_server: Cgc2046.Oauth2Server)
+    oauth2_server_consent_routes(
+      oauth2_server: Cgc2046.Oauth2Server,
+      consent_view: Cgc2046Web.OAuthConsentView
+    )
   end
 
   # OAuth 协议端点：RFC 8414 元数据（`/.well-known/oauth-authorization-server`，

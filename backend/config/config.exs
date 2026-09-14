@@ -78,8 +78,10 @@ config :cgc_2046, :oauth2_resource_url, "http://localhost:4000/mcp"
 # 不得复用会话/登录签名密钥（启动自检见 Cgc2046.Oauth2Server.validate_secrets!/0）。
 config :cgc_2046, :oauth2_signing_secret, "dev-only-oauth2-signing-secret-change-me"
 
-# 授权页未登录时的落点（U4 接手授权页体验：指向 web 登录页即可）。
-config :cgc_2046, :oauth2_sign_in_path, nil
+# 授权页未登录时的落点（U4）：web 登录页（相对路径——授权页经主域路径路由直达后端，
+# 相对跳转即主域登录页；登录 cookie 是 host-only，跨域绝对地址会丢登录态）。
+# 库 302 到该路径并带 `return_to=<授权页完整 URL>`（另写 session），web 登录页据此回跳。
+config :cgc_2046, :oauth2_sign_in_path, "/login"
 
 # OAuth 注册端点按 IP 配额（RFC 7591 §5：匿名写端点可限速）：成功注册计入独立
 # 配额，key 与 401 失败节流（McpAuthPlug）分开定义——注册被限流不影响既有

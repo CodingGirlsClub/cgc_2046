@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { renderHook } from "@/test-utils";
 import { useAuthSubmit } from "./use-auth-submit";
@@ -91,5 +91,68 @@ describe("useAuthSubmit（login 提交；注册已迁 register-phone-form）", (
 			expect(result.current.error).toBe("网络异常，请稍后重试"),
 		);
 		expect(push).not.toHaveBeenCalled();
+	});
+});
+
+describe("登录后跳转：OAuth 授权页回跳（后端 return_to）", () => {
+	const origin = "http://localhost:3000";
+	const originalLocation = window.location;
+
+	// jsdom 的 location.assign 未实现（会打印 Not implemented 且不可断言）：
+	// 按 lib/theme-sync.test.tsx 先例替换 location 对象
+	function stubLocation(search: string) {
+		const assign = vi.fn();
+		Object.defineProperty(window, "location", {
+			value: { ...window.location, origin, search, assign },
+			configurable: true,
+		});
+		return assign;
+	}
+
+	beforeEach(() => {
+		push.mockClear();
+		signInMock.mockReset();
+		signInMock.mockResolvedValue({
+			data: { signIn: { id: "u1", email: "a@b.c", isPlatformAdmin: false, token: "jwt" } },
+		});
+	});
+
+	afterEach(() => {
+		Object.defineProperty(window, "location", {
+			value: originalLocation,
+			configurable: true,
+		});
+	});
+
+	it("return_to 指向授权页 → 整页跳转（Next 客户端路由不承载 /oauth/*）", async () => {
+		const assign = stubLocation(
+			"?return_to=%2Foauth%2Fauthorize%3Fclient_id%3Dabc%26state%3Ds1",
+		);
+
+		const { result } = renderHook(() => useAuthSubmit());
+		await act(() => result.current.onSubmit(loginPayload));
+
+		expect(assign).toHaveBeenCalledWith("/oauth/authorize?client_id=abc&state=s1");
+		expect(push).not.toHaveBeenCalled();
+	});
+
+	it("站内 next → 客户端路由（既有行为不回归）", async () => {
+		const assign = stubLocation("?next=%2Forders%2Fnew");
+
+		const { result } = renderHook(() => useAuthSubmit());
+		await act(() => result.current.onSubmit(loginPayload));
+
+		expect(push).toHaveBeenCalledWith("/orders/new");
+		expect(assign).not.toHaveBeenCalled();
+	});
+
+	it("跨域 return_to → 回退 /（同源校验仍生效）", async () => {
+		const assign = stubLocation("?return_to=https%3A%2F%2Fevil.example%2Foauth%2Fauthorize");
+
+		const { result } = renderHook(() => useAuthSubmit());
+		await act(() => result.current.onSubmit(loginPayload));
+
+		expect(push).toHaveBeenCalledWith("/");
+		expect(assign).not.toHaveBeenCalled();
 	});
 });

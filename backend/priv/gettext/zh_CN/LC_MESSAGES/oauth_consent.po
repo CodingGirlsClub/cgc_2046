@@ -1,0 +1,89 @@
+## oauth_consent 域（U4 授权页）：msgid 为英文原文，本目录持中文译文。
+##
+## 新增/修改文案走 `mix gettext.extract` + `mix gettext.merge priv/gettext --locale zh_CN`，
+## 不要手改 msgid（与 priv/gettext/oauth_consent.pot 绑死）。
+msgid ""
+msgstr ""
+"Language: zh_CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:159
+#, elixir-autogen, elixir-format
+msgid "After approving, keep this page open until the app reports that it is connected."
+msgstr "同意后请保持本页打开，直到应用提示已连接。"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:115
+#, elixir-autogen, elixir-format
+msgid "After connecting, the app acts as you do on this platform — same permissions as your website account, nothing more."
+msgstr "连接后，应用将以你的身份使用本平台——权限与你的网页端账号一致，不会更多。"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:135
+#, elixir-autogen, elixir-format
+msgid "All workspaces of this account"
+msgstr "该账号的全部工作台"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:119
+#, elixir-autogen, elixir-format
+msgid "Application"
+msgstr "应用"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:153
+#, elixir-autogen, elixir-format
+msgid "Approve and continue"
+msgstr "同意并继续"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:114
+#: lib/cgc_2046_web/oauth_consent_view.ex:186
+#, elixir-autogen, elixir-format
+msgid "Authorize %{app} to connect to your CGC account"
+msgstr "授权 %{app} 连接你的 CGC 账号"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:126
+#, elixir-autogen, elixir-format
+msgid "CGC account"
+msgstr "CGC 账号"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:140
+#, elixir-autogen, elixir-format
+msgid "Callback address"
+msgstr "回调地址"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:122
+#, elixir-autogen, elixir-format
+msgid "Client ID"
+msgstr "客户端标识"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:147
+#, elixir-autogen, elixir-format
+msgid "Connected service"
+msgstr "连接的服务"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:154
+#, elixir-autogen, elixir-format
+msgid "Deny"
+msgstr "拒绝"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:133
+#, elixir-autogen, elixir-format
+msgid "Granted access"
+msgstr "授予的能力"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:143
+#, elixir-autogen, elixir-format
+msgid "The authorization code is only sent to this address. If you did not start this request from the app above, deny it."
+msgstr "授权码只会发送到这个地址。如果这不是你正在使用、正要连接的应用，请选择拒绝。"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:136
+#, elixir-autogen, elixir-format
+msgid "Whatever you can do on the website, this app can do as you; it cannot reach any other account."
+msgstr "你在网页端能做的事，这个应用都能以你的身份完成，不会更多；它无法访问其他账号。"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:160
+#, elixir-autogen, elixir-format
+msgid "You can revoke this authorization at any time in your CGC account settings."
+msgstr "你可以随时在 CGC 账号设置中撤销这次授权。"
+
+#: lib/cgc_2046_web/plugs/oauth_consent_plug.ex:183
+#, elixir-autogen, elixir-format
+msgid "You denied the authorization request, so the app did not get access to your account."
+msgstr "你已拒绝授权，应用没有获得你账号的访问权限。"

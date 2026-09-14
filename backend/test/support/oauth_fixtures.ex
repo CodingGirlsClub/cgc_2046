@@ -85,7 +85,7 @@ defmodule Cgc2046.OAuthFixtures do
   def pkce_challenge(verifier),
     do: Base.url_encode64(:crypto.hash(:sha256, verifier), padding: false)
 
-  def consent_get(cookie, client_id, redirect_uri, verifier) do
+  def consent_get(cookie, client_id, redirect_uri, verifier, req_headers \\ []) do
     query =
       URI.encode_query(%{
         "response_type" => "code",
@@ -100,6 +100,10 @@ defmodule Cgc2046.OAuthFixtures do
 
     conn = build_conn()
     conn = if cookie, do: put_req_cookie(conn, "cgc_token", cookie), else: conn
+
+    # req_headers: [{"accept-language", "en"}, …]（二进制名值对，直接进请求头）
+    conn = Enum.reduce(req_headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
+
     get(conn, "/oauth/authorize?" <> query)
   end
 
@@ -134,7 +138,8 @@ defmodule Cgc2046.OAuthFixtures do
         {callback_params(conn)["code"], verifier}
 
       200 ->
-        assert conn.resp_body =~ "Approve"
+        # 未同意 → 渲染同意页（断言表单要素而非按钮文案：文案是 U4 视图 + gettext 的事）
+        assert conn.resp_body =~ ~s(name="consent_request" value=")
         %{"code" => code} = conn |> consent_post("approve") |> callback_params()
         {code, verifier}
     end
@@ -251,7 +256,8 @@ defmodule Cgc2046.OAuthFixtures do
     Jason.decode!(conn.resp_body)
   end
 
-  defp hidden_field(html, name) do
+  @doc "从同意页 HTML 取隐藏域值（`name=\"…\" value=\"…\"` 是库 ConsentRouter 的渲染约定）。"
+  def hidden_field(html, name) do
     [_, value] = Regex.run(~r/name="#{name}" value="([^"]*)"/, html)
     value
   end

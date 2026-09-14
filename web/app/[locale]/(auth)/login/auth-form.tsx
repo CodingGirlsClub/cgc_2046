@@ -4,6 +4,7 @@ import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import { readAuthTarget } from "./use-auth-submit";
 
 export type AuthMode = "login" | "register";
 
@@ -153,9 +154,9 @@ export default function AuthForm({
 
   const displayError = formError ?? error;
   const switchLabel = t("switch.createAccount");
-  // 切换登录/注册保留 next（报名页引导链路不回丢）
+  // 切换登录/注册保留跳转目标（报名页引导链路、后端授权页回跳都不回丢）
   const searchParams = useSearchParams();
-  const nextRaw = searchParams?.get("next") ?? null;
+  const nextRaw = readAuthTarget(searchParams);
   const switchHref =
     "/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 

@@ -30,15 +30,39 @@ export function resolveNextTarget(raw: string | null, origin: string): string {
 }
 
 /**
- * 登录后导航：iframe 内（D2 QR 面板）时接管顶层（同源才可写，跨源兜底本窗口）。
- * wechat-callback（SIGNED_IN / NEEDS_BINDING→绑定页）与 wechat-bind（绑定成功）共用。
+ * 登录后跳转目标的读取单源：站内流程用 `next`，后端 OAuth 授权页用 `return_to`
+ * （`ash_authentication_oauth2_server` 未登录时 302 到 `/login?return_to=<授权页 URL>`，
+ * 并另写 session）。两者同义，任一处读取都必须走本函数，否则授权回跳会在某个
+ * 登录方式（密码 / 短信 / 微信）上静默丢失。
+ */
+export function readAuthTarget(
+	search: Pick<URLSearchParams, "get"> | null | undefined,
+): string | null {
+	if (!search) return null;
+	return search.get("return_to") ?? search.get("next");
+}
+
+/**
+ * 后端渲染路径（部署层路径路由直达 Phoenix，Next 侧没有对应路由）：客户端路由
+ * 跳过去只会落到 404 页，必须整页跳转交给浏览器。
+ */
+const BACKEND_RENDERED_PREFIXES = ["/oauth/"];
+
+/** 该路径是否必须整页跳转（而非 Next 客户端路由）。 */
+export function needsFullPageLoad(path: string): boolean {
+	return BACKEND_RENDERED_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+/**
+ * 登录后导航：iframe 内（D2 QR 面板）时接管顶层（同源才可写，跨源兜底本窗口）；
+ * 后端渲染路径（授权页）一律整页跳转。
  */
 export function navigateAfterLogin(
 	router: { push: (path: string) => void },
 	nextRaw: string | null,
 ) {
 	const path = resolveNextTarget(nextRaw, window.location.origin);
-	if (window.self !== window.top) {
+	if (needsFullPageLoad(path) || window.self !== window.top) {
 		try {
 			window.top!.location.assign(path);
 			return;
@@ -71,13 +95,9 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 	const searchParams = new URLSearchParams(
 		typeof window !== "undefined" ? window.location.search : "",
 	);
-	// 登录前来源（公开面报名引导：/login?next=...）。同源校验逻辑收敛在
-	// resolveNextTarget（纯函数，单测覆盖反斜杠绕过等恶意输入）。
-	const nextRaw = searchParams.get("next");
-	const next =
-		typeof window !== "undefined"
-			? resolveNextTarget(nextRaw, window.location.origin)
-			: "/";
+	// 登录前来源：站内 `next`（公开面报名引导）或后端授权页 `return_to`（OAuth 未登录
+	// 回跳）。同源校验与整页跳转判定收敛在 navigateAfterLogin（单测覆盖反斜杠绕过等输入）。
+	const nextRaw = readAuthTarget(searchParams);
 	const [error, setError] = useState<string | null>(null);
 	const [doSignIn, signInState] = useMutation(SIGN_IN);
 
@@ -95,7 +115,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 						// login 时 cookie 新鲜，resetStore 用 B 的有效 cookie 重发所有活动查询。
 						await client.resetStore();
 						// token 由后端 before_send 写 httpOnly cookie
-						router.push(next);
+						navigateAfterLogin(router, nextRaw);
 						return;
 					}
 
@@ -104,7 +124,7 @@ export function useAuthSubmit(): UseAuthSubmitResult {
 				setError(signInErrorMessage(e) ?? t("networkFailed"));
 			}
 		},
-		[doSignIn, router, next, t],
+		[doSignIn, router, nextRaw, t],
 	);
 
 	return { onSubmit, busy: signInState.loading, error };

@@ -2,10 +2,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LoginPage from "./page";
+import type * as AuthSubmitModule from "./use-auth-submit";
 
 // 数据层 hook 全部 mock 掉（本测试只关心组件树构成，不关心登录提交逻辑）：
 // 分发器零改动的结构性保证 = 首公里邀请模态只挂在工作区概览页（plan U3 Test Scenarios）
-vi.mock("./use-auth-submit", () => ({
+// 跳转目标纯函数（readAuthTarget / resolveNextTarget / navigateAfterLogin）保留真身。
+vi.mock("./use-auth-submit", async (importOriginal) => ({
+	...(await importOriginal<typeof AuthSubmitModule>()),
 	useAuthSubmit: () => ({ onSubmit: vi.fn(), busy: false, error: null }),
 }));
 vi.mock("./use-sms-login", () => ({

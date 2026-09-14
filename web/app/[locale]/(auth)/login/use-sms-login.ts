@@ -11,7 +11,7 @@ import {
 	SIGN_IN_WITH_PHONE_CODE,
 	type PhoneCodePurpose,
 } from "@/lib/graphql/auth";
-import { resolveNextTarget } from "./use-auth-submit";
+import { navigateAfterLogin, readAuthTarget } from "./use-auth-submit";
 
 /** 浏览器定时器句柄(window.setInterval 返回 number)。 */
 type IntervalHandle = number | undefined;
@@ -79,8 +79,8 @@ export function useSmsLogin() {
 				const { data } = await signIn({ variables: { phone, code } });
 				if (data?.signInWithPhoneCode?.id) {
 					await client.resetStore();
-					const nextRaw = new URLSearchParams(window.location.search).get("next");
-					router.push(resolveNextTarget(nextRaw, window.location.origin));
+					const nextRaw = readAuthTarget(new URLSearchParams(window.location.search));
+					navigateAfterLogin(router, nextRaw);
 					return;
 				}
 				setError(t("signInFailed"));

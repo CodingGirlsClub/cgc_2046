@@ -1,0 +1,88 @@
+## oauth_consent 域（U4 授权页）：msgid 即英文原文，本目录保持空 msgstr
+## （gettext 空译文回退 msgid，与 priv/gettext/en/LC_MESSAGES/errors.po 同款约定）。
+##
+## 新增/修改文案走 `mix gettext.extract` + `mix gettext.merge priv/gettext --locale en`。
+msgid ""
+msgstr ""
+"Language: en\n"
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:159
+#, elixir-autogen, elixir-format
+msgid "After approving, keep this page open until the app reports that it is connected."
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:115
+#, elixir-autogen, elixir-format
+msgid "After connecting, the app acts as you do on this platform — same permissions as your website account, nothing more."
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:135
+#, elixir-autogen, elixir-format
+msgid "All workspaces of this account"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:119
+#, elixir-autogen, elixir-format
+msgid "Application"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:153
+#, elixir-autogen, elixir-format
+msgid "Approve and continue"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:114
+#: lib/cgc_2046_web/oauth_consent_view.ex:186
+#, elixir-autogen, elixir-format
+msgid "Authorize %{app} to connect to your CGC account"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:126
+#, elixir-autogen, elixir-format
+msgid "CGC account"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:140
+#, elixir-autogen, elixir-format
+msgid "Callback address"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:122
+#, elixir-autogen, elixir-format
+msgid "Client ID"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:147
+#, elixir-autogen, elixir-format
+msgid "Connected service"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:154
+#, elixir-autogen, elixir-format
+msgid "Deny"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:133
+#, elixir-autogen, elixir-format
+msgid "Granted access"
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:143
+#, elixir-autogen, elixir-format
+msgid "The authorization code is only sent to this address. If you did not start this request from the app above, deny it."
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:136
+#, elixir-autogen, elixir-format
+msgid "Whatever you can do on the website, this app can do as you; it cannot reach any other account."
+msgstr ""
+
+#: lib/cgc_2046_web/oauth_consent_view.ex:160
+#, elixir-autogen, elixir-format
+msgid "You can revoke this authorization at any time in your CGC account settings."
+msgstr ""
+
+#: lib/cgc_2046_web/plugs/oauth_consent_plug.ex:183
+#, elixir-autogen, elixir-format
+msgid "You denied the authorization request, so the app did not get access to your account."
+msgstr ""

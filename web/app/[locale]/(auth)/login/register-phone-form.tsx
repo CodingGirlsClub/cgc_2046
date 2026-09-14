@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { SIGN_UP_WITH_PHONE, graphqlErrorDetails } from "@/lib/graphql/auth";
-import { navigateAfterLogin } from "./use-auth-submit";
+import { navigateAfterLogin, readAuthTarget } from "./use-auth-submit";
 import { useSmsLogin } from "./use-sms-login";
 import { PasswordField, PasswordStrength } from "./auth-form";
 
@@ -23,7 +23,7 @@ export default function RegisterPhoneForm() {
 	const searchParams = useSearchParams();
 	// next 单源（kimi 评审 #2）：useSearchParams 取代渲染期读 window——
 	// SSR 期 window undefined 会导致 href hydration mismatch。
-	const nextRaw = searchParams?.get("next") ?? null;
+	const nextRaw = readAuthTarget(searchParams);
 	const t = useTranslations("auth.sms");
 	const errT = useTranslations("auth");
 	const errorsT = useTranslations("auth.errors");

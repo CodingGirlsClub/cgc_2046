@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { SIGN_IN_WITH_WECHAT } from "@/lib/graphql/auth";
-import { navigateAfterLogin } from "../use-auth-submit";
+import { navigateAfterLogin, readAuthTarget } from "../use-auth-submit";
 
 /**
  * 微信扫码回调页(plan 002 U4/U5)。
@@ -71,14 +71,14 @@ function WechatCallbackContent() {
 				const result = data?.signInWithWechat;
 				if (result?.status === "SIGNED_IN") {
 					await client.resetStore();
-					navigateAfterLogin(router, searchParams?.get("next") ?? null);
+					navigateAfterLogin(router, readAuthTarget(searchParams));
 					return;
 				}
 				if (result?.status === "NEEDS_BINDING" && result.bindTicket) {
 					navigateToBindPage(
 						router,
 						result.bindTicket,
-						searchParams?.get("next") ?? null,
+						readAuthTarget(searchParams),
 					);
 					return;
 				}

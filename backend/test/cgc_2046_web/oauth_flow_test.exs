@@ -319,14 +319,6 @@ defmodule Cgc2046Web.OAuthFlowTest do
       assert Ash.count!(OAuthConsent, authorize?: false) == 0
     end
 
-    test "未登录访问授权页 → 401（授权页体验与登录引导由 U4 接手）" do
-      client_id = OAuth.dcr_client([@loopback_redirect])
-
-      conn = OAuth.consent_get(nil, client_id, @loopback_redirect, OAuth.pkce_verifier())
-
-      assert conn.status == 401
-    end
-
     test "已同意（scope 覆盖）时直接发码，不再展示授权页" do
       user = Fixtures.register_user("oauth-consent-reuse")
       tokens = OAuth.authorize!(user)
