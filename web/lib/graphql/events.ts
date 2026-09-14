@@ -86,6 +86,14 @@ export interface OfferingItem {
   companionCourse?: string | null;
   /** Initiative parent; writable only while Event is draft. */
   initiativeId?: string | null;
+  /** 押金开关（Initiative 规则物化值；挂载后由规则锁决定是否可改） */
+  depositEnabled?: boolean | null;
+  /** 押金金额（分） */
+  depositAmountCents?: number | null;
+  /** 报名最低年龄（null = 无门槛） */
+  minAge?: number | null;
+  /** 成班最低确认人数（null = 不判定） */
+  minParticipants?: number | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -238,6 +246,10 @@ export const GET_EVENT: TypedDocumentNode<
       priceTiers
       companionCourse
       initiativeId
+      depositEnabled
+      depositAmountCents
+      minAge
+      minParticipants
     }
   }
 `;
