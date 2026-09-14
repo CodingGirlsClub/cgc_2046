@@ -19,6 +19,7 @@ import {
   type ParticipationEnrollment,
   type ParticipationSponsorship,
 } from "@/lib/graphql/participations";
+import CheckInCodeCard from "@/components/check-in-code-card";
 import SitePage from "@/components/site-page";
 
 const ACTIVE_STATUSES = new Set(["pending", "payment_pending", "confirmed"]);
@@ -152,6 +153,9 @@ function EnrollmentCard({
         </span>
       </div>
 
+      {row.status === "confirmed" && row.eventId && row.checkInCode ? (
+        <CheckInCodeCard code={row.checkInCode} eventSegment={row.eventId} />
+      ) : null}
       {row.status === "confirmed" && row.courseId ? (
         <div className="mt-3">
           <Link
