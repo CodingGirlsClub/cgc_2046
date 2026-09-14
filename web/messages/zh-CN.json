@@ -171,6 +171,7 @@
     },
     "sms": {
       "fieldPhone": "手机号",
+      "countryLabel": "国家/地区",
       "placeholderPhone": "请输入手机号",
       "fieldCode": "验证码",
       "placeholderCode": "6 位验证码",

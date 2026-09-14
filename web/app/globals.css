@@ -225,6 +225,9 @@
   .profile-phone-field { margin-top: 12px; }
   .profile-phone-code-row { display: flex; gap: 8px; margin-top: 7px; }
   .profile-phone-code-row input { flex: 1; margin-top: 0; }
+  .profile-phone-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+  .profile-phone-row input { flex: 1 1 180px; min-width: 0; margin-top: 0; }
+  .profile-phone-row select { flex-shrink: 0; max-width: 16em; margin-top: 0; }
   .profile-phone-send { min-height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); color: var(--ink-2); font-size: 13px; line-height: 20px; white-space: nowrap; }
   .profile-phone-send:hover:not(:disabled) { border-color: var(--accent-strong); color: var(--accent-strong); }
   .profile-phone-send:disabled { color: var(--ink-3); cursor: default; }
@@ -1639,6 +1642,12 @@ body {
   .auth-sms-send { flex-shrink: 0; min-width: 104px; padding: 0 12px; border-radius: var(--radius-medium); box-shadow: inset 0 0 0 1px var(--line); color: var(--accent-strong); font-size: 13px; line-height: 20px; transition: color 120ms ease, box-shadow 120ms ease; }
   .auth-sms-send:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--accent); }
   .auth-sms-send:disabled { cursor: not-allowed; color: var(--ink-2); }
+  /* 注册/登录国际化：国家/地区选择 + 手机号行（phone-input.tsx） */
+  .auth-phone-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .auth-phone-row .auth-input { flex: 1 1 180px; min-width: 0; }
+  .auth-phone-select { flex-shrink: 0; min-height: 52px; max-width: 16em; padding: 0 10px; border: 0; border-radius: var(--radius-medium); background: var(--line-input); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-size: 14px; outline: none; transition: box-shadow 120ms ease; }
+  .auth-phone-select:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+  .auth-page--register .auth-phone-select { min-height: 60px; }
 
   /* plan 002 U5：微信扫码面板 */
   .auth-wechat-panel { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0 4px; }

@@ -171,6 +171,7 @@
     },
     "sms": {
       "fieldPhone": "Phone number",
+      "countryLabel": "Country/Region",
       "placeholderPhone": "Enter your phone number",
       "fieldCode": "Verification code",
       "placeholderCode": "6-digit code",
