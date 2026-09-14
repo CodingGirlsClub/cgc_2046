@@ -284,7 +284,10 @@ if config_env() == :prod do
     sms_sendcloud: [
       sms_user: sendcloud_sms_user,
       sms_key: sendcloud_sms_key,
-      template_id: sendcloud_sms_template_id
+      template_id: sendcloud_sms_template_id,
+      # 国际短信模板（SendCloud 与国内模板分开审核）；缺省时国际号码发码
+      # 降级 sent:false（deliver_phone_code 日志留痕），国内通道不受影响
+      international_template_id: System.get_env("SENDCLOUD_SMS_INTERNATIONAL_TEMPLATE_ID")
     ]
 
   # 微信网站应用扫码登录（plan 002 U4）：与 SendCloud 邮件不同——凭证可缺
@@ -419,7 +422,8 @@ if config_env() == :dev do
       sms_sendcloud: [
         sms_user: sms_user,
         sms_key: System.get_env("SENDCLOUD_SMS_KEY"),
-        template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID")
+        template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID"),
+        international_template_id: System.get_env("SENDCLOUD_SMS_INTERNATIONAL_TEMPLATE_ID")
       ]
   end
 

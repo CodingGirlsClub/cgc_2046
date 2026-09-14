@@ -101,5 +101,33 @@ defmodule Cgc2046.Integrations.SendCloud.SmsTest do
 
       refute Sms.configured?()
     end
+
+    test "国内号码（+86）：剥前缀为 11 位本机号，不带 msgType" do
+      Req.Test.stub(@stub, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(self(), {:sms_form, URI.decode_query(body)})
+        Req.Test.json(conn, %{"result" => true})
+      end)
+
+      assert :ok = Sms.send_template_sms("+8613800138000", "t", %{"code" => "123456"}, "r-dom")
+
+      assert_received {:sms_form, form}
+      assert form["phone"] == "13800138000"
+      refute Map.has_key?(form, "msgType")
+    end
+
+    test "国际号码（非 +86）：E.164 整号 + msgType=2" do
+      Req.Test.stub(@stub, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(self(), {:sms_form, URI.decode_query(body)})
+        Req.Test.json(conn, %{"result" => true})
+      end)
+
+      assert :ok = Sms.send_template_sms("+14155552671", "t", %{"code" => "123456"}, "r-intl")
+
+      assert_received {:sms_form, form}
+      assert form["phone"] == "+14155552671"
+      assert form["msgType"] == "2"
+    end
   end
 end

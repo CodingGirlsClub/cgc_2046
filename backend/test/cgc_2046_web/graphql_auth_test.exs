@@ -168,6 +168,44 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       assert %{"data" => %{"signIn" => nil}, "errors" => errors} = graphql_response(conn)
       assert [%{"code" => "authentication_failed"}] = errors
     end
+
+    test "无邮箱手机号用户（手机验证码注册路径）密码登录成功且 email 为 null" do
+      user = create_email_user("no-email-owner@example.com", @phone_password)
+
+      {:ok, res} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET phone = $1, email = NULL WHERE id = $2",
+          ["+8613800130099", Cgc2046.Repo.uuid!(user.id)]
+        )
+
+      assert res.num_rows == 1
+
+      conn = graphql_post(build_conn(), sign_in_phone_mutation("13800130099", @phone_password))
+      assert %{"data" => %{"signIn" => sign_in}} = graphql_response(conn)
+      assert sign_in["id"] == user.id
+      assert sign_in["email"] == nil
+    end
+
+    test "国际号码 +E.164 密码登录成功（分隔符输入同锚）" do
+      user = create_email_user("intl-phone-owner@example.com", @phone_password)
+
+      {:ok, res} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE users SET phone = $1 WHERE id = $2",
+          ["+14155552671", Cgc2046.Repo.uuid!(user.id)]
+        )
+
+      assert res.num_rows == 1
+
+      for login <- ["+14155552671", "+1 415-555-2671"] do
+        conn = graphql_post(build_conn(), sign_in_phone_mutation(login, @phone_password))
+        assert %{"data" => %{"signIn" => sign_in}} = graphql_response(conn)
+        assert sign_in["id"] == user.id
+        assert_auth_cookie_written(conn)
+      end
+    end
   end
 
   describe "signOut mutation" do

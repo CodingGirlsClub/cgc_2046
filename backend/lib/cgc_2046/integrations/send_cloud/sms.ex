@@ -47,12 +47,20 @@ defmodule Cgc2046.Integrations.SendCloud.Sms do
       params = %{
         "smsUser" => sms_user,
         "templateId" => template_id,
-        # 国内通道只收 11 位本机号；E.164(+86…) 会被判 "手机号格式错误"(482)。
-        "phone" => String.trim_leading(phone, "+86"),
         "vars" => Jason.encode!(vars),
         "timestamp" => timestamp,
         "sendRequestId" => send_request_id
       }
+
+      # 国内通道只收 11 位本机号（E.164(+86…) 会被判 "手机号格式错误"(482)）；
+      # 国际通道（msgType=2，官档 https://www.sendcloud.net/doc/sms/api/）
+      # 收 E.164 整号（模板须为已审核的国际模板）。
+      params =
+        if String.starts_with?(phone, "+86") do
+          Map.put(params, "phone", String.trim_leading(phone, "+86"))
+        else
+          params |> Map.put("phone", phone) |> Map.put("msgType", 2)
+        end
 
       payload = Map.put(params, "signature", signature(params, sms_key))
 

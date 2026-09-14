@@ -85,7 +85,8 @@ config :cgc_2046, :payments_providers, %{
 config :cgc_2046, :sms_sendcloud,
   sms_user: "test-sms-user",
   sms_key: "test-sms-key",
-  template_id: "test-sms-template"
+  template_id: "test-sms-template",
+  international_template_id: "test-sms-intl-template"
 
 config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}
 

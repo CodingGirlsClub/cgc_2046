@@ -405,7 +405,7 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
 
   @doc """
   signIn 限流 key 归一化（plan 002 U2）：email → downcase（与 normalize_email/1 同）；
-  手机号 → PhoneNumber 规范形（"138…" 与 "+86138…" 同 key，防换写法绕过限流）；
+  手机号 → PhoneNumber 规范形（"138…"、"+86138…"、"+1415…" 同形同 key，防换写法绕过限流）；
   非法输入原样保留（保持与认证失败路径一致的计数语义）。
   """
   @spec normalize_login(term()) :: String.t()
@@ -415,7 +415,7 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
     if String.contains?(login, "@") do
       String.downcase(String.trim(login))
     else
-      case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+      case Cgc2046.Accounts.PhoneNumber.parse(login) do
         {:ok, phone} -> phone
         {:error, :invalid} -> login
       end
@@ -454,14 +454,14 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
     sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
 
     if Cgc2046.Integrations.SendCloud.Sms.configured?() do
-      template_id = Keyword.fetch!(sms, :template_id)
-
-      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
-        phone,
-        template_id,
-        %{"code" => code},
-        send_request_id
-      )
+      with {:ok, template_id} <- pick_template_id(sms, phone) do
+        Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
+          phone,
+          template_id,
+          %{"code" => code},
+          send_request_id
+        )
+      end
     else
       # dev/test：SMS 凭证缺席，Logger 出码供本地联调。prod 编译期整段剔除
       # （017 审计加固：此前仅靠 runtime 启动 raise 的配置不变量拦——该配置
@@ -471,6 +471,20 @@ defmodule Cgc2046.Accounts.WebAuthFlow do
       else
         Logger.warning("[request_phone_code] SMS not configured; code for #{phone}: #{code}")
         :ok
+      end
+    end
+  end
+
+  # 国际短信模板与国内分开审核（SendCloud 官档）：非 +86 号码走
+  # international_template_id；未配置时发码失败（上游 Logger + sent:false），
+  # 国内通道不受影响。
+  defp pick_template_id(sms, phone) do
+    if String.starts_with?(phone, "+86") do
+      {:ok, Keyword.fetch!(sms, :template_id)}
+    else
+      case Keyword.get(sms, :international_template_id) do
+        nil -> {:error, :international_sms_not_configured}
+        template_id -> {:ok, template_id}
       end
     end
   end

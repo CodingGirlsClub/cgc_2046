@@ -512,13 +512,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       )
 
       resolve(fn _, %{login: login, password: password}, _ ->
-        # 分流：含 @ → email；否则按手机号归一化（同号不同写法命中同一 User 与同一限流 key）
+        # 分流：含 @ → email；+E.164 或裸号 → PhoneNumber.parse（同号不同写法命中同一 User 与同一限流 key）
         query =
           if String.contains?(login, "@") do
             Cgc2046.Accounts.User
             |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
           else
-            case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+            case Cgc2046.Accounts.PhoneNumber.parse(login) do
               {:ok, phone} ->
                 Cgc2046.Accounts.User
                 |> Ash.Query.for_read(:sign_in_with_password_phone, %{
@@ -571,7 +571,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:purpose, non_null(:phone_code_purpose))
 
       resolve(fn _, %{phone: raw_phone, purpose: purpose}, %{context: context} ->
-        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.parse(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_request_limits(context, phone) do
           Cgc2046.Accounts.WebAuthFlow.request_phone_code(phone, purpose)
         else
@@ -590,7 +590,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:code, non_null(:string))
 
       resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
-        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.parse(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
           sign_in_with_phone_code(phone, code, context)
         else
@@ -697,7 +697,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _,
                  %{bind_ticket: bind_ticket, phone: raw_phone, code: code},
                  %{context: context} ->
-        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.parse(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_wechat_bind_limits(context, phone) do
           case Cgc2046.Accounts.WechatWebSignIn.bind_wechat_with_phone(
                  bind_ticket,
@@ -750,7 +750,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{input: %{phone: raw_phone, code: code, password: password}}, ctx ->
         context = ctx.context
 
-        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.parse(raw_phone),
              :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
           Cgc2046.Accounts.WebAuthFlow.sign_up_with_phone(phone, code, password, context)
         else
@@ -1095,7 +1095,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
         with_actor(context, fn actor ->
-          with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+          with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.parse(raw_phone),
                :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone),
                :ok <-
                  Cgc2046.Accounts.PhoneVerificationCode.consume_valid(phone, code, :change_phone) do
@@ -1927,7 +1927,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   object :sign_in_result do
     field(:id, non_null(:id))
-    field(:email, non_null(:string))
+    # 手机号注册用户 email 可空（sign_in_with_platform_result 同款先例）：
+    # 手机验证码注册不收集邮箱，密码登录走手机号分支时 email 为 nil
+    field(:email, :string)
     field(:is_platform_admin, non_null(:boolean))
   end
 

@@ -5681,7 +5681,7 @@ type MiniprogramCodeResult {
 
 type SignInResult {
   id: ID!
-  email: String!
+  email: String
   isPlatformAdmin: Boolean!
 }
 

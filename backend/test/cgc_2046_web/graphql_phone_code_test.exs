@@ -623,4 +623,44 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       assert %{"errors" => [%{"code" => "unauthorized"}]} = res
     end
   end
+
+  describe "国际号码（+E.164）" do
+    @intl_phone "+14155552671"
+
+    test "requestPhoneCode：国际号码正常发码" do
+      res =
+        graphql_post(build_conn(), request_code_mutation(@intl_phone))
+        |> json_response(200)
+
+      assert %{"data" => %{"requestPhoneCode" => %{"sent" => true}}} = res
+    end
+
+    test "signInWithPhoneCode：分隔符输入与规范形命中同一用户（自动建号）" do
+      code = issue_and_get_code(@intl_phone)
+
+      res =
+        graphql_post(build_conn(), sign_in_mutation("+1 415 555 2671", code))
+        |> json_response(200)
+
+      assert %{"data" => %{"signInWithPhoneCode" => %{"id" => id}}} = res
+
+      # 落库锚即规范形（+区号号码，非输入原样）
+      {:ok, %Postgrex.Result{rows: rows}} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "SELECT phone FROM users WHERE id = $1",
+          [Cgc2046.Repo.uuid!(id)]
+        )
+
+      assert [[@intl_phone]] = rows
+    end
+
+    test "非法国家码（+999…）→ invalid_phone" do
+      res =
+        graphql_post(build_conn(), request_code_mutation("+999123456"))
+        |> json_response(200)
+
+      assert %{"errors" => [%{"code" => "invalid_phone"}]} = res
+    end
+  end
 end
