@@ -44,7 +44,7 @@ export default function InitiativeIndex() {
 		status === "closed" ? t("closed") : t("open");
 
 	return (
-		<PublicCatalogShell activeKind="event">
+		<PublicCatalogShell>
 			<div className="public-catalog-container">
 				<header className="public-catalog-heading">
 					<div>
