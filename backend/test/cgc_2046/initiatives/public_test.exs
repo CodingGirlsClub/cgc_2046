@@ -122,6 +122,29 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert statuses == [open.slug, closed.slug]
   end
 
+  test "组内二级排序保持窗口倒序（code-review 缺口）" do
+    admin = Fixtures.platform_admin("initiative-public-order-secondary")
+
+    older = initiative(admin, "secondary-older")
+    older
+    |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-10-01 00:00:00Z]})
+    |> Ash.update!(actor: admin)
+
+    newer = initiative(admin, "secondary-newer")
+    newer
+    |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-12-01 00:00:00Z]})
+    |> Ash.update!(actor: admin)
+
+    assert {:ok, rows} = Public.list()
+
+    slugs =
+      rows
+      |> Enum.filter(&(&1.slug in [older.slug, newer.slug]))
+      |> Enum.map(& &1.slug)
+
+    assert slugs == [older.slug, newer.slug]
+  end
+
   test "公开投影查询数与场次数无关（U4 无 N+1 回归）" do
     admin = Fixtures.platform_admin("initiative-public-n1")
     workspace = Fixtures.create_workspace(admin)

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
+import { formatDeadline } from "@/lib/events";
 import InitiativeIndexPage from "./page";
 
 const { fetchPublicInitiatives } = vi.hoisted(() => ({
@@ -76,9 +77,14 @@ describe("/initiatives 公开列表页", () => {
 			.filter((a) => a.getAttribute("href")?.startsWith("/initiatives/"));
 		expect(links[0]).toBe(openLink);
 
-		// 卡片字段：品牌标签、时间窗、状态徽章
+		// 卡片字段：品牌标签、时间窗、状态徽章（期望值经组件同款 formatDeadline
+		// 计算，时区无关——code-review 缺口修复）
 		expect(screen.getByText("#hackerstart1024")).toBeInTheDocument();
-		expect(screen.getByText(/2026.*10.*24/)).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				`${formatDeadline(OPEN_ROW.windowStartsAt, "时间待定", "zh-CN")} – ${formatDeadline(OPEN_ROW.windowEndsAt, "时间待定", "zh-CN")}`,
+			),
+		).toBeInTheDocument();
 		expect(screen.getByText("开放报名")).toBeInTheDocument();
 		expect(screen.getByText("已结束")).toBeInTheDocument();
 	});
