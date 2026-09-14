@@ -397,14 +397,35 @@ export default function WorkspaceShell({
 								<Icon name="guide" />
 								<span>{t("navCourses")}</span>
 							</Link>
-							{/* UAT 实证断链：登录后落在工作台的用户找不到自己的报名；
-							    我的报名是用户视角页面（/participations），从此处可发现。 */}
-							<Link
-								href="/participations"
-								className="ws-shell-item"
-							>
+						</nav>
+
+						{/* 跨工作台导航（plan: workspace-cross-nav，KTD1/KTD2）：
+						    用户聚合与全站公开各一组，恒显、无激活态、链出工作区上下文。 */}
+						<div className="ws-shell-heading">{t("headingMine")}</div>
+						<nav className="ws-shell-nav" aria-label={t("headingMine")}>
+							<Link href="/participations" className="ws-shell-item">
 								<Icon name="calendar" />
 								<span>{t("navMyParticipations")}</span>
+							</Link>
+							<Link href="/learning" className="ws-shell-item">
+								<Icon name="guide" />
+								<span>{t("navMyLearning")}</span>
+							</Link>
+						</nav>
+
+						<div className="ws-shell-heading">{t("headingCommunity")}</div>
+						<nav className="ws-shell-nav" aria-label={t("headingCommunity")}>
+							<Link href="/events" className="ws-shell-item">
+								<Icon name="book" />
+								<span>{t("navPublicEvents")}</span>
+							</Link>
+							<Link href="/courses" className="ws-shell-item">
+								<Icon name="document" />
+								<span>{t("navPublicCourses")}</span>
+							</Link>
+							<Link href="/initiatives" className="ws-shell-item">
+								<Icon name="community" />
+								<span>{t("navInitiatives")}</span>
 							</Link>
 						</nav>
 					</>
