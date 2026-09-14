@@ -48,6 +48,7 @@ import type { ActiveEnrollmentRow } from "@/lib/graphql/participations";
 
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
+import EventModeratorsCard from "@/components/event-moderators-card";
 import WorkspaceShell from "@/components/workspace-shell";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
@@ -579,12 +580,6 @@ export function OfferingDetailPage({
     };
   }, [id, kind, t]);
 
-  const loadInitiatives = () => {
-    if (initiatives.length > 0 || kind !== "event") return;
-    void fetchPublicInitiatives()
-      .then((rows) => setInitiatives(rows.filter((row) => row.status === "open")))
-      .catch(() => setInitiatives([]));
-  };
 
   // 我的既有报名（防重复报名；读策略仅本人可见）
   useEffect(() => {
@@ -619,6 +614,26 @@ export function OfferingDetailPage({
 
   const stale = state.id !== id;
   const offering = stale ? null : state.row;
+
+  const loadInitiatives = () => {
+    if (initiatives.length > 0 || kind !== "event") return;
+    void fetchPublicInitiatives()
+      .then((rows) =>
+        setInitiatives(
+          rows.filter(
+            (row) => row.status === "open" || row.id === offering?.initiativeId,
+          ),
+        ),
+      )
+      .catch(() => setInitiatives([]));
+  };
+
+  // 已挂载 Event 需要当前 Initiative 名称回显（含 closed Initiative 留档场）；
+  // 草稿期下拉本就在聚焦时加载，此处只对已挂载场景提前拉取。
+  useEffect(() => {
+    if (offering?.initiativeId) loadInitiatives();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offering?.initiativeId]);
 
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
@@ -1336,6 +1351,18 @@ export function OfferingDetailPage({
                       </label>
                     ) : null}
 
+                    {kind === "event" && offering.initiativeId ? (
+                      <div className="block rounded-large border border-line bg-soft-2 px-3 py-2" data-testid="initiative-rules-summary">
+                        <span className="block text-[13px] text-ink-3">{t("initiativeRulesTitle")}</span>
+                        <ul className="mt-1 space-y-0.5 text-sm text-ink">
+                          <li>{offering.depositEnabled && offering.depositAmountCents != null ? t("initiativeRuleDepositOn", { amount: formatAmount(offering.depositAmountCents) }) : t("initiativeRuleDepositOff")}</li>
+                          <li>{offering.minAge != null ? t("initiativeRuleAge", { age: offering.minAge }) : t("initiativeRuleAgeOff")}</li>
+                          <li>{offering.minParticipants != null ? t("initiativeRuleMin", { count: offering.minParticipants }) : t("initiativeRuleMinOff")}</li>
+                        </ul>
+                        <span className="mt-1 block text-xs text-ink-3">{t("initiativeRulesHint")}</span>
+                      </div>
+                    ) : null}
+
                     {kind === "event" ? (
                       <VenueFields
                         value={activeDraft.venue}
@@ -1491,6 +1518,14 @@ export function OfferingDetailPage({
                     </button>
                   </div>
                 </div>
+              ) : null}
+
+              {/* U7（R12–R14）：主理人管理；Owner/Admin 随时可增删 */}
+              {manage && kind === "event" && offering ? (
+                <EventModeratorsCard
+                  workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+                  eventId={offering.id}
+                />
               ) : null}
             </div>
 
