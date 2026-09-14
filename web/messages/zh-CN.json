@@ -227,6 +227,7 @@
 			"login": "登录",
 			"join": "加入我们",
 			"myLearning": "我的学习",
+			"myParticipations": "我的报名",
 			"workspace": "工作台"
 		},
 		"hero": {
@@ -674,6 +675,7 @@
 			"navAgents": "Agents",
 			"navEvents": "活动",
 			"navCourses": "课程",
+			"navMyParticipations": "我的报名",
 			"navGroup": "工作区导航",
 			"backToApp": "Back to app",
 			"headingPersonal": "Personal",

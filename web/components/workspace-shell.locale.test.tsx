@@ -142,3 +142,19 @@ describe("WorkspaceShell 设置侧栏 Agents 入口（P2 回归）", () => {
 		expect(link).toHaveAttribute("aria-current", "page");
 	});
 });
+
+describe("WorkspaceShell 工作区导航「我的报名」入口（UAT 断链修复）", () => {
+	it("非 settings 路由的侧栏含「我的报名」，链到用户视角 /participations", async () => {
+		pathnameRef.value = "/w/cgc-academy";
+		render(
+			<WorkspaceShell slug="cgc-academy">
+				<div>content</div>
+			</WorkspaceShell>,
+		);
+
+		const nav = await screen.findByRole("navigation", { name: "工作区导航" });
+		expect(
+			within(nav).getByRole("link", { name: "我的报名" }),
+		).toHaveAttribute("href", "/participations");
+	});
+});

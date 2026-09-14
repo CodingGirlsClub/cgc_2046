@@ -227,6 +227,7 @@
 			"login": "Sign in",
 			"join": "Join us",
 			"myLearning": "My learning",
+			"myParticipations": "My enrollments",
 			"workspace": "Workspace"
 		},
 		"hero": {
@@ -674,6 +675,7 @@
 			"navAgents": "Agents",
 			"navEvents": "Events",
 			"navCourses": "Courses",
+			"navMyParticipations": "My enrollments",
 			"navGroup": "Workspace navigation",
 			"backToApp": "Back to app",
 			"headingPersonal": "Personal",
