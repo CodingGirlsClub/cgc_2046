@@ -1065,6 +1065,7 @@
     "opencodeAuthorizeCheck": "I've approved — check status",
     "opencodeAuthorizeActive": "Authorized and connected — head back to your opencode session to start.",
     "opencodeAuthorizeAutoHint": "Once authorization succeeds this page updates to “Connected” automatically — no manual confirmation needed.",
+    "opencodeAuthorizeSharedDevice": "Shared computer: when you're done, revoke this authorization under Account settings → Connections, and log out of cgc-2046 in opencode to clear locally saved credentials.",
     "opencodeStepVerify": "Verify the connection",
     "opencodeVerifyDesc": "Send the sentence below in your opencode session: if the agent can call the platform and answers, the connection works.",
     "opencodeVerifySeed": "What can I do on 2046?",

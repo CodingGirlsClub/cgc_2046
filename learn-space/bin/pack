@@ -46,6 +46,10 @@ if [ -n "$bad" ]; then
 fi
 
 # 4. zip
+# 统一时间戳：zip 条目时间取自（stage 目录的）mtime，目录由 mkdir 创建会随构建
+# 时刻漂移——同内容重建会产生不同 sha，破坏三键 JSON 的校验语义（用户手上的
+# 旧包会被新 JSON 误报"损坏"）。归一化到 zip 纪元（1980-01-01）保证内容寻址。
+find "$STAGE/$TOP" -exec touch -t 198001010000 {} +
 rm -f "$ZIP"
 (cd "$STAGE" && zip -rqX "$ZIP" "$TOP")
 

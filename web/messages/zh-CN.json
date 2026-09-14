@@ -1065,6 +1065,7 @@
     "opencodeAuthorizeCheck": "我已授权，检查状态",
     "opencodeAuthorizeActive": "已授权连接，回到 opencode 的会话即可开始。",
     "opencodeAuthorizeAutoHint": "授权成功后本页会自动更新为「已接入」，不需要手动确认。",
+    "opencodeAuthorizeSharedDevice": "共用电脑提示：使用结束后，请到「账号设置 → 连接与授权」撤销本次授权，并在 opencode 里对 cgc-2046 登出、清除本地保存的凭证。",
     "opencodeStepVerify": "验证连接",
     "opencodeVerifyDesc": "在 opencode 的会话里发送下面这句话：agent 能调用平台能力并给出回答，就说明接入成功。",
     "opencodeVerifySeed": "我在 2046 能做什么？",

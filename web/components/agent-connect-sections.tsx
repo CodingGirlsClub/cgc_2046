@@ -596,6 +596,9 @@ export function OpencodeAuthorizeCard({
 			<p className="connect-step-card__desc">
 				{t("opencodeAuthorizeAutoHint")}
 			</p>
+			<p className="connect-step-card__desc">
+				{t("opencodeAuthorizeSharedDevice")}
+			</p>
 		</div>
 	);
 }
