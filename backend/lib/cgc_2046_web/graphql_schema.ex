@@ -1944,6 +1944,52 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    # 押金核销（U5/KTD4；R6、R11）：主理人 / Owner·Admin / 平台管理员按 6 位核销码
+    # 核销 confirmed 报名的到场。授权与「码无效 / 已核销」判定全在域层
+    # （Admission.Attendance policy + before_action），本 resolver 只做
+    # actor 门控与 payload 形状映射（同 assign_event_moderator 先例）。
+    field :check_in_enrollment, :check_in_enrollment_payload do
+      arg(:event_id, non_null(:id))
+      arg(:code, non_null(:string), description: "6 位核销码（扫码 URL 预填或手输）")
+      arg(:method, non_null(:string), description: "核销方式：scan | manual")
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Admission.Attendance.check_in(
+                 args[:event_id],
+                 args[:code],
+                 args[:method],
+                 actor
+               ) do
+            {:ok, attendance} ->
+              {:ok,
+               %{
+                 enrollment_id: attendance.enrollment_id,
+                 checked_in_at: attendance.checked_in_at,
+                 method: to_string(attendance.method),
+                 errors: []
+               }}
+
+            {:error, error} ->
+              {:ok,
+               %{
+                 enrollment_id: nil,
+                 checked_in_at: nil,
+                 method: nil,
+                 errors:
+                   to_ash_graphql_errors(
+                     error,
+                     context,
+                     :check_in,
+                     Cgc2046.Admission.Attendance,
+                     Cgc2046.Admission
+                   )
+               }}
+          end
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -2047,6 +2093,26 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:venue, :string) do
       resolve(fn parent, _args, %{definition: definition} ->
         {:ok, enrollment_calc_value(parent, definition, :venue)}
+      end)
+    end
+
+    # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
+    # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
+    # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层
+    # 不能承担字段可见性——字段级 resolve 门控是唯一闸。parent 双形态：
+    # myEnrollment 白名单 payload map / Ash record。
+    field(:check_in_code, :string, description: "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）") do
+      resolve(fn parent, _args, %{context: context} ->
+        with_actor(
+          context,
+          fn actor ->
+            {:ok,
+             if check_in_code_visible?(parent, actor) do
+               enrollment_value(parent, :check_in_code)
+             end}
+          end,
+          on_nil: fn _context -> {:ok, nil} end
+        )
       end)
     end
   end
@@ -2822,6 +2888,22 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # U5/KTD4 核销 payload：成功返回到场事实（enrollment_id / checked_in_at / method），
+  # 失败（码无效 / 已核销）三者皆为 null 且 errors 携带领域 code（前端按 code 查文案）。
+  # 退款侧状态（押金已发起 / 已在退还中 / 已退，KTD6 分派）随 U6 落地后在此扩展。
+  object :check_in_enrollment_payload do
+    @desc "被核销的报名（失败为 null）"
+    field(:enrollment_id, :id)
+
+    @desc "核销时间（失败为 null）"
+    field(:checked_in_at, :datetime)
+
+    @desc "核销方式：scan / manual（失败为 null）"
+    field(:method, :string)
+
+    field(:errors, list_of(:mutation_error))
+  end
+
   object :public_initiative do
     field(:id, non_null(:id))
     field(:name, non_null(:string))
@@ -2947,6 +3029,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       status: to_string(enrollment.status),
       approval_deadline: enrollment.approval_deadline,
       rejection_reason: enrollment.rejection_reason,
+      check_in_code: enrollment.check_in_code,
       inserted_at: enrollment.inserted_at
     }
   end
@@ -3224,6 +3307,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
     Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
   end
+
+  # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
+  # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
+  # 为 :atom（手写 object 无 ash_graphql 生成查询的枚举转换层——同
+  # resolve_my_enrollment 的显式 to_string 纪律）。
+  defp check_in_code_visible?(parent, actor) do
+    enrollment_value(parent, :user_id) == actor.id and
+      enrollment_value(parent, :status) in ["confirmed", :confirmed]
+  end
+
+  defp enrollment_value(parent, field) when is_map(parent),
+    do: Map.get(parent, field) || Map.get(parent, to_string(field))
 
   # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
   # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认
