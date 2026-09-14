@@ -243,7 +243,7 @@ export default function OfferingPaymentsPanel({
 								setStatusFilter(e.target.value);
 								void load(e.target.value);
 							}}
-							className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+							className="ui-select ui-select--sm"
 							data-testid="offering-status-filter"
 						>
 							{statusFilters.map((f) => (

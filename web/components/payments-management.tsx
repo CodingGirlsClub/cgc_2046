@@ -278,7 +278,7 @@ export default function PaymentsManagement({
 									setOfferingFilter(e.target.value);
 									void load(statusFilter, e.target.value);
 								}}
-								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								className="ui-select ui-select--sm"
 								data-testid="offering-filter"
 							>
 								<option value="">{t("filterOfferingAll")}</option>
@@ -297,7 +297,7 @@ export default function PaymentsManagement({
 									setStatusFilter(e.target.value);
 									void load(e.target.value);
 								}}
-								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								className="ui-select ui-select--sm"
 								data-testid="status-filter"
 							>
 								{statusFilters.map((f) => (
