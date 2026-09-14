@@ -2124,6 +2124,7 @@
 		"closed": "Ended",
 		"shortBy": "{count} more needed",
 		"open": "Open",
-		"timeTbd": "Time TBD"
+		"cityEvents": "{count, plural, one {# event} other {# events}}",
+		"seats": "Seats"
 	}
 }
