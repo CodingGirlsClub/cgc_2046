@@ -68,11 +68,36 @@ defmodule Cgc2046.Mcp.Server do
   鉴权 + ToolCallLog 审计（D9）。
 
   elicitation 不启用（目标客户端均不支持，见 research §5b；D8 用 two-tool 模式）。
+
+  使用协议（U6/KTD4）：`server_instructions/0` 随 MCP initialize 响应注入，承载
+  与宿主无关的协议单源——先按名称选择工作台、playbook-first、确认纪律、凭证纪律、
+  401/429 不重试；宿主工具原语名不进平台文本，由各宿主本地资产各自具名。
   """
   use Anubis.Server,
     name: "cgc-2046",
     version: "0.1.0",
     capabilities: [:tools]
+
+  # 平台对 agent 的使用协议单源（U6/KTD4；anubis `server_instructions/0` 回调，
+  # 经 initialize 响应的 instructions 字段随宿主自动注入模型上下文，平台更新即生效）。
+  # 只写宿主中立表述：宿主工具原语名（OpenClacky 的 ask_user / opencode 的
+  # question）归宿主本地资产，平台文本不点名。
+  @server_instructions """
+  本服务是 CGC 学习空间（工作台）的 MCP 后端，连接凭证绑用户、不绑工作台。以下使用协议以本段为平台单源；宿主的工具原语名与卡片形态由宿主本地资产声明，本段不点名任何宿主。
+
+  一、先按名称选择工作台。动手前先调用 list_my_workspaces 按用户说出的工作台名称定位目标工作台，再用 get_workspace_context(workspace_id) 读取该工作台信息与你在其中的角色；名称不明确或存在多个同名结果时先向用户问清，绝不猜测或编造 workspace_id。每次工具调用都带上目标 workspace_id。
+
+  二、playbook-first。进入任一角色（learner / tutor / workspace_admin / platform_admin）前，先调用 get_role_playbook(role) 拉取该角色的工作方法与当前纪律，再按其指示使用工具面；playbook 是工作方法的平台单源、随平台更新，不要凭记忆代替。
+
+  三、确认纪律。非直接写工具一律走 two-tool 确认流：第一次调用只返回 needs_confirmation + pending_id + summary，不落库；先把 summary 复述给用户，再用宿主的用户确认原语（宿主内置的提问/确认工具）让用户点击选择「确认执行」或「取消」；确认后调用 confirm_operation(pending_id)，取消或反悔调用 cancel_operation(pending_id)。多个 pending 逐一确认；无人应答（自动应答）一律按取消处理；未经用户明确确认绝不落库，摘要必须忠实反映将要发生的写操作。
+
+  四、凭证纪律。不读取、不列举宿主的凭证存储（凭证目录、配置文件、密钥或 token 存储），也不请求用户提供凭证；平台返回的一次性明文（如 invitation_token）只展示一次并提醒用户保存，不回显到对话、不写入额外文件或日志。
+
+  五、401/429 不重试。工具调用返回 401（凭证失效或未授权）时不要重试、不要换参数重试：告知用户连接已失效，交由宿主的重新授权流程处理；返回 429（请求过于频繁）时不要连续重试，等待后只做用户当前需要的下一步。
+  """
+
+  @impl Anubis.Server
+  def server_instructions, do: @server_instructions
 
   component(Cgc2046.Mcp.Tools.GetWorkspaceContext)
   component(Cgc2046.Mcp.Tools.ListMembers)
