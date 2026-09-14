@@ -75,7 +75,12 @@ defmodule Cgc2046.Initiatives.InitiativeResourceTest do
       Event
       |> Ash.Changeset.for_create(
         :create,
-        %{title: "挂载活动", initiative_id: initiative.id, starts_at: starts_at},
+        %{
+          title: "挂载活动",
+          initiative_id: initiative.id,
+          starts_at: starts_at,
+          ends_at: DateTime.add(starts_at, 1, :day)
+        },
         tenant: workspace.id
       )
       |> Ash.create!(actor: admin, tenant: workspace.id)
@@ -126,7 +131,8 @@ defmodule Cgc2046.Initiatives.InitiativeResourceTest do
         %{
           title: "传播活动",
           initiative_id: initiative.id,
-          starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
         },
         tenant: workspace.id
       )
@@ -184,7 +190,8 @@ defmodule Cgc2046.Initiatives.InitiativeResourceTest do
         %{
           title: "可编辑活动",
           initiative_id: initiative.id,
-          starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
         },
         tenant: workspace.id
       )

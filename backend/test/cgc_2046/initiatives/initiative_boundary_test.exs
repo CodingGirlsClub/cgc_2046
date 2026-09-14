@@ -22,7 +22,9 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     }
   end
 
-  defp initiative(admin) do
+  defp initiative(admin), do: initiative_with_deposit(admin, %{enabled: true, amount_cents: 6900})
+
+  defp initiative_with_deposit(admin, deposit_value) do
     i =
       Initiative
       |> Ash.Changeset.for_create(:create, %{
@@ -33,7 +35,7 @@ defmodule Cgc2046.InitiativeBoundaryTest do
       |> Ash.create!(actor: admin)
 
     for {key, value} <- [
-          deposit: %{enabled: true, amount_cents: 6900},
+          deposit: deposit_value,
           age_gate: %{min_age: 18},
           min_participants: %{count: 8},
           deadline_rule: %{hours_before_start: 72}
@@ -49,6 +51,24 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     end
 
     i |> Ash.Changeset.for_update(:open, %{}) |> Ash.update!(actor: admin)
+  end
+
+  # 草稿态 Event 布置（不过 force_open）：挂载/规则传播的挂载边界要求 draft。
+  defp draft_event(workspace, admin, attrs) do
+    attrs =
+      Map.merge(
+        %{
+          title: "Boundary Draft",
+          enrollment_policy: :open,
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
+        },
+        attrs
+      )
+
+    Event
+    |> Ash.Changeset.for_create(:create, attrs, tenant: workspace.id)
+    |> Ash.create!(tenant: workspace.id, actor: admin)
   end
 
   defp enroll(event, learner) do
@@ -124,11 +144,7 @@ defmodule Cgc2046.InitiativeBoundaryTest do
   test "locked fields reject local writes and unrelated editing preserves deadline", ctx do
     i = initiative(ctx.admin)
 
-    e =
-      EF.create_event(ctx.workspace, ctx.admin, %{
-        initiative_id: i.id,
-        starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
-      })
+    e = draft_event(ctx.workspace, ctx.admin, %{initiative_id: i.id})
 
     assert {:error, _} =
              e
@@ -141,6 +157,107 @@ defmodule Cgc2046.InitiativeBoundaryTest do
       |> Ash.update!(actor: ctx.admin, tenant: ctx.workspace.id)
 
     assert changed.registration_deadline == e.registration_deadline
+  end
+
+  # U3 / KTD3 / R1：Initiative 押金规则挂载/传播遇已开定价 Event 拒绝，
+  # 不静默关闭定价；目标 Event 资金配置不变。
+  test "deposit rule mount onto pricing-enabled event is rejected and pricing is preserved",
+       ctx do
+    i = initiative(ctx.admin)
+
+    e =
+      draft_event(ctx.workspace, ctx.admin, %{
+        pricing_enabled: true,
+        price_tiers: [%{"id" => Ash.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}]
+      })
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             e
+             |> Ash.Changeset.for_update(:update, %{initiative_id: i.id})
+             |> Ash.update(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    assert Enum.any?(
+             errors,
+             &match?(%Cgc2046.Errors.BusinessError{code: "event_payment_mode_exclusive"}, &1)
+           ),
+           "expected event_payment_mode_exclusive, got: #{inspect(errors)}"
+
+    reloaded = Ash.get!(Event, e.id, authorize?: false)
+    assert reloaded.pricing_enabled == true
+    assert reloaded.price_tiers == e.price_tiers
+    assert reloaded.deposit_enabled == false
+    assert reloaded.initiative_id == nil
+  end
+
+  # U3 / KTD3 传播路径：押金规则由关转开传播到已挂载 Event 时，遇已开定价
+  # 的 Event 拒绝整次规则更新（规则行与目标 Event 同事务回滚）。
+  test "deposit rule propagation stops when a mounted event has pricing enabled", ctx do
+    i = initiative_with_deposit(ctx.admin, %{enabled: false, amount_cents: nil})
+
+    e =
+      draft_event(ctx.workspace, ctx.admin, %{initiative_id: i.id})
+
+    assert e.deposit_enabled == false
+
+    # 押金关闭态下开定价合法（互斥只管双真）
+    assert {:ok, priced} =
+             e
+             |> Ash.Changeset.for_update(:update, %{
+               pricing_enabled: true,
+               price_tiers: [
+                 %{"id" => Ash.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
+               ]
+             })
+             |> Ash.update(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    r =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :deposit)
+      |> Ash.read_one!(actor: ctx.admin)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             r
+             |> Ash.Changeset.for_update(:update, %{value: %{enabled: true, amount_cents: 6900}})
+             |> Ash.update(actor: ctx.admin)
+
+    assert Enum.any?(
+             errors,
+             &match?(%Cgc2046.Errors.BusinessError{code: "event_payment_mode_exclusive"}, &1)
+           ),
+           "expected event_payment_mode_exclusive, got: #{inspect(errors)}"
+
+    reloaded_rule = Ash.get!(InitiativeRule, r.id, actor: ctx.admin)
+    assert reloaded_rule.value == %{"enabled" => false, "amount_cents" => nil}
+
+    reloaded_event = Ash.get!(Event, e.id, authorize?: false)
+    assert reloaded_event.pricing_enabled == true
+    assert reloaded_event.price_tiers == priced.price_tiers
+    assert reloaded_event.deposit_enabled == false
+  end
+
+  # 回归 Initiative 计划 R7：押金规则挂载到免费 Event 写入押金两列。
+  test "deposit rule mount onto free event writes both deposit columns", ctx do
+    i = initiative(ctx.admin)
+
+    e = draft_event(ctx.workspace, ctx.admin, %{initiative_id: i.id})
+
+    assert e.deposit_enabled == true
+    assert e.deposit_amount_cents == 6900
+    assert e.pricing_enabled == false
+  end
+
+  # 回归：锁死押金场 Event 侧改押金金额仍被锁死守卫拒绝。
+  test "locked deposit field still rejects local amount edits", ctx do
+    i = initiative(ctx.admin)
+
+    e = draft_event(ctx.workspace, ctx.admin, %{initiative_id: i.id})
+
+    assert {:error, _} =
+             e
+             |> Ash.Changeset.for_update(:update, %{deposit_amount_cents: 100})
+             |> Ash.update(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    assert Ash.get!(Event, e.id, authorize?: false).deposit_amount_cents == 6900
   end
 
   test "locked deadline propagation accepts database timestamps", ctx do
@@ -176,7 +293,8 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     event =
       EF.create_event(ctx.workspace, ctx.admin, %{
         deposit_enabled: true,
-        deposit_amount_cents: 6900
+        deposit_amount_cents: 6900,
+        ends_at: DateTime.add(DateTime.utc_now(), 10, :day)
       })
 
     e = enroll(event, ctx.learner)
