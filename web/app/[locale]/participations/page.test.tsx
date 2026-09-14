@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { render } from "@/test-utils";
 import ParticipationsPage, { splitEnrollments } from "./page";
 import {
@@ -13,9 +20,13 @@ const { router } = vi.hoisted(() => ({
 }));
 const { useQuery } = vi.hoisted(() => ({ useQuery: vi.fn() }));
 const { mutate } = vi.hoisted(() => ({ mutate: vi.fn() }));
+// 核销码二维码（qrcode MIT；happy-dom 无 canvas 2D 上下文，同订单页测试替桩）
+const { QRCodeStub } = vi.hoisted(() => ({ QRCodeStub: { toDataURL: vi.fn() } }));
 
 const { useAuthed } = vi.hoisted(() => ({ useAuthed: vi.fn() }));
 const tabState: { tab: string | null } = vi.hoisted(() => ({ tab: null }));
+
+vi.mock("qrcode", () => ({ default: QRCodeStub }));
 
 vi.mock("next/navigation", () => ({
 	redirect: vi.fn(),
@@ -120,6 +131,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "user-1" });
 	tabState.tab = null;
+	QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
 });
 
 afterEach(cleanup);
@@ -253,6 +265,97 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		render(<ParticipationsPage />);
 
 		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fparticipations");
+	});
+
+	it("confirmed 活动报名卡：显示 6 位核销码与承载核销 URL 的二维码；payment_pending 不出示（R11/KTD5）", async () => {
+		const confirmed = {
+			...ENROLLMENT,
+			id: "enr-confirmed",
+			status: "confirmed" as const,
+			targetTitle: "押金制黑客松",
+			checkInCode: "012345",
+			startsAt: "2099-01-01T00:00:00Z",
+		};
+		const paying = {
+			...ENROLLMENT,
+			id: "enr-paying",
+			status: "payment_pending" as const,
+			// 后端此刻不返回码；即便返回也不出示（展示按 confirmed 门控）
+			checkInCode: "654321",
+		};
+		mockQuery({ enrollments: [confirmed, paying] });
+
+		render(<ParticipationsPage />);
+
+		const card = screen.getByTestId("enrollment-enr-confirmed");
+		expect(within(card).getByTestId("check-in-code-value")).toHaveTextContent(
+			"012345",
+		);
+		expect(within(card).getByText(/请勿截图转发/)).toBeInTheDocument();
+		await waitFor(() =>
+			expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
+				expect.stringContaining("/events/event-1/check-in?code=012345"),
+				expect.anything(),
+			),
+		);
+		await waitFor(() =>
+			expect(
+				within(card).getByTestId("check-in-qr").getAttribute("src"),
+			).toBe("data:image/png;base64,qr"),
+		);
+
+		const payingCard = screen.getByTestId("enrollment-enr-paying");
+		expect(
+			payingCard.querySelector('[data-testid="check-in-code"]'),
+		).toBeNull();
+	});
+
+	it("confirmed 但后端未返回码（如非押金场外的异常态）→ 不出示码块", () => {
+		mockQuery({
+			enrollments: [
+				{
+					...ENROLLMENT,
+					id: "enr-nocode",
+					status: "confirmed" as const,
+					checkInCode: null,
+				},
+			],
+		});
+
+		render(<ParticipationsPage />);
+
+		expect(
+			screen
+				.getByTestId("enrollment-enr-nocode")
+				.querySelector('[data-testid="check-in-code"]'),
+		).toBeNull();
+	});
+
+	it("en locale：核销 URL 带 /en 前缀（i18n as-needed），码文案走英文", async () => {
+		mockQuery({
+			enrollments: [
+				{
+					...ENROLLMENT,
+					id: "enr-en",
+					status: "confirmed" as const,
+					checkInCode: "111222",
+				},
+			],
+		});
+
+		render(<ParticipationsPage />, { locale: "en" });
+
+		const card = screen.getByTestId("enrollment-enr-en");
+		expect(within(card).getByTestId("check-in-code-value")).toHaveTextContent(
+			"111222",
+		);
+		expect(within(card).getByText(/Do not screenshot or forward/)).toBeInTheDocument();
+		await waitFor(() =>
+			expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
+				expect.stringContaining("/en/events/event-1/check-in?code=111222"),
+				expect.anything(),
+			),
+		);
 	});
 
 	it("取消报名先二次确认，成功后 mutation 并刷新报名列表", async () => {

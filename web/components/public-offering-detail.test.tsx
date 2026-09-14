@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PublicOfferingDetailPage from "./public-offering-detail";
+import { MY_PENDING_ORDERS, ORDER_STATUS } from "@/lib/graphql/orders";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 
@@ -16,6 +17,18 @@ const eventsMocks = vi.hoisted(() => ({
 const initiativesMocks = vi.hoisted(() => ({
   fetchPublicInitiatives: vi.fn(),
 }));
+
+// 核销码二维码（qrcode MIT；happy-dom 无 canvas 2D 上下文，同订单页测试替桩）
+const { QRCodeStub } = vi.hoisted(() => ({ QRCodeStub: { toDataURL: vi.fn() } }));
+
+// Apollo 边界（收银模态框的下单/轮询）：默认不返回值 → 模态框按「守卫查询失败」兜底
+// （与改动前的真实网络失败行为一致）；支付成功路径由用例逐条排练
+const apollo = vi.hoisted(() => ({ query: vi.fn(), mutate: vi.fn() }));
+vi.mock("@/lib/apollo-client", () => ({
+  client: { query: apollo.query, mutate: apollo.mutate },
+}));
+
+vi.mock("qrcode", () => ({ default: QRCodeStub }));
 
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
 // NextIntlClientProvider，mock 同语义的 zh-CN translator（真实迁移语义在
@@ -99,6 +112,7 @@ beforeEach(() => {
   mocks.fetchPublicOffering.mockResolvedValue(PAID_OFFERING);
   eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
   initiativesMocks.fetchPublicInitiatives.mockResolvedValue([]);
+  QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
 });
 
 afterEach(cleanup);
@@ -1088,5 +1102,198 @@ describe("倡导活动回链（initiative 挂载）", () => {
 
     expect(initiativesMocks.fetchPublicInitiatives).not.toHaveBeenCalled();
     expect(screen.queryByText(/所属倡导活动/)).not.toBeInTheDocument();
+  });
+});
+
+/** 收银模态框的「已支付」轨道：无活单 → 下单 → 首轮轮询 paid（fake timers 推进） */
+function mockPaidCheckoutFlow() {
+  const order = {
+    id: "o1",
+    enrollmentId: "enr-dep",
+    provider: "wechat_native",
+    outTradeNo: "T1",
+    amountCents: 6900,
+    status: "pending",
+    expireAt: "2099-01-01T00:00:00Z",
+  };
+  apollo.query.mockImplementation(({ query }: { query: unknown }) => {
+    if (query === MY_PENDING_ORDERS) {
+      return Promise.resolve({ data: { myOrders: { results: [] } } });
+    }
+    if (query === ORDER_STATUS) {
+      return Promise.resolve({ data: { orderStatus: { ...order, status: "paid" } } });
+    }
+    return Promise.resolve({ data: null });
+  });
+  apollo.mutate.mockResolvedValue({
+    data: {
+      createOrder: {
+        result: order,
+        errors: [],
+        metadata: {
+          credential: JSON.stringify({
+            type: "qr_code",
+            code_url: "weixin://wxpay/x",
+          }),
+        },
+      },
+    },
+  });
+}
+
+describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
+  const FREE_EVENT = {
+    ...PAID_OFFERING,
+    pricingEnabled: false,
+    availablePriceTiers: null,
+  };
+  const DEPOSIT_EVENT = {
+    ...FREE_EVENT,
+    depositEnabled: true,
+    depositAmountCents: 6900,
+  };
+
+  it("押金场明示「押金 ¥xx（到场退）」与「未到场不退」；免费场不渲染押金块", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+
+    const { unmount } = render(<PublicOfferingDetailPage kind="event" />);
+
+    const info = await screen.findByTestId("deposit-info");
+    expect(info).toHaveTextContent("押金 ¥69（到场退）");
+    expect(info).toHaveTextContent("未到场不退。");
+    unmount();
+
+    mocks.fetchPublicOffering.mockResolvedValue(FREE_EVENT);
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByTestId("deposit-info")).not.toBeInTheDocument();
+  });
+
+  it("押金场报名：不要求选档 → payment_pending → 收银框带押金金额与不退明示", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-deposit", status: "payment_pending" },
+      errors: [],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+    await waitFor(() => expect(mocks.submitEnrollment).toHaveBeenCalledTimes(1));
+    expect(mocks.submitEnrollment).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "evt-paid", tierId: null }),
+    );
+
+    const dialog = await screen.findByTestId("checkout-dialog");
+    expect(dialog).toHaveTextContent("¥69.00");
+    const note = within(dialog).getByTestId("checkout-deposit-note");
+    expect(note).toHaveTextContent("押金 ¥69（到场退）");
+    expect(note).toHaveTextContent("未到场不退。");
+  });
+
+  it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 URL 的二维码，并提示勿截图转发", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+    eventsMocks.fetchMyEnrollment.mockResolvedValue({
+      id: "enr-1",
+      status: "confirmed",
+      checkInCode: "654321",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("check-in-code-value")).toHaveTextContent(
+      "654321",
+    );
+    expect(screen.getByText(/请勿截图转发/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
+        expect.stringContaining("/events/paid-event/check-in?code=654321"),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("payment_pending 本人报名：不出示核销码（仅待支付卡）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+    eventsMocks.fetchMyEnrollment.mockResolvedValue({
+      id: "enr-2",
+      status: "payment_pending",
+      checkInCode: null,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByTestId("public-enrollment-pending-card");
+    expect(screen.queryByTestId("check-in-code-value")).not.toBeInTheDocument();
+    expect(QRCodeStub.toDataURL).not.toHaveBeenCalled();
+  });
+
+  it("押金支付成功：重拉到 confirmed 后退出待支付中间态，rail 就地出示核销码", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+      mocks.submitEnrollment.mockResolvedValueOnce({
+        result: { id: "enr-dep", status: "payment_pending" },
+        errors: [],
+      });
+      // 进页探测无报名 → 支付后重拉为 confirmed（带核销码）
+      eventsMocks.fetchMyEnrollment
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({
+          id: "enr-dep",
+          status: "confirmed",
+          checkInCode: "848484",
+        });
+      mockPaidCheckoutFlow();
+
+      render(<PublicOfferingDetailPage kind="event" />);
+      fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+      await screen.findByTestId("checkout-qr");
+
+      // 首轮轮询（2s）拿到 paid → onPaid 重拉报名 → rail 落到已报名卡
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+
+      expect(await screen.findByTestId("check-in-code-value")).toHaveTextContent(
+        "848484",
+      );
+      expect(
+        screen.queryByTestId("public-enrollment-pending-card"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/待支付（名额已保留）/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("支付成功但报名重拉失败：保持待支付中间态（继续支付入口仍在），不掉回报名表单", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+      mocks.submitEnrollment.mockResolvedValueOnce({
+        result: { id: "enr-dep", status: "payment_pending" },
+        errors: [],
+      });
+      eventsMocks.fetchMyEnrollment
+        .mockResolvedValueOnce(null)
+        .mockRejectedValue(new Error("boom"));
+      mockPaidCheckoutFlow();
+
+      render(<PublicOfferingDetailPage kind="event" />);
+      fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+      await screen.findByTestId("checkout-qr");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_100);
+      });
+
+      expect(await screen.findByTestId("checkout-paid")).toBeInTheDocument();
+      expect(screen.getByText(/待支付（名额已保留）/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "提交报名" }),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

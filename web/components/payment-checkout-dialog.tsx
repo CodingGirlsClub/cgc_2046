@@ -36,6 +36,7 @@ import {
   countdownText,
   dispatchCredential,
   formatAmount,
+  formatAmountShort,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -75,6 +76,11 @@ export interface PaymentCheckoutDialogProps {
   amountCents?: number | null;
   /** 所选档位名（头部展示；复访承接时可不传） */
   tierName?: string | null;
+  /**
+   * 押金金额（分；R10/KTD10）。传值 = 押金场收银：框内明示「押金 ¥xx（到场退）」与
+   * 「未到场不退」，并在订单就绪前以其作头部金额（押金场无档位，amountCents 为空）。
+   */
+  depositAmountCents?: number | null;
   /** 活动标题（头部展示） */
   title?: string | null;
 }
@@ -85,6 +91,7 @@ export default function PaymentCheckoutDialog({
   onPaid,
   amountCents: amountHintCents = null,
   tierName = null,
+  depositAmountCents = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
@@ -306,7 +313,7 @@ export default function PaymentCheckoutDialog({
     dispatch.mode === "unsupported" &&
     credential === null &&
     status === "pending";
-  const amountCents = order?.amountCents ?? amountHintCents;
+  const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
 
   return (
     <div
@@ -361,6 +368,19 @@ export default function PaymentCheckoutDialog({
             </button>
           </div>
         </div>
+
+        {depositAmountCents != null ? (
+          // R10/KTD10：押金场收银框内明示押金口径与未到场不退（报名流程内披露）
+          <p
+            className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
+            data-testid="checkout-deposit-note"
+          >
+            {t("depositLine", {
+              amount: formatAmountShort(depositAmountCents),
+            })}
+            <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
+          </p>
+        ) : null}
 
         {paid ? (
           <div
