@@ -2,7 +2,8 @@ defmodule Cgc2046.Payments.OrderTest do
   @moduledoc """
   支付闭环 U1：Order 状态机骨架 + 库级不变量（R11 唯一活跃订单部分索引 /
   R21 WebhookEvent 幂等去重）；event-deposit U7：forfeited 终态与 forfeit CAS、
-  forfeited 统计桶、重复支付回调对 forfeited 单的迟到裁决。
+  forfeited 统计桶、重复支付回调对 forfeited 单的迟到裁决；event-deposit U2：
+  押金单金额源分派（KTD1）——下单/换渠道取押金快照而非定价档位，落账链零改动。
 
   全部动作以 authorize?: false 走内部路径（worker/域服务语义）；面向用户的
   policy 随 U5/U9 暴露时细化。
@@ -18,7 +19,11 @@ defmodule Cgc2046.Payments.OrderTest do
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Payments.{Order, WebhookEvent}
   alias Cgc2046.Payments.Providers.Fake
-  alias Cgc2046.Payments.Workers.PaymentSettlementWorker
+  alias Cgc2046.Payments.Workers.{PaymentRefundWorker, PaymentSettlementWorker}
+  alias Cgc2046.Reconciliation.Finding
+
+  # #405/#U2 布置共用的付费档位 id。
+  @idempotent_tier_id "44444444-4444-4444-4444-444444444444"
 
   describe "状态机：合法迁移" do
     test "mark_paid：pending → paid，落 transaction_id" do
@@ -218,6 +223,245 @@ defmodule Cgc2046.Payments.OrderTest do
     end
   end
 
+  describe "U2：押金单金额源与下单分派（R4/KTD1）" do
+    test "押金 ¥69 场 payment_pending 报名下单 → deposit 单金额取押金快照 + 凭据" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-create")
+
+      # 报名提交即物化押金快照（KTD1 金额源）
+      assert enrollment.submission_payload["deposit_amount_cents"] == 6900
+
+      assert {:ok, order} = checkout(enrollment, learner)
+
+      assert order.order_kind == :deposit
+      assert order.amount_cents == 6900
+      assert order.tier_snapshot == %{"name" => "押金", "amount_cents" => 6900}
+      # 管理面 tier_name 计算字段读同一快照（零改动）
+      assert Ash.load!(order, :tier_name, authorize?: false).tier_name == "押金"
+
+      # 渠道凭据随本次单号回出（Fake 回显 out_trade_no）
+      assert %{"out_trade_no" => out_trade_no} = order.__metadata__[:credential]
+      assert out_trade_no == order.out_trade_no
+    end
+
+    test "重复下单（重进支付页）：旧押金单作废、新单唯一，金额仍取快照" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-idem")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+      assert {:ok, second} = checkout(enrollment, learner)
+
+      assert second.id != first.id
+      assert second.order_kind == :deposit
+      assert second.amount_cents == 6900
+      assert reload(first).status == :cancelled
+      assert reload(first).cancel_reason == "reenter_refresh"
+      assert order_count(enrollment.id) == 2
+    end
+
+    test "押金单换渠道：金额与押金形状快照不变（取原单快照，不重新读 Event）" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("u2-replace")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:ok, second} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert second.id != first.id
+      assert second.order_kind == :deposit
+      assert second.amount_cents == 6900
+      assert second.tier_snapshot == %{"name" => "押金", "amount_cents" => 6900}
+      assert reload(first).status == :cancelled
+      assert reload(first).cancel_reason == "provider_switch"
+    end
+
+    test "Event 事后关押金：换渠道仍按原单口径（deposit 标签 + 押金金额），不按现状重算" do
+      %{
+        enrollment: enrollment,
+        learner: learner,
+        event: event,
+        workspace: workspace,
+        admin: admin
+      } =
+        deposit_payment_pending_enrollment("u2-replace-flip")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      # Owner 事后关闭押金（免费场）；押金关闭无批量免缴（只有 pricing 关才有），
+      # 报名与在途单原样保留。
+      assert {:ok, flipped} =
+               event
+               |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert flipped.deposit_enabled == false
+
+      assert {:ok, second} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      # 口径继承原单：kind 与金额同源，不产出「押金金额 + enrollment 标签」的单
+      assert second.order_kind == :deposit
+      assert second.amount_cents == 6900
+      assert second.tier_snapshot == %{"name" => "押金", "amount_cents" => 6900}
+    end
+
+    test "押金单 Fake 回调落账：订单 paid + 报名 confirmed + payment_succeeded 入队" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-settle")
+
+      # 通知收件人零身份 = 零入队（Fanout :skipped）——布置报名者微信身份
+      insert_identity(learner.id, :wechat, "u2-settle-openid")
+
+      assert {:ok, order} = checkout(enrollment, learner)
+      assert :ok = settle_order(order)
+
+      assert reload(order).status == :paid
+
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
+
+      assert_enqueued(
+        worker: Cgc2046.Notifications.NotificationWorker,
+        args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
+      )
+    after
+      Fake.reset!()
+    end
+
+    test "渠道金额 ≠ 押金（R20 回归）：不落账 + amount_mismatch Finding" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-mismatch")
+
+      assert {:ok, order} = checkout(enrollment, learner)
+      assert :ok = settle_order(order, amount_cents: 6800)
+
+      assert reload(order).status == :pending
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :payment_pending
+
+      assert [%{rule: :payment_amount_mismatch, entity_id: entity_id}] =
+               Ash.read!(Finding, authorize?: false)
+
+      assert entity_id == order.id
+    after
+      Fake.reset!()
+    end
+
+    test "押金单 expired 后迟到支付回调 → 自动 start_refund 入队（回归迟到裁决）" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-late")
+
+      assert {:ok, order} = checkout(enrollment, learner)
+
+      # 超时扫描：订单 expired 与报名 expired 同事务联动（do_expire）
+      assert {:ok, _expired} = transition(order, :expire)
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :expired
+
+      assert :ok = settle_order(order)
+
+      assert reload(order).status == :refunding
+      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+    after
+      Fake.reset!()
+    end
+
+    test "定价场下单仍走档位解析（分派不误伤定价单）" do
+      {enrollment, learner} = payment_pending_enrollment("u2-priced")
+
+      assert {:ok, order} = checkout(enrollment, learner)
+
+      assert order.order_kind == :enrollment
+      assert order.amount_cents == 9900
+      assert order.tier_snapshot["id"] == @idempotent_tier_id
+      assert order.tier_snapshot["name"] == "早鸟"
+    end
+
+    test "request 押金场审批通过 → 快照随 payment_pending 落库，下单金额 = 押金" do
+      admin = Fixtures.platform_admin("payments-deposit-request-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          deposit_attrs(%{enrollment_policy: :request})
+        )
+
+      learner = Fixtures.register_user("payments-deposit-request-learner")
+
+      assert {:ok, pending} = create_enrollment(event, learner)
+      assert pending.status == :pending
+
+      assert {:ok, approved} =
+               pending
+               |> Ash.Changeset.for_update(:confirm_enrollment, %{})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert approved.status == :payment_pending
+      assert approved.submission_payload["deposit_amount_cents"] == 6900
+
+      assert {:ok, order} = checkout(approved, learner)
+      assert order.order_kind == :deposit
+      assert order.amount_cents == 6900
+    end
+
+    test "报名后 Owner 改押金 69→99：存量 payment_pending 报名按 69（快照），新报名按 99" do
+      %{
+        enrollment: enrollment,
+        learner: learner,
+        event: event,
+        workspace: workspace,
+        admin: admin
+      } = deposit_payment_pending_enrollment("u2-reprice")
+
+      assert {:ok, updated} =
+               event
+               |> Ash.Changeset.for_update(:update, %{deposit_amount_cents: 9900})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert updated.deposit_amount_cents == 9900
+
+      # 存量报名：承诺金额以报名提交时为准（改价不追溯）
+      assert {:ok, existing_order} = checkout(enrollment, learner)
+      assert existing_order.amount_cents == 6900
+
+      # 新报名拿新价（新快照）
+      fresh_learner = Fixtures.register_user("payments-deposit-learner-u2-reprice-new")
+      assert {:ok, fresh} = create_enrollment(event, fresh_learner)
+      assert fresh.status == :payment_pending
+      assert fresh.submission_payload["deposit_amount_cents"] == 9900
+
+      assert {:ok, fresh_order} = checkout(fresh, fresh_learner)
+      assert fresh_order.amount_cents == 9900
+    end
+
+    test "存量报名无押金快照（U1→U2 窗口行）→ fail-closed 拒单且零订单残留" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("u2-nosnapshot")
+
+      # 布置：抹掉押金快照——U1 落地（押金场进 payment_pending）到 U2 落地
+      # （下单链读快照）之间产生的报名正是这种形状，域内当前无路径可产出。
+      Repo.query!(
+        "UPDATE enrollments SET submission_payload = submission_payload - 'deposit_amount_cents' WHERE id = $1",
+        [Repo.uuid!(enrollment.id)]
+      )
+
+      # 无承诺金额可依据 → 拒单，绝不以 nil/零金额调渠道
+      assert {:error, error} = checkout(enrollment, learner)
+      assert Exception.message(error) =~ "deposit amount snapshot is missing"
+      assert order_count(enrollment.id) == 0
+    end
+  end
+
   describe "R21：WebhookEvent (provider, event_id) 幂等去重" do
     test "重复 (provider, event_id) 插入被拒；不同 provider 同 event_id 可并存" do
       assert {:ok, _} = create_webhook_event(:wechat, "evt-dup-1")
@@ -373,9 +617,8 @@ defmodule Cgc2046.Payments.OrderTest do
   defp actor_fixture(enrollment), do: %{id: enrollment.user_id}
 
   # #405 幂等测试布置：付费活动 + 档位 → 报名落 payment_pending；checkout 走
-  # create_for_enrollment 全链路（本人 actor + Fake 渠道）。
-  @idempotent_tier_id "44444444-4444-4444-4444-444444444444"
-
+  # create_for_enrollment 全链路（本人 actor + Fake 渠道）。U2 押金/定价分派
+  # 回归同用此档位。
   defp payment_pending_enrollment(tag) do
     admin = Fixtures.platform_admin("payments-idem-admin-#{tag}")
     workspace = Fixtures.create_workspace(admin)
@@ -411,6 +654,67 @@ defmodule Cgc2046.Payments.OrderTest do
       provider: :wechat_native
     })
     |> Ash.create(tenant: enrollment.workspace_id, actor: actor)
+  end
+
+  # U2 押金布置：押金场（ends_at 非空是 U3 校验要求，也是 no-show 结算锚点）→
+  # 报名落 payment_pending 且 submission_payload 已物化押金快照。
+  defp deposit_attrs(extra \\ %{}) do
+    Map.merge(
+      %{
+        deposit_enabled: true,
+        deposit_amount_cents: 6900,
+        ends_at: EventFixtures.days_from_now(8)
+      },
+      extra
+    )
+  end
+
+  defp deposit_payment_pending_enrollment(tag) do
+    admin = Fixtures.platform_admin("payments-deposit-admin-#{tag}")
+    workspace = Fixtures.create_workspace(admin)
+    event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+    learner = Fixtures.register_user("payments-deposit-learner-#{tag}")
+
+    {:ok, enrollment} = create_enrollment(event, learner)
+    assert enrollment.status == :payment_pending
+
+    %{admin: admin, workspace: workspace, event: event, learner: learner, enrollment: enrollment}
+  end
+
+  # 落账链布置：渠道回查付讫（金额默认等于订单金额）+ webhook 事件 → 跑落账
+  # worker（渠道调用走 Fake，生产 adapter 不被测试触碰）。
+  defp settle_order(order, overrides \\ []) do
+    Fake.script!(
+      fetch_transaction:
+        {:ok,
+         %{
+           status: :paid,
+           amount_cents: Keyword.get(overrides, :amount_cents, order.amount_cents),
+           transaction_id: "txn-" <> order.out_trade_no
+         }}
+    )
+
+    event =
+      WebhookEvent
+      |> Ash.Changeset.for_create(:create, %{
+        provider: :wechat,
+        event_id: "evt-" <> order.out_trade_no,
+        payload: %{"out_trade_no" => order.out_trade_no}
+      })
+      |> Ash.create!(authorize?: false)
+
+    perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
+  end
+
+  # 布置报名者平台身份（通知收件人解析用；Fanout 零身份 → 零入队）。
+  defp insert_identity(user_id, provider, uid) do
+    Repo.query!(
+      """
+      INSERT INTO user_identities (id, provider, uid, user_id, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+      """,
+      [to_string(provider), uid, Ecto.UUID.dump!(user_id)]
+    )
   end
 
   defp order_fixture do

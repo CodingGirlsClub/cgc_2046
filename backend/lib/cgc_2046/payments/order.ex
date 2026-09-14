@@ -21,6 +21,13 @@ defmodule Cgc2046.Payments.Order do
   - 状态迁移原子性：每条迁移一条 `UPDATE ... WHERE id = $ AND status IN (源状态)`
     条件 UPDATE，num_rows=0 即非法迁移。
 
+  U2 金额源（KTD1）：下单与换渠道按 `order_kind` 分派——押金单跳过定价档位解析，
+  以报名提交时物化的押金快照（`submission_payload["deposit_amount_cents"]`）合成
+  `%{"name" => "押金", "amount_cents" => …}` 形状 tier；换渠道沿被替换订单的
+  `order_kind` 与 `tier_snapshot`（不重新读 Event，改价不追溯在途单）。定价单
+  维持现状（`resolve_tier/2` 取当前档位）。快照缺失 fail-closed 报
+  `order_deposit_amount_missing`，绝不以 nil/零金额调渠道。
+
   U1 骨架：全部动作均为内部路径（worker/域服务 authorize?: false 调用），
   GraphQL/管理面尚未暴露；policy 占位为 actor 在场（拒匿名），面向用户的正式
   授权（学员本人 / Owner/Admin / 平台管理员）随 U5/U9 暴露时细化。
@@ -642,7 +649,7 @@ defmodule Cgc2046.Payments.Order do
          # 过期，支付回调按新单号路由。
          :ok <- discard_stale_pending_order(enrollment.id),
          {:ok, target} <- load_target(enrollment),
-         {:ok, tier} <- resolve_tier(enrollment, target),
+         {:ok, tier} <- resolve_order_amount(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
          {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no) do
       changeset
@@ -674,14 +681,17 @@ defmodule Cgc2046.Payments.Order do
          {:ok, enrollment} <- load_enrollment(old_order.enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          {:ok, target} <- load_target(enrollment),
-         {:ok, tier} <- resolve_tier(enrollment, target),
+         {:ok, tier} <- resolve_replaced_amount(old_order, enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
          {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no),
          :ok <- cancel_old_order(order_id) do
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
-      |> Ash.Changeset.force_change_attribute(:order_kind, order_kind(enrollment, target))
+      # order_kind 与金额源同源（见 resolve_replaced_amount/3）：换渠道继承被替换
+      # 订单的口径，不按 Event 现状重算——避免「押金金额 + enrollment 标签」这类
+      # 自相矛盾的单（标签是结算/统计法则的键，KTD7）。
+      |> Ash.Changeset.force_change_attribute(:order_kind, old_order.order_kind)
       |> Ash.Changeset.force_change_attribute(:provider, provider)
       |> Ash.Changeset.force_change_attribute(:out_trade_no, out_trade_no)
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
@@ -724,20 +734,27 @@ defmodule Cgc2046.Payments.Order do
   # 调用方（本模块）事务提交。
   defp load_enrollment(id), do: Cgc2046.Admission.Enrollment.lock_for_order(id)
 
+  # 读被替换订单：order_kind + tier_snapshot 为换渠道金额源（U2/KTD1：押金单
+  # 按原单快照换渠道，不重新读 Event）。
   defp load_order(id) when is_binary(id) do
     sql = """
-    SELECT id, enrollment_id, provider, status, amount_cents
+    SELECT id, enrollment_id, provider, status, amount_cents, order_kind, tier_snapshot
     FROM payments_orders WHERE id = $1
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
-      {:ok, %{rows: [[id, enrollment_id, _provider, status, amount_cents]]}} ->
+      {:ok,
+       %{
+         rows: [[id, enrollment_id, _provider, status, amount_cents, order_kind, snapshot]]
+       }} ->
         {:ok,
          %{
            id: Ecto.UUID.load!(id),
            enrollment_id: Ecto.UUID.load!(enrollment_id),
-           status: status_to_atom(status),
-           amount_cents: amount_cents
+           status: existing_atom(status),
+           amount_cents: amount_cents,
+           order_kind: existing_atom(order_kind),
+           tier_snapshot: snapshot
          }}
 
       {:ok, %{rows: []}} ->
@@ -802,6 +819,49 @@ defmodule Cgc2046.Payments.Order do
     do: :deposit
 
   defp order_kind(_enrollment, _target), do: :enrollment
+
+  # ── 金额源分派（U2/KTD1）────────────────────────────────────────────────
+
+  # 押金单 tier 快照的展示名：管理面 tier_name、渠道订单 subject（微信/支付宝
+  # payment_description/payment_subject）、通知 receipt_data 同源读此名。
+  @deposit_tier_name "押金"
+
+  # 下单金额源按 order_kind 分派：押金单跳过 resolve_tier/2，以报名提交时的押金
+  # 快照合成「押金」形状 tier——amount_cents / tier_snapshot /
+  # channel_create_payment/4 / 管理面 tier_name 等下游消费者零改动。
+  defp resolve_order_amount(enrollment, target) do
+    case order_kind(enrollment, target) do
+      :deposit -> enrollment_deposit_tier(enrollment)
+      :enrollment -> resolve_tier(enrollment, target)
+    end
+  end
+
+  # 换渠道沿用被替换订单自己的口径（KTD1「取订单 tier_snapshot，不重新读 Event」）：
+  # 押金单按原单快照换渠道，Owner 事后改押金金额/关押金都不改写在途单的承诺口径；
+  # 定价单维持现状（按当前配置的档位解析，R3）。调用方据此同源写 order_kind。
+  defp resolve_replaced_amount(order, enrollment, target) do
+    case order.order_kind do
+      :deposit -> order_deposit_tier(order)
+      :enrollment -> resolve_tier(enrollment, target)
+    end
+  end
+
+  # 押金快照 → tier：金额非正整数（历史报名无快照、脏配置 0/nil）一律
+  # fail-closed——绝不以零金额调渠道下单，报稳定业务错误交前端重报名。
+  defp enrollment_deposit_tier(%{submission_payload: payload}) when is_map(payload),
+    do: deposit_tier(Map.get(payload, "deposit_amount_cents"))
+
+  defp enrollment_deposit_tier(_enrollment), do: {:error, :deposit_amount_missing}
+
+  defp order_deposit_tier(%{tier_snapshot: snapshot}) when is_map(snapshot),
+    do: deposit_tier(Map.get(snapshot, "amount_cents"))
+
+  defp order_deposit_tier(_order), do: {:error, :deposit_amount_missing}
+
+  defp deposit_tier(amount_cents) when is_integer(amount_cents) and amount_cents > 0,
+    do: {:ok, %{"name" => @deposit_tier_name, "amount_cents" => amount_cents}}
+
+  defp deposit_tier(_amount_cents), do: {:error, :deposit_amount_missing}
 
   # 档位解析：报名时选的 tier_id → 当前配置中的档位（改价后下单按现价快照）
   defp resolve_tier(enrollment, target) do
@@ -915,8 +975,10 @@ defmodule Cgc2046.Payments.Order do
     "CGC" <> binary_part(String.replace(Ecto.UUID.generate(), "-", ""), 0, 29)
   end
 
-  defp status_to_atom(status) when is_binary(status), do: String.to_existing_atom(status)
-  defp status_to_atom(status) when is_atom(status), do: status
+  # 裸 SQL 读出的文本列 → 既有原子（status / order_kind）；未声明值上抛而非
+  # 造原子（unsafe_to_atom 纪律）。
+  defp existing_atom(value) when is_binary(value), do: String.to_existing_atom(value)
+  defp existing_atom(value) when is_atom(value), do: value
 
   # ── 信号 payload（SignalEmitter 契约：fn changeset, record -> map）─────────
 
@@ -1169,6 +1231,9 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_message(:duplicate_active),
     do: "an active order already exists for this enrollment"
 
+  defp domain_error_message(:deposit_amount_missing),
+    do: "deposit amount snapshot is missing for this enrollment"
+
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
 
@@ -1180,6 +1245,9 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_code(:provider_not_configured), do: "order_provider_not_configured"
   defp domain_error_code(:not_payment_pending), do: "order_not_payment_pending"
   defp domain_error_code(:duplicate_active), do: "order_duplicate_active"
+
+  # 押金单金额源缺快照（U2/KTD1）：历史报名/缴费模式事后切换时 fail-closed
+  defp domain_error_code(:deposit_amount_missing), do: "order_deposit_amount_missing"
   # 已含资源语义的 load_*/openid 原子显式子句化（#241 F3）：兜底会拼出
   # order_order_not_found 双前缀；openid_required 显式化以进契约工件
   defp domain_error_code(:order_not_found), do: "order_not_found"
