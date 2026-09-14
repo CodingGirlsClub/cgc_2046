@@ -35,7 +35,13 @@ export type PublicInitiative = {
 	cities: Array<{ city: string; events: InitiativeEvent[] }>;
 };
 
-export type PublicInitiativeCard = Pick<PublicInitiative, "id" | "name" | "slug" | "status">;
+export type PublicInitiativeCard = Pick<
+	PublicInitiative,
+	"id" | "name" | "slug" | "status" | "hashtag" | "description"
+> & {
+	windowStartsAt: string | null;
+	windowEndsAt: string | null;
+};
 
 const PUBLIC_INITIATIVE: TypedDocumentNode<
 	{ publicInitiative: PublicInitiative | null },
@@ -54,7 +60,7 @@ const PUBLIC_INITIATIVES: TypedDocumentNode<
 	Record<string, never>
 > = gql`
 	query PublicInitiatives {
-		publicInitiatives { id name slug status }
+		publicInitiatives { id name slug hashtag description status windowStartsAt windowEndsAt }
 	}
 `;
 

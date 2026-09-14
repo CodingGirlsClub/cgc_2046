@@ -2134,6 +2134,10 @@
 		"shortBy": "{count} more needed",
 		"open": "Open",
 		"cityEvents": "{count, plural, one {# event} other {# events}}",
-		"seats": "Seats"
+		"seats": "Seats",
+		"indexTitle": "Initiatives",
+		"indexDesc": "Public initiatives across workspaces. Open one to browse its events.",
+		"indexEmpty": "No initiatives yet",
+		"loadFailed": "Failed to load"
 	}
 }

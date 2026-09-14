@@ -2134,6 +2134,10 @@
 		"shortBy": "还差 {count} 人",
 		"open": "开放报名",
 		"cityEvents": "{count} 场",
-		"seats": "报名"
+		"seats": "报名",
+		"indexTitle": "倡导活动",
+		"indexDesc": "跨工作台的公开倡导活动，点击进入详情。",
+		"indexEmpty": "暂无倡导活动",
+		"loadFailed": "加载失败"
 	}
 }
