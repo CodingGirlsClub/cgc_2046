@@ -56,4 +56,34 @@ defmodule Cgc2046.Accounts.PhoneNumberTest do
       assert {:error, :invalid} = PhoneNumber.normalize("", "86")
     end
   end
+
+  describe "parse/1 (web 入口：+E.164 或默认 +86)" do
+    test "裸号沿用 +86 默认（既有行为不变）" do
+      assert {:ok, "+8613800138000"} = PhoneNumber.parse("13800138000")
+      assert {:ok, "+8613800138000"} = PhoneNumber.parse("138-0013-8000")
+    end
+
+    test "+86 整号（可含分隔符）不重复拼接" do
+      assert {:ok, "+8613800138000"} = PhoneNumber.parse("+8613800138000")
+      assert {:ok, "+8613800138000"} = PhoneNumber.parse("+86 138-0013-8000")
+    end
+
+    test "国际 E.164 整号保留原号（可含分隔符）" do
+      assert {:ok, "+14155552671"} = PhoneNumber.parse("+14155552671")
+      assert {:ok, "+447911123456"} = PhoneNumber.parse("+44 7911 123456")
+      assert {:ok, "+85212345678"} = PhoneNumber.parse("+852 1234 5678")
+      assert {:ok, "+819012345678"} = PhoneNumber.parse("+81-90-1234-5678")
+    end
+
+    test "国家码前缀非法 → invalid（fail-closed）" do
+      assert {:error, :invalid} = PhoneNumber.parse("+999123456")
+      assert {:error, :invalid} = PhoneNumber.parse("+0123456")
+      assert {:error, :invalid} = PhoneNumber.parse("+")
+    end
+
+    test "空 / nil → invalid" do
+      assert {:error, :invalid} = PhoneNumber.parse(nil)
+      assert {:error, :invalid} = PhoneNumber.parse("")
+    end
+  end
 end
