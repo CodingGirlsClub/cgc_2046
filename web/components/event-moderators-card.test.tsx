@@ -11,6 +11,9 @@ const lib = vi.hoisted(() => ({
 
 vi.mock("@/lib/graphql/moderators", () => lib);
 
+const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }));
+vi.mock("@/lib/clipboard", () => clipboard);
+
 const ROW = {
 	id: "mod-1",
 	workspaceId: "ws-1",
@@ -90,5 +93,81 @@ describe("EventModeratorsCard", () => {
 			expect(screen.queryByText("user-uuid-1")).not.toBeInTheDocument(),
 		);
 		expect(lib.removeEventModerator).toHaveBeenCalledWith("ws-1", "mod-1");
+	});
+
+	it("U9：有 slug → 复制核销页链接（绝对 URL + 已复制反馈）", async () => {
+		clipboard.copyText.mockResolvedValue(true);
+
+		render(
+			<EventModeratorsCard
+				workspaceId="ws-1"
+				eventId="evt-1"
+				eventSlug="agent-bootcamp"
+			/>,
+		);
+		await screen.findByText("user-uuid-1");
+
+		fireEvent.click(screen.getByTestId("copy-check-in-link"));
+
+		await waitFor(() =>
+			expect(clipboard.copyText).toHaveBeenCalledWith(
+				`${window.location.origin}/events/agent-bootcamp/check-in`,
+			),
+		);
+		expect(await screen.findByText("已复制")).toBeInTheDocument();
+	});
+
+	it("U9：复制失败 → 就地给出可手动复制的链接（不静默失败）", async () => {
+		clipboard.copyText.mockResolvedValue(false);
+
+		render(
+			<EventModeratorsCard
+				workspaceId="ws-1"
+				eventId="evt-1"
+				eventSlug="agent-bootcamp"
+			/>,
+		);
+		await screen.findByText("user-uuid-1");
+
+		fireEvent.click(screen.getByTestId("copy-check-in-link"));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"/events/agent-bootcamp/check-in",
+		);
+	});
+
+	it("U9：en locale 复制链接带 /en 前缀（localePrefix as-needed）", async () => {
+		clipboard.copyText.mockResolvedValue(true);
+
+		render(
+			<EventModeratorsCard
+				workspaceId="ws-1"
+				eventId="evt-1"
+				eventSlug="agent-bootcamp"
+			/>,
+			{ locale: "en" },
+		);
+		await screen.findByText("user-uuid-1");
+
+		fireEvent.click(screen.getByTestId("copy-check-in-link"));
+
+		await waitFor(() =>
+			expect(clipboard.copyText).toHaveBeenCalledWith(
+				`${window.location.origin}/en/events/agent-bootcamp/check-in`,
+			),
+		);
+	});
+
+	it("U9：未发布（slug null）→ 无核销页链接可复制", async () => {
+		render(
+			<EventModeratorsCard
+				workspaceId="ws-1"
+				eventId="evt-1"
+				eventSlug={null}
+			/>,
+		);
+		await screen.findByText("user-uuid-1");
+
+		expect(screen.queryByTestId("copy-check-in-link")).not.toBeInTheDocument();
 	});
 });

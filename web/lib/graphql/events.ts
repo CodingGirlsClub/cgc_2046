@@ -301,6 +301,8 @@ export const CREATE_EVENT: TypedDocumentNode<
         pricingEnabled
         priceTiers
         initiativeId
+        depositEnabled
+        depositAmountCents
       }
       errors {
         code
@@ -357,6 +359,8 @@ export const UPDATE_EVENT: TypedDocumentNode<
         pricingEnabled
         priceTiers
         initiativeId
+        depositEnabled
+        depositAmountCents
       }
       errors {
         code
@@ -538,6 +542,10 @@ export interface PublicOfferingItem {
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
   sponsorshipTiers?: string[] | null;
+  /** 押金开关（押金场：报名即付押金，到场核销全额退、未到场不退；R10/KTD10） */
+  depositEnabled?: boolean | null;
+  /** 押金金额（分；depositEnabled 时有值） */
+  depositAmountCents?: number | null;
   /** 配套课程投影（JsonString，JSON.parse 后为 {id, slug, title}；仅 event，null = 无配套课/宣讲会；issue #505 D1） */
   companionCourse?: string | null;
   /** 挂载的 Initiative id（仅 event；详情页据此渲染回 /initiatives/[slug] 的隶属回链） */
@@ -621,6 +629,8 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       sponsorshipTiers
       pricingEnabled
       availablePriceTiers
+      depositEnabled
+      depositAmountCents
       companionCourse
       initiativeId
     }
@@ -710,6 +720,7 @@ export const LIST_COURSE_ENROLLMENTS: TypedDocumentNode<
  * 当前用户对目标的活跃报名（e2e #2：终态 cancelled/expired/rejected 不算
  * 「已报名」，否则取消后 UI 无法再报名）。读策略仅本人可见 → 返回即已报名。
  * status 透传（支付接续：payment_pending 分叉「待支付」卡片，见 offering-pages）。
+ * checkInCode 同透传（押金制 U4/KTD5：confirmed 活动报名在详情页本人卡出示 6 位码）。
  */
 export interface MyEnrollmentRow {
   id: string;
@@ -718,6 +729,8 @@ export interface MyEnrollmentRow {
   approvalDeadline?: string | null;
   /** 报名对象（活动/课程）标题——仅 MY_ENROLLMENT 选取（/orders/new 下单上下文交接用） */
   targetTitle?: string | null;
+  /** 6 位核销码（押金制 U4/KTD5：仅本人 confirmed 活动报名返回；course 恒 null） */
+  checkInCode?: string | null;
 }
 
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
@@ -736,6 +749,7 @@ export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
         id
         status
         approvalDeadline
+        checkInCode
       }
     }
   }
@@ -757,6 +771,7 @@ export const MY_COURSE_ENROLLMENT: TypedDocumentNode<
         id
         status
         approvalDeadline
+        checkInCode
       }
     }
   }

@@ -230,6 +230,15 @@ export function formatAmount(cents: number): string {
 	return (cents / 100).toFixed(2);
 }
 
+/**
+ * 分 → 元短式（整元省略小数：6900 → "69"，6950 → "69.50"）。
+ * 缴费槽口径文案（R10「押金 ¥69（到场退）」）与订单金额展示不同层——
+ * 后者一律两位小数对齐渠道金额，此处只服务产品口径文案。
+ */
+export function formatAmountShort(cents: number): string {
+	return cents % 100 === 0 ? String(cents / 100) : formatAmount(cents);
+}
+
 /** tierSnapshot（JsonString，下单时物化档位）→ 档位名；坏 JSON/缺 name → null */
 export function tierSnapshotName(raw: string | null | undefined): string | null {
 	if (!raw) return null;
