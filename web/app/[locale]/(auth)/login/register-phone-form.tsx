@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { SIGN_UP_WITH_PHONE, graphqlErrorDetails } from "@/lib/graphql/auth";
+import PhoneInput, { isValidPhone } from "@/components/phone-input";
 import { navigateAfterLogin } from "./use-auth-submit";
 import { useSmsLogin } from "./use-sms-login";
 import { PasswordField, PasswordStrength } from "./auth-form";
@@ -42,7 +43,7 @@ export default function RegisterPhoneForm() {
 	const displayError = error ?? sendError;
 
 	const handleSend = async () => {
-		if (!phone.trim()) {
+		if (!isValidPhone(phone)) {
 			setError(t("errorInvalidPhone"));
 			return;
 		}
@@ -53,7 +54,7 @@ export default function RegisterPhoneForm() {
 
 	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!phone.trim()) {
+		if (!isValidPhone(phone)) {
 			setError(t("errorInvalidPhone"));
 			return;
 		}
@@ -118,24 +119,18 @@ export default function RegisterPhoneForm() {
 					</div>
 				)}
 
-				<div className="auth-field">
-					<input
-						id="register-phone"
-						name="phone"
-						className="auth-input"
-						type="tel"
-						placeholder={t("placeholderPhone")}
-						value={phone}
-						onChange={(event) => {
-							setPhone(event.target.value);
-							setError(null);
-							setSendError(null);
-						}}
-						autoComplete="tel"
-						autoFocus
-						required
-					/>
-				</div>
+				<PhoneInput
+					id="register-phone"
+					value={phone}
+					onChange={(value) => {
+						setPhone(value);
+						setError(null);
+						setSendError(null);
+					}}
+					placeholder={t("placeholderPhone")}
+					autoFocus
+					required
+				/>
 
 				<div className="auth-field">
 					<div className="auth-sms-code-row">
@@ -158,7 +153,7 @@ export default function RegisterPhoneForm() {
 						<button
 							type="button"
 							className="auth-sms-send"
-							disabled={sending || countdown > 0 || !phone.trim()}
+							disabled={sending || countdown > 0 || !phone}
 							onClick={handleSend}
 						>
 							{countdown > 0

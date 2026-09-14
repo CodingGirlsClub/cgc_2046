@@ -108,7 +108,7 @@ describe("RegisterPhoneForm（手机号注册：验证码 + 密码）", () => {
 		await waitFor(() => {
 			expect(signUpMock).toHaveBeenCalledWith({
 				variables: {
-					input: { phone: "13800138000", code: "123456", password: "sup3r-secret-password" },
+					input: { phone: "+8613800138000", code: "123456", password: "sup3r-secret-password" },
 				},
 			});
 		});
@@ -211,6 +211,69 @@ describe("RegisterPhoneForm（手机号注册：验证码 + 密码）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "创建账号并继续" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("密码长度需为 8-72 字节");
+		expect(signUpMock).not.toHaveBeenCalled();
+	});
+
+	it("国际号码：选 US 区号后提交 +E.164 规范形", async () => {
+		signUpMock.mockResolvedValue({
+			data: {
+				signUpWithPhone: {
+					result: { id: "u1", email: null, isPlatformAdmin: false },
+					errors: [],
+				},
+			},
+		});
+
+		render(<RegisterPhoneForm />);
+
+		fireEvent.change(screen.getByLabelText("国家/地区"), {
+			target: { value: "US" },
+		});
+		await act(async () => {
+			fireEvent.change(screen.getByPlaceholderText("请输入手机号"), {
+				target: { value: "4155552671" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("6 位验证码"), {
+				target: { value: "123456" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("请输入密码"), {
+				target: { value: "sup3r-secret-password" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("再次输入密码"), {
+				target: { value: "sup3r-secret-password" },
+			});
+		});
+		fireEvent.click(screen.getByRole("button", { name: "创建账号并继续" }));
+
+		await waitFor(() => {
+			expect(signUpMock).toHaveBeenCalledWith({
+				variables: {
+					input: { phone: "+14155552671", code: "123456", password: "sup3r-secret-password" },
+				},
+			});
+		});
+	});
+
+	it("非法手机号：不提交，提示文案", async () => {
+		render(<RegisterPhoneForm />);
+
+		await act(async () => {
+			fireEvent.change(screen.getByPlaceholderText("请输入手机号"), {
+				target: { value: "123" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("6 位验证码"), {
+				target: { value: "123456" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("请输入密码"), {
+				target: { value: "sup3r-secret-password" },
+			});
+			fireEvent.change(screen.getByPlaceholderText("再次输入密码"), {
+				target: { value: "sup3r-secret-password" },
+			});
+		});
+		fireEvent.click(screen.getByRole("button", { name: "创建账号并继续" }));
+
+		expect(screen.getByRole("alert")).toHaveTextContent("请输入有效的手机号");
 		expect(signUpMock).not.toHaveBeenCalled();
 	});
 });

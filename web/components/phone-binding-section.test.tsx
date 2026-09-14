@@ -148,7 +148,7 @@ describe("PhoneBindingSection（设置页绑定/换绑手机号）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
 
 		await waitFor(() => {
-			expect(mocks.sendCode).toHaveBeenCalledWith("15578793094", "CHANGE_PHONE");
+			expect(mocks.sendCode).toHaveBeenCalledWith("+8615578793094", "CHANGE_PHONE");
 		});
 	});
 
@@ -173,7 +173,7 @@ describe("PhoneBindingSection（设置页绑定/换绑手机号）", () => {
 
 		await waitFor(() => {
 			expect(mocks.updatePhone).toHaveBeenCalledWith({
-				variables: { phone: "15578793094", code: "123456" },
+				variables: { phone: "+8615578793094", code: "123456" },
 			});
 		});
 		await waitFor(() => {

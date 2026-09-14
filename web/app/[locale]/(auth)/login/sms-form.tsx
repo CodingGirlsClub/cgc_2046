@@ -11,6 +11,7 @@ import {
 	BIND_WECHAT_WITH_PHONE,
 	graphqlErrorDetails,
 } from "@/lib/graphql/auth";
+import PhoneInput, { isValidPhone } from "@/components/phone-input";
 import { navigateAfterLogin } from "./use-auth-submit";
 import { useSmsLogin, smsErrorMessage } from "./use-sms-login";
 
@@ -46,7 +47,7 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 		"/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 
 	const handleSend = async () => {
-		if (!phone.trim()) {
+		if (!isValidPhone(phone)) {
 			setError(t("errorInvalidPhone"));
 			return;
 		}
@@ -79,7 +80,7 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 
 	const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!phone.trim()) {
+		if (!isValidPhone(phone)) {
 			setError(t("errorInvalidPhone"));
 			return;
 		}
@@ -107,18 +108,14 @@ export default function SmsForm({ bindTicket }: { bindTicket?: string }) {
 			)}
 
 			<div className="auth-field">
-				<input
+				<PhoneInput
 					id="auth-sms-phone"
-					name="phone"
-					className="auth-input"
-					type="tel"
-					placeholder={t("placeholderPhone")}
 					value={phone}
-					onChange={(event) => {
-						setPhone(event.target.value);
+					onChange={(value) => {
+						setPhone(value);
 						setError(null);
 					}}
-					autoComplete="tel"
+					placeholder={t("placeholderPhone")}
 					autoFocus
 					required
 				/>

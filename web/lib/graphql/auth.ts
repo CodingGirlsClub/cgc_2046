@@ -23,7 +23,8 @@ export interface UserLite {
 
 export interface SignInResultData {
   id: string;
-  email: string;
+  /** 手机号注册用户无邮箱（与后端 sign_in_result.email 可空对齐） */
+  email: string | null;
   isPlatformAdmin: boolean;
 }
 
@@ -46,7 +47,7 @@ export interface PasswordResetGraphqlError {
 /* ---------------- 手机号注册（/register 邮箱 → 手机号） ---------------- */
 
 export interface SignUpWithPhoneInput {
-  /** 手机号（后端归一化 +86 形） */
+  /** 手机号（前端产出 +E.164 规范形；后端 PhoneNumber.parse 归一化，裸号仍按 +86） */
   phone: string;
   /** 短信验证码（purpose REGISTER） */
   code: string;

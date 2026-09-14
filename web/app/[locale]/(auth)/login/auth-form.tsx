@@ -2,8 +2,10 @@
 
 import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
+import type { CountryCode } from "libphonenumber-js";
+import { CountrySelect, composeE164, isValidPhone } from "@/components/phone-input";
 
 export type AuthMode = "login" | "register";
 
@@ -137,7 +139,11 @@ export default function AuthForm({
   busy?: boolean;
   error?: string | null;
 }) {
+  const locale = useLocale();
   const [login, setLogin] = useState("");
+  const [country, setCountry] = useState<CountryCode>(
+    locale.startsWith("zh") ? "CN" : "US",
+  );
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -148,7 +154,18 @@ export default function AuthForm({
     event.preventDefault();
     setFormError(null);
 
-    await onSubmit({ login, password });
+    // 手机号分支按所选国家/地区产出 +E.164（后端 PhoneNumber.parse 契约）；
+    // @ 邮箱与用户直输 +E.164 原样上送
+    let payload = login.trim();
+    if (payload && !payload.includes("@")) {
+      payload = payload.startsWith("+") ? payload : composeE164(country, payload);
+      if (!isValidPhone(payload)) {
+        setFormError(t("sms.errorInvalidPhone"));
+        return;
+      }
+    }
+
+    await onSubmit({ login: payload, password });
   };
 
   const displayError = formError ?? error;
@@ -169,21 +186,29 @@ export default function AuthForm({
         )}
 
         <div className="auth-field">
-          <input
-            id="auth-email"
-            name="login"
-            className="auth-input"
-            type="text"
-            placeholder={t("placeholder.login")}
-            value={login}
-            onChange={(event) => {
-              setLogin(event.target.value);
-              setFormError(null);
-            }}
-            autoComplete="username"
-            autoFocus
-            required
-          />
+          <div className="auth-phone-row">
+            <CountrySelect
+              className="auth-phone-select"
+              ariaLabel={t("sms.countryLabel")}
+              value={country}
+              onChange={setCountry}
+            />
+            <input
+              id="auth-email"
+              name="login"
+              className="auth-input"
+              type="text"
+              placeholder={t("placeholder.login")}
+              value={login}
+              onChange={(event) => {
+                setLogin(event.target.value);
+                setFormError(null);
+              }}
+              autoComplete="username"
+              autoFocus
+              required
+            />
+          </div>
         </div>
 
         <div className="auth-field">

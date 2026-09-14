@@ -26,6 +26,7 @@ import {
   UPDATE_MY_PHONE,
 } from "@/lib/graphql/auth";
 import { useSmsLogin } from "@/app/[locale]/(auth)/login/use-sms-login";
+import PhoneInput, { isValidPhone } from "@/components/phone-input";
 
 export function PhoneBindingSection() {
   const t = useTranslations("workspaceAccount");
@@ -66,7 +67,7 @@ export function PhoneBindingSection() {
   };
 
   const handleSend = async () => {
-    if (!phone.trim()) {
+    if (!isValidPhone(phone)) {
       setError(smsT("errorInvalidPhone"));
       return;
     }
@@ -77,7 +78,7 @@ export function PhoneBindingSection() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!phone.trim()) {
+    if (!isValidPhone(phone)) {
       setError(smsT("errorInvalidPhone"));
       return;
     }
@@ -170,18 +171,16 @@ export function PhoneBindingSection() {
             <label className="profile-form-label" htmlFor="phone-binding-phone">
               {smsT("fieldPhone")}
             </label>
-            <input
+            <PhoneInput
               id="phone-binding-phone"
-              name="phone"
-              type="tel"
-              placeholder={smsT("placeholderPhone")}
+              variant="profile"
               value={phone}
-              onChange={(event) => {
-                setPhone(event.target.value);
+              onChange={(value) => {
+                setPhone(value);
                 setError(null);
                 setSendError(null);
               }}
-              autoComplete="tel"
+              placeholder={smsT("placeholderPhone")}
               required
             />
           </div>
@@ -208,7 +207,7 @@ export function PhoneBindingSection() {
               <button
                 type="button"
                 className="profile-phone-send"
-                disabled={sending || countdown > 0 || !phone.trim()}
+                disabled={sending || countdown > 0 || !phone}
                 onClick={handleSend}
               >
                 {countdown > 0
