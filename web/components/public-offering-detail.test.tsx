@@ -13,6 +13,10 @@ const eventsMocks = vi.hoisted(() => ({
   fetchMyEnrollment: vi.fn(),
 }));
 
+const initiativesMocks = vi.hoisted(() => ({
+  fetchPublicInitiatives: vi.fn(),
+}));
+
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
 // NextIntlClientProvider，mock 同语义的 zh-CN translator（真实迁移语义在
 // lib/payment-errors.test.tsx 以 provider 覆盖）
@@ -43,6 +47,10 @@ vi.mock("@/lib/public-offerings", async (importOriginal) => {
     submitEnrollment: mocks.submitEnrollment,
   };
 });
+
+vi.mock("@/lib/graphql/initiatives", () => ({
+  fetchPublicInitiatives: initiativesMocks.fetchPublicInitiatives,
+}));
 
 // 可变为匿名态（满员/游客分叉用）；beforeEach 复位为登录态
 const authState = vi.hoisted(() => ({
@@ -90,6 +98,7 @@ beforeEach(() => {
   authState.current = { authed: true, confirmed: true, userId: "user-1" };
   mocks.fetchPublicOffering.mockResolvedValue(PAID_OFFERING);
   eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
+  initiativesMocks.fetchPublicInitiatives.mockResolvedValue([]);
 });
 
 afterEach(cleanup);
@@ -1013,5 +1022,71 @@ describe("配套课程卡（issue #505 D1）", () => {
     expect(
       screen.queryByTestId("public-companion-course"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("倡导活动回链（initiative 挂载）", () => {
+  it("挂载场渲染 hero 回链：name + /initiatives/slug", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      initiativeId: "init-1",
+    });
+    initiativesMocks.fetchPublicInitiatives.mockResolvedValue([
+      {
+        id: "init-1",
+        name: "Hackerstart 1024 全国黑客松",
+        slug: "hackerstart1024",
+        status: "open",
+      },
+    ]);
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const link = await screen.findByRole("link", {
+      name: /Hackerstart 1024 全国黑客松/,
+    });
+    expect(link).toHaveAttribute("href", "/initiatives/hackerstart1024");
+    expect(screen.getByText(/所属倡导活动/)).toBeInTheDocument();
+  });
+
+  it("initiativeId 不在公开列表（draft 不公开）→ 不渲染回链", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      initiativeId: "init-draft",
+    });
+    initiativesMocks.fetchPublicInitiatives.mockResolvedValue([
+      {
+        id: "init-1",
+        name: "Hackerstart 1024 全国黑客松",
+        slug: "hackerstart1024",
+        status: "open",
+      },
+    ]);
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+    await waitFor(() =>
+      expect(initiativesMocks.fetchPublicInitiatives).toHaveBeenCalled(),
+    );
+
+    expect(screen.queryByText(/所属倡导活动/)).not.toBeInTheDocument();
+  });
+
+  it("未挂载 initiative → 不发起查询、不渲染回链", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      pricingEnabled: false,
+      availablePriceTiers: null,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+
+    expect(initiativesMocks.fetchPublicInitiatives).not.toHaveBeenCalled();
+    expect(screen.queryByText(/所属倡导活动/)).not.toBeInTheDocument();
   });
 });

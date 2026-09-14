@@ -540,6 +540,8 @@ export interface PublicOfferingItem {
   sponsorshipTiers?: string[] | null;
   /** 配套课程投影（JsonString，JSON.parse 后为 {id, slug, title}；仅 event，null = 无配套课/宣讲会；issue #505 D1） */
   companionCourse?: string | null;
+  /** 挂载的 Initiative id（仅 event；详情页据此渲染回 /initiatives/[slug] 的隶属回链） */
+  initiativeId?: string | null;
 }
 
 // first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
@@ -620,6 +622,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       pricingEnabled
       availablePriceTiers
       companionCourse
+      initiativeId
     }
   }
 `;

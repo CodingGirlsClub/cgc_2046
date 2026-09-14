@@ -495,6 +495,7 @@
 	"offeringDetail": {
 		"loadFailed": "Failed to load",
 		"backToList": "Back to all {label}",
+		"partOfInitiative": "Part of initiative: ",
 		"browseOther": "Browse other {label}",
 		"notAccessibleTitle": "This {label} is not accessible",
 		"notAccessibleDesc": "It has ended or is not publicly accessible.",

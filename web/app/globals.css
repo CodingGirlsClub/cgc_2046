@@ -2473,6 +2473,30 @@ body {
     letter-spacing: -0.022em;
   }
 
+  /* 挂载 Initiative 的回链：隶属语义放 hero（与「回列表」导航语义分开） */
+  .public-detail__initiative {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 12px 0 0;
+    color: var(--ink-3);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+
+  .public-detail__initiative a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    color: var(--accent-strong);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 510;
+    text-decoration: none;
+    transition: color 120ms ease, transform 120ms ease;
+  }
+
   .public-detail__facts {
     grid-area: facts;
     margin: 0;
@@ -3000,7 +3024,8 @@ body {
 
     .site-nav__login:hover,
     .public-catalog-heading__switch:hover,
-    .public-detail__browse:hover {
+    .public-detail__browse:hover,
+    .public-detail__initiative a:hover {
       color: var(--accent-mention);
     }
 

@@ -39,6 +39,7 @@ import {
 import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
 import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
+import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
 import { formatAmount, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
@@ -233,6 +234,40 @@ export default function PublicOfferingDetailPage({
       cancelled = true;
     };
   }, [authed, userId, offering?.id, kind]);
+
+  // 挂载 Initiative 的回链：initiativeId → 公开卡片查 name/slug；查不到
+  // （initiative 非公开）或查询失败均不渲染回链。forId 键控派生，slug 切换
+  // 时旧值自动失效（同 stale 模式，无需 effect 内同步复位）。
+  const [initiativeLookup, setInitiativeLookup] = useState<{
+    forId: string;
+    card: PublicInitiativeCard | null;
+  } | null>(null);
+  useEffect(() => {
+    const initiativeId = kind === "event" ? (offering?.initiativeId ?? null) : null;
+    if (!initiativeId) return;
+    let cancelled = false;
+    fetchPublicInitiatives()
+      .then((cards) => {
+        if (!cancelled) {
+          setInitiativeLookup({
+            forId: initiativeId,
+            card: cards.find((c) => c.id === initiativeId) ?? null,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInitiativeLookup({ forId: initiativeId, card: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, offering?.initiativeId]);
+  const initiative =
+    initiativeLookup &&
+    offering?.initiativeId != null &&
+    initiativeLookup.forId === offering.initiativeId
+      ? initiativeLookup.card
+      : null;
 
   // E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
   const sponsorshipTiers = offering
@@ -453,6 +488,15 @@ export default function PublicOfferingDetailPage({
                 />
               )}
               <h1>{offering.title}</h1>
+              {initiative ? (
+                <p className="public-detail__initiative">
+                  {t("partOfInitiative")}
+                  <Link href={`/initiatives/${initiative.slug}`}>
+                    {initiative.name}
+                    <span aria-hidden="true"> →</span>
+                  </Link>
+                </p>
+              ) : null}
             </header>
 
             <dl className="public-detail__facts">
