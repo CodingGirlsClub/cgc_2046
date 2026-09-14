@@ -494,7 +494,7 @@
 	},
 	"offeringDetail": {
 		"loadFailed": "加载失败",
-		"backToList": "返回全部{label}",
+		"backToList": "返回全部公开{label}",
 		"partOfInitiative": "所属倡导活动：",
 		"browseOther": "浏览其他{label}",
 		"notAccessibleTitle": "该{label}不可访问",

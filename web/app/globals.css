@@ -2454,6 +2454,12 @@ body {
     align-items: start;
   }
 
+  .public-detail__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   .public-detail__hero {
     grid-area: hero;
     padding-top: 8px;
