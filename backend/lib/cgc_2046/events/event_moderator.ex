@@ -54,6 +54,7 @@ defmodule Cgc2046.Events.EventModerator do
     end
 
     destroy :remove do
+      primary?(true)
       accept([])
     end
   end

@@ -22,15 +22,21 @@ defmodule Cgc2046.Events.EventModeratorsTest do
 
     assert {:error, :forbidden} = Moderators.assign(event.id, workspace.id, owner.id, user)
 
-    assert :ok =
-             assigned
-             |> Ash.Changeset.for_destroy(:remove)
-             |> Ash.destroy(authorize?: false, tenant: workspace.id)
+    # 撤权走域唯一入口（GraphQL/MCP 共用 Moderators.remove，U7 AE8）
+    assert :ok = Moderators.remove(assigned.id, workspace.id, owner)
 
     refute Moderators.moderator?(user.id, event.id, workspace.id)
     assert Ash.get!(Event, event.id, authorize?: false).status == :open
 
     assert {:error, %Ash.Error.Invalid{}} =
              Ash.get(EventModerator, assigned.id, authorize?: false)
+
+    # 已移除的记录再走域入口 → not_found（幂等边界）
+    assert {:error, :not_found} = Moderators.remove(assigned.id, workspace.id, owner)
+
+    # 非管理角色不可撤权
+    assert {:error, :forbidden} =
+             Moderators.assign(event.id, workspace.id, user.id, owner)
+             |> then(fn {:ok, record} -> Moderators.remove(record.id, workspace.id, user) end)
   end
 end
