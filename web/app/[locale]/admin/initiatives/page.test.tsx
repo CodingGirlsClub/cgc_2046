@@ -138,8 +138,63 @@ describe("/admin/initiatives", () => {
 		);
 
 		await waitFor(() =>
-			expect(within(openRow).getByText("closed")).toBeInTheDocument(),
+			expect(within(openRow).getByText("已结束")).toBeInTheDocument(),
 		);
 		expect(adminLib.closeInitiative).toHaveBeenCalledWith("i1");
+	});
+});
+
+describe("结构 / 设计系统接入", () => {
+	it("列表表格使用 admin 表格形制", async () => {
+		render(<AdminInitiativesPage />);
+		await screen.findByText("Hackerstart 1024");
+
+		const table = document.querySelector("table")!;
+		expect(table.className).toContain("admin-table");
+		expect(table.parentElement?.className).toContain("admin-card");
+		expect(table.parentElement?.className).toContain("admin-table-wrap");
+	});
+
+	it("状态列渲染为本地化徽章", async () => {
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest(
+			"tr",
+		)!;
+
+		const badge = openRow.querySelector("td:nth-child(3) span")!;
+		expect(badge.className).toContain("l-badge");
+		expect(badge).toHaveTextContent("开放报名");
+	});
+
+	it("操作按钮带 admin 按钮形制类", async () => {
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest(
+			"tr",
+		)!;
+
+		expect(
+			within(openRow).getByRole("button", { name: "结束" }).className,
+		).toContain("l-btn-outline");
+	});
+
+	it("后端错误以 admin 警示条呈现", async () => {
+		adminLib.openInitiative.mockResolvedValue({
+			result: null,
+			errors: [
+				{
+					code: "invalid_changes",
+					message: "invalid initiative transition or missing all four rules",
+				},
+			],
+		});
+
+		render(<AdminInitiativesPage />);
+		const draftRow = (await screen.findByText("e2e-drive")).closest("tr")!;
+		fireEvent.click(
+			within(draftRow).getByRole("button", { name: "开放" }),
+		);
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.className).toContain("admin-alert--error");
 	});
 });
