@@ -2324,6 +2324,15 @@ body {
   outline-offset: 2px;
 }
 
+/* ---------- 应用内（非公开面）键盘焦点：链接/按钮统一 accent-strong 描边，
+   替换 UA 默认蓝环；公开面 .ld-root / .public-catalog 规则特异性更高，互不覆盖。 ---------- */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
 /* ---------- 动效降级 ---------- */
 @media (prefers-reduced-motion: reduce) {
   .ld-rise { opacity: 1; animation: none; }
