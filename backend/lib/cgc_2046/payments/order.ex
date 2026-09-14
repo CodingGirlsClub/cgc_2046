@@ -10,7 +10,8 @@ defmodule Cgc2046.Payments.Order do
         │                      │                        │  ▲
         ├──cancel──▶ cancelled │                        │  └──refund_failed──▶ refund_failed
         └──expire──▶ expired ──┘                        │         ▲（refunding → refund_failed）
-                               └──start_refund（迟到支付自动退款）└──retry_refund──▶ refunding
+                               ├──start_refund（迟到支付自动退款）└──retry_refund──▶ refunding
+                               └──forfeit──▶ forfeited（no-show 结算终态，不退，R9/KTD7）
 
   并发不变量由数据库承担（报名/赞助同款纪律）：
   - R11「同一 enrollment 至多一笔非终态订单」：payments_orders 上的部分唯一索引
@@ -91,7 +92,16 @@ defmodule Cgc2046.Payments.Order do
       public?: true,
       writable?: false,
       constraints: [
-        one_of: [:pending, :paid, :refunding, :refunded, :refund_failed, :cancelled, :expired]
+        one_of: [
+          :pending,
+          :paid,
+          :refunding,
+          :refunded,
+          :refund_failed,
+          :cancelled,
+          :expired,
+          :forfeited
+        ]
       ]
     )
 
@@ -344,6 +354,21 @@ defmodule Cgc2046.Payments.Order do
       end)
     end
 
+    # no-show 结算（R9/KTD7）：paid → forfeited，终态且不退（押金留作平台收入）。
+    # 内部专用：仅 DepositForfeitWorker 以 authorize?: false 调用，不加 actor
+    # 授权 policy（start_refund 同款先例）；num_rows=0 → :already_processed
+    # 幂等 no-op（他路退款已接管）。
+    update :forfeit do
+      description("no-show 结算：paid → forfeited（终态不退；内部专用，worker authorize?: false）")
+
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_forfeit/1)
+      end)
+    end
+
     update :refund_succeeded do
       description("退款成功：refunding → refunded，落 refunded_at")
       require_atomic?(false)
@@ -414,8 +439,9 @@ defmodule Cgc2046.Payments.Order do
 
     # R24 收款统计（generic action）：已收 = paid 总额；待收 = pending 且未过
     # expire_at（过期单由 U8 扫描释放，不计待收）；已退 = refunded 总额；
-    # 退款失败待处理 = refund_failed 总额（U1-R1 可观测，提示管理员重试）。金额分。
-    # 授权经 policy（OwnerOrAdmin 从 ActionInput 提取 workspace_id，
+    # 退款失败待处理 = refund_failed 总额（U1-R1 可观测，提示管理员重试）；
+    # no-show 没收 = forfeited 总额（R9/KD4：未到场不退、对账可导出口径）。
+    # 金额分。授权经 policy（OwnerOrAdmin 从 ActionInput 提取 workspace_id，
     # MembershipContext 场景5），SQL 只算数不涉权。
     action :workspace_payment_stats, :map do
       description("工作台收款统计（R24/U4）：已收/待收/已退；可选 eventId/courseId 收敛到单活动口径")
@@ -428,7 +454,8 @@ defmodule Cgc2046.Payments.Order do
           collected_cents: [type: :integer, allow_nil?: false],
           pending_cents: [type: :integer, allow_nil?: false],
           refunded_cents: [type: :integer, allow_nil?: false],
-          refund_failed_cents: [type: :integer, allow_nil?: false]
+          refund_failed_cents: [type: :integer, allow_nil?: false],
+          forfeited_cents: [type: :integer, allow_nil?: false]
         ]
       )
 
@@ -455,10 +482,11 @@ defmodule Cgc2046.Payments.Order do
 
         sql = """
         SELECT
-          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'paid'), 0),
-          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'pending' AND o.expire_at > NOW()), 0),
-          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refunded'), 0),
-          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refund_failed'), 0)
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'paid'), 0)::bigint,
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'pending' AND o.expire_at > NOW()), 0)::bigint,
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refunded'), 0)::bigint,
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'refund_failed'), 0)::bigint,
+          COALESCE(SUM(o.amount_cents) FILTER (WHERE o.status = 'forfeited'), 0)::bigint
         FROM payments_orders o
         #{offering_join}
         WHERE o.workspace_id = $1
@@ -468,13 +496,14 @@ defmodule Cgc2046.Payments.Order do
                sql,
                [Cgc2046.Repo.uuid!(input.arguments.workspace_id)] ++ extra_params
              ) do
-          {:ok, %{rows: [[collected, pending, refunded, refund_failed]]}} ->
+          {:ok, %{rows: [[collected, pending, refunded, refund_failed, forfeited]]}} ->
             {:ok,
              %{
                collected_cents: collected || 0,
                pending_cents: pending || 0,
                refunded_cents: refunded || 0,
-               refund_failed_cents: refund_failed || 0
+               refund_failed_cents: refund_failed || 0,
+               forfeited_cents: forfeited || 0
              }}
 
           {:error, reason} ->
@@ -988,6 +1017,15 @@ defmodule Cgc2046.Payments.Order do
   defp prepare_start_refund(changeset) do
     case claim(changeset, [:paid, :expired, :cancelled], "status = 'refunding'") do
       {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :refunding)
+      {:error, changeset} -> changeset
+    end
+  end
+
+  # no-show 结算 CAS：仅 paid 源态（KTD7 一次性迁移）；非 paid（含已 forfeited
+  # 幂等重入 / 退款链中单据）一律 num_rows=0 → :already_processed。
+  defp prepare_forfeit(changeset) do
+    case claim(changeset, [:paid], "status = 'forfeited'") do
+      {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :forfeited)
       {:error, changeset} -> changeset
     end
   end

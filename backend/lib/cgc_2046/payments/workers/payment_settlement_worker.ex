@@ -137,6 +137,15 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
 
         mark_processed(event)
 
+      # U7（KTD7/KD4）：迟到支付回调撞上 no-show 结算终态——押金已没收、
+      # 不退款、不重试，降 info 消费事件（与退款链同款预期路径口径）。
+      :forfeited ->
+        Logger.info(
+          "settlement: order #{order.id} already forfeited (no-show settlement), delivery skipped"
+        )
+
+        mark_processed(event)
+
       # mark_paid 的 CAS 在 DB 瞬断时失败且 reload 仍 pending：落账未完成。
       # 渠道查单已确认有款且金额相符——mark_processed 会永久丢单（已收款、
       # 不落账、不退款、不重试），必须上抛走 Oban 重试；重入从 fetch_transaction
