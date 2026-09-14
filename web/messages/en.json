@@ -27,6 +27,7 @@
 	},
 	"errors": {
 		"enrollment_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
+		"enrollment_check_in_code_exhausted": "Could not generate your check-in code due to a concurrent conflict. Please submit again.",
 		"enrollment_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
 		"order_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
 		"order_enrollment_not_found": "Enrollment not found or already processed. Please check My Enrollments.",
@@ -41,6 +42,7 @@
 		"enrollment_invite_quota_unavailable": "The invite quota is used up. Please contact the organizer.",
 		"enrollment_tier_id_required": "This is a paid enrollment. Please select a pricing tier first.",
 		"enrollment_tier_not_available": "The selected tier is expired or unavailable. Please choose again.",
+		"event_payment_mode_exclusive": "Only one payment mode per activity: disable pricing (or deposit) before enabling the other.",
 		"pricing_disable_actor_required": "Disabling pricing requires a signed-in organizer. Please sign in again and retry.",
 		"pricing_disable_batch_limit": "Too many pending enrollments to confirm for free at once (over 200) — cancel the offering (auto refund) instead, or handle some pending payments first.",
 		"join_request_invite_only": "This workspace is invite-only. Join via an invitation link.",
@@ -1944,7 +1946,8 @@
 			"refunded": "Refunded",
 			"refund_failed": "Refund failed",
 			"cancelled": "Cancelled",
-			"expired": "Expired"
+			"expired": "Expired",
+			"forfeited": "Forfeited (no-show, non-refundable)"
 		},
 		"credentialReason": {
 			"invalid": "Invalid credential",

@@ -27,6 +27,7 @@ export type OrderPollStatus =
   | 'refund_failed'
   | 'cancelled'
   | 'expired'
+  | 'forfeited'
 
 const POLL_TERMINAL: Record<string, true> = {
   paid: true,
@@ -34,7 +35,8 @@ const POLL_TERMINAL: Record<string, true> = {
   refunded: true,
   refund_failed: true,
   cancelled: true,
-  expired: true
+  expired: true,
+  forfeited: true
 }
 
 export interface PollDecision {
@@ -167,7 +169,8 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
   refunded: '已退款',
   refund_failed: '退款失败',
   cancelled: '已取消',
-  expired: '已过期'
+  expired: '已过期',
+  forfeited: '未到场不退'
 }
 
 /** 报名缴费态词表（my-enrollments 卡片，payment_pending 新态） */

@@ -37,6 +37,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 	refund_failed: "bg-red-500/10 text-red-300",
 	cancelled: "bg-soft-2 text-ink-3",
 	expired: "bg-soft-2 text-ink-3",
+	forfeited: "bg-soft-2 text-ink-3",
 };
 
 /** U7 keyset 分页页大小（plan Outstanding Question：实施定夺，20/页） */
@@ -199,6 +200,7 @@ export default function OfferingPaymentsPanel({
 		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
 		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
 		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
+		{ value: "forfeited", label: labelsT(ORDER_STATUS_LABEL.forfeited) },
 	];
 
 	return (

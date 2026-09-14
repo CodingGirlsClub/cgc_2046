@@ -29,7 +29,8 @@ export type OrderStatus =
   | "refunded"
   | "refund_failed"
   | "cancelled"
-  | "expired";
+  | "expired"
+  | "forfeited";
 
 export interface Order {
   id: string;

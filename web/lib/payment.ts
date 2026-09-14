@@ -25,7 +25,8 @@ export type OrderPollStatus =
 	| "refunded"
 	| "refund_failed"
 	| "cancelled"
-	| "expired";
+	| "expired"
+	| "forfeited";
 
 const POLL_TERMINAL: Record<string, true> = {
 	paid: true,
@@ -34,6 +35,7 @@ const POLL_TERMINAL: Record<string, true> = {
 	refund_failed: true,
 	cancelled: true,
 	expired: true,
+	forfeited: true,
 };
 
 export interface PollDecision {
@@ -143,6 +145,8 @@ export interface PaymentStats {
 	refundedCents: number;
 	/** 退款失败待处理（U1-R1；旧负载缺键时 = 0） */
 	refundFailedCents: number;
+	/** no-show 没收（event-deposit U7/R9；旧负载缺键时 = 0） */
+	forfeitedCents: number;
 }
 
 export function parsePaymentStats(raw: string | null | undefined): PaymentStats | null {
@@ -170,6 +174,8 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 	const refunded = toInt(o.refunded_cents);
 	// U1-R1 前向后向：旧三键负载的 refund_failed_cents 缺省 0
 	const refundFailed = toInt(o.refund_failed_cents) ?? 0;
+	// event-deposit U7 前向后向：旧四键负载的 forfeited_cents 缺省 0
+	const forfeited = toInt(o.forfeited_cents) ?? 0;
 
 	if (collected === null || pending === null || refunded === null) return null;
 
@@ -178,6 +184,7 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 		pendingCents: pending,
 		refundedCents: refunded,
 		refundFailedCents: refundFailed,
+		forfeitedCents: forfeited,
 	};
 }
 
@@ -268,6 +275,7 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
 	refund_failed: "labels.orderStatus.refund_failed",
 	cancelled: "labels.orderStatus.cancelled",
 	expired: "labels.orderStatus.expired",
+	forfeited: "labels.orderStatus.forfeited",
 };
 
 /** 倒计时文案：expire_at − now；过期文案由调用方传翻译（expiredLabel） */

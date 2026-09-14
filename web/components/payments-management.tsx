@@ -40,6 +40,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 	refund_failed: "border-red-400/40 text-red-300",
 	cancelled: "border-line text-ink-3",
 	expired: "border-line text-ink-3",
+	forfeited: "border-line text-ink-3",
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {
@@ -185,6 +186,7 @@ export default function PaymentsManagement({
 		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
 		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
 		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
+		{ value: "forfeited", label: labelsT(ORDER_STATUS_LABEL.forfeited) },
 	];
 	const [statusFilter, setStatusFilter] = useState("");
 	// U9/R8：活动筛选（财务汇总层——订单列表按活动收敛，统计卡保持工作区口径）
