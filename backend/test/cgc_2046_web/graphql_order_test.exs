@@ -15,7 +15,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
-  alias Cgc2046.Payments.{Order, Provider}
+  alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Providers.Fake
 
   @tier_id "11111111-1111-1111-1111-111111111111"
@@ -158,6 +158,57 @@ defmodule Cgc2046Web.GraphqlOrderTest do
       assert Order |> list_orders(ctx.enrollment_id) |> Enum.empty?()
     after
       Fake.reset!()
+    end
+  end
+
+  describe "押金场 createOrder（U2/KTD1：金额源 = 押金快照）" do
+    test "押金报名 order-pay 端到端：deposit 单 + 押金金额 + 渠道凭据" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      learner = Fixtures.register_user("order-deposit-learner")
+      token = sign_in_token(learner)
+
+      # 押金场报名：无 tierId（档位只属于定价态），落 payment_pending
+      assert %{
+               "data" => %{
+                 "createEnrollment" => %{
+                   "result" => %{"id" => enrollment_id, "status" => "payment_pending"},
+                   "errors" => []
+                 }
+               }
+             } = graphql(enroll_mutation(event, learner, nil), token)
+
+      assert %{
+               "data" => %{
+                 "createOrder" => %{
+                   "result" => order,
+                   "errors" => [],
+                   "metadata" => %{"credential" => credential}
+                 }
+               }
+             } = graphql(order_mutation(enrollment_id, "wechat_native"), token)
+
+      assert order["orderKind"] == "deposit"
+      assert order["status"] == "pending"
+      assert order["amountCents"] == 6900
+      assert order["outTradeNo"] =~ ~r/^CGC/
+
+      assert Jason.decode!(order["tierSnapshot"]) == %{
+               "name" => "押金",
+               "amount_cents" => 6900
+             }
+
+      # order-pay 页拉起支付所需的渠道凭据随单号回出（Fake 回显 out_trade_no）
+      assert %{"out_trade_no" => out_trade_no} = Jason.decode!(credential)
+      assert out_trade_no == order["outTradeNo"]
     end
   end
 
@@ -322,7 +373,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
     """
     mutation {
       createOrder(input: {enrollmentId: "#{enrollment_id}", provider: "#{provider}"}) {
-        result { id status provider outTradeNo amountCents tierSnapshot expireAt }
+        result { id orderKind status provider outTradeNo amountCents tierSnapshot expireAt }
         errors { message }
         metadata { credential }
       }
