@@ -2105,6 +2105,7 @@
 		"participants": "Participants",
 		"qualified": "Qualified",
 		"cancelled": "Cancelled",
+		"closed": "Ended",
 		"shortBy": "{count} more needed",
 		"open": "Open",
 		"timeTbd": "Time TBD"

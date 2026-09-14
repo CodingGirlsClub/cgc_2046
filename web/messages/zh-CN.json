@@ -2105,6 +2105,7 @@
 		"participants": "报名人数",
 		"qualified": "已成班",
 		"cancelled": "已取消",
+		"closed": "已结束",
 		"shortBy": "还差 {count} 人",
 		"open": "开放报名",
 		"timeTbd": "时间待定"

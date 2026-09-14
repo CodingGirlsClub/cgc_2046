@@ -15,6 +15,10 @@ export type InitiativeEvent = {
 	confirmedCount: number;
 	minParticipants: number | null;
 	qualificationStatus: string | null;
+	/** 后端派生成班徽章（与小程序同口径；archived = closed/cancelled 留档只读） */
+	qualificationBadge: "cancelled" | "closed" | "confirmed" | "short_by" | "open";
+	shortBy: number | null;
+	archived: boolean;
 };
 
 export type PublicInitiative = {
@@ -40,7 +44,7 @@ const PUBLIC_INITIATIVE: TypedDocumentNode<
 	query PublicInitiative($slug: String!) {
 		publicInitiative(slug: $slug) {
 			id name slug hashtag description status cityCount eventCount confirmedCount qualifiedEventCount
-			cities { city events { id slug title status visibility startsAt endsAt registrationDeadline venue confirmedCount minParticipants qualificationStatus } }
+			cities { city events { id slug title status visibility startsAt endsAt registrationDeadline venue confirmedCount minParticipants qualificationStatus qualificationBadge shortBy archived } }
 		}
 	}
 `;
