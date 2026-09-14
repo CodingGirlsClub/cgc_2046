@@ -1,12 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import PublicCatalogShell from "@/components/public-catalog-shell";
 import { Link, useRouter } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { formatDeadline } from "@/lib/events";
 import { fetchPublicInitiative, type InitiativeEvent, type PublicInitiative } from "@/lib/graphql/initiatives";
+import { formatVenue, parseVenue } from "@/lib/public-offerings";
+
+const BADGE_TONE: Record<InitiativeEvent["qualificationBadge"], string> = {
+	cancelled: "cancelled",
+	closed: "closed",
+	confirmed: "confirmed",
+	short_by: "short",
+	open: "open",
+};
 
 export default function InitiativePage({ params }: { params: Promise<{ slug: string }> }) {
 	const t = useTranslations("initiatives");
+	const tCommon = useTranslations("common");
+	const tOfferings = useTranslations("publicOfferings");
+	const locale = useLocale();
 	const router = useRouter();
 	const [data, setData] = useState<PublicInitiative | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -30,12 +44,44 @@ export default function InitiativePage({ params }: { params: Promise<{ slug: str
 		return () => { cancelled = true; };
 	}, [params]);
 
-	if (loading) return <main className="public-catalog-main"><p className="public-catalog-state">{t("loading")}</p></main>;
-	if (error || !data) return <main className="public-catalog-main"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" onClick={() => router.back()}>{t("back")}</button></section></main>;
+	if (loading) return <PublicCatalogShell activeKind="event"><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
+	if (error || !data) return <PublicCatalogShell activeKind="event"><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
 
-	return <main className="public-catalog-main"><div className="public-catalog-container initiative-page">
-		<header className="public-catalog-heading"><div><p className="initiative-page__hashtag">{data.hashtag}</p><h1>{data.name}</h1><p>{data.description}</p></div></header>
-		<dl className="initiative-stats"><div><dt>{t("cities")}</dt><dd>{data.cityCount}</dd></div><div><dt>{t("events")}</dt><dd>{data.eventCount}</dd></div><div><dt>{t("participants")}</dt><dd>{data.confirmedCount}</dd></div><div><dt>{t("qualified")}</dt><dd>{data.qualifiedEventCount}</dd></div></dl>
-		{data.cities.map((group) => <section key={group.city} className="initiative-city"><h2>{group.city}</h2><ul className="public-catalog-grid">{group.events.map((event) => <li key={event.id}><Link href={`/events/${event.slug}`} className="public-catalog-card"><span className="public-catalog-card__head"><span className="public-catalog-card__title">{event.title}</span><strong>{badgeText(event)}</strong></span><span>{event.startsAt ? new Date(event.startsAt).toLocaleString() : t("timeTbd")}</span></Link></li>)}</ul></section>)}
-	</div></main>;
+	return <PublicCatalogShell activeKind="event"><div className="public-catalog-container initiative-page">
+		<header className="initiative-hero">
+			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
+			<h1>{data.name}</h1>
+			{data.description ? <p className="initiative-hero__desc">{data.description}</p> : null}
+			<dl className="initiative-stats">
+				<div><dt>{t("cities")}</dt><dd>{data.cityCount}</dd></div>
+				<div><dt>{t("events")}</dt><dd>{data.eventCount}</dd></div>
+				<div><dt>{t("participants")}</dt><dd>{data.confirmedCount}</dd></div>
+				<div><dt>{t("qualified")}</dt><dd>{data.qualifiedEventCount}</dd></div>
+			</dl>
+		</header>
+		{data.cities.map((group) => <section key={group.city} className="initiative-city">
+			<header className="initiative-city__head"><h2>{group.city}</h2><span className="initiative-city__count">{t("cityEvents", { count: group.events.length })}</span></header>
+			<ul className="public-catalog-grid">{group.events.map((event) => {
+				const startsAt = formatDeadline(event.startsAt, tCommon("timeTbd"), locale);
+				const venue = formatVenue(parseVenue(event.venue)) ?? tCommon("venueTbd");
+				return <li key={event.id}>
+					<Link href={`/events/${event.slug}`} className={`public-catalog-card${event.archived ? " initiative-card--archived" : ""}`}>
+						<span className="public-catalog-card__head">
+							<span className="public-catalog-card__title">{event.title}</span>
+							<span className={`initiative-badge initiative-badge--${BADGE_TONE[event.qualificationBadge]}`}>{badgeText(event)}</span>
+						</span>
+						<dl className="public-catalog-card__facts">
+							<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
+							<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
+							<div><dt>{t("seats")}</dt><dd>{event.minParticipants ? `${event.confirmedCount} / ${event.minParticipants}` : event.confirmedCount}</dd></div>
+						</dl>
+						<span className="public-catalog-card__foot">
+							<span>{tOfferings("deadline", { deadline: formatDeadline(event.registrationDeadline, tCommon("noDeadline"), locale) })}</span>
+							<span className="public-catalog-card__arrow" aria-hidden="true">→</span>
+						</span>
+					</Link>
+				</li>;
+			})}</ul>
+		</section>)}
+	</div></PublicCatalogShell>;
 }

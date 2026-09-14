@@ -2124,6 +2124,7 @@
 		"closed": "已结束",
 		"shortBy": "还差 {count} 人",
 		"open": "开放报名",
-		"timeTbd": "时间待定"
+		"cityEvents": "{count} 场",
+		"seats": "报名"
 	}
 }
