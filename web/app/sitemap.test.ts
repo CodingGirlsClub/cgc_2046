@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "./sitemap";
 
 /** 静态公开路由数（sitemap.ts STATIC_PATHS）——新增公开页时同步 */
-const STATIC_COUNT = 7;
+const STATIC_COUNT = 8;
 
 function stubFetchOk(body: unknown) {
 	vi.stubGlobal(
