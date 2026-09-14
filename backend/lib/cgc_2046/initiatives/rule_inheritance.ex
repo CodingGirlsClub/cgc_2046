@@ -93,14 +93,33 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       if locked do
         events =
           case Repo.query(
-                 "SELECT id, starts_at FROM events WHERE initiative_id = $1 FOR UPDATE",
+                 "SELECT id, starts_at, pricing_enabled FROM events WHERE initiative_id = $1 FOR UPDATE",
                  [Repo.uuid!(initiative_id)]
                ) do
             {:ok, %{rows: rows}} -> rows
             {:error, reason} -> throw({:propagation_error, reason})
           end
 
-        Enum.each(events, fn [id, starts_at] ->
+        # KTD3 / R1：押金规则传播遇已开定价的 Event → 拒绝整次规则更新（规则行
+        # 与全部已挂载 Event 同事务回滚），不静默关闭定价。
+        if key_atom == :deposit do
+          case Enum.find(events, fn [_id, _starts_at, pricing_enabled] -> pricing_enabled end) do
+            nil ->
+              :ok
+
+            [blocking_id, _, _] ->
+              throw(
+                {:deposit_conflicts_pricing,
+                 Cgc2046.Errors.BusinessError.exception(
+                   message: "disable pricing before applying the deposit rule to this event",
+                   code: "event_payment_mode_exclusive",
+                   fields: [event_id: blocking_id]
+                 )}
+              )
+          end
+        end
+
+        Enum.each(events, fn [id, starts_at, _pricing_enabled] ->
           attrs = propagated_attrs(key_atom, value, starts_at)
           Repo.query!(update_sql(attrs), update_params(id, attrs))
         end)
@@ -109,6 +128,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       :ok
     end
   catch
+    {:deposit_conflicts_pricing, error} ->
+      {:error, error}
+
     {:propagation_error, reason} ->
       {:error, "initiative rule propagation failed: #{inspect(reason)}"}
   end
@@ -252,18 +274,22 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
         rule.locked ->
           case value_for_event(key, rule.value, changeset) do
             {:ok, value} ->
-              values = merge_event_value(%{}, event_field, value)
+              case merge_event_value(%{}, event_field, value) do
+                {:error, _} = error ->
+                  {:halt, error}
 
-              conflict? =
-                not mounting? and
-                  Enum.any?(values, fn {field, expected} ->
-                    Ash.Changeset.changing_attribute?(changeset, field) and
-                      Ash.Changeset.get_attribute(changeset, field) != expected
-                  end)
+                values ->
+                  conflict? =
+                    not mounting? and
+                      Enum.any?(values, fn {field, expected} ->
+                        Ash.Changeset.changing_attribute?(changeset, field) and
+                          Ash.Changeset.get_attribute(changeset, field) != expected
+                      end)
 
-              if conflict?,
-                do: {:halt, {:error, "initiative rule #{key} is locked"}},
-                else: {:cont, {:ok, Map.merge(attrs, values)}}
+                  if conflict?,
+                    do: {:halt, {:error, "initiative rule #{key} is locked"}},
+                    else: {:cont, {:ok, Map.merge(attrs, values)}}
+              end
 
             {:error, reason} ->
               {:halt, {:error, reason}}
@@ -271,8 +297,14 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
         mounting? ->
           case value_for_event(key, rule.value, changeset) do
-            {:ok, value} -> {:cont, {:ok, merge_event_value(attrs, event_field, value)}}
-            {:error, reason} -> {:halt, {:error, reason}}
+            {:ok, value} ->
+              case merge_event_value(attrs, event_field, value) do
+                {:error, _} = error -> {:halt, error}
+                merged -> {:cont, {:ok, merged}}
+              end
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
           end
 
         true ->
@@ -286,8 +318,20 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   defp event_field(:min_participants), do: :min_participants
   defp event_field(:deadline_rule), do: :registration_deadline
 
-  defp merge_event_value(attrs, :deposit_enabled, %{deposit_enabled: _} = values),
-    do: Map.merge(attrs, values)
+  # KTD3 / R1：Initiative 押金规则（含关闭态）写入前，目标 Event 已开定价则
+  # 拒绝并返回稳定业务错误——不静默关闭定价、不改写资金配置。
+  defp merge_event_value(attrs, :deposit_enabled, %{deposit_enabled: _} = values) do
+    if Map.get(attrs, :pricing_enabled) == true do
+      {:error,
+       Cgc2046.Errors.BusinessError.exception(
+         message: "disable pricing before applying the deposit rule to this event",
+         code: "event_payment_mode_exclusive",
+         fields: [:pricing_enabled]
+       )}
+    else
+      Map.merge(attrs, values)
+    end
+  end
 
   defp merge_event_value(attrs, field, value), do: Map.put(attrs, field, value)
 

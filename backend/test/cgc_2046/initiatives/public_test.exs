@@ -40,7 +40,16 @@ defmodule Cgc2046.Initiatives.PublicTest do
     Event
     |> Ash.Changeset.for_create(
       :create,
-      Map.merge(%{title: "公开场次", initiative_id: initiative.id}, attrs),
+      Map.merge(
+        %{
+          title: "公开场次",
+          initiative_id: initiative.id,
+          # 押金规则锁死挂载（U3：押金开启要求非空 ends_at 锚点）
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
+        },
+        attrs
+      ),
       tenant: workspace.id
     )
     |> Ash.create!(actor: admin, tenant: workspace.id)
@@ -66,7 +75,13 @@ defmodule Cgc2046.Initiatives.PublicTest do
       Event
       |> Ash.Changeset.for_create(
         :create,
-        %{title: "隐藏场次", initiative_id: initiative.id, visibility: :workspace},
+        %{
+          title: "隐藏场次",
+          initiative_id: initiative.id,
+          visibility: :workspace,
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
+        },
         tenant: workspace.id
       )
       |> Ash.create!(actor: admin, tenant: workspace.id)
@@ -126,11 +141,13 @@ defmodule Cgc2046.Initiatives.PublicTest do
     admin = Fixtures.platform_admin("initiative-public-order-secondary")
 
     older = initiative(admin, "secondary-older")
+
     older
     |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-10-01 00:00:00Z]})
     |> Ash.update!(actor: admin)
 
     newer = initiative(admin, "secondary-newer")
+
     newer
     |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-12-01 00:00:00Z]})
     |> Ash.update!(actor: admin)

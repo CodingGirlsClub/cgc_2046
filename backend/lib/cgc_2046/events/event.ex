@@ -282,6 +282,10 @@ defmodule Cgc2046.Events.Event do
     validate({Cgc2046.Events.VenueValidation, []})
     validate({Cgc2046.Events.CompanionRevisionValidation, []})
     validate({Cgc2046.Offering.ScheduleValidation, []})
+    # 缴费三态互斥（KTD3 / R1 / R3）：免费 / 定价 / 押金单选；押金开启
+    # 必须正金额 + 非空 ends_at（no-show 结算锚点）。并发兜底 =
+    # postgres.check_constraints 的 events_payment_mode_exclusive。
+    validate({Cgc2046.Events.PaymentModeValidation, []})
   end
 
   calculations do
@@ -432,6 +436,9 @@ defmodule Cgc2046.Events.Event do
 
       change(set_attribute(:status, :draft))
 
+      # 缴费互斥 DB CHECK（并发兜底，KTD3）冲突转稳定业务错误
+      error_handler({__MODULE__, :handle_write_error, []})
+
       change(fn changeset, context ->
         Ash.Changeset.before_action(changeset, fn cs ->
           Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
@@ -538,6 +545,9 @@ defmodule Cgc2046.Events.Event do
         :min_age,
         :min_participants
       ])
+
+      # 缴费互斥 DB CHECK（并发兜底，KTD3）冲突转稳定业务错误
+      error_handler({__MODULE__, :handle_write_error, []})
 
       change(fn changeset, context ->
         Ash.Changeset.before_action(changeset, fn cs ->
@@ -848,6 +858,32 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
+  # create/update error_handler（KTD3）：缴费互斥 DB CHECK 冲突转稳定业务错误。
+  # ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，冲突落到
+  # InvalidAttribute.private_vars.constraint_type == :check；非 check 错误原样返回
+  # （enrollment.handle_create_error 同款纪律）。
+  def handle_write_error(_changeset, error) do
+    if check_conflict?(error) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: "an event cannot enable both pricing tiers and deposit",
+        code: "event_payment_mode_exclusive",
+        fields: [:deposit_enabled]
+      )
+    else
+      error
+    end
+  end
+
+  defp check_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &check_conflict?/1)
+  end
+
+  defp check_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
+    Keyword.get(private_vars || [], :constraint_type) == :check
+  end
+
+  defp check_conflict?(_), do: false
+
   identities do
     # all_tenants?：slug 全局唯一（公开路由段无 workspace 前缀）；否则 :attribute
     # 多租户会把 workspace_id 并入冲突目标，与 events_slug_index 全局索引不匹配
@@ -859,6 +895,16 @@ defmodule Cgc2046.Events.Event do
   postgres do
     table("events")
     repo(Cgc2046.Repo)
+
+    # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
+    # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
+    # event_payment_mode_exclusive（BusinessError）。
+    check_constraints do
+      check_constraint([:deposit_enabled, :pricing_enabled], "events_payment_mode_exclusive",
+        check: "NOT (deposit_enabled AND pricing_enabled)",
+        message: "an event cannot enable both pricing tiers and deposit"
+      )
+    end
   end
 
   policies do
