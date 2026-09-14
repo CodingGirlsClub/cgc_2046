@@ -64,6 +64,16 @@ export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
+/**
+ * 报名卡核销码出示文本（R11/KTD5）：仅 confirmed 报名且后端返回码时出示
+ * （后端按「本人 confirmed 报名」门控，course 恒 null）；其余 → null。
+ * 文本承载 6 位码本身——主理人现场手输/扫码用。
+ */
+export function checkInCodeText(status: EnrollmentStatus, checkInCode: string | null): string | null {
+  if (status !== 'confirmed' || !checkInCode) return null
+  return `核销码 ${checkInCode}`
+}
+
 /** 时间行展示（R3）：双全为区间，单值带方向，全空兜底「时间待定」 */
 export function scheduleText(startsAt: string | null, endsAt: string | null): string {
   if (startsAt && endsAt) return `${formatDateTime(startsAt)} - ${formatDateTime(endsAt)}`

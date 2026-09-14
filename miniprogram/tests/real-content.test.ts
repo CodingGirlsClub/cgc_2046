@@ -32,6 +32,7 @@ vi.mock('../src/api/operations', () => ({
   EventDetailQueryDocument: 'EVENT_DETAIL',
   CourseDetailQueryDocument: 'COURSE_DETAIL',
   MyEnrollmentsQueryDocument: 'MY_ENROLLMENTS',
+  MyOrdersQueryDocument: 'MY_ORDERS',
   EnrollmentQueryDocument: 'ENROLLMENT_QUERY',
   CancelEnrollmentMutationDocument: 'CANCEL_ENROLLMENT',
   CreateEnrollmentMutationDocument: 'CREATE_ENROLLMENT',
@@ -75,6 +76,9 @@ const EVENT_RECORD = {
   registrationDeadline: null,
   pricingEnabled: false,
   availablePriceTiers: [],
+  // 详情查询形状（U11）：列表查询不带押金字段（匿名白名单与 web PUBLIC_LIST_* 同源）
+  depositEnabled: false,
+  depositAmountCents: null,
   startsAt: '2026-08-25T06:00:00Z',
   endsAt: '2026-08-26T10:00:00Z',
   venue: '{"country":"中国","province":"北京市","city":"北京","district":"海淀区"}',
@@ -215,6 +219,51 @@ describe('getContent myEnrollment 投影（#355 P1-3）', () => {
   })
 })
 
+// U11（R10）：押金场映射——详情查询带 depositEnabled/depositAmountCents，
+// 列表匿名查询不带（字段缺失按免费态映射，不抛错）
+describe('押金字段映射（U11/R10）', () => {
+  it('押金场：depositEnabled/depositAmountCents 透传，档位保持空（三态互斥）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, depositEnabled: true, depositAmountCents: 6900 }
+    })
+    const item = await new RealMiniProgramApi().getContent('event', 'event-deposit')
+    expect(item.depositEnabled).toBe(true)
+    expect(item.depositAmountCents).toBe(6900)
+    expect(item.pricingEnabled).toBe(false)
+    expect(item.priceTiers).toEqual([])
+  })
+
+  it('押金开启但缺额：不编造金额（null，展示层降级不出价）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, depositEnabled: true, depositAmountCents: null }
+    })
+    const item = await new RealMiniProgramApi().getContent('event', 'event-deposit')
+    expect(item.depositEnabled).toBe(true)
+    expect(item.depositAmountCents).toBeNull()
+  })
+
+  it('免费场回归：记录无押金字段 → 免费态（depositEnabled=false / 金额 null）', async () => {
+    const { depositEnabled: _depositEnabled, depositAmountCents: _depositAmountCents, ...freeRecord } = EVENT_RECORD
+    mocks.graphqlRequest.mockResolvedValue({ getEvent: freeRecord })
+    const item = await new RealMiniProgramApi().getContent('event', 'event-1')
+    expect(item.depositEnabled).toBe(false)
+    expect(item.depositAmountCents).toBeNull()
+    expect(item.pricingEnabled).toBe(false)
+  })
+
+  it('定价场回归：档位解析与收费标记不变，押金恒关闭', async () => {
+    const tier = JSON.stringify({ id: 't1', name: '标准', amount_cents: 19900 })
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, pricingEnabled: true, availablePriceTiers: [tier] }
+    })
+    const item = await new RealMiniProgramApi().getContent('event', 'event-priced')
+    expect(item.pricingEnabled).toBe(true)
+    expect(item.priceTiers).toEqual([{ id: 't1', name: '标准', amountCents: 19900 }])
+    expect(item.depositEnabled).toBe(false)
+    expect(item.depositAmountCents).toBeNull()
+  })
+})
+
 // #355 P1-4：结果页按 id 回查单条报名
 describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
   it('命中 → EnrollmentSummary（kind/targetId/title 从记录派生）', async () => {
@@ -234,7 +283,8 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
           approvedAt: '2026-09-05T00:00:00Z',
           expiredAt: null,
           cancelledAt: null,
-          insertedAt: '2026-09-01T08:00:00Z'
+          insertedAt: '2026-09-01T08:00:00Z',
+          checkInCode: '042317'
         }]
       }
     })
@@ -249,7 +299,8 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
       status: 'confirmed',
       approvalDeadline: null,
       rejectionReason: null,
-      insertedAt: '2026-09-01T08:00:00Z'
+      insertedAt: '2026-09-01T08:00:00Z',
+      checkInCode: '042317'
     })
   })
 
@@ -265,5 +316,88 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
     const api = new RealMiniProgramApi()
     expect(await api.getEnrollment('enr-1')).toBeNull()
     expect(mocks.graphqlRequest).not.toHaveBeenCalled()
+  })
+})
+
+// U11（R11/R16）：「我的报名」卡面数据源 —— 核销码 + 押金单终态
+describe('getEnrollments 核销码与押金终态（U11/R11/R16）', () => {
+  const session = {
+    me: {
+      id: 'user-1',
+      email: 'cheng@example.com',
+      displayName: '小程',
+      memberNumber: null,
+      joinedAt: null,
+      isPlatformAdmin: false
+    },
+    meWorkspaces: [],
+    myPendingApprovals: []
+  }
+  const enrollmentRecord = (overrides: Record<string, unknown>) => ({
+    id: 'enr-1',
+    workspaceId: 'ws-1',
+    eventId: 'event-deposit',
+    courseId: null,
+    userId: 'user-1',
+    status: 'confirmed',
+    targetTitle: '押金场 · 线下共学',
+    approvalDeadline: null,
+    rejectionReason: null,
+    approvedAt: '2026-09-05T00:00:00Z',
+    expiredAt: null,
+    cancelledAt: null,
+    insertedAt: '2026-09-01T08:00:00Z',
+    checkInCode: null,
+    ...overrides
+  })
+
+  it('confirmed 报名带 6 位码，payment_pending 无码（后端门控的端内忠实映射）', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest
+      .mockResolvedValueOnce(session)
+      .mockResolvedValueOnce({
+        enrollments: {
+          results: [
+            enrollmentRecord({ checkInCode: '042317' }),
+            enrollmentRecord({ id: 'enr-2', status: 'payment_pending' })
+          ]
+        }
+      })
+    const items = await new RealMiniProgramApi().getEnrollments()
+    expect(items.map(({ id, checkInCode }) => [id, checkInCode])).toEqual([
+      ['enr-1', '042317'],
+      ['enr-2', null]
+    ])
+  })
+
+  it('forfeited 押金单进入 myOrders（未知状态 fail-closed 曾会整表抛错）', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest
+      .mockResolvedValueOnce(session)
+      .mockResolvedValueOnce({
+        myOrders: {
+          results: [
+            {
+              id: 'order-1',
+              enrollmentId: 'enr-1',
+              provider: 'wechat_jsapi',
+              status: 'forfeited',
+              amountCents: 6900,
+              expireAt: '2026-09-20T00:00:00Z'
+            }
+          ]
+        }
+      })
+    const orders = await new RealMiniProgramApi().getMyOrders()
+    expect(orders).toEqual([
+      {
+        id: 'order-1',
+        enrollmentId: 'enr-1',
+        status: 'forfeited',
+        amountCents: 6900,
+        expireAt: '2026-09-20T00:00:00Z',
+        transactionId: null
+      }
+    ])
   })
 })

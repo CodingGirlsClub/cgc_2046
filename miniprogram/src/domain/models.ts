@@ -16,6 +16,8 @@ export type OrderStatus =
   | 'refund_failed'
   | 'cancelled'
   | 'expired'
+  /** 押金终态：未到场且未核销，押金不退（no-show 结算落此态，平台首个不退终态） */
+  | 'forfeited'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
 export interface CatalogItem {
@@ -31,6 +33,13 @@ export interface CatalogItem {
   pricingEnabled: boolean
   /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */
   priceTiers: PriceTier[]
+  /**
+   * 是否收取押金（R1 三态互斥：与 pricingEnabled 不可同真）。仅详情查询携带
+   * （匿名列表白名单与 web PUBLIC_LIST_* 同源，不含押金字段）——列表记录恒 false。
+   */
+  depositEnabled: boolean
+  /** 押金金额（分，R2 单源）；非押金场恒 null */
+  depositAmountCents: number | null
   /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
@@ -149,6 +158,11 @@ export interface EnrollmentSummary {
   rejectionReason: string | null
   /** #411 同活动折叠的分组/排序键（服务端 create_timestamp，ISO 时间串） */
   insertedAt: string
+  /**
+   * 6 位核销码（KTD5：仅本人 confirmed 报名由后端返回，其余为 null；course 恒 null）
+   * ——「我的报名」confirmed 卡出示用。
+   */
+  checkInCode: string | null
 }
 
 export interface EnrollmentForm {
