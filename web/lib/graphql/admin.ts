@@ -575,3 +575,10 @@ export const APPLICATION_STATUS_CLASS: Record<AdminApplicationStatus, string> = 
 	rejected: "l-badge l-badge-danger",
 	expired: "l-badge l-badge-muted",
 };
+
+/* Initiative 状态徽章：后端 status 为 string，未知状态由调用侧 `?? l-badge-muted` 兜底。 */
+export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
+	draft: "l-badge l-badge-muted",
+	open: "l-badge l-badge-success",
+	closed: "l-badge l-badge-muted",
+};
