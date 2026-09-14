@@ -937,9 +937,7 @@
     "emptyDesc": "教研 workflow 执行完成后，产物会显示在这里"
   },
   "workspaceMcp": {
-    "loadFailed": "加载失败",
     "issueFailed": "签发失败",
-    "revokeFailed": "撤销失败",
     "breadcrumbHome": "工作台",
     "breadcrumbSettings": "设置",
     "title": "MCP",
@@ -984,8 +982,7 @@
     "revoke": "撤销",
     "confirmRevoke": "确认撤销",
     "revoking": "撤销中…",
-    "cancel": "取消",
-    "revokeFailed": "撤销失败"
+    "cancel": "取消"
   },
   "accountConnections": {
     "title": "连接与授权",

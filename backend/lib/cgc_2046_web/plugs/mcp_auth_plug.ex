@@ -84,7 +84,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlug do
          {:ok, user} <- Ash.get(Cgc2046.Accounts.User, user_id, authorize?: false) do
       conn
       |> assign(:current_user, user)
-      |> assign(:mcp_credential, %{type: :oauth, client_id: claims["client_id"]})
+      |> assign(:mcp_credential, %{type: :oauth})
     else
       _ -> unauthorized(conn, :oauth)
     end
@@ -104,9 +104,9 @@ defmodule Cgc2046Web.Plugs.McpAuthPlug do
 
   defp unauthorized(conn, credential_type) do
     key =
-      Cgc2046Web.Plugs.RateLimit.build_key(
+      Cgc2046Web.Plugs.RateLimit.key_for(
         Map.fetch!(@failure_bucket_prefixes, credential_type),
-        ip_string(conn)
+        conn
       )
 
     if Cgc2046Web.Plugs.RateLimit.check(
@@ -142,8 +142,6 @@ defmodule Cgc2046Web.Plugs.McpAuthPlug do
       "error_description" => @invalid_token_description
     })
   end
-
-  defp ip_string(conn), do: conn.remote_ip |> :inet.ntoa() |> to_string()
 
   defp max_attempts,
     do:

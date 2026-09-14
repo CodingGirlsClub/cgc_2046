@@ -15,11 +15,11 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import type { OauthAuthorizationItem } from "@/lib/mcp";
+import type { OauthAuthorization } from "@/lib/graphql/oauth-authorization";
 import { formatDateTime } from "@/lib/format";
 
 /** 状态 → 徽章类名（与连接 token 列表同色系：绿=有效、琥珀=可恢复的失效、红=已撤销） */
-function badgeClass(status: OauthAuthorizationItem["status"]): string {
+function badgeClass(status: OauthAuthorization["status"]): string {
 	if (status === "active") return "l-badge l-badge-volunteer";
 	if (status === "revoked") return "l-badge l-badge-danger";
 	if (status === "idle_expired") return "l-badge l-badge-pending";
@@ -31,7 +31,7 @@ export default function AuthorizedAppsSection({
 	revokingClientId,
 	onRevoke,
 }: {
-	items: OauthAuthorizationItem[];
+	items: OauthAuthorization[];
 	/** 撤销进行中的 clientId（禁用该行确认按钮） */
 	revokingClientId: string | null;
 	/** 确认撤销（消费方负责请求与列表更新；失败由消费方内联报错；resolve 后收起确认态） */
@@ -41,7 +41,7 @@ export default function AuthorizedAppsSection({
 	// 撤销两步确认（确认态的选中行）
 	const [confirmClientId, setConfirmClientId] = useState<string | null>(null);
 
-	const statusLabel = (status: OauthAuthorizationItem["status"]) => {
+	const statusLabel = (status: OauthAuthorization["status"]) => {
 		if (status === "active") return t("statusActive");
 		if (status === "revoked") return t("statusRevoked");
 		if (status === "idle_expired") return t("statusIdleExpired");

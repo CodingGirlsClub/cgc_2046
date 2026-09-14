@@ -16,6 +16,8 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaPlug do
 
   import Plug.Conn
 
+  alias AshAuthentication.Phoenix.Oauth2Server.Errors
+
   @register_path "/oauth/register"
   @quota_key_prefix "rate:oauth-register"
   @default_max_attempts 10
@@ -34,7 +36,7 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaPlug do
   end
 
   defp enforce(conn) do
-    key = Cgc2046Web.Plugs.RateLimit.build_key(@quota_key_prefix, ip_string(conn))
+    key = Cgc2046Web.Plugs.RateLimit.key_for(@quota_key_prefix, conn)
 
     if Cgc2046Web.Plugs.RateLimit.check(
          key,
@@ -43,22 +45,17 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaPlug do
        ) == :ok do
       conn
     else
+      # 429 信封交给库协议端点同款 helper（content-type/cache-control/正文形状
+      # 与其一致；retry-after 须先设，send_resp 由 helper 完成并 halt）。
       conn
-      |> put_resp_header("content-type", "application/json")
-      |> put_resp_header("cache-control", "no-store")
       |> put_resp_header("retry-after", Integer.to_string(window_seconds()))
-      |> send_resp(
+      |> Errors.send_oauth_error(
         429,
-        Jason.encode!(%{
-          "error" => "rate_limited",
-          "error_description" => "client registration quota exceeded; retry later"
-        })
+        "rate_limited",
+        "client registration quota exceeded; retry later"
       )
-      |> halt()
     end
   end
-
-  defp ip_string(conn), do: conn.remote_ip |> :inet.ntoa() |> to_string()
 
   defp max_attempts, do: config() |> Keyword.get(:max_attempts, @default_max_attempts)
 

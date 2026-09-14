@@ -126,6 +126,14 @@ defmodule Cgc2046.Accounts.OAuthRefreshToken do
   postgres do
     table("oauth_refresh_tokens")
     repo(Cgc2046.Repo)
+
+    custom_indexes do
+      # 鉴权热路径索引：每次 MCP 调用经 verify_live/1 按 (user_id, client_id)
+      # 回查链上活跃行；无索引时随该用户授权历史增长线性劣化（列表与撤销
+      # 路径的收窄读同样命中）。表由本分支新建、线上为空，普通 CREATE INDEX
+      # 不锁既有数据。
+      index([:user_id, :client_id])
+    end
   end
 
   actions do
@@ -214,6 +222,20 @@ defmodule Cgc2046.Accounts.OAuthRefreshToken do
   end
 
   def verify_live(_claims), do: :error
+
+  @doc """
+  活跃谓词（内存判定）：未撤销 + 未过期。
+
+  与 `verify_live/1` 的数据库过滤条件逐条同构——**改一处必须同步另一处**；
+  读模型与回执侧（`Cgc2046.Accounts.OAuthAuthorizations`）经此单源判定，
+  避免两份实现漂移导致列表 status 与 /mcp 的 401 判定分叉。
+  """
+  def live?(row, now \\ DateTime.utc_now())
+
+  def live?(%__MODULE__{revoked_at: nil, expires_at: expires_at}, now),
+    do: DateTime.compare(expires_at, now) == :gt
+
+  def live?(_row, _now), do: false
 
   @doc """
   撤销一条授权（整链级联：该 user + client 的全部未撤销行）。

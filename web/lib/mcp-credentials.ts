@@ -7,8 +7,8 @@ import {
 	revokeMcpToken,
 	revokeOauthAuthorization,
 	type McpTokenItem,
-	type OauthAuthorizationItem,
 } from "./mcp";
+import type { OauthAuthorization } from "./graphql/oauth-authorization";
 
 /**
  * 用户级凭证管理状态（连接 token + OAuth 授权，U5/KTD3）：两处管理面共用——
@@ -26,7 +26,7 @@ import {
 
 export interface McpCredentialsState {
 	tokens: McpTokenItem[];
-	authorizations: OauthAuthorizationItem[];
+	authorizations: OauthAuthorization[];
 	/** 两源任一未完成即 true */
 	loading: boolean;
 	/** 错误文案键（消费方 labelsT 翻译）；null = 无错误 */
@@ -52,7 +52,7 @@ export function useMcpCredentials({
 	enabled = true,
 }: { enabled?: boolean } = {}): McpCredentialsState {
 	const [tokens, setTokens] = useState<McpTokenItem[]>([]);
-	const [authorizations, setAuthorizations] = useState<OauthAuthorizationItem[]>(
+	const [authorizations, setAuthorizations] = useState<OauthAuthorization[]>(
 		[],
 	);
 	const [loading, setLoading] = useState(true);

@@ -16,10 +16,10 @@ vi.mock("./mcp", () => ({
 }));
 
 import { useOpencodeAuthPhase } from "./use-opencode-auth-phase";
-import type { OauthAuthorizationItem } from "./mcp";
+import type { OauthAuthorization } from "./graphql/oauth-authorization";
 
 /** 授权夹具：默认 pending（同意行已存在、尚未换得凭证） */
-function grant(over: Partial<OauthAuthorizationItem>): OauthAuthorizationItem {
+function grant(over: Partial<OauthAuthorization>): OauthAuthorization {
 	return {
 		clientId: "cli_1",
 		clientName: "opencode",

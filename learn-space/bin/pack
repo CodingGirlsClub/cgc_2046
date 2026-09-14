@@ -58,7 +58,8 @@ actual="$(unzip -Z1 "$ZIP" | grep -v '/$' | LC_ALL=C sort)"
 expected="$(sed "s|^learn-space/|$TOP/|" "$STAGE/filelist.txt")"
 if [ "$actual" != "$expected" ]; then
   echo "pack: manifest mismatch, removing $ZIP" >&2
-  printf '%s\n' "--- actual ---" "$actual" "--- expected ---" "$expected" >&2
+  echo "pack: if you added files, git add them first (commit or stage), then retry" >&2
+  printf '%s\n' "--- expected ---" "$expected" "--- actual ---" "$actual" >&2
   rm -f "$ZIP"
   exit 1
 fi

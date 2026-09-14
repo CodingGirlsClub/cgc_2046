@@ -40,7 +40,8 @@ import {
 	ME_ONBOARDING,
 	DISMISS_ONBOARDING_INVITATION,
 } from "./graphql/onboarding";
-import type { McpTokenItem, OauthAuthorizationItem } from "./mcp";
+import type { McpTokenItem } from "./mcp";
+import type { OauthAuthorization } from "./graphql/oauth-authorization";
 
 /** token 测试夹具：默认 active 未使用，按需覆盖 */
 function token(over: Partial<McpTokenItem>): McpTokenItem {
@@ -56,7 +57,7 @@ function token(over: Partial<McpTokenItem>): McpTokenItem {
 }
 
 /** OAuth 授权测试夹具（U5）：默认 active 无调用记录 */
-function grant(over: Partial<OauthAuthorizationItem>): OauthAuthorizationItem {
+function grant(over: Partial<OauthAuthorization>): OauthAuthorization {
 	return {
 		clientId: "cli_1",
 		clientName: "CGC 学习空间",

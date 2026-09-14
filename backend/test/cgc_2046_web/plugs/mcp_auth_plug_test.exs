@@ -114,7 +114,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
 
       refute conn.halted
       assert conn.assigns[:current_user].id == user.id
-      assert conn.assigns[:mcp_credential] == %{type: :oauth, client_id: tokens["client_id"]}
+      assert conn.assigns[:mcp_credential] == %{type: :oauth}
     end
 
     test "令牌可用但授权已撤销 → 401（活跃性回查，纯签名校验做不到）" do

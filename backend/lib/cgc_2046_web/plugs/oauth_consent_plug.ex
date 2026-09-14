@@ -32,7 +32,6 @@ defmodule Cgc2046Web.Plugs.OAuthConsentPlug do
 
   @account_key {__MODULE__, :account}
   @default_locale "zh_CN"
-  @supported_locales ~w(zh_CN en)
 
   @doc false
   def init(opts), do: opts
@@ -53,10 +52,6 @@ defmodule Cgc2046Web.Plugs.OAuthConsentPlug do
   """
   @spec current_account() :: %{display_name: String.t() | nil, email: String.t() | nil} | nil
   def current_account, do: Process.get(@account_key)
-
-  @doc "本 plug 支持的界面 locale（与 `priv/gettext` 目录一致）。"
-  @spec supported_locales() :: [String.t()]
-  def supported_locales, do: @supported_locales
 
   @doc """
   按 `Accept-Language` 协商请求 locale（质量值优先，同级按头内顺序）。

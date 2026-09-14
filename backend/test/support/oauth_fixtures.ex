@@ -82,8 +82,8 @@ defmodule Cgc2046.OAuthFixtures do
 
   def pkce_verifier, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
-  def pkce_challenge(verifier),
-    do: Base.url_encode64(:crypto.hash(:sha256, verifier), padding: false)
+  # 与库实现同源（S256 = base64url(sha256(verifier)) 无 padding；库同形态）。
+  def pkce_challenge(verifier), do: AshAuthentication.Oauth2Server.PKCE.challenge(verifier)
 
   def consent_get(cookie, client_id, redirect_uri, verifier, req_headers \\ []) do
     query =

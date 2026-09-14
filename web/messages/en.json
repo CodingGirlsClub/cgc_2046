@@ -937,9 +937,7 @@
     "emptyDesc": "Output will appear here once the research workflow completes"
   },
   "workspaceMcp": {
-    "loadFailed": "Failed to load",
     "issueFailed": "Failed to issue",
-    "revokeFailed": "Failed to revoke",
     "breadcrumbHome": "Workspaces",
     "breadcrumbSettings": "Settings",
     "title": "MCP",
@@ -984,8 +982,7 @@
     "revoke": "Revoke",
     "confirmRevoke": "Confirm revoke",
     "revoking": "Revoking…",
-    "cancel": "Cancel",
-    "revokeFailed": "Failed to revoke"
+    "cancel": "Cancel"
   },
   "accountConnections": {
     "title": "Connections & authorizations",

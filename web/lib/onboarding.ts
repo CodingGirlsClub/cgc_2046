@@ -6,7 +6,8 @@ import {
 } from "./graphql/onboarding";
 import type { OnboardingMe } from "./graphql/onboarding";
 import { fetchMyMcpTokens, fetchMyOauthAuthorizations } from "./mcp";
-import type { McpTokenItem, OauthAuthorizationItem } from "./mcp";
+import type { McpTokenItem } from "./mcp";
+import type { OauthAuthorization } from "./graphql/oauth-authorization";
 
 /**
  * 首公里 onboarding 数据层（plan 2026-08-22 first-mile-onboarding，U2；
@@ -70,7 +71,7 @@ export interface OnboardingState extends DerivedOnboardingState {
  */
 export function deriveOnboardingState(
 	tokens: McpTokenItem[],
-	grants: OauthAuthorizationItem[],
+	grants: OauthAuthorization[],
 	dismissedAt: string | null,
 ): DerivedOnboardingState {
 	const hasActiveToken = tokens.some((t) => t.status === "active");

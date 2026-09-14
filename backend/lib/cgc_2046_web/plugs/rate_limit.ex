@@ -38,6 +38,17 @@ defmodule Cgc2046Web.Plugs.RateLimit do
     "#{prefix}:#{hashed}"
   end
 
+  @doc "从 conn 的远端 IP 构造按前缀分桶的限流键（鉴权失败节流与注册配额共用）。"
+  def key_for(prefix, conn) do
+    remote_ip =
+      case conn.remote_ip do
+        ip when is_tuple(ip) -> ip |> :inet.ntoa() |> to_string()
+        _ -> "unknown"
+      end
+
+    build_key(prefix, remote_ip)
+  end
+
   defp max_attempts,
     do:
       Application.get_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit, [])

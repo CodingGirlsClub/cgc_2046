@@ -9,7 +9,6 @@ import {
 	MY_OAUTH_AUTHORIZATIONS,
 	REVOKE_OAUTH_AUTHORIZATION,
 	type OauthAuthorization,
-	type OauthAuthorizationStatus,
 } from "./graphql/oauth-authorization";
 
 /**
@@ -96,50 +95,24 @@ export async function revokeMcpToken(id: string): Promise<McpTokenItem> {
 
 /* ---------------- OAuth 授权（U5，KTD3） ---------------- */
 
-export interface OauthAuthorizationItem {
-	clientId: string;
-	/** 客户端显示名；后端 client 行缺失时为 null（UI 按 clientId 降级） */
-	clientName: string | null;
-	scope: string;
-	/** 授权时间；同意行已撤回的审计行为 null */
-	grantedAt: string | null;
-	/** 最近一次调用时间（含此信号即视为已发生首联） */
-	lastUsedAt: string | null;
-	status: OauthAuthorizationStatus;
-}
-
-/**
- * 归一后端授权载荷（可选字段 null 化，与 mapMcpToken 同纪律：GraphQL 面的可选性
- * 在数据层收口，组件不判 undefined）。
- */
-export function mapOauthAuthorization(
-	a: OauthAuthorization,
-): OauthAuthorizationItem {
-	return {
-		clientId: a.clientId,
-		clientName: a.clientName ?? null,
-		scope: a.scope,
-		grantedAt: a.grantedAt ?? null,
-		lastUsedAt: a.lastUsedAt ?? null,
-		status: a.status,
-	};
-}
+/* 授权载荷直接使用 GraphQL 契约类型 `OauthAuthorization`：曾有一层恒等 DTO 与
+   null 归一包装，属无效防线（Absinthe 对可空字段恒返回 null），已删除。 */
 
 /** 当前用户的 OAuth 授权列表（新→旧）；network-only——撤销后不得读缓存旧列表 */
 export async function fetchMyOauthAuthorizations(): Promise<
-	OauthAuthorizationItem[]
+	OauthAuthorization[]
 > {
 	const { data } = await client.query({
 		query: MY_OAUTH_AUTHORIZATIONS,
 		fetchPolicy: "network-only",
 	});
-	return (data?.myOauthAuthorizations ?? []).map(mapOauthAuthorization);
+	return data?.myOauthAuthorizations ?? [];
 }
 
 /** 撤销一条授权（整链 + 撤回同意行；仅本人） */
 export async function revokeOauthAuthorization(
 	clientId: string,
-): Promise<OauthAuthorizationItem> {
+): Promise<OauthAuthorization> {
 	const { data } = await client.mutate({
 		mutation: REVOKE_OAUTH_AUTHORIZATION,
 		variables: { clientId },
@@ -148,5 +121,5 @@ export async function revokeOauthAuthorization(
 	if (!result) {
 		throw new Error("errors.revokeOauthAuthorizationFailed");
 	}
-	return mapOauthAuthorization(result);
+	return result;
 }

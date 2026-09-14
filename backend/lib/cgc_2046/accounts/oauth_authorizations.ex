@@ -109,21 +109,30 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
           {:ok, entry()} | {:error, :not_found} | {:error, {:invalid, term()}}
   def revoke(%{id: user_id}, client_id)
       when is_binary(user_id) and is_binary(client_id) do
-    with {:ok, entries} <- list_for(%{id: user_id}) do
-      case Enum.find(entries, &(&1.client_id == client_id)) do
-        nil -> {:error, :not_found}
-        entry -> do_revoke(user_id, client_id, entry)
-      end
+    # 收窄读：只取该 (user, client) 的同意行与链头（原实现经 list_for 读该用户
+    # 全量再 Enum.find）。not_found 语义不变：两侧皆无即 not_found（他人 client
+    # 与不存在同形），存在时才再取 client 名。
+    with {:ok, consent} <- find_consent(user_id, client_id),
+         {:ok, heads} <- read_client_chain_heads(user_id, client_id),
+         :ok <- ensure_exists(consent, heads),
+         {:ok, client_name} <- read_client_name(client_id) do
+      do_revoke(user_id, client_id, consent, heads, client_name)
     else
+      :not_found -> {:error, :not_found}
       {:error, error} -> {:error, {:invalid, error}}
     end
   end
 
   def revoke(_actor, _client_id), do: {:error, :not_found}
 
-  defp do_revoke(user_id, client_id, entry) do
+  defp ensure_exists(nil, []), do: :not_found
+  defp ensure_exists(_consent, _heads), do: :ok
+
+  defp do_revoke(user_id, client_id, consent, heads, client_name) do
+    entry = build_entry(client_id, consent, heads, client_name, DateTime.utc_now())
+
     with :ok <- OAuthRefreshToken.revoke_authorization(user_id, client_id),
-         :ok <- withdraw_consent(user_id, client_id) do
+         :ok <- withdraw_consent(consent) do
       {:ok, %{entry | status: :revoked}}
     else
       {:error, error} -> {:error, {:invalid, error}}
@@ -132,13 +141,8 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
 
   # 同意行撤回：撤销后重新授权必须重新过同意页（本模块 @moduledoc 的语义）。
   # 无同意行（链头独存的历史行）视为已达成目标，幂等成功。
-  defp withdraw_consent(user_id, client_id) do
-    case find_consent(user_id, client_id) do
-      {:ok, nil} -> :ok
-      {:ok, consent} -> destroy_consent(consent)
-      {:error, error} -> {:error, error}
-    end
-  end
+  defp withdraw_consent(nil), do: :ok
+  defp withdraw_consent(consent), do: destroy_consent(consent)
 
   defp destroy_consent(consent) do
     case Ash.destroy(consent, authorize?: false) do
@@ -178,6 +182,21 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
     |> Ash.read_one(authorize?: false)
   end
 
+  # 撤销路径的收窄读：只取该 client 的链头（列表路径仍走全量 read_chain_heads/1）
+  defp read_client_chain_heads(user_id, client_id) do
+    OAuthRefreshToken
+    |> Ash.Query.filter(user_id == ^user_id and client_id == ^client_id and is_nil(rotated_to_id))
+    |> Ash.read(authorize?: false)
+  end
+
+  defp read_client_name(client_id) do
+    case OAuthClient |> Ash.Query.filter(id == ^client_id) |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, row} -> {:ok, row.client_name}
+      {:error, error} -> {:error, error}
+    end
+  end
+
   defp build_entry(client_id, consent, heads, client_name, now) do
     %{
       client_id: client_id,
@@ -210,17 +229,9 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
 
   defp status(heads, now) do
     cond do
-      Enum.any?(heads, &live?(&1, now)) -> :active
+      Enum.any?(heads, &OAuthRefreshToken.live?(&1, now)) -> :active
       Enum.all?(heads, &(&1.revoked_at != nil)) -> :revoked
       true -> :idle_expired
     end
   end
-
-  # 活跃判定与 OAuthRefreshToken.verify_live/1 逐条同构：未撤销 + 未过期
-  # （链头天然满足 is_nil(rotated_to_id)）
-  defp live?(%{revoked_at: nil, expires_at: expires_at}, now) do
-    DateTime.compare(expires_at, now) == :gt
-  end
-
-  defp live?(_row, _now), do: false
 end
