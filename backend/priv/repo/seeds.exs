@@ -18,6 +18,7 @@
 #    此处仅打印确认落位。
 
 alias Cgc2046.Accounts.MembershipContext
+alias Cgc2046.Accounts.OAuthClient
 alias Cgc2046.Accounts.User
 alias Cgc2046.Accounts.Workspace
 alias Cgc2046.Mcp.Playbooks
@@ -122,3 +123,11 @@ Enum.each(Playbooks.roles(), fn role ->
     "[seeds] role playbook #{role}: v#{playbook.version} (#{byte_size(playbook.content)} bytes)"
   )
 end)
+
+# ── 4. OAuth 打包路径预注册公开 client（KTD1，幂等）────────────────
+# 固定 client_id 的 PKCE-only 公开 client（无 secret、loopback 回调）：U7 学习空间
+# 包内 pin 该 id，首公里不依赖 DCR 端点。非打包宿主（其他 MCP 客户端）走
+# POST /oauth/register 自注册；两条路径共用同一客户端资源与回调限 loopback 政策。
+{:ok, _oauth_packaged_client} = OAuthClient.ensure_packaged_client()
+
+IO.puts("[seeds] oauth packaged client #{OAuthClient.packaged_client_id()}; ensure ok")

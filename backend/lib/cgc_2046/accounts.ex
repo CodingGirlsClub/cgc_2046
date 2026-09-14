@@ -54,5 +54,12 @@ defmodule Cgc2046.Accounts do
 
     # #116 R10a：admin 治理操作留痕（全局资源，区别于 Mcp.ToolCallLog 运营审计）
     resource(Cgc2046.Accounts.AdminActionLog)
+
+    # MCP OAuth 授权服务器（KTD1/KTD8，opencode Desktop 接入）：
+    # 客户端注册 / 授权码 / 刷新令牌（= 授权链）/ 同意记录
+    resource(Cgc2046.Accounts.OAuthClient)
+    resource(Cgc2046.Accounts.OAuthAuthorizationCode)
+    resource(Cgc2046.Accounts.OAuthRefreshToken)
+    resource(Cgc2046.Accounts.OAuthConsent)
   end
 end

@@ -139,6 +139,48 @@ if config_env() == :prod do
 
   config :cgc_2046, :token_signing_secret, token_signing_secret
 
+  # MCP OAuth 授权服务器（KTD1/KTD2）：issuer = web 站点域（授权页必须与登录
+  # cookie 同源）、resource = api 域 MCP 端点（与宿主 mcp.url 同值，R13 零回归）。
+  # 显式配置、不由请求 host 推导；签名密钥独立于会话密钥（启动自检
+  # Cgc2046.Oauth2Server.validate_secrets!/0 会拒绝与会话密钥同值）。
+  oauth2_issuer_url =
+    System.get_env("OAUTH2_ISSUER_URL") ||
+      raise """
+      environment variable OAUTH2_ISSUER_URL is missing.
+      Set it to the public web origin that serves the consent page,
+      e.g. "https://codingirlsclub.com".
+      """
+
+  oauth2_resource_url =
+    System.get_env("OAUTH2_RESOURCE_URL") ||
+      raise """
+      environment variable OAUTH2_RESOURCE_URL is missing.
+      Set it to the MCP endpoint URL clients connect to,
+      e.g. "https://api.codingirlsclub.com/mcp".
+      """
+
+  oauth2_signing_secret =
+    System.get_env("OAUTH2_SIGNING_SECRET") ||
+      raise """
+      environment variable OAUTH2_SIGNING_SECRET is missing.
+      Generate a dedicated random value, e.g. `mix phx.gen.secret`.
+      Never reuse TOKEN_SIGNING_SECRET or SECRET_KEY_BASE.
+      """
+
+  Enum.each([oauth2_issuer_url, oauth2_resource_url], fn url ->
+    if URI.parse(url).scheme != "https" do
+      raise """
+      OAUTH2_ISSUER_URL / OAUTH2_RESOURCE_URL must use https in production.
+      Got: #{url}
+      """
+    end
+  end)
+
+  config :cgc_2046,
+    oauth2_issuer_url: oauth2_issuer_url,
+    oauth2_resource_url: oauth2_resource_url,
+    oauth2_signing_secret: oauth2_signing_secret
+
   # 小程序平台凭证（Phase 1）。凭证可缺（issue #264：先部署 web、小程序后上）：
   # 缺失时 boot 不崩，对应平台功能经 client 门禁返回 platform_not_configured，
   # 上架时补 env 即热启用；任何环境下都不把真实 appid/secret 提交进 git。

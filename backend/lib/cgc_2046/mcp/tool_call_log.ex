@@ -79,6 +79,13 @@ defmodule Cgc2046.Mcp.ToolCallLog do
       description: "MCP 会话 id（HTTP 为 Mcp-Session-Id，stdio 恒为 \"stdio\"）#228 归因维度；取不到或历史行为 nil"
     )
 
+    attribute(:credential_type, :atom,
+      allow_nil?: true,
+      public?: true,
+      constraints: [one_of: [:oauth, :token]],
+      description: "凭证类型归因（KTD8）：OAuth 授权（oauth）vs 静态连接 token（token）；历史行/直调为 nil"
+    )
+
     create_timestamp(:inserted_at)
   end
 
@@ -120,7 +127,8 @@ defmodule Cgc2046.Mcp.ToolCallLog do
         :latency_ms,
         :pending_operation_id,
         :client_name,
-        :session_id
+        :session_id,
+        :credential_type
       ])
     end
   end

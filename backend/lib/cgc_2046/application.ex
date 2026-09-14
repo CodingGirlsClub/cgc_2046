@@ -7,6 +7,10 @@ defmodule Cgc2046.Application do
 
   @impl true
   def start(_type, _args) do
+    # 启动自检（KTD8）：OAuth2 签名密钥缺失即启动失败，且不得与会话签名密钥
+    # 同值——密钥复用会让令牌面与登录面互相放大（见 Cgc2046.Oauth2Server）。
+    Cgc2046.Oauth2Server.validate_secrets!()
+
     children = [
       Cgc2046Web.Telemetry,
       Cgc2046.Repo,
@@ -54,6 +58,9 @@ defmodule Cgc2046.Application do
       Cgc2046.Workflows.ShareSchemeInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)
       {AshAuthentication.Supervisor, otp_app: :cgc_2046},
+      # OAuth2 授权服务器后台（KTD1）：过期授权码/刷新令牌清理（Expunger）
+      # + CIMD 缓存（本服务器 CIMD 未启用，进程无害）。
+      {AshAuthentication.Oauth2Server.Supervisor, otp_app: :cgc_2046},
       # MCP server（Slice D #42，anubis_mcp streamable HTTP；挂载见 router :mcp pipeline）。
       # start: true 强制启动 session 设施（registry/监督树，无独立 HTTP listener）——
       # anubis 默认按 :phoenix, :serve_endpoints 探测，test 环境为 false 会导致

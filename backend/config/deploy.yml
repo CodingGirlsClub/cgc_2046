@@ -45,6 +45,27 @@ servers:
         path: /healthz
         interval: 5
         timeout: 5
+  # oauth：OAuth 协议端点与授权页在主域（KTD2：issuer = web 站点域）——授权页
+  # 必须读 web 的 host-only 登录 cookie，且 RFC 8414 要求元数据与 issuer 同源。
+  # 与 ops 同款路径路由（不 strip 前缀，Phoenix 路由本身带 /oauth 与 /.well-known）；
+  # 只接管这两条前缀，主域其余路径仍归 cgc2046-web（Next.js 根服务）。
+  # 部署层配置本地不可验证，真机由引导步骤与 U4 授权页走查覆盖。
+  oauth:
+    hosts:
+      - <SERVER_HOST>
+    proxy:
+      host: codingirlsclub.com
+      ssl: false
+      forward_headers: false
+      path_prefixes:
+        - /oauth
+        - /.well-known/oauth-authorization-server
+      strip_path_prefix: false
+      app_port: 4000
+      healthcheck:
+        path: /healthz
+        interval: 5
+        timeout: 5
 
 # 部署用户：deploy（sudo 免密 + docker 组；见 ~/.ssh/config cgc_production_server）
 ssh:
@@ -76,10 +97,18 @@ env:
     PHX_HOST: api.codingirlsclub.com
     PORT: "4000"
     POOL_SIZE: "10"
+    # MCP OAuth 授权服务器（KTD2）：issuer = web 站点域（裸域——登录 cookie
+    # host-only，经 www 入口会丢登录态）、resource = api 域 MCP 端点（与宿主
+    # mcp.url 同值）。公开值，与 401 resource_metadata / PRM 响应同源。
+    OAUTH2_ISSUER_URL: https://codingirlsclub.com
+    OAUTH2_RESOURCE_URL: https://api.codingirlsclub.com/mcp
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
     - TOKEN_SIGNING_SECRET
+    # OAuth2 专用签名密钥（不得复用 TOKEN_SIGNING_SECRET / SECRET_KEY_BASE；
+    # 启动自检 Cgc2046.Oauth2Server.validate_secrets!/0 拒绝同值）
+    - OAUTH2_SIGNING_SECRET
     - SENDCLOUD_API_USER
     - SENDCLOUD_API_KEY
     - SENDCLOUD_FROM

@@ -67,6 +67,27 @@ config :phoenix, :json_library, Jason
 # in config/runtime.exs (never commit a real secret).
 config :cgc_2046, :token_signing_secret, "dev-only-token-signing-secret-change-me"
 
+# MCP OAuth 授权服务器（KTD1/KTD2）单一配置源：issuer = web 站点域（授权页读
+# host-only 登录 cookie）、resource = api 域 MCP 端点（与宿主 mcp.url 同值）。
+# dev/test 取本机后端（本地手动流程与 in-process 测试直达同一 host）；prod 在
+# config/runtime.exs 经 OAUTH2_ISSUER_URL / OAUTH2_RESOURCE_URL 注入。
+config :cgc_2046, :oauth2_issuer_url, "http://localhost:4000"
+config :cgc_2046, :oauth2_resource_url, "http://localhost:4000/mcp"
+
+# 独立签名密钥（专用 env OAUTH2_SIGNING_SECRET，prod 缺失即 raise）：
+# 不得复用会话/登录签名密钥（启动自检见 Cgc2046.Oauth2Server.validate_secrets!/0）。
+config :cgc_2046, :oauth2_signing_secret, "dev-only-oauth2-signing-secret-change-me"
+
+# 授权页未登录时的落点（U4 接手授权页体验：指向 web 登录页即可）。
+config :cgc_2046, :oauth2_sign_in_path, nil
+
+# OAuth 注册端点按 IP 配额（RFC 7591 §5：匿名写端点可限速）：成功注册计入独立
+# 配额，key 与 401 失败节流（McpAuthPlug）分开定义——注册被限流不影响既有
+# 凭证的失败判定，反之亦然。
+config :cgc_2046, Cgc2046Web.Plugs.OAuthRegisterQuotaPlug,
+  max_attempts: 10,
+  window_seconds: 3600
+
 # 小程序平台凭证（Phase 1：wechat/tt/xhs 的 code2session）。
 # 此处为 dev/test dummy 值；prod 由 config/runtime.exs 经环境变量注入（不进 git）。
 config :cgc_2046, :miniprogram_platforms, %{

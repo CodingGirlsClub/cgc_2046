@@ -57,6 +57,11 @@ config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
 # MCP 失败认证节流同款关闭（共享 ETS 表，async 401 测试会互相累计计数）
 config :cgc_2046, Cgc2046Web.Plugs.McpAuthPlug, max_attempts: 999_999
 
+# OAuth 注册配额同款关闭（共享 ETS 表，async 注册测试会互相累计计数）；
+# 配额本身的用例显式 put_env 低阈值（同 mcp_auth_rate_limit_test 范式）。
+config :cgc_2046,
+       Cgc2046Web.Plugs.OAuthRegisterQuotaPlug, max_attempts: 999_999, window_seconds: 3600
+
 # Oban 测试模式：manual——job 只入队不自动执行（Oban 内部自动禁用 queues/plugins，
 # cron 不会在测试中触发）；断言用 Oban.Testing.assert_enqueued，执行用 perform_job。
 config :cgc_2046, Oban, testing: :manual

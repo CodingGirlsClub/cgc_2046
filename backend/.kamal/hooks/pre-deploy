@@ -24,12 +24,26 @@ pack_env() {
   for v in DATABASE_URL SECRET_KEY_BASE TOKEN_SIGNING_SECRET \
            SENDCLOUD_API_USER SENDCLOUD_API_KEY SENDCLOUD_FROM \
            SENDCLOUD_FROM_NAME SENDCLOUD_SMS_USER SENDCLOUD_SMS_KEY \
-           SENDCLOUD_SMS_TEMPLATE_ID WEB_BASE_URL CORS_ORIGIN; do
+           SENDCLOUD_SMS_TEMPLATE_ID WEB_BASE_URL CORS_ORIGIN \
+           OAUTH2_ISSUER_URL OAUTH2_RESOURCE_URL OAUTH2_SIGNING_SECRET; do
     eval "val=\$$v"
     printf '%s=%s\n' "$v" "$val"
   done
   echo "PHX_SERVER=true"
 }
+
+# OAUTH2_ISSUER_URL / OAUTH2_RESOURCE_URL 是 deploy.yml env.clear 里的运行时值
+# （公开配置，不进 .kamal/secrets），hook 进程 env 里没有——从生成的配置取同值：
+# `Cgc2046.Release.seed` 会起完整应用（Application.ensure_all_started），启动自检
+# `Cgc2046.Oauth2Server.validate_secrets!/0` 需要三者齐备，缺失即启动失败。
+OAUTH2_ISSUER_URL=$(grep -E "^[[:space:]]+OAUTH2_ISSUER_URL:" "$CONFIG" | head -1 | sed 's/^[^:]*:[[:space:]]*//')
+OAUTH2_RESOURCE_URL=$(grep -E "^[[:space:]]+OAUTH2_RESOURCE_URL:" "$CONFIG" | head -1 | sed 's/^[^:]*:[[:space:]]*//')
+export OAUTH2_ISSUER_URL OAUTH2_RESOURCE_URL
+
+if [ -z "$OAUTH2_ISSUER_URL" ] || [ -z "$OAUTH2_RESOURCE_URL" ]; then
+  echo "pre-deploy: OAUTH2_ISSUER_URL / OAUTH2_RESOURCE_URL not found in $CONFIG" >&2
+  exit 1
+fi
 
 run_on_server() {
   pack_env | ssh deploy@"$SERVER" \

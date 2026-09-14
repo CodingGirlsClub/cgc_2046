@@ -1,5 +1,6 @@
 defmodule Cgc2046Web.Router do
   use Cgc2046Web, :router
+  use AshAuthentication.Phoenix.Oauth2Server.Router
 
   import Cgc2046Web.AuthPlug
   import Phoenix.LiveView.Router
@@ -74,6 +75,46 @@ defmodule Cgc2046Web.Router do
     pipe_through(:mcp)
 
     forward("/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Cgc2046.Mcp.Server)
+  end
+
+  # OAuth 协议端点管线（KTD1/KTD2）：客户端直连，无浏览器会话、无 CSRF。
+  # 注册端点的按 IP 配额在这里挂（匿名写端点，RFC 7591 §5）；节流分桶与 401
+  # 失败节流分开（见该 plug）。
+  pipeline :oauth_protocol do
+    plug(Cgc2046Web.Plugs.OAuthRegisterQuotaPlug)
+  end
+
+  # OAuth 授权页管线（consent，浏览器面）：读 web 站点域的 host-only 登录 cookie
+  # （AuthCookiePlug 合成 bearer → load_from_bearer 载 current_user → load_actor
+  # 落 Ash actor，库的 ConsentRouter 以 actor 判定授权人）；session + CSRF 是同意
+  # 表单 POST（`_csrf_token` + consent_request 绑定校验）的前提。
+  # 授权页 U3 为最小可测形态（库自带视图），文案/体验由 U4 接手
+  # （自定义 consent_view + sign_in_path）。
+  pipeline :oauth_consent do
+    plug(:fetch_session)
+    plug(:protect_from_forgery)
+    plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
+    plug(:load_from_bearer)
+    plug(:load_actor)
+  end
+
+  # 授权页：**必须定义在协议 scope 之前**——router 默认按定义顺序匹配，先定义
+  # 更具体的 `/oauth/authorize`，否则会被 `/oauth` 前缀 forward 兜住（404）。
+  scope "/" do
+    pipe_through(:oauth_consent)
+
+    oauth2_server_consent_routes(oauth2_server: Cgc2046.Oauth2Server)
+  end
+
+  # OAuth 协议端点：RFC 8414 元数据（`/.well-known/oauth-authorization-server`，
+  # 经主域暴露，issuer 同源）、RFC 9728 PRM
+  # （`/.well-known/oauth-protected-resource`，落在 api 域根路径，宿主经 /mcp
+  # 401 的 resource_metadata 指针发现）、DCR、令牌、撤销。主域路径暴露见
+  # config/deploy.yml 的 oauth role（部署层路径路由，/ops 先例）。
+  scope "/" do
+    pipe_through(:oauth_protocol)
+
+    oauth2_server_protocol_routes(oauth2_server: Cgc2046.Oauth2Server)
   end
 
   # 渠道回调（缴费闭环 U6，KTD4）：不过 :graphql（无 actor），鉴权 = 渠道验签；

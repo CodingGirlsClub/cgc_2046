@@ -254,7 +254,8 @@ defmodule Cgc2046.Mcp.Wrapper do
         latency_ms: latency_ms,
         pending_operation_id: pending_id,
         client_name: client_name(frame),
-        session_id: mcp_session_id(frame)
+        session_id: mcp_session_id(frame),
+        credential_type: credential_type(frame)
       },
       authorize?: false
     )
@@ -296,6 +297,12 @@ defmodule Cgc2046.Mcp.Wrapper do
     do: session_id
 
   defp mcp_session_id(_frame), do: nil
+
+  # 凭证类型归因（KTD8）：McpAuthPlug 按实际凭证路径注入 conn.assigns
+  # （anubis 把 conn.assigns 透传进 frame.assigns）。取不到（如测试直调
+  # Wrapper）即 nil，审计主路径不因缺维度失败。
+  defp credential_type(%{assigns: %{mcp_credential: %{type: type}}}), do: type
+  defp credential_type(_frame), do: nil
 
   defp classify({:ok, _}), do: {:ok, nil, nil}
   defp classify({:error, msg}) when is_binary(msg), do: classify_error(msg)
