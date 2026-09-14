@@ -57,7 +57,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :initiative_open,
           :initiative_close,
           :event_moderator_assign,
-          :event_moderator_remove
+          :event_moderator_remove,
+          # 押金制 U5/KTD4：主理人核销到场（每报名一行，metadata 带 event_id/method）
+          :attendance_check_in
         ]
       ],
       description: "治理动作类型"
