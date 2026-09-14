@@ -40,6 +40,13 @@ const nextConfig: NextConfig = {
 				source: "/api/graphql",
 				destination: `${BACKEND_URL}/api/graphql`,
 			},
+			{
+				// U8：学习空间三键 JSON 同源代理。web 侧要读 version/sha256，而 /ext
+				// 静态面由后端 Plug.Static 先于 CORSPlug 服务（跨域 fetch 无 CORS 头），
+				// 故经 Next 代理取（zip 下载仍走 api 域直链）
+				source: "/ext/learn-space.json",
+				destination: `${BACKEND_URL}/ext/learn-space.json`,
+			},
 		];
 		if (process.env.NODE_ENV !== "production") {
 			rules.push({
