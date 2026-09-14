@@ -392,6 +392,27 @@ input EnrollmentFilterInsertedAt {
   rangeOverlaps: DateTime
 }
 
+input EnrollmentFilterCheckInCode {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
 input EnrollmentFilterCancelledAt {
   isNil: Boolean
   eq: DateTime
@@ -712,6 +733,7 @@ input EnrollmentFilterInput {
   ageConfirmedAt: EnrollmentFilterAgeConfirmedAt
   termsVersion: EnrollmentFilterTermsVersion
   cancelledAt: EnrollmentFilterCancelledAt
+  checkInCode: EnrollmentFilterCheckInCode
   insertedAt: EnrollmentFilterInsertedAt
 }
 
@@ -5764,24 +5786,45 @@ type PendingApproval {
 
 type Enrollment {
   id: ID!
+
   workspaceId: ID!
+
   eventId: ID
+
   courseId: ID
+
   userId: ID!
+
   workflowRunId: ID
+
   inviteBatchId: ID
+
   status: String!
+
   capacitySeq: Int
+
   approvedBy: ID
+
   approvedAt: DateTime
+
   rejectionReason: String
+
   approvalDeadline: DateTime
+
   expiredAt: DateTime
+
   cancelledAt: DateTime
+
   insertedAt: DateTime!
+
   targetTitle: String
+
   startsAt: DateTime
+
   venue: String
+
+  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
+  checkInCode: String
 }
 
 type MyLearningRun {
@@ -6353,6 +6396,19 @@ type EventModeratorPayload {
   errors: [MutationError]
 }
 
+type CheckInEnrollmentPayload {
+  "被核销的报名（失败为 null）"
+  enrollmentId: ID
+
+  "核销时间（失败为 null）"
+  checkedInAt: DateTime
+
+  "核销方式：scan \/ manual（失败为 null）"
+  method: String
+
+  errors: [MutationError]
+}
+
 type PublicInitiative {
   id: ID!
   name: String!
@@ -6549,6 +6605,16 @@ type RootMutationType {
   assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
 
   removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
+
+  checkInEnrollment(
+    eventId: ID!
+
+    "6 位核销码（扫码 URL 预填或手输）"
+    code: String!
+
+    "核销方式：scan | manual"
+    method: String!
+  ): CheckInEnrollmentPayload
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

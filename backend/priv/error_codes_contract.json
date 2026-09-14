@@ -1,9 +1,12 @@
 {
   "codes": [
+    "attendance_already_checked_in",
+    "attendance_invalid_code",
     "database_error",
     "enrollment_already_processed",
     "enrollment_capacity_counter_invalid",
     "enrollment_capacity_full_or_registration_closed",
+    "enrollment_check_in_code_exhausted",
     "enrollment_content_rejected",
     "enrollment_duplicate_active",
     "enrollment_exactly_one_target_required",
@@ -17,6 +20,9 @@
     "enrollment_tier_not_available",
     "enrollment_unknown",
     "enrollment_unknown_enrollment_policy",
+    "event_deposit_amount_required",
+    "event_deposit_ends_at_required",
+    "event_payment_mode_exclusive",
     "invalid_or_expired_code",
     "invalid_password",
     "invalid_reset_token",
