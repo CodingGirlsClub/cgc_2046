@@ -100,6 +100,15 @@ defmodule Cgc2046.Admission.Enrollment do
 
     attribute(:cancelled_at, :utc_datetime, public?: true, writable?: false)
 
+    # KTD5：Event 报名在 create 时生成同场唯一的 6 位核销码（course 报名为空）。
+    # 明文存储——主理人按码查报名、参与者需反复回显，泄露只能让他人拿回自己
+    # 的押金、无资金自利面。出示/核销按 confirmed 门控（graphql 字段级 resolve）。
+    attribute(:check_in_code, :string,
+      public?: true,
+      writable?: false,
+      constraints: [match: ~r/^\d{6}$/]
+    )
+
     create_timestamp(:inserted_at, public?: true)
     update_timestamp(:updated_at)
   end
@@ -199,6 +208,30 @@ defmodule Cgc2046.Admission.Enrollment do
     identity :unique_course_user, [:course_id, :user_id] do
       where(expr(not is_nil(course_id) and status in [:pending, :payment_pending, :confirmed]))
     end
+
+    # KTD5：同场核销码唯一（course 报名码为 NULL 不进索引——标准 SQL 语义下
+    # NULL 不参与唯一约束，nils_distinct 默认 true 保持该语义）。
+    identity :unique_check_in_code, [:event_id, :check_in_code] do
+      where(expr(not is_nil(check_in_code)))
+    end
+  end
+
+  # KTD5 出示门控（graphql_schema.check_in_code_visible?/2）要读 user_id 与
+  # status，而 GraphQL 的字段选择（AshGraphql select_fields）只保留客户端请求
+  # 的属性——不补选时，客户端没同时请求这两个字段的查询/变更结果会把本人
+  # confirmed 报名误判为不可见（字段级 resolve 的隐性依赖，U4 回归用例：
+  # `results { id status checkInCode }`）。资源级补齐：读 action 与
+  # create/update/destroy 全覆盖；内部调用不设 select，语义不变。
+  @check_in_code_gate_fields [:user_id, :status]
+
+  preparations do
+    prepare(fn query, _opts -> Ash.Query.ensure_selected(query, @check_in_code_gate_fields) end)
+  end
+
+  changes do
+    change(fn changeset, _context ->
+      Ash.Changeset.ensure_selected(changeset, @check_in_code_gate_fields)
+    end)
   end
 
   actions do
@@ -393,7 +426,8 @@ defmodule Cgc2046.Admission.Enrollment do
       unique_event_user:
         "event_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
       unique_course_user:
-        "course_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')"
+        "course_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
+      unique_check_in_code: "check_in_code IS NOT NULL"
     )
   end
 
@@ -632,7 +666,8 @@ defmodule Cgc2046.Admission.Enrollment do
          {:ok, target} <- eligible_target(target_kind, target_id, actor),
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
-         {:ok, attrs} <- put_tier_selection(changeset, target, attrs) do
+         {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
+         {:ok, attrs} <- put_check_in_code(attrs, target_kind, target_id) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
           Ash.Changeset.force_change_attribute(cs, key, value)
@@ -763,7 +798,10 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
+  # 落点判定（KTD2）：定价开启或押金开启 → payment_pending（支付完成才 confirmed）；
+  # 免费目标直接 confirmed。
   defp auto_confirm_status(%{pricing_enabled: true}), do: :payment_pending
+  defp auto_confirm_status(%{deposit_enabled: true}), do: :payment_pending
   defp auto_confirm_status(_target), do: :confirmed
 
   # 收费报名的档位选择（KTD9/R2）：tier_id 必填且当前可售，存 submission_payload
@@ -788,6 +826,53 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp put_tier_selection(_changeset, _target, attrs), do: {:ok, attrs}
 
+  # ── 核销码（U4/KTD5）────────────────────────────────────────────────────
+  # Event 报名在 create 单写点生成同场唯一 6 位码（迁入 confirmed 的 5 个写点
+  # 逐路径挂生成必漏——见计划 KTD5）；pending/payment_pending 行同占码，同场
+  # 量级下可忽略。course 报名不生成。生成器共享自 Cgc2046.RandomCode（无偏
+  # rejection sampling，保留前导零）；同场存在性查询避碰至多
+  # @check_in_code_max_attempts 次，(event_id, check_in_code) 唯一索引兜底，
+  # 兜底冲突由 handle_create_error 映射为可重试业务错误（unique_conflict?/1
+  # 判据复用，错误文案不匹配）。
+  @check_in_code_max_attempts 5
+  # 兜底判据只用约束名：AshPostgres 的 constraints_to_errors 由约束名反查
+  # identity，字段取身份首列（event_id，Ecto error_key），故 field 不能识别
+  # 是哪条 identity 冲突；约束名 = `#{table}_#{identity.name}_index` 默认规则
+  # （与 migration/快照一致）。
+  @check_in_code_constraint "enrollments_unique_check_in_code_index"
+
+  defp put_check_in_code(attrs, :event, event_id) do
+    case allocate_check_in_code(event_id, @check_in_code_max_attempts) do
+      {:ok, code} -> {:ok, Map.put(attrs, :check_in_code, code)}
+      :error -> {:error, :check_in_code_exhausted}
+    end
+  end
+
+  defp put_check_in_code(attrs, :course, _course_id), do: {:ok, attrs}
+
+  # 测试注入的 deterministic 码必须同样参与避碰（否则耗尽用例退化为撞索引）。
+  defp allocate_check_in_code(_event_id, 0), do: :error
+
+  defp allocate_check_in_code(event_id, attempts_left) do
+    code = Cgc2046.RandomCode.generate()
+
+    if check_in_code_taken?(event_id, code) do
+      allocate_check_in_code(event_id, attempts_left - 1)
+    else
+      {:ok, code}
+    end
+  end
+
+  defp check_in_code_taken?(event_id, code) do
+    %{rows: rows} =
+      Cgc2046.Repo.query!(
+        "SELECT 1 FROM enrollments WHERE event_id = $1 AND check_in_code = $2 LIMIT 1",
+        [Cgc2046.Repo.uuid!(event_id), code]
+      )
+
+    rows != []
+  end
+
   defp prepare_confirm(changeset) do
     now = DateTime.utc_now()
     actor = changeset.context[:private][:actor]
@@ -810,8 +895,10 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  # 审批通过后的落点（KTD6-3）：收费目标占位后进 payment_pending（支付完成才
-  # confirmed，由回调 worker 推进）；免费目标直接 confirmed（R4 现状不变）。
+  # 审批通过后的落点（KTD6-3 / KTD2）：定价或押金目标占位后进 payment_pending
+  # （支付完成才 confirmed，由回调 worker 推进）；免费目标直接 confirmed（R4 现状
+  # 不变）。押金两列仅 events 表有，courses 分支补 false（Order.load_target_row/2
+  # 的 deposit_column 同款写法）。
   # 活值守卫（Fable 5 M1）：offering 真值行 status 必须为 open——账本缓存可能
   # 滞后于 cancel/close，仅信缓存会让「取消后批准」漏过批量退款扫描；真值读取
   # 在 reserve_capacity 之后执行:已同步的关闭/截止仍由账本 CAS 报
@@ -820,13 +907,17 @@ defmodule Cgc2046.Admission.Enrollment do
   defp confirm_target_status(kind, target_id) do
     table = target_table(kind)
 
-    case Cgc2046.Repo.query("SELECT status, pricing_enabled FROM #{table} WHERE id = $1", [
-           Cgc2046.Repo.uuid!(target_id)
-         ]) do
-      {:ok, %{rows: [["open", pricing_enabled]]}} ->
-        {:ok, if(pricing_enabled, do: :payment_pending, else: :confirmed)}
+    deposit_column =
+      if table == "events", do: ", COALESCE(deposit_enabled, false)", else: ", false"
 
-      {:ok, %{rows: [[_status, _pricing_enabled]]}} ->
+    case Cgc2046.Repo.query(
+           "SELECT status, pricing_enabled#{deposit_column} FROM #{table} WHERE id = $1",
+           [Cgc2046.Repo.uuid!(target_id)]
+         ) do
+      {:ok, %{rows: [["open", pricing_enabled, deposit_enabled]]}} ->
+        {:ok, if(pricing_enabled or deposit_enabled, do: :payment_pending, else: :confirmed)}
+
+      {:ok, %{rows: [[_status, _pricing_enabled, _deposit_enabled]]}} ->
         {:error, :target_not_open_or_registration_closed}
 
       {:ok, %{rows: []}} ->
@@ -1220,8 +1311,15 @@ defmodule Cgc2046.Admission.Enrollment do
     # 入口走同一 createEnrollment）。非成员/匿名对 workspace-only 报名 → 本函数
     # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
+    # 押金两列（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
+    # 的 deposit_column 同款写法）。
+    deposit_columns =
+      if table == "events",
+        do: ", COALESCE(deposit_enabled, false), deposit_amount_cents",
+        else: ", false, NULL"
+
     sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers
+    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns}
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
@@ -1237,7 +1335,12 @@ defmodule Cgc2046.Admission.Enrollment do
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id), actor_id]) do
-      {:ok, %{rows: [[workspace_id, policy, pricing_enabled, price_tiers]]}} ->
+      {:ok,
+       %{
+         rows: [
+           [workspace_id, policy, pricing_enabled, price_tiers, deposit_enabled, deposit_amount]
+         ]
+       }} ->
         case Map.get(@enrollment_policy_atoms, policy) do
           nil ->
             {:error, {:unknown_enrollment_policy, policy}}
@@ -1248,7 +1351,9 @@ defmodule Cgc2046.Admission.Enrollment do
                workspace_id: Ecto.UUID.load!(workspace_id),
                enrollment_policy: enrollment_policy,
                pricing_enabled: pricing_enabled,
-               price_tiers: price_tiers || []
+               price_tiers: price_tiers || [],
+               deposit_enabled: deposit_enabled,
+               deposit_amount_cents: deposit_amount
              }}
         end
 
@@ -1432,18 +1537,41 @@ defmodule Cgc2046.Admission.Enrollment do
     )
   end
 
-  # create_enrollment 唯一约束冲突（并发重复 / 已有活跃报名）转业务错误。
-  # 非 unique 错误原样返回（error_handler 返回值即入列的错误）。
+  # create_enrollment 唯一约束冲突转业务错误。并发重复 / 已有活跃报名 →
+  # enrollment_duplicate_active；核销码同场撞唯一索引（避碰 5 次窗口外的并发
+  # 兜底，KTD5）→ enrollment_check_in_code_exhausted（可重试业务错误，文案
+  # 不镜像 duplicate_active）。判据 = 唯一冲突 + 约束名指向核销码索引，不匹配
+  # 文案。非 unique 错误原样返回（error_handler 返回值即入列的错误）。
   def handle_create_error(_changeset, error) do
-    if unique_conflict?(error) do
-      Cgc2046.Errors.BusinessError.exception(
-        message: domain_error_message(:duplicate_active),
-        code: domain_error_code(:duplicate_active)
-      )
-    else
-      error
+    cond do
+      check_in_code_conflict?(error) ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: domain_error_message(:check_in_code_exhausted),
+          code: domain_error_code(:check_in_code_exhausted),
+          fields: [:check_in_code]
+        )
+
+      unique_conflict?(error) ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: domain_error_message(:duplicate_active),
+          code: domain_error_code(:duplicate_active)
+        )
+
+      true ->
+        error
     end
   end
+
+  defp check_in_code_conflict?(%{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &check_in_code_conflict?/1)
+  end
+
+  defp check_in_code_conflict?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+    unique_conflict?(error) and
+      Keyword.get(error.private_vars || [], :constraint) == @check_in_code_constraint
+  end
+
+  defp check_in_code_conflict?(_), do: false
 
   # 同 membership_context.unique_membership_conflict?/1 判法：仅
   # constraint_type: :unique 命中（DB 断连等真实故障不含该键，原样上抛）。
@@ -1476,6 +1604,9 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp domain_error_message(:duplicate_active),
     do: "an active enrollment already exists for this target"
+
+  defp domain_error_message(:check_in_code_exhausted),
+    do: "could not allocate a unique check-in code; please retry"
 
   # 通用文案，不含 reason 明文（红线：违规内容不进错误消息）
   defp domain_error_message(:content_rejected),
@@ -1513,6 +1644,7 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_code(:tier_not_available), do: "enrollment_tier_not_available"
   defp domain_error_code(:already_processed), do: "enrollment_already_processed"
   defp domain_error_code(:duplicate_active), do: "enrollment_duplicate_active"
+  defp domain_error_code(:check_in_code_exhausted), do: "enrollment_check_in_code_exhausted"
 
   defp domain_error_code({:unknown_enrollment_policy, _policy}),
     do: "enrollment_unknown_enrollment_policy"
