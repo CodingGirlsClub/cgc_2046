@@ -26,6 +26,8 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
      （refunded_at）→ 报名 :cancel（cancelled + 名额释放 + 作废残留 pending 订单）
      → 通知双方。任一步后崩溃，Oban 重入经 `:refunded` 状态门补齐剩余步骤；
      报名取消失败（非合法竞态）返回 `{:error, reason}` 让重试收敛，不吞错。
+     收尾前的保留判据（判据即持久事实，fail-closed）：免缴留痕（F2）或到场事实
+     `Attendance` 行存在（U6/KTD6 核销即退）→ 报名保持 confirmed、名额不释放。
 
   通知（R22）：退款成功/失败 → 报名人 + workspace 管理者（自动退款无发起
   人，管理者面即「发起管理员」超集；best-effort，不影响资金状态；args 幂等
@@ -161,15 +163,20 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
   # review F2：confirmed + 免缴留痕 = U3 关闭收费批量免缴的迟到扣款退款——
   # 学员已被免缴确认参会，退款只是退回迟到到的钱，报名必须保留 confirmed
   # （AE1 语义：批量免缴后报名就是免费确认态）。非免缴的 confirmed 才取消。
+  #
+  # U6/KTD6：confirmed + 到场事实（Attendance 行）= 核销即退（或核销后其它路径
+  # 退款）——人到过现场，退款是履约而非撤销报名，报名保持 confirmed、名额不释放。
+  # 判据是持久事实本身（不是 job args、不是审计行），且与押金/定价单类型无关；
+  # `refunded` 终态只有本 worker 一个驱动者，故判据覆盖全部退款路径。
   defp cancel_enrollment(order) do
     case Ash.get(Enrollment, order.enrollment_id, authorize?: false) do
       {:ok, %{status: status}} when status in [:cancelled, :expired, :rejected] ->
         :ok
 
       {:ok, %{status: status} = enrollment} when status in [:confirmed, :payment_pending] ->
-        case waived?(enrollment) do
+        case retains_enrollment?(enrollment) do
           {:ok, true} ->
-            # 免缴迟到退款：钱退回，报名保持 confirmed（免缴占位不释放）
+            # 到场者 / 免缴留痕：钱退回，报名保持 confirmed（占位不释放）
             :ok
 
           {:ok, false} ->
@@ -184,9 +191,9 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
                 settle_cancel_failure(order, reason)
             end
 
-          # 读失败 ≠ 非免缴（015 审计修复）：fail-closed 上抛走 Oban 重试，
+          # 读失败 ≠ 未到场 / 非免缴（015 审计修复）：fail-closed 上抛走 Oban 重试，
           # 经 :refunded 状态门重入收敛——与 payment_settlement_worker.waived?/1
-          # 同语义。DB 瞬断绝不能把免缴学员的已确认报名错误取消（不可逆）。
+          # 同语义。DB 瞬断绝不能把已到场学员的确认报名错误取消（不可逆）。
           {:error, reason} ->
             {:error, reason}
         end
@@ -197,6 +204,29 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # 是否保留报名（KTD6/U6 + review F2）：到场事实优先，其次免缴留痕。
+  # 两者都是持久事实且 fail-closed——读失败上抛 {:error, reason}，绝不折叠为
+  # 「未到场 / 非免缴」（折叠会取消不可逆的已确认报名）。
+  defp retains_enrollment?(enrollment) do
+    case attended?(enrollment) do
+      {:ok, false} -> waived?(enrollment)
+      other -> other
+    end
+  end
+
+  # 到场事实（KTD6）：Attendance 行存在 ⇔ 该报名被核销过。判据与订单类型无关
+  # ——到场即占位，退款不得撤销已发生的到场。
+  defp attended?(enrollment) do
+    Cgc2046.Admission.Attendance
+    |> Ash.Query.filter(enrollment_id == ^enrollment.id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
     end
   end
 
