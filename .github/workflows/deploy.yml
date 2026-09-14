@@ -89,10 +89,11 @@ jobs:
           backend=false; web=false
           while IFS= read -r f; do
             case "$f" in
-              # openclacky-ext/cgc-2046/ 也触发 backend：扩展分发 zip 寄生在
-              # backend 镜像（priv/static/ext，由 backend job 在 docker build
-              # 前生成），扩展发版必须重建 backend 产物，否则线上 /ext/* 停在旧版
-              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml|openclacky-ext/cgc-2046/*) backend=true ;;
+              # openclacky-ext/cgc-2046/ 与 learn-space/ 也触发 backend：两类
+              # 分发产物（扩展 zip / 学习空间 zip）都寄生在 backend 镜像
+              # （priv/static/ext，由 backend job 在 docker build 前生成），
+              # 任一发版必须重建 backend 产物，否则线上 /ext/* 停在旧版
+              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml|openclacky-ext/cgc-2046/*|learn-space/*) backend=true ;;
               web/*)     web=true ;;
             esac
           done <<<"$files"
@@ -185,6 +186,23 @@ jobs:
       # （环境问题不阻塞发布），细节与分支见脚本头注释。
       - name: Enforce extension version bump on content change
         run: openclacky-ext/cgc-2046/bin/check-version-bump
+
+      # 学习空间分发产物：learn-space.zip + learn-space.json → backend/priv/static/ext/
+      # （与 ext 同款寄生链：kamal 本地构建镜像前生成，运行时经 /ext/* 服务）。
+      # 版本纪律：包内容变更必须 bump learn-space/VERSION（首期人工纪律，见运行手册）。
+      - name: Build learn-space distribution artifacts
+        run: |
+          learn-space/bin/pack
+          cp learn-space/dist/learn-space.zip backend/priv/static/ext/
+          VERSION="$(cat learn-space/VERSION)"
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHA="$(sha256sum backend/priv/static/ext/learn-space.zip | cut -d' ' -f1)"
+          else
+            SHA="$(shasum -a 256 backend/priv/static/ext/learn-space.zip | cut -d' ' -f1)"
+          fi
+          ruby -rjson -e 'File.write("backend/priv/static/ext/learn-space.json", JSON.generate({version: ARGV[0], download_path: "/ext/learn-space.zip", sha256: ARGV[1]}))' "$VERSION" "$SHA"
+          test -s backend/priv/static/ext/learn-space.zip
+          ruby -rjson -e 'abort "learn-space.json: version missing" if JSON.parse(File.read("backend/priv/static/ext/learn-space.json"))["version"].to_s.empty?'
 
       - run: gem install kamal --no-document
       - name: Setup SSH

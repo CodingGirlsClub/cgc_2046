@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cgc-2046": {
+      "type": "remote",
+      "url": "https://api.codingirlsclub.com/mcp",
+      "oauth": {
+        "clientId": "0199e5a2-7c3f-7a41-9b0e-2f5c8d1a4b60"
+      }
+    }
+  },
+  "permission": {
+    "cgc_2046_confirm_operation": "ask",
+    "read": {
+      "~/.local/share/opencode/**": "deny"
+    },
+    "external_directory": {
+      "~/.local/share/opencode/**": "deny"
+    }
+  }
+}

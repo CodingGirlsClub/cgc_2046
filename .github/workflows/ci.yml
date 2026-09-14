@@ -297,6 +297,26 @@ jobs:
       - run: for f in test/*.rb; do ruby "$f"; done
       - run: bin/pack
 
+  # 学习空间包质量门：打包与清单/禁入项校验必须在 PR 阶段验证（与 ext job
+  # 同纪律——「新文件忘 git add 不进包」「gitignore 误排」「包内混入凭证或
+  # 宿主无关的协议文本」这类事故不要等到 deploy 才爆）。纯 sh + zip，秒级。
+  learn-space:
+    needs: gate
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
+    if: >
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: learn-space
+    steps:
+      - uses: actions/checkout@v7
+      - run: bin/pack
+
   # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
   # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+
   # 现场重建（曾触发 timeout 击杀）与「mix.lock 变更后本地手动预推」的

@@ -1,0 +1,70 @@
+#!/bin/sh
+# CGC 学习空间打包脚本（构建侧；产物 learn-space/dist/learn-space.zip）
+#
+# 流程：
+#   1. 期望集 = learn-space/ 下 git 跟踪且未被忽略的文件（排除 dist/ 与 bin/——
+#      构建脚本不进包）——期望集与 stage 同源
+#   2. 复制到临时目录，顶层目录名 CGC-2046/（用户解压后即得同名文件夹）
+#   3. 禁入项校验：宿主原语错名（ask_user/auto_reply）、协议条目关键词
+#      （playbook-first / get_role_playbook）、凭证形态（client_secret / Bearer /
+#      PRIVATE KEY / cgc_<64hex> token 形态）；命中即失败
+#   4. 打 zip（-X 去扩展属性）到 learn-space/dist/learn-space.zip
+#   5. 清单全等校验：zip 条目集 == 期望集
+#   6. 输出 version 与 sha256（供 deploy CI 生成三键 JSON）
+#
+# 用法：learn-space/bin/pack
+set -eu
+
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$SRC/.." && pwd)"
+TOP="CGC-2046"
+DIST="$SRC/dist"
+ZIP="$DIST/learn-space.zip"
+
+mkdir -p "$DIST"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/learn-space-pack.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT
+
+# 1. 期望集
+git -C "$REPO" ls-files -z -- learn-space | tr '\0' '\n' \
+  | grep -v '^learn-space/dist/' | grep -v '^learn-space/bin/' | LC_ALL=C sort > "$STAGE/filelist.txt"
+
+# 2. stage
+while IFS= read -r rel; do
+  [ -f "$REPO/$rel" ] || { echo "pack: tracked file missing: $rel" >&2; exit 1; }
+  sub="${rel#learn-space/}"
+  mkdir -p "$STAGE/$TOP/$(dirname "$sub")"
+  cp -p "$REPO/$rel" "$STAGE/$TOP/$sub"
+done < "$STAGE/filelist.txt"
+
+# 3. 禁入项
+bad="$(grep -rEn 'ask_user|auto_reply|playbook-first|get_role_playbook|client_secret|Bearer |PRIVATE KEY|cgc_[0-9a-fA-F]{64}' "$STAGE/$TOP" || true)"
+if [ -n "$bad" ]; then
+  echo "pack: forbidden content found, aborting:" >&2
+  printf '%s\n' "$bad" >&2
+  exit 1
+fi
+
+# 4. zip
+rm -f "$ZIP"
+(cd "$STAGE" && zip -rqX "$ZIP" "$TOP")
+
+# 5. 清单全等
+actual="$(unzip -Z1 "$ZIP" | grep -v '/$' | LC_ALL=C sort)"
+expected="$(sed "s|^learn-space/|$TOP/|" "$STAGE/filelist.txt")"
+if [ "$actual" != "$expected" ]; then
+  echo "pack: manifest mismatch, removing $ZIP" >&2
+  printf '%s\n' "--- actual ---" "$actual" "--- expected ---" "$expected" >&2
+  rm -f "$ZIP"
+  exit 1
+fi
+
+# 6. meta
+VER="$(cat "$SRC/VERSION")"
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA="$(sha256sum "$ZIP" | cut -d' ' -f1)"
+else
+  SHA="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+fi
+echo "packed: $ZIP (manifest OK: $(printf '%s\n' "$actual" | wc -l | tr -d ' ') files)"
+echo "version=$VER sha256=$SHA"
