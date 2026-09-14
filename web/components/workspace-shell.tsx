@@ -397,6 +397,15 @@ export default function WorkspaceShell({
 								<Icon name="guide" />
 								<span>{t("navCourses")}</span>
 							</Link>
+							{/* UAT 实证断链：登录后落在工作台的用户找不到自己的报名；
+							    我的报名是用户视角页面（/participations），从此处可发现。 */}
+							<Link
+								href="/participations"
+								className="ws-shell-item"
+							>
+								<Icon name="calendar" />
+								<span>{t("navMyParticipations")}</span>
+							</Link>
 						</nav>
 					</>
 				)}
