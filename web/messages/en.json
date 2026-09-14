@@ -683,7 +683,13 @@
 			"headingIntegrations": "Integrations",
 			"headingWorkspace": "Workspace",
 			"profileLink": "Profile",
-			"integrationsLink": "Agents"
+			"integrationsLink": "Agents",
+			"headingMine": "Mine",
+			"headingCommunity": "Community",
+			"navMyLearning": "My learning",
+			"navPublicEvents": "Public events",
+			"navPublicCourses": "Public courses",
+			"navInitiatives": "Initiatives"
 		},
 		"switcher": {
 			"settings": "Settings",

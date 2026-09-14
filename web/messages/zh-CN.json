@@ -683,7 +683,13 @@
 			"headingIntegrations": "集成",
 			"headingWorkspace": "Workspace",
 			"profileLink": "个人资料",
-			"integrationsLink": "Agents"
+			"integrationsLink": "Agents",
+			"headingMine": "我的",
+			"headingCommunity": "全站",
+			"navMyLearning": "我的学习",
+			"navPublicEvents": "公开活动",
+			"navPublicCourses": "公开课程",
+			"navInitiatives": "倡导活动"
 		},
 		"switcher": {
 			"settings": "Settings",
