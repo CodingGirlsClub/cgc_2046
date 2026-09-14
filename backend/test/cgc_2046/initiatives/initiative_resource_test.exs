@@ -90,9 +90,7 @@ defmodule Cgc2046.Initiatives.InitiativeResourceTest do
 
     assert {:error, _} =
              event
-             |> Ash.Changeset.for_update(:update, %{deposit_enabled: false},
-               tenant: workspace.id
-             )
+             |> Ash.Changeset.for_update(:update, %{deposit_enabled: false}, tenant: workspace.id)
              |> Ash.update(actor: admin, tenant: workspace.id)
 
     updated =
