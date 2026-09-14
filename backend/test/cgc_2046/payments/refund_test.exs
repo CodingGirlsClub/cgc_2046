@@ -195,6 +195,33 @@ defmodule Cgc2046.Payments.RefundTest do
       assert event_count(setup.event) == 1
     end
 
+    test "到场事实优先于「退款即取消」：已核销报名退款后保持 confirmed、名额不释放（U6/KTD6）", ctx do
+      admin = Fixtures.platform_admin()
+      setup = paid_setup(ctx, admin, capacity: 1)
+
+      # 到场事实（Attendance 行）= 保留判据本身，与订单类型无关
+      assert {:ok, _attendance} =
+               Cgc2046.Admission.Attendance.check_in(
+                 setup.event.id,
+                 setup.enrollment.check_in_code,
+                 :manual,
+                 admin
+               )
+
+      assert {:ok, %Order{status: :refunding}} =
+               setup.order
+               |> Ash.Changeset.for_update(:refund, %{})
+               |> Ash.update(tenant: setup.workspace.id, actor: admin)
+
+      Fake.script!(fetch_transaction: {:ok, refund_txn(paid: true)})
+      assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => setup.order.id})
+
+      assert reload_order(setup.order).status == :refunded
+      # 人到过现场：退款是履约，不改报名状态、不退名额
+      assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :confirmed
+      assert event_count(setup.event) == 1
+    end
+
     test "查单兜底：回调丢失（受理未终态）→ 重试经查单收敛 refunded", ctx do
       admin = Fixtures.platform_admin()
       setup = paid_setup(ctx, admin, capacity: nil)
