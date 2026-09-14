@@ -78,7 +78,11 @@ defmodule Cgc2046.Events.Moderators do
   def remove(moderator_id, workspace_id, actor) do
     with :ok <- manage?(actor, workspace_id),
          {:ok, moderator} <-
-           Ash.get(EventModerator, moderator_id, actor: actor, tenant: workspace_id) do
+           Ash.get(EventModerator, moderator_id,
+             actor: actor,
+             tenant: workspace_id,
+             not_found_error?: false
+           ) do
       case moderator do
         nil -> {:error, :not_found}
         record -> Ash.destroy(record, actor: actor, tenant: workspace_id)
