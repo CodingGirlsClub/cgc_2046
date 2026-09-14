@@ -31,6 +31,11 @@ export interface ParticipationEnrollment {
   startsAt?: string | null;
   /** event venue 文本化（city+district 拼接，同 event_reminder 文案；否则 null） */
   venue?: string | null;
+  /**
+   * 6 位核销码（U4/KTD5：仅本人 confirmed 报名返回，其余为 null；
+   * course 报名恒 null）——本人报名卡出示用，勿截图转发。
+   */
+  checkInCode?: string | null;
 }
 
 export interface SponsorshipDelivery {
@@ -102,6 +107,7 @@ export const MY_ENROLLMENTS: TypedDocumentNode<
         insertedAt
         startsAt
         venue
+        checkInCode
       }
       startKeyset
       endKeyset
@@ -115,6 +121,8 @@ export interface ActiveEnrollmentRow {
   status: EnrollmentStatus;
   courseId: string | null;
   eventId: string | null;
+  /** 6 位核销码（U4/KTD5：仅 confirmed 返回，payment_pending 为 null） */
+  checkInCode?: string | null;
 }
 
 /** 列表页批量取数：只取活跃态（终态不挡再报名，也不显示状态）。 */
@@ -132,6 +140,7 @@ export const MY_ACTIVE_ENROLLMENTS: TypedDocumentNode<
         status
         courseId
         eventId
+        checkInCode
       }
     }
   }
