@@ -97,6 +97,31 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert {:error, :not_found} = Public.get_by_slug("missing-initiative")
   end
 
+  test "公开列表 open 排在 closed 之前（R5）" do
+    admin = Fixtures.platform_admin("initiative-public-list-order")
+
+    closed =
+      initiative(admin, "list-order-closed")
+      |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-12-01 00:00:00Z]})
+      |> Ash.update!(actor: admin)
+
+    open =
+      initiative(admin, "list-order-open")
+      |> Ash.Changeset.for_update(:update, %{window_starts_at: ~U[2026-10-01 00:00:00Z]})
+      |> Ash.update!(actor: admin)
+
+    closed
+    |> Ash.Changeset.for_update(:close, %{})
+    |> Ash.update!(actor: admin)
+
+    # closed 的时间窗更晚，若按窗口排序 closed 会在前——open-first 必须先于窗口序
+    assert DateTime.compare(closed.window_starts_at, open.window_starts_at) == :gt
+
+    assert {:ok, rows} = Public.list()
+    statuses = rows |> Enum.filter(&(&1.slug in [closed.slug, open.slug])) |> Enum.map(& &1.slug)
+    assert statuses == [open.slug, closed.slug]
+  end
+
   test "公开投影查询数与场次数无关（U4 无 N+1 回归）" do
     admin = Fixtures.platform_admin("initiative-public-n1")
     workspace = Fixtures.create_workspace(admin)

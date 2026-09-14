@@ -15,10 +15,10 @@ defmodule Cgc2046.Initiatives.Public do
 
   def get_by_slug(_), do: {:error, :not_found}
 
-  @doc "返回公开活动卡片列表；open 与 closed 均保留，供发现页入口使用。"
+  @doc "返回公开活动卡片列表；open 先于 closed（R5），供发现页入口使用。"
   def list do
     case Repo.query(
-           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE status IN ('open', 'closed') ORDER BY window_starts_at NULLS LAST, inserted_at DESC, id DESC LIMIT 100"
+           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE status IN ('open', 'closed') ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, window_starts_at NULLS LAST, inserted_at DESC, id DESC LIMIT 100"
          ) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &row_to_initiative/1)}
       {:error, reason} -> {:error, {:database, reason}}
