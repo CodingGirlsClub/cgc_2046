@@ -119,6 +119,12 @@ defmodule Cgc2046.Accounts.OAuthRefreshToken do
     )
   end
 
+  relationships do
+    # 与其余用户域表一致的引用声明（除本组三张新表外，schema 里所有 user-scoped
+    # 表都有 users FK）；define_attribute?: false——user_id 属性已在此手写声明。
+    belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
+  end
+
   identities do
     identity(:by_token_hash, [:token_hash])
   end
@@ -206,12 +212,17 @@ defmodule Cgc2046.Accounts.OAuthRefreshToken do
       when is_binary(user_id) and is_binary(client_id) and user_id != "" and client_id != "" do
     now = DateTime.utc_now()
 
-    case __MODULE__
-         |> Ash.Query.filter(
-           user_id == ^user_id and client_id == ^client_id and is_nil(revoked_at) and
-             is_nil(rotated_to_id) and expires_at > ^now
-         )
-         |> Ash.read_one(authorize?: false) do
+    __MODULE__
+    |> Ash.Query.filter(
+      user_id == ^user_id and client_id == ^client_id and is_nil(revoked_at) and
+        is_nil(rotated_to_id) and expires_at > ^now
+    )
+    # 确定性单行读（sort + read_first）：同一 (user, client) 允许并存多条活跃链
+    # （同账号多设备、重复点击授权），read_one 在 2+ 行时返回错误——会把「活跃」
+    # 误判成 401，且重新授权只会追加新链、无法自愈。排序与 latest_last_used/1 一致。
+    |> Ash.Query.sort(id: :desc)
+    |> Ash.read_first(authorize?: false)
+    |> case do
       {:ok, %__MODULE__{} = row} ->
         touch_last_used(row)
         {:ok, row.user_id}

@@ -122,6 +122,22 @@ defmodule Cgc2046.Accounts.OAuthClient do
         end
       end)
     end
+
+    # 种子对账动作（ensure_packaged_client/0 专用，非用户面）：把打包 client 行
+    # 对齐到模块常量。只建不改会让坏 registration 永久失败（宿主升级换回调路径
+    # / scope 常量演进 → 每次授权 bad_redirect_uri 且无处暴露）。
+    update :reconcile do
+      description("种子对账：把打包 client 行对齐到模块常量（回调/scope/名称）")
+
+      accept([
+        :client_name,
+        :redirect_uris,
+        :grant_types,
+        :response_types,
+        :token_endpoint_auth_method,
+        :scope
+      ])
+    end
   end
 
   policies do
@@ -151,32 +167,59 @@ defmodule Cgc2046.Accounts.OAuthClient do
   def loopback_redirect_uri?(_), do: false
 
   @doc """
-  预注册打包路径公开 client（幂等，seeds 与测试同一形态）：存在即复用。
+  预注册打包路径公开 client（幂等，seeds 与测试同一形态）：不存在则创建，
+  存在则**对账**（回调/scope/名称对齐到模块常量），漂移时打 WARN（字段名）。
 
   注册内容 = PKCE-only 公开 client + loopback 回调 + 平台单 scope；无 secret。
   """
   @spec ensure_packaged_client() :: {:ok, __MODULE__.t()} | {:error, term()}
   def ensure_packaged_client do
+    attrs = packaged_client_attrs()
+
     case Ash.get(__MODULE__, @packaged_client_id, authorize?: false) do
-      {:ok, client} ->
+      {:ok, client} -> reconcile_packaged_client(client, attrs)
+      _ -> create_packaged_client(attrs)
+    end
+  end
+
+  defp packaged_client_attrs do
+    %{
+      client_name: "CGC 学习空间",
+      redirect_uris: @packaged_redirect_uris,
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: Cgc2046.Oauth2Server.scope()
+    }
+  end
+
+  defp create_packaged_client(attrs) do
+    __MODULE__
+    |> Ash.Changeset.for_create(:register, attrs, authorize?: false)
+    |> Ash.Changeset.force_change_attribute(:id, @packaged_client_id)
+    |> Ash.create()
+  end
+
+  # 只建不改会让坏 registration 永久失败：宿主升级更换回调路径、或 scope 常量
+  # 演进后，旧行导致每次授权 bad_redirect_uri 且部署期无处暴露。seeds 每次部署
+  # 都跑，对账点放在这里；漂移含字段名（client 无 secret，值本可公开，日志保持克制）。
+  defp reconcile_packaged_client(client, attrs) do
+    drift = Enum.filter(attrs, fn {field, want} -> Map.get(client, field) != want end)
+
+    case drift do
+      [] ->
         {:ok, client}
 
       _ ->
-        __MODULE__
-        |> Ash.Changeset.for_create(
-          :register,
-          %{
-            client_name: "CGC 学习空间",
-            redirect_uris: @packaged_redirect_uris,
-            grant_types: ["authorization_code", "refresh_token"],
-            response_types: ["code"],
-            token_endpoint_auth_method: "none",
-            scope: Cgc2046.Oauth2Server.scope()
-          },
-          authorize?: false
+        require Logger
+
+        Logger.warning(
+          "packaged OAuth client drift corrected: #{inspect(Enum.map(drift, &elem(&1, 0)))}"
         )
-        |> Ash.Changeset.force_change_attribute(:id, @packaged_client_id)
-        |> Ash.create()
+
+        client
+        |> Ash.Changeset.for_update(:reconcile, Map.new(drift), authorize?: false)
+        |> Ash.update()
     end
   end
 

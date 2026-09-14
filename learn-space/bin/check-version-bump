@@ -1,0 +1,157 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# CGC 学习空间版本纪律门禁（同一版本号 ≠ 同一份产物）——与
+# openclacky-ext/cgc-2046/bin/check-version-bump 同因同果，裁剪到学习空间的发布面。
+#
+# 为什么需要：学习者侧「有新版」判定 = 包内 VERSION 与线上清单 version 的字符串
+# 比较（cgc-status.md 第 2 步）。内容变了却不 bump → 已装用户自检永远显示
+# 「已是最新」→ 静默停在旧包（ext 侧 2026-09-10 出过这场事故）。
+#
+# 判据用**内容指纹**（zip 内每个条目的 sha256 + 路径，字典序聚合后再 sha256），
+# 与 zip 字节无关（bin/pack 已固定 mtime，但指纹判据仍不依赖打包器细节）：
+#
+#   指纹相同                    → 放行（重建，无需 bump）
+#   指纹不同 & VERSION 已变     → 放行（正常发版）
+#   指纹不同 & VERSION 未变     → **失败**：内容变了不 bump，已装用户收不到
+#   线上不可达/清单畸形         → 警告并放行（无法判定时不臆断）
+#
+# 用法：
+#   learn-space/bin/check-version-bump [zip 路径]
+#   默认 <repo>/learn-space/dist/learn-space.zip（bin/pack 产物）
+#
+# 环境变量：
+#   CGC_LEARN_SPACE_MANIFEST_URL  覆盖线上清单地址（自托管镜像/测试用）
+#
+# 退出码：0 = 放行（含跳过）；1 = 内容变了但版本没动（须 bump）；2 = 用法/环境错误
+
+require "digest"
+require "json"
+require "open3"
+require "rubygems"
+require "tmpdir"
+require "uri"
+
+SRC  = File.expand_path("..", __dir__)
+REPO = File.expand_path("../..", SRC)
+SLUG = "learn-space"
+
+def gha_error(msg)
+  ENV["GITHUB_ACTIONS"] == "true" ? "::error::#{msg}" : msg
+end
+
+def skip(reason)
+  warn "check-version-bump: WARN 跳过版本纪律门禁 —— #{reason}"
+  exit 0
+end
+
+def regression?(published, local)
+  return false unless Gem::Version.correct?(published) && Gem::Version.correct?(local)
+
+  Gem::Version.new(local) < Gem::Version.new(published)
+end
+
+# 内容指纹：zip 内每个非目录条目的 sha256 + 路径，字典序聚合后整体再取 sha256。
+def content_digest(zip_path)
+  listing, status = Open3.capture2("unzip", "-Z1", zip_path)
+  raise "unzip -Z1 失败：#{zip_path}" unless status.success?
+
+  entries = listing.split("\n").reject { |e| e.empty? || e.end_with?("/") }.sort
+  raise "zip 内没有文件：#{zip_path}" if entries.empty?
+
+  lines = entries.map do |entry|
+    bytes, st = Open3.capture2("unzip", "-p", zip_path, entry, binmode: true)
+    raise "unzip -p 失败：#{entry}" unless st.success?
+
+    "#{Digest::SHA256.hexdigest(bytes)}  #{entry}"
+  end
+  Digest::SHA256.hexdigest(lines.join("\n") + "\n")
+end
+
+local_zip = ARGV[0] || File.join(SRC, "dist", "#{SLUG}.zip")
+unless File.file?(local_zip)
+  warn "check-version-bump: 本地 zip 不存在：#{local_zip}（先跑 bin/pack）"
+  exit 2
+end
+
+begin
+  local_version = File.read(File.join(SRC, "VERSION")).strip
+  raise "VERSION 为空" if local_version.empty?
+rescue StandardError => e
+  warn "check-version-bump: 读不到 learn-space/VERSION：#{e.message}"
+  exit 2
+end
+
+manifest_url =
+  ENV["CGC_LEARN_SPACE_MANIFEST_URL"] || "https://api.codingirlsclub.com/ext/#{SLUG}.json"
+
+Dir.mktmpdir("learn-space-version-check") do |tmp|
+  manifest_path = File.join(tmp, "manifest.json")
+  curl_ok =
+    system(
+      "curl", "-fsS", "--max-time", "15", "-H", "Accept: application/json",
+      manifest_url, "-o", manifest_path, out: File::NULL, err: File::NULL
+    )
+  skip("线上清单不可达（#{manifest_url}）") unless curl_ok
+
+  remote_version = nil
+  remote_zip_url = nil
+
+  begin
+    manifest = JSON.parse(File.read(manifest_path))
+    remote_version = manifest["version"].to_s
+    path = manifest["download_path"].to_s
+    # 与读取侧同款同源语义：download_path 必须是纯路径，origin 取自清单地址
+    raise "manifest malformed" if remote_version.empty? || !path.start_with?("/") || path.start_with?("//")
+
+    base = URI.parse(manifest_url)
+    raise "manifest url invalid" unless base.host
+
+    port = base.port == base.default_port ? "" : ":#{base.port}"
+    remote_zip_url = "#{base.scheme}://#{base.host}#{port}#{path}"
+  rescue StandardError => e
+    skip("线上清单畸形（#{manifest_url}：#{e.message}）")
+  end
+
+  remote_zip = File.join(tmp, "#{SLUG}-published.zip")
+  unless system("curl", "-fsS", "--max-time", "60", remote_zip_url, "-o", remote_zip,
+                out: File::NULL, err: File::NULL)
+    skip("线上产物不可达（#{remote_zip_url}）")
+  end
+
+  begin
+    published_digest = content_digest(remote_zip)
+    local_digest     = content_digest(local_zip)
+  rescue StandardError => e
+    skip("指纹计算失败：#{e.message}")
+  end
+
+  if published_digest == local_digest
+    puts "check-version-bump: OK 内容未变（指纹 #{local_digest[0, 12]}…），无需 bump 版本"
+    exit 0
+  end
+
+  if remote_version != local_version
+    if regression?(remote_version, local_version)
+      warn "check-version-bump: WARN 版本回退：已发布 #{remote_version} → 待发布 #{local_version}（放行，请确认是有意的）"
+    end
+
+    puts "check-version-bump: OK 正常发版：已发布 #{remote_version} → 待发布 #{local_version}" \
+         "（指纹 #{published_digest[0, 12]}… → #{local_digest[0, 12]}…）"
+    exit 0
+  end
+
+  warn gha_error("学习空间内容变了，但 VERSION 没变（都是 #{local_version}）")
+  warn <<~MSG
+    内容指纹：已发布 #{published_digest[0, 16]}… ≠ 待发布 #{local_digest[0, 16]}…
+
+    为什么必须 bump：学习者侧「有新版」判定 = 包内 VERSION 与线上清单 version
+    的比较；版本号相同 → 自检显示「已是最新」→ 已装用户收不到这次改动。
+
+    修法：把 learn-space/VERSION 提到下一个版本号，重跑 bin/pack。
+
+    若本次改动**没有**触碰分发包内容，检查是否有其它产物变化被带进来了
+    （git status 的 learn-space/ 改动面）。
+  MSG
+  exit 1
+end

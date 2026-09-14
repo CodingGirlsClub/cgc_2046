@@ -26,7 +26,7 @@ defmodule Cgc2046Web.OAuthFlowTest do
   """
   use Cgc2046Web.ConnCase, async: false
 
-  alias Cgc2046.Accounts.{OAuthClient, OAuthConsent, OAuthRefreshToken}
+  alias Cgc2046.Accounts.{OAuthAuthorizations, OAuthClient, OAuthConsent, OAuthRefreshToken}
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.{Token, ToolCallLog}
   alias Cgc2046.OAuthFixtures, as: OAuth
@@ -212,6 +212,39 @@ defmodule Cgc2046Web.OAuthFlowTest do
       refute authorization.revoked_at
     end
 
+    test "同一 (user, client) 多条活跃链并存时 /mcp 调用仍成功（P0 回归）" do
+      # 第二台设备、重复点击授权都会追加新链；verify_live 曾用 read_one，2+ 行
+      # 返回错误被塌缩成 401，且重新授权只会再追加链、无法自愈（列表仍显示 active）。
+      user = Fixtures.register_user("oauth-multi-chain")
+      client_id = OAuth.dcr_client([OAuth.default_redirect_uri()])
+
+      _first = OAuth.authorize!(user, client_id: client_id)
+      second = OAuth.authorize!(user, client_id: client_id)
+
+      heads =
+        OAuthRefreshToken
+        |> Ash.Query.filter(
+          user_id == ^user.id and client_id == ^client_id and is_nil(rotated_to_id)
+        )
+        |> Ash.read!(authorize?: false)
+
+      assert length(heads) == 2
+
+      # 最新链的令牌必须能过 /mcp 认证链（此前 read_one 在该前提下 401）
+      session_id = OAuth.open_session(second["access_token"])
+      assert is_binary(session_id)
+
+      %{"result" => %{"content" => [%{"text" => text}]}} =
+        OAuth.call_tool(second["access_token"], session_id, "list_my_workspaces", %{})
+
+      assert %{"workspaces" => _} = Jason.decode!(text)
+
+      assert {:ok, verified_user_id} =
+               OAuthRefreshToken.verify_live(%{"sub" => user.id, "client_id" => client_id})
+
+      assert verified_user_id == user.id
+    end
+
     test "refresh 轮换发新令牌，旧 refresh 复用被拒并撤整链" do
       user = Fixtures.register_user("oauth-refresh")
       tokens = OAuth.authorize!(user)
@@ -360,11 +393,46 @@ defmodule Cgc2046Web.OAuthFlowTest do
       assert first.id == second.id
       assert Ash.count!(OAuthClient, authorize?: false) == 1
     end
+
+    @tag :capture_log
+    test "种子对账：已存在的打包行漂移时被对齐到模块常量" do
+      {:ok, client} = OAuthClient.ensure_packaged_client()
+
+      # 布置旧 registration（宿主升级换回调 / 名称演进后遗留的行）
+      {:ok, _} =
+        client
+        |> Ash.Changeset.for_update(:reconcile, %{redirect_uris: ["http://127.0.0.1:1/old"]},
+          authorize?: false
+        )
+        |> Ash.update()
+
+      {:ok, aligned} = OAuthClient.ensure_packaged_client()
+
+      assert aligned.id == OAuthClient.packaged_client_id()
+      assert aligned.redirect_uris == OAuthClient.packaged_redirect_uris()
+    end
   end
 
   # ---- 撤销 ----
 
   describe "撤销（级联 refresh，下一次调用即 401）" do
+    test "撤销后，撤销前签发的未兑换授权码不能再兑换（P1 回归）" do
+      # 撤销若只撤 refresh 链、不管在途授权码，「已撤销」的授权仍能换出全新凭证链
+      # （库的兑换只校验 client / consumed_at / 过期，不看同意行）。
+      user = Fixtures.register_user("oauth-revoke-code-race")
+      client_id = OAuth.dcr_client([OAuth.default_redirect_uri()])
+
+      # 先建立同意行（完整授权一次），再签发一个未使用的码
+      _ = OAuth.authorize!(user, client_id: client_id)
+      {code, verifier} = OAuth.code_for(user, client_id, OAuth.default_redirect_uri())
+
+      assert {:ok, %{status: :revoked}} = OAuthAuthorizations.revoke(%{id: user.id}, client_id)
+
+      conn = OAuth.exchange_code(code, verifier, OAuth.default_redirect_uri(), client_id)
+      assert conn.status == 400
+      assert Jason.decode!(conn.resp_body)["error"] == "invalid_grant"
+    end
+
     test "RFC 7009 /oauth/revoke 后同授权全部令牌失效且响应 200" do
       user = Fixtures.register_user("oauth-revoke-endpoint")
       tokens = OAuth.authorize!(user)

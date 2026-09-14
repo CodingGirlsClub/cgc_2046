@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import OnboardingWizard from "./onboarding-wizard";
+import { OPENCODE_CLIENT_ID } from "@/lib/mcp";
 
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
@@ -327,9 +328,9 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 });
 
 describe("OnboardingWizard opencode OAuth 五步链（U8，plan 2026-09-15）", () => {
-	/** 授权夹具：默认 pending（同意行已存在、宿主尚未换得凭证） */
+	/** 授权夹具：默认 pending（同意行已存在、宿主尚未换得凭证）、打包 client */
 	const grant = {
-		clientId: "cli_1",
+		clientId: OPENCODE_CLIENT_ID,
 		clientName: "opencode",
 		scope: "cgc",
 		grantedAt: null,

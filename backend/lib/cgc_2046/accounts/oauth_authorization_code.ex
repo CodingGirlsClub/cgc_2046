@@ -66,6 +66,12 @@ defmodule Cgc2046.Accounts.OAuthAuthorizationCode do
     )
   end
 
+  relationships do
+    # 与其余用户域表一致的引用声明（除本组三张新表外，schema 里所有 user-scoped
+    # 表都有 users FK）；define_attribute?: false——user_id 属性已在此手写声明。
+    belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false)
+  end
+
   postgres do
     table("oauth_authorization_codes")
     repo(Cgc2046.Repo)

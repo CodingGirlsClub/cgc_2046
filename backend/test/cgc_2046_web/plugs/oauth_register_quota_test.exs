@@ -60,4 +60,26 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaTest do
     assert conn.status == 429
     assert body["error"] == "rate_limited"
   end
+
+  test "等价路径形态不能绕过配额（曾用 request_path 精确比较）" do
+    # 尾斜杠形态与扁平路由同属一个端点；quota 匹配必须用 path_info 的段语义，
+    # 否则 /oauth/register/ 每次都绕过计数（匿名注册面唯一控制）。
+    for _ <- 1..2 do
+      {conn, _body} = OAuth.register_client(["http://127.0.0.1:19876/cb"])
+      assert conn.status == 201
+    end
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post(
+        "/oauth/register/",
+        Jason.encode!(%{
+          "client_name" => "x",
+          "redirect_uris" => ["http://127.0.0.1:19877/cb"]
+        })
+      )
+
+    assert conn.status == 429
+  end
 end

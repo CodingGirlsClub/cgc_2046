@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import AgentsOpencodePage from "./page";
+import { OPENCODE_CLIENT_ID } from "@/lib/mcp";
 
 const { router } = vi.hoisted(() => ({
 	router: { push: vi.fn(), replace: vi.fn() },
@@ -58,9 +59,9 @@ const RELEASE = {
 	sha256: "b".repeat(64),
 };
 
-/** 授权夹具：默认 pending（同意行已存在、宿主尚未换得凭证） */
+/** 授权夹具：默认 pending（同意行已存在、宿主尚未换得凭证）、打包 client */
 const grant = {
-	clientId: "cli_1",
+	clientId: OPENCODE_CLIENT_ID,
 	clientName: "opencode",
 	scope: "cgc",
 	grantedAt: null,

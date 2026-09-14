@@ -37,7 +37,7 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
 
   require Ash.Query
 
-  alias Cgc2046.Accounts.{OAuthClient, OAuthConsent, OAuthRefreshToken}
+  alias Cgc2046.Accounts.{OAuthAuthorizationCode, OAuthClient, OAuthConsent, OAuthRefreshToken}
 
   # 纪元哨兵：排序时把无授权时间的审计行（同意已撤回、链头仍存）排到最后
   @epoch ~U[1970-01-01 00:00:00Z]
@@ -132,10 +132,28 @@ defmodule Cgc2046.Accounts.OAuthAuthorizations do
     entry = build_entry(client_id, consent, heads, client_name, DateTime.utc_now())
 
     with :ok <- OAuthRefreshToken.revoke_authorization(user_id, client_id),
+         :ok <- invalidate_pending_codes(user_id, client_id),
          :ok <- withdraw_consent(consent) do
       {:ok, %{entry | status: :revoked}}
     else
       {:error, error} -> {:error, {:invalid, error}}
+    end
+  end
+
+  # 在途授权码一并作废：撤销落在「已签发、未兑换」窗口时，码本身仍能换出一整条
+  # 新凭证链（库的兑换只校验 client / consumed_at / 过期，不看同意行）——撤销必须
+  # 覆盖该窗口，否则 UI 说「已撤销」而宿主照旧拿到凭证（READMRE 承诺即时生效）。
+  defp invalidate_pending_codes(user_id, client_id) do
+    OAuthAuthorizationCode
+    |> Ash.Query.filter(user_id == ^user_id and client_id == ^client_id)
+    |> Ash.bulk_destroy(:destroy, %{},
+      authorize?: false,
+      return_errors?: true,
+      notify?: false
+    )
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      _ -> :error
     end
   end
 

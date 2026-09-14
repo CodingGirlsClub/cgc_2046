@@ -11,17 +11,19 @@ const { fetchMyOauthAuthorizationsMock } = vi.hoisted(() => ({
 	fetchMyOauthAuthorizationsMock: vi.fn(),
 }));
 
-vi.mock("./mcp", () => ({
-	fetchMyOauthAuthorizations: fetchMyOauthAuthorizationsMock,
-}));
+vi.mock("./mcp", async () => {
+	const actual = await vi.importActual<typeof import("./mcp")>("./mcp");
+	return { ...actual, fetchMyOauthAuthorizations: fetchMyOauthAuthorizationsMock };
+});
 
 import { useOpencodeAuthPhase } from "./use-opencode-auth-phase";
+import { OPENCODE_CLIENT_ID } from "./mcp";
 import type { OauthAuthorization } from "./graphql/oauth-authorization";
 
-/** 授权夹具：默认 pending（同意行已存在、尚未换得凭证） */
+/** 授权夹具：默认 pending（同意行已存在、尚未换得凭证）、打包 client */
 function grant(over: Partial<OauthAuthorization>): OauthAuthorization {
 	return {
-		clientId: "cli_1",
+		clientId: OPENCODE_CLIENT_ID,
 		clientName: "opencode",
 		scope: "cgc",
 		grantedAt: null,
@@ -66,6 +68,20 @@ describe("useOpencodeAuthPhase（U8 第④步等待态信号）", () => {
 		const { result } = renderHook(() => useOpencodeAuthPhase(true));
 
 		await waitFor(() => expect(result.current.phase).toBe("active"));
+	});
+
+	it("其他 client 的活跃授权不得判为已连接（须按打包 client 过滤）", async () => {
+		// DCR 开启时同账号可有其他 MCP 宿主的授权；它不代表 opencode 已连接。
+		// 同轮给 own 的 pending：若 other 的 active 被误判为完成（active），
+		// 下面的 pending 断言必超时；若 own 被整体忽略，phase 会停在 idle。
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([
+			grant({ clientId: "other-host-client", status: "active" }),
+			grant({ clientId: OPENCODE_CLIENT_ID, status: "pending" }),
+		]);
+
+		const { result } = renderHook(() => useOpencodeAuthPhase(true));
+
+		await waitFor(() => expect(result.current.phase).toBe("pending"));
 	});
 
 	it("enabled=false 不读取、不轮询（非 opencode 分支与只读回看）", () => {

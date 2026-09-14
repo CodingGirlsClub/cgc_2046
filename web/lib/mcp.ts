@@ -95,6 +95,12 @@ export async function revokeMcpToken(id: string): Promise<McpTokenItem> {
 
 /* ---------------- OAuth 授权（U5，KTD3） ---------------- */
 
+/**
+ * opencode 打包路径的公开 client id（与 backend OAuthClient.packaged_client_id/0
+ * 及 learn-space/opencode.json 三处同值）——首公里「已连接」判定须按它过滤授权。
+ */
+export const OPENCODE_CLIENT_ID = "0199e5a2-7c3f-7a41-9b0e-2f5c8d1a4b60";
+
 /* 授权载荷直接使用 GraphQL 契约类型 `OauthAuthorization`：曾有一层恒等 DTO 与
    null 归一包装，属无效防线（Absinthe 对可空字段恒返回 null），已删除。 */
 

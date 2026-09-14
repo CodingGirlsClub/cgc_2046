@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchMyOauthAuthorizations } from "./mcp";
+import { fetchMyOauthAuthorizations, OPENCODE_CLIENT_ID } from "./mcp";
 
 /**
  * opencode 接入第④步「授权连接」的阶段信号（U8，plan 2026-09-15 opencode-desktop-host）。
@@ -35,8 +35,11 @@ export function useOpencodeAuthPhase(enabled: boolean): {
 			fetchMyOauthAuthorizations()
 				.then((grants) => {
 					if (cancelled) return;
-					if (grants.some((g) => g.status === "active")) setPhase("active");
-					else if (grants.some((g) => g.status === "pending"))
+					// 只看 opencode 打包客户端的授权：其他客户端的活跃 grant 不代表
+					// opencode 已连接（DCR 开启，任何 MCP 宿主都可注册）。
+					const own = grants.filter((g) => g.clientId === OPENCODE_CLIENT_ID);
+					if (own.some((g) => g.status === "active")) setPhase("active");
+					else if (own.some((g) => g.status === "pending"))
 						setPhase("pending");
 					else setPhase("idle");
 				})

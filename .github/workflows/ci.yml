@@ -51,7 +51,7 @@ jobs:
           # 第二父(被合入分支 head)上四个 CI job 的最新结论必须全 success;
           # 无记录时结论为空串≠success → 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "learn-space")]
                   | group_by(.name) | map(sort_by(.started_at) | last | .conclusion) | unique | join(",")') || exit 0
           [ "$concls" = "success" ] || exit 0
 
@@ -316,6 +316,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bin/pack
+      # 版本纪律门：内容变了但 VERSION 未 bump → 已装用户自检永远「已是最新」
+      # （与 ext 的同名门禁同因同果：包内容 ≠ 版本号变化时用户静默停在旧构建）。
+      # 线上清单不可达/畸形时警告放行（环境问题不该阻塞发布）。
+      - run: bin/check-version-bump
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
   # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+

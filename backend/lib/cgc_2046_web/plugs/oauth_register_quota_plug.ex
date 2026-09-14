@@ -18,7 +18,6 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaPlug do
 
   alias AshAuthentication.Phoenix.Oauth2Server.Errors
 
-  @register_path "/oauth/register"
   @quota_key_prefix "rate:oauth-register"
   @default_max_attempts 10
   @default_window_seconds 3_600
@@ -28,7 +27,9 @@ defmodule Cgc2046Web.Plugs.OAuthRegisterQuotaPlug do
 
   @impl true
   def call(conn, _opts) do
-    if conn.method == "POST" and conn.request_path == @register_path do
+    # 用 path_info（Plug 已忽略空段：/oauth/register/、//oauth//register 同样命中），
+    # 与 router 的扁平路由匹配语义一致；曾用 request_path 精确比较会被等价路径绕过。
+    if conn.method == "POST" and conn.path_info == ["oauth", "register"] do
       enforce(conn)
     else
       conn
