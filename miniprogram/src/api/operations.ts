@@ -84,6 +84,8 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       registrationDeadline
       pricingEnabled
       availablePriceTiers
+      depositEnabled
+      depositAmountCents
       startsAt
       endsAt
       venue
@@ -178,6 +180,7 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
       }
     }
   }
@@ -202,6 +205,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
       }
     }
   }
