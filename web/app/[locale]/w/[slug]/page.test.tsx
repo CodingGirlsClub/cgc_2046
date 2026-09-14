@@ -117,6 +117,8 @@ vi.mock("@/lib/onboarding", async (importOriginal) => {
 const ONBOARDING_BASE = {
 	dismissed: false,
 	hasActiveToken: false,
+	hasActiveGrant: false,
+	hasActiveCredential: false,
 	connected: false,
 	loading: false,
 	error: null,
@@ -529,10 +531,10 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		);
 	});
 
-	it("已接入成员（hasActiveToken && connected）：不弹不挂卡（AE5 后半 + DoD 已接入成员零变化）", async () => {
+	it("已接入成员（hasActiveCredential && connected）：不弹不挂卡（AE5 后半 + DoD 已接入成员零变化）", async () => {
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: true,
 		});
 		render(<WorkspacePage />);
@@ -689,6 +691,7 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
 			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: false,
 		});
 		render(<WorkspacePage />);
@@ -700,12 +703,43 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		expect(card).toHaveTextContent("等待你的 Agent 第一次连接");
 	});
 
+	it("U5 授权路径：仅有活跃授权（无连接 token）→ 同样「已接入」：不弹邀请模态、挂等待卡", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: false,
+			hasActiveGrant: true,
+			hasActiveCredential: true,
+			connected: false,
+		});
+		render(<WorkspacePage />);
+
+		await content();
+		// 未接入才弹的邀请模态不出现（否则用户被当成新成员）
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		const card = screen.getByTestId("onboarding-connect-card");
+		expect(card).toHaveAttribute("data-variant", "waiting");
+	});
+
+	it("U5 授权路径收敛：授权已发生调用（connected）→ 不挂卡（与 token 路径同权）", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: false,
+			hasActiveGrant: true,
+			hasActiveCredential: true,
+			connected: true,
+		});
+		render(<WorkspacePage />);
+
+		await content();
+		expect(screen.queryByTestId("onboarding-connect-card")).not.toBeInTheDocument();
+	});
+
 	it("等待首联态自动撤卡（P2）：window focus 触发静默刷新，connected 置真后卡消失", async () => {
 		const refreshSilently = vi.fn();
 		let connected = false;
 		useOnboardingState.mockImplementation(() => ({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected,
 			refreshSilently,
 		}));
@@ -732,7 +766,7 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		const refreshSilently = vi.fn();
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: false,
 			refreshSilently,
 		});
@@ -754,7 +788,7 @@ describe("首公里 onboarding：邀请模态门控矩阵 + 常驻卡真值表",
 		const refreshSilently = vi.fn();
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: false,
 			refreshSilently,
 		});

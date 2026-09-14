@@ -1,92 +1,49 @@
 "use client";
 
 /**
- * 集成 - MCP（Token 管理）页 /w/[slug]/settings/integrations/agents/mcp。
+ * 集成 - MCP（用户级凭证）页 /w/[slug]/settings/integrations/agents/mcp。
  *
- * 管理 MCP 连接 token（客户端调 /mcp 的 Bearer 凭证，绑用户不绑工作区，D13）：
- * - token 列表（名称/签发时间/最近使用/状态）+ 签发 + 两步确认撤销
- * - 签发行（表单 + 一次性明文，D-D4：库中只存 hash，离开此页不可找回）
- *   为共享组件 McpTokenIssuePanel（首公里向导复用同一签出面）
- * - 空状态提示引导到 OpenClacky 页（接入引导）
+ * 同一界面呈现两类绑定用户的凭证（KTD3「不建第二套状态体系」）：
+ * - 连接 token（手工粘贴的 Bearer 凭证，D-D4/D13）：列表 + 签发 + 两步确认撤销
+ * - 已授权应用（宿主经平台 OAuth 授权拿到的凭证，U5）：列表 + 两步确认撤销
+ * 两者都进首公里「已接入」判定（lib/onboarding.ts deriveOnboardingState）；
+ * 撤销后 web 端即时反映，宿主在下一次调用时得到 401（无推送通道，拉模式）。
+ *
+ * 数据流与两个共享组件（McpTokenList / AuthorizedAppsSection）由用户级账号设置
+ * `/settings/account/connections` 复用；本页额外挂签发行（McpTokenIssuePanel：
+ * 表单 + 一次性明文，D-D4 库中只存 hash，离开此页不可找回——首公里向导复用同一
+ * 签出面）。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
-import {
-	fetchMyMcpTokens,
-	revokeMcpToken,
-	type McpTokenItem,
-} from "@/lib/mcp";
-import { formatDateTime } from "@/lib/format";
+import { useMcpCredentials } from "@/lib/mcp-credentials";
 import WorkspaceShell from "@/components/workspace-shell";
 import IntegrationsAgentsTabs from "@/components/integrations-agents-tabs";
 import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
+import McpTokenList from "@/components/mcp-token-list";
+import AuthorizedAppsSection from "@/components/authorized-apps-section";
 import { Icon } from "@/components/icons";
 
 export default function AgentsMcpPage() {
 	const t = useTranslations("workspaceMcp");
 	const tCommon = useTranslations("common");
+	const tAuth = useTranslations("oauthAuthorizations");
 	const labelsT = useTranslations();
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const { ws, loading: wsLoading } = useWorkspaceBySlug(slug);
 
-	const [tokens, setTokens] = useState<McpTokenItem[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-	const loadedRef = useRef(false);
-
-	// 撤销两步确认
-	const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
-	const [revokingId, setRevokingId] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!ws || loadedRef.current) return;
-		loadedRef.current = true;
-		let cancelled = false;
-		fetchMyMcpTokens()
-			.then((list) => {
-				if (!cancelled) setTokens(list);
-			})
-			.catch((e) => {
-				if (!cancelled)
-					setError(e instanceof Error ? labelsT(e.message) : t("loadFailed"));
-			})
-			.finally(() => {
-				if (!cancelled) setLoading(false);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [ws, t, labelsT]);
-
-	const loadTokens = useCallback(async () => {
-		setLoading(true);
-		setError(null);
-		try {
-			setTokens(await fetchMyMcpTokens());
-		} catch (e) {
-			setError(e instanceof Error ? labelsT(e.message) : t("loadFailed"));
-		} finally {
-			setLoading(false);
-		}
-	}, [t, labelsT]);
-
-	const handleRevoke = useCallback(async (id: string) => {
-		setRevokingId(id);
-		try {
-			const revoked = await revokeMcpToken(id);
-			setTokens((prev) => prev.map((t) => (t.id === id ? revoked : t)));
-		} catch (e) {
-			setError(e instanceof Error ? labelsT(e.message) : t("revokeFailed"));
-		} finally {
-			setRevokingId(null);
-			setConfirmRevokeId(null);
-		}
-	}, [t, labelsT]);
+	// 凭证两源（token + 授权）：ws 就绪后拉取（进入本页即工作台上下文已定）
+	const credentials = useMcpCredentials({ enabled: Boolean(ws) });
+	// 错误只挡空态、不挡已有数据：撤销失败时列表保留展示（错误内联在页首），
+	// 加载失败且无数据时才整段隐藏（不留空标题）
+	const showTokenSection =
+		credentials.tokens.length > 0 || !credentials.errorKey;
+	const showAuthSection =
+		credentials.authorizations.length > 0 || !credentials.errorKey;
 
 	return (
 		<WorkspaceShell slug={slug}>
@@ -112,109 +69,66 @@ export default function AgentsMcpPage() {
 
 				<IntegrationsAgentsTabs slug={slug} current="agents-mcp" abilities={[]} />
 
-				<McpTokenIssuePanel
-					onIssued={(token) => setTokens((prev) => [token, ...prev])}
-				/>
+				<McpTokenIssuePanel onIssued={credentials.prependToken} />
 
-				{(wsLoading || loading) && (
+				{(wsLoading || credentials.loading) && (
 					<div className="settings-loading" aria-label={t("loadingAria")}>
 						<div className="settings-skeleton settings-skeleton--title" />
 						<div className="settings-skeleton" />
 					</div>
 				)}
 
-				{error && (
+				{credentials.errorKey && (
 					<div className="members-error" role="alert">
-						{error}
+						{labelsT(credentials.errorKey)}
 						<button
 							type="button"
 							className="join-button join-button--outline"
-							onClick={loadTokens}
+							onClick={credentials.reload}
 						>
 							{t("retry")}
 						</button>
 					</div>
 				)}
 
-				{!loading && !error && tokens.length === 0 && (
-					<div className="settings-empty">
-						<Icon name="invite" />
-						<p>{t("empty")}</p>
-						<Link
-							href={`/w/${slug}/settings/integrations/agents/openclacky`}
-							className="join-button join-button--outline"
-						>
-							{t("viewGuide")}
-						</Link>
-					</div>
+				{!credentials.loading && showTokenSection && (
+					<section>
+						<h2 className="l-h3">{t("tokensHeading")}</h2>
+						{credentials.tokens.length === 0 ? (
+							<div className="settings-empty">
+								<Icon name="invite" />
+								<p>{t("empty")}</p>
+								<Link
+									href={`/w/${slug}/settings/integrations/agents/openclacky`}
+									className="join-button join-button--outline"
+								>
+									{t("viewGuide")}
+								</Link>
+							</div>
+						) : (
+							<McpTokenList
+								tokens={credentials.tokens}
+								revokingId={credentials.revokingTokenId}
+								onRevoke={credentials.revokeToken}
+							/>
+						)}
+					</section>
 				)}
 
-				{tokens.length > 0 && (
-					<div className="invitations-list">
-						{tokens.map((token) => (
-							<div className="invitation-card" key={token.id}>
-								<div className="invitation-card__header">
-									<div className="invitation-card__info">
-										<strong>{token.name}</strong>
-										<div className="invitation-card__expires">
-											{t("issuedAt", {
-												time: formatDateTime(token.insertedAt),
-												used: formatDateTime(token.lastUsedAt),
-											})}
-										</div>
-									</div>
-									<div className="invitation-card__actions">
-										<span
-											className={`l-badge ${
-												token.status === "active"
-													? "l-badge-volunteer"
-													: token.status === "idle_expired"
-														? "l-badge-pending"
-														: "l-badge-danger"
-											}`}
-										>
-											{token.status === "active"
-												? t("active")
-												: token.status === "idle_expired"
-													? t("idleExpired")
-													: t("revoked")}
-										</span>
-										{token.status !== "revoked" &&
-											(confirmRevokeId === token.id ? (
-												<>
-													<button
-														type="button"
-														className="join-button join-button--primary"
-														disabled={revokingId === token.id}
-														onClick={() => handleRevoke(token.id)}
-													>
-														{revokingId === token.id
-															? t("revoking")
-															: t("confirmRevoke")}
-													</button>
-													<button
-														type="button"
-														className="join-button join-button--ghost"
-														disabled={revokingId === token.id}
-														onClick={() => setConfirmRevokeId(null)}
-													>
-														{t("cancel")}
-													</button>
-												</>
-											) : (
-												<button
-													type="button"
-													className="join-button join-button--outline"
-													onClick={() => setConfirmRevokeId(token.id)}
-												>
-													{t("revoke")}
-												</button>
-											))}
-									</div>
-								</div>
-							</div>
-						))}
-					</div>
+				{!credentials.loading && showAuthSection && (
+					<section style={{ marginTop: 24 }}>
+						<h2 className="l-h3">{tAuth("title")}</h2>
+						<p className="ws-page-heading__desc">{tAuth("subtitle")}</p>
+						{credentials.authorizations.length === 0 ? (
+							<p data-testid="authorized-apps-empty">{tAuth("empty")}</p>
+						) : (
+							<AuthorizedAppsSection
+								items={credentials.authorizations}
+								revokingClientId={credentials.revokingClientId}
+								onRevoke={credentials.revokeAuthorization}
+							/>
+						)}
+					</section>
 				)}
 			</div>
 		</WorkspaceShell>

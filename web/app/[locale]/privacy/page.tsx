@@ -101,7 +101,7 @@ export default function PrivacyPage() {
 
 				<h3 className="l-h4 mt-6">1.3 自动收集的信息</h3>
 				<ul className="mt-3 list-disc space-y-2 pl-6 text-sm leading-7 text-ink-2">
-					<li>登录凭证与令牌（用于维持登录态；网站登录态存于加密 Cookie，Agent 连接令牌可由您自主生成与撤销）。</li>
+					<li>登录凭证与令牌（用于维持登录态；网站登录态存于加密 Cookie，Agent 连接令牌与平台 OAuth 授权可由您自主生成与撤销）。</li>
 					<li>操作日志：平台记录必要的账户与操作事件（如报名提交、审批操作、工具调用审计），用于安全与争议追溯。</li>
 					<li>网络信息：处理请求所必需的 IP 地址（用于安全防护与限流，如登录失败次数限制）。</li>
 				</ul>
@@ -213,7 +213,7 @@ export default function PrivacyPage() {
 					<li><strong>查询与更正</strong>：个人资料页可查看/修改姓名、昵称、语言偏好。</li>
 					<li><strong>撤回授权</strong>：小程序订阅消息按次授权，拒绝授权不影响业务本身（如报名）。</li>
 					<li><strong>退出登录</strong>：「我的」页/账户菜单可退出登录，服务端撤销当前登录态。</li>
-					<li><strong>撤销 Agent 连接令牌</strong>：MCP 页可随时撤销已生成的连接令牌。</li>
+					<li><strong>撤销 Agent 连接令牌与授权</strong>：MCP 页与账号设置的「连接与授权」页可随时撤销已生成的连接令牌与已授权应用，撤销即时生效。</li>
 					<li><strong>删除</strong>：如需删除账号或特定个人信息，可发送邮件至 info@codingirlsclub.com 联系我们，我们将在核实身份后 15 个工作日内处理。</li>
 				</ul>
 			</section>

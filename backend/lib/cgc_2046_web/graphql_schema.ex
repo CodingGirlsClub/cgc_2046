@@ -131,6 +131,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "当前用户的 OAuth 授权列表（U5/KTD3；授权客户端、授权时间、最近使用与状态；仅本人）"
+    field :my_oauth_authorizations, list_of(:oauth_authorization) do
+      resolve(fn _, _, %{context: context} ->
+        with_actor(context, fn actor ->
+          with {:ok, entries} <- Cgc2046.Accounts.OAuthAuthorizations.list_for(actor) do
+            {:ok, Enum.map(entries, &oauth_authorization_payload/1)}
+          end
+        end)
+      end)
+    end
+
     @desc "当前用户作为 Owner/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
     field :my_pending_approvals, non_null(list_of(non_null(:pending_approval))) do
       arg(:include_expired, :boolean)
@@ -1303,6 +1314,45 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "撤销一条 OAuth 授权（U5/KTD3；仅本人：整链撤销 + 撤回同意行，行保留供审计；他人/不存在 clientId 一律 not_found）"
+    field :revoke_oauth_authorization, :oauth_authorization do
+      arg(:client_id, non_null(:id))
+
+      resolve(fn _, %{client_id: client_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Accounts.OAuthAuthorizations.revoke(actor, client_id) do
+            {:ok, entry} ->
+              {:ok, oauth_authorization_payload(entry)}
+
+            {:error, :not_found} ->
+              # 与 revokeMcpToken 同形：他人的 client / 不存在的 client 统一塌缩为
+              # NotFound（message "could not be found"、fields ["clientId"]），不泄露存在性。
+              {:error,
+               to_ash_graphql_errors(
+                 Ash.Error.Query.NotFound.exception(
+                   primary_key: %{client_id: client_id},
+                   resource: Cgc2046.Accounts.OAuthConsent
+                 ),
+                 context,
+                 :revoke,
+                 Cgc2046.Accounts.OAuthConsent,
+                 Cgc2046.Accounts
+               )}
+
+            {:error, {:invalid, error}} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :revoke,
+                 Cgc2046.Accounts.OAuthConsent,
+                 Cgc2046.Accounts
+               )}
+          end
+        end)
+      end)
+    end
+
     # ── 高风险支付操作两段确认（web 面 R15/R17/R18；编排在
     #    Cgc2046Web.PaymentConfirmation，复用 Mcp.PendingOperation/Confirmation，
     #    confirm 段分派到同名 MCP 工具的 execute_confirmed/2，domain 的
@@ -2069,6 +2119,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # ── OAuth 授权（U5/KTD3；手写两入口：myOauthAuthorizations / revokeOauthAuthorization，
+  #    读模型见 Cgc2046.Accounts.OAuthAuthorizations）──
+
+  object :oauth_authorization do
+    @desc "一条 OAuth 授权（按 client 去重；status 派生自令牌链与同意行：active/idle_expired/revoked/pending）"
+    field(:client_id, non_null(:id))
+    field(:client_name, :string)
+    field(:scope, non_null(:string))
+    field(:granted_at, :datetime)
+    field(:last_used_at, :datetime)
+    field(:status, non_null(:string))
+  end
+
   # acceptInvitation 手写 resolver 的类型（#96）：与自动生成的同名同形，
   # API 形态不变（acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult!）。
   input_object :accept_invitation_input do
@@ -2175,6 +2238,10 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
     end
   end
+
+  # OAuth 授权 entry → GraphQL 载荷：status 原子 → 字符串
+  # （Absinthe 的 String 标量可序列化原子，但载荷形状保持显式，与 schema 字段同形）。
+  defp oauth_authorization_payload(entry), do: %{entry | status: to_string(entry.status)}
 
   # Ash action 错误 → AshGraphql.Error 结构化顶层 error（message/code/fields）。
   # 复用 AshGraphql.Errors.to_errors（自动生成 mutation 同款映射），与 sign_up 的

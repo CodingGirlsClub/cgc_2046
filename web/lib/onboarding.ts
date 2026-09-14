@@ -5,16 +5,18 @@ import {
 	DISMISS_ONBOARDING_INVITATION,
 } from "./graphql/onboarding";
 import type { OnboardingMe } from "./graphql/onboarding";
-import { fetchMyMcpTokens } from "./mcp";
-import type { McpTokenItem } from "./mcp";
+import { fetchMyMcpTokens, fetchMyOauthAuthorizations } from "./mcp";
+import type { McpTokenItem, OauthAuthorizationItem } from "./mcp";
 
 /**
- * 首公里 onboarding 数据层（plan 2026-08-22 first-mile-onboarding，U2）。
+ * 首公里 onboarding 数据层（plan 2026-08-22 first-mile-onboarding，U2；
+ * U5 扩展：OAuth 授权进入用户级连接信号，KTD3）。
  *
  * - KTD2：邀请拒绝态持久化在服务端 User.onboardingInvitationDismissedAt（跨设备），
  *   经 me 查询读取、dismissOnboardingInvitation mutation 写入。
- * - KTD3：连接信号客户端派生，零新查询——token 复用 fetchMyMcpTokens()，
- *   hasActiveToken / connected 由 deriveOnboardingState 纯函数算出。
+ * - KTD3：连接信号客户端派生，零新查询——token 复用 fetchMyMcpTokens()、
+ *   授权复用 fetchMyOauthAuthorizations()，hasActiveCredential / connected
+ *   由 deriveOnboardingState 纯函数算出。
  * - KTD4：session 旗标 cgc:onboarding-invite-shown:{userId}（每 session 每用户最多
  *   自动弹一次；按 userId 命名空间——共享机器同 tab 换账号不继承已展示态），
  *   sessionStorage 访问全 try/catch 静默降级（仿 lib/order-credential.ts）。
@@ -29,14 +31,21 @@ export interface DerivedOnboardingState {
 	dismissed: boolean;
 	/** 有 active 连接 token（revoked / idle_expired 视同未接入，per R1 回归成员规则） */
 	hasActiveToken: boolean;
-	/** 已发生首次 MCP 调用（任一 token lastUsedAt != null；R8 完成后卡消失） */
+	/** 有 active OAuth 授权（U5/KTD3：status 非 active 视同未接入，同上规则） */
+	hasActiveGrant: boolean;
+	/**
+	 * 「已接入」判定（KTD3 单一信号源）：活跃 token 或活跃授权。
+	 * 向导态/邀请模态/等待首联卡的门控都用它——两类凭证对用户是同一件事。
+	 */
+	hasActiveCredential: boolean;
+	/** 已发生首次 MCP 调用（任一 token 或授权 lastUsedAt != null；R8 完成后卡消失） */
 	connected: boolean;
 }
 
 export interface OnboardingState extends DerivedOnboardingState {
-	/** 两源（me 查询 / token 列表）任一未完即为真 */
+	/** 三源（me 查询 / token 列表 / 授权列表）任一未完即为真 */
 	loading: boolean;
-	/** 两源任一失败为非 null（fail-closed：消费方见此态不渲染模态/卡） */
+	/** 三源任一失败为非 null（fail-closed：消费方见此态不渲染模态/卡） */
 	error: Error | null;
 	/** 当前登录用户 id（me 查询解析后非 null；loading/error/未登录为 null）——
 	    KTD4 session 旗标的命名空间维度 */
@@ -50,19 +59,31 @@ export interface OnboardingState extends DerivedOnboardingState {
 }
 
 /**
- * 派生 onboarding 三布尔（纯函数，可测）：
+ * 派生 onboarding 布尔（纯函数，可测）：
  * - hasActiveToken = 任一 token status === "active"（status 派生见 lib/mcp.ts mapMcpToken）
- * - connected = 任一 token lastUsedAt != null（历史首联达成即算，不看当前 status）
+ * - hasActiveGrant = 任一授权 status === "active"（后端派生：令牌链活跃性，见
+ *   OAuthAuthorizations；pending/idle_expired/revoked 都不算接入）
+ * - hasActiveCredential = 二者取或（KTD3 的「已接入」）
+ * - connected = 任一 token 或授权 lastUsedAt != null（首次成功调用即算，
+ *   不看当前 status；授权侧由 U3 的鉴权回查写同一语义的时间戳）
  * - dismissed = dismissedAt != null
  */
 export function deriveOnboardingState(
 	tokens: McpTokenItem[],
+	grants: OauthAuthorizationItem[],
 	dismissedAt: string | null,
 ): DerivedOnboardingState {
+	const hasActiveToken = tokens.some((t) => t.status === "active");
+	const hasActiveGrant = grants.some((g) => g.status === "active");
+
 	return {
 		dismissed: dismissedAt != null,
-		hasActiveToken: tokens.some((t) => t.status === "active"),
-		connected: tokens.some((t) => t.lastUsedAt != null),
+		hasActiveToken,
+		hasActiveGrant,
+		hasActiveCredential: hasActiveToken || hasActiveGrant,
+		connected:
+			tokens.some((t) => t.lastUsedAt != null) ||
+			grants.some((g) => g.lastUsedAt != null),
 	};
 }
 
@@ -89,6 +110,8 @@ export async function dismissOnboardingInvitation(): Promise<void> {
 const INITIAL_STATE: OnboardingState = {
 	dismissed: false,
 	hasActiveToken: false,
+	hasActiveGrant: false,
+	hasActiveCredential: false,
 	connected: false,
 	loading: true,
 	error: null,
@@ -99,12 +122,14 @@ const INITIAL_STATE: OnboardingState = {
 
 /**
  * onboarding 状态单 hook（模态/常驻卡/向导页三消费方共用）。
- * 合并 me 查询（id + 拒绝态）与 fetchMyMcpTokens()（连接信号）：
+ * 合并 me 查询（id + 拒绝态）、fetchMyMcpTokens()（连接 token 信号）与
+ * fetchMyOauthAuthorizations()（OAuth 授权信号，U5/KTD3）：
  * 任一未完 loading=true；任一失败 error 非 null 且派生字段归零（fail-closed）。
  * userId 就绪（me 解析成功）时一次性快照 KTD4 session 旗标——挂载时 userId 未知，
  * 推迟到此处读才能保住「每 session 每用户最多弹一次」的跨刷新/跨重挂载语义。
- * tokens 原始列表一并暴露（向导页 hasTokenHistory 复用，不得二次 fetch）。
- * reload() 供消费方内联错误态的「重试」：nonce 递增触发两源重拉。
+ * tokens 原始列表一并暴露（向导页 hasTokenHistory 复用，不得二次 fetch）；
+ * 授权原始列表不进 state——首公里只需其派生信号，管理面按需经 lib/mcp-credentials 拉取。
+ * reload() 供消费方内联错误态的「重试」：nonce 递增触发三源重拉。
  * refreshSilently() 供等待首联态轮询（P2）：不置 loading（拉取期间旧数据保持
  * 展示、卡不闪烁）；静默轮次失败保留上次成功快照（瞬时网络错误不能经
  * fail-closed 把卡弄没），留待下一轮再试。
@@ -118,7 +143,7 @@ export function useOnboardingState(): OnboardingState & {
 	// 本轮拉取是否为静默轮次（refreshSilently 置位、reload 复位，effect 内捕获快照）
 	const silentRef = useRef(false);
 	// 重试：loading 复位在事件回调里做（effect 体内同步 setState 违 react-hooks 规则），
-	// nonce 递增触发两源重拉
+	// nonce 递增触发三源重拉
 	const reload = useCallback(() => {
 		silentRef.current = false;
 		setState((prev) => ({ ...prev, loading: true, error: null }));
@@ -134,13 +159,18 @@ export function useOnboardingState(): OnboardingState & {
 		let cancelled = false;
 		const silent = silentRef.current;
 
-		Promise.all([fetchOnboardingMe(), fetchMyMcpTokens()])
-			.then(([me, tokens]) => {
+		Promise.all([
+			fetchOnboardingMe(),
+			fetchMyMcpTokens(),
+			fetchMyOauthAuthorizations(),
+		])
+			.then(([me, tokens, grants]) => {
 				if (cancelled) return;
 				const userId = me?.id ?? null;
 				setState({
 					...deriveOnboardingState(
 						tokens,
+						grants,
 						me?.onboardingInvitationDismissedAt ?? null,
 					),
 					loading: false,
@@ -159,6 +189,8 @@ export function useOnboardingState(): OnboardingState & {
 				setState({
 					dismissed: false,
 					hasActiveToken: false,
+					hasActiveGrant: false,
+					hasActiveCredential: false,
 					connected: false,
 					loading: false,
 					error: err instanceof Error ? err : new Error(String(err)),

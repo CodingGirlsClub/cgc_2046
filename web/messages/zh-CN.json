@@ -58,7 +58,9 @@
     "revokeMcpTokenFailed": "撤销失败，请稍后重试",
     "operation_confirm_failed": "确认执行失败或确认已过期，请重新发起操作。",
     "operation_cancel_failed": "取消失败：该操作可能已被确认或取消，请刷新后核对。",
-    "operation_unavailable": "操作暂不可用，请稍后重试。"
+    "operation_unavailable": "操作暂不可用，请稍后重试。",
+    "loadMcpCredentialsFailed": "加载失败，请重试。",
+    "revokeOauthAuthorizationFailed": "撤销失败，请重试。"
   },
   "auth": {
     "helpCenter": "帮助中心",
@@ -694,7 +696,8 @@
       "discover": "发现 / 加入工作区",
       "approvals": "审批中心",
       "approvalsWithCount": "审批中心，{count} 项待办",
-      "myParticipations": "我的参与"
+      "myParticipations": "我的参与",
+      "connections": "连接与授权"
     },
     "status": {
       "active": "Active",
@@ -960,7 +963,29 @@
     "revoked": "已撤销",
     "revoking": "撤销中…",
     "confirmRevoke": "确认撤销",
-    "revoke": "撤销"
+    "revoke": "撤销",
+    "tokensHeading": "连接令牌"
+  },
+  "oauthAuthorizations": {
+    "title": "已授权应用",
+    "subtitle": "经平台 OAuth 授权连接你的账号的应用。撤销后该应用立即失去访问权，下次连接需重新确认授权。",
+    "empty": "还没有已授权应用",
+    "grantedAt": "授权于 {time}",
+    "lastUsed": "最近使用 {time}",
+    "statusActive": "有效",
+    "statusIdleExpired": "闲置过期",
+    "statusRevoked": "已撤销",
+    "statusPending": "等待连接",
+    "unknownClient": "未知应用（{id}）",
+    "revoke": "撤销",
+    "confirmRevoke": "确认撤销",
+    "revoking": "撤销中…",
+    "cancel": "取消",
+    "revokeFailed": "撤销失败"
+  },
+  "accountConnections": {
+    "title": "连接与授权",
+    "subtitle": "管理绑定你账号的 Agent 连接令牌与已授权应用。撤销后即时生效——无需等待凭证过期。"
   },
   "agentConnect": {
     "breadcrumbHome": "工作台",

@@ -243,6 +243,18 @@ export default function WorkspaceSwitcherMenu({
 					>
 						<span className="ws-shell-brand-menu__name">{t("myParticipations")}</span>
 					</Link>
+					{/* U5：用户级连接与授权管理（无工作台成员资格也可达；连接 token 与
+					    OAuth 授权都绑用户不绑工作台，D13） */}
+					<Link
+						href="/settings/account/connections"
+						className="ws-shell-brand-menu__item"
+						role="menuitem"
+						onClick={onNavigate}
+					>
+						<span className="ws-shell-brand-menu__name">
+							{t("connections")}
+						</span>
+					</Link>
 					<ThemeToggle variant="menuitem" workspaceId={currentWorkspaceId} />
 				</div>
 			)}

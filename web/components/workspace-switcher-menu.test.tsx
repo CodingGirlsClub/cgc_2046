@@ -210,3 +210,40 @@ describe("WorkspaceSwitcherMenu（plan 016：邀请管理链接按 manage_member
 		);
 	});
 });
+
+describe("U5：用户级「连接与授权」入口可达性（无工作台成员资格也可达）", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		useAuthed.mockReturnValue({ authed: true, confirmed: true });
+		mockCountQuery(0);
+	});
+	afterEach(() => cleanup());
+
+	it("Account 分组渲染「连接与授权」项，指向用户级路由（不带 slug）", () => {
+		// 能力列表刻意不含任何管理能力：普通成员同样可达（撤销入口不按工作台权限门控）
+		renderMenu(["view_workspace"]);
+		openAccountMenu();
+
+		expect(screen.getByRole("menuitem", { name: "连接与授权" })).toHaveAttribute(
+			"href",
+			"/settings/account/connections",
+		);
+	});
+
+	it("与工作台内 MCP 管理入口并存且指向不同路由", () => {
+		renderMenu(["manage_members"]);
+
+		// 一级：工作台 MCP 页（需工作台上下文）
+		expect(screen.getByRole("menuitem", { name: "MCP" })).toHaveAttribute(
+			"href",
+			"/w/cgc-academy/settings/integrations/agents",
+		);
+
+		// 二级 Account 分组：用户级连接与授权页
+		openAccountMenu();
+		expect(screen.getByRole("menuitem", { name: "连接与授权" })).toHaveAttribute(
+			"href",
+			"/settings/account/connections",
+		);
+	});
+});

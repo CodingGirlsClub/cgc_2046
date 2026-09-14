@@ -60,7 +60,9 @@ export default function AgentsIntegrationsPage() {
 	const [reviewing, setReviewing] = useState(false);
 
 	// KTD5：loading/error 优先求值；error 回退管理态外观但内联 alert + 重试（不静默吞）
-	const showWizard = !state.loading && !state.error && !state.hasActiveToken;
+	// U5/KTD3：「已接入」= 活跃 token 或活跃 OAuth 授权——已授权用户同样进管理态
+	const showWizard =
+		!state.loading && !state.error && !state.hasActiveCredential;
 
 	// 主体四态互斥：loading 骨架 / 向导态 / 只读回看 / 管理态（管理态无对应 tab，current 缺省）
 	let body: ReactNode;

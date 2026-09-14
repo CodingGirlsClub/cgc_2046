@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { mapMcpToken } from "./mcp";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+	fetchMyOauthAuthorizations,
+	mapMcpToken,
+	mapOauthAuthorization,
+	revokeOauthAuthorization,
+} from "./mcp";
 import type { McpToken } from "./graphql/mcp-token";
 
 const BASE: McpToken = {
@@ -62,5 +67,111 @@ describe("mapMcpToken 闲置过期派生（#226，对齐 backend 90 天窗口）
 			revokedAt: isoDaysAgo(5),
 		});
 		expect(item.status).toBe("revoked");
+	});
+});
+
+/* ---------------- U5：OAuth 授权数据源 ---------------- */
+
+const { queryMock, mutateMock } = vi.hoisted(() => ({
+	queryMock: vi.fn(),
+	mutateMock: vi.fn(),
+}));
+
+vi.mock("./apollo-client", () => ({
+	client: { query: queryMock, mutate: mutateMock },
+}));
+
+const { MY_OAUTH_AUTHORIZATIONS, REVOKE_OAUTH_AUTHORIZATION } = await import(
+	"./graphql/oauth-authorization"
+);
+
+describe("mapOauthAuthorization（U5 授权载荷归一）", () => {
+	it("可选字段 null 化（后端 clientName/grantedAt/lastUsedAt 可为 null）", () => {
+		const item = mapOauthAuthorization({
+			clientId: "cli_1",
+			clientName: undefined as unknown as string | null,
+			scope: "mcp",
+			grantedAt: undefined as unknown as string | null,
+			lastUsedAt: undefined as unknown as string | null,
+			status: "pending",
+		});
+
+		expect(item).toEqual({
+			clientId: "cli_1",
+			clientName: null,
+			scope: "mcp",
+			grantedAt: null,
+			lastUsedAt: null,
+			status: "pending",
+		});
+	});
+
+	it("字段原样透传（含最近使用时间——首公里「已连接」判定源）", () => {
+		const item = mapOauthAuthorization({
+			clientId: "cli_1",
+			clientName: "CGC 学习空间",
+			scope: "mcp",
+			grantedAt: "2026-09-15T10:00:00Z",
+			lastUsedAt: "2026-09-15T11:00:00Z",
+			status: "active",
+		});
+
+		expect(item.status).toBe("active");
+		expect(item.lastUsedAt).toBe("2026-09-15T11:00:00Z");
+		expect(item.grantedAt).toBe("2026-09-15T10:00:00Z");
+	});
+});
+
+describe("授权 fetchers（契约接线）", () => {
+	beforeEach(() => {
+		queryMock.mockReset();
+		mutateMock.mockReset();
+	});
+
+	it("fetchMyOauthAuthorizations：network-only 读 MY_OAUTH_AUTHORIZATIONS，空列表降级为 []", async () => {
+		queryMock.mockResolvedValueOnce({ data: { myOauthAuthorizations: null } });
+		await expect(fetchMyOauthAuthorizations()).resolves.toEqual([]);
+		expect(queryMock).toHaveBeenCalledWith({
+			query: MY_OAUTH_AUTHORIZATIONS,
+			fetchPolicy: "network-only",
+		});
+
+		queryMock.mockResolvedValueOnce({ data: { myOauthAuthorizations: [] } });
+		await expect(fetchMyOauthAuthorizations()).resolves.toEqual([]);
+	});
+
+	it("revokeOauthAuthorization：按 clientId 调 REVOKE_OAUTH_AUTHORIZATION 并返回归一结果", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				revokeOauthAuthorization: {
+					clientId: "cli_1",
+					clientName: "CGC 学习空间",
+					scope: "mcp",
+					grantedAt: null,
+					lastUsedAt: "2026-09-15T11:00:00Z",
+					status: "revoked",
+				},
+			},
+		});
+
+		await expect(revokeOauthAuthorization("cli_1")).resolves.toEqual({
+			clientId: "cli_1",
+			clientName: "CGC 学习空间",
+			scope: "mcp",
+			grantedAt: null,
+			lastUsedAt: "2026-09-15T11:00:00Z",
+			status: "revoked",
+		});
+		expect(mutateMock).toHaveBeenCalledWith({
+			mutation: REVOKE_OAUTH_AUTHORIZATION,
+			variables: { clientId: "cli_1" },
+		});
+	});
+
+	it("revokeOauthAuthorization：无 result（GraphQL 错误已抛出/空载荷）→ 抛文案键错误", async () => {
+		mutateMock.mockResolvedValue({ data: { revokeOauthAuthorization: null } });
+		await expect(revokeOauthAuthorization("cli_1")).rejects.toThrow(
+			"errors.revokeOauthAuthorizationFailed",
+		);
 	});
 });

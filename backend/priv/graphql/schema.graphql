@@ -5008,6 +5008,9 @@ type RootQueryType {
   "当前用户的 MCP 连接 token 列表（切片 D #44；不含明文，新→旧；policy 仅见本人）"
   myMcpTokens: [McpToken]
 
+  "当前用户的 OAuth 授权列表（U5\/KTD3；授权客户端、授权时间、最近使用与状态；仅本人）"
+  myOauthAuthorizations: [OauthAuthorization]
+
   "当前用户作为 Owner\/Admin 的跨工作台待审批项（Enrollment + JoinRequest + Sponsorship）；include_expired=true 时附带已过期行（只读展示，E-8 #123）"
   myPendingApprovals(includeExpired: Boolean): [PendingApproval!]!
 
@@ -5849,6 +5852,21 @@ type CreateMcpTokenPayload {
   errors: [MutationError]
 }
 
+type OauthAuthorization {
+  "一条 OAuth 授权（按 client 去重；status 派生自令牌链与同意行：active\/idle_expired\/revoked\/pending）"
+  clientId: ID!
+
+  clientName: String
+
+  scope: String!
+
+  grantedAt: DateTime
+
+  lastUsedAt: DateTime
+
+  status: String!
+}
+
 input AcceptInvitationInput {
   "acceptInvitation 输入：token 为明文邀请令牌（accept 须复验）"
   token: String!
@@ -6114,6 +6132,9 @@ type RootMutationType {
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
+
+  "撤销一条 OAuth 授权（U5\/KTD3；仅本人：整链撤销 + 撤回同意行，行保留供审计；他人\/不存在 clientId 一律 not_found）"
+  revokeOauthAuthorization(clientId: ID!): OauthAuthorization
 
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation

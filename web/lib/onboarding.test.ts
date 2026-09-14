@@ -11,11 +11,13 @@ import { renderHook } from "@/test-utils";
  */
 
 // vi.mock 工厂会被提升（hoist），mock 函数必须用 vi.hoisted 定义
-const { queryMock, mutateMock, fetchMyMcpTokensMock } = vi.hoisted(() => ({
-	queryMock: vi.fn(),
-	mutateMock: vi.fn(),
-	fetchMyMcpTokensMock: vi.fn(),
-}));
+const { queryMock, mutateMock, fetchMyMcpTokensMock, fetchMyOauthAuthorizationsMock } =
+	vi.hoisted(() => ({
+		queryMock: vi.fn(),
+		mutateMock: vi.fn(),
+		fetchMyMcpTokensMock: vi.fn(),
+		fetchMyOauthAuthorizationsMock: vi.fn(),
+	}));
 
 vi.mock("./apollo-client", () => ({
 	client: { query: queryMock, mutate: mutateMock },
@@ -23,6 +25,7 @@ vi.mock("./apollo-client", () => ({
 
 vi.mock("./mcp", () => ({
 	fetchMyMcpTokens: fetchMyMcpTokensMock,
+	fetchMyOauthAuthorizations: fetchMyOauthAuthorizationsMock,
 }));
 
 import {
@@ -37,7 +40,7 @@ import {
 	ME_ONBOARDING,
 	DISMISS_ONBOARDING_INVITATION,
 } from "./graphql/onboarding";
-import type { McpTokenItem } from "./mcp";
+import type { McpTokenItem, OauthAuthorizationItem } from "./mcp";
 
 /** token 测试夹具：默认 active 未使用，按需覆盖 */
 function token(over: Partial<McpTokenItem>): McpTokenItem {
@@ -52,11 +55,26 @@ function token(over: Partial<McpTokenItem>): McpTokenItem {
 	};
 }
 
-describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
-	it("无 token + 未拒绝 → 全 false（新成员，弹邀请）", () => {
-		expect(deriveOnboardingState([], null)).toEqual({
+/** OAuth 授权测试夹具（U5）：默认 active 无调用记录 */
+function grant(over: Partial<OauthAuthorizationItem>): OauthAuthorizationItem {
+	return {
+		clientId: "cli_1",
+		clientName: "CGC 学习空间",
+		scope: "mcp",
+		grantedAt: "2026-09-15T10:00:00Z",
+		lastUsedAt: null,
+		status: "active",
+		...over,
+	};
+}
+
+describe("deriveOnboardingState（R1/R8 派生矩阵 + U5 授权路径）", () => {
+	it("无 token 无授权 + 未拒绝 → 全 false（新成员，弹邀请）", () => {
+		expect(deriveOnboardingState([], [], null)).toEqual({
 			dismissed: false,
 			hasActiveToken: false,
+			hasActiveGrant: false,
+			hasActiveCredential: false,
 			connected: false,
 		});
 	});
@@ -66,7 +84,7 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 			token({ status: "revoked", revokedAt: "2026-08-10T00:00:00Z" }),
 			token({ id: "tok_2", status: "revoked", revokedAt: "2026-08-11T00:00:00Z" }),
 		];
-		const s = deriveOnboardingState(tokens, null);
+		const s = deriveOnboardingState(tokens, [], null);
 		expect(s.hasActiveToken).toBe(false);
 		expect(s.connected).toBe(false);
 		expect(s.dismissed).toBe(false);
@@ -74,13 +92,13 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 
 	it("全 idle_expired → 视同未接入（90 天规则派生态不算接入）", () => {
 		const tokens = [token({ status: "idle_expired" })];
-		const s = deriveOnboardingState(tokens, null);
+		const s = deriveOnboardingState(tokens, [], null);
 		expect(s.hasActiveToken).toBe(false);
 		expect(s.connected).toBe(false);
 	});
 
 	it("有 active 无 lastUsedAt → 已签发未通联（hasActiveToken=true，connected=false）", () => {
-		const s = deriveOnboardingState([token({ status: "active" })], null);
+		const s = deriveOnboardingState([token({ status: "active" })], [], null);
 		expect(s.hasActiveToken).toBe(true);
 		expect(s.connected).toBe(false);
 	});
@@ -88,6 +106,7 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 	it("有 token lastUsedAt != null → connected=true（R8：首次调用后卡消失）", () => {
 		const s = deriveOnboardingState(
 			[token({ status: "active", lastUsedAt: "2026-08-20T08:00:00Z" })],
+			[],
 			null,
 		);
 		expect(s.connected).toBe(true);
@@ -103,6 +122,7 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 					lastUsedAt: "2026-08-15T00:00:00Z",
 				}),
 			],
+			[],
 			null,
 		);
 		expect(s.hasActiveToken).toBe(false);
@@ -110,8 +130,67 @@ describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
 	});
 
 	it("dismissedAt 非 null → dismissed=true（KTD2 拒绝态）", () => {
-		const s = deriveOnboardingState([], "2026-08-22T01:00:00Z");
+		const s = deriveOnboardingState([], [], "2026-08-22T01:00:00Z");
 		expect(s.dismissed).toBe(true);
+	});
+
+	// ── U5/KTD3：OAuth 授权路径 ──
+
+	it("仅有活跃授权（未调用）→ 已接入但未首联（hasActiveCredential=true，connected=false）", () => {
+		const s = deriveOnboardingState([], [grant({ status: "active" })], null);
+		expect(s.hasActiveToken).toBe(false);
+		expect(s.hasActiveGrant).toBe(true);
+		expect(s.hasActiveCredential).toBe(true);
+		expect(s.connected).toBe(false);
+	});
+
+	it("授权发生首次成功调用（lastUsedAt 非空）→ connected=true（同源首联收敛）", () => {
+		const s = deriveOnboardingState(
+			[],
+			[grant({ status: "active", lastUsedAt: "2026-09-15T11:00:00Z" })],
+			null,
+		);
+		expect(s.connected).toBe(true);
+		expect(s.hasActiveCredential).toBe(true);
+	});
+
+	it("非活跃授权不算接入：pending / idle_expired / revoked 三态各不置位", () => {
+		for (const status of ["pending", "idle_expired", "revoked"] as const) {
+			const s = deriveOnboardingState([], [grant({ status })], null);
+			expect(s.hasActiveGrant, status).toBe(false);
+			expect(s.hasActiveCredential, status).toBe(false);
+		}
+	});
+
+	it("token 与授权并存：两布尔各归各，已接入不冲突（撤销任一不影响另一）", () => {
+		const both = deriveOnboardingState(
+			[token({ status: "active" })],
+			[grant({ status: "active" })],
+			null,
+		);
+		expect(both.hasActiveToken).toBe(true);
+		expect(both.hasActiveGrant).toBe(true);
+		expect(both.hasActiveCredential).toBe(true);
+
+		// 授权先被撤销（token 仍在）
+		const tokenOnly = deriveOnboardingState([token({ status: "active" })], [], null);
+		expect(tokenOnly.hasActiveGrant).toBe(false);
+		expect(tokenOnly.hasActiveCredential).toBe(true);
+
+		// token 先被撤销（授权仍在）
+		const grantOnly = deriveOnboardingState([], [grant({ status: "active" })], null);
+		expect(grantOnly.hasActiveToken).toBe(false);
+		expect(grantOnly.hasActiveCredential).toBe(true);
+	});
+
+	it("connected 只看 lastUsedAt：已撤销授权但历史用过 → connected=true（曾达成首联）", () => {
+		const s = deriveOnboardingState(
+			[],
+			[grant({ status: "revoked", lastUsedAt: "2026-09-15T11:00:00Z" })],
+			null,
+		);
+		expect(s.hasActiveGrant).toBe(false);
+		expect(s.connected).toBe(true);
 	});
 });
 
@@ -221,6 +300,8 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 	beforeEach(() => {
 		queryMock.mockReset();
 		fetchMyMcpTokensMock.mockReset();
+		fetchMyOauthAuthorizationsMock.mockReset();
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([]);
 		sessionStorage.clear();
 	});
 
@@ -312,6 +393,46 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 		});
 	});
 
+	it("仅有活跃授权（无连接 token）→ 已接入但未首联（U5：授权路径的等待态）", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([
+			grant({ status: "active", lastUsedAt: null }),
+		]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		expect(result.current).toMatchObject({
+			hasActiveToken: false,
+			hasActiveGrant: true,
+			hasActiveCredential: true,
+			connected: false,
+			error: null,
+		});
+	});
+
+	it("fetchMyOauthAuthorizations reject → error 态（授权源同 fail-closed）", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([token({ status: "active" })]);
+		fetchMyOauthAuthorizationsMock.mockRejectedValue(new Error("grants failed"));
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		expect(result.current.error).toBeInstanceOf(Error);
+		expect(result.current).toMatchObject({
+			hasActiveToken: false,
+			hasActiveCredential: false,
+			connected: false,
+			userId: null,
+		});
+	});
+
 	it("reload 重试：error 态 → reload() → 两源重拉恢复（入口页内联 alert 的重试按钮）", async () => {
 		queryMock.mockRejectedValueOnce(new Error("network down"));
 		fetchMyMcpTokensMock.mockResolvedValue([]);
@@ -338,6 +459,8 @@ describe("useOnboardingState refreshSilently（P2 等待首联态静默刷新）
 	beforeEach(() => {
 		queryMock.mockReset();
 		fetchMyMcpTokensMock.mockReset();
+		fetchMyOauthAuthorizationsMock.mockReset();
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([]);
 		sessionStorage.clear();
 	});
 
@@ -366,6 +489,28 @@ describe("useOnboardingState refreshSilently（P2 等待首联态静默刷新）
 		await waitFor(() => expect(result.current.connected).toBe(true));
 		expect(result.current.error).toBeNull();
 		expect(fetchMyMcpTokensMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("授权路径同权：静默轮次读到授权的 lastUsedAt → 等待首联态收敛", async () => {
+		queryMock.mockResolvedValue({
+			data: { me: { id: "u1", onboardingInvitationDismissedAt: null } },
+		});
+		fetchMyMcpTokensMock.mockResolvedValue([]);
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([grant({ status: "active" })]);
+
+		const { result } = renderHook(() => useOnboardingState());
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.hasActiveCredential).toBe(true);
+		expect(result.current.connected).toBe(false);
+
+		// 宿主完成首次调用（U3 的活跃性回查写 last_used_at）
+		fetchMyOauthAuthorizationsMock.mockResolvedValue([
+			grant({ status: "active", lastUsedAt: "2026-09-15T11:00:00Z" }),
+		]);
+		act(() => result.current.refreshSilently());
+
+		await waitFor(() => expect(result.current.connected).toBe(true));
+		expect(result.current.error).toBeNull();
 	});
 
 	it("失败：保留上次成功快照（瞬时网络错误不经 fail-closed 撤卡），error 不置位", async () => {

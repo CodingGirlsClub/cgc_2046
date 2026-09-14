@@ -16,6 +16,12 @@ const { fetchMyWorkspaces } = vi.hoisted(() => ({
 const { fetchMyMcpTokens } = vi.hoisted(() => ({ fetchMyMcpTokens: vi.fn() }));
 const { issueMcpToken } = vi.hoisted(() => ({ issueMcpToken: vi.fn() }));
 const { revokeMcpToken } = vi.hoisted(() => ({ revokeMcpToken: vi.fn() }));
+const { fetchMyOauthAuthorizations } = vi.hoisted(() => ({
+	fetchMyOauthAuthorizations: vi.fn(),
+}));
+const { revokeOauthAuthorization } = vi.hoisted(() => ({
+	revokeOauthAuthorization: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
 	redirect: vi.fn(),
@@ -35,7 +41,14 @@ vi.mock("@/lib/workspaces", async (importOriginal) => {
 
 vi.mock("@/lib/mcp", async (importOriginal) => {
 	const mod = (await importOriginal()) as Record<string, unknown>;
-	return { ...mod, fetchMyMcpTokens, issueMcpToken, revokeMcpToken };
+	return {
+		...mod,
+		fetchMyMcpTokens,
+		issueMcpToken,
+		revokeMcpToken,
+		fetchMyOauthAuthorizations,
+		revokeOauthAuthorization,
+	};
 });
 
 const WORKSPACES = [
@@ -80,12 +93,32 @@ const IDLE_EXPIRED_TOKEN = {
 	status: "idle_expired" as const,
 };
 
+const TEST_AUTHORIZATIONS = [
+	{
+		clientId: "cli_opencode",
+		clientName: "CGC 学习空间",
+		scope: "mcp",
+		grantedAt: "2026-09-15T10:00:00Z",
+		lastUsedAt: null,
+		status: "active" as const,
+	},
+	{
+		clientId: "cli_revoked",
+		clientName: "旧笔记本上的 opencode",
+		scope: "mcp",
+		grantedAt: "2026-09-01T10:00:00Z",
+		lastUsedAt: "2026-09-02T10:00:00Z",
+		status: "revoked" as const,
+	},
+];
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u_1" });
 	params.value = { slug: "cgc-academy" };
 	fetchMyWorkspaces.mockResolvedValue(WORKSPACES);
 	fetchMyMcpTokens.mockResolvedValue(TEST_TOKENS);
+	fetchMyOauthAuthorizations.mockResolvedValue(TEST_AUTHORIZATIONS);
 	issueMcpToken.mockResolvedValue({
 		token: {
 			id: "tok_new",
@@ -102,6 +135,10 @@ beforeEach(() => {
 		revokedAt: "2026-08-08T18:30:00Z",
 		status: "revoked" as const,
 	});
+	revokeOauthAuthorization.mockResolvedValue({
+		...TEST_AUTHORIZATIONS[0],
+		status: "revoked" as const,
+	});
 });
 
 afterEach(cleanup);
@@ -110,14 +147,16 @@ describe("/w/[slug]/settings/integrations/agents/mcp 集成 MCP 页", () => {
 	it("渲染 token 列表：名称 + 状态（有效/已撤销）", async () => {
 		render(<AgentsMcpPage />);
 
-		expect(await screen.findByText("我的 Mac")).toBeInTheDocument();
-		expect(screen.getByText("公司服务器")).toBeInTheDocument();
-		expect(screen.getByText("有效")).toBeInTheDocument();
-		expect(screen.getByText("已撤销")).toBeInTheDocument();
+		const list = await screen.findByTestId("mcp-token-list");
+		expect(within(list).getByText("我的 Mac")).toBeInTheDocument();
+		expect(within(list).getByText("公司服务器")).toBeInTheDocument();
+		expect(within(list).getByText("有效")).toBeInTheDocument();
+		expect(within(list).getByText("已撤销")).toBeInTheDocument();
 	});
 
 	it("空态：无 token 时显示轻提示 + 查看接入指引链接（指向 guides 页）", async () => {
 		fetchMyMcpTokens.mockResolvedValue([]);
+		fetchMyOauthAuthorizations.mockResolvedValue([]);
 		render(<AgentsMcpPage />);
 
 		expect(await screen.findByText("还没有连接 token")).toBeInTheDocument();
@@ -147,6 +186,8 @@ describe("/w/[slug]/settings/integrations/agents/mcp 集成 MCP 页", () => {
 	it("签发：表单提交后展示一次性明文（含只显示一次警告）并更新列表", async () => {
 		render(<AgentsMcpPage />);
 
+		// 等首拉落地再签发：拉取回包在签发后落地会用服务端快照覆盖本地插入
+		await screen.findByTestId("mcp-token-list");
 		fireEvent.click(
 			await screen.findByRole("button", { name: /签发新 token/ }),
 		);
@@ -163,9 +204,9 @@ describe("/w/[slug]/settings/integrations/agents/mcp 集成 MCP 页", () => {
 			await screen.findByText("cgc_test_plain_token_value"),
 		).toBeInTheDocument();
 		expect(screen.getByText(/只显示这一次/)).toBeInTheDocument();
-		// 列表更新（明文横幅与列表卡片都含名称，收窄到列表容器断言）
+		// 列表更新（明文横幅与列表卡片都含名称，收窄到 token 列表容器断言）
 		const list = await waitFor(() => {
-			const el = document.querySelector(".invitations-list");
+			const el = screen.getByTestId("mcp-token-list");
 			expect(el).toHaveTextContent("新设备");
 			return el;
 		});
@@ -175,36 +216,117 @@ describe("/w/[slug]/settings/integrations/agents/mcp 集成 MCP 页", () => {
 	it("撤销需二次确认：点击撤销 → 确认撤销 → 状态变为已撤销", async () => {
 		render(<AgentsMcpPage />);
 
-		const revokeButton = await screen.findByRole("button", { name: "撤销" });
-		fireEvent.click(revokeButton);
+		const list = await screen.findByTestId("mcp-token-list");
+		fireEvent.click(within(list).getByRole("button", { name: "撤销" }));
 		// 未确认前不调用
 		expect(revokeMcpToken).not.toHaveBeenCalled();
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "确认撤销" }),
-		);
+		fireEvent.click(within(list).getByRole("button", { name: "确认撤销" }));
 
 		await waitFor(() => {
 			expect(revokeMcpToken).toHaveBeenCalledWith("tok_1");
 		});
-		// 两个 token 都已是已撤销状态
-		expect((await screen.findAllByText("已撤销")).length).toBe(2);
+		// 两个 token 都已是已撤销状态（授权区块的徽章不在本容器内）
+		expect(within(list).getAllByText("已撤销").length).toBe(2);
 	});
 
 	it("idle_expired token：渲染闲置过期徽章（amber）且撤销按钮可用（#226）", async () => {
 		fetchMyMcpTokens.mockResolvedValue([IDLE_EXPIRED_TOKEN]);
 		render(<AgentsMcpPage />);
 
-		expect(await screen.findByText("寒假前的电脑")).toBeInTheDocument();
+		const list = await screen.findByTestId("mcp-token-list");
+		expect(within(list).getByText("寒假前的电脑")).toBeInTheDocument();
 		// amber 徽章 + 闲置过期文案
-		const badge = document.querySelector(".l-badge-pending");
+		const badge = list.querySelector(".l-badge-pending");
 		expect(badge).not.toBeNull();
 		expect(badge).toHaveTextContent("闲置过期（90 天未使用）");
 		// 撤销门按 status !== "revoked"：idle_expired 仍可撤（清理死行）
-		const revokeButton = await screen.findByRole("button", { name: "撤销" });
-		fireEvent.click(revokeButton);
+		fireEvent.click(within(list).getByRole("button", { name: "撤销" }));
 		expect(
-			await screen.findByRole("button", { name: "确认撤销" }),
+			within(list).getByRole("button", { name: "确认撤销" }),
 		).toBeInTheDocument();
+	});
+});
+
+describe("U5：已授权应用区块（KTD3 同界面两类凭证）", () => {
+	it("渲染授权列表：客户端名 + 授权/最近使用时间 + 状态徽章", async () => {
+		render(<AgentsMcpPage />);
+
+		const apps = await screen.findByTestId("authorized-apps");
+		expect(within(apps).getByText("CGC 学习空间")).toBeInTheDocument();
+		expect(within(apps).getByText(/授权于 2026-09-15/)).toBeInTheDocument();
+		// active 徽章「有效」在 token 区与授权区各一（本容器内只断言本区）
+		expect(within(apps).getByText("有效")).toBeInTheDocument();
+		expect(within(apps).getByText("已撤销")).toBeInTheDocument();
+	});
+
+	it("无授权：区块显示空态文案（不与 token 空态混淆）", async () => {
+		fetchMyOauthAuthorizations.mockResolvedValue([]);
+		render(<AgentsMcpPage />);
+
+		expect(await screen.findByTestId("authorized-apps-empty")).toHaveTextContent(
+			"还没有已授权应用",
+		);
+		expect(screen.queryByTestId("authorized-apps")).not.toBeInTheDocument();
+	});
+
+	it("撤销需二次确认：确认后调用 revokeOauthAuthorization 并把该行移出列表", async () => {
+		render(<AgentsMcpPage />);
+
+		const apps = await screen.findByTestId("authorized-apps");
+		fireEvent.click(within(apps).getByRole("button", { name: "撤销" }));
+		expect(revokeOauthAuthorization).not.toHaveBeenCalled();
+
+		fireEvent.click(within(apps).getByRole("button", { name: "确认撤销" }));
+
+		await waitFor(() => {
+			expect(revokeOauthAuthorization).toHaveBeenCalledWith("cli_opencode");
+		});
+		// web 撤销同时撤回同意行：该 client 不再是「已授权」，行消失
+		await waitFor(() => {
+			expect(
+				within(screen.getByTestId("authorized-apps")).queryByText("CGC 学习空间"),
+			).not.toBeInTheDocument();
+		});
+		// 已撤销（宿主自撤销）的审计行保留，不受影响
+		expect(screen.getByText("旧笔记本上的 opencode")).toBeInTheDocument();
+	});
+
+	it("已撤销（宿主自撤销）行只读：不渲染撤销按钮", async () => {
+		fetchMyOauthAuthorizations.mockResolvedValue([TEST_AUTHORIZATIONS[1]]);
+		render(<AgentsMcpPage />);
+
+		const apps = await screen.findByTestId("authorized-apps");
+		expect(within(apps).queryByRole("button", { name: "撤销" })).not.toBeInTheDocument();
+	});
+
+	it("撤销失败：内联报错且行保留（不静默吞）", async () => {
+		revokeOauthAuthorization.mockRejectedValue(
+			new Error("errors.revokeOauthAuthorizationFailed"),
+		);
+		render(<AgentsMcpPage />);
+
+		const apps = await screen.findByTestId("authorized-apps");
+		fireEvent.click(within(apps).getByRole("button", { name: "撤销" }));
+		fireEvent.click(within(apps).getByRole("button", { name: "确认撤销" }));
+
+		const alert = await screen.findByRole("alert");
+		expect(alert).toHaveTextContent("撤销失败，请重试。");
+		expect(screen.getByText("CGC 学习空间")).toBeInTheDocument();
+	});
+
+	it("加载失败：内联报错 + 重试按钮重拉两源", async () => {
+		fetchMyOauthAuthorizations.mockRejectedValueOnce(new Error("network down"));
+		render(<AgentsMcpPage />);
+
+		const alert = await screen.findByRole("alert");
+		expect(alert).toBeInTheDocument();
+		expect(screen.queryByTestId("mcp-token-list")).not.toBeInTheDocument();
+
+		fetchMyOauthAuthorizations.mockResolvedValue(TEST_AUTHORIZATIONS);
+		fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+		expect(await screen.findByTestId("authorized-apps")).toBeInTheDocument();
+		expect(screen.getByTestId("mcp-token-list")).toBeInTheDocument();
 	});
 });

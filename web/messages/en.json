@@ -58,7 +58,9 @@
     "revokeMcpTokenFailed": "Failed to revoke, please try again later",
     "operation_confirm_failed": "Confirmation failed or expired. Please start the operation again.",
     "operation_cancel_failed": "Failed to cancel. The operation may already be confirmed or cancelled — refresh to verify.",
-    "operation_unavailable": "Operation unavailable. Please try again later."
+    "operation_unavailable": "Operation unavailable. Please try again later.",
+    "loadMcpCredentialsFailed": "Failed to load. Please retry.",
+    "revokeOauthAuthorizationFailed": "Revoke failed. Please retry."
   },
   "auth": {
     "helpCenter": "Help Center",
@@ -694,7 +696,8 @@
       "discover": "Discover / join a workspace",
       "approvals": "Approvals",
       "approvalsWithCount": "Approvals, {count} pending",
-      "myParticipations": "My participations"
+      "myParticipations": "My participations",
+      "connections": "Connections & authorizations"
     },
     "status": {
       "active": "Active",
@@ -960,7 +963,29 @@
     "revoked": "Revoked",
     "revoking": "Revoking…",
     "confirmRevoke": "Confirm revoke",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "tokensHeading": "Connection tokens"
+  },
+  "oauthAuthorizations": {
+    "title": "Authorized apps",
+    "subtitle": "Apps connected to your account through platform OAuth. Revoking takes effect immediately; the app must ask for consent again next time.",
+    "empty": "No authorized apps yet",
+    "grantedAt": "Authorized {time}",
+    "lastUsed": "Last used {time}",
+    "statusActive": "Active",
+    "statusIdleExpired": "Idle expired",
+    "statusRevoked": "Revoked",
+    "statusPending": "Awaiting connection",
+    "unknownClient": "Unknown app ({id})",
+    "revoke": "Revoke",
+    "confirmRevoke": "Confirm revoke",
+    "revoking": "Revoking…",
+    "cancel": "Cancel",
+    "revokeFailed": "Failed to revoke"
+  },
+  "accountConnections": {
+    "title": "Connections & authorizations",
+    "subtitle": "Manage the Agent connection tokens and authorized apps bound to your account. Revocation takes effect immediately — no need to wait for credentials to expire."
   },
   "agentConnect": {
     "breadcrumbHome": "Workspaces",

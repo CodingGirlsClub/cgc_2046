@@ -60,6 +60,8 @@ const WORKSPACES = [
 const ONBOARDING_BASE = {
 	dismissed: false,
 	hasActiveToken: false,
+	hasActiveGrant: false,
+	hasActiveCredential: false,
 	connected: false,
 	loading: false,
 	error: null,
@@ -138,7 +140,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 	it("有 active token → 管理态 + 「已接入 ✓ · 重新查看引导」入口（AE4 后半）", async () => {
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: true,
 		});
 		render(<AgentsIntegrationsPage />);
@@ -162,10 +164,28 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		]);
 	});
 
+	it("U5 授权路径：仅有活跃授权（无连接 token）→ 管理态（授权也算已接入，不进向导）", async () => {
+		useOnboardingState.mockReturnValue({
+			...ONBOARDING_BASE,
+			hasActiveToken: false,
+			hasActiveGrant: true,
+			hasActiveCredential: true,
+		});
+		render(<AgentsIntegrationsPage />);
+
+		expect(
+			await screen.findByRole("navigation", { name: "工作区设置页签" }),
+		).toBeInTheDocument();
+		expect(screen.getByText(/已接入/)).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", { name: "接入你的 Agent" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("管理态「重新查看引导」→ 只读向导（无签发面），可返回管理态", async () => {
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 		});
 		render(<AgentsIntegrationsPage />);
 
@@ -198,7 +218,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
-			hasActiveToken: true,
+			hasActiveCredential: true,
 			connected: true,
 		});
 		render(<AgentsIntegrationsPage />);

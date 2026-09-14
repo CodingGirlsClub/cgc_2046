@@ -63,9 +63,11 @@ export default function WorkspacePage() {
 	// 邀请模态：每次登录弹直到明确拒绝（session-settled）——全真才弹。
 	// 开态为派生态（react-hooks/set-state-in-effect：不在 effect 里同步 setState），
 	// effect 只做「展示即写 session 旗标」（KTD4）
+	// U5：门控用 hasActiveCredential（活跃 token 或活跃 OAuth 授权）——已授权用户
+	// 不再收到「去接入」邀请。
 	const inviteOpen =
 		onboardingEligible &&
-		!onboarding.hasActiveToken &&
+		!onboarding.hasActiveCredential &&
 		!onboarding.dismissed &&
 		!onboarding.inviteShownThisSession &&
 		!inviteClosed;
@@ -80,8 +82,11 @@ export default function WorkspacePage() {
 	// 分屏不切窗 / 宿主自动连接（回调内判 visible 才刷）。态退出（connected 置真
 	// 或不再 eligible）由 effect 清理拆除监听与 interval。
 	// 范围纪律：仅等待首联态挂监听——邀请态与已接入态不轮询。
+	// U5：授权路径同权——仅有活跃授权而无调用记录时此处同样轮询到首联收敛。
 	const awaitingFirstConnect =
-		onboardingEligible && onboarding.hasActiveToken && !onboarding.connected;
+		onboardingEligible &&
+		onboarding.hasActiveCredential &&
+		!onboarding.connected;
 	const { refreshSilently } = onboarding;
 	useEffect(() => {
 		if (!awaitingFirstConnect) return;
@@ -224,14 +229,15 @@ export default function WorkspacePage() {
 							</div>
 						)}
 
-						{/* 首公里常驻接入卡（R8）：未接入 → 邀请态；已签发未首联 → 等待提醒态；
-						    connected 后不挂；dismissed 不影响（R2 拒绝模态后的常驻入口） */}
+						{/* 首公里常驻接入卡（R8）：未接入 → 邀请态；已签发/已授权未首联 → 等待提醒态；
+						    connected 后不挂；dismissed 不影响（R2 拒绝模态后的常驻入口）。
+						    U5：门控与卡态都按「活跃 token 或活跃授权」（KTD3 单一判定） */}
 						{onboardingEligible &&
-							(!onboarding.hasActiveToken || !onboarding.connected) && (
+							(!onboarding.hasActiveCredential || !onboarding.connected) && (
 								<div className="mt-4">
 									<OnboardingConnectCard
 										slug={slug}
-										hasActiveToken={onboarding.hasActiveToken}
+										hasActiveCredential={onboarding.hasActiveCredential}
 									/>
 								</div>
 							)}
