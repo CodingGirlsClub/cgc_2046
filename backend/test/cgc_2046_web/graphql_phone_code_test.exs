@@ -255,10 +255,15 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
       {:ok, signed} =
-        AshAuthentication.Strategy.action(strategy, :sign_in, %{
-          "email" => "m8-web-face@test.local",
-          "password" => "password12345"
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :sign_in,
+          %{
+            "email" => "m8-web-face@test.local",
+            "password" => "password12345"
+          },
+          []
+        )
 
       pw_token = signed.__metadata__[:token]
 

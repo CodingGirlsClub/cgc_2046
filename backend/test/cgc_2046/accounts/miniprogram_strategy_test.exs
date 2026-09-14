@@ -17,12 +17,17 @@ defmodule Cgc2046.Accounts.MiniprogramStrategyTest do
   defp strategy, do: Info.strategy!(User, :miniprogram)
 
   defp sign_in(platform, code, encrypted_data, iv) do
-    Strategy.action(strategy(), :sign_in, %{
-      platform: platform,
-      code: code,
-      encrypted_data: encrypted_data,
-      iv: iv
-    })
+    Strategy.action(
+      strategy(),
+      :sign_in,
+      %{
+        platform: platform,
+        code: code,
+        encrypted_data: encrypted_data,
+        iv: iv
+      },
+      []
+    )
   end
 
   # 构造一次成功登录的全部材料：{响应体, encrypted_data, iv}

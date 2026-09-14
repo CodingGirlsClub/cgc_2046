@@ -123,8 +123,10 @@ defmodule Cgc2046.Accounts.SignInFlow do
         {:ok, token, _claims} ->
           {:ok, Ash.Resource.put_metadata(user, :token, token)}
 
-        :error ->
-          {:error, :token_generation_failed}
+        # AA 5.0：`Jwt.token_for_user/3` 失败改返回 `{:error, AuthenticationFailed.t}`
+        # （4.x 为抛出）；原 `:error ->` 子句已成永不匹配的死代码（编译期 type warning）。
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:ok, user}

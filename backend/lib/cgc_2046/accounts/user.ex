@@ -330,6 +330,14 @@ defmodule Cgc2046.Accounts.User do
     # 此处以资源级 change 在重置 action 的 after_action 内直调同一生成 action
     # `revoke_all_stored_for_subject`（KTD5 指定的机制，非手写 revoke 循环），
     # 失败冒泡 → 改密事务整体回滚（fail-closed，同 KTD5 语义）。
+    #
+    # AA 5.0（upgrading.md §3 同源的令牌面改造）：`Password.Actions.reset` 自身
+    # 在 after_action 里吊销本次重置 token，并按资源 `store_all_tokens?` 传入
+    # `store_all_tokens?: true` 走原子路径——`revoke_locked` 命中「该 jti 已是
+    # revocation 行」即报 InvalidToken 错误并冒泡（4.x 走幂等 legacy upsert，
+    # 掩盖了顺序冲突）。本 change 挂在 for_update 期、hook 先于 AA 内建执行，
+    # 故必须排除本次重置 token 行，交 AA 内建吊销；两者并集 = 全部已存 token，
+    # 终态与语义不变（全量 revocation + 重置 token 一次性）。
     change(
       fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, record ->
@@ -340,6 +348,7 @@ defmodule Cgc2046.Accounts.User do
             |> Ash.Query.new()
             |> Ash.Query.set_context(%{private: %{ash_authentication?: true}})
             |> Ash.Query.for_read(:stored_for_subject, %{subject: subject})
+            |> exclude_reset_token(Ash.Changeset.get_argument(changeset, :reset_token))
             |> Ash.bulk_update(:revoke_all_stored_for_subject, %{subject: subject},
               strategy: [:atomic, :atomic_batches, :stream],
               context: %{private: %{ash_authentication?: true}},
@@ -368,6 +377,20 @@ defmodule Cgc2046.Accounts.User do
       where: [{Ash.Resource.Validation.ActionIs, action: :password_reset_with_password}]
     )
   end
+
+  require Ash.Query
+
+  # 排除本次重置 token 的已存行（AA 内建吊销负责它，见 changes do 注释）。
+  # `Jwt.peek` 失败（畸形 token）→ 不排除：该路径 action 已在校验期失败，
+  # 走不到内建吊销，排除与否对外行为一致。
+  defp exclude_reset_token(query, reset_token) when is_binary(reset_token) do
+    case AshAuthentication.Jwt.peek(reset_token) do
+      {:ok, %{"jti" => jti}} -> Ash.Query.filter(query, jti != ^jti)
+      _ -> query
+    end
+  end
+
+  defp exclude_reset_token(query, _reset_token), do: query
 
   authentication do
     tokens do

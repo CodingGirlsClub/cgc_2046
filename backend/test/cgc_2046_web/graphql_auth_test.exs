@@ -179,10 +179,15 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
       {:ok, signed} =
-        AshAuthentication.Strategy.action(strategy, :sign_in, %{
-          "email" => @email,
-          "password" => @password
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :sign_in,
+          %{
+            "email" => @email,
+            "password" => @password
+          },
+          []
+        )
 
       {:ok, token: signed.__metadata__[:token], user: user}
     end
@@ -256,10 +261,15 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
       {:ok, signed} =
-        AshAuthentication.Strategy.action(strategy, :sign_in, %{
-          "email" => "uncertain@example.com",
-          "password" => @password
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :sign_in,
+          %{
+            "email" => "uncertain@example.com",
+            "password" => @password
+          },
+          []
+        )
 
       token = signed.__metadata__[:token]
 

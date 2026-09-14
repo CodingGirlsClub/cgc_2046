@@ -41,7 +41,7 @@ defmodule Cgc2046.AccountsFixtures do
     {:ok, user} =
       User
       |> Info.strategy!(:password)
-      |> Strategy.action(:register, %{email: email, password: @password})
+      |> Strategy.action(:register, %{email: email, password: @password}, [])
 
     user
   end

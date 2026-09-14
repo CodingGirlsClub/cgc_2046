@@ -31,7 +31,8 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
     user = Fixtures.register_user("password-reset-email")
     user = %{user | display_name: "<img src=x onerror=alert(1)>"}
 
-    assert :ok = Strategy.action(strategy(), :reset_request, %{"email" => to_string(user.email)})
+    assert :ok =
+             Strategy.action(strategy(), :reset_request, %{"email" => to_string(user.email)}, [])
 
     assert_receive {:email, email}, 1_000
     assert {_name, address} = List.first(email.to)
@@ -46,7 +47,9 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
   end
 
   test "requesting a reset for an unknown email is a silent success with no email" do
-    assert :ok = Strategy.action(strategy(), :reset_request, %{"email" => "missing@example.com"})
+    assert :ok =
+             Strategy.action(strategy(), :reset_request, %{"email" => "missing@example.com"}, [])
+
     refute_receive {:email, _email}, 100
   end
 
@@ -56,16 +59,21 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
     second_token = reset_token(user)
 
     assert {:ok, _updated} =
-             Strategy.action(strategy(), :reset, reset_params(first_token, "new-password-1"))
+             Strategy.action(strategy(), :reset, reset_params(first_token, "new-password-1"), [])
 
     assert {:error, %AshAuthentication.Errors.InvalidToken{}} =
-             Strategy.action(strategy(), :reset, reset_params(second_token, "new-password-2"))
+             Strategy.action(strategy(), :reset, reset_params(second_token, "new-password-2"), [])
 
     assert {:ok, _signed_in} =
-             Strategy.action(strategy(), :sign_in, %{
-               "email" => to_string(user.email),
-               "password" => "new-password-1"
-             })
+             Strategy.action(
+               strategy(),
+               :sign_in,
+               %{
+                 "email" => to_string(user.email),
+                 "password" => "new-password-1"
+               },
+               []
+             )
   end
 
   test "resource reset is fail-closed when revocation fails and can be retried" do
@@ -77,37 +85,57 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
 
     try do
       assert {:error, _reason} =
-               Strategy.action(strategy(), :reset, reset_params(token, new_password))
+               Strategy.action(strategy(), :reset, reset_params(token, new_password), [])
 
       assert {:ok, _signed_in} =
-               Strategy.action(strategy(), :sign_in, %{
-                 "email" => to_string(user.email),
-                 "password" => Fixtures.password()
-               })
+               Strategy.action(
+                 strategy(),
+                 :sign_in,
+                 %{
+                   "email" => to_string(user.email),
+                   "password" => Fixtures.password()
+                 },
+                 []
+               )
 
       assert {:error, _wrong_password} =
-               Strategy.action(strategy(), :sign_in, %{
-                 "email" => to_string(user.email),
-                 "password" => new_password
-               })
+               Strategy.action(
+                 strategy(),
+                 :sign_in,
+                 %{
+                   "email" => to_string(user.email),
+                   "password" => new_password
+                 },
+                 []
+               )
     after
       remove_revoke_failure_trigger()
     end
 
     assert {:ok, _updated} =
-             Strategy.action(strategy(), :reset, reset_params(token, new_password))
+             Strategy.action(strategy(), :reset, reset_params(token, new_password), [])
 
     assert {:ok, _signed_in} =
-             Strategy.action(strategy(), :sign_in, %{
-               "email" => to_string(user.email),
-               "password" => new_password
-             })
+             Strategy.action(
+               strategy(),
+               :sign_in,
+               %{
+                 "email" => to_string(user.email),
+                 "password" => new_password
+               },
+               []
+             )
 
     assert {:error, _old_password} =
-             Strategy.action(strategy(), :sign_in, %{
-               "email" => to_string(user.email),
-               "password" => Fixtures.password()
-             })
+             Strategy.action(
+               strategy(),
+               :sign_in,
+               %{
+                 "email" => to_string(user.email),
+                 "password" => Fixtures.password()
+               },
+               []
+             )
   end
 
   test "a reset token is one-time and weak passwords do not consume it" do
@@ -115,13 +143,13 @@ defmodule Cgc2046.Accounts.PasswordResetTest do
     token = reset_token(user)
 
     assert {:error, %Ash.Error.Invalid{}} =
-             Strategy.action(strategy(), :reset, reset_params(token, "short"))
+             Strategy.action(strategy(), :reset, reset_params(token, "short"), [])
 
     assert {:ok, _updated} =
-             Strategy.action(strategy(), :reset, reset_params(token, "valid-password-1"))
+             Strategy.action(strategy(), :reset, reset_params(token, "valid-password-1"), [])
 
     assert {:error, %AshAuthentication.Errors.InvalidToken{}} =
-             Strategy.action(strategy(), :reset, reset_params(token, "valid-password-2"))
+             Strategy.action(strategy(), :reset, reset_params(token, "valid-password-2"), [])
   end
 
   test "mailer failures are swallowed and telemetry contains only masked email and reason" do

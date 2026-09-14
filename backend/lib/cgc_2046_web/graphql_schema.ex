@@ -791,11 +791,7 @@ defmodule Cgc2046Web.GraphqlSchema do
             strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
             _ =
-              AshAuthentication.Strategy.action(
-                strategy,
-                :reset_request,
-                %{"email" => email}
-              )
+              AshAuthentication.Strategy.action(strategy, :reset_request, %{"email" => email}, [])
 
             {:ok, %{sent: true}}
 
@@ -821,7 +817,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         strategy = AshAuthentication.Info.strategy!(Cgc2046.Accounts.User, :password)
 
         try do
-          case AshAuthentication.Strategy.action(strategy, :reset, params) do
+          case AshAuthentication.Strategy.action(strategy, :reset, params, []) do
             {:ok, _user} ->
               {:ok, %{ok: true}}
 

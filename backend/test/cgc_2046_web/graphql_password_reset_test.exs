@@ -128,10 +128,15 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
       strategy = Info.strategy!(User, :password)
 
       {:ok, signed_in} =
-        Strategy.action(strategy, :sign_in, %{
-          "email" => "gql-pwd-reset-success@example.com",
-          "password" => @password
-        })
+        Strategy.action(
+          strategy,
+          :sign_in,
+          %{
+            "email" => "gql-pwd-reset-success@example.com",
+            "password" => @password
+          },
+          []
+        )
 
       session_token = signed_in.__metadata__[:token]
 

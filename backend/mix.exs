@@ -56,8 +56,11 @@ defmodule Cgc2046.MixProject do
       {:ash, "~> 3.31"},
       {:ash_postgres, "~> 2.11"},
       {:ash_graphql, "~> 1.10"},
-      {:ash_authentication, "~> 4.14"},
-      {:ash_authentication_phoenix, "~> 2.4"},
+      # opencode Desktop 接入（KTD1）：MCP OAuth 授权服务器官方实现要求
+      # ash_authentication ~> 5.0-rc；两条 RC 依赖进生产栈由 U1 spike 全 CI 验证。
+      {:ash_authentication, "~> 5.0-rc"},
+      {:ash_authentication_phoenix, "~> 3.0-rc"},
+      {:ash_authentication_oauth2_server, "~> 0.3.1"},
       {:ash_admin, "~> 1.2"},
       # Slice C workflow engine（ADR-0002 Jido 选型；jido_runic 底层 runic 仍 alpha，经 JidoAdapter 适配层隔离）
       {:jido, "~> 2.3"},

@@ -16,10 +16,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:ok, user} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: @email,
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: @email,
+                   password: @password
+                 },
+                 []
+               )
 
       assert to_string(user.email) == @email
       refute is_nil(user.__metadata__.token)
@@ -32,10 +37,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:ok, user} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: @email,
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: @email,
+                   password: @password
+                 },
+                 []
+               )
 
       assert user.hashed_password != @password
 
@@ -58,16 +68,26 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:ok, _user} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: @email,
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: @email,
+                   password: @password
+                 },
+                 []
+               )
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: @email,
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: @email,
+                   password: @password
+                 },
+                 []
+               )
 
       assert Enum.any?(errors, fn error ->
                Exception.message(error) =~ "email"
@@ -78,10 +98,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: @email,
-                 password: "short"
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: @email,
+                   password: "short"
+                 },
+                 []
+               )
 
       assert Enum.any?(errors, fn
                %Ash.Error.Changes.InvalidArgument{field: :password} -> true
@@ -93,10 +118,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 email: "not-an-email",
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   email: "not-an-email",
+                   password: @password
+                 },
+                 []
+               )
 
       assert Enum.any?(errors, fn
                %Ash.Error.Changes.InvalidAttribute{field: :email} -> true
@@ -111,9 +141,14 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               AshAuthentication.Strategy.action(strategy, :register, %{
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :register,
+                 %{
+                   password: @password
+                 },
+                 []
+               )
 
       assert Enum.any?(errors, fn error ->
                Exception.message(error) =~ "email"
@@ -126,10 +161,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       {:ok, _user} =
-        AshAuthentication.Strategy.action(strategy, :register, %{
-          email: @email,
-          password: @password
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :register,
+          %{
+            email: @email,
+            password: @password
+          },
+          []
+        )
 
       :ok
     end
@@ -138,10 +178,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:ok, user} =
-               AshAuthentication.Strategy.action(strategy, :sign_in, %{
-                 email: @email,
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :sign_in,
+                 %{
+                   email: @email,
+                   password: @password
+                 },
+                 []
+               )
 
       assert to_string(user.email) == @email
       assert is_binary(user.__metadata__.token)
@@ -152,20 +197,30 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       assert {:error, %AshAuthentication.Errors.AuthenticationFailed{}} =
-               AshAuthentication.Strategy.action(strategy, :sign_in, %{
-                 email: @email,
-                 password: "wrong-password"
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :sign_in,
+                 %{
+                   email: @email,
+                   password: "wrong-password"
+                 },
+                 []
+               )
     end
 
     test "fails for an unknown email" do
       strategy = password_strategy()
 
       assert {:error, %AshAuthentication.Errors.AuthenticationFailed{}} =
-               AshAuthentication.Strategy.action(strategy, :sign_in, %{
-                 email: "nobody@example.com",
-                 password: @password
-               })
+               AshAuthentication.Strategy.action(
+                 strategy,
+                 :sign_in,
+                 %{
+                   email: "nobody@example.com",
+                   password: @password
+                 },
+                 []
+               )
     end
   end
 
@@ -174,10 +229,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       {:ok, user} =
-        AshAuthentication.Strategy.action(strategy, :register, %{
-          email: @email,
-          password: @password
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :register,
+          %{
+            email: @email,
+            password: @password
+          },
+          []
+        )
 
       token = user.__metadata__.token
 
@@ -192,10 +252,15 @@ defmodule Cgc2046.Accounts.UserTest do
       strategy = password_strategy()
 
       {:ok, user} =
-        AshAuthentication.Strategy.action(strategy, :register, %{
-          email: email,
-          password: @password
-        })
+        AshAuthentication.Strategy.action(
+          strategy,
+          :register,
+          %{
+            email: email,
+            password: @password
+          },
+          []
+        )
 
       user
     end

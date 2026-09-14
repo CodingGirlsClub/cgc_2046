@@ -17,6 +17,14 @@ defmodule Cgc2046.Accounts.Token do
   import Ash.Expr, only: [expr: 1]
 
   actions do
+    # AA 5.0 breaking change（upgrading.md §3）：token 资源上的 `:revoked?` 由
+    # read action 改为 generic action，其实现（`TokenResource.IsRevoked`）走
+    # `Ash.exists/1`（Aggregate）——该路径要求资源存在 primary read action；
+    # 4.x 的 read action 版本按名读取，无此要求。上游 Example.Token 即
+    # `defaults [:read, :destroy]`。读权限不变：本资源 policy 只放行
+    # ash_authentication 私有 context（IsRevoked 自身设置该 context）。
+    defaults([:read])
+
     read :stored_for_subject do
       description("内部：枚举某 subject 全部活跃（purpose=user）已存 token（重登吊销用）")
 

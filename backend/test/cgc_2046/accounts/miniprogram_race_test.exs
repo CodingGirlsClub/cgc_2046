@@ -73,12 +73,17 @@ defmodule Cgc2046.Accounts.MiniprogramRaceTest do
   end
 
   defp sign_in(platform, code, encrypted_data, iv) do
-    Strategy.action(Info.strategy!(User, :miniprogram), :sign_in, %{
-      platform: platform,
-      code: code,
-      encrypted_data: encrypted_data,
-      iv: iv
-    })
+    Strategy.action(
+      Info.strategy!(User, :miniprogram),
+      :sign_in,
+      %{
+        platform: platform,
+        code: code,
+        encrypted_data: encrypted_data,
+        iv: iv
+      },
+      []
+    )
   end
 
   # 并发同平台同手机号：N 个任务栅栏对齐后同时 find-or-create
