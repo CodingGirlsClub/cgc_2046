@@ -110,7 +110,7 @@ export default function EventModeratorsCard({
 					value={userId}
 					placeholder={t("moderatorUserId")}
 					onChange={(e) => setUserId(e.target.value)}
-					className="w-full max-w-md rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+					className="ui-input w-full max-w-md"
 				/>
 				<button
 					type="button"

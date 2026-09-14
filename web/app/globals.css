@@ -38,6 +38,8 @@
   --soft: rgba(255, 255, 255, 0.05); /* 浅层底色（chip/hover/codeblock） */
   --soft-2: rgba(255, 255, 255, 0.02);
   --line-strong: rgba(255, 255, 255, 0.15);
+  /* 自绘下拉箭头（原生 select appearance:none 后由背景图提供，.ui-select / select.l-input 共用） */
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888f9e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 /* ---------- Profile (#69): tenant-visible view / dark edit surface ---------- */
@@ -1014,6 +1016,8 @@
   --soft: rgba(0, 0, 0, 0.05);
   --soft-2: rgba(0, 0, 0, 0.02);
   --line-strong: rgba(0, 0, 0, 0.15);
+  /* 非颜色资源，两主题同值（design-tokens 守卫要求 :root/.light key 对称） */
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888f9e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 /* ---------- Tailwind token 映射（引用运行时变量，随主题 class 切换） ---------- */
@@ -1271,6 +1275,52 @@ body {
   }
   .l-input::placeholder { color: var(--ink-3); }
   .l-input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+
+  /* ---------- 统一下拉：原生 select + 自绘箭头（工作区表单共用） ---------- */
+  .ui-select {
+    appearance: none;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-large);
+    background-color: var(--soft-2);
+    background-image: var(--select-chevron);
+    background-position: right 12px center;
+    background-size: 12px 12px;
+    background-repeat: no-repeat;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 20px;
+    padding: 8px 30px 8px 12px;
+  }
+  .ui-select:disabled { opacity: 0.6; }
+  .ui-select--sm { padding: 4px 30px 4px 8px; }
+  /* 文本输入族：皮肤与 .ui-select 同源；焦点环与公开面 :focus-visible 同值（F6） */
+  .ui-input,
+  .ui-textarea {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-large);
+    background-color: var(--soft-2);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 20px;
+    padding: 8px 12px;
+  }
+  .ui-input:disabled,
+  .ui-textarea:disabled { opacity: 0.6; }
+  .ui-select:focus-visible,
+  .ui-input:focus-visible,
+  .ui-textarea:focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+  /* l-input 家族里的 select 共用同一箭头机制 */
+  select.l-input {
+    appearance: none;
+    background-image: var(--select-chevron);
+    background-position: right 10px center;
+    background-size: 12px 12px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+  }
 
   /* ---------- Platform admin (#113): /admin ops console ----------
      数据密集的运营后台：顶栏壳 + 高密度表格 + 卡片。
@@ -2259,18 +2309,17 @@ body {
 }
 
 /* ---------- 键盘焦点环（F6）：公开页统一 :focus-visible，暗面以 accent-strong 描边可见。
-   仅键盘导航触发（指针/触屏交互不打扰）；.ld-offer-row 显式列出（行链接语义），
-   .ld-focus-ring 为 U5 owner 表单输入（datetime-local / venue 文本）挂钩；
+   仅键盘导航触发（指针/触屏交互不打扰）；.ld-offer-row 显式列出（行链接语义）；
    input/select/textarea 覆盖公开报名/赞助面原生控件（详情邀请码 input、价格
    radio、赞助意向表单 select/input；radio 为 input 自然覆盖，圆形 outline 可接受）——
-   规则全部锚在 .ld-* 作用域，应用内（非 .ld-*）既有 focus 样式不受影响。 ---------- */
+   规则全部锚在 .ld-* 作用域，应用内（非 .ld-*）既有 focus 样式不受影响。
+   注：工作区表单控件（.ui-select / .ui-input / .ui-textarea）自带同值 :focus-visible。 ---------- */
 .ld-root a:focus-visible,
 .ld-root button:focus-visible,
 .ld-root input:focus-visible,
 .ld-root select:focus-visible,
 .ld-root textarea:focus-visible,
-.ld-offer-row:focus-visible,
-.ld-focus-ring:focus-visible {
+.ld-offer-row:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
 }

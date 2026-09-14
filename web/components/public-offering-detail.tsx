@@ -693,7 +693,7 @@ export default function PublicOfferingDetailPage({
                         <input
                           value={inviteCode}
                           onChange={(e) => setInviteCode(e.target.value)}
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+                          className="ui-input mt-1 w-full"
                         />
                       </label>
                     ) : null}

@@ -167,7 +167,7 @@ function ScheduleFields({
           type="datetime-local"
           value={startsAt}
           onChange={(e) => onStartsAtChange(e.target.value)}
-          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ui-input mt-1 w-full"
         />
       </label>
       <label className="block">
@@ -176,7 +176,7 @@ function ScheduleFields({
           type="datetime-local"
           value={endsAt}
           onChange={(e) => onEndsAtChange(e.target.value)}
-          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ui-input mt-1 w-full"
         />
       </label>
     </>
@@ -210,7 +210,7 @@ function VenueFields({
           <input
             value={value[key]}
             onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-            className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+            className="ui-input mt-1 w-full"
           />
         </label>
       ))}
@@ -1243,7 +1243,7 @@ export function OfferingDetailPage({
                             title: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1260,7 +1260,7 @@ export function OfferingDetailPage({
                               .value as EnrollmentPolicy,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-select mt-1 w-full"
                       >
                         {ENROLLMENT_POLICIES.map((p) => (
                           <option key={p} value={p}>
@@ -1284,7 +1284,7 @@ export function OfferingDetailPage({
                             capacity: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1317,7 +1317,7 @@ export function OfferingDetailPage({
                             deadline: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1340,7 +1340,7 @@ export function OfferingDetailPage({
                           onFocus={loadInitiatives}
                           onChange={(e) => setMetaDraft({ ...activeDraft, initiativeId: e.target.value || null })}
                           disabled={offering.status !== "draft"}
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-60"
+                          className="ui-select mt-1 w-full"
                         >
                           <option value="">{t("initiativeNone")}</option>
                           {initiatives.map((initiative) => (
@@ -1387,7 +1387,7 @@ export function OfferingDetailPage({
                               curriculumRequirements: e.target.value,
                             })
                           }
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                          className="ui-textarea mt-1 w-full"
                           placeholder={t("researchPlaceholder")}
                         />
                       </label>
@@ -2073,7 +2073,7 @@ export function OfferingNewPage({
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2086,7 +2086,7 @@ export function OfferingNewPage({
                 onChange={(e) =>
                   setEnrollmentPolicy(e.target.value as EnrollmentPolicy)
                 }
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-select mt-1 w-full"
               >
                 {ENROLLMENT_POLICIES.map((p) => (
                   <option key={p} value={p}>
@@ -2127,7 +2127,7 @@ export function OfferingNewPage({
                 min={1}
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2139,7 +2139,7 @@ export function OfferingNewPage({
                 type="datetime-local"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2157,7 +2157,7 @@ export function OfferingNewPage({
                   value={initiativeId ?? ""}
                   onFocus={loadInitiatives}
                   onChange={(e) => setInitiativeId(e.target.value || null)}
-                  className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                  className="ui-select mt-1 w-full"
                 >
                   <option value="">{t("initiativeNone")}</option>
                   {initiatives.map((initiative) => (

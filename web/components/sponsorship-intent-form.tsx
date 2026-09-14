@@ -118,7 +118,7 @@ export default function SponsorshipIntentForm({
 				<select
 					value={tierId}
 					onChange={(e) => setTierId(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-select mt-1 w-full"
 				>
 					<option value="">{t("noTierOption")}</option>
 					{tiers.map((tier) => (
@@ -134,7 +134,7 @@ export default function SponsorshipIntentForm({
 				<input
 					value={companyName}
 					onChange={(e) => setCompanyName(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-input mt-1 w-full"
 					aria-label={t("companyAria")}
 				/>
 			</label>
@@ -144,7 +144,7 @@ export default function SponsorshipIntentForm({
 					type="email"
 					value={contactEmail}
 					onChange={(e) => setContactEmail(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-input mt-1 w-full"
 					aria-label={t("contactEmailAria")}
 				/>
 			</label>
@@ -153,7 +153,7 @@ export default function SponsorshipIntentForm({
 				<input
 					value={contactPhone}
 					onChange={(e) => setContactPhone(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-input mt-1 w-full"
 					aria-label={t("contactPhoneAria")}
 				/>
 			</label>
@@ -164,7 +164,7 @@ export default function SponsorshipIntentForm({
 					min={0}
 					value={amount}
 					onChange={(e) => setAmount(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-input mt-1 w-full"
 					aria-label={t("amountAria")}
 				/>
 			</label>
@@ -173,7 +173,7 @@ export default function SponsorshipIntentForm({
 				<input
 					value={message}
 					onChange={(e) => setMessage(e.target.value)}
-					className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+					className="ui-input mt-1 w-full"
 					aria-label={t("messageAria")}
 				/>
 			</label>
