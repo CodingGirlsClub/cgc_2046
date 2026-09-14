@@ -480,13 +480,15 @@ export default function PublicOfferingDetailPage({
         ) : (
           <article className="public-detail">
             <header className="public-detail__hero">
-              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
-              {kind === "event" && (
-                <QualificationBadgeTag
-                  badge={offering.qualificationBadge}
-                  shortBy={offering.shortBy}
-                />
-              )}
+              <div className="public-detail__badges">
+                <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                {kind === "event" && (
+                  <QualificationBadgeTag
+                    badge={offering.qualificationBadge}
+                    shortBy={offering.shortBy}
+                  />
+                )}
+              </div>
               <h1>{offering.title}</h1>
               {initiative ? (
                 <p className="public-detail__initiative">

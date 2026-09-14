@@ -479,7 +479,7 @@ describe("公开详情两栏布局（R7/R9/KTD1）", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("link", { name: "返回全部活动" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "返回全部公开活动" })).toHaveAttribute(
       "href",
       "/events",
     );
