@@ -4,6 +4,11 @@ defmodule Cgc2046.Events.Moderators do
   #542 决策 A1：成员前提由 `EventModerator.assign` 的资源级校验承载，
   `ModeratorMembershipValidation`）；管理权限由 Event 所属 Workspace 的
   Owner/Admin 持有，关联本身只提供 Event 级「成员里谁管这场」的指派。
+
+  反向不变量（#561）：成员离台（`WorkspaceMembership.destroy`）同事务级联
+  撤销其在本台的全部指派（`Events.Changes.RevokeModerationsOnLeave`，逐行
+  `AdminActionLog :event_moderator_remove` 带 `cascade: "membership_destroy"`
+  标记）——「主理人 ⇒ 成员」在指派、存续、离台三个时点都成立。
   """
 
   require Ash.Query
