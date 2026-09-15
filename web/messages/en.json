@@ -68,7 +68,10 @@
 		"attendance_rate_limited": "Too many invalid check-in attempts. Try again later.",
 		"deposit_already_forfeited": "This enrollment's deposit was already settled as a no-show (non-refundable), so it can no longer be checked in.",
 		"forbidden": "You do not have permission to perform this action.",
-		"event_moderator_not_workspace_member": "This user is not a member of this workspace yet; invite them first, then assign."
+		"event_moderator_not_workspace_member": "This user is not a member of this workspace yet; invite them first, then assign.",
+		"event_deposit_registration_deadline_required": "A registration deadline is required when deposit is enabled (self-cancel cutoff).",
+		"event_ends_at_frozen": "Cannot move the end time earlier while deposit orders are unsettled.",
+		"order_deposit_amount_missing": "Deposit amount is missing; please register again."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -1331,6 +1334,7 @@
 		"depositRefundHint": "Fully refunded after on-site check-in; forfeited for no-shows.",
 		"depositAmountRequired": "Enabling a deposit requires an amount greater than 0.",
 		"depositEndsAtRequired": "Enabling a deposit requires an end time (the no-show settlement anchor).",
+		"depositDeadlineRequired": "A registration deadline is required for deposit events (self-cancel cutoff).",
 		"paymentSlotSourceNamed": "The deposit is decided by initiative “{name}” and cannot be changed here.",
 		"paymentSlotSourceGeneric": "The deposit is decided by the initiative rule and cannot be changed here.",
 		"guardDisableTitle": "Disable pricing",

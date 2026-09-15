@@ -68,7 +68,10 @@
 		"attendance_rate_limited": "核销尝试过于频繁，请稍后再试。",
 		"deposit_already_forfeited": "该报名的押金已按未到场结算（不退），无法再核销。",
 		"forbidden": "你没有执行该操作的权限。",
-		"event_moderator_not_workspace_member": "该用户还不是本工作台成员，请先邀请加入再指派。"
+		"event_moderator_not_workspace_member": "该用户还不是本工作台成员，请先邀请加入再指派。",
+		"event_deposit_registration_deadline_required": "押金场需设置报名截止时间（自助取消锚点）。",
+		"event_ends_at_frozen": "存在未结算的押金订单，不能提前结束时间。",
+		"order_deposit_amount_missing": "押金金额信息缺失，请重新报名。"
 	},
 	"auth": {
 		"helpCenter": "帮助中心",
@@ -1331,6 +1334,7 @@
 		"depositRefundHint": "到场核销后全额退还；未到场不退。",
 		"depositAmountRequired": "开启押金需填写大于 0 的押金金额。",
 		"depositEndsAtRequired": "开启押金需填写活动结束时间（未到场结算的锚点）。",
+		"depositDeadlineRequired": "押金场需设置报名截止时间（自助取消锚点）。",
 		"paymentSlotSourceNamed": "押金配置由倡导活动「{name}」决定，本地不可改。",
 		"paymentSlotSourceGeneric": "押金配置由倡导活动规则决定，本地不可改。",
 		"guardDisableTitle": "关闭收费",

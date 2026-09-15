@@ -1057,19 +1057,9 @@ export function OfferingDetailPage({
         return;
       }
     }
-    // 押金态前置校验（U3 后端同款判据：正金额 + ends_at 结算锚点）
+    // 押金态前置校验（U3 后端同款判据：正金额 + ends_at 结算锚点 +
+    // 报名截止自助取消锚点，B②）
     const depositCents = depositAmountToCents(activeDraft.depositAmount);
-    if (activeDraft.mode === "deposit") {
-      if (depositCents === null) {
-        setSaveMessage(t("depositAmountRequired"));
-        return;
-      }
-      if (activeDraft.endsAt.trim() === "") {
-        setSaveMessage(t("depositEndsAtRequired"));
-        return;
-      }
-    }
-
     // review F7：缴费槽脏检查——仅当三态或档位相对服务端快照变化时下发缴费键，
     // 普通 metadata 保存不再整段重发缴费快照（消除陈旧管理员把已关闭的收费
     // 连旧档位一起恢复的除改窗口；服务端值仍是唯一真源）
@@ -1083,6 +1073,23 @@ export function OfferingDetailPage({
         JSON.stringify(toDraft(offering.priceTiers)) !==
           JSON.stringify(activeDraft.tierDrafts),
     });
+
+    if (activeDraft.mode === "deposit") {
+      if (depositCents === null) {
+        setSaveMessage(t("depositAmountRequired"));
+        return;
+      }
+      if (activeDraft.endsAt.trim() === "") {
+        setSaveMessage(t("depositEndsAtRequired"));
+        return;
+      }
+      // 截止必填与后端 PaymentModeValidation 同口径：只在缴费槽本次被写入
+      // （paymentDirty）时要求——挂载锁死槽/未动缴费槽的普通元数据保存不受限
+      if (paymentDirty && activeDraft.deadline.trim() === "") {
+        setSaveMessage(t("depositDeadlineRequired"));
+        return;
+      }
+    }
 
     setSaveBusy(true);
     setSaveMessage(null);
@@ -2231,7 +2238,7 @@ export function OfferingNewPage({
       setError(t("pricingTierRequired"));
       return;
     }
-    // 押金态：正金额 + ends_at 结算锚点（U3 后端同款判据）
+    // 押金态：正金额 + ends_at 结算锚点 + 报名截止（自助取消锚点，B② 后端同款判据）
     const depositCents = depositAmountToCents(depositAmount);
     if (mode === "deposit") {
       if (depositCents === null) {
@@ -2240,6 +2247,10 @@ export function OfferingNewPage({
       }
       if (endsAt.trim() === "") {
         setError(t("depositEndsAtRequired"));
+        return;
+      }
+      if (deadline.trim() === "") {
+        setError(t("depositDeadlineRequired"));
         return;
       }
     }
