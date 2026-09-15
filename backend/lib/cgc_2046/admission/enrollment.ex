@@ -1101,7 +1101,8 @@ defmodule Cgc2046.Admission.Enrollment do
     # 入队必须 raise 型：Ash 3.33 的 after_action 返回 {:error, _} 会**提交**事务
     # （`transaction_rollback_on_error?` 未设），那样会留下「报名已取消、押金单
     # 仍 paid/refunding 且无退款 job」的静默吞钱（U6/KTD6 同款纪律：Attendance
-    # 侧已按此改，自助取消侧此前漏改）。
+    # 侧已按此改，自助取消侧此前漏改）。raise 用 BusinessError 是为了 #241 契约
+    # 单源（code 经 AST 提取进 error_codes_contract.json）。
     case claim_refund_start(order, enrollment) do
       {:ok, refunding} ->
         Cgc2046.Payments.Workers.PaymentRefundWorker.new(%{"order_id" => refunding.id})
@@ -1117,9 +1118,11 @@ defmodule Cgc2046.Admission.Enrollment do
           status when status in [:refunding, :refunded] ->
             {:ok, enrollment}
 
-          other ->
-            raise "self-cancel deposit refund lost a concurrent race: order #{order.id} " <>
-                    "settled as #{inspect(other)} — cancel rolled back"
+          _other ->
+            raise Cgc2046.Errors.BusinessError.exception(
+                    message: domain_error_message(:deposit_settlement_race),
+                    code: domain_error_code(:deposit_settlement_race)
+                  )
         end
     end
   end
@@ -1712,6 +1715,9 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_message(:not_payment_pending),
     do: "enrollment is not awaiting payment"
 
+  defp domain_error_message(:deposit_settlement_race),
+    do: "the deposit order was settled by a concurrent path; enrollment cancel rolled back"
+
   defp domain_error_message(:capacity_counter_invalid), do: "capacity counter is invalid"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
@@ -1742,6 +1748,7 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp domain_error_code(:not_expired_pending), do: "enrollment_not_expired_pending"
   defp domain_error_code(:not_payment_pending), do: "enrollment_not_payment_pending"
+  defp domain_error_code(:deposit_settlement_race), do: "deposit_settlement_race"
   defp domain_error_code(:capacity_counter_invalid), do: "enrollment_capacity_counter_invalid"
 
   # 显式子句化（#241）：原走兜底动态拼接，不进契约工件但 miniprogram 已配文案
