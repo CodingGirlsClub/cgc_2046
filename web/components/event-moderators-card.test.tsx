@@ -123,7 +123,7 @@ describe("EventModeratorsCard", () => {
 			<EventModeratorsCard
 				workspaceId="ws-1"
 				eventId="evt-1"
-				eventSlug="agent-bootcamp"
+				workspaceSlug="cgc-academy"
 			/>,
 		);
 		await screen.findByText("user-uuid-1");
@@ -132,7 +132,7 @@ describe("EventModeratorsCard", () => {
 
 		await waitFor(() =>
 			expect(clipboard.copyText).toHaveBeenCalledWith(
-				`${window.location.origin}/events/agent-bootcamp/check-in`,
+				`${window.location.origin}/w/cgc-academy/events/evt-1/check-in`,
 			),
 		);
 		expect(await screen.findByText("已复制")).toBeInTheDocument();
@@ -145,7 +145,7 @@ describe("EventModeratorsCard", () => {
 			<EventModeratorsCard
 				workspaceId="ws-1"
 				eventId="evt-1"
-				eventSlug="agent-bootcamp"
+				workspaceSlug="cgc-academy"
 			/>,
 		);
 		await screen.findByText("user-uuid-1");
@@ -153,7 +153,7 @@ describe("EventModeratorsCard", () => {
 		fireEvent.click(screen.getByTestId("copy-check-in-link"));
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(
-			"/events/agent-bootcamp/check-in",
+			"/w/cgc-academy/events/evt-1/check-in",
 		);
 	});
 
@@ -164,7 +164,7 @@ describe("EventModeratorsCard", () => {
 			<EventModeratorsCard
 				workspaceId="ws-1"
 				eventId="evt-1"
-				eventSlug="agent-bootcamp"
+				workspaceSlug="cgc-academy"
 			/>,
 			{ locale: "en" },
 		);
@@ -174,17 +174,17 @@ describe("EventModeratorsCard", () => {
 
 		await waitFor(() =>
 			expect(clipboard.copyText).toHaveBeenCalledWith(
-				`${window.location.origin}/en/events/agent-bootcamp/check-in`,
+				`${window.location.origin}/en/w/cgc-academy/events/evt-1/check-in`,
 			),
 		);
 	});
 
-	it("U9：未发布（slug null）→ 无核销页链接可复制", async () => {
+	it("U9：无 workspace slug（壳内路由不可构造）→ 无核销页链接可复制", async () => {
 		render(
 			<EventModeratorsCard
 				workspaceId="ws-1"
 				eventId="evt-1"
-				eventSlug={null}
+				workspaceSlug={null}
 			/>,
 		);
 		await screen.findByText("user-uuid-1");
