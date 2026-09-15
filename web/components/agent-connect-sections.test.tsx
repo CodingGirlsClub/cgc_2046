@@ -84,7 +84,7 @@ describe("opencode 五步卡链（U8，内容单源：原子页与向导共用�
 		expect(
 			screen.getByRole("heading", { name: "② 获取一个可用的模型" }),
 		).toBeInTheDocument();
-		expect(screen.getByText(/OpenCode Zen/)).toBeInTheDocument();
+		expect(screen.getByText(/DeepSeek 官方 API/)).toBeInTheDocument();
 		expect(screen.getByText(/按用量计费/)).toBeInTheDocument();
 		expect(screen.getByText(/发送一句「你好」/)).toBeInTheDocument();
 

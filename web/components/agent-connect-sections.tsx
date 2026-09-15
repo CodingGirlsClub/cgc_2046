@@ -439,7 +439,7 @@ export function OpencodeInstallCard({ stepNo }: { stepNo?: string }) {
 	);
 }
 
-/** ② 模型获取：推荐通道（OpenCode Zen）+ 费用说明 + 一条可自查的可用性检查 */
+/** ② 模型获取：推荐通道（DeepSeek 官方 API）+ 费用说明 + 一条可自查的可用性检查 */
 export function OpencodeModelCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
 	return (
