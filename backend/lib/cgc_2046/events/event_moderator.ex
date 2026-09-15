@@ -56,11 +56,31 @@ defmodule Cgc2046.Events.EventModerator do
 
       # 成员前提（#558）：资源写边界单点拦截，覆盖一切调用面
       validate({Cgc2046.Events.ModeratorMembershipValidation, []})
+
+      # 治理留痕（同事务，attendance_check_in 同款 LogAdminAction 形状）
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :event_moderator_assign,
+         target_type: :event,
+         target_id: &__MODULE__.log_event_id/2,
+         metadata: &__MODULE__.log_metadata/2}
+      )
     end
 
     destroy :remove do
       primary?(true)
       accept([])
+
+      # LogAdminAction 是 after_action（非原子）——声明回落到带原数据的常规路径
+      require_atomic?(false)
+
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :event_moderator_remove,
+         target_type: :event,
+         target_id: &__MODULE__.log_event_id/2,
+         metadata: &__MODULE__.log_metadata/2}
+      )
     end
   end
 
@@ -83,5 +103,12 @@ defmodule Cgc2046.Events.EventModerator do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
+  end
+
+  # LogAdminAction 契约（public 远程捕获）：target = 活动，metadata 带被指派/被撤者
+  def log_event_id(_changeset, record), do: record.event_id
+
+  def log_metadata(_changeset, record) do
+    %{"user_id" => record.user_id, "event_id" => record.event_id}
   end
 end

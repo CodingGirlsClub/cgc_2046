@@ -377,14 +377,20 @@ defmodule Cgc2046.Payments.RefundTest do
       assert event_count(setup.event) == 4
 
       # U1 回归：批量退款审计行真实落库可查回（target_type :event 曾因枚举缺值
-      # 静默写入失败——log 吞错后自上线以来未落一行）
+      # 静默写入失败——log 吞错后自上线以来未落一行）。过滤按 action 收窄：
+      # 同 target 的审计行不止批量退款一条（event create 自动指派创建者为主理人
+      # 也落 :event_moderator_assign，#561 起接线）。
       assert [%{action: :event_cancel_batch_refund, target_type: :event}] =
                Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
-               |> Enum.filter(&(&1.target_id == setup.event.id))
+               |> Enum.filter(
+                 &(&1.action == :event_cancel_batch_refund and &1.target_id == setup.event.id)
+               )
 
       assert [%{"cancelled_enrollments" => 1, "refunded_orders" => 2}] =
                Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
-               |> Enum.filter(&(&1.target_id == setup.event.id))
+               |> Enum.filter(
+                 &(&1.action == :event_cancel_batch_refund and &1.target_id == setup.event.id)
+               )
                |> Enum.map(& &1.metadata)
     end
 
