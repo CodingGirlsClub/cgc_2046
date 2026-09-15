@@ -1,11 +1,26 @@
 import Config
 
+# Paseo worktree 并行隔离：同一台机多个 worktree 各用各的库与端口。
+# PASEO_BRANCH_NAME / PASEO_PORT 由 Paseo 注入 setup、scripts 与 services；
+# 缺省时库名 cgc_2046_dev、端口 4000，与无 Paseo 时的原行为完全一致。
+branch_suffix =
+  case System.get_env("PASEO_BRANCH_NAME") || "" do
+    "" ->
+      ""
+
+    branch ->
+      slug =
+        branch |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_") |> String.slice(0, 45)
+
+      "_#{slug}"
+  end
+
 # Configure your database
 config :cgc_2046, Cgc2046.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "cgc_2046_dev",
+  database: "cgc_2046_dev" <> branch_suffix,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -23,7 +38,6 @@ config :cgc_2046, Cgc2046Web.Endpoint,
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
-  secret_key_base: "AOTqTo+pFPfvu7r0O0N4qkn87A2fuq19QErXCS08/cGH9cec+vBPFL/f1S2U0Ps2",
   watchers: []
 
 # ## SSL Support
