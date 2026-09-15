@@ -7,9 +7,9 @@ import { CheckInQr } from '@/components/CheckInQr'
 import { PageState } from '@/components/PageState'
 import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
-import { checkInCodeText, enrollmentStatusText, remainingLabel } from '@/domain/format'
+import { checkInCodeText, enrollmentStatusText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
-import { enrollmentPaymentText } from '@/domain/payment'
+import { cancelConfirmCopy, depositRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
 import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
 
@@ -73,14 +73,13 @@ export default function MyEnrollmentsPage() {
   const cancelEnrollment = async (item: EnrollmentSummary) => {
     const modal = await Taro.showModal({
       title: '取消报名',
-      // 已支付分支（#355-7）：用户侧取消只释放名额+作废订单，不触发退款——
-      // 退款由组织者经 refundOrder 发起，文案不承诺自动退款。
-      content:
-        item.status === 'payment_pending'
-          ? '取消后将释放名额并作废待支付订单，此操作不可恢复。'
-          : orders.some((order) => order.enrollmentId === item.id && order.status === 'paid')
-            ? '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
-            : '取消后名额将即时释放，此操作不可恢复。'
+      // 弹窗正文单源 = domain 纯函数（与后端 cancel 行为逐句对齐：押金场截止前
+      // 自助取消由后端同事务自动退款，规则见卡片常驻行；仅非押金场已付单提示联系组织者）
+      content: cancelConfirmCopy({
+        status: item.status,
+        paymentMode: item.paymentMode,
+        hasPaidOrder: orders.some((order) => order.enrollmentId === item.id && order.status === 'paid')
+      })
     })
     if (!modal.confirm) return
 
@@ -127,6 +126,8 @@ export default function MyEnrollmentsPage() {
           const expanded = expandedGroups[item.id] === true
           const paymentText = paymentTexts.get(item.id) ?? null
           const checkInCode = checkInCodeText(item.status, item.checkInCode)
+          const canCancel = item.status === 'pending' || item.status === 'confirmed'
+          const depositRule = depositRefundRuleText(item.paymentMode)
           return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
@@ -180,7 +181,19 @@ export default function MyEnrollmentsPage() {
                 )}
               </>
             )}
-            {(item.status === 'pending' || item.status === 'confirmed') && (
+            {/* 取消规则常驻行（对齐 web participations）：截止时点 + 押金退改规则，
+                在点开弹窗前就立住预期——弹窗正文不再重复退款承诺 */}
+            {canCancel && item.registrationDeadline && (
+              <Text className={styles.cancelRule} data-testid={`cancel-deadline-${item.id}`}>
+                截止前可自助取消：{formatDateTime(item.registrationDeadline)}
+              </Text>
+            )}
+            {canCancel && depositRule && (
+              <Text className={styles.paymentHint} data-testid={`deposit-refund-rule-${item.id}`}>
+                {depositRule}
+              </Text>
+            )}
+            {canCancel && (
               <Button
                 className={styles.textButton}
                 size='mini'

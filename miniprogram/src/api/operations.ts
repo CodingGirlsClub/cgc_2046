@@ -181,6 +181,8 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         cancelledAt
         insertedAt
         checkInCode
+        paymentMode
+        registrationDeadline
       }
     }
   }
@@ -206,6 +208,8 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         cancelledAt
         insertedAt
         checkInCode
+        paymentMode
+        registrationDeadline
       }
     }
   }

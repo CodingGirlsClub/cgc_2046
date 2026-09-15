@@ -218,6 +218,35 @@ export function enrollmentPaymentText(
   return latest ? `缴费状态：${PAYMENT_STATUS_LABEL[latest.status]}` : null
 }
 
+/**
+ * 取消报名确认弹窗正文（单源；与后端 cancel action 行为逐句对齐）：
+ * - payment_pending：释放名额 + 作废待支付订单（无缴费事实，不提退款）。
+ * - 押金场已付：截止前自助取消由后端同事务自动退款（enqueue_self_cancel_refunds
+ *   CAS paid→refunding 并入队），弹窗不重复承诺——退款规则以卡片常驻行
+ *   （「押金：截止前取消全额退；截止后不退。」）为准，与 web participations 同形态。
+ * - 非押金场已付单（定价单，或模式不可得的遗留单）：自助取消只释放名额、不触发
+ *   退款（refundOrder 是组织者入口），明示联系组织者——这句只对非押金场成立。
+ * - 其余（免费/免缴无订单）：通用句。
+ */
+export function cancelConfirmCopy(input: {
+  status: EnrollmentStatus
+  paymentMode: EnrollmentSummary['paymentMode']
+  hasPaidOrder: boolean
+}): string {
+  if (input.status === 'payment_pending') {
+    return '取消后将释放名额并作废待支付订单，此操作不可恢复。'
+  }
+  if (input.hasPaidOrder && input.paymentMode !== 'deposit') {
+    return '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+  }
+  return '取消后名额将即时释放，此操作不可恢复。'
+}
+
+/** 押金场取消规则常驻行（与 web participations depositRefundRule 逐字一致；非押金场 → null 不出行） */
+export function depositRefundRuleText(paymentMode: EnrollmentSummary['paymentMode']): string | null {
+  return paymentMode === 'deposit' ? '押金：截止前取消全额退；截止后不退。' : null
+}
+
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */
 
 /** 详情页缴费块三态文案（R10 单一缴费槽：免费 / 收费 ¥xx / 押金 ¥xx（到场退）） */

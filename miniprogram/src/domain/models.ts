@@ -163,6 +163,10 @@ export interface EnrollmentSummary {
    * ——「我的报名」confirmed 卡出示用。
    */
   checkInCode: string | null
+  /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
+  paymentMode: 'free' | 'pricing' | 'deposit' | null
+  /** 报名截止时间（ISO8601；null = 无截止，自助取消恒在截止前） */
+  registrationDeadline: string | null
 }
 
 export interface EnrollmentForm {
