@@ -40,7 +40,7 @@ export function CheckInQr({ payload, size = 160 }: Props) {
         const [result] = (await Taro.createSelectorQuery()
           .select(`#${canvasId.current}`)
           .fields({ node: true, size: true })
-          .exec()) as Array<{ node?: CanvasNode; width: number; height: number } | null>
+          .exec()) as unknown as Array<{ node?: CanvasNode; width: number; height: number } | null>
         if (result?.node) return { node: result.node, width: result.width, height: result.height }
       }
       throw new Error('canvas node not found')
