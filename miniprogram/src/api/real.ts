@@ -514,8 +514,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
   // 核销入口门（#508-A）：workspace_id 是 Event field_policy 收窄字段——探测查询
   // 仅本 workspace 成员/平台管理员成功；匿名/非成员/网络失败一律 false（入口
   // 隐藏，不影响公开详情主流程）。角色判据与后端 Moderators.can_moderate? 的
-  // Owner/Admin 分支同口径；非成员主理人（event_moderators 指派）v1 不在小程序
-  // 开入口，走 web 核销页。
+  // Owner/Admin 分支同口径。#558 起主理人恒为成员（成员前提由 assign 写边界
+  // 承载），本探测对全部主理人生效，不再有「非成员主理人」例外。
   async canModerateEvent(eventId: string): Promise<boolean> {
     const session = await this.getSession()
     if (!session.user) return false

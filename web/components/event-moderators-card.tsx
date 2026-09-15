@@ -10,11 +10,13 @@ import {
 } from "@/lib/graphql/moderators";
 import { copyText } from "@/lib/clipboard";
 import { getPathname } from "@/i18n/navigation";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { Icon } from "@/components/icons";
 
 /**
  * Event 主理人管理卡（R12–R14，U7）。
- * - Owner/Admin 随时可增删（含 closed/cancelled 场次），目标用户只需是平台 User；
+ * - Owner/Admin 随时可增删（含 closed/cancelled 场次），目标用户须为本工作台
+ *   成员（#558 / #542 决策 A1：非成员指派被后端拒绝，按 code 出引导文案）；
  * - 输入为用户 ID（计划口径：不按邮箱检索，避免泄露全站用户名录）；
  * - U9/KTD10：附「复制核销页链接」——主理人在工作台外的
  *   `/[locale]/events/[slug]/check-in` 手输 6 位码核销，组织者转发入口。
@@ -31,6 +33,7 @@ export default function EventModeratorsCard({
 }) {
 	const t = useTranslations("offerings");
 	const tCommon = useTranslations("common");
+	const translateError = usePaymentErrorTranslator();
 	const locale = useLocale();
 	const [rows, setRows] = useState<EventModerator[] | null>(null);
 	const [userId, setUserId] = useState("");
@@ -75,7 +78,8 @@ export default function EventModeratorsCard({
 			setRows((current) => [...(current ?? []), result.result!]);
 			setUserId("");
 		} else {
-			setMessage(result.errors[0]?.message ?? t("moderatorActionFailed"));
+			// 按 code 出文案（errors namespace；未知 code 落通用兜底，不透传英文原文）
+			setMessage(translateError(result.errors[0]?.code, t("moderatorActionFailed")));
 		}
 		setBusy(false);
 	}
@@ -87,7 +91,7 @@ export default function EventModeratorsCard({
 		if (result.errors.length === 0) {
 			setRows((current) => current?.filter((row) => row.id !== moderatorId) ?? null);
 		} else {
-			setMessage(result.errors[0]?.message ?? t("moderatorActionFailed"));
+			setMessage(translateError(result.errors[0]?.code, t("moderatorActionFailed")));
 		}
 		setBusy(false);
 	}

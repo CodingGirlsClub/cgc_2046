@@ -239,6 +239,8 @@ defmodule Cgc2046.Admission.AttendanceTest do
           event = EventFixtures.create_event(workspace, admin)
 
           moderator = Fixtures.register_user("attendance-race-moderator")
+          # 成员前提（#558）：主理人须为本工作台成员
+          Fixtures.add_member(workspace, moderator, [:learner])
           {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, admin)
 
           learner = Fixtures.register_user("attendance-race-learner")
@@ -627,6 +629,8 @@ defmodule Cgc2046.Admission.AttendanceTest do
 
   defp assign_moderator(event, workspace, owner, prefix) do
     moderator = Fixtures.register_user(prefix)
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     moderator
   end

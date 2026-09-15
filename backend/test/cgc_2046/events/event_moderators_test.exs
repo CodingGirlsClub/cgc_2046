@@ -2,13 +2,15 @@ defmodule Cgc2046.Events.EventModeratorsTest do
   use Cgc2046Web.ConnCase, async: true
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.{Event, EventModerator, Moderators}
   alias Cgc2046.EventsFixtures
 
-  test "creator is assigned by event create and non-member moderator can be assigned" do
+  test "creator is assigned by event create; member assign/remove round-trip" do
     owner = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(owner)
     user = Fixtures.register_user("moderator")
+    Fixtures.add_member(workspace, user, [:learner])
     event = EventsFixtures.create_event(workspace, owner)
 
     # The fixture uses the authenticated creator; creator assignment is observable
@@ -38,5 +40,30 @@ defmodule Cgc2046.Events.EventModeratorsTest do
     assert {:error, :forbidden} =
              Moderators.assign(event.id, workspace.id, user.id, owner)
              |> then(fn {:ok, record} -> Moderators.remove(record.id, workspace.id, user) end)
+  end
+
+  test "非成员指派被拒（#558 成员前提）：稳定 code 引导先邀请入台；入台后放行" do
+    owner = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(owner)
+    # register_user 自动加入默认 2046 工作台，但不是本 workspace 的成员
+    outsider = Fixtures.register_user("outsider")
+    event = EventsFixtures.create_event(workspace, owner)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             Moderators.assign(event.id, workspace.id, outsider.id, owner)
+
+    assert Enum.any?(
+             errors,
+             &match?(%BusinessError{code: "event_moderator_not_workspace_member"}, &1)
+           ),
+           "expected event_moderator_not_workspace_member, got: #{inspect(errors)}"
+
+    refute Moderators.moderator?(outsider.id, event.id, workspace.id)
+
+    # 入台（任意角色，learner 即可）后同一指派放行
+    Fixtures.add_member(workspace, outsider, [:learner])
+    assert {:ok, assigned} = Moderators.assign(event.id, workspace.id, outsider.id, owner)
+    assert Moderators.moderator?(outsider.id, event.id, workspace.id)
+    assert :ok = Moderators.remove(assigned.id, workspace.id, owner)
   end
 end

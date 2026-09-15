@@ -1,6 +1,8 @@
 defmodule Cgc2046.Events.EventModerator do
   @moduledoc """
-  Event 级主理人关联；目标用户无需 Workspace membership。
+  Event 级主理人关联；目标用户须为目标 Workspace 成员（#558 / #542 决策 A1：
+  指派前校验成员资格，非成员报错引导先邀请入台——「主理人不是成员」的
+  KD7 原始前提已修订）。
   """
 
   use Ash.Resource,
@@ -51,6 +53,9 @@ defmodule Cgc2046.Events.EventModerator do
 
     create :assign do
       accept([:workspace_id, :event_id, :user_id, :assigned_by, :assigned_at])
+
+      # 成员前提（#558）：资源写边界单点拦截，覆盖一切调用面
+      validate({Cgc2046.Events.ModeratorMembershipValidation, []})
     end
 
     destroy :remove do

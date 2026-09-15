@@ -2,9 +2,9 @@ defmodule Cgc2046.Admission.Policies.EventModerator do
   @moduledoc """
   「Event 主理人」授权的命名 SimpleCheck（押金制 KTD4；R6、R11）。
 
-  核销的授权主体是**活动级**的：主理人（Event moderator）按定义不是 Workspace
-  成员（`Events.Moderators` moduledoc），授权判定必须落在 Event 上而不是租户
-  成员角色上。判定：
+  核销的授权主体是**活动级**的：主理人是「成员里被指派管这场」的人
+  （#558：成员前提由 assign 写边界承载），授权判定落在 Event 上的指派
+  关系而非租户管理角色上。判定：
 
   1. 取 changeset 的 `event_id` 参数与 `tenant`（调用方传入的租户）；
   2. `authorize?: false` 直读 Event（带 tenant：租户不一致即读不到 → 拒绝）；

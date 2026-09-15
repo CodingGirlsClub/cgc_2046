@@ -21,6 +21,8 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner)
     moderator = Fixtures.register_user("gql-checkin-moderator")
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     enrollment = enroll(event, Fixtures.register_user("gql-checkin-learner"))
 
@@ -51,6 +53,8 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner)
     moderator = Fixtures.register_user("gql-checkin-again-moderator")
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     enrollment = enroll(event, Fixtures.register_user("gql-checkin-again-learner"))
     token = sign_in_token(moderator)
@@ -69,6 +73,8 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner)
     moderator = Fixtures.register_user("gql-checkin-code-moderator")
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     enrollment = enroll(event, Fixtures.register_user("gql-checkin-code-learner"))
 
@@ -111,6 +117,8 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner, deposit_attrs())
     moderator = Fixtures.register_user("gql-checkin-deposit-moderator")
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     learner = Fixtures.register_user("gql-checkin-deposit-learner")
     enrollment = enroll(event, learner)
@@ -130,6 +138,8 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner, deposit_attrs())
     moderator = Fixtures.register_user("gql-checkin-forfeit-moderator")
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     learner = Fixtures.register_user("gql-checkin-forfeit-learner")
     enrollment = enroll(event, learner)

@@ -231,6 +231,8 @@ defmodule Cgc2046.Payments.DepositForfeitWorkerTest do
           event = deposit_event(workspace, admin, hours_ago(49))
 
           moderator = Fixtures.register_user("u8-race-moderator")
+          # 成员前提（#558）：主理人须为本工作台成员
+          Fixtures.add_member(workspace, moderator, [:learner])
           {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, admin)
 
           learner = Fixtures.register_user("u8-race-learner")
@@ -518,6 +520,8 @@ defmodule Cgc2046.Payments.DepositForfeitWorkerTest do
 
   defp assign_moderator(event, workspace, owner, prefix) do
     moderator = Fixtures.register_user(prefix)
+    # 成员前提（#558）：主理人须为本工作台成员
+    Fixtures.add_member(workspace, moderator, [:learner])
     {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
     moderator
   end
