@@ -151,6 +151,35 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
     end
   end
 
+  describe "存量行不被锁死（迁移期兼容）" do
+    test "押金已开但 ends_at 为空的旧数据：无关编辑仍可通过", ctx do
+      # 直接落库绕开校验，模拟本功能上线前已存在、ends_at 为空且押金已开的行
+      {:ok, event} =
+        create_event(ctx, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(3)
+        })
+
+      Cgc2046.Repo.query!("UPDATE events SET ends_at = NULL WHERE id = $1", [
+        Ecto.UUID.dump!(event.id)
+      ])
+
+      # 改标题（不触押金三字段）→ 不得因存量缺口被拒
+      assert {:ok, updated} = update_event(ctx, reload(event), %{title: "PM renamed"})
+      assert updated.title == "PM renamed"
+
+      # 一旦触碰押金字段，完整性要求立刻回归
+      assert {:error, _} = result = update_event(ctx, updated, %{deposit_amount_cents: 9900})
+      assert_business_code(result, "event_deposit_ends_at_required")
+
+      assert {:ok, fixed} =
+               update_event(ctx, updated, %{ends_at: EventFixtures.days_from_now(5)})
+
+      assert fixed.ends_at != nil
+    end
+  end
+
   describe "独立使用（AE2 / Initiative 计划 AE12）" do
     test "未挂载 Initiative 的 Event 开押金 30 元 → 成功", ctx do
       ends_at = EventFixtures.days_from_now(3) |> DateTime.truncate(:second)
