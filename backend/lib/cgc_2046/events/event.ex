@@ -863,7 +863,7 @@ defmodule Cgc2046.Events.Event do
   # InvalidAttribute.private_vars.constraint_type == :check；非 check 错误原样返回
   # （enrollment.handle_create_error 同款纪律）。
   def handle_write_error(_changeset, error) do
-    if check_conflict?(error) do
+    if Cgc2046.Errors.ConstraintConflict.check_conflict?(error) do
       Cgc2046.Errors.BusinessError.exception(
         message: "an event cannot enable both pricing tiers and deposit",
         code: "event_payment_mode_exclusive",
@@ -873,16 +873,6 @@ defmodule Cgc2046.Events.Event do
       error
     end
   end
-
-  defp check_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &check_conflict?/1)
-  end
-
-  defp check_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
-    Keyword.get(private_vars || [], :constraint_type) == :check
-  end
-
-  defp check_conflict?(_), do: false
 
   identities do
     # all_tenants?：slug 全局唯一（公开路由段无 workspace 前缀）；否则 :attribute

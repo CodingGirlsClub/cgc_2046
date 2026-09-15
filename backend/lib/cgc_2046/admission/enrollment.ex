@@ -1603,7 +1603,7 @@ defmodule Cgc2046.Admission.Enrollment do
           fields: [:check_in_code]
         )
 
-      unique_conflict?(error) ->
+      Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) ->
         Cgc2046.Errors.BusinessError.exception(
           message: domain_error_message(:duplicate_active),
           code: domain_error_code(:duplicate_active)
@@ -1614,28 +1614,10 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp check_in_code_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &check_in_code_conflict?/1)
+  defp check_in_code_conflict?(error) do
+    Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) and
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(error, @check_in_code_constraint)
   end
-
-  defp check_in_code_conflict?(%Ash.Error.Changes.InvalidAttribute{} = error) do
-    unique_conflict?(error) and
-      Keyword.get(error.private_vars || [], :constraint) == @check_in_code_constraint
-  end
-
-  defp check_in_code_conflict?(_), do: false
-
-  # 同 membership_context.unique_membership_conflict?/1 判法：仅
-  # constraint_type: :unique 命中（DB 断连等真实故障不含该键，原样上抛）。
-  defp unique_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &unique_conflict?/1)
-  end
-
-  defp unique_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
-    Keyword.get(private_vars || [], :constraint_type) == :unique
-  end
-
-  defp unique_conflict?(_), do: false
 
   defp domain_error_message(:exactly_one_target_required),
     do: "exactly one of event_id/course_id is required"
