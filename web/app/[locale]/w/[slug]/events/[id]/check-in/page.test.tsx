@@ -181,22 +181,30 @@ describe("工作台壳内核验页（#559）", () => {
 		expect(screen.queryByText(/押金退款已发起/)).not.toBeInTheDocument();
 	});
 
-	it("押金已按未到场结算：成功卡显示不退文案（不宣称已退款）", async () => {
-		mutate.mockResolvedValue({
-			data: {
-				checkInEnrollment: {
-					...SUCCESS.data.checkInEnrollment,
-					depositRefund: "forfeited",
-				},
-			},
-		});
+	it("押金场（depositEnabled: true）：现场提示含押金退还承诺", async () => {
 		renderPage();
-		await submitCode("042317");
-
-		const card = await screen.findByTestId("check-in-success");
-		expect(card).toHaveTextContent(/未到场/);
-		expect(card).not.toHaveTextContent(/押金退款已发起/);
+		expect(
+			await screen.findByText(/押金将立即全额退还/),
+		).toBeInTheDocument();
 	});
+
+	it.each([false, null])(
+		"非押金场 / 旗标未知（depositEnabled: %s）：只显示通用不可撤销提示，不承诺押金退还",
+		async (depositEnabled) => {
+			query.mockResolvedValue({
+				data: { getEvent: { ...EVENT, depositEnabled } },
+			});
+			renderPage();
+			// 等场次读面落地（标题出现）后再断言押金文案始终缺席
+			expect(
+				await screen.findByRole("heading", { name: "押金制黑客松" }),
+			).toBeInTheDocument();
+			expect(screen.getByText(/核销后不可撤销/)).toBeInTheDocument();
+			expect(
+				screen.queryByText(/押金将立即全额退还/),
+			).not.toBeInTheDocument();
+		},
+	);
 
 	it("业务错误码 → 文案（已核销 / 押金已结算 / 无效码 / 无权限 / 会话过期 / 网络异常）", async () => {
 		const cases: Array<{ code?: string; reject?: Error; expected: RegExp }> = [

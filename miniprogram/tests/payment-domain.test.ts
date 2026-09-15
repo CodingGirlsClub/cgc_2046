@@ -171,6 +171,15 @@ test('缴费块三态：免费/收费/押金各一态，押金态含「未到场
       .amountText,
     '押金（到场退）'
   )
+
+  // 0/负数同守卫（后端校验 min 1，纯合同对齐）：降级不出价——绝不显示 ¥0.00
+  for (const invalid of [0, -500]) {
+    assert.equal(
+      paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: invalid, priceTiers: [] })
+        .amountText,
+      '押金（到场退）'
+    )
+  }
 })
 
 test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {
