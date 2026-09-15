@@ -19,8 +19,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import QRCode from "qrcode";
 import { client } from "@/lib/apollo-client";
+import { useQrDataUrl } from "@/lib/use-qr-data-url";
 import {
   CREATE_ORDER,
   MY_PENDING_ORDERS,
@@ -104,7 +104,6 @@ export default function PaymentCheckoutDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [generatedQr, setGeneratedQr] = useState<string | null>(null);
 
   // 回调经 ref 隔离：paid 效果只依赖 paid 布尔，不随父级重渲重触发
   //（赋值收进 effect——React Compiler 禁止渲染期写 ref）
@@ -289,22 +288,7 @@ export default function PaymentCheckoutDialog({
     [credential],
   );
 
-  useEffect(() => {
-    if (dispatch.mode !== "qr") return;
-    let cancelled = false;
-    QRCode.toDataURL(dispatch.url, { width: 200, margin: 1 })
-      .then((url) => {
-        if (!cancelled) setGeneratedQr(url);
-      })
-      .catch(() => {
-        if (!cancelled) setGeneratedQr(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch]);
-
-  const qrDataUrl = dispatch.mode === "qr" ? generatedQr : null;
+  const qrDataUrl = useQrDataUrl(dispatch.mode === "qr" ? dispatch.url : null, 200);
   const remain = countdownText(nowMs, order?.expireAt, t("countdownExpired"));
   const expired = remain === t("countdownExpired") && !paid;
   // 复用活单但凭据丢失（sessionStorage 焚毁/跨 tab 下单）：换渠道恢复引导

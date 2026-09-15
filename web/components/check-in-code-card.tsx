@@ -8,10 +8,9 @@
  * 展示——调用方负责 confirmed 与非空门控。
  */
 
-import { useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import QRCode from "qrcode";
 import { buildCheckInPath } from "@/lib/check-in";
+import { useQrDataUrl } from "@/lib/use-qr-data-url";
 
 export default function CheckInCodeCard({
   code,
@@ -25,22 +24,8 @@ export default function CheckInCodeCard({
   const t = useTranslations("checkIn");
   const locale = useLocale();
   const path = buildCheckInPath(locale, eventSegment, code);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    QRCode.toDataURL(path, { width: 160, margin: 1 })
-      .then((url) => {
-        if (!cancelled) setQrDataUrl(url);
-      })
-      .catch(() => {
-        // 二维码生成失败仍出示 6 位码（主理人可手输，KTD5「扫码失败补救」）
-        if (!cancelled) setQrDataUrl(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [path]);
+  // 生成失败返回 null：仍出示 6 位码（主理人可手输，KTD5「扫码失败补救」）
+  const qrDataUrl = useQrDataUrl(path, 160);
 
   return (
     <div

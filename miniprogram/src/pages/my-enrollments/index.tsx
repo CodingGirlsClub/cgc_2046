@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api, SessionExpiredError } from '@/api'
@@ -23,6 +23,11 @@ export default function MyEnrollmentsPage() {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // 缴费链订单（R16）：卡面缴费文案由 domain 纯函数从报名 × 订单推导
   const [orders, setOrders] = useState<OrderSummary[]>([])
+  // 卡面缴费文案：按 orders/items 变化派生一次（纯函数仍是唯一口径）
+  const paymentTexts = useMemo(
+    () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders)])),
+    [items, orders],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -118,7 +123,7 @@ export default function MyEnrollmentsPage() {
         ) : groups.map((group) => {
           const item = group.latest
           const expanded = expandedGroups[item.id] === true
-          const paymentText = enrollmentPaymentText(item, orders)
+          const paymentText = paymentTexts.get(item.id) ?? null
           const checkInCode = checkInCodeText(item.status, item.checkInCode)
           return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>

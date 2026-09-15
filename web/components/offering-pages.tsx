@@ -282,9 +282,9 @@ function PaymentSlotFields({
   onTierDraftsChange,
   depositAmount,
   onDepositAmountChange,
-  depositDisabled,
-  modeDisabled,
-  sourceNote,
+  depositDisabled = false,
+  modeDisabled = false,
+  sourceNote = null,
 }: {
   kind: OfferingKind;
   mode: PaymentMode;
@@ -294,12 +294,12 @@ function PaymentSlotFields({
   /** 押金金额元草稿（分转换在保存/提交时做） */
   depositAmount: string;
   onDepositAmountChange: (value: string) => void;
-  /** 押金选项与金额只读（Initiative 挂载场） */
-  depositDisabled: boolean;
-  /** 整槽只读（Initiative 挂载且押金已开启） */
-  modeDisabled: boolean;
-  /** 押金来源提示（挂载场） */
-  sourceNote: string | null;
+  /** 押金选项与金额只读（Initiative 挂载场；默认 false） */
+  depositDisabled?: boolean;
+  /** 整槽只读（Initiative 挂载且押金已开启；默认 false） */
+  modeDisabled?: boolean;
+  /** 押金来源提示（挂载场；默认无） */
+  sourceNote?: string | null;
 }) {
   const t = useTranslations("offerings");
   const modes = kind === "event" ? PAYMENT_MODES : COURSE_PAYMENT_MODES;
@@ -2425,9 +2425,6 @@ export function OfferingNewPage({
                   onTierDraftsChange={setTierDrafts}
                   depositAmount={depositAmount}
                   onDepositAmountChange={setDepositAmount}
-                  depositDisabled={false}
-                  modeDisabled={false}
-                  sourceNote={null}
                 />
               </div>
             </details>

@@ -23,6 +23,7 @@ import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
 import {
+	ORDER_STATUS_FILTER_VALUES,
 	ORDER_STATUS_LABEL,
 	PROVIDER_LABEL,
 	formatAmount,
@@ -179,14 +180,10 @@ export default function PaymentsManagement({
 	const labelsT = useTranslations();
 	const statusFilters = [
 		{ value: "", label: t("filterAll") },
-		{ value: "pending", label: labelsT(ORDER_STATUS_LABEL.pending) },
-		{ value: "paid", label: labelsT(ORDER_STATUS_LABEL.paid) },
-		{ value: "refunding", label: labelsT(ORDER_STATUS_LABEL.refunding) },
-		{ value: "refunded", label: labelsT(ORDER_STATUS_LABEL.refunded) },
-		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
-		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
-		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
-		{ value: "forfeited", label: labelsT(ORDER_STATUS_LABEL.forfeited) },
+		...ORDER_STATUS_FILTER_VALUES.map((value) => ({
+			value,
+			label: labelsT(ORDER_STATUS_LABEL[value]),
+		})),
 	];
 	const [statusFilter, setStatusFilter] = useState("");
 	// U9/R8：活动筛选（财务汇总层——订单列表按活动收敛，统计卡保持工作区口径）
