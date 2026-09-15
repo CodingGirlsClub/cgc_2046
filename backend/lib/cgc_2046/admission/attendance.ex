@@ -348,6 +348,26 @@ defmodule Cgc2046.Admission.Attendance do
     error in [Ash.Error.Invalid] -> {:error, error}
   end
 
+  @doc """
+  到场事实（KTD6/KTD7 共用判据）：该 `enrollment_id` 是否已有 Attendance 行。
+
+  `enrollment_id` 唯一索引（`attendances_unique_enrollment_index`）保证每报名
+  至多一行，故存在性判定即到场判定。`{:error, reason}` 表示读取失败——
+  调用方必须 fail-closed 上抛（绝不折叠为 `false`：核销即退侧会把到场者报名
+  错误取消，no-show 结算侧会没收到场者押金）。
+  """
+  @spec checked_in?(term()) :: {:ok, boolean()} | {:error, term()}
+  def checked_in?(enrollment_id) do
+    __MODULE__
+    |> Ash.Query.filter(enrollment_id == ^enrollment_id)
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, [_ | _]} -> {:ok, true}
+      {:ok, []} -> {:ok, false}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # Event 是 global?(true) 租户资源，PK 全局唯一——直读取 workspace_id 作为本次
   # 核销的 tenant（同 SpeakerInvitations / 播报订阅方的直读先例）。
   defp event_workspace(event_id) do

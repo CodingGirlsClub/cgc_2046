@@ -218,17 +218,8 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
   end
 
   # 到场事实（KTD6）：Attendance 行存在 ⇔ 该报名被核销过。判据与订单类型无关
-  # ——到场即占位，退款不得撤销已发生的到场。
-  defp attended?(enrollment) do
-    Cgc2046.Admission.Attendance
-    |> Ash.Query.filter(enrollment_id == ^enrollment.id)
-    |> Ash.read(authorize?: false)
-    |> case do
-      {:ok, [_ | _]} -> {:ok, true}
-      {:ok, []} -> {:ok, false}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  # ——到场即占位，退款不得撤销已发生的到场。谓词单源见 Attendance.checked_in?/1。
+  defp attended?(enrollment), do: Cgc2046.Admission.Attendance.checked_in?(enrollment.id)
 
   # 免缴判定（同 payment_settlement_worker.waived?/1 单源语义，fail-closed）：
   # waive_payment 审计行的存在性 ⇔ 免缴先落（批量免缴路径同写此审计行，KTD4）；

@@ -66,7 +66,6 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
     # 拍内的 CAS 本身幂等，唯一任务是第二层。
     unique: [period: 300, states: :incomplete]
 
-  require Ash.Query
   require Logger
 
   alias Cgc2046.Accounts.AdminActionLog
@@ -184,13 +183,11 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
     end
   end
 
+  # 到场事实谓词单源见 Attendance.checked_in?/1；本处把读取失败包装为
+  # {:database, reason}（该 worker 的硬失败分类依赖此形状）。
   defp attendance_present?(enrollment_id) do
-    case Repo.query(
-           "SELECT 1 FROM attendances WHERE enrollment_id = $1 LIMIT 1",
-           [Repo.uuid!(enrollment_id)]
-         ) do
-      {:ok, %{rows: [_ | _]}} -> {:ok, true}
-      {:ok, %{rows: []}} -> {:ok, false}
+    case Cgc2046.Admission.Attendance.checked_in?(enrollment_id) do
+      {:ok, present} -> {:ok, present}
       {:error, reason} -> {:error, {:database, reason}}
     end
   end
@@ -259,13 +256,13 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
     end
   end
 
-  # ── 无锚场 Finding（刷新语义同对账扫描 D2）────────────────────────────────
+  # ── 无锚场 Finding（刷新语义单源见 Finding.apply_rule/3，同对账扫描 D2）────
 
   defp sync_unanchored_findings do
-    candidates = unanchored_candidates()
-
-    Enum.each(candidates, &upsert_finding/1)
-    delete_stale(candidates)
+    Finding.apply_rule(@rule, unanchored_candidates(),
+      log_prefix: "deposit forfeit",
+      on_create: fn _rule, candidate, result -> warn_new(candidate, result) end
+    )
   end
 
   # closed ∧ ends_at 为空 ∧ 名下仍有 paid 押金单：结算锚点缺失、订单会静默滞留。
@@ -298,35 +295,6 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
     end)
   end
 
-  defp upsert_finding(candidate) do
-    case existing_finding(candidate.entity_type, candidate.entity_id) do
-      nil ->
-        result =
-          Finding
-          |> Ash.Changeset.for_create(
-            :create,
-            Map.merge(
-              %{rule: @rule},
-              Map.take(candidate, [:entity_type, :entity_id, :workspace_id, :detail])
-            )
-          )
-          |> Ash.create(authorize?: false)
-
-        warn_new(candidate, result)
-        handle_write(result, candidate)
-
-      finding ->
-        finding
-        |> Ash.Changeset.for_update(:refresh, %{
-          workspace_id: candidate.workspace_id,
-          detail: candidate.detail
-        })
-        |> Ash.update(authorize?: false)
-        |> handle_write(candidate)
-    end
-  end
-
-  # 首次发现进 ops 告警通道（对账页 finding 是拉取面，warning 是推送面）：
   # 该场在有效数据下不可能存在（押金场必填 ends_at），出现即需人介入。
   defp warn_new(candidate, {:ok, _finding}) do
     Logger.warning(
@@ -336,54 +304,4 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
   end
 
   defp warn_new(_candidate, _result), do: :ok
-
-  defp handle_write(result, candidate) do
-    case result do
-      {:ok, _} ->
-        :ok
-
-      {:error, error} ->
-        Logger.warning(
-          "deposit forfeit: #{@rule} upsert failed for event #{candidate.entity_id}: " <>
-            "#{inspect(error)}"
-        )
-
-        :ok
-    end
-  end
-
-  defp existing_finding(entity_type, entity_id) do
-    case Finding
-         |> Ash.Query.filter(
-           rule == ^@rule and entity_type == ^entity_type and entity_id == ^entity_id
-         )
-         |> Ash.read_one(authorize?: false) do
-      {:ok, finding} -> finding
-      {:error, _error} -> nil
-    end
-  end
-
-  # 「无孤儿 → 空报告」由结构保证（D2）：锚点补回 / 订单离开 paid 后 finding 自消
-  defp delete_stale(candidates) do
-    current =
-      MapSet.new(candidates, fn candidate -> {candidate.entity_type, candidate.entity_id} end)
-
-    Finding
-    |> Ash.Query.filter(rule == ^@rule)
-    |> Ash.read!(authorize?: false)
-    |> Enum.each(fn finding ->
-      unless MapSet.member?(current, {finding.entity_type, finding.entity_id}) do
-        case Ash.destroy(finding, authorize?: false) do
-          :ok ->
-            :ok
-
-          {:error, error} ->
-            Logger.warning(
-              "deposit forfeit: stale finding delete failed for #{finding.entity_id}: " <>
-                "#{inspect(error)}"
-            )
-        end
-      end
-    end)
-  end
 end
