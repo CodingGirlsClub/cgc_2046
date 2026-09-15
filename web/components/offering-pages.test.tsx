@@ -106,6 +106,14 @@ vi.mock("@/components/icons", () => ({
 
 const { submitEnrollment } = vi.hoisted(() => ({ submitEnrollment: vi.fn() }));
 
+const moderatorMocks = vi.hoisted(() => ({
+  fetchEventModerators: vi.fn(),
+  assignEventModerator: vi.fn(),
+  removeEventModerator: vi.fn(),
+}));
+
+vi.mock("@/lib/graphql/moderators", () => moderatorMocks);
+
 vi.mock("@/lib/public-offerings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/public-offerings")>()),
   parseSponsorshipTiers: () => [],
@@ -196,6 +204,7 @@ beforeEach(() => {
     error: null,
     retry: vi.fn(),
   });
+  moderatorMocks.fetchEventModerators.mockResolvedValue([]);
 });
 
 afterEach(cleanup);
@@ -2336,5 +2345,79 @@ describe("OfferingDetailPage 配套课程卡（issue #505 D1）", () => {
     expect(
       screen.queryByTestId("companion-course-card"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("现场核销入口（#558/#559 后续：主理人/Owner·Admin 可见，普通成员不可见）", () => {
+  const EVENT_ROW = offeringRow({
+    id: "evt-1",
+    status: "open",
+    title: "押金制黑客松",
+  });
+
+  function renderDetail(ws: Record<string, unknown>) {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce(EVENT_ROW);
+    render(<OfferingDetailPage slug="demo" id="evt-1" kind="event" />);
+    return screen.findByRole("heading", { name: "押金制黑客松" });
+  }
+
+  it("Owner/Admin（manage_events）：入口可见，链到壳内核验页", async () => {
+    await renderDetail(OWNER_WORKSPACE);
+
+    const link = await screen.findByTestId("check-in-entry-link");
+    expect(link).toHaveAttribute("href", "/w/demo/events/evt-1/check-in");
+  });
+
+  it("被指派的非管理角色主理人（在列表、无 manage_events）：入口可见", async () => {
+    moderatorMocks.fetchEventModerators.mockResolvedValue([
+      { id: "mod-1", userId: "user-1" },
+    ]);
+    await renderDetail(WORKSPACE);
+
+    expect(await screen.findByTestId("check-in-entry-link")).toBeInTheDocument();
+  });
+
+  it("普通成员（查询 forbidden）与不在列表的成员：入口不渲染", async () => {
+    moderatorMocks.fetchEventModerators.mockRejectedValueOnce(new Error("forbidden"));
+    await renderDetail(WORKSPACE);
+    expect(screen.queryByTestId("check-in-entry-card")).not.toBeInTheDocument();
+
+    cleanup();
+    vi.clearAllMocks();
+    moderatorMocks.fetchEventModerators.mockResolvedValue([
+      { id: "mod-2", userId: "someone-else" },
+    ]);
+    mocks.fetchOffering.mockResolvedValueOnce(EVENT_ROW);
+    render(<OfferingDetailPage slug="demo" id="evt-1" kind="event" />);
+    await screen.findByRole("heading", { name: "押金制黑客松" });
+    await waitFor(() =>
+      expect(moderatorMocks.fetchEventModerators).toHaveBeenCalled(),
+    );
+    expect(screen.queryByTestId("check-in-entry-card")).not.toBeInTheDocument();
+  });
+
+  it("课程详情页不渲染核销入口（仅 event）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: OWNER_WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce(
+      offeringRow({ id: "course-1", title: "测试课程" }),
+    );
+    render(<OfferingDetailPage slug="demo" id="course-1" kind="course" />);
+    await screen.findByRole("heading", { name: "测试课程" });
+
+    expect(screen.queryByTestId("check-in-entry-card")).not.toBeInTheDocument();
+    expect(moderatorMocks.fetchEventModerators).not.toHaveBeenCalled();
   });
 });
