@@ -6389,11 +6389,11 @@ type CheckInEnrollmentPayload {
   method: String
 
   """
-  本次核销的押金退款侧事实（KTD6）：
+  本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
   - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
-  - refund_started：本次核销发起了全额退款；
-  - refunding / refunded：押金已在退还中 / 已退（幂等重入，不重复退）；
-  - forfeited：押金已按未到场结算（不退）。
+  - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
+  - refunded：押金已退。
+  forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
   前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
   """
   depositRefund: String
