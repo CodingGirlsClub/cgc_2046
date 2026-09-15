@@ -1248,6 +1248,11 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
 
       render(<PublicOfferingDetailPage kind="event" />);
       fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+      // U1：押金收银框先停「以到场为退还条件」确认态——勾选确认后才出码
+      fireEvent.click(
+        await screen.findByTestId("checkout-deposit-consent-checkbox"),
+      );
+      fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
       await screen.findByTestId("checkout-qr");
 
       // 首轮轮询（2s）拿到 paid → onPaid 重拉报名 → rail 落到已报名卡
@@ -1282,6 +1287,11 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
 
       render(<PublicOfferingDetailPage kind="event" />);
       fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+      // U1：押金收银框先停「以到场为退还条件」确认态——勾选确认后才出码
+      fireEvent.click(
+        await screen.findByTestId("checkout-deposit-consent-checkbox"),
+      );
+      fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
       await screen.findByTestId("checkout-qr");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2_100);
