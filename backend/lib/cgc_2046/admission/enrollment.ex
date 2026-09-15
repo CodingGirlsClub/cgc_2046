@@ -941,13 +941,8 @@ defmodule Cgc2046.Admission.Enrollment do
   defp confirm_target_status(kind, target_id) do
     table = target_table(kind)
 
-    deposit_columns =
-      if table == "events",
-        do: ", COALESCE(deposit_enabled, false), deposit_amount_cents",
-        else: ", false, NULL"
-
     case Cgc2046.Repo.query(
-           "SELECT status, pricing_enabled#{deposit_columns} FROM #{table} WHERE id = $1",
+           "SELECT status, pricing_enabled#{deposit_columns(table)} FROM #{table} WHERE id = $1",
            [Cgc2046.Repo.uuid!(target_id)]
          ) do
       {:ok, %{rows: [["open", pricing_enabled, deposit_enabled, deposit_amount]]}} ->
@@ -1365,13 +1360,8 @@ defmodule Cgc2046.Admission.Enrollment do
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     # 押金两列（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
     # 的 deposit_column 同款写法）。
-    deposit_columns =
-      if table == "events",
-        do: ", COALESCE(deposit_enabled, false), deposit_amount_cents",
-        else: ", false, NULL"
-
     sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns}
+    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
@@ -1575,6 +1565,10 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp target_table(:event), do: "events"
   defp target_table(:course), do: "courses"
+
+  # 押金两列（KTD2）：仅 events 表有；courses 补 false/NULL 保持 SELECT 列数一致。
+  defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false), deposit_amount_cents"
+  defp deposit_columns(_table), do: ", false, NULL"
 
   # ── 错误构造（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
 

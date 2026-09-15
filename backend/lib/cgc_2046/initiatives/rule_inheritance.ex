@@ -108,14 +108,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
               :ok
 
             [blocking_id, _, _] ->
-              throw(
-                {:deposit_conflicts_pricing,
-                 Cgc2046.Errors.BusinessError.exception(
-                   message: "disable pricing before applying the deposit rule to this event",
-                   code: "event_payment_mode_exclusive",
-                   fields: [event_id: blocking_id]
-                 )}
-              )
+              throw({:deposit_conflicts_pricing, pricing_conflict_error(event_id: blocking_id)})
           end
         end
 
@@ -320,14 +313,19 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
   # KTD3 / R1：Initiative 押金规则（含关闭态）写入前，目标 Event 已开定价则
   # 拒绝并返回稳定业务错误——不静默关闭定价、不改写资金配置。
+  # 押金与定价互斥的稳定业务错误（KTD3）：两条拒绝路径（传播前置 / 挂载合并）
+  # 同源构造，仅 fields 不同。
+  defp pricing_conflict_error(fields) do
+    Cgc2046.Errors.BusinessError.exception(
+      message: "disable pricing before applying the deposit rule to this event",
+      code: "event_payment_mode_exclusive",
+      fields: fields
+    )
+  end
+
   defp merge_event_value(attrs, :deposit_enabled, %{deposit_enabled: _} = values) do
     if Map.get(attrs, :pricing_enabled) == true do
-      {:error,
-       Cgc2046.Errors.BusinessError.exception(
-         message: "disable pricing before applying the deposit rule to this event",
-         code: "event_payment_mode_exclusive",
-         fields: [:pricing_enabled]
-       )}
+      {:error, pricing_conflict_error(:pricing_enabled)}
     else
       Map.merge(attrs, values)
     end
