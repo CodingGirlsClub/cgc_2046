@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api, SessionExpiredError } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
-import { enrollmentStatusText, remainingLabel } from '@/domain/format'
-import type { EnrollmentSummary } from '@/domain/models'
-import { PAYMENT_STATUS_LABEL } from '@/domain/payment'
+import { checkInCodeText, enrollmentStatusText, remainingLabel } from '@/domain/format'
+import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
+import { enrollmentPaymentText } from '@/domain/payment'
 import { requestPlatformSubscription } from '@/platform'
 import styles from './index.module.css'
 
@@ -21,24 +21,21 @@ export default function MyEnrollmentsPage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   // #411 折叠历史区的展开态（本地态，按组键=latest.id；刷新/重载后收起）
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
-
-  const [paymentByEnrollment, setPaymentByEnrollment] = useState<Record<string, string>>({})
+  // 缴费链订单（R16）：卡面缴费文案由 domain 纯函数从报名 × 订单推导
+  const [orders, setOrders] = useState<OrderSummary[]>([])
+  // 卡面缴费文案：按 orders/items 变化派生一次（纯函数仍是唯一口径）
+  const paymentTexts = useMemo(
+    () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders)])),
+    [items, orders],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     setExpired(false)
     try {
-      const [enrollments, orders] = await Promise.all([api.getEnrollments(), api.getMyOrders()])
-      // 缴费态(R16)：confirmed 报名挂最新订单状态展示 paid/refunded;
-      // payment_pending 由报名状态自身表达。
-      const byEnrollment: Record<string, string> = {}
-      for (const order of orders) {
-        if (order.status === 'paid' || order.status === 'refunded' || order.status === 'refunding') {
-          byEnrollment[order.enrollmentId] = order.status
-        }
-      }
-      setPaymentByEnrollment(byEnrollment)
+      const [enrollments, orderList] = await Promise.all([api.getEnrollments(), api.getMyOrders()])
+      setOrders(orderList)
       setItems(enrollments)
     } catch (reason) {
       // 掉线 ≠ 没有报名：SessionExpiredError → 重登空态，其余照常报错
@@ -79,7 +76,7 @@ export default function MyEnrollmentsPage() {
       content:
         item.status === 'payment_pending'
           ? '取消后将释放名额并作废待支付订单，此操作不可恢复。'
-          : paymentByEnrollment[item.id] === 'paid'
+          : orders.some((order) => order.enrollmentId === item.id && order.status === 'paid')
             ? '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
             : '取消后名额将即时释放，此操作不可恢复。'
     })
@@ -126,6 +123,8 @@ export default function MyEnrollmentsPage() {
         ) : groups.map((group) => {
           const item = group.latest
           const expanded = expandedGroups[item.id] === true
+          const paymentText = paymentTexts.get(item.id) ?? null
+          const checkInCode = checkInCodeText(item.status, item.checkInCode)
           return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
@@ -133,9 +132,14 @@ export default function MyEnrollmentsPage() {
               <Text className={`${styles.status} ${styles[item.status]}`}>{enrollmentStatusText[item.status]}</Text>
             </View>
             <Text className={styles.cardTitle}>{item.title}</Text>
-            {item.status === 'confirmed' && paymentByEnrollment[item.id] && (
+            {checkInCode && (
+              <Text className={styles.checkInCode} data-testid={`check-in-code-${item.id}`}>
+                {checkInCode}
+              </Text>
+            )}
+            {item.status === 'confirmed' && paymentText && (
               <Text className={styles.paymentStatus} data-testid={`payment-status-${item.id}`}>
-                缴费状态：{PAYMENT_STATUS_LABEL[paymentByEnrollment[item.id]] ?? paymentByEnrollment[item.id]}
+                {paymentText}
               </Text>
             )}
             {item.status === 'pending' && (
@@ -147,7 +151,7 @@ export default function MyEnrollmentsPage() {
             {item.status === 'payment_pending' && (
               <>
                 <Text className={styles.paymentHint} data-testid={`payment-hint-${item.id}`}>
-                  缴费状态：{PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付
+                  {paymentText}
                 </Text>
                 {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端(tt/xhs)隐藏去支付
                     按钮,引导网页端完成(零导流文案合规,渠道事实说明)。 */}

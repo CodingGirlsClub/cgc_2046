@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   canManageMembers,
+  checkInCodeText,
   enrollmentBadgeText,
   isUrgent,
   parseEnrollmentBadge,
@@ -94,4 +95,19 @@ test('closed/full 阻断报名入口，enrolling/starting_soon 不拦截', () =>
   assert.equal(enrollmentBlockedNotice('full'), '名额已满，不再接受新的报名。')
   assert.equal(enrollmentBlockedNotice('enrolling'), null)
   assert.equal(enrollmentBlockedNotice('starting_soon'), null)
+})
+
+// ── U11（R11/KTD5）：报名卡核销码出示 ──
+
+test('核销码出示：仅 confirmed 报名且有码时出「核销码 xxxxxx」（前导零按字符串保留）', () => {
+  assert.equal(checkInCodeText('confirmed', '042317'), '核销码 042317')
+  assert.equal(checkInCodeText('confirmed', '999999'), '核销码 999999')
+  // 未确认态不出示（含 payment_pending：付押金前无码可核）
+  assert.equal(checkInCodeText('payment_pending', '042317'), null)
+  assert.equal(checkInCodeText('pending', '042317'), null)
+  assert.equal(checkInCodeText('cancelled', '042317'), null)
+  assert.equal(checkInCodeText('rejected', '042317'), null)
+  // 无码（course / 后端门控未给）不出示
+  assert.equal(checkInCodeText('confirmed', null), null)
+  assert.equal(checkInCodeText('confirmed', ''), null)
 })

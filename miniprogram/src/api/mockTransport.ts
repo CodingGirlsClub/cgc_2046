@@ -13,6 +13,11 @@ const workspace = {
 }
 
 // 公开发现面 mock 记录（F2）：字段 = 匿名白名单，与 operations.ts 查询一致
+// （押金字段为例外：仅详情查询请求，样例记录带着供详情/报名链使用——列表面
+// 不渲染缴费槽，多带两键不影响）。
+const DEPOSIT_AMOUNT_CENTS = 6900
+const CHECK_IN_CODE = '042317'
+
 const records = [
   {
     id: 'event-1',
@@ -39,6 +44,23 @@ const records = [
     startsAt: null,
     endsAt: null,
     venue: null,
+    enrollmentBadge: 'enrolling'
+  },
+  {
+    id: 'event-deposit',
+    title: '押金场 · 线下共学',
+    status: 'open',
+    enrollmentPolicy: 'open',
+    registrationDeadline: new Date(Date.now() + 48 * 3_600_000).toISOString(),
+    pricingEnabled: false,
+    availablePriceTiers: [],
+    // 押金场（U11 样例）：详情页缴费块「押金 ¥69.00（到场退）」+「未到场不退」，
+    // 报名落 payment_pending（零档位选择，走既有 paymentLandingUrl 支付）
+    depositEnabled: true,
+    depositAmountCents: DEPOSIT_AMOUNT_CENTS,
+    startsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
+    endsAt: new Date(Date.now() + (5 * 24 + 2) * 3_600_000).toISOString(),
+    venue: JSON.stringify({ country: '中国', province: '上海市', city: '上海', district: '徐汇区' }),
     enrollmentBadge: 'enrolling'
   }
 ]
@@ -80,6 +102,8 @@ interface MockEnrollment {
   expiredAt: string | null
   cancelledAt: string | null
   insertedAt: string
+  /** 6 位核销码（KTD5：仅 confirmed 报名由后端返回；置前导零验证字符串口径） */
+  checkInCode: string | null
 }
 
 let loggedIn = false
@@ -119,6 +143,9 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
 
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
+
+  if (document.includes('query PublicInitiatives')) return { publicInitiatives: [] }
+  if (document.includes('query PublicInitiative(')) return { publicInitiative: null }
 
   if (document.includes('query Catalog')) {
     // #355 P2-10：CatalogSearch 带 title ilike `%kw%` 过滤变量（大小写不敏感 includes 语义）
@@ -206,9 +233,11 @@ function responseFor(document: string, variables: object): unknown {
     const input = values.input as Record<string, unknown>
     const eventId = typeof input.eventId === 'string' ? input.eventId : null
     const courseId = typeof input.courseId === 'string' ? input.courseId : null
-    // 收费路径(tierId 在场)→ payment_pending(R5:占位后待支付)
-    const paid = typeof input.tierId === 'string' && input.tierId
-    const status = paid ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
+    // 收费/押金路径 → payment_pending（R5/KTD2：定价场 tierId 在场；押金场零档位）
+    const requiresPayment =
+      (typeof input.tierId === 'string' && input.tierId !== '') ||
+      records.some((record) => 'depositEnabled' in record && record.depositEnabled === true && record.id === eventId)
+    const status = requiresPayment ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
     enrollment = {
       id: 'enrollment-1',
       workspaceId: workspace.id,
@@ -224,7 +253,9 @@ function responseFor(document: string, variables: object): unknown {
       approvedAt: null,
       expiredAt: null,
       cancelledAt: null,
-      insertedAt: new Date().toISOString()
+      insertedAt: new Date().toISOString(),
+      // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
+      checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null
     }
     return { createEnrollment: { result: enrollment, errors: [] } }
   }
@@ -240,7 +271,13 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation ConfirmEnrollment')) {
     if (enrollment) {
-      enrollment = { ...enrollment, status: 'confirmed', approvalDeadline: null, approvedAt: new Date().toISOString() }
+      enrollment = {
+        ...enrollment,
+        status: 'confirmed',
+        approvalDeadline: null,
+        approvedAt: new Date().toISOString(),
+        checkInCode: enrollment.checkInCode ?? CHECK_IN_CODE
+      }
     }
     return { confirmEnrollment: { result: enrollment, errors: [] } }
   }
@@ -278,11 +315,16 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation CreateOrder')) {
     // e2e 边界(#172):止于订单生成 + JSAPI 凭据返回,不模拟支付完成
+    const targetRecord = records.find(({ id }) => id === enrollment?.eventId)
+    // 押金单金额 = 目标场押金（R2 单源，零改动的下单链在此被 mock 忠实复现）
     order = {
       id: 'order-1',
       enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
       status: 'pending',
-      amountCents: 19900,
+      amountCents:
+        targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
+          ? DEPOSIT_AMOUNT_CENTS
+          : 19900,
       expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
       transactionId: null
     }

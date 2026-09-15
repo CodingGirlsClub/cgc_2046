@@ -76,7 +76,7 @@ export const CatalogSearchQueryDocument = /* GraphQL */ `
 
 export const EventDetailQueryDocument = /* GraphQL */ `
   query EventDetail($id: ID!) {
-    getEvent(id: $id, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+    getEvent(id: $id, filter: { status: { in: ["open", "closed", "cancelled"] }, visibility: { eq: "public" } }) {
       id
       title
       status
@@ -84,10 +84,14 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       registrationDeadline
       pricingEnabled
       availablePriceTiers
+      depositEnabled
+      depositAmountCents
       startsAt
       endsAt
       venue
       enrollmentBadge
+      qualificationBadge
+      shortBy
     }
     # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
     myEnrollment(kind: "event", offeringId: $id) {
@@ -176,6 +180,7 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
       }
     }
   }
@@ -200,6 +205,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
       }
     }
   }
@@ -388,6 +394,25 @@ export const MyOrdersQueryDocument = /* GraphQL */ `
         status
         amountCents
         expireAt
+      }
+    }
+  }
+`
+
+export const PublicInitiativesQueryDocument = /* GraphQL */ `
+  query PublicInitiatives {
+    publicInitiatives { id name slug hashtag status }
+  }
+`
+
+export const PublicInitiativeQueryDocument = /* GraphQL */ `
+  query PublicInitiative($slug: String!) {
+    publicInitiative(slug: $slug) {
+      id name slug hashtag description status windowStartsAt windowEndsAt
+      cityCount eventCount confirmedCount qualifiedEventCount
+      cities {
+        city
+        events { id slug title status startsAt endsAt archived qualificationBadge shortBy }
       }
     }
   }

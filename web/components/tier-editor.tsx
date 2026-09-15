@@ -126,7 +126,7 @@ export default function TierEditor({
 						data-testid={`tier-row-${d.id}`}
 					>
 						<input
-							className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+							className="ui-input w-full"
 							placeholder={t("tierNamePlaceholder")}
 							value={d.name}
 							disabled={!manage}
@@ -134,7 +134,7 @@ export default function TierEditor({
 							data-testid={`tier-name-${d.id}`}
 						/>
 						<input
-							className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+							className="ui-input w-full"
 							placeholder={t("tierAmountPlaceholder")}
 							inputMode="decimal"
 							value={d.amount}
@@ -144,7 +144,7 @@ export default function TierEditor({
 						/>
 						<input
 							type="date"
-							className="w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+							className="ui-input w-full"
 							aria-label={t("tierUntilAria")}
 							title={t("tierUntilAria")}
 							value={d.availableUntil}

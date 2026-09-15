@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "./sitemap";
 
 /** 静态公开路由数（sitemap.ts STATIC_PATHS）——新增公开页时同步 */
-const STATIC_COUNT = 7;
+const STATIC_COUNT = 8;
 
 function stubFetchOk(body: unknown) {
 	vi.stubGlobal(
@@ -43,6 +43,15 @@ describe("sitemap", () => {
 		expect(
 			entries.some((e) => e.url === "https://codingirlsclub.com/courses/intro-web"),
 		).toBe(true);
+
+		// /initiatives 登记钉（code-review 缺口：防同计数的路径笔误静默通过）
+		const initiativesEntry = entries.find(
+			(e) => e.url === "https://codingirlsclub.com/initiatives",
+		);
+		expect(initiativesEntry?.alternates?.languages).toEqual({
+			"zh-CN": "https://codingirlsclub.com/initiatives",
+			en: "https://codingirlsclub.com/en/initiatives",
+		});
 	});
 
 	it("后端不可达时降级为纯静态条目，不抛错", async () => {

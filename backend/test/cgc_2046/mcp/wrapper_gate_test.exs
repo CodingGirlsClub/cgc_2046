@@ -32,11 +32,11 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   @workspace_id_optional ~w(confirm_operation cancel_operation list_my_workspaces)
   @optional_deferred ~w(get_role_playbook discover_offerings get_my_enrollments)
   @membership_deferred ~w(save_step_output get_course_content get_course_revision get_enrollment_summary create_enrollment get_order_status start_learning_run submit_learning_attempt get_learning_state)
-  @membership_public ~w(list_public_offerings get_public_offering)
-  @membership_platform_admin ~w(admin_list_users admin_list_workspaces admin_list_workspace_applications admin_list_audit_logs admin_list_reconciliation_findings admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user)
+  @membership_public ~w(list_public_offerings get_public_offering get_public_initiative list_public_initiatives)
+  @membership_platform_admin ~w(admin_list_users admin_list_workspaces admin_list_workspace_applications admin_list_audit_logs admin_list_reconciliation_findings admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user admin_list_initiatives admin_get_initiative admin_create_initiative admin_update_initiative admin_open_initiative admin_close_initiative admin_upsert_initiative_rule)
   @member_only ~w(get_workspace_context list_members list_join_requests get_workflow get_step_output create_invitation approve_join_request assign_roles save_course_content list_my_tasks list_workspace_courses) ++
                  ~w(create_course update_course launch_course close_course cancel_course create_event list_workspace_events update_event launch_event close_event cancel_event list_enrollments confirm_enrollment reject_enrollment waive_payment list_workspace_orders refund_order retry_refund update_join_policy) ++
-                 ~w(get_prep_status assign_prep_tutor claim_prep_authoring update_prep_policy submit_prep_for_check submit_prep_quality_report override_prep_gate approve_prep request_changes_prep) ++
+                 ~w(get_prep_status assign_prep_tutor claim_prep_authoring update_prep_policy submit_prep_for_check submit_prep_quality_report override_prep_gate approve_prep request_changes_prep list_event_moderators assign_event_moderator remove_event_moderator) ++
                  ~w(get_course_learning_analytics)
 
   defp frame_for(user), do: Frame.new(current_user: user)
@@ -120,7 +120,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
     test "注册工具数 = 68 且名单完备（无未收录工具）" do
       meta_map = tool_meta_map()
 
-      assert map_size(meta_map) == 68
+      assert map_size(meta_map) == 80
 
       assert Map.keys(meta_map) |> Enum.sort() ==
                Enum.sort(

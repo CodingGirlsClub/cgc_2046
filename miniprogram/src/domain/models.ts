@@ -16,18 +16,30 @@ export type OrderStatus =
   | 'refund_failed'
   | 'cancelled'
   | 'expired'
+  /** 押金终态：未到场且未核销，押金不退（no-show 结算落此态，平台首个不退终态） */
+  | 'forfeited'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
 export interface CatalogItem {
   id: string
   kind: ContentKind
   title: string
+  status: string
+  qualificationBadge: QualificationBadge | null
+  shortBy: number | null
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
   registrationDeadline: string | null
   /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
   pricingEnabled: boolean
   /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */
   priceTiers: PriceTier[]
+  /**
+   * 是否收取押金（R1 三态互斥：与 pricingEnabled 不可同真）。仅详情查询携带
+   * （匿名列表白名单与 web PUBLIC_LIST_* 同源，不含押金字段）——列表记录恒 false。
+   */
+  depositEnabled: boolean
+  /** 押金金额（分，R2 单源）；非押金场恒 null */
+  depositAmountCents: number | null
   /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
@@ -41,6 +53,39 @@ export interface CatalogItem {
    * confirmed，后端仅返回活跃集——在场即「已报名」）。匿名/未报名 → null。
    */
   myEnrollment: MyEnrollmentState | null
+}
+
+export type QualificationBadge = 'cancelled' | 'closed' | 'confirmed' | 'short_by' | 'open'
+
+export interface PublicInitiativeCard {
+  id: string
+  name: string
+  slug: string
+  hashtag: string | null
+  status: 'open' | 'closed'
+}
+
+export interface PublicInitiativeEvent {
+  id: string
+  slug: string
+  title: string
+  status: 'open' | 'closed' | 'cancelled'
+  startsAt: string | null
+  endsAt: string | null
+  archived: boolean
+  qualificationBadge: QualificationBadge
+  shortBy: number | null
+}
+
+export interface PublicInitiative extends PublicInitiativeCard {
+  description: string | null
+  windowStartsAt: string | null
+  windowEndsAt: string | null
+  cityCount: number
+  eventCount: number
+  confirmedCount: number
+  qualifiedEventCount: number
+  cities: { city: string; events: PublicInitiativeEvent[] }[]
 }
 
 /** 详情页「已报名」态的本人活跃报名投影（myEnrollment 查询子集） */
@@ -113,6 +158,11 @@ export interface EnrollmentSummary {
   rejectionReason: string | null
   /** #411 同活动折叠的分组/排序键（服务端 create_timestamp，ISO 时间串） */
   insertedAt: string
+  /**
+   * 6 位核销码（KTD5：仅本人 confirmed 报名由后端返回，其余为 null；course 恒 null）
+   * ——「我的报名」confirmed 卡出示用。
+   */
+  checkInCode: string | null
 }
 
 export interface EnrollmentForm {

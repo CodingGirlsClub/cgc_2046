@@ -239,24 +239,9 @@ defmodule Cgc2046.Accounts.PhoneVerificationCode do
   @spec code_ttl_seconds :: pos_integer()
   def code_ttl_seconds, do: @code_ttl_seconds
 
-  # 6 位数字码：rejection sampling（2^24 mod 10^6 ≈ 6% 相对偏差区间外重采样，
-  # advisor02 A7——3 字节随机数均匀覆盖 [0, 16_777_216)，超出 16×10^6 的
-  # 尾部丢弃重采，保证无偏）
-  @code_space 1_000_000
-  @code_reject_below 16 * @code_space
-
-  defp generate_code do
-    n = :binary.decode_unsigned(:crypto.strong_rand_bytes(3))
-
-    if n >= @code_reject_below do
-      generate_code()
-    else
-      n
-      |> rem(@code_space)
-      |> Integer.to_string()
-      |> String.pad_leading(6, "0")
-    end
-  end
+  # 生成器抽至 Cgc2046.RandomCode（KTD5）：登录验证码与报名核销码共用同一
+  # 无偏 rejection-sampling 实现，本模块只保留调用点。
+  defp generate_code, do: Cgc2046.RandomCode.generate()
 
   defp hash_code(phone, code),
     do: :crypto.hash(:sha256, phone <> ":" <> code) |> Base.encode16(case: :lower)

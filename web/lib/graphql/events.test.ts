@@ -65,14 +65,14 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		expect(doc).toContain("count");
 	});
 
-	it("MY_EVENT/COURSE_ENROLLMENT：活跃态过滤（终态不挡再报名，e2e #2）+ status/approvalDeadline 透传", () => {
+	it("MY_EVENT/COURSE_ENROLLMENT：活跃态过滤（终态不挡再报名，e2e #2）+ status/approvalDeadline/checkInCode 透传", () => {
 		const eventDoc = print(MY_EVENT_ENROLLMENT);
 		expect(eventDoc).toContain("query MyEventEnrollment($eventId: ID!, $userId: ID!)");
 		expect(eventDoc).toContain(
 			'status: { in: ["pending", "payment_pending", "confirmed"] }',
 		);
 		expect(eventDoc).toContain(
-			"results {\n      id\n      status\n      approvalDeadline\n    }",
+			"results {\n      id\n      status\n      approvalDeadline\n      checkInCode\n    }",
 		);
 
 		const courseDoc = print(MY_COURSE_ENROLLMENT);
@@ -81,7 +81,7 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 			'status: { in: ["pending", "payment_pending", "confirmed"] }',
 		);
 		expect(courseDoc).toContain(
-			"results {\n      id\n      status\n      approvalDeadline\n    }",
+			"results {\n      id\n      status\n      approvalDeadline\n      checkInCode\n    }",
 		);
 	});
 

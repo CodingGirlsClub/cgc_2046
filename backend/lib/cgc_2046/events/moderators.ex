@@ -1,0 +1,119 @@
+defmodule Cgc2046.Events.Moderators do
+  @moduledoc """
+  Event 主理人关联的唯一管理面。主理人不是 Workspace 成员角色；管理权限由
+  Event 所属 Workspace 的 Owner/Admin 持有，关联本身只提供 Event 级 seam。
+  """
+
+  require Ash.Query
+  alias Cgc2046.Accounts.Rbac
+  alias Cgc2046.Events.{Event, EventModerator}
+
+  def ensure_assigned(event, user_id) do
+    attrs = %{
+      workspace_id: event.workspace_id,
+      event_id: event.id,
+      user_id: user_id,
+      assigned_by: user_id
+    }
+
+    case EventModerator
+         |> Ash.Changeset.for_create(:assign, attrs)
+         |> Ash.create(actor: %{id: user_id}, authorize?: false, tenant: event.workspace_id) do
+      {:ok, _} ->
+        :ok
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        if String.contains?(Exception.message(error), "unique_event_user"),
+          do: :ok,
+          else: {:error, error}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def list(event_id, workspace_id, actor) do
+    with {:ok, event} <- Ash.get(Event, event_id, authorize?: false, tenant: workspace_id),
+         true <- event && can_moderate?(actor, event) do
+      EventModerator
+      |> Ash.Query.filter(event_id == ^event_id)
+      |> Ash.Query.sort(assigned_at: :asc, id: :asc)
+      |> Ash.read(authorize?: false, tenant: workspace_id)
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def assign(event_id, workspace_id, user_id, actor) do
+    with :ok <- manage?(actor, workspace_id),
+         {:ok, event} <- fetch_event(event_id, workspace_id, actor),
+         {:ok, _user} <- fetch_user(user_id, actor) do
+      case EventModerator
+           |> Ash.Changeset.for_create(:assign, %{
+             workspace_id: workspace_id,
+             event_id: event.id,
+             user_id: user_id,
+             assigned_by: actor.id
+           })
+           |> Ash.create(actor: actor, tenant: workspace_id) do
+        {:ok, record} ->
+          Cgc2046.Notifications.Fanout.deliver(
+            {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
+            "event_moderator_assigned",
+            %{"event_id" => event.id, "title" => event.title},
+            %{"event_id" => event.id}
+          )
+
+          {:ok, record}
+
+        other ->
+          other
+      end
+    else
+      {:error, :forbidden} -> {:error, :forbidden}
+      {:error, _} = error -> error
+    end
+  end
+
+  def remove(moderator_id, workspace_id, actor) do
+    with :ok <- manage?(actor, workspace_id),
+         {:ok, moderator} <-
+           Ash.get(EventModerator, moderator_id,
+             actor: actor,
+             tenant: workspace_id,
+             not_found_error?: false
+           ) do
+      case moderator do
+        nil -> {:error, :not_found}
+        record -> Ash.destroy(record, actor: actor, tenant: workspace_id)
+      end
+    else
+      {:error, :forbidden} -> {:error, :forbidden}
+      {:error, _} = error -> error
+    end
+  end
+
+  def moderator?(user_id, event_id, workspace_id) do
+    EventModerator
+    |> Ash.Query.filter(event_id == ^event_id and user_id == ^user_id)
+    |> Ash.read_one(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, nil} -> false
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  def can_moderate?(actor, event) do
+    Rbac.manage?(actor, event.workspace_id) or moderator?(actor.id, event.id, event.workspace_id)
+  end
+
+  defp manage?(actor, workspace_id),
+    do: if(Rbac.manage?(actor, workspace_id), do: :ok, else: {:error, :forbidden})
+
+  defp fetch_event(event_id, workspace_id, actor),
+    do: Ash.get(Event, event_id, actor: actor, tenant: workspace_id)
+
+  defp fetch_user(user_id, actor),
+    do: Cgc2046.Accounts.User |> Ash.get(user_id, actor: actor, authorize?: false)
+end

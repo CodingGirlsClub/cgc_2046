@@ -32,3 +32,15 @@
   - 名额在 `payment_pending` 期间被"吊住"（最多 2 小时），热门活动周转率略降——接受，换"先到先占"的公平性。
   - 平台 Admin 需持退款兜底权（资金主体对资金操作的最终责任），跨租户特权面再 +1。
   - 平台与分会的线下结算依赖人工纪律，系统外流程（对账扫描可提供数据支撑，不做自动分账）。
+
+---
+
+## 更正补记（2026-09-14 实施期）——押金制：`forfeited` 为首个「终态且不退」语义
+
+> 正文与三条决策不改，本节为实施期更正与补充（先例：ADR-0009 D2/D6/D8、ADR-0010 G1 的补记写法）。实施载体：`docs/plans/2026-09-14-1357-feat-event-deposit-plan.md`（R6–R9、KTD7、KTD8；接管 #509 押金语义落点与自动结算）。
+
+1. **新增 Order 终态 `forfeited`（`paid → forfeited`，一次性 CAS）。** 活动正常结束（锚点只认 `ends_at`）+ 48h 后仍未核销（无 Attendance 行）的 `paid` 押金单，由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 结算为 `forfeited`：**押金不退、留作平台收入**，参与者事前文案明示「未到场不退」（`workspace_payment_stats` 增 `forfeited` 桶供对账导出）。**这是本 ADR 之外的第一条「钱不原路退回」的资金去向**——决策 3、4 都隐含「退款是唯一资金出口」（迟到支付全退、退款即取消），`forfeited` 明确「不退款也是合法终态」，故补记于此；资金去向的财务细则（开票义务、收入确认时点、科目）沿 #509 R4 另行确认。
+
+2. **决策 4「退款即取消报名」射程收窄为一般路径。** 到场事实（Attendance 行存在 ⇔ 该报名被核销过）或免缴留痕在场时，退款**保留** confirmed 报名、不释放名额，`PaymentRefundWorker.cancel_enrollment/1` 以持久事实判定（读失败 fail-closed 上抛，绝不折叠为「未到场」）。到场即占位——退款不得撤销已发生的到场；此例外为核销即退（Attendance 落行同事务发起全额退款）与免缴路径的前提。no-show 结算只推进 Order 终态、不编排 Enrollment，报名保持 `confirmed`。
+
+3. **押金不改变决策 1–3 的骨架。** 平台统一商户号、占位 → 限时支付原样复用（押金单 `order_kind = :deposit`，金额源为报名提交时物化的押金快照）；`forfeit` 仅接受 `paid` 源态，过期单的迟到扣款仍走 `start_refund` 全退（钱账一致硬约束不变）；退款路径互斥仍由决策 4 的 CAS 纪律承担——六条发起方（自助取消 / 活动取消批量退 / 迟到支付退 / 管理员退款 / 核销即退 / no-show 结算）共经 `start_refund`、`forfeit` 条件 UPDATE 单一仲裁点，`num_rows = 0` 即他路接管；「取消 / 未达成班无条件全退优先」由源态与 Event 状态机保证，不建独立优先级分派器（KD3、KTD8）。

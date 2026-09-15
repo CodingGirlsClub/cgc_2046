@@ -1,17 +1,29 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useDidShow, useRouter, useShareAppMessage } from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
 import { enrollmentBadgeText, enrollmentBlockedNotice, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
-import { formatAmount } from '@/domain/payment'
+import { formatAmount, paymentBlockCopy } from '@/domain/payment'
+import { qualificationBadgeText } from '@/domain/initiative'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
   open: '提交后立即确认',
   request: '提交后等待审批',
   invite_only: '需要有效批次码'
+}
+
+export function EventRegistrationActions({ item, onRegister }: { item: CatalogItem; onRegister: () => void }) {
+  const blockedNotice = enrollmentBlockedNotice(item.enrollmentBadge)
+  if (item.status !== 'open') return <Text className={styles.closedNotice} data-testid='archived-event-notice'>{item.status === 'cancelled' ? '活动已取消' : '活动已结束'}，仅供查看。</Text>
+  if (item.myEnrollment) return <>
+    <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>已报名 · {enrollmentStatusText[item.myEnrollment.status]}</Text>
+    <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>
+  </>
+  if (blockedNotice) return <Text className={styles.closedNotice} data-testid='registration-closed-notice'>{blockedNotice}</Text>
+  return <Button className={styles.primaryButton} data-testid='register-action' onClick={onRegister}>立即报名</Button>
 }
 
 export default function EventDetailPage() {
@@ -21,25 +33,30 @@ export default function EventDetailPage() {
   const [item, setItem] = useState<CatalogItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current
     setLoading(true)
     setError('')
     try {
-      setItem(await api.getContent(kind, id))
+      const result = await api.getContent(kind, id)
+      if (seq === requestSeq.current) setItem(result)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '详情加载失败')
+      if (seq === requestSeq.current) setError(reason instanceof Error ? reason.message : '详情加载失败')
     } finally {
-      setLoading(false)
+      if (seq === requestSeq.current) setLoading(false)
     }
   }, [id, kind])
 
   // 报名/登录后 navigateBack 回本页不 remount：useDidShow 重载详情
   //（my-enrollments/discover/workspace/profile 同款）
   useDidShow(() => { void load() })
+  useDidHide(() => { requestSeq.current++ })
+  useUnload(() => { requestSeq.current++ })
 
   const register = async () => {
-    if (!item) return
+    if (!item || item.status !== 'open') return
     // 已有活跃报名（pending/payment_pending/confirmed）不再进报名漏斗——
     // 后端唯一索引会拒绝，此处提前收口到「我的报名」（#355 P1-3）
     if (item.myEnrollment) {
@@ -68,7 +85,7 @@ export default function EventDetailPage() {
   if (error) return <PageState kind='error' message={error} onRetry={load} />
   if (!item) return <PageState kind='empty' message='内容不存在' />
 
-  const blockedNotice = enrollmentBlockedNotice(item.enrollmentBadge)
+  const payment = paymentBlockCopy(item)
 
   return (
     <View className={styles.page}>
@@ -76,6 +93,7 @@ export default function EventDetailPage() {
         <View className={styles.header}>
           <Text className={styles.kind}>{item.kind === 'event' ? 'EVENT' : 'COURSE'}</Text>
           <Text className={styles.title} data-testid='detail-title'>{item.title}</Text>
+          {item.qualificationBadge && <Text data-testid='qualification-badge'>{qualificationBadgeText({ qualificationBadge: item.qualificationBadge, shortBy: item.shortBy })}</Text>}
         </View>
 
         <View className={styles.metrics}>
@@ -108,26 +126,23 @@ export default function EventDetailPage() {
           )}
         </View>
 
-        {item.pricingEnabled && (
-          <View className={styles.block} data-testid='price-tiers'>
-            <Text className={styles.blockTitle}>价格档位</Text>
-            {item.priceTiers.length === 0 ? (
-              <Text className={styles.value}>当前无可售档位，请联系组织者。</Text>
-            ) : item.priceTiers.map((tier) => (
-              <View key={tier.id} className={styles.row} data-testid={`price-tier-${tier.id}`}>
-                <Text className={styles.label}>{tier.name}</Text>
-                <Text className={styles.value}>¥{formatAmount(tier.amountCents)}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+        <View className={styles.block} data-testid='payment-block'>
+          <Text className={styles.blockTitle}>{payment.title}</Text>
+          <Text className={styles.amountLine} data-testid='payment-amount'>{payment.amountText}</Text>
+          {payment.tiers.map((tier) => (
+            <View key={tier.id} className={styles.row} data-testid={`price-tier-${tier.id}`}>
+              <Text className={styles.label}>{tier.name}</Text>
+              <Text className={styles.value}>¥{formatAmount(tier.amountCents)}</Text>
+            </View>
+          ))}
+          {payment.notes.map((note) => (
+            <Text key={note} className={styles.noteLine} data-testid='payment-note'>{note}</Text>
+          ))}
+        </View>
 
         <View className={styles.policyBlock}>
           <Text className={styles.policyTitle}>报名说明</Text>
           <Text className={styles.policyText}>{policyText[item.enrollmentPolicy]}</Text>
-          {item.pricingEnabled && (
-            <Text className={styles.policyText}>收费活动：提交报名后请在限定时间内完成支付。</Text>
-          )}
           {item.registrationDeadline && (
             <Text className={styles.deadline}>截止：{formatDateTime(item.registrationDeadline)}</Text>
           )}
@@ -135,25 +150,7 @@ export default function EventDetailPage() {
       </ScrollView>
 
       <View className={styles.footer}>
-        {item.myEnrollment ? (
-          <>
-            {/* 已报名态优先于截止/满员提示：活跃在手，查看入口比阻断文案更有用 */}
-            <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>
-              已报名 · {enrollmentStatusText[item.myEnrollment.status]}
-            </Text>
-            <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>
-              查看我的报名
-            </Button>
-          </>
-        ) : blockedNotice ? (
-          <Text className={styles.closedNotice} data-testid='registration-closed-notice'>
-            {blockedNotice}
-          </Text>
-        ) : (
-          <Button className={styles.primaryButton} data-testid='register-action' onClick={register}>
-            立即报名
-          </Button>
-        )}
+        <EventRegistrationActions item={item} onRegister={register} />
       </View>
     </View>
   )

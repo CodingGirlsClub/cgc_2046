@@ -408,6 +408,43 @@ input EnrollmentFilterCancelledAt {
   rangeOverlaps: DateTime
 }
 
+input EnrollmentFilterTermsVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input EnrollmentFilterAgeConfirmedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
 input EnrollmentFilterExpiredAt {
   isNil: Boolean
   eq: DateTime
@@ -672,6 +709,8 @@ input EnrollmentFilterInput {
   rejectionReason: EnrollmentFilterRejectionReason
   approvalDeadline: EnrollmentFilterApprovalDeadline
   expiredAt: EnrollmentFilterExpiredAt
+  ageConfirmedAt: EnrollmentFilterAgeConfirmedAt
+  termsVersion: EnrollmentFilterTermsVersion
   cancelledAt: EnrollmentFilterCancelledAt
   insertedAt: EnrollmentFilterInsertedAt
 }
@@ -1403,6 +1442,21 @@ input UpdateEventInput {
   "配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
   courseRevisionId: ID
 
+  "所属平台级 Initiative；仅草稿可挂载"
+  initiativeId: ID
+
+  "是否收取活动押金（与既有报名定价分开）"
+  depositEnabled: Boolean
+
+  "押金金额（分）"
+  depositAmountCents: Int
+
+  "报名最低年龄；nil 表示无年龄门槛"
+  minAge: Int
+
+  "成班最低确认人数；nil 表示不判定成班"
+  minParticipants: Int
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -1468,6 +1522,21 @@ input CreateEventInput {
   "配套课程锚点（issue #505 D1）：指向一门普通课程的 published revision；nil = 无配套课（宣讲会）。公开读面经 companionCourse 计算字段投影，属性本身不进公开 SDL（courses.current_revision_id 同款纪律）"
   courseRevisionId: ID
 
+  "所属平台级 Initiative；仅草稿可挂载"
+  initiativeId: ID
+
+  "是否收取活动押金（与既有报名定价分开）"
+  depositEnabled: Boolean
+
+  "押金金额（分）"
+  depositAmountCents: Int
+
+  "报名最低年龄；nil 表示无年龄门槛"
+  minAge: Int
+
+  "成班最低确认人数；nil 表示不判定成班"
+  minParticipants: Int
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean
 
@@ -1505,6 +1574,13 @@ enum EventSortField {
   STARTS_AT
   ENDS_AT
   VENUE
+  INITIATIVE_ID
+  CREATED_BY
+  DEPOSIT_ENABLED
+  DEPOSIT_AMOUNT_CENTS
+  MIN_AGE
+  MIN_PARTICIPANTS
+  QUALIFICATION_STATUS
   SPONSORSHIP_ENABLED
   SPONSORSHIP_DEADLINE
   PRICING_ENABLED
@@ -1571,6 +1647,118 @@ input EventFilterSponsorshipEnabled {
   rangeAdjacent: Boolean
   rangeContains: String
   rangeOverlaps: Boolean
+}
+
+input EventFilterQualificationStatus {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
+input EventFilterMinParticipants {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EventFilterMinAge {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EventFilterDepositAmountCents {
+  isNil: Boolean
+  eq: Int
+  notEq: Int
+  in: [Int]
+  lessThan: Int
+  greaterThan: Int
+  lessThanOrEqual: Int
+  greaterThanOrEqual: Int
+  isDistinctFrom: Int
+  isNotDistinctFrom: Int
+  rangeAdjacent: Int
+  rangeContains: String
+  rangeOverlaps: Int
+}
+
+input EventFilterDepositEnabled {
+  isNil: Boolean
+  eq: Boolean
+  notEq: Boolean
+  in: [Boolean!]
+  lessThan: Boolean
+  greaterThan: Boolean
+  lessThanOrEqual: Boolean
+  greaterThanOrEqual: Boolean
+  isDistinctFrom: Boolean
+  isNotDistinctFrom: Boolean
+  rangeAdjacent: Boolean
+  rangeContains: String
+  rangeOverlaps: Boolean
+}
+
+input EventFilterCreatedBy {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
+}
+
+input EventFilterInitiativeId {
+  isNil: Boolean
+  eq: ID
+  notEq: ID
+  in: [ID]
+  lessThan: ID
+  greaterThan: ID
+  lessThanOrEqual: ID
+  greaterThanOrEqual: ID
+  isDistinctFrom: ID
+  isNotDistinctFrom: ID
+  rangeAdjacent: ID
+  rangeContains: String
+  rangeOverlaps: ID
 }
 
 input EventFilterVenue {
@@ -1917,6 +2105,26 @@ input EventFilterInput {
   "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
   venue: EventFilterVenue
 
+  "所属平台级 Initiative；仅草稿可挂载"
+  initiativeId: EventFilterInitiativeId
+
+  createdBy: EventFilterCreatedBy
+
+  "是否收取活动押金（与既有报名定价分开）"
+  depositEnabled: EventFilterDepositEnabled
+
+  "押金金额（分）"
+  depositAmountCents: EventFilterDepositAmountCents
+
+  "报名最低年龄；nil 表示无年龄门槛"
+  minAge: EventFilterMinAge
+
+  "成班最低确认人数；nil 表示不判定成班"
+  minParticipants: EventFilterMinParticipants
+
+  "成班事实：pending \/ confirmed \/ underfilled"
+  qualificationStatus: EventFilterQualificationStatus
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: EventFilterSponsorshipEnabled
 
@@ -1983,6 +2191,26 @@ type Event {
   "结构化场地（country\/province\/city\/district 四键，KTD5\/R2）；nil 表示线上或未定"
   venue: JsonString
 
+  "所属平台级 Initiative；仅草稿可挂载"
+  initiativeId: ID
+
+  createdBy: ID
+
+  "是否收取活动押金（与既有报名定价分开）"
+  depositEnabled: Boolean!
+
+  "押金金额（分）"
+  depositAmountCents: Int
+
+  "报名最低年龄；nil 表示无年龄门槛"
+  minAge: Int
+
+  "成班最低确认人数；nil 表示不判定成班"
+  minParticipants: Int
+
+  "成班事实：pending \/ confirmed \/ underfilled"
+  qualificationStatus: String!
+
   "是否开放赞助入口（默认开；tiers 未配置时入口隐藏，E-5 readiness ②）"
   sponsorshipEnabled: Boolean!
 
@@ -1997,6 +2225,10 @@ type Event {
 
   "价格档位配置（PriceTier 形状，见 price_tier.ex）"
   priceTiers: [JsonString!]!
+
+  qualificationBadge: String
+
+  shortBy: Int
 
   "配套课程投影（JsonString 序列化的 {id, slug, title}；null = 无配套课\/宣讲会）"
   companionCourse: JsonString
@@ -3720,6 +3952,7 @@ enum OrderSortField {
   ID
   WORKSPACE_ID
   ENROLLMENT_ID
+  ORDER_KIND
   PROVIDER
   OUT_TRADE_NO
   TRANSACTION_ID
@@ -4022,6 +4255,22 @@ input OrderFilterProvider {
   rangeOverlaps: String
 }
 
+input OrderFilterOrderKind {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String!]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+}
+
 input OrderFilterEnrollmentId {
   isNil: Boolean
   eq: ID
@@ -4083,6 +4332,8 @@ input OrderFilterInput {
 
   enrollmentId: OrderFilterEnrollmentId
 
+  orderKind: OrderFilterOrderKind
+
   provider: OrderFilterProvider
 
   outTradeNo: OrderFilterOutTradeNo
@@ -4131,6 +4382,8 @@ type Order {
   workspaceId: ID!
 
   enrollmentId: ID!
+
+  orderKind: String!
 
   provider: String!
 
@@ -5028,6 +5281,12 @@ type RootQueryType {
   "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
   courseMap(slug: String!): CourseMap
 
+  "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
+  publicInitiative(slug: String!): PublicInitiative
+
+  "公开 Initiative 列表；匿名可读"
+  publicInitiatives: [PublicInitiativeCard!]!
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -5084,6 +5343,15 @@ type RootQueryType {
 
   "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
   reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "平台管理员：倡导活动列表"
+  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
+
+  "平台管理员：倡导活动详情及四项规则"
+  getInitiative(id: ID!): AdminInitiative
+
+  "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
+  eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
 
   sponsorships(
     "How to sort the records in the response"
@@ -5496,24 +5764,49 @@ type PendingApproval {
 
 type Enrollment {
   id: ID!
+
   workspaceId: ID!
+
   eventId: ID
+
   courseId: ID
+
   userId: ID!
+
   workflowRunId: ID
+
   inviteBatchId: ID
+
   status: String!
+
   capacitySeq: Int
+
   approvedBy: ID
+
   approvedAt: DateTime
+
   rejectionReason: String
+
   approvalDeadline: DateTime
+
   expiredAt: DateTime
+
   cancelledAt: DateTime
+
   insertedAt: DateTime!
+
   targetTitle: String
+
   startsAt: DateTime
+
   venue: String
+
+  registrationDeadline: DateTime
+
+  paymentMode: String
+
+  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
+  checkInCode: String
 }
 
 type MyLearningRun {
@@ -6026,6 +6319,138 @@ type AdminReconciliationFinding {
   insertedAt: DateTime!
 }
 
+type AdminInitiative {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+  createdBy: ID!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+  publicStats: PublicInitiative
+  rules: [AdminInitiativeRule!]!
+}
+
+type AdminInitiativeRule {
+  id: ID!
+  initiativeId: ID!
+  key: String!
+  valueJson: String!
+  locked: Boolean!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input AdminInitiativeInput {
+  name: String
+  slug: String
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+}
+
+type AdminInitiativePayload {
+  result: AdminInitiative
+  errors: [MutationError]
+}
+
+type AdminInitiativeRulePayload {
+  result: AdminInitiativeRule
+  errors: [MutationError]
+}
+
+type EventModerator {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID!
+  userId: ID!
+  assignedBy: ID
+  assignedAt: DateTime!
+}
+
+type EventModeratorPayload {
+  result: EventModerator
+  errors: [MutationError]
+}
+
+type CheckInEnrollmentPayload {
+  "被核销的报名（失败为 null）"
+  enrollmentId: ID
+
+  "核销时间（失败为 null）"
+  checkedInAt: DateTime
+
+  "核销方式：scan \/ manual（失败为 null）"
+  method: String
+
+  """
+  本次核销的押金退款侧事实（KTD6）：
+  - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
+  - refund_started：本次核销发起了全额退款；
+  - refunding / refunded：押金已在退还中 / 已退（幂等重入，不重复退）；
+  - forfeited：押金已按未到场结算（不退）。
+  前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
+  """
+  depositRefund: String
+
+  errors: [MutationError]
+}
+
+type PublicInitiative {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+  cityCount: Int!
+  eventCount: Int!
+  confirmedCount: Int!
+  qualifiedEventCount: Int!
+  cities: [PublicInitiativeCity!]!
+}
+
+type PublicInitiativeCard {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+}
+
+type PublicInitiativeCity {
+  city: String!
+  events: [PublicInitiativeEvent!]!
+}
+
+type PublicInitiativeEvent {
+  id: ID!
+  slug: String!
+  title: String!
+  status: String!
+  visibility: String!
+  startsAt: DateTime
+  endsAt: DateTime
+  registrationDeadline: DateTime
+  venue: JsonString
+  confirmedCount: Int!
+  minParticipants: Int
+  qualificationStatus: String
+  archived: Boolean!
+  qualificationBadge: String!
+  shortBy: Int
+}
+
 type AdminUserPayload {
   id: ID
   email: String
@@ -6153,6 +6578,35 @@ type RootMutationType {
 
   "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
   demoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：创建倡导活动草稿"
+  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：更新倡导活动元数据"
+  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：设置倡导活动状态为进行中"
+  openInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：结束倡导活动"
+  closeInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
+  upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
+
+  assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
+
+  removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
+
+  checkInEnrollment(
+    eventId: ID!
+
+    "6 位核销码（扫码 URL 预填或手输）"
+    code: String!
+
+    "核销方式：scan | manual"
+    method: String!
+  ): CheckInEnrollmentPayload
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

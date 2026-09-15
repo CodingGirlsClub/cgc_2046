@@ -1,4 +1,4 @@
-import type { EnrollmentStatus } from './models'
+import type { EnrollmentStatus, EnrollmentSummary, OrderSummary } from './models'
 
 /**
  * 缴费闭环小程序端纯逻辑（plan 024 U12/KTD10）。
@@ -10,7 +10,10 @@ import type { EnrollmentStatus } from './models'
  * - JSAPI 参数映射（R13）：createOrder metadata.credential（JsonString）→
  *   Taro.requestPayment 的 payment 参数（timeStamp/nonceStr/package/signType/
  *   paySign 五键，后端 wechat_jsapi 凭据 pay_params 直映射）。
- * - myOrders 订单状态（R16 状态展示）：报名卡按 enrollment 状态渲染缴费态。
+ * - myOrders 订单状态（R16 状态展示）：报名卡按 enrollment 状态渲染缴费态
+ *   （含押金链新增的 forfeited / refund_failed）。
+ * - 缴费块三态文案（R10 押金）：详情页免费 / 收费 / 押金共用单一缴费槽，押金态
+ *   必含「未到场不退」——R10「报名流程内明示」在小程序的最小落点（详情页承担）。
  */
 
 /* ---------------- 轮询（R14：2s×30s，成功即停；与 web 同契约） ---------------- */
@@ -27,6 +30,7 @@ export type OrderPollStatus =
   | 'refund_failed'
   | 'cancelled'
   | 'expired'
+  | 'forfeited'
 
 const POLL_TERMINAL: Record<string, true> = {
   paid: true,
@@ -34,7 +38,8 @@ const POLL_TERMINAL: Record<string, true> = {
   refunded: true,
   refund_failed: true,
   cancelled: true,
-  expired: true
+  expired: true,
+  forfeited: true
 }
 
 export interface PollDecision {
@@ -167,7 +172,8 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
   refunded: '已退款',
   refund_failed: '退款失败',
   cancelled: '已取消',
-  expired: '已过期'
+  expired: '已过期',
+  forfeited: '未到场不退'
 }
 
 /** 报名缴费态词表（my-enrollments 卡片，payment_pending 新态） */
@@ -175,7 +181,87 @@ export const PAYMENT_STATUS_LABEL: Record<string, string> = {
   payment_pending: '待支付',
   paid: '已支付',
   refunding: '退款中',
-  refunded: '已退款'
+  refunded: '已退款',
+  // 押金链新增：forfeited 是平台首个「终态且不退」，refund_failed 是渠道退款失败
+  // （保留报名等待重试）——两者都必须上卡，否则押金去向在学员侧无声消失。
+  forfeited: '押金未退（未到场）',
+  refund_failed: '退款失败，平台处理中'
+}
+
+/** confirmed 报名卡可展示的订单状态白名单（白名单外不出缴费行：expired/cancelled 是作废单，pending 无缴费事实） */
+const CARD_ORDER_STATUSES: Record<string, true> = {
+  paid: true,
+  refunding: true,
+  refunded: true,
+  forfeited: true,
+  refund_failed: true
+}
+
+/**
+ * 报名卡缴费文案（R16，单源）：payment_pending 由报名状态自身表达（待支付 + 名额
+ * 保留提示）；confirmed 报名只认白名单订单状态（已支付/退款中/已退款/押金未退/
+ * 退款失败）——同报名重入多单时取序列中最后一条白名单单，作废单（expired/
+ * cancelled）被白名单挡掉不遮蔽真实缴费态；其余（免费/免缴无订单、非 confirmed）
+ * → null，页面据此不出缴费行。
+ */
+export function enrollmentPaymentText(
+  enrollment: Pick<EnrollmentSummary, 'id' | 'status'>,
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[] = []
+): string | null {
+  if (enrollment.status === 'payment_pending') {
+    return `缴费状态：${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`
+  }
+  if (enrollment.status !== 'confirmed') return null
+
+  const statuses = orders.filter((order) => order.enrollmentId === enrollment.id && CARD_ORDER_STATUSES[order.status])
+  const latest = statuses[statuses.length - 1]
+  return latest ? `缴费状态：${PAYMENT_STATUS_LABEL[latest.status]}` : null
+}
+
+/* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */
+
+/** 详情页缴费块三态文案（R10 单一缴费槽：免费 / 收费 ¥xx / 押金 ¥xx（到场退）） */
+export interface PaymentBlockCopy {
+  /** 块标题 */
+  title: string
+  /** 金额行：「免费」/「收费」/「押金 ¥69.00（到场退）」 */
+  amountText: string
+  /** 定价态档位行；押金/免费态恒空（三态互斥——押金场绝不并列档位） */
+  tiers: PriceTier[]
+  /** 退改预期说明行；押金态必含「未到场不退」 */
+  notes: string[]
+}
+
+/**
+ * 详情页缴费块文案（R10）。押金态：金额可缺（后端校验要求正金额，缺额时降级为
+ * 「押金（到场退）」不出价——绝不显示 ¥0.00），且说明行明示「未到场不退」；
+ * 定价态透传档位（金额在档位行上，无可售档时给出联系组织者兜底）；免费态仅「免费」。
+ */
+export function paymentBlockCopy(input: {
+  pricingEnabled: boolean
+  depositEnabled: boolean
+  depositAmountCents: number | null
+  priceTiers: PriceTier[]
+}): PaymentBlockCopy {
+  if (input.depositEnabled) {
+    const cents = input.depositAmountCents
+    const amountText =
+      typeof cents === 'number' && Number.isFinite(cents)
+        ? `押金 ¥${formatAmount(cents)}（到场退）`
+        : '押金（到场退）'
+    return { title: '缴费', amountText, tiers: [], notes: ['到场核销后原路退回；未到场不退。'] }
+  }
+  if (input.pricingEnabled) {
+    return {
+      title: '缴费',
+      amountText: '收费',
+      tiers: input.priceTiers,
+      notes: input.priceTiers.length === 0
+        ? ['当前无可售档位，请联系组织者。']
+        : ['提交报名后请在限定时间内完成支付。']
+    }
+  }
+  return { title: '缴费', amountText: '免费', tiers: [], notes: [] }
 }
 
 // 收费报名提交后的落地页：weapp 进支付页（weapp 用户不经此函数到结果页）；
