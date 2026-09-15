@@ -2199,6 +2199,7 @@
 		"methodScan": "扫码",
 		"methodManual": "手输码",
 		"successRefundNote": "该报名的押金退款已发起（已在退还中或已退的不重复退），实际到账遵循支付渠道周期。",
+		"successForfeitedNote": "该报名的押金已按未到场结算（不退），本次核销不再退款。",
 		"cardLabel": "核销码（现场出示给主理人）",
 		"qrAlt": "核销二维码",
 		"qrGenerating": "二维码生成中…",

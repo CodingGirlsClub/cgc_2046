@@ -50,6 +50,7 @@ const SUCCESS = {
 			enrollmentId: "enr-1",
 			checkedInAt: "2026-09-14T02:00:00Z",
 			method: "scan",
+			depositRefund: "refund_started",
 			errors: [],
 		},
 	},
@@ -172,9 +173,18 @@ describe("/events/[slug]/check-in 现场核销（R6、R11）", () => {
 		);
 	});
 
-	it("非押金场核销成功：成功卡不出现押金退款文案（域事实相符）", async () => {
-		fetchPublicOffering.mockResolvedValue({ ...EVENT, depositEnabled: false });
-		mutate.mockResolvedValue(SUCCESS);
+	it("该报名无押金单（免费/定价/存量报名）：成功卡不出现押金退款文案", async () => {
+		mutate.mockResolvedValue({
+			data: {
+				checkInEnrollment: {
+					enrollmentId: "enr-1",
+					checkedInAt: "2026-09-14T02:00:00Z",
+					method: "scan",
+					depositRefund: null,
+					errors: [],
+				},
+			},
+		});
 		renderPage({ code: "123456" });
 
 		await screen.findByTestId("check-in-code-input");
@@ -182,6 +192,28 @@ describe("/events/[slug]/check-in 现场核销（R6、R11）", () => {
 		await waitFor(() => expect(mutate).toHaveBeenCalled());
 		const success = await screen.findByTestId("check-in-success");
 		expect(success).toHaveTextContent("✓ 核销成功，已记录到场");
+		expect(success).not.toHaveTextContent(/押金退款已发起/);
+	});
+
+	it("押金已按未到场结算：核销成功卡显示不退文案（不宣称已退款）", async () => {
+		mutate.mockResolvedValue({
+			data: {
+				checkInEnrollment: {
+					enrollmentId: "enr-1",
+					checkedInAt: "2026-09-14T02:00:00Z",
+					method: "scan",
+					depositRefund: "forfeited",
+					errors: [],
+				},
+			},
+		});
+		renderPage({ code: "123456" });
+
+		await screen.findByTestId("check-in-code-input");
+		await submitForm();
+
+		const success = await screen.findByTestId("check-in-success");
+		await waitFor(() => expect(success).toHaveTextContent(/押金已按未到场结算/));
 		expect(success).not.toHaveTextContent(/押金退款已发起/);
 	});
 

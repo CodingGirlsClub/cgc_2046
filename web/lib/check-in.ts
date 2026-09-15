@@ -129,6 +129,7 @@ export async function checkInEnrollment(input: {
       enrollmentId: null,
       checkedInAt: null,
       method: null,
+      depositRefund: null,
       errors: [],
     }
   );

@@ -39,7 +39,7 @@ type EventState = {
 };
 
 type Feedback =
-  | { kind: "success"; attendance: CheckInAttendance }
+  | { kind: "success"; attendance: CheckInAttendance; depositRefund: string | null }
   | { kind: "error"; message: string }
   | null;
 
@@ -152,6 +152,8 @@ function CheckInPanel() {
             checkedInAt: res.checkedInAt ?? "",
             method: res.method ?? codeState.method,
           },
+          // 退款侧事实来自本次核销结果（不是「事件是不是押金场」）
+          depositRefund: res.depositRefund ?? null,
         });
       } else {
         setFeedback({
@@ -319,7 +321,11 @@ function CheckInPanel() {
                           : t("methodManual"),
                     })}
                   </p>
-                  {eventRef?.depositEnabled ? (
+                  {feedback.depositRefund === "forfeited" ? (
+                    <p className="text-[13px] text-ink-3">
+                      {t("successForfeitedNote")}
+                    </p>
+                  ) : feedback.depositRefund ? (
                     <p className="text-[13px] text-ink-3">
                       {t("successRefundNote")}
                     </p>
