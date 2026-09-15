@@ -104,6 +104,10 @@ interface MockEnrollment {
   insertedAt: string
   /** 6 位核销码（KTD5：仅 confirmed 报名由后端返回；置前导零验证字符串口径） */
   checkInCode: string | null
+  /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
+  paymentMode: string | null
+  /** 报名截止时间（ISO8601；null = 无截止） */
+  registrationDeadline: string | null
 }
 
 let loggedIn = false
@@ -248,6 +252,14 @@ function responseFor(document: string, variables: object): unknown {
       (typeof input.tierId === 'string' && input.tierId !== '') ||
       records.some((record) => 'depositEnabled' in record && record.depositEnabled === true && record.id === eventId)
     const status = requiresPayment ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
+    // 缴费模式/截止时间从目标记录推导（与后端 payment_mode 计算同规则：押金 > 定价 > 免费）
+    const target = [...records, course].find(({ id }) => id === (eventId ?? courseId))
+    const paymentMode =
+      target && 'depositEnabled' in target && target.depositEnabled === true
+        ? 'deposit'
+        : target?.pricingEnabled === true
+          ? 'pricing'
+          : 'free'
     enrollment = {
       id: 'enrollment-1',
       workspaceId: workspace.id,
@@ -265,7 +277,9 @@ function responseFor(document: string, variables: object): unknown {
       cancelledAt: null,
       insertedAt: new Date().toISOString(),
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
-      checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null
+      checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
+      paymentMode,
+      registrationDeadline: target?.registrationDeadline ?? null
     }
     checkedIn = false
     return { createEnrollment: { result: enrollment, errors: [] } }

@@ -284,7 +284,9 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
           expiredAt: null,
           cancelledAt: null,
           insertedAt: '2026-09-01T08:00:00Z',
-          checkInCode: '042317'
+          checkInCode: '042317',
+          paymentMode: 'deposit',
+          registrationDeadline: '2026-09-10T12:00:00Z'
         }]
       }
     })
@@ -300,7 +302,9 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
       approvalDeadline: null,
       rejectionReason: null,
       insertedAt: '2026-09-01T08:00:00Z',
-      checkInCode: '042317'
+      checkInCode: '042317',
+      paymentMode: 'deposit',
+      registrationDeadline: '2026-09-10T12:00:00Z'
     })
   })
 

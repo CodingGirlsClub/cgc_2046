@@ -1,4 +1,4 @@
-import type { CatalogItem, EnrollmentBadge, EnrollmentStatus } from './models'
+import type { CatalogItem, EnrollmentBadge, EnrollmentStatus, EnrollmentSummary } from './models'
 
 export function remainingLabel(deadline: string | null, now = Date.now()): string {
   if (!deadline) return '未设置截止时间'
@@ -32,6 +32,13 @@ export function parseEnrollmentStatus(value: string): EnrollmentStatus {
 export function parseEnrollmentBadge(value: string | null): EnrollmentBadge {
   if (value === 'enrolling' || value === 'starting_soon' || value === 'closed' || value === 'full') return value
   throw new Error(`服务端返回未知报名标签：${value}`)
+}
+
+/** 缴费模式（后端 Enrollment.paymentMode 计算字段；null = 读面不可得，展示层按免费态兜底） */
+export function parsePaymentMode(value: string | null): EnrollmentSummary['paymentMode'] {
+  if (value === null) return null
+  if (value === 'free' || value === 'pricing' || value === 'deposit') return value
+  throw new Error(`服务端返回未知缴费模式：${value}`)
 }
 
 /** 报名状态展示文案（my-enrollments 卡片与详情页「已报名」态共用单源） */

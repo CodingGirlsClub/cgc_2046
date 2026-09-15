@@ -30,4 +30,5 @@
 .payment_pending { color: #b45309; background: #fffaeb; }
 .paymentHint { display: block; margin-top: 14rpx; color: #b45309; font-size: 22rpx; }
 .paymentStatus { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 22rpx; }
+.cancelRule { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 22rpx; }
 .payButton { margin: 18rpx 0 0; color: #fff; background: #10b981; border-radius: 24rpx; font-size: 22rpx; }
