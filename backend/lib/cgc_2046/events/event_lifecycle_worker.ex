@@ -11,6 +11,10 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
   - Oban 唯一任务（300s 窗口，与 cron 周期对齐）防并发双拍；
   - 拍内转换幂等（close 状态守卫拒绝重复/竞态转换），单记录失败记 warning
     跳过不中断整拍（手动 close 先落库属预期竞态）。
+
+  无成班判定且无报名截止的活动（min_participants 与 registration_deadline
+  均 nil，押金场即属此类）在 ends_at 过点时关闭——这也是押金场进入 no-show
+  结算的前提（DepositForfeitWorker 只结算 closed 场）。
   """
 
   use Oban.Worker,
@@ -87,6 +91,13 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
 
         event.qualification_status == :confirmed && event.ends_at &&
             DateTime.compare(event.ends_at, now) == :lt ->
+          case close_record(event) do
+            :ok -> {qualified, closed + 1}
+            :skip -> {qualified, closed}
+          end
+
+        is_nil(event.min_participants) && is_nil(event.registration_deadline) &&
+          event.ends_at && DateTime.compare(event.ends_at, now) == :lt ->
           case close_record(event) do
             :ok -> {qualified, closed + 1}
             :skip -> {qualified, closed}
