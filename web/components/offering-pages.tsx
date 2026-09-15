@@ -1720,7 +1720,7 @@ export function OfferingDetailPage({
                 <EventModeratorsCard
                   workspaceId={offering.workspaceId ?? ws?.id ?? ""}
                   eventId={offering.id}
-                  eventSlug={offering.slug}
+                  workspaceSlug={slug}
                 />
               ) : null}
             </div>
