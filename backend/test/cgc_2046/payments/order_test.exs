@@ -96,7 +96,7 @@ defmodule Cgc2046.Payments.OrderTest do
     end
 
     test "U7：forfeit——paid → forfeited（no-show 结算终态）" do
-      order = paid_order()
+      order = paid_deposit_order()
 
       assert {:ok, forfeited} = transition(order, :forfeit)
       assert forfeited.status == :forfeited
@@ -293,14 +293,14 @@ defmodule Cgc2046.Payments.OrderTest do
 
       assert {:ok, first} = checkout(enrollment, learner)
 
-      # Owner 事后关闭押金（免费场）；押金关闭无批量免缴（只有 pricing 关才有），
-      # 报名与在途单原样保留。
+      # Owner 事后改押金金额（押金仍开）：在途单按原单快照口径换渠道，
+      # 不按 Event 现状重算
       assert {:ok, flipped} =
                event
-               |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
+               |> Ash.Changeset.for_update(:update, %{deposit_amount_cents: 9900})
                |> Ash.update(tenant: workspace.id, actor: admin)
 
-      assert flipped.deposit_enabled == false
+      assert flipped.deposit_amount_cents == 9900
 
       assert {:ok, second} =
                Order
@@ -310,10 +310,39 @@ defmodule Cgc2046.Payments.OrderTest do
                })
                |> Ash.create(tenant: workspace.id, actor: learner)
 
-      # 口径继承原单：kind 与金额同源，不产出「押金金额 + enrollment 标签」的单
+      # 口径继承原单：kind 与金额同源，不产出「新押金金额 + 旧单标签」的自相矛盾单
       assert second.order_kind == :deposit
       assert second.amount_cents == 6900
       assert second.tier_snapshot == %{"name" => "押金", "amount_cents" => 6900}
+    end
+
+    test "Event 事后关押金：在途押金报名走免缴转 confirmed、押金单作废（KTD1/KTD3 计费槽关闭）" do
+      %{
+        enrollment: enrollment,
+        learner: learner,
+        event: event,
+        workspace: workspace,
+        admin: admin
+      } =
+        deposit_payment_pending_enrollment("u2-replace-waive")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:ok, flipped} =
+               event
+               |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
+               |> Ash.update(tenant: workspace.id, actor: admin)
+
+      assert flipped.deposit_enabled == false
+
+      # 关押金 = 计费槽关闭：待付报名免缴转 confirmed、在途单作废（不再等过期）
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
+      assert reload(first).status == :cancelled
+      assert reload(first).cancel_reason == "waived"
+
+      # 该报名已 confirmed 且无在途单：再下单被入口门禁拒绝（不产生第二笔收款）
+      confirmed = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+      assert {:error, _} = checkout(confirmed, learner)
     end
 
     test "押金单 Fake 回调落账：订单 paid + 报名 confirmed + payment_succeeded 入队" do
@@ -476,7 +505,7 @@ defmodule Cgc2046.Payments.OrderTest do
 
   describe "U7：forfeited 终态与 forfeit CAS（R9/KTD7）" do
     test "重复 forfeit 幂等：第二次 num_rows=0 → already_processed，状态不变" do
-      order = paid_order()
+      order = paid_deposit_order()
 
       assert {:ok, forfeited} = transition(order, :forfeit)
       assert forfeited.status == :forfeited
@@ -486,35 +515,57 @@ defmodule Cgc2046.Payments.OrderTest do
       assert reload(order).status == :forfeited
     end
 
-    test "pending / refunding / refunded / cancelled / expired → forfeit 一律拒绝" do
-      pending = order_fixture()
+    test "pending / refunding / refunded / cancelled / expired 押金单 → forfeit 一律拒绝" do
+      # 全部建在押金单上：拒绝理由必须来自「状态不是 paid」，不是「不是押金单」
+      pending = deposit_order()
       assert {:error, _} = transition(pending, :forfeit)
       assert reload(pending).status == :pending
 
-      refunding = transition!(order_fixture(), :mark_paid, %{transaction_id: "wx-txn-rf"})
-      refunding = transition!(refunding, :start_refund)
+      refunding =
+        pending
+        |> transition!(:mark_paid, %{transaction_id: "wx-txn-rf"})
+        |> transition!(:start_refund)
+
       assert {:error, _} = transition(refunding, :forfeit)
       assert reload(refunding).status == :refunding
 
-      refunded = refunded_order()
+      refunded = transition!(refunding, :refund_succeeded)
       assert {:error, _} = transition(refunded, :forfeit)
       assert reload(refunded).status == :refunded
 
-      {:ok, cancelled} = transition(order_fixture(), :cancel, %{cancel_reason: "batch void"})
+      # 各分支用独立订单：transition 落库，复用同一 struct 会让后续 CAS 落空
+      cancelled_order = deposit_order()
+      {:ok, cancelled} = transition(cancelled_order, :cancel, %{cancel_reason: "batch void"})
       assert {:error, _} = transition(cancelled, :forfeit)
-      assert reload(cancelled).status == :cancelled
+      assert reload(cancelled_order).status == :cancelled
 
-      expired = expired_order()
-      assert {:error, _} = transition(expired, :forfeit)
-      assert reload(expired).status == :expired
+      expired_order_row = transition!(deposit_order(), :expire)
+      assert {:error, _} = transition(expired_order_row, :forfeit)
+      assert reload(expired_order_row).status == :expired
     end
 
-    test "forfeit 后同一 confirmed 报名 createOrder → order_not_payment_pending" do
+    test "非押金单（普通报名单）paid 态 → forfeit 拒绝（CWE-863：内部动作不误没收）" do
       enrollment = enrollment_fixture()
-
       {:ok, order} = create_order(enrollment)
-      paid = transition!(order, :mark_paid, %{transaction_id: "wx-txn-forfeit-reenter"})
-      assert {:ok, _forfeited} = transition(paid, :forfeit)
+      paid = transition!(order, :mark_paid, %{transaction_id: "wx-txn-nondeposit"})
+
+      assert {:error, error} = transition(paid, :forfeit)
+      assert Exception.message(error) =~ "already been processed"
+      assert reload(order).status == :paid
+    end
+
+    test "forfeit 后同一 confirmed 押金报名 createOrder → order_not_payment_pending" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("forfeit-reenter")
+
+      {:ok, order} = checkout(enrollment, learner)
+      # 押金单落账走 PaymentSettlementWorker（mark_paid 不内联转报名）：
+      # 结算后报名才 confirmed——本用例考察的正是 confirmed 报名 + forfeited 单
+      settle_order(order)
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
+      assert reload(order).status == :paid
+
+      assert {:ok, _forfeited} = transition(reload(order), :forfeit)
 
       # confirmed 报名再下单：入口门禁拒绝（索引槽位已释放，但 confirmed 无收款面）
       assert {:error, error} = checkout(enrollment, actor_fixture(enrollment))
@@ -527,9 +578,10 @@ defmodule Cgc2046.Payments.OrderTest do
     end
 
     test "workspace_payment_stats 返回 forfeited 桶（AE7 对账口径）" do
-      enrollment = enrollment_fixture()
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("forfeit-stats")
 
-      {:ok, order} = create_order(enrollment)
+      {:ok, order} = checkout(enrollment, learner)
       paid = transition!(order, :mark_paid, %{transaction_id: "wx-txn-stats"})
       assert {:ok, _} = transition(paid, :forfeit)
 
@@ -540,7 +592,7 @@ defmodule Cgc2046.Payments.OrderTest do
                })
                |> Ash.run_action(tenant: enrollment.workspace_id, authorize?: false)
 
-      assert stats.forfeited_cents == 19_900
+      assert stats.forfeited_cents == 6900
       assert stats.collected_cents == 0
       assert stats.refunded_cents == 0
       assert stats.pending_cents == 0
@@ -548,7 +600,7 @@ defmodule Cgc2046.Payments.OrderTest do
     end
 
     test "forfeited 单 start_refund → 拒绝（终态，不退）" do
-      order = paid_order()
+      order = paid_deposit_order()
       assert {:ok, forfeited} = transition(order, :forfeit)
 
       assert {:error, error} = transition(forfeited, :start_refund)
@@ -557,7 +609,7 @@ defmodule Cgc2046.Payments.OrderTest do
     end
 
     test "重复支付回调命中 forfeited 单 → 落账 worker 记 info、mark_processed、无 error 日志" do
-      order = paid_order()
+      order = paid_deposit_order()
       assert {:ok, _} = transition(order, :forfeit)
 
       Fake.script!(
@@ -742,6 +794,25 @@ defmodule Cgc2046.Payments.OrderTest do
 
   defp paid_order do
     transition!(order_fixture(), :mark_paid, %{transaction_id: "wx-txn-fixture"})
+  end
+
+  # forfeit 仅对押金单开放（KTD7）：no-show 结算对象是押金单，普通报名单
+  # 由退款链处置。U7 的状态机用例都建在押金单上。
+  # 押金单（pending）：U7 状态矩阵的基线（forfeit 只对押金单开放）
+  defp deposit_order do
+    %{enrollment: enrollment, learner: learner} =
+      deposit_payment_pending_enrollment("deposit-order-#{System.unique_integer([:positive])}")
+
+    {:ok, order} = checkout(enrollment, learner)
+    order
+  end
+
+  defp paid_deposit_order do
+    %{enrollment: enrollment, learner: learner} =
+      deposit_payment_pending_enrollment("paid-deposit-#{System.unique_integer([:positive])}")
+
+    {:ok, order} = checkout(enrollment, learner)
+    transition!(order, :mark_paid, %{transaction_id: "wx-txn-deposit"})
   end
 
   defp expired_order, do: transition!(order_fixture(), :expire)

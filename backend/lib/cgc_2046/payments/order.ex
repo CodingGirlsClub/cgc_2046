@@ -1083,10 +1083,12 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  # no-show 结算 CAS：仅 paid 源态（KTD7 一次性迁移）；非 paid（含已 forfeited
-  # 幂等重入 / 退款链中单据）一律 num_rows=0 → :already_processed。
+  # no-show 结算 CAS：仅 paid 源态（KTD7 一次性迁移）**且仅押金单**——否则
+  # admin/内部面误调会没收普通报名单（CWE-863）；非 paid 或非押金单一律
+  # num_rows=0 → :already_processed（幂等语义不变）。
+
   defp prepare_forfeit(changeset) do
-    case claim(changeset, [:paid], "status = 'forfeited'") do
+    case claim(changeset, [:paid], "status = 'forfeited'", [], "order_kind = 'deposit'") do
       {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :forfeited)
       {:error, changeset} -> changeset
     end
@@ -1158,17 +1160,18 @@ defmodule Cgc2046.Payments.Order do
     }
   end
 
-  # 条件 UPDATE CAS：WHERE 带 id + 源状态守卫。命中（num_rows=1）→ 返回
+  # 条件 UPDATE CAS：WHERE 带 id + 源状态守卫（可按需追加 extra_where 谓词）。命中（num_rows=1）→ 返回
   # {:ok, changeset}，调用方 force_change 附加字段；未命中 → :already_processed；
   # SQL 失败（含 R11 唯一冲突等 DB 约束拒绝）→ :database。set_sql 内占位符
   # 从 $1 起连续编号，id 固定为最后一个参数。
-  defp claim(changeset, from_statuses, set_sql, params \\ []) do
+  defp claim(changeset, from_statuses, set_sql, params \\ [], extra_where \\ nil) do
     sources = Enum.map_join(from_statuses, ", ", &"'#{&1}'")
+    extra = if extra_where, do: " AND #{extra_where}", else: ""
 
     sql = """
     UPDATE payments_orders
     SET #{set_sql}, updated_at = NOW()
-    WHERE id = $#{length(params) + 1} AND status IN (#{sources})
+    WHERE id = $#{length(params) + 1} AND status IN (#{sources})#{extra}
     """
 
     case Cgc2046.Repo.query(sql, params ++ [Cgc2046.Repo.uuid!(changeset.data.id)]) do

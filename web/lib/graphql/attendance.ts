@@ -54,13 +54,14 @@ export const CHECK_IN_ENROLLMENT: TypedDocumentNode<
 `;
 
 export const CHECK_IN_EVENT: TypedDocumentNode<
-  { getEvent: { id: string; title: string } | null },
+  { getEvent: { id: string; title: string; depositEnabled: boolean | null } | null },
   { id: string }
 > = gql`
   query CheckInEvent($id: ID!) {
     getEvent(id: $id) {
       id
       title
+      depositEnabled
     }
   }
 `;

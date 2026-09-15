@@ -1,4 +1,5 @@
 import { client } from "@/lib/apollo-client";
+import { timeoutSignal } from "@/lib/timeout-signal";
 import { routing } from "@/i18n/routing";
 import { fetchPublicOffering } from "@/lib/public-offerings";
 import {
@@ -53,6 +54,12 @@ export interface CheckInEventRef {
   id: string;
   /** 场次标题（公开读面取不到时为 null——不阻塞核销） */
   title: string | null;
+  /**
+   * 是否押金场（成功文案据此门控：「押金退款已发起」只对押金场成立——
+   * 免费/定价场核销不产生退款）。未知（公开读面不可得）按 null 处理：
+   * 不显示押金文案。
+   */
+  depositEnabled: boolean | null;
 }
 
 /**
@@ -68,10 +75,18 @@ export async function resolveCheckInEvent(
 ): Promise<CheckInEventRef | null> {
   if (!segment) return null;
   if (UUID_PATTERN.test(segment)) {
-    return (await fetchEventById(segment)) ?? { id: segment, title: null };
+    return (
+      (await fetchEventById(segment)) ?? {
+        id: segment,
+        title: null,
+        depositEnabled: null,
+      }
+    );
   }
   const row = await fetchPublicOffering(segment, "event");
-  return row ? { id: row.id, title: row.title } : null;
+  return row
+    ? { id: row.id, title: row.title, depositEnabled: row.depositEnabled ?? null }
+    : null;
 }
 
 async function fetchEventById(id: string): Promise<CheckInEventRef | null> {
@@ -82,7 +97,11 @@ async function fetchEventById(id: string): Promise<CheckInEventRef | null> {
       fetchPolicy: "network-only",
     });
     return data?.getEvent
-      ? { id: data.getEvent.id, title: data.getEvent.title }
+      ? {
+          id: data.getEvent.id,
+          title: data.getEvent.title,
+          depositEnabled: data.getEvent.depositEnabled ?? null,
+        }
       : null;
   } catch {
     // 标题是展示增强：读失败（网络/权限）不阻断核销主流程
@@ -102,6 +121,8 @@ export async function checkInEnrollment(input: {
   const { data } = await client.mutate({
     mutation: CHECK_IN_ENROLLMENT,
     variables: input,
+    // 现场网络可能挂起：15s 超时让按钮回到可重试，而不是永停「提交中」
+    context: { fetchOptions: { signal: timeoutSignal() } },
   });
   return (
     data?.checkInEnrollment ?? {

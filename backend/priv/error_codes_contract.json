@@ -2,6 +2,7 @@
   "codes": [
     "attendance_already_checked_in",
     "attendance_invalid_code",
+    "attendance_rate_limited",
     "database_error",
     "deposit_already_forfeited",
     "enrollment_already_processed",

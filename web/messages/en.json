@@ -65,6 +65,7 @@
 		"operation_unavailable": "Operation unavailable. Please try again later.",
 		"attendance_invalid_code": "That check-in code does not match this event. Ask the participant to show the code again.",
 		"attendance_already_checked_in": "This enrollment is already checked in — no need to check in again.",
+		"attendance_rate_limited": "Too many invalid check-in attempts. Try again later.",
 		"deposit_already_forfeited": "This enrollment's deposit was already settled as a no-show (non-refundable), so it can no longer be checked in.",
 		"forbidden": "You do not have permission to perform this action."
 	},

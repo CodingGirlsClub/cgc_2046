@@ -959,6 +959,34 @@ defmodule Cgc2046.Admission.EnrollmentTest do
     end
   end
 
+  describe "关闭押金同样触发免缴（KTD1/KTD3 计费槽关闭）" do
+    setup do
+      admin = Fixtures.platform_admin("deposit-off-admin")
+      workspace = Fixtures.create_workspace(admin)
+      %{admin: admin, workspace: workspace}
+    end
+
+    test "押金关闭：payment_pending 押金报名转免费确认 + 押金单作废 + 免缴审计", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, deposit_attrs())
+      pending = for i <- 1..2, do: pending_deposit_enrollment(event, "off-deposit-#{i}")
+
+      assert {:ok, updated} = disable_deposit(event, ctx.admin)
+      assert updated.deposit_enabled == false
+
+      for enrollment <- pending do
+        reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+        assert reloaded.status == :confirmed
+        assert reloaded.approved_by == ctx.admin.id
+
+        order = reload_order_of(enrollment)
+        assert order.status == :cancelled
+        assert order.cancel_reason == "waived"
+      end
+
+      assert length(waive_logs()) >= 2
+    end
+  end
+
   describe "关闭收费批量免费确认（organizer-payment U3，R9/AE1，KTD4）" do
     setup do
       admin = Fixtures.platform_admin("pricing-off-admin")
@@ -1629,6 +1657,19 @@ defmodule Cgc2046.Admission.EnrollmentTest do
   defp disable_pricing(target, actor) do
     target
     |> Ash.Changeset.for_update(:update, %{pricing_enabled: false})
+    |> Ash.update(tenant: target.workspace_id, actor: actor)
+  end
+
+  # 押金待付报名（U1/KTD2 落 payment_pending；无档位，押金单金额取快照）
+  defp pending_deposit_enrollment(target, suffix) do
+    {:ok, enrollment} = create_enrollment(target, Fixtures.register_user(suffix), %{})
+    _order = create_pending_order(enrollment)
+    enrollment
+  end
+
+  defp disable_deposit(target, actor) do
+    target
+    |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
     |> Ash.update(tenant: target.workspace_id, actor: actor)
   end
 
