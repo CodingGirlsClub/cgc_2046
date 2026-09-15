@@ -275,7 +275,7 @@ export function paymentBlockCopy(input: {
   if (input.depositEnabled) {
     const cents = input.depositAmountCents
     const amountText =
-      typeof cents === 'number' && Number.isFinite(cents)
+      typeof cents === 'number' && Number.isFinite(cents) && cents > 0
         ? `押金 ¥${formatAmount(cents)}（到场退）`
         : '押金（到场退）'
     return { title: '缴费', amountText, tiers: [], notes: ['到场核销后原路退回；未到场不退。'] }
