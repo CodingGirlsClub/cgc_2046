@@ -147,92 +147,13 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
     ]
   end
 
-  # ── 刷新语义（D2）：命中 upsert + 本次未命中删除 ------------------------------
+  # ── 刷新语义（D2）：命中 upsert + 本次未命中删除（单源见 Finding.apply_rule/3）──
 
   defp apply_rule(rule, candidates) do
-    Enum.each(candidates, &upsert_finding(rule, &1))
-    delete_stale(rule, candidates)
-  end
-
-  defp upsert_finding(rule, candidate) do
-    case existing_finding(rule, candidate.entity_type, candidate.entity_id) do
-      nil ->
-        result =
-          Finding
-          |> Ash.Changeset.for_create(:create, %{
-            rule: rule,
-            entity_type: candidate.entity_type,
-            entity_id: candidate.entity_id,
-            workspace_id: candidate.workspace_id,
-            detail: candidate.detail
-          })
-          |> Ash.create(authorize?: false)
-
-        maybe_warn_new(rule, candidate, result)
-        handle_write(result, rule, candidate.entity_type, candidate.entity_id)
-
-      finding ->
-        finding
-        |> Ash.Changeset.for_update(:refresh, %{
-          workspace_id: candidate.workspace_id,
-          detail: candidate.detail
-        })
-        |> Ash.update(authorize?: false)
-        |> handle_write(rule, candidate.entity_type, candidate.entity_id)
-    end
-  end
-
-  defp handle_write(result, rule, entity_type, entity_id) do
-    case result do
-      {:ok, _} ->
-        :ok
-
-      {:error, error} ->
-        Logger.warning(
-          "reconciliation: #{rule} upsert failed for #{entity_type} #{entity_id}: #{inspect(error)}"
-        )
-
-        :ok
-    end
-  end
-
-  defp existing_finding(rule, entity_type, entity_id) do
-    case Finding
-         |> Ash.Query.filter(
-           rule == ^rule and entity_type == ^entity_type and entity_id == ^entity_id
-         )
-         |> Ash.read_one(authorize?: false) do
-      {:ok, finding} -> finding
-      {:error, _error} -> nil
-    end
-  end
-
-  # 本次未命中的行删除：无孤儿 → 空报告由结构保证
-  defp delete_stale(rule, candidates) do
-    current =
-      MapSet.new(candidates, fn candidate ->
-        {candidate.entity_type, candidate.entity_id}
-      end)
-
-    Finding
-    |> Ash.Query.filter(rule == ^rule)
-    |> Ash.read!(authorize?: false)
-    |> Enum.each(fn finding ->
-      key = {finding.entity_type, finding.entity_id}
-
-      unless MapSet.member?(current, key) do
-        case Ash.destroy(finding, authorize?: false) do
-          :ok ->
-            :ok
-
-          {:error, error} ->
-            Logger.warning(
-              "reconciliation: #{rule} stale delete failed for #{finding.entity_type} " <>
-                "#{finding.entity_id}: #{inspect(error)}"
-            )
-        end
-      end
-    end)
+    Finding.apply_rule(rule, candidates,
+      log_prefix: "reconciliation",
+      on_create: fn rule, candidate, result -> maybe_warn_new(rule, candidate, result) end
+    )
   end
 
   # ── 规1：confirmed enrollment 无 learning run -------------------------------

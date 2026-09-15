@@ -69,6 +69,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Reconciliation
 
+  require Logger
+  require Ash.Query
+
   @rule_values [
     :confirmed_enrollment_without_run,
     :pending_without_deadline,
@@ -101,6 +104,105 @@ defmodule Cgc2046.Reconciliation.Finding do
   @doc false
   @spec rule_values() :: [atom()]
   def rule_values, do: @rule_values
+
+  @doc """
+  D2 刷新语义的共享驱动：命中 upsert（保 `first_seen_at`、刷 `last_seen_at`）、
+  本次未命中删除。
+
+  `candidates` 为 map 列表（`entity_type` / `entity_id` / `workspace_id` / `detail`）。
+  `opts`：
+
+  - `:log_prefix` — 警告日志前缀（默认 `"reconciliation"`）
+  - `:on_create` — `(rule, candidate, result) -> any`，create 尝试后的回调
+    （扫描侧与押金侧各自发「首次发现」warning）
+
+  一拍只读一次同规则 findings，既用于 upsert 判定也用于 stale 清理：同规则只有
+  一个写入者（各 worker 规则互斥），拍内无并发同规则写者，与逐候选读等价。
+  写失败只 warning 不上抛（本函数不回滚扫描拍）；`Ash.read!` 失败按原语义上抛。
+  """
+  @spec apply_rule(atom(), [map()], keyword()) :: :ok
+  def apply_rule(rule, candidates, opts \\ []) do
+    prefix = Keyword.get(opts, :log_prefix, "reconciliation")
+    on_create = Keyword.get(opts, :on_create)
+    findings = findings_by_entity(rule)
+
+    Enum.each(candidates, &upsert_finding(rule, &1, findings, prefix, on_create))
+    delete_stale(rule, candidates, findings, prefix)
+
+    :ok
+  end
+
+  defp findings_by_entity(rule) do
+    __MODULE__
+    |> Ash.Query.filter(rule == ^rule)
+    |> Ash.read!(authorize?: false)
+    |> Map.new(fn finding -> {{finding.entity_type, finding.entity_id}, finding} end)
+  end
+
+  defp upsert_finding(rule, candidate, findings, prefix, on_create) do
+    key = {candidate.entity_type, candidate.entity_id}
+
+    case Map.get(findings, key) do
+      nil ->
+        result =
+          __MODULE__
+          |> Ash.Changeset.for_create(:create, %{
+            rule: rule,
+            entity_type: candidate.entity_type,
+            entity_id: candidate.entity_id,
+            workspace_id: candidate.workspace_id,
+            detail: candidate.detail
+          })
+          |> Ash.create(authorize?: false)
+
+        if on_create, do: on_create.(rule, candidate, result)
+        handle_write(result, rule, prefix, candidate.entity_type, candidate.entity_id)
+
+      finding ->
+        finding
+        |> Ash.Changeset.for_update(:refresh, %{
+          workspace_id: candidate.workspace_id,
+          detail: candidate.detail
+        })
+        |> Ash.update(authorize?: false)
+        |> handle_write(rule, prefix, candidate.entity_type, candidate.entity_id)
+    end
+  end
+
+  defp handle_write(result, rule, prefix, entity_type, entity_id) do
+    case result do
+      {:ok, _} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning(
+          "#{prefix}: #{rule} upsert failed for #{entity_type} #{entity_id}: #{inspect(error)}"
+        )
+
+        :ok
+    end
+  end
+
+  # 本次未命中的行删除：无孤儿 → 空报告由结构保证
+  defp delete_stale(rule, candidates, findings, prefix) do
+    current =
+      MapSet.new(candidates, fn candidate -> {candidate.entity_type, candidate.entity_id} end)
+
+    Enum.each(findings, fn {{entity_type, entity_id} = key, finding} ->
+      unless MapSet.member?(current, key) do
+        case Ash.destroy(finding, authorize?: false) do
+          :ok ->
+            :ok
+
+          {:error, error} ->
+            Logger.warning(
+              "#{prefix}: #{rule} stale delete failed for #{entity_type} #{entity_id}: " <>
+                "#{inspect(error)}"
+            )
+        end
+      end
+    end)
+  end
 
   @entity_type_values [
     :enrollment,
