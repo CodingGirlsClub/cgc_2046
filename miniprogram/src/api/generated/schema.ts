@@ -253,6 +253,15 @@ export type CancelOrderResult = {
 export type CheckInEnrollmentPayload = {
   /** 核销时间（失败为 null） */
   checkedInAt?: Maybe<Scalars['DateTime']['output']>;
+  /**
+   * 本次核销的押金退款侧事实（KTD6）：
+   * - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
+   * - refund_started：本次核销发起了全额退款；
+   * - refunding / refunded：押金已在退还中 / 已退（幂等重入，不重复退）；
+   * - forfeited：押金已按未到场结算（不退）。
+   * 前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
+   */
+  depositRefund?: Maybe<Scalars['String']['output']>;
   /** 被核销的报名（失败为 null） */
   enrollmentId?: Maybe<Scalars['ID']['output']>;
   errors?: Maybe<Array<Maybe<MutationError>>>;

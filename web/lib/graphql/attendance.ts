@@ -26,6 +26,12 @@ export interface CheckInEnrollmentPayload {
   enrollmentId: string | null;
   checkedInAt: string | null;
   method: CheckInMethod | null;
+  /**
+   * 本次核销的押金退款侧事实（后端 KTD6 分派表）：
+   * `null` = 该报名没有押金单（本次核销不产生退款）；`refund_started` = 本次发起退款；
+   * `refunding`/`refunded` = 已在退还中/已退；`forfeited` = 已按未到场结算。
+   */
+  depositRefund: string | null;
   errors: MutationError[];
 }
 
@@ -45,6 +51,7 @@ export const CHECK_IN_ENROLLMENT: TypedDocumentNode<
       enrollmentId
       checkedInAt
       method
+      depositRefund
       errors {
         message
         code

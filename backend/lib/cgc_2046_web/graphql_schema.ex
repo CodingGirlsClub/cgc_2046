@@ -1968,6 +1968,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                  enrollment_id: attendance.enrollment_id,
                  checked_in_at: attendance.checked_in_at,
                  method: to_string(attendance.method),
+                 deposit_refund: deposit_refund_state(attendance.enrollment_id),
                  errors: []
                }}
 
@@ -1977,6 +1978,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                  enrollment_id: nil,
                  checked_in_at: nil,
                  method: nil,
+                 deposit_refund: nil,
                  errors:
                    to_ash_graphql_errors(
                      error,
@@ -2901,6 +2903,16 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "核销方式：scan / manual（失败为 null）"
     field(:method, :string)
 
+    @desc """
+    本次核销的押金退款侧事实（KTD6）：
+    - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
+    - refund_started：本次核销发起了全额退款；
+    - refunding / refunded：押金已在退还中 / 已退（幂等重入，不重复退）；
+    - forfeited：押金已按未到场结算（不退）。
+    前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
+    """
+    field(:deposit_refund, :string)
+
     field(:errors, list_of(:mutation_error))
   end
 
@@ -3312,6 +3324,31 @@ defmodule Cgc2046Web.GraphqlSchema do
   # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
   # 为 :atom（手写 object 无 ash_graphql 生成查询的枚举转换层——同
   # resolve_my_enrollment 的显式 to_string 纪律）。
+  # 核销结果里的押金退款侧事实（KTD6 分派表）：读该报名**唯一活跃押金单**的
+  # 状态；无押金单 → nil（本次核销不产生退款）。单次点查（核销是低频人工动作）。
+  defp deposit_refund_state(enrollment_id) do
+    case Cgc2046.Repo.query(
+           """
+           SELECT status FROM payments_orders
+           WHERE enrollment_id = $1 AND order_kind = 'deposit'
+             AND status IN ('paid', 'refunding', 'refunded', 'refund_failed', 'forfeited')
+           ORDER BY inserted_at DESC LIMIT 1
+           """,
+           [Cgc2046.Repo.uuid!(enrollment_id)]
+         ) do
+      {:ok, %{rows: [[status]]}} ->
+        case status do
+          # 核销后仍是 paid 只可能是异常残留：不宣称已发起退款
+          "paid" -> nil
+          "refund_failed" -> "refunding"
+          other -> other
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   defp check_in_code_visible?(parent, actor) do
     enrollment_value(parent, :user_id) == actor.id and
       enrollment_value(parent, :status) in ["confirmed", :confirmed]

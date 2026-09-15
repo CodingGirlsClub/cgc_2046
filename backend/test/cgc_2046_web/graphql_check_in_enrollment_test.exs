@@ -33,6 +33,9 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     assert payload["errors"] == []
     assert payload["enrollmentId"] == enrollment.id
     assert payload["method"] == "manual"
+
+    # 免费场报名无押金单：核销不产生退款，结果不得宣称已发起（前端据此不出押金文案）
+    assert payload["depositRefund"] == nil
     assert {:ok, %DateTime{}, _offset} = DateTime.from_iso8601(payload["checkedInAt"])
 
     attendance =
@@ -104,12 +107,89 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     assert attendance_count(enrollment.id) == 0
   end
 
+  test "押金单已付：核销返回 depositRefund=refund_started（前端据此显示押金退款文案）" do
+    %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+    event = EventFixtures.create_event(workspace, owner, deposit_attrs())
+    moderator = Fixtures.register_user("gql-checkin-deposit-moderator")
+    {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
+    learner = Fixtures.register_user("gql-checkin-deposit-learner")
+    enrollment = enroll(event, learner)
+    paid_deposit_order(enrollment, workspace, learner)
+
+    assert %{"data" => %{"checkInEnrollment" => payload}} =
+             graphql(
+               check_in_mutation(event.id, enrollment.check_in_code, "manual"),
+               sign_in_token(moderator)
+             )
+
+    assert payload["errors"] == []
+    assert payload["depositRefund"] == "refunding"
+  end
+
+  test "押金已按未到场结算：核销被拒（deposit_already_forfeited），不落 Attendance" do
+    %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+    event = EventFixtures.create_event(workspace, owner, deposit_attrs())
+    moderator = Fixtures.register_user("gql-checkin-forfeit-moderator")
+    {:ok, _} = Moderators.assign(event.id, workspace.id, moderator.id, owner)
+    learner = Fixtures.register_user("gql-checkin-forfeit-learner")
+    enrollment = enroll(event, learner)
+    order = paid_deposit_order(enrollment, workspace, learner)
+
+    {:ok, _} =
+      order
+      |> Ash.Changeset.for_update(:forfeit, %{})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    assert %{"data" => %{"checkInEnrollment" => payload}} =
+             graphql(
+               check_in_mutation(event.id, enrollment.check_in_code, "manual"),
+               sign_in_token(moderator)
+             )
+
+    assert [%{"code" => "deposit_already_forfeited"}] = payload["errors"]
+    assert payload["depositRefund"] == nil
+    assert attendance_count(enrollment.id) == 0
+  end
+
   # ── 布置 ──
 
   defp enroll(event, user) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
     |> Ash.create!(tenant: event.workspace_id, actor: user)
+  end
+
+  defp deposit_attrs do
+    %{
+      deposit_enabled: true,
+      deposit_amount_cents: 6900,
+      ends_at: EventFixtures.days_from_now(8)
+    }
+  end
+
+  # 已付押金单：走真实下单链（金额源=报名快照）后 mark_paid
+  defp paid_deposit_order(enrollment, workspace, learner) do
+    {:ok, order} =
+      Cgc2046.Payments.Order
+      |> Ash.Changeset.for_create(:create_for_enrollment, %{
+        enrollment_id: enrollment.id,
+        provider: :wechat_native
+      })
+      |> Ash.create(tenant: workspace.id, actor: learner)
+
+    {:ok, paid} =
+      order
+      |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-" <> order.out_trade_no})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    # 押金场报名在支付前是 payment_pending；落账 worker 才是 confirmed 的驱动者
+    # （本用例只关心核销结果字段，故直接走同一内部动作，不重放渠道回调）
+    {:ok, _confirmed} =
+      enrollment
+      |> Ash.Changeset.for_update(:settle_paid, %{})
+      |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    paid
   end
 
   defp check_in_mutation(event_id, code, method) do
@@ -119,6 +199,7 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
         enrollmentId
         checkedInAt
         method
+        depositRefund
         errors { message code }
       }
     }

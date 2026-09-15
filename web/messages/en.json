@@ -2199,6 +2199,7 @@
 		"methodScan": "scan",
 		"methodManual": "manual entry",
 		"successRefundNote": "The deposit refund for this enrollment has been started (already refunding or refunded deposits are not refunded twice). Actual arrival follows the payment channel's timeline.",
+		"successForfeitedNote": "The deposit for this enrollment was settled as a no-show (not refunded); this check-in does not issue a refund.",
 		"cardLabel": "Check-in code (show it to the host on site)",
 		"qrAlt": "Check-in QR code",
 		"qrGenerating": "Generating QR code…",
