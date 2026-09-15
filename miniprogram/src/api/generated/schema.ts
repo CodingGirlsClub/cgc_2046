@@ -1199,27 +1199,6 @@ export type EnrollmentFilterCapacitySeq = {
   rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
-export type EnrollmentFilterCheckInCode = {
-  contains?: InputMaybe<Scalars['String']['input']>;
-  eq?: InputMaybe<Scalars['String']['input']>;
-  greaterThan?: InputMaybe<Scalars['String']['input']>;
-  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  ilike?: InputMaybe<Scalars['String']['input']>;
-  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
-  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  isNil?: InputMaybe<Scalars['Boolean']['input']>;
-  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
-  lessThan?: InputMaybe<Scalars['String']['input']>;
-  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
-  like?: InputMaybe<Scalars['String']['input']>;
-  notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
-  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
-  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
-};
-
 export type EnrollmentFilterCourseId = {
   eq?: InputMaybe<Scalars['ID']['input']>;
   greaterThan?: InputMaybe<Scalars['ID']['input']>;
@@ -1292,7 +1271,6 @@ export type EnrollmentFilterInput = {
   approvedBy?: InputMaybe<EnrollmentFilterApprovedBy>;
   cancelledAt?: InputMaybe<EnrollmentFilterCancelledAt>;
   capacitySeq?: InputMaybe<EnrollmentFilterCapacitySeq>;
-  checkInCode?: InputMaybe<EnrollmentFilterCheckInCode>;
   courseId?: InputMaybe<EnrollmentFilterCourseId>;
   eventId?: InputMaybe<EnrollmentFilterEventId>;
   expiredAt?: InputMaybe<EnrollmentFilterExpiredAt>;

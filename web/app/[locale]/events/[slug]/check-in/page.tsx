@@ -143,7 +143,7 @@ function CheckInPanel() {
         code: normalized,
         method: codeState.method,
       });
-      if (res.enrollmentId !== null) {
+      if (res.enrollmentId != null) {
         // 码留在输入框：同码再提交由后端回「已核销」（防重复核销的现场确认）
         setFeedback({
           kind: "success",
@@ -319,9 +319,11 @@ function CheckInPanel() {
                           : t("methodManual"),
                     })}
                   </p>
-                  <p className="text-[13px] text-ink-3">
-                    {t("successRefundNote")}
-                  </p>
+                  {eventRef?.depositEnabled ? (
+                    <p className="text-[13px] text-ink-3">
+                      {t("successRefundNote")}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -420,8 +420,39 @@ defmodule Cgc2046.Admission.Attendance do
         Ash.Changeset.get_argument(changeset, :method)
       )
     else
-      _ -> add_domain_error(changeset, :invalid_code)
+      # DB 类失败不得折叠为「码无效」（主理人会据此放弃而实际是服务故障，
+      # 且丢失可重试信号）：显式上抛，由顶层错误处理呈现服务错误。
+      {:error, {:database, reason}} ->
+        raise Ash.Error.Unknown, errors: [reason]
+
+      _ ->
+        if failure_throttled?(actor, event_id) do
+          add_domain_error(changeset, :rate_limited)
+        else
+          add_domain_error(changeset, :invalid_code)
+        end
     end
+  end
+
+  # 失败尝试节流（CWE-307）：6 位码空间 1e6，受权者可枚举并触发不可逆退款。
+  # 只在失败路径计数（成功核销不计数——现场连续核销正常且高频，误伤代价大）；
+  # 键含 actor + event：跨场/跨人不互相牵连。
+  @fail_window_seconds 900
+  @fail_max_attempts 20
+
+  defp failure_throttled?(actor, event_id) do
+    actor_id = actor && Map.get(actor, :id)
+
+    key =
+      Cgc2046Web.Plugs.RateLimit.build_key(
+        "attendance:check_in:fail",
+        "#{actor_id}:#{event_id}"
+      )
+
+    Cgc2046Web.Plugs.RateLimit.check(key,
+      window_seconds: @fail_window_seconds,
+      max_attempts: @fail_max_attempts
+    ) == :error
   end
 
   # 同场唯一码定位 confirmed 报名（`enrollments_unique_check_in_code_index` 支撑）。
@@ -482,7 +513,11 @@ defmodule Cgc2046.Admission.Attendance do
   defp domain_error_message(:already_forfeited),
     do: "the deposit for this enrollment has already been forfeited"
 
+  defp domain_error_message(:rate_limited),
+    do: "too many invalid check-in attempts, try again later"
+
   defp domain_error_code(:invalid_code), do: "attendance_invalid_code"
   defp domain_error_code(:already_checked_in), do: "attendance_already_checked_in"
   defp domain_error_code(:already_forfeited), do: "deposit_already_forfeited"
+  defp domain_error_code(:rate_limited), do: "attendance_rate_limited"
 end

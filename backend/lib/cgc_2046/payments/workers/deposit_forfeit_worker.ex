@@ -83,9 +83,11 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
-    sync_unanchored_findings()
-
+    # 资金段先走：诊断段（Finding 同步）读失败会 raise，若排在前面会把整拍
+    # 掐在任何没收之前（到场者之外的所有未核销单都要等下一拍）——必达路径优先。
     {forfeited, failures} = sweep()
+
+    sync_unanchored_findings()
 
     log_audit(forfeited)
 

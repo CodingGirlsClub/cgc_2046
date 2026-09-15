@@ -16,6 +16,11 @@ defmodule Cgc2046.Repo.Migrations.AddCheckInCodeToEnrollments do
 
   use Ecto.Migration
 
+  # enrollments 是热表（报名写入路径）：索引用 concurrently 建，避免迁移窗口取
+  # SHARE 锁阻塞报名；@disable_ddl_transaction 是 concurrently 的前提（索引建失败
+  # 会留 invalid 索引，本迁移可重跑：create_if_not_exists + 下方 down 重建路径）。
+  @disable_ddl_transaction true
+
   def up do
     alter table(:enrollments) do
       add_if_not_exists :check_in_code, :text
@@ -23,13 +28,15 @@ defmodule Cgc2046.Repo.Migrations.AddCheckInCodeToEnrollments do
 
     create_if_not_exists unique_index(:enrollments, [:event_id, :check_in_code],
                            name: "enrollments_unique_check_in_code_index",
-                           where: "(check_in_code IS NOT NULL)"
+                           where: "(check_in_code IS NOT NULL)",
+                           concurrently: true
                          )
   end
 
   def down do
     drop_if_exists unique_index(:enrollments, [:event_id, :check_in_code],
-                     name: "enrollments_unique_check_in_code_index"
+                     name: "enrollments_unique_check_in_code_index",
+                     concurrently: true
                    )
 
     alter table(:enrollments) do

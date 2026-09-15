@@ -35,7 +35,12 @@ vi.mock("@/components/language-switcher", () => ({
 	default: () => null,
 }));
 
-const EVENT = { id: "evt-1", slug: "deposit-hackathon", title: "押金制黑客松" };
+const EVENT = {
+	id: "evt-1",
+	slug: "deposit-hackathon",
+	title: "押金制黑客松",
+	depositEnabled: true,
+};
 
 // 后端手写 payload 是扁平形状（enrollmentId/checkedInAt/method/errors），
 // 不是 AshGraphql 生成 mutation 的 {result, errors} 信封。
@@ -95,10 +100,16 @@ describe("/events/[slug]/check-in 现场核销（R6、R11）", () => {
 		await submitForm();
 
 		await waitFor(() =>
-			expect(mutate).toHaveBeenCalledWith({
-				mutation: CHECK_IN_ENROLLMENT,
-				variables: { eventId: "evt-1", code: "123456", method: "scan" },
-			}),
+			expect(mutate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					mutation: CHECK_IN_ENROLLMENT,
+					variables: { eventId: "evt-1", code: "123456", method: "scan" },
+					// 现场网络挂起时 15s 超时让按钮可重试（非永停提交中）
+					context: expect.objectContaining({
+						fetchOptions: expect.objectContaining({ signal: expect.anything() }),
+					}),
+				}),
+			),
 		);
 		const success = await screen.findByTestId("check-in-success");
 		expect(success).toHaveTextContent("✓ 核销成功，已记录到场");
@@ -127,10 +138,16 @@ describe("/events/[slug]/check-in 现场核销（R6、R11）", () => {
 		await submitForm();
 
 		await waitFor(() =>
-			expect(mutate).toHaveBeenCalledWith({
-				mutation: CHECK_IN_ENROLLMENT,
-				variables: { eventId: "evt-1", code: "000042", method: "manual" },
-			}),
+			expect(mutate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					mutation: CHECK_IN_ENROLLMENT,
+					variables: { eventId: "evt-1", code: "000042", method: "manual" },
+					// 现场网络挂起时 15s 超时让按钮可重试（非永停提交中）
+					context: expect.objectContaining({
+						fetchOptions: expect.objectContaining({ signal: expect.anything() }),
+					}),
+				}),
+			),
 		);
 	});
 
@@ -142,11 +159,30 @@ describe("/events/[slug]/check-in 现场核销（R6、R11）", () => {
 		await submitForm();
 
 		await waitFor(() =>
-			expect(mutate).toHaveBeenCalledWith({
-				mutation: CHECK_IN_ENROLLMENT,
-				variables: { eventId: "evt-1", code: "999999", method: "manual" },
-			}),
+			expect(mutate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					mutation: CHECK_IN_ENROLLMENT,
+					variables: { eventId: "evt-1", code: "999999", method: "manual" },
+					// 现场网络挂起时 15s 超时让按钮可重试（非永停提交中）
+					context: expect.objectContaining({
+						fetchOptions: expect.objectContaining({ signal: expect.anything() }),
+					}),
+				}),
+			),
 		);
+	});
+
+	it("非押金场核销成功：成功卡不出现押金退款文案（域事实相符）", async () => {
+		fetchPublicOffering.mockResolvedValue({ ...EVENT, depositEnabled: false });
+		mutate.mockResolvedValue(SUCCESS);
+		renderPage({ code: "123456" });
+
+		await screen.findByTestId("check-in-code-input");
+		await submitForm();
+		await waitFor(() => expect(mutate).toHaveBeenCalled());
+		const success = await screen.findByTestId("check-in-success");
+		expect(success).toHaveTextContent("✓ 核销成功，已记录到场");
+		expect(success).not.toHaveTextContent(/押金退款已发起/);
 	});
 
 	it("业务错误码 → 文案（已核销 / 押金已结算 / 无效码 / 无权限 / 会话过期 / 网络异常）", async () => {

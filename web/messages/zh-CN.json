@@ -65,6 +65,7 @@
 		"operation_unavailable": "操作暂不可用，请稍后重试。",
 		"attendance_invalid_code": "核销码无效或与本场活动不匹配，请让参与者重新出示。",
 		"attendance_already_checked_in": "该报名已核销，无需重复核销。",
+		"attendance_rate_limited": "核销尝试过于频繁，请稍后再试。",
 		"deposit_already_forfeited": "该报名的押金已按未到场结算（不退），无法再核销。",
 		"forbidden": "你没有执行该操作的权限。"
 	},
