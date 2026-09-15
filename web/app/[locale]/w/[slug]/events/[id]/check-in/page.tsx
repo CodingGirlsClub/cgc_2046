@@ -159,7 +159,12 @@ function CheckInPanel({ slug, eventId }: { slug: string; eventId: string }) {
         <div className="h-56 animate-pulse rounded-large bg-soft-2 ring-1 ring-line" />
       ) : (
         <div className="join-card !p-8" data-testid="check-in-panel">
-          <p className="text-[13px] text-ink-3">{t("onsiteHint")}</p>
+          {/* 押金承诺只对押金场成立（false/null 未知 → 通用不可撤销提示） */}
+          <p className="text-[13px] text-ink-3">
+            {eventRef?.depositEnabled === true
+              ? t("onsiteHint")
+              : t("onsiteHintGeneric")}
+          </p>
 
           <label className="mt-4 block">
             <span className="block text-[13px] text-ink-3">{t("codeField")}</span>
@@ -228,9 +233,7 @@ function CheckInPanel({ slug, eventId }: { slug: string; eventId: string }) {
                       : t("methodManual"),
                 })}
               </p>
-              {feedback.depositRefund === "forfeited" ? (
-                <p className="text-[13px] text-ink-3">{t("successForfeitedNote")}</p>
-              ) : feedback.depositRefund ? (
+              {feedback.depositRefund ? (
                 <p className="text-[13px] text-ink-3">{t("successRefundNote")}</p>
               ) : null}
             </div>

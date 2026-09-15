@@ -17,11 +17,24 @@ const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
 
 export function EventRegistrationActions({ item, onRegister }: { item: CatalogItem; onRegister: () => void }) {
   const blockedNotice = enrollmentBlockedNotice(item.enrollmentBadge)
-  if (item.status !== 'open') return <Text className={styles.closedNotice} data-testid='archived-event-notice'>{item.status === 'cancelled' ? '活动已取消' : '活动已结束'}，仅供查看。</Text>
-  if (item.myEnrollment) return <>
+  const enrolled = item.myEnrollment ? <>
     <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>已报名 · {enrollmentStatusText[item.myEnrollment.status]}</Text>
     <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>
-  </>
+  </> : null
+  // 活跃报名最优先：非成班活动「报名截止即 closed」（closed ≠ 活动结束），
+  // 截止后、活动开始前已报名用户仍保留「查看我的报名」入口（承载核销码）
+  const myStatus = item.myEnrollment?.status
+  if (myStatus === 'pending' || myStatus === 'payment_pending' || myStatus === 'confirmed') return enrolled
+  if (item.status !== 'open') {
+    // closed 按 endsAt 区分：已过 → 活动已结束；未过/未定 → 报名已截止
+    const notice = item.status === 'cancelled'
+      ? '活动已取消，仅供查看。'
+      : item.endsAt && Date.parse(item.endsAt) <= Date.now()
+        ? '活动已结束，仅供查看。'
+        : '报名已截止，仅供查看。'
+    return <Text className={styles.closedNotice} data-testid='archived-event-notice'>{notice}</Text>
+  }
+  if (item.myEnrollment) return enrolled
   if (blockedNotice) return <Text className={styles.closedNotice} data-testid='registration-closed-notice'>{blockedNotice}</Text>
   return <Button className={styles.primaryButton} data-testid='register-action' onClick={onRegister}>立即报名</Button>
 }

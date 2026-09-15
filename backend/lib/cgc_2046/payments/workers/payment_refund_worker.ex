@@ -154,8 +154,9 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
     end
   end
 
-  # 退款即取消（R16）：confirmed 报名 → cancelled + 名额释放（enrollment.cancel
-  # 内置 CAS + 账本 occupancy 释放（投影 confirmed_count 跟随） + 作废残留 pending 订单）。
+  # 退款即取消（R16）：confirmed / payment_pending 报名 → cancelled + 名额释放
+  # （enrollment.cancel 内置 CAS + 账本 occupancy 释放（投影 confirmed_count 跟随）
+  # + 作废残留 pending 订单）。
   # F-B：失败不吞错——reload 真状态裁决：已终态（cancelled/expired/rejected）=
   # 合法竞态/迟到路径已处理；仍占位 = 真失败（capacity_counter_invalid / DB
   # 瞬断）→ {:error, reason} 让 Oban 重试收敛，拒绝「钱已退、坑还占」。
@@ -199,7 +200,8 @@ defmodule Cgc2046.Payments.Workers.PaymentRefundWorker do
         end
 
       {:ok, _non_holding} ->
-        # payment_pending 等非占位确认态：迟到/并发路径已裁决，报名侧无需动作
+        # payment_pending 已在上一子句处理（取消释放名额）；本 catch-all 只覆盖
+        # 真正不占位的状态（如审批中 :pending——名下不会有已支付订单走到退款路径）
         :ok
 
       {:error, reason} ->
