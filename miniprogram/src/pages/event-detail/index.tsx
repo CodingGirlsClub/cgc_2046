@@ -33,6 +33,8 @@ export default function EventDetailPage() {
   const [item, setItem] = useState<CatalogItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // #508-A：核销入口门（owner/admin 才显示；探测失败/非成员一律 false）
+  const [canCheckIn, setCanCheckIn] = useState(false)
   const requestSeq = useRef(0)
 
   const load = useCallback(async () => {
@@ -42,6 +44,12 @@ export default function EventDetailPage() {
     try {
       const result = await api.getContent(kind, id)
       if (seq === requestSeq.current) setItem(result)
+      if (seq === requestSeq.current && result.kind === 'event') {
+        // 入口探测不阻塞详情主流程：失败即隐藏（真授权在后端 mutation）
+        void api.canModerateEvent(result.id).then((allowed) => {
+          if (seq === requestSeq.current) setCanCheckIn(allowed)
+        })
+      }
     } catch (reason) {
       if (seq === requestSeq.current) setError(reason instanceof Error ? reason.message : '详情加载失败')
     } finally {
@@ -150,6 +158,20 @@ export default function EventDetailPage() {
       </ScrollView>
 
       <View className={styles.footer}>
+        {/* 核销页只在全量端注册（裁剪端无管理功能）——入口同口径隐藏 */}
+        {canCheckIn && item.kind === 'event' && process.env.TARO_ENV !== 'tt' && process.env.TARO_ENV !== 'xhs' && (
+          <Button
+            className={styles.checkInEntry}
+            data-testid='check-in-entry'
+            onClick={() =>
+              Taro.navigateTo({
+                url: `/pages/check-in/index?eventId=${item.id}&title=${encodeURIComponent(item.title)}`
+              })
+            }
+          >
+            扫码核销（主理人）
+          </Button>
+        )}
         <EventRegistrationActions item={item} onRegister={register} />
       </View>
     </View>

@@ -1,34 +1,33 @@
 "use client";
 
 /**
- * 核销码出示卡（押金制 KTD5/KTD10；R11）：6 位码 + 承载核销 URL 的二维码 +
- * 「请勿截图转发」提示。参与者面共用（/participations 报名卡、公开详情页本人卡）。
+ * 核销码出示卡（押金制 KTD5/KTD10；R11）：6 位码 + 二维码 +「请勿截图转发」提示。
+ * 参与者面共用（/participations 报名卡、公开详情页本人卡）。
  *
- * 码由后端字段级 resolve 门控（仅本人 confirmed 活动报名返回），本组件只负责
- * 展示——调用方负责 confirmed 与非空门控。
+ * 二维码承载自定义 payload（#508 选项 A，lib/check-in.buildCheckInPayload），
+ * 供主理人小程序 `Taro.scanCode` 解析；码由后端字段级 resolve 门控（仅本人
+ * confirmed 活动报名返回），本组件只负责展示——调用方负责 confirmed 与非空门控。
  */
 
-import { useLocale, useTranslations } from "next-intl";
-import { buildCheckInPath } from "@/lib/check-in";
+import { useTranslations } from "next-intl";
+import { buildCheckInPayload } from "@/lib/check-in";
 import { useQrDataUrl } from "@/lib/use-qr-data-url";
 
 export default function CheckInCodeCard({
   code,
-  eventSegment,
+  eventId,
   paymentMode = null,
 }: {
   /** 6 位核销码（字符串，前导零有意义） */
   code: string;
-  /** 核销 URL 路段：event slug（公开详情页）或 event id（报名卡只有 eventId） */
-  eventSegment: string;
+  /** 核销目标活动 id（QR payload 组成之一，供主理人端交叉校验） */
+  eventId: string;
   /** 目标缴费模式（U3：deposit 时多一行「核销后押金原路退回」承诺句） */
   paymentMode?: string | null;
 }) {
   const t = useTranslations("checkIn");
-  const locale = useLocale();
-  const path = buildCheckInPath(locale, eventSegment, code);
   // 生成失败返回 null：仍出示 6 位码（主理人可手输，KTD5「扫码失败补救」）
-  const qrDataUrl = useQrDataUrl(path, 160);
+  const qrDataUrl = useQrDataUrl(buildCheckInPayload(eventId, code), 160);
 
   return (
     <div

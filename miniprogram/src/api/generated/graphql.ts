@@ -1018,6 +1018,22 @@ export type PublicInitiativesQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type PublicInitiativesQuery = { publicInitiatives: Array<{ id: string, name: string, slug: string, hashtag: string | null, status: string }> };
 
+export type CheckInEnrollmentMutationVariables = Exact<{
+  eventId: string | number;
+  code: string;
+  method: string;
+}>;
+
+
+export type CheckInEnrollmentMutation = { checkInEnrollment: { enrollmentId: string | null, checkedInAt: string | null, method: string | null, depositRefund: string | null, errors: Array<{ message: string | null, code: string | null } | null> | null } | null };
+
+export type EventModerationScopeQueryVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type EventModerationScopeQuery = { getEvent: { id: string, workspaceId: string } | null };
+
 export type PublicInitiativeQueryVariables = Exact<{
   slug: string;
 }>;
