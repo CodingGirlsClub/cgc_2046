@@ -86,8 +86,22 @@ export function StatsCards({
 		);
 	}
 
+	// 已收 = 仅 paid 合计：押金被判 no-show 后从「已收」消失但钱仍由平台持有，
+	// 故单独列出没收桶（>0 才渲染，避免常挂空卡；KTD7/R9）
+	const forfeitedCents = stats?.forfeitedCents ?? 0;
+
 	const cards = [
 		{ label: t("statCollected"), cents: stats?.collectedCents ?? 0, testid: "stats-collected", danger: false },
+		...(forfeitedCents > 0
+			? [
+					{
+						label: t("statForfeited"),
+						cents: forfeitedCents,
+						testid: "stats-forfeited",
+						danger: false,
+					},
+				]
+			: []),
 		{ label: t("statPending"), cents: stats?.pendingCents ?? 0, testid: "stats-pending", danger: false },
 		{ label: t("statRefunded"), cents: stats?.refundedCents ?? 0, testid: "stats-refunded", danger: false },
 		{

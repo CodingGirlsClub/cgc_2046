@@ -54,12 +54,15 @@ export default function OfferingPaymentsPanel({
 	kind,
 	manage,
 	pricingEnabled,
+	depositEnabled = false,
 }: {
 	workspaceId: string;
 	offeringId: string;
 	kind: "event" | "course";
 	manage: boolean;
 	pricingEnabled: boolean;
+	/** 押金场（pricingEnabled=false 但有收款面）：免费态收敛必须同时排除押金 */
+	depositEnabled?: boolean;
 }) {
 	const t = useTranslations("offeringPayments");
 	const labelsT = useTranslations();
@@ -88,7 +91,14 @@ export default function OfferingPaymentsPanel({
 		setLoadState("loading");
 		try {
 			// R6 默认视图：非终态 + 已退款；终态（cancelled/expired）经状态筛选可见
-			const defaultStatuses = ["pending", "paid", "refunding", "refund_failed", "refunded"];
+			const defaultStatuses = [
+				"pending",
+				"paid",
+				"refunding",
+				"refund_failed",
+				"refunded",
+				"forfeited",
+			];
 			const { data } = await client.query({
 				query: WORKSPACE_ORDERS,
 				variables: {
@@ -118,7 +128,14 @@ export default function OfferingPaymentsPanel({
 		const gen = reqGen.current;
 		setLoadingMore(true);
 		try {
-			const defaultStatuses = ["pending", "paid", "refunding", "refund_failed", "refunded"];
+			const defaultStatuses = [
+				"pending",
+				"paid",
+				"refunding",
+				"refund_failed",
+				"refunded",
+				"forfeited",
+			];
 			const { data } = await client.query({
 				query: WORKSPACE_ORDERS,
 				variables: {
@@ -177,7 +194,13 @@ export default function OfferingPaymentsPanel({
 	if (!manage) return null;
 
 	// F13：免费态且无任何订单/统计负担 → 收敛一行；有已付历史则完整面板
-	if (!pricingEnabled && orders.length === 0 && !statsError && (stats?.collectedCents ?? 0) === 0) {
+	if (
+		!pricingEnabled &&
+		!depositEnabled &&
+		orders.length === 0 &&
+		!statsError &&
+		(stats?.collectedCents ?? 0) === 0
+	) {
 		return (
 			<section
 				className="rounded-large border border-line bg-card p-4"
@@ -219,6 +242,9 @@ export default function OfferingPaymentsPanel({
 				) : (
 					<>
 						<StatCard label={t("statCollected")} value={stats?.collectedCents} />
+						{(stats?.forfeitedCents ?? 0) > 0 ? (
+							<StatCard label={t("statForfeited")} value={stats?.forfeitedCents} />
+						) : null}
 						<StatCard label={t("statPending")} value={stats?.pendingCents} />
 						<StatCard label={t("statRefunded")} value={stats?.refundedCents} />
 						<StatCard
