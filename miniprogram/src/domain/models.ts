@@ -195,6 +195,23 @@ export interface AdmitResult {
   workspaceName: string
 }
 
+/** 核销方式（scan = 主理人扫码；manual = 扫码失败手输 6 位码兜底，KTD5） */
+export type CheckInMethod = 'scan' | 'manual'
+
+/**
+ * 主理人核销结果（#508-A）：业务失败不抛错而是进联合——「已核销」是幂等提示态
+ * 而非错误（重复扫码是现场常态），页面按 kind 分叉呈现。
+ * network 类故障仍按 reject 上抛（页面给可重试反馈）。
+ */
+export type CheckInOutcome =
+  | { kind: 'success'; checkedInAt: string | null; depositRefund: string | null }
+  | { kind: 'already' }
+  | { kind: 'invalid' }
+  | { kind: 'forfeited' }
+  | { kind: 'forbidden' }
+  | { kind: 'rate_limited' }
+
+
 export interface PlatformPhonePayload {
   loginCode?: string
   code?: string
@@ -241,5 +258,13 @@ export interface MiniProgramApi {
   grantConsent(scenario: SubscriptionScenario): Promise<number>
   generateMiniProgramCode(workspaceId: string): Promise<MiniProgramCode>
   admitMember(scene: string): Promise<AdmitResult>
+  /**
+   * #508-A：当前用户能否核销该活动（入口门，UX 层）。成员面探测（workspace_id
+   * field_policy）+ session 角色（owner/admin）；匿名/非成员/读取失败 → false。
+   * 真授权由后端 checkInEnrollment policy fail-closed 承担。
+   */
+  canModerateEvent(eventId: string): Promise<boolean>
+  /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
+  checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
   getNotifications(): Promise<NotificationItem[]>
 }

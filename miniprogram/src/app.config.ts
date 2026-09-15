@@ -25,7 +25,9 @@ const fullPages = [
   'pages/workspace/index',
   'pages/profile/index',
   'pages/join/index',
-  'pages/openclacky/index'
+  'pages/openclacky/index',
+  // #508-A：主理人现场核销（管理面，裁剪端不挂）
+  'pages/check-in/index'
 ]
 
 const cutTabList = [
