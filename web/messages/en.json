@@ -2208,6 +2208,7 @@
 		"cardLabel": "Check-in code (show it to the host on site)",
 		"qrAlt": "Check-in QR code",
 		"qrGenerating": "Generating QR code…",
+		"depositRefundHint": "After on-site check-in with this code, your deposit will be refunded.",
 		"keepPrivateHint": "Do not screenshot or forward: anyone with this code can check in for you, which refunds the deposit."
 	}
 }

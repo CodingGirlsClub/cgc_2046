@@ -33,6 +33,8 @@ export interface ParticipationEnrollment {
   venue?: string | null;
   /** 报名截止时间（U2：活跃卡明示自助取消的截止时点；null 不显示） */
   registrationDeadline?: string | null;
+  /** 目标缴费模式（U3：free/pricing/deposit——码卡与取消规则的模式感知文案用） */
+  paymentMode?: string | null;
   /**
    * 6 位核销码（U4/KTD5：仅本人 confirmed 报名返回，其余为 null；
    * course 报名恒 null）——本人报名卡出示用，勿截图转发。
@@ -111,6 +113,7 @@ export const MY_ENROLLMENTS: TypedDocumentNode<
         venue
         checkInCode
         registrationDeadline
+        paymentMode
       }
       startKeyset
       endKeyset

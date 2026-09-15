@@ -190,6 +190,22 @@ defmodule Cgc2046.Admission.Enrollment do
       end
     )
 
+    # U3：目标缴费模式（free/pricing/deposit），码卡与取消规则的模式感知文案用。
+    # 从 target_schedule 批量取（schedule_for 已带 deposit_enabled/pricing_enabled）。
+    calculate(:payment_mode, :string,
+      public?: true,
+      load: [:target_schedule],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          case enrollment.target_schedule do
+            %{deposit_enabled: true} -> "deposit"
+            %{pricing_enabled: true} -> "pricing"
+            _ -> "free"
+          end
+        end)
+      end
+    )
+
     calculate(:venue, :string,
       public?: true,
       load: [:target_schedule],

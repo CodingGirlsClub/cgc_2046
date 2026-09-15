@@ -724,6 +724,13 @@ export default function PublicOfferingDetailPage({
                       <CheckInCodeCard
                         code={myEnroll.checkInCode}
                         eventSegment={offering.slug}
+                        paymentMode={
+                          offering.depositEnabled
+                            ? "deposit"
+                            : offering.pricingEnabled
+                              ? "pricing"
+                              : "free"
+                        }
                       />
                     ) : null}
                   </div>

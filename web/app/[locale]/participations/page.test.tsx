@@ -55,6 +55,7 @@ const ENROLLMENT: ParticipationEnrollment = {
 	startsAt: null,
 	venue: null,
 	registrationDeadline: "2026-08-18T00:00:00Z",
+	paymentMode: "free",
 };
 
 const CANCELLED_ENROLLMENT = {
@@ -286,6 +287,25 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		render(<ParticipationsPage />);
 
 		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fparticipations");
+	});
+
+	it("U3：押金场码卡显示退款承诺句；免费场不出（paymentMode 感知）", () => {
+		mockQuery({
+			enrollments: [
+				{ ...ENROLLMENT, id: "enr-dep", status: "confirmed", eventId: "event-dep", checkInCode: "123456", paymentMode: "deposit" },
+				{ ...ENROLLMENT, id: "enr-free", status: "confirmed", eventId: "event-free", checkInCode: "654321", paymentMode: "free" },
+			],
+		});
+
+		render(<ParticipationsPage />);
+		// 押金场：码卡 + 退款承诺句
+		expect(screen.getAllByTestId("check-in-code-value")[0].textContent).toContain("123456");
+		expect(screen.getByTestId("check-in-deposit-hint").textContent).toContain("原路退回");
+		// 免费场：码卡在但无退款句（另一个 testid 不同的码卡）
+		const freeCodes = screen.getAllByTestId("check-in-code-value");
+		expect(freeCodes).toHaveLength(2);
+		// 免费场那张不出 deposit-hint（只有一张 deposit-hint）
+		expect(screen.getAllByTestId("check-in-deposit-hint")).toHaveLength(1);
 	});
 
 	it("confirmed 活动报名卡：显示 6 位核销码与承载核销 URL 的二维码；payment_pending 不出示（R11/KTD5）", async () => {
