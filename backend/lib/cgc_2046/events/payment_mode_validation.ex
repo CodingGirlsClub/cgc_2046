@@ -40,6 +40,15 @@ defmodule Cgc2046.Events.PaymentModeValidation do
 
   defp positive_integer?(amount), do: is_integer(amount) and amount > 0
 
+  @doc """
+  押金×定价互斥的稳定业务错误（KTD3 单源）。
+
+  Event 校验（本模块 validate/3）与 DB CHECK 兜底（Event.handle_write_error/2）
+  共用同一 message 与 code；`check_constraint` DSL 的 `message:` 是编译期字面量、
+  无法引用本函数，故那边保留同文字面量并注释互指。
+  """
+  def exclusive_error(field), do: domain_error(:payment_mode_exclusive, field)
+
   defp domain_error(reason, field) do
     BusinessError.exception(
       message: domain_error_message(reason),

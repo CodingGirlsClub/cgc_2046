@@ -864,11 +864,7 @@ defmodule Cgc2046.Events.Event do
   # （enrollment.handle_create_error 同款纪律）。
   def handle_write_error(_changeset, error) do
     if Cgc2046.Errors.ConstraintConflict.check_conflict?(error) do
-      Cgc2046.Errors.BusinessError.exception(
-        message: "an event cannot enable both pricing tiers and deposit",
-        code: "event_payment_mode_exclusive",
-        fields: [:deposit_enabled]
-      )
+      Cgc2046.Events.PaymentModeValidation.exclusive_error(:deposit_enabled)
     else
       error
     end
@@ -890,6 +886,8 @@ defmodule Cgc2046.Events.Event do
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
     # event_payment_mode_exclusive（BusinessError）。
     check_constraints do
+      # message 是同源兜底字面量（与 PaymentModeValidation.exclusive_error/1 同文字；
+      # DSL 编译期取值无法引用函数）；用户可见错误由 handle_write_error/2 转换。
       check_constraint([:deposit_enabled, :pricing_enabled], "events_payment_mode_exclusive",
         check: "NOT (deposit_enabled AND pricing_enabled)",
         message: "an event cannot enable both pricing tiers and deposit"
