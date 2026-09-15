@@ -9,6 +9,8 @@ import type {
   CatalogQueryVariables,
   CatalogSearchQuery,
   CatalogSearchQueryVariables,
+  CheckInEnrollmentMutation,
+  CheckInEnrollmentMutationVariables,
   ConfirmEnrollmentMutation,
   ConfirmEnrollmentMutationVariables,
   CreateOrderMutation,
@@ -21,6 +23,8 @@ import type {
   EnrollmentQueryVariables,
   EventDetailQuery,
   EventDetailQueryVariables,
+  EventModerationScopeQuery,
+  EventModerationScopeQueryVariables,
   GenerateMiniProgramCodeMutation,
   GenerateMiniProgramCodeMutationVariables,
   GrantConsentMutation,
@@ -47,6 +51,7 @@ import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
   CancelEnrollmentMutationDocument,
+  CheckInEnrollmentMutationDocument,
   CreateOrderMutationDocument,
   MyOrdersQueryDocument,
   OrderStatusQueryDocument,
@@ -57,6 +62,7 @@ import {
   CreateEnrollmentMutationDocument,
   EnrollmentQueryDocument,
   EventDetailQueryDocument,
+  EventModerationScopeQueryDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
@@ -75,6 +81,8 @@ import type {
   AdmitResult,
   ApprovalSummary,
   CatalogItem,
+  CheckInMethod,
+  CheckInOutcome,
   ContentKind,
   EnrollmentForm,
   EnrollmentSummary,
@@ -498,6 +506,63 @@ export class RealMiniProgramApi implements MiniProgramApi {
         const code = error.errors[0]?.code ?? error.errors[0]?.extensions?.code
         if (code === 'invalid_scene') throw new Error('邀请码格式不正确')
         if (code === 'invalid_or_expired_scene') throw new Error('邀请码无效或已过期')
+      }
+      throw error
+    }
+  }
+
+  // 核销入口门（#508-A）：workspace_id 是 Event field_policy 收窄字段——探测查询
+  // 仅本 workspace 成员/平台管理员成功；匿名/非成员/网络失败一律 false（入口
+  // 隐藏，不影响公开详情主流程）。角色判据与后端 Moderators.can_moderate? 的
+  // Owner/Admin 分支同口径；非成员主理人（event_moderators 指派）v1 不在小程序
+  // 开入口，走 web 核销页。
+  async canModerateEvent(eventId: string): Promise<boolean> {
+    const session = await this.getSession()
+    if (!session.user) return false
+    try {
+      const data = await graphqlRequest<EventModerationScopeQuery, EventModerationScopeQueryVariables>(
+        EventModerationScopeQueryDocument,
+        { id: eventId }
+      )
+      const workspaceId = data.getEvent?.workspaceId
+      if (!workspaceId) return false
+      return session.workspaces.some((workspace) =>
+        workspace.id === workspaceId &&
+        workspace.roleNames.some((role) => role === 'owner' || role === 'admin')
+      )
+    } catch {
+      return false
+    }
+  }
+
+  async checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome> {
+    try {
+      const data = await graphqlRequest<CheckInEnrollmentMutation, CheckInEnrollmentMutationVariables>(
+        CheckInEnrollmentMutationDocument,
+        { eventId, code, method }
+      )
+      const payload = data.checkInEnrollment
+      if (payload?.enrollmentId) {
+        return {
+          kind: 'success',
+          checkedInAt: payload.checkedInAt ?? null,
+          depositRefund: payload.depositRefund ?? null
+        }
+      }
+      // 业务失败进 payload.errors（手写 mutation 信封）；无 code 按码无效收敛
+      // （后端对「不存在/非 confirmed/码不匹配」本就不区分，同桶不增枚举面）
+      const businessCode = payload?.errors?.find((entry) => entry?.code)?.code ?? null
+      if (businessCode === 'attendance_already_checked_in') return { kind: 'already' }
+      if (businessCode === 'deposit_already_forfeited') return { kind: 'forfeited' }
+      if (businessCode === 'attendance_rate_limited') return { kind: 'rate_limited' }
+      return { kind: 'invalid' }
+    } catch (error) {
+      // forbidden（policy 拒绝在 resolve 之前）走顶层 errors；其余（网络/5xx）
+      // 原样上抛——页面给「可原样重试」反馈，与业务失败不同桶
+      if (error instanceof GraphQLRequestError) {
+        const codes = error.errors.map((entry) => entry.code ?? entry.extensions?.code)
+        if (codes.includes('forbidden')) return { kind: 'forbidden' }
+        if (codes.includes('attendance_rate_limited')) return { kind: 'rate_limited' }
       }
       throw error
     }

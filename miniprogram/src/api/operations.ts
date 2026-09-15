@@ -409,6 +409,35 @@ export const PublicInitiativesQueryDocument = /* GraphQL */ `
   }
 `
 
+// #508-A：主理人核销（Admission.Attendance 手写 mutation，成功判据 = enrollmentId
+// 非空；业务失败进 errors 带领域 code——码无效/已核销/押金已结算/无权限）
+export const CheckInEnrollmentMutationDocument = /* GraphQL */ `
+  mutation CheckInEnrollment($eventId: ID!, $code: String!, $method: String!) {
+    checkInEnrollment(eventId: $eventId, code: $code, method: $method) {
+      enrollmentId
+      checkedInAt
+      method
+      depositRefund
+      errors {
+        message
+        code
+      }
+    }
+  }
+`
+
+// #508-A：核销入口的成员面探测——workspace_id 是 Event 的 field_policy 收窄字段
+// （仅本 workspace 成员/平台管理员可选中）：匿名/非成员请求整体 forbidden_field，
+// 调用方按「非运营角色」隐藏入口。成员可读 closed（现场核销时活动通常已截止）。
+export const EventModerationScopeQueryDocument = /* GraphQL */ `
+  query EventModerationScope($id: ID!) {
+    getEvent(id: $id) {
+      id
+      workspaceId
+    }
+  }
+`
+
 export const PublicInitiativeQueryDocument = /* GraphQL */ `
   query PublicInitiative($slug: String!) {
     publicInitiative(slug: $slug) {

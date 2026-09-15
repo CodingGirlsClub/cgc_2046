@@ -23,3 +23,4 @@
 .primaryButton { color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
 .closedNotice { display: block; color: #4b4d54; font-size: 25rpx; line-height: 1.5; text-align: center; }
 .enrolledNotice { display: block; margin-bottom: 16rpx; color: #1f7a3d; font-size: 25rpx; font-weight: 600; text-align: center; }
+.checkInEntry { margin-bottom: 14rpx; color: #ea5504; background: #fdeadf; border-radius: 18rpx; font-size: 26rpx; font-weight: 600; }

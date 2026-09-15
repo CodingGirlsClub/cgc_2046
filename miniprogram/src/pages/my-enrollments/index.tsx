@@ -3,7 +3,9 @@ import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api, SessionExpiredError } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
+import { CheckInQr } from '@/components/CheckInQr'
 import { PageState } from '@/components/PageState'
+import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { checkInCodeText, enrollmentStatusText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
@@ -133,6 +135,13 @@ export default function MyEnrollmentsPage() {
               <Text className={`${styles.status} ${styles[item.status]}`}>{enrollmentStatusText[item.status]}</Text>
             </View>
             <Text className={styles.cardTitle}>{item.title}</Text>
+            {checkInCode && item.kind === 'event' && item.checkInCode && (
+              <View className={styles.checkInQr}>
+                {/* #508-A：QR 供主理人小程序扫码（payload 自定义格式，非 URL）；
+                    渲染失败组件自隐，下方 6 位码手输兜底 */}
+                <CheckInQr payload={buildCheckInPayload(item.targetId, item.checkInCode)} />
+              </View>
+            )}
             {checkInCode && (
               <Text className={styles.checkInCode} data-testid={`check-in-code-${item.id}`}>
                 {checkInCode}

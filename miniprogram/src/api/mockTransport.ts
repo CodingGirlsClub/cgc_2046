@@ -114,6 +114,8 @@ let loggedIn = false
 let enrollment: MockEnrollment | null = null
 let order: MockOrder | null = null
 let orderStatusOverride: string | null = null
+// #508-A：核销幂等标记（同一报名第二次核销 → already； enrollment 重置时随之复位）
+let checkedIn = false
 
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
@@ -171,6 +173,14 @@ function responseFor(document: string, variables: object): unknown {
     return {
       getEvent: records.find(({ id }) => id === values.id) ?? null,
       myEnrollment: myEnrollmentFor('event', String(values.id ?? ''))
+    }
+  }
+  if (document.includes('query EventModerationScope')) {
+    // #508-A：成员面探测——登录即视为 workspace-1 成员（owner），活动存在即给 scope；
+    // 未登录按匿名口径返回 null（真实端是 forbidden_field 整查询报错，real.ts 同归 false）
+    const record = records.find(({ id }) => id === values.id) ?? null
+    return {
+      getEvent: loggedIn && record ? { id: record.id, workspaceId: workspace.id } : null
     }
   }
   if (document.includes('query CourseDetail')) {
@@ -271,6 +281,7 @@ function responseFor(document: string, variables: object): unknown {
       paymentMode,
       registrationDeadline: target?.registrationDeadline ?? null
     }
+    checkedIn = false
     return { createEnrollment: { result: enrollment, errors: [] } }
   }
   if (document.includes('mutation CancelEnrollment')) {
@@ -380,6 +391,52 @@ function responseFor(document: string, variables: object): unknown {
         workspaceName: workspace.name,
         status: 'accepted',
         acceptedAt: new Date().toISOString()
+      }
+    }
+  }
+  if (document.includes('mutation CheckInEnrollment')) {
+    // #508-A：核销三分支（成功/重复/错码）。幂等由 checkedIn 标记承担——同一
+    // 报名第二次核销稳定返回 already（后端唯一索引语义的 mock 投影）
+    const code = typeof values.code === 'string' ? values.code : ''
+    const current = enrollment
+    const canCheckIn =
+      loggedIn &&
+      current?.status === 'confirmed' &&
+      current.eventId === values.eventId &&
+      current.checkInCode === code
+    if (!canCheckIn || !current) {
+      return {
+        checkInEnrollment: {
+          enrollmentId: null,
+          checkedInAt: null,
+          method: null,
+          depositRefund: null,
+          errors: [{ message: 'check-in code is invalid for this event', code: 'attendance_invalid_code' }]
+        }
+      }
+    }
+    if (checkedIn) {
+      return {
+        checkInEnrollment: {
+          enrollmentId: null,
+          checkedInAt: null,
+          method: null,
+          depositRefund: null,
+          errors: [{ message: 'this enrollment has already been checked in', code: 'attendance_already_checked_in' }]
+        }
+      }
+    }
+    checkedIn = true
+    // 押金单已付 → 核销即退（KTD6 分派表的 mock 投影）；无单/免费场 → null
+    const depositRefund =
+      order?.enrollmentId === current.id && order.status === 'paid' ? 'refunding' : null
+    return {
+      checkInEnrollment: {
+        enrollmentId: current.id,
+        checkedInAt: new Date().toISOString(),
+        method: typeof values.method === 'string' ? values.method : 'manual',
+        depositRefund,
+        errors: []
       }
     }
   }
