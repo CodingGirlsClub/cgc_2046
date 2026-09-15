@@ -306,6 +306,14 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		expect(freeCodes).toHaveLength(2);
 		// 免费场那张不出 deposit-hint（只有一张 deposit-hint）
 		expect(screen.getAllByTestId("check-in-deposit-hint")).toHaveLength(1);
+
+		// U4：押金场出取消退款规则句；免费场不出
+		expect(screen.getByTestId("deposit-refund-rule-enr-dep").textContent).toContain(
+			"截止前取消全额退",
+		);
+		expect(
+			screen.queryByTestId("deposit-refund-rule-enr-free"),
+		).not.toBeInTheDocument();
 	});
 
 	it("confirmed 活动报名卡：显示 6 位核销码与承载核销 URL 的二维码；payment_pending 不出示（R11/KTD5）", async () => {

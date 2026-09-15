@@ -1133,6 +1133,7 @@
 		"slotReserved": "Slot reserved — complete payment within the time limit",
 		"approvalDeadline": "Approval deadline: {time}",
 		"selfCancelDeadline": "Self-cancellation available until {time}",
+		"depositRefundRule": "Deposit: full refund if cancelled before the deadline; no refund after.",
 		"rejectionReason": "Reason: {reason}",
 		"expiredAt": "Expired {time}",
 		"cancelledAt": "Cancelled {time}",

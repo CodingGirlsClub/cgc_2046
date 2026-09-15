@@ -1133,6 +1133,7 @@
 		"slotReserved": "名额已保留，请在限定时间内完成支付",
 		"approvalDeadline": "审批截止：{time}",
 		"selfCancelDeadline": "截止前可自助取消：{time}",
+		"depositRefundRule": "押金：截止前取消全额退；截止后不退。",
 		"rejectionReason": "拒绝原因：{reason}",
 		"expiredAt": "过期于 {time}",
 		"cancelledAt": "取消于 {time}",
