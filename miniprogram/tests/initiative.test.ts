@@ -17,7 +17,7 @@ import { getPublicInitiative, getPublicInitiatives } from '../src/api/initiative
 import { EventDetailQueryDocument, PublicInitiativeQueryDocument } from '../src/api/operations'
 import { InitiativeContent } from '../src/pages/initiative-detail'
 import { EventRegistrationActions } from '../src/pages/event-detail'
-import { qualificationBadgeText } from '../src/domain/initiative'
+import { parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
 
 const initiative: PublicInitiative = {
   id: 'initiative-1', slug: 'hackerstart1024', name: 'hackerstart1024', hashtag: '#hackerstart1024',
@@ -88,6 +88,32 @@ describe('Initiative 与留档详情展示', () => {
   it('普通 open Event 保持报名入口', () => {
     const item = { status: 'open', enrollmentBadge: 'enrolling', myEnrollment: null } as CatalogItem
     expect(renderToStaticMarkup(createElement(EventRegistrationActions, { item, onRegister: vi.fn() }))).toContain('register-action')
+  })
+
+  it('closed 活动上的活跃报名保留「查看我的报名」入口（closed ≠ 活动结束）', () => {
+    const item = { status: 'closed', enrollmentBadge: 'closed', endsAt: null, myEnrollment: { id: 'enr-1', status: 'confirmed', approvalDeadline: null } } as CatalogItem
+    const html = renderToStaticMarkup(createElement(EventRegistrationActions, { item, onRegister: vi.fn() }))
+    expect(html).toContain('view-my-enrollment')
+    expect(html).not.toContain('仅供查看')
+  })
+
+  it('closed 且 endsAt 未过：提示「报名已截止」而非「活动已结束」', () => {
+    const item = { status: 'closed', enrollmentBadge: 'closed', endsAt: '2099-01-01T00:00:00.000Z', myEnrollment: null } as CatalogItem
+    const html = renderToStaticMarkup(createElement(EventRegistrationActions, { item, onRegister: vi.fn() }))
+    expect(html).toContain('报名已截止，仅供查看。')
+    expect(html).not.toContain('register-action')
+  })
+
+  it('closed 且 endsAt 已过：提示「活动已结束」', () => {
+    const item = { status: 'closed', enrollmentBadge: 'closed', endsAt: '2020-01-01T00:00:00.000Z', myEnrollment: null } as CatalogItem
+    expect(renderToStaticMarkup(createElement(EventRegistrationActions, { item, onRegister: vi.fn() }))).toContain('活动已结束，仅供查看。')
+  })
+
+  it('parseQualificationBadge：契约可空值 → null，未知非空值仍 throw', () => {
+    expect(parseQualificationBadge(null)).toBeNull()
+    expect(parseQualificationBadge(undefined)).toBeNull()
+    expect(parseQualificationBadge('confirmed')).toBe('confirmed')
+    expect(() => parseQualificationBadge('bogus')).toThrow('服务端返回未知成班状态')
   })
 
   it('成班事实与短缺数只翻译后端标签', () => {
