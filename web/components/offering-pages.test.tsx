@@ -1833,6 +1833,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositEnabled: true,
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -1880,9 +1881,12 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     fireEvent.change(screen.getByTestId("deposit-amount-input"), {
       target: { value: "69" },
     });
-    // 押金场须有结束时间（结算锚点）
+    // 押金场须有结束时间（结算锚点）+ 报名截止（自助取消锚点，B②）
     fireEvent.change(screen.getByLabelText(/^结束时间/), {
       target: { value: "2026-10-24T10:00" },
+    });
+    fireEvent.change(screen.getByLabelText(/报名截止/), {
+      target: { value: "2026-10-20T10:00" },
     });
     fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
 
@@ -1954,6 +1958,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         pricingEnabled: true,
         priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -1998,6 +2003,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositEnabled: true,
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -2034,6 +2040,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositEnabled: true,
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -2056,6 +2063,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositEnabled: true,
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -2086,6 +2094,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         pricingEnabled: true,
         priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
@@ -2126,6 +2135,7 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositEnabled: true,
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
     render(<OfferingDetailPage slug="demo" id="offering-1" kind="event" />);
@@ -2419,5 +2429,90 @@ describe("现场核销入口（#558/#559 后续：主理人/Owner·Admin 可见�
 
     expect(screen.queryByTestId("check-in-entry-card")).not.toBeInTheDocument();
     expect(moderatorMocks.fetchEventModerators).not.toHaveBeenCalled();
+  });
+});
+
+describe("押金场报名截止必填（#555：B② 自助取消锚点的前端预检）", () => {
+  it("新建 event 押金场不设截止 → 本地拦截，createOffering 不发", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "押金场" },
+    });
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "69" },
+    });
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-10-24T12:00" },
+    });
+    // 报名截止留空
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(
+      await screen.findByText("押金场需设置报名截止时间（自助取消锚点）。"),
+    ).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
+  it("编辑押金场：写入缴费槽（改金额）且截止为空 → 本地拦截，updateOffering 不发", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T12:00:00.000Z",
+      }),
+    );
+
+    // 缴费槽本次被写入（paymentDirty=true）且截止为空 → 与后端 B② 同口径拦截
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "99" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText("押金场需设置报名截止时间（自助取消锚点）。"),
+    ).toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("编辑押金场：未动缴费槽（仅改标题）且截止为空 → 不拦截（与后端 deposit_config_touched? 同口径）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "只改标题",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        // pricingEnabled 显式 false：缺省（undefined）会让 pricingDirty 判真
+        // （undefined !== false），缴费槽脏检查失真
+        pricingEnabled: false,
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T12:00:00.000Z",
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("标题"), {
+      target: { value: "只改标题" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    expect(
+      screen.queryByText("押金场需设置报名截止时间（自助取消锚点）。"),
+    ).not.toBeInTheDocument();
   });
 });
