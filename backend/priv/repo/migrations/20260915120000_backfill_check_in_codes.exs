@@ -11,7 +11,14 @@ defmodule Cgc2046.Repo.Migrations.BackfillCheckInCodes do
   # 「可能被核销」的集合（confirmed / pending / payment_pending —— 前两者可能在
   # 未来落 confirmed；cancelled/expired/rejected 不回填）。同场唯一由唯一索引
   # enrollments_unique_check_in_code_index 兜底：逐行生成 + 冲突重试，超限即 raise
-  # 让迁移整体回滚（回填不完备不得静默放过）。
+  # 让迁移整体失败（回填不完备不得静默放过）。
+  #
+  # 必须 @disable_ddl_transaction：撞码重试依赖 UPDATE 报错后连接仍可用，而
+  # Postgres 在事务内任何错误都会中止事务（后续查询只得 in_failed_sql_transaction）
+  # ——事务内重试是死代码，一次撞码即迁移失败卡死部署（#554）。逐语句自动提交后
+  # 重试真正生效；失败重跑只选 check_in_code IS NULL 的行，断点续跑天然幂等。
+  # 回填是纯数据写（无 DDL），符合 backend/AGENTS.md「大表回填与 DDL 拆开」纪律。
+  @disable_ddl_transaction true
   @max_attempts 20
   @backfill_statuses ["confirmed", "pending", "payment_pending"]
 
@@ -42,7 +49,10 @@ defmodule Cgc2046.Repo.Migrations.BackfillCheckInCodes do
 
   defp assign_code(enrollment_id) do
     Enum.reduce_while(1..@max_attempts, false, fn _attempt, _acc ->
-      code = "~6..0B" |> :io_lib.format([:rand.uniform(1_000_000) - 1]) |> IO.iodata_to_binary()
+      # 与 app 层同一生成器（crypto 无偏重采，保留前导零；KTD5 单源）。
+      # 撞码路径的回归证据在 BackfillCheckInCodesMigrationTest（触发器 + sequence
+      # 注入唯一冲突——迁移在 Migrator Runner 进程执行，进程字典 stub 不可达）
+      code = Cgc2046.RandomCode.generate()
 
       case repo().query(
              "UPDATE enrollments SET check_in_code = $1 WHERE id = $2 AND check_in_code IS NULL",
