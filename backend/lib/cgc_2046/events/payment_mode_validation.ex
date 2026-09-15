@@ -22,18 +22,30 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     pricing_enabled = Ash.Changeset.get_attribute(changeset, :pricing_enabled)
 
     cond do
+      # 互斥是无条件不变量（DB CHECK 同款）：任何写入都拦
       deposit_enabled == true and pricing_enabled == true ->
         {:error, domain_error(:payment_mode_exclusive, :deposit_enabled)}
 
-      deposit_enabled == true and not positive_integer?(amount(changeset)) ->
+      # 配置完整性只在**写入押金相关字段**时要求：存量行（押金已开但 ends_at 为
+      # 空的旧数据）不能被无关编辑（改标题/描述）永久锁死。这类行由
+      # DepositForfeitWorker 的 deposit_settlement_unanchored Finding 暴露。
+      deposit_enabled == true and deposit_config_touched?(changeset) and
+          not positive_integer?(amount(changeset)) ->
         {:error, domain_error(:deposit_amount_required, :deposit_amount_cents)}
 
-      deposit_enabled == true and is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) ->
+      deposit_enabled == true and deposit_config_touched?(changeset) and
+          is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) ->
         {:error, domain_error(:deposit_ends_at_required, :ends_at)}
 
       true ->
         :ok
     end
+  end
+
+  defp deposit_config_touched?(changeset) do
+    Enum.any?([:deposit_enabled, :deposit_amount_cents, :ends_at], fn attribute ->
+      Ash.Changeset.changing_attribute?(changeset, attribute)
+    end)
   end
 
   defp amount(changeset), do: Ash.Changeset.get_attribute(changeset, :deposit_amount_cents)
