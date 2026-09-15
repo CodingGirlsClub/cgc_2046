@@ -114,4 +114,73 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
                is_binary(rule["valueJson"]) and is_boolean(rule["locked"])
            end)
   end
+
+  test "platform admin upsertInitiativeRule rejects unknown key with invalid_input payload error" do
+    admin = Fixtures.platform_admin("gql-initiative-rule-admin")
+    initiative = open_initiative(admin)
+
+    query = """
+    mutation {
+      upsertInitiativeRule(initiativeId: "#{initiative.id}", key: "bogus", valueJson: "{}", locked: false) {
+        result { id }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{"data" => %{"upsertInitiativeRule" => payload}} = post_graphql(query, token(admin))
+    assert payload["result"] == nil
+    assert [%{"message" => "invalid rule key", "code" => "invalid_input"}] = payload["errors"]
+  end
+
+  test "platform admin upsertInitiativeRule creates then updates a rule for a known key" do
+    admin = Fixtures.platform_admin("gql-initiative-rule-admin")
+
+    {:ok, initiative} =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "GraphQL Initiative Rule",
+        slug: "gql-initiative-rule",
+        created_by: admin.id
+      })
+      |> Ash.create(actor: admin)
+
+    create_query = """
+    mutation {
+      upsertInitiativeRule(initiativeId: "#{initiative.id}", key: "deposit", valueJson: "{\\"enabled\\":true,\\"amount_cents\\":6900}", locked: true) {
+        result { id key valueJson locked }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{"data" => %{"upsertInitiativeRule" => created}} =
+             post_graphql(create_query, token(admin))
+
+    assert created["errors"] == []
+    assert created["result"]["key"] == "deposit"
+    assert created["result"]["locked"] == true
+
+    assert Jason.decode!(created["result"]["valueJson"]) == %{
+             "enabled" => true,
+             "amount_cents" => 6900
+           }
+
+    update_query = """
+    mutation {
+      upsertInitiativeRule(initiativeId: "#{initiative.id}", key: "deposit", valueJson: "{\\"enabled\\":false}", locked: false) {
+        result { id key valueJson locked }
+        errors { message code }
+      }
+    }
+    """
+
+    assert %{"data" => %{"upsertInitiativeRule" => updated}} =
+             post_graphql(update_query, token(admin))
+
+    assert updated["errors"] == []
+    assert updated["result"]["id"] == created["result"]["id"]
+    assert updated["result"]["locked"] == false
+    assert Jason.decode!(updated["result"]["valueJson"]) == %{"enabled" => false}
+  end
 end

@@ -73,8 +73,12 @@ defmodule Cgc2046.Mcp.Tools.AdminInitiativeHelpers do
 
   def parse_datetime(value), do: value
 
-  def rule_key(value) when value in ["deposit", "age_gate", "min_participants", "deadline_rule"],
-    do: {:ok, String.to_existing_atom(value)}
+  def rule_key(value) when is_binary(value) do
+    case Enum.find(InitiativeRule.rule_keys(), &(Atom.to_string(&1) == value)) do
+      nil -> {:error, "invalid rule key"}
+      key -> {:ok, key}
+    end
+  end
 
   def rule_key(_), do: {:error, "invalid rule key"}
 
