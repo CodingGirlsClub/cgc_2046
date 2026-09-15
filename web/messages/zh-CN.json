@@ -559,6 +559,8 @@
 		"viewInLearning": "在「我的学习」查看",
 		"depositName": "押金",
 		"depositLine": "押金 ¥{amount}（到场退）",
+		"depositAckLabel": "押金以到场为退还条件：到场核销后原路退回，未到场不予退还。",
+		"depositAckButton": "确认，前往支付",
 		"depositForfeit": "未到场不退。"
 	},
 	"apply": {
@@ -1432,6 +1434,8 @@
 		"checkingPayment": "正在确认支付状态…（自动刷新，支付完成后自动确认）",
 		"orderValidHint": "订单 2 小时内有效，关闭本窗口不取消订单，可从「继续支付」重新进入。",
 		"depositLine": "押金 ¥{amount}（到场退）",
+		"depositAckLabel": "押金以到场为退还条件：到场核销后原路退回，未到场不予退还。",
+		"depositAckButton": "确认，前往支付",
 		"depositForfeit": "未到场不退。"
 	},
 	"payments": {

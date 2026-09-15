@@ -559,6 +559,8 @@
 		"viewInLearning": "View in My learning",
 		"depositName": "Deposit",
 		"depositLine": "Deposit ¥{amount} (refunded on check-in)",
+		"depositAckLabel": "The deposit is refundable only upon on-site check-in; no-shows are not refunded.",
+		"depositAckButton": "Confirm and pay",
 		"depositForfeit": "No refund if you do not attend."
 	},
 	"apply": {
@@ -1432,6 +1434,8 @@
 		"checkingPayment": "Confirming payment status… (auto-refreshes; confirms automatically when paid)",
 		"orderValidHint": "The order is valid for 2 hours. Closing this window won't cancel it; re-enter via “Continue to pay”.",
 		"depositLine": "Deposit ¥{amount} (refunded on check-in)",
+		"depositAckLabel": "The deposit is refundable only upon on-site check-in; no-shows are not refunded.",
+		"depositAckButton": "Confirm and pay",
 		"depositForfeit": "No refund if you do not attend."
 	},
 	"payments": {
