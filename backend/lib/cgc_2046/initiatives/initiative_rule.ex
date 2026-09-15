@@ -132,5 +132,7 @@ defmodule Cgc2046.Initiatives.InitiativeRule do
     end
   end
 
+  def rule_keys, do: @keys
+
   def rule_initiative_id(_changeset, rule), do: rule.initiative_id
 end
