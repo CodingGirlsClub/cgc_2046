@@ -1402,6 +1402,8 @@
 		"initiativeRulesHint": "锁死项由平台统一维护，本地不可改；默认项以挂载时取值为准。",
 		"moderatorsTitle": "主理人",
 		"moderatorsHint": "主理人负责现场核销；须为本工作台成员（先邀请加入，再指派）。撤销即时生效。",
+		"checkInEntryTitle": "现场核销",
+		"checkInEntryLink": "打开核销页",
 		"moderatorsEmpty": "暂无主理人",
 		"moderatorsCheckInLink": "核销页",
 		"moderatorsCopyLink": "复制核销页链接",

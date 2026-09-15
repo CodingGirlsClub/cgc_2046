@@ -49,6 +49,7 @@ import type { ActiveEnrollmentRow } from "@/lib/graphql/participations";
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
 import EventModeratorsCard from "@/components/event-moderators-card";
+import { fetchEventModerators } from "@/lib/graphql/moderators";
 import WorkspaceShell from "@/components/workspace-shell";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
@@ -811,6 +812,27 @@ export function OfferingDetailPage({
       ? parseCompanionCourse(offering.companionCourse)
       : null;
 
+  // 现场核销入口（#558/#559 后续）：门 = eventModerators 查询自门——主理人或
+  // Owner/Admin 可读（后端 Moderators.list 走 can_moderate?），普通成员查询
+  // forbidden → 隐藏（与小程序/外部端同口径：没这个角色就看不到）。查询成功
+  // 时按「我在列表 ∨ manage_events」判定。
+  const [canCheckIn, setCanCheckIn] = useState(false);
+  useEffect(() => {
+    if (kind !== "event" || !ws || !userId || !id) return;
+    let cancelled = false;
+    fetchEventModerators(ws.id, id)
+      .then((mods) => {
+        if (cancelled) return;
+        setCanCheckIn(manage || mods.some((row) => row.userId === userId));
+      })
+      .catch(() => {
+        if (!cancelled) setCanCheckIn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws, id, kind, userId, manage]);
+
   // pending 报名数（报名数据视图：request 策略待审批；仅管理视角发起，
   // 普通成员/匿名不发请求——U2 #127）
   useEffect(() => {
@@ -1402,6 +1424,24 @@ export function OfferingDetailPage({
                     data-testid="course-governance-link"
                   >
                     {t("openCurriculum")} ↗
+                  </Link>
+                </div>
+              ) : null}
+
+              {canCheckIn && kind === "event" ? (
+                <div
+                  className="rounded-large border border-line bg-card p-6"
+                  data-testid="check-in-entry-card"
+                >
+                  <h2 className="text-sm font-medium text-ink">
+                    {t("checkInEntryTitle")}
+                  </h2>
+                  <Link
+                    href={`/w/${slug}/events/${offering.id}/check-in`}
+                    className="mt-4 inline-flex text-sm text-accent hover:underline"
+                    data-testid="check-in-entry-link"
+                  >
+                    {t("checkInEntryLink")} ↗
                   </Link>
                 </div>
               ) : null}

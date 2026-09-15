@@ -1034,6 +1034,14 @@ export type EventModerationScopeQueryVariables = Exact<{
 
 export type EventModerationScopeQuery = { getEvent: { id: string, workspaceId: string } | null };
 
+export type EventModeratorsQueryVariables = Exact<{
+  workspaceId: string | number;
+  eventId: string | number;
+}>;
+
+
+export type EventModeratorsQuery = { eventModerators: Array<{ userId: string }> };
+
 export type PublicInitiativeQueryVariables = Exact<{
   slug: string;
 }>;
