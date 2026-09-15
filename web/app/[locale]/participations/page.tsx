@@ -173,7 +173,7 @@ function EnrollmentCard({
       {row.status === "confirmed" && row.eventId && row.checkInCode ? (
         <CheckInCodeCard
           code={row.checkInCode}
-          eventSegment={row.eventId}
+          eventId={row.eventId}
           paymentMode={row.paymentMode ?? null}
         />
       ) : null}
