@@ -52,6 +52,20 @@ describe("usePaymentErrorTranslator（i18n Phase 3：errors namespace 迁移）"
 		}
 	});
 
+	it("押金制三 code（#555：B①冻结守卫 / B②截止必填 / 押金金额缺失）→ 文案表文案", () => {
+		const translate = setup();
+
+		expect(translate("event_deposit_registration_deadline_required", "兜底")).toBe(
+			"押金场需设置报名截止时间（自助取消锚点）。",
+		);
+		expect(translate("event_ends_at_frozen", "兜底")).toBe(
+			"存在未结算的押金订单，不能提前结束时间。",
+		);
+		expect(translate("order_deposit_amount_missing", "兜底")).toBe(
+			"押金金额信息缺失，请重新报名。",
+		);
+	});
+
 	it("未知 code 走调用方兜底，不透传原文", () => {
 		const translate = setup();
 		expect(translate("some_unknown_code", "提交失败")).toBe("提交失败");
