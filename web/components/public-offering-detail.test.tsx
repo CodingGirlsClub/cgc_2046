@@ -1191,7 +1191,7 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(note).toHaveTextContent("未到场不退。");
   });
 
-  it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 URL 的二维码，并提示勿截图转发", async () => {
+  it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 payload 的二维码，并提示勿截图转发", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     eventsMocks.fetchMyEnrollment.mockResolvedValue({
       id: "enr-1",
@@ -1207,7 +1207,7 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(screen.getByText(/请勿截图转发/)).toBeInTheDocument();
     await waitFor(() =>
       expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
-        expect.stringContaining("/events/paid-event/check-in?code=654321"),
+        "cgc2046:checkin:evt-paid:654321",
         expect.anything(),
       ),
     );

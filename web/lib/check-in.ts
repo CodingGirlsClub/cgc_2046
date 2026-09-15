@@ -15,8 +15,11 @@ import {
  * - **码**：6 位数字（后端 `(event_id, check_in_code)` 唯一，前导零有意义 → 全程
  *   字符串，绝不转数字）。URL 预填与主理人手输共用同一条归一（手输常带空格）；
  * - **核销 URL**：`/events/<slug|eventId>/check-in?code=NNNNNN`——主理人链接用公开
- *   slug（U9 主理人卡「复制核销页链接」），参与者二维码用 event id（`/participations`
- *   报名行只有 eventId，没有 slug）；核销页两种路段都认（见 resolveCheckInEvent）；
+ *   slug（U9 主理人卡「复制核销页链接」）；核销页 slug / id 两种路段都认
+ *   （见 resolveCheckInEvent）；
+ * - **参与者二维码**（#508 选项 A）：承载自定义 payload（`buildCheckInPayload`，
+ *   与小程序端 domain/checkin 同文字），扫码方是主理人小程序 `Taro.scanCode`——
+ *   payload 不再是 URL，「原生扫码打不开相对路径」随之消解；
  * - **场次解析**：提交需要 eventId。slug 走公开读面（open + public 匿名可读，成员可读
  *   closed），id 直接用；标题只作展示——取不到不阻塞核销，授权与「码无效 / 已核销 /
  *   押金已结算」判定都在后端 mutation（KTD4）。
@@ -38,8 +41,8 @@ export function normalizeCheckInCode(raw: string | null | undefined): string | n
 }
 
 /**
- * 核销 URL（二维码承载；KTD5）。locale 前缀按 i18n/routing 的 "as-needed" 口径：
- * 默认 locale（zh-CN）无前缀，其余加 `/<locale>`。
+ * 核销 URL（主理人核销页链接；KTD5）。locale 前缀按 i18n/routing 的 "as-needed"
+ * 口径：默认 locale（zh-CN）无前缀，其余加 `/<locale>`。
  */
 export function buildCheckInPath(
   locale: string,
@@ -48,6 +51,15 @@ export function buildCheckInPath(
 ): string {
   const prefix = locale === routing.defaultLocale ? "" : `/${locale}`;
   return `${prefix}/events/${encodeURIComponent(eventSegment)}/check-in?code=${encodeURIComponent(code)}`;
+}
+
+/**
+ * 参与者二维码 payload（#508 选项 A）：自定义格式而非 URL——扫码方是主理人
+ * 小程序 `Taro.scanCode`（解析器 = miniprogram/src/domain/checkin.ts 的
+ * parseCheckInScan，两端同文字互指）。eventId 供主理人端交叉校验。
+ */
+export function buildCheckInPayload(eventId: string, code: string): string {
+  return `cgc2046:checkin:${eventId}:${code}`;
 }
 
 export interface CheckInEventRef {

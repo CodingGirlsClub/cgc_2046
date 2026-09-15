@@ -723,7 +723,7 @@ export default function PublicOfferingDetailPage({
                     {kind === "event" && myEnroll.checkInCode ? (
                       <CheckInCodeCard
                         code={myEnroll.checkInCode}
-                        eventSegment={offering.slug}
+                        eventId={offering.id}
                         paymentMode={
                           offering.depositEnabled
                             ? "deposit"
