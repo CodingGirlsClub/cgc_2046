@@ -66,7 +66,7 @@ import {
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument
 } from './operations'
-import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus } from '@/domain/format'
+import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus, parsePaymentMode } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
 import { parsePriceTiers } from '@/domain/payment'
 import { catalogSearchVariables } from './catalogFilter'
@@ -156,7 +156,9 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     approvalDeadline: enrollment.approvalDeadline ?? null,
     rejectionReason: enrollment.rejectionReason ?? null,
     insertedAt: enrollment.insertedAt,
-    checkInCode: enrollment.checkInCode ?? null
+    checkInCode: enrollment.checkInCode ?? null,
+    paymentMode: parsePaymentMode(enrollment.paymentMode ?? null),
+    registrationDeadline: enrollment.registrationDeadline ?? null
   }
 }
 function parseOrderStatus(value: string): OrderStatus {
@@ -414,7 +416,11 @@ export class RealMiniProgramApi implements MiniProgramApi {
       insertedAt: result.insertedAt,
       // create 结果未选 checkInCode（结果页不出示码；出示面是「我的报名」，
       // 走 getEnrollments 重新取——押金报名落 payment_pending 本无码可出）
-      checkInCode: null
+      checkInCode: null,
+      // create 结果未选缴费模式/截止时间（两查询同形状仅列表/单条回查）——
+      // 从报名目标本地推导，与后端 payment_mode 计算同规则（押金优先于定价）
+      paymentMode: form.target.depositEnabled ? 'deposit' : form.target.pricingEnabled ? 'pricing' : 'free',
+      registrationDeadline: form.target.registrationDeadline
     }
   }
 
