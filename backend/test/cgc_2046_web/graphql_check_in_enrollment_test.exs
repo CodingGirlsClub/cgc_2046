@@ -113,7 +113,7 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     assert attendance_count(enrollment.id) == 0
   end
 
-  test "押金单已付：核销返回 depositRefund=refund_started（前端据此显示押金退款文案）" do
+  test "押金单已付：核销返回 depositRefund=refunding（前端据此显示押金退款文案）" do
     %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner, deposit_attrs())
     moderator = Fixtures.register_user("gql-checkin-deposit-moderator")

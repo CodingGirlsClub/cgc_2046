@@ -1823,10 +1823,11 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn actor ->
-          with {:ok, value} <- decode_rule_json(args[:value_json]),
+          with {:ok, key} <- rule_key(args[:key]),
+               {:ok, value} <- decode_rule_json(args[:value_json]),
                {:ok, _initiative} <-
                  Ash.get(Cgc2046.Initiatives.Initiative, args[:initiative_id], actor: actor),
-               {:ok, existing} <- get_initiative_rule(args[:initiative_id], args[:key], actor) do
+               {:ok, existing} <- get_initiative_rule(args[:initiative_id], key, actor) do
             result =
               if existing do
                 existing
@@ -1836,7 +1837,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                 Cgc2046.Initiatives.InitiativeRule
                 |> Ash.Changeset.for_create(:create, %{
                   initiative_id: args[:initiative_id],
-                  key: String.to_existing_atom(args[:key]),
+                  key: key,
                   value: value,
                   locked: args[:locked]
                 })
@@ -2918,11 +2919,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:method, :string)
 
     @desc """
-    本次核销的押金退款侧事实（KTD6）：
+    本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
     - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
-    - refund_started：本次核销发起了全额退款；
-    - refunding / refunded：押金已在退还中 / 已退（幂等重入，不重复退）；
-    - forfeited：押金已按未到场结算（不退）。
+    - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
+    - refunded：押金已退。
+    forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
     前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
     """
     field(:deposit_refund, :string)
@@ -3203,18 +3204,19 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp get_initiative_rule(initiative_id, key, actor) do
-    with {:ok, key_atom} <- existing_rule_key(key) do
-      Cgc2046.Initiatives.InitiativeRule
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(initiative_id == ^initiative_id and key == ^key_atom)
-      |> Ash.read_one(actor: actor)
-    end
+    Cgc2046.Initiatives.InitiativeRule
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(initiative_id == ^initiative_id and key == ^key)
+    |> Ash.read_one(actor: actor)
   end
 
-  defp existing_rule_key(key) do
-    if key in ~w(deposit age_gate min_participants deadline_rule),
-      do: {:ok, String.to_existing_atom(key)},
-      else: {:error, "invalid rule key"}
+  # key 白名单单源 = InitiativeRule.rule_keys()；未知 key → {:error, "invalid rule key"}
+  # （else 分支映射为 code invalid_input 的 payload error），不做 String.to_existing_atom。
+  defp rule_key(key) when is_binary(key) do
+    case Enum.find(Cgc2046.Initiatives.InitiativeRule.rule_keys(), &(Atom.to_string(&1) == key)) do
+      nil -> {:error, "invalid rule key"}
+      key_atom -> {:ok, key_atom}
+    end
   end
 
   # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
