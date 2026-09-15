@@ -2064,7 +2064,6 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
         depositAmountCents: 6900,
         endsAt: "2026-10-24T02:00:00.000Z",
         registrationDeadline: "2026-10-20T12:00:00.000Z",
-        registrationDeadline: "2026-10-20T12:00:00.000Z",
       }),
     );
 
