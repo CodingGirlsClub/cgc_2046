@@ -161,6 +161,14 @@ function EnrollmentCard({
           {t("selfCancelDeadline", { time: formatDateTime(row.registrationDeadline) })}
         </p>
       ) : null}
+      {canCancel && row.paymentMode === "deposit" ? (
+        <p
+          className="mt-1 text-[13px] text-amber-300"
+          data-testid={`deposit-refund-rule-${row.id}`}
+        >
+          {t("depositRefundRule")}
+        </p>
+      ) : null}
 
       {row.status === "confirmed" && row.eventId && row.checkInCode ? (
         <CheckInCodeCard
