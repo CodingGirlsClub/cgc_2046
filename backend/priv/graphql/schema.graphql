@@ -392,27 +392,6 @@ input EnrollmentFilterInsertedAt {
   rangeOverlaps: DateTime
 }
 
-input EnrollmentFilterCheckInCode {
-  isNil: Boolean
-  eq: String
-  notEq: String
-  in: [String]
-  lessThan: String
-  greaterThan: String
-  lessThanOrEqual: String
-  greaterThanOrEqual: String
-  contains: String
-  isDistinctFrom: String
-  isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
-  stringEndsWith: String
-  stringStartsWith: String
-  like: String
-  ilike: String
-}
-
 input EnrollmentFilterCancelledAt {
   isNil: Boolean
   eq: DateTime
@@ -733,7 +712,6 @@ input EnrollmentFilterInput {
   ageConfirmedAt: EnrollmentFilterAgeConfirmedAt
   termsVersion: EnrollmentFilterTermsVersion
   cancelledAt: EnrollmentFilterCancelledAt
-  checkInCode: EnrollmentFilterCheckInCode
   insertedAt: EnrollmentFilterInsertedAt
 }
 

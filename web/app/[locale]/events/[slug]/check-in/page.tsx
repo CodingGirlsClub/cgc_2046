@@ -143,9 +143,16 @@ function CheckInPanel() {
         code: normalized,
         method: codeState.method,
       });
-      if (res.result) {
+      if (res.enrollmentId !== null) {
         // 码留在输入框：同码再提交由后端回「已核销」（防重复核销的现场确认）
-        setFeedback({ kind: "success", attendance: res.result });
+        setFeedback({
+          kind: "success",
+          attendance: {
+            enrollmentId: res.enrollmentId,
+            checkedInAt: res.checkedInAt ?? "",
+            method: res.method ?? codeState.method,
+          },
+        });
       } else {
         setFeedback({
           kind: "error",

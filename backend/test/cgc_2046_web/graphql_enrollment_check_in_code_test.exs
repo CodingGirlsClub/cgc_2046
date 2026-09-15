@@ -184,6 +184,24 @@ defmodule Cgc2046Web.GraphqlEnrollmentCheckInCodeTest do
     conn.resp_cookies["cgc_token"].value
   end
 
+  test "SDL：checkInCode 不是查询过滤面（不可当存在性预言机逐位试探）" do
+    # 属性 filterable?: false（SecurityRev F1）：码只出现在输出字段面，
+    # 输入过滤面无该键——否则可借 filter 命中与否反推同场他人核销码。
+    {:ok, result} =
+      Absinthe.run(
+        """
+        { __type(name: "EnrollmentFilterInput") { inputFields { name } } }
+        """,
+        Cgc2046Web.GraphqlSchema
+      )
+
+    names =
+      result.data["__type"]["inputFields"]
+      |> Enum.map(& &1["name"])
+
+    refute "checkInCode" in names
+  end
+
   defp graphql(query, token) do
     build_conn()
     |> put_req_header("authorization", "Bearer #{token}")
