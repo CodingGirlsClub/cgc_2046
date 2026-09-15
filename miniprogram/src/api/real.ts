@@ -25,6 +25,8 @@ import type {
   EventDetailQueryVariables,
   EventModerationScopeQuery,
   EventModerationScopeQueryVariables,
+  EventModeratorsQuery,
+  EventModeratorsQueryVariables,
   GenerateMiniProgramCodeMutation,
   GenerateMiniProgramCodeMutationVariables,
   GrantConsentMutation,
@@ -63,6 +65,7 @@ import {
   EnrollmentQueryDocument,
   EventDetailQueryDocument,
   EventModerationScopeQueryDocument,
+  EventModeratorsQueryDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
@@ -513,9 +516,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   // 核销入口门（#508-A）：workspace_id 是 Event field_policy 收窄字段——探测查询
   // 仅本 workspace 成员/平台管理员成功；匿名/非成员/网络失败一律 false（入口
-  // 隐藏，不影响公开详情主流程）。角色判据与后端 Moderators.can_moderate? 的
-  // Owner/Admin 分支同口径。#558 起主理人恒为成员（成员前提由 assign 写边界
-  // 承载），本探测对全部主理人生效，不再有「非成员主理人」例外。
+  // 隐藏，不影响公开详情主流程）。判定 = Owner/Admin（session 角色，与后端
+  // Moderators.can_moderate? 同口径）∨ 我在 eventModerators 列表（#558 后
+  // 主理人恒为成员，探测与列表查询对他们都通；普通成员读列表 forbidden →
+  // false）。真授权由后端 checkInEnrollment policy fail-closed 承担。
   async canModerateEvent(eventId: string): Promise<boolean> {
     const session = await this.getSession()
     if (!session.user) return false
@@ -526,10 +530,18 @@ export class RealMiniProgramApi implements MiniProgramApi {
       )
       const workspaceId = data.getEvent?.workspaceId
       if (!workspaceId) return false
-      return session.workspaces.some((workspace) =>
+      const isOwnerOrAdmin = session.workspaces.some((workspace) =>
         workspace.id === workspaceId &&
         workspace.roleNames.some((role) => role === 'owner' || role === 'admin')
       )
+      if (isOwnerOrAdmin) return true
+
+      // 非管理角色：查主理人列表（主理人可读；普通成员 forbidden → false）
+      const moderators = await graphqlRequest<EventModeratorsQuery, EventModeratorsQueryVariables>(
+        EventModeratorsQueryDocument,
+        { workspaceId, eventId }
+      )
+      return moderators.eventModerators.some((row) => row.userId === session.user!.id)
     } catch {
       return false
     }

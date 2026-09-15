@@ -183,6 +183,11 @@ function responseFor(document: string, variables: object): unknown {
       getEvent: loggedIn && record ? { id: record.id, workspaceId: workspace.id } : null
     }
   }
+  if (document.includes('query EventModerators(')) {
+    // 主理人列表（#558 后续）：mock 用户即 owner（manage 分支先行命中），
+    // 列表恒含本人——非管理角色主理人的「我在列表」分支由 real 层单测覆盖
+    return { eventModerators: loggedIn ? [{ userId: 'user-1' }] : [] }
+  }
   if (document.includes('query CourseDetail')) {
     return {
       getCourse: values.id === course.id ? course : null,

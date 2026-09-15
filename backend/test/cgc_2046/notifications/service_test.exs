@@ -85,6 +85,47 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:xhs, "enrollment_completed", "pages/my-enrollments/index"}
     ]
 
+    # 主理人指派深链（#558 后续）：wechat 全量端落活动详情页（带 event_id，
+    # 被指派者点开即见「扫码核销」入口）；tt/xhs 裁剪端维持我的报名；
+    # data 缺 event_id 时回落通用路由（未知模板兜底 profile），不拼坏 URL
+    event_id = "0dcb3ad6-c4c2-4baf-84b5-6792e4234453"
+
+    assert :ok =
+             Client.send_notification(
+               :wechat,
+               "openid-wechat",
+               "template-wechat",
+               %{"event_id" => event_id, "title" => "押金制黑客松"},
+               "event_moderator_assigned"
+             )
+
+    assert_receive {:notification, :wechat, body}
+    assert body["page"] == "pages/event-detail/index?id=#{event_id}&kind=event"
+
+    assert :ok =
+             Client.send_notification(
+               :tt,
+               "openid-tt",
+               "template-tt",
+               %{"event_id" => event_id},
+               "event_moderator_assigned"
+             )
+
+    assert_receive {:notification, :tt, body_tt}
+    assert body_tt["page"] == "pages/my-enrollments/index"
+
+    assert :ok =
+             Client.send_notification(
+               :wechat,
+               "openid-wechat",
+               "template-wechat",
+               %{"title" => "无 id 的脏数据"},
+               "event_moderator_assigned"
+             )
+
+    assert_receive {:notification, :wechat, body_fallback}
+    assert body_fallback["page"] == "pages/profile/index"
+
     for {platform, template_key, expected_page} <- cases do
       assert :ok =
                Client.send_notification(
