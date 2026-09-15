@@ -27,9 +27,11 @@ export interface CheckInEnrollmentPayload {
   checkedInAt: string | null;
   method: CheckInMethod | null;
   /**
-   * 本次核销的押金退款侧事实（后端 KTD6 分派表）：
-   * `null` = 该报名没有押金单（本次核销不产生退款）；`refund_started` = 本次发起退款；
-   * `refunding`/`refunded` = 已在退还中/已退；`forfeited` = 已按未到场结算。
+   * 本次核销的押金退款侧事实（后端 KTD6 分派表），成功路径只可能返回：
+   * `null` = 该报名没有押金单（本次核销不产生退款）；
+   * `refunding` = 本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
+   * `refunded` = 押金已退。
+   * `forfeited` 不会出现在成功路径——押金已没收时核销本身失败（errors 的 deposit_already_forfeited）。
    */
   depositRefund: string | null;
   errors: MutationError[];
