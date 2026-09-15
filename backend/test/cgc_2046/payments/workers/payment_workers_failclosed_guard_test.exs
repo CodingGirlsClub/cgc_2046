@@ -80,7 +80,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # 注入 mark_paid 的 CAS UPDATE 失败（DB 类错误形状）：pending→paid 被
       # 数据库层拒绝。此时渠道查单已确认有款且金额相符——旧实现会走 `other`
       # 分支 mark_processed 永久丢单（已收款、不落账、不退款、不重试）。
-      inject_trigger("block_mark_paid", "WHEN (OLD.status = 'pending' AND NEW.status = 'paid')",
+      inject_trigger("block_mark_paid", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'paid')",
         raise?: true
       )
 
@@ -92,11 +92,42 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       refute_enqueued(worker: PaymentRefundWorker)
 
       # 解除注入 → Oban 重试 → 完整落账收敛
-      drop_trigger("block_mark_paid")
+      drop_trigger("block_mark_paid", "payments_orders")
 
       assert :ok = perform_settlement(order)
       assert reload_order(order).status == :paid
       assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :confirmed
+    end
+
+    # F-I（自 payment_settlement_worker_test 迁入）：报名 CAS 的 trigger 注入在
+    # enrollments 热表上做 DDL，async 文件里与并行测试互等死锁（CI 40P01 实证，
+    # PR #548/#549 三连败）——与 015 同款纪律，集中在本串行文件。
+    test "F-I 报名 CAS DB 错误：不误触自动退款，上抛走 Oban 重试；解除后自愈收敛" do
+      %{enrollment: enrollment, order: order} = base_setup()
+      stub_channel_paid(order)
+
+      # trigger 注入 settle_paid 的 UPDATE 失败（DB 类错误形状）：
+      # payment_pending→confirmed 的状态 CAS 被数据库层拒绝
+      inject_trigger(
+        "block_settle",
+        "enrollments",
+        "WHEN (OLD.status = 'payment_pending' AND NEW.status = 'confirmed')",
+        raise?: true
+      )
+
+      assert {:error, _db_error} = perform_settlement(order)
+
+      # 占位完好的正常收款不得被 DB 瞬断误判为「报名已流转」而触发自动退款
+      refute_enqueued(worker: PaymentRefundWorker)
+
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :payment_pending
+
+      # 解除注入 → Oban 重试 → 半落账路径自愈收敛（F-A 联动）
+      drop_trigger("block_settle", "enrollments")
+
+      assert :ok = perform_settlement(order)
+      assert reload_order(order).status == :paid
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
     end
   end
 
@@ -106,7 +137,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
 
       # 注入：订单 CAS（pending→expired）被数据库层拒绝 → 非 order_already_processed
       # 的 BusinessError → 硬失败。旧实现折叠为 :skip，毒记录每分钟静默重试到永远。
-      inject_trigger("block_expire", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
+      inject_trigger("block_expire", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
         raise?: true
       )
 
@@ -115,7 +146,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # 订单仍 pending 占位，等重试收敛
       assert reload_order(order).status == :pending
 
-      drop_trigger("block_expire")
+      drop_trigger("block_expire", "payments_orders")
 
       assert :ok = perform_job(PaymentExpiryWorker, %{})
       assert reload_order(order).status == :expired
@@ -126,7 +157,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
 
       # BEFORE UPDATE RETURN NULL 静默吞掉 UPDATE：claim/4 得 num_rows=0 →
       # BusinessError code "order_already_processed" → 预期竞态分支。
-      inject_trigger("swallow_expire", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
+      inject_trigger("swallow_expire", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
         raise?: false
       )
 
@@ -135,7 +166,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # :skip 不阻塞整拍；订单保持 pending（吞掉的 UPDATE 未生效），下拍再扫
       assert reload_order(order).status == :pending
 
-      drop_trigger("swallow_expire")
+      drop_trigger("swallow_expire", "payments_orders")
 
       assert :ok = perform_job(PaymentExpiryWorker, %{})
       assert reload_order(order).status == :expired
@@ -240,9 +271,11 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       |> Ash.update(tenant: order.workspace_id, authorize?: false)
   end
 
-  # 沙箱事务内注入/解除 payments_orders 行级触发器（DDL 事务性，测试结束回滚；
-  # 本文件 async: false 串行——迁移到并行文件会在热表上互等，见 moduledoc F2）
-  defp inject_trigger(name, when_clause, opts) do
+  # 沙箱事务内注入/解除行级触发器（DDL 事务性，测试结束回滚；本文件 async: false
+  # 串行——迁移到并行文件会在热表上互等/死锁，见 moduledoc F2）。
+  # table 参数化：block_mark_paid/block_expire/swallow_expire 在 payments_orders，
+  # block_settle（F-I 报名 CAS 守卫）在 enrollments——两张都是热表，同一纪律。
+  defp inject_trigger(name, table, when_clause, opts) do
     body =
       if Keyword.get(opts, :raise?, true) do
         "BEGIN RAISE EXCEPTION 'test injected db failure'; END;"
@@ -256,13 +289,13 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
     )
 
     Cgc2046.Repo.query!(
-      ~s{CREATE TRIGGER #{name} BEFORE UPDATE ON payments_orders FOR EACH ROW } <>
+      ~s{CREATE TRIGGER #{name} BEFORE UPDATE ON #{table} FOR EACH ROW } <>
         ~s{#{when_clause} EXECUTE FUNCTION cgc_test_#{name}();}
     )
   end
 
-  defp drop_trigger(name) do
-    Cgc2046.Repo.query!("DROP TRIGGER #{name} ON payments_orders")
+  defp drop_trigger(name, table) do
+    Cgc2046.Repo.query!("DROP TRIGGER #{name} ON #{table}")
     Cgc2046.Repo.query!("DROP FUNCTION cgc_test_#{name}")
   end
 

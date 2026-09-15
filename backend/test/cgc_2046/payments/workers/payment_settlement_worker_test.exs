@@ -241,43 +241,10 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
              )
     end
 
-    test "F-I 报名 CAS DB 错误：不误触自动退款，上抛走 Oban 重试；解除后自愈收敛", ctx do
-      order = pending_order(ctx)
-      stub_channel_paid(order)
-
-      # trigger 注入 settle_paid 的 UPDATE 失败（DB 类错误形状）：
-      # payment_pending→confirmed 的状态 CAS 被数据库层拒绝
-      Cgc2046.Repo.query!(
-        ~s{CREATE OR REPLACE FUNCTION cgc_test_block_settle() RETURNS trigger AS } <>
-          ~s{$$ BEGIN RAISE EXCEPTION 'test injected db failure'; END; $$ LANGUAGE plpgsql;}
-      )
-
-      Cgc2046.Repo.query!(
-        ~s{CREATE TRIGGER block_settle BEFORE UPDATE ON enrollments FOR EACH ROW } <>
-          ~s{WHEN (OLD.status = 'payment_pending' AND NEW.status = 'confirmed') } <>
-          ~s{EXECUTE FUNCTION cgc_test_block_settle();}
-      )
-
-      assert {:error, _db_error} = perform_settlement(order)
-
-      # 占位完好的正常收款不得被 DB 瞬断误判为「报名已流转」而触发自动退款
-      refute_enqueued(worker: PaymentRefundWorker)
-
-      assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status ==
-               :payment_pending
-
-      # 解除注入 → Oban 重试 → 半落账路径自愈收敛（F-A 联动）
-      Cgc2046.Repo.query!("DROP TRIGGER block_settle ON enrollments")
-      Cgc2046.Repo.query!("DROP FUNCTION cgc_test_block_settle")
-
-      assert :ok = perform_settlement(order)
-      assert reload_order(order).status == :paid
-      assert Ash.get!(Enrollment, order.enrollment_id, authorize?: false).status == :confirmed
-    end
-
-    # 015 落账 DB 瞬断用例（mark_paid 失败且订单仍 pending → 上抛重试）迁至
+    # 015 落账 DB 瞬断用例（mark_paid 失败且订单仍 pending → 上抛重试）与
+    # F-I 报名 CAS DB 错误用例（enrollments 热表 trigger 注入）均迁至
     # payment_workers_failclosed_guard_test.exs——trigger 注入需要表级排他锁，
-    # 集中在 async: false 串行文件（复审 F2）。
+    # 集中在 async: false 串行文件（复审 F2；CI 40P01 死锁实证）。
 
     test "015：refund_failed 单被迟到回调命中 → 经 retry_refund 重入退款链", ctx do
       order = pending_order(ctx)
