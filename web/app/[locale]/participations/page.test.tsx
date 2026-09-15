@@ -54,6 +54,7 @@ const ENROLLMENT: ParticipationEnrollment = {
 	insertedAt: "2026-08-10T00:00:00Z",
 	startsAt: null,
 	venue: null,
+	registrationDeadline: "2026-08-18T00:00:00Z",
 };
 
 const CANCELLED_ENROLLMENT = {
@@ -61,6 +62,7 @@ const CANCELLED_ENROLLMENT = {
 	id: "enr-old",
 	status: "cancelled" as const,
 	cancelledAt: "2026-08-11T00:00:00Z",
+	registrationDeadline: null,
 };
 
 const SPONSORSHIP = {
@@ -154,6 +156,14 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		// P2a：卡片显示开始时间与地点
 		expect(screen.getByTestId("starts-at-enr-1").textContent).toContain("开始时间");
 		expect(screen.getByTestId("venue-enr-1").textContent).toContain("上海 徐汇");
+		// U2：活跃报名卡显示自助取消截止（中性文案，不涉退款）
+		expect(screen.getByTestId("cancel-deadline-enr-1").textContent).toContain(
+			"截止前可自助取消",
+		);
+		// 终态卡（cancelled）不出截止行
+		expect(
+			screen.queryByTestId("cancel-deadline-enr-old"),
+		).not.toBeInTheDocument();
 		cleanup();
 
 		// 赞助 tab
@@ -164,6 +174,17 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		expect(screen.getByText("已完成")).toBeInTheDocument();
 		expect(screen.getByText("公众号推文")).toBeInTheDocument();
 		expect(screen.getByText(/待履约/)).toBeInTheDocument();
+	});
+
+	it("U2：无 registrationDeadline 的活跃卡不出截止行（可选项）", () => {
+		mockQuery({
+			enrollments: [{ ...ENROLLMENT, registrationDeadline: null }],
+		});
+
+		render(<ParticipationsPage />);
+		expect(
+			screen.queryByTestId("cancel-deadline-enr-1"),
+		).not.toBeInTheDocument();
 	});
 
 	it("旧 ?tab=learning 链接重定向到 /learning（P2b IA 分家）", () => {

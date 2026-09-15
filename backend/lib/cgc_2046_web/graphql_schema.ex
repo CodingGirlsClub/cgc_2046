@@ -2098,6 +2098,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # U2：目标报名截止（同 starts_at/venue 的 alias 感知 calculation resolve）
+    field(:registration_deadline, :datetime) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :registration_deadline)}
+      end)
+    end
+
     # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
     # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
     # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层

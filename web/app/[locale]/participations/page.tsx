@@ -153,6 +153,15 @@ function EnrollmentCard({
         </span>
       </div>
 
+      {canCancel && row.registrationDeadline ? (
+        <p
+          className="mt-3 text-[13px] text-ink-3"
+          data-testid={`cancel-deadline-${row.id}`}
+        >
+          {t("selfCancelDeadline", { time: formatDateTime(row.registrationDeadline) })}
+        </p>
+      ) : null}
+
       {row.status === "confirmed" && row.eventId && row.checkInCode ? (
         <CheckInCodeCard code={row.checkInCode} eventSegment={row.eventId} />
       ) : null}
