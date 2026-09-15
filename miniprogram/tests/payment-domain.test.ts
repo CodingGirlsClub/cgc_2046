@@ -3,7 +3,9 @@ import test from 'node:test'
 import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
+  cancelConfirmCopy,
   countdownText,
+  depositRefundRuleText,
   enrollmentResultCopy,
   formatAmount,
   mapPaymentCredential,
@@ -205,4 +207,52 @@ test('报名结果页文案：payment_pending 待支付 + 裁剪端网页端支�
   // 既有 pending/confirmed 文案不回归
   assert.equal(enrollmentResultCopy('pending', false).title, '等待审批')
   assert.equal(enrollmentResultCopy('confirmed', false).title, '报名成功')
+})
+
+test('取消弹窗文案：payment_pending 作废待支付订单，不提退款', () => {
+  assert.equal(
+    cancelConfirmCopy({ status: 'payment_pending', paymentMode: 'pricing', hasPaidOrder: false }),
+    '取消后将释放名额并作废待支付订单，此操作不可恢复。'
+  )
+})
+
+test('取消弹窗文案：押金场已付 → 通用句（自动退款承诺由卡片常驻规则行承载，弹窗不重复）', () => {
+  // 后端 cancel action 截止前自助取消同事务 CAS paid→refunding 并入队退款——
+  // 弹窗若再说「不会自动退款」即与行为相反（本修复的反例）
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: 'deposit', hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。'
+  )
+})
+
+test('取消弹窗文案：非押金场已付单（定价/模式不可得）→ 明示联系组织者退款', () => {
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: 'pricing', hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+  )
+  // 模式不可得（null）但存在已付单：定价单同款处理，不承诺自动退款
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: null, hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+  )
+})
+
+test('取消弹窗文案：无已付单（免费/免缴/押金未付）→ 通用句', () => {
+  for (const paymentMode of ['free', 'pricing', 'deposit', null] as const) {
+    assert.equal(
+      cancelConfirmCopy({ status: 'confirmed', paymentMode, hasPaidOrder: false }),
+      '取消后名额将即时释放，此操作不可恢复。'
+    )
+  }
+  assert.equal(
+    cancelConfirmCopy({ status: 'pending', paymentMode: 'free', hasPaidOrder: false }),
+    '取消后名额将即时释放，此操作不可恢复。'
+  )
+})
+
+test('押金退改规则常驻行：仅押金场出行（与 web depositRefundRule 逐字一致）', () => {
+  assert.equal(depositRefundRuleText('deposit'), '押金：截止前取消全额退；截止后不退。')
+  assert.equal(depositRefundRuleText('pricing'), null)
+  assert.equal(depositRefundRuleText('free'), null)
+  assert.equal(depositRefundRuleText(null), null)
 })
