@@ -93,6 +93,9 @@ vi.mock("@/components/sponsorship-management", () => ({
 vi.mock("@/components/offering-payments-panel", () => ({
   default: () => null,
 }));
+vi.mock("@/components/event-moderators-card", () => ({
+  default: () => null,
+}));
 vi.mock("@/components/speaker-invitation-panel", () => ({
   default: () => null,
 }));
@@ -1059,6 +1062,9 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
             : { venue: { country: "", province: "", city: "", district: "" } }),
           pricingEnabled: false,
           priceTiers: [],
+          ...(kind === "event"
+            ? { depositEnabled: false, depositAmountCents: null }
+            : {}),
         }),
       );
       // 成功：局部状态更新（标题）＋表单复位（metaDraft → null）
@@ -1581,6 +1587,8 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         venue: { country: "中国", province: "浙江省", city: "杭州市", district: "滨江区" },
         pricingEnabled: false,
         priceTiers: [],
+        depositEnabled: false,
+        depositAmountCents: null,
       }),
     );
     expect(await screen.findByText("已保存")).toBeInTheDocument();
@@ -1704,8 +1712,8 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     fireEvent.change(await screen.findByLabelText(/标题/), {
       target: { value: "收费工作坊" },
     });
-    fireEvent.click(screen.getByText("收费设置（可选）"));
-    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-pricing"));
     fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
 
     expect(await screen.findByText(/至少一个有效档位/)).toBeInTheDocument();
@@ -1721,8 +1729,8 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     fireEvent.change(await screen.findByLabelText(/标题/), {
       target: { value: "收费课程" },
     });
-    fireEvent.click(screen.getByText("收费设置（可选）"));
-    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-pricing"));
     fireEvent.click(screen.getByTestId("tier-add"));
     const nameInput = document.querySelector('[data-testid^="tier-name-"]') as HTMLInputElement;
     const amountInput = document.querySelector('[data-testid^="tier-amount-"]') as HTMLInputElement;
@@ -1738,6 +1746,9 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     const tier = JSON.parse(tiers[0]);
     expect(tier.name).toBe("标准");
     expect(tier.amount_cents).toBe(19900);
+    // course 无押金列：误传 deposit 键会被 GraphQL 输入校验拒绝
+    expect(input).not.toHaveProperty("depositEnabled");
+    expect(input).not.toHaveProperty("depositAmountCents");
   });
 
   it("KTD9：编辑面加载含过期档的活动 → 全量档位可编辑，保存下发全量", async () => {
@@ -1753,8 +1764,8 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
 
     await renderManageDetail("event", offeringRow({ pricingEnabled: true, priceTiers: tiers }));
 
-    // 编辑区开关可见（收费开启）且两档全部进入编辑器（含过期档）
-    expect(screen.getByTestId("pricing-toggle")).toBeChecked();
+    // 编辑区三态选中定价且两档全部进入编辑器（含过期档）
+    expect(screen.getByTestId("payment-mode-pricing")).toBeChecked();
     const rows = document.querySelectorAll('[data-testid^="tier-row-"]');
     expect(rows).toHaveLength(2);
 
@@ -1776,6 +1787,353 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     const sent = (input.priceTiers as string[]).map((x) => JSON.parse(x).id);
     expect(sent).toEqual(["t1"]);
     expect(input.pricingEnabled).toBe(true);
+    // 三态互斥：定价态不下发押金开启
+    expect(input.depositEnabled).toBe(false);
+    expect(input.depositAmountCents).toBeNull();
+  });
+});
+
+describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
+  /** 守卫懒查询 stub（关收费披露会命中 U8 守卫链：stats/paid/pending 三响应） */
+  function stubGuardReady() {
+    apolloClient.query.mockReset().mockImplementation(({ variables }) => {
+      const filter = (variables?.filter ?? {}) as Record<string, unknown>;
+      const status = (filter.status as { eq?: string } | undefined)?.eq;
+      if (!status) {
+        return Promise.resolve({
+          data: {
+            workspacePaymentStats: JSON.stringify({
+              collected_cents: 6900,
+              pending_cents: 0,
+              refunded_cents: 0,
+              refund_failed_cents: 0,
+            }),
+          },
+        });
+      }
+      return Promise.resolve({
+        data: { workspaceOrders: { results: [], count: 1 } },
+      });
+    });
+  }
+
+  it("AE8：押金 ¥69 场的基本信息卡缴费槽恰为「押金 ¥69（到场退）」，卡内无「免费」", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(within(card).getByText("缴费模式")).toBeInTheDocument();
+    expect(within(card).getByText("押金 ¥69（到场退）")).toBeInTheDocument();
+    // 旧病灶：基本信息卡「收费：免费」与规则摘要「押金：¥69」并列
+    expect(card.textContent).not.toContain("免费");
+    expect(card.textContent).not.toContain("收费中");
+    // 编辑区三态选中押金，金额回填为元
+    expect(screen.getByTestId("payment-mode-deposit")).toBeChecked();
+    expect((screen.getByTestId("deposit-amount-input") as HTMLInputElement).value).toBe("69");
+  });
+
+  it("AE8：定价场缴费槽显示「收费 档位 ¥xx」（无「免费」并列）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+        ],
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(within(card).getByText("收费 标准 ¥199")).toBeInTheDocument();
+    expect(card.textContent).not.toContain("免费");
+  });
+
+  it("新建 event 选押金填 69 → payload 三态互斥（押金开、档位清空）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    mocks.createOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "押金场" },
+    });
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "69" },
+    });
+    // 押金场须有结束时间（结算锚点）
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-10-24T10:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    await waitFor(() => expect(mocks.createOffering).toHaveBeenCalled());
+    const input = mocks.createOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input.depositEnabled).toBe(true);
+    expect(input.depositAmountCents).toBe(6900);
+    expect(input.pricingEnabled).toBe(false);
+    expect(input.priceTiers).toEqual([]);
+  });
+
+  it("新建 course 无押金选项（courses 表无 deposit 列）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    render(<OfferingNewPage slug="demo" kind="course" />);
+
+    fireEvent.click(await screen.findByText("缴费模式（可选）"));
+
+    expect(screen.getByTestId("payment-mode-free")).toBeInTheDocument();
+    expect(screen.getByTestId("payment-mode-pricing")).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-mode-deposit")).not.toBeInTheDocument();
+  });
+
+  it("押金态缺金额 → 就地拦截，不提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "押金场" },
+    });
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByLabelText(/^结束时间/), {
+      target: { value: "2026-10-24T10:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(
+      await screen.findByText("开启押金需填写大于 0 的押金金额。"),
+    ).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
+  it("押金态缺结束时间 → 就地拦截，不提交（KTD7 结算锚点）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "押金场" },
+    });
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "69" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(
+      await screen.findByText("开启押金需填写活动结束时间（未到场结算的锚点）。"),
+    ).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
+  it("定价场切押金：档位编辑器收起 → 关收费披露 → 确认后下发互斥三态键", async () => {
+    stubGuardReady();
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    expect(document.querySelectorAll('[data-testid^="tier-row-"]')).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "69" },
+    });
+    // 切押金即清档位草稿：编辑器不再渲染（三态互斥由构造保证）
+    expect(document.querySelectorAll('[data-testid^="tier-row-"]')).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+    // 关收费属资金影响动作：先披露再落库（U8 守卫沿用）
+    expect(
+      await screen.findByTestId("pricing-disable-guard", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("pricing-guard-confirm"));
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input.depositEnabled).toBe(true);
+    expect(input.depositAmountCents).toBe(6900);
+    expect(input.pricingEnabled).toBe(false);
+    expect(input.priceTiers).toEqual([]);
+  });
+
+  it("后端互斥错误码 → 展示文案表互斥文案，不透传英文原文（AE1）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: null,
+      errors: [
+        {
+          code: "event_payment_mode_exclusive",
+          message: "an event cannot enable both pricing tiers and deposit",
+        },
+      ],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "99" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText(
+        "同一场活动只能选择一种缴费模式：请先关闭收费（或押金）再开启另一种。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/cannot enable both pricing tiers/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("押金金额错误码 → 文案表文案（event_deposit_amount_required）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: null,
+      errors: [
+        {
+          code: "event_deposit_amount_required",
+          message:
+            "a positive deposit_amount_cents is required when deposit is enabled",
+        },
+      ],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "99" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText("开启押金需要填写大于 0 的押金金额。"),
+    ).toBeInTheDocument();
+  });
+
+  it("挂载 Initiative 的押金场 → 押金输入 disabled + 来源提示；普通元数据保存不下发缴费键", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        initiativeId: "init-1",
+        pricingEnabled: false,
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    expect(screen.getByTestId("payment-slot-source")).toHaveTextContent(
+      "押金配置由倡导活动规则决定，本地不可改。",
+    );
+    expect(screen.getByTestId("deposit-amount-input")).toBeDisabled();
+    expect(screen.getByTestId("payment-mode-deposit")).toBeDisabled();
+
+    // 未改缴费槽 → 保存只发元数据，不制造必然被锁死规则拒绝的提交
+    fireEvent.change(screen.getByLabelText(/标题/), {
+      target: { value: "改名" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input).not.toHaveProperty("depositEnabled");
+    expect(input).not.toHaveProperty("pricingEnabled");
+  });
+
+  it("定价遗留编辑中的档位行 → 切押金不拦保存，档位随 payload 清空", async () => {
+    stubGuardReady();
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+
+    // 半填的档位行（只填金额不填名 → fromDraft 为 null）
+    fireEvent.click(screen.getByTestId("tier-add"));
+    const amountInput = document.querySelector(
+      '[data-testid^="tier-amount-"]',
+    ) as HTMLInputElement;
+    fireEvent.change(amountInput, { target: { value: "10" } });
+
+    fireEvent.click(screen.getByTestId("payment-mode-deposit"));
+    fireEvent.change(screen.getByTestId("deposit-amount-input"), {
+      target: { value: "69" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+    await screen.findByTestId("pricing-disable-guard", {}, { timeout: 3000 });
+    fireEvent.click(screen.getByTestId("pricing-guard-confirm"));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/存在无效档位/),
+    ).not.toBeInTheDocument();
+    const input = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(input.priceTiers).toEqual([]);
+    expect(input.depositEnabled).toBe(true);
+  });
+
+  it("普通成员视角同样看到单一缴费槽口径（非 only-manage 字段）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce(
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: 6900,
+        endsAt: "2026-10-24T02:00:00.000Z",
+      }),
+    );
+    render(<OfferingDetailPage slug="demo" id="offering-1" kind="event" />);
+
+    await screen.findByRole("heading", { name: "测试活动" });
+    expect(screen.getByText("缴费模式")).toBeInTheDocument();
+    expect(screen.getByText("押金 ¥69（到场退）")).toBeInTheDocument();
+    // 成员无编辑面（三态单选不渲染）
+    expect(screen.queryByTestId("payment-mode-deposit")).not.toBeInTheDocument();
+  });
+
+  it("挂载但未开押金：定价/免费仍可改，押金选项禁用（规则来源在 Initiative）", async () => {
+    await renderManageDetail("event", offeringRow({ initiativeId: "init-1" }));
+
+    expect(screen.getByTestId("payment-mode-deposit")).toBeDisabled();
+    expect(screen.getByTestId("payment-mode-pricing")).not.toBeDisabled();
+    expect(screen.queryByTestId("deposit-amount-input")).not.toBeInTheDocument();
   });
 });
 
@@ -1837,7 +2195,7 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       pendingCount: 2,
     });
 
-    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByTestId("payment-mode-free"));
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
 
     // 守卫文案要等 stats → paid → pending 三次顺序查询落定；CI 慢机 1s 默认
@@ -1869,7 +2227,7 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       }),
     );
 
-    fireEvent.click(screen.getByTestId("pricing-toggle"));
+    fireEvent.click(screen.getByTestId("payment-mode-pricing"));
     fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
 
     expect(await screen.findByTestId("pricing-enable-guard")).toBeInTheDocument();

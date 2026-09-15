@@ -11,6 +11,7 @@ export interface AppShowQuery {
   scene?: string
   id?: string
   kind?: string
+  slug?: string
 }
 
 /** join 页邀请链接 path（#415 分享出口；scene 必须 encodeURIComponent） */
@@ -18,15 +19,24 @@ export function buildJoinSharePath(scene: string): string {
   return `/pages/join/index?scene=${encodeURIComponent(scene)}`
 }
 
+export function buildInitiativeSharePath(slug: string): string {
+  return `/pages/initiative-detail/index?slug=${encodeURIComponent(slug)}`
+}
+
 /** query + 当前栈顶页面 route → 跳转 url；null = 不跳 */
-export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string): string | null {
+export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, currentQuery: AppShowQuery = {}): string | null {
   const scene = query.scene?.trim()
   if (scene) return buildJoinSharePath(scene)
 
   const id = query.id?.trim()
-  if (!id) return null
-  if (currentRoute.includes('pages/event-detail')) return null
+  if (id) {
+    if (currentRoute.includes('pages/event-detail')) return null
+    const kind = query.kind === 'course' ? 'course' : 'event'
+    return `/pages/event-detail/index?id=${encodeURIComponent(id)}&kind=${kind}`
+  }
 
-  const kind = query.kind === 'course' ? 'course' : 'event'
-  return `/pages/event-detail/index?id=${encodeURIComponent(id)}&kind=${kind}`
+  const slug = query.slug?.trim()
+  if (!slug) return null
+  if (currentRoute.includes('pages/initiative-detail') && currentQuery.slug === slug) return null
+  return buildInitiativeSharePath(slug)
 }

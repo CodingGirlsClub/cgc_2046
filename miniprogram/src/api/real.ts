@@ -88,6 +88,7 @@ import type {
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
+import { parseQualificationBadge } from '@/domain/initiative'
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
 import {
   activateAccount,
@@ -99,7 +100,10 @@ import {
 type EventRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
 type CourseRecord = NonNullable<NonNullable<CatalogQuery['listCourses']>['results']>[number]
 // venue 仅 event 有槽（Course 无位置概念，R3）——两 record 形状在此分叉，故取并集
-type ContentRecord = EventRecord | CourseRecord
+// 押金字段（U11）同理只在 event 上存在，且仅详情查询请求（匿名列表白名单与 web
+// PUBLIC_LIST_* 同源，不含押金字段）→ 声明为可选，列表记录映射为免费态。
+type ContentRecord = (EventRecord | CourseRecord) &
+  Partial<{ depositEnabled: boolean | null; depositAmountCents: number | null }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
 type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
@@ -120,10 +124,19 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     id: record.id,
     kind,
     title: record.title,
+    status: record.status,
+    qualificationBadge: 'qualificationBadge' in record ? parseQualificationBadge(record.qualificationBadge) : null,
+    shortBy: 'shortBy' in record && typeof record.shortBy === 'number' ? record.shortBy : null,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
     registrationDeadline: record.registrationDeadline,
     pricingEnabled: record.pricingEnabled === true,
     priceTiers: parsePriceTiers(record.availablePriceTiers),
+    // 押金场：金额缺失不编造（enabled 但无额 → null，展示层降级不出价）
+    depositEnabled: record.depositEnabled === true,
+    depositAmountCents:
+      record.depositEnabled === true && typeof record.depositAmountCents === 'number'
+        ? record.depositAmountCents
+        : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
@@ -142,14 +155,15 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     status: parseEnrollmentStatus(enrollment.status),
     approvalDeadline: enrollment.approvalDeadline ?? null,
     rejectionReason: enrollment.rejectionReason ?? null,
-    insertedAt: enrollment.insertedAt
+    insertedAt: enrollment.insertedAt,
+    checkInCode: enrollment.checkInCode ?? null
   }
 }
 function parseOrderStatus(value: string): OrderStatus {
   if (
     value === 'pending' || value === 'paid' || value === 'refunding' ||
     value === 'refunded' || value === 'refund_failed' || value === 'cancelled' ||
-    value === 'expired'
+    value === 'expired' || value === 'forfeited'
   ) return value
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
@@ -397,7 +411,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
       status: parseEnrollmentStatus(result.status),
       approvalDeadline: result.approvalDeadline,
       rejectionReason: null,
-      insertedAt: result.insertedAt
+      insertedAt: result.insertedAt,
+      // create 结果未选 checkInCode（结果页不出示码；出示面是「我的报名」，
+      // 走 getEnrollments 重新取——押金报名落 payment_pending 本无码可出）
+      checkInCode: null
     }
   }
 
@@ -532,7 +549,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
     )
     const rank: Record<string, number> = {
       pending: 0, paid: 1, refunding: 2, refund_failed: 3,
-      refunded: 4, cancelled: 5, expired: 6
+      refunded: 4, cancelled: 5, expired: 6, forfeited: 7
     }
     return (data.myOrders?.results ?? [])
       .map((order) => ({

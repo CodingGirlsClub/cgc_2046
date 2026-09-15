@@ -27,5 +27,6 @@ defmodule Cgc2046.Notifications do
   resources do
     # 订阅消息一次性授权余额（wechat/tt/xhs 三平台；写路径 = Consent 裸 SQL）
     resource(Cgc2046.Notifications.NotificationConsent)
+    resource(Cgc2046.Notifications.NotificationDelivery)
   end
 end

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useMutation } from "@apollo/client/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import {
@@ -68,12 +68,13 @@ export interface UseAuthSubmitResult {
 export function useAuthSubmit(): UseAuthSubmitResult {
 	const router = useRouter();
 	const t = useTranslations("auth.errors");
-	const searchParams = new URLSearchParams(
-		typeof window !== "undefined" ? window.location.search : "",
-	);
 	// 登录前来源（公开面报名引导：/login?next=...）。同源校验逻辑收敛在
 	// resolveNextTarget（纯函数，单测覆盖反斜杠绕过等恶意输入）。
-	const nextRaw = searchParams.get("next");
+	// 用 useSearchParams（订阅 router 状态）而非 window.location 一次性读取：
+	// 软导航 + prefetch 下 latter 会在 URL 更新前提交渲染，读不到 next
+	// （UAT 实证：header 登录链接软导航后登录被 push 到 "/" 丢失报名现场）。
+	const searchParams = useSearchParams();
+	const nextRaw = searchParams?.get("next") ?? null;
 	const next =
 		typeof window !== "undefined"
 			? resolveNextTarget(nextRaw, window.location.origin)

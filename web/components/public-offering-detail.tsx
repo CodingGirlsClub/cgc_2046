@@ -37,8 +37,11 @@ import {
   OFFERING_LABEL,
 } from "@/lib/graphql/events";
 import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
+import CheckInCodeCard from "@/components/check-in-code-card";
+import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
-import { formatAmount, parsePriceTiers } from "@/lib/payment";
+import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
+import { formatAmount, formatAmountShort, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
@@ -92,11 +95,13 @@ export default function PublicOfferingDetailPage({
     /** payment_pending 态的去支付入口目标（R5 报名 id） */
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
-  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭
+  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
+  // 押金场无档位 → depositAmountCents 承载押金口径（R10 框内明示）。
   const [checkout, setCheckout] = useState<{
     enrollmentId: string;
     amountCents: number | null;
     tierName: string | null;
+    depositAmountCents: number | null;
     title: string;
   } | null>(null);
   // 支付接续：登录态下查已有活跃报名（公开页报名需登录），分叉渲染——
@@ -105,6 +110,8 @@ export default function PublicOfferingDetailPage({
     id: string;
     status: string;
     approvalDeadline?: string | null;
+    /** 6 位核销码（confirmed 活动报名出示；R11/KTD5） */
+    checkInCode?: string | null;
   } | null>(null);
   // 已完成的报名查询对应的 offering id（派生 enrollChecked，避免 effect 内
   // 同步 setState——eslint react-hooks/set-state-in-effect）
@@ -233,6 +240,40 @@ export default function PublicOfferingDetailPage({
     };
   }, [authed, userId, offering?.id, kind]);
 
+  // 挂载 Initiative 的回链：initiativeId → 公开卡片查 name/slug；查不到
+  // （initiative 非公开）或查询失败均不渲染回链。forId 键控派生，slug 切换
+  // 时旧值自动失效（同 stale 模式，无需 effect 内同步复位）。
+  const [initiativeLookup, setInitiativeLookup] = useState<{
+    forId: string;
+    card: PublicInitiativeCard | null;
+  } | null>(null);
+  useEffect(() => {
+    const initiativeId = kind === "event" ? (offering?.initiativeId ?? null) : null;
+    if (!initiativeId) return;
+    let cancelled = false;
+    fetchPublicInitiatives()
+      .then((cards) => {
+        if (!cancelled) {
+          setInitiativeLookup({
+            forId: initiativeId,
+            card: cards.find((c) => c.id === initiativeId) ?? null,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInitiativeLookup({ forId: initiativeId, card: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, offering?.initiativeId]);
+  const initiative =
+    initiativeLookup &&
+    offering?.initiativeId != null &&
+    initiativeLookup.forId === offering.initiativeId
+      ? initiativeLookup.card
+      : null;
+
   // E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
   const sponsorshipTiers = offering
     ? parseSponsorshipTiers(offering.sponsorshipTiers)
@@ -255,22 +296,40 @@ export default function PublicOfferingDetailPage({
   // 支付成功后就地刷新报名态（模态框 onPaid → payment_pending → confirmed）。
   // offeringId 先行解构（可选链入 dep 会让 React Compiler 无法保持手工 memoization）
   const offeringId = offering?.id ?? null;
-  const refetchEnrollment = useCallback(async () => {
-    if (!offeringId || !userId) return;
+  const refetchEnrollment = useCallback(async (): Promise<boolean> => {
+    if (!offeringId || !userId) return false;
     try {
       const enrollment = await fetchMyEnrollment(offeringId, kind, userId);
       setMyEnroll(enrollment);
+      return true;
     } catch {
       // 刷新失败保持现态；手动刷新页面仍可恢复
+      return false;
     }
   }, [offeringId, kind, userId]);
 
-  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
+  // 支付成功回调：重拉到新报名态才退出「待支付」中间态（rail 落到已报名卡 + 出示
+  // 核销码）；重拉失败保持现态——中间态的「继续支付」入口仍是可用出口，不掉回报名表单。
+  const handlePaid = useCallback(async () => {
+    if (await refetchEnrollment()) {
+      setSubmitState({ kind: "idle", message: null, enrollmentId: null });
+    }
+  }, [refetchEnrollment]);
+
+  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），押金场带押金口径
+  // （无档位：金额 = 押金金额，名称 = 「押金」，框内另明示「未到场不退」），
+  // 复访承接可不带（由订单金额兜底）
   function openCheckoutFor(enrollmentId: string) {
+    const depositCents =
+      offering?.depositEnabled === true
+        ? (offering.depositAmountCents ?? null)
+        : null;
     setCheckout({
       enrollmentId,
-      amountCents: paidTier?.amountCents ?? null,
-      tierName: paidTier?.name ?? null,
+      amountCents: depositCents ?? paidTier?.amountCents ?? null,
+      tierName:
+        depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
@@ -444,8 +503,25 @@ export default function PublicOfferingDetailPage({
         ) : (
           <article className="public-detail">
             <header className="public-detail__hero">
-              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+              <div className="public-detail__badges">
+                <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                {kind === "event" && (
+                  <QualificationBadgeTag
+                    badge={offering.qualificationBadge}
+                    shortBy={offering.shortBy}
+                  />
+                )}
+              </div>
               <h1>{offering.title}</h1>
+              {initiative ? (
+                <p className="public-detail__initiative">
+                  {t("partOfInitiative")}
+                  <Link href={`/initiatives/${initiative.slug}`}>
+                    {initiative.name}
+                    <span aria-hidden="true"> →</span>
+                  </Link>
+                </p>
+              ) : null}
             </header>
 
             <dl className="public-detail__facts">
@@ -521,6 +597,27 @@ export default function PublicOfferingDetailPage({
                       </li>
                     ))}
                   </ul>
+                </div>
+              ) : null}
+
+              {/* 押金场缴费槽（R10/KTD10）：单一槽位语义——押金场只此一块，不并列档位 */}
+              {offering.depositEnabled ? (
+                <div
+                  className="public-detail__pricing"
+                  data-testid="deposit-info"
+                >
+                  <p className="text-sm text-ink">
+                    <strong>
+                      {t("depositLine", {
+                        amount: formatAmountShort(
+                          offering.depositAmountCents ?? 0,
+                        ),
+                      })}
+                    </strong>
+                  </p>
+                  <p className="mt-1 text-[13px] text-ink-3">
+                    {t("depositForfeit")}
+                  </p>
                 </div>
               ) : null}
 
@@ -623,6 +720,19 @@ export default function PublicOfferingDetailPage({
                       {t("enrolled", { label: labelsT(label) })}
                     </p>
                     {enrollmentFollowUp()}
+                    {kind === "event" && myEnroll.checkInCode ? (
+                      <CheckInCodeCard
+                        code={myEnroll.checkInCode}
+                        eventSegment={offering.slug}
+                        paymentMode={
+                          offering.depositEnabled
+                            ? "deposit"
+                            : offering.pricingEnabled
+                              ? "pricing"
+                              : "free"
+                        }
+                      />
+                    ) : null}
                   </div>
                 ) : !enrollChecked ? (
                   <div className="text-sm text-ink-3">
@@ -640,7 +750,7 @@ export default function PublicOfferingDetailPage({
                         <input
                           value={inviteCode}
                           onChange={(e) => setInviteCode(e.target.value)}
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+                          className="ui-input mt-1 w-full"
                         />
                       </label>
                     ) : null}
@@ -847,9 +957,10 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
+          depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
-          onPaid={() => void refetchEnrollment()}
+          onPaid={() => void handlePaid()}
         />
       ) : null}
     </PublicCatalogShell>

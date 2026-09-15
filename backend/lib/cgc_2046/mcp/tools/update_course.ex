@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
   curriculum_requirements）；status 走专用生命周期工具，不在此改。
 
   高风险依据：定价变更（pricing_enabled true→false）会同事务批量免缴待支付报名
-  （`Cgc2046.Admission.Changes.WaivePendingOnPricingDisable`，R9/KTD4）——资金相关
+  （`Cgc2046.Admission.Changes.WaivePendingOnFeeSlotDisable`，R9/KTD4）——资金相关
   副作用必须经用户确认。pending 摘要精确列出将变更的字段与新值；true→false 时
   追加批量免缴影响摘要（待支付笔数计入）。nil 值视为未提供（不支持显式置空）。
 

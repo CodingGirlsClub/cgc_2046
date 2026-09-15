@@ -142,3 +142,87 @@ describe("WorkspaceShell 设置侧栏 Agents 入口（P2 回归）", () => {
 		expect(link).toHaveAttribute("aria-current", "page");
 	});
 });
+
+describe("WorkspaceShell 跨工作台导航组（Mine/Community）", () => {
+	it("非 settings 路由的侧栏依次渲染工作区组、Mine 组、Community 组", async () => {
+		pathnameRef.value = "/w/cgc-academy";
+		render(
+			<WorkspaceShell slug="cgc-academy">
+				<div>content</div>
+			</WorkspaceShell>,
+		);
+
+		// 我的报名移入 Mine 组（不再属于工作区导航组）
+		const mine = await screen.findByRole("navigation", { name: "我的" });
+		expect(
+			within(mine).getByRole("link", { name: "我的报名" }),
+		).toHaveAttribute("href", "/participations");
+		expect(
+			within(mine).getByRole("link", { name: "我的学习" }),
+		).toHaveAttribute("href", "/learning");
+
+		const community = await screen.findByRole("navigation", { name: "全站" });
+		expect(
+			within(community).getByRole("link", { name: "公开活动" }),
+		).toHaveAttribute("href", "/events");
+		expect(
+			within(community).getByRole("link", { name: "公开课程" }),
+		).toHaveAttribute("href", "/courses");
+		expect(
+			within(community).getByRole("link", { name: "倡导活动" }),
+		).toHaveAttribute("href", "/initiatives");
+
+		// 工作区组不再含「我的报名」
+		const workspaceNav = await screen.findByRole("navigation", {
+			name: "工作区导航",
+		});
+		expect(
+			within(workspaceNav).queryByRole("link", { name: "我的报名" }),
+		).not.toBeInTheDocument();
+
+		// 跨上下文链接无激活态（AE4）
+		for (const name of ["我的报名", "我的学习", "公开活动", "公开课程", "倡导活动"]) {
+			expect(screen.getByRole("link", { name })).not.toHaveAttribute(
+				"aria-current",
+			);
+		}
+	});
+
+	it("EN locale：组名与条目渲染为 Mine/Community", async () => {
+		pathnameRef.value = "/en/w/cgc-academy";
+		render(
+			<WorkspaceShell slug="cgc-academy">
+				<div>content</div>
+			</WorkspaceShell>,
+			{ locale: "en" },
+		);
+
+		const mine = await screen.findByRole("navigation", { name: "Mine" });
+		expect(
+			within(mine).getByRole("link", { name: "My enrollments" }),
+		).toBeInTheDocument();
+		const community = await screen.findByRole("navigation", {
+			name: "Community",
+		});
+		expect(
+			within(community).getByRole("link", { name: "Initiatives" }),
+		).toHaveAttribute("href", "/en/initiatives");
+	});
+
+	it("settings 路由不渲染 Mine/Community 组", async () => {
+		pathnameRef.value = "/w/cgc-academy/settings/join-policy";
+		render(
+			<WorkspaceShell slug="cgc-academy">
+				<div>content</div>
+			</WorkspaceShell>,
+		);
+
+		await screen.findByRole("link", { name: "Back to app" });
+		expect(
+			screen.queryByRole("navigation", { name: "我的" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("navigation", { name: "全站" }),
+		).not.toBeInTheDocument();
+	});
+});

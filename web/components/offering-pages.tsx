@@ -48,6 +48,7 @@ import type { ActiveEnrollmentRow } from "@/lib/graphql/participations";
 
 import TierEditor, { fromDraft, toDraft, type TierDraft } from "@/components/tier-editor";
 import OfferingPaymentsPanel from "@/components/offering-payments-panel";
+import EventModeratorsCard from "@/components/event-moderators-card";
 import WorkspaceShell from "@/components/workspace-shell";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
@@ -56,7 +57,18 @@ import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { formatAmount, parsePaymentStats, parsePriceTiers } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers } from "@/lib/payment";
+import {
+  COURSE_PAYMENT_MODES,
+  PAYMENT_MODES,
+  PAYMENT_MODE_LABEL,
+  depositAmountDraft,
+  depositAmountToCents,
+  paymentModeOf,
+  paymentSlotChanged,
+  paymentSlotPayload,
+  type PaymentMode,
+} from "@/lib/payment-mode";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
   parseCompanionCourse,
@@ -69,6 +81,7 @@ import {
 import { useAuthed } from "@/lib/use-authed";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
 import AddToCalendar from "@/components/add-to-calendar";
+import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
 
 /** 列表行个人报名状态（只这三态会出现在行内；终态不显示） */
 type MyEnrollmentStatus = "pending" | "payment_pending" | "confirmed";
@@ -119,6 +132,28 @@ function friendlyOfferingError(
   return fallback;
 }
 
+/**
+ * mutation 错误 → 展示文案：带稳定 code 的业务错误查 errors namespace 文案表
+ * （#241 错误码契约，后端 PaymentModeValidation / 互斥 CHECK 等）；无 code 或
+ * 未知 code 回落到既有关键词映射与兜底，不透传 GraphQL 原文。
+ */
+function offeringErrorText(
+  error:
+    | {
+        message?: string | null;
+        short_message?: string | null;
+        code?: string | null;
+      }
+    | null
+    | undefined,
+  fallbackKey: string,
+  t: (key: string) => string,
+  translateCode: (code: string | null | undefined, fallback: string) => string,
+): string {
+  const known = error?.code ? translateCode(error.code, "") : "";
+  return known !== "" ? known : t(friendlyOfferingError(error, fallbackKey));
+}
+
 function toLocalInput(datetime: string | null): string {
   if (!datetime) return "";
   const d = new Date(datetime);
@@ -165,7 +200,7 @@ function ScheduleFields({
           type="datetime-local"
           value={startsAt}
           onChange={(e) => onStartsAtChange(e.target.value)}
-          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ui-input mt-1 w-full"
         />
       </label>
       <label className="block">
@@ -174,7 +209,7 @@ function ScheduleFields({
           type="datetime-local"
           value={endsAt}
           onChange={(e) => onEndsAtChange(e.target.value)}
-          className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+          className="ui-input mt-1 w-full"
         />
       </label>
     </>
@@ -208,7 +243,7 @@ function VenueFields({
           <input
             value={value[key]}
             onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-            className="ld-focus-ring mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+            className="ui-input mt-1 w-full"
           />
         </label>
       ))}
@@ -227,6 +262,99 @@ function Field({
     <div>
       <span className="block text-[13px] text-ink-3">{label}</span>
       <span className="mt-0.5 block text-sm text-ink">{children}</span>
+    </div>
+  );
+}
+
+/**
+ * 缴费槽三态录入（event-deposit U9/KTD10/R1/R10）：免费 / 定价档位 / 押金单选，
+ * 三态互斥由构造保证（切换即清空另一侧草稿）。course 无押金槽（两态）。
+ *
+ * 只读门（R3）：挂载 Initiative 的场，押金由 Initiative 规则提供——押金选项与
+ * 金额禁用并展示来源；押金已开启时整槽只读（关闭押金同样是押金字段写入，锁死
+ * 态后端会拒绝，前端不制造必然失败的提交）。
+ */
+function PaymentSlotFields({
+  kind,
+  mode,
+  onModeChange,
+  tierDrafts,
+  onTierDraftsChange,
+  depositAmount,
+  onDepositAmountChange,
+  depositDisabled = false,
+  modeDisabled = false,
+  sourceNote = null,
+}: {
+  kind: OfferingKind;
+  mode: PaymentMode;
+  onModeChange: (mode: PaymentMode) => void;
+  tierDrafts: TierDraft[];
+  onTierDraftsChange: (drafts: TierDraft[]) => void;
+  /** 押金金额元草稿（分转换在保存/提交时做） */
+  depositAmount: string;
+  onDepositAmountChange: (value: string) => void;
+  /** 押金选项与金额只读（Initiative 挂载场；默认 false） */
+  depositDisabled?: boolean;
+  /** 整槽只读（Initiative 挂载且押金已开启；默认 false） */
+  modeDisabled?: boolean;
+  /** 押金来源提示（挂载场；默认无） */
+  sourceNote?: string | null;
+}) {
+  const t = useTranslations("offerings");
+  const modes = kind === "event" ? PAYMENT_MODES : COURSE_PAYMENT_MODES;
+
+  return (
+    <div className="grid gap-2" data-testid="payment-slot" data-mode={mode}>
+      <fieldset className="grid gap-2">
+        <legend className="text-[13px] text-ink-3">{t("fieldPaymentMode")}</legend>
+        {modes.map((option) => (
+          <label key={option} className="flex items-center gap-2 text-sm text-ink-2">
+            <input
+              type="radio"
+              name="payment-mode"
+              value={option}
+              checked={mode === option}
+              disabled={modeDisabled || (option === "deposit" && depositDisabled)}
+              onChange={() => onModeChange(option)}
+              data-testid={`payment-mode-${option}`}
+            />
+            {t(PAYMENT_MODE_LABEL[option])}
+          </label>
+        ))}
+      </fieldset>
+
+      {mode === "pricing" ? (
+        <TierEditor drafts={tierDrafts} onChange={onTierDraftsChange} manage />
+      ) : null}
+
+      {mode === "deposit" ? (
+        <label className="block">
+          <span className="block text-[13px] text-ink-3">
+            {t("depositAmountLabel")}
+          </span>
+          <input
+            type="number"
+            min={0.01}
+            step="0.01"
+            inputMode="decimal"
+            value={depositAmount}
+            disabled={depositDisabled || modeDisabled}
+            onChange={(e) => onDepositAmountChange(e.target.value)}
+            data-testid="deposit-amount-input"
+            className="ui-input mt-1 w-full"
+          />
+          <span className="mt-1 block text-xs text-ink-3">
+            {t("depositRefundHint")}
+          </span>
+        </label>
+      ) : null}
+
+      {sourceNote ? (
+        <p className="text-xs text-ink-3" data-testid="payment-slot-source">
+          {sourceNote}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -466,9 +594,12 @@ interface MetaDraft {
   venue: VenueInfo;
   /** 教研需求自由文本(U8/R12,仅 course;原文透传 curriculum_requirements) */
   curriculumRequirements: string;
-  /** 收费设置（U6/R2）：开关 + 档位草稿（编辑面就地修改） */
-  pricingEnabled: boolean;
+  /** 缴费槽（U9/KTD10/R1）：三态单选（免费 / 定价档位 / 押金）+ 档位草稿 */
+  mode: PaymentMode;
+  /** 押金金额元草稿（分转换在保存时做；定价/免费态不下发） */
+  depositAmount: string;
   tierDrafts: TierDraft[];
+  initiativeId: string | null;
 }
 
 export function OfferingDetailPage({
@@ -497,6 +628,7 @@ export function OfferingDetailPage({
     error: null,
   });
   const [metaDraft, setMetaDraft] = useState<MetaDraft | null>(null);
+  const [initiatives, setInitiatives] = useState<PublicInitiativeCard[]>([]);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [busyTransition, setBusyTransition] = useState<EventTransition | null>(
@@ -576,6 +708,7 @@ export function OfferingDetailPage({
     };
   }, [id, kind, t]);
 
+
   // 我的既有报名（防重复报名；读策略仅本人可见）
   useEffect(() => {
     if (!id || !userId) return;
@@ -610,6 +743,26 @@ export function OfferingDetailPage({
   const stale = state.id !== id;
   const offering = stale ? null : state.row;
 
+  const loadInitiatives = () => {
+    if (initiatives.length > 0 || kind !== "event") return;
+    void fetchPublicInitiatives()
+      .then((rows) =>
+        setInitiatives(
+          rows.filter(
+            (row) => row.status === "open" || row.id === offering?.initiativeId,
+          ),
+        ),
+      )
+      .catch(() => setInitiatives([]));
+  };
+
+  // 已挂载 Event 需要当前 Initiative 名称回显（含 closed Initiative 留档场）；
+  // 草稿期下拉本就在聚焦时加载，此处只对已挂载场景提前拉取。
+  useEffect(() => {
+    if (offering?.initiativeId) loadInitiatives();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offering?.initiativeId]);
+
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const [tierId, setTierId] = useState<string | null>(null);
@@ -630,6 +783,23 @@ export function OfferingDetailPage({
 
   const loadError = stale ? null : state.error;
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
+  // 缴费槽单一口径（U9/KTD10/R10/AE8）：三态互斥显示，押金场只出现
+  // 「押金 ¥xx（到场退）」，不再与「免费」并列。来源提示（R3）：挂载 Initiative
+  // 的场押金由规则提供；Web 侧读不到 per-rule 锁态（AdminInitiativeRule 仅平台
+  // 管理员可读），故按「挂载 + 押金已开启」呈现为只读来源。
+  const paymentMode = offering ? paymentModeOf(offering) : "free";
+  const initiativeGovernsDeposit =
+    kind === "event" && offering?.initiativeId != null;
+  const initiativeName = offering?.initiativeId
+    ? (initiatives.find((row) => row.id === offering.initiativeId)?.name ?? null)
+    : null;
+  const paymentSlotSource = initiativeGovernsDeposit
+    ? initiativeName
+      ? t("paymentSlotSourceNamed", { name: initiativeName })
+      : t("paymentSlotSourceGeneric")
+    : null;
+  // 押金已开启的挂载场：整槽只读（关闭押金同样是押金字段写入，锁死态后端拒绝）
+  const paymentSlotLocked = initiativeGovernsDeposit && paymentMode === "deposit";
   // 教研角色（tutor/owner/admin）可见课程内容治理入口；能力面无法区分 tutor 与普通成员，须看角色标签
   const teachingStaff = (ws?.myRoleNames ?? []).some((role) =>
     TEACHING_ROLE_NAMES.includes(role),
@@ -685,8 +855,10 @@ export function OfferingDetailPage({
                 offering.curriculumRequirements,
               ),
               // KTD9：读全量 priceTiers（含过期档），防止保存静默丢弃过期档
-              pricingEnabled: offering.pricingEnabled === true,
+              mode: paymentModeOf(offering),
+              depositAmount: depositAmountDraft(offering.depositAmountCents ?? null),
               tierDrafts: toDraft(offering.priceTiers),
+              initiativeId: offering.initiativeId ?? null,
             }
           : null,
     [metaDraft, offering],
@@ -733,16 +905,21 @@ export function OfferingDetailPage({
         setSaveMessage(t("saved"));
       } else {
         setSaveMessage(
-          t(friendlyOfferingError(res.errors[0], "saveFailedRetry")),
+          offeringErrorText(
+            res.errors[0],
+            "saveFailedRetry",
+            t,
+            translatePaymentError,
+          ),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        t(
-          friendlyOfferingError(
-            e instanceof Error ? { message: e.message } : null,
-            "saveFailedRetry",
-          ),
+        offeringErrorText(
+          e instanceof Error ? { message: e.message } : null,
+          "saveFailedRetry",
+          t,
+          translatePaymentError,
         ),
       );
     } finally {
@@ -815,10 +992,10 @@ export function OfferingDetailPage({
     }
     // U8 资金守卫（R9/R16，KD2）：关收费 → 明示影响后确认；开收费且有
     // 待审批 → 披露后确认；其余直接保存。守卫数字为确认时点快照。
-    const disabling =
-      offering.pricingEnabled === true && activeDraft.pricingEnabled === false;
-    const enabling =
-      offering.pricingEnabled !== true && activeDraft.pricingEnabled === true;
+    // U9 三态：服务端定价开、草稿切到免费或押金都算「关收费」。
+    const draftPricing = activeDraft.mode === "pricing";
+    const disabling = offering.pricingEnabled === true && !draftPricing;
+    const enabling = offering.pricingEnabled !== true && draftPricing;
     const pendingApprovals =
       pendingState.id === id && pendingState.status === "ok"
         ? pendingState.value
@@ -838,29 +1015,52 @@ export function OfferingDetailPage({
 
   async function performSaveMeta() {
     if (!offering || !activeDraft) return;
+    const draftPricing = activeDraft.mode === "pricing";
     // review F11：校验前置（setSaveBusy 之前）——无效档位不再把保存按钮
-    // 永久卡死；混合有效/无效行拒绝整次提交（不静默丢弃无效行）
+    // 永久卡死；混合有效/无效行拒绝整次提交（不静默丢弃无效行）。
+    // 档位草稿仅在定价态参与校验：切到押金/免费时档位随 payload 清空，
+    // 遗留的编辑中行不该拦住与档位无关的保存。
     const validTiers =
       activeDraft.tierDrafts.map(fromDraft).filter((x) => x !== null);
-    if (
-      activeDraft.tierDrafts.length > 0 &&
-      validTiers.length !== activeDraft.tierDrafts.length
-    ) {
-      setSaveMessage(t("pricingTierInvalid"));
-      return;
+    if (draftPricing) {
+      if (
+        activeDraft.tierDrafts.length > 0 &&
+        validTiers.length !== activeDraft.tierDrafts.length
+      ) {
+        setSaveMessage(t("pricingTierInvalid"));
+        return;
+      }
+      if (validTiers.length === 0) {
+        setSaveMessage(t("pricingTierRequired"));
+        return;
+      }
     }
-    if (activeDraft.pricingEnabled && validTiers.length === 0) {
-      setSaveMessage(t("pricingTierRequired"));
-      return;
+    // 押金态前置校验（U3 后端同款判据：正金额 + ends_at 结算锚点）
+    const depositCents = depositAmountToCents(activeDraft.depositAmount);
+    if (activeDraft.mode === "deposit") {
+      if (depositCents === null) {
+        setSaveMessage(t("depositAmountRequired"));
+        return;
+      }
+      if (activeDraft.endsAt.trim() === "") {
+        setSaveMessage(t("depositEndsAtRequired"));
+        return;
+      }
     }
 
-    // review F7：定价脏检查——仅当开关或档位相对服务端快照变化时下发定价键，
-    // 普通 metadata 保存不再整段重发定价快照（消除陈旧管理员把已关闭的收费
+    // review F7：缴费槽脏检查——仅当三态或档位相对服务端快照变化时下发缴费键，
+    // 普通 metadata 保存不再整段重发缴费快照（消除陈旧管理员把已关闭的收费
     // 连旧档位一起恢复的除改窗口；服务端值仍是唯一真源）
-    const pricingDirty =
-      offering.pricingEnabled !== activeDraft.pricingEnabled ||
-      JSON.stringify(toDraft(offering.priceTiers)) !==
-        JSON.stringify(activeDraft.tierDrafts);
+    const paymentDirty = paymentSlotChanged({
+      kind,
+      server: offering,
+      mode: activeDraft.mode,
+      depositAmountCents: depositCents,
+      pricingDirty:
+        offering.pricingEnabled !== draftPricing ||
+        JSON.stringify(toDraft(offering.priceTiers)) !==
+          JSON.stringify(activeDraft.tierDrafts),
+    });
 
     setSaveBusy(true);
     setSaveMessage(null);
@@ -873,6 +1073,9 @@ export function OfferingDetailPage({
         registrationDeadline: fromLocalInput(activeDraft.deadline),
         startsAt: fromLocalInput(activeDraft.startsAt),
         endsAt: fromLocalInput(activeDraft.endsAt),
+        ...(kind === "event" && (offering.initiativeId || activeDraft.initiativeId)
+          ? { initiativeId: activeDraft.initiativeId }
+          : {}),
         ...(kind === "course"
           ? {
               curriculumRequirements: buildCurriculumJson(
@@ -880,11 +1083,13 @@ export function OfferingDetailPage({
               ),
             }
           : { venue: activeDraft.venue }),
-        ...(pricingDirty
-          ? {
-              pricingEnabled: activeDraft.pricingEnabled,
-              priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
-            }
+        ...(paymentDirty
+          ? paymentSlotPayload({
+              kind,
+              mode: activeDraft.mode,
+              tiers: validTiers.map((tier) => JSON.stringify(tier)),
+              depositAmountCents: depositCents,
+            })
           : {}),
       });
       if (res.result) {
@@ -898,12 +1103,19 @@ export function OfferingDetailPage({
             registrationDeadline: res.result.registrationDeadline,
             startsAt: res.result.startsAt ?? null,
             endsAt: res.result.endsAt ?? null,
+            initiativeId: res.result.initiativeId ?? null,
             ...(kind === "event" ? { venue: res.result.venue ?? null } : {}),
             ...(res.result.pricingEnabled !== undefined
               ? { pricingEnabled: res.result.pricingEnabled }
               : {}),
             ...(res.result.priceTiers !== undefined
               ? { priceTiers: res.result.priceTiers }
+              : {}),
+            ...(res.result.depositEnabled !== undefined
+              ? { depositEnabled: res.result.depositEnabled }
+              : {}),
+            ...(res.result.depositAmountCents !== undefined
+              ? { depositAmountCents: res.result.depositAmountCents }
               : {}),
           },
           error: null,
@@ -912,16 +1124,21 @@ export function OfferingDetailPage({
         setSaveMessage(t("saved"));
       } else {
         setSaveMessage(
-          t(friendlyOfferingError(res.errors[0], "saveFailedRetry")),
+          offeringErrorText(
+            res.errors[0],
+            "saveFailedRetry",
+            t,
+            translatePaymentError,
+          ),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        t(
-          friendlyOfferingError(
-            e instanceof Error ? { message: e.message } : null,
-            "saveFailedRetry",
-          ),
+        offeringErrorText(
+          e instanceof Error ? { message: e.message } : null,
+          "saveFailedRetry",
+          t,
+          translatePaymentError,
         ),
       );
     } finally {
@@ -942,16 +1159,21 @@ export function OfferingDetailPage({
         });
       } else {
         setSaveMessage(
-          t(friendlyOfferingError(res.errors[0], "actionFailedRetry")),
+          offeringErrorText(
+            res.errors[0],
+            "actionFailedRetry",
+            t,
+            translatePaymentError,
+          ),
         );
       }
     } catch (e: unknown) {
       setSaveMessage(
-        t(
-          friendlyOfferingError(
-            e instanceof Error ? { message: e.message } : null,
-            "actionFailedRetry",
-          ),
+        offeringErrorText(
+          e instanceof Error ? { message: e.message } : null,
+          "actionFailedRetry",
+          t,
+          translatePaymentError,
         ),
       );
     } finally {
@@ -1142,20 +1364,27 @@ export function OfferingDetailPage({
                           : pendingState.value}
                     </Field>
                   ) : null}
-                  {manage ? (
-                    <Field label={t("fieldPricing")}>
-                      {offering.pricingEnabled
-                        ? t("pricingOn", {
-                                overview: parsePriceTiers(offering.availablePriceTiers)
-                                  .map(
-                                    (tier) =>
-                                      `${tier.name} ¥${formatAmount(tier.amountCents)}`,
-                                  )
-                                  .join(" / "),
-                              })
-                        : t("pricingFree")}
-                    </Field>
-                  ) : null}
+                  {/* R10/AE8：单一缴费槽（免费 / 收费 ¥xx / 押金 ¥xx（到场退）），
+                      不再出现「收费：免费」与「押金：¥69」并列 */}
+                  <Field label={t("fieldPaymentMode")}>
+                    {paymentMode === "deposit"
+                      ? t("paymentSlotDeposit", {
+                          amount: formatAmountShort(
+                            offering.depositAmountCents ?? 0,
+                          ),
+                        })
+                      : paymentMode === "pricing"
+                        ? t("paymentSlotPricing", {
+                            overview:
+                              parsePriceTiers(offering.availablePriceTiers)
+                                .map(
+                                  (tier) =>
+                                    `${tier.name} ¥${formatAmountShort(tier.amountCents)}`,
+                                )
+                                .join(" / ") || t("noTier"),
+                          })
+                        : t("paymentSlotFree")}
+                  </Field>
                 </div>
               </div>
 
@@ -1213,7 +1442,7 @@ export function OfferingDetailPage({
                             title: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1230,7 +1459,7 @@ export function OfferingDetailPage({
                               .value as EnrollmentPolicy,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-select mt-1 w-full"
                       >
                         {ENROLLMENT_POLICIES.map((p) => (
                           <option key={p} value={p}>
@@ -1254,7 +1483,7 @@ export function OfferingDetailPage({
                             capacity: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1287,7 +1516,7 @@ export function OfferingDetailPage({
                             deadline: e.target.value,
                           })
                         }
-                        className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                        className="ui-input mt-1 w-full"
                       />
                     </label>
 
@@ -1301,6 +1530,36 @@ export function OfferingDetailPage({
                         setMetaDraft({ ...activeDraft, endsAt: v })
                       }
                     />
+
+                    {kind === "event" ? (
+                      <label className="block">
+                        <span className="block text-[13px] text-ink-3">{t("initiativeLabel")}</span>
+                        <select
+                          value={activeDraft.initiativeId ?? ""}
+                          onFocus={loadInitiatives}
+                          onChange={(e) => setMetaDraft({ ...activeDraft, initiativeId: e.target.value || null })}
+                          disabled={offering.status !== "draft"}
+                          className="ui-select mt-1 w-full"
+                        >
+                          <option value="">{t("initiativeNone")}</option>
+                          {initiatives.map((initiative) => (
+                            <option key={initiative.id} value={initiative.id}>{initiative.name}</option>
+                          ))}
+                        </select>
+                        {offering.status !== "draft" ? <span className="mt-1 block text-xs text-ink-3">{t("initiativeDraftOnly")}</span> : null}
+                      </label>
+                    ) : null}
+
+                    {kind === "event" && offering.initiativeId ? (
+                      <div className="block rounded-large border border-line bg-soft-2 px-3 py-2" data-testid="initiative-rules-summary">
+                        <span className="block text-[13px] text-ink-3">{t("initiativeRulesTitle")}</span>
+                        <ul className="mt-1 space-y-0.5 text-sm text-ink">
+                          <li>{offering.minAge != null ? t("initiativeRuleAge", { age: offering.minAge }) : t("initiativeRuleAgeOff")}</li>
+                          <li>{offering.minParticipants != null ? t("initiativeRuleMin", { count: offering.minParticipants }) : t("initiativeRuleMinOff")}</li>
+                        </ul>
+                        <span className="mt-1 block text-xs text-ink-3">{t("initiativeRulesHint")}</span>
+                      </div>
+                    ) : null}
 
                     {kind === "event" ? (
                       <VenueFields
@@ -1326,47 +1585,44 @@ export function OfferingDetailPage({
                               curriculumRequirements: e.target.value,
                             })
                           }
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                          className="ui-textarea mt-1 w-full"
                           placeholder={t("researchPlaceholder")}
                         />
                       </label>
                     ) : null}
 
-                    {/* 收费设置（U6/R2）：开关 + 档位就地修改（关收费守卫弹窗 U8 接入） */}
-                    <div className="grid gap-2" data-testid="pricing-edit-section">
-                      <label className="flex items-center gap-2 text-sm text-ink-2">
-                        <input
-                          type="checkbox"
-                          checked={activeDraft.pricingEnabled}
-                          onChange={(e) =>
-                            setMetaDraft({
-                              ...activeDraft,
-                              pricingEnabled: e.target.checked,
-                            })
-                          }
-                          data-testid="pricing-toggle"
-                        />
-                        {t("pricingEnable")}
-                      </label>
-                      {activeDraft.pricingEnabled && (
-                        <TierEditor
-                          drafts={activeDraft.tierDrafts}
-                          onChange={(tierDrafts) =>
-                            setMetaDraft({ ...activeDraft, tierDrafts })
-                          }
-                          manage
-                        />
-                      )}
-                      {soldTierTouched.length > 0 && (
-                        <p
-                          role="alert"
-                          className="text-[13px] text-amber-200"
-                          data-testid="sold-tier-warning"
-                        >
-                          {t("guardSoldTier")}
-                        </p>
-                      )}
-                    </div>
+                    {/* 缴费槽（U9/KTD10/R1/R3）：三态单选 + 押金金额；挂载 Initiative
+                        的场押金只读并提示来源（与规则摘要块合并为单一缴费槽展示） */}
+                    <PaymentSlotFields
+                      kind={kind}
+                      mode={activeDraft.mode}
+                      onModeChange={(mode) => {
+                        setMetaDraft({ ...activeDraft, mode });
+                        setSaveMessage(null);
+                      }}
+                      tierDrafts={activeDraft.tierDrafts}
+                      onTierDraftsChange={(tierDrafts) =>
+                        setMetaDraft({ ...activeDraft, tierDrafts })
+                      }
+                      depositAmount={activeDraft.depositAmount}
+                      onDepositAmountChange={(depositAmount) =>
+                        setMetaDraft({ ...activeDraft, depositAmount })
+                      }
+                      depositDisabled={initiativeGovernsDeposit}
+                      modeDisabled={paymentSlotLocked}
+                      sourceNote={paymentSlotSource}
+                    />
+
+                    {activeDraft.mode === "pricing" &&
+                    soldTierTouched.length > 0 ? (
+                      <p
+                        role="alert"
+                        className="text-[13px] text-amber-200"
+                        data-testid="sold-tier-warning"
+                      >
+                        {t("guardSoldTier")}
+                      </p>
+                    ) : null}
 
                     {/* U8 资金守卫确认（R9/R16）：关收费明示影响、开收费披露待审批；确认后执行 */}
                     {pricingGuard === "disable-confirm" ? (
@@ -1457,6 +1713,15 @@ export function OfferingDetailPage({
                     </button>
                   </div>
                 </div>
+              ) : null}
+
+              {/* U7（R12–R14）：主理人管理；Owner/Admin 随时可增删 */}
+              {manage && kind === "event" && offering ? (
+                <EventModeratorsCard
+                  workspaceId={offering.workspaceId ?? ws?.id ?? ""}
+                  eventId={offering.id}
+                  eventSlug={offering.slug}
+                />
               ) : null}
             </div>
 
@@ -1742,8 +2007,12 @@ export function OfferingDetailPage({
                         onClick={() => {
                           if (tr === "close" || tr === "cancel") {
                             setConfirmingTransition(tr);
-                            // R11：取消收费活动明示自动退款笔数与总金额
-                            if (tr === "cancel" && offering.pricingEnabled === true) {
+                            // R11：取消有收款面的活动明示自动退款笔数与总金额
+                            // （押金场 pricingEnabled=false，同属收款面 → 一并加载）
+                            if (
+                              tr === "cancel" &&
+                              (offering.pricingEnabled === true || offering.depositEnabled === true)
+                            ) {
                               void loadGuardCounts();
                             }
                           } else {
@@ -1837,6 +2106,7 @@ export function OfferingDetailPage({
                 kind={kind}
                 manage={manage}
                 pricingEnabled={offering.pricingEnabled === true}
+                depositEnabled={offering.depositEnabled === true}
               />
             </div>
           </>
@@ -1883,12 +2153,26 @@ export function OfferingNewPage({
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [venue, setVenue] = useState<VenueInfo>({ ...EMPTY_VENUE });
-  // 收费设置（U6/R1）：默认免费收起（AE4 免费路径零额外操作）；开启时
-  // 至少一档的客户端校验对齐后端 PriceTiersValidation。
-  const [pricingEnabled, setPricingEnabled] = useState(false);
+  const [initiativeId, setInitiativeId] = useState<string | null>(null);
+  const [initiatives, setInitiatives] = useState<PublicInitiativeCard[]>([]);
+  // 缴费槽（U9/KTD10/R1）：默认免费收起（AE4 免费路径零额外操作）；三态互斥，
+  // 定价态至少一档（对齐后端 PriceTiersValidation），押金态正金额 + ends_at
+  // （对齐后端 PaymentModeValidation）。
+  const [mode, setMode] = useState<PaymentMode>("free");
+  const [depositAmount, setDepositAmount] = useState("");
   const [tierDrafts, setTierDrafts] = useState<TierDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadInitiatives = () => {
+    if (initiatives.length > 0 || kind !== "event") return;
+    void fetchPublicInitiatives()
+      .then((rows) => setInitiatives(rows.filter((row) => row.status === "open")))
+      .catch(() => setInitiatives([]));
+  };
+
+  // 新建页无需只读门（无既有 Initiative 规则物化；挂载后由编辑页呈现来源）
+  const translatePaymentError = usePaymentErrorTranslator();
 
   const manage = ws ? canManageEvents(ws.myAbilities) : false;
   const label = OFFERING_LABEL[kind];
@@ -1900,11 +2184,24 @@ export function OfferingNewPage({
       setError(t("venueIncomplete"));
       return;
     }
-    // 收费开启：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）
+    // 定价态：至少一档有效（PriceTiersValidation 前端先拦，后端兜底）；
+    // 档位草稿仅在定价态参与校验（切押金/免费时随 payload 清空）
     const validTiers = tierDrafts.map(fromDraft).filter((x) => x !== null);
-    if (pricingEnabled && validTiers.length === 0) {
+    if (mode === "pricing" && validTiers.length === 0) {
       setError(t("pricingTierRequired"));
       return;
+    }
+    // 押金态：正金额 + ends_at 结算锚点（U3 后端同款判据）
+    const depositCents = depositAmountToCents(depositAmount);
+    if (mode === "deposit") {
+      if (depositCents === null) {
+        setError(t("depositAmountRequired"));
+        return;
+      }
+      if (endsAt.trim() === "") {
+        setError(t("depositEndsAtRequired"));
+        return;
+      }
     }
     setBusy(true);
     setError(null);
@@ -1918,20 +2215,39 @@ export function OfferingNewPage({
         startsAt: fromLocalInput(startsAt),
         endsAt: fromLocalInput(endsAt),
         ...(kind === "event" ? { venue } : {}),
-        ...(pricingEnabled
-          ? {
-              pricingEnabled,
-              priceTiers: validTiers.map((tier) => JSON.stringify(tier)),
-            }
-          : {}),
+        ...(kind === "event" && initiativeId ? { initiativeId } : {}),
+        // 免费路径不下发缴费键（后端默认免费）；其余三态键由单源序列化产出
+        // （三态互斥：押金态清档位、定价态清押金）
+        ...(mode === "free"
+          ? {}
+          : paymentSlotPayload({
+              kind,
+              mode,
+              tiers: validTiers.map((tier) => JSON.stringify(tier)),
+              depositAmountCents: depositCents,
+            })),
       });
       if (res.result) {
         router.push(`${base}/${res.result.id}`);
       } else {
-        setError(t(friendlyOfferingError(res.errors[0], "createFailed")));
+        setError(
+          offeringErrorText(
+            res.errors[0],
+            "createFailed",
+            t,
+            translatePaymentError,
+          ),
+        );
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("createFailed"));
+      setError(
+        offeringErrorText(
+          e instanceof Error ? { message: e.message } : null,
+          "createFailed",
+          t,
+          translatePaymentError,
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -1994,7 +2310,7 @@ export function OfferingNewPage({
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2007,7 +2323,7 @@ export function OfferingNewPage({
                 onChange={(e) =>
                   setEnrollmentPolicy(e.target.value as EnrollmentPolicy)
                 }
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-select mt-1 w-full"
               >
                 {ENROLLMENT_POLICIES.map((p) => (
                   <option key={p} value={p}>
@@ -2048,7 +2364,7 @@ export function OfferingNewPage({
                 min={1}
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2060,7 +2376,7 @@ export function OfferingNewPage({
                 type="datetime-local"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
-                className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+                className="ui-input mt-1 w-full"
               />
             </label>
 
@@ -2072,31 +2388,49 @@ export function OfferingNewPage({
             />
 
             {kind === "event" ? (
+              <label className="block">
+                <span className="block text-[13px] text-ink-3">{t("initiativeLabel")}</span>
+                <select
+                  value={initiativeId ?? ""}
+                  onFocus={loadInitiatives}
+                  onChange={(e) => setInitiativeId(e.target.value || null)}
+                  className="ui-select mt-1 w-full"
+                >
+                  <option value="">{t("initiativeNone")}</option>
+                  {initiatives.map((initiative) => (
+                    <option key={initiative.id} value={initiative.id}>{initiative.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {kind === "event" ? (
               <VenueFields value={venue} onChange={setVenue} />
             ) : null}
 
-            {/* 收费设置（U6/R1）：默认免费收起（<details> 折叠），开启后展开档位编辑 */}
+            {/* 缴费槽（U9/KTD10/R1）：默认免费收起（AE4 免费路径零额外操作），
+                展开后三态单选 + 押金金额/档位编辑 */}
             <details
               className="rounded-large border border-line bg-soft-2/40 p-4"
               data-testid="pricing-section"
             >
               <summary className="cursor-pointer text-sm font-medium text-ink">
-                {t("pricingSectionTitle")}
+                {t("paymentSlotTitle")}
               </summary>
               <div className="mt-3 grid gap-3">
-                <p className="text-[13px] text-ink-3">{t("pricingSectionHint")}</p>
-                <label className="flex items-center gap-2 text-sm text-ink-2">
-                  <input
-                    type="checkbox"
-                    checked={pricingEnabled}
-                    onChange={(e) => setPricingEnabled(e.target.checked)}
-                    data-testid="pricing-toggle"
-                  />
-                  {t("pricingEnable")}
-                </label>
-                {pricingEnabled && (
-                  <TierEditor drafts={tierDrafts} onChange={setTierDrafts} manage />
-                )}
+                <p className="text-[13px] text-ink-3">{t("paymentSlotHint")}</p>
+                <PaymentSlotFields
+                  kind={kind}
+                  mode={mode}
+                  onModeChange={(next) => {
+                    setMode(next);
+                    setError(null);
+                  }}
+                  tierDrafts={tierDrafts}
+                  onTierDraftsChange={setTierDrafts}
+                  depositAmount={depositAmount}
+                  onDepositAmountChange={setDepositAmount}
+                />
               </div>
             </details>
 

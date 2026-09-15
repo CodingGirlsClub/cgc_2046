@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { BrandLockup } from "@/components/brand";
 import LanguageSwitcher from "@/components/language-switcher";
-import { Link } from "@/i18n/navigation";
+import { Link, usePathname } from "@/i18n/navigation";
 import { useAuthed } from "@/lib/use-authed";
 
 export type SiteNavLink = "events" | "courses";
@@ -21,6 +21,13 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 	const t = useTranslations("landing.nav");
 	const { authed, confirmed } = useAuthed();
 	const signedIn = confirmed && authed;
+	// 报名引导链路（UAT 实证断链）：从公开页点「登录/注册」后必须回得来。
+	// home/login/register 本身不构造 next，避免无意义回环。
+	const pathname = usePathname();
+	const withNext = (href: string) =>
+		pathname && !["/", "/login", "/register"].includes(pathname)
+			? `${href}?next=${encodeURIComponent(pathname)}`
+			: href;
 
 	return (
 		<header className="site-nav">
@@ -43,24 +50,29 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 					>
 						{t("courses")}
 					</Link>
+					{signedIn ? (
+						<>
+							<Link href="/participations" className="site-nav__link">
+								{t("myParticipations")}
+							</Link>
+							<Link href="/learning" className="site-nav__link">
+								{t("myLearning")}
+							</Link>
+						</>
+					) : null}
 				</nav>
 				<div className="site-nav__right">
 					<LanguageSwitcher className="site-nav__lang" />
 					{signedIn ? (
-						<>
-							<Link href="/learning" className="site-nav__login">
-								{t("myLearning")} <span aria-hidden="true">→</span>
-							</Link>
-							<Link href="/" className="join-button join-button--primary">
-								{t("workspace")}
-							</Link>
-						</>
+						<Link href="/" className="join-button join-button--primary">
+							{t("workspace")}
+						</Link>
 					) : (
 						<>
-							<Link href="/login" className="site-nav__login">
+							<Link href={withNext("/login")} className="site-nav__login">
 								{t("login")} <span aria-hidden="true">→</span>
 							</Link>
-							<Link href="/register" className="join-button join-button--primary">
+							<Link href={withNext("/register")} className="join-button join-button--primary">
 								{t("join")}
 							</Link>
 						</>

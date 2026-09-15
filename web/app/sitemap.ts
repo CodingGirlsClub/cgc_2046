@@ -23,6 +23,7 @@ const STATIC_PATHS: ReadonlyArray<{
 	{ path: "/", changeFrequency: "weekly", priority: 1 },
 	{ path: "/events", changeFrequency: "daily", priority: 0.8 },
 	{ path: "/courses", changeFrequency: "daily", priority: 0.8 },
+	{ path: "/initiatives", changeFrequency: "daily", priority: 0.8 },
 	{ path: "/login", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/register", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/privacy", changeFrequency: "yearly", priority: 0.2 },

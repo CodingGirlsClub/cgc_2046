@@ -523,3 +523,126 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
     );
   });
 });
+
+describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退还条件）", () => {
+	it("押金场：开框先停确认态——未勾选时确认按钮禁用、零网络请求、无二维码", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		// 确认块出现，押金口径可见
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("checkout-deposit-note")).toBeInTheDocument();
+		expect(
+			screen.getByText("押金以到场为退还条件：到场核销后原路退回，未到场不予退还。"),
+		).toBeInTheDocument();
+
+		// 未确认：不查活单、不下单、无凭据
+		expect(client.query).not.toHaveBeenCalled();
+		expect(client.mutate).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("checkout-loading")).not.toBeInTheDocument();
+
+		// 未勾选：确认按钮禁用
+		expect(screen.getByTestId("checkout-deposit-consent-button")).toBeDisabled();
+	});
+
+	it("押金场：勾选并确认后才下单 → 二维码渲染", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(client.mutate).not.toHaveBeenCalled();
+
+		// 勾选 → 按钮可用 → 确认进入支付
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		expect(
+			screen.getByTestId("checkout-deposit-consent-button"),
+		).toBeEnabled();
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+
+		expect(await screen.findByTestId("checkout-qr")).toHaveAttribute(
+			"src",
+			"data:image/png;base64,qr",
+		);
+		expect(client.mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				variables: { input: { enrollmentId: "enr-1", provider: "wechat_native" } },
+			}),
+		);
+	});
+
+	it("押金场：确认后走复用活单路径（不重复下单）", async () => {
+		client.query.mockResolvedValue({
+			data: { myOrders: { results: [pendingOrder()] } },
+		});
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({
+			type: "qr_code",
+			code_url: "weixin://wxpay/x",
+		}));
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		// 复用活单：不发 createOrder
+		expect(client.mutate).not.toHaveBeenCalled();
+	});
+
+	it("定价场（无 depositAmountCents）：不出现确认块，直接初始化（回归）", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				amountCents={19900}
+				tierName="标准档"
+			/>,
+		);
+
+		// 直接进入支付：无确认块，下单即开始
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-consent"),
+		).not.toBeInTheDocument();
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+	});
+});

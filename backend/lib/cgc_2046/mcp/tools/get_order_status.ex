@@ -26,7 +26,8 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   require Ash.Query
 
   # 非终态（部分唯一索引 unique_active_order 同款口径）：pending/paid/refunding/
-  # refund_failed；terminal = refunded/cancelled/expired。
+  # refund_failed；terminal = refunded/cancelled/expired/forfeited（U7 no-show
+  # 结算终态，按终态读面返回）。
   @non_terminal_statuses [:pending, :paid, :refunding, :refund_failed]
 
   schema do

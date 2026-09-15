@@ -87,11 +87,12 @@
 | `deployment-view.puml` | ✅ 新 | 部署视图：GitHub CI + 开发机拓扑 + 生产目标（如实呈现「无部署信号」现状 + SendCloud 五值注入契约与 fail-fast） | docs/运维/邮件与CD环境注入.md |
 | `api-contracts.puml` | ✅ 新 | 接口契约：五个面（GraphQL Q50/M63 / MCP 12 工具 / AshAdmin /ops / dev mailbox / **payments webhook 渠道回调·无 actor 验签**）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
 
-### L1 — 领域模型（3 张）
+### L1 — 领域模型（4 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `domain-model-er.puml` | ✅ | 领域模型 ER：全局资源（User/Workspace/…+WebhookEvent）与租户内实体（+payments 区 Order、learning 区 LearningRecord/ResearchOutput）及关系、唯一约束 | 领域模型定稿 §5.2 + payments/learning 模块 |
+| `initiative-er.puml` | 🟡 to-be | Initiative（倡导活动）实体关系子图（需求层设计稿，尚未实现）：新增 Initiative / InitiativeRule（逐字段锁死·默认）/ EventModerator（主理人）/ Attendance；Event / Enrollment / PortfolioItem 新字段；派生关系（参与 Workspace、城市、公开计数） | 2026-09-13 brainstorm Q1–Q8 + #508/#509/#510/#512 |
 | `domain-model-class.puml` | ✅ | 领域模型类图：核心聚合根（+Order/ResearchOutput/LearningRecord context）、关键枚举（Enrollment 6 态/Order 7 态） | 领域模型定稿 §5 + payments/learning 模块 |
 | `signal-event-catalog.puml` | ✅ 新 | 信号目录：18 种类型（+order.paid）× 生产者 × **七订阅方**（+EventCancelRefundWorker）× 幂等四策略；payments 状态迁移不走总线（webhook+worker 直推） | signal_emitter/signals_subscriber/订阅方模块 |
 
@@ -130,12 +131,13 @@
 | `key-routing-isolation.puml` | ✅ | 幂等三层与路由隔离：request_id + 业务唯一索引 + signal idempotency_key，承载 Postgres/Redis | 报名/赞助详细设计 §6.4 + POC-2 |
 | `auth-tenant-isolation.puml` | ✅ 新 | 横切概念：四种凭证模型 + **第五面 payments webhook（无 actor 渠道验签）**、全局 vs 租户资源（+Order/WebhookEvent/LearningRecord）、审计链路（+AdminActionLog waive/退款留痕、order.paid） | mcp/token.ex + policies + webhook controller + D5/D6/D9/D12/D13 |
 
-### L4 — 用户旅程（2 张）
+### L4 — 用户旅程（3 张）
 
 | 文件 | 状态 | 内容 | 对应文档 |
 |------|------|------|----------|
 | `user-journeys.puml` | ✅ | 8 类角色旅程总览：J0 BYO 三步、报名、赞助、邀请、教研、学习、运营后台 | 用户旅程与Web功能清单 |
 | `user-journey-enrollment-learning.puml` | ✅ 新 | 报名→学习 journey 角色泳道**修复前快照**（as-is @2026-09-09）：createEnrollment 三分支 → 详情页/参与列表/学习页/回访全链路，断点①-⑦红标 + 修复状态（①②③⑤ 已修复；④ 入口兜底已修复；⑥ 未实施，需小程序课程页；⑦ 待讨论） | 前端组件/后端 enrollment·learning 源码 + PR #497 |
+| `initiative-user-journeys.puml` | 🟡 to-be | Initiative 四角色 journey 泳道（总部 / 参与者 / 主理人 / 城市 owner 未来 opt-in）：发起 → 建场 → 报名付押金 → 开班判定 → 现场核销与作品 → 结算收官；颜色标 v1 必须 / 应该 / 后置 / 未来 | 2026-09-13 brainstorm + #508–#513 |
 
 ## 四、图与文档的同步约定
 

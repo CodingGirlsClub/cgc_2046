@@ -23,6 +23,7 @@ import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
 import {
+	ORDER_STATUS_FILTER_VALUES,
 	ORDER_STATUS_LABEL,
 	PROVIDER_LABEL,
 	formatAmount,
@@ -40,6 +41,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 	refund_failed: "border-red-400/40 text-red-300",
 	cancelled: "border-line text-ink-3",
 	expired: "border-line text-ink-3",
+	forfeited: "border-line text-ink-3",
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {
@@ -84,8 +86,22 @@ export function StatsCards({
 		);
 	}
 
+	// 已收 = 仅 paid 合计：押金被判 no-show 后从「已收」消失但钱仍由平台持有，
+	// 故单独列出没收桶（>0 才渲染，避免常挂空卡；KTD7/R9）
+	const forfeitedCents = stats?.forfeitedCents ?? 0;
+
 	const cards = [
 		{ label: t("statCollected"), cents: stats?.collectedCents ?? 0, testid: "stats-collected", danger: false },
+		...(forfeitedCents > 0
+			? [
+					{
+						label: t("statForfeited"),
+						cents: forfeitedCents,
+						testid: "stats-forfeited",
+						danger: false,
+					},
+				]
+			: []),
 		{ label: t("statPending"), cents: stats?.pendingCents ?? 0, testid: "stats-pending", danger: false },
 		{ label: t("statRefunded"), cents: stats?.refundedCents ?? 0, testid: "stats-refunded", danger: false },
 		{
@@ -178,13 +194,10 @@ export default function PaymentsManagement({
 	const labelsT = useTranslations();
 	const statusFilters = [
 		{ value: "", label: t("filterAll") },
-		{ value: "pending", label: labelsT(ORDER_STATUS_LABEL.pending) },
-		{ value: "paid", label: labelsT(ORDER_STATUS_LABEL.paid) },
-		{ value: "refunding", label: labelsT(ORDER_STATUS_LABEL.refunding) },
-		{ value: "refunded", label: labelsT(ORDER_STATUS_LABEL.refunded) },
-		{ value: "refund_failed", label: labelsT(ORDER_STATUS_LABEL.refund_failed) },
-		{ value: "cancelled", label: labelsT(ORDER_STATUS_LABEL.cancelled) },
-		{ value: "expired", label: labelsT(ORDER_STATUS_LABEL.expired) },
+		...ORDER_STATUS_FILTER_VALUES.map((value) => ({
+			value,
+			label: labelsT(ORDER_STATUS_LABEL[value]),
+		})),
 	];
 	const [statusFilter, setStatusFilter] = useState("");
 	// U9/R8：活动筛选（财务汇总层——订单列表按活动收敛，统计卡保持工作区口径）
@@ -278,7 +291,7 @@ export default function PaymentsManagement({
 									setOfferingFilter(e.target.value);
 									void load(statusFilter, e.target.value);
 								}}
-								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								className="ui-select ui-select--sm"
 								data-testid="offering-filter"
 							>
 								<option value="">{t("filterOfferingAll")}</option>
@@ -297,7 +310,7 @@ export default function PaymentsManagement({
 									setStatusFilter(e.target.value);
 									void load(e.target.value);
 								}}
-								className="rounded-large border border-line bg-soft-2 px-2 py-1 text-sm text-ink"
+								className="ui-select ui-select--sm"
 								data-testid="status-filter"
 							>
 								{statusFilters.map((f) => (

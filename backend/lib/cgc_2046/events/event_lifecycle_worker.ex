@@ -23,21 +23,83 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
+  alias Cgc2046.Events.Qualification
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     now = DateTime.utc_now()
 
-    closed_events = close_overdue(Event, now)
+    {qualified_events, closed_events} = sweep_events(now)
     closed_courses = close_overdue(Course, now)
 
-    if closed_events + closed_courses > 0 do
+    if qualified_events + closed_events + closed_courses > 0 do
       Logger.info(
-        "event lifecycle sweep: closed #{closed_events} event(s), #{closed_courses} course(s)"
+        "event lifecycle sweep: qualified #{qualified_events} event(s), closed #{closed_events} event(s), #{closed_courses} course(s)"
       )
     end
 
     :ok
+  end
+
+  # Event 的 deadline 语义分两支：未配置最小开班人数的旧活动仍在报名截止时
+  # 结束；配置了阈值的活动在截止时只落一次 qualification 事实，成班活动保持
+  # open 到 ends_at，未达活动转 cancelled 触发现有批量退款信号。
+  defp sweep_events(now) do
+    events =
+      Event
+      |> Ash.Query.filter(
+        status == :open and
+          ((not is_nil(registration_deadline) and registration_deadline < ^now) or
+             (not is_nil(ends_at) and ends_at < ^now))
+      )
+      |> Ash.read!(authorize?: false)
+
+    Enum.reduce(events, {0, 0}, fn event, {qualified, closed} ->
+      cond do
+        event.qualification_status == :underfilled && event.status == :open ->
+          case cancel_record(event) do
+            :ok -> {qualified, closed + 1}
+            :skip -> {qualified, closed}
+          end
+
+        event.min_participants && event.qualification_status == :pending &&
+          event.registration_deadline && DateTime.compare(event.registration_deadline, now) == :lt ->
+          case qualify_event(event) do
+            {:ok, :underfilled, _enrollments, _count} ->
+              case cancel_record(event) do
+                :ok -> {qualified + 1, closed + 1}
+                :skip -> {qualified + 1, closed}
+              end
+
+            {:ok, :confirmed, _enrollments, _count} ->
+              {qualified + 1, closed}
+
+            :skip ->
+              {qualified, closed}
+          end
+
+        is_nil(event.min_participants) && event.registration_deadline &&
+            DateTime.compare(event.registration_deadline, now) == :lt ->
+          case close_record(event) do
+            :ok -> {qualified, closed + 1}
+            :skip -> {qualified, closed}
+          end
+
+        event.qualification_status == :confirmed && event.ends_at &&
+            DateTime.compare(event.ends_at, now) == :lt ->
+          case close_record(event) do
+            :ok -> {qualified, closed + 1}
+            :skip -> {qualified, closed}
+          end
+
+        true ->
+          {qualified, closed}
+      end
+    end)
+  end
+
+  defp qualify_event(event) do
+    Qualification.qualify(event)
   end
 
   # registration_deadline = nil（无截止）永不扫中（同 Invitation expires_at 语义）。
@@ -69,6 +131,19 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
           "event lifecycle close failed for #{entity.__struct__} #{entity.id}: #{inspect(reason)}"
         )
 
+        :skip
+    end
+  end
+
+  defp cancel_record(entity) do
+    case entity
+         |> Ash.Changeset.for_update(:cancel, %{}, tenant: entity.workspace_id, authorize?: false)
+         |> Ash.update(tenant: entity.workspace_id, authorize?: false) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("event lifecycle cancel failed for #{entity.id}: #{inspect(reason)}")
         :skip
     end
   end

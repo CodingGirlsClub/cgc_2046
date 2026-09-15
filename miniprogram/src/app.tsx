@@ -22,8 +22,8 @@ function App({ children }: PropsWithChildren) {
       if (scene) Taro.setStorageSync(STORAGE_KEYS.pendingScene, scene)
 
       const pages = Taro.getCurrentPages()
-      const currentRoute = pages.length > 0 ? pages[pages.length - 1].route ?? '' : ''
-      const url = resolveAppShowRoute(query, currentRoute)
+      const currentPage = pages[pages.length - 1]
+      const url = resolveAppShowRoute(query, currentPage?.route ?? '', currentPage?.options)
       if (url) Taro.navigateTo({ url })
     }
     Taro.onAppShow(handler)

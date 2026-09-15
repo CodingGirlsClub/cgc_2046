@@ -11,7 +11,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   不在此改。
 
   高风险依据：定价变更（pricing_enabled true→false）会同事务批量免缴待支付报名
-  （`Cgc2046.Admission.Changes.WaivePendingOnPricingDisable`，R9/KTD4）——资金相关
+  （`Cgc2046.Admission.Changes.WaivePendingOnFeeSlotDisable`，R9/KTD4）——资金相关
   副作用必须经用户确认。pending 摘要精确列出将变更的字段与新值；true→false 时
   追加批量免缴影响摘要（待支付笔数计入）。nil 值视为未提供（不支持显式置空）。
 
@@ -30,7 +30,8 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   @updatable_fields ~w(title description slug visibility enrollment_policy capacity
                        registration_deadline starts_at ends_at venue sponsorship_enabled
                        sponsorship_tiers sponsorship_deadline pricing_enabled price_tiers
-                       curriculum_enabled curriculum_requirements course_revision_id)
+                       curriculum_enabled curriculum_requirements course_revision_id initiative_id
+                       deposit_enabled deposit_amount_cents min_age min_participants)
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
@@ -60,6 +61,11 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
     field(:price_tiers, {:list, :map}, description: "价格档位配置（PriceTier 形状；改价不追溯已生成订单）")
     field(:curriculum_enabled, :boolean, description: "是否启用教研 workflow")
     field(:curriculum_requirements, :map, description: "教研材料需求")
+    field(:initiative_id, :string, description: "草稿所属 Initiative UUID")
+    field(:deposit_enabled, :boolean, description: "是否收取活动押金")
+    field(:deposit_amount_cents, :integer, description: "押金金额（分）")
+    field(:min_age, :integer, description: "最低年龄")
+    field(:min_participants, :integer, description: "最低成班人数")
   end
 
   @impl true

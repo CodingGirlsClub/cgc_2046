@@ -9,6 +9,7 @@ import {
   mapPaymentCredential,
   nextPollTick,
   parsePriceTiers,
+  paymentBlockCopy,
   paymentLandingUrl,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
@@ -125,6 +126,49 @@ test('金额分→元两位小数；订单/缴费状态词表覆盖 plan R16 状
   assert.equal(PAYMENT_STATUS_LABEL.payment_pending, '待支付')
   assert.equal(PAYMENT_STATUS_LABEL.paid, '已支付')
   assert.equal(PAYMENT_STATUS_LABEL.refunded, '已退款')
+})
+
+// ── U11（R10）：详情页缴费块三态文案 ──
+
+test('缴费块三态：免费/收费/押金各一态，押金态含「未到场不退」且不并列档位与「免费」', () => {
+  const tiers = [{ id: 't1', name: '早鸟', amountCents: 9900 }]
+
+  assert.deepEqual(
+    paymentBlockCopy({ pricingEnabled: false, depositEnabled: false, depositAmountCents: null, priceTiers: [] }),
+    { title: '缴费', amountText: '免费', tiers: [], notes: [] }
+  )
+
+  const pricing = paymentBlockCopy({
+    pricingEnabled: true,
+    depositEnabled: false,
+    depositAmountCents: null,
+    priceTiers: tiers
+  })
+  assert.equal(pricing.amountText, '收费')
+  assert.deepEqual(pricing.tiers, tiers)
+  // 无可售档兜底（既有详情页文案不回归）
+  assert.deepEqual(
+    paymentBlockCopy({ pricingEnabled: true, depositEnabled: false, depositAmountCents: null, priceTiers: [] }).notes,
+    ['当前无可售档位，请联系组织者。']
+  )
+
+  const deposit = paymentBlockCopy({
+    pricingEnabled: false,
+    depositEnabled: true,
+    depositAmountCents: 6900,
+    priceTiers: tiers
+  })
+  assert.equal(deposit.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(deposit.amountText.includes('免费'), false)
+  assert.deepEqual(deposit.tiers, [])
+  assert.equal(deposit.notes.some((note) => note.includes('未到场不退')), true)
+
+  // 金额缺失（后端校验兜底）：降级不出价，也不并列「免费」
+  assert.equal(
+    paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: null, priceTiers: [] })
+      .amountText,
+    '押金（到场退）'
+  )
 })
 
 test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {

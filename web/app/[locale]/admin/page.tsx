@@ -57,6 +57,7 @@ export default function AdminHomePage() {
 		{ label: "linkApplications", href: "/admin/applications" },
 		{ label: "linkAudit", href: "/admin/audit" },
 		{ label: "linkOpenclacky", href: "/admin/openclacky" },
+		{ label: "linkInitiatives", href: "/admin/initiatives" },
 	];
 
 	return (
