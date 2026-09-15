@@ -18,18 +18,19 @@ import { Icon } from "@/components/icons";
  * - Owner/Admin 随时可增删（含 closed/cancelled 场次），目标用户须为本工作台
  *   成员（#558 / #542 决策 A1：非成员指派被后端拒绝，按 code 出引导文案）；
  * - 输入为用户 ID（计划口径：不按邮箱检索，避免泄露全站用户名录）；
- * - U9/KTD10：附「复制核销页链接」——主理人在工作台外的
- *   `/[locale]/events/[slug]/check-in` 手输 6 位码核销，组织者转发入口。
+ * - U9/KTD10：附「复制核销页链接」——核销页在工作台壳内
+ *   （#559：`/[locale]/w/[slug]/events/[id]/check-in`），主理人手输 6 位码
+ *   核销，组织者转发入口。
  */
 export default function EventModeratorsCard({
 	workspaceId,
 	eventId,
-	eventSlug,
+	workspaceSlug,
 }: {
 	workspaceId: string;
 	eventId: string;
-	/** 活动公开 slug（null = 未发布，无公开核销页可转发） */
-	eventSlug?: string | null;
+	/** 工作台 slug（核销页链接的路由段；null = 壳内路由不可构造，不显示复制入口） */
+	workspaceSlug?: string | null;
 }) {
 	const t = useTranslations("offerings");
 	const tCommon = useTranslations("common");
@@ -96,10 +97,10 @@ export default function EventModeratorsCard({
 		setBusy(false);
 	}
 
-	// 核销页为站点壳路由（工作台外）：/events/[slug]/check-in，locale 前缀由
+	// 核销页在工作台壳内（#559）：/w/[slug]/events/[id]/check-in，locale 前缀由
 	// 导航单源决定（zh-CN 无前缀，与 i18n routing 'as-needed' 一致）
-	const checkInPath = eventSlug
-		? getPathname({ href: `/events/${eventSlug}/check-in`, locale })
+	const checkInPath = workspaceSlug
+		? getPathname({ href: `/w/${workspaceSlug}/events/${eventId}/check-in`, locale })
 		: null;
 
 	async function copyCheckInLink() {
