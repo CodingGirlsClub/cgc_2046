@@ -4,7 +4,7 @@
     "teardown": "cd backend && mix ecto.drop --force || true"
   },
   "scripts": {
-    "api": { "type": "service", "command": "cd backend && mix phx.server", "port": 4000 },
-    "web": { "type": "service", "command": "cd web && pnpm dev", "port": 3000 }
+    "api": { "type": "service", "command": "cd backend && mix phx.server" },
+    "web": { "type": "service", "command": "cd web && pnpm dev -- --port $PASEO_PORT" }
   }
 }
