@@ -152,7 +152,9 @@ defmodule Cgc2046.Offering do
        %{
          starts_at: offering.starts_at,
          venue: venue_text_for(offering),
-         registration_deadline: offering.registration_deadline
+         registration_deadline: offering.registration_deadline,
+         deposit_enabled: Map.get(offering, :deposit_enabled) == true,
+         pricing_enabled: offering.pricing_enabled == true
        }}
     end)
   end

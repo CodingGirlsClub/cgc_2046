@@ -2105,6 +2105,13 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # U3：目标缴费模式 free/pricing/deposit（码卡与取消规则的模式感知文案用）
+    field(:payment_mode, :string) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :payment_mode)}
+      end)
+    end
+
     # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
     # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
     # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层

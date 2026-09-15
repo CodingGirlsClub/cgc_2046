@@ -15,11 +15,14 @@ import { useQrDataUrl } from "@/lib/use-qr-data-url";
 export default function CheckInCodeCard({
   code,
   eventSegment,
+  paymentMode = null,
 }: {
   /** 6 位核销码（字符串，前导零有意义） */
   code: string;
   /** 核销 URL 路段：event slug（公开详情页）或 event id（报名卡只有 eventId） */
   eventSegment: string;
+  /** 目标缴费模式（U3：deposit 时多一行「核销后押金原路退回」承诺句） */
+  paymentMode?: string | null;
 }) {
   const t = useTranslations("checkIn");
   const locale = useLocale();
@@ -56,6 +59,14 @@ export default function CheckInCodeCard({
           </div>
         )}
       </div>
+      {paymentMode === "deposit" ? (
+        <p
+          className="mt-2 text-[12px] leading-5 text-emerald-300"
+          data-testid="check-in-deposit-hint"
+        >
+          {t("depositRefundHint")}
+        </p>
+      ) : null}
       <p className="mt-2 text-[12px] leading-5 text-ink-3">
         {t("keepPrivateHint")}
       </p>

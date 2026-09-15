@@ -1102,6 +1102,7 @@ export type Enrollment = {
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
   inviteBatchId?: Maybe<Scalars['ID']['output']>;
+  paymentMode?: Maybe<Scalars['String']['output']>;
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
   rejectionReason?: Maybe<Scalars['String']['output']>;
   startsAt?: Maybe<Scalars['DateTime']['output']>;

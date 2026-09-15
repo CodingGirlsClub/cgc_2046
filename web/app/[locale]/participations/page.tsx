@@ -163,7 +163,11 @@ function EnrollmentCard({
       ) : null}
 
       {row.status === "confirmed" && row.eventId && row.checkInCode ? (
-        <CheckInCodeCard code={row.checkInCode} eventSegment={row.eventId} />
+        <CheckInCodeCard
+          code={row.checkInCode}
+          eventSegment={row.eventId}
+          paymentMode={row.paymentMode ?? null}
+        />
       ) : null}
       {row.status === "confirmed" && row.courseId ? (
         <div className="mt-3">

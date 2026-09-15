@@ -2208,6 +2208,7 @@
 		"cardLabel": "核销码（现场出示给主理人）",
 		"qrAlt": "核销二维码",
 		"qrGenerating": "二维码生成中…",
+		"depositRefundHint": "到场出示此码核销后，押金将原路退回。",
 		"keepPrivateHint": "请勿截图转发：核销码被他人获取后可代为核销，押金将随之退还。"
 	}
 }
