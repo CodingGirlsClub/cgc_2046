@@ -37,6 +37,17 @@ defmodule Cgc2046.Events.PaymentModeValidation do
           is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) ->
         {:error, domain_error(:deposit_ends_at_required, :ends_at)}
 
+      # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
+      # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）
+      deposit_enabled == true and ends_at_moved_earlier?(changeset) and
+          not offering_matches?(changeset) ->
+        {:error,
+         Cgc2046.Errors.BusinessError.exception(
+           message: "cannot move ends_at earlier while active deposit orders exist",
+           code: "event_ends_at_frozen",
+           fields: [:ends_at]
+         )}
+
       true ->
         :ok
     end
@@ -46,6 +57,38 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     Enum.any?([:deposit_enabled, :deposit_amount_cents, :ends_at], fn attribute ->
       Ash.Changeset.changing_attribute?(changeset, attribute)
     end)
+  end
+
+  # ends_at 前移 = 新值 < 旧值
+  defp ends_at_moved_earlier?(changeset) do
+    Ash.Changeset.changing_attribute?(changeset, :ends_at) and
+      not is_nil(Ash.Changeset.get_data(changeset, :ends_at)) and
+      not is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) and
+      DateTime.compare(
+        Ash.Changeset.get_attribute(changeset, :ends_at),
+        Ash.Changeset.get_data(changeset, :ends_at)
+      ) == :lt
+  end
+
+  # 有无非终态押金单（paid/refunding/refund_failed）→ 冻结守卫的触发条件。
+  # 跨域只读（Events → Payments Order），单次点查（Event update 低频）。
+  defp offering_matches?(changeset) do
+    event_id = Ash.Changeset.get_data(changeset, :id)
+
+    case Cgc2046.Repo.query(
+           """
+           SELECT 1 FROM payments_orders
+           WHERE enrollment_id IN (SELECT id FROM enrollments WHERE event_id = $1)
+             AND order_kind = 'deposit'
+             AND status IN ('paid', 'refunding', 'refund_failed')
+           LIMIT 1
+           """,
+           [Cgc2046.Repo.uuid!(event_id)]
+         ) do
+      {:ok, %{rows: []}} -> true
+      {:ok, %{rows: [_ | _]}} -> false
+      _ -> false
+    end
   end
 
   defp amount(changeset), do: Ash.Changeset.get_attribute(changeset, :deposit_amount_cents)

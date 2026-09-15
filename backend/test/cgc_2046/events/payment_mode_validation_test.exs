@@ -14,6 +14,7 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.Event
+  alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
   setup do
@@ -148,6 +149,56 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                create_event(ctx, %{deposit_enabled: true, deposit_amount_cents: 3000})
 
       assert_business_code(result, "event_deposit_ends_at_required")
+    end
+  end
+
+  describe "ends_at 冻结守卫（adversarial P1）" do
+    test "存在未终态押金单时禁止 ends_at 前移", ctx do
+      event =
+        EventFixtures.create_event(ctx.workspace, ctx.admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          event_id: event.id,
+          user_id: ctx.admin.id
+        })
+        |> Ash.create(tenant: ctx.workspace.id, authorize?: false)
+
+      Cgc2046.Repo.query!(
+        """
+        INSERT INTO payments_orders (id, enrollment_id, order_kind, amount_cents,
+          provider, status, out_trade_no, expire_at, inserted_at, updated_at, workspace_id, tier_snapshot)
+        VALUES (gen_random_uuid(),
+          $1::uuid,
+          'deposit', 6900, 'wechat_native', 'paid', 'frozen-txn',
+          NOW() + INTERVAL '2 hours', NOW(), NOW(),
+          $2::uuid, '{"name":"\u62bc\u91d1","amount_cents":6900}')
+        """,
+        [Ecto.UUID.dump!(enrollment.id), Ecto.UUID.dump!(ctx.workspace.id)]
+      )
+
+      assert {:error, _} =
+               result =
+               update_event(ctx, event, %{ends_at: EventFixtures.days_from_now(1)})
+
+      assert_business_code(result, "event_ends_at_frozen")
+    end
+
+    test "无押金单时 ends_at 可前移（守卫不触发）", ctx do
+      event =
+        EventFixtures.create_event(ctx.workspace, ctx.admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      assert {:ok, _} =
+               update_event(ctx, event, %{ends_at: EventFixtures.days_from_now(2)})
     end
   end
 
