@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import {
 	assignEventModerator,
@@ -37,6 +37,8 @@ export default function EventModeratorsCard({
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	// 复制成功提示的复原计时器（ref 持有：连续点击只保留最后一次，卸载时清掉）
+	const copiedTimer = useRef<number | null>(null);
 
 	const load = useCallback(() => {
 		let cancelled = false;
@@ -53,6 +55,15 @@ export default function EventModeratorsCard({
 	}, [workspaceId, eventId, t]);
 
 	useEffect(() => load(), [load]);
+
+	// 卸载清理：计时器不落到已卸载组件（也不遗留闭包引用）
+	useEffect(
+		() => () => {
+			if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+			copiedTimer.current = null;
+		},
+		[],
+	);
 
 	async function assign() {
 		const trimmed = userId.trim();
@@ -93,7 +104,11 @@ export default function EventModeratorsCard({
 		const ok = await copyText(`${window.location.origin}${checkInPath}`);
 		if (ok) {
 			setCopied(true);
-			window.setTimeout(() => setCopied(false), 2000);
+			if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+			copiedTimer.current = window.setTimeout(() => {
+				copiedTimer.current = null;
+				setCopied(false);
+			}, 2000);
 			return;
 		}
 		// 非安全上下文/权限拒绝不静默失败：就地给出可手动复制的链接

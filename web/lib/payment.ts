@@ -287,6 +287,21 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
 	forfeited: "labels.orderStatus.forfeited",
 };
 
+/**
+ * 管理面订单状态筛选值（顺序即下拉顺序，与 ORDER_STATUS_LABEL 键序一致）：
+ * payments-management 与 offering-payments-panel 共用，新增终态只改这里。
+ */
+export const ORDER_STATUS_FILTER_VALUES: readonly string[] = [
+	"pending",
+	"paid",
+	"refunding",
+	"refunded",
+	"refund_failed",
+	"cancelled",
+	"expired",
+	"forfeited",
+];
+
 /** 倒计时文案：expire_at − now；过期文案由调用方传翻译（expiredLabel） */
 export function countdownText(
 	nowMs: number,
