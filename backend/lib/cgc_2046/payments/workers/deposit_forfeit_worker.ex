@@ -62,15 +62,14 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    # 唯一窗与 cron 周期对齐（KTD7）：防抖重复入队/手动重触造成的并发双拍；
-    # 拍内的 CAS 本身幂等，唯一任务是第二层。
+    # 唯一窗（300s）刻意窄于 cron 周期（*/10 = 600s，KTD7）：作用是防抖重复
+    # 入队/手动重触造成的并发双拍；拍内的 CAS 本身幂等，唯一任务是第二层。
     unique: [period: 300, states: :incomplete]
 
   require Logger
 
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Admission.Enrollment
-  alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Payments.Order
   alias Cgc2046.Reconciliation.Finding
   alias Cgc2046.Repo
@@ -85,11 +84,13 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
   def perform(%Oban.Job{}) do
     # 资金段先走：诊断段（Finding 同步）读失败会 raise，若排在前面会把整拍
     # 掐在任何没收之前（到场者之外的所有未核销单都要等下一拍）——必达路径优先。
+    # 审计必须紧随资金段、排在诊断段之前：诊断段 raise 会让其后的审计永久丢失
+    # （Oban 重试时 sweep 幂等空转，log_audit([]) 不再补行）。
     {forfeited, failures} = sweep()
 
-    sync_unanchored_findings()
-
     log_audit(forfeited)
+
+    sync_unanchored_findings()
 
     if forfeited != [] do
       Logger.info("deposit forfeit sweep: #{length(forfeited)} order(s) forfeited")
@@ -200,7 +201,7 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
         order
         |> Ash.Changeset.for_update(:forfeit, %{})
         |> Ash.update(tenant: order.workspace_id, authorize?: false)
-        |> classify()
+        |> classify(candidate)
 
       # 读取失败（含行被并发删除的理论面）不是「已结算」：按硬失败上报，下拍重试
       {:error, reason} ->
@@ -208,21 +209,20 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
     end
   end
 
-  defp classify({:ok, _forfeited}), do: :forfeited
+  defp classify({:ok, _forfeited}, _candidate), do: :forfeited
 
-  # 预期竞态的精确形状：`:forfeit` 的 CAS（claim/4）未命中 → BusinessError
-  # code "order_already_processed"（order.ex 显式子句）。他路（自助取消 / 批量退 /
-  # 核销即退 / 并发重投）先落即预期路径，跳过。其余（DB 瞬断等）是硬失败，
-  # 绝不能折叠为 :skip——吞掉会把「到点未结算」的单永久滞留在 paid。
-  defp classify({:error, %Ash.Error.Invalid{errors: errors}} = result) do
-    if Enum.any?(errors, &match?(%BusinessError{code: "order_already_processed"}, &1)) do
-      :skipped
-    else
-      {:error, result}
+  # CAS 失败的裁决依据是持久真状态而非错误形状（F-I，同 payment_refund_worker
+  # 的 settle_cancel_failure、attendance 的 reevaluate_transition）：reload 订单——
+  # 已非 paid = 他路（自助取消 / 批量退 / 核销即退 / 并发重投）先接管，预期竞态
+  # 跳过；仍是 paid = 硬失败（DB 瞬断等），下拍重试，绝不能折叠为 :skipped——
+  # 吞掉会把「到点未结算」的单永久滞留在 paid。reload 本身失败同为硬失败。
+  defp classify({:error, reason}, candidate) do
+    case Ash.get(Order, candidate.order_id, authorize?: false) do
+      {:ok, %{status: status}} when status != :paid -> :skipped
+      {:ok, %{status: :paid}} -> {:error, reason}
+      {:error, reload_reason} -> {:error, reload_reason}
     end
   end
-
-  defp classify({:error, reason}), do: {:error, reason}
 
   # ── 审计（批量口径：有增量的 event 一行）──────────────────────────────────
 
