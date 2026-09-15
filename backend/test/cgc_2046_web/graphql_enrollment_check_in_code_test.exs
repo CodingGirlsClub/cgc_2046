@@ -10,7 +10,7 @@ defmodule Cgc2046Web.GraphqlEnrollmentCheckInCodeTest do
     resolve 是唯一闸——门控不得依赖 policy）
   """
 
-  use Cgc2046Web.ConnCase, async: true
+  use Cgc2046Web.ConnCase, async: false
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
