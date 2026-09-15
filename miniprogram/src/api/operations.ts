@@ -438,6 +438,16 @@ export const EventModerationScopeQueryDocument = /* GraphQL */ `
   }
 `
 
+// #558 后续：非管理角色主理人的入口判定——主理人或 Owner/Admin 可读（后端
+// Moderators.list 走 can_moderate?）；普通成员 forbidden，调用方按 false 收敛
+export const EventModeratorsQueryDocument = /* GraphQL */ `
+  query EventModerators($workspaceId: ID!, $eventId: ID!) {
+    eventModerators(workspaceId: $workspaceId, eventId: $eventId) {
+      userId
+    }
+  }
+`
+
 export const PublicInitiativeQueryDocument = /* GraphQL */ `
   query PublicInitiative($slug: String!) {
     publicInitiative(slug: $slug) {

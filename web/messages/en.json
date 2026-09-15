@@ -1402,6 +1402,8 @@
 		"initiativeRulesHint": "Locked rules are maintained by the platform and read-only here; default rules were snapshotted at mount time.",
 		"moderatorsTitle": "Moderators",
 		"moderatorsHint": "Moderators run on-site check-in; they must be workspace members (invite first, then assign). Removal takes effect immediately.",
+		"checkInEntryTitle": "On-site check-in",
+		"checkInEntryLink": "Open check-in page",
 		"moderatorsEmpty": "No moderators yet",
 		"moderatorsCheckInLink": "Check-in page",
 		"moderatorsCopyLink": "Copy check-in link",
