@@ -57,7 +57,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                update_event(ctx, event, %{
                  deposit_enabled: true,
                  deposit_amount_cents: 3000,
-                 ends_at: EventFixtures.days_from_now(3)
+                 ends_at: EventFixtures.days_from_now(3),
+                 registration_deadline: EventFixtures.days_from_now(3)
                })
 
       assert_business_code(result, "event_payment_mode_exclusive")
@@ -69,7 +70,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
         create_event(ctx, %{
           deposit_enabled: true,
           deposit_amount_cents: 3000,
-          ends_at: EventFixtures.days_from_now(3)
+          ends_at: EventFixtures.days_from_now(3),
+          registration_deadline: EventFixtures.days_from_now(3)
         })
 
       assert {:error, _} =
@@ -95,7 +97,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                  ],
                  deposit_enabled: true,
                  deposit_amount_cents: 3000,
-                 ends_at: EventFixtures.days_from_now(3)
+                 ends_at: EventFixtures.days_from_now(3),
+                 registration_deadline: EventFixtures.days_from_now(3)
                })
 
       assert_business_code(result, "event_payment_mode_exclusive")
@@ -125,7 +128,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                result =
                update_event(ctx, elem(create_event(ctx, %{}), 1), %{
                  deposit_enabled: true,
-                 ends_at: EventFixtures.days_from_now(3)
+                 ends_at: EventFixtures.days_from_now(3),
+                 registration_deadline: EventFixtures.days_from_now(3)
                })
 
       assert_business_code(result, "event_deposit_amount_required")
@@ -137,7 +141,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                create_event(ctx, %{
                  deposit_enabled: true,
                  deposit_amount_cents: 0,
-                 ends_at: EventFixtures.days_from_now(3)
+                 ends_at: EventFixtures.days_from_now(3),
+                 registration_deadline: EventFixtures.days_from_now(3)
                })
 
       assert_business_code(result, "event_deposit_amount_required")
@@ -158,7 +163,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           deposit_enabled: true,
           deposit_amount_cents: 6900,
-          ends_at: EventFixtures.days_from_now(8)
+          ends_at: EventFixtures.days_from_now(8),
+          registration_deadline: EventFixtures.days_from_now(8)
         })
 
       {:ok, enrollment} =
@@ -194,7 +200,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
         EventFixtures.create_event(ctx.workspace, ctx.admin, %{
           deposit_enabled: true,
           deposit_amount_cents: 6900,
-          ends_at: EventFixtures.days_from_now(8)
+          ends_at: EventFixtures.days_from_now(8),
+          registration_deadline: EventFixtures.days_from_now(8)
         })
 
       assert {:ok, _} =
@@ -209,7 +216,8 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
         create_event(ctx, %{
           deposit_enabled: true,
           deposit_amount_cents: 6900,
-          ends_at: EventFixtures.days_from_now(3)
+          ends_at: EventFixtures.days_from_now(3),
+          registration_deadline: EventFixtures.days_from_now(3)
         })
 
       Cgc2046.Repo.query!("UPDATE events SET ends_at = NULL WHERE id = $1", [
@@ -234,12 +242,14 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
   describe "独立使用（AE2 / Initiative 计划 AE12）" do
     test "未挂载 Initiative 的 Event 开押金 30 元 → 成功", ctx do
       ends_at = EventFixtures.days_from_now(3) |> DateTime.truncate(:second)
+      deadline = EventFixtures.days_from_now(2) |> DateTime.truncate(:second)
 
       assert {:ok, event} =
                create_event(ctx, %{
                  deposit_enabled: true,
                  deposit_amount_cents: 3000,
-                 ends_at: ends_at
+                 ends_at: ends_at,
+                 registration_deadline: deadline
                })
 
       assert event.deposit_enabled == true

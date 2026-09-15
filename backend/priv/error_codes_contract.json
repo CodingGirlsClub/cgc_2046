@@ -24,6 +24,8 @@
     "enrollment_unknown_enrollment_policy",
     "event_deposit_amount_required",
     "event_deposit_ends_at_required",
+    "event_deposit_registration_deadline_required",
+    "event_ends_at_frozen",
     "event_payment_mode_exclusive",
     "invalid_or_expired_code",
     "invalid_password",

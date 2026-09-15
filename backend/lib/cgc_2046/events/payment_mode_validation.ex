@@ -37,6 +37,10 @@ defmodule Cgc2046.Events.PaymentModeValidation do
           is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) ->
         {:error, domain_error(:deposit_ends_at_required, :ends_at)}
 
+      deposit_enabled == true and deposit_config_touched?(changeset) and
+          is_nil(Ash.Changeset.get_attribute(changeset, :registration_deadline)) ->
+        {:error, domain_error(:deposit_registration_deadline_required, :registration_deadline)}
+
       # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
       # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）
       deposit_enabled == true and ends_at_moved_earlier?(changeset) and
@@ -121,8 +125,14 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   defp domain_error_message(:deposit_ends_at_required),
     do: "ends_at is required when deposit is enabled (settlement anchor)"
 
+  defp domain_error_message(:deposit_registration_deadline_required),
+    do: "registration_deadline is required when deposit is enabled (self-cancel cutoff anchor)"
+
   # 显式子句化（#241）：字面量 code 进错误码契约工件，前端文案表按 code 查
   defp domain_error_code(:payment_mode_exclusive), do: "event_payment_mode_exclusive"
   defp domain_error_code(:deposit_amount_required), do: "event_deposit_amount_required"
   defp domain_error_code(:deposit_ends_at_required), do: "event_deposit_ends_at_required"
+
+  defp domain_error_code(:deposit_registration_deadline_required),
+    do: "event_deposit_registration_deadline_required"
 end
