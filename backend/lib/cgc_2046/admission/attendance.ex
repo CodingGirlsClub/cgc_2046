@@ -367,7 +367,7 @@ defmodule Cgc2046.Admission.Attendance do
   # attendances_unique_enrollment_index）映射为已核销；其他错误原样上抛
   # （DB 断连等真实故障不含 constraint_type: :unique 键）。
   def handle_create_error(_changeset, error) do
-    if unique_conflict?(error) do
+    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) do
       Cgc2046.Errors.BusinessError.exception(
         message: domain_error_message(:already_checked_in),
         code: domain_error_code(:already_checked_in),
@@ -377,16 +377,6 @@ defmodule Cgc2046.Admission.Attendance do
       error
     end
   end
-
-  defp unique_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &unique_conflict?/1)
-  end
-
-  defp unique_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
-    Keyword.get(private_vars || [], :constraint_type) == :unique
-  end
-
-  defp unique_conflict?(_), do: false
 
   # ── before_action：定位 + 行锁 + 落行属性 ─────────────────────────────────
 

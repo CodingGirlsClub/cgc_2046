@@ -1194,7 +1194,7 @@ defmodule Cgc2046.Payments.Order do
   # create_for_enrollment / replace_provider 唯一约束冲突（已有活跃订单 / 并发
   # 下单）转业务错误。非 unique 错误原样返回（error_handler 返回值即入列的错误）。
   def handle_create_error(_changeset, error) do
-    if unique_conflict?(error) do
+    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) do
       Cgc2046.Errors.BusinessError.exception(
         message: domain_error_message(:duplicate_active),
         code: domain_error_code(:duplicate_active)
@@ -1203,18 +1203,6 @@ defmodule Cgc2046.Payments.Order do
       error
     end
   end
-
-  # 同 membership_context.unique_membership_conflict?/1 判法：仅
-  # constraint_type: :unique 命中（DB 断连等真实故障不含该键，原样上抛）。
-  defp unique_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &unique_conflict?/1)
-  end
-
-  defp unique_conflict?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
-    Keyword.get(private_vars || [], :constraint_type) == :unique
-  end
-
-  defp unique_conflict?(_), do: false
 
   defp domain_error_message(:enrollment_required), do: "enrollment_id is required"
   defp domain_error_message(:enrollment_not_found), do: "enrollment does not exist"
