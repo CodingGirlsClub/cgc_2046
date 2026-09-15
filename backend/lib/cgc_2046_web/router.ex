@@ -4,14 +4,18 @@ defmodule Cgc2046Web.Router do
   import Cgc2046Web.AuthPlug
   import Phoenix.LiveView.Router
 
-  # #297.1：GraphQL 查询成本限制（非 dev 生效，照 GraphqlIntrospectionGuard 先例）。
-  # 现网最大操作 complexity ~28；ash_graphql 1.11 起分页字段带 complexity 计费
-  # （嵌套列表按 first/limit 折算，mySponsorships=320 / inviteBatches=600 实测），
-  # 250 会让既有合法查询被拒 → 提到 1000（现网最大的 3 倍余量 + 分页折算）；
-  # 超限错误自带实际/上限值，撞线可诊断。token_limit 在 lexer 层挡 MB 级
-  # document（别名/字段炸弹的原始形态）——complexity 分析发生在 parse 之后，
-  # 解析开销须先截断。三选项经 @raw_options 透传进 document pipeline，与
-  # introspection guard 的 pipeline modifier 无冲突。dev（Playground）放行。
+  # #297.1：GraphQL 查询成本限制（非 dev 生效，照 GraphiQLIntrospectionGuard 先例）。
+  # ash_graphql 分页字段按 first × 字段数折算 complexity：第一方最重文档实测
+  # 小程序 MyEnrollments(first:100)≈1_4xx、Catalog(first:50)=1_350，
+  # mySponsorships=320 / inviteBatches=600。1_000 的旧预算漏测了小程序两个
+  # 文档 → 2026-09-15 线上「发现/我的报名」整页 `too complex` 拒绝（已发布
+  # 客户端无法自救，改文档要发版，只能由预算兜底）→ 提到 2_000（最重文档的
+  # ~1.4 倍余量）。撞线可诊断（错误自带实际/上限值）；预算回归钉在
+  # graphql_complexity_budget_test.exs——改 operations.ts 的最重文档必须同步。
+  # token_limit 在 lexer 层挡 MB 级 document（别名/字段炸弹的原始形态）——
+  # complexity 分析发生在 parse 之后，解析开销须先截断。三选项经 @raw_options
+  # 透传进 document pipeline，与 introspection guard 的 pipeline modifier
+  # 无冲突。dev（Playground）放行。
   @dev_routes Application.compile_env(:cgc_2046, :dev_routes, false)
 
   @graphql_abuse_opts (if @dev_routes do
@@ -19,7 +23,7 @@ defmodule Cgc2046Web.Router do
                        else
                          [
                            analyze_complexity: true,
-                           max_complexity: 1_000,
+                           max_complexity: 2_000,
                            token_limit: 5_000
                          ]
                        end)
