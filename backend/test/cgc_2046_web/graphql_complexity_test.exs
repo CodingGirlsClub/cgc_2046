@@ -6,15 +6,17 @@ defmodule Cgc2046Web.GraphqlComplexityTest do
   # 拒绝语义为 HTTP 200 + GraphQL errors（resolution 跳过、响应无 data 键），
   # 与 introspection guard 口径一致（标准 GraphQL 错误通道，非字面 4xx）。
 
-  # 016：上限 250 → 1_000（ash_graphql 1.11 起分页字段按 first/limit 折算
-  # complexity，mySponsorships=320 / inviteBatches=600 已超 250——见 router
-  # @graphql_abuse_opts 注释）。测试数值随上限同比放大，机制断言不变。
-  describe "max_complexity: 1_000" do
-    test "超限别名炸弹被拒，错误含实际/上限值且不执行" do
-      # 1100 个 alias 化顶层标量字段（默认每 field complexity 1）→ 1100 > 1000
+  # 上限历史：250 → 1_000（016）→ 2_000（2026-09-15：小程序
+  # MyEnrollments@100 / Catalog@50 实测 1_4xx/1_350，1_000 拒绝了已发布客户端，
+  # 见 router @graphql_abuse_opts 注释）。测试数值随上限同比放大，机制断言不变。
+  describe "max_complexity: 2_000" do
+    test "别名字段炸弹由 token_limit 在 lexer 层拦截（complexity 分析之前）" do
+      # 2100 个 alias 化顶层标量字段：complexity 2100 > 2000，但 token 数先超
+      # 5_000 → 由 lexer 层 token_limit 截断（这正是两层防护的分工：解析开销
+      # 须在 complexity 分析之前挡掉；见 router 注释）。
       bomb =
         "{ " <>
-          Enum.map_join(0..1099, " ", fn i -> "a#{i}: pendingApprovalsCount" end) <> " }"
+          Enum.map_join(0..2099, " ", fn i -> "a#{i}: pendingApprovalsCount" end) <> " }"
 
       conn = build_conn() |> post("/api/graphql", %{"query" => bomb})
       body = json_response(conn, 200)
@@ -23,22 +25,18 @@ defmodule Cgc2046Web.GraphqlComplexityTest do
       refute Map.has_key?(body, "data"), "resolution 必须被跳过，响应不应含 data"
 
       assert Enum.any?(errors, fn e ->
-               msg = e["message"] || ""
-
-               String.contains?(msg, "complexity is 1100") and
-                 String.contains?(msg, "maximum is 1000")
+               String.contains?(e["message"] || "", "Token limit exceeded")
              end)
     end
 
-    test "嵌套扇出同样被 complexity 上限拦截" do
-      # 200 个 alias 化 list 字段 × (1 自身 + 5 子字段) = 1200 > 1000；
-      # 字段取自真实 schema（myWorkspacePortfolio / portfolio_item），validation 通过。
-      item = "id workspaceId title url icon"
-
+    test "分页扇出由 complexity 上限拦截，错误含实际/上限值且不执行" do
+      # 4 个 alias 化分页字段 × first=600（ash_graphql 按 first × 字段数折算）
+      # → complexity ~2400 > 2000，token 数远低于 5_000 → 命中 complexity 层。
+      # （分页 first 才是第一方真实成本的驱动：Catalog@50=1350 的同款机制。）
       bomb =
         "{ " <>
-          Enum.map_join(0..199, " ", fn i ->
-            "a#{i}: myWorkspacePortfolio(workspaceId: \"00000000-0000-0000-0000-000000000000\") { #{item} }"
+          Enum.map_join(0..3, " ", fn i ->
+            "a#{i}: listEvents(first: 600) { results { id } }"
           end) <> " }"
 
       conn = build_conn() |> post("/api/graphql", %{"query" => bomb})
@@ -48,7 +46,11 @@ defmodule Cgc2046Web.GraphqlComplexityTest do
       refute Map.has_key?(body, "data")
 
       assert Enum.any?(errors, fn e ->
-               String.contains?(e["message"] || "", "Operation is too complex")
+               msg = e["message"] || ""
+
+               String.contains?(msg, "too complex") and
+                 String.contains?(msg, "maximum is 2000") and
+                 Regex.match?(~r/complexity is \d+/, msg)
              end)
     end
 
