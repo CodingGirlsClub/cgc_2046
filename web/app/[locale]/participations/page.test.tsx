@@ -343,7 +343,7 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		expect(within(card).getByText(/请勿截图转发/)).toBeInTheDocument();
 		await waitFor(() =>
 			expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
-				expect.stringContaining("/events/event-1/check-in?code=012345"),
+				"cgc2046:checkin:event-1:012345",
 				expect.anything(),
 			),
 		);
@@ -380,7 +380,7 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		).toBeNull();
 	});
 
-	it("en locale：核销 URL 带 /en 前缀（i18n as-needed），码文案走英文", async () => {
+	it("en locale：核销 payload 无 locale 段（自定义格式），码文案走英文", async () => {
 		mockQuery({
 			enrollments: [
 				{
@@ -401,7 +401,7 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		expect(within(card).getByText(/Do not screenshot or forward/)).toBeInTheDocument();
 		await waitFor(() =>
 			expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
-				expect.stringContaining("/en/events/event-1/check-in?code=111222"),
+				"cgc2046:checkin:event-1:111222",
 				expect.anything(),
 			),
 		);
