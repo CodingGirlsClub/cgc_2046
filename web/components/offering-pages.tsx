@@ -2007,8 +2007,12 @@ export function OfferingDetailPage({
                         onClick={() => {
                           if (tr === "close" || tr === "cancel") {
                             setConfirmingTransition(tr);
-                            // R11：取消收费活动明示自动退款笔数与总金额
-                            if (tr === "cancel" && offering.pricingEnabled === true) {
+                            // R11：取消有收款面的活动明示自动退款笔数与总金额
+                            // （押金场 pricingEnabled=false，同属收款面 → 一并加载）
+                            if (
+                              tr === "cancel" &&
+                              (offering.pricingEnabled === true || offering.depositEnabled === true)
+                            ) {
                               void loadGuardCounts();
                             }
                           } else {
@@ -2102,6 +2106,7 @@ export function OfferingDetailPage({
                 kind={kind}
                 manage={manage}
                 pricingEnabled={offering.pricingEnabled === true}
+                depositEnabled={offering.depositEnabled === true}
               />
             </div>
           </>
