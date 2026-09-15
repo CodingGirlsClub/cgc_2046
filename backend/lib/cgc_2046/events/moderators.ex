@@ -1,7 +1,9 @@
 defmodule Cgc2046.Events.Moderators do
   @moduledoc """
-  Event 主理人关联的唯一管理面。主理人不是 Workspace 成员角色；管理权限由
-  Event 所属 Workspace 的 Owner/Admin 持有，关联本身只提供 Event 级 seam。
+  Event 主理人关联的唯一管理面。主理人须为目标 Workspace 成员（#558 /
+  #542 决策 A1：成员前提由 `EventModerator.assign` 的资源级校验承载，
+  `ModeratorMembershipValidation`）；管理权限由 Event 所属 Workspace 的
+  Owner/Admin 持有，关联本身只提供 Event 级「成员里谁管这场」的指派。
   """
 
   require Ash.Query
@@ -104,6 +106,9 @@ defmodule Cgc2046.Events.Moderators do
     end
   end
 
+  # 不变量（#558）：moderator? 为真 ⇒ 该用户是 event.workspace_id 的成员
+  # （assign 写边界的成员校验承载）；本函数形状不变——判定仍正确，且现在
+  # 隐含成员身份。
   def can_moderate?(actor, event) do
     Rbac.manage?(actor, event.workspace_id) or moderator?(actor.id, event.id, event.workspace_id)
   end

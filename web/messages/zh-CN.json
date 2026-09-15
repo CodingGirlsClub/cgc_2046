@@ -67,7 +67,8 @@
 		"attendance_already_checked_in": "该报名已核销，无需重复核销。",
 		"attendance_rate_limited": "核销尝试过于频繁，请稍后再试。",
 		"deposit_already_forfeited": "该报名的押金已按未到场结算（不退），无法再核销。",
-		"forbidden": "你没有执行该操作的权限。"
+		"forbidden": "你没有执行该操作的权限。",
+		"event_moderator_not_workspace_member": "该用户还不是本工作台成员，请先邀请加入再指派。"
 	},
 	"auth": {
 		"helpCenter": "帮助中心",
@@ -1400,7 +1401,7 @@
 		"initiativeRuleMinOff": "成班判定：无",
 		"initiativeRulesHint": "锁死项由平台统一维护，本地不可改；默认项以挂载时取值为准。",
 		"moderatorsTitle": "主理人",
-		"moderatorsHint": "主理人负责现场核销；无需是本工作台成员。撤销即时生效。",
+		"moderatorsHint": "主理人负责现场核销；须为本工作台成员（先邀请加入，再指派）。撤销即时生效。",
 		"moderatorsEmpty": "暂无主理人",
 		"moderatorsCheckInLink": "核销页",
 		"moderatorsCopyLink": "复制核销页链接",
