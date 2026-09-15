@@ -80,7 +80,10 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # 注入 mark_paid 的 CAS UPDATE 失败（DB 类错误形状）：pending→paid 被
       # 数据库层拒绝。此时渠道查单已确认有款且金额相符——旧实现会走 `other`
       # 分支 mark_processed 永久丢单（已收款、不落账、不退款、不重试）。
-      inject_trigger("block_mark_paid", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'paid')",
+      inject_trigger(
+        "block_mark_paid",
+        "payments_orders",
+        "WHEN (OLD.status = 'pending' AND NEW.status = 'paid')",
         raise?: true
       )
 
@@ -137,7 +140,10 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
 
       # 注入：订单 CAS（pending→expired）被数据库层拒绝 → 非 order_already_processed
       # 的 BusinessError → 硬失败。旧实现折叠为 :skip，毒记录每分钟静默重试到永远。
-      inject_trigger("block_expire", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
+      inject_trigger(
+        "block_expire",
+        "payments_orders",
+        "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
         raise?: true
       )
 
@@ -157,7 +163,10 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
 
       # BEFORE UPDATE RETURN NULL 静默吞掉 UPDATE：claim/4 得 num_rows=0 →
       # BusinessError code "order_already_processed" → 预期竞态分支。
-      inject_trigger("swallow_expire", "payments_orders", "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
+      inject_trigger(
+        "swallow_expire",
+        "payments_orders",
+        "WHEN (OLD.status = 'pending' AND NEW.status = 'expired')",
         raise?: false
       )
 
