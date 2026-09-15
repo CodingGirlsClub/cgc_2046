@@ -110,6 +110,21 @@ defmodule Cgc2046.Admission.AttendanceTest do
       assert attendance_count(enrollment.id) == 0
     end
 
+    test "成员离台后核销被拒（#561 级联：指派随 membership 销毁同事务撤销）" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      event = EventFixtures.create_event(workspace, owner)
+      moderator = assign_moderator(event, workspace, owner, "attendance-cascade-mod")
+      enrollment = create_confirmed_enrollment(event)
+
+      membership = Cgc2046.Accounts.MembershipContext.membership_of(moderator, workspace.id)
+      Ash.destroy!(membership, actor: owner, tenant: workspace.id)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               check_in(event, enrollment.check_in_code, :manual, moderator)
+
+      assert attendance_count(enrollment.id) == 0
+    end
+
     test "event_id 与 tenant 不一致被拒（policy 按 tenant 直读 Event，读不到即拒）" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
       event = EventFixtures.create_event(workspace, owner)

@@ -119,11 +119,27 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
                  removing_owner: true,
                  granting_owner: false
                ) do
-            :ok -> c
-            {:error, errored} -> errored
+            :ok ->
+              # 依赖行清理（#561 实证发现的存量缺陷）：membership_roles.membership_id
+              # 的 FK 无 on_delete 动作（squash baseline），带角色的成员 destroy 必撞
+              # "would leave records behind"——验证通过后同事务删角色行。
+              # 次序纪律：必须先验证后删除——守卫按 role_names 判定「是否在移除
+              # owner」，先删行会让守卫读不到 owner 角色而误放行（回归实证）。
+              Cgc2046.Repo.query!(
+                "DELETE FROM membership_roles WHERE membership_id = $1",
+                [Cgc2046.Repo.uuid!(membership.id)]
+              )
+
+              c
+
+            {:error, errored} ->
+              errored
           end
         end)
       end)
+
+      # 离台级联（#561）：同事务撤销其在本台的全部主理人指派 + 逐行审计
+      change(Cgc2046.Events.Changes.RevokeModerationsOnLeave)
     end
 
     create :create do
