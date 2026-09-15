@@ -4,10 +4,9 @@ import { fetchPublicOffering } from "@/lib/public-offerings";
 import {
   CHECK_IN_ENROLLMENT,
   CHECK_IN_EVENT,
-  type CheckInAttendance,
+  type CheckInEnrollmentPayload,
   type CheckInMethod,
 } from "@/lib/graphql/attendance";
-import type { MutationResult } from "@/lib/graphql/shared";
 
 /**
  * 现场核销交互层（押金制 KTD5/KTD10；R6、R11；#508 最小核销集）。
@@ -99,10 +98,17 @@ export async function checkInEnrollment(input: {
   eventId: string;
   code: string;
   method: CheckInMethod;
-}): Promise<MutationResult<CheckInAttendance | null>> {
+}): Promise<CheckInEnrollmentPayload> {
   const { data } = await client.mutate({
     mutation: CHECK_IN_ENROLLMENT,
     variables: input,
   });
-  return data?.checkInEnrollment ?? { result: null, errors: [] };
+  return (
+    data?.checkInEnrollment ?? {
+      enrollmentId: null,
+      checkedInAt: null,
+      method: null,
+      errors: [],
+    }
+  );
 }

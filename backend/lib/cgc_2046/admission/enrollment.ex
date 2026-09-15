@@ -103,9 +103,12 @@ defmodule Cgc2046.Admission.Enrollment do
     # KTD5：Event 报名在 create 时生成同场唯一的 6 位核销码（course 报名为空）。
     # 明文存储——主理人按码查报名、参与者需反复回显，泄露只能让他人拿回自己
     # 的押金、无资金自利面。出示/核销按 confirmed 门控（graphql 字段级 resolve）。
+    # filterable?: false——码不作查询面：否则可被当存在性预言机逐位试探
+    # （6 位空间），绕过字段级出示门控（SecurityRev F1）。
     attribute(:check_in_code, :string,
       public?: true,
       writable?: false,
+      filterable?: false,
       constraints: [match: ~r/^\d{6}$/]
     )
 

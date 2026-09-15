@@ -37,14 +37,14 @@ vi.mock("@/components/language-switcher", () => ({
 
 const EVENT = { id: "evt-1", slug: "deposit-hackathon", title: "押金制黑客松" };
 
+// 后端手写 payload 是扁平形状（enrollmentId/checkedInAt/method/errors），
+// 不是 AshGraphql 生成 mutation 的 {result, errors} 信封。
 const SUCCESS = {
 	data: {
 		checkInEnrollment: {
-			result: {
-				enrollmentId: "enr-1",
-				checkedInAt: "2026-09-14T02:00:00Z",
-				method: "scan",
-			},
+			enrollmentId: "enr-1",
+			checkedInAt: "2026-09-14T02:00:00Z",
+			method: "scan",
 			errors: [],
 		},
 	},
@@ -59,7 +59,14 @@ function renderPage({ code }: { code?: string } = {}) {
 
 function errorPayload(code: string) {
 	return {
-		data: { checkInEnrollment: { result: null, errors: [{ code }] } },
+		data: {
+			checkInEnrollment: {
+				enrollmentId: null,
+				checkedInAt: null,
+				method: null,
+				errors: [{ code }],
+			},
+		},
 	};
 }
 

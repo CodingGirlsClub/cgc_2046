@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
-import type { MutationResult } from "./shared";
+import type { MutationError } from "./shared";
 
 /**
  * Admission.Attendance 的手写 GraphQL 面（押金制 KTD4/KTD5；R6、R11；#508 最小核销）。
@@ -15,15 +15,29 @@ import type { MutationResult } from "./shared";
 
 export type CheckInMethod = "scan" | "manual";
 
-/** 核销成功返回的到场事实（后端 Attendance 行投影） */
-export interface CheckInAttendance {
+/**
+ * 核销结果（后端手写 object `check_in_enrollment_payload` 的扁平形状）。
+ *
+ * 注意：**不是** `MutationResult<T>`（{result, errors}）——那是 AshGraphql 生成
+ * mutation 的信封形状；本 mutation 手写，成功时三字段有值、失败时三字段为 null
+ * 且 `errors` 带领域 code。成功判据是 `enrollmentId != null`。
+ */
+export interface CheckInEnrollmentPayload {
+  enrollmentId: string | null;
+  checkedInAt: string | null;
+  method: CheckInMethod | null;
+  errors: MutationError[];
+}
+
+/** 成功分支的到场事实（三字段非空） */
+export type CheckInAttendance = {
   enrollmentId: string;
   checkedInAt: string;
   method: CheckInMethod;
-}
+};
 
 export const CHECK_IN_ENROLLMENT: TypedDocumentNode<
-  { checkInEnrollment: MutationResult<CheckInAttendance | null> },
+  { checkInEnrollment: CheckInEnrollmentPayload },
   { eventId: string; code: string; method: CheckInMethod }
 > = gql`
   mutation CheckInEnrollment($eventId: ID!, $code: String!, $method: String!) {
