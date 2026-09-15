@@ -1,6 +1,8 @@
 import type { PublicInitiativeEvent, QualificationBadge } from './models'
 
-export function parseQualificationBadge(value: unknown): QualificationBadge {
+export function parseQualificationBadge(value: unknown): QualificationBadge | null {
+  // 契约可空（EventDetailQuery 为 string | null）：key 存在但值为 null 不炸详情页
+  if (value === null || value === undefined) return null
   if (value === 'cancelled' || value === 'closed' || value === 'confirmed' || value === 'short_by' || value === 'open') return value
   throw new Error('服务端返回未知成班状态')
 }
