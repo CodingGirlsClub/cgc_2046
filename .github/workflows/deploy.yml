@@ -227,15 +227,16 @@ jobs:
             WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED \
             WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED \
             WECHAT_MP_TEMPLATE_REFUND_FAILED \
-            DOUYIN_MP_APPID DOUYIN_MP_SECRET; do
-          # （原 31 项 + 10 模板 + 2 tt = 43 项）
+            DOUYIN_MP_APPID DOUYIN_MP_SECRET \
+            XHS_MP_APPID XHS_MP_SECRET; do
+          # （原 31 项 + 10 模板 + 2 tt + 2 xhs = 45 项）
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
           # missing 累积后必须真断言（此前无条件 echo 成功，注释承诺的
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
-          echo "secrets 非空校验通过（43 项）"
+          echo "secrets 非空校验通过（45 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -279,6 +280,8 @@ jobs:
           WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED: ${{ secrets.WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED }}
           DOUYIN_MP_APPID: ${{ vars.DOUYIN_MP_APPID }}
           DOUYIN_MP_SECRET: ${{ secrets.DOUYIN_MP_SECRET }}
+          XHS_MP_APPID: ${{ vars.XHS_MP_APPID }}
+          XHS_MP_SECRET: ${{ secrets.XHS_MP_SECRET }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
       - name: Deploy backend
         working-directory: backend
