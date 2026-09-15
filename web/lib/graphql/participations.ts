@@ -31,6 +31,8 @@ export interface ParticipationEnrollment {
   startsAt?: string | null;
   /** event venue 文本化（city+district 拼接，同 event_reminder 文案；否则 null） */
   venue?: string | null;
+  /** 报名截止时间（U2：活跃卡明示自助取消的截止时点；null 不显示） */
+  registrationDeadline?: string | null;
   /**
    * 6 位核销码（U4/KTD5：仅本人 confirmed 报名返回，其余为 null；
    * course 报名恒 null）——本人报名卡出示用，勿截图转发。
@@ -108,6 +110,7 @@ export const MY_ENROLLMENTS: TypedDocumentNode<
         startsAt
         venue
         checkInCode
+        registrationDeadline
       }
       startKeyset
       endKeyset

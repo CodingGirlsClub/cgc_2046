@@ -148,7 +148,12 @@ defmodule Cgc2046.Offering do
     |> Ash.Query.filter(id in ^ids)
     |> Ash.read!(tenant: tenant, authorize?: false)
     |> Map.new(fn offering ->
-      {offering.id, %{starts_at: offering.starts_at, venue: venue_text_for(offering)}}
+      {offering.id,
+       %{
+         starts_at: offering.starts_at,
+         venue: venue_text_for(offering),
+         registration_deadline: offering.registration_deadline
+       }}
     end)
   end
 

@@ -175,6 +175,21 @@ defmodule Cgc2046.Admission.Enrollment do
       end
     )
 
+    # U2：目标报名截止时间（参与者卡明示自助取消时点；同 starts_at 先例——
+    # 从 target_schedule 批量取，不额外查 Offering）
+    calculate(:registration_deadline, :utc_datetime,
+      public?: true,
+      load: [:target_schedule],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          case enrollment.target_schedule do
+            %{registration_deadline: deadline} -> deadline
+            _ -> nil
+          end
+        end)
+      end
+    )
+
     calculate(:venue, :string,
       public?: true,
       load: [:target_schedule],

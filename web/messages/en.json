@@ -1132,6 +1132,7 @@
 		"enterCourse": "Enter course",
 		"slotReserved": "Slot reserved — complete payment within the time limit",
 		"approvalDeadline": "Approval deadline: {time}",
+		"selfCancelDeadline": "Self-cancellation available until {time}",
 		"rejectionReason": "Reason: {reason}",
 		"expiredAt": "Expired {time}",
 		"cancelledAt": "Cancelled {time}",
