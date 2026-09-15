@@ -67,7 +67,8 @@
 		"attendance_already_checked_in": "This enrollment is already checked in — no need to check in again.",
 		"attendance_rate_limited": "Too many invalid check-in attempts. Try again later.",
 		"deposit_already_forfeited": "This enrollment's deposit was already settled as a no-show (non-refundable), so it can no longer be checked in.",
-		"forbidden": "You do not have permission to perform this action."
+		"forbidden": "You do not have permission to perform this action.",
+		"event_moderator_not_workspace_member": "This user is not a member of this workspace yet; invite them first, then assign."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -1400,7 +1401,7 @@
 		"initiativeRuleMinOff": "Qualification: none",
 		"initiativeRulesHint": "Locked rules are maintained by the platform and read-only here; default rules were snapshotted at mount time.",
 		"moderatorsTitle": "Moderators",
-		"moderatorsHint": "Moderators run on-site check-in; workspace membership is not required. Removal takes effect immediately.",
+		"moderatorsHint": "Moderators run on-site check-in; they must be workspace members (invite first, then assign). Removal takes effect immediately.",
 		"moderatorsEmpty": "No moderators yet",
 		"moderatorsCheckInLink": "Check-in page",
 		"moderatorsCopyLink": "Copy check-in link",

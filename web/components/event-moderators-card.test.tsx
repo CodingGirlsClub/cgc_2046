@@ -61,8 +61,9 @@ describe("EventModeratorsCard", () => {
 		expect(screen.getByLabelText("用户 ID")).toHaveValue("");
 	});
 
-	it("指派失败内联展示后端错误且列表不变", async () => {
-		lib.assignEventModerator.mockResolvedValue({
+	it("指派失败按 code 出文案：未知 code 落兜底，成员前提 code 出引导句", async () => {
+		// 未知 code：不透传英文原文，落通用兜底（translator 契约）
+		lib.assignEventModerator.mockResolvedValueOnce({
 			result: null,
 			errors: [{ code: "not_found", message: "user not found" }],
 		});
@@ -76,9 +77,29 @@ describe("EventModeratorsCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(
-			"user not found",
+			"主理人操作失败，请重试",
 		);
 		expect(screen.queryByText("nobody")).not.toBeInTheDocument();
+
+		// #558 成员前提：已知 code 出引导文案
+		lib.assignEventModerator.mockResolvedValueOnce({
+			result: null,
+			errors: [
+				{
+					code: "event_moderator_not_workspace_member",
+					message: "the assignee must be a member of this workspace first",
+				},
+			],
+		});
+
+		fireEvent.change(screen.getByLabelText("用户 ID"), {
+			target: { value: "outsider-id" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"该用户还不是本工作台成员，请先邀请加入再指派。",
+		);
 	});
 
 	it("移除成功即时从列表消失", async () => {
