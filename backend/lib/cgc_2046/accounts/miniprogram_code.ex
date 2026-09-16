@@ -165,9 +165,13 @@ defmodule Cgc2046.Accounts.MiniprogramCode do
   defp lock_code_generation(invitation_id, platform) do
     key = "#{invitation_id}:#{platform}"
     # PR-I D1：hashtextextended($1, 0) 键域与 workspace 锁分离，显式传 hash 选项
-    # （误换 hashtext 会碰撞/漂移）；新增 lock_timeout 5s + 友好错误映射（D5）。
-    Cgc2046.Repo.acquire_lock!(key, hash: :hashtextextended)
-    :ok
+    # （误换 hashtext 会碰撞/漂移）；lock_timeout 5s + 结构化错误映射（D5/#621）。
+    # 锁失败不 raise（#621）：rollback 交回 {:error, %BusinessError{}}，由 GraphQL
+    # resolver 按 code 出面（不并入 code_generation_failed 兜底）。
+    case Cgc2046.Repo.acquire_lock(key, hash: :hashtextextended) do
+      :ok -> :ok
+      {:error, error} -> Cgc2046.Repo.rollback(error)
+    end
   end
 
   defp normalize_platform(platform) when platform in [:wechat, :tt, :xhs], do: {:ok, platform}

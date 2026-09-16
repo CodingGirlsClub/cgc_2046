@@ -812,15 +812,17 @@ defmodule Cgc2046.Courses.Course do
       {:ok, launched} ->
         {:ok, launched}
 
-      # Ash 3 失败返回 changeset 或 Invalid——归一为字符串（发布事务回滚契约）
+      # Ash 3 失败返回 changeset 或 Invalid——归一为字符串（发布事务回滚契约）。
+      # 未映射 DB 错误（未知类）经 #612 安全网降级为 database_error + error id，
+      # 原文只进服务端日志；已知错误文案逐字不变。
       {:error, %Ash.Changeset{errors: errors}} when errors != [] ->
-        {:error, Enum.map_join(errors, ", ", &Exception.message/1)}
+        {:error, Cgc2046.Errors.DatabaseError.safe_message(errors)}
 
       {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
+        {:error, Cgc2046.Errors.DatabaseError.safe_message(err)}
 
-      {:error, _} ->
-        {:error, "failed to launch course"}
+      {:error, err} ->
+        {:error, Cgc2046.Errors.DatabaseError.safe_message(err, "failed to launch course")}
     end
   end
 

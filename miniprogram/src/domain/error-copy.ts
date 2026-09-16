@@ -59,7 +59,12 @@ export const COPY: Record<string, string> = {
   initiative_slug_locked: '倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。',
   // Initiative 撞 slug（#604，同 #588 的同步义务：小程序无 initiative 写面，
   // 当前不可达；web admin create/update 与 MCP 是真实消费方）。
-  initiative_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。'
+  initiative_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  // 锁超时/死锁（#621）：用户可动作 = 稍后重试，独立 code、不归 database_error；
+  // 小程序无这两条锁路径的调用方（web admin 成员管理 / 邀请码生成为真实消费方），
+  // 本表为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  lock_timeout: '工作台操作暂时繁忙，请稍后重试',
+  deadlock_detected: '检测到锁冲突，请稍后重试'
 }
 
 /**

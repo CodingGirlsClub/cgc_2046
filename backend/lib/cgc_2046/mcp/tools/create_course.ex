@@ -75,11 +75,8 @@ defmodule Cgc2046.Mcp.Tools.CreateCourse do
             {:error, %Ash.Error.Forbidden{}} ->
               {:error, "forbidden: not allowed to create course in workspace #{workspace_id}"}
 
-            {:error, %Ash.Error.Invalid{} = err} ->
-              {:error, Exception.message(err)}
-
-            {:error, _} ->
-              {:error, "failed to create course"}
+            {:error, err} ->
+              {:error, Cgc2046.Mcp.Errors.message(err, "failed to create course")}
           end
         end
       end)

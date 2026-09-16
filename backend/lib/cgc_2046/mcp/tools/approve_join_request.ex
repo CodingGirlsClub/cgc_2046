@@ -85,11 +85,8 @@ defmodule Cgc2046.Mcp.Tools.ApproveJoinRequest do
           {:error,
            "forbidden: owner or admin required to approve join requests in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to approve join request"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to approve join request")}
       end
     end
   end
