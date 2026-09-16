@@ -71,6 +71,7 @@
     "phone_already_registered",
     "pricing_disable_actor_required",
     "pricing_disable_batch_limit",
+    "pricing_starts_at_required",
     "registration_failed",
     "sms_send_failed",
     "speaker_invitation_duplicate_invitation",

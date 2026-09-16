@@ -96,7 +96,10 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
 
   - 结构非法（0 元档 / 缺 name / 未知键 / 畸形时间）入库前拒绝；
   - `pricing_enabled: true` 且 `price_tiers` 为空拒绝——收费活动必须配置
-    可售档位；`pricing_enabled: false`（默认）与空档位配对通过（R4）。
+    可售档位；`pricing_enabled: false`（默认）与空档位配对通过（R4）；
+  - `pricing_enabled: true` ⇒ `starts_at` 必须在位（#543：定价单自助取消
+    「活动开始前全额退」的锚点）。Event/Course 共享（两者都有 starts_at）；
+    只拦本次写入造成的新违规（存量缺口不锁死无关编辑，DB CHECK 兜底新写）。
 
   反向不变量「押金开 ⇒ 档位为空」（#597）**不在本模块**：本模块为 Event/Course
   共享，而 Course 无押金列；该判据在 `Cgc2046.Events.PaymentModeValidation`
@@ -123,8 +126,32 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
         {:error,
          field: :pricing_enabled, message: "pricing_enabled requires at least one price tier"}
 
+      # #543：定价场 ⇒ starts_at 在位（自助取消退款锚）。只拦本次写入造成的
+      # 新违规（pricing/starts_at 任一被改动才校验写后状态；存量缺口行不因
+      # 无关编辑被锁死——DB CHECK NOT VALID 兜底所有新写入）。
+      pricing_enabled == true and pricing_anchor_touched?(changeset) and
+          is_nil(Ash.Changeset.get_attribute(changeset, :starts_at)) ->
+        {:error, starts_at_required_error()}
+
       true ->
         :ok
     end
+  end
+
+  defp pricing_anchor_touched?(changeset) do
+    Enum.any?([:pricing_enabled, :price_tiers, :starts_at], fn attribute ->
+      Ash.Changeset.changing_attribute?(changeset, attribute)
+    end)
+  end
+
+  @doc """
+  `pricing_enabled = true` 要求 starts_at 非空的稳定业务错误（单源，#543）。
+  Event/Course 的 handle_write_error/2 把各自 DB CHECK 冲突映射到此同款错误。
+  """
+  def starts_at_required_error do
+    Cgc2046.Errors.BusinessError.exception(
+      message: "starts_at is required when pricing is enabled (self-cancel refund anchor)",
+      code: "pricing_starts_at_required"
+    )
   end
 end
