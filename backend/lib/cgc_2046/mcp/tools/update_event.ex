@@ -20,6 +20,13 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   每次写入都被强制重写，改成别的值会被拒绝）/ default（仅本次改挂载时按规则
   快照））。未改挂载的普通更新只回 locked 项，与「本次生效」语义一致。
 
+  解除挂载来源标记（#630）：响应恒带 `detached_rule_provenance`（持久化属性
+  `event.detached_rule_provenance`，不是 metadata；无标记为 nil）——活动被
+  detach（网站 / GraphQL 侧把 initiative_id 置 nil）后仍留在场上的锁死规则强制
+  值及其来源 Initiative，形状同 GraphQL 列。本工具不支持解除挂载：initiative_id
+  传 nil 视为未提供（同 course_revision_id 纪律）；但经本工具编辑标记内字段会
+  逐字段清除标记（域内 `prepare_event_changes/2` 同事务处理）。
+
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定（第一段
   快速拒绝省 pending）；confirm 段由 update policy 兜底。
   """
@@ -70,7 +77,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
 
     field(:initiative_id, :string,
       description:
-        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；改挂载会按新规则强制写入押金/年龄/人数/报名截止，生效结果见返回 inherited"
+        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；传 UUID 会挂载或换挂载并按新规则强制写入押金/年龄/人数/报名截止，生效结果见返回 inherited。本工具不支持解除挂载——nil 视为未提供（同 course_revision_id 纪律），解除挂载请在网站侧操作；已解除挂载的活动在响应/列表带 detached_rule_provenance 来源标记，编辑标记内字段即清除该字段标记"
     )
 
     field(:deposit_enabled, :boolean, description: "是否收取活动押金")
@@ -128,7 +135,9 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
              event_id: updated.id,
              title: updated.title,
              status: to_string(updated.status),
-             updated_fields: Enum.map(changes, fn {field, _value} -> field end)
+             updated_fields: Enum.map(changes, fn {field, _value} -> field end),
+             # #630：恒在（无标记 nil）；持久化属性，与 #596 metadata 分开取。
+             detached_rule_provenance: updated.detached_rule_provenance
            }
            |> Map.merge(RuleInheritance.inheritance_of(updated))}
 
