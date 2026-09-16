@@ -300,6 +300,47 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       assert Ash.get!(Enrollment, enrollment2.id, authorize?: false).status == :confirmed
     end
 
+    # #597：MCP 写入路径无法产生「押金开 + 档位非空」。域层拒绝经确认流回到调用方，
+    # pending 回滚为 pending（可重试），事件零变化、档位原样保留。
+    test "update_event 在有休眠档位的场开押金 → confirm 失败，事件零变化且 pending 回滚" do
+      owner = Fixtures.platform_admin("s3-ev-uc-597")
+      workspace = Fixtures.create_workspace(owner)
+
+      event =
+        draft_event(workspace, owner, %{
+          price_tiers: [%{"id" => @tier_id, "name" => "休眠", "amount_cents" => 9900}]
+        })
+
+      {:reply, _, _} =
+        reply =
+        UpdateEvent.execute(
+          %{
+            "workspace_id" => workspace.id,
+            "event_id" => event.id,
+            "deposit_enabled" => true,
+            "deposit_amount_cents" => 3000,
+            "ends_at" => DateTime.to_iso8601(EventFixtures.days_from_now(3)),
+            "registration_deadline" => DateTime.to_iso8601(EventFixtures.days_from_now(3))
+          },
+          frame_for(owner)
+        )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+
+      pending_id = payload["pending_id"]
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(owner))
+
+      assert msg =~ "price tiers"
+
+      reloaded = Ash.get!(Event, event.id, authorize?: false)
+      assert reloaded.deposit_enabled == false
+      assert reloaded.price_tiers == event.price_tiers
+      assert Ash.get!(PendingOperation, pending_id, authorize?: false).status == :pending
+    end
+
     test "无可更新字段 → 报错不建 pending" do
       owner = Fixtures.platform_admin("s3-ev-uc-none")
       workspace = Fixtures.create_workspace(owner)
