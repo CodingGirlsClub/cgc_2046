@@ -179,8 +179,12 @@ defmodule Cgc2046.Admission.Attendance do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
-    # 观测读面（#209 / CapacityLedger 同款）：platform_admin 可读，非 admin default-deny
+    # 观测读面（#209 / CapacityLedger 同款）：platform_admin 可读；#508 起工作台
+    # Owner/Admin 可读本租户（MCP list_attendances 场次数据回收；multitenancy
+    # attribute 承担租户过滤）。两条分支并联（Rbac.manage?/2 不认平台管理员，
+    # check_in policy 同款语义分层）；非成员 default-deny。
     policy action_type(:read) do
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

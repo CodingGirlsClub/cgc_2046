@@ -155,6 +155,8 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AssignEventModerator)
   component(Cgc2046.Mcp.Tools.RemoveEventModerator)
   component(Cgc2046.Mcp.Tools.ListEnrollments)
+  # #508 核销记录读面：工具面 69 → 70（member 门 + 工具层 Owner/Admin 判定）
+  component(Cgc2046.Mcp.Tools.ListAttendances)
   component(Cgc2046.Mcp.Tools.ConfirmEnrollment)
   component(Cgc2046.Mcp.Tools.RejectEnrollment)
   component(Cgc2046.Mcp.Tools.WaivePayment)
