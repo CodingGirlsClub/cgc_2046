@@ -17,7 +17,6 @@ import type { IconName } from "@/components/icons";
 export type NavSection =
 	| "overview"
 	| "agents"
-	| "workflows"
 	| "events"
 	| "courses"
 	| "members"
@@ -39,50 +38,18 @@ export interface NavDestination {
 	href: (slug: string) => string;
 	/** 需要的能力；缺省 = 恒显 */
 	ability?: string;
-	/** 所属分组（侧栏 Linear 分组用） */
-	group: "personal" | "workspace";
 	/** 侧栏激活态 section 名（侧栏用） */
 	active?: NavSection;
 	/** 侧栏图标名（侧栏用） */
 	icon?: IconName;
-	/** 是否出现在设置 Tab 条（members-tabs 等）；false = 仅侧栏入口（如活动） */
-	settingsTab?: boolean;
 }
 
 export const SETTINGS_NAV: NavDestination[] = [
-	{
-		key: "agents",
-		labelKey: "agents",
-		href: (s) => `/w/${s}/agents`,
-		group: "workspace",
-		active: "agents",
-		icon: "activity",
-		settingsTab: false,
-	},
-	{
-		key: "events",
-		labelKey: "events",
-		href: (s) => `/w/${s}/events`,
-		group: "workspace",
-		active: "events",
-		icon: "book",
-		settingsTab: false,
-	},
-	{
-		key: "courses",
-		labelKey: "courses",
-		href: (s) => `/w/${s}/courses`,
-		group: "workspace",
-		active: "courses",
-		icon: "guide",
-		settingsTab: false,
-	},
 	{
 		key: "members",
 		labelKey: "members",
 		href: (s) => `/w/${s}/settings/members`,
 		ability: "list_members",
-		group: "workspace",
 		active: "members",
 		icon: "users",
 	},
@@ -91,7 +58,6 @@ export const SETTINGS_NAV: NavDestination[] = [
 		labelKey: "permissions",
 		href: (s) => `/w/${s}/settings/permissions`,
 		ability: "list_members",
-		group: "workspace",
 		active: "settings-permissions",
 		icon: "role",
 	},
@@ -101,7 +67,6 @@ export const SETTINGS_NAV: NavDestination[] = [
 		href: (s) => `/w/${s}/settings/join-policy`,
 		// 2026-08-22 决策：原恒显改门控 —— 加入策略页对普通成员无意义
 		ability: "update_join_policy",
-		group: "workspace",
 		active: "settings-join-policy",
 		icon: "settings",
 	},
@@ -110,7 +75,6 @@ export const SETTINGS_NAV: NavDestination[] = [
 		labelKey: "requests",
 		href: (s) => `/w/${s}/settings/requests`,
 		ability: "manage_members",
-		group: "workspace",
 		active: "settings-requests",
 		icon: "shield",
 	},
@@ -118,30 +82,25 @@ export const SETTINGS_NAV: NavDestination[] = [
 		key: "sponsorship",
 		labelKey: "sponsorship",
 		href: (s) => `/w/${s}/settings/sponsorship`,
-	// 2026-08-22 决策：管理台对普通成员无意义（后端对其返回空列表）；
-	// 门控同活动管理 = manage_events（页面内 manage 标志一致）
-	ability: "manage_events",
-		group: "workspace",
+		// 2026-08-22 决策：管理台对普通成员无意义（后端对其返回空列表）；
+		// 门控同活动管理 = manage_events（页面内 manage 标志一致）
+		ability: "manage_events",
 		active: "settings-sponsorship",
 		icon: "community",
-		settingsTab: true,
 	},
 	{
 		key: "payments",
 		labelKey: "payments",
 		href: (s) => `/w/${s}/settings/payments`,
 		ability: "manage_members",
-		group: "workspace",
 		active: "settings-payments",
 		icon: "community",
-		settingsTab: true,
 	},
 	{
 		key: "invitations",
 		labelKey: "invitations",
 		href: (s) => `/w/${s}/settings/invitations`,
 		ability: "manage_members",
-		group: "workspace",
 		active: "settings-invitations",
 		icon: "invite",
 	},

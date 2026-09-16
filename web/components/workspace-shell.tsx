@@ -247,9 +247,7 @@ export default function WorkspaceShell({
 	// plan 016：门控单源化 —— 侧栏/tab 条/下拉菜单统一消费 SETTINGS_NAV 注册表，
 	// 审批/邀请跟随 manage_members（不再跟随 list_members）。
 	const abilities = ws?.myAbilities ?? [];
-	const workspaceNav = SETTINGS_NAV.filter(
-		(d) => d.group === "workspace" && canSee(d, abilities),
-	);
+	const workspaceNav = SETTINGS_NAV.filter((d) => canSee(d, abilities));
 
 	// 管理页守卫：ws 解析完成后才判定（加载中让页面自己的骨架渲染，不闪空态）；
 	// 只读审计访客豁免（审计视图靠页面内 readOnlyVisitor 只读降级）
@@ -340,23 +338,26 @@ export default function WorkspaceShell({
 								<span>{t("integrationsLink")}</span>
 							</Link>
 						</nav>
-						{/* Workspace 组恒有 Agents/活动/课程无门控工作面入口，组不会为空 */}
-						<div className="ws-shell-heading">{t("headingWorkspace")}</div>
-						<nav className="ws-shell-nav" aria-label={t("headingWorkspace")}>
-							{workspaceNav.map((dest) => (
-								<Link
-									key={dest.key}
-									href={dest.href(slug)}
-									className={`ws-shell-item ${active === dest.active ? "ws-shell-item--selected" : ""}`}
-									aria-current={
-										active === dest.active ? "page" : undefined
-									}
-								>
-									<Icon name={dest.icon!} />
-									<span>{navT(dest.labelKey)}</span>
-								</Link>
-							))}
-						</nav>
+						{workspaceNav.length > 0 && (
+							<>
+								<div className="ws-shell-heading">{t("headingWorkspace")}</div>
+								<nav className="ws-shell-nav" aria-label={t("headingWorkspace")}>
+									{workspaceNav.map((dest) => (
+										<Link
+											key={dest.key}
+											href={dest.href(slug)}
+											className={`ws-shell-item ${active === dest.active ? "ws-shell-item--selected" : ""}`}
+											aria-current={
+												active === dest.active ? "page" : undefined
+											}
+										>
+											<Icon name={dest.icon!} />
+											<span>{navT(dest.labelKey)}</span>
+										</Link>
+									))}
+								</nav>
+								</>
+						)}
 					</>
 				)}
 
