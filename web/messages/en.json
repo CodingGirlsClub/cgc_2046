@@ -1106,9 +1106,6 @@
 		"breadcrumbSettings": "Settings"
 	},
 	"workspaceNav": {
-		"agents": "Agents",
-		"events": "Events",
-		"courses": "Courses",
 		"members": "Members & roles",
 		"permissions": "Permission mapping",
 		"policy": "Join policy",

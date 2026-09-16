@@ -1106,9 +1106,6 @@
 		"breadcrumbSettings": "设置"
 	},
 	"workspaceNav": {
-		"agents": "Agents",
-		"events": "活动",
-		"courses": "课程",
 		"members": "成员与角色",
 		"permissions": "权限映射",
 		"policy": "加入策略",
