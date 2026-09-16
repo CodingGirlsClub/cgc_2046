@@ -52,6 +52,9 @@ defmodule Cgc2046.Reconciliation.Finding do
      场 `ends_at` 为空而名下仍有 paid 押金单——结算锚点缺失、订单会静默滞留。
      由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 产出（非本扫描 worker
      的规则表），刷新语义同 D2（命中 upsert / 未命中删除），entity = 场（:event）
+  15. `:notification_delivery_failed` — 通知 outbox 终态失败面（#556）：24h 内
+     落 `:failed` 的 notification_deliveries 行逐行出 Finding（entity =
+     :notification_delivery），窗口语义自清；终态化本体在 DeliveryWorker 末拍
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -97,7 +100,11 @@ defmodule Cgc2046.Reconciliation.Finding do
     :fund_action_burst,
     # 规14（U8/KTD7）：押金 no-show 结算无锚（closed 场 ends_at 为空而仍有
     # paid 押金单；由 DepositForfeitWorker 产出，非本扫描 worker 的规则表）
-    :deposit_settlement_unanchored
+    :deposit_settlement_unanchored,
+    # 规15（#556）：通知 outbox 终态失败面——24h 内落 :failed 的
+    # notification_deliveries 行（末拍终态化由 DeliveryWorker 承担）；窗口
+    # 语义自清（超窗未命中删除，与 Oban Pruner 窗口注释同义）
+    :notification_delivery_failed
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）
@@ -215,7 +222,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     :workflow_run,
     :payment_order,
     # 规13 的操作人（actor）实体
-    :user
+    :user,
+    # 规15 的通知投递行（notification_deliveries）
+    :notification_delivery
   ]
 
   attributes do
