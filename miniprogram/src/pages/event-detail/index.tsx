@@ -1,12 +1,14 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidHide, useDidShow, useRouter, useShareAppMessage, useUnload } from '@tarojs/taro'
 import { api } from '@/api'
+import { getPublicInitiatives } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
-import type { CatalogItem, ContentKind } from '@/domain/models'
+import type { CatalogItem, ContentKind, PublicInitiativeCard } from '@/domain/models'
 import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
 import { formatAmount, paymentBlockCopy } from '@/domain/payment'
-import { qualificationBadgeText } from '@/domain/initiative'
+import { detailQualificationBadgeText } from '@/domain/initiative'
+import { buildInitiativeSharePath } from '@/domain/share-route'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
@@ -45,6 +47,26 @@ export default function EventDetailPage() {
   // #508-A：核销入口门（owner/admin 才显示；探测失败/非成员一律 false）
   const [canCheckIn, setCanCheckIn] = useState(false)
   const requestSeq = useRef(0)
+
+  // 挂载 Initiative 的回链（对齐 web public-offering-detail）：initiativeId →
+  // 公开卡片查 name/slug；initiative 非公开或查询失败均不渲染回链。
+  const [initiative, setInitiative] = useState<PublicInitiativeCard | null>(null)
+  const initiativeId = item?.kind === 'event' ? item.initiativeId : null
+  useEffect(() => {
+    if (!initiativeId) {
+      setInitiative(null)
+      return
+    }
+    let cancelled = false
+    getPublicInitiatives()
+      .then((cards) => {
+        if (!cancelled) setInitiative(cards.find((card) => card.id === initiativeId) ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setInitiative(null)
+      })
+    return () => { cancelled = true }
+  }, [initiativeId])
 
   const load = useCallback(async () => {
     const seq = ++requestSeq.current
@@ -103,6 +125,7 @@ export default function EventDetailPage() {
   if (!item) return <PageState kind='empty' message='内容不存在' />
 
   const payment = paymentBlockCopy(item)
+  const badgeText = detailQualificationBadgeText(item)
 
   return (
     <View className={styles.page}>
@@ -110,7 +133,16 @@ export default function EventDetailPage() {
         <View className={styles.header}>
           <Text className={styles.kind}>{item.kind === 'event' ? 'EVENT' : 'COURSE'}</Text>
           <Text className={styles.title} data-testid='detail-title'>{item.title}</Text>
-          {item.qualificationBadge && <Text data-testid='qualification-badge'>{qualificationBadgeText({ qualificationBadge: item.qualificationBadge, shortBy: item.shortBy })}</Text>}
+          {/* open 与报名标签语义重复，详情页不展示（对齐 web QualificationBadgeTag） */}
+          {badgeText && <Text className={styles.qualificationBadge} data-testid='qualification-badge'>{badgeText}</Text>}
+          {initiative && (
+            <Text
+              className={styles.initiativeLink}
+              onClick={() => Taro.navigateTo({ url: buildInitiativeSharePath(initiative.slug) })}
+            >
+              所属倡导活动：{initiative.name} →
+            </Text>
+          )}
         </View>
 
         <View className={styles.metrics}>

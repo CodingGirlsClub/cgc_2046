@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 import { getPublicInitiative } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { PublicInitiative } from '@/domain/models'
-import { scheduleText } from '@/domain/format'
+import { formatDateTime, scheduleText, venueText } from '@/domain/format'
 import { qualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
 import styles from './index.module.css'
@@ -37,6 +37,8 @@ export function InitiativeContent({ data }: { data: PublicInitiative }) {
               onClick={() => Taro.navigateTo({ url: `/pages/event-detail/index?id=${encodeURIComponent(event.id)}&kind=event` })}>
               <Text className={styles.event}>{event.title}</Text>
               <Text className={styles.schedule}>{scheduleText(event.startsAt, event.endsAt)}</Text>
+              <Text className={styles.cardMeta}>地点：{venueText(event.venue) ?? '地点待定'}</Text>
+              <Text className={styles.cardMeta}>报名截止：{event.registrationDeadline ? formatDateTime(event.registrationDeadline) : '无截止'}</Text>
               <Text className={styles.badge}>{qualificationBadgeText(event)}</Text>
               <Text className={styles.link}>{event.archived ? '查看活动留档' : '查看活动详情'} →</Text>
             </View>

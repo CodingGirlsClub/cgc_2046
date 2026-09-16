@@ -3,6 +3,8 @@
 .header { padding: 54rpx 32rpx 38rpx; background: linear-gradient(145deg, #fdeadf 0%, #f7f7f7 68%); }
 .kind { display: block; color: #ea5504; font-size: 20rpx; font-weight: 700; letter-spacing: 4rpx; }
 .title { display: block; margin-top: 18rpx; font-size: 48rpx; line-height: 1.3; font-weight: 700; }
+.qualificationBadge { display: inline-block; margin-top: 18rpx; padding: 6rpx 20rpx; color: #c24a02; background: #fff; border: 2rpx solid #f0b48c; border-radius: 999rpx; font-size: 23rpx; font-weight: 600; }
+.initiativeLink { display: block; margin-top: 16rpx; color: #ea5504; font-size: 25rpx; font-weight: 600; }
 .club { display: block; margin-top: 18rpx; color: #4b4d54; font-size: 25rpx; }
 .metrics { margin: -18rpx 24rpx 0; padding: 28rpx 12rpx; position: relative; display: flex; background: #fff; border-radius: 22rpx; box-shadow: 0 12rpx 36rpx rgba(34, 35, 38, .1); }
 .metric { flex: 1; display: flex; flex-direction: column; align-items: center; border-right: 1rpx solid #e4e4e7; }
