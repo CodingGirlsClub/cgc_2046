@@ -9,7 +9,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
   规则写入有两条路径——挂载合并 `prepare_event_changes/2` 与锁死项传播
   `propagate_rule_change/4`（后者在规则行所在事务内把锁死项写到全部挂载场）
-  ——共同遵守五条不变量：
+  ——共同遵守六条不变量：
 
   1. **范围**：只传播到非终态场（`draft` / `open`）。`closed` / `cancelled`
      是历史事实（D4 终态不可逆），规则变更不回溯改写它们的字段、账本缓存
@@ -41,6 +41,13 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
      传播前置守卫 `ensure_pricing_exclusive/2` 另有更保守的**既有**语义
      （KTD3/R1「不静默关闭定价」，issue #587 未改动）：锁死 deposit 规则的
      **任何**变更（含关闭态）遇在范围内已开定价的场即拒绝整次规则更新。
+  6. **押金 × 档位残留（#597）**：押金规则**开启**时，目标场 `price_tiers`
+     必须为空——档位有内容会让按 `tiers` 分支的读面与按 `deposit_enabled`
+     分支的读面自相矛盾（`Events.PaymentModeValidation` moduledoc 记录 #586
+     的实测后果）。挂载合并与传播路径共用同一判定，违规即拒绝整次规则更新
+     （错误 `fields` 带 `event_id`）。规则**关闭态不参与**：`pricing=false` +
+     档位非空是 R4 合法休眠态，不阻断关闭写入。并发兜底 = DB CHECK
+     `events_deposit_excludes_price_tiers`。
   """
 
   alias Cgc2046.Admission.CapacityLedger
@@ -130,7 +137,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   规则值或锁标记改变后，锁死项传播到全部**非终态**已挂载 Event（`draft` /
   `open`；`closed` / `cancelled` 不动）。调用方应在 Ash action 事务内执行。
 
-  四条契约见 moduledoc。失败语义：任一场触发守卫即抛错，规则行与全部场的
+  六条契约见 moduledoc。失败语义：任一场触发守卫即抛错，规则行与全部场的
   写入同事务回滚（不部分生效）。
   """
   def propagate_rule_change(initiative_id, key, value, locked) do
@@ -141,8 +148,10 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
         events = lock_propagatable_events(initiative_id)
 
         # 前置守卫全量过一遍再写（不留「前面几场已改、后面被拒」的中间态给
-        # 读者；事务回滚只是兜底）。顺序：押金×定价（KTD3/R1）→ 押金不变量。
+        # 读者；事务回滚只是兜底）。顺序：押金×定价（KTD3/R1）→ 押金×档位残留
+        # （#597）→ 押金不变量（#587）。
         :ok = ensure_pricing_exclusive(events, key_atom)
+        :ok = ensure_tiers_empty(events, key_atom, value)
 
         propagated =
           Enum.map(events, fn event ->
@@ -160,6 +169,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     {:deposit_conflicts_pricing, error} ->
       {:error, error}
 
+    {:deposit_tiers_conflict, error} ->
+      {:error, error}
+
     {:deposit_invariant_conflict, error} ->
       {:error, error}
 
@@ -169,11 +181,14 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
   # 传播范围：非终态场。closed / cancelled 是历史事实，规则变更不回溯改写
   # （issue #587 验收 3）。ORDER BY id 让加锁顺序确定、报错定位稳定。
+  # tiers_present 在 SQL 侧判定（与 DB CHECK 同一判据，且不依赖 jsonb 解码形态）：
+  # price_tiers 列 NOT NULL DEFAULT '[]'::jsonb（#597）。
   defp lock_propagatable_events(initiative_id) do
     case Repo.query(
            """
            SELECT id, starts_at, pricing_enabled, deposit_enabled, registration_deadline,
-                  status, capacity, workspace_id
+                  status, capacity, workspace_id,
+                  (price_tiers <> '[]'::jsonb) AS tiers_present
            FROM events
            WHERE initiative_id = $1 AND status IN ('draft', 'open')
            ORDER BY id
@@ -196,7 +211,8 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
          registration_deadline,
          status,
          capacity,
-         workspace_id
+         workspace_id,
+         tiers_present
        ]) do
     %{
       id: Ecto.UUID.load!(id),
@@ -206,7 +222,8 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       registration_deadline: registration_deadline,
       status: status,
       capacity: capacity,
-      workspace_id: Ecto.UUID.load!(workspace_id)
+      workspace_id: Ecto.UUID.load!(workspace_id),
+      tiers_present: tiers_present
     }
   end
 
@@ -222,6 +239,23 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
       event ->
         throw({:deposit_conflicts_pricing, pricing_conflict_error(event_id: event.id)})
+    end
+  end
+
+  # #597：押金规则**开启**时目标场 `price_tiers` 必须为空（读面按档位内容分支
+  # 会与押金展示自相矛盾）。gate 在规则值 `enabled: true`：关闭态不参与——
+  # 档位残留（`pricing=false` + 档位非空，R4 合法休眠态）不阻断关闭写入。
+  # 扫描集合 = 传播集合（终态场不被写，其残留不影响本次写入）。
+  defp ensure_tiers_empty(_events, key_atom, _value) when key_atom != :deposit, do: :ok
+
+  defp ensure_tiers_empty(events, :deposit, value) do
+    if deposit_enabling?(value) do
+      case Enum.find(events, & &1.tiers_present) do
+        nil -> :ok
+        event -> throw({:deposit_tiers_conflict, tiers_conflict_error(event_id: event.id)})
+      end
+    else
+      :ok
     end
   end
 
@@ -527,6 +561,17 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     )
   end
 
+  # #597：押金规则开启时目标场有档位残留（定价关闭但档位非空=R4 合法休眠态）→
+  # 拒绝，文案给出补救动作「先清空 price_tiers」。code 与
+  # PaymentModeValidation 同源（#241 契约字面量）。
+  defp tiers_conflict_error(fields) do
+    Cgc2046.Errors.BusinessError.exception(
+      message: "clear price tiers before applying the deposit rule to this event",
+      code: "event_deposit_price_tiers_conflict",
+      fields: fields
+    )
+  end
+
   # 押金 × 定价互斥的挂载/锁死合并检查：判据源是 changeset 的**有效**
   # `pricing_enabled`（改值 else 原值），不是累积 attrs——规则 attrs 永远不含
   # `:pricing_enabled`（规则 key 只映射 deposit/min_age/min_participants/
@@ -539,15 +584,33 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   # ——`pricing=true` + `deposit=false` 是合法态（互斥只管双真；
   # `initiative_boundary_test` 「押金关闭态下开定价合法」即此），关闭态规则
   # 写入只是幂等回写，不返回错误。
+  #
+  # #597 追加档位判据（同样 gate 在 `enabled`）：押金规则开启时 changeset 的
+  # 有效 `price_tiers` 非空即拒绝。顺序在 pricing 之后——定价场必然有档位，
+  # 先报更根本的互斥（I1 归因优先，与域校验 cond 顺序、与两条不相交 DB CHECK
+  # 的归因一致）。判据读 changeset 而非 attrs：规则 attrs 同样不含
+  # `:price_tiers`（死码），且挂载路径的残留档位来自 Event 自身。
   defp merge_event_value(changeset, attrs, :deposit_enabled, %{deposit_enabled: enabled} = values) do
-    if enabled and Ash.Changeset.get_attribute(changeset, :pricing_enabled) == true do
-      {:error, pricing_conflict_error(:pricing_enabled)}
-    else
-      Map.merge(attrs, values)
+    cond do
+      enabled and Ash.Changeset.get_attribute(changeset, :pricing_enabled) == true ->
+        {:error, pricing_conflict_error(:pricing_enabled)}
+
+      enabled and tiers_present?(changeset) ->
+        {:error, tiers_conflict_error(:price_tiers)}
+
+      true ->
+        Map.merge(attrs, values)
     end
   end
 
   defp merge_event_value(_changeset, attrs, field, value), do: Map.put(attrs, field, value)
+
+  # 写后生效值非空即违规（`nil` 是历史畸形值的 fail-closed 侧：一并拒绝）。
+  defp tiers_present?(changeset),
+    do: Ash.Changeset.get_attribute(changeset, :price_tiers) not in [nil, []]
+
+  defp deposit_enabling?(value),
+    do: Map.get(value, "enabled", Map.get(value, :enabled, false)) == true
 
   defp value_for_event(:deposit, value, _changeset) when is_map(value) do
     enabled = Map.get(value, "enabled", Map.get(value, :enabled, false))

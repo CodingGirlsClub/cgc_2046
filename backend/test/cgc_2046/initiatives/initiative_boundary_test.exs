@@ -408,6 +408,116 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     assert reloaded_event.deposit_enabled == false
   end
 
+  # #597 I2：押金规则挂载遇目标 Event 有「档位残留」（定价关闭但档位非空，R4 合法
+  # 休眠态）→ 拒绝并给出补救动作；档位与押金状态原样，未挂载。
+  # 该路径在 before_action 里 force_change deposit 字段，资源级 validate 先于
+  # before_action 执行 → 拒绝必须由 RuleInheritance 自己给出（DB CHECK 是最后兜底）。
+  test "deposit rule mount onto an event with dormant price tiers is rejected", ctx do
+    i = initiative(ctx.admin)
+
+    e =
+      draft_event(ctx.workspace, ctx.admin, %{
+        price_tiers: [%{"id" => Ash.UUID.generate(), "name" => "休眠", "amount_cents" => 9900}]
+      })
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             e
+             |> Ash.Changeset.for_update(:update, %{initiative_id: i.id})
+             |> Ash.update(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    assert Enum.any?(
+             errors,
+             &match?(
+               %Cgc2046.Errors.BusinessError{code: "event_deposit_price_tiers_conflict"},
+               &1
+             )
+           ),
+           "expected event_deposit_price_tiers_conflict, got: #{inspect(errors)}"
+
+    # 文案钉死「规则路径判据本体」：DB CHECK 兜底映射的是域文案
+    # （"price tiers must be empty..."），本条是 RuleInheritance 自己的补救指引。
+    assert Enum.any?(errors, fn
+             %Cgc2046.Errors.BusinessError{message: msg} ->
+               msg =~ "clear price tiers before applying the deposit rule"
+
+             _ ->
+               false
+           end)
+
+    reloaded = Ash.get!(Event, e.id, authorize?: false)
+    assert reloaded.price_tiers == e.price_tiers
+    assert reloaded.deposit_enabled == false
+    assert reloaded.initiative_id == nil
+  end
+
+  # #597 I2 传播路径（裸 SQL）：押金规则由关转开传播遇已挂载 Event 有档位残留 →
+  # 拒绝整次规则更新（规则行与全部已挂载 Event 同事务回滚），档位保留。
+  test "deposit rule propagation stops when a mounted event keeps dormant price tiers", ctx do
+    i = initiative_with_deposit(ctx.admin, %{enabled: false, amount_cents: nil})
+
+    e =
+      draft_event(ctx.workspace, ctx.admin, %{
+        initiative_id: i.id,
+        price_tiers: [%{"id" => Ash.UUID.generate(), "name" => "休眠", "amount_cents" => 9900}]
+      })
+
+    assert e.deposit_enabled == false
+    assert e.price_tiers != []
+
+    r =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :deposit)
+      |> Ash.read_one!(actor: ctx.admin)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             r
+             |> Ash.Changeset.for_update(:update, %{value: %{enabled: true, amount_cents: 6900}})
+             |> Ash.update(actor: ctx.admin)
+
+    assert Enum.any?(
+             errors,
+             &match?(
+               %Cgc2046.Errors.BusinessError{code: "event_deposit_price_tiers_conflict"},
+               &1
+             )
+           ),
+           "expected event_deposit_price_tiers_conflict, got: #{inspect(errors)}"
+
+    reloaded_rule = Ash.get!(InitiativeRule, r.id, actor: ctx.admin)
+    assert reloaded_rule.value == %{"enabled" => false, "amount_cents" => nil}
+
+    reloaded_event = Ash.get!(Event, e.id, authorize?: false)
+    assert reloaded_event.price_tiers == e.price_tiers
+    assert reloaded_event.deposit_enabled == false
+  end
+
+  # #597 I2 的 `enabling?` gate：规则改成 enabled: false 不可能造出违规，不该被
+  # 档位残留误拒（规则 update 的 after_action 无条件触发传播）。
+  test "deposit rule update to enabled: false is not blocked by dormant price tiers", ctx do
+    i = initiative_with_deposit(ctx.admin, %{enabled: false, amount_cents: nil})
+
+    e =
+      draft_event(ctx.workspace, ctx.admin, %{
+        initiative_id: i.id,
+        price_tiers: [%{"id" => Ash.UUID.generate(), "name" => "休眠", "amount_cents" => 9900}]
+      })
+
+    assert e.deposit_enabled == false
+
+    r =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :deposit)
+      |> Ash.read_one!(actor: ctx.admin)
+
+    assert {:ok, updated_rule} =
+             r
+             |> Ash.Changeset.for_update(:update, %{value: %{enabled: false, amount_cents: nil}})
+             |> Ash.update(actor: ctx.admin)
+
+    assert updated_rule.value == %{"enabled" => false, "amount_cents" => nil}
+    assert Ash.get!(Event, e.id, authorize?: false).price_tiers == e.price_tiers
+  end
+
   # 回归 Initiative 计划 R7：押金规则挂载到免费 Event 写入押金两列。
   test "deposit rule mount onto free event writes both deposit columns", ctx do
     i = initiative(ctx.admin)

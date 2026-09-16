@@ -45,6 +45,7 @@
 		"event_payment_mode_exclusive": "同一场活动只能选择一种缴费模式：请先关闭收费（或押金）再开启另一种。",
 		"event_deposit_amount_required": "开启押金需要填写大于 0 的押金金额。",
 		"event_deposit_ends_at_required": "开启押金需要填写活动结束时间（未到场结算的锚点）。",
+		"event_deposit_price_tiers_conflict": "押金场不能保留价格档位：请先清空价格档位，再开启押金。",
 		"pricing_disable_actor_required": "关闭收费需要登录的组织者身份，请重新登录后再试。",
 		"pricing_disable_batch_limit": "待付报名过多（超过 200 笔）无法一次性免费确认——请改为取消活动（自动退款），或先处理部分待付。",
 		"join_request_invite_only": "该工作台仅限邀请加入，请通过邀请链接加入。",
