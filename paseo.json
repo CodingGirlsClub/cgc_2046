@@ -5,6 +5,6 @@
   },
   "scripts": {
     "api": { "type": "service", "command": "cd backend && mix phx.server" },
-    "web": { "type": "service", "command": "cd web && pnpm dev -- --port $PASEO_PORT" }
+    "web": { "type": "service", "command": "cd web && pnpm dev --port $PASEO_PORT" }
   }
 }
