@@ -48,6 +48,9 @@ export const COPY: Record<string, string> = {
   attendance_already_checked_in: '该报名已核销，无需重复核销。',
   attendance_rate_limited: '核销尝试过于频繁，请稍后再试。',
   deposit_already_forfeited: '该报名的押金已按未到场结算（不退），无法再核销。',
+  // #597 押金场档位残留拒绝：事件编辑面在 web / MCP，小程序无调用方；
+  // 本键为 #241 契约两端对齐（与 web messages errors 同文案互指）。
+  event_deposit_price_tiers_conflict: '押金场不能保留价格档位：请先清空价格档位，再开启押金。',
   // 入参缺 enrollmentId
   order_enrollment_required: '缺少报名信息，请重新发起报名。',
   // Initiative slug 发布后锁定（#588）；小程序无 initiative 写面，此条为
