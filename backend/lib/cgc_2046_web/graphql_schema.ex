@@ -2621,8 +2621,50 @@ defmodule Cgc2046Web.GraphqlSchema do
        ) do
     error
     |> AshGraphql.Errors.to_errors(context, domain, resource, action)
-    |> Enum.map(&Map.take(&1, [:message, :code, :fields]))
+    |> Enum.map(fn mapped ->
+      mapped
+      |> Map.take([:message, :code])
+      |> Map.put(:fields, format_error_fields(mapped[:fields]))
+    end)
   end
+
+  # `MutationError.fields` 是 SDL 的 `[String!]`；域层 fields 允许两种形态：
+  # 裸字段名（atom，如 `:pricing_enabled`）与 `{字段名, 值}`（如
+  # `event_id: <uuid>`，见 RuleInheritance.pricing_conflict_error/1）。值可能是
+  # 裸 SQL 行里的原始 16 字节 UUID（非 canonical 字符串），直接进 `[String!]`
+  # 会在 Absinthe 序列化处炸，故统一规范化成 `name` / `name=value` 字符串
+  # （#595 D4a：fields 语义 = name=value，前端按 `event_id=<uuid>` 反查挂载场）。
+  defp format_error_fields(nil), do: []
+
+  defp format_error_fields(fields) when is_list(fields),
+    do: fields |> Enum.map(&format_error_field/1) |> Enum.reject(&is_nil/1)
+
+  defp format_error_fields(field), do: format_error_fields([field])
+
+  defp format_error_field({name, value}),
+    do: "#{format_error_field_name(name)}=#{format_error_value(value)}"
+
+  defp format_error_field(name) when is_atom(name), do: format_error_field_name(name)
+  # 裸值也走 format_error_value/1：16 字节 binary 同样要规范化成 canonical UUID，
+  # 否则裸值形态会绕过规范化、以非法 UTF-8 进 `[String!]`（F7）。
+  defp format_error_field(value) when is_binary(value), do: format_error_value(value)
+
+  # 无法识别的形态（map / 三元组 / 数字 …）不塞进 `[String!]`，但也不能静默丢：
+  # 丢了等于 #595 刚建立的「拒绝路径可定位」在下一个新错误形态上无声退化（A4）。
+  defp format_error_field(other) do
+    Logger.warning("[graphql] dropped unrecognized error field shape: #{inspect(other)}")
+    nil
+  end
+
+  defp format_error_field_name(name) when is_atom(name), do: Atom.to_string(name)
+  defp format_error_field_name(name) when is_binary(name), do: name
+  defp format_error_field_name(name), do: inspect(name)
+
+  defp format_error_value(<<_::128>> = raw), do: Ecto.UUID.load!(raw)
+  defp format_error_value(value) when is_binary(value), do: value
+  defp format_error_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp format_error_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_error_value(value), do: inspect(value)
 
   # 两段确认第一段结果 → pending_operation_confirmation payload：业务错误进
   # payload errors（与自动 mutation 同通道，前端按 code 查文案），不抛顶层 error
@@ -2886,6 +2928,52 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
 
     field(:rules, non_null(list_of(non_null(:admin_initiative_rule))))
+
+    @desc """
+    平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+
+    门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+    不加独立 gate；不分页、不过滤 visibility，理由见
+    Cgc2046.Initiatives.Mounts 的 moduledoc。
+
+    附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+    同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+    「清单加载失败」两种状态，不把失败伪装成 0 场。
+    """
+    field :mounted_events, list_of(non_null(:admin_initiative_mounted_event)) do
+      resolve(fn initiative, _, _ ->
+        case Cgc2046.Initiatives.Mounts.list(initiative.id) do
+          {:ok, rows} ->
+            {:ok, rows}
+
+          {:error, reason} ->
+            Logger.error("[admin_initiative.mountedEvents] load failed: #{inspect(reason)}")
+            {:ok, nil}
+        end
+      end)
+    end
+  end
+
+  object :admin_initiative_mounted_event do
+    @desc "Event / Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
+    field(:id, non_null(:id))
+    field(:initiative_id, non_null(:id))
+    field(:slug, non_null(:string))
+    field(:title, non_null(:string))
+    field(:status, non_null(:string))
+    field(:starts_at, :datetime)
+    field(:registration_deadline, :datetime)
+    @desc "结构化场地 JSON 串（country/province/city/district；nil = 线上或未定）"
+    field(:venue, :json_string)
+    field(:workspace_id, non_null(:id))
+    field(:workspace_name, non_null(:string))
+    @desc "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
+    field(:confirmed_count, non_null(:integer))
+    field(:pricing_enabled, non_null(:boolean))
+    field(:deposit_enabled, non_null(:boolean))
+    field(:deposit_amount_cents, :integer)
+    field(:min_age, :integer)
+    field(:min_participants, :integer)
   end
 
   object :admin_initiative_rule do
@@ -3222,7 +3310,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     |> Enum.map(fn error ->
       %{
         message: error[:message] || error.message || "invalid request",
-        code: error[:code] || "invalid"
+        code: error[:code] || "invalid",
+        # #595：拒绝路径要能定位到具体场/工作台，fields 不再丢弃
+        # （规范化在 to_ash_graphql_errors/5，本处只透传）。
+        fields: error[:fields] || []
       }
     end)
   end
