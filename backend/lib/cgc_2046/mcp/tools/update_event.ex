@@ -145,11 +145,8 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
           {:error,
            "forbidden: owner or admin required to update event in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to update event"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to update event")}
       end
     end
   end

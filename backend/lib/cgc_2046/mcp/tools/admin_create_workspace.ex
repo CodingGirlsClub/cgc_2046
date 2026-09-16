@@ -99,11 +99,8 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
       {:error, %Ash.Error.Forbidden{}} ->
         {:error, "forbidden: platform admin required to create workspaces"}
 
-      {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
-
-      {:error, _} ->
-        {:error, "failed to create workspace"}
+      {:error, err} ->
+        {:error, Cgc2046.Mcp.Errors.message(err, "failed to create workspace")}
     end
   end
 

@@ -83,11 +83,8 @@ defmodule Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication do
         {:error, %Ash.Error.Forbidden{}} ->
           {:error, "forbidden: platform admin required to reject workspace applications"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to reject workspace application"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to reject workspace application")}
       end
     end
   end

@@ -641,19 +641,24 @@ defmodule Cgc2046.Curriculum.Prep do
   end
 
   # Ash 3 错误归一为字符串（changeset 的 errors 逐条 message 拼接；已是
-  # 字符串的错误原样透传——内部环节的友好文案不被 fallback 吞掉）
+  # 字符串的错误原样透传——内部环节的友好文案不被 fallback 吞掉）。
+  # 未映射 DB 错误（未知类，含嵌套在 Invalid 里的混合树）经 #612 安全网降级为
+  # `database_error: … (error id: …)`，原文只进服务端日志——本模块的返回值同时
+  # 进 MCP 工具与 web 面。
   defp error_message(message, _fallback) when is_binary(message), do: message
 
   defp error_message(%Ash.Changeset{errors: errors}, fallback),
     do: errors_message(errors, fallback)
 
-  defp error_message(%Ash.Error.Invalid{} = err, _fallback), do: Exception.message(err)
+  defp error_message(%Ash.Error.Invalid{} = err, _fallback),
+    do: Cgc2046.Errors.DatabaseError.safe_message(err)
+
   defp error_message(_other, fallback), do: fallback
 
   defp errors_message([], fallback), do: fallback
 
   defp errors_message(errors, _fallback),
-    do: Enum.map_join(errors, ", ", &Exception.message/1)
+    do: Cgc2046.Errors.DatabaseError.safe_message(errors)
 
   # run → 课程（input_snapshot["course_id"]，租户收紧；内部读 authorize?: false）
   defp fetch_course(%WorkflowRun{} = run) do
@@ -718,14 +723,14 @@ defmodule Cgc2046.Curriculum.Prep do
         if Enum.any?(err.errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
           {:error, "prep run changed concurrently; re-read with get_prep_status and retry"}
         else
-          {:error, Exception.message(err)}
+          {:error, Cgc2046.Errors.DatabaseError.safe_message(err)}
         end
 
       {:error, %Ash.Error.Forbidden{}} ->
         {:error, "forbidden: not allowed to update prep run in workspace #{run.workspace_id}"}
 
-      {:error, _} ->
-        {:error, "failed to update prep run"}
+      {:error, err} ->
+        {:error, Cgc2046.Errors.DatabaseError.safe_message(err, "failed to update prep run")}
     end
   end
 

@@ -60,9 +60,11 @@ defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
         |> Map.merge(H.datetime_attrs(params))
 
       case initiative |> Ash.Changeset.for_update(:update, attrs) |> Ash.update(actor: actor) do
-        {:ok, updated} -> H.row(updated, actor)
-        {:error, %Ash.Error.Invalid{} = error} -> {:error, Exception.message(error)}
-        {:error, _} -> {:error, "failed to update initiative"}
+        {:ok, updated} ->
+          H.row(updated, actor)
+
+        {:error, error} ->
+          {:error, Cgc2046.Mcp.Errors.message(error, "failed to update initiative")}
       end
     else
       {:error, _} -> {:error, "failed to load initiative"}

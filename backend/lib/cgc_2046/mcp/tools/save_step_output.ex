@@ -158,11 +158,8 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
       {:error, %Ash.Error.Forbidden{}} ->
         {:error, "forbidden: not authorized to write run #{run.id}"}
 
-      {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
-
-      {:error, _} ->
-        {:error, "failed to save step output"}
+      {:error, err} ->
+        {:error, Cgc2046.Mcp.Errors.message(err, "failed to save step output")}
     end
   end
 end
