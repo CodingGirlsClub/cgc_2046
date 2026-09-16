@@ -14,6 +14,7 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.Event
+  alias Cgc2046.Events.PaymentModeValidation
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
 
@@ -43,6 +44,18 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
   end
 
   defp reload(event), do: Ash.get!(Event, event.id, authorize?: false)
+
+  # #597：合法休眠态（R4）——定价关闭时保留档位是允许的，它正是 I2 防的残留来源。
+  defp dormant_tiers,
+    do: [%{"id" => Ash.UUID.generate(), "name" => "休眠", "amount_cents" => 9900}]
+
+  defp deposit_attrs,
+    do: %{
+      deposit_enabled: true,
+      deposit_amount_cents: 3000,
+      ends_at: EventFixtures.days_from_now(3),
+      registration_deadline: EventFixtures.days_from_now(3)
+    }
 
   describe "三态互斥（R1 / AE1）" do
     test "已开定价的 Event update 开押金 → 被拒，错误码稳定", ctx do
@@ -119,6 +132,143 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
       assert name == "events_payment_mode_exclusive"
       assert reload(event).deposit_enabled == false
       assert reload(event).pricing_enabled == false
+    end
+  end
+
+  describe "押金 ⇒ 档位为空（#597）" do
+    test "已有休眠档位的 Event 开押金 → 被拒，档位原样保留（拒绝不是清理）", ctx do
+      {:ok, event} = create_event(ctx, %{price_tiers: dormant_tiers()})
+
+      assert {:error, _} = result = update_event(ctx, event, deposit_attrs())
+
+      assert_business_code(result, "event_deposit_price_tiers_conflict")
+      reloaded = reload(event)
+      assert reloaded.deposit_enabled == false
+      assert reloaded.price_tiers == event.price_tiers
+    end
+
+    test "create 同时开押金与非空档位 → 被拒，错误码稳定", ctx do
+      assert {:error, _} =
+               result = create_event(ctx, Map.put(deposit_attrs(), :price_tiers, dormant_tiers()))
+
+      assert_business_code(result, "event_deposit_price_tiers_conflict")
+    end
+
+    test "同一次写携带 price_tiers: [] → 开押金成功（调用方补救面）", ctx do
+      {:ok, event} = create_event(ctx, %{price_tiers: dormant_tiers()})
+
+      assert {:ok, updated} = update_event(ctx, event, Map.put(deposit_attrs(), :price_tiers, []))
+
+      assert updated.deposit_enabled == true
+      assert updated.price_tiers == []
+    end
+
+    test "已开押金的 Event 单独补写非空档位 → 被拒", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+
+      assert {:error, _} = result = update_event(ctx, event, %{price_tiers: dormant_tiers()})
+
+      assert_business_code(result, "event_deposit_price_tiers_conflict")
+      assert reload(event).price_tiers == []
+    end
+
+    test "押金场改标题（不触档位）→ 通过（不锁死无关编辑）", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+
+      assert {:ok, updated} = update_event(ctx, event, %{title: "PM renamed by 597"})
+      assert updated.title == "PM renamed by 597"
+    end
+
+    test "裸 SQL 在押金场写档位（并发/旁路模拟）→ DB CHECK 拒绝，约束名稳定", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
+               Cgc2046.Repo.query(
+                 "UPDATE events SET price_tiers = $1::jsonb WHERE id = $2",
+                 [
+                   Jason.encode!(dormant_tiers()),
+                   Ecto.UUID.dump!(event.id)
+                 ]
+               )
+
+      assert name == "events_deposit_excludes_price_tiers"
+      assert reload(event).price_tiers == []
+    end
+
+    test "对称残留（定价开 + 押金金额残留）被显式允许（#597 裁决 I6/I7 不立）", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+
+      assert {:ok, priced} =
+               update_event(ctx, event, %{
+                 deposit_enabled: false,
+                 pricing_enabled: true,
+                 price_tiers: dormant_tiers()
+               })
+
+      assert priced.pricing_enabled == true
+      assert priced.deposit_enabled == false
+      # 金额残留惰性保留：资金路径全部以 deposit_enabled 门控
+      # （enrollment.ex:869 模式匹配 / :987 if(deposit_enabled, ...)）
+      assert priced.deposit_amount_cents == 3000
+
+      # 残留不制造任何写入阻碍
+      assert {:ok, renamed} = update_event(ctx, priced, %{title: "still editable"})
+      assert renamed.title == "still editable"
+    end
+  end
+
+  describe "并发兜底错误映射（#597）" do
+    # 直接调 validate/3：集成用例经 handle_write_error 与 DB CHECK 也能拿到同一 code
+    # （单源同码，见 PaymentModeValidation.price_tiers_conflict_error/1），故**域子句
+    # 本体**需纯函数钉住——否则删掉该子句后集成用例仍绿（DB CHECK 兜底）。
+    test "域校验子句本体：押金 + 非空档位 → 不落库即返回稳定业务错误" do
+      changeset =
+        Ash.Changeset.for_create(
+          Event,
+          :create,
+          Map.put(deposit_attrs(), :price_tiers, dormant_tiers())
+        )
+
+      assert {:error,
+              %BusinessError{
+                code: "event_deposit_price_tiers_conflict",
+                fields: [:price_tiers]
+              }} = PaymentModeValidation.validate(changeset, [], %{})
+
+      # 定价关闭但档位非空（无押金）仍合法（R4），域子句不得不误伤
+      assert :ok =
+               PaymentModeValidation.validate(
+                 Ash.Changeset.for_create(Event, :create, %{price_tiers: dormant_tiers()}),
+                 [],
+                 %{}
+               )
+    end
+
+    test "两条缴费 CHECK 冲突按约束名映射到各自稳定 code，非 check 错误原样上抛" do
+      tiers_conflict = %Ash.Error.Changes.InvalidAttribute{
+        field: :price_tiers,
+        private_vars: [
+          constraint_type: :check,
+          constraint: "events_deposit_excludes_price_tiers"
+        ]
+      }
+
+      assert %BusinessError{
+               code: "event_deposit_price_tiers_conflict",
+               fields: [:price_tiers]
+             } = Event.handle_write_error(nil, tiers_conflict)
+
+      exclusive_conflict = %Ash.Error.Changes.InvalidAttribute{
+        field: :deposit_enabled,
+        private_vars: [constraint_type: :check, constraint: "events_payment_mode_exclusive"]
+      }
+
+      assert %BusinessError{code: "event_payment_mode_exclusive"} =
+               Event.handle_write_error(nil, exclusive_conflict)
+
+      # fail-closed：非 check 冲突（DB 真故障 / 其它约束）不得吞成业务错误
+      other = %Ash.Error.Changes.InvalidAttribute{field: :title, message: "boom"}
+      assert Event.handle_write_error(nil, other) == other
     end
   end
 
