@@ -28,6 +28,9 @@ export type PublicInitiative = {
 	hashtag: string | null;
 	description: string | null;
 	status: string;
+	/** 倡导窗口起止（ISO8601，可为 null）；列表卡片与详情 hero 共用 */
+	windowStartsAt: string | null;
+	windowEndsAt: string | null;
 	cityCount: number;
 	eventCount: number;
 	confirmedCount: number;
@@ -37,11 +40,15 @@ export type PublicInitiative = {
 
 export type PublicInitiativeCard = Pick<
 	PublicInitiative,
-	"id" | "name" | "slug" | "status" | "hashtag" | "description"
-> & {
-	windowStartsAt: string | null;
-	windowEndsAt: string | null;
-};
+	| "id"
+	| "name"
+	| "slug"
+	| "status"
+	| "hashtag"
+	| "description"
+	| "windowStartsAt"
+	| "windowEndsAt"
+>;
 
 const PUBLIC_INITIATIVE: TypedDocumentNode<
 	{ publicInitiative: PublicInitiative | null },
@@ -49,7 +56,7 @@ const PUBLIC_INITIATIVE: TypedDocumentNode<
 > = gql`
 	query PublicInitiative($slug: String!) {
 		publicInitiative(slug: $slug) {
-			id name slug hashtag description status cityCount eventCount confirmedCount qualifiedEventCount
+			id name slug hashtag description status windowStartsAt windowEndsAt cityCount eventCount confirmedCount qualifiedEventCount
 			cities { city events { id slug title status visibility startsAt endsAt registrationDeadline venue confirmedCount minParticipants qualificationStatus qualificationBadge shortBy archived } }
 		}
 	}

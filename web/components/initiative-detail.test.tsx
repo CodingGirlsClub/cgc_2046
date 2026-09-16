@@ -39,6 +39,8 @@ const PAYLOAD = {
 	hashtag: "#hackerstart1024",
 	description: "1024 程序员节全国巡回黑客松。",
 	status: "open",
+	windowStartsAt: "2026-10-01T02:00:00Z",
+	windowEndsAt: "2026-10-31T02:00:00Z",
 	cityCount: 2,
 	eventCount: 4,
 	confirmedCount: 14,
@@ -124,7 +126,12 @@ describe("/initiatives/[slug] 公开页", () => {
 		expect(screen.getByRole("heading", { name: "长沙市" })).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "深圳市" })).toBeInTheDocument();
 
-		expect(screen.getByText("还差 4 人")).toBeInTheDocument();
+		// hero 状态行 + 倡导窗口（与小程序 initiative-detail hero 同信息）
+		const hero = document.querySelector(".initiative-hero")!;
+		expect(hero.querySelector(".initiative-hero__status")!.textContent).toBe("进行中");
+		expect(hero.querySelector(".initiative-hero__window")!.textContent).toContain("2026");
+
+		expect(screen.getByText("还差 4 人成班")).toBeInTheDocument();
 		expect(screen.getAllByText("已成班").length).toBeGreaterThanOrEqual(2);
 		expect(screen.getByText("已取消")).toBeInTheDocument();
 		expect(screen.getByText("已结束")).toBeInTheDocument();

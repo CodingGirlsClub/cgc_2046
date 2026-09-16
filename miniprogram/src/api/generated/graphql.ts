@@ -882,7 +882,7 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
@@ -1016,7 +1016,7 @@ export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmen
 export type PublicInitiativesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type PublicInitiativesQuery = { publicInitiatives: Array<{ id: string, name: string, slug: string, hashtag: string | null, status: string }> };
+export type PublicInitiativesQuery = { publicInitiatives: Array<{ id: string, name: string, slug: string, hashtag: string | null, status: string, description: string | null, windowStartsAt: string | null, windowEndsAt: string | null }> };
 
 export type CheckInEnrollmentMutationVariables = Exact<{
   eventId: string | number;
@@ -1047,4 +1047,4 @@ export type PublicInitiativeQueryVariables = Exact<{
 }>;
 
 
-export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null }> }> } | null };
+export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null }> }> } | null };

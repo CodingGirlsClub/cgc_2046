@@ -92,6 +92,9 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       enrollmentBadge
       qualificationBadge
       shortBy
+      # 阶段1：挂载 Initiative 的活动带出隶属 id（公开字段白名单内，匿名可读）；
+      # 详情页据此渲染「所属倡导活动」回链
+      initiativeId
     }
     # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
     myEnrollment(kind: "event", offeringId: $id) {
@@ -408,7 +411,7 @@ export const MyOrdersQueryDocument = /* GraphQL */ `
 
 export const PublicInitiativesQueryDocument = /* GraphQL */ `
   query PublicInitiatives {
-    publicInitiatives { id name slug hashtag status }
+    publicInitiatives { id name slug hashtag status description windowStartsAt windowEndsAt }
   }
 `
 
@@ -458,7 +461,7 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
       cityCount eventCount confirmedCount qualifiedEventCount
       cities {
         city
-        events { id slug title status startsAt endsAt archived qualificationBadge shortBy }
+        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy }
       }
     }
   }

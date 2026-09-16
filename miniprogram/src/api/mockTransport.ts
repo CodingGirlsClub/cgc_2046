@@ -30,7 +30,12 @@ const records = [
     startsAt: new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + (3 * 24 + 2) * 3_600_000).toISOString(),
     venue: JSON.stringify({ country: '中国', province: '北京市', city: '北京', district: '海淀区' }),
-    enrollmentBadge: 'starting_soon'
+    enrollmentBadge: 'starting_soon',
+    // 成班投影样例（阶段1）：short_by → 详情页/Initiative 卡片都渲染「还差 3 人成班」；
+    // initiativeId 让 event-detail 的「所属倡导活动」回链有落点
+    qualificationBadge: 'short_by',
+    shortBy: 3,
+    initiativeId: 'initiative-1'
   },
   {
     id: 'event-open',
@@ -44,7 +49,11 @@ const records = [
     startsAt: null,
     endsAt: null,
     venue: null,
-    enrollmentBadge: 'enrolling'
+    enrollmentBadge: 'enrolling',
+    // 无成班需求的活动 → badge=open；详情页按 web 口径隐藏该徽章（阶段1 回归面）
+    qualificationBadge: 'open',
+    shortBy: null,
+    initiativeId: null
   },
   {
     id: 'event-deposit',
@@ -77,6 +86,34 @@ const course = {
   startsAt: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString(),
   endsAt: null,
   enrollmentBadge: 'enrolling'
+}
+
+// 阶段1：Initiative 公开投影 fixture（发现页卡片 + 详情页 + event-detail 回链）。
+// id 与 event-1 的 initiativeId 对应——回链据此把场次挂回倡导活动。
+const initiativeCard = {
+  id: 'initiative-1',
+  name: '1024 程序员节',
+  slug: 'python-1024',
+  hashtag: '#1024',
+  description: '跨城市的开源共学周，把同一套课程带到十个城市。',
+  status: 'open',
+  windowStartsAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
+  windowEndsAt: new Date(Date.now() + 21 * 24 * 3_600_000).toISOString()
+}
+
+// Initiative 卡片里的场次：派生徽章 + 留档（不取原始计数/成员字段，与查询同源）
+const initiativeEvent = {
+  id: 'event-1',
+  slug: 'python-workshop',
+  title: 'Python 入门工作坊',
+  status: 'open',
+  startsAt: records[0].startsAt,
+  endsAt: records[0].endsAt,
+  registrationDeadline: records[0].registrationDeadline,
+  venue: records[0].venue,
+  archived: false,
+  qualificationBadge: 'short_by',
+  shortBy: 3
 }
 
 interface MockOrder {
@@ -152,8 +189,20 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
 
-  if (document.includes('query PublicInitiatives')) return { publicInitiatives: [] }
-  if (document.includes('query PublicInitiative(')) return { publicInitiative: null }
+  if (document.includes('query PublicInitiatives')) return { publicInitiatives: [initiativeCard] }
+  if (document.includes('query PublicInitiative(')) {
+    if (values.slug !== initiativeCard.slug) return { publicInitiative: null }
+    return {
+      publicInitiative: {
+        ...initiativeCard,
+        cityCount: 1,
+        eventCount: 1,
+        confirmedCount: 1,
+        qualifiedEventCount: 1,
+        cities: [{ city: '北京', events: [initiativeEvent] }]
+      }
+    }
+  }
 
   if (document.includes('query Catalog')) {
     // #355 P2-10：CatalogSearch 带 title ilike `%kw%` 过滤变量（大小写不敏感 includes 语义）

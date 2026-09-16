@@ -48,6 +48,11 @@ export interface CatalogItem {
   endsAt: string | null
   /** 结构化场地 JsonString（parse 后 {country,province,city,district}）；仅 event 有位置槽，course 恒 null（R3） */
   venue: string | null
+  /**
+   * 挂载的 Initiative id（仅 event 有槽；公开字段白名单内）。详情页据此渲染
+   * 「所属倡导活动」回链；列表查询不带该字段 → 恒 null。
+   */
+  initiativeId: string | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
   /**
@@ -65,6 +70,11 @@ export interface PublicInitiativeCard {
   slug: string
   hashtag: string | null
   status: 'open' | 'closed'
+  /** 活动简介（列表卡片展示，与 web initiative-index 卡片同字段） */
+  description: string | null
+  /** 倡导窗口起止（ISO8601，可为 null）；列表卡片与详情 hero 共用 */
+  windowStartsAt: string | null
+  windowEndsAt: string | null
 }
 
 export interface PublicInitiativeEvent {
@@ -74,6 +84,10 @@ export interface PublicInitiativeEvent {
   status: 'open' | 'closed' | 'cancelled'
   startsAt: string | null
   endsAt: string | null
+  /** 报名截止（ISO8601，可为 null；与 web initiative 场次卡同字段） */
+  registrationDeadline: string | null
+  /** 结构化场地 JsonString（同 Event.venue 口径，R3 兜底「地点待定」） */
+  venue: string | null
   archived: boolean
   qualificationBadge: QualificationBadge
   shortBy: number | null
