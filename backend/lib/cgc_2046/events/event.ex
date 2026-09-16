@@ -864,12 +864,21 @@ defmodule Cgc2046.Events.Event do
         Ash.Changeset.get_data(changeset, :status) in [:open, "open", :closed, "closed"]
 
   @doc false
-  def schedule_changed_payload(_changeset, event) do
+  def schedule_changed_payload(changeset, event) do
+    # changed 维度（#565）：消费侧据此分档 debounce 窗口（时间变更 5 分钟 /
+    # 场地及其他 15 分钟）。快照字段仅作信号参考值——fanout 投递以回查的
+    # event 真状态渲染（latest-wins），不使用这里的快照。
+    changed =
+      for attr <- [:starts_at, :venue],
+          Ash.Changeset.changing_attribute?(changeset, attr),
+          do: Atom.to_string(attr)
+
     %{
       "event_id" => event.id,
       "title" => event.title,
       "starts_at" => event.starts_at,
       "venue" => event.venue,
+      "changed" => changed,
       "idempotency_key" => "event.schedule_changed:" <> event.id <> ":" <> Ecto.UUID.generate()
     }
   end
