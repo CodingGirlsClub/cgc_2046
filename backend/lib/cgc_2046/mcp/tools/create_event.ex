@@ -9,6 +9,12 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   直接写依据：创建私密 draft 可逆/低风险（R12），不进 D-D3 确认流；生命周期
   推进（launch/close/cancel）与元数据变更（update_event）走确认流工具。
 
+  挂载继承可见（#596）：带 initiative_id 建场时，域内锁 initiative 行解析出的
+  「本次生效的继承结果」随响应回传——`initiative`（id/name/slug，未挂载为 null）
+  与 `inherited`（事件字段 → `%{value, source}`；source = locked（平台锁死，写后
+  不可改）/ default（挂载时按规则快照，之后可改）；无继承为 `{}`）。挂载前可用
+  `preview_initiative_mount` 读四规则的原始值与锁态。
+
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定；
   业务 create action 的 `WorkspaceActorIsOwnerOrAdmin` policy 兜底。
   """
@@ -16,6 +22,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Events.Event
+  alias Cgc2046.Initiatives.RuleInheritance
   alias Cgc2046.Mcp.Wrapper
 
   # 与 Event :create 的 accept 一一对应（不发明字段）；nil = 未提供
@@ -60,7 +67,11 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
       description: "配套课程锚点（published course revision UUID；不提供=无配套课）"
     )
 
-    field(:initiative_id, :string, description: "草稿所属 Initiative UUID")
+    field(:initiative_id, :string,
+      description:
+        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；挂载会按规则强制写入押金/年龄/人数/报名截止，生效结果见响应 inherited"
+    )
+
     field(:deposit_enabled, :boolean, description: "是否收取活动押金")
     field(:deposit_amount_cents, :integer, description: "押金金额（分）")
     field(:min_age, :integer, description: "最低年龄；不提供=无门槛")
@@ -86,7 +97,8 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
                  status: to_string(event.status),
                  visibility: to_string(event.visibility),
                  pricing_enabled: event.pricing_enabled
-               }}
+               }
+               |> Map.merge(RuleInheritance.inheritance_of(event))}
 
             {:error, %Ash.Error.Forbidden{}} ->
               {:error, "forbidden: not allowed to create event in workspace #{workspace_id}"}
