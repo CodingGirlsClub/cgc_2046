@@ -69,9 +69,14 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
         visibility: :public
       })
 
+    # 押金规则锁定 ⇒ 挂载场必须落到非空 registration_deadline（自助取消锚点，
+    # issue #587 的押金不变量），而 deadline_rule 快照要靠 starts_at 才能算出
+    # 截止时间——不传 starts_at 的挂载场会被规则写入守卫拒绝（RuleInheritance）。
+    # 本用例主体是「workspace-only 场被公开投影过滤」，时间字段不参与断言。
     _private =
       EventsFixtures.create_event(workspace, admin, %{
         initiative_id: initiative.id,
+        starts_at: DateTime.add(DateTime.utc_now(), 11, :day),
         visibility: :workspace
       })
 

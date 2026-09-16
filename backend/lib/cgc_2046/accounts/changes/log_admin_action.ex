@@ -79,10 +79,33 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
     end
   end
 
-  @doc "脱敏 Initiative 规则审计元数据；不落规则值本身。"
-  def initiative_rule_metadata(_changeset, rule) do
-    %{initiative_id: rule.initiative_id, rule_key: to_string(rule.key), locked: rule.locked}
+  @doc """
+  Initiative 规则审计元数据（issue #587：记规则值前后）。
+
+  四项规则的值本身非敏感（押金金额 / 年龄门槛 / 成班阈值 / 截止小时数），
+  落库即资金与治理设置的取证面——只记当前值会让「客诉复盘」无从下手。
+  `value_before` 取 changeset 原值（`:create` 时 nil），`value_after` 取落库
+  记录值。
+
+  `metadata` 当前**不经** GraphQL 暴露（`admin_action_log` object 无该字段）
+  也不在 /admin/audit 列表渲染——扩读面属另一条 issue，本处只保证落库。
+  """
+  def initiative_rule_metadata(changeset, rule) do
+    %{
+      initiative_id: rule.initiative_id,
+      rule_key: to_string(rule.key),
+      locked: rule.locked,
+      locked_before: locked_before(changeset),
+      value_before: value_before(changeset),
+      value_after: rule.value
+    }
   end
+
+  defp value_before(%{action_type: :create}), do: nil
+  defp value_before(changeset), do: Ash.Changeset.get_data(changeset, :value)
+
+  defp locked_before(%{action_type: :create}), do: nil
+  defp locked_before(changeset), do: Ash.Changeset.get_data(changeset, :locked)
 
   defp resolve(value, changeset, record) when is_function(value, 2) do
     value.(changeset, record)
