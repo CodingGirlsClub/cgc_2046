@@ -62,7 +62,13 @@ defmodule Cgc2046.Notifications.NotificationDelivery do
       require_atomic?(false)
       accept([:last_error])
       change(set_attribute(:status, :failed))
-      change(fn changeset, _ -> Ash.Changeset.increment(changeset, :attempts, 1) end)
+
+      # require_atomic? false（非原子路径）：按 data 读旧值 +1（无 atomic_update 需求——
+      # 本 action 是单写者低频面；Ash 3.33 无 Changeset.increment/3，#548 原写法
+      # 从未被测试触达即炸，#556 末拍终态化是它的首个真实调用方）
+      change(fn changeset, _ ->
+        Ash.Changeset.change_attribute(changeset, :attempts, changeset.data.attempts + 1)
+      end)
     end
   end
 
