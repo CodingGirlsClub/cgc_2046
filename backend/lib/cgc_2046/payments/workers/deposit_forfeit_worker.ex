@@ -79,6 +79,11 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
 
   # 无锚场 Finding 的规则名（Finding @rule_values 同值；本 worker 单点产出）
   @rule :deposit_settlement_unanchored
+  # 批量没收告警（#545）：单场 forfeited 押金单计数阈值——一场没收过半即异常
+  # 信号（错配置 / ends_at 误操作 / 现场执行失败）。101 场规模固定，硬编码
+  # 不配置化；改值需同步 Finding moduledoc 规16 的口径描述。
+  @batch_alert_rule :deposit_forfeit_batch_alert
+  @batch_alert_threshold 5
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -90,7 +95,15 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
 
     log_audit(forfeited)
 
+    # #545 批量告警（事件口径：本拍单场没收 ≥ 阈值 → Logger.error 进 ops 通道）。
+    # 放审计后、Finding 段前后皆可——纯日志无副作用。
+    alert_batch_forfeits(forfeited)
+
     sync_unanchored_findings()
+
+    # #545 批量告警（状态口径：forfeited 计数 ≥ 阈值的场出 Finding，/admin
+    # 对账页可见；自带 rescue——告警链故障绝不阻塞结算主链，brief #545 纪律）
+    sync_batch_alert_findings()
 
     if forfeited != [] do
       Logger.info("deposit forfeit sweep: #{length(forfeited)} order(s) forfeited")
@@ -306,4 +319,88 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
   end
 
   defp warn_new(_candidate, _result), do: :ok
+
+  # ── 批量没收告警（#545）──────────────────────────────────────────────────
+
+  # 事件口径：本拍单场没收 ≥ 阈值（issue 原文口径）。逐拍即时告警，与 Finding
+  # 的状态口径互补——日志通道给 ops，Finding 给 /admin 对账页。
+  defp alert_batch_forfeits([]), do: :ok
+
+  defp alert_batch_forfeits(forfeited) do
+    forfeited
+    |> Enum.group_by(& &1.event_id)
+    |> Enum.each(fn {event_id, rows} ->
+      if length(rows) >= @batch_alert_threshold do
+        # event_id 兼容 binary（16 字节）与 text 两种 SQL 返回形态，统一文本化
+        # 进日志（运维可直接拷贝查询）
+        event_uuid =
+          case event_id do
+            id when is_binary(id) and byte_size(id) == 16 -> Ecto.UUID.load!(id)
+            id -> to_string(id)
+          end
+
+        Logger.error(
+          "deposit forfeit: BATCH ALERT event #{event_uuid} — " <>
+            "#{length(rows)} deposit order(s) forfeited in one sweep " <>
+            "(threshold #{@batch_alert_threshold}), investigate config/ops before more sweeps"
+        )
+      end
+    end)
+  end
+
+  # 状态口径：forfeited 计数 ≥ 阈值的场出/刷新 Finding（apply_rule 刷新语义：
+  # unforfeit 救济降到阈值下自动删除，自愈）。**自带 rescue**：apply_rule 的
+  # 读段 raise 不上抛——告警链故障只落 error 日志，绝不把已完成的结算拍
+  # 拖进 Oban 重试（brief #545「告警失败不得阻塞结算主链」）。
+  defp sync_batch_alert_findings do
+    Finding.apply_rule(@batch_alert_rule, batch_alert_candidates(),
+      log_prefix: "deposit forfeit",
+      on_create: fn _rule, candidate, _result -> alert_finding_new(candidate) end
+    )
+  rescue
+    e ->
+      Logger.error(
+        "deposit forfeit: batch alert finding sync failed (sweep already committed): #{inspect(e)}"
+      )
+  end
+
+  # forfeited 计数 ≥ 阈值的场（unanchored_candidates 同款 SQL 形状；HAVING 下推）
+  defp batch_alert_candidates do
+    {:ok, %{rows: rows}} =
+      Repo.query("""
+      SELECT en.event_id, e.workspace_id, COUNT(*)::bigint, COALESCE(SUM(o.amount_cents), 0)::bigint
+      FROM payments_orders o
+      JOIN enrollments en ON en.id = o.enrollment_id
+      JOIN events e ON e.id = en.event_id
+      WHERE o.order_kind = 'deposit'
+        AND o.status = 'forfeited'
+      GROUP BY en.event_id, e.workspace_id
+      HAVING COUNT(*) >= #{@batch_alert_threshold}
+      """)
+
+    Enum.map(rows, fn [event_id, workspace_id, count, cents] ->
+      %{
+        entity_type: :event,
+        entity_id: Ecto.UUID.load!(event_id),
+        workspace_id: Ecto.UUID.load!(workspace_id),
+        detail: %{
+          reason: "forfeited_deposit_orders_over_threshold",
+          forfeited_orders: count,
+          forfeited_cents: cents,
+          threshold: @batch_alert_threshold
+        }
+      }
+    end)
+  end
+
+  # 首次发现：error 级（资金面批量异常，与 unanchored 的 warning 分级）
+  defp alert_finding_new(candidate) do
+    Logger.error(
+      "deposit forfeit: BATCH ALERT finding created for event #{candidate.entity_id} — " <>
+        "#{candidate.detail.forfeited_orders} forfeited deposit order(s) " <>
+        "(#{candidate.detail.forfeited_cents} cents, threshold #{candidate.detail.threshold})"
+    )
+
+    :ok
+  end
 end

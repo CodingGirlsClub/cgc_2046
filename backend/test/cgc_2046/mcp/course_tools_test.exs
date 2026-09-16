@@ -437,11 +437,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   end
 
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 82(平台工具面契约,event 管理面 + #596 挂载前预览后)" do
+    test "注册工具数 = 83(平台工具面契约,event 管理面 + #596 挂载前预览后 + #545 押金补救)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 82
+      assert length(names) == 83
 
       for name <- [
             "get_workspace_context",
