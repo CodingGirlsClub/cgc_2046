@@ -1118,4 +1118,170 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "mcp-init-604-draft"
     end
   end
+
+  # ── #545：unforfeit_order（错没收补救，platform_admin 门 + 确认流两段） ──
+
+  describe "unforfeit_order 押金补救（#545）" do
+    alias Cgc2046.Admission.Enrollment
+    alias Cgc2046.EventsFixtures, as: EventFixtures
+    alias Cgc2046.Payments.Order
+    alias Cgc2046.Mcp.Tools.UnforfeitOrder
+
+    @deposit_cents 6900
+
+    # 最小布置：押金场 + confirmed 报名 + paid 押金单 → :forfeit 直落（worker
+    # 同款内部 action，authorize?: false；MCP 面不重复跑结算 worker）
+    defp forfeited_deposit_order(%{workspace: workspace, owner: owner}) do
+      event =
+        EventFixtures.create_event(workspace, owner, %{
+          deposit_enabled: true,
+          deposit_amount_cents: @deposit_cents,
+          ends_at: DateTime.add(DateTime.utc_now(), 48, :hour),
+          registration_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      learner = Fixtures.register_user("unf-mcp-learner")
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: learner.id})
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      order =
+        Order
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            enrollment_id: enrollment.id,
+            order_kind: :deposit,
+            provider: :wechat_native,
+            out_trade_no: Ecto.UUID.generate(),
+            amount_cents: @deposit_cents,
+            tier_snapshot: %{},
+            expire_at: DateTime.add(DateTime.utc_now(), 3600)
+          }
+        )
+        |> Ash.create!(authorize?: false, tenant: workspace.id)
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: Ecto.UUID.generate()})
+        |> Ash.update!(authorize?: false, tenant: workspace.id)
+        |> Ash.Changeset.for_update(:forfeit, %{})
+        |> Ash.update!(authorize?: false, tenant: workspace.id)
+
+      {order, enrollment}
+    end
+
+    defp workspace_fixture do
+      admin = Fixtures.platform_admin("unf-mcp-ws-admin")
+      workspace = Fixtures.create_workspace(admin)
+      %{workspace: workspace, owner: admin}
+    end
+
+    test "非平台管理员（含工作台 Owner）→ forbidden，不建 pending" do
+      ctx = workspace_fixture()
+      {order, _} = forfeited_deposit_order(ctx)
+      owner = Fixtures.register_user("unf-mcp-ws-owner")
+      Fixtures.add_member(ctx.workspace, owner, [:owner])
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UnforfeitOrder.execute(valid_params(ctx, order), frame_for(owner))
+
+      assert msg =~ "forbidden: platform admin required"
+      assert pendings_of(owner.id) == []
+    end
+
+    test "platform_admin + forfeited 单 → needs_confirmation（摘要带理由）→ 确认后 refunding" do
+      ctx = workspace_fixture()
+      {order, _} = forfeited_deposit_order(ctx)
+      admin = Fixtures.platform_admin("unf-mcp-admin")
+
+      assert {:reply, _, _} =
+               first = UnforfeitOrder.execute(valid_params(ctx, order), frame_for(admin))
+
+      payload = decode_reply(first)
+      assert payload["status"] == "needs_confirmation"
+      assert payload["summary"] =~ "forfeited → refunding"
+      assert payload["summary"] =~ "迟到到场人工核实"
+
+      pending_id = payload["pending_id"]
+      assert pending_status(pending_id) == :pending
+
+      # confirm 段（Confirmation.execute 的直接分派目标）
+      assert {:ok, result} = UnforfeitOrder.execute_confirmed(admin, valid_params(ctx, order))
+      assert result.status == "refunding"
+      assert result.order_kind == "deposit"
+      assert result.amount_cents == @deposit_cents
+
+      assert Ash.get!(Order, order.id, authorize?: false).status == :refunding
+    end
+
+    test "非 forfeited 单 → 第一段快速失败，不建 pending" do
+      ctx = workspace_fixture()
+      admin = Fixtures.platform_admin("unf-mcp-admin-2")
+
+      event =
+        EventFixtures.create_event(ctx.workspace, ctx.owner, %{
+          deposit_enabled: true,
+          deposit_amount_cents: @deposit_cents,
+          ends_at: DateTime.add(DateTime.utc_now(), 48, :hour),
+          registration_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      learner = Fixtures.register_user("unf-mcp-learner-2")
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: learner.id})
+        |> Ash.create(tenant: ctx.workspace.id, actor: learner)
+
+      paid =
+        Order
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            enrollment_id: enrollment.id,
+            order_kind: :deposit,
+            provider: :wechat_native,
+            out_trade_no: Ecto.UUID.generate(),
+            amount_cents: @deposit_cents,
+            tier_snapshot: %{},
+            expire_at: DateTime.add(DateTime.utc_now(), 3600)
+          }
+        )
+        |> Ash.create!(authorize?: false, tenant: ctx.workspace.id)
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: Ecto.UUID.generate()})
+        |> Ash.update!(authorize?: false, tenant: ctx.workspace.id)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UnforfeitOrder.execute(valid_params(ctx, paid), frame_for(admin))
+
+      assert msg =~ "仅 forfeited"
+      assert pendings_of(admin.id) == []
+    end
+
+    test "reason 缺失 / 超长 → 第一段快速失败，不建 pending" do
+      ctx = workspace_fixture()
+      {order, _} = forfeited_deposit_order(ctx)
+      admin = Fixtures.platform_admin("unf-mcp-admin-3")
+
+      for bad_reason <- [nil, "", String.duplicate("长", 501)] do
+        params = %{
+          "workspace_id" => ctx.workspace.id,
+          "order_id" => order.id,
+          "reason" => bad_reason
+        }
+
+        assert {:error, _, _} = UnforfeitOrder.execute(params, frame_for(admin))
+      end
+
+      assert pendings_of(admin.id) == []
+    end
+
+    defp valid_params(%{workspace: workspace}, order) do
+      %{
+        "workspace_id" => workspace.id,
+        "order_id" => order.id,
+        "reason" => "迟到到场人工核实"
+      }
+    end
+  end
 end
