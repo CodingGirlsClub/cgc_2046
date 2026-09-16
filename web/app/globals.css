@@ -3342,7 +3342,7 @@ button:focus-visible,
 .learning-course-page__back a:hover { color: var(--ink); }
 .learning-reader__hero { padding-bottom: 28px; border-bottom: 1px solid var(--line); }
 .learning-reader__hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-top: 15px; }
-.learning-reader__hero h1 { max-width: 760px; color: var(--ink); font-size: clamp(32px, 4.5vw, 58px); font-weight: 590; letter-spacing: -.042em; line-height: 1.02; text-wrap: balance; }
+.learning-reader__hero h1 { color: var(--ink); font-size: clamp(32px, 4.5vw, 58px); font-weight: 590; letter-spacing: -.042em; line-height: 1.02; text-wrap: balance; }
 .learning-reader__hero p { margin-top: 13px; color: var(--ink-3); font-size: 15px; line-height: 1.7; }
 .learning-reader__version { flex: none; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink-2); font-family: var(--font-mono); font-size: 11px; }
 .learning-reader__stats { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 26px; color: var(--ink-3); font-size: 12px; }
