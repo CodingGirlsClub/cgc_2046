@@ -578,6 +578,142 @@ defmodule Cgc2046.Payments.DepositForfeitWorkerTest do
 
   defp deposit_already_forfeited?(_other), do: false
 
+  # ── #545：批量没收告警 + forfeited 人工补救 ─────────────────────────────
+
+  describe "批量没收告警与人工补救（#545）" do
+    import ExUnit.CaptureLog
+
+    setup do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      %{owner: owner, workspace: workspace}
+    end
+
+    test "单场没收 5 笔 → Finding（批量告警）+ 事件/状态双口径 Logger.error", ctx do
+      event = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+      for i <- 1..5, do: paid_deposit_enrollment(event, ctx.workspace, "b5-#{i}")
+      close_event(event, ctx.owner, ctx.workspace)
+
+      logs =
+        capture_log(fn ->
+          assert :ok = perform_job(DepositForfeitWorker, %{})
+        end)
+
+      # 状态口径：Finding 存在，detail 带计数/金额/阈值（/admin 对账页可见）
+      assert [finding] =
+               Finding
+               |> Ash.Query.filter(rule == :deposit_forfeit_batch_alert)
+               |> Ash.read!(authorize?: false)
+
+      assert finding.entity_type == :event
+      assert finding.entity_id == event.id
+      assert finding.detail["forfeited_orders"] == 5
+      assert finding.detail["forfeited_cents"] == 5 * @deposit_cents
+      assert finding.detail["threshold"] == 5
+
+      # 事件口径：本拍 ≥5 的 BATCH ALERT error（ops 日志通道）+ 首次发现 error
+      assert logs =~ "BATCH ALERT"
+      assert logs =~ "forfeited deposit order(s)"
+    end
+
+    test "单场没收 4 笔 → 无批量告警 Finding（阈值下零噪音）", ctx do
+      event = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+      for i <- 1..4, do: paid_deposit_enrollment(event, ctx.workspace, "b4-#{i}")
+      close_event(event, ctx.owner, ctx.workspace)
+
+      assert :ok = perform_job(DepositForfeitWorker, %{})
+
+      assert [] =
+               Finding
+               |> Ash.Query.filter(rule == :deposit_forfeit_batch_alert)
+               |> Ash.read!(authorize?: false)
+    end
+
+    test "补救自愈：5 笔告警 → unforfeit 2 笔降到阈值下 → 下一拍 Finding 删除", ctx do
+      event = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+
+      enrollments =
+        for i <- 1..5, do: paid_deposit_enrollment(event, ctx.workspace, "heal-#{i}") |> elem(1)
+
+      close_event(event, ctx.owner, ctx.workspace)
+      assert :ok = perform_job(DepositForfeitWorker, %{})
+
+      admin = Fixtures.platform_admin("b5-heal-admin")
+
+      for enrollment <- Enum.take(enrollments, 2) do
+        assert {:ok, refunding} =
+                 deposit_order(enrollment)
+                 |> Ash.Changeset.for_update(:unforfeit, %{reason: "运营核实：到场但扫码失败"})
+                 |> Ash.update(actor: admin, tenant: ctx.workspace.id)
+
+        assert refunding.status == :refunding
+      end
+
+      # 下一拍：剩余 3 笔 < 5 → 刷新语义自动消解 Finding
+      assert :ok = perform_job(DepositForfeitWorker, %{})
+
+      assert [] =
+               Finding
+               |> Ash.Query.filter(rule == :deposit_forfeit_batch_alert)
+               |> Ash.read!(authorize?: false)
+    end
+
+    test "unforfeit：PlatformAdmin 带 reason → refunding + 入队退款 job + 审计（reason 进 metadata）", ctx do
+      event = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+      {_learner, enrollment} = paid_deposit_enrollment(event, ctx.workspace, "unf-1")
+      close_event(event, ctx.owner, ctx.workspace)
+      assert :ok = perform_job(DepositForfeitWorker, %{})
+      order = deposit_order(enrollment)
+      assert order.status == :forfeited
+
+      admin = Fixtures.platform_admin("unf-admin")
+
+      assert {:ok, refunding} =
+               order
+               |> Ash.Changeset.for_update(:unforfeit, %{reason: "参与者到场但核销竞态失败，人工核实"})
+               |> Ash.update(actor: admin, tenant: ctx.workspace.id)
+
+      assert refunding.status == :refunding
+      assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+
+      assert [log] =
+               AdminActionLog
+               |> Ash.Query.filter(action == :order_unforfeit and target_id == ^order.id)
+               |> Ash.read!(authorize?: false)
+
+      assert log.metadata["from_status"] == "forfeited"
+      assert log.metadata["reason"] == "参与者到场但核销竞态失败，人工核实"
+      assert log.metadata["amount_cents"] == @deposit_cents
+    end
+
+    test "unforfeit：工作台 Owner 被拒（仅 PlatformAdmin）；非 forfeited 单报 already_processed", ctx do
+      event = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+      {_learner, enrollment} = paid_deposit_enrollment(event, ctx.workspace, "unf-2")
+      close_event(event, ctx.owner, ctx.workspace)
+      assert :ok = perform_job(DepositForfeitWorker, %{})
+      forfeited = deposit_order(enrollment)
+
+      # Owner/Admin 不持推翻平台没收裁决的权力（issue #545 拍板）
+      assert {:error, %Ash.Error.Forbidden{}} =
+               forfeited
+               |> Ash.Changeset.for_update(:unforfeit, %{reason: "owner try"})
+               |> Ash.update(actor: ctx.owner, tenant: ctx.workspace.id)
+
+      admin = Fixtures.platform_admin("unf-admin-2")
+
+      # paid 单（重新布置一笔未没收的）走 unforfeit → CAS 拒
+      event2 = deposit_event(ctx.workspace, ctx.owner, hours_ago(49))
+      {_l2, enrollment2} = paid_deposit_enrollment(event2, ctx.workspace, "unf-3")
+      paid = deposit_order(enrollment2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               paid
+               |> Ash.Changeset.for_update(:unforfeit, %{reason: "wrong state"})
+               |> Ash.update(actor: admin, tenant: ctx.workspace.id)
+
+      assert Enum.any?(errors, &match?(%BusinessError{code: "order_already_processed"}, &1))
+    end
+  end
+
   # ── 真并发用例布置（attendance_test 同款：自管 owner + unboxed 真实提交）──
 
   defp cleanup_on_exit(workspace, event, users) do

@@ -422,6 +422,44 @@ defmodule Cgc2046.Payments.Order do
     # 管理员单笔退款（R15）：paid → refunding + 入队渠道退款。closed 后单笔仍可
     # （不校验 Event status，plan U9-4）；expired 迟到退款走内部 start_refund
     # （U7 自动退款链），不经本 action。
+    # #545 错没收人工救济：forfeited → refunding 重入退款链。仅 PlatformAdmin
+    # （与 refund/retry_refund 的 OwnerOrAdmin + PlatformAdmin 区分——没收是
+    # 平台裁决，救济同权）；迟到场（DepositForfeitWorker 已结算后参与者到场
+    # 有正当理由）、ends_at 误改修复后的人工核实等场景。退款金额 = 押金全额
+    # 原路退回（PaymentRefundWorker 与 refund 同链，查单幂等不重复退）。
+    update :unforfeit do
+      description("平台管理员补救：forfeited → refunding 重入退款链（错没收人工救济，#545）")
+      require_atomic?(false)
+      accept([])
+
+      # 救济理由必填（审计可回答「为什么退」；空理由的补救不可审计）
+      argument(:reason, :string,
+        allow_nil?: false,
+        constraints: [min_length: 1, max_length: 500],
+        description: "补救理由（必填，进审计）"
+      )
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, &prepare_unforfeit/1)
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, refunding ->
+          enqueue_refund_job(cs, refunding)
+        end)
+      end)
+
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :order_unforfeit,
+         target_type: :order,
+         metadata: &__MODULE__.unforfeit_log_metadata/2}
+      )
+    end
+
+    # 管理员单笔退款（R15）：paid → refunding + 入队渠道退款。closed 后单笔仍可
+    # （不校验 Event status，plan U9-4）；expired 迟到退款走内部 start_refund
+    # （U7 自动退款链），不经本 action。
     update :refund do
       description("管理员单笔全额退款：paid → refunding 并入队渠道退款（退款即取消，ADR-0007）")
 
@@ -564,6 +602,12 @@ defmodule Cgc2046.Payments.Order do
     # 持退款兜底权（资金主体）。
     policy action([:refund, :retry_refund]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
+
+    # #545 错没收救济：仅 PlatformAdmin（issue 拍板）。不并入上一组——工作台
+    # Owner/Admin 不持「推翻平台没收裁决」的权力。
+    policy action(:unforfeit) do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
@@ -1122,6 +1166,14 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
+  # #545：CAS forfeited → refunding（claim 单点，同 prepare_retry_refund 形状）
+  defp prepare_unforfeit(changeset) do
+    case claim(changeset, [:forfeited], "status = 'refunding'") do
+      {:ok, changeset} -> Ash.Changeset.force_change_attribute(changeset, :status, :refunding)
+      {:error, changeset} -> changeset
+    end
+  end
+
   # 管理员单笔退款（R15）：CAS paid → refunding。closed 后仍可（无 Event
   # status 校验）；非 paid（含 expired 自动退款路径）被状态守卫拒绝。
   defp prepare_refund(changeset) do
@@ -1158,6 +1210,14 @@ defmodule Cgc2046.Payments.Order do
       "amount_cents" => order.amount_cents,
       "provider" => to_string(order.provider)
     }
+  end
+
+  # #545：unforfeit 审计在退款元数据之上补 from_status + 必填 reason
+  def unforfeit_log_metadata(changeset, order) do
+    Map.merge(refund_log_metadata(changeset, order), %{
+      "from_status" => "forfeited",
+      "reason" => Ash.Changeset.get_argument(changeset, :reason)
+    })
   end
 
   # 条件 UPDATE CAS：WHERE 带 id + 源状态守卫（可按需追加 extra_where 谓词）。命中（num_rows=1）→ 返回
