@@ -7,12 +7,38 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
   alias Cgc2046.Notifications.{NotificationDelivery, Service}
 
   @impl true
-  def perform(%Oban.Job{args: %{"delivery_id" => id}}) do
+  def perform(%Oban.Job{args: %{"delivery_id" => id}} = job) do
     case Ash.get(NotificationDelivery, id, authorize?: false) do
-      {:ok, %{status: :sent}} -> :ok
-      {:ok, row} -> deliver(row)
-      {:error, error} -> {:error, error}
+      {:ok, %{status: :sent}} ->
+        :ok
+
+      {:ok, row} ->
+        case deliver(row) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            # 末拍终态化（#556）：pending_reason 类失败此前只重试不落终态，
+            # job 被 Oban 丢弃后行永留 pending、只能手工查表发现——末拍把
+            # 仍 pending 的行落 :failed（带原因），由规15 Finding 出报表。
+            # 已 :failed 行（非 pending 类失败首拍即落）不重复计数 attempts。
+            if job.attempt >= job.max_attempts and row.status == :pending do
+              terminalize(row, reason)
+            end
+
+            {:error, reason}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
+  end
+
+  # 终态化复用既有 :mark_failed（status → failed + attempts 计数 + last_error）
+  defp terminalize(row, reason) do
+    row
+    |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)}, authorize?: false)
+    |> Ash.update!()
   end
 
   defp deliver(row) do

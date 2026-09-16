@@ -143,7 +143,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       {:capacity_projection_drift, fn -> scan_rule10() end},
       {:occupancy_exceeds_capacity, fn -> scan_rule11() end},
       {:ledger_cache_drift, fn -> scan_rule12() end},
-      {:fund_action_burst, fn -> scan_rule13() end}
+      {:fund_action_burst, fn -> scan_rule13() end},
+      {:notification_delivery_failed, fn -> scan_rule15() end}
     ]
   end
 
@@ -779,6 +780,41 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
             end),
           "window_seconds" => window,
           "threshold" => threshold
+        }
+      }
+    end)
+  end
+
+  # ── 规15（#556）：通知 outbox 终态失败面 ----------------------------------
+  # 24h 内落 :failed 的 notification_deliveries 行逐行出 Finding（终态化本体
+  # 在 DeliveryWorker 末拍）；窗口语义自清——超窗未命中删除（finding 消失 =
+  # 失败已陈旧，与 Oban Pruner 窗口注释同义）。
+  @notification_failed_window_seconds 86_400
+
+  defp scan_rule15 do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id::text, template_key, platform, last_error, attempts
+        FROM notification_deliveries
+        WHERE status = 'failed'
+          AND updated_at > NOW() - ($1 || ' seconds')::interval
+        ORDER BY updated_at DESC
+        """,
+        [Integer.to_string(@notification_failed_window_seconds)]
+      )
+
+    Enum.map(rows, fn [id, template_key, platform, last_error, attempts] ->
+      %{
+        entity_type: :notification_delivery,
+        entity_id: id,
+        workspace_id: nil,
+        detail: %{
+          "template_key" => template_key,
+          "platform" => platform,
+          "last_error" => last_error,
+          "attempts" => attempts,
+          "window_seconds" => @notification_failed_window_seconds
         }
       }
     end)
