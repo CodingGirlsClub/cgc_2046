@@ -60,6 +60,9 @@ defmodule Cgc2046.Initiatives.Initiative do
 
       change(set_attribute(:status, :draft))
 
+      # 撞 slug 的唯一索引冲突（#604）转稳定业务错误 initiative_slug_taken
+      error_handler({__MODULE__, :handle_write_error, []})
+
       change(
         {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :initiative_create, target_type: :initiative}
@@ -69,6 +72,9 @@ defmodule Cgc2046.Initiatives.Initiative do
     update :update do
       require_atomic?(false)
       accept([:name, :slug, :hashtag, :description, :window_starts_at, :window_ends_at])
+
+      # 撞 slug 的唯一索引冲突（#604）转稳定业务错误 initiative_slug_taken
+      error_handler({__MODULE__, :handle_write_error, []})
 
       # 发布后 slug 锁定（#588；决策口径同 Event/Course 2026-09-08 拍板）：
       # 公开 URL 段发布即契约——#577 之后 `/initiatives/<slug>` 是正式投放出口
@@ -157,6 +163,34 @@ defmodule Cgc2046.Initiatives.Initiative do
           changeset,
           "invalid initiative transition or missing all four rules"
         )
+    end
+  end
+
+  # create/update error_handler（#604，范式同 Event.handle_write_error/2）：
+  # 撞 slug 的唯一索引冲突转稳定业务错误 initiative_slug_taken。
+  #
+  # 判据是 ConstraintConflict.unique_conflict?/1（认 ash_postgres 写入的
+  # private_vars.constraint_type == :unique）；DB 断连等真实故障不含该键，原样
+  # 上抛，不吞成业务错误。这要求 DB 索引名与 identity 名一致——否则 Ecto 的
+  # `unique_constraint(match: :exact)` 匹配不上，错误会落 Ash.Error.Unknown 且
+  # 原文含索引名（修复见 migration 20260916130000）。
+  #
+  # initiatives 只有一个 identity（unique_slug），故按类型判定即可；日后新增
+  # identity 须改按约束名分派（ConstraintConflict.constraint_named?/2，范式同
+  # enrollment 的核销码冲突）。
+  #
+  # 「发布后锁定」（#588）是 action change 在写库前 add_error，走不到这里，
+  # 故 slug 又锁又撞时仍只回 initiative_slug_locked（边界测试钉住优先级）。
+  @doc false
+  def handle_write_error(_changeset, error) do
+    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: "slug has already been taken",
+        code: "initiative_slug_taken",
+        fields: [:slug]
+      )
+    else
+      error
     end
   end
 
