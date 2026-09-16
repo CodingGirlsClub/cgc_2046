@@ -7,6 +7,35 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   alias Cgc2046.AdminList
 
+  # ── #607 治理操作 metadata 读面白名单（唯一真源；加键只改本表）──────────────
+  #
+  # `admin_action_logs.metadata` 是自由 map 且**含 PII**（admin_promote / owner_reassign /
+  # owner_invitation_cancel 的 email；application_reject 的 rejection_reason 自由文本），
+  # 故 `/admin/audit` 读面按 action 分组投影，**不整列透传**：
+  #
+  #   - 只收录显式点名的 action；未收录（含未来新 action）一律 nil——没有默认透传兜底；
+  #   - 表内不得出现 PII 键（email 类 / rejection_reason / 任意自由文本）；
+  #   - `value_before` / `value_after` 自身也是自由 map（`InitiativeRule.value` 无约束、
+  #     `upsertInitiativeRule` 收任意 JSON 对象）→ 同一条标准下沉一层，见
+  #     `@rule_value_whitelist`；被省略的键由 `value_*_omitted` 显式标出，不静默截断。
+  #
+  # 新增可展示 action：键名落在 `admin_action_metadata` 既有字段（rule_key / locked /
+  # locked_before / value_before / value_after）内 → 只加表项即可，投影逻辑与前端键序
+  # 都不用动；形状不同的 action 需另立 GraphQL object（本表是可见性清单，不是形状引擎）。
+  @admin_action_metadata_whitelist %{
+    initiative_rule_update: ~w(rule_key locked locked_before value_before value_after)
+  }
+
+  # 二级白名单：rule_key → 该规则 value map 可出面的键（次序 = 界面渲染次序）。
+  # 四项规则值都是治理设置（押金开关与金额分 / 年龄门槛 / 成班阈值 / 截止小时数），
+  # 本身非敏感；未收录的 rule_key 投影为空 + omitted=true。
+  @rule_value_whitelist %{
+    "deposit" => ~w(enabled amount_cents refundable_on_check_in),
+    "age_gate" => ~w(min_age),
+    "min_participants" => ~w(count),
+    "deadline_rule" => ~w(hours_before_start)
+  }
+
   use AshGraphql,
     domains: [
       Cgc2046.Admission,
@@ -2887,7 +2916,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
-  # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI；metadata v1 不暴露，落 DB 备用）
+  # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI）
   object :admin_action_log do
     field(:id, non_null(:id))
     field(:actor_id, :id)
@@ -2896,6 +2925,44 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:target_id, non_null(:id))
     field(:result, non_null(:string))
     field(:inserted_at, non_null(:datetime))
+
+    field(:metadata, :admin_action_metadata,
+      description:
+        "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）" <>
+          "为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 /ops/admin（AshAdmin）可见"
+    ) do
+      # 显式 resolver：默认 resolver 会直接读 `log.metadata` 原始列（透传），必须挡掉
+      resolve(fn log, _, _ -> {:ok, admin_action_metadata(log)} end)
+    end
+  end
+
+  # #607：metadata 白名单投影（非原始 metadata 列）。白名单表见模块顶部
+  # `@admin_action_metadata_whitelist` / `@rule_value_whitelist`。
+  # `value_*_json` 是 JSON 对象字符串，键序 = 二级白名单次序（前端直接按序渲染）。
+  object :admin_action_metadata do
+    field(:rule_key, non_null(:string),
+      description: "规则键：deposit | age_gate | min_participants | deadline_rule"
+    )
+
+    field(:locked, non_null(:boolean), description: "变更后锁定态")
+
+    field(:locked_before, :boolean, description: "变更前锁定态；:create（新建规则）无前值 → null")
+
+    field(:value_before_json, :json_string,
+      description: "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
+    )
+
+    field(:value_after_json, non_null(:json_string),
+      description: "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
+    )
+
+    field(:value_before_omitted, non_null(:boolean),
+      description: "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
+    )
+
+    field(:value_after_omitted, non_null(:boolean),
+      description: "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
+    )
   end
 
   # E-10 #125：对账扫描发现（rule/entity_type 为 atom 枚举的字符串形态；detail
@@ -3275,6 +3342,89 @@ defmodule Cgc2046Web.GraphqlSchema do
       updated_at: rule.updated_at
     }
   end
+
+  # #607：治理 metadata → 白名单投影（`admin_action_log.metadata` 字段的唯一出口）。
+  # 白名单表在模块顶部（`@admin_action_metadata_whitelist` / `@rule_value_whitelist`）。
+  #
+  # 返回 nil = 该 action 未收录（**没有默认透传兜底**：未来新 action 不加表即不可见），
+  # 或该行形状不完整（见 `projectable_metadata?/1`：行级降级，不打挂整条查询）。
+  # 键名取 jsonb 读回的字符串形态（写侧是 atom 键，落库/读回后一律字符串，
+  # 实证见 test/cgc_2046/initiatives/rule_propagation_test.exs 的「规则变更审计含值前后」）。
+  defp admin_action_metadata(%{action: action, metadata: metadata}) when is_map(metadata) do
+    case Map.get(@admin_action_metadata_whitelist, action) do
+      nil ->
+        nil
+
+      keys ->
+        # 表即清单：顶层键一律经白名单 Map.take，未收录的键结构上进不来
+        projected = Map.take(metadata, keys)
+
+        if projectable_metadata?(projected) do
+          rule_key = projected["rule_key"]
+
+          {value_before, before_omitted?} =
+            project_rule_value(rule_key, projected["value_before"])
+
+          {value_after, after_omitted?} = project_rule_value(rule_key, projected["value_after"])
+
+          %{
+            rule_key: rule_key,
+            locked: projected["locked"],
+            locked_before: projected["locked_before"],
+            # JsonString scalar 出参自行 JSON 编码（`serialize(&Jason.encode!/1)`），故这里
+            # 交**原始投影**（OrderedObject | nil）；预先 encode 成字符串会被 scalar 二次
+            # 编码，客户端 JSON.parse 一次只能拿到字符串而不是对象。
+            value_before_json: value_before,
+            value_after_json: value_after,
+            value_before_omitted: before_omitted?,
+            value_after_omitted: after_omitted?
+          }
+        else
+          nil
+        end
+    end
+  end
+
+  defp admin_action_metadata(_log), do: nil
+
+  # #607 形状门：只有带**完整** #607 元数据形状的行才投影，否则整行落 nil（界面显示「—」）。
+  # 两条理由：
+  #   1. `value_after_json` 是 non_null。历史行没有 value_after——#587 之前的写面只落
+  #      `%{initiative_id, rule_key, locked}`（见 origin/main 的 initiative_rule_metadata/2），
+  #      线上存量行仍是这个形状。照常投影会让 Absinthe 非空违例把**整条列表查询**打挂
+  #      （/admin/audit 整页 loadFailed，一行坏数据毁一页）；审计面要的是行级降级。
+  #   2. 「前值 null ⇔ 新建」只有在完整形状下才成立；否则会把「这条没记前值」误报成「新建」，
+  #      而审计面**不许撒谎**。
+  defp projectable_metadata?(m) do
+    is_map(m["value_after"]) and
+      (is_nil(m["value_before"]) or is_map(m["value_before"])) and
+      (is_nil(m["locked_before"]) or is_boolean(m["locked_before"])) and
+      is_boolean(m["locked"]) and
+      is_binary(m["rule_key"])
+  end
+
+  # 规则值 map → 二级白名单子集。返回 {投影, 是否发生省略}：
+  #   - 键序 = `@rule_value_whitelist` 次序（Jason.OrderedObject 保序），前端直接按序渲染，
+  #     故 web 层不需要再抄一份键名清单；
+  #   - **标量门**：键名命中但值是嵌套结构（自由 map / list）也不出面——否则「按白名单投影」
+  #     只到键名一层，嵌套内容会原样带出（键名白名单约束不了内容）；
+  #   - 第二个返回值让「省略」可见（界面标 …），取证面不静默截断。
+  defp project_rule_value(rule_key, value) when is_map(value) do
+    allowed = Map.get(@rule_value_whitelist, rule_key, [])
+
+    {scalars, nested?} =
+      for(key <- allowed, Map.has_key?(value, key), do: {key, Map.get(value, key)})
+      |> Enum.split_with(fn {_key, v} ->
+        is_boolean(v) or is_number(v) or is_binary(v) or is_nil(v)
+      end)
+
+    omitted? = nested? != [] or Enum.any?(value, fn {key, _} -> key not in allowed end)
+
+    {Jason.OrderedObject.new(scalars), omitted?}
+  end
+
+  # nil = 该侧无值（:create 的新建侧）；无白名单 rule_key 时也走这里（投影为空）。
+  defp project_rule_value(_rule_key, _value), do: {nil, false}
 
   # #596 挂载前预览：RulePreview 返回规则原始值（MCP 面直接用 map），GraphQL 面
   # 按既有 AdminInitiativeRule 口径转 value_json 字符串
