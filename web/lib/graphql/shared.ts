@@ -17,6 +17,14 @@
 export interface MutationError {
   message?: string | null;
   code?: string | null;
+  /**
+   * 出错字段（SDL `MutationError.fields: [String!]`；后端在 graphql_schema.ex
+   * 的 `format_error_fields/1` 规范化为字符串）。
+   *
+   * 两种形态：裸字段名（`"pricing_enabled"`）与 `字段=值`
+   * （`"event_id=<uuid>"`，#595 让拒绝路径能定位到具体场/工作台）。
+   */
+  fields?: string[] | null;
 }
 
 export type MutationResult<T> = {
