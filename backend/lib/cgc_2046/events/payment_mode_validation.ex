@@ -39,7 +39,7 @@ defmodule Cgc2046.Events.PaymentModeValidation do
 
       deposit_enabled == true and deposit_config_touched?(changeset) and
           is_nil(Ash.Changeset.get_attribute(changeset, :registration_deadline)) ->
-        {:error, domain_error(:deposit_registration_deadline_required, :registration_deadline)}
+        {:error, registration_deadline_required_error()}
 
       # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
       # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）
@@ -107,6 +107,22 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   无法引用本函数，故那边保留同文字面量并注释互指。
   """
   def exclusive_error(field), do: domain_error(:payment_mode_exclusive, field)
+
+  @doc """
+  `deposit_enabled = true` 要求报名截止非空的稳定业务错误（单源）。
+
+  Event 写面校验（本模块 `validate/3`）与规则写入路径
+  （`Initiatives.RuleInheritance` 的挂载 / 锁死传播守卫）共用同一 message 与
+  code；`fields` 由调用方给——Event 写面 = `[:registration_deadline]`，规则
+  写入 = `[event_id: <被拒的场>]`（规则写入必须能定位是哪一场，issue #587）。
+  """
+  def registration_deadline_required_error(fields \\ [:registration_deadline]) do
+    BusinessError.exception(
+      message: domain_error_message(:deposit_registration_deadline_required),
+      code: domain_error_code(:deposit_registration_deadline_required),
+      fields: fields
+    )
+  end
 
   defp domain_error(reason, field) do
     BusinessError.exception(
