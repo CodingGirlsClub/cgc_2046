@@ -9,7 +9,10 @@ defmodule Cgc2046.Initiatives.Initiative do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Initiatives
 
-  @statuses [:draft, :open, :closed]
+  # `cancelled`（中止）与 `closed`（收尾）语义分叉（#628，范式同 Event/Course）：
+  # 中止 = 挂载场次级联取消 + 已付报名无条件全额退；收尾 = 不级联、不退款。
+  # 两态都是终态、不可逆（D4：无恢复 action，恢复路径 = 新建）。
+  @statuses [:draft, :open, :closed, :cancelled]
 
   attributes do
     uuid_primary_key(:id)
@@ -116,7 +119,7 @@ defmodule Cgc2046.Initiatives.Initiative do
       require_atomic?(false)
       accept([])
 
-      change(fn cs, _ -> Ash.Changeset.before_action(cs, &transition(&1, :draft, :open)) end)
+      change(fn cs, _ -> Ash.Changeset.before_action(cs, &transition(&1, [:draft], :open)) end)
 
       change(
         {Cgc2046.Accounts.Changes.LogAdminAction,
@@ -127,12 +130,44 @@ defmodule Cgc2046.Initiatives.Initiative do
     update :close do
       require_atomic?(false)
       accept([])
-      change(fn cs, _ -> Ash.Changeset.before_action(cs, &transition(&1, :open, :closed)) end)
+      change(fn cs, _ -> Ash.Changeset.before_action(cs, &transition(&1, [:open], :closed)) end)
 
       change(
         {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :initiative_close, target_type: :initiative}
       )
+    end
+
+    # draft/open → cancelled：中止倡导活动（#628；形状照抄 Event `:cancel`，
+    # events/event.ex 的 `update :cancel`）。
+    #
+    # 与 `close`（收尾）的分叉：中止在**同一事务**入队 `CancelCascadeWorker`
+    # （outbox 语义同 Event 的 signal emitter：job 与终态同事务提交，入队失败
+    # 整体回滚可安全重试），由它把挂载中仍 `open` 的场逐场 `:cancel`——退款与
+    # 通知全部复用既有 `event.ended` 链路（OfferingCancelRefundWorker），本域
+    # 不新写批量走查。`close` 不级联、不退款。
+    #
+    # `draft` 也允许进（D2）：Initiative 无 destroy action，误建的草稿需要一条
+    # 官方作废出口；`ready?`（四规则齐备）只是 `:open` 的门，不拦中止。
+    update :cancel do
+      require_atomic?(false)
+      accept([])
+
+      change(fn cs, _ ->
+        Ash.Changeset.before_action(cs, &transition(&1, [:draft, :open], :cancelled))
+      end)
+
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :initiative_cancel, target_type: :initiative}
+      )
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, initiative ->
+          :ok = Cgc2046.Initiatives.CancelCascadeWorker.enqueue(initiative.id)
+          {:ok, initiative}
+        end)
+      end)
     end
   end
 
@@ -147,14 +182,17 @@ defmodule Cgc2046.Initiatives.Initiative do
     validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/), only_when_valid?: true)
   end
 
-  defp transition(changeset, from, to) do
+  # 状态迁移唯一实现（#628 起 `from` 为列表）：行锁 + 写前态判定即 CAS。
+  # `:open` 额外要求四项规则齐备（`ready?`）；`:close` / `:cancel` 无此门。
+  # 终态（closed / cancelled）无出边，重复迁移一律拒绝。
+  defp transition(changeset, from, to) when is_list(from) do
     repo = Cgc2046.Repo
 
     with {:ok, %{rows: [[status]]}} <-
            repo.query("SELECT status FROM initiatives WHERE id = $1 FOR UPDATE", [
              repo.uuid!(changeset.data.id)
            ]),
-         true <- status == to_string(from),
+         true <- status in Enum.map(from, &to_string/1),
          true <- to != :open or Cgc2046.Initiatives.RuleInheritance.ready?(changeset.data.id) do
       Ash.Changeset.force_change_attribute(changeset, :status, to)
     else

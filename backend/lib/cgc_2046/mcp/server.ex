@@ -131,6 +131,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminUpdateInitiative)
   component(Cgc2046.Mcp.Tools.AdminOpenInitiative)
   component(Cgc2046.Mcp.Tools.AdminCloseInitiative)
+  component(Cgc2046.Mcp.Tools.AdminCancelInitiative)
   component(Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
   # 工具面 30 → 49（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流

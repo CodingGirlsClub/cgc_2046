@@ -5,6 +5,7 @@ import { formatDateTime } from "@/lib/format";
 import AdminInitiativesPage from "./page";
 
 const adminLib = vi.hoisted(() => ({
+	cancelInitiative: vi.fn(),
 	closeInitiative: vi.fn(),
 	createInitiative: vi.fn(),
 	fetchInitiative: vi.fn(),
@@ -134,6 +135,9 @@ const savedRule = (key: string, valueJson: string, locked: boolean) => ({
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	// happy-dom 未实现 window.confirm（undefined），vi.spyOn 会抛
+	// "can only spy on a function"；挂基础 stub，中止用例再按需 spyOn 覆盖
+	window.confirm = () => false;
 	adminLib.fetchInitiatives.mockResolvedValue([OPEN_ROW, DRAFT_ROW]);
 	adminLib.fetchInitiative.mockResolvedValue(DRAFT_ROW);
 	copyText.mockResolvedValue(true);
@@ -231,6 +235,39 @@ describe("/admin/initiatives", () => {
 			expect(within(openRow).getByText("已结束")).toBeInTheDocument(),
 		);
 		expect(adminLib.closeInitiative).toHaveBeenCalledWith("i1");
+	});
+
+	// #628：中止入口（终态、级联退款）——二次确认 + 状态切 cancelled
+	it("开放中的 Initiative 点中止：确认后调用 cancelInitiative 并切为 cancelled", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+		adminLib.cancelInitiative.mockResolvedValue({
+			result: { ...OPEN_ROW, status: "cancelled" },
+			errors: [],
+		});
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "中止" }));
+
+		await waitFor(() =>
+			expect(within(openRow).getByText("已取消")).toBeInTheDocument(),
+		);
+		expect(confirmSpy).toHaveBeenCalled();
+		expect(adminLib.cancelInitiative).toHaveBeenCalledWith("i1");
+		confirmSpy.mockRestore();
+	});
+
+	it("中止二次确认被取消：不调用后端、状态不变", async () => {
+		const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "中止" }));
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(adminLib.cancelInitiative).not.toHaveBeenCalled();
+		expect(within(openRow).getByText("开放报名")).toBeInTheDocument();
+		confirmSpy.mockRestore();
 	});
 });
 
