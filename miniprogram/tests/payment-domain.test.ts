@@ -3,8 +3,10 @@ import test from 'node:test'
 import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
+  canRequestPayment,
   cancelConfirmCopy,
   countdownText,
+  depositPayNotice,
   depositRefundRuleText,
   enrollmentResultCopy,
   formatAmount,
@@ -13,6 +15,7 @@ import {
   parsePriceTiers,
   paymentBlockCopy,
   paymentLandingUrl,
+  parseOrderKind,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
 } from '../src/domain/payment.ts'
@@ -264,4 +267,60 @@ test('押金退改规则常驻行：仅押金场出行（与 web depositRefundRu
   assert.equal(depositRefundRuleText('pricing'), null)
   assert.equal(depositRefundRuleText('free'), null)
   assert.equal(depositRefundRuleText(null), null)
+})
+
+// ── U1 小程序落点：押金场资金动作前的明示 + 显式同意 ──
+
+test('押金支付前文案：金额行与详情页缴费块单源，必含不退明示与勾选文案', () => {
+  const notice = depositPayNotice(6900)
+  assert.equal(notice.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(notice.forfeitText, '未到场不退。')
+  assert.equal(
+    notice.ackLabel,
+    '押金以到场为退还条件：到场核销后原路退回，未到场不予退还。'
+  )
+  // 单源钉：同一出口出两处文案，杜绝详情页与支付页口径漂移
+  assert.equal(
+    notice.amountText,
+    paymentBlockCopy({
+      pricingEnabled: false,
+      depositEnabled: true,
+      depositAmountCents: 6900,
+      priceTiers: []
+    }).amountText
+  )
+
+  // 金额缺失/非正 → 降级不出价，绝不显示 ¥0.00
+  for (const invalid of [null, 0, -500]) {
+    assert.equal(depositPayNotice(invalid).amountText, '押金（到场退）')
+  }
+})
+
+test('支付门判据：押金单未勾选不放行；一般报名单零回归；无订单一律不放行', () => {
+  const base = { ack: false, hasCredential: true, paying: false }
+  const deposit = { orderKind: 'deposit' } as const
+  const enrollment = { orderKind: 'enrollment' } as const
+
+  // 押金单：勾选是硬门（资金动作前的显式同意）
+  assert.equal(canRequestPayment({ ...base, order: deposit }), false)
+  assert.equal(canRequestPayment({ ...base, order: deposit, ack: true }), true)
+
+  // 一般报名单（定价）：不受 ack 影响，行为零回归
+  assert.equal(canRequestPayment({ ...base, order: enrollment }), true)
+  assert.equal(canRequestPayment({ ...base, order: enrollment, ack: true }), true)
+
+  // 订单未就绪：没有可支付的东西（不给可支付假象）
+  assert.equal(canRequestPayment({ ...base, order: null, ack: true }), false)
+
+  // 既有门不回归：凭据未就绪 / 调起中
+  assert.equal(canRequestPayment({ ...base, order: enrollment, hasCredential: false }), false)
+  assert.equal(canRequestPayment({ ...base, order: deposit, ack: true, paying: true }), false)
+})
+
+test('订单口径解析：只认后端两个值，未知值上抛（资金门判据不得猜方向）', () => {
+  assert.equal(parseOrderKind('deposit'), 'deposit')
+  assert.equal(parseOrderKind('enrollment'), 'enrollment')
+  // 未知值 fail-closed：猜错方向 = 押金单零披露付款
+  assert.throws(() => parseOrderKind('bogus'), /未知订单口径/)
+  assert.throws(() => parseOrderKind(''), /未知订单口径/)
 })

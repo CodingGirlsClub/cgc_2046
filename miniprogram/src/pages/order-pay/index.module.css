@@ -18,3 +18,22 @@
 }
 .textButton { margin: 22rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 22rpx; }
 .pollingHint { display: block; margin: 0 28rpx; color: #8a8f98; font-size: 22rpx; }
+/* 押金场资金动作前明示 + 显式同意（U1 小程序落点） */
+.depositNotice { margin-top: 24rpx; padding: 22rpx 24rpx; background: #fff7ed; border: 1rpx solid #fed7aa; border-radius: 18rpx; }
+.depositAmount { display: block; color: #b45309; font-size: 29rpx; font-weight: 650; }
+.depositForfeit { display: block; margin-top: 6rpx; color: #9a3412; font-size: 23rpx; }
+.ackRow { display: flex; align-items: flex-start; margin-top: 18rpx; padding-top: 18rpx; border-top: 1rpx solid #fed7aa; }
+.ackBox {
+  flex: none;
+  width: 36rpx;
+  height: 36rpx;
+  margin-right: 14rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #cbd5e1;
+  border-radius: 8rpx;
+  background: #fff;
+  text-align: center;
+}
+.ackBoxChecked { border-color: #10b981; background: #10b981; }
+.ackTick { color: #fff; font-size: 24rpx; line-height: 32rpx; }
+.ackLabel { flex: 1; color: #4b4d54; font-size: 23rpx; line-height: 36rpx; }

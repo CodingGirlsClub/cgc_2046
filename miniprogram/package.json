@@ -20,7 +20,8 @@
     "check:ci": "pnpm audit:prod && pnpm codegen && git diff --exit-code -- src/api/generated && pnpm typecheck && pnpm check:licenses && pnpm test:unit && pnpm build:weapp && pnpm build:tt && pnpm build:xhs && pnpm check:diversion && pnpm build:weapp:mock",
     "build:weapp:mock": "CGC_E2E_MOCK=true pnpm build:weapp",
     "build:all": "pnpm build:weapp && pnpm build:tt && pnpm build:xhs",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/run.mjs",
+    "e2e:order-pay-consent": "bash e2e/order-pay-deposit-consent.e2e.sh"
   },
   "dependencies": {
     "@tarojs/components": "4.2.1",

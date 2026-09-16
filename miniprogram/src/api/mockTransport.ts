@@ -86,6 +86,8 @@ interface MockOrder {
   amountCents: number
   expireAt: string
   transactionId: string | null
+  /** 与后端 order_kind/2 同规则：押金场开则 deposit，否则 enrollment */
+  orderKind: 'enrollment' | 'deposit'
 }
 
 interface MockEnrollment {
@@ -346,17 +348,19 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('mutation CreateOrder')) {
     // e2e 边界(#172):止于订单生成 + JSAPI 凭据返回,不模拟支付完成
     const targetRecord = records.find(({ id }) => id === enrollment?.eventId)
-    // 押金单金额 = 目标场押金（R2 单源，零改动的下单链在此被 mock 忠实复现）
+    // 押金单金额 = 目标场押金（R2 单源，零改动的下单链在此被 mock 忠实复现）；
+    // orderKind 与后端 order_kind/2 同规则（押金场开 → deposit）——支付页的押金
+    // 同意门以它为准，mock 漏带字段会被 parseOrderKind fail-closed 抓住
+    const depositOrder =
+      targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
     order = {
       id: 'order-1',
       enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
       status: 'pending',
-      amountCents:
-        targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
-          ? DEPOSIT_AMOUNT_CENTS
-          : 19900,
+      amountCents: depositOrder ? DEPOSIT_AMOUNT_CENTS : 19900,
       expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
-      transactionId: null
+      transactionId: null,
+      orderKind: depositOrder ? 'deposit' : 'enrollment'
     }
     return {
       createOrder: {
