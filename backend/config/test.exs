@@ -19,15 +19,37 @@ branch_suffix =
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
+
+# 并发用例上限——连接池需求由它推导，改 pool_size 前先读这段。
+# ExUnit 分两段跑：async 段最多 max_cases 个用例同时跑，各经 Sandbox.start_owner!
+# 独占 1 条连接；sync 段串行，但单用例还会额外要连接（unboxed_run 并发 Task 峰值
+# 4 个，迁移测试另起 pool_size 2 的克隆库 Repo）。ExUnit 默认 max_cases =
+# schedulers_online * 2（16 核 → 32），旧配置把 pool_size 取成同一个数 → async 段
+# 零余量：32 个用例占满连接后，同池的 Oban 通知器/用例内额外进程只能排队，饱和
+# 几秒后 DBConnection 丢请求——实测 3 轮全量 2 轮随机红（"connection not available
+# and request was dropped from queue after 4000ms"，红在 Sandbox.checkout）。
+# 故 pool_size = max_cases + 4 是硬要求。
+# 上限 8 是整机约束：本机 Postgres max_connections=100，多 worktree 并行时总连接
+# ≈ pool_size × worktree 数（实测峰值 15/worktree：迁移测试会另起克隆库 Repo），
+# 旧的 32 条/worktree 三套并行就打爆整机（实测 "FATAL 53300 too many clients
+# already"，连 Oban 通知器都连不上）。12 条/worktree → 5 套并行 75 条，加 dev
+# server/psql ~12 条仍留在 100 内；要 7 套并行得把 max_connections 提上去（不在仓内）。
+# 压上限不付代价：全量 ~75s 里 async 段只占 10-14s，其余 ~63s 是串行 sync 段
+# （与 cap 无关，是墙钟主项）；cap 32/12/8 三档的 async 段实测落在同一区间。
+# CI 同样按 max_cases + 4 取值：2 核 runner 4/8（与原配置一致），4 核 runner 8/12
+# （旧配置 8/8 零余量，同一个坑）。单次调高并发（`mix test --max-cases N`）必须
+# 连这里的上限一起改——CLI 参数不会让 pool_size 跟着长。
+test_max_cases = min(System.schedulers_online() * 2, 8)
+
+config :ex_unit, max_cases: test_max_cases
+
 config :cgc_2046, Cgc2046.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
   database: "cgc_2046_test#{System.get_env("MIX_TEST_PARTITION")}" <> branch_suffix,
   pool: Ecto.Adapters.SQL.Sandbox,
-  # 下限 8：并发竞态测试（miniprogram_race_test）用 unboxed_run 各占一条真实连接，
-  # 低核 CI runner（schedulers_online=2 → pool=4）会连接池耗尽超时
-  pool_size: max(System.schedulers_online() * 2, 8)
+  pool_size: test_max_cases + 4
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
