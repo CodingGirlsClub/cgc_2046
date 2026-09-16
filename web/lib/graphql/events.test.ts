@@ -201,6 +201,13 @@ describe("成员读写面（U5/R14：Owner 表单预填与保存回读）", () =
 			expect(eventDoc).toContain(field);
 		}
 
+		// #596：挂载会强制写入年龄/成班，编辑页规则摘要读的是保存后的 event 状态——
+		// 选择集一旦再丢这两键，摘要会「无 + 平台锁死」自相矛盾（组件测试 mock 了
+		// updateOffering，抓不到，故在此钉死文档选择集）
+		for (const field of ["minAge", "minParticipants"]) {
+			expect(eventDoc).toContain(field);
+		}
+
 		const courseDoc = print(UPDATE_COURSE);
 		for (const field of ["startsAt", "endsAt"]) {
 			expect(courseDoc).toContain(field);
