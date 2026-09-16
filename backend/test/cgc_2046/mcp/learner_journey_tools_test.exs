@@ -1019,49 +1019,10 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert payload["checkout_url"] =~ "/orders/new?enrollmentId="
     end
 
-    test "脏行降级：押金开启但金额缺失/非正 → 仍 deposit，amount_cents=nil，绝不 0 也绝不免费" do
-      admin = Fixtures.platform_admin("s586-dirty")
-      workspace = Fixtures.create_workspace(admin)
-      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
-      outsider = Fixtures.register_user("s586-dirty-user")
-
-      # 属性级 min: 1 无 DB CHECK：历史脏行只能绕过资源校验布置（raw SQL）
-      Repo.query!("UPDATE events SET deposit_amount_cents = NULL WHERE id = $1", [
-        Ecto.UUID.dump!(event.id)
-      ])
-
-      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
-      [row] = decode_reply(reply)["offerings"]
-
-      assert row["payment_mode"] == "deposit"
-
-      assert row["deposit"] == %{
-               "enabled" => true,
-               "amount_cents" => nil,
-               "refundable_on_check_in" => true
-             }
-
-      assert {:reply, _, _} =
-               reply =
-               GetEnrollmentSummary.execute(
-                 enrollment_params(workspace, "event", event.id),
-                 frame_for(outsider)
-               )
-
-      payload = decode_reply(reply)
-      assert payload["would_create_status"] == "payment_pending"
-      assert payload["deposit"]["amount_cents"] == nil
-
-      # 0 分同样降级（非正金额不是金额）
-      Repo.query!("UPDATE events SET deposit_amount_cents = 0 WHERE id = $1", [
-        Ecto.UUID.dump!(event.id)
-      ])
-
-      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
-      [row] = decode_reply(reply)["offerings"]
-      assert row["deposit"]["amount_cents"] == nil
-      assert row["payment_mode"] == "deposit"
-    end
+    # #608 / #623：押金金额脏行（nil / 0 / 负）在三条锚点 DB CHECK 上线后库内不可
+    # 制造（`NOT VALID` 只豁免存量行；生产普查 0 行）——原「raw SQL 布置脏行 → 读面
+    # 降级（discover / enrollment summary / 落点预测）」用例已迁到纯函数层
+    # `Cgc2046.Mcp.Tools.PaymentSlotTest`；存量回填 + VALIDATE 见 issue #634。
 
     test "course（无押金槽）：deposit 恒 enabled=false，payment_mode 只出 free/pricing" do
       admin = Fixtures.platform_admin("s586-course")

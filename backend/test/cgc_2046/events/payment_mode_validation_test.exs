@@ -121,11 +121,21 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
       # 并发形状：两个事务各基于旧值通过资源校验后同窗提交，后到写撞上
       # events_payment_mode_exclusive；此处以裸 SQL UPDATE 布置/模拟该双真行
       # 必须被 CHECK 拒绝（CHECK 本身即被测对象，force_open 同款布置纪律）。
+      # 三个押金锚点写有效值 → 本次写**只**违反互斥约束（多约束同时违反时
+      # Postgres 只报其中一条，归因必须唯一）。
       {:ok, event} = create_event(ctx, %{})
 
       assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
                Cgc2046.Repo.query(
-                 "UPDATE events SET deposit_enabled = true, pricing_enabled = true WHERE id = $1",
+                 """
+                 UPDATE events
+                    SET deposit_enabled = true,
+                        pricing_enabled = true,
+                        ends_at = NOW() + interval '1 day',
+                        registration_deadline = NOW() + interval '1 day',
+                        deposit_amount_cents = 3000
+                  WHERE id = $1
+                 """,
                  [Ecto.UUID.dump!(event.id)]
                )
 
@@ -244,7 +254,7 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
                )
     end
 
-    test "两条缴费 CHECK 冲突按约束名映射到各自稳定 code，非 check 错误原样上抛" do
+    test "五条缴费 CHECK 冲突按约束名映射到各自稳定 code，未映射/非 check 错误原样上抛" do
       tiers_conflict = %Ash.Error.Changes.InvalidAttribute{
         field: :price_tiers,
         private_vars: [
@@ -266,9 +276,104 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
       assert %BusinessError{code: "event_payment_mode_exclusive"} =
                Event.handle_write_error(nil, exclusive_conflict)
 
+      # #608 / #623：三条押金锚点 CHECK 显式按名分派（缺子句会被误报成互斥码）
+      for {constraint, code, fields} <- [
+            {"events_deposit_requires_registration_deadline",
+             "event_deposit_registration_deadline_required", [:registration_deadline]},
+            {"events_deposit_requires_ends_at", "event_deposit_ends_at_required", [:ends_at]},
+            {"events_deposit_requires_positive_amount", "event_deposit_amount_required",
+             [:deposit_amount_cents]}
+          ] do
+        assert %BusinessError{code: ^code, fields: ^fields} =
+                 Event.handle_write_error(
+                   nil,
+                   %Ash.Error.Changes.InvalidAttribute{
+                     field: :deposit_enabled,
+                     private_vars: [constraint_type: :check, constraint: constraint]
+                   }
+                 )
+      end
+
+      # fail-closed（#623 D5）：未显式映射的 CHECK 冲突不得吞成任何业务码
+      # （泛化兜底已删——加回即被本断言钉红）
+      unknown_check = %Ash.Error.Changes.InvalidAttribute{
+        field: :title,
+        private_vars: [constraint_type: :check, constraint: "events_future_check"]
+      }
+
+      assert Event.handle_write_error(nil, unknown_check) == unknown_check
+
       # fail-closed：非 check 冲突（DB 真故障 / 其它约束）不得吞成业务错误
       other = %Ash.Error.Changes.InvalidAttribute{field: :title, message: "boom"}
       assert Event.handle_write_error(nil, other) == other
+    end
+  end
+
+  describe "押金锚点 CHECK（#608 / #623，NOT VALID 兜底）" do
+    # 裸 SQL 绕过域层（并发/旁路模拟）：每条 UPDATE **只违反一条** CHECK，其余锚点
+    # 写有效值——多约束同时违反时 Postgres 只报其中一条，归因必须确定。
+    # 时间列用 SQL NOW() 而非 Elixir 参数（timestamp 无时区，避免 Postgrex 编码坑）。
+    test "押金开 + 报名截止空 → events_deposit_requires_registration_deadline 拒绝", ctx do
+      {:ok, event} = create_event(ctx, %{})
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
+               Cgc2046.Repo.query(
+                 """
+                 UPDATE events
+                    SET deposit_enabled = true,
+                        registration_deadline = NULL,
+                        ends_at = NOW() + interval '1 day',
+                        deposit_amount_cents = 3000
+                  WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(event.id)]
+               )
+
+      assert name == "events_deposit_requires_registration_deadline"
+      refute reload(event).deposit_enabled
+    end
+
+    test "押金开 + ends_at 空 → events_deposit_requires_ends_at 拒绝", ctx do
+      {:ok, event} = create_event(ctx, %{})
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
+               Cgc2046.Repo.query(
+                 """
+                 UPDATE events
+                    SET deposit_enabled = true,
+                        ends_at = NULL,
+                        registration_deadline = NOW() + interval '1 day',
+                        deposit_amount_cents = 3000
+                  WHERE id = $1
+                 """,
+                 [Ecto.UUID.dump!(event.id)]
+               )
+
+      assert name == "events_deposit_requires_ends_at"
+      refute reload(event).deposit_enabled
+    end
+
+    test "押金开 + 金额 0 / NULL → events_deposit_requires_positive_amount 拒绝", ctx do
+      {:ok, event} = create_event(ctx, %{})
+
+      for amount <- [0, nil] do
+        assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
+                 Cgc2046.Repo.query(
+                   """
+                   UPDATE events
+                      SET deposit_enabled = true,
+                          deposit_amount_cents = $2::integer,
+                          registration_deadline = NOW() + interval '1 day',
+                          ends_at = NOW() + interval '1 day'
+                    WHERE id = $1
+                   """,
+                   [Ecto.UUID.dump!(event.id), amount]
+                 )
+
+        assert name == "events_deposit_requires_positive_amount"
+      end
+
+      refute reload(event).deposit_enabled
     end
   end
 
@@ -359,9 +464,12 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
     end
   end
 
-  describe "存量行不被锁死（迁移期兼容）" do
-    test "押金已开但 ends_at 为空的旧数据：无关编辑仍可通过", ctx do
-      # 直接落库绕开校验，模拟本功能上线前已存在、ends_at 为空且押金已开的行
+  # #587 时代的「存量行不被锁死」用例前提（裸 SQL 制造脏行后验证无关编辑可通过）
+  # 已被三条锚点 CHECK 封死：脏行只在迁移前存在（生产普查 0 行 / dev 2 行），库内
+  # 无法再制造——NOT VALID 对存量行的 UPDATE 同样生效，故存量行解锁 = 回填 +
+  # VALIDATE（issue #634）。这里钉住「不可再制造」与「修复方向仍开放」两侧。
+  describe "存量脏行（#608 / #634）" do
+    test "押金已开的场无法再写空 ends_at；反向补锚点仍可写", ctx do
       {:ok, event} =
         create_event(ctx, %{
           deposit_enabled: true,
@@ -370,22 +478,19 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
           registration_deadline: EventFixtures.days_from_now(3)
         })
 
-      Cgc2046.Repo.query!("UPDATE events SET ends_at = NULL WHERE id = $1", [
-        Ecto.UUID.dump!(event.id)
-      ])
+      assert {:error, %Postgrex.Error{postgres: %{code: :check_violation, constraint: name}}} =
+               Cgc2046.Repo.query("UPDATE events SET ends_at = NULL WHERE id = $1", [
+                 Ecto.UUID.dump!(event.id)
+               ])
 
-      # 改标题（不触押金三字段）→ 不得因存量缺口被拒
-      assert {:ok, updated} = update_event(ctx, reload(event), %{title: "PM renamed"})
-      assert updated.title == "PM renamed"
+      assert name == "events_deposit_requires_ends_at"
 
-      # 一旦触碰押金字段，完整性要求立刻回归
-      assert {:error, _} = result = update_event(ctx, updated, %{deposit_amount_cents: 9900})
-      assert_business_code(result, "event_deposit_ends_at_required")
-
+      # 域路径补锚点（反向）不受影响：新行版本满足 CHECK
       assert {:ok, fixed} =
-               update_event(ctx, updated, %{ends_at: EventFixtures.days_from_now(5)})
+               update_event(ctx, reload(event), %{ends_at: EventFixtures.days_from_now(5)})
 
       assert fixed.ends_at != nil
+      assert fixed.deposit_amount_cents == 6900
     end
   end
 

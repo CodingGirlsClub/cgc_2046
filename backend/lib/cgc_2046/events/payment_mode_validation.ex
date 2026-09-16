@@ -14,9 +14,12 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   是不静默改写资金配置（见 `Initiatives.RuleInheritance`）。调用方补救 = 同
   一次写带上 `price_tiers: []`。
 
-  并发兜底（两编辑各基于旧值通过资源校验）由 DB CHECK
-  `events_payment_mode_exclusive` / `events_deposit_excludes_price_tiers`
-  承担，经 `Event.handle_write_error/2` 映射回同一稳定 code。
+  并发兜底（两编辑各基于旧值通过资源校验；规则挂载 / 传播路径的 force 写与裸
+  SQL 写）由 DB CHECK `events_payment_mode_exclusive` /
+  `events_deposit_excludes_price_tiers` / `events_deposit_requires_registration_deadline`
+  / `events_deposit_requires_ends_at` / `events_deposit_requires_positive_amount`
+  承担，经 `Event.handle_write_error/2` 映射回同一稳定 code（三条锚点 CHECK
+  一律 NOT VALID 上线，见 `20260916170000` 迁移 moduledoc）。
 
   注意覆盖边界：本模块是资源级 `validate`，**先于** `before_action` 执行；
   Initiative 规则挂载（`RuleInheritance.prepare_event_changes` 在 before_action
@@ -50,6 +53,9 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       # 配置完整性只在**写入押金相关字段**时要求：存量行（押金已开但 ends_at 为
       # 空的旧数据）不能被无关编辑（改标题/描述）永久锁死。这类行由
       # DepositForfeitWorker 的 deposit_settlement_unanchored Finding 暴露。
+      # 注意：本 scoping 只约束**域校验**；三条锚点 DB CHECK 是**无条件**的，
+      # 存量脏行在回填前会被 CHECK 挡住任何 UPDATE（生产普查 0 行；dev 2 行，
+      # 回填 + VALIDATE 见 issue #634）。
       deposit_enabled == true and deposit_config_touched?(changeset) and
           not positive_integer?(amount(changeset)) ->
         {:error, domain_error(:deposit_amount_required, :deposit_amount_cents)}
@@ -143,6 +149,24 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   把 DB CHECK `events_deposit_excludes_price_tiers` 冲突映射成同码同 fields。
   """
   def price_tiers_conflict_error(field), do: domain_error(:deposit_price_tiers_conflict, field)
+
+  @doc """
+  押金开启要求活动结束时间非空的稳定业务错误（单源，KTD7 / #608）。
+
+  Event 写面校验（本模块 `validate/3`）与 DB CHECK `events_deposit_requires_ends_at`
+  冲突兜底（`Event.handle_write_error/2`）共用同一 message 与 code。
+  """
+  def deposit_ends_at_required_error, do: domain_error(:deposit_ends_at_required, :ends_at)
+
+  @doc """
+  押金开启要求押金金额为正的稳定业务错误（单源，#608）。
+
+  Event 写面校验（本模块 `validate/3`）与 DB CHECK
+  `events_deposit_requires_positive_amount` 冲突兜底
+  （`Event.handle_write_error/2`）共用同一 message 与 code。
+  """
+  def deposit_amount_required_error,
+    do: domain_error(:deposit_amount_required, :deposit_amount_cents)
 
   @doc """
   `deposit_enabled = true` 要求报名截止非空的稳定业务错误（单源，#587）。

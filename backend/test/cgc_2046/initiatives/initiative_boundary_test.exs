@@ -305,7 +305,8 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     e =
       EF.create_event(ctx.workspace, ctx.admin, %{
         initiative_id: i.id,
-        starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+        starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+        ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
       })
 
     assert {:error, _} =
@@ -406,6 +407,38 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     assert reloaded_event.pricing_enabled == true
     assert reloaded_event.price_tiers == priced.price_tiers
     assert reloaded_event.deposit_enabled == false
+  end
+
+  # #608：押金规则挂载到没有 ends_at 的场 → DB CHECK
+  # `events_deposit_requires_ends_at` 拒绝（修复前静默建成「押金开 + 无结算锚点」），
+  # 并经 handle_write_error/2 映射回同源业务码。挂载路径在 before_action force 押金
+  # 字段、资源级 validate 先于 before_action 执行看不见它，ends_at 又无 RuleInheritance
+  # 前置守卫（收口评估见 #634）→ 兜底只能由 DB CHECK 承担。
+  test "deposit rule mount onto an event without ends_at is rejected by the DB CHECK", ctx do
+    i = initiative(ctx.admin)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             Event
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 title: "无结算锚点的草稿场",
+                 enrollment_policy: :open,
+                 starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+                 ends_at: nil,
+                 initiative_id: i.id
+               },
+               tenant: ctx.workspace.id
+             )
+             |> Ash.create(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    assert Enum.any?(
+             errors,
+             &match?(%Cgc2046.Errors.BusinessError{code: "event_deposit_ends_at_required"}, &1)
+           ),
+           "expected event_deposit_ends_at_required, got: #{inspect(errors)}"
+
+    assert Ash.read!(Event, authorize?: false) == []
   end
 
   # #597 I2：押金规则挂载遇目标 Event 有「档位残留」（定价关闭但档位非空，R4 合法
@@ -518,6 +551,45 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     assert Ash.get!(Event, e.id, authorize?: false).price_tiers == e.price_tiers
   end
 
+  # #623：押金×定价互斥的同一个 `enabling?` gate。规则改成 enabled: false 不可能
+  # 造出双真，不该被「已开定价的场」误拒——否则同一组字段走挂载/编辑被允许、
+  # 走传播被拒，规则永远改不动且报错（"disable pricing before applying the
+  # deposit rule"）不可操作。传播 after_action 无条件触发，故这里必然经过守卫。
+  test "deposit rule update to enabled: false is not blocked by pricing-enabled events", ctx do
+    i = initiative_with_deposit(ctx.admin, %{enabled: false, amount_cents: nil})
+
+    e = draft_event(ctx.workspace, ctx.admin, %{initiative_id: i.id})
+
+    # 押金关闭态下开定价合法（互斥只管双真）
+    assert {:ok, _priced} =
+             e
+             |> Ash.Changeset.for_update(:update, %{
+               pricing_enabled: true,
+               price_tiers: [
+                 %{"id" => Ash.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
+               ]
+             })
+             |> Ash.update(actor: ctx.admin, tenant: ctx.workspace.id)
+
+    r =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :deposit)
+      |> Ash.read_one!(actor: ctx.admin)
+
+    assert {:ok, updated_rule} =
+             r
+             |> Ash.Changeset.for_update(:update, %{value: %{enabled: false, amount_cents: 1200}})
+             |> Ash.update(actor: ctx.admin)
+
+    assert updated_rule.value == %{"enabled" => false, "amount_cents" => 1200}
+
+    # 传播确实落库（不是「通过但没写」），定价与押金状态不变
+    reloaded = Ash.get!(Event, e.id, authorize?: false)
+    assert reloaded.deposit_enabled == false
+    assert reloaded.deposit_amount_cents == 1200
+    assert reloaded.pricing_enabled == true
+  end
+
   # 回归 Initiative 计划 R7：押金规则挂载到免费 Event 写入押金两列。
   test "deposit rule mount onto free event writes both deposit columns", ctx do
     i = initiative(ctx.admin)
@@ -549,7 +621,8 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     e =
       EF.create_event(ctx.workspace, ctx.admin, %{
         initiative_id: i.id,
-        starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+        starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+        ends_at: DateTime.add(DateTime.utc_now(), 11, :day)
       })
 
     r =
