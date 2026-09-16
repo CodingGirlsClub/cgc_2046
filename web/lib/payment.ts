@@ -256,6 +256,18 @@ export function tierSnapshotName(raw: string | null | undefined): string | null 
 export function truncateOutTradeNo(no: string): string {
 	return no.length > 16 ? `${no.slice(0, 8)}…${no.slice(-4)}` : no;
 }
+/**
+ * 订单缴费口径（下单时定，终身不变）：deposit = 押金单、enrollment = 定价单。
+ * 押金披露（同意门/说明行）只认订单自己的快照口径，不认活动实时配置（#580：
+ * 组织者改配置后两者漂移，钱动前披露失真）。
+ * fail-closed：缺失/未知值返回 null——调用方停支付面报错，不猜方向
+ * （对齐小程序 parseOrderKind 纪律，207d15e8）。
+ */
+export type OrderKind = "deposit" | "enrollment";
+
+export function parseOrderKind(raw: unknown): OrderKind | null {
+	return raw === "deposit" || raw === "enrollment" ? raw : null;
+}
 
 /**
  * web 端已签约可下单渠道（单源：下单页渠道列表 enabled 判定与订单页换渠道

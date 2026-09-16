@@ -45,6 +45,12 @@ export interface Order {
   cancelReason: string | null;
   /** 下单时档位快照（JsonString，含 name；成功卡明细取名见 lib/payment.tierSnapshotName） */
   tierSnapshot?: string | null;
+  /**
+   * 订单缴费口径快照（下单时定：deposit/enrollment）。押金披露的判据单源（#580）——
+   * 只认订单自己的口径，不认活动实时配置；解析 fail-closed 见 lib/payment.parseOrderKind。
+   */
+  orderKind?: string | null;
+
   /** 管理列表计算字段（R24） */
   tierName?: string | null;
   /** 下单时档位快照 id（U8 已售档守卫，R10） */
@@ -94,6 +100,7 @@ export const CREATE_ORDER: TypedDocumentNode<
         amountCents
         status
         expireAt
+        orderKind
       }
       errors {
         code
@@ -120,6 +127,7 @@ export const REPLACE_PROVIDER: TypedDocumentNode<
         amountCents
         status
         expireAt
+        orderKind
       }
       errors {
         code
@@ -144,6 +152,7 @@ export const ORDER_STATUS: TypedDocumentNode<
       expireAt
       amountCents
       outTradeNo
+      orderKind
       tierSnapshot
     }
   }
@@ -181,7 +190,13 @@ export const MY_PENDING_ORDERS: TypedDocumentNode<
       results: Array<
         Pick<
           Order,
-          "id" | "provider" | "status" | "amountCents" | "expireAt" | "outTradeNo"
+          | "id"
+          | "provider"
+          | "status"
+          | "amountCents"
+          | "expireAt"
+          | "outTradeNo"
+          | "orderKind"
         >
       >;
     };
@@ -200,6 +215,7 @@ export const MY_PENDING_ORDERS: TypedDocumentNode<
         amountCents
         expireAt
         outTradeNo
+        orderKind
       }
     }
   }

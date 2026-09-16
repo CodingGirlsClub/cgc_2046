@@ -67,7 +67,8 @@ async function run() {
     page = await miniProgram.currentPage()
     await expectText(page, '[data-testid="enrollment-result"]', /等待审批/)
     await tap(page, '[data-testid="subscribe-result"]')
-    await expectText(page, '[data-testid="subscription-state"]', /已订阅审批结果通知/)
+    // M1 文案（#635）：pending 报名 → 按钮「订阅报名进展通知」→ 接受后「已订阅，报名进展会通知你」
+    await expectText(page, '[data-testid="subscription-state"]', /已订阅，报名进展会通知你/)
 
     page = await miniProgram.switchTab('/pages/my-enrollments/index')
     await expectText(page, '[data-testid="enrollment-enrollment-1"]', /等待审批/)

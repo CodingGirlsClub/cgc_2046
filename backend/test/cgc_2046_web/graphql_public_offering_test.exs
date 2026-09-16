@@ -12,6 +12,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
   alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Curriculum.CourseRevision
+  alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.Tools.GetPublicOffering
@@ -66,6 +67,120 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
     assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
     conn.resp_cookies["cgc_token"].value
+  end
+
+  # ── #624 解除挂载来源标记的公开面纪律：治理读面与公开面严格分开 ──────────
+
+  # 四规则齐备的 open Initiative（只锁 age_gate；押金关闭态避免与定价互斥）
+  defp initiative_with_locked_age(admin, slug) do
+    {:ok, initiative} =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Detach #{slug}",
+        slug: slug,
+        created_by: admin.id
+      })
+      |> Ash.create(actor: admin)
+
+    for {key, value, locked} <- [
+          {:deposit, %{enabled: false}, false},
+          {:age_gate, %{min_age: 18}, true},
+          {:min_participants, %{count: 8}, false},
+          {:deadline_rule, %{hours_before_start: 72}, false}
+        ] do
+      {:ok, _} =
+        InitiativeRule
+        |> Ash.Changeset.for_create(:create, %{
+          initiative_id: initiative.id,
+          key: key,
+          value: value,
+          locked: locked
+        })
+        |> Ash.create(actor: admin)
+    end
+
+    {:ok, open} = initiative |> Ash.Changeset.for_update(:open, %{}) |> Ash.update(actor: admin)
+    open
+  end
+
+  # 挂载 → detach → 强制 open（公开详情需 open+public），返回带标记的落库记录
+  defp detached_public_event(workspace, owner, initiative) do
+    {:ok, mounted} =
+      Event
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          title: "Detach 公开场",
+          enrollment_policy: :open,
+          starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+          ends_at: DateTime.add(DateTime.utc_now(), 11, :day),
+          initiative_id: initiative.id
+        },
+        tenant: workspace.id
+      )
+      |> Ash.create(tenant: workspace.id, actor: owner)
+
+    {:ok, detached} =
+      mounted
+      |> Ash.Changeset.for_update(:update, %{initiative_id: nil}, tenant: workspace.id)
+      |> Ash.update(tenant: workspace.id, actor: owner)
+
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE events SET status = 'open' WHERE id = '#{detached.id}'"
+      )
+
+    Ash.get!(Event, detached.id, authorize?: false)
+  end
+
+  describe "detachedRuleProvenance（#624）：匿名公开详情不暴露治理来源标记" do
+    test "匿名恒 null；本台成员读得到标记（含 initiative 身份与 locked 字段）" do
+      admin = Fixtures.platform_admin("gql-detach-admin")
+      workspace = Fixtures.create_workspace(admin)
+      initiative = initiative_with_locked_age(admin, "gql-detach-init")
+      event = detached_public_event(workspace, admin, initiative)
+
+      query = """
+      query { getEventBySlug(slug: "#{event.slug}") { id slug detachedRuleProvenance } }
+      """
+
+      assert %{
+               "data" => %{
+                 "getEventBySlug" => %{"id" => id, "detachedRuleProvenance" => anon_marker}
+               },
+               "errors" => errors
+             } = anon(query)
+
+      assert id == event.id
+
+      # field_policy 收窄（同 capacity）：字段在 SDL，匿名读恒 null，且显式选中时
+      # 带 forbidden_field 错误——收窄真实发生，不是恰好没数据
+      assert anon_marker == nil
+
+      assert [
+               %{
+                 "code" => "forbidden_field",
+                 "path" => ["getEventBySlug", "detachedRuleProvenance"]
+               }
+             ] =
+               errors
+
+      member = Fixtures.register_user("gql-detach-member")
+      Fixtures.add_member(workspace, member)
+
+      assert %{"data" => %{"getEventBySlug" => %{"detachedRuleProvenance" => marker_json}}} =
+               graphql(query, sign_in_token(member))
+
+      assert Jason.decode!(marker_json) == %{
+               "initiative" => %{
+                 "id" => initiative.id,
+                 "name" => initiative.name,
+                 "slug" => initiative.slug
+               },
+               "fields" => %{"min_age" => %{"value" => 18, "source" => "locked"}}
+             }
+    end
   end
 
   describe "getEventBySlug" do

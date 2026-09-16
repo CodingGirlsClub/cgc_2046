@@ -64,9 +64,11 @@ defmodule Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule do
         end
 
       case result do
-        {:ok, rule} -> H.row(initiative, actor) |> append_rule_result(rule)
-        {:error, %Ash.Error.Invalid{} = error} -> {:error, Exception.message(error)}
-        {:error, _} -> {:error, "failed to update initiative rule"}
+        {:ok, rule} ->
+          H.row(initiative, actor) |> append_rule_result(rule)
+
+        {:error, error} ->
+          {:error, Cgc2046.Mcp.Errors.message(error, "failed to update initiative rule")}
       end
     else
       false -> {:error, "initiative not found"}

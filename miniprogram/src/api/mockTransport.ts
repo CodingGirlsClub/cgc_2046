@@ -1,4 +1,8 @@
 import type { RequestDocument } from 'graphql-request'
+// 相对 + 显式 .ts：mockTransport 同时被 node --experimental-strip-types 直接加载
+// （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
+// 见 src/domain/entry.ts 的 './share-route.ts'。
+import { venueCityDistrictText } from '../domain/format.ts'
 
 const workspace = {
   id: 'workspace-1',
@@ -67,6 +71,7 @@ const records = [
     // 报名落 payment_pending（零档位选择，走既有 paymentLandingUrl 支付）
     depositEnabled: true,
     depositAmountCents: DEPOSIT_AMOUNT_CENTS,
+    minAge: 18,
     startsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + (5 * 24 + 2) * 3_600_000).toISOString(),
     venue: JSON.stringify({ country: '中国', province: '上海市', city: '上海', district: '徐汇区' }),
@@ -145,6 +150,10 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
+  /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
+  startsAt: string | null
+  /** #617 目标场地：后端 Enrollment.venue 同形 = Venue.text/1 文本化 city+district */
+  venue: string | null
   /** 报名截止时间（ISO8601；null = 无截止） */
   registrationDeadline: string | null
 }
@@ -303,6 +312,24 @@ function responseFor(document: string, variables: object): unknown {
     const input = values.input as Record<string, unknown>
     const eventId = typeof input.eventId === 'string' ? input.eventId : null
     const courseId = typeof input.courseId === 'string' ? input.courseId : null
+    // #510 年龄门控（后端 action 语义的 mock 投影）：min_age 非空的目标未带
+    // ageConfirmed=true → 业务错误（与 check-in 三分支同款 errors 形状）
+    const ageGateTarget = records.find(
+      (record) => record.id === eventId && 'minAge' in record && typeof record.minAge === 'number'
+    )
+    if (ageGateTarget && input.ageConfirmed !== true) {
+      return {
+        createEnrollment: {
+          result: null,
+          errors: [
+            {
+              message: 'age confirmation is required for this enrollment',
+              code: 'enrollment_age_confirmation_required'
+            }
+          ]
+        }
+      }
+    }
     // 收费/押金路径 → payment_pending（R5/KTD2：定价场 tierId 在场；押金场零档位）
     const requiresPayment =
       (typeof input.tierId === 'string' && input.tierId !== '') ||
@@ -335,6 +362,11 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
+      // #617：与后端 Enrollment 计算字段同形——startsAt 直接取目标记录；
+      // venue 必须文本化为 city+district（读面契约是 Venue.text 结果，不是
+      // 目标记录里的 JsonString；course 无 venue 槽 → null）
+      startsAt: target?.startsAt ?? null,
+      venue: venueCityDistrictText(target && 'venue' in target ? target.venue : null),
       registrationDeadline: target?.registrationDeadline ?? null
     }
     checkedIn = false

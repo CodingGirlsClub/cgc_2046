@@ -147,11 +147,13 @@ defmodule Cgc2046.Offering.PriceTierTest do
                |> Ash.Changeset.for_update(:update, %{pricing_enabled: true})
                |> Ash.update(tenant: ctx.workspace.id, actor: ctx.admin)
 
+      # #543：开收费须同时锚定 starts_at（自助取消退款锚，域不变量）
       assert {:ok, updated} =
                event
                |> Ash.Changeset.for_update(:update, %{
                  pricing_enabled: true,
-                 price_tiers: [tier()]
+                 price_tiers: [tier()],
+                 starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
                })
                |> Ash.update(tenant: ctx.workspace.id, actor: ctx.admin)
 
@@ -206,15 +208,28 @@ defmodule Cgc2046.Offering.PriceTierTest do
     end
   end
 
+  # #543：定价布置默认补 starts_at（域不变量，EventFixtures 同款纪律）
+  defp with_pricing_anchor(attrs) do
+    if attrs[:pricing_enabled] == true and not Map.has_key?(attrs, :starts_at) do
+      Map.put(attrs, :starts_at, DateTime.add(DateTime.utc_now(), 9, :day))
+    else
+      attrs
+    end
+  end
+
   defp create_event(ctx, attrs) do
     Event
-    |> Ash.Changeset.for_create(:create, Map.put(attrs, :title, "收费活动"), tenant: ctx.workspace.id)
+    |> Ash.Changeset.for_create(:create, Map.put(with_pricing_anchor(attrs), :title, "收费活动"),
+      tenant: ctx.workspace.id
+    )
     |> Ash.create(actor: ctx.admin)
   end
 
   defp create_course(ctx, attrs) do
     Course
-    |> Ash.Changeset.for_create(:create, Map.put(attrs, :title, "收费课程"), tenant: ctx.workspace.id)
+    |> Ash.Changeset.for_create(:create, Map.put(with_pricing_anchor(attrs), :title, "收费课程"),
+      tenant: ctx.workspace.id
+    )
     |> Ash.create(actor: ctx.admin)
   end
 end

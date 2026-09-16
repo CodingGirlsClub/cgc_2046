@@ -25,3 +25,6 @@ Any npm package you add must be AGPL-3.0-compatible: permissive (MIT/Apache-2.0/
 # 前端测试执行约定
 
 跑 web 端测试统一在 `web/` 目录内执行 `pnpm vitest`（走 `web/vitest.config.mts`，缓存落在 `web/node_modules/.vite`）。不要在仓库根目录用 `npx vitest run web/...` 裸调——那会把 project root 当成仓库根，vitest 缓存误写入根目录 `node_modules/.vite`（根目录不应有 node_modules，见根 `.gitignore`）。
+
+- **日期/时间断言禁止写死本地时区偏移**：CI runner 跑 UTC、开发机常是 UTC+8，写死 `18:00`（fixture `…T10:00:00Z` 在 UTC+8 的呈现）在 CI 必红——#640 的 `web` job 就是这么红的：`app/[locale]/admin/initiatives/page.test.tsx` 断言 `截止 2026-09-28 18:00`，CI 渲染成 `10:00` → `TestingLibraryElementError`。做法：期望值用被测格式化函数现场算（`new Date(x).toLocaleString(...)`、`formatDateTime(fixture)`），或只断言时区无关形状；改动后用 `TZ=UTC pnpm vitest <file>` 与 `TZ=Asia/Shanghai pnpm vitest <file>` 双向自证。
+- **新增守卫/断言必须做变异验证**：临时改坏被守卫的实现（或删掉守卫本身）时对应断言必须变红——只"绿"不算钉住（假绿常见于断言落在空集合/被跳过的分支上）。做法：先改坏、确认红，再还原、确认绿，两步输出都留在同一会话里。

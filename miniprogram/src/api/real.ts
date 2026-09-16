@@ -119,6 +119,7 @@ type ContentRecord = (EventRecord | CourseRecord) &
     depositEnabled: boolean | null
     depositAmountCents: number | null
     initiativeId: string | null
+    minAge: number | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
@@ -153,6 +154,8 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
       record.depositEnabled === true && typeof record.depositAmountCents === 'number'
         ? record.depositAmountCents
         : null,
+    // 年龄门槛（#510）：仅 event 查询携带；course 槽位缺省 → null（无门槛）
+    minAge: 'minAge' in record && typeof record.minAge === 'number' ? record.minAge : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
@@ -175,6 +178,9 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     insertedAt: enrollment.insertedAt,
     checkInCode: enrollment.checkInCode ?? null,
     paymentMode: parsePaymentMode(enrollment.paymentMode ?? null),
+    // #617：改期/开课提醒的权威落点——目标开始时间与场地原样透传
+    startsAt: enrollment.startsAt ?? null,
+    venue: enrollment.venue ?? null,
     registrationDeadline: enrollment.registrationDeadline ?? null
   }
 }
@@ -411,6 +417,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // 收费必传档(后端校验「收费项请先选择价格档位」)——此前漏传,
       // 免费活动测试从未暴露。
       tierId: form.tierId || undefined,
+      // 年龄门槛确认（#510）：后端 action 权威门控，本端只在 minAge 非空时携带
+      ...(form.target.minAge != null ? { ageConfirmed: form.ageConfirmed === true } : {}),
       ...(form.target.kind === 'event'
         ? { eventId: form.target.id }
         : { courseId: form.target.id })
@@ -437,6 +445,13 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // create 结果未选缴费模式/截止时间（两查询同形状仅列表/单条回查）——
       // 从报名目标本地推导，与后端 payment_mode 计算同规则（押金优先于定价）
       paymentMode: form.target.depositEnabled ? 'deposit' : form.target.pricingEnabled ? 'pricing' : 'free',
+      // #617：create 结果同样未选 startsAt/venue。startsAt 与 form.target 同形
+      // （都是供给物 starts_at 的 ISO 值）→ 本地取；venue 不行——读面契约是后端
+      // 已文本化的 city+district，而 form.target.venue 是 JsonString，本地转换等于
+      // 复刻 Venue.text/1（且结果页/本页都不渲染该字段）→ 与 checkInCode 同款，
+      // 未选即 null，不给一个形态不同的值。
+      startsAt: form.target.startsAt,
+      venue: null,
       registrationDeadline: form.target.registrationDeadline
     }
   }

@@ -5,13 +5,18 @@ import {
   checkInCodeText,
   enrollmentBadgeText,
   enrollmentBlockedNotice,
+  enrollmentHistoryTimeText,
   enrollmentMetricText,
+  enrollmentScheduleText,
+  enrollmentVenueText,
+  formatDateTime,
   isUrgent,
   parseEnrollmentBadge,
   parseEnrollmentPolicy,
   parseEnrollmentStatus,
   remainingLabel,
   scheduleText,
+  venueCityDistrictText,
   venueText
 } from '../src/domain/format.ts'
 import type { CatalogItem } from '../src/domain/models.ts'
@@ -77,6 +82,62 @@ test('venue 严格四键解析：恰四键 string 拼接；缺键/多键/非字�
   assert.equal(venueText('["线上"]'), null)
   // 输入非 string → null
   assert.equal(venueText(123 as unknown as string), null)
+})
+
+// ── #617：「我的报名」卡片时间/地点行（改期/开课提醒的权威落点）──
+
+test('#617 时间行：event「活动时间」/ course「开课时间」，格式与 formatDateTime 逐字一致', () => {
+  const start = '2026-09-20T07:00:00Z'
+  // 时区纪律：期望值由被测的 formatDateTime 现算（与 scheduleText 用例同款），
+  // 不写死本地时区字面量 → TZ=UTC 与 TZ=Asia/Shanghai 双跑同绿
+  assert.equal(enrollmentScheduleText('event', start), `活动时间：${formatDateTime(start)}`)
+  assert.equal(enrollmentScheduleText('course', start), `开课时间：${formatDateTime(start)}`)
+})
+
+test('#617 时间行负向：无 startsAt（时间待定）→ null，调用方不渲染空行', () => {
+  assert.equal(enrollmentScheduleText('event', null), null)
+  assert.equal(enrollmentScheduleText('course', null), null)
+  assert.equal(enrollmentScheduleText('event', ''), null)
+})
+
+test('#617 地点行：入参是后端已文本化的 city+district，原样展示（不做 JSON 解析）', () => {
+  // 契约形态来自后端：Enrollment.venue = Venue.text/1 结果（见
+  // backend/test/cgc_2046_web/graphql_enrollment_my_query_test.exs 断言 "杭州市西湖区"）
+  assert.equal(enrollmentVenueText('杭州市西湖区'), '地点：杭州市西湖区')
+  assert.equal(enrollmentVenueText('北京市海淀区'), '地点：北京市海淀区')
+  // 负向：null / 空串 / 全空白 / 非字符串 → null（卡面无值即无行，不编造「地点待定」）
+  assert.equal(enrollmentVenueText(null), null)
+  assert.equal(enrollmentVenueText(''), null)
+  assert.equal(enrollmentVenueText('   '), null)
+  assert.equal(enrollmentVenueText(undefined as unknown as string), null)
+  // 关键回归：JsonString（CatalogItem.venue 那种形态）**不是**本字段的形态——
+  // 之前误用 venueText 严格四键解析会让真机永远渲染不出地点行（mock 用 JsonString
+  // 冒充文本，测试全绿而线上空白）。此处钉死「不做 JSON 解析」。
+  assert.equal(
+    enrollmentVenueText('{"country":"中国","province":"浙江省","city":"杭州市","district":"西湖区"}'),
+    '地点：{"country":"中国","province":"浙江省","city":"杭州市","district":"西湖区"}'
+  )
+})
+
+test('#617 venueCityDistrictText 镜像 Venue.text/1：city+district 拼接、nil 段跳过、空串 → null', () => {
+  const raw = (o: Record<string, unknown>) => JSON.stringify(o)
+  assert.equal(venueCityDistrictText(raw({ city: '杭州市', district: '西湖区' })), '杭州市西湖区')
+  // 缺 district（nil 段跳过，无分隔符）
+  assert.equal(venueCityDistrictText(raw({ city: '杭州市', district: null })), '杭州市')
+  assert.equal(venueCityDistrictText(raw({ city: null, district: '西湖区' })), '西湖区')
+  // 两端皆空串 → "" → null（Venue.text/1 的 "" 分支）
+  assert.equal(venueCityDistrictText(raw({ city: '', district: '' })), null)
+  // 非 map / 非法 JSON / 非字符串 → null
+  assert.equal(venueCityDistrictText(raw(['线上'])), null)
+  assert.equal(venueCityDistrictText('线上'), null)
+  assert.equal(venueCityDistrictText(null), null)
+})
+
+test('#617 历史行文案：明示「报名于 <insertedAt>」，与主卡片「活动时间」不混读', () => {
+  const insertedAt = '2026-09-01T08:00:00Z'
+  assert.equal(enrollmentHistoryTimeText(insertedAt), `报名于 ${formatDateTime(insertedAt)}`)
+  // 前缀存在是防混读的判据本身（裸时间串会被误当活动时间）
+  assert.match(enrollmentHistoryTimeText(insertedAt), /^报名于 /)
 })
 
 test('报名标签 fail-closed，展示文案覆盖报名中/即将开始/报名截止/已满', () => {

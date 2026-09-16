@@ -13,6 +13,8 @@
 .rejected { color: #eb5757; background: #fef3f2; }
 .expired, .cancelled { color: #4b4d54; background: #f4f5f8; }
 .cardTitle { display: block; margin-top: 18rpx; font-size: 31rpx; font-weight: 600; }
+/* #617：时间行 + 地点行共用（卡面信息行，与 .cancelRule 同款静默层级） */
+.schedule { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 22rpx; }
 .checkInCode { display: block; margin-top: 12rpx; color: #c24a02; font-size: 32rpx; font-weight: 700; letter-spacing: 2rpx; }
 .checkInQr { margin-top: 16rpx; }
 .countdown { margin-top: 22rpx; padding: 18rpx; display: flex; align-items: center; justify-content: space-between; background: #fff8eb; border-radius: 14rpx; }

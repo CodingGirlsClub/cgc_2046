@@ -36,6 +36,10 @@ defmodule Cgc2046.Admission.Enrollment do
   @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
+  # #510 年龄门槛条款版本（单源）：min_age 非空的目标活动报名须显式确认，
+  # 确认事实（age_confirmed_at）与当时条款版本（terms_version）同事务留痕。
+  # 版本随代码部署演进——改条款语义时更新本值，存量留痕不回写。
+  @terms_version "2026-09-participation"
   # review A1 容量上限：单事务批量免缴的待付笔数上限（定级依据见
   # waive_pending_for_offering moduledoc「容量契约」）
   @batch_waive_limit 200
@@ -191,17 +195,17 @@ defmodule Cgc2046.Admission.Enrollment do
     )
 
     # U3：目标缴费模式（free/pricing/deposit），码卡与取消规则的模式感知文案用。
-    # 从 target_schedule 批量取（schedule_for 已带 deposit_enabled/pricing_enabled）。
+    # 从 target_schedule 批量取（schedule_for 已带 deposit_enabled/pricing_enabled），
+    # 三态判定单源 = Offering.payment_mode/1（押金优先；供给物不可得 → :free，与
+    # 旧分支的兜底逐字一致）。
     calculate(:payment_mode, :string,
       public?: true,
       load: [:target_schedule],
       calculation: fn enrollments, _opts ->
         Enum.map(enrollments, fn enrollment ->
-          case enrollment.target_schedule do
-            %{deposit_enabled: true} -> "deposit"
-            %{pricing_enabled: true} -> "pricing"
-            _ -> "free"
-          end
+          enrollment.target_schedule
+          |> Cgc2046.Offering.payment_mode()
+          |> to_string()
         end)
       end
     )
@@ -310,6 +314,14 @@ defmodule Cgc2046.Admission.Enrollment do
         description: "价格档位 ID（收费活动报名时必填）"
       )
 
+      # #510 年龄门槛：目标活动 min_age 非空时必须传 true（门控在
+      # prepare_create 的 put_age_confirmation，权威在后端 action——web /
+      # 小程序 / MCP 三入口同一扇门，UI 只是引导）
+      argument(:age_confirmed, :boolean,
+        allow_nil?: true,
+        description: "确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true）"
+      )
+
       # 唯一约束（unique_event_user / unique_course_user）冲突转
       # BusinessError（code enrollment_duplicate_active）——error_handler 在
       # changeset 错误入列时介入（含 ash_postgres DB 层约束错误，见
@@ -397,9 +409,10 @@ defmodule Cgc2046.Admission.Enrollment do
         Ash.Changeset.before_action(changeset, &prepare_cancel/1)
       end)
 
-      # 截止前的自助取消需要把已支付押金送入既有退款队列；截止后的取消只
-      # 释放名额。该 after_action 与报名状态变更处于同一 Ash 事务，避免留下
-      # 已取消但没有退款任务的崩溃窗口。
+      # 退款窗口内的自助取消把已付单（押金/定价）送入既有退款队列；窗口外的
+      # 取消只释放名额（押金单锚报名截止 #587、定价单锚活动开始 #543）。该
+      # after_action 与报名状态变更处于同一 Ash 事务，避免留下已取消但没有
+      # 退款任务的崩溃窗口。
       change(fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn cs, enrollment ->
           enqueue_self_cancel_refunds(cs, enrollment)
@@ -702,6 +715,7 @@ defmodule Cgc2046.Admission.Enrollment do
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
          {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
          {:ok, attrs} <- put_deposit_selection(changeset, target, attrs),
+         {:ok, attrs} <- put_age_confirmation(changeset, target, attrs),
          {:ok, attrs} <- put_check_in_code(attrs, target_kind, target_id) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
@@ -835,9 +849,21 @@ defmodule Cgc2046.Admission.Enrollment do
 
   # 落点判定（KTD2）：定价开启或押金开启 → payment_pending（支付完成才 confirmed）；
   # 免费目标直接 confirmed。
-  defp auto_confirm_status(%{pricing_enabled: true}), do: :payment_pending
-  defp auto_confirm_status(%{deposit_enabled: true}), do: :payment_pending
-  defp auto_confirm_status(_target), do: :confirmed
+  @doc """
+  报名落点状态预测（KTD2）：缴费槽非免费 → `:payment_pending`（占位后限时支付，
+  ADR-0007），免费 → `:confirmed`。
+
+  create（open / invite_only）与审批通过（request）两条域路径共用本函数，MCP
+  `get_enrollment_summary` 的 `would_create_status` 亦消费同一函数——三态判定只有
+  一个实现点（`Offering.payment_mode/1`），展示面不再各自镜像。
+  """
+  @spec auto_confirm_status(map() | nil) :: :confirmed | :payment_pending
+  def auto_confirm_status(target) do
+    case Cgc2046.Offering.payment_mode(target) do
+      :free -> :confirmed
+      _ -> :payment_pending
+    end
+  end
 
   # 收费报名的档位选择（KTD9/R2）：tier_id 必填且当前可售，存 submission_payload
   # 供下单链快照（U5 resolve_tier）；免费目标忽略 tier_id（R4）。
@@ -884,6 +910,24 @@ defmodule Cgc2046.Admission.Enrollment do
   end
 
   defp put_deposit_selection(_changeset, _target, attrs), do: {:ok, attrs}
+
+  # ── 年龄门槛（#510）──────────────────────────────────────────────────────
+  # min_age 非空的目标活动（仅 events 有该列；course 恒 nil 走兜底）必须显式
+  # 确认：argument :age_confirmed 非 true 即拒（fail-closed，MCP 不传同拒）。
+  # 确认事实与条款版本同事务落列——审计可回答「何时同意的哪一版条款」。
+  # 判据是 is_integer（min_age 有 CHECK min:1，无 0/负值分支）。
+  defp put_age_confirmation(changeset, %{min_age: min_age}, attrs) when is_integer(min_age) do
+    if Ash.Changeset.get_argument(changeset, :age_confirmed) == true do
+      {:ok,
+       attrs
+       |> Map.put(:age_confirmed_at, DateTime.utc_now())
+       |> Map.put(:terms_version, @terms_version)}
+    else
+      {:error, :age_confirmation_required}
+    end
+  end
+
+  defp put_age_confirmation(_changeset, _target, attrs), do: {:ok, attrs}
 
   # submission_payload 累加写点（U2 起 tier_id 与 deposit_amount_cents 共存）：
   # 优先取链上已累积值、回落客户端提交原值，只覆盖本键——后写者不吞前写者，
@@ -980,7 +1024,11 @@ defmodule Cgc2046.Admission.Enrollment do
            [Cgc2046.Repo.uuid!(target_id)]
          ) do
       {:ok, %{rows: [["open", pricing_enabled, deposit_enabled, deposit_amount]]}} ->
-        status = if pricing_enabled or deposit_enabled, do: :payment_pending, else: :confirmed
+        status =
+          auto_confirm_status(%{
+            pricing_enabled: pricing_enabled,
+            deposit_enabled: deposit_enabled
+          })
 
         # 押金快照（U2/KTD1）：审批通过落 payment_pending 与 create 路径共用同一
         # 金额源。定价目标不写（金额源 = 下单时的档位解析）。
@@ -1069,35 +1117,49 @@ defmodule Cgc2046.Admission.Enrollment do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, :cancelled)
       |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
+      # 退款资格双锚（#543）：押金单 = 报名截止前（#587）；定价单 = 活动开始前
+      # （条款 5.2「活动开始前全额退」）。锚点在锁后读钟一次锁定，避免锁等待
+      # 期间跨线。starts_at 缺失（畸形数据）→ false（fail-closed 不退）。
       |> Ash.Changeset.put_context(:self_cancel_before_deadline, before_deadline?(event, now))
+      |> Ash.Changeset.put_context(
+        :self_cancel_before_starts_at,
+        before_starts_at?(event, now)
+      )
     else
       {:error, reason} -> add_domain_error(changeset, reason)
     end
   end
 
   defp enqueue_self_cancel_refunds(changeset, enrollment) do
-    if self_cancel_refund_eligible?(changeset, enrollment) do
-      orders =
-        Cgc2046.Payments.Order
-        |> Ash.Query.filter(
-          enrollment_id == ^enrollment.id and order_kind == :deposit and
-            status in [:paid, :refunding, :refund_failed]
-        )
-        |> Ash.read!(authorize?: false, tenant: enrollment.workspace_id)
+    # #543：自助取消退款不再只认押金单——按订单口径分派锚点（押金单截止前 /
+    # 定价单开始前全额退）。免费/免缴报名无活跃单，查询自然落空。
+    orders =
+      Cgc2046.Payments.Order
+      |> Ash.Query.filter(
+        enrollment_id == ^enrollment.id and
+          status in [:paid, :refunding, :refund_failed]
+      )
+      |> Ash.read!(authorize?: false, tenant: enrollment.workspace_id)
 
-      case orders do
-        [order] -> enqueue_deposit_refund(order, enrollment)
-        [] -> {:ok, enrollment}
-        # 同一报名多条活跃押金单违反 unique_active_order 不变量：上抛回滚取消，
-        # 不留在「已取消但押金未退」的半态（after_action 的 {:error, _} 会提交）。
-        _ -> raise "multiple active deposit orders for enrollment #{enrollment.id}"
-      end
-    else
-      {:ok, enrollment}
+    case orders do
+      [order] ->
+        if self_cancel_refund_eligible?(changeset, order) do
+          enqueue_order_refund(order, enrollment)
+        else
+          {:ok, enrollment}
+        end
+
+      [] ->
+        {:ok, enrollment}
+
+      # 同一报名多条活跃单违反 unique_active_order 不变量（跨口径）：上抛回滚
+      # 取消，不留「已取消但钱未退」的半态（after_action 的 {:error, _} 会提交）。
+      _ ->
+        raise "multiple active orders for enrollment #{enrollment.id}"
     end
   end
 
-  defp enqueue_deposit_refund(order, enrollment) do
+  defp enqueue_order_refund(order, enrollment) do
     # 入队必须 raise 型：Ash 3.33 的 after_action 返回 {:error, _} 会**提交**事务
     # （`transaction_rollback_on_error?` 未设），那样会留下「报名已取消、押金单
     # 仍 paid/refunding 且无退款 job」的静默吞钱（U6/KTD6 同款纪律：Attendance
@@ -1153,8 +1215,13 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp self_cancel_refund_eligible?(changeset, _enrollment) do
-    Map.get(changeset.context, :self_cancel_before_deadline) == true
+  # #543：退款资格按订单口径选锚——押金单 = 报名截止前（#587 既定语义）；
+  # 定价单 = 活动开始前（条款 5.2）。锚点布尔在 prepare_cancel 锁后统一判定。
+  defp self_cancel_refund_eligible?(changeset, order) do
+    case order.order_kind do
+      :deposit -> Map.get(changeset.context, :self_cancel_before_deadline) == true
+      :enrollment -> Map.get(changeset.context, :self_cancel_before_starts_at) == true
+    end
   end
 
   defp before_deadline?(%{registration_deadline: nil}, _now), do: true
@@ -1164,6 +1231,16 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp before_deadline?(%{registration_deadline: deadline}, now),
     do: DateTime.compare(now, deadline) == :lt
+
+  # 定价单自助取消锚（#543）：活动开始前 = 可退。starts_at 缺失 → false
+  # fail-closed（定价场 ⇒ starts_at 非空由 DB CHECK 兜底，此处只兜残差）。
+  defp before_starts_at?(%{starts_at: nil}, _now), do: false
+
+  defp before_starts_at?(%{starts_at: %NaiveDateTime{} = starts_at}, now),
+    do: DateTime.compare(now, DateTime.from_naive!(starts_at, "Etc/UTC")) == :lt
+
+  defp before_starts_at?(%{starts_at: starts_at}, now),
+    do: DateTime.compare(now, starts_at) == :lt
 
   # All qualification-sensitive transitions acquire this lock before touching
   # Enrollment/ledger/order rows. Read the clock after a possible lock wait.
@@ -1193,17 +1270,37 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp lock_cancel_target(event_id, nil) when not is_nil(event_id) do
     case Cgc2046.Repo.query(
-           "SELECT registration_deadline FROM events WHERE id = $1 FOR UPDATE",
+           "SELECT registration_deadline, starts_at FROM events WHERE id = $1 FOR UPDATE",
            [Cgc2046.Repo.uuid!(event_id)]
          ) do
-      {:ok, %{rows: [[deadline]]}} -> {:ok, %{registration_deadline: deadline}}
-      {:ok, %{rows: []}} -> {:error, :target_not_found}
-      {:error, reason} -> {:error, {:database, reason}}
+      {:ok, %{rows: [[deadline, starts_at]]}} ->
+        {:ok, %{registration_deadline: deadline, starts_at: starts_at}}
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
     end
   end
 
-  defp lock_cancel_target(nil, course_id) when not is_nil(course_id),
-    do: {:ok, %{registration_deadline: nil}}
+  # course 无报名截止概念（恒 nil），但定价单退款锚 = 开课时间（#543）——与
+  # event 同构锁读 starts_at（锁行防并发改期跨线）。
+  defp lock_cancel_target(nil, course_id) when not is_nil(course_id) do
+    case Cgc2046.Repo.query(
+           "SELECT starts_at FROM courses WHERE id = $1 FOR UPDATE",
+           [Cgc2046.Repo.uuid!(course_id)]
+         ) do
+      {:ok, %{rows: [[starts_at]]}} ->
+        {:ok, %{registration_deadline: nil, starts_at: starts_at}}
+
+      {:ok, %{rows: []}} ->
+        {:error, :target_not_found}
+
+      {:error, reason} ->
+        {:error, {:database, reason}}
+    end
+  end
 
   defp lock_cancel_target(nil, nil), do: {:error, :target_not_found}
 
@@ -1426,8 +1523,10 @@ defmodule Cgc2046.Admission.Enrollment do
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     # 押金两列（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
     # 的 deposit_column 同款写法）。
+    # min_age 列（#510）：仅 events 表有，courses 补 NULL 保持列数一致（同
+    # deposit_columns 形状）。
     sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}
+    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}#{min_age_columns(table)}
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
@@ -1446,7 +1545,15 @@ defmodule Cgc2046.Admission.Enrollment do
       {:ok,
        %{
          rows: [
-           [workspace_id, policy, pricing_enabled, price_tiers, deposit_enabled, deposit_amount]
+           [
+             workspace_id,
+             policy,
+             pricing_enabled,
+             price_tiers,
+             deposit_enabled,
+             deposit_amount,
+             min_age
+           ]
          ]
        }} ->
         case Map.get(@enrollment_policy_atoms, policy) do
@@ -1461,7 +1568,8 @@ defmodule Cgc2046.Admission.Enrollment do
                pricing_enabled: pricing_enabled,
                price_tiers: price_tiers || [],
                deposit_enabled: deposit_enabled,
-               deposit_amount_cents: deposit_amount
+               deposit_amount_cents: deposit_amount,
+               min_age: min_age
              }}
         end
 
@@ -1635,6 +1743,9 @@ defmodule Cgc2046.Admission.Enrollment do
   # 押金两列（KTD2）：仅 events 表有；courses 补 false/NULL 保持 SELECT 列数一致。
   defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false), deposit_amount_cents"
   defp deposit_columns(_table), do: ", false, NULL"
+  # 年龄一列（#510）：仅 events 表有；courses 补 NULL。
+  defp min_age_columns("events"), do: ", min_age"
+  defp min_age_columns(_table), do: ", NULL"
 
   # ── 错误构造（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
 
@@ -1694,6 +1805,9 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_message(:tier_not_available),
     do: "selected price tier is not available"
 
+  defp domain_error_message(:age_confirmation_required),
+    do: "age confirmation is required for this enrollment"
+
   defp domain_error_message(:already_processed), do: "enrollment has already been processed"
 
   defp domain_error_message(:duplicate_active),
@@ -1739,6 +1853,10 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_code(:invite_quota_unavailable), do: "enrollment_invite_quota_unavailable"
   defp domain_error_code(:tier_id_required), do: "enrollment_tier_id_required"
   defp domain_error_code(:tier_not_available), do: "enrollment_tier_not_available"
+  # 显式子句化（#241）：进契约工件，web/小程序按 code 配文案
+  defp domain_error_code(:age_confirmation_required),
+    do: "enrollment_age_confirmation_required"
+
   defp domain_error_code(:already_processed), do: "enrollment_already_processed"
   defp domain_error_code(:duplicate_active), do: "enrollment_duplicate_active"
   defp domain_error_code(:check_in_code_exhausted), do: "enrollment_check_in_code_exhausted"

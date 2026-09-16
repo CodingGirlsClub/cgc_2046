@@ -329,6 +329,8 @@ export type CourseFilterWorkspaceId = {
 };
 
 export type CreateEnrollmentInput = {
+  /** 确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true） */
+  ageConfirmed?: boolean | null | undefined;
   approvalDeadline?: string | null | undefined;
   courseId?: string | number | null | undefined;
   eventId?: string | number | null | undefined;
@@ -882,7 +884,7 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
@@ -902,14 +904,14 @@ export type MyEnrollmentsQueryVariables = Exact<{
 }>;
 
 
-export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, registrationDeadline: string | null }> | null } | null };
+export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type EnrollmentQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, registrationDeadline: string | null }> | null } | null };
+export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;

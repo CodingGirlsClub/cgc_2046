@@ -25,6 +25,8 @@ defmodule Cgc2046.Notifications.NotificationWorker do
     max_attempts: 3,
     unique: [period: 604_800, fields: [:worker, :args], states: :all]
 
+  require Logger
+
   alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Sponsorship.Sponsorship
@@ -211,13 +213,23 @@ defmodule Cgc2046.Notifications.NotificationWorker do
         :ok ->
           :ok
 
+        # 本就不该发：无平台身份 / 平台或模板未配置 —— 静默跳过（非缺陷）。
         {:error, reason}
-        when reason in [
-               :consent_exhausted,
-               :platform_identity_not_found,
-               :platform_not_configured
-             ] ->
+        when reason in [:platform_identity_not_found, :platform_not_configured] ->
           :ok
+
+        # 本该发但没发（#635 根因）：用户未授权或配额耗尽。此前与上面同桶返回
+        # :ok，运维只看到「job 成功」，看不到「没送到」。授权耗尽**不可重试**
+        # （配额不会自愈），故 :discard 而非 {:error, _}——后者会白重试 3 次；
+        # 工作台的 discarded + reason 与 completed 明确可区分，Logger.warning
+        # 另给一条可 grep 的运维信号。
+        {:error, :consent_exhausted} ->
+          Logger.warning(
+            "notification not delivered: consent exhausted " <>
+              "(template_key=#{args["template_key"]} user_id=#{args["user_id"]})"
+          )
+
+          {:discard, "consent_exhausted"}
 
         {:error, reason} ->
           {:error, inspect(reason)}

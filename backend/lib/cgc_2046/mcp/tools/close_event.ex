@@ -76,11 +76,8 @@ defmodule Cgc2046.Mcp.Tools.CloseEvent do
           {:error,
            "forbidden: owner or admin required to close event in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to close event"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to close event")}
       end
     end
   end

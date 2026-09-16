@@ -128,8 +128,17 @@ jobs:
       # snapshot 门禁：Ash resource 定义与 resource_snapshots 漂移即红
       # （schema squash 后防止资源变更不带 snapshot 提交；纯文件比对，无需 DB）
       - run: mix ash_postgres.generate_migrations --check
-      - run: mix test
+      # identity 索引名守卫在 mix test 内（DSL → pg_indexes，恒跑）；迁移探针
+      # （#611）要建一次性库 + 全量迁移，故从主步骤排除、下面单开一步（不新增 job）：
+      # 主步骤排除后探针只跑一遍，且失败面独立可见。本地 mix precommit 的裸
+      # mix test 不过滤，探针照跑。
+      - run: mix test --exclude migration_probe
         timeout-minutes: 15
+      # 迁移探针（#611，@tag :migration_probe）：改名类迁移的前置检查 / 幂等重放 /
+      # 事务原子性。注意排除项先于包含项计算，故绝不能把该 tag 写进 ExUnit.start 的
+      # exclude——那样 `--only` 会跑 0 条并直接失败。
+      - run: mix test --only migration_probe
+        timeout-minutes: 10
   web:
     needs: gate
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
@@ -310,7 +319,9 @@ jobs:
   deps-image:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 冷构建（mix.lock 变更后首次）在 2 核 runner 上需 45min+（AGENTS.md 已记录），
+    # 原 30min 会把每次 lock 变更的构建都掐死 → 镜像永远缺失、deploy 端被迫 45–90min 现场重建。
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: backend

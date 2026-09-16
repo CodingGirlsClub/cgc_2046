@@ -8,6 +8,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
   alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Ash.Error.Invalid, as: AshErrorInvalid
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
@@ -36,6 +37,59 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert {:error, error} = create_enrollment(event, second)
       assert Exception.message(error) =~ "capacity"
       assert enrollment_count(event.id) == 1
+    end
+
+    # ── #510 年龄门槛门控矩阵（判据 = event.min_age 非空；权威在 action） ──
+
+    test "min_age 非空的活动未确认年龄 → 拒绝且不占名额（MCP 不传同拒）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 18})
+      learner = Fixtures.register_user("enrollment-age-unconfirmed")
+
+      # before_action 的 add_error 经 Ash create 边界包成 Ash.Error.Invalid
+      # （deposit_already_forfeited 同款形状，见 deposit_forfeit_worker_test）
+      assert {:error, %AshErrorInvalid{errors: [error]}} = create_enrollment(event, learner)
+      assert %BusinessError{code: "enrollment_age_confirmation_required"} = error
+      # 拒绝发生在 prepare_create（占位之前），名额零泄漏
+      assert EventFixtures.ledger_occupancy(event) == 0
+      assert enrollment_count(event.id) == 0
+    end
+
+    test "min_age 非空的活动带 age_confirmed: true → 成功并留痕确认时间与条款版本" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 16})
+      learner = Fixtures.register_user("enrollment-age-confirmed")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner, %{age_confirmed: true})
+      assert enrollment.status == :confirmed
+      refute is_nil(enrollment.age_confirmed_at)
+      # 条款版本钉字面量：版本演进必须显式改此断言（审计口径，#510）
+      assert enrollment.terms_version == "2026-09-participation"
+    end
+
+    test "无 min_age 的活动不需要年龄确认，且不留痕" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("enrollment-age-free")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+      assert is_nil(enrollment.age_confirmed_at)
+      assert is_nil(enrollment.terms_version)
+    end
+
+    test "course 报名不经年龄门（courses 无 min_age 槽）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin)
+      learner = Fixtures.register_user("enrollment-age-course")
+
+      assert {:ok, enrollment} = create_enrollment(course, learner)
+      assert enrollment.status == :confirmed
+      assert is_nil(enrollment.age_confirmed_at)
     end
 
     test "request 活动先 pending，Owner/Admin 确认时才占名额；普通成员无权审批" do
@@ -779,6 +833,109 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert reloaded.cancel_reason == "enrollment_cancelled"
       # R24 待收只计 pending 未过期单——作废后回落
       assert pending_cents(workspace.id) == 0
+    end
+  end
+
+  describe "定价场自助取消退款（#543：活动开始前全额退，锚 = starts_at）" do
+    setup do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      %{workspace: workspace, admin: admin}
+    end
+
+    test "已付定价单 + 活动开始前取消：报名取消 + 名额释放 + 订单 refunding + 退款 job 入队",
+         ctx do
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{
+            capacity: 1,
+            starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-before-start")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+      assert EventFixtures.ledger_occupancy(event) == 0
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :refunding
+
+      assert_enqueued(
+        worker: Cgc2046.Payments.Workers.PaymentRefundWorker,
+        args: %{"order_id" => order.id}
+      )
+    end
+
+    test "已付定价单 + 报名截止已过但活动未开始：仍全额退（锚是 starts_at 不是 deadline）",
+         ctx do
+      # 截止前正常报名付款（截止已过无法报名，布置先建后拉线——与押金场
+      # 「after deadline」用例同款 SQL 手法）
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{capacity: 1, starts_at: DateTime.add(DateTime.utc_now(), 8, :day)}
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-past-deadline")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      Cgc2046.Repo.query!(
+        "UPDATE events SET registration_deadline = NOW() - INTERVAL '1 hour' WHERE id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert {:ok, _} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :refunding
+    end
+
+    test "已付定价单 + 活动已开始：不退（订单留 paid，无退款 job）", ctx do
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{
+            capacity: 1,
+            starts_at: DateTime.add(DateTime.utc_now(), -1, :hour)
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-after-start")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      assert {:ok, _} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :paid
+
+      assert [] ==
+               Enum.filter(
+                 all_enqueued(worker: Cgc2046.Payments.Workers.PaymentRefundWorker),
+                 &(&1.args["order_id"] == order.id)
+               )
     end
   end
 
@@ -1546,6 +1703,14 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
   # 免缴作废回归布置：为 payment_pending 报名挂一笔 pending 订单
   # （形状同 payment_settlement_worker_test 布置，渠道凭据字段由 provider 层测试覆盖）
+  # #543：定价单付款落账（测试布置）——与 initiative_boundary_test 的
+  # paid_order/2 同款 create + mark_paid 链。
+  defp mark_paid(order) do
+    order
+    |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: Ecto.UUID.generate()})
+    |> Ash.update!(tenant: order.workspace_id, authorize?: false)
+  end
+
   defp create_pending_order(enrollment) do
     {:ok, order} =
       Order
@@ -1722,5 +1887,77 @@ defmodule Cgc2046.Admission.EnrollmentTest do
     assert [] =
              all_enqueued(worker: PaymentRefundWorker)
              |> Enum.filter(&(&1.args["order_id"] == order.id))
+  end
+
+  # #586：落点预测公开谓词（MCP would_create_status 与审批路径共用同一函数）。
+  # 三态判定单源在 Offering.payment_mode/1，本 describe 钉「预测 == 域真实落点」。
+  describe "auto_confirm_status/1 公开谓词（#586 单源）" do
+    test "open 三态：免费 → confirmed；定价 / 押金 → payment_pending" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      free = EventFixtures.create_event(workspace, admin, %{title: "免费场"})
+      pricing = EventFixtures.create_event(workspace, admin, paid_attrs())
+      deposit = EventFixtures.create_event(workspace, admin, deposit_attrs())
+
+      assert Enrollment.auto_confirm_status(free) == :confirmed
+      assert Enrollment.auto_confirm_status(pricing) == :payment_pending
+      assert Enrollment.auto_confirm_status(deposit) == :payment_pending
+    end
+
+    test "预测与真实 create 落点一致（押金 / 定价 / 免费三态逐一对齐）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      cases = [
+        {"free", EventFixtures.create_event(workspace, admin, %{title: "对齐免费"}), %{}},
+        {"pricing", EventFixtures.create_event(workspace, admin, paid_attrs()),
+         %{tier_id: @paid_tier_id}},
+        {"deposit", EventFixtures.create_event(workspace, admin, deposit_attrs()), %{}}
+      ]
+
+      for {label, target, attrs} <- cases do
+        learner = Fixtures.register_user("slot-align-#{label}")
+
+        predicted = Enrollment.auto_confirm_status(target)
+        assert {:ok, created} = create_enrollment(target, learner, attrs)
+
+        assert created.status == predicted,
+               "#{label} 供给物预测 #{inspect(predicted)} ≠ 实际 #{inspect(created.status)}"
+      end
+    end
+
+    test "course（无押金列）：定价 → payment_pending，免费 → confirmed" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      pricing_course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      free_course = EventFixtures.create_course(workspace, admin, %{title: "免费课"})
+
+      assert Enrollment.auto_confirm_status(pricing_course) == :payment_pending
+      assert Enrollment.auto_confirm_status(free_course) == :confirmed
+    end
+
+    test "request 不影响谓词本身（pending 由 prepare_policy 决定，审批通过后仍按缴费槽分叉）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      request_deposit =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{enrollment_policy: :request, capacity: 1} |> Map.merge(deposit_attrs())
+        )
+
+      learner = Fixtures.register_user("slot-request-deposit")
+
+      # 谓词只回答「缴费槽非免费 → 支付落点」，与 policy 无关
+      assert Enrollment.auto_confirm_status(request_deposit) == :payment_pending
+      # 真实路径：create 落 pending，approve 后落 payment_pending（与预测同源）
+      assert {:ok, pending} = create_enrollment(request_deposit, learner)
+      assert pending.status == :pending
+      assert {:ok, approved} = confirm(pending, admin)
+      assert approved.status == Enrollment.auto_confirm_status(request_deposit)
+    end
   end
 end

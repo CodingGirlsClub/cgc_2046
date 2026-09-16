@@ -81,6 +81,16 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
     }
   end
 
+  # 押金场布置（#586）：无定价无档位（三态互斥）；ends_at 是 no-show 结算锚点，
+  # 押金场校验要求非空（KTD7）。
+  defp deposit_attrs do
+    %{
+      deposit_enabled: true,
+      deposit_amount_cents: 6900,
+      ends_at: EventFixtures.days_from_now(8)
+    }
+  end
+
   # 域路径直建报名（布置用；工具路径的被测对象走 CreateEnrollment.execute）
   defp domain_enroll(target, user, attrs \\ %{}) do
     target_key = if match?(%Event{}, target), do: :event_id, else: :course_id
@@ -570,6 +580,33 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert decode_error(error) =~ "a price tier is required for paid enrollment"
     end
 
+    # #510：年龄门槛门控在域 action——MCP 不带 age_confirmed 同拒（三入口同扇门）
+    test "min_age 非空：不带 age_confirmed → 域错误；带 true → 成功" do
+      admin = Fixtures.platform_admin("s7-cre-age")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 18})
+      learner = Fixtures.register_user("s7-cre-age-learner")
+
+      assert {:error, _, _} =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id, %{"reason" => "想参加"}),
+                 frame_for(learner)
+               )
+
+      assert {:reply, _, _} =
+               reply =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id, %{
+                   "reason" => "想参加",
+                   "age_confirmed" => true
+                 }),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["enrollment"]["status"] == "confirmed"
+    end
+
     test "AE3：顺序双提交 → 同一报名 id，第二次 idempotent_replay=true，库内恰好一条" do
       admin = Fixtures.platform_admin("s7-cre-c")
       workspace = Fixtures.create_workspace(admin)
@@ -668,7 +705,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
   end
 
   describe "get_my_enrollments（R32/AE8）" do
-    test "actor 锚定全状态跨工作台 + tier_snapshot + workspace 块" do
+    test "actor 锚定全状态跨工作台 + payment_mode/order_kind/tier_snapshot + workspace 块" do
       admin_a = Fixtures.platform_admin("s7-my-a")
       workspace_a = Fixtures.create_workspace(admin_a, %{name: "台 A"})
       admin_b = Fixtures.platform_admin("s7-my-b")
@@ -677,6 +714,13 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       learner = Fixtures.register_user("s7-my-learner")
 
       free_event = EventFixtures.create_event(workspace_a, admin_a, %{title: "免费活动"})
+
+      deposit_event =
+        EventFixtures.create_event(
+          workspace_a,
+          admin_a,
+          Map.merge(%{title: "押金活动"}, deposit_attrs())
+        )
 
       paid_course =
         EventFixtures.create_course(
@@ -689,6 +733,15 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       payment_pending = domain_enroll(paid_course, learner, %{tier_id: @paid_tier_id})
       order_fixture(payment_pending)
 
+      # 押金场：缴费槽 = deposit；订单事实 = 押金单（tier 展示名「押金」，不得据名反推）
+      deposit_enrollment = domain_enroll(deposit_event, learner)
+
+      order_fixture(deposit_enrollment, %{
+        order_kind: :deposit,
+        amount_cents: 6_900,
+        tier_snapshot: %{"name" => "押金", "amount_cents" => 6_900}
+      })
+
       assert {:reply, _, _} = reply = GetMyEnrollments.execute(%{}, frame_for(learner))
       payload = decode_reply(reply)
 
@@ -697,7 +750,9 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
         |> Enum.map(&{&1["offering"]["id"], &1})
         |> Map.new()
 
-      assert Map.keys(rows) |> Enum.sort() == Enum.sort([free_event.id, paid_course.id])
+      assert Map.keys(rows) |> Enum.sort() ==
+               Enum.sort([free_event.id, paid_course.id, deposit_event.id])
+
       # advisor F4:行附 workspace_id 原值（enrollment 自身列，动作作用域）
       assert rows[free_event.id]["workspace_id"] == workspace_a.id
       assert rows[paid_course.id]["workspace_id"] == workspace_b.id
@@ -706,12 +761,24 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert free_row["status"] == "confirmed"
       assert free_row["kind"] == "event"
       assert free_row["workspace"]["name"] == "台 A"
+      assert free_row["payment_mode"] == "free"
+      assert is_nil(free_row["order_kind"])
       assert is_nil(free_row["tier_snapshot"])
 
       paid_row = rows[paid_course.id]
       assert paid_row["status"] == "payment_pending"
       assert paid_row["workspace"]["name"] == "台 B"
+      assert paid_row["payment_mode"] == "pricing"
+      assert paid_row["order_kind"] == "enrollment"
       assert %{"id" => @paid_tier_id} = paid_row["tier_snapshot"]
+
+      # #622 D1：押金行的资金语义读 order_kind（供给物现行配置 payment_mode 同源
+      # Offering.payment_mode/1），不从 tier_snapshot.name（合成展示名）反推
+      deposit_row = rows[deposit_event.id]
+      assert deposit_row["payment_mode"] == "deposit"
+      assert deposit_row["order_kind"] == "deposit"
+      assert deposit_row["tier_snapshot"]["name"] == "押金"
+      assert deposit_row["tier_snapshot"]["amount_cents"] == 6_900
 
       # actor 锚定：他人报名不出现
       other = Fixtures.register_user("s7-my-other")
@@ -761,6 +828,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
 
       payload = decode_reply(reply)
       assert payload["order"]["id"] == order.id
+      assert payload["order"]["order_kind"] == "enrollment"
       assert payload["order"]["amount_cents"] == 9_900
       assert payload["order"]["provider"] == "wechat_native"
       assert payload["order"]["status"] == "pending"
@@ -808,6 +876,41 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       # advisor F5 语义：mark_paid 与 settle_paid 间的窗口（enrollment 仍
       # payment_pending）→ checkout_url 仍给（支付回调竞态下继续完成路径）
       assert is_binary(payload["checkout_url"])
+    end
+
+    test "押金单 → order_kind=deposit（资金语义不读 tier 展示名「押金」，#622）" do
+      admin = Fixtures.platform_admin("s7-ord-dep")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          Map.merge(%{title: "押金活动"}, deposit_attrs())
+        )
+
+      learner = Fixtures.register_user("s7-ord-dep-learner")
+      enrollment = domain_enroll(event, learner)
+
+      order =
+        order_fixture(enrollment, %{
+          order_kind: :deposit,
+          amount_cents: 6_900,
+          tier_snapshot: %{"name" => "押金", "amount_cents" => 6_900}
+        })
+
+      assert {:reply, _, _} =
+               reply =
+               GetOrderStatus.execute(
+                 %{"workspace_id" => workspace.id, "enrollment_id" => enrollment.id},
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["order"]["id"] == order.id
+      # 押金单的 tier 名是合成展示名「押金」——资金语义只认 order_kind
+      assert payload["order"]["order_kind"] == "deposit"
+      assert payload["order"]["amount_cents"] == 6_900
     end
 
     test "payment_pending 且尚无 Order → checkout_url 非 nil（resumePayment 恢复路径，advisor F5）" do
@@ -908,6 +1011,134 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
                )
 
       assert decode_error(error) =~ "enrollment not found"
+    end
+  end
+
+  describe "#586 缴费槽契约（MCP 面认识押金）" do
+    test "discover_offerings：押金场条目出 payment_mode=deposit + 金额/退还条件，定价块仍为 false" do
+      admin = Fixtures.platform_admin("s586-disc")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      outsider = Fixtures.register_user("s586-disc-user")
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      payload = decode_reply(reply)
+
+      assert [row] = payload["offerings"]
+      assert row["id"] == event.id
+      assert row["payment_mode"] == "deposit"
+
+      assert row["deposit"] == %{
+               "enabled" => true,
+               "amount_cents" => 6900,
+               "refundable_on_check_in" => true
+             }
+
+      # 病根回归：押金场 pricing 块 enabled=false 且无档位——单看它会读成免费，
+      # 故三态一律以 payment_mode 为准（断言把这条语义钉住）
+      assert row["pricing"] == %{"enabled" => false, "min_amount_cents" => nil}
+    end
+
+    test "discover_offerings：定价/免费场 deposit 块形状恒定（enabled=false，不落 nil）" do
+      admin = Fixtures.platform_admin("s586-disc-shape")
+      workspace = Fixtures.create_workspace(admin)
+      EventFixtures.create_event(workspace, admin, Map.merge(%{title: "定价"}, paid_attrs()))
+      EventFixtures.create_event(workspace, admin, %{title: "免费"})
+      outsider = Fixtures.register_user("s586-disc-shape-user")
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      payload = decode_reply(reply)
+
+      by_title = Map.new(payload["offerings"], &{&1["title"], &1})
+
+      assert by_title["定价"]["payment_mode"] == "pricing"
+      assert by_title["免费"]["payment_mode"] == "free"
+
+      for title <- ["定价", "免费"] do
+        assert by_title[title]["deposit"] == %{
+                 "enabled" => false,
+                 "amount_cents" => nil,
+                 "refundable_on_check_in" => nil
+               }
+      end
+    end
+
+    test "get_enrollment_summary：押金场 would_create_status=payment_pending + payment_mode/deposit" do
+      admin = Fixtures.platform_admin("s586-sum")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      outsider = Fixtures.register_user("s586-sum-user")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(outsider)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["would_create_status"] == "payment_pending"
+      assert payload["payment_mode"] == "deposit"
+      assert payload["deposit"]["enabled"] == true
+      assert payload["deposit"]["amount_cents"] == 6900
+      assert payload["deposit"]["refundable_on_check_in"] == true
+    end
+
+    test "反自证：would_create_status 预测 == create_enrollment 真实落点（押金场）" do
+      admin = Fixtures.platform_admin("s586-same")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      learner = Fixtures.register_user("s586-same-learner")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(learner)
+               )
+
+      predicted = decode_reply(reply)["would_create_status"]
+      assert predicted == "payment_pending"
+
+      assert {:reply, _, _} =
+               created =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(created)
+      assert payload["enrollment"]["status"] == predicted
+      assert payload["checkout_url"] =~ "/orders/new?enrollmentId="
+    end
+
+    # #608 / #623：押金金额脏行（nil / 0 / 负）在三条锚点 DB CHECK 上线后库内不可
+    # 制造（`NOT VALID` 只豁免存量行；生产普查 0 行）——原「raw SQL 布置脏行 → 读面
+    # 降级（discover / enrollment summary / 落点预测）」用例已迁到纯函数层
+    # `Cgc2046.Mcp.Tools.PaymentSlotTest`；存量回填 + VALIDATE 见 issue #634。
+
+    test "course（无押金槽）：deposit 恒 enabled=false，payment_mode 只出 free/pricing" do
+      admin = Fixtures.platform_admin("s586-course")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("s586-course-learner")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "course", course.id),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["payment_mode"] == "pricing"
+      assert payload["would_create_status"] == "payment_pending"
+
+      assert payload["deposit"] == %{
+               "enabled" => false,
+               "amount_cents" => nil,
+               "refundable_on_check_in" => nil
+             }
     end
   end
 end

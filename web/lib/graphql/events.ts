@@ -60,6 +60,9 @@ export interface OfferingItem {
   /** 已确认名额数（非成员读到 null，D2 白名单） */
   confirmedCount: number | null;
   registrationDeadline: string | null;
+  /** 公开派生报名标签（#575：后端 EnrollmentBadge 单源，成员面 field policy 放行；
+      报名门与公开页同构双门——badge ∈ {closed, full} 时不出表单） */
+  enrollmentBadge?: EnrollmentBadge | null;
   /** 开始时间（ISO8601；null = 未定；R1，course 语义为开课/结课） */
   startsAt?: string | null;
   /** 结束时间（ISO8601；须晚于 startsAt，KTD6 后端校验；null = 未定） */
@@ -94,6 +97,12 @@ export interface OfferingItem {
   minAge?: number | null;
   /** 成班最低确认人数（null = 不判定） */
   minParticipants?: number | null;
+  /**
+   * #624 解除挂载来源标记（JsonString，JSON.parse 后为 DetachedRuleProvenance）：
+   * detach 时平台锁死规则强制写入的值留在场上的来源记录；场主改写对应字段后
+   * 逐字段消失。匿名公开面被 field_policy 收窄（恒 null），仅成员/管理员可读。
+   */
+  detachedRuleProvenance?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -235,6 +244,7 @@ export const GET_EVENT: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      enrollmentBadge
       startsAt
       endsAt
       venue
@@ -250,6 +260,7 @@ export const GET_EVENT: TypedDocumentNode<
       depositAmountCents
       minAge
       minParticipants
+      detachedRuleProvenance
     }
   }
 `;
@@ -269,6 +280,7 @@ export const GET_COURSE: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      enrollmentBadge
       startsAt
       endsAt
       curriculumRequirements
@@ -339,6 +351,10 @@ export const CREATE_COURSE: TypedDocumentNode<
   }
 `;
 
+/**
+ * #596：挂载/换挂载会强制写入年龄与成班人数，保存响应必须带回生效值，否则
+ * 编辑页规则摘要会停在「无」却标「平台锁死」（自相矛盾）。
+ */
 export const UPDATE_EVENT: TypedDocumentNode<
   { updateEvent: OfferingMutationResult },
   { id: string; input: Record<string, unknown> }
@@ -361,6 +377,9 @@ export const UPDATE_EVENT: TypedDocumentNode<
         initiativeId
         depositEnabled
         depositAmountCents
+        minAge
+        minParticipants
+        detachedRuleProvenance
       }
       errors {
         code
@@ -532,6 +551,8 @@ export interface PublicOfferingItem {
   shortBy?: number | null;
   /** 成班最低确认人数（null = 不判定成班） */
   minParticipants?: number | null;
+  /** 报名最低年龄（null = 无门槛；#510 非空时报名须勾选年龄确认） */
+  minAge?: number | null;
   /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有，null = 线上/未定，展示层兜底「地点待定」，R3） */
   venue?: string | null;
   /** 是否收费（公开报名面收费项须选档；R4 免费零变化） */
@@ -627,6 +648,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       qualificationBadge
       shortBy
       minParticipants
+      minAge
       venue
       sponsorshipEnabled
       sponsorshipTiers

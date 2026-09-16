@@ -8,8 +8,17 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
 
   返回：`event_id / title / slug / status / visibility / enrollment_badge /
   starts_at / registration_deadline`（enrollment_badge = R6/KTD1 派生报名状态
-  徽章：enrolling|starting_soon|closed|full）。`status` 可选过滤
-  （draft|open|closed|cancelled）。按创建时间正序，封顶 100。
+  徽章：enrolling|starting_soon|closed|full）+ 缴费槽 `payment_mode`
+  （free|pricing|deposit）+ 押金明细 `deposit`（enabled / amount_cents /
+  refundable_on_check_in，#586）+ 解除挂载来源标记 `detached_rule_provenance`
+  （#630；无标记 null）——押金场读 `payment_mode`，不得从「无定价档且无定价
+  开关」推断免费。`status` 可选过滤（draft|open|closed|cancelled）。按创建时间
+  正序，封顶 100。
+
+  `detached_rule_provenance` 形状同 GraphQL `Event.detachedRuleProvenance`
+  （`%{initiative => %{id,name,slug}, fields => %{<event_field> => %{value,
+  source: "locked"}}}`），仅活动被 detach 后非 nil，挂载中 / 从未挂载为 nil
+  （agent 无需判键是否存在）。
 
   授权 = Wrapper 默认 fail-closed member 门（`list_workspace_courses` 同款）：
   workspace member 可读全部状态（含 draft）——本面读门禁在 Wrapper 层已真实
@@ -84,15 +93,22 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
   defp scope_status(query, status), do: Ash.Query.filter(query, status == ^status)
 
   defp to_row(event) do
-    %{
-      event_id: event.id,
-      title: event.title,
-      slug: event.slug,
-      status: event.status,
-      visibility: event.visibility,
-      enrollment_badge: event.enrollment_badge,
-      starts_at: event.starts_at,
-      registration_deadline: event.registration_deadline
-    }
+    Map.merge(
+      %{
+        event_id: event.id,
+        title: event.title,
+        slug: event.slug,
+        status: event.status,
+        visibility: event.visibility,
+        enrollment_badge: event.enrollment_badge,
+        starts_at: event.starts_at,
+        registration_deadline: event.registration_deadline,
+        # #630：恒在（无标记 nil）——detach 来源标记的读面（本工具是唯一面向
+        # 管理 agent 的活动读面）。
+        detached_rule_provenance: event.detached_rule_provenance
+      },
+      # 缴费槽三态 + 押金明细（#586）：管理面同样不得把押金场读成免费/定价场。
+      Cgc2046.Mcp.Tools.PaymentSlot.projection(event)
+    )
   end
 end

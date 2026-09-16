@@ -103,37 +103,44 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
           # 在 Repo.transaction 内执行锁获取和角色读取，确保同一连接：
           # pg_advisory_xact_lock 是事务级锁，若 role_names 的 Ash.read 走不同连接
           # 则锁不保护读。显式事务保证连接一致。
-          Cgc2046.Repo.acquire_lock!(workspace_id)
+          # 锁失败（#621 lock_timeout / deadlock_detected）不 raise：折进 changeset
+          # 走 Ash 返回型错误路径（与 assign_roles 同款投递）。
+          with :ok <- Cgc2046.Repo.acquire_lock(workspace_id) do
+            # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
+            # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
+            actor = c.context[:private][:actor]
 
-          # actor 从 before_action 回调参数 c 取（commit 阶段，actor 已注入）；
-          # 外层 cs 是 change 注册时的快照，此时 actor 可能尚未注入。
-          actor = c.context[:private][:actor]
+            # owner 移除校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
+            # 与 assign_roles 共用同一实现）。destroy 场景：removing_owner=true, granting_owner=false。
+            case Cgc2046.Accounts.Rbac.validate_owner_removal!(
+                   c,
+                   actor,
+                   membership.user_id,
+                   workspace_id,
+                   removing_owner: true,
+                   granting_owner: false
+                 ) do
+              :ok ->
+                # 依赖行清理（#561 实证发现的存量缺陷）：membership_roles.membership_id
+                # 的 FK 无 on_delete 动作（squash baseline），带角色的成员 destroy 必撞
+                # "would leave records behind"——验证通过后同事务删角色行。
+                # 次序纪律：必须先验证后删除——守卫按 role_names 判定「是否在移除
+                # owner」，先删行会让守卫读不到 owner 角色而误放行（回归实证）。
+                Cgc2046.Repo.query!(
+                  "DELETE FROM membership_roles WHERE membership_id = $1",
+                  [Cgc2046.Repo.uuid!(membership.id)]
+                )
 
-          # owner 移除校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
-          # 与 assign_roles 共用同一实现）。destroy 场景：removing_owner=true, granting_owner=false。
-          case Cgc2046.Accounts.Rbac.validate_owner_removal!(
-                 c,
-                 actor,
-                 membership.user_id,
-                 workspace_id,
-                 removing_owner: true,
-                 granting_owner: false
-               ) do
-            :ok ->
-              # 依赖行清理（#561 实证发现的存量缺陷）：membership_roles.membership_id
-              # 的 FK 无 on_delete 动作（squash baseline），带角色的成员 destroy 必撞
-              # "would leave records behind"——验证通过后同事务删角色行。
-              # 次序纪律：必须先验证后删除——守卫按 role_names 判定「是否在移除
-              # owner」，先删行会让守卫读不到 owner 角色而误放行（回归实证）。
-              Cgc2046.Repo.query!(
-                "DELETE FROM membership_roles WHERE membership_id = $1",
-                [Cgc2046.Repo.uuid!(membership.id)]
-              )
+                c
 
-              c
-
-            {:error, errored} ->
-              errored
+              {:error, errored} ->
+                errored
+            end
+          else
+            # 返回"带错误的 changeset"本身（不是 {:error, changeset} 元组）：Ash 的
+            # bulk 路径按 `{changeset, instructions} = run_before_actions(...)` 解构，
+            # 元组形状会 MatchError（同 Rbac.validate_owner_removal! 的返回约定）。
+            {:error, error} -> Ash.Changeset.add_error(c, error)
           end
         end)
       end)

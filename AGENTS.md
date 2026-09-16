@@ -24,6 +24,10 @@ Five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
 
+### Worktree 编排 SOP
+
+worktree agent 只改文件与自证，`.git` 写操作（add/commit/push/PR）归编排侧；重建走索引层 3-way（不 rebase）、落地链 fail-closed。见 `docs/agents/worktree-orchestration.md`。
+
 ### E2E validation
 
 前端 UI 改动后用 ego-browser 做端到端验证（web/ 目录，Dev 服务跑起来后），按确定性分层，能数值断言的不问模型：

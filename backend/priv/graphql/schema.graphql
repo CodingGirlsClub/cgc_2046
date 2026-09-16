@@ -339,6 +339,9 @@ input CreateEnrollmentInput {
 
   "价格档位 ID（收费活动报名时必填）"
   tierId: String
+
+  "确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true）"
+  ageConfirmed: Boolean
 }
 
 enum EnrollmentSortField {
@@ -2193,6 +2196,9 @@ type Event {
 
   "所属平台级 Initiative；仅草稿可挂载"
   initiativeId: ID
+
+  "解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除）"
+  detachedRuleProvenance: JsonString
 
   createdBy: ID
 
@@ -5350,6 +5356,9 @@ type RootQueryType {
   "平台管理员：倡导活动详情及四项规则"
   getInitiative(id: ID!): AdminInitiative
 
+  "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
+  initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
+
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
 
@@ -6321,18 +6330,80 @@ type AdminReconciliationFinding {
 
 type AdminInitiative {
   id: ID!
+
   name: String!
+
   slug: String!
+
   hashtag: String
+
   description: String
+
   windowStartsAt: DateTime
+
   windowEndsAt: DateTime
+
   status: String!
+
   createdBy: ID!
+
   insertedAt: DateTime!
+
   updatedAt: DateTime!
+
   publicStats: PublicInitiative
+
   rules: [AdminInitiativeRule!]!
+
+  """
+  平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+
+  门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+  不加独立 gate；不分页、不过滤 visibility，理由见
+  Cgc2046.Initiatives.Mounts 的 moduledoc。
+
+  附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+  同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+  「清单加载失败」两种状态，不把失败伪装成 0 场。
+  """
+  mountedEvents: [AdminInitiativeMountedEvent!]
+}
+
+type AdminInitiativeMountedEvent {
+  "Event \/ Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
+  id: ID!
+
+  initiativeId: ID!
+
+  slug: String!
+
+  title: String!
+
+  status: String!
+
+  startsAt: DateTime
+
+  registrationDeadline: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  workspaceId: ID!
+
+  workspaceName: String!
+
+  "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
+  confirmedCount: Int!
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  minAge: Int
+
+  minParticipants: Int
 }
 
 type AdminInitiativeRule {
@@ -6343,6 +6414,21 @@ type AdminInitiativeRule {
   locked: Boolean!
   insertedAt: DateTime!
   updatedAt: DateTime!
+}
+
+type InitiativeMountPreview {
+  initiativeId: ID!
+  name: String!
+  slug: String!
+  status: String!
+  rules: [InitiativeRulePreview!]!
+  missingRules: [String!]!
+}
+
+type InitiativeRulePreview {
+  key: String!
+  valueJson: String!
+  locked: Boolean!
 }
 
 input AdminInitiativeInput {
@@ -6590,6 +6676,9 @@ type RootMutationType {
 
   "平台管理员：结束倡导活动"
   closeInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+  cancelInitiative(id: ID!): AdminInitiativePayload
 
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload

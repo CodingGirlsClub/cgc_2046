@@ -20,7 +20,27 @@ export type OrderStatus =
   | 'forfeited'
 /** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
 export type OrderKind = 'enrollment' | 'deposit'
-export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
+/**
+ * 订阅消息场景键（= 后端 `template_key`）。
+ *
+ * 键集与 `config/index.ts` 的 `WECHAT_SCENARIOS`、`domain/subscription.ts` 的
+ * `ALL_SCENARIOS` 三者双射，由 `tests/subscription-build.test.mjs` 钉住。
+ * 新增场景须同时改这三处 + `miniprogram/.env*.example` 的键（守卫测试会红）。
+ *
+ * 覆盖缺口见 `domain/subscription.ts` 的 moduledoc：分享者腿（`speaker_completed`
+ * 的分享者受众）在小程序内**无入口**。
+ */
+export type SubscriptionScenario =
+  | 'approval_result'
+  | 'approval_reminder'
+  | 'event_reminder'
+  | 'event_qualification_confirmed'
+  | 'event_qualification_underfilled'
+  | 'event_schedule_changed'
+  | 'event_moderator_assigned'
+  | 'speaker_accepted'
+  | 'speaker_completed'
+  | 'learning_stagnation'
 
 export interface CatalogItem {
   id: string
@@ -42,6 +62,11 @@ export interface CatalogItem {
   depositEnabled: boolean
   /** 押金金额（分，R2 单源）；非押金场恒 null */
   depositAmountCents: number | null
+  /**
+   * 报名最低年龄（#510；仅 event 有槽，course 恒 null = 无门槛）。非空时报名
+   * 须勾选年龄确认（后端 action 权威门控，本端只是引导）。
+   */
+  minAge: number | null
   /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
@@ -181,6 +206,18 @@ export interface EnrollmentSummary {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
   paymentMode: 'free' | 'pricing' | 'deposit' | null
+  /**
+   * #617 目标开始时间（后端 Enrollment.startsAt 计算字段，ISO8601；null = 时间待定）。
+   * 改期（event_schedule_changed）与开课提醒（event_reminder）都以本页为落页，
+   * 二者通知正文里的「新时间」在本卡对应这一行——通知的权威落点。
+   */
+  startsAt: string | null
+  /**
+   * #617 目标场地（后端 Enrollment.venue 计算字段）。**已文本化**为
+   * `city+district`（Events.Venue.text/1，如「杭州市西湖区」；课程/无场地 = null），
+   * 与 event_reminder 模板 thing4 同源——不是 CatalogItem.venue 那种 JsonString。
+   */
+  venue: string | null
   /** 报名截止时间（ISO8601；null = 无截止，自助取消恒在截止前） */
   registrationDeadline: string | null
 }
@@ -192,6 +229,8 @@ export interface EnrollmentForm {
   inviteCode?: string
   /** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
   tierId?: string
+  /** 年龄门槛确认（#510：minAge 非空的目标必传 true） */
+  ageConfirmed?: boolean
 }
 
 export interface NotificationItem {

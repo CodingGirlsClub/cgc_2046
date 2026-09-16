@@ -61,6 +61,18 @@ export type AdminInitiative = {
   hashtag?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  /**
+   * 平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+   *
+   * 门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+   * 不加独立 gate；不分页、不过滤 visibility，理由见
+   * Cgc2046.Initiatives.Mounts 的 moduledoc。
+   *
+   * 附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+   * 同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+   * 「清单加载失败」两种状态，不把失败伪装成 0 场。
+   */
+  mountedEvents?: Maybe<Array<AdminInitiativeMountedEvent>>;
   name: Scalars['String']['output'];
   publicStats?: Maybe<PublicInitiative>;
   rules: Array<AdminInitiativeRule>;
@@ -78,6 +90,28 @@ export type AdminInitiativeInput = {
   slug?: InputMaybe<Scalars['String']['input']>;
   windowEndsAt?: InputMaybe<Scalars['DateTime']['input']>;
   windowStartsAt?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type AdminInitiativeMountedEvent = {
+  /** 展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍） */
+  confirmedCount: Scalars['Int']['output'];
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
+  depositEnabled: Scalars['Boolean']['output'];
+  /** Event / Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled */
+  id: Scalars['ID']['output'];
+  initiativeId: Scalars['ID']['output'];
+  minAge?: Maybe<Scalars['Int']['output']>;
+  minParticipants?: Maybe<Scalars['Int']['output']>;
+  pricingEnabled: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug: Scalars['String']['output'];
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  /** 结构化场地 JSON 串（country/province/city/district；nil = 线上或未定） */
+  venue?: Maybe<Scalars['JsonString']['output']>;
+  workspaceId: Scalars['ID']['output'];
+  workspaceName: Scalars['String']['output'];
 };
 
 export type AdminInitiativePayload = {
@@ -800,6 +834,8 @@ export type CreateCourseResult = {
 };
 
 export type CreateEnrollmentInput = {
+  /** 确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true） */
+  ageConfirmed?: InputMaybe<Scalars['Boolean']['input']>;
   approvalDeadline?: InputMaybe<Scalars['DateTime']['input']>;
   courseId?: InputMaybe<Scalars['ID']['input']>;
   eventId?: InputMaybe<Scalars['ID']['input']>;
@@ -1496,6 +1532,8 @@ export type Event = {
   depositEnabled: Scalars['Boolean']['output'];
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
+  /** 解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除） */
+  detachedRuleProvenance?: Maybe<Scalars['JsonString']['output']>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
   endsAt?: Maybe<Scalars['DateTime']['output']>;
   enrollmentBadge?: Maybe<Scalars['String']['output']>;
@@ -2105,6 +2143,21 @@ export type FulfillDeliveryResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<SponsorshipDelivery>;
+};
+
+export type InitiativeMountPreview = {
+  initiativeId: Scalars['ID']['output'];
+  missingRules: Array<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  rules: Array<InitiativeRulePreview>;
+  slug: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+};
+
+export type InitiativeRulePreview = {
+  key: Scalars['String']['output'];
+  locked: Scalars['Boolean']['output'];
+  valueJson: Scalars['String']['output'];
 };
 
 export type Invitation = {
@@ -3828,6 +3881,8 @@ export type RootMutationType = {
   cancelEnrollment: CancelEnrollmentResult;
   /** 取消活动：open → cancelled，发 event.ended 信号 */
   cancelEvent: CancelEventResult;
+  /** 平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款） */
+  cancelInitiative?: Maybe<AdminInitiativePayload>;
   /** 取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效） */
   cancelOperation?: Maybe<OperationResolution>;
   /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
@@ -4032,6 +4087,11 @@ export type RootMutationTypeCancelEnrollmentArgs = {
 
 
 export type RootMutationTypeCancelEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCancelInitiativeArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -4445,6 +4505,8 @@ export type RootQueryType = {
   getWorkspace?: Maybe<Workspace>;
   /** 按 id 获取工作台（需登录） */
   getWorkspaceById?: Maybe<Workspace>;
+  /** Owner/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner/Admin 一律 forbidden */
+  initiativeMountPreview?: Maybe<InitiativeMountPreview>;
   /** 邀请列表（邀请人仅见自己；Owner/Admin 见全部） */
   invitations?: Maybe<KeysetPageOfInvitation>;
   inviteBatches?: Maybe<KeysetPageOfInviteBatch>;
@@ -4618,6 +4680,12 @@ export type RootQueryTypeGetWorkspaceArgs = {
 export type RootQueryTypeGetWorkspaceByIdArgs = {
   filter?: InputMaybe<WorkspaceFilterInput>;
   id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeInitiativeMountPreviewArgs = {
+  initiativeId: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 

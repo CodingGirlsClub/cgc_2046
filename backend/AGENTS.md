@@ -3,6 +3,8 @@ This is a web application written using the Phoenix web framework.
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
+- **跑测试必须带 `PASEO_BRANCH_NAME=<本 worktree 的分支名>`**：`config/test.exs` 只认这个环境变量把测试库派生为 `cgc_2046_test_<slug>`，缺省时回落共享库 `cgc_2046_test`——同机多个 worktree 并发跑测会互相看到对方的写入与行锁，表现为随机 `DBConnection` 超时/死锁/`StaleRecord`。做法：`PASEO_BRANCH_NAME=$(git branch --show-current) mix test`（派生库由 `mix test` 别名的 `ecto.create`/`ecto.migrate` 自动建好）
+- **新增守卫/断言必须做变异验证**：把被守卫的实现（或守卫本身）临时改坏，对应断言必须变红——只"绿"不算钉住（假绿常见于断言落在空集合/被跳过的分支上）。做法：改坏 → 确认红 → 还原 → 确认绿，两步输出都留在同一会话里
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 - **License gate:** any new Hex dependency must be AGPL-3.0-compatible (permissive or MPL-2.0/LGPL-3.0+/EPL-2.0); **forbidden**: GPL-2.0, SSPL, BUSL, Elastic, proprietary, unlicensed. CI runs `mix cgc2046.check_licenses`; when unsure, open an issue first (see `docs/开源合规/依赖引入规则.md`)
 - **错误码契约（#241）**：业务错误 code 单源 = domain 层 `domain_error_code` 显式子句与 `code: "..."` 字面量，AST 提取生成 `priv/error_codes_contract.json`。新增/改名 code 后运行 `mix cgc2046.gen_error_codes_contract` 再生成（CI `--check` + 测试守卫新鲜度）；用户可见的 code 同步补 `web/messages/*.json` errors namespace 与 `miniprogram/src/domain/error-copy.ts` 文案（两端 contract test 断言键 ⊆ 契约）。需要文案的 reason 不得依赖兜底动态拼接——先显式子句化
@@ -109,7 +111,9 @@ custom classes must fully style the input
 - Fields which are set programmatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
 - **Snapshot 同步**：本 repo 走手写 migration 路线，`priv/resource_snapshots/repo/` 是 Ash 工具链的追踪镜像而非 source of truth。改 resource attribute 后须跑 `mix ash_postgres.generate_migrations --snapshots-only` 同步 snapshot，否则 `--check` 会报 pending codegen。CI 门禁已落地：`../.github/workflows/ci.yml` backend job 跑 `mix ash_postgres.generate_migrations --check`，snapshot 滞后会在 PR 阶段被拦红
+- **identity 索引名守卫**（#611）：`mix ash_postgres.generate_migrations --check` 比对的是 snapshot，**不比对 DB**——手写 migration 的索引命名漂移它看不见；全仓守卫 `test/cgc_2046/identity_index_guard_test.exs` 从 resource identity 推导 `identity_index_names[name] || "<table>_<identity>_index"` 查 `pg_indexes`（含 `indisunique`），命名漂移与「新增 identity 忘建索引」都在此红；改名类迁移须声明 `@renames` 并导出 `renames/0`，才能被 `@tag :migration_probe` 探针自动发现并重放
 - **活表迁移并发纪律**（016 审计立项）：对**已存在且在生产增长的表**加索引，一律 `@disable_ddl_transaction true` + `create index(..., concurrently: true)`（失败残留 INVALID 索引需手工清理）；加约束走 NOT VALID + VALIDATE 两段式（样板 `priv/repo/migrations/20260902000000_add_occupancy_nonnegative_check.exs`）；大表回填与 DDL 拆开、分批。新表/空表不受限。反例：`20260906000003_add_workflow_run_subject_scope.exs`（三索引 + 逐行回填同事务）
+- **CHECK 上线三段式**（#634）：加 CHECK 前先**只读普查存量**（违规行必须先回填——NOT VALID 约束对存量行不扫描，但该行此后每次 UPDATE 都会被拦）；脏数据环境下用 `NOT VALID` 上线（上线即对新写入生效）；`VALIDATE CONSTRAINT` **永远单开一条迁移**（大表全表校验独占窗口，不与 DDL/回填混在一起）
 <!-- phoenix:ecto-end -->
 
 <!-- usage-rules-end -->

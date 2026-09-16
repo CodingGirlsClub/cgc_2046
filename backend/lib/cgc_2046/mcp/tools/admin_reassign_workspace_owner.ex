@@ -100,11 +100,8 @@ defmodule Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner do
         {:error, %Ash.Error.Forbidden{}} ->
           {:error, "forbidden: platform admin required to reassign workspace owner"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to reassign workspace owner"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to reassign workspace owner")}
       end
     end
   end
