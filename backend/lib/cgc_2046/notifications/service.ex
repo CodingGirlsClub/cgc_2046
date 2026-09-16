@@ -59,6 +59,11 @@ defmodule Cgc2046.Notifications.Service do
   #   处理列表）
   # - enrollment_completed「活动报名成功通知」（#406）：活动名称=thing1 /
   #   门票号=character_string10（enrollment_id UUID 去连字符恰 32 字符）
+  # - enrollment_check_in_code「核销成功通知」（#546）：活动名称=thing8 /
+  #   核销码=character_string15（报名 create 时生成的 6 位数字）/ 温馨提示=
+  #   thing9（固定文案）。**date5 核销时间本批有意跳过**——触发点是报名落
+  #   confirmed（尚未核销，无核销时间），写活动开始日期属语义写反；跳字段先例
+  #   见 refund_succeeded 的 time5（生产已成功送达）
   # - payment_succeeded「支付成功通知」（#406）：订单号=character_string2 /
   #   支付金额=amount3
   # - refund_succeeded「退款成功通知」（#406）：订单号=character_string2 /
@@ -140,6 +145,15 @@ defmodule Cgc2046.Notifications.Service do
     %{
       "thing1" => thing(data["title"]),
       "thing5" => "有新的待审批报名，请前往工作台处理"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "enrollment_check_in_code", %{} = data) do
+    %{
+      "thing8" => thing(data["title"]),
+      "character_string15" => check_in_code(data["check_in_code"]),
+      "thing9" => "到店出示此码核销"
     }
     |> drop_nils()
   end
@@ -275,6 +289,12 @@ defmodule Cgc2046.Notifications.Service do
   # character_string.DATA ≤32 字符；UUID 去连字符后恰 32
   defp code(nil), do: nil
   defp code(id) when is_binary(id), do: id |> String.replace("-", "") |> String.slice(0, 32)
+
+  # 核销码（#546）：Enrollment 侧约束 match ~r/^\d{6}$/（6 位数字串），不走 code/1
+  # 的去连字符路径；非 binary / 空串 → nil 跳过该字段（字符型槽位格式非法会整条
+  # 47003 拒收，宁可少字段——与 date/1 的兜底语义一致）。
+  defp check_in_code(code) when is_binary(code) and code != "", do: String.slice(code, 0, 32)
+  defp check_in_code(_), do: nil
 
   # time.DATA：统一 "YYYY-MM-DD HH:MM"（北京时间，+8 折算见 beijing/1；#606 修复前
   # 直接 strftime UTC 值，event_reminder time3 / approval_reminder time11 比用户面

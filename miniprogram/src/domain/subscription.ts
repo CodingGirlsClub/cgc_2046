@@ -28,6 +28,7 @@ export const ALL_SCENARIOS = [
   'approval_result',
   'approval_reminder',
   'event_reminder',
+  'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
   'event_schedule_changed',
@@ -53,6 +54,30 @@ export interface SubscriptionTouchpoint {
   acceptedCopy: string
   /** 全部被拒/未授权后的提示（按钮保留，用户可再点，故不写「不可再订阅」） */
   deniedCopy: string
+}
+
+/**
+ * M0 报名表单（pages/register-form）· **提交前**——#546 核销码通知唯一能赶在
+ * `confirmed` 之前拿到授权的时刻。
+ *
+ * 一次性订阅 = 一次授权换一条消息（后端 Consent grant +1 / take −1）。核销码
+ * 通知的触发点是「报名落 confirmed」，而免费 open 场的 confirmed 与
+ * createEnrollment **同一事务**落定 → 信号 → 入队 → 发送在数百毫秒内完成。
+ * 结果页 / 我的报名 / 支付成功页上的任何后置触点都只能在**发送之后**拿到授权
+ * （`consent_exhausted` → discarded），首次报名必然收不到——这正是本触点必须
+ * 前移到提交之前的原因（顺序判据由 submitAfterCheckInCodeConsent 钉住）。
+ *
+ * 仅活动报名有核销码（course 恒无码，后端不发）。
+ */
+export function checkInCodeTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/register-form/index（活动报名提交前）',
+    trigger: '用户点按「确认报名」，先请求授权再提交报名请求',
+    label: '订阅核销码通知',
+    scenarios: ['enrollment_check_in_code'],
+    acceptedCopy: '已订阅，报名成功后会收到核销码',
+    deniedCopy: '你暂未授权，可再试或在「我的报名」查看核销码'
+  }
 }
 
 /**
@@ -158,6 +183,36 @@ export function moderatorTouchpoint(): SubscriptionTouchpoint {
 }
 
 // --- 请求期 fail-closed（纯函数，页面/transport 只做调起） ---------------------
+
+/**
+ * #546 顺序契约：核销码通知的授权**必须先于报名提交**（理由见
+ * checkInCodeTouchpoint）。页面只做渲染与调起，顺序判据下沉到此——
+ * 小程序无页面渲染测试（AGENTS.md），顺序只能靠纯函数 + `node --test` 钉住。
+ *
+ * 调用序：request（微信授权弹窗，同步进入用户手势栈）→ 逐个 grant（后端 +1
+ * 配额）→ 最后 submit（可能立刻落 confirmed 并触发发送）。
+ *
+ * 授权被拒 / 模板未配置 / 平台报错一律**不阻断报名**：核销码始终可在「我的
+ * 报名」查看，通知只是顺手。
+ */
+export async function submitAfterCheckInCodeConsent<T>(
+  touchpoint: SubscriptionTouchpoint | null,
+  deps: {
+    request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
+    grant: (scenario: SubscriptionScenario) => Promise<unknown>
+  },
+  submit: () => Promise<T>
+): Promise<T> {
+  if (touchpoint) {
+    try {
+      const accepted = await deps.request(touchpoint.scenarios)
+      for (const scenario of accepted) await deps.grant(scenario)
+    } catch {
+      // 未授权不阻断报名（同上）
+    }
+  }
+  return submit()
+}
 
 /** 订阅消息的调起平台。 */
 export type SubscriptionPlatform = 'wechat' | 'tt' | 'xhs'
