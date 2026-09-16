@@ -1378,6 +1378,8 @@
 		"enterCourseAfterStart": "Start learning here once the course begins · {time}",
 		"viewInParticipations": "View in My participations",
 		"enrollClosed": "Enrollment is closed.",
+		"enrollFull": "This offering is full and no longer accepts new enrollments.",
+		"enrollDeadlinePassed": "Enrollment is closed and no longer accepts new submissions.",
 		"approvalDeadline": "Approval deadline: {time}",
 		"myEnrollStatus": {
 			"pending": "Awaiting approval",

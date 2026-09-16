@@ -1378,6 +1378,8 @@
 		"enterCourseAfterStart": "开课后在此学习 · {time}",
 		"viewInParticipations": "在「我的参与」查看",
 		"enrollClosed": "报名已关闭。",
+		"enrollFull": "名额已满，不再接受新的报名。",
+		"enrollDeadlinePassed": "报名已截止，不再接受新的报名。",
 		"approvalDeadline": "审批截止：{time}",
 		"myEnrollStatus": {
 			"pending": "审批中",
