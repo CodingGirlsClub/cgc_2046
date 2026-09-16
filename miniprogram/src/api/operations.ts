@@ -364,6 +364,7 @@ export const CreateOrderMutationDocument = /* GraphQL */ `
         amountCents
         status
         expireAt
+        orderKind
       }
       errors {
         message
@@ -384,6 +385,7 @@ export const OrderStatusQueryDocument = /* GraphQL */ `
       transactionId
       amountCents
       expireAt
+      orderKind
     }
   }
 `
@@ -398,6 +400,7 @@ export const MyOrdersQueryDocument = /* GraphQL */ `
         status
         amountCents
         expireAt
+        orderKind
       }
     }
   }

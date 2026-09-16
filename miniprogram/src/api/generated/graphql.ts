@@ -999,19 +999,19 @@ export type CreateOrderMutationVariables = Exact<{
 }>;
 
 
-export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string } | null, errors: Array<{ message: string | null, code: string | null }>, metadata: { credential: string | null } | null } };
+export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string, orderKind: string } | null, errors: Array<{ message: string | null, code: string | null }>, metadata: { credential: string | null } | null } };
 
 export type OrderStatusQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type OrderStatusQuery = { orderStatus: { id: string, status: string, transactionId: string | null, amountCents: number, expireAt: string } | null };
+export type OrderStatusQuery = { orderStatus: { id: string, status: string, transactionId: string | null, amountCents: number, expireAt: string, orderKind: string } | null };
 
 export type MyOrdersQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmentId: string, provider: string, status: string, amountCents: number, expireAt: string }> | null } | null };
+export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmentId: string, provider: string, status: string, amountCents: number, expireAt: string, orderKind: string }> | null } | null };
 
 export type PublicInitiativesQueryVariables = Exact<{ [key: string]: never; }>;
 
