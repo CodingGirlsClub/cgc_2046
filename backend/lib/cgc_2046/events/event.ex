@@ -858,15 +858,24 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
-  # create/update error_handler（KTD3）：缴费互斥 DB CHECK 冲突转稳定业务错误。
+  # create/update error_handler（KTD3 / #597）：缴费模式 DB CHECK 冲突转稳定业务错误。
   # ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，冲突落到
-  # InvalidAttribute.private_vars.constraint_type == :check；非 check 错误原样返回
+  # InvalidAttribute.private_vars.constraint_type == :check（约束名在同处
+  # .constraint）——两条 CHECK 按名字分派到各自同源 code；非 check 错误原样返回
   # （enrollment.handle_create_error 同款纪律）。
   def handle_write_error(_changeset, error) do
-    if Cgc2046.Errors.ConstraintConflict.check_conflict?(error) do
-      Cgc2046.Events.PaymentModeValidation.exclusive_error(:deposit_enabled)
-    else
-      error
+    cond do
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(
+        error,
+        "events_deposit_excludes_price_tiers"
+      ) ->
+        Cgc2046.Events.PaymentModeValidation.price_tiers_conflict_error(:price_tiers)
+
+      Cgc2046.Errors.ConstraintConflict.check_conflict?(error) ->
+        Cgc2046.Events.PaymentModeValidation.exclusive_error(:deposit_enabled)
+
+      true ->
+        error
     end
   end
 
@@ -884,13 +893,33 @@ defmodule Cgc2046.Events.Event do
 
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
-    # event_payment_mode_exclusive（BusinessError）。
+    # event_payment_mode_exclusive / event_deposit_price_tiers_conflict（BusinessError）。
     check_constraints do
       # message 是同源兜底字面量（与 PaymentModeValidation.exclusive_error/1 同文字；
       # DSL 编译期取值无法引用函数）；用户可见错误由 handle_write_error/2 转换。
       check_constraint([:deposit_enabled, :pricing_enabled], "events_payment_mode_exclusive",
         check: "NOT (deposit_enabled AND pricing_enabled)",
         message: "an event cannot enable both pricing tiers and deposit"
+      )
+
+      # #597 I2 并发兜底：押金开 ⇒ 档位为空。域校验见 PaymentModeValidation，
+      # 规则挂载/传播路径见 RuleInheritance.merge_event_value/4 与
+      # propagate_rule_change/4——本 CHECK 是这两条与未知裸 SQL 的最后兜底。
+      # 判据用 `<> '[]'::jsonb` 而非 jsonb_array_length：price_tiers 列
+      # NOT NULL DEFAULT '[]'::jsonb，畸形非数组值走 `<>` 也 fail-closed。
+      # `NOT pricing_enabled` 是**归因必需**：pricing 开 + 档位非空时本约束不适用，
+      # 双真行由 events_payment_mode_exclusive 唯一命中——否则同一行同时违反两条
+      # CHECK 时 Postgres 只报其中一条（实测报本条），handle_write_error/2 会把 I1
+      # 误报成 I2（既有用例「mount onto pricing-enabled event」钉的就是 I1 归因）。
+      # 两条约束不相交 → 任何「押金 + 档位非空」行都恰好命中一条：pricing 开 → I1
+      # 约束；pricing 关 → 本约束。与 PaymentModeValidation 的 cond 顺序（I1 先）同序。
+      # deposit_enabled 同为 NOT NULL DEFAULT false（无 NULL 分支；若将来放开
+      # 可空，CHECK 对 NULL 求值为 NULL = 放行，属预期）。
+      # 迁移顺序前置条件：存量违规行必须先由 backfill 迁移清空，否则 NOT VALID
+      # 约束仍对该行每次 UPDATE 生效（见两个迁移文件头注释）。
+      check_constraint([:deposit_enabled, :price_tiers], "events_deposit_excludes_price_tiers",
+        check: "NOT (deposit_enabled AND NOT pricing_enabled AND price_tiers <> '[]'::jsonb)",
+        message: "price tiers must be empty when deposit is enabled"
       )
     end
   end
