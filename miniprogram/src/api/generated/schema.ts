@@ -61,6 +61,18 @@ export type AdminInitiative = {
   hashtag?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  /**
+   * 平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+   *
+   * 门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+   * 不加独立 gate；不分页、不过滤 visibility，理由见
+   * Cgc2046.Initiatives.Mounts 的 moduledoc。
+   *
+   * 附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+   * 同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+   * 「清单加载失败」两种状态，不把失败伪装成 0 场。
+   */
+  mountedEvents?: Maybe<Array<AdminInitiativeMountedEvent>>;
   name: Scalars['String']['output'];
   publicStats?: Maybe<PublicInitiative>;
   rules: Array<AdminInitiativeRule>;
@@ -78,6 +90,28 @@ export type AdminInitiativeInput = {
   slug?: InputMaybe<Scalars['String']['input']>;
   windowEndsAt?: InputMaybe<Scalars['DateTime']['input']>;
   windowStartsAt?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type AdminInitiativeMountedEvent = {
+  /** 展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍） */
+  confirmedCount: Scalars['Int']['output'];
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
+  depositEnabled: Scalars['Boolean']['output'];
+  /** Event / Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled */
+  id: Scalars['ID']['output'];
+  initiativeId: Scalars['ID']['output'];
+  minAge?: Maybe<Scalars['Int']['output']>;
+  minParticipants?: Maybe<Scalars['Int']['output']>;
+  pricingEnabled: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug: Scalars['String']['output'];
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  /** 结构化场地 JSON 串（country/province/city/district；nil = 线上或未定） */
+  venue?: Maybe<Scalars['JsonString']['output']>;
+  workspaceId: Scalars['ID']['output'];
+  workspaceName: Scalars['String']['output'];
 };
 
 export type AdminInitiativePayload = {

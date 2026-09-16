@@ -1,8 +1,11 @@
 defmodule Cgc2046Web.GraphqlInitiativeTest do
   use Cgc2046Web.ConnCase, async: true
 
+  require Ash.Query
+
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures
+  alias Cgc2046.Events.Event
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
 
   defp post_graphql(query, token \\ nil) do
@@ -23,7 +26,11 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
     conn.resp_cookies["cgc_token"].value
   end
 
-  defp open_initiative(admin, slug \\ "gql-initiative") do
+  # develop 侧的 (admin) / (admin, slug) 调用 + #595 侧的 (admin, slug, deposit) 调用统一支持
+  defp open_initiative(admin, slug \\ "gql-initiative"),
+    do: open_initiative(admin, slug, %{enabled: true, amount_cents: 6900})
+
+  defp open_initiative(admin, slug, deposit_value) do
     {:ok, initiative} =
       Initiative
       |> Ash.Changeset.for_create(:create, %{
@@ -34,7 +41,7 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
       |> Ash.create(actor: admin)
 
     for {key, value, locked} <- [
-          {:deposit, %{enabled: true, amount_cents: 6900}, true},
+          {:deposit, deposit_value, true},
           {:age_gate, %{min_age: 18}, true},
           {:min_participants, %{count: 8}, false},
           {:deadline_rule, %{hours_before_start: 72}, false}
@@ -54,6 +61,38 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
              initiative |> Ash.Changeset.for_update(:open, %{}) |> Ash.update(actor: admin)
 
     initiative
+  end
+
+  # 挂载要求 Event 为 draft；EventsFixtures.create_event/3 会 force_open，故此处
+  # 自带草稿布置（同 InitiativeBoundaryTest.draft_event/3 的理由）。
+  defp mounted_draft_event(workspace, admin, attrs) do
+    # KTD6：两值同时存在时 ends_at 须严格晚于 starts_at（只填一个合法）→
+    # 默认 ends_at 跟随 starts_at 派生，显式传入的 ends_at 优先。
+    starts_at = Map.get(attrs, :starts_at, DateTime.add(DateTime.utc_now(), 10, :day))
+
+    attrs =
+      attrs
+      |> Map.put_new(:title, "Mounted Draft")
+      |> Map.put_new(:enrollment_policy, :open)
+      |> Map.put(:starts_at, starts_at)
+      |> Map.put_new(:ends_at, if(starts_at, do: DateTime.add(starts_at, 1, :day)))
+
+    Event
+    |> Ash.Changeset.for_create(:create, attrs, tenant: workspace.id)
+    |> Ash.create!(tenant: workspace.id, actor: admin)
+  end
+
+  # events.confirmed_count 是账本同步的展示投影列；直接用 SQL 钉一个非零真值，
+  # 证明读面取的是 DB 真值而非常量（同 EventsFixtures.force_open 的裸 SQL 手法）。
+  defp seed_confirmed_count(event, count) do
+    {:ok, _} =
+      Ecto.Adapters.SQL.query(
+        Cgc2046.Repo,
+        "UPDATE events SET confirmed_count = $1 WHERE id = $2",
+        [count, Ecto.UUID.dump!(event.id)]
+      )
+
+    :ok
   end
 
   test "anonymous publicInitiative returns the same projection and filters workspace-only events" do
@@ -336,5 +375,239 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
       _ ->
         []
     end
+  end
+
+  # ---- #595 挂载场读面 + 拒绝路径 fields（D1 / D4） ----
+  # 契约测试的字段断言是「与后端真值一致」的钉子：Event 上锁死规则的传播结果、
+  # Workspace join、confirmed_count 投影列都在这里钉死。
+
+  @mounted_event_fields "id initiativeId slug title status startsAt registrationDeadline venue workspaceId workspaceName confirmedCount pricingEnabled depositEnabled depositAmountCents minAge minParticipants"
+
+  test "platform admin getInitiative returns every mounted event with workspace truth" do
+    admin = Fixtures.platform_admin("gql-mounts-admin")
+    workspace_a = Fixtures.create_workspace(admin)
+    workspace_b = Fixtures.create_workspace(admin)
+    initiative = open_initiative(admin, "gql-mounts", %{enabled: true, amount_cents: 6900})
+
+    starts_at = DateTime.add(DateTime.utc_now(), 10, :day) |> DateTime.truncate(:second)
+
+    public_event =
+      mounted_draft_event(workspace_a, admin, %{
+        initiative_id: initiative.id,
+        title: "Public Mounted",
+        starts_at: starts_at,
+        visibility: :public,
+        venue: %{
+          "country" => "中国",
+          "province" => "湖南",
+          "city" => "长沙",
+          "district" => "岳麓"
+        }
+      })
+
+    # workspace-only 场同样会被锁死规则改写 → 清单必须包含它（刻意不过滤 visibility）
+    internal_event =
+      mounted_draft_event(workspace_b, admin, %{
+        initiative_id: initiative.id,
+        title: "Internal Mounted",
+        starts_at: DateTime.add(DateTime.utc_now(), 20, :day),
+        visibility: :workspace
+      })
+
+    :ok = seed_confirmed_count(public_event, 7)
+
+    query = """
+    query {
+      getInitiative(id: "#{initiative.id}") {
+        id
+        mountedEvents { #{@mounted_event_fields} }
+      }
+    }
+    """
+
+    assert %{"data" => %{"getInitiative" => payload}} = post_graphql(query, token(admin))
+    assert payload["id"] == initiative.id
+    assert length(payload["mountedEvents"]) == 2
+
+    public_row = Enum.find(payload["mountedEvents"], &(&1["id"] == public_event.id))
+    internal_row = Enum.find(payload["mountedEvents"], &(&1["id"] == internal_event.id))
+
+    assert public_row["initiativeId"] == initiative.id
+    assert public_row["slug"] == public_event.slug
+    assert public_row["title"] == "Public Mounted"
+    assert public_row["status"] == "draft"
+    assert public_row["startsAt"] == DateTime.to_iso8601(starts_at)
+    # 锁死 deadline_rule（72h）在挂载时已写进 registration_deadline
+    assert public_row["registrationDeadline"] ==
+             DateTime.add(starts_at, -72 * 3600, :second) |> DateTime.to_iso8601()
+
+    assert Jason.decode!(public_row["venue"]) == %{
+             "country" => "中国",
+             "province" => "湖南",
+             "city" => "长沙",
+             "district" => "岳麓"
+           }
+
+    assert public_row["workspaceId"] == workspace_a.id
+    assert public_row["workspaceName"] == workspace_a.name
+    assert public_row["confirmedCount"] == 7
+    assert public_row["pricingEnabled"] == false
+    assert public_row["depositEnabled"] == true
+    assert public_row["depositAmountCents"] == 6900
+    assert public_row["minAge"] == 18
+    assert public_row["minParticipants"] == 8
+
+    assert internal_row["status"] == "draft"
+    assert internal_row["workspaceId"] == workspace_b.id
+    assert internal_row["workspaceName"] == workspace_b.name
+    assert internal_row["confirmedCount"] == 0
+  end
+
+  test "mountedEvents are ordered by starts_at NULLS LAST then inserted_at, id" do
+    admin = Fixtures.platform_admin("gql-mounts-order-admin")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = open_initiative(admin, "gql-mounts-order", %{enabled: false, amount_cents: nil})
+
+    # 插入顺序刻意与 starts_at 顺序相反，证明排序不是 fallback 到扫描顺序
+    late =
+      mounted_draft_event(workspace, admin, %{
+        initiative_id: initiative.id,
+        title: "Late",
+        starts_at: DateTime.add(DateTime.utc_now(), 20, :day)
+      })
+
+    undated =
+      mounted_draft_event(workspace, admin, %{
+        initiative_id: initiative.id,
+        title: "Undated",
+        starts_at: nil
+      })
+
+    early =
+      mounted_draft_event(workspace, admin, %{
+        initiative_id: initiative.id,
+        title: "Early",
+        starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+      })
+
+    query = """
+    query { getInitiative(id: "#{initiative.id}") { mountedEvents { id } } }
+    """
+
+    assert %{"data" => %{"getInitiative" => %{"mountedEvents" => rows}}} =
+             post_graphql(query, token(admin))
+
+    assert Enum.map(rows, & &1["id"]) == [early.id, late.id, undated.id]
+  end
+
+  test "mountedEvents is empty when nothing is mounted" do
+    admin = Fixtures.platform_admin("gql-mounts-empty-admin")
+    initiative = open_initiative(admin, "gql-mounts-empty", %{enabled: false, amount_cents: nil})
+
+    query = """
+    query { getInitiative(id: "#{initiative.id}") { mountedEvents { id } } }
+    """
+
+    assert %{"data" => %{"getInitiative" => %{"mountedEvents" => []}}} =
+             post_graphql(query, token(admin))
+  end
+
+  # F8/R3：附挂读面失败 → mountedEvents = null（不是 []，也不是打掉详情的顶层错误）。
+  # 故障确定性注入：把 events 改名（DDL 在 sandbox 事务内，测试结束自动回滚）。
+  test "mountedEvents is null on projection failure and does not break the detail read" do
+    admin = Fixtures.platform_admin("gql-mounts-fail-admin")
+    initiative = open_initiative(admin, "gql-mounts-fail", %{enabled: false, amount_cents: nil})
+
+    Ecto.Adapters.SQL.query!(Cgc2046.Repo, "ALTER TABLE events RENAME TO events_hidden_595")
+
+    query = """
+    query {
+      getInitiative(id: "#{initiative.id}") { id rules { key } mountedEvents { id } }
+    }
+    """
+
+    response = post_graphql(query, token(admin))
+    assert %{"data" => %{"getInitiative" => payload}} = response
+    assert payload["id"] == initiative.id
+    # 主读不受影响：规则照常返回
+    assert length(payload["rules"]) == 4
+    # 附挂读面明确"不可用"，与"真的 0 场"区分开
+    assert payload["mountedEvents"] == nil
+    assert Map.get(response, "errors", []) == []
+  end
+
+  test "mountedEvents is platform-admin only" do
+    admin = Fixtures.platform_admin("gql-mounts-gate-admin")
+    member = Fixtures.register_user("gql-mounts-gate-member")
+    initiative = open_initiative(admin, "gql-mounts-gate", %{enabled: false, amount_cents: nil})
+
+    query = """
+    query { getInitiative(id: "#{initiative.id}") { mountedEvents { id workspaceName } } }
+    """
+
+    assert %{"errors" => [%{"code" => "unauthorized"}]} = post_graphql(query)
+    assert %{"errors" => [%{"code" => "forbidden"}]} = post_graphql(query, token(member))
+
+    assert %{"data" => %{"getInitiative" => %{"mountedEvents" => []}}} =
+             post_graphql(query, token(admin))
+  end
+
+  # D4：规则被拒时 fields 必须带上「是哪个场」（canonical UUID，非裸 SQL 的
+  # 16 字节 binary），前端据此翻成「场 + 工作台」。
+  test "upsertInitiativeRule deposit conflict returns event_id in payload error fields" do
+    admin = Fixtures.platform_admin("gql-rule-fields-admin")
+    workspace = Fixtures.create_workspace(admin)
+
+    # 押金规则先关闭（否则开定价的场根本挂不进来），挂载后再开定价
+    initiative = open_initiative(admin, "gql-rule-fields", %{enabled: false, amount_cents: nil})
+
+    event =
+      mounted_draft_event(workspace, admin, %{
+        initiative_id: initiative.id,
+        title: "Priced Mounted",
+        starts_at: DateTime.add(DateTime.utc_now(), 10, :day)
+      })
+
+    assert {:ok, priced} =
+             event
+             |> Ash.Changeset.for_update(:update, %{
+               pricing_enabled: true,
+               price_tiers: [
+                 %{"id" => Ash.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
+               ]
+             })
+             |> Ash.update(actor: admin, tenant: workspace.id)
+
+    assert priced.pricing_enabled == true
+
+    query = """
+    mutation {
+      upsertInitiativeRule(initiativeId: "#{initiative.id}", key: "deposit", valueJson: "{\\"enabled\\":true,\\"amount_cents\\":6900}", locked: true) {
+        result { id }
+        errors { message code fields }
+      }
+    }
+    """
+
+    assert %{"data" => %{"upsertInitiativeRule" => payload}} = post_graphql(query, token(admin))
+    assert payload["result"] == nil
+
+    assert [%{"code" => "event_payment_mode_exclusive", "fields" => fields} = error] =
+             payload["errors"]
+
+    assert fields == ["event_id=#{event.id}"]
+    assert error["message"] =~ "disable pricing"
+
+    # 整次更新被拒 → 规则行与场配置都不变
+    rule =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^initiative.id and key == :deposit)
+      |> Ash.read_one!(actor: admin)
+
+    assert rule.value == %{"enabled" => false, "amount_cents" => nil}
+
+    reloaded = Ash.get!(Event, event.id, authorize?: false, tenant: workspace.id)
+    assert reloaded.pricing_enabled == true
+    assert reloaded.deposit_enabled == false
   end
 end
