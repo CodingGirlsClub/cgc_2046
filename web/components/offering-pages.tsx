@@ -1104,6 +1104,8 @@ export function OfferingDetailPage({
   // 收费目标：可售档位（R2 后端已过滤过期档）与所选档（R5 报名须选档）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const [tierId, setTierId] = useState<string | null>(null);
+  // #510 年龄门槛确认：min_age 非空的活动报名前须勾选（提交拦截 + 后端权威门控）
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   // 默认选中第一档（产品拍板:有可售档不该强制手点;可再点换档）——派生值
   // 而非 effect 补 setState（react-hooks/set-state-in-effect）;?? 保留用户已选。
   const effectiveTierId = tierId ?? priceTiers[0]?.id ?? null;
@@ -1639,6 +1641,11 @@ export function OfferingDetailPage({
       setSubmitState({ kind: "error", message: t("pickTierFirst") });
       return;
     }
+    // 年龄门槛（#510）：未勾选不出门（后端同门兜底，错误码对齐）
+    if (offering.minAge != null && !ageConfirmed) {
+      setSubmitState({ kind: "error", message: t("ageConfirmFirst") });
+      return;
+    }
     setEnrollBusy(true);
     setSubmitState({ kind: "idle", message: null });
     try {
@@ -1647,6 +1654,7 @@ export function OfferingDetailPage({
         courseId: kind === "course" ? offering.id : undefined,
         userId,
         tierId: effectiveTierId,
+        ageConfirmed: offering.minAge != null ? ageConfirmed : undefined,
       });
       if (res.result) {
         const status = res.result.status;
@@ -2436,6 +2444,22 @@ export function OfferingDetailPage({
                             ))
                           )}
                         </fieldset>
+                      ) : null}
+                      {offering.minAge != null ? (
+                        <label
+                          className="flex cursor-pointer items-start gap-2 rounded-large border border-line bg-card px-3 py-2 text-[13px] text-ink-2"
+                          data-testid="age-confirm-field"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={ageConfirmed}
+                            onChange={(e) => setAgeConfirmed(e.target.checked)}
+                            data-testid="age-confirm-checkbox"
+                          />
+                          <span>
+                            {t("ageConfirmLabel", { age: offering.minAge })}
+                          </span>
+                        </label>
                       ) : null}
                       <button
                         type="button"

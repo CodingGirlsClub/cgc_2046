@@ -242,6 +242,20 @@ describe('押金字段映射（U11/R10）', () => {
     expect(item.depositEnabled).toBe(true)
     expect(item.depositAmountCents).toBeNull()
   })
+  // #510：年龄门槛映射——详情查询带 minAge（course 查询无该槽 → null）
+  it('年龄门槛：minAge 透传；查询缺省 → null（无门槛）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, minAge: 18 }
+    })
+    const gated = await new RealMiniProgramApi().getContent('event', 'event-age')
+    expect(gated.minAge).toBe(18)
+
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD }
+    })
+    const open = await new RealMiniProgramApi().getContent('event', 'event-open')
+    expect(open.minAge).toBeNull()
+  })
 
   it('免费场回归：记录无押金字段 → 免费态（depositEnabled=false / 金额 null）', async () => {
     const { depositEnabled: _depositEnabled, depositAmountCents: _depositAmountCents, ...freeRecord } = EVENT_RECORD

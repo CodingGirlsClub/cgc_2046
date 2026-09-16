@@ -8,6 +8,7 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
   alias Cgc2046.Accounts.UserIdentity
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Ash.Error.Invalid, as: AshErrorInvalid
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
@@ -36,6 +37,59 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert {:error, error} = create_enrollment(event, second)
       assert Exception.message(error) =~ "capacity"
       assert enrollment_count(event.id) == 1
+    end
+
+    # ── #510 年龄门槛门控矩阵（判据 = event.min_age 非空；权威在 action） ──
+
+    test "min_age 非空的活动未确认年龄 → 拒绝且不占名额（MCP 不传同拒）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 18})
+      learner = Fixtures.register_user("enrollment-age-unconfirmed")
+
+      # before_action 的 add_error 经 Ash create 边界包成 Ash.Error.Invalid
+      # （deposit_already_forfeited 同款形状，见 deposit_forfeit_worker_test）
+      assert {:error, %AshErrorInvalid{errors: [error]}} = create_enrollment(event, learner)
+      assert %BusinessError{code: "enrollment_age_confirmation_required"} = error
+      # 拒绝发生在 prepare_create（占位之前），名额零泄漏
+      assert EventFixtures.ledger_occupancy(event) == 0
+      assert enrollment_count(event.id) == 0
+    end
+
+    test "min_age 非空的活动带 age_confirmed: true → 成功并留痕确认时间与条款版本" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 16})
+      learner = Fixtures.register_user("enrollment-age-confirmed")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner, %{age_confirmed: true})
+      assert enrollment.status == :confirmed
+      refute is_nil(enrollment.age_confirmed_at)
+      # 条款版本钉字面量：版本演进必须显式改此断言（审计口径，#510）
+      assert enrollment.terms_version == "2026-09-participation"
+    end
+
+    test "无 min_age 的活动不需要年龄确认，且不留痕" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("enrollment-age-free")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+      assert is_nil(enrollment.age_confirmed_at)
+      assert is_nil(enrollment.terms_version)
+    end
+
+    test "course 报名不经年龄门（courses 无 min_age 槽）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin)
+      learner = Fixtures.register_user("enrollment-age-course")
+
+      assert {:ok, enrollment} = create_enrollment(course, learner)
+      assert enrollment.status == :confirmed
+      assert is_nil(enrollment.age_confirmed_at)
     end
 
     test "request 活动先 pending，Owner/Admin 确认时才占名额；普通成员无权审批" do

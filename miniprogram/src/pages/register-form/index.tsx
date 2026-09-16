@@ -19,6 +19,8 @@ export default function RegisterFormPage() {
   const [target, setTarget] = useState<CatalogItem | null>(null)
   const [inviteCode, setInviteCode] = useState('')
   const [tierId, setTierId] = useState('')
+  // #510 年龄门槛确认：minAge 非空的目标报名前须勾选（拦截 + 后端权威门控）
+  const [ageConfirmed, setAgeConfirmed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -60,6 +62,10 @@ export default function RegisterFormPage() {
       Taro.showToast({ title: '请选择价格档位', icon: 'none' })
       return
     }
+    if (target.minAge != null && !ageConfirmed) {
+      Taro.showToast({ title: '请先勾选年龄确认', icon: 'none' })
+      return
+    }
 
     setSubmitting(true)
     setError('')
@@ -67,7 +73,8 @@ export default function RegisterFormPage() {
       const enrollment = await api.createEnrollment({
         target,
         inviteCode: inviteCode.trim() || undefined,
-        tierId: target.pricingEnabled ? tierId : undefined
+        tierId: target.pricingEnabled ? tierId : undefined,
+        ageConfirmed: target.minAge != null ? true : undefined
       })
       Taro.setStorageSync(STORAGE_KEYS.lastEnrollment, enrollment)
       if (enrollment.status === 'payment_pending') {
@@ -135,6 +142,20 @@ export default function RegisterFormPage() {
                 击键 setState→diff 回写原生框与用户输入竞争致显示重置。初始为空则不声明该属性，
                 值只经 onInput 单向流出，输入框值属性永不参与 diff。 */}
             <Input className={styles.input} placeholder='请输入组织者提供的批次码' onInput={(event) => setInviteCode(event.detail.value)} />
+          </View>
+        )}
+
+        {/* #510 年龄门槛：minAge 非空的目标须勾选（整行可点，与 order-pay 押金同意门同款行选择） */}
+        {target.minAge != null && (
+          <View
+            className={styles.ackRow}
+            data-testid='age-confirm-option'
+            onClick={() => setAgeConfirmed((value) => !value)}
+          >
+            <View className={`${styles.ackBox} ${ageConfirmed ? styles.ackBoxChecked : ''}`} />
+            <Text className={styles.ackLabel}>
+              我确认已年满 {target.minAge} 周岁，符合本活动的年龄要求。
+            </Text>
           </View>
         )}
       </View>

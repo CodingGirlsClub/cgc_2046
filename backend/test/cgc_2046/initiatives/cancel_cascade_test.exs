@@ -261,12 +261,14 @@ defmodule Cgc2046.Initiatives.CancelCascadeTest do
     |> Ash.create!(tenant: workspace.id, actor: admin)
   end
 
+  # #510：挂载场经 age_gate 规则传播带 min_age——enroll 布置恒带年龄确认
   defp enroll(workspace, event, learner) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{
       event_id: event.id,
       user_id: learner.id,
-      tier_id: @tier_id
+      tier_id: @tier_id,
+      age_confirmed: true
     })
     |> Ash.create!(tenant: workspace.id, actor: learner)
   end
