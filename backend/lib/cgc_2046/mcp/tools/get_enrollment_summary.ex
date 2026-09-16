@@ -8,16 +8,24 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   open+public 任何登录用户可读；workspace 可见性仅成员可读；draft 仅
   Owner/Admin。不可见与不存在返回同一 not_found 错误，不泄存在性。
 
-  `would_create_status` 精确镜像 Enrollment `create_enrollment` 的
-  prepare_policy 分支（驱动因子 = **offering 的 enrollment_policy**，
-  与 workspace join_policy 无关）：
+  `would_create_status` **委托域谓词单源**（`Enrollment.auto_confirm_status/1`，
+  其判定再落到 `Offering.payment_mode/1`），驱动因子 = **offering 的
+  enrollment_policy**（与 workspace join_policy 无关）：
 
   - open + 免费 → `"confirmed"`（立即占位）
-  - open + 收费 → `"payment_pending"`（占位后限时支付，ADR-0007）
-  - request → `"pending"`（等 Owner/Admin 审批；收费目标审批通过后才进
+  - open + 收费/押金 → `"payment_pending"`（占位后限时支付，ADR-0007；缴费槽三态
+    free | pricing | deposit，押金不借定价档位）
+  - request → `"pending"`（等 Owner/Admin 审批；收费/押金目标审批通过后才进
     payment_pending）
   - invite_only → `nil`（域 action 强制 invite_code，本工具族不含邀请码
     入口——邀请报名走 web/小程序；policy 字段已标明 invite_only）
+
+  缴费槽块（#586）：`payment_mode`（free | pricing | deposit）与押金明细 `deposit`
+  （enabled / amount_cents / refundable_on_check_in）——**押金场 `pricing.enabled`
+  为 false 但绝不等于免费**；看押金必读 `payment_mode`。押金金额缺失（历史脏行）时
+  `deposit.amount_cents` 落 nil，绝不显示 ¥0。退还条件 `refundable_on_check_in`
+  为 true（到场核销即退）；「截止前取消全额退；截止后不退」等退改口径见 agent 端
+  playbook 文案，不在本 DTO。
 
   截止已过/名额已满等失败不在本字段表达——create_enrollment 时由域错误原样
   报出。capacity_info 仅成员可读（capacity/confirmed_count 在 field_policy
@@ -78,25 +86,29 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
   defp to_summary(actor, kind, offering, workspace_id) do
     tiers = offering.available_price_tiers || []
 
-    %{
-      offering: %{
-        kind: to_string(kind),
-        id: offering.id,
-        title: offering.title,
-        slug: offering.slug,
-        status: to_string(offering.status),
-        visibility: to_string(offering.visibility),
-        description: offering.description,
-        goals: goals_for(kind, offering, workspace_id),
-        registration_deadline: offering.registration_deadline,
-        capacity_info: capacity_info(offering),
-        price_tiers: tiers
+    Map.merge(
+      %{
+        offering: %{
+          kind: to_string(kind),
+          id: offering.id,
+          title: offering.title,
+          slug: offering.slug,
+          status: to_string(offering.status),
+          visibility: to_string(offering.visibility),
+          description: offering.description,
+          goals: goals_for(kind, offering, workspace_id),
+          registration_deadline: offering.registration_deadline,
+          capacity_info: capacity_info(offering),
+          price_tiers: tiers
+        },
+        policy: to_string(offering.enrollment_policy),
+        pricing: %{enabled: offering.pricing_enabled, tiers: tiers},
+        would_create_status: would_create_status(offering),
+        my_enrollment: my_enrollment(actor, kind, offering.id, workspace_id)
       },
-      policy: to_string(offering.enrollment_policy),
-      pricing: %{enabled: offering.pricing_enabled, tiers: tiers},
-      would_create_status: would_create_status(offering),
-      my_enrollment: my_enrollment(actor, kind, offering.id, workspace_id)
-    }
+      # 缴费槽三态 + 押金明细（#586）：押金场 `pricing.enabled` 为 false 但非免费。
+      Cgc2046.Mcp.Tools.PaymentSlot.projection(offering)
+    )
   end
 
   # 课程目标：S6 起内容源 = 当前 published revision（无 revision 的存量课程回退
@@ -125,10 +137,11 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
 
   # 镜像 create_enrollment 的 prepare_policy/auto_confirm_status 分支
   # （invite_only 域强制 invite_code，本工具族无邀请码入口 → nil）。
-  defp would_create_status(%{enrollment_policy: :open, pricing_enabled: true}),
-    do: "payment_pending"
+  # open 的落点预测**委托域谓词单源** `Enrollment.auto_confirm_status/1`——押金场与
+  # 定价场同落 "payment_pending"（#586 前此处只判定价，押金场误报 confirmed）。
+  defp would_create_status(%{enrollment_policy: :open} = offering),
+    do: offering |> Enrollment.auto_confirm_status() |> to_string()
 
-  defp would_create_status(%{enrollment_policy: :open}), do: "confirmed"
   defp would_create_status(%{enrollment_policy: :request}), do: "pending"
   defp would_create_status(%{enrollment_policy: :invite_only}), do: nil
 
