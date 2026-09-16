@@ -119,6 +119,7 @@ type ContentRecord = (EventRecord | CourseRecord) &
     depositEnabled: boolean | null
     depositAmountCents: number | null
     initiativeId: string | null
+    minAge: number | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
@@ -153,6 +154,8 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
       record.depositEnabled === true && typeof record.depositAmountCents === 'number'
         ? record.depositAmountCents
         : null,
+    // 年龄门槛（#510）：仅 event 查询携带；course 槽位缺省 → null（无门槛）
+    minAge: 'minAge' in record && typeof record.minAge === 'number' ? record.minAge : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
@@ -414,6 +417,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // 收费必传档(后端校验「收费项请先选择价格档位」)——此前漏传,
       // 免费活动测试从未暴露。
       tierId: form.tierId || undefined,
+      // 年龄门槛确认（#510）：后端 action 权威门控，本端只在 minAge 非空时携带
+      ...(form.target.minAge != null ? { ageConfirmed: form.ageConfirmed === true } : {}),
       ...(form.target.kind === 'event'
         ? { eventId: form.target.id }
         : { courseId: form.target.id })

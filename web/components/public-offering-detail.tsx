@@ -91,6 +91,8 @@ export default function PublicOfferingDetailPage({
   // 超时 loser 迟到 resolve 时 gen 已过期 → 丢弃，不覆盖较新的 full。
   const reconcileGenRef = useRef(0);
   const [tierId, setTierId] = useState<string | null>(null);
+  // #510 年龄门槛确认：minAge 非空的条目报名前须勾选（拦截 + 后端权威门控）
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [submitState, setSubmitState] = useState<{
     kind: "idle" | "confirmed" | "pending" | "payment_pending" | "error";
     message: string | null;
@@ -378,6 +380,15 @@ export default function PublicOfferingDetailPage({
       });
       return;
     }
+    // 年龄门槛（#510）：未勾选不出门（后端同门兜底，错误码对齐）
+    if (offering.minAge != null && !ageConfirmed) {
+      setSubmitState({
+        kind: "error",
+        message: t("ageConfirmFirst"),
+        enrollmentId: null,
+      });
+      return;
+    }
     setSubmitPhase("submitting");
     setSubmitState({ kind: "idle", message: null, enrollmentId: null });
     let reconcileOk = true;
@@ -388,6 +399,7 @@ export default function PublicOfferingDetailPage({
         userId,
         inviteCode: inviteCode === "" ? null : inviteCode,
         tierId,
+        ageConfirmed: offering.minAge != null ? ageConfirmed : undefined,
       });
       if (res.result) {
         const status = res.result.status;
@@ -857,6 +869,22 @@ export default function PublicOfferingDetailPage({
                       <p className="text-[13px] text-ink-3" role="alert">
                         {t("reconcileFailed")}
                       </p>
+                    ) : null}
+                    {offering.minAge != null ? (
+                      <label
+                        className="flex cursor-pointer items-start gap-2 rounded-large border border-line bg-card px-3 py-2 text-[13px] text-ink-2"
+                        data-testid="age-confirm-field"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={ageConfirmed}
+                          onChange={(e) => setAgeConfirmed(e.target.checked)}
+                          data-testid="age-confirm-checkbox"
+                        />
+                        <span>
+                          {t("ageConfirmLabel", { age: offering.minAge })}
+                        </span>
+                      </label>
                     ) : null}
                     {submitPhase === "reconcile_failed" ||
                     submitPhase === "reconciling" ? (

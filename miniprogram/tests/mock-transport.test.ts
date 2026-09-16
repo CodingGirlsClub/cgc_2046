@@ -107,12 +107,35 @@ test('mock 押金场：详情查询带押金字段', () => {
   assert.equal(data.getEvent?.depositAmountCents, 6900)
 })
 
+// #510：mock 门控投影——event-deposit 带 minAge: 18，未带 ageConfirmed → 业务错误
+test('mock 年龄门槛：未带 ageConfirmed → enrollment_age_confirmation_required；带 true → 通过', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+
+  const rejected = mockGraphQLRequest<{
+    createEnrollment: { result: { status: string | null } | null; errors: Array<{ code: string | null }> }
+  }>(CreateEnrollmentMutationDocument, { input: { userId: 'user-1', eventId: 'event-deposit' } })
+  assert.equal(rejected.createEnrollment.result, null)
+  assert.equal(
+    rejected.createEnrollment.errors[0]?.code,
+    'enrollment_age_confirmation_required'
+  )
+
+  const passed = mockGraphQLRequest<{
+    createEnrollment: { result: { status: string | null } | null }
+  }>(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
+  })
+  assert.equal(passed.createEnrollment.result?.status, 'payment_pending')
+})
+
 test('mock 押金场：报名落 payment_pending（零档位）→ 押金单金额 = 押金 → 核销后仅 confirmed 出码', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
 
   const created = mockGraphQLRequest<{
     createEnrollment: { result: { status: string; checkInCode: string | null } }
-  }>(CreateEnrollmentMutationDocument, { input: { userId: 'user-1', eventId: 'event-deposit' } })
+  }>(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
+  })
   assert.equal(created.createEnrollment.result.status, 'payment_pending')
   // 付押金前无码可核（KTD5：出示按 confirmed 门控）
   assert.equal(created.createEnrollment.result.checkInCode, null)
