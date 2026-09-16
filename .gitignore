@@ -30,3 +30,7 @@ openclacky-ext/dist/
 .ml-cache/
 .mainline/local.toml
 __pycache__/
+
+# 本地 scratch（agent / 工具临时产物，不入库；backend/tmp 由 backend/.gitignore 管）
+/tmp/
+docs/tmp/
