@@ -62,7 +62,12 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # 报名」：enrollmentPaymentText 对 confirmed 报名 + refunding/refunded 订单出
   # 「退款中/已退款」。改期的「新时间」与地点同为该页权威落点（#617：卡片渲染
   # EnrollmentSummary.startsAt/venue，同 event_reminder 缺口一并闭合）。
-  @learner_templates ~w(approval_result enrollment_completed payment_succeeded
+  # #546 核销码通知**必须**落 my-enrollments：6 位码与二维码就在该页报名卡上
+  # 渲染（pages/my-enrollments/index.tsx 的 checkInCodeText，仅 confirmed 显示），
+  # 落 profile 等于把用户送回「本机通知记录」空页——正是本 issue 要消除的
+  # 「不知道码在哪」。
+  @learner_templates ~w(approval_result enrollment_completed enrollment_check_in_code
+                         payment_succeeded
                          payment_expired refund_succeeded refund_failed
                          event_reminder learning_stagnation
                          event_qualification_confirmed event_qualification_underfilled
