@@ -9,15 +9,16 @@ defmodule Cgc2046.Errors.ConstraintConflict do
   判据只认 `Ash.Error.Changes.InvalidAttribute.private_vars.constraint_type`
   （ash_postgres 映射 Ecto `unique_constraint` / `check_constraint` 时写入）；
   DB 断连等真实故障不含该键，故一律 false。
+
+  CHECK 冲突一律按**约束名**分派（`constraint_named?/2`，见
+  `Event.handle_write_error/2`）：本模块不提供"任意 CHECK 冲突"的泛化判据——
+  那会把新增约束误归因成既有业务码（#623）。
   """
 
   @leaf Ash.Error.Changes.InvalidAttribute
 
   @spec unique_conflict?(term) :: boolean
   def unique_conflict?(error), do: constraint_conflict?(error, :unique)
-
-  @spec check_conflict?(term) :: boolean
-  def check_conflict?(error), do: constraint_conflict?(error, :check)
 
   @spec constraint_conflict?(term, :unique | :check) :: boolean
   def constraint_conflict?(%{errors: errors}, type) when is_list(errors),
