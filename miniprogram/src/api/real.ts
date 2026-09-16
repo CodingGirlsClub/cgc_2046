@@ -113,8 +113,13 @@ type CourseRecord = NonNullable<NonNullable<CatalogQuery['listCourses']>['result
 // venue 仅 event 有槽（Course 无位置概念，R3）——两 record 形状在此分叉，故取并集
 // 押金字段（U11）同理只在 event 上存在，且仅详情查询请求（匿名列表白名单与 web
 // PUBLIC_LIST_* 同源，不含押金字段）→ 声明为可选，列表记录映射为免费态。
+// initiativeId 同款：仅详情查询携带（列表记录 → null，不回链）。
 type ContentRecord = (EventRecord | CourseRecord) &
-  Partial<{ depositEnabled: boolean | null; depositAmountCents: number | null }>
+  Partial<{
+    depositEnabled: boolean | null
+    depositAmountCents: number | null
+    initiativeId: string | null
+  }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
 type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
@@ -151,6 +156,7 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
+    initiativeId: record.initiativeId ?? null,
     enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge),
     myEnrollment: mapMyEnrollment(myEnrollment)
   }

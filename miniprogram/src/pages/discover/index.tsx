@@ -7,7 +7,8 @@ import { buildInitiativeSharePath } from '@/domain/share-route'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, PublicInitiativeCard } from '@/domain/models'
-import { enrollmentBadgeText } from '@/domain/format'
+import { enrollmentBadgeText, scheduleText } from '@/domain/format'
+import { filterInitiatives } from '@/domain/initiative'
 import { debounce } from '@/domain/debounce'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
@@ -83,6 +84,8 @@ export default function DiscoverPage() {
 
   const events = items.filter(({ kind }) => kind === 'event')
   const courses = items.filter(({ kind }) => kind === 'course')
+  // 阶段5：倡导活动随关键词即时收敛（客户端过滤，不发请求；同 web 卡片字段口径）
+  const visibleInitiatives = filterInitiatives(initiatives, keyword)
 
   const openDetail = ({ id, kind }: CatalogItem) => {
     Taro.navigateTo({ url: `/pages/event-detail/index?id=${id}&kind=${kind}` })
@@ -127,17 +130,25 @@ export default function DiscoverPage() {
         )}
 
         <View className={styles.content}>
-            {initiativesLoading ? <PageState kind='loading' message='正在加载倡导活动' /> : initiativesError ? <PageState kind='error' message={initiativesError} onRetry={() => void loadInitiatives()} /> : initiatives.length === 0 ? <PageState kind='empty' message='暂时还没有公开倡导活动' /> : (
+            {initiativesLoading ? <PageState kind='loading' message='正在加载倡导活动' /> : initiativesError ? <PageState kind='error' message={initiativesError} onRetry={() => void loadInitiatives()} /> : visibleInitiatives.length === 0 ? <PageState kind='empty' message={keyword ? '没有匹配的倡导活动' : '暂时还没有公开倡导活动'} /> : (
               <View className={styles.section}>
                 <View className={styles.sectionHeader}>
                   <Text className={styles.sectionTitle}>倡导活动</Text>
-                  <Text className={styles.sectionMeta}>{initiatives.length} 个</Text>
+                  <Text className={styles.sectionMeta}>{visibleInitiatives.length} 个</Text>
                 </View>
-                {initiatives.map((initiative) => (
-                  <View key={initiative.id} className={styles.contentCard} onClick={() => Taro.navigateTo({ url: buildInitiativeSharePath(initiative.slug) })}>
+                {visibleInitiatives.map((initiative) => (
+                  <View
+                    key={initiative.id}
+                    className={`${styles.contentCard} ${styles.initiativeCard}`}
+                    onClick={() => Taro.navigateTo({ url: buildInitiativeSharePath(initiative.slug) })}
+                  >
                     <View className={styles.cardTop}><Text className={styles.kind}>INITIATIVE</Text><Text className={styles.policy}>{initiative.status === 'closed' ? '已结束' : '进行中'}</Text></View>
                     <Text className={styles.cardTitle}>{initiative.name}</Text>
                     <Text className={styles.cardMeta}>{initiative.hashtag || ''}</Text>
+                    {initiative.windowStartsAt ? (
+                      <Text className={styles.cardWindow}>{scheduleText(initiative.windowStartsAt, initiative.windowEndsAt)}</Text>
+                    ) : null}
+                    {initiative.description ? <Text className={styles.cardDesc}>{initiative.description}</Text> : null}
                     <Text className={styles.arrow}>→</Text>
                   </View>
                 ))}

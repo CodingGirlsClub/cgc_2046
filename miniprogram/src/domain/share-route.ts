@@ -6,9 +6,10 @@
  * scheme / 小程序码正是冷启动为主（热启动见 spike §3.2 F05）。
  *
  * 优先级：scene 优先（join 邀请链路独占，与 pendingScene 互斥）；query 含 id
- * 才跳 event-detail，且当前不在 event-detail（不打断已在看的详情）；否则 slug
- * 跳 initiative-detail。kind 缺省/非法值回落 event——与 event-detail 页面的
- * 三态回落一致。
+ * 才跳 event-detail，且当前不在**同一个** event-detail（同 id 不打断已在看的
+ * 详情；不同 id 是换了一张分享卡片，必须打开目标）；否则 slug 跳
+ * initiative-detail。kind 缺省/非法值回落 event——与 event-detail 页面的三态
+ * 回落一致。
  */
 
 export interface AppShowQuery {
@@ -34,7 +35,9 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
 
   const id = query.id?.trim()
   if (id) {
-    if (currentRoute.includes('pages/event-detail')) return null
+    // 同 id 才 no-op（不打断当前详情）；不同 id 是「换一张分享卡片」，
+    // 必须打开目标——与下方 slug 分支同款按值比较
+    if (currentRoute.includes('pages/event-detail') && currentQuery.id?.trim() === id) return null
     const kind = query.kind === 'course' ? 'course' : 'event'
     return `/pages/event-detail/index?id=${encodeURIComponent(id)}&kind=${kind}`
   }

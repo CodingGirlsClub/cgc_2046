@@ -14,18 +14,18 @@ vi.mock('@tarojs/taro', () => ({
 }))
 
 import { getPublicInitiative, getPublicInitiatives } from '../src/api/initiatives'
-import { EventDetailQueryDocument, PublicInitiativeQueryDocument } from '../src/api/operations'
+import { EventDetailQueryDocument, PublicInitiativeQueryDocument, PublicInitiativesQueryDocument } from '../src/api/operations'
 import { InitiativeContent } from '../src/pages/initiative-detail'
 import { EventRegistrationActions } from '../src/pages/event-detail'
-import { parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
+import { detailQualificationBadgeText, filterInitiatives, parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
 
 const initiative: PublicInitiative = {
   id: 'initiative-1', slug: 'hackerstart1024', name: 'hackerstart1024', hashtag: '#hackerstart1024',
   description: '全国共同创作', status: 'closed', windowStartsAt: null, windowEndsAt: null,
   cityCount: 7, eventCount: 11, confirmedCount: 89, qualifiedEventCount: 5,
   cities: [{ city: '线上 / 待定', events: [
-    { id: 'event-1', slug: 'event-1', title: '已取消场次', status: 'cancelled', startsAt: null, endsAt: null, archived: true, qualificationBadge: 'cancelled', shortBy: null },
-    { id: 'event-2', slug: 'event-2', title: '城市见面', status: 'open', startsAt: null, endsAt: null, archived: false, qualificationBadge: 'short_by', shortBy: 3 }
+    { id: 'event-1', slug: 'event-1', title: '已取消场次', status: 'cancelled', startsAt: null, endsAt: null, registrationDeadline: null, venue: null, archived: true, qualificationBadge: 'cancelled', shortBy: null },
+    { id: 'event-2', slug: 'event-2', title: '城市见面', status: 'open', startsAt: null, endsAt: null, registrationDeadline: null, venue: JSON.stringify({ country: '中国', province: '湖南省', city: '长沙市', district: '岳麓区' }), archived: false, qualificationBadge: 'short_by', shortBy: 3 }
   ] }]
 }
 
@@ -53,8 +53,30 @@ describe('Initiative 公开 API 契约', () => {
       }
     })
     expect(fields).toEqual(expect.arrayContaining(['archived', 'qualificationBadge', 'shortBy']))
+    // 阶段4：与 web initiative 场次卡对齐的公开字段（venue/deadline 由公开投影给出）
+    expect(fields).toEqual(expect.arrayContaining(['venue', 'registrationDeadline']))
     expect(fields).not.toEqual(expect.arrayContaining(['confirmedCount']))
     for (const forbidden of ['workspaceId', 'capacity', 'minParticipants', 'qualificationStatus']) expect(fields).not.toContain(forbidden)
+  })
+
+  it('Initiative 卡片查询与 web 卡片同字段（description/窗口）', () => {
+    const fields: string[] = []
+    visit(parse(PublicInitiativesQueryDocument), { Field: (node) => { fields.push(node.name.value) } })
+    expect(fields).toEqual(expect.arrayContaining(['description', 'windowStartsAt', 'windowEndsAt']))
+  })
+
+  it('发现页关键词过滤：命中 name/hashtag/description，大小写不敏感，空词原样返回', () => {
+    const cards = [
+      { name: '1024 程序员节', hashtag: '#1024', description: '跨城市共学' },
+      { name: '开源之夏', hashtag: null, description: 'OSPP 2026' }
+    ]
+    const names = (input: string) => filterInitiatives(cards, input).map(({ name }) => name)
+    expect(filterInitiatives(cards, '')).toBe(cards)
+    expect(filterInitiatives(cards, '   ')).toBe(cards)
+    expect(names('1024')).toEqual(['1024 程序员节'])
+    expect(names('ospp')).toEqual(['开源之夏'])
+    expect(names('#1024')).toEqual(['1024 程序员节'])
+    expect(names('不存在的词')).toEqual([])
   })
 
   it('既有 Event 详情允许读取公开留档且查询同源徽章', () => {
@@ -64,13 +86,15 @@ describe('Initiative 公开 API 契约', () => {
     visit(document, { Field: (node) => { fields.push(node.name.value) }, StringValue: (node) => { statuses.push(node.value) } })
     expect(statuses).toEqual(expect.arrayContaining(['open', 'closed', 'cancelled', 'public']))
     expect(fields).toEqual(expect.arrayContaining(['qualificationBadge', 'shortBy']))
+    // 阶段1：回链落点字段必须在详情文档里（匿名可读，见后端 X1 契约测试）
+    expect(fields).toContain('initiativeId')
   })
 })
 
 describe('Initiative 与留档详情展示', () => {
   it('城市/四计数/closed/取消徽章均呈现后端结果', () => {
     const html = renderToStaticMarkup(createElement(InitiativeContent, { data: initiative }))
-    for (const text of ['城市', '场次', '报名', '开成', '>7<', '>11<', '>89<', '>5<', '线上 / 待定', '已结束 · 活动留档', '已取消', '还差 3 人成班', '查看活动留档']) expect(html).toContain(text)
+    for (const text of ['城市', '场次', '报名', '开成', '>7<', '>11<', '>89<', '>5<', '线上 / 待定', '已结束 · 活动留档', '已取消', '还差 3 人成班', '查看活动留档', '地点：中国 湖南省 长沙市 岳麓区', '地点：地点待定', '报名截止：无截止']) expect(html).toContain(text)
   })
 
   it('公开 Initiative 没有场次时显示空态', () => {
@@ -120,6 +144,13 @@ describe('Initiative 与留档详情展示', () => {
     expect(qualificationBadgeText({ qualificationBadge: 'confirmed', shortBy: null })).toBe('已成班')
     expect(qualificationBadgeText({ qualificationBadge: 'closed', shortBy: null })).toBe('已结束')
     expect(qualificationBadgeText({ qualificationBadge: 'open', shortBy: null })).toBe('开放报名')
+  })
+
+  it('详情页徽章隐藏 open（与报名标签语义重复），其余照译', () => {
+    expect(detailQualificationBadgeText({ qualificationBadge: null, shortBy: null })).toBeNull()
+    expect(detailQualificationBadgeText({ qualificationBadge: 'open', shortBy: null })).toBeNull()
+    expect(detailQualificationBadgeText({ qualificationBadge: 'short_by', shortBy: 3 })).toBe('还差 3 人成班')
+    expect(detailQualificationBadgeText({ qualificationBadge: 'cancelled', shortBy: null })).toBe('已取消')
   })
 })
 

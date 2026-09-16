@@ -31,8 +31,25 @@ test('kind=course 透传；kind 缺省/非法值回落 event', () => {
   )
 })
 
-test('当前已在 event-detail → 不跳（不打断当前详情）', () => {
-  assert.equal(resolveAppShowRoute({ id: 'evt-1', kind: 'event' }, 'pages/event-detail/index'), null)
+test('当前已在同一 event-detail（同 id）→ 不跳（不打断当前详情）', () => {
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-1', kind: 'event' }, 'pages/event-detail/index', { id: 'evt-1', kind: 'event' }),
+    null
+  )
+})
+
+test('当前已在 event-detail 但换了一张卡片（不同 id）→ 仍打开目标', () => {
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-2', kind: 'event' }, 'pages/event-detail/index', { id: 'evt-1', kind: 'event' }),
+    '/pages/event-detail/index?id=evt-2&kind=event'
+  )
+})
+
+test('当前页 options 读不到（currentQuery 缺省）→ 不视为同 id，照常打开', () => {
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-1', kind: 'event' }, 'pages/event-detail/index'),
+    '/pages/event-detail/index?id=evt-1&kind=event'
+  )
 })
 
 test('scene 优先于 id（join 链路独占，与 pendingScene 互斥）', () => {
@@ -54,8 +71,12 @@ test('query 无 scene 无 id → null', () => {
   assert.equal(resolveAppShowRoute({ kind: 'event' }, 'pages/discover/index'), null)
 })
 
-test('仅 id 无 kind 且当前在 event-detail → 仍不跳（互斥优先于回落）', () => {
-  assert.equal(resolveAppShowRoute({ id: 'evt-9' }, 'pages/event-detail/index'), null)
+test('仅 id 无 kind：同一详情页不跳；换场次按 kind=event 回落打开', () => {
+  assert.equal(resolveAppShowRoute({ id: 'evt-9' }, 'pages/event-detail/index', { id: 'evt-9' }), null)
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-9' }, 'pages/event-detail/index', { id: 'evt-1' }),
+    '/pages/event-detail/index?id=evt-9&kind=event'
+  )
 })
 
 // #415 分享出口：转发卡片 path 构造（profile 页 useShareAppMessage 消费）
@@ -157,10 +178,15 @@ test('冷启动入口是别的页面（非同类详情）→ 不抑制', () => {
 })
 
 // 热启动（有页面栈）：与冷启动同一判定，额外吃「已在目标页不打断」守卫。
-test('热启动已在 event-detail → 不导航', () => {
+// 守卫按值比较（同 id 才不打断）——换一张分享卡片仍须打开目标。
+test('热启动已在同一 event-detail（同 id）→ 不导航；换场次 → 导航', () => {
   assert.equal(
-    resolveEntry({ query: { id: 'evt-1', kind: 'event' } }, [{ route: 'pages/event-detail/index' }]).url,
+    resolveEntry({ query: { id: 'evt-1', kind: 'event' } }, [{ route: 'pages/event-detail/index', options: { id: 'evt-1' } }]).url,
     null
+  )
+  assert.equal(
+    resolveEntry({ query: { id: 'evt-2', kind: 'event' } }, [{ route: 'pages/event-detail/index', options: { id: 'evt-1' } }]).url,
+    '/pages/event-detail/index?id=evt-2&kind=event'
   )
 })
 
@@ -179,7 +205,7 @@ test('热启动取栈顶页（多页栈只用最后一页判定）', () => {
   assert.equal(
     resolveEntry({ query: { id: 'evt-1' } }, [
       { route: 'pages/discover/index' },
-      { route: 'pages/event-detail/index' }
+      { route: 'pages/event-detail/index', options: { id: 'evt-1' } }
     ]).url,
     null
   )
