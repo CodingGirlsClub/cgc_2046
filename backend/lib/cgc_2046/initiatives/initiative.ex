@@ -70,6 +70,36 @@ defmodule Cgc2046.Initiatives.Initiative do
       require_atomic?(false)
       accept([:name, :slug, :hashtag, :description, :window_starts_at, :window_ends_at])
 
+      # 发布后 slug 锁定（#588；决策口径同 Event/Course 2026-09-08 拍板）：
+      # 公开 URL 段发布即契约——#577 之后 `/initiatives/<slug>` 是正式投放出口
+      # （web admin 复制公开链接 / MCP `url` 字段 / sitemap 动态条目），改名 ⇒
+      # 已分发链接即刻 404、sitemap 收录页失效。draft 随便改；无 rename 后门
+      # （终态语义同款：恢复路径 = 新建）。
+      #
+      # 与 Event/Course 的偏差（有意）：那边是裸 `add_error`，落 GraphQL 只有
+      # `invalid_attribute`（不在 #241 契约、两端无文案）；本处用 BusinessError
+      # 带稳定 code，因为 #588 验收要求「返回稳定 code（含 zh/en 文案）」。
+      #
+      # 同值回传不算变更：表单（web admin）在非 draft 态 disabled 但仍原样回传
+      # 旧 slug，`Ash.Changeset.do_change_attribute` 在 `Ash.Type.equal?/3` 为真时
+      # 会从 `attributes` 里删掉该键，而 `changing_attribute?/2` 只查
+      # `Map.has_key?(attributes, key)`（ash 3.x `changeset.ex`）——故不会误触发。
+      change(fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :slug) and
+             Ash.Changeset.get_data(changeset, :status) != :draft do
+          Ash.Changeset.add_error(
+            changeset,
+            Cgc2046.Errors.BusinessError.exception(
+              message: "slug is locked once the initiative is published (editable in draft only)",
+              code: "initiative_slug_locked",
+              fields: [:slug]
+            )
+          )
+        else
+          changeset
+        end
+      end)
+
       change(
         {Cgc2046.Accounts.Changes.LogAdminAction,
          action: :initiative_update, target_type: :initiative}
@@ -101,7 +131,14 @@ defmodule Cgc2046.Initiatives.Initiative do
   end
 
   validations do
-    validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/))
+    # `only_when_valid?`（#588）：slug 锁定守卫是 action change，跑在全局
+    # validation 之前（Ash `for_update` 流水线 run_action_changes → add_validations）。
+    # 锁定时 changeset 已 invalid，本格式校验被跳过 ⇒ 非 draft 传「又非法又锁定」
+    # 的 slug 只回一个错误 `initiative_slug_locked`，而不是叠加格式错让前端
+    # firstError 显示「slug must be a single lowercase URL segment」——
+    # 那会把人骗进「改好格式再来」的死循环（再来仍被锁）。
+    # create 与 draft 改名路径行为不变（守卫不触发 ⇒ changeset 仍 valid）。
+    validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/), only_when_valid?: true)
   end
 
   defp transition(changeset, from, to) do
