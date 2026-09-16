@@ -3,7 +3,10 @@ defmodule Cgc2046.EventsFixtures do
   事件 / 课程测试布置的唯一入口。
 
   - `create_event/3` / `create_course/3`：默认 `:open` 报名策略、无容量上限、
-    7 天后截止，属性经 attrs 覆盖；创建后强制置为 `open` 状态。
+    7 天后截止，属性经 attrs 覆盖；创建后强制置为 `open` 状态。定价布置
+    （`pricing_enabled: true`）未显式给 `starts_at` 时默认补 9 天后——#543
+    域不变量（定价 ⇒ starts_at 非空，自助取消退款锚），与默认
+    registration_deadline 同款「fixture 负责合法形状」纪律。
   - `force_open`：状态机无直达 open 的公开 action，此处的 UPDATE 裸 SQL 是布置
     而非被测对象——事件/课程生命周期测试应自行走域 action 推进状态。
   - `set_confirmed_count/3`：置位「已确认名额」语义——ADR-0009 PR⑤ U6 后占位
@@ -30,7 +33,7 @@ defmodule Cgc2046.EventsFixtures do
       )
 
     Event
-    |> Ash.Changeset.for_create(:create, attrs, tenant: workspace.id)
+    |> Ash.Changeset.for_create(:create, ensure_pricing_starts_at(attrs), tenant: workspace.id)
     |> Ash.create!(tenant: workspace.id, actor: actor)
     |> force_open(:events)
   end
@@ -48,9 +51,19 @@ defmodule Cgc2046.EventsFixtures do
       )
 
     Course
-    |> Ash.Changeset.for_create(:create, attrs, tenant: workspace.id)
+    |> Ash.Changeset.for_create(:create, ensure_pricing_starts_at(attrs), tenant: workspace.id)
     |> Ash.create!(tenant: workspace.id, actor: actor)
     |> force_open(:courses)
+  end
+
+  # #543：定价布置未显式给 starts_at 时补默认（域不变量要求非空；显式传 nil
+  # 测负向时直接走资源 action，不经 fixture）。
+  defp ensure_pricing_starts_at(attrs) do
+    if attrs[:pricing_enabled] == true and not Map.has_key?(attrs, :starts_at) do
+      Map.put(attrs, :starts_at, days_from_now(9))
+    else
+      attrs
+    end
   end
 
   # 布置而非被测对象：状态机无直达 open 的公开 action，直接写库置位。
