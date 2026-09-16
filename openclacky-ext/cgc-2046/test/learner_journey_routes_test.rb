@@ -31,12 +31,15 @@ class LearnerJourneyRoutesTest < Minitest::Test
   ENR = "enr-uuid-1"
   OFF = "off-uuid-1"
 
+  # #586:条目/摘要携带缴费槽 payment_mode 与押金明细 deposit(后端修复后的合同形状)
   DISCOVER_PAYLOAD = {
     "offerings" => [
       { "kind" => "course", "id" => OFF, "title" => "Web 入门", "slug" => "web-101",
         "workspace" => { "id" => WS, "name" => "Ruby 社", "slug" => "ruby" },
         "visibility" => "public", "status" => "open",
         "pricing" => { "enabled" => false, "min_amount_cents" => nil },
+        "payment_mode" => "free",
+        "deposit" => { "enabled" => false, "amount_cents" => nil, "refundable_on_check_in" => nil },
         "registration_deadline" => nil, "my_enrollment" => nil }
     ],
     "total_count" => 1
@@ -46,6 +49,8 @@ class LearnerJourneyRoutesTest < Minitest::Test
     "offering" => { "id" => OFF, "title" => "Web 入门", "registration_deadline" => nil },
     "policy" => "open",
     "pricing" => { "enabled" => false, "tiers" => [] },
+    "payment_mode" => "free",
+    "deposit" => { "enabled" => false, "amount_cents" => nil, "refundable_on_check_in" => nil },
     "would_create_status" => "confirmed",
     "my_enrollment" => nil
   }.freeze
@@ -993,6 +998,27 @@ class DiscoveryPanelV2Test < Minitest::Test
     assert_includes VIEW, "仅邀请"
   end
 
+  def test_payment_slot_tri_state_price_label
+    # #586:价格行判据 = 服务端 payment_mode(三态),绝不从 pricing 块推断免费
+    assert_includes VIEW, 'mode === "deposit"'
+    assert_includes VIEW, 'mode === "pricing"'
+    assert_includes VIEW, 'mode === "free"'
+    # 押金文案逐字对齐小程序 depositPayNotice / web checkout depositLine
+    assert_includes VIEW, "押金 ¥"
+    assert_includes VIEW, "（到场退）"
+    assert_includes VIEW, "押金（到场退）"
+    # 未知/字段缺席 → 空串不表态(fail-closed;押金场不再默认「免费」)
+    assert_includes VIEW, "function priceLabel(item, minCents)"
+    # 金额必须为正才出价:押金分支与定价分支同判据(档位全部过期 min=nil 时不出「¥0.00 起」)
+    assert_includes VIEW, "isFinite(cents) && cents > 0"
+    assert_includes VIEW, "if (!isFinite(cents) || !(cents > 0)) return \"\";"
+    # 押金优先于档位分支:押金场残留 price_tiers 时卡片仍出押金行
+    assert_includes VIEW, 'const priceBlock = (s.payment_mode === "deposit" || tiers.length === 0)'
+    # 发现条目与确认卡价格行都走同一出口
+    assert_includes VIEW, "priceLabel(item, item.pricing && item.pricing.min_amount_cents)"
+    assert_includes VIEW, "priceLabel(s)"
+  end
+
   def test_submit_posts_enrollments
     assert_includes VIEW, 'apiPost("/enrollments"'
     # ⑦:POST 传输层(method/body 序列化/CSRF)归一共享骨架
@@ -1220,6 +1246,8 @@ class HarnessScenarioWiringTest < Minitest::Test
     "home_upgrade_same"            => "home",
     "home_upgrade_ahead"           => "home",
     "home_health_degraded"         => "home",
+    # #586 缴费槽三态价格行(押金场不再显示「免费」)
+    "discovery_deposit_price"      => "discovery",
   }.freeze
 
   def run_harness(view, scenario)
