@@ -3,13 +3,15 @@
 /**
  * E-5 #50 公开宿主页 /events/[id] 与 /courses/[id]（游客可看详情，报名需登录）。
  *
- * - 详情：匿名读（open + public）；workspace 活动 / 非 open → 404 语义
- *   （读策略过滤 → get 返回 null）；
+ * - 详情：匿名读（open + public）；initiative 挂载的 closed/cancelled 留档也放行
+ *   匿名读（ReadsArchivedInitiativeEvent）——这类场只读详情，不呈现任何报名/赞助
+ *   动作；workspace 活动 / 其余非 open → 404 语义（读策略过滤 → get 返回 null）；
  * - 公开主题壳层：与目录共用品牌导航，不进入工作台导航；
  * - 信息密度（R9）：描述/开始/结束/截止时间/venue（仅 event）/报名政策/
  *   定价档位静态信息块（匿名可见；登录后 radio 选档器沿用为选择控件）；
- * - 行内状态标签 = 后端派生报名 badge（KTD1）；满员（AE1）不呈现报名动作；
- *   报名失败后重拉详情让 badge 重派生；
+ * - 行内状态标签 = 后端派生报名 badge（KTD1），仅 status=open 时呈现（归档场由
+ *   成班标签表达「已结束/已取消」）；报名门 = status + badge 双门（满员 AE1、
+ *   截止、归档场一律不呈现报名动作）；报名失败后重拉详情让两门重派生；
  * - 报名表单（J-Visitor → J-Learner）：
  *   - 未登录：引导 /login（登录后回到本页）；
  *   - open：直接提交 → confirmed；
@@ -150,13 +152,38 @@ export default function PublicOfferingDetailPage({
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
   const listLabel = navT(kind === "event" ? "events" : "courses");
-  // 满员或报名截止：详情不再呈现可报名动作（已有报名的状态卡除外）。
+  // 报名门双门（issue #574）：条目状态优先，报名 badge 兜底。非 open
+  // （cancelled/closed/draft）一律不再呈现可报名动作——公开留档读
+  // （ReadsArchivedInitiativeEvent）会把 initiative 挂载的 cancelled 场匿名送到
+  // 本页，而 badge 只覆盖 capacity/截止两个维度（EnrollmentBadge.badge/2 不看
+  // status），曾在此处漏出报名表单。已有报名的状态卡不受影响（渲染顺序在门之前）。
+  //
+  // 非 open 再按 endsAt 分桶（与小程序 enrollmentBlockedNotice 同构）：
+  // EventLifecycleWorker 对未配 min_participants 的活动在 registration_deadline
+  // 即 close，此时 ends_at 仍在未来——把这种场说成「已结束」是错的（review
+  // 2026-09-16）。draft（owner/admin 预览）同样落「报名已截止」桶。
+  const archivedEnded =
+    offering?.endsAt != null && Date.parse(offering.endsAt) <= nowMs;
   const enrollmentUnavailable =
-    offering?.enrollmentBadge === "closed"
-      ? { hint: t("closedHint"), testId: "enrollment-closed" }
-      : offering?.enrollmentBadge === "full"
-        ? { hint: t("fullHint"), testId: "enrollment-full" }
-        : null;
+    offering === null
+      ? null
+      : offering.status === "cancelled"
+        ? {
+            hint: t("cancelledHint", { label: labelsT(label) }),
+            testId: "enrollment-cancelled",
+          }
+        : offering.status !== "open"
+          ? archivedEnded
+            ? {
+                hint: t("endedHint", { label: labelsT(label) }),
+                testId: "enrollment-ended",
+              }
+            : { hint: t("closedHint"), testId: "enrollment-closed" }
+          : offering.enrollmentBadge === "closed"
+            ? { hint: t("closedHint"), testId: "enrollment-closed" }
+            : offering.enrollmentBadge === "full"
+              ? { hint: t("fullHint"), testId: "enrollment-full" }
+              : null;
   const enrollmentUnavailableNotice = enrollmentUnavailable ? (
     <div
       className="public-detail__unavailable"
@@ -274,15 +301,21 @@ export default function PublicOfferingDetailPage({
       ? initiativeLookup.card
       : null;
 
-  // E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
+  // E-3 #48 赞助入口（仅 event；enabled + tiers 已配 + 开放中才显示）。
+  // 门与后端 Sponsorship.eligible_target 同构：status='open' + 未过
+  // sponsorship_deadline——归档场/过期场渲染表单只会让用户填完被
+  // :sponsorship_not_open 拒（#574 review 的 sibling）。
   const sponsorshipTiers = offering
     ? parseSponsorshipTiers(offering.sponsorshipTiers)
     : [];
   const sponsorshipOpen =
     kind === "event" &&
     offering !== null &&
+    offering.status === "open" &&
     offering.sponsorshipEnabled === true &&
-    sponsorshipTiers.length > 0;
+    sponsorshipTiers.length > 0 &&
+    (offering.sponsorshipDeadline == null ||
+      Date.parse(offering.sponsorshipDeadline) > nowMs);
 
   // issue #505 D1：配套课程卡（仅 event；宣讲会/未配课 null 不渲染）
   const companionCourse =
@@ -504,7 +537,11 @@ export default function PublicOfferingDetailPage({
           <article className="public-detail">
             <header className="public-detail__hero">
               <div className="public-detail__badges">
-                <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                {/* 报名标签只在 open 呈现：归档场（closed/cancelled）由成班标签
+                    表达「已结束/已取消」，避免「报名中 + 已取消」并列矛盾（#574） */}
+                {offering.status === "open" ? (
+                  <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                ) : null}
                 {kind === "event" && (
                   <QualificationBadgeTag
                     badge={offering.qualificationBadge}
@@ -887,7 +924,10 @@ export default function PublicOfferingDetailPage({
                 </section>
               ) : null}
               {sponsorshipOpen ? (
-                <section className="public-detail__sponsorship">
+                <section
+                  className="public-detail__sponsorship"
+                  data-testid="public-sponsorship"
+                >
                   <h2>{t("sponsorTitle")}</h2>
                   <p className="mt-1 text-[13px] text-ink-3">
                     {t("sponsorDesc")}

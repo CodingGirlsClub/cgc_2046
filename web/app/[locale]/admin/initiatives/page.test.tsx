@@ -22,6 +22,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/admin", () => adminLib);
 
+const { copyText } = vi.hoisted(() => ({ copyText: vi.fn() }));
+
+vi.mock("@/lib/clipboard", () => ({ copyText }));
+
 const OPEN_ROW = {
 	id: "i1",
 	name: "Hackerstart 1024",
@@ -50,9 +54,13 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	adminLib.fetchInitiatives.mockResolvedValue([OPEN_ROW, DRAFT_ROW]);
 	adminLib.fetchInitiative.mockResolvedValue(DRAFT_ROW);
+	copyText.mockResolvedValue(true);
 });
 
-afterEach(cleanup);
+afterEach(() => {
+	cleanup();
+	vi.unstubAllEnvs();
+});
 
 describe("/admin/initiatives", () => {
 	it("渲染列表行与状态操作按钮", async () => {
@@ -141,6 +149,53 @@ describe("/admin/initiatives", () => {
 			expect(within(openRow).getByText("已结束")).toBeInTheDocument(),
 		);
 		expect(adminLib.closeInitiative).toHaveBeenCalledWith("i1");
+	});
+});
+
+describe("公开链接出口（Patch 3）", () => {
+	it("每行可复制与 sitemap/canonical 同源的公开链接", async () => {
+		vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", "https://codingirlsclub.com");
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		const draftRow = screen.getByText("e2e-drive").closest("tr")!;
+		expect(
+			within(openRow).getByRole("button", { name: "复制公开链接" }),
+		).toBeInTheDocument();
+		expect(
+			within(draftRow).getByRole("button", { name: "复制公开链接" }),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			within(openRow).getByRole("button", { name: "复制公开链接" }),
+		);
+
+		await waitFor(() =>
+			expect(copyText).toHaveBeenCalledWith(
+				"https://codingirlsclub.com/initiatives/hackerstart1024",
+			),
+		);
+		await waitFor(() =>
+			expect(
+				within(openRow).getByRole("button", { name: "已复制" }),
+			).toBeInTheDocument(),
+		);
+	});
+
+	it("复制失败保持原文案（不假装成功）", async () => {
+		copyText.mockResolvedValue(false);
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(
+			within(openRow).getByRole("button", { name: "复制公开链接" }),
+		);
+
+		await waitFor(() => expect(copyText).toHaveBeenCalled());
+		expect(
+			within(openRow).getByRole("button", { name: "复制公开链接" }),
+		).toBeInTheDocument();
+		expect(within(openRow).queryByRole("button", { name: "已复制" })).toBeNull();
 	});
 });
 
