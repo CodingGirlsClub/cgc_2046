@@ -29,6 +29,7 @@
     "event_ends_at_frozen",
     "event_moderator_not_workspace_member",
     "event_payment_mode_exclusive",
+    "initiative_slug_locked",
     "invalid_or_expired_code",
     "invalid_password",
     "invalid_reset_token",

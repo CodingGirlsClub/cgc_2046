@@ -28,6 +28,12 @@ defmodule Cgc2046.Mcp.Tools.DiscoverOfferings do
   total_count 为截断前命中小计。my_enrollment = actor 在该供给上的活跃报名
   （pending/payment_pending/confirmed，批量读取无 N+1）。
 
+  缴费槽（#586）：条目含 `payment_mode`（free|pricing|deposit）与押金明细
+  `deposit`（enabled / amount_cents / refundable_on_check_in）。**押金场
+  `pricing.enabled` 为 false 不代表免费**——`pricing` 只是定价档位块，三态一律以
+  `payment_mode` 为准；押金金额缺失（脏行）时 `deposit.amount_cents` 落 nil，绝不出
+  ¥0、绝不改判免费。
+
   **动作安全作用域（advisor F4）**：条目附 `workspace_id` 原值（供给所属工作台
   列 ID——不泄名称/可发现性）；展示块 `workspace`（名称）才做 invite_only 台
   非成员 redact（nil）。面板报名动作以 `workspace_id` 原值驱动，展示降级不再
@@ -153,22 +159,27 @@ defmodule Cgc2046.Mcp.Tools.DiscoverOfferings do
   defp unix(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
 
   defp to_row(%{kind: kind, entity: e}, workspaces, my_enrollments) do
-    %{
-      kind: to_string(kind),
-      id: e.id,
-      title: e.title,
-      slug: e.slug,
-      workspace_id: e.workspace_id,
-      workspace: workspace_block(Map.get(workspaces, e.workspace_id)),
-      visibility: to_string(e.visibility),
-      status: to_string(e.status),
-      pricing: %{
-        enabled: e.pricing_enabled,
-        min_amount_cents: min_amount_cents(e.available_price_tiers)
+    Map.merge(
+      %{
+        kind: to_string(kind),
+        id: e.id,
+        title: e.title,
+        slug: e.slug,
+        workspace_id: e.workspace_id,
+        workspace: workspace_block(Map.get(workspaces, e.workspace_id)),
+        visibility: to_string(e.visibility),
+        status: to_string(e.status),
+        pricing: %{
+          enabled: e.pricing_enabled,
+          min_amount_cents: min_amount_cents(e.available_price_tiers)
+        },
+        registration_deadline: e.registration_deadline,
+        my_enrollment: my_enrollment_block(Map.get(my_enrollments, {kind, e.id}))
       },
-      registration_deadline: e.registration_deadline,
-      my_enrollment: my_enrollment_block(Map.get(my_enrollments, {kind, e.id}))
-    }
+      # 缴费槽三态 + 押金明细（#586）：pricing.enabled=false 不等于免费——押金场
+      # 靠 payment_mode/deposit 表达，agent 不得从 pricing 块推断免费。
+      Cgc2046.Mcp.Tools.PaymentSlot.projection(e)
+    )
   end
 
   defp workspace_block(nil), do: nil

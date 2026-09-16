@@ -22,14 +22,15 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     }
   end
 
-  defp initiative(admin), do: initiative_with_deposit(admin, %{enabled: true, amount_cents: 6900})
+  defp initiative(admin, slug \\ "boundary"),
+    do: initiative_with_deposit(admin, %{enabled: true, amount_cents: 6900}, slug)
 
-  defp initiative_with_deposit(admin, deposit_value) do
+  defp initiative_with_deposit(admin, deposit_value, slug \\ "boundary") do
     i =
       Initiative
       |> Ash.Changeset.for_create(:create, %{
         name: "Boundary",
-        slug: "boundary",
+        slug: slug,
         created_by: admin.id
       })
       |> Ash.create!(actor: admin)
@@ -108,6 +109,106 @@ defmodule Cgc2046.InitiativeBoundaryTest do
                created_by: admin.id
              })
              |> Ash.create(actor: admin)
+  end
+
+  # ── #588：slug 发布后锁定（draft 可改 / open+closed 锁死 / 无 rename 后门）──
+
+  defp draft_initiative(admin, slug) do
+    Initiative
+    |> Ash.Changeset.for_create(:create, %{name: "Draft", slug: slug, created_by: admin.id})
+    |> Ash.create!(actor: admin)
+  end
+
+  defp update_slug(initiative, slug, admin) do
+    initiative
+    |> Ash.Changeset.for_update(:update, %{slug: slug})
+    |> Ash.update(actor: admin)
+  end
+
+  test "draft 期改 slug 正常", %{admin: admin} do
+    draft = draft_initiative(admin, "slug-lock-draft")
+
+    assert {:ok, renamed} = update_slug(draft, "slug-lock-draft-2", admin)
+    assert renamed.slug == "slug-lock-draft-2"
+  end
+
+  test "open 后改 slug 被拒：稳定 code initiative_slug_locked + 库中 slug 不变", %{admin: admin} do
+    open = initiative(admin, "slug-lock-open")
+
+    assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+             update_slug(open, "slug-lock-open-renamed", admin)
+
+    assert Enum.any?(
+             errors,
+             &match?(%Cgc2046.Errors.BusinessError{code: "initiative_slug_locked"}, &1)
+           )
+
+    assert Exception.message(error) =~ "slug is locked"
+    assert Ash.get!(Initiative, open.id, authorize?: false).slug == "slug-lock-open"
+  end
+
+  test "closed 后改 slug 仍被拒（终态不可逆，恢复=新建）", %{admin: admin} do
+    closed =
+      initiative(admin, "slug-lock-closed")
+      |> Ash.Changeset.for_update(:close, %{})
+      |> Ash.update!(actor: admin)
+
+    assert closed.status == :closed
+
+    assert {:error, error} = update_slug(closed, "slug-lock-closed-2", admin)
+    assert Exception.message(error) =~ "slug is locked"
+    assert Ash.get!(Initiative, closed.id, authorize?: false).slug == "slug-lock-closed"
+  end
+
+  test "open 后改 name/description 且 slug 原样回传：成功（不误触发锁定）", %{admin: admin} do
+    open = initiative(admin, "slug-lock-keep")
+
+    # web admin 表单在非 draft 态 disabled 但仍原样回传 form.slug——同值不进
+    # changeset.attributes（Ash do_change_attribute 的 equal? 分支），故守卫不触发。
+    assert {:ok, updated} =
+             open
+             |> Ash.Changeset.for_update(:update, %{
+               name: "改过的名字",
+               description: "改过的描述",
+               slug: open.slug
+             })
+             |> Ash.update(actor: admin)
+
+    assert updated.name == "改过的名字"
+    assert updated.description == "改过的描述"
+    assert updated.slug == "slug-lock-keep"
+  end
+
+  test "非 draft 传「又非法又锁定」的 slug：只回一个错误（锁定优先，不叠加格式错）", %{
+    admin: admin
+  } do
+    open = initiative(admin, "slug-lock-priority")
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             update_slug(open, "Bad Slug", admin)
+
+    assert [%Cgc2046.Errors.BusinessError{code: "initiative_slug_locked"}] = errors
+  end
+
+  test "draft 传非法 slug 仍被拒（格式校验未被 only_when_valid? 误关）", %{admin: admin} do
+    draft = draft_initiative(admin, "slug-lock-format")
+
+    assert {:error, error} = update_slug(draft, "Bad Slug", admin)
+    assert Exception.message(error) =~ "must match"
+    assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "slug-lock-format"
+  end
+
+  test "draft 改成已被占用的 slug 仍被拒（identity 未被锁定守卫削弱）", %{admin: admin} do
+    _taken = draft_initiative(admin, "slug-lock-taken")
+    draft = draft_initiative(admin, "slug-lock-free")
+
+    # 发现（既存缺陷，与 #588 无关，另开 issue 跟踪）：DB 实际索引名
+    # `initiatives_slug_index`（migration 20260913155651 的 `unique_index` 默认名）
+    # 与 Ash identity 声明的约束名 `initiatives_unique_slug_index` 不一致 ⇒ 撞 slug
+    # 时 Ecto 约束错误未被转成 changeset 错误，回 `Ash.Error.Unknown` 且带原始
+    # SQL/索引名文本（create 与 update 同病）。本用例只钉「不被静默写入」不变量。
+    assert {:error, _} = update_slug(draft, "slug-lock-taken", admin)
+    assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "slug-lock-free"
   end
 
   test "enabled deposit rule requires amount", %{admin: admin} do

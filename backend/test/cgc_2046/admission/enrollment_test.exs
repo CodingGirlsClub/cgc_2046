@@ -1723,4 +1723,76 @@ defmodule Cgc2046.Admission.EnrollmentTest do
              all_enqueued(worker: PaymentRefundWorker)
              |> Enum.filter(&(&1.args["order_id"] == order.id))
   end
+
+  # #586：落点预测公开谓词（MCP would_create_status 与审批路径共用同一函数）。
+  # 三态判定单源在 Offering.payment_mode/1，本 describe 钉「预测 == 域真实落点」。
+  describe "auto_confirm_status/1 公开谓词（#586 单源）" do
+    test "open 三态：免费 → confirmed；定价 / 押金 → payment_pending" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      free = EventFixtures.create_event(workspace, admin, %{title: "免费场"})
+      pricing = EventFixtures.create_event(workspace, admin, paid_attrs())
+      deposit = EventFixtures.create_event(workspace, admin, deposit_attrs())
+
+      assert Enrollment.auto_confirm_status(free) == :confirmed
+      assert Enrollment.auto_confirm_status(pricing) == :payment_pending
+      assert Enrollment.auto_confirm_status(deposit) == :payment_pending
+    end
+
+    test "预测与真实 create 落点一致（押金 / 定价 / 免费三态逐一对齐）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      cases = [
+        {"free", EventFixtures.create_event(workspace, admin, %{title: "对齐免费"}), %{}},
+        {"pricing", EventFixtures.create_event(workspace, admin, paid_attrs()),
+         %{tier_id: @paid_tier_id}},
+        {"deposit", EventFixtures.create_event(workspace, admin, deposit_attrs()), %{}}
+      ]
+
+      for {label, target, attrs} <- cases do
+        learner = Fixtures.register_user("slot-align-#{label}")
+
+        predicted = Enrollment.auto_confirm_status(target)
+        assert {:ok, created} = create_enrollment(target, learner, attrs)
+
+        assert created.status == predicted,
+               "#{label} 供给物预测 #{inspect(predicted)} ≠ 实际 #{inspect(created.status)}"
+      end
+    end
+
+    test "course（无押金列）：定价 → payment_pending，免费 → confirmed" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      pricing_course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      free_course = EventFixtures.create_course(workspace, admin, %{title: "免费课"})
+
+      assert Enrollment.auto_confirm_status(pricing_course) == :payment_pending
+      assert Enrollment.auto_confirm_status(free_course) == :confirmed
+    end
+
+    test "request 不影响谓词本身（pending 由 prepare_policy 决定，审批通过后仍按缴费槽分叉）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      request_deposit =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{enrollment_policy: :request, capacity: 1} |> Map.merge(deposit_attrs())
+        )
+
+      learner = Fixtures.register_user("slot-request-deposit")
+
+      # 谓词只回答「缴费槽非免费 → 支付落点」，与 policy 无关
+      assert Enrollment.auto_confirm_status(request_deposit) == :payment_pending
+      # 真实路径：create 落 pending，approve 后落 payment_pending（与预测同源）
+      assert {:ok, pending} = create_enrollment(request_deposit, learner)
+      assert pending.status == :pending
+      assert {:ok, approved} = confirm(pending, admin)
+      assert approved.status == Enrollment.auto_confirm_status(request_deposit)
+    end
+  end
 end
