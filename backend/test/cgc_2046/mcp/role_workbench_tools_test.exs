@@ -309,8 +309,13 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "正式标题"
       assert payload["content"] =~ "provisional_title"
       assert payload["content"] =~ "管理模式不创作课程内容"
+      # #630:detach 语义段（读标记 + 编辑即清 + 不承诺经 MCP detach）
+      assert payload["content"] =~ "detached_rule_provenance"
+      assert payload["content"] =~ "解除挂载"
+      assert payload["content"] =~ "不能 detach"
+      assert payload["content"] =~ "编辑标记内字段即清除该字段标记"
 
-      assert payload["version"] == "2026-09-08.1"
+      assert payload["version"] == "2026-09-16.1"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do
