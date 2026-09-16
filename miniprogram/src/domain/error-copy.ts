@@ -70,6 +70,12 @@ export const COPY: Record<string, string> = {
   // Initiative 撞 slug（#604，同 #588 的同步义务：小程序无 initiative 写面，
   // 当前不可达；web admin create/update 与 MCP 是真实消费方）。
   initiative_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  // 重复指派活动主理人（#611）：web 活动主理人卡片是真实消费方；小程序无该管理面，
+  // 本键为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  event_moderator_already_assigned: '该用户已是本活动主理人，无需重复指派。',
+  // 同 initiative 同 key 重复建规则（#611）：消费方 = AshAdmin / MCP
+  // admin_upsert_initiative_rule，小程序无 initiative 写面，同 #588/#604 的同步义务。
+  initiative_rule_already_exists: '该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。',
   // 锁超时/死锁（#621）：用户可动作 = 稍后重试，独立 code、不归 database_error；
   // 小程序无这两条锁路径的调用方（web admin 成员管理 / 邀请码生成为真实消费方），
   // 本表为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
