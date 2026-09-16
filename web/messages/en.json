@@ -577,6 +577,7 @@
 		"viewInLearning": "View in My learning",
 		"depositName": "Deposit",
 		"depositLine": "Deposit ¥{amount} (refunded on check-in)",
+		"pricingRefundRule": "Registration fee: full refund if cancelled before the event starts; no refund after it starts.",
 		"depositAckLabel": "The deposit is refundable only upon on-site check-in; no-shows are not refunded.",
 		"depositAckButton": "Confirm and pay",
 		"depositForfeit": "No refund if you do not attend."
@@ -1149,6 +1150,7 @@
 		"approvalDeadline": "Approval deadline: {time}",
 		"selfCancelDeadline": "Self-cancellation available until {time}",
 		"depositRefundRule": "Deposit: full refund if cancelled before the deadline; no refund after.",
+		"pricingRefundRule": "Registration fee: full refund if cancelled before the event starts; no refund after it starts.",
 		"rejectionReason": "Reason: {reason}",
 		"expiredAt": "Expired {time}",
 		"cancelledAt": "Cancelled {time}",
@@ -1454,6 +1456,7 @@
 		"orderFailed": "Failed to place the order. Please try again.",
 		"switchFailed": "Failed to switch the channel. Please try again.",
 		"orderKindUnknown": "The order payment type is unrecognized. Please refresh and retry; if it persists, contact support.",
+		"pricingRefundNote": "Registration fee: full refund if cancelled before the event starts; no refund after it starts.",
 		"countdownExpired": "Expired",
 		"dialogAria": "Scan to pay",
 		"title": "Scan to pay",
