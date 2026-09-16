@@ -74,7 +74,9 @@
 		"event_ends_at_frozen": "存在未结算的押金订单，不能提前结束时间。",
 		"order_deposit_amount_missing": "押金金额信息缺失，请重新报名。",
 		"initiative_slug_locked": "倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。",
-		"initiative_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。"
+		"initiative_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。",
+		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
+		"deadlock_detected": "检测到锁冲突，请稍后重试"
 	},
 	"auth": {
 		"helpCenter": "帮助中心",
