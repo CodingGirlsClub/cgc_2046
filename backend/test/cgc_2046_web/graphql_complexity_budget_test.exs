@@ -8,9 +8,14 @@ defmodule Cgc2046Web.GraphqlComplexityBudgetTest do
   `Operation … is too complex` 拒绝。已发布客户端无法自救（改文档要发版），
   只能由后端预算兜底。
 
-  本测试把这两个最重文档（文档属主 `miniprogram/src/api/operations.ts`，
-  改那边时**必须**回来同步这里）钉在预算之下：文档增长撞线时这里先红，
-  迫使有意识地调预算而不是把线上客户端打挂。
+  二次事故（2026-09-16）：2_000 又漏测了 web 端四个 first:250 列表文档
+  （web/lib/graphql/events.ts，实测 3_000–3_500），工作台/公开的课程+活动
+  四页全挂 → 预算提到 4_000。
+
+  本测试把这些最重文档钉在预算之下：文档增长撞线时这里先红，
+  迫使有意识地调预算而不是把线上客户端打挂。文档属主：
+  `miniprogram/src/api/operations.ts` 与 `web/lib/graphql/events.ts`，
+  改那边时**必须**回来同步这里。
   """
 
   use Cgc2046Web.ConnCase, async: true
@@ -77,6 +82,95 @@ defmodule Cgc2046Web.GraphqlComplexityBudgetTest do
   }
   """
 
+  # ── web/lib/graphql/events.ts 的四个 first=250 列表文档（2026-09-16 事故）──
+  # complexity = first × (字段数 + 2)：LIST_EVENTS=3_500、LIST_COURSES 与
+  # PUBLIC_LIST_EVENTS=3_250、PUBLIC_LIST_COURSES=3_000——全部超 2_000 旧预算。
+  @ws_list_events_doc """
+  query ListEvents($workspaceId: ID!) {
+    listEvents(first: 250, filter: { workspaceId: { eq: $workspaceId } }) {
+      results {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+        initiativeId
+        pricingEnabled
+        priceTiers
+      }
+    }
+  }
+  """
+
+  @ws_list_courses_doc """
+  query ListCourses($workspaceId: ID!) {
+    listCourses(first: 250, filter: { workspaceId: { eq: $workspaceId } }) {
+      results {
+        id
+        workspaceId
+        title
+        status
+        visibility
+        enrollmentPolicy
+        capacity
+        confirmedCount
+        registrationDeadline
+        pricingEnabled
+        priceTiers
+      }
+    }
+  }
+  """
+
+  @public_list_events_doc """
+  query PublicListEvents {
+    listEvents(
+      first: 250,
+      filter: { status: { eq: "open" }, visibility: { eq: "public" } }
+    ) {
+      results {
+        id
+        slug
+        title
+        status
+        visibility
+        enrollmentPolicy
+        registrationDeadline
+        startsAt
+        endsAt
+        enrollmentBadge
+        venue
+      }
+    }
+  }
+  """
+
+  @public_list_courses_doc """
+  query PublicListCourses {
+    listCourses(
+      first: 250,
+      filter: { status: { eq: "open" }, visibility: { eq: "public" } }
+    ) {
+      results {
+        id
+        slug
+        title
+        status
+        visibility
+        enrollmentPolicy
+        registrationDeadline
+        startsAt
+        endsAt
+        enrollmentBadge
+      }
+    }
+  }
+  """
+
   test "发现页 Catalog（first=50）不被复杂度上限拒绝" do
     conn =
       build_conn()
@@ -128,5 +222,73 @@ defmodule Cgc2046Web.GraphqlComplexityBudgetTest do
 
     assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
     conn.resp_cookies["cgc_token"].value
+  end
+
+  test "工作台活动列表 ListEvents（first=250）不被复杂度上限拒绝" do
+    %{owner: user, workspace: workspace} = Fixtures.workspace_with_member()
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer #{token_for(user)}")
+      |> post("/api/graphql", %{
+        "query" => @ws_list_events_doc,
+        "variables" => %{"workspaceId" => workspace.id}
+      })
+
+    body = json_response(conn, 200)
+
+    refute Enum.any?(body["errors"] || [], &String.contains?(&1["message"] || "", "too complex")),
+           "ListEvents 撞复杂度上限：#{inspect(body["errors"])}"
+
+    assert %{"listEvents" => %{"results" => _}} = body["data"]
+  end
+
+  test "工作台课程列表 ListCourses（first=250）不被复杂度上限拒绝" do
+    %{owner: user, workspace: workspace} = Fixtures.workspace_with_member()
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer #{token_for(user)}")
+      |> post("/api/graphql", %{
+        "query" => @ws_list_courses_doc,
+        "variables" => %{"workspaceId" => workspace.id}
+      })
+
+    body = json_response(conn, 200)
+
+    refute Enum.any?(body["errors"] || [], &String.contains?(&1["message"] || "", "too complex")),
+           "ListCourses 撞复杂度上限：#{inspect(body["errors"])}"
+
+    assert %{"listCourses" => %{"results" => _}} = body["data"]
+  end
+
+  test "公开活动列表 PublicListEvents（first=250）不被复杂度上限拒绝" do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => @public_list_events_doc})
+
+    body = json_response(conn, 200)
+
+    refute Enum.any?(body["errors"] || [], &String.contains?(&1["message"] || "", "too complex")),
+           "PublicListEvents 撞复杂度上限：#{inspect(body["errors"])}"
+
+    assert %{"listEvents" => %{"results" => _}} = body["data"]
+  end
+
+  test "公开课程列表 PublicListCourses（first=250）不被复杂度上限拒绝" do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => @public_list_courses_doc})
+
+    body = json_response(conn, 200)
+
+    refute Enum.any?(body["errors"] || [], &String.contains?(&1["message"] || "", "too complex")),
+           "PublicListCourses 撞复杂度上限：#{inspect(body["errors"])}"
+
+    assert %{"listCourses" => %{"results" => _}} = body["data"]
   end
 end
