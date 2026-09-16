@@ -4,7 +4,7 @@ import Taro, { useDidHide, useDidShow, useRouter, useShareAppMessage, useUnload 
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
-import { enrollmentBadgeText, enrollmentBlockedNotice, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
 import { formatAmount, paymentBlockCopy } from '@/domain/payment'
 import { qualificationBadgeText } from '@/domain/initiative'
 import styles from './index.module.css'
@@ -16,7 +16,8 @@ const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
 }
 
 export function EventRegistrationActions({ item, onRegister }: { item: CatalogItem; onRegister: () => void }) {
-  const blockedNotice = enrollmentBlockedNotice(item.enrollmentBadge)
+  // 报名门双门（status 优先，badge 兜底）单源在 domain/format：非 open 恒有提示
+  const blockedNotice = enrollmentBlockedNotice(item)
   const enrolled = item.myEnrollment ? <>
     <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>已报名 · {enrollmentStatusText[item.myEnrollment.status]}</Text>
     <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>
@@ -26,13 +27,8 @@ export function EventRegistrationActions({ item, onRegister }: { item: CatalogIt
   const myStatus = item.myEnrollment?.status
   if (myStatus === 'pending' || myStatus === 'payment_pending' || myStatus === 'confirmed') return enrolled
   if (item.status !== 'open') {
-    // closed 按 endsAt 区分：已过 → 活动已结束；未过/未定 → 报名已截止
-    const notice = item.status === 'cancelled'
-      ? '活动已取消，仅供查看。'
-      : item.endsAt && Date.parse(item.endsAt) <= Date.now()
-        ? '活动已结束，仅供查看。'
-        : '报名已截止，仅供查看。'
-    return <Text className={styles.closedNotice} data-testid='archived-event-notice'>{notice}</Text>
+    // 归档场（cancelled/closed）：文案由双门单源给（closed 按 endsAt 分已结束/已截止）
+    return <Text className={styles.closedNotice} data-testid='archived-event-notice'>{blockedNotice}</Text>
   }
   if (item.myEnrollment) return enrolled
   if (blockedNotice) return <Text className={styles.closedNotice} data-testid='registration-closed-notice'>{blockedNotice}</Text>
@@ -119,8 +115,9 @@ export default function EventDetailPage() {
 
         <View className={styles.metrics}>
           <View className={styles.metric}>
-            {/* 公开面以派生标签替代原始计数（KTD1/D2：confirmedCount 对非成员不可读） */}
-            <Text className={styles.metricValue} data-testid='enrollment-badge'>{enrollmentBadgeText[item.enrollmentBadge]}</Text>
+            {/* 公开面以派生标签替代原始计数（KTD1/D2：confirmedCount 对非成员不可读）；
+                归档场（非 open）显示条目状态词，避免「报名中 + 已取消」并列（#574） */}
+            <Text className={styles.metricValue} data-testid='enrollment-badge'>{enrollmentMetricText(item)}</Text>
             <Text className={styles.metricLabel}>报名状态</Text>
           </View>
           <View className={styles.metric}>

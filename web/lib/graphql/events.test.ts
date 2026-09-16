@@ -160,6 +160,7 @@ describe("公开面查询（R10 同一匿名通道扩展字段；R6 badge；R3 �
 			"endsAt",
 			"enrollmentBadge",
 			"venue",
+			"sponsorshipDeadline",
 		]) {
 			expect(eventDoc).toContain(field);
 		}
