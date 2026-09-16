@@ -379,6 +379,22 @@ export type EventFilterConfirmedCount = {
   rangeOverlaps?: number | null | undefined;
 };
 
+export type EventFilterCreatedBy = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
 export type EventFilterCurriculumEnabled = {
   eq?: boolean | null | undefined;
   greaterThan?: boolean | null | undefined;
@@ -409,6 +425,38 @@ export type EventFilterCurriculumRequirements = {
   rangeAdjacent?: string | null | undefined;
   rangeContains?: string | null | undefined;
   rangeOverlaps?: string | null | undefined;
+};
+
+export type EventFilterDepositAmountCents = {
+  eq?: number | null | undefined;
+  greaterThan?: number | null | undefined;
+  greaterThanOrEqual?: number | null | undefined;
+  in?: Array<number | null | undefined> | null | undefined;
+  isDistinctFrom?: number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: number | null | undefined;
+  lessThan?: number | null | undefined;
+  lessThanOrEqual?: number | null | undefined;
+  notEq?: number | null | undefined;
+  rangeAdjacent?: number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: number | null | undefined;
+};
+
+export type EventFilterDepositEnabled = {
+  eq?: boolean | null | undefined;
+  greaterThan?: boolean | null | undefined;
+  greaterThanOrEqual?: boolean | null | undefined;
+  in?: Array<boolean> | null | undefined;
+  isDistinctFrom?: boolean | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: boolean | null | undefined;
+  lessThan?: boolean | null | undefined;
+  lessThanOrEqual?: boolean | null | undefined;
+  notEq?: boolean | null | undefined;
+  rangeAdjacent?: boolean | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type EventFilterDescription = {
@@ -480,16 +528,37 @@ export type EventFilterId = {
   rangeOverlaps?: string | number | null | undefined;
 };
 
+export type EventFilterInitiativeId = {
+  eq?: string | number | null | undefined;
+  greaterThan?: string | number | null | undefined;
+  greaterThanOrEqual?: string | number | null | undefined;
+  in?: Array<string | number | null | undefined> | null | undefined;
+  isDistinctFrom?: string | number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | number | null | undefined;
+  lessThan?: string | number | null | undefined;
+  lessThanOrEqual?: string | number | null | undefined;
+  notEq?: string | number | null | undefined;
+  rangeAdjacent?: string | number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | number | null | undefined;
+};
+
 export type EventFilterInput = {
   and?: Array<EventFilterInput> | null | undefined;
   /** 报名名额上限；nil 表示不限 */
   capacity?: EventFilterCapacity | null | undefined;
   /** 已确认名额数（仅由 Enrollment 原子维护） */
   confirmedCount?: EventFilterConfirmedCount | null | undefined;
+  createdBy?: EventFilterCreatedBy | null | undefined;
   /** 是否启用教研 workflow */
   curriculumEnabled?: EventFilterCurriculumEnabled | null | undefined;
   /** 教研材料需求（audience/duration/sections 等），作为 run input 注入 */
   curriculumRequirements?: EventFilterCurriculumRequirements | null | undefined;
+  /** 押金金额（分） */
+  depositAmountCents?: EventFilterDepositAmountCents | null | undefined;
+  /** 是否收取活动押金（与既有报名定价分开） */
+  depositEnabled?: EventFilterDepositEnabled | null | undefined;
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: EventFilterDescription | null | undefined;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
@@ -497,10 +566,18 @@ export type EventFilterInput = {
   /** 报名策略：open / request / invite_only */
   enrollmentPolicy?: EventFilterEnrollmentPolicy | null | undefined;
   id?: EventFilterId | null | undefined;
+  /** 所属平台级 Initiative；仅草稿可挂载 */
+  initiativeId?: EventFilterInitiativeId | null | undefined;
+  /** 报名最低年龄；nil 表示无年龄门槛 */
+  minAge?: EventFilterMinAge | null | undefined;
+  /** 成班最低确认人数；nil 表示不判定成班 */
+  minParticipants?: EventFilterMinParticipants | null | undefined;
   not?: Array<EventFilterInput> | null | undefined;
   or?: Array<EventFilterInput> | null | undefined;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled?: EventFilterPricingEnabled | null | undefined;
+  /** 成班事实：pending / confirmed / underfilled */
+  qualificationStatus?: EventFilterQualificationStatus | null | undefined;
   /** 报名截止时间；nil 表示不设截止 */
   registrationDeadline?: EventFilterRegistrationDeadline | null | undefined;
   /** 公开 URL 段（/events/[slug] 或 /courses/[slug]，全局唯一） */
@@ -525,6 +602,38 @@ export type EventFilterInput = {
   workspaceId?: EventFilterWorkspaceId | null | undefined;
 };
 
+export type EventFilterMinAge = {
+  eq?: number | null | undefined;
+  greaterThan?: number | null | undefined;
+  greaterThanOrEqual?: number | null | undefined;
+  in?: Array<number | null | undefined> | null | undefined;
+  isDistinctFrom?: number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: number | null | undefined;
+  lessThan?: number | null | undefined;
+  lessThanOrEqual?: number | null | undefined;
+  notEq?: number | null | undefined;
+  rangeAdjacent?: number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: number | null | undefined;
+};
+
+export type EventFilterMinParticipants = {
+  eq?: number | null | undefined;
+  greaterThan?: number | null | undefined;
+  greaterThanOrEqual?: number | null | undefined;
+  in?: Array<number | null | undefined> | null | undefined;
+  isDistinctFrom?: number | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: number | null | undefined;
+  lessThan?: number | null | undefined;
+  lessThanOrEqual?: number | null | undefined;
+  notEq?: number | null | undefined;
+  rangeAdjacent?: number | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: number | null | undefined;
+};
+
 export type EventFilterPricingEnabled = {
   eq?: boolean | null | undefined;
   greaterThan?: boolean | null | undefined;
@@ -539,6 +648,22 @@ export type EventFilterPricingEnabled = {
   rangeAdjacent?: boolean | null | undefined;
   rangeContains?: string | null | undefined;
   rangeOverlaps?: boolean | null | undefined;
+};
+
+export type EventFilterQualificationStatus = {
+  eq?: string | null | undefined;
+  greaterThan?: string | null | undefined;
+  greaterThanOrEqual?: string | null | undefined;
+  in?: Array<string> | null | undefined;
+  isDistinctFrom?: string | null | undefined;
+  isNil?: boolean | null | undefined;
+  isNotDistinctFrom?: string | null | undefined;
+  lessThan?: string | null | undefined;
+  lessThanOrEqual?: string | null | undefined;
+  notEq?: string | null | undefined;
+  rangeAdjacent?: string | null | undefined;
+  rangeContains?: string | null | undefined;
+  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterRegistrationDeadline = {
@@ -757,7 +882,7 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
@@ -777,14 +902,14 @@ export type MyEnrollmentsQueryVariables = Exact<{
 }>;
 
 
-export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string }> | null } | null };
+export type MyEnrollmentsQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type EnrollmentQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string }> | null } | null };
+export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
@@ -874,16 +999,52 @@ export type CreateOrderMutationVariables = Exact<{
 }>;
 
 
-export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string } | null, errors: Array<{ message: string | null, code: string | null }>, metadata: { credential: string | null } | null } };
+export type CreateOrderMutation = { createOrder: { result: { id: string, enrollmentId: string, provider: string, outTradeNo: string, amountCents: number, status: string, expireAt: string, orderKind: string } | null, errors: Array<{ message: string | null, code: string | null }>, metadata: { credential: string | null } | null } };
 
 export type OrderStatusQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type OrderStatusQuery = { orderStatus: { id: string, status: string, transactionId: string | null, amountCents: number, expireAt: string } | null };
+export type OrderStatusQuery = { orderStatus: { id: string, status: string, transactionId: string | null, amountCents: number, expireAt: string, orderKind: string } | null };
 
 export type MyOrdersQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmentId: string, provider: string, status: string, amountCents: number, expireAt: string }> | null } | null };
+export type MyOrdersQuery = { myOrders: { results: Array<{ id: string, enrollmentId: string, provider: string, status: string, amountCents: number, expireAt: string, orderKind: string }> | null } | null };
+
+export type PublicInitiativesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PublicInitiativesQuery = { publicInitiatives: Array<{ id: string, name: string, slug: string, hashtag: string | null, status: string, description: string | null, windowStartsAt: string | null, windowEndsAt: string | null }> };
+
+export type CheckInEnrollmentMutationVariables = Exact<{
+  eventId: string | number;
+  code: string;
+  method: string;
+}>;
+
+
+export type CheckInEnrollmentMutation = { checkInEnrollment: { enrollmentId: string | null, checkedInAt: string | null, method: string | null, depositRefund: string | null, errors: Array<{ message: string | null, code: string | null } | null> | null } | null };
+
+export type EventModerationScopeQueryVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type EventModerationScopeQuery = { getEvent: { id: string, workspaceId: string } | null };
+
+export type EventModeratorsQueryVariables = Exact<{
+  workspaceId: string | number;
+  eventId: string | number;
+}>;
+
+
+export type EventModeratorsQuery = { eventModerators: Array<{ userId: string }> };
+
+export type PublicInitiativeQueryVariables = Exact<{
+  slug: string;
+}>;
+
+
+export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null }> }> } | null };

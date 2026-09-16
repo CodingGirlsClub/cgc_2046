@@ -538,24 +538,6 @@ defmodule Cgc2046.Accounts.MembershipContext do
   把 DB 故障误判成「已是成员/成功」的静默数据丢失。
   """
   @spec unique_membership_conflict?(term) :: boolean
-  def unique_membership_conflict?(%{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &unique_constraint_leaf?/1)
-  end
-
-  # Ash.create 通常返回 Splode error class（%Ash.Error.Invalid{errors: [...]}），
-  # 但某些路径可能直接返回裸 leaf，兼容判断。
-  def unique_membership_conflict?(%Ash.Error.Changes.InvalidAttribute{} = leaf) do
-    unique_constraint_leaf?(leaf)
-  end
-
-  def unique_membership_conflict?(_), do: false
-
-  defp unique_constraint_leaf?(%Ash.Error.Changes.InvalidAttribute{
-         private_vars: private_vars
-       }) do
-    # private_vars 可能为 nil（InvalidAttribute 未传该字段时）
-    Keyword.get(private_vars || [], :constraint_type) == :unique
-  end
-
-  defp unique_constraint_leaf?(_), do: false
+  def unique_membership_conflict?(error),
+    do: Cgc2046.Errors.ConstraintConflict.unique_conflict?(error)
 end

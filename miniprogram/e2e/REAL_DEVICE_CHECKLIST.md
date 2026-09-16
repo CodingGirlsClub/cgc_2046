@@ -61,6 +61,7 @@
 - [x] 聊天卡片分享：event-detail 右上角转发 → 卡片 title 正确（活动标题；加载中/缺失时兜底「CGC · 精选活动」，无平台字样）；好友点击卡片进入对应详情页（course 分享 kind=course 正确加载）。（2026-09-05 转发文件传输助手实测）
 - [ ] scheme 冷启动：外部渠道链接（iOS Safari 打开 weixin://dl/business 链接）→ 冷启动直达 event-detail 详情页（需线上正式版——scheme 只能生成已发布页面）。（**发布后验证批次**）
 - [ ] scheme 热启动：小程序已打开（停在非详情页）→ 点 scheme 链接回前台 → 跳转 event-detail；已在 event-detail 时点链接 → 不重复跳转/不打断当前详情；带 scene 的进入仍走 join 链路（scene 优先）。（**发布后验证批次**）
+- [ ] **slug 冷启动深链（2026-09-10 修复项）**：分享卡片 / 带 `slug` 的入口在**小程序未打开**时点开 → 冷启动直达 initiative-detail（修复前 `useLaunch` 只解 `scene`，slug 被静默丢弃、停在首页）；同一路径对 `id`+`kind` 深链同样必须直达 event-detail。热启动行为应与冷启动一致（`resolveEntry` 单判定）。（**发布后验证批次**）
 
 ## 2026-09-05 真机回归落档
 

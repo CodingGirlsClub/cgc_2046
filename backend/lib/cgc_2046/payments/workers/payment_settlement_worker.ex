@@ -126,14 +126,22 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
         reconcile_enrollment(event, order)
 
       status when status in [:expired, :cancelled] ->
-        enqueue_auto_refund(order)
-        mark_processed(event)
+        with :ok <- enqueue_auto_refund(order), do: mark_processed(event)
 
       # F-C:重复投递到已进退款链的订单是预期路径(迟到回调撞上已发起的退款/
       # 已完成退款),降 info;真 unexpected(如 refund_failed 单又有款)保持 error。
       status when status in [:refunding, :refunded] ->
         Logger.info(
           "settlement: order #{order.id} already in refund flow (#{status}), delivery skipped"
+        )
+
+        mark_processed(event)
+
+      # U7（KTD7/KD4）：迟到支付回调撞上 no-show 结算终态——押金已没收、
+      # 不退款、不重试，降 info 消费事件（与退款链同款预期路径口径）。
+      :forfeited ->
+        Logger.info(
+          "settlement: order #{order.id} already forfeited (no-show settlement), delivery skipped"
         )
 
         mark_processed(event)
@@ -216,14 +224,17 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
             mark_processed(event)
 
           {:error, reason} ->
-            {:error, reason}
+            if registration_closed?(reason) do
+              with :ok <- enqueue_auto_refund(order), do: mark_processed(event)
+            else
+              {:error, reason}
+            end
         end
 
       {:ok, %{status: :confirmed} = enrollment} ->
         case waived?(enrollment) do
           {:ok, true} ->
-            enqueue_auto_refund(order)
-            mark_processed(event)
+            with :ok <- enqueue_auto_refund(order), do: mark_processed(event)
 
           {:ok, false} ->
             notify_payment_succeeded(order, enrollment)
@@ -234,8 +245,7 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
         end
 
       {:ok, %{status: status}} when status in [:expired, :cancelled, :rejected] ->
-        enqueue_auto_refund(order)
-        mark_processed(event)
+        with :ok <- enqueue_auto_refund(order), do: mark_processed(event)
 
       {:ok, %{status: other}} ->
         Logger.error("settlement: unexpected enrollment status #{other} for order #{order.id}")
@@ -265,21 +275,42 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
   # 自动退款（KTD12 共用不变量）：start_refund（paid|expired → refunding）+ 入队
   # 退款 job；渠道调用与收尾（refunded/报名/通知）由 U9 worker 消费。
   defp enqueue_auto_refund(order) do
-    case order
-         |> Ash.Changeset.for_update(:start_refund, %{})
-         |> Ash.update(tenant: order.workspace_id, authorize?: false) do
-      {:ok, refunding} ->
-        %{"order_id" => refunding.id}
-        |> PaymentRefundWorker.new()
-        |> Oban.insert!()
+    case Cgc2046.Repo.transaction(fn ->
+           result =
+             order
+             |> Ash.Changeset.for_update(:start_refund, %{})
+             |> Ash.update(tenant: order.workspace_id, authorize?: false)
 
-        :ok
+           case result do
+             {:ok, refunding} ->
+               %{"order_id" => refunding.id} |> PaymentRefundWorker.new() |> Oban.insert!()
 
-      {:error, _already_refunding} ->
-        # 并发重试已推进（重入幂等）
-        :ok
+             {:error, error} ->
+               fresh = Ash.get!(Order, order.id, authorize?: false)
+
+               if fresh.status in [:refunding, :refunded] do
+                 %{"order_id" => fresh.id} |> PaymentRefundWorker.new() |> Oban.insert!()
+               else
+                 Cgc2046.Repo.rollback(error)
+               end
+           end
+         end) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp registration_closed?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Cgc2046.Errors.BusinessError{code: "enrollment_target_not_open_or_registration_closed"} ->
+        true
+
+      _ ->
+        false
+    end)
+  end
+
+  defp registration_closed?(_), do: false
 
   # ── 通知（R22：支付成功 → 报名人；契约 = Payments.NotificationTemplates）──
 

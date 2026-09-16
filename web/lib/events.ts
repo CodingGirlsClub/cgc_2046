@@ -84,6 +84,15 @@ export type OfferingDraftInput = {
 	pricingEnabled?: boolean;
 	/** 档位 JsonString 数组（caller-serializes） */
 	priceTiers?: string[];
+	/**
+	 * 押金槽（event-deposit U9/R2）：三态互斥键由 lib/payment-mode 单源产出——
+	 * 押金态 pricingEnabled=false + priceTiers=[]，定价态 depositEnabled=false。
+	 * course 无押金列，调用方按 kind 剥离。
+	 */
+	depositEnabled?: boolean;
+	/** 押金金额（分）；undefined/开启押金时必为正整数（后端 PaymentModeValidation 兜底） */
+	depositAmountCents?: number | null;
+	initiativeId?: string | null;
 };
 
 export type OfferingUpdateInput = {
@@ -104,6 +113,11 @@ export type OfferingUpdateInput = {
 	pricingEnabled?: boolean;
 	/** 价格档位配置（每项 JSON.stringify 后作为 JsonString 提交；PriceTier 形状） */
 	priceTiers?: string[];
+	/** 押金开关（event-deposit U9/R2；同 pricingEnabled 语义，三态互斥由 caller 保证） */
+	depositEnabled?: boolean;
+	/** 押金金额（分） */
+	depositAmountCents?: number | null;
+	initiativeId?: string | null;
 };
 
 /**
@@ -228,6 +242,7 @@ export async function createOffering(
 				registrationDeadline: input.registrationDeadline ?? null,
 				startsAt: input.startsAt ?? null,
 				endsAt: input.endsAt ?? null,
+				...(kind === "event" && input.initiativeId !== undefined ? { initiativeId: input.initiativeId } : {}),
 				// venue 仅 event 有槽（CreateCourseInput 无此字段，下发即 GraphQL 校验错误）
 				...(kind === "event" ? { venue: venueDraftToJson(input.venue) } : {}),
 				// 定价随创建透传（U6/R1）：调用方仅在开启收费时落键，免费路径不下发
@@ -235,6 +250,13 @@ export async function createOffering(
 					? {
 							pricingEnabled: input.pricingEnabled,
 							priceTiers: input.priceTiers ?? [],
+						}
+					: {}),
+				// 押金随创建透传（U9/R2）：caller 只在 event 且选中押金态时落键
+				...(kind === "event" && input.depositEnabled !== undefined
+					? {
+							depositEnabled: input.depositEnabled,
+							depositAmountCents: input.depositAmountCents ?? null,
 						}
 					: {}),
 			},
@@ -326,14 +348,19 @@ export async function fetchMyActiveEnrollments(): Promise<ActiveEnrollmentRow[]>
  * cancelled/expired/rejected 终态行不算「已报名」，取消后可再报名）。
  *
  * 返回活跃报名行（id + status，供 payment_pending 分叉「待支付」卡片与
- * confirmed「已报名」）；无活跃报名 → null；查询失败返回 null（入口不显示，
- * 不误报已报名）。
+ * confirmed「已报名」；checkInCode 供 confirmed 活动报名出示核销码）；无活跃
+ * 报名 → null；查询失败返回 null（入口不显示，不误报已报名）。
  */
 export async function fetchMyEnrollment(
 	id: string,
 	kind: OfferingKind,
 	userId: string,
-): Promise<{ id: string; status: string; approvalDeadline?: string | null } | null> {
+): Promise<{
+	id: string;
+	status: string;
+	approvalDeadline?: string | null;
+	checkInCode?: string | null;
+} | null> {
 	// network-only（P3/F4 同款纪律）：支付成功后 onPaid 就地刷新若命中
 	// cache-first 的 payment_pending 旧值，报名区会一直停在「待支付」。
 	if (kind === "event") {

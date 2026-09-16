@@ -1,4 +1,4 @@
-import type { CatalogItem, EnrollmentBadge, EnrollmentStatus } from './models'
+import type { CatalogItem, EnrollmentBadge, EnrollmentStatus, EnrollmentSummary } from './models'
 
 export function remainingLabel(deadline: string | null, now = Date.now()): string {
   if (!deadline) return '未设置截止时间'
@@ -34,6 +34,13 @@ export function parseEnrollmentBadge(value: string | null): EnrollmentBadge {
   throw new Error(`服务端返回未知报名标签：${value}`)
 }
 
+/** 缴费模式（后端 Enrollment.paymentMode 计算字段；null = 读面不可得，展示层按免费态兜底） */
+export function parsePaymentMode(value: string | null): EnrollmentSummary['paymentMode'] {
+  if (value === null) return null
+  if (value === 'free' || value === 'pricing' || value === 'deposit') return value
+  throw new Error(`服务端返回未知缴费模式：${value}`)
+}
+
 /** 报名状态展示文案（my-enrollments 卡片与详情页「已报名」态共用单源） */
 export const enrollmentStatusText: Record<EnrollmentStatus, string> = {
   pending: '等待审批',
@@ -52,16 +59,54 @@ export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
   full: '已满'
 }
 
-/** 报名阻断提示：closed/full 返回阻断文案（与 web 端 closedHint/fullHint 逐字一致），其余 badge 放行返回 null */
-export function enrollmentBlockedNotice(badge: EnrollmentBadge): string | null {
-  if (badge === 'closed') return '报名已截止，不再接受新的报名。'
-  if (badge === 'full') return '名额已满，不再接受新的报名。'
+/**
+ * 报名阻断提示（双门：条目状态优先，报名 badge 兜底）；null = 可报名。
+ *
+ * - `status !== 'open'`（cancelled/closed/draft）一律阻断 —— 公开留档读
+ *   （initiative 挂载的 closed/cancelled 匿名可读）会把归档场送到详情页与
+ *   register-form，而 badge 只看 capacity/截止，曾在此漏出报名表单（#574）；
+ *   closed 按 endsAt 区分「活动已结束」与「报名已截止」。
+ * - open 时沿用 badge 文案（与 web 端 closedHint/fullHint 逐字一致）。
+ *
+ * 详情页 CTA 与 register-form 表单页共用本函数（表单页此前只有 badge 门）。
+ */
+export function enrollmentBlockedNotice(
+  item: Pick<CatalogItem, 'status' | 'endsAt' | 'enrollmentBadge'>
+): string | null {
+  if (item.status !== 'open') {
+    if (item.status === 'cancelled') return '活动已取消，仅供查看。'
+    if (item.endsAt && Date.parse(item.endsAt) <= Date.now()) return '活动已结束，仅供查看。'
+    return '报名已截止，仅供查看。'
+  }
+  if (item.enrollmentBadge === 'closed') return '报名已截止，不再接受新的报名。'
+  if (item.enrollmentBadge === 'full') return '名额已满，不再接受新的报名。'
   return null
+}
+
+/**
+ * 详情页「报名状态」槽文案：open 用报名 badge；非 open 显示条目状态词——
+ * 归档场不再并列显示「报名中 + 已取消」（#574）。
+ */
+export function enrollmentMetricText(item: Pick<CatalogItem, 'status' | 'enrollmentBadge'>): string {
+  if (item.status === 'open') return enrollmentBadgeText[item.enrollmentBadge]
+  if (item.status === 'cancelled') return '已取消'
+  if (item.status === 'closed') return '已结束'
+  return '草稿'
 }
 
 // 与详情页既有截止日期同款 toLocaleString 惯例（R15 随行展示不引新格式）
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
+}
+
+/**
+ * 报名卡核销码出示文本（R11/KTD5）：仅 confirmed 报名且后端返回码时出示
+ * （后端按「本人 confirmed 报名」门控，course 恒 null）；其余 → null。
+ * 文本承载 6 位码本身——主理人现场手输/扫码用。
+ */
+export function checkInCodeText(status: EnrollmentStatus, checkInCode: string | null): string | null {
+  if (status !== 'confirmed' || !checkInCode) return null
+  return `核销码 ${checkInCode}`
 }
 
 /** 时间行展示（R3）：双全为区间，单值带方向，全空兜底「时间待定」 */

@@ -1,0 +1,18 @@
+.page { min-height: 100vh; box-sizing: border-box; background: #f7f7f7; padding: 32rpx; padding-bottom: calc(40rpx + env(safe-area-inset-bottom)); }
+.status { display: block; color: #777; font-size: 24rpx; margin-bottom: 16rpx; }
+.title { display: block; font-size: 48rpx; font-weight: 700; margin-bottom: 12rpx; overflow-wrap: anywhere; }
+.hashtag { display: block; color: #ea5504; font-size: 28rpx; margin-bottom: 12rpx; }
+.meta, .description { display: block; color: #777; font-size: 26rpx; line-height: 1.6; margin-bottom: 24rpx; overflow-wrap: anywhere; }
+.description { color: #333; white-space: pre-wrap; }
+.counters { display: flex; background: #fff; border-radius: 16rpx; padding: 24rpx 0; }
+.counter { flex: 1; min-width: 0; text-align: center; }
+.count { display: block; font-size: 36rpx; font-weight: 700; }
+.label { display: block; font-size: 24rpx; color: #777; margin-top: 8rpx; }
+.group { margin-top: 32rpx; }
+.city { display: block; font-size: 34rpx; font-weight: 700; }
+.card { display: block; background: #fff; border-radius: 16rpx; padding: 24rpx; margin-top: 16rpx; }
+.event { display: block; font-size: 30rpx; font-weight: 600; overflow-wrap: anywhere; }
+.schedule { display: block; color: #777; font-size: 24rpx; line-height: 1.5; margin-top: 12rpx; }
+.cardMeta { display: block; color: #555; font-size: 24rpx; line-height: 1.5; margin-top: 8rpx; overflow-wrap: anywhere; }
+.badge { display: block; color: #b64100; font-size: 26rpx; margin-top: 12rpx; }
+.link { display: block; color: #555; font-size: 24rpx; margin-top: 16rpx; }

@@ -3,13 +3,19 @@ import test from 'node:test'
 import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
+  canRequestPayment,
+  cancelConfirmCopy,
   countdownText,
+  depositPayNotice,
+  depositRefundRuleText,
   enrollmentResultCopy,
   formatAmount,
   mapPaymentCredential,
   nextPollTick,
   parsePriceTiers,
+  paymentBlockCopy,
   paymentLandingUrl,
+  parseOrderKind,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
 } from '../src/domain/payment.ts'
@@ -127,6 +133,58 @@ test('金额分→元两位小数；订单/缴费状态词表覆盖 plan R16 状
   assert.equal(PAYMENT_STATUS_LABEL.refunded, '已退款')
 })
 
+// ── U11（R10）：详情页缴费块三态文案 ──
+
+test('缴费块三态：免费/收费/押金各一态，押金态含「未到场不退」且不并列档位与「免费」', () => {
+  const tiers = [{ id: 't1', name: '早鸟', amountCents: 9900 }]
+
+  assert.deepEqual(
+    paymentBlockCopy({ pricingEnabled: false, depositEnabled: false, depositAmountCents: null, priceTiers: [] }),
+    { title: '缴费', amountText: '免费', tiers: [], notes: [] }
+  )
+
+  const pricing = paymentBlockCopy({
+    pricingEnabled: true,
+    depositEnabled: false,
+    depositAmountCents: null,
+    priceTiers: tiers
+  })
+  assert.equal(pricing.amountText, '收费')
+  assert.deepEqual(pricing.tiers, tiers)
+  // 无可售档兜底（既有详情页文案不回归）
+  assert.deepEqual(
+    paymentBlockCopy({ pricingEnabled: true, depositEnabled: false, depositAmountCents: null, priceTiers: [] }).notes,
+    ['当前无可售档位，请联系组织者。']
+  )
+
+  const deposit = paymentBlockCopy({
+    pricingEnabled: false,
+    depositEnabled: true,
+    depositAmountCents: 6900,
+    priceTiers: tiers
+  })
+  assert.equal(deposit.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(deposit.amountText.includes('免费'), false)
+  assert.deepEqual(deposit.tiers, [])
+  assert.equal(deposit.notes.some((note) => note.includes('未到场不退')), true)
+
+  // 金额缺失（后端校验兜底）：降级不出价，也不并列「免费」
+  assert.equal(
+    paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: null, priceTiers: [] })
+      .amountText,
+    '押金（到场退）'
+  )
+
+  // 0/负数同守卫（后端校验 min 1，纯合同对齐）：降级不出价——绝不显示 ¥0.00
+  for (const invalid of [0, -500]) {
+    assert.equal(
+      paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: invalid, priceTiers: [] })
+        .amountText,
+      '押金（到场退）'
+    )
+  }
+})
+
 test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {
   assert.equal(parseEnrollmentStatus('payment_pending'), 'payment_pending')
   // 既有白名单值不回归
@@ -161,4 +219,108 @@ test('报名结果页文案：payment_pending 待支付 + 裁剪端网页端支�
   // 既有 pending/confirmed 文案不回归
   assert.equal(enrollmentResultCopy('pending', false).title, '等待审批')
   assert.equal(enrollmentResultCopy('confirmed', false).title, '报名成功')
+})
+
+test('取消弹窗文案：payment_pending 作废待支付订单，不提退款', () => {
+  assert.equal(
+    cancelConfirmCopy({ status: 'payment_pending', paymentMode: 'pricing', hasPaidOrder: false }),
+    '取消后将释放名额并作废待支付订单，此操作不可恢复。'
+  )
+})
+
+test('取消弹窗文案：押金场已付 → 通用句（自动退款承诺由卡片常驻规则行承载，弹窗不重复）', () => {
+  // 后端 cancel action 截止前自助取消同事务 CAS paid→refunding 并入队退款——
+  // 弹窗若再说「不会自动退款」即与行为相反（本修复的反例）
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: 'deposit', hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。'
+  )
+})
+
+test('取消弹窗文案：非押金场已付单（定价/模式不可得）→ 明示联系组织者退款', () => {
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: 'pricing', hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+  )
+  // 模式不可得（null）但存在已付单：定价单同款处理，不承诺自动退款
+  assert.equal(
+    cancelConfirmCopy({ status: 'confirmed', paymentMode: null, hasPaidOrder: true }),
+    '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
+  )
+})
+
+test('取消弹窗文案：无已付单（免费/免缴/押金未付）→ 通用句', () => {
+  for (const paymentMode of ['free', 'pricing', 'deposit', null] as const) {
+    assert.equal(
+      cancelConfirmCopy({ status: 'confirmed', paymentMode, hasPaidOrder: false }),
+      '取消后名额将即时释放，此操作不可恢复。'
+    )
+  }
+  assert.equal(
+    cancelConfirmCopy({ status: 'pending', paymentMode: 'free', hasPaidOrder: false }),
+    '取消后名额将即时释放，此操作不可恢复。'
+  )
+})
+
+test('押金退改规则常驻行：仅押金场出行（与 web depositRefundRule 逐字一致）', () => {
+  assert.equal(depositRefundRuleText('deposit'), '押金：截止前取消全额退；截止后不退。')
+  assert.equal(depositRefundRuleText('pricing'), null)
+  assert.equal(depositRefundRuleText('free'), null)
+  assert.equal(depositRefundRuleText(null), null)
+})
+
+// ── U1 小程序落点：押金场资金动作前的明示 + 显式同意 ──
+
+test('押金支付前文案：金额行与详情页缴费块单源，必含不退明示与勾选文案', () => {
+  const notice = depositPayNotice(6900)
+  assert.equal(notice.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(notice.forfeitText, '未到场不退。')
+  assert.equal(
+    notice.ackLabel,
+    '押金以到场为退还条件：到场核销后原路退回，未到场不予退还。'
+  )
+  // 单源钉：同一出口出两处文案，杜绝详情页与支付页口径漂移
+  assert.equal(
+    notice.amountText,
+    paymentBlockCopy({
+      pricingEnabled: false,
+      depositEnabled: true,
+      depositAmountCents: 6900,
+      priceTiers: []
+    }).amountText
+  )
+
+  // 金额缺失/非正 → 降级不出价，绝不显示 ¥0.00
+  for (const invalid of [null, 0, -500]) {
+    assert.equal(depositPayNotice(invalid).amountText, '押金（到场退）')
+  }
+})
+
+test('支付门判据：押金单未勾选不放行；一般报名单零回归；无订单一律不放行', () => {
+  const base = { ack: false, hasCredential: true, paying: false }
+  const deposit = { orderKind: 'deposit' } as const
+  const enrollment = { orderKind: 'enrollment' } as const
+
+  // 押金单：勾选是硬门（资金动作前的显式同意）
+  assert.equal(canRequestPayment({ ...base, order: deposit }), false)
+  assert.equal(canRequestPayment({ ...base, order: deposit, ack: true }), true)
+
+  // 一般报名单（定价）：不受 ack 影响，行为零回归
+  assert.equal(canRequestPayment({ ...base, order: enrollment }), true)
+  assert.equal(canRequestPayment({ ...base, order: enrollment, ack: true }), true)
+
+  // 订单未就绪：没有可支付的东西（不给可支付假象）
+  assert.equal(canRequestPayment({ ...base, order: null, ack: true }), false)
+
+  // 既有门不回归：凭据未就绪 / 调起中
+  assert.equal(canRequestPayment({ ...base, order: enrollment, hasCredential: false }), false)
+  assert.equal(canRequestPayment({ ...base, order: deposit, ack: true, paying: true }), false)
+})
+
+test('订单口径解析：只认后端两个值，未知值上抛（资金门判据不得猜方向）', () => {
+  assert.equal(parseOrderKind('deposit'), 'deposit')
+  assert.equal(parseOrderKind('enrollment'), 'enrollment')
+  // 未知值 fail-closed：猜错方向 = 押金单零披露付款
+  assert.throws(() => parseOrderKind('bogus'), /未知订单口径/)
+  assert.throws(() => parseOrderKind(''), /未知订单口径/)
 })

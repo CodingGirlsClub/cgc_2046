@@ -1,4 +1,5 @@
 import { client } from "./apollo-client";
+import { timeoutSignal } from "@/lib/timeout-signal";
 import type { AuditFilters } from "./admin";
 import {
 	PLATFORM_WORKFLOW_AUDIT,
@@ -22,20 +23,6 @@ export interface WorkflowRunItem {
 	errorSummary?: string | null;
 }
 
-/** #23：请求超时 signal（15s）。超时后 abort，Apollo 报 AbortError → 调用方错误态。 */
-const REQUEST_TIMEOUT_MS = 15_000;
-
-function timeoutSignal(): AbortSignal {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-	// 请求完成时清理定时器（signal 不保留引用，GC 回收时定时器随之清除）
-	controller.signal.addEventListener(
-		"abort",
-		() => clearTimeout(timer),
-		{ once: true },
-	);
-	return controller.signal;
-}
 
 /**
  * 获取脱敏 audit 列表，仅 admin audit 页免 workspace scope 使用。

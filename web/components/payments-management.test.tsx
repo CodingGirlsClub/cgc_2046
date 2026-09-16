@@ -89,6 +89,7 @@ describe("OrderStatusBadge / StatsCards（U11 管理面）", () => {
 					pendingCents: 19900,
 					refundedCents: 19900,
 					refundFailedCents: 9900,
+					forfeitedCents: 0,
 				}}
 				statsError={false}
 				onRetryStats={() => undefined}

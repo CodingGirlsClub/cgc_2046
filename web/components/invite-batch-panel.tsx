@@ -376,7 +376,7 @@ export default function InviteBatchPanel({
 								disabled={!canCreate || creating}
 								aria-invalid={Boolean(fieldErrors.inviteCode || formError)}
 								aria-describedby="invite-batch-invite-code-help invite-batch-form-error"
-								className="min-w-0 flex-1 rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
+								className="ui-input min-w-0 flex-1"
 							/>
 							<button
 								type="button"
@@ -411,7 +411,7 @@ export default function InviteBatchPanel({
 							disabled={!canCreate || creating}
 							aria-invalid={Boolean(fieldErrors.quota)}
 							aria-describedby="invite-batch-quota-help"
-							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
+							className="ui-input mt-1 w-full"
 						/>
 						<p id="invite-batch-quota-help" className="mt-1 text-[12px] text-ink-3">
 							{t("quotaHelp")}
@@ -436,7 +436,7 @@ export default function InviteBatchPanel({
 							disabled={!canCreate || creating}
 							aria-invalid={Boolean(fieldErrors.expiresAt)}
 							aria-describedby="invite-batch-expires-at-help"
-							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
+							className="ui-input mt-1 w-full"
 						/>
 						<p id="invite-batch-expires-at-help" className="mt-1 text-[12px] text-ink-3">
 							{t("expiresAtHelp")}
@@ -458,7 +458,7 @@ export default function InviteBatchPanel({
 							onChange={(event) => updateDraft({ remark: event.target.value })}
 							disabled={!canCreate || creating}
 							aria-describedby="invite-batch-remark-help"
-							className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
+							className="ui-input mt-1 w-full"
 						/>
 						<p id="invite-batch-remark-help" className="mt-1 text-[12px] text-ink-3">
 							{t("remarkHelp")}

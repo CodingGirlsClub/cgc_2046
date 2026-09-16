@@ -30,5 +30,7 @@ defmodule Cgc2046.Admission do
     resource(Cgc2046.Admission.InviteBatch)
     # KD2：名额账本归 Admission（占位/释放 CAS 收编账本行；不进 GraphQL）
     resource(Cgc2046.Admission.CapacityLedger)
+    # KTD4/KTD11：到场事实（核销）归 Admission（推进报名维度的到场事实）
+    resource(Cgc2046.Admission.Attendance)
   end
 end

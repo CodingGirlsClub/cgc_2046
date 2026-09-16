@@ -1,0 +1,155 @@
+@startuml initiative-user-journeys
+' ============================================================
+' L4 - Initiative（倡导活动）四角色 User Journey（to-be，brainstorm 2026-09-13）
+' 状态：需求层设计稿，尚未实现。配套 ER 见 initiative-er.puml；
+'   需求 plan 为 docs/plans/ 下 ce-brainstorm 产物（待写）。
+' 事实来源（既有能力锚点）：
+'   backend/lib/cgc_2046/events/event.ex（Event 状态机 draft→open→closed/cancelled，
+'     slug 发布后锁定，venue 四键或全空，pricing/price_tiers，course_revision_id）
+'   backend/lib/cgc_2046/accounts/workspace.ex（仅平台管理员建 Workspace；reassign_owner）
+'   backend/lib/cgc_2046/accounts/workspace_application.ex（申请 → 审批）
+'   backend/lib/cgc_2046/admission/enrollment.ex（create_enrollment；submission_payload）
+'   backend/lib/cgc_2046/admission/workers/offering_cancel_refund_worker.ex（取消 → 批量全额退）
+'   backend/lib/cgc_2046/accounts/portfolio_item.ex（作品 title/description/url，尚无 Event 关联）
+'   backend/lib/cgc_2046/mcp/tools/create_event.ex（单场创建原语，无批量）
+'   backend/priv/repo/seeds.exs:41（默认 Workspace 2046，join_policy open，注册即加入）
+' 相关 issue：#508 核销 · #509 押金自动退款 · #510 18+ · #512 开班阈值 · #513 城市主理流程
+'   （#511 批量建场：本设计下关闭，由 agent 循环调 create_event 替代）
+' 决策来源：2026-09-13 brainstorm Q1–Q8：Initiative 平台级、opt-in、Workspace 从人里长、
+'   规则逐字段锁 / 默认（锁死实时读、默认建场快照）、Event 级角色 moderator（主理人，一场多人）；
+'   补充决策 A1–A5：成班事实 v1 必须、一人多场不限、截止前自取消全额退、改期只通知、小程序也有 Initiative 页；
+'   主理人默认 = 建场创建者，后续从名单变更（主理人从报名者里长出来，发布时不检查）
+'   【2026-09-15 修订（#542 决策 / #558 落地）】「不检查」废止：主理人须为本工作台
+'   成员，指派前校验成员资格（非成员报错引导先邀请入台）；「从报名者里长出来」的
+'   外部合作者场景由「先邀请入台」承载。
+' 图例：无标记 = v1 必须 · 【v1 应该】= 可脚本 / 人肉顶 · 【后置】= 另开 issue · 【未来】= opt-in 未来
+' ============================================================
+title Initiative（倡导活动）四角色 User Journey（to-be）— 以 hackerstart1024 为例
+skinparam backgroundColor white
+skinparam noteBackgroundColor #FFF8E1
+skinparam noteBorderColor #E0A800
+
+|总部（平台管理员 / 2046 owner）|
+|平台 + OpenClacky agent|
+|参与者（学员）|
+|主理人（Event 级 moderator）|
+|城市 Workspace owner（opt-in 未来）|
+
+|总部（平台管理员 / 2046 owner）|
+start
+
+group 阶段一：发起 Initiative {
+  :创建 Initiative（草稿）\n名称 / slug / 品牌标签 #hackerstart1024\n时间窗 / 描述;
+  :配置规则并逐字段标「锁死 / 默认」\n押金 69（锁）· 18+（锁）\n开班阈值 8（默认）· 截止 = 开场前 72h（默认）;
+  :发布 Initiative → 进行中;
+  |平台 + OpenClacky agent|
+  :Initiative 公开页上线\n（城市列表为空，计数 0）;
+}
+
+group 阶段二：建场与指派主理人 {
+  |总部（平台管理员 / 2046 owner）|
+  :场地与场次表由仓库外脚本产出\n（gen_sessions.py → 城市 × 场地 × 时段）;
+  :对 agent 说「按这张表建场」;
+  |平台 + OpenClacky agent|
+  :agent 循环调既有 create_event\n带 initiative_id · slug = 1024-<城市>-<序号>\nvenue 四键 · starts / ends · capacity;
+  note right
+    不做批量建场功能（#511 关闭）
+    幂等靠 slug 全局唯一：重放被既有约束拒掉
+  end note
+  :Event 草稿已挂载（能力都在 Event 上，Initiative 只给值）\n锁死字段：值由 Initiative 决定、不可改\n默认字段：以 Initiative 值为初值、可改;
+  |总部（平台管理员 / 2046 owner）|
+  :建场时创建者（总部）默认成为本场主理人\n后续有人冒出来再从名单变更;
+  :发布 Event（launch）;
+  |平台 + OpenClacky agent|
+  :场次出现在公开页对应城市下\n计数更新;
+  note right
+    只挂草稿期 Event；发布后不挂不摘
+    （同 slug 发布后锁定：公开即契约）
+  end note
+}
+
+group 阶段二（未来分支）：城市自建（opt-in，非 v1） {
+  |城市 Workspace owner（opt-in 未来）|
+  :【未来】种子用户申请 Workspace → 平台管理员审批\n（既有 WorkspaceApplication 流，不预建）;
+  :【未来】看到进行中的 Initiative;
+  :【未来】在自己 Workspace 新建草稿 Event → 选 Initiative;
+  :【未来】锁死字段只读 · 默认字段可改\n（例：阈值改 6）;
+  :【未来】指派本 Workspace 的主理人 → 发布;
+  |平台 + OpenClacky agent|
+  :【未来】场次出现在公开页该城市下\n「参与 Workspace」从挂载的 Event 推导，无需加入名册;
+}
+
+group 阶段三：报名与付押金 {
+  |参与者（学员）|
+  :从微信 / 小红书分享的公开页链接进入\n（web H5 与小程序 discover，小程序覆盖微信 / 抖音 / 小红书）;
+  :选城市 → 看场次\n时间 · 场地 · 剩余名额 · 开班徽章（已成班 / 还差 N 人）;
+  :进入既有 Event 页 → 报名;
+  |平台 + OpenClacky agent|
+  :18+ 确认 + 条款版本留痕\n（锁死规则，#510）;
+  :付押金 69\n（锁死规则，既有支付链路）;
+  :报名 confirmed;
+  |参与者（学员）|
+  :小程序显示核销码\n（二维码 + 6 位码，#508）;
+  note right
+    截止前自助取消 → 自动全额退押金（新路径，A3）
+    截止后取消 = no-show 不退
+  end note
+}
+
+group 阶段四：开班判定（T-72h） {
+  |平台 + OpenClacky agent|
+  :到截止时点按阈值判定并落「成班」事实（#512，v1 必须）\n开成数与「还差 N 人」徽章读它;
+  if (confirmed ≥ 阈值?) then (是)
+    :【v1 应该】开班确认通知;
+  else (否)
+    :【v1 应该】自动 cancel_event\n兜底：总部手动 cancel;
+    :既有 worker 批量全额退款;
+    :【v1 应该】「人数不足已退款」通知;
+    |参与者（学员）|
+    :收到退款，可另选同城场次（人工协调）;
+    detach
+  endif
+}
+
+group 阶段五：现场 {
+  |总部（平台管理员 / 2046 owner）|
+  :报名者在微信里表达意愿 → 从本场名单把他设为主理人\n（Owner/Admin 本身拥有主理人全部能力）;
+  |主理人（Event 级 moderator）|
+  :收到指派通知;
+  :（#513 thin）在 OpenClacky 里由 event-moderator agent 领流程\n场地确认 · 开场前检查单;
+  :活动当天扫码核销 / 手输 6 位码（#508）\n一条报名至多一条 attendance，重复扫返回既有;
+  :看本场名单（脱敏）处理「码不好用」;
+  |参与者（学员）|
+  :跟自助活动包做出作品;
+  :【后置】在 Profile 添加作品并关联本场 Event\n（Event 级 issue，另开）;
+  |主理人（Event 级 moderator）|
+  :【后置】审核本场作品 → 通过者上 Event 页;
+  :【后置】照片 / 反馈 / 现场记录：v1 不做\n（存储未就绪，另记 issue）;
+}
+
+group 阶段六：结算与收官 {
+  |平台 + OpenClacky agent|
+  :活动结束 T+48h 自动结算（#509）\n已核销 → 全额退 · 未核销 → no-show 不退;
+  |参与者（学员）|
+  :收到退款通知;
+  :【未来】注册时已是 2046 成员；\n将来城市 Workspace 从这些人里长出来（申请 → 审批）;
+  |总部（平台管理员 / 2046 owner）|
+  :看公开页计数（城市 / 场次 / 报名 / 开成）\n内部报表（退款 / no-show / 财务）用 agent 查;
+  :场次改期 / 换场地 → 通知已报名者（新信号，A4）\n不接受者的退款人工处理;
+  :规则修正：改锁死字段 → 全场实时生效\n改默认字段 → 只影响之后新建的场次;
+  :收官：Initiative → 已结束，公开页留档;
+  :【后置】Initiative 级作品总墙：将来单独 feature issue;
+}
+stop
+
+legend right
+  **图例**
+  无标记 = v1 必须 · 【v1 应该】= 可脚本 / 人肉顶 · 【后置】= 另开 issue · 【未来】= opt-in 未来
+  **按角色读法**：每条泳道自上而下就是该角色的 journey
+  总部：发起 → 配规则 → 让 agent 建场（默认自己是主理人）→ 发布 → 从名单换主理人 → 盯计数 → 修规则 → 收官
+  参与者：分享链接 → 公开页 → 城市 → 场次 → 18+ · 押金 → 核销码 → 到场 → 作品 → 退押金
+  主理人：从报名者里冒出来 → 被总部从名单设为主理人 → agent 领流程 → 扫码核销 → 看名单 → 审核作品
+  城市 owner（未来）：申请 Workspace → 看到 Initiative → 建草稿场次挂进去 → 改默认字段 → 指派 → 发布
+end legend
+
+@enduml

@@ -20,11 +20,15 @@
 .sectionTitle { font-size: 32rpx; font-weight: 650; }
 .sectionMeta { color: #8a8f98; font-size: 22rpx; }
 .contentCard { position: relative; margin-bottom: 18rpx; padding: 26rpx 64rpx 26rpx 26rpx; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 22rpx; }
+/* 倡导活动卡片：同内容卡骨架 + 独立类名——e2e 选择器锚点（data-testid 在 Taro 4 不落地，见 #579） */
+.initiativeCard { border-left: 6rpx solid #ea5504; }
 .cardTop { display: flex; align-items: center; gap: 14rpx; }
 .kind { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 2rpx; }
 .policy { padding: 4rpx 12rpx; color: #ea5504; background: #fdeadf; border-radius: 16rpx; font-size: 19rpx; }
 .cardTitle { display: block; margin-top: 14rpx; font-size: 31rpx; line-height: 1.35; font-weight: 600; }
 .cardMeta { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 23rpx; }
+.cardWindow { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 22rpx; }
+.cardDesc { display: block; margin-top: 8rpx; color: #4b4d54; font-size: 23rpx; line-height: 1.5; }
 .arrow { position: absolute; right: 24rpx; top: 50%; transform: translateY(-50%); color: #8a8f98; font-size: 34rpx; }
 .courseCard { margin-bottom: 16rpx; padding: 24rpx 26rpx; display: flex; align-items: center; justify-content: space-between; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 22rpx; }
 .courseArrow { color: #8a8f98; font-size: 48rpx; }

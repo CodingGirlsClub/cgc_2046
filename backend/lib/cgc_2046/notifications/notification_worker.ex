@@ -165,6 +165,38 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       job_meta_keys: ["idempotency_key"],
       unique: :default,
       stale: nil
+    },
+    %{
+      template_key: "event_qualification_confirmed",
+      id_key: nil,
+      data_keys: ["event_id", "title", "min_participants", "confirmed_count"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "event_qualification_underfilled",
+      id_key: nil,
+      data_keys: ["event_id", "title", "min_participants", "confirmed_count"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "event_schedule_changed",
+      id_key: nil,
+      data_keys: ["event_id", "title", "starts_at", "venue"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "event_moderator_assigned",
+      id_key: nil,
+      data_keys: ["event_id", "title"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
     }
   ]
 

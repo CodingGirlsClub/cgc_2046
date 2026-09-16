@@ -25,7 +25,8 @@ export type OrderPollStatus =
 	| "refunded"
 	| "refund_failed"
 	| "cancelled"
-	| "expired";
+	| "expired"
+	| "forfeited";
 
 const POLL_TERMINAL: Record<string, true> = {
 	paid: true,
@@ -34,6 +35,7 @@ const POLL_TERMINAL: Record<string, true> = {
 	refund_failed: true,
 	cancelled: true,
 	expired: true,
+	forfeited: true,
 };
 
 export interface PollDecision {
@@ -143,6 +145,8 @@ export interface PaymentStats {
 	refundedCents: number;
 	/** 退款失败待处理（U1-R1；旧负载缺键时 = 0） */
 	refundFailedCents: number;
+	/** no-show 没收（event-deposit U7/R9；旧负载缺键时 = 0） */
+	forfeitedCents: number;
 }
 
 export function parsePaymentStats(raw: string | null | undefined): PaymentStats | null {
@@ -170,6 +174,8 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 	const refunded = toInt(o.refunded_cents);
 	// U1-R1 前向后向：旧三键负载的 refund_failed_cents 缺省 0
 	const refundFailed = toInt(o.refund_failed_cents) ?? 0;
+	// event-deposit U7 前向后向：旧四键负载的 forfeited_cents 缺省 0
+	const forfeited = toInt(o.forfeited_cents) ?? 0;
 
 	if (collected === null || pending === null || refunded === null) return null;
 
@@ -178,6 +184,7 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 		pendingCents: pending,
 		refundedCents: refunded,
 		refundFailedCents: refundFailed,
+		forfeitedCents: forfeited,
 	};
 }
 
@@ -221,6 +228,15 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 /** 分 → 元（两位小数，R20 存储一律分） */
 export function formatAmount(cents: number): string {
 	return (cents / 100).toFixed(2);
+}
+
+/**
+ * 分 → 元短式（整元省略小数：6900 → "69"，6950 → "69.50"）。
+ * 缴费槽口径文案（R10「押金 ¥69（到场退）」）与订单金额展示不同层——
+ * 后者一律两位小数对齐渠道金额，此处只服务产品口径文案。
+ */
+export function formatAmountShort(cents: number): string {
+	return cents % 100 === 0 ? String(cents / 100) : formatAmount(cents);
 }
 
 /** tierSnapshot（JsonString，下单时物化档位）→ 档位名；坏 JSON/缺 name → null */
@@ -268,7 +284,23 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
 	refund_failed: "labels.orderStatus.refund_failed",
 	cancelled: "labels.orderStatus.cancelled",
 	expired: "labels.orderStatus.expired",
+	forfeited: "labels.orderStatus.forfeited",
 };
+
+/**
+ * 管理面订单状态筛选值（顺序即下拉顺序，与 ORDER_STATUS_LABEL 键序一致）：
+ * payments-management 与 offering-payments-panel 共用，新增终态只改这里。
+ */
+export const ORDER_STATUS_FILTER_VALUES: readonly string[] = [
+	"pending",
+	"paid",
+	"refunding",
+	"refunded",
+	"refund_failed",
+	"cancelled",
+	"expired",
+	"forfeited",
+];
 
 /** 倒计时文案：expire_at − now；过期文案由调用方传翻译（expiredLabel） */
 export function countdownText(

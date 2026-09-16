@@ -22,7 +22,8 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   @create_fields ~w(title description curriculum_enabled curriculum_requirements
                     enrollment_policy capacity registration_deadline starts_at ends_at
                     venue visibility slug sponsorship_enabled sponsorship_tiers
-                    sponsorship_deadline pricing_enabled price_tiers course_revision_id)
+                    sponsorship_deadline pricing_enabled price_tiers course_revision_id
+                    initiative_id deposit_enabled deposit_amount_cents min_age min_participants)
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
@@ -58,6 +59,12 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
     field(:course_revision_id, :string,
       description: "配套课程锚点（published course revision UUID；不提供=无配套课）"
     )
+
+    field(:initiative_id, :string, description: "草稿所属 Initiative UUID")
+    field(:deposit_enabled, :boolean, description: "是否收取活动押金")
+    field(:deposit_amount_cents, :integer, description: "押金金额（分）")
+    field(:min_age, :integer, description: "最低年龄；不提供=无门槛")
+    field(:min_participants, :integer, description: "最低成班人数；不提供=不判定")
   end
 
   @impl true

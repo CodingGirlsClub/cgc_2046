@@ -50,7 +50,23 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # = nil 与 CLI 系统动作同语义；每 event 一行，metadata 带批量计数）
           :event_cancel_batch_refund,
           # organizer-payment U2：Course cancelled 批量退款（R15，与 Event 同语义）
-          :course_cancel_batch_refund
+          :course_cancel_batch_refund,
+          :initiative_rule_update,
+          :initiative_create,
+          :initiative_update,
+          :initiative_open,
+          :initiative_close,
+          :event_moderator_assign,
+          :event_moderator_remove,
+          # 押金制 U5/KTD4：主理人核销到场（每报名一行，metadata 带 event_id/method）
+          :attendance_check_in,
+          # 押金制 U8/KTD7：no-show 结算没收（系统驱动无 actor，每 event 一行，
+          # metadata 带没收笔数/金额/order id 列表；deposit 押金单终态审计）
+          :deposit_forfeit,
+          # 押金制 U6/KTD6：核销即退（每笔押金退还一行，actor = 核销人，
+          # target = 押金单）。规 13 资金动作爆发白名单**不**收录本 action
+          # ——核销是主理人现场的正常高频动作，收录即告警风暴。
+          :attendance_refund
         ]
       ],
       description: "治理动作类型"
@@ -60,7 +76,16 @@ defmodule Cgc2046.Accounts.AdminActionLog do
       allow_nil?: false,
       public?: true,
       constraints: [
-        one_of: [:workspace, :workspace_application, :user, :enrollment, :order, :event, :course]
+        one_of: [
+          :workspace,
+          :workspace_application,
+          :user,
+          :enrollment,
+          :order,
+          :event,
+          :course,
+          :initiative
+        ]
       ],
       description: "目标资源类型"
     )
@@ -123,5 +148,18 @@ defmodule Cgc2046.Accounts.AdminActionLog do
     __MODULE__
     |> Ash.Changeset.for_create(:log, attrs)
     |> Ash.create(authorize?: false)
+  end
+
+  @doc """
+  `log/1` 的 raise 型（写入失败即上抛 → 整事务回滚）。
+
+  供 after_action 内站点使用：Ash 3.33 的 after_action 返回 `{:error, _}` 会**提交**
+  事务（`transaction_rollback_on_error?` 未设），需要「留痕失败即回滚」的站点只能靠
+  上抛（KTD6 核销即退的 `:attendance_refund` 留痕同款形状）。
+  """
+  def log!(attrs) do
+    __MODULE__
+    |> Ash.Changeset.for_create(:log, attrs)
+    |> Ash.create!(authorize?: false)
   end
 end

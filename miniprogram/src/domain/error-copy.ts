@@ -15,6 +15,8 @@ export const COPY: Record<string, string> = {
   database_error: '服务暂时不可用，请稍后重试。',
   // 重复活跃报名（唯一约束冲突，含并发）
   enrollment_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
+  // 核销码生成失败（同场并发撞码，可重试；U4/KTD5）
+  enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
   enrollment_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
   // createOrder 对 stale enrollment（已支付/取消/过期，F2）
@@ -41,6 +43,11 @@ export const COPY: Record<string, string> = {
   enrollment_tier_not_available: '所选档位已过期或不可用，请重新选择。',
   // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
   enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
+  // 现场核销（#508-A；与 web zh-CN errors 命名空间同文案互指）
+  attendance_invalid_code: '核销码无效或与本场活动不匹配，请让参与者重新出示。',
+  attendance_already_checked_in: '该报名已核销，无需重复核销。',
+  attendance_rate_limited: '核销尝试过于频繁，请稍后再试。',
+  deposit_already_forfeited: '该报名的押金已按未到场结算（不退），无法再核销。',
   // 入参缺 enrollmentId
   order_enrollment_required: '缺少报名信息，请重新发起报名。'
 }

@@ -1,5 +1,19 @@
 import Config
 
+# Paseo worktree 并行隔离：测试库按分支派生，多个 worktree 的 mix test 互不干扰。
+# 缺省时与原行为一致（cgc_2046_test + MIX_TEST_PARTITION）。
+branch_suffix =
+  case System.get_env("PASEO_BRANCH_NAME") || "" do
+    "" ->
+      ""
+
+    branch ->
+      slug =
+        branch |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_") |> String.slice(0, 45)
+
+      "_#{slug}"
+  end
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
@@ -9,7 +23,7 @@ config :cgc_2046, Cgc2046.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "cgc_2046_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "cgc_2046_test#{System.get_env("MIX_TEST_PARTITION")}" <> branch_suffix,
   pool: Ecto.Adapters.SQL.Sandbox,
   # 下限 8：并发竞态测试（miniprogram_race_test）用 unboxed_run 各占一条真实连接，
   # 低核 CI runner（schedulers_online=2 → pool=4）会连接池耗尽超时
