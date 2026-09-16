@@ -18,8 +18,9 @@ defmodule Cgc2046.Curriculum.PrepGate do
     非空 rubric（≥1 条 `{id, text}`、id 组内唯一）、`prereq_ids` 引用必须
     存在且构成 DAG（无环、无自引用）——逐条违规单独报告。
 
-  返回 `%{passed: boolean, violations: [String.t()]}`——violations 逐条可执行
-  （tutor agent 按清单逐条修复后重新提交）。
+  返回 `%{passed: boolean, violations: [String.t()], warnings: [String.t()]}`——
+  violations 逐条可执行（tutor agent 按清单逐条修复后重新提交；非空即不通过）；
+  warnings 为软提示（issue 未归属章节等）：不阻断发布，供 tutor 判断是否修复。
   """
 
   alias Cgc2046.Courses.Course
@@ -28,7 +29,11 @@ defmodule Cgc2046.Curriculum.PrepGate do
   @doc """
   对课程 + 其内容草稿行（`Output.t() | nil`）跑结构门禁。
   """
-  @spec check(Course.t(), Output.t() | nil) :: %{passed: boolean(), violations: [String.t()]}
+  @spec check(Course.t(), Output.t() | nil) :: %{
+          passed: boolean(),
+          violations: [String.t()],
+          warnings: [String.t()]
+        }
   def check(course, output) do
     violations =
       []
@@ -36,7 +41,34 @@ defmodule Cgc2046.Curriculum.PrepGate do
       |> check_slug(course)
       |> check_content(output)
 
-    %{passed: violations == [], violations: violations}
+    %{passed: violations == [], violations: violations, warnings: chapter_warnings(output)}
+  end
+
+  # 软提示（不计入 violations、不影响 passed）：issue 未归属章节。chapters 是
+  # 可选叙事结构——无章节语义的课程合法；但教材类课程缺章节会让学员端全部
+  # 单元落入「未分组」（Ungrouped）。曾发生：线上教材课 49 张卡 0 章节发布，
+  # 因系统词与门禁均未提及章节。此处只提示，是否补由 tutor 判断。
+  defp chapter_warnings(nil), do: []
+
+  defp chapter_warnings(%Output{data: content}) do
+    issues = Content.issues(content)
+    ungrouped = Enum.count(issues, &(&1["chapter_id"] in [nil, ""]))
+    total = length(issues)
+
+    cond do
+      total == 0 or ungrouped == 0 ->
+        []
+
+      Content.chapters(content) == [] ->
+        [
+          "章节结构缺失：全部 #{total} 张 issue 卡未归属章节（content 无 chapters），学员端将全部落入「未分组」——教材类课程应按教材章节建 chapters（[{id, title}]，id 唯一）并为每张 issue 卡填 chapter_id；课程确无章节结构可忽略本提示（不影响门禁通过）"
+        ]
+
+      true ->
+        [
+          "#{ungrouped}/#{total} 张 issue 卡缺 chapter_id（chapters 已存在但未全覆盖），学员端将落入「未分组」——为缺归属的 issue 卡补 chapter_id；课程确无章节结构可忽略本提示（不影响门禁通过）"
+        ]
+    end
   end
 
   defp check_title(violations, %{provisional_title: true}) do

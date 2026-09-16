@@ -116,12 +116,13 @@ defmodule Cgc2046.Curriculum.Prep do
 
   @doc """
   对课程跑结构门禁（R26，PrepGate 纯函数 + 实时读内容草稿）。
-  返回 `%{passed, violations, draft_version}`（draft_version = 当前草稿
-  Output version，无草稿为 0）。
+  返回 `%{passed, violations, warnings, draft_version}`（draft_version = 当前草稿
+  Output version，无草稿为 0；warnings = 软提示清单，不阻断发布）。
   """
   @spec gate(Course.t()) :: %{
           passed: boolean(),
           violations: [String.t()],
+          warnings: [String.t()],
           draft_version: integer()
         }
   def gate(%Course{} = course) do

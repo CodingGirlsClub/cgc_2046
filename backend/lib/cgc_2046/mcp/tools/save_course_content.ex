@@ -28,7 +28,8 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")
 
     field(:content, {:required, :map},
-      description: "course content:%{goals: [string], issues: [issue 卡]}(形状校验在资源层)"
+      description:
+        "course content:%{goals: [string], chapters: [{id, title}](可选;教材类等有章节结构的课程应建并为每张 issue 卡填 chapter_id), issues: [issue 卡]}(形状校验在资源层)"
     )
 
     field(:base_version, {:required, :integer},
