@@ -412,6 +412,56 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
     end
   end
 
+  describe "押金重开显式金额（#616）" do
+    test "关押金后重开不带金额 → 被拒，旧金额不被复活", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+      assert {:ok, _} = update_event(ctx, event, %{deposit_enabled: false})
+
+      assert {:error, _} =
+               result =
+               update_event(ctx, reload(event), %{deposit_enabled: true})
+
+      assert_business_code(result, "event_deposit_amount_must_be_explicit")
+      reloaded = reload(event)
+      assert reloaded.deposit_enabled == false
+
+      # 金额列残留但不生效：复活路径已封死，读面全部 gated by deposit_enabled
+      assert reloaded.deposit_amount_cents == 3000
+    end
+
+    test "重开显式携带金额 → 通过且金额更新", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+      assert {:ok, _} = update_event(ctx, event, %{deposit_enabled: false})
+
+      assert {:ok, reopened} =
+               update_event(ctx, reload(event), %{
+                 deposit_enabled: true,
+                 deposit_amount_cents: 4200
+               })
+
+      assert reopened.deposit_enabled == true
+      assert reopened.deposit_amount_cents == 4200
+    end
+
+    test "重开显式传 nil 金额 → 同样被拒（显式置空不是合法的重开形态）", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+      assert {:ok, _} = update_event(ctx, event, %{deposit_enabled: false})
+
+      assert {:error, _} =
+               update_event(ctx, reload(event), %{
+                 deposit_enabled: true,
+                 deposit_amount_cents: nil
+               })
+    end
+
+    test "true→true 幂等重申（不带金额）→ 不触发重开子句", ctx do
+      {:ok, event} = create_event(ctx, deposit_attrs())
+
+      assert {:ok, _} = update_event(ctx, reload(event), %{deposit_enabled: true})
+      assert reload(event).deposit_amount_cents == 3000
+    end
+  end
+
   describe "ends_at 冻结守卫（adversarial P1）" do
     test "存在未终态押金单时禁止 ends_at 前移", ctx do
       event =

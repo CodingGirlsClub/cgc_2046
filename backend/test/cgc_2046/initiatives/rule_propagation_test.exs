@@ -370,6 +370,36 @@ defmodule Cgc2046.Initiatives.RulePropagationTest do
     assert log.metadata["initiative_id"] == initiative.id
   end
 
+  # #616 回归：关押金（金额残留）的挂载场不被「重开显式金额」资源校验卡死规则
+  # 传播——传播是裸 SQL 两列同写（天然携带金额），挂载 changeset 的 validate
+  # 阶段亦不 change 押金字段。
+  test "关押金残留金额的挂载场：规则传播重新开启 → 成功，金额按规则覆写", ctx do
+    initiative =
+      open_initiative(ctx.admin, "prop-616-residue", %{
+        deposit: {%{enabled: true, amount_cents: 4200}, true}
+      })
+
+    event =
+      mounted_open(ctx.workspace, ctx.admin, initiative, %{starts_at: EF.days_from_now(10)})
+
+    # 布置「关押金、金额残留」态（裸 SQL，同 force_* 布置纪律）
+    Repo.query!("UPDATE events SET deposit_enabled = false WHERE id = $1", [
+      Ecto.UUID.dump!(event.id)
+    ])
+
+    assert {:ok, _} =
+             update_rule(
+               initiative,
+               :deposit,
+               %{value: %{enabled: true, amount_cents: 4300}},
+               ctx.admin
+             )
+
+    reloaded = reload(event)
+    assert reloaded.deposit_enabled == true
+    assert reloaded.deposit_amount_cents == 4300
+  end
+
   # ── 附带缺陷：押金 × 定价判据取自 changeset（D6）─────────────────────────
 
   test "押金规则挂载到已开定价的场 → 稳定 code，判据取自 changeset", ctx do
