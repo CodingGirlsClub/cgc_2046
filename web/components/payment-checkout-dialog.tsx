@@ -9,6 +9,11 @@
  * createOrder 即出码。渠道选择与二维码同屏，切换渠道走 replaceProvider
  * （R11：旧单作废新码即换，框内无感）。
  *
+ * 押金口径判据（#580）：同意门与说明行金额只认**订单快照**——活单的
+ * orderKind / amountCents（下单时定，组织者事后改配置不漂移）；订单未建立
+ * 的瞬间（无活单、consent 预判路径）才用活动现价——那一刻现价即承诺价。
+ * orderKind 解析 fail-closed（parseOrderKind 未知值 → error 态，不猜方向）。
+ *
  * 轮询（R14）与倒计时（R6）复用 use-order-polling / lib/payment 纯函数，
  * 与 /orders/[id] 订单页同口径；paid → ✓ 报名已确认 + 1.5s 自动关框，
  * onPaid 先行触发调用方就地刷新报名态。
@@ -37,6 +42,7 @@ import {
   dispatchCredential,
   formatAmount,
   formatAmountShort,
+  parseOrderKind,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -61,11 +67,17 @@ const DEFAULT_PROVIDER: PaymentProvider = "wechat_native";
 /** 模态框内流转的订单最小面（createOrder/replaceProvider 全量 Order 兼容） */
 type CheckoutOrder = Pick<
   Order,
-  "id" | "provider" | "status" | "amountCents" | "expireAt" | "outTradeNo"
+  | "id"
+  | "provider"
+  | "status"
+  | "amountCents"
+  | "expireAt"
+  | "outTradeNo"
+  | "orderKind"
 >;
 
-// U1：押金场开框先停在「以到场为退还条件」确认态（consent），确认后才进入
-// checking（复用活单或初始下单）——未确认前不产生任何渠道单/凭据
+// U1：押金单在钱动前停在「以到场为退还条件」确认态（consent）——门由订单
+// 快照口径（或无单时刻的活动现价）判定（#580），未确认前不产生任何渠道单/凭据
 type Phase = "consent" | "checking" | "paying" | "error";
 
 export interface PaymentCheckoutDialogProps {
@@ -99,9 +111,9 @@ export default function PaymentCheckoutDialog({
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("checkout");
   const labelsT = useTranslations();
-  const [phase, setPhase] = useState<Phase>(
-    depositAmountCents != null ? "consent" : "checking",
-  );
+  // 开框统一 checking：先查活单拿订单快照口径（orderKind）再定 consent/paying
+  // （#580）——押金门不再由活动实时配置预判
+  const [phase, setPhase] = useState<Phase>("checking");
   // U1：押金确认勾选（本框生命周期内一次性；重开框重置）
   const [depositAck, setDepositAck] = useState(false);
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
@@ -164,6 +176,13 @@ export default function PaymentCheckoutDialog({
         });
         const payload = data?.createOrder;
         if (payload?.result) {
+          if (parseOrderKind(payload.result.orderKind) === null) {
+            // fail-closed（#580）：新单口径不可判——停支付面不出码，单留 pending
+            // 可经换渠道重试 / 「继续支付」承接
+            setPhase("error");
+            setError(t("orderKindUnknown"));
+            return;
+          }
           // 凭据落 sessionStorage（/orders/[id] 兜底路径可续），不落 URL
           storeOrderCredential(payload.result.id, payload.metadata?.credential);
           // 活动名上下文同口径交接（订单页成功卡明细行；无 title 上下文跳过）
@@ -197,8 +216,8 @@ export default function PaymentCheckoutDialog({
     [enrollmentId, title, t, translatePaymentError],
   );
 
-  // 开框初始化（一次）：复用活单 or 初始下单。押金场（U1）由 consent 确认后
-  // setPhase("checking") 触发；initializedRef 保证只初始化一次
+  // 开框初始化（一次）：查活单 → 按订单快照口径定押金门（#580），复用活单 or
+  // 初始下单。押金口径不可判（orderKind 缺失/未知）→ fail-closed 停支付面
   const initializedRef = useRef(false);
   useEffect(() => {
     if (phase !== "checking" || initializedRef.current) return;
@@ -219,13 +238,26 @@ export default function PaymentCheckoutDialog({
       }
       if (cancelled) return;
       if (pending) {
+        const kind = parseOrderKind(pending.orderKind);
+        if (kind === null) {
+          setPhase("error");
+          setError(t("orderKindUnknown"));
+          return;
+        }
         // 复用活单：凭据读 sessionStorage 但不焚毁（本框可反复开关，且
         // /orders/[id] 兜底路径仍需；丢失 → credentialLost 引导换渠道恢复）
         storeOrderContext(pending.id, title);
         setOrder(pending);
         setProvider(pending.provider as PaymentProvider);
         setCredential(readOrderCredential(pending.id));
-        setPhase("paying");
+        // 押金门只认订单快照口径：组织者事后关押金，押金活单仍过披露门
+        setPhase(kind === "deposit" ? "consent" : "paying");
+        return;
+      }
+      if (depositAmountCents != null) {
+        // 无活单 + 押金场：先停确认态（U1），确认后才创单——此刻尚无订单，
+        // 活动现价即承诺价
+        setPhase("consent");
         return;
       }
       await createOrder(readLastPaymentProvider() ?? DEFAULT_PROVIDER);
@@ -233,7 +265,7 @@ export default function PaymentCheckoutDialog({
     return () => {
       cancelled = true;
     };
-  }, [phase, enrollmentId, title, createOrder]);
+  }, [phase, enrollmentId, title, createOrder, depositAmountCents, t]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
@@ -308,6 +340,12 @@ export default function PaymentCheckoutDialog({
     credential === null &&
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
+  // 押金口径（#580）：订单就绪 → 只认订单快照 orderKind；未就绪（无活单的
+  // consent 预判路径）→ 活动现价。说明行金额同源：快照优先、现价兜底。
+  const isDepositCheckout =
+    order?.orderKind === "deposit" ||
+    (order === null && depositAmountCents != null);
+  const depositNoteCents = order?.amountCents ?? depositAmountCents;
 
   return (
     <div
@@ -363,14 +401,15 @@ export default function PaymentCheckoutDialog({
           </div>
         </div>
 
-        {depositAmountCents != null ? (
-          // R10/KTD10：押金场收银框内明示押金口径与未到场不退（报名流程内披露）
+        {isDepositCheckout ? (
+          // R10/KTD10：押金单在收银框内明示押金口径与未到场不退（报名流程内披露）；
+          // 金额绑订单快照（#580）：组织者改押金额后，在途单仍按扣款额披露
           <p
             className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
             data-testid="checkout-deposit-note"
           >
             {t("depositLine", {
-              amount: formatAmountShort(depositAmountCents),
+              amount: formatAmountShort(depositNoteCents ?? 0),
             })}
             <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
           </p>
@@ -395,7 +434,12 @@ export default function PaymentCheckoutDialog({
             <button
               type="button"
               disabled={!depositAck}
-              onClick={() => setPhase("checking")}
+              onClick={() => {
+                // 复用活单路径：单已就绪（含凭据），确认即进支付；无单路径：
+                // 确认后才创单（U1：未确认前不产生任何订单/凭据）
+                if (order !== null) setPhase("paying");
+                else void createOrder(readLastPaymentProvider() ?? DEFAULT_PROVIDER);
+              }}
               data-testid="checkout-deposit-consent-button"
               className="join-button join-button--primary disabled:opacity-50"
             >
