@@ -32,6 +32,35 @@ export interface AdminInitiative {
 	status: string; windowStartsAt?: string | null; windowEndsAt?: string | null;
 	eventCount?: number | null; confirmedCount?: number | null;
 	rules?: AdminInitiativeRule[];
+	/** #595 挂载场全量清单（仅 getInitiative 取；列表 query 刻意不取，避免 N+1） */
+	mountedEvents?: AdminInitiativeMountedEvent[] | null;
+}
+
+/**
+ * #595 Initiative 挂载场读投影（对齐 SDL `AdminInitiativeMountedEvent`）。
+ *
+ * 口径要点：不过滤 visibility（workspace-only 场同样被锁死规则改写）、
+ * 不过滤 status（draft/open/终态全在）、`confirmedCount` 是 events 展示投影
+ * 列（权威计数在名额账本，可能滞后一拍）。
+ */
+export interface AdminInitiativeMountedEvent {
+	id: string;
+	initiativeId: string;
+	slug: string;
+	title: string;
+	status: string;
+	startsAt?: string | null;
+	registrationDeadline?: string | null;
+	/** 结构化场地 JSON 串（JsonString）；nil = 线上或未定 */
+	venue?: string | null;
+	workspaceId: string;
+	workspaceName: string;
+	confirmedCount: number;
+	pricingEnabled: boolean;
+	depositEnabled: boolean;
+	depositAmountCents?: number | null;
+	minAge?: number | null;
+	minParticipants?: number | null;
 }
 
 export interface AdminInitiativeRule {
@@ -46,7 +75,15 @@ export const LIST_INITIATIVES: TypedDocumentNode<{ listInitiatives: AdminInitiat
 
 export const GET_INITIATIVE: TypedDocumentNode<{ getInitiative: AdminInitiative | null }, { id: string }> = gql`
  query GetInitiative($id: ID!) {
-   getInitiative(id: $id) { id name slug hashtag description status windowStartsAt windowEndsAt rules { id initiativeId key valueJson locked } }
+   getInitiative(id: $id) {
+     id name slug hashtag description status windowStartsAt windowEndsAt
+     rules { id initiativeId key valueJson locked }
+     mountedEvents {
+       id initiativeId slug title status startsAt registrationDeadline venue
+       workspaceId workspaceName confirmedCount pricingEnabled depositEnabled
+       depositAmountCents minAge minParticipants
+     }
+   }
  }
 `;
 
@@ -55,7 +92,8 @@ export const CREATE_INITIATIVE = gql`mutation CreateInitiative($input: AdminInit
 export const UPDATE_INITIATIVE = gql`mutation UpdateInitiative($id: ID!, $input: AdminInitiativeInput!) { updateInitiative(id: $id, input: $input) { result { id name slug status } errors { code message } } }`;
 export const OPEN_INITIATIVE = gql`mutation OpenInitiative($id: ID!) { openInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
 export const CLOSE_INITIATIVE = gql`mutation CloseInitiative($id: ID!) { closeInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
-export const UPSERT_INITIATIVE_RULE = gql`mutation UpsertInitiativeRule($initiativeId: ID!, $key: String!, $valueJson: String!, $locked: Boolean!) { upsertInitiativeRule(initiativeId: $initiativeId, key: $key, valueJson: $valueJson, locked: $locked) { result { id initiativeId key valueJson locked } errors { code message } } }`;
+/** #595：errors 取 fields，规则被拒时前端可定位到具体场/工作台 */
+export const UPSERT_INITIATIVE_RULE = gql`mutation UpsertInitiativeRule($initiativeId: ID!, $key: String!, $valueJson: String!, $locked: Boolean!) { upsertInitiativeRule(initiativeId: $initiativeId, key: $key, valueJson: $valueJson, locked: $locked) { result { id initiativeId key valueJson locked } errors { code message fields } } }`;
 
 /** 与 workspace.ts 的 JoinPolicy 同构（单源：workspace.ts） */
 export type AdminJoinPolicy = JoinPolicy;
