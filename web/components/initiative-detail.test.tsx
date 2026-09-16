@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
-import InitiativePage from "./page";
+import InitiativeDetail from "./initiative-detail";
 
 const { fetchPublicInitiative } = vi.hoisted(() => ({
 	fetchPublicInitiative: vi.fn(),
@@ -109,7 +109,7 @@ describe("/initiatives/[slug] 公开页", () => {
 	it("渲染四项计数、城市分组与后端派生徽章矩阵", async () => {
 		fetchPublicInitiative.mockResolvedValue(PAYLOAD);
 
-		render(<InitiativePage params={Promise.resolve({ slug: "hackerstart1024" })} />);
+		render(<InitiativeDetail slug="hackerstart1024" />);
 
 		expect(
 			await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" }),
@@ -137,7 +137,7 @@ describe("/initiatives/[slug] 公开页", () => {
 	it("加载失败渲染 notFound 与返回入口", async () => {
 		fetchPublicInitiative.mockRejectedValue(new Error("network"));
 
-		render(<InitiativePage params={Promise.resolve({ slug: "missing" })} />);
+		render(<InitiativeDetail slug="missing" />);
 
 		expect(
 			await screen.findByRole("heading", { name: "活动不存在" }),

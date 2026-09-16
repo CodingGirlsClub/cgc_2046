@@ -1,6 +1,12 @@
 defmodule Cgc2046.Initiatives.Public do
   @moduledoc """
   Initiative 公开投影：跨 Workspace 聚合且只返回 published public events。
+
+  `public_url/1` 是公开页绝对链接的后端单源（`/initiatives/<slug>`）：web 侧
+  sitemap 与各页 canonical 由 `web/lib/seo.ts` 生成，后端侧（MCP 工具与后续
+  渠道投放）由本函数生成——base 取既有 `config :cgc_2046, :web_base_url`
+  （runtime.exs：dev/test 默认 http://localhost:3000，prod 强制 WEB_BASE_URL
+  https），与 `Mcp.Tools.LearnerJourney.checkout_url/1` 同款出处，不新增配置键。
   """
 
   alias Cgc2046.Repo
@@ -23,6 +29,23 @@ defmodule Cgc2046.Initiatives.Public do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &row_to_initiative/1)}
       {:error, reason} -> {:error, {:database, reason}}
     end
+  end
+
+  @doc """
+  Initiative 公开详情页绝对链接（游客可读、可直达、可被搜索引擎索引）。
+
+  slug 为空返回 nil——调用方据此不做链接渲染。
+  """
+  @spec public_url(String.t() | nil) :: String.t() | nil
+  def public_url(nil), do: nil
+
+  def public_url(slug) when is_binary(slug) do
+    base =
+      Application.get_env(:cgc_2046, :web_base_url, "http://localhost:3000")
+      |> to_string()
+      |> String.trim_trailing("/")
+
+    "#{base}/initiatives/#{URI.encode_www_form(slug)}"
   end
 
   defp fetch_initiative(slug) do
@@ -77,6 +100,7 @@ defmodule Cgc2046.Initiatives.Public do
       id: initiative.id,
       name: initiative.name,
       slug: initiative.slug,
+      url: public_url(initiative.slug),
       hashtag: initiative.hashtag,
       description: initiative.description,
       window_starts_at: initiative.window_starts_at,
@@ -108,6 +132,7 @@ defmodule Cgc2046.Initiatives.Public do
       id: uuid_text(id),
       name: name,
       slug: slug,
+      url: public_url(slug),
       hashtag: hashtag,
       description: description,
       window_starts_at: to_utc_datetime(starts),
