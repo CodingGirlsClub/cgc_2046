@@ -89,6 +89,21 @@ describe("/initiatives 公开列表页", () => {
 		expect(screen.getByText("已结束")).toBeInTheDocument();
 	});
 
+	// #628：cancelled（中止）与 closed（收尾）卡片文案分叉；两者都仍是留档可直达
+	it("#628：cancelled 卡片渲染「已取消」，与 closed / open 文案不同", async () => {
+		fetchPublicInitiatives.mockResolvedValue([
+			{ ...CLOSED_ROW, id: "i3", name: "Winter Sprint（已中止届）", slug: "winter-sprint", status: "cancelled" },
+		]);
+
+		render(<InitiativeIndexPage />);
+
+		const link = await screen.findByRole("link", { name: /Winter Sprint/ });
+		expect(link).toHaveAttribute("href", "/initiatives/winter-sprint");
+		expect(link.textContent).toContain("已取消");
+		expect(link.textContent).not.toContain("已结束");
+		expect(link.textContent).not.toContain("开放报名");
+	});
+
 	it("时间窗为空显示「时间待定」", async () => {
 		fetchPublicInitiatives.mockResolvedValue([NO_WINDOW_ROW]);
 		render(<InitiativeIndexPage />);

@@ -5,7 +5,7 @@ import { getPublicInitiative } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { PublicInitiative } from '@/domain/models'
 import { formatDateTime, scheduleText, venueText } from '@/domain/format'
-import { qualificationBadgeText } from '@/domain/initiative'
+import { initiativeCancelledNotice, initiativeStatusText, qualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
 import styles from './index.module.css'
 
@@ -17,7 +17,8 @@ export function InitiativeContent({ data }: { data: PublicInitiative }) {
 
   return (
     <View className={styles.page}>
-      <Text className={styles.status}>{data.status === 'closed' ? '已结束 · 活动留档' : '进行中'}</Text>
+      <Text className={styles.status}>{initiativeStatusText(data.status)}</Text>
+      {initiativeCancelledNotice(data.status) && <Text className={styles.cancelled}>{initiativeCancelledNotice(data.status)}</Text>}
       <Text className={styles.title} data-testid='initiative-title'>{data.name}</Text>
       {data.hashtag && <Text className={styles.hashtag}>{data.hashtag}</Text>}
       <Text className={styles.meta}>{scheduleText(data.windowStartsAt, data.windowEndsAt)}</Text>

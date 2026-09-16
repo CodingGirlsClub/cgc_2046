@@ -637,6 +637,17 @@ defmodule Cgc2046.Events.Event do
       require_atomic?(false)
       accept([])
 
+      # #628 Initiative 生命周期门：挂载中的场只有在所属 Initiative 仍 open 时
+      # 才能发布。声明在 CAS change **之前**——Ash `run_before_actions` 在
+      # changeset 失效处 `:halt`（ash/changeset/changeset.ex 的 reduce_while），
+      # 故此门拒绝时下面的条件 UPDATE 根本不执行（不会先写库再回滚）。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(
+          changeset,
+          &Cgc2046.Initiatives.RuleInheritance.ensure_launchable/1
+        )
+      end)
+
       # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
       # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
       change(fn changeset, _context ->

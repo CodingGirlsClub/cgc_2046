@@ -8,7 +8,7 @@ import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, PublicInitiativeCard } from '@/domain/models'
 import { enrollmentBadgeText, scheduleText } from '@/domain/format'
-import { filterInitiatives } from '@/domain/initiative'
+import { filterInitiatives, initiativeCardStatusText } from '@/domain/initiative'
 import { debounce } from '@/domain/debounce'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
@@ -142,7 +142,7 @@ export default function DiscoverPage() {
                     className={`${styles.contentCard} ${styles.initiativeCard}`}
                     onClick={() => Taro.navigateTo({ url: buildInitiativeSharePath(initiative.slug) })}
                   >
-                    <View className={styles.cardTop}><Text className={styles.kind}>INITIATIVE</Text><Text className={styles.policy}>{initiative.status === 'closed' ? '已结束' : '进行中'}</Text></View>
+                    <View className={styles.cardTop}><Text className={styles.kind}>INITIATIVE</Text><Text className={styles.policy}>{initiativeCardStatusText(initiative.status)}</Text></View>
                     <Text className={styles.cardTitle}>{initiative.name}</Text>
                     <Text className={styles.cardMeta}>{initiative.hashtag || ''}</Text>
                     {initiative.windowStartsAt ? (

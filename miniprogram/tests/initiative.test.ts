@@ -17,7 +17,7 @@ import { getPublicInitiative, getPublicInitiatives } from '../src/api/initiative
 import { EventDetailQueryDocument, PublicInitiativeQueryDocument, PublicInitiativesQueryDocument } from '../src/api/operations'
 import { InitiativeContent } from '../src/pages/initiative-detail'
 import { EventRegistrationActions } from '../src/pages/event-detail'
-import { detailQualificationBadgeText, filterInitiatives, parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
+import { detailQualificationBadgeText, filterInitiatives, initiativeCancelledNotice, initiativeCardStatusText, initiativeStatusText, parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
 
 const initiative: PublicInitiative = {
   id: 'initiative-1', slug: 'hackerstart1024', name: 'hackerstart1024', hashtag: '#hackerstart1024',
@@ -151,6 +151,23 @@ describe('Initiative 与留档详情展示', () => {
     expect(detailQualificationBadgeText({ qualificationBadge: 'open', shortBy: null })).toBeNull()
     expect(detailQualificationBadgeText({ qualificationBadge: 'short_by', shortBy: 3 })).toBe('还差 3 人成班')
     expect(detailQualificationBadgeText({ qualificationBadge: 'cancelled', shortBy: null })).toBe('已取消')
+  })
+
+  // #628：活动级状态文案分叉（detail 与 found 两处口径，三端一致）
+  it('活动级状态文案：cancelled（中止）与 closed（收尾）分叉', () => {
+    expect(initiativeStatusText('open')).toBe('进行中')
+    expect(initiativeStatusText('closed')).toBe('已结束 · 活动留档')
+    expect(initiativeStatusText('cancelled')).toBe('已取消 · 活动中止')
+    expect(initiativeCardStatusText('open')).toBe('进行中')
+    expect(initiativeCardStatusText('closed')).toBe('已结束')
+    expect(initiativeCardStatusText('cancelled')).toBe('已取消')
+    expect(initiativeStatusText('closed')).not.toBe(initiativeStatusText('cancelled'))
+  })
+
+  it('中止说明行只在 cancelled 出现', () => {
+    expect(initiativeCancelledNotice('cancelled')).toContain('全额退款')
+    expect(initiativeCancelledNotice('closed')).toBeNull()
+    expect(initiativeCancelledNotice('open')).toBeNull()
   })
 })
 
