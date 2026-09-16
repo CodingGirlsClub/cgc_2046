@@ -29,7 +29,8 @@ defmodule Cgc2046.LockErrorSurfacesTest do
     ② 不得被 #612 的 `database_error` 兜底吞并——锁超时/死锁是用户可动作的
     可自愈并发冲突，混进「我们坏了」的故障面即错误分类。
   - **MCP**（`assign_roles` 确认段经 `confirm_operation`）：工具层把
-    `{:error, %Ash.Error.Invalid{}}` 折成 `Exception.message/1` 字符串 →
+    `{:error, %Ash.Error.Invalid{}}` 经 `Mcp.Errors.message/2` 折成**逐叶文案**
+    （#631 起不再直出 `Exception.message/1` 的类脚手架/Bread Crumbs）→
     `{:error, %Anubis.MCP.Error{message: msg}}`，中文文案逐字在 msg 内
     （code 不出 MCP 面——工具层唯一出口，本 PR 不改工具）。
   """
