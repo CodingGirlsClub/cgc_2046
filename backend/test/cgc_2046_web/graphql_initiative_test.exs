@@ -257,4 +257,80 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
       assert payload["result"]["status"] == "draft"
     end
   end
+
+  # #596 挂载前预览：Owner/Admin 可读四规则值与锁态；普通成员/匿名不可见
+  test "initiativeMountPreview：Owner 可读，普通成员 forbidden，匿名 unauthorized" do
+    admin = Fixtures.platform_admin("gql-mount-preview-admin")
+    initiative = open_initiative(admin)
+    %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+
+    query = """
+    query { initiativeMountPreview(workspaceId: "#{workspace.id}", initiativeId: "#{initiative.id}") {
+      initiativeId name slug status missingRules
+      rules { key valueJson locked }
+    } }
+    """
+
+    assert %{"data" => %{"initiativeMountPreview" => preview}} =
+             post_graphql(query, token(owner))
+
+    assert preview["initiativeId"] == initiative.id
+    assert preview["status"] == "open"
+    assert preview["missingRules"] == []
+
+    assert preview["rules"] == [
+             %{
+               "key" => "deposit",
+               "valueJson" => Jason.encode!(%{"enabled" => true, "amount_cents" => 6900}),
+               "locked" => true
+             },
+             %{
+               "key" => "age_gate",
+               "valueJson" => Jason.encode!(%{"min_age" => 18}),
+               "locked" => true
+             },
+             %{
+               "key" => "min_participants",
+               "valueJson" => Jason.encode!(%{"count" => 8}),
+               "locked" => false
+             },
+             %{
+               "key" => "deadline_rule",
+               "valueJson" => Jason.encode!(%{"hours_before_start" => 72}),
+               "locked" => false
+             }
+           ]
+
+    assert %{"errors" => [%{"code" => "forbidden"}]} = post_graphql(query, token(member))
+    assert %{"errors" => [%{"code" => "unauthorized"}]} = post_graphql(query)
+
+    # 非成员（已登录）与非成员平台管理员同样 forbidden（该面无 platform_admin 豁免）
+    outsider = Fixtures.register_user("gql-mount-preview-outsider")
+    assert %{"errors" => [%{"code" => "forbidden"}]} = post_graphql(query, token(outsider))
+    assert %{"errors" => [%{"code" => "forbidden"}]} = post_graphql(query, token(admin))
+  end
+
+  # #596 SDL 结构守卫：公开 Initiative 类型不得长出 rules 字段（权限不扩大的结构性防线）
+  test "公开 Initiative 类型不含 rules 字段（SDL 冻结）" do
+    sdl = File.read!("priv/graphql/schema.graphql")
+
+    for type <- ["PublicInitiative", "PublicInitiativeCard"] do
+      fields = sdl_type_fields(sdl, type)
+      assert fields != [], "SDL 中找不到 #{type}"
+      refute "rules" in fields
+      refute "locked" in fields
+    end
+  end
+
+  defp sdl_type_fields(sdl, name) do
+    case Regex.run(~r/^type #{name}\b[^{]*\{(.*?)^\}/ms, sdl, capture: :all_but_first) do
+      [body] ->
+        ~r/^\s{2}([A-Za-z_][A-Za-z0-9_]*)\s*[:(]/m
+        |> Regex.scan(body, capture: :all_but_first)
+        |> List.flatten()
+
+      _ ->
+        []
+    end
+  end
 end

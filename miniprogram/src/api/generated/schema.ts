@@ -2107,6 +2107,21 @@ export type FulfillDeliveryResult = {
   result?: Maybe<SponsorshipDelivery>;
 };
 
+export type InitiativeMountPreview = {
+  initiativeId: Scalars['ID']['output'];
+  missingRules: Array<Scalars['String']['output']>;
+  name: Scalars['String']['output'];
+  rules: Array<InitiativeRulePreview>;
+  slug: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+};
+
+export type InitiativeRulePreview = {
+  key: Scalars['String']['output'];
+  locked: Scalars['Boolean']['output'];
+  valueJson: Scalars['String']['output'];
+};
+
 export type Invitation = {
   /** 接受时间 */
   acceptedAt?: Maybe<Scalars['DateTime']['output']>;
@@ -4445,6 +4460,8 @@ export type RootQueryType = {
   getWorkspace?: Maybe<Workspace>;
   /** 按 id 获取工作台（需登录） */
   getWorkspaceById?: Maybe<Workspace>;
+  /** Owner/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner/Admin 一律 forbidden */
+  initiativeMountPreview?: Maybe<InitiativeMountPreview>;
   /** 邀请列表（邀请人仅见自己；Owner/Admin 见全部） */
   invitations?: Maybe<KeysetPageOfInvitation>;
   inviteBatches?: Maybe<KeysetPageOfInviteBatch>;
@@ -4618,6 +4635,12 @@ export type RootQueryTypeGetWorkspaceArgs = {
 export type RootQueryTypeGetWorkspaceByIdArgs = {
   filter?: InputMaybe<WorkspaceFilterInput>;
   id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeInitiativeMountPreviewArgs = {
+  initiativeId: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 

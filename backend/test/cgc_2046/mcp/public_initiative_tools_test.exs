@@ -55,4 +55,26 @@ defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
     # public_url/1 同值（相对路径 / 别的 base 都算不合格）
     assert detail_row["url"] == Cgc2046.Initiatives.Public.public_url(initiative.slug)
   end
+
+  test "公开工具不泄露规则值/锁态（#596 权限不扩大：预览读面只有 Owner/Admin 面）" do
+    admin = Fixtures.platform_admin("mcp-public-privacy-admin")
+    initiative = open_initiative(admin, "mcp-public-privacy")
+    frame = Frame.new(current_user: Fixtures.register_user("mcp-public-privacy-outsider"))
+
+    assert {:reply, _, _} = list_reply = ListPublicInitiatives.execute(%{}, frame)
+
+    row =
+      Enum.find(decode(list_reply)["initiatives"], &(&1["slug"] == initiative.slug))
+
+    refute Map.has_key?(row, "rules")
+    refute Map.has_key?(row, "locked")
+    refute Map.has_key?(row, "missing_rules")
+
+    assert {:reply, %{content: [content]}, _} =
+             GetPublicInitiative.execute(%{"slug" => initiative.slug}, frame)
+
+    for leak <- ["rules", "locked", "amount_cents", "min_age", "hours_before_start"] do
+      refute content["text"] =~ leak, "公开读面泄露了规则信息：#{leak}"
+    end
+  end
 end

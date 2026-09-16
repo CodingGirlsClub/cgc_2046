@@ -50,6 +50,26 @@ export type PublicInitiativeCard = Pick<
 	| "windowEndsAt"
 >;
 
+/** #596 挂载前预览：单条规则的原始值（JSON 字符串，与 admin 面同口径）+ 锁态 */
+export type InitiativeRulePreview = {
+	key: string;
+	valueJson: string;
+	locked: boolean;
+};
+
+/**
+ * #596 挂载前预览读面（Owner/Admin 专属，后端 `RulePreview`）：
+ * 四项规则的原始值与锁态 + 未配齐的规则键。普通成员/非成员查询报 forbidden。
+ */
+export type InitiativeMountPreview = {
+	initiativeId: string;
+	name: string;
+	slug: string;
+	status: string;
+	rules: InitiativeRulePreview[];
+	missingRules: string[];
+};
+
 const PUBLIC_INITIATIVE: TypedDocumentNode<
 	{ publicInitiative: PublicInitiative | null },
 	{ slug: string }
@@ -71,6 +91,22 @@ const PUBLIC_INITIATIVES: TypedDocumentNode<
 	}
 `;
 
+/**
+ * #596 挂载前预览（Owner/Admin）：rules 为四项规则的原始值 + 锁态。
+ * workspaceId 只作权限判定（规则是平台级数据）；非本台 Owner/Admin → forbidden。
+ */
+export const INITIATIVE_MOUNT_PREVIEW: TypedDocumentNode<
+	{ initiativeMountPreview: InitiativeMountPreview | null },
+	{ workspaceId: string; initiativeId: string }
+> = gql`
+	query InitiativeMountPreview($workspaceId: ID!, $initiativeId: ID!) {
+		initiativeMountPreview(workspaceId: $workspaceId, initiativeId: $initiativeId) {
+			initiativeId name slug status missingRules
+			rules { key valueJson locked }
+		}
+	}
+`;
+
 export async function fetchPublicInitiative(slug: string): Promise<PublicInitiative | null> {
 	const { data } = await client.query({ query: PUBLIC_INITIATIVE, variables: { slug }, fetchPolicy: "network-only" });
 	return data?.publicInitiative ?? null;
@@ -79,4 +115,17 @@ export async function fetchPublicInitiative(slug: string): Promise<PublicInitiat
 export async function fetchPublicInitiatives(): Promise<PublicInitiativeCard[]> {
 	const { data } = await client.query({ query: PUBLIC_INITIATIVES, variables: {}, fetchPolicy: "network-only" });
 	return data?.publicInitiatives ?? [];
+}
+
+/** #596 挂载前预览；无权/失败由调用方 catch 后降级（不阻塞编辑与保存） */
+export async function fetchInitiativeMountPreview(
+	workspaceId: string,
+	initiativeId: string,
+): Promise<InitiativeMountPreview | null> {
+	const { data } = await client.query({
+		query: INITIATIVE_MOUNT_PREVIEW,
+		variables: { workspaceId, initiativeId },
+		fetchPolicy: "network-only",
+	});
+	return data?.initiativeMountPreview ?? null;
 }

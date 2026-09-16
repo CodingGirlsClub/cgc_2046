@@ -73,12 +73,14 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
              :ok <- ensure_open_when_mounting(initiative, mounting?),
              {:ok, rules} <- load_rules(initiative_id),
              :ok <- ensure_complete(rules),
-             {:ok, attrs} <- effective_event_attrs(changeset, rules) do
-          attrs
-          |> Enum.reduce(changeset, fn {field, value}, cs ->
-            Ash.Changeset.force_change_attribute(cs, field, value)
-          end)
+             {:ok, attrs, applied} <- effective_event_attrs(changeset, rules) do
+          changeset
+          |> force_attrs(attrs)
           |> ensure_rule_deposit_invariant()
+          |> Ash.Changeset.put_context(:initiative_inheritance, %{
+            initiative: Map.take(initiative, [:id, :name, :slug]),
+            inherited: applied
+          })
         else
           {:error, message} -> Ash.Changeset.add_error(changeset, message)
         end
@@ -433,14 +435,24 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   end
 
   defp lock_initiative(id) do
-    case Repo.query("SELECT id, status FROM initiatives WHERE id = $1 FOR UPDATE", [
-           Repo.uuid!(id)
-         ]) do
-      {:ok, %{rows: [[id, status]]}} -> {:ok, %{id: id, status: status}}
-      {:ok, %{rows: []}} -> {:error, "initiative not found"}
-      {:error, reason} -> {:error, "initiative read failed: #{inspect(reason)}"}
+    case Repo.query(
+           "SELECT id, status, name, slug FROM initiatives WHERE id = $1 FOR UPDATE",
+           [Repo.uuid!(id)]
+         ) do
+      {:ok, %{rows: [[id, status, name, slug]]}} ->
+        {:ok, %{id: uuid_text(id), status: status, name: name, slug: slug}}
+
+      {:ok, %{rows: []}} ->
+        {:error, "initiative not found"}
+
+      {:error, reason} ->
+        {:error, "initiative read failed: #{inspect(reason)}"}
     end
   end
+
+  # 裸 SQL 返回 uuid 二进制；继承结果回传需要文本形态（与 Public.uuid_text/1 同法）
+  defp uuid_text(<<_::128>> = id), do: Ecto.UUID.load!(id)
+  defp uuid_text(id), do: id
 
   defp ensure_open(%{status: "open"}), do: :ok
   defp ensure_open(%{status: :open}), do: :ok
@@ -490,17 +502,20 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     end
   end
 
+  # #596：本次写入生效的继承结果与 attrs 同源返回——attrs = 要 force_change 的
+  # 事件字段，applied = 逐字段的 JSON 形状结果（string 键；source = "locked"
+  # 强制 / "default" 挂载时快照）。两者同源，杜绝「响应与落库不一致」。
   defp effective_event_attrs(changeset, rules) do
     creating? = changeset.action_type == :create
     mounting? = creating? or Ash.Changeset.changing_attribute?(changeset, :initiative_id)
 
-    Enum.reduce_while(@rule_keys, {:ok, %{}}, fn key, {:ok, attrs} ->
+    Enum.reduce_while(@rule_keys, {:ok, %{}, %{}}, fn key, {:ok, attrs, applied} ->
       rule = Map.get(rules, key)
       event_field = event_field(key)
 
       cond do
         is_nil(rule) ->
-          {:cont, {:ok, attrs}}
+          {:cont, {:ok, attrs, applied}}
 
         rule.locked ->
           case value_for_event(key, rule.value, changeset) do
@@ -509,7 +524,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
                 {:error, _} = error ->
                   {:halt, error}
 
-                values ->
+                {:ok, values, added} ->
                   conflict? =
                     not mounting? and
                       Enum.any?(values, fn {field, expected} ->
@@ -519,7 +534,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
                   if conflict?,
                     do: {:halt, {:error, "initiative rule #{key} is locked"}},
-                    else: {:cont, {:ok, Map.merge(attrs, values)}}
+                    else:
+                      {:cont,
+                       {:ok, Map.merge(attrs, values), record_applied(applied, added, "locked")}}
               end
 
             {:error, reason} ->
@@ -530,8 +547,11 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           case value_for_event(key, rule.value, changeset) do
             {:ok, value} ->
               case merge_event_value(changeset, attrs, event_field, value) do
-                {:error, _} = error -> {:halt, error}
-                merged -> {:cont, {:ok, merged}}
+                {:error, _} = error ->
+                  {:halt, error}
+
+                {:ok, merged, added} ->
+                  {:cont, {:ok, merged, record_applied(applied, added, "default")}}
               end
 
             {:error, reason} ->
@@ -539,7 +559,48 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           end
 
         true ->
-          {:cont, {:ok, attrs}}
+          {:cont, {:ok, attrs, applied}}
+      end
+    end)
+  end
+
+  defp record_applied(applied, added, source) do
+    Enum.reduce(added, applied, fn {field, value}, acc ->
+      Map.put(acc, Atom.to_string(field), %{value: value, source: source})
+    end)
+  end
+
+  defp force_attrs(changeset, attrs) do
+    Enum.reduce(attrs, changeset, fn {field, value}, cs ->
+      Ash.Changeset.force_change_attribute(cs, field, value)
+    end)
+  end
+
+  @doc """
+  读取某次 Event 写入生效的继承结果（#596）。
+
+  返回 `%{initiative: %{id, name, slug} | nil, inherited: %{field => %{value, source}}}`
+  ——无挂载/未触达规则时是空壳（`inherited: %{}`），调用方无需判空。
+  """
+  def inheritance_of(record) do
+    case record do
+      %{__metadata__: %{initiative_inheritance: payload}} -> payload
+      _ -> %{initiative: nil, inherited: %{}}
+    end
+  end
+
+  @doc """
+  把 `prepare_event_changes/2` 解析出的继承结果（挂在 changeset context 上）
+  在写事务内贴到返回记录的非持久化元数据上，供 MCP 工具响应直接复述（#596）。
+
+  必须在写 action 的 change 构建期注册（`Ash.Changeset.after_action/2`），
+  context 由 before_action 串到 after_action（Ash 3.33 hook threading）。
+  """
+  def attach_inheritance_metadata(changeset) do
+    Ash.Changeset.after_action(changeset, fn cs, record ->
+      case cs.context[:initiative_inheritance] do
+        nil -> {:ok, record}
+        payload -> {:ok, Ash.Resource.put_metadata(record, :initiative_inheritance, payload)}
       end
     end)
   end
@@ -590,6 +651,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   # 先报更根本的互斥（I1 归因优先，与域校验 cond 顺序、与两条不相交 DB CHECK
   # 的归因一致）。判据读 changeset 而非 attrs：规则 attrs 同样不含
   # `:price_tiers`（死码），且挂载路径的残留档位来自 Event 自身。
+  #
+  # #596：返回值第三元 `added` = 本次新写入的事件字段（deposit 是两个字段的
+  # 情况也一并记录），供继承结果回传；判据逻辑本身未被 #596 改动。
   defp merge_event_value(changeset, attrs, :deposit_enabled, %{deposit_enabled: enabled} = values) do
     cond do
       enabled and Ash.Changeset.get_attribute(changeset, :pricing_enabled) == true ->
@@ -599,11 +663,12 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
         {:error, tiers_conflict_error(:price_tiers)}
 
       true ->
-        Map.merge(attrs, values)
+        {:ok, Map.merge(attrs, values), values}
     end
   end
 
-  defp merge_event_value(_changeset, attrs, field, value), do: Map.put(attrs, field, value)
+  defp merge_event_value(_changeset, attrs, field, value),
+    do: {:ok, Map.put(attrs, field, value), %{field => value}}
 
   # 写后生效值非空即违规（`nil` 是历史畸形值的 fail-closed 侧：一并拒绝）。
   defp tiers_present?(changeset),
