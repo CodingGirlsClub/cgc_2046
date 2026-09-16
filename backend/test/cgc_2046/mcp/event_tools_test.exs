@@ -14,6 +14,10 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   - list_enrollments kind=event 分派：活动报名行 + 跨 kind 隔离 + 非法 kind 报错
   - confirm_enrollment 成功投影补 event_id（课程字段为 nil 原样返回）
   - 跨租户：他工作台 event_id / offering_id ≡ not found（不泄露存在性）
+  - #630 detach 来源标记：create/update 写响应与 list_workspace_events 行恒带
+    `detached_rule_provenance`（无标记 nil；detach 后含 initiative 身份 + 只含
+    locked 字段），MCP 编辑标记内字段逐字段清除；公开 MCP 面（list/get public
+    offering、discover_offerings）负向不透出
   """
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
@@ -32,8 +36,11 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     ConfirmEnrollment,
     ConfirmOperation,
     CreateEvent,
+    DiscoverOfferings,
+    GetPublicOffering,
     LaunchEvent,
     ListEnrollments,
+    ListPublicOfferings,
     ListWorkspaceEvents,
     UpdateEvent
   }
@@ -162,6 +169,31 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     "ends_at" => "2027-01-10T12:00:00Z",
     "capacity" => 50
   }
+
+  # #630：MCP update_event 不支持解除挂载（initiative_id nil = 未提供），测试经
+  # 域侧 detach 布置状态，再验 MCP 读/写面的标记回传。
+  defp detach!(event, actor, workspace) do
+    event
+    |> Ash.Changeset.for_update(:update, %{initiative_id: nil}, tenant: workspace.id)
+    |> Ash.update!(actor: actor, tenant: workspace.id)
+  end
+
+  # 挂载建场（CreateEvent 直接写 → draft）返回 event_id；@mounted_event_attrs 满足
+  # 押金规则开启所需的 ends_at / capacity
+  defp mount_event(owner, workspace, initiative, title) do
+    assert {:reply, _, _} =
+             reply =
+             CreateEvent.execute(
+               Map.merge(@mounted_event_attrs, %{
+                 "workspace_id" => workspace.id,
+                 "title" => title,
+                 "initiative_id" => initiative.id
+               }),
+               frame_for(owner)
+             )
+
+    decode_reply(reply)["event_id"]
+  end
 
   defp enroll(event, learner, attrs \\ %{}) do
     {:ok, enrollment} =
@@ -583,6 +615,262 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
       assert Ash.get!(Event, detached.id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
                detached.detached_rule_provenance
+    end
+  end
+
+  describe "解除挂载来源标记（#630）" do
+    test "update_event 响应含来源标记（initiative 身份 + 只含 locked 字段）；无标记时键恒在为 nil" do
+      owner = Fixtures.platform_admin("s3-ev-630-write")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-630-write-init")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "待摘除",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      created_payload = decode_reply(created)
+      event_id = created_payload["event_id"]
+
+      # create_event 响应恒带该键（新建无标记 → nil）
+      assert Map.has_key?(created_payload, "detached_rule_provenance")
+      assert created_payload["detached_rule_provenance"] == nil
+
+      mounted = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      detached = detach!(mounted, owner, workspace)
+
+      # detach 只标记此刻仍 locked 的规则字段（min_participants / deadline_rule
+      # 是挂载快照，不标）
+      assert detached.detached_rule_provenance == %{
+               "initiative" => %{
+                 "id" => initiative.id,
+                 "name" => initiative.name,
+                 "slug" => initiative.slug
+               },
+               "fields" => %{
+                 "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+                 "deposit_enabled" => %{"value" => true, "source" => "locked"},
+                 "min_age" => %{"value" => 18, "source" => "locked"}
+               }
+             }
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event_id, "title" => "摘除后改名"},
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      # MCP 写响应 = 落库真值，恒带标记键；未改标记内字段 → 标记原样保留
+      assert result["detached_rule_provenance"] == detached.detached_rule_provenance
+
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               result["detached_rule_provenance"]
+
+      # #596 契约不变：detach 后本次无规则写入 → initiative nil / inherited 空壳
+      assert result["initiative"] == nil
+      assert result["inherited"] == %{}
+    end
+
+    test "MCP 编辑标记内字段 → 响应该键消失（逐字段清除）；编辑未标记字段不动标记" do
+      owner = Fixtures.platform_admin("s3-ev-630-clear")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-630-clear-init")
+
+      event_id = mount_event(owner, workspace, initiative, "待摘除再编辑")
+
+      mounted = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      detached = detach!(mounted, owner, workspace)
+      assert map_size(detached.detached_rule_provenance["fields"]) == 3
+
+      # 编辑标记内字段 min_age（18 → 20）：只清该键，其余 locked 键保留
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "min_age" => 20
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      fields = result["detached_rule_provenance"]["fields"]
+
+      refute Map.has_key?(fields, "min_age")
+
+      assert fields == %{
+               "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+               "deposit_enabled" => %{"value" => true, "source" => "locked"}
+             }
+
+      assert result["detached_rule_provenance"]["initiative"]["id"] == initiative.id
+
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               result["detached_rule_provenance"]
+
+      # 编辑未标记字段（title）不动标记
+      assert {:reply, _, _} =
+               pending_title =
+               UpdateEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event_id, "title" => "再改名"},
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed_title =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending_title)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      assert decode_reply(confirmed_title)["result"]["detached_rule_provenance"] ==
+               result["detached_rule_provenance"]
+    end
+
+    test "清空最后一个标记字段 → 响应整列归 nil（键仍在）" do
+      owner = Fixtures.platform_admin("s3-ev-630-last")
+      workspace = Fixtures.create_workspace(owner)
+
+      # 只锁 age_gate：detach 标记恰一个字段，MCP 一次编辑即清空整列
+      initiative =
+        initiative_with_rules(owner, "s3-ev-630-last-init", [
+          {:deposit, %{enabled: false}, false},
+          {:age_gate, %{min_age: 18}, true},
+          {:min_participants, %{count: 8}, false},
+          {:deadline_rule, %{hours_before_start: 72}, false}
+        ])
+
+      event_id = mount_event(owner, workspace, initiative, "最后一个标记")
+
+      detached =
+        event_id
+        |> then(&Ash.get!(Event, &1, authorize?: false, tenant: workspace.id))
+        |> detach!(owner, workspace)
+
+      assert map_size(detached.detached_rule_provenance["fields"]) == 1
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event_id, "min_age" => 30},
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      assert Map.has_key?(result, "detached_rule_provenance")
+      assert result["detached_rule_provenance"] == nil
+
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               nil
+    end
+
+    test "list_workspace_events 行含标记：detach 后有、挂载中/从未挂载为 nil（键恒在）" do
+      owner = Fixtures.platform_admin("s3-ev-630-list")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-630-list-init")
+
+      plain = draft_event(workspace, owner, %{title: "从未挂载"})
+      mounted_id = mount_event(owner, workspace, initiative, "挂载中")
+
+      detached_id = mount_event(owner, workspace, initiative, "已摘除")
+
+      detached =
+        detached_id
+        |> then(&Ash.get!(Event, &1, authorize?: false, tenant: workspace.id))
+        |> detach!(owner, workspace)
+
+      assert {:reply, _, _} =
+               reply =
+               ListWorkspaceEvents.execute(%{"workspace_id" => workspace.id}, frame_for(owner))
+
+      by_id = Map.new(decode_reply(reply)["events"], &{&1["event_id"], &1})
+
+      for id <- [plain.id, mounted_id] do
+        assert Map.has_key?(by_id[id], "detached_rule_provenance"),
+               "expected key present for #{id}"
+
+        assert by_id[id]["detached_rule_provenance"] == nil
+      end
+
+      assert by_id[detached_id]["detached_rule_provenance"] ==
+               detached.detached_rule_provenance
+    end
+
+    test "公开 MCP 面不透出标记（list/get_public_offering + discover_offerings 负向）" do
+      owner = Fixtures.platform_admin("s3-ev-630-public")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-630-public-init")
+
+      event_id = mount_event(owner, workspace, initiative, "公开已摘除活动")
+
+      detached =
+        event_id
+        |> then(&Ash.get!(Event, &1, authorize?: false, tenant: workspace.id))
+        |> detach!(owner, workspace)
+
+      # 布置而非被测对象：公开面只含 open，直置状态（marker 列不动）
+      assert detached.detached_rule_provenance != nil
+
+      Cgc2046.Repo.query!("UPDATE events SET status = 'open' WHERE id = $1", [
+        Ecto.UUID.dump!(event_id)
+      ])
+
+      outsider = Fixtures.register_user("s3-ev-630-public-outsider")
+
+      assert {:reply, _, _} =
+               list_reply =
+               ListPublicOfferings.execute(%{"kind" => "event"}, frame_for(outsider))
+
+      [row] = Enum.filter(decode_reply(list_reply)["items"], &(&1["id"] == event_id))
+      refute Map.has_key?(row, "detached_rule_provenance")
+
+      assert {:reply, _, _} =
+               get_reply =
+               GetPublicOffering.execute(
+                 %{"id" => event_id, "kind" => "event"},
+                 frame_for(outsider)
+               )
+
+      refute Map.has_key?(decode_reply(get_reply), "detached_rule_provenance")
+
+      assert {:reply, _, _} =
+               discover_reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+
+      [offering] =
+        Enum.filter(decode_reply(discover_reply)["offerings"], &(&1["id"] == event_id))
+
+      refute Map.has_key?(offering, "detached_rule_provenance")
     end
   end
 
