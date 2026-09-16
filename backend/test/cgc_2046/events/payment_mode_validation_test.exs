@@ -25,6 +25,14 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
   end
 
   defp create_event(ctx, attrs) do
+    # #543：定价布置默认补 starts_at（域不变量，EventFixtures 同款纪律）
+    attrs =
+      if attrs[:pricing_enabled] == true and not Map.has_key?(attrs, :starts_at) do
+        Map.put(attrs, :starts_at, DateTime.add(DateTime.utc_now(), 9, :day))
+      else
+        attrs
+      end
+
     Event
     |> Ash.Changeset.for_create(:create, Map.merge(%{title: "PM"}, attrs),
       tenant: ctx.workspace.id
@@ -208,11 +216,14 @@ defmodule Cgc2046.Events.PaymentModeValidationTest do
     test "对称残留（定价开 + 押金金额残留）被显式允许（#597 裁决 I6/I7 不立）", ctx do
       {:ok, event} = create_event(ctx, deposit_attrs())
 
+      # #543：转定价须锚定 starts_at（自助取消退款锚，域不变量）
       assert {:ok, priced} =
                update_event(ctx, event, %{
                  deposit_enabled: false,
                  pricing_enabled: true,
-                 price_tiers: dormant_tiers()
+                 price_tiers: dormant_tiers(),
+                 # 早于押金布置的 ends_at/days_from_now(3)，满足时序校验
+                 starts_at: DateTime.add(DateTime.utc_now(), 1, :day)
                })
 
       assert priced.pricing_enabled == true

@@ -652,6 +652,11 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			screen.queryByTestId("checkout-deposit-consent"),
 		).not.toBeInTheDocument();
 		expect(client.mutate).toHaveBeenCalledTimes(1);
+
+		// #543：定价场收银框明示退款规则（押金 note 同款形态）
+		expect(screen.getByTestId("checkout-pricing-note")).toHaveTextContent(
+			"活动开始前取消全额退",
+		);
 	});
 });
 

@@ -79,7 +79,10 @@ export default function TermsPage() {
 			<section className="mt-10">
 				<h2 className="l-h3">5. 报名、订单与支付</h2>
 				<p className="mt-3 text-sm leading-7 text-ink-2">5.1 活动报名分免费与付费；付费活动经微信支付/支付宝完成支付后报名生效。</p>
-				<p className="mt-3 text-sm leading-7 text-ink-2">5.2 <strong>退款规则</strong>：退款以活动页面公示的规则为准；页面未特别说明时，活动开始前申请退款的，按原路全额退款；活动开始后不予退款（法定情形除外）。</p>
+				<p className="mt-3 text-sm leading-7 text-ink-2">5.2 <strong>退款规则</strong>：
+（a）押金型活动：押金以到场为退还条件——到场核销后押金全额原路退回，未到场不予退还；报名截止前取消报名的，押金全额原路退回，报名截止后取消的，押金不予退还。
+（b）报名费型活动（定价档位）：活动开始前取消报名的，报名费全额原路退回；活动开始后取消报名或未到场的，报名费不予退还。
+（c）退款一律原路退回；活动页面就退款规则另有公示的，以公示规则为准，但不得低于本条保障水平。</p>
 				<p className="mt-3 text-sm leading-7 text-ink-2">5.3 因不可抗力导致活动取消的，已付费用全额退还。</p>
 			</section>
 
