@@ -917,6 +917,9 @@ defmodule Cgc2046.Events.Event do
       ConstraintConflict.constraint_named?(error, "events_deposit_requires_positive_amount") ->
         PaymentModeValidation.deposit_amount_required_error()
 
+      ConstraintConflict.constraint_named?(error, "events_pricing_requires_starts_at") ->
+        Cgc2046.Offering.PriceTiersValidation.starts_at_required_error()
+
       true ->
         error
     end
@@ -939,6 +942,14 @@ defmodule Cgc2046.Events.Event do
     # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /
     # event_deposit_{registration_deadline,ends_at,amount}_required（BusinessError）。
     check_constraints do
+      # #543 定价锚点兜底：`pricing_enabled = true` ⇒ `starts_at` 非空（定价单
+      # 自助取消「活动开始前全额退」的锚点）。域校验（PriceTiersValidation）只在
+      # 相关字段被改动时生效；本 CHECK 无条件兜底新写入（含未知裸 SQL 路径）。
+      check_constraint([:pricing_enabled, :starts_at], "events_pricing_requires_starts_at",
+        check: "NOT (pricing_enabled AND starts_at IS NULL)",
+        message: "starts_at is required when pricing is enabled"
+      )
+
       # message 是同源兜底字面量（与 PaymentModeValidation.exclusive_error/1 同文字；
       # DSL 编译期取值无法引用函数）；用户可见错误由 handle_write_error/2 转换。
       check_constraint([:deposit_enabled, :pricing_enabled], "events_payment_mode_exclusive",
