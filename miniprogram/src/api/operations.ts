@@ -86,6 +86,8 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       availablePriceTiers
       depositEnabled
       depositAmountCents
+      #510：min_age 非空的场报名须勾选年龄确认（公开字段白名单内，匿名可读）
+      minAge
       startsAt
       endsAt
       venue

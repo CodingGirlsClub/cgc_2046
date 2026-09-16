@@ -834,6 +834,8 @@ export type CreateCourseResult = {
 };
 
 export type CreateEnrollmentInput = {
+  /** 确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true） */
+  ageConfirmed?: InputMaybe<Scalars['Boolean']['input']>;
   approvalDeadline?: InputMaybe<Scalars['DateTime']['input']>;
   courseId?: InputMaybe<Scalars['ID']['input']>;
   eventId?: InputMaybe<Scalars['ID']['input']>;

@@ -62,6 +62,8 @@ export async function submitEnrollment(input: {
 	inviteCode?: string | null;
 	/** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
 	tierId?: string | null;
+	/** 年龄门槛确认（#510：min_age 非空的活动必传 true，后端 action 权威门控） */
+	ageConfirmed?: boolean;
 }): Promise<EnrollmentSubmissionResult> {
 	const { data } = await client.mutate({
 		mutation: CREATE_ENROLLMENT,

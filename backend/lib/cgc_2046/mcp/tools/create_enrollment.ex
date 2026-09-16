@@ -43,6 +43,10 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
     field(:tier_id, :string,
       description: "价格档位 ID（收费供给必填，取自 get_enrollment_summary 的 price_tiers；免费供给忽略）"
     )
+
+    field(:age_confirmed, :boolean,
+      description: "确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true；门控在后端 action，不传即拒）"
+    )
   end
 
   @impl true
@@ -74,6 +78,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
       %{user_id: actor.id, submission_payload: submission_payload(reason)}
       |> Map.put(target_key, offering_id)
       |> maybe_put(:tier_id, tier_id)
+      |> maybe_put(:age_confirmed, params["age_confirmed"])
 
     case Enrollment
          |> Ash.Changeset.for_create(:create_enrollment, attrs)

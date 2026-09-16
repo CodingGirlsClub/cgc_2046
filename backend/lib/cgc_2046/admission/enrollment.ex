@@ -36,6 +36,10 @@ defmodule Cgc2046.Admission.Enrollment do
   @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
+  # #510 年龄门槛条款版本（单源）：min_age 非空的目标活动报名须显式确认，
+  # 确认事实（age_confirmed_at）与当时条款版本（terms_version）同事务留痕。
+  # 版本随代码部署演进——改条款语义时更新本值，存量留痕不回写。
+  @terms_version "2026-09-participation"
   # review A1 容量上限：单事务批量免缴的待付笔数上限（定级依据见
   # waive_pending_for_offering moduledoc「容量契约」）
   @batch_waive_limit 200
@@ -308,6 +312,14 @@ defmodule Cgc2046.Admission.Enrollment do
       argument(:tier_id, :string,
         allow_nil?: true,
         description: "价格档位 ID（收费活动报名时必填）"
+      )
+
+      # #510 年龄门槛：目标活动 min_age 非空时必须传 true（门控在
+      # prepare_create 的 put_age_confirmation，权威在后端 action——web /
+      # 小程序 / MCP 三入口同一扇门，UI 只是引导）
+      argument(:age_confirmed, :boolean,
+        allow_nil?: true,
+        description: "确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true）"
       )
 
       # 唯一约束（unique_event_user / unique_course_user）冲突转
@@ -703,6 +715,7 @@ defmodule Cgc2046.Admission.Enrollment do
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
          {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
          {:ok, attrs} <- put_deposit_selection(changeset, target, attrs),
+         {:ok, attrs} <- put_age_confirmation(changeset, target, attrs),
          {:ok, attrs} <- put_check_in_code(attrs, target_kind, target_id) do
       changeset =
         Enum.reduce(attrs, changeset, fn {key, value}, cs ->
@@ -897,6 +910,24 @@ defmodule Cgc2046.Admission.Enrollment do
   end
 
   defp put_deposit_selection(_changeset, _target, attrs), do: {:ok, attrs}
+
+  # ── 年龄门槛（#510）──────────────────────────────────────────────────────
+  # min_age 非空的目标活动（仅 events 有该列；course 恒 nil 走兜底）必须显式
+  # 确认：argument :age_confirmed 非 true 即拒（fail-closed，MCP 不传同拒）。
+  # 确认事实与条款版本同事务落列——审计可回答「何时同意的哪一版条款」。
+  # 判据是 is_integer（min_age 有 CHECK min:1，无 0/负值分支）。
+  defp put_age_confirmation(changeset, %{min_age: min_age}, attrs) when is_integer(min_age) do
+    if Ash.Changeset.get_argument(changeset, :age_confirmed) == true do
+      {:ok,
+       attrs
+       |> Map.put(:age_confirmed_at, DateTime.utc_now())
+       |> Map.put(:terms_version, @terms_version)}
+    else
+      {:error, :age_confirmation_required}
+    end
+  end
+
+  defp put_age_confirmation(_changeset, _target, attrs), do: {:ok, attrs}
 
   # submission_payload 累加写点（U2 起 tier_id 与 deposit_amount_cents 共存）：
   # 优先取链上已累积值、回落客户端提交原值，只覆盖本键——后写者不吞前写者，
@@ -1492,8 +1523,10 @@ defmodule Cgc2046.Admission.Enrollment do
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
     # 押金两列（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
     # 的 deposit_column 同款写法）。
+    # min_age 列（#510）：仅 events 表有，courses 补 NULL 保持列数一致（同
+    # deposit_columns 形状）。
     sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}
+    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}#{min_age_columns(table)}
     FROM #{table}
     WHERE id = $1 AND status = 'open'
       AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
@@ -1512,7 +1545,15 @@ defmodule Cgc2046.Admission.Enrollment do
       {:ok,
        %{
          rows: [
-           [workspace_id, policy, pricing_enabled, price_tiers, deposit_enabled, deposit_amount]
+           [
+             workspace_id,
+             policy,
+             pricing_enabled,
+             price_tiers,
+             deposit_enabled,
+             deposit_amount,
+             min_age
+           ]
          ]
        }} ->
         case Map.get(@enrollment_policy_atoms, policy) do
@@ -1527,7 +1568,8 @@ defmodule Cgc2046.Admission.Enrollment do
                pricing_enabled: pricing_enabled,
                price_tiers: price_tiers || [],
                deposit_enabled: deposit_enabled,
-               deposit_amount_cents: deposit_amount
+               deposit_amount_cents: deposit_amount,
+               min_age: min_age
              }}
         end
 
@@ -1701,6 +1743,9 @@ defmodule Cgc2046.Admission.Enrollment do
   # 押金两列（KTD2）：仅 events 表有；courses 补 false/NULL 保持 SELECT 列数一致。
   defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false), deposit_amount_cents"
   defp deposit_columns(_table), do: ", false, NULL"
+  # 年龄一列（#510）：仅 events 表有；courses 补 NULL。
+  defp min_age_columns("events"), do: ", min_age"
+  defp min_age_columns(_table), do: ", NULL"
 
   # ── 错误构造（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
 
@@ -1760,6 +1805,9 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_message(:tier_not_available),
     do: "selected price tier is not available"
 
+  defp domain_error_message(:age_confirmation_required),
+    do: "age confirmation is required for this enrollment"
+
   defp domain_error_message(:already_processed), do: "enrollment has already been processed"
 
   defp domain_error_message(:duplicate_active),
@@ -1805,6 +1853,10 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_code(:invite_quota_unavailable), do: "enrollment_invite_quota_unavailable"
   defp domain_error_code(:tier_id_required), do: "enrollment_tier_id_required"
   defp domain_error_code(:tier_not_available), do: "enrollment_tier_not_available"
+  # 显式子句化（#241）：进契约工件，web/小程序按 code 配文案
+  defp domain_error_code(:age_confirmation_required),
+    do: "enrollment_age_confirmation_required"
+
   defp domain_error_code(:already_processed), do: "enrollment_already_processed"
   defp domain_error_code(:duplicate_active), do: "enrollment_duplicate_active"
   defp domain_error_code(:check_in_code_exhausted), do: "enrollment_check_in_code_exhausted"

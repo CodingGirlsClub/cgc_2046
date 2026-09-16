@@ -62,6 +62,11 @@ export interface CatalogItem {
   depositEnabled: boolean
   /** 押金金额（分，R2 单源）；非押金场恒 null */
   depositAmountCents: number | null
+  /**
+   * 报名最低年龄（#510；仅 event 有槽，course 恒 null = 无门槛）。非空时报名
+   * 须勾选年龄确认（后端 action 权威门控，本端只是引导）。
+   */
+  minAge: number | null
   /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
@@ -224,6 +229,8 @@ export interface EnrollmentForm {
   inviteCode?: string
   /** 收费目标必选档（R5：报名选档 → 占位 → payment_pending） */
   tierId?: string
+  /** 年龄门槛确认（#510：minAge 非空的目标必传 true） */
+  ageConfirmed?: boolean
 }
 
 export interface NotificationItem {

@@ -19,6 +19,8 @@ export const COPY: Record<string, string> = {
   enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
   enrollment_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
+  // 年龄门槛未确认（#510；与 web zh-CN errors 命名空间同文案互指）
+  enrollment_age_confirmation_required: '本活动仅限达到最低年龄要求的人士参加，请勾选年龄确认后重试。',
   // createOrder 对 stale enrollment（已支付/取消/过期，F2）
   order_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
   // 已有活跃订单再下单（unique_active_order 部分索引冲突，含并发，F1）
