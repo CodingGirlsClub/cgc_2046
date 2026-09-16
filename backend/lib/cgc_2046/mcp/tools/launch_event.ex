@@ -75,11 +75,8 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
           {:error,
            "forbidden: owner or admin required to launch event in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to launch event"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to launch event")}
       end
     end
   end
