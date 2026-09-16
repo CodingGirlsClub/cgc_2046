@@ -198,17 +198,89 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "slug-lock-format"
   end
 
-  test "draft 改成已被占用的 slug 仍被拒（identity 未被锁定守卫削弱）", %{admin: admin} do
-    _taken = draft_initiative(admin, "slug-lock-taken")
-    draft = draft_initiative(admin, "slug-lock-free")
+  # ── #604：撞 slug 的唯一索引冲突 → 稳定 code，且不回显库内文本 ──
+  #
+  # 根因与修复：migration 20260913155651 的 `unique_index` 默认名
+  # `initiatives_slug_index` 与 identity 推导名 `initiatives_unique_slug_index`
+  # 不一致 ⇒ ash_postgres 注册的 `unique_constraint(match: :exact)` 永不匹配，
+  # 撞 slug 落 `Ash.Error.Unknown` 且原文含索引名 + 该 changeset 注册的全部约束名
+  # （MCP 侧 `Exception.message/1` 直出 ⇒ 真实泄漏）。修复 = 索引改名对齐
+  # （20260916130000）+ `Initiative.handle_write_error/2` 映射业务码。
+  test "draft 改到已占用 slug：initiative_slug_taken + 无库内文本 + 不落库", %{admin: admin} do
+    _taken = draft_initiative(admin, "slug-taken-update")
+    draft = draft_initiative(admin, "slug-taken-free")
 
-    # 发现（既存缺陷，与 #588 无关，另开 issue 跟踪）：DB 实际索引名
-    # `initiatives_slug_index`（migration 20260913155651 的 `unique_index` 默认名）
-    # 与 Ash identity 声明的约束名 `initiatives_unique_slug_index` 不一致 ⇒ 撞 slug
-    # 时 Ecto 约束错误未被转成 changeset 错误，回 `Ash.Error.Unknown` 且带原始
-    # SQL/索引名文本（create 与 update 同病）。本用例只钉「不被静默写入」不变量。
-    assert {:error, _} = update_slug(draft, "slug-lock-taken", admin)
-    assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "slug-lock-free"
+    assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+             update_slug(draft, "slug-taken-update", admin)
+
+    assert [%Cgc2046.Errors.BusinessError{code: "initiative_slug_taken", fields: [:slug]}] =
+             errors
+
+    message = Exception.message(error)
+    assert message =~ "slug has already been taken"
+    refute message =~ "initiatives_slug_index"
+    refute message =~ "initiatives_unique_slug_index"
+    refute message =~ "duplicate key"
+    refute message =~ "constraint error"
+    # Postgres detail（`Key (slug)=(...) already exists.`）同样不得外泄
+    refute message =~ "already exists"
+
+    assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "slug-taken-free"
+  end
+
+  test "create 撞已占用 slug：initiative_slug_taken + 无库内文本 + 不落库", %{admin: admin} do
+    _taken = draft_initiative(admin, "slug-taken-create")
+
+    assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+             Initiative
+             |> Ash.Changeset.for_create(:create, %{
+               name: "Dup",
+               slug: "slug-taken-create",
+               created_by: admin.id
+             })
+             |> Ash.create(actor: admin)
+
+    assert [%Cgc2046.Errors.BusinessError{code: "initiative_slug_taken", fields: [:slug]}] =
+             errors
+
+    message = Exception.message(error)
+    assert message =~ "slug has already been taken"
+    refute message =~ "initiatives_slug_index"
+    refute message =~ "initiatives_unique_slug_index"
+    refute message =~ "duplicate key"
+    refute message =~ "constraint error"
+    refute message =~ "already exists"
+
+    rows =
+      Ash.read!(Initiative, authorize?: false)
+      |> Enum.filter(&(&1.slug == "slug-taken-create"))
+
+    assert length(rows) == 1
+  end
+
+  test "open 后改到已占用 slug：锁定优先（initiative_slug_locked）", %{admin: admin} do
+    _taken = draft_initiative(admin, "slug-taken-priority-taken")
+    open = initiative(admin, "slug-taken-priority-open")
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             update_slug(open, "slug-taken-priority-taken", admin)
+
+    assert [%Cgc2046.Errors.BusinessError{code: "initiative_slug_locked"}] = errors
+    assert Ash.get!(Initiative, open.id, authorize?: false).slug == "slug-taken-priority-open"
+  end
+
+  # 索引名对齐钉（#604 验收「索引名与 identity 名对齐，有测试钉死」）：DSL 推导名
+  # 必须真的存在于 DB——名字漂移即 unique 冲突重新落 Unknown（CI 的
+  # `generate_migrations --check` 是纯文件比对，抓不到 DB↔snapshot 漂移）。
+  test "initiatives 唯一索引名与 identity 推导名对齐" do
+    {:ok, %{rows: rows}} =
+      Cgc2046.Repo.query(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'initiatives'"
+      )
+
+    names = List.flatten(rows)
+    assert "initiatives_unique_slug_index" in names
+    refute "initiatives_slug_index" in names
   end
 
   test "enabled deposit rule requires amount", %{admin: admin} do
