@@ -364,6 +364,7 @@
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
 - **解除挂载来源标记（#624）**：`detached_rule_provenance`（可空 jsonb，`writable?: false`）只描述「已解除挂载后仍留在场上的强制值」——detach 保留值 + 逐字段来源、场主首改即清、重挂载整列清空，语义与读面见「Initiative（倡导活动，平台级）与挂载边界」词条；MCP 面（#630）写响应 / `list_workspace_events` 行带出、公开 DTO 不含。
 - **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])`（取代 18 份工具内私有 fetch_course 拷贝）。不变量 = 必带 `tenant:`（Course 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
+- **slug 公开 URL 段不可变（ADR-0014）**：draft 随便改，发布（非 draft）后锁死，无 rename 后门（恢复 = 新建）；锁定/撞 slug 拒绝带稳定 code `event_slug_locked` / `event_slug_taken` / `course_slug_*`（#619，与 Initiative #588/#604 三资源同口径；格式校验资源级单源，锁定优先于格式错）。
 
 ### provisional_title（课程临时占位标题标记，Course-only）
 

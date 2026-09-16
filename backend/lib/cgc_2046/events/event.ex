@@ -311,6 +311,16 @@ defmodule Cgc2046.Events.Event do
     # 必须正金额 + 非空 ends_at（no-show 结算锚点）。并发兜底 =
     # postgres.check_constraints 的 events_payment_mode_exclusive。
     validate({Cgc2046.Events.PaymentModeValidation, []})
+
+    # slug 单段 URL 约束（create/update 同规则；#619 从 create/update 各自内联的
+    # action change 收敛为资源级单源）。only_when_valid?（同 Initiative #588）：
+    # slug 锁定守卫是 action change，先于本 validation 跑——非 draft 传
+    # 「又非法又锁定」的 slug 只回一个 event_slug_locked，不叠加格式错把人
+    # 骗进「改好格式再来」的死循环（再来仍被锁）。
+    validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/),
+      only_when_valid?: true,
+      message: "slug must be a single lowercase URL segment ([a-z0-9-])"
+    )
   end
 
   calculations do
@@ -509,24 +519,6 @@ defmodule Cgc2046.Events.Event do
         changeset
       end)
 
-      # slug 单段 URL 约束（公开路由 /events/[slug]；非法字符拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
-      end)
-
       # workspace_id 由 argument 或 tenant 强制，不接受属性直传
       change(fn changeset, _context ->
         workspace_id = Ash.Changeset.get_argument(changeset, :workspace_id) || changeset.tenant
@@ -592,37 +584,25 @@ defmodule Cgc2046.Events.Event do
         changeset
       end)
 
-      # slug 单段 URL 约束（create/update 同规则；非法拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
-      end)
-
-      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
-      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
-      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # 发布后 slug 锁定（2026-09-08 拍板，ADR-0014）：公开 URL 段发布即契约——
+      # 已分发链接（微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。
+      # draft 随便改；无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # #619：裸 add_error 落 GraphQL 只有 invalid_attribute（不在 #241 契约、
+      # 两端无文案），改 BusinessError 稳定 code event_slug_locked（Initiative
+      # #588 同款）。排障不再需要 value 通道——code 即「锁定拦截」的判据。
+      # 同值回传不算变更：非 draft 表单 disabled 仍回传旧 slug 时，
+      # Ash.Changeset.do_change_attribute 同值删键，changing_attribute? 不误触发。
+      # 格式校验已收敛为资源级 validation（only_when_valid?）——锁定优先于格式错。
       change(fn changeset, _context ->
         if Ash.Changeset.changing_attribute?(changeset, :slug) and
              Ash.Changeset.get_data(changeset, :status) != :draft do
           Ash.Changeset.add_error(
             changeset,
-            field: :slug,
-            # 带被拒新值——Ash keyword add_error 不传 :value 时错误消息 Value 恒为 nil,
-            # 排障时无法区分「参数丢失」与「锁定拦截」(2026-09-09 生产实例误判过)
-            value: Ash.Changeset.get_attribute(changeset, :slug),
-            message: "slug is locked once the offering is published (editable in draft only)"
+            Cgc2046.Errors.BusinessError.exception(
+              message: "slug is locked once the offering is published (editable in draft only)",
+              code: "event_slug_locked",
+              fields: [:slug]
+            )
           )
         else
           changeset
@@ -887,15 +867,27 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
-  # create/update error_handler（KTD3 / #597 / #608 / #623）：缴费模式 DB CHECK 冲突
-  # 转稳定业务错误。ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，
-  # 冲突落到 InvalidAttribute.private_vars.constraint_type == :check（约束名在同处
-  # .constraint）——**五条 CHECK 全部显式按名分派**，其余错误原样上抛（fail-closed：
-  # 新增约束未映射时不吞成某个既有业务码；enrollment.handle_create_error 同款纪律）。
+  # create/update error_handler（KTD3 / #597 / #608 / #623 / #619）：缴费模式 DB
+  # CHECK 冲突转稳定业务错误。ash_postgres 把 check_constraint DSL 映射为 Ecto
+  # check_constraint，冲突落到 InvalidAttribute.private_vars.constraint_type ==
+  # :check（约束名在同处 .constraint）——**五条 CHECK + slug 唯一索引全部显式
+  # 按名分派**，其余错误原样上抛（fail-closed：新增约束未映射时不吞成某个既有
+  # 业务码；enrollment.handle_create_error 同款纪律）。
   # 未进 DSL 的 check 约束（如 events_capacity_positive）在 ash_postgres 侧直接抛
   # Ecto.ConstraintError，到不了本函数。
   def handle_write_error(_changeset, error) do
     cond do
+      # 撞 slug 的唯一索引冲突（#619）转稳定业务错误 event_slug_taken（Initiative
+      # #604 同款）。按索引名分派（fail-closed）：未来新增其他唯一索引不会被误吞
+      # 成 slug_taken。identity :slug 的 ash_postgres 翻译错误仍带
+      # private_vars.constraint（enrollment unique_event_user 先例）。
+      ConstraintConflict.constraint_named?(error, "events_slug_index") ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: "slug has already been taken",
+          code: "event_slug_taken",
+          fields: [:slug]
+        )
+
       ConstraintConflict.constraint_named?(error, "events_deposit_excludes_price_tiers") ->
         PaymentModeValidation.price_tiers_conflict_error(:price_tiers)
 
