@@ -39,7 +39,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 跑 e2e 的四条纪律：
 
-1. **前置**：wechatide-skill 装在 `.agents/skills/wechatide-skill`；首次调用 `wechatide` 会在工具内弹授权窗，需人工点同意（client 名默认 `DSH`，用 `CGC_WECHATIDE_CLIENT` 覆盖）。工具没登录 → 先扫码。
+1. **前置**：`cd miniprogram && pnpm install --frozen-lockfile`——**Paseo 的 worktree setup 只装 backend + web，不装小程序依赖**（`paseo.json`），新 worktree 缺依赖时脚本会在 taro 构建那步以「mock 构建失败」的面目失败；脚本已加依赖预检，会直说原因。另需 wechatide-skill 装在 `.agents/skills/wechatide-skill`；首次调用 `wechatide` 会在工具内弹授权窗，需人工点同意（client 名默认 `DSH`，用 `CGC_WECHATIDE_CLIENT` 覆盖）。工具没登录 → 先扫码。
 2. **选择器只用 CSS-module 类名**（`data-testid` 是惰性属性，见 #579）。类名哈希随样式变，运行时从 `dist/weapp/<page>/index.wxss` 解析，别写死——`e2e/order-pay-deposit-consent.e2e.sh` 的 `cls()` 是参考实现。
 3. **`--wait-for-selector` 是「执行前等待」**（`automation_navigate` / `automation_element_action` 都是）。用它等**本步要操作的元素**；当成「导航后等新页面」用会卡在等一个还不存在的元素上，页面根本不跳。
 4. **e2e 走 mock transport**（`CGC_E2E_MOCK=true` 构建）。样例与流转逻辑在 `src/api/mockTransport.ts`：加字段/加页面要同步改它，否则 `parseOrderKind` 这类 fail-closed 解析会直接把页面打成错误态，e2e 红得莫名其妙。

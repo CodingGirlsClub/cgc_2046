@@ -31,6 +31,15 @@ command -v wechatide >/dev/null || {
   exit 2
 }
 
+# 新 worktree 常踩：Paseo 的 worktree setup 只装 backend + web，不装小程序依赖，
+# 缺了会在 taro 构建那步以「mock 构建失败」的面目出现，看不出真实原因
+[ -x "$MP_DIR/node_modules/.bin/taro" ] || {
+  echo "✗ 缺小程序依赖（$MP_DIR/node_modules）。" >&2
+  echo "  先执行：cd miniprogram && pnpm install --frozen-lockfile" >&2
+  echo "  注：Paseo 的 worktree setup 只装 backend + web，不装小程序依赖。" >&2
+  exit 2
+}
+
 RAW() { timeout 120 wechatide -c "$CLIENT" "$@" --project "$MP_DIR" 2>&1; }
 # 取 toolCall 结果里的字符串值（text / property 类读取）
 RES() { RAW "$@" | sed -n 's/.*"result": "\(.*\)"/\1/p' | tail -1; }
