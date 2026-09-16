@@ -18,6 +18,8 @@ export type OrderStatus =
   | 'expired'
   /** 押金终态：未到场且未核销，押金不退（no-show 结算落此态，平台首个不退终态） */
   | 'forfeited'
+/** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
+export type OrderKind = 'enrollment' | 'deposit'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
 export interface CatalogItem {
@@ -231,6 +233,11 @@ export interface OrderSummary {
   amountCents: number
   expireAt: string
   transactionId: string | null
+  /**
+   * 订单口径（后端 Order.order_kind 下单时快照）：'deposit' 才是押金单。
+   * 资金动作门（押金同意）以此为准——活动的实时缴费配置会改，这一笔不会。
+   */
+  orderKind: OrderKind
 }
 
 /** createOrder 产物：订单 + JSAPI 凭据（原样透传给 mapPaymentCredential） */

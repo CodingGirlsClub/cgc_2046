@@ -5,7 +5,9 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import {
   POLL_TOTAL_MS,
+  canRequestPayment,
   countdownText,
+  depositPayNotice,
   formatAmount,
   mapPaymentCredential,
   nextPollTick,
@@ -23,6 +25,12 @@ import styles from './index.module.css'
  * Taro.requestPayment(JSAPI 五键) → 轮询 orderStatus(2s×30s，与 web 同
  * 契约) → paid 成功态 / 超窗手动刷新态；倒计时 expire_at。
  *
+ * 押金同意门（U1 小程序落点）：押金单在「立即支付」前明示「押金 ¥xx（到场退）·
+ * 未到场不退」并须勾选同意，未勾选不放行。判据是**订单自己的口径快照**
+ * `order.orderKind`（后端 order_kind），不是活动的实时缴费配置——活动随时可改
+ * 配置，这一笔不会；金额同理取 `order.amountCents`（报名时物化的押金快照）。
+ * 用户同意的就是这一笔。判据为纯函数 canRequestPayment，本页只渲染。
+ *
  * e2e 边界(#172 已定)：真实支付调起不可自动化，端到端止于订单生成 + 凭据
  * 返回；requestPayment 之后的行为由单测(纯逻辑)与真实小额验收覆盖。
  */
@@ -39,6 +47,7 @@ export default function OrderPayPage() {
   const [manualMode, setManualMode] = useState(false)
   const [now, setNow] = useState(Date.now)
   const [error, setError] = useState('')
+  const [ack, setAck] = useState(false)
   const createdRef = useRef(false)
 
   // 下单(一次性)：凭据即取,失败可重试
@@ -71,9 +80,20 @@ export default function OrderPayPage() {
 
   const status = (order?.status ?? 'pending') as OrderPollStatus
 
+  // 资金动作门（U1）：押金单先勾选——口径与金额都取订单自己的快照
+  const depositNotice =
+    order?.orderKind === 'deposit' ? depositPayNotice(order.amountCents) : null
+  const ackRequired = depositNotice !== null && !ack
+  const canPay = canRequestPayment({
+    order,
+    ack,
+    hasCredential: paymentArgs !== null,
+    paying
+  })
+
   // 支付调起(R13)：requestPayment 完成(用户支付/取消)后轮询确认
   const requestPayment = async () => {
-    if (!paymentArgs || paying) return
+    if (!canPay || !paymentArgs) return
     setPaying(true)
     try {
       // signType 收敛为 Taro 联合字面量(RSA/MD5/HMAC-SHA256,后端 v3 固定 RSA)
@@ -215,14 +235,31 @@ export default function OrderPayPage() {
                   <>
                     <Text className={styles.cardTitle}>微信支付</Text>
                     <Text className={styles.cardHint}>点击下方按钮调起微信支付，完成后本页自动确认。</Text>
+                    {depositNotice && (
+                      <View className={styles.depositNotice} data-testid='deposit-pay-notice'>
+                        <Text className={styles.depositAmount}>{depositNotice.amountText}</Text>
+                        <Text className={styles.depositForfeit}>{depositNotice.forfeitText}</Text>
+                        {/* 显式同意：整行可点（小程序无表单控件先例，与报名选档同款行选择） */}
+                        <View
+                          className={styles.ackRow}
+                          data-testid='deposit-ack-option'
+                          onClick={() => setAck((value) => !value)}
+                        >
+                          <View className={`${styles.ackBox} ${ack ? styles.ackBoxChecked : ''}`}>
+                            {ack && <Text className={styles.ackTick}>✓</Text>}
+                          </View>
+                          <Text className={styles.ackLabel}>{depositNotice.ackLabel}</Text>
+                        </View>
+                      </View>
+                    )}
                     <Button
                       className={styles.primaryButton}
                       data-testid='request-payment'
                       loading={paying}
-                      disabled={paying || !paymentArgs}
+                      disabled={!canPay}
                       onClick={() => void requestPayment()}
                     >
-                      {paying ? '调起支付…' : '立即支付'}
+                      {paying ? '调起支付…' : ackRequired ? '请先勾选确认' : '立即支付'}
                     </Button>
                   </>
                 )}
