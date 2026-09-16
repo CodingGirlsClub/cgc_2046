@@ -499,22 +499,17 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
     actor = changeset.context[:private][:actor]
 
     with {:ok, target_kind, target_id} <- target_from_record(changeset.data),
-         {:ok, tier} <- target_tier(changeset.data) do
+         {:ok, tier} <- target_tier(changeset.data),
+         :ok <-
+           lock_exclusive_slot(
+             SponsorshipTier.exclusive?(tier),
+             target_kind,
+             target_id,
+             changeset.data.tier_id
+           ) do
       tier_id = changeset.data.tier_id
 
       exclusive? = SponsorshipTier.exclusive?(tier)
-
-      # 独占位并发串行化：两个并发激活更新的是不同 sponsorship 行（无行锁竞争），
-      # READ COMMITTED 下 NOT EXISTS 子查询看不到未提交的赢家 → 双重预定逃逸。
-      # 事务级 advisory lock 按 (target, tier) 键串行化独占档位激活：后到者在
-      # 赢家提交后以新快照重跑守卫 → num_rows=0 → exclusive_slot_taken。
-      # 锁在 claim 前由调用方取得（锁序 lock→claim，plan 2026-08-17-001 D6）。
-      if exclusive? do
-        slot_key = "sponsorship_slot:#{target_kind}:#{target_id}:#{tier_id}"
-        # PR-I D5：内联锁收进 Repo.acquire_lock!（默认 hashtext 键域不变）；新增
-        # lock_timeout 5s + 死锁/超时友好错误映射（此前死锁裸抛 Postgres 错误）。
-        Repo.acquire_lock!(slot_key)
-      end
 
       # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4/D6）：状态守卫 +
       # approval_deadline 守卫（= not_expired?/2 SQL 端口）+ 目标仍开放 EXISTS + 独占位
@@ -560,8 +555,28 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
           add_domain_error(changeset, reason)
       end
     else
-      {:error, reason} -> add_domain_error(changeset, reason)
+      # 锁失败（#621）：BusinessError 原样折进 changeset，走 Ash 返回型错误路径
+      # （GraphQL payload errors[].code）；不得落 add_domain_error（那会按 reason
+      # 重新拼 code，把 lock_timeout/deadlock_detected 变成兜底乱码）。
+      {:error, %Cgc2046.Errors.BusinessError{} = error} ->
+        Ash.Changeset.add_error(changeset, error)
+
+      {:error, reason} ->
+        add_domain_error(changeset, reason)
     end
+  end
+
+  # 独占位并发串行化：两个并发激活更新的是不同 sponsorship 行（无行锁竞争），
+  # READ COMMITTED 下 NOT EXISTS 子查询看不到未提交的赢家 → 双重预定逃逸。
+  # 事务级 advisory lock 按 (target, tier) 键串行化独占档位激活：后到者在
+  # 赢家提交后以新快照重跑守卫 → num_rows=0 → exclusive_slot_taken。
+  # 锁在 claim 前取得（锁序 lock→claim，plan 2026-08-17-001 D6）；键域零变化
+  # （默认 hashtext，PR-I D5）。锁失败不 raise（#621）：返回 BusinessError 由上
+  # 面 else 折进 changeset，code 才能到 GraphQL 面。
+  defp lock_exclusive_slot(false, _target_kind, _target_id, _tier_id), do: :ok
+
+  defp lock_exclusive_slot(true, target_kind, target_id, tier_id) do
+    Repo.acquire_lock("sponsorship_slot:#{target_kind}:#{target_id}:#{tier_id}")
   end
 
   # 条件 UPDATE 的附加守卫（extra_where 片段）：目标仍开放 + 独占位 NOT EXISTS。

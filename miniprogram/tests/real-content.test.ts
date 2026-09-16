@@ -62,6 +62,7 @@ vi.mock('../src/platform', () => ({
 }))
 
 import { RealMiniProgramApi } from '../src/api/real'
+import { enrollmentScheduleText, enrollmentVenueText } from '../src/domain/format'
 
 const EVENT_RECORD = {
   id: 'event-1',
@@ -241,6 +242,20 @@ describe('押金字段映射（U11/R10）', () => {
     expect(item.depositEnabled).toBe(true)
     expect(item.depositAmountCents).toBeNull()
   })
+  // #510：年龄门槛映射——详情查询带 minAge（course 查询无该槽 → null）
+  it('年龄门槛：minAge 透传；查询缺省 → null（无门槛）', async () => {
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD, minAge: 18 }
+    })
+    const gated = await new RealMiniProgramApi().getContent('event', 'event-age')
+    expect(gated.minAge).toBe(18)
+
+    mocks.graphqlRequest.mockResolvedValue({
+      getEvent: { ...EVENT_RECORD }
+    })
+    const open = await new RealMiniProgramApi().getContent('event', 'event-open')
+    expect(open.minAge).toBeNull()
+  })
 
   it('免费场回归：记录无押金字段 → 免费态（depositEnabled=false / 金额 null）', async () => {
     const { depositEnabled: _depositEnabled, depositAmountCents: _depositAmountCents, ...freeRecord } = EVENT_RECORD
@@ -286,6 +301,10 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
           insertedAt: '2026-09-01T08:00:00Z',
           checkInCode: '042317',
           paymentMode: 'deposit',
+          // #617：startsAt = ISO；venue = 后端已文本化的 city+district
+          // （Venue.text/1，非 JsonString——见 graphql_enrollment_my_query_test.exs）
+          startsAt: '2026-09-12T02:00:00Z',
+          venue: '北京市海淀区',
           registrationDeadline: '2026-09-10T12:00:00Z'
         }]
       }
@@ -304,8 +323,48 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
       insertedAt: '2026-09-01T08:00:00Z',
       checkInCode: '042317',
       paymentMode: 'deposit',
+      startsAt: '2026-09-12T02:00:00Z',
+      venue: '北京市海淀区',
       registrationDeadline: '2026-09-10T12:00:00Z'
     })
+  })
+
+  // #617 负向：后端对无时间/线上场返回 null → DTO 必须是 null（不是 undefined），
+  // 卡片据 null 不渲染空行
+  it('#617 无时间/无地点 → startsAt/venue 归一为 null', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest.mockResolvedValue({
+      enrollments: {
+        results: [{
+          id: 'enr-2',
+          workspaceId: 'ws-1',
+          eventId: null,
+          courseId: 'course-1',
+          userId: 'user-1',
+          status: 'confirmed',
+          targetTitle: '线上课程',
+          approvalDeadline: null,
+          rejectionReason: null,
+          approvedAt: null,
+          expiredAt: null,
+          cancelledAt: null,
+          insertedAt: '2026-09-01T08:00:00Z',
+          checkInCode: null,
+          paymentMode: 'free',
+          startsAt: null,
+          venue: null,
+          registrationDeadline: null
+        }]
+      }
+    })
+    const api = new RealMiniProgramApi()
+    const enrollment = await api.getEnrollment('enr-2')
+    expect(enrollment?.kind).toBe('course')
+    expect(enrollment?.startsAt).toBeNull()
+    expect(enrollment?.venue).toBeNull()
+    // 展示层据此不渲染：无值即无行
+    expect(enrollmentScheduleText('course', enrollment?.startsAt ?? null)).toBeNull()
+    expect(enrollmentVenueText(enrollment?.venue ?? null)).toBeNull()
   })
 
   it('查无（记录不存在/跨账号）→ null', async () => {
@@ -405,5 +464,57 @@ describe('getEnrollments 核销码与押金终态（U11/R11/R16）', () => {
         orderKind: 'deposit'
       }
     ])
+  })
+
+  // #617：卡面时间/地点行的数据源就是本读面
+  it('#617 列表读面回带 startsAt/venue（缺字段曾是改期通知无权威落点的根因）', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest.mockResolvedValueOnce(session).mockResolvedValueOnce({
+      enrollments: {
+        results: [
+          enrollmentRecord({
+            startsAt: '2026-09-12T02:00:00Z',
+            venue: '上海市徐汇区'
+          })
+        ]
+      }
+    })
+    const [item] = await new RealMiniProgramApi().getEnrollments()
+    expect(item?.startsAt).toBe('2026-09-12T02:00:00Z')
+    expect(item?.venue).toBe('上海市徐汇区')
+    // 渲染层据 DTO 直接出两行（文案单源在 domain）
+    expect(enrollmentScheduleText(item!.kind, item!.startsAt)).toContain('活动时间：')
+    expect(enrollmentVenueText(item!.venue)).toBe('地点：上海市徐汇区')
+  })
+
+  // #617 第二处 EnrollmentSummary 构造点（typecheck 曾在此拦下漏改）：
+  // create 回包不选 startsAt/venue。startsAt 与 form.target 同形 → 本地取；
+  // venue 形态不同（JsonString vs 文本）→ 与 checkInCode 同款给 null，不伪造。
+  it('#617 createEnrollment 的 DTO：startsAt 取 form.target，venue 恒 null（形态不同不伪造）', async () => {
+    mocks.getAuthToken.mockReturnValue('token-1')
+    mocks.graphqlRequest
+      .mockResolvedValueOnce({ getEvent: EVENT_RECORD })
+      .mockResolvedValueOnce(session)
+      .mockResolvedValueOnce({
+        createEnrollment: {
+          result: {
+            id: 'enr-9',
+            workspaceId: 'ws-1',
+            eventId: 'event-1',
+            courseId: null,
+            userId: 'user-1',
+            status: 'confirmed',
+            approvalDeadline: null,
+            insertedAt: '2026-09-01T08:00:00Z'
+          },
+          errors: []
+        }
+      })
+    const api = new RealMiniProgramApi()
+    const target = await api.getContent('event', 'event-1')
+    const created = await api.createEnrollment({ target })
+    expect(created.startsAt).toBe(EVENT_RECORD.startsAt)
+    // EVENT_RECORD.venue 是 JsonString；读面契约要文本 → 不能原样透传
+    expect(created.venue).toBeNull()
   })
 })

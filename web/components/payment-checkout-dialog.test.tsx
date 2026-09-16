@@ -67,6 +67,8 @@ function pendingOrder(overrides: Record<string, unknown> = {}) {
     amountCents: 19900,
     status: "pending",
     expireAt,
+    // #580：押金口径判据已绑订单快照——默认定价单；押金场景显式 override
+    orderKind: "enrollment",
     ...overrides,
   };
 }
@@ -525,7 +527,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
 });
 
 describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退还条件）", () => {
-	it("押金场：开框先停确认态——未勾选时确认按钮禁用、零网络请求、无二维码", async () => {
+	it("押金场（无活单）：开框查活单后停确认态——未勾选时确认按钮禁用、零创单、无二维码", async () => {
 		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
 
 		render(
@@ -546,8 +548,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			screen.getByText("押金以到场为退还条件：到场核销后原路退回，未到场不予退还。"),
 		).toBeInTheDocument();
 
-		// 未确认：不查活单、不下单、无凭据
-		expect(client.query).not.toHaveBeenCalled();
+		// 未确认：不下单、无凭据（查活单是只读守卫，#580 口径判据的数据源）
 		expect(client.mutate).not.toHaveBeenCalled();
 		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("checkout-loading")).not.toBeInTheDocument();
@@ -596,8 +597,11 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 	});
 
 	it("押金场：确认后走复用活单路径（不重复下单）", async () => {
+		// #580：复用活单的门由订单快照口径判定——押金单（orderKind=deposit）
 		client.query.mockResolvedValue({
-			data: { myOrders: { results: [pendingOrder()] } },
+			data: {
+				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 6900 })] },
+			},
 		});
 		sessionStorage.setItem("order-credential:o1", JSON.stringify({
 			type: "qr_code",
@@ -613,6 +617,10 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			/>,
 		);
 
+		// 新时序：开框先查活单（异步）→ 押金单 → consent
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
 		await act(async () => {
 			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
 		});
@@ -644,5 +652,144 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			screen.queryByTestId("checkout-deposit-consent"),
 		).not.toBeInTheDocument();
 		expect(client.mutate).toHaveBeenCalledTimes(1);
+
+		// #543：定价场收银框明示退款规则（押金 note 同款形态）
+		expect(screen.getByTestId("checkout-pricing-note")).toHaveTextContent(
+			"活动开始前取消全额退",
+		);
+	});
+});
+
+describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => {
+	it("组织者关押金后复用押金活单：门仍出现（不零披露），说明行用订单快照金额", async () => {
+		// 活动实时配置已非押金（不传 depositAmountCents），但活单是押金单
+		client.query.mockResolvedValue({
+			data: {
+				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
+			},
+		});
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({
+			type: "qr_code",
+			code_url: "weixin://wxpay/x",
+		}));
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 门出现 + 说明行金额 = 订单快照 9900 → ¥99
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("checkout-deposit-note")).toHaveTextContent(
+			"押金 ¥99（到场退）",
+		);
+		// 未确认不出码
+		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
+	});
+
+	it("改押金额后复用活单：说明行显示订单快照价而非活动现价（不漂移）", async () => {
+		// 活动现价已下调到 6900，在途单仍是报名时快照 9900
+		client.query.mockResolvedValue({
+			data: {
+				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
+			},
+		});
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({
+			type: "qr_code",
+			code_url: "weixin://wxpay/x",
+		}));
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		expect(await screen.findByTestId("checkout-deposit-consent")).toBeInTheDocument();
+		const note = screen.getByTestId("checkout-deposit-note");
+		expect(note).toHaveTextContent("押金 ¥99（到场退）");
+		expect(note).not.toHaveTextContent("69");
+	});
+
+	it("定价活单（orderKind=enrollment）：无押金门无说明行，直接出码", async () => {
+		client.query.mockResolvedValue({
+			data: { myOrders: { results: [pendingOrder()] } },
+		});
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({
+			type: "qr_code",
+			code_url: "weixin://wxpay/x",
+		}));
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				amountCents={19900}
+			/>,
+		);
+
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-consent"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-note"),
+		).not.toBeInTheDocument();
+	});
+
+	it("活单 orderKind 未知值：fail-closed 停支付面，不出码不出门", async () => {
+		client.query.mockResolvedValue({
+			data: {
+				myOrders: { results: [pendingOrder({ orderKind: "mystery_kind" })] },
+			},
+		});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		expect(await screen.findByTestId("checkout-error")).toHaveTextContent(
+			"订单缴费口径无法识别",
+		);
+		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-consent"),
+		).not.toBeInTheDocument();
+	});
+
+	it("创单返回未知 orderKind：fail-closed 停支付面不出码", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		client.mutate.mockResolvedValue({
+			data: createOrderPayload({
+				result: pendingOrder({ orderKind: "mystery_kind" }),
+			}),
+		});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				amountCents={19900}
+			/>,
+		);
+
+		expect(await screen.findByTestId("checkout-error")).toHaveTextContent(
+			"订单缴费口径无法识别",
+		);
+		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
 	});
 });

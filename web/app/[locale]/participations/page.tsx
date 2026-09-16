@@ -161,12 +161,12 @@ function EnrollmentCard({
           {t("selfCancelDeadline", { time: formatDateTime(row.registrationDeadline) })}
         </p>
       ) : null}
-      {canCancel && row.paymentMode === "deposit" ? (
+      {canCancel && (row.paymentMode === "deposit" || row.paymentMode === "pricing") ? (
         <p
           className="mt-1 text-[13px] text-amber-300"
-          data-testid={`deposit-refund-rule-${row.id}`}
+          data-testid={`${row.paymentMode}-refund-rule-${row.id}`}
         >
-          {t("depositRefundRule")}
+          {t(row.paymentMode === "deposit" ? "depositRefundRule" : "pricingRefundRule")}
         </p>
       ) : null}
 

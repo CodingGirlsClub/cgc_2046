@@ -18,6 +18,19 @@ import { formatVenue, parseVenue } from "@/lib/public-offerings";
  * 契约：slug 由 server wrapper 解出后传入（组件不再吃 `params` Promise）。
  */
 
+/**
+ * 活动级状态文案（#628）：`cancelled`（中止）与 `closed`（收尾）必须分叉——
+ * 中止 = 已作废，收尾 = 正常结束留档。两者都仍可直达（slug 是投放契约），
+ * hero 文案是唯一的语义出口。
+ */
+export function initiativeStatusText(status: string, t: (key: string) => string): string {
+	switch (status) {
+		case "closed": return t("archived");
+		case "cancelled": return t("cancelledArchive");
+		default: return t("ongoing");
+	}
+}
+
 const BADGE_TONE: Record<InitiativeEvent["qualificationBadge"], string> = {
 	cancelled: "cancelled",
 	closed: "closed",
@@ -61,7 +74,8 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
 			<h1>{data.name}</h1>
-			<p className="initiative-hero__status">{data.status === "closed" ? t("archived") : t("ongoing")}</p>
+			<p className="initiative-hero__status">{initiativeStatusText(data.status, t)}</p>
+			{data.status === "cancelled" ? <p className="initiative-hero__cancelled">{t("cancelledNotice")}</p> : null}
 			{data.windowStartsAt ? (
 				<p className="initiative-hero__window">
 					{`${formatDeadline(data.windowStartsAt, tCommon("timeTbd"), locale)} – ${formatDeadline(data.windowEndsAt, tCommon("timeTbd"), locale)}`}
@@ -89,7 +103,9 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 						<dl className="public-catalog-card__facts">
 							<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
 							<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
-							<div><dt>{t("seats")}</dt><dd>{event.minParticipants ? `${event.confirmedCount} / ${event.minParticipants}` : event.confirmedCount}</dd></div>
+							{/* 复用 hero 同 key「报名人数」——同一数量口径（卡片计数与 hero 汇总同源），
+							    不各写一份文案；minParticipants 是成班阈值不是名额，成班语义只由徽章承载（#593）。 */}
+							<div><dt>{t("participants")}</dt><dd>{event.confirmedCount}</dd></div>
 						</dl>
 						<span className="public-catalog-card__foot">
 							<span>{tOfferings("deadline", { deadline: formatDeadline(event.registrationDeadline, tCommon("noDeadline"), locale) })}</span>

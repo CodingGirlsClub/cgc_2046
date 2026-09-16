@@ -84,11 +84,8 @@ defmodule Cgc2046.Mcp.Tools.WaivePayment do
           {:error,
            "forbidden: owner or admin required to waive payments in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to waive payment"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to waive payment")}
       end
     end
   end

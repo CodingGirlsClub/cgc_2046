@@ -47,11 +47,21 @@ defmodule Cgc2046.Mcp.Server do
     草稿;内容快照原样投影)
   - 学员旅程(role-agent-journeys-v2 S7,R30-R35;两读面 optional+deferred 双键
     跨台锚定,三面 deferred):
+    **供给读面附缴费槽 `payment_mode`(free|pricing|deposit)与押金明细 `deposit`
+    (#586;单源 Offering.payment_mode/1)**——discover_offerings /
+    get_enrollment_summary / get_public_offering / list_workspace_events 四处;
+    **报名列表 get_my_enrollments 附现行 `payment_mode`(不带 deposit 明细)与
+    订单事实 `order_kind`(enrollment|deposit;无订单 nil,#622)**;
+    **订单面 get_order_status / list_workspace_orders 与 refund_order /
+    retry_refund 回执附 `order_kind`**——订单种类是资金语义,押金单的 tier
+    展示名「押金」不作判据(#622)。
     discover_offerings(公开∪成员可访问并集,{kind,id} 去重,封顶 100+total_count
     截断前小计;invite_only 台非成员 workspace 块落 nil) /
-    get_enrollment_summary(报名前摘要;would_create_status 镜像域 prepare_policy,
-    驱动因子=offering enrollment_policy;capacity_info 仅成员;goals 取 published
-    revision 无则回退草稿) / create_enrollment(唯一直接写——客户端确认即契约;
+    get_enrollment_summary(报名前摘要;would_create_status 委托域谓词
+    Enrollment.auto_confirm_status/1——缴费槽三态 free|pricing|deposit 押金场同落
+    payment_pending,驱动因子=offering enrollment_policy;capacity_info 仅成员;
+    goals 取 published revision 无则回退草稿) / create_enrollment(唯一直接写——
+    客户端确认即契约;
     reason 进 Wrapper 前摘除;撞 enrollment_duplicate_active 幂等重放既有活跃
     报名;payment_pending 附 checkout_url 外部结算页) /
     get_my_enrollments(全状态跨台,封顶 100,课程面板列表源) /
@@ -121,6 +131,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminUpdateInitiative)
   component(Cgc2046.Mcp.Tools.AdminOpenInitiative)
   component(Cgc2046.Mcp.Tools.AdminCloseInitiative)
+  component(Cgc2046.Mcp.Tools.AdminCancelInitiative)
   component(Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule)
   # Workspace Owner/Admin 管理面（role-agent-journeys-v2 S3，R17-R19 + R21 前半）：
   # 工具面 30 → 49（member-only 门 + 工具层 Role.manage_role?/1 判定；写走确认流
@@ -134,6 +145,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.CloseCourse)
   component(Cgc2046.Mcp.Tools.CancelCourse)
   component(Cgc2046.Mcp.Tools.CreateEvent)
+  component(Cgc2046.Mcp.Tools.PreviewInitiativeMount)
   component(Cgc2046.Mcp.Tools.ListWorkspaceEvents)
   component(Cgc2046.Mcp.Tools.UpdateEvent)
   component(Cgc2046.Mcp.Tools.LaunchEvent)

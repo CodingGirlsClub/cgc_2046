@@ -241,6 +241,14 @@ function makeEl(tag) {
     },
     set(v) {
       node._html = String(v); node.children = []; node._ids = {};
+      // 真实 DOM 的 innerHTML 赋值会丢弃旧子节点与其 listener;假 DOM 的
+      // querySelectorAll 结果按 HTML 快照缓存,若两次渲染 HTML 字节相同
+      // (admin 面板 lastRefresh 是秒级时间戳,同秒重渲染即命中),缓存会把
+      // 同一批节点对象再交出去,bind() 于是在同一节点上叠第二个 click
+      // listener——harness 驱动 click 会遍历全部 listener → 展开+收起双击,
+      // 下钻渲染永远不出现(#603 七项断言红的根因)。赋值即失效,对齐真实 DOM。
+      node._dataBtns = null; node._rowOps = null; node._cards = null;
+      node._chapterRows = null; node._treeNodes = null;
       // 提取 id="..." 生成可寻址子节点(view.js 渲染后按 id 挂数据),
       // 输入/文本域的渲染值回填为节点 value(= 用户未改动的编辑初值)
       const re = /id="([^"]+)"/g; let m;
@@ -342,7 +350,7 @@ function makeEl(tag) {
     // 通用 [data-x] 属性选择器 fallback(admin-aside 待办行/动作钮/深链钮):
     // 同按 html 快照缓存;匹配整个标签并提取全部 data-* 属性(兄弟属性如
     // data-enroll-idx 与选择器属性共存,bind handler 按属性组合取数)
-    const gm = /^\[(data-[a-z-]+)\]$/.exec(sel);
+    const gm = /^\[(data-[a-z-]+)(?:='([^']*)')?\]$/.exec(sel);
     if (gm) {
       if (!node._dataBtns || node._dataBtns.html !== html) node._dataBtns = { html: html, btns: {} };
       if (!node._dataBtns.btns[sel]) {
@@ -352,11 +360,16 @@ function makeEl(tag) {
           const b = makeEl("button");
           const attrRe = /(data-[a-z-]+)="([^"]*)"/g; let am;
           while ((am = attrRe.exec(m[0]))) b.dataset[am[1]] = am[2];
-          out.push(b);
+          if (gm[2] === undefined || b.dataset[gm[1]] === gm[2]) out.push(b);
         }
         node._dataBtns.btns[sel] = out;
       }
       return node._dataBtns.btns[sel];
+    }
+    // class 选择器不在假 DOM 建模面(返回空 = 既有行为);[data-…] 写错则炸,
+    // 否则静默空列表会变成"永远不满足的就绪门"(#603 里 2.1s/次的白等)
+    if (sel.indexOf("[data-") === 0) {
+      throw new Error("假 DOM 不支持的 data 选择器: " + sel);
     }
     return [];
   };
@@ -879,6 +892,92 @@ globalThis.fetch = async (url, opts) => {
         : { ok: true, configured: true, web_url: 'https://gate.example.com/"onmouseover="alert(1)' }) };
     }
   }
+  // #586 缴费槽三态:押金场(无定价)→「押金 ¥69.00（到场退）」/免费场→「免费」/
+  // 定价场→「¥99.00 起」;报名确认卡价格行同口径,不再是「免费 + 需支付」。
+  // 覆盖两组降级/优先级:①档位全部过期的定价场(pricing + min=nil)不出「¥0.00 起」;
+  // ②押金场残留 price_tiers 时确认卡仍出押金行(押金优先于档位分支)。
+  if (scenario === "discovery_deposit_price") {
+    if (path === "/api/ext/cgc-2046/discover") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { offerings: [
+        { id: "ev-dep", slug: "salon-deposit", title: "押金沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 6900, refundable_on_check_in: true },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-dep2", slug: "salon-deposit-2", title: "押金沙龙二", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 3000, refundable_on_check_in: true },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-free", slug: "salon-free", title: "公益沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "free",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-paid", slug: "salon-paid", title: "定价沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: true, min_amount_cents: 9900 },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-stale", slug: "salon-stale", title: "过期档位沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: true, min_amount_cents: null },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured: true, web_url: "https://dep.example.com" }) };
+    }
+    if (path === "/api/ext/cgc-2046/enrollment_summary") {
+      // 按 offering_id 分派摘要:ev-dep 故意带残留 price_tiers(定价→押金切换的历史
+      // 数据;域侧只禁两开关同真,不要求清档位)——押金优先分支的考例。
+      const url_full = String(url);
+      if (url_full.indexOf("offering_id=ev-dep2") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-dep2", title: "押金沙龙二", registration_deadline: null },
+          policy: "open", pricing: { enabled: false, tiers: [] },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 3000, refundable_on_check_in: true },
+          would_create_status: "payment_pending", my_enrollment: null,
+        } }) };
+      }
+      if (url_full.indexOf("offering_id=ev-free") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-free", title: "公益沙龙", registration_deadline: null },
+          policy: "open", pricing: { enabled: false, tiers: [] },
+          payment_mode: "free",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          would_create_status: "confirmed", my_enrollment: null,
+        } }) };
+      }
+      if (url_full.indexOf("offering_id=ev-paid") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-paid", title: "定价沙龙", registration_deadline: null },
+          policy: "open", pricing: { enabled: true, tiers: [
+            { id: "tier-1", name: "标准票", amount_cents: 9900 },
+          ] },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          would_create_status: "payment_pending", my_enrollment: null,
+        } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        offering: { id: "ev-dep", title: "押金沙龙", registration_deadline: null },
+        policy: "open",
+        pricing: { enabled: false, tiers: [{ id: "tier-stale", name: "标准票", amount_cents: 9900 }] },
+        payment_mode: "deposit",
+        deposit: { enabled: true, amount_cents: 6900, refundable_on_check_in: true },
+        would_create_status: "payment_pending",
+        my_enrollment: null,
+      } }) };
+    }
+  }
   if (path.startsWith("/api/ext/cgc-2046/learning_state")) {
     if (scenario === "learn_ugc_injection") {
       return {
@@ -967,8 +1066,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 慢机器(CI 2 核)上固定 sleep 不可靠:懒加载 fetch + 重渲染完成时机不定。
 // 用条件轮询(20ms 步进,默认 2s 上限)替代,到点即走、不到点才等满。
 async function waitFor(cond, ms = 2000) {
+  const t0 = Date.now();
   for (let i = 0; i < ms / 20; i++) { if (cond()) return true; await sleep(20); }
-  return cond();
+  if (cond()) return true;
+  // 静默 false 会把「就绪门没等到」变成下游一堆误导性断言失败(#603 的 CI
+  // 日志就是这样误导了两次定位)。超时即报错并打印条件源码,定位无需再猜。
+  throw new Error("就绪等待超时(" + (Date.now() - t0) + "ms): " + String(cond).replace(/\s+/g, " ").slice(0, 200));
 }
 
 (async () => {
@@ -1201,6 +1304,15 @@ async function waitFor(cond, ms = 2000) {
   // admin_aside(P0):session.aside 挂载 + 待办行可点注入 + 动作分组注入 +
   // web 深链 + tool_used 事件驱动刷新(debounce 后 /tasks 重拉)
   if (scenario === "admin_aside") {
+    // #603 自检:面板 HTML 里 lastRefresh = new Date().toLocaleTimeString() 是
+    // 秒级时间戳,boot 渲染与 debounce 渲染(相隔 ~0.94s)落在同一秒时两次 HTML
+    // 字节相同 —— 假 DOM 的节点缓存会跨渲染复用同一批节点,bind() 叠出第二个
+    // click listener,harness 遍历全部 listener 驱动 = 展开后立刻收起,下钻
+    // 永不渲染(修前 7 项断言红的根因,本机复现率 5/120)。固定时钟 → 每次 CI
+    // 都走这条路径,缓存失效逻辑一旦回归即 100% 红。一个进程只跑一个场景,无需还原。
+    // 注意:这不是放宽——断言一条没改,只是把原先 ~4% 才发生的对抗路径变成必走。
+    Date.prototype.toLocaleTimeString = function () { return "00:00:00"; };
+
     const mounted = globalThis.__mounted || {};
     if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
     if (mounted.slot !== "session.aside") { console.error("FAIL: slot ≠ session.aside"); process.exit(1); }
@@ -1351,8 +1463,11 @@ async function waitFor(cond, ms = 2000) {
     const failed = Object.entries(checks).filter(([, v]) => !v);
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
-      console.error("html: " + html.slice(0, 1000));
+      console.error("html(boot): " + html.slice(0, 400));
+      console.error("html(展开后): " + (typeof html2 === "string" ? html2.slice(0, 600) : "-"));
+      console.error("html(事件展开后): " + (typeof html3 === "string" ? html3.slice(0, 600) : "-"));
       console.error("prompted: " + taskInject);
+      console.error("fetches: " + calls.urls.join(" | "));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
@@ -1748,6 +1863,81 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("phase1: " + phase1.slice(0, 600));
       console.error("phase2: " + phase2.slice(0, 600));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // #586 缴费槽三态价格行(押金制):发现条目按 payment_mode 出价——
+  // 押金场「押金 ¥69.00（到场退）」/免费场「免费」/定价场「¥99.00 起」;
+  // 确认卡价格行同口径。旧代码按 pricing.enabled 判,押金场两侧都出「免费」,
+  // 与确认卡的「需支付」自相矛盾(本场景在旧代码上必败)。
+  // 追加覆盖:①定价场档位全部过期(min=nil)不出「¥0.00 起」;②押金 + 残留
+  // price_tiers 的卡片仍出押金行(押金优先于档位分支);③押金(无档位)/免费/定价
+  // 三种卡片的形状。
+  if (scenario === "discovery_deposit_price") {
+    const container = el("div");
+    spec.render(container);
+    await waitFor(function () { return container.innerHTML.indexOf("押金沙龙") >= 0; });
+    const listHtml = container.innerHTML;
+
+    const count = function (h, needle) { return h.split(needle).length - 1; };
+
+    // 点第 idx 行报名钮 → 摘要 → 卡片;返回卡片片段(从 panel-enroll-confirm 起切,
+    // 不把列表里的价格算进来)
+    async function openCard(idx) {
+      const btns = container.querySelectorAll("[data-enroll]");
+      const btn = btns.filter(function (b) { return b.getAttribute("data-enroll") === String(idx); })[0];
+      ((btn && btn.listeners.click) || []).forEach(function (fn) { fn(); });
+      // 定价场带档位时出的是 panel-confirm-tiers 而非 panel-confirm-price——
+      // 原条件对 idx=3 永不成立(静默空等 2s 后靠下游断言兜住),价行门须二者取一
+      await waitFor(function () {
+        const h = container.innerHTML;
+        return h.indexOf("panel-confirm-price") >= 0 || h.indexOf("panel-confirm-tiers") >= 0;
+      });
+      const html = container.innerHTML;
+      return html.slice(html.indexOf("panel-enroll-confirm"));
+    }
+
+    // idx 顺序 = discover 返回顺序:0 押金(残留档位) / 1 押金(无档位) / 2 免费 / 3 定价
+    const depStaleCard = await openCard(0);
+    const depCard = await openCard(1);
+    const freeCard = await openCard(2);
+    const paidCard = await openCard(3);
+
+    const checks = {
+      deposit_row_price: listHtml.indexOf("押金 ¥69.00（到场退）") >= 0,
+      // 五行里只有免费场出「免费」——押金/定价场绝不出「免费」
+      free_row_price: listHtml.indexOf('data-testid="panel-offering-price">免费<') >= 0,
+      only_free_row_says_free: count(listHtml, "免费") === 1,
+      pricing_row_price: listHtml.indexOf("¥99.00 起") >= 0,
+      // ①档位全部过期的定价场:空串而非「¥0.00 起」
+      stale_pricing_row_blank: count(listHtml, "¥0.00") === 0,
+      // ②押金 + 残留 price_tiers:卡片出押金行,且不出档位行
+      stale_deposit_card_is_deposit:
+        depStaleCard.indexOf('data-testid="panel-confirm-price">押金 ¥69.00（到场退）') >= 0,
+      stale_deposit_card_no_tier_row:
+        depStaleCard.indexOf("panel-confirm-tiers") < 0 && depStaleCard.indexOf("标准票") < 0,
+      stale_deposit_card_not_free: depStaleCard.indexOf("免费") < 0,
+      // ③押金(无档位)
+      deposit_card_price: depCard.indexOf('data-testid="panel-confirm-price">押金 ¥30.00（到场退）') >= 0,
+      deposit_card_requires_payment: depCard.indexOf("需支付") >= 0,
+      // 免费场卡片仍说免费(零回归)
+      free_card_price: freeCard.indexOf('data-testid="panel-confirm-price">免费<') >= 0,
+      // 定价场带档位仍走档位行(零回归)
+      pricing_card_tier_row:
+        paidCard.indexOf("panel-confirm-tiers") >= 0 && paidCard.indexOf("标准票") >= 0,
+    };
+
+    const failed = Object.entries(checks).filter(function (e) { return !e[1]; });
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(function (e) { return e[0]; }).join(", "));
+      console.error("list: " + listHtml.slice(0, 900));
+      console.error("dep-stale: " + depStaleCard.slice(0, 700));
+      console.error("dep: " + depCard.slice(0, 500));
+      console.error("free: " + freeCard.slice(0, 400));
+      console.error("paid: " + paidCard.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

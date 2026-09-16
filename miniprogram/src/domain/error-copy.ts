@@ -19,6 +19,8 @@ export const COPY: Record<string, string> = {
   enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
   enrollment_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
+  // 年龄门槛未确认（#510；与 web zh-CN errors 命名空间同文案互指）
+  enrollment_age_confirmation_required: '本活动仅限达到最低年龄要求的人士参加，请勾选年龄确认后重试。',
   // createOrder 对 stale enrollment（已支付/取消/过期，F2）
   order_not_payment_pending: '报名状态已变化（已支付或已取消），请重新报名或查看我的报名。',
   // 已有活跃订单再下单（unique_active_order 部分索引冲突，含并发，F1）
@@ -48,8 +50,43 @@ export const COPY: Record<string, string> = {
   attendance_already_checked_in: '该报名已核销，无需重复核销。',
   attendance_rate_limited: '核销尝试过于频繁，请稍后再试。',
   deposit_already_forfeited: '该报名的押金已按未到场结算（不退），无法再核销。',
+  // #597 押金场档位残留拒绝：事件编辑面在 web / MCP，小程序无调用方；
+  // 本键为 #241 契约两端对齐（与 web messages errors 同文案互指）。
+  event_deposit_price_tiers_conflict: '押金场不能保留价格档位：请先清空价格档位，再开启押金。',
   // 入参缺 enrollmentId
-  order_enrollment_required: '缺少报名信息，请重新发起报名。'
+  order_enrollment_required: '缺少报名信息，请重新发起报名。',
+  // Event/Course slug 锁定/撞 slug（#619，ADR-0014）：
+  // - *_taken 可达面 = web 工作台 offering 创建表单撞 slug（offeringErrorText
+  //   code 优先分发直接命中本表键，不再走 /already been taken/ 正则兜底）+ MCP；
+  // - *_locked 仅 MCP 可达（OfferingUpdateInput 无 slug 字段，web 无编辑面）；
+  // - 小程序无 offering 写面，四条此侧不可达；为 #241 契约「两端文案表同步」
+  //   义务（与 web messages errors 同文案互指）。
+  event_slug_locked: '活动的公开链接已发布，slug 不可再修改（草稿期仍可改）。',
+  event_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  course_slug_locked: '课程的公开链接已发布，slug 不可再修改（草稿期仍可改）。',
+  course_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  // Initiative slug 发布后锁定（#588）；小程序无 initiative 写面，此条为
+  // 「两端文案表同步」义务（与 web zh-CN errors 命名空间同文案互指），
+  // 当前不可达，保留以备后台类能力下沉。
+  initiative_slug_locked: '倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。',
+  // Initiative 撞 slug（#604，同 #588 的同步义务：小程序无 initiative 写面，
+  // 当前不可达；web admin create/update 与 MCP 是真实消费方）。
+  initiative_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  // 重复指派活动主理人（#611）：web 活动主理人卡片是真实消费方；小程序无该管理面，
+  // 本键为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  event_moderator_already_assigned: '该用户已是本活动主理人，无需重复指派。',
+  // 同 initiative 同 key 重复建规则（#611）：消费方 = AshAdmin / MCP
+  // admin_upsert_initiative_rule，小程序无 initiative 写面，同 #588/#604 的同步义务。
+  initiative_rule_already_exists: '该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。',
+  // #628 生命周期门：挂载场所属倡导活动已收尾/已中止时拒绝发布（写面冻结）。
+  // 小程序无场次发布面（消费方 = web admin / MCP launch_event），本表为
+  // 「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  initiative_not_open: '倡导活动已结束或已中止，无法发布该场次（请先重新开展活动或解除挂载）。',
+  // 锁超时/死锁（#621）：用户可动作 = 稍后重试，独立 code、不归 database_error；
+  // 小程序无这两条锁路径的调用方（web admin 成员管理 / 邀请码生成为真实消费方），
+  // 本表为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  lock_timeout: '工作台操作暂时繁忙，请稍后重试',
+  deadlock_detected: '检测到锁冲突，请稍后重试'
 }
 
 /**

@@ -26,7 +26,7 @@ export default function MembersTabs({
 	return (
 		<SettingsTabs
 			slug={slug}
-			tabs={SETTINGS_NAV.filter((t) => t.settingsTab !== false)}
+			tabs={SETTINGS_NAV}
 			current={current}
 			abilities={abilities}
 		/>

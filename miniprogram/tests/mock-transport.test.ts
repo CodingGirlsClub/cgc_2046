@@ -8,6 +8,7 @@ import {
   CreateEnrollmentMutationDocument,
   CreateOrderMutationDocument,
   EventDetailQueryDocument,
+  EnrollmentQueryDocument,
   MyEnrollmentsQueryDocument,
   PublicInitiativeQueryDocument,
   PublicInitiativesQueryDocument,
@@ -106,12 +107,35 @@ test('mock 押金场：详情查询带押金字段', () => {
   assert.equal(data.getEvent?.depositAmountCents, 6900)
 })
 
+// #510：mock 门控投影——event-deposit 带 minAge: 18，未带 ageConfirmed → 业务错误
+test('mock 年龄门槛：未带 ageConfirmed → enrollment_age_confirmation_required；带 true → 通过', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+
+  const rejected = mockGraphQLRequest<{
+    createEnrollment: { result: { status: string | null } | null; errors: Array<{ code: string | null }> }
+  }>(CreateEnrollmentMutationDocument, { input: { userId: 'user-1', eventId: 'event-deposit' } })
+  assert.equal(rejected.createEnrollment.result, null)
+  assert.equal(
+    rejected.createEnrollment.errors[0]?.code,
+    'enrollment_age_confirmation_required'
+  )
+
+  const passed = mockGraphQLRequest<{
+    createEnrollment: { result: { status: string | null } | null }
+  }>(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
+  })
+  assert.equal(passed.createEnrollment.result?.status, 'payment_pending')
+})
+
 test('mock 押金场：报名落 payment_pending（零档位）→ 押金单金额 = 押金 → 核销后仅 confirmed 出码', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
 
   const created = mockGraphQLRequest<{
     createEnrollment: { result: { status: string; checkInCode: string | null } }
-  }>(CreateEnrollmentMutationDocument, { input: { userId: 'user-1', eventId: 'event-deposit' } })
+  }>(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
+  })
   assert.equal(created.createEnrollment.result.status, 'payment_pending')
   // 付押金前无码可核（KTD5：出示按 confirmed 门控）
   assert.equal(created.createEnrollment.result.checkInCode, null)
@@ -127,4 +151,38 @@ test('mock 押金场：报名落 payment_pending（零档位）→ 押金单金�
     enrollments: { results: Array<{ checkInCode: string | null }> }
   }>(MyEnrollmentsQueryDocument, { userId: 'user-1' })
   assert.equal(mine.enrollments.results[0]?.checkInCode, '042317')
+})
+
+// ── #617：selection 契约 + mock 夹具 parity ──
+
+test('#617 契约：两处报名 selection 都含 startsAt/venue', () => {
+  // selection 的唯一真源 = operations.ts；生成物（src/api/generated）另由
+  // check:ci 的 `codegen && git diff --exit-code` 门禁锁住。两条一起保证
+  // mapEnrollment 读到的字段在真机上确实被请求（少一处 → 页面静默空白）。
+  const documents = [
+    ['MyEnrollmentsQueryDocument', MyEnrollmentsQueryDocument],
+    ['EnrollmentQueryDocument', EnrollmentQueryDocument]
+  ] as const
+  for (const [name, doc] of documents) {
+    assert.match(doc, /\bstartsAt\b/, `${name} 缺 startsAt`)
+    assert.match(doc, /\bvenue\b/, `${name} 缺 venue`)
+    assert.match(doc, /\bregistrationDeadline\b/, `${name} 缺 registrationDeadline（既有字段回归）`)
+  }
+})
+
+test('#617 mock parity：e2e 走的读面回带 startsAt/venue（从目标记录派生，非硬编码）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  mockGraphQLRequest(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-1' }
+  })
+  const mine = mockGraphQLRequest<{
+    enrollments: { results: Array<{ startsAt: string | null; venue: string | null }> }
+  }>(MyEnrollmentsQueryDocument, { userId: 'user-1' })
+  const row = mine.enrollments.results[0]
+  // event-1 有档期与场地：两值都必须非空，否则 my-enrollments 的时间/地点行在
+  // mock 构建（e2e）下不渲染——AGENTS.md：加字段要同步 mockTransport
+  assert.equal(typeof row?.startsAt, 'string')
+  // 关键：mock 必须给**文本化** venue（读面契约 = Venue.text/1 的 city+district），
+  // 不能把目标记录里的 JsonString 直接透传——否则 mock/真机形态不一致
+  assert.equal(row?.venue, '北京海淀区')
 })

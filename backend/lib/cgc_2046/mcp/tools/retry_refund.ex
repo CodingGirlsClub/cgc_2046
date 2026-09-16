@@ -37,8 +37,11 @@ defmodule Cgc2046.Mcp.Tools.RetryRefund do
           if order.status != :refund_failed do
             {:error, "仅 refund_failed 订单可重试退款（当前状态：#{order.status}）"}
           else
+            # #622 D5：摘要写明订单种类（同 refund_order：资金语义不得从展示名反推）
+            kind_label = if order.order_kind == :deposit, do: "押金单", else: "报名单"
+
             summary =
-              "重试退款订单 #{order.id}（金额 #{order.amount_cents} 分，渠道 #{order.provider}）：" <>
+              "重试退款#{kind_label} #{order.id}（金额 #{order.amount_cents} 分，渠道 #{order.provider}）：" <>
                 "refund_failed → refunding 重入退款链；操作落审计（order_refund_retry）"
 
             Confirmation.request(
@@ -71,6 +74,7 @@ defmodule Cgc2046.Mcp.Tools.RetryRefund do
           {:ok,
            %{
              order_id: refunding.id,
+             order_kind: to_string(refunding.order_kind),
              status: to_string(refunding.status),
              enrollment_id: refunding.enrollment_id,
              amount_cents: refunding.amount_cents,
@@ -81,11 +85,8 @@ defmodule Cgc2046.Mcp.Tools.RetryRefund do
           {:error,
            "forbidden: owner or admin required to retry refunds in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to retry refund"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to retry refund")}
       end
     end
   end

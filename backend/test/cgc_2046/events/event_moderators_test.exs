@@ -115,6 +115,54 @@ defmodule Cgc2046.Events.EventModeratorsTest do
     refute log.metadata["cascade"]
   end
 
+  # ── #611：重复指派撞 identity 唯一索引 → 稳定 code（不再落 database_error） ──
+  test "重复指派：event_moderator_already_assigned + 无库内文本 + 不落第二行" do
+    owner = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(owner)
+    user = Fixtures.register_user("dup-mod")
+    Fixtures.add_member(workspace, user, [:learner])
+    event = EventsFixtures.create_event(workspace, owner)
+
+    {:ok, _} = Moderators.assign(event.id, workspace.id, user.id, owner)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+             Moderators.assign(event.id, workspace.id, user.id, owner)
+
+    assert Enum.any?(
+             errors,
+             &match?(
+               %BusinessError{code: "event_moderator_already_assigned", fields: [:user_id]},
+               &1
+             )
+           ),
+           "expected event_moderator_already_assigned, got: #{inspect(errors)}"
+
+    message = Exception.message(error)
+    assert message =~ "this user is already a moderator of the event"
+    refute message =~ "event_moderators_event_id_user_id_index"
+    refute message =~ "event_moderators_unique_event_user_index"
+    refute message =~ "duplicate key"
+    refute message =~ "constraint error"
+
+    assert [row] =
+             EventModerator
+             |> Ash.Query.filter(event_id == ^event.id and user_id == ^user.id)
+             |> Ash.read!(authorize?: false)
+
+    assert row.user_id == user.id
+  end
+
+  # ensure_assigned/2 的幂等语义必须由**稳定 code** 承载，不得再依赖
+  # Ecto.ConstraintError 原文（改名对齐索引后原文里的注册约束名消失）。
+  test "ensure_assigned 幂等：重复调用仍 :ok（判据 = event_moderator_already_assigned）" do
+    owner = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(owner)
+    event = EventsFixtures.create_event(workspace, owner)
+
+    assert :ok = Moderators.ensure_assigned(event, owner.id)
+    assert :ok = Moderators.ensure_assigned(event, owner.id)
+  end
+
   # 审计行断言收窄到本测试独占的 target_id（共享沙箱不见他测试未提交行，
   # 但本测试的多次写同 target 会累积——按 target 过滤即可）
   defp moderator_logs(action, event_id) do

@@ -105,6 +105,45 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     assert reloaded.visibility == :workspace
   end
 
+  test "open 后经 GraphQL updateEvent 改 slug：errors 带稳定 code event_slug_locked（#619）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    token = sign_in_token(admin)
+
+    assert %{"data" => %{"createEvent" => %{"result" => created, "errors" => []}}} =
+             graphql(
+               create_event_mutation(workspace.id, %{
+                 title: "slug 锁定测试",
+                 enrollment_policy: :open,
+                 slug: "gql-slug-lock-open"
+               }),
+               token
+             )
+
+    assert %{"data" => %{"launchEvent" => %{"result" => %{}, "errors" => []}}} =
+             graphql(action_mutation("launchEvent", created["id"]), token)
+
+    assert %{"data" => %{"updateEvent" => %{"result" => nil, "errors" => errors}}} =
+             graphql(
+               """
+               mutation {
+                 updateEvent(id: "#{created["id"]}", input: {slug: "new-slug"}) {
+                   result { id }
+                   errors { code message }
+                 }
+               }
+               """,
+               token
+             )
+
+    # BusinessError 经 AshGraphql.Error 协议透传稳定 code（原裸 add_error 只有
+    # invalid_attribute）；Course 同构管线（domain 层已钉），不重复接线断言。
+    assert [%{"code" => "event_slug_locked", "message" => message}] = errors
+    assert message =~ "slug is locked"
+
+    assert Ash.get!(Event, created["id"], authorize?: false).slug == "gql-slug-lock-open"
+  end
+
   test "offeringReadiness：登录用户可查 GO/NO-GO 清单；匿名拒绝" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
@@ -174,6 +213,65 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
 
     assert %{"data" => %{"createEvent" => %{"result" => nil, "errors" => errors}}} = response
     assert errors != []
+  end
+
+  # #616：关押金（金额残留）后经 GraphQL 重开、缺 depositAmountCents → 资源级
+  # 稳定 code 拒绝。MCP 第一段快速失败只覆盖工具入口；本测试钉住 action 级
+  # 校验对 GraphQL 缺键同样生效。
+  test "updateEvent 关押金后重开缺金额 → 稳定 code 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    token = sign_in_token(admin)
+    anchor = EventFixtures.days_from_now(8) |> DateTime.to_iso8601()
+
+    create_response =
+      graphql(
+        create_event_mutation(workspace.id, %{title: "押金重开", enrollment_policy: :open}),
+        token
+      )
+
+    assert %{"data" => %{"createEvent" => %{"result" => created, "errors" => []}}} =
+             create_response
+
+    update = fn input ->
+      graphql(
+        """
+        mutation {
+          updateEvent(id: "#{created["id"]}", input: {#{input}}) {
+            result { id depositEnabled depositAmountCents }
+            errors { message code }
+          }
+        }
+        """,
+        token
+      )
+    end
+
+    assert %{"data" => %{"updateEvent" => %{"result" => enabled, "errors" => []}}} =
+             update.(
+               "depositEnabled: true, depositAmountCents: 6900, " <>
+                 ~s(endsAt: "#{anchor}", registrationDeadline: "#{anchor}")
+             )
+
+    assert enabled["depositEnabled"] == true
+
+    # 手动关押金不带金额键 → 金额列残留（#616 场景土壤）
+    assert %{"data" => %{"updateEvent" => %{"result" => disabled, "errors" => []}}} =
+             update.("depositEnabled: false")
+
+    assert disabled["depositEnabled"] == false
+
+    # 重开缺金额 → 拒绝，旧金额不得静默复活
+    assert %{"data" => %{"updateEvent" => %{"result" => nil, "errors" => [error]}}} =
+             update.("depositEnabled: true")
+
+    assert error["code"] == "event_deposit_amount_must_be_explicit"
+
+    # 显式带金额重开 → 通过
+    assert %{"data" => %{"updateEvent" => %{"result" => reopened, "errors" => []}}} =
+             update.("depositEnabled: true, depositAmountCents: 4200")
+
+    assert reopened["depositAmountCents"] == 4200
   end
 
   defp sign_in_token(user) do

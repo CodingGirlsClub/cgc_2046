@@ -24,6 +24,8 @@ defmodule Cgc2046.Events.Event do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Events
 
+  alias Cgc2046.Errors.ConstraintConflict
+  alias Cgc2046.Events.PaymentModeValidation
   alias Cgc2046.StatusTransition
   @status_values [:draft, :open, :closed, :cancelled]
 
@@ -189,6 +191,29 @@ defmodule Cgc2046.Events.Event do
       description: "所属平台级 Initiative；仅草稿可挂载"
     )
 
+    # #624 解除挂载语义（方案 C）：detach 不回收平台锁死规则强制写入的值（值留在
+    # Event 上、回归普通可编辑字段），本列记录这些值「来自哪个 Initiative 的哪条
+    # 锁死规则」——只描述「已解除挂载后仍留在场上的强制值」，形状与 #596 写响应
+    # `applied` 同源：
+    #
+    #   %{"initiative" => %{"id" =>, "name" =>, "slug" =>},
+    #     "fields" => %{"min_age" => %{"value" => 18, "source" => "locked"}, ...}}
+    #
+    # 生命周期（全在 RuleInheritance.prepare_event_changes/2 同一事务内）：
+    # detach 时写入（无 locked 字段 → nil）；场主首次改写标记内字段 → 逐字段清除，
+    # 键空 → 整列 nil；重挂载 → 整列清空（值重新归新 Initiative 治理）。
+    # writable?: false：只由挂载边界写，客户端不可直接设置（治理数据）。
+    # filterable?/sortable? false：只读输出面，不做查询/排序维度（避免把
+    # jsonb 治理标记扩进 EventFilterInput / EventSortField）。
+    attribute(:detached_rule_provenance, :map,
+      allow_nil?: true,
+      public?: true,
+      writable?: false,
+      filterable?: false,
+      sortable?: false,
+      description: "解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除）"
+    )
+
     attribute(:created_by, :uuid, allow_nil?: true, public?: true, writable?: false)
 
     attribute(:deposit_enabled, :boolean,
@@ -286,6 +311,16 @@ defmodule Cgc2046.Events.Event do
     # 必须正金额 + 非空 ends_at（no-show 结算锚点）。并发兜底 =
     # postgres.check_constraints 的 events_payment_mode_exclusive。
     validate({Cgc2046.Events.PaymentModeValidation, []})
+
+    # slug 单段 URL 约束（create/update 同规则；#619 从 create/update 各自内联的
+    # action change 收敛为资源级单源）。only_when_valid?（同 Initiative #588）：
+    # slug 锁定守卫是 action change，先于本 validation 跑——非 draft 传
+    # 「又非法又锁定」的 slug 只回一个 event_slug_locked，不叠加格式错把人
+    # 骗进「改好格式再来」的死循环（再来仍被锁）。
+    validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/),
+      only_when_valid?: true,
+      message: "slug must be a single lowercase URL segment ([a-z0-9-])"
+    )
   end
 
   calculations do
@@ -440,9 +475,11 @@ defmodule Cgc2046.Events.Event do
       error_handler({__MODULE__, :handle_write_error, []})
 
       change(fn changeset, context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
+        changeset
+        |> Ash.Changeset.before_action(fn cs ->
           Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
         end)
+        |> Cgc2046.Initiatives.RuleInheritance.attach_inheritance_metadata()
       end)
 
       change(fn changeset, _context ->
@@ -480,24 +517,6 @@ defmodule Cgc2046.Events.Event do
           end
 
         changeset
-      end)
-
-      # slug 单段 URL 约束（公开路由 /events/[slug]；非法字符拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
       end)
 
       # workspace_id 由 argument 或 tenant 强制，不接受属性直传
@@ -550,9 +569,11 @@ defmodule Cgc2046.Events.Event do
       error_handler({__MODULE__, :handle_write_error, []})
 
       change(fn changeset, context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
+        changeset
+        |> Ash.Changeset.before_action(fn cs ->
           Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
         end)
+        |> Cgc2046.Initiatives.RuleInheritance.attach_inheritance_metadata()
       end)
 
       # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的
@@ -563,37 +584,25 @@ defmodule Cgc2046.Events.Event do
         changeset
       end)
 
-      # slug 单段 URL 约束（create/update 同规则；非法拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
-      end)
-
-      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
-      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
-      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # 发布后 slug 锁定（2026-09-08 拍板，ADR-0014）：公开 URL 段发布即契约——
+      # 已分发链接（微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。
+      # draft 随便改；无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # #619：裸 add_error 落 GraphQL 只有 invalid_attribute（不在 #241 契约、
+      # 两端无文案），改 BusinessError 稳定 code event_slug_locked（Initiative
+      # #588 同款）。排障不再需要 value 通道——code 即「锁定拦截」的判据。
+      # 同值回传不算变更：非 draft 表单 disabled 仍回传旧 slug 时，
+      # Ash.Changeset.do_change_attribute 同值删键，changing_attribute? 不误触发。
+      # 格式校验已收敛为资源级 validation（only_when_valid?）——锁定优先于格式错。
       change(fn changeset, _context ->
         if Ash.Changeset.changing_attribute?(changeset, :slug) and
              Ash.Changeset.get_data(changeset, :status) != :draft do
           Ash.Changeset.add_error(
             changeset,
-            field: :slug,
-            # 带被拒新值——Ash keyword add_error 不传 :value 时错误消息 Value 恒为 nil,
-            # 排障时无法区分「参数丢失」与「锁定拦截」(2026-09-09 生产实例误判过)
-            value: Ash.Changeset.get_attribute(changeset, :slug),
-            message: "slug is locked once the offering is published (editable in draft only)"
+            Cgc2046.Errors.BusinessError.exception(
+              message: "slug is locked once the offering is published (editable in draft only)",
+              code: "event_slug_locked",
+              fields: [:slug]
+            )
           )
         else
           changeset
@@ -627,6 +636,17 @@ defmodule Cgc2046.Events.Event do
       description("发布活动：draft → open，发 event.launched 信号")
       require_atomic?(false)
       accept([])
+
+      # #628 Initiative 生命周期门：挂载中的场只有在所属 Initiative 仍 open 时
+      # 才能发布。声明在 CAS change **之前**——Ash `run_before_actions` 在
+      # changeset 失效处 `:halt`（ash/changeset/changeset.ex 的 reduce_while），
+      # 故此门拒绝时下面的条件 UPDATE 根本不执行（不会先写库再回滚）。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(
+          changeset,
+          &Cgc2046.Initiatives.RuleInheritance.ensure_launchable/1
+        )
+      end)
 
       # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
       # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
@@ -844,12 +864,21 @@ defmodule Cgc2046.Events.Event do
         Ash.Changeset.get_data(changeset, :status) in [:open, "open", :closed, "closed"]
 
   @doc false
-  def schedule_changed_payload(_changeset, event) do
+  def schedule_changed_payload(changeset, event) do
+    # changed 维度（#565）：消费侧据此分档 debounce 窗口（时间变更 5 分钟 /
+    # 场地及其他 15 分钟）。快照字段仅作信号参考值——fanout 投递以回查的
+    # event 真状态渲染（latest-wins），不使用这里的快照。
+    changed =
+      for attr <- [:starts_at, :venue],
+          Ash.Changeset.changing_attribute?(changeset, attr),
+          do: Atom.to_string(attr)
+
     %{
       "event_id" => event.id,
       "title" => event.title,
       "starts_at" => event.starts_at,
       "venue" => event.venue,
+      "changed" => changed,
       "idempotency_key" => "event.schedule_changed:" <> event.id <> ":" <> Ecto.UUID.generate()
     }
   end
@@ -858,15 +887,50 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
-  # create/update error_handler（KTD3）：缴费互斥 DB CHECK 冲突转稳定业务错误。
-  # ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，冲突落到
-  # InvalidAttribute.private_vars.constraint_type == :check；非 check 错误原样返回
-  # （enrollment.handle_create_error 同款纪律）。
+  # create/update error_handler（KTD3 / #597 / #608 / #623 / #619）：缴费模式 DB
+  # CHECK 冲突转稳定业务错误。ash_postgres 把 check_constraint DSL 映射为 Ecto
+  # check_constraint，冲突落到 InvalidAttribute.private_vars.constraint_type ==
+  # :check（约束名在同处 .constraint）——**五条 CHECK + slug 唯一索引全部显式
+  # 按名分派**，其余错误原样上抛（fail-closed：新增约束未映射时不吞成某个既有
+  # 业务码；enrollment.handle_create_error 同款纪律）。
+  # 未进 DSL 的 check 约束（如 events_capacity_positive）在 ash_postgres 侧直接抛
+  # Ecto.ConstraintError，到不了本函数。
   def handle_write_error(_changeset, error) do
-    if Cgc2046.Errors.ConstraintConflict.check_conflict?(error) do
-      Cgc2046.Events.PaymentModeValidation.exclusive_error(:deposit_enabled)
-    else
-      error
+    cond do
+      # 撞 slug 的唯一索引冲突（#619）转稳定业务错误 event_slug_taken（Initiative
+      # #604 同款）。按索引名分派（fail-closed）：未来新增其他唯一索引不会被误吞
+      # 成 slug_taken。identity :slug 的 ash_postgres 翻译错误仍带
+      # private_vars.constraint（enrollment unique_event_user 先例）。
+      ConstraintConflict.constraint_named?(error, "events_slug_index") ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: "slug has already been taken",
+          code: "event_slug_taken",
+          fields: [:slug]
+        )
+
+      ConstraintConflict.constraint_named?(error, "events_deposit_excludes_price_tiers") ->
+        PaymentModeValidation.price_tiers_conflict_error(:price_tiers)
+
+      ConstraintConflict.constraint_named?(error, "events_payment_mode_exclusive") ->
+        PaymentModeValidation.exclusive_error(:deposit_enabled)
+
+      ConstraintConflict.constraint_named?(
+        error,
+        "events_deposit_requires_registration_deadline"
+      ) ->
+        PaymentModeValidation.registration_deadline_required_error()
+
+      ConstraintConflict.constraint_named?(error, "events_deposit_requires_ends_at") ->
+        PaymentModeValidation.deposit_ends_at_required_error()
+
+      ConstraintConflict.constraint_named?(error, "events_deposit_requires_positive_amount") ->
+        PaymentModeValidation.deposit_amount_required_error()
+
+      ConstraintConflict.constraint_named?(error, "events_pricing_requires_starts_at") ->
+        Cgc2046.Offering.PriceTiersValidation.starts_at_required_error()
+
+      true ->
+        error
     end
   end
 
@@ -884,13 +948,77 @@ defmodule Cgc2046.Events.Event do
 
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
-    # event_payment_mode_exclusive（BusinessError）。
+    # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /
+    # event_deposit_{registration_deadline,ends_at,amount}_required（BusinessError）。
     check_constraints do
+      # #543 定价锚点兜底：`pricing_enabled = true` ⇒ `starts_at` 非空（定价单
+      # 自助取消「活动开始前全额退」的锚点）。域校验（PriceTiersValidation）只在
+      # 相关字段被改动时生效；本 CHECK 无条件兜底新写入（含未知裸 SQL 路径）。
+      check_constraint([:pricing_enabled, :starts_at], "events_pricing_requires_starts_at",
+        check: "NOT (pricing_enabled AND starts_at IS NULL)",
+        message: "starts_at is required when pricing is enabled"
+      )
+
       # message 是同源兜底字面量（与 PaymentModeValidation.exclusive_error/1 同文字；
       # DSL 编译期取值无法引用函数）；用户可见错误由 handle_write_error/2 转换。
       check_constraint([:deposit_enabled, :pricing_enabled], "events_payment_mode_exclusive",
         check: "NOT (deposit_enabled AND pricing_enabled)",
         message: "an event cannot enable both pricing tiers and deposit"
+      )
+
+      # #597 I2 并发兜底：押金开 ⇒ 档位为空。域校验见 PaymentModeValidation，
+      # 规则挂载/传播路径见 RuleInheritance.merge_event_value/4 与
+      # propagate_rule_change/4——本 CHECK 是这两条与未知裸 SQL 的最后兜底。
+      # 判据用 `<> '[]'::jsonb` 而非 jsonb_array_length：price_tiers 列
+      # NOT NULL DEFAULT '[]'::jsonb，畸形非数组值走 `<>` 也 fail-closed。
+      # `NOT pricing_enabled` 是**归因必需**：pricing 开 + 档位非空时本约束不适用，
+      # 双真行由 events_payment_mode_exclusive 唯一命中——否则同一行同时违反两条
+      # CHECK 时 Postgres 只报其中一条（实测报本条），handle_write_error/2 会把 I1
+      # 误报成 I2（既有用例「mount onto pricing-enabled event」钉的就是 I1 归因）。
+      # 两条约束不相交 → 任何「押金 + 档位非空」行都恰好命中一条：pricing 开 → I1
+      # 约束；pricing 关 → 本约束。与 PaymentModeValidation 的 cond 顺序（I1 先）同序。
+      # deposit_enabled 同为 NOT NULL DEFAULT false（无 NULL 分支；若将来放开
+      # 可空，CHECK 对 NULL 求值为 NULL = 放行，属预期）。
+      # 迁移顺序前置条件：存量违规行必须先由 backfill 迁移清空，否则 NOT VALID
+      # 约束仍对该行每次 UPDATE 生效（见两个迁移文件头注释）。
+      check_constraint([:deposit_enabled, :price_tiers], "events_deposit_excludes_price_tiers",
+        check: "NOT (deposit_enabled AND NOT pricing_enabled AND price_tiers <> '[]'::jsonb)",
+        message: "price tiers must be empty when deposit is enabled"
+      )
+
+      # #608 / #623 押金锚点兜底：`deposit_enabled = true` ⇒ 报名截止 / ends_at /
+      # 正金额三者必须在位（no-show 结算锚点 KTD7 + 自助取消锚点 #587）。
+      # 域校验（PaymentModeValidation.validate/3）只在押金相关字段被改动时生效；
+      # 规则挂载 / 传播路径在 before_action force 这些字段、看不见域校验（挂载
+      # 路径的 registration_deadline 由 RuleInheritance.ensure_rule_deposit_invariant/1
+      # 自理，ends_at 无守卫）——三条 CHECK 是这两条路径与未知裸 SQL 的唯一
+      # 无条件兜底，经 handle_write_error/2 按约束名映射回同源 code。
+      # 判据与域校验 cond / RuleInheritance 合并判据同语义（`deposit_enabled` 是
+      # NOT NULL DEFAULT false，无 NULL 分支；若将来放开可空，CHECK 对 NULL 求值
+      # 为 NULL = 放行，属预期）。
+      # 迁移侧一律 NOT VALID 上线：不扫描存量（生产 0 违规 / dev 2 行脏行），
+      # 新写入与存量行 UPDATE 立即受约束；存量回填 + VALIDATE 见 issue #634。
+      # 三条判据两两可同时违反（如截止与 ends_at 俱空）——Postgres 只报其中一条，
+      # 但三条各自映射的 code 都语义正确且可操作，不做 #597 式「不相交」细化。
+      check_constraint(
+        [:deposit_enabled, :registration_deadline],
+        "events_deposit_requires_registration_deadline",
+        check: "NOT (deposit_enabled AND registration_deadline IS NULL)",
+        message:
+          "registration_deadline is required when deposit is enabled (self-cancel cutoff anchor)"
+      )
+
+      check_constraint([:deposit_enabled, :ends_at], "events_deposit_requires_ends_at",
+        check: "NOT (deposit_enabled AND ends_at IS NULL)",
+        message: "ends_at is required when deposit is enabled (settlement anchor)"
+      )
+
+      check_constraint(
+        [:deposit_enabled, :deposit_amount_cents],
+        "events_deposit_requires_positive_amount",
+        check:
+          "NOT (deposit_enabled AND (deposit_amount_cents IS NULL OR deposit_amount_cents <= 0))",
+        message: "a positive deposit_amount_cents is required when deposit is enabled"
       )
     end
   end
@@ -914,7 +1042,12 @@ defmodule Cgc2046.Events.Event do
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
   # curriculum_enabled / curriculum_requirements / workflow_run_id / capacity /
-  # confirmed_count，匿名被筛除。
+  # confirmed_count / detached_rule_provenance，匿名被筛除。
+  #
+  # detached_rule_provenance 是治理细节（值「被平台强制写入」这层来源信息，
+  # 不是值本身）：公开宿主页（getEventBySlug 匿名读）不得暴露，与 #596
+  # RulePreview「治理读面与公开面严格分开」同纪律。字段本身仍在 SDL（Event
+  # 类型与 capacity 同款），匿名读恒 null。
   field_policies do
     field_policy :* do
       authorize_if(always())
@@ -926,7 +1059,8 @@ defmodule Cgc2046.Events.Event do
       :curriculum_requirements,
       :workflow_run_id,
       :capacity,
-      :confirmed_count
+      :confirmed_count,
+      :detached_rule_provenance
     ] do
       authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)

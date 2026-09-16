@@ -75,11 +75,8 @@ defmodule Cgc2046.Mcp.Tools.CloseCourse do
           {:error,
            "forbidden: owner or admin required to close course in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to close course"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to close course")}
       end
     end
   end

@@ -6,6 +6,11 @@ defmodule Cgc2046.Mcp.Tools.Response do
   - `{:needs_confirmation, %{pending_id, summary}}` → JSON 文本响应（客户端据此走确认对话，
     再调 `confirm_operation`；D-D3 two-tool 模式，不用 elicitation）
   - `{:error, msg}` → JSON-RPC invalid_request 错误
+
+  **全函数**（#631）：第二条 `{:error, error}` 子句兜住**非二进制**错误——工具漏分类的
+  域错误/裸异常也必须变成有文案的 JSON-RPC error，而不是 `FunctionClauseError` 把调用
+  打崩（`Wrapper.run/3` 会把非二进制错误原样交回本层，见 `database_error_test` 的裸
+  `%Postgrex.Error{}` 用例）。正常路径由各工具经 `Mcp.Errors.message/2` 自行分类。
   """
   alias Anubis.MCP.Error
   alias Anubis.Server.Response
@@ -31,5 +36,12 @@ defmodule Cgc2046.Mcp.Tools.Response do
 
   def to_response({:error, message}, frame) when is_binary(message) do
     {:error, Error.execution(message), frame}
+  end
+
+  # 兜底（#631）：工具漏分类的非二进制错误（域错误树/裸异常）→ 经统一出口取文案，
+  # 不再是 FunctionClauseError。此路径不应被触发（各工具已分类），它的存在是
+  # 「响应层全函数」的结构保证。
+  def to_response({:error, error}, frame) do
+    {:error, Error.execution(Cgc2046.Mcp.Errors.message(error, "tool call failed")), frame}
   end
 end

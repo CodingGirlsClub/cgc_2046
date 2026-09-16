@@ -10,7 +10,7 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   4. 课程 close 后 save_learning_records 业务错误、两读工具正常(AE2)
   5. run succeeded 后 save_learning_records 成功(AE3 缝级前置)
   6. get_learning_records 缺省 course_id 多课程;带 course_id 过滤
-  7. server 注册工具数 = 60 契约断言(S10 学习分析工具后)
+  7. server 注册工具数 = 82 契约断言(S10 学习分析工具 + event 管理面 + #596 挂载前预览后)
   8. get_course_content 收紧为 tutor ∪ owner/admin(M4:学员/普通成员 forbidden);
     chapters + 五类 typed materials 随草稿透出(H2,逐字段形状)
   """
@@ -437,11 +437,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   end
 
   describe "场景 7:server 工具契约" do
-    test "注册工具数 = 68(平台工具面契约,event 管理面后)" do
+    test "注册工具数 = 82(平台工具面契约,event 管理面 + #596 挂载前预览后)" do
       tools = Server.__components__(:tool)
       names = Enum.map(tools, & &1.name)
 
-      assert length(names) == 80
+      assert length(names) == 82
 
       for name <- [
             "get_workspace_context",

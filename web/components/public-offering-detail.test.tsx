@@ -170,6 +170,73 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
     expect(await screen.findByText(/待支付（名额已保留）/)).toBeInTheDocument();
     expect(await screen.findByTestId("checkout-dialog")).toBeInTheDocument();
   });
+  // ── #510 年龄门槛：公开详情页（主报名入口）勾选确认门 ──
+
+  it("年龄门槛条目：未勾选先拦截,勾选后提交携带 ageConfirmed（#510）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "evt-age",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      minAge: 18,
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-age", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const checkbox = await screen.findByTestId("age-confirm-checkbox");
+    expect(checkbox).not.toBeChecked();
+    expect(
+      screen.getByText("我确认已年满 18 周岁，符合本活动的年龄要求。"),
+    ).toBeInTheDocument();
+
+    // 未勾选 → 本地拦截，mutation 不出门
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "请先勾选年龄确认。",
+    );
+    expect(mocks.submitEnrollment).not.toHaveBeenCalled();
+
+    // 勾选 → 提交携带 ageConfirmed: true
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    await waitFor(() =>
+      expect(mocks.submitEnrollment).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.submitEnrollment).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "evt-age", ageConfirmed: true }),
+    );
+  });
+
+  it("无年龄门槛条目：不出勾选框，提交不携带 ageConfirmed（#510）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "evt-noage",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      minAge: null,
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-noage", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByTestId("age-confirm-field")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    await waitFor(() =>
+      expect(mocks.submitEnrollment).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.submitEnrollment).toHaveBeenCalledWith(
+      expect.not.objectContaining({ ageConfirmed: expect.anything() }),
+    );
+  });
 
   it("收费项全过期档（availablePriceTiers 空）：无可售档位提示，不渲染档位 radio", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
@@ -1257,6 +1324,8 @@ function mockPaidCheckoutFlow() {
     amountCents: 6900,
     status: "pending",
     expireAt: "2099-01-01T00:00:00Z",
+    // #580：押金口径判据绑订单快照——创单/轮询负载须带 orderKind
+    orderKind: "deposit",
   };
   apollo.query.mockImplementation(({ query }: { query: unknown }) => {
     if (query === MY_PENDING_ORDERS) {
@@ -1294,6 +1363,22 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     depositEnabled: true,
     depositAmountCents: 6900,
   };
+
+  it("定价场明示「活动开始前取消全额退」退款规则（#543）；免费场不出", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(PAID_OFFERING);
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const note = await screen.findByTestId("pricing-refund-note");
+    expect(note.textContent).toContain("活动开始前取消全额退");
+
+    // 免费场不渲染定价块（连带不出退款规则行）
+    mocks.fetchPublicOffering.mockResolvedValue(FREE_EVENT);
+    cleanup();
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByTestId("pricing-refund-note")).not.toBeInTheDocument();
+  });
 
   it("押金场明示「押金 ¥xx（到场退）」与「未到场不退」；免费场不渲染押金块", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);

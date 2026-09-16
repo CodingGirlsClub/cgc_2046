@@ -258,6 +258,52 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
     end
   end
 
+  describe "consent_exhausted 可观测性（#635：此前与「已送达」同桶静默吞成 :ok）" do
+    test "未授权 → {:discard, _} + Logger.warning，且一条都不发" do
+      owner = Fixtures.platform_admin("nw-no-consent")
+
+      insert_identity(owner.id, "nw-no-consent-openid")
+
+      # 不调 Consent.grant ⇒ take/3 命中 remaining_uses > 0 零行 → :consent_exhausted
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:discard, "consent_exhausted"} =
+                   perform_job(NotificationWorker, %{
+                     "user_id" => owner.id,
+                     "identity_uid" => "nw-no-consent-openid",
+                     "platform" => "wechat",
+                     "template_key" => "approval_result",
+                     "data" => %{"status" => "confirmed", "enrollment_id" => "no-such-id"}
+                   })
+        end)
+
+      # 没授权 ⇒ 零发送（未送达是事实，不是推论）
+      refute_received {:notification, :wechat, _}
+
+      # 与「已送达」（:ok / completed）明确可区分：作业落 :discard，且日志指名道姓
+      assert log =~ "notification not delivered: consent exhausted"
+      assert log =~ "template_key=approval_result"
+      assert log =~ "user_id=#{owner.id}"
+    end
+
+    test "平台身份缺失仍静默跳过（非缺陷，不落 :discard 也不刷日志）" do
+      owner = Fixtures.platform_admin("nw-no-identity")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   perform_job(NotificationWorker, %{
+                     "user_id" => owner.id,
+                     "platform" => "wechat",
+                     "template_key" => "approval_result",
+                     "data" => %{"status" => "confirmed", "enrollment_id" => "no-such-id"}
+                   })
+        end)
+
+      refute log =~ "consent exhausted"
+    end
+  end
+
   # --- fixtures ---------------------------------------------------------------
 
   # approval_reminder × enrollment_id 面：pending 报名 + 未来 deadline + owner 身份 + 授权。

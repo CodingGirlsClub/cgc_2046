@@ -48,6 +48,9 @@ defmodule Cgc2046.Initiatives.InitiativeRule do
     create :create do
       accept([:initiative_id, :key, :value, :locked])
 
+      # 唯一索引冲突转稳定业务错误（#611，范式同 Initiative.handle_write_error/2）
+      error_handler({__MODULE__, :handle_write_error, []})
+
       change(fn cs, _ ->
         Ash.Changeset.before_action(
           cs,
@@ -115,6 +118,31 @@ defmodule Cgc2046.Initiatives.InitiativeRule do
 
   identities do
     identity(:unique_initiative_key, [:initiative_id, :key])
+  end
+
+  # create error_handler（#611）：同一 initiative 同一 key 撞
+  # `initiative_rules_unique_initiative_key_index` → `initiative_rule_already_exists`。
+  # 可达面 = AshAdmin 直接 create（GraphQL `upsertInitiativeRule` / MCP
+  # `admin_upsert_initiative_rule` 都是读-后-写，只在并发窗口撞）。
+  #
+  # 按**约束名**分派而非"任意 unique 冲突"（范式：Event.handle_write_error/2 的五条
+  # CHECK、enrollment 的核销码索引）：本表日后若加 identity，泛化判据会把新冲突
+  # 误归因成既有业务码。非 unique 冲突（DB 断连等真故障）原样上抛，fail-closed。
+  @doc false
+  def handle_write_error(_changeset, error) do
+    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) and
+         Cgc2046.Errors.ConstraintConflict.constraint_named?(
+           error,
+           "initiative_rules_unique_initiative_key_index"
+         ) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: "a rule for this initiative and key already exists",
+        code: "initiative_rule_already_exists",
+        fields: [:key]
+      )
+    else
+      error
+    end
   end
 
   postgres do

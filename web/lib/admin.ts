@@ -1,5 +1,6 @@
 import type { FetchPolicy, TypedDocumentNode } from "@apollo/client";
 import { client } from "./apollo-client";
+import type { MutationError } from "./graphql/shared";
 import type {
   AdminActionLog,
   AdminApplicationStatus,
@@ -29,7 +30,7 @@ import {
   LIST_USERS,
   LIST_INITIATIVES,
   GET_INITIATIVE,
-  CREATE_INITIATIVE, UPDATE_INITIATIVE, OPEN_INITIATIVE, CLOSE_INITIATIVE,
+  CREATE_INITIATIVE, UPDATE_INITIATIVE, OPEN_INITIATIVE, CLOSE_INITIATIVE, CANCEL_INITIATIVE,
   LIST_WORKSPACE_APPLICATIONS,
   UPSERT_INITIATIVE_RULE,
   LIST_WORKSPACES,
@@ -116,8 +117,8 @@ export async function fetchInitiative(id: string): Promise<AdminInitiative | nul
   const { data } = await client.query({ query: GET_INITIATIVE, variables: { id }, fetchPolicy: "network-only" });
   return data?.getInitiative ?? null;
 }
-export async function upsertInitiativeRule(id: string, key: string, valueJson: string, locked: boolean): Promise<{ result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> }> {
-  const { data } = await client.mutate<{ upsertInitiativeRule: { result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> } }>({ mutation: UPSERT_INITIATIVE_RULE, variables: { initiativeId: id, key, valueJson, locked } });
+export async function upsertInitiativeRule(id: string, key: string, valueJson: string, locked: boolean): Promise<{ result: AdminInitiativeRule | null; errors: MutationError[] }> {
+  const { data } = await client.mutate<{ upsertInitiativeRule: { result: AdminInitiativeRule | null; errors: MutationError[] } }>({ mutation: UPSERT_INITIATIVE_RULE, variables: { initiativeId: id, key, valueJson, locked } });
   return data?.upsertInitiativeRule ?? { result: null, errors: [] };
 }
 
@@ -136,6 +137,11 @@ export async function openInitiative(id: string): Promise<AdminInitiativePayload
 export async function closeInitiative(id: string): Promise<AdminInitiativePayload> {
   const { data } = await client.mutate<{ closeInitiative: AdminInitiativePayload }>({ mutation: CLOSE_INITIATIVE, variables: { id } });
   return data?.closeInitiative ?? { result: null, errors: [] };
+}
+/** 中止倡导活动（#628）：级联取消挂载中仍开放的场次 + 全额退款，终态不可逆。 */
+export async function cancelInitiative(id: string): Promise<AdminInitiativePayload> {
+  const { data } = await client.mutate<{ cancelInitiative: AdminInitiativePayload }>({ mutation: CANCEL_INITIATIVE, variables: { id } });
+  return data?.cancelInitiative ?? { result: null, errors: [] };
 }
 
 /** 平台管理员：工作台列表（R13；search 匹配 name/slug） */

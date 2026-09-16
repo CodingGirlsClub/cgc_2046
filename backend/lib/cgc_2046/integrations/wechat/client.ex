@@ -53,9 +53,20 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # scene（miniprogram/src/app.tsx useLaunch → pendingScene → join）。
   # 主理人指派（#558 后续）：深链到活动详情页（带 event_id）——被指派者点开
   # 即见「扫码核销」入口（canModerateEvent 门），指派这一刻就成为入口。
+  # #594 开班/未达阈值/改期三模板归学员类：收件人都是报名人（Qualification 与
+  # ScheduleChangedSubscriber 取件均为 pending/payment_pending/confirmed）。
+  # **不深链 event-detail**：未达阈值送达时活动已被 EventLifecycleWorker 转
+  # cancelled，而 ActorReadsOffering 对普通成员只放行 open/closed（普通学员读
+  # cancelled 需 visibility=public 且挂活跃 Initiative，ReadsArchivedInitiativeEvent），
+  # 深链会渲染「活动不存在或不可访问」——比 profile 更糟。退款的权威面在「我的
+  # 报名」：enrollmentPaymentText 对 confirmed 报名 + refunding/refunded 订单出
+  # 「退款中/已退款」。改期的「新时间」与地点同为该页权威落点（#617：卡片渲染
+  # EnrollmentSummary.startsAt/venue，同 event_reminder 缺口一并闭合）。
   @learner_templates ~w(approval_result enrollment_completed payment_succeeded
                          payment_expired refund_succeeded refund_failed
-                         event_reminder learning_stagnation)
+                         event_reminder learning_stagnation
+                         event_qualification_confirmed event_qualification_underfilled
+                         event_schedule_changed)
   # speaker_accepted 受众纯管理者（speaker_invitation_worker.ex:46）；advisor
   # review #422 捕获其误兜底 profile 的断点残留。speaker_completed 双受众
   # （管理者 + speaker 本人）维持兜底 profile——已知取舍：speaker 侧点开无

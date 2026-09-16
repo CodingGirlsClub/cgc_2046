@@ -280,6 +280,9 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
                    "pricing_enabled" => true,
                    "price_tiers" => [@tier],
                    "capacity" => 30,
+                   # #543：定价 ⇒ starts_at 非空（自助取消退款锚，域不变量）
+                   "starts_at" => "2027-02-01T09:00:00Z",
+                   "ends_at" => "2027-02-01T18:00:00Z",
                    "registration_deadline" => "2027-01-01T00:00:00Z"
                  },
                  frame_for(owner)
@@ -941,6 +944,9 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       row = Enum.find(payload["orders"], &(&1["order_id"] == order.id))
       assert row["amount_cents"] == 19_900
+      # #622：资金语义随行出面（押金单值 = "deposit"，同一 accessor 由
+      # get_order_status / get_my_enrollments 测试覆盖）
+      assert row["order_kind"] == "enrollment"
       assert row["provider"] == "wechat_native"
       assert row["status"] == "pending"
       assert row["enrollment"]["enrollment_id"] == enrollment.id
@@ -1013,6 +1019,9 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       assert payload["summary"] =~ "退款即取消报名并释放名额"
       assert payload["summary"] =~ "19900"
 
+      # #622 D5：摘要写明订单种类（报名单），不靠 tier 展示名反推资金语义
+      assert payload["summary"] =~ "退款报名单"
+
       # 无副作用
       assert Ash.get!(Order, order.id, authorize?: false, tenant: workspace.id).status == :paid
 
@@ -1026,6 +1035,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       confirmed = decode_reply(confirm_reply)
       assert confirmed["result"]["order_id"] == order.id
       assert confirmed["result"]["status"] == "refunding"
+      # #622：回执带订单种类（退款口径按资金语义区分）
+      assert confirmed["result"]["order_kind"] == "enrollment"
 
       assert Ash.get!(Order, order.id, authorize?: false, tenant: workspace.id).status ==
                :refunding
@@ -1079,6 +1090,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       payload = decode_reply(reply)
       assert payload["summary"] =~ "refund_failed → refunding"
+      # #622 D5：摘要写明订单种类（报名单）
+      assert payload["summary"] =~ "重试退款报名单"
 
       assert {:reply, _, _} =
                confirm_reply =
@@ -1088,6 +1101,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
                )
 
       assert decode_reply(confirm_reply)["result"]["status"] == "refunding"
+      # #622：retry 回执同样带订单种类
+      assert decode_reply(confirm_reply)["result"]["order_kind"] == "enrollment"
 
       assert Ash.get!(Order, order.id, authorize?: false, tenant: workspace.id).status ==
                :refunding

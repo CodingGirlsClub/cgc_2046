@@ -107,12 +107,29 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       payload = decode_reply(reply)
       assert payload["role"] == "learner"
       # S9 bump:learner playbook 步骤 2 补 review_queue + 复习纪律句恢复
-      assert payload["version"] == "2026-08-30.2"
+      # #586 bump:learner playbook 补缴费槽三态口径（押金场不得读成免费）
+      # #622 bump:learner playbook 补「payment_mode 现行配置 vs order_kind 订单事实」口径
+      assert payload["version"] == "2026-09-16.2"
       assert payload["content"] =~ "学习模式"
+
+      # #586:缴费槽口径随版本号分发（引号内押金文案与 web zh-CN / 小程序逐字节一致，
+      # 全角标点不得被「顺手统一」成半角——agent 会原样复述给用户）
+      assert payload["content"] =~ "payment_mode"
+      assert payload["content"] =~ "押金 ¥xx（到场退）"
+      assert payload["content"] =~ "未到场不退。"
+      assert payload["content"] =~ "押金以到场为退还条件：到场核销后原路退回，未到场不予退还。"
+      assert payload["content"] =~ "押金：截止前取消全额退；截止后不退。"
+      # #586:金额单位是分，复述前 /100
+      assert payload["content"] =~ "/100 转元"
+      # #586:判据是 payment_mode，不得从 pricing 块推断免费
+      assert payload["content"] =~ "绝不从 pricing 块推断"
       # S1 吸收原 Learning.AgentInstructions 八步循环段落随版本号分发
       assert payload["content"] =~ "学习循环（每门 confirmed 课程按此循环教学"
       # S9(R45):步骤 2 提及 review_queue,纪律段恢复复习纪律
       assert payload["content"] =~ "review_queue"
+      # #622:订单事实口径（order_kind 才是资金语义，payment_mode 是现行配置）
+      assert payload["content"] =~ "order_kind"
+      assert payload["content"] =~ "不得用 payment_mode 覆盖订单事实"
       assert payload["content"] =~ "复习纪律(间隔重复)"
 
       # advisor F6:discover 详情按来源分流（公开 → public 工具；成员段 → summary）
@@ -296,8 +313,17 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "正式标题"
       assert payload["content"] =~ "provisional_title"
       assert payload["content"] =~ "管理模式不创作课程内容"
+      # #630:detach 语义段（读标记 + 编辑即清 + 不承诺经 MCP detach）
+      assert payload["content"] =~ "detached_rule_provenance"
+      assert payload["content"] =~ "解除挂载"
+      assert payload["content"] =~ "不能 detach"
+      assert payload["content"] =~ "编辑标记内字段即清除该字段标记"
+      # #622:订单行含 order_kind 判据 + 退款摘要写明押金单/报名单
+      assert payload["content"] =~ "order_kind"
+      assert payload["content"] =~ "摘要写明押金单/报名单"
 
-      assert payload["version"] == "2026-09-08.1"
+      # #622 bump:workspace_admin playbook 订单面补 order_kind / 退款摘要写订单种类
+      assert payload["version"] == "2026-09-16.2"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do

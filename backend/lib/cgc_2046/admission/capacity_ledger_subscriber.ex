@@ -16,6 +16,12 @@ defmodule Cgc2046.Admission.CapacityLedgerSubscriber do
   幂等策略 `:state_based`：所有副作用为回查式覆盖写，天然幂等、乱序自收敛，
   无需 claim（Curriculum.Instantiator 同款）。订阅骨架由
   `Cgc2046.Workflows.SignalSubscriber` 统一持有。
+
+  注意（issue #587）：`offering.capacity_changed` **不是**账本缓存更新的唯一
+  来源——锁死规则传播（`Initiatives.RuleInheritance`）在规则事务内直连
+  `CapacityLedger.sync_offering_cache/1`，**有意不发**该信号（信号经 Oban
+  异步投递，满足不了报名截止执法的同事务收敛）。新增订阅方必须显式把规则
+  传播路径纳入，不得假设它会发信号。
   """
 
   use Cgc2046.Workflows.SignalSubscriber,

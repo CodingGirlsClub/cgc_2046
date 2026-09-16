@@ -10,6 +10,10 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     确认窗口内角色被撤 → confirm 被域 policy 拒 + pending 回滚可重试）
   - cancel_operation 无副作用；他人 pending 不可确认（新分派子句同受归属校验保护）
 
+  另含 admin_update_initiative 确认流两段测试（#588 slug 锁定）——initiative 工具族
+  不属「平台治理十一工具」，此处仅为复用 frame_for/decode_reply/pending_status
+  与两段确认流断言范式。
+
   async: false + setup 清 admin 标记：≥1 admin 不变量依赖全局计数
   （同 demote_platform_admin_test 的纪律）。
   """
@@ -26,11 +30,13 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   }
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
   alias Cgc2046.Reconciliation.Finding
 
   alias Cgc2046.Mcp.Tools.{
     AdminApproveWorkspaceApplication,
+    AdminCreateInitiative,
     AdminCreateWorkspace,
     AdminDemoteUser,
     AdminListAuditLogs,
@@ -41,6 +47,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     AdminPromoteUser,
     AdminReassignWorkspaceOwner,
     AdminRejectWorkspaceApplication,
+    AdminUpdateInitiative,
     CancelOperation,
     ConfirmOperation
   }
@@ -120,6 +127,38 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
   defp pending_status(pending_id) do
     Ash.get!(PendingOperation, pending_id, authorize?: false).status
+  end
+
+  # #588 用例专用：open 态 Initiative（`open` 要求四条共享规则齐备）。
+  defp open_initiative(admin, slug) do
+    initiative =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "MCP Initiative",
+        slug: slug,
+        created_by: admin.id
+      })
+      |> Ash.create!(actor: admin)
+
+    for {key, value, locked} <- [
+          {:deposit, %{enabled: true, amount_cents: 6900}, true},
+          {:age_gate, %{min_age: 18}, true},
+          {:min_participants, %{count: 8}, false},
+          {:deadline_rule, %{hours_before_start: 72}, false}
+        ] do
+      InitiativeRule
+      |> Ash.Changeset.for_create(:create, %{
+        initiative_id: initiative.id,
+        key: key,
+        value: value,
+        locked: locked
+      })
+      |> Ash.create!(actor: admin)
+    end
+
+    initiative
+    |> Ash.Changeset.for_update(:open, %{})
+    |> Ash.update!(actor: admin)
   end
 
   describe "门控：非平台管理员一律 forbidden" do
@@ -403,6 +442,71 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
                )
 
       assert msg =~ "invalid workspace_id"
+    end
+
+    test "admin_list_reconciliation_findings：detail 白名单投影（未登记键丢弃 + 原文键固定摘要，#631）" do
+      admin = Fixtures.platform_admin("pa-recon-detail")
+      %{workspace: ws} = Fixtures.workspace_with_member()
+
+      assert {:ok, finding} =
+               Finding
+               |> Ash.Changeset.for_create(:create, %{
+                 rule: :notification_delivery_failed,
+                 entity_type: :notification_delivery,
+                 entity_id: Ecto.UUID.generate(),
+                 workspace_id: ws.id,
+                 detail: %{
+                   # 白名单键（string 键 = 规15 形状）
+                   "template_key" => "enrollment_confirmed",
+                   "platform" => "wechat",
+                   "attempts" => 3,
+                   "window_seconds" => 86_400,
+                   # 原文键（规15：DeliveryWorker 的 inspect/1 原文）
+                   "last_error" => "** (RuntimeError) boom",
+                   # 未登记键（未来新规则的键）→ 不出面
+                   "internal_probe" => "should-not-surface",
+                   # 白名单键 + 原文键（atom 键 = 规6 形状；Oban 存 Exception.format 全文）
+                   worker: "Cgc2046.SignalPublishWorker",
+                   error: "** (Ecto.ConstraintError) ... initiatives_slug_index"
+                 }
+               })
+               |> Ash.create(authorize?: false)
+
+      assert {:reply, _, _} =
+               reply =
+               AdminListReconciliationFindings.execute(
+                 %{"rule" => "notification_delivery_failed"},
+                 frame_for(admin)
+               )
+
+      detail =
+        decode_reply(reply)["findings"]
+        |> Enum.find(&(&1["id"] == finding.id))
+        |> Map.fetch!("detail")
+
+      # 白名单键逐字保留（atom/string 键在 JSON 面同形）
+      assert detail["template_key"] == "enrollment_confirmed"
+      assert detail["platform"] == "wechat"
+      assert detail["attempts"] == 3
+      assert detail["window_seconds"] == 86_400
+      assert detail["worker"] == "Cgc2046.SignalPublishWorker"
+
+      # 原文键 → 固定摘要（#612 纪律：原始错误文本只留服务端）
+      summary = "[withheld: raw error text is server-side only]"
+      assert detail["last_error"] == summary
+      assert detail["error"] == summary
+
+      # 未登记键 → 丢弃（fail-closed）
+      refute Map.has_key?(detail, "internal_probe")
+
+      # 原文串整段不出面
+      rendered = inspect(detail)
+      refute rendered =~ "should-not-surface"
+      refute rendered =~ "initiatives_slug_index"
+      refute rendered =~ "RuntimeError"
+
+      [log] = tool_logs_for(admin.id, "admin_list_reconciliation_findings")
+      assert log.result_status == :ok
     end
   end
 
@@ -877,6 +981,141 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert msg =~ "pending operation not found"
       assert pending_status(pending_id) == :pending
       refute Ash.get!(User, target.id, authorize?: false).is_platform_admin
+    end
+  end
+
+  describe "admin_update_initiative slug 锁定（#588）" do
+    test "两段：open Initiative 改 slug → 第一段不落库，confirm 段被域守卫拒" do
+      admin = Fixtures.platform_admin("pa-init-lock")
+      initiative = open_initiative(admin, "mcp-init-lock")
+
+      # 第一段：只建 pending，不碰业务库
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => initiative.id, "slug" => "mcp-init-lock-renamed"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id, "status" => "needs_confirmation"} = decode_reply(reply)
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).slug == "mcp-init-lock"
+
+      # 第二段：confirm 才落域 action，被 slug 锁定守卫拒（域错误原文透传）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug is locked"
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).slug == "mcp-init-lock"
+    end
+
+    test "open Initiative 改 name（不带 slug）→ confirm 成功" do
+      admin = Fixtures.platform_admin("pa-init-name")
+      initiative = open_initiative(admin, "mcp-init-name")
+
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => initiative.id, "name" => "改过的名字"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id} = decode_reply(reply)
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      payload = decode_reply(confirmed)
+      assert payload["status"] == "confirmed"
+      assert payload["result"]["name"] == "改过的名字"
+      assert payload["result"]["slug"] == "mcp-init-name"
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).name == "改过的名字"
+    end
+  end
+
+  # #604：MCP 工具是 `Exception.message/1` 直出，是原文泄漏的**唯一**对外面
+  # （GraphQL 对无 impl 的错误本就回通用 uuid 文案）。撞 slug 的 confirm 段
+  # 必须回干净业务文案，不带索引名/SQL/Postgres detail。
+  describe "admin_initiative 撞 slug（#604）" do
+    test "create 撞已占用 slug → confirm 回干净文案（无索引名/SQL）" do
+      admin = Fixtures.platform_admin("pa-init-604-create")
+
+      _taken =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Initiative",
+          slug: "mcp-init-604-taken",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      {:reply, _, _} =
+        reply =
+        AdminCreateInitiative.execute(
+          %{"name" => "Dup", "slug" => "mcp-init-604-taken"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id, "status" => "needs_confirmation"} = decode_reply(reply)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug has already been taken"
+      refute msg =~ "initiatives_slug_index"
+      refute msg =~ "initiatives_unique_slug_index"
+      refute msg =~ "duplicate key"
+      refute msg =~ "constraint error"
+      refute msg =~ "already exists"
+
+      rows =
+        Ash.read!(Initiative, authorize?: false)
+        |> Enum.filter(&(&1.slug == "mcp-init-604-taken"))
+
+      assert length(rows) == 1
+    end
+
+    test "draft 改到已占用 slug → confirm 回干净文案（无索引名/SQL）" do
+      admin = Fixtures.platform_admin("pa-init-604-update")
+
+      _taken =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Initiative",
+          slug: "mcp-init-604-occupied",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      draft =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Draft",
+          slug: "mcp-init-604-draft",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => draft.id, "slug" => "mcp-init-604-occupied"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id} = decode_reply(reply)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug has already been taken"
+      refute msg =~ "initiatives_slug_index"
+      refute msg =~ "initiatives_unique_slug_index"
+      refute msg =~ "duplicate key"
+      refute msg =~ "constraint error"
+      refute msg =~ "already exists"
+
+      assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "mcp-init-604-draft"
     end
   end
 end
