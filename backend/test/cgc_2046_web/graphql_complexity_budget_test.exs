@@ -59,7 +59,10 @@ defmodule Cgc2046Web.GraphqlComplexityBudgetTest do
   """
 
   # ── MyEnrollmentsQueryDocument（first=100，real.ts 的我的报名加载）──
-  # 13 字段 × 100 → 全库最重的第一方文档。
+  # 18 字段 × 100 → 全库最重的第一方文档。
+  # #617：本钉的职责是「真文档撞线时这里先红」，故字段集必须与
+  # miniprogram/src/api/operations.ts 的 MyEnrollmentsQueryDocument **逐字同步**
+  # （此前停在 13 字段，落后真文档 5 个字段 → 钉的是已不存在的文档，是空心绿）。
   @my_enrollments_doc """
   query MyEnrollments($userId: ID!, $first: Int) {
     enrollments(first: $first, filter: { userId: { eq: $userId } }) {
@@ -77,6 +80,11 @@ defmodule Cgc2046Web.GraphqlComplexityBudgetTest do
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
+        paymentMode
+        startsAt
+        venue
+        registrationDeadline
       }
     }
   }
