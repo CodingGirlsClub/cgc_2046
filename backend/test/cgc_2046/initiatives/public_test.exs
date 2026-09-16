@@ -112,6 +112,33 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert {:error, :not_found} = Public.get_by_slug("missing-initiative")
   end
 
+  # 公开页绝对链接单源（MCP 工具与后续渠道投放共用；web 侧 canonical/sitemap
+  # 由 web/lib/seo.ts 生成）。base 取 config :cgc_2046, :web_base_url。
+  test "public_url/1 拼绝对公开页链接；nil 返回 nil" do
+    base =
+      Application.get_env(:cgc_2046, :web_base_url, "http://localhost:3000")
+      |> to_string()
+      |> String.trim_trailing("/")
+
+    assert Public.public_url("hackerstart1024") == "#{base}/initiatives/hackerstart1024"
+    assert Public.public_url(nil) == nil
+    # 路径分隔符/查询串必须被编码进单段（slug 值注入不了路径）
+    assert Public.public_url("a/b?c#d") == "#{base}/initiatives/a%2Fb%3Fc%23d"
+  end
+
+  test "公开投影带 url 字段（详情与列表同口径，且与 public_url/1 同值）" do
+    admin = Fixtures.platform_admin("initiative-public-url")
+    initiative = initiative(admin, "public-url-test")
+    expected = Public.public_url(initiative.slug)
+
+    assert {:ok, payload} = Public.get_by_slug(initiative.slug)
+    assert payload.url == expected
+
+    assert {:ok, rows} = Public.list()
+    row = Enum.find(rows, &(&1.slug == initiative.slug))
+    assert row.url == expected
+  end
+
   test "公开列表 open 排在 closed 之前（R5）" do
     admin = Fixtures.platform_admin("initiative-public-list-order")
 
