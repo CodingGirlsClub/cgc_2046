@@ -206,6 +206,16 @@ defmodule Cgc2046.Courses.Course do
   validations do
     validate({Cgc2046.Offering.PriceTiersValidation, []})
     validate({Cgc2046.Offering.ScheduleValidation, []})
+
+    # slug 单段 URL 约束（create/update 同规则；#619 从 create/update 各自内联的
+    # action change 收敛为资源级单源，event.ex 同款）。only_when_valid?（同
+    # Initiative #588）：slug 锁定守卫是 action change，先于本 validation 跑——
+    # 非 draft 传「又非法又锁定」的 slug 只回一个 course_slug_locked，不叠加
+    # 格式错把人骗进「改好格式再来」的死循环（再来仍被锁）。
+    validate(match(:slug, ~r/^[a-z0-9][a-z0-9-]*$/),
+      only_when_valid?: true,
+      message: "slug must be a single lowercase URL segment ([a-z0-9-])"
+    )
   end
 
   calculations do
@@ -300,6 +310,9 @@ defmodule Cgc2046.Courses.Course do
       )
 
       change(set_attribute(:status, :draft))
+      # 撞 slug 的唯一索引冲突（#619）转稳定业务错误 course_slug_taken——
+      # 见文件尾部 handle_write_error/2（event.ex / initiative.ex 同款挂点）。
+      error_handler({__MODULE__, :handle_write_error, []})
 
       # S3 零输入草稿（R21/AE1）：title 缺省时生成可辨识临时占位标题并打
       # provisional_title 标记；Tutor 发布前必须补名（launch 命名门拦截）。
@@ -330,24 +343,6 @@ defmodule Cgc2046.Courses.Course do
           end
 
         changeset
-      end)
-
-      # slug 单段 URL 约束（公开路由 /courses/[slug]；非法字符拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
       end)
 
       # workspace_id 由 argument 或 tenant 强制，不接受属性直传
@@ -394,6 +389,10 @@ defmodule Cgc2046.Courses.Course do
         :price_tiers
       ])
 
+      # 撞 slug 的唯一索引冲突（#619）转稳定业务错误 course_slug_taken——
+      # 见文件尾部 handle_write_error/2（create 同款挂点）。
+      error_handler({__MODULE__, :handle_write_error, []})
+
       # 强制非原子执行（同 event.ex :update 注释——GraphQL bulk_update 原子
       # 路径下 policy 的 changeset.data 读取会 raise）。
       change(fn changeset, _context ->
@@ -401,37 +400,25 @@ defmodule Cgc2046.Courses.Course do
         changeset
       end)
 
-      # slug 单段 URL 约束（create/update 同规则；非法拒绝）
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :slug) do
-          value when is_binary(value) and value != "" ->
-            if Regex.match?(~r/^[a-z0-9][a-z0-9-]*$/, value) do
-              changeset
-            else
-              Ash.Changeset.add_error(
-                changeset,
-                "slug must be a single lowercase URL segment ([a-z0-9-])"
-              )
-            end
-
-          _ ->
-            changeset
-        end
-      end)
-
-      # 发布后 slug 锁定（2026-09-08 拍板）：公开 URL 段发布即契约——已分发链接
-      # （微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。draft 随便改；
-      # 无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # 发布后 slug 锁定（2026-09-08 拍板，ADR-0014）：公开 URL 段发布即契约——
+      # 已分发链接（微信 scheme / 邀请邮件内嵌 URL / 社群粘贴）不随改名 404。
+      # draft 随便改；无 rename 后门（D4 终态语义同款：恢复路径 = 新建）。
+      # #619：裸 add_error 落 GraphQL 只有 invalid_attribute（不在 #241 契约、
+      # 两端无文案），改 BusinessError 稳定 code course_slug_locked（Initiative
+      # #588 同款）。排障不再需要 value 通道——code 即「锁定拦截」的判据。
+      # 同值回传不算变更：非 draft 表单 disabled 仍回传旧 slug 时，
+      # Ash.Changeset.do_change_attribute 同值删键，changing_attribute? 不误触发。
+      # 格式校验已收敛为资源级 validation（only_when_valid?）——锁定优先于格式错。
       change(fn changeset, _context ->
         if Ash.Changeset.changing_attribute?(changeset, :slug) and
              Ash.Changeset.get_data(changeset, :status) != :draft do
           Ash.Changeset.add_error(
             changeset,
-            field: :slug,
-            # 带被拒新值——Ash keyword add_error 不传 :value 时错误消息 Value 恒为 nil,
-            # 排障时无法区分「参数丢失」与「锁定拦截」(2026-09-09 生产实例误判过)
-            value: Ash.Changeset.get_attribute(changeset, :slug),
-            message: "slug is locked once the offering is published (editable in draft only)"
+            Cgc2046.Errors.BusinessError.exception(
+              message: "slug is locked once the offering is published (editable in draft only)",
+              code: "course_slug_locked",
+              fields: [:slug]
+            )
           )
         else
           changeset
@@ -861,6 +848,23 @@ defmodule Cgc2046.Courses.Course do
   # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :courses, to_status)
+
+  # create/update error_handler（#619）：撞 slug 的唯一索引冲突转稳定业务错误
+  # course_slug_taken（Initiative #604 / Event #619 同款）。按索引名分派
+  # （ConstraintConflict.constraint_named?/2，fail-closed）：其余错误原样上抛，
+  # 未来新增其他唯一索引不会被误吞成 slug_taken。identity :slug 的 ash_postgres
+  # 翻译错误仍带 private_vars.constraint（enrollment unique_event_user 先例）。
+  def handle_write_error(_changeset, error) do
+    if Cgc2046.Errors.ConstraintConflict.constraint_named?(error, "courses_slug_index") do
+      Cgc2046.Errors.BusinessError.exception(
+        message: "slug has already been taken",
+        code: "course_slug_taken",
+        fields: [:slug]
+      )
+    else
+      error
+    end
+  end
 
   identities do
     # all_tenants?：slug 全局唯一；否则 :attribute 多租户会把 workspace_id 并入

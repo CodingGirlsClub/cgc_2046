@@ -105,6 +105,45 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     assert reloaded.visibility == :workspace
   end
 
+  test "open 后经 GraphQL updateEvent 改 slug：errors 带稳定 code event_slug_locked（#619）" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    token = sign_in_token(admin)
+
+    assert %{"data" => %{"createEvent" => %{"result" => created, "errors" => []}}} =
+             graphql(
+               create_event_mutation(workspace.id, %{
+                 title: "slug 锁定测试",
+                 enrollment_policy: :open,
+                 slug: "gql-slug-lock-open"
+               }),
+               token
+             )
+
+    assert %{"data" => %{"launchEvent" => %{"result" => %{}, "errors" => []}}} =
+             graphql(action_mutation("launchEvent", created["id"]), token)
+
+    assert %{"data" => %{"updateEvent" => %{"result" => nil, "errors" => errors}}} =
+             graphql(
+               """
+               mutation {
+                 updateEvent(id: "#{created["id"]}", input: {slug: "new-slug"}) {
+                   result { id }
+                   errors { code message }
+                 }
+               }
+               """,
+               token
+             )
+
+    # BusinessError 经 AshGraphql.Error 协议透传稳定 code（原裸 add_error 只有
+    # invalid_attribute）；Course 同构管线（domain 层已钉），不重复接线断言。
+    assert [%{"code" => "event_slug_locked", "message" => message}] = errors
+    assert message =~ "slug is locked"
+
+    assert Ash.get!(Event, created["id"], authorize?: false).slug == "gql-slug-lock-open"
+  end
+
   test "offeringReadiness：登录用户可查 GO/NO-GO 清单；匿名拒绝" do
     admin = Fixtures.platform_admin()
     workspace = Fixtures.create_workspace(admin)
