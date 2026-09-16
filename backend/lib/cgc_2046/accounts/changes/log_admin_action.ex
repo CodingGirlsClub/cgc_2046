@@ -87,8 +87,11 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
   `value_before` 取 changeset 原值（`:create` 时 nil），`value_after` 取落库
   记录值。
 
-  `metadata` 当前**不经** GraphQL 暴露（`admin_action_log` object 无该字段）
-  也不在 /admin/audit 列表渲染——扩读面属另一条 issue，本处只保证落库。
+  `metadata` 经 `/admin/audit` 读面（`listAdminActionLogs.metadata`）**白名单投影**后
+  出门（#607）：投影表在 `Cgc2046Web.GraphqlSchema` 顶部（`@admin_action_metadata_whitelist`
+  / `@rule_value_whitelist`）。本处写键时必须同步核对该表——**未收录的键不会出现在读面**；
+  `value_before` / `value_after` 这类自由 map 另受二级白名单约束，被省略的键由读面
+  以 `value_*_omitted` 标出（不静默截断）。
   """
   def initiative_rule_metadata(changeset, rule) do
     %{

@@ -159,14 +159,40 @@ export interface AdminActionLog {
 	id: string;
 	/** 操作者 ID；null = 系统/CLI 触发 */
 	actorId: string | null;
-	/** 枚举值：workspace_create | application_approve | application_reject | admin_promote | admin_demote | owner_reassign | owner_invitation_cancel */
+	/** 枚举值：workspace_create | application_approve | application_reject | admin_promote | admin_demote | owner_reassign | owner_invitation_cancel | initiative_rule_update | ... */
 	action: string;
-	/** 目标类型：workspace | workspace_application | user */
+	/** 目标类型：workspace | workspace_application | user | initiative | ... */
 	targetType: string;
 	targetId: string;
 	/** v1 恒为 "success" */
 	result: string;
 	insertedAt: string;
+	/** #607 治理 metadata 白名单投影；未收录的 action、或形状不完整的历史行（#587 之前）= null */
+	metadata: AdminActionMetadata | null;
+}
+
+/**
+ * #607 治理 metadata 白名单投影（**不是**原始 metadata 列）。
+ *
+ * `valueBeforeJson` / `valueAfterJson` 是 JSON 对象字符串，键序 = 后端二级白名单
+ * （`Cgc2046Web.GraphqlSchema` 顶部 `@rule_value_whitelist`）→ 前端 `JSON.parse`
+ * 后按序渲染即可，不再抄一份键名清单。
+ * `value*Omitted` = 该侧原始 value map 含白名单外键（或值不是标量）被省略
+ * （必须显式告知，不静默截断）。
+ *
+ * 后端**形状门**保证：`metadata` 非 null ⇒ `valueAfterJson` 非 null（形状不全的历史行
+ * 整行返回 null，不算「新建」）⇒ 只有 `valueBeforeJson === null` 才意味着新建规则。
+ */
+export interface AdminActionMetadata {
+	ruleKey: string;
+	locked: boolean;
+	/** null ⇔ 新建规则（:create 无前值） */
+	lockedBefore: boolean | null;
+	/** null ⇔ 新建规则 */
+	valueBeforeJson: string | null;
+	valueAfterJson: string;
+	valueBeforeOmitted: boolean;
+	valueAfterOmitted: boolean;
 }
 
 /** promoteUser/demoteUser 返回（set_platform_admin 结果信封） */
@@ -397,6 +423,15 @@ export const LIST_ADMIN_ACTION_LOGS: TypedDocumentNode<
       targetId
       result
       insertedAt
+      metadata {
+        ruleKey
+        locked
+        lockedBefore
+        valueBeforeJson
+        valueAfterJson
+        valueBeforeOmitted
+        valueAfterOmitted
+      }
     }
   }
 `;
