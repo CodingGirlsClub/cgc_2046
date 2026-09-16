@@ -1453,6 +1453,7 @@
 	"checkout": {
 		"orderFailed": "下单失败，请重试",
 		"switchFailed": "切换渠道失败，请重试",
+		"orderKindUnknown": "订单缴费口径无法识别，请刷新重试；若持续出现请联系客服。",
 		"countdownExpired": "已过期",
 		"dialogAria": "扫码支付",
 		"title": "扫码支付",

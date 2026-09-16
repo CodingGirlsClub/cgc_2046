@@ -1453,6 +1453,7 @@
 	"checkout": {
 		"orderFailed": "Failed to place the order. Please try again.",
 		"switchFailed": "Failed to switch the channel. Please try again.",
+		"orderKindUnknown": "The order payment type is unrecognized. Please refresh and retry; if it persists, contact support.",
 		"countdownExpired": "Expired",
 		"dialogAria": "Scan to pay",
 		"title": "Scan to pay",

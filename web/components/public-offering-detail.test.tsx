@@ -1257,6 +1257,8 @@ function mockPaidCheckoutFlow() {
     amountCents: 6900,
     status: "pending",
     expireAt: "2099-01-01T00:00:00Z",
+    // #580：押金口径判据绑订单快照——创单/轮询负载须带 orderKind
+    orderKind: "deposit",
   };
   apollo.query.mockImplementation(({ query }: { query: unknown }) => {
     if (query === MY_PENDING_ORDERS) {
