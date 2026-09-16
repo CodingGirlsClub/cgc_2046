@@ -189,6 +189,29 @@ defmodule Cgc2046.Events.Event do
       description: "所属平台级 Initiative；仅草稿可挂载"
     )
 
+    # #624 解除挂载语义（方案 C）：detach 不回收平台锁死规则强制写入的值（值留在
+    # Event 上、回归普通可编辑字段），本列记录这些值「来自哪个 Initiative 的哪条
+    # 锁死规则」——只描述「已解除挂载后仍留在场上的强制值」，形状与 #596 写响应
+    # `applied` 同源：
+    #
+    #   %{"initiative" => %{"id" =>, "name" =>, "slug" =>},
+    #     "fields" => %{"min_age" => %{"value" => 18, "source" => "locked"}, ...}}
+    #
+    # 生命周期（全在 RuleInheritance.prepare_event_changes/2 同一事务内）：
+    # detach 时写入（无 locked 字段 → nil）；场主首次改写标记内字段 → 逐字段清除，
+    # 键空 → 整列 nil；重挂载 → 整列清空（值重新归新 Initiative 治理）。
+    # writable?: false：只由挂载边界写，客户端不可直接设置（治理数据）。
+    # filterable?/sortable? false：只读输出面，不做查询/排序维度（避免把
+    # jsonb 治理标记扩进 EventFilterInput / EventSortField）。
+    attribute(:detached_rule_provenance, :map,
+      allow_nil?: true,
+      public?: true,
+      writable?: false,
+      filterable?: false,
+      sortable?: false,
+      description: "解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除）"
+    )
+
     attribute(:created_by, :uuid, allow_nil?: true, public?: true, writable?: false)
 
     attribute(:deposit_enabled, :boolean,
@@ -947,7 +970,12 @@ defmodule Cgc2046.Events.Event do
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
   # 敏感字段另立 member-or-admin policy 收窄）。非白名单 = workspace_id /
   # curriculum_enabled / curriculum_requirements / workflow_run_id / capacity /
-  # confirmed_count，匿名被筛除。
+  # confirmed_count / detached_rule_provenance，匿名被筛除。
+  #
+  # detached_rule_provenance 是治理细节（值「被平台强制写入」这层来源信息，
+  # 不是值本身）：公开宿主页（getEventBySlug 匿名读）不得暴露，与 #596
+  # RulePreview「治理读面与公开面严格分开」同纪律。字段本身仍在 SDL（Event
+  # 类型与 capacity 同款），匿名读恒 null。
   field_policies do
     field_policy :* do
       authorize_if(always())
@@ -959,7 +987,8 @@ defmodule Cgc2046.Events.Event do
       :curriculum_requirements,
       :workflow_run_id,
       :capacity,
-      :confirmed_count
+      :confirmed_count,
+      :detached_rule_provenance
     ] do
       authorize_if({Cgc2046.Accounts.Policies.ActorIsWorkspaceMemberVia, path: [:workspace]})
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
