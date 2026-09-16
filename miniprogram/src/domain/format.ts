@@ -1,4 +1,4 @@
-import type { CatalogItem, EnrollmentBadge, EnrollmentStatus, EnrollmentSummary } from './models'
+import type { CatalogItem, ContentKind, EnrollmentBadge, EnrollmentStatus, EnrollmentSummary } from './models'
 
 export function remainingLabel(deadline: string | null, now = Date.now()): string {
   if (!deadline) return '未设置截止时间'
@@ -151,4 +151,76 @@ export function venueText(raw: string | null): string | null {
   if (!venue) return null
   const parts = [venue.country, venue.province, venue.city, venue.district].filter((s) => s.trim() !== '')
   return parts.length > 0 ? parts.join(' ') : null
+}
+
+// ── #617 「我的报名」读面时间/地点行 ──
+//
+// 改期（event_schedule_changed）与开课提醒（event_reminder）的通知落页都是
+// 「我的报名」，两条模板正文里都带 starts_at 与 venue，故本页必须有权威落点。
+//
+// **venue 形态（勿与 CatalogItem.venue 混淆）**：后端 `Enrollment.venue`
+// （admission/enrollment.ex 计算字段）取的是 `Offering.fetch_schedule_by_ids`
+// 的结果，而后者对 Event 走 `Events.Venue.text/1` **文本化为 city+district**
+// （无 venue 的 Course → nil）。同一文本也是 event_reminder 模板 thing4 的值
+// （event_reminder_worker.ex `Venue.text(venue) || ""`），故三处同形。
+// 与之相对，`CatalogItem.venue` 是 Event 的 **JsonString**，走 `venueText`
+// 严格四键解析——两套形态各有各的解析器，不要互相套用。
+
+/**
+ * `Venue.text/1` 的端内等价（仅 mock/e2e 与测试需要）：
+ * 取 city + district 直接拼接（nil 段跳过，空串结果 → null）。
+ *
+ * 真机路径不调用本函数——`Enrollment.venue` 由后端算好文本下发；
+ * 本函数只为让 mockTransport 的 create 回包与真机同形（否则 e2e 会拿
+ * JsonString 冒充文本，测试掩盖真机不渲染）。
+ */
+export function venueCityDistrictText(raw: string | null): string | null {
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    const venue = parsed as Record<string, unknown>
+    const parts = [venue.city, venue.district].filter((part): part is string => typeof part === 'string')
+    const text = parts.join('')
+    return text === '' ? null : text
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 「我的报名」卡片时间行（#617）：event → 「活动时间」、course → 「开课时间」。
+ *
+ * 格式单源 = 既有 `formatDateTime`（详情页同款 toLocaleString 惯例），不引第二种
+ * 时间格式；`startsAt` 为 null（时间待定）→ 返回 null，调用方不渲染空行。
+ * 卡面不带「开始」后缀：`startsAt` 即开始时刻，标签已含「时间」。
+ */
+export function enrollmentScheduleText(kind: ContentKind, startsAt: string | null): string | null {
+  if (!startsAt) return null
+  return `${kind === 'event' ? '活动时间' : '开课时间'}：${formatDateTime(startsAt)}`
+}
+
+/**
+ * 「我的报名」卡片地点行（#617）：入参是后端已文本化的 `city+district`
+ * （见上方形态说明），原样展示，**不做 JSON 解析**。
+ *
+ * null/非字符串/空串 → 返回 null，调用方不渲染空行（不编造「地点待定」——
+ * 卡面是信息行，无值就没有这一行；课程与线上场恒 null）。
+ */
+export function enrollmentVenueText(venue: string | null): string | null {
+  if (typeof venue !== 'string') return null
+  const text = venue.trim()
+  return text === '' ? null : `地点：${text}`
+}
+
+/**
+ * 「我的报名」历史行时间文案（#617）：显式标注为**报名时间**而非活动时间。
+ *
+ * 同一 (kind, targetId) 的历史记录与主卡片同页显示：主卡片新增「活动时间」后，
+ * 历史行若继续渲染裸时间串，读者会把它误当活动时间（历史行的值其实是记录创建
+ * 时刻 insertedAt）。加「报名于」前缀即消除该歧义；历史行**不**显示 startsAt
+ * （与主卡片同值，重复无信息量）。
+ */
+export function enrollmentHistoryTimeText(insertedAt: string): string {
+  return `报名于 ${formatDateTime(insertedAt)}`
 }

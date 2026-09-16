@@ -185,6 +185,8 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         insertedAt
         checkInCode
         paymentMode
+        startsAt
+        venue
         registrationDeadline
       }
     }
@@ -212,6 +214,8 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         insertedAt
         checkInCode
         paymentMode
+        startsAt
+        venue
         registrationDeadline
       }
     }
