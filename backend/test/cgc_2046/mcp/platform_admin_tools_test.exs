@@ -443,6 +443,71 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
       assert msg =~ "invalid workspace_id"
     end
+
+    test "admin_list_reconciliation_findings：detail 白名单投影（未登记键丢弃 + 原文键固定摘要，#631）" do
+      admin = Fixtures.platform_admin("pa-recon-detail")
+      %{workspace: ws} = Fixtures.workspace_with_member()
+
+      assert {:ok, finding} =
+               Finding
+               |> Ash.Changeset.for_create(:create, %{
+                 rule: :notification_delivery_failed,
+                 entity_type: :notification_delivery,
+                 entity_id: Ecto.UUID.generate(),
+                 workspace_id: ws.id,
+                 detail: %{
+                   # 白名单键（string 键 = 规15 形状）
+                   "template_key" => "enrollment_confirmed",
+                   "platform" => "wechat",
+                   "attempts" => 3,
+                   "window_seconds" => 86_400,
+                   # 原文键（规15：DeliveryWorker 的 inspect/1 原文）
+                   "last_error" => "** (RuntimeError) boom",
+                   # 未登记键（未来新规则的键）→ 不出面
+                   "internal_probe" => "should-not-surface",
+                   # 白名单键 + 原文键（atom 键 = 规6 形状；Oban 存 Exception.format 全文）
+                   worker: "Cgc2046.SignalPublishWorker",
+                   error: "** (Ecto.ConstraintError) ... initiatives_slug_index"
+                 }
+               })
+               |> Ash.create(authorize?: false)
+
+      assert {:reply, _, _} =
+               reply =
+               AdminListReconciliationFindings.execute(
+                 %{"rule" => "notification_delivery_failed"},
+                 frame_for(admin)
+               )
+
+      detail =
+        decode_reply(reply)["findings"]
+        |> Enum.find(&(&1["id"] == finding.id))
+        |> Map.fetch!("detail")
+
+      # 白名单键逐字保留（atom/string 键在 JSON 面同形）
+      assert detail["template_key"] == "enrollment_confirmed"
+      assert detail["platform"] == "wechat"
+      assert detail["attempts"] == 3
+      assert detail["window_seconds"] == 86_400
+      assert detail["worker"] == "Cgc2046.SignalPublishWorker"
+
+      # 原文键 → 固定摘要（#612 纪律：原始错误文本只留服务端）
+      summary = "[withheld: raw error text is server-side only]"
+      assert detail["last_error"] == summary
+      assert detail["error"] == summary
+
+      # 未登记键 → 丢弃（fail-closed）
+      refute Map.has_key?(detail, "internal_probe")
+
+      # 原文串整段不出面
+      rendered = inspect(detail)
+      refute rendered =~ "should-not-surface"
+      refute rendered =~ "initiatives_slug_index"
+      refute rendered =~ "RuntimeError"
+
+      [log] = tool_logs_for(admin.id, "admin_list_reconciliation_findings")
+      assert log.result_status == :ok
+    end
   end
 
   describe "admin_approve_workspace_application 确认流" do

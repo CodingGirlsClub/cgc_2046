@@ -678,7 +678,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
   end
 
   describe "get_my_enrollments（R32/AE8）" do
-    test "actor 锚定全状态跨工作台 + tier_snapshot + workspace 块" do
+    test "actor 锚定全状态跨工作台 + payment_mode/order_kind/tier_snapshot + workspace 块" do
       admin_a = Fixtures.platform_admin("s7-my-a")
       workspace_a = Fixtures.create_workspace(admin_a, %{name: "台 A"})
       admin_b = Fixtures.platform_admin("s7-my-b")
@@ -687,6 +687,13 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       learner = Fixtures.register_user("s7-my-learner")
 
       free_event = EventFixtures.create_event(workspace_a, admin_a, %{title: "免费活动"})
+
+      deposit_event =
+        EventFixtures.create_event(
+          workspace_a,
+          admin_a,
+          Map.merge(%{title: "押金活动"}, deposit_attrs())
+        )
 
       paid_course =
         EventFixtures.create_course(
@@ -699,6 +706,15 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       payment_pending = domain_enroll(paid_course, learner, %{tier_id: @paid_tier_id})
       order_fixture(payment_pending)
 
+      # 押金场：缴费槽 = deposit；订单事实 = 押金单（tier 展示名「押金」，不得据名反推）
+      deposit_enrollment = domain_enroll(deposit_event, learner)
+
+      order_fixture(deposit_enrollment, %{
+        order_kind: :deposit,
+        amount_cents: 6_900,
+        tier_snapshot: %{"name" => "押金", "amount_cents" => 6_900}
+      })
+
       assert {:reply, _, _} = reply = GetMyEnrollments.execute(%{}, frame_for(learner))
       payload = decode_reply(reply)
 
@@ -707,7 +723,9 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
         |> Enum.map(&{&1["offering"]["id"], &1})
         |> Map.new()
 
-      assert Map.keys(rows) |> Enum.sort() == Enum.sort([free_event.id, paid_course.id])
+      assert Map.keys(rows) |> Enum.sort() ==
+               Enum.sort([free_event.id, paid_course.id, deposit_event.id])
+
       # advisor F4:行附 workspace_id 原值（enrollment 自身列，动作作用域）
       assert rows[free_event.id]["workspace_id"] == workspace_a.id
       assert rows[paid_course.id]["workspace_id"] == workspace_b.id
@@ -716,12 +734,24 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert free_row["status"] == "confirmed"
       assert free_row["kind"] == "event"
       assert free_row["workspace"]["name"] == "台 A"
+      assert free_row["payment_mode"] == "free"
+      assert is_nil(free_row["order_kind"])
       assert is_nil(free_row["tier_snapshot"])
 
       paid_row = rows[paid_course.id]
       assert paid_row["status"] == "payment_pending"
       assert paid_row["workspace"]["name"] == "台 B"
+      assert paid_row["payment_mode"] == "pricing"
+      assert paid_row["order_kind"] == "enrollment"
       assert %{"id" => @paid_tier_id} = paid_row["tier_snapshot"]
+
+      # #622 D1：押金行的资金语义读 order_kind（供给物现行配置 payment_mode 同源
+      # Offering.payment_mode/1），不从 tier_snapshot.name（合成展示名）反推
+      deposit_row = rows[deposit_event.id]
+      assert deposit_row["payment_mode"] == "deposit"
+      assert deposit_row["order_kind"] == "deposit"
+      assert deposit_row["tier_snapshot"]["name"] == "押金"
+      assert deposit_row["tier_snapshot"]["amount_cents"] == 6_900
 
       # actor 锚定：他人报名不出现
       other = Fixtures.register_user("s7-my-other")
@@ -771,6 +801,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
 
       payload = decode_reply(reply)
       assert payload["order"]["id"] == order.id
+      assert payload["order"]["order_kind"] == "enrollment"
       assert payload["order"]["amount_cents"] == 9_900
       assert payload["order"]["provider"] == "wechat_native"
       assert payload["order"]["status"] == "pending"
@@ -818,6 +849,41 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       # advisor F5 语义：mark_paid 与 settle_paid 间的窗口（enrollment 仍
       # payment_pending）→ checkout_url 仍给（支付回调竞态下继续完成路径）
       assert is_binary(payload["checkout_url"])
+    end
+
+    test "押金单 → order_kind=deposit（资金语义不读 tier 展示名「押金」，#622）" do
+      admin = Fixtures.platform_admin("s7-ord-dep")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          Map.merge(%{title: "押金活动"}, deposit_attrs())
+        )
+
+      learner = Fixtures.register_user("s7-ord-dep-learner")
+      enrollment = domain_enroll(event, learner)
+
+      order =
+        order_fixture(enrollment, %{
+          order_kind: :deposit,
+          amount_cents: 6_900,
+          tier_snapshot: %{"name" => "押金", "amount_cents" => 6_900}
+        })
+
+      assert {:reply, _, _} =
+               reply =
+               GetOrderStatus.execute(
+                 %{"workspace_id" => workspace.id, "enrollment_id" => enrollment.id},
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["order"]["id"] == order.id
+      # 押金单的 tier 名是合成展示名「押金」——资金语义只认 order_kind
+      assert payload["order"]["order_kind"] == "deposit"
+      assert payload["order"]["amount_cents"] == 6_900
     end
 
     test "payment_pending 且尚无 Order → checkout_url 非 nil（resumePayment 恢复路径，advisor F5）" do

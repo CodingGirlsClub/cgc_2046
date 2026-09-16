@@ -71,6 +71,7 @@
 		"deposit_already_forfeited": "该报名的押金已按未到场结算（不退），无法再核销。",
 		"forbidden": "你没有执行该操作的权限。",
 		"event_moderator_not_workspace_member": "该用户还不是本工作台成员，请先邀请加入再指派。",
+		"event_moderator_already_assigned": "该用户已是本活动主理人，无需重复指派。",
 		"event_deposit_registration_deadline_required": "押金场需设置报名截止时间（自助取消锚点）。",
 		"event_ends_at_frozen": "存在未结算的押金订单，不能提前结束时间。",
 		"order_deposit_amount_missing": "押金金额信息缺失，请重新报名。",
@@ -80,6 +81,7 @@
 		"event_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。",
 		"initiative_slug_locked": "倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。",
 		"initiative_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。",
+		"initiative_rule_already_exists": "该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试"
 	},

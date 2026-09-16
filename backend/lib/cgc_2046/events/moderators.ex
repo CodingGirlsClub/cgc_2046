@@ -30,13 +30,25 @@ defmodule Cgc2046.Events.Moderators do
         :ok
 
       {:error, %Ash.Error.Invalid{} = error} ->
-        if String.contains?(Exception.message(error), "unique_event_user"),
+        if already_assigned?(error),
           do: :ok,
           else: {:error, error}
 
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  # 重复指派（幂等）判据 = `EventModerator.handle_write_error/2` 映射出的稳定 code。
+  # 迁移 20260916210000 对齐索引名后，unique 冲突不再落 `Ecto.ConstraintError`（旧实现
+  # 靠匹配错误原文里的注册约束名 "unique_event_user" 判定，改名后该原文消失 ⇒ 判据必然
+  # 失效），故改按 code（范式同 payment_expiry_worker.ex 的 expected_race?/1）。DB 类
+  # 失败走同族 BusinessError 但 code = "database_error"——那是硬失败，绝不吞成幂等成功。
+  defp already_assigned?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Cgc2046.Errors.BusinessError{code: "event_moderator_already_assigned"} -> true
+      _ -> false
+    end)
   end
 
   def list(event_id, workspace_id, actor) do

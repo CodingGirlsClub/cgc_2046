@@ -24,6 +24,19 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
   3b. 审计列写入方 `wrapper.ex` 必须经 `Mcp.Errors.audit_message(`，且本文件不得
      自行 `Exception.message` / `Exception.format` / 非 Logger 的 `inspect`。
 
+  #631 追加三条（覆盖 #612 收尾报告的三个残余，断言编号沿用文件内既有序列）：
+
+  5. 对账发现 `detail` 必须经白名单投影（不得回落为 `detail: finding.detail` 逐字回放）；
+  6. 工具层不得 `{:error, x} -> {:error, x}` 原样透传域错误——非二进制错误会在
+     `Response.to_response/2` 落 `FunctionClauseError`（`start_learning_run` 的崩溃形状）；
+  7. 行为断言：错误类经出口折叠后，**回包与审计列**都不得出现类脚手架 / inspect 形态
+     （`Bread Crumbs:` / `Invalid Error` / `Error returned from` / `%Struct{` / `inspect(`）；
+     并钉住 `confirmation.ex` 的并发双确认子句同时命中「包在 `%Ash.Error.Invalid{}` 里」
+     的 StaleRecord（#631 D4，否则该叶子的 `inspect(resource/filter)` 会出面）。
+
+  文案形状（`database_error` / 已知 code 逐字不变、折叠无脚手架）由
+  `test/cgc_2046/errors/database_error_test.exs` 的行为钉负责；本文件负责**结构**。
+
   非目标：不扫 `lib/cgc_2046/`（domain）与 `lib/cgc_2046_web/`——GraphQL 面由
   `AshGraphql.Error` impl 覆盖，domain 共享层由
   `Cgc2046.Errors.DatabaseError.safe_message/2` 收口（见
@@ -35,6 +48,14 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
   @mcp_root Path.expand("../../../lib/cgc_2046/mcp", __DIR__)
   @egress_module "errors.ex"
   @egress_call "Cgc2046.Mcp.Errors.message("
+
+  # 域错误原样透传的形状（跨行：`{:error, x} ->\n  {:error, x}`）；#631 前唯一命中
+  # = tools/start_learning_run.ex:53（token.ex 同名形状在 egress_scope? 之外，不扫）
+  @raw_passthrough ~r/\{:error,\s*([a-z_]+)\}\s*->\s*\{:error,\s*\1\}/
+
+  # 类脚手架 / inspect 形态（回包与审计列都不得出现）：错误类头、面包屑来源行、
+  # 结构体渲染（`%Ash.Filter{…}` / `%Postgrex.Error{…}` 等）
+  @scaffolding ~r/Bread Crumbs:|Invalid Error|Error returned from|%[A-Z][A-Za-z0-9_.]*\{/
 
   # inspect( 白名单：相对路径 → {上限, 理由}
   @inspect_allowlist %{
@@ -155,6 +176,73 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
       assert is_binary(reason) and String.trim(reason) != "", "#{rel} 缺理由"
       assert File.exists?(Path.join(@mcp_root, rel)), "#{rel} 白名单条目指向不存在的文件"
     end
+  end
+
+  test "5) 对账发现 detail 必须经白名单投影（#631：不得逐字回放 finding.detail）" do
+    {_rel, source} =
+      Enum.find(sources(), fn {rel, _} -> rel == "tools/admin_list_reconciliation_findings.ex" end)
+
+    refute String.contains?(source, "detail: finding.detail"),
+           "detail 又变回逐字回放（应收口到 project_detail/1：白名单键 + 原文键固定摘要）"
+
+    assert String.contains?(source, "project_detail(finding.detail)"),
+           "detail 未经 project_detail/1 投影（白名单/原文摘要缺失）"
+  end
+
+  test "6) 工具层不得原样透传域错误（#631：非二进制错误击穿响应出口）" do
+    offenders =
+      for {rel, source} <- sources(),
+          egress_scope?(rel),
+          [full | _] <- Regex.scan(@raw_passthrough, source) do
+        {rel, full |> String.replace(~r/\s+/, " ") |> String.trim()}
+      end
+
+    assert offenders == [],
+           "以下位置把域错误原样透传（应经 #{@egress_call} 收口）：非二进制错误会在 " <>
+             "Response.to_response/2 落 FunctionClauseError（#631）：#{inspect(offenders)}"
+  end
+
+  test "7) 错误类经出口折叠后，回包与审计列都不得出现类脚手架 / inspect 形态（#631）" do
+    frame = Anubis.Server.Frame.new(current_user: nil)
+
+    # 生产 `save_course_content` 同形：Ash 类错误 + 带 breadcrumbs 的叶子
+    class =
+      Ash.Error.to_error_class([
+        %Ash.Error.Changes.InvalidChanges{
+          message: "objectives required",
+          vars: [],
+          bread_crumbs: ["Error returned from: Cgc2046.Curriculum.Output.upsert_content"]
+        }
+      ])
+
+    # 前置：类消息本身带脚手架（Ash 升版改了渲染即在此暴露，而不是静默放行）
+    assert Exception.message(class) =~ "Bread Crumbs:"
+
+    # ① 回包（工具返回值）
+    message = Cgc2046.Mcp.Errors.message(class, "failed to save course content")
+    assert message == "objectives required"
+    refute message =~ @scaffolding
+    refute message =~ ~r/inspect\(/
+
+    # ② 审计列（ToolCallLog.error_message，二次读出通道）→ 固定摘要 + uuid
+    refute Cgc2046.Mcp.Errors.audit_message(class) =~ @scaffolding
+
+    # ③ 响应出口全函数：非二进制错误也必须是有文案的 JSON-RPC error
+    assert {:error, %Anubis.MCP.Error{message: response_message}, ^frame} =
+             Cgc2046.Mcp.Tools.Response.to_response({:error, :collision_race}, frame)
+
+    assert is_binary(response_message)
+    refute response_message =~ @scaffolding
+
+    # ④ 并发双确认的友好子句须同时命中「包在 Invalid 里」的 StaleRecord（D4）：
+    # StaleRecord 叶子自身的 message 会 inspect(resource/filter)，不经该子句即出面
+    {_rel, confirmation} = Enum.find(sources(), fn {rel, _} -> rel == "confirmation.ex" end)
+
+    assert Regex.match?(
+             ~r/Enum\.any\?\(errors,\s*&match\?\(%Ash\.Error\.Changes\.StaleRecord\{\}, &1\)\)/,
+             confirmation
+           ),
+           "confirmation.ex 缺少「Invalid 包裹的 StaleRecord」子句（#631 D4）"
   end
 
   # 扫描视图 = 剥掉整行注释后的源码：注释里为了说明纪律写出 `Exception.message`

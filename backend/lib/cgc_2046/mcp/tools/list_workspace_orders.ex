@@ -7,6 +7,10 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
   enrollment_status / learner_email / event_id / course_id）。可选 course_id
   过滤 = 活动维度（course_id 计算字段过滤，GraphQL filter 同源）。
 
+  行附 `order_kind`（enrollment|deposit，#622）：押金单与报名单是两种资金语义
+  （no-show 没收、免缴豁免范围、退款口径不同）。`tier_name` 对押金单是合成的
+  展示名「押金」——语义读 `order_kind`，不得据展示名反推。
+
   授权锚 = workspace：默认 fail-closed member 门之外，本工具层再做 Owner/Admin
   判定（`Role.manage_role?/1`），非管理角色成员快速拒绝并落 ToolCallLog 审计；
   读 policy（workspace_orders 仅 Owner/Admin 本租户 + PlatformAdmin）兜底。
@@ -90,6 +94,8 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
         enrollment_status: order.enrollment_status && to_string(order.enrollment_status)
       },
       offering: %{event_id: order.event_id, course_id: order.course_id},
+      # 资金语义（enrollment|deposit）：tier_name 的「押金」只是展示名（#622）
+      order_kind: to_string(order.order_kind),
       tier_name: order.tier_name,
       amount_cents: order.amount_cents,
       provider: to_string(order.provider),

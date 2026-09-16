@@ -50,8 +50,12 @@ defmodule Cgc2046.Mcp.Tools.StartLearningRun do
                created: created_or_existing == :created
              }}
 
-          {:error, message} ->
-            {:error, message}
+          # 域错误的二进制文案原样透传（含并发撞索引的
+          # "failed to start learning run (concurrent creation race)"）；非二进制
+          # （域读失败的 `%Ash.Error.Invalid{}` 等）经统一出口分类——不经出口会在
+          # `Response.to_response/2` 落 FunctionClauseError（#631）
+          {:error, err} ->
+            {:error, Cgc2046.Mcp.Errors.message(err, "failed to start learning run")}
         end
       end)
 
