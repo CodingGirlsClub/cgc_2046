@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { print } from "graphql";
 import { CHECK_IN_ENROLLMENT } from "@/lib/graphql/attendance";
 import { MY_ENROLLMENTS } from "@/lib/graphql/participations";
+import { GET_INITIATIVE, LIST_INITIATIVES } from "@/lib/graphql/admin";
 import { INITIATIVE_MOUNT_PREVIEW } from "@/lib/graphql/initiatives";
 
 /**
@@ -138,6 +139,27 @@ describe("手写 GraphQL 文档 ↔ SDL 契约", () => {
     // 权限不扩大的结构性防线：公开类型不得出现规则字段
     for (const publicType of ["PublicInitiative", "PublicInitiativeCard"]) {
       expect(objectFields(sdl, publicType)).not.toContain("rules");
+    }
+  });
+
+  /**
+   * #595：挂载场读面。列表 query 刻意不取 mountedEvents（否则 admin 列表页
+   * N+1），详情 query 取；选择集字段必须都在 SDL 的 AdminInitiativeMountedEvent 上。
+   */
+  it("Initiatives 文档：列表不取 mountedEvents，详情取且字段 ⊆ SDL", () => {
+    expect(objectFields(sdl, "AdminInitiative")).toContain("mountedEvents");
+    expect(print(LIST_INITIATIVES)).not.toContain("mountedEvents");
+
+    const detail = print(GET_INITIATIVE);
+    expect(detail).toContain("mountedEvents");
+
+    const mountFields = objectFields(sdl, "AdminInitiativeMountedEvent");
+    expect(mountFields.size).toBeGreaterThan(10);
+
+    const selected = detail.match(/mountedEvents\s*\{([^}]*)\}/)?.[1].split(/\s+/).filter(Boolean) ?? [];
+    expect(selected.length).toBeGreaterThan(10);
+    for (const field of selected) {
+      expect(mountFields, `SDL AdminInitiativeMountedEvent 缺字段 ${field}`).toContain(field);
     }
   });
 });
