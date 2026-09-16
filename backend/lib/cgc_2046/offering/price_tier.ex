@@ -97,6 +97,10 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
   - 结构非法（0 元档 / 缺 name / 未知键 / 畸形时间）入库前拒绝；
   - `pricing_enabled: true` 且 `price_tiers` 为空拒绝——收费活动必须配置
     可售档位；`pricing_enabled: false`（默认）与空档位配对通过（R4）。
+
+  反向不变量「押金开 ⇒ 档位为空」（#597）**不在本模块**：本模块为 Event/Course
+  共享，而 Course 无押金列；该判据在 `Cgc2046.Events.PaymentModeValidation`
+  （押金是 Event 独有）。不要在本模块加 `deposit_enabled` 分支。
   """
 
   use Ash.Resource.Validation

@@ -45,6 +45,7 @@
 		"event_payment_mode_exclusive": "Only one payment mode per activity: disable pricing (or deposit) before enabling the other.",
 		"event_deposit_amount_required": "Enabling a deposit requires an amount greater than 0.",
 		"event_deposit_ends_at_required": "Enabling a deposit requires an event end time (the no-show settlement anchor).",
+		"event_deposit_price_tiers_conflict": "A deposit activity cannot keep price tiers: clear the price tiers before enabling the deposit.",
 		"pricing_disable_actor_required": "Disabling pricing requires a signed-in organizer. Please sign in again and retry.",
 		"pricing_disable_batch_limit": "Too many pending enrollments to confirm for free at once (over 200) — cancel the offering (auto refund) instead, or handle some pending payments first.",
 		"join_request_invite_only": "This workspace is invite-only. Join via an invitation link.",
