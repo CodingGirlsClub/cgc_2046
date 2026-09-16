@@ -33,7 +33,9 @@ export default function RegisterFormPage() {
       if (content.pricingEnabled && content.priceTiers.length > 0) {
         setTierId(content.priceTiers[0].id)
       }
-      if (enrollmentBlockedNotice(content.enrollmentBadge)) return
+      // 双门（status + badge）与详情页 CTA 同源：深链 / 登录期间被取消的场
+      // 也会在此被挡（此前只看 badge，#574）
+      if (enrollmentBlockedNotice(content)) return
       if (!session.user) {
         const returnUrl = `/pages/register-form/index?id=${id}&kind=${kind}`
         await Taro.redirectTo({ url: `/pages/login/index?returnUrl=${encodeURIComponent(returnUrl)}` })
@@ -88,7 +90,7 @@ export default function RegisterFormPage() {
   if (!target && error) return <PageState kind='error' message={error} onRetry={load} />
   if (!target) return <PageState kind='empty' message='报名项目不存在' />
 
-  const blockedNotice = enrollmentBlockedNotice(target.enrollmentBadge)
+  const blockedNotice = enrollmentBlockedNotice(target)
   if (blockedNotice) return <PageState kind='empty' message={blockedNotice} />
 
   return (

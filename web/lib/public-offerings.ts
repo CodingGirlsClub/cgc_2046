@@ -15,7 +15,8 @@ import { client } from "./apollo-client";
  * E-5 #50 公开面数据源（匿名白名单路径，与 E-11 管理面 events.ts 分离）。
  *
  * - fetchPublicOfferings：匿名读 open+public 全部条目（发现页）；
- * - fetchPublicOffering：匿名按 id 读（宿主页；workspace/非 open 表现 NotFound）；
+ * - fetchPublicOffering：匿名按 id 读（宿主页；workspace / 非 open 表现 NotFound，
+ *   例外 = initiative 挂载的 closed/cancelled 留档读，ReadsArchivedInitiativeEvent）；
  * - submitEnrollment：登录后报名（后端 policy 校验 user_id == actor）；
  * - 公开读一律 network-only（F4）：badge 由后端逐次派生，cache-first 会让
  *   报名失败后的重拉吃缓存旧 badge（U4 重派生失效）；公开面量级小，代价可忽略。

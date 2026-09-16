@@ -59,11 +59,39 @@ export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
   full: '已满'
 }
 
-/** 报名阻断提示：closed/full 返回阻断文案（与 web 端 closedHint/fullHint 逐字一致），其余 badge 放行返回 null */
-export function enrollmentBlockedNotice(badge: EnrollmentBadge): string | null {
-  if (badge === 'closed') return '报名已截止，不再接受新的报名。'
-  if (badge === 'full') return '名额已满，不再接受新的报名。'
+/**
+ * 报名阻断提示（双门：条目状态优先，报名 badge 兜底）；null = 可报名。
+ *
+ * - `status !== 'open'`（cancelled/closed/draft）一律阻断 —— 公开留档读
+ *   （initiative 挂载的 closed/cancelled 匿名可读）会把归档场送到详情页与
+ *   register-form，而 badge 只看 capacity/截止，曾在此漏出报名表单（#574）；
+ *   closed 按 endsAt 区分「活动已结束」与「报名已截止」。
+ * - open 时沿用 badge 文案（与 web 端 closedHint/fullHint 逐字一致）。
+ *
+ * 详情页 CTA 与 register-form 表单页共用本函数（表单页此前只有 badge 门）。
+ */
+export function enrollmentBlockedNotice(
+  item: Pick<CatalogItem, 'status' | 'endsAt' | 'enrollmentBadge'>
+): string | null {
+  if (item.status !== 'open') {
+    if (item.status === 'cancelled') return '活动已取消，仅供查看。'
+    if (item.endsAt && Date.parse(item.endsAt) <= Date.now()) return '活动已结束，仅供查看。'
+    return '报名已截止，仅供查看。'
+  }
+  if (item.enrollmentBadge === 'closed') return '报名已截止，不再接受新的报名。'
+  if (item.enrollmentBadge === 'full') return '名额已满，不再接受新的报名。'
   return null
+}
+
+/**
+ * 详情页「报名状态」槽文案：open 用报名 badge；非 open 显示条目状态词——
+ * 归档场不再并列显示「报名中 + 已取消」（#574）。
+ */
+export function enrollmentMetricText(item: Pick<CatalogItem, 'status' | 'enrollmentBadge'>): string {
+  if (item.status === 'open') return enrollmentBadgeText[item.enrollmentBadge]
+  if (item.status === 'cancelled') return '已取消'
+  if (item.status === 'closed') return '已结束'
+  return '草稿'
 }
 
 // 与详情页既有截止日期同款 toLocaleString 惯例（R15 随行展示不引新格式）
