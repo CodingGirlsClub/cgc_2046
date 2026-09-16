@@ -879,6 +879,92 @@ globalThis.fetch = async (url, opts) => {
         : { ok: true, configured: true, web_url: 'https://gate.example.com/"onmouseover="alert(1)' }) };
     }
   }
+  // #586 缴费槽三态:押金场(无定价)→「押金 ¥69.00（到场退）」/免费场→「免费」/
+  // 定价场→「¥99.00 起」;报名确认卡价格行同口径,不再是「免费 + 需支付」。
+  // 覆盖两组降级/优先级:①档位全部过期的定价场(pricing + min=nil)不出「¥0.00 起」;
+  // ②押金场残留 price_tiers 时确认卡仍出押金行(押金优先于档位分支)。
+  if (scenario === "discovery_deposit_price") {
+    if (path === "/api/ext/cgc-2046/discover") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: { offerings: [
+        { id: "ev-dep", slug: "salon-deposit", title: "押金沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 6900, refundable_on_check_in: true },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-dep2", slug: "salon-deposit-2", title: "押金沙龙二", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 3000, refundable_on_check_in: true },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-free", slug: "salon-free", title: "公益沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: false, min_amount_cents: null },
+          payment_mode: "free",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-paid", slug: "salon-paid", title: "定价沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: true, min_amount_cents: 9900 },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+        { id: "ev-stale", slug: "salon-stale", title: "过期档位沙龙", kind: "event", status: "open",
+          workspace: { id: "ws-d1", name: "押金台" },
+          pricing: { enabled: true, min_amount_cents: null },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          registration_deadline: null, my_enrollment: null },
+      ] } }) };
+    }
+    if (path === "/api/ext/cgc-2046/status") {
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured: true, web_url: "https://dep.example.com" }) };
+    }
+    if (path === "/api/ext/cgc-2046/enrollment_summary") {
+      // 按 offering_id 分派摘要:ev-dep 故意带残留 price_tiers(定价→押金切换的历史
+      // 数据;域侧只禁两开关同真,不要求清档位)——押金优先分支的考例。
+      const url_full = String(url);
+      if (url_full.indexOf("offering_id=ev-dep2") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-dep2", title: "押金沙龙二", registration_deadline: null },
+          policy: "open", pricing: { enabled: false, tiers: [] },
+          payment_mode: "deposit",
+          deposit: { enabled: true, amount_cents: 3000, refundable_on_check_in: true },
+          would_create_status: "payment_pending", my_enrollment: null,
+        } }) };
+      }
+      if (url_full.indexOf("offering_id=ev-free") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-free", title: "公益沙龙", registration_deadline: null },
+          policy: "open", pricing: { enabled: false, tiers: [] },
+          payment_mode: "free",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          would_create_status: "confirmed", my_enrollment: null,
+        } }) };
+      }
+      if (url_full.indexOf("offering_id=ev-paid") >= 0) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+          offering: { id: "ev-paid", title: "定价沙龙", registration_deadline: null },
+          policy: "open", pricing: { enabled: true, tiers: [
+            { id: "tier-1", name: "标准票", amount_cents: 9900 },
+          ] },
+          payment_mode: "pricing",
+          deposit: { enabled: false, amount_cents: null, refundable_on_check_in: null },
+          would_create_status: "payment_pending", my_enrollment: null,
+        } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, result: {
+        offering: { id: "ev-dep", title: "押金沙龙", registration_deadline: null },
+        policy: "open",
+        pricing: { enabled: false, tiers: [{ id: "tier-stale", name: "标准票", amount_cents: 9900 }] },
+        payment_mode: "deposit",
+        deposit: { enabled: true, amount_cents: 6900, refundable_on_check_in: true },
+        would_create_status: "payment_pending",
+        my_enrollment: null,
+      } }) };
+    }
+  }
   if (path.startsWith("/api/ext/cgc-2046/learning_state")) {
     if (scenario === "learn_ugc_injection") {
       return {
@@ -1748,6 +1834,76 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("phase1: " + phase1.slice(0, 600));
       console.error("phase2: " + phase2.slice(0, 600));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+
+  // #586 缴费槽三态价格行(押金制):发现条目按 payment_mode 出价——
+  // 押金场「押金 ¥69.00（到场退）」/免费场「免费」/定价场「¥99.00 起」;
+  // 确认卡价格行同口径。旧代码按 pricing.enabled 判,押金场两侧都出「免费」,
+  // 与确认卡的「需支付」自相矛盾(本场景在旧代码上必败)。
+  // 追加覆盖:①定价场档位全部过期(min=nil)不出「¥0.00 起」;②押金 + 残留
+  // price_tiers 的卡片仍出押金行(押金优先于档位分支);③押金(无档位)/免费/定价
+  // 三种卡片的形状。
+  if (scenario === "discovery_deposit_price") {
+    const container = el("div");
+    spec.render(container);
+    await waitFor(function () { return container.innerHTML.indexOf("押金沙龙") >= 0; });
+    const listHtml = container.innerHTML;
+
+    const count = function (h, needle) { return h.split(needle).length - 1; };
+
+    // 点第 idx 行报名钮 → 摘要 → 卡片;返回卡片片段(从 panel-enroll-confirm 起切,
+    // 不把列表里的价格算进来)
+    async function openCard(idx) {
+      const btns = container.querySelectorAll("[data-enroll]");
+      const btn = btns.filter(function (b) { return b.getAttribute("data-enroll") === String(idx); })[0];
+      ((btn && btn.listeners.click) || []).forEach(function (fn) { fn(); });
+      await waitFor(function () { return container.innerHTML.indexOf("panel-confirm-price") >= 0; });
+      const html = container.innerHTML;
+      return html.slice(html.indexOf("panel-enroll-confirm"));
+    }
+
+    // idx 顺序 = discover 返回顺序:0 押金(残留档位) / 1 押金(无档位) / 2 免费 / 3 定价
+    const depStaleCard = await openCard(0);
+    const depCard = await openCard(1);
+    const freeCard = await openCard(2);
+    const paidCard = await openCard(3);
+
+    const checks = {
+      deposit_row_price: listHtml.indexOf("押金 ¥69.00（到场退）") >= 0,
+      // 五行里只有免费场出「免费」——押金/定价场绝不出「免费」
+      free_row_price: listHtml.indexOf('data-testid="panel-offering-price">免费<') >= 0,
+      only_free_row_says_free: count(listHtml, "免费") === 1,
+      pricing_row_price: listHtml.indexOf("¥99.00 起") >= 0,
+      // ①档位全部过期的定价场:空串而非「¥0.00 起」
+      stale_pricing_row_blank: count(listHtml, "¥0.00") === 0,
+      // ②押金 + 残留 price_tiers:卡片出押金行,且不出档位行
+      stale_deposit_card_is_deposit:
+        depStaleCard.indexOf('data-testid="panel-confirm-price">押金 ¥69.00（到场退）') >= 0,
+      stale_deposit_card_no_tier_row:
+        depStaleCard.indexOf("panel-confirm-tiers") < 0 && depStaleCard.indexOf("标准票") < 0,
+      stale_deposit_card_not_free: depStaleCard.indexOf("免费") < 0,
+      // ③押金(无档位)
+      deposit_card_price: depCard.indexOf('data-testid="panel-confirm-price">押金 ¥30.00（到场退）') >= 0,
+      deposit_card_requires_payment: depCard.indexOf("需支付") >= 0,
+      // 免费场卡片仍说免费(零回归)
+      free_card_price: freeCard.indexOf('data-testid="panel-confirm-price">免费<') >= 0,
+      // 定价场带档位仍走档位行(零回归)
+      pricing_card_tier_row:
+        paidCard.indexOf("panel-confirm-tiers") >= 0 && paidCard.indexOf("标准票") >= 0,
+    };
+
+    const failed = Object.entries(checks).filter(function (e) { return !e[1]; });
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(function (e) { return e[0]; }).join(", "));
+      console.error("list: " + listHtml.slice(0, 900));
+      console.error("dep-stale: " + depStaleCard.slice(0, 700));
+      console.error("dep: " + depCard.slice(0, 500));
+      console.error("free: " + freeCard.slice(0, 400));
+      console.error("paid: " + paidCard.slice(0, 400));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));

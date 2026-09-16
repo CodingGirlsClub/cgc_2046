@@ -191,17 +191,17 @@ defmodule Cgc2046.Admission.Enrollment do
     )
 
     # U3：目标缴费模式（free/pricing/deposit），码卡与取消规则的模式感知文案用。
-    # 从 target_schedule 批量取（schedule_for 已带 deposit_enabled/pricing_enabled）。
+    # 从 target_schedule 批量取（schedule_for 已带 deposit_enabled/pricing_enabled），
+    # 三态判定单源 = Offering.payment_mode/1（押金优先；供给物不可得 → :free，与
+    # 旧分支的兜底逐字一致）。
     calculate(:payment_mode, :string,
       public?: true,
       load: [:target_schedule],
       calculation: fn enrollments, _opts ->
         Enum.map(enrollments, fn enrollment ->
-          case enrollment.target_schedule do
-            %{deposit_enabled: true} -> "deposit"
-            %{pricing_enabled: true} -> "pricing"
-            _ -> "free"
-          end
+          enrollment.target_schedule
+          |> Cgc2046.Offering.payment_mode()
+          |> to_string()
         end)
       end
     )
@@ -835,9 +835,21 @@ defmodule Cgc2046.Admission.Enrollment do
 
   # 落点判定（KTD2）：定价开启或押金开启 → payment_pending（支付完成才 confirmed）；
   # 免费目标直接 confirmed。
-  defp auto_confirm_status(%{pricing_enabled: true}), do: :payment_pending
-  defp auto_confirm_status(%{deposit_enabled: true}), do: :payment_pending
-  defp auto_confirm_status(_target), do: :confirmed
+  @doc """
+  报名落点状态预测（KTD2）：缴费槽非免费 → `:payment_pending`（占位后限时支付，
+  ADR-0007），免费 → `:confirmed`。
+
+  create（open / invite_only）与审批通过（request）两条域路径共用本函数，MCP
+  `get_enrollment_summary` 的 `would_create_status` 亦消费同一函数——三态判定只有
+  一个实现点（`Offering.payment_mode/1`），展示面不再各自镜像。
+  """
+  @spec auto_confirm_status(map() | nil) :: :confirmed | :payment_pending
+  def auto_confirm_status(target) do
+    case Cgc2046.Offering.payment_mode(target) do
+      :free -> :confirmed
+      _ -> :payment_pending
+    end
+  end
 
   # 收费报名的档位选择（KTD9/R2）：tier_id 必填且当前可售，存 submission_payload
   # 供下单链快照（U5 resolve_tier）；免费目标忽略 tier_id（R4）。
@@ -980,7 +992,11 @@ defmodule Cgc2046.Admission.Enrollment do
            [Cgc2046.Repo.uuid!(target_id)]
          ) do
       {:ok, %{rows: [["open", pricing_enabled, deposit_enabled, deposit_amount]]}} ->
-        status = if pricing_enabled or deposit_enabled, do: :payment_pending, else: :confirmed
+        status =
+          auto_confirm_status(%{
+            pricing_enabled: pricing_enabled,
+            deposit_enabled: deposit_enabled
+          })
 
         # 押金快照（U2/KTD1）：审批通过落 payment_pending 与 create 路径共用同一
         # 金额源。定价目标不写（金额源 = 下单时的档位解析）。
