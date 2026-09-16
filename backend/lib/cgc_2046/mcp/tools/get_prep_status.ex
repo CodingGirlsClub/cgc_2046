@@ -4,7 +4,8 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
 
   任何工作台成员可读（默认 fail-closed member 门）。返回 prep_state /
   生效策略（override-first 合并后）/ 被指派的 tutor 摘要 / 最新质量报告 /
-  实时计算的结构门禁违规清单 / run version（乐观锁版本，供并发对话）。
+  实时计算的结构门禁违规清单（`gate_violations`）与软提示清单
+  （`gate_warnings`，不阻断发布）/ run version（乐观锁版本，供并发对话）。
 
   S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run——发布后编辑自动有
   活动 run 驱动下一版本（次周期 assignee 沿用）。
@@ -43,6 +44,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
              tutor: tutor_summary(assignee_id),
              latest_quality_report: (run.facts || %{})["latest_quality_report"],
              gate_violations: gate.violations,
+             gate_warnings: gate.warnings,
              version: run.version
            }}
         end

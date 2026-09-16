@@ -148,9 +148,13 @@ defmodule Cgc2046.Mcp.Playbooks do
      objective,不得成环或自引用)/activity/assessment(字符串,可空串)/materials
      (typed Material 数组)/rubric(至少一条 {id, text},评分标准须可判定——空 rubric 的
      objective 不可判定掌握,过不了门禁)。objective 的 id 与 issue 的 id 一样发布后不改不删。
+  8. 章节归属:课程内容有天然章节结构(如教材按章、讲义按讲)时,content 必须带 chapters
+     数组(每项 {id, title},id 在课程内唯一,与 issue/objective id 同规:发布后不改不删),
+     且每张 issue 卡填 chapter_id 引用所属章节;无章节结构的课程可整个省略 chapters,
+     勿编造空壳章节。缺章节归属的 issue 卡在学员端会全部落入「未分组」。
 
   提交:整套内容经 save_course_content(workspace_id, course_id, content, base_version) 写入,content 形如
-  %{"goals" => [课程级目标字符串], "issues" => [issue 卡]}。提交成功即视为教研产出确认;后续修订走同一工具(活文档,平台按 (course_<id>, issues) upsert)。每次保存成功后向 Tutor 报告变更摘要与保存后的 version,便于核对本次实际落盘内容。
+  %{"goals" => [课程级目标字符串], "chapters" => [{id, title}](有章节结构的课程必带,见起草规则 8), "issues" => [issue 卡,带 chapter_id 归属所属章节]}。提交成功即视为教研产出确认;后续修订走同一工具(活文档,平台按 (course_<id>, issues) upsert)。每次保存成功后向 Tutor 报告变更摘要与保存后的 version,便于核对本次实际落盘内容。
 
   版本纪律(乐观并发):
   - 写入草稿前必须先调用 get_course_content(workspace_id, course_id) 读取当前 version,save_course_content 必须携带 base_version——首次保存(尚无草稿,get_course_content 报无内容)传 base_version=0,其后一律传刚读到的 version;
