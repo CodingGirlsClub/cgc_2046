@@ -993,6 +993,87 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       assert Ash.get!(PendingOperation, pending_id, authorize?: false).status == :pending
     end
 
+    # #616：关押金后重开必须显式带金额——第一段快速失败（不建 pending，省一轮
+    # 确认）；资源级 `PaymentModeValidation` 同名不变量是 GraphQL 等其他入口的
+    # 第二道闸。
+    test "update_event 关押金后重开不带金额 → 快速失败，不建 pending" do
+      owner = Fixtures.platform_admin("s3-ev-uc-616")
+      workspace = Fixtures.create_workspace(owner)
+
+      event =
+        open_event(workspace, owner, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8),
+          registration_deadline: EventFixtures.days_from_now(8)
+        })
+
+      {:ok, _} =
+        event
+        |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
+        |> Ash.update(authorize?: false, tenant: workspace.id)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "deposit_enabled" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "event_deposit_amount_must_be_explicit"
+      reloaded = Ash.get!(Event, event.id, authorize?: false)
+      assert reloaded.deposit_enabled == false
+      assert reloaded.deposit_amount_cents == 6900
+      assert pending_count() == 0
+    end
+
+    test "update_event 重开押金带金额 → pending 摘要含金额，confirm 后按新金额生效" do
+      owner = Fixtures.platform_admin("s3-ev-uc-616b")
+      workspace = Fixtures.create_workspace(owner)
+
+      event =
+        open_event(workspace, owner, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8),
+          registration_deadline: EventFixtures.days_from_now(8)
+        })
+
+      {:ok, _} =
+        event
+        |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
+        |> Ash.update(authorize?: false, tenant: workspace.id)
+
+      {:reply, _, _} =
+        reply =
+        UpdateEvent.execute(
+          %{
+            "workspace_id" => workspace.id,
+            "event_id" => event.id,
+            "deposit_enabled" => true,
+            "deposit_amount_cents" => 4200
+          },
+          frame_for(owner)
+        )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      # 确认摘要必须披露金额（#616 验收）：不能只显示开关翻转
+      assert payload["summary"] =~ "deposit_enabled"
+      assert payload["summary"] =~ "deposit_amount_cents"
+      assert payload["summary"] =~ "4200"
+
+      {:reply, _, _} =
+        ConfirmOperation.execute(%{"pending_id" => payload["pending_id"]}, frame_for(owner))
+
+      reloaded = Ash.get!(Event, event.id, authorize?: false)
+      assert reloaded.deposit_enabled == true
+      assert reloaded.deposit_amount_cents == 4200
+    end
+
     test "无可更新字段 → 报错不建 pending" do
       owner = Fixtures.platform_admin("s3-ev-uc-none")
       workspace = Fixtures.create_workspace(owner)
