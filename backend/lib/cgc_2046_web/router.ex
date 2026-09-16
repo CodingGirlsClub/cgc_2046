@@ -5,13 +5,18 @@ defmodule Cgc2046Web.Router do
   import Phoenix.LiveView.Router
 
   # #297.1：GraphQL 查询成本限制（非 dev 生效，照 GraphiQLIntrospectionGuard 先例）。
-  # ash_graphql 分页字段按 first × 字段数折算 complexity：第一方最重文档实测
-  # 小程序 MyEnrollments(first:100)≈1_4xx、Catalog(first:50)=1_350，
-  # mySponsorships=320 / inviteBatches=600。1_000 的旧预算漏测了小程序两个
-  # 文档 → 2026-09-15 线上「发现/我的报名」整页 `too complex` 拒绝（已发布
-  # 客户端无法自救，改文档要发版，只能由预算兜底）→ 提到 2_000（最重文档的
-  # ~1.4 倍余量）。撞线可诊断（错误自带实际/上限值）；预算回归钉在
-  # graphql_complexity_budget_test.exs——改 operations.ts 的最重文档必须同步。
+  # ash_graphql 分页字段按 first × (字段数 + 2) 折算 complexity。第一方最重文档
+  # = web 端工作台列表 LIST_EVENTS(first:250, 12 字段)=3_500（web/lib/graphql/
+  # events.ts），其次 LIST_COURSES / PUBLIC_LIST_EVENTS=3_250；小程序
+  # MyEnrollments(first:100)≈1_4xx、Catalog(first:50)=1_350。已发布客户端无法
+  # 自救（改文档要发版，只能由后端预算兜底），撞线即整页 `too complex` 拒绝：
+  #   1_000 → 2_000（2026-09-15）：1_000 漏测小程序两个文档，「发现/我的报名」挂；
+  #   2_000 → 4_000（2026-09-16）：2_000 又漏测 web 端四个 first:250 列表文档，
+  #   工作台/公开的课程+活动四页全挂。
+  # 4_000 = 最重文档 3_500 的 ~1.14 倍余量；分页文档真实 DB 成本只是一页
+  # 250 行 × 白名单字段，恶意扇出仍由 token_limit 5_000 兜底。撞线可诊断
+  # （错误自带实际/上限值）；预算回归钉在 graphql_complexity_budget_test.exs——
+  # 改 miniprogram operations.ts 或 web/lib/graphql/events.ts 的最重文档必须同步。
   # token_limit 在 lexer 层挡 MB 级 document（别名/字段炸弹的原始形态）——
   # complexity 分析发生在 parse 之后，解析开销须先截断。三选项经 @raw_options
   # 透传进 document pipeline，与 introspection guard 的 pipeline modifier
@@ -23,7 +28,7 @@ defmodule Cgc2046Web.Router do
                        else
                          [
                            analyze_complexity: true,
-                           max_complexity: 2_000,
+                           max_complexity: 4_000,
                            token_limit: 5_000
                          ]
                        end)
