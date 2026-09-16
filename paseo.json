@@ -1,6 +1,6 @@
 {
   "worktree": {
-    "setup": "cp \"$PASEO_SOURCE_CHECKOUT_PATH/backend/.env\" backend/.env 2>/dev/null || true\ncd backend && mix setup\ncd ../web && pnpm install --frozen-lockfile",
+    "setup": "cp \"$PASEO_SOURCE_CHECKOUT_PATH/backend/.env\" backend/.env 2>/dev/null || true\ncd backend && mix setup\ncd ../web && pnpm install --frozen-lockfile\ncd ../miniprogram && pnpm install --frozen-lockfile",
     "teardown": "cd backend && mix ecto.drop --force || true"
   },
   "scripts": {
