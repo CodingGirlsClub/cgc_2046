@@ -81,6 +81,16 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
     }
   end
 
+  # 押金场布置（#586）：无定价无档位（三态互斥）；ends_at 是 no-show 结算锚点，
+  # 押金场校验要求非空（KTD7）。
+  defp deposit_attrs do
+    %{
+      deposit_enabled: true,
+      deposit_amount_cents: 6900,
+      ends_at: EventFixtures.days_from_now(8)
+    }
+  end
+
   # 域路径直建报名（布置用；工具路径的被测对象走 CreateEnrollment.execute）
   defp domain_enroll(target, user, attrs \\ %{}) do
     target_key = if match?(%Event{}, target), do: :event_id, else: :course_id
@@ -908,6 +918,173 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
                )
 
       assert decode_error(error) =~ "enrollment not found"
+    end
+  end
+
+  describe "#586 缴费槽契约（MCP 面认识押金）" do
+    test "discover_offerings：押金场条目出 payment_mode=deposit + 金额/退还条件，定价块仍为 false" do
+      admin = Fixtures.platform_admin("s586-disc")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      outsider = Fixtures.register_user("s586-disc-user")
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      payload = decode_reply(reply)
+
+      assert [row] = payload["offerings"]
+      assert row["id"] == event.id
+      assert row["payment_mode"] == "deposit"
+
+      assert row["deposit"] == %{
+               "enabled" => true,
+               "amount_cents" => 6900,
+               "refundable_on_check_in" => true
+             }
+
+      # 病根回归：押金场 pricing 块 enabled=false 且无档位——单看它会读成免费，
+      # 故三态一律以 payment_mode 为准（断言把这条语义钉住）
+      assert row["pricing"] == %{"enabled" => false, "min_amount_cents" => nil}
+    end
+
+    test "discover_offerings：定价/免费场 deposit 块形状恒定（enabled=false，不落 nil）" do
+      admin = Fixtures.platform_admin("s586-disc-shape")
+      workspace = Fixtures.create_workspace(admin)
+      EventFixtures.create_event(workspace, admin, Map.merge(%{title: "定价"}, paid_attrs()))
+      EventFixtures.create_event(workspace, admin, %{title: "免费"})
+      outsider = Fixtures.register_user("s586-disc-shape-user")
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      payload = decode_reply(reply)
+
+      by_title = Map.new(payload["offerings"], &{&1["title"], &1})
+
+      assert by_title["定价"]["payment_mode"] == "pricing"
+      assert by_title["免费"]["payment_mode"] == "free"
+
+      for title <- ["定价", "免费"] do
+        assert by_title[title]["deposit"] == %{
+                 "enabled" => false,
+                 "amount_cents" => nil,
+                 "refundable_on_check_in" => nil
+               }
+      end
+    end
+
+    test "get_enrollment_summary：押金场 would_create_status=payment_pending + payment_mode/deposit" do
+      admin = Fixtures.platform_admin("s586-sum")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      outsider = Fixtures.register_user("s586-sum-user")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(outsider)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["would_create_status"] == "payment_pending"
+      assert payload["payment_mode"] == "deposit"
+      assert payload["deposit"]["enabled"] == true
+      assert payload["deposit"]["amount_cents"] == 6900
+      assert payload["deposit"]["refundable_on_check_in"] == true
+    end
+
+    test "反自证：would_create_status 预测 == create_enrollment 真实落点（押金场）" do
+      admin = Fixtures.platform_admin("s586-same")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      learner = Fixtures.register_user("s586-same-learner")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(learner)
+               )
+
+      predicted = decode_reply(reply)["would_create_status"]
+      assert predicted == "payment_pending"
+
+      assert {:reply, _, _} =
+               created =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(created)
+      assert payload["enrollment"]["status"] == predicted
+      assert payload["checkout_url"] =~ "/orders/new?enrollmentId="
+    end
+
+    test "脏行降级：押金开启但金额缺失/非正 → 仍 deposit，amount_cents=nil，绝不 0 也绝不免费" do
+      admin = Fixtures.platform_admin("s586-dirty")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      outsider = Fixtures.register_user("s586-dirty-user")
+
+      # 属性级 min: 1 无 DB CHECK：历史脏行只能绕过资源校验布置（raw SQL）
+      Repo.query!("UPDATE events SET deposit_amount_cents = NULL WHERE id = $1", [
+        Ecto.UUID.dump!(event.id)
+      ])
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      [row] = decode_reply(reply)["offerings"]
+
+      assert row["payment_mode"] == "deposit"
+
+      assert row["deposit"] == %{
+               "enabled" => true,
+               "amount_cents" => nil,
+               "refundable_on_check_in" => true
+             }
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "event", event.id),
+                 frame_for(outsider)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["would_create_status"] == "payment_pending"
+      assert payload["deposit"]["amount_cents"] == nil
+
+      # 0 分同样降级（非正金额不是金额）
+      Repo.query!("UPDATE events SET deposit_amount_cents = 0 WHERE id = $1", [
+        Ecto.UUID.dump!(event.id)
+      ])
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      [row] = decode_reply(reply)["offerings"]
+      assert row["deposit"]["amount_cents"] == nil
+      assert row["payment_mode"] == "deposit"
+    end
+
+    test "course（无押金槽）：deposit 恒 enabled=false，payment_mode 只出 free/pricing" do
+      admin = Fixtures.platform_admin("s586-course")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, paid_attrs())
+      learner = Fixtures.register_user("s586-course-learner")
+
+      assert {:reply, _, _} =
+               reply =
+               GetEnrollmentSummary.execute(
+                 enrollment_params(workspace, "course", course.id),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["payment_mode"] == "pricing"
+      assert payload["would_create_status"] == "payment_pending"
+
+      assert payload["deposit"] == %{
+               "enabled" => false,
+               "amount_cents" => nil,
+               "refundable_on_check_in" => nil
+             }
     end
   end
 end
