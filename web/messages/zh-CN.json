@@ -578,6 +578,7 @@
 		"viewInLearning": "在「我的学习」查看",
 		"depositName": "押金",
 		"depositLine": "押金 ¥{amount}（到场退）",
+		"pricingRefundRule": "报名费：活动开始前取消全额退；开始后不退。",
 		"depositAckLabel": "押金以到场为退还条件：到场核销后原路退回，未到场不予退还。",
 		"depositAckButton": "确认，前往支付",
 		"depositForfeit": "未到场不退。"
@@ -1150,6 +1151,7 @@
 		"approvalDeadline": "审批截止：{time}",
 		"selfCancelDeadline": "截止前可自助取消：{time}",
 		"depositRefundRule": "押金：截止前取消全额退；截止后不退。",
+		"pricingRefundRule": "报名费：活动开始前取消全额退；开始后不退。",
 		"rejectionReason": "拒绝原因：{reason}",
 		"expiredAt": "过期于 {time}",
 		"cancelledAt": "取消于 {time}",
@@ -1457,6 +1459,7 @@
 		"orderFailed": "下单失败，请重试",
 		"switchFailed": "切换渠道失败，请重试",
 		"orderKindUnknown": "订单缴费口径无法识别，请刷新重试；若持续出现请联系客服。",
+		"pricingRefundNote": "报名费：活动开始前取消全额退；开始后不退。",
 		"countdownExpired": "已过期",
 		"dialogAria": "扫码支付",
 		"title": "扫码支付",

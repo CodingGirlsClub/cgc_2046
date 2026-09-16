@@ -413,6 +413,14 @@ export default function PaymentCheckoutDialog({
             })}
             <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
           </p>
+        ) : !isDepositCheckout && amountHintCents != null ? (
+          // #543：定价场收银框明示退款规则（钱动前的报名流程内披露）
+          <p
+            className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
+            data-testid="checkout-pricing-note"
+          >
+            {t("pricingRefundNote")}
+          </p>
         ) : null}
 
         {phase === "consent" ? (
