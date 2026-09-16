@@ -48,6 +48,9 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		expect(print(LIST_COURSES)).toContain("listCourses(first: 250, filter: { workspaceId: { eq: $workspaceId } })");
 		expect(print(GET_EVENT)).toContain("getEvent(id: $id)");
 		expect(print(GET_COURSE)).toContain("getCourse(id: $id)");
+		// #575：成员面详情查询带派生报名标签（报名门双门的 badge 维）
+		expect(print(GET_EVENT)).toContain("enrollmentBadge");
+		expect(print(GET_COURSE)).toContain("enrollmentBadge");
 	});
 
 	it("CREATE / UPDATE / LAUNCH / CLOSE / CANCEL（Event 与 Course 双文档）", () => {

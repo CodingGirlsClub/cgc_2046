@@ -604,6 +604,76 @@ describe("OfferingDetailPage 课程内容治理入口（H6：教研角色可见�
   });
 });
 
+describe("OfferingDetailPage 报名门双门（#575：status=open 但派生 badge 已 full/closed）", () => {
+  function renderBadgeEvent(badge: string) {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-badge",
+      title: "门测试活动",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      enrollmentBadge: badge,
+    });
+    render(<OfferingDetailPage slug="demo" id="event-badge" kind="event" />);
+  }
+
+  it("open + badge=full → 不出报名表单，提示名额已满", async () => {
+    renderBadgeEvent("full");
+
+    expect(
+      await screen.findByTestId("enrollment-badge-gate"),
+    ).toHaveTextContent("名额已满，不再接受新的报名。");
+    expect(
+      screen.queryByRole("button", { name: "报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("open + badge=closed → 不出报名表单，提示报名已截止", async () => {
+    renderBadgeEvent("closed");
+
+    expect(
+      await screen.findByTestId("enrollment-badge-gate"),
+    ).toHaveTextContent("报名已截止，不再接受新的报名。");
+    expect(
+      screen.queryByRole("button", { name: "报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("open + badge=enrolling → 照常渲染报名表单", async () => {
+    renderBadgeEvent("enrolling");
+
+    expect(
+      await screen.findByRole("button", { name: "报名" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("enrollment-badge-gate"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("open + badge=full 且已有 confirmed 报名 → 已报名状态卡优先，不出门文案", async () => {
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-confirmed",
+      status: "confirmed",
+    });
+    renderBadgeEvent("full");
+
+    expect(await screen.findByText("你已报名该活动。")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("enrollment-badge-gate"),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
   function renderOpen() {
     mocks.useWorkspaceBySlug.mockReturnValue({
