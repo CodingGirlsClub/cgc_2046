@@ -266,18 +266,10 @@ describe("/w/[slug]/settings 加入策略页（#79 IA 改名）", () => {
 			"href",
 			"/w/cgc-shanghai",
 		);
-		// 侧栏 Workspace 组同步门控：加入策略（update_join_policy）等管理项不渲染，
-		// 仅剩恒显的 Agents/活动/课程工作面入口
-		const workspaceNav = screen.getByRole("navigation", { name: "Workspace" });
+		// 侧栏 Workspace 组同步门控：普通成员无任何管理能力，组为空整组不渲染
 		expect(
-			within(workspaceNav).queryByRole("link", { name: "加入策略" }),
+			screen.queryByRole("navigation", { name: "Workspace" }),
 		).not.toBeInTheDocument();
-		expect(
-			within(workspaceNav).queryByRole("link", { name: "成员与角色" }),
-		).not.toBeInTheDocument();
-		expect(
-			within(workspaceNav).getByRole("link", { name: "课程" }),
-		).toBeInTheDocument();
 	});
 
 	it("未知 slug：壳渲染「工作区不可访问」", async () => {
