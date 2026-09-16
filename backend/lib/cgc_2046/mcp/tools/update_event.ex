@@ -15,6 +15,10 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   副作用必须经用户确认。pending 摘要精确列出将变更的字段与新值；true→false 时
   追加批量免缴影响摘要（待支付笔数计入）。nil 值视为未提供（不支持显式置空）。
 
+  押金重开例外（#616）：`deposit_enabled` false→true 必须同调用携带正整数
+  `deposit_amount_cents`，否则第一段快速拒绝（不建 pending）——旧金额静默
+  复活防护；携带金额的调用摘要自然含 `deposit_amount_cents` 行。
+
   挂载继承可见（#596）：确认后落库的结果带 `initiative`（id/name/slug，未挂载为
   null）与 `inherited`（事件字段 → `%{value, source}`；source = locked（平台锁死，
   每次写入都被强制重写，改成别的值会被拒绝）/ default（仅本次改挂载时按规则
@@ -94,6 +98,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
 
         with :ok <- authorize(actor, workspace_id),
              {:ok, event} <- fetch_event(actor, workspace_id, event_id),
+             :ok <- check_deposit_reopen_explicit_amount(event, params),
              {:ok, changes} <- collect_changes(params) do
           summary =
             "更新活动「#{event.title}」（#{event.id}）字段：" <>
@@ -148,6 +153,21 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
         {:error, err} ->
           {:error, Cgc2046.Mcp.Errors.message(err, "failed to update event")}
       end
+    end
+  end
+
+  # #616：重开押金必须显式携带金额——第一段快速失败，不建 pending（带旧金额
+  # 复活风险的调用不值得一轮确认）。资源级 `PaymentModeValidation` 同名不变量
+  # 是第二道闸（覆盖 GraphQL 缺键等一切 action 路径）；判据保持一致：写前关 +
+  # 请求开 + 金额缺席。
+  defp check_deposit_reopen_explicit_amount(event, params) do
+    if event.deposit_enabled == false and params["deposit_enabled"] == true and
+         is_nil(params["deposit_amount_cents"]) do
+      {:error,
+       "re-enabling deposit requires an explicit deposit_amount_cents " <>
+         "(event_deposit_amount_must_be_explicit): the previous amount would be silently reused"}
+    else
+      :ok
     end
   end
 

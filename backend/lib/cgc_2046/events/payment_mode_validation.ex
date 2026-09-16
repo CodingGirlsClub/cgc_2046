@@ -6,7 +6,10 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   不可同真；**押金开启时 `price_tiers` 必须为空**（#597：否则档位残留会让按
   `tiers` 内容分支的读面与按 `deposit_enabled` 分支的读面自相矛盾）；押金
   开启时 `deposit_amount_cents` 必须为正整数、`ends_at` 非空（no-show 结算
-  锚点，KTD7）、`registration_deadline` 非空（自助取消锚点，#587）。拒绝时抛
+  锚点，KTD7）、`registration_deadline` 非空（自助取消锚点，#587）；**重开
+  必须显式携带金额**（#616：`false → true` 而本次写入未带
+  `deposit_amount_cents` 会把上一次的旧金额静默复活为实收口径，而确认摘要
+  只显示开关翻转）。拒绝时抛
   稳定 `BusinessError` code（#241 契约），前端按 code 查文案表。
 
   形态选择「显式拒绝」而非「同事务清空档位」（#597 裁决）：清空不进 MCP
@@ -50,6 +53,16 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       deposit_enabled == true and tiers_nonempty?(changeset) ->
         {:error, domain_error(:deposit_price_tiers_conflict, :price_tiers)}
 
+      # 押金重开必须显式携带金额（#616）：false→true 且写前有残留金额、本次
+      # 写入未提供 `deposit_amount_cents` → 残留旧金额静默复活。旧值 nil（首开）
+      # 不落此子句——由下方 `deposit_amount_required` 以既有 code 承担；显式带
+      # 0/负值亦归下方生效值校验。create 不触发（`action_type` 守卫：create 的
+      # data struct 字段是 schema default false，不是落库值）。规则挂载/传播
+      # 路径不经本模块（见 moduledoc 覆盖边界），其两列同写天然携带金额。
+      deposit_enabled == true and deposit_reopening_with_stale_amount?(changeset) and
+          not Ash.Changeset.changing_attribute?(changeset, :deposit_amount_cents) ->
+        {:error, domain_error(:deposit_amount_must_be_explicit, :deposit_amount_cents)}
+
       # 配置完整性只在**写入押金相关字段**时要求：存量行（押金已开但 ends_at 为
       # 空的旧数据）不能被无关编辑（改标题/描述）永久锁死。这类行由
       # DepositForfeitWorker 的 deposit_settlement_unanchored Finding 暴露。
@@ -88,6 +101,14 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     Enum.any?([:deposit_enabled, :deposit_amount_cents, :ends_at], fn attribute ->
       Ash.Changeset.changing_attribute?(changeset, attribute)
     end)
+  end
+
+  # 重开转移判据（#616）：仅 update；写前 `deposit_enabled == false` 且残留
+  # 金额为正整数（开过押金的行由 DB CHECK 保证残留必正）。
+  defp deposit_reopening_with_stale_amount?(changeset) do
+    changeset.action_type == :update and
+      Ash.Changeset.get_data(changeset, :deposit_enabled) == false and
+      positive_integer?(Ash.Changeset.get_data(changeset, :deposit_amount_cents))
   end
 
   # 写后生效值非空即违规（`nil` 是历史畸形值的 fail-closed 侧：一并拒绝）。
@@ -169,6 +190,12 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     do: domain_error(:deposit_amount_required, :deposit_amount_cents)
 
   @doc """
+  押金重开必须显式携带金额的稳定业务错误（#616 单源，MCP 快速失败复用）。
+  """
+  def deposit_amount_must_be_explicit_error,
+    do: domain_error(:deposit_amount_must_be_explicit, :deposit_amount_cents)
+
+  @doc """
   `deposit_enabled = true` 要求报名截止非空的稳定业务错误（单源，#587）。
 
   Event 写面校验（本模块 `validate/3`）与规则写入路径
@@ -201,6 +228,11 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   defp domain_error_message(:deposit_amount_required),
     do: "a positive deposit_amount_cents is required when deposit is enabled"
 
+  defp domain_error_message(:deposit_amount_must_be_explicit),
+    do:
+      "re-enabling deposit requires an explicit deposit_amount_cents " <>
+        "(the previous amount would otherwise be silently reused)"
+
   defp domain_error_message(:deposit_ends_at_required),
     do: "ends_at is required when deposit is enabled (settlement anchor)"
 
@@ -214,6 +246,10 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     do: "event_deposit_price_tiers_conflict"
 
   defp domain_error_code(:deposit_amount_required), do: "event_deposit_amount_required"
+
+  defp domain_error_code(:deposit_amount_must_be_explicit),
+    do: "event_deposit_amount_must_be_explicit"
+
   defp domain_error_code(:deposit_ends_at_required), do: "event_deposit_ends_at_required"
 
   defp domain_error_code(:deposit_registration_deadline_required),
