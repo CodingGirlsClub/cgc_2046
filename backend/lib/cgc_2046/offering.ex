@@ -30,6 +30,10 @@ defmodule Cgc2046.Offering do
     venue 为 `Events.Venue.text/1` 文本化；报名日程化旅程 P2a 的 Enrollment
     starts_at/venue 计算数据源）。
   - 投影便利：`kind/1`、`title/1`、`workspace_id/1`（entity → 值）。
+  - `payment_mode/1`：供给物缴费槽三态（`:free | :pricing | :deposit`）唯一谓词；
+    `deposit_amount_cents/1`：押金金额（正整数，否则 `nil`）。落点状态预测
+    （`Admission.Enrollment.auto_confirm_status/1`）与 MCP/扩展读面共用本谓词，
+    不再各自重写三态分支。
   """
 
   require Ash.Query
@@ -123,6 +127,41 @@ defmodule Cgc2046.Offering do
   @spec workspace_id(Event.t() | Course.t()) :: String.t()
   def workspace_id(%Event{workspace_id: workspace_id}), do: workspace_id
   def workspace_id(%Course{workspace_id: workspace_id}), do: workspace_id
+
+  @doc """
+  供给物缴费槽三态（CONTEXT「缴费槽」/ event-deposit R1·R3·KTD2）：
+  `:deposit | :pricing | :free`。
+
+  押金优先于定价参与判定——两列互斥由 `Events.PaymentModeValidation` 与 DB CHECK
+  `events_payment_mode_exclusive` 保证同时为真不可达，故优先级只影响不可达输入；
+  判定序与 web `paymentModeOf`、`Enrollment.payment_mode` 计算字段逐字一致。
+
+  入参形状宽松：Event/Course struct（course 无押金列）、`schedule_for/3` 的投影
+  map、或 `confirm_target_status/2` 那样的裸 SQL 行 map 皆可；nil/缺键落 `:free`
+  （存量行为：目标供给物不可得时旧实现亦落免费）。
+
+  **只匹配 atom 键**：JSON 解码后的 string 键 map（`%{"deposit_enabled" => true}`）
+  不匹配任何子句，会静默落 `:free`——调用方须先转成 struct 或 atom 键 map。
+  """
+  @spec payment_mode(map() | nil) :: :free | :pricing | :deposit
+  def payment_mode(%{deposit_enabled: true}), do: :deposit
+  def payment_mode(%{pricing_enabled: true}), do: :pricing
+  def payment_mode(_offering), do: :free
+
+  @doc """
+  押金金额（分）：仅正整数算有效金额，非正/缺失（course 无押金列、U3 校验前写入
+  的历史脏行）一律降级 `nil`——读面绝不臆造 ¥0。
+
+  判据与 `Payments.Order.deposit_tier/1` 同源：那边对非正金额 fail-closed 报
+  `order_deposit_amount_missing`，本函数把同一事实投影成「无金额」给展示面。
+  同样**只匹配 atom 键**（string 键 map → nil，见 `payment_mode/1`）。
+  """
+  @spec deposit_amount_cents(map() | nil) :: pos_integer() | nil
+  def deposit_amount_cents(%{deposit_amount_cents: amount})
+      when is_integer(amount) and amount > 0,
+      do: amount
+
+  def deposit_amount_cents(_offering), do: nil
 
   defp resource_for(:event), do: Event
   defp resource_for(:course), do: Course
