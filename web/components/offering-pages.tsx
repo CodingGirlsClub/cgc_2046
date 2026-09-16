@@ -139,6 +139,17 @@ function friendlyOfferingError(
 }
 
 /**
+ * #624 报名门槛草稿（min_age / min_participants）："" → null（清除）；
+ * 非法（≤0 / 小数 / 非数）→ undefined（表单层拦截，后端 constraints min: 1 兜底）。
+ */
+function positiveIntOrNull(input: string): number | null | undefined {
+  const trimmed = input.trim();
+  if (trimmed === "") return null;
+  const value = Number(trimmed);
+  return Number.isInteger(value) && value >= 1 ? value : undefined;
+}
+
+/**
  * mutation 错误 → 展示文案：带稳定 code 的业务错误查 errors namespace 文案表
  * （#241 错误码契约，后端 PaymentModeValidation / 互斥 CHECK 等）；无 code 或
  * 未知 code 回落到既有关键词映射与兜底，不透传 GraphQL 原文。
@@ -450,6 +461,141 @@ function InitiativeRulesPanel({
       </ul>
       <span className="mt-1 block text-xs text-ink-3">
         {mode === "preview" ? t("initiativeRulePreviewHint") : t("initiativeRulesHint")}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * #624 解除挂载来源标记（后端 `detached_rule_provenance`，JsonString）。
+ * 形状与 #596 写响应 applied 同源：initiative 身份 + 逐字段 value/source。
+ */
+type DetachedRuleField = { value: unknown; source: string };
+type DetachedRuleProvenance = {
+  initiative: { id: string; name: string; slug: string };
+  fields: Record<string, DetachedRuleField>;
+};
+
+/** JsonString 解析（与 venue/priceTiers 同纪律）；坏 JSON/缺身份 → null（降级不抛） */
+function parseDetachedRuleProvenance(
+  raw: string | null | undefined,
+): DetachedRuleProvenance | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as DetachedRuleProvenance;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.initiative?.name !== "string" ||
+      !parsed.fields ||
+      typeof parsed.fields !== "object"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function numberOf(field: DetachedRuleField | undefined): number | null {
+  return typeof field?.value === "number" ? field.value : null;
+}
+
+function textOf(field: DetachedRuleField | undefined): string | null {
+  return typeof field?.value === "string" ? field.value : null;
+}
+
+/**
+ * 「来自已解除的倡导活动《name》」面板（#624 方案 C）：detach 后强制值留在场上，
+ * 这里逐字段展示它们的来源；场主改写某字段并保存成功后，该行随标记一起消失。
+ *
+ * 只在 detachedRuleProvenance 非空时渲染（重挂载/全部字段已改写 → 整块不渲染）。
+ * course 无此治理面（Event 独有），调用方按 kind 门控。
+ */
+function DetachedRuleProvenancePanel({
+  provenance,
+}: {
+  provenance: DetachedRuleProvenance;
+}) {
+  const t = useTranslations("offerings");
+  const tCommon = useTranslations("common");
+  const locale = useLocale();
+  const f = provenance.fields;
+
+  // 押金规则写两个 event 字段（开关 + 金额），清除是逐字段的：只改了金额时
+  // `deposit_amount_cents` 键消失、`deposit_enabled` 仍留——此时不得编造 ¥0，
+  // 只陈述仍被标记的开关本身（值以标记为准，不读 Event 现值，以免把场主已改的
+  // 金额算回平台来源）。
+  const depositEnabledMarked = "deposit_enabled" in f;
+  const depositCents = numberOf(f.deposit_amount_cents);
+  const minAge = numberOf(f.min_age);
+  const minCount = numberOf(f.min_participants);
+  const deadline = textOf(f.registration_deadline);
+
+  // 渲染顺序与既有规则摘要一致（押金 → 年龄 → 人数 → 截止）；未标记字段不渲染行
+  const rows: Array<{ key: string; text: string }> = [];
+  if (depositEnabledMarked && f.deposit_enabled?.value === true) {
+    rows.push({
+      key: "deposit",
+      text:
+        depositCents !== null
+          ? t("initiativeRuleDeposit", {
+              amount: formatAmountShort(depositCents),
+            })
+          : t("initiativeRuleDepositOn"),
+    });
+  } else if (depositEnabledMarked) {
+    rows.push({ key: "deposit", text: t("initiativeRuleDepositOff") });
+  } else if (depositCents !== null) {
+    // 防御（后端不会产生只有金额键的标记）：只陈述金额，不推断开关
+    rows.push({
+      key: "deposit",
+      text: t("initiativeRuleDeposit", {
+        amount: formatAmountShort(depositCents),
+      }),
+    });
+  }
+  if (minAge !== null) {
+    rows.push({ key: "age_gate", text: t("initiativeRuleAge", { age: minAge }) });
+  }
+  if (minCount !== null) {
+    rows.push({
+      key: "min_participants",
+      text: t("initiativeRuleMin", { count: minCount }),
+    });
+  }
+  if (deadline !== null) {
+    rows.push({
+      key: "deadline_rule",
+      text: t("initiativeRuleDeadline", {
+        deadline: formatDeadline(deadline, tCommon("noDeadline"), locale),
+      }),
+    });
+  }
+
+  return (
+    <div
+      className="block rounded-large border border-line bg-soft-2 px-3 py-2"
+      data-testid="initiative-detached-provenance"
+      data-state="detached"
+    >
+      <span className="block text-[13px] text-ink-3">
+        {t("initiativeDetachedRuleTitle", { name: provenance.initiative.name })}
+      </span>
+      <ul className="mt-1 space-y-0.5 text-sm text-ink">
+        {rows.map((row) => (
+          <li
+            key={row.key}
+            data-testid={`initiative-detached-rule-${row.key}`}
+            data-state="detached"
+          >
+            {row.text}
+          </li>
+        ))}
+      </ul>
+      <span className="mt-1 block text-xs text-ink-3">
+        {t("initiativeDetachedRuleHint")}
       </span>
     </div>
   );
@@ -789,6 +935,9 @@ interface MetaDraft {
   depositAmount: string;
   tierDrafts: TierDraft[];
   initiativeId: string | null;
+  /** #624 报名门槛（仅 event）：数字草稿（"" = 清除/null）；locked 规则下禁用 */
+  minAge: string;
+  minParticipants: string;
 }
 
 export function OfferingDetailPage({
@@ -1069,6 +1218,11 @@ export function OfferingDetailPage({
               depositAmount: depositAmountDraft(offering.depositAmountCents ?? null),
               tierDrafts: toDraft(offering.priceTiers),
               initiativeId: offering.initiativeId ?? null,
+              minAge: offering.minAge == null ? "" : String(offering.minAge),
+              minParticipants:
+                offering.minParticipants == null
+                  ? ""
+                  : String(offering.minParticipants),
             }
           : null,
     [metaDraft, offering],
@@ -1089,6 +1243,22 @@ export function OfferingDetailPage({
       : draftInitiativeId === mountedInitiativeId
         ? "applied"
         : "preview";
+
+  // #624 解除挂载来源标记：随 Event 一起读（页面重载后仍在）；全部字段被改写或
+  // 重挂载后后端置 nil → 整块不渲染。
+  const detachedProvenance =
+    kind === "event" ? parseDetachedRuleProvenance(offering?.detachedRuleProvenance) : null;
+
+  // 挂载中且规则锁死 → 门槛输入禁用（不制造必然失败的提交，PaymentSlotFields 同款）；
+  // 规则读面不可读（降级）时不锁，交给后端拒绝。
+  const ruleLocked = (key: string): boolean =>
+    ruleMode === "applied" && ruleOf(ruleRead?.rules ?? null, key)?.locked === true;
+  const minAgeLocked = ruleLocked("age_gate");
+  const minParticipantsLocked = ruleLocked("min_participants");
+  // 挂载预览（草稿选了另一个 Initiative）：保存时新规则会强制覆盖这两项，就地录入
+  // 无意义且会留下「先编辑、再切回被锁状态」的非法草稿值 → 预览态一并禁用。
+  const thresholdsLocked = (locked: boolean): "locked" | "preview" | "editable" =>
+    locked ? "locked" : ruleMode === "preview" ? "preview" : "editable";
 
   // U8/R10：删除或改价命中已售档（快照语义保证已付订单金额不受影响，警告放行）
   const soldTierTouched: string[] = useMemo(() => {
@@ -1264,6 +1434,13 @@ export function OfferingDetailPage({
     // 押金态前置校验（U3 后端同款判据：正金额 + ends_at 结算锚点 +
     // 报名截止自助取消锚点，B②）
     const depositCents = depositAmountToCents(activeDraft.depositAmount);
+    // #624 报名门槛（仅 event）："" = 清除（null）；非法值就地拦截，不提交
+    const minAge = positiveIntOrNull(activeDraft.minAge);
+    const minParticipants = positiveIntOrNull(activeDraft.minParticipants);
+    if (kind === "event" && (minAge === undefined || minParticipants === undefined)) {
+      setSaveMessage(t("thresholdPositiveIntRequired"));
+      return;
+    }
     // review F7：缴费槽脏检查——仅当三态或档位相对服务端快照变化时下发缴费键，
     // 普通 metadata 保存不再整段重发缴费快照（消除陈旧管理员把已关闭的收费
     // 连旧档位一起恢复的除改窗口；服务端值仍是唯一真源）
@@ -1277,6 +1454,20 @@ export function OfferingDetailPage({
         JSON.stringify(toDraft(offering.priceTiers)) !==
           JSON.stringify(activeDraft.tierDrafts),
     });
+
+    // #624 门槛字段同款脏检查（F7 纪律）：未改不下发——陈旧页面不得用旧值覆盖
+    // 挂载中由规则强制/传播写入的新值；且后端「同值不算场主的决定」语义因此
+    // 只需兜底强制路径（#624 逐字段清标记的前提就是「值确有变化」）
+    const minAgeDirty =
+      activeDraft.minAge !== (offering.minAge == null ? "" : String(offering.minAge));
+    const minParticipantsDirty =
+      activeDraft.minParticipants !==
+      (offering.minParticipants == null ? "" : String(offering.minParticipants));
+    // 截止时间同款脏检查：datetime-local 只到分钟，未改动时重发会把库里的秒截断
+    // ——既误清 #624 标记键（「首改即清」被破坏），又让挂载中锁死 deadline_rule 的
+    // 普通元数据保存撞上 "initiative rule deadline_rule is locked"（既有缺陷）。
+    const registrationDeadlineDirty =
+      activeDraft.deadline !== toLocalInput(offering.registrationDeadline ?? null);
 
     if (activeDraft.mode === "deposit") {
       if (depositCents === null) {
@@ -1303,11 +1494,22 @@ export function OfferingDetailPage({
         enrollmentPolicy: activeDraft.enrollmentPolicy,
         capacity:
           activeDraft.capacity === "" ? null : Number(activeDraft.capacity),
-        registrationDeadline: fromLocalInput(activeDraft.deadline),
+        // 未改动不下发（见 registrationDeadlineDirty）：避免分钟级重序列化截断秒
+        ...(registrationDeadlineDirty
+          ? { registrationDeadline: fromLocalInput(activeDraft.deadline) }
+          : {}),
         startsAt: fromLocalInput(activeDraft.startsAt),
         endsAt: fromLocalInput(activeDraft.endsAt),
         ...(kind === "event" && (offering.initiativeId || activeDraft.initiativeId)
           ? { initiativeId: activeDraft.initiativeId }
+          : {}),
+        // #624：门槛字段仅 event 有（course 无此两列，误传会被 GraphQL 拒绝）；
+        // 未改动不下发（见 minAgeDirty / minParticipantsDirty）
+        ...(kind === "event"
+          ? {
+              ...(minAgeDirty ? { minAge } : {}),
+              ...(minParticipantsDirty ? { minParticipants } : {}),
+            }
           : {}),
         ...(kind === "course"
           ? {
@@ -1355,6 +1557,14 @@ export function OfferingDetailPage({
             ...(res.result.minAge !== undefined ? { minAge: res.result.minAge } : {}),
             ...(res.result.minParticipants !== undefined
               ? { minParticipants: res.result.minParticipants }
+              : {}),
+            // #624：改写标记内字段后后端逐字段清除来源标记，保存响应即新标记
+            // （全部改写/重挂载 → null，面板随之消失），无需整页重载
+            ...(kind === "event"
+              ? {
+                  detachedRuleProvenance:
+                    res.result.detachedRuleProvenance ?? null,
+                }
               : {}),
           },
           error: null,
@@ -1835,6 +2045,71 @@ export function OfferingDetailPage({
                         startsAt={fromLocalInput(activeDraft.startsAt)}
                         locale={locale}
                       />
+                    ) : null}
+
+                    {/* #624 解除挂载后仍留存的强制值：逐字段标出来源，场主改写并
+                        保存该字段后该行消失（后端逐字段清除，保存响应带回新标记） */}
+                    {kind === "event" && detachedProvenance ? (
+                      <DetachedRuleProvenancePanel provenance={detachedProvenance} />
+                    ) : null}
+
+                    {/* #624 报名门槛（仅 event）：挂载锁死/挂载预览时禁用；解除挂载后
+                        回归普通可编辑字段（方案 C 的核心：值保留、可改、来源标记随首次
+                        改写消失） */}
+                    {kind === "event" ? (
+                      <fieldset className="grid gap-3">
+                        <legend className="text-[13px] text-ink-3">
+                          {t("eventThresholdsTitle")}
+                        </legend>
+                        <label
+                          className="block"
+                          data-state={thresholdsLocked(minAgeLocked)}
+                        >
+                          <span className="block text-[13px] text-ink-3">
+                            {t("minAgeLabel")}
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            data-testid="event-min-age-input"
+                            value={activeDraft.minAge}
+                            placeholder={t("minAgePlaceholder")}
+                            disabled={thresholdsLocked(minAgeLocked) !== "editable"}
+                            onChange={(e) =>
+                              setMetaDraft({ ...activeDraft, minAge: e.target.value })
+                            }
+                            className="ui-input mt-1 w-full"
+                          />
+                        </label>
+                        <label
+                          className="block"
+                          data-state={thresholdsLocked(minParticipantsLocked)}
+                        >
+                          <span className="block text-[13px] text-ink-3">
+                            {t("minParticipantsLabel")}
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            data-testid="event-min-participants-input"
+                            value={activeDraft.minParticipants}
+                            placeholder={t("minParticipantsPlaceholder")}
+                            disabled={
+                              thresholdsLocked(minParticipantsLocked) !== "editable"
+                            }
+                            onChange={(e) =>
+                              setMetaDraft({
+                                ...activeDraft,
+                                minParticipants: e.target.value,
+                              })
+                            }
+                            className="ui-input mt-1 w-full"
+                          />
+                        </label>
+                        <span className="block text-xs text-ink-3">
+                          {t("eventThresholdsHint")}
+                        </span>
+                      </fieldset>
                     ) : null}
 
                     {kind === "event" ? (

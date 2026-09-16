@@ -117,6 +117,10 @@ export type OfferingUpdateInput = {
 	depositEnabled?: boolean;
 	/** 押金金额（分） */
 	depositAmountCents?: number | null;
+	/** 报名最低年龄（仅 event；null = 清除门槛；未传 = 不落键；#624） */
+	minAge?: number | null;
+	/** 最低成班人数（仅 event；null = 清除门槛；未传 = 不落键；#624） */
+	minParticipants?: number | null;
 	initiativeId?: string | null;
 };
 
