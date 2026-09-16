@@ -79,6 +79,11 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
     end
   end
 
+  @doc "脱敏 Initiative 规则审计元数据；不落规则值本身。"
+  def initiative_rule_metadata(_changeset, rule) do
+    %{initiative_id: rule.initiative_id, rule_key: to_string(rule.key), locked: rule.locked}
+  end
+
   defp resolve(value, changeset, record) when is_function(value, 2) do
     value.(changeset, record)
   end

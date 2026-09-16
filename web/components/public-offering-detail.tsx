@@ -3,13 +3,15 @@
 /**
  * E-5 #50 公开宿主页 /events/[id] 与 /courses/[id]（游客可看详情，报名需登录）。
  *
- * - 详情：匿名读（open + public）；workspace 活动 / 非 open → 404 语义
- *   （读策略过滤 → get 返回 null）；
+ * - 详情：匿名读（open + public）；initiative 挂载的 closed/cancelled 留档也放行
+ *   匿名读（ReadsArchivedInitiativeEvent）——这类场只读详情，不呈现任何报名/赞助
+ *   动作；workspace 活动 / 其余非 open → 404 语义（读策略过滤 → get 返回 null）；
  * - 公开主题壳层：与目录共用品牌导航，不进入工作台导航；
  * - 信息密度（R9）：描述/开始/结束/截止时间/venue（仅 event）/报名政策/
  *   定价档位静态信息块（匿名可见；登录后 radio 选档器沿用为选择控件）；
- * - 行内状态标签 = 后端派生报名 badge（KTD1）；满员（AE1）不呈现报名动作；
- *   报名失败后重拉详情让 badge 重派生；
+ * - 行内状态标签 = 后端派生报名 badge（KTD1），仅 status=open 时呈现（归档场由
+ *   成班标签表达「已结束/已取消」）；报名门 = status + badge 双门（满员 AE1、
+ *   截止、归档场一律不呈现报名动作）；报名失败后重拉详情让两门重派生；
  * - 报名表单（J-Visitor → J-Learner）：
  *   - 未登录：引导 /login（登录后回到本页）；
  *   - open：直接提交 → confirmed；
@@ -37,8 +39,11 @@ import {
   OFFERING_LABEL,
 } from "@/lib/graphql/events";
 import EnrollmentBadgeTag from "@/components/enrollment-badge-tag";
+import CheckInCodeCard from "@/components/check-in-code-card";
+import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
-import { formatAmount, parsePriceTiers } from "@/lib/payment";
+import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
+import { formatAmount, formatAmountShort, parsePriceTiers } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
@@ -92,11 +97,13 @@ export default function PublicOfferingDetailPage({
     /** payment_pending 态的去支付入口目标（R5 报名 id） */
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
-  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭
+  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
+  // 押金场无档位 → depositAmountCents 承载押金口径（R10 框内明示）。
   const [checkout, setCheckout] = useState<{
     enrollmentId: string;
     amountCents: number | null;
     tierName: string | null;
+    depositAmountCents: number | null;
     title: string;
   } | null>(null);
   // 支付接续：登录态下查已有活跃报名（公开页报名需登录），分叉渲染——
@@ -105,6 +112,8 @@ export default function PublicOfferingDetailPage({
     id: string;
     status: string;
     approvalDeadline?: string | null;
+    /** 6 位核销码（confirmed 活动报名出示；R11/KTD5） */
+    checkInCode?: string | null;
   } | null>(null);
   // 已完成的报名查询对应的 offering id（派生 enrollChecked，避免 effect 内
   // 同步 setState——eslint react-hooks/set-state-in-effect）
@@ -143,13 +152,38 @@ export default function PublicOfferingDetailPage({
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
   const listLabel = navT(kind === "event" ? "events" : "courses");
-  // 满员或报名截止：详情不再呈现可报名动作（已有报名的状态卡除外）。
+  // 报名门双门（issue #574）：条目状态优先，报名 badge 兜底。非 open
+  // （cancelled/closed/draft）一律不再呈现可报名动作——公开留档读
+  // （ReadsArchivedInitiativeEvent）会把 initiative 挂载的 cancelled 场匿名送到
+  // 本页，而 badge 只覆盖 capacity/截止两个维度（EnrollmentBadge.badge/2 不看
+  // status），曾在此处漏出报名表单。已有报名的状态卡不受影响（渲染顺序在门之前）。
+  //
+  // 非 open 再按 endsAt 分桶（与小程序 enrollmentBlockedNotice 同构）：
+  // EventLifecycleWorker 对未配 min_participants 的活动在 registration_deadline
+  // 即 close，此时 ends_at 仍在未来——把这种场说成「已结束」是错的（review
+  // 2026-09-16）。draft（owner/admin 预览）同样落「报名已截止」桶。
+  const archivedEnded =
+    offering?.endsAt != null && Date.parse(offering.endsAt) <= nowMs;
   const enrollmentUnavailable =
-    offering?.enrollmentBadge === "closed"
-      ? { hint: t("closedHint"), testId: "enrollment-closed" }
-      : offering?.enrollmentBadge === "full"
-        ? { hint: t("fullHint"), testId: "enrollment-full" }
-        : null;
+    offering === null
+      ? null
+      : offering.status === "cancelled"
+        ? {
+            hint: t("cancelledHint", { label: labelsT(label) }),
+            testId: "enrollment-cancelled",
+          }
+        : offering.status !== "open"
+          ? archivedEnded
+            ? {
+                hint: t("endedHint", { label: labelsT(label) }),
+                testId: "enrollment-ended",
+              }
+            : { hint: t("closedHint"), testId: "enrollment-closed" }
+          : offering.enrollmentBadge === "closed"
+            ? { hint: t("closedHint"), testId: "enrollment-closed" }
+            : offering.enrollmentBadge === "full"
+              ? { hint: t("fullHint"), testId: "enrollment-full" }
+              : null;
   const enrollmentUnavailableNotice = enrollmentUnavailable ? (
     <div
       className="public-detail__unavailable"
@@ -233,15 +267,55 @@ export default function PublicOfferingDetailPage({
     };
   }, [authed, userId, offering?.id, kind]);
 
-  // E-3 #48 赞助入口（仅 event；enabled + tiers 已配才显示，对齐 E-5 readiness ②）
+  // 挂载 Initiative 的回链：initiativeId → 公开卡片查 name/slug；查不到
+  // （initiative 非公开）或查询失败均不渲染回链。forId 键控派生，slug 切换
+  // 时旧值自动失效（同 stale 模式，无需 effect 内同步复位）。
+  const [initiativeLookup, setInitiativeLookup] = useState<{
+    forId: string;
+    card: PublicInitiativeCard | null;
+  } | null>(null);
+  useEffect(() => {
+    const initiativeId = kind === "event" ? (offering?.initiativeId ?? null) : null;
+    if (!initiativeId) return;
+    let cancelled = false;
+    fetchPublicInitiatives()
+      .then((cards) => {
+        if (!cancelled) {
+          setInitiativeLookup({
+            forId: initiativeId,
+            card: cards.find((c) => c.id === initiativeId) ?? null,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInitiativeLookup({ forId: initiativeId, card: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, offering?.initiativeId]);
+  const initiative =
+    initiativeLookup &&
+    offering?.initiativeId != null &&
+    initiativeLookup.forId === offering.initiativeId
+      ? initiativeLookup.card
+      : null;
+
+  // E-3 #48 赞助入口（仅 event；enabled + tiers 已配 + 开放中才显示）。
+  // 门与后端 Sponsorship.eligible_target 同构：status='open' + 未过
+  // sponsorship_deadline——归档场/过期场渲染表单只会让用户填完被
+  // :sponsorship_not_open 拒（#574 review 的 sibling）。
   const sponsorshipTiers = offering
     ? parseSponsorshipTiers(offering.sponsorshipTiers)
     : [];
   const sponsorshipOpen =
     kind === "event" &&
     offering !== null &&
+    offering.status === "open" &&
     offering.sponsorshipEnabled === true &&
-    sponsorshipTiers.length > 0;
+    sponsorshipTiers.length > 0 &&
+    (offering.sponsorshipDeadline == null ||
+      Date.parse(offering.sponsorshipDeadline) > nowMs);
 
   // issue #505 D1：配套课程卡（仅 event；宣讲会/未配课 null 不渲染）
   const companionCourse =
@@ -255,22 +329,40 @@ export default function PublicOfferingDetailPage({
   // 支付成功后就地刷新报名态（模态框 onPaid → payment_pending → confirmed）。
   // offeringId 先行解构（可选链入 dep 会让 React Compiler 无法保持手工 memoization）
   const offeringId = offering?.id ?? null;
-  const refetchEnrollment = useCallback(async () => {
-    if (!offeringId || !userId) return;
+  const refetchEnrollment = useCallback(async (): Promise<boolean> => {
+    if (!offeringId || !userId) return false;
     try {
       const enrollment = await fetchMyEnrollment(offeringId, kind, userId);
       setMyEnroll(enrollment);
+      return true;
     } catch {
       // 刷新失败保持现态；手动刷新页面仍可恢复
+      return false;
     }
   }, [offeringId, kind, userId]);
 
-  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
+  // 支付成功回调：重拉到新报名态才退出「待支付」中间态（rail 落到已报名卡 + 出示
+  // 核销码）；重拉失败保持现态——中间态的「继续支付」入口仍是可用出口，不掉回报名表单。
+  const handlePaid = useCallback(async () => {
+    if (await refetchEnrollment()) {
+      setSubmitState({ kind: "idle", message: null, enrollmentId: null });
+    }
+  }, [refetchEnrollment]);
+
+  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），押金场带押金口径
+  // （无档位：金额 = 押金金额，名称 = 「押金」，框内另明示「未到场不退」），
+  // 复访承接可不带（由订单金额兜底）
   function openCheckoutFor(enrollmentId: string) {
+    const depositCents =
+      offering?.depositEnabled === true
+        ? (offering.depositAmountCents ?? null)
+        : null;
     setCheckout({
       enrollmentId,
-      amountCents: paidTier?.amountCents ?? null,
-      tierName: paidTier?.name ?? null,
+      amountCents: depositCents ?? paidTier?.amountCents ?? null,
+      tierName:
+        depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
@@ -444,8 +536,29 @@ export default function PublicOfferingDetailPage({
         ) : (
           <article className="public-detail">
             <header className="public-detail__hero">
-              <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+              <div className="public-detail__badges">
+                {/* 报名标签只在 open 呈现：归档场（closed/cancelled）由成班标签
+                    表达「已结束/已取消」，避免「报名中 + 已取消」并列矛盾（#574） */}
+                {offering.status === "open" ? (
+                  <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                ) : null}
+                {kind === "event" && (
+                  <QualificationBadgeTag
+                    badge={offering.qualificationBadge}
+                    shortBy={offering.shortBy}
+                  />
+                )}
+              </div>
               <h1>{offering.title}</h1>
+              {initiative ? (
+                <p className="public-detail__initiative">
+                  {t("partOfInitiative")}
+                  <Link href={`/initiatives/${initiative.slug}`}>
+                    {initiative.name}
+                    <span aria-hidden="true"> →</span>
+                  </Link>
+                </p>
+              ) : null}
             </header>
 
             <dl className="public-detail__facts">
@@ -521,6 +634,27 @@ export default function PublicOfferingDetailPage({
                       </li>
                     ))}
                   </ul>
+                </div>
+              ) : null}
+
+              {/* 押金场缴费槽（R10/KTD10）：单一槽位语义——押金场只此一块，不并列档位 */}
+              {offering.depositEnabled ? (
+                <div
+                  className="public-detail__pricing"
+                  data-testid="deposit-info"
+                >
+                  <p className="text-sm text-ink">
+                    <strong>
+                      {t("depositLine", {
+                        amount: formatAmountShort(
+                          offering.depositAmountCents ?? 0,
+                        ),
+                      })}
+                    </strong>
+                  </p>
+                  <p className="mt-1 text-[13px] text-ink-3">
+                    {t("depositForfeit")}
+                  </p>
                 </div>
               ) : null}
 
@@ -623,6 +757,19 @@ export default function PublicOfferingDetailPage({
                       {t("enrolled", { label: labelsT(label) })}
                     </p>
                     {enrollmentFollowUp()}
+                    {kind === "event" && myEnroll.checkInCode ? (
+                      <CheckInCodeCard
+                        code={myEnroll.checkInCode}
+                        eventId={offering.id}
+                        paymentMode={
+                          offering.depositEnabled
+                            ? "deposit"
+                            : offering.pricingEnabled
+                              ? "pricing"
+                              : "free"
+                        }
+                      />
+                    ) : null}
                   </div>
                 ) : !enrollChecked ? (
                   <div className="text-sm text-ink-3">
@@ -640,7 +787,7 @@ export default function PublicOfferingDetailPage({
                         <input
                           value={inviteCode}
                           onChange={(e) => setInviteCode(e.target.value)}
-                          className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm"
+                          className="ui-input mt-1 w-full"
                         />
                       </label>
                     ) : null}
@@ -777,7 +924,10 @@ export default function PublicOfferingDetailPage({
                 </section>
               ) : null}
               {sponsorshipOpen ? (
-                <section className="public-detail__sponsorship">
+                <section
+                  className="public-detail__sponsorship"
+                  data-testid="public-sponsorship"
+                >
                   <h2>{t("sponsorTitle")}</h2>
                   <p className="mt-1 text-[13px] text-ink-3">
                     {t("sponsorDesc")}
@@ -847,9 +997,10 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
+          depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
-          onPaid={() => void refetchEnrollment()}
+          onPaid={() => void handlePaid()}
         />
       ) : null}
     </PublicCatalogShell>

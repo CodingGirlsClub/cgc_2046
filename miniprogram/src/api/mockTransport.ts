@@ -13,6 +13,11 @@ const workspace = {
 }
 
 // 公开发现面 mock 记录（F2）：字段 = 匿名白名单，与 operations.ts 查询一致
+// （押金字段为例外：仅详情查询请求，样例记录带着供详情/报名链使用——列表面
+// 不渲染缴费槽，多带两键不影响）。
+const DEPOSIT_AMOUNT_CENTS = 6900
+const CHECK_IN_CODE = '042317'
+
 const records = [
   {
     id: 'event-1',
@@ -25,7 +30,12 @@ const records = [
     startsAt: new Date(Date.now() + 3 * 24 * 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + (3 * 24 + 2) * 3_600_000).toISOString(),
     venue: JSON.stringify({ country: '中国', province: '北京市', city: '北京', district: '海淀区' }),
-    enrollmentBadge: 'starting_soon'
+    enrollmentBadge: 'starting_soon',
+    // 成班投影样例（阶段1）：short_by → 详情页/Initiative 卡片都渲染「还差 3 人成班」；
+    // initiativeId 让 event-detail 的「所属倡导活动」回链有落点
+    qualificationBadge: 'short_by',
+    shortBy: 3,
+    initiativeId: 'initiative-1'
   },
   {
     id: 'event-open',
@@ -39,6 +49,27 @@ const records = [
     startsAt: null,
     endsAt: null,
     venue: null,
+    enrollmentBadge: 'enrolling',
+    // 无成班需求的活动 → badge=open；详情页按 web 口径隐藏该徽章（阶段1 回归面）
+    qualificationBadge: 'open',
+    shortBy: null,
+    initiativeId: null
+  },
+  {
+    id: 'event-deposit',
+    title: '押金场 · 线下共学',
+    status: 'open',
+    enrollmentPolicy: 'open',
+    registrationDeadline: new Date(Date.now() + 48 * 3_600_000).toISOString(),
+    pricingEnabled: false,
+    availablePriceTiers: [],
+    // 押金场（U11 样例）：详情页缴费块「押金 ¥69.00（到场退）」+「未到场不退」，
+    // 报名落 payment_pending（零档位选择，走既有 paymentLandingUrl 支付）
+    depositEnabled: true,
+    depositAmountCents: DEPOSIT_AMOUNT_CENTS,
+    startsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
+    endsAt: new Date(Date.now() + (5 * 24 + 2) * 3_600_000).toISOString(),
+    venue: JSON.stringify({ country: '中国', province: '上海市', city: '上海', district: '徐汇区' }),
     enrollmentBadge: 'enrolling'
   }
 ]
@@ -57,6 +88,34 @@ const course = {
   enrollmentBadge: 'enrolling'
 }
 
+// 阶段1：Initiative 公开投影 fixture（发现页卡片 + 详情页 + event-detail 回链）。
+// id 与 event-1 的 initiativeId 对应——回链据此把场次挂回倡导活动。
+const initiativeCard = {
+  id: 'initiative-1',
+  name: '1024 程序员节',
+  slug: 'python-1024',
+  hashtag: '#1024',
+  description: '跨城市的开源共学周，把同一套课程带到十个城市。',
+  status: 'open',
+  windowStartsAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
+  windowEndsAt: new Date(Date.now() + 21 * 24 * 3_600_000).toISOString()
+}
+
+// Initiative 卡片里的场次：派生徽章 + 留档（不取原始计数/成员字段，与查询同源）
+const initiativeEvent = {
+  id: 'event-1',
+  slug: 'python-workshop',
+  title: 'Python 入门工作坊',
+  status: 'open',
+  startsAt: records[0].startsAt,
+  endsAt: records[0].endsAt,
+  registrationDeadline: records[0].registrationDeadline,
+  venue: records[0].venue,
+  archived: false,
+  qualificationBadge: 'short_by',
+  shortBy: 3
+}
+
 interface MockOrder {
   id: string
   enrollmentId: string
@@ -64,6 +123,8 @@ interface MockOrder {
   amountCents: number
   expireAt: string
   transactionId: string | null
+  /** 与后端 order_kind/2 同规则：押金场开则 deposit，否则 enrollment */
+  orderKind: 'enrollment' | 'deposit'
 }
 
 interface MockEnrollment {
@@ -80,12 +141,20 @@ interface MockEnrollment {
   expiredAt: string | null
   cancelledAt: string | null
   insertedAt: string
+  /** 6 位核销码（KTD5：仅 confirmed 报名由后端返回；置前导零验证字符串口径） */
+  checkInCode: string | null
+  /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
+  paymentMode: string | null
+  /** 报名截止时间（ISO8601；null = 无截止） */
+  registrationDeadline: string | null
 }
 
 let loggedIn = false
 let enrollment: MockEnrollment | null = null
 let order: MockOrder | null = null
 let orderStatusOverride: string | null = null
+// #508-A：核销幂等标记（同一报名第二次核销 → already； enrollment 重置时随之复位）
+let checkedIn = false
 
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
@@ -120,6 +189,21 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
 
+  if (document.includes('query PublicInitiatives')) return { publicInitiatives: [initiativeCard] }
+  if (document.includes('query PublicInitiative(')) {
+    if (values.slug !== initiativeCard.slug) return { publicInitiative: null }
+    return {
+      publicInitiative: {
+        ...initiativeCard,
+        cityCount: 1,
+        eventCount: 1,
+        confirmedCount: 1,
+        qualifiedEventCount: 1,
+        cities: [{ city: '北京', events: [initiativeEvent] }]
+      }
+    }
+  }
+
   if (document.includes('query Catalog')) {
     // #355 P2-10：CatalogSearch 带 title ilike `%kw%` 过滤变量（大小写不敏感 includes 语义）
     const filter = values.eventFilter ?? values.courseFilter
@@ -141,6 +225,19 @@ function responseFor(document: string, variables: object): unknown {
       getEvent: records.find(({ id }) => id === values.id) ?? null,
       myEnrollment: myEnrollmentFor('event', String(values.id ?? ''))
     }
+  }
+  if (document.includes('query EventModerationScope')) {
+    // #508-A：成员面探测——登录即视为 workspace-1 成员（owner），活动存在即给 scope；
+    // 未登录按匿名口径返回 null（真实端是 forbidden_field 整查询报错，real.ts 同归 false）
+    const record = records.find(({ id }) => id === values.id) ?? null
+    return {
+      getEvent: loggedIn && record ? { id: record.id, workspaceId: workspace.id } : null
+    }
+  }
+  if (document.includes('query EventModerators(')) {
+    // 主理人列表（#558 后续）：mock 用户即 owner（manage 分支先行命中），
+    // 列表恒含本人——非管理角色主理人的「我在列表」分支由 real 层单测覆盖
+    return { eventModerators: loggedIn ? [{ userId: 'user-1' }] : [] }
   }
   if (document.includes('query CourseDetail')) {
     return {
@@ -206,9 +303,19 @@ function responseFor(document: string, variables: object): unknown {
     const input = values.input as Record<string, unknown>
     const eventId = typeof input.eventId === 'string' ? input.eventId : null
     const courseId = typeof input.courseId === 'string' ? input.courseId : null
-    // 收费路径(tierId 在场)→ payment_pending(R5:占位后待支付)
-    const paid = typeof input.tierId === 'string' && input.tierId
-    const status = paid ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
+    // 收费/押金路径 → payment_pending（R5/KTD2：定价场 tierId 在场；押金场零档位）
+    const requiresPayment =
+      (typeof input.tierId === 'string' && input.tierId !== '') ||
+      records.some((record) => 'depositEnabled' in record && record.depositEnabled === true && record.id === eventId)
+    const status = requiresPayment ? 'payment_pending' : eventId === 'event-1' ? 'pending' : 'confirmed'
+    // 缴费模式/截止时间从目标记录推导（与后端 payment_mode 计算同规则：押金 > 定价 > 免费）
+    const target = [...records, course].find(({ id }) => id === (eventId ?? courseId))
+    const paymentMode =
+      target && 'depositEnabled' in target && target.depositEnabled === true
+        ? 'deposit'
+        : target?.pricingEnabled === true
+          ? 'pricing'
+          : 'free'
     enrollment = {
       id: 'enrollment-1',
       workspaceId: workspace.id,
@@ -224,8 +331,13 @@ function responseFor(document: string, variables: object): unknown {
       approvedAt: null,
       expiredAt: null,
       cancelledAt: null,
-      insertedAt: new Date().toISOString()
+      insertedAt: new Date().toISOString(),
+      // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
+      checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
+      paymentMode,
+      registrationDeadline: target?.registrationDeadline ?? null
     }
+    checkedIn = false
     return { createEnrollment: { result: enrollment, errors: [] } }
   }
   if (document.includes('mutation CancelEnrollment')) {
@@ -240,7 +352,13 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation ConfirmEnrollment')) {
     if (enrollment) {
-      enrollment = { ...enrollment, status: 'confirmed', approvalDeadline: null, approvedAt: new Date().toISOString() }
+      enrollment = {
+        ...enrollment,
+        status: 'confirmed',
+        approvalDeadline: null,
+        approvedAt: new Date().toISOString(),
+        checkInCode: enrollment.checkInCode ?? CHECK_IN_CODE
+      }
     }
     return { confirmEnrollment: { result: enrollment, errors: [] } }
   }
@@ -278,13 +396,20 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation CreateOrder')) {
     // e2e 边界(#172):止于订单生成 + JSAPI 凭据返回,不模拟支付完成
+    const targetRecord = records.find(({ id }) => id === enrollment?.eventId)
+    // 押金单金额 = 目标场押金（R2 单源，零改动的下单链在此被 mock 忠实复现）；
+    // orderKind 与后端 order_kind/2 同规则（押金场开 → deposit）——支付页的押金
+    // 同意门以它为准，mock 漏带字段会被 parseOrderKind fail-closed 抓住
+    const depositOrder =
+      targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
     order = {
       id: 'order-1',
       enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
       status: 'pending',
-      amountCents: 19900,
+      amountCents: depositOrder ? DEPOSIT_AMOUNT_CENTS : 19900,
       expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
-      transactionId: null
+      transactionId: null,
+      orderKind: depositOrder ? 'deposit' : 'enrollment'
     }
     return {
       createOrder: {
@@ -324,6 +449,52 @@ function responseFor(document: string, variables: object): unknown {
         workspaceName: workspace.name,
         status: 'accepted',
         acceptedAt: new Date().toISOString()
+      }
+    }
+  }
+  if (document.includes('mutation CheckInEnrollment')) {
+    // #508-A：核销三分支（成功/重复/错码）。幂等由 checkedIn 标记承担——同一
+    // 报名第二次核销稳定返回 already（后端唯一索引语义的 mock 投影）
+    const code = typeof values.code === 'string' ? values.code : ''
+    const current = enrollment
+    const canCheckIn =
+      loggedIn &&
+      current?.status === 'confirmed' &&
+      current.eventId === values.eventId &&
+      current.checkInCode === code
+    if (!canCheckIn || !current) {
+      return {
+        checkInEnrollment: {
+          enrollmentId: null,
+          checkedInAt: null,
+          method: null,
+          depositRefund: null,
+          errors: [{ message: 'check-in code is invalid for this event', code: 'attendance_invalid_code' }]
+        }
+      }
+    }
+    if (checkedIn) {
+      return {
+        checkInEnrollment: {
+          enrollmentId: null,
+          checkedInAt: null,
+          method: null,
+          depositRefund: null,
+          errors: [{ message: 'this enrollment has already been checked in', code: 'attendance_already_checked_in' }]
+        }
+      }
+    }
+    checkedIn = true
+    // 押金单已付 → 核销即退（KTD6 分派表的 mock 投影）；无单/免费场 → null
+    const depositRefund =
+      order?.enrollmentId === current.id && order.status === 'paid' ? 'refunding' : null
+    return {
+      checkInEnrollment: {
+        enrollmentId: current.id,
+        checkedInAt: new Date().toISOString(),
+        method: typeof values.method === 'string' ? values.method : 'manual',
+        depositRefund,
+        errors: []
       }
     }
   }

@@ -16,24 +16,43 @@ export type OrderStatus =
   | 'refund_failed'
   | 'cancelled'
   | 'expired'
+  /** 押金终态：未到场且未核销，押金不退（no-show 结算落此态，平台首个不退终态） */
+  | 'forfeited'
+/** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
+export type OrderKind = 'enrollment' | 'deposit'
 export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
 
 export interface CatalogItem {
   id: string
   kind: ContentKind
   title: string
+  status: string
+  qualificationBadge: QualificationBadge | null
+  shortBy: number | null
   enrollmentPolicy: 'open' | 'request' | 'invite_only'
   registrationDeadline: string | null
   /** 是否收费（默认免费；收费报名须选档并完成支付，R4 免费路径零变化） */
   pricingEnabled: boolean
   /** 可售价格档位（后端已过滤过期档，R2；空数组 = 无可售档） */
   priceTiers: PriceTier[]
+  /**
+   * 是否收取押金（R1 三态互斥：与 pricingEnabled 不可同真）。仅详情查询携带
+   * （匿名列表白名单与 web PUBLIC_LIST_* 同源，不含押金字段）——列表记录恒 false。
+   */
+  depositEnabled: boolean
+  /** 押金金额（分，R2 单源）；非押金场恒 null */
+  depositAmountCents: number | null
   /** 开始时间（ISO8601）；null = 未定（R3，展示层兜底「时间待定」） */
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
   endsAt: string | null
   /** 结构化场地 JsonString（parse 后 {country,province,city,district}）；仅 event 有位置槽，course 恒 null（R3） */
   venue: string | null
+  /**
+   * 挂载的 Initiative id（仅 event 有槽；公开字段白名单内）。详情页据此渲染
+   * 「所属倡导活动」回链；列表查询不带该字段 → 恒 null。
+   */
+  initiativeId: string | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
   /**
@@ -41,6 +60,48 @@ export interface CatalogItem {
    * confirmed，后端仅返回活跃集——在场即「已报名」）。匿名/未报名 → null。
    */
   myEnrollment: MyEnrollmentState | null
+}
+
+export type QualificationBadge = 'cancelled' | 'closed' | 'confirmed' | 'short_by' | 'open'
+
+export interface PublicInitiativeCard {
+  id: string
+  name: string
+  slug: string
+  hashtag: string | null
+  status: 'open' | 'closed'
+  /** 活动简介（列表卡片展示，与 web initiative-index 卡片同字段） */
+  description: string | null
+  /** 倡导窗口起止（ISO8601，可为 null）；列表卡片与详情 hero 共用 */
+  windowStartsAt: string | null
+  windowEndsAt: string | null
+}
+
+export interface PublicInitiativeEvent {
+  id: string
+  slug: string
+  title: string
+  status: 'open' | 'closed' | 'cancelled'
+  startsAt: string | null
+  endsAt: string | null
+  /** 报名截止（ISO8601，可为 null；与 web initiative 场次卡同字段） */
+  registrationDeadline: string | null
+  /** 结构化场地 JsonString（同 Event.venue 口径，R3 兜底「地点待定」） */
+  venue: string | null
+  archived: boolean
+  qualificationBadge: QualificationBadge
+  shortBy: number | null
+}
+
+export interface PublicInitiative extends PublicInitiativeCard {
+  description: string | null
+  windowStartsAt: string | null
+  windowEndsAt: string | null
+  cityCount: number
+  eventCount: number
+  confirmedCount: number
+  qualifiedEventCount: number
+  cities: { city: string; events: PublicInitiativeEvent[] }[]
 }
 
 /** 详情页「已报名」态的本人活跃报名投影（myEnrollment 查询子集） */
@@ -113,6 +174,15 @@ export interface EnrollmentSummary {
   rejectionReason: string | null
   /** #411 同活动折叠的分组/排序键（服务端 create_timestamp，ISO 时间串） */
   insertedAt: string
+  /**
+   * 6 位核销码（KTD5：仅本人 confirmed 报名由后端返回，其余为 null；course 恒 null）
+   * ——「我的报名」confirmed 卡出示用。
+   */
+  checkInCode: string | null
+  /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
+  paymentMode: 'free' | 'pricing' | 'deposit' | null
+  /** 报名截止时间（ISO8601；null = 无截止，自助取消恒在截止前） */
+  registrationDeadline: string | null
 }
 
 export interface EnrollmentForm {
@@ -145,6 +215,23 @@ export interface AdmitResult {
   workspaceName: string
 }
 
+/** 核销方式（scan = 主理人扫码；manual = 扫码失败手输 6 位码兜底，KTD5） */
+export type CheckInMethod = 'scan' | 'manual'
+
+/**
+ * 主理人核销结果（#508-A）：业务失败不抛错而是进联合——「已核销」是幂等提示态
+ * 而非错误（重复扫码是现场常态），页面按 kind 分叉呈现。
+ * network 类故障仍按 reject 上抛（页面给可重试反馈）。
+ */
+export type CheckInOutcome =
+  | { kind: 'success'; checkedInAt: string | null; depositRefund: string | null }
+  | { kind: 'already' }
+  | { kind: 'invalid' }
+  | { kind: 'forfeited' }
+  | { kind: 'forbidden' }
+  | { kind: 'rate_limited' }
+
+
 export interface PlatformPhonePayload {
   loginCode?: string
   code?: string
@@ -160,6 +247,11 @@ export interface OrderSummary {
   amountCents: number
   expireAt: string
   transactionId: string | null
+  /**
+   * 订单口径（后端 Order.order_kind 下单时快照）：'deposit' 才是押金单。
+   * 资金动作门（押金同意）以此为准——活动的实时缴费配置会改，这一笔不会。
+   */
+  orderKind: OrderKind
 }
 
 /** createOrder 产物：订单 + JSAPI 凭据（原样透传给 mapPaymentCredential） */
@@ -191,5 +283,13 @@ export interface MiniProgramApi {
   grantConsent(scenario: SubscriptionScenario): Promise<number>
   generateMiniProgramCode(workspaceId: string): Promise<MiniProgramCode>
   admitMember(scene: string): Promise<AdmitResult>
+  /**
+   * #508-A：当前用户能否核销该活动（入口门，UX 层）。成员面探测（workspace_id
+   * field_policy）+ session 角色（owner/admin）；匿名/非成员/读取失败 → false。
+   * 真授权由后端 checkInEnrollment policy fail-closed 承担。
+   */
+  canModerateEvent(eventId: string): Promise<boolean>
+  /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
+  checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
   getNotifications(): Promise<NotificationItem[]>
 }

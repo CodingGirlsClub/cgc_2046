@@ -1,11 +1,14 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
-import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
+import Taro, { useDidHide, useDidShow, useUnload } from '@tarojs/taro'
 import { api } from '@/api'
+import { getPublicInitiatives } from '@/api/initiatives'
+import { buildInitiativeSharePath } from '@/domain/share-route'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
-import type { CatalogItem } from '@/domain/models'
-import { enrollmentBadgeText } from '@/domain/format'
+import type { CatalogItem, PublicInitiativeCard } from '@/domain/models'
+import { enrollmentBadgeText, scheduleText } from '@/domain/format'
+import { filterInitiatives } from '@/domain/initiative'
 import { debounce } from '@/domain/debounce'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
@@ -22,6 +25,10 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [isVisitor, setIsVisitor] = useState(true)
+  const [initiatives, setInitiatives] = useState<PublicInitiativeCard[]>([])
+  const [initiativesLoading, setInitiativesLoading] = useState(true)
+  const [initiativesError, setInitiativesError] = useState('')
+  const initiativeRequestSeq = useRef(0)
 
   const keywordRef = useRef('')
   const requestSeq = useRef(0)
@@ -34,7 +41,10 @@ export default function DiscoverPage() {
     setLoading(true)
     setError('')
     try {
-      const [catalog, session] = await Promise.all([api.getCatalog(kw), api.getSession()])
+      const [catalog, session] = await Promise.all([
+        api.getCatalog(kw),
+        api.getSession()
+      ])
       if (seq !== requestSeq.current) return
       setItems(catalog)
       setIsVisitor(!session.user)
@@ -46,14 +56,36 @@ export default function DiscoverPage() {
     }
   }, [])
 
+  const loadInitiatives = useCallback(async () => {
+    const seq = ++initiativeRequestSeq.current
+    setInitiativesLoading(true)
+    setInitiativesError('')
+    try {
+      const result = await getPublicInitiatives()
+      if (seq === initiativeRequestSeq.current) setInitiatives(result)
+    } catch (reason) {
+      if (seq === initiativeRequestSeq.current) setInitiativesError(reason instanceof Error ? reason.message : '倡导活动加载失败')
+    } finally {
+      if (seq === initiativeRequestSeq.current) setInitiativesLoading(false)
+    }
+  }, [])
+
   // 击键防抖 300ms，停顿后才发服务端搜索；页面隐藏时丢弃挂起的触发
   const debouncedSearch = useMemo(() => debounce((kw: string) => { void load(kw) }, 300), [load])
 
-  useDidShow(() => { void load(keywordRef.current) })
-  useDidHide(() => debouncedSearch.cancel())
+  useDidShow(() => { void load(keywordRef.current); void loadInitiatives() })
+  const invalidateRequests = () => {
+    debouncedSearch.cancel()
+    requestSeq.current++
+    initiativeRequestSeq.current++
+  }
+  useDidHide(invalidateRequests)
+  useUnload(invalidateRequests)
 
   const events = items.filter(({ kind }) => kind === 'event')
   const courses = items.filter(({ kind }) => kind === 'course')
+  // 阶段5：倡导活动随关键词即时收敛（客户端过滤，不发请求；同 web 卡片字段口径）
+  const visibleInitiatives = filterInitiatives(initiatives, keyword)
 
   const openDetail = ({ id, kind }: CatalogItem) => {
     Taro.navigateTo({ url: `/pages/event-detail/index?id=${id}&kind=${kind}` })
@@ -78,6 +110,7 @@ export default function DiscoverPage() {
                 const value = event.detail.value
                 setKeyword(value)
                 keywordRef.current = value
+                requestSeq.current++
                 debouncedSearch(value)
               }}
             />
@@ -96,6 +129,34 @@ export default function DiscoverPage() {
           </View>
         )}
 
+        <View className={styles.content}>
+            {initiativesLoading ? <PageState kind='loading' message='正在加载倡导活动' /> : initiativesError ? <PageState kind='error' message={initiativesError} onRetry={() => void loadInitiatives()} /> : visibleInitiatives.length === 0 ? <PageState kind='empty' message={keyword ? '没有匹配的倡导活动' : '暂时还没有公开倡导活动'} /> : (
+              <View className={styles.section}>
+                <View className={styles.sectionHeader}>
+                  <Text className={styles.sectionTitle}>倡导活动</Text>
+                  <Text className={styles.sectionMeta}>{visibleInitiatives.length} 个</Text>
+                </View>
+                {visibleInitiatives.map((initiative) => (
+                  <View
+                    key={initiative.id}
+                    className={`${styles.contentCard} ${styles.initiativeCard}`}
+                    onClick={() => Taro.navigateTo({ url: buildInitiativeSharePath(initiative.slug) })}
+                  >
+                    <View className={styles.cardTop}><Text className={styles.kind}>INITIATIVE</Text><Text className={styles.policy}>{initiative.status === 'closed' ? '已结束' : '进行中'}</Text></View>
+                    <Text className={styles.cardTitle}>{initiative.name}</Text>
+                    <Text className={styles.cardMeta}>{initiative.hashtag || ''}</Text>
+                    {initiative.windowStartsAt ? (
+                      <Text className={styles.cardWindow}>{scheduleText(initiative.windowStartsAt, initiative.windowEndsAt)}</Text>
+                    ) : null}
+                    {initiative.description ? <Text className={styles.cardDesc}>{initiative.description}</Text> : null}
+                    <Text className={styles.arrow}>→</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+        </View>
+
         {loading ? (
           <PageState kind='loading' />
         ) : error ? (
@@ -104,7 +165,6 @@ export default function DiscoverPage() {
           <PageState kind='empty' message={keyword ? '换个关键词试试' : '还没有公开活动或课程'} />
         ) : (
           <View className={styles.content}>
-
             <View className={styles.section}>
               <View className={styles.sectionHeader}>
                 <Text className={styles.sectionTitle}>即将开始的活动</Text>

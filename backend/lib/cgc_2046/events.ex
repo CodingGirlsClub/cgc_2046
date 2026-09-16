@@ -27,6 +27,7 @@ defmodule Cgc2046.Events do
   resources do
     # ADR-0009 R3：Event / SpeakerInvitation 家族归 Events context
     resource(Cgc2046.Events.Event)
+    resource(Cgc2046.Events.EventModerator)
     resource(Cgc2046.Events.SpeakerInvitation)
   end
 end

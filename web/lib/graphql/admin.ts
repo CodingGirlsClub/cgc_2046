@@ -27,6 +27,36 @@ export interface AdminUser {
 	workspaceMembershipCount?: number | null;
 }
 
+export interface AdminInitiative {
+	id: string; name: string; slug: string; hashtag?: string | null; description?: string | null;
+	status: string; windowStartsAt?: string | null; windowEndsAt?: string | null;
+	eventCount?: number | null; confirmedCount?: number | null;
+	rules?: AdminInitiativeRule[];
+}
+
+export interface AdminInitiativeRule {
+	id: string; initiativeId: string; key: string; valueJson: string; locked: boolean;
+}
+
+export const LIST_INITIATIVES: TypedDocumentNode<{ listInitiatives: AdminInitiative[] }, { status?: string | null; search?: string | null; first?: number; after?: string }> = gql`
+ query ListInitiatives($status: String, $search: String, $first: Int, $after: String) {
+   listInitiatives(status: $status, search: $search, first: $first, after: $after) { id name slug hashtag description status windowStartsAt windowEndsAt rules { id initiativeId key valueJson locked } }
+ }
+`;
+
+export const GET_INITIATIVE: TypedDocumentNode<{ getInitiative: AdminInitiative | null }, { id: string }> = gql`
+ query GetInitiative($id: ID!) {
+   getInitiative(id: $id) { id name slug hashtag description status windowStartsAt windowEndsAt rules { id initiativeId key valueJson locked } }
+ }
+`;
+
+export type AdminInitiativePayload = { result: AdminInitiative | null; errors: MutationError[] };
+export const CREATE_INITIATIVE = gql`mutation CreateInitiative($input: AdminInitiativeInput!) { createInitiative(input: $input) { result { id name slug status } errors { code message } } }`;
+export const UPDATE_INITIATIVE = gql`mutation UpdateInitiative($id: ID!, $input: AdminInitiativeInput!) { updateInitiative(id: $id, input: $input) { result { id name slug status } errors { code message } } }`;
+export const OPEN_INITIATIVE = gql`mutation OpenInitiative($id: ID!) { openInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
+export const CLOSE_INITIATIVE = gql`mutation CloseInitiative($id: ID!) { closeInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
+export const UPSERT_INITIATIVE_RULE = gql`mutation UpsertInitiativeRule($initiativeId: ID!, $key: String!, $valueJson: String!, $locked: Boolean!) { upsertInitiativeRule(initiativeId: $initiativeId, key: $key, valueJson: $valueJson, locked: $locked) { result { id initiativeId key valueJson locked } errors { code message } } }`;
+
 /** 与 workspace.ts 的 JoinPolicy 同构（单源：workspace.ts） */
 export type AdminJoinPolicy = JoinPolicy;
 
@@ -544,4 +574,11 @@ export const APPLICATION_STATUS_CLASS: Record<AdminApplicationStatus, string> = 
 	approved: "l-badge l-badge-success",
 	rejected: "l-badge l-badge-danger",
 	expired: "l-badge l-badge-muted",
+};
+
+/* Initiative 状态徽章：后端 status 为 string，未知状态由调用侧 `?? l-badge-muted` 兜底。 */
+export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
+	draft: "l-badge l-badge-muted",
+	open: "l-badge l-badge-success",
+	closed: "l-badge l-badge-muted",
 };

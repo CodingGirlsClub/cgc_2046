@@ -210,7 +210,7 @@ export default function SpeakerInvitationPanel({
 						value={draft.speakerName}
 						onChange={setField("speakerName")}
 						placeholder={t("speakerNamePlaceholder")}
-						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+						className="ui-input mt-1 w-full"
 					/>
 				</label>
 
@@ -223,7 +223,7 @@ export default function SpeakerInvitationPanel({
 						value={draft.speakerEmail}
 						onChange={setField("speakerEmail")}
 						placeholder="speaker@example.com"
-						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+						className="ui-input mt-1 w-full"
 					/>
 				</label>
 
@@ -233,7 +233,7 @@ export default function SpeakerInvitationPanel({
 						value={draft.topic}
 						onChange={setField("topic")}
 						placeholder={t("topicPlaceholder")}
-						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+						className="ui-input mt-1 w-full"
 					/>
 				</label>
 
@@ -243,7 +243,7 @@ export default function SpeakerInvitationPanel({
 						type="datetime-local"
 						value={draft.scheduledAt}
 						onChange={setField("scheduledAt")}
-						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+						className="ui-input mt-1 w-full"
 					/>
 				</label>
 
@@ -253,7 +253,7 @@ export default function SpeakerInvitationPanel({
 						value={draft.note}
 						onChange={setField("note")}
 						rows={2}
-						className="mt-1 w-full rounded-large border border-line bg-soft-2 px-3 py-2 text-sm text-ink"
+						className="ui-textarea mt-1 w-full"
 					/>
 				</label>
 			</div>

@@ -189,6 +189,29 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
+    field :public_initiative, :public_initiative do
+      arg(:slug, non_null(:string))
+
+      resolve(fn _, %{slug: slug}, _ ->
+        case Cgc2046.Initiatives.Public.get_by_slug(slug) do
+          {:ok, payload} -> {:ok, payload}
+          {:error, :not_found} -> {:ok, nil}
+          {:error, _} -> {:error, [message: "failed to load public initiative", code: "invalid"]}
+        end
+      end)
+    end
+
+    @desc "公开 Initiative 列表；匿名可读"
+    field :public_initiatives, non_null(list_of(non_null(:public_initiative_card))) do
+      resolve(fn _, _, _ ->
+        case Cgc2046.Initiatives.Public.list() do
+          {:ok, rows} -> {:ok, rows}
+          {:error, _} -> {:error, [message: "failed to load public initiatives", code: "invalid"]}
+        end
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -497,6 +520,96 @@ defmodule Cgc2046Web.GraphqlSchema do
           admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
         )
       )
+    end
+
+    @desc "平台管理员：倡导活动列表"
+    field :list_initiatives, non_null(list_of(non_null(:admin_initiative))) do
+      arg(:status, :string)
+      arg(:search, :string)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          query =
+            Cgc2046.Initiatives.Initiative
+            |> Ash.Query.for_read(:read)
+            |> AdminList.maybe_status_filter(args[:status])
+            |> maybe_initiative_search(args[:search])
+            |> AdminList.paginate(args[:first], args[:after])
+
+          case Ash.read(query, actor: actor) do
+            {:ok, initiatives} ->
+              case Ash.load(initiatives, :rules, actor: actor) do
+                {:ok, loaded} ->
+                  {:ok, Enum.map(loaded, &admin_initiative_row/1)}
+
+                {:error, error} ->
+                  {:error,
+                   to_ash_graphql_errors(
+                     error,
+                     context,
+                     :read,
+                     Cgc2046.Initiatives.Initiative,
+                     Cgc2046.Initiatives
+                   )}
+              end
+
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :read,
+                 Cgc2046.Initiatives.Initiative,
+                 Cgc2046.Initiatives
+               )}
+          end
+        end)
+      end)
+    end
+
+    @desc "平台管理员：倡导活动详情及四项规则"
+    field :get_initiative, :admin_initiative do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_admin(context, fn actor ->
+          case Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
+            {:ok, nil} ->
+              {:ok, nil}
+
+            {:ok, initiative} ->
+              load_initiative_admin(initiative, actor, context)
+
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :read,
+                 Cgc2046.Initiatives.Initiative,
+                 Cgc2046.Initiatives
+               )}
+          end
+        end)
+      end)
+    end
+
+    @desc "活动主理人列表；主理人或所属 Workspace Owner/Admin 可读"
+    field :event_moderators, non_null(list_of(non_null(:event_moderator))) do
+      arg(:workspace_id, non_null(:id))
+      arg(:event_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.Moderators.list(args[:event_id], args[:workspace_id], actor) do
+            {:ok, rows} -> {:ok, rows}
+            {:error, :forbidden} -> {:error, [message: "forbidden", code: "forbidden"]}
+            {:error, _} -> {:error, [message: "event not found", code: "not_found"]}
+          end
+        end)
+      end)
     end
   end
 
@@ -1625,6 +1738,261 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    @desc "平台管理员：创建倡导活动草稿"
+    field :create_initiative, :admin_initiative_payload do
+      arg(:input, non_null(:admin_initiative_input))
+
+      resolve(fn _, %{input: input}, %{context: context} ->
+        with_admin(context, fn actor ->
+          attrs =
+            input
+            |> map_input([
+              :name,
+              :slug,
+              :hashtag,
+              :description,
+              :window_starts_at,
+              :window_ends_at
+            ])
+            |> Map.put(:created_by, actor.id)
+
+          Cgc2046.Initiatives.Initiative
+          |> Ash.Changeset.for_create(:create, attrs)
+          |> Ash.create(actor: actor)
+          |> initiative_mutation_result(context)
+        end)
+      end)
+    end
+
+    @desc "平台管理员：更新倡导活动元数据"
+    field :update_initiative, :admin_initiative_payload do
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:admin_initiative_input))
+
+      resolve(fn _, %{id: id, input: input}, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, initiative} <- Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
+            initiative
+            |> Ash.Changeset.for_update(
+              :update,
+              map_input(input, [
+                :name,
+                :slug,
+                :hashtag,
+                :description,
+                :window_starts_at,
+                :window_ends_at
+              ])
+            )
+            |> Ash.update(actor: actor)
+            |> initiative_mutation_result(context)
+          else
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :update,
+                 Cgc2046.Initiatives.Initiative,
+                 Cgc2046.Initiatives
+               )}
+          end
+        end)
+      end)
+    end
+
+    @desc "平台管理员：设置倡导活动状态为进行中"
+    field :open_initiative, :admin_initiative_payload do
+      arg(:id, non_null(:id))
+      resolve(initiative_status_mutation(:open))
+    end
+
+    @desc "平台管理员：结束倡导活动"
+    field :close_initiative, :admin_initiative_payload do
+      arg(:id, non_null(:id))
+      resolve(initiative_status_mutation(:close))
+    end
+
+    @desc "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
+    field :upsert_initiative_rule, :admin_initiative_rule_payload do
+      arg(:initiative_id, non_null(:id))
+      arg(:key, non_null(:string))
+      arg(:value_json, non_null(:string))
+      arg(:locked, non_null(:boolean))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, key} <- rule_key(args[:key]),
+               {:ok, value} <- decode_rule_json(args[:value_json]),
+               {:ok, _initiative} <-
+                 Ash.get(Cgc2046.Initiatives.Initiative, args[:initiative_id], actor: actor),
+               {:ok, existing} <- get_initiative_rule(args[:initiative_id], key, actor) do
+            result =
+              if existing do
+                existing
+                |> Ash.Changeset.for_update(:update, %{value: value, locked: args[:locked]})
+                |> Ash.update(actor: actor)
+              else
+                Cgc2046.Initiatives.InitiativeRule
+                |> Ash.Changeset.for_create(:create, %{
+                  initiative_id: args[:initiative_id],
+                  key: key,
+                  value: value,
+                  locked: args[:locked]
+                })
+                |> Ash.create(actor: actor)
+              end
+
+            case result do
+              {:ok, rule} ->
+                {:ok, %{result: admin_rule_row(rule), errors: []}}
+
+              {:error, error} ->
+                {:ok,
+                 %{
+                   result: nil,
+                   errors:
+                     mutation_errors(
+                       error,
+                       context,
+                       :update,
+                       Cgc2046.Initiatives.InitiativeRule,
+                       Cgc2046.Initiatives
+                     )
+                 }}
+            end
+          else
+            {:error, error} when is_exception(error) ->
+              {:ok,
+               %{
+                 result: nil,
+                 errors:
+                   mutation_errors(
+                     error,
+                     context,
+                     :read,
+                     Cgc2046.Initiatives.InitiativeRule,
+                     Cgc2046.Initiatives
+                   )
+               }}
+
+            {:error, message} when is_binary(message) ->
+              {:ok, %{result: nil, errors: [%{message: message, code: "invalid_input"}]}}
+          end
+        end)
+      end)
+    end
+
+    field :assign_event_moderator, :event_moderator_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:event_id, non_null(:id))
+      arg(:user_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.Moderators.assign(
+                 args[:event_id],
+                 args[:workspace_id],
+                 args[:user_id],
+                 actor
+               ) do
+            {:ok, record} ->
+              {:ok, %{result: record, errors: []}}
+
+            {:error, :forbidden} ->
+              {:ok, %{result: nil, errors: [%{message: "forbidden", code: "forbidden"}]}}
+
+            {:error, %Ash.Error.Invalid{} = error} ->
+              {:ok,
+               %{
+                 result: nil,
+                 errors:
+                   mutation_errors(
+                     error,
+                     context,
+                     :create,
+                     Cgc2046.Events.EventModerator,
+                     Cgc2046.Events
+                   )
+               }}
+
+            {:error, _} ->
+              {:ok,
+               %{result: nil, errors: [%{message: "failed to assign moderator", code: "invalid"}]}}
+          end
+        end)
+      end)
+    end
+
+    field :remove_event_moderator, :event_moderator_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:moderator_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Events.Moderators.remove(args[:moderator_id], args[:workspace_id], actor) do
+            :ok ->
+              {:ok, %{result: nil, errors: []}}
+
+            {:error, :forbidden} ->
+              {:ok, %{result: nil, errors: [%{message: "forbidden", code: "forbidden"}]}}
+
+            {:error, _} ->
+              {:ok,
+               %{result: nil, errors: [%{message: "moderator not found", code: "not_found"}]}}
+          end
+        end)
+      end)
+    end
+
+    # 押金核销（U5/KTD4；R6、R11）：主理人 / Owner·Admin / 平台管理员按 6 位核销码
+    # 核销 confirmed 报名的到场。授权与「码无效 / 已核销」判定全在域层
+    # （Admission.Attendance policy + before_action），本 resolver 只做
+    # actor 门控与 payload 形状映射（同 assign_event_moderator 先例）。
+    field :check_in_enrollment, :check_in_enrollment_payload do
+      arg(:event_id, non_null(:id))
+      arg(:code, non_null(:string), description: "6 位核销码（扫码 URL 预填或手输）")
+      arg(:method, non_null(:string), description: "核销方式：scan | manual")
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Admission.Attendance.check_in(
+                 args[:event_id],
+                 args[:code],
+                 args[:method],
+                 actor
+               ) do
+            {:ok, attendance} ->
+              {:ok,
+               %{
+                 enrollment_id: attendance.enrollment_id,
+                 checked_in_at: attendance.checked_in_at,
+                 method: to_string(attendance.method),
+                 deposit_refund: deposit_refund_state(attendance.enrollment_id),
+                 errors: []
+               }}
+
+            {:error, error} ->
+              {:ok,
+               %{
+                 enrollment_id: nil,
+                 checked_in_at: nil,
+                 method: nil,
+                 deposit_refund: nil,
+                 errors:
+                   to_ash_graphql_errors(
+                     error,
+                     context,
+                     :check_in,
+                     Cgc2046.Admission.Attendance,
+                     Cgc2046.Admission
+                   )
+               }}
+          end
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -1728,6 +2096,40 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:venue, :string) do
       resolve(fn parent, _args, %{definition: definition} ->
         {:ok, enrollment_calc_value(parent, definition, :venue)}
+      end)
+    end
+
+    # U2：目标报名截止（同 starts_at/venue 的 alias 感知 calculation resolve）
+    field(:registration_deadline, :datetime) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :registration_deadline)}
+      end)
+    end
+
+    # U3：目标缴费模式 free/pricing/deposit（码卡与取消规则的模式感知文案用）
+    field(:payment_mode, :string) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :payment_mode)}
+      end)
+    end
+
+    # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
+    # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
+    # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层
+    # 不能承担字段可见性——字段级 resolve 门控是唯一闸。parent 双形态：
+    # myEnrollment 白名单 payload map / Ash record。
+    field(:check_in_code, :string, description: "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）") do
+      resolve(fn parent, _args, %{context: context} ->
+        with_actor(
+          context,
+          fn actor ->
+            {:ok,
+             if check_in_code_visible?(parent, actor) do
+               enrollment_value(parent, :check_in_code)
+             end}
+          end,
+          on_nil: fn _context -> {:ok, nil} end
+        )
       end)
     end
   end
@@ -2435,6 +2837,150 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
+  object :admin_initiative do
+    field(:id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:hashtag, :string)
+    field(:description, :string)
+    field(:window_starts_at, :datetime)
+    field(:window_ends_at, :datetime)
+    field(:status, non_null(:string))
+    field(:created_by, non_null(:id))
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
+
+    field :public_stats, :public_initiative do
+      resolve(fn initiative, _, _ ->
+        case Cgc2046.Initiatives.Public.get_by_slug(initiative.slug) do
+          {:ok, stats} -> {:ok, stats}
+          _ -> {:ok, nil}
+        end
+      end)
+    end
+
+    field(:rules, non_null(list_of(non_null(:admin_initiative_rule))))
+  end
+
+  object :admin_initiative_rule do
+    field(:id, non_null(:id))
+    field(:initiative_id, non_null(:id))
+    field(:key, non_null(:string))
+    field(:value_json, non_null(:string))
+    field(:locked, non_null(:boolean))
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
+  end
+
+  input_object :admin_initiative_input do
+    field(:name, :string)
+    field(:slug, :string)
+    field(:hashtag, :string)
+    field(:description, :string)
+    field(:window_starts_at, :datetime)
+    field(:window_ends_at, :datetime)
+  end
+
+  object :admin_initiative_payload do
+    field(:result, :admin_initiative)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  object :admin_initiative_rule_payload do
+    field(:result, :admin_initiative_rule)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  object :event_moderator do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:event_id, non_null(:id))
+    field(:user_id, non_null(:id))
+    field(:assigned_by, :id)
+    field(:assigned_at, non_null(:datetime))
+  end
+
+  object :event_moderator_payload do
+    field(:result, :event_moderator)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  # U5/KTD4 核销 payload：成功返回到场事实（enrollment_id / checked_in_at / method），
+  # 失败（码无效 / 已核销）三者皆为 null 且 errors 携带领域 code（前端按 code 查文案）。
+  # 退款侧状态（押金已发起 / 已在退还中 / 已退，KTD6 分派）随 U6 落地后在此扩展。
+  object :check_in_enrollment_payload do
+    @desc "被核销的报名（失败为 null）"
+    field(:enrollment_id, :id)
+
+    @desc "核销时间（失败为 null）"
+    field(:checked_in_at, :datetime)
+
+    @desc "核销方式：scan / manual（失败为 null）"
+    field(:method, :string)
+
+    @desc """
+    本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
+    - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
+    - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
+    - refunded：押金已退。
+    forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
+    前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
+    """
+    field(:deposit_refund, :string)
+
+    field(:errors, list_of(:mutation_error))
+  end
+
+  object :public_initiative do
+    field(:id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:hashtag, :string)
+    field(:description, :string)
+    field(:window_starts_at, :datetime)
+    field(:window_ends_at, :datetime)
+    field(:status, non_null(:string))
+    field(:city_count, non_null(:integer))
+    field(:event_count, non_null(:integer))
+    field(:confirmed_count, non_null(:integer))
+    field(:qualified_event_count, non_null(:integer))
+    field(:cities, non_null(list_of(non_null(:public_initiative_city))))
+  end
+
+  object :public_initiative_card do
+    field(:id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:hashtag, :string)
+    field(:description, :string)
+    field(:window_starts_at, :datetime)
+    field(:window_ends_at, :datetime)
+    field(:status, non_null(:string))
+  end
+
+  object :public_initiative_city do
+    field(:city, non_null(:string))
+    field(:events, non_null(list_of(non_null(:public_initiative_event))))
+  end
+
+  object :public_initiative_event do
+    field(:id, non_null(:id))
+    field(:slug, non_null(:string))
+    field(:title, non_null(:string))
+    field(:status, non_null(:string))
+    field(:visibility, non_null(:string))
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:registration_deadline, :datetime)
+    field(:venue, :json_string)
+    field(:confirmed_count, non_null(:integer))
+    field(:min_participants, :integer)
+    field(:qualification_status, :string)
+    field(:archived, non_null(:boolean))
+    field(:qualification_badge, non_null(:string))
+    field(:short_by, :integer)
+  end
+
   # plan 020 U2.1：本人 MCP 工具调用活动流。
   # policy（显式判定，与 Wrapper 成员门槛同源）：workspace 成员 + 仅本人。
   # 过滤：params JSONB 内 workspace_id（键名 params["workspace_id"]，Wrapper 落库
@@ -2510,6 +3056,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       status: to_string(enrollment.status),
       approval_deadline: enrollment.approval_deadline,
       rejection_reason: enrollment.rejection_reason,
+      check_in_code: enrollment.check_in_code,
       inserted_at: enrollment.inserted_at
     }
   end
@@ -2535,6 +3082,140 @@ defmodule Cgc2046Web.GraphqlSchema do
     case context[:actor] do
       nil -> on_nil.(context)
       actor -> fun.(actor)
+    end
+  end
+
+  defp maybe_initiative_search(query, nil), do: query
+  defp maybe_initiative_search(query, ""), do: query
+
+  defp maybe_initiative_search(query, search) do
+    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
+  end
+
+  defp load_initiative_admin(initiative, actor, context) do
+    case Ash.load(initiative, :rules, actor: actor) do
+      {:ok, loaded} ->
+        {:ok, admin_initiative_row(loaded)}
+
+      {:error, error} ->
+        {:error,
+         to_ash_graphql_errors(
+           error,
+           context,
+           :read,
+           Cgc2046.Initiatives.Initiative,
+           Cgc2046.Initiatives
+         )}
+    end
+  end
+
+  defp admin_initiative_row(initiative) do
+    %{
+      id: initiative.id,
+      name: initiative.name,
+      slug: initiative.slug,
+      hashtag: initiative.hashtag,
+      description: initiative.description,
+      window_starts_at: initiative.window_starts_at,
+      window_ends_at: initiative.window_ends_at,
+      status: to_string(initiative.status),
+      created_by: initiative.created_by,
+      inserted_at: initiative.inserted_at,
+      updated_at: initiative.updated_at,
+      rules:
+        if(is_list(initiative.rules), do: Enum.map(initiative.rules, &admin_rule_row/1), else: [])
+    }
+  end
+
+  defp admin_rule_row(rule) do
+    %{
+      id: rule.id,
+      initiative_id: rule.initiative_id,
+      key: to_string(rule.key),
+      value_json: Jason.encode!(rule.value),
+      locked: rule.locked,
+      inserted_at: rule.inserted_at,
+      updated_at: rule.updated_at
+    }
+  end
+
+  defp initiative_mutation_result({:ok, initiative}, _context),
+    do: {:ok, %{result: admin_initiative_row(initiative), errors: []}}
+
+  defp initiative_mutation_result({:error, error}, context) do
+    {:ok,
+     %{
+       result: nil,
+       errors:
+         mutation_errors(
+           error,
+           context,
+           :update,
+           Cgc2046.Initiatives.Initiative,
+           Cgc2046.Initiatives
+         )
+     }}
+  end
+
+  defp mutation_errors(error, context, action, resource, domain) do
+    to_ash_graphql_errors(error, context, action, resource, domain)
+    |> List.wrap()
+    |> Enum.map(fn error ->
+      %{
+        message: error[:message] || error.message || "invalid request",
+        code: error[:code] || "invalid"
+      }
+    end)
+  end
+
+  defp initiative_status_mutation(action) do
+    fn _, %{id: id}, %{context: context} ->
+      with_admin(context, fn actor ->
+        with {:ok, initiative} <- Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
+          initiative
+          |> Ash.Changeset.for_update(action, %{})
+          |> Ash.update(actor: actor)
+          |> initiative_mutation_result(context)
+        else
+          {:error, error} ->
+            {:ok,
+             %{
+               result: nil,
+               errors:
+                 mutation_errors(
+                   error,
+                   context,
+                   action,
+                   Cgc2046.Initiatives.Initiative,
+                   Cgc2046.Initiatives
+                 )
+             }}
+        end
+      end)
+    end
+  end
+
+  defp decode_rule_json(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+      {:ok, _} -> {:error, "rule value must be a JSON object"}
+      {:error, _} -> {:error, "rule value_json must be valid JSON"}
+    end
+  end
+
+  defp get_initiative_rule(initiative_id, key, actor) do
+    Cgc2046.Initiatives.InitiativeRule
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(initiative_id == ^initiative_id and key == ^key)
+    |> Ash.read_one(actor: actor)
+  end
+
+  # key 白名单单源 = InitiativeRule.rule_keys()；未知 key → {:error, "invalid rule key"}
+  # （else 分支映射为 code invalid_input 的 payload error），不做 String.to_existing_atom。
+  defp rule_key(key) when is_binary(key) do
+    case Enum.find(Cgc2046.Initiatives.InitiativeRule.rule_keys(), &(Atom.to_string(&1) == key)) do
+      nil -> {:error, "invalid rule key"}
+      key_atom -> {:ok, key_atom}
     end
   end
 
@@ -2654,6 +3335,43 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
     Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
   end
+
+  # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
+  # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
+  # 为 :atom（手写 object 无 ash_graphql 生成查询的枚举转换层——同
+  # resolve_my_enrollment 的显式 to_string 纪律）。
+  # 核销结果里的押金退款侧事实（KTD6 分派表）：读该报名**唯一活跃押金单**的
+  # 状态；无押金单 → nil（本次核销不产生退款）。单次点查（核销是低频人工动作）。
+  defp deposit_refund_state(enrollment_id) do
+    case Cgc2046.Repo.query(
+           """
+           SELECT status FROM payments_orders
+           WHERE enrollment_id = $1 AND order_kind = 'deposit'
+             AND status IN ('paid', 'refunding', 'refunded', 'refund_failed', 'forfeited')
+           ORDER BY inserted_at DESC LIMIT 1
+           """,
+           [Cgc2046.Repo.uuid!(enrollment_id)]
+         ) do
+      {:ok, %{rows: [[status]]}} ->
+        case status do
+          # 核销后仍是 paid 只可能是异常残留：不宣称已发起退款
+          "paid" -> nil
+          "refund_failed" -> "refunding"
+          other -> other
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp check_in_code_visible?(parent, actor) do
+    enrollment_value(parent, :user_id) == actor.id and
+      enrollment_value(parent, :status) in ["confirmed", :confirmed]
+  end
+
+  defp enrollment_value(parent, field) when is_map(parent),
+    do: Map.get(parent, field) || Map.get(parent, to_string(field))
 
   # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
   # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认

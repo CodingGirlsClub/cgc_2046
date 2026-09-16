@@ -9,6 +9,8 @@ import type {
   CatalogQueryVariables,
   CatalogSearchQuery,
   CatalogSearchQueryVariables,
+  CheckInEnrollmentMutation,
+  CheckInEnrollmentMutationVariables,
   ConfirmEnrollmentMutation,
   ConfirmEnrollmentMutationVariables,
   CreateOrderMutation,
@@ -21,6 +23,10 @@ import type {
   EnrollmentQueryVariables,
   EventDetailQuery,
   EventDetailQueryVariables,
+  EventModerationScopeQuery,
+  EventModerationScopeQueryVariables,
+  EventModeratorsQuery,
+  EventModeratorsQueryVariables,
   GenerateMiniProgramCodeMutation,
   GenerateMiniProgramCodeMutationVariables,
   GrantConsentMutation,
@@ -47,6 +53,7 @@ import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
   CancelEnrollmentMutationDocument,
+  CheckInEnrollmentMutationDocument,
   CreateOrderMutationDocument,
   MyOrdersQueryDocument,
   OrderStatusQueryDocument,
@@ -57,6 +64,8 @@ import {
   CreateEnrollmentMutationDocument,
   EnrollmentQueryDocument,
   EventDetailQueryDocument,
+  EventModerationScopeQueryDocument,
+  EventModeratorsQueryDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
@@ -66,15 +75,17 @@ import {
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument
 } from './operations'
-import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus } from '@/domain/format'
+import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus, parsePaymentMode } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
-import { parsePriceTiers } from '@/domain/payment'
+import { parseOrderKind, parsePriceTiers } from '@/domain/payment'
 import { catalogSearchVariables } from './catalogFilter'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
 import type {
   AdmitResult,
   ApprovalSummary,
   CatalogItem,
+  CheckInMethod,
+  CheckInOutcome,
   ContentKind,
   EnrollmentForm,
   EnrollmentSummary,
@@ -88,6 +99,7 @@ import type {
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
+import { parseQualificationBadge } from '@/domain/initiative'
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
 import {
   activateAccount,
@@ -99,7 +111,15 @@ import {
 type EventRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
 type CourseRecord = NonNullable<NonNullable<CatalogQuery['listCourses']>['results']>[number]
 // venue 仅 event 有槽（Course 无位置概念，R3）——两 record 形状在此分叉，故取并集
-type ContentRecord = EventRecord | CourseRecord
+// 押金字段（U11）同理只在 event 上存在，且仅详情查询请求（匿名列表白名单与 web
+// PUBLIC_LIST_* 同源，不含押金字段）→ 声明为可选，列表记录映射为免费态。
+// initiativeId 同款：仅详情查询携带（列表记录 → null，不回链）。
+type ContentRecord = (EventRecord | CourseRecord) &
+  Partial<{
+    depositEnabled: boolean | null
+    depositAmountCents: number | null
+    initiativeId: string | null
+  }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
 type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
@@ -120,13 +140,23 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     id: record.id,
     kind,
     title: record.title,
+    status: record.status,
+    qualificationBadge: 'qualificationBadge' in record ? parseQualificationBadge(record.qualificationBadge) : null,
+    shortBy: 'shortBy' in record && typeof record.shortBy === 'number' ? record.shortBy : null,
     enrollmentPolicy: parseEnrollmentPolicy(record.enrollmentPolicy),
     registrationDeadline: record.registrationDeadline,
     pricingEnabled: record.pricingEnabled === true,
     priceTiers: parsePriceTiers(record.availablePriceTiers),
+    // 押金场：金额缺失不编造（enabled 但无额 → null，展示层降级不出价）
+    depositEnabled: record.depositEnabled === true,
+    depositAmountCents:
+      record.depositEnabled === true && typeof record.depositAmountCents === 'number'
+        ? record.depositAmountCents
+        : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
+    initiativeId: record.initiativeId ?? null,
     enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge),
     myEnrollment: mapMyEnrollment(myEnrollment)
   }
@@ -142,14 +172,17 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     status: parseEnrollmentStatus(enrollment.status),
     approvalDeadline: enrollment.approvalDeadline ?? null,
     rejectionReason: enrollment.rejectionReason ?? null,
-    insertedAt: enrollment.insertedAt
+    insertedAt: enrollment.insertedAt,
+    checkInCode: enrollment.checkInCode ?? null,
+    paymentMode: parsePaymentMode(enrollment.paymentMode ?? null),
+    registrationDeadline: enrollment.registrationDeadline ?? null
   }
 }
 function parseOrderStatus(value: string): OrderStatus {
   if (
     value === 'pending' || value === 'paid' || value === 'refunding' ||
     value === 'refunded' || value === 'refund_failed' || value === 'cancelled' ||
-    value === 'expired'
+    value === 'expired' || value === 'forfeited'
   ) return value
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
@@ -397,7 +430,14 @@ export class RealMiniProgramApi implements MiniProgramApi {
       status: parseEnrollmentStatus(result.status),
       approvalDeadline: result.approvalDeadline,
       rejectionReason: null,
-      insertedAt: result.insertedAt
+      insertedAt: result.insertedAt,
+      // create 结果未选 checkInCode（结果页不出示码；出示面是「我的报名」，
+      // 走 getEnrollments 重新取——押金报名落 payment_pending 本无码可出）
+      checkInCode: null,
+      // create 结果未选缴费模式/截止时间（两查询同形状仅列表/单条回查）——
+      // 从报名目标本地推导，与后端 payment_mode 计算同规则（押金优先于定价）
+      paymentMode: form.target.depositEnabled ? 'deposit' : form.target.pricingEnabled ? 'pricing' : 'free',
+      registrationDeadline: form.target.registrationDeadline
     }
   }
 
@@ -480,6 +520,72 @@ export class RealMiniProgramApi implements MiniProgramApi {
     }
   }
 
+  // 核销入口门（#508-A）：workspace_id 是 Event field_policy 收窄字段——探测查询
+  // 仅本 workspace 成员/平台管理员成功；匿名/非成员/网络失败一律 false（入口
+  // 隐藏，不影响公开详情主流程）。判定 = Owner/Admin（session 角色，与后端
+  // Moderators.can_moderate? 同口径）∨ 我在 eventModerators 列表（#558 后
+  // 主理人恒为成员，探测与列表查询对他们都通；普通成员读列表 forbidden →
+  // false）。真授权由后端 checkInEnrollment policy fail-closed 承担。
+  async canModerateEvent(eventId: string): Promise<boolean> {
+    const session = await this.getSession()
+    if (!session.user) return false
+    try {
+      const data = await graphqlRequest<EventModerationScopeQuery, EventModerationScopeQueryVariables>(
+        EventModerationScopeQueryDocument,
+        { id: eventId }
+      )
+      const workspaceId = data.getEvent?.workspaceId
+      if (!workspaceId) return false
+      const isOwnerOrAdmin = session.workspaces.some((workspace) =>
+        workspace.id === workspaceId &&
+        workspace.roleNames.some((role) => role === 'owner' || role === 'admin')
+      )
+      if (isOwnerOrAdmin) return true
+
+      // 非管理角色：查主理人列表（主理人可读；普通成员 forbidden → false）
+      const moderators = await graphqlRequest<EventModeratorsQuery, EventModeratorsQueryVariables>(
+        EventModeratorsQueryDocument,
+        { workspaceId, eventId }
+      )
+      return moderators.eventModerators.some((row) => row.userId === session.user!.id)
+    } catch {
+      return false
+    }
+  }
+
+  async checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome> {
+    try {
+      const data = await graphqlRequest<CheckInEnrollmentMutation, CheckInEnrollmentMutationVariables>(
+        CheckInEnrollmentMutationDocument,
+        { eventId, code, method }
+      )
+      const payload = data.checkInEnrollment
+      if (payload?.enrollmentId) {
+        return {
+          kind: 'success',
+          checkedInAt: payload.checkedInAt ?? null,
+          depositRefund: payload.depositRefund ?? null
+        }
+      }
+      // 业务失败进 payload.errors（手写 mutation 信封）；无 code 按码无效收敛
+      // （后端对「不存在/非 confirmed/码不匹配」本就不区分，同桶不增枚举面）
+      const businessCode = payload?.errors?.find((entry) => entry?.code)?.code ?? null
+      if (businessCode === 'attendance_already_checked_in') return { kind: 'already' }
+      if (businessCode === 'deposit_already_forfeited') return { kind: 'forfeited' }
+      if (businessCode === 'attendance_rate_limited') return { kind: 'rate_limited' }
+      return { kind: 'invalid' }
+    } catch (error) {
+      // forbidden（policy 拒绝在 resolve 之前）走顶层 errors；其余（网络/5xx）
+      // 原样上抛——页面给「可原样重试」反馈，与业务失败不同桶
+      if (error instanceof GraphQLRequestError) {
+        const codes = error.errors.map((entry) => entry.code ?? entry.extensions?.code)
+        if (codes.includes('forbidden')) return { kind: 'forbidden' }
+        if (codes.includes('attendance_rate_limited')) return { kind: 'rate_limited' }
+      }
+      throw error
+    }
+  }
+
   async getNotifications(): Promise<NotificationItem[]> {
     return readLocalNotifications()
   }
@@ -498,7 +604,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         status: parseOrderStatus(result.status),
         amountCents: result.amountCents,
         expireAt: result.expireAt,
-        transactionId: null
+        transactionId: null,
+        orderKind: parseOrderKind(result.orderKind)
       },
       credential: data.createOrder.metadata?.credential ?? null
     }
@@ -516,7 +623,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       status: parseOrderStatus(data.orderStatus.status),
       amountCents: data.orderStatus.amountCents,
       expireAt: data.orderStatus.expireAt,
-      transactionId: data.orderStatus.transactionId
+      transactionId: data.orderStatus.transactionId,
+      orderKind: parseOrderKind(data.orderStatus.orderKind)
     }
   }
 
@@ -532,7 +640,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
     )
     const rank: Record<string, number> = {
       pending: 0, paid: 1, refunding: 2, refund_failed: 3,
-      refunded: 4, cancelled: 5, expired: 6
+      refunded: 4, cancelled: 5, expired: 6, forfeited: 7
     }
     return (data.myOrders?.results ?? [])
       .map((order) => ({
@@ -541,7 +649,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         status: parseOrderStatus(order.status),
         amountCents: order.amountCents,
         expireAt: order.expireAt,
-        transactionId: null
+        transactionId: null,
+        orderKind: parseOrderKind(order.orderKind)
       }))
       // 非终态优先(一 enrollment 至多一非终态单,U1 不变量),终态单按同序稳定输出
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))

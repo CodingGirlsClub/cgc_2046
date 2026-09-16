@@ -1,0 +1,55 @@
+defmodule Cgc2046.Mcp.Tools.AdminCloseInitiative do
+  use Anubis.Server.Component,
+    type: :tool,
+    meta: %{workspace_id: :optional, membership: :platform_admin}
+
+  alias Cgc2046.Initiatives.Initiative
+  alias Cgc2046.Mcp.{Confirmation, Wrapper}
+  alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
+
+  schema do
+    field(:initiative_id, {:required, :string})
+  end
+
+  @impl true
+  def execute(params, frame) do
+    result =
+      Wrapper.run(frame, params, "admin_close_initiative", fn actor, _ws, params ->
+        case Ash.get(Initiative, params["initiative_id"], actor: actor) do
+          {:ok, nil} ->
+            {:error, "initiative not found"}
+
+          {:ok, initiative} ->
+            Confirmation.request(
+              frame.assigns[:current_user],
+              "admin_close_initiative",
+              params,
+              "结束倡导活动「#{initiative.name}」（#{initiative.id}）：#{initiative.status} → closed"
+            )
+
+          {:error, _} ->
+            {:error, "failed to load initiative"}
+        end
+      end)
+
+    Cgc2046.Mcp.Tools.Response.to_response(result, frame)
+  end
+
+  @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
+  def execute_confirmed(actor, params) do
+    case Ash.get(Initiative, params["initiative_id"], actor: actor) do
+      {:ok, nil} ->
+        {:error, "initiative not found"}
+
+      {:ok, initiative} ->
+        case initiative |> Ash.Changeset.for_update(:close, %{}) |> Ash.update(actor: actor) do
+          {:ok, updated} -> H.row(updated, actor)
+          {:error, %Ash.Error.Invalid{} = error} -> {:error, Exception.message(error)}
+          {:error, _} -> {:error, "failed to close initiative"}
+        end
+
+      {:error, _} ->
+        {:error, "failed to load initiative"}
+    end
+  end
+end

@@ -19,6 +19,7 @@ import {
   type ParticipationEnrollment,
   type ParticipationSponsorship,
 } from "@/lib/graphql/participations";
+import CheckInCodeCard from "@/components/check-in-code-card";
 import SitePage from "@/components/site-page";
 
 const ACTIVE_STATUSES = new Set(["pending", "payment_pending", "confirmed"]);
@@ -152,6 +153,30 @@ function EnrollmentCard({
         </span>
       </div>
 
+      {canCancel && row.registrationDeadline ? (
+        <p
+          className="mt-3 text-[13px] text-ink-3"
+          data-testid={`cancel-deadline-${row.id}`}
+        >
+          {t("selfCancelDeadline", { time: formatDateTime(row.registrationDeadline) })}
+        </p>
+      ) : null}
+      {canCancel && row.paymentMode === "deposit" ? (
+        <p
+          className="mt-1 text-[13px] text-amber-300"
+          data-testid={`deposit-refund-rule-${row.id}`}
+        >
+          {t("depositRefundRule")}
+        </p>
+      ) : null}
+
+      {row.status === "confirmed" && row.eventId && row.checkInCode ? (
+        <CheckInCodeCard
+          code={row.checkInCode}
+          eventId={row.eventId}
+          paymentMode={row.paymentMode ?? null}
+        />
+      ) : null}
       {row.status === "confirmed" && row.courseId ? (
         <div className="mt-3">
           <Link

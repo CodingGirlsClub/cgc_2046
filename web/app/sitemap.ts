@@ -23,6 +23,7 @@ const STATIC_PATHS: ReadonlyArray<{
 	{ path: "/", changeFrequency: "weekly", priority: 1 },
 	{ path: "/events", changeFrequency: "daily", priority: 0.8 },
 	{ path: "/courses", changeFrequency: "daily", priority: 0.8 },
+	{ path: "/initiatives", changeFrequency: "daily", priority: 0.8 },
 	{ path: "/login", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/register", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/privacy", changeFrequency: "yearly", priority: 0.2 },
@@ -60,7 +61,20 @@ const PUBLIC_SLUGS_QUERY = `
 	}
 `;
 
+// publicInitiatives 无 filter 参数（R5：open 先于 closed 全量返回，≤100），故按
+// status 在本地筛 open——closed 是留档页，不进 sitemap（与 listEvents 的
+// status: open 同口径）。**独立一条请求**：该字段是 non_null 根字段
+// （graphql_schema.ex:206，错误走 :208-211），Absinthe 会把非空根字段的错误
+// 上抛到 data=null——并进上一条查询会让 events/courses 的 slug 一起静默消失，
+// 而 HTTP 仍是 200、下面的 catch 永不触发。
+const PUBLIC_INITIATIVE_SLUGS_QUERY = `
+	query SitemapPublicInitiativeSlugs {
+		publicInitiatives { slug status }
+	}
+`;
+
 type SlugResults = { results?: Array<{ slug?: string | null }> | null } | null;
+type InitiativeSlugResults = Array<{ slug?: string | null; status?: string | null }> | null;
 
 function extractSlugs(node: SlugResults): string[] {
 	return (node?.results ?? [])
@@ -68,26 +82,38 @@ function extractSlugs(node: SlugResults): string[] {
 		.filter((s): s is string => typeof s === "string" && s.length > 0);
 }
 
-async function fetchPublicSlugs(): Promise<{
-	events: string[];
-	courses: string[];
-}> {
+function extractOpenInitiativeSlugs(node: InitiativeSlugResults): string[] {
+	return (node ?? [])
+		.filter((r) => r?.status === "open")
+		.map((r) => r?.slug)
+		.filter((s): s is string => typeof s === "string" && s.length > 0);
+}
+
+function backendUrl(): string {
 	// server 运行时直连后端（与 next.config.ts rewrites 同源 env）
-	const backend = process.env.BACKEND_URL?.trim() || "http://localhost:4000";
-	const res = await fetch(`${backend}/api/graphql`, {
+	return process.env.BACKEND_URL?.trim() || "http://localhost:4000";
+}
+
+async function querySlugs<T>(query: string, pick: (data: Record<string, unknown>) => T): Promise<T> {
+	const res = await fetch(`${backendUrl()}/api/graphql`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ query: PUBLIC_SLUGS_QUERY }),
+		body: JSON.stringify({ query }),
 		signal: AbortSignal.timeout(5000),
 	});
 	if (!res.ok) throw new Error(`sitemap graphql upstream ${res.status}`);
-	const json = (await res.json()) as {
-		data?: { listEvents?: SlugResults; listCourses?: SlugResults };
-	};
-	return {
-		events: extractSlugs(json.data?.listEvents ?? null),
-		courses: extractSlugs(json.data?.listCourses ?? null),
-	};
+	const json = (await res.json()) as { data?: Record<string, unknown> | null };
+	return pick(json.data ?? {});
+}
+
+// 每个上游字段各自 try：任一根字段报错（含 non_null 导致 data=null）只丢自己那段，
+// 其余照常——sitemap 必须恒 200 且尽量完整。
+async function safeQuery<T>(fallback: T, run: () => Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch {
+		return fallback;
+	}
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -95,18 +121,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		entry(path, changeFrequency, priority),
 	);
 
-	try {
-		const { events, courses } = await fetchPublicSlugs();
-		return [
-			...staticEntries,
-			...events.map((slug) =>
-				entry(`/events/${encodeURIComponent(slug)}`, "weekly", 0.6),
+	const [offerings, initiatives] = await Promise.all([
+		safeQuery({ events: [] as string[], courses: [] as string[] }, () =>
+			querySlugs(PUBLIC_SLUGS_QUERY, (data) => ({
+				events: extractSlugs((data.listEvents ?? null) as SlugResults),
+				courses: extractSlugs((data.listCourses ?? null) as SlugResults),
+			})),
+		),
+		safeQuery([] as string[], () =>
+			querySlugs(PUBLIC_INITIATIVE_SLUGS_QUERY, (data) =>
+				extractOpenInitiativeSlugs((data.publicInitiatives ?? null) as InitiativeSlugResults),
 			),
-			...courses.map((slug) =>
-				entry(`/courses/${encodeURIComponent(slug)}`, "weekly", 0.6),
-			),
-		];
-	} catch {
-		return staticEntries;
-	}
+		),
+	]);
+
+	return [
+		...staticEntries,
+		...offerings.events.map((slug) =>
+			entry(`/events/${encodeURIComponent(slug)}`, "weekly", 0.6),
+		),
+		...offerings.courses.map((slug) =>
+			entry(`/courses/${encodeURIComponent(slug)}`, "weekly", 0.6),
+		),
+		...initiatives.map((slug) =>
+			entry(`/initiatives/${encodeURIComponent(slug)}`, "weekly", 0.6),
+		),
+	];
 }

@@ -782,6 +782,107 @@ defmodule Cgc2046.Admission.EnrollmentTest do
     end
   end
 
+  describe "押金场报名：payment_pending（U1，KTD2，AE3）" do
+    test "open 押金场：报名落 payment_pending，名额账本已占位" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1} |> Map.merge(deposit_attrs()))
+
+      learner = Fixtures.register_user("enrollment-deposit-open")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :payment_pending
+      assert enrollment.capacity_seq == 1
+      assert EventFixtures.ledger_occupancy(event) == 1
+    end
+
+    test "invite_only 押金场：持有效批次码报名 → payment_pending，批次配额扣减一次" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{enrollment_policy: :invite_only} |> Map.merge(deposit_attrs())
+        )
+
+      batch =
+        InviteBatch
+        |> Ash.Changeset.for_create(:create, %{
+          event_id: event.id,
+          invite_code: "DEPOSIT_INVITE",
+          quota: 2
+        })
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      learner = Fixtures.register_user("enrollment-deposit-invite")
+
+      assert {:ok, enrollment} =
+               create_enrollment(event, learner, %{invite_code: "DEPOSIT_INVITE"})
+
+      assert enrollment.status == :payment_pending
+      assert enrollment.capacity_seq == 1
+      assert enrollment.invite_batch_id == batch.id
+      assert Ash.get!(InviteBatch, batch.id, authorize?: false).remaining_quota == 1
+    end
+
+    test "request 押金场：报名 pending；审批通过 → payment_pending（不是 confirmed）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(
+          workspace,
+          admin,
+          %{enrollment_policy: :request, capacity: 1} |> Map.merge(deposit_attrs())
+        )
+
+      learner = Fixtures.register_user("enrollment-deposit-request")
+
+      assert {:ok, pending} = create_enrollment(event, learner)
+      assert pending.status == :pending
+      assert EventFixtures.ledger_occupancy(event) == 0
+
+      assert {:ok, payment_pending} = confirm(pending, admin)
+      assert payment_pending.status == :payment_pending
+      assert payment_pending.capacity_seq == 1
+      assert EventFixtures.ledger_occupancy(event) == 1
+    end
+
+    test "course 报名（表无押金列）：行为不变，SQL 不报列不存在" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{capacity: 1})
+      learner = Fixtures.register_user("enrollment-deposit-course")
+
+      assert {:ok, enrollment} = create_enrollment(course, learner)
+      assert enrollment.status == :confirmed
+      assert enrollment.capacity_seq == 1
+    end
+
+    test "押金场 payment_pending 超时：release_for_payment_expiry 释放名额" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{capacity: 1} |> Map.merge(deposit_attrs()))
+
+      learner = Fixtures.register_user("enrollment-deposit-expiry")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :payment_pending
+      assert EventFixtures.ledger_occupancy(event) == 1
+
+      assert :ok = Enrollment.release_for_payment_expiry(enrollment.id)
+
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :expired
+      assert EventFixtures.ledger_occupancy(event) == 0
+    end
+  end
+
   describe "waive_payment 免缴（R18，AE3 免缴半）" do
     setup do
       admin = Fixtures.platform_admin()
@@ -855,6 +956,34 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
       {:ok, request_pending} = create_enrollment(request_event, learner2)
       assert {:error, _} = waive(request_pending, ctx.admin)
+    end
+  end
+
+  describe "关闭押金同样触发免缴（KTD1/KTD3 计费槽关闭）" do
+    setup do
+      admin = Fixtures.platform_admin("deposit-off-admin")
+      workspace = Fixtures.create_workspace(admin)
+      %{admin: admin, workspace: workspace}
+    end
+
+    test "押金关闭：payment_pending 押金报名转免费确认 + 押金单作废 + 免缴审计", ctx do
+      event = EventFixtures.create_event(ctx.workspace, ctx.admin, deposit_attrs())
+      pending = for i <- 1..2, do: pending_deposit_enrollment(event, "off-deposit-#{i}")
+
+      assert {:ok, updated} = disable_deposit(event, ctx.admin)
+      assert updated.deposit_enabled == false
+
+      for enrollment <- pending do
+        reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+        assert reloaded.status == :confirmed
+        assert reloaded.approved_by == ctx.admin.id
+
+        order = reload_order_of(enrollment)
+        assert order.status == :cancelled
+        assert order.cancel_reason == "waived"
+      end
+
+      assert length(waive_logs()) >= 2
     end
   end
 
@@ -1062,6 +1191,185 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       assert reload_order_of(pending).status == :cancelled
     after
       Fake.reset!()
+    end
+  end
+
+  describe "核销码生成（U4，KTD5，R11）" do
+    @code_pattern ~r/^\d{6}$/
+
+    test "open 免费场：create 即落 6 位码（含前导零合法）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("code-free-open")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+      assert enrollment.check_in_code =~ @code_pattern
+
+      reloaded = Ash.get!(Enrollment, enrollment.id, authorize?: false)
+      assert reloaded.check_in_code == enrollment.check_in_code
+    end
+
+    test "open 押金场：payment_pending 创建时同场唯一码已占位" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, deposit_attrs())
+      learner = Fixtures.register_user("code-deposit-open")
+
+      assert {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :payment_pending
+      assert enrollment.check_in_code =~ @code_pattern
+    end
+
+    test "request 场：pending 创建时已占码，审批确认后不变" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{enrollment_policy: :request})
+
+      learner = Fixtures.register_user("code-request")
+
+      assert {:ok, pending} = create_enrollment(event, learner)
+      assert pending.status == :pending
+      assert pending.check_in_code =~ @code_pattern
+
+      assert {:ok, confirmed} = confirm(pending, admin)
+      assert confirmed.status == :confirmed
+      assert confirmed.check_in_code == pending.check_in_code
+    end
+
+    test "course 报名不生成码" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin)
+      learner = Fixtures.register_user("code-course")
+
+      assert {:ok, enrollment} = create_enrollment(course, learner)
+      assert enrollment.status == :confirmed
+      assert is_nil(enrollment.check_in_code)
+    end
+
+    test "同一 Event 两条报名码不同；不同 Event 可同码" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event_a = EventFixtures.create_event(workspace, admin, %{title: "A"})
+      event_b = EventFixtures.create_event(workspace, admin, %{title: "B"})
+
+      {:ok, first} = create_enrollment(event_a, Fixtures.register_user("code-same-1"))
+      {:ok, second} = create_enrollment(event_a, Fixtures.register_user("code-same-2"))
+
+      assert first.check_in_code =~ @code_pattern
+      assert second.check_in_code =~ @code_pattern
+      refute first.check_in_code == second.check_in_code
+
+      # 不同 Event 同码合法：A 场一条 + B 场一条同码共存（唯一索引按 (event_id, code)）
+      stale = Fixtures.register_user("code-cross")
+      {:ok, _a_row} = create_enrollment(event_a, stale)
+
+      {:ok, _} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          event_id: event_b.id,
+          user_id: Fixtures.register_user("code-cross-b").id
+        })
+        |> Ash.Changeset.force_change_attribute(:check_in_code, first.check_in_code)
+        |> Ash.create(tenant: workspace.id, actor: stale, authorize?: false)
+    end
+
+    test "同场全部候选码被预占 → 避碰 5 次失败，返回可重试业务错误，报名未落库" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("code-collision")
+
+      # 布置：直写一条同场报名占住 424242（create 路径的码由 prepare_create 生成，
+      # 注入值会被覆盖；避碰判据只看行上是否有该码，占用来源无关）
+      occupy_check_in_code!(event, Fixtures.register_user("code-collision-pre"), "424242")
+
+      # 码源钉死 424242 → 5 次避碰全部命中已占码
+      Cgc2046.RandomCode.stub_next(fn -> "424242" end)
+
+      assert {:error, %Ash.Error.Invalid{errors: [error | _]}} =
+               create_enrollment(event, learner)
+
+      assert %BusinessError{code: "enrollment_check_in_code_exhausted"} = error
+      assert Exception.message(error) =~ "check-in code"
+      assert Cgc2046.RandomCode.stub_calls() == 5
+      assert enrollment_count(event.id) == 1
+    end
+
+    test "同场同码第二次直写被唯一索引拒绝（避碰窗口外的兜底索引）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+
+      occupy_check_in_code!(event, Fixtures.register_user("code-index-1"), "654321")
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          occupy_check_in_code!(event, Fixtures.register_user("code-index-2"), "654321")
+        end
+
+      assert error.postgres.code == :unique_violation
+      assert error.postgres.constraint == "enrollments_unique_check_in_code_index"
+    end
+
+    test "兜底索引冲突映射为可重试业务错误（并发窗口形状）；其他唯一冲突仍为 duplicate_active" do
+      # 索引冲突只在避碰查询与唯一索引之间的并发窗口内可达（二者可见性同源，
+      # 单进程布置不出真实冲突），此处按 AshPostgres constraints_to_errors 的
+      # 真实形状钉住映射：约束名 + Ecto error_key（身份首列 event_id，非
+      # check_in_code）。索引本身存在性由上一用例证明。
+      changeset = Ash.Changeset.new(Enrollment)
+
+      code_conflict =
+        Ash.Error.Changes.InvalidAttribute.exception(
+          field: :event_id,
+          message: "has already been taken",
+          private_vars: [
+            constraint: "enrollments_unique_check_in_code_index",
+            constraint_type: :unique,
+            detail: "Key (workspace_id, event_id, check_in_code)=(...) already exists."
+          ]
+        )
+
+      assert %BusinessError{code: "enrollment_check_in_code_exhausted"} =
+               Enrollment.handle_create_error(changeset, Ash.Error.to_ash_error(code_conflict))
+
+      duplicate_conflict =
+        Ash.Error.Changes.InvalidAttribute.exception(
+          field: :event_id,
+          message: "has already been taken",
+          private_vars: [
+            constraint: "enrollments_unique_event_user_index",
+            constraint_type: :unique
+          ]
+        )
+
+      assert %BusinessError{code: "enrollment_duplicate_active"} =
+               Enrollment.handle_create_error(
+                 changeset,
+                 Ash.Error.to_ash_error(duplicate_conflict)
+               )
+    end
+
+    test "非 6 位数字的注入码被规格校验拒绝（防御手写列之外的写面）" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin)
+      learner = Fixtures.register_user("code-format")
+
+      assert {:error, _} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 event_id: event.id,
+                 user_id: learner.id
+               })
+               |> Ash.Changeset.force_change_attribute(:check_in_code, "ABC123")
+               |> Ash.create(tenant: workspace.id, actor: learner, authorize?: false)
+
+      assert enrollment_count(event.id) == 0
     end
   end
 
@@ -1280,6 +1588,13 @@ defmodule Cgc2046.Admission.EnrollmentTest do
     }
   end
 
+  # 押金场布置（U1/KTD2）：无定价无档位，押金 ¥69（KTD3 互斥校验属 U3，此处
+  # 布置仅靠「不传 pricing_enabled」保持默认 false）；KTD7 锚点校验要求押金场
+  # ends_at 非空（U3 校验已在工作区落地）。
+  defp deposit_attrs do
+    %{deposit_enabled: true, deposit_amount_cents: 6900, ends_at: EventFixtures.days_from_now(8)}
+  end
+
   defp enrollment_count(event_id) do
     %{rows: [[count]]} =
       Ecto.Adapters.SQL.query!(
@@ -1289,6 +1604,24 @@ defmodule Cgc2046.Admission.EnrollmentTest do
       )
 
     count
+  end
+
+  # 核销码占用布置（U4）：直写一行占住指定码——create 路径的码由 prepare_create
+  # 生成（注入会被覆盖），而避碰/索引判据只看行上的码，写入路径无关。
+  defp occupy_check_in_code!(event, user, code) do
+    Ecto.Adapters.SQL.query!(
+      Cgc2046.Repo,
+      """
+      INSERT INTO enrollments (workspace_id, event_id, user_id, status, check_in_code, inserted_at, updated_at)
+      VALUES ($1, $2, $3, 'confirmed', $4, NOW(), NOW())
+      """,
+      [
+        Ecto.UUID.dump!(event.workspace_id),
+        Ecto.UUID.dump!(event.id),
+        Ecto.UUID.dump!(user.id),
+        code
+      ]
+    )
   end
 
   # ── 关闭收费批量（U3）布置 ──
@@ -1324,6 +1657,19 @@ defmodule Cgc2046.Admission.EnrollmentTest do
   defp disable_pricing(target, actor) do
     target
     |> Ash.Changeset.for_update(:update, %{pricing_enabled: false})
+    |> Ash.update(tenant: target.workspace_id, actor: actor)
+  end
+
+  # 押金待付报名（U1/KTD2 落 payment_pending；无档位，押金单金额取快照）
+  defp pending_deposit_enrollment(target, suffix) do
+    {:ok, enrollment} = create_enrollment(target, Fixtures.register_user(suffix), %{})
+    _order = create_pending_order(enrollment)
+    enrollment
+  end
+
+  defp disable_deposit(target, actor) do
+    target
+    |> Ash.Changeset.for_update(:update, %{deposit_enabled: false})
     |> Ash.update(tenant: target.workspace_id, actor: actor)
   end
 

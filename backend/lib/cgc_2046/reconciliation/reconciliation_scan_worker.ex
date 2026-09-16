@@ -22,7 +22,8 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定；
      Curriculum.Instantiator 二次校验与 INSERT 竞态 / reaper cancel 失败残余窗口兜底）
-  6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker）。
+  6. `:dead_letter_job` — 死信 job（SignalPublishWorker / NotificationWorker /
+     DeliveryWorker / DepositForfeitWorker；末位为押金 no-show 结算，KTD7）。
      **Pruner 7 天窗口内判定**：oban_jobs 超出 Pruner max_age（7 天）的 discarded
      历史行不报告——死信告警只覆盖可排查窗口，历史已过期行交给 Pruner 清理。
   7. `:learning_run_stalled` — learning run 停滞（E-9 #122 补差）：
@@ -80,10 +81,14 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # 规3/6 判定的信号族 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）
+  # 规3/6 判定的 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）。
+  # 押金 no-show 结算（KTD7）同列：其死信 = 连续三拍结算硬失败，虽由下一拍 cron
+  # 自愈，但资金终态滞留窗口必须在 /admin 对账页可见（不静默）。
   @dead_letter_workers [
     "Cgc2046.Workflows.SignalPublishWorker",
-    "Cgc2046.Notifications.NotificationWorker"
+    "Cgc2046.Notifications.NotificationWorker",
+    "Cgc2046.Notifications.Workers.DeliveryWorker",
+    "Cgc2046.Payments.Workers.DepositForfeitWorker"
   ]
 
   # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数
@@ -138,96 +143,18 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       {:capacity_projection_drift, fn -> scan_rule10() end},
       {:occupancy_exceeds_capacity, fn -> scan_rule11() end},
       {:ledger_cache_drift, fn -> scan_rule12() end},
-      {:fund_action_burst, fn -> scan_rule13() end}
+      {:fund_action_burst, fn -> scan_rule13() end},
+      {:notification_delivery_failed, fn -> scan_rule15() end}
     ]
   end
 
-  # ── 刷新语义（D2）：命中 upsert + 本次未命中删除 ------------------------------
+  # ── 刷新语义（D2）：命中 upsert + 本次未命中删除（单源见 Finding.apply_rule/3）──
 
   defp apply_rule(rule, candidates) do
-    Enum.each(candidates, &upsert_finding(rule, &1))
-    delete_stale(rule, candidates)
-  end
-
-  defp upsert_finding(rule, candidate) do
-    case existing_finding(rule, candidate.entity_type, candidate.entity_id) do
-      nil ->
-        result =
-          Finding
-          |> Ash.Changeset.for_create(:create, %{
-            rule: rule,
-            entity_type: candidate.entity_type,
-            entity_id: candidate.entity_id,
-            workspace_id: candidate.workspace_id,
-            detail: candidate.detail
-          })
-          |> Ash.create(authorize?: false)
-
-        maybe_warn_new(rule, candidate, result)
-        handle_write(result, rule, candidate.entity_type, candidate.entity_id)
-
-      finding ->
-        finding
-        |> Ash.Changeset.for_update(:refresh, %{
-          workspace_id: candidate.workspace_id,
-          detail: candidate.detail
-        })
-        |> Ash.update(authorize?: false)
-        |> handle_write(rule, candidate.entity_type, candidate.entity_id)
-    end
-  end
-
-  defp handle_write(result, rule, entity_type, entity_id) do
-    case result do
-      {:ok, _} ->
-        :ok
-
-      {:error, error} ->
-        Logger.warning(
-          "reconciliation: #{rule} upsert failed for #{entity_type} #{entity_id}: #{inspect(error)}"
-        )
-
-        :ok
-    end
-  end
-
-  defp existing_finding(rule, entity_type, entity_id) do
-    case Finding
-         |> Ash.Query.filter(
-           rule == ^rule and entity_type == ^entity_type and entity_id == ^entity_id
-         )
-         |> Ash.read_one(authorize?: false) do
-      {:ok, finding} -> finding
-      {:error, _error} -> nil
-    end
-  end
-
-  # 本次未命中的行删除：无孤儿 → 空报告由结构保证
-  defp delete_stale(rule, candidates) do
-    current =
-      MapSet.new(candidates, fn candidate ->
-        {candidate.entity_type, candidate.entity_id}
-      end)
-
-    Finding
-    |> Ash.Query.filter(rule == ^rule)
-    |> Ash.read!(authorize?: false)
-    |> Enum.each(fn finding ->
-      key = {finding.entity_type, finding.entity_id}
-
-      unless MapSet.member?(current, key) do
-        case Ash.destroy(finding, authorize?: false) do
-          :ok ->
-            :ok
-
-          {:error, error} ->
-            Logger.warning(
-              "reconciliation: #{rule} stale delete failed for #{finding.entity_type} " <>
-                "#{finding.entity_id}: #{inspect(error)}"
-            )
-        end
-      end
-    end)
+    Finding.apply_rule(rule, candidates,
+      log_prefix: "reconciliation",
+      on_create: fn rule, candidate, result -> maybe_warn_new(rule, candidate, result) end
+    )
   end
 
   # ── 规1：confirmed enrollment 无 learning run -------------------------------
@@ -853,6 +780,41 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
             end),
           "window_seconds" => window,
           "threshold" => threshold
+        }
+      }
+    end)
+  end
+
+  # ── 规15（#556）：通知 outbox 终态失败面 ----------------------------------
+  # 24h 内落 :failed 的 notification_deliveries 行逐行出 Finding（终态化本体
+  # 在 DeliveryWorker 末拍）；窗口语义自清——超窗未命中删除（finding 消失 =
+  # 失败已陈旧，与 Oban Pruner 窗口注释同义）。
+  @notification_failed_window_seconds 86_400
+
+  defp scan_rule15 do
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT id::text, template_key, platform, last_error, attempts
+        FROM notification_deliveries
+        WHERE status = 'failed'
+          AND updated_at > NOW() - ($1 || ' seconds')::interval
+        ORDER BY updated_at DESC
+        """,
+        [Integer.to_string(@notification_failed_window_seconds)]
+      )
+
+    Enum.map(rows, fn [id, template_key, platform, last_error, attempts] ->
+      %{
+        entity_type: :notification_delivery,
+        entity_id: id,
+        workspace_id: nil,
+        detail: %{
+          "template_key" => template_key,
+          "platform" => platform,
+          "last_error" => last_error,
+          "attempts" => attempts,
+          "window_seconds" => @notification_failed_window_seconds
         }
       }
     end)

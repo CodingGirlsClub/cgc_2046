@@ -19,8 +19,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import QRCode from "qrcode";
 import { client } from "@/lib/apollo-client";
+import { useQrDataUrl } from "@/lib/use-qr-data-url";
 import {
   CREATE_ORDER,
   MY_PENDING_ORDERS,
@@ -36,6 +36,7 @@ import {
   countdownText,
   dispatchCredential,
   formatAmount,
+  formatAmountShort,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -63,7 +64,9 @@ type CheckoutOrder = Pick<
   "id" | "provider" | "status" | "amountCents" | "expireAt" | "outTradeNo"
 >;
 
-type Phase = "checking" | "paying" | "error";
+// U1：押金场开框先停在「以到场为退还条件」确认态（consent），确认后才进入
+// checking（复用活单或初始下单）——未确认前不产生任何渠道单/凭据
+type Phase = "consent" | "checking" | "paying" | "error";
 
 export interface PaymentCheckoutDialogProps {
   /** payment_pending 报名 id（承接其下单/复用活单） */
@@ -75,6 +78,11 @@ export interface PaymentCheckoutDialogProps {
   amountCents?: number | null;
   /** 所选档位名（头部展示；复访承接时可不传） */
   tierName?: string | null;
+  /**
+   * 押金金额（分；R10/KTD10）。传值 = 押金场收银：框内明示「押金 ¥xx（到场退）」与
+   * 「未到场不退」，并在订单就绪前以其作头部金额（押金场无档位，amountCents 为空）。
+   */
+  depositAmountCents?: number | null;
   /** 活动标题（头部展示） */
   title?: string | null;
 }
@@ -85,19 +93,23 @@ export default function PaymentCheckoutDialog({
   onPaid,
   amountCents: amountHintCents = null,
   tierName = null,
+  depositAmountCents = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("checkout");
   const labelsT = useTranslations();
-  const [phase, setPhase] = useState<Phase>("checking");
+  const [phase, setPhase] = useState<Phase>(
+    depositAmountCents != null ? "consent" : "checking",
+  );
+  // U1：押金确认勾选（本框生命周期内一次性；重开框重置）
+  const [depositAck, setDepositAck] = useState(false);
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [credential, setCredential] = useState<unknown>(null);
   const [provider, setProvider] = useState<PaymentProvider | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [generatedQr, setGeneratedQr] = useState<string | null>(null);
 
   // 回调经 ref 隔离：paid 效果只依赖 paid 布尔，不随父级重渲重触发
   //（赋值收进 effect——React Compiler 禁止渲染期写 ref）
@@ -185,8 +197,12 @@ export default function PaymentCheckoutDialog({
     [enrollmentId, title, t, translatePaymentError],
   );
 
-  // 开框初始化（一次）：复用活单 or 初始下单
+  // 开框初始化（一次）：复用活单 or 初始下单。押金场（U1）由 consent 确认后
+  // setPhase("checking") 触发；initializedRef 保证只初始化一次
+  const initializedRef = useRef(false);
   useEffect(() => {
+    if (phase !== "checking" || initializedRef.current) return;
+    initializedRef.current = true;
     let cancelled = false;
     (async () => {
       let pending: CheckoutOrder | null = null;
@@ -217,7 +233,7 @@ export default function PaymentCheckoutDialog({
     return () => {
       cancelled = true;
     };
-  }, [enrollmentId, title, createOrder]);
+  }, [phase, enrollmentId, title, createOrder]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
@@ -282,22 +298,7 @@ export default function PaymentCheckoutDialog({
     [credential],
   );
 
-  useEffect(() => {
-    if (dispatch.mode !== "qr") return;
-    let cancelled = false;
-    QRCode.toDataURL(dispatch.url, { width: 200, margin: 1 })
-      .then((url) => {
-        if (!cancelled) setGeneratedQr(url);
-      })
-      .catch(() => {
-        if (!cancelled) setGeneratedQr(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch]);
-
-  const qrDataUrl = dispatch.mode === "qr" ? generatedQr : null;
+  const qrDataUrl = useQrDataUrl(dispatch.mode === "qr" ? dispatch.url : null, 200);
   const remain = countdownText(nowMs, order?.expireAt, t("countdownExpired"));
   const expired = remain === t("countdownExpired") && !paid;
   // 复用活单但凭据丢失（sessionStorage 焚毁/跨 tab 下单）：换渠道恢复引导
@@ -306,7 +307,7 @@ export default function PaymentCheckoutDialog({
     dispatch.mode === "unsupported" &&
     credential === null &&
     status === "pending";
-  const amountCents = order?.amountCents ?? amountHintCents;
+  const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
 
   return (
     <div
@@ -362,7 +363,46 @@ export default function PaymentCheckoutDialog({
           </div>
         </div>
 
-        {paid ? (
+        {depositAmountCents != null ? (
+          // R10/KTD10：押金场收银框内明示押金口径与未到场不退（报名流程内披露）
+          <p
+            className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
+            data-testid="checkout-deposit-note"
+          >
+            {t("depositLine", {
+              amount: formatAmountShort(depositAmountCents),
+            })}
+            <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
+          </p>
+        ) : null}
+
+        {phase === "consent" ? (
+          // U1：押金以到场为退还条件——付款前的显式确认（勾选后才能下单）
+          <div
+            className="grid gap-3 py-2"
+            data-testid="checkout-deposit-consent"
+          >
+            <label className="flex items-start gap-2 text-[13px] leading-5 text-ink-2">
+              <input
+                type="checkbox"
+                checked={depositAck}
+                onChange={(e) => setDepositAck(e.target.checked)}
+                data-testid="checkout-deposit-consent-checkbox"
+                className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+              />
+              <span>{t("depositAckLabel")}</span>
+            </label>
+            <button
+              type="button"
+              disabled={!depositAck}
+              onClick={() => setPhase("checking")}
+              data-testid="checkout-deposit-consent-button"
+              className="join-button join-button--primary disabled:opacity-50"
+            >
+              {t("depositAckButton")}
+            </button>
+          </div>
+        ) : paid ? (
           <div
             className="grid justify-items-center gap-2 py-8"
             data-testid="checkout-paid"

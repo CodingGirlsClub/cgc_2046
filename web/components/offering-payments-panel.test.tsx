@@ -113,7 +113,8 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			filter: {
 				eventId: { eq: "ev-1" },
 				status: {
-					in: ["pending", "paid", "refunding", "refund_failed", "refunded"],
+					// 默认视图含 no-show 结算态（forfeited）：押金场没收的笔数不能让操作者看不见
+					in: ["pending", "paid", "refunding", "refund_failed", "refunded", "forfeited"],
 				},
 			},
 			first: 20,
@@ -290,6 +291,60 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		);
 
 		expect(await screen.findByTestId("offering-free-status")).toBeInTheDocument();
+
+		// 押金场（pricingEnabled=false 但属收款面）→ 不得收敛为免费态：
+		// 否则组织者在自己刚配好的押金场上看不到订单/统计（grok P1）
+		cleanup();
+		client.query
+			.mockReset()
+			.mockResolvedValueOnce(ordersPayload([]))
+			.mockResolvedValueOnce(statsPayload(0, 0, 0));
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-1"
+				kind="event"
+				manage
+				pricingEnabled={false}
+				depositEnabled
+			/>,
+		);
+
+		expect(await screen.findByTestId("offering-payments-panel")).toBeInTheDocument();
+		expect(screen.queryByTestId("offering-free-status")).not.toBeInTheDocument();
+	});
+
+	it("押金 no-show 没收在统计里可见（forfeited 桶单列，不从「已收」消失）", async () => {
+		vi.clearAllMocks();
+		client.query
+			.mockResolvedValueOnce(ordersPayload([]))
+			.mockResolvedValueOnce({
+				data: {
+					workspacePaymentStats: JSON.stringify({
+						collected_cents: 0,
+						pending_cents: 0,
+						refunded_cents: 0,
+						refund_failed_cents: 0,
+						forfeited_cents: 6900,
+					}),
+				},
+			});
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-1"
+				kind="event"
+				manage
+				pricingEnabled={false}
+				depositEnabled
+			/>,
+		);
+
+		expect(await screen.findByText("未到场不退（平台收入）")).toBeInTheDocument();
+		// 桶里有值（6900 分 → StatCard 的 ¥ 金额文案）
+		expect(screen.getByText(/^¥69/)).toBeInTheDocument();
 
 		// F13：免费态但有已付订单（关闭收费故意保留）→ 完整面板（退款可操作）
 		cleanup();

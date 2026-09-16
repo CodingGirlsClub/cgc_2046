@@ -76,7 +76,7 @@ export const CatalogSearchQueryDocument = /* GraphQL */ `
 
 export const EventDetailQueryDocument = /* GraphQL */ `
   query EventDetail($id: ID!) {
-    getEvent(id: $id, filter: { status: { eq: "open" }, visibility: { eq: "public" } }) {
+    getEvent(id: $id, filter: { status: { in: ["open", "closed", "cancelled"] }, visibility: { eq: "public" } }) {
       id
       title
       status
@@ -84,10 +84,17 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       registrationDeadline
       pricingEnabled
       availablePriceTiers
+      depositEnabled
+      depositAmountCents
       startsAt
       endsAt
       venue
       enrollmentBadge
+      qualificationBadge
+      shortBy
+      # 阶段1：挂载 Initiative 的活动带出隶属 id（公开字段白名单内，匿名可读）；
+      # 详情页据此渲染「所属倡导活动」回链
+      initiativeId
     }
     # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
     myEnrollment(kind: "event", offeringId: $id) {
@@ -176,6 +183,9 @@ export const MyEnrollmentsQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
+        paymentMode
+        registrationDeadline
       }
     }
   }
@@ -200,6 +210,9 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         expiredAt
         cancelledAt
         insertedAt
+        checkInCode
+        paymentMode
+        registrationDeadline
       }
     }
   }
@@ -354,6 +367,7 @@ export const CreateOrderMutationDocument = /* GraphQL */ `
         amountCents
         status
         expireAt
+        orderKind
       }
       errors {
         message
@@ -374,6 +388,7 @@ export const OrderStatusQueryDocument = /* GraphQL */ `
       transactionId
       amountCents
       expireAt
+      orderKind
     }
   }
 `
@@ -388,6 +403,65 @@ export const MyOrdersQueryDocument = /* GraphQL */ `
         status
         amountCents
         expireAt
+        orderKind
+      }
+    }
+  }
+`
+
+export const PublicInitiativesQueryDocument = /* GraphQL */ `
+  query PublicInitiatives {
+    publicInitiatives { id name slug hashtag status description windowStartsAt windowEndsAt }
+  }
+`
+
+// #508-A：主理人核销（Admission.Attendance 手写 mutation，成功判据 = enrollmentId
+// 非空；业务失败进 errors 带领域 code——码无效/已核销/押金已结算/无权限）
+export const CheckInEnrollmentMutationDocument = /* GraphQL */ `
+  mutation CheckInEnrollment($eventId: ID!, $code: String!, $method: String!) {
+    checkInEnrollment(eventId: $eventId, code: $code, method: $method) {
+      enrollmentId
+      checkedInAt
+      method
+      depositRefund
+      errors {
+        message
+        code
+      }
+    }
+  }
+`
+
+// #508-A：核销入口的成员面探测——workspace_id 是 Event 的 field_policy 收窄字段
+// （仅本 workspace 成员/平台管理员可选中）：匿名/非成员请求整体 forbidden_field，
+// 调用方按「非运营角色」隐藏入口。成员可读 closed（现场核销时活动通常已截止）。
+export const EventModerationScopeQueryDocument = /* GraphQL */ `
+  query EventModerationScope($id: ID!) {
+    getEvent(id: $id) {
+      id
+      workspaceId
+    }
+  }
+`
+
+// #558 后续：非管理角色主理人的入口判定——主理人或 Owner/Admin 可读（后端
+// Moderators.list 走 can_moderate?）；普通成员 forbidden，调用方按 false 收敛
+export const EventModeratorsQueryDocument = /* GraphQL */ `
+  query EventModerators($workspaceId: ID!, $eventId: ID!) {
+    eventModerators(workspaceId: $workspaceId, eventId: $eventId) {
+      userId
+    }
+  }
+`
+
+export const PublicInitiativeQueryDocument = /* GraphQL */ `
+  query PublicInitiative($slug: String!) {
+    publicInitiative(slug: $slug) {
+      id name slug hashtag description status windowStartsAt windowEndsAt
+      cityCount eventCount confirmedCount qualifiedEventCount
+      cities {
+        city
+        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy }
       }
     }
   }

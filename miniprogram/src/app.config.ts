@@ -3,6 +3,7 @@ const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 const cutPages = [
   'pages/discover/index',
+  'pages/initiative-detail/index',
   'pages/my-enrollments/index',
   'pages/event-detail/index',
   'pages/login/index',
@@ -13,6 +14,7 @@ const cutPages = [
 
 const fullPages = [
   'pages/discover/index',
+  'pages/initiative-detail/index',
   'pages/event-detail/index',
   'pages/login/index',
   'pages/register-form/index',
@@ -23,7 +25,9 @@ const fullPages = [
   'pages/workspace/index',
   'pages/profile/index',
   'pages/join/index',
-  'pages/openclacky/index'
+  'pages/openclacky/index',
+  // #508-A：主理人现场核销（管理面，裁剪端不挂）
+  'pages/check-in/index'
 ]
 
 const cutTabList = [

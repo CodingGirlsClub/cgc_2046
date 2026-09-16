@@ -20,8 +20,10 @@ if System.get_env("PHX_SERVER") do
   config :cgc_2046, Cgc2046Web.Endpoint, server: true
 end
 
+# Paseo worktree 并行隔离：service 注入 PASEO_PORT（每 worktree 独立端口）；
+# 生产/Kamal 沿用 PORT，本地缺省 4000。runtime 每次启动求值，覆盖 dev/test 的静态值。
 config :cgc_2046, Cgc2046Web.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  http: [port: String.to_integer(System.get_env("PASEO_PORT") || System.get_env("PORT", "4000"))]
 
 # 生产只读 release 内构建期复制的私有 tutor 增量；开发环境可显式指向私有仓库的
 # playbooks 子目录。test.exs 使用固定不存在目录，runtime 不得覆盖。
@@ -181,7 +183,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -198,7 +206,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -215,7 +229,13 @@ if config_env() == :prod do
       "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED"),
       # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
       "payment_received" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_RECEIVED"),
-      "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED")
+      "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED"),
+      "event_qualification_confirmed" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
+      "event_qualification_underfilled" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
+      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
     }
   }
 

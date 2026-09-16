@@ -7,7 +7,8 @@ defmodule Cgc2046.Reconciliation.Finding do
   命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
   「无孤儿 → 空报告」由结构保证。
 
-  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移）
+  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移；
+  13 = R3 资金写频次；14 = 押金 no-show 结算无锚）
 
   1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
      （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
@@ -24,8 +25,8 @@ defmodule Cgc2046.Reconciliation.Finding do
      始于 launched，draft 期无断流，不扩）
   5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
      仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
-  6. `:dead_letter_job` — 信号族死信（SignalPublishWorker / NotificationWorker，
-     Pruner 7 天窗口内判定，moduledoc 见 worker）
+  6. `:dead_letter_job` — 死信 job（SignalPublishWorker / NotificationWorker /
+     DeliveryWorker / DepositForfeitWorker，Pruner 7 天窗口内判定，moduledoc 见 worker）
   7. `:learning_run_stalled` — learning run 停滞（`status=running` 且最后活动时间
      （S8：最新 attempt created_at，零 attempt 回退 inserted_at）严格早于
      `Cgc2046.Learning.Runs.stagnant_cutoff/1`；与 LearningProgressWorker
@@ -47,6 +48,13 @@ defmodule Cgc2046.Reconciliation.Finding do
       资金写治理动作（:order_refund / :order_refund_retry / :waive_payment）
       超阈值（默认 1h / 5 笔，app env 可调）；entity = 操作人（:user），
       detail 带 per-action 计数；纯查询告警面，不含处置语义
+  14. `:deposit_settlement_unanchored` — 押金 no-show 结算无锚（KTD7）：`closed`
+     场 `ends_at` 为空而名下仍有 paid 押金单——结算锚点缺失、订单会静默滞留。
+     由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 产出（非本扫描 worker
+     的规则表），刷新语义同 D2（命中 upsert / 未命中删除），entity = 场（:event）
+  15. `:notification_delivery_failed` — 通知 outbox 终态失败面（#556）：24h 内
+     落 `:failed` 的 notification_deliveries 行逐行出 Finding（entity =
+     :notification_delivery），窗口语义自清；终态化本体在 DeliveryWorker 末拍
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -63,6 +71,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Reconciliation
+
+  require Logger
+  require Ash.Query
 
   @rule_values [
     :confirmed_enrollment_without_run,
@@ -86,13 +97,119 @@ defmodule Cgc2046.Reconciliation.Finding do
     # ADR-0009 Fable 5 HIGH-1：账本缓存 vs offering 真值的上游漂移看护
     :ledger_cache_drift,
     # 规13（R3）：资金写动作频次告警（同 actor 窗口内同类资金写超阈值）
-    :fund_action_burst
+    :fund_action_burst,
+    # 规14（U8/KTD7）：押金 no-show 结算无锚（closed 场 ends_at 为空而仍有
+    # paid 押金单；由 DepositForfeitWorker 产出，非本扫描 worker 的规则表）
+    :deposit_settlement_unanchored,
+    # 规15（#556）：通知 outbox 终态失败面——24h 内落 :failed 的
+    # notification_deliveries 行（末拍终态化由 DeliveryWorker 承担）；窗口
+    # 语义自清（超窗未命中删除，与 Oban Pruner 窗口注释同义）
+    :notification_delivery_failed
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）
   @doc false
   @spec rule_values() :: [atom()]
   def rule_values, do: @rule_values
+
+  @doc """
+  D2 刷新语义的共享驱动：命中 upsert（保 `first_seen_at`、刷 `last_seen_at`）、
+  本次未命中删除。
+
+  `candidates` 为 map 列表（`entity_type` / `entity_id` / `workspace_id` / `detail`）。
+  `opts`：
+
+  - `:log_prefix` — 警告日志前缀（默认 `"reconciliation"`）
+  - `:on_create` — `(rule, candidate, result) -> any`，create 尝试后的回调
+    （扫描侧与押金侧各自发「首次发现」warning）
+
+  一拍只读一次同规则 findings，既用于 upsert 判定也用于 stale 清理：同规则只有
+  一个写入者（各 worker 规则互斥），拍内无并发同规则写者，与逐候选读等价。
+  写失败只 warning 不上抛（本函数不回滚扫描拍）；`Ash.read!` 失败按原语义上抛。
+  """
+  @spec apply_rule(atom(), [map()], keyword()) :: :ok
+  def apply_rule(rule, candidates, opts \\ []) do
+    prefix = Keyword.get(opts, :log_prefix, "reconciliation")
+    on_create = Keyword.get(opts, :on_create)
+    findings = findings_by_entity(rule)
+
+    Enum.each(candidates, &upsert_finding(rule, &1, findings, prefix, on_create))
+    delete_stale(rule, candidates, findings, prefix)
+
+    :ok
+  end
+
+  defp findings_by_entity(rule) do
+    __MODULE__
+    |> Ash.Query.filter(rule == ^rule)
+    |> Ash.read!(authorize?: false)
+    |> Map.new(fn finding -> {{finding.entity_type, finding.entity_id}, finding} end)
+  end
+
+  defp upsert_finding(rule, candidate, findings, prefix, on_create) do
+    key = {candidate.entity_type, candidate.entity_id}
+
+    case Map.get(findings, key) do
+      nil ->
+        result =
+          __MODULE__
+          |> Ash.Changeset.for_create(:create, %{
+            rule: rule,
+            entity_type: candidate.entity_type,
+            entity_id: candidate.entity_id,
+            workspace_id: candidate.workspace_id,
+            detail: candidate.detail
+          })
+          |> Ash.create(authorize?: false)
+
+        if on_create, do: on_create.(rule, candidate, result)
+        handle_write(result, rule, prefix, candidate.entity_type, candidate.entity_id)
+
+      finding ->
+        finding
+        |> Ash.Changeset.for_update(:refresh, %{
+          workspace_id: candidate.workspace_id,
+          detail: candidate.detail
+        })
+        |> Ash.update(authorize?: false)
+        |> handle_write(rule, prefix, candidate.entity_type, candidate.entity_id)
+    end
+  end
+
+  defp handle_write(result, rule, prefix, entity_type, entity_id) do
+    case result do
+      {:ok, _} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning(
+          "#{prefix}: #{rule} upsert failed for #{entity_type} #{entity_id}: #{inspect(error)}"
+        )
+
+        :ok
+    end
+  end
+
+  # 本次未命中的行删除：无孤儿 → 空报告由结构保证
+  defp delete_stale(rule, candidates, findings, prefix) do
+    current =
+      MapSet.new(candidates, fn candidate -> {candidate.entity_type, candidate.entity_id} end)
+
+    Enum.each(findings, fn {{entity_type, entity_id} = key, finding} ->
+      unless MapSet.member?(current, key) do
+        case Ash.destroy(finding, authorize?: false) do
+          :ok ->
+            :ok
+
+          {:error, error} ->
+            Logger.warning(
+              "#{prefix}: #{rule} stale delete failed for #{entity_type} #{entity_id}: " <>
+                "#{inspect(error)}"
+            )
+        end
+      end
+    end)
+  end
 
   @entity_type_values [
     :enrollment,
@@ -105,7 +222,9 @@ defmodule Cgc2046.Reconciliation.Finding do
     :workflow_run,
     :payment_order,
     # 规13 的操作人（actor）实体
-    :user
+    :user,
+    # 规15 的通知投递行（notification_deliveries）
+    :notification_delivery
   ]
 
   attributes do

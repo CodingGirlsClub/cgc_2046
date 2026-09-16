@@ -51,6 +51,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # 路由：学员类 → 我的报名；管理类 → 工作台（审批待办在那）；裁剪端无
   # workspace/profile tab，一律落我的报名。小程序码：join 三端都注册且消费
   # scene（miniprogram/src/app.tsx useLaunch → pendingScene → join）。
+  # 主理人指派（#558 后续）：深链到活动详情页（带 event_id）——被指派者点开
+  # 即见「扫码核销」入口（canModerateEvent 门），指派这一刻就成为入口。
   @learner_templates ~w(approval_result enrollment_completed payment_succeeded
                          payment_expired refund_succeeded refund_failed
                          event_reminder learning_stagnation)
@@ -60,14 +62,25 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # 权威页，多数方（管理者）可从 workspace  speakers 面板查看。
   @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted)
 
-  defp notification_page(platform, template_key) do
+  defp notification_page(platform, template_key, data) do
     cond do
       # 裁剪端（tt/xhs）仅注册「发现/我的报名」两 tab（app.config.ts cutPages）
-      platform in [:tt, :xhs] -> "pages/my-enrollments/index"
-      template_key in @learner_templates -> "pages/my-enrollments/index"
-      template_key in @manager_templates -> "pages/workspace/index"
+      platform in [:tt, :xhs] ->
+        "pages/my-enrollments/index"
+
+      # 深链仅在 data 带 event_id 时成立；缺失回落通用路由（不拼坏 URL）
+      template_key == "event_moderator_assigned" and is_binary(data["event_id"]) ->
+        "pages/event-detail/index?id=#{data["event_id"]}&kind=event"
+
+      template_key in @learner_templates ->
+        "pages/my-enrollments/index"
+
+      template_key in @manager_templates ->
+        "pages/workspace/index"
+
       # speaker_completed（双受众）与未知模板：维持原落页（profile 本机通知中心）
-      true -> "pages/profile/index"
+      true ->
+        "pages/profile/index"
     end
   end
 
@@ -137,7 +150,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     with {:ok, client} <- SdkClient.fetch() do
       client
       |> WeChat.MiniProgram.SubscribeMessage.send(openid, template_id, data, %{
-        page: notification_page(:wechat, template_key)
+        page: notification_page(:wechat, template_key, data)
       })
       |> parse_wechat_envelope()
     end
@@ -152,7 +165,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       json: %{
         open_id: openid,
         msg_id: template_id,
-        page: notification_page(:tt, template_key),
+        page: notification_page(:tt, template_key, data),
         data: data
       }
     )
@@ -179,7 +192,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       json: %{
         open_id: openid,
         template_id: template_id,
-        page: notification_page(:xhs, template_key),
+        page: notification_page(:xhs, template_key, data),
         data: data
       }
     )
