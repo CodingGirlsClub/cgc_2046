@@ -12,6 +12,14 @@
 .textarea { min-height: 180rpx; }
 .error { display: block; margin-top: 20rpx; padding: 18rpx; color: #eb5757; background: #fef3f2; border-radius: 14rpx; font-size: 23rpx; }
 .primaryButton { margin-top: 28rpx; color: #fff; background: #ea5504; border-radius: 18rpx; font-size: 29rpx; font-weight: 600; }
+/* #510 年龄确认行（order-pay 押金同意门同款形态） */
+.ackRow { display: flex; align-items: flex-start; margin-top: 26rpx; padding: 20rpx 22rpx; background: #fff7ed; border: 1rpx solid #fed7aa; border-radius: 16rpx; }
+.ackBox {
+  flex: none; width: 34rpx; height: 34rpx; margin-right: 14rpx; margin-top: 2rpx;
+  background: #fff; border: 2rpx solid #fdba74; border-radius: 8rpx; box-sizing: border-box;
+}
+.ackBoxChecked { background: #ea5504; border-color: #ea5504; }
+.ackLabel { color: #9a3412; font-size: 23rpx; line-height: 1.5; }
 
 .tierOption {
   display: flex;

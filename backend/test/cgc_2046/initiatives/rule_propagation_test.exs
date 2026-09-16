@@ -509,9 +509,14 @@ defmodule Cgc2046.Initiatives.RulePropagationTest do
     ledger
   end
 
+  # #510：挂载场经 age_gate 规则传播带 min_age——enroll 布置恒带年龄确认
   defp enroll(event, learner) do
     Enrollment
-    |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: learner.id})
+    |> Ash.Changeset.for_create(:create_enrollment, %{
+      event_id: event.id,
+      user_id: learner.id,
+      age_confirmed: true
+    })
     |> Ash.create(actor: learner, tenant: event.workspace_id)
   end
 

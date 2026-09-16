@@ -551,6 +551,8 @@ export interface PublicOfferingItem {
   shortBy?: number | null;
   /** 成班最低确认人数（null = 不判定成班） */
   minParticipants?: number | null;
+  /** 报名最低年龄（null = 无门槛；#510 非空时报名须勾选年龄确认） */
+  minAge?: number | null;
   /** 结构化场地（JsonString，JSON.parse 后为 VenueInfo；仅 event 有，null = 线上/未定，展示层兜底「地点待定」，R3） */
   venue?: string | null;
   /** 是否收费（公开报名面收费项须选档；R4 免费零变化） */
@@ -646,6 +648,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       qualificationBadge
       shortBy
       minParticipants
+      minAge
       venue
       sponsorshipEnabled
       sponsorshipTiers
