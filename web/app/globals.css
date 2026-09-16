@@ -2956,6 +2956,22 @@ button:focus-visible,
     text-wrap: pretty;
   }
 
+  /* 状态行 + 倡导窗口：与小程序 initiative-detail hero 同信息（进行中/已结束 · 留档、窗口区间） */
+  .initiative-hero__status {
+    margin: 10px 0 0;
+    color: var(--ink-3);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .initiative-hero__window {
+    margin: 6px 0 0;
+    color: var(--ink-3);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
   /* 统计条：grid-gap 当 hairline 用，任意列数下分隔线都不错位 */
   .initiative-stats {
     display: grid;
