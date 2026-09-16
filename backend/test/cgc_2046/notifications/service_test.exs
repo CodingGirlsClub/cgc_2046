@@ -323,7 +323,9 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert %{"thing2" => %{"value" => "已通过"}} = data
   end
 
-  test "approval_reminder 渲染：UUID 单号 + ISO 截止时间 → character_string1/time11" do
+  # #606 Stage③：time/1 修 +8 时区折算（starts_at / approval_deadline 是 UTC 瞬时，
+  # 前端按设备本地时区显示；修复前通知比用户面早 8 小时）
+  test "approval_reminder 渲染：UUID 单号 + ISO 截止时间 → character_string1/time11（北京时间，含跨日）" do
     user = Fixtures.register_user("notification-reminder-render")
     insert_identity(user.id, :wechat, "wx-reminder-openid")
     {:ok, _} = Consent.grant(user.id, :wechat, "approval_reminder")
@@ -340,12 +342,24 @@ defmodule Cgc2046.Notifications.ServiceTest do
                     %{
                       "data" => %{
                         "character_string1" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"},
-                        "time11" => %{"value" => "2026-09-02 12:00"}
+                        "time11" => %{"value" => "2026-09-02 20:00"}
                       }
                     }}
+
+    # 跨日边界：UTC 17:30 → 北京时间次日 01:30
+    {:ok, _} = Consent.grant(user.id, :wechat, "approval_reminder")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "approval_reminder", %{
+               "enrollment_id" => enrollment_id,
+               "approval_deadline" => "2026-09-20T17:30:00Z"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{"data" => %{"time11" => %{"value" => "2026-09-21 01:30"}}}}
   end
 
-  test "event_reminder 渲染：thing2/time3/thing4，缺 venue 跳过" do
+  test "event_reminder 渲染：thing2/time3（北京时间）/thing4，缺 venue 跳过" do
     user = Fixtures.register_user("notification-event-render")
     insert_identity(user.id, :wechat, "wx-event-openid")
     {:ok, _} = Consent.grant(user.id, :wechat, "event_reminder")
@@ -362,11 +376,29 @@ defmodule Cgc2046.Notifications.ServiceTest do
                       "data" =>
                         %{
                           "thing2" => %{"value" => "AI 入门工作坊"},
-                          "time3" => %{"value" => "2026-09-10 09:30"}
+                          "time3" => %{"value" => "2026-09-10 17:30"}
                         } = data
                     }}
 
     refute Map.has_key?(data, "thing4")
+
+    # 跨日边界：UTC 17:30 → 北京时间次日 01:30
+    {:ok, _} = Consent.grant(user.id, :wechat, "event_reminder")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "event_reminder", %{
+               "title" => "跨日活动",
+               "starts_at" => "2026-09-20T17:30:00Z",
+               "venue" => "上海 徐汇"
+             })
+
+    assert_receive {:notification, :wechat,
+                    %{
+                      "data" => %{
+                        "time3" => %{"value" => "2026-09-21 01:30"},
+                        "thing4" => %{"value" => "上海 徐汇"}
+                      }
+                    }}
   end
 
   test "payment_received 渲染：thing6/thing8/amount2/character_string1，空档位跳过" do
@@ -535,6 +567,250 @@ defmodule Cgc2046.Notifications.ServiceTest do
                         "phrase5" => %{"value" => "退款失败"}
                       }
                     }}
+  end
+
+  # ── #606 七模板渲染映射（2026-09-16 平台选用即时生效；字段编号以回报的
+  #    「我的模板 → 详情」为准：thing4/number16/thing7/thing14/thing6/date2…）──
+
+  test "event_qualification_confirmed 渲染：thing4 活动名 + number16 已确认人数 + thing7 开班提示" do
+    data =
+      send_and_capture("event_qualification_confirmed", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "confirmed_count" => 4
+      })
+
+    assert data == %{
+             "thing4" => %{"value" => "AI 入门工作坊"},
+             "number16" => %{"value" => "4"},
+             "thing7" => %{"value" => "已达最低成班人数3人"}
+           }
+
+    # 防御分支：min 缺失时 thing7 整键跳过（不留「已达最低成班人数人」半句）
+    no_min =
+      send_and_capture("event_qualification_confirmed", %{"title" => "活动", "confirmed_count" => 2})
+
+    assert no_min == %{"thing4" => %{"value" => "活动"}, "number16" => %{"value" => "2"}}
+  end
+
+  test "event_qualification_underfilled 渲染：thing1 活动名 + thing5 未达阈值文案" do
+    data =
+      send_and_capture("event_qualification_underfilled", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "confirmed_count" => 1
+      })
+
+    # confirmed_count 平台无 number 槽位 → 不下发（精确等值即断言无多余键）
+    assert data == %{
+             "thing1" => %{"value" => "AI 入门工作坊"},
+             "thing5" => %{"value" => "未达最低成班人数3人，活动未成行"}
+           }
+  end
+
+  test "event_schedule_changed 渲染：date2 北京时间年月日+时刻 / thing5 地点 / 缺值跳过" do
+    data =
+      send_and_capture("event_schedule_changed", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "AI 入门工作坊",
+        "starts_at" => "2026-09-20T07:00:00Z",
+        "venue" => "上海 徐汇"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "AI 入门工作坊"},
+             "date2" => %{"value" => "2026年9月20日 15:00"},
+             "thing5" => %{"value" => "上海 徐汇"}
+           }
+
+    # 跨日边界：UTC 17:30 → 北京时间次日 01:30（+8 折算与日期进位同时钉住）
+    crossing =
+      send_and_capture("event_schedule_changed", %{
+        "title" => "跨日活动",
+        "starts_at" => "2026-09-20T17:30:00Z",
+        "venue" => nil
+      })
+
+    assert crossing == %{
+             "thing1" => %{"value" => "跨日活动"},
+             "date2" => %{"value" => "2026年9月21日 01:30"}
+           }
+
+    # 非法 starts_at → date2 跳过而非发垃圾串（date 槽位格式非法会整条 47003）
+    bad =
+      send_and_capture("event_schedule_changed", %{"title" => "坏数据", "starts_at" => "not-a-date"})
+
+    assert bad == %{"thing1" => %{"value" => "坏数据"}}
+  end
+
+  test "event_moderator_assigned 渲染：thing1 活动名 + thing5 固定指派文案" do
+    data =
+      send_and_capture("event_moderator_assigned", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "押金制黑客松"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "押金制黑客松"},
+             "thing5" => %{"value" => "你已被指派为该活动主理人"}
+           }
+  end
+
+  test "speaker_accepted 渲染：thing14 活动名 + thing6 已接受（invitation_id 不下发）" do
+    data =
+      send_and_capture("speaker_accepted", %{
+        "speaker_invitation_id" => Ecto.UUID.generate(),
+        "title" => "AI 分享"
+      })
+
+    assert data == %{
+             "thing14" => %{"value" => "AI 分享"},
+             "thing6" => %{"value" => "已接受"}
+           }
+  end
+
+  test "speaker_completed 渲染：thing1 活动名 + thing4 固定归档文案；speaker 面无 title 仍有 thing4" do
+    manager =
+      send_and_capture("speaker_completed", %{
+        "speaker_invitation_id" => Ecto.UUID.generate(),
+        "title" => "AI 分享"
+      })
+
+    assert manager == %{
+             "thing1" => %{"value" => "AI 分享"},
+             "thing4" => %{"value" => "分享已完成，材料已归档"}
+           }
+
+    # speaker 本人面 data 只有 speaker_invitation_id（speaker_subscriber.ex:92-96）：
+    # 固定 thing4 保底 ⇒ 不会给微信发空 data
+    speaker =
+      send_and_capture("speaker_completed", %{"speaker_invitation_id" => Ecto.UUID.generate()})
+
+    assert speaker == %{"thing4" => %{"value" => "分享已完成，材料已归档"}}
+  end
+
+  test "learning_stagnation 渲染：thing1 课程名 + thing4 固定停滞提醒（run_id/enrollment_id 不下发）" do
+    data =
+      send_and_capture("learning_stagnation", %{
+        "enrollment_id" => Ecto.UUID.generate(),
+        "run_id" => Ecto.UUID.generate(),
+        "title" => "AI 入门"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "AI 入门"},
+             "thing4" => %{"value" => "长时间未继续学习，记得回来完成学习"}
+           }
+  end
+
+  # #606 边界算术：thing ≤20 字。{min} 位数 1/2/3 → underfilled 16/17/18 字、
+  # confirmed 10/11/12 字；title（thing/1 顶 20）与动态串是**两个独立字段**，
+  # 不存在 title 截断挤占动态串预算的问题。
+  test "成班动态文案字符预算：min 1/2/3 位均 ≤20 字，title 顶格 20 字不影响动态串" do
+    cases = [
+      {1, "未达最低成班人数1人，活动未成行", "已达最低成班人数1人"},
+      {99, "未达最低成班人数99人，活动未成行", "已达最低成班人数99人"},
+      {999, "未达最低成班人数999人，活动未成行", "已达最低成班人数999人"}
+    ]
+
+    long_title = String.duplicate("活", 25)
+
+    for {min, underfilled_copy, confirmed_copy} <- cases do
+      assert String.length(underfilled_copy) <= 20
+      assert String.length(confirmed_copy) <= 20
+
+      underfilled =
+        send_and_capture("event_qualification_underfilled", %{
+          "title" => long_title,
+          "min_participants" => min,
+          "confirmed_count" => min
+        })
+
+      confirmed =
+        send_and_capture("event_qualification_confirmed", %{
+          "title" => long_title,
+          "min_participants" => min,
+          "confirmed_count" => min
+        })
+
+      assert underfilled["thing5"] == %{"value" => underfilled_copy}
+      assert confirmed["thing7"] == %{"value" => confirmed_copy}
+      # title 被 thing/1 截到 20 字；动态串各自独立，值不受影响
+      assert String.length(underfilled["thing1"]["value"]) == 20
+      assert String.length(confirmed["thing4"]["value"]) == 20
+    end
+  end
+
+  test "min 6 位时动态串被 thing/1 顶到 20 字（保 API 不 47003）" do
+    data =
+      send_and_capture("event_qualification_underfilled", %{
+        "title" => "活动",
+        "min_participants" => 1_000_000,
+        "confirmed_count" => 0
+      })
+
+    assert String.length(data["thing5"]["value"]) == 20
+    assert String.starts_with?(data["thing5"]["value"], "未达最低成班人数")
+  end
+
+  # #606 复发守卫：render/3 缺子句的 key 会落 :162 的兜底 passthrough——把逻辑键
+  # （title/event_id/starts_at…）原样当微信字段名发出（微信 47003 拒收）。本测试
+  # 按 registry 全量 key 用样例 data 实发，断言送出的字段名**全部**是微信合法
+  # 关键词编号且值非空字符串；新增模板忘写子句即红。
+  @wechat_field ~r/^(thing|number|letter|symbol|character_string|time|date|amount|phone_number|car_number|name|phrase)\d+$/
+
+  test "registry 全量模板都有 wechat 字段渲染子句（passthrough 即红）" do
+    registry_keys =
+      Cgc2046.Notifications.NotificationWorker.types()
+      |> Enum.map(& &1.template_key)
+      |> Enum.uniq()
+
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 17 键集合（防表被改空）
+    assert length(registry_keys) == 17
+
+    for template_key <- registry_keys do
+      data = send_and_capture(template_key, sample_data(template_key))
+
+      assert map_size(data) > 0, "#{template_key} 渲染出空 data（微信 47003 拒收）"
+
+      for {field, value} <- data do
+        assert field =~ @wechat_field,
+               "#{template_key} 送出非微信字段名 #{inspect(field)}——render/3 缺子句走了 " <>
+                 "passthrough（#606）"
+
+        assert %{"value" => text} = value
+        assert is_binary(text) and text != ""
+      end
+    end
+  end
+
+  defp send_and_capture(template_key, data) do
+    user = Fixtures.register_user("render-#{template_key}")
+    insert_identity(user.id, :wechat, "wx-render-#{Ecto.UUID.generate()}")
+    {:ok, _} = Consent.grant(user.id, :wechat, template_key)
+
+    assert :ok = Service.send_to_user(user.id, :wechat, template_key, data)
+
+    assert_receive {:notification, :wechat, %{"data" => rendered}}
+    rendered
+  end
+
+  # 样例值按 registry data_keys 的键名给类型正确的值（整数键给整数、时间键给 ISO），
+  # 保证「渲染出的空 data / 非字段名」只可能来自缺子句，而不是样例值类型错。
+  defp sample_data(template_key) do
+    entry = Cgc2046.Notifications.NotificationWorker.type(template_key)
+
+    Map.new(entry.data_keys, fn
+      "starts_at" -> {"starts_at", "2026-09-20T07:00:00Z"}
+      "approval_deadline" -> {"approval_deadline", "2026-09-20T07:00:00Z"}
+      "min_participants" -> {"min_participants", 3}
+      "confirmed_count" -> {"confirmed_count", 2}
+      "capacity_seq" -> {"capacity_seq", 7}
+      "re_enrollable" -> {"re_enrollable", "true"}
+      key -> {key, "样例"}
+    end)
   end
 
   defp insert_identity(user_id, platform, uid) do
