@@ -49,6 +49,8 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # 缴费闭环 U9：退款治理动作（R15）
           :order_refund,
           :order_refund_retry,
+          # #545：错没收人工救济（PlatformAdmin 专用，metadata 带必填 reason）
+          :order_unforfeit,
           # advisory F-J：Event cancelled 批量退款（系统驱动无 actor，actor_id
           # = nil 与 CLI 系统动作同语义；每 event 一行，metadata 带批量计数）
           :event_cancel_batch_refund,
