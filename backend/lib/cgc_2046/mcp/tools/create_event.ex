@@ -15,6 +15,10 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   不可改）/ default（挂载时按规则快照，之后可改）；无继承为 `{}`）。挂载前可用
   `preview_initiative_mount` 读四规则的原始值与锁态。
 
+  解除挂载来源标记（#630）：响应恒带 `detached_rule_provenance`（持久化属性
+  `event.detached_rule_provenance`，不是 `inheritance_of/1` 的 metadata；新建恒
+  nil，形状同 GraphQL `Event.detachedRuleProvenance` 列）。
+
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定；
   业务 create action 的 `WorkspaceActorIsOwnerOrAdmin` policy 兜底。
   """
@@ -96,7 +100,10 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
                  slug: event.slug,
                  status: to_string(event.status),
                  visibility: to_string(event.visibility),
-                 pricing_enabled: event.pricing_enabled
+                 pricing_enabled: event.pricing_enabled,
+                 # #630：恒在（新建恒 nil），与 #596 的 initiative/inherited 同款
+                 # 「agent 无需判键存在」纪律。持久化属性，非 metadata。
+                 detached_rule_provenance: event.detached_rule_provenance
                }
                |> Map.merge(RuleInheritance.inheritance_of(event))}
 
