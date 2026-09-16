@@ -42,11 +42,13 @@ declare const definePageConfig: (config: Record<string, unknown>) => Record<stri
 declare const __GRAPHQL_ENDPOINT__: string
 declare const __E2E_MOCK__: boolean
 declare const __PLATFORM_NAME__: string
-declare const __WECHAT_TEMPLATE_APPROVAL_RESULT__: string
-declare const __WECHAT_TEMPLATE_APPROVAL_REMINDER__: string
-declare const __WECHAT_TEMPLATE_EVENT_REMINDER__: string
-declare const __TT_TEMPLATE_APPROVAL_RESULT__: string
-declare const __TT_TEMPLATE_EVENT_REMINDER__: string
+// 订阅消息模板 ID 映射（构建期由 config/index.ts 的 WECHAT_SCENARIOS /
+// TT_SCENARIOS 列表生成；键集与 SubscriptionScenario 的双射由
+// tests/subscription-build.test.mjs 守卫——本文件是 global script，引入 type
+// import 会把它变成 module 并让上面所有 declare const 失去全局性，故此处
+// 不收窄键类型）。
+declare const __WECHAT_TEMPLATE_IDS__: Record<string, string>
+declare const __TT_TEMPLATE_IDS__: Record<string, string>
 
 declare module '*.module.css' {
   const classes: Record<string, string>

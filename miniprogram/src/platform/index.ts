@@ -1,18 +1,14 @@
 import Taro from '@tarojs/taro'
 import type { PlatformPhonePayload, SubscriptionScenario } from '@/domain/models'
+import { acceptedScenarios, configuredScenarios, subscriptionTransport } from '@/domain/subscription'
 
-// 各平台订阅消息模板 ID（runtime env 注入，缺配时给出可读错误，不 crash）
-// 微信：三场景（含 Owner 审批提醒）；抖音：仅学习者两场景（裁剪端无工作台）
-const wechatTemplateIds: Record<SubscriptionScenario, string> = {
-  approval_result: __WECHAT_TEMPLATE_APPROVAL_RESULT__,
-  approval_reminder: __WECHAT_TEMPLATE_APPROVAL_REMINDER__,
-  event_reminder: __WECHAT_TEMPLATE_EVENT_REMINDER__
-}
+// 各平台订阅消息模板 ID 映射（构建期注入，见 config/index.ts；键集与
+// SubscriptionScenario 的双射由 tests/subscription-build.test.mjs 守卫）。
+// 微信：全量场景；抖音：仅学习者两场景（裁剪端无工作台）。
+// 缺配 = 空串（不是 undefined）——由 configuredScenarios 过滤，绝不把空串递给微信。
+const wechatTemplateIds: Record<SubscriptionScenario, string> = __WECHAT_TEMPLATE_IDS__
 
-const ttTemplateIds: Partial<Record<SubscriptionScenario, string>> = {
-  approval_result: __TT_TEMPLATE_APPROVAL_RESULT__,
-  event_reminder: __TT_TEMPLATE_EVENT_REMINDER__
-}
+const ttTemplateIds: Partial<Record<SubscriptionScenario, string>> = __TT_TEMPLATE_IDS__
 
 export function currentPlatform(): 'wechat' | 'tt' | 'xhs' {
   if (process.env.TARO_ENV === 'tt') return 'tt'
@@ -49,22 +45,35 @@ export async function preparePlatformLogin(
   return { ...phonePayload, loginCode: login.code, encryptedData, iv }
 }
 
-export async function requestPlatformSubscription(
-  scenario: SubscriptionScenario
-): Promise<boolean> {
-  if (__E2E_MOCK__) return true
+/**
+ * 请求订阅授权，返回**被接受**的场景子集。
+ *
+ * - 一次可请求多个场景（微信 `tmplIds` 单次上限 3；必须由用户点击或支付回调触发）；
+ * - 未配置模板 ID 的场景由 `configuredScenarios` 剔除；剔除后为空 → 抛可读错误
+ *   （不是静默成功，也绝不把空串递给微信）；
+ * - `grantConsent` 由调用方对返回的每个场景分别上报（一次授权 = 后端 +1 配额）。
+ */
+export async function requestPlatformSubscriptions(
+  scenarios: SubscriptionScenario[]
+): Promise<SubscriptionScenario[]> {
+  if (scenarios.length === 0) return []
 
-  const platform = currentPlatform()
-  // 小红书服务通知：由平台后台规则下发，无前端授权弹窗；前端仅上报配额（grant）
-  if (platform === 'xhs') return true
+  // 路径优先级**先于**缺配检查：mock 构建与 CI 都没有真实模板 ID，若先查缺配，
+  // mock 下点订阅会抛「缺少模板 ID」而不是成功（e2e 走 mock transport）。
+  // 小红书服务通知由平台后台规则下发，无前端授权弹窗——前端仅上报配额（grant）。
+  if (subscriptionTransport(__E2E_MOCK__, currentPlatform()) === 'passthrough') return scenarios
 
-  const templateId = platform === 'tt' ? ttTemplateIds[scenario] : wechatTemplateIds[scenario]
-  if (!templateId) {
+  const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
+  const requested = configuredScenarios(scenarios, table)
+  if (requested.length === 0) {
     throw new Error(`缺少${__PLATFORM_NAME__}订阅消息模板 ID，请在环境变量中配置后重试`)
   }
+
+  const tmplIds = requested.map((scenario) => table[scenario] ?? '')
   const result = await Taro.requestSubscribeMessage({
-    tmplIds: [templateId]
+    tmplIds
   } as Taro.requestSubscribeMessage.Option)
   if ('errCode' in result) throw new Error(result.errMsg || '订阅授权失败')
-  return result[templateId] === 'accept'
+
+  return acceptedScenarios(requested, tmplIds, result as Record<string, string>)
 }
