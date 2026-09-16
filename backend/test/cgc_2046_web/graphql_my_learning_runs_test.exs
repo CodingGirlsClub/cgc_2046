@@ -29,7 +29,7 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     definition = create_learning_definition(workspace, owner, "outline", "review")
     waiting_run = create_running_run(workspace, definition, enrollment)
 
-    waiting_run =
+    _waiting_run =
       waiting_run
       |> Ash.Changeset.for_update(:update_facts_for_mcp, %{facts: %{}}, authorize?: false)
       |> Ash.update!(tenant: workspace.id, authorize?: false)
@@ -50,23 +50,63 @@ defmodule Cgc2046Web.GraphqlMyLearningRunsTest do
     response = graphql(my_learning_runs_query(), sign_in_token(learner))
     assert %{"data" => %{"myLearningRuns" => rows}} = response
 
-    assert Enum.map(rows, & &1["runId"]) |> MapSet.new() ==
-             MapSet.new([waiting_run.id, succeeded_run.id])
-
-    waiting = Enum.find(rows, &(&1["runId"] == waiting_run.id))
-    assert waiting["enrollmentId"] == enrollment.id
-    assert waiting["targetTitle"] == "快照标题"
-    assert waiting["status"] == "waiting"
+    # issue #667:行粒度 = 课程级,每课程一行,代表 run = 最新 run
+    # (inserted_at desc 首条)→ 先插入的 waiting_run 不占列表位。
+    assert [row] = rows
+    assert row["runId"] == succeeded_run.id
+    assert row["status"] == "succeeded"
+    assert row["enrollmentId"] == enrollment.id
+    assert row["targetTitle"] == "快照标题"
     # S8(ADR-0011):objective 口径。课程无 published revision → objectives [] → 0/0
-    assert waiting["progress"]["masteredRequired"] == 0
-    assert waiting["progress"]["totalRequired"] == 0
-    assert waiting["progress"]["complete"] == false
+    assert row["progress"]["masteredRequired"] == 0
+    assert row["progress"]["totalRequired"] == 0
+    assert row["progress"]["complete"] == false
+  end
 
-    succeeded = Enum.find(rows, &(&1["runId"] == succeeded_run.id))
-    assert succeeded["status"] == "succeeded"
-    assert succeeded["progress"]["masteredRequired"] == 0
-    assert succeeded["progress"]["totalRequired"] == 0
-    assert succeeded["progress"]["complete"] == false
+  test "同课程多 run 去重但跨课程不误伤:两门课程各 2 个 run 返回恰好 2 行(#667)" do
+    owner = Fixtures.platform_admin("my-learning-dedupe-owner")
+    workspace = Fixtures.create_workspace(owner)
+    learner = Fixtures.register_user("my-learning-dedupe-learner")
+    course_a = EventFixtures.create_course(workspace, owner, %{title: "课程甲"})
+    course_b = EventFixtures.create_course(workspace, owner, %{title: "课程乙"})
+
+    enrollment_a =
+      Enrollment
+      |> Ash.Changeset.for_create(
+        :create_enrollment,
+        %{course_id: course_a.id, user_id: learner.id},
+        tenant: workspace.id,
+        actor: learner
+      )
+      |> Ash.create!(tenant: workspace.id, actor: learner)
+
+    enrollment_b =
+      Enrollment
+      |> Ash.Changeset.for_create(
+        :create_enrollment,
+        %{course_id: course_b.id, user_id: learner.id},
+        tenant: workspace.id,
+        actor: learner
+      )
+      |> Ash.create!(tenant: workspace.id, actor: learner)
+
+    definition = create_learning_definition(workspace, owner, "outline", "review")
+
+    _old_a = create_running_run(workspace, definition, enrollment_a)
+    _old_b = create_running_run(workspace, definition, enrollment_b)
+    newest_a = create_running_run(workspace, definition, enrollment_a)
+    newest_b = create_running_run(workspace, definition, enrollment_b)
+
+    response = graphql(my_learning_runs_query(), sign_in_token(learner))
+    assert %{"data" => %{"myLearningRuns" => rows}} = response
+
+    # issue #667:每课程一行(代表 run = 各自课程最新 run),2 门课程 → 恰好 2 行。
+    assert length(rows) == 2
+
+    assert rows |> Enum.map(& &1["runId"]) |> MapSet.new() ==
+             MapSet.new([newest_a.id, newest_b.id])
+
+    assert Enum.all?(rows, &(&1["status"] == "running"))
   end
 
   test "无 confirmed enrollment 的用户返回空列表，未登录被拒" do
