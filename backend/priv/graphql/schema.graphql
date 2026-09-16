@@ -6674,6 +6674,9 @@ type RootMutationType {
   "平台管理员：结束倡导活动"
   closeInitiative(id: ID!): AdminInitiativePayload
 
+  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+  cancelInitiative(id: ID!): AdminInitiativePayload
+
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
 

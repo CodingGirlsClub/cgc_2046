@@ -49,6 +49,21 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
      （错误 `fields` 带 `event_id`）。规则**关闭态不参与**：`pricing=false` +
      档位非空是 R4 合法休眠态，不阻断关闭写入。并发兜底 = DB CHECK
      `events_deposit_excludes_price_tiers`。
+
+  ## Initiative 生命周期门（issue #628，与上六条是**不同轴**的判据）
+
+  上六条判据全部作用于「场次侧」字段（`#587` 的范围真源 = `status IN ('draft',
+  'open')`，见 `lock_propagatable_events/1`）。#628 追加的是「活动侧」门，判据
+  = Initiative 行自身 `status`，三处使用：
+
+  - 挂载 / 重挂载：`ensure_open_when_mounting/2` → `open?/1`（既有语义不变）；
+  - 规则写入：`prepare_rule_change/1` → `ensure_open_for_rules/1` → `non_terminal?/1`
+    （closed / cancelled 后规则面冻结 ⇒ 传播自然不再写；draft 必须可写，否则
+    永远配不齐 `ready?/1` 要求的四项规则）；
+  - 场次发布：`ensure_launchable/1` → `open?/1`（Event `:launch` 的 before_action）。
+
+  两条判据不复刻、不互推：活动侧管「活动是否还在进行 / 还能不能改」，场次侧管
+  「这条写入要不要落到该场」。#628 未改动 `lock_propagatable_events/1` 的 SQL。
   """
 
   alias Cgc2046.Admission.CapacityLedger
@@ -302,7 +317,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   end
 
   def prepare_rule_change(changeset) do
-    with {:ok, _} <- lock_initiative(Ash.Changeset.get_attribute(changeset, :initiative_id)),
+    with {:ok, initiative} <-
+           lock_initiative(Ash.Changeset.get_attribute(changeset, :initiative_id)),
+         :ok <- ensure_open_for_rules(initiative),
          :ok <-
            validate_rule_value(
              Ash.Changeset.get_attribute(changeset, :key),
@@ -311,6 +328,48 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       changeset
     else
       {:error, message} -> Ash.Changeset.add_error(changeset, message)
+    end
+  end
+
+  @doc """
+  #628 场次发布前的 Initiative 状态门：挂载中的 Event 只有在所属 Initiative
+  仍是 `open` 时才能 `:launch`。
+
+  未挂载场（`initiative_id = nil`）放行；已挂载场**先锁 Initiative 行**再判
+  状态——锁序 Initiative → Event 与 `prepare_event_changes/2`（`lock_parents/1`
+  → `lock_current_event/1`）一致，因此与 `Initiative :close` / `:cancel`
+  （`transition/3` 先 `SELECT … FOR UPDATE` 同一行）严格串行：发布先提交者随后
+  被收尾/中止覆盖，收尾/中止先提交者让发布读到终态被拒（不新增锁序、无死锁面）。
+
+  判据 = Initiative 行自身状态（`open?/1` 单源），**不**复刻场次侧
+  `status IN ('draft', 'open')`（#587 真源在 `lock_propagatable_events/1`）——
+  两条判据回答的是两个不同问题（活动是否进行中 vs 场次是否可被规则写入）。
+  """
+  @spec ensure_launchable(Ash.Changeset.t()) :: Ash.Changeset.t()
+  def ensure_launchable(changeset) do
+    case Ash.Changeset.get_data(changeset, :initiative_id) do
+      nil ->
+        changeset
+
+      initiative_id ->
+        case lock_initiative(initiative_id) do
+          {:ok, initiative} ->
+            if open?(initiative) do
+              changeset
+            else
+              Ash.Changeset.add_error(
+                changeset,
+                Cgc2046.Errors.BusinessError.exception(
+                  message: "initiative is not open; a mounted event cannot be launched",
+                  code: "initiative_not_open",
+                  fields: [initiative_id: initiative_id]
+                )
+              )
+            end
+
+          {:error, message} ->
+            Ash.Changeset.add_error(changeset, message)
+        end
     end
   end
 
@@ -643,9 +702,31 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   defp uuid_text(<<_::128>> = id), do: Ecto.UUID.load!(id)
   defp uuid_text(id), do: id
 
-  defp ensure_open(%{status: "open"}), do: :ok
-  defp ensure_open(%{status: :open}), do: :ok
-  defp ensure_open(_), do: {:error, "initiative must be open before an event can be mounted"}
+  defp ensure_open(initiative) do
+    if open?(initiative),
+      do: :ok,
+      else: {:error, "initiative must be open before an event can be mounted"}
+  end
+
+  # #628：规则写面冻结门。传播只在规则写入后触发（`InitiativeRule` create/update
+  # 的 after_action），故冻住写面即冻住传播——只冻传播会造出「规则改了却不生效」
+  # 的静默失真。门是**非终态**而不是 `open`：四项规则要在 draft 期配齐才可能
+  # `:open`（`ready?/1` 是 open 的前置），只放 open 会把配规则本身锁死。
+  # 终态（closed / cancelled）一律拒绝。
+  defp ensure_open_for_rules(initiative) do
+    if non_terminal?(initiative),
+      do: :ok,
+      else: {:error, "initiative rules are frozen: initiative is closed or cancelled"}
+  end
+
+  # Initiative 侧「进行中」判据唯一真源（#628）：挂载（`ensure_open/1`）、
+  # 场次发布（`ensure_launchable/1`）共用；判据 = Initiative 行自身状态。
+  defp open?(%{status: status}), do: status in ["open", :open]
+
+  # Initiative 侧「非终态」判据唯一真源（#628）：规则写面
+  # （`ensure_open_for_rules/1`）。与场次侧 #587 的 `status IN ('draft','open')`
+  # 同形不同轴——那条管「规则写哪些场」，本条管「活动还能不能改规则」。
+  defp non_terminal?(%{status: status}), do: status in ["draft", "open", :draft, :open]
 
   defp ensure_open_when_mounting(initiative, true), do: ensure_open(initiative)
   defp ensure_open_when_mounting(_initiative, false), do: :ok

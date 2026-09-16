@@ -187,6 +187,9 @@ config :cgc_2046, Oban,
      crontab: [
        {"*/5 * * * *", Cgc2046.Admission.Workers.ApprovalExpiryWorker},
        {"*/5 * * * *", Cgc2046.Events.EventLifecycleWorker},
+       # #628 ③ Initiative 到点收尾：window_ends_at 过点的 open 活动 → closed
+       # （收尾口径，不级联不退款；window_ends_at 为空的活动永不自动收尾）。
+       {"*/5 * * * *", Cgc2046.Initiatives.InitiativeLifecycleWorker},
        {"*/5 * * * *", Cgc2046.Learning.LearningProgressWorker},
        {"*/5 * * * *", Cgc2046.Curriculum.CurriculumProgressWorker},
        {"17 * * * *", Cgc2046.Admission.Workers.ApprovalReminderWorker},

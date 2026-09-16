@@ -92,6 +92,7 @@ export const CREATE_INITIATIVE = gql`mutation CreateInitiative($input: AdminInit
 export const UPDATE_INITIATIVE = gql`mutation UpdateInitiative($id: ID!, $input: AdminInitiativeInput!) { updateInitiative(id: $id, input: $input) { result { id name slug status } errors { code message } } }`;
 export const OPEN_INITIATIVE = gql`mutation OpenInitiative($id: ID!) { openInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
 export const CLOSE_INITIATIVE = gql`mutation CloseInitiative($id: ID!) { closeInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
+export const CANCEL_INITIATIVE = gql`mutation CancelInitiative($id: ID!) { cancelInitiative(id: $id) { result { id name slug status } errors { code message } } }`;
 /** #595：errors 取 fields，规则被拒时前端可定位到具体场/工作台 */
 export const UPSERT_INITIATIVE_RULE = gql`mutation UpsertInitiativeRule($initiativeId: ID!, $key: String!, $valueJson: String!, $locked: Boolean!) { upsertInitiativeRule(initiativeId: $initiativeId, key: $key, valueJson: $valueJson, locked: $locked) { result { id initiativeId key valueJson locked } errors { code message fields } } }`;
 
@@ -619,4 +620,5 @@ export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
 	draft: "l-badge l-badge-muted",
 	open: "l-badge l-badge-success",
 	closed: "l-badge l-badge-muted",
+	cancelled: "l-badge l-badge-danger",
 };
