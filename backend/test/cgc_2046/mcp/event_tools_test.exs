@@ -561,7 +561,28 @@ defmodule Cgc2046.Mcp.EventToolsTest do
         |> Ash.update!(actor: owner, tenant: workspace.id)
 
       assert detached.initiative_id == nil
+      # #596 写响应契约不变：本次无规则写入 → inherited 空壳
       assert RuleInheritance.inheritance_of(detached) == %{initiative: nil, inherited: %{}}
+
+      # #624 方案 C：locked 规则强制写入的值保留 + 落库来源标记（只含 locked 字段）
+      assert detached.min_age == mounted.min_age
+      assert detached.deposit_enabled == mounted.deposit_enabled
+
+      assert detached.detached_rule_provenance == %{
+               "initiative" => %{
+                 "id" => initiative.id,
+                 "name" => initiative.name,
+                 "slug" => initiative.slug
+               },
+               "fields" => %{
+                 "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+                 "deposit_enabled" => %{"value" => true, "source" => "locked"},
+                 "min_age" => %{"value" => 18, "source" => "locked"}
+               }
+             }
+
+      assert Ash.get!(Event, detached.id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               detached.detached_rule_provenance
     end
   end
 

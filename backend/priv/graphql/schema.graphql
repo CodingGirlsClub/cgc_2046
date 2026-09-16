@@ -2194,6 +2194,9 @@ type Event {
   "所属平台级 Initiative；仅草稿可挂载"
   initiativeId: ID
 
+  "解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除）"
+  detachedRuleProvenance: JsonString
+
   createdBy: ID
 
   "是否收取活动押金（与既有报名定价分开）"
