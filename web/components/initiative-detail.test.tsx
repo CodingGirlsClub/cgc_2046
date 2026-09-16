@@ -162,6 +162,32 @@ describe("/initiatives/[slug] 公开页", () => {
 		).toHaveAttribute("href", "/events/1024-changsha-01");
 	});
 
+	// #628：活动级状态文案分叉（中止 vs 收尾），两者都仍可直达
+	it("closed 渲染留档文案，无中止说明行", async () => {
+		fetchPublicInitiative.mockResolvedValue({ ...PAYLOAD, status: "closed", cities: [], eventCount: 0 });
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+
+		expect(await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" })).toBeInTheDocument();
+		const hero = document.querySelector(".initiative-hero")!;
+		expect(hero.querySelector(".initiative-hero__status")!.textContent).toBe("已结束 · 活动留档");
+		expect(hero.querySelector(".initiative-hero__cancelled")).toBeNull();
+	});
+
+	it("cancelled 渲染中止文案 + 全额退款说明行（与 closed 不同）", async () => {
+		fetchPublicInitiative.mockResolvedValue({ ...PAYLOAD, status: "cancelled", cities: [], eventCount: 0 });
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+
+		expect(await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" })).toBeInTheDocument();
+		const hero = document.querySelector(".initiative-hero")!;
+		expect(hero.querySelector(".initiative-hero__status")!.textContent).toBe("已取消 · 活动中止");
+		expect(hero.querySelector(".initiative-hero__cancelled")!.textContent).toContain("全额退款");
+		// 分叉钉死：cancelled 与 closed 文案不得相同
+		expect(hero.querySelector(".initiative-hero__status")!.textContent).not.toBe("已结束 · 活动留档");
+		expect(screen.queryByRole("link", { name: /长沙站/ })).toBeNull();
+	});
+
 	it("加载失败渲染 notFound 与返回入口", async () => {
 		fetchPublicInitiative.mockRejectedValue(new Error("network"));
 

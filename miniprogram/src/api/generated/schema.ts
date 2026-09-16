@@ -3879,6 +3879,8 @@ export type RootMutationType = {
   cancelEnrollment: CancelEnrollmentResult;
   /** 取消活动：open → cancelled，发 event.ended 信号 */
   cancelEvent: CancelEventResult;
+  /** 平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款） */
+  cancelInitiative?: Maybe<AdminInitiativePayload>;
   /** 取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效） */
   cancelOperation?: Maybe<OperationResolution>;
   /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
@@ -4083,6 +4085,11 @@ export type RootMutationTypeCancelEnrollmentArgs = {
 
 
 export type RootMutationTypeCancelEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCancelInitiativeArgs = {
   id: Scalars['ID']['input'];
 };
 

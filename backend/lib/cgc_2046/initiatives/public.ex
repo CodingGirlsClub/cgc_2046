@@ -7,6 +7,14 @@ defmodule Cgc2046.Initiatives.Public do
   渠道投放）由本函数生成——base 取既有 `config :cgc_2046, :web_base_url`
   （runtime.exs：dev/test 默认 http://localhost:3000，prod 强制 WEB_BASE_URL
   https），与 `Mcp.Tools.LearnerJourney.checkout_url/1` 同款出处，不新增配置键。
+
+  ## 生命周期可见性（#628）
+
+  - **活动本体**：`open` / `closed` / `cancelled` 三态都可直达 + 进列表（R5 留档
+    语义：slug 是投放出去就不回头的契约；`cancelled` 与 `closed` 只差文案）。
+    `draft` 恒 `not_found`。
+  - **场次栅格**：只有仍 `open` 的活动才挂出场次；收尾 / 中止后栅格下线（不再
+    有可点进、可报名的入口），hero 与统计保留。
   """
 
   alias Cgc2046.Repo
@@ -14,17 +22,17 @@ defmodule Cgc2046.Initiatives.Public do
   @doc "按 slug 返回活动页白名单 DTO；不存在或 draft 返回 not_found。"
   def get_by_slug(slug) when is_binary(slug) do
     with {:ok, initiative} <- fetch_initiative(slug),
-         {:ok, events} <- fetch_events(initiative.id) do
+         {:ok, events} <- fetch_events(initiative) do
       {:ok, build_payload(initiative, events)}
     end
   end
 
   def get_by_slug(_), do: {:error, :not_found}
 
-  @doc "返回公开活动卡片列表；open 先于 closed（R5），供发现页入口使用。"
+  @doc "返回公开活动卡片列表；open 先于 closed 先于 cancelled（R5 + #628），供发现页入口使用。"
   def list do
     case Repo.query(
-           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE status IN ('open', 'closed') ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, window_starts_at NULLS LAST, inserted_at DESC, id DESC LIMIT 100"
+           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE status IN ('open', 'closed', 'cancelled') ORDER BY CASE WHEN status = 'open' THEN 0 WHEN status = 'closed' THEN 1 ELSE 2 END, window_starts_at NULLS LAST, inserted_at DESC, id DESC LIMIT 100"
          ) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &row_to_initiative/1)}
       {:error, reason} -> {:error, {:database, reason}}
@@ -50,7 +58,7 @@ defmodule Cgc2046.Initiatives.Public do
 
   defp fetch_initiative(slug) do
     case Repo.query(
-           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE slug = $1 AND status IN ('open', 'closed')",
+           "SELECT id, name, slug, hashtag, description, window_starts_at, window_ends_at, status FROM initiatives WHERE slug = $1 AND status IN ('open', 'closed', 'cancelled')",
            [slug]
          ) do
       {:ok, %{rows: [row]}} -> {:ok, row_to_initiative(row)}
@@ -58,7 +66,18 @@ defmodule Cgc2046.Initiatives.Public do
     end
   end
 
-  defp fetch_events(initiative_id) do
+  # 场次栅格只在活动仍 open 时显示（#628「close/cancel 后公开页不再显示挂载场」）：
+  # 非 open（closed 收尾 / cancelled 中止）的活动页只剩 hero 文案与统计——留档页
+  # 仍可直达（slug 是投放契约），但不再挂出任何可点进、可报名的场次。
+  #
+  # 判据 = 活动行自身 `status`（`fetch_initiative/1` 已读回的那一列，单源），
+  # **不**复用场次侧 `status IN ('draft','open')`（#587 真源在
+  # `RuleInheritance.lock_propagatable_events/1`，管的是「规则写哪些场」）。活动
+  # 页显示与否是活动轴问题：用场次轴判据会同时造成「open 活动的已结束场次被抹掉」
+  # 与「closed 活动的 open 场次照样挂出」两个错——两个方向都会被错误地判对。
+  defp fetch_events(%{status: status}) when status != "open", do: {:ok, []}
+
+  defp fetch_events(initiative) do
     query = """
     SELECT e.id, e.slug, e.title, e.status, e.visibility, e.starts_at, e.ends_at,
            e.registration_deadline, e.venue,
@@ -74,7 +93,7 @@ defmodule Cgc2046.Initiatives.Public do
     ORDER BY e.starts_at NULLS LAST, e.inserted_at, e.id
     """
 
-    case Repo.query(query, [uuid_param(initiative_id)]) do
+    case Repo.query(query, [uuid_param(initiative.id)]) do
       {:ok, %{rows: rows}} ->
         {:ok,
          Enum.map(rows, fn row ->

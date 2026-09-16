@@ -2972,6 +2972,18 @@ button:focus-visible,
     font-size: 13px;
   }
 
+  /* 中止说明行（#628）：仅 cancelled 渲染——与 closed（留档）文案分叉的可见面 */
+  .initiative-hero__cancelled {
+    display: inline-block;
+    margin: 12px 0 0;
+    padding: 6px 12px;
+    border-radius: 999px;
+    color: var(--status-red);
+    background: color-mix(in srgb, var(--status-red) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-red) 32%, transparent);
+    font-size: 13px;
+  }
+
   /* 统计条：grid-gap 当 hairline 用，任意列数下分隔线都不错位 */
   .initiative-stats {
     display: grid;

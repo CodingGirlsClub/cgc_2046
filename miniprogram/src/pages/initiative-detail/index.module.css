@@ -1,5 +1,7 @@
 .page { min-height: 100vh; box-sizing: border-box; background: #f7f7f7; padding: 32rpx; padding-bottom: calc(40rpx + env(safe-area-inset-bottom)); }
 .status { display: block; color: #777; font-size: 24rpx; margin-bottom: 16rpx; }
+/* 中止说明行（#628）：仅 cancelled 渲染——与 closed（留档）文案分叉的可见面 */
+.cancelled { display: inline-block; color: #c0392b; background: rgba(192, 57, 43, 0.1); border-radius: 999rpx; padding: 8rpx 20rpx; font-size: 24rpx; margin-bottom: 16rpx; }
 .title { display: block; font-size: 48rpx; font-weight: 700; margin-bottom: 12rpx; overflow-wrap: anywhere; }
 .hashtag { display: block; color: #ea5504; font-size: 28rpx; margin-bottom: 12rpx; }
 .meta, .description { display: block; color: #777; font-size: 26rpx; line-height: 1.6; margin-bottom: 24rpx; overflow-wrap: anywhere; }

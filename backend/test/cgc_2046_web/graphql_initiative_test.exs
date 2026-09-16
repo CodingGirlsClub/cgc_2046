@@ -142,6 +142,25 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
     assert is_binary(row["qualificationBadge"])
   end
 
+  # #628：中止入口（GraphQL 面）——终态迁移 + 稳定状态串
+  test "admin cancelInitiative 把 open 活动迁到 cancelled，并对二次调用拒绝" do
+    admin = Fixtures.platform_admin("gql-initiative-cancel-admin")
+    initiative = open_initiative(admin, "gql-initiative-cancel")
+
+    mutation =
+      "mutation { cancelInitiative(id: \"#{initiative.id}\") { result { id status } errors { code message } } }"
+
+    assert %{"data" => %{"cancelInitiative" => %{"result" => result, "errors" => []}}} =
+             post_graphql(mutation, token(admin))
+
+    assert result["status"] == "cancelled"
+    assert Ash.get!(Initiative, initiative.id, authorize?: false).status == :cancelled
+
+    # 终态不可逆：二次调用回错误信封而非再次迁移
+    assert %{"data" => %{"cancelInitiative" => %{"result" => nil, "errors" => [_ | _]}}} =
+             post_graphql(mutation, token(admin))
+  end
+
   test "platform admin listInitiatives is protected and returns rows" do
     admin = Fixtures.platform_admin("gql-initiative-list-admin")
     initiative = open_initiative(admin)
