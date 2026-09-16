@@ -272,11 +272,11 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
              serialize_next_action(NextAction.next(objectives, new_states, review_queue))
          }}
 
-      {:error, %Ash.Error.Invalid{} = error} ->
-        {:error, Exception.message(error)}
-
+      # fallback 由旧 `"…: #{inspect(error)}"` 统一为字面量（#612，评审 F1）：
+      # inspect 一颗未知错误树正会打出原始库内文本；已知 Invalid 仍走
+      # Exception.message/1，文案逐字不变。
       {:error, error} ->
-        {:error, "failed to record learning attempt: #{inspect(error)}"}
+        {:error, Cgc2046.Mcp.Errors.message(error, "failed to record learning attempt")}
     end
   end
 

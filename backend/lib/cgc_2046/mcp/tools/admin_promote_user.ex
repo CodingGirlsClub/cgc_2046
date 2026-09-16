@@ -72,11 +72,8 @@ defmodule Cgc2046.Mcp.Tools.AdminPromoteUser do
         {:error, %Ash.Error.Forbidden{}} ->
           {:error, "forbidden: platform admin required to promote users"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to promote user"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to promote user")}
       end
     end
   end

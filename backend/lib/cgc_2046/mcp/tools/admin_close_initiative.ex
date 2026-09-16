@@ -43,9 +43,11 @@ defmodule Cgc2046.Mcp.Tools.AdminCloseInitiative do
 
       {:ok, initiative} ->
         case initiative |> Ash.Changeset.for_update(:close, %{}) |> Ash.update(actor: actor) do
-          {:ok, updated} -> H.row(updated, actor)
-          {:error, %Ash.Error.Invalid{} = error} -> {:error, Exception.message(error)}
-          {:error, _} -> {:error, "failed to close initiative"}
+          {:ok, updated} ->
+            H.row(updated, actor)
+
+          {:error, error} ->
+            {:error, Cgc2046.Mcp.Errors.message(error, "failed to close initiative")}
         end
 
       {:error, _} ->

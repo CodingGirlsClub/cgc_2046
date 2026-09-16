@@ -20,11 +20,8 @@ defmodule Cgc2046.Mcp.Tools.AssignEventModerator do
           {:error, :forbidden} ->
             {:error, "forbidden: owner or admin required"}
 
-          {:error, %Ash.Error.Invalid{} = error} ->
-            {:error, Exception.message(error)}
-
-          {:error, _} ->
-            {:error, "failed to assign moderator"}
+          {:error, error} ->
+            {:error, Cgc2046.Mcp.Errors.message(error, "failed to assign moderator")}
         end
       end)
 
