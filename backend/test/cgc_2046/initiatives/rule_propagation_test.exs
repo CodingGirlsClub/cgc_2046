@@ -447,9 +447,14 @@ defmodule Cgc2046.Initiatives.RulePropagationTest do
     |> Ash.update(actor: admin)
   end
 
-  # 已挂载 + open（force_open 走裸 SQL，无 launched 信号 → 无账本行）
+  # 已挂载 + open（force_open 走裸 SQL，无 launched 信号 → 无账本行）。
+  # ends_at 默认非空：押金锚点不变量（#608，DB CHECK events_deposit_requires_ends_at）
+  # 要求押金开启时结算锚点在位，而锁死押金规则在挂载时即 force deposit_enabled=true
+  # → 缺锚点会撞 CHECK；显式传入的 attrs 优先。
   defp mounted_open(workspace, admin, initiative, attrs) do
-    EF.create_event(workspace, admin, Map.put(attrs, :initiative_id, initiative.id))
+    defaults = %{ends_at: EF.days_from_now(11)}
+    attrs = Map.merge(defaults, Map.put(attrs, :initiative_id, initiative.id))
+    EF.create_event(workspace, admin, attrs)
   end
 
   # 已挂载 + draft（挂载/规则写入的边界要求 draft）
