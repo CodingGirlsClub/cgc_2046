@@ -3,6 +3,8 @@ This is a web application written using the Phoenix web framework.
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
+- **跑测试必须带 `PASEO_BRANCH_NAME=<本 worktree 的分支名>`**：`config/test.exs` 只认这个环境变量把测试库派生为 `cgc_2046_test_<slug>`，缺省时回落共享库 `cgc_2046_test`——同机多个 worktree 并发跑测会互相看到对方的写入与行锁，表现为随机 `DBConnection` 超时/死锁/`StaleRecord`。做法：`PASEO_BRANCH_NAME=$(git branch --show-current) mix test`（派生库由 `mix test` 别名的 `ecto.create`/`ecto.migrate` 自动建好）
+- **新增守卫/断言必须做变异验证**：把被守卫的实现（或守卫本身）临时改坏，对应断言必须变红——只"绿"不算钉住（假绿常见于断言落在空集合/被跳过的分支上）。做法：改坏 → 确认红 → 还原 → 确认绿，两步输出都留在同一会话里
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 - **License gate:** any new Hex dependency must be AGPL-3.0-compatible (permissive or MPL-2.0/LGPL-3.0+/EPL-2.0); **forbidden**: GPL-2.0, SSPL, BUSL, Elastic, proprietary, unlicensed. CI runs `mix cgc2046.check_licenses`; when unsure, open an issue first (see `docs/开源合规/依赖引入规则.md`)
 - **错误码契约（#241）**：业务错误 code 单源 = domain 层 `domain_error_code` 显式子句与 `code: "..."` 字面量，AST 提取生成 `priv/error_codes_contract.json`。新增/改名 code 后运行 `mix cgc2046.gen_error_codes_contract` 再生成（CI `--check` + 测试守卫新鲜度）；用户可见的 code 同步补 `web/messages/*.json` errors namespace 与 `miniprogram/src/domain/error-copy.ts` 文案（两端 contract test 断言键 ⊆ 契约）。需要文案的 reason 不得依赖兜底动态拼接——先显式子句化
