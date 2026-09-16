@@ -1496,6 +1496,8 @@ export type Event = {
   depositEnabled: Scalars['Boolean']['output'];
   /** 公开展示文案（可空；null 由展示层按空串呈现） */
   description?: Maybe<Scalars['String']['output']>;
+  /** 解除挂载时保留的锁死规则来源标记（nil = 无；场主改写对应字段后逐字段清除） */
+  detachedRuleProvenance?: Maybe<Scalars['JsonString']['output']>;
   /** 活动结束时间；须严格晚于 starts_at（KTD6），nil 表示未定（R1） */
   endsAt?: Maybe<Scalars['DateTime']['output']>;
   enrollmentBadge?: Maybe<Scalars['String']['output']>;
