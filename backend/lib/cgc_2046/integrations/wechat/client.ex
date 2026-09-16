@@ -60,9 +60,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # cancelled 需 visibility=public 且挂活跃 Initiative，ReadsArchivedInitiativeEvent），
   # 深链会渲染「活动不存在或不可访问」——比 profile 更糟。退款的权威面在「我的
   # 报名」：enrollmentPaymentText 对 confirmed 报名 + refunding/refunded 订单出
-  # 「退款中/已退款」。已知残留：该页不展示活动时间（EnrollmentSummary 无
-  # startsAt），改期的「新时间」无权威落点（同 event_reminder 既有缺口，另立
-  # issue 跟）。
+  # 「退款中/已退款」。改期的「新时间」与地点同为该页权威落点（#617：卡片渲染
+  # EnrollmentSummary.startsAt/venue，同 event_reminder 缺口一并闭合）。
   @learner_templates ~w(approval_result enrollment_completed payment_succeeded
                          payment_expired refund_succeeded refund_failed
                          event_reminder learning_stagnation
