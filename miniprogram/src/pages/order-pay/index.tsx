@@ -15,7 +15,8 @@ import {
   type RequestPaymentArgs
 } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
-import { requestPlatformSubscription } from '@/platform'
+import { eventCardTouchpoint } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
 /**
@@ -154,13 +155,18 @@ export default function OrderPayPage() {
   }
 
   // paid 态订阅活动提醒（#355-9）：与 my-enrollments 卡片订阅按钮同链路
-  // （requestPlatformSubscription → grantConsent），入口前移到支付成功即时点。
+  // （requestPlatformSubscriptions → grantConsent），入口前移到支付成功即时点。
+  // 本处**有意只请求 event_reminder**（与改动前语义等价）；「开始 + 改期」的
+  // 完整 M2 组合留给 my-enrollments 活动卡，避免在支付成功页一次问满。
   const subscribeReminder = async () => {
     try {
-      if (await requestPlatformSubscription('event_reminder')) {
-        await api.grantConsent('event_reminder')
-        Taro.showToast({ title: '已订阅活动提醒', icon: 'success' })
+      const [accepted] = await requestPlatformSubscriptions(['event_reminder'])
+      if (!accepted) {
+        Taro.showToast({ title: eventCardTouchpoint().deniedCopy, icon: 'none' })
+        return
       }
+      await api.grantConsent(accepted)
+      Taro.showToast({ title: '已订阅活动提醒', icon: 'success' })
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
     }

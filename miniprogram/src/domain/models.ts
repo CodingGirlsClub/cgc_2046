@@ -20,7 +20,27 @@ export type OrderStatus =
   | 'forfeited'
 /** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
 export type OrderKind = 'enrollment' | 'deposit'
-export type SubscriptionScenario = 'approval_result' | 'approval_reminder' | 'event_reminder'
+/**
+ * 订阅消息场景键（= 后端 `template_key`）。
+ *
+ * 键集与 `config/index.ts` 的 `WECHAT_SCENARIOS`、`domain/subscription.ts` 的
+ * `ALL_SCENARIOS` 三者双射，由 `tests/subscription-build.test.mjs` 钉住。
+ * 新增场景须同时改这三处 + `miniprogram/.env*.example` 的键（守卫测试会红）。
+ *
+ * 覆盖缺口见 `domain/subscription.ts` 的 moduledoc：分享者腿（`speaker_completed`
+ * 的分享者受众）在小程序内**无入口**。
+ */
+export type SubscriptionScenario =
+  | 'approval_result'
+  | 'approval_reminder'
+  | 'event_reminder'
+  | 'event_qualification_confirmed'
+  | 'event_qualification_underfilled'
+  | 'event_schedule_changed'
+  | 'event_moderator_assigned'
+  | 'speaker_accepted'
+  | 'speaker_completed'
+  | 'learning_stagnation'
 
 export interface CatalogItem {
   id: string

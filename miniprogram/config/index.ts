@@ -5,6 +5,46 @@ import { resolve } from 'node:path'
 const developmentEndpoint = 'http://localhost:4001/api/graphql'
 const graphqlEndpoint = process.env.CGC_GRAPHQL_ENDPOINT ?? developmentEndpoint
 
+// 订阅场景键列表（**构建期真源**）：驱动下面的 env 读取，一次性生成注入对象。
+//
+// 为什么是「一份列表 + 单一 define」而不是「一场景一条 defineConstants」：后者要在
+// config/index.ts / types/global.d.ts / src/platform/index.ts 三处手抄平行清单，
+// 少抄一处不报编译错、只在运行时炸——#606 的根因正是多处名单漂移（靠 allowlist
+// 守卫测试兜底才暴露）。
+//
+// 本列表与 src/domain/models.ts 的 SubscriptionScenario 联合、src/domain/
+// subscription.ts 的 ALL_SCENARIOS 三者双射，由 tests/subscription-build.test.mjs
+// 钉住（纯文件扫描，不依赖真实模板 ID ⇒ CI 无 ID 也全绿）。
+const WECHAT_SCENARIOS = [
+  'approval_result',
+  'approval_reminder',
+  'event_reminder',
+  'event_qualification_confirmed',
+  'event_qualification_underfilled',
+  'event_schedule_changed',
+  'event_moderator_assigned',
+  'speaker_accepted',
+  'speaker_completed',
+  'learning_stagnation'
+] as const
+
+// 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）
+const TT_SCENARIOS = ['approval_result', 'event_reminder'] as const
+
+// 场景键 → 模板 ID 映射。env 名 = 前缀 + 场景键的 SCREAMING_SNAKE，机械可推，
+// 不再逐条手写。JSON 文本经 defineConstants 按字面量内联，产物里即对象字面量。
+// 缺配落空串：请求期 fail-closed 过滤掉未配置场景（src/platform/index.ts），
+// **不阻断构建**——CI 与本地开发都没有真实模板 ID。
+const templateIdMap = (scenarios: readonly string[], prefix: string): string =>
+  JSON.stringify(
+    Object.fromEntries(
+      scenarios.map((scenario) => [
+        scenario,
+        process.env[`${prefix}${scenario.toUpperCase()}`] ?? ''
+      ])
+    )
+  )
+
 export default {
   projectName: 'cgc-miniprogram',
   date: '2026-08-08',
@@ -30,21 +70,9 @@ export default {
         : process.env.TARO_ENV === 'xhs' ? '小红书'
         : '微信'
     ),
-    __WECHAT_TEMPLATE_APPROVAL_RESULT__: JSON.stringify(
-      process.env.CGC_WECHAT_TEMPLATE_APPROVAL_RESULT ?? ''
-    ),
-    __WECHAT_TEMPLATE_APPROVAL_REMINDER__: JSON.stringify(
-      process.env.CGC_WECHAT_TEMPLATE_APPROVAL_REMINDER ?? ''
-    ),
-    __WECHAT_TEMPLATE_EVENT_REMINDER__: JSON.stringify(
-      process.env.CGC_WECHAT_TEMPLATE_EVENT_REMINDER ?? ''
-    ),
-    __TT_TEMPLATE_APPROVAL_RESULT__: JSON.stringify(
-      process.env.CGC_DOUYIN_TEMPLATE_APPROVAL_RESULT ?? ''
-    ),
-    __TT_TEMPLATE_EVENT_REMINDER__: JSON.stringify(
-      process.env.CGC_DOUYIN_TEMPLATE_EVENT_REMINDER ?? ''
-    )
+    // 订阅消息模板 ID：单键注入整个映射（缺配为空串，请求期 fail-closed 过滤）
+    __WECHAT_TEMPLATE_IDS__: templateIdMap(WECHAT_SCENARIOS, 'CGC_WECHAT_TEMPLATE_'),
+    __TT_TEMPLATE_IDS__: templateIdMap(TT_SCENARIOS, 'CGC_DOUYIN_TEMPLATE_')
   },
   copy: {
     patterns: [],
