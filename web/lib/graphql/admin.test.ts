@@ -96,4 +96,20 @@ describe("admin GraphQL 契约（Phase 5 后端 schema 对齐）", () => {
     expect(demote).toContain("mutation DemoteUser($id: ID!)");
     expect(demote).toContain("demoteUser(id: $id)");
   });
+
+  it("listAdminActionLogs 带 #607 metadata 白名单投影字段", () => {
+    const doc = print(LIST_ADMIN_ACTION_LOGS);
+    expect(doc).toContain("metadata {");
+    for (const field of [
+      "ruleKey",
+      "locked",
+      "lockedBefore",
+      "valueBeforeJson",
+      "valueAfterJson",
+      "valueBeforeOmitted",
+      "valueAfterOmitted",
+    ]) {
+      expect(doc).toContain(field);
+    }
+  });
 });
