@@ -214,6 +214,51 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert row.url == expected
   end
 
+  # #596 权限不扩大：规则（值/锁态）不得进入匿名公开投影。键集冻结 —— 新增字段
+  # 会红，迫使人重新裁决「公开面能否看见」。
+  test "公开投影键集冻结：详情/列表 DTO 不含规则（#596）" do
+    admin = Fixtures.platform_admin("initiative-public-dto")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = initiative(admin, "public-dto-test")
+    event(workspace, admin, initiative, %{})
+
+    assert {:ok, payload} = Public.get_by_slug("public-dto-test")
+
+    assert Enum.sort(Map.keys(payload)) ==
+             Enum.sort([
+               :id,
+               :name,
+               :slug,
+               :url,
+               :hashtag,
+               :description,
+               :window_starts_at,
+               :window_ends_at,
+               :status,
+               :city_count,
+               :event_count,
+               :confirmed_count,
+               :qualified_event_count,
+               :cities
+             ])
+
+    assert {:ok, rows} = Public.list()
+    row = Enum.find(rows, &(&1.slug == initiative.slug))
+
+    assert Enum.sort(Map.keys(row)) ==
+             Enum.sort([
+               :id,
+               :name,
+               :slug,
+               :url,
+               :hashtag,
+               :description,
+               :window_starts_at,
+               :window_ends_at,
+               :status
+             ])
+  end
+
   test "公开列表 open 排在 closed 之前（R5）" do
     admin = Fixtures.platform_admin("initiative-public-list-order")
 

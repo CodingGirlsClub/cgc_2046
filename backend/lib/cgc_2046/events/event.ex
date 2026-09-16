@@ -440,9 +440,11 @@ defmodule Cgc2046.Events.Event do
       error_handler({__MODULE__, :handle_write_error, []})
 
       change(fn changeset, context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
+        changeset
+        |> Ash.Changeset.before_action(fn cs ->
           Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
         end)
+        |> Cgc2046.Initiatives.RuleInheritance.attach_inheritance_metadata()
       end)
 
       change(fn changeset, _context ->
@@ -550,9 +552,11 @@ defmodule Cgc2046.Events.Event do
       error_handler({__MODULE__, :handle_write_error, []})
 
       change(fn changeset, context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
+        changeset
+        |> Ash.Changeset.before_action(fn cs ->
           Cgc2046.Initiatives.RuleInheritance.prepare_event_changes(cs, context)
         end)
+        |> Cgc2046.Initiatives.RuleInheritance.attach_inheritance_metadata()
       end)
 
       # 强制非原子执行：GraphQL update 走 bulk_update（原子路径）时 policy 的

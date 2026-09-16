@@ -23,6 +23,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Event
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule, RuleInheritance}
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
   alias Cgc2046.Mcp.Tools.{
@@ -88,6 +89,79 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
   defp paid_event(workspace, actor),
     do: open_event(workspace, actor, %{pricing_enabled: true, price_tiers: [@tier]})
+
+  # #596 挂载继承可见：initiative 由平台管理员建规则 + 开门（挂载要求 open 且四规则齐备）
+  defp initiative_with_rules(admin, slug, rules) do
+    initiative =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "规则倡议 #{slug}",
+        slug: slug,
+        created_by: admin.id
+      })
+      |> Ash.create!(actor: admin)
+
+    for {key, value, locked} <- rules do
+      InitiativeRule
+      |> Ash.Changeset.for_create(:create, %{
+        initiative_id: initiative.id,
+        key: key,
+        value: value,
+        locked: locked
+      })
+      |> Ash.create!(actor: admin)
+    end
+
+    initiative |> Ash.Changeset.for_update(:open, %{}) |> Ash.update!(actor: admin)
+  end
+
+  # 两锁两默认：deposit/age_gate 锁死，min_participants/deadline_rule 挂载快照
+  defp mixed_initiative(admin, slug) do
+    initiative_with_rules(admin, slug, [
+      {:deposit, %{enabled: true, amount_cents: 6900}, true},
+      {:age_gate, %{min_age: 18}, true},
+      {:min_participants, %{count: 8}, false},
+      {:deadline_rule, %{hours_before_start: 72}, false}
+    ])
+  end
+
+  defp all_default_initiative(admin, slug) do
+    initiative_with_rules(admin, slug, [
+      {:deposit, %{enabled: false}, false},
+      {:age_gate, %{min_age: 21}, false},
+      {:min_participants, %{count: 5}, false},
+      {:deadline_rule, %{hours_before_start: 48}, false}
+    ])
+  end
+
+  # 硬要求①：响应里每个 inherited 值必须等于落库真值（不是响应自洽）
+  defp assert_inherited_matches_db(payload, workspace) do
+    event = Ash.get!(Event, payload["event_id"], authorize?: false, tenant: workspace.id)
+
+    for {field, entry} <- payload["inherited"] do
+      db_value =
+        case field do
+          "registration_deadline" ->
+            event.registration_deadline &&
+              DateTime.to_iso8601(DateTime.truncate(event.registration_deadline, :second))
+
+          field ->
+            Map.fetch!(event, String.to_existing_atom(field))
+        end
+
+      assert entry["value"] == db_value,
+             "inherited.#{field} 响应 #{inspect(entry["value"])} != 落库 #{inspect(db_value)}"
+    end
+
+    event
+  end
+
+  # create/update 挂载态的公共事件输入（押金规则开启 → 需要 ends_at 与截止）
+  @mounted_event_attrs %{
+    "starts_at" => "2027-01-10T10:00:00Z",
+    "ends_at" => "2027-01-10T12:00:00Z",
+    "capacity" => 50
+  }
 
   defp enroll(event, learner, attrs \\ %{}) do
     {:ok, enrollment} =
@@ -219,6 +293,275 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       event = Ash.get!(Event, payload["event_id"], authorize?: false, tenant: workspace.id)
       assert event.sponsorship_enabled == false
       assert event.curriculum_enabled == false
+    end
+  end
+
+  describe "挂载继承可见（#596）" do
+    test "create_event 回传本次生效的继承结果（值 == 落库真值，source 区分 locked/default）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-inherit-mixed")
+
+      assert {:reply, _, _} =
+               reply =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "挂载建场",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+
+      assert payload["initiative"] == %{
+               "id" => initiative.id,
+               "name" => initiative.name,
+               "slug" => initiative.slug
+             }
+
+      assert payload["inherited"] == %{
+               "deposit_enabled" => %{"value" => true, "source" => "locked"},
+               "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+               "min_age" => %{"value" => 18, "source" => "locked"},
+               "min_participants" => %{"value" => 8, "source" => "default"},
+               "registration_deadline" => %{
+                 "value" => "2027-01-07T10:00:00Z",
+                 "source" => "default"
+               }
+             }
+
+      assert_inherited_matches_db(payload, workspace)
+    end
+
+    test "无挂载 create_event 回空壳（inherited == %{}、initiative == nil）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-none")
+      workspace = Fixtures.create_workspace(owner)
+
+      assert {:reply, _, _} =
+               reply =
+               CreateEvent.execute(
+                 %{"workspace_id" => workspace.id, "title" => "无挂载"},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["initiative"] == nil
+      assert payload["inherited"] == %{}
+    end
+
+    test "update_event 未改挂载：只回 locked 项（unlocked 规则本次不写）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-update")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-inherit-update-mixed")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "挂载后再改",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      created_payload = decode_reply(created)
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => created_payload["event_id"],
+                   "title" => "改名"
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      assert result["initiative"]["id"] == initiative.id
+
+      assert result["inherited"] == %{
+               "deposit_enabled" => %{"value" => true, "source" => "locked"},
+               "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+               "min_age" => %{"value" => 18, "source" => "locked"}
+             }
+
+      assert_inherited_matches_db(result, workspace)
+    end
+
+    test "update_event 改挂载：新 Initiative 的默认项按挂载快照回传" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-remount")
+      workspace = Fixtures.create_workspace(owner)
+      first = mixed_initiative(owner, "s3-ev-inherit-remount-a")
+      second = all_default_initiative(owner, "s3-ev-inherit-remount-b")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "换挂载",
+                   "initiative_id" => first.id
+                 }),
+                 frame_for(owner)
+               )
+
+      event_id = decode_reply(created)["event_id"]
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "initiative_id" => second.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      assert result["initiative"]["id"] == second.id
+
+      assert result["inherited"] == %{
+               "deposit_enabled" => %{"value" => false, "source" => "default"},
+               "deposit_amount_cents" => %{"value" => nil, "source" => "default"},
+               "min_age" => %{"value" => 21, "source" => "default"},
+               "min_participants" => %{"value" => 5, "source" => "default"},
+               "registration_deadline" => %{
+                 "value" => "2027-01-08T10:00:00Z",
+                 "source" => "default"
+               }
+             }
+
+      assert_inherited_matches_db(result, workspace)
+    end
+
+    test "locked 字段的本地冲突写仍被拒绝（错误语义不变）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-locked")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-inherit-locked-mixed")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "锁死守卫",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      event_id = decode_reply(created)["event_id"]
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "min_age" => 21
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:error, %Anubis.MCP.Error{message: message}, _} =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      assert message =~ "initiative rule age_gate is locked"
+    end
+
+    test "全 unlocked 的挂载场普通更新：initiative 在、inherited 空（本次无规则写入）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-unlocked")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = all_default_initiative(owner, "s3-ev-inherit-unlocked-init")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "全默认规则场",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      event_id = decode_reply(created)["event_id"]
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event_id, "title" => "改名"},
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      assert result["initiative"]["id"] == initiative.id
+      assert result["inherited"] == %{}
+    end
+
+    test "detach（initiative_id → nil）：inherited 空壳、initiative nil（域路径）" do
+      owner = Fixtures.platform_admin("s3-ev-inherit-detach")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-inherit-detach-init")
+
+      assert {:reply, _, _} =
+               created =
+               CreateEvent.execute(
+                 Map.merge(@mounted_event_attrs, %{
+                   "workspace_id" => workspace.id,
+                   "title" => "待摘除",
+                   "initiative_id" => initiative.id
+                 }),
+                 frame_for(owner)
+               )
+
+      mounted =
+        Ash.get!(Event, decode_reply(created)["event_id"],
+          authorize?: false,
+          tenant: workspace.id
+        )
+
+      # 写响应的继承元数据只在写返回的记录上；重读记录按落库真值核对
+      assert mounted.initiative_id == initiative.id
+      assert decode_reply(created)["inherited"]["min_age"]["value"] == mounted.min_age
+
+      detached =
+        mounted
+        |> Ash.Changeset.for_update(:update, %{initiative_id: nil}, tenant: workspace.id)
+        |> Ash.update!(actor: owner, tenant: workspace.id)
+
+      assert detached.initiative_id == nil
+      assert RuleInheritance.inheritance_of(detached) == %{initiative: nil, inherited: %{}}
     end
   end
 

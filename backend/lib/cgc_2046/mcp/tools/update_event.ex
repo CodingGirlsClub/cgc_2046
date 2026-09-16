@@ -15,6 +15,11 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   副作用必须经用户确认。pending 摘要精确列出将变更的字段与新值；true→false 时
   追加批量免缴影响摘要（待支付笔数计入）。nil 值视为未提供（不支持显式置空）。
 
+  挂载继承可见（#596）：确认后落库的结果带 `initiative`（id/name/slug，未挂载为
+  null）与 `inherited`（事件字段 → `%{value, source}`；source = locked（平台锁死，
+  每次写入都被强制重写，改成别的值会被拒绝）/ default（仅本次改挂载时按规则
+  快照））。未改挂载的普通更新只回 locked 项，与「本次生效」语义一致。
+
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定（第一段
   快速拒绝省 pending）；confirm 段由 update policy 兜底。
   """
@@ -22,6 +27,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Events.Event
+  alias Cgc2046.Initiatives.RuleInheritance
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
   require Ash.Query
@@ -61,7 +67,12 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
     field(:price_tiers, {:list, :map}, description: "价格档位配置（PriceTier 形状；改价不追溯已生成订单）")
     field(:curriculum_enabled, :boolean, description: "是否启用教研 workflow")
     field(:curriculum_requirements, :map, description: "教研材料需求")
-    field(:initiative_id, :string, description: "草稿所属 Initiative UUID")
+
+    field(:initiative_id, :string,
+      description:
+        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；改挂载会按新规则强制写入押金/年龄/人数/报名截止，生效结果见返回 inherited"
+    )
+
     field(:deposit_enabled, :boolean, description: "是否收取活动押金")
     field(:deposit_amount_cents, :integer, description: "押金金额（分）")
     field(:min_age, :integer, description: "最低年龄")
@@ -118,7 +129,8 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
              title: updated.title,
              status: to_string(updated.status),
              updated_fields: Enum.map(changes, fn {field, _value} -> field end)
-           }}
+           }
+           |> Map.merge(RuleInheritance.inheritance_of(updated))}
 
         {:error, %Ash.Error.Forbidden{}} ->
           {:error,

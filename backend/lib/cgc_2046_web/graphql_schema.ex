@@ -596,6 +596,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "Owner/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner/Admin 一律 forbidden"
+    field :initiative_mount_preview, :initiative_mount_preview do
+      arg(:workspace_id, non_null(:id))
+      arg(:initiative_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(context, fn actor ->
+          case Cgc2046.Initiatives.RulePreview.get(
+                 args[:initiative_id],
+                 actor,
+                 args[:workspace_id]
+               ) do
+            {:ok, preview} -> {:ok, initiative_mount_preview_row(preview)}
+            {:error, :forbidden} -> {:error, [message: "forbidden", code: "forbidden"]}
+            {:error, :not_found} -> {:error, [message: "initiative not found", code: "not_found"]}
+            {:error, _} -> {:error, [message: "failed to load initiative rules", code: "invalid"]}
+          end
+        end)
+      end)
+    end
+
     @desc "活动主理人列表；主理人或所属 Workspace Owner/Admin 可读"
     field :event_moderators, non_null(list_of(non_null(:event_moderator))) do
       arg(:workspace_id, non_null(:id))
@@ -2872,6 +2893,23 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:updated_at, non_null(:datetime))
   end
 
+  object :initiative_mount_preview do
+    field(:initiative_id, non_null(:id))
+    field(:name, non_null(:string))
+    field(:slug, non_null(:string))
+    field(:status, non_null(:string))
+    field(:rules, non_null(list_of(non_null(:initiative_rule_preview))))
+    field(:missing_rules, non_null(list_of(non_null(:string))))
+  end
+
+  # value_json 与 AdminInitiativeRule 同口径（JSON 字符串 + locked 布尔）：
+  # 手写客户端复用既有 JSON.parse(rule.valueJson) 解析模式
+  object :initiative_rule_preview do
+    field(:key, non_null(:string))
+    field(:value_json, non_null(:string))
+    field(:locked, non_null(:boolean))
+  end
+
   input_object :admin_initiative_input do
     field(:name, :string)
     field(:slug, :string)
@@ -3136,6 +3174,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       locked: rule.locked,
       inserted_at: rule.inserted_at,
       updated_at: rule.updated_at
+    }
+  end
+
+  # #596 挂载前预览：RulePreview 返回规则原始值（MCP 面直接用 map），GraphQL 面
+  # 按既有 AdminInitiativeRule 口径转 value_json 字符串
+  defp initiative_mount_preview_row(preview) do
+    %{
+      initiative_id: preview.initiative_id,
+      name: preview.name,
+      slug: preview.slug,
+      status: preview.status,
+      rules:
+        Enum.map(preview.rules, fn rule ->
+          %{key: rule.key, value_json: Jason.encode!(rule.value), locked: rule.locked}
+        end),
+      missing_rules: preview.missing_rules
     }
   end
 

@@ -140,6 +140,7 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.CloseCourse)
   component(Cgc2046.Mcp.Tools.CancelCourse)
   component(Cgc2046.Mcp.Tools.CreateEvent)
+  component(Cgc2046.Mcp.Tools.PreviewInitiativeMount)
   component(Cgc2046.Mcp.Tools.ListWorkspaceEvents)
   component(Cgc2046.Mcp.Tools.UpdateEvent)
   component(Cgc2046.Mcp.Tools.LaunchEvent)
