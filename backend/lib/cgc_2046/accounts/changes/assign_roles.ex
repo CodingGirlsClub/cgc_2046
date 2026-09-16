@@ -63,23 +63,30 @@ defmodule Cgc2046.Accounts.Changes.AssignRoles do
           # 使 owner_count 读（validate_grant_scope）与 after_action 写同锁同事务。
           # 注意：Ash 的 require_atomic?(false) 保证 before_action 在 Repo.transaction 内执行，
           # 因此后续 validate_grant_scope 中的 role_names/owner_count 读取与锁在同一连接。
-          Repo.acquire_lock!(workspace_id)
+          # 锁失败（#621 lock_timeout / deadlock_detected）不 raise：折进 changeset 走
+          # Ash 返回型错误路径，GraphQL payload / MCP confirm 面才拿得到 code。
+          with :ok <- Repo.acquire_lock(workspace_id) do
+            # grant scope 校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
+            # 与 destroy 守卫共用同一实现）。
+            new_role_names = Ash.Changeset.get_argument(cs, :role_names) |> List.wrap()
+            actor = cs.context[:private][:actor]
 
-          # grant scope 校验委托 Rbac.validate_owner_removal!/5（规则 1 + 最后 Owner 保护，
-          # 与 destroy 守卫共用同一实现）。
-          new_role_names = Ash.Changeset.get_argument(cs, :role_names) |> List.wrap()
-          actor = cs.context[:private][:actor]
-
-          case Rbac.validate_owner_removal!(
-                 cs,
-                 actor,
-                 membership.user_id,
-                 workspace_id,
-                 removing_owner: :owner not in new_role_names,
-                 granting_owner: :owner in new_role_names
-               ) do
-            :ok -> cs
-            {:error, errored} -> errored
+            case Rbac.validate_owner_removal!(
+                   cs,
+                   actor,
+                   membership.user_id,
+                   workspace_id,
+                   removing_owner: :owner not in new_role_names,
+                   granting_owner: :owner in new_role_names
+                 ) do
+              :ok -> cs
+              {:error, errored} -> errored
+            end
+          else
+            # 返回"带错误的 changeset"本身（不是 {:error, changeset} 元组）：Ash 的
+            # bulk 路径按 `{changeset, instructions} = run_before_actions(...)` 解构，
+            # 元组形状会 MatchError（同 Rbac.validate_owner_removal! 的返回约定）。
+            {:error, error} -> Ash.Changeset.add_error(cs, error)
           end
         end)
         |> Ash.Changeset.after_action(fn _cs, result ->
