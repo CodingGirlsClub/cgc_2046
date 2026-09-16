@@ -16,6 +16,12 @@
 //   无确认按钮)→ 确认 → POST /enrollments(幂等,重放安全)→
 //   confirmed 已报名 / pending 待审批 / payment_pending 去支付。
 //
+// 缴费槽三态(#586):价格行判据 = 服务端 payment_mode(free|pricing|deposit),
+// **绝不从 pricing 块推断**——押金场 pricing.enabled=false 但不是免费。押金场
+// 出「押金 ¥xx（到场退）」(金额缺失/非正降级为「押金（到场退）」不出价,绝不
+// 显示 ¥0.00;文案逐字对齐小程序 depositPayNotice / web checkout depositLine);
+// 未知/字段缺席 → 空串不表态(fail-closed)。押金单支付走同一外链 + 轮询链。
+//
 // 支付旅程(R33/AE7):payment_pending → 去支付(checkout_url 经 anchor
 // target=_blank 外部打开)+ 支付中徽章 + 5s 轮询 /order_status(终态/面板
 // 离开/10 分钟上限即停);paid → 自动翻 已报名;expired → 已过期徽章。
@@ -42,7 +48,7 @@
   // ---- 面板状态机 ----
   const state = {
     view: "idle",     // idle | loading | not-connected | error | empty | list
-    items: [],        // [{ id, slug, title, kind, status, visibility, workspace, pricing, registration_deadline, my_enrollment }]
+    items: [],        // [{ id, slug, title, kind, status, visibility, workspace, pricing, payment_mode, deposit, registration_deadline, my_enrollment }]
     webUrl: "",
     error: null,
     confirm: null     // 报名确认卡 { item, summary, tierId, loading, saving, error }
@@ -94,12 +100,33 @@
     return would || "";
   }
 
-  // 价格:免费 或 ¥<min_amount> 起(分 → 元)
-  function priceLabel(pricing) {
-    if (!pricing || !pricing.enabled) return "免费";
-    const cents = Number(pricing.min_amount_cents);
-    if (!isFinite(cents)) return "";
-    return "¥" + (cents / 100).toFixed(2) + " 起";
+  // 押金金额行(#586;逐字对齐小程序 depositPayNotice / web checkout depositLine):
+  // 金额缺失/非正 → 降级「押金（到场退）」不出价,绝不显示 ¥0.00。
+  function depositLabel(amountCents) {
+    const cents = Number(amountCents);
+    if (isFinite(cents) && cents > 0) {
+      return "押金 ¥" + (cents / 100).toFixed(2) + "（到场退）";
+    }
+    return "押金（到场退）";
+  }
+
+  // 价格行(#586 三态单源):判据 = 服务端 payment_mode(free|pricing|deposit),
+  // 绝不从 pricing 块推断——押金场 pricing.enabled=false 但**不是免费**。
+  // minCents 仅 pricing 态使用(发现条目取 pricing.min_amount_cents;确认卡价格行
+  // 走档位行/无档位空串)。
+  // 降级口径与押金分支同判据(金额必须 > 0):档位全部过期时后端给
+  // min_amount_cents=nil(Number(null)===0),此处出空串而非「¥0.00 起」;
+  // 未知/字段缺席同样空串(fail-closed:不表态,不臆断免费、不臆造价格)。
+  function priceLabel(item, minCents) {
+    const mode = (item || {}).payment_mode;
+    if (mode === "deposit") return depositLabel(((item || {}).deposit || {}).amount_cents);
+    if (mode === "pricing") {
+      const cents = Number(minCents);
+      if (!isFinite(cents) || !(cents > 0)) return "";
+      return "¥" + (cents / 100).toFixed(2) + " 起";
+    }
+    if (mode === "free") return "免费";
+    return "";
   }
 
   function formatCents(cents) {
@@ -385,7 +412,9 @@
             '<span class="cgc-offering-ws" data-testid="panel-offering-ws">' + escapeHtml(ws.name || "") + '</span>' +
             '<span class="cgc-offering-kind">' + escapeHtml(kindLabel(item.kind)) + '</span>' +
             (deadline ? '<span class="cgc-offering-time">' + escapeHtml(deadline) + '</span>' : "") +
-            '<span class="cgc-offering-price">' + escapeHtml(priceLabel(item.pricing)) + '</span>' +
+            '<span class="cgc-offering-price" data-testid="panel-offering-price">' +
+              escapeHtml(priceLabel(item, item.pricing && item.pricing.min_amount_cents)) +
+            '</span>' +
           '</span>' +
           '<div class="cgc-offering-actions">' + actionCell(item, idx) + '</div>' +
         '</div>'
@@ -453,9 +482,14 @@
     const inviteOnly = s.policy === "invite_only";
     const deadline = offering.registration_deadline || "";
 
-    const priceBlock = tiers.length === 0
+    // 价格行(#586):押金场**优先于档位分支**——押金场出「押金 ¥xx（到场退）」
+    // (金额缺失降级不带价),三态判据 = summary.payment_mode,不再按
+    // pricing.enabled 判免费。押金优先是必须的:活动从定价切到押金时可能残留
+    // price_tiers(域侧只禁两开关同真,不要求清档位),若仍按 tiers.length 选分支,
+    // 卡片会出「价格档 ¥99.00」+「需支付」而完全不出押金行——同一缺陷类。
+    const priceBlock = (s.payment_mode === "deposit" || tiers.length === 0)
       ? '<div class="cgc-confirm-row"><label>价格</label><span data-testid="panel-confirm-price">' +
-        escapeHtml(s.pricing && s.pricing.enabled ? formatCents(s.pricing.min_amount_cents) : "免费") + '</span></div>'
+        escapeHtml(priceLabel(s)) + '</span></div>'
       : '<div class="cgc-confirm-row"><label>价格档</label>' +
         (tiers.length > 1
           ? '<select id="cgc-enroll-tier" class="cgc-select" data-testid="panel-confirm-tiers">' +
