@@ -1,5 +1,6 @@
 import type { FetchPolicy, TypedDocumentNode } from "@apollo/client";
 import { client } from "./apollo-client";
+import type { MutationError } from "./graphql/shared";
 import type {
   AdminActionLog,
   AdminApplicationStatus,
@@ -116,8 +117,8 @@ export async function fetchInitiative(id: string): Promise<AdminInitiative | nul
   const { data } = await client.query({ query: GET_INITIATIVE, variables: { id }, fetchPolicy: "network-only" });
   return data?.getInitiative ?? null;
 }
-export async function upsertInitiativeRule(id: string, key: string, valueJson: string, locked: boolean): Promise<{ result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> }> {
-  const { data } = await client.mutate<{ upsertInitiativeRule: { result: AdminInitiativeRule | null; errors: Array<{ code?: string | null; message: string }> } }>({ mutation: UPSERT_INITIATIVE_RULE, variables: { initiativeId: id, key, valueJson, locked } });
+export async function upsertInitiativeRule(id: string, key: string, valueJson: string, locked: boolean): Promise<{ result: AdminInitiativeRule | null; errors: MutationError[] }> {
+  const { data } = await client.mutate<{ upsertInitiativeRule: { result: AdminInitiativeRule | null; errors: MutationError[] } }>({ mutation: UPSERT_INITIATIVE_RULE, variables: { initiativeId: id, key, valueJson, locked } });
   return data?.upsertInitiativeRule ?? { result: null, errors: [] };
 }
 
