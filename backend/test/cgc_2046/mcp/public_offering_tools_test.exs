@@ -9,6 +9,8 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
      无时间条目计入 undated_count；默认「近期」口径 = starts_at >= now ∪ 无时间条目
   4. get_public_offering 按 id 取全白名单字段；非公开 id 与「不存在」同一拒绝
   5. 每次调用落 ToolCallLog 审计行，params 经 Redact
+  6. 缴费槽（#586）：公开押金场读出 payment_mode/deposit（金额 + 到场退），
+     免费/定价场 deposit 恒 enabled=false——白名单键集是三态契约的一部分
   """
   use Cgc2046.DataCase, async: true
 
@@ -435,8 +437,8 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       detail = decode(reply)
 
       assert Map.keys(detail) |> Enum.sort() ==
-               ~w(available_price_tiers badge description ends_at enrollment_policy id kind
-                  pricing_enabled registration_deadline slug sponsorship_enabled
+               ~w(available_price_tiers badge deposit description ends_at enrollment_policy id kind
+                  payment_mode pricing_enabled registration_deadline slug sponsorship_enabled
                   sponsorship_tiers starts_at status title venue visibility)
 
       assert detail["id"] == event.id
@@ -446,12 +448,79 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert detail["status"] == "open"
       assert detail["visibility"] == "public"
       assert detail["pricing_enabled"] == true
+      assert detail["payment_mode"] == "pricing"
+
+      assert detail["deposit"] == %{
+               "enabled" => false,
+               "amount_cents" => nil,
+               "refundable_on_check_in" => nil
+             }
+
       assert [%{"name" => "早鸟票"}] = detail["available_price_tiers"]
       assert detail["venue"] == @venue_beijing
       assert detail["sponsorship_enabled"] == true
       assert detail["badge"] in ["enrolling", "starting_soon", "closed", "full"]
       assert is_binary(detail["starts_at"])
       assert is_binary(detail["ends_at"])
+    end
+
+    test "按 id 取公开押金场：payment_mode=deposit + 金额与到场退条件（#586 验收）" do
+      admin = Fixtures.platform_admin("po-get-dep")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      outsider = Fixtures.register_user("po-get-dep-user")
+
+      assert {:reply, _, _} =
+               reply = GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
+
+      detail = decode(reply)
+
+      assert detail["payment_mode"] == "deposit"
+      assert detail["pricing_enabled"] == false
+      assert detail["available_price_tiers"] == []
+
+      assert detail["deposit"] == %{
+               "enabled" => true,
+               "amount_cents" => 6900,
+               "refundable_on_check_in" => true
+             }
+    end
+
+    test "按 id 取公开押金场：金额脏（非正/缺失）→ amount_cents=null 且仍是 deposit（绝不免费/0）" do
+      admin = Fixtures.platform_admin("po-get-dep-dirty")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      outsider = Fixtures.register_user("po-get-dep-dirty-user")
+
+      # 属性级 min: 1 无 DB CHECK：历史脏行只能绕过资源校验布置（raw SQL）
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE events SET deposit_amount_cents = NULL WHERE id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert {:reply, _, _} =
+               reply = GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
+
+      detail = decode(reply)
+      assert detail["payment_mode"] == "deposit"
+      assert detail["deposit"]["enabled"] == true
+      assert is_nil(detail["deposit"]["amount_cents"])
+      assert detail["deposit"]["refundable_on_check_in"] == true
     end
 
     test "按 id 取课程：venue / 赞助键为 null，kind=course" do
@@ -470,6 +539,15 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert is_nil(detail["venue"])
       assert is_nil(detail["sponsorship_enabled"])
       assert is_nil(detail["sponsorship_tiers"])
+
+      # course 无押金槽（courses 表无 deposit 列）：形状恒定的关闭态，绝不落 nil
+      assert detail["payment_mode"] == "free"
+
+      assert detail["deposit"] == %{
+               "enabled" => false,
+               "amount_cents" => nil,
+               "refundable_on_check_in" => nil
+             }
     end
 
     test "报名截止的公开条目详情精确返回 closed badge" do

@@ -32,26 +32,46 @@ defmodule Cgc2046.Mcp.Playbooks do
   一、发现（想找活动/课程时）:
 
   1. 调用 discover_offerings()（无参数）拿合并发现流：全平台公开条目 ∪ 本人各
-     workspace 可访问条目（已去重；条目含 workspace 名/状态/价格概要/报名截止/
-     我的报名状态）。条目详情按来源分流:公开条目(visibility=public)用
+     workspace 可访问条目（已去重；条目含 workspace 名/状态/缴费槽(payment_mode:
+     free|pricing|deposit,附押金明细 deposit)/报名截止/我的报名状态）。条目详情按
+     来源分流:公开条目(visibility=public)用
      get_public_offering(id, kind) 查实;成员段/非公开条目用
      get_enrollment_summary(workspace_id, kind, id)——get_public_offering 只回
      open+public,对成员段条目必返回 not found;
   2. 报名前确认:调用 get_enrollment_summary(workspace_id, kind, offering_id) 拿
-     报名摘要——目标/时间/价格档(price_tiers)/报名策略(policy)/将创建的报名状态
+     报名摘要——目标/时间/缴费槽(payment_mode 与 deposit)/价格档(price_tiers)/
+     报名策略(policy)/将创建的报名状态
      (would_create_status:直接确认 confirmed / 需审批 pending / 需支付 payment_pending;
      invite_only 为 null,邀请报名走网站)。把摘要复述给用户,**明确确认后**才提交;
   3. 确认报名:调用 create_enrollment(workspace_id, kind, offering_id, tier_id?, reason?)
-     ——tier_id 为收费供给必填(取自摘要 price_tiers);该调用幂等,重复提交/重试返回
+     ——tier_id 为定价供给必填(取自摘要 price_tiers);该调用幂等,重复提交/重试返回
      同一报名(idempotent_replay),安全重放,不因重复报错。
 
-  二、支付(收费课程/活动):
+  缴费槽口径(三态互斥,同一缴费槽;押金不借定价档位):
+  - **payment_mode 是唯一判据,绝不从 pricing 块推断**:押金场 pricing.enabled 为
+    false 且 pricing.min_amount_cents 为 nil(押金不借定价档位,条目也不暴露
+    price_tiers),那**不是免费**——把它说成免费是必须避免的错误;
+  - 押金场(payment_mode=deposit):deposit.amount_cents 单位是**分**,复述金额前
+    先 /100 转元(6900 分 → 「押金 ¥69.00（到场退）」);金额缺失时只说
+    「押金（到场退）」不出价,绝不显示 ¥0;口径逐字对齐网站/小程序(下方引号内
+    文案原样照搬,不要改写标点):
+    「押金 ¥xx（到场退）」
+    「未到场不退。」
+    「押金以到场为退还条件：到场核销后原路退回，未到场不予退还。」
+    「押金：截止前取消全额退；截止后不退。」
+    押金是**押金**不是报名费,不得说成报名费或收费档位;
+  - 定价场(payment_mode=pricing):按 price_tiers 复述档位与金额,提交后限时支付;
+  - 免费场(payment_mode=free):才可说「免费」。
+
+  二、支付(收费与押金课程/活动):
 
   1. create_enrollment 返回 payment_pending + checkout_url 时,把链接原样给用户,
-     引导其在**外部浏览器**(系统默认浏览器)完成支付——侧边栏/对话永不承载支付
-     凭证、支付 SDK 或渠道原始数据(R33);
+     引导其在**外部浏览器**(系统默认浏览器)完成支付——押金单与定价单同一入口
+     (押金金额取报名提交时的快照,改了活动配置也不追溯这一笔);侧边栏/对话永不
+     承载支付凭证、支付 SDK 或渠道原始数据(R33);
   2. 支付状态查询:调用 get_order_status(workspace_id, enrollment_id) 拿本人最新
-     订单安全摘要(金额/渠道/状态/过期时间)——已支付则报名转 confirmed。
+     订单安全摘要(金额/渠道/状态/过期时间)——已支付则报名转 confirmed(押金单
+     支付成功亦然)。
 
   三、学习循环（每门 confirmed 课程按此循环教学,R36-R46）:
 
@@ -258,7 +278,7 @@ defmodule Cgc2046.Mcp.Playbooks do
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-09-08.1", content: @workspace_admin_content},
     tutor: %{version: "2026-09-04.1", content: @tutor_content},
-    learner: %{version: "2026-08-30.2", content: @learner_content}
+    learner: %{version: "2026-09-16.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner
