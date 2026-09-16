@@ -1,6 +1,8 @@
 defmodule Cgc2046.Repo do
   use AshPostgres.Repo, otp_app: :cgc_2046
 
+  alias Cgc2046.Errors.BusinessError
+
   def installed_extensions do
     ["ash-functions", "citext"]
   end
@@ -20,11 +22,20 @@ defmodule Cgc2046.Repo do
 
   ## 错误处理
 
-  锁超时（`lock_not_available`）和死锁（`deadlock_detected`）会转为用户友好提示，
-  避免原始 Postgres 错误暴露给用户。其他 PG 错误继续抛出，不掩盖非预期问题。
+  锁超时（`lock_not_available`）与死锁（`deadlock_detected`）是**用户可动作**的
+  可自愈并发冲突，返回结构化 `%Cgc2046.Errors.BusinessError{}`（独立 code，
+  不并入 `database_error` 故障面），由调用方投递到用户面：
+
+  - Ash change / `before_action` 内 → `Ash.Changeset.add_error/2`；
+  - 裸事务内 → `Repo.rollback/1`。
+
+  **不能 raise**：Ash 在 action 边界把 raise 折成错误类后 reraise，而 AshGraphql
+  `show_raised_errors?` 默认 false 会把它降成顶层 `something_went_wrong`
+  （code/message 全丢），MCP 工具层也会直接异常逃出。其他 PG 错误继续抛出，
+  不掩盖非预期问题。
   """
-  @spec acquire_lock!(String.t(), keyword()) :: :ok
-  def acquire_lock!(key, opts \\ []) do
+  @spec acquire_lock(String.t(), keyword()) :: :ok | {:error, BusinessError.t()}
+  def acquire_lock(key, opts \\ []) do
     hash = Keyword.get(opts, :hash, :hashtext)
 
     # 先设置 lock_timeout，再获取 advisory lock。
@@ -41,10 +52,18 @@ defmodule Cgc2046.Repo do
         :ok
 
       {:error, %Postgrex.Error{postgres: %{code: :lock_not_available}}} ->
-        raise "工作台操作暂时繁忙，请稍后重试"
+        {:error,
+         BusinessError.exception(
+           code: "lock_timeout",
+           message: "工作台操作暂时繁忙，请稍后重试"
+         )}
 
       {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}}} ->
-        raise "检测到锁冲突，请稍后重试"
+        {:error,
+         BusinessError.exception(
+           code: "deadlock_detected",
+           message: "检测到锁冲突，请稍后重试"
+         )}
 
       {:error, err} ->
         raise err
