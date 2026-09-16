@@ -24,7 +24,7 @@
 - [ ] HTTPS 证书（API 域名）
 - [ ] 各平台 appid/secret（微信 / 抖音 / 小红书）
 - [ ] 微信手机号快速验证组件开通（非个人主体，¥0.03/次，每小程序 1000 次免费额度）
-- [ ] 微信订阅消息模板 ID ×9（approval_result / approval_reminder / enrollment_submitted / enrollment_completed / speaker_accepted / speaker_completed / payment_succeeded / refund_succeeded / refund_failed）——与 `backend/config/runtime.exs` 的 `WECHAT_MP_TEMPLATE_*` 逐一对应，prod 对这 9 键 `fetch_env!`，缺任一即启动失败
+- [ ] 微信订阅消息模板 ID ×17（approval_result / approval_reminder / event_reminder / enrollment_submitted / enrollment_completed / speaker_accepted / speaker_completed / learning_stagnation / payment_succeeded / payment_received / payment_expired / refund_succeeded / refund_failed / event_qualification_confirmed / event_qualification_underfilled / event_schedule_changed / event_moderator_assigned）——真源 = `.github/workflows/deploy.yml` 的 fail-closed 名单（+ kamal `backend/config/deploy.yml` env.secret、`backend/.env.example`，三处同集合），与 `backend/config/runtime.exs` 的 17 个 `WECHAT_MP_TEMPLATE_*` 键逐一对应；缺任一 → deploy 第一分钟红（非 boot 崩），守卫测试 `backend/test/cgc_2046/notifications/template_allowlist_test.exs`
 - [ ] 抖音订阅消息模板 ID ×9（键集与微信完全相同，见上行 9 键）——对应 `TT_MP_TEMPLATE_*`，同样 9 键 `fetch_env!` 缺一即启动失败
 - [ ] 小红书订阅消息模板 ID ×9（键集与微信完全相同，见上行 9 键）——对应 `XHS_MP_TEMPLATE_*`，同样 9 键 `fetch_env!` 缺一即启动失败
 - [ ] learning_stagnation（微信/抖音/小红书）：config.exs 声明此键但 runtime.exs 未注入——prod 缺该 env **不**导致启动失败，学员停滞提醒场景发送时 `:template_not_configured` 静默失败（config.exs↔runtime.exs 键集漂移，收敛见通知配置面后续项）
