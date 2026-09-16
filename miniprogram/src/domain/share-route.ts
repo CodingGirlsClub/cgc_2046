@@ -44,7 +44,10 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
 
   const slug = query.slug?.trim()
   if (!slug) return null
-  if (currentRoute.includes('pages/initiative-detail') && currentQuery.slug === slug) return null
+  // 与 id 分支同款：两侧都 trim 后再比。只 trim 入参会让「当前页 slug 带首尾
+  // 空白」（冷启动 ?slug=%20abc%20 的残留）与干净入参不相等，误判成换目标而
+  // 叠一层重复页。
+  if (currentRoute.includes('pages/initiative-detail') && currentQuery.slug?.trim() === slug) return null
   return buildInitiativeSharePath(slug)
 }
 

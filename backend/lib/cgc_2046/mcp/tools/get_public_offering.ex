@@ -8,6 +8,12 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   pricing_enabled/available_price_tiers 定价档位；event 另带 venue 与赞助键
   （course 无场地/赞助概念，对应键为 null）。
 
+  缴费槽（#586）：`payment_mode`（free | pricing | deposit）与押金明细 `deposit`
+  （enabled / amount_cents / refundable_on_check_in）——押金场
+  `pricing_enabled` 为 false 但**不是免费**，三态一律以 `payment_mode` 为准；
+  押金金额缺失时 `amount_cents` 落 null，绝不显示 0。course 无押金槽
+  （courses 表无 deposit 列）→ `deposit.enabled` 恒 false。
+
   非公开 id（草稿 / 仅工作台可见）与「不存在」返回同一拒绝，不泄存在性。
   id 来自 list_public_offerings 的条目 id；kind 缺省时按 event → course 顺序查找。
 
@@ -87,25 +93,30 @@ defmodule Cgc2046.Mcp.Tools.GetPublicOffering do
   # 全白名单 DTO（显式投影，与 web PublicOffering 同口径 + 时间/venue/badge；
   # 不含 capacity / confirmed_count / workspace_id 等 field_policy 收窄字段）。
   # 时间字段原样透传 DateTime，Response.to_response 的 Jason 编码即 to_iso8601。
+  # 缴费槽（#586）：payment_mode 三态 + deposit 明细（deposit_enabled/
+  # deposit_amount_cents 均 public?，匿名白名单不受 field_policy 收窄）。
   defp to_detail(%{kind: kind, entity: e}) do
-    %{
-      id: e.id,
-      kind: to_string(kind),
-      slug: e.slug,
-      title: e.title,
-      description: e.description,
-      status: to_string(e.status),
-      visibility: to_string(e.visibility),
-      enrollment_policy: to_string(e.enrollment_policy),
-      registration_deadline: e.registration_deadline,
-      starts_at: e.starts_at,
-      ends_at: e.ends_at,
-      badge: to_string(e.enrollment_badge),
-      pricing_enabled: e.pricing_enabled,
-      available_price_tiers: e.available_price_tiers,
-      venue: if(kind == :event, do: e.venue, else: nil),
-      sponsorship_enabled: if(kind == :event, do: e.sponsorship_enabled, else: nil),
-      sponsorship_tiers: if(kind == :event, do: e.sponsorship_tiers, else: nil)
-    }
+    Map.merge(
+      %{
+        id: e.id,
+        kind: to_string(kind),
+        slug: e.slug,
+        title: e.title,
+        description: e.description,
+        status: to_string(e.status),
+        visibility: to_string(e.visibility),
+        enrollment_policy: to_string(e.enrollment_policy),
+        registration_deadline: e.registration_deadline,
+        starts_at: e.starts_at,
+        ends_at: e.ends_at,
+        badge: to_string(e.enrollment_badge),
+        pricing_enabled: e.pricing_enabled,
+        available_price_tiers: e.available_price_tiers,
+        venue: if(kind == :event, do: e.venue, else: nil),
+        sponsorship_enabled: if(kind == :event, do: e.sponsorship_enabled, else: nil),
+        sponsorship_tiers: if(kind == :event, do: e.sponsorship_tiers, else: nil)
+      },
+      Cgc2046.Mcp.Tools.PaymentSlot.projection(e)
+    )
   end
 end

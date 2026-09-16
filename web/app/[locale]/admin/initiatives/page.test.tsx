@@ -253,3 +253,85 @@ describe("结构 / 设计系统接入", () => {
 		expect(alert.className).toContain("admin-alert--error");
 	});
 });
+
+const SLUG_LOCKED_COPY = "公开链接已生效，slug 发布后不可修改";
+
+describe("slug 发布后锁定（#588）", () => {
+	it("编辑 open 行：slug 输入禁用 + 锁定说明，其余字段仍可编辑", async () => {
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "编辑" }));
+
+		expect(screen.getByLabelText("Slug")).toBeDisabled();
+		expect(screen.getByText(SLUG_LOCKED_COPY)).toBeInTheDocument();
+		expect(screen.getByLabelText("名称")).not.toBeDisabled();
+	});
+
+	it("编辑 draft 行：slug 输入可用、无锁定说明", async () => {
+		render(<AdminInitiativesPage />);
+		const draftRow = (await screen.findByText("e2e-drive")).closest("tr")!;
+		fireEvent.click(within(draftRow).getByRole("button", { name: "编辑" }));
+
+		expect(screen.getByLabelText("Slug")).not.toBeDisabled();
+		expect(screen.queryByText(SLUG_LOCKED_COPY)).toBeNull();
+	});
+
+	it("编辑 open 行只改 name 后保存：payload 仍带未变的旧 slug（同值不触发锁定）", async () => {
+		adminLib.updateInitiative.mockResolvedValue({
+			result: { ...OPEN_ROW, name: "改名后的活动" },
+			errors: [],
+		});
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "编辑" }));
+		fireEvent.change(screen.getByLabelText("名称"), {
+			target: { value: "改名后的活动" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		await waitFor(() =>
+			expect(adminLib.updateInitiative).toHaveBeenCalledWith("i1", {
+				name: "改名后的活动",
+				slug: "hackerstart1024",
+				description: "",
+			}),
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(await screen.findByText("改名后的活动")).toBeInTheDocument();
+	});
+
+	it("open 行保存被后端锁定拒：警示条呈现后端消息", async () => {
+		adminLib.updateInitiative.mockResolvedValue({
+			result: null,
+			errors: [
+				{
+					code: "initiative_slug_locked",
+					message:
+						"slug is locked once the initiative is published (editable in draft only)",
+				},
+			],
+		});
+
+		render(<AdminInitiativesPage />);
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "编辑" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"slug is locked",
+		);
+	});
+
+	it("en locale：锁定说明走 i18n", async () => {
+		render(<AdminInitiativesPage />, { locale: "en" });
+		const openRow = (await screen.findByText("hackerstart1024")).closest("tr")!;
+		fireEvent.click(within(openRow).getByRole("button", { name: "Edit" }));
+
+		expect(
+			screen.getByText(
+				"Public link is live — the slug is locked after publish",
+			),
+		).toBeInTheDocument();
+	});
+});

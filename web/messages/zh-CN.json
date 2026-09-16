@@ -71,7 +71,8 @@
 		"event_moderator_not_workspace_member": "该用户还不是本工作台成员，请先邀请加入再指派。",
 		"event_deposit_registration_deadline_required": "押金场需设置报名截止时间（自助取消锚点）。",
 		"event_ends_at_frozen": "存在未结算的押金订单，不能提前结束时间。",
-		"order_deposit_amount_missing": "押金金额信息缺失，请重新报名。"
+		"order_deposit_amount_missing": "押金金额信息缺失，请重新报名。",
+		"initiative_slug_locked": "倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。"
 	},
 	"auth": {
 		"helpCenter": "帮助中心",
@@ -1767,6 +1768,7 @@
 		"initiativesEmpty": "暂无活动",
 		"initiativeName": "名称",
 		"initiativeSlug": "Slug",
+		"initiativeSlugLocked": "公开链接已生效，slug 发布后不可修改",
 		"initiativeStatus": "状态",
 		"initiativeAction": "操作",
 		"initiativeOpen": "开放",
@@ -2182,7 +2184,6 @@
 		"shortBy": "还差 {count} 人成班",
 		"open": "开放报名",
 		"cityEvents": "{count} 场",
-		"seats": "报名",
 		"indexTitle": "倡导活动",
 		"indexDesc": "跨工作台的公开倡导活动，点击进入详情。",
 		"indexEmpty": "暂无倡导活动",
