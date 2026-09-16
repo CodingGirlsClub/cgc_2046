@@ -87,11 +87,17 @@ test('热启动（有页面栈）与冷启动同判定：同 slug 不导航，�
   ])
 })
 
-test('热启动已在 event-detail → 不导航（原有守卫保持）', () => {
+test('热启动已在同一 event-detail（同 id）→ 不导航；换场次 → 导航', () => {
   assert.deepEqual(
     entry({ query: { id: 'evt-1', kind: 'event' } }, [
-      { route: 'pages/event-detail/index' }
+      { route: 'pages/event-detail/index', options: { id: 'evt-1' } }
     ]).navigated,
     []
+  )
+  assert.deepEqual(
+    entry({ query: { id: 'evt-2', kind: 'event' } }, [
+      { route: 'pages/event-detail/index', options: { id: 'evt-1' } }
+    ]).navigated,
+    ['/pages/event-detail/index?id=evt-2&kind=event']
   )
 })
