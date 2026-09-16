@@ -41,9 +41,11 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateInitiative do
       |> Map.put(:created_by, actor.id)
 
     case Initiative |> Ash.Changeset.for_create(:create, attrs) |> Ash.create(actor: actor) do
-      {:ok, initiative} -> H.row(initiative, actor)
-      {:error, %Ash.Error.Invalid{} = error} -> {:error, Exception.message(error)}
-      {:error, _} -> {:error, "failed to create initiative"}
+      {:ok, initiative} ->
+        H.row(initiative, actor)
+
+      {:error, error} ->
+        {:error, Cgc2046.Mcp.Errors.message(error, "failed to create initiative")}
     end
   end
 end

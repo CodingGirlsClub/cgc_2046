@@ -77,11 +77,8 @@ defmodule Cgc2046.Mcp.Tools.AdminDemoteUser do
           {:error, "forbidden: platform admin required to demote users"}
 
         # ≥1 admin 不变量 / 目标非 admin 的领域错误（PlatformAdminError）原文透传
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to demote user"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to demote user")}
       end
     end
   end

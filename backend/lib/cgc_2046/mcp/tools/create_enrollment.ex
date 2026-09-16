@@ -102,10 +102,10 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
   defp domain_error(%Ash.Error.Forbidden{}, workspace_id),
     do: {:error, "forbidden: not allowed to enroll in workspace #{workspace_id}"}
 
-  defp domain_error(%Ash.Error.Invalid{} = err, _workspace_id),
-    do: {:error, Exception.message(err)}
-
-  defp domain_error(_, _workspace_id), do: {:error, "failed to create enrollment"}
+  # 未映射错误（未知类，含嵌套在 Invalid 里的混合树）→ database_error（#612）；
+  # 已知 Invalid 原样透出；非 Ash 异常走 fallback——与拆分两子句时行为一致。
+  defp domain_error(err, _workspace_id),
+    do: {:error, Cgc2046.Mcp.Errors.message(err, "failed to create enrollment")}
 
   # reason 自由文本进 submission_payload（域内容安全检查的唯一检查字段）；
   # 缺省 %{} = 无可查内容直通。

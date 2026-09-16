@@ -85,11 +85,8 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
         {:error, %Ash.Error.Forbidden{}} ->
           {:error, "forbidden: owner or admin required to update join policy of #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to update join policy"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to update join policy")}
       end
     end
   end
