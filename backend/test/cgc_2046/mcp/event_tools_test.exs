@@ -504,6 +504,47 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       assert event_a.id in ids
       refute event_b.id in ids
     end
+
+    test "缴费槽（#586）：押金场出 payment_mode=deposit + 金额/到场退；免费/定价场关闭态形状恒定" do
+      owner = Fixtures.platform_admin("s3-ev-lwe-slot")
+      workspace = Fixtures.create_workspace(owner)
+
+      deposit =
+        open_event(workspace, owner, %{
+          title: "押金活动",
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      free = open_event(workspace, owner, %{title: "免费活动"})
+      pricing = paid_event(workspace, owner)
+
+      assert {:reply, _, _} =
+               reply =
+               ListWorkspaceEvents.execute(%{"workspace_id" => workspace.id}, frame_for(owner))
+
+      by_id = Map.new(decode_reply(reply)["events"], &{&1["event_id"], &1})
+
+      assert by_id[deposit.id]["payment_mode"] == "deposit"
+
+      assert by_id[deposit.id]["deposit"] == %{
+               "enabled" => true,
+               "amount_cents" => 6900,
+               "refundable_on_check_in" => true
+             }
+
+      assert by_id[free.id]["payment_mode"] == "free"
+      assert by_id[pricing.id]["payment_mode"] == "pricing"
+
+      for id <- [free.id, pricing.id] do
+        assert by_id[id]["deposit"] == %{
+                 "enabled" => false,
+                 "amount_cents" => nil,
+                 "refundable_on_check_in" => nil
+               }
+      end
+    end
   end
 
   describe "list_enrollments（kind=event 分派）" do
