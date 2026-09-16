@@ -350,10 +350,19 @@
 - **默认归属**：默认 workspace "2046"（slug=`2046`，open 策略）——新用户注册自动加入（无差异标签 membership），保证注册即有 profile 编辑上下文；全局 `/settings/account/profile` 入口已下线，redirect 到 `/w/2046/settings/account/profile`。
 - 二期需要聚合展示时再拆。
 
+### Initiative（倡导活动，平台级）与挂载边界
+
+- **定义**：平台级（跨工作台）的倡导活动；Event 可挂载到它，挂载时按四项规则（`deposit` / `age_gate` / `min_participants` / `deadline_rule`）写入 Event 字段——`locked: true` 的规则强制写入且此后本地改写被拒（#587 锁死传播 / #597 押金⇒档位不变量为其守卫），`locked: false` 的规则只在挂载那一刻按当时取值快照。挂载 / 解除挂载的唯一入口 = `Initiatives.RuleInheritance.prepare_event_changes/2`（Event `create` / `update` 的 before_action，与 Event 写入同一事务）；仅 draft 可挂载或变更挂载。
+- **解除挂载语义（#624 方案 C：保留但不锁 + 来源标记）**：detach（`initiative_id` → nil）**不回收**平台锁死规则强制写入的值——值留在 Event 上、回归普通可编辑字段（`deposit` 规则写的 `deposit_enabled` + `deposit_amount_cents` 一并保留）；同时把「这些值来自哪个 Initiative 的哪条锁死规则」落进 `events.detached_rule_provenance`（可空 jsonb，形状 `%{"initiative" => %{id,name,slug}, "fields" => %{<event_field> => %{value, source: "locked"}}}`，与 #596 写响应 `applied` 同源）。**只标记此刻仍 locked 的规则字段**（未锁默认项是挂载瞬间快照、之后场主可能已自改，标它 = 噪音）；无 locked 字段 → nil。
+- **标记的清除（首改即清）**：场主显式改写标记内某字段（web / MCP `update_event`；判据 = `changing_attribute?` 且值确有变化——同值回传不算「场主的决定」）→ 只删该键；键空 → 整列 nil；改写未标记字段（标题 / 时间等）不动标记。**重挂载**（nil → 非空）→ 整列清空（值重新归新 Initiative 治理，旧标记是撒谎）并按既有 `merge_event_value/4` 语义覆盖旧强制值。规则传播只写「挂载中的非终态场」（`WHERE initiative_id = ...`），标记非 nil 的场必已 detach——两条路径在 `initiative_id` 上互斥。
+- **读面**：治理细节，不进公开面——GraphQL `Event.detachedRuleProvenance`（JsonString）经 field_policy 对匿名收窄（同 capacity/confirmed_count，公开宿主页恒 null）；web 编辑页据此渲染「来自已解除的倡导活动《name》」逐字段标记，并提供 `minAge` / `minParticipants` 输入（挂载中锁定规则、以及挂载预览——新规则保存时覆盖——下禁用；未改动不下发，避免分钟级重序列化截断秒并误清标记）。规则锁态读面仍是 Owner/Admin 专属 `initiativeMountPreview`（#596）。
+- **架构位置**：`Cgc2046.Initiatives.RuleInheritance`（唯一挂载边界）；标记列在 `events` 表（`writable?: false`，客户端不可直设；filterable/sortable 关闭）。
+
 ### Event / Course（活动 / 线上课程）
 
 - **定义**：**挂在 Workspace 下**的活动与课程（结构决策，D-A3）：Event 为场地形态（**校园 / 咖啡厅 / 书店 / 联合办公空间**），Course 为线上课程。事件级参与经 **Enrollment**（见下），**不自动成为 Workspace 成员**。
 - **架构位置**：租户资源（挂 Workspace）；由 Owner 创建/编辑（单步 CRUD 用表单）；筹备活动/开课程 = 跨角色 workflow；**课程内容 = issue 卡集**（见 Issue 词条，2026-08-16）。
+- **解除挂载来源标记（#624）**：`detached_rule_provenance`（可空 jsonb，`writable?: false`）只描述「已解除挂载后仍留在场上的强制值」——detach 保留值 + 逐字段来源、场主首改即清、重挂载整列清空，语义与读面见「Initiative（倡导活动，平台级）与挂载边界」词条。
 - **租户收紧读取端口（2026-09-08 架构评审候选①）**：MCP 工具层的课程存在性读取唯一入口 = `Course.fetch_scoped(workspace_id, course_id, opts \\ [])`（取代 18 份工具内私有 fetch_course 拷贝）。不变量 = 必带 `tenant:`（Course 全局资源，不带 tenant 全表读即跨租户越权面；他租户 id ≡ not found 不泄存在性）。两变体语义逐工具保真：默认 `authorize?: false`（授权已在工具层发生）；`actor: actor` 走授权读（lifecycle 工具原样，Forbidden 映 forbidden 文案）。错误字符串是 interface 的一部分。
 
 ### provisional_title（课程临时占位标题标记，Course-only）
