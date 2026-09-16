@@ -53,6 +53,16 @@ export const COPY: Record<string, string> = {
   event_deposit_price_tiers_conflict: '押金场不能保留价格档位：请先清空价格档位，再开启押金。',
   // 入参缺 enrollmentId
   order_enrollment_required: '缺少报名信息，请重新发起报名。',
+  // Event/Course slug 锁定/撞 slug（#619，ADR-0014）：
+  // - *_taken 可达面 = web 工作台 offering 创建表单撞 slug（offeringErrorText
+  //   code 优先分发直接命中本表键，不再走 /already been taken/ 正则兜底）+ MCP；
+  // - *_locked 仅 MCP 可达（OfferingUpdateInput 无 slug 字段，web 无编辑面）；
+  // - 小程序无 offering 写面，四条此侧不可达；为 #241 契约「两端文案表同步」
+  //   义务（与 web messages errors 同文案互指）。
+  event_slug_locked: '活动的公开链接已发布，slug 不可再修改（草稿期仍可改）。',
+  event_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
+  course_slug_locked: '课程的公开链接已发布，slug 不可再修改（草稿期仍可改）。',
+  course_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。',
   // Initiative slug 发布后锁定（#588）；小程序无 initiative 写面，此条为
   // 「两端文案表同步」义务（与 web zh-CN errors 命名空间同文案互指），
   // 当前不可达，保留以备后台类能力下沉。
