@@ -299,7 +299,7 @@ defmodule Cgc2046.Mcp.Wrapper do
 
   defp classify({:ok, _}), do: {:ok, nil, nil}
   defp classify({:error, msg}) when is_binary(msg), do: classify_error(msg)
-  defp classify({:error, err}), do: {:error, inspect(err) |> String.slice(0, 500), nil}
+  defp classify({:error, err}), do: {:error, audit_error(err), nil}
 
   defp classify({:needs_confirmation, %{pending_id: pending_id}}),
     do: {:needs_confirmation, nil, pending_id}
@@ -311,4 +311,13 @@ defmodule Cgc2046.Mcp.Wrapper do
       {:error, msg, nil}
     end
   end
+
+  # 审计列（ToolCallLog.error_message）会被二次读出——MCP `admin_list_audit_logs`、
+  # GraphQL `list_tool_call_logs` / `my_workspace_tool_calls`、AshAdmin（#612），
+  # 且 `Redact` 只洗 params 不洗错误文本：**任何**非二进制错误一律经
+  # `Mcp.Errors.audit_message/1` 落固定摘要 + uuid（未映射 → database_error；
+  # 其余 → internal error），原文只进服务端日志——inspect/Exception.message 已在
+  # 本路径彻底移除（结构守卫 error_egress_guard_test.exs 3b 钉死）。
+  # 截断 500 上限保留（列宽纪律）。
+  defp audit_error(err), do: Cgc2046.Mcp.Errors.audit_message(err) |> String.slice(0, 500)
 end
