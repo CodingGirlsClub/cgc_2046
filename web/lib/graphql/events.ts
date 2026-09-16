@@ -60,6 +60,9 @@ export interface OfferingItem {
   /** 已确认名额数（非成员读到 null，D2 白名单） */
   confirmedCount: number | null;
   registrationDeadline: string | null;
+  /** 公开派生报名标签（#575：后端 EnrollmentBadge 单源，成员面 field policy 放行；
+      报名门与公开页同构双门——badge ∈ {closed, full} 时不出表单） */
+  enrollmentBadge?: EnrollmentBadge | null;
   /** 开始时间（ISO8601；null = 未定；R1，course 语义为开课/结课） */
   startsAt?: string | null;
   /** 结束时间（ISO8601；须晚于 startsAt，KTD6 后端校验；null = 未定） */
@@ -241,6 +244,7 @@ export const GET_EVENT: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      enrollmentBadge
       startsAt
       endsAt
       venue
@@ -276,6 +280,7 @@ export const GET_COURSE: TypedDocumentNode<
       capacity
       confirmedCount
       registrationDeadline
+      enrollmentBadge
       startsAt
       endsAt
       curriculumRequirements
