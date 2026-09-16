@@ -1,5 +1,32 @@
 import type { PublicInitiativeEvent, QualificationBadge } from './models'
 
+/**
+ * 活动级状态文案（#628）：`cancelled`（中止）与 `closed`（收尾）必须分叉——
+ * 中止 = 已作废 + 报名全额退，收尾 = 正常结束留档。两者都可直达（slug 是投放
+ * 契约），文案是唯一的语义出口；判据下沉 domain（页面无渲染测试面）。
+ */
+export function initiativeStatusText(status: string): string {
+  switch (status) {
+    case 'closed': return '已结束 · 活动留档'
+    case 'cancelled': return '已取消 · 活动中止'
+    default: return '进行中'
+  }
+}
+
+/** 发现页卡片的状态短文案（同一次分叉，与 web `initiative-index` 同口径）。 */
+export function initiativeCardStatusText(status: string): string {
+  switch (status) {
+    case 'closed': return '已结束'
+    case 'cancelled': return '已取消'
+    default: return '进行中'
+  }
+}
+
+/** 中止说明行：仅 `cancelled` 渲染（closed 留档无此行）。 */
+export function initiativeCancelledNotice(status: string): string | null {
+  return status === 'cancelled' ? '活动已中止：相关场次已取消，已付报名全额退款。' : null
+}
+
 export function parseQualificationBadge(value: unknown): QualificationBadge | null {
   // 契约可空（EventDetailQuery 为 string | null）：key 存在但值为 null 不炸详情页
   if (value === null || value === undefined) return null

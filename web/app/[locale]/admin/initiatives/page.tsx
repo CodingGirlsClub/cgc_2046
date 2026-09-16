@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { closeInitiative, createInitiative, fetchInitiative, fetchInitiatives, openInitiative, updateInitiative, upsertInitiativeRule } from "@/lib/admin";
+import { cancelInitiative, closeInitiative, createInitiative, fetchInitiative, fetchInitiatives, openInitiative, updateInitiative, upsertInitiativeRule } from "@/lib/admin";
 import { copyText } from "@/lib/clipboard";
 import { localizedUrl } from "@/lib/seo";
 import { formatDateTime } from "@/lib/format";
@@ -332,10 +332,19 @@ export default function AdminInitiativesPage() {
 		setCopiedId(row.id);
 		setTimeout(() => setCopiedId((current) => (current === row.id ? null : current)), 2000);
 	}
-	async function transition(row: AdminInitiative) {
+	/**
+	 * 生命周期迁移（#628）：draft → open / close 二选一；open → close（收尾，
+	 * 不退款）或 cancel（中止，级联取消挂载场 + 全额退款）；终态无出边。
+	 * 中止不可逆，二次确认口径与 MCP `admin_cancel_initiative` 的确认文案对齐。
+	 */
+	async function transition(row: AdminInitiative, action: "open" | "close" | "cancel") {
+		if (action === "cancel" && !window.confirm(t("initiativeCancelConfirm", { name: row.name }))) return;
 		setBusy(row.id);
 		setActionError(null);
-		const result = row.status === "draft" ? await openInitiative(row.id) : row.status === "open" ? await closeInitiative(row.id) : null;
+		const result =
+			action === "open" ? await openInitiative(row.id)
+			: action === "close" ? await closeInitiative(row.id)
+			: await cancelInitiative(row.id);
 		if (result?.result) setRows((current) => current?.map((item) => item.id === row.id ? { ...item, status: result.result?.status ?? item.status } : item) ?? null);
 		else if (result) setActionError(firstError(result));
 		setBusy(null);
@@ -647,14 +656,24 @@ export default function AdminInitiativesPage() {
 											>
 												{t("initiativeEdit")}
 											</button>
-											{row.status !== "closed"
+											{row.status === "draft" || row.status === "open"
 												? <button
 													type="button"
 													className="l-btn-outline"
 													disabled={busy === row.id}
-													onClick={() => void transition(row)}
+													onClick={() => void transition(row, row.status === "draft" ? "open" : "close")}
 												>
 													{row.status === "draft" ? t("initiativeOpen") : t("initiativeClose")}
+												</button>
+												: null}
+											{row.status === "open"
+												? <button
+													type="button"
+													className="l-btn-outline l-btn-outline--danger"
+													disabled={busy === row.id}
+													onClick={() => void transition(row, "cancel")}
+												>
+													{t("initiativeCancel")}
 												</button>
 												: null}
 										</td>

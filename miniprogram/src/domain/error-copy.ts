@@ -76,6 +76,10 @@ export const COPY: Record<string, string> = {
   // 同 initiative 同 key 重复建规则（#611）：消费方 = AshAdmin / MCP
   // admin_upsert_initiative_rule，小程序无 initiative 写面，同 #588/#604 的同步义务。
   initiative_rule_already_exists: '该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。',
+  // #628 生命周期门：挂载场所属倡导活动已收尾/已中止时拒绝发布（写面冻结）。
+  // 小程序无场次发布面（消费方 = web admin / MCP launch_event），本表为
+  // 「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
+  initiative_not_open: '倡导活动已结束或已中止，无法发布该场次（请先重新开展活动或解除挂载）。',
   // 锁超时/死锁（#621）：用户可动作 = 稍后重试，独立 code、不归 database_error；
   // 小程序无这两条锁路径的调用方（web admin 成员管理 / 邀请码生成为真实消费方），
   // 本表为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
