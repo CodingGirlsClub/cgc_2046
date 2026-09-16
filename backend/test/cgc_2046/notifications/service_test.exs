@@ -82,7 +82,17 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:wechat, "speaker_accepted", "pages/workspace/index"},
       {:tt, "approval_result", "pages/my-enrollments/index"},
       {:tt, "approval_reminder", "pages/my-enrollments/index"},
-      {:xhs, "enrollment_completed", "pages/my-enrollments/index"}
+      {:xhs, "enrollment_completed", "pages/my-enrollments/index"},
+      # #594 开班/未达阈值/改期 → 我的报名（学员类；不深链 event-detail 的理由
+      # 见 client.ex 落页契约注释）
+      {:wechat, "event_qualification_confirmed", "pages/my-enrollments/index"},
+      {:wechat, "event_qualification_underfilled", "pages/my-enrollments/index"},
+      {:wechat, "event_schedule_changed", "pages/my-enrollments/index"},
+      # 裁剪端分支（tt/xhs）对三模板同款不变
+      {:tt, "event_qualification_underfilled", "pages/my-enrollments/index"},
+      {:xhs, "event_schedule_changed", "pages/my-enrollments/index"},
+      # 未知模板兜底不变
+      {:wechat, "unknown_template_key", "pages/profile/index"}
     ]
 
     # 主理人指派深链（#558 后续）：wechat 全量端落活动详情页（带 event_id，
@@ -140,6 +150,59 @@ defmodule Cgc2046.Notifications.ServiceTest do
       assert inspect(body) =~ "template-#{platform}"
       assert body["page"] == expected_page
     end
+  end
+
+  # #594 复发守卫：registry 是全量模板真源，落页靠 client.ex 的两张名单 + 一条
+  # 深链分支。名单漏登记不报错——静默兜底 profile（本机通知记录，服务端下发的
+  # 通知不在其中，点开是空页；#594 的失败形态）。故 registry 每个 template_key
+  # 都必须有非 profile 落页；profile 只留给显式记录的取舍。
+  test "registry 全量模板都有非 profile 落页（名单漂移即红）" do
+    # speaker_completed 双受众（管理者 + speaker 本人）维持兜底 profile——已知
+    # 取舍：speaker 侧点开无权威页，多数方（管理者）可从 workspace speakers
+    # 面板查看（client.ex 落页契约注释）。白名单 = 「有意兜底」的唯一出口。
+    deliberate_profile_fallback = ~w(speaker_completed)
+
+    registry_keys =
+      Cgc2046.Notifications.NotificationWorker.types()
+      |> Enum.map(& &1.template_key)
+      |> Enum.uniq()
+
+    # 守卫自身有效：registry 非空且含已知 key（防 types/0 被改空后守卫空转通过）
+    assert "event_qualification_underfilled" in registry_keys
+
+    for template_key <- registry_keys, template_key not in deliberate_profile_fallback do
+      # 深链模板（event_moderator_assigned）需 event_id 才走深链分支——带 id
+      # 发送即覆盖「data 完整」的真实态；其余模板 data 不影响落页。
+      assert :ok =
+               Client.send_notification(
+                 :wechat,
+                 "openid-drift",
+                 "template-drift",
+                 %{"event_id" => "0dcb3ad6-c4c2-4baf-84b5-6792e4234453"},
+                 template_key
+               )
+
+      assert_receive {:notification, :wechat, body}
+
+      assert body["page"] != "pages/profile/index",
+             "template_key #{inspect(template_key)} 落 profile——补进 client.ex 的 " <>
+               "@learner_templates/@manager_templates 或深链分支，否则通知点开是" <>
+               "本机通知记录空页（#594）"
+    end
+
+    # 白名单反向锁定：speaker_completed 落页若变更，此处逼出白名单同步（防
+    # 白名单变成「永久豁免」而无人再审视）
+    assert :ok =
+             Client.send_notification(
+               :wechat,
+               "openid-drift",
+               "template-drift",
+               %{"event_id" => "0dcb3ad6-c4c2-4baf-84b5-6792e4234453"},
+               "speaker_completed"
+             )
+
+    assert_receive {:notification, :wechat, body}
+    assert body["page"] == "pages/profile/index"
   end
 
   test "wechat 43101 拒收：errcode 保真出栈且 consent 原子回补" do
