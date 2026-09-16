@@ -634,6 +634,13 @@ export default function PublicOfferingDetailPage({
                       </li>
                     ))}
                   </ul>
+                  {/* #543：定价场报名前披露退款规则（押金块同款形态） */}
+                  <p
+                    className="mt-2 text-[13px] text-ink-3"
+                    data-testid="pricing-refund-note"
+                  >
+                    {t("pricingRefundRule")}
+                  </p>
                 </div>
               ) : null}
 
