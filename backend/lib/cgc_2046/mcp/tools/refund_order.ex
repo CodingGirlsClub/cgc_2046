@@ -39,8 +39,12 @@ defmodule Cgc2046.Mcp.Tools.RefundOrder do
           if order.status != :paid do
             {:error, "仅 paid 订单可退款（当前状态：#{order.status}）"}
           else
+            # #622 D5：摘要写明订单种类——押金单与报名单是两种资金语义，用户/agent
+            # 不得从档位展示名（押金单的 tier_name 是合成的「押金」）反推
+            kind_label = if order.order_kind == :deposit, do: "押金单", else: "报名单"
+
             summary =
-              "退款订单 #{order.id}（金额 #{order.amount_cents} 分，渠道 #{order.provider}）：" <>
+              "退款#{kind_label} #{order.id}（金额 #{order.amount_cents} 分，渠道 #{order.provider}）：" <>
                 "paid → refunding 并入队渠道退款。退款即取消报名并释放名额（ADR-0007）；" <>
                 "渠道退款成功后报名转 cancelled"
 
@@ -74,6 +78,7 @@ defmodule Cgc2046.Mcp.Tools.RefundOrder do
           {:ok,
            %{
              order_id: refunding.id,
+             order_kind: to_string(refunding.order_kind),
              status: to_string(refunding.status),
              enrollment_id: refunding.enrollment_id,
              amount_cents: refunding.amount_cents,

@@ -7,11 +7,15 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   最新）；无订单 → `order: nil`。`checkout_url` 仅 pending 订单给出
   （继续/完成支付入口）。
 
-  **渠道凭据红线（§B#19）**：DTO 白名单仅 `id / amount_cents / provider /
-  status / expires_at / paid_at`——prepay 参数、nonce、签名、out_trade_no、
-  transaction_id、渠道回调原文**永不出本面**（凭据形状只在 Payments 域内部
-  metadata，本工具不触碰 metadata 列；「渠道凭据不落 Order 列」的域红线在
-  工具层再收一道）。
+  **渠道凭据红线（§B#19）**：DTO 白名单仅 `id / order_kind / amount_cents /
+  provider / status / expires_at / paid_at`——prepay 参数、nonce、签名、
+  out_trade_no、transaction_id、渠道回调原文**永不出本面**（凭据形状只在
+  Payments 域内部 metadata，本工具不触碰 metadata 列；「渠道凭据不落 Order 列」
+  的域红线在工具层再收一道）。
+
+  `order_kind`（enrollment|deposit）是该单的**资金语义**：押金单与报名单在
+  no-show 没收、免缴豁免、退款口径上不同；押金单的 `tier_snapshot.name` 是合成
+  展示名「押金」，agent 不得据展示名反推语义（#622）。
 
   归属：他人报名 → forbidden（审计落 :forbidden）；他工作台报名与不存在
   返回同一 not found（不泄存在性）。
@@ -96,10 +100,11 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
     end
   end
 
-  # 白名单投影：金额/渠道/状态/时间摘要；渠道凭据/单号/回调原文永不出本面（红线）
+  # 白名单投影：种类/金额/渠道/状态/时间摘要；渠道凭据/单号/回调原文永不出本面（红线）
   defp order_dto(order) do
     %{
       id: order.id,
+      order_kind: to_string(order.order_kind),
       amount_cents: order.amount_cents,
       provider: to_string(order.provider),
       status: to_string(order.status),
