@@ -1590,7 +1590,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         title: "测试活动",
         enrollmentPolicy: "open",
         capacity: null,
-        registrationDeadline: null,
+        // 截止未改动 → 不下发（见 registrationDeadlineDirty；分钟级重序列化会截断秒）
         startsAt: new Date(startsInput.value).toISOString(),
         endsAt: new Date("2026-09-01T12:00").toISOString(),
         venue: { country: "中国", province: "浙江省", city: "杭州市", district: "滨江区" },
@@ -1656,7 +1656,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
         title: "测试活动",
         enrollmentPolicy: "open",
         capacity: null,
-        registrationDeadline: null,
+        // 截止未改动 → 不下发（同 event）
         startsAt: new Date("2026-09-01T09:30").toISOString(),
         endsAt: null,
         curriculumRequirements: JSON.stringify({ note: "" }),
@@ -2791,5 +2791,503 @@ describe("倡导活动规则面板（#596）", () => {
     expect(screen.getByTestId("initiative-rule-source-age_gate")).toHaveTextContent(
       "平台锁死",
     );
+  });
+});
+
+describe("解除挂载语义（#624：保留值 + 来源标记 + 门槛输入）", () => {
+  const DETACHED_MARKER = JSON.stringify({
+    initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+    fields: {
+      min_age: { value: 18, source: "locked" },
+      min_participants: { value: 8, source: "locked" },
+    },
+  });
+
+  function operationName(query: unknown): string | undefined {
+    const defs = (query as { definitions?: Array<{ name?: { value?: string } }> })
+      ?.definitions;
+    return defs?.[0]?.name?.value;
+  }
+
+  const INITIATIVE_CARDS = [
+    {
+      id: "init-1",
+      name: "1024 杭州站",
+      slug: "hz1024",
+      status: "open",
+      hashtag: null,
+      description: null,
+      windowStartsAt: null,
+      windowEndsAt: null,
+    },
+    {
+      id: "init-2",
+      name: "2046 北京站",
+      slug: "bj2046",
+      status: "open",
+      hashtag: null,
+      description: null,
+      windowStartsAt: null,
+      windowEndsAt: null,
+    },
+  ];
+
+  /** 规则读面（client.query 手写文档）：按操作名分派 PublicInitiatives / 规则预览 */
+  function stubRulesRead(rules: Array<{ key: string; valueJson: string; locked: boolean }>) {
+    apolloClient.query.mockReset().mockImplementation(({ query }: { query?: unknown }) => {
+      if (operationName(query) === "PublicInitiatives") {
+        return Promise.resolve({ data: { publicInitiatives: INITIATIVE_CARDS } });
+      }
+      if (operationName(query) === "InitiativeMountPreview") {
+        return Promise.resolve({
+          data: {
+            initiativeMountPreview: {
+              initiativeId: "init-1",
+              name: "1024 杭州站",
+              slug: "hz1024",
+              status: "open",
+              missingRules: [],
+              rules,
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  it("门槛输入框：初值取自 Event，提交时 minAge/minParticipants 随 payload 下发", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        minAge: 21,
+        minParticipants: 5,
+        detachedRuleProvenance: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ minAge: 18, minParticipants: 8 }),
+    );
+
+    const ageInput = screen.getByTestId("event-min-age-input") as HTMLInputElement;
+    const minInput = screen.getByTestId(
+      "event-min-participants-input",
+    ) as HTMLInputElement;
+    expect(ageInput.value).toBe("18");
+    expect(minInput.value).toBe("8");
+
+    fireEvent.change(ageInput, { target: { value: "21" } });
+    fireEvent.change(minInput, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith(
+        "offering-1",
+        "event",
+        expect.objectContaining({ minAge: 21, minParticipants: 5 }),
+      ),
+    );
+  });
+
+  it("截止时间未改动 → 不下发（分钟级重序列化会截断秒 / 误清 #624 标记）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "改个标题",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: "2026-10-20T12:34:56.000Z",
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ registrationDeadline: "2026-10-20T12:34:56.000Z" }),
+    );
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "改个标题" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const payload = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(payload.title).toBe("改个标题");
+    expect("registrationDeadline" in payload).toBe(false);
+  });
+
+  it("门槛未改动 → payload 不含这两键（陈旧页面不得覆盖服务端值）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "改个标题",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        minAge: 18,
+        minParticipants: 8,
+        detachedRuleProvenance: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ minAge: 18, minParticipants: 8 }),
+    );
+
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "改个标题" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalled());
+    const payload = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect(payload.title).toBe("改个标题");
+    expect("minAge" in payload).toBe(false);
+    expect("minParticipants" in payload).toBe(false);
+  });
+
+  it.each(["0", "1.5", "-1"])("门槛非法（%s）→ 就地拦截，不提交", async (bad) => {
+    await renderManageDetail("event", offeringRow({}));
+
+    fireEvent.change(screen.getByTestId("event-min-age-input"), {
+      target: { value: bad },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText(
+        "最低年龄与最低成班人数需为大于等于 1 的整数（留空 = 不设置）。",
+      ),
+    ).toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  it("清空门槛 → 提交 null（解除挂载后可移除门槛的唯一入口）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        minAge: null,
+        minParticipants: null,
+        detachedRuleProvenance: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ minAge: 18, minParticipants: 8 }),
+    );
+
+    fireEvent.change(screen.getByTestId("event-min-age-input"), {
+      target: { value: "" },
+    });
+    fireEvent.change(screen.getByTestId("event-min-participants-input"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith(
+        "offering-1",
+        "event",
+        expect.objectContaining({ minAge: null, minParticipants: null }),
+      ),
+    );
+  });
+
+  it("挂载预览（草稿选中另一个 Initiative）→ 门槛输入禁用（新规则保存时覆盖）", async () => {
+    stubRulesRead([
+      {
+        key: "age_gate",
+        valueJson: JSON.stringify({ min_age: 21 }),
+        locked: true,
+      },
+      {
+        key: "min_participants",
+        valueJson: JSON.stringify({ count: 5 }),
+        locked: false,
+      },
+    ]);
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ initiativeId: "init-1", minAge: 18, minParticipants: 8 }),
+    );
+    await screen.findByTestId("initiative-rules-summary");
+
+    fireEvent.focus(screen.getByLabelText("倡导活动"));
+    await screen.findByRole("option", { name: "2046 北京站" });
+    fireEvent.change(screen.getByLabelText("倡导活动"), {
+      target: { value: "init-2" },
+    });
+
+    const preview = await screen.findByTestId("initiative-rules-summary");
+    expect(preview).toHaveAttribute("data-state", "preview");
+
+    expect(screen.getByTestId("event-min-age-input")).toBeDisabled();
+    expect(screen.getByTestId("event-min-participants-input")).toBeDisabled();
+    expect(screen.getByTestId("event-min-age-input").closest("label")).toHaveAttribute(
+      "data-state",
+      "preview",
+    );
+  });
+
+  it("detach 标记只留押金开关键（金额已被改写清除）→ 陈述「已开启」，不得编造 ¥0", async () => {
+    const partialDepositMarker = JSON.stringify({
+      initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+      fields: { deposit_enabled: { value: true, source: "locked" } },
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: partialDepositMarker }),
+    );
+
+    const row = await screen.findByTestId("initiative-detached-rule-deposit");
+    expect(row).toHaveAttribute("data-state", "detached");
+    expect(row).toHaveTextContent("押金：已开启");
+    expect(row).not.toHaveTextContent("¥0");
+  });
+
+  it("detach 标记含押金两项 → 一行渲染平台锁定的金额", async () => {
+    const depositMarker = JSON.stringify({
+      initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+      fields: {
+        deposit_enabled: { value: true, source: "locked" },
+        deposit_amount_cents: { value: 6900, source: "locked" },
+      },
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: depositMarker }),
+    );
+
+    expect(
+      await screen.findByTestId("initiative-detached-rule-deposit"),
+    ).toHaveTextContent("押金：¥69（到场退）");
+  });
+
+  it("detach 来源标记：逐字段渲染「来自已解除的倡导活动」并带 data-state 钩子", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: DETACHED_MARKER }),
+    );
+
+    const panel = await screen.findByTestId("initiative-detached-provenance");
+    expect(panel).toHaveAttribute("data-state", "detached");
+    expect(panel).toHaveTextContent("来自已解除的倡导活动「1024 杭州站」");
+
+    expect(screen.getByTestId("initiative-detached-rule-age_gate")).toHaveAttribute(
+      "data-state",
+      "detached",
+    );
+    expect(screen.getByTestId("initiative-detached-rule-age_gate")).toHaveTextContent(
+      "年龄门槛：18 岁及以上",
+    );
+    expect(
+      screen.getByTestId("initiative-detached-rule-min_participants"),
+    ).toHaveTextContent("最小成班人数：8 人");
+
+    // 未标记字段不渲染行（登记的是「仍被平台强制写入过的值」，不是整份规则）
+    expect(
+      screen.queryByTestId("initiative-detached-rule-deposit"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("initiative-detached-rule-deadline_rule"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("改写标记内一个字段并保存成功 → 该行消失、其余行保留（保存响应即新标记）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        minAge: 21,
+        minParticipants: 8,
+        detachedRuleProvenance: JSON.stringify({
+          initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+          fields: { min_participants: { value: 8, source: "locked" } },
+        }),
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: DETACHED_MARKER }),
+    );
+    await screen.findByTestId("initiative-detached-provenance");
+
+    fireEvent.change(screen.getByTestId("event-min-age-input"), {
+      target: { value: "21" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("initiative-detached-rule-age_gate"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId("initiative-detached-rule-min_participants"),
+    ).toBeInTheDocument();
+  });
+
+  it("解除挂载保存：payload 带 initiativeId=null + 门槛现值；响应标记 → 面板即时出现", async () => {
+    stubRulesRead([
+      {
+        key: "age_gate",
+        valueJson: JSON.stringify({ min_age: 18 }),
+        locked: true,
+      },
+      {
+        key: "min_participants",
+        valueJson: JSON.stringify({ count: 8 }),
+        locked: false,
+      },
+    ]);
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        initiativeId: null,
+        minAge: 18,
+        minParticipants: 8,
+        detachedRuleProvenance: DETACHED_MARKER,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ initiativeId: "init-1", minAge: 18, minParticipants: 8 }),
+    );
+    await screen.findByTestId("initiative-rules-summary");
+
+    fireEvent.change(screen.getByLabelText("倡导活动"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(mocks.updateOffering).toHaveBeenCalledWith(
+        "offering-1",
+        "event",
+        expect.objectContaining({ initiativeId: null }),
+      ),
+    );
+    // 未改动的门槛不下发：陈旧页面不得用旧值覆盖服务端（F7 脏检查纪律）
+    const payload = mocks.updateOffering.mock.calls[0][2] as Record<string, unknown>;
+    expect("minAge" in payload).toBe(false);
+    expect("minParticipants" in payload).toBe(false);
+
+    // 标记随写响应即时出现（无需整页重载），且值留在场上可继续编辑
+    const panel = await screen.findByTestId("initiative-detached-provenance");
+    expect(panel).toHaveAttribute("data-state", "detached");
+    expect(screen.getByTestId("event-min-age-input")).not.toBeDisabled();
+    expect(screen.getByTestId("event-min-participants-input")).not.toBeDisabled();
+  });
+
+  it("最后一个标记字段被改写（响应标记 null）→ 整块面板消失", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: {
+        id: "offering-1",
+        title: "测试活动",
+        status: "draft",
+        visibility: "public",
+        enrollmentPolicy: "open",
+        capacity: null,
+        registrationDeadline: null,
+        minAge: 18,
+        minParticipants: 12,
+        detachedRuleProvenance: null,
+      },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: DETACHED_MARKER }),
+    );
+    await screen.findByTestId("initiative-detached-provenance");
+
+    fireEvent.change(screen.getByTestId("event-min-participants-input"), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("initiative-detached-provenance"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("挂载中平台锁死的门槛：输入禁用（data-state=locked），不制造必然失败的提交", async () => {
+    stubRulesRead([
+      {
+        key: "age_gate",
+        valueJson: JSON.stringify({ min_age: 18 }),
+        locked: true,
+      },
+      {
+        key: "min_participants",
+        valueJson: JSON.stringify({ count: 8 }),
+        locked: false,
+      },
+    ]);
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ initiativeId: "init-1", minAge: 18, minParticipants: 8 }),
+    );
+
+    const ageInput = await screen.findByTestId("event-min-age-input");
+    expect(ageInput).toBeDisabled();
+    expect(ageInput.closest("label")).toHaveAttribute("data-state", "locked");
+
+    expect(screen.getByTestId("event-min-participants-input")).not.toBeDisabled();
+    expect(
+      screen.getByTestId("event-min-participants-input").closest("label"),
+    ).toHaveAttribute("data-state", "editable");
+  });
+
+  it("course 不渲染门槛输入与来源标记（Event 独有治理面）", async () => {
+    await renderManageDetail("course", offeringRow({}));
+
+    expect(screen.queryByTestId("event-min-age-input")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("event-min-participants-input"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("initiative-detached-provenance"),
+    ).not.toBeInTheDocument();
   });
 });

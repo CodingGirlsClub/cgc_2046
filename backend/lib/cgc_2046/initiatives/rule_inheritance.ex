@@ -56,6 +56,28 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
   @rule_keys [:deposit, :age_gate, :min_participants, :deadline_rule]
 
+  # 规则 key → 该规则会强制写入的 Event 字段（deposit 写两个：开关 + 金额）。
+  # 供 #624 detach 来源标记枚举「locked 规则留下的字段」。
+  @rule_event_fields %{
+    deposit: [:deposit_enabled, :deposit_amount_cents],
+    age_gate: [:min_age],
+    min_participants: [:min_participants],
+    deadline_rule: [:registration_deadline]
+  }
+
+  # 来源标记内的字段名 → Event attribute。白名单式：标记是持久化数据，
+  # 未知键（未来字段 / 脏数据）不做原子转换也不清除。
+  @marked_event_fields %{
+    "deposit_enabled" => :deposit_enabled,
+    "deposit_amount_cents" => :deposit_amount_cents,
+    "min_age" => :min_age,
+    "min_participants" => :min_participants,
+    "registration_deadline" => :registration_deadline
+  }
+
+  # 标记值的读取列（与 @marked_event_fields 同源；排序固定 → SELECT 列序与 zip 对齐）
+  @marked_event_columns @marked_event_fields |> Map.keys() |> Enum.sort()
+
   @doc "应用 Event create/update changeset 中的挂载规则与锁死守卫。"
   def prepare_event_changes(changeset, _context) do
     previous_id = Ash.Changeset.get_data(changeset, :initiative_id)
@@ -64,10 +86,10 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
     # Lock both parents in stable order before the Event, including detach.
     with :ok <- lock_parents([previous_id, initiative_id]),
-         :ok <- lock_current_event(changeset),
+         {:ok, locked} <- lock_current_event(changeset),
          :ok <- ensure_mount_state(changeset) do
       if is_nil(initiative_id) do
-        changeset
+        prepare_detached_changes(changeset, previous_id, mounting?, locked.marker)
       else
         with {:ok, initiative} <- lock_initiative(initiative_id),
              :ok <- ensure_open_when_mounting(initiative, mounting?),
@@ -77,6 +99,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           changeset
           |> force_attrs(attrs)
           |> ensure_rule_deposit_invariant()
+          # 挂载中的场不可能带「已解除」标记：重挂载（nil → 非空）时旧标记
+          # 是撒谎（值已归新 Initiative 治理），整列清空。
+          |> clear_detached_provenance(locked.marker)
           |> Ash.Changeset.put_context(:initiative_inheritance, %{
             initiative: Map.take(initiative, [:id, :name, :slug]),
             inherited: applied
@@ -89,6 +114,154 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       {:error, message} -> Ash.Changeset.add_error(changeset, message)
     end
   end
+
+  # ── #624 解除挂载语义（方案 C）────────────────────────────────────────────
+  #
+  # 未挂载场（detach 后或从未挂载）的写路径只做一件事：维护
+  # `detached_rule_provenance` 来源标记。它**只描述「已解除挂载后仍留在场上的
+  # 强制值」**——detach 不回收平台锁死规则强制写入的值（值留在 Event 上、回归
+  # 普通可编辑字段），标记记录这些值的出处，在场主首次改写对应字段后清除。
+  #
+  # 与规则传播的关系（无冲突，复核结论）：`propagate_rule_change/4` 的目标集合
+  # 是 `WHERE initiative_id = $1`（挂载中的非终态场），标记非 nil 的场必已
+  # detach（initiative_id = nil），永不进传播集合；反过来 detach 后规则变更也
+  # 不再写这些字段。两条路径在 `initiative_id` 上互斥，无需额外协调。
+  #
+  # marker 源 = **锁后重读**的库中标记（`lock_current_event/1` 的 SELECT 一并取回）：
+  # 标记是整列读改写，用加锁前的 `changeset.data` 会在两个并发写入各清一个键时把
+  # 对方已清掉的键复活（`lock_current_event/1` 只比对 initiative_id/status，拦不住）。
+  defp prepare_detached_changes(changeset, previous_id, mounting?, current) do
+    with {:ok, marker} <- detached_marker(changeset, previous_id, mounting?, current) do
+      marker = clear_edited_marked_fields(marker, changeset)
+
+      # 同值不写（保持 updated_at / 审计噪音最小；changeset 无变化时不产生 UPDATE）
+      if marker == current do
+        changeset
+      else
+        Ash.Changeset.force_change_attribute(changeset, :detached_rule_provenance, marker)
+      end
+    else
+      {:error, message} -> Ash.Changeset.add_error(changeset, message)
+    end
+  end
+
+  # detach 那一刻（initiative_id 非空 → nil）：重新读旧 Initiative 的规则生成标记。
+  # 旧行已在 lock_parents/1 里锁住，这里只是取回 name/slug 与规则（同一事务，
+  # 不引入新的加锁顺序）。
+  defp detached_marker(changeset, previous_id, true, _current) when not is_nil(previous_id),
+    do: build_detached_provenance(changeset, previous_id)
+
+  # 其余未挂载写入（普通编辑 / create）：沿用库中既有标记，交给逐字段清除。
+  defp detached_marker(_changeset, _previous_id, _mounting?, current), do: {:ok, current}
+
+  # 只标记此刻仍是 `locked` 的规则对应的 event 字段——它们才是「被平台强制写入」
+  # 的值。未锁默认项是挂载瞬间快照、之后场主可能已自改，标它 = 噪音
+  # （与裁决 ③「首改即清」同源）。值取 Event 当前保留值，不为写标记而 force_change
+  # 字段本身。无 locked 字段 → nil。
+  defp build_detached_provenance(changeset, previous_id) do
+    with {:ok, initiative} <- lock_initiative(previous_id),
+         {:ok, rules} <- load_rules(previous_id),
+         {:ok, values} <- retained_event_values(Ash.Changeset.get_data(changeset, :id)) do
+      fields =
+        @rule_keys
+        |> Enum.filter(&match?(%{locked: true}, Map.get(rules, &1)))
+        |> Enum.flat_map(&Map.fetch!(@rule_event_fields, &1))
+        |> Map.new(fn field ->
+          name = Atom.to_string(field)
+          {name, %{value: normalize_marked_value(Map.fetch!(values, name)), source: "locked"}}
+        end)
+
+      case fields do
+        empty when map_size(empty) == 0 ->
+          {:ok, nil}
+
+        fields ->
+          {:ok,
+           %{
+             "initiative" => Map.take(initiative, [:id, :name, :slug]),
+             "fields" => fields
+           }}
+      end
+    else
+      {:error, message} -> {:error, message}
+    end
+  end
+
+  # 值源 = **锁后重读**的当前保留值。锁序（Initiative → Event，见
+  # `prepare_event_changes/2`）保证并发的锁死规则传播要么已提交、要么排在本事务
+  # 之后；`changeset.data` 是加锁前的读，可能与并发写入（锁死规则传播 / 另一管理
+  # 员的字段编辑）不一致——它只用于判定「本次是否改写了该字段」
+  # （`clear_edited_marked_fields/2`），不作为值源。字段集 = 标记白名单
+  # （`@marked_event_fields`），列序与之同源对齐。
+  defp retained_event_values(event_id) do
+    case Repo.query(
+           "SELECT #{Enum.join(@marked_event_columns, ", ")} FROM events WHERE id = $1",
+           [Repo.uuid!(event_id)]
+         ) do
+      {:ok, %{rows: [row]}} ->
+        {:ok, Map.new(Enum.zip(@marked_event_columns, row))}
+
+      {:ok, %{rows: []}} ->
+        {:error, "event not found"}
+
+      {:error, reason} ->
+        {:error, "event read failed: #{inspect(reason)}"}
+    end
+  end
+
+  # utc_datetime 列裸读回 NaiveDateTime；统一为 DateTime（UTC）——与 changeset.data
+  # 侧（Ash 已 cast 成 DateTime）同形状，落 jsonb 后即 ISO8601 `...Z`。
+  defp normalize_marked_value(%NaiveDateTime{} = naive),
+    do: DateTime.from_naive!(naive, "Etc/UTC")
+
+  defp normalize_marked_value(value), do: value
+
+  # 逐字段清除：场主显式改写标记内某个 event 字段 → 只删该键；键空 → 整列 nil。
+  # 判据 = `changing_attribute?` 且写后值 ≠ 写前值（同值回传不算「场主的决定」
+  # ——Ash 同值不进 changes，这里再比一次兜底 force 路径）。未标记字段的写入
+  # （改标题、改时间等）不动标记。未知键（未来字段 / 脏数据）原样保留不清除。
+  defp clear_edited_marked_fields(nil, _changeset), do: nil
+
+  defp clear_edited_marked_fields(marker, changeset) when is_map(marker) do
+    case Map.get(marker, "fields") do
+      fields when is_map(fields) ->
+        kept =
+          fields
+          |> Enum.reject(fn {name, _entry} -> marked_field_edited?(changeset, name) end)
+          |> Map.new()
+
+        case kept do
+          empty when map_size(empty) == 0 -> nil
+          kept -> Map.put(marker, "fields", kept)
+        end
+
+      # 形态异常（脏数据 / 未来形状）：不解释也不清除，原样保留——before_action
+      # 里抛错会让该场的**所有**后续写入 500，代价远大于少清一次标记
+      _ ->
+        marker
+    end
+  end
+
+  # 形态异常（非 map）同样原样保留
+  defp clear_edited_marked_fields(marker, _changeset), do: marker
+
+  defp marked_field_edited?(changeset, name) do
+    case Map.get(@marked_event_fields, name) do
+      nil ->
+        false
+
+      field ->
+        Ash.Changeset.changing_attribute?(changeset, field) and
+          Ash.Changeset.get_attribute(changeset, field) !=
+            Ash.Changeset.get_data(changeset, field)
+    end
+  end
+
+  # 挂载中的场不带「已解除」标记；marker 源 = 锁后读回的库值（`lock_current_event/1`）
+  defp clear_detached_provenance(changeset, nil), do: changeset
+
+  defp clear_detached_provenance(changeset, _marker),
+    do: Ash.Changeset.force_change_attribute(changeset, :detached_rule_provenance, nil)
 
   defp lock_parents(ids) do
     ids
@@ -103,18 +276,23 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     end)
   end
 
-  defp lock_current_event(%{action_type: :create}), do: :ok
+  # create 尚无行：无标记可读（只有 update 才可能维护标记）
+  defp lock_current_event(%{action_type: :create}), do: {:ok, %{marker: nil}}
 
+  # 行锁 + 读回「锁后」的挂载归属与来源标记：归属/状态与 changeset 快照不一致即
+  # 判并发改写（拒绝，不部分生效）；标记一并取回，供 #624 整列读改写用（标记本身
+  # 是整列写，读必须与锁同源，否则并发清除会被旧快照复活）。
   defp lock_current_event(changeset) do
-    case Repo.query("SELECT initiative_id, status FROM events WHERE id = $1 FOR UPDATE", [
-           Repo.uuid!(changeset.data.id)
-         ]) do
-      {:ok, %{rows: [[parent_id, status]]}} ->
+    case Repo.query(
+           "SELECT initiative_id, status, detached_rule_provenance FROM events WHERE id = $1 FOR UPDATE",
+           [Repo.uuid!(changeset.data.id)]
+         ) do
+      {:ok, %{rows: [[parent_id, status, marker]]}} ->
         parent_id = if parent_id, do: Ecto.UUID.load!(parent_id)
 
         if parent_id == changeset.data.initiative_id and
              status == to_string(changeset.data.status),
-           do: :ok,
+           do: {:ok, %{marker: marker}},
            else: {:error, "event changed; reload before editing"}
 
       _ ->

@@ -180,6 +180,8 @@ describe("成员读写面（U5/R14：Owner 表单预填与保存回读）", () =
 		for (const field of ["startsAt", "endsAt", "venue"]) {
 			expect(eventDoc).toContain(field);
 		}
+		// #624：解除挂载来源标记随 Event 读回（页面重载后规则面板仍能标注来源）
+		expect(eventDoc).toContain("detachedRuleProvenance");
 
 		const courseDoc = print(GET_COURSE);
 		for (const field of ["startsAt", "endsAt"]) {
@@ -204,7 +206,7 @@ describe("成员读写面（U5/R14：Owner 表单预填与保存回读）", () =
 		// #596：挂载会强制写入年龄/成班，编辑页规则摘要读的是保存后的 event 状态——
 		// 选择集一旦再丢这两键，摘要会「无 + 平台锁死」自相矛盾（组件测试 mock 了
 		// updateOffering，抓不到，故在此钉死文档选择集）
-		for (const field of ["minAge", "minParticipants"]) {
+		for (const field of ["minAge", "minParticipants", "detachedRuleProvenance"]) {
 			expect(eventDoc).toContain(field);
 		}
 

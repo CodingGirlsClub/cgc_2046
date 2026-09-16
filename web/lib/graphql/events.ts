@@ -94,6 +94,12 @@ export interface OfferingItem {
   minAge?: number | null;
   /** 成班最低确认人数（null = 不判定） */
   minParticipants?: number | null;
+  /**
+   * #624 解除挂载来源标记（JsonString，JSON.parse 后为 DetachedRuleProvenance）：
+   * detach 时平台锁死规则强制写入的值留在场上的来源记录；场主改写对应字段后
+   * 逐字段消失。匿名公开面被 field_policy 收窄（恒 null），仅成员/管理员可读。
+   */
+  detachedRuleProvenance?: string | null;
 }
 
 export type OfferingKind = "event" | "course";
@@ -250,6 +256,7 @@ export const GET_EVENT: TypedDocumentNode<
       depositAmountCents
       minAge
       minParticipants
+      detachedRuleProvenance
     }
   }
 `;
@@ -367,6 +374,7 @@ export const UPDATE_EVENT: TypedDocumentNode<
         depositAmountCents
         minAge
         minParticipants
+        detachedRuleProvenance
       }
       errors {
         code
