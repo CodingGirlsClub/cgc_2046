@@ -34,13 +34,14 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
      不触碰 `qualification_status`（成班是到点一次性 CAS 落定的事实，
      `Events.Qualification` 明确不可逆；重算涉及撤销事实 / 通知重发 / 核销与
      退款回溯，属另一 issue）。未到点的场自然按新阈值判定。
-  5. **押金 × 定价互斥**：挂载 / 锁死合并的判据是 `deposit_enabled AND
-     pricing_enabled` 双真（同 DB CHECK `events_payment_mode_exclusive`）；
+  5. **押金 × 定价互斥**：挂载合并（`merge_event_value/4`）与传播前置守卫
+     （`ensure_pricing_exclusive/3`）判据统一为**写后状态双真**——规则值
+     `enabled` 为真且目标场 `pricing_enabled` 为真（同 DB CHECK
+     `events_payment_mode_exclusive`、同 `PaymentModeValidation.validate/3`）。
      押金规则**关闭态**（`enabled: false`）不参与互斥——`pricing=true` +
-     `deposit=false` 是合法态，关闭态规则写入只是幂等回写。
-     传播前置守卫 `ensure_pricing_exclusive/2` 另有更保守的**既有**语义
-     （KTD3/R1「不静默关闭定价」，issue #587 未改动）：锁死 deposit 规则的
-     **任何**变更（含关闭态）遇在范围内已开定价的场即拒绝整次规则更新。
+     `deposit=false` 是合法态，关闭态规则写入（含改金额的幂等回写）只是回写、
+     不拒绝整次规则更新（#623：修复前传播守卫对**任何** deposit 变更（含关闭）
+     遇已开定价场即拒，与挂载/编辑路径不对称，规则改不动且报错不可操作）。
   6. **押金 × 档位残留（#597）**：押金规则**开启**时，目标场 `price_tiers`
      必须为空——档位有内容会让按 `tiers` 分支的读面与按 `deposit_enabled`
      分支的读面自相矛盾（`Events.PaymentModeValidation` moduledoc 记录 #586
@@ -330,7 +331,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
         # 前置守卫全量过一遍再写（不留「前面几场已改、后面被拒」的中间态给
         # 读者；事务回滚只是兜底）。顺序：押金×定价（KTD3/R1）→ 押金×档位残留
         # （#597）→ 押金不变量（#587）。
-        :ok = ensure_pricing_exclusive(events, key_atom)
+        :ok = ensure_pricing_exclusive(events, key_atom, value)
         :ok = ensure_tiers_empty(events, key_atom, value)
 
         propagated =
@@ -407,18 +408,28 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     }
   end
 
-  # KTD3 / R1：押金规则传播遇已开定价的 Event → 拒绝整次规则更新（规则行
-  # 与全部挂载 Event 同事务回滚），不静默关闭定价。扫描集合 = 传播集合
-  # （终态定价场不再阻断规则变更——它本来就不会被写）。
-  defp ensure_pricing_exclusive(_events, key_atom) when key_atom != :deposit, do: :ok
+  # KTD3 / R1 + #623：押金规则传播**开启态**（`enabled: true`）遇在范围内已开
+  # 定价的 Event → 拒绝整次规则更新（规则行与全部挂载 Event 同事务回滚），
+  # 不静默关闭定价。判据 = 写后状态双真（`enabled and pricing_enabled`），与
+  # 挂载合并 `merge_event_value/4`、DB CHECK `events_payment_mode_exclusive`、
+  # `PaymentModeValidation.validate/3` 同语义；关闭态规则写入（`enabled: false`，
+  # 含改金额的幂等回写）遇定价场合法放行——`pricing=true` + `deposit=false` 是
+  # 合法态，修复前"任何变更都拒"的保守语义（#587 遗留）会让规则改不动且报错
+  # 不可操作。gate 形式与紧邻的 `ensure_tiers_empty/3` 同形。
+  # 扫描集合 = 传播集合（终态定价场不再阻断规则变更——它本来就不会被写）。
+  defp ensure_pricing_exclusive(_events, key_atom, _value) when key_atom != :deposit, do: :ok
 
-  defp ensure_pricing_exclusive(events, :deposit) do
-    case Enum.find(events, & &1.pricing_enabled) do
-      nil ->
-        :ok
+  defp ensure_pricing_exclusive(events, :deposit, value) do
+    if deposit_enabling?(value) do
+      case Enum.find(events, & &1.pricing_enabled) do
+        nil ->
+          :ok
 
-      event ->
-        throw({:deposit_conflicts_pricing, pricing_conflict_error(event_id: event.id)})
+        event ->
+          throw({:deposit_conflicts_pricing, pricing_conflict_error(event_id: event.id)})
+      end
+    else
+      :ok
     end
   end
 

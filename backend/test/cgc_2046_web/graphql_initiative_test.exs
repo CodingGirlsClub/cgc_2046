@@ -65,18 +65,22 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
       EventsFixtures.create_event(workspace, admin, %{
         initiative_id: initiative.id,
         starts_at: DateTime.add(DateTime.utc_now(), 10, :day),
+        ends_at: DateTime.add(DateTime.utc_now(), 11, :day),
         venue: %{"country" => "中国", "province" => "湖南", "city" => "长沙", "district" => "岳麓"},
         visibility: :public
       })
 
     # 押金规则锁定 ⇒ 挂载场必须落到非空 registration_deadline（自助取消锚点，
-    # issue #587 的押金不变量），而 deadline_rule 快照要靠 starts_at 才能算出
-    # 截止时间——不传 starts_at 的挂载场会被规则写入守卫拒绝（RuleInheritance）。
+    # issue #587 的押金不变量）与非空 ends_at（no-show 结算锚点，#608 DB CHECK
+    # events_deposit_requires_ends_at），而 deadline_rule 快照要靠 starts_at 才能
+    # 算出截止时间——不传 starts_at / ends_at 的挂载场会被规则写入守卫或 DB CHECK
+    # 拒绝（RuleInheritance / Event.handle_write_error）。
     # 本用例主体是「workspace-only 场被公开投影过滤」，时间字段不参与断言。
     _private =
       EventsFixtures.create_event(workspace, admin, %{
         initiative_id: initiative.id,
         starts_at: DateTime.add(DateTime.utc_now(), 11, :day),
+        ends_at: DateTime.add(DateTime.utc_now(), 12, :day),
         visibility: :workspace
       })
 
