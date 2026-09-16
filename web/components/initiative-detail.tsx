@@ -89,7 +89,9 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 						<dl className="public-catalog-card__facts">
 							<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
 							<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
-							<div><dt>{t("seats")}</dt><dd>{event.minParticipants ? `${event.confirmedCount} / ${event.minParticipants}` : event.confirmedCount}</dd></div>
+							{/* 复用 hero 同 key「报名人数」——同一数量口径（卡片计数与 hero 汇总同源），
+							    不各写一份文案；minParticipants 是成班阈值不是名额，成班语义只由徽章承载（#593）。 */}
+							<div><dt>{t("participants")}</dt><dd>{event.confirmedCount}</dd></div>
 						</dl>
 						<span className="public-catalog-card__foot">
 							<span>{tOfferings("deadline", { deadline: formatDeadline(event.registrationDeadline, tCommon("noDeadline"), locale) })}</span>
