@@ -49,7 +49,11 @@ export const COPY: Record<string, string> = {
   attendance_rate_limited: '核销尝试过于频繁，请稍后再试。',
   deposit_already_forfeited: '该报名的押金已按未到场结算（不退），无法再核销。',
   // 入参缺 enrollmentId
-  order_enrollment_required: '缺少报名信息，请重新发起报名。'
+  order_enrollment_required: '缺少报名信息，请重新发起报名。',
+  // Initiative slug 发布后锁定（#588）；小程序无 initiative 写面，此条为
+  // 「两端文案表同步」义务（与 web zh-CN errors 命名空间同文案互指），
+  // 当前不可达，保留以备后台类能力下沉。
+  initiative_slug_locked: '倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。'
 }
 
 /**

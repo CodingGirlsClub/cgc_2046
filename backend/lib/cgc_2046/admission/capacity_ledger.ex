@@ -28,6 +28,11 @@ defmodule Cgc2046.Admission.CapacityLedger do
     取消释放、支付超时释放三路径同点收敛于本模块）。
   - `sync_from_offering/1`：订阅方回写缓存字段（occupancy / sync_version
     不动）。
+  - `sync_offering_cache/1`：同一套回写 SQL 的显式取值入口（不经 entity），
+    供 `RuleInheritance` 的锁死规则传播在**同一事务内**直连调用——规则传播
+    是本模块缓存的第二个写来源，**有意不走 `offering.capacity_changed` 信号**
+    （信号经 Oban 异步投递，而报名截止的执法缓存在同一事务里就必须收敛；
+    issue #587）。新增订阅方不得假设规则传播会发信号，必须显式把该路径纳入。
 
   invite_only 双 CAS 锁序（KTD7）：账本行永远先于 invite_batches 行获取
   （Enrollment prepare_policy 内 reserve → consume_invite_quota 顺序不变）。
@@ -215,8 +220,36 @@ defmodule Cgc2046.Admission.CapacityLedger do
   @spec sync_from_offering(Cgc2046.Events.Event.t() | Cgc2046.Courses.Course.t()) ::
           :ok | {:error, term()}
   def sync_from_offering(entity) do
-    kind = Cgc2046.Offering.kind(entity)
+    sync_offering_cache(%{
+      kind: Cgc2046.Offering.kind(entity),
+      offering_id: entity.id,
+      workspace_id: entity.workspace_id,
+      status: entity.status,
+      capacity: entity.capacity,
+      registration_deadline: entity.registration_deadline
+    })
+  end
 
+  @doc """
+  同一套缓存回写 SQL 的显式取值入口（`sync_from_offering/1` 的 map 形态）。
+
+  调用方已在同一事务内持有 offering 真值（订阅方回查到的 entity / 规则传播
+  `UPDATE … RETURNING` 的值），本函数只负责覆盖式写三列缓存，occupancy 与
+  sync_version 不动（KTD4/KTD5 语义同 `sync_from_offering/1`）。
+
+  `registration_deadline` 接受裸 SQL 解出的 `NaiveDateTime`（列无时区，
+  offering 回查路径同款），统一按 UTC 抬升（先例：`payments/order.ex`
+  `load_target_row/2`、`initiatives/public.ex` `to_utc_datetime/1`）。
+  """
+  @spec sync_offering_cache(%{
+          required(:kind) => :event | :course,
+          required(:offering_id) => String.t(),
+          required(:workspace_id) => String.t(),
+          required(:status) => atom() | String.t(),
+          optional(:capacity) => integer() | nil,
+          optional(:registration_deadline) => DateTime.t() | NaiveDateTime.t() | nil
+        }) :: :ok | {:error, term()}
+  def sync_offering_cache(%{kind: kind} = cache) when kind in @offering_kinds do
     case Repo.query(
            """
            INSERT INTO admission_capacity_ledgers
@@ -230,18 +263,21 @@ defmodule Cgc2046.Admission.CapacityLedger do
                updated_at = NOW()
            """,
            [
-             Repo.uuid!(entity.workspace_id),
+             Repo.uuid!(cache.workspace_id),
              Atom.to_string(kind),
-             Repo.uuid!(entity.id),
-             Atom.to_string(entity.status),
-             entity.capacity,
-             entity.registration_deadline
+             Repo.uuid!(cache.offering_id),
+             to_string(cache.status),
+             Map.get(cache, :capacity),
+             deadline_param(Map.get(cache, :registration_deadline))
            ]
          ) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp deadline_param(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
+  defp deadline_param(value), do: value
 
   @doc """
   按 offering 读取账本行（测试读取面）。
