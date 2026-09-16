@@ -280,6 +280,9 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
                    "pricing_enabled" => true,
                    "price_tiers" => [@tier],
                    "capacity" => 30,
+                   # #543：定价 ⇒ starts_at 非空（自助取消退款锚，域不变量）
+                   "starts_at" => "2027-02-01T09:00:00Z",
+                   "ends_at" => "2027-02-01T18:00:00Z",
                    "registration_deadline" => "2027-01-01T00:00:00Z"
                  },
                  frame_for(owner)

@@ -224,8 +224,11 @@ export function enrollmentPaymentText(
  * - 押金场已付：截止前自助取消由后端同事务自动退款（enqueue_self_cancel_refunds
  *   CAS paid→refunding 并入队），弹窗不重复承诺——退款规则以卡片常驻行
  *   （「押金：截止前取消全额退；截止后不退。」）为准，与 web participations 同形态。
- * - 非押金场已付单（定价单，或模式不可得的遗留单）：自助取消只释放名额、不触发
- *   退款（refundOrder 是组织者入口），明示联系组织者——这句只对非押金场成立。
+ * - 定价场已付单：活动开始前自助取消由后端同事务自动全额退款（#543，锚
+ *   starts_at），弹窗明示「报名费将全额原路退回」；规则以卡片常驻行为准，
+ *   与 web participations 同形态。
+ * - 模式不可得的遗留已付单：只释放名额、不触发退款（refundOrder 是组织者
+ *   入口），明示联系组织者。
  * - 其余（免费/免缴无订单）：通用句。
  */
 export function cancelConfirmCopy(input: {
@@ -236,15 +239,24 @@ export function cancelConfirmCopy(input: {
   if (input.status === 'payment_pending') {
     return '取消后将释放名额并作废待支付订单，此操作不可恢复。'
   }
+  // #543：定价场已付——活动开始前自助取消，报名费全额原路退回
+  if (input.hasPaidOrder && input.paymentMode === 'pricing') {
+    return '取消后名额将即时释放，报名费将全额原路退回（活动开始前取消），此操作不可恢复。'
+  }
   if (input.hasPaidOrder && input.paymentMode !== 'deposit') {
     return '取消后名额将即时释放，此操作不可恢复。已支付款项不会自动退款，请联系组织者发起退款。'
   }
   return '取消后名额将即时释放，此操作不可恢复。'
 }
 
-/** 押金场取消规则常驻行（与 web participations depositRefundRule 逐字一致；非押金场 → null 不出行） */
-export function depositRefundRuleText(paymentMode: EnrollmentSummary['paymentMode']): string | null {
-  return paymentMode === 'deposit' ? '押金：截止前取消全额退；截止后不退。' : null
+/**
+ * 取消退款规则常驻行（与 web participations 逐字一致；免费场/模式不可得 → null 不出行）。
+ * #543：定价场锚活动开始时间（开始前全额退）；押金场锚报名截止（#587）。
+ */
+export function cancelRefundRuleText(paymentMode: EnrollmentSummary['paymentMode']): string | null {
+  if (paymentMode === 'deposit') return '押金：截止前取消全额退；截止后不退。'
+  if (paymentMode === 'pricing') return '报名费：活动开始前取消全额退；开始后不退。'
+  return null
 }
 
 /* ---------------- 押金场支付前同意（资金动作门） ---------------- */

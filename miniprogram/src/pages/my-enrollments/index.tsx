@@ -9,9 +9,9 @@ import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { checkInCodeText, enrollmentHistoryTimeText, enrollmentScheduleText, enrollmentStatusText, enrollmentVenueText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
-import { cancelConfirmCopy, depositRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
 import { enrollmentCardTouchpoint } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
+import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
 import styles from './index.module.css'
 
 export default function MyEnrollmentsPage() {
@@ -135,9 +135,9 @@ export default function MyEnrollmentsPage() {
           const paymentText = paymentTexts.get(item.id) ?? null
           const checkInCode = checkInCodeText(item.status, item.checkInCode)
           const canCancel = item.status === 'pending' || item.status === 'confirmed'
-          const depositRule = depositRefundRuleText(item.paymentMode)
           const scheduleLine = enrollmentScheduleText(item.kind, item.startsAt)
           const venueLine = enrollmentVenueText(item.venue)
+          const depositRule = cancelRefundRuleText(item.paymentMode)
           return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
