@@ -559,6 +559,92 @@ describe("OfferingDetailPage 错误态", () => {
 
     expect(await screen.findByTestId("checkout-dialog")).toBeInTheDocument();
   });
+
+  // ── #510 年龄门槛：minAge 非空 → 报名须勾选年龄确认 ──
+
+  it("年龄门槛活动：未勾选先拦截,勾选后提交携带 ageConfirmed（#510）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-age",
+      title: "18+ 线下场",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      minAge: 18,
+    });
+
+    submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-age", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-age" kind="event" />);
+
+    const checkbox = await screen.findByTestId("age-confirm-checkbox");
+    expect(checkbox).not.toBeChecked();
+    expect(
+      screen.getByText("我确认已年满 18 周岁，符合本活动的年龄要求。"),
+    ).toBeInTheDocument();
+
+    // 未勾选 → 本地拦截，mutation 不出门
+    fireEvent.click(screen.getByRole("button", { name: "报名" }));
+    expect(submitEnrollment).not.toHaveBeenCalled();
+    expect(screen.getByText("请先勾选年龄确认。")).toBeInTheDocument();
+
+    // 勾选 → 提交携带 ageConfirmed: true
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "报名" }));
+    await waitFor(() => expect(submitEnrollment).toHaveBeenCalledTimes(1));
+    expect(submitEnrollment).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "event-age", ageConfirmed: true }),
+    );
+  });
+
+  it("无年龄门槛活动：不出勾选框，提交不携带 ageConfirmed（#510）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-noage",
+      title: "全龄开放",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      minAge: null,
+    });
+
+    submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-noage", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-noage" kind="event" />);
+
+    await screen.findByRole("button", { name: "报名" });
+    expect(screen.queryByTestId("age-confirm-field")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "报名" }));
+    await waitFor(() => expect(submitEnrollment).toHaveBeenCalledTimes(1));
+    expect(submitEnrollment).toHaveBeenCalledWith(
+      expect.not.objectContaining({ ageConfirmed: expect.anything() }),
+    );
+  });
 });
 
 describe("OfferingDetailPage 课程内容治理入口（H6：教研角色可见）", () => {

@@ -9,6 +9,7 @@
     "deadlock_detected",
     "deposit_already_forfeited",
     "deposit_settlement_race",
+    "enrollment_age_confirmation_required",
     "enrollment_already_processed",
     "enrollment_capacity_counter_invalid",
     "enrollment_capacity_full_or_registration_closed",

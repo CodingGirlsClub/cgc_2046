@@ -580,6 +580,33 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert decode_error(error) =~ "a price tier is required for paid enrollment"
     end
 
+    # #510：年龄门槛门控在域 action——MCP 不带 age_confirmed 同拒（三入口同扇门）
+    test "min_age 非空：不带 age_confirmed → 域错误；带 true → 成功" do
+      admin = Fixtures.platform_admin("s7-cre-age")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{min_age: 18})
+      learner = Fixtures.register_user("s7-cre-age-learner")
+
+      assert {:error, _, _} =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id, %{"reason" => "想参加"}),
+                 frame_for(learner)
+               )
+
+      assert {:reply, _, _} =
+               reply =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, "event", event.id, %{
+                   "reason" => "想参加",
+                   "age_confirmed" => true
+                 }),
+                 frame_for(learner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["enrollment"]["status"] == "confirmed"
+    end
+
     test "AE3：顺序双提交 → 同一报名 id，第二次 idempotent_replay=true，库内恰好一条" do
       admin = Fixtures.platform_admin("s7-cre-c")
       workspace = Fixtures.create_workspace(admin)
