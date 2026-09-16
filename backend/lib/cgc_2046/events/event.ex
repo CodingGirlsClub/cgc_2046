@@ -24,6 +24,8 @@ defmodule Cgc2046.Events.Event do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Events
 
+  alias Cgc2046.Errors.ConstraintConflict
+  alias Cgc2046.Events.PaymentModeValidation
   alias Cgc2046.StatusTransition
   @status_values [:draft, :open, :closed, :cancelled]
 
@@ -885,21 +887,32 @@ defmodule Cgc2046.Events.Event do
   defp status_transition(changeset, to_status),
     do: StatusTransition.run(changeset, :events, to_status)
 
-  # create/update error_handler（KTD3 / #597）：缴费模式 DB CHECK 冲突转稳定业务错误。
-  # ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，冲突落到
-  # InvalidAttribute.private_vars.constraint_type == :check（约束名在同处
-  # .constraint）——两条 CHECK 按名字分派到各自同源 code；非 check 错误原样返回
-  # （enrollment.handle_create_error 同款纪律）。
+  # create/update error_handler（KTD3 / #597 / #608 / #623）：缴费模式 DB CHECK 冲突
+  # 转稳定业务错误。ash_postgres 把 check_constraint DSL 映射为 Ecto check_constraint，
+  # 冲突落到 InvalidAttribute.private_vars.constraint_type == :check（约束名在同处
+  # .constraint）——**五条 CHECK 全部显式按名分派**，其余错误原样上抛（fail-closed：
+  # 新增约束未映射时不吞成某个既有业务码；enrollment.handle_create_error 同款纪律）。
+  # 未进 DSL 的 check 约束（如 events_capacity_positive）在 ash_postgres 侧直接抛
+  # Ecto.ConstraintError，到不了本函数。
   def handle_write_error(_changeset, error) do
     cond do
-      Cgc2046.Errors.ConstraintConflict.constraint_named?(
-        error,
-        "events_deposit_excludes_price_tiers"
-      ) ->
-        Cgc2046.Events.PaymentModeValidation.price_tiers_conflict_error(:price_tiers)
+      ConstraintConflict.constraint_named?(error, "events_deposit_excludes_price_tiers") ->
+        PaymentModeValidation.price_tiers_conflict_error(:price_tiers)
 
-      Cgc2046.Errors.ConstraintConflict.check_conflict?(error) ->
-        Cgc2046.Events.PaymentModeValidation.exclusive_error(:deposit_enabled)
+      ConstraintConflict.constraint_named?(error, "events_payment_mode_exclusive") ->
+        PaymentModeValidation.exclusive_error(:deposit_enabled)
+
+      ConstraintConflict.constraint_named?(
+        error,
+        "events_deposit_requires_registration_deadline"
+      ) ->
+        PaymentModeValidation.registration_deadline_required_error()
+
+      ConstraintConflict.constraint_named?(error, "events_deposit_requires_ends_at") ->
+        PaymentModeValidation.deposit_ends_at_required_error()
+
+      ConstraintConflict.constraint_named?(error, "events_deposit_requires_positive_amount") ->
+        PaymentModeValidation.deposit_amount_required_error()
 
       true ->
         error
@@ -920,7 +933,8 @@ defmodule Cgc2046.Events.Event do
 
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
-    # event_payment_mode_exclusive / event_deposit_price_tiers_conflict（BusinessError）。
+    # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /
+    # event_deposit_{registration_deadline,ends_at,amount}_required（BusinessError）。
     check_constraints do
       # message 是同源兜底字面量（与 PaymentModeValidation.exclusive_error/1 同文字；
       # DSL 编译期取值无法引用函数）；用户可见错误由 handle_write_error/2 转换。
@@ -947,6 +961,41 @@ defmodule Cgc2046.Events.Event do
       check_constraint([:deposit_enabled, :price_tiers], "events_deposit_excludes_price_tiers",
         check: "NOT (deposit_enabled AND NOT pricing_enabled AND price_tiers <> '[]'::jsonb)",
         message: "price tiers must be empty when deposit is enabled"
+      )
+
+      # #608 / #623 押金锚点兜底：`deposit_enabled = true` ⇒ 报名截止 / ends_at /
+      # 正金额三者必须在位（no-show 结算锚点 KTD7 + 自助取消锚点 #587）。
+      # 域校验（PaymentModeValidation.validate/3）只在押金相关字段被改动时生效；
+      # 规则挂载 / 传播路径在 before_action force 这些字段、看不见域校验（挂载
+      # 路径的 registration_deadline 由 RuleInheritance.ensure_rule_deposit_invariant/1
+      # 自理，ends_at 无守卫）——三条 CHECK 是这两条路径与未知裸 SQL 的唯一
+      # 无条件兜底，经 handle_write_error/2 按约束名映射回同源 code。
+      # 判据与域校验 cond / RuleInheritance 合并判据同语义（`deposit_enabled` 是
+      # NOT NULL DEFAULT false，无 NULL 分支；若将来放开可空，CHECK 对 NULL 求值
+      # 为 NULL = 放行，属预期）。
+      # 迁移侧一律 NOT VALID 上线：不扫描存量（生产 0 违规 / dev 2 行脏行），
+      # 新写入与存量行 UPDATE 立即受约束；存量回填 + VALIDATE 见 issue #634。
+      # 三条判据两两可同时违反（如截止与 ends_at 俱空）——Postgres 只报其中一条，
+      # 但三条各自映射的 code 都语义正确且可操作，不做 #597 式「不相交」细化。
+      check_constraint(
+        [:deposit_enabled, :registration_deadline],
+        "events_deposit_requires_registration_deadline",
+        check: "NOT (deposit_enabled AND registration_deadline IS NULL)",
+        message:
+          "registration_deadline is required when deposit is enabled (self-cancel cutoff anchor)"
+      )
+
+      check_constraint([:deposit_enabled, :ends_at], "events_deposit_requires_ends_at",
+        check: "NOT (deposit_enabled AND ends_at IS NULL)",
+        message: "ends_at is required when deposit is enabled (settlement anchor)"
+      )
+
+      check_constraint(
+        [:deposit_enabled, :deposit_amount_cents],
+        "events_deposit_requires_positive_amount",
+        check:
+          "NOT (deposit_enabled AND (deposit_amount_cents IS NULL OR deposit_amount_cents <= 0))",
+        message: "a positive deposit_amount_cents is required when deposit is enabled"
       )
     end
   end

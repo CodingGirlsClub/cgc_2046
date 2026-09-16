@@ -493,35 +493,10 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
              }
     end
 
-    test "按 id 取公开押金场：金额脏（非正/缺失）→ amount_cents=null 且仍是 deposit（绝不免费/0）" do
-      admin = Fixtures.platform_admin("po-get-dep-dirty")
-      workspace = Fixtures.create_workspace(admin)
-
-      event =
-        EventFixtures.create_event(workspace, admin, %{
-          deposit_enabled: true,
-          deposit_amount_cents: 6900,
-          ends_at: EventFixtures.days_from_now(8)
-        })
-
-      outsider = Fixtures.register_user("po-get-dep-dirty-user")
-
-      # 属性级 min: 1 无 DB CHECK：历史脏行只能绕过资源校验布置（raw SQL）
-      Ecto.Adapters.SQL.query!(
-        Cgc2046.Repo,
-        "UPDATE events SET deposit_amount_cents = NULL WHERE id = $1",
-        [Ecto.UUID.dump!(event.id)]
-      )
-
-      assert {:reply, _, _} =
-               reply = GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
-
-      detail = decode(reply)
-      assert detail["payment_mode"] == "deposit"
-      assert detail["deposit"]["enabled"] == true
-      assert is_nil(detail["deposit"]["amount_cents"])
-      assert detail["deposit"]["refundable_on_check_in"] == true
-    end
+    # #608 / #623：押金金额脏行（nil / 0 / 负）在三条锚点 DB CHECK 上线后库内不可
+    # 制造（`NOT VALID` 只豁免存量行；生产普查 0 行）——原「raw SQL 布置脏行 → 读面
+    # 降级」用例已迁到纯函数层 `Cgc2046.Mcp.Tools.PaymentSlotTest`；存量回填 +
+    # VALIDATE 见 issue #634。
 
     test "按 id 取课程：venue / 赞助键为 null，kind=course" do
       admin = Fixtures.platform_admin("po-get-c")

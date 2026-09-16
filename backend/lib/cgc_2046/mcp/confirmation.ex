@@ -92,7 +92,7 @@ defmodule Cgc2046.Mcp.Confirmation do
            op |> Ash.Changeset.for_update(:cancel, %{}, actor: actor) |> Ash.update() do
       {:ok, %{pending_id: cancelled.id, status: "cancelled"}}
     else
-      {:error, %Ash.Error.Invalid{} = err} -> {:error, Exception.message(err)}
+      {:error, err} -> {:error, Cgc2046.Mcp.Errors.message(err, "failed to cancel operation")}
       other -> other
     end
   end
@@ -143,15 +143,12 @@ defmodule Cgc2046.Mcp.Confirmation do
       {:ok, confirmed} ->
         {:ok, confirmed}
 
-      {:error, %Ash.Error.Invalid{} = err} ->
-        {:error, Exception.message(err)}
-
       # 并发双确认：DB 条件更新未命中（已被另一请求确认）→ 友好错误（MEDIUM-1）
       {:error, %Ash.Error.Changes.StaleRecord{}} ->
         {:error, "Operation is not pending (concurrent confirmation won)"}
 
-      {:error, _} ->
-        {:error, "failed to confirm operation"}
+      {:error, err} ->
+        {:error, Cgc2046.Mcp.Errors.message(err, "failed to confirm operation")}
     end
   end
 

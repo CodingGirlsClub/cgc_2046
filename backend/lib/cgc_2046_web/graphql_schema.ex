@@ -1057,6 +1057,11 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, :daily_quota_exhausted} ->
               {:error, message: "Daily quota exhausted", code: "daily_quota_exhausted"}
 
+            # 锁超时/死锁（#621）：BusinessError 原样出面（message 逐字 + 独立 code），
+            # 不落下面 code_generation_failed 兜底——可自愈并发冲突不是"生成失败"。
+            {:error, %Cgc2046.Errors.BusinessError{code: code, message: message}} ->
+              {:error, message: message, code: code}
+
             {:error, _} ->
               {:error, message: "Code generation failed", code: "code_generation_failed"}
           end

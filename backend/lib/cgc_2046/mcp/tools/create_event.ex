@@ -110,11 +110,8 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
             {:error, %Ash.Error.Forbidden{}} ->
               {:error, "forbidden: not allowed to create event in workspace #{workspace_id}"}
 
-            {:error, %Ash.Error.Invalid{} = err} ->
-              {:error, Exception.message(err)}
-
-            {:error, _} ->
-              {:error, "failed to create event"}
+            {:error, err} ->
+              {:error, Cgc2046.Mcp.Errors.message(err, "failed to create event")}
           end
         end
       end)
