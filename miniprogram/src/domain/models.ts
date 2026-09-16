@@ -201,6 +201,18 @@ export interface EnrollmentSummary {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
   paymentMode: 'free' | 'pricing' | 'deposit' | null
+  /**
+   * #617 目标开始时间（后端 Enrollment.startsAt 计算字段，ISO8601；null = 时间待定）。
+   * 改期（event_schedule_changed）与开课提醒（event_reminder）都以本页为落页，
+   * 二者通知正文里的「新时间」在本卡对应这一行——通知的权威落点。
+   */
+  startsAt: string | null
+  /**
+   * #617 目标场地（后端 Enrollment.venue 计算字段）。**已文本化**为
+   * `city+district`（Events.Venue.text/1，如「杭州市西湖区」；课程/无场地 = null），
+   * 与 event_reminder 模板 thing4 同源——不是 CatalogItem.venue 那种 JsonString。
+   */
+  venue: string | null
   /** 报名截止时间（ISO8601；null = 无截止，自助取消恒在截止前） */
   registrationDeadline: string | null
 }

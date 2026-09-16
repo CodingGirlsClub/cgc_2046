@@ -116,6 +116,15 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
       assert oks == 1
       assert errs == 1
 
+      # #631 D4：败方走 StaleRecord 竞态（DB 条件更新未命中）→ 文案必须是并发确认的
+      # 友好句。裸 StaleRecord 与「包在 %Ash.Error.Invalid{} 里」两种形状都认——
+      # 后者漏掉时，StaleRecord 叶子自带的 inspect(resource/filter) 会经统一出口出面。
+      assert [loser_message] = for({:error, msg} <- results, do: msg)
+      assert loser_message =~ "not pending"
+      refute loser_message =~ "stale record"
+      refute loser_message =~ ~r/\%[A-Z][A-Za-z0-9_.]*\{/
+      refute loser_message =~ "Bread Crumbs:"
+
       # effect 恰好执行一次：目标已提升 + 治理留痕恰一行
       assert Ash.get!(Cgc2046.Accounts.User, target.id, authorize?: false).is_platform_admin
 
@@ -198,6 +207,34 @@ defmodule Cgc2046.Mcp.ConfirmationRaceTest do
 
       reloaded = Ash.get!(PendingOperation, pending_id, authorize?: false)
       assert reloaded.status == :confirmed
+    end
+  end
+
+  # #631：cancel 与 confirm 同款竞态（DB 条件更新未命中 → 包裹态 StaleRecord），
+  # 败方文案必须友好——漏掉该形态会出面
+  # "Attempted to update stale record of Cgc2046.Mcp.PendingOperation with filter: …"
+  describe "并发双取消（#631 与 confirm 同款竞态）" do
+    test "并发 cancel 同一 pending：恰一成一败，败方文案不出 inspect 结构" do
+      user = Fixtures.register_user("race-cancel")
+
+      {:needs_confirmation, %{pending_id: pending_id}} =
+        Confirmation.request(user, "admin_promote_user", %{}, "probe")
+
+      results =
+        1..2
+        |> Task.async_stream(fn _ -> Confirmation.cancel(user, pending_id) end,
+          max_concurrency: 2
+        )
+        |> Enum.map(fn {:ok, r} -> r end)
+
+      assert Enum.count(results, &match?({:ok, %{status: "cancelled"}}, &1)) == 1
+      assert [loser_message] = for({:error, msg} <- results, do: msg)
+      assert loser_message =~ "not pending"
+      refute loser_message =~ "stale record"
+      refute loser_message =~ ~r/\%[A-Z][A-Za-z0-9_.]*\{/
+      refute loser_message =~ "Bread Crumbs:"
+
+      assert Ash.get!(PendingOperation, pending_id, authorize?: false).status == :cancelled
     end
   end
 end

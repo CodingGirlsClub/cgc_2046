@@ -1,4 +1,8 @@
 import type { RequestDocument } from 'graphql-request'
+// 相对 + 显式 .ts：mockTransport 同时被 node --experimental-strip-types 直接加载
+// （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
+// 见 src/domain/entry.ts 的 './share-route.ts'。
+import { venueCityDistrictText } from '../domain/format.ts'
 
 const workspace = {
   id: 'workspace-1',
@@ -145,6 +149,10 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
+  /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
+  startsAt: string | null
+  /** #617 目标场地：后端 Enrollment.venue 同形 = Venue.text/1 文本化 city+district */
+  venue: string | null
   /** 报名截止时间（ISO8601；null = 无截止） */
   registrationDeadline: string | null
 }
@@ -335,6 +343,11 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
+      // #617：与后端 Enrollment 计算字段同形——startsAt 直接取目标记录；
+      // venue 必须文本化为 city+district（读面契约是 Venue.text 结果，不是
+      // 目标记录里的 JsonString；course 无 venue 槽 → null）
+      startsAt: target?.startsAt ?? null,
+      venue: venueCityDistrictText(target && 'venue' in target ? target.venue : null),
       registrationDeadline: target?.registrationDeadline ?? null
     }
     checkedIn = false

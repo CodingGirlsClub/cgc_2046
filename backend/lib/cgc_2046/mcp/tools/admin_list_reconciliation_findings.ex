@@ -16,8 +16,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
 
   投影与对账页**有意不同**：GraphQL 对账面（人工列表页）v1 决策不暴露
   detail（graphql_schema.ex `:admin_reconciliation_finding` 注释）；本面
-  供 agent 排查，透出 detail（title/run_id/cause 等排查上下文）作消解
-  方向指引。两面受众不同，口径分叉是 deliberate，非疏漏。
+  供 agent 排查，透出 detail 的**白名单投影**作消解方向指引。两面受众不同，
+  口径分叉是 deliberate，非疏漏。
+
+  `detail` 收口（#631，与 #612 的 `error_message` 同类通道）：写入面是 4 个
+  worker / 17 条规则（键集穷举于 `@detail_keys`），其中规6 `error`（Oban 存的
+  `Exception.format` 全文，含 stacktrace）与规15 `last_error`（`inspect/1` 原文）
+  是**原始错误文本**——按 #612 纪律不出面，落固定摘要（原文留在服务端
+  `oban_jobs.errors` / `notification_deliveries.last_error`，AshAdmin 可查）。
+  `@detail_keys` 是**手工维护点**：取向 fail-closed——未登记键（含未来新规则的键）
+  一律不出面，新键须人工确认后登记。
   """
 
   use Anubis.Server.Component,
@@ -35,6 +43,20 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
 
     field(:workspace_id, :string, description: "按工作台过滤（可选；全局实体如死信 job 无租户）")
   end
+
+  # detail 键白名单（2026-09 取证：4 个 worker / 17 条规则穷举）。fail-closed：
+  # 未登记键一律不出面（新规则新键须在此登记才可见）。
+  @detail_keys ~w(event_id course_id user_id sponsor_user_id level title run_id status
+                  worker signal_type enrollment_id last_activity_at occupancy
+                  enrollment_count sync_version confirmed_count
+                  confirmed_count_sync_version capacity drifts actions window_seconds
+                  threshold reason paid_deposit_orders paid_cents template_key platform
+                  attempts kind channel_cents channel_status no_local_order local_status
+                  local_cents expire_at since expected_cents)
+
+  # 原始错误文本键 → 固定摘要（#612 纪律：原文只留服务端）
+  @raw_error_keys ~w(error last_error)
+  @raw_error_summary "[withheld: raw error text is server-side only]"
 
   @impl true
   def execute(params, frame) do
@@ -80,7 +102,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   defp parse_workspace_id(_), do: {:error, "workspace_id must be a string"}
 
   # 读取纪律同 admin_list_audit_logs：for_read(:read) + actor 授权 + 倒序封顶；
-  # 投影白名单在 to_row，detail 为排查上下文（title/run_id 等）原样透出。
+  # 投影白名单在 to_row，detail 经 project_detail/1 收口。
   defp read_findings(actor, rule, workspace_id) do
     Finding
     |> Ash.Query.for_read(:read)
@@ -103,6 +125,23 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
   defp filter_workspace(query, workspace_id),
     do: Ash.Query.filter(query, workspace_id == ^workspace_id)
 
+  # detail 投影：白名单键原样保留 + 原始错误文本键落固定摘要 + 其余键丢弃。
+  # 键统一 to_string 归一（17 个构造点 atom/string 键混用；JSON 编码后同形），
+  # 未知形状（nil/非 map，DB 层 NOT NULL 下不会出现）→ 空 map。
+  defp project_detail(detail) when is_map(detail) do
+    Enum.reduce(detail, %{}, fn {key, value}, acc ->
+      key = to_string(key)
+
+      cond do
+        key in @raw_error_keys -> Map.put(acc, key, @raw_error_summary)
+        key in @detail_keys -> Map.put(acc, key, value)
+        true -> acc
+      end
+    end)
+  end
+
+  defp project_detail(_detail), do: %{}
+
   defp to_row(finding) do
     %{
       id: finding.id,
@@ -110,7 +149,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
       entity_type: finding.entity_type,
       entity_id: finding.entity_id,
       workspace_id: finding.workspace_id,
-      detail: finding.detail,
+      detail: project_detail(finding.detail),
       first_seen_at: finding.first_seen_at,
       last_seen_at: finding.last_seen_at
     }

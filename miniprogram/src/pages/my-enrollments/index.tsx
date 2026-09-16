@@ -7,7 +7,7 @@ import { CheckInQr } from '@/components/CheckInQr'
 import { PageState } from '@/components/PageState'
 import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
-import { checkInCodeText, enrollmentStatusText, formatDateTime, remainingLabel } from '@/domain/format'
+import { checkInCodeText, enrollmentHistoryTimeText, enrollmentScheduleText, enrollmentStatusText, enrollmentVenueText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
 import { cancelConfirmCopy, depositRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
 import { enrollmentCardTouchpoint } from '@/domain/subscription'
@@ -136,6 +136,8 @@ export default function MyEnrollmentsPage() {
           const checkInCode = checkInCodeText(item.status, item.checkInCode)
           const canCancel = item.status === 'pending' || item.status === 'confirmed'
           const depositRule = depositRefundRuleText(item.paymentMode)
+          const scheduleLine = enrollmentScheduleText(item.kind, item.startsAt)
+          const venueLine = enrollmentVenueText(item.venue)
           return (
           <View key={item.id} className={styles.card} data-testid={`enrollment-${item.id}`}>
             <View className={styles.cardHeader}>
@@ -143,6 +145,19 @@ export default function MyEnrollmentsPage() {
               <Text className={`${styles.status} ${styles[item.status]}`}>{enrollmentStatusText[item.status]}</Text>
             </View>
             <Text className={styles.cardTitle}>{item.title}</Text>
+            {/* #617：改期/开课提醒的权威落点——时间行无条件（任意状态下都可能被
+                通知点进来），地点行仅 venue 可解析时出现；两行置于标题正下方，
+                与底部「截止前可自助取消」分层（上=什么时候，下=能不能退） */}
+            {scheduleLine && (
+              <Text className={styles.schedule} data-testid={`schedule-${item.id}`}>
+                {scheduleLine}
+              </Text>
+            )}
+            {venueLine && (
+              <Text className={styles.schedule} data-testid={`venue-${item.id}`}>
+                {venueLine}
+              </Text>
+            )}
             {checkInCode && item.kind === 'event' && item.checkInCode && (
               <View className={styles.checkInQr}>
                 {/* #508-A：QR 供主理人小程序扫码（payload 自定义格式，非 URL）；
@@ -241,7 +256,7 @@ export default function MyEnrollmentsPage() {
                   <View key={record.id} className={styles.historyRow} data-testid={`history-${record.id}`}>
                     <View className={styles.historyHeader}>
                       <Text className={`${styles.status} ${styles[record.status]}`}>{enrollmentStatusText[record.status]}</Text>
-                      <Text className={styles.historyTime}>{new Date(record.insertedAt).toLocaleString()}</Text>
+                      <Text className={styles.historyTime}>{enrollmentHistoryTimeText(record.insertedAt)}</Text>
                     </View>
                     {record.rejectionReason && <Text className={styles.historyReason}>原因：{record.rejectionReason}</Text>}
                   </View>
