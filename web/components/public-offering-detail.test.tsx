@@ -1297,6 +1297,22 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     depositAmountCents: 6900,
   };
 
+  it("定价场明示「活动开始前取消全额退」退款规则（#543）；免费场不出", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(PAID_OFFERING);
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const note = await screen.findByTestId("pricing-refund-note");
+    expect(note.textContent).toContain("活动开始前取消全额退");
+
+    // 免费场不渲染定价块（连带不出退款规则行）
+    mocks.fetchPublicOffering.mockResolvedValue(FREE_EVENT);
+    cleanup();
+    render(<PublicOfferingDetailPage kind="event" />);
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByTestId("pricing-refund-note")).not.toBeInTheDocument();
+  });
+
   it("押金场明示「押金 ¥xx（到场退）」与「未到场不退」；免费场不渲染押金块", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
 

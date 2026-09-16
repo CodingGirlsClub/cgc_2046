@@ -289,6 +289,28 @@ describe("/participations 我的参与（P2b：报名默认 tab + 赞助）", ()
 		expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fparticipations");
 	});
 
+	it("U4：定价场出「活动开始前取消全额退」规则句；免费场不出（#543）", () => {
+		mockQuery({
+			enrollments: [
+				{ ...ENROLLMENT, id: "enr-pricing", status: "confirmed", eventId: "event-pricing", paymentMode: "pricing" },
+				{ ...ENROLLMENT, id: "enr-free2", status: "confirmed", eventId: "event-free2", paymentMode: "free" },
+			],
+		});
+
+		render(<ParticipationsPage />);
+
+		expect(screen.getByTestId("pricing-refund-rule-enr-pricing").textContent).toContain(
+			"活动开始前取消全额退",
+		);
+		expect(
+			screen.queryByTestId("pricing-refund-rule-enr-free2"),
+		).not.toBeInTheDocument();
+		// 定价场不出押金句（口径互斥）
+		expect(
+			screen.queryByTestId("deposit-refund-rule-enr-pricing"),
+		).not.toBeInTheDocument();
+	});
+
 	it("U3：押金场码卡显示退款承诺句；免费场不出（paymentMode 感知）", () => {
 		mockQuery({
 			enrollments: [

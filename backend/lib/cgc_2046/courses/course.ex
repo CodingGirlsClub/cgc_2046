@@ -855,14 +855,22 @@ defmodule Cgc2046.Courses.Course do
   # 未来新增其他唯一索引不会被误吞成 slug_taken。identity :slug 的 ash_postgres
   # 翻译错误仍带 private_vars.constraint（enrollment unique_event_user 先例）。
   def handle_write_error(_changeset, error) do
-    if Cgc2046.Errors.ConstraintConflict.constraint_named?(error, "courses_slug_index") do
-      Cgc2046.Errors.BusinessError.exception(
-        message: "slug has already been taken",
-        code: "course_slug_taken",
-        fields: [:slug]
-      )
-    else
-      error
+    cond do
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(
+        error,
+        "courses_pricing_requires_starts_at"
+      ) ->
+        Cgc2046.Offering.PriceTiersValidation.starts_at_required_error()
+
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(error, "courses_slug_index") ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: "slug has already been taken",
+          code: "course_slug_taken",
+          fields: [:slug]
+        )
+
+      true ->
+        error
     end
   end
 
@@ -874,6 +882,17 @@ defmodule Cgc2046.Courses.Course do
 
   postgres do
     table("courses")
+
+    # #543 定价锚点兜底（Event 同款）：定价开课 ⇒ starts_at 非空（定价单自助
+    # 取消退款锚）。域校验单源在 Offering.PriceTiersValidation（Event/Course
+    # 共享）；本 CHECK 无条件兜底新写入。
+    check_constraints do
+      check_constraint([:pricing_enabled, :starts_at], "courses_pricing_requires_starts_at",
+        check: "NOT (pricing_enabled AND starts_at IS NULL)",
+        message: "starts_at is required when pricing is enabled"
+      )
+    end
+
     repo(Cgc2046.Repo)
   end
 

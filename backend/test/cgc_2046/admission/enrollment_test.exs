@@ -782,6 +782,109 @@ defmodule Cgc2046.Admission.EnrollmentTest do
     end
   end
 
+  describe "定价场自助取消退款（#543：活动开始前全额退，锚 = starts_at）" do
+    setup do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+      %{workspace: workspace, admin: admin}
+    end
+
+    test "已付定价单 + 活动开始前取消：报名取消 + 名额释放 + 订单 refunding + 退款 job 入队",
+         ctx do
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{
+            capacity: 1,
+            starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-before-start")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+      assert EventFixtures.ledger_occupancy(event) == 0
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :refunding
+
+      assert_enqueued(
+        worker: Cgc2046.Payments.Workers.PaymentRefundWorker,
+        args: %{"order_id" => order.id}
+      )
+    end
+
+    test "已付定价单 + 报名截止已过但活动未开始：仍全额退（锚是 starts_at 不是 deadline）",
+         ctx do
+      # 截止前正常报名付款（截止已过无法报名，布置先建后拉线——与押金场
+      # 「after deadline」用例同款 SQL 手法）
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{capacity: 1, starts_at: DateTime.add(DateTime.utc_now(), 8, :day)}
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-past-deadline")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      Cgc2046.Repo.query!(
+        "UPDATE events SET registration_deadline = NOW() - INTERVAL '1 hour' WHERE id = $1",
+        [Ecto.UUID.dump!(event.id)]
+      )
+
+      assert {:ok, _} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :refunding
+    end
+
+    test "已付定价单 + 活动已开始：不退（订单留 paid，无退款 job）", ctx do
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{
+            capacity: 1,
+            starts_at: DateTime.add(DateTime.utc_now(), -1, :hour)
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-after-start")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      assert {:ok, _} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :paid
+
+      assert [] ==
+               Enum.filter(
+                 all_enqueued(worker: Cgc2046.Payments.Workers.PaymentRefundWorker),
+                 &(&1.args["order_id"] == order.id)
+               )
+    end
+  end
+
   describe "押金场报名：payment_pending（U1，KTD2，AE3）" do
     test "open 押金场：报名落 payment_pending，名额账本已占位" do
       admin = Fixtures.platform_admin()
@@ -1546,6 +1649,14 @@ defmodule Cgc2046.Admission.EnrollmentTest do
 
   # 免缴作废回归布置：为 payment_pending 报名挂一笔 pending 订单
   # （形状同 payment_settlement_worker_test 布置，渠道凭据字段由 provider 层测试覆盖）
+  # #543：定价单付款落账（测试布置）——与 initiative_boundary_test 的
+  # paid_order/2 同款 create + mark_paid 链。
+  defp mark_paid(order) do
+    order
+    |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: Ecto.UUID.generate()})
+    |> Ash.update!(tenant: order.workspace_id, authorize?: false)
+  end
+
   defp create_pending_order(enrollment) do
     {:ok, order} =
       Order
