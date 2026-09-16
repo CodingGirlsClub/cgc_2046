@@ -14,7 +14,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
 
   v1 只记录成功操作（result 恒 :success）：失败操作在条件 UPDATE/状态守卫阶段被拒、
   事务回滚，同事务内无法落日志；result 列保留 :failure 枚举供未来扩展。
-  metadata 落 DB 备用（slug/email/rejection_reason 等展示快照），v1 不经 GraphQL 暴露。
+  metadata 落 DB 备用（slug/email/rejection_reason 等展示快照）。**读面分两档**：
+  raw metadata 仅 `/ops/admin`（AshAdmin，全 attribute 展示）可见；`/admin/audit`
+  治理操作 tab 走 `listAdminActionLogs.metadata` 的**白名单投影**（#607，表在
+  `Cgc2046Web.GraphqlSchema` 顶部），未收录的 action 投影为 null——不整列透传。
   """
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
@@ -114,7 +117,9 @@ defmodule Cgc2046.Accounts.AdminActionLog do
     attribute(:metadata, :map,
       allow_nil?: false,
       default: %{},
-      description: "展示用快照（slug/email/rejection_reason 等；v1 不经 GraphQL 暴露）"
+      description:
+        "展示用快照（slug/email/rejection_reason 等）。raw metadata 仅 /ops/admin（AshAdmin）可见；" <>
+          "/admin/audit 经 GraphQL 白名单投影（#607）"
     )
 
     create_timestamp(:inserted_at)

@@ -1384,6 +1384,8 @@ body {
   .admin-table tbody tr:hover { background: var(--soft-2); }
   .admin-table__primary { color: var(--ink); font-weight: 510; }
   .admin-table__sub { display: block; margin-top: 1px; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  /* #607 变更列的「白名单外字段省略」标记：可 hover 出说明（cursor 提示有 title） */
+  .admin-table__omitted { color: var(--ink-3); cursor: help; }
   .admin-table__num { text-align: right; font-feature-settings: "tnum"; }
   .admin-table__actions { text-align: right; white-space: nowrap; }
   .admin-table__actions > * + * { margin-left: 6px; }

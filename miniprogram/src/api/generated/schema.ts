@@ -50,9 +50,28 @@ export type AdminActionLog = {
   actorId?: Maybe<Scalars['ID']['output']>;
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  /** 治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 /ops/admin（AshAdmin）可见 */
+  metadata?: Maybe<AdminActionMetadata>;
   result: Scalars['String']['output'];
   targetId: Scalars['ID']['output'];
   targetType: Scalars['String']['output'];
+};
+
+export type AdminActionMetadata = {
+  /** 变更后锁定态 */
+  locked: Scalars['Boolean']['output'];
+  /** 变更前锁定态；:create（新建规则）无前值 → null */
+  lockedBefore?: Maybe<Scalars['Boolean']['output']>;
+  /** 规则键：deposit | age_gate | min_participants | deadline_rule */
+  ruleKey: Scalars['String']['output'];
+  /** 变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影） */
+  valueAfterJson: Scalars['JsonString']['output'];
+  /** true = 变更后 value 含白名单外键，已被省略（界面以 … 标出） */
+  valueAfterOmitted: Scalars['Boolean']['output'];
+  /** 变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建） */
+  valueBeforeJson?: Maybe<Scalars['JsonString']['output']>;
+  /** true = 变更前 value 含白名单外键，已被省略（界面以 … 标出） */
+  valueBeforeOmitted: Scalars['Boolean']['output'];
 };
 
 export type AdminInitiative = {
