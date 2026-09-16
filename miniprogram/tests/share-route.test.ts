@@ -100,6 +100,27 @@ test('Initiative 同 slug 不重复跳转，不同 slug 仍打开目标', () => 
   )
 })
 
+// #589 残差：id 分支两侧都 trim，slug 分支曾只 trim 入参——当前页 slug 带首尾
+// 空白（冷启动 ?slug=%20abc%20 的残留）时与干净入参不相等，会叠一层重复页。
+test('当前页 slug 带首尾空白 → 同 slug 仍不重复跳转', () => {
+  assert.equal(resolveAppShowRoute({ slug: 'new' }, 'pages/initiative-detail/index', { slug: ' new ' }), null)
+})
+
+test('当前页 slug 为空串 → 不误判命中，照常打开目标', () => {
+  assert.equal(
+    resolveAppShowRoute({ slug: 'new' }, 'pages/initiative-detail/index', { slug: '' }),
+    '/pages/initiative-detail/index?slug=new'
+  )
+})
+
+// 与 id 分支「当前页 options 读不到」用例对称
+test('当前页 options 读不到（currentQuery 缺省）→ 不视为同 slug，照常打开', () => {
+  assert.equal(
+    resolveAppShowRoute({ slug: 'new' }, 'pages/initiative-detail/index'),
+    '/pages/initiative-detail/index?slug=new'
+  )
+})
+
 test('join scene 与 Event id 保留各自分享入口', () => {
   assert.equal(resolveAppShowRoute({ scene: 'invite', slug: '1024' }, 'pages/discover/index'), '/pages/join/index?scene=invite')
   assert.equal(resolveAppShowRoute({ id: 'event-1', kind: 'event', slug: '1024' }, 'pages/discover/index'), '/pages/event-detail/index?id=event-1&kind=event')
