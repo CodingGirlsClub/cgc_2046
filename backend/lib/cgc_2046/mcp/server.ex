@@ -47,11 +47,17 @@ defmodule Cgc2046.Mcp.Server do
     草稿;内容快照原样投影)
   - 学员旅程(role-agent-journeys-v2 S7,R30-R35;两读面 optional+deferred 双键
     跨台锚定,三面 deferred):
+    **供给读面附缴费槽 `payment_mode`(free|pricing|deposit)与押金明细 `deposit`
+    (#586;单源 Offering.payment_mode/1)**——discover_offerings /
+    get_enrollment_summary / get_public_offering / list_workspace_events 四处;
+    订单面(get_order_status)与报名列表(get_my_enrollments)不带该键。
     discover_offerings(公开∪成员可访问并集,{kind,id} 去重,封顶 100+total_count
     截断前小计;invite_only 台非成员 workspace 块落 nil) /
-    get_enrollment_summary(报名前摘要;would_create_status 镜像域 prepare_policy,
-    驱动因子=offering enrollment_policy;capacity_info 仅成员;goals 取 published
-    revision 无则回退草稿) / create_enrollment(唯一直接写——客户端确认即契约;
+    get_enrollment_summary(报名前摘要;would_create_status 委托域谓词
+    Enrollment.auto_confirm_status/1——缴费槽三态 free|pricing|deposit 押金场同落
+    payment_pending,驱动因子=offering enrollment_policy;capacity_info 仅成员;
+    goals 取 published revision 无则回退草稿) / create_enrollment(唯一直接写——
+    客户端确认即契约;
     reason 进 Wrapper 前摘除;撞 enrollment_duplicate_active 幂等重放既有活跃
     报名;payment_pending 附 checkout_url 外部结算页) /
     get_my_enrollments(全状态跨台,封顶 100,课程面板列表源) /
