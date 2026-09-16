@@ -36,6 +36,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
   alias Cgc2046.Mcp.Tools.{
     AdminApproveWorkspaceApplication,
+    AdminCreateInitiative,
     AdminCreateWorkspace,
     AdminDemoteUser,
     AdminListAuditLogs,
@@ -964,6 +965,92 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert payload["result"]["name"] == "改过的名字"
       assert payload["result"]["slug"] == "mcp-init-name"
       assert Ash.get!(Initiative, initiative.id, authorize?: false).name == "改过的名字"
+    end
+  end
+
+  # #604：MCP 工具是 `Exception.message/1` 直出，是原文泄漏的**唯一**对外面
+  # （GraphQL 对无 impl 的错误本就回通用 uuid 文案）。撞 slug 的 confirm 段
+  # 必须回干净业务文案，不带索引名/SQL/Postgres detail。
+  describe "admin_initiative 撞 slug（#604）" do
+    test "create 撞已占用 slug → confirm 回干净文案（无索引名/SQL）" do
+      admin = Fixtures.platform_admin("pa-init-604-create")
+
+      _taken =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Initiative",
+          slug: "mcp-init-604-taken",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      {:reply, _, _} =
+        reply =
+        AdminCreateInitiative.execute(
+          %{"name" => "Dup", "slug" => "mcp-init-604-taken"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id, "status" => "needs_confirmation"} = decode_reply(reply)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug has already been taken"
+      refute msg =~ "initiatives_slug_index"
+      refute msg =~ "initiatives_unique_slug_index"
+      refute msg =~ "duplicate key"
+      refute msg =~ "constraint error"
+      refute msg =~ "already exists"
+
+      rows =
+        Ash.read!(Initiative, authorize?: false)
+        |> Enum.filter(&(&1.slug == "mcp-init-604-taken"))
+
+      assert length(rows) == 1
+    end
+
+    test "draft 改到已占用 slug → confirm 回干净文案（无索引名/SQL）" do
+      admin = Fixtures.platform_admin("pa-init-604-update")
+
+      _taken =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Initiative",
+          slug: "mcp-init-604-occupied",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      draft =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "MCP Draft",
+          slug: "mcp-init-604-draft",
+          created_by: admin.id
+        })
+        |> Ash.create!(actor: admin)
+
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => draft.id, "slug" => "mcp-init-604-occupied"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id} = decode_reply(reply)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug has already been taken"
+      refute msg =~ "initiatives_slug_index"
+      refute msg =~ "initiatives_unique_slug_index"
+      refute msg =~ "duplicate key"
+      refute msg =~ "constraint error"
+      refute msg =~ "already exists"
+
+      assert Ash.get!(Initiative, draft.id, authorize?: false).slug == "mcp-init-604-draft"
     end
   end
 end

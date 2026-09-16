@@ -56,7 +56,10 @@ export const COPY: Record<string, string> = {
   // Initiative slug 发布后锁定（#588）；小程序无 initiative 写面，此条为
   // 「两端文案表同步」义务（与 web zh-CN errors 命名空间同文案互指），
   // 当前不可达，保留以备后台类能力下沉。
-  initiative_slug_locked: '倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。'
+  initiative_slug_locked: '倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。',
+  // Initiative 撞 slug（#604，同 #588 的同步义务：小程序无 initiative 写面，
+  // 当前不可达；web admin create/update 与 MCP 是真实消费方）。
+  initiative_slug_taken: '该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。'
 }
 
 /**
