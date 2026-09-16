@@ -2184,7 +2184,6 @@
 		"shortBy": "{count} more needed to qualify",
 		"open": "Open",
 		"cityEvents": "{count, plural, one {# event} other {# events}}",
-		"seats": "Seats",
 		"indexTitle": "Initiatives",
 		"indexDesc": "Public initiatives across workspaces. Open one to browse its events.",
 		"indexEmpty": "No initiatives yet",
