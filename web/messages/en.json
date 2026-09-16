@@ -71,7 +71,8 @@
 		"event_moderator_not_workspace_member": "This user is not a member of this workspace yet; invite them first, then assign.",
 		"event_deposit_registration_deadline_required": "A registration deadline is required when deposit is enabled (self-cancel cutoff).",
 		"event_ends_at_frozen": "Cannot move the end time earlier while deposit orders are unsettled.",
-		"order_deposit_amount_missing": "Deposit amount is missing; please register again."
+		"order_deposit_amount_missing": "Deposit amount is missing; please register again.",
+		"initiative_slug_locked": "This initiative's public link is live, so its slug can no longer be changed (editing name/description still works)."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -1767,6 +1768,7 @@
 		"initiativesEmpty": "No initiatives",
 		"initiativeName": "Name",
 		"initiativeSlug": "Slug",
+		"initiativeSlugLocked": "Public link is live — the slug is locked after publish",
 		"initiativeStatus": "Status",
 		"initiativeAction": "Action",
 		"initiativeOpen": "Open",
