@@ -27,6 +27,13 @@ export default function AdminInitiativesPage() {
 	const [rules, setRules] = useState<AdminInitiativeRule[]>([]);
 	const [rulesLoadedFor, setRulesLoadedFor] = useState<string | null>(null);
 	const [ruleBusy, setRuleBusy] = useState<string | null>(null);
+	/**
+	 * slug 锁定（#588）：Initiative 发布（open / closed）后公开 URL 段不可改，
+	 * 与后端 `Initiative :update` 守卫同口径（非 draft 即锁）。status 单源是
+	 * `rows`（`fetchInitiative` 只补 rules），不用 form state 缓存。
+	 */
+	const editingRow = editing ? rows?.find((row) => row.id === editing) ?? null : null;
+	const slugLocked = editingRow !== null && editingRow.status !== "draft";
 	function firstError(payload: { errors: MutationError[] }): string {
 		return payload.errors[0]?.message ?? t("loadFailed");
 	}
@@ -99,8 +106,15 @@ export default function AdminInitiativesPage() {
 						className="l-input"
 						value={form.slug}
 						placeholder={t("initiativeSlug")}
+						disabled={slugLocked}
 						onChange={(e) => setForm({ ...form, slug: e.target.value })}
 					/>
+					{/* 锁定态仍原样回传 form.slug：后端 Ash.Changeset.do_change_attribute
+					    在同值时把该键从 changeset.attributes 删除，而 changing_attribute?
+					    只查 Map.has_key? ⇒ 不会误触发锁定守卫（#588）。 */}
+					{slugLocked
+						? <p className="admin-muted">{t("initiativeSlugLocked")}</p>
+						: null}
 				</div>
 				<div className="admin-field">
 					<label htmlFor="init-desc" className="admin-field__label">
