@@ -48,6 +48,11 @@ defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
     assert {:reply, _, _} =
              detail = GetPublicInitiative.execute(%{"slug" => initiative.slug}, frame)
 
-    assert decode(detail)["slug"] == initiative.slug
+    detail_row = decode(detail)
+    assert detail_row["slug"] == initiative.slug
+
+    # 运营取投放链接的出口（Patch 3）：公开页绝对链接随工具结果返回，与
+    # public_url/1 同值（相对路径 / 别的 base 都算不合格）
+    assert detail_row["url"] == Cgc2046.Initiatives.Public.public_url(initiative.slug)
   end
 end
