@@ -96,6 +96,81 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert payload.confirmed_count == 0
   end
 
+  # 脱敏边界（signoff 2026-09-14「公开 DTO 脱敏核对」）：公开投影不得出现 capacity 原值 /
+  # workspace_id。payload 顶层与事件 DTO 两层都白名单化——新增公开字段必须显式过审，
+  # 把文档承诺变成 CI 不变量（#593）。
+  test "公开投影只暴露白名单字段（payload 顶层 + 事件 DTO，无 capacity / workspace_id）" do
+    admin = Fixtures.platform_admin("initiative-public-dto-keys")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = initiative(admin, "public-dto-keys-test")
+
+    event(workspace, admin, initiative, %{
+      venue: %{"city" => "长沙", "province" => "湖南", "country" => "中国", "district" => "岳麓"}
+    })
+
+    assert {:ok, payload} = Public.get_by_slug("public-dto-keys-test")
+
+    payload_keys = Map.keys(payload)
+
+    event_keys =
+      payload.cities
+      |> Enum.flat_map(& &1.events)
+      |> Enum.flat_map(&Map.keys/1)
+      |> Enum.uniq()
+
+    # 防空断言空转：两层都必须真的取到键（true-on-empty 不算绿）
+    assert payload_keys != []
+    assert event_keys != []
+
+    allowed_payload = [
+      :cities,
+      :city_count,
+      :confirmed_count,
+      :description,
+      :event_count,
+      :hashtag,
+      :id,
+      :name,
+      :qualified_event_count,
+      :slug,
+      :status,
+      :url,
+      :window_ends_at,
+      :window_starts_at
+    ]
+
+    allowed_event = [
+      :archived,
+      :confirmed_count,
+      :ends_at,
+      :id,
+      :min_participants,
+      :qualification_badge,
+      :qualification_status,
+      :registration_deadline,
+      :short_by,
+      :slug,
+      :starts_at,
+      :status,
+      :title,
+      :venue,
+      :visibility
+    ]
+
+    # 子集断言：出现白名单外字段即 fail（新增公开字段必须显式过审；删字段不误报）
+    assert payload_keys -- allowed_payload == [],
+           "公开 payload 出现白名单外字段：#{inspect(payload_keys -- allowed_payload)}"
+
+    assert event_keys -- allowed_event == [],
+           "公开事件 DTO 出现白名单外字段：#{inspect(event_keys -- allowed_event)}"
+
+    # 脱敏字段两层都不得出现（子集断言已覆盖，这里显式钉住语义）
+    refute :capacity in payload_keys
+    refute :workspace_id in payload_keys
+    refute :capacity in event_keys
+    refute :workspace_id in event_keys
+  end
+
   test "draft 或不存在的 Initiative 不可公开读取" do
     admin = Fixtures.platform_admin("initiative-public-draft")
 
