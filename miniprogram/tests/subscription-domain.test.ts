@@ -11,18 +11,21 @@ import {
   ALL_SCENARIOS,
   MAX_TMPL_IDS_PER_REQUEST,
   acceptedScenarios,
+  checkInCodeTouchpoint,
   configuredScenarios,
   courseCardTouchpoint,
   enrollmentCardTouchpoint,
   enrollmentResultTouchpoint,
   eventCardTouchpoint,
   moderatorTouchpoint,
+  submitAfterCheckInCodeConsent,
   subscriptionTransport,
   workspaceTouchpoint
 } from '../src/domain/subscription.ts'
 
-/** 全量触点的「正常态」取样（M1–M5）；payment_pending 与终态另有专门断言。 */
+/** 全量触点的「正常态」取样（M0–M5）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
+  checkInCodeTouchpoint(),
   enrollmentResultTouchpoint('pending'),
   enrollmentResultTouchpoint('confirmed'),
   enrollmentCardTouchpoint('event'),
@@ -32,9 +35,9 @@ const allTouchpoints = () => [
 ]
 
 describe('场景键集', () => {
-  test('恰好 10 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 10)
-    assert.equal(new Set(ALL_SCENARIOS).size, 10)
+  test('恰好 11 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 11)
+    assert.equal(new Set(ALL_SCENARIOS).size, 11)
   })
 
   test('7 个新场景全部在表内（#635 的核心：此前从未被请求授权）', () => {
@@ -65,6 +68,11 @@ describe('场景键集', () => {
     ]) {
       assert.ok(covered.has(scenario), `${scenario} 没有任何触点覆盖`)
     }
+  })
+
+  test('核销码场景有可达入口（#546：M0 报名提交前，非后置触点）', () => {
+    const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
+    assert.ok(covered.has('enrollment_check_in_code'), 'enrollment_check_in_code 没有任何触点覆盖')
   })
 })
 
@@ -177,6 +185,135 @@ describe('M4/M5 管理面', () => {
 
   test('活动详情（主理人）→ 主理人指派', () => {
     assert.deepEqual(moderatorTouchpoint().scenarios, ['event_moderator_assigned'])
+  })
+})
+
+describe('M0 报名提交前授权（#546 顺序契约）', () => {
+  test('触点恰请求核销码场景，拒绝文案指向「我的报名」兜底', () => {
+    const touchpoint = checkInCodeTouchpoint()
+    assert.deepEqual(touchpoint.scenarios, ['enrollment_check_in_code'])
+    assert.match(touchpoint.deniedCopy, /我的报名/)
+  })
+
+  test('顺序契约：request（授权弹窗）→ grant（后端 +1）→ submit（可能立刻 confirmed）', async () => {
+    const calls: string[] = []
+
+    const result = await submitAfterCheckInCodeConsent(
+      checkInCodeTouchpoint(),
+      {
+        request: async (scenarios) => {
+          calls.push(`request:${scenarios.join(',')}`)
+          return ['enrollment_check_in_code']
+        },
+        grant: async (scenario) => {
+          calls.push(`grant:${scenario}`)
+        }
+      },
+      async () => {
+        calls.push('submit')
+        return 'enrollment-id'
+      }
+    )
+
+    assert.equal(result, 'enrollment-id')
+    // 顺序即契约：一次性订阅只能覆盖 grant 之后的发送；颠倒即首次报名必然
+    // consent_exhausted（discarded）。
+    assert.deepEqual(calls, [
+      'request:enrollment_check_in_code',
+      'grant:enrollment_check_in_code',
+      'submit'
+    ])
+  })
+
+  test('部分接受：只 grant 被接受的场景，再 submit', async () => {
+    const calls: string[] = []
+    await submitAfterCheckInCodeConsent(
+      checkInCodeTouchpoint(),
+      {
+        request: async () => [],
+        grant: async (scenario) => void calls.push(`grant:${scenario}`)
+      },
+      async () => {
+        calls.push('submit')
+        return 'ok'
+      }
+    )
+
+    assert.deepEqual(calls, ['submit'])
+  })
+
+  test('请求抛错（模板未配置 / 平台拒绝）→ 报名照常提交', async () => {
+    const calls: string[] = []
+    const result = await submitAfterCheckInCodeConsent(
+      checkInCodeTouchpoint(),
+      {
+        request: async () => {
+          throw new Error('缺少微信订阅消息模板 ID')
+        },
+        grant: async () => {}
+      },
+      async () => {
+        calls.push('submit')
+        return 'ok'
+      }
+    )
+
+    assert.equal(result, 'ok')
+    assert.deepEqual(calls, ['submit'])
+  })
+
+  test('grant 抛错（后端模板未配 / 网络）→ 报名照常提交', async () => {
+    const calls: string[] = []
+    const result = await submitAfterCheckInCodeConsent(
+      checkInCodeTouchpoint(),
+      {
+        request: async () => ['enrollment_check_in_code'],
+        grant: async () => {
+          throw new Error('Consent grant failed')
+        }
+      },
+      async () => {
+        calls.push('submit')
+        return 'ok'
+      }
+    )
+
+    assert.equal(result, 'ok')
+    assert.deepEqual(calls, ['submit'])
+  })
+
+  test('无触点（course 报名无核销码）→ 零授权调用，直接提交', async () => {
+    const calls: string[] = []
+    const result = await submitAfterCheckInCodeConsent(
+      null,
+      {
+        request: async () => {
+          calls.push('request')
+          return []
+        },
+        grant: async () => void calls.push('grant')
+      },
+      async () => {
+        calls.push('submit')
+        return 'ok'
+      }
+    )
+
+    assert.equal(result, 'ok')
+    assert.deepEqual(calls, ['submit'])
+  })
+
+  test('submit 抛错原样上抛（授权链路不吞报名错误）', async () => {
+    await assert.rejects(
+      submitAfterCheckInCodeConsent(
+        checkInCodeTouchpoint(),
+        { request: async () => [], grant: async () => {} },
+        async () => {
+          throw new Error('容量已满')
+        }
+      ),
+      /容量已满/
+    )
   })
 })
 

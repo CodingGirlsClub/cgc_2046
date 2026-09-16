@@ -8,6 +8,7 @@ defmodule Cgc2046.Notifications.Subscriber do
   - `enrollment.submitted`（request 策略）→ 报名所属 workspace 的 Owner/Admin
     （有新的待审批报名；open/invite_only 提交即刻确认，无待审批语义，不通知）
   - `enrollment.completed`（open 直接确认或审批通过）→ 报名学员本人（报名成功）
+    ＋ 同一条信号追加核销码通知（#546；Event 报名有码，course 无码不发）
 
   订阅骨架与 claim-first 幂等语义由 `Cgc2046.Workflows.SignalSubscriber` 统一
   持有（语义事实见其 moduledoc）；收件人解析与 Oban 入队收敛到
@@ -136,17 +137,25 @@ defmodule Cgc2046.Notifications.Subscriber do
   end
 
   # 报名成功 → 报名学员本人（7 天 args-unique 走 NotificationWorker 默认 unique）。
+  # #546：confirmed 就是「核销码已就绪」的时刻（码在 create 生成，Enrollment
+  # KTD5），故同一信号再下发一条带码的通知；两条 job 的 args 因 template_key /
+  # data 不同而互不折叠，共用同一 job_meta 幂等键即可（同一报名各发一次）。
   defp enqueue_completed(data) do
     enrollment_id = Map.fetch!(data, "enrollment_id")
 
     with {:ok, title} <- target_title(data),
          user_id when is_binary(user_id) <- Map.get(data, "user_id") do
+      recipients = {user_id, Cgc2046.Notifications.Fanout.identities(user_id)}
+      job_meta = %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
+
       Cgc2046.Notifications.Fanout.deliver(
-        {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
+        recipients,
         "enrollment_completed",
         %{"enrollment_id" => enrollment_id, "title" => title},
-        %{"enrollment_id" => enrollment_id, "idempotency_key" => producer_key(data)}
+        job_meta
       )
+
+      enqueue_check_in_code(recipients, job_meta, enrollment_id, title, data)
     else
       {:error, reason} ->
         Logger.warning(
@@ -155,6 +164,42 @@ defmodule Cgc2046.Notifications.Subscriber do
 
       _ ->
         Logger.warning("enrollment completed notification skipped: missing user_id")
+    end
+  end
+
+  # 核销码通知（#546）：反查报名取码，**无码 / 读失败一律不发**——「没有码的核销
+  # 码通知」正是本 issue 要消除的失败形态。两条无码路径都被同一条判据覆盖：
+  # course 报名恒 nil（Enrollment KTD5）、event 报名历史/异常行（回填漏网）。
+  # 反查口径同 approval_context/1（通知侧自补数据，不动信号 payload 契约）。
+  defp enqueue_check_in_code(recipients, job_meta, enrollment_id, title, data) do
+    case check_in_code(enrollment_id, data) do
+      {:ok, code} ->
+        Cgc2046.Notifications.Fanout.deliver(
+          recipients,
+          "enrollment_check_in_code",
+          %{"enrollment_id" => enrollment_id, "title" => title, "check_in_code" => code},
+          job_meta
+        )
+
+      :skip ->
+        :ok
+    end
+  end
+
+  defp check_in_code(enrollment_id, _data) do
+    case Ash.get(Enrollment, enrollment_id, authorize?: false) do
+      {:ok, %{check_in_code: code}} when is_binary(code) and code != "" ->
+        {:ok, code}
+
+      {:ok, _missing_or_no_code} ->
+        :skip
+
+      {:error, reason} ->
+        Logger.warning(
+          "enrollment check-in code notification skipped for #{enrollment_id}: #{inspect(reason)}"
+        )
+
+        :skip
     end
   end
 

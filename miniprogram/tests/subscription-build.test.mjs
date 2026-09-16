@@ -22,7 +22,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relPath) => readFileSync(join(root, relPath), 'utf8')
 
 /** 期望场景数：改这个数必须是有意识的决定（防「四处一起被删空」也能通过相等断言）。 */
-const EXPECTED_SCENARIO_COUNT = 10
+const EXPECTED_SCENARIO_COUNT = 11
 
 /** 从 `const NAME = [...] as const` 里取字符串字面量。 */
 function constList(source, name, file) {
