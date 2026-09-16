@@ -23,12 +23,12 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
     conn.resp_cookies["cgc_token"].value
   end
 
-  defp open_initiative(admin) do
+  defp open_initiative(admin, slug \\ "gql-initiative") do
     {:ok, initiative} =
       Initiative
       |> Ash.Changeset.for_create(:create, %{
         name: "GraphQL Initiative",
-        slug: "gql-initiative",
+        slug: slug,
         created_by: admin.id
       })
       |> Ash.create(actor: admin)
@@ -182,5 +182,74 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
     assert updated["result"]["id"] == created["result"]["id"]
     assert updated["result"]["locked"] == false
     assert Jason.decode!(updated["result"]["valueJson"]) == %{"enabled" => false}
+  end
+
+  describe "updateInitiative slug 锁定（#588）" do
+    test "open Initiative 改 slug → errors 带稳定 code initiative_slug_locked" do
+      admin = Fixtures.platform_admin("gql-init-lock")
+      initiative = open_initiative(admin, "gql-init-lock-open")
+
+      query = """
+      mutation {
+        updateInitiative(id: "#{initiative.id}", input: {slug: "gql-init-lock-renamed"}) {
+          result { id slug }
+          errors { message code }
+        }
+      }
+      """
+
+      assert %{"data" => %{"updateInitiative" => payload}} = post_graphql(query, token(admin))
+      assert payload["result"] == nil
+      assert [%{"code" => "initiative_slug_locked", "message" => message}] = payload["errors"]
+      assert message =~ "slug is locked"
+
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).slug == "gql-init-lock-open"
+    end
+
+    test "open Initiative 只改 name 且 slug 原样回传 → 成功（web 表单 payload 形状回归）" do
+      admin = Fixtures.platform_admin("gql-init-keep")
+      initiative = open_initiative(admin, "gql-init-keep")
+
+      query = """
+      mutation {
+        updateInitiative(id: "#{initiative.id}", input: {name: "改过的名字", slug: "#{initiative.slug}"}) {
+          result { id name slug }
+          errors { message code }
+        }
+      }
+      """
+
+      assert %{"data" => %{"updateInitiative" => payload}} = post_graphql(query, token(admin))
+      assert payload["errors"] == []
+      assert payload["result"]["name"] == "改过的名字"
+      assert payload["result"]["slug"] == "gql-init-keep"
+    end
+
+    test "draft Initiative 改 slug → 成功" do
+      admin = Fixtures.platform_admin("gql-init-draft")
+
+      {:ok, draft} =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "GraphQL Draft",
+          slug: "gql-init-draft",
+          created_by: admin.id
+        })
+        |> Ash.create(actor: admin)
+
+      query = """
+      mutation {
+        updateInitiative(id: "#{draft.id}", input: {slug: "gql-init-draft-2"}) {
+          result { id slug status }
+          errors { message code }
+        }
+      }
+      """
+
+      assert %{"data" => %{"updateInitiative" => payload}} = post_graphql(query, token(admin))
+      assert payload["errors"] == []
+      assert payload["result"]["slug"] == "gql-init-draft-2"
+      assert payload["result"]["status"] == "draft"
+    end
   end
 end

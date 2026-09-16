@@ -10,6 +10,10 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     确认窗口内角色被撤 → confirm 被域 policy 拒 + pending 回滚可重试）
   - cancel_operation 无副作用；他人 pending 不可确认（新分派子句同受归属校验保护）
 
+  另含 admin_update_initiative 确认流两段测试（#588 slug 锁定）——initiative 工具族
+  不属「平台治理十一工具」，此处仅为复用 frame_for/decode_reply/pending_status
+  与两段确认流断言范式。
+
   async: false + setup 清 admin 标记：≥1 admin 不变量依赖全局计数
   （同 demote_platform_admin_test 的纪律）。
   """
@@ -26,6 +30,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   }
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
   alias Cgc2046.Reconciliation.Finding
 
@@ -41,6 +46,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     AdminPromoteUser,
     AdminReassignWorkspaceOwner,
     AdminRejectWorkspaceApplication,
+    AdminUpdateInitiative,
     CancelOperation,
     ConfirmOperation
   }
@@ -120,6 +126,38 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
   defp pending_status(pending_id) do
     Ash.get!(PendingOperation, pending_id, authorize?: false).status
+  end
+
+  # #588 用例专用：open 态 Initiative（`open` 要求四条共享规则齐备）。
+  defp open_initiative(admin, slug) do
+    initiative =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "MCP Initiative",
+        slug: slug,
+        created_by: admin.id
+      })
+      |> Ash.create!(actor: admin)
+
+    for {key, value, locked} <- [
+          {:deposit, %{enabled: true, amount_cents: 6900}, true},
+          {:age_gate, %{min_age: 18}, true},
+          {:min_participants, %{count: 8}, false},
+          {:deadline_rule, %{hours_before_start: 72}, false}
+        ] do
+      InitiativeRule
+      |> Ash.Changeset.for_create(:create, %{
+        initiative_id: initiative.id,
+        key: key,
+        value: value,
+        locked: locked
+      })
+      |> Ash.create!(actor: admin)
+    end
+
+    initiative
+    |> Ash.Changeset.for_update(:open, %{})
+    |> Ash.update!(actor: admin)
   end
 
   describe "门控：非平台管理员一律 forbidden" do
@@ -877,6 +915,55 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert msg =~ "pending operation not found"
       assert pending_status(pending_id) == :pending
       refute Ash.get!(User, target.id, authorize?: false).is_platform_admin
+    end
+  end
+
+  describe "admin_update_initiative slug 锁定（#588）" do
+    test "两段：open Initiative 改 slug → 第一段不落库，confirm 段被域守卫拒" do
+      admin = Fixtures.platform_admin("pa-init-lock")
+      initiative = open_initiative(admin, "mcp-init-lock")
+
+      # 第一段：只建 pending，不碰业务库
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => initiative.id, "slug" => "mcp-init-lock-renamed"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id, "status" => "needs_confirmation"} = decode_reply(reply)
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).slug == "mcp-init-lock"
+
+      # 第二段：confirm 才落域 action，被 slug 锁定守卫拒（域错误原文透传）
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      assert msg =~ "slug is locked"
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).slug == "mcp-init-lock"
+    end
+
+    test "open Initiative 改 name（不带 slug）→ confirm 成功" do
+      admin = Fixtures.platform_admin("pa-init-name")
+      initiative = open_initiative(admin, "mcp-init-name")
+
+      {:reply, _, _} =
+        reply =
+        AdminUpdateInitiative.execute(
+          %{"initiative_id" => initiative.id, "name" => "改过的名字"},
+          frame_for(admin)
+        )
+
+      %{"pending_id" => pending_id} = decode_reply(reply)
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(%{"pending_id" => pending_id}, frame_for(admin))
+
+      payload = decode_reply(confirmed)
+      assert payload["status"] == "confirmed"
+      assert payload["result"]["name"] == "改过的名字"
+      assert payload["result"]["slug"] == "mcp-init-name"
+      assert Ash.get!(Initiative, initiative.id, authorize?: false).name == "改过的名字"
     end
   end
 end
