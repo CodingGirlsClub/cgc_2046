@@ -268,6 +268,65 @@ describe("成班徽章（R11）", () => {
   });
 });
 
+describe("归档场报名门（issue #574：status + badge 双门）", () => {
+  // 复现路径：initiative 留档页 → 已取消场公开详情（ReadsArchivedInitiativeEvent
+  // 放行匿名读）。fixture 刻意保留「截止未过 + 未满员 + badge=enrolling」——
+  // 修复前正是这个组合让表单漏出。
+  const CANCELLED = {
+    ...PAID_OFFERING,
+    status: "cancelled" as const,
+    qualificationBadge: "cancelled" as const,
+    shortBy: null,
+  };
+
+  it("已取消登录态：不出报名表单与选档器，hero 不再显示「报名中」", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(CANCELLED);
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-cancelled")).toHaveTextContent(
+      "该活动已取消，仅供查看。",
+    );
+    expect(screen.queryByTestId("price-tier-picker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+    // 归档场由成班标签表达状态；报名标签（「报名中」）不再并列渲染
+    expect(screen.queryByText("报名中")).not.toBeInTheDocument();
+    expect(screen.getByText("已取消")).toBeInTheDocument();
+  });
+
+  it("已取消游客态：不出「登录后报名」入口", async () => {
+    authState.current = { authed: false, confirmed: false, userId: null };
+    mocks.fetchPublicOffering.mockResolvedValue(CANCELLED);
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(
+      await screen.findByTestId("enrollment-cancelled"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "登录后报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("已结束（status=closed，badge 仍 enrolling）：提示已结束且不出表单", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      status: "closed",
+      qualificationBadge: "closed",
+      shortBy: null,
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-ended")).toHaveTextContent(
+      "该活动已结束，仅供查看。",
+    );
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("报名中")).not.toBeInTheDocument();
+  });
+});
+
 describe("公开详情页报名状态分叉（支付接续）", () => {
   function renderOpen() {
     mocks.fetchPublicOffering.mockResolvedValue({

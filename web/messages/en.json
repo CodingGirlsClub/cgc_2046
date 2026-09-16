@@ -523,6 +523,8 @@
 		"pricingTitle": "Pricing tiers",
 		"fullHint": "This offering is full and no longer accepts new enrollments.",
 		"closedHint": "Enrollment is closed and no longer accepts new submissions.",
+		"cancelledHint": "This {label} has been cancelled and is shown for reference only.",
+		"endedHint": "This {label} has ended and is shown for reference only.",
 		"loginToEnroll": "Sign in to enroll",
 		"signInToEnrollHint": "Sign in or create an account to submit your enrollment.",
 		"enrolledConfirm": "✓ Enrolled",

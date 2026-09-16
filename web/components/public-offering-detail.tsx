@@ -150,13 +150,29 @@ export default function PublicOfferingDetailPage({
   const label = OFFERING_LABEL[kind];
   const listHref = kind === "event" ? "/events" : "/courses";
   const listLabel = navT(kind === "event" ? "events" : "courses");
-  // 满员或报名截止：详情不再呈现可报名动作（已有报名的状态卡除外）。
+  // 报名门双门（issue #574）：条目状态优先，报名 badge 兜底。非 open
+  // （cancelled/closed/draft）一律不再呈现可报名动作——公开留档读
+  // （ReadsArchivedInitiativeEvent）会把 initiative 挂载的 cancelled 场匿名送到
+  // 本页，而 badge 只覆盖 capacity/截止两个维度（EnrollmentBadge.badge/2 不看
+  // status），曾在此处漏出报名表单。已有报名的状态卡不受影响（渲染顺序在门之前）。
   const enrollmentUnavailable =
-    offering?.enrollmentBadge === "closed"
-      ? { hint: t("closedHint"), testId: "enrollment-closed" }
-      : offering?.enrollmentBadge === "full"
-        ? { hint: t("fullHint"), testId: "enrollment-full" }
-        : null;
+    offering === null
+      ? null
+      : offering.status === "cancelled"
+        ? {
+            hint: t("cancelledHint", { label: labelsT(label) }),
+            testId: "enrollment-cancelled",
+          }
+        : offering.status !== "open"
+          ? {
+              hint: t("endedHint", { label: labelsT(label) }),
+              testId: "enrollment-ended",
+            }
+          : offering.enrollmentBadge === "closed"
+            ? { hint: t("closedHint"), testId: "enrollment-closed" }
+            : offering.enrollmentBadge === "full"
+              ? { hint: t("fullHint"), testId: "enrollment-full" }
+              : null;
   const enrollmentUnavailableNotice = enrollmentUnavailable ? (
     <div
       className="public-detail__unavailable"
@@ -504,7 +520,11 @@ export default function PublicOfferingDetailPage({
           <article className="public-detail">
             <header className="public-detail__hero">
               <div className="public-detail__badges">
-                <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                {/* 报名标签只在 open 呈现：归档场（closed/cancelled）由成班标签
+                    表达「已结束/已取消」，避免「报名中 + 已取消」并列矛盾（#574） */}
+                {offering.status === "open" ? (
+                  <EnrollmentBadgeTag badge={offering.enrollmentBadge} />
+                ) : null}
                 {kind === "event" && (
                   <QualificationBadgeTag
                     badge={offering.qualificationBadge}
