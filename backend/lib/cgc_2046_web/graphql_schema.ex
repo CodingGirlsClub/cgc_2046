@@ -1840,6 +1840,12 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(initiative_status_mutation(:close))
     end
 
+    @desc "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+    field :cancel_initiative, :admin_initiative_payload do
+      arg(:id, non_null(:id))
+      resolve(initiative_status_mutation(:cancel))
+    end
+
     @desc "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
     field :upsert_initiative_rule, :admin_initiative_rule_payload do
       arg(:initiative_id, non_null(:id))

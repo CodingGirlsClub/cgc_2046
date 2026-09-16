@@ -56,6 +56,11 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :initiative_update,
           :initiative_open,
           :initiative_close,
+          # #628 中止（与 :initiative_close 分叉：中止级联取消挂载场并全额退款）
+          :initiative_cancel,
+          # #628 级联批量（系统驱动无 actor，actor_id = nil；每 initiative 一行，
+          # metadata 带取消场次数与跳过数。口径同 :event_cancel_batch_refund）
+          :initiative_cancel_batch,
           :event_moderator_assign,
           :event_moderator_remove,
           # 押金制 U5/KTD4：主理人核销到场（每报名一行，metadata 带 event_id/method）

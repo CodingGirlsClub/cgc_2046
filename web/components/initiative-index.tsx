@@ -40,8 +40,14 @@ export default function InitiativeIndex() {
 		};
 	}, [nonce]);
 
-	const statusText = (status: string) =>
-		status === "closed" ? t("closed") : t("open");
+	// #628：cancelled（中止）与 closed（收尾）文案分叉——两者都是留档，但语义不同
+	const statusText = (status: string) => {
+		switch (status) {
+			case "closed": return t("closed");
+			case "cancelled": return t("cancelled");
+			default: return t("open");
+		}
+	};
 
 	return (
 		<PublicCatalogShell>

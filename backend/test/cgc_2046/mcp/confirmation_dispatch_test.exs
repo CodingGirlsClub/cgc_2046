@@ -5,7 +5,7 @@ defmodule Cgc2046.Mcp.ConfirmationDispatchTest do
   - 分派源 = 组件注册表（`Server.__components__(:tool)` 的 name → handler），
     凡导出 `execute_confirmed/2` 的注册工具即可被 `Wrapper.executor_for/1` 分派——
     「工具已注册但 Confirmation 漏加 execute/3 子句」在结构上不可能存在
-  - 精确名单钉住 22 个确认流工具：新增确认流工具必须导出 execute_confirmed/2
+  - 精确名单钉住确认流工具：新增确认流工具必须导出 execute_confirmed/2
     并注册，否则本文件直接红（与 wrapper_gate_test 的名单惯例同款）
   - 非确认流工具与未知工具名 → `:error`（Confirmation 侧映 "no executor" 文案，
     端到端行为由 confirmation_race_test 钉死）
@@ -19,7 +19,7 @@ defmodule Cgc2046.Mcp.ConfirmationDispatchTest do
   # 确认流工具精确名单（two-tool 写族：成员管理 3 + 平台治理 6 + 工作台管理面 10
   # + 课程教研流程 3）
   @confirmation_tools ~w(create_invitation approve_join_request assign_roles) ++
-                        ~w(admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user admin_create_initiative admin_update_initiative admin_open_initiative admin_close_initiative admin_upsert_initiative_rule) ++
+                        ~w(admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user admin_create_initiative admin_update_initiative admin_open_initiative admin_close_initiative admin_cancel_initiative admin_upsert_initiative_rule) ++
                         ~w(update_course launch_course close_course cancel_course update_event launch_event close_event cancel_event confirm_enrollment reject_enrollment waive_payment refund_order retry_refund update_join_policy) ++
                         ~w(update_prep_policy override_prep_gate approve_prep)
 
