@@ -7,19 +7,22 @@ defmodule Cgc2046.Mcp.Errors do
   错误树——该纪律由 `test/cgc_2046/mcp/error_egress_guard_test.exs` 结构守卫
   钉死（新增工具漏走本模块会红灯，而不是静默带洞）。
 
-  判定顺序（对既有行为逐字保持）：
+  判定顺序（第 1/3 条与 #612 逐字一致；第 2 条经 #631 折叠化，见下）：
 
   1. `Cgc2046.Errors.DatabaseError.unmapped?/1` → `database_error: … (error id: <uuid>)`
      （原文只进服务端日志，见 `DatabaseError.report/1`）；
-  2. 已知 `%Ash.Error.Invalid{}` → `Exception.message/1`，与改动前逐字一致；
+  2. 已知 `%Ash.Error.Invalid{}` → **逐叶折叠**（Ash 原序、`", "` 分隔）：类头
+     （`Invalid Error`）、共享/逐叶 `Bread Crumbs:`、逐叶 `path/1` 与 stacktrace
+     **不再出面**（#631）。折叠前的行为是 `Exception.message/1` 直出整条类消息，
+     `save_course_content`（8 行）与 `confirm_operation`（1 行）的负面可读性即此
+     （PR #637 的 dev 普查同形：Ash 类 message 形状 13 行）；
   3. 其余 → 调用点自带的 fallback 文案，与改动前 `{:error, _} ->` 分支逐字一致。
 
   逐字一致性的**唯一例外**（有意，评审 F1）：`submit_learning_attempt` 改动前的
   fallback 不是字面量，而是把 `inspect/1` 的结果拼在 `"failed to record learning
   attempt: "` 之后——`inspect/1` 一颗未知错误树正会打出原始库内文本，所以该处统一
   为字面量 `"failed to record learning attempt"`；其已知 `%Ash.Error.Invalid{}`
-  路径不受影响（仍是 `Exception.message/1`）。其余 37 个调用点的 fallback
-  字面量逐字未动。
+  路径不受影响（仍是逐叶折叠）。其余 37 个调用点的 fallback 字面量逐字未动。
 
   混合树（`%Ash.Error.Invalid{}` 内同时含已映射叶子与未知叶子）在 MCP 面**整条**
   降级为 `database_error: …`（已映射叶子的文案不再单列）；GraphQL 面按叶子逐个
@@ -48,12 +51,51 @@ defmodule Cgc2046.Mcp.Errors do
   @spec message(term, String.t()) :: String.t()
   def message(error, _fallback) when is_binary(error), do: error
 
+  # 已知 `%Ash.Error.Invalid{}`（Splode 错误类）→ **逐叶折叠**（#631）：类消息
+  # （`Exception.message/1`）会渲染 "Bread Crumbs:" + "Invalid Error" + 逐叶 path 与
+  # stacktrace——那是给开发者的，调用方只需要叶子文案。
+  #
+  # 两道剥壳，缺一不可（实测）：
+  #  1. 类头：不再走 `Exception.message/1` 的错误类渲染（`Splode.ErrorClass`）；
+  #  2. **叶子的 bread_crumbs**：Splode 在 `__before_compile__` 里把面包屑前置进
+  #     每个叶子自己的 message（`bread_crumb(bread_crumbs) <> "\n" <> message`），
+  #     所以逐叶渲染前必须清空该字段——否则 "Bread Crumbs: > Error returned from:
+  #     <模块>.<action>" 照样出面（生产 `save_course_content` 的行正是这种带
+  #     breadcrumbs 的叶子）。
+  #
+  # 逐叶拼接沿用既有列表分支的格式（Ash 原序、", " 分隔）。含未映射叶子时整条降级为
+  # `database_error: … (error id: …)`（委托 `safe_message/2` 的列表分支；`unmapped?/1`
+  # 对类做 `Enum.any?`），与「混合树整条降级」的既有口径一致。
+  def message(%Ash.Error.Invalid{errors: errors}, fallback) when is_list(errors) do
+    if DatabaseError.unmapped?(errors) do
+      DatabaseError.safe_message(errors, fallback)
+    else
+      case errors |> Enum.map(&leaf_message/1) |> Enum.reject(&(&1 == "")) |> Enum.join(", ") do
+        "" -> fallback
+        text -> text
+      end
+    end
+  end
+
   def message(error, fallback) do
-    if DatabaseError.unmapped?(error) or match?(%Ash.Error.Invalid{}, error) do
+    if DatabaseError.unmapped?(error) do
       DatabaseError.safe_message(error)
     else
       fallback
     end
+  end
+
+  defp leaf_message(leaf) when is_binary(leaf), do: leaf
+
+  defp leaf_message(leaf) do
+    leaf =
+      if is_struct(leaf) and Map.has_key?(leaf, :bread_crumbs) do
+        %{leaf | bread_crumbs: []}
+      else
+        leaf
+      end
+
+    Exception.message(leaf)
   end
 
   @doc """

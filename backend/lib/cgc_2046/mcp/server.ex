@@ -50,7 +50,11 @@ defmodule Cgc2046.Mcp.Server do
     **供给读面附缴费槽 `payment_mode`(free|pricing|deposit)与押金明细 `deposit`
     (#586;单源 Offering.payment_mode/1)**——discover_offerings /
     get_enrollment_summary / get_public_offering / list_workspace_events 四处;
-    订单面(get_order_status)与报名列表(get_my_enrollments)不带该键。
+    **报名列表 get_my_enrollments 附现行 `payment_mode`(不带 deposit 明细)与
+    订单事实 `order_kind`(enrollment|deposit;无订单 nil,#622)**;
+    **订单面 get_order_status / list_workspace_orders 与 refund_order /
+    retry_refund 回执附 `order_kind`**——订单种类是资金语义,押金单的 tier
+    展示名「押金」不作判据(#622)。
     discover_offerings(公开∪成员可访问并集,{kind,id} 去重,封顶 100+total_count
     截断前小计;invite_only 台非成员 workspace 块落 nil) /
     get_enrollment_summary(报名前摘要;would_create_status 委托域谓词
