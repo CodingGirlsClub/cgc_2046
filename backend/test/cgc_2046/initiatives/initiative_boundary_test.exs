@@ -269,18 +269,55 @@ defmodule Cgc2046.InitiativeBoundaryTest do
     assert Ash.get!(Initiative, open.id, authorize?: false).slug == "slug-taken-priority-open"
   end
 
-  # 索引名对齐钉（#604 验收「索引名与 identity 名对齐，有测试钉死」）：DSL 推导名
-  # 必须真的存在于 DB——名字漂移即 unique 冲突重新落 Unknown（CI 的
-  # `generate_migrations --check` 是纯文件比对，抓不到 DB↔snapshot 漂移）。
-  test "initiatives 唯一索引名与 identity 推导名对齐" do
-    {:ok, %{rows: rows}} =
-      Cgc2046.Repo.query(
-        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'initiatives'"
-      )
+  # 索引名对齐钉已由全仓守卫取代（#611）：identity 推导名的存在性/唯一性对
+  # 42 条 identity 全量断言，见 test/cgc_2046/identity_index_guard_test.exs
+  # （DSL → pg_indexes；`generate_migrations --check` 是纯文件比对，抓不到 DB 漂移）。
 
-    names = List.flatten(rows)
-    assert "initiatives_unique_slug_index" in names
-    refute "initiatives_slug_index" in names
+  # ── #611：同 initiative 同 key 撞唯一索引 → 稳定 code ──
+  #
+  # 可达面 = 直接 create 重复 (initiative_id, key)（AshAdmin；GraphQL
+  # `upsertInitiativeRule` / MCP `admin_upsert_initiative_rule` 是读-后-写，只在并发
+  # 窗口撞）。修复 = 索引改名对齐（20260916210000）+
+  # `InitiativeRule.handle_write_error/2` 映射业务码。
+  test "同 initiative 同 key 重复 create：initiative_rule_already_exists + 无库内文本", %{
+    admin: admin
+  } do
+    i = initiative(admin)
+
+    existing =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :age_gate)
+      |> Ash.read_one!(actor: admin)
+
+    assert {:error, %Ash.Error.Invalid{errors: errors} = error} =
+             InitiativeRule
+             |> Ash.Changeset.for_create(:create, %{
+               initiative_id: i.id,
+               key: :age_gate,
+               value: existing.value,
+               locked: existing.locked
+             })
+             |> Ash.create(actor: admin)
+
+    assert [%Cgc2046.Errors.BusinessError{code: "initiative_rule_already_exists", fields: [:key]}] =
+             errors
+
+    message = Exception.message(error)
+    assert message =~ "a rule for this initiative and key already exists"
+    refute message =~ "initiative_rules_initiative_id_key_index"
+    refute message =~ "initiative_rules_unique_initiative_key_index"
+    refute message =~ "duplicate key"
+    refute message =~ "constraint error"
+    # 注：不 refute "already exists"——本 code 的干净文案自身就含该短语
+    # （Postgres 的 `Key (…)=(…) already exists.` detail 已被整个替换掉，
+    # 泄露面由上面四条索引名/约束文本断言覆盖）
+
+    rows =
+      InitiativeRule
+      |> Ash.Query.filter(initiative_id == ^i.id and key == :age_gate)
+      |> Ash.read!(actor: admin)
+
+    assert length(rows) == 1
   end
 
   test "enabled deposit rule requires amount", %{admin: admin} do

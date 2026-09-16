@@ -54,6 +54,9 @@ defmodule Cgc2046.Events.EventModerator do
     create :assign do
       accept([:workspace_id, :event_id, :user_id, :assigned_by, :assigned_at])
 
+      # 重复指派撞 identity 唯一索引 → 稳定业务错误（#611）
+      error_handler({__MODULE__, :handle_write_error, []})
+
       # 成员前提（#558）：资源写边界单点拦截，覆盖一切调用面
       validate({Cgc2046.Events.ModeratorMembershipValidation, []})
 
@@ -102,6 +105,31 @@ defmodule Cgc2046.Events.EventModerator do
     policy action_type([:create, :destroy]) do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+    end
+  end
+
+  # create error_handler（#611）：重复指派撞
+  # `event_moderators_unique_event_user_index` → `event_moderator_already_assigned`。
+  # `Moderators.assign/4`（GraphQL `assign_event_moderator` 与 MCP 工具共用）无 identity
+  # 预查，故这是可达路径；成员前提（ModeratorMembershipValidation）是另一条独立校验，
+  # 两者 code 不同源不互相顶替。
+  #
+  # 按约束名分派（本表日后加 identity 时不误归因）；非 unique 冲突原样上抛（fail-closed）。
+  # 幂等语义 `Moderators.ensure_assigned/2` 按本 code 判定，不再匹配错误原文。
+  @doc false
+  def handle_write_error(_changeset, error) do
+    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) and
+         Cgc2046.Errors.ConstraintConflict.constraint_named?(
+           error,
+           "event_moderators_unique_event_user_index"
+         ) do
+      Cgc2046.Errors.BusinessError.exception(
+        message: "this user is already a moderator of the event",
+        code: "event_moderator_already_assigned",
+        fields: [:user_id]
+      )
+    else
+      error
     end
   end
 
