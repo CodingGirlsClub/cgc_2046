@@ -19,6 +19,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   alias Cgc2046.Sponsorship.Sponsorship
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Reconciliation.Finding
+  alias Cgc2046.Notifications.NotificationDelivery
   alias Cgc2046.Repo
   alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Reconciliation.ReconciliationScanWorker
@@ -1236,6 +1237,58 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:fund_action_burst)
     end
+  end
+
+  # ── 规15 通知 outbox 终态失败面（#556）--------------------------------------
+
+  describe "规15 通知投递终态失败（:notification_delivery_failed）" do
+    test "24h 内 failed 行 → 逐行 Finding；sent/pending 不命中；老化出窗 → 自消" do
+      user = Fixtures.register_user("rc15-user")
+      failed_row = insert_delivery(user.id, :failed)
+      _sent_row = insert_delivery(user.id, :sent)
+      _pending_row = insert_delivery(user.id, :pending)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:notification_delivery_failed)
+      assert finding.entity_type == :notification_delivery
+      assert finding.entity_id == failed_row.id
+      assert finding.workspace_id == nil
+      assert finding.detail["template_key"] == "approval_result"
+      assert finding.detail["last_error"] =~ "consent_exhausted"
+
+      # 消解：失败行老化出窗（updated_at 超 24h）→ 下一拍未命中删除
+      backdate_delivery(failed_row.id, 90_000)
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:notification_delivery_failed)
+    end
+  end
+
+  defp insert_delivery(user_id, status) do
+    {:ok, row} =
+      NotificationDelivery
+      |> Ash.Changeset.for_create(:create, %{
+        idempotency_key: "rc15-#{System.unique_integer([:positive])}",
+        user_id: user_id,
+        platform: "wechat",
+        identity_uid: "rc15-openid",
+        template_key: "approval_result",
+        data: %{},
+        job_meta: %{},
+        status: status,
+        last_error: (status == :failed && ":consent_exhausted") || nil
+      })
+      |> Ash.create(authorize?: false)
+
+    row
+  end
+
+  # 规15 的窗口读的是 updated_at（终态时刻），不是 inserted_at
+  defp backdate_delivery(id, seconds) do
+    Repo.query!(
+      "UPDATE notification_deliveries SET updated_at = NOW() - ($2 || ' seconds')::interval WHERE id = $1",
+      [Cgc2046.Repo.uuid!(id), Integer.to_string(seconds)]
+    )
   end
 
   defp log_fund_actions(actor_id, action, n, target_type \\ :order) do
