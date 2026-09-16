@@ -111,7 +111,9 @@ custom classes must fully style the input
 - Fields which are set programmatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
 - **Snapshot 同步**：本 repo 走手写 migration 路线，`priv/resource_snapshots/repo/` 是 Ash 工具链的追踪镜像而非 source of truth。改 resource attribute 后须跑 `mix ash_postgres.generate_migrations --snapshots-only` 同步 snapshot，否则 `--check` 会报 pending codegen。CI 门禁已落地：`../.github/workflows/ci.yml` backend job 跑 `mix ash_postgres.generate_migrations --check`，snapshot 滞后会在 PR 阶段被拦红
+- **identity 索引名守卫**（#611）：`mix ash_postgres.generate_migrations --check` 比对的是 snapshot，**不比对 DB**——手写 migration 的索引命名漂移它看不见；全仓守卫 `test/cgc_2046/identity_index_guard_test.exs` 从 resource identity 推导 `identity_index_names[name] || "<table>_<identity>_index"` 查 `pg_indexes`（含 `indisunique`），命名漂移与「新增 identity 忘建索引」都在此红；改名类迁移须声明 `@renames` 并导出 `renames/0`，才能被 `@tag :migration_probe` 探针自动发现并重放
 - **活表迁移并发纪律**（016 审计立项）：对**已存在且在生产增长的表**加索引，一律 `@disable_ddl_transaction true` + `create index(..., concurrently: true)`（失败残留 INVALID 索引需手工清理）；加约束走 NOT VALID + VALIDATE 两段式（样板 `priv/repo/migrations/20260902000000_add_occupancy_nonnegative_check.exs`）；大表回填与 DDL 拆开、分批。新表/空表不受限。反例：`20260906000003_add_workflow_run_subject_scope.exs`（三索引 + 逐行回填同事务）
+- **CHECK 上线三段式**（#634）：加 CHECK 前先**只读普查存量**（违规行必须先回填——NOT VALID 约束对存量行不扫描，但该行此后每次 UPDATE 都会被拦）；脏数据环境下用 `NOT VALID` 上线（上线即对新写入生效）；`VALIDATE CONSTRAINT` **永远单开一条迁移**（大表全表校验独占窗口，不与 DDL/回填混在一起）
 <!-- phoenix:ecto-end -->
 
 <!-- usage-rules-end -->
