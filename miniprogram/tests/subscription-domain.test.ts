@@ -1,0 +1,267 @@
+// 订阅触点纯逻辑测试（#635）。
+//
+// 页面只留渲染与调起，判据/文案/时机全在 domain/subscription.ts（AGENTS.md：
+// 小程序无页面渲染测试，逻辑必须下沉 domain 用 node --test 钉住）。
+// 运行为 `node --experimental-strip-types --test`。
+
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+
+import {
+  ALL_SCENARIOS,
+  MAX_TMPL_IDS_PER_REQUEST,
+  acceptedScenarios,
+  configuredScenarios,
+  courseCardTouchpoint,
+  enrollmentCardTouchpoint,
+  enrollmentResultTouchpoint,
+  eventCardTouchpoint,
+  moderatorTouchpoint,
+  subscriptionTransport,
+  workspaceTouchpoint
+} from '../src/domain/subscription.ts'
+
+/** 全量触点的「正常态」取样（M1–M5）；payment_pending 与终态另有专门断言。 */
+const allTouchpoints = () => [
+  enrollmentResultTouchpoint('pending'),
+  enrollmentResultTouchpoint('confirmed'),
+  enrollmentCardTouchpoint('event'),
+  enrollmentCardTouchpoint('course'),
+  workspaceTouchpoint(),
+  moderatorTouchpoint()
+]
+
+describe('场景键集', () => {
+  test('恰好 10 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 10)
+    assert.equal(new Set(ALL_SCENARIOS).size, 10)
+  })
+
+  test('7 个新场景全部在表内（#635 的核心：此前从未被请求授权）', () => {
+    for (const scenario of [
+      'event_qualification_confirmed',
+      'event_qualification_underfilled',
+      'event_schedule_changed',
+      'event_moderator_assigned',
+      'speaker_accepted',
+      'speaker_completed',
+      'learning_stagnation'
+    ]) {
+      assert.ok(ALL_SCENARIOS.includes(scenario), `缺少场景 ${scenario}`)
+    }
+  })
+
+  test('7 个新场景都有可达的授权入口（分享者腿见 moduledoc 的显式缺口）', () => {
+    const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
+
+    for (const scenario of [
+      'event_qualification_confirmed',
+      'event_qualification_underfilled',
+      'event_schedule_changed',
+      'event_moderator_assigned',
+      'speaker_accepted',
+      'speaker_completed',
+      'learning_stagnation'
+    ]) {
+      assert.ok(covered.has(scenario), `${scenario} 没有任何触点覆盖`)
+    }
+  })
+})
+
+describe('触点不变式', () => {
+  test('每个时刻的场景数在 1..3（微信 tmplIds 单次上限）', () => {
+    assert.equal(MAX_TMPL_IDS_PER_REQUEST, 3)
+
+    for (const touchpoint of allTouchpoints()) {
+      assert.ok(touchpoint, '正常态触点不应为 null')
+      assert.ok(
+        touchpoint.scenarios.length >= 1 &&
+          touchpoint.scenarios.length <= MAX_TMPL_IDS_PER_REQUEST,
+        `${touchpoint.page} 场景数 ${touchpoint.scenarios.length} 越界`
+      )
+      assert.equal(
+        new Set(touchpoint.scenarios).size,
+        touchpoint.scenarios.length,
+        `${touchpoint.page} 场景重复`
+      )
+    }
+  })
+
+  test('触点引用的场景都在 ALL_SCENARIOS 内，且文案齐备', () => {
+    for (const touchpoint of allTouchpoints()) {
+      for (const scenario of touchpoint!.scenarios) {
+        assert.ok(ALL_SCENARIOS.includes(scenario), `${touchpoint!.page} 引用未知场景 ${scenario}`)
+      }
+      for (const field of ['page', 'trigger', 'label', 'acceptedCopy', 'deniedCopy'] as const) {
+        assert.ok(touchpoint![field], `${touchpoint!.page} 缺 ${field}`)
+      }
+    }
+  })
+
+  test('拒绝文案不阻断再次订阅（按钮保留，无「不可再订阅」措辞）', () => {
+    for (const touchpoint of allTouchpoints()) {
+      assert.ok(
+        !/不可|无法|已拒绝|禁止/.test(touchpoint!.deniedCopy),
+        `${touchpoint!.page} 的拒绝文案暗示不可再订阅：${touchpoint!.deniedCopy}`
+      )
+      assert.match(touchpoint!.deniedCopy, /再/, `${touchpoint!.page} 的拒绝文案应提示可再试`)
+    }
+  })
+})
+
+describe('M1 报名结果页（按报名状态分派）', () => {
+  test('pending → 审批结果 + 开班/未达阈值，恰 3 个', () => {
+    const touchpoint = enrollmentResultTouchpoint('pending')!
+    assert.deepEqual(touchpoint.scenarios, [
+      'approval_result',
+      'event_qualification_confirmed',
+      'event_qualification_underfilled'
+    ])
+  })
+
+  test('已通过（confirmed）→ 活动提醒 + 开班/未达阈值', () => {
+    const touchpoint = enrollmentResultTouchpoint('confirmed')!
+    assert.deepEqual(touchpoint.scenarios, [
+      'event_reminder',
+      'event_qualification_confirmed',
+      'event_qualification_underfilled'
+    ])
+    assert.match(touchpoint.label, /开班/)
+  })
+
+  test('待付款（payment_pending）→ 无触点（保持既有 !paymentPending 口径，支付页再问）', () => {
+    assert.equal(
+      enrollmentResultTouchpoint('payment_pending'),
+      null,
+      'payment_pending 应在支付成功页（order-pay）问 event_reminder，而非此处'
+    )
+  })
+
+  test('已终结（rejected/expired/cancelled）→ 无触点，不再打扰', () => {
+    for (const status of ['rejected', 'expired', 'cancelled'] as const) {
+      assert.equal(
+        enrollmentResultTouchpoint(status),
+        null,
+        `${status} 不应请求授权（既有实现会错配 event_reminder）`
+      )
+    }
+  })
+})
+
+describe('M2/M3 我的报名（按条目类型分派）', () => {
+  test('活动卡 → 开始提醒 + 改期提醒', () => {
+    assert.deepEqual(eventCardTouchpoint().scenarios, ['event_reminder', 'event_schedule_changed'])
+    assert.deepEqual(enrollmentCardTouchpoint('event').scenarios, [
+      'event_reminder',
+      'event_schedule_changed'
+    ])
+  })
+
+  test('课程卡 → 学习停滞（不再错配 event_reminder）', () => {
+    assert.deepEqual(enrollmentCardTouchpoint('course').scenarios, ['learning_stagnation'])
+    assert.ok(
+      !enrollmentCardTouchpoint('course').scenarios.includes('event_reminder'),
+      '课程报名收不到 event_reminder，不应请求其授权'
+    )
+  })
+})
+
+describe('M4/M5 管理面', () => {
+  test('工作台 → 审批提醒 + speaker 接受 + speaker 完成（管理者三模板，恰 3）', () => {
+    assert.deepEqual(workspaceTouchpoint().scenarios, [
+      'approval_reminder',
+      'speaker_accepted',
+      'speaker_completed'
+    ])
+  })
+
+  test('活动详情（主理人）→ 主理人指派', () => {
+    assert.deepEqual(moderatorTouchpoint().scenarios, ['event_moderator_assigned'])
+  })
+})
+
+describe('调起路径优先级（mock/xhs 必须先于缺配检查）', () => {
+  test('E2E mock 走 passthrough —— 即使一个模板 ID 都没配也不该抛缺配', () => {
+    // 这是真实回归点：mock 构建与 CI 都没有模板 ID，若把「缺配检查」排在
+    // mock 短路之前，e2e 点订阅会抛「缺少模板 ID」而不是成功。
+    assert.equal(subscriptionTransport(true, 'wechat'), 'passthrough')
+    assert.equal(subscriptionTransport(true, 'tt'), 'passthrough')
+  })
+
+  test('小红书走 passthrough（服务通知由平台后台下发，无 tmplIds）', () => {
+    assert.equal(subscriptionTransport(false, 'xhs'), 'passthrough')
+    assert.equal(subscriptionTransport(true, 'xhs'), 'passthrough')
+  })
+
+  test('微信/抖音真机走 tmplIds（此时缺配才抛可读错误）', () => {
+    assert.equal(subscriptionTransport(false, 'wechat'), 'tmplIds')
+    assert.equal(subscriptionTransport(false, 'tt'), 'tmplIds')
+  })
+})
+
+describe('请求期 fail-closed：configuredScenarios', () => {
+  test('剔除未配置（空串）场景', () => {
+    const table = { approval_result: 'id-a', event_reminder: '' }
+    assert.deepEqual(configuredScenarios(['approval_result', 'event_reminder'], table), [
+      'approval_result'
+    ])
+  })
+
+  test('表中完全缺失的场景也剔除（不是 undefined 崩溃）', () => {
+    assert.deepEqual(configuredScenarios(['speaker_accepted'], {}), [])
+  })
+
+  test('全未配置 → 空（调用方据此抛可读错误，而非递空 tmplIds 给微信）', () => {
+    assert.deepEqual(configuredScenarios(ALL_SCENARIOS, {}), [])
+  })
+
+  test('部分配置 → 只保留已配置的，顺序不变', () => {
+    const table = { event_reminder: 'id-e', event_schedule_changed: 'id-s' }
+    assert.deepEqual(
+      configuredScenarios(['event_reminder', 'event_schedule_changed', 'learning_stagnation'], table),
+      ['event_reminder', 'event_schedule_changed']
+    )
+  })
+})
+
+describe('请求期 fail-closed：acceptedScenarios 下标对齐（防静默发错模板）', () => {
+  test('仅 accept 计入；reject/ban 不计', () => {
+    const requested = ['a_result', 'event_reminder'] as const
+    const tmplIds = ['id-a', 'id-e']
+    assert.deepEqual(
+      acceptedScenarios([...requested], tmplIds, { 'id-a': 'accept', 'id-e': 'reject' }),
+      ['a_result']
+    )
+    assert.deepEqual(
+      acceptedScenarios([...requested], tmplIds, { 'id-a': 'ban', 'id-e': 'accept' }),
+      ['event_reminder']
+    )
+    assert.deepEqual(acceptedScenarios([...requested], tmplIds, {}), [])
+  })
+
+  test('部分配置剔除后仍按同序平行数组对齐（不错配到别的模板）', () => {
+    // 场景顺序：A, B, C；B 未配置被剔除 → requested/tmplIds 都只含 A、C
+    const table = { a_result: 'id-a', schedule_changed: 'id-c' }
+    const requested = configuredScenarios(
+      ['a_result', 'event_reminder', 'schedule_changed'],
+      table
+    )
+    const tmplIds = requested.map((scenario) => table[scenario])
+
+    assert.deepEqual(requested, ['a_result', 'schedule_changed'])
+    assert.deepEqual(tmplIds, ['id-a', 'id-c'])
+
+    // 只有 C 被接受 → 必须恰好返回 C（若下标错位会错记到 A）
+    assert.deepEqual(acceptedScenarios(requested, tmplIds, { 'id-a': 'reject', 'id-c': 'accept' }), [
+      'schedule_changed'
+    ])
+  })
+})
+
+describe('课程卡触点文案指向学习提醒', () => {
+  test('文案与场景一致（不是活动提醒）', () => {
+    const touchpoint = courseCardTouchpoint()
+    assert.match(touchpoint.label, /学习/)
+    assert.match(touchpoint.acceptedCopy, /学习/)
+  })
+})

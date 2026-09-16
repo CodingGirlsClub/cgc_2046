@@ -6,7 +6,8 @@ import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { canManageMembers, isUrgent, remainingLabel } from '@/domain/format'
 import type { SessionSnapshot } from '@/domain/models'
-import { requestPlatformSubscription } from '@/platform'
+import { workspaceTouchpoint } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
 const roleText: Record<string, string> = {
@@ -42,12 +43,19 @@ export default function WorkspacePage() {
   // 登录后 navigateBack 回本页，useDidShow 重载 session
   const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
 
+  // M4：工作台是三个**管理者收件人**模板的落页（后端 client.ex @manager_templates
+  // + speaker_completed 的管理者腿）——审批提醒 + speaker 接受 + speaker 完成，
+  // 恰好用满微信单次 tmplIds 上限 3。判据/文案见 domain/subscription.ts。
   const subscribeReminder = async () => {
+    const touchpoint = workspaceTouchpoint()
     try {
-      if (await requestPlatformSubscription('approval_reminder')) {
-        await api.grantConsent('approval_reminder')
-        Taro.showToast({ title: '已订阅审批提醒', icon: 'success' })
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
+        return
       }
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
     }
@@ -120,8 +128,12 @@ export default function WorkspacePage() {
                       {approvals.length} 条待审批 · {urgentCount} 条 24 小时内过期
                     </Text>
                   </View>
-                  {approvals.length > 0 && (
-                    <Button className={styles.subscribe} size='mini' onClick={subscribeReminder}>订阅提醒</Button>
+                  {/* 入口只需 manageable：空队列时管理者同样该能订阅（既有实现额外
+                      要求 approvals.length > 0，导致「无待审批」即无法订阅） */}
+                  {manageable && (
+                    <Button className={styles.subscribe} size='mini' onClick={subscribeReminder}>
+                      {workspaceTouchpoint().label}
+                    </Button>
                   )}
                 </View>
 
