@@ -215,6 +215,65 @@ defmodule Cgc2046Web.GraphqlEventManagementTest do
     assert errors != []
   end
 
+  # #616：关押金（金额残留）后经 GraphQL 重开、缺 depositAmountCents → 资源级
+  # 稳定 code 拒绝。MCP 第一段快速失败只覆盖工具入口；本测试钉住 action 级
+  # 校验对 GraphQL 缺键同样生效。
+  test "updateEvent 关押金后重开缺金额 → 稳定 code 拒绝" do
+    admin = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(admin)
+    token = sign_in_token(admin)
+    anchor = EventFixtures.days_from_now(8) |> DateTime.to_iso8601()
+
+    create_response =
+      graphql(
+        create_event_mutation(workspace.id, %{title: "押金重开", enrollment_policy: :open}),
+        token
+      )
+
+    assert %{"data" => %{"createEvent" => %{"result" => created, "errors" => []}}} =
+             create_response
+
+    update = fn input ->
+      graphql(
+        """
+        mutation {
+          updateEvent(id: "#{created["id"]}", input: {#{input}}) {
+            result { id depositEnabled depositAmountCents }
+            errors { message code }
+          }
+        }
+        """,
+        token
+      )
+    end
+
+    assert %{"data" => %{"updateEvent" => %{"result" => enabled, "errors" => []}}} =
+             update.(
+               "depositEnabled: true, depositAmountCents: 6900, " <>
+                 ~s(endsAt: "#{anchor}", registrationDeadline: "#{anchor}")
+             )
+
+    assert enabled["depositEnabled"] == true
+
+    # 手动关押金不带金额键 → 金额列残留（#616 场景土壤）
+    assert %{"data" => %{"updateEvent" => %{"result" => disabled, "errors" => []}}} =
+             update.("depositEnabled: false")
+
+    assert disabled["depositEnabled"] == false
+
+    # 重开缺金额 → 拒绝，旧金额不得静默复活
+    assert %{"data" => %{"updateEvent" => %{"result" => nil, "errors" => [error]}}} =
+             update.("depositEnabled: true")
+
+    assert error["code"] == "event_deposit_amount_must_be_explicit"
+
+    # 显式带金额重开 → 通过
+    assert %{"data" => %{"updateEvent" => %{"result" => reopened, "errors" => []}}} =
+             update.("depositEnabled: true, depositAmountCents: 4200")
+
+    assert reopened["depositAmountCents"] == 4200
+  end
+
   defp sign_in_token(user) do
     mutation = """
     mutation {
