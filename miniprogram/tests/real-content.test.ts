@@ -387,7 +387,8 @@ describe('getEnrollments 核销码与押金终态（U11/R11/R16）', () => {
               provider: 'wechat_jsapi',
               status: 'forfeited',
               amountCents: 6900,
-              expireAt: '2026-09-20T00:00:00Z'
+              expireAt: '2026-09-20T00:00:00Z',
+              orderKind: 'deposit'
             }
           ]
         }
@@ -400,7 +401,8 @@ describe('getEnrollments 核销码与押金终态（U11/R11/R16）', () => {
         status: 'forfeited',
         amountCents: 6900,
         expireAt: '2026-09-20T00:00:00Z',
-        transactionId: null
+        transactionId: null,
+        orderKind: 'deposit'
       }
     ])
   })

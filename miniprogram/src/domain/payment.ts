@@ -1,4 +1,4 @@
-import type { EnrollmentStatus, EnrollmentSummary, OrderSummary } from './models'
+import type { EnrollmentStatus, EnrollmentSummary, OrderKind, OrderSummary } from './models'
 
 /**
  * 缴费闭环小程序端纯逻辑（plan 024 U12/KTD10）。
@@ -247,6 +247,65 @@ export function depositRefundRuleText(paymentMode: EnrollmentSummary['paymentMod
   return paymentMode === 'deposit' ? '押金：截止前取消全额退；截止后不退。' : null
 }
 
+/* ---------------- 押金场支付前同意（资金动作门） ---------------- */
+
+/**
+ * 押金金额行（单源）：详情页缴费块与支付页同意块共用同一出口，杜绝两处口径漂移。
+ * 金额缺失/非正 → 降级「押金（到场退）」不出价，绝不显示 ¥0.00。
+ */
+function depositAmountLine(amountCents: number | null): string {
+  return typeof amountCents === 'number' && Number.isFinite(amountCents) && amountCents > 0
+    ? `押金 ¥${formatAmount(amountCents)}（到场退）`
+    : '押金（到场退）'
+}
+
+/** 押金场支付前同意块文案（与 web checkout.depositForfeit / depositAckLabel 同口径） */
+export interface DepositPayNotice {
+  /** 金额行：「押金 ¥69.00（到场退）」 */
+  amountText: string
+  /** 不退明示；常显，不随勾选隐藏 */
+  forfeitText: string
+  /** 勾选文案（付款前的显式确认） */
+  ackLabel: string
+}
+
+export function depositPayNotice(amountCents: number | null): DepositPayNotice {
+  return {
+    amountText: depositAmountLine(amountCents),
+    forfeitText: '未到场不退。',
+    ackLabel: '押金以到场为退还条件：到场核销后原路退回，未到场不予退还。'
+  }
+}
+
+/**
+ * 订单口径解析（后端 `Order.order_kind`，Schema 为 `String!`）。未知值上抛而非
+ * 静默降级：资金动作门以它为判据，猜错方向就是「押金单零披露付款」。
+ */
+export function parseOrderKind(value: string): OrderKind {
+  if (value === 'enrollment' || value === 'deposit') return value
+  throw new Error(`服务端返回未知订单口径：${value}`)
+}
+
+/**
+ * 「立即支付」门判据（纯函数；页面只做渲染与调起）：
+ * - 押金单（`orderKind === 'deposit'`）：未勾选同意一律不放行（资金动作前的显式
+ *   同意，对齐 web 收银框 U1）。
+ * - 一般报名单（'enrollment'）：凭据就绪即可支付，零改动。
+ * - 订单未就绪（null）：不放行——没有订单就没有可支付的东西。
+ *
+ * 判据取**订单口径快照**而非活动的实时缴费配置：活动随时可改配置，这一笔不会，
+ * 用户同意的是这一笔。
+ */
+export function canRequestPayment(input: {
+  order: Pick<OrderSummary, 'orderKind'> | null
+  ack: boolean
+  hasCredential: boolean
+  paying: boolean
+}): boolean {
+  if (input.paying || !input.hasCredential || input.order === null) return false
+  return input.order.orderKind !== 'deposit' || input.ack
+}
+
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */
 
 /** 详情页缴费块三态文案（R10 单一缴费槽：免费 / 收费 ¥xx / 押金 ¥xx（到场退）） */
@@ -273,12 +332,7 @@ export function paymentBlockCopy(input: {
   priceTiers: PriceTier[]
 }): PaymentBlockCopy {
   if (input.depositEnabled) {
-    const cents = input.depositAmountCents
-    const amountText =
-      typeof cents === 'number' && Number.isFinite(cents) && cents > 0
-        ? `押金 ¥${formatAmount(cents)}（到场退）`
-        : '押金（到场退）'
-    return { title: '缴费', amountText, tiers: [], notes: ['到场核销后原路退回；未到场不退。'] }
+    return { title: '缴费', amountText: depositAmountLine(input.depositAmountCents), tiers: [], notes: ['到场核销后原路退回；未到场不退。'] }
   }
   if (input.pricingEnabled) {
     return {

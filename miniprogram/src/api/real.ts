@@ -77,7 +77,7 @@ import {
 } from './operations'
 import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus, parsePaymentMode } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
-import { parsePriceTiers } from '@/domain/payment'
+import { parseOrderKind, parsePriceTiers } from '@/domain/payment'
 import { catalogSearchVariables } from './catalogFilter'
 import type { CreatedOrder, OrderStatus, OrderSummary } from '@/domain/models'
 import type {
@@ -598,7 +598,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         status: parseOrderStatus(result.status),
         amountCents: result.amountCents,
         expireAt: result.expireAt,
-        transactionId: null
+        transactionId: null,
+        orderKind: parseOrderKind(result.orderKind)
       },
       credential: data.createOrder.metadata?.credential ?? null
     }
@@ -616,7 +617,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       status: parseOrderStatus(data.orderStatus.status),
       amountCents: data.orderStatus.amountCents,
       expireAt: data.orderStatus.expireAt,
-      transactionId: data.orderStatus.transactionId
+      transactionId: data.orderStatus.transactionId,
+      orderKind: parseOrderKind(data.orderStatus.orderKind)
     }
   }
 
@@ -641,7 +643,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         status: parseOrderStatus(order.status),
         amountCents: order.amountCents,
         expireAt: order.expireAt,
-        transactionId: null
+        transactionId: null,
+        orderKind: parseOrderKind(order.orderKind)
       }))
       // 非终态优先(一 enrollment 至多一非终态单,U1 不变量),终态单按同序稳定输出
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
