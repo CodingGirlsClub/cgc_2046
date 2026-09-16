@@ -2279,7 +2279,8 @@ export function OfferingDetailPage({
             {/* E-5 #50 G3：工作台详情页报名入口（本人无既有报名；复用
 						    submitEnrollment，鉴权后端管）。P1-5：卡片渲染不再以
 						    open 为门——课程关闭后已报名状态仍可见；open 只约束
-						    「报名操作」分支（非 open 显示报名已关闭）。 */}
+						    「报名操作」分支（非 open 显示报名已关闭）。#575 后报名
+						    操作另受派生 enrollmentBadge 门（已满/已截止不出表单）。 */}
             {!wsLoading &&
             ws &&
             !readOnlyVisitor &&
@@ -2371,6 +2372,18 @@ export function OfferingDetailPage({
                     </div>
                   ) : offering.status !== "open" ? (
                     <p className="text-[13px] text-ink-3">{t("enrollClosed")}</p>
+                  ) : offering.enrollmentBadge === "full" ||
+                    offering.enrollmentBadge === "closed" ? (
+                    /* #575：与公开页同构的第二道门——status=open 但派生 badge 已
+                       full（占满）/closed（截止）时不出表单，堵「填完才被后端拒」死路 */
+                    <p
+                      className="text-[13px] text-ink-3"
+                      data-testid="enrollment-badge-gate"
+                    >
+                      {offering.enrollmentBadge === "full"
+                        ? t("enrollFull")
+                        : t("enrollDeadlinePassed")}
+                    </p>
                   ) : (
                     <div className="grid gap-3">
                       {submitState.kind === "error" ? (
