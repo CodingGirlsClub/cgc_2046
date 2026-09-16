@@ -542,6 +542,9 @@ export interface PublicOfferingItem {
   sponsorshipEnabled?: boolean;
   /** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；仅 event） */
   sponsorshipTiers?: string[] | null;
+  /** 赞助意向截止（ISO8601；null = 不限；仅 event。公开详情页据此与后端
+   *  eligible_target 对齐——过期场不再渲染赞助表单） */
+  sponsorshipDeadline?: string | null;
   /** 押金开关（押金场：报名即付押金，到场核销全额退、未到场不退；R10/KTD10） */
   depositEnabled?: boolean | null;
   /** 押金金额（分；depositEnabled 时有值） */
@@ -627,6 +630,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       venue
       sponsorshipEnabled
       sponsorshipTiers
+      sponsorshipDeadline
       pricingEnabled
       availablePriceTiers
       depositEnabled
