@@ -5350,6 +5350,9 @@ type RootQueryType {
   "平台管理员：倡导活动详情及四项规则"
   getInitiative(id: ID!): AdminInitiative
 
+  "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
+  initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
+
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
 
@@ -6343,6 +6346,21 @@ type AdminInitiativeRule {
   locked: Boolean!
   insertedAt: DateTime!
   updatedAt: DateTime!
+}
+
+type InitiativeMountPreview {
+  initiativeId: ID!
+  name: String!
+  slug: String!
+  status: String!
+  rules: [InitiativeRulePreview!]!
+  missingRules: [String!]!
+}
+
+type InitiativeRulePreview {
+  key: String!
+  valueJson: String!
+  locked: Boolean!
 }
 
 input AdminInitiativeInput {
