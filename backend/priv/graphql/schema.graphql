@@ -339,6 +339,9 @@ input CreateEnrollmentInput {
 
   "价格档位 ID（收费活动报名时必填）"
   tierId: String
+
+  "确认已满目标活动要求的最低年龄（min_age 非空的活动必传 true）"
+  ageConfirmed: Boolean
 }
 
 enum EnrollmentSortField {

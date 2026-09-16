@@ -170,6 +170,73 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
     expect(await screen.findByText(/待支付（名额已保留）/)).toBeInTheDocument();
     expect(await screen.findByTestId("checkout-dialog")).toBeInTheDocument();
   });
+  // ── #510 年龄门槛：公开详情页（主报名入口）勾选确认门 ──
+
+  it("年龄门槛条目：未勾选先拦截,勾选后提交携带 ageConfirmed（#510）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "evt-age",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      minAge: 18,
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-age", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const checkbox = await screen.findByTestId("age-confirm-checkbox");
+    expect(checkbox).not.toBeChecked();
+    expect(
+      screen.getByText("我确认已年满 18 周岁，符合本活动的年龄要求。"),
+    ).toBeInTheDocument();
+
+    // 未勾选 → 本地拦截，mutation 不出门
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "请先勾选年龄确认。",
+    );
+    expect(mocks.submitEnrollment).not.toHaveBeenCalled();
+
+    // 勾选 → 提交携带 ageConfirmed: true
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    await waitFor(() =>
+      expect(mocks.submitEnrollment).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.submitEnrollment).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "evt-age", ageConfirmed: true }),
+    );
+  });
+
+  it("无年龄门槛条目：不出勾选框，提交不携带 ageConfirmed（#510）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      id: "evt-noage",
+      pricingEnabled: false,
+      availablePriceTiers: null,
+      minAge: null,
+    });
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-noage", status: "confirmed" },
+      errors: [],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByTestId("age-confirm-field")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "提交报名" }));
+    await waitFor(() =>
+      expect(mocks.submitEnrollment).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.submitEnrollment).toHaveBeenCalledWith(
+      expect.not.objectContaining({ ageConfirmed: expect.anything() }),
+    );
+  });
 
   it("收费项全过期档（availablePriceTiers 空）：无可售档位提示，不渲染档位 radio", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
