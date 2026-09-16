@@ -319,7 +319,9 @@ jobs:
   deps-image:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 冷构建（mix.lock 变更后首次）在 2 核 runner 上需 45min+（AGENTS.md 已记录），
+    # 原 30min 会把每次 lock 变更的构建都掐死 → 镜像永远缺失、deploy 端被迫 45–90min 现场重建。
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: backend
