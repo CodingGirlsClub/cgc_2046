@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { closeInitiative, createInitiative, fetchInitiative, fetchInitiatives, openInitiative, updateInitiative, upsertInitiativeRule } from "@/lib/admin";
+import { copyText } from "@/lib/clipboard";
+import { localizedUrl } from "@/lib/seo";
 import {
 	INITIATIVE_STATUS_CLASS,
 	type AdminInitiative,
@@ -14,10 +16,12 @@ const RULE_KEYS = ["deposit", "age_gate", "min_participants", "deadline_rule"] a
 export default function AdminInitiativesPage() {
 	const t = useTranslations("admin");
 	const labelsT = useTranslations();
+	const locale = useLocale();
 	const [rows, setRows] = useState<AdminInitiative[] | null>(null);
 	const [error, setError] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
+	const [copiedId, setCopiedId] = useState<string | null>(null);
 	const [form, setForm] = useState({ name: "", slug: "", description: "" });
 	const [editing, setEditing] = useState<string | null>(null);
 	const [rules, setRules] = useState<AdminInitiativeRule[]>([]);
@@ -25,6 +29,18 @@ export default function AdminInitiativesPage() {
 	const [ruleBusy, setRuleBusy] = useState<string | null>(null);
 	function firstError(payload: { errors: MutationError[] }): string {
 		return payload.errors[0]?.message ?? t("loadFailed");
+	}
+	/**
+	 * 复制公开详情页链接（运营投放出口，Patch 3）：与 sitemap / canonical 同源
+	 * 的 `localizedUrl`（NEXT_PUBLIC_WEB_BASE_URL），非 window.location.origin——
+	 * 后台域名与公开域名不一致时后者会拷出错误链接。
+	 * 复制失败（非安全上下文 / 权限拒绝）保持原文案，不假装成功。
+	 */
+	async function copyLink(row: AdminInitiative) {
+		const ok = await copyText(localizedUrl(`/initiatives/${row.slug}`, locale));
+		if (!ok) return;
+		setCopiedId(row.id);
+		setTimeout(() => setCopiedId((current) => (current === row.id ? null : current)), 2000);
 	}
 	async function transition(row: AdminInitiative) {
 		setBusy(row.id);
@@ -196,6 +212,13 @@ export default function AdminInitiativesPage() {
 											</span>
 										</td>
 										<td className="admin-table__actions">
+											<button
+												type="button"
+												className="l-btn-outline"
+												onClick={() => void copyLink(row)}
+											>
+												{copiedId === row.id ? t("initiativeLinkCopied") : t("initiativeCopyLink")}
+											</button>
 											<button
 												type="button"
 												className="l-btn-outline"

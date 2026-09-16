@@ -3,7 +3,7 @@ defmodule Cgc2046.Mcp.Tools.AdminInitiativeHelpers do
 
   require Ash.Query
 
-  alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule, Public}
 
   def row(initiative, actor) do
     case Ash.load(initiative, :rules, actor: actor) do
@@ -13,6 +13,7 @@ defmodule Cgc2046.Mcp.Tools.AdminInitiativeHelpers do
            id: loaded.id,
            name: loaded.name,
            slug: loaded.slug,
+           url: Public.public_url(loaded.slug),
            hashtag: loaded.hashtag,
            description: loaded.description,
            window_starts_at: loaded.window_starts_at,

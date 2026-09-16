@@ -1775,6 +1775,8 @@
 		"initiativeEdit": "编辑",
 		"initiativeSave": "保存",
 		"initiativeCancelEdit": "取消",
+		"initiativeCopyLink": "复制公开链接",
+		"initiativeLinkCopied": "已复制",
 		"initiativeDescription": "描述",
 		"initiativeRules": "共享规则",
 		"initiativeRule_deposit": "押金规则",
