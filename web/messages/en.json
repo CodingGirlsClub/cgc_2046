@@ -73,7 +73,8 @@
 		"event_deposit_registration_deadline_required": "A registration deadline is required when deposit is enabled (self-cancel cutoff).",
 		"event_ends_at_frozen": "Cannot move the end time earlier while deposit orders are unsettled.",
 		"order_deposit_amount_missing": "Deposit amount is missing; please register again.",
-		"initiative_slug_locked": "This initiative's public link is live, so its slug can no longer be changed (editing name/description still works)."
+		"initiative_slug_locked": "This initiative's public link is live, so its slug can no longer be changed (editing name/description still works).",
+		"initiative_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier)."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -1407,6 +1408,15 @@
 		"initiativeRuleAgeOff": "Age gate: none",
 		"initiativeRuleMin": "Min participants: {count}",
 		"initiativeRuleMinOff": "Qualification: none",
+		"initiativeRuleDeposit": "Deposit: ¥{amount} (refunded on attendance)",
+		"initiativeRuleDepositOff": "Deposit: off",
+		"initiativeRuleDeadline": "Registration deadline: {deadline}",
+		"initiativeRuleDeadlineOff": "Registration deadline: none",
+		"initiativeRuleDeadlinePending": "Registration deadline: {hours} h before start (set a start time first)",
+		"initiativeRuleSourceLocked": "Locked by platform",
+		"initiativeRuleSourceDefault": "Default rule",
+		"initiativeRulePreviewTitle": "Initiative rules (apply after mounting)",
+		"initiativeRulePreviewHint": "After mounting: locked rules are enforced by the platform and cannot be changed afterwards; default rules are snapshotted at mount time (the registration deadline can be adjusted here unless it is locked).",
 		"initiativeRulesHint": "Locked rules are maintained by the platform and read-only here; default rules were snapshotted at mount time.",
 		"moderatorsTitle": "Moderators",
 		"moderatorsHint": "Moderators run on-site check-in; they must be workspace members (invite first, then assign). Removal takes effect immediately.",

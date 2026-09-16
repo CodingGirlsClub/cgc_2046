@@ -339,6 +339,10 @@ export const CREATE_COURSE: TypedDocumentNode<
   }
 `;
 
+/**
+ * #596：挂载/换挂载会强制写入年龄与成班人数，保存响应必须带回生效值，否则
+ * 编辑页规则摘要会停在「无」却标「平台锁死」（自相矛盾）。
+ */
 export const UPDATE_EVENT: TypedDocumentNode<
   { updateEvent: OfferingMutationResult },
   { id: string; input: Record<string, unknown> }
@@ -361,6 +365,8 @@ export const UPDATE_EVENT: TypedDocumentNode<
         initiativeId
         depositEnabled
         depositAmountCents
+        minAge
+        minParticipants
       }
       errors {
         code
