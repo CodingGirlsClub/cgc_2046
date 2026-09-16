@@ -31,6 +31,7 @@
     "event_moderator_not_workspace_member",
     "event_payment_mode_exclusive",
     "initiative_slug_locked",
+    "initiative_slug_taken",
     "invalid_or_expired_code",
     "invalid_password",
     "invalid_reset_token",
