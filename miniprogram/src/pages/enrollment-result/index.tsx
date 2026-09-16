@@ -3,9 +3,10 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
-import type { EnrollmentSummary, SubscriptionScenario } from '@/domain/models'
+import type { EnrollmentSummary } from '@/domain/models'
 import { enrollmentResultCopy } from '@/domain/payment'
-import { requestPlatformSubscription } from '@/platform'
+import { enrollmentResultTouchpoint } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import { STORAGE_KEYS } from '@/state/storage'
 import styles from './index.module.css'
 
@@ -47,18 +48,24 @@ export default function EnrollmentResultPage() {
   const pending = enrollment.status === 'pending'
   const paymentPending = enrollment.status === 'payment_pending'
   const copy = enrollmentResultCopy(enrollment.status, process.env.TARO_ENV === 'weapp')
-  const scenario: SubscriptionScenario = pending ? 'approval_result' : 'event_reminder'
+  // M1：刚提交完报名，用户最想知道「我进了吗 / 开得成吗 / 会不会取消」——
+  // 三问恰好用满微信单次 tmplIds 上限 3（判据与文案见 domain/subscription.ts）。
+  const touchpoint = enrollmentResultTouchpoint(enrollment.status)
 
   const subscribe = async () => {
+    if (!touchpoint) return
     setSubmitting(true)
+    // 先清空上一次提示：二次点按（含改点其他场景）时不留旧文案
+    setSubscriptionState('')
     try {
-      const accepted = await requestPlatformSubscription(scenario)
-      if (!accepted) {
-        setSubscriptionState('你暂未授权，可稍后在报名页再次订阅')
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        setSubscriptionState(touchpoint.deniedCopy)
         return
       }
-      await api.grantConsent(scenario)
-      setSubscriptionState(pending ? '已订阅审批结果通知' : '已订阅活动提醒')
+      // 一次授权 = 后端 +1 配额，逐场景上报（部分接受只报被接受的）
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      setSubscriptionState(touchpoint.acceptedCopy)
     } catch (reason) {
       setSubscriptionState(reason instanceof Error ? reason.message : '订阅失败，请稍后重试')
     } finally {
@@ -79,14 +86,14 @@ export default function EnrollmentResultPage() {
       <View className={styles.card}>
         <Text className={styles.cardLabel}>报名项目</Text>
         <Text className={styles.cardTitle}>{enrollment.title}</Text>
-        {!paymentPending && (
-          <Text className={styles.cardMeta}>{pending ? '审批结果通知' : '活动开始提醒'}需要你主动授权一次</Text>
+        {touchpoint && (
+          <Text className={styles.cardMeta}>{touchpoint.label}需要你主动授权一次</Text>
         )}
       </View>
 
-      {!paymentPending && (
+      {touchpoint && (
         <Button className={styles.subscribeButton} data-testid='subscribe-result' loading={submitting} onClick={subscribe}>
-          {pending ? '订阅审批结果通知' : '订阅活动提醒'}
+          {touchpoint.label}
         </Button>
       )}
       {subscriptionState && <Text className={styles.subscriptionState} data-testid='subscription-state'>{subscriptionState}</Text>}

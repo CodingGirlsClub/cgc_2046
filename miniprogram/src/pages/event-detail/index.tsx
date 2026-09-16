@@ -9,6 +9,8 @@ import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, fo
 import { formatAmount, paymentBlockCopy } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
+import { moderatorTouchpoint } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
@@ -93,6 +95,22 @@ export default function EventDetailPage() {
   useDidShow(() => { void load() })
   useDidHide(() => { requestSeq.current++ })
   useUnload(() => { requestSeq.current++ })
+
+  // M5 主理人订阅（仅 canCheckIn 时渲染入口，见下方 footer）
+  const subscribeModerator = async () => {
+    const touchpoint = moderatorTouchpoint()
+    try {
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
+        return
+      }
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
+    } catch (reason) {
+      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
+    }
+  }
 
   const register = async () => {
     if (!item || item.status !== 'open') return
@@ -202,17 +220,30 @@ export default function EventDetailPage() {
       <View className={styles.footer}>
         {/* 核销页只在全量端注册（裁剪端无管理功能）——入口同口径隐藏 */}
         {canCheckIn && item.kind === 'event' && process.env.TARO_ENV !== 'tt' && process.env.TARO_ENV !== 'xhs' && (
-          <Button
-            className={styles.checkInEntry}
-            data-testid='check-in-entry'
-            onClick={() =>
-              Taro.navigateTo({
-                url: `/pages/check-in/index?eventId=${item.id}&title=${encodeURIComponent(item.title)}`
-              })
-            }
-          >
-            扫码核销（主理人）
-          </Button>
+          <>
+            <Button
+              className={styles.checkInEntry}
+              data-testid='check-in-entry'
+              onClick={() =>
+                Taro.navigateTo({
+                  url: `/pages/check-in/index?eventId=${item.id}&title=${encodeURIComponent(item.title)}`
+                })
+              }
+            >
+              扫码核销（主理人）
+            </Button>
+            {/* M5：唯一能证明「我是主理人」的页面（canModerateEvent 门），也是
+                event_moderator_assigned 自身的深链落页。鸡生蛋取舍：用户正是通过
+                该通知才首次得知被指派，故**第一次指派必然送不到**；此处覆盖的是
+                「已是某活动主理人者订阅后续指派」。 */}
+            <Button
+              className={styles.checkInEntry}
+              data-testid='subscribe-moderator'
+              onClick={subscribeModerator}
+            >
+              {moderatorTouchpoint().label}
+            </Button>
+          </>
         )}
         <EventRegistrationActions item={item} onRegister={register} />
       </View>

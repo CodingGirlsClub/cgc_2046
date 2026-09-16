@@ -10,7 +10,8 @@ import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { checkInCodeText, enrollmentStatusText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
 import { cancelConfirmCopy, depositRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
-import { requestPlatformSubscription } from '@/platform'
+import { enrollmentCardTouchpoint } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
 export default function MyEnrollmentsPage() {
@@ -59,12 +60,19 @@ export default function MyEnrollmentsPage() {
     return () => clearInterval(timer)
   }, [items])
 
-  const subscribeReminder = async () => {
+  // M2/M3：按条目类型分派——活动卡订阅「开始 + 改期」，课程卡订阅「学习停滞」。
+  // （既有实现不分类型一律请求 event_reminder，而课程报名收不到该模板，属错配；
+  // 判据与文案见 domain/subscription.ts，由 tests/subscription-domain.test.ts 钉住。）
+  const subscribeReminder = async (item: EnrollmentSummary) => {
+    const touchpoint = enrollmentCardTouchpoint(item.kind)
     try {
-      if (await requestPlatformSubscription('event_reminder')) {
-        await api.grantConsent('event_reminder')
-        Taro.showToast({ title: '已订阅活动提醒', icon: 'success' })
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
+        return
       }
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
     }
@@ -205,7 +213,9 @@ export default function MyEnrollmentsPage() {
             )}
             {item.status === 'confirmed' && (
               <>
-                <Button className={styles.textButton} size='mini' onClick={subscribeReminder}>订阅活动提醒</Button>
+                <Button className={styles.textButton} size='mini' onClick={() => void subscribeReminder(item)}>
+                  {enrollmentCardTouchpoint(item.kind).label}
+                </Button>
               </>
             )}
             {(item.status === 'rejected' || item.status === 'expired') && (
