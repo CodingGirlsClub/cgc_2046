@@ -55,6 +55,11 @@ defmodule Cgc2046.Reconciliation.Finding do
   15. `:notification_delivery_failed` — 通知 outbox 终态失败面（#556）：24h 内
      落 `:failed` 的 notification_deliveries 行逐行出 Finding（entity =
      :notification_delivery），窗口语义自清；终态化本体在 DeliveryWorker 末拍
+  16. `:deposit_forfeit_batch_alert` — 单场押金没收批量告警（#545）：该 event
+      名下 forfeited 押金单计数 ≥5（阈值 5，101 场规模硬编码）——一场没收过半
+      即异常信号（错配置 / ends_at 误操作 / 现场执行失败），需运营核查。状态性
+      口径：unforfeit 救济降到阈值下自动消解（刷新语义删除）。由
+      `DepositForfeitWorker` 产出（同规14 宿主）；entity = 场（:event）
 
   规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
   Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
@@ -104,7 +109,11 @@ defmodule Cgc2046.Reconciliation.Finding do
     # 规15（#556）：通知 outbox 终态失败面——24h 内落 :failed 的
     # notification_deliveries 行（末拍终态化由 DeliveryWorker 承担）；窗口
     # 语义自清（超窗未命中删除，与 Oban Pruner 窗口注释同义）
-    :notification_delivery_failed
+    :notification_delivery_failed,
+    # 规16（#545）：单场押金没收批量告警——forfeited 押金单计数 ≥5 的场
+    # （状态性口径：命中条件持续到 unforfeit 救济降到阈值下，刷新语义自愈）。
+    # 由 DepositForfeitWorker 产出（同规14 宿主，非本扫描 worker 的规则表）
+    :deposit_forfeit_batch_alert
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）
