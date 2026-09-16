@@ -23,6 +23,12 @@ defmodule Cgc2046.Mcp.Confirmation do
 
   require Logger
 
+  # 并发竞态败方文案（MEDIUM-1/#631）：裸 StaleRecord 与
+  # `%Ash.Error.Invalid{errors: [StaleRecord]}` 两种形状共用同一句（含 "not pending"）。
+  # 属性置于函数之前（Elixir 模块属性按源码顺序生效）。
+  @concurrent_confirm_rejected "Operation is not pending (concurrent confirmation won)"
+  @concurrent_cancel_rejected "Operation is not pending (resolved concurrently)"
+
   @doc """
   为高风险工具建 pending 并返回 needs_confirmation（不落业务库）。
 
@@ -92,8 +98,11 @@ defmodule Cgc2046.Mcp.Confirmation do
            op |> Ash.Changeset.for_update(:cancel, %{}, actor: actor) |> Ash.update() do
       {:ok, %{pending_id: cancelled.id, status: "cancelled"}}
     else
-      {:error, err} -> {:error, Cgc2046.Mcp.Errors.message(err, "failed to cancel operation")}
-      other -> other
+      {:error, err} ->
+        classify_pending_race(err, @concurrent_cancel_rejected, "failed to cancel operation")
+
+      other ->
+        other
     end
   end
 
@@ -143,12 +152,29 @@ defmodule Cgc2046.Mcp.Confirmation do
       {:ok, confirmed} ->
         {:ok, confirmed}
 
-      # 并发双确认：DB 条件更新未命中（已被另一请求确认）→ 友好错误（MEDIUM-1）
-      {:error, %Ash.Error.Changes.StaleRecord{}} ->
-        {:error, "Operation is not pending (concurrent confirmation won)"}
-
       {:error, err} ->
-        {:error, Cgc2046.Mcp.Errors.message(err, "failed to confirm operation")}
+        classify_pending_race(err, @concurrent_confirm_rejected, "failed to confirm operation")
+    end
+  end
+
+  # 并发竞态的两种形状都认（#631，confirm/cancel 共用）：裸 StaleRecord（Ash 直出）
+  # 与包在 `%Ash.Error.Invalid{}` 里的形态——漏掉后者会落进统一出口，出面 StaleRecord
+  # 叶子自带的 `inspect(resource)`/`inspect(filter)` 内部结构（DB 条件更新未命中的
+  # 真实形状，已由 confirmation_race_test 钉住）。
+  defp classify_pending_race(err, friendly, fallback) do
+    case err do
+      %Ash.Error.Changes.StaleRecord{} ->
+        {:error, friendly}
+
+      %Ash.Error.Invalid{errors: errors} when is_list(errors) ->
+        if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
+          {:error, friendly}
+        else
+          {:error, Cgc2046.Mcp.Errors.message(err, fallback)}
+        end
+
+      _ ->
+        {:error, Cgc2046.Mcp.Errors.message(err, fallback)}
     end
   end
 

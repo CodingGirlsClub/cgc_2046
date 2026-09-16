@@ -221,6 +221,11 @@ defmodule Cgc2046.Learning.Runs do
 
             create_learning_run(workspace_id, definition, input)
           end
+
+        # 读失败（DB 异常）原样上抛：无本子句会在工具内抛 CaseClauseError（#631），
+        # 工具层经 Mcp.Errors 分类出面
+        {:error, _} = error ->
+          error
       end
     end
   end
@@ -591,7 +596,9 @@ defmodule Cgc2046.Learning.Runs do
         {:ok, %WorkflowRun{} = run} -> {:ok, run, :existing}
         # 回读空 = 撞索引方事务未提交（review 建议 1）：归一 error 而非
         # {:ok, nil}（调用方 with/case 不匹该形状会短路或崩溃漏种）。
-        {:ok, nil} -> {:error, :collision_race}
+        # 文案为二进制以守住本函数 `{:error, String.t()}` 的 @spec（#631 D6）；
+        # 唯一调用方 = MCP `start_learning_run` 工具，直接透传给调用方。
+        {:ok, nil} -> {:error, "failed to start learning run (concurrent creation race)"}
         other -> other
       end
   end

@@ -159,7 +159,7 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
       end
     end
 
-    test "已知 Invalid → 与 Exception.message 逐字相等（零回归）" do
+    test "已知 Invalid → 逐叶折叠：叶子文案逐字，类脚手架不出面（#631）" do
       known = %Ash.Error.Invalid{
         errors: [
           %Ash.Error.Changes.InvalidAttribute{
@@ -170,7 +170,44 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
         ]
       }
 
-      assert McpErrors.message(known, "failed to update event") == Exception.message(known)
+      message = McpErrors.message(known, "failed to update event")
+
+      # 折叠前是 Exception.message(known)（含 "Invalid Error" 类头）；现在 = 叶子文案
+      assert message == Exception.message(hd(known.errors))
+      refute message =~ "Invalid Error"
+      refute message =~ "Bread Crumbs:"
+      refute message =~ ~r/\%[A-Z][A-Za-z0-9_.]*\{/
+    end
+
+    test "带 breadcrumbs 的错误类 → 折叠后不含 Bread Crumbs/来源行/栈（#631 生产同形）" do
+      # 生产 `save_course_content` 的行正是这种带 breadcrumbs 的叶子（Ash 在
+      # action 内 add_error 时写入 "Error returned from: <模块>.<action>"）
+      class =
+        Ash.Error.to_error_class([
+          %Ash.Error.Changes.InvalidChanges{
+            message: "objectives required",
+            vars: [],
+            bread_crumbs: ["Error returned from: Cgc2046.Curriculum.Output.upsert_content"]
+          }
+        ])
+
+      # 前置：类消息本身确实带脚手架（否则本测试无意义——Ash 升版改了渲染即在此暴露）
+      assert Exception.message(class) =~ "Bread Crumbs:"
+
+      message = McpErrors.message(class, "failed to save course content")
+
+      assert message =~ "objectives required"
+      refute message =~ "Bread Crumbs:"
+      refute message =~ "Invalid Error"
+      refute message =~ "Error returned from"
+      refute message =~ "Output.upsert_content"
+      refute message =~ ~r/\%[A-Z][A-Za-z0-9_.]*\{/
+
+      # 审计列同款（第二暴露通道）
+      audit = McpErrors.audit_message(class)
+      assert audit =~ ~r/^internal error \(error id: /
+      refute audit =~ "objectives required"
+      refute audit =~ "Bread Crumbs:"
     end
 
     test "非 Ash 异常 / 非异常 → 原 fallback 文案逐字（零回归）" do
@@ -296,11 +333,12 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
       assert entry.short_message == Exception.message(payment)
 
       # MCP 出口在真实链路上收到的是归并后的类（Ash 把单一 invalid 类错误收进
-      # Ash.Error.Invalid），出口文案与此前 `Exception.message/1` 逐字相同
+      # Ash.Error.Invalid）——#631 起逐叶折叠：叶子文案（BusinessError message）
+      # 逐字保留，类头不出面
       payment_class = Ash.Error.to_error_class([payment])
 
       assert McpErrors.message(payment_class, "failed to create event") ==
-               Exception.message(payment_class)
+               Exception.message(payment)
 
       assert McpErrors.message(payment_class, "failed to create event") =~
                "an event cannot enable both pricing tiers and deposit"
@@ -318,7 +356,7 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
       assert slug_entry.fields == [:slug]
 
       slug_class = Ash.Error.to_error_class([slug_locked])
-      assert McpErrors.message(slug_class, "fb") == Exception.message(slug_class)
+      assert McpErrors.message(slug_class, "fb") == Exception.message(slug_locked)
       assert McpErrors.message(slug_class, "fb") =~ @initiative_slug_locked_message
     end
 
