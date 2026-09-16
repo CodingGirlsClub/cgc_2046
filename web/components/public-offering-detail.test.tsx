@@ -308,11 +308,12 @@ describe("归档场报名门（issue #574：status + badge 双门）", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("已结束（status=closed，badge 仍 enrolling）：提示已结束且不出表单", async () => {
+  it("已结束（status=closed 且 endsAt 已过，badge 仍 enrolling）：提示已结束且不出表单", async () => {
     mocks.fetchPublicOffering.mockResolvedValue({
       ...PAID_OFFERING,
       status: "closed",
       qualificationBadge: "closed",
+      endsAt: "2020-01-01T00:00:00.000Z",
       shortBy: null,
     });
     render(<PublicOfferingDetailPage kind="event" />);
@@ -324,6 +325,88 @@ describe("归档场报名门（issue #574：status + badge 双门）", () => {
       screen.queryByRole("button", { name: "提交报名" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("报名中")).not.toBeInTheDocument();
+  });
+
+  it("closed 但 endsAt 未到（LifecycleWorker 在截止时 close）：提示报名截止而非已结束", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      status: "closed",
+      qualificationBadge: "closed",
+      endsAt: "2099-01-01T00:00:00.000Z",
+      shortBy: null,
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-closed")).toHaveTextContent(
+      "报名已截止，不再接受新的报名。",
+    );
+    expect(screen.queryByTestId("enrollment-ended")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("draft 预览（owner/admin）：落报名截止桶，不出表单", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      status: "draft",
+      qualificationBadge: "open",
+      shortBy: null,
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("enrollment-closed")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "提交报名" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("赞助入口门（#574 review：与后端 eligible_target 对齐）", () => {
+  const SPONSORABLE = {
+    ...PAID_OFFERING,
+    pricingEnabled: false,
+    availablePriceTiers: null,
+    sponsorshipEnabled: true,
+    sponsorshipTiers: [
+      JSON.stringify({ id: "sp-1", name: "独家赞助", benefits: [], exclusive: true }),
+    ],
+  };
+
+  it("open + 未过赞助截止：渲染赞助入口", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...SPONSORABLE,
+      sponsorshipDeadline: "2099-01-01T00:00:00.000Z",
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByTestId("public-sponsorship")).toBeInTheDocument();
+    expect(screen.getByText("赞助本场")).toBeInTheDocument();
+  });
+
+  it("已取消（enabled + 有档位）：不渲染赞助入口", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...SPONSORABLE,
+      status: "cancelled",
+      qualificationBadge: "cancelled",
+      shortBy: null,
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByTestId("enrollment-cancelled");
+    // 断言用旧代码也存在的标题文案（新 testid 在修复前的代码上恒为 null，会假绿）
+    expect(screen.queryByText("赞助本场")).not.toBeInTheDocument();
+  });
+
+  it("open 但已过 sponsorshipDeadline：不渲染赞助入口", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...SPONSORABLE,
+      sponsorshipDeadline: "2020-01-01T00:00:00.000Z",
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    await screen.findByRole("button", { name: "提交报名" });
+    expect(screen.queryByText("赞助本场")).not.toBeInTheDocument();
   });
 });
 
