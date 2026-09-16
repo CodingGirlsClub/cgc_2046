@@ -14,10 +14,12 @@ defmodule Cgc2046.Repo.Migrations.AddPricingRequiresStartsAtChecks do
     冲突经各自 `handle_write_error/2` 映射稳定 code
     `pricing_starts_at_required`。
 
-  ## 存量普查（2026-09-16，本地 dev）
+  ## 存量普查（2026-09-16，本地 dev 实测）
 
-  dev 库 events / courses 中 `pricing_enabled AND starts_at IS NULL` 为 0 行
-  （生产未普查——NOT VALID 使本迁移对任何存量状态安全，回填另行处理）。
+  dev 库 `pricing_enabled AND starts_at IS NULL`：events 1 行、courses 3 行
+  （测试种子/手工布置残留）。这些存量脏行在迁移后**整行不可 UPDATE**（同
+  押金 #634 脏行语义），回填或清理另行处理；生产未普查——NOT VALID 使本
+  迁移对任何存量状态安全。
 
   ## 形态
 
@@ -44,12 +46,8 @@ defmodule Cgc2046.Repo.Migrations.AddPricingRequiresStartsAtChecks do
   end
 
   def down do
-    execute(
-      "ALTER TABLE events DROP CONSTRAINT IF EXISTS events_pricing_requires_starts_at"
-    )
+    execute("ALTER TABLE events DROP CONSTRAINT IF EXISTS events_pricing_requires_starts_at")
 
-    execute(
-      "ALTER TABLE courses DROP CONSTRAINT IF EXISTS courses_pricing_requires_starts_at"
-    )
+    execute("ALTER TABLE courses DROP CONSTRAINT IF EXISTS courses_pricing_requires_starts_at")
   end
 end
