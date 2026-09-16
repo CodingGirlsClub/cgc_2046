@@ -17,3 +17,36 @@ export function qualificationBadgeText(event: Pick<PublicInitiativeEvent, 'quali
     case 'open': return '开放报名'
   }
 }
+
+/**
+ * 详情页成班徽章文案（对齐 web QualificationBadgeTag 的详情页口径）：`open`
+ * 与报名标签语义重复，详情页不展示；null 同理隐藏。Initiative 卡片面仍走
+ * qualificationBadgeText —— 那里 `open` 需要显示「开放报名」。
+ */
+export function detailQualificationBadgeText(event: {
+  qualificationBadge: QualificationBadge | null
+  shortBy: number | null
+}): string | null {
+  const badge = event.qualificationBadge
+  if (!badge || badge === 'open') return null
+  return qualificationBadgeText({ qualificationBadge: badge, shortBy: event.shortBy })
+}
+
+/**
+ * 发现页倡导活动卡片的关键词过滤（阶段5）：与服务端 title ilike `%kw%` 同语义
+ * ——大小写不敏感子串，命中 name / hashtag / description 任一。空关键词原样返回。
+ *
+ * 不走服务端：`publicInitiatives` 无 search 参数（分页/搜索见 issue #578），而
+ * 该列表本就一次全量取回（服务端 LIMIT 100），客户端过滤相对返回集是精确的。
+ */
+export function filterInitiatives<
+  T extends { name: string; hashtag: string | null; description: string | null }
+>(cards: T[], keyword: string): T[] {
+  const kw = keyword.trim().toLowerCase()
+  if (!kw) return cards
+  return cards.filter((card) =>
+    [card.name, card.hashtag ?? '', card.description ?? ''].some((field) =>
+      field.toLowerCase().includes(kw)
+    )
+  )
+}

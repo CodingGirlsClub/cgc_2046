@@ -61,6 +61,12 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
 			<h1>{data.name}</h1>
+			<p className="initiative-hero__status">{data.status === "closed" ? t("archived") : t("ongoing")}</p>
+			{data.windowStartsAt ? (
+				<p className="initiative-hero__window">
+					{`${formatDeadline(data.windowStartsAt, tCommon("timeTbd"), locale)} – ${formatDeadline(data.windowEndsAt, tCommon("timeTbd"), locale)}`}
+				</p>
+			) : null}
 			{data.description ? <p className="initiative-hero__desc">{data.description}</p> : null}
 			<dl className="initiative-stats">
 				<div><dt>{t("cities")}</dt><dd>{data.cityCount}</dd></div>

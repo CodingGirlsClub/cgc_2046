@@ -9,6 +9,8 @@ import {
   CreateOrderMutationDocument,
   EventDetailQueryDocument,
   MyEnrollmentsQueryDocument,
+  PublicInitiativeQueryDocument,
+  PublicInitiativesQueryDocument,
   SignInWithPlatformMutationDocument
 } from '../src/api/operations.ts'
 
@@ -55,6 +57,44 @@ test('mock CatalogSearch：无命中 → 空结果', () => {
   const data = mockGraphQLRequest<CatalogResults>(CatalogSearchQueryDocument, searchVariables('%不存在的词%'))
   assert.deepEqual(data.listEvents.results, [])
   assert.deepEqual(data.listCourses.results, [])
+})
+
+// 阶段1：Initiative 公开投影 fixture——发现页卡片、详情页、event-detail 回链
+test('mock PublicInitiatives：返回公开卡片（含 event-1 所属活动）', () => {
+  const data = mockGraphQLRequest<{ publicInitiatives: Array<{ id: string; slug: string }> }>(
+    PublicInitiativesQueryDocument,
+    {}
+  )
+  assert.deepEqual(data.publicInitiatives.map(({ id }) => id), ['initiative-1'])
+  assert.equal(data.publicInitiatives[0]?.slug, 'python-1024')
+})
+
+test('mock PublicInitiative：命中 slug → 城市分组的场次；未命中 → null', () => {
+  const data = mockGraphQLRequest<{
+    publicInitiative: { id: string; cities: Array<{ city: string; events: Array<{ id: string }> }> } | null
+  }>(PublicInitiativeQueryDocument, { slug: 'python-1024' })
+  assert.equal(data.publicInitiative?.id, 'initiative-1')
+  assert.deepEqual(data.publicInitiative?.cities.map(({ city }) => city), ['北京'])
+  assert.deepEqual(data.publicInitiative?.cities[0]?.events.map(({ id }) => id), ['event-1'])
+
+  const missing = mockGraphQLRequest<{ publicInitiative: unknown }>(PublicInitiativeQueryDocument, {
+    slug: 'nope'
+  })
+  assert.equal(missing.publicInitiative, null)
+})
+
+test('mock EventDetail：挂载场带出 initiativeId，未挂载场为 null', () => {
+  const mounted = mockGraphQLRequest<{ getEvent: { initiativeId: string | null } | null }>(
+    EventDetailQueryDocument,
+    { id: 'event-1' }
+  )
+  assert.equal(mounted.getEvent?.initiativeId, 'initiative-1')
+
+  const plain = mockGraphQLRequest<{ getEvent: { initiativeId: string | null } | null }>(
+    EventDetailQueryDocument,
+    { id: 'event-open' }
+  )
+  assert.equal(plain.getEvent?.initiativeId, null)
 })
 
 // U11（R10/R11）：押金场样例——详情缴费块与看码链在 mock 上可走通

@@ -13,6 +13,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Curriculum.CourseRevision
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.Tools.GetPublicOffering
   alias Cgc2046.Mcp.Tools.ListPublicOfferings
 
@@ -236,6 +237,75 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
         assert %{"data" => %{"getEvent" => %{"id" => id}}} = resp
         assert id == event.id
       end
+    end
+
+    # 小程序 event-detail 的 Initiative 回链前提：initiativeId 属公开字段白名单，
+    # 匿名经 mini 口径 getEvent 即可读；未挂载 → null。此测试红即回链方案要扩到
+    # 后端 field_policy，不该先动前端。
+    defp mini_detail_initiative_query(id) do
+      """
+      query {
+        getEvent(id: "#{id}", filter: {status: {in: ["open", "closed", "cancelled"]}, visibility: {eq: "public"}}) {
+          id initiativeId
+        }
+      }
+      """
+    end
+
+    test "匿名可读 initiativeId：挂载 Initiative → id；未挂载 → null", ctx do
+      # open 前置 = 四条规则齐备（RuleInheritance.ready?）；押金锁死挂载，故活动
+      # 必须带 ends_at 锚点（同 Initiatives.PublicTest 的 fixture 口径）。
+      initiative =
+        Initiative
+        |> Ash.Changeset.for_create(:create, %{
+          name: "X1 倡导活动",
+          slug: "x1-initiative",
+          created_by: ctx.admin.id
+        })
+        |> Ash.create!(actor: ctx.admin)
+
+      for {key, value, locked} <- [
+            {:deposit, %{enabled: true, amount_cents: 6_900}, true},
+            {:age_gate, %{min_age: 18}, true},
+            {:min_participants, %{count: 8}, false},
+            {:deadline_rule, %{hours_before_start: 72}, false}
+          ] do
+        InitiativeRule
+        |> Ash.Changeset.for_create(:create, %{
+          initiative_id: initiative.id,
+          key: key,
+          value: value,
+          locked: locked
+        })
+        |> Ash.create!(actor: ctx.admin)
+      end
+
+      initiative =
+        initiative
+        |> Ash.Changeset.for_update(:open, %{})
+        |> Ash.update!(actor: ctx.admin)
+
+      mounted =
+        EventFixtures.create_event(ctx.workspace, ctx.admin, %{
+          title: "挂载场",
+          initiative_id: initiative.id,
+          starts_at: EventFixtures.days_from_now(10),
+          ends_at: EventFixtures.days_from_now(11)
+        })
+
+      unmounted = EventFixtures.create_event(ctx.workspace, ctx.admin, %{title: "独立场"})
+
+      assert %{
+               "data" => %{
+                 "getEvent" => %{"id" => mounted_id, "initiativeId" => mounted_initiative}
+               }
+             } = anon(mini_detail_initiative_query(mounted.id))
+
+      assert mounted_id == mounted.id
+      assert mounted_initiative == initiative.id
+
+      assert %{"data" => %{"getEvent" => %{"initiativeId" => nil}}} =
+               anon(mini_detail_initiative_query(unmounted.id))
     end
 
     test "workspace-only：四身份经该查询均 null（成员语义不经公开详情口径泄露）", ctx do
