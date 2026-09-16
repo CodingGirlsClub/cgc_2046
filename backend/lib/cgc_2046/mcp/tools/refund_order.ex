@@ -84,11 +84,8 @@ defmodule Cgc2046.Mcp.Tools.RefundOrder do
           {:error,
            "forbidden: owner or admin required to refund orders in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to refund order"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to refund order")}
       end
     end
   end

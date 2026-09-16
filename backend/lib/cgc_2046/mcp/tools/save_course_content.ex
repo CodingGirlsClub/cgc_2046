@@ -97,11 +97,11 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
         if Enum.any?(err.errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
           {:error, Output.version_conflict_message(current_version(workspace_id, course))}
         else
-          {:error, Exception.message(err)}
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to save course content")}
         end
 
-      {:error, _} ->
-        {:error, "failed to save course content"}
+      {:error, err} ->
+        {:error, Cgc2046.Mcp.Errors.message(err, "failed to save course content")}
     end
   end
 

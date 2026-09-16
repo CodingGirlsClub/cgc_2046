@@ -81,11 +81,8 @@ defmodule Cgc2046.Mcp.Tools.RetryRefund do
           {:error,
            "forbidden: owner or admin required to retry refunds in workspace #{workspace_id}"}
 
-        {:error, %Ash.Error.Invalid{} = err} ->
-          {:error, Exception.message(err)}
-
-        {:error, _} ->
-          {:error, "failed to retry refund"}
+        {:error, err} ->
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to retry refund")}
       end
     end
   end
