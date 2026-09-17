@@ -77,8 +77,9 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		const payment = (() => {
 			if (event.paymentMode === "deposit") {
 				const amount = positiveAmountOrNull(event.deposit?.amountCents);
+				// 不表态文案单源在 `offerings`（#675）：全仓只此一个 key 承载该句
 				return amount === null
-					? t("paymentDepositUnknown")
+					? tPayment("paymentSlotDepositUnknown")
 					: tPayment("paymentSlotDeposit", { amount: formatAmountShort(amount) });
 			}
 			if (event.paymentMode === "pricing") {
@@ -110,10 +111,10 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		return () => { cancelled = true; };
 	}, [slug]);
 
-	if (loading) return <PublicCatalogShell><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
-	if (error || !data) return <PublicCatalogShell><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
+	if (loading) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
+	if (error || !data) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
 
-	return <PublicCatalogShell><div className="public-catalog-container initiative-page">
+	return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container initiative-page">
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
 			<h1>{data.name}</h1>
