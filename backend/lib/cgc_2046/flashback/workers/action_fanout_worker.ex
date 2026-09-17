@@ -48,13 +48,16 @@ defmodule Cgc2046.Flashback.Workers.ActionFanoutWorker do
 
   defp deliver_one(%ActionCard{} = card, %Person{user_id: user_id} = _person)
        when not is_nil(user_id) do
-    # payload 带 card_id 锚点 + event_id 直链；Fanout 逐身份入队（同用户
-    # 多身份不折叠）。失败只 log（成场通知 best-effort，重试由 unique 幂等
-    # 语义之外的 Oban attempts 承接）。
+    # payload 带 card_id 锚点 + event_id 直链 + 模板字段（starts_at/venue——
+    # 「新活动发布提醒」四槽的数据源）；Fanout 逐身份入队（同用户多身份不
+    # 折叠）。失败只 log（成场通知 best-effort）。
     Fanout.deliver(
       {user_id, Fanout.identities(user_id)},
       @template_key,
-      %{"card_id" => card.id, "event_id" => card.event_id, "title" => card.title},
+      Map.merge(
+        %{"card_id" => card.id, "event_id" => card.event_id, "title" => card.title},
+        template_fields(card)
+      ),
       %{"card_id" => card.id}
     )
   end
@@ -63,6 +66,32 @@ defmodule Cgc2046.Flashback.Workers.ActionFanoutWorker do
     # 未注册附议者 → U8 outreach 邮件/短信（批次号锚定卡，unique_send 幂等）。
     Dispatch.enqueue_persons([person.id], "action_scheduled", "card-" <> card.id)
   end
+
+  # 模板数据面（send 侧不回查 DB：title 来自卡，时间/地点取 Event——
+  # starts_at ISO8601 由 service.ex 的 sched_text 转「10.24 14:00」）。
+  defp template_fields(%ActionCard{} = card) do
+    case Ash.get(Cgc2046.Events.Event, card.event_id, authorize?: false) do
+      {:ok, event} ->
+        %{
+          "starts_at" => event.starts_at && DateTime.to_iso8601(event.starts_at),
+          "venue" => card.city || venue_city(event.venue)
+        }
+
+      _ ->
+        %{}
+    end
+  end
+
+  # Event.venue 是结构化 map（country/province/city/district）；thing4 ≤20 字
+  # 取 city。卡自带的 city（建卡录入）优先。
+  defp venue_city(%{} = venue) do
+    case Map.get(venue, "city") || Map.get(venue, :city) do
+      city when is_binary(city) -> city
+      _ -> nil
+    end
+  end
+
+  defp venue_city(_), do: nil
 
   # ── 内部 ─────────────────────────────────────────────────────────────
 
