@@ -21,6 +21,15 @@ import type { ContentKind, EnrollmentStatus, SubscriptionScenario } from './mode
  *   小程序内唯一近似落点是「我的报名」里的**课程**卡。
  * - `event_moderator_assigned` 有鸡生蛋问题：用户正是通过该通知才首次得知被指派，
  *   故**第一次指派必然送不到**；M5 覆盖的是「已是某活动主理人者订阅后续指派」。
+ * - 后端 registry 另有 6 个键**至今没有前端入口**（`enrollment_submitted` /
+ *   `payment_succeeded` / `refund_succeeded` / `refund_failed` / `payment_received`
+ *   / `payment_expired`，生产恒 discarded）——它们不在 `ALL_SCENARIOS` 里，由后端
+ *   `notification_worker_test.exs` 的「registry ⊆ 场景 ∪ 显式缺口」守卫与前端
+ *   `tests/subscription-domain.test.ts` 的 `UNCOVERED_SCENARIOS` 双向登记（#664
+ *   审计），补齐走 **#683**，勿在此默默扩张。
+ * - `enrollment_completed` 的 **web 报名腿无授权路径**：微信一次性订阅只能在微信
+ *   内发起（`grantMiniProgramNotificationConsent` 只在小程序），web 报名的用户
+ *   仍收不到——已知残余缺口（记录在 #664 / #683），不可由小程序场景闭合。
  */
 
 /** 全部订阅场景。与 models.ts 的 SubscriptionScenario 联合、config/index.ts 的 WECHAT_SCENARIOS 三者双射（守卫测试钉住）。 */
@@ -28,6 +37,7 @@ export const ALL_SCENARIOS = [
   'approval_result',
   'approval_reminder',
   'event_reminder',
+  'enrollment_completed',
   'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
@@ -57,26 +67,33 @@ export interface SubscriptionTouchpoint {
 }
 
 /**
- * M0 报名表单（pages/register-form）· **提交前**——#546 核销码通知唯一能赶在
- * `confirmed` 之前拿到授权的时刻。
+ * M0 报名表单（pages/register-form）· **提交前**——报名结果两条通知（#546 核销码
+ * + #664 报名成功）唯一能赶在 `confirmed` 之前拿到授权的时刻。
  *
- * 一次性订阅 = 一次授权换一条消息（后端 Consent grant +1 / take −1）。核销码
- * 通知的触发点是「报名落 confirmed」，而免费 open 场的 confirmed 与
- * createEnrollment **同一事务**落定 → 信号 → 入队 → 发送在数百毫秒内完成。
- * 结果页 / 我的报名 / 支付成功页上的任何后置触点都只能在**发送之后**拿到授权
- * （`consent_exhausted` → discarded），首次报名必然收不到——这正是本触点必须
- * 前移到提交之前的原因（顺序判据由 submitAfterCheckInCodeConsent 钉住）。
+ * 一次性订阅 = 一次授权换一条消息（后端 Consent grant +1 / take −1）。两条通知
+ * 的触发点是同一个「报名落 confirmed」信号（后端 `Subscriber.enqueue_completed/1`
+ * 一次发两条），而免费 open 场 / 课程的 confirmed 与 createEnrollment **同一事务**
+ * 落定 → 信号 → 入队 → 发送在数百毫秒内完成。结果页 / 我的报名 / 支付成功页上的
+ * 任何后置触点都只能在**发送之后**拿到授权（`consent_exhausted` → discarded），
+ * 首次报名必然收不到——这正是本触点必须前移到提交之前的原因（顺序判据由
+ * submitAfterConsent 钉住）。
  *
- * 仅活动报名有核销码（course 恒无码，后端不发）。
+ * 场景按报名类型分派（一次问齐，同刻触发的两条一起要）：
+ * - 活动：报名成功 + 核销码（Event 报名有 6 位码，两条同刻下发）；
+ * - 课程：仅报名成功（course 恒无码，后端不发核销码通知）。
  */
-export function checkInCodeTouchpoint(): SubscriptionTouchpoint {
+export function preSubmitTouchpoint(kind: ContentKind): SubscriptionTouchpoint {
+  const isEvent = kind === 'event'
+
   return {
-    page: 'pages/register-form/index（活动报名提交前）',
+    page: 'pages/register-form/index（提交前）',
     trigger: '用户点按「确认报名」，先请求授权再提交报名请求',
-    label: '订阅核销码通知',
-    scenarios: ['enrollment_check_in_code'],
-    acceptedCopy: '已订阅，报名成功后会收到核销码',
-    deniedCopy: '你暂未授权，可再试或在「我的报名」查看核销码'
+    label: isEvent ? '订阅报名结果与核销码' : '订阅报名通知',
+    scenarios: isEvent
+      ? ['enrollment_completed', 'enrollment_check_in_code']
+      : ['enrollment_completed'],
+    acceptedCopy: isEvent ? '已订阅，报名结果与核销码会通知你' : '已订阅，报名结果会通知你',
+    deniedCopy: '你暂未授权，可再试或在「我的报名」查看报名结果'
   }
 }
 
@@ -185,31 +202,29 @@ export function moderatorTouchpoint(): SubscriptionTouchpoint {
 // --- 请求期 fail-closed（纯函数，页面/transport 只做调起） ---------------------
 
 /**
- * #546 顺序契约：核销码通知的授权**必须先于报名提交**（理由见
- * checkInCodeTouchpoint）。页面只做渲染与调起，顺序判据下沉到此——
+ * #546/#664 顺序契约：报名结果通知的授权**必须先于报名提交**（理由见
+ * preSubmitTouchpoint）。页面只做渲染与调起，顺序判据下沉到此——
  * 小程序无页面渲染测试（AGENTS.md），顺序只能靠纯函数 + `node --test` 钉住。
  *
  * 调用序：request（微信授权弹窗，同步进入用户手势栈）→ 逐个 grant（后端 +1
  * 配额）→ 最后 submit（可能立刻落 confirmed 并触发发送）。
  *
- * 授权被拒 / 模板未配置 / 平台报错一律**不阻断报名**：核销码始终可在「我的
- * 报名」查看，通知只是顺手。
+ * 授权被拒 / 模板未配置 / 平台报错一律**不阻断报名**：报名结果与核销码始终可在
+ * 「我的报名」查看，通知只是顺手。
  */
-export async function submitAfterCheckInCodeConsent<T>(
-  touchpoint: SubscriptionTouchpoint | null,
+export async function submitAfterConsent<T>(
+  touchpoint: SubscriptionTouchpoint,
   deps: {
     request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
     grant: (scenario: SubscriptionScenario) => Promise<unknown>
   },
   submit: () => Promise<T>
 ): Promise<T> {
-  if (touchpoint) {
-    try {
-      const accepted = await deps.request(touchpoint.scenarios)
-      for (const scenario of accepted) await deps.grant(scenario)
-    } catch {
-      // 未授权不阻断报名（同上）
-    }
+  try {
+    const accepted = await deps.request(touchpoint.scenarios)
+    for (const scenario of accepted) await deps.grant(scenario)
+  } catch {
+    // 未授权不阻断报名（同上）
   }
   return submit()
 }

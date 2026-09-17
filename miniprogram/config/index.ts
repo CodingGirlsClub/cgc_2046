@@ -19,6 +19,7 @@ const WECHAT_SCENARIOS = [
   'approval_result',
   'approval_reminder',
   'event_reminder',
+  'enrollment_completed',
   'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
