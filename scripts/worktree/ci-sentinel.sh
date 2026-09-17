@@ -30,12 +30,32 @@ interval=60          # seconds between polls
 settle=90            # fixed settle after update-branch (new-run registration)
 max_wait=7200        # give up after this many seconds overall
 max_reruns=2         # known-flake rerun budget
+update_retried=0     # merge 被拒（分支落后）时的 update-branch 兜底：只用一次
 reruns=0
 waited=0
 
-ghx() { npx -y gh-axi "$@"; }
+# gh-axi 解析：优先 PATH 上的直调；npx 回落时把 npm 缓存指到可写目录。
+# （root 属主的 ~/.npm/_cacache 会让 npx 直接 EPERM，哨兵被拖进「调用失败 —
+# 60s 后重试」死循环，全绿 PR 无人合并——#694/#695 教训）
+if command -v gh-axi >/dev/null 2>&1; then
+  ghx() { gh-axi "$@"; }
+else
+  export npm_config_cache="${TMPDIR:-/tmp}/npm-cache-axi"
+  ghx() { npx -y gh-axi "$@"; }
+fi
 say() { printf '=== [%s] %s\n' "$label" "$*"; }
 sub() { printf '  [%s] %s\n' "$label" "$*" >&2; }
+
+# 启动自检（fail-fast）：一次便宜探测，失败立刻退出并说明走的是哪条路径，
+# 绝不静默进入重试循环。
+ghx_src="npx 回落 (npm_config_cache=${npm_config_cache:-<unset>})"
+if command -v gh-axi >/dev/null 2>&1; then
+  ghx_src="PATH 直调 ($(command -v gh-axi))"
+fi
+if ! ghx --help >/dev/null 2>&1; then
+  say "gh-axi 不可用 [${ghx_src}] — 安装 gh-axi 到 PATH，或修复 npx 环境"
+  exit 1
+fi
 
 # state, merged, mergeable_state, head.ref — one API call per poll.
 # gh-axi wraps the body as:   body: "open,false,behind,refs/..."  — unwrap it.
@@ -95,9 +115,26 @@ while :; do
   if [ "$failed" -eq 0 ]; then
     if [ "$total" -gt 0 ] && [ $((passed + skipped)) -ge "$total" ]; then
       say "checks 全绿（${summary}）→ merge（merge commit）"
-      if ghx pr merge "$pr" --merge; then
+      if merge_out="$(ghx pr merge "$pr" --merge 2>&1)"; then
+        printf '%s\n' "$merge_out" >&2
         say "已合并 ✓"
         exit 0
+      fi
+      printf '%s\n' "$merge_out" >&2
+      # merge 被拒且原因是分支落后（strict up-to-date：等待期 develop 前移，
+      # 串行落地时的常态而非异常）→ 兜底一次 update-branch，回主循环沿用
+      # settle / 未就绪逻辑等 checks 重新全绿后再 merge；只重试一次，第二次
+      # 仍失败才判红退出，避免死循环。
+      if [ "$update_retried" -eq 0 ] && printf '%s' "$merge_out" | grep -qi 'not up to date\|not mergeable'; then
+        update_retried=1
+        sub "merge 被拒（分支落后）→ update-branch 后等 checks 重新全绿再试一次（仅此一次）"
+        if ! ghx pr update-branch "$pr" >&2; then
+          say "update-branch 失败 — 编排者介入"
+          exit 1
+        fi
+        sub "settle ${settle}s（新 run 注册前 checks 为空属正常空窗，不当红）"
+        sleep "$settle"; waited=$((waited + settle))
+        continue
       fi
       say "merge 失败 — 编排者介入"
       exit 1

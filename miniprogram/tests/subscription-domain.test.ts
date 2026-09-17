@@ -18,13 +18,16 @@ import {
   enrollmentResultTouchpoint,
   eventCardTouchpoint,
   moderatorTouchpoint,
+  paymentResultTouchpoint,
   preSubmitTouchpoint,
+  refundCardTouchpoint,
   submitAfterConsent,
   subscriptionTransport,
+  workspaceOpsTouchpoint,
   workspaceTouchpoint
 } from '../src/domain/subscription.ts'
 
-/** 全量触点的「正常态」取样（M0–M5）；payment_pending 与终态另有专门断言。 */
+/** 全量触点的「正常态」取样（M0–M8）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
   preSubmitTouchpoint('event'),
   preSubmitTouchpoint('course'),
@@ -33,39 +36,38 @@ const allTouchpoints = () => [
   enrollmentCardTouchpoint('event'),
   enrollmentCardTouchpoint('course'),
   workspaceTouchpoint(),
-  moderatorTouchpoint()
+  moderatorTouchpoint(),
+  paymentResultTouchpoint(false),
+  paymentResultTouchpoint(true),
+  refundCardTouchpoint(),
+  workspaceOpsTouchpoint()
 ]
 
 /**
  * 确实没有触点的场景（显式缺口表，#664 审计）——后端镜像清单 =
  * `notification_worker_test.exs` 的 @scenario_gaps，逐键「谁收 / 为什么没入口 /
- * 挂哪」见那里的注释与 #683（6 键授权入口补齐）。
+ * 挂哪」见那里的注释。#683 已把 6 键全部补齐触点，本表清空但**结构保留**：
+ * 未来新增无入口场景必须在此登记（否则下方 uncovered 断言红），登记数写死 0
+ * ——改本表/本数 = 有意识的决定。
  *
  * 纪律与后端同款：改这份列表 = 有意识承认一个缺口；补了触点必须同步删行
  * （下面「每个场景至少一个触点」守卫会红）。两个列表各自自洽：某一侧补了入口
  * 而没删行，那一侧必红。
  */
-const UNCOVERED_SCENARIOS: SubscriptionScenario[] = [
-  'enrollment_submitted',
-  'payment_succeeded',
-  'refund_succeeded',
-  'refund_failed',
-  'payment_received',
-  'payment_expired'
-]
+const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 12 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 12)
-    assert.equal(new Set(ALL_SCENARIOS).size, 12)
+  test('恰好 18 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 18)
+    assert.equal(new Set(ALL_SCENARIOS).size, 18)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {
     const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
     const gaps = new Set<SubscriptionScenario>(UNCOVERED_SCENARIOS)
 
-    // 缺口数先钉死：防「新场景被随手塞进缺口表」与「缺口表被清空」蒙混过关
-    assert.equal(gaps.size, 6, `缺口数变了：${[...gaps].sort().join(', ')}`)
+    // 缺口数先钉死（#683 后为 0）：防「新场景被随手塞进缺口表」蒙混过关
+    assert.equal(gaps.size, 0, `缺口数变了：${[...gaps].sort().join(', ')}`)
 
     // 缺口表不得腐烂：缺口键与场景表互补——一旦某键进入 ALL_SCENARIOS（= 补入口
     // 的第一步），必须同步从本表移除，否则这里红。
@@ -98,6 +100,37 @@ describe('场景键集', () => {
       !preSubmitTouchpoint('course').scenarios.includes('enrollment_check_in_code'),
       '课程报名收不到核销码通知，不应请求其授权'
     )
+  })
+})
+
+describe('M6/M7/M8（#683 新触点）', () => {
+  test('M6 支付页双态：同一场景集 [payment_succeeded, event_reminder]，label 按态分派', () => {
+    const pending = paymentResultTouchpoint(false)
+    const paid = paymentResultTouchpoint(true)
+
+    // 场景集双态一致（同函数分派 label，场景不许漂移）；恰 2 个（≤3 上限）
+    assert.deepEqual(pending.scenarios, ['payment_succeeded', 'event_reminder'])
+    assert.deepEqual(paid.scenarios, pending.scenarios)
+
+    // pending 态文案聚焦「支付结果」（引导付款前授权），paid 态并入活动提醒
+    assert.equal(pending.label, '订阅支付结果通知')
+    assert.equal(paid.label, '订阅支付与活动通知')
+  })
+
+  test('M7 付费卡：退款三键恰满 3（资金类付款人腿一次问齐）', () => {
+    const touchpoint = refundCardTouchpoint()
+    assert.deepEqual(touchpoint.scenarios, ['refund_succeeded', 'refund_failed', 'payment_expired'])
+    // 文案必须覆盖三键语义（裁决收紧 1）：label 提「退款与订单变动」，不只写「退款到账」
+    assert.match(touchpoint.label, /退款与订单变动/)
+  })
+
+  test('M8 工作台第二按钮：管理者两键，与 M4 互不重叠（同页两手势各 ≤3）', () => {
+    const ops = workspaceOpsTouchpoint()
+    assert.deepEqual(ops.scenarios, ['enrollment_submitted', 'payment_received'])
+
+    const m4 = workspaceTouchpoint()
+    const overlap = ops.scenarios.filter((scenario) => m4.scenarios.includes(scenario))
+    assert.deepEqual(overlap, [], `M4/M8 场景重叠：${overlap.join(', ')}`)
   })
 })
 

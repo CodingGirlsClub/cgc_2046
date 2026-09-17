@@ -46,7 +46,9 @@ import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql
 import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
-import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+import PaymentCheckoutDialog, {
+  type PaymentCheckoutContext,
+} from "@/components/payment-checkout-dialog";
 import PublicCatalogShell from "@/components/public-catalog-shell";
 import AddToCalendar from "@/components/add-to-calendar";
 
@@ -102,14 +104,8 @@ export default function PublicOfferingDetailPage({
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
   // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
-  // 押金场无档位 → depositAmountCents 承载押金口径（R10 框内明示）。
-  const [checkout, setCheckout] = useState<{
-    enrollmentId: string;
-    amountCents: number | null;
-    tierName: string | null;
-    depositAmountCents: number | null;
-    title: string;
-  } | null>(null);
+  // 类型 = 弹框导出的收银上下文（Required 收紧：漏传押金事实即编译错，#686）。
+  const [checkout, setCheckout] = useState<PaymentCheckoutContext | null>(null);
   // 支付接续：登录态下查已有活跃报名（公开页报名需登录），分叉渲染——
   // payment_pending → 待支付卡；confirmed/pending → 已报名；无 → 报名表单。
   const [myEnroll, setMyEnroll] = useState<{
@@ -361,15 +357,16 @@ export default function PublicOfferingDetailPage({
   // （无档位：金额 = 押金金额，名称 = 「押金」，框内另明示「未到场不退」），
   // 复访承接可不带（由订单金额兜底）
   function openCheckoutFor(enrollmentId: string) {
-    const depositCents =
-      offering?.depositEnabled === true
-        ? (offering.depositAmountCents ?? null)
-        : null;
+    const depositOn = offering?.depositEnabled === true;
+    const depositCents = depositOn
+      ? (offering.depositAmountCents ?? null)
+      : null;
     setCheckout({
       enrollmentId,
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositEnabled: depositOn,
       depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
@@ -1038,6 +1035,7 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
+          depositEnabled={checkout.depositEnabled}
           depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
