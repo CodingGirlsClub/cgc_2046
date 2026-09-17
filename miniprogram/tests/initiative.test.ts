@@ -17,7 +17,7 @@ import { getPublicInitiative, getPublicInitiatives } from '../src/api/initiative
 import { EventDetailQueryDocument, PublicInitiativeQueryDocument, PublicInitiativesQueryDocument } from '../src/api/operations'
 import { InitiativeContent } from '../src/pages/initiative-detail'
 import { EventRegistrationActions } from '../src/pages/event-detail'
-import { detailQualificationBadgeText, filterInitiatives, formatAmountShort, initiativeCancelledNotice, initiativeCardStatusText, initiativeStatusText, parseQualificationBadge, participationConditionText, positiveAmountOrNull, qualificationBadgeText } from '../src/domain/initiative'
+import { detailQualificationBadgeText, filterInitiatives, formatAmountShort, initiativeCancelledNotice, initiativeCardStatusText, initiativeStatusText, parseQualificationBadge, participationConditionText, qualificationBadgeText } from '../src/domain/initiative'
 
 const initiative: PublicInitiative = {
   id: 'initiative-1', slug: 'hackerstart1024', name: 'hackerstart1024', hashtag: '#hackerstart1024',
@@ -255,13 +255,11 @@ describe('参与条件文案（#627）', () => {
     }
   })
 
-  it('金额守卫与短式格式化（与 web lib/payment 同式）', () => {
-    for (const dirty of [null, undefined, 0, -1]) expect(positiveAmountOrNull(dirty)).toBeNull()
+  it('短式格式化（与 web lib/payment 同式）；金额守卫单源已迁 domain/payment', () => {
     // F3：后端以「分」为整数单位；0.4 经 formatAmountShort 会四舍五入成 '0.00'
-    // → 必须被 Number.isInteger 挡住（否则徽章显示「押金 ¥0.00（到场退）」）
-    expect(positiveAmountOrNull(0.4)).toBeNull()
+    // → 必须被 Number.isInteger 挡住（否则徽章显示「押金 ¥0.00（到场退）」）；
+    // 守卫本体用例随函数迁到 payment-domain.test.ts（#675 单源）
     expect(formatAmountShort(0.4)).toBe('0.00')
-    expect(positiveAmountOrNull(6900)).toBe(6900)
     expect(formatAmountShort(6900)).toBe('69')
     expect(formatAmountShort(9950)).toBe('99.50')
   })

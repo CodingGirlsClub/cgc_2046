@@ -43,7 +43,7 @@ import CheckInCodeCard from "@/components/check-in-code-card";
 import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
-import { formatAmount, formatAmountShort, parsePriceTiers } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
 import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
@@ -67,6 +67,8 @@ export default function PublicOfferingDetailPage({
   const { authed, userId } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("offeringDetail");
+  // 缴费槽不表态文案单源在 `offerings`（#675，与 /initiatives、报名页同句）
+  const tOfferings = useTranslations("offerings");
   const navT = useTranslations("landing.nav");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
@@ -327,6 +329,10 @@ export default function PublicOfferingDetailPage({
   // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
+  // 押金金额表态统一过守卫（#675）：脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
+  // 绝不显示 ¥0；押金**区块存在性**仍由 offering.depositEnabled 决定（脏金额不得
+  // 让押金块消失——那会读成免费，见 #586）。
+  const depositCents = positiveAmountOrNull(offering?.depositAmountCents);
 
   // 支付成功后就地刷新报名态（模态框 onPaid → payment_pending → confirmed）。
   // offeringId 先行解构（可选链入 dep 会让 React Compiler 无法保持手工 memoization）
@@ -664,11 +670,11 @@ export default function PublicOfferingDetailPage({
                 >
                   <p className="text-sm text-ink">
                     <strong>
-                      {t("depositLine", {
-                        amount: formatAmountShort(
-                          offering.depositAmountCents ?? 0,
-                        ),
-                      })}
+                      {depositCents === null
+                        ? tOfferings("paymentSlotDepositUnknown")
+                        : t("depositLine", {
+                            amount: formatAmountShort(depositCents),
+                          })}
                     </strong>
                   </p>
                   <p className="mt-1 text-[13px] text-ink-3">
