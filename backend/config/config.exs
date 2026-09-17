@@ -184,10 +184,13 @@ config :cgc_2046,
 # - Pruner：oban_jobs 保留 7 天，防表无限膨胀。
 # 测试环境在 test.exs 以 testing: :manual 覆盖（Oban 自动禁用 queues/plugins/cron）。
 # payments 队列（缴费闭环 U6/U7）：回调落账 + 退款——资金链路独立于维护/通知，
-# 并发 10 防回调尖峰堆积（每 job = 一次渠道查单 + 少量 CAS）。
+#   并发 10 防回调尖峰堆积（每 job = 一次渠道查单 + 少量 CAS）。
+# - outreach 队列（闪念间 U8/KTD6）：批量唤醒触达（邮件/短信），并发 5 + 入队
+#   侧 scheduled_at 错峰（per_minute）双闸控速——SendCloud 通道的速率红线不在
+#   并发而在每分钟件数，错峰入队把上限收敛到可配常量（队列并发只防局部尖峰）。
 config :cgc_2046, Oban,
   repo: Cgc2046.Repo,
-  queues: [maintenance: 5, notifications: 10, payments: 10],
+  queues: [maintenance: 5, notifications: 10, payments: 10, outreach: 5],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     {Oban.Plugins.Cron,
@@ -219,6 +222,17 @@ config :cgc_2046, Oban,
        {"*/10 * * * *", Cgc2046.Payments.Workers.DepositForfeitWorker}
      ]}
   ]
+
+# 闪念间批量触达（U8/KTD6）：发送速率 = 每分钟件数（入队时按 i * 60_000/per_minute
+# 错峰 scheduled_at，worker 到点执行）；dev/test 可覆盖。断点续发靠
+# Oban unique(states: :all) + flashback_outreaches.unique_send 双闸，与速率无关。
+config :cgc_2046, :flashback_outreach, per_minute: 120
+
+# 闪念间唤醒短信模板（U8/KTD6，R23）：SendCloud 后台申请的触达模板（区别于
+# sms_sendcloud.template_id 验证码模板）。默认 nil → configured? fail-closed，
+# 未配置时 outreach 短信腿不外呼（邮件腿不受影响）；prod/dev 由 runtime.exs 经
+# SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID 可选注入，test 在 test.exs 给 stub 值。
+config :cgc_2046, :flashback_sms, template_id: nil
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

@@ -2279,6 +2279,13 @@ export type FlashbackFogSpanInput = {
   start: Scalars['Int']['input'];
 };
 
+export type FlashbackOutreachDispatchResult = {
+  /** 入队件数（错峰 scheduled_at 限速后由 worker 续发） */
+  queued: Scalars['Int']['output'];
+  /** 跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处） */
+  skipped: Scalars['Int']['output'];
+};
+
 export type FlashbackProfile = {
   answers?: Maybe<Array<Maybe<FlashbackAnswer>>>;
   appliedAt?: Maybe<Scalars['String']['output']>;
@@ -4261,6 +4268,8 @@ export type RootMutationType = {
   dismissOnboardingInvitation?: Maybe<User>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
+  /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
+  flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue */
   flashbackEndorse?: Maybe<FlashbackEndorseResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
@@ -4596,6 +4605,12 @@ export type RootMutationTypeFlashbackAdjustFogArgs = {
   answerId: Scalars['ID']['input'];
   spans: Array<FlashbackFogSpanInput>;
   token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
+  archiveKey: Scalars['String']['input'];
+  template: Scalars['String']['input'];
 };
 
 

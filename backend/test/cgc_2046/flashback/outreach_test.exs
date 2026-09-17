@@ -1,0 +1,532 @@
+defmodule Cgc2046.Flashback.OutreachTest do
+  @moduledoc """
+  U8/KTD6 —— 批量触达与退订（R23 批量发送 / R24 记录侧 / R30 退订）。
+
+  覆盖：pilot 规模批量入队幂等（344 人重跑零新增）、错峰限速、Oban args 无
+  明文 token（KTD2）、email/sms 双通道退订抑制、worker 端 token 铸造（生成→
+  渲染→发送→只落 hash）、失败→重试→sent 状态机推进、退订者二次触达跳过、
+  匿名化后 outreach 无个人字段、退订端点三态、admin mutation 门控。
+
+  沙箱纪律：SendCloud 短信走 Req.Test stub（未 stub 即 raise，绝不外呼）；
+  邮件走 Swoosh.Adapters.Test（进程 mailbox 断言）；:flashback_sms env 的
+  fail-closed 用例在 setup/on_exit 恢复原值。
+  """
+
+  use Cgc2046Web.ConnCase, async: false
+  use Oban.Testing, repo: Cgc2046.Repo
+
+  require Ash.Query
+
+  import Ecto.Query
+
+  alias Cgc2046.Flashback
+  alias Cgc2046.Flashback.{Outreach, Person, Token}
+  alias Cgc2046.Flashback.Outreach.{Dispatch, Emails}
+  alias Cgc2046.Flashback.Workers.OutreachWorker
+  alias Cgc2046.Repo
+
+  @moduletag :capture_log
+
+  @email "wangxiaoming@example.com"
+  @phone "13900000001"
+
+  setup do
+    Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
+      Req.Test.json(conn, %{"result" => true})
+    end)
+
+    on_exit(fn ->
+      Application.put_env(:cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template")
+    end)
+
+    :ok
+  end
+
+  # ── 批量入队（R23） ───────────────────────────────────────────────────
+
+  describe "pilot 规模批量入队（344 人幂等 + 错峰限速 + args 纪律）" do
+    test "344 人入队：全部建行 + job 错峰递增 + args 无明文 token；重跑零新增" do
+      archive = create_archive()
+      insert_people(archive, 344)
+      batch = "archive-" <> archive.key
+
+      assert {:ok, %{queued: 344, skipped: 0}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      assert outreach_count(%{batch: batch, channel: :email}) == 344
+
+      jobs = enqueued_outreach_jobs(batch)
+      assert length(jobs) == 344
+
+      # 错峰限速（KTD6 可配速率）：默认 120/分钟 → 相邻 job 间隔 ≥ 500ms、递增
+      schedulings = jobs |> Enum.map(& &1.scheduled_at) |> Enum.sort(DateTime)
+
+      diffs =
+        Enum.zip(schedulings, tl(schedulings))
+        |> Enum.map(fn {a, b} -> DateTime.diff(b, a, :millisecond) end)
+
+      assert diffs != [] and Enum.all?(diffs, &(&1 >= 500))
+
+      # KTD2：args 只带 person/channel/batch/template——无 PII、无明文 token
+      for job <- jobs do
+        assert Map.keys(job.args) |> MapSet.new() ==
+                 MapSet.new(["person_id", "channel", "batch", "template"])
+
+        refute inspect(job.args) =~ "token"
+      end
+
+      # 幂等重跑（断点续发核心语义）：unique_send DB 闸 → 零新增行、零新增 job
+      assert {:ok, %{queued: 0, skipped: 344}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      assert outreach_count(%{batch: batch, channel: :email}) == 344
+      assert length(enqueued_outreach_jobs(batch)) == 344
+    end
+
+    test "未知模板/场次 → 显式业务错误码" do
+      archive = create_archive()
+
+      assert {:error, %{code: "flashback_archive_not_found"}} =
+               Dispatch.enqueue_for_archive("no-such-archive", "reconnect")
+
+      assert {:error, %{code: "flashback_invalid_input"}} =
+               Dispatch.enqueue_for_archive(archive.key, "bogus_template")
+    end
+  end
+
+  # ── 退订（R30：按人抑制双通道） ───────────────────────────────────────
+
+  describe "退订抑制（email 与 sms 双通道均不再入队）" do
+    test "退订者：两条通道都不入队；未退订者照常入队" do
+      archive = create_archive()
+      unsubscribed = create_person(archive, full_name: "李小红", phone: @phone)
+      normal = create_person(archive)
+
+      :ok = Dispatch.unsubscribe_person(unsubscribed.id)
+
+      assert {:ok, %{queued: 1, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      # 退订者（email+phone 双通道可用）零行；未退订者一行 email
+      assert outreach_count(%{person_id: unsubscribed.id}) == 0
+      assert outreach_count(%{person_id: normal.id, channel: :email}) == 1
+    end
+
+    test "退订者被二次触达跳过（worker 执行前退订 → 静默不发）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, %{queued: 1}} = Dispatch.enqueue_for_archive(archive.key, "reconnect")
+      :ok = Dispatch.unsubscribe_person(person.id)
+
+      assert [%{args: args}] = enqueued_outreach_jobs("archive-" <> archive.key)
+      assert :ok = perform_job(OutreachWorker, args)
+
+      # 无邮件、无 token、行停在 queued（发送统计分母自动剔除，KTD10）
+      refute_receive {:email, _}, 50
+      assert token_count(person.id) == 0
+      assert outreach_row!(person.id, :email).status == :queued
+    end
+  end
+
+  # ── worker：token 铸造与双通道发送（KTD2/KTD6） ───────────────────────
+
+  describe "outreach worker（token 在 worker 内铸造，明文只落邮件体）" do
+    test "email 腿：发送成功 → 落 token_hash + 行 sent；邮件含专属链接与页脚退订链接" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      args = enqueue_one(person, "reconnect")
+
+      assert {:ok, :email} = perform_job(OutreachWorker, args)
+
+      # KTD2：hash 落库、明文只出现在邮件体（enter_url）
+      assert token_count(person.id) == 1
+      row = outreach_row!(person.id, :email)
+      assert row.status == :sent
+      assert row.sent_at
+
+      assert_receive {:email, email}, 1_000
+      {_name, address} = List.first(email.to)
+      assert address == @email
+      assert email.html_body =~ "/zh-CN/flashback/enter?token="
+      assert email.text_body =~ "/zh-CN/flashback/enter?token="
+      # R30：页脚退订链接（HTML 与纯文本都带）
+      assert email.html_body =~ "/api/flashback/unsubscribe?t="
+      assert email.text_body =~ "/api/flashback/unsubscribe?t="
+    end
+
+    test "email 腿（成场通知）：args 只带 card_id 锚点，卡未 scheduled 时静默跳过" do
+      archive = create_archive()
+      person = create_person(archive)
+      card = create_card(%{title: "骑行场", city: "北京"})
+
+      args = enqueue_one(person, "action_scheduled", %{"card_id" => card.id})
+
+      assert :ok = perform_job(OutreachWorker, args)
+      refute_receive {:email, _}, 50
+      assert outreach_row!(person.id, :email).status == :queued
+    end
+
+    test "sms 腿：phone-only 档案 → SendCloud 模板短信带 url + unsub 变量" do
+      archive = create_archive()
+      person = create_person(archive, email: nil, phone: @phone)
+
+      test_pid = self()
+
+      Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
+        vars = conn.body_params["vars"] |> Jason.decode!()
+        send(test_pid, {:sms, conn.body_params["templateId"], vars})
+        Req.Test.json(conn, %{"result" => true})
+      end)
+
+      args = enqueue_one(person, "reconnect")
+
+      assert {:ok, :sms} = perform_job(OutreachWorker, args)
+
+      assert_receive {:sms, template_id, vars}
+      assert template_id == "test-flashback-sms-template"
+      assert vars["url"] =~ "/zh-CN/flashback/enter?token="
+      assert vars["unsub"] =~ "/api/flashback/unsubscribe?t="
+      assert outreach_row!(person.id, :sms).status == :sent
+    end
+
+    test "发送失败 → 行 failed + Oban 重试；配置就绪后重试成功推进到 sent" do
+      archive = create_archive()
+      person = create_person(archive, email: nil, phone: @phone)
+
+      Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
+        Req.Test.json(conn, %{"result" => false, "message" => "template rejected"})
+      end)
+
+      args = enqueue_one(person, "reconnect")
+
+      assert {:error, _} = perform_job(OutreachWorker, args)
+      row = outreach_row!(person.id, :sms)
+      assert row.status == :failed
+      assert row.detail =~ "send_cloud_sms"
+
+      # 配置就绪（渠道恢复）后重试：failed → sent（断点续发的行级语义）
+      Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
+        Req.Test.json(conn, %{"result" => true})
+      end)
+
+      assert {:ok, :sms} = perform_job(OutreachWorker, args)
+      assert outreach_row!(person.id, :sms).status == :sent
+    end
+
+    test "重复执行已 sent 的 job → 幂等跳过，不重铸 token 不重发" do
+      archive = create_archive()
+      person = create_person(archive)
+      args = enqueue_one(person, "reconnect")
+
+      assert {:ok, :email} = perform_job(OutreachWorker, args)
+      assert_receive {:email, _}, 1_000
+
+      assert :ok = perform_job(OutreachWorker, args)
+      refute_receive {:email, _}, 50
+      assert token_count(person.id) == 1
+    end
+  end
+
+  # ── 短信 fail-closed（KTD6：模板未申请不外呼） ────────────────────────
+
+  describe "短信模板 fail-closed" do
+    test "flashback_sms 未配置 → phone-only 档案被入队面抑制；已有行重试返回错误" do
+      Application.put_env(:cgc_2046, :flashback_sms, template_id: nil)
+
+      archive = create_archive()
+      person = create_person(archive, email: nil, phone: @phone)
+
+      assert {:ok, %{queued: 0, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      # 邮件腿不受影响（email 档案照常入队）
+      other = create_person(archive, full_name: "张大三", email: "z@e.com", phone: "13900000099")
+      assert {:ok, %{queued: 1}} = Dispatch.enqueue_for_archive(archive.key, "reconnect")
+      assert outreach_count(%{person_id: other.id, channel: :email}) == 1
+
+      # 已入队的 sms 行在配置缺失期重试 → 显式错误（不静默吞配置事故）。
+      # sms 未配置时入队面已抑制该人——手动落一行 queued 模拟「配置在入队后
+      # 被撤下」的竞态窗口，worker 的 fail-closed 是第二道闸。
+      row =
+        Outreach
+        |> Ash.Changeset.for_create(:create, %{
+          person_id: person.id,
+          channel: :sms,
+          template: "reconnect",
+          batch: "manual-race"
+        })
+        |> Ash.create!(authorize?: false)
+
+      assert {:error, :sms_not_configured} =
+               perform_job(OutreachWorker, %{
+                 "person_id" => person.id,
+                 "channel" => "sms",
+                 "batch" => "manual-race",
+                 "template" => "reconnect"
+               })
+
+      assert Repo.reload!(row).status == :failed
+    end
+  end
+
+  # ── 匿名化（R30「从第一封邮件起生效」；U10 删除级联消费的能力面） ────
+
+  describe "outreach 个人字段匿名化" do
+    test "匿名化后：person 通道字段清空 + outreach 行保留（聚合统计）+ 再入队被抑制" do
+      archive = create_archive()
+      person = create_person(archive)
+      {:ok, %{queued: 1}} = Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      assert :ok = Dispatch.anonymize_person(person.id)
+
+      anonymized = Repo.reload!(person)
+      assert anonymized.full_name == "已删除档案"
+      assert anonymized.phone == nil and anonymized.email == nil
+      assert anonymized.city == nil and anonymized.occupation_then == nil
+
+      # outreach 行保留（发送状态聚合，U11 分母）；经 person_id 回查零 PII
+      assert outreach_count(%{person_id: person.id}) == 1
+
+      # 新批次：无可用通道 → 不再触达（删除请求后 outreach 面无个人字段可言）
+      assert {:ok, %{queued: 0, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+    end
+  end
+
+  # ── 退订端点（R30 一键退订） ─────────────────────────────────────────
+
+  describe "退订端点 GET /api/flashback/unsubscribe" do
+    test "有效 token：置位 + 200 已退订页；重复点击幂等显示已退订" do
+      archive = create_archive()
+      person = create_person(archive)
+      token = Dispatch.unsubscribe_token(person.id)
+
+      conn = get(build_conn(), "/api/flashback/unsubscribe", %{"t" => token})
+
+      assert html_response(conn, 200) =~ "已为你退订"
+      assert Dispatch.unsubscribed?(person.id)
+
+      again = get(build_conn(), "/api/flashback/unsubscribe", %{"t" => token})
+      assert html_response(again, 200) =~ "你已退订"
+    end
+
+    test "无效/缺失 token → 404（不区分原因）" do
+      assert html_response(
+               get(build_conn(), "/api/flashback/unsubscribe", %{"t" => "garbage"}),
+               404
+             ) =~
+               "无效"
+
+      assert html_response(get(build_conn(), "/api/flashback/unsubscribe"), 404) =~ "无效"
+    end
+
+    test "退订后入队面立即生效（端点置位 → 双通道抑制）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      get(build_conn(), "/api/flashback/unsubscribe", %{
+        "t" => Dispatch.unsubscribe_token(person.id)
+      })
+
+      assert {:ok, %{queued: 0, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+    end
+  end
+
+  # ── admin mutation（R23 运营入口；非管理员被拒——变异验证钉住点） ────
+
+  describe "flashbackAdminSendOutreach（PlatformAdmin gate）" do
+    test "非管理员被拒；平台管理员入队成功返回计数" do
+      archive = create_archive()
+      insert_people(archive, 2)
+
+      # 未登录 → unauthorized
+      res = post_graphql(send_outreach_mutation(archive.key), nil)
+      assert [%{"code" => "unauthorized"}] = res["errors"]
+
+      # 普通用户 → forbidden
+      user = register_and_sign_in("outreach-plain")
+      res = post_graphql(send_outreach_mutation(archive.key), user.token)
+      assert [%{"code" => "forbidden"}] = res["errors"]
+      assert outreach_count(%{batch: "archive-" <> archive.key}) == 0
+
+      # 平台管理员 → 入队
+      admin = register_and_sign_in("outreach-admin", :admin)
+      res = post_graphql(send_outreach_mutation(archive.key), admin.token)
+
+      assert %{"queued" => 2, "skipped" => 0} = res["data"]["flashbackAdminSendOutreach"]
+      assert outreach_count(%{batch: "archive-" <> archive.key}) == 2
+    end
+  end
+
+  # ── 邮件模板纪律（R30：页脚退订链接不可漏） ─────────────────────────
+
+  describe "邮件模板（页脚退订链接硬约束）" do
+    test "reconnect / action_scheduled 两模板的 HTML 与纯文本均含退订链接" do
+      for email <- [
+            Emails.reconnect(@email, "王同学", "https://x/enter?token=abc", "https://x/unsub?t=d"),
+            Emails.action_scheduled(
+              @email,
+              "王同学",
+              "骑行场",
+              "https://x/events/ride",
+              "https://x/unsub?t=d"
+            )
+          ] do
+        assert email.html_body =~ "https://x/unsub?t=d"
+        assert email.text_body =~ "https://x/unsub?t=d"
+      end
+    end
+  end
+
+  # ── fixtures ─────────────────────────────────────────────────────────
+
+  defp create_archive do
+    Flashback.EventArchive
+    |> Ash.Changeset.for_create(:create, %{
+      key: "2014-01-11-bj-#{System.unique_integer([:positive])}",
+      name: "Rails Girls Beijing",
+      city: "北京",
+      occurred_on: ~D[2014-01-11]
+    })
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp create_person(archive, attrs \\ %{}) do
+    attrs =
+      Map.merge(
+        %{
+          full_name: "王小明",
+          surname: "王",
+          role: :learner,
+          participation: :attended,
+          phone: @phone,
+          email: @email
+        },
+        Map.new(attrs)
+      )
+
+    Person
+    |> Ash.Changeset.for_create(:create, Map.put(attrs, :archive_event_id, archive.id))
+    |> Ash.create!(authorize?: false)
+  end
+
+  # 344 人规模用裸 insert_all（Ash 逐条建 344 次太慢）。裸表无类型信息：uuid
+  # 须 dump 成 16 字节 binary、atom 字段落 string（与迁移列型一致）。
+  defp insert_people(archive, n) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    rows =
+      for i <- 1..n do
+        %{
+          id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+          archive_event_id: Ecto.UUID.dump!(archive.id),
+          full_name: "同学#{i}",
+          surname: "同",
+          city: "北京",
+          occupation_then: "student",
+          phone: "1390000" <> String.pad_leading(Integer.to_string(10_000 + i), 4, "0"),
+          email: "member#{i}@example.com",
+          role: "learner",
+          participation: "attended",
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    {^n, nil} = Repo.insert_all("flashback_people", rows)
+    :ok
+  end
+
+  defp create_card(attrs) do
+    Flashback.ActionCard
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp enqueue_one(person, template, extra \\ %{}) do
+    {1, _} = Dispatch.enqueue_persons([person.id], template, "test-batch")
+    job = Enum.find(enqueued_outreach_jobs("test-batch"), &(&1.args["person_id"] == person.id))
+    Map.merge(job.args, extra)
+  end
+
+  defp enqueued_outreach_jobs(batch) do
+    from(j in Oban.Job,
+      where:
+        j.worker == "Cgc2046.Flashback.Workers.OutreachWorker" and
+          fragment("args->>'batch' = ?", ^batch),
+      select: %{args: j.args, scheduled_at: j.scheduled_at}
+    )
+    |> Repo.all()
+  end
+
+  defp outreach_count(filters) when is_map(filters) do
+    Outreach
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(^filters)
+    |> Ash.read!(authorize?: false, page: false)
+    |> length()
+  end
+
+  defp outreach_row!(person_id, channel) do
+    Outreach
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(person_id == ^person_id and channel == ^channel)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp token_count(person_id) do
+    Token
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(person_id == ^person_id)
+    |> Ash.read!(authorize?: false, page: false)
+    |> length()
+  end
+
+  defp post_graphql(query, token) do
+    conn = build_conn() |> put_req_header("content-type", "application/json")
+
+    conn =
+      if token,
+        do: put_req_header(conn, "authorization", "Bearer #{token}"),
+        else: conn
+
+    conn |> post("/api/graphql", %{"query" => query}) |> json_response(200)
+  end
+
+  defp send_outreach_mutation(archive_key) do
+    """
+    mutation {
+      flashbackAdminSendOutreach(archiveKey: "#{archive_key}", template: "reconnect") {
+        queued skipped
+      }
+    }
+    """
+  end
+
+  # signIn 走 httpOnly cookie（cgc_token）；Bearer 值从 resp_cookies 提取
+  # （graphql_platform_admin_readonly_test 同款）。
+  defp register_and_sign_in(name, kind \\ :plain) do
+    alias Cgc2046.AccountsFixtures, as: Fixtures
+
+    user =
+      if kind == :admin,
+        do: Fixtures.platform_admin("outreach-#{name}"),
+        else: Fixtures.register_user("outreach-#{name}")
+
+    mutation = """
+    mutation { signIn(login: "#{user.email}", password: "#{Fixtures.password()}") { id } }
+    """
+
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{"query" => mutation})
+
+    assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
+
+    %{user: user, token: conn.resp_cookies["cgc_token"].value}
+  end
+end

@@ -2293,6 +2293,22 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
     end
+
+    # ── 闪念间管理面（U7/U8，KTD5：PlatformAdmin gate——非管理员被拒，变异验证钉住）──
+
+    @desc "闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
+    field :flashback_admin_send_outreach, :flashback_outreach_dispatch_result do
+      arg(:archive_key, non_null(:string))
+      arg(:template, non_null(:string))
+
+      resolve(fn _, %{archive_key: archive_key, template: template}, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(archive_key, template)
+          end)
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -3045,6 +3061,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_update_contact_result do
     field(:masked_phone, :string)
     field(:updated, non_null(:boolean))
+  end
+
+  object :flashback_outreach_dispatch_result do
+    @desc "入队件数（错峰 scheduled_at 限速后由 worker 续发）"
+    field(:queued, non_null(:integer))
+    @desc "跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处）"
+    field(:skipped, non_null(:integer))
   end
 
   input_object :flashback_today_input do

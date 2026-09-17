@@ -39,6 +39,7 @@
     "event_slug_locked",
     "event_slug_taken",
     "flashback_answer_not_found",
+    "flashback_archive_not_found",
     "flashback_auth_required",
     "flashback_card_not_found",
     "flashback_invalid_input",
