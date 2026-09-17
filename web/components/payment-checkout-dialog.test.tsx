@@ -557,6 +557,35 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		expect(screen.getByTestId("checkout-deposit-consent-button")).toBeDisabled();
 	});
 
+	// #675：押金脏金额（0/缺失/非整数分）→ 说明行不表态「押金（金额待定）」，
+	// 框头金额整体不显示——绝不出现「押金 ¥0（到场退）」/「¥0.00」。
+	// 识别仍走存在性（!= null）：披露门照常出现，不 fail-open 成非押金口径。
+	it.each([
+		["0", 0],
+		["非整数分", 0.4],
+	])("押金金额脏（%s）：披露门仍在（不 fail-open），说明行落待定、框头无 ¥0", async (_label, dirty) => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={dirty}
+			/>,
+		);
+
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		const note = screen.getByTestId("checkout-deposit-note");
+		expect(note).toHaveTextContent("押金（金额待定）");
+		expect(note).toHaveTextContent("未到场不退。");
+		expect(screen.getByTestId("checkout-dialog").textContent).not.toContain("¥0");
+		// 未确认前零创单
+		expect(client.mutate).not.toHaveBeenCalled();
+	});
+
 	it("押金场：勾选并确认后才下单 → 二维码渲染", async () => {
 		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
 

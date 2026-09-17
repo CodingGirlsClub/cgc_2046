@@ -16,6 +16,7 @@ import {
   paymentBlockCopy,
   paymentLandingUrl,
   parseOrderKind,
+  positiveAmountOrNull,
   POLL_INTERVAL_MS,
   POLL_TOTAL_MS
 } from '../src/domain/payment.ts'
@@ -168,21 +169,38 @@ test('缴费块三态：免费/收费/押金各一态，押金态含「未到场
   assert.deepEqual(deposit.tiers, [])
   assert.equal(deposit.notes.some((note) => note.includes('未到场不退')), true)
 
-  // 金额缺失（后端校验兜底）：降级不出价，也不并列「免费」
+  // 金额缺失（后端校验兜底）：降级为**不表态**（#675：与 web #627 同一句），也不并列「免费」
   assert.equal(
     paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: null, priceTiers: [] })
       .amountText,
-    '押金（到场退）'
+    '押金（金额待定）'
   )
 
-  // 0/负数同守卫（后端校验 min 1，纯合同对齐）：降级不出价——绝不显示 ¥0.00
-  for (const invalid of [0, -500]) {
-    assert.equal(
-      paymentBlockCopy({ pricingEnabled: false, depositEnabled: true, depositAmountCents: invalid, priceTiers: [] })
-        .amountText,
-      '押金（到场退）'
-    )
+  // 0/负数/非整数分同守卫（后端校验 min 1，纯合同对齐）：不表态——绝不显示 ¥0.00
+  for (const invalid of [0, -500, 0.4]) {
+    const amountText = paymentBlockCopy({
+      pricingEnabled: false,
+      depositEnabled: true,
+      depositAmountCents: invalid,
+      priceTiers: []
+    }).amountText
+    assert.equal(amountText, '押金（金额待定）')
+    assert.equal(amountText.includes('¥0'), false)
   }
+})
+
+// ── #675：金额守卫迁到缴费域后的小程序端单源 ──
+
+test('positiveAmountOrNull：只有正整数算有效金额，脏值（0/负/小数分/非数值）一律 null', () => {
+  for (const dirty of [null, undefined, 0, -1, -500, 0.4, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(positiveAmountOrNull(dirty as number | null | undefined), null)
+  }
+  // 字符串金额不是契约内输入（GraphQL Int），不得被当数字放过
+  assert.equal(positiveAmountOrNull('6900' as unknown as number), null)
+  assert.equal(positiveAmountOrNull(1), 1)
+  assert.equal(positiveAmountOrNull(6900), 6900)
+  // 0.4 经 formatAmount 会渲染成 ¥0.00——这正是守卫必须挡它的原因（可复现）
+  assert.equal(formatAmount(0.4), '0.00')
 })
 
 test('报名状态解析：payment_pending 是合法白名单值，不抛错（plan 006 回归钉）', () => {
@@ -292,9 +310,11 @@ test('押金支付前文案：金额行与详情页缴费块单源，必含不�
     }).amountText
   )
 
-  // 金额缺失/非正 → 降级不出价，绝不显示 ¥0.00
-  for (const invalid of [null, 0, -500]) {
-    assert.equal(depositPayNotice(invalid).amountText, '押金（到场退）')
+  // 脏金额（缺失/非正/非整数分）→ 不表态，绝不显示 ¥0.00（#675 与 web #627 同句）
+  for (const invalid of [null, 0, -500, 0.4]) {
+    const amountText = depositPayNotice(invalid).amountText
+    assert.equal(amountText, '押金（金额待定）')
+    assert.equal(amountText.includes('¥0'), false)
   }
 })
 
