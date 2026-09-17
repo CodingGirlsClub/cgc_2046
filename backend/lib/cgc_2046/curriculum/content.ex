@@ -563,16 +563,9 @@ defmodule Cgc2046.Curriculum.Content do
     if String.length(cleaned) > 60, do: String.slice(cleaned, 0, 60) <> "…", else: cleaned
   end
 
-  # 只回显类型/长度,绝不回显字符串内容(错误体积与泄露面有界)。
-  defp describe(value) when is_list(value), do: "list(#{length(value)})"
-  defp describe(value) when is_map(value), do: "map"
-  defp describe(value) when is_binary(value), do: "string(#{byte_size(value)})"
-  defp describe(nil), do: "nil"
-  defp describe(value) when is_boolean(value), do: "boolean"
-  defp describe(value) when is_integer(value), do: "integer"
-  defp describe(value) when is_float(value), do: "float"
-  defp describe(value) when is_atom(value), do: "atom"
-  defp describe(_value), do: "其他类型"
+  # 只回显类型/长度,绝不回显字符串内容(错误体积与泄露面有界)。单源在
+  # Errors.ValueSummary(#680 起全仓自定义校验共用同一摘要口径)。
+  defp describe(value), do: Cgc2046.Errors.ValueSummary.describe(value)
 
   # --- objectives(schema v2)私有实现 --------------------------------------------
 

@@ -55,6 +55,7 @@ defmodule Cgc2046.Events.VenueValidation do
 
   use Ash.Resource.Validation
 
+  alias Cgc2046.Errors.ValueSummary
   alias Cgc2046.Events.Venue
 
   @impl true
@@ -68,8 +69,11 @@ defmodule Cgc2046.Events.VenueValidation do
           :ok
         else
           {:error,
-           field: :venue,
-           message: "venue must be a map with country/province/city/district string keys"}
+           Ash.Error.Changes.InvalidAttribute.exception(
+             field: :venue,
+             message: "venue must be a map with country/province/city/district string keys",
+             value: %{"venue" => ValueSummary.describe(venue)}
+           )}
         end
     end
   end

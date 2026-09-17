@@ -76,6 +76,7 @@ defmodule Cgc2046.Accounts.SponsorshipTiersValidation do
   use Ash.Resource.Validation
 
   alias Cgc2046.Accounts.SponsorshipTier
+  alias Cgc2046.Errors.ValueSummary
 
   @impl true
   def validate(changeset, _opts, _context) do
@@ -88,9 +89,12 @@ defmodule Cgc2046.Accounts.SponsorshipTiersValidation do
           :ok
         else
           {:error,
-           field: :sponsorship_tiers,
-           message:
-             "sponsorship tiers must be a list of maps with id (UUID)/name/benefits/exclusive keys"}
+           Ash.Error.Changes.InvalidAttribute.exception(
+             field: :sponsorship_tiers,
+             message:
+               "sponsorship tiers must be a list of maps with id (UUID)/name/benefits/exclusive keys",
+             value: %{"sponsorship_tiers" => ValueSummary.describe(tiers)}
+           )}
         end
     end
   end
