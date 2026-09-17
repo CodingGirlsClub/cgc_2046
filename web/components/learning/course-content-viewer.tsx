@@ -206,7 +206,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
         <div className="learning-reader__hero-row">
           <div>
             <h1>{detail.title}</h1>
-            <p>{t("intro")}</p>
+            <p>{detail.description || t("intro")}</p>
           </div>
           <span className="learning-reader__version">{t("version")} {detail.revisionNumber ?? "—"}</span>
         </div>

@@ -78,6 +78,7 @@ defmodule Cgc2046.Courses.CourseProjection do
        %{
          course_id: course.id,
          title: course.title,
+         description: course.description,
          revision_number: revision.number,
          published_at: revision.published_at,
          content: revision.content || %{}

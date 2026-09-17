@@ -5,6 +5,7 @@ export interface CourseContentResponse {
   courseContent: {
     courseId: string;
     title: string;
+    description: string | null;
     revisionNumber: number | null;
     publishedAt: string | null;
     content: string;
@@ -19,6 +20,7 @@ export const COURSE_CONTENT: TypedDocumentNode<
     courseContent(courseId: $courseId) {
       courseId
       title
+      description
       revisionNumber
       publishedAt
       content

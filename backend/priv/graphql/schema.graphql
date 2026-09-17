@@ -5868,6 +5868,7 @@ type CourseMapIssue {
 type CourseContent {
   courseId: ID!
   title: String!
+  description: String
   revisionNumber: Int
   publishedAt: DateTime
   content: JsonString!
