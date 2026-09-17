@@ -223,7 +223,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
         :ok ->
           :ok
 
-        # 本就不该发：无平台身份 / 平台或模板未配置 —— 静默跳过（非缺陷）。
+        # 本就不该发：无平台身份 / 平台凭证未配置（平台未上线）—— 静默跳过（非缺陷）。
         {:error, reason}
         when reason in [:platform_identity_not_found, :platform_not_configured] ->
           :ok
@@ -240,6 +240,22 @@ defmodule Cgc2046.Notifications.NotificationWorker do
           )
 
           {:discard, "consent_exhausted"}
+
+        # 配置里缺模板 ID（#606 生产 480 条 discarded 的成因）：
+        # - wechat：18 个模板生产全部注入（deploy.yml 的 allowlist 循环），故这条
+        #   **只可能是配置事故**——不是「本就不该发」，而是整类通知归零；
+        # - tt/xhs：模板未申请（键保留、值 nil，见 runtime.exs 注释）⇒ 这里按设计
+        #   终态 discard + 日志，属**已知预期**（运维文档 §6），不是事故。
+        # 两类都不该重试：重试不能自愈（要重新注入 env 并重建容器），F3 定论：与
+        # :consent_exhausted 同款终态 discard + 可 grep 日志，既不做无意义重试，
+        # 也不退回「静默 :ok」丢掉唯一告警信号。
+        {:error, :template_not_configured} ->
+          Logger.warning(
+            "notification not delivered: template not configured " <>
+              "(template_key=#{args["template_key"]} platform=#{platform})"
+          )
+
+          {:discard, "template_not_configured"}
 
         {:error, reason} ->
           {:error, inspect(reason)}
