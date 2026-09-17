@@ -34,7 +34,8 @@ defmodule Cgc2046.DomainsTest do
                    Cgc2046.Miniprogram,
                    Cgc2046.Notifications,
                    Cgc2046.Payments,
-                   Cgc2046.Initiatives
+                   Cgc2046.Initiatives,
+                   Cgc2046.Flashback
                  ]
              )
   end

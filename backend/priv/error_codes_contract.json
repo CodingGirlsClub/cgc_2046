@@ -38,6 +38,8 @@
     "event_payment_mode_exclusive",
     "event_slug_locked",
     "event_slug_taken",
+    "flashback_slug_locked",
+    "flashback_slug_taken",
     "initiative_not_open",
     "initiative_rule_already_exists",
     "initiative_slug_locked",

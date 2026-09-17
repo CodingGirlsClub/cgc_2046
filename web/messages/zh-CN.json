@@ -83,6 +83,8 @@
 		"initiative_slug_locked": "倡导活动的公开链接已发布，slug 不可再修改（改 name/描述不受影响）。",
 		"initiative_not_open": "倡导活动已结束或已中止，无法发布该场次（请先重新开展活动或解除挂载）。",
 		"initiative_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。",
+		"flashback_slug_taken": "该链接地址已被另一位校友的公开档案占用，请换一个。",
+		"flashback_slug_locked": "公开档案已发布，链接地址不可再修改（可继续编辑其他内容）。",
 		"initiative_rule_already_exists": "该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试"
