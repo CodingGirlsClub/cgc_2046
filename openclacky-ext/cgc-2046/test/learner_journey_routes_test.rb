@@ -1231,6 +1231,8 @@ class HarnessScenarioWiringTest < Minitest::Test
     "learn_boot_and_inject"        => "learn",
     "learn_ugc_injection"          => "learn",
     "learn_quote_course_id"        => "learn",
+    # 章节 accordion + 任务卡上下文:章分组/当前章展开/卡内容/材料双源/CTA 注入链
+    "learn_chapter_cards"          => "learn",
     "learn_malformed_next_action"  => "learn",
     "admin_aside"                  => "admin",
     "admin_aside_ugc"              => "admin",
