@@ -229,14 +229,15 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     {:ok, enriched}
   end
 
-  # 结构化层：attended 全量满员（姓氏隐名）；内容层由 attach_content/2 决定
+  # 结构化层：attended 全量满员（姓氏隐名）；内容层由 attach_content/2 决定。
+  # 已删除档案（U10/R30）整卡撤下——deleted_at 置位即从名册消失。
   defp roster_by_archive do
     rows =
       Repo.all(
         from(p in "flashback_people",
           left_join: t in "flashback_todays",
           on: t.person_id == p.id,
-          where: p.participation == "attended",
+          where: p.participation == "attended" and is_nil(p.deleted_at),
           order_by: [asc: p.full_name],
           select: %{
             archive_event_id: p.archive_event_id,

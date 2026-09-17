@@ -580,6 +580,76 @@
 .fb-profile .fb-quote-text { font-size: 16px; }
 
 /* ── reduced-motion：跳过白光与显影，直达终态（U4 无障碍验收） ──── */
+/* ── 删除通道（U10/R30）────────────────────────────────────────── */
+.fb-delete {
+	margin-top: 28px;
+	padding-top: 20px;
+	border-top: 1px dashed var(--fb-ink-soft, #8a7f70);
+}
+.fb-delete-open {
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--fb-ink-soft, #8a7f70);
+	font-size: 13px;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.fb-delete-open-panel {
+	display: grid;
+	gap: 10px;
+	justify-items: start;
+}
+.fb-delete-title {
+	margin: 0;
+	font-size: 15px;
+	color: #b3261e;
+}
+.fb-delete-facts {
+	margin: 0;
+	padding-left: 18px;
+	color: var(--fb-ink-soft, #8a7f70);
+	font-size: 13px;
+}
+.fb-delete-label {
+	font-size: 13px;
+	color: var(--fb-ink, #2d2a26);
+}
+.fb-delete-input {
+	padding: 8px 10px;
+	border: 1px solid var(--fb-ink-soft, #8a7f70);
+	border-radius: 8px;
+	font: inherit;
+	width: 180px;
+}
+.fb-delete-actions {
+	display: flex;
+	gap: 12px;
+}
+.fb-delete-submit {
+	padding: 8px 16px;
+	border: none;
+	border-radius: 999px;
+	background: #b3261e;
+	color: #fff;
+	font-size: 13px;
+	cursor: pointer;
+}
+.fb-delete-submit:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.fb-delete-cancel {
+	padding: 8px 16px;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	border: 1px solid var(--fb-ink-soft, #8a7f70);
+	color: var(--fb-ink, #2d2a26);
+	font-size: 13px;
+	cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.fb-root {
 		--fb-flash-dur: 0.01ms;

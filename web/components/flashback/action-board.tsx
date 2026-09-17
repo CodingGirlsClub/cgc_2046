@@ -12,7 +12,7 @@ import EndorseForm from "./endorse-form";
  * 行动板（U5/R13 四态卡）：空板 / proposed / forming（附议计数+认领角色）/
  * scheduled（亮起+直链 Initiative 场次报名页+web 端退回触达文案）/ done 回贴。
  * 墙是行动板不是纪念墙：每张卡任何时刻都有可见的下一步动作。
- * 附议走 FLASHBACK_ENDORSE（token 面）；成功后经 onChanged 重拉胶囊。
+ * 附议走 FLASHBACK_ENDORSE（U9 起双入口：token 或登录态）；成功后经 onChanged 重拉胶囊。
  */
 export default function ActionBoard({
 	cards,
@@ -28,7 +28,6 @@ export default function ActionBoard({
 	const [busy, setBusy] = useState(false);
 
 	const endorse = async (cardId: string, role?: string) => {
-		if (!token) return false;
 		setBusy(true);
 		try {
 			const { data } = await runEndorse({
@@ -94,7 +93,7 @@ export default function ActionBoard({
 								card.endorsedByMe ? (
 									<p className="fb-hint">{t("endorsed")}</p>
 								) : (
-									<EndorseForm disabled={busy || !token} onEndorse={(role) => endorse(card.id, role)} />
+									<EndorseForm disabled={busy} onEndorse={(role) => endorse(card.id, role)} />
 								)
 							) : null}
 						</li>

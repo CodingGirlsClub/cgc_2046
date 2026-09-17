@@ -67,6 +67,9 @@ defmodule Cgc2046.Flashback.Endorsement do
       accept([:role_claimed])
       require_atomic?(false)
     end
+
+    # U10 删除级联专用（authorize?: false 路径）。
+    destroy(:destroy)
   end
 
   admin do

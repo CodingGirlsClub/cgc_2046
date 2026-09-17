@@ -481,6 +481,64 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
     end
   end
 
+  describe "flashbackDelete（U10/R30 二次确认 + 双入口）" do
+    test "confirm 错值被拒；正确值删除后 token revoked + 数据清除" do
+      archive = create_archive()
+      person = create_person(archive)
+      create_answer(person)
+      {plain, _} = issue_token(person)
+
+      wrong = """
+      mutation { flashbackDelete(token: "#{plain}", confirm: "yes") { deleted } }
+      """
+
+      assert [%{"code" => "flashback_delete_confirm_required"}] = post_graphql(wrong)["errors"]
+
+      ok = """
+      mutation { flashbackDelete(token: "#{plain}", confirm: "DELETE") { deleted deletedAt: deleted_at } }
+      """
+
+      res = post_graphql(ok)
+      assert res["data"]["flashbackDelete"]["deleted"] == true
+
+      # 删除后 token 失效（enter 不可再用）
+      assert [%{"code" => "flashback_token_revoked"}] = post_graphql(enter_query(plain))["errors"]
+    end
+
+    test "会话腿删除（登录账号）；preview 返回摘要" do
+      archive = create_archive()
+      person = create_person(archive)
+      create_answer(person)
+      user = Cgc2046.AccountsFixtures.register_user("fb-del-session")
+
+      person
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
+      |> Ash.update!(authorize?: false)
+
+      preview = """
+      query { flashbackDeletePreview {
+        personId: person_id fullName: full_name endorsementCount: endorsement_count alreadyDeleted: already_deleted } }
+      """
+
+      res = post_as_user(preview, user)
+      payload = res["data"]["flashbackDeletePreview"]
+      assert payload["fullName"] == "王小明"
+      assert payload["alreadyDeleted"] == false
+
+      deletion = """
+      mutation { flashbackDelete(confirm: "DELETE") { deleted } }
+      """
+
+      res = post_as_user(deletion, user)
+      assert res["data"]["flashbackDelete"]["deleted"] == true
+
+      # 账号解绑后再查 → not_bound
+      res = post_as_user(preview, user)
+      assert [%{"code" => "flashback_person_not_bound"}] = res["errors"]
+    end
+  end
+
   describe "写面会话身份（U9/R28：token 省略 → 登录账号绑定档案）" do
     # signIn 换 Bearer（同 graphql_complexity_budget_test 的 token_for 形状）。
     defp token_for(user) do

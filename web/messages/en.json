@@ -2527,6 +2527,19 @@
 				"body": "The link may be mistyped or past its time. If you signed up back then, reclaim your copy at the self-service recovery entrance.",
 				"action": "Recover my archive"
 			}
+		},
+		"delete": {
+			"title": "Delete my archive",
+			"warning": "This cannot be undone: your card leaves the wall, your personal link stops working, and your answers, reply, endorsements and quote licenses are erased.",
+			"error": "Deletion did not complete. Please try again later.",
+			"factsName": "Archive: {name}",
+			"factsOnWall": "Currently on the alumni wall; {count, plural, =1 {1 endorsement} other {# endorsements}} will be removed",
+			"factsOffWall": "Not yet sent to the wall; {count, plural, =1 {1 endorsement} other {# endorsements}} will be removed",
+			"confirmLabel": "Type DELETE to confirm",
+			"submit": "Delete permanently",
+			"cancel": "Cancel",
+			"doneTitle": "Your archive has been erased",
+			"doneBody": "Data deleted, link invalidated. Thank you for having been here."
 		}
 	},
 	"initiatives": {

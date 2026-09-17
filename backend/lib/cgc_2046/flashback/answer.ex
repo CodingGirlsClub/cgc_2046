@@ -61,6 +61,9 @@ defmodule Cgc2046.Flashback.Answer do
       change(&validate_fog/2)
     end
 
+    # U10 删除级联专用（authorize?: false 路径——原文硬删，PIPL 数据清除）。
+    destroy(:destroy)
+
     # U2 flashbackAdjustFog 的落点：只改 spans，raw_text 不可达（不在 accept）。
     update :adjust_fog do
       require_atomic?(false)

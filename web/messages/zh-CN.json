@@ -2527,6 +2527,19 @@
 				"body": "链接可能抄错了，或者已经过期。如果你当年报过名，可以从自助找回入口拿到你的那一份。",
 				"action": "自助找回我的档案"
 			}
+		},
+		"delete": {
+			"title": "删除我的档案",
+			"warning": "删除不可恢复：你的卡会从墙上撤下、专属链接立即失效、当年答案与回信将被清除、附议与金句授权一并删除。",
+			"error": "删除没有完成，请稍后重试。",
+			"factsName": "档案：{name}",
+			"factsOnWall": "已寄出到校友墙；{count} 条附议将一并删除",
+			"factsOffWall": "尚未寄出；{count} 条附议将一并删除",
+			"confirmLabel": "输入 DELETE 确认删除",
+			"submit": "确认删除",
+			"cancel": "取消",
+			"doneTitle": "你的档案已清除",
+			"doneBody": "数据已删除、链接已失效。感谢你曾经来过。"
 		}
 	},
 	"initiatives": {

@@ -269,6 +269,31 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "删除摘要（U10/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
+    field :flashback_delete_preview, :flashback_delete_preview_result do
+      arg(:token, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                with {:ok, resolved} <-
+                       Cgc2046.Flashback.Deletion.resolve_identity(token, nil) do
+                  Cgc2046.Flashback.Deletion.preview(resolved)
+                end
+
+              {:person, _person_id} ->
+                with {:ok, resolved} <-
+                       Cgc2046.Flashback.Deletion.resolve_identity(nil, context[:actor]) do
+                  Cgc2046.Flashback.Deletion.preview(resolved)
+                end
+            end
+          end
+        end)
+      end)
+    end
+
     @desc "闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
     field :flashback_public_stats, :flashback_public_stats do
       resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
@@ -2275,7 +2300,35 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
+    @desc "删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
+    field :flashback_delete, :flashback_delete_result do
+      arg(:token, :string)
+      arg(:confirm, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                with {:ok, resolved} <-
+                       Cgc2046.Flashback.Deletion.resolve_identity(token, nil) do
+                  Cgc2046.Flashback.Deletion.delete(resolved, args[:confirm])
+                end
+
+              {:person, _person_id} ->
+                with {:ok, resolved} <-
+                       Cgc2046.Flashback.Deletion.resolve_identity(nil, context[:actor]) do
+                  Cgc2046.Flashback.Deletion.delete(resolved, args[:confirm])
+                end
+            end
+          end
+        end)
+      end)
+    end
+
+    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
     field :flashback_endorse, :flashback_endorse_result do
       arg(:token, :string)
       arg(:card_id, non_null(:id))
@@ -3012,6 +3065,22 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:role_claimed, :string)
     @desc "首次附议 true；再次点击（改角色）false——附议计数只随首次 +1"
     field(:first_time, non_null(:boolean))
+  end
+
+  # ── 删除（U10/R30/ADR-0015）────────────────────────────────────────
+  object :flashback_delete_result do
+    field(:deleted, non_null(:boolean))
+    field(:deleted_at, non_null(:string))
+  end
+
+  object :flashback_delete_preview_result do
+    field(:person_id, non_null(:id))
+    field(:full_name, non_null(:string))
+    @desc "寄出态（撤下提示依据）；未寄出为 null"
+    field(:sent_to_wall_at, :string)
+    @desc "将一并删除的附议数"
+    field(:endorsement_count, non_null(:integer))
+    field(:already_deleted, non_null(:boolean))
   end
 
   # ── 公开层类型（U6/R32）：路人可见的故事与授权的名字，不是名单 ──────────
