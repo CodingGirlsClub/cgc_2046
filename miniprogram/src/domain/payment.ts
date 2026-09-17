@@ -197,6 +197,25 @@ const CARD_ORDER_STATUSES: Record<string, true> = {
   refund_failed: true
 }
 
+/** 报名名下「有缴费事实」的订单（白名单过滤；缴费文案与 M7 付费卡触点判据共用）。 */
+function cardOrdersOf(
+  enrollmentId: string,
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[]
+): Pick<OrderSummary, 'enrollmentId' | 'status'>[] {
+  return orders.filter((order) => order.enrollmentId === enrollmentId && CARD_ORDER_STATUSES[order.status])
+}
+
+/**
+ * M7 付费卡触点判据（#683）：缴费事实报名的 id 集（一次 O(orders) 预分组，
+ * 页面 useMemo 后逐卡 O(1) 查 `paidIds.has(id)`）。**不看 enrollment.status**——
+ * 退款落定时报名可能已 cancelled，卡上仍应能补订阅授权（配额结转）。
+ */
+export function paidEnrollmentIds(
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[]
+): ReadonlySet<string> {
+  return new Set(orders.filter((order) => CARD_ORDER_STATUSES[order.status]).map((order) => order.enrollmentId))
+}
+
 /**
  * 报名卡缴费文案（R16，单源）：payment_pending 由报名状态自身表达（待支付 + 名额
  * 保留提示）；confirmed 报名只认白名单订单状态（已支付/退款中/已退款/押金未退/
@@ -213,7 +232,7 @@ export function enrollmentPaymentText(
   }
   if (enrollment.status !== 'confirmed') return null
 
-  const statuses = orders.filter((order) => order.enrollmentId === enrollment.id && CARD_ORDER_STATUSES[order.status])
+  const statuses = cardOrdersOf(enrollment.id, orders)
   const latest = statuses[statuses.length - 1]
   return latest ? `缴费状态：${PAYMENT_STATUS_LABEL[latest.status]}` : null
 }

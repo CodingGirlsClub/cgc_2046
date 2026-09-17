@@ -51,6 +51,12 @@ export type SubscriptionScenario =
   | 'speaker_accepted'
   | 'speaker_completed'
   | 'learning_stagnation'
+  | 'payment_succeeded'
+  | 'payment_expired'
+  | 'refund_succeeded'
+  | 'refund_failed'
+  | 'enrollment_submitted'
+  | 'payment_received'
 
 export interface CatalogItem {
   id: string
