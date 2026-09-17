@@ -91,8 +91,14 @@ export interface PaymentCheckoutDialogProps {
   /** 所选档位名（头部展示；复访承接时可不传） */
   tierName?: string | null;
   /**
-   * 押金金额（分；R10/KTD10）。传值 = 押金场收银：框内明示「押金 ¥xx（到场退）」与
-   * 「未到场不退」，并在订单就绪前以其作头部金额（押金场无档位，amountCents 为空）。
+   * 押金场识别（#686）：按**存在性**判定——报名目标开启押金即押金收银，与金额
+   * 是否就绪无关。无活单的 consent 预判分支与 isDepositCheckout 渲染判据都以
+   * 它定门；金额缺失不再让押金场漏过同意勾选（fail-open）。
+   */
+  depositEnabled?: boolean;
+  /**
+   * 押金金额（分；R10/KTD10，#686 后纯表态）：头部金额与「押金 ¥xx（到场退）」
+   * 说明行的展示值；不参与押金场识别（识别只认 depositEnabled / 订单快照）。
    */
   depositAmountCents?: number | null;
   /** 活动标题（头部展示） */
@@ -105,6 +111,7 @@ export default function PaymentCheckoutDialog({
   onPaid,
   amountCents: amountHintCents = null,
   tierName = null,
+  depositEnabled = false,
   depositAmountCents = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
@@ -254,9 +261,10 @@ export default function PaymentCheckoutDialog({
         setPhase(kind === "deposit" ? "consent" : "paying");
         return;
       }
-      if (depositAmountCents != null) {
+      if (depositEnabled) {
         // 无活单 + 押金场：先停确认态（U1），确认后才创单——此刻尚无订单，
-        // 活动现价即承诺价
+        // 活动现价即承诺价。识别按存在性（#686）：depositEnabled 开即押金收银，
+        // 金额缺失不漏门（金额只用于表态）
         setPhase("consent");
         return;
       }
@@ -265,7 +273,7 @@ export default function PaymentCheckoutDialog({
     return () => {
       cancelled = true;
     };
-  }, [phase, enrollmentId, title, createOrder, depositAmountCents, t]);
+  }, [phase, enrollmentId, title, createOrder, depositEnabled, t]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
@@ -341,10 +349,11 @@ export default function PaymentCheckoutDialog({
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
   // 押金口径（#580）：订单就绪 → 只认订单快照 orderKind；未就绪（无活单的
-  // consent 预判路径）→ 活动现价。说明行金额同源：快照优先、现价兜底。
+  // consent 预判路径）→ 押金场存在性（#686：depositEnabled，金额不参与识别）。
+  // 说明行金额同源：快照优先、现价兜底。
   const isDepositCheckout =
     order?.orderKind === "deposit" ||
-    (order === null && depositAmountCents != null);
+    (order === null && depositEnabled);
   const depositNoteCents = order?.amountCents ?? depositAmountCents;
 
   return (

@@ -1012,11 +1012,14 @@ export function OfferingDetailPage({
     /** payment_pending 态的去支付入口目标（R5 报名 id） */
     enrollmentId?: string | null;
   }>({ kind: "idle", message: null });
-  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭
+  // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
+  // 押金事实按存在性传递（#686）：depositEnabled 定门，金额只表态。
   const [checkout, setCheckout] = useState<{
     enrollmentId: string;
     amountCents: number | null;
     tierName: string | null;
+    depositEnabled: boolean;
+    depositAmountCents: number | null;
     title: string;
   } | null>(null);
   // 渲染期时间快照（react-hooks/purity：渲染体不得直接调 Date.now；仓内
@@ -1110,13 +1113,21 @@ export function OfferingDetailPage({
   // 而非 effect 补 setState（react-hooks/set-state-in-effect）;?? 保留用户已选。
   const effectiveTierId = tierId ?? priceTiers[0]?.id ?? null;
   const paidTier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
-  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），复访承接可不带
+  // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），押金场带押金口径
+  // （#686：depositEnabled 按存在性定门随载荷下传；金额/「押金」名只表态，
+  // 与公开页 openCheckoutFor 同款——押金场无档位，不与 tier 混合）
   function openCheckoutFor(enrollmentId: string) {
+    const depositCents =
+      offering?.depositEnabled === true
+        ? (offering.depositAmountCents ?? null)
+        : null;
     const tier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
     setCheckout({
       enrollmentId,
-      amountCents: tier?.amountCents ?? null,
-      tierName: tier?.name ?? null,
+      amountCents: depositCents ?? tier?.amountCents ?? null,
+      tierName: depositCents != null ? t("depositName") : (tier?.name ?? null),
+      depositEnabled: offering?.depositEnabled === true,
+      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
@@ -2706,6 +2717,8 @@ export function OfferingDetailPage({
             enrollmentId={checkout.enrollmentId}
             amountCents={checkout.amountCents}
             tierName={checkout.tierName}
+            depositEnabled={checkout.depositEnabled}
+            depositAmountCents={checkout.depositAmountCents}
             title={checkout.title}
             onClose={() => setCheckout(null)}
             onPaid={() => void refetchEnrollment()}

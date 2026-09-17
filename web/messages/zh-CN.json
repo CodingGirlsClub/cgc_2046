@@ -1350,6 +1350,7 @@
 		"paymentSlotFree": "免费",
 		"paymentSlotPricing": "收费 {overview}",
 		"paymentSlotDeposit": "押金 ¥{amount}（到场退）",
+		"depositName": "押金",
 		"depositAmountLabel": "押金金额（元）",
 		"depositRefundHint": "到场核销后全额退还；未到场不退。",
 		"depositAmountRequired": "开启押金需填写大于 0 的押金金额。",

@@ -100,11 +100,13 @@ export default function PublicOfferingDetailPage({
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
   // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
-  // 押金场无档位 → depositAmountCents 承载押金口径（R10 框内明示）。
+  // 押金场无档位 → 押金口径随载荷下传（#686：depositEnabled 按存在性定门，
+  // depositAmountCents 只表态）。
   const [checkout, setCheckout] = useState<{
     enrollmentId: string;
     amountCents: number | null;
     tierName: string | null;
+    depositEnabled: boolean;
     depositAmountCents: number | null;
     title: string;
   } | null>(null);
@@ -364,6 +366,7 @@ export default function PublicOfferingDetailPage({
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositEnabled: offering?.depositEnabled === true,
       depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
@@ -1032,6 +1035,7 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
+          depositEnabled={checkout.depositEnabled}
           depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
