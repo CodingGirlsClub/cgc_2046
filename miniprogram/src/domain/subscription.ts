@@ -21,12 +21,11 @@ import type { ContentKind, EnrollmentStatus, SubscriptionScenario } from './mode
  *   小程序内唯一近似落点是「我的报名」里的**课程**卡。
  * - `event_moderator_assigned` 有鸡生蛋问题：用户正是通过该通知才首次得知被指派，
  *   故**第一次指派必然送不到**；M5 覆盖的是「已是某活动主理人者订阅后续指派」。
- * - 后端 registry 另有 6 个键**至今没有前端入口**（`enrollment_submitted` /
- *   `payment_succeeded` / `refund_succeeded` / `refund_failed` / `payment_received`
- *   / `payment_expired`，生产恒 discarded）——它们不在 `ALL_SCENARIOS` 里，由后端
- *   `notification_worker_test.exs` 的「registry ⊆ 场景 ∪ 显式缺口」守卫与前端
- *   `tests/subscription-domain.test.ts` 的 `UNCOVERED_SCENARIOS` 双向登记（#664
- *   审计），补齐走 **#683**，勿在此默默扩张。
+ * - `refund_succeeded` / `refund_failed` / `payment_expired` 有**双受众**（付款人 +
+ *   管理者/发起人）：付款人腿由 M7 付费卡覆盖（#683）；**管理者腿无小程序入口**
+ *   ——最佳授权时刻是「管理员点退款时的顺手授权」，但小程序无退款操作面
+ *   （refundOrder 仅 web/GraphQL），留待后续 issue。先例 = speaker_completed
+ *   分享者腿，由后端 `consent_exhausted` 可观测性暴露。
  * - `enrollment_completed` 的 **web 报名腿无授权路径**：微信一次性订阅只能在微信
  *   内发起（`grantMiniProgramNotificationConsent` 只在小程序），web 报名的用户
  *   仍收不到——已知残余缺口（记录在 #664 / #683），不可由小程序场景闭合。
@@ -45,7 +44,13 @@ export const ALL_SCENARIOS = [
   'event_moderator_assigned',
   'speaker_accepted',
   'speaker_completed',
-  'learning_stagnation'
+  'learning_stagnation',
+  'payment_succeeded',
+  'payment_expired',
+  'refund_succeeded',
+  'refund_failed',
+  'enrollment_submitted',
+  'payment_received'
 ] as const satisfies readonly SubscriptionScenario[]
 
 /** 微信单次 `tmplIds` 上限（官方文档：一次调用最多可订阅 3 条消息）。 */
@@ -195,6 +200,62 @@ export function moderatorTouchpoint(): SubscriptionTouchpoint {
     label: '订阅主理人指派通知',
     scenarios: ['event_moderator_assigned'],
     acceptedCopy: '已订阅，被指派为新活动主理人时会通知你',
+    deniedCopy: '你暂未授权，可稍后再试'
+  }
+}
+/**
+ * M6 订单支付页（pages/order-pay）· **双态**——`payment_succeeded` 的授权时刻
+ * （#683 收紧 2）。pending 态（「立即支付」旁）是唯一能赶在发送前的时刻：授权
+ * 先落库（grant +1）→ 用户支付 → 渠道回调 → PaymentSettlementWorker 发送 →
+ * Consent.take 命中，**首单即送达**。paid 态对「没授权就付了」的用户兜底：此刻
+ * 发送与轮询确认几乎同刻，本单大概率已 discard，授权结转下一单（remaining_uses
+ * 累积）。用户不点订阅直接付款 = 用户选择，非结构缺陷。
+ *
+ * 两态同一场景集（2/3）：支付凭证 + 活动提醒（付费活动的开始/改期同样关心，
+ * 此前 paid 态本就单独问 event_reminder）。
+ */
+export function paymentResultTouchpoint(paid: boolean): SubscriptionTouchpoint {
+  return {
+    page: 'pages/order-pay/index（等待支付 + 支付成功）',
+    trigger: '用户在支付页点按订阅按钮（付款前先授权，或付款后补授权）',
+    label: paid ? '订阅支付与活动通知' : '订阅支付结果通知',
+    scenarios: ['payment_succeeded', 'event_reminder'],
+    acceptedCopy: '已订阅，支付结果与活动变动会通知你',
+    deniedCopy: '你暂未授权，可再试或在「我的报名」查看支付记录'
+  }
+}
+
+/**
+ * M7 我的报名 · 付费卡（pages/my-enrollments）——资金类三键的付款人腿，恰好
+ * 用满单次上限 3。渲染判据 = 该报名名下有「有缴费事实」订单（payment.ts 的
+ * `paidEnrollmentIds`，白名单 paid/refunding/refunded/refund_failed/forfeited），
+ * **不看 enrollment.status**：退款落定时报名可能已 cancelled，卡上仍可补授权
+ * （配额结转下一次退款/下一单过期）。管理者腿缺口见 moduledoc。
+ */
+export function refundCardTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/my-enrollments/index（付费报名卡）',
+    trigger: '有缴费事实的用户点按订阅按钮',
+    label: '订阅退款与订单变动通知',
+    scenarios: ['refund_succeeded', 'refund_failed', 'payment_expired'],
+    acceptedCopy: '已订阅，退款到账与订单变动会通知你',
+    deniedCopy: '你暂未授权，可稍后再试或在「我的报名」查看退款进度'
+  }
+}
+
+/**
+ * M8 工作台（pages/workspace）· 第二订阅按钮——M4 用满 3 后的管理者增量
+ * （#683 裁决 A：加按钮而非重组既有分组）。两键的深链落页都是工作台
+ * （client.ex `@manager_templates`），按钮落在自己通知的落页上。渲染门同
+ * M4：仅 `manageable`，不要求有待审批项。
+ */
+export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/workspace/index',
+    trigger: 'Owner/Admin 打开工作台，点按第二个订阅按钮',
+    label: '订阅新报名与收款通知',
+    scenarios: ['enrollment_submitted', 'payment_received'],
+    acceptedCopy: '已订阅，新报名与收款到账会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }
