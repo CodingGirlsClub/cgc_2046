@@ -768,6 +768,48 @@ defmodule Cgc2046.Events.Event do
       )
     end
 
+    # draft-only 删除（#676，ADR-0015）：与 Course :delete 同款（行锁守卫 + 状态
+    # 裁决 + slug 释放），差异 = **无教研级联**。
+    #
+    # 无级联的论证：draft 活动没有教研 run（course 的 prep run 在创建时由
+    # course.created 实例化；event 的 run 在 launch 后由 Instantiator 创建，draft
+    # 阶段结构性不存在），也没有内容行（curriculum_outputs 只有 course 维度）。
+    # FK 上挂的子行由 DB 承接（见各自迁移）：event_moderators / enrollments /
+    # sponsorships / speaker_invitations / invite_batches 均 on_delete: delete_all
+    # 自动级联；attendances 无 on_delete（核销行只在 open 后由 confirmed 报名产生，
+    # draft 结构性不存在——存在即 DELETE 被 FK 拒绝，fail-closed 不静默丢数据）。
+    # 治理留痕（admin_action_logs / tool_calls）不随业务行删除。
+    #
+    # 行锁守卫（SELECT … FOR UPDATE）与 slug 释放论证同 Course :delete（见该 action
+    # 注释）：status 列是 text，行值即 atom attribute 的 DB 形态（"draft"）。
+    destroy :delete do
+      description("删除草稿活动：仅 draft；不可恢复；slug 释放（#676）")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          repo = Cgc2046.Repo
+
+          case repo.query("SELECT status FROM events WHERE id = $1 FOR UPDATE", [
+                 repo.uuid!(Ash.Changeset.get_data(cs, :id))
+               ]) do
+            {:ok, %{rows: [["draft"]]}} ->
+              cs
+
+            {:ok, %{rows: [[status]]}} ->
+              Ash.Changeset.add_error(cs, "cannot delete from status=#{status}")
+
+            {:ok, %{rows: []}} ->
+              Ash.Changeset.add_error(cs, "event not found")
+
+            {:error, reason} ->
+              Ash.Changeset.add_error(cs, {:database, reason})
+          end
+        end)
+      end)
+    end
+
     update :qualify do
       description("在报名截止时一次性落成班事实；仅内部生命周期 worker 使用")
       require_atomic?(false)
@@ -1037,6 +1079,14 @@ defmodule Cgc2046.Events.Event do
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
+
+    # 删除（#676，ADR-0015）：收窄面——Workspace Owner ∪ 平台管理员（同 Course
+    # :destroy 口径；admin 不放行，理由 = 删除不可逆、无回收站）。MCP 面
+    # member-only 门不含 platform_admin 豁免（S2 成文契约）。
+    policy action_type(:destroy) do
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwner)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
   end
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
@@ -1082,6 +1132,9 @@ defmodule Cgc2046.Events.Event do
       update(:launch_event, :launch)
       update(:close_event, :close)
       update(:cancel_event, :cancel)
+
+      # draft-only 删除（#676，ADR-0015）：授权面 = Owner ∪ 平台管理员（见 policies）。
+      destroy(:delete_event, :delete)
     end
   end
 
