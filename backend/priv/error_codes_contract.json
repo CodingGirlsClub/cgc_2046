@@ -44,6 +44,7 @@
     "flashback_invalid_input",
     "flashback_person_not_bound",
     "flashback_quote_span_out_of_bounds",
+    "flashback_recover_rate_limited",
     "flashback_slug_locked",
     "flashback_slug_taken",
     "flashback_token_claimed",

@@ -546,6 +546,39 @@
 .fb-export-full-line { font-size: 10px; line-height: 1.7; margin: 0; text-align: left; }
 .fb-export-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
 
+/* ── U6 公开层：首页 / 金句墙 / 找回 / 实名页 ─────────────────────── */
+.fb-public { min-height: 100vh; display: flex; flex-direction: column; }
+.fb-public-hero { text-align: center; padding: 60px 26px 30px; }
+.fb-public-stats, .fb-public-quotes, .fb-recover { padding: 18px 26px; text-align: left; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.fb-public-archives { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; color: #d9d4ca; font-size: 13px; }
+.fb-public-empty {
+	color: #8d887e;
+	font-size: 13px;
+	line-height: 1.8;
+	border: 1px dashed rgba(239, 233, 219, 0.26);
+	border-radius: 8px;
+	padding: 18px 16px;
+	margin: 0;
+}
+.fb-quote-wall { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.fb-quote-item {
+	background: rgba(239, 233, 219, 0.07);
+	border-radius: 8px;
+	padding: 16px 18px;
+	display: grid;
+	gap: 8px;
+}
+.fb-quote-text { color: #d9d4ca; font-size: 14px; line-height: 1.8; margin: 0; font-style: normal; }
+.fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
+.fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
+.fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
+.fb-recover-input { background: rgba(239, 233, 219, 0.08); border: 1px solid rgba(239, 233, 219, 0.25); border-radius: 8px; padding: 12px 14px; color: #d9d4ca; border-bottom-width: 1px; }
+.fb-recover-cards ul { list-style: none; padding: 0; display: grid; gap: 8px; }
+.fb-recover-card { color: #d9d4ca; font-size: 14px; border: 1px dashed rgba(239, 233, 219, 0.3); border-radius: 8px; padding: 10px 14px; }
+.fb-recover-done { display: grid; gap: 10px; }
+.fb-profile { text-align: center; max-width: 560px; margin: 0 auto; padding: 60px 26px 30px; display: grid; gap: 14px; justify-items: center; }
+.fb-profile .fb-quote-text { font-size: 16px; }
+
 /* ── reduced-motion：跳过白光与显影，直达终态（U4 无障碍验收） ──── */
 @media (prefers-reduced-motion: reduce) {
 	.fb-root {

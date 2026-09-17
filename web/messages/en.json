@@ -97,6 +97,7 @@
 		"flashback_card_not_found": "That action card can't be found — refresh and try again.",
 		"flashback_auth_required": "Entering the capsule takes your personal link, or a signed-in bound account.",
 		"flashback_person_not_bound": "This account has no In-a-Flash archive bound yet — enter once via your personal link.",
+		"flashback_recover_rate_limited": "Too many recovery attempts — try again in an hour.",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
 	},
@@ -2274,7 +2275,44 @@
 			"homeTitle": "In a Flash",
 			"homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years.",
 			"capsuleTitle": "Time Capsule · In a Flash",
-			"capsuleDescription": "Companions from those years are developing here — send your photo and see the next card on the wall."
+			"capsuleDescription": "Companions from those years are developing here — send your photo and see the next card on the wall.",
+			"profileTitle": "In a Flash · Credited Profile"
+		},
+		"home": {
+			"kicker": "In a Flash",
+			"title": "A batch of answers, waiting to be claimed",
+			"lead": "From 2012 to 2018, the Rails Girls and Girls Coding Day signup forms kept thousands of answers. We turned them into polaroid archives — press the shutter and recognize the you from back then.",
+			"whoAreWe": "We are Coding Girls Club — the people who ran those events, now bringing everyone back.",
+			"statsTitle": "Happening now",
+			"archiveCounts": "{applied} signed up / {attended} made it into the room",
+			"returned": "{count} have come back; {sent} of them sent their photos.",
+			"statsEmpty": "The first letter hasn't gone out yet. The roster is ready and the shutter is cocked — returning people will start counting from here.",
+			"statsStarted": "Someone came back. Each person develops one more photo on this wall.",
+			"quotesTitle": "Quotes from those years",
+			"quotesEmpty": "The quote wall is still empty — the first line will come from an alumna's license.",
+			"footer": "The silent stay safe: until sent, only you can see your answers."
+		},
+		"recover": {
+			"title": "Recover your piece of memory",
+			"lead": "Signed up back then but lost the link? Leave the phone number or email from that year — we'll send your entrance to you.",
+			"identifierPlaceholder": "Phone number or email from back then",
+			"initiate": "Recover my archive",
+			"sentHint": "If this number/email is in our old roster, a code or entrance link has been sent — check your phone and inbox.",
+			"codePlaceholder": "Verification code",
+			"verify": "Verify and enter",
+			"cardsTitle": "Found your {count} cards — they're all yours now",
+			"enterCapsule": "Enter the time capsule →",
+			"bound": "Your archive is bound to your account. From now on, enter from \"Mine\".",
+			"errorCode": "That code is wrong or has expired — try again.",
+			"errorRetry": "That step didn't succeed — try again shortly."
+		},
+		"profile": {
+			"kicker": "Credited support",
+			"loading": "Developing…",
+			"notFoundTitle": "This page hasn't developed yet",
+			"notFoundBody": "The credited profile for this link doesn't exist, or isn't licensed for the public.",
+			"backHome": "Back to the In a Flash home",
+			"footer": "This page is shown publicly under the person's credited license (In a Flash · quote license, tier two)."
 		},
 		"journey": {
 			"loading": "Developing…",

@@ -97,6 +97,7 @@
 		"flashback_card_not_found": "找不到这张行动卡，请刷新后重试。",
 		"flashback_auth_required": "进入时间胶囊需要你的专属链接，或登录已绑定的账号。",
 		"flashback_person_not_bound": "当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。",
+		"flashback_recover_rate_limited": "找回尝试过于频繁，请一小时后再试。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试"
 	},
@@ -2274,7 +2275,44 @@
 			"homeTitle": "闪念间 · In a Flash",
 			"homeDescription": "把 2012-2018 年 Rails Girls / Girls Coding Day 的报名答案变成拍立得档案，唤醒当年的学员、教练与志愿者。",
 			"capsuleTitle": "时间胶囊 · 闪念间",
-			"capsuleDescription": "当年的同行者们正在这里显影——寄出你的照片，看看墙上的下一张卡。"
+			"capsuleDescription": "当年的同行者们正在这里显影——寄出你的照片，看看墙上的下一张卡。",
+			"profileTitle": "闪念间 · 实名档案"
+		},
+		"home": {
+			"kicker": "闪念间",
+			"title": "有一批答案，正在等人回来认领",
+			"lead": "2012-2018 年，Rails Girls 与 Girls Coding Day 的报名表里存着几千份答案。我们把这些答案变成拍立得档案——按下快门，认出当年的自己。",
+			"whoAreWe": "我们是 Coding Girls Club——当年办活动的人，现在想把大家找回来。",
+			"statsTitle": "正在发生",
+			"archiveCounts": "报名 {applied} 人 / 走进教室 {attended} 人",
+			"returned": "已经回来 {count} 人，其中 {sent} 人寄出了自己的照片。",
+			"statsEmpty": "第一封信还没寄出。名单已经就位，快门已经上弦——回来的人会从这里开始计数。",
+			"statsStarted": "有人回来了。每多一个人，这面墙就多显影一张。",
+			"quotesTitle": "当年的金句",
+			"quotesEmpty": "金句墙还空着——第一句会来自某位校友的授权。",
+			"footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
+		},
+		"recover": {
+			"title": "找回你的那份记忆",
+			"lead": "当年报过名、现在找不到链接？留下当年的手机号或邮箱——我们会把入口发给你。",
+			"identifierPlaceholder": "当年的手机号或邮箱",
+			"initiate": "找回我的档案",
+			"sentHint": "如果这个号码/邮箱在我们当年的名单里，验证码或入口链接已经发出——请查收手机和邮箱。",
+			"codePlaceholder": "验证码",
+			"verify": "验证并进入",
+			"cardsTitle": "找到了你的 {count} 张卡——它们都归你了",
+			"enterCapsule": "进入时间胶囊 →",
+			"bound": "档案已与你的账号绑定。从今往后从「我的」进入。",
+			"errorCode": "验证码不对或已过期，请重试。",
+			"errorRetry": "刚才那步没有成功，请稍后重试。"
+		},
+		"profile": {
+			"kicker": "实名支持",
+			"loading": "正在显影……",
+			"notFoundTitle": "这一页还没有显影",
+			"notFoundBody": "这个链接对应的实名档案不存在，或尚未授权公开。",
+			"backHome": "回到闪念间首页",
+			"footer": "本页内容经本人实名授权公开展示（闪念间 · 金句授权第二档）。"
 		},
 		"journey": {
 			"loading": "正在显影……",

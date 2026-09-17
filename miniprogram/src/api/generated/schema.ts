@@ -2299,11 +2299,65 @@ export type FlashbackProgress = {
   today?: Maybe<FlashbackToday>;
 };
 
+export type FlashbackPublicProfile = {
+  city?: Maybe<Scalars['String']['output']>;
+  /** 实名补充：现在在做什么、想法（R31 credited 档） */
+  creditedNote?: Maybe<Scalars['String']['output']>;
+  eventName?: Maybe<Scalars['String']['output']>;
+  fullName: Scalars['String']['output'];
+  quote: Scalars['String']['output'];
+  year?: Maybe<Scalars['Int']['output']>;
+};
+
+export type FlashbackPublicQuote = {
+  /** 署名：王** · 年 · 城 */
+  attribution: Scalars['String']['output'];
+  level: Scalars['String']['output'];
+  /** credited 档才有：链实名档案页 */
+  publicSlug?: Maybe<Scalars['String']['output']>;
+  /** 授权金句文本（区间切片；雾面句本就不进候选） */
+  text: Scalars['String']['output'];
+};
+
+export type FlashbackPublicStats = {
+  archives: Array<FlashbackPublicStatsArchive>;
+  /** 已回来人数（distinct link_opened touch） */
+  returnedCount: Scalars['Int']['output'];
+  sentCount: Scalars['Int']['output'];
+};
+
+export type FlashbackPublicStatsArchive = {
+  appliedCount?: Maybe<Scalars['Int']['output']>;
+  attendedCount?: Maybe<Scalars['Int']['output']>;
+  city?: Maybe<Scalars['String']['output']>;
+  key: Scalars['String']['output'];
+  name?: Maybe<Scalars['String']['output']>;
+  occurredOn?: Maybe<Scalars['String']['output']>;
+};
+
 export type FlashbackQuoteLicenseResult = {
   chosenQuoteSpan?: Maybe<FlashbackFogSpan>;
   creditedNote?: Maybe<Scalars['String']['output']>;
   level: Scalars['String']['output'];
   questionKey?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackRecoverCard = {
+  city?: Maybe<Scalars['String']['output']>;
+  eventName?: Maybe<Scalars['String']['output']>;
+  personId: Scalars['ID']['output'];
+  surnameMasked: Scalars['String']['output'];
+};
+
+export type FlashbackRecoverResult = {
+  /** 恒 true 形态：命中与未命中同形返回（不泄露存在性） */
+  dispatched: Scalars['Boolean']['output'];
+};
+
+export type FlashbackRecoverVerifyResult = {
+  bound: Scalars['Boolean']['output'];
+  /** 绑定档案的脱敏卡列表——多档案=「你的 N 张卡」由本人选择先看哪张 */
+  cards: Array<FlashbackRecoverCard>;
 };
 
 export type FlashbackRegisterBindResult = {
@@ -4213,6 +4267,10 @@ export type RootMutationType = {
   flashbackEnter?: Maybe<FlashbackEnterResult>;
   /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
   flashbackMarkRevealed?: Maybe<FlashbackTouchResult>;
+  /** 自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流 */
+  flashbackRecover?: Maybe<FlashbackRecoverResult>;
+  /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
+  flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
   /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡 */
@@ -4558,6 +4616,17 @@ export type RootMutationTypeFlashbackMarkRevealedArgs = {
 };
 
 
+export type RootMutationTypeFlashbackRecoverArgs = {
+  identifier: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRecoverVerifyArgs = {
+  code: Scalars['String']['input'];
+  identifier: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackRegisterBindArgs = {
   code: Scalars['String']['input'];
   phone: Scalars['String']['input'];
@@ -4856,6 +4925,12 @@ export type RootQueryType = {
   flashbackCapsule?: Maybe<FlashbackCapsule>;
   /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
+  /** 闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态） */
+  flashbackPublicProfile?: Maybe<FlashbackPublicProfile>;
+  /** 闪念间匿名金句墙（U6/R31/R32）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现 */
+  flashbackPublicQuotes: Array<FlashbackPublicQuote>;
+  /** 闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接） */
+  flashbackPublicStats?: Maybe<FlashbackPublicStats>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;
   /** 按 slug 获取（E-5 公开宿主页） */
@@ -5009,6 +5084,11 @@ export type RootQueryTypeFlashbackCapsuleArgs = {
 
 export type RootQueryTypeFlashbackDreamTargetArgs = {
   city?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackPublicProfileArgs = {
+  slug: Scalars['String']['input'];
 };
 
 

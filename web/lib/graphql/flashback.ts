@@ -3,7 +3,7 @@ import type { TypedDocumentNode } from "@apollo/client";
 
 /**
  * 闪念间（In a Flash）GraphQL 契约层（U4-U6）——对齐 backend/priv/graphql/schema.graphql
- * 手写 field（U2/U4 落地；schema-contract.test.ts 守卫形状一致性）。
+ * 手写 field（U2/U4-U6 落地；schema-contract.test.ts 守卫形状一致性）。
  *
  * 语义纪律：
  * - token 是链接身份（KTD2）：从 URL 读入后即刻 history.replaceState 清除，
@@ -121,6 +121,119 @@ export interface FlashbackDreamTarget {
 	eventTitle: string;
 	startsAt?: string | null;
 	initiativeSlug: string;
+}
+
+/* ---------------- U5 时间胶囊（校友层） ---------------- */
+
+/** Action 卡四态（R13 生命周期） */
+export type FlashbackActionCardStatus = "proposed" | "forming" | "scheduled" | "done";
+
+export interface FlashbackActionCard {
+	id: string;
+	title: string;
+	city?: string | null;
+	status: FlashbackActionCardStatus;
+	eventId?: string | null;
+	/** scheduled 起有值：直链 /events/{eventSlug}（R13 不在闪念间内部闭环） */
+	eventSlug?: string | null;
+	endorsementCount: number;
+	endorsedByMe: boolean;
+	rolesClaimed: string[];
+}
+
+export interface FlashbackRosterAnswer {
+	questionKey: string;
+	/** 对外版：雾面已按 ▓▓ 遮蔽（原文字符不出现，KTD4） */
+	text: string;
+}
+
+export interface FlashbackRosterEntry {
+	id: string;
+	surnameMasked: string;
+	city?: string | null;
+	occupationThen?: string | null;
+	sentToWallAt?: string | null;
+	today?: { nowStatus?: string | null; want?: string | null; say?: string | null } | null;
+	answers: FlashbackRosterAnswer[];
+}
+
+export interface FlashbackCapsuleArchive {
+	key: string;
+	name?: string | null;
+	city?: string | null;
+	occurredOn?: string | null;
+	appliedCount?: number | null;
+	attendedCount?: number | null;
+	isMine: boolean;
+	roster: FlashbackRosterEntry[];
+}
+
+export interface FlashbackCapsuleMe {
+	id: string;
+	fullName: string;
+	surname?: string | null;
+	city?: string | null;
+	occupationThen?: string | null;
+	participation: string;
+	appliedAt?: string | null;
+	today?: {
+		nowStatus?: string | null;
+		want?: string | null;
+		say?: string | null;
+		sentToWallAt?: string | null;
+	} | null;
+	/** 选定金句（R14 摘要卡；off/未选为 null） */
+	quote?: string | null;
+	/** 本人当年答案雾化版（R15 全文卡） */
+	answers: FlashbackRosterAnswer[];
+}
+
+export interface FlashbackCapsule {
+	me: FlashbackCapsuleMe;
+	archives: FlashbackCapsuleArchive[];
+	actionCards: FlashbackActionCard[];
+}
+
+/* ---------------- U6 公开层（路人） ---------------- */
+
+export interface FlashbackPublicStatsArchive {
+	key: string;
+	name?: string | null;
+	city?: string | null;
+	occurredOn?: string | null;
+	appliedCount?: number | null;
+	attendedCount?: number | null;
+}
+
+export interface FlashbackPublicStats {
+	archives: FlashbackPublicStatsArchive[];
+	returnedCount: number;
+	sentCount: number;
+}
+
+export interface FlashbackPublicQuote {
+	text: string;
+	/** 署名：王** · 年 · 城 */
+	attribution: string;
+	level: string;
+	/** credited 档才有：链实名档案页 */
+	publicSlug?: string | null;
+}
+
+export interface FlashbackPublicProfile {
+	fullName: string;
+	city?: string | null;
+	eventName?: string | null;
+	year?: number | null;
+	creditedNote?: string | null;
+	quote: string;
+}
+
+export interface FlashbackRecoverCard {
+	personId: string;
+	surnameMasked: string;
+	eventName?: string | null;
+	city?: string | null;
 }
 
 /* ---------------- Query / Mutation TypedDocumentNode ---------------- */
@@ -334,76 +447,6 @@ export const FLASHBACK_DREAM_TARGET: TypedDocumentNode<
 		}
 	}
 `;
-/* ---------------- U5 时间胶囊（校友层） ---------------- */
-
-/** Action 卡四态（R13 生命周期） */
-export type FlashbackActionCardStatus = "proposed" | "forming" | "scheduled" | "done";
-
-export interface FlashbackActionCard {
-	id: string;
-	title: string;
-	city?: string | null;
-	status: FlashbackActionCardStatus;
-	eventId?: string | null;
-	/** scheduled 起有值：直链 /events/{eventSlug}（R13 不在闪念间内部闭环） */
-	eventSlug?: string | null;
-	endorsementCount: number;
-	endorsedByMe: boolean;
-	rolesClaimed: string[];
-}
-
-export interface FlashbackRosterAnswer {
-	questionKey: string;
-	/** 对外版：雾面已按 ▓▓ 遮蔽（原文字符不出现，KTD4） */
-	text: string;
-}
-
-export interface FlashbackRosterEntry {
-	id: string;
-	surnameMasked: string;
-	city?: string | null;
-	occupationThen?: string | null;
-	sentToWallAt?: string | null;
-	today?: { nowStatus?: string | null; want?: string | null; say?: string | null } | null;
-	answers: FlashbackRosterAnswer[];
-}
-
-export interface FlashbackCapsuleArchive {
-	key: string;
-	name?: string | null;
-	city?: string | null;
-	occurredOn?: string | null;
-	appliedCount?: number | null;
-	attendedCount?: number | null;
-	isMine: boolean;
-	roster: FlashbackRosterEntry[];
-}
-
-export interface FlashbackCapsuleMe {
-	id: string;
-	fullName: string;
-	surname?: string | null;
-	city?: string | null;
-	occupationThen?: string | null;
-	participation: string;
-	appliedAt?: string | null;
-	today?: {
-		nowStatus?: string | null;
-		want?: string | null;
-		say?: string | null;
-		sentToWallAt?: string | null;
-	} | null;
-	/** 选定金句（R14 摘要卡；off/未选为 null） */
-	quote?: string | null;
-	/** 本人当年答案雾化版（R15 全文卡） */
-	answers: FlashbackRosterAnswer[];
-}
-
-export interface FlashbackCapsule {
-	me: FlashbackCapsuleMe;
-	archives: FlashbackCapsuleArchive[];
-	actionCards: FlashbackActionCard[];
-}
 
 /** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口 */
 export const FLASHBACK_CAPSULE: TypedDocumentNode<
@@ -490,6 +533,89 @@ export const FLASHBACK_ENDORSE: TypedDocumentNode<
 			status
 			roleClaimed
 			firstTime
+		}
+	}
+`;
+
+/** 公开统计层（U6/R32）：匿名可读的聚合数字 */
+export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
+	{ flashbackPublicStats: FlashbackPublicStats },
+	Record<string, never>
+> = gql`
+	query FlashbackPublicStats {
+		flashbackPublicStats {
+			archives {
+				key
+				name
+				city
+				occurredOn
+				appliedCount
+				attendedCount
+			}
+			returnedCount
+			sentCount
+		}
+	}
+`;
+
+/** 匿名金句墙（U6/R31/R32）：授权者的脱敏金句 */
+export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
+	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
+	Record<string, never>
+> = gql`
+	query FlashbackPublicQuotes {
+		flashbackPublicQuotes {
+			text
+			attribution
+			level
+			publicSlug
+		}
+	}
+`;
+
+/** 实名档案页（U6/R31 credited 档）：null = 未授权（404 态） */
+export const FLASHBACK_PUBLIC_PROFILE: TypedDocumentNode<
+	{ flashbackPublicProfile: FlashbackPublicProfile | null },
+	{ slug: string }
+> = gql`
+	query FlashbackPublicProfile($slug: String!) {
+		flashbackPublicProfile(slug: $slug) {
+			fullName
+			city
+			eventName
+			year
+			creditedNote
+			quote
+		}
+	}
+`;
+
+/** 自助找回·发起（U6/R21）：命中与未命中同形返回（不泄露存在性） */
+export const FLASHBACK_RECOVER: TypedDocumentNode<
+	{ flashbackRecover: { dispatched: boolean } },
+	{ identifier: string }
+> = gql`
+	mutation FlashbackRecover($identifier: String!) {
+		flashbackRecover(identifier: $identifier) {
+			dispatched
+		}
+	}
+`;
+
+/** 自助找回·验证（U6/R21）：手机码通过 → 绑定全部匹配档案；多档案返回「你的 N 张卡」 */
+export const FLASHBACK_RECOVER_VERIFY: TypedDocumentNode<
+	{ flashbackRecoverVerify: { bound: boolean; cards: FlashbackRecoverCard[] } },
+	{ identifier: string; code: string }
+> = gql`
+	mutation FlashbackRecoverVerify($identifier: String!, $code: String!) {
+		flashbackRecoverVerify(identifier: $identifier, code: $code) {
+			bound
+			cards {
+				personId
+				surnameMasked
+				eventName
+				city
+			}
 		}
 	}
 `;

@@ -5317,6 +5317,15 @@ type RootQueryType {
   "闪念间时间胶囊（U5\/R12\/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
   flashbackCapsule(token: String): FlashbackCapsule
 
+  "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
+  flashbackPublicStats: FlashbackPublicStats
+
+  "闪念间匿名金句墙（U6\/R31\/R32）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现"
+  flashbackPublicQuotes: [FlashbackPublicQuote!]!
+
+  "闪念间实名档案页（U6\/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
+  flashbackPublicProfile(slug: String!): FlashbackPublicProfile
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6317,6 +6326,71 @@ type FlashbackEndorseResult {
   firstTime: Boolean!
 }
 
+type FlashbackPublicStatsArchive {
+  key: String!
+  name: String
+  city: String
+  occurredOn: String
+  appliedCount: Int
+  attendedCount: Int
+}
+
+type FlashbackPublicStats {
+  archives: [FlashbackPublicStatsArchive!]!
+
+  "已回来人数（distinct link_opened touch）"
+  returnedCount: Int!
+
+  sentCount: Int!
+}
+
+type FlashbackPublicQuote {
+  "授权金句文本（区间切片；雾面句本就不进候选）"
+  text: String!
+
+  "署名：王** · 年 · 城"
+  attribution: String!
+
+  level: String!
+
+  "credited 档才有：链实名档案页"
+  publicSlug: String
+}
+
+type FlashbackPublicProfile {
+  fullName: String!
+
+  city: String
+
+  eventName: String
+
+  year: Int
+
+  "实名补充：现在在做什么、想法（R31 credited 档）"
+  creditedNote: String
+
+  quote: String!
+}
+
+type FlashbackRecoverResult {
+  "恒 true 形态：命中与未命中同形返回（不泄露存在性）"
+  dispatched: Boolean!
+}
+
+type FlashbackRecoverCard {
+  personId: ID!
+  surnameMasked: String!
+  eventName: String
+  city: String
+}
+
+type FlashbackRecoverVerifyResult {
+  bound: Boolean!
+
+  "绑定档案的脱敏卡列表——多档案=「你的 N 张卡」由本人选择先看哪张"
+  cards: [FlashbackRecoverCard!]!
+}
+
 type FlashbackFogSpan {
   "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
   start: Int!
@@ -7065,6 +7139,12 @@ type RootMutationType {
 
   "附议 Action 卡（U5\/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer\/promoter\/venue"
   flashbackEndorse(token: String!, cardId: ID!, roleClaimed: String): FlashbackEndorseResult
+
+  "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+  flashbackRecover(identifier: String!): FlashbackRecoverResult
+
+  "自助找回·验证（U6\/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+  flashbackRecoverVerify(identifier: String!, code: String!): FlashbackRecoverVerifyResult
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
