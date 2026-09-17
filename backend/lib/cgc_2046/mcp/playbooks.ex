@@ -138,7 +138,7 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. User-Story 写法:每张 issue 卡的 story 含 as_a(目标学员画像)/ given(先修状态,供学习 Agent 对照学习记录判断起点)/ goal(完成该 issue 后学员能独立做到什么);
   2. kind 判别(证据在哪为界):需要对话中的理解作为证据 → thoughtwork;需要环境中的产物作为证据 → handwork。动手卡 ≠ 技能,不为 issue 逐卡配技能标签;
-  3. checklist 可自验措辞:每条是可判定的完成标准;handwork 条目必须指向可检查产物(能运行/能读取/能展示),学习 Agent 会实际检查产物,避免「理解了」「掌握了」这类不可判定措辞;
+  3. checklist 可自验措辞:每条是可判定的完成标准;handwork 条目必须指向可检查产物(能运行/能读取/能展示),学习 Agent 会实际检查产物,避免「理解了」「掌握了」这类不可判定措辞;checklist 与 materials 均嵌在 story 内(是 story 的键,不是 issue 卡顶层键);
   4. id 稳定纪律:issue 的 id 与 checklist 条目的 id 一经发布不改不删;修订内容时保 id(学习记录按 id 引用,改 id 会破坏进行中学员的记忆);
   5. id 唯一性:issue id 在卡集内唯一,checklist item id 在单张 issue 内唯一(平台在提交时校验);
   6. materials 必须使用 typed Material：text/markdown 使用 body，web/image 使用 HTTPS url，video 使用 provider + external_id；不要提交旧 ref。
@@ -291,7 +291,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-09-17.1", content: @workspace_admin_content},
-    tutor: %{version: "2026-09-04.1", content: @tutor_content},
+    tutor: %{version: "2026-09-17.1", content: @tutor_content},
     learner: %{version: "2026-09-16.2", content: @learner_content}
   }
 
