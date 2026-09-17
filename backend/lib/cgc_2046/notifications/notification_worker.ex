@@ -215,7 +215,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
     %{
       template_key: "flashback_action_scheduled",
       id_key: nil,
-      data_keys: ["card_id", "event_id", "title"],
+      data_keys: ["card_id", "event_id", "title", "starts_at", "venue"],
       job_meta_keys: ["card_id"],
       unique: :default,
       stale: nil

@@ -227,12 +227,17 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
-  # flashback_action_scheduled（U7：闪念间成场通知）：卡名=thing1 / 成行提示
-  # =thing5（固定文案，报名直达由深链 event-detail 承载）。
+  # flashback_action_scheduled（U7：闪念间成场通知）——模板「新活动发布提醒」
+  # （编号 432，2026-09-18 后台已申请，ID 经 WECHAT_MP_TEMPLATE_* 注入）：
+  # 活动名称=thing6 / 活动时间=character_string10（自由文本 ≤32，人话格式
+  # 「10.24 14:00」，北京时区）/ 活动地点=thing4（城市）/ 备注=thing11（固定
+  # 引导文案 14 字）。报名直达由深链 event-detail 承载。
   defp render(:wechat, "flashback_action_scheduled", %{} = data) do
     %{
-      "thing1" => thing(data["title"]),
-      "thing5" => "你附议的场次已成行，点击报名"
+      "thing6" => thing(data["title"]),
+      "character_string10" => sched_text(data["starts_at"]),
+      "thing4" => thing(data["venue"]),
+      "thing11" => thing("你附议的行动成真了，来报名")
     }
     |> drop_nils()
   end
@@ -269,6 +274,24 @@ defmodule Cgc2046.Notifications.Service do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(text) when is_binary(text), do: text
+
+  # character_string 槽的人话时间（成场通知）：北京时区「10.24 14:00」（无前导
+  # 零；解析失败按缺值跳过——drop_nils 兜底，不炸发送）。中国无夏令时，固定
+  # UTC+8 偏移计算（项目无 tzdata，:utc_only_time_zone_database 下 shift_zone!
+  # 会炸——不为一个格式化引入时区库依赖）。
+  defp sched_text(nil), do: nil
+
+  defp sched_text(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, dt, _offset} ->
+        dt
+        |> DateTime.add(8 * 3600, :second)
+        |> Calendar.strftime("%-m.%-d %H:%M")
+
+      _ ->
+        nil
+    end
+  end
 
   # thing ≤20 字：「订单超时作废，报名截止前可重新报名」恰 17 字
   defp expiry_note("true"), do: "订单超时作废，报名截止前可重新报名"
