@@ -497,6 +497,37 @@ defmodule Cgc2046.Notifications.ServiceTest do
                     }}
   end
 
+  # #546：三字段逐字锁死（相等断言同时锁死键集——多写一个字段即红）+ 显式断言
+  # 无 date5（核销时间本批有意跳过，理由见 service.ex 模块注释），落页断言到
+  # my-enrollments（码与二维码在该页报名卡渲染，profile 是空页）。
+  test "enrollment_check_in_code 渲染：thing8 活动名 + character_string15 核销码 + thing9 提示（无 date5）" do
+    user = Fixtures.register_user("notification-check-in-code-render")
+    insert_identity(user.id, :wechat, "wx-check-in-code-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "enrollment_check_in_code")
+
+    assert :ok =
+             Service.send_to_user(user.id, :wechat, "enrollment_check_in_code", %{
+               "enrollment_id" => "6f0c9a1e-2b3d-4c5f-8a9b-0c1d2e3f4a5b",
+               "title" => "AI 入门工作坊",
+               "check_in_code" => "042317",
+               # 防「以后有人把 date5 接到 starts_at」：即使 data 携带时间键也不得渲染 date5
+               "starts_at" => "2026-09-20T07:00:00Z"
+             })
+
+    assert_receive {:notification, :wechat, %{"data" => data, "page" => page}}
+
+    assert data == %{
+             "thing8" => %{"value" => "AI 入门工作坊"},
+             "character_string15" => %{"value" => "042317"},
+             "thing9" => %{"value" => "到店出示此码核销"}
+           }
+
+    refute Map.has_key?(data, "date5"), "date5（核销时间）本批有意跳过——触发时尚未核销"
+
+    assert page == "pages/my-enrollments/index",
+           "核销码通知必须落能看到码的页（我的报名）"
+  end
+
   test "payment_succeeded 渲染：character_string2 订单号 + amount3 金额" do
     user = Fixtures.register_user("notification-paid-render")
     insert_identity(user.id, :wechat, "wx-paid-openid")
@@ -767,8 +798,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 17 键集合（防表被改空）
-    assert length(registry_keys) == 17
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 18 键集合（防表被改空）
+    assert length(registry_keys) == 18
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))

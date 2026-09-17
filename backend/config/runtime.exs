@@ -174,6 +174,8 @@ if config_env() == :prod do
       "event_reminder" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_REMINDER"),
       "enrollment_submitted" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      # #546 核销码通知（2026-09-16 平台选用即时生效，标题「核销成功通知」）
+      "enrollment_check_in_code" => System.get_env("WECHAT_MP_TEMPLATE_ENROLLMENT_CHECK_IN_CODE"),
       "speaker_accepted" => System.get_env("WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED"),
       "learning_stagnation" => System.get_env("WECHAT_MP_TEMPLATE_LEARNING_STAGNATION"),
@@ -197,6 +199,8 @@ if config_env() == :prod do
       "enrollment_submitted" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "event_reminder" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_REMINDER"),
       "enrollment_completed" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      # 抖音端模板未申请（键保留，值 nil → template_not_configured 跳过）
+      "enrollment_check_in_code" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_CHECK_IN_CODE"),
       "speaker_accepted" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_COMPLETED"),
       "learning_stagnation" => System.get_env("DOUYIN_MP_TEMPLATE_LEARNING_STAGNATION"),
@@ -219,6 +223,8 @@ if config_env() == :prod do
       "approval_reminder" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
       "enrollment_submitted" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
+      # 小红书端模板未申请（键保留，值 nil → template_not_configured 跳过）
+      "enrollment_check_in_code" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_CHECK_IN_CODE"),
       "event_reminder" => System.get_env("XHS_MP_TEMPLATE_EVENT_REMINDER"),
       "speaker_accepted" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_COMPLETED"),

@@ -5868,6 +5868,7 @@ type CourseMapIssue {
 type CourseContent {
   courseId: ID!
   title: String!
+  description: String
   revisionNumber: Int
   publishedAt: DateTime
   content: JsonString!
@@ -6309,12 +6310,44 @@ type AdminSignalLog {
 
 type AdminActionLog {
   id: ID!
+
   actorId: ID
+
   action: String!
+
   targetType: String!
+
   targetId: ID!
+
   result: String!
+
   insertedAt: DateTime!
+
+  "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
+  metadata: AdminActionMetadata
+}
+
+type AdminActionMetadata {
+  "规则键：deposit | age_gate | min_participants | deadline_rule"
+  ruleKey: String!
+
+  "变更后锁定态"
+  locked: Boolean!
+
+  "变更前锁定态；:create（新建规则）无前值 → null"
+  lockedBefore: Boolean
+
+  "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
+  valueBeforeJson: JsonString
+
+  "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
+  valueAfterJson: JsonString!
+
+  "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueBeforeOmitted: Boolean!
+
+  "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueAfterOmitted: Boolean!
 }
 
 type AdminReconciliationFinding {

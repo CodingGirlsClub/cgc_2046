@@ -7,7 +7,9 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
 
   - 通过 → prep_state `quality_check`，记录 gate_passed_at 与检查的草稿版本；
   - 未过 → 保持 `authoring`，违规清单落 facts 并在响应中原样返回
-    （`passed: false` + `violations`——业务结果非错误，逐条修复后重新提交）。
+    （`passed: false` + `violations`——业务结果非错误，逐条修复后重新提交）；
+  - 响应另有 `warnings` 软提示清单（issue 未归属章节等）：不阻断流程，
+    教材类课程应按提示补章节结构，无章节语义的课程可忽略。
 
   被指派的 tutor 或 Owner/Admin 可提交。
 
@@ -41,6 +43,7 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
              passed: gate.passed,
              prep_state: Prep.prep_state(updated),
              violations: gate.violations,
+             warnings: gate.warnings,
              draft_version: gate.draft_version
            }}
         end

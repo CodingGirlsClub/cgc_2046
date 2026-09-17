@@ -15,17 +15,21 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
 
   use Cgc2046Web.ConnCase, async: false
 
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Accounts.Invitation
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.User
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceApplication
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.PendingOperation
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Workflows.SignalLog
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
+
+  require Ash.Query
 
   @password Fixtures.password()
 
@@ -224,7 +228,8 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
             "query { listToolCallLogs { id tool } }",
             "query { listPendingOperations { id tool } }",
             "query { listSignalLogs { id } }",
-            "query { listAdminActionLogs { id action } }"
+            # #607：metadata 字段与列表同 gate（非 admin 连投影读面都拿不到）
+            "query { listAdminActionLogs { id action metadata { ruleKey valueAfterJson } } }"
           ] do
         resp = graphql_post(build_conn(), query, token)
 
@@ -518,6 +523,358 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
       assert Enum.all?(filtered_logs, &(&1["action"] == "workspace_create"))
       assert Enum.any?(filtered_logs, &(&1["targetId"] == workspace.id))
     end
+  end
+
+  # #607：metadata 白名单投影读面（表在 Cgc2046Web.GraphqlSchema 顶部）
+  describe "listAdminActionLogs metadata 白名单投影 (#607)" do
+    test "platform_admin 能在读面看到 value_before → value_after 与 locked 翻转" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md")
+      initiative = create_rule_initiative(admin, "gql-md")
+
+      {:ok, rule} =
+        create_initiative_rule(
+          initiative,
+          admin,
+          :deposit,
+          %{enabled: true, amount_cents: 6900},
+          true
+        )
+
+      {:ok, _} =
+        rule
+        |> Ash.Changeset.for_update(:update, %{
+          value: %{enabled: true, amount_cents: 9900},
+          locked: false
+        })
+        |> Ash.update(actor: admin)
+
+      token = sign_in_token(admin.email, @password)
+
+      meta =
+        token
+        |> list_rule_logs()
+        |> rule_metadata_rows(initiative.id)
+        |> Enum.find(&(decoded(&1["valueAfterJson"])["amount_cents"] == 9900))
+
+      assert meta, "expected the rule-update row for #{initiative.id}"
+      assert meta["ruleKey"] == "deposit"
+      # locked 翻转（#607 验收：值前后 + locked 翻转）
+      assert meta["locked"] == false
+      assert meta["lockedBefore"] == true
+
+      assert decoded(meta["valueBeforeJson"]) == %{"enabled" => true, "amount_cents" => 6900}
+      assert decoded(meta["valueAfterJson"]) == %{"enabled" => true, "amount_cents" => 9900}
+      # 键序 = 二级白名单次序（前端直接按序渲染，不再抄一份键名清单）
+      assert json_keys(meta["valueAfterJson"]) == ["enabled", "amount_cents"]
+      refute meta["valueBeforeOmitted"]
+      refute meta["valueAfterOmitted"]
+    end
+
+    test ":create（新建规则）时前值字段为 null —— 前端据此渲染「新建」" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md-create")
+      initiative = create_rule_initiative(admin, "gql-md-create")
+
+      {:ok, _rule} =
+        create_initiative_rule(initiative, admin, :min_participants, %{count: 8}, false)
+
+      token = sign_in_token(admin.email, @password)
+      assert [meta] = token |> list_rule_logs() |> rule_metadata_rows(initiative.id)
+
+      assert meta["ruleKey"] == "min_participants"
+      # null ⇔ 新建（契约：value_before 仅在 :create 为 nil）
+      assert meta["valueBeforeJson"] == nil
+      assert meta["lockedBefore"] == nil
+      assert decoded(meta["valueAfterJson"]) == %{"count" => 8}
+      assert meta["locked"] == false
+    end
+
+    test "白名单外 metadata 键与 value 内白名单外键都不出现在读面（结构性防泄露）" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md-leak")
+      initiative = create_rule_initiative(admin, "gql-md-leak")
+
+      # 直连写入面造行：模拟「未来某条路径往 metadata / 规则值里塞了 PII 或自由文本」
+      {:ok, _} =
+        AdminActionLog.log(%{
+          actor_id: admin.id,
+          action: :initiative_rule_update,
+          target_type: :initiative,
+          target_id: initiative.id,
+          metadata: %{
+            initiative_id: initiative.id,
+            rule_key: "deposit",
+            locked: true,
+            locked_before: false,
+            value_before: %{enabled: true, amount_cents: 6900, internal_note: "before-secret"},
+            value_after: %{enabled: true, amount_cents: 9900, internal_note: "after-secret"},
+            email: "leak@example.com",
+            target_email: "leak2@example.com",
+            rejection_reason: "leak-reason-自由文本"
+          }
+        })
+
+      token = sign_in_token(admin.email, @password)
+      resp = list_rule_logs(token)
+
+      # 负向断言打在原始响应体上：白名单外串一个都不许出现
+      body = Jason.encode!(resp)
+
+      for sentinel <- [
+            "leak@example.com",
+            "leak2@example.com",
+            "leak-reason-自由文本",
+            "internal_note",
+            "before-secret",
+            "after-secret"
+          ] do
+        refute body =~ sentinel, "读面泄露了白名单外内容: #{sentinel}"
+      end
+
+      assert [meta] = rule_metadata_rows(resp, initiative.id)
+
+      # 二级白名单：值内的白名单外键被投影掉，且省略必须可见（不静默截断）
+      assert decoded(meta["valueAfterJson"]) == %{"enabled" => true, "amount_cents" => 9900}
+      assert meta["valueBeforeOmitted"] == true
+      assert meta["valueAfterOmitted"] == true
+    end
+
+    test "值不是标量（嵌套 map）时按标量门省略，不当内容透传" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md-nested")
+      initiative = create_rule_initiative(admin, "gql-md-nested")
+
+      # 键名命中二级白名单（enabled），但值是嵌套结构：键名白名单约束不了内容，
+      # 标量门必须把它挡掉并标 omitted（否则嵌套内容原样带出）
+      {:ok, _} =
+        AdminActionLog.log(%{
+          actor_id: admin.id,
+          action: :initiative_rule_update,
+          target_type: :initiative,
+          target_id: initiative.id,
+          metadata: %{
+            initiative_id: initiative.id,
+            rule_key: "deposit",
+            locked: true,
+            locked_before: false,
+            value_before: %{enabled: %{email: "nested-leak@example.com"}, amount_cents: 6900},
+            value_after: %{enabled: %{email: "nested-leak@example.com"}, amount_cents: 9900}
+          }
+        })
+
+      token = sign_in_token(admin.email, @password)
+      resp = list_rule_logs(token)
+
+      refute Jason.encode!(resp) =~ "nested-leak@example.com"
+      refute Jason.encode!(resp) =~ "email"
+
+      assert [meta] = rule_metadata_rows(resp, initiative.id)
+      assert decoded(meta["valueAfterJson"]) == %{"amount_cents" => 9900}
+      assert meta["valueBeforeOmitted"] == true
+      assert meta["valueAfterOmitted"] == true
+    end
+
+    test "形状不完整的历史行整行落 null，且不打挂整条列表查询（#587 之前的写面形状）" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md-legacy")
+      initiative = create_rule_initiative(admin, "gql-md-legacy")
+
+      # origin/main（生产）上 #587 之前的 initiative_rule_metadata/2 只落这三个键，
+      # 没有 value_after：若照常投影会让 non_null 的 valueAfterJson 收 nil →
+      # Absinthe 非空违例 → 整条 listAdminActionLogs 失败（/admin/audit 整页 loadFailed）
+      {:ok, _legacy} =
+        AdminActionLog.log(%{
+          actor_id: admin.id,
+          action: :initiative_rule_update,
+          target_type: :initiative,
+          target_id: initiative.id,
+          metadata: %{
+            initiative_id: initiative.id,
+            rule_key: "deposit",
+            locked: true
+          }
+        })
+
+      # 同一条查询里还要有一行完整形状——证明降级是行级的，不是整页级
+      {:ok, _} =
+        AdminActionLog.log(%{
+          actor_id: admin.id,
+          action: :initiative_rule_update,
+          target_type: :initiative,
+          target_id: initiative.id,
+          metadata: %{
+            initiative_id: initiative.id,
+            rule_key: "deposit",
+            locked: false,
+            locked_before: true,
+            value_before: %{enabled: true, amount_cents: 6900},
+            value_after: %{enabled: true, amount_cents: 9900}
+          }
+        })
+
+      token = sign_in_token(admin.email, @password)
+      resp = list_rule_logs(token)
+
+      # 无 GraphQL errors（非空违例会在这里现形）
+      refute Map.has_key?(resp, "errors"), "列表查询不应因单行形状不全而失败: #{inspect(resp["errors"])}"
+
+      assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+      rows = Enum.filter(logs, &(&1["targetId"] == initiative.id))
+      assert length(rows) == 2
+      # 历史行 → 整行 null（不是「新建」，也不是半截对象）
+      assert Enum.count(rows, &(&1["metadata"] == nil)) == 1
+      # 完整形状行照常投影
+      [full] = Enum.reject(rows, &(&1["metadata"] == nil))
+      assert full["metadata"]["ruleKey"] == "deposit"
+
+      assert decoded(full["metadata"]["valueAfterJson"]) == %{
+               "enabled" => true,
+               "amount_cents" => 9900
+             }
+    end
+
+    test "非白名单 action 的 metadata 为 null（没有默认透传兜底）" do
+      admin = Fixtures.platform_admin("admin-queries-aal-md-null")
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "gql-aal-md-null-#{System.unique_integer([:positive])}",
+          name: "GQL AAL null"
+        })
+        |> Ash.create(actor: admin)
+
+      # 布景非空证明：raw metadata 里确实有 slug/name
+      [raw] =
+        AdminActionLog
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(action == :workspace_create and target_id == ^workspace.id)
+        |> Ash.read!(actor: admin)
+
+      assert raw.metadata["slug"] == workspace.slug
+
+      token = sign_in_token(admin.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query {
+            listAdminActionLogs(action: "workspace_create", first: 100) {
+              action targetId metadata { ruleKey locked valueAfterJson }
+            }
+          }
+          """,
+          token
+        )
+
+      assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+      log = Enum.find(logs, &(&1["targetId"] == workspace.id))
+      assert log, "expected workspace_create log for #{workspace.id}"
+      assert log["metadata"] == nil
+    end
+
+    test "非 platform_admin 读不到该字段（负向）" do
+      user = Fixtures.register_user("admin-queries-aal-md-outsider")
+      token = sign_in_token(user.email, @password)
+
+      resp =
+        graphql_post(
+          build_conn(),
+          """
+          query { listAdminActionLogs(first: 1) { metadata { ruleKey valueAfterJson } } }
+          """,
+          token
+        )
+
+      assert %{"errors" => [%{"message" => message} | _]} = resp
+      assert message in ["forbidden", "unauthorized"]
+      assert resp["data"] == nil
+    end
+
+    # 结构性防泄露的**上游**断言：响应字段集由 SDL 声明决定（选择集之外进不来），
+    # 所以「读面会不会多出一个字段」只能在 SDL 层钉——未来谁给白名单投影加一个
+    # 含 PII 的声明字段，这里先红，强制复审。
+    test "读面声明字段集锁定为 7 个白名单字段（#607 结构性防泄露）" do
+      sdl = File.read!("priv/graphql/schema.graphql")
+
+      assert [_, body] = Regex.run(~r/type AdminActionMetadata \{(.*?)\n\}/s, sdl)
+
+      fields =
+        body
+        |> String.split("\n")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "\"")))
+        |> Enum.map(fn line -> line |> String.split(":") |> hd() end)
+        |> Enum.sort()
+
+      assert fields ==
+               ~w(locked lockedBefore ruleKey valueAfterJson valueAfterOmitted valueBeforeJson valueBeforeOmitted)
+    end
+  end
+
+  # ── #607 读面测试辅助 ─────────────────────────────────────────────────────
+
+  # 读面查询：action 过滤 + metadata 全字段选择集（单源，避免各用例写法漂移）
+  defp list_rule_logs(token) do
+    graphql_post(
+      build_conn(),
+      """
+      query {
+        listAdminActionLogs(action: "initiative_rule_update", first: 100) {
+          action
+          targetId
+          metadata {
+            ruleKey
+            locked
+            lockedBefore
+            valueBeforeJson
+            valueAfterJson
+            valueBeforeOmitted
+            valueAfterOmitted
+          }
+        }
+      }
+      """,
+      token
+    )
+  end
+
+  # 响应 → 指定 initiative 的 metadata 行（target_id = initiative_id，
+  # 见 InitiativeRule.rule_initiative_id/2）
+  defp rule_metadata_rows(resp, initiative_id) do
+    assert %{"data" => %{"listAdminActionLogs" => logs}} = resp
+
+    logs
+    |> Enum.filter(&(&1["targetId"] == initiative_id))
+    |> Enum.map(& &1["metadata"])
+  end
+
+  # JSON 对象字符串 → map；键序断言用 ordered_objects（默认 :maps 会丢文档序）
+  defp decoded(nil), do: nil
+  defp decoded(json), do: Jason.decode!(json)
+
+  defp json_keys(json) do
+    %Jason.OrderedObject{values: values} = Jason.decode!(json, objects: :ordered_objects)
+    Enum.map(values, &elem(&1, 0))
+  end
+
+  # #607 布景：Initiative（draft）→ 规则走域 action，同事务落 initiative_rule_update 留痕
+  defp create_rule_initiative(admin, prefix) do
+    Initiative
+    |> Ash.Changeset.for_create(:create, %{
+      name: "审计 #{prefix}",
+      slug: "#{prefix}-#{System.unique_integer([:positive])}",
+      created_by: admin.id
+    })
+    |> Ash.create!(actor: admin)
+  end
+
+  defp create_initiative_rule(initiative, admin, key, value, locked) do
+    InitiativeRule
+    |> Ash.Changeset.for_create(:create, %{
+      initiative_id: initiative.id,
+      key: key,
+      value: value,
+      locked: locked
+    })
+    |> Ash.create(actor: admin)
   end
 
   describe "listSignalLogs" do

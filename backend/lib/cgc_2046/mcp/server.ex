@@ -155,12 +155,16 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AssignEventModerator)
   component(Cgc2046.Mcp.Tools.RemoveEventModerator)
   component(Cgc2046.Mcp.Tools.ListEnrollments)
+  # #508 核销记录读面：工具面 69 → 70（member 门 + 工具层 Owner/Admin 判定）
+  component(Cgc2046.Mcp.Tools.ListAttendances)
   component(Cgc2046.Mcp.Tools.ConfirmEnrollment)
   component(Cgc2046.Mcp.Tools.RejectEnrollment)
   component(Cgc2046.Mcp.Tools.WaivePayment)
   component(Cgc2046.Mcp.Tools.ListWorkspaceOrders)
   component(Cgc2046.Mcp.Tools.RefundOrder)
   component(Cgc2046.Mcp.Tools.RetryRefund)
+  # #545 押金错没收补救：工具面 68 → 69（platform_admin 门 + 确认流两段）
+  component(Cgc2046.Mcp.Tools.UnforfeitOrder)
   component(Cgc2046.Mcp.Tools.UpdateJoinPolicy)
   # 课程教研流程九工具（role-agent-journeys-v2 S5，R22-R28）：工具面 49 → 58
   # （member-only 门 + 工具层角色判定；策略调整/门禁覆盖/审核发布三件走确认流，

@@ -1881,6 +1881,66 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
                &(&1 =~ ~s(issue "i1" objective "o1" materials[0]: invalid_material_access_scope))
              )
     end
+
+    test "章节软提示：issue 未归属章节只进 warnings 不影响 passed；全覆盖/无内容不提示" do
+      course = %Course{provisional_title: false, slug: "c-gate"}
+
+      issue = fn id, extra ->
+        Map.merge(
+          %{
+            "id" => id,
+            "kind" => "handwork",
+            "title" => "卡 #{id}",
+            "story" => %{"checklist" => [%{"id" => "c1", "text" => "项"}]},
+            "objectives" => [
+              %{
+                "id" => "o-#{id}",
+                "title" => "单元",
+                "rubric" => [%{"id" => "r1", "text" => "达标"}]
+              }
+            ]
+          },
+          extra
+        )
+      end
+
+      # 全部卡无章节（chapters 缺失）→ passed 不受影响 + 一条「章节结构缺失」软提示
+      ungrouped = %Output{
+        data: %{"goals" => ["目标"], "issues" => [issue.("i1", %{}), issue.("i2", %{})]}
+      }
+
+      assert %{passed: true, violations: [], warnings: [warning]} =
+               PrepGate.check(course, ungrouped)
+
+      assert warning =~ "章节结构缺失"
+      assert warning =~ "2 张 issue 卡"
+
+      # chapters 已存在但部分卡缺 chapter_id → 「N/M 缺 chapter_id」软提示
+      partial = %Output{
+        data: %{
+          "goals" => ["目标"],
+          "chapters" => [%{"id" => "ch1", "title" => "第一章"}],
+          "issues" => [issue.("i1", %{"chapter_id" => "ch1"}), issue.("i2", %{})]
+        }
+      }
+
+      assert %{passed: true, warnings: [warning]} = PrepGate.check(course, partial)
+      assert warning =~ "1/2 张 issue 卡缺 chapter_id"
+
+      # 全部归属 → 无提示
+      grouped = %Output{
+        data: %{
+          "goals" => ["目标"],
+          "chapters" => [%{"id" => "ch1", "title" => "第一章"}],
+          "issues" => [issue.("i1", %{"chapter_id" => "ch1"})]
+        }
+      }
+
+      assert %{passed: true, warnings: []} = PrepGate.check(course, grouped)
+
+      # 无内容 → 不提示（内容为空违规已另报）
+      assert %{passed: false, warnings: []} = PrepGate.check(course, nil)
+    end
   end
 
   # ── 低于阈值与覆盖（R27/AE5） ---------------------------------------------------

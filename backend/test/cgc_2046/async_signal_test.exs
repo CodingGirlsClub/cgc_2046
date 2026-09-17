@@ -29,7 +29,7 @@ defmodule Cgc2046.AsyncSignalTest do
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
-  alias Cgc2046.Admission.Enrollment
+  alias Cgc2046.Admission.{Enrollment, InviteBatch}
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Notifications.Subscriber
   alias Cgc2046.Workflows.{JidoAdapter, SignalIdempotency, SignalSubscriber}
@@ -138,6 +138,54 @@ defmodule Cgc2046.AsyncSignalTest do
       assert completed_args["user_id"] == learner.id
       assert completed_args["data"]["title"] == event.title
       assert completed_args["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+
+      # #546：confirm（审批通过）路径同样下发核销码——恰 1 条，与 completed 共用
+      # 同一 job_meta 幂等键值但 args 不同，两条 job 各自入队互不折叠
+      assert_code_notification(enrollment, "enrollment.completed:" <> enrollment.id)
+    end
+
+    # #546 确认路径枚举①b（邀请确认）：create 带有效邀请码自动 confirmed——与
+    # open 同 action、同码生成路径（prepare_create 的 put_check_in_code 与策略
+    # 无关），差异仅在 prepare_policy；本用例钉住「邀请策略下码同样下发」。
+    test "invite_only 邀请码 create 自动确认：报名成功 + 核销码双通知" do
+      admin = Fixtures.platform_admin("signal-invite-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-invite-learner")
+
+      event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :invite_only})
+
+      _batch =
+        InviteBatch
+        |> Ash.Changeset.for_create(:create, %{
+          event_id: event.id,
+          invite_code: "CAMPUS_B",
+          quota: 1
+        })
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      insert_identity(learner.id, "signal-invite-learner-openid")
+
+      {:ok, enrollment} = create_enrollment(event, learner, %{invite_code: "CAMPUS_B"})
+      assert enrollment.status == :confirmed
+
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
+
+      assert_code_notification(enrollment, "enrollment.completed:" <> enrollment.id)
     end
 
     test "open 策略报名直接 confirmed：completed 通知学员，submitted 不产生待审批通知" do
@@ -181,8 +229,229 @@ defmodule Cgc2046.AsyncSignalTest do
       assert args["user_id"] == learner.id
       assert args["data"]["title"] == event.title
 
+      # #546 核销码通知：同一 completed 信号的第二条任务，data 带报名 create 时
+      # 生成的 6 位码（反查 Enrollment，未走信号 payload）
+      assert [%{args: code_args}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_check_in_code",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
+
+      assert enrollment.check_in_code =~ ~r/^\d{6}$/
+      assert code_args["user_id"] == learner.id
+      assert code_args["data"]["title"] == event.title
+      assert code_args["data"]["check_in_code"] == enrollment.check_in_code
+      assert code_args["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+
       # submitted 信号确实发布过（生产者对全策略发布），但无待审批语义 → 不通知 Owner/Admin
       assert [] = all_enqueued(args: %{"template_key" => "enrollment_submitted"})
+    end
+
+    # #546 确认路径枚举②（押金支付后）：create 落 payment_pending（码在 create
+    # 已生成）→ 落账 CAS（settle_paid）转 confirmed → 双通知。生产链是「支付回调
+    # worker → mark_paid → settle_paid」；该 action 的 CAS 只认 status（订单与回调
+    # 链由 payment_settlement_worker_test 覆盖），故此处直接驱动它。
+    test "押金场支付落账（settle_paid）：报名成功 + 核销码双通知" do
+      admin = Fixtures.platform_admin("signal-settle-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-settle-learner")
+
+      insert_identity(learner.id, "signal-settle-learner-openid")
+      {event, pending} = deposit_pending_enrollment(workspace, admin, learner)
+
+      assert pending.status == :payment_pending
+      assert pending.check_in_code =~ ~r/^\d{6}$/
+      # 未 confirmed：一条通知都没有（completed 信号尚未发出）
+      assert [] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{"enrollment_id" => pending.id}
+               )
+
+      {:ok, confirmed} =
+        pending
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(authorize?: false, tenant: workspace.id)
+
+      assert confirmed.status == :confirmed
+
+      perform_enqueued_signal("enrollment.completed", pending.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        pending.id,
+        completed_payload(confirmed, event)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => pending.id
+                 }
+               )
+
+      assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
+    end
+
+    # #546 确认路径枚举③（个案免缴 waive_payment）：payment_pending → confirmed
+    # （Owner/Admin/平台管理员的个案免费唯一入口 R18）→ 双通知。
+    test "个案免缴（waive_payment）：报名成功 + 核销码双通知" do
+      admin = Fixtures.platform_admin("signal-waive-single-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-waive-single-learner")
+
+      insert_identity(learner.id, "signal-waive-single-learner-openid")
+      {event, pending} = deposit_pending_enrollment(workspace, admin, learner)
+
+      assert pending.status == :payment_pending
+
+      {:ok, confirmed} =
+        pending
+        |> Ash.Changeset.for_update(:waive_payment, %{})
+        |> Ash.update(actor: admin, tenant: workspace.id)
+
+      assert confirmed.status == :confirmed
+
+      perform_enqueued_signal("enrollment.completed", pending.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        pending.id,
+        completed_payload(confirmed, event)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => pending.id
+                 }
+               )
+
+      assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
+    end
+
+    # #546 确认路径枚举④（批量免缴）：关缴费槽 → WaivePendingOnFeeSlotDisable →
+    # waive_pending_for_offering/4（CAS payment_pending → confirmed + 手工
+    # emit_completed/2 —— 5 个 emit 点里唯一不在 action DSL 上的那个）→ 双通知。
+    # 生产触发是 offering update 的 after_action；此处直接驱动它调用的域函数
+    # （同参数、同实现，change 只是 20 行守卫/错误映射包装）。
+    test "批量免缴（waive_pending_for_offering）：报名成功 + 核销码双通知" do
+      admin = Fixtures.platform_admin("signal-waive-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-waive-learner")
+
+      insert_identity(learner.id, "signal-waive-learner-openid")
+      {event, pending} = deposit_pending_enrollment(workspace, admin, learner)
+
+      assert pending.status == :payment_pending
+
+      assert :ok = Enrollment.waive_pending_for_offering(:event, event.id, admin, workspace.id)
+
+      confirmed = Ash.get!(Enrollment, pending.id, authorize?: false)
+      assert confirmed.status == :confirmed
+
+      perform_enqueued_signal("enrollment.completed", pending.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        pending.id,
+        completed_payload(confirmed, event)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_completed",
+                   "enrollment_id" => pending.id
+                 }
+               )
+
+      assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
+    end
+
+    # #546：核销码只在 Event 报名存在（course 恒 nil）——无码不发核销码通知，
+    # 报名成功通知照发（nil 判据的守卫）。
+    test "course 报名直接 confirmed：发报名成功，不发核销码通知（课程无码）" do
+      admin = Fixtures.platform_admin("signal-course-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-course-learner")
+
+      course = EventFixtures.create_course(workspace, admin)
+      insert_identity(learner.id, "signal-course-learner-openid")
+
+      {:ok, enrollment} = create_course_enrollment(course, learner)
+      assert enrollment.status == :confirmed
+      assert enrollment.check_in_code == nil
+
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        course_completed_payload(enrollment, course)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{"enrollment_id" => enrollment.id}
+               )
+
+      assert [] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{"template_key" => "enrollment_check_in_code"}
+               )
+    end
+
+    # #546：同一条无码判据的第二条路径——event 报名但码为 NULL（回填漏网的历史行 /
+    # 未来新路径）：payload 带 event_id，码从 DB 反查为 nil → 照样不发。
+    test "event 报名但核销码为 NULL：不发核销码通知（无码判据，非 event_id 短路）" do
+      admin = Fixtures.platform_admin("signal-null-code-admin")
+      workspace = Fixtures.create_workspace(admin)
+      learner = Fixtures.register_user("signal-null-code-learner")
+
+      event = EventFixtures.create_event(workspace, admin)
+      insert_identity(learner.id, "signal-null-code-learner-openid")
+
+      {:ok, enrollment} = create_enrollment(event, learner)
+      assert enrollment.status == :confirmed
+      assert enrollment.check_in_code =~ ~r/^\d{6}$/
+
+      # 布置：抹掉码（模拟历史漏网行；唯一索引 where check_in_code IS NOT NULL，置 NULL 合法）
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        "UPDATE enrollments SET check_in_code = NULL WHERE id = $1",
+        [Ecto.UUID.dump!(enrollment.id)]
+      )
+
+      perform_enqueued_signal("enrollment.completed", enrollment.id)
+
+      handle_producer_signal(
+        "enrollment.completed",
+        enrollment.id,
+        completed_payload(enrollment, event)
+      )
+
+      assert [%{args: %{"template_key" => "enrollment_completed"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{"enrollment_id" => enrollment.id}
+               )
+
+      assert [] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{"template_key" => "enrollment_check_in_code"}
+               )
     end
   end
 
@@ -228,6 +497,18 @@ defmodule Cgc2046.AsyncSignalTest do
 
       assert key == "enrollment.completed:" <> enrollment.id
       assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
+
+      # #546：核销码通知同样只入队一条（同一 job_meta 幂等键、args 各自唯一）
+      assert [%{args: %{"idempotency_key" => ^key, "data" => %{"check_in_code" => code}}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_check_in_code",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
+
+      assert code == enrollment.check_in_code
     end
 
     test "同键信号重复投喂：第二次返回 :duplicate 且不重复入队" do
@@ -280,6 +561,16 @@ defmodule Cgc2046.AsyncSignalTest do
                )
 
       assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
+
+      # #546：核销码通知同样只入队一条（第二次投喂 :duplicate → 不重复入队）
+      assert [%{args: %{"template_key" => "enrollment_check_in_code"}}] =
+               all_enqueued(
+                 worker: NotificationWorker,
+                 args: %{
+                   "template_key" => "enrollment_check_in_code",
+                   "enrollment_id" => enrollment.id
+                 }
+               )
     end
   end
 
@@ -336,10 +627,57 @@ defmodule Cgc2046.AsyncSignalTest do
   defp claim_key(enrollment_id),
     do: "enrollment.completed:" <> enrollment_id <> ":subscriber"
 
-  defp create_enrollment(event, user) do
+  defp create_enrollment(event, user, extra \\ %{}) do
     Enrollment
-    |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
+    |> Ash.Changeset.for_create(
+      :create_enrollment,
+      Map.merge(%{event_id: event.id, user_id: user.id}, extra)
+    )
     |> Ash.create(tenant: event.workspace_id, actor: user)
+  end
+
+  # #546 押金场布置：押金槽开启的场 + payment_pending 报名（码在 create 已生成）。
+  # 返回 {event, enrollment}——信号 payload 组装需要 event.id。
+  defp deposit_pending_enrollment(workspace, admin, learner) do
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        deposit_enabled: true,
+        deposit_amount_cents: 6900,
+        ends_at: EventFixtures.days_from_now(8)
+      })
+
+    {:ok, enrollment} = create_enrollment(event, learner)
+    {event, enrollment}
+  end
+
+  # #546 核销码通知通用断言：恰 1 条（单元素列表模式，多一条即红）+ data 带该
+  # 报名真实 6 位码 + 与 enrollment_completed 同 job_meta 幂等键值。
+  defp assert_code_notification(enrollment, expected_key) do
+    assert [
+             %{
+               args: %{
+                 "idempotency_key" => key,
+                 "template_key" => "enrollment_check_in_code",
+                 "data" => %{"check_in_code" => code}
+               }
+             }
+           ] =
+             all_enqueued(
+               worker: NotificationWorker,
+               args: %{
+                 "template_key" => "enrollment_check_in_code",
+                 "enrollment_id" => enrollment.id
+               }
+             )
+
+    assert key == expected_key
+    assert code == enrollment.check_in_code
+  end
+
+  defp create_course_enrollment(course, user) do
+    Enrollment
+    |> Ash.Changeset.for_create(:create_enrollment, %{course_id: course.id, user_id: user.id})
+    |> Ash.create(tenant: course.workspace_id, actor: user)
   end
 
   defp confirm(enrollment, actor) do
@@ -374,6 +712,13 @@ defmodule Cgc2046.AsyncSignalTest do
       "enrollment_policy" => "open",
       "idempotency_key" => "enrollment.completed:" <> enrollment.id
     }
+  end
+
+  # course 面 completed：event_id nil、course_id 有值（其余键同 event 面）。
+  defp course_completed_payload(enrollment, course) do
+    enrollment
+    |> completed_payload(%{id: nil})
+    |> Map.put("course_id", course.id)
   end
 
   defp insert_identity(user_id, uid) do

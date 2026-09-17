@@ -7,6 +7,8 @@ import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { enrollmentBlockedNotice } from '@/domain/format'
 import { formatAmount, paymentLandingUrl } from '@/domain/payment'
+import { checkInCodeTouchpoint, submitAfterCheckInCodeConsent } from '@/domain/subscription'
+import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
 // 对齐 web 端一键报名：身份=登录账号（user_id），不再收集姓名/邮箱/理由
@@ -70,12 +72,25 @@ export default function RegisterFormPage() {
     setSubmitting(true)
     setError('')
     try {
-      const enrollment = await api.createEnrollment({
-        target,
-        inviteCode: inviteCode.trim() || undefined,
-        tierId: target.pricingEnabled ? tierId : undefined,
-        ageConfirmed: target.minAge != null ? true : undefined
-      })
+      // #546：活动报名先取得核销码通知授权**再**提交——一次性订阅只能覆盖提交之后
+      // 的发送（open 场 confirmed 与提交同事务落定，后置触点必然送不到）。上方
+      // 前置拦截（批次码 / 档位 / 年龄勾选）全部先行：不满足条件时不弹授权；满足后
+      // 仍是「授权先于提交」。拒绝授权 / 模板缺配 / 平台报错一律不阻断报名
+      // （submitAfterCheckInCodeConsent 内化）。
+      const enrollment = await submitAfterCheckInCodeConsent(
+        kind === 'event' ? checkInCodeTouchpoint() : null,
+        {
+          request: requestPlatformSubscriptions,
+          grant: (scenario) => api.grantConsent(scenario)
+        },
+        () =>
+          api.createEnrollment({
+            target,
+            inviteCode: inviteCode.trim() || undefined,
+            tierId: target.pricingEnabled ? tierId : undefined,
+            ageConfirmed: target.minAge != null ? true : undefined
+          })
+      )
       Taro.setStorageSync(STORAGE_KEYS.lastEnrollment, enrollment)
       if (enrollment.status === 'payment_pending') {
         // 收费报名：weapp 占位完成即进支付页(R5：2h 限时窗)；
