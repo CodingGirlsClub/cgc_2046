@@ -1389,11 +1389,31 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(info).toHaveTextContent("押金 ¥69（到场退）");
     expect(info).toHaveTextContent("未到场不退。");
     unmount();
-
     mocks.fetchPublicOffering.mockResolvedValue(FREE_EVENT);
     render(<PublicOfferingDetailPage kind="event" />);
     await screen.findByRole("button", { name: "提交报名" });
     expect(screen.queryByTestId("deposit-info")).not.toBeInTheDocument();
+  });
+
+  // #675：押金场内金额脏（缺失/0/负/非整数分）→ 区块仍在（脏金额不得让押金场读成免费），
+  // 但金额落「押金（金额待定）」，全文绝不出 ¥0。
+  it.each([
+    ["null", null],
+    ["0", 0],
+    ["负数", -6900],
+    ["非整数分", 0.4],
+  ])("押金场金额脏（%s）：押金块保留、金额不表态，绝不显示 ¥0", async (_label, dirty) => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...DEPOSIT_EVENT,
+      depositAmountCents: dirty,
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    const info = await screen.findByTestId("deposit-info");
+    expect(info).toHaveTextContent("押金（金额待定）");
+    expect(info).toHaveTextContent("未到场不退。");
+    expect(document.body.textContent).not.toContain("¥0");
   });
 
   it("押金场报名：不要求选档 → payment_pending → 收银框带押金金额与不退明示", async () => {

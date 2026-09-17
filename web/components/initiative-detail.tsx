@@ -77,8 +77,9 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		const payment = (() => {
 			if (event.paymentMode === "deposit") {
 				const amount = positiveAmountOrNull(event.deposit?.amountCents);
+				// 不表态文案单源在 `offerings`（#675）：全仓只此一个 key 承载该句
 				return amount === null
-					? t("paymentDepositUnknown")
+					? tPayment("paymentSlotDepositUnknown")
 					: tPayment("paymentSlotDeposit", { amount: formatAmountShort(amount) });
 			}
 			if (event.paymentMode === "pricing") {
