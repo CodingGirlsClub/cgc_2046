@@ -52,10 +52,11 @@ defmodule Cgc2046.Mcp.Playbooks do
     false 且 pricing.min_amount_cents 为 nil(押金不借定价档位,条目也不暴露
     price_tiers),那**不是免费**——把它说成免费是必须避免的错误;
   - 押金场(payment_mode=deposit):deposit.amount_cents 单位是**分**,复述金额前
-    先 /100 转元(6900 分 → 「押金 ¥69.00（到场退）」);金额缺失时只说
-    「押金（到场退）」不出价,绝不显示 ¥0;口径逐字对齐网站/小程序(下方引号内
+    先 /100 转元(6900 分 → 「押金 ¥69.00（到场退）」);金额缺失/非正时只说
+    「押金（金额待定）」不出价,绝不显示 ¥0;口径逐字对齐网站/小程序(下方引号内
     文案原样照搬,不要改写标点):
     「押金 ¥xx（到场退）」
+    「押金（金额待定）」
     「未到场不退。」
     「押金以到场为退还条件：到场核销后原路退回，未到场不予退还。」
     「押金：截止前取消全额退；截止后不退。」
@@ -292,7 +293,7 @@ defmodule Cgc2046.Mcp.Playbooks do
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-09-17.1", content: @workspace_admin_content},
     tutor: %{version: "2026-09-17.1", content: @tutor_content},
-    learner: %{version: "2026-09-16.2", content: @learner_content}
+    learner: %{version: "2026-09-17.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner
