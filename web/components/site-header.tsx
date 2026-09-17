@@ -6,7 +6,7 @@ import LanguageSwitcher from "@/components/language-switcher";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAuthed } from "@/lib/use-authed";
 
-export type SiteNavLink = "events" | "courses";
+export type SiteNavLink = "events" | "courses" | "initiatives";
 
 /**
  * 站点级品牌导航条（全站唯一实现，R8 parity 同源零跳变原则）。
@@ -60,6 +60,13 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 							</Link>
 						</>
 					) : null}
+					<Link
+						href="/initiatives"
+						aria-current={active === "initiatives" ? "page" : undefined}
+						className={`site-nav__link${active === "initiatives" ? " site-nav__link--active" : ""}`}
+					>
+						{t("initiatives")}
+					</Link>
 				</nav>
 				<div className="site-nav__right">
 					<LanguageSwitcher className="site-nav__lang" />
