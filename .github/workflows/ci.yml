@@ -116,6 +116,18 @@ jobs:
       # （.formatter.exs 的 import_deps 依赖 deps 已拉取，故置于 deps.get 之后）
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
+      # SDL 新鲜度门禁（#684）：graphql_schema.ex 的 auto_generate_sdl_file?
+      # 只在模块重编译时改写 SDL——CI 缓存命中时 after_compile 不触发，
+      # 「编译后看 diff」会空转（develop SDL 陈旧多日而 CI 恒绿的根因）。
+      # 故显式跑 absinthe 官方 task 生成（与编译钩子同源、byte 一致、
+      # 无时间戳，缓存无关），再与提交版全量比对。
+      - name: GraphQL SDL freshness gate
+        run: |
+          mix absinthe.schema.sdl --schema Cgc2046Web.GraphqlSchema priv/graphql/schema.graphql
+          git diff --exit-code -- priv/graphql/schema.graphql || {
+            echo "::error::GraphQL SDL 陈旧（上方 diff 即漂移）。修复：cd backend && mix compile 后提交 priv/graphql/schema.graphql（或 mix absinthe.schema.sdl --schema Cgc2046Web.GraphqlSchema priv/graphql/schema.graphql）；SDL 是 miniprogram codegen 的输入，须联动 cd miniprogram && pnpm install --frozen-lockfile && pnpm codegen 并提交 src/api/generated，否则 miniprogram job 的 codegen+diff 门禁会红"
+            exit 1
+          }
       # rbac/error-codes/license 是项目内 mix task，需项目编译后才可执行
       - run: mix cgc2046.gen_rbac_contract --check
       # 错误码契约工件新鲜度（#241）：domain code 子句变更未再生成即红
