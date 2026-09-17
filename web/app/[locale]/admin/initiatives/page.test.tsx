@@ -118,7 +118,9 @@ const MOUNTS = [
 		workspaceId: "w3",
 		workspaceName: "Workspace C",
 		confirmedCount: 5,
-		pricingEnabled: false,
+		// #641：终态场开定价——主弹层用例的判别力来源（旧口径会把它计入
+		// pricingBlocked/total，新口径只数非终态场）。
+		pricingEnabled: true,
 		depositEnabled: false,
 		depositAmountCents: null,
 		minAge: null,
@@ -525,18 +527,41 @@ describe("#595 挂载场视图与规则变更确认", () => {
 		expect(within(dialog).getByText("规则：押金规则")).toBeInTheDocument();
 		expect(
 			within(dialog).getByText(
-				"锁死规则将立即传播到该 Initiative 的挂载场：共 3 场（草稿 1 / 开放 1 / 终态 1）。",
+				"锁死规则将立即传播到该 Initiative 的非终态挂载场：共 2 场（草稿 1 / 开放 1）；终态 1 场（已结束/已取消）不被改写。",
 			),
 		).toBeInTheDocument();
 		expect(within(dialog).getByText("累计已确认报名 10 人。")).toBeInTheDocument();
 		expect(
 			within(dialog).getByText(
-				"其中 1 场已开定价：押金规则变更可能被服务端拒绝，请先关闭这些场的定价。",
+				"非终态场中 1 场已开定价：押金规则变更可能被服务端拒绝，请先关闭这些场的定价。",
 			),
 		).toBeInTheDocument();
 		expect(within(dialog).getByText("实际影响范围以服务端返回为准。")).toBeInTheDocument();
+		// 契约（#641）：两处计数口径刻意不同——表头 = 全量挂载（3，Mounts.list
+		// 如实投影全状态），弹层 total = 非终态传播范围（2，对齐 #587 守卫）。
+		// 不要为了「一致」把表头也改成非终态。
+		expect(screen.getByText("挂载场（3）")).toBeInTheDocument();
 
 		expect(adminLib.upsertInitiativeRule).not.toHaveBeenCalled();
+	});
+
+	// #641：唯一开定价的场是终态 → 阻断提示整行不出现（终态定价不可能触发
+	// event_payment_mode_exclusive，弹层不得把管理员指去关一个不会造成拒绝的场）。
+	it("终态场的定价不计入阻断提示", async () => {
+		const onlyTerminalPriced = MOUNTS.map((mount) =>
+			mount.id === "e2" ? { ...mount, pricingEnabled: false } : mount,
+		);
+		adminLib.fetchInitiative.mockResolvedValue({ ...DETAIL_ROW, mountedEvents: onlyTerminalPriced });
+		render(<AdminInitiativesPage />);
+		const draftRow = (await screen.findByText("e2e-drive")).closest("tr")!;
+		fireEvent.click(within(draftRow).getByRole("button", { name: "编辑" }));
+		await screen.findByText("挂载场（3）");
+
+		fireEvent.change(depositTextarea(), { target: { value: '{"enabled":false}' } });
+		fireEvent.blur(depositTextarea());
+
+		const dialog = await screen.findByRole("dialog");
+		expect(within(dialog).queryByText(/已开定价/)).toBeNull();
 	});
 
 	it("弹出层取消：不发 mutation，且 textarea 草稿回滚到已存值", async () => {
