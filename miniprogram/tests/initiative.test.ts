@@ -17,15 +17,15 @@ import { getPublicInitiative, getPublicInitiatives } from '../src/api/initiative
 import { EventDetailQueryDocument, PublicInitiativeQueryDocument, PublicInitiativesQueryDocument } from '../src/api/operations'
 import { InitiativeContent } from '../src/pages/initiative-detail'
 import { EventRegistrationActions } from '../src/pages/event-detail'
-import { detailQualificationBadgeText, filterInitiatives, initiativeCancelledNotice, initiativeCardStatusText, initiativeStatusText, parseQualificationBadge, qualificationBadgeText } from '../src/domain/initiative'
+import { detailQualificationBadgeText, filterInitiatives, formatAmountShort, initiativeCancelledNotice, initiativeCardStatusText, initiativeStatusText, parseQualificationBadge, participationConditionText, positiveAmountOrNull, qualificationBadgeText } from '../src/domain/initiative'
 
 const initiative: PublicInitiative = {
   id: 'initiative-1', slug: 'hackerstart1024', name: 'hackerstart1024', hashtag: '#hackerstart1024',
   description: '全国共同创作', status: 'closed', windowStartsAt: null, windowEndsAt: null,
   cityCount: 7, eventCount: 11, confirmedCount: 89, qualifiedEventCount: 5,
   cities: [{ city: '线上 / 待定', events: [
-    { id: 'event-1', slug: 'event-1', title: '已取消场次', status: 'cancelled', startsAt: null, endsAt: null, registrationDeadline: null, venue: null, archived: true, qualificationBadge: 'cancelled', shortBy: null },
-    { id: 'event-2', slug: 'event-2', title: '城市见面', status: 'open', startsAt: null, endsAt: null, registrationDeadline: null, venue: JSON.stringify({ country: '中国', province: '湖南省', city: '长沙市', district: '岳麓区' }), archived: false, qualificationBadge: 'short_by', shortBy: 3 }
+    { id: 'event-1', slug: 'event-1', title: '已取消场次', status: 'cancelled', startsAt: null, endsAt: null, registrationDeadline: null, venue: null, archived: true, qualificationBadge: 'cancelled', shortBy: null, paymentMode: 'free', deposit: { enabled: false, amountCents: null, refundableOnCheckIn: null }, minAge: null, priceRangeMinCents: null },
+    { id: 'event-2', slug: 'event-2', title: '城市见面', status: 'open', startsAt: null, endsAt: null, registrationDeadline: null, venue: JSON.stringify({ country: '中国', province: '湖南省', city: '长沙市', district: '岳麓区' }), archived: false, qualificationBadge: 'short_by', shortBy: 3, paymentMode: 'deposit', deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true }, minAge: 18, priceRangeMinCents: null }
   ] }]
 }
 
@@ -55,8 +55,10 @@ describe('Initiative 公开 API 契约', () => {
     expect(fields).toEqual(expect.arrayContaining(['archived', 'qualificationBadge', 'shortBy']))
     // 阶段4：与 web initiative 场次卡对齐的公开字段（venue/deadline 由公开投影给出）
     expect(fields).toEqual(expect.arrayContaining(['venue', 'registrationDeadline']))
+    // #627 参与条件披露：白名单四键进选择集
+    expect(fields).toEqual(expect.arrayContaining(['paymentMode', 'deposit', 'minAge', 'priceRangeMinCents']))
     expect(fields).not.toEqual(expect.arrayContaining(['confirmedCount']))
-    for (const forbidden of ['workspaceId', 'capacity', 'minParticipants', 'qualificationStatus']) expect(fields).not.toContain(forbidden)
+    for (const forbidden of ['workspaceId', 'capacity', 'minParticipants', 'qualificationStatus', 'rules', 'locked', 'valueJson', 'pricingEnabled', 'depositEnabled']) expect(fields).not.toContain(forbidden)
   })
 
   it('Initiative 卡片查询与 web 卡片同字段（description/窗口）', () => {
@@ -95,6 +97,20 @@ describe('Initiative 与留档详情展示', () => {
   it('城市/四计数/closed/取消徽章均呈现后端结果', () => {
     const html = renderToStaticMarkup(createElement(InitiativeContent, { data: initiative }))
     for (const text of ['城市', '场次', '报名', '开成', '>7<', '>11<', '>89<', '>5<', '线上 / 待定', '已结束 · 活动留档', '已取消', '还差 3 人成班', '查看活动留档', '地点：中国 湖南省 长沙市 岳麓区', '地点：地点待定', '报名截止：无截止']) expect(html).toContain(text)
+  })
+
+  // #627 卡片实际渲染内容（D4 覆盖证据）：三态缴费 + 年龄门槛在卡片上，成班进度在徽章上
+  it('场次卡渲染参与条件：押金三态 / 年龄门槛 / 成班进度各就各位（#627）', () => {
+    const html = renderToStaticMarkup(createElement(InitiativeContent, { data: initiative }))
+    // 押金态场次（event-2）：金额 + 到场退 + 年龄门槛存在性
+    for (const text of ['押金 ¥69（到场退） · 限 18+']) expect(html).toContain(text)
+    // 免费态场次（event-1）：单槽只出「免费」，不并列押金
+    expect(html).toContain('>免费<')
+    expect(html).not.toContain('免费 · 押金')
+    // 成班进度仍由既有徽章承载（不新增第二个进度数字）
+    expect(html).toContain('还差 3 人成班')
+    expect(html).not.toContain('人成班 · ')
+    expect(html).not.toContain('¥0')
   })
 
   it('公开 Initiative 没有场次时显示空态', () => {
@@ -187,5 +203,79 @@ describe('三平台页面注册', () => {
       else process.env.TARO_ENV = original
       vi.unstubAllGlobals()
     }
+  })
+})
+
+/**
+ * #627 参与条件披露：缴费槽**单槽三态** + 年龄门槛存在性。文案与 web
+ * `/initiatives/[slug]` 场次卡逐字一致（zh）。
+ */
+describe('参与条件文案（#627）', () => {
+  const base = { paymentMode: 'free' as const, deposit: { enabled: false, amountCents: null, refundableOnCheckIn: null }, minAge: null as number | null, priceRangeMinCents: null as number | null }
+
+  it('押金态：金额 + 到场退 + 年龄门槛存在性', () => {
+    expect(participationConditionText({ ...base, paymentMode: 'deposit', deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true }, minAge: 18 }))
+      .toBe('押金 ¥69（到场退） · 限 18+')
+  })
+
+  it('押金金额缺失/非正：不表态形态，绝不 ¥0（两个脏分支）', () => {
+    for (const amount of [null, 0, -1]) {
+      const text = participationConditionText({ ...base, paymentMode: 'deposit', deposit: { enabled: true, amountCents: amount, refundableOnCheckIn: true } })
+      expect(text).toBe('押金（金额待定）')
+      expect(text).not.toContain('¥0')
+      expect(text).not.toContain('免费')
+    }
+  })
+
+  it('收费态：金额锚出「起」；无金额锚走降级文案', () => {
+    expect(participationConditionText({ ...base, paymentMode: 'pricing', priceRangeMinCents: 9900 })).toBe('收费 ¥99 起')
+    expect(participationConditionText({ ...base, paymentMode: 'pricing', priceRangeMinCents: null })).toBe('收费（档位以活动页为准）')
+  })
+
+  it('免费态：单槽只出「免费」，无年龄门槛时不带「限」', () => {
+    expect(participationConditionText(base)).toBe('免费')
+    expect(participationConditionText(base)).not.toContain('限')
+  })
+
+  // F5 客户端同纪律：非正 minAge 不渲染门槛（与后端 positive_int 同判据）
+  it('非正 minAge 不渲染「限 N+」', () => {
+    for (const dirty of [0, -3]) {
+      const text = participationConditionText({ ...base, minAge: dirty })
+      expect(text).toBe('免费')
+      expect(text).not.toContain('限')
+    }
+  })
+
+  // F4：未知/缺失缴费态不得 fail-open 成「免费」（#586 病根：用默认值冒充事实）
+  it('未知/缺失 paymentMode 落「缴费信息待定」，不冒充免费', () => {
+    for (const mode of [undefined, null, 'unknown_mode'] as unknown[]) {
+      const text = participationConditionText({ ...base, paymentMode: mode as never, minAge: 18 })
+      expect(text).toBe('缴费信息待定 · 限 18+')
+      expect(text).not.toContain('免费')
+    }
+  })
+
+  it('金额守卫与短式格式化（与 web lib/payment 同式）', () => {
+    for (const dirty of [null, undefined, 0, -1]) expect(positiveAmountOrNull(dirty)).toBeNull()
+    // F3：后端以「分」为整数单位；0.4 经 formatAmountShort 会四舍五入成 '0.00'
+    // → 必须被 Number.isInteger 挡住（否则徽章显示「押金 ¥0.00（到场退）」）
+    expect(positiveAmountOrNull(0.4)).toBeNull()
+    expect(formatAmountShort(0.4)).toBe('0.00')
+    expect(positiveAmountOrNull(6900)).toBe(6900)
+    expect(formatAmountShort(6900)).toBe('69')
+    expect(formatAmountShort(9950)).toBe('99.50')
+  })
+
+  it('成班进度不并入条件文案：单槽三态里不出现人数（复用徽章口径）', () => {
+    const text = participationConditionText({ ...base, paymentMode: 'deposit', deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true } })
+    expect(text).not.toContain('人成班')
+    // 徽章仍独立承载成班语义
+    expect(qualificationBadgeText({ qualificationBadge: 'short_by', shortBy: 3 })).toBe('还差 3 人成班')
+  })
+
+  it('取消留档场照常带参与条件（卡片渲染源）', () => {
+    const cancelled = initiative.cities[0].events[0]
+    expect(participationConditionText(cancelled)).toBe('免费')
+    expect(qualificationBadgeText(cancelled)).toBe('已取消')
   })
 })

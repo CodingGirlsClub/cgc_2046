@@ -126,8 +126,9 @@ defmodule Cgc2046.Curriculum.Output do
     # - upsert_condition 把 version == base_version 下推为冲突更新相的 WHERE
     #   子句——check-and-write 单语句原子,不命中即 StaleRecord(并发首存撞
     #   (key,kind) 唯一同归此路:他方已写,version ≥ 1 ≠ 0);
-    # - base_version > 0 而行不存在 = 首存传错基准:行只增不删(无 destroy
-    #   action),存在性前置检查无竞态,版本匹配仍由 upsert_condition 原子兜底。
+    # - base_version > 0 而行不存在 = 首存传错基准:行只增不删(唯一例外 = 下方
+    #   `:delete` 内部 action,#676 draft 课程删除级联——不产生新行,不破坏本
+    #   前置检查),存在性前置检查无竞态,版本匹配仍由 upsert_condition 原子兜底。
     create :upsert_content do
       description("保存/更新课程内容(活文档,(key,kind) upsert;唯一写入口为 MCP 工具)")
 
@@ -174,6 +175,17 @@ defmodule Cgc2046.Curriculum.Output do
     end
 
     defaults([:read])
+
+    # draft 删除级联（#676）：内部 action，无公开调用入口；唯一调用方
+    # `delete_for_course/2` 以 `authorize?: false` 执行（Course `:link_curriculum_run`
+    # 同款纪律——资源 policy 未覆盖 destroy ⇒ 授权调用一律拒绝，是刻意的 fail-closed）。
+    # 「行只增不删」原设计针对**已发布内容**（学习记录引用行 id，删行即断引用）；
+    # draft 课程从未发布、结构性无学习记录，删除安全。
+    destroy :delete do
+      description("删除教研内容行(draft 课程删除级联;仅域内调用,#676)")
+      require_atomic?(false)
+      accept([])
+    end
   end
 
   validations do
@@ -222,6 +234,27 @@ defmodule Cgc2046.Curriculum.Output do
   @doc "课程内容 key 约定(`course_<id>`);CurriculumProgressWorker 与 save_course_content 共用。"
   @spec course_key(String.t()) :: String.t()
   def course_key(course_id) when is_binary(course_id), do: "course_#{course_id}"
+
+  @doc """
+  删除某课程的全部教研内容行(draft 删除级联;唯一调用方 = Course `:delete`,#676)。
+
+  `authorize?: false`(纪律同 `link_curriculum_run` 内部 action:授权在 Course
+  destroy 的 policy 面完成);tenant 收紧到课程所属工作台,他台同 id 行读不到。
+  逐行 destroy 而非批量——行数 = 每课程 0/1 行((key,kind) 唯一,kind 当前仅
+  :issues),失败即上抛让 Course 的事务整体回滚。
+  """
+  @spec delete_for_course(String.t(), String.t()) :: :ok | {:error, term()}
+  def delete_for_course(course_id, workspace_id) do
+    __MODULE__
+    |> Ash.Query.filter(key == ^course_key(course_id))
+    |> Ash.read!(authorize?: false, tenant: workspace_id)
+    |> Enum.reduce_while(:ok, fn row, :ok ->
+      case Ash.destroy(row, action: :delete, authorize?: false, tenant: workspace_id) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   @doc """
   version_conflict 错误文案单源(存在性前置检查与 save_course_content 工具的

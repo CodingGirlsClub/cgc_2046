@@ -3072,6 +3072,21 @@ button:focus-visible,
     color: var(--status-amber);
   }
 
+  /* 参与条件（#627）：缴费槽三态 + 年龄门槛。中性 line 色——与成班三态徽章
+     （open/short/confirmed 的 accent/amber/green 语义色）区分，两枚徽章不抢语义。
+     独占一行（卡片是 column flex）：与成班徽章同排会把标题挤到 0px（360px 实测）。 */
+  .initiative-badge--condition {
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: 8px;
+    background: var(--soft-2);
+    color: var(--ink-2);
+    /* 基础 .initiative-badge 是 nowrap + flex:none：en 长文案（「Paid (tiers are
+       listed on the event page) · Age 18+」实测 301px）在 ≤360px 视口会顶出卡片
+       内容区乃至卡片边框。条件行允许换行，成班徽章（短标签）保持 nowrap 不变。 */
+    white-space: normal;
+  }
+
   .initiative-badge--confirmed {
     border-color: color-mix(in srgb, var(--status-green) 32%, var(--line));
     background: color-mix(in srgb, var(--status-green) 9%, transparent);

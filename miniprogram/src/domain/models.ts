@@ -20,6 +20,14 @@ export type OrderStatus =
   | 'forfeited'
 /** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
 export type OrderKind = 'enrollment' | 'deposit'
+/** 缴费槽三态（后端 Offering.payment_mode/1 单源，押金优先；三态互斥） */
+export type PaymentMode = 'free' | 'pricing' | 'deposit'
+/** 公开页押金明细（#627）：金额缺失/非正 → amountCents 为 null，enabled 仍 true（#586） */
+export interface PublicDeposit {
+  enabled: boolean
+  amountCents: number | null
+  refundableOnCheckIn: boolean | null
+}
 /**
  * 订阅消息场景键（= 后端 `template_key`）。
  *
@@ -117,6 +125,13 @@ export interface PublicInitiativeEvent {
   archived: boolean
   qualificationBadge: QualificationBadge
   shortBy: number | null
+  /** 参与条件（#627）：缴费槽**单槽三态**，不与成班进度混算 */
+  paymentMode: PaymentMode
+  deposit: PublicDeposit
+  /** 年龄门槛存在性（nil/null = 无门槛）；不投校验策略 */
+  minAge: number | null
+  /** 收费态金额锚（可售档位最小值，分）；无金额锚 → null（不臆造金额） */
+  priceRangeMinCents: number | null
 }
 
 export interface PublicInitiative extends PublicInitiativeCard {
@@ -206,7 +221,7 @@ export interface EnrollmentSummary {
    */
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
-  paymentMode: 'free' | 'pricing' | 'deposit' | null
+  paymentMode: PaymentMode | null
   /**
    * #617 目标开始时间（后端 Enrollment.startsAt 计算字段，ISO8601；null = 时间待定）。
    * 改期（event_schedule_changed）与开课提醒（event_reminder）都以本页为落页，

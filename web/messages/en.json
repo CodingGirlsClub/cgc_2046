@@ -2271,6 +2271,11 @@
 		"cityEvents": "{count, plural, one {# event} other {# events}}",
 		"indexTitle": "Initiatives",
 		"indexDesc": "Public initiatives across workspaces. Open one to browse its events.",
+		"conditionWithAge": "{payment} · Age {age}+",
+		"priceFrom": "from ¥{amount}",
+		"paymentPricingUnknown": "Paid (tiers are listed on the event page)",
+		"paymentDepositUnknown": "Deposit (amount TBD)",
+		"paymentUnknown": "Payment info TBD",
 		"indexEmpty": "No initiatives yet",
 		"loadFailed": "Failed to load"
 	},
