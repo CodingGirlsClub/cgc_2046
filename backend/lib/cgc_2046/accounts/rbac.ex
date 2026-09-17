@@ -212,4 +212,15 @@ defmodule Cgc2046.Accounts.Rbac do
     |> MembershipContext.role_names(workspace_id)
     |> Enum.any?(&(Role.manage_role?(&1) or &1 == :tutor))
   end
+
+  @doc """
+  actor 在目标工作台是否持 owner 角色（draft 删除等收窄管理面用，#676）。
+
+  单角色判定，与 `manage?/2` 的 owner/admin 并集**刻意不同**：draft 删除不可逆，
+  权限收窄到 Owner ∪ 平台管理员（平台管理员豁免在调用面判定，不在本谓词内）。
+  """
+  @spec owner?(term(), String.t()) :: boolean()
+  def owner?(actor, workspace_id) do
+    :owner in MembershipContext.role_names(actor, workspace_id)
+  end
 end
