@@ -108,6 +108,7 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
 
   use Ash.Resource.Validation
 
+  alias Cgc2046.Errors.ValueSummary
   alias Cgc2046.Offering.PriceTier
 
   @impl true
@@ -118,13 +119,23 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
     cond do
       not PriceTier.valid?(tiers) ->
         {:error,
-         field: :price_tiers,
-         message:
-           "price tiers must be a list of maps with id/name/amount_cents keys (amount_cents integer >= 1)"}
+         Ash.Error.Changes.InvalidAttribute.exception(
+           field: :price_tiers,
+           message:
+             "price tiers must be a list of maps with id/name/amount_cents keys (amount_cents integer >= 1)",
+           value: %{"price_tiers" => ValueSummary.describe(tiers)}
+         )}
 
       pricing_enabled == true and tiers == [] ->
         {:error,
-         field: :pricing_enabled, message: "pricing_enabled requires at least one price tier"}
+         Ash.Error.Changes.InvalidAttribute.exception(
+           field: :pricing_enabled,
+           message: "pricing_enabled requires at least one price tier",
+           value: %{
+             "pricing_enabled" => pricing_enabled,
+             "price_tiers" => ValueSummary.describe(tiers)
+           }
+         )}
 
       # #543：定价场 ⇒ starts_at 在位（自助取消退款锚）。只拦本次写入造成的
       # 新违规（pricing/starts_at 任一被改动才校验写后状态；存量缺口行不因
