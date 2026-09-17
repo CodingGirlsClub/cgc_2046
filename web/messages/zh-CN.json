@@ -94,6 +94,9 @@
 		"initiative_rule_already_exists": "该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。",
 		"invalid_or_expired_code": "验证码不对或已过期，请重试。",
 		"invalid_phone": "手机号格式不正确，请检查后重填。",
+		"flashback_card_not_found": "找不到这张行动卡，请刷新后重试。",
+		"flashback_auth_required": "进入时间胶囊需要你的专属链接，或登录已绑定的账号。",
+		"flashback_person_not_bound": "当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试"
 	},
@@ -2269,7 +2272,9 @@
 			"enterTitle": "闪念间 · In a Flash",
 			"enterDescription": "十几年前你写下的答案，一直在等你。",
 			"homeTitle": "闪念间 · In a Flash",
-			"homeDescription": "把 2012-2018 年 Rails Girls / Girls Coding Day 的报名答案变成拍立得档案，唤醒当年的学员、教练与志愿者。"
+			"homeDescription": "把 2012-2018 年 Rails Girls / Girls Coding Day 的报名答案变成拍立得档案，唤醒当年的学员、教练与志愿者。",
+			"capsuleTitle": "时间胶囊 · 闪念间",
+			"capsuleDescription": "当年的同行者们正在这里显影——寄出你的照片，看看墙上的下一张卡。"
 		},
 		"journey": {
 			"loading": "正在显影……",
@@ -2392,6 +2397,71 @@
 			"boundTitle": "账号已接管",
 			"boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
 			"enterCapsule": "进入时间胶囊 →"
+		},
+		"capsule": {
+			"loading": "正在显影时间胶囊……",
+			"error": "时间胶囊暂时打不开，请稍后重试。",
+			"retry": "重试",
+			"title": "闪念间 · 时间胶囊",
+			"subtitle": "下滑 = 时间前进：顶上是那年，底部是等你的未来",
+			"authRequiredTitle": "进入胶囊需要你的身份",
+			"authRequiredBody": "从邮件/短信里的专属链接进入，或登录已绑定的账号——如果你找不到链接，可以自助找回。",
+			"authRequiredAction": "去自助找回",
+			"footerHint": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
+		},
+		"corridor": {
+			"ariaLabel": "时间胶囊走廊"
+		},
+		"roster": {
+			"groupAria": "{name} 场次名册",
+			"meta": "{total} 位当年的同行者 · 显影的是已经寄出的",
+			"todayTag": "今天",
+			"dashed": "她的答案，还在等她",
+			"dashedAria": "内容位为空：尚未寄出"
+		},
+		"todaySlot": {
+			"when": "⚡ 今天",
+			"flabel": "此刻 · 一闪念间",
+			"dashed": "你的照片还没寄出",
+			"goSend": "去寄出它 →"
+		},
+		"actionBoard": {
+			"ariaLabel": "行动板",
+			"title": "行动板 · 每张卡都在等一个下一步",
+			"empty": "还没有人提议——第一张卡会来自大家的回信。寄出你的，写下想参加什么。",
+			"count": "{count} 人已附议",
+			"countAria": "{count} 人已附议",
+			"status_proposed": "提议中 · 等同伴",
+			"status_forming": "成形中 · 附议 +1",
+			"status_scheduled": "已成场 · 可报名",
+			"status_done": "已落地",
+			"role_organizer": "组织者",
+			"role_promoter": "宣传拉人",
+			"role_venue": "场地资源",
+			"role_none": "只附议，不认领角色",
+			"endorseRoleLegend": "认领一个角色（可选）",
+			"endorse": "附议这张卡 +1",
+			"endorsed": "你已附议——成场时你会第一个知道。",
+			"endorseFailed": "附议没有成功，请再试一次。",
+			"signup": "报名这一场 →",
+			"scheduledNote": "成场通知会发到你预留的手机/邮箱——想换号？寄出页里可以更新。",
+			"doneNote": "这场已经办成了。活动照片与回顾会贴回这张卡。"
+		},
+		"cardExport": {
+			"ariaLabel": "卡片导出",
+			"title": "把这一刻做成卡片",
+			"kindAria": "选择卡片形态",
+			"summaryTab": "摘要卡（分享默认）",
+			"fullTab": "全文卡",
+			"summaryTitle": "闪念间 · 摘要卡",
+			"fullTitle": "闪念间 · 全文卡",
+			"todayTag": "今天的我",
+			"quoteFallback": "（这里将是你选出的一句金句）",
+			"downloadPng": "保存卡片图片",
+			"downloadMd": "下载 Markdown",
+			"privacyNote": "你标记过雾面的句子不会出现在卡片里。",
+			"brand": "IN A FLASH · 闪念间",
+			"canvasFooter": "闪念间 · In a Flash"
 		},
 		"invalid": {
 			"flashback_token_claimed": {

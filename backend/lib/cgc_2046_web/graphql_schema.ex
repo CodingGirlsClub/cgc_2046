@@ -251,6 +251,24 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
+    field :flashback_capsule, :flashback_capsule do
+      arg(:token, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, resolved} <-
+                 Cgc2046.Flashback.AlumniProjection.resolve_person(
+                   Map.get(args, :token),
+                   context[:actor]
+                 ),
+               {:ok, capsule} <- Cgc2046.Flashback.AlumniProjection.capsule(resolved) do
+            capsule
+          end
+        end)
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -2206,6 +2224,21 @@ defmodule Cgc2046Web.GraphqlSchema do
         flashback_call(fn -> Cgc2046.Flashback.Tokens.update_contact(token, phone, code) end)
       end)
     end
+
+    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue"
+    field :flashback_endorse, :flashback_endorse_result do
+      arg(:token, non_null(:string))
+      arg(:card_id, non_null(:id))
+      arg(:role_claimed, :string)
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token, card_id: card_id} = args, _ ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Endorsements.endorse(token, card_id, Map.get(args, :role_claimed))
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -2710,6 +2743,97 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:event_title, non_null(:string))
     field(:starts_at, :datetime)
     field(:initiative_slug, non_null(:string))
+  end
+
+  # ── 时间胶囊（U5）校友层类型：分层墙（R12）与行动板（R13） ──────────────
+  # 投影纪律（KTD3）：白名单列字段；手机/邮箱不进任何投影；他人答案一律雾化。
+
+  object :flashback_capsule_today do
+    field(:now_status, :string)
+    field(:want, :string)
+    field(:say, :string)
+    field(:sent_to_wall_at, :string)
+  end
+
+  object :flashback_capsule_me do
+    field(:id, non_null(:id))
+    field(:full_name, non_null(:string))
+    field(:surname, :string)
+    field(:city, :string)
+    field(:occupation_then, :string)
+    field(:participation, non_null(:string))
+    field(:applied_at, :string)
+    field(:today, :flashback_capsule_today)
+    @desc "选定金句（R14 摘要卡；off/未选为 null）"
+    field(:quote, :string)
+    @desc "本人当年答案雾化版（全文卡 R15；与墙上呈现同规则）"
+    field(:answers, non_null(list_of(non_null(:flashback_roster_answer))))
+  end
+
+  object :flashback_roster_answer do
+    @desc "当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现"
+    field(:question_key, non_null(:string))
+    field(:text, non_null(:string))
+  end
+
+  object :flashback_roster_entry_today do
+    field(:now_status, :string)
+    field(:want, :string)
+    field(:say, :string)
+  end
+
+  object :flashback_roster_entry do
+    field(:id, non_null(:id))
+    @desc "姓氏隐名（R12）：王**；名册结构化卡的核心标识"
+    field(:surname_masked, non_null(:string))
+    field(:city, :string)
+    field(:occupation_then, :string)
+    field(:sent_to_wall_at, :string)
+    @desc "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
+    field(:today, :flashback_roster_entry_today)
+    @desc "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
+    field(:answers, non_null(list_of(non_null(:flashback_roster_answer))))
+  end
+
+  object :flashback_capsule_archive do
+    field(:key, non_null(:string))
+    field(:name, :string)
+    field(:city, :string)
+    field(:occurred_on, :string)
+    field(:applied_count, :integer)
+    field(:attended_count, :integer)
+    @desc "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
+    field(:is_mine, non_null(:boolean))
+    field(:roster, non_null(list_of(non_null(:flashback_roster_entry))))
+  end
+
+  object :flashback_action_card do
+    field(:id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:city, :string)
+    @desc "四态：proposed/forming/scheduled/done（R13 生命周期）"
+    field(:status, non_null(:string))
+    field(:event_id, :id)
+    @desc "scheduled 起有值：直链 /events/{event_slug} 报名页（不在闪念间内部闭环）"
+    field(:event_slug, :string)
+    field(:endorsement_count, non_null(:integer))
+    field(:endorsed_by_me, non_null(:boolean))
+    @desc "已认领角色集合（organizer/promoter/venue）"
+    field(:roles_claimed, non_null(list_of(non_null(:string))))
+  end
+
+  object :flashback_capsule do
+    field(:me, non_null(:flashback_capsule_me))
+    field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
+    field(:action_cards, non_null(list_of(non_null(:flashback_action_card))))
+  end
+
+  object :flashback_endorse_result do
+    field(:card_id, non_null(:id))
+    field(:status, non_null(:string))
+    field(:role_claimed, :string)
+    @desc "首次附议 true；再次点击（改角色）false——附议计数只随首次 +1"
+    field(:first_time, non_null(:boolean))
   end
 
   object :flashback_fog_span do

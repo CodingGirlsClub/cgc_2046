@@ -56,10 +56,16 @@ defmodule Cgc2046.Flashback.Endorsement do
   actions do
     defaults([:read])
 
-    # U7 附议入口（authorize?: false 路径，token/账号双来源）。
+    # U5/U7 附议入口（authorize?: false 路径，token/账号双来源）。
     create :create do
       accept([:card_id, :person_id, :role_claimed])
       change(set_attribute(:consented_at, &DateTime.utc_now/0))
+    end
+
+    # U5：已附议者改认领角色（幂等——附议计数不重复 +1）。
+    update :update_role do
+      accept([:role_claimed])
+      require_atomic?(false)
     end
   end
 
@@ -75,6 +81,10 @@ defmodule Cgc2046.Flashback.Endorsement do
     end
 
     policy action_type(:create) do
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
+
+    policy action_type(:update) do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

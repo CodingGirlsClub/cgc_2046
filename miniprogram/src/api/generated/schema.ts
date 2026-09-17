@@ -2169,6 +2169,21 @@ export type EventSortInput = {
   order?: InputMaybe<SortOrder>;
 };
 
+export type FlashbackActionCard = {
+  city?: Maybe<Scalars['String']['output']>;
+  endorsedByMe: Scalars['Boolean']['output'];
+  endorsementCount: Scalars['Int']['output'];
+  eventId?: Maybe<Scalars['ID']['output']>;
+  /** scheduled 起有值：直链 /events/{event_slug} 报名页（不在闪念间内部闭环） */
+  eventSlug?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  /** 已认领角色集合（organizer/promoter/venue） */
+  rolesClaimed: Array<Scalars['String']['output']>;
+  /** 四态：proposed/forming/scheduled/done（R13 生命周期） */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
 export type FlashbackAdjustFogResult = {
   answerId: Scalars['ID']['output'];
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
@@ -2189,11 +2204,59 @@ export type FlashbackArchiveRef = {
   occurredOn?: Maybe<Scalars['String']['output']>;
 };
 
+export type FlashbackCapsule = {
+  actionCards: Array<FlashbackActionCard>;
+  archives: Array<FlashbackCapsuleArchive>;
+  me: FlashbackCapsuleMe;
+};
+
+export type FlashbackCapsuleArchive = {
+  appliedCount?: Maybe<Scalars['Int']['output']>;
+  attendedCount?: Maybe<Scalars['Int']['output']>;
+  city?: Maybe<Scalars['String']['output']>;
+  /** 本人的场次（胶囊「今天」格与本人名册卡的定位锚） */
+  isMine: Scalars['Boolean']['output'];
+  key: Scalars['String']['output'];
+  name?: Maybe<Scalars['String']['output']>;
+  occurredOn?: Maybe<Scalars['String']['output']>;
+  roster: Array<FlashbackRosterEntry>;
+};
+
+export type FlashbackCapsuleMe = {
+  /** 本人当年答案雾化版（全文卡 R15；与墙上呈现同规则） */
+  answers: Array<FlashbackRosterAnswer>;
+  appliedAt?: Maybe<Scalars['String']['output']>;
+  city?: Maybe<Scalars['String']['output']>;
+  fullName: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  occupationThen?: Maybe<Scalars['String']['output']>;
+  participation: Scalars['String']['output'];
+  /** 选定金句（R14 摘要卡；off/未选为 null） */
+  quote?: Maybe<Scalars['String']['output']>;
+  surname?: Maybe<Scalars['String']['output']>;
+  today?: Maybe<FlashbackCapsuleToday>;
+};
+
+export type FlashbackCapsuleToday = {
+  nowStatus?: Maybe<Scalars['String']['output']>;
+  say?: Maybe<Scalars['String']['output']>;
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+  want?: Maybe<Scalars['String']['output']>;
+};
+
 export type FlashbackDreamTarget = {
   eventSlug: Scalars['String']['output'];
   eventTitle: Scalars['String']['output'];
   initiativeSlug: Scalars['String']['output'];
   startsAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
+export type FlashbackEndorseResult = {
+  cardId: Scalars['ID']['output'];
+  /** 首次附议 true；再次点击（改角色）false——附议计数只随首次 +1 */
+  firstTime: Scalars['Boolean']['output'];
+  roleClaimed?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
 };
 
 export type FlashbackEnterResult = {
@@ -2251,6 +2314,31 @@ export type FlashbackRegisterBindResult = {
 export type FlashbackRetractResult = {
   retracted: Scalars['Boolean']['output'];
   sentToWallAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackRosterAnswer = {
+  /** 当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现 */
+  questionKey: Scalars['String']['output'];
+  text: Scalars['String']['output'];
+};
+
+export type FlashbackRosterEntry = {
+  /** 空数组 = 未寄出；寄出者才有内容层（雾化版当年答案） */
+  answers: Array<FlashbackRosterAnswer>;
+  city?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  occupationThen?: Maybe<Scalars['String']['output']>;
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+  /** 姓氏隐名（R12）：王**；名册结构化卡的核心标识 */
+  surnameMasked: Scalars['String']['output'];
+  /** nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」） */
+  today?: Maybe<FlashbackRosterEntryToday>;
+};
+
+export type FlashbackRosterEntryToday = {
+  nowStatus?: Maybe<Scalars['String']['output']>;
+  say?: Maybe<Scalars['String']['output']>;
+  want?: Maybe<Scalars['String']['output']>;
 };
 
 export type FlashbackSendToWallResult = {
@@ -4119,6 +4207,8 @@ export type RootMutationType = {
   dismissOnboardingInvitation?: Maybe<User>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
+  /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue */
+  flashbackEndorse?: Maybe<FlashbackEndorseResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
   flashbackEnter?: Maybe<FlashbackEnterResult>;
   /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
@@ -4451,6 +4541,13 @@ export type RootMutationTypeFlashbackAdjustFogArgs = {
 };
 
 
+export type RootMutationTypeFlashbackEndorseArgs = {
+  cardId: Scalars['ID']['input'];
+  roleClaimed?: InputMaybe<Scalars['String']['input']>;
+  token: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackEnterArgs = {
   token: Scalars['String']['input'];
 };
@@ -4755,6 +4852,8 @@ export type RootQueryType = {
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
   eventModerators: Array<EventModerator>;
+  /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
+  flashbackCapsule?: Maybe<FlashbackCapsule>;
   /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
   /** 按 id 获取课程（#40） */
@@ -4900,6 +4999,11 @@ export type RootQueryTypeEnrollmentsArgs = {
 export type RootQueryTypeEventModeratorsArgs = {
   eventId: Scalars['ID']['input'];
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeFlashbackCapsuleArgs = {
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
