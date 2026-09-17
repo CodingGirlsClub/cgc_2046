@@ -2256,6 +2256,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :course_content do
     field(:course_id, non_null(:id))
     field(:title, non_null(:string))
+    field(:description, :string)
     field(:revision_number, :integer)
     field(:published_at, :datetime)
     field(:content, non_null(:json_string))
