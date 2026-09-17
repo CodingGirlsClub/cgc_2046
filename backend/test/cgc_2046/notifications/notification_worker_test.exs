@@ -29,32 +29,18 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # #664 审计：registry 里这些键**没有**任何前端订阅场景——小程序是唯一 grant 路径
-  # （`grantMiniProgramNotificationConsent`，web 无引用），没有场景就永远拿不到
-  # 授权 → `Consent.take` 不命中 → NotificationWorker 按 :consent_exhausted
-  # discard，即生产恒不可达。逐个登记「谁收 / 为什么没入口 / 最自然的挂载点」，
-  # 补齐入口后必须从本表移除（守卫第 3 条会红）。覆盖率与补齐计划见 #683
-  # （6 键授权入口补齐，由 #664 审计开出）；前端侧镜像清单 =
+  # #664 审计开出的 6 键缺口已由 #683 全部补齐前端入口（enrollment_submitted +
+  # payment_received → 工作台第二按钮；payment_succeeded → 支付页双态；退款三键
+  # → 「我的报名」付费卡），本表清空但**结构保留**：registry 未来新增无前端场景
+  # 的键必须在此登记（守卫第 4 条 uncovered 会红），登记数在下方断言写死 0——
+  # 改本表/本数必须是有意识的决定。前端侧镜像清单 =
   # `miniprogram/tests/subscription-domain.test.ts` 的 UNCOVERED_SCENARIOS。
   @scenario_gaps [
-    # 收件人 = workspace Owner/Admin（request 策略的「有新待审批报名」）。工作台
-    # 触点已用满单次上限 3（approval_reminder + speaker_accepted +
-    # speaker_completed）；最自然挂载点 = 工作台第二个触点（需产品定文案）。
-    "enrollment_submitted",
-    # 收件人 = 报名人（付款成功）。最自然挂载点 = order-pay 支付成功即时点
-    # （该页现请求 event_reminder + event_schedule_changed，尚有 1 个名额）。
-    "payment_succeeded",
-    # 收件人 = 报名人 + 管理者。报名人侧最自然挂载点 = 「我的报名」报名卡
-    # （活动卡现 2 个名额、课程卡现 1 个名额）；管理者侧同 enrollment_submitted。
-    "refund_succeeded",
-    # 收件人 = 报名人 + 管理者。同 refund_succeeded。
-    "refund_failed",
-    # 收件人 = workspace Owner/Admin（逐笔收款感知）。同 enrollment_submitted
-    # （管理者面触点上限已满）。
-    "payment_received",
-    # 收件人 = 报名人 + 管理者（订单超时作废）。报名人侧最自然挂载点 = 「我的
-    # 报名」缴费链卡片（订单状态在那有权威展示）。
-    "payment_expired"
+    # 残余缺口（不占本表，记录于 subscription.ts moduledoc「覆盖缺口」节）：
+    # - refund_succeeded / refund_failed / payment_expired 的**管理者腿**：小程序
+    #   无退款操作面（refundOrder 仅 web），最佳授权时刻不可达，先例 =
+    #   speaker_completed 分享者腿；
+    # - enrollment_completed 的 web 报名腿：微信一次性订阅只能在小程序内发起。
   ]
 
   # 投递路径 stub wechat 平台（SDK client + Tesla.Mock；token 由 SDK ETS 管理）。
@@ -156,9 +142,9 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
       scenarios = frontend_scenarios()
       gaps = MapSet.new(@scenario_gaps)
 
-      # 缺口数先钉死：防「新键被随手塞进缺口表」与「缺口表被清空」都用相等断言蒙混
+      # 缺口数先钉死（#683 补齐 6 键后为 0）：防「新键被随手塞进缺口表」蒙混过关
       # （改这个数 = 有意识承认一个新缺口，与 #606 allowlist / 前端场景计数同款纪律）
-      assert MapSet.size(gaps) == 6,
+      assert MapSet.size(gaps) == 0,
              "缺口数变为 #{MapSet.size(gaps)}：#{inspect(Enum.sort(gaps))}——改本表/本数必须是有意识的决定"
 
       # 缺口表不得腐烂：键被删/改名后必须同步删行，否则守卫会为幽灵键放行
