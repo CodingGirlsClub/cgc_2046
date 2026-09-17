@@ -1418,6 +1418,24 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(note).toHaveTextContent("未到场不退。");
   });
 
+  it("押金场报名开框即停同意门（#686 D4 钉）：公开页把 depositEnabled 随载荷传下去，未勾选零创单", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-deposit", status: "payment_pending" },
+      errors: [],
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
+    apollo.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+    expect(
+      await screen.findByTestId("checkout-deposit-consent"),
+    ).toBeInTheDocument();
+    expect(apollo.mutate).not.toHaveBeenCalled();
+  });
+
   it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 payload 的二维码，并提示勿截图转发", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     eventsMocks.fetchMyEnrollment.mockResolvedValue({

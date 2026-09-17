@@ -1350,6 +1350,7 @@
 		"paymentSlotFree": "Free",
 		"paymentSlotPricing": "Paid {overview}",
 		"paymentSlotDeposit": "Deposit ¥{amount} (refunded on attendance)",
+		"depositName": "Deposit",
 		"depositAmountLabel": "Deposit amount (CNY)",
 		"depositRefundHint": "Fully refunded after on-site check-in; forfeited for no-shows.",
 		"depositAmountRequired": "Enabling a deposit requires an amount greater than 0.",

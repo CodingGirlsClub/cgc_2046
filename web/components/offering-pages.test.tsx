@@ -823,6 +823,48 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("押金场 payment_pending 既有报名 → 继续支付开框即停同意门，未勾选零创单（#686）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-deposit",
+      title: "押金活动",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      depositEnabled: true,
+      depositAmountCents: 6900,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-deposit",
+      status: "payment_pending",
+    });
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）
+    apolloClient.query.mockResolvedValue({
+      data: { myOrders: { results: [] } },
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);
+
+    fireEvent.click(await screen.findByTestId("enrollment-pending-pay"));
+    expect(
+      await screen.findByTestId("checkout-deposit-consent"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("checkout-deposit-consent-button"),
+    ).toBeDisabled();
+    // 未勾选：零创单——披露门不再 fail-open
+    expect(apolloClient.mutate).not.toHaveBeenCalled();
+  });
+
   it("confirmed 既有报名 → 你已报名，不渲染报名表单", async () => {
     mocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-confirmed",

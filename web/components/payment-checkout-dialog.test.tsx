@@ -535,6 +535,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
+				depositEnabled
 				depositAmountCents={6900}
 			/>,
 		);
@@ -565,6 +566,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
+				depositEnabled
 				depositAmountCents={6900}
 			/>,
 		);
@@ -613,6 +615,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
+				depositEnabled
 				depositAmountCents={6900}
 			/>,
 		);
@@ -657,6 +660,77 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		expect(screen.getByTestId("checkout-pricing-note")).toHaveTextContent(
 			"活动开始前取消全额退",
 		);
+	});
+
+	it("押金场识别按存在性（#686）：depositEnabled 且金额缺失 → 仍停确认态，未勾选零创单", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositEnabled
+			/>,
+		);
+
+		// 金额缺失（未传 depositAmountCents）不影响门：确认块仍出现、未勾选禁用、零创单
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByTestId("checkout-deposit-consent-button"),
+		).toBeDisabled();
+		expect(client.mutate).not.toHaveBeenCalled();
+
+		// 勾选确认后才创单
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+	});
+
+	it("单变量对照（#686）：仅去掉 depositEnabled → 无确认块，直接创单（修复前的缺陷形状）", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 不出同意门、直接进支付面（单拿走存在性事实，其余一字不动）
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-consent"),
+		).not.toBeInTheDocument();
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+	});
+
+	it("反向断言（#686）：非押金场（depositEnabled=false）即使押金金额在场也不出门——识别已脱离金额", async () => {
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositEnabled={false}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		expect(
+			screen.queryByTestId("checkout-deposit-consent"),
+		).not.toBeInTheDocument();
+		expect(client.mutate).toHaveBeenCalledTimes(1);
 	});
 });
 
