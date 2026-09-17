@@ -15,7 +15,7 @@ import {
   type RequestPaymentArgs
 } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
-import { eventCardTouchpoint } from '@/domain/subscription'
+import { paymentResultTouchpoint } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -147,6 +147,8 @@ export default function OrderPayPage() {
 
   const remain = countdownText(now, order?.expireAt)
   const expired = remain === '已过期'
+  // 双态触点单变量：pending/paid 按钮与 handler 共用，label 随 phase 正确分派
+  const touchpoint = paymentResultTouchpoint(phase === 'paid')
 
   const refreshManually = () => {
     setPollElapsed(0)
@@ -154,19 +156,17 @@ export default function OrderPayPage() {
     void pollStatus()
   }
 
-  // paid 态订阅活动提醒（#355-9）：与 my-enrollments 卡片订阅按钮同链路
-  // （requestPlatformSubscriptions → grantConsent），入口前移到支付成功即时点。
-  // 本处**有意只请求 event_reminder**（与改动前语义等价）；「开始 + 改期」的
-  // 完整 M2 组合留给 my-enrollments 活动卡，避免在支付成功页一次问满。
-  const subscribeReminder = async () => {
+  // M6 双态触点（#683 收紧 2）：pending 态先授权 → 首单即送达；paid 态兜底补
+  // 授权（本单或已 discard，配额结转下一单）。判据/文案/时机下沉 domain。
+  const subscribePayment = async () => {
     try {
-      const [accepted] = await requestPlatformSubscriptions(['event_reminder'])
-      if (!accepted) {
-        Taro.showToast({ title: eventCardTouchpoint().deniedCopy, icon: 'none' })
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
         return
       }
-      await api.grantConsent(accepted)
-      Taro.showToast({ title: '已订阅活动提醒', icon: 'success' })
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
     } catch (reason) {
       Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
     }
@@ -204,9 +204,9 @@ export default function OrderPayPage() {
             <Button
               className={styles.textButton}
               data-testid='subscribe-reminder'
-              onClick={() => void subscribeReminder()}
+              onClick={() => void subscribePayment()}
             >
-              订阅活动提醒
+              {touchpoint.label}
             </Button>
           </View>
         ) : expired ? (
@@ -266,6 +266,13 @@ export default function OrderPayPage() {
                       onClick={() => void requestPayment()}
                     >
                       {paying ? '调起支付…' : ackRequired ? '请先勾选确认' : '立即支付'}
+                    </Button>
+                    <Button
+                      className={styles.textButton}
+                      data-testid='subscribe-payment-result'
+                      onClick={() => void subscribePayment()}
+                    >
+                      {touchpoint.label}
                     </Button>
                   </>
                 )}
