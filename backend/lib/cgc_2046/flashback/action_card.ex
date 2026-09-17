@@ -7,6 +7,8 @@ defmodule Cgc2046.Flashback.ActionCard do
   - `scheduled` 由管理员确认成场时回填 `event_id`（真实 Event 挂 1024
     Initiative，编排属 U7；本表只持引用，不设跨域 relationship——Event 是
     租户资源，全局卡直读会踩 tenant 边界）；
+  - done 回贴（U7/R13）：活动照片 data-URL（头像先例同款校验）+ 回顾文字，
+    由 `ActionCards.mark_done/3` 显式置位（照片校验在域层）；
   - 无未成场终止机制（附议即表态，成不成场由运营裁量）。
   """
 
@@ -37,6 +39,11 @@ defmodule Cgc2046.Flashback.ActionCard do
 
     # 成场回填（scheduled 起）；done 态回贴照片/回顾（U7）。
     attribute(:event_id, :uuid, public?: true, writable?: false)
+
+    # done 回贴（R13「落地有照片回流」）：活动照片 data-URL（MIME 白名单 +
+    # ~3MB 上限，头像先例 workspace_profile.ex 同款口径）；回顾文字。
+    attribute(:photo_url, :string, public?: true, writable?: false)
+    attribute(:recap, :string, public?: true, writable?: false)
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
@@ -70,12 +77,40 @@ defmodule Cgc2046.Flashback.ActionCard do
       require_atomic?(false)
       accept([:title, :city])
     end
+
+    # 成场回填（U7 编排专用：event_id + status 只由 ActionCards.schedule 落点，
+    # force_change 路径，不对任何入口开放）。
+    update :schedule do
+      require_atomic?(false)
+      accept([])
+    end
+
+    # done 回贴（U7：photo_url/recap + status；照片校验在域层 ActionCards）。
+    update :mark_done do
+      require_atomic?(false)
+      accept([])
+    end
+
+    # 状态转移（服务端内部：Endorsements 首条附议 proposed→forming）。
+    update :advance_status do
+      require_atomic?(false)
+      accept([])
+    end
   end
 
   admin do
     resource_group(:flashback)
 
-    table_columns([:id, :title, :city, :status, :proposer_person_id, :event_id])
+    table_columns([
+      :id,
+      :title,
+      :city,
+      :status,
+      :proposer_person_id,
+      :event_id,
+      :photo_url,
+      :recap
+    ])
   end
 
   policies do

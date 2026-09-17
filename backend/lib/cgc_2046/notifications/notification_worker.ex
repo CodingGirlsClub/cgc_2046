@@ -209,6 +209,16 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       job_meta_keys: ["event_id"],
       unique: :default,
       stale: nil
+    },
+    # 闪念间成场通知（U7/R13a/KTD5）：附议的卡成真了——注册者走订阅消息，
+    # 未注册附议者由 ActionFanoutWorker 分派到 U8 outreach 邮件/短信。
+    %{
+      template_key: "flashback_action_scheduled",
+      id_key: nil,
+      data_keys: ["card_id", "event_id", "title"],
+      job_meta_keys: ["card_id"],
+      unique: :default,
+      stale: nil
     }
   ]
 

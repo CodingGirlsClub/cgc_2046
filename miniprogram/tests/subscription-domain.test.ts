@@ -8,27 +8,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { SubscriptionScenario } from '../src/domain/models.ts'
-import {
-  ALL_SCENARIOS,
-  MAX_TMPL_IDS_PER_REQUEST,
-  acceptedScenarios,
-  configuredScenarios,
-  courseCardTouchpoint,
-  enrollmentCardTouchpoint,
-  enrollmentResultTouchpoint,
-  eventCardTouchpoint,
-  moderatorTouchpoint,
-  paymentResultTouchpoint,
-  preSubmitTouchpoint,
-  refundCardTouchpoint,
-  submitAfterConsent,
-  subscriptionTransport,
-  workspaceOpsTouchpoint,
-  workspaceTouchpoint
-} from '../src/domain/subscription.ts'
+import { ALL_SCENARIOS, MAX_TMPL_IDS_PER_REQUEST, acceptedScenarios, configuredScenarios, courseCardTouchpoint, enrollmentCardTouchpoint, enrollmentResultTouchpoint, eventCardTouchpoint, moderatorTouchpoint, paymentResultTouchpoint, preSubmitTouchpoint, refundCardTouchpoint, submitAfterConsent, subscriptionTransport, workspaceOpsTouchpoint, workspaceTouchpoint, eventCardFlashbackTouchpoint } from '../src/domain/subscription.ts'
 
 /** 全量触点的「正常态」取样（M0–M8）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
+  eventCardFlashbackTouchpoint(),
   preSubmitTouchpoint('event'),
   preSubmitTouchpoint('course'),
   enrollmentResultTouchpoint('pending'),
@@ -57,9 +41,9 @@ const allTouchpoints = () => [
 const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 18 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 18)
-    assert.equal(new Set(ALL_SCENARIOS).size, 18)
+  test('恰好 19 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 19)
+    assert.equal(new Set(ALL_SCENARIOS).size, 19)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {

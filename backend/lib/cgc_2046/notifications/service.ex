@@ -227,6 +227,16 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  # flashback_action_scheduled（U7：闪念间成场通知）：卡名=thing1 / 成行提示
+  # =thing5（固定文案，报名直达由深链 event-detail 承载）。
+  defp render(:wechat, "flashback_action_scheduled", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "thing5" => "你附议的场次已成行，点击报名"
+    }
+    |> drop_nils()
+  end
+
   defp render(:wechat, "speaker_accepted", %{} = data) do
     %{
       "thing14" => thing(data["title"]),

@@ -22,8 +22,8 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
   @env_example ".env.example"
   @runtime "config/runtime.exs"
 
-  # #546 核销码通知：17 → 18
-  @expected_size 18
+  # #546 核销码通知：17 → 18；U7 闪念间成场：18 → 19
+  @expected_size 19
 
   test "wechat 模板 env 四处名单集合完全一致（18 键）" do
     sets =
