@@ -694,7 +694,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
 	});
 
-	it("单变量对照（#686）：仅去掉 depositEnabled → 无确认块，直接创单（修复前的缺陷形状）", async () => {
+	it("单变量对照（#686）：缺 depositEnabled → 视为非押金场，无确认块直接创单", async () => {
 		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
 
 		render(

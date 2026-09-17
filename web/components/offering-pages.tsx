@@ -80,7 +80,9 @@ import {
   submitEnrollment,
 } from "@/lib/public-offerings";
 import { useAuthed } from "@/lib/use-authed";
-import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+import PaymentCheckoutDialog, {
+  type PaymentCheckoutContext,
+} from "@/components/payment-checkout-dialog";
 import AddToCalendar from "@/components/add-to-calendar";
 import {
   fetchInitiativeMountPreview,
@@ -1013,15 +1015,8 @@ export function OfferingDetailPage({
     enrollmentId?: string | null;
   }>({ kind: "idle", message: null });
   // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
-  // 押金事实按存在性传递（#686）：depositEnabled 定门，金额只表态。
-  const [checkout, setCheckout] = useState<{
-    enrollmentId: string;
-    amountCents: number | null;
-    tierName: string | null;
-    depositEnabled: boolean;
-    depositAmountCents: number | null;
-    title: string;
-  } | null>(null);
+  // 类型 = 弹框导出的收银上下文（Required 收紧：漏传押金事实即编译错，#686）。
+  const [checkout, setCheckout] = useState<PaymentCheckoutContext | null>(null);
   // 渲染期时间快照（react-hooks/purity：渲染体不得直接调 Date.now；仓内
   // payment-checkout-dialog/approval-chip 同款惰性初始化）
   const [nowMs] = useState(() => Date.now());
@@ -1117,16 +1112,16 @@ export function OfferingDetailPage({
   // （#686：depositEnabled 按存在性定门随载荷下传；金额/「押金」名只表态，
   // 与公开页 openCheckoutFor 同款——押金场无档位，不与 tier 混合）
   function openCheckoutFor(enrollmentId: string) {
-    const depositCents =
-      offering?.depositEnabled === true
-        ? (offering.depositAmountCents ?? null)
-        : null;
-    const tier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
+    const depositOn = offering?.depositEnabled === true;
+    const depositCents = depositOn
+      ? (offering.depositAmountCents ?? null)
+      : null;
     setCheckout({
       enrollmentId,
-      amountCents: depositCents ?? tier?.amountCents ?? null,
-      tierName: depositCents != null ? t("depositName") : (tier?.name ?? null),
-      depositEnabled: offering?.depositEnabled === true,
+      amountCents: depositCents ?? paidTier?.amountCents ?? null,
+      tierName:
+        depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositEnabled: depositOn,
       depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });

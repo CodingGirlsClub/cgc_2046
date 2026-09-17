@@ -9,9 +9,10 @@
  * createOrder 即出码。渠道选择与二维码同屏，切换渠道走 replaceProvider
  * （R11：旧单作废新码即换，框内无感）。
  *
- * 押金口径判据（#580）：同意门与说明行金额只认**订单快照**——活单的
- * orderKind / amountCents（下单时定，组织者事后改配置不漂移）；订单未建立
- * 的瞬间（无活单、consent 预判路径）才用活动现价——那一刻现价即承诺价。
+ * 押金口径判据（#580/#686）：有活单 → 同意门与说明行金额只认**订单快照**
+ * （orderKind / amountCents，下单时定，组织者事后改配置不漂移）；订单未建立
+ * 的瞬间（无活单、consent 预判路径）→ 同意门认报名目标存在性 depositEnabled
+ * （#686），头部/说明行金额才用活动现价——那一刻现价即承诺价。
  * orderKind 解析 fail-closed（parseOrderKind 未知值 → error 态，不猜方向）。
  *
  * 轮询（R14）与倒计时（R6）复用 use-order-polling / lib/payment 纯函数，
@@ -94,6 +95,8 @@ export interface PaymentCheckoutDialogProps {
    * 押金场识别（#686）：按**存在性**判定——报名目标开启押金即押金收银，与金额
    * 是否就绪无关。无活单的 consent 预判分支与 isDepositCheckout 渲染判据都以
    * 它定门；金额缺失不再让押金场漏过同意勾选（fail-open）。
+   * 缺省 false = 视为非押金场（无同意门、直接创单）；调用方必须显式下传
+   * 报名目标的押金事实，漏传即 fail-open（#686 同一失败类）。
    */
   depositEnabled?: boolean;
   /**
@@ -104,6 +107,15 @@ export interface PaymentCheckoutDialogProps {
   /** 活动标题（头部展示） */
   title?: string | null;
 }
+
+/**
+ * 收银上下文（调用方 state 形状 = 弹框 props 减去回调）。Required 刻意收紧：
+ * 调用方组装载荷时漏传任一押金事实（depositEnabled/depositAmountCents）
+ * 都是编译错，不给「漏传静默 fail-open」留缝（#686）。
+ */
+export type PaymentCheckoutContext = Required<
+  Omit<PaymentCheckoutDialogProps, "onClose" | "onPaid">
+>;
 
 export default function PaymentCheckoutDialog({
   enrollmentId,
