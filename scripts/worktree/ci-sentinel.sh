@@ -33,9 +33,28 @@ max_reruns=2         # known-flake rerun budget
 reruns=0
 waited=0
 
-ghx() { npx -y gh-axi "$@"; }
+# gh-axi 解析：优先 PATH 上的直调；npx 回落时把 npm 缓存指到可写目录。
+# （root 属主的 ~/.npm/_cacache 会让 npx 直接 EPERM，哨兵被拖进「调用失败 —
+# 60s 后重试」死循环，全绿 PR 无人合并——#694/#695 教训）
+if command -v gh-axi >/dev/null 2>&1; then
+  ghx() { gh-axi "$@"; }
+else
+  export npm_config_cache="${TMPDIR:-/tmp}/npm-cache-axi"
+  ghx() { npx -y gh-axi "$@"; }
+fi
 say() { printf '=== [%s] %s\n' "$label" "$*"; }
 sub() { printf '  [%s] %s\n' "$label" "$*" >&2; }
+
+# 启动自检（fail-fast）：一次便宜探测，失败立刻退出并说明走的是哪条路径，
+# 绝不静默进入重试循环。
+ghx_src="npx 回落 (npm_config_cache=${npm_config_cache:-<unset>})"
+if command -v gh-axi >/dev/null 2>&1; then
+  ghx_src="PATH 直调 ($(command -v gh-axi))"
+fi
+if ! ghx --help >/dev/null 2>&1; then
+  say "gh-axi 不可用 [${ghx_src}] — 安装 gh-axi 到 PATH，或修复 npx 环境"
+  exit 1
+fi
 
 # state, merged, mergeable_state, head.ref — one API call per poll.
 # gh-axi wraps the body as:   body: "open,false,behind,refs/..."  — unwrap it.
