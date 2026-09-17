@@ -132,6 +132,13 @@ defmodule Cgc2046.Events.EventModerator do
   postgres do
     table("event_moderators")
     repo(Cgc2046.Repo)
+
+    # #537：assigned_by 的 FK 契约显式化——DB 侧 20260913155651 手写建表即
+    # SET NULL（用户删除 → 指派人置空，行保留），此处对齐而非新引入；
+    # snapshot 链同步（CI --check 门禁，PR #721 红根因）。
+    references do
+      reference(:assigned_by_user, on_delete: :nilify)
+    end
   end
 
   policies do
