@@ -1,4 +1,6 @@
 import type { PublicInitiativeEvent, QualificationBadge } from './models'
+// 金额守卫单源在缴费域（#675 从本模块迁出）：展示层判据两端各一份，语义逐字一致
+import { positiveAmountOrNull } from './payment'
 
 /**
  * 活动级状态文案（#628）：`cancelled`（中止）与 `closed`（收尾）必须分叉——
@@ -37,19 +39,6 @@ export function parseQualificationBadge(value: unknown): QualificationBadge | nu
 /** 分 → 元短式（整元省略小数：6900 → '69'）；与 web `lib/payment.ts#formatAmountShort` 同式 */
 export function formatAmountShort(cents: number): string {
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2)
-}
-
-/**
- * 展示金额守卫（#627）：**只有正整数**算有效金额，缺失/0/负/**小数分**一律 null——
- * 调用方据此退化为不表态形态（「押金（金额待定）」），**绝不显示 ¥0 / ¥0.00**。
- *
- * `Number.isInteger` 是必要的一半：后端以「分」为整数单位，`0.4` 经
- * `formatAmountShort` 会四舍五入成 `¥0.00`（实测）——与 web 侧同判据。
- * 后端已按同判据降级（`Offering.deposit_amount_cents/1`，#586：非正/缺失 → null），
- * 此处是展示层兜底（DB CHECK 上线前的存量脏行）。
- */
-export function positiveAmountOrNull(cents: number | null | undefined): number | null {
-  return typeof cents === 'number' && Number.isInteger(cents) && cents > 0 ? cents : null
 }
 
 /**
