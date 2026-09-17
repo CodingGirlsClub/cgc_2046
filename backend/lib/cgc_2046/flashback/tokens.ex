@@ -132,9 +132,23 @@ defmodule Cgc2046.Flashback.Tokens do
   """
   @spec submit_today(term(), map()) :: {:ok, Today.t()} | {:error, term()}
   def submit_today(token_plaintext, params) do
-    with {:ok, token} <- fetch_valid(token_plaintext),
-         {:ok, today} <- upsert_today(token.person_id, params) do
-      record_touch(token, :intent_submitted)
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      submit_today_as_person(token.person_id, params, token)
+    end
+  end
+
+  @doc """
+  「今天的你」编辑——会话面（U9/R28 小程序回访）：与 token 面共用 upsert；
+  不写 `intent_submitted`（四率度量首程漏斗，回访编辑不重计）。
+  """
+  @spec submit_today_as_person(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def submit_today_as_person(person_id, params) do
+    submit_today_as_person(person_id, params, nil)
+  end
+
+  defp submit_today_as_person(person_id, params, token) do
+    with {:ok, today} <- upsert_today(person_id, params) do
+      if token, do: record_touch(token, :intent_submitted)
       {:ok, %{today: today_payload(today)}}
     end
   end
@@ -218,8 +232,15 @@ defmodule Cgc2046.Flashback.Tokens do
   """
   @spec adjust_fog(term(), String.t(), [map()]) :: {:ok, Answer.t()} | {:error, term()}
   def adjust_fog(token_plaintext, answer_id, spans) do
-    with {:ok, token} <- fetch_valid(token_plaintext),
-         {:ok, answer} <- owned_answer(token.person_id, answer_id) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      adjust_fog_as_person(token.person_id, answer_id, spans)
+    end
+  end
+
+  @doc "雾面调整——会话面（U9/R28 小程序回访编辑）：与 token 面同规则。"
+  @spec adjust_fog_as_person(String.t(), String.t(), [map()]) :: {:ok, map()} | {:error, term()}
+  def adjust_fog_as_person(person_id, answer_id, spans) do
+    with {:ok, answer} <- owned_answer(person_id, answer_id) do
       answer
       |> Ash.Changeset.for_update(:adjust_fog, %{fog_spans: spans})
       |> Ash.update(authorize?: false)
@@ -256,15 +277,22 @@ defmodule Cgc2046.Flashback.Tokens do
   """
   @spec set_quote_license(term(), map()) :: {:ok, QuoteLicense.t()} | {:error, term()}
   def set_quote_license(token_plaintext, params) do
-    with {:ok, token} <- fetch_valid(token_plaintext),
-         :ok <- validate_quote_span(token.person_id, params) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      set_quote_license_as_person(token.person_id, params)
+    end
+  end
+
+  @doc "金句授权——会话面（U9/R31 端内入口）：与 token 面同规则同幂等。"
+  @spec set_quote_license_as_person(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def set_quote_license_as_person(person_id, params) do
+    with :ok <- validate_quote_span(person_id, params) do
       case QuoteLicense
            |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^token.person_id)
+           |> Ash.Query.filter(person_id == ^person_id)
            |> Ash.read_one(authorize?: false) do
         {:ok, nil} ->
           QuoteLicense
-          |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, token.person_id))
+          |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, person_id))
           |> Ash.create(authorize?: false)
           |> case do
             {:ok, license} -> {:ok, license_payload(license)}

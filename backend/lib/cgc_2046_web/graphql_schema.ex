@@ -2127,16 +2127,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "提交「今天的你」（R8/R18/R19/R20，覆盖式；写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact"
+    @desc "提交「今天的你」（R8/R18/R19/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率）"
     field :flashback_submit_today, :flashback_today_result do
-      arg(:token, non_null(:string))
+      arg(:token, :string)
       arg(:input, non_null(:flashback_today_input))
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
 
-      resolve(fn _, %{token: token, input: input}, _ ->
+      resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          Cgc2046.Flashback.Tokens.submit_today(token, today_params(input))
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                Cgc2046.Flashback.Tokens.submit_today(token, today_params(args[:input]))
+
+              {:person, person_id} ->
+                Cgc2046.Flashback.Tokens.submit_today_as_person(
+                  person_id,
+                  today_params(args[:input])
+                )
+            end
+          end
         end)
       end)
     end
@@ -2163,24 +2174,36 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达"
+    @desc "调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
     field :flashback_adjust_fog, :flashback_adjust_fog_result do
-      arg(:token, non_null(:string))
+      arg(:token, :string)
       arg(:answer_id, non_null(:id))
       arg(:spans, non_null(list_of(non_null(:flashback_fog_span_input))))
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
 
-      resolve(fn _, %{token: token, answer_id: answer_id, spans: spans}, _ ->
+      resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          Cgc2046.Flashback.Tokens.adjust_fog(token, answer_id, spans)
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                Cgc2046.Flashback.Tokens.adjust_fog(token, args[:answer_id], args[:spans])
+
+              {:person, person_id} ->
+                Cgc2046.Flashback.Tokens.adjust_fog_as_person(
+                  person_id,
+                  args[:answer_id],
+                  args[:spans]
+                )
+            end
+          end
         end)
       end)
     end
 
-    @desc "金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关"
+    @desc "金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
     field :flashback_set_quote_license, :flashback_quote_license_result do
-      arg(:token, non_null(:string))
+      arg(:token, :string)
       arg(:level, non_null(:string))
       arg(:question_key, :string)
       arg(:chosen_quote_span, :flashback_fog_span_input)
@@ -2188,7 +2211,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
 
-      resolve(fn _, %{token: token, level: level} = args, _ ->
+      resolve(fn _, %{level: level} = args, %{context: context} ->
         if level in ["off", "anonymous", "credited"] do
           params = %{
             level: level,
@@ -2197,7 +2220,17 @@ defmodule Cgc2046Web.GraphqlSchema do
             credited_note: Map.get(args, :credited_note)
           }
 
-          flashback_call(fn -> Cgc2046.Flashback.Tokens.set_quote_license(token, params) end)
+          flashback_call(fn ->
+            with {:ok, identity} <- flashback_identity(args[:token], context) do
+              case identity do
+                {:token, token} ->
+                  Cgc2046.Flashback.Tokens.set_quote_license(token, params)
+
+                {:person, person_id} ->
+                  Cgc2046.Flashback.Tokens.set_quote_license_as_person(person_id, params)
+              end
+            end
+          end)
         else
           {:error, message: "Invalid quote license level", code: "invalid_input"}
         end
@@ -2242,17 +2275,33 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue"
+    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
     field :flashback_endorse, :flashback_endorse_result do
-      arg(:token, non_null(:string))
+      arg(:token, :string)
       arg(:card_id, non_null(:id))
       arg(:role_claimed, :string)
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
 
-      resolve(fn _, %{token: token, card_id: card_id} = args, _ ->
+      resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          Cgc2046.Flashback.Endorsements.endorse(token, card_id, Map.get(args, :role_claimed))
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                Cgc2046.Flashback.Endorsements.endorse(
+                  token,
+                  args[:card_id],
+                  Map.get(args, :role_claimed)
+                )
+
+              {:person, person_id} ->
+                Cgc2046.Flashback.Endorsements.endorse_as_person(
+                  person_id,
+                  args[:card_id],
+                  Map.get(args, :role_claimed)
+                )
+            end
+          end
         end)
       end)
     end
@@ -2884,8 +2933,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:today, :flashback_capsule_today)
     @desc "选定金句（R14 摘要卡；off/未选为 null）"
     field(:quote, :string)
-    @desc "本人当年答案雾化版（全文卡 R15；与墙上呈现同规则）"
-    field(:answers, non_null(list_of(non_null(:flashback_roster_answer))))
+    @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
+    field(:answers, non_null(list_of(non_null(:flashback_me_answer))))
+  end
+
+  object :flashback_me_answer do
+    field(:id, non_null(:id))
+    field(:question_key, non_null(:string))
+    @desc "原文（KTD4：本人在任何视图永远完整）"
+    field(:raw_text, non_null(:string))
+    @desc "既有雾面区间（本人调整的起点）"
+    field(:fog_spans, non_null(list_of(non_null(:flashback_fog_span))))
+    @desc "雾化版（与墙上呈现同规则，R15 全文卡）"
+    field(:text, non_null(:string))
   end
 
   object :flashback_roster_answer do
@@ -3157,6 +3217,33 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 找回限流的 IP 提取（同 WebAuthFlow.remote_ip 口径；conn 由 plug 上下文携带）
   defp context_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
   defp context_ip(_context), do: "unknown"
+
+  # 闪念间写面双入口（U9/R28）：token 优先（首程/链接回访）；省略时按登录
+  # actor 解析绑定的档案（person.user_id）。返回 {:token, t} | {:person, id}，
+  # 与 capsule 读面的 resolve_person 同语义；两者皆无 → auth_required。
+  defp flashback_identity(token, context) do
+    cond do
+      is_binary(token) and token != "" ->
+        case Cgc2046.Flashback.Tokens.fetch_valid(token) do
+          {:ok, _flashback_token} -> {:ok, {:token, token}}
+          {:error, error} -> {:error, error}
+        end
+
+      not is_nil(context[:actor]) ->
+        case Cgc2046.Flashback.AlumniProjection.resolve_person(nil, context[:actor]) do
+          {:ok, %{person: person}} -> {:ok, {:person, person.id}}
+          {:error, error} -> {:error, error}
+        end
+
+      true ->
+        {:error,
+         %{
+           code: "flashback_auth_required",
+           message: "token or sign-in required",
+           reason: :auth_required
+         }}
+    end
+  end
 
   # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
   # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。

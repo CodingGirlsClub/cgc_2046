@@ -27,6 +27,16 @@ import type {
   EventModerationScopeQueryVariables,
   EventModeratorsQuery,
   EventModeratorsQueryVariables,
+  FlashbackAdjustFogMutation,
+  FlashbackAdjustFogMutationVariables,
+  FlashbackCapsuleQuery,
+  FlashbackCapsuleQueryVariables,
+  FlashbackEndorseMutation,
+  FlashbackEndorseMutationVariables,
+  FlashbackSetQuoteLicenseMutation,
+  FlashbackSetQuoteLicenseMutationVariables,
+  FlashbackSubmitTodayMutation,
+  FlashbackSubmitTodayMutationVariables,
   GenerateMiniProgramCodeMutation,
   GenerateMiniProgramCodeMutationVariables,
   GrantConsentMutation,
@@ -49,6 +59,7 @@ import type {
   SignInWithPlatformMutationVariables
 } from './generated/graphql'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
+import { FlashbackNotBoundError } from '@/domain/models'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -66,6 +77,11 @@ import {
   EventDetailQueryDocument,
   EventModerationScopeQueryDocument,
   EventModeratorsQueryDocument,
+  FlashbackAdjustFogMutationDocument,
+  FlashbackCapsuleQueryDocument,
+  FlashbackEndorseMutationDocument,
+  FlashbackSetQuoteLicenseMutationDocument,
+  FlashbackSubmitTodayMutationDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
@@ -89,6 +105,9 @@ import type {
   ContentKind,
   EnrollmentForm,
   EnrollmentSummary,
+  FlashbackCapsule,
+  FlashbackEndorseResult,
+  FlashbackFogSpan,
   MyEnrollmentState,
   MiniProgramApi,
   MiniProgramCode,
@@ -191,6 +210,11 @@ function parseOrderStatus(value: string): OrderStatus {
     value === 'expired' || value === 'forfeited'
   ) return value
   throw new Error(`服务端返回未知订单状态：${value}`)
+}
+
+// Action 卡四态 fail-closed：未知态落 done（终态只读，无写面风险）。
+function parseActionCardStatus(value: string): 'proposed' | 'forming' | 'scheduled' | 'done' {
+  return value === 'proposed' || value === 'forming' || value === 'scheduled' ? value : 'done'
 }
 
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
@@ -603,6 +627,110 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   async getNotifications(): Promise<NotificationItem[]> {
     return readLocalNotifications()
+  }
+
+  // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
+
+  async getFlashbackCapsule(): Promise<FlashbackCapsule> {
+    const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
+      FlashbackCapsuleQueryDocument,
+      {}
+    ).catch((error: unknown) => {
+      if (
+        error instanceof GraphQLRequestError &&
+        error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_person_not_bound')
+      ) {
+        throw new FlashbackNotBoundError()
+      }
+      throw error
+    })
+
+    const capsule = data.flashbackCapsule
+    if (!capsule) throw new Error('闪念间档案加载失败')
+
+    return {
+      me: {
+        id: capsule.me.id,
+        fullName: capsule.me.fullName,
+        surname: capsule.me.surname ?? null,
+        city: capsule.me.city ?? null,
+        occupationThen: capsule.me.occupationThen ?? null,
+        participation: capsule.me.participation === 'not_selected' ? 'not_selected' : 'attended',
+        appliedAt: capsule.me.appliedAt ?? null,
+        quote: capsule.me.quote ?? null,
+        today: capsule.me.today
+          ? {
+              nowStatus: capsule.me.today.nowStatus ?? null,
+              want: capsule.me.today.want ?? null,
+              say: capsule.me.today.say ?? null,
+              sentToWallAt: capsule.me.today.sentToWallAt ?? null
+            }
+          : null,
+        answers: (capsule.me.answers ?? []).map((answer) => ({
+          id: answer.id,
+          questionKey: answer.questionKey,
+          rawText: answer.rawText,
+          fogSpans: (answer.fogSpans ?? []).map((span) => ({ start: span.start, len: span.len })),
+          text: answer.text
+        }))
+      },
+      actionCards: (capsule.actionCards ?? []).map((card) => ({
+        id: card.id,
+        title: card.title,
+        city: card.city ?? null,
+        status: parseActionCardStatus(card.status),
+        eventId: card.eventId ?? null,
+        eventSlug: card.eventSlug ?? null,
+        endorsementCount: card.endorsementCount,
+        endorsedByMe: card.endorsedByMe,
+        rolesClaimed: card.rolesClaimed ?? []
+      }))
+    }
+  }
+
+  async flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult> {
+    const data = await graphqlRequest<FlashbackEndorseMutation, FlashbackEndorseMutationVariables>(
+      FlashbackEndorseMutationDocument,
+      { cardId, roleClaimed }
+    )
+    const result = data.flashbackEndorse
+    if (!result) throw new Error('附议失败，请重试')
+    return {
+      cardId: result.cardId,
+      status: result.status,
+      roleClaimed: result.roleClaimed ?? null,
+      firstTime: result.firstTime
+    }
+  }
+
+  async flashbackSubmitToday(input: {
+    nowStatus?: string | null
+    want?: string | null
+    need?: string | null
+    say?: string | null
+  }): Promise<void> {
+    await graphqlRequest<FlashbackSubmitTodayMutation, FlashbackSubmitTodayMutationVariables>(
+      FlashbackSubmitTodayMutationDocument,
+      { input }
+    )
+  }
+
+  async flashbackSetQuoteLicense(level: 'off' | 'anonymous' | 'credited'): Promise<void> {
+    const data = await graphqlRequest<
+      FlashbackSetQuoteLicenseMutation,
+      FlashbackSetQuoteLicenseMutationVariables
+    >(FlashbackSetQuoteLicenseMutationDocument, { level })
+    if (!data.flashbackSetQuoteLicense) throw new Error('授权设置失败，请重试')
+  }
+
+  async flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void> {
+    await graphqlRequest<FlashbackAdjustFogMutation, FlashbackAdjustFogMutationVariables>(
+      FlashbackAdjustFogMutationDocument,
+      {
+        answerId,
+        spans: spans.map((span) => ({ start: span.start, len: span.len, reason: span.reason ?? 'owner' }))
+      }
+    )
   }
 
   async createOrder(enrollmentId: string): Promise<CreatedOrder> {

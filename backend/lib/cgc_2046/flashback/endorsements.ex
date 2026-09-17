@@ -17,16 +17,27 @@ defmodule Cgc2046.Flashback.Endorsements do
   @roles ~w(organizer promoter venue)
 
   @doc """
-  附议（可携带认领角色：organizer / promoter / venue）。
+  附议（可携带认领角色：organizer / promoter / venue）——token 面（首程/链接回访）。
   """
   @spec endorse(term(), String.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
   def endorse(token_plaintext, card_id, role_claimed) do
-    with {:ok, token} <- Tokens.fetch_valid(token_plaintext),
-         {:ok, card} <- fetch_card(card_id),
+    with {:ok, token} <- Tokens.fetch_valid(token_plaintext) do
+      endorse_as_person(token.person_id, card_id, role_claimed)
+    end
+  end
+
+  @doc """
+  附议——会话面（U9/R28）：已绑定账号（person.user_id）在小程序「我的闪念间」
+  附议；与 token 面同一人一行幂等语义（一人一卡一行跨入口共享）。
+  """
+  @spec endorse_as_person(String.t(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def endorse_as_person(person_id, card_id, role_claimed) do
+    with {:ok, card} <- fetch_card(card_id),
          :ok <- validate_role(role_claimed) do
-      case fetch_endorsement(card.id, token.person_id) do
-        nil -> create_endorsement(card, token.person_id, role_claimed)
+      case fetch_endorsement(card.id, person_id) do
+        nil -> create_endorsement(card, person_id, role_claimed)
         existing -> update_role(card, existing, role_claimed)
       end
     end

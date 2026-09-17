@@ -191,6 +191,16 @@ export default function ProfilePage() {
               </>
             )}
 
+            {/* U9/R28：「我的 · 我的闪念间」回访入口（AE9 小程序侧） */}
+            <Text className={styles.sectionTitle}>我的闪念间</Text>
+            <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/flashback/index' })}>
+              <View>
+                <Text className={styles.openclackyTitle}>我的闪念间</Text>
+                <Text className={styles.openclackyText}>当年的拍立得、今天的回答、你附议的行动卡。</Text>
+              </View>
+              <Text className={styles.openclackyArrow}>→</Text>
+            </View>
+
             <Text className={styles.sectionTitle}>继续学习</Text>
             <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/openclacky/index' })}>
               <View>

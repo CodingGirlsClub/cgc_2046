@@ -2238,8 +2238,8 @@ export type FlashbackCapsuleArchive = {
 };
 
 export type FlashbackCapsuleMe = {
-  /** 本人当年答案雾化版（全文卡 R15；与墙上呈现同规则） */
-  answers: Array<FlashbackRosterAnswer>;
+  /** 本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版） */
+  answers: Array<FlashbackMeAnswer>;
   appliedAt?: Maybe<Scalars['String']['output']>;
   city?: Maybe<Scalars['String']['output']>;
   fullName: Scalars['String']['output'];
@@ -2292,6 +2292,17 @@ export type FlashbackFogSpanInput = {
   len: Scalars['Int']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   start: Scalars['Int']['input'];
+};
+
+export type FlashbackMeAnswer = {
+  /** 既有雾面区间（本人调整的起点） */
+  fogSpans: Array<FlashbackFogSpan>;
+  id: Scalars['ID']['output'];
+  questionKey: Scalars['String']['output'];
+  /** 原文（KTD4：本人在任何视图永远完整） */
+  rawText: Scalars['String']['output'];
+  /** 雾化版（与墙上呈现同规则，R15 全文卡） */
+  text: Scalars['String']['output'];
 };
 
 export type FlashbackOutreachDispatchResult = {
@@ -4281,7 +4292,7 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
-  /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达 */
+  /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
   /** 闪念间·管理员建卡（U7/R13，PlatformAdmin）：从 Want/Give 导出人工挑卡（pilot 无自动聚类）；建卡即上墙（proposed 态） */
   flashbackAdminCreateCard?: Maybe<FlashbackActionCardResult>;
@@ -4291,7 +4302,7 @@ export type RootMutationType = {
   flashbackAdminScheduleCard?: Maybe<FlashbackActionCardResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
-  /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue */
+  /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交） */
   flashbackEndorse?: Maybe<FlashbackEndorseResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
   flashbackEnter?: Maybe<FlashbackEnterResult>;
@@ -4307,9 +4318,9 @@ export type RootMutationType = {
   flashbackRetract?: Maybe<FlashbackRetractResult>;
   /** 寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27） */
   flashbackSendToWall?: Maybe<FlashbackSendToWallResult>;
-  /** 金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关 */
+  /** 金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackSetQuoteLicense?: Maybe<FlashbackQuoteLicenseResult>;
-  /** 提交「今天的你」（R8/R18/R19/R20，覆盖式；写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact */
+  /** 提交「今天的你」（R8/R18/R19/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率） */
   flashbackSubmitToday?: Maybe<FlashbackTodayResult>;
   /** 更新手机号（R17/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码 */
   flashbackUpdateContact?: Maybe<FlashbackUpdateContactResult>;
@@ -4625,7 +4636,7 @@ export type RootMutationTypeDisableInviteBatchArgs = {
 export type RootMutationTypeFlashbackAdjustFogArgs = {
   answerId: Scalars['ID']['input'];
   spans: Array<FlashbackFogSpanInput>;
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -4662,7 +4673,7 @@ export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
 export type RootMutationTypeFlashbackEndorseArgs = {
   cardId: Scalars['ID']['input'];
   roleClaimed?: InputMaybe<Scalars['String']['input']>;
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -4709,13 +4720,13 @@ export type RootMutationTypeFlashbackSetQuoteLicenseArgs = {
   creditedNote?: InputMaybe<Scalars['String']['input']>;
   level: Scalars['String']['input'];
   questionKey?: InputMaybe<Scalars['String']['input']>;
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
 export type RootMutationTypeFlashbackSubmitTodayArgs = {
   input: FlashbackTodayInput;
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
