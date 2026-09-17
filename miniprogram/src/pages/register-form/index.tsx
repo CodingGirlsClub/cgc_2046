@@ -7,7 +7,7 @@ import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { enrollmentBlockedNotice } from '@/domain/format'
 import { formatAmount, paymentLandingUrl } from '@/domain/payment'
-import { checkInCodeTouchpoint, submitAfterCheckInCodeConsent } from '@/domain/subscription'
+import { preSubmitTouchpoint, submitAfterConsent } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -72,13 +72,14 @@ export default function RegisterFormPage() {
     setSubmitting(true)
     setError('')
     try {
-      // #546：活动报名先取得核销码通知授权**再**提交——一次性订阅只能覆盖提交之后
-      // 的发送（open 场 confirmed 与提交同事务落定，后置触点必然送不到）。上方
-      // 前置拦截（批次码 / 档位 / 年龄勾选）全部先行：不满足条件时不弹授权；满足后
-      // 仍是「授权先于提交」。拒绝授权 / 模板缺配 / 平台报错一律不阻断报名
-      // （submitAfterCheckInCodeConsent 内化）。
-      const enrollment = await submitAfterCheckInCodeConsent(
-        kind === 'event' ? checkInCodeTouchpoint() : null,
+      // #546/#664：报名先取得订阅授权**再**提交——一次性订阅只能覆盖提交之后的
+      // 发送（open 免费场/课程 confirmed 与提交同事务落定，后置触点必然送不到）。
+      // 上方前置拦截（批次码 / 档位 / 年龄勾选）全部先行：不满足条件时不弹授权；
+      // 满足后仍是「授权先于提交」。拒绝授权 / 模板缺配 / 平台报错一律不阻断报名
+      // （submitAfterConsent 内化）。场景按 kind 分派（活动=报名成功+核销码，
+      // 课程=报名成功；判据见 domain/subscription.ts）。
+      const enrollment = await submitAfterConsent(
+        preSubmitTouchpoint(kind),
         {
           request: requestPlatformSubscriptions,
           grant: (scenario) => api.grantConsent(scenario)
