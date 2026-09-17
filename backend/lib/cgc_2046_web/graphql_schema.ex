@@ -242,6 +242,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
+    field :flashback_dream_target, :flashback_dream_target do
+      arg(:city, :string)
+
+      resolve(fn _, args, _ ->
+        {:ok, Cgc2046.Flashback.Public.dream_target(Map.get(args, :city))}
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -2695,6 +2704,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # ── 闪念间（In a Flash）首程 token 面类型（U2；手写 field 专用） ──────────
   # 投影纪律（KTD3）：白名单列字段；phone/email 明文绝不出现（只有掩码）。
+  # 圆梦线 CTA 两态指路（U4）：只投指路字段，无个人数据。
+  object :flashback_dream_target do
+    field(:event_slug, non_null(:string))
+    field(:event_title, non_null(:string))
+    field(:starts_at, :datetime)
+    field(:initiative_slug, non_null(:string))
+  end
 
   object :flashback_fog_span do
     @desc "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"

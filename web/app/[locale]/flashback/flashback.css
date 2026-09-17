@@ -1,0 +1,389 @@
+/* 闪念间 In a Flash · 生产版动效与样式（U4-U6）。
+ *
+ * 纪律（KTD9）：全部动效在此文件——@keyframes + CSS 变量 + 切类名；
+ * prod CSP style-src 仅 nonce，组件零内联 style（原型 prototype.css 重写，
+ * 类名前缀 ia- → fb-）。prefers-reduced-motion 下跳过白光/显影直达终态。
+ */
+
+.fb-root {
+	--fb-paper: #f6f2e8;
+	--fb-ink: #2b2723;
+	--fb-sub: #77726a;
+	--fb-accent: #cbbf8f;
+	--fb-develop-dur: 1.2s; /* 主照中速显影（R7：慢时刻留给认出自己） */
+	--fb-develop-soft-dur: 0.6s; /* 散照快显影 */
+	--fb-flash-dur: 0.55s;
+	--fb-flip-dur: 0.9s;
+	background: #0a0a0c;
+	color: var(--fb-ink);
+	min-height: 100vh;
+	font-family: "Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", serif;
+	overflow-x: hidden;
+}
+
+.fb-root button,
+.fb-root input,
+.fb-root textarea,
+.fb-root select {
+	font-family: inherit;
+	color: inherit;
+}
+
+/* ── 白光快门（R4） ─────────────────────────────────────────────── */
+@keyframes fb-flash {
+	0% { opacity: 0; }
+	10% { opacity: 1; }
+	100% { opacity: 0; }
+}
+.fb-flash-overlay {
+	position: fixed;
+	inset: 0;
+	background: #fff;
+	pointer-events: none;
+	animation: fb-flash var(--fb-flash-dur) ease-out forwards;
+	z-index: 50;
+}
+
+/* ── 显影：模糊+过曝 → 清晰（R7） ──────────────────────────────── */
+@keyframes fb-develop {
+	0% { filter: blur(26px) brightness(1.9) saturate(0.2); opacity: 0.15; transform: scale(0.97); }
+	55% { filter: blur(9px) brightness(1.35) saturate(0.6); opacity: 0.85; }
+	100% { filter: blur(0) brightness(1) saturate(1); opacity: 1; transform: scale(1); }
+}
+.fb-develop { animation: fb-develop var(--fb-develop-dur) ease-out forwards; }
+
+/* 墙上他人照片的持续弱显影 */
+@keyframes fb-develop-soft {
+	0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
+	100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
+}
+.fb-develop-soft {
+	animation: fb-develop-soft var(--fb-develop-dur) ease-out forwards;
+	animation-delay: var(--fb-d, 0s);
+}
+
+/* ── 拍立得本体 ────────────────────────────────────────────────── */
+.fb-polaroid {
+	background: var(--fb-paper);
+	border-radius: 4px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+	position: relative;
+}
+.fb-photo {
+	aspect-ratio: 1;
+	overflow: hidden;
+	position: relative;
+	background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+}
+/* 相纸颗粒 */
+.fb-grain::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.44 0 0 0 0.14 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+
+/* ── 3D 翻面（R8；只改视觉，背面读屏始终可达） ──────────────────── */
+.fb-flip-scene { perspective: 1400px; }
+.fb-flip-inner {
+	position: relative;
+	transform-style: preserve-3d;
+	transition: transform var(--fb-flip-dur) cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.fb-flip-inner.fb-flipped { transform: rotateY(180deg); }
+.fb-face {
+	backface-visibility: hidden;
+	-webkit-backface-visibility: hidden;
+}
+.fb-face-back { position: absolute; inset: 0; transform: rotateY(180deg); }
+
+/* ── 呼吸的快门 ─────────────────────────────────────────────────── */
+@keyframes fb-breathe {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35); }
+	50% { box-shadow: 0 0 0 14px rgba(255, 255, 255, 0); }
+}
+.fb-breathe { animation: fb-breathe 2.4s ease-in-out infinite; }
+
+/* ── 散照入场（R5） ────────────────────────────────────────────── */
+@keyframes fb-card-in {
+	from { opacity: 0; transform: translateY(50px) rotate(var(--fb-r, 0deg)); }
+	to { opacity: 1; transform: translateY(0) rotate(var(--fb-r, 0deg)); }
+}
+.fb-card-in { animation: fb-card-in 0.7s ease-out both; }
+
+/* ── 信封（R9 圆梦线） ─────────────────────────────────────────── */
+@keyframes fb-flap-open {
+	from { transform: rotateX(0deg); }
+	to { transform: rotateX(180deg); }
+}
+.fb-flap {
+	transform-origin: top;
+	animation: fb-flap-open 1s ease-in-out forwards;
+}
+@keyframes fb-letter-out {
+	from { transform: translateY(0); }
+	to { transform: translateY(-46%); }
+}
+.fb-letter-out { animation: fb-letter-out 1.2s ease-out forwards; animation-delay: 0.8s; }
+
+/* ── 签名/寄出动效 ─────────────────────────────────────────────── */
+@keyframes fb-sign {
+	from { opacity: 0; transform: translateY(6px) rotate(-4deg); }
+	to { opacity: 1; transform: translateY(0) rotate(-4deg); }
+}
+.fb-sign { animation: fb-sign 0.5s ease-out both; }
+
+/* ── 雾面（R16：对外遮蔽，本人视图完整） ────────────────────────── */
+.fb-fog-span {
+	filter: blur(0.32em);
+	background: rgba(43, 39, 35, 0.12);
+	border-radius: 0.2em;
+	user-select: none;
+}
+
+/* ── 布局骨架 ──────────────────────────────────────────────────── */
+.fb-stage {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	padding: 60px 26px 40px;
+}
+.fb-stage-pad { padding: 70px 26px 48px; justify-content: flex-start; }
+
+.fb-kicker {
+	color: #cfcbc2;
+	font-size: 13px;
+	letter-spacing: 0.35em;
+	margin-bottom: 30px;
+}
+.fb-lead {
+	color: var(--fb-sub);
+	font-size: 16px;
+	line-height: 2.1;
+	max-width: 280px;
+}
+.fb-hint {
+	font-size: 12px;
+	margin-top: 16px;
+	color: var(--fb-sub);
+}
+
+.fb-shutter {
+	margin-top: 56px;
+	width: 72px;
+	height: 72px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.6);
+	background: radial-gradient(circle at 38% 34%, #3c3c42, #17171c);
+	cursor: pointer;
+}
+
+.fb-cta {
+	margin-top: 22px;
+	font-size: 15px;
+	padding: 12px 28px;
+	border-radius: 999px;
+	cursor: pointer;
+	position: relative;
+	z-index: 5;
+	background: rgba(255, 255, 255, 0.08);
+	color: #cfcabf;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.fb-cta-primary {
+	background: var(--fb-accent);
+	color: #17161a;
+	border: none;
+	font-weight: 600;
+}
+
+.fb-question { font-size: 19px; margin-bottom: 24px; line-height: 1.5; color: #d9d4ca; }
+.fb-options { display: grid; gap: 12px; width: 100%; max-width: 420px; }
+.fb-option {
+	text-align: left;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 12px;
+	color: #d9d4ca;
+	font-size: 16px;
+	padding: 15px 18px;
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+}
+.fb-option-hint { opacity: 0.45; font-size: 12px; }
+
+/* 散照桌（R5）：一叠模糊旧照片 */
+.fb-scatter {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 18px;
+	max-width: 560px;
+}
+.fb-scatter-photo {
+	width: 150px;
+	padding: 5% 5% 0;
+	cursor: pointer;
+	border: none;
+}
+/* 散照三张的固定角度与入场延迟（KTD9：类名驱动，零内联 style） */
+.fb-scatter-photo:nth-child(1) { --fb-r: -6deg; --fb-d: 0s; }
+.fb-scatter-photo:nth-child(2) { --fb-r: 4deg; --fb-d: 0.25s; }
+.fb-scatter-photo:nth-child(3) { --fb-r: -2deg; --fb-d: 0.5s; }
+.fb-scatter-photo:focus-visible {
+	outline: 2px solid var(--fb-accent);
+	outline-offset: 3px;
+}
+.fb-scatter-photo .fb-photo {
+	display: grid;
+	place-items: center;
+	font-size: 11px;
+	color: #4a463f;
+	filter: blur(3px);
+}
+
+/* 拍立得答案区（R7） */
+.fb-answers { padding: 9%; display: grid; gap: 10px; text-align: left; }
+.fb-answer-q { font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
+.fb-answer-a { font-size: 12px; line-height: 1.7; }
+.fb-card-caption {
+	padding: 9px 11px;
+	font-size: 11px;
+	display: flex;
+	justify-content: space-between;
+	opacity: 0.85;
+}
+.fb-caption-tilt { transform: rotate(-1.2deg); display: inline-block; }
+
+/* 「我是谁」结构化行（R7：性别/职业/系统/城市） */
+.fb-identity { display: flex; flex-wrap: wrap; gap: 6px; }
+.fb-identity span {
+	font-size: 10px;
+	border: 1px solid rgba(43, 39, 35, 0.2);
+	border-radius: 999px;
+	padding: 2px 8px;
+	opacity: 0.8;
+}
+
+/* 圆梦线 CTA 两态（U4/R9） */
+.fb-dream-cta { text-decoration: none; display: inline-flex; align-items: center; }
+.fb-dream-fallback { display: flex; flex-direction: column; align-items: center; max-width: 420px; }
+
+/* 写字页信纸容器与金句选择 */
+.fb-write-sheet { width: 100%; max-width: 420px; }
+.fb-quote-picker { margin-top: 8px; }
+.fb-quote-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+.fb-quote-list .fb-option { font-size: 14px; padding: 10px 14px; }
+.fb-option-selected {
+	border-color: var(--fb-accent);
+	background: rgba(203, 191, 143, 0.12);
+}
+.fb-contact { margin-top: 16px; text-align: left; }
+
+/* 比特币提醒（R25：全场告知） */
+.fb-btc-note {
+	margin-top: 18px;
+	max-width: 420px;
+	font-size: 12px;
+	line-height: 1.8;
+	color: var(--fb-accent);
+	border: 1px dashed rgba(203, 191, 143, 0.4);
+	border-radius: 10px;
+	padding: 10px 14px;
+	text-align: left;
+}
+
+/* 翻面写字表单（R8） */
+.fb-write-form {
+	padding: 9%;
+	display: grid;
+	gap: 14px;
+	text-align: left;
+	background: #efe9db;
+}
+.fb-field-label { font-size: 11px; opacity: 0.7; }
+.fb-field-input,
+.fb-field-textarea {
+	border: none;
+	border-bottom: 1px solid rgba(43, 39, 35, 0.25);
+	background: transparent;
+	font-size: 13px;
+	padding: 6px 2px;
+	width: 100%;
+	min-height: 1.7em;
+	resize: vertical;
+}
+.fb-field-textarea { min-height: 3.4em; }
+.fb-checks { display: grid; gap: 8px; font-size: 12px; }
+.fb-checks label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+
+/* 读屏专用（视觉隐藏） */
+.fb-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* 阶段标题（焦点落点，U4 无障碍验收） */
+.fb-stage-title {
+	font-size: 20px;
+	color: #d9d4ca;
+	margin-bottom: 18px;
+	outline: none;
+}
+
+/* 期望管理（R29） */
+.fb-promise {
+	margin-top: 14px;
+	font-size: 12px;
+	color: var(--fb-accent);
+	line-height: 1.8;
+	max-width: 420px;
+}
+
+/* 失效落地页（U4 三分支） */
+.fb-invalid { color: #d9d4ca; }
+.fb-invalid-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 28px; }
+.fb-invalid-actions a {
+	color: #cfcabf;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 999px;
+	padding: 10px 22px;
+	text-decoration: none;
+	font-size: 14px;
+}
+
+/* ── reduced-motion：跳过白光与显影，直达终态（U4 无障碍验收） ──── */
+@media (prefers-reduced-motion: reduce) {
+	.fb-root {
+		--fb-flash-dur: 0.01ms;
+		--fb-develop-dur: 0.01ms;
+		--fb-flip-dur: 0.01ms;
+	}
+	.fb-breathe,
+	.fb-card-in,
+	.fb-flap,
+	.fb-letter-out,
+	.fb-sign,
+	.fb-develop-soft {
+		animation: none;
+	}
+	.fb-develop,
+	.fb-develop-soft {
+		filter: none;
+		opacity: 1;
+	}
+}

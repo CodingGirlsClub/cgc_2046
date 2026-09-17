@@ -92,6 +92,8 @@
 		"flashback_quote_span_out_of_bounds": "The selected quote span goes beyond the original text — pick again.",
 		"flashback_invalid_input": "Something in your submission is off — check and retry.",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
+		"invalid_or_expired_code": "That code is wrong or has expired — try again.",
+		"invalid_phone": "That phone number doesn't look right — check and re-enter.",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
 	},
@@ -2261,6 +2263,153 @@
 		"loading": "Loading courses…",
 		"error": "Failed to load courses. Try again.",
 		"myParticipations": "My enrollments"
+	},
+	"flashback": {
+		"meta": {
+			"enterTitle": "In a Flash",
+			"enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
+			"homeTitle": "In a Flash",
+			"homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years."
+		},
+		"journey": {
+			"loading": "Developing…",
+			"enterError": "Couldn't enter In a Flash. Please try again later.",
+			"retry": "Retry"
+		},
+		"questionLabels": {
+			"self_intro": "Tell us a little about yourself",
+			"funny_thing": "Something fun you've done",
+			"os": "Your operating system back then",
+			"social_media": "Your social media back then"
+		},
+		"intro": {
+			"kicker": "In a Flash",
+			"title": "Those answers are still here",
+			"lead": "One afternoon, years ago, you wrote down some answers.",
+			"shutterAria": "Press the shutter to go back to that day",
+			"hint": "Press the shutter to return to that day",
+			"yearsAgo": "{years} years",
+			"yearsUnknown": "many",
+			"envelopeTitle": "A letter that took {years} to arrive",
+			"envelopeLead": "You signed up back then, but never made it into that classroom. This letter is very late — yet your answers were kept all along.",
+			"openEnvelope": "Open the letter",
+			"envelopeHint": "Inside, you'll meet the you from back then"
+		},
+		"scatter": {
+			"title": "Photos scattered on the table",
+			"hint": "Pick any one — it will become yours.",
+			"groupAria": "A stack of blurred old photos; choose one to claim",
+			"cardAria": "Photo {index} ({city})",
+			"fallbackCity": "that year",
+			"photoHidden": "A blurred old photo"
+		},
+		"quiz": {
+			"question": "Do you remember… which gathering it was?",
+			"myEventHint": "your gathering",
+			"dontRemember": "I don't remember",
+			"dontRememberHint": "That's okay — we do",
+			"repick": "Pick another photo",
+			"repickHint": "back to the stack",
+			"fallbackArchiveName": "that year"
+		},
+		"reveal": {
+			"title": "Developing slowly — this is you, back then",
+			"dunnoFeedback": "That's okay — we remembered for you: {event}",
+			"correctFeedback": "You got it. This photo has been waiting for you.",
+			"wroteAt": "{years} ago, on {date} at {time}, you wrote these words",
+			"wroteAtUnknown": "Back then, you wrote these words",
+			"fogMark": "This sentence carries a fog mark — invisible to others, always full for you",
+			"btcNote": "At that gathering, a sponsor gave out a small amount of bitcoin as prizes, still unclaimed. The winner list is long lost — if you happened to be one of them, reach out and we'll honor it.",
+			"dreamCtaEvent": "Make that dream happen: sign up for \"{title}\"",
+			"dreamCtaInitiatives": "See what's happening now",
+			"dreamFallback": "The gathering in your city is still taking shape. Write today's you and send it — leave your contact, and you'll be the first to know when a card you endorsed becomes real.",
+			"writeBack": "Flip it over — write today's you",
+			"writeBackHint": "The back is still blank — write to the future"
+		},
+		"tags": {
+			"want_offline": "Want to join offline meetups",
+			"want_online": "Want to join online events",
+			"want_ai_course": "Want to learn AI courses",
+			"give_promote": "Can help promote",
+			"give_venue": "Can offer a venue",
+			"give_org": "Can help organize",
+			"give_share": "Happy to share my story",
+			"job": "Jobs / hiring",
+			"project": "Projects / collaboration",
+			"social": "Interest socials (cycling / diving / meetups…)",
+			"hobby": "Just want to meet everyone"
+		},
+		"write": {
+			"title": "Today's you",
+			"nowLabel": "What I'm doing now",
+			"nowPlaceholder": "Work, city, life… anything",
+			"wantLabel": "Things to do, things to learn",
+			"wantPlaceholder": "",
+			"needLabel": "What help do you need?",
+			"needPlaceholder": "",
+			"courseHint": "Not sure what an AI Agent can help with? We have a course",
+			"sayLabel": "Anything you'd like to say to CGC / Wenyang — past or future",
+			"sayPlaceholder": "",
+			"wantGiveLegend": "What you'd join · what you can offer",
+			"mobilizationLegend": "Want to pitch in for 1024?",
+			"reconnectLegend": "Reconnect — what do you want to reconnect with",
+			"mJoin1024": "Join a 1024 city gathering",
+			"mHelpPromote": "Help spread the word",
+			"mDonate": "Interested in donating",
+			"mVolunteerLead": "Willing to lead the 1024 gathering in your city",
+			"newsletter": "Subscribe to the Newsletter (new gatherings, new courses, occasionally)",
+			"contactTitle": "Contact",
+			"contactCurrent": "On record: {phone} · {email}",
+			"contactNone": "(none)",
+			"contactHint": "Changed your number? You can verify and update it on the page after sending.",
+			"quoteLegend": "Quote license",
+			"quote_off": "Off (default)",
+			"quote_anonymous": "Anonymous quote — the platform may pick one line from your old answers to share anonymously (credited as \"W** · year · city\")",
+			"quote_credited": "Credited support — add what you do now and go public under your name (usable as brand material)",
+			"quotePick": "Pick one line from your old answers as your quote:",
+			"quoteNoCandidate": "(All your old lines carry fog — lift the fog before picking a quote)",
+			"creditedNoteLabel": "What you're doing now, in your words (public, credited)",
+			"creditedNotePlaceholder": "e.g. accessibility development",
+			"submit": "Done writing — send it →"
+		},
+		"sendRegister": {
+			"title": "Send this moment",
+			"lead": "The front is you back then; the back is you today. Once sent, this card joins the time capsule.",
+			"send": "Send — back to the time capsule →",
+			"errorSend": "Sending didn't succeed — try once more.",
+			"errorCode": "That step didn't succeed — check and retry.",
+			"sentTitle": "Sent",
+			"promise": "These wishes of yours won't vanish — they'll be answered, one by one, through the Newsletter and real people.",
+			"registerPitch": "Want to keep this card safe, and get notified when a gathering you endorsed becomes real?",
+			"registerCurrent": "Contact on record: {phone} · {email}",
+			"contactNone": "(none)",
+			"phonePlaceholder": "Phone number",
+			"codePlaceholder": "Verification code",
+			"sendCode": "Send code",
+			"bind": "Bind account",
+			"skip": "Skip for now, enter the capsule",
+			"skipHint": "The link stays valid until you register — bind anytime.",
+			"boundTitle": "Your account has taken over",
+			"boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
+			"enterCapsule": "Enter the time capsule →"
+		},
+		"invalid": {
+			"flashback_token_claimed": {
+				"title": "This archive already has an owner",
+				"body": "This archive is tied to an account and the link has retired — sign in, or continue from \"Mine\"."
+			},
+			"claimed": { "action": "Go to sign in" },
+			"flashback_token_revoked": {
+				"title": "This letter has been withdrawn",
+				"body": "The archive was deleted and the link is void. Your data has been cleared as requested.",
+				"action": "Back to the In a Flash home"
+			},
+			"flashback_token_not_found": {
+				"title": "This link doesn't exist or has expired",
+				"body": "The link may be mistyped or past its time. If you signed up back then, reclaim your copy at the self-service recovery entrance.",
+				"action": "Recover my archive"
+			}
+		}
 	},
 	"initiatives": {
 		"loading": "Loading…",
