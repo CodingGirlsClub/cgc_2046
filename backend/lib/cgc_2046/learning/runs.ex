@@ -436,6 +436,9 @@ defmodule Cgc2046.Learning.Runs do
   objective 循环可展示，不进学习页（event 参与语义由 myEnrollments 承担）；
   活动挂配套课后 run 带 course 锚，正常进入学习闭环（#505 D8）；已取消
   offering 的 run 由 `RunProjection.project_run/2` 排除。
+  每课程一行（issue #667）：行代表 run = 最新 run（inserted_at desc 首条），
+  与 `latest_run_for`/learning_state 单源同口径（行 status 与行 progress
+  同源）；历史 run 不占列表位。
   """
   @spec my_learning_runs(term()) :: {:ok, [map()]}
   def my_learning_runs(%{id: actor_id} = actor) do
@@ -460,7 +463,12 @@ defmodule Cgc2046.Learning.Runs do
 
   def my_learning_runs(_actor), do: {:ok, []}
 
+  # 每课程一行（issue #667）：入参已按 inserted_at desc 排序，uniq_by 保留
+  # 每组首条即最新 run，与 latest_run_for（learning_state 单源）同口径——
+  # 行 status 与行 progress 同源；历史 run 不占列表位。标题反查在去重后，
+  # 避免多读将被丢弃 run 的 enrollment 标题。
   defp project_rows(runs, actor) do
+    runs = Enum.uniq_by(runs, & &1.subject_course_id)
     titles = load_target_titles(runs)
 
     runs
