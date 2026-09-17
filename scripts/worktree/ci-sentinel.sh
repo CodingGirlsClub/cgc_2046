@@ -30,6 +30,7 @@ interval=60          # seconds between polls
 settle=90            # fixed settle after update-branch (new-run registration)
 max_wait=7200        # give up after this many seconds overall
 max_reruns=2         # known-flake rerun budget
+update_retried=0     # merge 被拒（分支落后）时的 update-branch 兜底：只用一次
 reruns=0
 waited=0
 
@@ -114,9 +115,26 @@ while :; do
   if [ "$failed" -eq 0 ]; then
     if [ "$total" -gt 0 ] && [ $((passed + skipped)) -ge "$total" ]; then
       say "checks 全绿（${summary}）→ merge（merge commit）"
-      if ghx pr merge "$pr" --merge; then
+      if merge_out="$(ghx pr merge "$pr" --merge 2>&1)"; then
+        printf '%s\n' "$merge_out" >&2
         say "已合并 ✓"
         exit 0
+      fi
+      printf '%s\n' "$merge_out" >&2
+      # merge 被拒且原因是分支落后（strict up-to-date：等待期 develop 前移，
+      # 串行落地时的常态而非异常）→ 兜底一次 update-branch，回主循环沿用
+      # settle / 未就绪逻辑等 checks 重新全绿后再 merge；只重试一次，第二次
+      # 仍失败才判红退出，避免死循环。
+      if [ "$update_retried" -eq 0 ] && printf '%s' "$merge_out" | grep -qi 'not up to date\|not mergeable'; then
+        update_retried=1
+        sub "merge 被拒（分支落后）→ update-branch 后等 checks 重新全绿再试一次（仅此一次）"
+        if ! ghx pr update-branch "$pr" >&2; then
+          say "update-branch 失败 — 编排者介入"
+          exit 1
+        fi
+        sub "settle ${settle}s（新 run 注册前 checks 为空属正常空窗，不当红）"
+        sleep "$settle"; waited=$((waited + settle))
+        continue
       fi
       say "merge 失败 — 编排者介入"
       exit 1
