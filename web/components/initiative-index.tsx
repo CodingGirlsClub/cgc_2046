@@ -50,7 +50,7 @@ export default function InitiativeIndex() {
 	};
 
 	return (
-		<PublicCatalogShell>
+		<PublicCatalogShell activeKind="initiative">
 			<div className="public-catalog-container">
 				<header className="public-catalog-heading">
 					<div>
