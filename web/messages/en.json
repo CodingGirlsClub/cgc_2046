@@ -251,6 +251,7 @@
 			"ariaLabel": "Primary",
 			"events": "Events",
 			"courses": "Courses",
+			"initiatives": "Initiatives",
 			"login": "Sign in",
 			"join": "Join us",
 			"myLearning": "My learning",
@@ -1349,6 +1350,7 @@
 		"paymentSlotFree": "Free",
 		"paymentSlotPricing": "Paid {overview}",
 		"paymentSlotDeposit": "Deposit ¥{amount} (refunded on attendance)",
+		"paymentSlotDepositUnknown": "Deposit (amount TBD)",
 		"depositAmountLabel": "Deposit amount (CNY)",
 		"depositRefundHint": "Fully refunded after on-site check-in; forfeited for no-shows.",
 		"depositAmountRequired": "Enabling a deposit requires an amount greater than 0.",
@@ -2273,7 +2275,6 @@
 		"conditionWithAge": "{payment} · Age {age}+",
 		"priceFrom": "from ¥{amount}",
 		"paymentPricingUnknown": "Paid (tiers are listed on the event page)",
-		"paymentDepositUnknown": "Deposit (amount TBD)",
 		"paymentUnknown": "Payment info TBD",
 		"indexEmpty": "No initiatives yet",
 		"loadFailed": "Failed to load"
