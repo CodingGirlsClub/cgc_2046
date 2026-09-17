@@ -174,28 +174,15 @@ defmodule Cgc2046.Accounts.User do
 
       accept([:display_name])
 
-      # 规范化：displayName 先 trim 再校验非空
-      change(fn changeset, _context ->
-        case Ash.Changeset.get_attribute(changeset, :display_name) do
-          nil ->
-            changeset
-
-          name ->
-            Ash.Changeset.change_attribute(changeset, :display_name, String.trim(name))
-        end
-      end)
-
+      # #680 / DP6：显式 InvalidAttribute + 值摘要——keyword 错误路径会被 Ash 转换成
+      # `value: nil`（渲染 `Value: nil`，agent 误判服务端读成 nil）。Ash `:string`
+      # 默认约束 `trim?: true, allow_empty?: false`（见 attribute 的 constraints）
+      # 已在 cast 阶段完成 trim + 空白归一为 nil，故 validate 只可能拿到 nil 或非空
+      # 字符串：只有 nil 分支会错误（DP6 已删除自写 trim change 与不可达的空串分支）。
       validate(fn changeset, _context ->
         case Ash.Changeset.get_attribute(changeset, :display_name) do
-          nil ->
-            {:error, field: :display_name, message: "must not be blank"}
-
-          name ->
-            if String.trim(name) == "" do
-              {:error, field: :display_name, message: "must not be blank"}
-            else
-              :ok
-            end
+          nil -> display_name_error()
+          _name -> :ok
         end
       end)
     end
@@ -319,6 +306,18 @@ defmodule Cgc2046.Accounts.User do
          metadata: &__MODULE__.admin_log_user_metadata/2}
       )
     end
+  end
+
+  # #680：display_name 非空校验的显式错误单点（update_display_name 专用）。
+  # 实测只有 nil 到达这里（DP6 探针：空白串/空串/制表符/非字符串经 Ash cast 全为
+  # nil），故 value 摘要恒为 "nil"，但口径仍走 ValueSummary 单源。
+  defp display_name_error do
+    {:error,
+     Ash.Error.Changes.InvalidAttribute.exception(
+       field: :display_name,
+       message: "must not be blank",
+       value: %{"display_name" => Cgc2046.Errors.ValueSummary.describe(nil)}
+     )}
   end
 
   changes do

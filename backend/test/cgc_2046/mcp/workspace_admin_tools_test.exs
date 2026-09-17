@@ -322,6 +322,30 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       assert pending_count() == 0
     end
 
+    test "ends_at 早于 starts_at → 错误文案回显实际起止时间且不含 Value: nil（#680）" do
+      owner = Fixtures.platform_admin("s3-cc-680")
+      workspace = Fixtures.create_workspace(owner)
+
+      assert {:error, %Anubis.MCP.Error{message: message}, _} =
+               CreateCourse.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "title" => "时序非法",
+                   "starts_at" => "2027-02-01T09:00:00Z",
+                   "ends_at" => "2027-02-01T08:00:00Z"
+                 },
+                 frame_for(owner)
+               )
+
+      # 文案逐字不变（前端 offering-pages.tsx 正则仍匹配）
+      assert message =~ "ends_at must be after starts_at"
+
+      # #680：keyword 错误路径会渲染 Value: nil；显式值摘要回显服务端实际收到的起止时间
+      assert message =~ ~s{"starts_at" => "2027-02-01T09:00:00Z"}
+      assert message =~ ~s{"ends_at" => "2027-02-01T08:00:00Z"}
+      refute message =~ "Value: nil"
+    end
+
     test "缺 title → 零输入草稿（R21/AE1）：临时占位标题 + provisional_title 标记" do
       owner = Fixtures.platform_admin("s3-cc-notitle")
       workspace = Fixtures.create_workspace(owner)
