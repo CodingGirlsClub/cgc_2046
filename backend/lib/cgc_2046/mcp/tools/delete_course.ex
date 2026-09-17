@@ -3,11 +3,17 @@ defmodule Cgc2046.Mcp.Tools.DeleteCourse do
   删除草稿课程：物理删除 draft（#676，ADR-0015；Owner 专属管理工具，确认流 two-tool
   写，D-D3）。
 
-  语义对齐 GraphQL deleteCourse（同 `Courses.Course :delete` action）。与
-  close/cancel 的差别：**只有 draft 可删**——已发布课程走 close/cancel（终态不可逆
-  但保留行与 slug），draft 删除不可恢复：课程行、教研草稿（curriculum_outputs，
-  若有）一并删除，slug 立即释放可复用（ADR-0014 锁的是发布后的 URL 段，draft slug
-  从未发布、无公开契约）。
+    语义对齐 GraphQL deleteCourse（同 `Courses.Course :delete` action）。与 close/cancel
+  的差别：**只有 draft 可删**——已发布课程走 close/cancel（终态不可逆但保留行与
+  slug），draft 删除不可恢复：课程行、教研草稿（curriculum_outputs，
+  若有）一并删除，slug 立即释放可复用（ADR-0014 锁的是
+  发布后的 URL 段，draft slug 从未发布、无公开契约）。
+
+  **级联**（#688，同事务原子）：教研内容行 + 名额账本行显式删除
+  （`Output.delete_for_course/2` / `CapacityLedger.delete_for_offering/2`，均无 FK）；
+  非终态 prep run 收口 cancelled（facts 按审计保留）；invite_batches 由 FK
+  delete_all 级联（course 维度创建无状态门，draft 可建——摘要已披露）。无讲者
+  邀请维度（speaker_invitations 仅挂 event）。
 
   权限（#676 收窄面，与 cancel 的 Owner/Admin **刻意不同**）：Owner ∪ 平台管理员。
   admin 不放行（删除不可逆、无回收站）；member-only 门的既有契约（S2）不含
@@ -42,7 +48,8 @@ defmodule Cgc2046.Mcp.Tools.DeleteCourse do
           else
             summary =
               "删除草稿课程「#{course.title}」（#{course.id}）：" <>
-                "课程行与教研草稿（若有）将永久删除、不可恢复；" <>
+                "课程行、教研草稿与邀请批次（若有）将永久删除、不可恢复；" <>
+                "教研流程留痕（run facts）按审计保留；" <>
                 "slug #{course.slug} 将释放可复用"
 
             Confirmation.request(
