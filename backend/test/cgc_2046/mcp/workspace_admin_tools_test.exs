@@ -1,10 +1,11 @@
 defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
   @moduledoc """
-  工作台管理十三工具测试（role-agent-journeys-v2 S3，直接调 tool execute/2，
-  不走 HTTP；member_tools_test 同款模式）。
+  工作台管理十四工具测试（role-agent-journeys-v2 S3 + #676 draft 删除，直接调
+  tool execute/2，不走 HTTP；member_tools_test 同款模式）。
 
-  - 授权：plain member / tutor / learner / 非成员对全部 13 工具一律 forbidden
-    （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定）
+  - 授权：plain member / tutor / learner / 非成员对全部 14 工具一律 forbidden
+    （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定；#676
+    delete_course 收窄为 Owner ∪ 平台管理员，admin 亦拒）
   - 读：list_enrollments / list_workspace_orders 只回本工作台行
     （跨租户隔离：第二工作台的活动/课程/报名/订单不漏；他台 offering_id ≡ not found）
   - 写：needs_confirmation → 无副作用 → confirm → domain effect → 审计行
@@ -34,6 +35,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     ConfirmEnrollment,
     ConfirmOperation,
     CreateCourse,
+    DeleteCourse,
     LaunchCourse,
     ListEnrollments,
     ListWorkspaceOrders,
@@ -59,6 +61,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     "launch_course" => LaunchCourse,
     "close_course" => CloseCourse,
     "cancel_course" => CancelCourse,
+    "delete_course" => DeleteCourse,
     "list_enrollments" => ListEnrollments,
     "confirm_enrollment" => ConfirmEnrollment,
     "reject_enrollment" => RejectEnrollment,
@@ -84,6 +87,12 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
   defp pending_status(pending_id) do
     Ash.get!(PendingOperation, pending_id, authorize?: false).status
+  end
+
+  # 行已删除：Ash.get 对不存在的主键回 NotFound（不是 {:ok, nil}）
+  defp assert_deleted(course_id) do
+    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
+             Ash.get(Course, course_id, authorize?: false)
   end
 
   defp pending_count do
@@ -189,7 +198,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     |> Ash.read!(authorize?: false)
   end
 
-  describe "授权：非 Owner/Admin 对全部 13 工具 forbidden" do
+  describe "授权：非 Owner/Admin 对全部 14 工具 forbidden" do
     test "plain member / tutor / learner 撞工具层判定；非成员撞 member 门" do
       owner = Fixtures.platform_admin("s3-authz-owner")
       workspace = Fixtures.create_workspace(owner)
@@ -217,10 +226,17 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       for {tool_name, module} <- @tool_modules do
         params = Map.put(base_params, "workspace_id", workspace.id)
 
+        # #676：delete_course 是收窄面（Owner ∪ 平台管理员，admin 不放行），
+        # 文案与其余 13 件的 "owner or admin required" 刻意不同；非成员门不变。
+        denial =
+          if tool_name == "delete_course",
+            do: "owner or platform admin required",
+            else: "owner or admin required"
+
         for {user, expected} <- [
-              {member, "owner or admin required"},
-              {tutor, "owner or admin required"},
-              {learner, "owner or admin required"},
+              {member, denial},
+              {tutor, denial},
+              {learner, denial},
               {outsider, "not a member"}
             ] do
           assert {:error, %Anubis.MCP.Error{message: msg}, _} =
@@ -304,6 +320,30 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       assert log.result_status == :ok
       # 直接写：不经 pending
       assert pending_count() == 0
+    end
+
+    test "ends_at 早于 starts_at → 错误文案回显实际起止时间且不含 Value: nil（#680）" do
+      owner = Fixtures.platform_admin("s3-cc-680")
+      workspace = Fixtures.create_workspace(owner)
+
+      assert {:error, %Anubis.MCP.Error{message: message}, _} =
+               CreateCourse.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "title" => "时序非法",
+                   "starts_at" => "2027-02-01T09:00:00Z",
+                   "ends_at" => "2027-02-01T08:00:00Z"
+                 },
+                 frame_for(owner)
+               )
+
+      # 文案逐字不变（前端 offering-pages.tsx 正则仍匹配）
+      assert message =~ "ends_at must be after starts_at"
+
+      # #680：keyword 错误路径会渲染 Value: nil；显式值摘要回显服务端实际收到的起止时间
+      assert message =~ ~s{"starts_at" => "2027-02-01T09:00:00Z"}
+      assert message =~ ~s{"ends_at" => "2027-02-01T08:00:00Z"}
+      refute message =~ "Value: nil"
     end
 
     test "缺 title → 零输入草稿（R21/AE1）：临时占位标题 + provisional_title 标记" do
@@ -642,6 +682,114 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
 
       assert msg =~ "cannot launch from status=open"
       assert pending_count() == 0
+    end
+  end
+
+  describe "delete_course（#676 draft 删除；Owner ∪ 平台管理员）" do
+    test "两段式：摘要含不可恢复与 slug；confirm 后行删除并回传 course_id/title/slug" do
+      owner = Fixtures.platform_admin("s3-del-owner")
+      workspace = Fixtures.create_workspace(owner)
+      course = draft_course(workspace, owner, %{title: "错建课程", slug: "s3-del-draft"})
+
+      assert {:reply, _, _} =
+               reply =
+               DeleteCourse.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      assert payload["summary"] =~ "不可恢复"
+      # #688 连带披露：邀请批次（course 维度无状态门可建）+ run facts 留痕
+      assert payload["summary"] =~ "邀请批次"
+      assert payload["summary"] =~ "留痕"
+      assert payload["summary"] =~ course.slug
+
+      # 无副作用：第一段不落库
+      assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+
+      assert {:reply, _, _} =
+               confirm_reply =
+               ConfirmOperation.execute(
+                 %{"pending_id" => payload["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirm_reply)["result"]
+      assert result["course_id"] == course.id
+      assert result["title"] == "错建课程"
+      assert result["slug"] == "s3-del-draft"
+
+      assert_deleted(course.id)
+      assert pending_status(payload["pending_id"]) == :confirmed
+
+      [log] = tool_logs_for(owner.id, "delete_course")
+      assert log.result_status == :needs_confirmation
+    end
+
+    test "非 draft 快速失败（open → 报错不建 pending）" do
+      owner = Fixtures.platform_admin("s3-del-open")
+      workspace = Fixtures.create_workspace(owner)
+      course = open_course(workspace, owner)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               DeleteCourse.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(owner)
+               )
+
+      assert msg =~ "cannot delete from status=open"
+      assert msg =~ "仅 draft 可删除"
+      assert pending_count() == 0
+      assert Ash.get!(Course, course.id, authorize?: false).status == :open
+    end
+
+    test "权限矩阵：admin ❌ / learner ❌ / 成员平台管理员 ✅" do
+      owner = Fixtures.platform_admin("s3-del-matrix")
+      workspace = Fixtures.create_workspace(owner)
+
+      admin_only = Fixtures.register_user("s3-del-admin")
+      Fixtures.add_member(workspace, admin_only, [:admin])
+      learner = Fixtures.register_user("s3-del-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+
+      admin_course = draft_course(workspace, owner, %{slug: "s3-del-admin-draft"})
+      learner_course = draft_course(workspace, owner, %{slug: "s3-del-learner-draft"})
+
+      for {user, course} <- [{admin_only, admin_course}, {learner, learner_course}] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 DeleteCourse.execute(
+                   %{"workspace_id" => workspace.id, "course_id" => course.id},
+                   frame_for(user)
+                 )
+
+        assert msg =~ "owner or platform admin required"
+        assert msg =~ "delete courses"
+        assert Ash.get!(Course, course.id, authorize?: false).status == :draft
+      end
+
+      assert pending_count() == 0
+
+      # 成员平台管理员（无 owner 角色）走收窄面的平台管理员分支
+      platform = Fixtures.platform_admin("s3-del-platform")
+      Fixtures.add_member(workspace, platform, [])
+      platform_course = draft_course(workspace, owner, %{slug: "s3-del-platform-draft"})
+
+      assert {:reply, _, _} =
+               reply =
+               DeleteCourse.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => platform_course.id},
+                 frame_for(platform)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+
+      {:reply, _, _} =
+        ConfirmOperation.execute(%{"pending_id" => payload["pending_id"]}, frame_for(platform))
+
+      assert_deleted(platform_course.id)
     end
   end
 

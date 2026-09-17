@@ -477,7 +477,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
                     }}
   end
 
-  test "enrollment_completed 渲染：thing1 活动名 + character_string10 报名号" do
+  test "enrollment_completed 渲染：thing1 活动名 + character_string10 报名号（#664 落页=我的报名）" do
     user = Fixtures.register_user("notification-completed-render")
     insert_identity(user.id, :wechat, "wx-completed-openid")
     {:ok, _} = Consent.grant(user.id, :wechat, "enrollment_completed")
@@ -493,8 +493,12 @@ defmodule Cgc2046.Notifications.ServiceTest do
                       "data" => %{
                         "thing1" => %{"value" => "AI 入门工作坊"},
                         "character_string10" => %{"value" => "6f0c9a1e2b3d4c5f8a9b0c1d2e3f4a5b"}
-                      }
+                      },
+                      "page" => page
                     }}
+
+    # #664：授权入口补齐后这条通知才第一次真正可达——落页必须是报名结果权威面
+    assert page == "pages/my-enrollments/index"
   end
 
   # #546：三字段逐字锁死（相等断言同时锁死键集——多写一个字段即红）+ 显式断言

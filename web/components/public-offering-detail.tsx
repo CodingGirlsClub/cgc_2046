@@ -43,10 +43,12 @@ import CheckInCodeCard from "@/components/check-in-code-card";
 import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
-import { formatAmount, formatAmountShort, parsePriceTiers } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
-import PaymentCheckoutDialog from "@/components/payment-checkout-dialog";
+import PaymentCheckoutDialog, {
+  type PaymentCheckoutContext,
+} from "@/components/payment-checkout-dialog";
 import PublicCatalogShell from "@/components/public-catalog-shell";
 import AddToCalendar from "@/components/add-to-calendar";
 
@@ -67,6 +69,8 @@ export default function PublicOfferingDetailPage({
   const { authed, userId } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("offeringDetail");
+  // 缴费槽不表态文案单源在 `offerings`（#675，与 /initiatives、报名页同句）
+  const tOfferings = useTranslations("offerings");
   const navT = useTranslations("landing.nav");
   const tCommon = useTranslations("common");
   const labelsT = useTranslations();
@@ -100,14 +104,8 @@ export default function PublicOfferingDetailPage({
     enrollmentId: string | null;
   }>({ kind: "idle", message: null, enrollmentId: null });
   // 收银模态框（批①桌面）：payment_pending 报名的就地支付上下文；null = 关闭。
-  // 押金场无档位 → depositAmountCents 承载押金口径（R10 框内明示）。
-  const [checkout, setCheckout] = useState<{
-    enrollmentId: string;
-    amountCents: number | null;
-    tierName: string | null;
-    depositAmountCents: number | null;
-    title: string;
-  } | null>(null);
+  // 类型 = 弹框导出的收银上下文（Required 收紧：漏传押金事实即编译错，#686）。
+  const [checkout, setCheckout] = useState<PaymentCheckoutContext | null>(null);
   // 支付接续：登录态下查已有活跃报名（公开页报名需登录），分叉渲染——
   // payment_pending → 待支付卡；confirmed/pending → 已报名；无 → 报名表单。
   const [myEnroll, setMyEnroll] = useState<{
@@ -327,6 +325,10 @@ export default function PublicOfferingDetailPage({
   // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
   const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
+  // 押金金额表态统一过守卫（#675）：脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
+  // 绝不显示 ¥0；押金**区块存在性**仍由 offering.depositEnabled 决定（脏金额不得
+  // 让押金块消失——那会读成免费，见 #586）。
+  const depositCents = positiveAmountOrNull(offering?.depositAmountCents);
 
   // 支付成功后就地刷新报名态（模态框 onPaid → payment_pending → confirmed）。
   // offeringId 先行解构（可选链入 dep 会让 React Compiler 无法保持手工 memoization）
@@ -355,15 +357,16 @@ export default function PublicOfferingDetailPage({
   // （无档位：金额 = 押金金额，名称 = 「押金」，框内另明示「未到场不退」），
   // 复访承接可不带（由订单金额兜底）
   function openCheckoutFor(enrollmentId: string) {
-    const depositCents =
-      offering?.depositEnabled === true
-        ? (offering.depositAmountCents ?? null)
-        : null;
+    const depositOn = offering?.depositEnabled === true;
+    const depositCents = depositOn
+      ? (offering.depositAmountCents ?? null)
+      : null;
     setCheckout({
       enrollmentId,
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
+      depositEnabled: depositOn,
       depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
@@ -664,11 +667,11 @@ export default function PublicOfferingDetailPage({
                 >
                   <p className="text-sm text-ink">
                     <strong>
-                      {t("depositLine", {
-                        amount: formatAmountShort(
-                          offering.depositAmountCents ?? 0,
-                        ),
-                      })}
+                      {depositCents === null
+                        ? tOfferings("paymentSlotDepositUnknown")
+                        : t("depositLine", {
+                            amount: formatAmountShort(depositCents),
+                          })}
                     </strong>
                   </p>
                   <p className="mt-1 text-[13px] text-ink-3">
@@ -1032,6 +1035,7 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
+          depositEnabled={checkout.depositEnabled}
           depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}

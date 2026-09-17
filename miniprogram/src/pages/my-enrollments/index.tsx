@@ -9,9 +9,9 @@ import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { checkInCodeText, enrollmentHistoryTimeText, enrollmentScheduleText, enrollmentStatusText, enrollmentVenueText, formatDateTime, remainingLabel } from '@/domain/format'
 import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
-import { enrollmentCardTouchpoint } from '@/domain/subscription'
+import { enrollmentCardTouchpoint, refundCardTouchpoint } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
-import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
+import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText, paidEnrollmentIds } from '@/domain/payment'
 import styles from './index.module.css'
 
 export default function MyEnrollmentsPage() {
@@ -31,6 +31,8 @@ export default function MyEnrollmentsPage() {
     () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders)])),
     [items, orders],
   )
+  // M7 付费卡触点门（#683）：缴费事实报名 id 集，同款派生
+  const paidIds = useMemo(() => paidEnrollmentIds(orders), [orders])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -65,6 +67,21 @@ export default function MyEnrollmentsPage() {
   // 判据与文案见 domain/subscription.ts，由 tests/subscription-domain.test.ts 钉住。）
   const subscribeReminder = async (item: EnrollmentSummary) => {
     const touchpoint = enrollmentCardTouchpoint(item.kind)
+    try {
+      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
+      if (accepted.length === 0) {
+        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
+        return
+      }
+      for (const scenario of accepted) await api.grantConsent(scenario)
+      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
+    } catch (reason) {
+      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
+    }
+  }
+  // M7 付费卡（#683）：资金类三键（退款×2 + 过期）的付款人腿，恰满单次上限 3。
+  const subscribeRefund = async () => {
+    const touchpoint = refundCardTouchpoint()
     try {
       const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
       if (accepted.length === 0) {
@@ -232,6 +249,11 @@ export default function MyEnrollmentsPage() {
                   {enrollmentCardTouchpoint(item.kind).label}
                 </Button>
               </>
+            )}
+            {paidIds.has(item.id) && (
+              <Button className={styles.textButton} size='mini' onClick={() => void subscribeRefund()}>
+                {refundCardTouchpoint().label}
+              </Button>
             )}
             {(item.status === 'rejected' || item.status === 'expired') && (
               <Button
