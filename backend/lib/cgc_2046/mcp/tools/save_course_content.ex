@@ -29,7 +29,10 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
 
     field(:content, {:required, :map},
       description:
-        "course content:%{goals: [string], chapters: [{id, title}](可选;教材类等有章节结构的课程应建并为每张 issue 卡填 chapter_id), issues: [issue 卡]}(形状校验在资源层)"
+        "course content:%{goals: [非空字符串], chapters: [{id, title}](可选;教材类等有章节结构的课程应建并为每张 issue 卡填 chapter_id), issues: [issue 卡]}。" <>
+          "issue 卡:%{id, kind: thoughtwork|handwork, title, story: %{as_a, given, goal, materials: [typed Material], checklist: [{id, text}](必填,嵌在 story 内——不是 issue 卡顶层)}, objectives: [objective](每张卡至少一个)}。" <>
+          "objective:%{id, title, required(缺省 true), prereq_ids, materials: [typed Material], activity, assessment, rubric: [{id, text}](非空)}。" <>
+          "形状校验在资源层"
     )
 
     field(:base_version, {:required, :integer},
