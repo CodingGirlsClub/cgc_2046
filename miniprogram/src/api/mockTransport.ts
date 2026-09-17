@@ -170,6 +170,19 @@ let orderStatusOverride: string | null = null
 // #508-A：核销幂等标记（同一报名第二次核销 → already； enrollment 重置时随之复位）
 let checkedIn = false
 
+// ── 闪念间「我的」（U9）：登录即视为已绑定档案的会话腿 ──────────────────
+// 与后端 flashbackCapsule 会话入口同形；四态卡各一（行动板分组的样例覆盖）。
+const FLASHBACK_RAW_TEXT = '我在盛大做测试。想亲眼看看是不是真的！后来我成了程序员。'
+const FLASHBACK_FOG_SPAN = { start: 0, len: 7 }
+let flashbackEndorsedCardIds: string[] = []
+let flashbackQuoteLevel: 'off' | 'anonymous' | 'credited' = 'off'
+let flashbackToday: {
+  nowStatus: string | null
+  want: string | null
+  say: string | null
+  sentToWallAt: string | null
+} = { nowStatus: null, want: null, say: null, sentToWallAt: null }
+
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
   pending: true,
@@ -486,6 +499,126 @@ function responseFor(document: string, variables: object): unknown {
         workspaceName: workspace.name,
         status: 'accepted',
         acceptedAt: new Date().toISOString()
+      }
+    }
+  }
+  if (document.includes('query FlashbackCapsule')) {
+    // 会话腿：未登录 → errors（真实端 forbidden/未签名由 real 层抛错，e2e 先登录）
+    if (!loggedIn) {
+      return {
+        errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }]
+      }
+    }
+    const endorseCount = (cardId: string) => flashbackEndorsedCardIds.length + (cardId === 'card-forming' ? 4 : 0)
+    return {
+      flashbackCapsule: {
+        me: {
+          id: 'fb-person-1',
+          fullName: '王小明',
+          surname: '王',
+          city: '北京',
+          occupationThen: '测试工程师',
+          participation: 'attended',
+          appliedAt: '2014-01-11T13:06:00Z',
+          quote: null,
+          today: flashbackToday,
+          answers: [
+            {
+              id: 'fb-answer-1',
+              questionKey: 'self_intro',
+              rawText: FLASHBACK_RAW_TEXT,
+              // 与后端 FogSpans.mask 同规则：区间替换 ▓▓（保留 len 字符宽）
+              fogSpans: [FLASHBACK_FOG_SPAN],
+              text:
+                '▓▓▓▓▓▓▓' +
+                FLASHBACK_RAW_TEXT.slice(FLASHBACK_FOG_SPAN.start + FLASHBACK_FOG_SPAN.len)
+            }
+          ]
+        },
+        actionCards: [
+          {
+            id: 'card-proposed',
+            title: '天津 1024 城市场',
+            city: '天津',
+            status: 'proposed',
+            eventId: null,
+            eventSlug: null,
+            endorsementCount: 0,
+            endorsedByMe: false,
+            rolesClaimed: []
+          },
+          {
+            id: 'card-forming',
+            title: '骑行场',
+            city: '北京',
+            status: 'forming',
+            eventId: null,
+            eventSlug: null,
+            endorsementCount: endorseCount('card-forming'),
+            endorsedByMe: flashbackEndorsedCardIds.includes('card-forming'),
+            rolesClaimed: ['organizer']
+          },
+          {
+            id: 'card-scheduled',
+            title: 'Python 共学场',
+            city: '上海',
+            status: 'scheduled',
+            eventId: 'event-1',
+            eventSlug: 'python-workshop',
+            endorsementCount: 12,
+            endorsedByMe: true,
+            rolesClaimed: ['promoter', 'venue']
+          },
+          {
+            id: 'card-done',
+            title: '杭州开源沙龙',
+            city: '杭州',
+            status: 'done',
+            eventId: null,
+            eventSlug: null,
+            endorsementCount: 8,
+            endorsedByMe: true,
+            rolesClaimed: []
+          }
+        ]
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackEndorse')) {
+    const cardId = typeof values.cardId === 'string' ? values.cardId : ''
+    const firstTime = !flashbackEndorsedCardIds.includes(cardId)
+    if (firstTime) flashbackEndorsedCardIds = [...flashbackEndorsedCardIds, cardId]
+    return {
+      flashbackEndorse: {
+        cardId,
+        status: firstTime ? 'forming' : 'forming',
+        roleClaimed: typeof values.roleClaimed === 'string' ? values.roleClaimed : null,
+        firstTime
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackSubmitToday')) {
+    const input = (values.input ?? {}) as Record<string, unknown>
+    flashbackToday = {
+      ...flashbackToday,
+      nowStatus: typeof input.nowStatus === 'string' ? input.nowStatus : flashbackToday.nowStatus,
+      want: typeof input.want === 'string' ? input.want : flashbackToday.want,
+      say: typeof input.say === 'string' ? input.say : flashbackToday.say
+    }
+    return { flashbackSubmitToday: { today: flashbackToday } }
+  }
+  if (document.includes('mutation FlashbackSetQuoteLicense')) {
+    const level = values.level
+    if (level === 'off' || level === 'anonymous' || level === 'credited') {
+      flashbackQuoteLevel = level
+    }
+    return { flashbackSetQuoteLicense: { level: flashbackQuoteLevel } }
+  }
+  if (document.includes('mutation FlashbackAdjustFog')) {
+    return {
+      flashbackAdjustFog: {
+        answerId: values.answerId,
+        fogSpans: (values.spans ?? []) as Array<{ start: number; len: number }>
       }
     }
   }

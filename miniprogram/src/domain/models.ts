@@ -302,6 +302,69 @@ export interface PlatformPhonePayload {
   iv?: string
 }
 
+// ── 闪念间「我的」（U9/R28：回访正门 = 登录账号绑定档案） ──────────────
+
+/** 雾面区间（KTD4：start/len 落在原文坐标上；reason 导入期标记为 owner 由本人调整） */
+export interface FlashbackFogSpan {
+  start: number
+  len: number
+  reason?: string | null
+}
+
+/** 本人当年答案（KTD4：本人视图原文永远完整；text 为雾化版） */
+export interface FlashbackMeAnswer {
+  id: string
+  questionKey: string
+  rawText: string
+  fogSpans: FlashbackFogSpan[]
+  text: string
+}
+
+export interface FlashbackMyToday {
+  nowStatus: string | null
+  want: string | null
+  say: string | null
+  sentToWallAt: string | null
+}
+
+export interface FlashbackMyCard {
+  id: string
+  fullName: string
+  surname: string | null
+  city: string | null
+  occupationThen: string | null
+  participation: 'attended' | 'not_selected'
+  appliedAt: string | null
+  quote: string | null
+  today: FlashbackMyToday | null
+  answers: FlashbackMeAnswer[]
+}
+
+export interface FlashbackMyActionCard {
+  id: string
+  title: string
+  city: string | null
+  status: 'proposed' | 'forming' | 'scheduled' | 'done'
+  eventId: string | null
+  eventSlug: string | null
+  endorsementCount: number
+  endorsedByMe: boolean
+  rolesClaimed: string[]
+}
+
+export interface FlashbackCapsule {
+  me: FlashbackMyCard
+  actionCards: FlashbackMyActionCard[]
+}
+
+/** 附议提交结果（幂等：再点 = 改角色，firstTime=false） */
+export interface FlashbackEndorseResult {
+  cardId: string
+  status: string
+  roleClaimed: string | null
+  firstTime: boolean
+}
+
 /** 订单（U12 学员面：order-pay 页 + my-enrollments 缴费态） */
 export interface OrderSummary {
   id: string
@@ -355,4 +418,30 @@ export interface MiniProgramApi {
   /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
   checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
   getNotifications(): Promise<NotificationItem[]>
+  /**
+   * U9/R28「我的闪念间」：登录账号绑定档案的时间胶囊投影（me + 行动板）。
+   * 未绑定档案 → FlashbackNotBoundError（页面引导去 web 首程/自助找回）。
+   */
+  getFlashbackCapsule(): Promise<FlashbackCapsule>
+  /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
+  flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult>
+  /** U9/R8：编辑「今天的你」（会话面不重计意图率） */
+  flashbackSubmitToday(input: {
+    nowStatus?: string | null
+    want?: string | null
+    need?: string | null
+    say?: string | null
+  }): Promise<void>
+  /** U9/R31：金句授权三档（off/anonymous/credited） */
+  flashbackSetQuoteLicense(level: 'off' | 'anonymous' | 'credited'): Promise<void>
+  /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界） */
+  flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void>
+}
+
+/** 登录账号没有绑定闪念间档案（capsule 双入口的会话腿 miss）——页面按引导态渲染。 */
+export class FlashbackNotBoundError extends Error {
+  constructor() {
+    super('flashback person not bound')
+    this.name = 'FlashbackNotBoundError'
+  }
 }

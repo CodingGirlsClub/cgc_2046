@@ -472,3 +472,95 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
     }
   }
 `
+
+// ── 闪念间「我的」（U9/R28）──────────────────────────────────────────────
+// 登录态（person.user_id 绑定档案）双入口：token 省略走会话腿。投影只选
+// me + actionCards（小程序无名册/场次页读面，archives 不拉）。
+
+export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
+  query FlashbackCapsule {
+    flashbackCapsule {
+      me {
+        id
+        fullName
+        surname
+        city
+        occupationThen
+        participation
+        appliedAt
+        quote
+        today {
+          nowStatus
+          want
+          say
+          sentToWallAt
+        }
+        answers {
+          id
+          questionKey
+          rawText
+          fogSpans {
+            start
+            len
+          }
+          text
+        }
+      }
+      actionCards {
+        id
+        title
+        city
+        status
+        eventId
+        eventSlug
+        endorsementCount
+        endorsedByMe
+        rolesClaimed
+      }
+    }
+  }
+`
+
+export const FlashbackEndorseMutationDocument = /* GraphQL */ `
+  mutation FlashbackEndorse($cardId: ID!, $roleClaimed: String) {
+    flashbackEndorse(cardId: $cardId, roleClaimed: $roleClaimed) {
+      cardId
+      status
+      roleClaimed
+      firstTime
+    }
+  }
+`
+
+export const FlashbackSubmitTodayMutationDocument = /* GraphQL */ `
+  mutation FlashbackSubmitToday($input: FlashbackTodayInput!) {
+    flashbackSubmitToday(input: $input) {
+      today {
+        nowStatus
+        want
+        need
+        say
+      }
+    }
+  }
+`
+
+export const FlashbackSetQuoteLicenseMutationDocument = /* GraphQL */ `
+  mutation FlashbackSetQuoteLicense($level: String!) {
+    flashbackSetQuoteLicense(level: $level) {
+      level
+    }
+  }
+`
+
+export const FlashbackAdjustFogMutationDocument = /* GraphQL */ `
+  mutation FlashbackAdjustFog($answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
+    flashbackAdjustFog(answerId: $answerId, spans: $spans) {
+      answerId
+      fogSpans {
+        start
+        len
+      }
+    }
+  }
+`

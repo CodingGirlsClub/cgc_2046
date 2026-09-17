@@ -480,4 +480,124 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert [%{"code" => "rate_limited"}] = post_graphql(enter_query(plain))["errors"]
     end
   end
+
+  describe "写面会话身份（U9/R28：token 省略 → 登录账号绑定档案）" do
+    # signIn 换 Bearer（同 graphql_complexity_budget_test 的 token_for 形状）。
+    defp token_for(user) do
+      mutation = """
+      mutation { signIn(login: "#{user.email}", password: "#{Cgc2046.AccountsFixtures.password()}") { id } }
+      """
+
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => mutation})
+
+      assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
+      conn.resp_cookies["cgc_token"].value
+    end
+
+    defp post_as_user(query, user) do
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer #{token_for(user)}")
+      |> post("/api/graphql", %{"query" => query})
+      |> json_response(200)
+    end
+
+    defp bind_person(person, user_id) do
+      person
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:user_id, user_id)
+      |> Ash.update!(authorize?: false)
+    end
+
+    test "绑定账号 endorse：首条 proposed → forming，再点幂等改角色" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = Cgc2046.AccountsFixtures.register_user("fb-session-endorse")
+      bind_person(person, user.id)
+
+      card =
+        Flashback.ActionCard
+        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
+        |> Ash.create!(authorize?: false)
+
+      first_query = """
+      mutation { flashbackEndorse(cardId: "#{card.id}", roleClaimed: "organizer") {
+        cardId: card_id status roleClaimed: role_claimed firstTime: first_time } }
+      """
+
+      res = post_as_user(first_query, user)
+      payload = res["data"]["flashbackEndorse"]
+      assert payload["status"] == "forming"
+      assert payload["firstTime"] == true
+
+      again_query = """
+      mutation { flashbackEndorse(cardId: "#{card.id}", roleClaimed: "promoter") {
+        cardId: card_id status roleClaimed: role_claimed firstTime: first_time } }
+      """
+
+      res = post_as_user(again_query, user)
+      assert res["data"]["flashbackEndorse"]["firstTime"] == false
+      assert res["data"]["flashbackEndorse"]["roleClaimed"] == "promoter"
+    end
+
+    test "绑定账号：adjustFog / setQuoteLicense / submitToday（不写 intent_submitted）" do
+      archive = create_archive()
+      person = create_person(archive)
+      answer = create_answer(person)
+      user = Cgc2046.AccountsFixtures.register_user("fb-session-edit")
+      bind_person(person, user.id)
+
+      fog_query = """
+      mutation { flashbackAdjustFog(answerId: "#{answer.id}", spans: [{start: 0, len: 5}]) {
+        answerId: answer_id fogSpans { start len } } }
+      """
+
+      res = post_as_user(fog_query, user)
+      assert [%{"start" => 0, "len" => 5}] = res["data"]["flashbackAdjustFog"]["fogSpans"]
+
+      quote_query = """
+      mutation { flashbackSetQuoteLicense(level: "anonymous") { level } }
+      """
+
+      res = post_as_user(quote_query, user)
+      assert res["data"]["flashbackSetQuoteLicense"]["level"] == "anonymous"
+
+      today_query = """
+      mutation { flashbackSubmitToday(input: { want: "回访编辑" }) { today { want } } }
+      """
+
+      res = post_as_user(today_query, user)
+      assert res["data"]["flashbackSubmitToday"]["today"]["want"] == "回访编辑"
+      # 四率度量首程漏斗：回访编辑不重计意图率（KTD10 口径）
+      assert touch_count(person.id, :intent_submitted) == 0
+    end
+
+    test "未登录且无 token → auth_required（不泄露存在性）" do
+      endorse_query = """
+      mutation { flashbackEndorse(cardId: "#{Ecto.UUID.generate()}") { cardId: card_id } }
+      """
+
+      res =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => endorse_query})
+        |> json_response(200)
+
+      assert [%{"code" => "flashback_auth_required"}] = res["errors"]
+    end
+
+    test "登录未绑定档案 → person_not_bound" do
+      user = Cgc2046.AccountsFixtures.register_user("fb-session-unbound")
+
+      endorse_query = """
+      mutation { flashbackEndorse(cardId: "#{Ecto.UUID.generate()}") { cardId: card_id } }
+      """
+
+      res = post_as_user(endorse_query, user)
+      assert [%{"code" => "flashback_person_not_bound"}] = res["errors"]
+    end
+  end
 end

@@ -148,6 +148,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     end
   end
 
+  # 本人视图（KTD4）：原文永远完整 + answer id 与既有 spans——U9 小程序
+  # 「编辑雾化」的消费面；text 为雾化版（web 全文卡 R15 与本人墙卡同规则）。
   defp me_answers(person_id) do
     rows =
       Repo.all(
@@ -156,13 +158,21 @@ defmodule Cgc2046.Flashback.AlumniProjection do
             a.person_id == ^uuid_param(person_id) and
               a.question_key in ["self_intro", "funny_thing", "os", "social_media"],
           order_by: [asc: a.inserted_at],
-          select: %{question_key: a.question_key, raw_text: a.raw_text, fog_spans: a.fog_spans}
+          select: %{
+            id: fragment("?::text", a.id),
+            question_key: a.question_key,
+            raw_text: a.raw_text,
+            fog_spans: a.fog_spans
+          }
         )
       )
 
     Enum.map(rows, fn answer ->
       %{
+        id: answer.id,
         question_key: answer.question_key,
+        raw_text: answer.raw_text,
+        fog_spans: answer.fog_spans || [],
         text: FogSpans.mask(answer.raw_text, answer.fog_spans, @fog_placeholder)
       }
     end)

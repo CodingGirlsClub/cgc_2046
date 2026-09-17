@@ -9,7 +9,9 @@ const cutPages = [
   'pages/login/index',
   'pages/register-form/index',
   'pages/enrollment-result/index',
-  'pages/join/index'
+  'pages/join/index',
+  // U9/R28：闪念间回访页——tt/xhs 漏斗端也注册（成场通知深链与「我的」入口）
+  'pages/flashback/index'
 ]
 
 const fullPages = [
@@ -27,7 +29,9 @@ const fullPages = [
   'pages/join/index',
   'pages/openclacky/index',
   // #508-A：主理人现场核销（管理面，裁剪端不挂）
-  'pages/check-in/index'
+  'pages/check-in/index',
+  // U9/R28：「我的 · 我的闪念间」回访正门（登录账号绑定档案）
+  'pages/flashback/index'
 ]
 
 const cutTabList = [

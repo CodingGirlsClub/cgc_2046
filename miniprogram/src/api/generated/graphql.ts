@@ -854,6 +854,27 @@ export type EventFilterWorkspaceId = {
   rangeOverlaps?: string | number | null | undefined;
 };
 
+export type FlashbackFogSpanInput = {
+  len: number;
+  reason?: string | null | undefined;
+  start: number;
+};
+
+export type FlashbackTodayInput = {
+  mobilizationDonateIntent?: boolean | null | undefined;
+  mobilizationHelpPromote?: boolean | null | undefined;
+  mobilizationJoin1024?: boolean | null | undefined;
+  mobilizationVolunteerLead?: boolean | null | undefined;
+  need?: string | null | undefined;
+  newsletterOptIn?: boolean | null | undefined;
+  /** 「今天的你」问卷（R8）：四个自由文本 + Want/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19） */
+  nowStatus?: string | null | undefined;
+  reconnectTags?: Array<string | null | undefined> | null | undefined;
+  say?: string | null | undefined;
+  want?: string | null | undefined;
+  wantGiveTags?: Array<string | null | undefined> | null | undefined;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: string | null | undefined;
 };
@@ -1050,3 +1071,38 @@ export type PublicInitiativeQueryVariables = Exact<{
 
 
 export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null, paymentMode: string, minAge: number | null, priceRangeMinCents: number | null, deposit: { enabled: boolean, amountCents: number | null, refundableOnCheckIn: boolean | null } }> }> } | null };
+
+export type FlashbackCapsuleQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackCapsuleQuery = { flashbackCapsule: { me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+
+export type FlashbackEndorseMutationVariables = Exact<{
+  cardId: string | number;
+  roleClaimed?: string | null | undefined;
+}>;
+
+
+export type FlashbackEndorseMutation = { flashbackEndorse: { cardId: string, status: string, roleClaimed: string | null, firstTime: boolean } | null };
+
+export type FlashbackSubmitTodayMutationVariables = Exact<{
+  input: FlashbackTodayInput;
+}>;
+
+
+export type FlashbackSubmitTodayMutation = { flashbackSubmitToday: { today: { nowStatus: string | null, want: string | null, need: string | null, say: string | null } | null } | null };
+
+export type FlashbackSetQuoteLicenseMutationVariables = Exact<{
+  level: string;
+}>;
+
+
+export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string } | null };
+
+export type FlashbackAdjustFogMutationVariables = Exact<{
+  answerId: string | number;
+  spans: Array<FlashbackFogSpanInput> | FlashbackFogSpanInput;
+}>;
+
+
+export type FlashbackAdjustFogMutation = { flashbackAdjustFog: { answerId: string, fogSpans: Array<{ start: number, len: number } | null> | null } | null };
