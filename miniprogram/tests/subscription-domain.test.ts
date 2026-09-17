@@ -57,9 +57,9 @@ const allTouchpoints = () => [
 const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 18 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 18)
-    assert.equal(new Set(ALL_SCENARIOS).size, 18)
+  test('恰好 19 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 19)
+    assert.equal(new Set(ALL_SCENARIOS).size, 19)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {
@@ -124,9 +124,13 @@ describe('M6/M7/M8（#683 新触点）', () => {
     assert.match(touchpoint.label, /退款与订单变动/)
   })
 
-  test('M8 工作台第二按钮：管理者两键，与 M4 互不重叠（同页两手势各 ≤3）', () => {
+  test('M8 工作台第二按钮：管理者三键恰满 3（#585 加开班结果），与 M4 互不重叠', () => {
     const ops = workspaceOpsTouchpoint()
-    assert.deepEqual(ops.scenarios, ['enrollment_submitted', 'payment_received'])
+    assert.deepEqual(ops.scenarios, [
+      'enrollment_submitted',
+      'payment_received',
+      'event_qualification_manager'
+    ])
 
     const m4 = workspaceTouchpoint()
     const overlap = ops.scenarios.filter((scenario) => m4.scenarios.includes(scenario))

@@ -88,9 +88,13 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:wechat, "event_qualification_confirmed", "pages/my-enrollments/index"},
       {:wechat, "event_qualification_underfilled", "pages/my-enrollments/index"},
       {:wechat, "event_schedule_changed", "pages/my-enrollments/index"},
-      # 裁剪端分支（tt/xhs）对三模板同款不变
+      # #585 管理侧开班结果 → 工作台（管理类；后续处理面在那）
+      {:wechat, "event_qualification_manager", "pages/workspace/index"},
+      # 裁剪端分支（tt/xhs）对四模板同款不变（无 workspace tab，一律我的报名）
       {:tt, "event_qualification_underfilled", "pages/my-enrollments/index"},
+      {:tt, "event_qualification_manager", "pages/my-enrollments/index"},
       {:xhs, "event_schedule_changed", "pages/my-enrollments/index"},
+      {:xhs, "event_qualification_manager", "pages/my-enrollments/index"},
       # 未知模板兜底不变
       {:wechat, "unknown_template_key", "pages/profile/index"}
     ]
@@ -629,6 +633,32 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert no_min == %{"thing4" => %{"value" => "活动"}, "number16" => %{"value" => "2"}}
   end
 
+  test "event_qualification_manager 渲染：thing1 活动名 + thing2 outcome 驱动双文案（#585）" do
+    confirmed =
+      send_and_capture("event_qualification_manager", %{
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "outcome" => "confirmed"
+      })
+
+    assert confirmed == %{
+             "thing1" => %{"value" => "AI 入门工作坊"},
+             "thing2" => %{"value" => "已达最低人数3人，活动成班"}
+           }
+
+    underfilled =
+      send_and_capture("event_qualification_manager", %{
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "outcome" => "underfilled"
+      })
+
+    assert underfilled == %{
+             "thing1" => %{"value" => "AI 入门工作坊"},
+             "thing2" => %{"value" => "未达最低人数3人，已取消并发起退款"}
+           }
+  end
+
   test "event_qualification_underfilled 渲染：thing1 活动名 + thing5 未达阈值文案" do
     data =
       send_and_capture("event_qualification_underfilled", %{
@@ -802,8 +832,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 18 键集合（防表被改空）
-    assert length(registry_keys) == 18
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 19 键集合（防表被改空）
+    assert length(registry_keys) == 19
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))
@@ -841,6 +871,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
       "starts_at" -> {"starts_at", "2026-09-20T07:00:00Z"}
       "approval_deadline" -> {"approval_deadline", "2026-09-20T07:00:00Z"}
       "min_participants" -> {"min_participants", 3}
+      "outcome" -> {"outcome", "confirmed"}
       "confirmed_count" -> {"confirmed_count", 2}
       "capacity_seq" -> {"capacity_seq", 7}
       "re_enrollable" -> {"re_enrollable", "true"}
