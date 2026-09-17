@@ -9,9 +9,10 @@
  * createOrder 即出码。渠道选择与二维码同屏，切换渠道走 replaceProvider
  * （R11：旧单作废新码即换，框内无感）。
  *
- * 押金口径判据（#580）：同意门与说明行金额只认**订单快照**——活单的
- * orderKind / amountCents（下单时定，组织者事后改配置不漂移）；订单未建立
- * 的瞬间（无活单、consent 预判路径）才用活动现价——那一刻现价即承诺价。
+ * 押金口径判据（#580/#686）：有活单 → 同意门与说明行金额只认**订单快照**
+ * （orderKind / amountCents，下单时定，组织者事后改配置不漂移）；订单未建立
+ * 的瞬间（无活单、consent 预判路径）→ 同意门认报名目标存在性 depositEnabled
+ * （#686），头部/说明行金额才用活动现价——那一刻现价即承诺价。
  * orderKind 解析 fail-closed（parseOrderKind 未知值 → error 态，不猜方向）。
  *
  * 轮询（R14）与倒计时（R6）复用 use-order-polling / lib/payment 纯函数，
@@ -43,6 +44,7 @@ import {
   formatAmount,
   formatAmountShort,
   parseOrderKind,
+  positiveAmountOrNull,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -91,13 +93,30 @@ export interface PaymentCheckoutDialogProps {
   /** 所选档位名（头部展示；复访承接时可不传） */
   tierName?: string | null;
   /**
-   * 押金金额（分；R10/KTD10）。传值 = 押金场收银：框内明示「押金 ¥xx（到场退）」与
-   * 「未到场不退」，并在订单就绪前以其作头部金额（押金场无档位，amountCents 为空）。
+   * 押金场识别（#686）：按**存在性**判定——报名目标开启押金即押金收银，与金额
+   * 是否就绪无关。无活单的 consent 预判分支与 isDepositCheckout 渲染判据都以
+   * 它定门；金额缺失不再让押金场漏过同意勾选（fail-open）。
+   * 缺省 false = 视为非押金场（无同意门、直接创单）；调用方必须显式下传
+   * 报名目标的押金事实，漏传即 fail-open（#686 同一失败类）。
+   */
+  depositEnabled?: boolean;
+  /**
+   * 押金金额（分；R10/KTD10，#686 后纯表态）：头部金额与「押金 ¥xx（到场退）」
+   * 说明行的展示值；不参与押金场识别（识别只认 depositEnabled / 订单快照）。
    */
   depositAmountCents?: number | null;
   /** 活动标题（头部展示） */
   title?: string | null;
 }
+
+/**
+ * 收银上下文（调用方 state 形状 = 弹框 props 减去回调）。Required 刻意收紧：
+ * 调用方组装载荷时漏传任一押金事实（depositEnabled/depositAmountCents）
+ * 都是编译错，不给「漏传静默 fail-open」留缝（#686）。
+ */
+export type PaymentCheckoutContext = Required<
+  Omit<PaymentCheckoutDialogProps, "onClose" | "onPaid">
+>;
 
 export default function PaymentCheckoutDialog({
   enrollmentId,
@@ -105,11 +124,14 @@ export default function PaymentCheckoutDialog({
   onPaid,
   amountCents: amountHintCents = null,
   tierName = null,
+  depositEnabled = false,
   depositAmountCents = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("checkout");
+  // 押金不表态文案单源在 `offerings`（#675，与公开页/报名页同句）
+  const tOfferings = useTranslations("offerings");
   const labelsT = useTranslations();
   // 开框统一 checking：先查活单拿订单快照口径（orderKind）再定 consent/paying
   // （#580）——押金门不再由活动实时配置预判
@@ -254,9 +276,10 @@ export default function PaymentCheckoutDialog({
         setPhase(kind === "deposit" ? "consent" : "paying");
         return;
       }
-      if (depositAmountCents != null) {
+      if (depositEnabled) {
         // 无活单 + 押金场：先停确认态（U1），确认后才创单——此刻尚无订单，
-        // 活动现价即承诺价
+        // 活动现价即承诺价。识别按存在性（#686）：depositEnabled 开即押金收银，
+        // 金额缺失不漏门（金额只用于表态）
         setPhase("consent");
         return;
       }
@@ -265,7 +288,7 @@ export default function PaymentCheckoutDialog({
     return () => {
       cancelled = true;
     };
-  }, [phase, enrollmentId, title, createOrder, depositAmountCents, t]);
+  }, [phase, enrollmentId, title, createOrder, depositEnabled, t]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
@@ -341,11 +364,19 @@ export default function PaymentCheckoutDialog({
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
   // 押金口径（#580）：订单就绪 → 只认订单快照 orderKind；未就绪（无活单的
-  // consent 预判路径）→ 活动现价。说明行金额同源：快照优先、现价兜底。
+  // consent 预判路径）→ 押金场存在性（#686：depositEnabled，金额不参与识别——
+  // 脏金额绝不让押金单掉进非押金分支连披露门都不出）。说明行金额同源：快照
+  // 优先、现价兜底，且表态过守卫（#675）：脏金额 → 「押金（金额待定）」。
   const isDepositCheckout =
     order?.orderKind === "deposit" ||
-    (order === null && depositAmountCents != null);
-  const depositNoteCents = order?.amountCents ?? depositAmountCents;
+    (order === null && depositEnabled);
+  // 脏金额（缺失/0/负/非整数分）→ null → 说明行「押金（金额待定）」（#675）；
+  // 框头金额同步不显示（既有 null 分支），绝不出现「¥0.00」。识别不读金额
+  // （#686：depositEnabled 定门），脏金额只影响表态不影响门。
+  const depositNoteCents = positiveAmountOrNull(
+    order?.amountCents ?? depositAmountCents,
+  );
+  const headerAmountCents = positiveAmountOrNull(amountCents);
 
   return (
     <div
@@ -369,9 +400,9 @@ export default function PaymentCheckoutDialog({
             <h2>{t("title")}</h2>
             <p className="mt-1 text-[13px] leading-5 text-ink-3">
               {[title, tierName].filter(Boolean).join(" · ") || t("orderFallback")}
-              {amountCents != null ? (
+              {headerAmountCents !== null ? (
                 <span className="ml-2 font-medium text-ink">
-                  ¥{formatAmount(amountCents)}
+                  ¥{formatAmount(headerAmountCents)}
                 </span>
               ) : null}
             </p>
@@ -408,9 +439,11 @@ export default function PaymentCheckoutDialog({
             className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
             data-testid="checkout-deposit-note"
           >
-            {t("depositLine", {
-              amount: formatAmountShort(depositNoteCents ?? 0),
-            })}
+            {depositNoteCents === null
+              ? tOfferings("paymentSlotDepositUnknown")
+              : t("depositLine", {
+                  amount: formatAmountShort(depositNoteCents),
+                })}
             <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
           </p>
         ) : !isDepositCheckout && amountHintCents != null ? (

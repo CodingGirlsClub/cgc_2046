@@ -6,9 +6,11 @@ import {
 	countdownText,
 	dispatchCredential,
 	formatAmount,
+	formatAmountShort,
 	nextPollTick,
 	parsePaymentStats,
 	parsePriceTiers,
+	positiveAmountOrNull,
 	tierSnapshotName,
 	truncateOutTradeNo,
 } from "./payment";
@@ -182,5 +184,27 @@ describe("U11 payment 纯逻辑", () => {
 			expect(truncateOutTradeNo("T1")).toBe("T1");
 			expect(truncateOutTradeNo("1234567890123456")).toBe("1234567890123456");
 		});
+	});
+});
+
+/**
+ * #627：参与条件披露的金额守卫。`null`（缺失）与非正（0 / 负，DB CHECK 上线前的
+ * 存量脏行）都必须降级为「不表态」，**绝不显示 ¥0**——押金与收费金额锚共用。
+ */
+describe("展示金额守卫（#627）", () => {
+	it("null / undefined / 0 / 负数 / 小数分一律 null（绝不 ¥0）", () => {
+		for (const dirty of [null, undefined, 0, -1]) {
+			expect(positiveAmountOrNull(dirty)).toBeNull();
+		}
+		// F3：后端以「分」为整数单位；0.4 这类非整分值经 formatAmountShort 会
+		// 四舍五入成 "0.00" → 必须被守卫挡住（Number.isInteger）
+		expect(positiveAmountOrNull(0.4)).toBeNull();
+		expect(formatAmountShort(0.4)).toBe("0.00");
+	});
+
+	it("正整数原样返回；短式格式化整元省略小数", () => {
+		expect(positiveAmountOrNull(6900)).toBe(6900);
+		expect(formatAmountShort(6900)).toBe("69");
+		expect(formatAmountShort(9950)).toBe("99.50");
 	});
 });

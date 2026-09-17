@@ -7,72 +7,130 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import type { SubscriptionScenario } from '../src/domain/models.ts'
 import {
   ALL_SCENARIOS,
   MAX_TMPL_IDS_PER_REQUEST,
   acceptedScenarios,
-  checkInCodeTouchpoint,
   configuredScenarios,
   courseCardTouchpoint,
   enrollmentCardTouchpoint,
   enrollmentResultTouchpoint,
   eventCardTouchpoint,
   moderatorTouchpoint,
-  submitAfterCheckInCodeConsent,
+  paymentResultTouchpoint,
+  preSubmitTouchpoint,
+  refundCardTouchpoint,
+  submitAfterConsent,
   subscriptionTransport,
+  workspaceOpsTouchpoint,
   workspaceTouchpoint
 } from '../src/domain/subscription.ts'
 
-/** 全量触点的「正常态」取样（M0–M5）；payment_pending 与终态另有专门断言。 */
+/** 全量触点的「正常态」取样（M0–M8）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
-  checkInCodeTouchpoint(),
+  preSubmitTouchpoint('event'),
+  preSubmitTouchpoint('course'),
   enrollmentResultTouchpoint('pending'),
   enrollmentResultTouchpoint('confirmed'),
   enrollmentCardTouchpoint('event'),
   enrollmentCardTouchpoint('course'),
   workspaceTouchpoint(),
-  moderatorTouchpoint()
+  moderatorTouchpoint(),
+  paymentResultTouchpoint(false),
+  paymentResultTouchpoint(true),
+  refundCardTouchpoint(),
+  workspaceOpsTouchpoint()
 ]
 
+/**
+ * 确实没有触点的场景（显式缺口表，#664 审计）——后端镜像清单 =
+ * `notification_worker_test.exs` 的 @scenario_gaps，逐键「谁收 / 为什么没入口 /
+ * 挂哪」见那里的注释。#683 已把 6 键全部补齐触点，本表清空但**结构保留**：
+ * 未来新增无入口场景必须在此登记（否则下方 uncovered 断言红），登记数写死 0
+ * ——改本表/本数 = 有意识的决定。
+ *
+ * 纪律与后端同款：改这份列表 = 有意识承认一个缺口；补了触点必须同步删行
+ * （下面「每个场景至少一个触点」守卫会红）。两个列表各自自洽：某一侧补了入口
+ * 而没删行，那一侧必红。
+ */
+const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
+
 describe('场景键集', () => {
-  test('恰好 11 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 11)
-    assert.equal(new Set(ALL_SCENARIOS).size, 11)
+  test('恰好 18 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 18)
+    assert.equal(new Set(ALL_SCENARIOS).size, 18)
   })
 
-  test('7 个新场景全部在表内（#635 的核心：此前从未被请求授权）', () => {
-    for (const scenario of [
-      'event_qualification_confirmed',
-      'event_qualification_underfilled',
-      'event_schedule_changed',
-      'event_moderator_assigned',
-      'speaker_accepted',
-      'speaker_completed',
-      'learning_stagnation'
-    ]) {
-      assert.ok(ALL_SCENARIOS.includes(scenario), `缺少场景 ${scenario}`)
-    }
-  })
-
-  test('7 个新场景都有可达的授权入口（分享者腿见 moduledoc 的显式缺口）', () => {
+  test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {
     const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
+    const gaps = new Set<SubscriptionScenario>(UNCOVERED_SCENARIOS)
 
-    for (const scenario of [
-      'event_qualification_confirmed',
-      'event_qualification_underfilled',
-      'event_schedule_changed',
-      'event_moderator_assigned',
-      'speaker_accepted',
-      'speaker_completed',
-      'learning_stagnation'
-    ]) {
-      assert.ok(covered.has(scenario), `${scenario} 没有任何触点覆盖`)
-    }
+    // 缺口数先钉死（#683 后为 0）：防「新场景被随手塞进缺口表」蒙混过关
+    assert.equal(gaps.size, 0, `缺口数变了：${[...gaps].sort().join(', ')}`)
+
+    // 缺口表不得腐烂：缺口键与场景表互补——一旦某键进入 ALL_SCENARIOS（= 补入口
+    // 的第一步），必须同步从本表移除，否则这里红。
+    const promoted = [...gaps].filter((scenario) => ALL_SCENARIOS.includes(scenario)).sort()
+    assert.deepEqual(
+      promoted,
+      [],
+      `这些键已进入 ALL_SCENARIOS，必须从 UNCOVERED_SCENARIOS 移除：${promoted.join(', ')}`
+    )
+
+    // 已补触点的键必须移出缺口表
+    const stale = [...gaps].filter((scenario) => covered.has(scenario)).sort()
+    assert.deepEqual(stale, [], `这些键已有触点，必须从 UNCOVERED_SCENARIOS 移除：${stale.join(', ')}`)
+
+    // 本守卫的失败形态：新场景没有任何触点 → 用户永远拿不到该模板的授权
+    const uncovered = ALL_SCENARIOS.filter(
+      (scenario) => !covered.has(scenario) && !gaps.has(scenario)
+    )
+    assert.deepEqual(uncovered, [], `这些场景没有任何触点覆盖：${uncovered.join(', ')}`)
   })
 
-  test('核销码场景有可达入口（#546：M0 报名提交前，非后置触点）', () => {
-    const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
-    assert.ok(covered.has('enrollment_check_in_code'), 'enrollment_check_in_code 没有任何触点覆盖')
+  test('报名成功的课程腿（#664：课程也收 enrollment_completed，但没有核销码）', () => {
+    // 课程腿单独钉住：course 报名同样会收到 enrollment_completed（后端无 kind 分支），
+    // 而课程没有核销码——只把场景挂在活动触点上会漏掉课程报名。
+    assert.ok(
+      preSubmitTouchpoint('course').scenarios.includes('enrollment_completed'),
+      '课程报名必须能订阅 enrollment_completed'
+    )
+    assert.ok(
+      !preSubmitTouchpoint('course').scenarios.includes('enrollment_check_in_code'),
+      '课程报名收不到核销码通知，不应请求其授权'
+    )
+  })
+})
+
+describe('M6/M7/M8（#683 新触点）', () => {
+  test('M6 支付页双态：同一场景集 [payment_succeeded, event_reminder]，label 按态分派', () => {
+    const pending = paymentResultTouchpoint(false)
+    const paid = paymentResultTouchpoint(true)
+
+    // 场景集双态一致（同函数分派 label，场景不许漂移）；恰 2 个（≤3 上限）
+    assert.deepEqual(pending.scenarios, ['payment_succeeded', 'event_reminder'])
+    assert.deepEqual(paid.scenarios, pending.scenarios)
+
+    // pending 态文案聚焦「支付结果」（引导付款前授权），paid 态并入活动提醒
+    assert.equal(pending.label, '订阅支付结果通知')
+    assert.equal(paid.label, '订阅支付与活动通知')
+  })
+
+  test('M7 付费卡：退款三键恰满 3（资金类付款人腿一次问齐）', () => {
+    const touchpoint = refundCardTouchpoint()
+    assert.deepEqual(touchpoint.scenarios, ['refund_succeeded', 'refund_failed', 'payment_expired'])
+    // 文案必须覆盖三键语义（裁决收紧 1）：label 提「退款与订单变动」，不只写「退款到账」
+    assert.match(touchpoint.label, /退款与订单变动/)
+  })
+
+  test('M8 工作台第二按钮：管理者两键，与 M4 互不重叠（同页两手势各 ≤3）', () => {
+    const ops = workspaceOpsTouchpoint()
+    assert.deepEqual(ops.scenarios, ['enrollment_submitted', 'payment_received'])
+
+    const m4 = workspaceTouchpoint()
+    const overlap = ops.scenarios.filter((scenario) => m4.scenarios.includes(scenario))
+    assert.deepEqual(overlap, [], `M4/M8 场景重叠：${overlap.join(', ')}`)
   })
 })
 
@@ -188,22 +246,34 @@ describe('M4/M5 管理面', () => {
   })
 })
 
-describe('M0 报名提交前授权（#546 顺序契约）', () => {
-  test('触点恰请求核销码场景，拒绝文案指向「我的报名」兜底', () => {
-    const touchpoint = checkInCodeTouchpoint()
-    assert.deepEqual(touchpoint.scenarios, ['enrollment_check_in_code'])
+describe('M0 报名提交前授权（#546/#664 顺序契约）', () => {
+  test('活动触点请求报名成功 + 核销码，文案两条都覆盖，拒绝文案指向「我的报名」兜底', () => {
+    const touchpoint = preSubmitTouchpoint('event')
+    assert.deepEqual(touchpoint.scenarios, ['enrollment_completed', 'enrollment_check_in_code'])
+    assert.match(touchpoint.label, /报名结果/)
+    assert.match(touchpoint.label, /核销码/)
+    assert.match(touchpoint.acceptedCopy, /报名结果/)
+    assert.match(touchpoint.acceptedCopy, /核销码/)
+    assert.match(touchpoint.deniedCopy, /我的报名/)
+  })
+
+  test('课程触点只请求报名成功（课程恒无核销码）', () => {
+    const touchpoint = preSubmitTouchpoint('course')
+    assert.deepEqual(touchpoint.scenarios, ['enrollment_completed'])
+    assert.match(touchpoint.label, /报名/)
+    assert.match(touchpoint.acceptedCopy, /报名结果/)
     assert.match(touchpoint.deniedCopy, /我的报名/)
   })
 
   test('顺序契约：request（授权弹窗）→ grant（后端 +1）→ submit（可能立刻 confirmed）', async () => {
     const calls: string[] = []
 
-    const result = await submitAfterCheckInCodeConsent(
-      checkInCodeTouchpoint(),
+    const result = await submitAfterConsent(
+      preSubmitTouchpoint('event'),
       {
         request: async (scenarios) => {
           calls.push(`request:${scenarios.join(',')}`)
-          return ['enrollment_check_in_code']
+          return ['enrollment_completed', 'enrollment_check_in_code']
         },
         grant: async (scenario) => {
           calls.push(`grant:${scenario}`)
@@ -217,9 +287,10 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
 
     assert.equal(result, 'enrollment-id')
     // 顺序即契约：一次性订阅只能覆盖 grant 之后的发送；颠倒即首次报名必然
-    // consent_exhausted（discarded）。
+    // consent_exhausted（discarded）。两条通知同刻触发，故同一次弹窗一次问齐。
     assert.deepEqual(calls, [
-      'request:enrollment_check_in_code',
+      'request:enrollment_completed,enrollment_check_in_code',
+      'grant:enrollment_completed',
       'grant:enrollment_check_in_code',
       'submit'
     ])
@@ -227,8 +298,8 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
 
   test('部分接受：只 grant 被接受的场景，再 submit', async () => {
     const calls: string[] = []
-    await submitAfterCheckInCodeConsent(
-      checkInCodeTouchpoint(),
+    await submitAfterConsent(
+      preSubmitTouchpoint('event'),
       {
         request: async () => [],
         grant: async (scenario) => void calls.push(`grant:${scenario}`)
@@ -244,8 +315,8 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
 
   test('请求抛错（模板未配置 / 平台拒绝）→ 报名照常提交', async () => {
     const calls: string[] = []
-    const result = await submitAfterCheckInCodeConsent(
-      checkInCodeTouchpoint(),
+    const result = await submitAfterConsent(
+      preSubmitTouchpoint('event'),
       {
         request: async () => {
           throw new Error('缺少微信订阅消息模板 ID')
@@ -264,10 +335,10 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
 
   test('grant 抛错（后端模板未配 / 网络）→ 报名照常提交', async () => {
     const calls: string[] = []
-    const result = await submitAfterCheckInCodeConsent(
-      checkInCodeTouchpoint(),
+    const result = await submitAfterConsent(
+      preSubmitTouchpoint('event'),
       {
-        request: async () => ['enrollment_check_in_code'],
+        request: async () => ['enrollment_completed', 'enrollment_check_in_code'],
         grant: async () => {
           throw new Error('Consent grant failed')
         }
@@ -282,16 +353,16 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
     assert.deepEqual(calls, ['submit'])
   })
 
-  test('无触点（course 报名无核销码）→ 零授权调用，直接提交', async () => {
+  test('课程报名：请求仅报名成功场景，再 submit', async () => {
     const calls: string[] = []
-    const result = await submitAfterCheckInCodeConsent(
-      null,
+    const result = await submitAfterConsent(
+      preSubmitTouchpoint('course'),
       {
-        request: async () => {
-          calls.push('request')
-          return []
+        request: async (scenarios) => {
+          calls.push(`request:${scenarios.join(',')}`)
+          return ['enrollment_completed']
         },
-        grant: async () => void calls.push('grant')
+        grant: async (scenario) => void calls.push(`grant:${scenario}`)
       },
       async () => {
         calls.push('submit')
@@ -300,13 +371,17 @@ describe('M0 报名提交前授权（#546 顺序契约）', () => {
     )
 
     assert.equal(result, 'ok')
-    assert.deepEqual(calls, ['submit'])
+    assert.deepEqual(calls, [
+      'request:enrollment_completed',
+      'grant:enrollment_completed',
+      'submit'
+    ])
   })
 
   test('submit 抛错原样上抛（授权链路不吞报名错误）', async () => {
     await assert.rejects(
-      submitAfterCheckInCodeConsent(
-        checkInCodeTouchpoint(),
+      submitAfterConsent(
+        preSubmitTouchpoint('event'),
         { request: async () => [], grant: async () => {} },
         async () => {
           throw new Error('容量已满')

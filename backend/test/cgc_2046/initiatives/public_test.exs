@@ -4,6 +4,7 @@ defmodule Cgc2046.Initiatives.PublicTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule, Public}
+  alias Cgc2046.Offering
 
   defp initiative(admin, slug) do
     initiative =
@@ -58,6 +59,52 @@ defmodule Cgc2046.Initiatives.PublicTest do
       |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace.id)
       |> Ash.update!(actor: admin, tenant: workspace.id)
     end)
+  end
+
+  # 押金 / 年龄规则 unlocked 的变体：挂载那一刻快照取值，之后场主仍可本地改写
+  # ——覆盖「免费 / 收费 / 无年龄门槛」三态（锁死规则下这些态不可达）。
+  defp unlocked_initiative(admin, slug) do
+    initiative =
+      Initiative
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Public Initiative",
+        slug: slug,
+        created_by: admin.id
+      })
+      |> Ash.create!(actor: admin)
+
+    for {key, value, locked} <- [
+          {:deposit, %{enabled: false}, false},
+          {:age_gate, %{min_age: 18}, false},
+          {:min_participants, %{count: 8}, false},
+          {:deadline_rule, %{hours_before_start: 72}, false}
+        ] do
+      InitiativeRule
+      |> Ash.Changeset.for_create(:create, %{
+        initiative_id: initiative.id,
+        key: key,
+        value: value,
+        locked: locked
+      })
+      |> Ash.create!(actor: admin)
+    end
+
+    initiative
+    |> Ash.Changeset.for_update(:open, %{})
+    |> Ash.update!(actor: admin)
+  end
+
+  defp update_event(event, workspace, admin, attrs) do
+    event
+    |> Ash.Changeset.for_update(:update, attrs, tenant: workspace.id)
+    |> Ash.update!(actor: admin, tenant: workspace.id)
+  end
+
+  defp all_events(payload), do: Enum.flat_map(payload.cities, & &1.events)
+
+  # venue 校验要求 country/province/city/district 四键齐备（Events.Venue.valid?/1）
+  defp venue(city) do
+    %{"country" => "中国", "province" => "湖南", "city" => city, "district" => "岳麓"}
   end
 
   test "公开投影跨工作台按城市分组并排除 workspace-only" do
@@ -142,9 +189,13 @@ defmodule Cgc2046.Initiatives.PublicTest do
     allowed_event = [
       :archived,
       :confirmed_count,
+      :deposit,
       :ends_at,
       :id,
+      :min_age,
       :min_participants,
+      :payment_mode,
+      :price_range_min_cents,
       :qualification_badge,
       :qualification_status,
       :registration_deadline,
@@ -164,11 +215,180 @@ defmodule Cgc2046.Initiatives.PublicTest do
     assert event_keys -- allowed_event == [],
            "公开事件 DTO 出现白名单外字段：#{inspect(event_keys -- allowed_event)}"
 
-    # 脱敏字段两层都不得出现（子集断言已覆盖，这里显式钉住语义）
+    # 内部键两层都不得出现（子集断言已覆盖，这里显式钉住语义）
     refute :capacity in payload_keys
     refute :workspace_id in payload_keys
     refute :capacity in event_keys
     refute :workspace_id in event_keys
+    # #627 参与条件披露是**新增白名单**，不是把规则表搬上公开面
+    refute :rules in event_keys
+    refute :locked in event_keys
+    refute :value_json in event_keys
+  end
+
+  # #627 参与条件披露：押金（必须）/ 年龄门槛存在性 / 成班进度，全部取 Event 已物化
+  # 快照列，读面不碰 `initiative_rules`。锁死规则挂载 → 值是规则效果，但公开面出的是
+  # **事件快照**，不是规则 value map。
+  test "公开投影披露押金三态 + 年龄门槛 + 金额锚（#627）" do
+    admin = Fixtures.platform_admin("initiative-public-participation")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = initiative(admin, "public-participation-deposit")
+
+    event(workspace, admin, initiative, %{
+      venue: %{"city" => "长沙", "province" => "湖南", "country" => "中国", "district" => "岳麓"}
+    })
+
+    assert {:ok, payload} = Public.get_by_slug("public-participation-deposit")
+    assert [row] = all_events(payload)
+
+    # 押金：金额 + 状态（交易前提，裁决「必须披露」）
+    assert row.payment_mode == "deposit"
+    assert row.deposit == %{enabled: true, amount_cents: 6_900, refundable_on_check_in: true}
+
+    # 押金场档位恒空（DB CHECK events_deposit_excludes_price_tiers）→ 无收费金额锚
+    assert row.price_range_min_cents == nil
+    # 年龄：只出「门槛存在性」（整数），不出校验策略
+    assert row.min_age == 18
+
+    # 成班进度复用既有徽章派生，不新增进度字段（#593 裁决）
+    assert row.min_participants == 8
+    assert row.confirmed_count == 0
+    assert row.short_by == 8
+    assert row.qualification_badge == "short_by"
+  end
+
+  test "参与条件三态：免费 / 收费金额锚 / 无年龄门槛（#627）" do
+    admin = Fixtures.platform_admin("initiative-public-participation-states")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = unlocked_initiative(admin, "public-participation-states")
+
+    free = event(workspace, admin, initiative, %{venue: venue("长沙")})
+    priced = event(workspace, admin, initiative, %{venue: venue("北京")})
+    stale = event(workspace, admin, initiative, %{venue: venue("上海")})
+
+    # 免费 + 清掉年龄门槛（unlocked 规则允许场主本地改写）
+    free = update_event(free, workspace, admin, %{min_age: nil})
+
+    priced =
+      update_event(priced, workspace, admin, %{
+        pricing_enabled: true,
+        price_tiers: [
+          %{"id" => Ash.UUID.generate(), "name" => "早鸟票", "amount_cents" => 9_900},
+          %{"id" => Ash.UUID.generate(), "name" => "标准票", "amount_cents" => 19_900}
+        ]
+      })
+
+    # 收费开启但档位全部过期（available_until 过滤）→ 金额锚 nil，前端走降级文案
+    stale =
+      update_event(stale, workspace, admin, %{
+        pricing_enabled: true,
+        price_tiers: [
+          %{
+            "id" => Ash.UUID.generate(),
+            "name" => "过期票",
+            "amount_cents" => 9_900,
+            "available_until" => "2020-01-01T00:00:00Z"
+          }
+        ]
+      })
+
+    assert {:ok, payload} = Public.get_by_slug("public-participation-states")
+
+    rows = payload.cities |> Enum.flat_map(& &1.events) |> Map.new(&{&1.slug, &1})
+
+    free_row = rows[free.slug]
+    assert free_row.payment_mode == "free"
+    assert free_row.deposit == %{enabled: false, amount_cents: nil, refundable_on_check_in: nil}
+    assert free_row.min_age == nil
+    assert free_row.price_range_min_cents == nil
+
+    priced_row = rows[priced.slug]
+    assert priced_row.payment_mode == "pricing"
+    assert priced_row.deposit == %{enabled: false, amount_cents: nil, refundable_on_check_in: nil}
+    # 只出**可售**档位最小值（原始档位数组不投公开面）
+    assert priced_row.price_range_min_cents == 9_900
+    assert priced_row.min_age == 18
+
+    stale_row = rows[stale.slug]
+    assert stale_row.payment_mode == "pricing"
+    assert stale_row.price_range_min_cents == nil
+
+    # F2：free 态即使残留档位（`update_event(pricing_enabled: false)` 不清 price_tiers，
+    # 无 DB CHECK 拦这一侧）也不得给金额锚——客户端按 mode 门控看不见，MCP 看得到。
+    residual = event(workspace, admin, initiative, %{venue: venue("广州")})
+
+    residual =
+      update_event(residual, workspace, admin, %{
+        pricing_enabled: true,
+        price_tiers: [
+          %{"id" => Ash.UUID.generate(), "name" => "残留票", "amount_cents" => 9_900}
+        ]
+      })
+
+    residual = update_event(residual, workspace, admin, %{pricing_enabled: false})
+    assert residual.price_tiers != []
+
+    assert {:ok, residual_payload} = Public.get_by_slug("public-participation-states")
+
+    residual_row =
+      residual_payload.cities
+      |> Enum.flat_map(& &1.events)
+      |> Enum.find(&(&1.slug == residual.slug))
+
+    assert residual_row.payment_mode == "free"
+    assert residual_row.price_range_min_cents == nil
+
+    # 缴费槽形状与 MCP 读面（#586 唯一出口）逐字同源——两面漂移即红
+    for {row, event} <- [{free_row, free}, {priced_row, priced}, {stale_row, stale}] do
+      assert row.deposit == Offering.payment_slot(event).deposit
+      assert row.payment_mode == Offering.payment_slot(event).payment_mode
+    end
+  end
+
+  # F5：`events.min_age` 无 DB CHECK，force write / 裸 SQL 的存量脏行可带非正数；
+  # 公开面只出正数门槛（渲染层「限 0+」比不出更糟）。
+  test "年龄门槛只出正数：非正脏行降级为无门槛（#627 F5）" do
+    admin = Fixtures.platform_admin("initiative-public-min-age-dirty")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = unlocked_initiative(admin, "public-participation-min-age")
+
+    event = event(workspace, admin, initiative, %{venue: venue("长沙")})
+    assert event.min_age == 18
+
+    # 布置而非被测对象：域 action 的 min: 1 约束挡住 0，只有裸 SQL 能造出存量脏行
+    Repo.query!("UPDATE events SET min_age = 0 WHERE id = $1", [Ecto.UUID.dump!(event.id)])
+
+    assert {:ok, payload} = Public.get_by_slug("public-participation-min-age")
+    assert [row] = all_events(payload)
+    assert row.min_age == nil
+  end
+
+  # 已取消 / 已结束留档场：参与条件披露不改变留档路径（徽章仍由后端派生），
+  # 且新增字段在 cancelled/closed 上照常取值（不因归档丢字段）。
+  test "已取消 / 已结束场的参与条件照常披露（#627 回归）" do
+    admin = Fixtures.platform_admin("initiative-public-participation-archived")
+    workspace = Fixtures.create_workspace(admin)
+    initiative = initiative(admin, "public-participation-archived")
+
+    cancelled =
+      event(workspace, admin, initiative, %{venue: venue("长沙")})
+      |> then(fn e ->
+        e
+        |> Ash.Changeset.for_update(:cancel, %{}, tenant: workspace.id)
+        |> Ash.update!(actor: admin, tenant: workspace.id)
+      end)
+
+    assert {:ok, payload} = Public.get_by_slug("public-participation-archived")
+    assert [row] = all_events(payload)
+
+    assert row.status == "cancelled"
+    assert row.qualification_badge == "cancelled"
+    assert row.archived == true
+    # 归档不丢参与条件
+    assert row.payment_mode == "deposit"
+    assert row.deposit.amount_cents == 6_900
+    assert row.min_age == 18
+    assert row.slug == cancelled.slug
   end
 
   test "draft 或不存在的 Initiative 不可公开读取" do

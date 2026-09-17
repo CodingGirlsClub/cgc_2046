@@ -768,6 +768,69 @@ defmodule Cgc2046.Events.Event do
       )
     end
 
+    # draft-only 删除（#676，ADR-0015；级联完备性 #688 修订）：与 Course :delete
+    # 同款（行锁守卫 + 状态裁决 + slug 释放 + 同事务级联）。
+    #
+    # 级联分三类（#688 按事实重写，原「无级联」论证被证伪——讲者邀请 run 在
+    # **邀请创建时**实例化（draft 合法，speaker_invitation.ex 的状态门放行
+    # :draft），不是 launch 后）：
+    #
+    # - 结构性不存在：教研 curriculum run（launch 后由 Instantiator 创建）、
+    #   内容行（curriculum_outputs 只有 course 维度）、enrollments / attendances
+    #   （报名需 offering open；attendances 无 on_delete，异常存在即 DELETE 被 FK
+    #   拒绝，fail-closed 不静默丢数据）。
+    # - FK 承接（on_delete: delete_all，迁移侧无需改动）：event_moderators /
+    #   sponsorships / speaker_invitations / invite_batches（后两者对 draft 并非
+    #   结构性不存在——邀请在 draft 合法、批次创建无状态门，故 MCP 摘要须披露）。
+    # - 显式收口（同事务，任一步失败整体回滚）：讲者邀请 run 收口
+    #   （SpeakerInvitation.stop_event_runs/1——workflow_runs 无指向 events 的
+    #   外键，FK 级联不到 run；非终态 run → cancelled 留痕，facts 保留）+
+    #   名额账本行删除（CapacityLedger.delete_for_offering/2——offering_id 多态
+    #   无外键；draft 行 occupancy 结构性为 0，reserve 三守卫含 status='open'）。
+    #
+    # 治理留痕（admin_action_logs / tool_calls）不随业务行删除。
+    #
+    # 行锁守卫（SELECT … FOR UPDATE）与 slug 释放论证同 Course :delete（见该 action
+    # 注释）：status 列是 text，行值即 atom attribute 的 DB 形态（"draft"）。
+    destroy :delete do
+      description("删除草稿活动：仅 draft；不可恢复；slug 释放（#676）")
+      require_atomic?(false)
+      accept([])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          repo = Cgc2046.Repo
+
+          case repo.query("SELECT status FROM events WHERE id = $1 FOR UPDATE", [
+                 repo.uuid!(Ash.Changeset.get_data(cs, :id))
+               ]) do
+            {:ok, %{rows: [["draft"]]}} ->
+              cs
+
+            {:ok, %{rows: [[status]]}} ->
+              Ash.Changeset.add_error(cs, "cannot delete from status=#{status}")
+
+            {:ok, %{rows: []}} ->
+              Ash.Changeset.add_error(cs, "event not found")
+
+            {:error, reason} ->
+              Ash.Changeset.add_error(cs, {:database, reason})
+          end
+        end)
+      end)
+
+      # 收口与删除原子（Course :delete 的 stop_active_runs + delete_for_course
+      # 同款 with 模板）：失败上抛整体回滚——event 行仍在、run 状态不变（fail-closed）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, event ->
+          with :ok <- Cgc2046.Events.SpeakerInvitation.stop_event_runs(event),
+               :ok <- Cgc2046.Admission.CapacityLedger.delete_for_offering(:event, event.id) do
+            {:ok, event}
+          end
+        end)
+      end)
+    end
+
     update :qualify do
       description("在报名截止时一次性落成班事实；仅内部生命周期 worker 使用")
       require_atomic?(false)
@@ -1037,6 +1100,14 @@ defmodule Cgc2046.Events.Event do
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
+
+    # 删除（#676，ADR-0015）：收窄面——Workspace Owner ∪ 平台管理员（同 Course
+    # :destroy 口径；admin 不放行，理由 = 删除不可逆、无回收站）。MCP 面
+    # member-only 门不含 platform_admin 豁免（S2 成文契约）。
+    policy action_type(:destroy) do
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwner)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
   end
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
@@ -1082,6 +1153,9 @@ defmodule Cgc2046.Events.Event do
       update(:launch_event, :launch)
       update(:close_event, :close)
       update(:cancel_event, :cancel)
+
+      # draft-only 删除（#676，ADR-0015）：授权面 = Owner ∪ 平台管理员（见 policies）。
+      destroy(:delete_event, :delete)
     end
   end
 

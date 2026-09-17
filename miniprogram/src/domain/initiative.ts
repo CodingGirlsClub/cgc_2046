@@ -1,4 +1,6 @@
 import type { PublicInitiativeEvent, QualificationBadge } from './models'
+// 金额守卫单源在缴费域（#675 从本模块迁出）：展示层判据两端各一份，语义逐字一致
+import { positiveAmountOrNull } from './payment'
 
 /**
  * 活动级状态文案（#628）：`cancelled`（中止）与 `closed`（收尾）必须分叉——
@@ -32,6 +34,46 @@ export function parseQualificationBadge(value: unknown): QualificationBadge | nu
   if (value === null || value === undefined) return null
   if (value === 'cancelled' || value === 'closed' || value === 'confirmed' || value === 'short_by' || value === 'open') return value
   throw new Error('服务端返回未知成班状态')
+}
+
+/** 分 → 元短式（整元省略小数：6900 → '69'）；与 web `lib/payment.ts#formatAmountShort` 同式 */
+export function formatAmountShort(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2)
+}
+
+/**
+ * 参与条件文案（#627）：缴费槽**单槽三态** + 年龄门槛存在性，与 web
+ * `/initiatives/[slug]` 场次卡逐字同口径（zh 文案与 web 侧
+ * `components/initiative-detail.tsx` 消费的 `offerings.paymentSlot*` / `initiatives.*` 一致）。
+ *
+ * - 三态互斥只出一段：`免费` / `收费 ¥xx 起` / `押金 ¥xx（到场退）`——绝不出现
+ *   「免费」与「押金 ¥xx」并列（R10/KTD10）。
+ * - 金额缺失/非正 → 不表态形态（`押金（金额待定）` / `收费（档位以活动页为准）`）；
+ *   缴费态未知/缺失 → `缴费信息待定`，绝不 fail-open 成「免费」（#586 同红线）。
+ * - 年龄只出「门槛存在性」（`限 18+`），不投校验策略。
+ * - **成班进度不在这里**：由既有成班徽章承载（`qualificationBadgeText`，#593 裁决）。
+ */
+export function participationConditionText(
+  event: Pick<PublicInitiativeEvent, 'paymentMode' | 'deposit' | 'minAge' | 'priceRangeMinCents'>
+): string {
+  const payment = (() => {
+    if (event.paymentMode === 'deposit') {
+      const amount = positiveAmountOrNull(event.deposit?.amountCents)
+      return amount === null ? '押金（金额待定）' : `押金 ¥${formatAmountShort(amount)}（到场退）`
+    }
+    if (event.paymentMode === 'pricing') {
+      const from = positiveAmountOrNull(event.priceRangeMinCents)
+      return from === null ? '收费（档位以活动页为准）' : `收费 ¥${formatAmountShort(from)} 起`
+    }
+    if (event.paymentMode === 'free') return '免费'
+    // 未知/缺失态**不猜**：落「缴费信息待定」而非「免费」——用默认值冒充事实
+    // 正是 #586 的病根（把押金场说成免费），这里同一条红线。
+    return '缴费信息待定'
+  })()
+
+  // 年龄门槛只渲染**正数**（与 F5 后端同判据、与金额守卫同精神）：`minAge: 0`
+  // 只会来自陈旧 payload，渲染成「限 0+」比不渲染更糟。
+  return typeof event.minAge === 'number' && event.minAge > 0 ? `${payment} · 限 ${event.minAge}+` : payment
 }
 
 /** 展示后端投影；不从报名计数或当前时间推算成班事实。 */

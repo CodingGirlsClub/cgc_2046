@@ -14,6 +14,8 @@ defmodule Cgc2046.Events.CompanionRevisionValidation do
 
   require Ash.Query
 
+  alias Cgc2046.Errors.ValueSummary
+
   @impl true
   def validate(changeset, _opts, _context) do
     case Ash.Changeset.get_attribute(changeset, :course_revision_id) do
@@ -34,8 +36,11 @@ defmodule Cgc2046.Events.CompanionRevisionValidation do
           :ok
         else
           {:error,
-           field: :course_revision_id,
-           message: "course_revision_id must reference a published course revision"}
+           Ash.Error.Changes.InvalidAttribute.exception(
+             field: :course_revision_id,
+             message: "course_revision_id must reference a published course revision",
+             value: %{"course_revision_id" => ValueSummary.describe(revision_id)}
+           )}
         end
     end
   end

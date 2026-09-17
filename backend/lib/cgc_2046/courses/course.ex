@@ -642,6 +642,70 @@ defmodule Cgc2046.Courses.Course do
       end)
     end
 
+    # draft-only 删除（#676，ADR-0015）：错建的 draft 课程原本无法清理——cancel
+    # 只收 open，slug 全局唯一被 draft 永久占位。本 action 物理删除行并释放 slug。
+    #
+    # 行锁守卫（SELECT … FOR UPDATE）而非裸状态检查：确认窗内被并发 launch 的课程，
+    # 本事务等锁后读到新状态即拒；反向 launch 的 CAS UPDATE 等锁后命中 0 行亦败
+    # （Initiative.transition/3 同款模式；StatusTransition 仅支持 UPDATE，故此处行锁）。
+    # status 列是 text，行值即 atom attribute 的 DB 形态（"draft"）。
+    #
+    # slug 随行删除释放全局唯一索引：draft slug 从未发布、无公开契约（ADR-0014
+    # 锁的是发布后的 URL 段），释放不破坏任何已分发链接。
+    #
+    # 级联（同事务，任一步失败整体回滚，#688 补账本级联）：取消非终态 prep run
+    # （close/cancel 的 stop_active_runs 同款纪律——课程行没了，遗留 active run
+    # 只会成为孤儿）+ 删除教研内容行（curriculum_outputs 无 FK，key = course_<id>）
+    # + 删除名额账本行（admission_capacity_ledgers.offering_id 多态无 FK；draft
+    # 行 occupancy 结构性为 0，reserve 三守卫含 status='open'）。
+    # FK 上挂的子行由 delete_all 承接：enrollments / course_revisions 对 draft
+    # 结构性不存在（报名需 offering open；revision 生成即发布）；invite_batches
+    # 创建无状态门、draft 可建（#688），MCP 摘要已披露。
+    #
+    # 审计面：经 MCP 调用自然落 ToolCallLog（GraphQL 面与 close/cancel 同款，不另
+    # 写审计行）；本 action 不发信号（draft 无订阅方——course.ended 的订阅方针对
+    # 已发布课程的报名窗/教研回收）。
+    destroy :delete do
+      description("删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676）")
+      require_atomic?(false)
+      accept([])
+
+      # 行锁 + 状态裁决：锁存活至本事务提交（删除与级联同事务），期内的并发
+      # launch/close/cancel 一律等锁后失败，不会出现「删掉已发布课程」。
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          repo = Cgc2046.Repo
+
+          case repo.query("SELECT status FROM courses WHERE id = $1 FOR UPDATE", [
+                 repo.uuid!(Ash.Changeset.get_data(cs, :id))
+               ]) do
+            {:ok, %{rows: [["draft"]]}} ->
+              cs
+
+            {:ok, %{rows: [[status]]}} ->
+              Ash.Changeset.add_error(cs, "cannot delete from status=#{status}")
+
+            {:ok, %{rows: []}} ->
+              Ash.Changeset.add_error(cs, "course not found")
+
+            {:error, reason} ->
+              Ash.Changeset.add_error(cs, {:database, reason})
+          end
+        end)
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, course ->
+          with :ok <- Cgc2046.Curriculum.Prep.stop_active_runs(course),
+               :ok <-
+                 Cgc2046.Curriculum.Output.delete_for_course(course.id, course.workspace_id),
+               :ok <- Cgc2046.Admission.CapacityLedger.delete_for_offering(:course, course.id) do
+            {:ok, course}
+          end
+        end)
+      end)
+    end
+
     defaults([:read])
 
     # #14：教研 run 创建后回写产物引用（Curriculum.Instantiator 内部调用，authorize?: false）。
@@ -909,6 +973,15 @@ defmodule Cgc2046.Courses.Course do
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
+
+    # 删除（#676，ADR-0015）：收窄面——Workspace Owner ∪ 平台管理员。与 create/update
+    # 的 Owner/Admin 并集刻意不同（删除不可逆、无回收站，admin 不放行）；MCP 面
+    # member-only 门不含 platform_admin 豁免（S2 成文契约），非成员平台管理员经
+    # GraphQL 域放行（本 policy 即那条路径）。
+    policy action_type(:destroy) do
+      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwner)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
   end
 
   # D2 公开字段白名单（denylist 式，Ash field_policy 为 AND 语义：:* 恒放行，
@@ -954,6 +1027,9 @@ defmodule Cgc2046.Courses.Course do
       update(:launch_course, :launch)
       update(:close_course, :close)
       update(:cancel_course, :cancel)
+
+      # draft-only 删除（#676，ADR-0015）：授权面 = Owner ∪ 平台管理员（见 policies）。
+      destroy(:delete_course, :delete)
     end
   end
 
