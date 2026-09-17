@@ -334,6 +334,165 @@ export const FLASHBACK_DREAM_TARGET: TypedDocumentNode<
 		}
 	}
 `;
+/* ---------------- U5 时间胶囊（校友层） ---------------- */
+
+/** Action 卡四态（R13 生命周期） */
+export type FlashbackActionCardStatus = "proposed" | "forming" | "scheduled" | "done";
+
+export interface FlashbackActionCard {
+	id: string;
+	title: string;
+	city?: string | null;
+	status: FlashbackActionCardStatus;
+	eventId?: string | null;
+	/** scheduled 起有值：直链 /events/{eventSlug}（R13 不在闪念间内部闭环） */
+	eventSlug?: string | null;
+	endorsementCount: number;
+	endorsedByMe: boolean;
+	rolesClaimed: string[];
+}
+
+export interface FlashbackRosterAnswer {
+	questionKey: string;
+	/** 对外版：雾面已按 ▓▓ 遮蔽（原文字符不出现，KTD4） */
+	text: string;
+}
+
+export interface FlashbackRosterEntry {
+	id: string;
+	surnameMasked: string;
+	city?: string | null;
+	occupationThen?: string | null;
+	sentToWallAt?: string | null;
+	today?: { nowStatus?: string | null; want?: string | null; say?: string | null } | null;
+	answers: FlashbackRosterAnswer[];
+}
+
+export interface FlashbackCapsuleArchive {
+	key: string;
+	name?: string | null;
+	city?: string | null;
+	occurredOn?: string | null;
+	appliedCount?: number | null;
+	attendedCount?: number | null;
+	isMine: boolean;
+	roster: FlashbackRosterEntry[];
+}
+
+export interface FlashbackCapsuleMe {
+	id: string;
+	fullName: string;
+	surname?: string | null;
+	city?: string | null;
+	occupationThen?: string | null;
+	participation: string;
+	appliedAt?: string | null;
+	today?: {
+		nowStatus?: string | null;
+		want?: string | null;
+		say?: string | null;
+		sentToWallAt?: string | null;
+	} | null;
+	/** 选定金句（R14 摘要卡；off/未选为 null） */
+	quote?: string | null;
+	/** 本人当年答案雾化版（R15 全文卡） */
+	answers: FlashbackRosterAnswer[];
+}
+
+export interface FlashbackCapsule {
+	me: FlashbackCapsuleMe;
+	archives: FlashbackCapsuleArchive[];
+	actionCards: FlashbackActionCard[];
+}
+
+/** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口 */
+export const FLASHBACK_CAPSULE: TypedDocumentNode<
+	{ flashbackCapsule: FlashbackCapsule | null },
+	{ token?: string | null }
+> = gql`
+	query FlashbackCapsule($token: String) {
+		flashbackCapsule(token: $token) {
+			me {
+				id
+				fullName
+				surname
+				city
+				occupationThen
+				participation
+				appliedAt
+				today {
+					nowStatus
+					want
+					say
+					sentToWallAt
+				}
+				quote
+				answers {
+					questionKey
+					text
+				}
+			}
+			archives {
+				key
+				name
+				city
+				occurredOn
+				appliedCount
+				attendedCount
+				isMine
+				roster {
+					id
+					surnameMasked
+					city
+					occupationThen
+					sentToWallAt
+					today {
+						nowStatus
+						want
+						say
+					}
+					answers {
+						questionKey
+						text
+					}
+				}
+			}
+			actionCards {
+				id
+				title
+				city
+				status
+				eventId
+				eventSlug
+				endorsementCount
+				endorsedByMe
+				rolesClaimed
+			}
+		}
+	}
+`;
+
+/** 附议（U5/R13）：一人一卡一行幂等（再点=改认领角色） */
+export const FLASHBACK_ENDORSE: TypedDocumentNode<
+	{
+		flashbackEndorse: {
+			cardId: string;
+			status: FlashbackActionCardStatus;
+			roleClaimed?: string | null;
+			firstTime: boolean;
+		};
+	},
+	{ token: string; cardId: string; roleClaimed?: string | null }
+> = gql`
+	mutation FlashbackEndorse($token: String!, $cardId: ID!, $roleClaimed: String) {
+		flashbackEndorse(token: $token, cardId: $cardId, roleClaimed: $roleClaimed) {
+			cardId
+			status
+			roleClaimed
+			firstTime
+		}
+	}
+`;
 
 /* ---------------- 渲染辅助（组件共用单源） ---------------- */
 

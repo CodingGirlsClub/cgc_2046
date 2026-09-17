@@ -94,6 +94,9 @@
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
 		"invalid_or_expired_code": "That code is wrong or has expired — try again.",
 		"invalid_phone": "That phone number doesn't look right — check and re-enter.",
+		"flashback_card_not_found": "That action card can't be found — refresh and try again.",
+		"flashback_auth_required": "Entering the capsule takes your personal link, or a signed-in bound account.",
+		"flashback_person_not_bound": "This account has no In-a-Flash archive bound yet — enter once via your personal link.",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
 	},
@@ -2269,7 +2272,9 @@
 			"enterTitle": "In a Flash",
 			"enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
 			"homeTitle": "In a Flash",
-			"homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years."
+			"homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years.",
+			"capsuleTitle": "Time Capsule · In a Flash",
+			"capsuleDescription": "Companions from those years are developing here — send your photo and see the next card on the wall."
 		},
 		"journey": {
 			"loading": "Developing…",
@@ -2392,6 +2397,71 @@
 			"boundTitle": "Your account has taken over",
 			"boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
 			"enterCapsule": "Enter the time capsule →"
+		},
+		"capsule": {
+			"loading": "Developing the time capsule…",
+			"error": "The capsule won't open right now — try again shortly.",
+			"retry": "Retry",
+			"title": "In a Flash · Time Capsule",
+			"subtitle": "Scroll down = time moves forward: that year on top, the future waiting for you at the bottom",
+			"authRequiredTitle": "The capsule needs your identity",
+			"authRequiredBody": "Enter via the personal link from your email/SMS, or sign in with a bound account — if the link is lost, you can recover it yourself.",
+			"authRequiredAction": "Self-service recovery",
+			"footerHint": "The silent stay safe: until you send, only you can see your answers."
+		},
+		"corridor": {
+			"ariaLabel": "Time capsule corridor"
+		},
+		"roster": {
+			"groupAria": "{name} roster",
+			"meta": "{total} companions from that year · developed ones have been sent",
+			"todayTag": "Today",
+			"dashed": "Her answers are still waiting for her",
+			"dashedAria": "Content slot empty: not sent yet"
+		},
+		"todaySlot": {
+			"when": "⚡ Today",
+			"flabel": "this moment · in a flash",
+			"dashed": "Your photo hasn't been sent yet",
+			"goSend": "Send it →"
+		},
+		"actionBoard": {
+			"ariaLabel": "Action board",
+			"title": "Action board · every card awaits its next step",
+			"empty": "No proposals yet — the first card will grow out of everyone's replies. Send yours and write what you'd join.",
+			"count": "{count} have endorsed",
+			"countAria": "{count} have endorsed",
+			"status_proposed": "Proposed · waiting for companions",
+			"status_forming": "Forming · endorse +1",
+			"status_scheduled": "Scheduled · open for signup",
+			"status_done": "Happened",
+			"role_organizer": "Organizer",
+			"role_promoter": "Promotion",
+			"role_venue": "Venue",
+			"role_none": "Just endorse, no role",
+			"endorseRoleLegend": "Claim a role (optional)",
+			"endorse": "Endorse this card +1",
+			"endorsed": "You've endorsed — you'll be the first to know when it becomes real.",
+			"endorseFailed": "Endorsing didn't succeed — try again.",
+			"signup": "Sign up for this gathering →",
+			"scheduledNote": "The announcement will reach the phone/email on record — want to change it? You can update after sending.",
+			"doneNote": "This one happened. Photos and the recap will be pinned back onto this card."
+		},
+		"cardExport": {
+			"ariaLabel": "Card export",
+			"title": "Turn this moment into a card",
+			"kindAria": "Choose card form",
+			"summaryTab": "Summary card (share default)",
+			"fullTab": "Full card",
+			"summaryTitle": "In a Flash · Summary Card",
+			"fullTitle": "In a Flash · Full Card",
+			"todayTag": "Today's me",
+			"quoteFallback": "(One chosen line of yours will sit here)",
+			"downloadPng": "Save card image",
+			"downloadMd": "Download Markdown",
+			"privacyNote": "Lines you fogged never appear on the card.",
+			"brand": "IN A FLASH",
+			"canvasFooter": "In a Flash"
 		},
 		"invalid": {
 			"flashback_token_claimed": {

@@ -5314,6 +5314,9 @@ type RootQueryType {
   "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
   flashbackDreamTarget(city: String): FlashbackDreamTarget
 
+  "闪念间时间胶囊（U5\/R12\/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
+  flashbackCapsule(token: String): FlashbackCapsule
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6192,6 +6195,128 @@ type FlashbackDreamTarget {
   initiativeSlug: String!
 }
 
+type FlashbackCapsuleToday {
+  nowStatus: String
+  want: String
+  say: String
+  sentToWallAt: String
+}
+
+type FlashbackCapsuleMe {
+  id: ID!
+
+  fullName: String!
+
+  surname: String
+
+  city: String
+
+  occupationThen: String
+
+  participation: String!
+
+  appliedAt: String
+
+  today: FlashbackCapsuleToday
+
+  "选定金句（R14 摘要卡；off\/未选为 null）"
+  quote: String
+
+  "本人当年答案雾化版（全文卡 R15；与墙上呈现同规则）"
+  answers: [FlashbackRosterAnswer!]!
+}
+
+type FlashbackRosterAnswer {
+  "当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现"
+  questionKey: String!
+
+  text: String!
+}
+
+type FlashbackRosterEntryToday {
+  nowStatus: String
+  want: String
+  say: String
+}
+
+type FlashbackRosterEntry {
+  id: ID!
+
+  "姓氏隐名（R12）：王**；名册结构化卡的核心标识"
+  surnameMasked: String!
+
+  city: String
+
+  occupationThen: String
+
+  sentToWallAt: String
+
+  "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
+  today: FlashbackRosterEntryToday
+
+  "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
+  answers: [FlashbackRosterAnswer!]!
+}
+
+type FlashbackCapsuleArchive {
+  key: String!
+
+  name: String
+
+  city: String
+
+  occurredOn: String
+
+  appliedCount: Int
+
+  attendedCount: Int
+
+  "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
+  isMine: Boolean!
+
+  roster: [FlashbackRosterEntry!]!
+}
+
+type FlashbackActionCard {
+  id: ID!
+
+  title: String!
+
+  city: String
+
+  "四态：proposed\/forming\/scheduled\/done（R13 生命周期）"
+  status: String!
+
+  eventId: ID
+
+  "scheduled 起有值：直链 \/events\/{event_slug} 报名页（不在闪念间内部闭环）"
+  eventSlug: String
+
+  endorsementCount: Int!
+
+  endorsedByMe: Boolean!
+
+  "已认领角色集合（organizer\/promoter\/venue）"
+  rolesClaimed: [String!]!
+}
+
+type FlashbackCapsule {
+  me: FlashbackCapsuleMe!
+  archives: [FlashbackCapsuleArchive!]!
+  actionCards: [FlashbackActionCard!]!
+}
+
+type FlashbackEndorseResult {
+  cardId: ID!
+
+  status: String!
+
+  roleClaimed: String
+
+  "首次附议 true；再次点击（改角色）false——附议计数只随首次 +1"
+  firstTime: Boolean!
+}
+
 type FlashbackFogSpan {
   "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
   start: Int!
@@ -6937,6 +7062,9 @@ type RootMutationType {
 
   "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
   flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
+
+  "附议 Action 卡（U5\/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer\/promoter\/venue"
+  flashbackEndorse(token: String!, cardId: ID!, roleClaimed: String): FlashbackEndorseResult
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

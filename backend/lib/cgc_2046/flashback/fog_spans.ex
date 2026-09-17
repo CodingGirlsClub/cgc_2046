@@ -40,6 +40,41 @@ defmodule Cgc2046.Flashback.FogSpans do
     end
   end
 
+  @doc """
+  对外遮蔽视图（KTD3/KTD4）：按已验证区间把 fog 段替换为 `placeholder`，
+  返回拼接文本（原文字符不出现）。区间未经验证时先走 `validate/2`——
+  失败按全遮蔽处理（fail-closed，宁过度保护不泄露）。
+  """
+  @spec mask(String.t(), span() | nil, String.t()) :: String.t()
+  def mask(text, spans, placeholder) when is_binary(text) do
+    case validate(spans, text) do
+      {:ok, normalized} ->
+        normalized
+        |> Enum.sort_by(&field(&1, :start))
+        |> Enum.reduce({[], 0}, fn span, {acc, cursor} ->
+          start = field(span, :start)
+          len = field(span, :len)
+
+          if start < cursor do
+            # 重叠区间：跳过（validate 已挡，防御兜底）
+            {acc, cursor}
+          else
+            {[String.slice(text, cursor, start - cursor), placeholder | acc], start + len}
+          end
+        end)
+        |> then(fn {acc, cursor} ->
+          tail = String.slice(text, cursor..-1//1)
+          Enum.reverse([tail | acc])
+        end)
+        |> IO.iodata_to_binary()
+
+      {:error, _} ->
+        placeholder
+    end
+  end
+
+  def mask(nil, _spans, placeholder), do: placeholder
+
   defp normalize([], acc), do: {:ok, Enum.reverse(acc)}
 
   defp normalize([span | rest], acc) do
