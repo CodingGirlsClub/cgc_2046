@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@apollo/client/react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -168,8 +168,14 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   const { data, loading, error } = useQuery(COURSE_CONTENT, { variables: { courseId } });
   const { data: learningData } = useQuery(COURSE_LEARNING_DETAIL, { variables: { courseId } });
   /** 单元导航状态：null = 总览态；否则主区只渲染 issueKey 对应的单元内容 */
-  const [active, setActive] = useState<{ chapterId: string; issueKey?: string } | null>(null);
+  const [active, setActive] = useState<{ chapterId: string; issueKey: string } | null>(null);
+  // 导航动作后回顶；跳过初挂载，避免覆盖浏览器刷新恢复的滚动位置
+  const mounted = useRef(false);
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     window.scrollTo({ top: 0 });
   }, [active]);
   if (loading) return <p data-testid="course-content-loading">{t("loading")}</p>;
