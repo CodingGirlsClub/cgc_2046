@@ -6,9 +6,13 @@
 //
 // 能力(青狮课堂体验的 CGC 版):
 //   - 我的课程(confirmed 课程报名,跨 workspace,下拉切换);
-//   - 学习状态:当前任务卡(next_action)+ 进度 + 待复习队列 + 目标地图
-//     (四态徽章/先修锁/尝试次数,同课程页口径);
-//   - 点目标 → 学习指令直接注入会话(#user-input 填值 + dispatch input +
+//   - 学习状态:当前任务卡(next_action)+ 进度 + 待复习队列 + 目标地图;
+//   - 目标地图按章节分组(revision.chapters + issue.chapter_id;无章节数据
+//     的课退化为平铺),当前章(next_action/待复习所属)默认展开;
+//   - 任务卡上下文:点目标行展开内联卡——章节/单元 kicker、story.goal、
+//     activity、rubric 逐条、材料(story 与 objective 两侧)、assessment;
+//     学员可据此自主思考要聊什么(web course reader 同一份数据的窄栏投影);
+//   - 卡内「开始学习」→ 学习指令注入会话(#user-input 填值 + dispatch input +
 //     点 #btn-send,qingclaw sendLessonPrompt 同款管道),零复制粘贴;
 //   - 注入失败(找不到输入框)兜底:复制到剪贴板并提示。
 //
@@ -45,7 +49,6 @@
   // 归一行为:image 的 figcaption 现渲染 caption(以 course 面板 42e2b8c2 版为准,
   // 本面板拷贝当时漏同步——共享后不再漂移)
   function materialMarkup(material) { return Kit.materialMarkup(material, "cgla"); }
-  function materialLinkMarkup(material) { return materialMarkup(material); }
 
   function toast(message) {
     if (Clacky.Modal && typeof Clacky.Modal.toast === "function") {
@@ -155,18 +158,85 @@
     return o ? String(o.title || o.id) : String(objectiveId);
   }
 
-  // 从已发布 revision 中取指定 objective 的 materials(id → issue.objectives 匹配)
-  function materialsOf(objectiveId) {
+  // ---- 章节分组与任务卡上下文(revision = 已发布内容的单源) ----
+
+  // revision.issues 的 id → issue 映射(任务卡取 story/kind/title 与章归属)
+  function issueById() {
+    const issues = (state.revision && state.revision.issues) || [];
+    const map = {};
+    issues.forEach(function (issue) {
+      if (issue && issue.id != null) map[String(issue.id)] = issue;
+    });
+    return map;
+  }
+
+  // 任务卡定义:objective 的 activity/assessment/rubric/objective 材料 只在
+  // revision 的 issue.objectives 里(learning_state 只有状态面)——按 id 匹配,
+  // 返回 {objective, issue} 双引用;无 revision/未匹配 → null
+  function revisionObjective(objectiveId) {
     const issues = (state.revision && state.revision.issues) || [];
     for (var i = 0; i < issues.length; i++) {
-      var objs = issues[i].objectives || [];
+      var objs = (issues[i] && issues[i].objectives) || [];
       for (var j = 0; j < objs.length; j++) {
-        if (String(objs[j].id) === String(objectiveId)) {
-          return Array.isArray(objs[j].materials) ? objs[j].materials : [];
+        if (objs[j] && String(objs[j].id) === String(objectiveId)) {
+          return { objective: objs[j], issue: issues[i] };
         }
       }
     }
-    return [];
+    return null;
+  }
+
+  // 指定 objective 的全部学习材料 = 所属 issue 的 story 材料 + objective 自带
+  // 材料(web course reader 同口径;修复旧版只取 objective 侧漏 story 侧的
+  // 不对称——教材课讲义/视频多挂 story.materials)
+  function materialsOf(objectiveId) {
+    const found = revisionObjective(objectiveId);
+    if (!found) return [];
+    const story = (found.issue && found.issue.story) || {};
+    const storyMats = Array.isArray(story.materials) ? story.materials : [];
+    const objMats = Array.isArray(found.objective.materials) ? found.objective.materials : [];
+    return storyMats.concat(objMats);
+  }
+
+  // 目标按章节分组:chapters 有序在前,无 chapter_id 的目标落「未分组」;
+  // 无章节数据的课程 flat=true(渲染退化为现状平铺,不造空章头)
+  function chapterGroups() {
+    const objectives = (state.learning || {}).objectives || [];
+    const rev = state.revision;
+    const idx = issueById();
+    const chapters = (rev && Array.isArray(rev.chapters)) ? rev.chapters.filter(Boolean) : [];
+    const groups = chapters.map(function (c) {
+      return { id: String(c.id), title: String(c.title || c.id), objectives: [], flat: false };
+    });
+    const ungrouped = { id: "_ungrouped", title: "未分组", objectives: [], flat: false };
+    objectives.forEach(function (o) {
+      const issue = o && o.issue_id != null ? idx[String(o.issue_id)] : null;
+      const chId = issue && issue.chapter_id != null ? String(issue.chapter_id) : null;
+      const g = chId != null ? groups.find(function (x) { return x.id === chId; }) : null;
+      (g || ungrouped).objectives.push(o);
+    });
+    if (groups.length === 0) {
+      return [{ id: "_flat", title: "", objectives: ungrouped.objectives, flat: true }];
+    }
+    return ungrouped.objectives.length > 0 ? groups.concat([ungrouped]) : groups;
+  }
+
+  // 当前章(next_action 或首个待复习 objective 经 issue.chapter_id 归属)——
+  // 该章默认展开,其余折叠;目标不在任何章(无 revision/flat)返回 null
+  function currentChapterId() {
+    const learning = state.learning || {};
+    const focus = (learning.next_action && learning.next_action.objective_id) ||
+      ((learning.review_queue || [])[0] || {}).objective_id;
+    if (!focus) return null;
+    const found = revisionObjective(focus);
+    const chId = found && found.issue && found.issue.chapter_id;
+    return chId != null ? String(chId) : null;
+  }
+
+  function kindLabel(kind) {
+    if (kind === "thoughtwork") return "理解型";
+    if (kind === "handwork") return "动手型";
+    return "";
   }
 
   function injectPrompt(objectiveId, reviewEntry) {
@@ -311,35 +381,32 @@
         '</button>';
     });
 
-    // 目标地图(掌握行中划线;锁定行 badge=🔒+右侧需先修)
+    // 目标地图:章节 accordion(当前章默认展开)+ 目标行 + 任务卡(卡始终渲染,
+    // CSS 控制显隐——展开零延迟,注入按钮永远可点)。锁定目标只有行,无卡无
+    // 注入点。无章节数据的课 flat(不造空章头,平铺同现状)。
     if (objectives.length === 0) {
       inner += '<div class="cgla-empty">该课程暂无学习目标(教研未完成或未发布)。</div>';
     } else {
-      inner += '<div class="cgla-obj-list">' + objectives.map(function (o) {
-        const locked = !!o.locked;
-        const missing = o.missing_prereq_ids || [];
-        const mats = materialsOf(o.id);
-        const hasMats = mats.length > 0;
+      const currentCh = currentChapterId();
+      const groups = chapterGroups();
+      inner += groups.map(function (group) {
+        const rows = group.objectives.map(objectiveRowMarkup).join("");
+        if (group.flat) return '<div class="cgla-obj-list">' + rows + '</div>';
+        const required = group.objectives.filter(function (o) { return o.required !== false; });
+        const done = required.filter(function (o) { return o.ever_mastered === true; }).length;
+        const isCurrent = group.id === currentCh;
         return (
-          '<div class="cgla-obj-wrap">' +
-          '<div class="cgla-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
-            (locked ? "" : ' data-inject="' + escapeHtml(o.id) + '"') +
-            ' data-testid="learn-obj" data-objective="' + escapeHtml(o.id) + '">' +
-            '<span class="obj-badge ' + (locked ? "" : "obj-" + escapeHtml(o.mastery)) + '">' +
-              escapeHtml(locked ? "🔒" : masteryLabel(o.mastery)) + '</span>' +
-            '<span class="cgla-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
-            (!locked && o.attempt_count > 0
-              ? '<span class="cgla-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "") +
-            (locked && missing.length > 0
-              ? '<span class="cgla-prereq" title="' +
-                  escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '">需先修</span>' : "") +
-            (hasMats
-              ? '<button class="cgla-obj-mats" type="button" data-mats="' + escapeHtml(o.id) + '"' +
-                  ' data-testid="learn-obj-mats" title="查看学习材料(' + mats.length + '条)">📎</button>' : "") +
-          '</div>' +
-          '</div>'
+          '<details class="cgla-chap' + (isCurrent ? " is-current" : "") + '"' +
+            (isCurrent ? " open" : "") + ' data-chapter="' + escapeHtml(group.id) + '" data-testid="learn-chapter">' +
+            '<summary class="cgla-chap-summary">' +
+              '<span class="cgla-chap-title">' + escapeHtml(group.title) + '</span>' +
+              '<span class="cgla-chap-count">' + escapeHtml(done + "/" + required.length) + '</span>' +
+              '<span class="cgla-chap-chevron">⌄</span>' +
+            '</summary>' +
+            '<div class="cgla-obj-list">' + rows + '</div>' +
+          '</details>'
         );
-      }).join("") + '</div>';
+      }).join("");
     }
 
     root.innerHTML = html;
@@ -352,23 +419,79 @@
     bind();
   }
 
+  // 目标行 + 内联任务卡(行与卡相邻兄弟;行自身 toggle is-open,CSS 兄弟
+  // 选择器控制卡显隐——卡始终在 DOM,展开零延迟,注入按钮永远可点)
+  function objectiveRowMarkup(o) {
+    const locked = !!o.locked;
+    const missing = o.missing_prereq_ids || [];
+    return (
+      '<div class="cgla-obj' + (locked ? " is-locked" : "") + (o.mastery === "mastered" ? " is-done" : "") + '"' +
+        (locked ? "" : ' data-obj-toggle="' + escapeHtml(o.id) + '"') +
+        ' data-testid="learn-obj" data-objective="' + escapeHtml(o.id) + '">' +
+        '<span class="obj-badge ' + (locked ? "" : "obj-" + escapeHtml(o.mastery)) + '">' +
+          escapeHtml(locked ? "🔒" : masteryLabel(o.mastery)) + '</span>' +
+        '<span class="cgla-obj-title">' + escapeHtml(o.title || o.id) + '</span>' +
+        (!locked && o.attempt_count > 0
+          ? '<span class="cgla-attempts">' + escapeHtml(o.attempt_count) + '次</span>' : "") +
+        (locked && missing.length > 0
+          ? '<span class="cgla-prereq" title="' +
+              escapeHtml(missing.map(function (m) { return m.title || m.id; }).join("、")) + '">需先修</span>' : "") +
+      '</div>' +
+      (locked ? "" : objectiveCardMarkup(o))
+    );
+  }
+
+  // 任务卡上下文(拍板口径:是什么 → 学完能干什么 → 要做什么 → 怎么算达成 →
+  // 拿什么做 → 怎么评)。revision 缺该 objective 定义时降级为纯开始按钮卡。
+  function objectiveCardMarkup(o) {
+    const found = revisionObjective(o.id) || {};
+    const revObj = found.objective || {};
+    const issue = found.issue || null;
+    const story = (issue && issue.story) || {};
+    const chapter = chapterTitleOf(o);
+    const kind = issue ? kindLabel(issue.kind) : "";
+    const kicker = [chapter, issue ? String(issue.title || issue.id) : ""]
+      .filter(Boolean).map(escapeHtml).join(" · ") + (kind ? ' <span class="cgla-card-kind">' + escapeHtml(kind) + '</span>' : "");
+    const rubric = Array.isArray(revObj.rubric) ? revObj.rubric.filter(function (r) { return r && r.text; }) : [];
+    const mats = materialsOf(o.id);
+    return (
+      '<div class="cgla-card" data-testid="learn-obj-card">' +
+        (kicker ? '<div class="cgla-card-kicker">' + kicker + '</div>' : "") +
+        (story.goal ? '<div class="cgla-card-goal">' + escapeHtml(String(story.goal)) + '</div>' : "") +
+        (revObj.activity ? '<div class="cgla-card-row"><strong>要做</strong><span>' + escapeHtml(String(revObj.activity)) + '</span></div>' : "") +
+        (rubric.length > 0
+          ? '<div class="cgla-card-rubric"><strong>怎么算达成</strong>' +
+              rubric.map(function (r) { return '<span>· ' + escapeHtml(String(r.text)) + '</span>'; }).join("") +
+            '</div>' : "") +
+        (mats.length > 0
+          ? '<div class="cgla-card-mats"><strong>材料</strong>' +
+              mats.map(function (m) {
+                return '<span class="cgla-mat-item">' + materialMarkup(m) + '</span>';
+              }).join("") +
+            '</div>' : "") +
+        (revObj.assessment ? '<div class="cgla-card-assess">' + escapeHtml(String(revObj.assessment)) + '</div>' : "") +
+        '<button class="btn-primary cgla-card-cta" type="button" data-inject="' + escapeHtml(o.id) + '"' +
+          ' data-testid="learn-obj-cta">▶ 开始学习</button>' +
+      '</div>'
+    );
+  }
+
+  // objective 所属章标题(chapterGroups 的组内复用;flat/无归属返回 "")
+  function chapterTitleOf(o) {
+    const issue = o.issue_id != null ? issueById()[String(o.issue_id)] : null;
+    const chId = issue && issue.chapter_id != null ? String(issue.chapter_id) : null;
+    if (chId == null) return "";
+    const chapters = (state.revision && Array.isArray(state.revision.chapters)) ? state.revision.chapters : [];
+    const ch = chapters.find(function (c) { return c && String(c.id) === chId; });
+    return ch ? String(ch.title || ch.id) : "";
+  }
+
   function bind() {
     const refresh = root.querySelector("#cgc-learn-refresh");
     if (refresh) refresh.addEventListener("click", boot);
-    root.querySelectorAll("[data-mats]").forEach(function (btn) {
-      btn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        const objId = btn.getAttribute("data-mats");
-        const wrap = btn.closest(".cgla-obj-wrap");
-        const existing = wrap.querySelector(".cgla-mats-panel");
-        if (existing) { existing.remove(); return; }
-        const mats = materialsOf(objId);
-        const panel = document.createElement("div");
-        panel.className = "cgla-mats-panel";
-        panel.innerHTML = mats.map(function (m) {
-          return '<div class="cgla-mat-item"><span class="cgla-mat-title">' + materialLinkMarkup(m) + '</span></div>';
-        }).join("");
-        wrap.appendChild(panel);
+    root.querySelectorAll("[data-obj-toggle]").forEach(function (row) {
+      row.addEventListener("click", function () {
+        row.classList.toggle("is-open");
       });
     });
     root.querySelectorAll("[data-inject]").forEach(function (el) {
@@ -433,7 +556,15 @@
       ".review-tag{flex:none;font-size:0.59375rem;font-weight:700}" +
       ".review-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
       ".review-go{flex:none;font-size:0.59375rem;opacity:.5}" +
-      ".cgla-obj-list{display:flex;flex-direction:column}" +
+      ".cgla-chap{overflow:hidden;background:var(--color-bg-card);border:1px solid var(--color-border-primary);border-radius:var(--radius-md,8px)}" +
+      ".cgla-chap-summary{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px;cursor:pointer;list-style:none;user-select:none}" +
+      ".cgla-chap-summary::-webkit-details-marker{display:none}" +
+      ".cgla-chap-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.71875rem;font-weight:650}" +
+      ".cgla-chap.is-current .cgla-chap-title{color:var(--color-accent-primary)}" +
+      ".cgla-chap-count{flex:none;font-family:ui-monospace,monospace;font-size:0.59375rem;color:var(--color-text-tertiary)}" +
+      ".cgla-chap-chevron{color:var(--color-text-tertiary);font-size:0.75rem;transition:transform var(--transition-fast)}" +
+      ".cgla-chap[open] .cgla-chap-chevron{transform:rotate(180deg)}" +
+      ".cgla-obj-list{display:flex;flex-direction:column;border-top:1px solid var(--color-border-secondary);padding:2px 6px}" +
       ".cgla-obj{display:flex;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--color-border-secondary);cursor:pointer;transition:background var(--transition-fast)}" +
       ".cgla-obj:last-child{border-bottom:0}" +
       ".cgla-obj:hover{background:var(--color-bg-hover)}" +
@@ -446,16 +577,23 @@
       ".obj-needs_review{color:var(--color-error,#f97316)!important;border-color:var(--color-error,#f97316)!important}" +
       ".cgla-obj-title{flex:1;min-width:0;word-break:break-all;line-height:1.4;font-size:0.71875rem;font-weight:580}" +
       ".cgla-attempts{flex:none;font-size:0.5625rem;color:var(--color-text-tertiary)}" +
-      ".cgla-obj-wrap{position:relative}" +
-      ".cgla-obj-mats{flex:none;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:transparent;color:var(--color-text-muted);font-size:0.625rem;cursor:pointer;opacity:0;transition:opacity var(--transition-fast),color var(--transition-fast)}" +
-      ".cgla-obj:hover .cgla-obj-mats{opacity:1}" +
-      ".cgla-obj-mats:hover{color:var(--color-accent-primary);background:var(--color-accent-soft)}" +
-      ".cgla-mats-panel{padding:6px 10px 6px 28px;border-top:1px dashed var(--color-border-secondary);background:var(--color-bg-hover)}" +
+      ".cgla-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
+      ".cgla-card{display:none;padding:10px 10px 12px;margin:0 2px 8px;border:1px solid color-mix(in srgb,var(--color-accent-primary) 18%,var(--color-border-primary));border-radius:var(--radius-sm,6px);background:var(--color-bg-hover);font-size:0.65625rem;line-height:1.55}" +
+      ".cgla-obj.is-open + .cgla-card{display:block}" +
+      ".cgla-card-kicker{display:flex;align-items:baseline;gap:6px;color:var(--color-text-tertiary);font-size:0.59375rem;font-weight:700;letter-spacing:.04em}" +
+      ".cgla-card-kind{flex:none;color:var(--color-accent-primary);border:1px solid color-mix(in srgb,var(--color-accent-primary) 30%,var(--color-border-primary));border-radius:999px;padding:0 5px;font-weight:650;letter-spacing:0}" +
+      ".cgla-card-goal{margin-top:7px;color:var(--color-text-primary);font-weight:600}" +
+      ".cgla-card-row{display:flex;gap:6px;margin-top:7px;align-items:baseline}" +
+      ".cgla-card-row strong,.cgla-card-rubric strong,.cgla-card-mats strong{flex:none;color:var(--color-text-tertiary);font-size:0.5625rem;font-weight:700}" +
+      ".cgla-card-rubric{display:flex;flex-direction:column;gap:3px;margin-top:8px}" +
+      ".cgla-card-rubric span{color:var(--color-text-secondary)}" +
+      ".cgla-card-mats{display:flex;flex-direction:column;gap:3px;margin-top:8px}" +
       ".cgla-mat-item{display:flex;gap:6px;align-items:baseline;padding:2px 0;font-size:0.625rem}" +
       ".cgla-mat-title{color:var(--color-text-primary);flex:none}" +
       ".cgla-mat-ref{color:var(--color-accent-primary);text-decoration:none;word-break:break-all}" +
       ".cgla-mat-ref:hover{text-decoration:underline}" +
-      ".cgla-prereq{flex:none;font-size:0.5625rem;color:var(--color-warning,#f97316)}" +
+      ".cgla-card-assess{margin-top:8px;color:var(--color-text-tertiary);font-size:0.59375rem}" +
+      ".cgla-card-cta{margin-top:10px;padding:6px 12px;font-size:0.65625rem;font-weight:700}" +
       "@media (max-width:720px){.cgla-header{padding-inline:12px}.cgla-source{padding-inline:12px}.cgla-content{padding-inline:8px}}";
 document.head.appendChild(css);
   }
