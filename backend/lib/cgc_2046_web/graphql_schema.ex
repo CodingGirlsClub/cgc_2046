@@ -269,6 +269,23 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
+    field :flashback_public_stats, :flashback_public_stats do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
+    end
+
+    @desc "闪念间匿名金句墙（U6/R31/R32）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现"
+    field :flashback_public_quotes, non_null(list_of(non_null(:flashback_public_quote))) do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.Public.quotes() end)
+    end
+
+    @desc "闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
+    field :flashback_public_profile, :flashback_public_profile do
+      arg(:slug, non_null(:string))
+
+      resolve(fn _, %{slug: slug}, _ -> Cgc2046.Flashback.Public.profile(slug) end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -2239,6 +2256,43 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+    field :flashback_recover, :flashback_recover_result do
+      arg(:identifier, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:identifier])
+
+      resolve(fn _, %{identifier: identifier}, %{context: context} ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Recover.initiate(identifier, context_ip(context))
+        end)
+      end)
+    end
+
+    @desc "自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+    field :flashback_recover_verify, :flashback_recover_verify_result do
+      arg(:identifier, non_null(:string))
+      arg(:code, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:identifier])
+
+      resolve(fn _, %{identifier: identifier, code: code}, %{context: context} ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Recover.verify(identifier, code, context)
+        end)
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -2836,6 +2890,61 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:first_time, non_null(:boolean))
   end
 
+  # ── 公开层类型（U6/R32）：路人可见的故事与授权的名字，不是名单 ──────────
+  object :flashback_public_stats_archive do
+    field(:key, non_null(:string))
+    field(:name, :string)
+    field(:city, :string)
+    field(:occurred_on, :string)
+    field(:applied_count, :integer)
+    field(:attended_count, :integer)
+  end
+
+  object :flashback_public_stats do
+    field(:archives, non_null(list_of(non_null(:flashback_public_stats_archive))))
+    @desc "已回来人数（distinct link_opened touch）"
+    field(:returned_count, non_null(:integer))
+    field(:sent_count, non_null(:integer))
+  end
+
+  object :flashback_public_quote do
+    @desc "授权金句文本（区间切片；雾面句本就不进候选）"
+    field(:text, non_null(:string))
+    @desc "署名：王** · 年 · 城"
+    field(:attribution, non_null(:string))
+    field(:level, non_null(:string))
+    @desc "credited 档才有：链实名档案页"
+    field(:public_slug, :string)
+  end
+
+  object :flashback_public_profile do
+    field(:full_name, non_null(:string))
+    field(:city, :string)
+    field(:event_name, :string)
+    field(:year, :integer)
+    @desc "实名补充：现在在做什么、想法（R31 credited 档）"
+    field(:credited_note, :string)
+    field(:quote, non_null(:string))
+  end
+
+  object :flashback_recover_result do
+    @desc "恒 true 形态：命中与未命中同形返回（不泄露存在性）"
+    field(:dispatched, non_null(:boolean))
+  end
+
+  object :flashback_recover_card do
+    field(:person_id, non_null(:id))
+    field(:surname_masked, non_null(:string))
+    field(:event_name, :string)
+    field(:city, :string)
+  end
+
+  object :flashback_recover_verify_result do
+    field(:bound, non_null(:boolean))
+    @desc "绑定档案的脱敏卡列表——多档案=「你的 N 张卡」由本人选择先看哪张"
+    field(:cards, non_null(list_of(non_null(:flashback_recover_card))))
+  end
+
   object :flashback_fog_span do
     @desc "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
     field(:start, non_null(:integer))
@@ -2958,6 +3067,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:len, non_null(:integer))
     field(:reason, :string)
   end
+
+  # 找回限流的 IP 提取（同 WebAuthFlow.remote_ip 口径；conn 由 plug 上下文携带）
+  defp context_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
+  defp context_ip(_context), do: "unknown"
 
   # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
   # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。
