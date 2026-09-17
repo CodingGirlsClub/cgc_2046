@@ -3184,6 +3184,20 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:archived, non_null(:boolean))
     field(:qualification_badge, non_null(:string))
     field(:short_by, :integer)
+
+    # 参与条件披露（#627）：缴费槽三态 + 押金明细 + 年龄门槛存在性 + 收费金额锚。
+    # 全部来自 Event 已物化快照列（`Initiatives.Public` 的裸 SQL 投影），不暴露规则表。
+    field(:payment_mode, non_null(:string))
+    field(:deposit, non_null(:public_initiative_deposit))
+    field(:min_age, :integer)
+    field(:price_range_min_cents, :integer)
+  end
+
+  @desc "公开页押金明细（#627）：金额缺失/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+  object :public_initiative_deposit do
+    field(:enabled, non_null(:boolean))
+    field(:amount_cents, :integer)
+    field(:refundable_on_check_in, :boolean)
   end
 
   # plan 020 U2.1：本人 MCP 工具调用活动流。

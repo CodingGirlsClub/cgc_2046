@@ -6568,6 +6568,17 @@ type PublicInitiativeEvent {
   archived: Boolean!
   qualificationBadge: String!
   shortBy: Int
+  paymentMode: String!
+  deposit: PublicInitiativeDeposit!
+  minAge: Int
+  priceRangeMinCents: Int
+}
+
+"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+type PublicInitiativeDeposit {
+  enabled: Boolean!
+  amountCents: Int
+  refundableOnCheckIn: Boolean
 }
 
 type AdminUserPayload {

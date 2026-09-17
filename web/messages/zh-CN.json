@@ -2271,6 +2271,11 @@
 		"cityEvents": "{count} 场",
 		"indexTitle": "倡导活动",
 		"indexDesc": "跨工作台的公开倡导活动，点击进入详情。",
+		"conditionWithAge": "{payment} · 限 {age}+",
+		"priceFrom": "¥{amount} 起",
+		"paymentPricingUnknown": "收费（档位以活动页为准）",
+		"paymentDepositUnknown": "押金（金额待定）",
+		"paymentUnknown": "缴费信息待定",
 		"indexEmpty": "暂无倡导活动",
 		"loadFailed": "加载失败"
 	},

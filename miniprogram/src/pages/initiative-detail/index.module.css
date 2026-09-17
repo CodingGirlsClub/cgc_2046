@@ -16,5 +16,6 @@
 .event { display: block; font-size: 30rpx; font-weight: 600; overflow-wrap: anywhere; }
 .schedule { display: block; color: #777; font-size: 24rpx; line-height: 1.5; margin-top: 12rpx; }
 .cardMeta { display: block; color: #555; font-size: 24rpx; line-height: 1.5; margin-top: 8rpx; overflow-wrap: anywhere; }
+.condition { display: block; color: #555; font-size: 24rpx; line-height: 1.5; margin-top: 8rpx; }
 .badge { display: block; color: #b64100; font-size: 26rpx; margin-top: 12rpx; }
 .link { display: block; color: #555; font-size: 24rpx; margin-top: 16rpx; }
