@@ -69,7 +69,7 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		const labels = Array.from(nav.querySelectorAll("a")).map((a) =>
 			a.textContent.trim(),
 		);
-		expect(labels).toEqual(["活动", "课程", "我的报名", "我的学习", "倡导活动"]);
+		expect(labels).toEqual(["活动", "课程", "我的报名", "我的学习", "倡导活动", "闪念间"]);
 		expect(
 			screen.getByRole("link", { name: "我的报名" }),
 		).toHaveAttribute("href", "/participations");
