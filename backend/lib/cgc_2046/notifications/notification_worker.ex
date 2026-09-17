@@ -195,6 +195,15 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       stale: nil
     },
     %{
+      # #585 管理侧开班结果（单键双文案，outcome 驱动——approval_result 同款）
+      template_key: "event_qualification_manager",
+      id_key: nil,
+      data_keys: ["event_id", "title", "min_participants", "confirmed_count", "outcome"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
+    },
+    %{
       template_key: "event_schedule_changed",
       id_key: nil,
       data_keys: ["event_id", "title", "starts_at", "venue"],
