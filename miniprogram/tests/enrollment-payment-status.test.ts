@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { enrollmentPaymentText } from '@/domain/payment'
+import { enrollmentPaymentText, paidEnrollmentIds } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
 
 /**
@@ -63,5 +63,21 @@ describe('my-enrollments 缴费态卡面（U11/R16）', () => {
         order('e14', 'refunded')
       ])
     ).toBe('缴费状态：已退款')
+  })
+})
+
+describe('paidEnrollmentIds：M7 付费卡触点判据（#683）', () => {
+  it('白名单订单（含退款各态/forfeited）入集；作废与 pending 单不算缴费事实', () => {
+    for (const status of ['paid', 'refunding', 'refunded', 'refund_failed', 'forfeited'] as const) {
+      expect(paidEnrollmentIds([order('e1', status)]).has('e1')).toBe(true)
+    }
+    expect(paidEnrollmentIds([order('e2', 'pending')]).has('e2')).toBe(false)
+    expect(paidEnrollmentIds([order('e2', 'expired'), order('e2', 'cancelled')]).size).toBe(0)
+    expect(paidEnrollmentIds([]).size).toBe(0)
+  })
+
+  it('只认订单自身的白名单状态（跨报名不串）；混入作废单不遮蔽白名单单', () => {
+    expect(paidEnrollmentIds([order('other', 'paid'), order('e4', 'pending')]).has('e4')).toBe(false)
+    expect(paidEnrollmentIds([order('e5', 'expired'), order('e5', 'refunded')]).has('e5')).toBe(true)
   })
 })
