@@ -42,6 +42,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Courses,
       Cgc2046.Curriculum,
       Cgc2046.Events,
+      Cgc2046.Flashback,
       Cgc2046.Accounts,
       Cgc2046.Learning,
       Cgc2046.Payments,

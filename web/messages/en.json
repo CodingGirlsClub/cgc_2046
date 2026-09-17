@@ -83,6 +83,8 @@
 		"initiative_slug_locked": "This initiative's public link is live, so its slug can no longer be changed (editing name/description still works).",
 		"initiative_not_open": "The initiative is closed or cancelled, so this session cannot be published.",
 		"initiative_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier).",
+		"flashback_slug_taken": "That public profile link is already taken by another alumna — pick another one.",
+		"flashback_slug_locked": "This public profile is live, so its link can no longer be changed (other content stays editable).",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
