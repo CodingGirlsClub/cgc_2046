@@ -389,6 +389,7 @@ export type Course = {
 export type CourseContent = {
   content: Scalars['JsonString']['output'];
   courseId: Scalars['ID']['output'];
+  description?: Maybe<Scalars['String']['output']>;
   publishedAt?: Maybe<Scalars['DateTime']['output']>;
   revisionNumber?: Maybe<Scalars['Int']['output']>;
   title: Scalars['String']['output'];
