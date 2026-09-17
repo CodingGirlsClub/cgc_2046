@@ -89,6 +89,7 @@
 		"flashback_token_claimed": "This archive is already tied to an account and the link has retired — sign in or visit \"Mine\" to continue.",
 		"flashback_token_revoked": "This archive has been deleted and the link is no longer valid.",
 		"flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
+		"flashback_archive_not_found": "That event archive can't be found — check the archive key and retry.",
 		"flashback_quote_span_out_of_bounds": "The selected quote span goes beyond the original text — pick again.",
 		"flashback_invalid_input": "Something in your submission is off — check and retry.",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",

@@ -7,10 +7,10 @@ defmodule Cgc2046.Flashback.Outreach do
   - 记录只留发送/退订状态——**不引入开信像素**（KTD6：四率之外的行为事件
     一律走 FlashbackTouch；`opened_at` 不建）；
   - 个人字段（手机/邮箱）不入本表：外发 worker 经 person_id 回查 Person，
-    U10 删除时对 person 行匿名化即自动切断（U8 落地）。
+    U10 删除时对 person 行匿名化即自动切断（`Outreach.Dispatch.anonymize_person/1`）。
 
-  状态推进（sent/failed/unsubscribed 回写）与退订抑制属 U8：届时以显式
-  action（`set_attribute`）落地，本资源 U1 只建入队行。
+  状态推进（`mark_sent` / `mark_failed` / `mark_unsubscribed`）只由服务端
+  `authorize?: false` 路径调用（Worker / Dispatch），状态字段不对任何入口开放。
   """
 
   use Ash.Resource,
@@ -48,7 +48,6 @@ defmodule Cgc2046.Flashback.Outreach do
     )
 
     attribute(:sent_at, :utc_datetime_usec, public?: true, writable?: false)
-    attribute(:unsubscribed_at, :utc_datetime_usec, public?: true, writable?: false)
     # 失败原因（硬退信等）；不含个人字段。
     attribute(:detail, :string, public?: true, writable?: true)
 
@@ -80,6 +79,23 @@ defmodule Cgc2046.Flashback.Outreach do
     create :create do
       accept([:person_id, :channel, :template, :batch])
     end
+
+    # 状态推进（服务端 authorize?: false 路径，worker 专用——只由
+    # Outreach.Worker / Outreach.Dispatch 调用，状态字段不对任何入口开放）。
+    update :mark_sent do
+      require_atomic?(false)
+      accept([])
+
+      change(set_attribute(:status, :sent))
+      change(set_attribute(:sent_at, &DateTime.utc_now/0))
+    end
+
+    update :mark_failed do
+      require_atomic?(false)
+      accept([:detail])
+
+      change(set_attribute(:status, :failed))
+    end
   end
 
   admin do
@@ -94,6 +110,10 @@ defmodule Cgc2046.Flashback.Outreach do
     end
 
     policy action_type(:create) do
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
+    end
+
+    policy action_type(:update) do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

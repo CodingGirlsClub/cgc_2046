@@ -67,6 +67,10 @@ defmodule Cgc2046.Flashback.Person do
 
     attribute(:public_slug, :string, public?: true, writable?: true)
     attribute(:public_slug_published_at, :utc_datetime_usec, public?: true, writable?: false)
+    # 触达退订（U8/R30，KTD6 按人抑制双通道）：置位后任何批次、任何通道
+    # （email/sms）不再入队。真源在 person 行而非 outreach 行——首封邮件点击
+    # 退订时尚无发送行。
+    attribute(:outreach_unsubscribed_at, :utc_datetime_usec, public?: true, writable?: false)
 
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)

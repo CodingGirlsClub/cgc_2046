@@ -6500,6 +6500,14 @@ type FlashbackUpdateContactResult {
   updated: Boolean!
 }
 
+type FlashbackOutreachDispatchResult {
+  "入队件数（错峰 scheduled_at 限速后由 worker 续发）"
+  queued: Int!
+
+  "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
+  skipped: Int!
+}
+
 input FlashbackTodayInput {
   "「今天的你」问卷（R8）：四个自由文本 + Want\/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
   nowStatus: String
@@ -7145,6 +7153,9 @@ type RootMutationType {
 
   "自助找回·验证（U6\/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
   flashbackRecoverVerify(identifier: String!, code: String!): FlashbackRecoverVerifyResult
+
+  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（email 优先\/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
+  flashbackAdminSendOutreach(archiveKey: String!, template: String!): FlashbackOutreachDispatchResult
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
