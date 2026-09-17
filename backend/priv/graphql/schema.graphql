@@ -5317,6 +5317,9 @@ type RootQueryType {
   "闪念间时间胶囊（U5\/R12\/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
   flashbackCapsule(token: String): FlashbackCapsule
 
+  "删除摘要（U10\/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
+  flashbackDeletePreview(token: String): FlashbackDeletePreviewResult
+
   "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
   flashbackPublicStats: FlashbackPublicStats
 
@@ -6341,6 +6344,25 @@ type FlashbackEndorseResult {
   firstTime: Boolean!
 }
 
+type FlashbackDeleteResult {
+  deleted: Boolean!
+  deletedAt: String!
+}
+
+type FlashbackDeletePreviewResult {
+  personId: ID!
+
+  fullName: String!
+
+  "寄出态（撤下提示依据）；未寄出为 null"
+  sentToWallAt: String
+
+  "将一并删除的附议数"
+  endorsementCount: Int!
+
+  alreadyDeleted: Boolean!
+}
+
 type FlashbackPublicStatsArchive {
   key: String!
   name: String
@@ -7182,7 +7204,10 @@ type RootMutationType {
   "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
   flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
 
-  "附议 Action 卡（U5\/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer\/promoter\/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
+  "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
+  flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
+
+  "附议 Action 卡（U5\/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer\/promoter\/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
   flashbackEndorse(token: String, cardId: ID!, roleClaimed: String): FlashbackEndorseResult
 
   "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"

@@ -84,10 +84,13 @@ defmodule Cgc2046.Flashback.Public do
         )
       )
 
+    # 已删除档案（U10/R30）不计入公开统计——「已回来的人」不含已行使删除权者。
     returned =
       Repo.one(
         from(t in "flashback_touches",
-          where: t.event == "link_opened",
+          join: p in "flashback_people",
+          on: p.id == t.person_id,
+          where: t.event == "link_opened" and is_nil(p.deleted_at),
           select: count(t.person_id, :distinct)
         )
       )
@@ -95,7 +98,9 @@ defmodule Cgc2046.Flashback.Public do
     sent =
       Repo.one(
         from(t in "flashback_todays",
-          where: not is_nil(t.sent_to_wall_at),
+          join: p in "flashback_people",
+          on: p.id == t.person_id,
+          where: not is_nil(t.sent_to_wall_at) and is_nil(p.deleted_at),
           select: count(t.person_id)
         )
       )

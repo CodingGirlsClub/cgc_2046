@@ -12,6 +12,7 @@ import {
 import Corridor from "./corridor";
 import ActionBoard from "./action-board";
 import CardExport from "./card-export";
+import DeleteAccount from "./delete-account";
 import InvalidToken from "./invalid-token";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
@@ -136,6 +137,7 @@ export default function CapsuleView() {
 			<CardExport me={capsule.me} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>
+				<DeleteAccount token={token} />
 			</footer>
 		</div>
 	);

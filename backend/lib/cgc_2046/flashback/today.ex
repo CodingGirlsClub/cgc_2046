@@ -81,6 +81,9 @@ defmodule Cgc2046.Flashback.Today do
       ])
     end
 
+    # U10 删除级联专用（authorize?: false 路径——行硬删，PIPL 数据清除）。
+    destroy(:destroy)
+
     update :update do
       require_atomic?(false)
 

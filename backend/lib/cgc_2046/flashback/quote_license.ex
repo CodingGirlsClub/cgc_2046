@@ -84,6 +84,9 @@ defmodule Cgc2046.Flashback.QuoteLicense do
       accept([:level, :question_key, :chosen_quote_span, :credited_note])
       change(&validate_span/2)
     end
+
+    # U10 删除级联专用（authorize?: false 路径）。
+    destroy(:destroy)
   end
 
   # 结构校验（整数、start >= 0、len > 0）；nil 放行（默认关）。

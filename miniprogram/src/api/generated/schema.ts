@@ -2259,6 +2259,21 @@ export type FlashbackCapsuleToday = {
   want?: Maybe<Scalars['String']['output']>;
 };
 
+export type FlashbackDeletePreviewResult = {
+  alreadyDeleted: Scalars['Boolean']['output'];
+  /** 将一并删除的附议数 */
+  endorsementCount: Scalars['Int']['output'];
+  fullName: Scalars['String']['output'];
+  personId: Scalars['ID']['output'];
+  /** 寄出态（撤下提示依据）；未寄出为 null */
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackDeleteResult = {
+  deleted: Scalars['Boolean']['output'];
+  deletedAt: Scalars['String']['output'];
+};
+
 export type FlashbackDreamTarget = {
   eventSlug: Scalars['String']['output'];
   eventTitle: Scalars['String']['output'];
@@ -4302,7 +4317,9 @@ export type RootMutationType = {
   flashbackAdminScheduleCard?: Maybe<FlashbackActionCardResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
-  /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交） */
+  /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
+  flashbackDelete?: Maybe<FlashbackDeleteResult>;
+  /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交） */
   flashbackEndorse?: Maybe<FlashbackEndorseResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
   flashbackEnter?: Maybe<FlashbackEnterResult>;
@@ -4670,6 +4687,12 @@ export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
 };
 
 
+export type RootMutationTypeFlashbackDeleteArgs = {
+  confirm: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type RootMutationTypeFlashbackEndorseArgs = {
   cardId: Scalars['ID']['input'];
   roleClaimed?: InputMaybe<Scalars['String']['input']>;
@@ -4994,6 +5017,8 @@ export type RootQueryType = {
   eventModerators: Array<EventModerator>;
   /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
   flashbackCapsule?: Maybe<FlashbackCapsule>;
+  /** 删除摘要（U10/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号） */
+  flashbackDeletePreview?: Maybe<FlashbackDeletePreviewResult>;
   /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
   /** 闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态） */
@@ -5149,6 +5174,11 @@ export type RootQueryTypeEventModeratorsArgs = {
 
 
 export type RootQueryTypeFlashbackCapsuleArgs = {
+  token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackDeletePreviewArgs = {
   token?: InputMaybe<Scalars['String']['input']>;
 };
 

@@ -515,7 +515,8 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 	}
 `;
 
-/** 附议（U5/R13）：一人一卡一行幂等（再点=改认领角色） */
+/** 附议（U5/R13）：一人一卡一行幂等（再点=改认领角色）。U9 起双入口：
+ * token 省略时按登录账号绑定档案（登录态回访者同样可附议） */
 export const FLASHBACK_ENDORSE: TypedDocumentNode<
 	{
 		flashbackEndorse: {
@@ -525,14 +526,51 @@ export const FLASHBACK_ENDORSE: TypedDocumentNode<
 			firstTime: boolean;
 		};
 	},
-	{ token: string; cardId: string; roleClaimed?: string | null }
+	{ token?: string | null; cardId: string; roleClaimed?: string | null }
 > = gql`
-	mutation FlashbackEndorse($token: String!, $cardId: ID!, $roleClaimed: String) {
+	mutation FlashbackEndorse($token: String, $cardId: ID!, $roleClaimed: String) {
 		flashbackEndorse(token: $token, cardId: $cardId, roleClaimed: $roleClaimed) {
 			cardId
 			status
 			roleClaimed
 			firstTime
+		}
+	}
+`;
+
+/** 删除摘要（U10/R30 二次确认页数据源）：双入口（token 或登录态） */
+export const FLASHBACK_DELETE_PREVIEW: TypedDocumentNode<
+	{
+		flashbackDeletePreview: {
+			personId: string;
+			fullName: string;
+			sentToWallAt?: string | null;
+			endorsementCount: number;
+			alreadyDeleted: boolean;
+		} | null;
+	},
+	{ token?: string | null }
+> = gql`
+	query FlashbackDeletePreview($token: String) {
+		flashbackDeletePreview(token: $token) {
+			personId
+			fullName
+			sentToWallAt
+			endorsementCount
+			alreadyDeleted
+		}
+	}
+`;
+
+/** 删除我的档案（U10/R30/ADR-0015）：不可逆；confirm 必须为 "DELETE" */
+export const FLASHBACK_DELETE: TypedDocumentNode<
+	{ flashbackDelete: { deleted: boolean; deletedAt: string } },
+	{ token?: string | null; confirm: string }
+> = gql`
+	mutation FlashbackDelete($token: String, $confirm: String!) {
+		flashbackDelete(token: $token, confirm: $confirm) {
+			deleted
+			deletedAt
 		}
 	}
 `;

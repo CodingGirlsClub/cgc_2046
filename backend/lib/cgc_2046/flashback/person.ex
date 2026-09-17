@@ -72,6 +72,12 @@ defmodule Cgc2046.Flashback.Person do
     # 退订时尚无发送行。
     attribute(:outreach_unsubscribed_at, :utc_datetime_usec, public?: true, writable?: false)
 
+    # 档案删除（U10/R30/ADR-0015）：置位 = 名册/统计/找回全面排除 + token
+    # 全作废 + 个人字段匿名化（Outreach.Dispatch.anonymize_person/1）。行
+    # 保留以承接 outreach 聚合分母（KTD10），个人内容（答案/回信/附议/授权）
+    # 全部硬删。
+    attribute(:deleted_at, :utc_datetime_usec, public?: true, writable?: false)
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
