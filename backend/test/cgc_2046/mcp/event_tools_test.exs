@@ -4,8 +4,9 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   kind=event 分派；直接调 tool execute/2，不走 HTTP；workspace_admin_tools_test
   同款模式）。
 
-  - 授权：plain member / tutor / learner / 非成员对活动五件写工具一律 forbidden
-    （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定）；
+  - 授权：plain member / tutor / learner / 非成员对活动六件写工具一律 forbidden
+    （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定；#676
+    delete_event 收窄为 Owner ∪ 平台管理员，admin 亦拒）；
     list_workspace_events 为 member-only 发现面（成员可读全部状态含 draft）
   - create_event 直接写生成 draft（venue/pricing 落库，slug 缺省生成 e-<hex>），
     不经 pending
@@ -36,6 +37,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     ConfirmEnrollment,
     ConfirmOperation,
     CreateEvent,
+    DeleteEvent,
     DiscoverOfferings,
     GetPublicOffering,
     LaunchEvent,
@@ -52,13 +54,14 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
   @venue %{"country" => "中国", "province" => "浙江省", "city" => "杭州市", "district" => "西湖区"}
 
-  # 活动五件写工具（list_workspace_events 为 member-only 发现面，不在此列）
+  # 活动六件写工具（list_workspace_events 为 member-only 发现面，不在此列）
   @event_write_tools %{
     "create_event" => CreateEvent,
     "update_event" => UpdateEvent,
     "launch_event" => LaunchEvent,
     "close_event" => CloseEvent,
-    "cancel_event" => CancelEvent
+    "cancel_event" => CancelEvent,
+    "delete_event" => DeleteEvent
   }
 
   defp frame_for(user), do: Frame.new(current_user: user)
@@ -76,6 +79,12 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
   defp pending_count do
     PendingOperation |> Ash.read!(authorize?: false) |> length()
+  end
+
+  # 行已删除：Ash.get 对不存在的主键回 NotFound（不是 {:ok, nil}）
+  defp assert_deleted(event_id) do
+    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}} =
+             Ash.get(Event, event_id, authorize?: false)
   end
 
   # 草稿活动（不经 EventFixtures 的 force_open——launch 路径需要 draft 起点）
@@ -215,7 +224,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     {learner, enrollment}
   end
 
-  describe "授权：非 Owner/Admin 对活动五件写工具 forbidden" do
+  describe "授权：非 Owner/Admin 对活动六件写工具 forbidden" do
     test "plain member / tutor / learner 撞工具层判定；非成员撞 member 门" do
       owner = Fixtures.platform_admin("s3-ev-authz-owner")
       workspace = Fixtures.create_workspace(owner)
@@ -238,10 +247,17 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       }
 
       for {tool_name, module} <- @event_write_tools do
+        # #676：delete_event 是收窄面（Owner ∪ 平台管理员，admin 不放行），
+        # 文案与其余五件的 "owner or admin required" 刻意不同；非成员门不变。
+        denial =
+          if tool_name == "delete_event",
+            do: "owner or platform admin required",
+            else: "owner or admin required"
+
         for {user, expected} <- [
-              {member, "owner or admin required"},
-              {tutor, "owner or admin required"},
-              {learner, "owner or admin required"},
+              {member, denial},
+              {tutor, denial},
+              {learner, denial},
               {outsider, "not a member"}
             ] do
           assert {:error, %Anubis.MCP.Error{message: msg}, _} =
@@ -1210,6 +1226,110 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
       assert msg =~ "cannot close from status=draft"
       assert pending_count() == 0
+    end
+  end
+
+  describe "delete_event（#676 draft 删除；Owner ∪ 平台管理员）" do
+    test "两段式：摘要含不可恢复与 slug；confirm 后行删除并回传 event_id/title/slug" do
+      owner = Fixtures.platform_admin("s3-ev-del-owner")
+      workspace = Fixtures.create_workspace(owner)
+      event = draft_event(workspace, owner, %{title: "错建活动", slug: "s3-ev-del-draft"})
+
+      assert {:reply, _, _} =
+               reply =
+               DeleteEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      assert payload["summary"] =~ "不可恢复"
+      assert payload["summary"] =~ event.slug
+
+      # 无副作用：第一段不落库
+      assert Ash.get!(Event, event.id, authorize?: false).status == :draft
+
+      assert {:reply, _, _} =
+               confirm_reply =
+               ConfirmOperation.execute(
+                 %{"pending_id" => payload["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirm_reply)["result"]
+      assert result["event_id"] == event.id
+      assert result["title"] == "错建活动"
+      assert result["slug"] == "s3-ev-del-draft"
+
+      assert_deleted(event.id)
+
+      [log] = tool_logs_for(owner.id, "delete_event")
+      assert log.result_status == :needs_confirmation
+    end
+
+    test "非 draft 快速失败（open → 报错不建 pending）" do
+      owner = Fixtures.platform_admin("s3-ev-del-open")
+      workspace = Fixtures.create_workspace(owner)
+      event = open_event(workspace, owner)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               DeleteEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      assert msg =~ "cannot delete from status=open"
+      assert msg =~ "仅 draft 可删除"
+      assert pending_count() == 0
+      assert Ash.get!(Event, event.id, authorize?: false).status == :open
+    end
+
+    test "权限矩阵：admin ❌ / learner ❌ / 成员平台管理员 ✅" do
+      owner = Fixtures.platform_admin("s3-ev-del-matrix")
+      workspace = Fixtures.create_workspace(owner)
+
+      admin_only = Fixtures.register_user("s3-ev-del-admin")
+      Fixtures.add_member(workspace, admin_only, [:admin])
+      learner = Fixtures.register_user("s3-ev-del-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+
+      admin_event = draft_event(workspace, owner, %{slug: "s3-ev-del-admin-event"})
+      learner_event = draft_event(workspace, owner, %{slug: "s3-ev-del-learner-event"})
+
+      for {user, event} <- [{admin_only, admin_event}, {learner, learner_event}] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 DeleteEvent.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id},
+                   frame_for(user)
+                 )
+
+        assert msg =~ "owner or platform admin required"
+        assert msg =~ "delete events"
+        assert Ash.get!(Event, event.id, authorize?: false).status == :draft
+      end
+
+      assert pending_count() == 0
+
+      # 成员平台管理员（无 owner 角色）走收窄面的平台管理员分支
+      platform = Fixtures.platform_admin("s3-ev-del-platform")
+      Fixtures.add_member(workspace, platform, [])
+      platform_event = draft_event(workspace, owner, %{slug: "s3-ev-del-platform-event"})
+
+      assert {:reply, _, _} =
+               reply =
+               DeleteEvent.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => platform_event.id},
+                 frame_for(platform)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+
+      {:reply, _, _} =
+        ConfirmOperation.execute(%{"pending_id" => payload["pending_id"]}, frame_for(platform))
+
+      assert_deleted(platform_event.id)
     end
   end
 
