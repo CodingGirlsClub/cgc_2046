@@ -504,7 +504,10 @@ defmodule Cgc2046.Admission.Enrollment do
 
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+
+      # #547：管理面行级过滤见 ActorManagesEnrollmentWorkspace 的 moduledoc；
+      # platform_admin 跨租户全局面是有意设计，保持 SimpleCheck。
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesEnrollmentWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
