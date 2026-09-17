@@ -57,12 +57,22 @@ describe("MaterialRenderer", () => {
     fireEvent.click(play);
     const iframe = container.querySelector("iframe");
     expect(iframe).not.toBeNull();
-    expect(iframe!.getAttribute("src")).toBe("https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&page=1");
+    expect(iframe!.getAttribute("src")).toBe("https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&page=1&autoplay=1");
     expect(iframe!.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-presentation");
     expect(iframe!.getAttribute("loading")).toBe("lazy");
     expect(iframe!.getAttribute("referrerpolicy")).toBe("no-referrer");
     // 点击后原链接仍常驻
     expect(container.querySelector('a[href="https://www.bilibili.com/video/BV1xx411c7mD"]')).not.toBeNull();
+  });
+
+  it("autoPlay mounts the iframe immediately without the cover button", () => {
+    render(<MaterialRenderer material={{ kind: "video", title: "讲解视频", provider: "bilibili", external_id: "BV1xx411c7mD" }} autoPlay />);
+    const container = screen.getByTestId("course-material-video");
+    const iframe = container.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    expect(iframe!.getAttribute("src")).toBe("https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&page=1&autoplay=1");
+    expect(iframe!.getAttribute("allow")).toContain("autoplay");
+    expect(screen.queryByTestId("course-material-video-play")).toBeNull();
   });
 
   it("video: bad BV id degrades to unavailable hint", () => {

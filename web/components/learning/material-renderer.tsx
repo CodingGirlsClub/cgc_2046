@@ -69,7 +69,7 @@ function markdownToSafeHtml(source: string): string {
   return out.join("");
 }
 
-export function MaterialRenderer({ material }: { material: TypedMaterial }) {
+export function MaterialRenderer({ material, autoPlay = false }: { material: TypedMaterial; autoPlay?: boolean }) {
   const t = useTranslations("material");
   const title = material.title || t("title");
   const [imageState, setImageState] = useState<"loading" | "loaded" | "error">("loading");
@@ -117,10 +117,11 @@ export function MaterialRenderer({ material }: { material: TypedMaterial }) {
         </a>
       ) : <span data-testid="course-material-unavailable">{title}{t("providerUnavailable")}</span>;
     }
-    const src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(material.external_id)}&page=1`;
+    // autoplay=1 对点击按钮挂载的路径无副作用：挂载即播放，浏览器策略拦截时 B 站播放器退化为手动播放键
+    const src = `https://player.bilibili.com/player.html?bvid=${encodeURIComponent(material.external_id)}&page=1&autoplay=1`;
     return (
       <div className="learning-material learning-material--video" data-testid="course-material-video">
-        {playing ? (
+        {playing || autoPlay ? (
           <iframe
             title={title}
             src={src}
