@@ -441,7 +441,7 @@ globalThis.CSS = {
 // learn_boot_and_inject/learn_ugc_injection:宿主会话输入框(contenteditable DIV,
 // 前者预置草稿验追加保护,后者空草稿纯指令)+ 发送按钮
 const __domById = {};
-if (scenario === "learn_boot_and_inject" || scenario === "learn_ugc_injection") {
+if (scenario === "learn_boot_and_inject" || scenario === "learn_ugc_injection" || scenario === "learn_chapter_cards") {
   const __input = el("div");
   __input.textContent = scenario === "learn_boot_and_inject" ? "我的补充问题草稿" : "";
   const __send = el("button");
@@ -979,6 +979,25 @@ globalThis.fetch = async (url, opts) => {
     }
   }
   if (path.startsWith("/api/ext/cgc-2046/learning_state")) {
+    // 章节 accordion + 任务卡上下文:三章数据(ch-1 当前),issue-1 带 story
+    // 材料 + objective 材料(materialsOf 双源),issue-2 的 obj-3 锁定
+    if (scenario === "learn_chapter_cards") {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          ok: true,
+          result: {
+            objectives: [
+              { id: "obj-1", title: "读懂数据类型", mastery: "developing", attempt_count: 0, required: true, locked: false, ever_mastered: false, issue_id: "issue-1" },
+              { id: "obj-3", title: "锁定目标", mastery: "unstarted", attempt_count: 0, required: true, locked: true, ever_mastered: false, issue_id: "issue-2" }
+            ],
+            progress: { mastered_required: 0, total_required: 2, complete: false },
+            next_action: { objective_id: "obj-1", reason: "从这里开始" },
+            review_queue: []
+          }
+        })
+      };
+    }
     if (scenario === "learn_ugc_injection") {
       return {
         ok: true, status: 200,
@@ -1018,6 +1037,51 @@ globalThis.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => ({ ok: true, result: { version: 1, issues: [], course_title: "零成员公开课" } }) };
   }
   if (path.startsWith("/api/ext/cgc-2046/courses/") && path.endsWith("/revision")) {
+    if (scenario === "learn_chapter_cards") {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          ok: true,
+          result: {
+            revision_number: 2,
+            chapters: [
+              { id: "ch-1", title: "第一章 变量与类型" },
+              { id: "ch-2", title: "第二章 控制流" }
+            ],
+            issues: [
+              {
+                id: "issue-1", kind: "thoughtwork", title: "变量与类型入门", chapter_id: "ch-1",
+                story: {
+                  as_a: "零基础学员", given: ["已完成环境配置"], goal: "能独立解释变量类型并选对类型声明",
+                  materials: [{ kind: "web", title: "类型图解讲义", url: "https://example.com/types" }],
+                  checklist: [{ id: "c1", text: "读讲义" }]
+                },
+                objectives: [
+                  {
+                    id: "obj-1", title: "读懂数据类型", required: true,
+                    activity: "阅读讲义并完成类型判断练习",
+                    assessment: "口头说明三个类型的区别",
+                    rubric: [
+                      { id: "r1", text: "能说出 int 与 float 的区别" },
+                      { id: "r2", text: "能给变量选对类型声明" }
+                    ],
+                    materials: [{ kind: "text", title: "判断练习模板", body: "x 是什么类型:___" }],
+                    prereq_ids: []
+                  }
+                ]
+              },
+              {
+                id: "issue-2", kind: "handwork", title: "流程控制实操", chapter_id: "ch-2",
+                story: { as_a: "学员", given: [], goal: "独立写出分支逻辑", materials: [], checklist: [] },
+                objectives: [
+                  { id: "obj-3", title: "锁定目标", required: true, activity: "实操", assessment: "", rubric: [{ id: "r3", text: "产物可运行" }], materials: [], prereq_ids: ["obj-1"] }
+                ]
+              }
+            ]
+          }
+        })
+      };
+    }
     return { ok: true, status: 200, json: async () => ({ ok: true, result: null }) };
   }
 
@@ -1110,6 +1174,7 @@ async function waitFor(cond, ms = 2000) {
   // session.aside 面板(admin-aside/learn/tutor-aside)走 mount 捕获,不经 registerWorkspace
   const MOUNT_SCENARIOS = { admin_aside: 1, admin_aside_ugc: 1, admin_aside_mcp_error: 1,
     learn_boot_and_inject: 1, learn_ugc_injection: 1, learn_quote_course_id: 1,
+    learn_chapter_cards: 1,
     learn_malformed_next_action: 1, tutor_aside_boot: 1, tutor_aside_malformed: 1,
     tutor_aside_mcp_error: 1 };
   const { spec } = globalThis.__registered || {};
@@ -1294,7 +1359,7 @@ async function waitFor(cond, ms = 2000) {
     const failed = Object.entries(checks).filter(([, v]) => !v);
     if (failed.length > 0) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
-      console.error("html: " + html.slice(0, 1200));
+      console.error("html: " + html.slice(0, 6000));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
@@ -1986,6 +2051,60 @@ async function waitFor(cond, ms = 2000) {
       console.error("FAIL: " + failed.map(([k]) => k).join(", "));
       console.error("html: " + html.slice(0, 800));
       console.error("input: " + afterLearnText.slice(0, 300));
+      process.exit(1);
+    }
+    console.log("OK " + scenario + " " + JSON.stringify(checks));
+    return;
+  }
+  // 章节 accordion + 任务卡上下文(第一刀):章分组/当前章展开/计数/卡内容
+  // (kicker·goal·activity·rubric·assessment)/材料双源(story + objective)/
+  // 锁定无注入点/行 toggle 不崩/卡内 CTA 注入链完整
+  if (scenario === "learn_chapter_cards") {
+    const mounted = globalThis.__mounted || {};
+    if (typeof mounted.cb !== "function") { console.error("FAIL: mount 未捕获回调"); process.exit(1); }
+    const container = el("div");
+    mounted.cb(container, { agentProfile: "cgc-assistant", sessionId: "s-cc" });
+    await sleep(150);
+
+    const panel = container.children[0];
+    const html = container.innerHTML;
+    const input = __domById["user-input"];
+
+    const row1 = panel.querySelectorAll("[data-obj-toggle]").filter(function (r) {
+      return r.getAttribute("data-obj-toggle") === "obj-1";
+    })[0];
+    ((row1 && row1.listeners.click) || []).forEach(function (fn) { fn(); });
+
+    const cta = panel.querySelectorAll("[data-inject]").filter(function (b) {
+      return b.getAttribute("data-inject") === "obj-1" && !b.getAttribute("data-review");
+    })[0];
+    ((cta && cta.listeners.click) || []).forEach(function (fn) { fn(); });
+    const afterText = input ? input.textContent : "";
+
+    const checks = {
+      chapters_rendered: html.indexOf("第一章 变量与类型") >= 0 && html.indexOf("第二章 控制流") >= 0,
+      current_chapter_open: html.indexOf('open data-chapter="ch-1"') >= 0,
+      other_chapter_closed: html.indexOf('open data-chapter="ch-2"') < 0,
+      chapter_counts: html.indexOf('cgla-chap-count">0/1<') >= 0 && html.indexOf("未分组") < 0,
+      objective_inside_chapter: html.indexOf('data-objective="obj-1"') > html.indexOf('data-chapter="ch-1"'),
+      card_kicker_with_kind: html.indexOf("第一章 变量与类型 · 变量与类型入门") >= 0 && html.indexOf("理解型") >= 0,
+      card_goal: html.indexOf("能独立解释变量类型并选对类型声明") >= 0,
+      card_activity: html.indexOf("阅读讲义并完成类型判断练习") >= 0,
+      card_rubric_lines: html.indexOf("能说出 int 与 float 的区别") >= 0 && html.indexOf("能给变量选对类型声明") >= 0,
+      card_story_material: html.indexOf("类型图解讲义") >= 0,
+      card_objective_material: html.indexOf("判断练习模板") >= 0,
+      card_assessment: html.indexOf("口头说明三个类型的区别") >= 0,
+      locked_no_inject: html.indexOf('data-inject="obj-3"') < 0,
+      row_toggle_click_safe: !!row1,
+      cta_injects_with_id: afterText.indexOf("objective_id: obj-1") >= 0,
+      cta_instruction_appended: afterText.indexOf("读懂数据类型") >= 0,
+      send_clicked: (globalThis.__sendClicked || 0) > 0,
+    };
+    const failed = Object.entries(checks).filter(([, v]) => !v);
+    if (failed.length > 0) {
+      console.error("FAIL: " + failed.map(([k]) => k).join(", "));
+      console.error("html: " + html.slice(0, 6000));
+      console.error("input: " + afterText.slice(0, 300));
       process.exit(1);
     }
     console.log("OK " + scenario + " " + JSON.stringify(checks));
