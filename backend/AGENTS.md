@@ -8,6 +8,7 @@ This is a web application written using the Phoenix web framework.
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 - **License gate:** any new Hex dependency must be AGPL-3.0-compatible (permissive or MPL-2.0/LGPL-3.0+/EPL-2.0); **forbidden**: GPL-2.0, SSPL, BUSL, Elastic, proprietary, unlicensed. CI runs `mix cgc2046.check_licenses`; when unsure, open an issue first (see `docs/开源合规/依赖引入规则.md`)
 - **错误码契约（#241）**：业务错误 code 单源 = domain 层 `domain_error_code` 显式子句与 `code: "..."` 字面量，AST 提取生成 `priv/error_codes_contract.json`。新增/改名 code 后运行 `mix cgc2046.gen_error_codes_contract` 再生成（CI `--check` + 测试守卫新鲜度）；用户可见的 code 同步补 `web/messages/*.json` errors namespace 与 `miniprogram/src/domain/error-copy.ts` 文案（两端 contract test 断言键 ⊆ 契约）。需要文案的 reason 不得依赖兜底动态拼接——先显式子句化
+- **教研内容契约四层同步（#677 复盘）**：改 `lib/cgc_2046/curriculum/content.ex` 形状契约（含新增字段、收紧校验、调整嵌套位置）时，四层必须同 PR 过一遍：① `playbooks.ex` 教研起草规则 ② MCP 工具 description（`save_course_content` 等）③ 入库校验（ContentValidation）④ 发布门禁（PrepGate）。教学面（①②）必须写**嵌套位置与完整形状**（如「checklist 嵌在 story 内，不是卡顶层」），只列字段清单不点位置，agent 会按直觉填错；校验层错误文案必须透出具体违规（`shape_violations`/`objective_violations` 并入 message），折叠成一句通用文案会让调用方失去自纠能力。事故存档：2026-09-17 两起同构——typed materials 收紧（29cef352）未同步教学面，三门课 44 次提交全灭于 checklist 位置（#677）；chapters 四层无一提及，49 卡 0 章节发布（76409c3b）
 
 ### Phoenix v1.8 guidelines
 
