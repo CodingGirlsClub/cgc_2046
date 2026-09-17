@@ -262,13 +262,26 @@ export function cancelRefundRuleText(paymentMode: EnrollmentSummary['paymentMode
 /* ---------------- 押金场支付前同意（资金动作门） ---------------- */
 
 /**
+ * 展示金额守卫（#627 引入，本模块为小程序端单源；#675 收敛到此）：
+ * **只有正整数**算有效金额，缺失 / 0 / 负 / **小数分** / 非数值一律 null——调用方据此退化
+ * 为不表态形态（押金 →「押金（金额待定）」），**绝不显示 ¥0 / ¥0.00**。
+ *
+ * `Number.isInteger` 是必要的一半：后端以「分」为整数单位，`0.4` 经 `formatAmount`
+ * 会四舍五入成 `¥0.00`（实测）——与 web `lib/payment.ts#positiveAmountOrNull` 同判据。
+ * 后端已按同判据降级（`Offering.deposit_amount_cents/1`，#586），此处是展示层兜底。
+ */
+export function positiveAmountOrNull(cents: number | null | undefined): number | null {
+  return typeof cents === 'number' && Number.isInteger(cents) && cents > 0 ? cents : null
+}
+
+/**
  * 押金金额行（单源）：详情页缴费块与支付页同意块共用同一出口，杜绝两处口径漂移。
- * 金额缺失/非正 → 降级「押金（到场退）」不出价，绝不显示 ¥0.00。
+ * 脏金额（缺失/0/负/非整数分）→ 不表态「押金（金额待定）」（与 web #627/#675 同一句），
+ * 绝不显示 ¥0.00。
  */
 function depositAmountLine(amountCents: number | null): string {
-  return typeof amountCents === 'number' && Number.isFinite(amountCents) && amountCents > 0
-    ? `押金 ¥${formatAmount(amountCents)}（到场退）`
-    : '押金（到场退）'
+  const cents = positiveAmountOrNull(amountCents)
+  return cents === null ? '押金（金额待定）' : `押金 ¥${formatAmount(cents)}（到场退）`
 }
 
 /** 押金场支付前同意块文案（与 web checkout.depositForfeit / depositAckLabel 同口径） */
@@ -333,8 +346,8 @@ export interface PaymentBlockCopy {
 }
 
 /**
- * 详情页缴费块文案（R10）。押金态：金额可缺（后端校验要求正金额，缺额时降级为
- * 「押金（到场退）」不出价——绝不显示 ¥0.00），且说明行明示「未到场不退」；
+ * 详情页缴费块文案（R10）。押金态：金额可缺（后端校验要求正金额，缺额/脏值时降级为
+ * 「押金（金额待定）」不出价——绝不显示 ¥0.00），且说明行明示「未到场不退」；
  * 定价态透传档位（金额在档位行上，无可售档时给出联系组织者兜底）；免费态仅「免费」。
  */
 export function paymentBlockCopy(input: {

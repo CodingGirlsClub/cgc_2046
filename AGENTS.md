@@ -26,7 +26,7 @@ Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architect
 
 ### Worktree 编排 SOP
 
-worktree agent 只改文件与自证，`.git` 写操作（add/commit/push/PR）归编排侧；重建走索引层 3-way（不 rebase）、落地链 fail-closed。见 `docs/agents/worktree-orchestration.md`。
+worktree agent 改文件与自证、可在 worktree 内本地 commit；push / PR / merge / 分支引用归编排者（沙箱能力以当场实测为准，被拒即回落只改文件）；重建走索引层 3-way（不 rebase）、落地链 fail-closed。见 `docs/agents/worktree-orchestration.md`。
 
 ### E2E validation
 

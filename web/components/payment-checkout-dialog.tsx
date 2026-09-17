@@ -44,6 +44,7 @@ import {
   formatAmount,
   formatAmountShort,
   parseOrderKind,
+  positiveAmountOrNull,
   type CredentialDispatch,
   type OrderPollStatus,
 } from "@/lib/payment";
@@ -129,6 +130,8 @@ export default function PaymentCheckoutDialog({
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("checkout");
+  // 押金不表态文案单源在 `offerings`（#675，与公开页/报名页同句）
+  const tOfferings = useTranslations("offerings");
   const labelsT = useTranslations();
   // 开框统一 checking：先查活单拿订单快照口径（orderKind）再定 consent/paying
   // （#580）——押金门不再由活动实时配置预判
@@ -361,12 +364,19 @@ export default function PaymentCheckoutDialog({
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
   // 押金口径（#580）：订单就绪 → 只认订单快照 orderKind；未就绪（无活单的
-  // consent 预判路径）→ 押金场存在性（#686：depositEnabled，金额不参与识别）。
-  // 说明行金额同源：快照优先、现价兜底。
+  // consent 预判路径）→ 押金场存在性（#686：depositEnabled，金额不参与识别——
+  // 脏金额绝不让押金单掉进非押金分支连披露门都不出）。说明行金额同源：快照
+  // 优先、现价兜底，且表态过守卫（#675）：脏金额 → 「押金（金额待定）」。
   const isDepositCheckout =
     order?.orderKind === "deposit" ||
     (order === null && depositEnabled);
-  const depositNoteCents = order?.amountCents ?? depositAmountCents;
+  // 脏金额（缺失/0/负/非整数分）→ null → 说明行「押金（金额待定）」（#675）；
+  // 框头金额同步不显示（既有 null 分支），绝不出现「¥0.00」。识别不读金额
+  // （#686：depositEnabled 定门），脏金额只影响表态不影响门。
+  const depositNoteCents = positiveAmountOrNull(
+    order?.amountCents ?? depositAmountCents,
+  );
+  const headerAmountCents = positiveAmountOrNull(amountCents);
 
   return (
     <div
@@ -390,9 +400,9 @@ export default function PaymentCheckoutDialog({
             <h2>{t("title")}</h2>
             <p className="mt-1 text-[13px] leading-5 text-ink-3">
               {[title, tierName].filter(Boolean).join(" · ") || t("orderFallback")}
-              {amountCents != null ? (
+              {headerAmountCents !== null ? (
                 <span className="ml-2 font-medium text-ink">
-                  ¥{formatAmount(amountCents)}
+                  ¥{formatAmount(headerAmountCents)}
                 </span>
               ) : null}
             </p>
@@ -429,9 +439,11 @@ export default function PaymentCheckoutDialog({
             className="rounded-large border border-line bg-soft-2 px-3 py-2 text-[13px] leading-5 text-ink-2"
             data-testid="checkout-deposit-note"
           >
-            {t("depositLine", {
-              amount: formatAmountShort(depositNoteCents ?? 0),
-            })}
+            {depositNoteCents === null
+              ? tOfferings("paymentSlotDepositUnknown")
+              : t("depositLine", {
+                  amount: formatAmountShort(depositNoteCents),
+                })}
             <span className="ml-2 text-ink-3">{t("depositForfeit")}</span>
           </p>
         ) : !isDepositCheckout && amountHintCents != null ? (
