@@ -1245,6 +1245,11 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       payload = decode_reply(reply)
       assert payload["status"] == "needs_confirmation"
       assert payload["summary"] =~ "不可恢复"
+
+      # #688 连带披露：主理人指派 + 讲者邀请（draft 合法）+ 邀请批次 + 留痕
+      assert payload["summary"] =~ "主理人指派"
+      assert payload["summary"] =~ "讲者邀请记录"
+      assert payload["summary"] =~ "留痕"
       assert payload["summary"] =~ event.slug
 
       # 无副作用：第一段不落库
