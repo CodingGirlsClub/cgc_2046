@@ -10,6 +10,7 @@
 .approvalSummary { display: block; margin-top: 7rpx; color: #4b4d54; font-size: 22rpx; }
 .urgentText { color: #d92d20; }
 .subscribe { margin: 0; color: #ea5504; background: #fdeadf; border-radius: 25rpx; font-size: 21rpx; }
+.subscribeGroup { display: flex; flex-direction: column; align-items: flex-end; gap: 10rpx; }
 .approvalCard { margin-bottom: 18rpx; padding: 24rpx; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 20rpx; }
 .urgentCard { border: 2rpx solid #fda29b; background: #fffafa; }
 .tags { display: flex; gap: 10rpx; }
