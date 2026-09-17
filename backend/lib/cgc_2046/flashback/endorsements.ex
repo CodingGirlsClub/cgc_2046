@@ -5,12 +5,14 @@ defmodule Cgc2046.Flashback.Endorsements do
   - 幂等：已附议再点 = 更新可认领角色（附议计数不重复 +1）；
   - `consented_at` 记录订阅授权时点（成场通知的配额锚点，U7/U9 消费——
     web 端拿不到小程序订阅授权，按 KTD5 通道分派退回邮件/短信）；
+  - 首条附议触发 `proposed → forming`（U7 状态机，R13 卡亮起的第一个可见
+    下一步）；
   - 卡不存在 → `flashback_card_not_found`（不泄露存在性区分）。
   """
 
   require Ash.Query
 
-  alias Cgc2046.Flashback.{ActionCard, Endorsement, Tokens}
+  alias Cgc2046.Flashback.{ActionCards, ActionCard, Endorsement, Tokens}
 
   @roles ~w(organizer promoter venue)
 
@@ -68,8 +70,13 @@ defmodule Cgc2046.Flashback.Endorsements do
     })
     |> Ash.create(authorize?: false)
     |> case do
-      {:ok, endorsement} -> {:ok, payload(card, endorsement, true)}
-      {:error, reason} -> {:error, reason}
+      {:ok, endorsement} ->
+        # 首条附议：proposed → forming（幂等，已 forming 时静默通过）。
+        {:ok, updated_card} = ActionCards.advance_to_forming(card)
+        {:ok, payload(updated_card, endorsement, true)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

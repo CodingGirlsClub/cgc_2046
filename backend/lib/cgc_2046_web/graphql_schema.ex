@@ -2309,6 +2309,54 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    @desc "闪念间·管理员建卡（U7/R13，PlatformAdmin）：从 Want/Give 导出人工挑卡（pilot 无自动聚类）；建卡即上墙（proposed 态）"
+    field :flashback_admin_create_card, :flashback_action_card_result do
+      arg(:title, non_null(:string))
+      arg(:city, :string)
+      arg(:proposer_person_id, :id)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.ActionCards.create_card(actor, to_string_keys(args))
+          end)
+        end)
+      end)
+    end
+
+    @desc "闪念间·管理员确认成场（U7/KTD5，PlatformAdmin）：forming → scheduled + 完整 Event 编排（建 draft → 回填 event_id → :launch 到 open → 置 scheduled → 入队成场通知）；initiativeSlug 必填（1024 立项），workspaceId 缺省走默认工作台"
+    field :flashback_admin_schedule_card, :flashback_action_card_result do
+      arg(:card_id, non_null(:id))
+      arg(:initiative_slug, non_null(:string))
+      arg(:workspace_id, :id)
+      arg(:title, :string)
+      arg(:starts_at, :datetime)
+      arg(:venue, :json)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.ActionCards.schedule(actor, args.card_id, to_string_keys(args))
+          end)
+        end)
+      end)
+    end
+
+    @desc "闪念间·管理员回贴 done（U7/R13，PlatformAdmin）：scheduled → done；活动照片 data-URL（MIME 白名单 + ~3MB 上限）与回顾文字上墙"
+    field :flashback_admin_mark_card_done, :flashback_action_card_result do
+      arg(:card_id, non_null(:id))
+      arg(:photo_url, :string)
+      arg(:recap, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.ActionCards.mark_done(actor, args.card_id, to_string_keys(args))
+          end)
+        end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -3070,6 +3118,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:skipped, non_null(:integer))
   end
 
+  object :flashback_action_card_result do
+    field(:id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:city, :string)
+    @desc "proposed | forming | scheduled | done"
+    field(:status, non_null(:string))
+    field(:event_id, :id)
+    @desc "成场后卡的报名按钮直链该 Event 的公开 slug"
+    field(:event_slug, :string)
+    @desc "done 态回贴的活动照片（data-URL 或 http(s) URL）"
+    field(:photo_url, :string)
+    @desc "done 态回贴的回顾文字"
+    field(:recap, :string)
+  end
+
   input_object :flashback_today_input do
     @desc "「今天的你」问卷（R8）：四个自由文本 + Want/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
     field(:now_status, :string)
@@ -3115,6 +3178,14 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # 动员勾选拍平 → mobilization map（存储形状单一，前端不必拼 JSON）。
+  # 闪念间 admin mutation 的 atom 键 args → string 键 params（域层统一 string 键）。
+  defp to_string_keys(%{} = args) do
+    Map.new(args, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      {k, v} -> {k, v}
+    end)
+  end
+
   defp today_params(input) do
     %{
       now_status: Map.get(input, :now_status),

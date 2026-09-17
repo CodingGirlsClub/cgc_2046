@@ -42,6 +42,7 @@ export const ALL_SCENARIOS = [
   'event_qualification_underfilled',
   'event_schedule_changed',
   'event_moderator_assigned',
+  'flashback_action_scheduled',
   'speaker_accepted',
   'speaker_completed',
   'learning_stagnation',
@@ -163,6 +164,23 @@ export function courseCardTouchpoint(): SubscriptionTouchpoint {
     label: '订阅学习提醒',
     scenarios: ['learning_stagnation'],
     acceptedCopy: '已订阅，学习进度停滞时会提醒你',
+    deniedCopy: '你暂未授权，可稍后再试'
+  }
+}
+
+/**
+ * 闪念间成场通知（U7 `flashback_action_scheduled`）的唯一近似落点：活动卡
+ * （pages/my-enrollments 的 event 卡）。正主落点是 U9「我的闪念间 · 已附议」
+ * 页——落地后本触点迁移并更新此注释。附议本身发生在 web 首程（token 面），
+ * 小程序内先以「已报名过活动的人顺手授权」承接。
+ */
+export function eventCardFlashbackTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/my-enrollments/index（活动卡）',
+    trigger: '活动报名者点按订阅按钮',
+    label: '订阅成场通知',
+    scenarios: ['flashback_action_scheduled'],
+    acceptedCopy: '已订阅，你附议的场次成真时会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }

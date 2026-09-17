@@ -191,7 +191,9 @@ if config_env() == :prod do
       "event_qualification_underfilled" =>
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
       "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "flashback_action_scheduled" =>
+        System.get_env("WECHAT_MP_TEMPLATE_FLASHBACK_ACTION_SCHEDULED")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -216,7 +218,9 @@ if config_env() == :prod do
       "event_qualification_underfilled" =>
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
       "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "flashback_action_scheduled" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_FLASHBACK_ACTION_SCHEDULED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -241,7 +245,8 @@ if config_env() == :prod do
       "event_qualification_underfilled" =>
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
       "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "flashback_action_scheduled" => System.get_env("XHS_MP_TEMPLATE_FLASHBACK_ACTION_SCHEDULED")
     }
   }
 

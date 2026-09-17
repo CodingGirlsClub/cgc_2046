@@ -2184,6 +2184,21 @@ export type FlashbackActionCard = {
   title: Scalars['String']['output'];
 };
 
+export type FlashbackActionCardResult = {
+  city?: Maybe<Scalars['String']['output']>;
+  eventId?: Maybe<Scalars['ID']['output']>;
+  /** 成场后卡的报名按钮直链该 Event 的公开 slug */
+  eventSlug?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  /** done 态回贴的活动照片（data-URL 或 http(s) URL） */
+  photoUrl?: Maybe<Scalars['String']['output']>;
+  /** done 态回贴的回顾文字 */
+  recap?: Maybe<Scalars['String']['output']>;
+  /** proposed | forming | scheduled | done */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+};
+
 export type FlashbackAdjustFogResult = {
   answerId: Scalars['ID']['output'];
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
@@ -4268,6 +4283,12 @@ export type RootMutationType = {
   dismissOnboardingInvitation?: Maybe<User>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
+  /** 闪念间·管理员建卡（U7/R13，PlatformAdmin）：从 Want/Give 导出人工挑卡（pilot 无自动聚类）；建卡即上墙（proposed 态） */
+  flashbackAdminCreateCard?: Maybe<FlashbackActionCardResult>;
+  /** 闪念间·管理员回贴 done（U7/R13，PlatformAdmin）：scheduled → done；活动照片 data-URL（MIME 白名单 + ~3MB 上限）与回顾文字上墙 */
+  flashbackAdminMarkCardDone?: Maybe<FlashbackActionCardResult>;
+  /** 闪念间·管理员确认成场（U7/KTD5，PlatformAdmin）：forming → scheduled + 完整 Event 编排（建 draft → 回填 event_id → :launch 到 open → 置 scheduled → 入队成场通知）；initiativeSlug 必填（1024 立项），workspaceId 缺省走默认工作台 */
+  flashbackAdminScheduleCard?: Maybe<FlashbackActionCardResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认领角色）；角色 organizer/promoter/venue */
@@ -4605,6 +4626,30 @@ export type RootMutationTypeFlashbackAdjustFogArgs = {
   answerId: Scalars['ID']['input'];
   spans: Array<FlashbackFogSpanInput>;
   token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminCreateCardArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
+  proposerPersonId?: InputMaybe<Scalars['ID']['input']>;
+  title: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminMarkCardDoneArgs = {
+  cardId: Scalars['ID']['input'];
+  photoUrl?: InputMaybe<Scalars['String']['input']>;
+  recap?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootMutationTypeFlashbackAdminScheduleCardArgs = {
+  cardId: Scalars['ID']['input'];
+  initiativeSlug: Scalars['String']['input'];
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  venue?: InputMaybe<Scalars['Json']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 
