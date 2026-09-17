@@ -61,6 +61,11 @@ describe("/initiatives 公开列表页", () => {
 	it("AE3：open 与 closed 都列出、open 在前、卡片字段与链接正确", async () => {
 		render(<InitiativeIndexPage />);
 
+		// 顶导「倡导活动」高亮当前目录页（aria-current + active 类）
+		expect(
+			screen.getByRole("link", { name: "倡导活动" }),
+		).toHaveAttribute("aria-current", "page");
+
 		const openLink = await screen.findByRole("link", {
 			name: /Hackerstart 1024 全国黑客松/,
 		});

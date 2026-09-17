@@ -2004,6 +2004,31 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     expect((screen.getByTestId("deposit-amount-input") as HTMLInputElement).value).toBe("69");
   });
 
+  // #675：脏金额（缺失/0/负/非整数分）不表态——绝不显示「押金 ¥0（到场退）」，
+  // 也绝不把押金场读成免费（#586 红线）。押金**场次识别**仍走 depositEnabled。
+  it.each([
+    ["null", null],
+    ["0", 0],
+    ["负数", -6900],
+    ["非整数分", 0.4],
+  ])("AE8+：押金金额脏（%s）→ 缴费槽「押金（金额待定）」，无 ¥0、无「免费」", async (_label, dirty) => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: dirty,
+        endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(within(card).getByText("押金（金额待定）")).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+    expect(card.textContent).not.toContain("免费");
+  });
+
+
   it("AE8：定价场缴费槽显示「收费 档位 ¥xx」（无「免费」并列）", async () => {
     await renderManageDetail(
       "event",
@@ -2797,6 +2822,32 @@ describe("倡导活动规则面板（#596）", () => {
     ).toHaveTextContent("默认规则");
   });
 
+  // #675：施加态规则摘要同样是资金陈述——脏金额（缺失/0/非整数分）复用同一句
+  // 「押金（金额待定）」（不新增 key），不得出「押金：¥0（到场退）」，也不得把
+  // 「已开启」读成「未开启」（fail-open 成免费）。
+  it.each([
+    ["null", null],
+    ["0", 0],
+    ["非整数分", 0.4],
+  ])("施加态规则摘要：押金金额脏（%s）→「押金（金额待定）」，不出 ¥0 也不出「未开启」", async (_label, dirty) => {
+    stubRulesRead();
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        initiativeId: "init-1",
+        pricingEnabled: false,
+        depositEnabled: true,
+        depositAmountCents: dirty,
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
+      }),
+    );
+
+    const row = await screen.findByTestId("initiative-rule-deposit");
+    expect(row).toHaveTextContent("押金（金额待定）");
+    expect(row).not.toHaveTextContent("¥0");
+    expect(row).not.toHaveTextContent("未开启");
+  });
+
   it("挂载前预览：编辑页选中未保存的 Initiative 即显示规则（不改 Event 值）", async () => {
     stubRulesRead();
     await renderManageDetail("event", offeringRow({ pricingEnabled: false }));
@@ -3240,6 +3291,30 @@ describe("解除挂载语义（#624：保留值 + 来源标记 + 门槛输入）
     expect(
       await screen.findByTestId("initiative-detached-rule-deposit"),
     ).toHaveTextContent("押金：¥69（到场退）");
+  });
+
+  // #675：标记里的金额是脏值（0/非整数分）→ 行落「押金（金额待定）」，
+  // 绝不显示「押金：¥0（到场退）」（键缺席走「已开启」，见上一用例）。
+  it.each([
+    ["0", 0],
+    ["非整数分", 0.4],
+  ])("detach 标记的押金金额脏（%s）→「押金（金额待定）」，不编造 ¥0", async (_label, dirty) => {
+    const depositMarker = JSON.stringify({
+      initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+      fields: {
+        deposit_enabled: { value: true, source: "locked" },
+        deposit_amount_cents: { value: dirty, source: "locked" },
+      },
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: depositMarker }),
+    );
+
+    const row = await screen.findByTestId("initiative-detached-rule-deposit");
+    expect(row).toHaveTextContent("押金（金额待定）");
+    expect(row).not.toHaveTextContent("¥0");
   });
 
   it("detach 来源标记：逐字段渲染「来自已解除的倡导活动」并带 data-state 钩子", async () => {

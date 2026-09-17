@@ -58,7 +58,7 @@ import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
 import {
   COURSE_PAYMENT_MODES,
   PAYMENT_MODES,
@@ -394,14 +394,18 @@ function InitiativeRulesPanel({
   const minParticipants = ruleOf<{ count?: number }>(rules, "min_participants");
   const deadlineRule = ruleOf<{ hours_before_start?: number }>(rules, "deadline_rule");
 
-  const depositAmountCents =
+  // #675：押金行三态（未开启 / 金额待定 / ¥xx）。开关态与金额分开取：脏金额
+  // （缺失/0/负/非整数分）只让**金额**不表态，绝不把「已开启」读成「未开启」
+  // （fail-open 成免费，正是 #586 红线）。管理面与产品面共用同一守卫、同一句。
+  const depositRuleEnabled =
     mode === "preview"
-      ? deposit?.value?.enabled
-        ? (deposit.value.amount_cents ?? 0)
-        : null
-      : applied?.depositEnabled
-        ? (applied.depositAmountCents ?? 0)
-        : null;
+      ? Boolean(deposit?.value?.enabled)
+      : Boolean(applied?.depositEnabled);
+  const depositAmountCents = depositRuleEnabled
+    ? positiveAmountOrNull(
+        mode === "preview" ? deposit?.value?.amount_cents : applied?.depositAmountCents,
+      )
+    : null;
 
   const minAge = mode === "preview" ? (ageGate?.value?.min_age ?? null) : (applied?.minAge ?? null);
 
@@ -441,8 +445,10 @@ function InitiativeRulesPanel({
       </span>
       <ul className="mt-1 space-y-0.5 text-sm text-ink">
         <li data-testid="initiative-rule-deposit">
-          {depositAmountCents !== null
-            ? t("initiativeRuleDeposit", { amount: formatAmountShort(depositAmountCents) })
+          {depositRuleEnabled
+            ? depositAmountCents !== null
+              ? t("initiativeRuleDeposit", { amount: formatAmountShort(depositAmountCents) })
+              : t("paymentSlotDepositUnknown")
             : t("initiativeRuleDepositOff")}
           <RuleSourceTag ruleKey="deposit" locked={deposit?.locked ?? null} />
         </li>
@@ -528,7 +534,11 @@ function DetachedRuleProvenancePanel({
   // 只陈述仍被标记的开关本身（值以标记为准，不读 Event 现值，以免把场主已改的
   // 金额算回平台来源）。
   const depositEnabledMarked = "deposit_enabled" in f;
-  const depositCents = numberOf(f.deposit_amount_cents);
+  const depositAmountMarked = "deposit_amount_cents" in f;
+  // #675：金额过守卫——标记里带脏值（0/负/缺失值）时行文案落「押金（金额待定）」，
+  // 绝不显示「押金：¥0（到场退）」。键**缺席**（场主已改写清除）仍走「已开启」，
+  // 只陈述仍被标记的开关本身（见上）。
+  const depositCents = positiveAmountOrNull(numberOf(f.deposit_amount_cents));
   const minAge = numberOf(f.min_age);
   const minCount = numberOf(f.min_participants);
   const deadline = textOf(f.registration_deadline);
@@ -538,22 +548,26 @@ function DetachedRuleProvenancePanel({
   if (depositEnabledMarked && f.deposit_enabled?.value === true) {
     rows.push({
       key: "deposit",
+      text: depositAmountMarked
+        ? depositCents !== null
+          ? t("initiativeRuleDeposit", {
+              amount: formatAmountShort(depositCents),
+            })
+          : t("paymentSlotDepositUnknown")
+        : t("initiativeRuleDepositOn"),
+    });
+  } else if (depositEnabledMarked) {
+    rows.push({ key: "deposit", text: t("initiativeRuleDepositOff") });
+  } else if (depositAmountMarked) {
+    // 防御（后端不会产生只有金额键的标记）：只陈述金额，不推断开关
+    rows.push({
+      key: "deposit",
       text:
         depositCents !== null
           ? t("initiativeRuleDeposit", {
               amount: formatAmountShort(depositCents),
             })
-          : t("initiativeRuleDepositOn"),
-    });
-  } else if (depositEnabledMarked) {
-    rows.push({ key: "deposit", text: t("initiativeRuleDepositOff") });
-  } else if (depositCents !== null) {
-    // 防御（后端不会产生只有金额键的标记）：只陈述金额，不推断开关
-    rows.push({
-      key: "deposit",
-      text: t("initiativeRuleDeposit", {
-        amount: formatAmountShort(depositCents),
-      }),
+          : t("paymentSlotDepositUnknown"),
     });
   }
   if (minAge !== null) {
@@ -1128,6 +1142,10 @@ export function OfferingDetailPage({
   // 的场押金由规则提供；Web 侧读不到 per-rule 锁态（AdminInitiativeRule 仅平台
   // 管理员可读），故按「挂载 + 押金已开启」呈现为只读来源。
   const paymentMode = offering ? paymentModeOf(offering) : "free";
+  // 押金金额表态统一过守卫（#675）：脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
+  // 绝不显示 ¥0。押金**场次识别**仍走 `paymentMode`（存在性），不接守卫——否则脏金额
+  // 会把押金场读成免费/无缴费（#586 红线）。
+  const depositCents = positiveAmountOrNull(offering?.depositAmountCents);
   const initiativeGovernsDeposit =
     kind === "event" && offering?.initiativeId != null;
   const initiativeName = offering?.initiativeId
@@ -1825,11 +1843,11 @@ export function OfferingDetailPage({
                       不再出现「收费：免费」与「押金：¥69」并列 */}
                   <Field label={t("fieldPaymentMode")}>
                     {paymentMode === "deposit"
-                      ? t("paymentSlotDeposit", {
-                          amount: formatAmountShort(
-                            offering.depositAmountCents ?? 0,
-                          ),
-                        })
+                      ? depositCents === null
+                        ? t("paymentSlotDepositUnknown")
+                        : t("paymentSlotDeposit", {
+                            amount: formatAmountShort(depositCents),
+                          })
                       : paymentMode === "pricing"
                         ? t("paymentSlotPricing", {
                             overview:

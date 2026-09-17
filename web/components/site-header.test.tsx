@@ -69,7 +69,7 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		const labels = Array.from(nav.querySelectorAll("a")).map((a) =>
 			a.textContent.trim(),
 		);
-		expect(labels).toEqual(["活动", "课程", "我的报名", "我的学习"]);
+		expect(labels).toEqual(["活动", "课程", "我的报名", "我的学习", "倡导活动"]);
 		expect(
 			screen.getByRole("link", { name: "我的报名" }),
 		).toHaveAttribute("href", "/participations");
@@ -86,5 +86,9 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		expect(
 			screen.queryByRole("link", { name: /我的学习/ }),
 		).not.toBeInTheDocument();
+		// 倡导活动是公开目录：匿名也可见（与活动/课程同列公开入口）
+		expect(
+			screen.getByRole("link", { name: "倡导活动" }),
+		).toHaveAttribute("href", "/initiatives");
 	});
 });
