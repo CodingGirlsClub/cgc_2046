@@ -75,6 +75,16 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       unique: :default,
       stale: nil
     },
+    # 核销码就绪 → 报名学员本人（#546）：与 enrollment_completed 同信号同幂等键，
+    # 靠 template_key/data 不同的 args 各自入队；course 报名无码（生产方不发）。
+    %{
+      template_key: "enrollment_check_in_code",
+      id_key: nil,
+      data_keys: ["check_in_code", "enrollment_id", "title"],
+      job_meta_keys: ["enrollment_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
     # Speaker 接受邀请 → workspace Owner/Admin：不重查。
     %{
       template_key: "speaker_accepted",

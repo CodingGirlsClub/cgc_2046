@@ -17,11 +17,12 @@ defmodule Cgc2046.Mcp.ConfirmationDispatchTest do
   alias Cgc2046.Mcp.Wrapper
 
   # 确认流工具精确名单（two-tool 写族：成员管理 3 + 平台治理 6 + 工作台管理面 10
-  # + 课程教研流程 3）
+  # + 课程教研流程 3 + 押金补救 1（#545））
   @confirmation_tools ~w(create_invitation approve_join_request assign_roles) ++
                         ~w(admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user admin_create_initiative admin_update_initiative admin_open_initiative admin_close_initiative admin_cancel_initiative admin_upsert_initiative_rule) ++
                         ~w(update_course launch_course close_course cancel_course update_event launch_event close_event cancel_event confirm_enrollment reject_enrollment waive_payment refund_order retry_refund update_join_policy) ++
-                        ~w(update_prep_policy override_prep_gate approve_prep)
+                        ~w(update_prep_policy override_prep_gate approve_prep) ++
+                        ~w(unforfeit_order)
 
   defp registered_tools do
     Server.__components__(:tool) |> Map.new(fn tool -> {tool.name, tool.handler} end)

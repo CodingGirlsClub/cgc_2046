@@ -11,6 +11,10 @@
     FISH_AUDIO_MODEL     可选，请求 header 的模型 id（默认 s2-pro）
     FISH_AUDIO_SPEED     可选，语速倍率（prosody.speed，1=原速，1.08≈快一点）；
                          不设或等于 1 时不发送 prosody 字段，行为与旧版一致
+    FISH_AUDIO_TEMPERATURE  可选，采样温度（官方默认 0.7；调低如 0.4 更稳定，
+                         降低随机串音/瞬态幻觉率）；不设则不发送该字段
+    FISH_AUDIO_TOP_P     可选，nucleus 采样阈值（官方默认 0.7；调低如 0.5
+                         进一步收窄采样分布）；不设则不发送该字段
 
 零第三方依赖（只用标准库），口播文本走文件传入，避免 shell/JSON 双重转义。
 """
@@ -45,6 +49,12 @@ def main() -> None:
     speed = float(os.environ.get("FISH_AUDIO_SPEED", "1") or 1)
     if speed != 1:
         body["prosody"] = {"speed": speed, "volume": 0, "normalize_loudness": True}
+    temperature = os.environ.get("FISH_AUDIO_TEMPERATURE", "").strip()
+    if temperature:
+        body["temperature"] = float(temperature)
+    top_p = os.environ.get("FISH_AUDIO_TOP_P", "").strip()
+    if top_p:
+        body["top_p"] = float(top_p)
     # Fish Audio OpenAPI 把 model 定义为请求 header，不是 JSON body 字段。
     model = os.environ.get("FISH_AUDIO_MODEL", "s2-pro")
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, fireEvent } from "@testing-library/react";
+import { cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import AdminAuditPage from "./page";
 
@@ -69,6 +69,66 @@ const adminActionLogs = [
 		targetId: "ws-abcdef123456",
 		result: "success",
 		insertedAt: "2026-08-03T00:00:00Z",
+		// #607：未收录的 action → 读面 null（无默认透传）
+		metadata: null,
+	},
+];
+
+/** #607 治理 metadata 白名单投影行的三种形态（改值 / 新建 / 含省略） */
+const ruleChangeLogs = [
+	{
+		id: "rule-update",
+		actorId: "admin-1",
+		action: "initiative_rule_update",
+		targetType: "initiative",
+		targetId: "init-update-1234",
+		result: "success",
+		insertedAt: "2026-08-04T00:00:00Z",
+		metadata: {
+			ruleKey: "deposit",
+			locked: true,
+			lockedBefore: false,
+			valueBeforeJson: '{"enabled":true,"amount_cents":6900}',
+			valueAfterJson: '{"enabled":true,"amount_cents":9900}',
+			valueBeforeOmitted: false,
+			valueAfterOmitted: false,
+		},
+	},
+	{
+		id: "rule-create",
+		actorId: "admin-1",
+		action: "initiative_rule_update",
+		targetType: "initiative",
+		targetId: "init-create-5678",
+		result: "success",
+		insertedAt: "2026-08-05T00:00:00Z",
+		metadata: {
+			ruleKey: "min_participants",
+			locked: false,
+			lockedBefore: null,
+			valueBeforeJson: null,
+			valueAfterJson: '{"count":8}',
+			valueBeforeOmitted: false,
+			valueAfterOmitted: false,
+		},
+	},
+	{
+		id: "rule-omitted",
+		actorId: "admin-1",
+		action: "initiative_rule_update",
+		targetType: "initiative",
+		targetId: "init-omit-9012",
+		result: "success",
+		insertedAt: "2026-08-06T00:00:00Z",
+		metadata: {
+			ruleKey: "weird_key",
+			locked: false,
+			lockedBefore: false,
+			valueBeforeJson: '{"hours_before_start":72}',
+			valueAfterJson: '{"hours_before_start":48}',
+			valueBeforeOmitted: true,
+			valueAfterOmitted: true,
+		},
 	},
 ];
 
@@ -202,6 +262,81 @@ describe("/admin/audit 审计仪表盘", () => {
 				first: 50,
 			}),
 		);
+	});
+
+	it("#607 治理操作 tab：变更列渲染规则前后态，非规则行渲染 —", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchAdminActionLogs.mockResolvedValue([...ruleChangeLogs, ...adminActionLogs]);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		fireEvent.click(screen.getByRole("button", { name: /治理操作/ }));
+		await screen.findAllByText("规则变更");
+
+		// 变更列 = locked + 值键（键序 = 后端白名单序，前端不抄清单）
+		const before = screen.getAllByTestId("audit-change-before");
+		const after = screen.getAllByTestId("audit-change-after");
+		// 仅 3 行有白名单投影；第 4 行（workspace_create）metadata 为 null → 整格 "—"
+		expect(before).toHaveLength(3);
+		expect(after).toHaveLength(3);
+
+		// [0] 改值 + 翻锁
+		expect(before[0]).toHaveTextContent("locked=false, enabled=true, amount_cents=6900");
+		expect(after[0]).toHaveTextContent("locked=true, enabled=true, amount_cents=9900");
+		// 副标识 = 规则中文名 + 目标短 ID
+		expect(screen.getByText("押金规则 · init-upd")).toBeInTheDocument();
+
+		// [1] :create → before 渲染「新建」（不是 —，也不是空）
+		expect(before[1]).toHaveTextContent("新建");
+		expect(after[1]).toHaveTextContent("locked=false, count=8");
+		expect(screen.getByText("成班阈值 · init-cre")).toBeInTheDocument();
+
+		// [2] 未知规则键 → 副标识回退原串（不静默丢信息）
+		expect(screen.getByText("weird_key · init-omi")).toBeInTheDocument();
+
+		// 非白名单 action（metadata null）→ 变更列 "—"（与「新建」区分）
+		const nonRuleRow = screen.getByText("创建工作台").closest("tr");
+		expect(nonRuleRow).not.toBeNull();
+		expect(within(nonRuleRow as HTMLElement).getByText("—")).toBeInTheDocument();
+	});
+
+	it("#607 省略标记：白名单外字段以 … 标出并带可读说明", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		// 只留「含省略」行，避免多行同名标记干扰
+		fetchAdminActionLogs.mockResolvedValue([ruleChangeLogs[2]]);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		fireEvent.click(screen.getByRole("button", { name: /治理操作/ }));
+		await screen.findAllByText("规则变更");
+
+		const after = screen.getByTestId("audit-change-after");
+		expect(after).toHaveTextContent("locked=false, hours_before_start=48 …");
+
+		const marks = within(after).getAllByLabelText("白名单外字段未展示");
+		expect(marks).toHaveLength(1);
+		expect(marks[0]).toHaveAttribute("title", "白名单外字段未展示");
+	});
+
+	it("#607 变更列仅治理操作 tab 渲染（其它 tab 列数不变）", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchAdminActionLogs.mockResolvedValue(ruleChangeLogs);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		// 默认 tool tab：时间 / 标识 / 状态
+		expect(screen.getAllByRole("columnheader")).toHaveLength(3);
+
+		fireEvent.click(screen.getByRole("button", { name: /治理操作/ }));
+		await screen.findAllByText("规则变更");
+
+		// 治理操作 tab：时间 / 标识 / 变更 / 状态
+		const headers = screen.getAllByRole("columnheader");
+		expect(headers).toHaveLength(4);
+		expect(headers.map((h) => h.textContent)).toEqual(["时间", "标识", "变更", "状态"]);
 	});
 
 	it("ToolCallLog workspace 过滤也传 workspaceId（D5 JSONB）", async () => {

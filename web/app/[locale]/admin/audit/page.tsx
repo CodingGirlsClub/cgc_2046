@@ -81,9 +81,22 @@ interface AuditRow {
 	identity: string;
 	/** identity 为 admin messages key（治理操作 action 名），渲染时需 t() */
 	identityKey?: boolean;
-	/** 副标识（仅 PendingOperation 的 summary） */
+	/** 副标识（PendingOperation 的 summary；#607 起治理操作行也用它放「规则名 · 目标短 ID」） */
 	summary?: string | null;
+	/** 副标识的 i18n key（#607 规则变更行的规则名）；有值时渲染 t() 而非 summary 本身 */
+	summaryKey?: string;
 	status: string;
+	/** #607 变更列（仅治理操作 tab 渲染）；before === null ⇔ 新建规则 */
+	change?: {
+		/** 变更前规则值 JSON；null ⇔ 新建 */
+		before: string | null;
+		after: string;
+		/** 变更前锁定态；新建时为 null */
+		lockedBefore: boolean | null;
+		locked: boolean;
+		beforeOmitted: boolean;
+		afterOmitted: boolean;
+	};
 }
 
 function toolCallToRow(log: AdminToolCallLog): AuditRow {
@@ -134,16 +147,63 @@ const ACTION_LABEL: Record<string, string> = {
 	admin_demote: "actionAdminDemote",
 	owner_reassign: "actionOwnerReassign",
 	owner_invitation_cancel: "actionOwnerInvitationCancel",
+	initiative_rule_update: "actionInitiativeRuleUpdate",
 };
 
+/** #607 规则键 → admin messages key（未知规则键回退原串） */
+const RULE_KEY_LABEL: Record<string, string> = {
+	deposit: "ruleDeposit",
+	age_gate: "ruleAgeGate",
+	min_participants: "ruleMinParticipants",
+	deadline_rule: "ruleDeadlineRule",
+};
+
+/** 规则值原语渲染；对象/数组回退 JSON 原文（当前四项规则值都是标量） */
+function formatRuleValue(value: unknown): string {
+	if (value === null || value === undefined) return "null";
+	if (typeof value === "object") return JSON.stringify(value);
+	return String(value);
+}
+
+/**
+ * #607 规则态快照 → "locked=<b>, key=value, key=value"（**结构化**，非 JSON 原文）。
+ * `locked` 置首（锁翻转是独立的审计维度）；值键序 = 后端二级白名单次序
+ * （JSON.parse 保序）→ 前端无键名清单可漂移。
+ * `locked === null` 时**不补默认值**（审计面不许编造状态）；全空 → "—"。
+ */
+function formatRuleState(json: string, locked: boolean | null): string {
+	const entries = Object.entries(JSON.parse(json) as Record<string, unknown>);
+	const parts = [
+		...(locked === null ? [] : [`locked=${locked}`]),
+		...entries.map(([key, value]) => `${key}=${formatRuleValue(value)}`),
+	];
+	return parts.length === 0 ? "—" : parts.join(", ");
+}
+
 function adminActionToRow(log: AdminActionLog): AuditRow {
+	const md = log.metadata;
+	const shortId = log.targetId.slice(0, 8);
+	const ruleLabelKey = md ? RULE_KEY_LABEL[md.ruleKey] : undefined;
+
 	return {
 		id: log.id,
 		time: log.insertedAt,
 		identity: ACTION_LABEL[log.action] ?? log.action,
 		identityKey: true,
-		summary: log.targetId.slice(0, 8),
+		// #607：规则变更行副标识 = 规则名 + 目标短 ID（未知规则键回退原串，不静默丢信息）
+		summary: ruleLabelKey || !md ? shortId : `${md.ruleKey} · ${shortId}`,
+		summaryKey: ruleLabelKey,
 		status: log.result,
+		change: md
+			? {
+					before: md.valueBeforeJson,
+					after: md.valueAfterJson,
+					lockedBefore: md.lockedBefore,
+					locked: md.locked,
+					beforeOmitted: md.valueBeforeOmitted,
+					afterOmitted: md.valueAfterOmitted,
+				}
+			: undefined,
 	};
 }
 
@@ -321,12 +381,14 @@ export default function AdminAuditPage() {
 			)}
 
 			{!loading && !error && rows && rows.length > 0 && (
-				<div className="admin-card admin-table-wrap">
+				<div className="admin-card admin-table-wrap" data-testid="audit-table-wrap">
 					<table className="admin-table">
 						<thead>
 							<tr>
 								<th>{t("thTime")}</th>
 								<th>{t("thId")}</th>
+								{/* #607：变更列仅治理操作 tab 渲染（其它 tab 无 metadata 投影） */}
+								{tab === "action" && <th>{t("thChange")}</th>}
 								<th>{t("thStatus")}</th>
 							</tr>
 						</thead>
@@ -343,9 +405,17 @@ export default function AdminAuditPage() {
 											{row.identityKey ? t(row.identity) : row.identity}
 										</span>
 										{row.summary && (
-											<span className="admin-table__sub">{row.summary}</span>
+											<span className="admin-table__sub">
+												{row.summaryKey ? `${t(row.summaryKey)} · ` : ""}
+												{row.summary}
+											</span>
 										)}
 									</td>
+									{tab === "action" && (
+										<td className="l-mono">
+											{renderChange(row, t("ruleChangeCreated"), t("ruleChangeOmitted"))}
+										</td>
+									)}
 									<td>{row.status}</td>
 								</tr>
 							))}
@@ -354,5 +424,40 @@ export default function AdminAuditPage() {
 				</div>
 			)}
 		</section>
+	);
+}
+
+/**
+ * #607 变更列：`<before> → <after>`，`before === null` 时渲染「新建」。
+ * 被白名单省略的一侧追加 `…`，带 title/aria-label 说明（不让读者以为那就是全部）。
+ * 无投影的行（其它 action）→ "—"。
+ */
+function renderChange(row: AuditRow, createdLabel: string, omittedLabel: string) {
+	if (!row.change) return "—";
+
+	const { before, after, lockedBefore, locked, beforeOmitted, afterOmitted } = row.change;
+
+	return (
+		<>
+			<span data-testid="audit-change-before">
+				{before === null ? createdLabel : formatRuleState(before, lockedBefore)}
+				{beforeOmitted && <OmittedMark label={omittedLabel} />}
+			</span>
+			{/* 箭头不加 aria-hidden：两侧快照需要可读分隔，否则读屏会把前后态连成一串 */}
+			<span> → </span>
+			<span data-testid="audit-change-after">
+				{formatRuleState(after, locked)}
+				{afterOmitted && <OmittedMark label={omittedLabel} />}
+			</span>
+		</>
+	);
+}
+
+function OmittedMark({ label }: { label: string }) {
+	return (
+		// role="note"：aria-label 在 generic role 上不被暴露为可访问名（只有裸 " …" 会被读出）
+		<span className="admin-table__omitted" role="note" title={label} aria-label={label}>
+			{" …"}
+		</span>
 	);
 }

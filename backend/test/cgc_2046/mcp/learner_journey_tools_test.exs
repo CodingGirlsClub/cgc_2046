@@ -1141,4 +1141,191 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
              }
     end
   end
+
+  # ── #508 残余：list_attendances（核销记录读面，Owner/Admin 场次数据回收） ──
+
+  describe "list_attendances（#508）" do
+    alias Cgc2046.Admission.Attendance
+    alias Cgc2046.Mcp.Tools.ListAttendances
+
+    # 核销布置：免费场（无押金单）+ 两笔核销（owner 扫码 / 手输各一）
+    defp checked_in_event_with_learners(workspace, owner, prefix) do
+      event = EventFixtures.create_event(workspace, owner, %{})
+
+      learners =
+        for i <- 1..2 do
+          learner = Fixtures.register_user("la-#{prefix}-#{i}")
+
+          {:ok, enrollment} =
+            Enrollment
+            |> Ash.Changeset.for_create(:create_enrollment, %{
+              event_id: event.id,
+              user_id: learner.id
+            })
+            |> Ash.create(tenant: workspace.id, actor: learner)
+
+          {learner, enrollment}
+        end
+
+      for {{learner, enrollment}, method} <- Enum.zip(learners, [:scan, :manual]) do
+        assert {:ok, _} =
+                 Attendance
+                 |> Ash.Changeset.for_create(:check_in, %{
+                   event_id: event.id,
+                   code: enrollment.check_in_code,
+                   method: method
+                 })
+                 |> Ash.create(tenant: workspace.id, actor: owner)
+      end
+
+      {event, learners}
+    end
+
+    test "Owner 读核销记录：两行含报名人摘要/状态/方式/操作人，免费场无押金单状态" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      {event, learners} = checked_in_event_with_learners(workspace, owner, "free")
+
+      assert {:reply, _, _} =
+               reply =
+               ListAttendances.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+
+      assert payload["event_id"] == event.id
+      assert payload["count"] == 2
+      assert payload["total_count"] == 2
+
+      rows = payload["attendances"]
+      assert length(rows) == 2
+
+      for row <- rows do
+        assert row["enrollment_status"] == "confirmed"
+        # 免费场：无押金单 → nil（不编造）
+        assert row["deposit_order_status"] == nil
+        assert row["method"] in ["scan", "manual"]
+        assert row["checked_in_at"]
+        # 操作人 = owner；报名人摘要带邮箱
+        assert row["operator"]["id"] == owner.id
+        assert row["user"]["email"]
+      end
+
+      methods = rows |> Enum.map(& &1["method"]) |> Enum.sort()
+      assert methods == ["manual", "scan"]
+
+      assert Enum.sort(Enum.map(learners, &elem(&1, 0).id)) ==
+               Enum.sort(Enum.map(rows, & &1["user"]["id"]))
+    end
+
+    test "押金场核销即退：行带押金单状态 refunding（一屏对账）" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+
+      event =
+        EventFixtures.create_event(workspace, owner, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: DateTime.add(DateTime.utc_now(), 48, :hour),
+          registration_deadline: DateTime.add(DateTime.utc_now(), 24, :hour)
+        })
+
+      learner = Fixtures.register_user("la-dep-learner")
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: learner.id})
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      Cgc2046.Payments.Order
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          enrollment_id: enrollment.id,
+          order_kind: :deposit,
+          provider: :wechat_native,
+          out_trade_no: Ecto.UUID.generate(),
+          amount_cents: 6900,
+          tier_snapshot: %{},
+          expire_at: DateTime.add(DateTime.utc_now(), 3600)
+        }
+      )
+      |> Ash.create!(authorize?: false, tenant: workspace.id)
+      |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: Ecto.UUID.generate()})
+      |> Ash.update!(authorize?: false, tenant: workspace.id)
+
+      enrollment
+      |> Ash.Changeset.for_update(:settle_paid, %{})
+      |> Ash.update!(authorize?: false, tenant: workspace.id)
+
+      assert {:ok, _} =
+               Attendance
+               |> Ash.Changeset.for_create(:check_in, %{
+                 event_id: event.id,
+                 code: enrollment.check_in_code,
+                 method: :scan
+               })
+               |> Ash.create(tenant: workspace.id, actor: owner)
+
+      assert {:reply, _, _} =
+               reply =
+               ListAttendances.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert [%{"deposit_order_status" => "refunding"} | _] = payload["attendances"]
+    end
+
+    test "非管理角色成员 forbidden；他租户 event 与不存在同一 not found" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      {event, _} = checked_in_event_with_learners(workspace, owner, "gate")
+
+      member = Fixtures.register_user("la-member")
+      Fixtures.add_member(workspace, member, [:learner])
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               ListAttendances.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(member)
+               )
+
+      assert msg =~ "forbidden: owner or admin required"
+
+      other_ws = Fixtures.create_workspace(Fixtures.platform_admin("la-other-admin"))
+
+      # 非成员调他台：Wrapper member 门先拒（fail-closed，语义同 list_enrollments）
+      assert {:error, %Anubis.MCP.Error{message: member_gate}, _} =
+               ListAttendances.execute(
+                 %{"workspace_id" => other_ws.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      assert member_gate =~ "forbidden"
+    end
+
+    test "域 read policy：Owner 本租户可读（#508 拓宽）；他租户 Owner 不可读" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      {event, _} = checked_in_event_with_learners(workspace, owner, "policy")
+
+      assert {:ok, rows} =
+               Attendance
+               |> Ash.Query.filter(event_id == ^event.id)
+               |> Ash.read(actor: owner, tenant: workspace.id)
+
+      assert length(rows) == 2
+
+      other_owner = Fixtures.register_user("la-other-ws-owner")
+      other_ws = Fixtures.create_workspace(Fixtures.platform_admin("la-policy-other"))
+      Fixtures.add_member(other_ws, other_owner, [:owner])
+
+      # filter-based policy：他租户 Owner 读本台记录 → 过滤为空集（非布尔拒绝；
+      # 「读不到任何行」与 Forbidden 同为不泄露语义）
+      assert {:ok, []} =
+               Attendance
+               |> Ash.Query.filter(event_id == ^event.id)
+               |> Ash.read(actor: other_owner, tenant: other_ws.id)
+    end
+  end
 end

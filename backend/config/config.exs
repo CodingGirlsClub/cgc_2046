@@ -89,6 +89,8 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_reminder" => "dev-wechat-event-reminder",
     "enrollment_submitted" => "dev-wechat-enrollment-submitted",
     "enrollment_completed" => "dev-wechat-enrollment-completed",
+    # #546 核销码通知
+    "enrollment_check_in_code" => "dev-wechat-enrollment-check-in-code",
     "speaker_accepted" => "dev-wechat-speaker-accepted",
     "speaker_completed" => "dev-wechat-speaker-completed",
     "learning_stagnation" => "dev-wechat-learning-stagnation",
@@ -110,6 +112,8 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_reminder" => "dev-tt-event-reminder",
     "enrollment_submitted" => "dev-tt-enrollment-submitted",
     "enrollment_completed" => "dev-tt-enrollment-completed",
+    # #546 核销码通知
+    "enrollment_check_in_code" => "dev-tt-enrollment-check-in-code",
     "speaker_accepted" => "dev-tt-speaker-accepted",
     "speaker_completed" => "dev-tt-speaker-completed",
     "learning_stagnation" => "dev-tt-learning-stagnation",
@@ -131,6 +135,8 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_reminder" => "dev-xhs-event-reminder",
     "enrollment_submitted" => "dev-xhs-enrollment-submitted",
     "enrollment_completed" => "dev-xhs-enrollment-completed",
+    # #546 核销码通知
+    "enrollment_check_in_code" => "dev-xhs-enrollment-check-in-code",
     "speaker_accepted" => "dev-xhs-speaker-accepted",
     "speaker_completed" => "dev-xhs-speaker-completed",
     "learning_stagnation" => "dev-xhs-learning-stagnation",
