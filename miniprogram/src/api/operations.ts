@@ -467,7 +467,7 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
       cityCount eventCount confirmedCount qualifiedEventCount
       cities {
         city
-        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy }
+        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy paymentMode deposit { enabled amountCents refundableOnCheckIn } minAge priceRangeMinCents }
       }
     }
   }

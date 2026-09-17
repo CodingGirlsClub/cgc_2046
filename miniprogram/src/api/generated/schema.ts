@@ -3635,12 +3635,23 @@ export type PublicInitiativeCity = {
   events: Array<PublicInitiativeEvent>;
 };
 
+/** 公开页押金明细（#627）：金额缺失/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0 */
+export type PublicInitiativeDeposit = {
+  amountCents?: Maybe<Scalars['Int']['output']>;
+  enabled: Scalars['Boolean']['output'];
+  refundableOnCheckIn?: Maybe<Scalars['Boolean']['output']>;
+};
+
 export type PublicInitiativeEvent = {
   archived: Scalars['Boolean']['output'];
   confirmedCount: Scalars['Int']['output'];
+  deposit: PublicInitiativeDeposit;
   endsAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
+  minAge?: Maybe<Scalars['Int']['output']>;
   minParticipants?: Maybe<Scalars['Int']['output']>;
+  paymentMode: Scalars['String']['output'];
+  priceRangeMinCents?: Maybe<Scalars['Int']['output']>;
   qualificationBadge: Scalars['String']['output'];
   qualificationStatus?: Maybe<Scalars['String']['output']>;
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;

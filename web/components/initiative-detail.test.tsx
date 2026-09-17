@@ -26,6 +26,11 @@ const BASE_EVENT = {
 	venue: null,
 	minParticipants: 8,
 	archived: false,
+	// 参与条件（#627）默认：免费 + 无年龄门槛（逐用例覆写）
+	paymentMode: "free",
+	deposit: { enabled: false, amountCents: null, refundableOnCheckIn: null },
+	minAge: null,
+	priceRangeMinCents: null,
 };
 
 function event(partial: Record<string, unknown>) {
@@ -314,5 +319,261 @@ describe("场次卡片报名口径（#593）", () => {
 		expect(cardFacts(/长沙站/).dts).not.toContain("Seats");
 		expect(document.querySelector(".initiative-page")!.textContent).not.toContain(" / ");
 		expect(screen.getByText("4 more needed to qualify")).toBeInTheDocument();
+	});
+});
+
+/**
+ * #627 参与条件披露：押金（必须，交易前提）/ 年龄门槛存在性 / 成班进度复用徽章。
+ * 单槽三态——绝不出现「免费」与「押金 ¥69」并列（R10/KTD10）。
+ */
+describe("参与条件披露（#627）", () => {
+	/** 单场 payload：把 BASE_EVENT 覆写成待测形态 */
+	function singleEvent(partial: Record<string, unknown>) {
+		return {
+			...PAYLOAD,
+			cityCount: 1,
+			eventCount: 1,
+			confirmedCount: 0,
+			qualifiedEventCount: 0,
+			cities: [{ city: "长沙市", events: [event(partial)] }],
+		};
+	}
+
+	function conditionBadge() {
+		return document.querySelector(".initiative-badge--condition")!.textContent;
+	}
+
+	it("押金态：金额 + 到场退 + 年龄门槛存在性（不投校验策略）", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({
+				paymentMode: "deposit",
+				deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true },
+				minAge: 18,
+			}),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("押金 ¥69（到场退） · 限 18+");
+	});
+
+	it("押金金额缺失：退化为不表态形态，绝不显示 ¥0（#586 守卫）", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({
+				paymentMode: "deposit",
+				deposit: { enabled: true, amountCents: null, refundableOnCheckIn: true },
+			}),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("押金（金额待定）");
+		expect(document.querySelector(".initiative-page")!.textContent).not.toContain("¥0");
+		expect(document.querySelector(".initiative-page")!.textContent).not.toContain("免费");
+	});
+
+	it("收费态：金额锚出「起」；金额锚缺失走降级文案", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({ paymentMode: "pricing", priceRangeMinCents: 9900, minAge: 21 }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("收费 ¥99 起 · 限 21+");
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({ paymentMode: "pricing", priceRangeMinCents: null }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		// D2：宁可多说一句，也不给一张光秃秃的卡片
+		expect(conditionBadge()).toBe("收费（档位以活动页为准）");
+	});
+
+	it("免费态：单槽只出「免费」，无年龄门槛时不带「限」；成班进度仍只在徽章", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({ paymentMode: "free", minParticipants: 8, qualificationBadge: "short_by", shortBy: 8 }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("免费");
+		expect(conditionBadge()).not.toContain("限");
+		// 成班进度复用既有徽章（#593）：条件行不出现第二个进度数字
+		expect(conditionBadge()).not.toContain("人成班");
+		expect(screen.getByText("还差 8 人成班")).toBeInTheDocument();
+	});
+
+	it("已取消留档场照常披露参与条件", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({
+				status: "cancelled",
+				archived: true,
+				qualificationBadge: "cancelled",
+				shortBy: null,
+				paymentMode: "deposit",
+				deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true },
+				minAge: 18,
+			}),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("押金 ¥69（到场退） · 限 18+");
+		expect(document.querySelector(".initiative-badge--cancelled")!.textContent).toBe("已取消");
+	});
+
+	it("en 逐字：Deposit / Paid from / Free / Age", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({
+				paymentMode: "deposit",
+				deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true },
+				minAge: 18,
+			}),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("Deposit ¥69 (refunded on attendance) · Age 18+");
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(
+			singleEvent({ paymentMode: "pricing", priceRangeMinCents: 9900 }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("Paid from ¥99");
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(singleEvent({ paymentMode: "free" }));
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(conditionBadge()).toBe("Free");
+		expect(conditionBadge()).not.toContain("Deposit");
+	});
+});
+
+/**
+ * F4：未知/缺失缴费态**不得 fail-open 成「免费」**——用默认值冒充事实正是 #586
+ * 的病根（把押金场说成免费）；F1：条件徽章必须独占一行，否则 360px 视口下
+ * `__head`（nowrap flex）会把标题挤到 0px（浏览器实测值见报告）。
+ */
+describe("F1 布局结构 + F4 未知缴费态（#627）", () => {
+	function single(partial: Record<string, unknown>) {
+		return {
+			...PAYLOAD,
+			cityCount: 1,
+			eventCount: 1,
+			confirmedCount: 0,
+			qualifiedEventCount: 0,
+			cities: [{ city: "长沙市", events: [event(partial)] }],
+		};
+	}
+
+	it("F1：条件徽章不在 __head 内（独占一行），成班徽章仍与标题同排", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			single({ qualificationBadge: "short_by", shortBy: 8 }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const card = document.querySelector(".public-catalog-card")!;
+		const head = card.querySelector(".public-catalog-card__head")!;
+		const condition = card.querySelector(".initiative-badge--condition")!;
+
+		// 结构判据：条件徽章是卡片（column flex）的直接子元素 → 独占一行
+		expect(head.contains(condition)).toBe(false);
+		expect(condition.parentElement).toBe(card);
+		// 成班徽章仍在 head 内（与标题同排），未被本次布局修复动到
+		expect(head.querySelector(".initiative-badge")).not.toBeNull();
+		expect(head.textContent).toContain("还差 8 人成班");
+	});
+
+	it("F4：未知/缺失 paymentMode 落「缴费信息待定」，不再冒充满费", async () => {
+		fetchPublicInitiative.mockResolvedValue(
+			single({ paymentMode: undefined, minAge: 18 }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const badge = document.querySelector(".initiative-badge--condition")!.textContent;
+		expect(badge).toBe("缴费信息待定 · 限 18+");
+		expect(badge).not.toContain("免费");
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(single({ paymentMode: "free" }));
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		// 显式 free 仍出「免费」（中性态不误伤真免费场）
+		expect(document.querySelector(".initiative-badge--condition")!.textContent).toBe("免费");
+	});
+
+	it("F5 客户端同纪律：minAge 非正不渲染门槛（陈旧 payload）", async () => {
+		for (const dirty of [0, -3]) {
+			fetchPublicInitiative.mockResolvedValue(single({ paymentMode: "free", minAge: dirty }));
+
+			render(<InitiativeDetail slug="hackerstart1024" />);
+			await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+			const badge = document.querySelector(".initiative-badge--condition")!.textContent;
+			expect(badge).toBe("免费");
+			expect(badge).not.toContain("限");
+			cleanup();
+		}
+	});
+
+	it("F4/F9 en：Payment info TBD / Deposit (amount TBD) / 降级句为陈述式", async () => {
+		fetchPublicInitiative.mockResolvedValue(single({ paymentMode: undefined }));
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-badge--condition")!.textContent).toBe(
+			"Payment info TBD",
+		);
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(
+			single({
+				paymentMode: "deposit",
+				deposit: { enabled: true, amountCents: null, refundableOnCheckIn: true },
+			}),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-badge--condition")!.textContent).toBe(
+			"Deposit (amount TBD)",
+		);
+
+		cleanup();
+		fetchPublicInitiative.mockResolvedValue(
+			single({ paymentMode: "pricing", priceRangeMinCents: null }),
+		);
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-badge--condition")!.textContent).toBe(
+			"Paid (tiers are listed on the event page)",
+		);
 	});
 });

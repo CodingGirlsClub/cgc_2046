@@ -147,10 +147,19 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
       accept([:avatar_url, :location, :about, :skills, :visibility])
 
       # P1-4 头像上传最小方案：data URL 限白名单 MIME + 体积上限；http(s) URL 限长度
+      # #680：validation 错误显式包 InvalidAttribute + 值摘要（keyword 错误路径会被
+      # Ash 强制 value: nil，MCP/日志渲染 `Value: nil`）。非字符串入参由 Ash 类型
+      # cast 先行拒绝（自带 `InvalidAttribute{value: 原值}`），此处只处理 binary。
       validate(fn changeset, _context ->
         case Ash.Changeset.get_attribute(changeset, :avatar_url) do
-          nil -> :ok
-          url -> validate_avatar_url(url)
+          nil ->
+            :ok
+
+          url ->
+            case validate_avatar_url(url) do
+              :ok -> :ok
+              {:error, message} -> {:error, avatar_error(message, url)}
+            end
         end
       end)
     end
@@ -169,25 +178,36 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
   @avatar_max_data_url_bytes 3_000_000
   @avatar_max_http_url_length 2048
 
+  # #680：显式异常 + 值摘要（Errors.ValueSummary 红线：只回显类型/长度，不回显
+  # 内容——data URL 可达 ~3MB）。DP2 依据（check 报告有原始探针输出）：
+  # `validate_avatar_url(_)` 兜底子句不可达——非字符串入参经 for_update 时 Ash
+  # cast 先失败、get_attribute 返回 nil，走上面的 :ok 分支。已按 AGENTS「删除废弃
+  # 路径」删除，不再保留防御层。
+  defp avatar_error(message, url) do
+    Ash.Error.Changes.InvalidAttribute.exception(
+      field: :avatar_url,
+      message: message,
+      value: %{"avatar_url" => Cgc2046.Errors.ValueSummary.describe(url)}
+    )
+  end
+
   defp validate_avatar_url("data:" <> rest) do
     case String.split(rest, ";", parts: 2) do
       [mime, "base64," <> _] ->
         cond do
           mime not in @avatar_allowed_mime ->
             {:error,
-             field: :avatar_url,
-             message:
-               "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
+             "avatar data URL MIME must be one of image/png, image/jpeg, image/webp, image/gif"}
 
           byte_size("data:" <> rest) > @avatar_max_data_url_bytes ->
-            {:error, field: :avatar_url, message: "avatar data URL too large (max ~2.2MB image)"}
+            {:error, "avatar data URL too large (max ~2.2MB image)"}
 
           true ->
             :ok
         end
 
       _ ->
-        {:error, field: :avatar_url, message: "avatar data URL must be base64-encoded image"}
+        {:error, "avatar data URL must be base64-encoded image"}
     end
   end
 
@@ -197,16 +217,13 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
         if byte_size(url) <= @avatar_max_http_url_length do
           :ok
         else
-          {:error, field: :avatar_url, message: "avatar URL too long (max 2048 chars)"}
+          {:error, "avatar URL too long (max 2048 chars)"}
         end
 
       true ->
-        {:error, field: :avatar_url, message: "avatarUrl must be a data URL or http(s) URL"}
+        {:error, "avatarUrl must be a data URL or http(s) URL"}
     end
   end
-
-  defp validate_avatar_url(_),
-    do: {:error, field: :avatar_url, message: "avatarUrl must be a string"}
 
   identities do
     identity(:unique_profile_per_workspace_user, [:workspace_id, :user_id])

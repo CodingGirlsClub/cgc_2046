@@ -37,17 +37,36 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
   文案形状（`database_error` / 已知 code 逐字不变、折叠无脚手架）由
   `test/cgc_2046/errors/database_error_test.exs` 的行为钉负责；本文件负责**结构**。
 
-  非目标：不扫 `lib/cgc_2046/`（domain）与 `lib/cgc_2046_web/`——GraphQL 面由
-  `AshGraphql.Error` impl 覆盖，domain 共享层由
-  `Cgc2046.Errors.DatabaseError.safe_message/2` 收口（见
-  `test/cgc_2046/errors/database_error_test.exs`）。
+  #680 追加一条（domain 源码级，编号沿用既有序列）：
+
+  8. `lib/cgc_2046/**` 不得返回 Ash keyword 错误（`{:error, field: ..., message: ...}`）
+     ——Ash 的 keyword 转换无条件写 `value: nil` + `has_value?: true`，渲染成
+     `Value: nil`（MCP 出口逐叶折叠后对 agent 真实可见，#677 事故同源）。
+     #680 收敛基线：AST 扫描命中 14 处 → DP2 删除 1 处不可达兜底
+     （workspace_profile 的 `validate_avatar_url(_)`）→ 13 处；DP6 再删 1 处不可达
+     空串分支（user.ex，Ash `:string` 默认把空白归一为 nil）→ 12 处全部显式化；
+     本守卫期望命中 0，且解析失败必须显式红（不静默跳过，见 keyword_field_error?/1）。
+     行为侧由 `test/cgc_2046/errors/invalid_attribute_value_render_test.exs` 的
+     12 行站点表钉。
+
+  非目标（#680 修订）：不扫 `lib/cgc_2046_web/`（GraphQL 面由 `AshGraphql.Error`
+  impl 覆盖）；`lib/cgc_2046/`（domain）只做第 8 条这一项**错误构造方式**扫描，
+  不做出口文本扫描。
   """
 
   use ExUnit.Case, async: true
 
   @mcp_root Path.expand("../../../lib/cgc_2046/mcp", __DIR__)
+  @domain_root Path.expand("../../../lib/cgc_2046", __DIR__)
   @egress_module "errors.ex"
   @egress_call "Cgc2046.Mcp.Errors.message("
+
+  # #680 收敛基线（有意识改动闸）：AST 全仓扫描命中 14 处 keyword 错误路径 →
+  # DP2 删除 1 处不可达兜底（workspace_profile 的 validate_avatar_url(_)）→ 13 处；
+  # DP6 再删 1 处不可达空串分支（user.ex）。本守卫期望命中恒为 0；12 与行为覆盖表
+  # （invalid_attribute_value_render_test.exs 的 @expected_site_count）双向联动，
+  # 改这个数 = 有意识改动。
+  @converted_keyword_error_sites 12
 
   # 域错误原样透传的形状（跨行：`{:error, x} ->\n  {:error, x}`）；#631 前唯一命中
   # = tools/start_learning_run.ex:53（token.ex 同名形状在 egress_scope? 之外，不扫）
@@ -245,6 +264,30 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
            "confirmation.ex 缺少「Invalid 包裹的 StaleRecord」子句（#631 D4）"
   end
 
+  test "8) domain 自定义校验不得返回 Ash keyword 错误（#680：keyword 转换无条件带 value: nil）" do
+    offenders =
+      @domain_root
+      |> Path.join("**/*.ex")
+      |> Path.wildcard()
+      |> Enum.filter(&keyword_field_error?/1)
+      |> Enum.map(&Path.relative_to(&1, @domain_root))
+      |> Enum.sort()
+
+    assert offenders == [],
+           "以下文件仍返回 keyword 错误（Ash 转换会强制 value: nil，MCP 出口渲染 " <>
+             "`Value: nil`，agent 会误判服务端读到 nil；#680 基线 #{@converted_keyword_error_sites} 处" <>
+             "已全部显式化，新增自定义校验请用 " <>
+             "Ash.Error.Changes.InvalidAttribute.exception(value: Cgc2046.Errors.ValueSummary.describe(...))）：" <>
+             inspect(offenders)
+
+    # 收敛基线两侧一致（有意识改动闸）：AST 基线数字 = 行为契约表行数。
+    # 增删站点表行必须同步改 @converted_keyword_error_sites，反之亦然。
+    assert length(Cgc2046.Errors.InvalidAttributeValueRenderTest.sites()) ==
+             @converted_keyword_error_sites,
+           "#680 收敛基线两侧不一致：AST 基线 #{@converted_keyword_error_sites} 处 vs " <>
+             "行为契约表 #{length(Cgc2046.Errors.InvalidAttributeValueRenderTest.sites())} 行"
+  end
+
   # 扫描视图 = 剥掉整行注释后的源码：注释里为了说明纪律写出 `Exception.message`
   # / `inspect(error)` 字面量不应被当成违规（判据只认可执行代码）。行内尾注释不剥，
   # 取向从严。
@@ -267,6 +310,32 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
   end
 
   defp inspect_count(source), do: source |> then(&Regex.scan(~r/\binspect\(/, &1)) |> length()
+
+  # #680 判据走 AST 而非按行 grep：`{:error, field: ...}` 的跨行写法
+  # （`{:error,\n  field: ...`，如 workspace_profile 的 MIME 分支）同样命中——
+  # 按行 grep 正是 issue 把 14 处漏成「3 处」的原因。
+  # 解析失败必须显式红（F2）：静默 skip 会让「守卫看不见的文件」变成假绿。
+  defp keyword_field_error?(path) do
+    case Code.string_to_quoted(File.read!(path)) do
+      {:ok, ast} ->
+        {_ast, found?} =
+          Macro.prewalk(ast, false, fn
+            {:error, kw} = node, acc when is_list(kw) ->
+              {node, acc or (Keyword.keyword?(kw) and Keyword.has_key?(kw, :field))}
+
+            node, acc ->
+              {node, acc}
+          end)
+
+        found?
+
+      {:error, reason} ->
+        flunk(
+          "domain 源码无法解析，守卫拒绝静默跳过（F2）：" <>
+            "#{Path.relative_to(path, @domain_root)}: #{inspect(reason)}"
+        )
+    end
+  end
 
   # 该行是否处于一次 Logger 调用内（多行 Logger.error("…" <> inspect(error)) 的
   # 续行本身不含 "Logger."，故回看 3 行）。
