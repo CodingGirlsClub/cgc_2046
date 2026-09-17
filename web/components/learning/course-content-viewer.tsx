@@ -169,6 +169,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   const { data: learningData } = useQuery(COURSE_LEARNING_DETAIL, { variables: { courseId } });
   /** 单元导航状态：null = 总览态；否则主区只渲染 issueKey 对应的单元内容 */
   const [active, setActive] = useState<{ chapterId: string; issueKey: string } | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   // 导航动作后回顶；跳过初挂载，避免覆盖浏览器刷新恢复的滚动位置
   const mounted = useRef(false);
   useEffect(() => {
@@ -201,13 +202,62 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   const objectiveStates = new Map<string, LearningObjectiveState>(
     (learningData?.courseLearningDetail?.objectives || []).map((objective) => [objective.id, objective]),
   );
+  const masterCount = objectives.filter((objective) => objectiveStates.get(objective.id ?? "")?.mastery === "mastered").length;
   const activeRows = active ? grouped.get(active.chapterId) : undefined;
   const activeIssueIndex = activeRows?.findIndex((issue, index) => issueKeyOf(issue, index) === active?.issueKey) ?? -1;
   const activeIssue = activeIssueIndex >= 0 ? activeRows?.[activeIssueIndex] : undefined;
   const activeChapterIndex = active ? [...grouped.keys()].indexOf(active.chapterId) : -1;
+  // 手机两页模型：目录页（总览）↔ 内容页（单元）；展平序供「上一单元/下一单元」跨章翻页
+  const flatUnits = [...grouped.entries()].flatMap(([chapterId, rows]) =>
+    rows.map((issue, issueIndex) => ({ chapterId, issueKey: issueKeyOf(issue, issueIndex) })));
+  const flatPos = active ? flatUnits.findIndex((unit) => unit.chapterId === active.chapterId && unit.issueKey === active.issueKey) : -1;
+  const prevUnit = flatPos > 0 ? flatUnits[flatPos - 1] : undefined;
+  const nextUnit = flatPos >= 0 && flatPos < flatUnits.length - 1 ? flatUnits[flatPos + 1] : undefined;
+  // 大纲树：桌面侧边栏与手机目录浮层共用；浮层内点选后收起（outlineOpen 在桌面恒 false，无副作用）
+  const outlineNav = (
+    <>
+      <div className="learning-reader__outline-group">
+        <button
+          type="button"
+          className={`learning-reader__outline-home${active ? "" : " is-active"}`}
+          onClick={() => {
+            setActive(null);
+            setOutlineOpen(false);
+          }}
+        >
+          {t("overview")}
+        </button>
+      </div>
+      {[...grouped.entries()].map(([chapterId, rows], index) => (
+        <div key={chapterId} className="learning-reader__outline-group">
+          <div className={`learning-reader__outline-chapter${active?.chapterId === chapterId ? " is-active" : ""}`}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            {chapterId === "_ungrouped" ? t("ungrouped") : chapterTitle.get(chapterId)}
+          </div>
+          {rows.map((issue, issueIndex) => {
+            const issueKey = issueKeyOf(issue, issueIndex);
+            return (
+              <a
+                key={issueKey}
+                href={`#course-issue-${issueKey}`}
+                className={active?.issueKey === issueKey ? "is-active" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setActive({ chapterId, issueKey });
+                  setOutlineOpen(false);
+                }}
+              >
+                {issue.title || issue.id}
+              </a>
+            );
+          })}
+        </div>
+      ))}
+    </>
+  );
 
   return (
-    <article className="learning-reader" data-testid="course-content-viewer">
+    <article className={`learning-reader${active ? " learning-reader--unit" : " learning-reader--overview"}`} data-testid="course-content-viewer">
       <header className="learning-reader__hero">
         <div className="learning-reader__hero-row">
           <div>
@@ -221,45 +271,28 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
           <span><strong>{issues.length}</strong> {t("units")}</span>
           <span><strong>{objectives.length}</strong> {t("objectives")}</span>
           <span><strong>{materials.length}</strong> {t("materials")}</span>
+          <span><strong>{masterCount}/{objectives.length}</strong> {t("mastered")}</span>
         </div>
       </header>
 
       <div className="learning-reader__layout">
         <aside className="learning-reader__outline" aria-label={t("outline")}>
           <div className="learning-reader__outline-label">{t("outline")}</div>
-          <div className="learning-reader__outline-group">
-            <button type="button" className={`learning-reader__outline-home${active ? "" : " is-active"}`} onClick={() => setActive(null)}>
-              {t("overview")}
-            </button>
-          </div>
-          {[...grouped.entries()].map(([chapterId, rows], index) => (
-            <div key={chapterId} className="learning-reader__outline-group">
-              <div className={`learning-reader__outline-chapter${active?.chapterId === chapterId ? " is-active" : ""}`}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                {chapterId === "_ungrouped" ? t("ungrouped") : chapterTitle.get(chapterId)}
-              </div>
-              {rows.map((issue, issueIndex) => {
-                const issueKey = issueKeyOf(issue, issueIndex);
-                return (
-                  <a
-                    key={issueKey}
-                    href={`#course-issue-${issueKey}`}
-                    className={active?.issueKey === issueKey ? "is-active" : undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      setActive({ chapterId, issueKey });
-                    }}
-                  >
-                    {issue.title || issue.id}
-                  </a>
-                );
-              })}
-            </div>
-          ))}
+          {outlineNav}
         </aside>
 
         {active && activeIssue ? (
           <div className="learning-reader__content">
+            <div className="learning-reader__unit-nav">
+              <button type="button" className="learning-reader__unit-nav-home" onClick={() => setOutlineOpen(true)}>‹ {t("outline")}</button>
+              <span className="learning-reader__unit-nav-spacer" />
+              {prevUnit ? (
+                <button type="button" onClick={() => setActive({ chapterId: prevUnit.chapterId, issueKey: prevUnit.issueKey })}>‹ {t("prevUnit")}</button>
+              ) : null}
+              {nextUnit ? (
+                <button type="button" onClick={() => setActive({ chapterId: nextUnit.chapterId, issueKey: nextUnit.issueKey })}>{t("nextUnit")} ›</button>
+              ) : null}
+            </div>
             <div className="learning-reader__chapter-kicker">
               {t("chapter")} {String(activeChapterIndex + 1).padStart(2, "0")} · {active.chapterId === "_ungrouped" ? t("ungrouped") : chapterTitle.get(active.chapterId)}
             </div>
@@ -271,13 +304,28 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
 
         <aside className="learning-reader__progress" aria-label={t("progress")}>
           <div className="learning-reader__progress-label">{t("currentCourse")}</div>
-          <div className="learning-reader__progress-number">0<span>/{objectives.length}</span></div>
+          <div className="learning-reader__progress-number">{masterCount}<span>/{objectives.length}</span></div>
           <p>{t("masteredGoals")}</p>
-          <div className="learning-reader__progress-track"><span /></div>
+          <div className="learning-reader__progress-track"><span style={{ width: `${objectives.length ? Math.round((masterCount / objectives.length) * 100) : 0}%` }} /></div>
           <div className="learning-reader__progress-note">{t("progressNote")}</div>
           <Link className="learning-reader__agent-link" href="/learning">{t("openLearning")} <span>↗</span></Link>
         </aside>
       </div>
+      {outlineOpen ? (
+        <div className="learning-reader__outline-overlay" role="dialog" aria-modal="true" aria-label={t("outline")}>
+          <div className="learning-reader__outline-overlay-head">
+            <span className="learning-reader__outline-label">{t("outline")}</span>
+            <button type="button" onClick={() => setOutlineOpen(false)}>{t("closeOutline")}</button>
+          </div>
+          <div className="learning-reader__outline-overlay-progress">
+            <span className="learning-reader__progress-number">{masterCount}<span>/{objectives.length}</span></span>
+            <div className="learning-reader__progress-track"><span style={{ width: `${objectives.length ? Math.round((masterCount / objectives.length) * 100) : 0}%` }} /></div>
+          </div>
+          <nav className="learning-reader__outline learning-reader__outline--overlay" aria-label={t("outline")}>
+            {outlineNav}
+          </nav>
+        </div>
+      ) : null}
     </article>
   );
 }

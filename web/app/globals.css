@@ -3405,6 +3405,8 @@ button:focus-visible,
 .learning-reader [data-testid="course-material-video"] iframe { width: 100%; height: 100%; border: 0; }
 .learning-reader img { display: block; width: 100%; max-width: 680px; height: auto; margin-top: 17px; border-radius: 10px; outline: 1px solid rgba(255,255,255,.1); outline-offset: -1px; }
 .learning-reader [data-testid="course-material-unavailable"] { display: block; margin-top: 14px; color: var(--ink-3); font-size: 13px; }
+.learning-reader__unit-nav { display: none; }
+.learning-reader__outline-overlay { display: none; }
 @media (max-width: 900px) {
   .learning-reader__layout { grid-template-columns: 160px minmax(0, 1fr); gap: 26px; }
   .learning-reader__progress { grid-column: 2; position: static; display: flex; align-items: center; gap: 14px; padding: 16px 0 0; border-top: 1px solid var(--line); border-left: 0; }
@@ -3416,8 +3418,20 @@ button:focus-visible,
   .learning-home__heading, .learning-reader__hero-row { display: block; }
   .learning-home__catalog-link, .learning-reader__version { display: inline-flex; margin-top: 18px; }
   .learning-reader__layout { display: block; margin-top: 28px; }
-  .learning-reader__outline { position: static; padding-bottom: 23px; border-bottom: 1px solid var(--line); }
-  .learning-reader__outline-group { display: inline-block; width: 50%; vertical-align: top; margin-top: 18px; padding-right: 10px; }
-  .learning-reader__content { margin-top: 36px; }
-  .learning-reader__progress { margin-top: 38px; }
+  /* 手机两页模型：目录页（总览）与内容页（单元）；大纲与单卡态 hero 退场，导航条接管单元间移动 */
+  .learning-reader__outline { display: none; }
+  .learning-reader--unit .learning-reader__hero { display: none; }
+  .learning-reader__unit-nav { display: flex; align-items: baseline; gap: 16px; margin-bottom: 16px; }
+  .learning-reader__unit-nav button { border: 0; background: none; padding: 0; color: var(--accent-strong); font: inherit; font-size: 13px; cursor: pointer; }
+  .learning-reader__unit-nav-home { margin-right: auto; }
+  .learning-reader__content { margin-top: 20px; }
+  .learning-reader__progress { display: none; }
+  /* 内容页「目录」呼出的全屏覆盖层：进度摘要 + 大纲树 */
+  .learning-reader__outline-overlay { display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 50; padding: 24px 20px 40px; background: var(--canvas); overflow-y: auto; }
+  .learning-reader__outline-overlay-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .learning-reader__outline-overlay-head button { border: 0; background: none; padding: 0; color: var(--accent-strong); font: inherit; font-size: 13px; cursor: pointer; }
+  .learning-reader__outline-overlay-progress { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .learning-reader__outline-overlay-progress .learning-reader__progress-number { font-size: 20px; }
+  .learning-reader__outline-overlay-progress .learning-reader__progress-track { flex: 1; margin-top: 0; }
+  .learning-reader__outline--overlay { position: static; margin-top: 10px; }
 }
