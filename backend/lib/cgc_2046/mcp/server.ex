@@ -152,6 +152,10 @@ defmodule Cgc2046.Mcp.Server do
   # member-only 门不变——admin 不放行，见各工具 moduledoc）
   component(Cgc2046.Mcp.Tools.DeleteCourse)
   component(Cgc2046.Mcp.Tools.CreateEvent)
+  # #511 批量建场：工具面 86 → 87（member-only 门 + 工具层 Owner/Admin 判定，
+  # 直接写不进确认流——对齐 create_event 的 R12 先例；行级幂等 = slug 唯一约束
+  # + read-back 归属判定，零 migration 零批次表）
+  component(Cgc2046.Mcp.Tools.BatchCreateEvents)
   component(Cgc2046.Mcp.Tools.PreviewInitiativeMount)
   component(Cgc2046.Mcp.Tools.ListWorkspaceEvents)
   component(Cgc2046.Mcp.Tools.UpdateEvent)
