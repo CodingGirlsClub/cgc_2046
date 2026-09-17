@@ -94,7 +94,7 @@ while :; do
 
   if [ "$failed" -eq 0 ]; then
     if [ "$total" -gt 0 ] && [ $((passed + skipped)) -ge "$total" ]; then
-      say "checks 全绿（$summary）→ merge（merge commit）"
+      say "checks 全绿（${summary}）→ merge（merge commit）"
       if ghx pr merge "$pr" --merge; then
         say "已合并 ✓"
         exit 0
@@ -102,7 +102,7 @@ while :; do
       say "merge 失败 — 编排者介入"
       exit 1
     fi
-    sub "pending（$summary）— ${interval}s"
+    sub "pending（${summary}）— ${interval}s"
   else
     # checks rows look like: "  <name>,<conclusion>" with conclusion pass|skip|fail|pending
     failing="$(printf '%s\n' "$out" | awk -F, '/^[[:space:]]*[^[:space:]][^,]*,(pass|skip|fail|pending)$/ && $2=="fail" {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1}')"
@@ -123,7 +123,7 @@ while :; do
       reruns=$((reruns + 1))
       run_id="$(ghx run list --branch "$p_head" --limit 1 2>/dev/null | awk -F, '/^[[:space:]]*[0-9][0-9]*,/ {gsub(/^[[:space:]]+/, "", $1); print $1; exit}')"
       [ -n "$run_id" ] || { say "取不到分支 '$p_head' 的 CI run id"; exit 1; }
-      sub "ext 单点 flake（rerun $reruns/$max_reruns）→ run rerun $run_id --failed"
+      sub "ext 单点 flake（rerun ${reruns}/${max_reruns}）→ run rerun ${run_id} --failed"
       ghx run rerun "$run_id" --failed >&2 || { say "rerun 请求失败"; exit 1; }
       sleep "$settle"; waited=$((waited + settle))
       continue
@@ -131,7 +131,7 @@ while :; do
 
     run_id="$(ghx run list --branch "$p_head" --limit 1 2>/dev/null | awk -F, '/^[[:space:]]*[0-9][0-9]*,/ {gsub(/^[[:space:]]+/, "", $1); print $1; exit}')"
     if [ -n "$run_id" ]; then
-      sub "失败日志（run $run_id，尾部）："
+      sub "失败日志（run ${run_id}，尾部）："
       ghx run view "$run_id" --log-failed 2>/dev/null | tail -n 20 >&2
     fi
     say "真实失败 — fail-closed，编排者介入"
@@ -141,7 +141,7 @@ while :; do
   sleep "$interval"
   waited=$((waited + interval))
   if [ "$waited" -ge "$max_wait" ]; then
-    say "超过 max_wait ${max_wait}s（PR $pr）"
+    say "超过 max_wait ${max_wait}s（PR ${pr}）"
     exit 2
   fi
 done
