@@ -1,0 +1,621 @@
+defmodule Cgc2046.Flashback.Tokens do
+  @moduledoc """
+  首程 token 读写面（U2，KTD2）：链接即身份的免登录全套流程。
+
+  token 定位走 `Cgc2046.Accounts.TokenCredential.fetch/2`（`authorize?: false` +
+  token_hash 精确匹配——token 持有者非成员，read policy 不适用），随后本模块
+  对 token 状态显式复验（已注册 / 已删除 / 不存在三态可区分，R1）；一切写
+  路径均为服务端 `authorize?: false`（资源 policy 只放行 PlatformAdmin，token
+  面不经 policy——防匿名绕过的闸门在 token 本身的熵与限流）。
+
+  ## 四时刻行为事件（KTD10）
+
+  - `link_opened`：`enter/1` 成功；
+  - `revealed`：`mark_revealed/1`（前端认领显影完成时调用——其余三事件由后端
+    在对应 mutation 内写入，防客户端伪造刷率）；
+  - `sent_to_wall`：`send_to_wall/1`（幂等：重复寄出不重复计）；
+  - `intent_submitted`：`submit_today/2`。
+
+  ## 投影纪律（KTD3）
+
+  本模块产出的响应 DTO 一律白名单列字段；`phone` / `email` 明文绝不出现，
+  只有 `PhoneNumber.mask/1` 后的掩码（确认页回显，KTD7）。
+
+  ## 错误码（#241 契约）
+
+  业务 code 在本模块以字面量出现，经 `mix cgc2046.gen_error_codes_contract`
+  进契约；web 文案在 `web/messages/*.json` errors namespace。
+  """
+
+  require Ash.Query
+  require Logger
+
+  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
+  alias Cgc2046.Flashback.{Answer, Person, QuoteLicense, Today, Token, Touch}
+  alias Cgc2046.Mailer
+
+  @touch_events [:link_opened, :revealed, :sent_to_wall, :intent_submitted]
+
+  # ── token 定位与状态 ──────────────────────────────────────────────────
+
+  @doc """
+  token → 有效 token 记录（含 person 已加载）。
+
+  三态失效可区分（R1）：不存在 / 已注册（账号接管）/ 已删除。
+  """
+  @spec fetch_valid(term()) ::
+          {:ok, Token.t()} | {:error, %{code: String.t(), message: String.t()}}
+  def fetch_valid(token_plaintext) do
+    case TokenCredential.fetch(Token, token_plaintext) do
+      {:ok, token} ->
+        cond do
+          not is_nil(token.claimed_by_user_id) ->
+            {:error, invalid(code: "flashback_token_claimed", reason: :claimed)}
+
+          not is_nil(token.revoked_at) ->
+            {:error, invalid(code: "flashback_token_revoked", reason: :revoked)}
+
+          true ->
+            Ash.load(token, :person, authorize?: false)
+        end
+
+      {:error, :invalid_token} ->
+        {:error, invalid(code: "flashback_token_not_found", reason: :not_found)}
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  @doc """
+  Ash 校验错误信封（#241：`code` 字面量留在 domain 层进契约；web 手写
+  resolver 对 Ash.Error.Invalid 统一经此包装，避免 code 漂移）。
+  """
+  @spec invalid_input_error(String.t()) :: %{
+          code: String.t(),
+          message: String.t(),
+          reason: atom()
+        }
+  def invalid_input_error(message) do
+    %{code: "flashback_invalid_input", message: message, reason: :invalid_input}
+  end
+
+  defp invalid(code: code, reason: reason) do
+    %{
+      code: code,
+      message: "flashback token is not usable (#{reason})",
+      reason: reason
+    }
+  end
+
+  # ── 进入与分流（R1/R2） ──────────────────────────────────────────────
+
+  @doc """
+  进入首程：写 `link_opened`，返回分流（记忆线/圆梦线）+ 本人档案投影 +
+  进度快照。未注册 token 可反复进入，进度随行（R1）。
+  """
+  @spec enter(term()) :: {:ok, map()} | {:error, term()}
+  def enter(token_plaintext) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      person =
+        token.person
+        |> Ash.load!([:answers, :archive_event, :today, :quote_license], authorize?: false)
+
+      record_touch(token, :link_opened)
+
+      {:ok,
+       %{
+         status: "ok",
+         reason: nil,
+         line: line_for(person),
+         profile: profile_payload(person),
+         progress: progress_payload(person)
+       }}
+    end
+  end
+
+  @doc "认领显影完成（四时刻之二）；幂等追加，无业务副作用。"
+  @spec mark_revealed(term()) :: {:ok, map()} | {:error, term()}
+  def mark_revealed(token_plaintext) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      record_touch(token, :revealed)
+      {:ok, %{recorded: true}}
+    end
+  end
+
+  # ── 今天的你（R8/R13/R17-R20） ──────────────────────────────────────
+
+  @doc """
+  提交「今天的你」（覆盖式）：首次建行、其后更新（每人一行）；写
+  `intent_submitted`。联系方式不在本面——更新必须走 `update_contact/3`
+  的验证通道（KTD7 防劫持）。
+  """
+  @spec submit_today(term(), map()) :: {:ok, Today.t()} | {:error, term()}
+  def submit_today(token_plaintext, params) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         {:ok, today} <- upsert_today(token.person_id, params) do
+      record_touch(token, :intent_submitted)
+      {:ok, %{today: today_payload(today)}}
+    end
+  end
+
+  defp upsert_today(person_id, params) do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        Today
+        |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, person_id))
+        |> Ash.create(authorize?: false)
+
+      {:ok, today} ->
+        today
+        |> Ash.Changeset.for_update(:update, params)
+        |> Ash.update(authorize?: false)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # ── 寄出与撤下（R11/R30） ────────────────────────────────────────────
+
+  @doc """
+  寄出上墙：幂等（已寄出直接返回，不重复计 touch）；无回信行也允许寄出
+  （当年正面自成卡）。返回注册引导所需信息（掩码手机号，R27）。
+  """
+  @spec send_to_wall(term()) :: {:ok, map()} | {:error, term()}
+  def send_to_wall(token_plaintext) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      today = ensure_today(token.person_id)
+
+      if today.sent_to_wall_at do
+        {:ok, wall_result(token.person, today)}
+      else
+        {:ok, today} =
+          today
+          |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
+          |> Ash.update(authorize?: false)
+
+        record_touch(token, :sent_to_wall)
+        {:ok, wall_result(token.person, today)}
+      end
+    end
+  end
+
+  @doc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。"
+  @spec retract(term()) :: {:ok, map()} | {:error, term()}
+  def retract(token_plaintext) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      case Today
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(person_id == ^token.person_id)
+           |> Ash.read_one(authorize?: false) do
+        {:ok, nil} ->
+          {:ok, %{retracted: true, sent_to_wall_at: nil}}
+
+        {:ok, today} ->
+          {:ok, today} =
+            today
+            |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: nil})
+            |> Ash.update(authorize?: false)
+
+          {:ok, %{retracted: true, sent_to_wall_at: today.sent_to_wall_at}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # ── 雾面调整（R16/KTD4） ─────────────────────────────────────────────
+
+  @doc """
+  调整雾面区间：只改 `fog_spans`（`adjust_fog` action 不接受 raw_text——原文
+  不可达）；越界/重叠由资源层 `FogSpans.validate/2` 拒绝。
+  他人答案 → 与不存在同一错误（不泄露存在性）。
+  """
+  @spec adjust_fog(term(), String.t(), [map()]) :: {:ok, Answer.t()} | {:error, term()}
+  def adjust_fog(token_plaintext, answer_id, spans) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         {:ok, answer} <- owned_answer(token.person_id, answer_id) do
+      answer
+      |> Ash.Changeset.for_update(:adjust_fog, %{fog_spans: spans})
+      |> Ash.update(authorize?: false)
+      |> case do
+        {:ok, updated} ->
+          {:ok, %{answer_id: updated.id, fog_spans: Enum.map(updated.fog_spans, &span_payload/1)}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp owned_answer(person_id, answer_id) do
+    case Ash.get(Answer, answer_id, authorize?: false) do
+      {:ok, %Answer{person_id: owner_id} = answer} when owner_id == person_id ->
+        {:ok, answer}
+
+      _ ->
+        {:error,
+         %{
+           code: "flashback_answer_not_found",
+           message: "answer not found",
+           reason: :answer_not_found
+         }}
+    end
+  end
+
+  # ── 金句授权（R31） ──────────────────────────────────────────────────
+
+  @doc """
+  设置金句授权（每人一行，默认 `:off`——两档皆关）。`:anonymous` / `:credited`
+  且给出区间时，对来源答案做越界校验（金句候选只允许指向本人答案）。
+  """
+  @spec set_quote_license(term(), map()) :: {:ok, QuoteLicense.t()} | {:error, term()}
+  def set_quote_license(token_plaintext, params) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         :ok <- validate_quote_span(token.person_id, params) do
+      case QuoteLicense
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(person_id == ^token.person_id)
+           |> Ash.read_one(authorize?: false) do
+        {:ok, nil} ->
+          QuoteLicense
+          |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, token.person_id))
+          |> Ash.create(authorize?: false)
+          |> case do
+            {:ok, license} -> {:ok, license_payload(license)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:ok, license} ->
+          license
+          |> Ash.Changeset.for_update(:update, params)
+          |> Ash.update(authorize?: false)
+          |> case do
+            {:ok, license} -> {:ok, license_payload(license)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp validate_quote_span(_person_id, %{chosen_quote_span: nil}), do: :ok
+
+  defp validate_quote_span(person_id, %{chosen_quote_span: span} = params)
+       when is_map(span) and not is_struct(span),
+       do: do_validate_quote_span(person_id, params)
+
+  defp validate_quote_span(_person_id, _), do: :ok
+
+  # 金句候选只允许指向本人答案（person + question_key 双因子定位）。
+  defp do_validate_quote_span(person_id, %{chosen_quote_span: span, question_key: qk})
+       when is_binary(qk) do
+    case Answer
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id and question_key == ^qk)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        {:error,
+         %{
+           code: "flashback_answer_not_found",
+           message: "answer not found",
+           reason: :answer_not_found
+         }}
+
+      {:ok, answer} ->
+        case Cgc2046.Flashback.FogSpans.validate([span], answer.raw_text) do
+          {:ok, _normalized} ->
+            :ok
+
+          {:error, _reason} ->
+            {:error,
+             %{
+               code: "flashback_quote_span_out_of_bounds",
+               message: "chosen quote span is out of bounds for the source answer",
+               reason: :quote_span_out_of_bounds
+             }}
+        end
+    end
+  end
+
+  # ── 注册绑定（R27/KTD7） ─────────────────────────────────────────────
+
+  @doc """
+  寄出时刻的一步注册：手机验证码（purpose `:register`）→ find-or-create User
+  （`SignInFlow`，与验证码登录同款）→ `person.user_id` 绑定 + token 作废
+  （`claimed_by_user_id` 置位，R1 注册即链接作废）→ 签会话 token（httpOnly
+  cookie 由 web 层 middleware 交付）。
+
+  绑定成功向记录内原通道（email 有则发）送「档案已绑定」通知（best-effort）。
+  """
+  @spec register_bind(term(), term(), term(), map()) ::
+          {:ok, %{__token__: String.t(), bound: boolean(), masked_phone: String.t() | nil}}
+          | {:error, term()}
+  def register_bind(token_plaintext, raw_phone, code, context) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         {:ok, phone} <- normalize_phone(raw_phone),
+         :ok <- consume_code(phone, code, :register),
+         {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
+         :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         :ok <- SignInFlow.revoke_stored_tokens(user, :web),
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context),
+         :ok <- bind_person_and_claim(token, user) do
+      notify_bound(token.person)
+
+      {:ok,
+       %{__token__: user.__metadata__[:token], bound: true, masked_phone: PhoneNumber.mask(phone)}}
+    end
+  end
+
+  # ── 联系方式更新（R17/KTD7 防劫持） ──────────────────────────────────
+
+  @doc """
+  更新手机号：新通道必须先验证（复用 `:change_phone` 用途发码校验），验证
+  通过才落库；随后向记录内**原**通道发「联系方式已变更」通知（best-effort，
+  失败不影响变更）。回显只给掩码。
+  """
+  @spec update_contact(term(), term(), term()) :: {:ok, map()} | {:error, term()}
+  def update_contact(token_plaintext, raw_phone, code) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         {:ok, phone} <- normalize_phone(raw_phone),
+         :ok <- consume_code(phone, code, :change_phone) do
+      person = reload_person(token.person_id)
+
+      if person.phone == phone do
+        {:ok, %{masked_phone: PhoneNumber.mask(phone), updated: false}}
+      else
+        {:ok, _} =
+          person
+          |> Ash.Changeset.for_update(:update, %{})
+          |> Ash.Changeset.force_change_attribute(:phone, phone)
+          |> Ash.update(authorize?: false)
+
+        notify_contact_changed(person, phone)
+        {:ok, %{masked_phone: PhoneNumber.mask(phone), updated: true}}
+      end
+    end
+  end
+
+  # ── 内部 ─────────────────────────────────────────────────────────────
+
+  defp line_for(%Person{participation: :attended}), do: "memory"
+  defp line_for(%Person{participation: :not_selected}), do: "dream"
+
+  defp profile_payload(person) do
+    %{
+      full_name: person.full_name,
+      surname: person.surname,
+      city: person.city,
+      occupation_then: person.occupation_then,
+      gender: person.gender,
+      role: Atom.to_string(person.role),
+      participation: Atom.to_string(person.participation),
+      applied_at: person.applied_at && DateTime.to_iso8601(person.applied_at),
+      archive:
+        person.archive_event &&
+          %{
+            key: person.archive_event.key,
+            name: person.archive_event.name,
+            city: person.archive_event.city,
+            occurred_on:
+              person.archive_event.occurred_on &&
+                Date.to_iso8601(person.archive_event.occurred_on)
+          },
+      answers:
+        Enum.map(person.answers, fn answer ->
+          %{
+            id: answer.id,
+            question_key: answer.question_key,
+            raw_text: answer.raw_text,
+            fog_spans: Enum.map(answer.fog_spans || [], &span_payload/1)
+          }
+        end)
+    }
+  end
+
+  defp progress_payload(person) do
+    %{
+      today: today_payload(person.today),
+      quote_level:
+        if(person.quote_license, do: Atom.to_string(person.quote_license.level), else: "off"),
+      masked_phone: PhoneNumber.mask(person.phone),
+      masked_email: mask_email(person.email)
+    }
+  end
+
+  defp today_payload(nil), do: nil
+
+  defp today_payload(today) do
+    %{
+      now_status: today.now_status,
+      want: today.want,
+      need: today.need,
+      say: today.say,
+      want_give_tags: today.want_give_tags,
+      mobilization: today.mobilization,
+      newsletter_opt_in: today.newsletter_opt_in,
+      reconnect_tags: today.reconnect_tags,
+      sent_to_wall_at: today.sent_to_wall_at && DateTime.to_iso8601(today.sent_to_wall_at)
+    }
+  end
+
+  defp license_payload(license) do
+    %{
+      level: Atom.to_string(license.level),
+      question_key: license.question_key,
+      chosen_quote_span: license.chosen_quote_span && span_payload(license.chosen_quote_span),
+      credited_note: license.credited_note
+    }
+  end
+
+  # FogSpans/资源层存储为字符串键 map（jsonb 形态）；Absinthe object 字段按
+  # 原子键解析，投影层统一转原子键（enter/adjustFog/quoteLicense 三处共用）。
+  defp span_payload(%{} = span) do
+    %{
+      start: Map.get(span, "start") || Map.get(span, :start),
+      len: Map.get(span, "len") || Map.get(span, :len),
+      reason: Map.get(span, "reason") || Map.get(span, :reason)
+    }
+  end
+
+  defp wall_result(person, today) do
+    %{
+      sent_to_wall_at: today.sent_to_wall_at && DateTime.to_iso8601(today.sent_to_wall_at),
+      register_hint: %{
+        masked_phone: PhoneNumber.mask(person.phone),
+        masked_email: mask_email(person.email)
+      }
+    }
+  end
+
+  defp ensure_today(person_id) do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        Today
+        |> Ash.Changeset.for_create(:create, %{person_id: person_id})
+        |> Ash.create!(authorize?: false)
+
+      {:ok, today} ->
+        today
+    end
+  end
+
+  defp record_touch(token, event) when event in @touch_events do
+    Touch
+    |> Ash.Changeset.for_create(:create, %{
+      person_id: token.person_id,
+      token_id: token.id,
+      event: event
+    })
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp reload_person(person_id) do
+    Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^person_id)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp bind_person_and_claim(token, user) do
+    {:ok, _} =
+      token.person
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
+      |> Ash.update(authorize?: false)
+
+    {:ok, _} =
+      token
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:claimed_by_user_id, user.id)
+      |> Ash.Changeset.force_change_attribute(:claimed_at, DateTime.utc_now())
+      |> Ash.update(authorize?: false)
+
+    :ok
+  end
+
+  defp normalize_phone(raw) do
+    case PhoneNumber.normalize(raw) do
+      {:ok, phone} ->
+        {:ok, phone}
+
+      {:error, :invalid} ->
+        {:error,
+         %{code: "invalid_phone", message: "Invalid phone number", reason: :invalid_phone}}
+    end
+  end
+
+  defp consume_code(phone, code, purpose) do
+    case PhoneVerificationCode.consume_valid(phone, code, purpose) do
+      :ok ->
+        :ok
+
+      {:error, _} ->
+        # 防枚举：码不存在/过期/错码/耗尽同一句（同 PhoneCodeSignIn）。
+        {:error,
+         %{
+           code: "invalid_or_expired_code",
+           message: "Invalid or expired code",
+           reason: :invalid_code
+         }}
+    end
+  end
+
+  # 掩码：本地部分首字符 + *** + @域名（确认页回显用，KTD7）。
+  defp mask_email(nil), do: nil
+
+  defp mask_email(email) when is_binary(email) do
+    case String.split(email, "@", parts: 2) do
+      [local, domain] ->
+        head = String.slice(local, 0, 1)
+        "#{head}***@#{domain}"
+
+      _ ->
+        "***"
+    end
+  end
+
+  defp mask_email(_), do: nil
+
+  # ── 原通道通知（best-effort：失败只 log，不阻断主流程） ─────────────
+
+  defp notify_bound(person) do
+    if is_binary(person.email) and person.email != "" do
+      send_notice_email(person.email, "你的闪念间档案已绑定账号", "你当年报名形成的闪念间档案已与你的账号绑定。此后请从「我的」进入查看与编辑。")
+    end
+  end
+
+  defp notify_contact_changed(person, _new_phone) do
+    if is_binary(person.email) and person.email != "" do
+      send_notice_email(person.email, "你的闪念间档案联系方式已变更", "你留在闪念间档案的手机号刚刚被更新。如果这不是你本人的操作，请联系我们。")
+    end
+
+    # 原手机号的短信通知：SendCloud 单条模板短信通道，未配置时跳过。
+    if is_binary(person.phone) and person.phone != "" do
+      _ = notify_contact_changed_sms(person.phone)
+    end
+  end
+
+  defp notify_contact_changed_sms(phone) do
+    sms = Application.get_env(:cgc_2046, :sms_sendcloud, [])
+
+    if Cgc2046.Integrations.SendCloud.Sms.configured?() do
+      Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
+        phone,
+        Keyword.fetch!(sms, :template_id),
+        %{"content" => "你的闪念间档案联系方式已变更，如非本人操作请联系 CGC 2046"},
+        "flashback-contact-change"
+      )
+    else
+      :ok
+    end
+  end
+
+  defp send_notice_email(to, subject, text_body) do
+    config = Application.get_env(:cgc_2046, Cgc2046.Mailer, [])
+    from = Keyword.get(config, :from, "no-reply@example.com")
+    from_name = Keyword.get(config, :from_name, "CGC 2046")
+
+    email =
+      Swoosh.Email.new()
+      |> Swoosh.Email.from({from_name, from})
+      |> Swoosh.Email.to(to)
+      |> Swoosh.Email.subject(subject)
+      |> Swoosh.Email.text_body(text_body)
+
+    case Mailer.deliver(email) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Logger.warning("[flashback] notice email failed: #{inspect(reason)}")
+    end
+  end
+end

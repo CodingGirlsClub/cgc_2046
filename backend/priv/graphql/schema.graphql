@@ -6182,6 +6182,146 @@ type AcceptInvitationResult {
   errors: [MutationError!]!
 }
 
+type FlashbackFogSpan {
+  "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
+  start: Int!
+
+  len: Int!
+
+  reason: String
+}
+
+type FlashbackAnswer {
+  "当年答案（本人视图：raw_text 永远完整，KTD4）"
+  id: ID!
+
+  questionKey: String!
+
+  rawText: String!
+
+  fogSpans: [FlashbackFogSpan]
+}
+
+type FlashbackArchiveRef {
+  key: String!
+  name: String
+  city: String
+  occurredOn: String
+}
+
+type FlashbackProfile {
+  fullName: String!
+  surname: String
+  city: String
+  occupationThen: String
+  gender: String
+  role: String!
+  participation: String!
+  appliedAt: String
+  archive: FlashbackArchiveRef
+  answers: [FlashbackAnswer]
+}
+
+type FlashbackToday {
+  nowStatus: String
+  want: String
+  need: String
+  say: String
+  wantGiveTags: [String]
+  mobilization: JsonString
+  newsletterOptIn: Boolean
+  reconnectTags: [String]
+  sentToWallAt: String
+}
+
+type FlashbackProgress {
+  today: FlashbackToday
+  quoteLevel: String!
+  maskedPhone: String
+  maskedEmail: String
+}
+
+type FlashbackEnterResult {
+  "进入结果：line = memory（记忆线）| dream（圆梦线）；失效走顶层错误 code（flashback_token_not_found\/claimed\/revoked）"
+  line: String!
+
+  profile: FlashbackProfile
+
+  progress: FlashbackProgress
+}
+
+type FlashbackTouchResult {
+  recorded: Boolean!
+}
+
+type FlashbackTodayResult {
+  today: FlashbackToday
+}
+
+type FlashbackSendToWallResult {
+  sentToWallAt: String
+  maskedPhone: String
+  maskedEmail: String
+}
+
+type FlashbackAdjustFogResult {
+  answerId: ID!
+  fogSpans: [FlashbackFogSpan]
+}
+
+type FlashbackQuoteLicenseResult {
+  level: String!
+  questionKey: String
+  chosenQuoteSpan: FlashbackFogSpan
+  creditedNote: String
+}
+
+type FlashbackRetractResult {
+  retracted: Boolean!
+  sentToWallAt: String
+}
+
+type FlashbackRegisterBindResult {
+  bound: Boolean!
+  maskedPhone: String
+}
+
+type FlashbackUpdateContactResult {
+  maskedPhone: String
+  updated: Boolean!
+}
+
+input FlashbackTodayInput {
+  "「今天的你」问卷（R8）：四个自由文本 + Want\/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
+  nowStatus: String
+
+  want: String
+
+  need: String
+
+  say: String
+
+  wantGiveTags: [String]
+
+  mobilizationJoin1024: Boolean
+
+  mobilizationHelpPromote: Boolean
+
+  mobilizationDonateIntent: Boolean
+
+  mobilizationVolunteerLead: Boolean
+
+  newsletterOptIn: Boolean
+
+  reconnectTags: [String]
+}
+
+input FlashbackFogSpanInput {
+  start: Int!
+  len: Int!
+  reason: String
+}
+
 type PendingOperationConfirmation {
   "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
   pendingId: ID
@@ -6758,6 +6898,35 @@ type RootMutationType {
     "核销方式：scan | manual"
     method: String!
   ): CheckInEnrollmentPayload
+
+  "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
+  flashbackEnter(token: String!): FlashbackEnterResult
+
+  "认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入）"
+  flashbackMarkRevealed(token: String!): FlashbackTouchResult
+
+  "提交「今天的你」（R8\/R18\/R19\/R20，覆盖式；写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact"
+  flashbackSubmitToday(token: String!, input: FlashbackTodayInput!): FlashbackTodayResult
+
+  "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+  flashbackSendToWall(token: String!): FlashbackSendToWallResult
+
+  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+  flashbackRetract(token: String!): FlashbackRetractResult
+
+  "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达"
+  flashbackAdjustFog(token: String!, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
+
+  "金句授权（R31 两档 + 关）：level ∈ off\/anonymous\/credited，默认关"
+  flashbackSetQuoteLicense(
+    token: String!, level: String!, questionKey: String, chosenQuoteSpan: FlashbackFogSpanInput, creditedNote: String
+  ): FlashbackQuoteLicenseResult
+
+  "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
+  flashbackRegisterBind(token: String!, phone: String!, code: String!): FlashbackRegisterBindResult
+
+  "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
+  flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
