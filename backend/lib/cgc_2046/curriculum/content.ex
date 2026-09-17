@@ -83,22 +83,51 @@ defmodule Cgc2046.Curriculum.Content do
   @doc """
   v1 形状校验(不含 objectives 规则):发布门禁的通用形状复核用——objective
   违规由 `objective_violations/1` 逐条另报,不并入通用形状违规文案。
+
+  规则单源:本函数即 `shape_violations/1` 的 `== []`——布尔与逐条诊断同一份规则,
+  杜绝双源漂移(发布门禁等既有 caller 只消费布尔,行为不变)。
   """
   @spec valid_v1?(term()) :: boolean()
-  def valid_v1?(content) when is_map(content) do
-    with true <- non_empty_goals?(content),
-         {:ok, issues} <- issues_or_error(content),
-         true <- valid_chapters?(content),
-         true <- valid_issue_chapter_refs?(content, issues),
-         true <- Enum.all?(issues, &valid_issue?/1),
-         true <- unique_issue_ids?(issues) do
-      true
-    else
-      _ -> false
-    end
+  def valid_v1?(content), do: shape_violations(content) == []
+
+  @doc """
+  v1 形状违规逐条清单(与 `objective_violations/1`、`material_violations/1` 对称的
+  public 诊断出口;保存校验经此把具体违规透出给教研 Agent,#677)。
+
+  覆盖:`goals`/`issues` 存在性与形状、`chapters` 形状与 id 唯一性、每张 issue 卡
+  `id`/`kind`/`title`/`story`、`story.checklist`(须嵌在 story 内,非 issue 卡顶层)、
+  `story.materials` 形状、issue id 卡集内唯一、`chapter_id` 引用。
+
+  每条单行,只含结构位置与类型/长度(标题/正文等用户内容不入文案;issue id 仅作
+  位置标签,经换行清洗与截断)——报告体积有界。
+  """
+  @spec shape_violations(term()) :: [String.t()]
+  def shape_violations(content) when is_map(content) do
+    issues = content["issues"]
+
+    goals_violations(content) ++
+      issues_violations(issues) ++
+      chapters_violations(content) ++
+      chapter_ref_violations(content, issues)
   end
 
-  def valid_v1?(_content), do: false
+  def shape_violations(content),
+    do: ["course content 须为 map(含 goals/issues),当前:#{describe(content)}"]
+
+  @doc """
+  `Value:` 形状摘要(保存校验错误里「服务端实际收到什么」的单源,#677):固定 3 个
+  契约顶层键(`nil` = 未提交),值只给类型/长度——
+
+      %{"goals" => "list(4)", "chapters" => "nil", "issues" => "list(9)"}
+
+  绝不回显字符串内容或额外顶层键(体积与泄露面有界),据此消灭 `Value: nil` 误导。
+  """
+  @spec shape_summary(term()) :: map()
+  def shape_summary(content) when is_map(content) do
+    for key <- ["goals", "chapters", "issues"], into: %{}, do: {key, describe(content[key])}
+  end
+
+  def shape_summary(content), do: %{"content" => describe(content)}
 
   @doc "合法 content 的 issue 列表;非法(缺失/非列表/空)返回 []。"
   @spec issues(term()) :: [map()]
@@ -354,62 +383,78 @@ defmodule Cgc2046.Curriculum.Content do
     end
   end
 
-  defp issues_or_error(content) do
-    case content["issues"] do
-      issues when is_list(issues) and issues != [] -> {:ok, issues}
-      _ -> :error
-    end
-  end
-
-  defp valid_issue?(issue) when is_map(issue) do
-    with true <- non_empty_string?(issue["id"]),
-         true <- issue["kind"] in @issue_kinds,
-         true <- non_empty_string?(issue["title"]),
-         true <- is_map(issue["story"]),
-         true <- valid_checklist?(issue["story"]["checklist"]),
-         true <- valid_materials?(issue["story"]["materials"]) do
-      true
+  defp goals_violations(content) do
+    if non_empty_goals?(content) do
+      []
     else
-      _ -> false
+      ["goals 须为非空字符串数组,当前:#{describe(content["goals"])}"]
     end
   end
 
-  defp valid_checklist?(checklist) when is_list(checklist) and checklist != [] do
-    Enum.all?(checklist, fn item ->
-      is_map(item) and non_empty_string?(item["id"]) and non_empty_string?(item["text"])
-    end) and unique_checklist_ids?(checklist)
+  defp issues_violations(issues) when is_list(issues) and issues != [] do
+    issues
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn {issue, index} -> issue_violations(issue, index) end)
+    |> Kernel.++(duplicate_issue_id_violations(issues))
   end
 
-  defp valid_checklist?(_checklist), do: false
+  defp issues_violations(issues),
+    do: ["issues 须为非空 issue 卡数组,当前:#{describe(issues)}"]
 
-  defp valid_chapters?(content) do
-    case Map.get(content, "chapters") do
-      nil ->
-        true
+  defp issue_violations(issue, index) when is_map(issue) do
+    label = issue_label(issue, index)
+    story = issue["story"]
 
-      chapters when is_list(chapters) ->
-        ids = Enum.map(chapters, &if(is_map(&1), do: &1["id"], else: nil))
+    field_violations = [
+      {non_empty_string?(issue["id"]), "#{label} 缺非空 id"},
+      {issue["kind"] in @issue_kinds,
+       "#{label} 的 kind 须为 thoughtwork 或 handwork,当前:#{describe(issue["kind"])}"},
+      {non_empty_string?(issue["title"]), "#{label} 缺非空 title"},
+      {is_map(story), "#{label} 缺 story(须为 map,checklist/materials 嵌在 story 内)"}
+    ]
 
-        Enum.all?(chapters, fn chapter ->
-          is_map(chapter) and non_empty_string?(chapter["id"]) and
-            non_empty_string?(chapter["title"])
-        end) and length(ids) == length(Enum.uniq(ids))
+    for({false, message} <- field_violations, do: message) ++
+      if(is_map(story),
+        do: story_violations(story, label, Map.has_key?(issue, "checklist")),
+        else: []
+      )
+  end
 
-      _ ->
-        false
+  defp issue_violations(issue, index),
+    do: ["issue[#{index}] 须为 map(含 id/kind/title/story),当前:#{describe(issue)}"]
+
+  defp story_violations(story, label, top_level_checklist?) do
+    checklist_violations(story["checklist"], label, top_level_checklist?) ++
+      materials_shape_violations(story["materials"], label)
+  end
+
+  # 本次事故直接触发点:checklist 放 issue 卡顶层(或省略)→ 文案点名
+  # `story.checklist` 与「非卡顶层」,并回显顶层误放的事实。
+  defp checklist_violations(checklist, label, top_level_checklist?) do
+    cond do
+      not (is_list(checklist) and checklist != []) ->
+        [
+          "#{label} 的 story.checklist 须为非空数组,且嵌在 story 内(非卡顶层)," <>
+            "当前:#{describe(checklist)}#{top_level_checklist_hint(top_level_checklist?)}"
+        ]
+
+      Enum.all?(checklist, &valid_checklist_item?/1) ->
+        if unique_checklist_ids?(checklist) do
+          []
+        else
+          ["#{label} 的 story.checklist 条目 id 在 issue 内重复"]
+        end
+
+      true ->
+        ["#{label} 的 story.checklist 条目须含非空 id 与 text"]
     end
   end
 
-  defp valid_issue_chapter_refs?(content, issues) do
-    chapter_ids = MapSet.new(Enum.map(chapters(content), & &1["id"]))
+  defp top_level_checklist_hint(true), do: ";检测到 issue 卡顶层有 checklist 键,请移入 story"
+  defp top_level_checklist_hint(false), do: ""
 
-    Enum.all?(issues, fn issue ->
-      case issue["chapter_id"] do
-        nil -> true
-        chapter_id when is_binary(chapter_id) -> MapSet.member?(chapter_ids, chapter_id)
-        _ -> false
-      end
-    end)
+  defp valid_checklist_item?(item) do
+    is_map(item) and non_empty_string?(item["id"]) and non_empty_string?(item["text"])
   end
 
   # R2:checklist item id 在 issue 内唯一(学习记录 item_id 的匹配目标)
@@ -418,10 +463,116 @@ defmodule Cgc2046.Curriculum.Content do
     length(ids) == length(Enum.uniq(ids))
   end
 
-  defp unique_issue_ids?(issues) do
-    ids = Enum.map(issues, & &1["id"])
-    length(ids) == length(Enum.uniq(ids))
+  defp materials_shape_violations(materials, label) do
+    if valid_materials?(materials) do
+      []
+    else
+      ["#{label} 的 story.materials 形状不合法(须为 typed Material 数组),当前:#{describe(materials)}"]
+    end
   end
+
+  defp duplicate_issue_id_violations(issues) do
+    ids =
+      issues
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(& &1["id"])
+      |> Enum.filter(&non_empty_string?/1)
+
+    ids
+    |> Enum.uniq()
+    |> then(fn unique -> ids -- unique end)
+    |> Enum.uniq()
+    |> Enum.map(fn id -> ~s(issue id 在卡集内重复:"#{safe_label(id)}") end)
+  end
+
+  defp chapters_violations(content) do
+    case Map.get(content, "chapters") do
+      nil ->
+        []
+
+      chapters when is_list(chapters) ->
+        chapter_entry_violations(chapters) ++ duplicate_chapter_id_violations(chapters)
+
+      other ->
+        ["chapters 须为数组(每项 {id, title}),当前:#{describe(other)}"]
+    end
+  end
+
+  defp chapter_entry_violations(chapters) do
+    for {chapter, index} <- Enum.with_index(chapters, 1), not chapter_valid?(chapter) do
+      if is_map(chapter) do
+        "chapters[#{index}] 缺非空 id/title"
+      else
+        "chapters[#{index}] 须为 map,当前:#{describe(chapter)}"
+      end
+    end
+  end
+
+  defp chapter_valid?(chapter) do
+    is_map(chapter) and non_empty_string?(chapter["id"]) and non_empty_string?(chapter["title"])
+  end
+
+  defp duplicate_chapter_id_violations(chapters) do
+    ids = Enum.map(chapters, &if(is_map(&1), do: &1["id"], else: nil))
+
+    if length(ids) == length(Enum.uniq(ids)),
+      do: [],
+      else: ["chapters 条目 id 须在课程内唯一(存在重复)"]
+  end
+
+  # 引用集合沿用公开 `chapters/1`(丢弃非 map 条目)——与旧 valid_v1? 语义逐字一致。
+  defp chapter_ref_violations(content, issues) do
+    chapter_ids = content |> chapters() |> Enum.map(& &1["id"]) |> MapSet.new()
+
+    issues
+    |> List.wrap()
+    |> Enum.with_index(1)
+    |> Enum.flat_map(fn
+      {issue, index} when is_map(issue) ->
+        case issue["chapter_id"] do
+          nil ->
+            []
+
+          chapter_id when is_binary(chapter_id) ->
+            if MapSet.member?(chapter_ids, chapter_id) do
+              []
+            else
+              ["#{issue_label(issue, index)} 的 chapter_id 引用不存在的 chapter"]
+            end
+
+          other ->
+            ["#{issue_label(issue, index)} 的 chapter_id 须为字符串,当前:#{describe(other)}"]
+        end
+
+      {_other, _index} ->
+        []
+    end)
+  end
+
+  defp issue_label(issue, index) do
+    case issue["id"] do
+      id when is_binary(id) and id != "" -> ~s(issue "#{safe_label(id)}")
+      _ -> "issue[#{index}](缺非空 id)"
+    end
+  end
+
+  # 位置标签清洗:换行/控制字符折平 + 截断——每条违规单行且长度有界。
+  defp safe_label(value) do
+    cleaned = value |> String.replace(~r/[\s\x00-\x1F]+/u, " ") |> String.trim()
+
+    if String.length(cleaned) > 60, do: String.slice(cleaned, 0, 60) <> "…", else: cleaned
+  end
+
+  # 只回显类型/长度,绝不回显字符串内容(错误体积与泄露面有界)。
+  defp describe(value) when is_list(value), do: "list(#{length(value)})"
+  defp describe(value) when is_map(value), do: "map"
+  defp describe(value) when is_binary(value), do: "string(#{byte_size(value)})"
+  defp describe(nil), do: "nil"
+  defp describe(value) when is_boolean(value), do: "boolean"
+  defp describe(value) when is_integer(value), do: "integer"
+  defp describe(value) when is_float(value), do: "float"
+  defp describe(value) when is_atom(value), do: "atom"
+  defp describe(_value), do: "其他类型"
 
   # --- objectives(schema v2)私有实现 --------------------------------------------
 
@@ -684,12 +835,21 @@ defmodule Cgc2046.Curriculum.ContentValidation do
 
   @base_message "course content must be %{goals: non-empty string list, issues: non-empty list of " <>
                   "issue cards (id/kind/title/story required, kind in [thoughtwork, handwork], " <>
-                  "non-empty checklist with unique-in-issue item ids, issue ids unique in deck; " <>
+                  "non-empty story.checklist (nested in story, not top-level) with unique-in-issue item ids, " <>
+                  "issue ids unique in deck; " <>
                   "objectives required (at least one course-wide, non-empty per issue cards) — " <>
                   "id unique course-wide, non-empty title, " <>
                   "required boolean (default true), prereq_ids referencing existing objective ids " <>
                   "forming a DAG, activity/assessment strings, typed materials (kind + constrained source), " <>
                   "non-empty rubric with unique-in-objective criterion ids))"
+
+  # 调用方可见整条文案上限 2 KB:违规条数与单条长度不设业务上限,但渲染出口必须
+  # 有界,避免畸形超大 content 放大 MCP 响应/LLM 上下文。Ash 的 InvalidAttribute
+  # 渲染会在 message 前后加固定包装("Invalid value provided for data: " 与
+  # ".\n\nValue: <摘要>"),故 violations 文案按 @wrapper_headroom 预留余量截断。
+  @max_message_bytes 2048
+  @wrapper_headroom 256
+  @truncation_suffix "…(truncated)"
 
   @impl true
   def validate(changeset, _opts, _context) do
@@ -701,15 +861,53 @@ defmodule Cgc2046.Curriculum.ContentValidation do
         if Content.valid?(content) do
           :ok
         else
-          {:error, field: :data, message: message(content)}
+          # 显式异常:Ash 的 keyword 错误转换会无条件带 `value: nil`(渲染出
+          # `Value: nil`,误导 agent 以为服务端收到 nil),这里显式给形状摘要。
+          {:error,
+           Ash.Error.Changes.InvalidAttribute.exception(
+             field: :data,
+             message: message(content),
+             value: Content.shape_summary(content)
+           )}
         end
     end
   end
 
+  # 形状违规 + objective 违规 + 材料协议违规的同一份逐条报告;三组全空
+  # (唯一情形:v1 合规但整份 content 无 objectives,presence 归 valid?/发布门禁)
+  # 时不拼空尾巴,退回纯 @base_message。
   defp message(content) do
-    case Content.material_violations(content) do
+    case violations(content) do
       [] -> @base_message
-      violations -> @base_message <> "; material violations: " <> Enum.join(violations, "; ")
+      violations -> truncate(@base_message <> "; violations: " <> Enum.join(violations, "; "))
+    end
+  end
+
+  defp violations(content) do
+    Content.shape_violations(content) ++
+      Content.objective_violations(content) ++
+      Content.material_violations(content)
+  end
+
+  defp truncate(text)
+       when byte_size(text) <= @max_message_bytes - @wrapper_headroom,
+       do: text
+
+  defp truncate(text) do
+    keep = @max_message_bytes - @wrapper_headroom - byte_size(@truncation_suffix)
+
+    text
+    |> binary_part(0, keep)
+    |> trim_incomplete_utf8()
+    |> Kernel.<>(@truncation_suffix)
+  end
+
+  # binary_part 可能切断多字节字符——截到最后一个完整 UTF-8 序列。
+  defp trim_incomplete_utf8(binary) do
+    case :unicode.characters_to_binary(binary) do
+      trimmed when is_binary(trimmed) -> trimmed
+      {:incomplete, trimmed, _rest} -> trimmed
+      {:error, trimmed, _rest} -> trimmed
     end
   end
 end
