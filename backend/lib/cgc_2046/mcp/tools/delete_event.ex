@@ -8,10 +8,13 @@ defmodule Cgc2046.Mcp.Tools.DeleteEvent do
   slug），draft 删除不可恢复：活动行删除、slug 立即释放可复用（ADR-0014 锁的是
   发布后的 URL 段，draft slug 从未发布、无公开契约）。
 
-  **无教研级联**（与 delete_course 的差异）：draft 活动没有教研 run（event 的 run
-  在 launch 后由 Instantiator 创建）、没有内容行（curriculum_outputs 只有 course
-  维度）；子行由 DB FK 承接（event_moderators / enrollments / sponsorships /
-  speaker_invitations / invite_batches 均 delete_all 级联，draft 结构性无这些行）。
+  **级联**（#688 修订，同事务原子）：讲者邀请 run 在**邀请创建时**实例化（draft
+  合法），删除时由 `SpeakerInvitation.stop_event_runs/1` 收口为 cancelled（留痕：
+  facts 含材料镜像保留）；名额账本行由 `CapacityLedger.delete_for_offering/2` 删除
+  （多态无 FK）。无教研 curriculum run（launch 后才有）、无内容行
+  （curriculum_outputs 只有 course 维度）；event_moderators / sponsorships /
+  speaker_invitations / invite_batches 由 FK delete_all 级联——邀请与批次对 draft
+  并非结构性不存在（邀请在 draft 合法、批次创建无状态门），摘要须披露。
 
   权限（#676 收窄面，与 cancel 的 Owner/Admin **刻意不同**）：Owner ∪ 平台管理员。
   admin 不放行（删除不可逆、无回收站）；member-only 门的既有契约（S2）不含
@@ -46,7 +49,9 @@ defmodule Cgc2046.Mcp.Tools.DeleteEvent do
           else
             summary =
               "删除草稿活动「#{event.title}」（#{event.id}）：" <>
-                "活动行将永久删除、不可恢复；slug #{event.slug} 将释放可复用"
+                "活动行将永久删除、不可恢复；" <>
+                "主理人指派、讲者邀请记录（含已接受）与邀请批次将一并删除；" <>
+                "流程留痕（run facts）按审计保留；slug #{event.slug} 将释放可复用"
 
             Confirmation.request(
               frame.assigns[:current_user],

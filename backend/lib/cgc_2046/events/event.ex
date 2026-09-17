@@ -768,16 +768,26 @@ defmodule Cgc2046.Events.Event do
       )
     end
 
-    # draft-only 删除（#676，ADR-0015）：与 Course :delete 同款（行锁守卫 + 状态
-    # 裁决 + slug 释放），差异 = **无教研级联**。
+    # draft-only 删除（#676，ADR-0015；级联完备性 #688 修订）：与 Course :delete
+    # 同款（行锁守卫 + 状态裁决 + slug 释放 + 同事务级联）。
     #
-    # 无级联的论证：draft 活动没有教研 run（course 的 prep run 在创建时由
-    # course.created 实例化；event 的 run 在 launch 后由 Instantiator 创建，draft
-    # 阶段结构性不存在），也没有内容行（curriculum_outputs 只有 course 维度）。
-    # FK 上挂的子行由 DB 承接（见各自迁移）：event_moderators / enrollments /
-    # sponsorships / speaker_invitations / invite_batches 均 on_delete: delete_all
-    # 自动级联；attendances 无 on_delete（核销行只在 open 后由 confirmed 报名产生，
-    # draft 结构性不存在——存在即 DELETE 被 FK 拒绝，fail-closed 不静默丢数据）。
+    # 级联分三类（#688 按事实重写，原「无级联」论证被证伪——讲者邀请 run 在
+    # **邀请创建时**实例化（draft 合法，speaker_invitation.ex 的状态门放行
+    # :draft），不是 launch 后）：
+    #
+    # - 结构性不存在：教研 curriculum run（launch 后由 Instantiator 创建）、
+    #   内容行（curriculum_outputs 只有 course 维度）、enrollments / attendances
+    #   （报名需 offering open；attendances 无 on_delete，异常存在即 DELETE 被 FK
+    #   拒绝，fail-closed 不静默丢数据）。
+    # - FK 承接（on_delete: delete_all，迁移侧无需改动）：event_moderators /
+    #   sponsorships / speaker_invitations / invite_batches（后两者对 draft 并非
+    #   结构性不存在——邀请在 draft 合法、批次创建无状态门，故 MCP 摘要须披露）。
+    # - 显式收口（同事务，任一步失败整体回滚）：讲者邀请 run 收口
+    #   （SpeakerInvitation.stop_event_runs/1——workflow_runs 无指向 events 的
+    #   外键，FK 级联不到 run；非终态 run → cancelled 留痕，facts 保留）+
+    #   名额账本行删除（CapacityLedger.delete_for_offering/2——offering_id 多态
+    #   无外键；draft 行 occupancy 结构性为 0，reserve 三守卫含 status='open'）。
+    #
     # 治理留痕（admin_action_logs / tool_calls）不随业务行删除。
     #
     # 行锁守卫（SELECT … FOR UPDATE）与 slug 释放论证同 Course :delete（见该 action
@@ -805,6 +815,17 @@ defmodule Cgc2046.Events.Event do
 
             {:error, reason} ->
               Ash.Changeset.add_error(cs, {:database, reason})
+          end
+        end)
+      end)
+
+      # 收口与删除原子（Course :delete 的 stop_active_runs + delete_for_course
+      # 同款 with 模板）：失败上抛整体回滚——event 行仍在、run 状态不变（fail-closed）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, event ->
+          with :ok <- Cgc2046.Events.SpeakerInvitation.stop_event_runs(event),
+               :ok <- Cgc2046.Admission.CapacityLedger.delete_for_offering(:event, event.id) do
+            {:ok, event}
           end
         end)
       end)
