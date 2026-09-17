@@ -2189,6 +2189,13 @@ export type FlashbackArchiveRef = {
   occurredOn?: Maybe<Scalars['String']['output']>;
 };
 
+export type FlashbackDreamTarget = {
+  eventSlug: Scalars['String']['output'];
+  eventTitle: Scalars['String']['output'];
+  initiativeSlug: Scalars['String']['output'];
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
 export type FlashbackEnterResult = {
   /** 进入结果：line = memory（记忆线）| dream（圆梦线）；失效走顶层错误 code（flashback_token_not_found/claimed/revoked） */
   line: Scalars['String']['output'];
@@ -4748,6 +4755,8 @@ export type RootQueryType = {
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
   eventModerators: Array<EventModerator>;
+  /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
+  flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;
   /** 按 slug 获取（E-5 公开宿主页） */
@@ -4891,6 +4900,11 @@ export type RootQueryTypeEnrollmentsArgs = {
 export type RootQueryTypeEventModeratorsArgs = {
   eventId: Scalars['ID']['input'];
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeFlashbackDreamTargetArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
 };
 
 

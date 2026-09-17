@@ -5311,6 +5311,9 @@ type RootQueryType {
   "公开 Initiative 列表；匿名可读"
   publicInitiatives: [PublicInitiativeCard!]!
 
+  "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
+  flashbackDreamTarget(city: String): FlashbackDreamTarget
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6180,6 +6183,13 @@ type AcceptInvitationResult {
   result: Invitation
 
   errors: [MutationError!]!
+}
+
+type FlashbackDreamTarget {
+  eventSlug: String!
+  eventTitle: String!
+  startsAt: DateTime
+  initiativeSlug: String!
 }
 
 type FlashbackFogSpan {
