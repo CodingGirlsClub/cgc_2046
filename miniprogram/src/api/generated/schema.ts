@@ -2169,6 +2169,129 @@ export type EventSortInput = {
   order?: InputMaybe<SortOrder>;
 };
 
+export type FlashbackAdjustFogResult = {
+  answerId: Scalars['ID']['output'];
+  fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
+};
+
+export type FlashbackAnswer = {
+  fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
+  /** 当年答案（本人视图：raw_text 永远完整，KTD4） */
+  id: Scalars['ID']['output'];
+  questionKey: Scalars['String']['output'];
+  rawText: Scalars['String']['output'];
+};
+
+export type FlashbackArchiveRef = {
+  city?: Maybe<Scalars['String']['output']>;
+  key: Scalars['String']['output'];
+  name?: Maybe<Scalars['String']['output']>;
+  occurredOn?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackEnterResult = {
+  /** 进入结果：line = memory（记忆线）| dream（圆梦线）；失效走顶层错误 code（flashback_token_not_found/claimed/revoked） */
+  line: Scalars['String']['output'];
+  profile?: Maybe<FlashbackProfile>;
+  progress?: Maybe<FlashbackProgress>;
+};
+
+export type FlashbackFogSpan = {
+  len: Scalars['Int']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  /** 雾面区间：grapheme 偏移（start 起、len 长），reason 可选 */
+  start: Scalars['Int']['output'];
+};
+
+export type FlashbackFogSpanInput = {
+  len: Scalars['Int']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  start: Scalars['Int']['input'];
+};
+
+export type FlashbackProfile = {
+  answers?: Maybe<Array<Maybe<FlashbackAnswer>>>;
+  appliedAt?: Maybe<Scalars['String']['output']>;
+  archive?: Maybe<FlashbackArchiveRef>;
+  city?: Maybe<Scalars['String']['output']>;
+  fullName: Scalars['String']['output'];
+  gender?: Maybe<Scalars['String']['output']>;
+  occupationThen?: Maybe<Scalars['String']['output']>;
+  participation: Scalars['String']['output'];
+  role: Scalars['String']['output'];
+  surname?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackProgress = {
+  maskedEmail?: Maybe<Scalars['String']['output']>;
+  maskedPhone?: Maybe<Scalars['String']['output']>;
+  quoteLevel: Scalars['String']['output'];
+  today?: Maybe<FlashbackToday>;
+};
+
+export type FlashbackQuoteLicenseResult = {
+  chosenQuoteSpan?: Maybe<FlashbackFogSpan>;
+  creditedNote?: Maybe<Scalars['String']['output']>;
+  level: Scalars['String']['output'];
+  questionKey?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackRegisterBindResult = {
+  bound: Scalars['Boolean']['output'];
+  maskedPhone?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackRetractResult = {
+  retracted: Scalars['Boolean']['output'];
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackSendToWallResult = {
+  maskedEmail?: Maybe<Scalars['String']['output']>;
+  maskedPhone?: Maybe<Scalars['String']['output']>;
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackToday = {
+  mobilization?: Maybe<Scalars['JsonString']['output']>;
+  need?: Maybe<Scalars['String']['output']>;
+  newsletterOptIn?: Maybe<Scalars['Boolean']['output']>;
+  nowStatus?: Maybe<Scalars['String']['output']>;
+  reconnectTags?: Maybe<Array<Maybe<Scalars['String']['output']>>>;
+  say?: Maybe<Scalars['String']['output']>;
+  sentToWallAt?: Maybe<Scalars['String']['output']>;
+  want?: Maybe<Scalars['String']['output']>;
+  wantGiveTags?: Maybe<Array<Maybe<Scalars['String']['output']>>>;
+};
+
+export type FlashbackTodayInput = {
+  mobilizationDonateIntent?: InputMaybe<Scalars['Boolean']['input']>;
+  mobilizationHelpPromote?: InputMaybe<Scalars['Boolean']['input']>;
+  mobilizationJoin1024?: InputMaybe<Scalars['Boolean']['input']>;
+  mobilizationVolunteerLead?: InputMaybe<Scalars['Boolean']['input']>;
+  need?: InputMaybe<Scalars['String']['input']>;
+  newsletterOptIn?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 「今天的你」问卷（R8）：四个自由文本 + Want/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19） */
+  nowStatus?: InputMaybe<Scalars['String']['input']>;
+  reconnectTags?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  say?: InputMaybe<Scalars['String']['input']>;
+  want?: InputMaybe<Scalars['String']['input']>;
+  wantGiveTags?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+};
+
+export type FlashbackTodayResult = {
+  today?: Maybe<FlashbackToday>;
+};
+
+export type FlashbackTouchResult = {
+  recorded: Scalars['Boolean']['output'];
+};
+
+export type FlashbackUpdateContactResult = {
+  maskedPhone?: Maybe<Scalars['String']['output']>;
+  updated: Scalars['Boolean']['output'];
+};
+
 export type FulfillDeliveryInput = {
   proofNote: Scalars['String']['input'];
 };
@@ -3987,6 +4110,24 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
+  /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达 */
+  flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
+  /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
+  flashbackEnter?: Maybe<FlashbackEnterResult>;
+  /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
+  flashbackMarkRevealed?: Maybe<FlashbackTouchResult>;
+  /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
+  flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
+  /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡 */
+  flashbackRetract?: Maybe<FlashbackRetractResult>;
+  /** 寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27） */
+  flashbackSendToWall?: Maybe<FlashbackSendToWallResult>;
+  /** 金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关 */
+  flashbackSetQuoteLicense?: Maybe<FlashbackQuoteLicenseResult>;
+  /** 提交「今天的你」（R8/R18/R19/R20，覆盖式；写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact */
+  flashbackSubmitToday?: Maybe<FlashbackTodayResult>;
+  /** 更新手机号（R17/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码 */
+  flashbackUpdateContact?: Maybe<FlashbackUpdateContactResult>;
   /** 后台核销交付行（fulfilled_at + proof_note；Owner/Admin） */
   fulfillDelivery: FulfillDeliveryResult;
   /** Owner/Admin 创建一次性工作台邀请小程序码 */
@@ -4293,6 +4434,62 @@ export type RootMutationTypeDemoteUserArgs = {
 
 export type RootMutationTypeDisableInviteBatchArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdjustFogArgs = {
+  answerId: Scalars['ID']['input'];
+  spans: Array<FlashbackFogSpanInput>;
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackEnterArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackMarkRevealedArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRegisterBindArgs = {
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRetractArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackSendToWallArgs = {
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackSetQuoteLicenseArgs = {
+  chosenQuoteSpan?: InputMaybe<FlashbackFogSpanInput>;
+  creditedNote?: InputMaybe<Scalars['String']['input']>;
+  level: Scalars['String']['input'];
+  questionKey?: InputMaybe<Scalars['String']['input']>;
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackSubmitTodayArgs = {
+  input: FlashbackTodayInput;
+  token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackUpdateContactArgs = {
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
+  token: Scalars['String']['input'];
 };
 
 

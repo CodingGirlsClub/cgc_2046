@@ -2055,6 +2055,148 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    # ── 闪念间（In a Flash）首程 token 面（U2，KTD2：链接即身份，免登录）────
+    # 全部手写 field + 显式 RateLimit（手写 field 不经 middleware/3 回调，同
+    # acceptInvitation 先例）；token 不进 next 参数、不跨 locale 跳转传递。
+    # 业务实现单源 Cgc2046.Flashback.Tokens（含错误码字面量，进 #241 契约）。
+
+    @desc "闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件"
+    field :flashback_enter, :flashback_enter_result do
+      arg(:token, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, _ ->
+        flashback_call(fn -> Cgc2046.Flashback.Tokens.enter(token) end)
+      end)
+    end
+
+    @desc "认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入）"
+    field :flashback_mark_revealed, :flashback_touch_result do
+      arg(:token, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, _ ->
+        flashback_call(fn -> Cgc2046.Flashback.Tokens.mark_revealed(token) end)
+      end)
+    end
+
+    @desc "提交「今天的你」（R8/R18/R19/R20，覆盖式；写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact"
+    field :flashback_submit_today, :flashback_today_result do
+      arg(:token, non_null(:string))
+      arg(:input, non_null(:flashback_today_input))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token, input: input}, _ ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Tokens.submit_today(token, today_params(input))
+        end)
+      end)
+    end
+
+    @desc "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+    field :flashback_send_to_wall, :flashback_send_to_wall_result do
+      arg(:token, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, _ ->
+        flashback_call(fn -> Cgc2046.Flashback.Tokens.send_to_wall(token) end)
+      end)
+    end
+
+    @desc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+    field :flashback_retract, :flashback_retract_result do
+      arg(:token, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token}, _ ->
+        flashback_call(fn -> Cgc2046.Flashback.Tokens.retract(token) end)
+      end)
+    end
+
+    @desc "调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达"
+    field :flashback_adjust_fog, :flashback_adjust_fog_result do
+      arg(:token, non_null(:string))
+      arg(:answer_id, non_null(:id))
+      arg(:spans, non_null(list_of(non_null(:flashback_fog_span_input))))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token, answer_id: answer_id, spans: spans}, _ ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Tokens.adjust_fog(token, answer_id, spans)
+        end)
+      end)
+    end
+
+    @desc "金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关"
+    field :flashback_set_quote_license, :flashback_quote_license_result do
+      arg(:token, non_null(:string))
+      arg(:level, non_null(:string))
+      arg(:question_key, :string)
+      arg(:chosen_quote_span, :flashback_fog_span_input)
+      arg(:credited_note, :string)
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, %{token: token, level: level} = args, _ ->
+        if level in ["off", "anonymous", "credited"] do
+          params = %{
+            level: level,
+            question_key: Map.get(args, :question_key),
+            chosen_quote_span: Map.get(args, :chosen_quote_span),
+            credited_note: Map.get(args, :credited_note)
+          }
+
+          flashback_call(fn -> Cgc2046.Flashback.Tokens.set_quote_license(token, params) end)
+        else
+          {:error, message: "Invalid quote license level", code: "invalid_input"}
+        end
+      end)
+    end
+
+    @desc "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
+    field :flashback_register_bind, :flashback_register_bind_result do
+      arg(:token, non_null(:string))
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:phone])
+
+      resolve(fn _, %{token: token, phone: phone, code: code}, %{context: context} ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Tokens.register_bind(token, phone, code, context)
+        end)
+      end)
+
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
+    @desc "更新手机号（R17/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
+    field :flashback_update_contact, :flashback_update_contact_result do
+      arg(:token, non_null(:string))
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:phone])
+
+      resolve(fn _, %{token: token, phone: phone, code: code}, _ ->
+        flashback_call(fn -> Cgc2046.Flashback.Tokens.update_contact(token, phone, code) end)
+      end)
+    end
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -2549,6 +2691,170 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "acceptInvitation 返回：result 为已接受邀请记录；errors 为业务错误"
     field(:result, :invitation)
     field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  # ── 闪念间（In a Flash）首程 token 面类型（U2；手写 field 专用） ──────────
+  # 投影纪律（KTD3）：白名单列字段；phone/email 明文绝不出现（只有掩码）。
+
+  object :flashback_fog_span do
+    @desc "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
+    field(:start, non_null(:integer))
+    field(:len, non_null(:integer))
+    field(:reason, :string)
+  end
+
+  object :flashback_answer do
+    @desc "当年答案（本人视图：raw_text 永远完整，KTD4）"
+    field(:id, non_null(:id))
+    field(:question_key, non_null(:string))
+    field(:raw_text, non_null(:string))
+    field(:fog_spans, list_of(:flashback_fog_span))
+  end
+
+  object :flashback_archive_ref do
+    field(:key, non_null(:string))
+    field(:name, :string)
+    field(:city, :string)
+    field(:occurred_on, :string)
+  end
+
+  object :flashback_profile do
+    field(:full_name, non_null(:string))
+    field(:surname, :string)
+    field(:city, :string)
+    field(:occupation_then, :string)
+    field(:gender, :string)
+    field(:role, non_null(:string))
+    field(:participation, non_null(:string))
+    field(:applied_at, :string)
+    field(:archive, :flashback_archive_ref)
+    field(:answers, list_of(:flashback_answer))
+  end
+
+  object :flashback_today do
+    field(:now_status, :string)
+    field(:want, :string)
+    field(:need, :string)
+    field(:say, :string)
+    field(:want_give_tags, list_of(:string))
+    field(:mobilization, :json_string)
+    field(:newsletter_opt_in, :boolean)
+    field(:reconnect_tags, list_of(:string))
+    field(:sent_to_wall_at, :string)
+  end
+
+  object :flashback_progress do
+    field(:today, :flashback_today)
+    field(:quote_level, non_null(:string))
+    field(:masked_phone, :string)
+    field(:masked_email, :string)
+  end
+
+  object :flashback_enter_result do
+    @desc "进入结果：line = memory（记忆线）| dream（圆梦线）；失效走顶层错误 code（flashback_token_not_found/claimed/revoked）"
+    field(:line, non_null(:string))
+    field(:profile, :flashback_profile)
+    field(:progress, :flashback_progress)
+  end
+
+  object :flashback_touch_result do
+    field(:recorded, non_null(:boolean))
+  end
+
+  object :flashback_today_result do
+    field(:today, :flashback_today)
+  end
+
+  object :flashback_send_to_wall_result do
+    field(:sent_to_wall_at, :string)
+    field(:masked_phone, :string)
+    field(:masked_email, :string)
+  end
+
+  object :flashback_adjust_fog_result do
+    field(:answer_id, non_null(:id))
+    field(:fog_spans, list_of(:flashback_fog_span))
+  end
+
+  object :flashback_quote_license_result do
+    field(:level, non_null(:string))
+    field(:question_key, :string)
+    field(:chosen_quote_span, :flashback_fog_span)
+    field(:credited_note, :string)
+  end
+
+  object :flashback_retract_result do
+    field(:retracted, non_null(:boolean))
+    field(:sent_to_wall_at, :string)
+  end
+
+  object :flashback_register_bind_result do
+    field(:bound, non_null(:boolean))
+    field(:masked_phone, :string)
+  end
+
+  object :flashback_update_contact_result do
+    field(:masked_phone, :string)
+    field(:updated, non_null(:boolean))
+  end
+
+  input_object :flashback_today_input do
+    @desc "「今天的你」问卷（R8）：四个自由文本 + Want/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
+    field(:now_status, :string)
+    field(:want, :string)
+    field(:need, :string)
+    field(:say, :string)
+    field(:want_give_tags, list_of(:string))
+    field(:mobilization_join_1024, :boolean)
+    field(:mobilization_help_promote, :boolean)
+    field(:mobilization_donate_intent, :boolean)
+    field(:mobilization_volunteer_lead, :boolean)
+    field(:newsletter_opt_in, :boolean)
+    field(:reconnect_tags, list_of(:string))
+  end
+
+  input_object :flashback_fog_span_input do
+    field(:start, non_null(:integer))
+    field(:len, non_null(:integer))
+    field(:reason, :string)
+  end
+
+  # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
+  # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。
+  defp flashback_call(fun) do
+    case fun.() do
+      {:ok, value} ->
+        {:ok, value}
+
+      {:error, %{code: code, message: message}} when is_binary(code) ->
+        {:error, message: message, code: code}
+
+      {:error, %Ash.Error.Invalid{errors: [first | _]}} ->
+        envelope = Cgc2046.Flashback.Tokens.invalid_input_error(Exception.message(first))
+        {:error, message: envelope.message, code: envelope.code}
+
+      {:error, _other} ->
+        {:error, message: "服务暂时不可用，请稍后重试。", code: "database_error"}
+    end
+  end
+
+  # 动员勾选拍平 → mobilization map（存储形状单一，前端不必拼 JSON）。
+  defp today_params(input) do
+    %{
+      now_status: Map.get(input, :now_status),
+      want: Map.get(input, :want),
+      need: Map.get(input, :need),
+      say: Map.get(input, :say),
+      want_give_tags: Map.get(input, :want_give_tags) || [],
+      mobilization: %{
+        "join_1024" => Map.get(input, :mobilization_join_1024) || false,
+        "help_promote" => Map.get(input, :mobilization_help_promote) || false,
+        "donate_intent" => Map.get(input, :mobilization_donate_intent) || false,
+        "volunteer_lead" => Map.get(input, :mobilization_volunteer_lead) || false
+      },
+      newsletter_opt_in: Map.get(input, :newsletter_opt_in) || false,
+      reconnect_tags: Map.get(input, :reconnect_tags) || []
+    }
   end
 
   # ── 高风险支付操作两段确认（web 面；payload 式错误同 accept_invitation_result 先例）──

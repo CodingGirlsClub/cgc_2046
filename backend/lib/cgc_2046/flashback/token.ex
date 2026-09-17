@@ -62,6 +62,13 @@ defmodule Cgc2046.Flashback.Token do
     create :create do
       accept([:person_id, :token_hash])
     end
+
+    # 服务端内部更新面（U2 claim / U10 revoke 经 force_change_attribute 落点；
+    # 无公开 accept——状态字段只由 tokens.ex / deletion.ex 显式改写）。
+    update :update do
+      require_atomic?(false)
+      accept([])
+    end
   end
 
   admin do

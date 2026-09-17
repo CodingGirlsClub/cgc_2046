@@ -85,6 +85,12 @@
 		"initiative_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier).",
 		"flashback_slug_taken": "That public profile link is already taken by another alumna — pick another one.",
 		"flashback_slug_locked": "This public profile is live, so its link can no longer be changed (other content stays editable).",
+		"flashback_token_not_found": "This In-a-Flash link doesn't exist or has expired — you can reclaim yours from the self-service recovery entrance.",
+		"flashback_token_claimed": "This archive is already tied to an account and the link has retired — sign in or visit \"Mine\" to continue.",
+		"flashback_token_revoked": "This archive has been deleted and the link is no longer valid.",
+		"flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
+		"flashback_quote_span_out_of_bounds": "The selected quote span goes beyond the original text — pick again.",
+		"flashback_invalid_input": "Something in your submission is off — check and retry.",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
