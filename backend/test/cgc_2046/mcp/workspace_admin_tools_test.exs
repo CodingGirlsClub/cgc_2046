@@ -701,6 +701,9 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       payload = decode_reply(reply)
       assert payload["status"] == "needs_confirmation"
       assert payload["summary"] =~ "不可恢复"
+      # #688 连带披露：邀请批次（course 维度无状态门可建）+ run facts 留痕
+      assert payload["summary"] =~ "邀请批次"
+      assert payload["summary"] =~ "留痕"
       assert payload["summary"] =~ course.slug
 
       # 无副作用：第一段不落库
