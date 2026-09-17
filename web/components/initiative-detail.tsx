@@ -110,10 +110,10 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 		return () => { cancelled = true; };
 	}, [slug]);
 
-	if (loading) return <PublicCatalogShell><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
-	if (error || !data) return <PublicCatalogShell><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
+	if (loading) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
+	if (error || !data) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
 
-	return <PublicCatalogShell><div className="public-catalog-container initiative-page">
+	return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container initiative-page">
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
 			<h1>{data.name}</h1>
