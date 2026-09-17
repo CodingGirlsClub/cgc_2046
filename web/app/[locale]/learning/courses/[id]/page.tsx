@@ -13,7 +13,7 @@ export default function CourseLearningPage() {
   return (
     <SitePage>
       <main className="learning-course-page">
-        <p className="learning-course-page__back"><Link href="/learning">{t("eyebrow")}</Link><span>›</span>{t("outline")}</p>
+        <p className="learning-course-page__back"><Link href="/learning">{t("home")}</Link><span>›</span>{t("outline")}</p>
         <CourseContentViewer courseId={courseId} />
       </main>
     </SitePage>

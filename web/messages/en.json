@@ -2171,7 +2171,7 @@
 		"empty": "Course content is not published yet",
 		"emptyHint": "Content will appear here when the course starts. You can head back to My learning for your other courses.",
 		"chapter": "Chapter",
-		"eyebrow": "My learning / Course reader",
+		"home": "My learning",
 		"intro": "Read by chapter and choose an objective to start learning.",
 		"version": "Version",
 		"overview": "Course overview",

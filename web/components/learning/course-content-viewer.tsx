@@ -124,7 +124,6 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   return (
     <article className="learning-reader" data-testid="course-content-viewer">
       <header className="learning-reader__hero">
-        <div className="learning-reader__eyebrow">{t("eyebrow")}</div>
         <div className="learning-reader__hero-row">
           <div>
             <h1>{detail.title}</h1>
