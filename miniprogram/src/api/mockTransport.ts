@@ -118,7 +118,12 @@ const initiativeEvent = {
   venue: records[0].venue,
   archived: false,
   qualificationBadge: 'short_by',
-  shortBy: 3
+  shortBy: 3,
+  // 参与条件（#627）：押金三态 + 年龄门槛存在性（与后端公开投影同键）
+  paymentMode: 'deposit',
+  deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true },
+  minAge: 18,
+  priceRangeMinCents: null
 }
 
 interface MockOrder {

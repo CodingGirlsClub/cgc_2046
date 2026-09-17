@@ -239,6 +239,24 @@ export function formatAmountShort(cents: number): string {
 	return cents % 100 === 0 ? String(cents / 100) : formatAmount(cents);
 }
 
+/**
+ * 展示金额守卫（#627）：**只有正整数**算有效金额，缺失/0/负/**小数分**一律 null——
+ * 调用方据此退化为不表态形态（押金 →「押金（金额待定）」），**绝不显示 ¥0 / ¥0.00**。
+ *
+ * `Number.isInteger` 是必要的一半：后端以「分」为整数单位，`0.4` 这种非整分值经
+ * `formatAmountShort` 会四舍五入成 `¥0.00`（实测），与「绝不 ¥0」同一条红线。
+ *
+ * 押金与收费金额锚共用本守卫：后端已按同判据降级（`Offering.deposit_amount_cents/1`，
+ * #586：非正/缺失 → null），此处是展示层兜底（DB CHECK 上线前的存量脏行 / 旧缓存 payload）。
+ */
+export function positiveAmountOrNull(
+	cents: number | null | undefined,
+): number | null {
+	return typeof cents === "number" && Number.isInteger(cents) && cents > 0
+		? cents
+		: null;
+}
+
 /** tierSnapshot（JsonString，下单时物化档位）→ 档位名；坏 JSON/缺 name → null */
 export function tierSnapshotName(raw: string | null | undefined): string | null {
 	if (!raw) return null;

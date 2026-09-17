@@ -6,6 +6,7 @@ import PublicCatalogShell from "@/components/public-catalog-shell";
 import { Link, useRouter } from "@/i18n/navigation";
 import { formatDeadline } from "@/lib/events";
 import { fetchPublicInitiative, type InitiativeEvent, type PublicInitiative } from "@/lib/graphql/initiatives";
+import { formatAmountShort, positiveAmountOrNull } from "@/lib/payment";
 import { formatVenue, parseVenue } from "@/lib/public-offerings";
 
 /**
@@ -43,6 +44,9 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 	const t = useTranslations("initiatives");
 	const tCommon = useTranslations("common");
 	const tOfferings = useTranslations("publicOfferings");
+	// 缴费槽三态文案复用管理面同一份（`offerings.paymentSlot*`）——同一句话只有一个
+	// 出处，公开页与报名页口径不可能漂移（#627）。
+	const tPayment = useTranslations("offerings");
 	const locale = useLocale();
 	const router = useRouter();
 	const [data, setData] = useState<PublicInitiative | null>(null);
@@ -57,6 +61,45 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 			case "short_by": return t("shortBy", { count: event.shortBy ?? 0 });
 			default: return t("open");
 		}
+	};
+
+	/**
+	 * 参与条件（#627）：缴费槽**单槽三态**（免费 / 收费 ¥xx 起 / 押金 ¥xx（到场退））
+	 * + 年龄门槛存在性（「限 18+」），不投校验策略。
+	 *
+	 * 三态互斥只出一枚，绝不出现「免费」与「押金 ¥69」并列（R10/KTD10 同纪律）；
+	 * 金额缺失/非正 → 不表态形态（`positiveAmountOrNull` 守卫），绝不 ¥0；
+	 * 缴费态未知/缺失 → 「缴费信息待定」，绝不 fail-open 成「免费」（#586 同红线）。
+	 * **成班进度不在本行**：由既有成班徽章承载（#593 裁决：minParticipants 是阈值
+	 * 不是名额，两个数字不互相解释）。
+	 */
+	const conditionText = (event: InitiativeEvent): string => {
+		const payment = (() => {
+			if (event.paymentMode === "deposit") {
+				const amount = positiveAmountOrNull(event.deposit?.amountCents);
+				return amount === null
+					? t("paymentDepositUnknown")
+					: tPayment("paymentSlotDeposit", { amount: formatAmountShort(amount) });
+			}
+			if (event.paymentMode === "pricing") {
+				const from = positiveAmountOrNull(event.priceRangeMinCents);
+				return from === null
+					? t("paymentPricingUnknown")
+					: tPayment("paymentSlotPricing", {
+							overview: t("priceFrom", { amount: formatAmountShort(from) }),
+						});
+			}
+			if (event.paymentMode === "free") return tPayment("paymentSlotFree");
+			// 未知/缺失态**不猜**：落「缴费信息待定」而非「免费」——用默认值冒充事实
+			// 正是 #586 的病根（把押金场说成免费），这里同一条红线。
+			return t("paymentUnknown");
+		})();
+
+		// 年龄门槛只渲染**正数**（与 F5 后端同判据、与金额守卫同精神）：`minAge: 0`
+		// 只会来自陈旧 payload，渲染成「限 0+」比不渲染更糟。
+		return typeof event.minAge === "number" && event.minAge > 0
+			? t("conditionWithAge", { payment, age: event.minAge })
+			: payment;
 	};
 
 	useEffect(() => {
@@ -100,6 +143,10 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 							<span className="public-catalog-card__title">{event.title}</span>
 							<span className={`initiative-badge initiative-badge--${BADGE_TONE[event.qualificationBadge]}`}>{badgeText(event)}</span>
 						</span>
+						{/* 参与条件（#627）独占一行：`__head` 是 nowrap flex（标题 flex:1 +
+							成班徽章 flex:none），与成班徽章同排会把标题挤到 0px（360px 视口实测：
+							titleW 0 → 182.8）。成班进度仍只由上一行的徽章承载，本行不出人数。 */}
+						<span className="initiative-badge initiative-badge--condition">{conditionText(event)}</span>
 						<dl className="public-catalog-card__facts">
 							<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
 							<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
