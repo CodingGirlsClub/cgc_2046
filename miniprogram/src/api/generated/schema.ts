@@ -1136,6 +1136,22 @@ export type CreateWorkspaceResult = {
   result?: Maybe<Workspace>;
 };
 
+/** The result of the :delete_course mutation */
+export type DeleteCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Course>;
+};
+
+/** The result of the :delete_event mutation */
+export type DeleteEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Event>;
+};
+
 /** The result of the :disable_invite_batch mutation */
 export type DisableInviteBatchResult = {
   /** Any errors generated, if the mutation failed */
@@ -3949,6 +3965,10 @@ export type RootMutationType = {
   createWorkspaceApplication: CreateWorkspaceApplicationResult;
   /** Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效） */
   declineSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
+  /** 删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676） */
+  deleteCourse: DeleteCourseResult;
+  /** 删除草稿活动：仅 draft；不可恢复；slug 释放（#676） */
+  deleteEvent: DeleteEventResult;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   deletePortfolioItem?: Maybe<PortfolioItem>;
   /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
@@ -4236,6 +4256,16 @@ export type RootMutationTypeCreateWorkspaceApplicationArgs = {
 
 export type RootMutationTypeDeclineSpeakerInvitationArgs = {
   token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeDeleteCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeDeleteEventArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
