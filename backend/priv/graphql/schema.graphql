@@ -753,15 +753,6 @@ type MutationError {
   path: [String!]
 }
 
-"The result of the :delete_course mutation"
-type DeleteCourseResult {
-  "The record that was successfully deleted"
-  result: Course
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
-}
-
 "The result of the :cancel_course mutation"
 type CancelCourseResult {
   "The successful result of the mutation"
@@ -1376,15 +1367,6 @@ type SpeakerInvitation {
 
   "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
   workflowRunId: ID
-}
-
-"The result of the :delete_event mutation"
-type DeleteEventResult {
-  "The record that was successfully deleted"
-  result: Event
-
-  "Any errors generated, if the mutation failed"
-  errors: [MutationError!]!
 }
 
 "The result of the :cancel_event mutation"
@@ -6586,6 +6568,17 @@ type PublicInitiativeEvent {
   archived: Boolean!
   qualificationBadge: String!
   shortBy: Int
+  paymentMode: String!
+  deposit: PublicInitiativeDeposit!
+  minAge: Int
+  priceRangeMinCents: Int
+}
+
+"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+type PublicInitiativeDeposit {
+  enabled: Boolean!
+  amountCents: Int
+  refundableOnCheckIn: Boolean
 }
 
 type AdminUserPayload {
@@ -6823,9 +6816,6 @@ type RootMutationType {
   "取消活动：open → cancelled，发 event.ended 信号"
   cancelEvent(id: ID!): CancelEventResult!
 
-  "删除草稿活动：仅 draft；不可恢复；slug 释放（#676）"
-  deleteEvent(id: ID!): DeleteEventResult!
-
   "创建课程（默认 status=draft）"
   createCourse(input: CreateCourseInput!): CreateCourseResult!
 
@@ -6840,9 +6830,6 @@ type RootMutationType {
 
   "取消课程：open → cancelled，发 course.ended 信号"
   cancelCourse(id: ID!): CancelCourseResult!
-
-  "删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676）"
-  deleteCourse(id: ID!): DeleteCourseResult!
 
   "创建报名；open\/invite_only 立即占位，request 等待审批"
   createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
