@@ -15,6 +15,7 @@ import {
   fetchPublicOfferings,
   fetchPublicOffering,
   formatVenue,
+  moderatorNames,
   parseSponsorshipTiers,
   parseVenue,
   serializeSponsorshipTier,
@@ -323,5 +324,30 @@ describe("公开读 network-only（F4：报名失败后重拉不吃缓存旧 bad
 
     expect(net.networkCalls()).toBe(2);
     expect(second[0]?.enrollmentBadge).toBe("full");
+  });
+});
+
+describe("moderatorNames（#538 publicModerators [JsonString!] 展示回退）", () => {
+  it("displayName 优先；null/空串回退 memberNumber（与 #537 管理面同语义）", () => {
+    expect(
+      moderatorNames([
+        JSON.stringify({ display_name: "张三", member_number: "CGC-000001" }),
+        JSON.stringify({ display_name: null, member_number: "CGC-000002" }),
+        JSON.stringify({ display_name: "", member_number: "CGC-000003" }),
+      ]),
+    ).toEqual(["张三", "CGC-000002", "CGC-000003"]);
+  });
+
+  it("null/脏行逐个丢弃；有 displayName 的行缺 member_number 仍合法；两标识皆缺才丢弃", () => {
+    expect(moderatorNames(null)).toEqual([]);
+    expect(moderatorNames(undefined)).toEqual([]);
+    expect(
+      moderatorNames([
+        "not-json",
+        JSON.stringify({ display_name: "张三" }),
+        JSON.stringify({ display_name: null }),
+        JSON.stringify({ display_name: "李四", member_number: "CGC-000004" }),
+      ]),
+    ).toEqual(["张三", "李四"]);
   });
 });

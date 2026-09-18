@@ -57,9 +57,9 @@ const allTouchpoints = () => [
 const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 19 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 19)
-    assert.equal(new Set(ALL_SCENARIOS).size, 19)
+  test('恰好 20 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 20)
+    assert.equal(new Set(ALL_SCENARIOS).size, 20)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {
@@ -245,8 +245,12 @@ describe('M4/M5 管理面', () => {
     ])
   })
 
-  test('活动详情（主理人）→ 主理人指派', () => {
-    assert.deepEqual(moderatorTouchpoint().scenarios, ['event_moderator_assigned'])
+  test('活动详情（主理人）→ 主理人指派 + 移除（#538 双键，2/3 ≤ 单次上限）', () => {
+    assert.deepEqual(moderatorTouchpoint().scenarios, [
+      'event_moderator_assigned',
+      'event_moderator_removed'
+    ])
+    assert.match(moderatorTouchpoint().label, /指派与变动/)
   })
 })
 
