@@ -78,14 +78,33 @@ defmodule Cgc2046.Offering.PriceTier do
     end
   end
 
-  @doc "过滤当前可售档位（报名面 availablePriceTiers 计算字段的数据源）。"
+  @doc """
+  过滤当前可售档位（报名面 availablePriceTiers 计算字段的数据源）。
+
+  金额表态守卫（#687）：档内 `amount_cents` 脏（非正整数分——写入路径
+  `PriceTiersValidation` 已拦，脏值仅来自 force write / 裸 SQL 存量）→ 投
+  `nil`（**档位保留、金额不表态**，缺键补 nil 键统一形状），与押金
+  `Offering.deposit_amount_cents/1` 同判据同形态。可售性（available_until）
+  与金额表态分离：脏金额不改变档位可售，但消费方据此降级——web/小程序
+  渲染「金额待定」并禁选，MCP 投面不携脏值，`resolve_tier/2` 下单侧另守。
+  """
   @spec available_tiers(term()) :: [map()]
   def available_tiers(tiers) when is_list(tiers) do
     now = DateTime.utc_now()
-    Enum.filter(tiers, &(is_map(&1) and available?(&1, now)))
+
+    for tier <- tiers, is_map(tier), available?(tier, now) do
+      sanitize_amount_cents(tier)
+    end
   end
 
   def available_tiers(_tiers), do: []
+
+  defp sanitize_amount_cents(%{"amount_cents" => cents} = tier)
+       when is_integer(cents) and cents > 0,
+       do: tier
+
+  defp sanitize_amount_cents(tier) when is_map(tier),
+    do: Map.put(tier, "amount_cents", nil)
 end
 
 defmodule Cgc2046.Offering.PriceTiersValidation do

@@ -6,7 +6,7 @@ import { getPublicInitiatives } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind, PublicInitiativeCard } from '@/domain/models'
 import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
-import { formatAmount, paymentBlockCopy } from '@/domain/payment'
+import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
 import { moderatorTouchpoint } from '@/domain/subscription'
@@ -200,7 +200,8 @@ export default function EventDetailPage() {
           {payment.tiers.map((tier) => (
             <View key={tier.id} className={styles.row} data-testid={`price-tier-${tier.id}`}>
               <Text className={styles.label}>{tier.name}</Text>
-              <Text className={styles.value}>¥{formatAmount(tier.amountCents)}</Text>
+              {/* #687：脏金额不表态——「金额待定」，绝不 ¥0/¥0.00 */}
+              <Text className={styles.value}>{tierAmountText(tier, '金额待定')}</Text>
             </View>
           ))}
           {payment.notes.map((note) => (

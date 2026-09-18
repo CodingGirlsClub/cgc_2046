@@ -907,14 +907,21 @@ defmodule Cgc2046.Payments.Order do
 
   defp deposit_tier(_amount_cents), do: {:error, :deposit_amount_missing}
 
-  # 档位解析：报名时选的 tier_id → 当前配置中的档位（改价后下单按现价快照）
+  # 档位解析：报名时选的 tier_id → 当前配置中的档位（改价后下单按现价快照）。
+  # #687：金额 fail-closed——脏 amount_cents（force write / 裸 SQL 存量，写入路径
+  # PriceTiersValidation 已拦）绝不物化 ¥0/脏金额订单或调渠道，与押金单
+  # deposit_tier/1 的 order_deposit_amount_missing 同款红线（展示侧见
+  # PriceTier.available_tiers/1 的 nil 降级 + 前端「金额待定」禁选）。
   defp resolve_tier(enrollment, target) do
     tier_id = enrollment.submission_payload["tier_id"]
 
     with {:ok, tier} <- Cgc2046.Offering.PriceTier.find(target.price_tiers, tier_id),
          true <-
            Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
-             {:error, :tier_not_available} do
+             {:error, :tier_not_available},
+         true <-
+           (is_integer(tier["amount_cents"]) and tier["amount_cents"] > 0) ||
+             {:error, :tier_amount_invalid} do
       {:ok, tier}
     end
   end
@@ -1285,6 +1292,9 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_message(:deposit_amount_missing),
     do: "deposit amount snapshot is missing for this enrollment"
 
+  defp domain_error_message(:tier_amount_invalid),
+    do: "selected price tier has an invalid amount"
+
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
 
@@ -1299,6 +1309,9 @@ defmodule Cgc2046.Payments.Order do
 
   # 押金单金额源缺快照（U2/KTD1）：历史报名/缴费模式事后切换时 fail-closed
   defp domain_error_code(:deposit_amount_missing), do: "order_deposit_amount_missing"
+
+  # 定价单档位金额脏（#687，resolve_tier/2 fail-closed）：显式子句化以进契约工件
+  defp domain_error_code(:tier_amount_invalid), do: "order_tier_amount_invalid"
   # 已含资源语义的 load_*/openid 原子显式子句化（#241 F3）：兜底会拼出
   # order_order_not_found 双前缀；openid_required 显式化以进契约工件
   defp domain_error_code(:order_not_found), do: "order_not_found"
