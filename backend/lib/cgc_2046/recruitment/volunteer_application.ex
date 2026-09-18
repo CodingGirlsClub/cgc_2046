@@ -452,9 +452,19 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
     end
   end
 
-  # 批次关闭不放行新申请（R8）；在途申请不受影响（段位流转不读批次状态）
+  # 批次接受性（R8）：仅 open 批次接收新申请——draft/closed 均拒（公开面只见
+  # open，但 API 才是契约：draft 放行会提前锁定名额/污染审核面）；截止时间
+  # NOT NULL，已过即拒。在途申请不受影响（段位流转不读批次状态）。
   defp ensure_cohort_accepting(%{status: :closed}), do: {:error, :cohort_closed}
-  defp ensure_cohort_accepting(_cohort), do: :ok
+  defp ensure_cohort_accepting(%{status: :draft}), do: {:error, :cohort_not_open}
+
+  defp ensure_cohort_accepting(%{apply_deadline_at: deadline} = _cohort) do
+    if DateTime.compare(DateTime.utc_now(), deadline) == :gt do
+      {:error, :cohort_deadline_passed}
+    else
+      :ok
+    end
+  end
 
   # 初审豁免判定（R8/AE11）：该申请人是否已有 assigned 记录（跨批次、跨职位——
   # 已完成项目分配即视为已上岗）。命中则本次申请直入 interview 段。
@@ -745,6 +755,10 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
   defp domain_error_message(:rejection_reason_required), do: "a rejection reason is required"
   defp domain_error_message(:cohort_not_found), do: "cohort not found"
   defp domain_error_message(:cohort_closed), do: "cohort is closed"
+  defp domain_error_message(:cohort_not_open), do: "cohort is not open for applications"
+
+  defp domain_error_message(:cohort_deadline_passed),
+    do: "the application deadline has passed"
 
   defp domain_error_message({:workflow_run_failed, _reason}),
     do: "failed to start workflow run"
@@ -767,6 +781,10 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
 
   defp domain_error_code(:cohort_not_found), do: "volunteer_application_cohort_not_found"
   defp domain_error_code(:cohort_closed), do: "volunteer_application_cohort_closed"
+  defp domain_error_code(:cohort_not_open), do: "volunteer_application_cohort_not_open"
+
+  defp domain_error_code(:cohort_deadline_passed),
+    do: "volunteer_application_cohort_deadline_passed"
 
   defp domain_error_code({:workflow_run_failed, _reason}),
     do: "volunteer_application_workflow_run_failed"

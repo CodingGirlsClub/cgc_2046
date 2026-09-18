@@ -185,6 +185,17 @@ defmodule Cgc2046.Recruitment.ResumeProfileTest do
     end
   end
 
+  describe "空白防线（R9：API 契约不依赖端上校验）" do
+    test "空串/空白姓名或邮箱被拒——allow_nil? 拦不住空串，空白邮箱会让邮件保底通道失效", ctx do
+      %{workspace: ws, applicant: applicant} = ctx
+
+      assert {:error, _} =
+               upsert(ws, applicant, %{full_name: "  ", contact_email: "zhang@example.com"})
+
+      assert {:error, _} = upsert(ws, applicant, %{full_name: "张三", contact_email: "   "})
+    end
+  end
+
   defp upsert(workspace, actor, attrs) do
     ResumeProfile
     |> Ash.Changeset.for_create(:upsert, attrs, tenant: workspace.id)

@@ -412,11 +412,45 @@ defmodule Cgc2046.Accounts.MembershipContext do
         create_membership_and_roles(user_id, workspace_id, role_names, on_conflict, error_message)
 
       {:ok, [membership | _]} when on_conflict == :idempotent ->
-        {:ok, membership}
+        ensure_idempotent_roles(membership, role_names, workspace_id)
 
       {:ok, [_ | _]} ->
         {:error, already_member_error(error_message)}
 
+      {:error, _error} ->
+        {:error, membership_check_error()}
+    end
+  end
+
+  # 幂等补授（换职位再分配，AE11 豁免路径）：existing 分支不能吞掉本次请求的
+  # 角色——第一批 [:volunteer] 的人第二批被分配为 Tutor 时，请求的 tutor 必须
+  # 补授；原实现直接返回 membership，新角色静默丢失，RBAC 与申请状态漂移且
+  # 无报错无日志。已持有的角色跳过；角色/成员角色读失败按保守方向返结构化
+  # 错误，不假装成功（#14 原则）。
+  defp ensure_idempotent_roles(membership, role_names, workspace_id) do
+    with {:ok, roles} <- Ash.read(Cgc2046.Accounts.Role, tenant: workspace_id, authorize?: false),
+         {:ok, membership_roles} <-
+           Cgc2046.Accounts.MembershipRole
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(membership_id == ^membership.id)
+           |> Ash.read(tenant: workspace_id, authorize?: false) do
+      role_name_by_id = Map.new(roles, &{to_string(&1.id), to_string(&1.name)})
+
+      held_names =
+        MapSet.new(membership_roles, &Map.get(role_name_by_id, to_string(&1.role_id)))
+
+      missing =
+        role_names
+        |> Enum.map(&to_string/1)
+        |> Enum.uniq()
+        |> Enum.reject(&MapSet.member?(held_names, &1))
+
+      if missing == [] do
+        {:ok, membership}
+      else
+        seat_roles(membership, missing, roles, workspace_id)
+      end
+    else
       {:error, _error} ->
         {:error, membership_check_error()}
     end

@@ -29,6 +29,8 @@
 		"enrollment_duplicate_active": "你已有待支付订单，请关闭后重新打开继续支付。",
 		"volunteer_application_already_submitted": "本批次你已提交过申请（同批限一个职位），下一批开放时可换职位再申请。",
 		"volunteer_application_cohort_closed": "该批次已截止，不再接收新申请。",
+		"volunteer_application_cohort_deadline_passed": "已过报名截止时间，本批次不再接收申请。",
+		"volunteer_application_cohort_not_open": "该批次尚未开放申请，开放后欢迎再来。",
 		"volunteer_application_cohort_not_found": "批次不存在或已下线，请刷新后重试。",
 		"resume_profile_not_found": "请先填写姓名与联系邮箱（完善简历档案），再上传简历文件。",
 		"resume_profile_file_type_invalid": "简历仅支持 PDF / Word 文件（.pdf / .doc / .docx）。",

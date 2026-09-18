@@ -130,6 +130,37 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
       upsert_identity(:one_per_workspace_user)
       upsert_fields([:full_name, :contact_email, :weekly_hours, :skills])
 
+      # 空白防线（R9）：两端（web/小程序）都有前置校验，但 API 才是契约——
+      # allow_nil? 拦不住空串，空白姓名/邮箱会让 R14 邮件保底通道静默失效
+      validate(fn changeset, _context ->
+        blank =
+          Enum.find([:full_name, :contact_email], fn field ->
+            changeset
+            |> Ash.Changeset.get_attribute(field)
+            |> to_string()
+            |> String.trim()
+            |> Kernel.==("")
+          end)
+
+        case blank do
+          nil ->
+            :ok
+
+          field ->
+            # #680：自定义校验不得返回 keyword 错误（转换强制 value: nil，MCP 出口
+            # 渲染 `Value: nil` 误导 agent）——用 InvalidAttribute + ValueSummary
+            {:error,
+             Ash.Error.Changes.InvalidAttribute.exception(
+               field: field,
+               message: "must not be blank",
+               value:
+                 Cgc2046.Errors.ValueSummary.describe(
+                   Ash.Changeset.get_attribute(changeset, field)
+                 )
+             )}
+        end
+      end)
+
       change(before_action(&put_actor_user_id/2))
     end
 
@@ -137,6 +168,35 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
       primary?(true)
       require_atomic?(false)
       accept([:full_name, :contact_email, :weekly_hours, :skills])
+
+      validate(fn changeset, _context ->
+        blank =
+          Enum.find([:full_name, :contact_email], fn field ->
+            changeset
+            |> Ash.Changeset.get_attribute(field)
+            |> to_string()
+            |> String.trim()
+            |> Kernel.==("")
+          end)
+
+        case blank do
+          nil ->
+            :ok
+
+          field ->
+            # #680：自定义校验不得返回 keyword 错误（转换强制 value: nil，MCP 出口
+            # 渲染 `Value: nil` 误导 agent）——用 InvalidAttribute + ValueSummary
+            {:error,
+             Ash.Error.Changes.InvalidAttribute.exception(
+               field: field,
+               message: "must not be blank",
+               value:
+                 Cgc2046.Errors.ValueSummary.describe(
+                   Ash.Changeset.get_attribute(changeset, field)
+                 )
+             )}
+        end
+      end)
     end
 
     # 简历文件上传（KTD3 单入口，U2 的 `Cgc2046.Recruitment.Upload` 调用）：

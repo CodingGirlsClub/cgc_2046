@@ -527,6 +527,10 @@ export default function VolunteerApplyPage() {
 
   /** 上传前的建档动作（U2 契约：先建档再上传；闭包读当前表单值） */
   const ensureProfile = useCallback(async () => {
+    // 必填门与 saveProfile 同一道（R9）：上传路径不校验会绕过姓名/邮箱必填——
+    // 空白档案 + 已存文件让 R14 邮件保底通道拿到空地址
+    const invalid = resumeProfileError(profileForm())
+    if (invalid) throw new Error(invalid)
     const saved = await api.saveResumeProfile(profileForm())
     setProfile(saved)
   }, [profileForm])

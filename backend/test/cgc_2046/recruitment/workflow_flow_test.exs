@@ -433,6 +433,44 @@ defmodule Cgc2046.Recruitment.WorkflowFlowTest do
       assert in_flight.status == :assigned
       assert_run_status(in_flight, :succeeded)
     end
+
+    test "draft 批次不放行新申请；已过截止的 open 批次同样拒（API 契约与公开面同口径）", ctx do
+      %{workspace: ws, owner: owner, applicant: applicant, cohort: cohort} = ctx
+      # 同台至多一个 open：先关 setup 的第 1 批再开「过期批」
+      close_cohort(cohort, ws, owner)
+
+      # draft（未 open）：公开面不可见，但 create 写路径也必须拒——
+      # 否则持 token 者可提前锁定名额/污染审核面
+      assert {:ok, draft} =
+               RecruitmentCohort
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{name: "draft 批", apply_deadline_at: DateTime.add(DateTime.utc_now(), 14, :day)},
+                 tenant: ws.id
+               )
+               |> Ash.create(tenant: ws.id, actor: owner)
+
+      assert {:error, error} = apply_for(ws, applicant, draft)
+      assert_business_code(error, "volunteer_application_cohort_not_open")
+
+      # open 但截止已过：deadline 是 NOT NULL 字段，直接比较
+      assert {:ok, expired} =
+               RecruitmentCohort
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{name: "过期批", apply_deadline_at: DateTime.add(DateTime.utc_now(), -1, :day)},
+                 tenant: ws.id
+               )
+               |> Ash.create(tenant: ws.id, actor: owner)
+
+      {:ok, expired_open} =
+        expired
+        |> Ash.Changeset.for_update(:open, %{}, tenant: ws.id, actor: owner)
+        |> Ash.update(tenant: ws.id, actor: owner)
+
+      assert {:error, error} = apply_for(ws, applicant, expired_open)
+      assert_business_code(error, "volunteer_application_cohort_deadline_passed")
+    end
   end
 
   describe "段位流转权限（KTD2）" do

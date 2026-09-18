@@ -67,7 +67,8 @@ defmodule Cgc2046.Recruitment.ApplicationTest do
 
       assert id == first.id
 
-      # 下一批可换职位再申（AE2 后半）
+      # 下一批可换职位再申（AE2 后半）：同台至多一个 open，先关第 1 批
+      close_cohort(ws, owner, cohort)
       next_cohort = create_cohort(ws, owner, "第 2 批")
       assert {:ok, second} = apply(ws, applicant, next_cohort, %{position: :tutor})
       assert second.cohort_id == next_cohort.id
@@ -182,6 +183,16 @@ defmodule Cgc2046.Recruitment.ApplicationTest do
     end
   end
 
+  defp close_cohort(workspace, actor, cohort) do
+    {:ok, closed} =
+      cohort
+      |> Ash.Changeset.for_update(:close, %{}, tenant: workspace.id, actor: actor)
+      |> Ash.update(tenant: workspace.id, actor: actor)
+
+    closed
+  end
+
+  # 申请用例的批次一律 open（R8：仅 open 批次接收申请；draft 拒绝是行为契约）
   defp create_cohort(workspace, actor, name) do
     {:ok, cohort} =
       RecruitmentCohort
@@ -192,7 +203,12 @@ defmodule Cgc2046.Recruitment.ApplicationTest do
       )
       |> Ash.create(tenant: workspace.id, actor: actor)
 
-    cohort
+    {:ok, opened} =
+      cohort
+      |> Ash.Changeset.for_update(:open, %{}, tenant: workspace.id, actor: actor)
+      |> Ash.update(tenant: workspace.id, actor: actor)
+
+    opened
   end
 
   defp apply(workspace, actor, cohort, attrs) do

@@ -372,10 +372,14 @@ defmodule Cgc2046Web.Graphql.RecruitmentQueriesTest do
       member: member
     } do
       first_cohort = open_cohort!(ws, owner)
-      second_cohort = create_cohort(ws, owner, %{name: "第 2 批"})
 
       apply_for(ws, applicant, first_cohort, %{position: :tutor})
       apply_for(ws, member, first_cohort, %{position: :coach})
+
+      # 同台至多一个 open：先关第 1 批再开第 2 批（R8：仅 open 批次接收申请）
+      {:ok, _} = close_cohort(ws, owner, first_cohort)
+      second_cohort = open_cohort!(ws, owner)
+
       apply_for(ws, applicant, second_cohort, %{position: :tutor})
 
       assert %{"data" => %{"listVolunteerApplications" => all}} =

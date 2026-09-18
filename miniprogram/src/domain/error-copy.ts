@@ -97,6 +97,8 @@ export const COPY: Record<string, string> = {
   // 等）小程序无入口，不在此表——审核面在 web（R13）。
   volunteer_application_already_submitted: '本批次你已经提交过申请，可在下方查看当前段位。',
   volunteer_application_cohort_closed: '本批次已结束申请，请等下一批开放后再试。',
+  volunteer_application_cohort_deadline_passed: '已过报名截止时间，本批次不再接收申请。',
+  volunteer_application_cohort_not_open: '该批次尚未开放申请，开放后欢迎再来。',
   volunteer_application_cohort_not_found: '招募批次不可用，请刷新后重试。',
   // U2 上传管道（先建档再上传；文件判据以后端为准）
   resume_profile_not_found: '请先完善简历档案，再上传简历文件。',

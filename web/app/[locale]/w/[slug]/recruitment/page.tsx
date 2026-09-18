@@ -130,9 +130,12 @@ export default function RecruitmentPanelPage() {
 		reload();
 	}, [reload]);
 
-	/** 统一的操作执行：mutation → 成功 reload；失败取稳定 code 文案 */
+	/** 统一的操作执行：mutation → 成功 reload 并返回 true；失败取稳定 code 文案并返回 false */
 	const run = useCallback(
-		async (id: string, action: () => Promise<{ result: unknown; errors: Array<{ code: string | null }> }>) => {
+		async (
+			id: string,
+			action: () => Promise<{ result: unknown; errors: Array<{ code: string | null }> }>,
+		): Promise<boolean> => {
 			setBusyId(id);
 			setActionError(null);
 			try {
@@ -146,11 +149,13 @@ export default function RecruitmentPanelPage() {
 					setCancelTarget(null);
 					setCancelNote("");
 					reload();
-				} else {
-					setActionError(codeMessage(outcome.errors[0]?.code, t("actionFailed")));
+					return true;
 				}
+				setActionError(codeMessage(outcome.errors[0]?.code, t("actionFailed")));
+				return false;
 			} catch {
 				setActionError(t("actionFailed"));
+				return false;
 			} finally {
 				setBusyId(null);
 			}
@@ -259,14 +264,20 @@ export default function RecruitmentPanelPage() {
 								className="rp-cohort-form"
 								onSubmit={(event) => {
 									event.preventDefault();
+									// 截止时刻写死北京时间 23:59（用户群体在 UTC+8；写 Z 会让
+									// 实际截止漂到次日 07:59，申请人多出 8 小时窗口）
+									const deadline = new Date(`${newDeadline}T23:59:00+08:00`);
 									void run("__new_cohort__", () =>
 										createRecruitmentCohort(workspaceId, {
 											name: newName,
-											applyDeadlineAt: new Date(`${newDeadline}T23:59:00Z`).toISOString(),
+											applyDeadlineAt: deadline.toISOString(),
 										}),
-									).then(() => {
-										setNewName("");
-										setNewDeadline("");
+									).then((ok) => {
+										// 失败保留输入（错误文案已展示），服务端拒绝时管理员不必重敲
+										if (ok) {
+											setNewName("");
+											setNewDeadline("");
+										}
 									});
 								}}
 							>

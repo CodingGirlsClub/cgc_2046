@@ -31,7 +31,7 @@ entity "workspace_memberships 台籍" as wm <<既有>> {
 entity "initiatives 倡导活动" as init <<既有>> {
   * id <<PK>>
   --
-  slug = hacker-start-1024
+  slug = hackerstart1024
   status = open
   hashtag = #hackerstart1024
   四规则：deposit 87 / age 18+ / min 8 / deadline_rule
@@ -61,7 +61,8 @@ entity "recruitment_cohorts 招募批次" as cohort <<新建>> {
   --
   * name（第 1 批 · 首批招募）
   * apply_deadline_at 申请截止
-  * execution_start / execution_end 执行周期
+  * workspace_id <<FK>>（tenant 属性）
+  starts_at / ends_at 执行周期（可空）
   * status : draft | open | closed（申请页状态徽章）
   --
   人线：与 Initiative/Event 无外键（松耦合，Q3/Q4）
@@ -70,28 +71,31 @@ entity "recruitment_cohorts 招募批次" as cohort <<新建>> {
 entity "resume_profiles 简历档案" as resume <<新建>> {
   * id <<PK>>
   --
-  # user_id <<FK, unique 一人一档>>
+  # workspace_id <<FK>>（tenant 属性）
+  # user_id <<FK, unique(workspace_id, user_id) 一人一档>>
   * full_name 申请人姓名（第 1 步填写）
-  file_path / file_name / mime / size_bytes
+  * contact_email 联系邮箱（R14 邮件保底收件地址）
+  file_name / file_content_type / file_size / file_data : bytea
+  uploaded_at
   weekly_hours 每周可投入
-  skills : jsonb 多选
-  uploaded_at / updated_at
+  skills : array(text) 多选
   （仅招募审核方可见 · PIPL）
 }
 
 entity "volunteer_applications 志愿者申请" as app <<新建>> {
   * id <<PK>>
   --
+  # workspace_id <<FK>>（tenant 属性）
   # user_id <<FK>> 申请人
   # cohort_id <<FK>> 批次
   * position : enum(event_moderator | tutor | coach)\n（职位为代码枚举 + i18n 文案，无职位表）
   * city 申请城市（Tutor 可「远程」）
-  source 如何得知我们
-  has_referral 是否有内部推荐人
-  note 留言（选填）
+  heard_about_us 如何得知我们
+  has_internal_referrer 是否有内部推荐人
+  message 留言（选填）
   * status : submitted → interview → training → assigned
   | rejected | canceled（管理员取消，A1：无申请人自撤流程）
-  reject_reason（rejected 必填；canceled 备注选填）
+  rejection_reason（rejected 必填；canceled 备注同列选填）
   # assigned_event_id <<FK, nullable>> 主理人分配目标
   assignment_note（Tutor 课程任务记录）
   assigned_at
