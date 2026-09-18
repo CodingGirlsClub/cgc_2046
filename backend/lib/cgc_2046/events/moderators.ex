@@ -13,6 +13,8 @@ defmodule Cgc2046.Events.Moderators do
   """
 
   require Ash.Query
+  require Logger
+
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Events.{Event, EventModerator}
 
@@ -118,12 +120,45 @@ defmodule Cgc2046.Events.Moderators do
              not_found_error?: false
            ) do
       case moderator do
-        nil -> {:error, :not_found}
-        record -> Ash.destroy(record, actor: actor, tenant: workspace_id)
+        nil ->
+          {:error, :not_found}
+
+        record ->
+          with :ok <- Ash.destroy(record, actor: actor, tenant: workspace_id) do
+            notify_removed(record, workspace_id)
+          end
       end
     else
       {:error, :forbidden} -> {:error, :forbidden}
       {:error, _} = error -> error
+    end
+  end
+
+  # #538 移除通知：仅主动移除（本域函数，GraphQL/MCP 共用）发送——级联撤销
+  # （RevokeModerationsOnLeave 裸 SQL DELETE）不经本路径，语义上「成员移除」
+  # 另有语境，不逐行轰炸。Fanout.deliver 自身 rescue 内化（恒 :ok）；event
+  # 读取失败（FK 保证存在，仅瞬断可达）不回滚已成功的移除——通知丢一条由
+  # 管理面回读兜底，移除失败重试才是坏语义；丢弃留 warning（#606 终态丢弃
+  # 可观测纪律：丢了必须有可 grep 的痕迹）。
+  defp notify_removed(record, workspace_id) do
+    case Ash.get(Event, record.event_id, authorize?: false, tenant: workspace_id) do
+      {:ok, event} ->
+        Cgc2046.Notifications.Fanout.deliver(
+          {record.user_id, Cgc2046.Notifications.Fanout.identities(record.user_id)},
+          "event_moderator_removed",
+          %{"event_id" => event.id, "title" => event.title},
+          %{"event_id" => event.id}
+        )
+
+        :ok
+
+      {:error, error} ->
+        Logger.warning(
+          "event_moderator_removed not delivered: event fetch failed " <>
+            "(event_id=#{record.event_id} user_id=#{record.user_id} reason=#{inspect(error)})"
+        )
+
+        :ok
     end
   end
 

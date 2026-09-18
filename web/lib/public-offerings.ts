@@ -205,3 +205,33 @@ export function parseCompanionCourse(
 		return null;
 	}
 }
+
+/**
+ * 公开主理人投影（#538）：SDL 形状 [JsonString!]（availablePriceTiers 同款，
+ * 每行一个 JSON 字符串）。后端只组装 display_name / member_number 两键
+ * （userId/email/phone 结构性不存在）。
+ */
+
+/** publicModerators → 展示名列表（逐行 parse，脏行丢弃）。回退链与 #537
+ *  管理面同语义：displayName → memberNumber（后端恒非空；displayName 为
+ *  null 是「用户没填名字」的固有成本，不做特殊兜底）。解析失败/空 → []
+ *  （展示层「无主理人不渲染」）。 */
+export function moderatorNames(
+	raw: readonly string[] | null | undefined,
+): string[] {
+	if (!raw) return [];
+	return raw
+		.flatMap((item): string[] => {
+			try {
+				const v: unknown = JSON.parse(item);
+				if (typeof v !== "object" || v === null) return [];
+				const r = v as Record<string, unknown>;
+				const name = r.display_name;
+				const number = r.member_number;
+				if (typeof name === "string" && name !== "") return [name];
+				return typeof number === "string" && number !== "" ? [number] : [];
+			} catch {
+				return [];
+			}
+		});
+}

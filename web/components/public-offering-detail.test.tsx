@@ -1606,3 +1606,53 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     }
   });
 });
+
+describe("公开主理人行（#538）", () => {
+  it("event 多主理人：displayName 优先、缺失回退 memberNumber、· 连接、后端序", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [
+        JSON.stringify({ display_name: "张三", member_number: "CGC-000001" }),
+        JSON.stringify({ display_name: null, member_number: "CGC-000002" }),
+      ],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByText("本场主理人")).toBeInTheDocument();
+    expect(screen.getByTestId("public-detail-moderators")).toHaveTextContent(
+      "张三 · CGC-000002",
+    );
+  });
+
+  it("空名单 / 脏 JsonString：整行不渲染（无主理人不占版面）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [],
+    });
+    const { unmount } = render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
+    unmount();
+
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: ["not-json"],
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
+  });
+
+  it("course 不渲染（查询无该字段，kind 门优先于数据）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [JSON.stringify({ display_name: "张三", member_number: "CGC-000001" })],
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
+  });
+});

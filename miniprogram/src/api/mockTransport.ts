@@ -39,7 +39,13 @@ const records = [
     // initiativeId 让 event-detail 的「所属倡导活动」回链有落点
     qualificationBadge: 'short_by',
     shortBy: 3,
-    initiativeId: 'initiative-1'
+    initiativeId: 'initiative-1',
+    // #538 公开主理人投影样例：一行有 displayName、一行 null 回退 memberNumber，
+    // 详情页渲染「本场主理人：主讲小援 · CGC-9A3F2C」（与真机 [JsonString!] 同形）
+    publicModerators: [
+      JSON.stringify({ display_name: '主讲小援', member_number: 'CGC-000001' }),
+      JSON.stringify({ display_name: null, member_number: 'CGC-9A3F2C' })
+    ]
   },
   {
     id: 'event-open',

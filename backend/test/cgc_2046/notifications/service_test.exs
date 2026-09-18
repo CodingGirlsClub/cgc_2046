@@ -175,8 +175,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert "event_qualification_underfilled" in registry_keys
 
     for template_key <- registry_keys, template_key not in deliberate_profile_fallback do
-      # 深链模板（event_moderator_assigned）需 event_id 才走深链分支——带 id
-      # 发送即覆盖「data 完整」的真实态；其余模板 data 不影响落页。
+      # 深链模板（event_moderator_assigned / removed，#538）需 event_id 才走
+      # 深链分支——带 id 发送即覆盖「data 完整」的真实态；其余模板 data 不影响落页。
       assert :ok =
                Client.send_notification(
                  :wechat,
@@ -723,6 +723,19 @@ defmodule Cgc2046.Notifications.ServiceTest do
            }
   end
 
+  test "event_moderator_removed 渲染：thing1 活动名 + thing5 固定移除文案（#538，模板「活动名额转移提醒」槽位非惯例）" do
+    data =
+      send_and_capture("event_moderator_removed", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "押金制黑客松"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "押金制黑客松"},
+             "thing5" => %{"value" => "主理人身份已解除"}
+           }
+  end
+
   test "speaker_accepted 渲染：thing14 活动名 + thing6 已接受（invitation_id 不下发）" do
     data =
       send_and_capture("speaker_accepted", %{
@@ -832,8 +845,9 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 19 键集合（防表被改空）
-    assert length(registry_keys) == 19
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 20 键集合（防表被改空；
+    # #538 加 event_moderator_removed 后 19 → 20）
+    assert length(registry_keys) == 20
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))
