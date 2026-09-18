@@ -210,6 +210,30 @@ defmodule Cgc2046.Admission.Enrollment do
       end
     )
 
+    # 押金快照金额（#696）：报名提交时物化进 submission_payload 的
+    # "deposit_amount_cents"（create/approve 落点见 put_deposit_snapshot/2），
+    # 与 createOrder 押金单金额（Payments.Order.enrollment_deposit_tier/1）同键
+    # 同源——/orders/new 披露行展示的即实付金额。判据单源
+    # Offering.deposit_amount_cents/1（正整数才算金额，否则 nil → 展示面
+    # 「金额待定」口径，绝不 ¥0）。定价/免费报名无此键 → nil。
+    calculate(:deposit_amount_cents, :integer,
+      public?: true,
+      # submission_payload 不在 GraphQL 字段集（managed query 按请求字段 select），
+      # 须显式 load 才能读到——同 target_title 的先例
+      load: [:submission_payload],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          amount =
+            case enrollment.submission_payload do
+              %{"deposit_amount_cents" => value} -> value
+              _ -> nil
+            end
+
+          Cgc2046.Offering.deposit_amount_cents(%{deposit_amount_cents: amount})
+        end)
+      end
+    )
+
     calculate(:venue, :string,
       public?: true,
       load: [:target_schedule],

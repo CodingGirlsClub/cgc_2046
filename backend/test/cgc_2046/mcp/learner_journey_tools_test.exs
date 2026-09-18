@@ -235,6 +235,36 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert log.result_status == :ok
     end
 
+    # #687：脏档金额（0 元）不得把「from ¥X」压成 ¥0——available_tiers/1 投 nil
+    # 与本工具 min 判据（is_integer and > 0）双层守卫，只认有效档最小值。
+    test "脏档金额不参与 min_amount_cents：from 价只认有效档（#687）" do
+      admin = Fixtures.platform_admin("s7-disc-dirty")
+      workspace = Fixtures.create_workspace(admin)
+
+      course =
+        EventFixtures.create_course(workspace, admin, Map.merge(%{title: "脏价公开课"}, paid_attrs()))
+
+      # 布置而非被测对象：域校验挡 0 元档，裸 SQL 造存量脏行（#627 F5 同款）；
+      # jsonb 参数直接传 Elixir 结构（postgrex 经 Jason 编码；预编码字符串会被
+      # 再包一层 JSON 引号存成 string scalar）
+      Repo.query!(
+        "UPDATE courses SET price_tiers = $2 WHERE id = $1",
+        [
+          Ecto.UUID.dump!(course.id),
+          [
+            %{"id" => @paid_tier_id, "name" => "早鸟", "amount_cents" => 0},
+            %{"id" => Ecto.UUID.generate(), "name" => "标准", "amount_cents" => 19_900}
+          ]
+        ]
+      )
+
+      outsider = Fixtures.register_user("s7-disc-dirty-outsider")
+
+      assert {:reply, _, _} = reply = DiscoverOfferings.execute(%{}, frame_for(outsider))
+      assert [row] = decode_reply(reply)["offerings"]
+      assert row["pricing"]["min_amount_cents"] == 19_900
+    end
+
     test "成员见本台 workspace 可见性供给；成员段排除 draft/cancelled" do
       admin = Fixtures.platform_admin("s7-disc-b")
       workspace = Fixtures.create_workspace(admin)

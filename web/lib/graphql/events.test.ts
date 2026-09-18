@@ -88,11 +88,13 @@ describe("events GraphQL 契约（对齐 event.ex/course.ex graphql 段 + schema
 		);
 	});
 
-	it("MY_ENROLLMENT：按 id 读本人报名（/orders/new 守卫）+ targetTitle 随返（下单上下文交接）", () => {
+	it("MY_ENROLLMENT：按 id 读本人报名（/orders/new 守卫）+ targetTitle 随返（下单上下文交接）+ 押金事实随返（#696：paymentMode 识别 + depositAmountCents 披露金额）", () => {
 		const doc = print(MY_ENROLLMENT);
 		expect(doc).toContain("query MyEnrollment($id: ID!)");
 		expect(doc).toContain("myEnrollments(filter: { id: { eq: $id } })");
-		expect(doc).toContain("results {\n      id\n      status\n      targetTitle\n    }");
+		expect(doc).toContain(
+			"results {\n      id\n      status\n      targetTitle\n      paymentMode\n      depositAmountCents\n    }",
+		);
 	});
 });
 
