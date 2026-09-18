@@ -129,6 +129,11 @@ ENDORSE_BUTTON=$(cls "$FLASHBACK" endorseButton)
 ENDORSE_PLAIN=$(cls "$FLASHBACK" endorseButtonPlain)
 CITY_PINS=$(cls "$FLASHBACK" cityPins)
 CITY_PIN=$(cls "$FLASHBACK" cityPin)
+QUOTE_PICKER=$(cls pages/flashback 'quotePicker')
+QUOTE_CANDIDATE=$(cls pages/flashback 'quoteCandidate')
+QUOTE_CANDIDATE_ACTIVE=$(cls pages/flashback 'quoteCandidateActive')
+SHARE_OPTIN=$(cls pages/flashback 'shareOptIn')
+LIKE_BADGE=$(cls pages/flashback 'likeBadge')
 CITY_PIN_ALL=$(cls "$FLASHBACK" cityPinAll)
 CITY_PIN_ACTIVE=$(cls "$FLASHBACK" cityPinActive)
 STATUS_SCHED=$(cls "$FLASHBACK" scheduled)
@@ -223,6 +228,8 @@ ck "雾面句=1 句（mock fogSpans [0,7) 只罩首句）" "$(COUNT "$SENTENCE_F
 ck "本人视图首句永远完整（KTD4）" "$(RES automation_element_action --action text --selector "$SENTENCE")" '^我在盛大做测试。'
 ck "今天背面三行均未写" "$(COUNT "$TODAY_EMPTY")" '^3$'
 ck "编辑入口文案" "$(RES automation_element_action --action text --selector "$EDITOR_TOGGLE")" '^编辑今天的你$'
+# R36：点赞徽章只在「上墙且有点赞」时出现——mock 未寄出，故此处不渲染（判据在 domain 单测钉住）
+ck "未寄出：无点赞徽章（R36）" "$(COUNT "$LIKE_BADGE")" '^0$'
 shot 04-flashback-my-card.png
 
 echo "### 5) 雾化编辑：点按雾面句 → 解雾（R16 句子级开关）"
@@ -254,6 +261,15 @@ ck "默认档=不授权" "$(RES automation_element_action --action text --select
 TRIGGER change '{"value":"anonymous"}' 'radio-group'
 sleep 1.5
 ck "切换后选中=匿名金句" "$(RES automation_element_action --action text --selector "$LICENSE_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
+# R35 选句器：匿名档下展开候选句（按句切分、排除雾面段——mock 首句带雾面 → 2 句候选）；
+# 未圈选 = 不上墙，所以授权提交发生在点句这一步
+ck "选句器展开（R35）" "$(COUNT "$QUOTE_PICKER")" '^1$'
+# 段 5 已把唯一雾面句解开 → 3 句全部可作候选（雾面排除判据在 domain 单测钉住）
+ck "候选句=3（雾面已在段 5 解开）" "$(COUNT "$QUOTE_CANDIDATE")" '^3$'
+ck "默认无圈选高亮" "$(COUNT "$QUOTE_CANDIDATE_ACTIVE")" '^0$'
+TAP "$QUOTE_CANDIDATE"
+sleep 1.5
+ck "圈选后高亮恰一句" "$(COUNT "$QUOTE_CANDIDATE_ACTIVE")" '^1$'
 shot 07-flashback-quote-anonymous.png
 
 echo "### 7.5) 分享三件（用户定稿 ③）：入口按钮 + sheet 三入口 + 取消收起"
@@ -266,6 +282,8 @@ TAP "$SHARE_BUTTON"
 sleep 0.8
 ck "分享 sheet 弹出" "$(COUNT "$SHARE_SHEET")" '^1$'
 ck "三入口（好友/朋友圈/保存）" "$(COUNT "$SHARE_ENTRY")" '^3$'
+# R37 分享 opt-in：已授权（上一步圈选开了匿名档）→ 显示且为锁定态（分享改不了档位）
+ck "分享 opt-in 行出现（R37）" "$(COUNT "$SHARE_OPTIN")" '^1$'
 shot 075-share-sheet.png
 TAP "$SHARE_CANCEL"
 sleep 0.6

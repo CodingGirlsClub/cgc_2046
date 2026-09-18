@@ -99,6 +99,9 @@
 		"flashback_auth_required": "进入时间胶囊需要你的专属链接，或登录已绑定的账号。",
 		"flashback_person_not_bound": "当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。",
 		"flashback_recover_rate_limited": "找回尝试过于频繁，请一小时后再试。",
+		"flashback_like_rate_limited": "点赞操作过于频繁，请稍后再试。",
+		"flashback_quote_not_found": "这句话已经不在墙上了，刷新看看别的。",
+		"flashback_invalid_voter_key": "点赞身份校验失败，请刷新页面后重试。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试",
 		"flashback_invalid_transition": "这张行动卡当前状态不允许该操作（四态只能依次推进）。",
@@ -2333,6 +2336,7 @@
 			"statsStarted": "有人回来了。每多一个人，这面墙就多显影一张。",
 			"quotesTitle": "当年的金句",
 			"quotesEmpty": "金句墙还空着——第一句会来自某位校友的授权。",
+			"likeAria": "点赞（当前 {count} 人）",
 			"footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
 		},
 		"recover": {
@@ -2559,6 +2563,8 @@
 			"downloadMd": "下载 Markdown",
 			"privacyNote": "你标记过雾面的句子不会出现在卡片里。",
 			"shareTo": "分享到…",
+			"shareOptIn": "同时允许闪念间把这句话展示在首页",
+			"shareOptInAlready": "已在授权中——档位可在回访处调整",
 			"brand": "IN A FLASH · 闪念间",
 			"canvasFooter": "闪念间 · In a Flash"
 		},

@@ -338,6 +338,11 @@ export interface FlashbackMyCard {
   quote: string | null
   /** 金句授权档原始值（R31：off/anonymous/credited；非法值由 parseQuoteLevel 落 off） */
   quoteLevel: string
+  /** 选定金句的来源题与区间（R37 分享 opt-in 原样回填；与卡片展示同源） */
+  quoteQuestionKey: string | null
+  quoteSpan: { start: number; len: number } | null
+  /** 本人金句点赞数（R36；未授权档为 null） */
+  quoteStats: { likeCount: number } | null
   today: FlashbackMyToday | null
   answers: FlashbackMeAnswer[]
 }
@@ -438,7 +443,12 @@ export interface MiniProgramApi {
     say?: string | null
   }): Promise<void>
   /** U9/R31：金句授权三档（off/anonymous/credited） */
-  flashbackSetQuoteLicense(level: 'off' | 'anonymous' | 'credited'): Promise<void>
+  /** R35：档位与圈选区间一起提交（questionKey/span 缺省 = 不动既有区间） */
+  flashbackSetQuoteLicense(
+    level: 'off' | 'anonymous' | 'credited',
+    questionKey?: string | null,
+    chosenQuoteSpan?: { start: number; len: number } | null
+  ): Promise<void>
   /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界） */
   flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void>
 }

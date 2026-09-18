@@ -491,6 +491,14 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         appliedAt
         quoteLevel
         quote
+        quoteQuestionKey
+        quoteSpan {
+          start
+          len
+        }
+        quoteStats {
+          likeCount
+        }
         today {
           nowStatus
           want
@@ -549,9 +557,18 @@ export const FlashbackSubmitTodayMutationDocument = /* GraphQL */ `
 `
 
 export const FlashbackSetQuoteLicenseMutationDocument = /* GraphQL */ `
-  mutation FlashbackSetQuoteLicense($level: String!) {
-    flashbackSetQuoteLicense(level: $level) {
+  mutation FlashbackSetQuoteLicense(
+    $level: String!
+    $questionKey: String
+    $chosenQuoteSpan: FlashbackFogSpanInput
+  ) {
+    flashbackSetQuoteLicense(level: $level, questionKey: $questionKey, chosenQuoteSpan: $chosenQuoteSpan) {
       level
+      questionKey
+      chosenQuoteSpan {
+        start
+        len
+      }
     }
   }
 `

@@ -195,6 +195,13 @@ export interface FlashbackCapsuleMe {
 	} | null;
 	/** 选定金句（R14 摘要卡；off/未选为 null） */
 	quote?: string | null;
+	/** 金句授权档（R31/R37：off/anonymous/credited）——分享 opt-in 用它判断是否已授权 */
+	quoteLevel?: string | null;
+	/** 选定金句的来源题与区间（R37 分享 opt-in 原样回填，与卡片展示同源） */
+	quoteQuestionKey?: string | null;
+	quoteSpan?: { start: number; len: number } | null;
+	/** 本人金句点赞数（R36；未授权档为 null） */
+	quoteStats?: { likeCount: number } | null;
 	/** 本人当年答案雾化版（R15 全文卡；text 形态——me 面 SDL 独立，本人导出用） */
 	answers: FlashbackMeAnswer[];
 }
@@ -240,6 +247,12 @@ export interface FlashbackPublicQuote {
 	level: string;
 	/** credited 档才有：链实名档案页 */
 	publicSlug?: string | null;
+	/** 点赞定位键（R36）：flashbackLikeQuote 的 personId 入参 */
+	personId: string;
+	/** 实时点赞数（R36） */
+	likeCount: number;
+	/** 本访客是否已赞（按 voterKey 去重） */
+	likedByViewer: boolean;
 }
 
 export interface FlashbackPublicProfile {
@@ -492,6 +505,15 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					sentToWallAt
 				}
 				quote
+				quoteLevel
+				quoteQuestionKey
+				quoteSpan {
+					start
+					len
+				}
+				quoteStats {
+					likeCount
+				}
 				answers {
 					questionKey
 					text
@@ -628,14 +650,29 @@ export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
 /** 匿名金句墙（U6/R31/R32）：授权者的脱敏金句 */
 export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
 	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
-	Record<string, never>
+	{ voterKey?: string | null }
 > = gql`
-	query FlashbackPublicQuotes {
-		flashbackPublicQuotes {
+	query FlashbackPublicQuotes($voterKey: String) {
+		flashbackPublicQuotes(voterKey: $voterKey) {
 			text
 			attribution
 			level
 			publicSlug
+			personId
+			likeCount
+			likedByViewer
+		}
+	}
+`;
+
+/** 点赞/取消（R36）：公开无登录，voterKey 去重 + IP 限频；返回实时计数 */
+export const FLASHBACK_LIKE_QUOTE: TypedDocumentNode<
+	{ flashbackLikeQuote: { likeCount: number } },
+	{ personId: string; voterKey: string; liked: boolean }
+> = gql`
+	mutation FlashbackLikeQuote($personId: ID!, $voterKey: String!, $liked: Boolean!) {
+		flashbackLikeQuote(personId: $personId, voterKey: $voterKey, liked: $liked) {
+			likeCount
 		}
 	}
 `;

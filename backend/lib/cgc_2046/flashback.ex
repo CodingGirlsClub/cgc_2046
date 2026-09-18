@@ -46,5 +46,6 @@ defmodule Cgc2046.Flashback do
     resource(Cgc2046.Flashback.Touch)
     resource(Cgc2046.Flashback.Outreach)
     resource(Cgc2046.Flashback.Redemption)
+    resource(Cgc2046.Flashback.Like)
   end
 end

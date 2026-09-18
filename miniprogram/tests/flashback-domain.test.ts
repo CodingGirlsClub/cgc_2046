@@ -185,7 +185,16 @@ describe('parseQuoteLevel（R31 授权档恢复，fail-closed）', () => {
 })
 
 // ── R14 分享（用户定稿 ③）：shareMessage / summaryCardModel ───────────────
-import { shareMessage, summaryCardLayout, summaryCardModel, wrapCardText } from '../src/domain/flashback.ts'
+import {
+  isCandidatePicked,
+  quoteCandidatesOf,
+  quoteLikeBadge,
+  shareMessage,
+  shareOptInState,
+  summaryCardLayout,
+  summaryCardModel,
+  wrapCardText
+} from '../src/domain/flashback.ts'
 import type { FlashbackMyCard } from '../src/domain/models'
 
 const me = (over: Partial<FlashbackMyCard> = {}): FlashbackMyCard => ({
@@ -198,6 +207,9 @@ const me = (over: Partial<FlashbackMyCard> = {}): FlashbackMyCard => ({
   appliedAt: '2014-01-05T05:06:00.000Z',
   quote: '我想亲眼看看是不是。',
   quoteLevel: 'anonymous',
+  quoteQuestionKey: 'self_intro',
+  quoteSpan: { start: 0, len: 10 },
+  quoteStats: { likeCount: 0 },
   today: { nowStatus: '还在写代码', want: '想骑行', say: null, sentToWallAt: null },
   answers: [],
   ...over
@@ -260,4 +272,92 @@ test('summaryCardLayout：kicker/时间戳/金句/今天的你/脚注全部落�
     assert.ok(l.dividerY <= l.H - 24 && l.todayTop <= l.H - 24, '分割线/今天起点在画布内')
     assert.ok(l.quoteLines.length <= 5 && l.todayLines.length <= 3, '行数封顶')
   }
+})
+
+// ── R35 选句器 / R36 点赞回显 / R37 分享 opt-in ─────────────────────────
+
+const quoteAnswer = (over: Partial<FlashbackMeAnswer> = {}): FlashbackMeAnswer => ({
+  id: 'a1',
+  questionKey: 'self_intro',
+  rawText: '我在盛大做测试。喜欢周末骑行。',
+  fogSpans: [],
+  text: '我在盛大做测试。喜欢周末骑行。',
+  ...over
+})
+
+test('quoteCandidatesOf：按句切分、排除雾面句、区间可回切原文（R35）', () => {
+  const candidates = quoteCandidatesOf([quoteAnswer()])
+
+  assert.deepEqual(
+    candidates.map((c) => c.sentence),
+    ['我在盛大做测试。', '喜欢周末骑行。']
+  )
+  // 区间与展示同源：按 start/len 回切 = 原句（第二句起点 = 首句长度）
+  for (const candidate of candidates) {
+    assert.equal(quoteAnswer().rawText.slice(candidate.start, candidate.start + candidate.len), candidate.sentence)
+  }
+
+  // 雾面句不进候选（首句被雾面罩住）
+  const fogged = quoteCandidatesOf([quoteAnswer({ fogSpans: [{ start: 0, len: 7 }] })])
+  assert.deepEqual(fogged.map((c) => c.sentence), ['喜欢周末骑行。'])
+
+  // 全雾面 → 空候选（前端给「解开后才能选金句」提示）
+  assert.deepEqual(quoteCandidatesOf([quoteAnswer({ fogSpans: [{ start: 0, len: 20 }] })]), [])
+  // 空文本/空白句丢弃；多题合并保留各自 questionKey
+  assert.deepEqual(quoteCandidatesOf([quoteAnswer({ rawText: '   ' })]), [])
+  const two = quoteCandidatesOf([quoteAnswer(), quoteAnswer({ id: 'a2', questionKey: 'funny_thing', rawText: '学过吉他。' })])
+  assert.equal(two[two.length - 1].questionKey, 'funny_thing')
+})
+
+test('isCandidatePicked：区间与来源题同时相等才命中（存档回显/高亮）', () => {
+  const candidate = quoteCandidatesOf([quoteAnswer()])[0]
+  assert.equal(isCandidatePicked(candidate, null), false)
+  assert.equal(
+    isCandidatePicked(candidate, { questionKey: 'self_intro', start: candidate.start, len: candidate.len }),
+    true
+  )
+  // 长度或题不同 → 不命中（防止跨题同偏移误高亮）
+  assert.equal(
+    isCandidatePicked(candidate, { questionKey: 'self_intro', start: candidate.start, len: candidate.len + 1 }),
+    false
+  )
+  assert.equal(
+    isCandidatePicked(candidate, { questionKey: 'funny_thing', start: candidate.start, len: candidate.len }),
+    false
+  )
+})
+
+test('quoteLikeBadge：上墙且有点赞才出现（R36）', () => {
+  const base = me()
+  assert.equal(quoteLikeBadge(base), null) // 未寄出（quoteStats 为 0 也只看上墙态）
+  assert.equal(
+    quoteLikeBadge({ ...base, today: { ...base.today!, sentToWallAt: '2026-09-18T00:00:00Z' } }),
+    null
+  ) // 上墙但 0 赞
+  assert.equal(
+    quoteLikeBadge({
+      ...base,
+      today: { ...base.today!, sentToWallAt: '2026-09-18T00:00:00Z' },
+      quoteStats: { likeCount: 7 }
+    }),
+    '你的话被 7 人点赞'
+  )
+  // 未授权档（quoteStats null）→ 不显示
+  assert.equal(
+    quoteLikeBadge({ ...base, today: { ...base.today!, sentToWallAt: '2026-09-18T00:00:00Z' }, quoteStats: null }),
+    null
+  )
+})
+
+test('shareOptInState：未圈选不显示 / 已授权锁定 / 可勾选默认不勾（R37）', () => {
+  const base = { ...me(), quoteLevel: 'off' }
+  // 有选定金句（questionKey + span 齐备）→ 可勾选（默认不勾由页面 state 保证）
+  assert.equal(shareOptInState(base), 'available')
+  // 已授权（anonymous/credited）→ 锁定态
+  assert.equal(shareOptInState({ ...base, quoteLevel: 'anonymous' }), 'already')
+  assert.equal(shareOptInState({ ...base, quoteLevel: 'credited' }), 'already')
+  // 无金句 / 缺区间 / 缺来源题 → 不显示（保守：无法可靠回填 span）
+  assert.equal(shareOptInState({ ...base, quote: null }), 'hidden')
+  assert.equal(shareOptInState({ ...base, quoteSpan: null }), 'hidden')
+  assert.equal(shareOptInState({ ...base, quoteQuestionKey: null }), 'hidden')
 })

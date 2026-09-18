@@ -76,6 +76,72 @@ export function toggleSentenceFog(
   return next.sort((a, b) => a.start - b.start)
 }
 
+// ── R35 金句圈选（候选句 = 按句切分、排除雾面段） ──────────────────────
+
+export interface QuoteCandidate {
+  questionKey: string
+  /** 展示用（首尾空白已去；区间仍覆盖整句，含句读） */
+  sentence: string
+  /** 原文偏移（与 fog span 同一坐标系：splitSentences 的切片口径） */
+  start: number
+  len: number
+}
+
+/** 金句候选（R35，与 web write.tsx 的 quoteCandidatesOf 同规则）：
+ *  - 按句读切分（splitSentences，保留分隔符）；
+ *  - **排除雾面段**（雾面句对外不可见，不能当金句——KTD4/R14 纪律）；
+ *  - 空白句丢弃；grapheme 偏移随句携带，圈选后原样回填 chosen_quote_span。
+ * 「未圈选 = 不上墙」：候选只是选项，真正授权由调用方在选中时提交。 */
+export function quoteCandidatesOf(answers: FlashbackMeAnswer[]): QuoteCandidate[] {
+  const result: QuoteCandidate[] = []
+  for (const answer of answers) {
+    for (const sentence of sentencesWithFog(answer)) {
+      if (sentence.fogged) continue
+      const sentenceText = sentence.text.trim()
+      if (!sentenceText) continue
+      result.push({
+        questionKey: answer.questionKey,
+        sentence: sentenceText,
+        start: sentence.start,
+        len: sentence.len
+      })
+    }
+  }
+  return result
+}
+
+/** 圈选命中判定（存档态回显与列表高亮共用）：区间与来源题同时相等 */
+export function isCandidatePicked(
+  candidate: QuoteCandidate,
+  picked: { questionKey: string | null; start: number; len: number } | null
+): boolean {
+  if (!picked) return false
+  return (
+    picked.questionKey === candidate.questionKey &&
+    picked.start === candidate.start &&
+    picked.len === candidate.len
+  )
+}
+
+// ── R36 作者侧点赞数 / R37 分享 opt-in ────────────────────────────────
+
+/** 我的卡上的点赞徽章（R36）：上墙且有点赞才出现，否则 null（不占位） */
+export function quoteLikeBadge(me: FlashbackMyCard): string | null {
+  if (!me.today?.sentToWallAt) return null
+  const count = me.quoteStats?.likeCount ?? 0
+  return count > 0 ? `你的话被 ${count} 人点赞` : null
+}
+
+/** 分享 opt-in 三态（R37）：
+ *  - hidden：卡上没有可回填的选定金句（未圈选/未授权无 span）→ 不显示选项；
+ *  - already：已授权（anonymous/credited）→ 勾选态 + 禁用（分享改不了档位）；
+ *  - available：可勾选，默认不勾（授权永不预选）。 */
+export function shareOptInState(me: FlashbackMyCard): 'hidden' | 'already' | 'available' {
+  if (me.quoteLevel === 'anonymous' || me.quoteLevel === 'credited') return 'already'
+  if (!me.quote || !me.quoteQuestionKey || !me.quoteSpan) return 'hidden'
+  return 'available'
+}
+
 // ── Action 卡视图（R13 四态） ─────────────────────────────────────────
 
 export type ActionCardStatus = 'proposed' | 'forming' | 'scheduled' | 'done'
