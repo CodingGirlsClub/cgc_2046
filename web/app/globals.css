@@ -3450,3 +3450,30 @@ button:focus-visible,
   .learning-reader__outline-overlay-progress .learning-reader__progress-track { flex: 1; margin-top: 0; }
   .learning-reader__outline--overlay { position: static; margin-top: 10px; }
 }
+
+/* ── 招募审核面板（/w/[slug]/recruitment；U8）────────────────────────────── */
+.rp-section { margin-top: 28px; }
+.rp-section__title { font-size: 18px; font-weight: 650; margin-bottom: 12px; }
+.rp-muted { color: #8a8f98; font-size: 13px; }
+.rp-error { color: #b0406b; font-size: 13px; margin: 8px 0; }
+.rp-cohort-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.rp-cohort { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fff; border-radius: 12px; border: 1px solid #e8e4ec; flex-wrap: wrap; }
+.rp-cohort__name { font-weight: 600; }
+.rp-badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.rp-badge--draft { background: #f0eef5; color: #7a7396; }
+.rp-badge--open, .rp-badge--confirmed { background: #e7f5f3; color: #2fa69d; }
+.rp-badge--closed, .rp-badge--cancelled { background: #f0eef5; color: #8a8f98; }
+.rp-cohort-form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.rp-input { padding: 8px 12px; border-radius: 10px; border: 1px solid #d9d7cf; font-size: 14px; background: #fff; color: inherit; }
+.rp-action { padding: 6px 14px; border-radius: 999px; border: 1px solid #c9497d; color: #c9497d; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.rp-action--danger { border-color: #b0406b; color: #b0406b; }
+.rp-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.rp-link { color: #c9497d; text-decoration: underline; font-size: 13px; background: none; border: 0; cursor: pointer; padding: 0; }
+.rp-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.rp-app-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.rp-app { background: #fff; border: 1px solid #e8e4ec; border-radius: 12px; padding: 12px 14px; }
+.rp-app__row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rp-app__position { font-weight: 650; }
+.rp-app__city { color: #8a8f98; font-size: 13px; }
+.rp-inline-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.rp-detail { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e8e4ec; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4b4d54; }
