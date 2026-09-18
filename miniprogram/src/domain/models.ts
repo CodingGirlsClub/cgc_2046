@@ -57,6 +57,14 @@ export type SubscriptionScenario =
   | 'refund_failed'
   | 'enrollment_submitted'
   | 'payment_received'
+  // 志愿者段位通知六键（R14/R21，U4 后端已落地 templates；键名与后端
+  // template_key 逐字一致）
+  | 'volunteer_application_submitted'
+  | 'volunteer_application_interview'
+  | 'volunteer_application_training'
+  | 'volunteer_application_assigned'
+  | 'volunteer_application_rejected'
+  | 'volunteer_application_canceled'
 
 export interface CatalogItem {
   id: string
@@ -256,6 +264,102 @@ export interface EnrollmentForm {
   ageConfirmed?: boolean
 }
 
+// ── 志愿者招募（R20/R21；U5 招募域 GraphQL 面的小程序侧形状）────────────────
+//
+// 三资源的读面投影：批次（匿名可读 open，但小程序侧解析 workspace 需登录——见
+// domain/recruitment.ts 的 moduledoc）、简历档案（仅本人，不含文件内容）、申请
+// （仅本人）。字段与 operations.ts 的 selection 一一对应，判据/文案在
+// domain/recruitment.ts。
+
+/** 招募职位（后端未建表，字符串枚举；与 CreateVolunteerApplicationInput.position 同集） */
+export type VolunteerPosition = 'event_moderator' | 'tutor' | 'coach'
+
+/** 申请段位（R12 状态图：submitted → interview → training → assigned，任一审核段可转 rejected；canceled 由 2046 管理员操作） */
+export type VolunteerStatus =
+  | 'submitted'
+  | 'interview'
+  | 'training'
+  | 'assigned'
+  | 'rejected'
+  | 'canceled'
+
+/** 批次状态（仅 open 对申请侧可见；draft/closed 只在管理面） */
+export type RecruitmentCohortStatus = 'draft' | 'open' | 'closed'
+
+export interface RecruitmentCohort {
+  id: string
+  name: string
+  /** 申请截止（ISO8601，展示走既有 formatDateTime） */
+  applyDeadlineAt: string
+  startsAt: string | null
+  endsAt: string | null
+  status: RecruitmentCohortStatus
+}
+
+export interface ResumeProfileSummary {
+  id: string
+  fullName: string
+  /** 联系邮箱 = R14 邮件保底通道收件地址（手机号建号用户必须自己填） */
+  contactEmail: string
+  weeklyHours: number | null
+  skills: string[]
+  /** 简历文件元数据（U2 上传管道写入；未上传 → null）。文件内容不出 GraphQL 面。 */
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  uploadedAt: string | null
+}
+
+export interface VolunteerApplicationSummary {
+  id: string
+  cohortId: string
+  position: VolunteerPosition
+  city: string | null
+  heardAboutUs: string | null
+  hasInternalReferrer: boolean
+  message: string | null
+  status: VolunteerStatus
+  rejectionReason: string | null
+  assignedEventId: string | null
+  assignmentNote: string | null
+  assignedAt: string | null
+}
+
+/** 第 2 步申请项（user_id 由后端按 actor 强制填充，不接受客户端传入） */
+export interface VolunteerApplicationForm {
+  cohortId: string
+  position: VolunteerPosition
+  city?: string
+  heardAboutUs?: string
+  hasInternalReferrer?: boolean
+  message?: string
+}
+
+/** 第 1 步档案（姓名/联系邮箱必填；一人一档，二次 upsert 更新同一行） */
+export interface ResumeProfileForm {
+  fullName: string
+  contactEmail: string
+  weeklyHours?: number
+  skills?: string[]
+}
+
+/** 简历文件上传入参（KTD3：base64-over-JSON，U2 单入口；本地文件元数据不参与请求） */
+export interface ResumeFileInput {
+  fileName: string
+  /** 声明 MIME（须与扩展名同族；由 domain/recruitment.resumeContentTypeFor 派生） */
+  contentType: string
+  contentBase64: string
+}
+
+/** 文件选择结果（wx.chooseMessageFile 的本地临时文件，尚未上传） */
+export interface ResumeFileSelection {
+  name: string
+  path: string
+  size: number
+  /** 按扩展名派生的同族 MIME；扩展名不受支持 → null（resumeFileError 已拦） */
+  contentType: string
+}
+
 export interface NotificationItem {
   id: string
   title: string
@@ -354,4 +458,21 @@ export interface MiniProgramApi {
   /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
   checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
   getNotifications(): Promise<NotificationItem[]>
+  // ── 志愿者招募（R20；页面 pages/volunteer-apply，微信端专属）──────────────
+  //
+  // 三资源都带 workspace_id 租户（入口 workspaceId 显式 argument，KTD2）：小程序
+  // 无 URL slug，入口工作台由 slug 解析（见 domain/recruitment.RECRUITMENT_WORKSPACE_SLUG），
+  // 因此**本组方法都要求已登录**（getWorkspace 的策略是 actor_present）。
+  /** 当前 open 招募批次（无 open → null = 空态；读取失败抛错 = 失败态，两者不同桶） */
+  getCurrentRecruitmentCohort(): Promise<RecruitmentCohort | null>
+  /** 本人简历档案（未建档 → null） */
+  getMyResumeProfile(): Promise<ResumeProfileSummary | null>
+  /** 建档 / 更新档案（一人一档；上传前必须先建档，U2 契约） */
+  saveResumeProfile(form: ResumeProfileForm): Promise<ResumeProfileSummary>
+  /** 上传本人简历文件（U2 单入口：扩展名/声明 MIME/魔术数三者一致 + ≤5MB） */
+  uploadResumeFile(input: ResumeFileInput): Promise<ResumeProfileSummary>
+  /** 本人的志愿者申请列表（跨批次，新→旧） */
+  getMyVolunteerApplications(): Promise<VolunteerApplicationSummary[]>
+  /** 提交申请（R11 第 2 步；同批一份，重复提交由后端 volunteer_application_already_submitted 拒绝） */
+  createVolunteerApplication(form: VolunteerApplicationForm): Promise<VolunteerApplicationSummary>
 }
