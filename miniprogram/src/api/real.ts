@@ -301,6 +301,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
    * 请求都打一次 slug 查询。失败不缓存（下次重试）。
    */
   private recruitmentWorkspaceId: string | null = null
+  /** in-flight 去重：并发首载共享同一次解析；rejected 时清掉，保持「失败不缓存、下次重试」 */
+  private recruitmentWorkspaceIdPromise: Promise<string> | null = null
 
   // #355 P2-10：keyword 非空走服务端 title ilike 过滤（catalogSearchVariables 构造
   // filter）；空关键词保持原 CatalogQueryDocument（无 filter 变量，行为不变）。
@@ -776,21 +778,34 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   // ── 志愿者招募（R20/R21；tenant 见 domain/recruitment.ts 的 moduledoc）──────
 
-  /** 入口工作台 id（slug 解析一次 + 进程内缓存；失败不缓存，下次重试）。 */
+  /** 入口工作台 id（slug 解析一次 + 进程内缓存；失败不缓存，下次重试）。
+   * 并发首载（页面 load() 的三个读取并发进来）共享 in-flight promise，
+   * 不各自重复发 session + getWorkspace。 */
   private async resolveRecruitmentWorkspaceId(): Promise<string> {
     if (this.recruitmentWorkspaceId) return this.recruitmentWorkspaceId
-    // 未登录时不发请求：这是「先登录再读批次」的门（getWorkspace 策略要求
-    // actor 在场），也给页面一个可读的错误而不是 forbidden 原文。
-    const session = await this.getSession()
-    if (!session.user) throw new Error('请先登录后再申请')
-    const data = await graphqlRequest<RecruitmentWorkspaceQuery, RecruitmentWorkspaceQueryVariables>(
-      RecruitmentWorkspaceQueryDocument,
-      { slug: RECRUITMENT_WORKSPACE_SLUG }
-    )
-    const id = data.getWorkspace?.id
-    if (!id) throw new Error('招募入口工作台未配置，请稍后重试')
-    this.recruitmentWorkspaceId = id
-    return id
+    if (this.recruitmentWorkspaceIdPromise) return this.recruitmentWorkspaceIdPromise
+    const promise = (async () => {
+      // 未登录时不发请求：这是「先登录再读批次」的门（getWorkspace 策略要求
+      // actor 在场），也给页面一个可读的错误而不是 forbidden 原文。
+      const session = await this.getSession()
+      if (!session.user) throw new Error('请先登录后再申请')
+      const data = await graphqlRequest<RecruitmentWorkspaceQuery, RecruitmentWorkspaceQueryVariables>(
+        RecruitmentWorkspaceQueryDocument,
+        { slug: RECRUITMENT_WORKSPACE_SLUG }
+      )
+      const id = data.getWorkspace?.id
+      if (!id) throw new Error('招募入口工作台未配置，请稍后重试')
+      this.recruitmentWorkspaceId = id
+      return id
+    })()
+    this.recruitmentWorkspaceIdPromise = promise
+    try {
+      return await promise
+    } catch (error) {
+      // 失败不缓存 in-flight（下次调用重试）；缓存语义与 slug 缓存一致
+      if (this.recruitmentWorkspaceIdPromise === promise) this.recruitmentWorkspaceIdPromise = null
+      throw error
+    }
   }
 
   async getCurrentRecruitmentCohort(): Promise<RecruitmentCohort | null> {

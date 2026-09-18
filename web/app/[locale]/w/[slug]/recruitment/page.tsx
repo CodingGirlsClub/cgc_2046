@@ -23,6 +23,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import { fetchWorkspaceOfferings } from "@/lib/events";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import type { OfferingItem } from "@/lib/graphql/events";
 import WorkspaceShell from "@/components/workspace-shell";
 import {
@@ -68,7 +69,6 @@ export default function RecruitmentPanelPage() {
 	const params = useParams<{ slug: string }>();
 	const slug = params?.slug ?? "";
 	const t = useTranslations("recruitmentPanel");
-	const errorsT = useTranslations("errors");
 	const { ws } = useWorkspaceBySlug(slug);
 	const workspaceId = ws?.id ?? "";
 
@@ -97,44 +97,87 @@ export default function RecruitmentPanelPage() {
 	const [newName, setNewName] = useState("");
 	const [newDeadline, setNewDeadline] = useState("");
 
-	const codeMessage = useCallback(
-		(code: string | null | undefined, fallback: string) =>
-			code && errorsT.has(code) ? errorsT(code) : fallback,
-		[errorsT],
+	const codeMessage = usePaymentErrorTranslator();
+
+	// 批次/场次与过滤无关：workspace 变化才重拉
+	const loadStatic = useCallback(
+		(signal: { cancelled: boolean }) => {
+			if (!workspaceId) return;
+			void Promise.all([
+				fetchRecruitmentCohorts(workspaceId),
+				fetchWorkspaceOfferings(workspaceId, "event"),
+			])
+				.then(([cohortRows, eventRows]) => {
+					if (signal.cancelled) return;
+					setCohorts(cohortRows);
+					setEvents(eventRows);
+				})
+				.catch(() => {
+					if (signal.cancelled) return;
+					setLoadError(true);
+					setCohorts([]);
+				});
+		},
+		[workspaceId],
+	);
+
+	// 申请列表随过滤重拉；cancelled 守卫防过期响应覆盖新过滤的结果。
+	// 成功才清 loadError：重试飞行中错误态保持（setLoadError 同步段调用被
+	// react-hooks 禁止，语义上成功清除也更诚实）
+	const loadApplications = useCallback(
+		(signal: { cancelled: boolean }) => {
+			if (!workspaceId) return;
+			void fetchVolunteerApplications(workspaceId, {
+				cohortId: filterCohort || null,
+				status: filterStatus || null,
+			})
+				.then((rows) => {
+					if (signal.cancelled) return;
+					setLoadError(false);
+					setApplications(rows);
+				})
+				.catch(() => {
+					if (signal.cancelled) return;
+					setLoadError(true);
+					setApplications([]);
+				});
+		},
+		[workspaceId, filterCohort, filterStatus],
 	);
 
 	const reload = useCallback(() => {
 		if (!workspaceId) return;
 		setLoadError(false);
-		void Promise.all([
-			fetchRecruitmentCohorts(workspaceId),
-			fetchVolunteerApplications(workspaceId, {
-				cohortId: filterCohort || null,
-				status: filterStatus || null,
-			}),
-			fetchWorkspaceOfferings(workspaceId, "event"),
-		])
-			.then(([cohortRows, applicationRows, eventRows]) => {
-				setCohorts(cohortRows);
-				setApplications(applicationRows);
-				setEvents(eventRows);
-			})
-			.catch(() => {
-				setLoadError(true);
-				setCohorts([]);
-				setApplications([]);
-			});
-	}, [workspaceId, filterCohort, filterStatus]);
+		loadStatic({ cancelled: false });
+		loadApplications({ cancelled: false });
+	}, [workspaceId, loadStatic, loadApplications]);
 
 	useEffect(() => {
-		reload();
-	}, [reload]);
+		if (!workspaceId) return;
+		const signal = { cancelled: false };
+		loadStatic(signal);
+		return () => {
+			signal.cancelled = true;
+		};
+	}, [workspaceId, loadStatic]);
+
+	useEffect(() => {
+		if (!workspaceId) return;
+		const signal = { cancelled: false };
+		loadApplications(signal);
+		return () => {
+			signal.cancelled = true;
+		};
+	}, [workspaceId, loadApplications]);
 
 	/** 统一的操作执行：mutation → 成功 reload 并返回 true；失败取稳定 code 文案并返回 false */
 	const run = useCallback(
 		async (
 			id: string,
-			action: () => Promise<{ result: unknown; errors: Array<{ code: string | null }> }>,
+			action: () => Promise<{
+				result: unknown;
+				errors: Array<{ code?: string | null }>;
+			}>,
 		): Promise<boolean> => {
 			setBusyId(id);
 			setActionError(null);

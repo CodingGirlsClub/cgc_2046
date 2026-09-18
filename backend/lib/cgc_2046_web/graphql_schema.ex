@@ -702,6 +702,9 @@ defmodule Cgc2046Web.GraphqlSchema do
         with_actor(context, fn actor ->
           Cgc2046.Recruitment.ResumeProfile
           |> Ash.Query.for_read(:read)
+          # file_data（≤5MB blob）不出 GraphQL 面，读路径不拖它——否则每次打开
+          # 申请页都白拉 5MB；本 resolver 只投影元数据
+          |> Ash.Query.deselect(:file_data)
           |> Ash.Query.filter(user_id == ^actor.id)
           |> Ash.read_one(tenant: workspace_id, actor: actor)
           |> map_error(
@@ -4285,6 +4288,8 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp fetch_resume_profile(workspace_id, user_id, actor) do
     Cgc2046.Recruitment.ResumeProfile
     |> Ash.Query.for_read(:read)
+    # 同 my_resume_profile：详情投影只用元数据，不拖 file_data blob
+    |> Ash.Query.deselect(:file_data)
     |> Ash.Query.filter(user_id == ^user_id)
     |> Ash.read_one(tenant: workspace_id, actor: actor)
   end
