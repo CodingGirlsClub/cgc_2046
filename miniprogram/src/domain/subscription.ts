@@ -126,11 +126,11 @@ export function enrollmentResultTouchpoint(
   return {
     page: 'pages/enrollment-result/index',
     trigger: '报名提交后进入结果页，点按订阅按钮',
-    // 文案按状态分派：审批中要的是「进展」，已通过要的是「开班与活动变动」，
+    // 文案按状态分派：审批中要的是「进展」，已通过要的是「成班与活动变动」，
     // 用一句通用文案会在已通过时误导（审批早已结束）。
-    label: pending ? '订阅报名进展通知' : '订阅开班与活动提醒',
+    label: pending ? '订阅报名进展通知' : '订阅成班与活动提醒',
     scenarios: [pending ? 'approval_result' : 'event_reminder', 'event_qualification_confirmed', 'event_qualification_underfilled'],
-    acceptedCopy: pending ? '已订阅，报名进展会通知你' : '已订阅，开班与活动变动会通知你',
+    acceptedCopy: pending ? '已订阅，报名进展会通知你' : '已订阅，成班与活动变动会通知你',
     deniedCopy: '你暂未授权，可稍后在「我的报名」再次订阅'
   }
 }

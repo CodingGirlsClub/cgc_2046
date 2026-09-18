@@ -757,6 +757,17 @@ export interface MyEnrollmentRow {
   targetTitle?: string | null;
   /** 6 位核销码（押金制 U4/KTD5：仅本人 confirmed 活动报名返回；course 恒 null） */
   checkInCode?: string | null;
+  /**
+   * 目标现行缴费模式 free/pricing/deposit（#696：/orders/new 押金识别判据，
+   * 存在性判定——金额不参与识别）。仅 MY_ENROLLMENT 选取。
+   */
+  paymentMode?: string | null;
+  /**
+   * 押金快照金额（分；#696）：报名提交时物化，与 createOrder 押金单实付金额
+   * 同源；脏值/无键 → null（披露行「押金（金额待定）」，绝不 ¥0）。
+   * 仅 MY_ENROLLMENT 选取。
+   */
+  depositAmountCents?: number | null;
 }
 
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
@@ -818,6 +829,8 @@ export const MY_ENROLLMENT: TypedDocumentNode<
         id
         status
         targetTitle
+        paymentMode
+        depositAmountCents
       }
     }
   }

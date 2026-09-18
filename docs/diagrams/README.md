@@ -137,7 +137,7 @@
 |------|------|------|----------|
 | `user-journeys.puml` | ✅ | 8 类角色旅程总览：J0 BYO 三步、报名、赞助、邀请、教研、学习、运营后台 | 用户旅程与Web功能清单 |
 | `user-journey-enrollment-learning.puml` | ✅ 新 | 报名→学习 journey 角色泳道**修复前快照**（as-is @2026-09-09）：createEnrollment 三分支 → 详情页/参与列表/学习页/回访全链路，断点①-⑦红标 + 修复状态（①②③⑤ 已修复；④ 入口兜底已修复；⑥ 未实施，需小程序课程页；⑦ 待讨论） | 前端组件/后端 enrollment·learning 源码 + PR #497 |
-| `initiative-user-journeys.puml` | 🟡 to-be | Initiative 四角色 journey 泳道（总部 / 参与者 / 主理人 / 城市 owner 未来 opt-in）：发起 → 建场 → 报名付押金 → 开班判定 → 现场核销与作品 → 结算收官；颜色标 v1 必须 / 应该 / 后置 / 未来 | 2026-09-13 brainstorm + #508–#513 |
+| `initiative-user-journeys.puml` | 🟡 to-be | Initiative 四角色 journey 泳道（总部 / 参与者 / 主理人 / 城市 owner 未来 opt-in）：发起 → 建场 → 报名付押金 → 成班判定 → 现场核销与作品 → 结算收官；颜色标 v1 必须 / 应该 / 后置 / 未来 | 2026-09-13 brainstorm + #508–#513 |
 
 ## 四、图与文档的同步约定
 

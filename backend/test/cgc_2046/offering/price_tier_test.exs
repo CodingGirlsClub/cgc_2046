@@ -78,6 +78,26 @@ defmodule Cgc2046.Offering.PriceTierTest do
 
       assert [%{"id" => "live-until"}, %{"id" => "forever"}] = PriceTier.available_tiers(tiers)
     end
+
+    # #687：脏金额投 nil（档位保留、金额不表态）——渲染层据此「金额待定」+ 禁选；
+    # 缺键补 nil 键统一形状（web/小程序解析层按 null 降级）。
+    test "available_tiers 脏金额投 nil：档位保留，绝不携脏值出域（#687）" do
+      tiers = [
+        tier(id: "clean"),
+        tier(id: "zero", amount_cents: 0),
+        tier(id: "neg", amount_cents: -100),
+        tier(id: "frac", amount_cents: 0.4),
+        tier(id: "missing", amount_cents: nil)
+      ]
+
+      assert [
+               %{"id" => "clean", "amount_cents" => 100},
+               %{"id" => "zero", "amount_cents" => nil},
+               %{"id" => "neg", "amount_cents" => nil},
+               %{"id" => "frac", "amount_cents" => nil},
+               %{"id" => "missing", "amount_cents" => nil}
+             ] = PriceTier.available_tiers(tiers)
+    end
   end
 
   describe "Event/Course 字段与校验（R1/R4）" do
