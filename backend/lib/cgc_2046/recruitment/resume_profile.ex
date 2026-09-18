@@ -8,8 +8,8 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
 
   文件内容列同表定义（KTD3：简历走最小上传管道、文件存库）：`file_data`
   （bytea，`public?: false` + `sensitive?: true`——不出 GraphQL、不进 inspect）
-  与文件名 / MIME / 大小 / 上传时间元数据；**上传校验与落库逻辑在 U2**
-  （`Cgc2046.Recruitment.Upload`），本单元只落列。
+  与文件名 / MIME / 大小 / 上传时间元数据；**校验与落库逻辑在 U2**
+  （`Cgc2046.Recruitment.Upload`，经本资源 `:upload_file` 动作写入）。
 
   PIPL 边界（KTD2）：读 = 本人 ∪ Owner/Admin ∪ platform_admin；写 = 仅本人。
   """
@@ -138,6 +138,17 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
       require_atomic?(false)
       accept([:full_name, :contact_email, :weekly_hours, :skills])
     end
+
+    # 简历文件上传（KTD3 单入口，U2 的 `Cgc2046.Recruitment.Upload` 调用）：
+    # 元数据三列走 accept（大小由 Upload 按实际解码字节数写入，非客户端自报）；
+    # 内容本体 file_data 不在 accept 面内——对客户端结构上不可达，Upload 校验后
+    # 经 force_change_attribute 注入（写入路径单点）。
+    update :upload_file do
+      require_atomic?(false)
+      accept([:file_name, :file_content_type, :file_size])
+
+      change(&put_uploaded_at/2)
+    end
   end
 
   graphql do
@@ -177,5 +188,14 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
       _ ->
         changeset
     end
+  end
+
+  # 上传时间由服务端落（客户端不可自报；列类型 utc_datetime = 秒精度）
+  defp put_uploaded_at(changeset, _context) do
+    Ash.Changeset.force_change_attribute(
+      changeset,
+      :uploaded_at,
+      DateTime.truncate(DateTime.utc_now(), :second)
+    )
   end
 end
