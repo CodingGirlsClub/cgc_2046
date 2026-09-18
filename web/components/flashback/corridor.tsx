@@ -115,6 +115,8 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 							)}`}
 						>
 							<span className="fb-photo fb-corridor-photo">{pile.city}</span>
+							{/* 窗下小字（原型 D）：印在纸白边内，拍立得语感的收尾 */}
+							<span className="fb-corridor-caption">{tCorridor("pileCaption", { count: pile.count })}</span>
 						</div>
 						<p className="fb-corridor-count">{tCorridor("pileCount", { city: pile.city, count: pile.count })}</p>
 					</Link>

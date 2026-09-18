@@ -2495,7 +2495,6 @@
 			"error": "时间长廊暂时打不开，请稍后重试。",
 			"retry": "重试",
 			"title": "闪念间 · 时间长廊",
-			"subtitle": "下滑 = 时间前进：顶上是那年，底部是等你的未来",
 			"authRequiredTitle": "进入长廊需要你的身份",
 			"authRequiredBody": "从邮件/短信里的专属链接进入，或登录已绑定的账号——如果你找不到链接，可以自助找回。",
 			"authRequiredAction": "去自助找回",
@@ -2523,6 +2522,7 @@
 			"emptyCity": "这座城市还没有名册照片。",
 			"pilesAria": "{name} 的城市照片堆",
 			"pileCount": "{city} · {count} 位",
+			"pileCaption": "{count} 位 · 她们的档案",
 			"frameLabelFallback": "那年那一场"
 		},
 		"roster": {

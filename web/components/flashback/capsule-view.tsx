@@ -139,7 +139,6 @@ export default function CapsuleView() {
 				<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
 					{t("title")}
 				</h2>
-				<p className="fb-hint">{t("subtitle")}</p>
 			</header>
 			{capsule.cities.length > 1 && (
 				<div className="fb-city-pins" role="group" aria-label={t("cityAria")}>

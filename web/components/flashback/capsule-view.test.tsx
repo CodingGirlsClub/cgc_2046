@@ -160,13 +160,17 @@ describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
 });
 
 describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => {
-	it("窄屏（<768px）：走廊为纵向形态（无 --wide 类）", async () => {
+	it("窄屏（<768px）：走廊为纵向形态（无 --wide 类）；提示只有钉排下一处", async () => {
 		await renderCapsule();
 
 		expect(document.querySelector(".fb-corridor")).not.toHaveClass("fb-corridor--wide");
+		// 副标题已删（与 scrollHint 同句式会重复），header 内无提示行
+		expect(document.querySelector(".fb-capsule-header .fb-hint")).toBeNull();
+		expect(document.querySelectorAll(".fb-root > .fb-hint")).toHaveLength(1);
+		expect(document.querySelector(".fb-corridor-scrollhint")?.textContent).toContain("下滑 = 时间前进");
 	});
 
-	it("宽屏（≥768px）：走廊切横向形态类", async () => {
+	it("宽屏（≥768px）：走廊切横向形态类；竖滑提示不渲染", async () => {
 		vi.spyOn(window, "matchMedia").mockImplementation(
 			(query: string) =>
 				({
@@ -183,6 +187,7 @@ describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => 
 		await renderCapsule();
 
 		expect(document.querySelector(".fb-corridor")).toHaveClass("fb-corridor--wide");
+		expect(document.querySelector(".fb-capsule-header .fb-hint")).toBeNull();
 	});
 });
 
