@@ -103,3 +103,8 @@ config :cgc_2046,
     # 沙箱联调开关（host 切 openapi-sandbox.dl.alipaydev.com；生产保持缺省 false）
     sandbox: System.get_env("ALIPAY_SANDBOX") == "true"
   ]
+
+# dev 环境补 endpoint secret：/dev 作用域（mailbox 预览等）走 cookie session，
+# 缺 secret_key_base 会在详情页 500（生产从 runtime.exs 的 SECRET_KEY_BASE 注入）。
+config :cgc_2046, Cgc2046Web.Endpoint,
+  secret_key_base: "dv1ZLRPVvn2Yr4WmGRNSLzFB4qbtDhyaQPJXBUDDdtUcJ5dCcAGKfh4ACqmPhLXK"
