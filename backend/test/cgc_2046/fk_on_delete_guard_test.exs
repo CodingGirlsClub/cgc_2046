@@ -43,22 +43,14 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
 
   # 反向缺口：resource 声明了 belongs_to（→ snapshot 有 reference），但手写 migration
   # 只写了裸 `add :col, :uuid`、从未建 FK。形如 {table, column, relationship, 理由}
-  @no_db_fk_relationships [
-    {"curriculum_outputs", "workflow_run_id", :workflow_run,
-     "squash baseline 只给 workspace_id 建 references，workflow_run_id 是裸 :uuid"},
-    {"invitations", "inviter_id", :inviter,
-     "squash baseline 只给 workspace_id 建 references，inviter_id 是裸 :uuid"},
-    {"invitations", "accepted_by", :accepted_by_user,
-     "squash baseline 只给 workspace_id 建 references，accepted_by 是裸 :uuid"},
-    {"portfolio_items", "workspace_id", :workspace,
-     "squash baseline 只给 user_id 建 references，workspace_id 是裸 :uuid"},
-    {"workspace_profiles", "workspace_id", :workspace, "squash baseline 建表两列皆裸 :uuid（该表无任何 FK）"},
-    {"workspace_profiles", "user_id", :user, "squash baseline 建表两列皆裸 :uuid（该表无任何 FK）"},
-    {"mcp_pending_operations", "user_id", :user,
-     "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"},
-    {"mcp_tokens", "user_id", :user, "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"},
-    {"mcp_tool_call_logs", "user_id", :user, "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"}
-  ]
+  # #745 已清空：原 9 列（curriculum_outputs.workflow_run_id / invitations.inviter_id /
+  # invitations.accepted_by / portfolio_items.workspace_id / workspace_profiles.
+  # workspace_id / workspace_profiles.user_id / mcp_pending_operations.user_id /
+  # mcp_tokens.user_id / mcp_tool_call_logs.user_id）已由 20260918131057 补上
+  # FK（孤儿防御清理 + 4 索引 + 9 约束；mcp_tool_call_logs 走 NOT VALID +
+  # VALIDATE 两段式），并逐列声明 on_delete 移入对齐主体。
+  # 后续新缺口按原格式登记于此。
+  @no_db_fk_relationships []
 
   # 未声明 on_delete → 生成迁移不打印 on_delete → Ecto 不写 ON DELETE 子句 → NO ACTION
   defp confdeltype(nil), do: "a"

@@ -79,6 +79,12 @@ defmodule Cgc2046.Mcp.PendingOperation do
   postgres do
     table("mcp_pending_operations")
     repo(Cgc2046.Repo)
+
+    # #745：FK 补齐（B 类）——DB 原无 FK；user 删除即清 pending ops
+    # （NOT NULL 不可 nilify，安全敏感操作不后留）。
+    references do
+      reference(:user, on_delete: :delete)
+    end
   end
 
   calculations do

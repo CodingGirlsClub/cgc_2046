@@ -51,14 +51,17 @@ defmodule Cgc2046Web.GraphqlWorkspaceAgentsTest do
   end
 
   # 造 ToolCallLog（params 内含 workspace_id，Wrapper 落库格式，D5 JSONB）
+  # user_id 必须真用户：#745 起 mcp_tool_call_logs 有 user_id FK
   defp create_tool_call_log(attrs) do
+    user = Fixtures.register_user("agents-tcl")
+
     {:ok, log} =
       ToolCallLog
       |> Ash.Changeset.for_create(
         :log,
         Map.merge(
           %{
-            user_id: Ecto.UUID.generate(),
+            user_id: user.id,
             tool: "get_workspace_context",
             params: %{"workspace_id" => Ecto.UUID.generate()},
             result_status: :ok
