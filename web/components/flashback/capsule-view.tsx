@@ -35,6 +35,8 @@ export default function CapsuleView() {
 	const t = useTranslations("flashback.capsule");
 	const [state, setState] = useState<CapsuleState>({ phase: "loading" });
 	const [reloadKey, setReloadKey] = useState(0);
+	/** 城市钉筛选（R34）：null = 全部；切换即带 city 重拉（服务端过滤名册与行动板） */
+	const [city, setCity] = useState<string | null>(null);
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([state.phase]);
 
 	const reload = useCallback(() => {
@@ -51,8 +53,11 @@ export default function CapsuleView() {
 		}
 		const held = raw ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
 
+		// 非首次拉取（城市切换）沿用已渲染的胶囊，新数据到达再覆盖——筛选不闪 loading 面
+		setState((prev) => (prev.phase === "ok" ? prev : { phase: "loading" }));
+
 		client
-			.query({ query: FLASHBACK_CAPSULE, variables: { token: held }, fetchPolicy: "network-only" })
+			.query({ query: FLASHBACK_CAPSULE, variables: { token: held, city }, fetchPolicy: "network-only" })
 			.then(({ data }) => {
 				const capsule = data?.flashbackCapsule;
 				if (capsule) {
@@ -77,7 +82,7 @@ export default function CapsuleView() {
 					setState({ phase: "error" });
 				}
 			});
-	}, [reloadKey]);
+	}, [reloadKey, city]);
 
 	if (state.phase === "loading") {
 		return (
@@ -132,8 +137,36 @@ export default function CapsuleView() {
 				</h2>
 				<p className="fb-hint">{t("subtitle")}</p>
 			</header>
-			<Corridor capsule={capsule} />
-			<ActionBoard cards={capsule.actionCards} token={token} onChanged={reload} />
+			{capsule.cities.length > 1 && (
+				<div className="fb-city-pins" role="group" aria-label={t("cityAria")}>
+					<button
+						type="button"
+						className={`fb-city-pin${city === null ? " fb-city-pin--active" : ""}`}
+						aria-pressed={city === null}
+						onClick={() => setCity(null)}
+					>
+						{t("cityAll")}
+					</button>
+					{capsule.cities.map((name) => (
+						<button
+							type="button"
+							key={name}
+							className={`fb-city-pin${city === name ? " fb-city-pin--active" : ""}`}
+							aria-pressed={city === name}
+							onClick={() => setCity(name)}
+						>
+							{name}
+						</button>
+					))}
+				</div>
+			)}
+			<Corridor capsule={capsule} cityFiltered={city !== null} />
+			<ActionBoard
+				cards={capsule.actionCards}
+				token={token}
+				onChanged={reload}
+				filtered={city !== null}
+			/>
 			<CardExport me={capsule.me} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>

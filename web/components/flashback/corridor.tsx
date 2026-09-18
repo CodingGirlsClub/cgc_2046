@@ -13,12 +13,22 @@ const WIDE_QUERY = "(min-width: 768px)";
  * 双形态；布局类名切换由 useWideCorridor 驱动，动效/布局在 flashback.css）。
  * 时间从上（最早场次）往下（今天 + 未来），下滑 = 时间前进。
  */
-export default function Corridor({ capsule }: { capsule: FlashbackCapsule }) {
+export default function Corridor({
+	capsule,
+	cityFiltered = false,
+}: {
+	capsule: FlashbackCapsule;
+	/** 城市钉筛选中（R34）：名册为空时给「该城无名册」而非裸空走廊 */
+	cityFiltered?: boolean;
+}) {
 	const t = useTranslations("flashback.corridor");
 	const wide = useWideCorridor();
 
 	return (
 		<section className={`fb-corridor${wide ? " fb-corridor--wide" : ""}`} aria-label={t("ariaLabel")}>
+			{capsule.archives.length === 0 && cityFiltered && (
+				<p className="fb-hint fb-corridor-empty">{t("emptyCity")}</p>
+			)}
 			{capsule.archives.map((archive) => (
 				<article key={archive.key} className="fb-corridor-frame">
 					<h3 className="fb-corridor-when">

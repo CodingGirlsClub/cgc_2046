@@ -18,10 +18,13 @@ export default function ActionBoard({
 	cards,
 	token,
 	onChanged,
+	filtered = false,
 }: {
 	cards: FlashbackActionCard[];
 	token: string | null;
 	onChanged: () => void;
+	/** 城市钉筛选中（R34）：空板的空态文案区分「还没人提议」与「该城暂无卡」 */
+	filtered?: boolean;
 }) {
 	const t = useTranslations("flashback.actionBoard");
 	const [runEndorse] = useMutation(FLASHBACK_ENDORSE);
@@ -50,7 +53,7 @@ export default function ActionBoard({
 			<h3 className="fb-action-title">{t("title")}</h3>
 			{cards.length === 0 ? (
 				<p className="fb-action-empty" data-testid="fb-action-empty">
-					{t("empty")}
+					{filtered ? t("emptyFiltered") : t("empty")}
 				</p>
 			) : (
 				<ul className="fb-action-grid">

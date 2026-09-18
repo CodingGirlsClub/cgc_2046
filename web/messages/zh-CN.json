@@ -2488,10 +2488,13 @@
 			"authRequiredTitle": "进入胶囊需要你的身份",
 			"authRequiredBody": "从邮件/短信里的专属链接进入，或登录已绑定的账号——如果你找不到链接，可以自助找回。",
 			"authRequiredAction": "去自助找回",
-			"footerHint": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
+			"footerHint": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
+			"cityAria": "按城市筛选",
+			"cityAll": "全部"
 		},
 		"corridor": {
-			"ariaLabel": "时间胶囊走廊"
+			"ariaLabel": "时间胶囊走廊",
+			"emptyCity": "这座城市还没有名册照片。"
 		},
 		"roster": {
 			"groupAria": "{name} 场次名册",
@@ -2526,7 +2529,8 @@
 			"endorseFailed": "附议没有成功，请再试一次。",
 			"signup": "报名这一场 →",
 			"scheduledNote": "成场通知会发到你预留的手机/邮箱——想换号？寄出页里可以更新。",
-			"doneNote": "这场已经办成了。活动照片与回顾会贴回这张卡。"
+			"doneNote": "这场已经办成了。活动照片与回顾会贴回这张卡。",
+			"emptyFiltered": "这座城市还没有行动卡——切回「全部」看看别的城市。"
 		},
 		"cardExport": {
 			"ariaLabel": "卡片导出",
@@ -2549,7 +2553,9 @@
 				"title": "这个档案已有主人",
 				"body": "这个档案已绑定账号，链接已完成使命——请登录，或从「我的」进入查看。"
 			},
-			"claimed": { "action": "去登录" },
+			"claimed": {
+				"action": "去登录"
+			},
 			"flashback_token_revoked": {
 				"title": "这封信已被收回",
 				"body": "这个档案已被删除，链接随之失效。数据已按你的要求清除。",

@@ -64,6 +64,8 @@ const baseCapsule: FlashbackCapsule = {
 		quote: "我想亲眼看看是不是。",
 		answers: [{ questionKey: "self_intro", text: "一个文科生。▓▓。" }],
 	},
+	// 单城：钉条隐藏（<2 城不渲染），不影响既有断言
+	cities: ["北京"],
 	archives: [
 		{
 			key: "2014-01-11-bj",
@@ -274,6 +276,81 @@ describe("CapsuleView · 摘要卡与全文卡（R14/R15）", () => {
 		const card = screen.getByTestId("fb-export-card");
 		expect(card).toHaveTextContent("请简单的介绍一下自己");
 		expect(card).toHaveTextContent("一个文科生。▓▓。");
+	});
+});
+
+describe("CapsuleView · 城市钉筛选（R34）", () => {
+	const card = (id: string, title: string, city: string) => ({
+		id,
+		title,
+		city,
+		status: "forming" as const,
+		endorsementCount: 3,
+		endorsedByMe: false,
+		rolesClaimed: [],
+		eventId: null,
+		eventSlug: null,
+	});
+
+	it("多城渲染钉条（全部 + 城市）；点城市带 city 重拉，名册与行动板呈现服务端过滤结果", async () => {
+		await renderCapsule({
+			...baseCapsule,
+			cities: ["上海", "北京"],
+			actionCards: [card("c1", "骑行场", "北京"), card("c2", "潜水场", "上海")],
+		});
+
+		expect(screen.getByRole("button", { name: "全部" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "北京" })).toHaveAttribute("aria-pressed", "false");
+
+		// 点「北京」→ 第二次 query 带 city: "北京"；返回北京过滤后的胶囊
+		capsuleQuery.mockResolvedValue({
+			data: {
+				flashbackCapsule: {
+					...baseCapsule,
+					cities: ["上海", "北京"],
+					actionCards: [card("c1", "骑行场", "北京")],
+				},
+			},
+		});
+		fireEvent.click(screen.getByRole("button", { name: "北京" }));
+
+		await waitFor(() => expect(capsuleQuery).toHaveBeenCalledTimes(2));
+		expect(capsuleQuery).toHaveBeenLastCalledWith(
+			expect.objectContaining({ variables: { token: "tok-1", city: "北京" } }),
+		);
+		await waitFor(() => expect(screen.getAllByTestId("fb-action-card")).toHaveLength(1));
+		expect(screen.getByText("骑行场")).toBeInTheDocument();
+		expect(screen.queryByText("潜水场")).not.toBeInTheDocument();
+		// 钉条仍渲染全量城市（不随过滤收缩），可切回
+		expect(screen.getByRole("button", { name: "上海" })).toBeInTheDocument();
+
+		// 切回「全部」→ city: null
+		fireEvent.click(screen.getByRole("button", { name: "全部" }));
+		await waitFor(() =>
+			expect(capsuleQuery).toHaveBeenLastCalledWith(
+				expect.objectContaining({ variables: { token: "tok-1", city: null } }),
+			),
+		);
+	});
+
+	it("单城不渲染钉条（无筛选意义）", async () => {
+		await renderCapsule();
+		expect(screen.queryByRole("button", { name: "全部" })).not.toBeInTheDocument();
+	});
+
+	it("筛选后空名册/空板：区分「该城暂无」空态文案", async () => {
+		await renderCapsule({ ...baseCapsule, cities: ["上海", "北京"] });
+		capsuleQuery.mockResolvedValue({
+			data: {
+				flashbackCapsule: { ...baseCapsule, cities: ["上海", "北京"], archives: [], actionCards: [] },
+			},
+		});
+		fireEvent.click(screen.getByRole("button", { name: "上海" }));
+
+		expect(await screen.findByText("这座城市还没有名册照片。")).toBeInTheDocument();
+		expect(screen.getByTestId("fb-action-empty")).toHaveTextContent("这座城市还没有行动卡");
+		// 「今天」格不随城市筛选消失
+		expect(screen.getByTestId("fb-today-slot")).toBeInTheDocument();
 	});
 });
 

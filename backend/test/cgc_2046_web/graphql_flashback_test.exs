@@ -744,5 +744,44 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert card_payload["endorsementCount"] == 0
       assert card_payload["rolesClaimed"] == []
     end
+
+    test "city 参数（R34 城市钉）：roster 按人城市、actionCards 按卡城市过滤；cities 全量不缩" do
+      archive = create_archive()
+      person = create_person(archive, %{city: "北京"})
+      create_person(archive, %{full_name: "李雷", surname: "李", city: "上海"})
+
+      for {title, city} <- [{"骑行场", "北京"}, {"潜水场", "上海"}] do
+        Cgc2046.Flashback.ActionCard
+        |> Ash.Changeset.for_create(:create, %{title: title, city: city})
+        |> Ash.create!(authorize?: false)
+      end
+
+      {plain, _token} = issue_token(person)
+
+      query = """
+      query { flashbackCapsule(token: "#{plain}", city: "上海") {
+        cities
+        archives { key roster { surnameMasked: surname_masked city } }
+        actionCards { title city }
+      } }
+      """
+
+      res =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+        |> json_response(200)
+
+      refute Map.has_key?(res, "errors")
+
+      capsule = res["data"]["flashbackCapsule"]
+      # 钉条数据源全量（去重排序），不随 city 过滤收缩
+      assert capsule["cities"] == ["上海", "北京"]
+
+      [archive_payload] = capsule["archives"]
+      assert [%{"surnameMasked" => "李*", "city" => "上海"}] = archive_payload["roster"]
+
+      assert [%{"title" => "潜水场", "city" => "上海"}] = capsule["actionCards"]
+    end
   end
 end
