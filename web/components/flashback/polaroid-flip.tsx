@@ -34,12 +34,15 @@ export default function PolaroidFlip({ entry }: { entry: FlashbackRosterEntry })
 			aria-expanded={flipped}
 			onClick={() => setFlipped((value) => !value)}
 		>
-			{/* 合着卡面（默认态）：全名 + 年份 + 城市 + 回来了微标 */}
+			{/* 合着卡面（默认态）：照片区灰窗内是名字（原型 D/F 的拍立得语言——
+			   白边 + 灰窗 + 下方标注小字），年份·城市做窗下小字 */}
 			{!flipped && (
 				<span className="fb-flip-cover">
-					<span className="fb-flip-cover-dot" aria-hidden="true" />
-					<span className="fb-visually-hidden">{t("backAria")}</span>
-					<span className="fb-flip-cover-name">{entry.fullName ?? entry.surnameMasked}</span>
+					<span className="fb-flip-cover-photo">
+						<span className="fb-flip-cover-dot" aria-hidden="true" />
+						<span className="fb-visually-hidden">{t("backAria")}</span>
+						<span className="fb-flip-cover-name">{entry.fullName ?? entry.surnameMasked}</span>
+					</span>
 					<span className="fb-flip-cover-facts">
 						{[stamp?.slice(0, 4) ?? "", entry.city].filter(Boolean).join(" · ")}
 					</span>
@@ -48,9 +51,9 @@ export default function PolaroidFlip({ entry }: { entry: FlashbackRosterEntry })
 
 			{flipped && (
 				<span className="fb-flip-open">
-					{/* 正面：当年答案（雾面段）+ 时间戳白边 */}
+					{/* 正面：照片区灰窗内是当年答案（雾面段），窗下是时间戳小字 */}
 					<span className="fb-flip-face fb-flip-face--front">
-						<span className="fb-flip-stamp">{stamp ?? t("noStamp")}</span>
+						<span className="fb-flip-photo">
 						{entry.answers.map((answer) => (
 							<span key={answer.questionKey} className="fb-flip-answer">
 								<span className="fb-answer-q">
@@ -69,19 +72,23 @@ export default function PolaroidFlip({ entry }: { entry: FlashbackRosterEntry })
 								)}
 							</span>
 						))}
+						</span>
+						<span className="fb-flip-caption">{stamp ?? t("noStamp")}</span>
 					</span>
-					{/* 背面：今天的你（或空白态） */}
+					{/* 背面：今天的你（纸白窗，与正面的灰窗区分） */}
 					<span className="fb-flip-face fb-flip-face--back">
-						<span className="fb-answer-q">{t("backTitle")}</span>
-						{hasToday ? (
-							<>
-								{today?.nowStatus && <span className="fb-flip-today-line">{today.nowStatus}</span>}
-								{today?.want && <span className="fb-flip-today-line">{today.want}</span>}
-								{today?.say && <span className="fb-flip-today-line">{today.say}</span>}
-							</>
-						) : (
-							<span className="fb-flip-today-empty">{t("backEmpty")}</span>
-						)}
+						<span className="fb-flip-photo fb-flip-photo--back">
+							<span className="fb-answer-q">{t("backTitle")}</span>
+							{hasToday ? (
+								<>
+									{today?.nowStatus && <span className="fb-flip-today-line">{today.nowStatus}</span>}
+									{today?.want && <span className="fb-flip-today-line">{today.want}</span>}
+									{today?.say && <span className="fb-flip-today-line">{today.say}</span>}
+								</>
+							) : (
+								<span className="fb-flip-today-empty">{t("backEmpty")}</span>
+							)}
+						</span>
 					</span>
 				</span>
 			)}

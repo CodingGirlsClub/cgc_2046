@@ -22,12 +22,12 @@ import Intro from "./intro";
 import Scatter from "./scatter";
 import Quiz, { type QuizChoice } from "./quiz";
 import Reveal from "./reveal";
-import Write, { emptyTodayForm, type TodayFormState } from "./write";
+import { emptyTodayForm, type TodayFormState } from "./write";
 import SendRegister from "./send-register";
 import InvalidToken, { type InvalidTokenReason } from "./invalid-token";
 import { usePrefersReducedMotion } from "./use-reduced-motion";
 
-type Stage = "intro" | "scatter" | "quiz" | "reveal" | "write" | "send";
+type Stage = "intro" | "scatter" | "quiz" | "reveal" | "send";
 
 /** URL 读入的 token 即刻清除，sessionStorage 仅会话内持有（KTD2；reset-password 先例） */
 const TOKEN_STORAGE_KEY = "flashback.token";
@@ -71,6 +71,7 @@ export default function Journey() {
 	const [quizChoice, setQuizChoice] = useState<QuizChoice | null>(null);
 	const [form, setForm] = useState<TodayFormState>(emptyTodayForm);
 	const [flash, setFlash] = useState(false);
+	const [startOnBack, setStartOnBack] = useState(false);
 	const [dreamTarget, setDreamTarget] = useState<FlashbackDreamTarget | null>(null);
 
 	const [runEnter] = useMutation(FLASHBACK_ENTER);
@@ -128,7 +129,10 @@ export default function Journey() {
 					return;
 				}
 				if (revisitToday) {
-					setStage("write");
+					// 已填今天未寄出 → 跳过仪式直达显影卡的背面书写面
+					//（第 3 件：写字并入卡背面；AE9 回访不重走快门）
+					setStartOnBack(true);
+					setStage("reveal");
 				}
 					setEntry(result);
 					setEntering(false);
@@ -230,18 +234,14 @@ export default function Journey() {
 					line={entry.line}
 					dreamTarget={dreamTarget}
 					quizChoice={quizChoice}
-					onRevealed={() => {
-						if (token) void runMarkRevealed({ variables: { token } });
-					}}
-					onWrite={() => goTo("write")}
-				/>
-			)}
-			{stage === "write" && (
-				<Write
+					startOnBack={startOnBack}
 					role={profile.role}
 					answers={freeAnswers}
 					progress={entry.progress ?? { quoteLevel: "off" }}
-					onNext={(nextForm) => {
+					onRevealed={() => {
+						if (token) void runMarkRevealed({ variables: { token } });
+					}}
+					onWriteNext={(nextForm) => {
 						setForm(nextForm);
 						goTo("send");
 					}}

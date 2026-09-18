@@ -126,110 +126,109 @@ export default function Write({
 	};
 
 	return (
-		<section className="fb-stage fb-stage-pad">
-			<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
-				{t("title")}
-			</h2>
-			<form className="fb-write-sheet" onSubmit={handleSubmit}>
-				<div className="fb-write-form">
-					{(
-						[
-							["nowStatus", "nowLabel", "nowPlaceholder"],
-							["want", "wantLabel", "wantPlaceholder"],
-							["need", "needLabel", "needPlaceholder"],
-							["say", "sayLabel", "sayPlaceholder"],
-						] as const
-					).map(([field, label, placeholder]) => (
-						<div key={field}>
-							<label className="fb-field-label" htmlFor={`fb-${field}`}>
-								{t(label)}
-								{field === "need" ? <span className="fb-hint">{t("courseHint")}</span> : null}
-							</label>
-							<textarea
-								id={`fb-${field}`}
-								className="fb-field-textarea"
-								placeholder={t(placeholder)}
-								value={form[field] ?? ""}
-								onChange={(event) => set(field, event.target.value)}
+		<form className="fb-write-sheet" data-face="back" onSubmit={handleSubmit}>
+			{/* 卡背面 = 今天的你（第 3 件：原独立「写字」阶段并入显影卡背面） */}
+			<div className="fb-write-form">
+				<h3 className="fb-write-title" ref={titleRef} tabIndex={-1}>
+					{t("title")}
+				</h3>
+				{(
+					[
+						["nowStatus", "nowLabel", "nowPlaceholder"],
+						["want", "wantLabel", "wantPlaceholder"],
+						["need", "needLabel", "needPlaceholder"],
+						["say", "sayLabel", "sayPlaceholder"],
+					] as const
+				).map(([field, label, placeholder]) => (
+					<div key={field}>
+						<label className="fb-field-label" htmlFor={`fb-${field}`}>
+							{t(label)}
+							{field === "need" ? <span className="fb-hint">{t("courseHint")}</span> : null}
+						</label>
+						<textarea
+							id={`fb-${field}`}
+							className="fb-field-textarea"
+							placeholder={t(placeholder)}
+							value={form[field] ?? ""}
+							onChange={(event) => set(field, event.target.value)}
+						/>
+					</div>
+				))}
+
+				<fieldset className="fb-checks">
+					<legend className="fb-field-label">{t("wantGiveLegend")}</legend>
+					{[...WANT_TAGS, ...GIVE_TAGS].map((tag) => (
+						<label key={tag}>
+							<input
+								type="checkbox"
+								checked={(form.wantGiveTags ?? []).includes(tag)}
+								onChange={() => toggleTag("wantGiveTags", tag)}
 							/>
-						</div>
+							{tagsT.has(tag) ? tagsT(tag) : tag}
+						</label>
 					))}
+				</fieldset>
 
-					<fieldset className="fb-checks">
-						<legend className="fb-field-label">{t("wantGiveLegend")}</legend>
-						{[...WANT_TAGS, ...GIVE_TAGS].map((tag) => (
-							<label key={tag}>
-								<input
-									type="checkbox"
-									checked={(form.wantGiveTags ?? []).includes(tag)}
-									onChange={() => toggleTag("wantGiveTags", tag)}
-								/>
-								{tagsT.has(tag) ? tagsT(tag) : tag}
-							</label>
-						))}
-					</fieldset>
-
-					<fieldset className="fb-checks">
-						<legend className="fb-field-label">{t("mobilizationLegend")}</legend>
-						<label>
-							<input
-								type="checkbox"
-								checked={form.mobilizationJoin1024 ?? false}
-								onChange={(event) => set("mobilizationJoin1024", event.target.checked)}
-							/>
-							{t("mJoin1024")}
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={form.mobilizationHelpPromote ?? false}
-								onChange={(event) => set("mobilizationHelpPromote", event.target.checked)}
-							/>
-							{t("mHelpPromote")}
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={form.mobilizationDonateIntent ?? false}
-								onChange={(event) => set("mobilizationDonateIntent", event.target.checked)}
-							/>
-							{t("mDonate")}
-						</label>
-						{role === "volunteer" && (
-							<label>
-								<input
-									type="checkbox"
-									checked={form.mobilizationVolunteerLead ?? false}
-									onChange={(event) => set("mobilizationVolunteerLead", event.target.checked)}
-								/>
-								{t("mVolunteerLead")}
-							</label>
-						)}
-					</fieldset>
-
-					<fieldset className="fb-checks">
-						<legend className="fb-field-label">{t("reconnectLegend")}</legend>
-						{RECONNECT_TAGS.map((tag) => (
-							<label key={tag}>
-								<input
-									type="checkbox"
-									checked={(form.reconnectTags ?? []).includes(tag)}
-									onChange={() => toggleTag("reconnectTags", tag)}
-								/>
-								{tagsT.has(tag) ? tagsT(tag) : tag}
-							</label>
-						))}
-					</fieldset>
-
-					<label className="fb-checks">
+				<fieldset className="fb-checks">
+					<legend className="fb-field-label">{t("mobilizationLegend")}</legend>
+					<label>
 						<input
 							type="checkbox"
-							checked={form.newsletterOptIn ?? false}
-							onChange={(event) => set("newsletterOptIn", event.target.checked)}
+							checked={form.mobilizationJoin1024 ?? false}
+							onChange={(event) => set("mobilizationJoin1024", event.target.checked)}
 						/>
-						{t("newsletter")}
+						{t("mJoin1024")}
 					</label>
-				</div>
+					<label>
+						<input
+							type="checkbox"
+							checked={form.mobilizationHelpPromote ?? false}
+							onChange={(event) => set("mobilizationHelpPromote", event.target.checked)}
+						/>
+						{t("mHelpPromote")}
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={form.mobilizationDonateIntent ?? false}
+							onChange={(event) => set("mobilizationDonateIntent", event.target.checked)}
+						/>
+						{t("mDonate")}
+					</label>
+					{role === "volunteer" && (
+						<label>
+							<input
+								type="checkbox"
+								checked={form.mobilizationVolunteerLead ?? false}
+								onChange={(event) => set("mobilizationVolunteerLead", event.target.checked)}
+							/>
+							{t("mVolunteerLead")}
+						</label>
+					)}
+				</fieldset>
+
+				<fieldset className="fb-checks">
+					<legend className="fb-field-label">{t("reconnectLegend")}</legend>
+					{RECONNECT_TAGS.map((tag) => (
+						<label key={tag}>
+							<input
+								type="checkbox"
+								checked={(form.reconnectTags ?? []).includes(tag)}
+								onChange={() => toggleTag("reconnectTags", tag)}
+							/>
+							{tagsT.has(tag) ? tagsT(tag) : tag}
+						</label>
+					))}
+				</fieldset>
+
+				<label className="fb-checks">
+					<input
+						type="checkbox"
+						checked={form.newsletterOptIn ?? false}
+						onChange={(event) => set("newsletterOptIn", event.target.checked)}
+					/>
+					{t("newsletter")}
+				</label>
 
 				<div className="fb-contact">
 					<h3 className="fb-field-label">{t("contactTitle")}</h3>
@@ -298,11 +297,11 @@ export default function Write({
 						</div>
 					)}
 				</fieldset>
+			</div>
 
-				<button type="submit" className="fb-cta fb-cta-primary">
-					{t("submit")}
-				</button>
-			</form>
-		</section>
+			<button type="submit" className="fb-cta fb-cta-primary">
+				{t("submit")}
+			</button>
+		</form>
 	);
 }

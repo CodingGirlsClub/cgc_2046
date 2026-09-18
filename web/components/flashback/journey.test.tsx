@@ -360,14 +360,51 @@ describe("Journey · 圆梦线", () => {
 		expect(screen.queryByText("按下快门，回到那天")).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "拆开这封信" }));
-
-		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
+		// 第 6 件：拆信动画（flap 1s + 信纸升起 1.2s/延迟 0.8s）收尾才切显影
+		expect(await screen.findByTestId("fb-polaroid", {}, { timeout: 3000 })).toBeInTheDocument();
 		expect(screen.getByText("我想亲眼看看是不是。")).toBeInTheDocument();
 		// CTA 两态之「无场次」：落 Initiative 公开页 + 兜底出口文案
 		expect(screen.getByRole("link", { name: "看看正在发生的活动" })).toHaveAttribute("href", "/initiatives");
 		expect(screen.getByText(/场次还在筹备/)).toBeInTheDocument();
 		// 圆梦线不展示比特币提醒（记忆线专属）
 		expect(screen.queryByText(/比特币/)).not.toBeInTheDocument();
+	});
+
+	it("信封物件：点信封 → 翻盖旋开 + 信纸升起 → 动画收尾切显影（第 6 件，原型 C）", async () => {
+		mockEnterResolve(dreamEntry);
+		await renderJourney();
+
+		const envelope = screen.getByTestId("fb-envelope");
+		expect(envelope).toHaveAttribute("data-opened", "false");
+		expect(screen.getByText("李一诺 亲启")).toBeInTheDocument();
+
+		fireEvent.click(envelope);
+		// 既有（此前死掉的）两条信封动画类在拆开瞬间挂上
+		expect(screen.getByTestId("fb-envelope")).toHaveAttribute("data-opened", "true");
+		expect(document.querySelector(".fb-envelope-flap.fb-flap")).toBeTruthy();
+		expect(document.querySelector(".fb-envelope-letter.fb-letter-out")).toBeTruthy();
+		// 动画收尾（2.0s）才切显影，拆信过程不被跳过
+		expect(screen.queryByTestId("fb-polaroid")).not.toBeInTheDocument();
+		expect(await screen.findByTestId("fb-polaroid", {}, { timeout: 3000 })).toBeInTheDocument();
+	});
+
+	it("reduced-motion：拆信直达显影（无动画、无 2s 等待）", async () => {
+		vi.spyOn(window, "matchMedia").mockReturnValue({
+			matches: true,
+			media: "(prefers-reduced-motion: reduce)",
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		} as unknown as MediaQueryList);
+		mockEnterResolve(dreamEntry);
+		await renderJourney();
+
+		fireEvent.click(screen.getByTestId("fb-envelope"));
+		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
+		expect(screen.queryByTestId("fb-envelope")).not.toBeInTheDocument();
 	});
 
 	it("CTA 两态之「有场次」：直链本城 Event 报名页", async () => {
@@ -387,7 +424,7 @@ describe("Journey · 圆梦线", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "拆开这封信" }));
 
-		const cta = await screen.findByRole("link", { name: /报名「1024 北京骑行场」/ });
+		const cta = await screen.findByRole("link", { name: /报名「1024 北京骑行场」/ }, { timeout: 3000 });
 		expect(cta).toHaveAttribute("href", "/events/1024-beijing-ride");
 	});
 });
@@ -443,6 +480,44 @@ describe("Journey · 失效与回访", () => {
 		render(<Journey />);
 
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
+	});
+
+	it("影卡点击卡面 3D 翻面到背面书写面，可翻回正面（第 3 件，原型 E「点击照片翻面写字」）", async () => {
+		mockEnterResolve(memoryEntry);
+		await walkTo("reveal");
+		const card = screen.getByTestId("fb-polaroid");
+		expect(card).toHaveAttribute("data-face", "front");
+
+		fireEvent.click(card);
+		// 换面分两段：先前半程转到侧棱（fb-flip-swap--out）
+		await waitFor(() => expect(document.querySelector(".fb-flip-swap--out")).toBeTruthy());
+		expect(await screen.findByText("今天的你")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "写好了，去寄出 →" })).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "翻回正面" }));
+		await waitFor(() => expect(screen.getByTestId("fb-polaroid")).toHaveAttribute("data-face", "front"), {
+			timeout: 2000,
+		});
+	});
+
+	it("reduced-motion：翻面直达目标面（无换面动画相位）", async () => {
+		vi.spyOn(window, "matchMedia").mockReturnValue({
+			matches: true,
+			media: "(prefers-reduced-motion: reduce)",
+			onchange: null,
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		} as unknown as MediaQueryList);
+		mockEnterResolve(memoryEntry);
+		await walkTo("reveal");
+
+		fireEvent.click(screen.getByTestId("fb-polaroid"));
+		expect(screen.queryByTestId("fb-polaroid")).not.toBeInTheDocument();
+		expect(screen.getByText("今天的你")).toBeInTheDocument();
+		expect(document.querySelector(".fb-flip-swap--out")).toBeNull();
 	});
 
 	it("回访（已填今天但未寄出）：跳过仪式直达写字，不再被锁在胶囊外（e2e 实测死循环）", async () => {

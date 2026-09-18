@@ -2379,7 +2379,9 @@
 			"envelopeTitle": "A letter that took {years} to arrive",
 			"envelopeLead": "You signed up back then, but never made it into that classroom. This letter is very late — yet your answers were kept all along.",
 			"openEnvelope": "Open the letter",
-			"envelopeHint": "Inside, you'll meet the you from back then"
+			"envelopeHint": "Tap to open the letter",
+			"envelopeTo": "For {name}",
+			"envelopeSeal": "To the you of back then"
 		},
 		"scatter": {
 			"title": "Photos scattered on the table",
@@ -2410,7 +2412,8 @@
 			"dreamCtaInitiatives": "See what's happening now",
 			"dreamFallback": "The gathering in your city is still taking shape. Write today's you and send it — leave your contact, and you'll be the first to know when a card you endorsed becomes real.",
 			"writeBack": "Flip it over — write today's you",
-			"writeBackHint": "The back is still blank — write to the future"
+			"writeBackHint": "Tap the card to flip it over and write today’s you",
+			"flipBack": "Flip back to the front"
 		},
 		"tags": {
 			"want_offline": "Want to join offline meetups",
@@ -2555,6 +2558,7 @@
 			"downloadPng": "Save card image",
 			"downloadMd": "Download Markdown",
 			"privacyNote": "Lines you fogged never appear on the card.",
+			"shareTo": "Share…",
 			"brand": "IN A FLASH",
 			"canvasFooter": "In a Flash"
 		},
