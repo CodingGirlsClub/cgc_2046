@@ -189,6 +189,25 @@ wait_route '/pages/flashback/index' || true
 ck "入口进入闪念间" "$(ROUTE)" '/pages/flashback/index'
 shot 03-flashback-from-profile.png
 
+echo "### 3.5) 我的卡两态（用户定稿 ①）：默认合着卡面 → 点开正反两面 → 合上"
+POLAROID_COVER=$(cls pages/flashback 'polaroidCover')
+COVER_NAME=$(cls pages/flashback 'coverName')
+FLIP_OPEN=$(cls pages/flashback 'polaroidFlipOpen')
+FOLD_BACK=$(cls pages/flashback 'foldBackButton')
+ck "默认=合着卡面（容器在）" "$(COUNT "$POLAROID_COVER")" '^1$'
+ck "卡面全名" "$(RES automation_element_action --action text --selector "$COVER_NAME")" '^王小明$'
+ck "默认内容区不渲染（答案在卡面后）" "$(COUNT "$FLIP_OPEN")" '^0$'
+TAP "$POLAROID_COVER"
+sleep 1
+ck "点开后正反两面容器出现" "$(COUNT "$FLIP_OPEN")" '^1$'
+shot 035-flashback-flipped.png
+ck "合上按钮出现" "$(COUNT "$FOLD_BACK")" '^1$'
+TAP "$FOLD_BACK"
+sleep 0.6
+ck "合上回卡面态" "$(COUNT "$POLAROID_COVER")" '^1$'
+ck "合上后内容区收起" "$(COUNT "$FLIP_OPEN")" '^0$'
+TAP "$POLAROID_COVER"
+sleep 0.8
 echo "### 4) 我的卡：当年正面（雾面句）+ 今天背面 + 头部口径（R3/R2/R11）"
 ck "eyebrow" "$(RES automation_element_action --action text --selector "$EYEBROW")" '^IN A FLASH · 闪念间$'
 ck "headline=本人 · 相对年数" "$(RES automation_element_action --action text --selector "$HEADLINE")" '王小明 · [0-9]+ 年前的你'
@@ -234,6 +253,21 @@ TRIGGER change '{"value":"anonymous"}' 'radio-group'
 sleep 1.5
 ck "切换后选中=匿名金句" "$(RES automation_element_action --action text --selector "$LICENSE_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
 shot 07-flashback-quote-anonymous.png
+
+echo "### 7.5) 分享三件（用户定稿 ③）：入口按钮 + sheet 三入口 + 取消收起"
+SHARE_BUTTON=$(cls pages/flashback 'shareButton')
+SHARE_SHEET=$(cls pages/flashback 'shareSheet')
+SHARE_CANCEL=$(cls pages/flashback 'shareCancel')
+SHARE_ENTRY=$(cls pages/flashback 'shareEntry')
+ck "分享入口按钮" "$(COUNT "$SHARE_BUTTON")" '^1$'
+TAP "$SHARE_BUTTON"
+sleep 0.8
+ck "分享 sheet 弹出" "$(COUNT "$SHARE_SHEET")" '^1$'
+ck "三入口（好友/朋友圈/保存）" "$(COUNT "$SHARE_ENTRY")" '^3$'
+shot 075-share-sheet.png
+TAP "$SHARE_CANCEL"
+sleep 0.6
+ck "取消后 sheet 收起" "$(COUNT "$SHARE_SHEET")" '^0$'
 
 echo "### 8) 行动板：四态卡各一次 + 已附议在前（R13 分组）"
 ck "行动板提示" "$(RES automation_element_action --action text --selector "$BOARD_HINT")" '^已附议的卡排前面；附议后成场时会收到通知$'

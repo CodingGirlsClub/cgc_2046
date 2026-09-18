@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { Button, Radio, RadioGroup, ScrollView, Text, Textarea, View } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import { Button, Canvas, Radio, RadioGroup, ScrollView, Text, Textarea, View } from '@tarojs/components'
+import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api, FlashbackNotBoundError, SessionExpiredError } from '@/api'
 import { PageState } from '@/components/PageState'
 import {
@@ -11,6 +11,8 @@ import {
   myCardView,
   parseQuoteLevel,
   QUOTE_LEVEL_OPTIONS,
+  shareMessage,
+  summaryCardModel,
   sentencesWithFog,
   splitActionCards,
   toggleSentenceFog,
@@ -48,6 +50,9 @@ export default function FlashbackPage() {
   const [city, setCity] = useState<string | null>(null)
   // 用户定稿 ①：我的卡两态——合着卡面（默认）→ 点按 3D 翻转看正反两面 → 再按回卡面
   const [flipped, setFlipped] = useState(false)
+  // 用户定稿 ③：分享浮层（好友/朋友圈/保存卡片）+ 保存中态
+  const [shareSheet, setShareSheet] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async (cityFilter?: string | null) => {
     setState({ kind: 'loading' })
@@ -72,6 +77,20 @@ export default function FlashbackPage() {
   }, [])
 
   useDidShow(() => { void load(city) })
+
+  // R14 分享（用户定稿 ③）：··· 胶囊菜单转发好友 / 朋友圈（iOS 朋友圈仅
+  // 文字+首图，平台限制，可用即达）；标题动态相对年数
+  useShareAppMessage(() => {
+    const me = state.kind === 'ready' ? state.capsule.me : null
+    return {
+      title: me ? shareMessage(me).title : '闪念间 · 找回当年的自己',
+      path: '/pages/flashback/index'
+    }
+  })
+  useShareTimeline(() => {
+    const me = state.kind === 'ready' ? state.capsule.me : null
+    return { title: me ? shareMessage(me).title : '闪念间 · 找回当年的自己' }
+  })
 
   const pickCity = (next: string | null) => {
     setCity(next)
@@ -160,6 +179,69 @@ export default function FlashbackPage() {
   }
 
   const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
+
+  // R14 保存摘要卡（用户定稿 ③）：canvas 2d 绘制竖版 3:4（版式对齐 web
+  // card-export：纸底 + IN A FLASH + 时间戳·城市 + 金句 + 今天的你 + 年份
+  // 脚注）→ 临时文件 → 相册；权限拒绝给「去设置」引导
+  const saveSummaryCard = async () => {
+    if (state.kind !== 'ready' || saving) return
+    setSaving(true)
+    try {
+      const model = summaryCardModel(state.capsule.me)
+      const query = Taro.createSelectorQuery()
+      const node = await new Promise<{ node: unknown; width: number; height: number }>((resolve, reject) => {
+        query.select('#fbShareCanvas').fields({ node: true, size: true }, (res: { node?: unknown; width?: number; height?: number }) => {
+          if (res?.node) resolve(res as { node: unknown; width: number; height: number })
+          else reject(new Error('画布未就绪'))
+        }).exec()
+      })
+      const canvas = node.node as { getContext: (t: '2d') => CanvasRenderingContext2D }
+      const ctx = canvas.getContext('2d')
+      const W = node.width * 2
+      const H = node.height * 2
+      ctx.fillStyle = '#f6f2e8'
+      ctx.fillRect(0, 0, W, H)
+      ctx.strokeStyle = 'rgba(43,39,35,0.25)'
+      ctx.lineWidth = 4
+      ctx.strokeRect(24, 24, W - 48, H - 48)
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#2b2723'
+      ctx.font = '600 44px sans-serif'
+      ctx.fillText('IN A FLASH · 闪念间', W / 2, 120)
+      ctx.font = '38px sans-serif'
+      ctx.fillStyle = 'rgba(43,39,35,0.7)'
+      ctx.fillText(model.stamp || '当年', W / 2, 200)
+      ctx.fillStyle = '#2b2723'
+      ctx.font = 'italic 54px serif'
+      wrapCanvasText(ctx, `“${model.quote}”`, W / 2, 340, W - 200, 78)
+      if (model.todayLine) {
+        ctx.font = '40px sans-serif'
+        ctx.fillStyle = 'rgba(43,39,35,0.85)'
+        wrapCanvasText(ctx, `今天的我：${model.todayLine}`, W / 2, 1180, W - 200, 60)
+      }
+      ctx.font = '32px sans-serif'
+      ctx.fillStyle = 'rgba(43,39,35,0.5)'
+      ctx.fillText(model.footer, W / 2, H - 80)
+      const res = await Taro.canvasToTempFilePath({ canvas: canvas as never, width: node.width, height: node.height, destWidth: W, destHeight: H })
+      await Taro.saveImageToPhotosAlbum({ filePath: res.tempFilePath })
+      Taro.showToast({ title: '已保存到相册', icon: 'success' })
+      setShareSheet(false)
+    } catch (error) {
+      const text = `${error instanceof Error ? error.message : ''} ${String((error as { errMsg?: string } | null)?.errMsg ?? '')}`
+      if (/auth|deny|denied|权限/i.test(text)) {
+        Taro.showModal({
+          title: '需要相册权限',
+          content: '请在设置中允许「保存到相册」后重试',
+          confirmText: '去设置',
+          success: ({ confirm }) => { if (confirm) void Taro.openSetting({}) }
+        })
+      } else {
+        Taro.showToast({ title: '保存失败，请重试', icon: 'none' })
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (state.kind === 'loading') {
     return <PageState kind="loading" title="正在显影…" />
@@ -293,6 +375,10 @@ export default function FlashbackPage() {
           </View>
           )}
 
+          {/* R14 分享入口（用户定稿 ③）：显式按钮唤起分享 sheet（··· 胶囊菜单原生分享由 hooks 常驻注册） */}
+          <Button className={styles.shareButton} onClick={() => setShareSheet(true)}>分享 · 把这一刻做成卡片</Button>
+          <Canvas id="fbShareCanvas" canvasId="fbShareCanvas" type="2d" className={styles.shareCanvas} />
+
           <View className={styles.licenseCard}>
             <Text className={styles.sectionTitle}>金句授权</Text>
             <Text className={styles.sectionDesc}>你的授权随时可调，默认全部关闭</Text>
@@ -371,6 +457,43 @@ export default function FlashbackPage() {
           })}
         </View>
       </ScrollView>
+
+      {/* 分享 sheet（原型 F：遮罩 + 底部圆角面板 + 三入口 + 取消） */}
+      {shareSheet && (
+        <View className={styles.shareMask} onClick={() => setShareSheet(false)}>
+          <View className={styles.shareSheet} onClick={(event) => event.stopPropagation()}>
+            <Text className={styles.shareSheetTitle}>把这一刻做成卡片</Text>
+            <View className={styles.shareEntries}>
+              <Button className={styles.shareEntry} openType="share">
+                <Text className={styles.shareEntryIcon}>💬</Text>
+                <Text className={styles.shareEntryLabel}>转发给好友</Text>
+              </Button>
+              <View className={styles.shareEntry} onClick={() => Taro.showToast({ title: '朋友圈分享请点右上角「···」选择', icon: 'none' })}>
+                <Text className={styles.shareEntryIcon}>📷</Text>
+                <Text className={styles.shareEntryLabel}>朋友圈</Text>
+              </View>
+              <View className={styles.shareEntry} onClick={() => void saveSummaryCard()}>
+                <Text className={styles.shareEntryIcon}>⬇️</Text>
+                <Text className={styles.shareEntryLabel}>{saving ? '保存中…' : '保存卡片'}</Text>
+              </View>
+            </View>
+            <Button className={styles.shareCancel} onClick={() => setShareSheet(false)}>取消</Button>
+          </View>
+        </View>
+      )}
     </View>
   )
+}
+
+/** canvas 文本换行（grapheme 逐字累计，超宽换行） */
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, centerX: number, startY: number, maxWidth: number, lineHeight: number): void {
+  const chars = Array.from(text)
+  let line = ''
+  let y = startY
+  const flush = () => { ctx.fillText(line, centerX, y); line = ''; y += lineHeight }
+  for (const ch of chars) {
+    if (ctx.measureText(line + ch).width > maxWidth) flush()
+    line += ch
+  }
+  if (line) flush()
 }
