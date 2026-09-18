@@ -572,7 +572,26 @@
 .fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
 .fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
 .fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
-.fb-recover-input { background: rgba(239, 233, 219, 0.08); border: 1px solid rgba(239, 233, 219, 0.25); border-radius: 8px; padding: 12px 14px; color: #d9d4ca; border-bottom-width: 1px; }
+/* 暗底输入控件（实测 bug 2：对比度不足）——文字 ≥7:1、placeholder ≥4.5:1、
+   边框为可见边界（非装饰）；focus 态 accent 高亮 */
+.fb-recover-input,
+.fb-register-input {
+	background: rgba(239, 233, 219, 0.12);
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	border-radius: 8px;
+	padding: 12px 14px;
+	color: #ece8de;
+}
+.fb-recover-input::placeholder,
+.fb-register-input::placeholder {
+	color: #a09a8f;
+	opacity: 1;
+}
+.fb-recover-input:focus-visible,
+.fb-register-input:focus-visible {
+	outline: none;
+	border-color: var(--fb-accent);
+}
 .fb-recover-cards ul { list-style: none; padding: 0; display: grid; gap: 8px; }
 .fb-recover-card { color: #d9d4ca; font-size: 14px; border: 1px dashed rgba(239, 233, 219, 0.3); border-radius: 8px; padding: 10px 14px; }
 .fb-recover-done { display: grid; gap: 10px; }

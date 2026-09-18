@@ -163,8 +163,11 @@ defmodule Cgc2046.Flashback.Recover do
 
   # ── 内部 ─────────────────────────────────────────────────────────────
 
+  # identifier 规范化（实测 bug：从聊天复制带 Markdown 反引号/引号包裹、
+  # 手机号带空格或横线）——trim + 剥成对包裹符 + 手机数字归一，剥完仍含
+  # 包裹符开头（未成对）按原样走后续分支（自然落 unrecognized）。
   defp classify(raw) when is_binary(raw) do
-    trimmed = String.trim(raw)
+    trimmed = raw |> String.trim() |> strip_wrappers()
 
     cond do
       trimmed == "" ->
@@ -174,7 +177,7 @@ defmodule Cgc2046.Flashback.Recover do
         {:email, String.downcase(trimmed)}
 
       true ->
-        case PhoneNumber.normalize(trimmed) do
+        case trimmed |> String.replace(~r/[\s()\-.]/, "") |> PhoneNumber.normalize() do
           {:ok, phone} -> {:phone, phone}
           {:error, :invalid} -> :unrecognized
         end
@@ -182,6 +185,29 @@ defmodule Cgc2046.Flashback.Recover do
   end
 
   defp classify(_), do: :unrecognized
+
+  # 剥离首尾成对的常见包裹符：`...`、"..."、'...'、「...”、（...）、(...)；
+  # 嵌套包裹递归剥（`` `x` `` 复制形态），不成对则保留原文。
+  @wrapper_pairs [{"`", "`"}, {"\"", "\""}, {"'", "'"}, {"「", "」"}, {"（", "）"}, {"(", ")"}]
+
+  defp strip_wrappers(""), do: ""
+
+  defp strip_wrappers(text) do
+    Enum.find_value(@wrapper_pairs, text, fn {open, close} ->
+      with true <- String.starts_with?(text, open),
+           true <- String.ends_with?(text, close),
+           inner when byte_size(inner) > 0 <-
+             String.slice(
+               text,
+               String.length(open),
+               String.length(text) - String.length(open) - String.length(close)
+             ) do
+        strip_wrappers(String.trim(inner))
+      else
+        _ -> nil
+      end
+    end)
+  end
 
   # 手机形态兼容：导入数据可能存裸 11 位或 +86 归一形态，双形态 OR 匹配
   # （do_verify 走 classify 后的归一形态；verify 再取本人输入原文补一路）
