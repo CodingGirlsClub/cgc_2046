@@ -254,6 +254,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
     field :flashback_capsule, :flashback_capsule do
       arg(:token, :string)
+      @desc "城市钉筛选（R34）：非空时名册与行动板按城市过滤；cities 始终全量"
+      arg(:city, :string)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
@@ -262,7 +264,8 @@ defmodule Cgc2046Web.GraphqlSchema do
                    Map.get(args, :token),
                    context[:actor]
                  ),
-               {:ok, capsule} <- Cgc2046.Flashback.AlumniProjection.capsule(resolved) do
+               {:ok, capsule} <-
+                 Cgc2046.Flashback.AlumniProjection.capsule(resolved, Map.get(args, :city)) do
             {:ok, capsule}
           end
         end)
@@ -3133,6 +3136,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:me, non_null(:flashback_capsule_me))
     field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
     field(:action_cards, non_null(list_of(non_null(:flashback_action_card))))
+    @desc "城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩"
+    field(:cities, non_null(list_of(non_null(:string))))
   end
 
   object :flashback_endorse_result do

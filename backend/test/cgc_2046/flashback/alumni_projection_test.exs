@@ -106,9 +106,9 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
     plain
   end
 
-  defp capsule_for(token) do
+  defp capsule_for(token, city \\ nil) do
     {:ok, %{person: person}} = AlumniProjection.resolve_person(token, nil)
-    {:ok, capsule} = AlumniProjection.capsule(%{person: person})
+    {:ok, capsule} = AlumniProjection.capsule(%{person: person}, city)
     capsule
   end
 
@@ -327,6 +327,78 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       |> Ash.create!(authorize?: false)
 
       assert capsule_for(issue_token(me)).me.quote_level == "anonymous"
+    end
+  end
+
+  describe "城市钉（R34）" do
+    test "cities 投影：名册城市 ∪ 行动卡城市，去重排序；未入选者城市不进" do
+      archive = create_archive()
+      create_person(archive, %{})
+      create_person(archive, %{full_name: "李安静", surname: "李", city: "上海"})
+
+      create_person(archive, %{
+        full_name: "赵未选",
+        surname: "赵",
+        city: "广州",
+        participation: :not_selected
+      })
+
+      ActionCard
+      |> Ash.Changeset.for_create(:create, %{title: "杭州骑行", city: "杭州"})
+      |> Ash.create!(authorize?: false)
+
+      capsule =
+        capsule_for(issue_token(create_person(archive, %{full_name: "周发起", surname: "周"})))
+
+      # "上海" < "北京" < "杭州"（UTF-8 字节序）；广州（not_selected）不在
+      assert capsule.cities == ["上海", "北京", "杭州"]
+    end
+
+    test "city 过滤：roster 按人城市、行动卡按卡城市、筛空场次整架撤下；cities 不随过滤收缩" do
+      bj_archive =
+        create_archive(%{key: "2014-01-11-bj", name: "Rails Girls Beijing", city: "北京"})
+
+      sh_archive =
+        create_archive(%{key: "2013-05-18-sh", name: "Rails Girls Shanghai", city: "上海"})
+
+      me = create_person(bj_archive, %{city: "北京"})
+      create_person(bj_archive, %{full_name: "李安静", surname: "李", city: "上海"})
+      create_person(sh_archive, %{full_name: "张广州", surname: "张", city: "广州"})
+
+      ActionCard
+      |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京", proposer_person_id: me.id})
+      |> Ash.create!(authorize?: false)
+
+      ActionCard
+      |> Ash.Changeset.for_create(:create, %{title: "潜水场", city: "上海"})
+      |> Ash.create!(authorize?: false)
+
+      capsule = capsule_for(issue_token(me), "上海")
+
+      # 名册按**人**的城市筛：北京场次里的上海人保留（场次城市是北京），
+      # 上海场次无人命中（张广州是广州人）→ 整架撤下
+      [only] = capsule.archives
+      assert only.key == "2014-01-11-bj"
+      assert Enum.map(only.roster, & &1.surname_masked) == ["李**"]
+
+      assert Enum.map(capsule.action_cards, & &1.title) == ["潜水场"]
+
+      # 钉条数据源不随过滤收缩（否则选定城市后其余钉消失，无法切回全部）
+      assert capsule.cities == ["上海", "北京", "广州"]
+
+      # 未筛：全量名册（3 人 2 场）与 2 卡
+      all = capsule_for(issue_token(me))
+      assert length(all.archives) == 2
+      assert Enum.map(all.archives, &length(&1.roster)) |> Enum.sum() == 3
+      assert length(all.action_cards) == 2
+    end
+
+    test "空串 city 视为未筛（query 变量空串不筛）" do
+      archive = create_archive()
+      me = create_person(archive, %{})
+
+      capsule = capsule_for(issue_token(me), "")
+      assert capsule == capsule_for(issue_token(me))
     end
   end
 end

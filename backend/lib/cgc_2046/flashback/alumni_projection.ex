@@ -82,14 +82,60 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   end
 
   @doc """
-  时间胶囊总览：me（本人格）+ archives（场次时间轴与名册）+ action_cards。
+  时间胶囊总览：me（本人格）+ archives（场次时间轴与名册）+ action_cards + cities。
+
+  city（R34 城市钉）：非空时名册与行动板按城市过滤——roster 按人城市、行动卡
+  按卡城市，筛空的场次整架撤下；cities 始终投影**全量**（钉条数据源，不随
+  过滤收缩，否则选定城市后其余钉消失、无法切回「全部」）。
   """
-  @spec capsule(%{person: map()}) :: {:ok, map()} | {:error, term()}
-  def capsule(%{person: person}) do
-    with {:ok, archives} <- list_archives(person),
-         {:ok, cards} <- list_action_cards(person.id) do
-      {:ok, %{me: me_payload(person), archives: archives, action_cards: cards}}
+  @spec capsule(%{person: map()}, String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def capsule(%{person: person}, city \\ nil) do
+    with {:ok, archives} <- list_archives(person, city),
+         {:ok, cards} <- list_action_cards(person.id, city) do
+      {:ok,
+       %{
+         me: me_payload(person),
+         archives: archives,
+         action_cards: cards,
+         cities: capsule_cities()
+       }}
     end
+  end
+
+  # 空串/纯空白视为未筛（query 变量传来空串不筛）
+  defp clean_city(nil), do: nil
+
+  defp clean_city(city) when is_binary(city) do
+    case String.trim(city) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  # 城市钉数据源（R34）：有名册成员的城市 ∪ 有行动卡的城市（去重排序）。
+  # 与 roster_by_archive 同口径（attended + 未删除），名册里看不到的城不进钉条。
+  defp capsule_cities do
+    roster_cities =
+      Repo.all(
+        from(p in "flashback_people",
+          where:
+            p.participation == "attended" and is_nil(p.deleted_at) and
+              not is_nil(p.city) and p.city != "",
+          select: p.city,
+          distinct: true
+        )
+      )
+
+    card_cities =
+      Repo.all(
+        from(c in "flashback_action_cards",
+          where: not is_nil(c.city) and c.city != "",
+          select: c.city,
+          distinct: true
+        )
+      )
+
+    (roster_cities ++ card_cities) |> Enum.uniq() |> Enum.sort()
   end
 
   # 裸查询绕过 Ecto 类型加载：uuid 文本须 dump 成 16 字节（同 initiatives/public.ex）
@@ -200,7 +246,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   # ── 场次时间轴与名册（R12 分层） ─────────────────────────────────────
 
-  defp list_archives(person) do
+  defp list_archives(person, city) do
     archives =
       Repo.all(
         from(a in "flashback_event_archives",
@@ -217,7 +263,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         )
       )
 
-    roster_by_archive = roster_by_archive()
+    roster_by_archive = roster_by_archive(city)
     answers_by_person = wall_answers_by_person()
 
     enriched =
@@ -239,37 +285,49 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         }
       end)
 
+    # 筛选城市时整架无人即撤（原型 D：frame 只要有任一 pile 命中就保留）
+    enriched = if city, do: Enum.reject(enriched, &(&1.roster == [])), else: enriched
+
     {:ok, enriched}
   end
 
   # 结构化层：attended 全量满员（姓氏隐名）；内容层由 attach_content/2 决定。
   # 已删除档案（U10/R30）整卡撤下——deleted_at 置位即从名册消失。
-  defp roster_by_archive do
-    rows =
-      Repo.all(
-        from(p in "flashback_people",
-          left_join: t in "flashback_todays",
-          on: t.person_id == p.id,
-          where: p.participation == "attended" and is_nil(p.deleted_at),
-          order_by: [asc: p.full_name],
-          select: %{
-            archive_event_id: p.archive_event_id,
-            # uuid 文本化：裸查询默认返回 16 字节 binary，:id 标量序列化会炸
-            id: fragment("?::text", p.id),
-            surname: p.surname,
-            full_name: p.full_name,
-            city: p.city,
-            occupation_then: p.occupation_then,
-            sent_to_wall_at: t.sent_to_wall_at,
-            now_status: t.now_status,
-            want: t.want,
-            say: t.say
-          }
-        )
+  # city（R34）：按**人**的城市筛（照片堆语义，非场次城市）。
+  defp roster_by_archive(city) do
+    base =
+      from(p in "flashback_people",
+        left_join: t in "flashback_todays",
+        on: t.person_id == p.id,
+        where: p.participation == "attended" and is_nil(p.deleted_at),
+        order_by: [asc: p.full_name],
+        select: %{
+          archive_event_id: p.archive_event_id,
+          # uuid 文本化：裸查询默认返回 16 字节 binary，:id 标量序列化会炸
+          id: fragment("?::text", p.id),
+          surname: p.surname,
+          full_name: p.full_name,
+          city: p.city,
+          occupation_then: p.occupation_then,
+          sent_to_wall_at: t.sent_to_wall_at,
+          now_status: t.now_status,
+          want: t.want,
+          say: t.say
+        }
       )
+
+    rows =
+      base
+      |> filter_city(clean_city(city))
+      |> Repo.all()
 
     Enum.group_by(rows, & &1.archive_event_id)
   end
+
+  # 主表（位置 0）城市等值筛；nil 不筛
+  defp filter_city(query, nil), do: query
+
+  defp filter_city(query, city), do: where(query, [row], row.city == ^city)
 
   # 已寄出者的当年答案（雾化版）：墙上是「寄出物」，他人与自己对外同规则
   # （KTD4 一律遮蔽；本人的完整原文由 U4 enter 面承担）。
@@ -346,34 +404,34 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   # ── 行动板（R13 四态） ───────────────────────────────────────────────
 
-  defp list_action_cards(person_id) do
+  defp list_action_cards(person_id, city) do
     rows =
-      Repo.all(
-        from(c in "flashback_action_cards",
-          left_join: e in "flashback_endorsements",
-          on: e.card_id == c.id,
-          left_join: ev in "events",
-          on: ev.id == c.event_id,
-          group_by: [c.id, c.title, c.city, c.status, c.event_id, ev.slug, c.inserted_at],
-          order_by: [asc: c.inserted_at],
-          select: %{
-            id: fragment("?::text", c.id),
-            title: c.title,
-            city: c.city,
-            status: c.status,
-            event_id: fragment("?::text", c.event_id),
-            event_slug: ev.slug,
-            endorsement_count: count(e.id),
-            endorsed_by_me: fragment("BOOL_OR(? = ?)", e.person_id, ^uuid_param(person_id)),
-            roles_claimed:
-              fragment(
-                "ARRAY_AGG(DISTINCT ?) FILTER (WHERE ? IS NOT NULL)",
-                e.role_claimed,
-                e.role_claimed
-              )
-          }
-        )
+      from(c in "flashback_action_cards",
+        left_join: e in "flashback_endorsements",
+        on: e.card_id == c.id,
+        left_join: ev in "events",
+        on: ev.id == c.event_id,
+        group_by: [c.id, c.title, c.city, c.status, c.event_id, ev.slug, c.inserted_at],
+        order_by: [asc: c.inserted_at],
+        select: %{
+          id: fragment("?::text", c.id),
+          title: c.title,
+          city: c.city,
+          status: c.status,
+          event_id: fragment("?::text", c.event_id),
+          event_slug: ev.slug,
+          endorsement_count: count(e.id),
+          endorsed_by_me: fragment("BOOL_OR(? = ?)", e.person_id, ^uuid_param(person_id)),
+          roles_claimed:
+            fragment(
+              "ARRAY_AGG(DISTINCT ?) FILTER (WHERE ? IS NOT NULL)",
+              e.role_claimed,
+              e.role_claimed
+            )
+        }
       )
+      |> filter_city(clean_city(city))
+      |> Repo.all()
 
     cards =
       Enum.map(rows, fn row ->

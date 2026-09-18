@@ -2230,6 +2230,8 @@ export type FlashbackArchiveRef = {
 export type FlashbackCapsule = {
   actionCards: Array<FlashbackActionCard>;
   archives: Array<FlashbackCapsuleArchive>;
+  /** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
+  cities: Array<Scalars['String']['output']>;
   me: FlashbackCapsuleMe;
 };
 
@@ -5241,6 +5243,7 @@ export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
 
 
 export type RootQueryTypeFlashbackCapsuleArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
 };
 

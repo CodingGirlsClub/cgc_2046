@@ -378,6 +378,30 @@
 .fb-capsule-header, .fb-capsule-footer { text-align: center; padding: 26px 22px 6px; }
 .fb-capsule-footer { padding: 10px 22px 30px; }
 
+/* 城市钉（R34，原型 D ia-pin）：胶囊钉、选中品牌橙白字、未选中性灰白
+ * （语义与小程序换肤后的钉条同款——选中橙/未选灰白）。
+ * .fb-root 前缀（0-2-0）压过 .fb-root button { color: inherit }（0-1-1）——同 .fb-cta 的特异性教训 */
+.fb-root .fb-city-pins { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 6px 22px 20px; }
+.fb-root .fb-city-pin {
+	background: rgba(255, 255, 255, 0.07);
+	color: #b9b4aa;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	border-radius: 999px;
+	font: inherit;
+	font-size: 13px;
+	padding: 6px 16px;
+	cursor: pointer;
+}
+.fb-root .fb-city-pin:hover { color: #d9d4ca; }
+.fb-root .fb-city-pin--active,
+.fb-root .fb-city-pin--active:hover {
+	background: #ea5504;
+	border-color: #ea5504;
+	color: #fff;
+	font-weight: 600;
+}
+.fb-corridor-empty { text-align: center; padding: 10px 22px; }
+
 /* 走廊：窄屏纵向（默认）——下滑 = 时间前进 */
 .fb-corridor {
 	flex: 1;

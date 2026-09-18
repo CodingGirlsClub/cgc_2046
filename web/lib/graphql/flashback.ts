@@ -192,6 +192,8 @@ export interface FlashbackCapsule {
 	me: FlashbackCapsuleMe;
 	archives: FlashbackCapsuleArchive[];
 	actionCards: FlashbackActionCard[];
+	/** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
+	cities: string[];
 }
 
 /* ---------------- U6 公开层（路人） ---------------- */
@@ -448,13 +450,13 @@ export const FLASHBACK_DREAM_TARGET: TypedDocumentNode<
 	}
 `;
 
-/** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口 */
+/** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口；city（R34 城市钉）筛选 */
 export const FLASHBACK_CAPSULE: TypedDocumentNode<
 	{ flashbackCapsule: FlashbackCapsule | null },
-	{ token?: string | null }
+	{ token?: string | null; city?: string | null }
 > = gql`
-	query FlashbackCapsule($token: String) {
-		flashbackCapsule(token: $token) {
+	query FlashbackCapsule($token: String, $city: String) {
+		flashbackCapsule(token: $token, city: $city) {
 			me {
 				id
 				fullName
@@ -511,6 +513,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				endorsedByMe
 				rolesClaimed
 			}
+			cities
 		}
 	}
 `;

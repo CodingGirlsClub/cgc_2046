@@ -2488,10 +2488,13 @@
 			"authRequiredTitle": "The capsule needs your identity",
 			"authRequiredBody": "Enter via the personal link from your email/SMS, or sign in with a bound account — if the link is lost, you can recover it yourself.",
 			"authRequiredAction": "Self-service recovery",
-			"footerHint": "The silent stay safe: until you send, only you can see your answers."
+			"footerHint": "The silent stay safe: until you send, only you can see your answers.",
+			"cityAria": "Filter by city",
+			"cityAll": "All"
 		},
 		"corridor": {
-			"ariaLabel": "Time capsule corridor"
+			"ariaLabel": "Time capsule corridor",
+			"emptyCity": "No roster photos from this city yet."
 		},
 		"roster": {
 			"groupAria": "{name} roster",
@@ -2526,7 +2529,8 @@
 			"endorseFailed": "Endorsing didn't succeed — try again.",
 			"signup": "Sign up for this gathering →",
 			"scheduledNote": "The announcement will reach the phone/email on record — want to change it? You can update after sending.",
-			"doneNote": "This one happened. Photos and the recap will be pinned back onto this card."
+			"doneNote": "This one happened. Photos and the recap will be pinned back onto this card.",
+			"emptyFiltered": "No action cards in this city yet — switch back to All to see the rest."
 		},
 		"cardExport": {
 			"ariaLabel": "Card export",
@@ -2549,7 +2553,9 @@
 				"title": "This archive already has an owner",
 				"body": "This archive is tied to an account and the link has retired — sign in, or continue from \"Mine\"."
 			},
-			"claimed": { "action": "Go to sign in" },
+			"claimed": {
+				"action": "Go to sign in"
+			},
 			"flashback_token_revoked": {
 				"title": "This letter has been withdrawn",
 				"body": "The archive was deleted and the link is void. Your data has been cleared as requested.",

@@ -1072,10 +1072,12 @@ export type PublicInitiativeQueryVariables = Exact<{
 
 export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null, paymentMode: string, minAge: number | null, priceRangeMinCents: number | null, deposit: { enabled: boolean, amountCents: number | null, refundableOnCheckIn: boolean | null } }> }> } | null };
 
-export type FlashbackCapsuleQueryVariables = Exact<{ [key: string]: never; }>;
+export type FlashbackCapsuleQueryVariables = Exact<{
+  city?: string | null | undefined;
+}>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
 
 export type FlashbackEndorseMutationVariables = Exact<{
   cardId: string | number;

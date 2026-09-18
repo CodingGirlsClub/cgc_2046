@@ -476,10 +476,11 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
 // ── 闪念间「我的」（U9/R28）──────────────────────────────────────────────
 // 登录态（person.user_id 绑定档案）双入口：token 省略走会话腿。投影只选
 // me + actionCards（小程序无名册/场次页读面，archives 不拉）。
+// city（R34 城市钉）：非空时行动板按城市过滤；cities 供钉条渲染（全量）。
 
 export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
-  query FlashbackCapsule {
-    flashbackCapsule {
+  query FlashbackCapsule($city: String) {
+    flashbackCapsule(city: $city) {
       me {
         id
         fullName
@@ -518,6 +519,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         endorsedByMe
         rolesClaimed
       }
+      cities
     }
   }
 `

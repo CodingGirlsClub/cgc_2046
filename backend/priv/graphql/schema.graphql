@@ -5315,7 +5315,12 @@ type RootQueryType {
   flashbackDreamTarget(city: String): FlashbackDreamTarget
 
   "闪念间时间胶囊（U5\/R12\/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
-  flashbackCapsule(token: String): FlashbackCapsule
+  flashbackCapsule(
+    token: String
+
+    "城市钉筛选（R34）：非空时名册与行动板按城市过滤；cities 始终全量"
+    city: String
+  ): FlashbackCapsule
 
   "看板四率（U11\/R24\/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线\/圆梦线"
   flashbackAdminStats: FlashbackAdminStats
@@ -6338,8 +6343,13 @@ type FlashbackActionCard {
 
 type FlashbackCapsule {
   me: FlashbackCapsuleMe!
+
   archives: [FlashbackCapsuleArchive!]!
+
   actionCards: [FlashbackActionCard!]!
+
+  "城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩"
+  cities: [String!]!
 }
 
 type FlashbackEndorseResult {
