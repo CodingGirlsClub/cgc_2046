@@ -269,6 +269,24 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线"
+    field :flashback_admin_stats, :flashback_admin_stats do
+      resolve(fn _, _, %{context: context} ->
+        with_admin(context, fn _actor -> Cgc2046.Flashback.AdminStats.stats() end)
+      end)
+    end
+
+    @desc "兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
+    field :flashback_admin_redemptions, non_null(list_of(non_null(:flashback_redemption))) do
+      arg(:limit, :integer)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          Cgc2046.Flashback.AdminStats.redemptions(Map.get(args, :limit) || 50)
+        end)
+      end)
+    end
+
     @desc "删除摘要（U10/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
     field :flashback_delete_preview, :flashback_delete_preview_result do
       arg(:token, :string)
@@ -2328,6 +2346,23 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "提交奖品兑换申请（U11/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动）"
+    field :flashback_redeem, :flashback_redeem_result do
+      arg(:token, :string)
+      arg(:channel_note, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity) do
+            Cgc2046.Flashback.AdminStats.submit(person_id, args[:channel_note])
+          end
+        end)
+      end)
+    end
+
     @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
     field :flashback_endorse, :flashback_endorse_result do
       arg(:token, :string)
@@ -2396,7 +2431,26 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    # ── 闪念间管理面（U7/U8，KTD5：PlatformAdmin gate——非管理员被拒，变异验证钉住）──
+    # ── 闪念间管理面（U7/U8/U11，KTD5：PlatformAdmin gate——非管理员被拒，变异验证钉住）──
+
+    @desc "兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
+    field :flashback_admin_update_redemption, :flashback_redemption_update_result do
+      arg(:id, non_null(:id))
+      arg(:status, non_null(:string))
+      arg(:handled_note, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.AdminStats.update_status(
+              args[:id],
+              args[:status],
+              Map.get(args, :handled_note)
+            )
+          end)
+        end)
+      end)
+    end
 
     @desc "闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
     field :flashback_admin_send_outreach, :flashback_outreach_dispatch_result do
@@ -3067,6 +3121,47 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:first_time, non_null(:boolean))
   end
 
+  # ── 看板与兑换（U11/R24/R25）────────────────────────────────────────
+
+  object :flashback_rates do
+    @desc "分母：成功送达人数（sent 的 distinct person，硬退信与退订剔除）"
+    field(:delivered, non_null(:integer))
+    field(:link_opened, non_null(:integer))
+    field(:revealed, non_null(:integer))
+    field(:sent_to_wall, non_null(:integer))
+    field(:intent_submitted, non_null(:integer))
+  end
+
+  object :flashback_admin_stats do
+    @desc "记忆线（participation=attended）四率"
+    field(:memory, non_null(:flashback_rates))
+    @desc "圆梦线（participation=not_selected）四率"
+    field(:dream, non_null(:flashback_rates))
+    field(:overall, non_null(:flashback_rates))
+  end
+
+  object :flashback_redemption do
+    field(:id, non_null(:id))
+    field(:status, non_null(:string))
+    @desc "用户提交的收款渠道信息（admin-only，KTD3）"
+    field(:channel_note, non_null(:string))
+    field(:handled_note, :string)
+    field(:inserted_at, :string)
+    @desc "掩码署名（姓** · 城市）——运营定位用"
+    field(:masked_name, :string)
+    field(:city, :string)
+  end
+
+  object :flashback_redemption_update_result do
+    field(:id, non_null(:id))
+    field(:status, non_null(:string))
+  end
+
+  object :flashback_redeem_result do
+    field(:status, non_null(:string))
+    field(:updated, non_null(:boolean))
+  end
+
   # ── 删除（U10/R30/ADR-0015）────────────────────────────────────────
   object :flashback_delete_result do
     field(:deleted, non_null(:boolean))
@@ -3313,6 +3408,16 @@ defmodule Cgc2046Web.GraphqlSchema do
          }}
     end
   end
+
+  # 闪念间身份元组 → person_id（U9/U11 写面共用：redeem 等不需 person 结构的入口）。
+  defp identity_person_id({:token, token}) do
+    case Cgc2046.Flashback.Tokens.fetch_valid(token) do
+      {:ok, flashback_token} -> {:ok, flashback_token.person_id}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp identity_person_id({:person, person_id}), do: {:ok, person_id}
 
   # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
   # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。

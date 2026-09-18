@@ -657,3 +657,91 @@ export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
 	closed: "l-badge l-badge-muted",
 	cancelled: "l-badge l-badge-danger",
 };
+
+/* ---------------- 闪念间看板（U11/R24/R25） ---------------- */
+
+/** 四率（KTD10）：分子=touch distinct person；分母=成功送达（硬退信与退订剔除） */
+export interface FlashbackRates {
+	delivered: number;
+	linkOpened: number;
+	revealed: number;
+	sentToWall: number;
+	intentSubmitted: number;
+}
+
+export interface FlashbackAdminStats {
+	memory: FlashbackRates;
+	dream: FlashbackRates;
+	overall: FlashbackRates;
+}
+
+export interface FlashbackRedemption {
+	id: string;
+	status: string;
+	/** 用户提交的收款渠道（admin-only，KTD3——不进任何导出） */
+	channelNote: string;
+	handledNote?: string | null;
+	insertedAt?: string | null;
+	maskedName?: string | null;
+	city?: string | null;
+}
+
+export const FLASHBACK_ADMIN_STATS: TypedDocumentNode<
+	{ flashbackAdminStats: FlashbackAdminStats },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminStats {
+		flashbackAdminStats {
+			memory {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+			dream {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+			overall {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_REDEMPTIONS: TypedDocumentNode<
+	{ flashbackAdminRedemptions: FlashbackRedemption[] },
+	{ limit?: number | null }
+> = gql`
+	query FlashbackAdminRedemptions($limit: Int) {
+		flashbackAdminRedemptions(limit: $limit) {
+			id
+			status
+			channelNote
+			handledNote
+			insertedAt
+			maskedName
+			city
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_UPDATE_REDEMPTION: TypedDocumentNode<
+	{ flashbackAdminUpdateRedemption: { id: string; status: string } },
+	{ id: string; status: string; handledNote?: string | null }
+> = gql`
+	mutation FlashbackAdminUpdateRedemption($id: ID!, $status: String!, $handledNote: String) {
+		flashbackAdminUpdateRedemption(id: $id, status: $status, handledNote: $handledNote) {
+			id
+			status
+		}
+	}
+`;

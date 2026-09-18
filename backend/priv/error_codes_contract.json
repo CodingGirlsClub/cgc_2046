@@ -55,6 +55,8 @@
     "flashback_photo_too_large",
     "flashback_quote_span_out_of_bounds",
     "flashback_recover_rate_limited",
+    "flashback_redemption_invalid_transition",
+    "flashback_redemption_not_found",
     "flashback_slug_locked",
     "flashback_slug_taken",
     "flashback_token_claimed",

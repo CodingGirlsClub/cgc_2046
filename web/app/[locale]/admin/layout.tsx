@@ -25,6 +25,7 @@ const ADMIN_NAV = [
 	{ href: "/admin/reconciliation", label: "navReconciliation" },
 	{ href: "/admin/openclacky", label: "navOpenclacky" },
 	{ href: "/admin/initiatives", label: "navInitiatives" },
+	{ href: "/admin/flashback", label: "navFlashback" },
 ];
 
 export default function AdminLayout({
