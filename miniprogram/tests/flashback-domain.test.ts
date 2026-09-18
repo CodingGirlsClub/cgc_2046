@@ -183,3 +183,41 @@ describe('parseQuoteLevel（R31 授权档恢复，fail-closed）', () => {
     assert.equal(parseQuoteLevel(undefined), 'off')
   })
 })
+
+// ── R14 分享（用户定稿 ③）：shareMessage / summaryCardModel ───────────────
+import { shareMessage, summaryCardModel } from '../src/domain/flashback.ts'
+import type { FlashbackMyCard } from '../src/domain/models'
+
+const me = (over: Partial<FlashbackMyCard> = {}): FlashbackMyCard => ({
+  id: 'p1',
+  fullName: '王若愚',
+  surname: '王',
+  city: '北京',
+  occupationThen: null,
+  participation: 'attended',
+  appliedAt: '2014-01-05T05:06:00.000Z',
+  quote: '我想亲眼看看是不是。',
+  quoteLevel: 'anonymous',
+  today: { nowStatus: '还在写代码', want: '想骑行', say: null, sentToWallAt: null },
+  answers: [],
+  ...over
+})
+
+test('shareMessage：相对年数动态标题（2026-09 对 2014-01 = 12 年前）', () => {
+  assert.equal(shareMessage(me(), new Date('2026-09-18T00:00:00Z')).title, '我找到了 12 年前的自己 · 闪念间')
+  // 时间戳缺失 → 当年的自己
+  assert.equal(shareMessage(me({ appliedAt: null })).title, '我找到了 当年的自己 · 闪念间')
+})
+
+test('summaryCardModel：时间戳+城市 / 金句兜底链 / 今天行 / 年份脚注', () => {
+  const model = summaryCardModel(me(), new Date('2026-09-18T00:00:00Z'))
+  assert.equal(model.stamp, '2014.01.05 · 北京')
+  assert.equal(model.quote, '我想亲眼看看是不是。')
+  assert.equal(model.todayLine, '想骑行')
+  assert.equal(model.footer, '12 年前 · IN A FLASH 闪念间')
+
+  // 金句缺失 → 想做的事兜底；再缺 → 显影占位
+  const noQuote = summaryCardModel(me({ quote: null, today: null }))
+  assert.equal(noQuote.quote, '答案还在显影中')
+  assert.equal(noQuote.todayLine, null)
+})

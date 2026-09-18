@@ -1,4 +1,4 @@
-import type { FlashbackCapsule, FlashbackFogSpan, FlashbackMeAnswer, FlashbackMyActionCard } from './models'
+import type { FlashbackCapsule, FlashbackFogSpan, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from './models'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -189,4 +189,30 @@ export function myCardView(capsule: FlashbackCapsule, now: Date = new Date()): M
     subline: `${line}${me.city ? ` · ${me.city}` : ''}`,
     wallState: me.today?.sentToWallAt ? 'on_wall' : 'off_wall'
   }
+}
+
+// ── R14 小程序侧分享（用户定稿 ③，原型 F 分享浮层） ─────────────────────
+
+/** 分享文案（转发好友/朋友圈共用标题）：相对年数动态计算 */
+export function shareMessage(me: FlashbackMyCard, now: Date = new Date()): { title: string } {
+  const years = yearsAgoText(me.appliedAt, now)
+  const tail = years ? `${years}的自己` : '当年的自己'
+  return { title: `我找到了 ${tail} · 闪念间` }
+}
+
+/** 摘要卡绘图模型（R14：时间戳+城市+金句+今天的你，竖版 3:4）——纯函数，
+ * canvas 绘制与保存流程（页面层）消费；title 兜底链：金句 → 想做的事 → 当年文案 */
+export function summaryCardModel(me: FlashbackMyCard, now: Date = new Date()): {
+  stamp: string
+  quote: string
+  todayLine: string | null
+  footer: string
+} {
+  const years = yearsAgoText(me.appliedAt, now)
+  const date = me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''
+  const stamp = [date, me.city].filter(Boolean).join(' · ')
+  const quote = (me.quote ?? '').trim() || (me.today?.want ?? '').trim() || '答案还在显影中'
+  const todayLine = (me.today?.want ?? me.today?.nowStatus ?? '').trim() || null
+  const footer = years ? `${years} · IN A FLASH 闪念间` : 'IN A FLASH · 闪念间'
+  return { stamp, quote, todayLine, footer }
 }

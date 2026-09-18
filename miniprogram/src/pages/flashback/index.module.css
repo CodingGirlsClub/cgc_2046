@@ -107,3 +107,74 @@
   padding: 0;
   line-height: 1.6;
 }
+
+/* 分享入口 + sheet（用户定稿 ③，原型 F 语言） */
+.shareButton {
+  margin-top: 20rpx;
+  background: rgba(234, 85, 4, 0.12);
+  color: #ea5504;
+  border: 1px solid rgba(234, 85, 4, 0.4);
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  padding: 14rpx 0;
+  line-height: 1.6;
+}
+.shareCanvas {
+  position: fixed;
+  left: -9999rpx;
+  width: 300px;
+  height: 400px;
+}
+.shareMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+}
+.shareSheet {
+  width: 100%;
+  background: #f7f7f7;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 60rpx;
+}
+.shareSheetTitle { font-size: 24rpx; color: #8a8f98; text-align: center; display: block; margin-bottom: 28rpx; }
+.shareEntries { display: flex; gap: 44rpx; justify-content: center; }
+.shareEntry {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 12rpx;
+  width: auto;
+  line-height: 1.4;
+}
+.shareEntry::after { border: none; }
+.shareEntryIcon {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 28rpx;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+.shareEntryLabel { font-size: 20rpx; color: #4b4d54; }
+.shareCancel {
+  margin-top: 36rpx;
+  width: 100%;
+  background: #fff;
+  border: none;
+  border-radius: 24rpx;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  color: #222326;
+  line-height: 1.6;
+}
+.shareCancel::after { border: none; }
