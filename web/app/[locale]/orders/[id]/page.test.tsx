@@ -282,3 +282,62 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 		);
 	});
 });
+
+describe("/orders/[id] 押金披露行（#696：判据 = 订单快照 orderKind）", () => {
+	it.each([["pending", "pending"], ["paid", "paid"]])(
+		"押金单（orderKind=deposit，%s 态）：金额行下渲染披露行，金额=订单实付（T6）",
+		async (_label, status) => {
+			client.query.mockResolvedValue({
+				data: orderPayload({
+					status,
+					orderKind: "deposit",
+					amountCents: 6900,
+				}),
+			});
+
+			render(<OrderDetailPage />);
+
+			const note = await screen.findByTestId("order-deposit-note");
+			expect(note).toHaveTextContent("押金 ¥69（到场退）");
+			expect(note).toHaveTextContent("未到场不退。");
+		},
+	);
+
+	it("报名费单（orderKind=enrollment）：不渲染披露行（T7 回归）", async () => {
+		client.query.mockResolvedValue({
+			data: orderPayload({ orderKind: "enrollment" }),
+		});
+
+		render(<OrderDetailPage />);
+
+		await screen.findByTestId("order-summary");
+		expect(screen.queryByTestId("order-deposit-note")).not.toBeInTheDocument();
+	});
+
+	// #675 口径：金额表态过守卫——脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
+	// 绝不显示 ¥0（披露行自身；订单页既有金额行不在此断言范围）
+	it.each([["null", null], ["0", 0], ["-1", -1], ["6900.5", 6900.5]])(
+		"押金单 + 脏实付金额（%s）→「押金（金额待定）」refute ¥0（T8）",
+		async (_label, dirty) => {
+			client.query.mockResolvedValue({
+				data: orderPayload({ orderKind: "deposit", amountCents: dirty }),
+			});
+
+			render(<OrderDetailPage />);
+
+			const note = await screen.findByTestId("order-deposit-note");
+			expect(note).toHaveTextContent("押金（金额待定）");
+			expect(note).not.toHaveTextContent(/¥0/);
+		},
+	);
+
+	it("未知 orderKind → fail-closed 出披露行（T9：沉默 = 默认普通报名单是 #586 同款病根）", async () => {
+		client.query.mockResolvedValue({
+			data: orderPayload({ orderKind: "mystery_kind" }),
+		});
+
+		render(<OrderDetailPage />);
+
+		expect(await screen.findByTestId("order-deposit-note")).toBeInTheDocument();
+	});
+});
