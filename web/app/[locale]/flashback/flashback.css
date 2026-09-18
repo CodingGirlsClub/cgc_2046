@@ -538,16 +538,19 @@
 	vertical-align: baseline;
 	height: 1em;
 	margin: 0 2px;
-	border-radius: 0.25em;
-	background: rgba(43, 39, 35, 0.16);
+	border-radius: 0.5em;
+	/* 自身再糊一层：色块边缘不再锐利（视觉复核两轮反馈：贴片感） */
+	filter: blur(0.5px);
+	background: rgba(43, 39, 35, 0.09);
 	/* 呵气感：背后内容糊开提亮（相纸灰雾） */
 	backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
 	-webkit-backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
 	position: relative;
 	overflow: hidden;
-	/* 边缘羽化：两端渐隐过渡（呵气无硬边） */
-	mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
-	-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+	/* 边缘羽化：椭圆 mask（水平 30% 起步即渐入渐出，垂直 40%），
+	 呈呵气椭圆而非贴片矩形 */
+	mask-image: radial-gradient(ellipse 130% 190% at 50% 50%, #000 30%, transparent 78%);
+	-webkit-mask-image: radial-gradient(ellipse 130% 190% at 50% 50%, #000 30%, transparent 78%);
 }
 /* 噪点纹理：与相纸颗粒同源（fb-grain 的 SVG noise） */
 .fb-fog-block::after {
