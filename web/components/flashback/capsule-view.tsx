@@ -53,8 +53,11 @@ export default function CapsuleView() {
 		}
 		const held = raw ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
 
-		// 非首次拉取（城市切换）沿用已渲染的胶囊，新数据到达再覆盖——筛选不闪 loading 面
-		setState((prev) => (prev.phase === "ok" ? prev : { phase: "loading" }));
+		// 非首次拉取（城市切换）沿用已渲染的胶囊，新数据到达再覆盖——筛选不闪 loading 面。
+		// microtask 包裹避开 effect 内同步 setState 级联渲染（react-hooks/set-state-in-effect）。
+		Promise.resolve().then(() =>
+			setState((prev) => (prev.phase === "ok" ? prev : { phase: "loading" })),
+		)
 
 		client
 			.query({ query: FLASHBACK_CAPSULE, variables: { token: held, city }, fetchPolicy: "network-only" })
