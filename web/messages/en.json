@@ -2736,7 +2736,8 @@
 						"On site in a city that runs sessions"
 					]
 				}
-			]
+			],
+			"tablistLabel": "Choose a role"
 		},
 		"deep": {
 			"badge": "Inside the Event Moderator role",

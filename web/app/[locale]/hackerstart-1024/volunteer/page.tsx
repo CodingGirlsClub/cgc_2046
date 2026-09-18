@@ -432,11 +432,21 @@ export default function VolunteerApplyPage() {
 					<h2 className="hs24-title" id="va-roles-title">
 						{t.rich("roles.title", richTags)}
 					</h2>
-					<div className="hs24-cap3">
+					<div className="hs24-cap3" role="radiogroup" aria-label={t("roles.tablistLabel")}>
 						{roles.map((role, index) => (
 							<div
 								key={role.id}
-								className={`hs24-tile${role.featured ? " hs24-tile--featured" : ""}`}
+								role="radio"
+								aria-checked={position === role.id}
+								tabIndex={0}
+								onClick={() => setPosition(role.id)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" || event.key === " ") {
+										event.preventDefault();
+										setPosition(role.id);
+									}
+								}}
+								className={`hs24-tile hs24-tile--selectable${position === role.id ? " hs24-tile--selected" : ""}`}
 							>
 								<div className="hs24-tile__t">
 									<span className="hs24-tile__n">{index + 1}</span>
