@@ -2,26 +2,23 @@
 
 import { Fragment } from "react";
 import { useTranslations } from "next-intl";
-import { Pow, richTags } from "./pow";
+import { richTags } from "./pow";
 import { rawArray } from "./raw-array";
 
 /**
- * 我们是谁（R2 第 7 段）+ 品牌专场合作（R2 第 8 段）。
+ * 我们是谁（R2 第 7 段）+ 赞助合作 Partnership（R2 第 8 段）。
  *
- * 口径纪律（R4/AE7）在这一段最吃重，两处标注互不混用：
- * - 历史累计：十年数字带整体挂「2016-2025 历史累计」标注（statsCap），
- *   「过去十年」只出现在杠杆句里与本轮的对照位置。
- * - 本轮计划：64 场公式行下挂 planCap，价值阶梯的激活用户条目写「本轮计划」。
+ * 赞助段以「你能得到什么」为主体（五项收益，从最硬讲起），正向表述；
+ * 合作边界（多品牌同批 / 课程统一研发 / 零抽成）收在 lead 一句话里。
+ * 口径纪律（R4/AE7）：历史累计只出现在 who 段十年数字带与曝光条目的
+ * 括号标注里；512-2,048 参与者口径必须自带「本轮计划」标注。
+ * 注意：benefits 是对象 keyed（与 caps 同构）——next-intl 的 t.rich 不支持
+ * 数组索引路径（principles[0].d 会渲染成 key 字面量），数组一律走 t.raw 纯文本。
  */
 
 const BRAND_EMAIL = "partners@codinggirlsclub.com";
 
-/** 64 场公式行（P6 复刻）：浅粉 × 薄荷 ＝ 深玫红，运算符是装饰（aria-hidden） */
-const FORMULA = [
-	{ key: "seats", tone: "pink", operator: "×" },
-	{ key: "sessions", tone: "mint", operator: "＝" },
-	{ key: "nationwide", tone: "solid", operator: null },
-] as const;
+const BENEFIT_KEYS = ["reach", "data", "network", "esg", "exposure"] as const;
 
 export function WhoWeAreSection() {
 	const t = useTranslations("hackerstart1024.who");
@@ -79,8 +76,6 @@ export function WhoWeAreSection() {
 
 export function BrandSection() {
 	const t = useTranslations("hackerstart1024.brand");
-	const perks = rawArray<{ t: string; d: string }>(t.raw("perks"));
-	const ladder = rawArray<{ t: string; d: string }>(t.raw("ladder"));
 	const openqs = rawArray<{ t: string; d: string }>(t.raw("openqs"));
 	const structure = rawArray<string>(t.raw("structure"));
 	const caps = ["course", "ops", "data"] as const;
@@ -98,45 +93,22 @@ export function BrandSection() {
 				</h2>
 				<p className="hs24-lead">{t("lead")}</p>
 
-				{/* 16 × 64 ＝ 1,024（P6 复刻）：幂标记挂在各方格主数字后 */}
-				<div className="hs24-formula">
-					{FORMULA.map((cell) => (
-						<Fragment key={cell.key}>
-							{cell.operator ? (
-								<span className="hs24-fop" aria-hidden="true">
-									{cell.operator}
-								</span>
-							) : null}
-							<div className={`hs24-fcell hs24-fcell--${cell.tone}`}>
-								<div className="hs24-fcell__v">
-									{t(`formula.${cell.key}.value`)}
-									<Pow exponent={t(`formula.${cell.key}.pow`)} />
-								</div>
-								<div className="hs24-fcell__l">
-									{t(`formula.${cell.key}.label`)}
-								</div>
-							</div>
-						</Fragment>
-					))}
-				</div>
-				<p className="hs24-plan-cap">{t("planCap")}</p>
-
-				<div className="hs24-tiles">
-					{perks.map((perk, index) => (
-						<div key={perk.t} className="hs24-tile">
-							<div className="hs24-tile__t">
-								<span className="hs24-tile__n">{index + 1}</span>
-								{perk.t}
-							</div>
-							<div className="hs24-tile__d">{perk.d}</div>
+				{/* 五项收益（Value Ladder，从最硬讲起） */}
+				<p className="hs24-sub">{t("benefitsTitle")}</p>
+				<div className="hs24-ladder">
+					{BENEFIT_KEYS.map((key, index) => (
+						<div key={key} className="hs24-ladder__step">
+							<span className="hs24-ladder__n">
+								{String(index + 1).padStart(2, "0")}
+							</span>
+							<span className="hs24-ladder__t">{t(`benefits.${key}.t`)}</span>
+							<span className="hs24-ladder__d">
+								{t.rich(`benefits.${key}.d`, richTags)}
+							</span>
 						</div>
 					))}
 				</div>
-
-				{/* 示例命名胶囊（P6） */}
-				<div className="hs24-pill">
-					<span>{t("pill")}</span>
-				</div>
+				<p className="hs24-ladder__cap">{t("benefitsCap")}</p>
 
 				{/* 交付能力三列（P5） */}
 				<p className="hs24-sub">{t("capsTitle")}</p>
@@ -154,22 +126,7 @@ export function BrandSection() {
 					))}
 				</div>
 
-				{/* 六层价值阶梯（P7，从最硬讲起） */}
-				<p className="hs24-sub">{t("ladderTitle")}</p>
-				<div className="hs24-ladder">
-					{ladder.map((step, index) => (
-						<div key={step.t} className="hs24-ladder__step">
-							<span className="hs24-ladder__n">
-								{String(index + 1).padStart(2, "0")}
-							</span>
-							<span className="hs24-ladder__t">{step.t}</span>
-							<span className="hs24-ladder__d">{step.d}</span>
-						</div>
-					))}
-				</div>
-				<p className="hs24-ladder__cap">{t("ladderCap")}</p>
-
-				{/* 开放共创议题（P9） */}
+				{/* 可以一起做的事（P9） */}
 				<p className="hs24-sub">{t("openqsTitle")}</p>
 				<div className="hs24-openqs">
 					{openqs.map((topic) => (

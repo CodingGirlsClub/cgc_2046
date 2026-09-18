@@ -2331,11 +2331,11 @@
 			"nums": {
 				"sessions": "<b>1,024</b> workshops nationwide (<pow>10</pow>)",
 				"start": "kicks off <b>24 Oct 2026</b> (<pow>0</pow>)",
-				"seats": "<b>16</b> brand-track slots (<pow>4</pow>)"
+				"batch": "First batch of <b>32</b> sessions (<pow>5</pow>)"
 			},
 			"join": "Join a session",
 			"volunteer": "Become a volunteer",
-			"brand": "Brand partnership",
+			"brand": "Sponsorship",
 			"scaleAria": "Founded in 2016, ten years in, 1,024 workshops starting in 2026",
 			"scaleStart": "2016 · founded",
 			"scaleNow": "year ten",
@@ -2346,7 +2346,7 @@
 			"badge": "Why now",
 			"label": "The moment",
 			"title": "Agents are past the capability tipping point. <em>What's missing is ordinary people daring to start.</em>",
-			"lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · a 69 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
+			"lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
 		},
 		"join": {
 			"badge": "Join a session",
@@ -2383,8 +2383,8 @@
 					"a": "Yes. This session is built for first-timers: three hours, an agent alongside you the whole way, no programming background needed. You leave with something you made yourself that actually runs."
 				},
 				{
-					"q": "How does the 69 yuan deposit work?",
-					"a": "You pay a 69 yuan deposit when you register, and it's refunded in full when you turn up. No-shows don't get it back — seats are limited, and the deposit is how we keep them for people who really come."
+					"q": "How does the 87 yuan deposit work?",
+					"a": "You pay an 87 yuan deposit when you register, and it's refunded in full when you turn up. No-shows don't get it back — seats are limited, and the deposit is how we keep them for people who really come."
 				},
 				{
 					"q": "Do I need to bring a laptop?",
@@ -2448,7 +2448,7 @@
 			},
 			"firstBatch": {
 				"t": "First 64 sessions (<pow>6</pow>)",
-				"d": "The opening batches are delivered back to back"
+				"d": "＝ the opening two batches, 32 sessions (<pow>5</pow>) each, delivered back to back"
 			},
 			"rolling": {
 				"t": "Batches roll on",
@@ -2526,52 +2526,39 @@
 			"lever": "What one campaign aims to reach ≈ what the past ten years have reached in total"
 		},
 		"brand": {
-			"badge": "Brand partnership",
-			"label": "Your branded track",
-			"title": "64 branded sessions (<pow>6</pow>), <em>taught with a course built for you</em>",
-			"lead": "Ten years of community × your brand: turn this round's 512–2,048 paying participants (Oct 2026 – 2027) into your product's first ordinary users.",
-			"formula": {
-				"seats": {
-					"value": "16",
-					"pow": "4",
-					"label": "brand slots"
+			"badge": "Sponsorship",
+			"label": "Batch by batch",
+			"title": "32 sessions a batch (<pow>5</pow>), <em>rolling with your brand</em>",
+			"lead": "Multiple brands per batch, courses developed by the CGC course team, zero commission — your brand stands where ordinary people ship their first working build, side by side with the 1,024-session plan.",
+			"benefitsTitle": "What you get",
+			"benefits": {
+				"reach": {
+					"t": "Brand presence",
+					"d": "The first 64 sessions (<pow>6</pow>) bring 512–2,048 participants on site (this round's plan, 8–32 per session) — your brand stands next to every first working build"
 				},
-				"sessions": {
-					"value": "64",
-					"pow": "6",
-					"label": "branded sessions"
+				"data": {
+					"t": "Data and cases",
+					"d": "A library of participant builds, anonymised real usage data, and a batch delivery report published jointly"
 				},
-				"nationwide": {
-					"value": "1,024",
-					"pow": "10",
-					"label": "sessions, nationwide plan"
+				"network": {
+					"t": "Channel network",
+					"d": "40+ city moderators, 128 (<pow>7</pow>) volunteers, and recruiting channels built on 17 university partnerships and interest communities"
+				},
+				"esg": {
+					"t": "ESG and brand trust",
+					"d": "A publicly verifiable public-interest record — including the UNDP \"Tech for Good\" case (2018) — that goes straight into your CSR narrative"
+				},
+				"exposure": {
+					"t": "Reach, start to finish",
+					"d": "Your name on recruiting assets, social, press and the batch impact report (the organiser's historical reads total 20M+, cumulative 2016–2025)"
 				}
 			},
-			"planCap": "All figures above are this round's plan (Oct 2026 – 2027)",
-			"perks": [
-				{
-					"t": "Series naming",
-					"d": "Your brand in the series name — a co-branded series, not a one-session title slot"
-				},
-				{
-					"t": "A course built for you",
-					"d": "Topic, cases and teaching path are shaped around your product; once taught, the course is a content asset you keep"
-				},
-				{
-					"t": "On-site conversion hooks",
-					"d": "Sign-ups to your account / product perks handed out / builds saved into your platform — activation becomes countable conversion data"
-				},
-				{
-					"t": "Your team in the room",
-					"d": "Your people sit in on the sessions, and beginners' unfiltered feedback goes straight into your product backlog"
-				}
-			],
-			"pill": "Example: \"____ × CGC One-Day Agent Workshop · 64 sessions nationwide\"",
+			"benefitsCap": "Hardest evidence first — one line and one verifiable number per item.",
 			"capsTitle": "How we deliver",
 			"caps": {
 				"course": {
 					"t": "Curriculum",
-					"d": "The three-hour intro workshop runs on a standing schedule; the professional AI Agent course is co-developed with your team (60–100 hours)"
+					"d": "The three-hour intro workshop runs on a standing schedule; the professional AI Agent course is developed and iterated by the CGC course team (60–100 hours per course)"
 				},
 				"ops": {
 					"t": "Operations engine",
@@ -2579,46 +2566,18 @@
 				},
 				"data": {
 					"t": "Data platform",
-					"d": "Registration, deposits, check-in and learning records all run in-house; data comes back from every session and can be reported per sponsor"
+					"d": "Registration, deposits, check-in and learning records all run in-house; data comes back from every session into a batch delivery report, broken out per sponsor"
 				}
 			},
-			"ladderTitle": "What you get",
-			"ladder": [
-				{
-					"t": "A course of your own",
-					"d": "One course built around your product — teaching IP shared by agreement, still working long after the campaign ends"
-				},
-				{
-					"t": "Activated users",
-					"d": "512–2,048 paying participants (this round's plan): 18 and over, a 69 yuan deposit, three hands-on hours and a build to show"
-				},
-				{
-					"t": "Data and cases",
-					"d": "A library of participant builds; anonymised real usage data; cost and impact reports published jointly"
-				},
-				{
-					"t": "Channel network",
-					"d": "40+ city moderators and a volunteer bench; 17 university partnerships and community recruiting channels"
-				},
-				{
-					"t": "ESG and brand trust",
-					"d": "A UN-endorsed women-in-digital narrative you can put straight into a CSR report"
-				},
-				{
-					"t": "Reach, start to finish",
-					"d": "Recruiting assets / social / press / a co-signed impact report at the close (the organiser's historical reads total 20M+, cumulative to date)"
-				}
-			],
-			"ladderCap": "Hardest evidence first — one line and one number per rung",
-			"openqsTitle": "Open to co-create",
+			"openqsTitle": "What we can do together",
 			"openqs": [
 				{
-					"t": "A joint competition",
-					"d": "Set up a track competition together — your brand on it, a shared brief, prize money, and the best builds entering your ecosystem"
+					"t": "On-site presence",
+					"d": "Your product appears on site as one of the options for storing and showing learner projects — experience first, no conversion KPIs"
 				},
 				{
 					"t": "Where charity reaches",
-					"d": "Schools, cities or mountain regions you want to support but have never reached — a session can go there, written into the ESG story together"
+					"d": "Schools, cities or mountain regions you want to support but have never reached — a batch can go there, written into the ESG story together"
 				},
 				{
 					"t": "Anything else",
@@ -2627,12 +2586,12 @@
 			],
 			"openqsCap": "These are open questions — bring yours and let's talk.",
 			"structure": [
-				"Packaged partnership",
-				"Resources can offset",
-				"First 20 sessions, then a batch review"
+				"Partnership sponsorship",
+				"32 sessions / batch (2⁵), rolling",
+				"First batch validated, then the next"
 			],
-			"cta": "Talk brand partnership · reply within 48 hours",
-			"ctaNote": "partners@codinggirlsclub.com · Brand slots update as contracts advance; the first slots are under review"
+			"cta": "Talk sponsorship · reply within 48 hours",
+			"ctaNote": "partners@codinggirlsclub.com · Partnership opens batch by batch; the first batch is in preparation"
 		},
 		"follow": {
 			"qr": "Coding Girls Club WeChat official account QR code — scan to follow",
@@ -2766,7 +2725,7 @@
 				},
 				{
 					"t": "Operations platform",
-					"d": "Sign-ups, the 69 yuan deposit and on-site check-in run end to end on the platform — no money passes through your hands"
+					"d": "Sign-ups, the 87 yuan deposit and on-site check-in run end to end on the platform — no money passes through your hands"
 				},
 				{
 					"t": "Free venue partnerships",
@@ -2824,7 +2783,7 @@
 					"items": [
 						{
 							"q": "Does it cost anything?",
-							"a": "No. Volunteers contribute no money and take no cut: the registration deposit (69 yuan, refunded on attendance) runs entirely on the platform, so you handle organisation, not money. Venues are mostly free partnerships and never come out of your budget."
+							"a": "No. Volunteers contribute no money and take no cut: the registration deposit (87 yuan, refunded on attendance) runs entirely on the platform, so you handle organisation, not money. Venues are mostly free partnerships and never come out of your budget."
 						},
 						{
 							"q": "How is my resume used?",

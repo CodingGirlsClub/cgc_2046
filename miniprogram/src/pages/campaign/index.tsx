@@ -19,7 +19,7 @@ function Pow({ n }: { n: number }) {
 
 const TIMELINE = [
   { title: '2026.10.24 启动', detail: '全国首场开课，campaign 正式开始' },
-  { title: '首期 64 场', detail: '首批场次集中交付' },
+  { title: '首期 64 场', detail: '＝ 前两批，每批 32 场，集中交付' },
   { title: '批次滚动', detail: '40+ 城陆续开班，直至 1,024 场' }
 ]
 
@@ -33,7 +33,7 @@ export default function CampaignPage() {
         <View className={styles.numbers}>
           <Text className={styles.number}>全国 <Text className={styles.numberValue}>1,024</Text> 场（<Pow n={10} />）</Text>
           <Text className={styles.number}><Text className={styles.numberValue}>10.24</Text> 启动（<Pow n={0} />）</Text>
-          <Text className={styles.number}><Text className={styles.numberValue}>16</Text> 个品牌席位（<Pow n={4} />）</Text>
+          <Text className={styles.number}><Text className={styles.numberValue}>32</Text> 场 / 批（<Pow n={5} />）</Text>
         </View>
         <View className={styles.ctaRow}>
           <View className={styles.cta} data-testid='campaign-hero-join' onClick={() => openCampaignEntry(Taro, 'join')}>
@@ -66,18 +66,18 @@ export default function CampaignPage() {
           <Text className={styles.cardDesc}>三个职位：场次主理人 / 教程研究员 Tutor / 活动教练 Coach。零出资零抽成，四段流程每段都有结果通知。</Text>
         </View>
 
-        {/* 品牌合作无页面可跳：出口 = 复制邮箱（页内按钮），故卡片本身不接点击 */}
+        {/* 赞助合作无页面可跳：出口 = 复制邮箱（页内按钮），故卡片本身不接点击 */}
         <View className={`${styles.card} ${styles.cardBorder}`} data-testid='campaign-entry-brand'>
           <View className={styles.cardTop}>
-            <Text className={styles.kicker}>BRAND</Text>
+            <Text className={styles.kicker}>PARTNERSHIP</Text>
           </View>
-          <Text className={styles.cardTitle}>品牌专场合作</Text>
-          <Text className={styles.cardDesc}>16 席（<Pow n={4} />）× 64 场（<Pow n={6} />）＝ 1,024 场（<Pow n={10} />）。用为你定制的课程，触达第一批普通人用户。</Text>
+          <Text className={styles.cardTitle}>赞助合作</Text>
+          <Text className={styles.cardDesc}>一批 32 场（<Pow n={5} />），滚动开批。多品牌同批 · 课程由 CGC 统一研发 · 零抽成——你的品牌出现在普通人第一次做出作品的现场。</Text>
           <View className={styles.brandRow}>
             <Text className={styles.brandEmail} data-testid='campaign-brand-email'>{CAMPAIGN_BRAND_EMAIL}</Text>
             <Button className={styles.copyButton} size='mini' data-testid='campaign-copy-email' onClick={() => openCampaignEntry(Taro, 'brand')}>复制邮箱</Button>
           </View>
-          <Text className={styles.cardNote}>48 小时内回复 · 席位按签约进度更新</Text>
+          <Text className={styles.cardNote}>48 小时内回复 · Partnership 按批次开放</Text>
         </View>
 
         <Text className={styles.sectionTitle}>接下来会发生什么<Text className={styles.sectionEn}>TIMELINE</Text></Text>

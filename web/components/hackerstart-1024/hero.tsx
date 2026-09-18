@@ -7,7 +7,7 @@ import { richTags } from "./pow";
  * Hero（R2 九段 IA 第一段）：十周年封面复刻 + 三入口 CTA + 十周年刻度条。
  *
  * - 三入口按 F1/F2/F3 的「先读再走」顺序锚到页内对应段落（我要参加 → 节奏卡与
- *   FAQ；成为志愿者 → 职位与批次卡；品牌合作 → 品牌专场段），落地页链接由各段
+ *   FAQ；成为志愿者 → 职位与批次卡；赞助合作 → Partnership 段），落地页链接由各段
  *   自己的 CTA 承担（R3）。
  * - 刻度条 = 2016 成立 → 第 10 年 → 2026 · 2¹⁰＝1,024 场：把「为什么是 1,024」
  *   在首屏讲完（2 的幂叙事母题）。
@@ -31,7 +31,7 @@ export default function CampaignHero() {
 					<p className="hs24-hero__nums">
 						<span>{t.rich("nums.sessions", richTags)}</span>
 						<span>{t.rich("nums.start", richTags)}</span>
-						<span>{t.rich("nums.seats", richTags)}</span>
+						<span>{t.rich("nums.batch", richTags)}</span>
 					</p>
 					<div className="hs24-hero__cta">
 						<a href="#hs24-join" className="hs24-cta--white">
