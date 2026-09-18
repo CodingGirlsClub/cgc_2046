@@ -134,6 +134,26 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 });
 
 describe("PublicHome · 自助找回（R21/KTD7）", () => {
+	it("提交前 trim：聊天复制的首尾空白不进 identifier（实测 bug 1 前半段）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
+		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
+		render(<PublicHome />);
+
+		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), {
+			target: { value: "  lipan2000girl@163.com\n" },
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
+		});
+
+		await waitFor(() =>
+			expect(recoverRunner).toHaveBeenCalledWith({
+				variables: { identifier: "lipan2000girl@163.com" },
+			}),
+		);
+	});
+
 	it("发起后进入验证码步，文案不区分命中与否（同形）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
 		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });

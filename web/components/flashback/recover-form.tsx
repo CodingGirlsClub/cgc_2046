@@ -31,10 +31,14 @@ export default function RecoverForm() {
 	const [runRecover] = useMutation(FLASHBACK_RECOVER);
 	const [runVerify] = useMutation(FLASHBACK_RECOVER_VERIFY);
 
+	// 提交前 trim（实测 bug 1 前半段）：聊天复制的首尾空白/换行不进 identifier；
+	// 包裹符由后端 classify 剥壳兜底（前端不猜包裹形态）
+	const trimmedIdentifier = identifier.trim();
+
 	const handleInitiate = async () => {
 		setError(null);
 		try {
-			const { data } = await runRecover({ variables: { identifier } });
+			const { data } = await runRecover({ variables: { identifier: trimmedIdentifier } });
 			if (data?.flashbackRecover) {
 				setPhase("code");
 			}
@@ -47,7 +51,7 @@ export default function RecoverForm() {
 	const handleVerify = async () => {
 		setError(null);
 		try {
-			const { data } = await runVerify({ variables: { identifier, code } });
+			const { data } = await runVerify({ variables: { identifier: trimmedIdentifier, code } });
 			const result = data?.flashbackRecoverVerify;
 			if (result?.bound) {
 				if (result.cards.length > 1) {
