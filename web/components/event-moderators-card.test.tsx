@@ -21,6 +21,10 @@ const ROW = {
 	userId: "user-uuid-1",
 	assignedBy: null,
 	assignedAt: "2026-09-14T00:00:00Z",
+	userDisplayName: null,
+	userMemberNumber: "CGC-ABC123",
+	assignedByDisplayName: null,
+	assignedByMemberNumber: null,
 };
 
 beforeEach(() => {
@@ -47,8 +51,8 @@ describe("EventModeratorsCard", () => {
 		render(<EventModeratorsCard workspaceId="ws-1" eventId="evt-1" />);
 		await screen.findByText("user-uuid-1");
 
-		fireEvent.change(screen.getByLabelText("用户 ID"), {
-			target: { value: "user-uuid-2" },
+		fireEvent.change(screen.getByLabelText("邮箱 / CGC 编号 / 用户 ID"), {
+			target: { value: "new-mod@cgc.example" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
 
@@ -56,9 +60,9 @@ describe("EventModeratorsCard", () => {
 		expect(lib.assignEventModerator).toHaveBeenCalledWith(
 			"ws-1",
 			"evt-1",
-			"user-uuid-2",
+			"new-mod@cgc.example",
 		);
-		expect(screen.getByLabelText("用户 ID")).toHaveValue("");
+		expect(screen.getByLabelText("邮箱 / CGC 编号 / 用户 ID")).toHaveValue("");
 	});
 
 	it("指派失败按 code 出文案：未知 code 落兜底，成员前提 code 出引导句", async () => {
@@ -71,7 +75,7 @@ describe("EventModeratorsCard", () => {
 		render(<EventModeratorsCard workspaceId="ws-1" eventId="evt-1" />);
 		await screen.findByText("user-uuid-1");
 
-		fireEvent.change(screen.getByLabelText("用户 ID"), {
+		fireEvent.change(screen.getByLabelText("邮箱 / CGC 编号 / 用户 ID"), {
 			target: { value: "nobody" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
@@ -92,7 +96,7 @@ describe("EventModeratorsCard", () => {
 			],
 		});
 
-		fireEvent.change(screen.getByLabelText("用户 ID"), {
+		fireEvent.change(screen.getByLabelText("邮箱 / CGC 编号 / 用户 ID"), {
 			target: { value: "outsider-id" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
@@ -190,5 +194,53 @@ describe("EventModeratorsCard", () => {
 		await screen.findByText("user-uuid-1");
 
 		expect(screen.queryByTestId("copy-check-in-link")).not.toBeInTheDocument();
+	});
+
+	// ── #537：回显 fallback 链 / assignedBy / user_not_found ──────────────
+
+	it("回显 fallback 链：displayName 优先；为空落 memberNumber；UUID 为次要信息（title）", async () => {
+		lib.fetchEventModerators.mockResolvedValueOnce([
+			{
+				...ROW,
+				userDisplayName: "张小理",
+				assignedBy: "owner-uuid",
+				assignedByDisplayName: "台主",
+				assignedByMemberNumber: "CGC-FFF000",
+			},
+			ROW,
+		]);
+
+		render(<EventModeratorsCard workspaceId="ws-1" eventId="evt-1" />);
+
+		// displayName 有值：主显名字；userId 降为次要信息（title）
+		const named = await screen.findByText("张小理");
+		expect(named).toHaveAttribute("title", "user-uuid-1");
+		// assignedBy 回显（同 fallback 链：displayName 优先）
+		expect(screen.getByText("由 台主 指派")).toBeInTheDocument();
+
+		// displayName 为空：落 memberNumber（不显示裸 UUID 作主显）
+		expect(screen.getByText("CGC-ABC123")).toBeInTheDocument();
+		// assignedBy 为空：不渲染指派行（防 "由  指派" 空名残迹）
+		// 元素文本被 testing-library 空白折叠（"由  指派" → "由 指派"），查询串须用折叠后形态
+		expect(screen.queryByText("由 指派")).not.toBeInTheDocument();
+		const rows = screen.getAllByTitle("user-uuid-1");
+		expect(rows).toHaveLength(2);
+	});
+
+	it("指派未命中：user_not_found code 出「用户不存在」文案", async () => {
+		lib.assignEventModerator.mockResolvedValueOnce({
+			result: null,
+			errors: [{ code: "user_not_found", message: "user not found" }],
+		});
+
+		render(<EventModeratorsCard workspaceId="ws-1" eventId="evt-1" />);
+		await screen.findByText("CGC-ABC123");
+
+		fireEvent.change(screen.getByLabelText("邮箱 / CGC 编号 / 用户 ID"), {
+			target: { value: "nobody@cgc.example" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "指派主理人" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("用户不存在。");
 	});
 });
