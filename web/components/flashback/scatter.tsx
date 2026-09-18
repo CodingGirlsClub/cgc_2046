@@ -1,31 +1,29 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { surnameMasked, type FlashbackProfile } from "@/lib/graphql/flashback";
+import type { FlashbackScatterPhoto } from "@/lib/graphql/flashback";
+import { surnameMasked } from "@/lib/graphql/flashback";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
-/** 散照张数（pilot 单场事实：认领不设对错，每张都是候选） */
-export const SCATTER_COUNT = 3;
-
 /**
- * 桌面散照（原型 B「桌面散照式」，E 的散照步同源）：一叠模糊旧照片散在桌上，
- * 点一张放大到最前（scale 1.28 + 摆正 + z 提升），可反复换着看；问答在同屏
- * bottom sheet（desk.tsx 组装），选定后原位显影。
+ * 桌面散照（原型 B「桌面散照式」，批次二 R5 数据驱动迭代）：
  *
- * 位置/转角/入场延迟全部由 CSS nth-child 驱动（KTD9：零内联 style）且确定性
- * ——同一张卡每次都在同一处，换着看不会跳位；入场仍是「快显影 0.6s + 错峰」。
+ * - 照片**来自多场次**（后端 enter scatter 投影：本人那张 + 其他场次各一人），
+ *   不再是单场的固定三张——每张绑定一个场次的人与「年份 · 城市」线索；
+ * - **放大 = 回报**：被放大的那张显影出线索标签（年份 · 城市，参照原型 B 的
+ *   「2012 · 上海」），帮玩家在问答里认出自己的场次；
+ * - 单场库（pilot 上线初期）候选仅一张，散照仍是仪式——自适应逻辑在 desk.tsx。
+ *
+ * 位置/转角/入场延迟全部由 CSS nth-child 驱动（KTD9：零内联 style）且确定性；
  * 键盘可操作：每张照片是 button（Enter/Space 触发），`aria-pressed` 表态。
- *
- * 角色差异化（教练看学员名单/志愿者看档案）依赖导入数据，2014-01-11
- * 场仅学员视角——散照统一为本场城市的照片堆。
  */
 export default function Scatter({
-	profile,
+	photos,
 	picked,
 	dimmed = false,
 	onPick,
 }: {
-	profile: FlashbackProfile;
+	photos: FlashbackScatterPhoto[];
 	picked: number | null;
 	/** 已选定（显影中/已显影）：桌面退到背景，把注意力让给卡片 */
 	dimmed?: boolean;
@@ -34,8 +32,6 @@ export default function Scatter({
 	const t = useTranslations("flashback.scatter");
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
-	const city = profile.archive?.city ?? profile.city ?? "";
-
 	return (
 		<section className={`fb-desk-scene${dimmed ? " fb-desk-scene--done" : ""}`}>
 			<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
@@ -43,25 +39,33 @@ export default function Scatter({
 			</h2>
 			<p className="fb-lead">{t("hint")}</p>
 			<div className="fb-desk-table" role="group" aria-label={t("groupAria")}>
-				{Array.from({ length: SCATTER_COUNT }, (_, index) => (
+				{photos.map((photo, index) => (
 					<button
-						key={index}
+						key={photo.photoKey}
 						type="button"
 						className={`fb-polaroid fb-grain fb-scatter-photo${
 							picked === index ? " fb-scatter-photo--picked" : ""
 						}`}
 						data-testid="fb-scatter-photo"
 						data-picked={picked === index ? "true" : "false"}
+						data-mine={photo.isMine ? "true" : "false"}
+						data-label={photo.label}
 						aria-pressed={picked === index}
 						onClick={() => onPick(index)}
-						aria-label={t("cardAria", { city, index: index + 1 })}
+						aria-label={t("cardAria", { index: index + 1, label: photo.label })}
 					>
 						<span className="fb-photo">
-							{city || t("fallbackCity")}
+							<span className="fb-scatter-label" data-testid="fb-scatter-label">
+								{photo.label}
+							</span>
 							<span className="fb-visually-hidden">{t("photoHidden")}</span>
 						</span>
 						<span className="fb-card-caption">
-							<span className="fb-caption-tilt">{surnameMasked(profile.fullName, profile.surname)}</span>
+							<span className="fb-caption-tilt">
+								{picked === index && photo.surname
+									? t("owned", { name: surnameMasked(photo.surname, photo.surname) })
+									: t("mystery")}
+							</span>
 						</span>
 					</button>
 				))}

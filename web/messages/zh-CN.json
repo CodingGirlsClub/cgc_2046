@@ -2389,20 +2389,20 @@
 		},
 		"scatter": {
 			"title": "散落一桌的照片",
-			"hint": "随便挑一张——它都会变成你的。",
-			"groupAria": "一叠模糊的旧照片，选一张认领",
-			"cardAria": "第 {index} 张照片（{city}）",
-			"fallbackCity": "那年",
-			"photoHidden": "模糊的旧照片"
+			"hint": "点开一张，放大看看——线索藏在照片里。",
+			"groupAria": "一叠模糊的旧照片，来自不同年代的场次，选一张放大看看",
+			"cardAria": "第 {index} 张照片（{label}）",
+			"photoHidden": "模糊的旧照片",
+			"mystery": "谁的照片？",
+			"owned": "{name} 的照片"
 		},
 		"quiz": {
 			"question": "还记得……是哪一场吗？",
-			"myEventHint": "你的那一场",
 			"dontRemember": "我不记得了",
 			"dontRememberHint": "没关系，我们记得",
 			"repick": "重挑一张",
 			"repickHint": "回到那叠照片",
-			"fallbackArchiveName": "那一年"
+			"sheetHint": "想让它显影，先认出它"
 		},
 		"reveal": {
 			"title": "慢慢显影——这是当年的你",
@@ -2417,7 +2417,8 @@
 			"dreamFallback": "你所在城市的场次还在筹备。写下今天的你并寄出——留下联系方式，你附议的场成真时，我们会第一个告诉你。",
 			"writeBack": "翻过来，写今天的你",
 			"writeBackHint": "点击卡面翻到背面，写下今天的你",
-			"flipBack": "翻回正面"
+			"flipBack": "翻回正面",
+			"wrongFeedback": "差一点——但也显影给你看。你的照片其实在 {label}。"
 		},
 		"tags": {
 			"want_offline": "想参加线下聚会",
@@ -2526,7 +2527,7 @@
 			"dashed": "她的答案，还在等她",
 			"dashedAria": "内容位为空：尚未寄出",
 			"fogAria": "这一段被呵了气——内容被本人雾面保护",
-"flip": {
+			"flip": {
 				"backAria": "她回来了——点击翻开她的拍立得",
 				"backTitle": "今天的她",
 				"backEmpty": "背面还是空白的",

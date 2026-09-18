@@ -72,10 +72,30 @@ export interface FlashbackProgress {
 /** "memory"（记忆线）| "dream"（圆梦线） */
 export type FlashbackLine = "memory" | "dream";
 
+export interface FlashbackScatterPhoto {
+	photoKey: string;
+	/** 线索标签「年份 · 城市」——放大时显影，帮助答题（R5 数据驱动） */
+	label: string;
+	isMine: boolean;
+	/** 照片主人姓氏（前端渲染姓氏级脱敏 王**，R12） */
+	surname?: string | null;
+}
+
 export interface FlashbackEnterResult {
 	line: FlashbackLine;
 	profile?: FlashbackProfile | null;
 	progress?: FlashbackProgress | null;
+	/** 桌面散照候选（批次二散照迭代）：本人那张 + 其他场次各一人；单场库仅本人 */
+	scatter?: { entries: FlashbackScatterPhoto[] } | null;
+}
+
+/** 场次线索标签「年份 · 城市」（散照/问答共用口径，与后端 scatter_label 同源） */
+export function scatterLabelOf(
+	archive?: { city?: string | null; occurredOn?: string | null } | null,
+): string {
+	const year = archive?.occurredOn?.slice(0, 4) ?? "";
+	const city = archive?.city ?? "";
+	return [year, city].filter(Boolean).join(" · ");
 }
 
 export interface FlashbackSendToWallResult {
@@ -322,6 +342,14 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				quoteLevel
 				maskedPhone
 				maskedEmail
+			}
+			scatter {
+				entries {
+					photoKey
+					label
+					isMine
+					surname
+				}
 			}
 		}
 	}
