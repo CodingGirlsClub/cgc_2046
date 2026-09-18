@@ -47,6 +47,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
         today { nowStatus: now_status want need say sentToWallAt: sent_to_wall_at
           wantGiveTags: want_give_tags reconnectTags: reconnect_tags
           newsletterOptIn: newsletter_opt_in mobilization } }
+      scatter { entries { photoKey: photo_key label isMine: is_mine surname } }
     } }
     """
   end
@@ -95,14 +96,20 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
     """
   end
 
-  defp create_archive do
+  defp create_archive(attrs \\ %{}) do
     Flashback.EventArchive
-    |> Ash.Changeset.for_create(:create, %{
-      key: "2014-01-11-bj",
-      name: "Rails Girls Beijing",
-      city: "北京",
-      occurred_on: ~D[2014-01-11]
-    })
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          key: "2014-01-11-bj",
+          name: "Rails Girls Beijing",
+          city: "北京",
+          occurred_on: ~D[2014-01-11]
+        },
+        attrs
+      )
+    )
     |> Ash.create!(authorize?: false)
   end
 
@@ -243,6 +250,69 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert today["want"] == "想系统学 AI"
 
       assert post_graphql(enter_query(plain))["data"]["flashbackEnter"]["line"] == "memory"
+    end
+  end
+
+  describe "flashbackEnter scatter（R5 数据驱动，批次二散照迭代）" do
+    test "单场库：entries 仅本人一张（前端自适应 = 跳过问答直接显影）" do
+      archive = create_archive()
+      person = create_person(archive)
+      create_answer(person)
+      {plain, _} = issue_token(person)
+
+      entries = post_graphql(enter_query(plain))["data"]["flashbackEnter"]["scatter"]["entries"]
+
+      assert length(entries) == 1
+      [only] = entries
+      assert only["isMine"] == true
+      assert only["label"] == "2014 · 北京"
+      assert only["photoKey"] == person.id
+    end
+
+    test "多场库：本人 + 其他场次各一人；线索标签与确定性摆位；无明文姓名" do
+      _archive_bj = create_archive()
+
+      archive_sh =
+        create_archive(%{
+          key: "2012-02-26-sh",
+          name: "Rails Girls Shanghai",
+          city: "上海",
+          occurred_on: ~D[2012-02-26]
+        })
+
+      person =
+        create_person(_archive_bj, %{
+          full_name: "李一一",
+          surname: "李",
+          phone: "13911110001",
+          email: "ly1@example.com"
+        })
+
+      create_answer(person)
+
+      other =
+        create_person(archive_sh, %{
+          full_name: "陈查查",
+          surname: "陈",
+          phone: "13911110002",
+          email: "cc@example.com"
+        })
+
+      create_answer(other)
+
+      {plain, _} = issue_token(person)
+
+      first = post_graphql(enter_query(plain))["data"]["flashbackEnter"]["scatter"]["entries"]
+      second = post_graphql(enter_query(plain))["data"]["flashbackEnter"]["scatter"]["entries"]
+
+      assert length(first) == 2
+      # 确定性摆位：同一人两次进入顺序一致（渲染不跳位）
+      assert first == second
+      assert Enum.any?(first, &(&1["isMine"] && &1["label"] == "2014 · 北京"))
+      assert Enum.any?(first, &(!&1["isMine"] && &1["label"] == "2012 · 上海"))
+      # 姓氏级脱敏由前端渲染；接口只出姓，不出明文姓名
+      assert Enum.any?(first, &(&1["surname"] == "陈"))
+      refute Enum.any?(first, &(&1["surname"] == "陈查查"))
     end
   end
 

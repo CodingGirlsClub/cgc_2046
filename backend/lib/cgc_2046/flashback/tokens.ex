@@ -109,7 +109,8 @@ defmodule Cgc2046.Flashback.Tokens do
          reason: nil,
          line: line_for(person),
          profile: profile_payload(person),
-         progress: progress_payload(person)
+         progress: progress_payload(person),
+         scatter: scatter_payload(person)
        }}
     end
   end
@@ -508,6 +509,81 @@ defmodule Cgc2046.Flashback.Tokens do
         {:ok, %{masked_phone: PhoneNumber.mask(phone), updated: true}}
       end
     end
+  end
+
+  # ── 桌面散照候选（R5 数据驱动，批次二散照交互迭代） ──────────────────
+
+  @scatter_max_others 4
+  # 桌面散照候选：**本人那张** + 其他场次各一人（attended、未删除），含本人
+  # 至多 5 张。每张带「年份 · 城市」线索标签（前端在放大时显影——放大 =
+  # 拿到帮助答题的线索）与主人姓氏（姓氏级脱敏由前端渲染）。
+  #
+  # 确定性：候选按场次时间升序，整列按本人 id 哈希旋转——同一人每次进入摆位
+  # 相同（渲染不跳位），不同人摆位不同（「认出自己」不是固定第一张）。
+  #
+  # 暴露面：与场次页名册同级（token 持有者 = 参与者）；不含手机/邮箱/明文姓名。
+  defp scatter_payload(person) do
+    mine = %{
+      photo_key: person.id,
+      label: scatter_label(person.archive_event),
+      is_mine: true,
+      surname: person.surname
+    }
+
+    others =
+      other_archives(person.archive_event_id)
+      |> Enum.map(fn archive ->
+        case first_attended(archive.id) do
+          nil ->
+            nil
+
+          other ->
+            %{
+              photo_key: other.id,
+              label: scatter_label(archive),
+              is_mine: false,
+              surname: other.surname
+            }
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(@scatter_max_others)
+
+    entries = [mine | others]
+    %{entries: rotate_by_id(entries, person.id)}
+  end
+
+  defp scatter_label(archive) do
+    "#{archive.occurred_on.year} · #{archive.city}"
+  end
+
+  defp other_archives(archive_event_id) do
+    Cgc2046.Flashback.EventArchive
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id != ^archive_event_id)
+    |> Ash.Query.sort(occurred_on: :asc)
+    |> Ash.Query.limit(@scatter_max_others)
+    |> Ash.read!(authorize?: false)
+  end
+
+  # 确定性取人：id 升序首个（同一场反复进入拿到同一张「别人的照片」）
+  defp first_attended(archive_event_id) do
+    Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      archive_event_id == ^archive_event_id and participation == :attended and is_nil(deleted_at)
+    )
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  # 同一人恒同一摆位：id 哈希取模旋转（无随机——重进不跳位，测试可断言）
+  defp rotate_by_id(entries, person_id) do
+    count = length(entries)
+    offset = rem(:crypto.hash(:md5, person_id) |> :binary.decode_unsigned(), count)
+    {front, rest} = Enum.split(entries, offset)
+    Enum.concat(rest, front)
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────

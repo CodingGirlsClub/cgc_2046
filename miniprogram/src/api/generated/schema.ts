@@ -2321,6 +2321,8 @@ export type FlashbackEnterResult = {
   line: Scalars['String']['output'];
   profile?: Maybe<FlashbackProfile>;
   progress?: Maybe<FlashbackProgress>;
+  /** 桌面散照候选（R5 数据驱动）：本人那张 + 其他场次各一人；空库时仅本人一张 */
+  scatter?: Maybe<FlashbackScatter>;
 };
 
 export type FlashbackFogSpan = {
@@ -2532,6 +2534,21 @@ export type FlashbackRosterSegment = {
   len: Scalars['Int']['output'];
   /** 雾面段（对外版）：fog=true 时 text 恒为空——原文字符不出 DOM，len 供视觉档位 */
   text: Scalars['String']['output'];
+};
+
+export type FlashbackScatter = {
+  entries: Array<FlashbackScatterPhoto>;
+};
+
+export type FlashbackScatterPhoto = {
+  /** 是否本人那张 */
+  isMine: Scalars['Boolean']['output'];
+  /** 线索标签「年份 · 城市」——放大时显影，帮助答题 */
+  label: Scalars['String']['output'];
+  /** 照片定位键（本人 = 本人档案 id；他人 = 他人档案 id） */
+  photoKey: Scalars['ID']['output'];
+  /** 照片主人姓氏（前端渲染姓氏级脱敏 王**，R12） */
+  surname?: Maybe<Scalars['String']['output']>;
 };
 
 export type FlashbackSendToWallResult = {
