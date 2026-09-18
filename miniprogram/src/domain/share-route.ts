@@ -17,6 +17,21 @@ export interface AppShowQuery {
   id?: string
   kind?: string
   slug?: string
+  /** 首程链接身份（KTD2）：只用于路由到旅程页，页面读入后落 storage */
+  token?: string
+}
+
+/** 闪念间入口页（批次二：旅程/长廊/场次）——分享卡片 path 与专属深链的落地面。
+ * 这些页无 id/slug 定位参数，「已在目标页」判定退化为 path 相等（entryIsTarget）。 */
+export const FLASHBACK_ENTRY_ROUTES = [
+  'pages/flashback-journey/index',
+  'pages/flashback-corridor/index',
+  'pages/flashback-event/index'
+] as const
+
+/** 旅程入口 path（分享卡片 path 单源；token 是链接身份，分享卡片不带——R32） */
+export function buildFlashbackJourneyPath(): string {
+  return '/pages/flashback-journey/index'
 }
 
 /** join 页邀请链接 path（#415 分享出口；scene 必须 encodeURIComponent） */
@@ -43,12 +58,22 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
   }
 
   const slug = query.slug?.trim()
-  if (!slug) return null
-  // 与 id 分支同款：两侧都 trim 后再比。只 trim 入参会让「当前页 slug 带首尾
-  // 空白」（冷启动 ?slug=%20abc%20 的残留）与干净入参不相等，误判成换目标而
-  // 叠一层重复页。
-  if (currentRoute.includes('pages/initiative-detail') && currentQuery.slug?.trim() === slug) return null
-  return buildInitiativeSharePath(slug)
+  if (slug) {
+    // 与 id 分支同款：两侧都 trim 后再比。只 trim 入参会让「当前页 slug 带首尾
+    // 空白」（冷启动 ?slug=%20abc%20 的残留）与干净入参不相等，误判成换目标而
+    // 叠一层重复页。
+    if (currentRoute.includes('pages/initiative-detail') && currentQuery.slug?.trim() === slug) return null
+    return buildInitiativeSharePath(slug)
+  }
+
+  // 首程专属深链（管理员定向发的链接/卡片带 token；R1）：token 只用于路由，
+  // 不做值比较的「已在目标页」判定（KTD2：token 不是路由键）
+  const token = query.token?.trim()
+  if (token) {
+    if (currentRoute.includes('pages/flashback-journey') && currentQuery.token?.trim() === token) return null
+    return `/pages/flashback-journey/index?token=${encodeURIComponent(token)}`
+  }
+  return null
 }
 
 /** 栈顶页面的最小形状（Taro.getCurrentPages 元素；route 在极早启动时可能缺失） */
@@ -96,7 +121,12 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
   const query = options.query ?? {}
   const id = params.get('id')
   if (id !== null) return id === (query.id?.trim() ?? '')
-  return params.get('slug') === (query.slug?.trim() ?? '')
+  const slug = params.get('slug')
+  if (slug !== null) return slug === (query.slug?.trim() ?? '')
+  // 无定位参数：闪念间入口页（旅程/长廊/场次）path 相同即目标——token 等参数
+  // 属链接身份，不做值比较（KTD2）。join（scene 链路）保持不抑制：pendingScene
+  // 必须落盘且 join 页消费语义未变。
+  return (FLASHBACK_ENTRY_ROUTES as readonly string[]).includes(normalizePath(path))
 }
 
 /**
@@ -111,10 +141,29 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
 export function resolveEntry(options: AppEntryOptions, pages: EntryPage[] = []): EntryDecision {
   const query = options?.query ?? {}
   const top = pages[pages.length - 1]
-  const url = resolveAppShowRoute(query, top?.route ?? '', top?.options ?? {})
+  // 闪念间入口页兜底：分享卡片 path 本身就是目标（无 query 解）——热启动停在
+  // 别页时按入口 path 原样导航（query 序列化带上）；冷启动已落在该页，
+  // entryIsTarget 抑制导航
+  const url =
+    resolveAppShowRoute(query, top?.route ?? '', top?.options ?? {}) ??
+    flashbackEntryUrl(options, top?.route ?? '')
   return {
     scene: query.scene?.trim() || null,
     url,
     navigate: url !== null && !entryIsTarget(options, url)
   }
+}
+
+/** 入口 path 是闪念间页 → 目标 url（原样带 query 参数）；否则 null */
+function flashbackEntryUrl(options: AppEntryOptions, currentRoute: string): string | null {
+  const entry = normalizePath(options?.path ?? '')
+  if (!(FLASHBACK_ENTRY_ROUTES as readonly string[]).includes(entry)) return null
+  if (normalizePath(currentRoute) === entry) return null
+  const query = options?.query ?? {}
+  const search = new URLSearchParams(
+    Object.entries(query).flatMap(([key, value]) =>
+      typeof value === 'string' && value ? [[key, value] as [string, string]] : []
+    )
+  ).toString()
+  return `/${entry}${search ? `?${search}` : ''}`
 }

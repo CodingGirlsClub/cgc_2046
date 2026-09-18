@@ -1,0 +1,390 @@
+/* 长廊（mp 版原型 F corridor）：浅灰页底上一块深色照片墙（暗场相纸语言），
+ * 城市堆 = 纸白小拍立得（确定性转角 + 错峰显影），今天格金色微光。 */
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+}
+
+.wall {
+  padding-bottom: 40rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  padding: 44rpx 44rpx 20rpx;
+}
+
+.title {
+  display: block;
+  color: #222326;
+  font-size: 30rpx;
+  letter-spacing: 3rpx;
+  font-weight: 600;
+}
+
+.hint {
+  display: block;
+  margin-top: 10rpx;
+  color: #8a8f98;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+/* 城市钉（R34，与我的页同款） */
+.cityPins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  padding: 0 44rpx 20rpx;
+}
+.cityPin, .cityPinAll {
+  padding: 8rpx 28rpx;
+  background: #fff;
+  color: #4b4d54;
+  border: 2rpx solid rgba(34,35,38,.08);
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,.03);
+}
+.cityPinActive {
+  background: #ea5504;
+  border-color: #ea5504;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 深色时间墙（原型 ia-mj-wall 渐变） */
+.frame {
+  margin: 0 24rpx;
+  padding: 30rpx 20rpx 26rpx;
+  background: linear-gradient(180deg, #17161a 0%, #1d1c22 55%, #131217 100%);
+  border-radius: 24rpx;
+  border-bottom: 2rpx solid rgba(255, 255, 255, 0.07);
+}
+
+.frameHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.frameWhen {
+  color: #b9b4aa;
+  font-size: 25rpx;
+  letter-spacing: 2rpx;
+}
+
+.frameLabel {
+  margin-left: 12rpx;
+  color: #77726a;
+  font-size: 20rpx;
+  letter-spacing: 1rpx;
+}
+
+.frameOpen {
+  color: #cbbf8f;
+  font-size: 21rpx;
+}
+
+.frameReturned {
+  display: block;
+  margin-top: 16rpx;
+  color: #cbbf8f;
+  font-size: 20rpx;
+}
+
+/* 城市堆：纸白小拍立得（原型 84px → 168rpx）+ 确定性转角 + 错峰显影 */
+.piles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22rpx;
+}
+
+.pile {
+  display: grid;
+  justify-items: center;
+  gap: 10rpx;
+}
+
+.pileCard {
+  width: 168rpx;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  box-shadow: 0 24rpx 60rpx rgba(0, 0, 0, 0.5), 0 4rpx 12rpx rgba(0, 0, 0, 0.4);
+  animation: fbCorridorDevelopSoft 2.8s ease-out both;
+}
+@keyframes fbCorridorDevelopSoft {
+  0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
+  100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
+}
+/* 错峰显影（原型 --d 0.3s 递进；reduced-motion 直达终态） */
+.pile:nth-child(2) .pileCard { animation-delay: 0.3s; }
+.pile:nth-child(3) .pileCard { animation-delay: 0.6s; }
+.pile:nth-child(4) .pileCard { animation-delay: 0.9s; }
+@media (prefers-reduced-motion: reduce) {
+  .pileCard { animation: none; }
+}
+
+.pileCity {
+  color: #4a463f;
+  font-size: 20rpx;
+}
+
+/* 确定性转角五档（按堆序取模，不依赖 Math.random——e2e/单测可精确断言） */
+.tilt0 { transform: rotate(-4deg); }
+.tilt1 { transform: rotate(-2deg); }
+.tilt2 { transform: rotate(1deg); }
+.tilt3 { transform: rotate(3deg); }
+.tilt4 { transform: rotate(5deg); }
+
+.pileCount {
+  color: #77726a;
+  font-size: 18rpx;
+}
+
+/* ⚡今天格：金色微光（原型 ia-mj-now radial） */
+.todayFrame {
+  border-bottom: none;
+  background: radial-gradient(70% 60% at 30% 20%, rgba(203, 191, 143, 0.09), transparent),
+    linear-gradient(180deg, #1d1c22 0%, #131217 100%);
+}
+
+.frameWhenNow {
+  color: #cbbf8f;
+  font-weight: 600;
+}
+
+.todayCard {
+  width: 208rpx;
+  padding: 14rpx 14rpx 16rpx;
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  transform: rotate(2deg);
+  box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.45), 0 24rpx 60rpx rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.todayName {
+  display: block;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+  color: #4a463f;
+  font-size: 20rpx;
+  border-radius: 4rpx;
+}
+
+.todaySub {
+  display: block;
+  padding: 8rpx 4rpx 0;
+  color: rgba(43, 39, 35, 0.6);
+  font-size: 16rpx;
+  text-align: center;
+}
+
+.todayEmpty {
+  width: 208rpx;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx dashed rgba(239, 233, 219, 0.3);
+  border-radius: 8rpx;
+}
+
+.todayEmptyText {
+  color: #8d887e;
+  font-size: 20rpx;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* 未来行动卡 */
+.futureFrame {
+  border-bottom: none;
+}
+
+.futureEmpty {
+  color: #8d887e;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+.futureCard {
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2rpx solid transparent;
+  border-radius: 16rpx;
+}
+
+.futureCard.proposed {
+  border-style: dashed;
+  border-color: rgba(239, 233, 219, 0.26);
+  background: transparent;
+}
+
+.futureCard.scheduled {
+  border-color: rgba(203, 191, 143, 0.55);
+  box-shadow: 0 0 36rpx rgba(203, 191, 143, 0.32);
+}
+
+.futureHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.futureTitle {
+  color: #efe9db;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.futureStatus {
+  padding: 4rpx 14rpx;
+  border-radius: 16rpx;
+  font-size: 19rpx;
+}
+
+.futureStatus.proposed { color: #b9b4aa; background: rgba(185, 180, 170, 0.14); }
+.futureStatus.forming { color: #ff8a3d; background: rgba(234, 85, 4, 0.18); }
+.futureStatus.scheduled { color: #cbbf8f; background: rgba(203, 191, 143, 0.16); }
+.futureStatus.done { color: #8d887e; background: rgba(141, 136, 126, 0.16); }
+
+.futureMeta {
+  display: block;
+  margin-top: 10rpx;
+  color: #77726a;
+  font-size: 21rpx;
+}
+
+.futureAction {
+  display: block;
+  margin-top: 12rpx;
+  color: #cbbf8f;
+  font-size: 21rpx;
+}
+
+/* 序列终点 */
+.footer {
+  padding: 36rpx 44rpx 60rpx;
+  text-align: center;
+}
+
+.cta {
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 2.2;
+}
+
+.guideBlock {
+  display: grid;
+  gap: 20rpx;
+}
+
+.guideText {
+  color: #4b4d54;
+  font-size: 23rpx;
+  line-height: 1.8;
+}
+
+.viewerHint {
+  color: #8a8f98;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+/* 摘要卡离屏画布（600×800，与我的页同一定式） */
+.shareCanvas {
+  position: fixed;
+  left: -9999rpx;
+  width: 600px;
+  height: 800px;
+}
+
+/* 分享 sheet（与我的页同款） */
+.shareMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+}
+
+.shareSheet {
+  width: 100%;
+  background: #f7f7f7;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 60rpx;
+  box-sizing: border-box;
+}
+
+.shareSheetTitle {
+  display: block;
+  margin-bottom: 28rpx;
+  color: #8a8f98;
+  font-size: 24rpx;
+  text-align: center;
+}
+
+.shareEntries {
+  display: flex;
+  gap: 44rpx;
+  justify-content: center;
+}
+
+.shareEntry {
+  display: grid;
+  justify-items: center;
+  gap: 12rpx;
+  width: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  line-height: 1.4;
+}
+.shareEntry::after { border: none; }
+
+.shareEntryIcon {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 28rpx;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+
+.shareEntryLabel {
+  font-size: 20rpx;
+  color: #4b4d54;
+}
+
+.shareCancel {
+  margin-top: 36rpx;
+  width: 100%;
+  background: #fff;
+  border: none;
+  border-radius: 24rpx;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  color: #222326;
+  line-height: 1.6;
+}
+.shareCancel::after { border: none; }
