@@ -115,6 +115,14 @@
     "sponsorship_unknown_level",
     "version_conflict",
     "volunteer_application_already_submitted",
+    "volunteer_application_application_id_unavailable",
+    "volunteer_application_cohort_closed",
+    "volunteer_application_cohort_not_found",
+    "volunteer_application_error",
+    "volunteer_application_exemption_fact_failed",
+    "volunteer_application_invalid_transition",
+    "volunteer_application_rejection_reason_required",
+    "volunteer_application_workflow_run_failed",
     "wechat_login_unavailable"
   ]
 }
