@@ -16,6 +16,8 @@ import {
 	createWorkspaceWithOwner,
 	demoteUser,
 	fetchAdminActionLogs,
+	fetchAdminCourses,
+	fetchAdminEvents,
 	fetchApplications,
 	fetchMyApplications,
 	fetchPendingOperations,
@@ -148,6 +150,18 @@ describe("admin 数据源（Phase 5 GraphQL 契约）", () => {
 
 		// 审批后页面 load(status) 重新调用 fetchApplications，必须绕过 cache-first 命中旧缓存
 		expect(queryMock.mock.calls[0][0].fetchPolicy).toBe("network-only");
+	});
+
+	it("治理列表始终走网络（#754 FAIL-1：network-only，治理写后 refreshAfterWrite → loadList 不得命中同 variables 旧快照）", async () => {
+		queryMock.mockResolvedValue({
+			data: { listAdminCourses: [], listAdminEvents: [] },
+		} as never);
+
+		await fetchAdminCourses();
+		await fetchAdminEvents();
+
+		expect(queryMock.mock.calls[0][0].fetchPolicy).toBe("network-only");
+		expect(queryMock.mock.calls[1][0].fetchPolicy).toBe("network-only");
 	});
 
 	it("fetchMyApplications 不带变量、始终走网络（#205：network-only，避免提交后命中旧缓存），返回申请人自己的申请", async () => {

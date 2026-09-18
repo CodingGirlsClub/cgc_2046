@@ -42,6 +42,17 @@ defmodule Cgc2046.AdminList do
     Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
   end
 
+  # U2 治理读面：offering（Event / Course）搜索——两资源的可搜索字段同名
+  # （title / slug）且语义一致，故字段集内联在本组合子、不带字段参数
+  # （与 maybe_workspace_search 同形状）。slug 可空：SQL 上 NULL 不命中
+  # contains，仍可由 title 命中。
+  def maybe_offering_search(query, nil), do: query
+  def maybe_offering_search(query, ""), do: query
+
+  def maybe_offering_search(query, search) do
+    Ash.Query.filter(query, contains(title, ^search) or contains(slug, ^search))
+  end
+
   # status 过滤（atom 约束字段；非枚举值静默忽略过滤——to_existing_atom 防 atom 表污染）。
   # field 参数化：WorkspaceApplication/PendingOperation 是 :status，ToolCallLog 是 :result_status。
   def maybe_status_filter(query, status, field \\ :status)
