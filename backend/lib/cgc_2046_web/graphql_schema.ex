@@ -2085,7 +2085,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :assign_event_moderator, :event_moderator_payload do
       arg(:workspace_id, non_null(:id))
       arg(:event_id, non_null(:id))
-      arg(:user_id, non_null(:id))
+
+      # #537：锚语义放宽（域层 resolve 后落 UUID，存储不变）。ID 标量对
+      # email / CGC 编号原样放行（string 标量，无格式校验）。
+      arg(:user_id, non_null(:id), description: "被指派用户锚：邮箱 / CGC 编号 / 用户 ID 任一精确匹配")
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
@@ -2114,6 +2117,13 @@ defmodule Cgc2046Web.GraphqlSchema do
                      Cgc2046.Events
                    )
                }}
+
+            # #537 三锚点解析错误（user_not_found / user_anchor_ambiguous）：
+            # 域函数直返的 BusinessError 不在 Ash.Error.Invalid 容器里，单独
+            # 映射进 payload errors——code 直达前端 i18n（graphql_schema.ex
+            # 顶层 {:error, message:, code:} 同款先例）。
+            {:error, %Cgc2046.Errors.BusinessError{code: code, message: message}} ->
+              {:ok, %{result: nil, errors: [%{message: message, code: code}]}}
 
             {:error, _} ->
               {:ok,
@@ -2474,6 +2484,15 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:payment_mode, :string) do
       resolve(fn parent, _args, %{definition: definition} ->
         {:ok, enrollment_calc_value(parent, definition, :payment_mode)}
+      end)
+    end
+
+    # 押金快照金额（#696）：报名提交时物化的 submission_payload 键，与 createOrder
+    # 押金单实付金额同源——/orders/new 披露行的金额源；定价/免费报名 nil（展示面
+    # 走「金额待定」，绝不 ¥0）。
+    field(:deposit_amount_cents, :integer) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :deposit_amount_cents)}
       end)
     end
 
@@ -3399,6 +3418,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # #537 回显平铺：displayName → memberNumber fallback 链的数据面（nullable；
+  # member_number 由 uuid 确定性现算恒非空，display_name 可空）
   object :event_moderator do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
@@ -3406,6 +3427,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:user_id, non_null(:id))
     field(:assigned_by, :id)
     field(:assigned_at, non_null(:datetime))
+    field(:user_display_name, :string)
+    field(:user_member_number, :string)
+    field(:assigned_by_display_name, :string)
+    field(:assigned_by_member_number, :string)
   end
 
   object :event_moderator_payload do
@@ -4028,13 +4053,20 @@ defmodule Cgc2046Web.GraphqlSchema do
   # enrollment calculation 字段的 alias 感知取值（手写 object 无 AshGraphql
   # resolve_calculation）：alias 查询读 AshGraphql 加载槽；无 alias 读
   # calculations map（Ash 加载后写入），原字段兜底。
+  #
+  # parent 双形态（#727 健壮化）：Ash record（calculations 键存在，未加载为 nil）
+  # 与 my_enrollment 的白名单 payload map（**没有** :calculations 键）——
+  # `parent.calculations` 对后者抛 KeyError（不是 nil），必须走 Map.get/3 兜底；
+  # 裸 map 上计算字段取不到值即 nil（该投影不携带计算值，不是崩溃）。
   defp enrollment_calc_value(parent, %{alias: nil}, field) do
-    Map.get(parent.calculations, field) || Map.get(parent, field)
+    Map.get(calculations(parent), field) || Map.get(parent, field)
   end
 
   defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
-    Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
+    Map.get(calculations(parent), {:__ash_graphql_calculation__, field_alias})
   end
+
+  defp calculations(parent), do: Map.get(parent, :calculations) || %{}
 
   # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
   # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record

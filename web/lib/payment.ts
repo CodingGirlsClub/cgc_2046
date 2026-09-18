@@ -193,11 +193,19 @@ export function parsePaymentStats(raw: string | null | undefined): PaymentStats 
 export interface PriceTier {
 	id: string;
 	name: string;
-	amountCents: number;
+	/** 脏值（缺失/0/负/非整数分）→ null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+	amountCents: number | null;
 	availableUntil: string | null;
 }
 
-/** availablePriceTiers（后端已过滤过期档）逐项解析；非法项静默丢弃 */
+/**
+ * availablePriceTiers（后端已过滤过期档）逐项解析；坏 JSON/缺身份（id/name）
+ * 项静默丢弃。**金额不丢档**（#687）：脏 amount_cents 过 `positiveAmountOrNull`
+ * 守卫 → null——档位保留可见（隐藏档位副作用更大），渲染层据此降级
+ * 「金额待定」并禁选，绝不进 formatAmount 出 ¥0/¥0.00。与押金（#675）同判据；
+ * 后端 `PriceTier.available_tiers/1` 已按同判据把脏金额投 nil，此处是
+ * 展示层兜底（旧缓存 payload / 部署窗口）。
+ */
 export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 	if (!Array.isArray(raw)) return [];
 
@@ -207,12 +215,14 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 			if (typeof t !== "object" || t === null) return [];
 			const o = t as Record<string, unknown>;
 			if (typeof o.id !== "string" || typeof o.name !== "string") return [];
-			if (typeof o.amount_cents !== "number" || !Number.isFinite(o.amount_cents)) return [];
 			return [
 				{
 					id: o.id,
 					name: o.name,
-					amountCents: o.amount_cents,
+					amountCents:
+						typeof o.amount_cents === "number"
+							? positiveAmountOrNull(o.amount_cents)
+							: null,
 					availableUntil:
 						typeof o.available_until === "string" ? o.available_until : null,
 				},
@@ -255,6 +265,20 @@ export function positiveAmountOrNull(
 	return typeof cents === "number" && Number.isInteger(cents) && cents > 0
 		? cents
 		: null;
+}
+
+/**
+ * 档位行金额标签（#687 单源）：脏金额（amountCents null）→ pendingLabel
+ * （「金额待定」），绝不进 formatAmount 出 ¥0/¥0.00——所有档位行渲染点
+ * 共用，新增渲染点直接调本函数，不各自拼判据。
+ */
+export function tierAmountText(
+	tier: Pick<PriceTier, "amountCents">,
+	pendingLabel: string,
+): string {
+	return tier.amountCents === null
+		? pendingLabel
+		: `¥${formatAmount(tier.amountCents)}`;
 }
 
 /** tierSnapshot（JsonString，下单时物化档位）→ 档位名；坏 JSON/缺 name → null */

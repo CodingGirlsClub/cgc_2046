@@ -124,6 +124,12 @@ defmodule Cgc2046.Recruitment.RecruitmentCohort do
     table("recruitment_cohorts")
     repo(Cgc2046.Repo)
 
+    # on_delete 与 create_recruitment_tables 迁移的 CASCADE 显式对齐
+    # （#724 FK 守卫：未声明按 NO ACTION 对齐，与 DB confdeltype=c 漂移即红）
+    references do
+      reference(:workspace, on_delete: :delete)
+    end
+
     # 部分唯一索引的 SQL 表示（identity `where` 的落库形状）：索引由手写
     # migration 建，此处是 snapshot/生成器的同源声明（缺它会拒绝生成 snapshot）
     identity_wheres_to_sql(unique_open_per_workspace: "status = 'open'")

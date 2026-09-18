@@ -140,10 +140,17 @@ export function countdownText(nowMs: number, expireAt: string | null | undefined
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值（缺失/0/负/非整数分）→ null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
-/** 可售档位逐项解析（后端已过滤过期档）；非法项静默丢弃 */
+/**
+ * 可售档位逐项解析（后端已过滤过期档）；坏 JSON/缺身份（id/name）项静默丢弃。
+ * **金额不丢档**（#687）：脏 amount_cents 过 positiveAmountOrNull 守卫 → null——
+ * 档位保留可见，渲染层据此降级「金额待定」并禁选，绝不进 formatAmount 出
+ * ¥0/¥0.00。与押金（#675）同判据；后端 available_tiers/1 已按同判据投 nil，
+ * 此处是展示层兜底（旧缓存 payload / 部署窗口）。
+ */
 export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
   if (!Array.isArray(raw)) return []
 
@@ -152,8 +159,14 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
     if (!parsed || typeof parsed !== 'object') return []
     const t = parsed as Record<string, unknown>
     if (typeof t.id !== 'string' || typeof t.name !== 'string') return []
-    if (typeof t.amount_cents !== 'number' || !Number.isFinite(t.amount_cents)) return []
-    return [{ id: t.id, name: t.name, amountCents: t.amount_cents }]
+    return [
+      {
+        id: t.id,
+        name: t.name,
+        amountCents:
+          typeof t.amount_cents === 'number' ? positiveAmountOrNull(t.amount_cents) : null
+      }
+    ]
   })
 }
 
@@ -162,6 +175,18 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 /** 分 → 元（两位小数，R20 存储一律分） */
 export function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2)
+}
+
+/**
+ * 档位行金额标签（#687 单源，与 web lib/payment.ts#tierAmountText 同式）：
+ * 脏金额（amountCents null）→ pendingText（「金额待定」），绝不进 formatAmount
+ * 出 ¥0/¥0.00——档位行渲染点共用，新增渲染点直接调本函数。
+ */
+export function tierAmountText(
+  tier: Pick<PriceTier, 'amountCents'>,
+  pendingText: string
+): string {
+  return tier.amountCents === null ? pendingText : `¥${formatAmount(tier.amountCents)}`
 }
 
 /** 订单状态词表（my-enrollments 缴费态 + order-pay 页共用） */
@@ -348,6 +373,26 @@ export function canRequestPayment(input: {
 }): boolean {
   if (input.paying || !input.hasCredential || input.order === null) return false
   return input.order.orderKind !== 'deposit' || input.ack
+}
+
+/* ---------------- 押金创单前门（#727：勾选 → 创单（带同意）→ 支付） ---------------- */
+
+/**
+ * 创单前押金门判据（纯函数；order-pay 页只做渲染与调起）。
+ *
+ * 非 null = 押金场：先出披露 + 勾选，同意后才创单（携带 depositConsent）；
+ * null = 非押金/报名读不到 → 直接创单。判据 = 报名快照的
+ * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取**报名快照**
+ * `depositAmountCents`——它同时是后端下单的实付金额源
+ * （submission_payload["deposit_amount_cents"]），不是活动现价（改价不漂移）。
+ * 报名读不到（null）→ null：本端 fail-open 由后端权威闸兜底（押金单缺同意被
+ * order_deposit_consent_required 拒，页面落可重试错误态）。
+ */
+export function preCreateDepositGate(
+  enrollment: Pick<EnrollmentSummary, 'paymentMode' | 'depositAmountCents'> | null
+): DepositPayNotice | null {
+  if (enrollment?.paymentMode !== 'deposit') return null
+  return depositPayNotice(enrollment.depositAmountCents ?? null)
 }
 
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */

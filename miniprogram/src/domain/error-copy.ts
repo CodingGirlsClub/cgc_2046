@@ -43,6 +43,11 @@ export const COPY: Record<string, string> = {
   // 收费档位
   enrollment_tier_id_required: '该报名为收费项，请先选择价格档位。',
   enrollment_tier_not_available: '所选档位已过期或不可用，请重新选择。',
+  // #687 脏金额档位下单 fail-closed（展示侧「金额待定」禁选，此为后端兜底）
+  order_tier_amount_invalid: '所选档位金额异常，请联系组织者。',
+  // #727 押金同意门（后端权威闸）：押金单缺显式同意被拒——正常路径不会出现
+  // （创单前已勾选），命中即本端预检失败/旧版本；与 web zh-CN 同文案互指
+  order_deposit_consent_required: '押金支付需先阅读并同意押金条款（到场核销后原路退回、未到场不退）；若小程序为旧版本，请更新后重试。',
   // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
   enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
   // 现场核销（#508-A；与 web zh-CN errors 命名空间同文案互指）

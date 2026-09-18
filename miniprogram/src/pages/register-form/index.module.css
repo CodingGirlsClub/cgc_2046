@@ -44,3 +44,7 @@
   font-size: 27rpx;
   font-weight: 600;
 }
+/* #687：金额脏档（金额待定）不可选的视觉降级 */
+.tierDisabled {
+  opacity: 0.5;
+}

@@ -153,6 +153,29 @@ export function venueText(raw: string | null): string | null {
   return parts.length > 0 ? parts.join(' ') : null
 }
 
+/**
+ * 公开主理人投影（#538）→ 展示名列表：逐行 parse `[JsonString!]`（每行
+ * {display_name, member_number}），脏行丢弃。回退链与 #537 管理面、web
+ * `moderatorNames` 同语义：displayName → memberNumber（后端恒非空；
+ * displayName 为 null 是「用户没填名字」的固有成本，不做特殊兜底）。
+ * 空/解析全失败 → []（展示层「无主理人不渲染」）。
+ */
+export function moderatorNames(raw: readonly string[] | null | undefined): string[] {
+  if (!raw) return []
+  return raw.flatMap((item): string[] => {
+    try {
+      const v: unknown = JSON.parse(item)
+      if (typeof v !== 'object' || v === null) return []
+      const r = v as Record<string, unknown>
+      if (typeof r.display_name === 'string' && r.display_name !== '') return [r.display_name]
+      if (typeof r.member_number === 'string' && r.member_number !== '') return [r.member_number]
+      return []
+    } catch {
+      return []
+    }
+  })
+}
+
 // ── #617 「我的报名」读面时间/地点行 ──
 //
 // 改期（event_schedule_changed）与开课提醒（event_reminder）的通知落页都是

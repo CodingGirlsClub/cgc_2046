@@ -42,7 +42,8 @@ vi.mock('../src/api/operations', () => ({
   RejectJoinRequestMutationDocument: 'REJECT_JOIN',
   GrantConsentMutationDocument: 'GRANT_CONSENT',
   GenerateMiniProgramCodeMutationDocument: 'GENERATE_CODE',
-  AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER'
+  AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER',
+  CreateOrderMutationDocument: 'CREATE_ORDER'
 }))
 
 vi.mock('../src/state/workspaceTab', () => ({
@@ -279,6 +280,50 @@ describe('押金字段映射（U11/R10）', () => {
   })
 })
 
+// #727：createOrder 的押金同意字段（条件携带，与 #510 ageConfirmed 同款）——
+// 非押金单负载逐字不变；押金单必须 true（后端 fail-closed 复核）
+describe('createOrder 押金同意字段（#727）', () => {
+  const orderResult = {
+    createOrder: {
+      result: {
+        id: 'order-1',
+        enrollmentId: 'enr-1',
+        provider: 'wechat_jsapi',
+        outTradeNo: 'CGC1',
+        amountCents: 6900,
+        status: 'pending',
+        expireAt: '2026-09-12T02:00:00Z',
+        orderKind: 'deposit'
+      },
+      errors: [],
+      metadata: { credential: null }
+    }
+  }
+
+  it('押金已同意 → input 带 depositConsent: true', async () => {
+    mocks.graphqlRequest.mockResolvedValue(orderResult)
+    const api = new RealMiniProgramApi()
+
+    const created = await api.createOrder('enr-1', true)
+
+    expect(created.order.orderKind).toBe('deposit')
+    expect(mocks.graphqlRequest).toHaveBeenCalledWith('CREATE_ORDER', {
+      input: { enrollmentId: 'enr-1', provider: 'wechat_jsapi', depositConsent: true }
+    })
+  })
+
+  it('未同意/非押金 → 不带 depositConsent 键（零回归负载）', async () => {
+    mocks.graphqlRequest.mockResolvedValue(orderResult)
+    const api = new RealMiniProgramApi()
+
+    await api.createOrder('enr-1')
+
+    expect(mocks.graphqlRequest).toHaveBeenCalledWith('CREATE_ORDER', {
+      input: { enrollmentId: 'enr-1', provider: 'wechat_jsapi' }
+    })
+  })
+})
+
 // #355 P1-4：结果页按 id 回查单条报名
 describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
   it('命中 → EnrollmentSummary（kind/targetId/title 从记录派生）', async () => {
@@ -301,6 +346,7 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
           insertedAt: '2026-09-01T08:00:00Z',
           checkInCode: '042317',
           paymentMode: 'deposit',
+          depositAmountCents: 6900,
           // #617：startsAt = ISO；venue = 后端已文本化的 city+district
           // （Venue.text/1，非 JsonString——见 graphql_enrollment_my_query_test.exs）
           startsAt: '2026-09-12T02:00:00Z',
@@ -323,6 +369,7 @@ describe('getEnrollment 按 id 回查（#355 P1-4）', () => {
       insertedAt: '2026-09-01T08:00:00Z',
       checkInCode: '042317',
       paymentMode: 'deposit',
+      depositAmountCents: 6900,
       startsAt: '2026-09-12T02:00:00Z',
       venue: '北京市海淀区',
       registrationDeadline: '2026-09-10T12:00:00Z'

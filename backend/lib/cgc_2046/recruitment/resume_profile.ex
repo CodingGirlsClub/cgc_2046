@@ -158,6 +158,13 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
   postgres do
     table("resume_profiles")
     repo(Cgc2046.Repo)
+
+    # on_delete 与 create_recruitment_tables 迁移的 CASCADE 显式对齐
+    # （#724 FK 守卫：未声明按 NO ACTION 对齐，与 DB confdeltype 漂移即红）
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+    end
   end
 
   policies do

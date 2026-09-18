@@ -25,8 +25,24 @@
 2. **`think`**：agent 只出方案，必须含决策点（推荐项 / 备选项 / 各自代价），不写代码。
 3. **编排者逐条裁决**：每个决策点给出选择与理由；方向定了再实施（不要边做边改方向）。
 4. **实施**：agent 按裁决改文件，并用命令原始输出自证（不是结论式汇报）。
-5. **`check`**：agent 用 `check` 技能**只读**复核自己的 diff —— **报告制，先报不改**；发现先上报，等编排者裁决后再动手。
-6. **编排者判定"无实质问题"才 commit/PR**；有发现就回炉：能修则修，非阻塞的记 issue。
+5. **简化 pass（`ce-simplify-code`）**：完整链条 `实施 → 简化 pass → 全量测试 + 变异复跑 → 端到端验收（§3.6）→ check → 编排者复核 → commit/PR`（2026-09-17 三条流 pilot，用户认可后入 SOP；2026-09-18 增端到端验收步）。**check 必须在简化之后**：简化会改代码，改完的 check 结论才算数。
+   - **scope**：`merge-base origin/develop HEAD`..HEAD；不要用 `origin/develop..HEAD`（develop 前进后会把别人的反向差异混进来）。
+   - **pins（不可被简化掉）**：由本轮裁决生成，逐条列出——错误/界面文案逐字、守卫条件与不变量（白名单/豁免表/计数写死）、fail-closed 语义、testid、i18n key、以及为「单一真源」刻意保留的重复；**不许放宽或删除任何断言**（`refute` 尤其）。
+   - **验证义务**：简化后**重跑**受影响站点的变异（改坏→必红→还原→必绿）与全量测试；只跑一次绿灯不算钉住（同 §6）。
+   - **跳过条件**：纯生成物 / 文档 / CI 声明式配置（无实质人工代码）→ 按 skill 的 preflight 跳过并在报告里说明。
+   - **findings 去向**：误报记 skipped；真问题但超 scope → 开 issue 或写进 PR（沿用"发现必须有归宿"）。
+   - **实测收益**（2026-09-17 三条流，分别 applied 6 / 5 / 7）：抓过「说谎的注释」（文档写着旧判据）、「与事实不符的测试标题」、同名异义函数（`hasPaidOrder` vs `paidEnrollmentIds`）、N 卡×M 单的重复计算、以及一个真缺陷（`BusinessError.fields` 裸 atom 未 `List.wrap`，挂载冲突时 fields 被静默丢弃）。
+6. **端到端验收（按端，2026-09-18 用户裁决入 SOP）**：改动涉及哪一端，worktree agent 就在该端做**真实验收**——组件/集成测试不算，要跑真实运行面：
+   - **web（改了 `web/` 的 UI/交互）**：Dev 服务（`pnpm dev`）+ ego-browser 分层验收（见根 `AGENTS.md`「E2E validation」）：L1 结构/样式数值断言（`getComputedStyle` / `getBoundingClientRect`）、L2 交互走通（成功与错误分支都要走）、L3 截图只兜底主观项；登录态复用 ego-browser 既有 profile，确需重置密码的验完**必须恢复原哈希**。
+   - **miniprogram（改了 `src/` 或投影契约）**：构建 + 微信开发者工具模拟器实测（wechatide-skill / miniprogram-automator / `pnpm e2e`），console 与 network 取证；涉及订阅触点的要真实授权弹层验证。
+   - **backend（改了 GraphQL 面或 MCP 工具面）**：dev 服务起来后用真实 GraphQL 查询/变更对实测（curl 或 ego-browser network 面取证），MCP 工具经对应 transport 实调一次——不能只靠测试套件自证。
+   - **纯 docs / scripts / 生成物**：豁免，报告写明「无运行面」。
+   - **降级口径**：验收环境确不可用（GUI/服务起不来）时，必须明示「未覆盖面 + 已做的替代自证」，由编排者复核判断放行与否；**静默跳过 = 回炉**。
+   - **证据**：验收输出（断言结果 / 截图 / 网络轨迹）进最终报告；编排者复核「验收覆盖了改动的语义面」才进入 commit/PR。
+   - **端口纪律（2026-09-18 教训）**：`4001` 是 miniprogram dev 约定端口（`miniprogram/config/index.ts` 写死 `localhost:4001`）——**验收/代理服务一律避开**；「服务用完即关」只关自己起的进程（先记录 pid/端口），绝不杀端口上的陌生进程。曾一次验收收尾关掉 4001 误伤用户在跑的小程序调试环境。
+   - **ego-browser 并发纪律**：共享 profile 的 `localhost` cookie 跨端口共享，多个验收 agent 并行会互相顶会话——登录态验收同一时刻只允许一个 agent 持有。
+7. **`check`**：agent 用 `check` 技能**只读**复核自己的 diff —— **报告制，先报不改**；发现先上报，等编排者裁决后再动手。
+8. **编排者判定"无实质问题"才 commit/PR**；有发现就回炉：能修则修，非阻塞的记 issue。
 - **不许把 `check` 的发现只留在报告里**：每条发现必须有归宿（修掉 / 写成 issue 评论 / 另开 issue）；"报告里提过"不算处理。
 
 ## 4. 重建方式：索引层 3-way（不要 rebase）
@@ -55,6 +71,7 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 - **新断言要测接线，不只测 helper**：同一条守卫落在多个渲染点时，每个站点分别改坏一次、确认对应断言变红（实例：金额守卫在多个渲染点，逐点改坏验红）。
 - **白名单/豁免表必须显式**：列出 + 计数，并守三条不变量：全集 ⊆ 已覆盖 ∪ 表；表 ⊆ 全集；表 ∩ 已覆盖 = ∅。改计数 = 有意承认一个新缺口（实例：通知模板 registry ↔ 小程序场景集合守卫）。
 - **版本化资产改内容必须 bump 版本**：agent 会缓存的 playbook / 版本串，改了内容不 bump 版本，消费端永远看不到新口径——只在服务端兜底等于没修。
+- **改 resource 的 graphql DSL（含 destroy action）→ SDL 与 codegen 产物一起提交**：backend 编译即写 `backend/priv/graphql/schema.graphql`（AshGraphql 编译钩子）；CI 有 SDL 新鲜度门禁（显式 `mix absinthe.schema.sdl` + `git diff --exit-code`，不受编译缓存影响）。SDL 是 `miniprogram/src/api/generated/*` 的 codegen 输入，两者随 DSL 改动一起提交，否则门禁红（2026-09-17 #684 落地）。历史上"每个 worktree 编译一次就多一个脏文件"的现象已随门禁消失。
 - **时区双向自证**：日期/时间断言的期望值用被测格式化函数现场算；改动后在 `TZ=UTC` 与 `TZ=Asia/Shanghai` 下各跑一次（CI 是 UTC）。
 - **后端测试带 `PASEO_BRANCH_NAME=<分支名>`**：否则测试库回落共享的 `cgc_2046_test`，与其他 worktree 并发时互相污染（见 `backend/AGENTS.md`）。
 - **验证命令**：后端 `cd backend && PASEO_BRANCH_NAME=$(git branch --show-current) mix precommit`；前端 `cd web && pnpm test`。
