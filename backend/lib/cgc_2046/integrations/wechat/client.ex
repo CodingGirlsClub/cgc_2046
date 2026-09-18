@@ -76,7 +76,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # review #422 捕获其误兜底 profile 的断点残留。speaker_completed 双受众
   # （管理者 + speaker 本人）维持兜底 profile——已知取舍：speaker 侧点开无
   # 权威页，多数方（管理者）可从 workspace  speakers 面板查看。
-  # #585 event_qualification_manager：开班结果的管理腿（Owner/Admin 收件），
+  # #585 event_qualification_manager：成班结果的管理腿（Owner/Admin 收件），
   # 落工作台——成班/取消的后续处理面在那；参与者两键仍归 @learner_templates。
   @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted
                         event_qualification_manager)
