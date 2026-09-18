@@ -10,12 +10,10 @@ const cutPages = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
-  // U9/R28：闪念间回访页——tt/xhs 漏斗端也注册（成场通知深链与「我的」入口）
-  // 批次二：首程旅程 / 长廊 / 场次页（原型 F 三页；深链与分享卡片同 path）
-  'pages/flashback/index',
-  'pages/flashback-journey/index',
-  'pages/flashback-corridor/index',
-  'pages/flashback-event/index'
+  // U9/R28：闪念间回访页——tt/xhs 漏斗端也注册（成场通知深链与「我的」入口）。
+  // 批次二的首程旅程/长廊/场次页**只在微信全量端注册**：闪念间深度场景（专属
+  // 链接/分享卡片进首程）不存在于裁剪端，且页面文案含跨端词（check:diversion）。
+  'pages/flashback/index'
 ]
 
 const fullPages = [

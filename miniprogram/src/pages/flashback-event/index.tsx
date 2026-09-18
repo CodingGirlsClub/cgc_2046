@@ -14,6 +14,7 @@ import type {
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
 import styles from './index.module.css'
 
+
 type Mode =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }

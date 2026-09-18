@@ -23,6 +23,9 @@ import {
   type QuoteLevel
 } from '@/domain/flashback'
 import { buildFlashbackJourneyPath } from '@/domain/share-route'
+
+// 裁剪端（抖音/小红书）未注册闪念间旅程页——分享卡片回落回访页自身
+const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 import { flashbackEndorseTouchpoint, submitAfterConsent } from '@/domain/subscription'
 import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from '@/domain/models'
 import { requestPlatformSubscriptions } from '@/platform'
@@ -117,7 +120,7 @@ export default function FlashbackPage() {
     const me = state.kind === 'ready' ? state.capsule.me : null
     return {
       title: me ? shareMessage(me).title : '闪念间 · 找回当年的自己',
-      path: buildFlashbackJourneyPath()
+      path: isCut ? '/pages/flashback/index' : buildFlashbackJourneyPath()
     }
   })
   useShareTimeline(() => {
