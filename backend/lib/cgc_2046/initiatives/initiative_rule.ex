@@ -148,6 +148,12 @@ defmodule Cgc2046.Initiatives.InitiativeRule do
   postgres do
     table("initiative_rules")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐 20260913155651 的 delete_all
+    # （DB 实测 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:initiative, on_delete: :delete)
+    end
   end
 
   policies do

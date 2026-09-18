@@ -578,6 +578,13 @@ defmodule Cgc2046.Payments.Order do
     table("payments_orders")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline delete_all（DB 实测
+    # 两列 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:enrollment, on_delete: :delete)
+    end
+
     identity_wheres_to_sql(
       unique_active_order: "status IN ('pending', 'paid', 'refunding', 'refund_failed')"
     )
