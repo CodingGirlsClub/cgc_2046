@@ -25,6 +25,7 @@ config :cgc_2046,
     Cgc2046.Notifications,
     Cgc2046.Payments,
     Cgc2046.Reconciliation,
+    Cgc2046.Recruitment,
     Cgc2046.Sponsorship,
     Cgc2046.Workflows,
     Cgc2046.Initiatives
