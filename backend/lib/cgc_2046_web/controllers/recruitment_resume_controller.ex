@@ -16,7 +16,6 @@ defmodule Cgc2046Web.RecruitmentResumeController do
 
   use Cgc2046Web, :controller
 
-
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Recruitment.ResumeProfile
 
@@ -69,8 +68,9 @@ defmodule Cgc2046Web.RecruitmentResumeController do
     end
   end
 
-  defp require_file(%{file_data: file_data}) when is_binary(file_data) and byte_size(file_data) > 0,
-    do: {:ok, file_data}
+  defp require_file(%{file_data: file_data})
+       when is_binary(file_data) and byte_size(file_data) > 0,
+       do: {:ok, file_data}
 
   defp require_file(_), do: {:error, :not_found}
 
