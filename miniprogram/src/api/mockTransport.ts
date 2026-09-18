@@ -173,15 +173,91 @@ let checkedIn = false
 // ── 闪念间「我的」（U9）：登录即视为已绑定档案的会话腿 ──────────────────
 // 与后端 flashbackCapsule 会话入口同形；四态卡各一（行动板分组的样例覆盖）。
 const FLASHBACK_RAW_TEXT = '我在盛大做测试。想亲眼看看是不是真的！后来我成了程序员。'
-const FLASHBACK_FOG_SPAN = { start: 0, len: 7 }
-let flashbackEndorsedCardIds: string[] = []
-let flashbackQuoteLevel: 'off' | 'anonymous' | 'credited' = 'off'
-let flashbackToday: {
-  nowStatus: string | null
-  want: string | null
-  say: string | null
-  sentToWallAt: string | null
-} = { nowStatus: null, want: null, say: null, sentToWallAt: null }
+
+// mock 写面落 FLASHBACK_MOCK_STATE（wx storage）：开发者工具重编译（JS 上下文
+// 重建）后仍保持，模拟后端存量；e2e 脚本段 0 清该 key 保证幂等。node --test
+// 直接加载本模块且无 wx storage——探测不到就回落纯模块态（单进程内行为不变）。
+// 本模块不 import Taro：它被 node --experimental-strip-types 直接加载，`@/`
+// 别名与 Taro 副作用在该 runner 下都不可用（同文件头部 format.ts 注释）。
+const FLASHBACK_MOCK_STATE = 'cgc.e2e.flashback_mock_state'
+
+interface FlashbackMockState {
+  fogSpans: Array<{ start: number; len: number }>
+  quoteLevel: 'off' | 'anonymous' | 'credited'
+  today: { nowStatus: string | null; want: string | null; say: string | null; sentToWallAt: string | null }
+  endorsedCardIds: string[]
+}
+
+const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
+  fogSpans: [{ start: 0, len: 7 }],
+  quoteLevel: 'off',
+  today: { nowStatus: null, want: null, say: null, sentToWallAt: null },
+  endorsedCardIds: []
+}
+
+interface WxLikeStorage {
+  getStorageSync(key: string): unknown
+  setStorageSync(key: string, value: string): void
+}
+
+function wxStorage(): WxLikeStorage | null {
+  const scope = globalThis as { wx?: WxLikeStorage }
+  return scope.wx ?? null
+}
+
+// 持久态恢复：形状不符（旧版本/手改脏数据）整体回落初始——fail-closed，不做部分合并
+function loadFlashbackState(): FlashbackMockState {
+  try {
+    const raw = wxStorage()?.getStorageSync(FLASHBACK_MOCK_STATE)
+    if (typeof raw !== 'string' || !raw) return FLASHBACK_INITIAL_STATE
+    const parsed = JSON.parse(raw) as FlashbackMockState
+    const valid =
+      Array.isArray(parsed.fogSpans) &&
+      parsed.fogSpans.every((span) => Number.isInteger(span?.start) && Number.isInteger(span?.len)) &&
+      (parsed.quoteLevel === 'off' || parsed.quoteLevel === 'anonymous' || parsed.quoteLevel === 'credited') &&
+      typeof parsed.today === 'object' &&
+      parsed.today !== null &&
+      Array.isArray(parsed.endorsedCardIds) &&
+      parsed.endorsedCardIds.every((id) => typeof id === 'string')
+    return valid ? parsed : FLASHBACK_INITIAL_STATE
+  } catch {
+    return FLASHBACK_INITIAL_STATE
+  }
+}
+
+function saveFlashbackState(state: FlashbackMockState): void {
+  try {
+    wxStorage()?.setStorageSync(FLASHBACK_MOCK_STATE, JSON.stringify(state))
+  } catch {
+    // 无 wx storage（node --test）：仅模块态，进程内仍一致
+  }
+}
+
+let flashback: FlashbackMockState = loadFlashbackState()
+
+// wx storage 是闪念间 mock 态的唯一真源：模块态跨 e2e 脚本运行存活（同 loggedIn），
+// 清 storage 必须等价于完全重置——有 storage 时每次读都从 storage 载入；
+// node --test 无 storage，回落模块态（进程内一致）。
+function flashbackState(): FlashbackMockState {
+  return wxStorage() ? loadFlashbackState() : flashback
+}
+
+function updateFlashbackState(patch: (state: FlashbackMockState) => FlashbackMockState): FlashbackMockState {
+  flashback = patch(flashbackState())
+  saveFlashbackState(flashback)
+  return flashback
+}
+
+// 与后端 FogSpans.mask 同规则（mock 文本 BMP 字符，len 即字符数）：区间替换 ▓
+function fogMaskedText(raw: string, spans: Array<{ start: number; len: number }>): string {
+  let out = ''
+  let cursor = 0
+  for (const { start, len } of [...spans].sort((a, b) => a.start - b.start)) {
+    out += raw.slice(cursor, start) + '▓'.repeat(len)
+    cursor = start + len
+  }
+  return out + raw.slice(cursor)
+}
 
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
@@ -509,7 +585,8 @@ function responseFor(document: string, variables: object): unknown {
         errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }]
       }
     }
-    const endorseCount = (cardId: string) => flashbackEndorsedCardIds.length + (cardId === 'card-forming' ? 4 : 0)
+    const state = flashbackState()
+    const endorseCount = (cardId: string) => state.endorsedCardIds.length + (cardId === 'card-forming' ? 4 : 0)
     return {
       flashbackCapsule: {
         me: {
@@ -520,18 +597,17 @@ function responseFor(document: string, variables: object): unknown {
           occupationThen: '测试工程师',
           participation: 'attended',
           appliedAt: '2014-01-11T13:06:00Z',
+          quoteLevel: state.quoteLevel,
           quote: null,
-          today: flashbackToday,
+          today: state.today,
           answers: [
             {
               id: 'fb-answer-1',
               questionKey: 'self_intro',
               rawText: FLASHBACK_RAW_TEXT,
-              // 与后端 FogSpans.mask 同规则：区间替换 ▓▓（保留 len 字符宽）
-              fogSpans: [FLASHBACK_FOG_SPAN],
-              text:
-                '▓▓▓▓▓▓▓' +
-                FLASHBACK_RAW_TEXT.slice(FLASHBACK_FOG_SPAN.start + FLASHBACK_FOG_SPAN.len)
+              // 雾面区间与雾化文本都从 mock state 推导（adjustFog 写后回读，P2）
+              fogSpans: state.fogSpans,
+              text: fogMaskedText(FLASHBACK_RAW_TEXT, state.fogSpans)
             }
           ]
         },
@@ -555,7 +631,7 @@ function responseFor(document: string, variables: object): unknown {
             eventId: null,
             eventSlug: null,
             endorsementCount: endorseCount('card-forming'),
-            endorsedByMe: flashbackEndorsedCardIds.includes('card-forming'),
+            endorsedByMe: state.endorsedCardIds.includes('card-forming'),
             rolesClaimed: ['organizer']
           },
           {
@@ -586,8 +662,10 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation FlashbackEndorse')) {
     const cardId = typeof values.cardId === 'string' ? values.cardId : ''
-    const firstTime = !flashbackEndorsedCardIds.includes(cardId)
-    if (firstTime) flashbackEndorsedCardIds = [...flashbackEndorsedCardIds, cardId]
+    const firstTime = !flashbackState().endorsedCardIds.includes(cardId)
+    if (firstTime) {
+      updateFlashbackState((state) => ({ ...state, endorsedCardIds: [...state.endorsedCardIds, cardId] }))
+    }
     return {
       flashbackEndorse: {
         cardId,
@@ -599,26 +677,34 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation FlashbackSubmitToday')) {
     const input = (values.input ?? {}) as Record<string, unknown>
-    flashbackToday = {
-      ...flashbackToday,
-      nowStatus: typeof input.nowStatus === 'string' ? input.nowStatus : flashbackToday.nowStatus,
-      want: typeof input.want === 'string' ? input.want : flashbackToday.want,
-      say: typeof input.say === 'string' ? input.say : flashbackToday.say
-    }
-    return { flashbackSubmitToday: { today: flashbackToday } }
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      today: {
+        ...state.today,
+        nowStatus: typeof input.nowStatus === 'string' ? input.nowStatus : state.today.nowStatus,
+        want: typeof input.want === 'string' ? input.want : state.today.want,
+        say: typeof input.say === 'string' ? input.say : state.today.say
+      }
+    }))
+    return { flashbackSubmitToday: { today: next.today } }
   }
   if (document.includes('mutation FlashbackSetQuoteLicense')) {
     const level = values.level
     if (level === 'off' || level === 'anonymous' || level === 'credited') {
-      flashbackQuoteLevel = level
+      updateFlashbackState((state) => ({ ...state, quoteLevel: level }))
     }
-    return { flashbackSetQuoteLicense: { level: flashbackQuoteLevel } }
+    return { flashbackSetQuoteLicense: { level: flashbackState().quoteLevel } }
   }
   if (document.includes('mutation FlashbackAdjustFog')) {
+    // 写面落 mock state（capsule 回读不再恒定初始 span，P2）
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      fogSpans: (values.spans ?? []) as Array<{ start: number; len: number }>
+    }))
     return {
       flashbackAdjustFog: {
         answerId: values.answerId,
-        fogSpans: (values.spans ?? []) as Array<{ start: number; len: number }>
+        fogSpans: next.fogSpans
       }
     }
   }

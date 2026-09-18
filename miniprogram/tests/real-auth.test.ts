@@ -52,7 +52,8 @@ vi.mock('../src/api/operations', () => ({
   RejectJoinRequestMutationDocument: 'REJECT_JOIN',
   GrantConsentMutationDocument: 'GRANT_CONSENT',
   GenerateMiniProgramCodeMutationDocument: 'GENERATE_CODE',
-  AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER'
+  AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER',
+  FlashbackCapsuleQueryDocument: 'FLASHBACK_CAPSULE'
 }))
 
 vi.mock('../src/state/workspaceTab', () => ({
@@ -72,6 +73,7 @@ vi.mock('../src/platform', () => ({
 }))
 
 import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
+import { FlashbackNotBoundError } from '../src/domain/models'
 
 const SESSION_USER = {
   id: 'u-42',
@@ -390,5 +392,62 @@ describe('cancel enrollment', () => {
     const api = new RealMiniProgramApi()
 
     await expect(api.cancelEnrollment('enr-1')).resolves.toBeUndefined()
+  })
+})
+
+describe('闪念间 capsule 错误映射与授权档回读（P1/P3）', () => {
+  it('未登录 flashback_auth_required → SessionExpiredError（登录引导面可达）', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('token or sign-in required', 200, [
+        { message: 'token or sign-in required', code: 'flashback_auth_required' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    await expect(api.getFlashbackCapsule()).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it('HTTP 401 会话失效（isAuthenticationError 判定）→ SessionExpiredError', async () => {
+    mocks.isAuthenticationError.mockReturnValue(true)
+    mocks.graphqlRequest.mockRejectedValueOnce(new mocks.GraphQLRequestError('请求失败（HTTP 401）', 401, []))
+    const api = new RealMiniProgramApi()
+
+    await expect(api.getFlashbackCapsule()).rejects.toBeInstanceOf(SessionExpiredError)
+  })
+
+  it('登录未绑定 flashback_person_not_bound → FlashbackNotBoundError（既有行为回归）', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('no archive bound', 200, [
+        { message: 'no archive bound', code: 'flashback_person_not_bound' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    await expect(api.getFlashbackCapsule()).rejects.toBeInstanceOf(FlashbackNotBoundError)
+  })
+
+  it('me.quoteLevel 原样透传（fail-closed parse 在 domain 层）', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackCapsule: {
+        me: {
+          id: 'p1',
+          fullName: '王小明',
+          surname: null,
+          city: null,
+          occupationThen: null,
+          participation: 'attended',
+          appliedAt: null,
+          quoteLevel: 'anonymous',
+          quote: null,
+          today: null,
+          answers: []
+        },
+        actionCards: []
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    const capsule = await api.getFlashbackCapsule()
+    expect(capsule.me.quoteLevel).toBe('anonymous')
   })
 })

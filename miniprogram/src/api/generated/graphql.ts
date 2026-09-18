@@ -1075,7 +1075,7 @@ export type PublicInitiativeQuery = { publicInitiative: { id: string, name: stri
 export type FlashbackCapsuleQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
 
 export type FlashbackEndorseMutationVariables = Exact<{
   cardId: string | number;

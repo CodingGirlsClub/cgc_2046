@@ -76,7 +76,20 @@ export async function graphqlRequest<TData, TVariables extends object>(
 ): Promise<TData> {
   if (__E2E_MOCK__) {
     if (options.captureAuthCookie) setAuthToken('e2e-mock-token')
-    return mockGraphQLRequest<TData>(document, variables)
+    // 与真实路径同规则：顶层 errors（如未登录 flashback_auth_required）必须抛
+    // GraphQLRequestError 而非被当 data 吞掉——否则 mock 的所有 errors 腿
+    // （未登录拒绝、会话失效）都走不进页面的登录引导/错误分支（P1）。
+    const body = mockGraphQLRequest<TData & { errors?: GraphQLErrorPayload[] }>(document, variables)
+    if (body?.errors?.length) {
+      const error = new GraphQLRequestError(
+        body.errors.map(({ message }) => message).join('；'),
+        200,
+        body.errors
+      )
+      if (isAuthenticationError(error)) clearExpiredAuthentication()
+      throw error
+    }
+    return body
   }
 
   const header: Record<string, string> = { 'Content-Type': 'application/json' }

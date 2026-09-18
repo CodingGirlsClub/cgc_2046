@@ -22,7 +22,8 @@
     "build:all": "pnpm build:weapp && pnpm build:tt && pnpm build:xhs",
     "e2e": "node e2e/run.mjs",
     "e2e:order-pay-consent": "bash e2e/order-pay-deposit-consent.e2e.sh",
-    "e2e:initiative": "bash e2e/initiative-journey.e2e.sh"
+    "e2e:initiative": "bash e2e/initiative-journey.e2e.sh",
+    "e2e:flashback": "bash e2e/flashback-journey.e2e.sh"
   },
   "dependencies": {
     "@tarojs/components": "4.2.1",

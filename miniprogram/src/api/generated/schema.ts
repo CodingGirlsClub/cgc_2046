@@ -2256,6 +2256,8 @@ export type FlashbackCapsuleMe = {
   participation: Scalars['String']['output'];
   /** 选定金句（R14 摘要卡；off/未选为 null） */
   quote?: Maybe<Scalars['String']['output']>;
+  /** 金句授权档（R31：off/anonymous/credited；无授权行为 off）——回访端恢复选中态 */
+  quoteLevel: Scalars['String']['output'];
   surname?: Maybe<Scalars['String']['output']>;
   today?: Maybe<FlashbackCapsuleToday>;
 };

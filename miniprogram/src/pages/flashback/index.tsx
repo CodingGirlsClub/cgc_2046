@@ -9,6 +9,7 @@ import {
   ENDORSE_ROLES,
   endorseAction,
   myCardView,
+  parseQuoteLevel,
   QUOTE_LEVEL_OPTIONS,
   sentencesWithFog,
   splitActionCards,
@@ -49,7 +50,8 @@ export default function FlashbackPage() {
     try {
       const capsule = await api.getFlashbackCapsule()
       setAnswers(capsule.me.answers)
-      setQuoteLevel('off')
+      // 授权档从 capsule 恢复（R31；非法值 fail-closed 落 off）——不再恒定重置 off（P3）
+      setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
       setDraftNow(capsule.me.today?.nowStatus ?? '')
       setDraftWant(capsule.me.today?.want ?? '')
       setDraftSay(capsule.me.today?.say ?? '')
@@ -290,7 +292,7 @@ export default function FlashbackPage() {
           {orderedCards.map((card) => {
             const action = endorseAction(card)
             return (
-              <View key={card.id} className={styles.actionCard}>
+              <View key={card.id} className={`${styles.actionCard} ${styles[card.status]}`}>
                 <View className={styles.actionHeader}>
                   <Text className={styles.actionTitle}>{card.title}</Text>
                   <Text className={`${styles.actionStatus} ${styles[card.status]}`}>{cardStatusText(card.status)}</Text>
