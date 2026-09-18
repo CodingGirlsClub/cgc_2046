@@ -28,7 +28,7 @@ export default function HackerStart1024Page() {
 
 	return (
 		<main className="hs24-root">
-			<SiteHeader />
+			<SiteHeader active="campaign" />
 
 			<CampaignHero />
 			<WhyNowSection />

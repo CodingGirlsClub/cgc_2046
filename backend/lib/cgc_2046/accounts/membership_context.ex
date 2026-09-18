@@ -542,7 +542,13 @@ defmodule Cgc2046.Accounts.MembershipContext do
     end
   end
 
-  defp handle_unique_conflict(:business_error, error_message, _workspace_id, _user_id, _role_names) do
+  defp handle_unique_conflict(
+         :business_error,
+         error_message,
+         _workspace_id,
+         _user_id,
+         _role_names
+       ) do
     {:error, already_member_error(error_message)}
   end
 
