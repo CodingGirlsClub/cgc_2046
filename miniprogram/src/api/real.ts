@@ -48,6 +48,7 @@ import type {
   SignInWithPlatformMutation,
   SignInWithPlatformMutationVariables
 } from './generated/graphql'
+import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import {
   AdmitMemberByTokenMutationDocument,
@@ -204,9 +205,11 @@ function parseOrderStatus(value: string): OrderStatus {
 }
 
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
-  // code 命中 → 中文文案；未命中 join message（通用兜底，拿不到 code 的场景用）
+  // code 命中 → 中文文案 + BusinessError（保留 code 供页面分派自愈，#751）；
+  // 未命中 join message（通用兜底，拿不到 code 的场景用）
+  const firstCode = errors.find(({ code }) => code)?.code ?? null
   const copy = errors.map(({ code }) => errorCopy(code)).find(Boolean)
-  if (copy) throw new Error(copy)
+  if (copy) throw new BusinessError(copy, firstCode)
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 

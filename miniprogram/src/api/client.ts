@@ -30,6 +30,7 @@ export class GraphQLRequestError extends Error {
   }
 }
 
+
 export function isAuthenticationError(error: unknown): boolean {
   return error instanceof GraphQLRequestError && (
     error.statusCode === 401 ||

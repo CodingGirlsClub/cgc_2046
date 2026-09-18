@@ -48,6 +48,8 @@ export const COPY: Record<string, string> = {
   // #727 押金同意门（后端权威闸）：押金单缺显式同意被拒——正常路径不会出现
   // （创单前已勾选），命中即本端预检失败/旧版本；与 web zh-CN 同文案互指
   order_deposit_consent_required: '押金支付需先阅读并同意押金条款（到场核销后原路退回、未到场不退）；若小程序为旧版本，请更新后重试。',
+  order_deposit_consent_missing:
+    '该订单创建于押金同意留痕上线前，暂不支持直接更换支付方式；请重新发起支付（重新确认押金条款后生成新单）。',
   // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
   enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
   // 现场核销（#508-A；与 web zh-CN errors 命名空间同文案互指）
