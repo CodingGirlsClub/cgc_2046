@@ -6799,6 +6799,17 @@ input UpsertResumeProfileInput {
   skills: [String!]
 }
 
+input UploadResumeFileInput {
+  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
+  fileName: String!
+
+  "声明的 MIME（须与扩展名同族）"
+  contentType: String!
+
+  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+  contentBase64: String!
+}
+
 input CreateRecruitmentCohortInput {
   "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
   name: String!
@@ -6982,6 +6993,9 @@ type RootMutationType {
 
   "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
   upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
+
+  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
 
   "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
   advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload

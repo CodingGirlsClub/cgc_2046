@@ -2246,6 +2246,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF/Word，原始文件 ≤5MB，扩展名/声明 MIME/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+    field :upload_resume_file, :resume_profile_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:upload_resume_file_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          attrs = map_input(input, [:file_name, :content_type, :content_base64])
+
+          Cgc2046.Recruitment.Upload.store(workspace_id, actor, attrs)
+          |> recruitment_mutation_result(context, :upload_file, Cgc2046.Recruitment.ResumeProfile)
+        end)
+      end)
+    end
+
     @desc "初审通过：submitted → interview（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
     field :advance_volunteer_application_to_interview, :volunteer_application_payload do
       arg(:workspace_id, non_null(:id))
@@ -3625,6 +3640,16 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:contact_email, non_null(:string), description: "联系邮箱（R14 邮件保底通道收件地址）")
     field(:weekly_hours, :integer, description: "每周可投入小时数（选填）")
     field(:skills, list_of(non_null(:string)), description: "技能多选（字符串列表；缺省不改动）")
+  end
+
+  input_object :upload_resume_file_input do
+    @desc "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收）"
+    field(:file_name, non_null(:string), description: "文件名（含扩展名：.pdf / .doc / .docx）")
+    field(:content_type, non_null(:string), description: "声明的 MIME（须与扩展名同族）")
+
+    field(:content_base64, non_null(:string),
+      description: "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+    )
   end
 
   input_object :create_recruitment_cohort_input do

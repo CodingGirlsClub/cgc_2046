@@ -4164,6 +4164,8 @@ export type RootMutationType = {
   updateWorkspace: UpdateWorkspaceResult;
   /** 更新当前用户在某工作台的资料（ADR-0004 per-workspace） */
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
+  /** 上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF/Word，原始文件 ≤5MB，扩展名/声明 MIME/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid */
+  uploadResumeFile?: Maybe<ResumeProfilePayload>;
   /** 平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串 */
   upsertInitiativeRule?: Maybe<AdminInitiativeRulePayload>;
   /** 完善 / 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 / 联系邮箱 / 每周可投入 / 技能；文件内容经 U2 上传专线，不走本 mutation */
@@ -4680,6 +4682,12 @@ export type RootMutationTypeUpdateWorkspaceArgs = {
 
 export type RootMutationTypeUpdateWorkspaceProfileArgs = {
   input: UpdateWorkspaceProfileInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeUploadResumeFileArgs = {
+  input: UploadResumeFileInput;
   workspaceId: Scalars['ID']['input'];
 };
 
@@ -6152,6 +6160,15 @@ export type UpdateWorkspaceResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<Workspace>;
+};
+
+export type UploadResumeFileInput = {
+  /** 文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内） */
+  contentBase64: Scalars['String']['input'];
+  /** 声明的 MIME（须与扩展名同族） */
+  contentType: Scalars['String']['input'];
+  /** uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收） */
+  fileName: Scalars['String']['input'];
 };
 
 export type UpsertResumeProfileInput = {
