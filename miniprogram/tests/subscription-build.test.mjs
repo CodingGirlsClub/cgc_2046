@@ -22,13 +22,16 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relPath) => readFileSync(join(root, relPath), 'utf8')
 
 /** 期望场景数：改这个数必须是有意识的决定（防「四处一起被删空」也能通过相等断言）。 */
-const EXPECTED_SCENARIO_COUNT = 11
+const EXPECTED_SCENARIO_COUNT = 20
+
+/** 去掉行注释：注释里出现的示例字面量不得计入名单（守卫只认真实条目）。 */
+const stripLineComments = (source) => source.replace(/\/\/[^\n]*/g, '')
 
 /** 从 `const NAME = [...] as const` 里取字符串字面量。 */
 function constList(source, name, file) {
   const match = source.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const`))
   assert.ok(match, `${file} 里找不到 const ${name} = [...] as const`)
-  return [...match[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1])
+  return [...stripLineComments(match[1]).matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1])
 }
 
 /** 从 models.ts 的 `export type SubscriptionScenario = ...` 联合里取成员。 */
@@ -36,7 +39,7 @@ function scenarioUnion(source, file) {
   const start = source.indexOf('export type SubscriptionScenario =')
   assert.ok(start !== -1, `${file} 里找不到 SubscriptionScenario 联合声明`)
   // 联合声明是单一段落（空行即结束），可安全按空行截断
-  const block = source.slice(start).split(/\n\s*\n/)[0]
+  const block = stripLineComments(source.slice(start).split(/\n\s*\n/)[0])
   return [...block.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1])
 }
 

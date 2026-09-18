@@ -52,10 +52,11 @@ defmodule Cgc2046.Mcp.Playbooks do
     false 且 pricing.min_amount_cents 为 nil(押金不借定价档位,条目也不暴露
     price_tiers),那**不是免费**——把它说成免费是必须避免的错误;
   - 押金场(payment_mode=deposit):deposit.amount_cents 单位是**分**,复述金额前
-    先 /100 转元(6900 分 → 「押金 ¥69.00（到场退）」);金额缺失时只说
-    「押金（到场退）」不出价,绝不显示 ¥0;口径逐字对齐网站/小程序(下方引号内
+    先 /100 转元(6900 分 → 「押金 ¥69.00（到场退）」);金额缺失/非正时只说
+    「押金（金额待定）」不出价,绝不显示 ¥0;口径逐字对齐网站/小程序(下方引号内
     文案原样照搬,不要改写标点):
     「押金 ¥xx（到场退）」
+    「押金（金额待定）」
     「未到场不退。」
     「押金以到场为退还条件：到场核销后原路退回，未到场不予退还。」
     「押金：截止前取消全额退；截止后不退。」
@@ -138,7 +139,7 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. User-Story 写法:每张 issue 卡的 story 含 as_a(目标学员画像)/ given(先修状态,供学习 Agent 对照学习记录判断起点)/ goal(完成该 issue 后学员能独立做到什么);
   2. kind 判别(证据在哪为界):需要对话中的理解作为证据 → thoughtwork;需要环境中的产物作为证据 → handwork。动手卡 ≠ 技能,不为 issue 逐卡配技能标签;
-  3. checklist 可自验措辞:每条是可判定的完成标准;handwork 条目必须指向可检查产物(能运行/能读取/能展示),学习 Agent 会实际检查产物,避免「理解了」「掌握了」这类不可判定措辞;
+  3. checklist 可自验措辞:每条是可判定的完成标准;handwork 条目必须指向可检查产物(能运行/能读取/能展示),学习 Agent 会实际检查产物,避免「理解了」「掌握了」这类不可判定措辞;checklist 与 materials 均嵌在 story 内(是 story 的键,不是 issue 卡顶层键);
   4. id 稳定纪律:issue 的 id 与 checklist 条目的 id 一经发布不改不删;修订内容时保 id(学习记录按 id 引用,改 id 会破坏进行中学员的记忆);
   5. id 唯一性:issue id 在卡集内唯一,checklist item id 在单张 issue 内唯一(平台在提交时校验);
   6. materials 必须使用 typed Material：text/markdown 使用 body，web/image 使用 HTTPS url，video 使用 provider + external_id；不要提交旧 ref。
@@ -235,15 +236,18 @@ defmodule Cgc2046.Mcp.Playbooks do
      - update_course(workspace_id, course_id, ...) 改标题/描述/定价/报名策略等;设置正式标题即自动清除 provisional_title;pricing_enabled 改 false 会批量免缴该课程全部待支付报名(摘要会展示受影响笔数,确认后逐笔免缴留痕);
      - launch_course(workspace_id, course_id) 发布 draft → open;命名门:带 provisional_title 临时标题的课程不能发布,先经 update_course 设置正式课程标题;教研门:有教研流程的新课程不能带外发布(报「课程须完成教研流程后发布」即此义)——发布只能由教研流程的 approve_prep / 质量报告达标自动触发;launch_course 只对无教研流程的存量课程可用;
      - close_course / cancel_course(workspace_id, course_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
+     - delete_course(workspace_id, course_id) 删除 draft 课程(确认流;不可恢复,教研草稿一并删除,slug 立即释放可复用;仅 draft 可删,已发布课程只能 close/cancel;删除权限 = 工作台 Owner 或平台管理员,不含 admin);
      - 教研流程督导:get_prep_status(workspace_id, course_id) 读 prep_state/生效策略/门禁违规/最新质量报告;assign_prep_tutor(workspace_id, course_id, tutor_user_id) 指派 tutor(直接写;未指派时 tutor 可自行认领);update_prep_policy(workspace_id, course_id, review_required?/quality_threshold?/reviewer_user_id?) 调整教研策略(tutor 提交质量检查后冻结,须在此之前改定);审核环节 approve_prep(通过即发布——冻结当前草稿为不可变课程版本并将课程转 open;发布后修订走次周期,平台自动开新教研 run 沿用原 assignee)/ request_changes_prep(退回修订);低于阈值的质量报告可经 override_prep_gate(workspace_id, course_id, reason) 记理由覆盖(落审计);已发布版本经 get_course_revision(workspace_id, course_id, revision_number?) 读取(缺省=最新);
-  5. 活动生命周期（create_event 直接写,其余四件走确认流）:
+  5. 活动生命周期（create_event 直接写,其余五件走确认流）:
      - list_workspace_events(workspace_id, status?) 列出本台全部活动(含 draft),返回报名状态徽章 enrollment_badge 与解除挂载来源标记 detached_rule_provenance(无标记为 null);
      - preview_initiative_mount(workspace_id, initiative_id) 挂载前预览:读该 Initiative 四项规则(押金/年龄/人数/报名截止)的原始值与锁态(locked=挂载后强制且不可改;locked=false=挂载时按当时取值快照,之后可改),missing_rules 非空或 status 非 open 即挂载必失败——先把这些如实复述给用户再决定挂不挂;
      - create_event(workspace_id, title, ...) 直接写,创建 draft 活动;title 必填;venue(结构化场地 country/province/city/district 四键)与 sponsorship_enabled / sponsorship_tiers / sponsorship_deadline(赞助入口与档位) 为活动独有概念,课程工具无对应字段;带 initiative_id 挂载时会按规则强制写入押金/年龄/人数/报名截止,响应 inherited 逐字段给出「本次生效的值与来源(locked/default)」、initiative 给出所挂 Initiative——必须据此复述被强制的字段,不要只说"已挂载";
+     - batch_create_events(workspace_id, rows) 批量创建 draft 活动(#511):一次建多场(每行一个活动,字段同 create_event 且多余字段丢弃,行数上限 1024),适合「同构模板 × 城市/场地/时间差异」的批量场次(如 1024 Build Festival);**每行 slug 必填**——确定性 slug 就是幂等键,重放同批次时已存在的行(同 slug 同工作台)返回 skipped(已存在,未改动,数据以首次为准),不重复创建;slug 被其他工作台占用则该行失败报 event_slug_taken;命名模板由你(调用侧)决定(如 1024-<城市拼音>-<三位序号>),不要省略 slug 让系统生成随机值——随机 slug 会毁掉幂等;失败行在响应 rows 里给 行号+字段+原因,修正后把失败行原样重喂即可(已成功行会 skipped);行级只回 row/status/slug/title/event_id(失败行另有 error:{code,fields,message}),initiative 挂载的继承结果不回传,需要时用 list_workspace_events 逐场查;大批量参数会让审计存证退化为元数据摘要(仅保留 workspace_id 等查询锚,不是审计丢失);
      - update_event(workspace_id, event_id, ...) 改标题/描述/场地/定价/报名策略/赞助配置等;pricing_enabled 改 false 会批量免缴该活动全部待支付报名(与课程同语义,摘要展示受影响笔数);改 initiative_id 会换挂载并按新规则重新快照,响应 inherited 同款回传(未改挂载时只回 locked 项),响应另恒带 detached_rule_provenance(解除挂载来源标记,无则 null);
      - 解除挂载(detach)语义:活动可能在网站侧被解除挂载(initiative_id → nil;本工具的 initiative_id 传 nil = 未提供,不能 detach)。detach 不回收平台锁死规则强制写入的值——值留在活动上、回归普通可编辑字段;响应与 list_workspace_events 行的 detached_rule_provenance 标记这些值来自哪个已解除的倡导活动(逐字段 value + source=locked),无标记为 null。看到标记先向用户复述「该字段的值来自已解除的倡导活动《name》,尚未被本地改写」再按用户决定编辑;编辑标记内字段即清除该字段标记(全部清空后整列 null),编辑未标记字段(标题/时间等)不动标记;重挂载会清空整列并按新规则覆盖旧值,响应 inherited 同款回传;
      - launch_event(workspace_id, event_id) 发布 draft → open;
      - close_event / cancel_event(workspace_id, event_id) open → closed(截止报名) / cancelled(取消),均为终态不可逆,摘要含终态提示;
+     - delete_event(workspace_id, event_id) 删除 draft 活动(确认流;不可恢复,slug 立即释放可复用;仅 draft 可删,已发布活动只能 close/cancel;删除权限 = 工作台 Owner 或平台管理员,不含 admin);
   6. 报名管理:list_enrollments(workspace_id, kind, offering_id, status?) 按 kind(event|course) 读取活动或课程的报名行(学员/状态/档位;offering_id 为活动或课程 ID);confirm_enrollment / reject_enrollment(workspace_id, enrollment_id, ...) 审批 request 策略活动/课程的 pending 报名;waive_payment(workspace_id, enrollment_id) 免缴 payment_pending 报名——报名转 confirmed,关联 pending 订单同事务作废;list_attendances(workspace_id, event_id) 读该活动的核销记录(谁来了/何时/扫码还是手输/押金单去向;场次数据回收与对账用;#508);
   7. 订单与退款:list_workspace_orders(workspace_id, course_id?) 读取本工作台订单行(course_id 可选=按课程过滤,缺省全工作台;行含 order_kind:enrollment|deposit——押金单与报名单资金语义不同,展示名「押金」不作判据);refund_order(workspace_id, order_id) 对 paid 订单发起退款(确认后异步执行,可稍后复查订单状态;摘要写明押金单/报名单);retry_refund(workspace_id, order_id) 重试 refund_failed 订单;unforfeit_order(workspace_id, order_id, reason) 补救错没收的 forfeited 押金单(平台管理员专用,确认后原路全额退回,reason 必填进审计;#545);
   8. 加入策略:update_join_policy(workspace_id, join_policy) 改工作台加入策略(open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请);
@@ -251,7 +255,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   10. 角色边界:管理模式不创作课程内容;课程创建与配置完成后,把 issue 卡与 objectives 创作转交 Tutor 模式;
   11. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
 
-  确认流纪律:上述写操作（除 create_course 与 create_event）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
+  确认流纪律:上述写操作（除 create_course、create_event 与 batch_create_events）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
   先把 summary 复述给用户,再用宿主内置 ask_user 弹可点击卡片（选项 确认执行/取消;多个 pending 则每个 pending 一个 question）让用户点击选择:
   点「确认执行」后调 confirm_operation(pending_id);点「取消」或反悔则 cancel_operation(pending_id);
   ask_user 结果出现 auto_reply（无人在场）一律 cancel_operation。未经确认不落库。确认成功后若返回明文凭证(如 invitation_token),
@@ -288,9 +292,9 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-09-16.2", content: @workspace_admin_content},
-    tutor: %{version: "2026-09-04.1", content: @tutor_content},
-    learner: %{version: "2026-09-16.2", content: @learner_content}
+    workspace_admin: %{version: "2026-09-17.2", content: @workspace_admin_content},
+    tutor: %{version: "2026-09-17.1", content: @tutor_content},
+    learner: %{version: "2026-09-17.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner

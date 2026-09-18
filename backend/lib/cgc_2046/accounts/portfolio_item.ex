@@ -140,6 +140,16 @@ defmodule Cgc2046.Accounts.PortfolioItem do
   postgres do
     table("portfolio_items")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline delete_all（DB 实测
+    # confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:user, on_delete: :delete)
+
+      # #745：workspace_id FK 补齐（B 类，ADR-0004 挂账项落地）——对齐同表
+      # user_id 的 delete_all 先例；列 NOT NULL，条目随所属工作台删除。
+      reference(:workspace, on_delete: :delete)
+    end
   end
 
   policies do

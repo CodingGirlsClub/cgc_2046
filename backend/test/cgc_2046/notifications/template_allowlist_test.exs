@@ -5,8 +5,9 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
   #606 的失败形态：`runtime.exs` 声明了 17 个 `WECHAT_MP_TEMPLATE_*` 键，而
   `.github/workflows/deploy.yml` 的 fail-closed 循环与 kamal `config/deploy.yml`
   的 env.secret 只登记 10 个、`backend/.env.example` 又是另一套 10 个 —— 新模板
-  加了渲染子句也拿不到模板 ID，发送侧 `template_not_configured` 静默跳过（生产
-  480 条 discarded 的成因）。
+  加了渲染子句也拿不到模板 ID，发送侧 `template_not_configured` 重试耗尽后
+  discarded（#606 生产 480 条的成因；#664 起改为终态 discard + Logger.warning，
+  不再白重试 3 次，可见性不变）。
 
   本测试把四处名单钉成同一集合（键名集合，非顺序）：workflow（循环 + env 映射，
   同键出现两次由 uniq 收敛）/ kamal env.secret / .env.example / runtime.exs。
@@ -21,10 +22,10 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
   @env_example ".env.example"
   @runtime "config/runtime.exs"
 
-  # #546 核销码通知：17 → 18
-  @expected_size 18
+  # #546 核销码通知：17 → 18；#585 管理侧成班结果：18 → 19；#538 主理人移除：19 → 20
+  @expected_size 20
 
-  test "wechat 模板 env 四处名单集合完全一致（18 键）" do
+  test "wechat 模板 env 四处名单集合完全一致（20 键）" do
     sets =
       for path <- [@workflow, @kamal, @env_example, @runtime], into: %{} do
         {path, keys_in(path)}

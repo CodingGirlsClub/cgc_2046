@@ -8,11 +8,25 @@ import { PageState } from '@/components/PageState'
 import { buildCheckInPayload } from '@/domain/checkin'
 import { groupEnrollmentsByTarget } from '@/domain/enrollment-group'
 import { checkInCodeText, enrollmentHistoryTimeText, enrollmentScheduleText, enrollmentStatusText, enrollmentVenueText, formatDateTime, remainingLabel } from '@/domain/format'
-import type { EnrollmentSummary, OrderSummary } from '@/domain/models'
-import { enrollmentCardTouchpoint } from '@/domain/subscription'
+import type { EnrollmentSummary, OrderSummary, SubscriptionScenario } from '@/domain/models'
+import {
+  enrollmentCardTouchpoint,
+  refundCardTouchpoint,
+  requestAndGrant,
+  type SubscriptionFeedback
+} from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
-import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText } from '@/domain/payment'
+import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText, paidEnrollmentIds } from '@/domain/payment'
 import styles from './index.module.css'
+
+// 本页两个订阅触点（M2/M3 卡 + M7 付费卡）共用的注入式 deps——
+// 反馈通道 = toast（accepted → success，其余 none），语义见 domain/subscription.ts。
+const subscriptionDeps = {
+  request: requestPlatformSubscriptions,
+  grant: (scenario: SubscriptionScenario) => api.grantConsent(scenario),
+  notify: ({ kind, title }: SubscriptionFeedback) =>
+    Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
+}
 
 export default function MyEnrollmentsPage() {
   const [items, setItems] = useState<EnrollmentSummary[]>([])
@@ -31,6 +45,8 @@ export default function MyEnrollmentsPage() {
     () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders)])),
     [items, orders],
   )
+  // M7 付费卡触点门（#683）：缴费事实报名 id 集，同款派生
+  const paidIds = useMemo(() => paidEnrollmentIds(orders), [orders])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -63,20 +79,10 @@ export default function MyEnrollmentsPage() {
   // M2/M3：按条目类型分派——活动卡订阅「开始 + 改期」，课程卡订阅「学习停滞」。
   // （既有实现不分类型一律请求 event_reminder，而课程报名收不到该模板，属错配；
   // 判据与文案见 domain/subscription.ts，由 tests/subscription-domain.test.ts 钉住。）
-  const subscribeReminder = async (item: EnrollmentSummary) => {
-    const touchpoint = enrollmentCardTouchpoint(item.kind)
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
-        return
-      }
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
-    } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
-    }
-  }
+  const subscribeReminder = (item: EnrollmentSummary) =>
+    requestAndGrant(enrollmentCardTouchpoint(item.kind), subscriptionDeps)
+  // M7 付费卡（#683）：资金类三键（退款×2 + 过期）的付款人腿，恰满单次上限 3。
+  const subscribeRefund = () => requestAndGrant(refundCardTouchpoint(), subscriptionDeps)
 
   const cancelEnrollment = async (item: EnrollmentSummary) => {
     const modal = await Taro.showModal({
@@ -232,6 +238,11 @@ export default function MyEnrollmentsPage() {
                   {enrollmentCardTouchpoint(item.kind).label}
                 </Button>
               </>
+            )}
+            {paidIds.has(item.id) && (
+              <Button className={styles.textButton} size='mini' onClick={() => void subscribeRefund()}>
+                {refundCardTouchpoint().label}
+              </Button>
             )}
             {(item.status === 'rejected' || item.status === 'expired') && (
               <Button

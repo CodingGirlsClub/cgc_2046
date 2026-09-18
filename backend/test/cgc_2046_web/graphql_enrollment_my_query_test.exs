@@ -323,6 +323,68 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert when_value == DateTime.to_iso8601(starts_at)
   end
 
+  test "myEnrollments 返回押金快照金额 depositAmountCents（#696：与 createOrder 金额同源）" do
+    admin = Fixtures.platform_admin("my-enrollments-deposit-admin")
+    workspace = Fixtures.create_workspace(admin)
+    learner = Fixtures.register_user("my-enrollments-deposit-learner")
+
+    # 押金场（锚点齐备：registration_deadline 走 fixture 默认 +7d，ends_at 显式）；
+    # 报名走真实 create 路径——快照由 put_deposit_snapshot/2 物化，本测断言的
+    # 正是「报名物化的快照能从读面读回」，而非手塞 payload。
+    deposit_event =
+      EventFixtures.create_event(workspace, admin, %{
+        deposit_enabled: true,
+        deposit_amount_cents: 6900,
+        ends_at: EventFixtures.days_from_now(8)
+      })
+
+    free_event = EventFixtures.create_event(workspace, admin, %{title: "免费场"})
+
+    deposit_enrollment = create_enrollment(workspace, learner, %{event_id: deposit_event.id})
+    assert deposit_enrollment.status == :payment_pending
+    _free_enrollment = create_enrollment(workspace, learner, %{event_id: free_event.id})
+
+    rows = my_enrollment_rows(learner)
+
+    deposit_row = Enum.find(rows, &(&1["eventId"] == deposit_event.id))
+    assert deposit_row["paymentMode"] == "deposit"
+    # 同键同源：Payments.Order.enrollment_deposit_tier/1 下单读的就是这个快照键
+    assert deposit_row["depositAmountCents"] == 6900
+
+    free_row = Enum.find(rows, &(&1["eventId"] == free_event.id))
+    assert free_row["paymentMode"] == "free"
+
+    # 无押金（免费/定价报名）→ nil，绝不落 0（展示面「金额待定」口径）
+    assert free_row["depositAmountCents"] == nil
+
+    # 脏 payload（裸 SQL 置 0，历史脏行形态；布置纪律同 order_test #405 幂等用例）
+    # → #749 起读面与 submission_payload 完全脱钩：金额跟随活动现值 6900
+    # （与创单实付同源），脏键绝不污染展示，也绝不落 0
+    Cgc2046.Repo.query!(
+      "UPDATE enrollments SET submission_payload = jsonb_set(submission_payload, '{deposit_amount_cents}', '0'::jsonb) WHERE id = $1",
+      [Cgc2046.Repo.uuid!(deposit_enrollment.id)]
+    )
+
+    dirty_row =
+      learner |> my_enrollment_rows() |> Enum.find(&(&1["eventId"] == deposit_event.id))
+
+    assert dirty_row["depositAmountCents"] == 6900
+  end
+
+  defp my_enrollment_rows(learner) do
+    graphql(
+      """
+      query {
+        myEnrollments(first: 20, sort: [{field: INSERTED_AT, order: ASC}]) {
+          results { id eventId paymentMode depositAmountCents }
+        }
+      }
+      """,
+      sign_in_token(learner)
+    )
+    |> then(& &1["data"]["myEnrollments"]["results"])
+  end
+
   defp create_enrollment(workspace, user, attrs) do
     Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, Map.merge(%{user_id: user.id}, attrs),

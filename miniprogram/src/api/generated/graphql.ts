@@ -343,6 +343,8 @@ export type CreateEnrollmentInput = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: boolean | null | undefined;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: string | number;
   /** 支付渠道 */
@@ -884,7 +886,7 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null, publicModerators: Array<string> | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
@@ -911,7 +913,7 @@ export type EnrollmentQueryVariables = Exact<{
 }>;
 
 
-export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
+export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, depositAmountCents: number | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
@@ -1049,4 +1051,4 @@ export type PublicInitiativeQueryVariables = Exact<{
 }>;
 
 
-export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null }> }> } | null };
+export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null, paymentMode: string, minAge: number | null, priceRangeMinCents: number | null, deposit: { enabled: boolean, amountCents: number | null, refundableOnCheckIn: boolean | null } }> }> } | null };

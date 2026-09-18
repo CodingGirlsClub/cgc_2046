@@ -36,6 +36,13 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
                     sponsorship_deadline pricing_enabled price_tiers course_revision_id
                     initiative_id deposit_enabled deposit_amount_cents min_age min_participants)
 
+  # 字段白名单单源（#511）：batch_create_events 行级取参与本工具共用同一清单，
+  # 不复制（防两处漂移）。行级取参逻辑判别法相同（nil = 未提供；false 是合法
+  # 显式值，不能用 || 收集）。
+  @doc "create action 的字段白名单（batch_create_events 行级取参共用，单源不复制）"
+  @spec create_fields() :: [String.t()]
+  def create_fields, do: @create_fields
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:title, {:required, :string}, description: "活动标题")
@@ -128,11 +135,11 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
     end
   end
 
-  # 白名单取参（string/atom 键双兼容；固定字段名 to_existing_atom 不污染 atom 表）；
-  # nil 值视为未提供（本工具不支持显式置空）。false 是合法显式值
-  # （sponsorship_enabled/curriculum_enabled 域默认 true，用户明确传 false 必须
-  # 落库），不能用 || 收集（false || nil → nil 会被当未提供丢弃）；判别法与
-  # UpdateEvent.collect_changes 同款：字符串键优先，Map.has_key? 区分「未提供」。
+  # 白名单取参（键恒为 string——Wrapper.run 顶层 normalize_keys 已归一，工具内
+  # 不再双键收参；固定字段名 to_existing_atom 不污染 atom 表）；nil 值视为未提供
+  # （本工具不支持显式置空）。false 是合法显式值（sponsorship_enabled /
+  # curriculum_enabled 域默认 true，用户明确传 false 必须落库），不能用 ||
+  # 收集（false || nil → nil 会被当未提供丢弃）。
   defp take_fields(params, fields) do
     fields
     |> Enum.filter(fn field -> not is_nil(take_value(params, field)) end)

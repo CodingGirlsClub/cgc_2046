@@ -20,6 +20,14 @@ export type OrderStatus =
   | 'forfeited'
 /** 订单口径（后端 Order.order_kind）：押金单 / 一般报名单（含定价档位） */
 export type OrderKind = 'enrollment' | 'deposit'
+/** 缴费槽三态（后端 Offering.payment_mode/1 单源，押金优先；三态互斥） */
+export type PaymentMode = 'free' | 'pricing' | 'deposit'
+/** 公开页押金明细（#627）：金额缺失/非正 → amountCents 为 null，enabled 仍 true（#586） */
+export interface PublicDeposit {
+  enabled: boolean
+  amountCents: number | null
+  refundableOnCheckIn: boolean | null
+}
 /**
  * 订阅消息场景键（= 后端 `template_key`）。
  *
@@ -34,14 +42,23 @@ export type SubscriptionScenario =
   | 'approval_result'
   | 'approval_reminder'
   | 'event_reminder'
+  | 'enrollment_completed'
   | 'enrollment_check_in_code'
   | 'event_qualification_confirmed'
   | 'event_qualification_underfilled'
+  | 'event_qualification_manager'
   | 'event_schedule_changed'
   | 'event_moderator_assigned'
+  | 'event_moderator_removed'
   | 'speaker_accepted'
   | 'speaker_completed'
   | 'learning_stagnation'
+  | 'payment_succeeded'
+  | 'payment_expired'
+  | 'refund_succeeded'
+  | 'refund_failed'
+  | 'enrollment_submitted'
+  | 'payment_received'
 
 export interface CatalogItem {
   id: string
@@ -79,6 +96,12 @@ export interface CatalogItem {
    * 「所属倡导活动」回链；列表查询不带该字段 → 恒 null。
    */
   initiativeId: string | null
+  /**
+   * 公开主理人投影（#538；[JsonString!]，每行 parse 后 {display_name,
+   * member_number}，assignedAt 升序）。仅 event 详情查询携带；列表/课程恒
+   * null。回退链 displayName → memberNumber 见 format.ts 的 moderatorNames。
+   */
+  publicModerators: string[] | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
   /**
@@ -117,6 +140,13 @@ export interface PublicInitiativeEvent {
   archived: boolean
   qualificationBadge: QualificationBadge
   shortBy: number | null
+  /** 参与条件（#627）：缴费槽**单槽三态**，不与成班进度混算 */
+  paymentMode: PaymentMode
+  deposit: PublicDeposit
+  /** 年龄门槛存在性（nil/null = 无门槛）；不投校验策略 */
+  minAge: number | null
+  /** 收费态金额锚（可售档位最小值，分）；无金额锚 → null（不臆造金额） */
+  priceRangeMinCents: number | null
 }
 
 export interface PublicInitiative extends PublicInitiativeCard {
@@ -141,7 +171,8 @@ export interface MyEnrollmentState {
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值 → null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
 export interface UserSummary {
@@ -206,7 +237,14 @@ export interface EnrollmentSummary {
    */
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
-  paymentMode: 'free' | 'pricing' | 'deposit' | null
+  paymentMode: PaymentMode | null
+  /**
+   * 押金快照金额（分；后端 Enrollment.depositAmountCents 计算字段，源 = 报名提交
+   * 时物化的 submission_payload 键，与下单实付金额同源）。order-pay 的**创单前**
+   * 披露用它表态；脏值/无键 → null（文案走「押金（金额待定）」，绝不 ¥0）。
+   * 创单后一律切到订单快照 `order.amountCents`（权威，见 order-pay 页）。
+   */
+  depositAmountCents: number | null
   /**
    * #617 目标开始时间（后端 Enrollment.startsAt 计算字段，ISO8601；null = 时间待定）。
    * 改期（event_schedule_changed）与开课提醒（event_reminder）都以本页为落页，
@@ -312,8 +350,13 @@ export interface MiniProgramApi {
   getEnrollment(id: string): Promise<EnrollmentSummary | null>
   cancelEnrollment(id: string): Promise<void>
   createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary>
-  /** U12：JSAPI 下单（provider 固定 wechat_jsapi，R13） */
-  createOrder(enrollmentId: string): Promise<CreatedOrder>
+  /**
+   * U12：JSAPI 下单（provider 固定 wechat_jsapi，R13）。
+   * depositConsent（#727 后端权威闸）：押金单必须 true，缺失/false 一律被拒
+   * （order_deposit_consent_required）；非押金单忽略——调用方只在预检判定押金
+   * 且用户已勾选时携带（同 #510 ageConfirmed 的条件携带口径）。
+   */
+  createOrder(enrollmentId: string, depositConsent?: boolean): Promise<CreatedOrder>
   /** U12：订单状态轮询（R14 轻量面） */
   getOrderStatus(orderId: string): Promise<OrderSummary>
   /** U12：我的订单（缴费态展示数据源） */

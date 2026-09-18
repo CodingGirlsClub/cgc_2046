@@ -2,6 +2,16 @@ import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
 
+/** 公开页押金明细（#627）：金额缺失/非正 → amountCents 为 null，enabled 仍 true（#586 口径） */
+export type InitiativeDeposit = {
+	enabled: boolean;
+	amountCents: number | null;
+	refundableOnCheckIn: boolean | null;
+};
+
+/** 缴费槽三态（#586 单源：Offering.payment_mode/1）；free 与「押金未定」不可混 */
+export type InitiativePaymentMode = "free" | "pricing" | "deposit";
+
 export type InitiativeEvent = {
 	id: string;
 	slug: string;
@@ -19,6 +29,13 @@ export type InitiativeEvent = {
 	qualificationBadge: "cancelled" | "closed" | "confirmed" | "short_by" | "open";
 	shortBy: number | null;
 	archived: boolean;
+	/** 参与条件（#627）：缴费槽三态，单槽互斥，不与成班徽章混算 */
+	paymentMode: InitiativePaymentMode;
+	deposit: InitiativeDeposit;
+	/** 年龄门槛存在性（nil = 无门槛）；不投校验策略 */
+	minAge: number | null;
+	/** 收费态金额锚（可售档位最小值，分）；无金额锚 → null（不臆造金额） */
+	priceRangeMinCents: number | null;
 };
 
 export type PublicInitiative = {
@@ -77,7 +94,7 @@ const PUBLIC_INITIATIVE: TypedDocumentNode<
 	query PublicInitiative($slug: String!) {
 		publicInitiative(slug: $slug) {
 			id name slug hashtag description status windowStartsAt windowEndsAt cityCount eventCount confirmedCount qualifiedEventCount
-			cities { city events { id slug title status visibility startsAt endsAt registrationDeadline venue confirmedCount minParticipants qualificationStatus qualificationBadge shortBy archived } }
+			cities { city events { id slug title status visibility startsAt endsAt registrationDeadline venue confirmedCount minParticipants qualificationStatus qualificationBadge shortBy archived paymentMode deposit { enabled amountCents refundableOnCheckIn } minAge priceRangeMinCents } }
 		}
 	}
 `;

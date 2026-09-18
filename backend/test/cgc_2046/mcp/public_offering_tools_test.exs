@@ -464,6 +464,40 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
       assert is_binary(detail["ends_at"])
     end
 
+    # #687：脏档金额（0 元）经 available_tiers/1 投 nil——档位保留、金额不表态，
+    # MCP 面不携脏值（agent 不见 ¥0 事实）；渲染侧由 web/小程序解析层兜底。
+    test "脏档金额投 nil：档位保留、amount_cents 不表态（#687）" do
+      admin = Fixtures.platform_admin("po-dirty")
+      workspace = Fixtures.create_workspace(admin)
+      dirty_tier_id = "55555555-5555-4555-8555-555555555555"
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          starts_at: EventFixtures.days_from_now(3),
+          ends_at: EventFixtures.days_from_now(4),
+          pricing_enabled: true,
+          price_tiers: [%{"id" => dirty_tier_id, "name" => "早鸟", "amount_cents" => 9900}]
+        })
+
+      # 布置而非被测对象：域校验挡 0 元档，裸 SQL 造存量脏行（#627 F5 同款）；
+      # jsonb 参数直接传 Elixir 结构（postgrex 经 Jason 编码；预编码字符串会被
+      # 再包一层 JSON 引号存成 string scalar）
+      Cgc2046.Repo.query!(
+        "UPDATE events SET price_tiers = $2 WHERE id = $1",
+        [
+          Ecto.UUID.dump!(event.id),
+          [%{"id" => dirty_tier_id, "name" => "早鸟", "amount_cents" => 0}]
+        ]
+      )
+
+      outsider = Fixtures.register_user("po-dirty-user")
+
+      assert {:reply, _, _} =
+               reply = GetPublicOffering.execute(%{"id" => event.id}, frame_for(outsider))
+
+      assert [%{"name" => "早鸟", "amount_cents" => nil}] = decode(reply)["available_price_tiers"]
+    end
+
     test "按 id 取公开押金场：payment_mode=deposit + 金额与到场退条件（#586 验收）" do
       admin = Fixtures.platform_admin("po-get-dep")
       workspace = Fixtures.create_workspace(admin)

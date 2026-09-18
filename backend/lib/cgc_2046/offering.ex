@@ -34,6 +34,8 @@ defmodule Cgc2046.Offering do
     `deposit_amount_cents/1`：押金金额（正整数，否则 `nil`）。落点状态预测
     （`Admission.Enrollment.auto_confirm_status/1`）与 MCP/扩展读面共用本谓词，
     不再各自重写三态分支。
+  - `payment_slot/1`：缴费槽读面形状（`payment_mode` + `deposit` 明细块）唯一实现，
+    MCP 四个读面工具与公开 Initiative 投影共用（#627）。
   """
 
   require Ash.Query
@@ -103,10 +105,21 @@ defmodule Cgc2046.Offering do
   与 `fetch_titles_by_ids/2` 同形状（per-kind per-tenant 批量读，消 N+1；
   空 id 列表不查询）。starts_at 为供给物原始值（可 nil）；venue 为 Event
   venue map 经 `Events.Venue.text/1` 的「city+district」文本化（Course 或无
-  venue → nil），与 event_reminder 通知文案同款。
+  venue → nil），与 event_reminder 通知文案同款。另带缴费槽字段
+  `registration_deadline / deposit_enabled / deposit_amount_cents /
+  pricing_enabled`（#749 起 deposit 金额入投影，Enrollment 展示面与创单同源）。
   """
   @spec fetch_schedule_by_ids(%{optional(:event | :course) => [String.t()]}, String.t()) ::
-          %{String.t() => %{starts_at: DateTime.t() | nil, venue: String.t() | nil}}
+          %{
+            String.t() => %{
+              starts_at: DateTime.t() | nil,
+              venue: String.t() | nil,
+              registration_deadline: DateTime.t() | nil,
+              deposit_enabled: boolean(),
+              deposit_amount_cents: pos_integer() | nil,
+              pricing_enabled: boolean()
+            }
+          }
   def fetch_schedule_by_ids(ids_by_kind, tenant) do
     Enum.reduce(ids_by_kind, %{}, fn {kind, ids}, acc ->
       Map.merge(acc, schedule_for(resource_for(kind), ids, tenant))
@@ -163,6 +176,46 @@ defmodule Cgc2046.Offering do
 
   def deposit_amount_cents(_offering), do: nil
 
+  @doc """
+  缴费槽读面投影：`%{payment_mode: String.t(), deposit: map()}`（跨面唯一实现）。
+
+  落在域层而非某个消费面：MCP 读面（`Mcp.Tools.PaymentSlot`，四个工具共用）与公开
+  Initiative 投影（`Initiatives.Public`）同用此形状——domain 不反向依赖 interface
+  层，各消费面也不再手写同一份 block（#586 的「唯一出口」纪律不变，出口下沉到此）。
+
+  展示降级规则（#586 裁决，逐条保留）：
+
+  - `deposit.enabled` 只看 mode，不看金额：押金场金额脏（历史行的 nil / 0）也恒为
+    `true`，绝不掉回「免费」——把押金场说成免费的病根即「无信号 + 金额缺失」被读成
+    免费。
+  - `deposit.amount_cents` 只出正整数，否则 `nil`，绝不显示 `0`。
+  - `refundable_on_check_in` 押金态恒 `true`：平台规则「到场核销即退」（CONTEXT
+    押金段），非每场可配；其余态 `nil`。
+  - 非押金场形状恒定（`enabled: false` 而非整块 `nil`）：字段缺席正是 #586 的病根，
+    恒定形状让「押金槽存在但未开」可见。
+
+  入参形状纪律同 `payment_mode/1`：**只匹配 atom 键**，string 键 map（JSON 解码
+  形状）会被判成 free，调用方不得直传解码后的 payload。
+  """
+  @spec payment_slot(map() | nil) :: %{payment_mode: String.t(), deposit: map()}
+  def payment_slot(offering) do
+    mode = payment_mode(offering)
+
+    %{payment_mode: to_string(mode), deposit: deposit_block(offering, mode)}
+  end
+
+  defp deposit_block(offering, :deposit) do
+    %{
+      enabled: true,
+      amount_cents: deposit_amount_cents(offering),
+      refundable_on_check_in: true
+    }
+  end
+
+  defp deposit_block(_offering, _mode) do
+    %{enabled: false, amount_cents: nil, refundable_on_check_in: nil}
+  end
+
   defp resource_for(:event), do: Event
   defp resource_for(:course), do: Course
 
@@ -193,6 +246,9 @@ defmodule Cgc2046.Offering do
          venue: venue_text_for(offering),
          registration_deadline: offering.registration_deadline,
          deposit_enabled: Map.get(offering, :deposit_enabled) == true,
+         # 押金现值（#749）：Enrollment.deposit_amount_cents 计算字段与创单金额
+         # 同源（活动现值权威）；course 无押金列 → nil
+         deposit_amount_cents: Map.get(offering, :deposit_amount_cents),
          pricing_enabled: offering.pricing_enabled == true
        }}
     end)

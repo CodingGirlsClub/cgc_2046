@@ -183,15 +183,18 @@ if config_env() == :prod do
       "payment_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_SUCCEEDED"),
       "refund_failed" => System.get_env("WECHAT_MP_TEMPLATE_REFUND_FAILED"),
-      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 终态 discard + 日志
       "payment_received" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_RECEIVED"),
       "payment_expired" => System.get_env("WECHAT_MP_TEMPLATE_PAYMENT_EXPIRED"),
       "event_qualification_confirmed" =>
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -199,7 +202,7 @@ if config_env() == :prod do
       "enrollment_submitted" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "event_reminder" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_REMINDER"),
       "enrollment_completed" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      # 抖音端模板未申请（键保留，值 nil → template_not_configured 跳过）
+      # 抖音端模板未申请（键保留，值 nil → template_not_configured 终态 discard + 日志）
       "enrollment_check_in_code" => System.get_env("DOUYIN_MP_TEMPLATE_ENROLLMENT_CHECK_IN_CODE"),
       "speaker_accepted" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_ACCEPTED"),
       "speaker_completed" => System.get_env("DOUYIN_MP_TEMPLATE_SPEAKER_COMPLETED"),
@@ -208,22 +211,25 @@ if config_env() == :prod do
       "payment_succeeded" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_SUCCEEDED"),
       "refund_failed" => System.get_env("DOUYIN_MP_TEMPLATE_REFUND_FAILED"),
-      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 终态 discard + 日志
       "payment_received" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_RECEIVED"),
       "payment_expired" => System.get_env("DOUYIN_MP_TEMPLATE_PAYMENT_EXPIRED"),
       "event_qualification_confirmed" =>
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
       "approval_reminder" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_REMINDER"),
       "enrollment_submitted" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_SUBMITTED"),
       "enrollment_completed" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_COMPLETED"),
-      # 小红书端模板未申请（键保留，值 nil → template_not_configured 跳过）
+      # 小红书端模板未申请（键保留，值 nil → template_not_configured 终态 discard + 日志）
       "enrollment_check_in_code" => System.get_env("XHS_MP_TEMPLATE_ENROLLMENT_CHECK_IN_CODE"),
       "event_reminder" => System.get_env("XHS_MP_TEMPLATE_EVENT_REMINDER"),
       "speaker_accepted" => System.get_env("XHS_MP_TEMPLATE_SPEAKER_ACCEPTED"),
@@ -233,15 +239,18 @@ if config_env() == :prod do
       "payment_succeeded" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_SUCCEEDED"),
       "refund_succeeded" => System.get_env("XHS_MP_TEMPLATE_REFUND_SUCCEEDED"),
       "refund_failed" => System.get_env("XHS_MP_TEMPLATE_REFUND_FAILED"),
-      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 静默跳过
+      # organizer-payment U5（R12/R13）：未配置时 template_not_configured 终态 discard + 日志
       "payment_received" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_RECEIVED"),
       "payment_expired" => System.get_env("XHS_MP_TEMPLATE_PAYMENT_EXPIRED"),
       "event_qualification_confirmed" =>
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     }
   }
 

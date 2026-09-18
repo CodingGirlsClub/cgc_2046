@@ -1,3 +1,4 @@
+import { BusinessError } from '../api/business-error.ts'
 import type { EnrollmentStatus, EnrollmentSummary, OrderKind, OrderSummary } from './models'
 
 /**
@@ -140,10 +141,17 @@ export function countdownText(nowMs: number, expireAt: string | null | undefined
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值（缺失/0/负/非整数分）→ null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
-/** 可售档位逐项解析（后端已过滤过期档）；非法项静默丢弃 */
+/**
+ * 可售档位逐项解析（后端已过滤过期档）；坏 JSON/缺身份（id/name）项静默丢弃。
+ * **金额不丢档**（#687）：脏 amount_cents 过 positiveAmountOrNull 守卫 → null——
+ * 档位保留可见，渲染层据此降级「金额待定」并禁选，绝不进 formatAmount 出
+ * ¥0/¥0.00。与押金（#675）同判据；后端 available_tiers/1 已按同判据投 nil，
+ * 此处是展示层兜底（旧缓存 payload / 部署窗口）。
+ */
 export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
   if (!Array.isArray(raw)) return []
 
@@ -152,8 +160,14 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
     if (!parsed || typeof parsed !== 'object') return []
     const t = parsed as Record<string, unknown>
     if (typeof t.id !== 'string' || typeof t.name !== 'string') return []
-    if (typeof t.amount_cents !== 'number' || !Number.isFinite(t.amount_cents)) return []
-    return [{ id: t.id, name: t.name, amountCents: t.amount_cents }]
+    return [
+      {
+        id: t.id,
+        name: t.name,
+        amountCents:
+          typeof t.amount_cents === 'number' ? positiveAmountOrNull(t.amount_cents) : null
+      }
+    ]
   })
 }
 
@@ -162,6 +176,18 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 /** 分 → 元（两位小数，R20 存储一律分） */
 export function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2)
+}
+
+/**
+ * 档位行金额标签（#687 单源，与 web lib/payment.ts#tierAmountText 同式）：
+ * 脏金额（amountCents null）→ pendingText（「金额待定」），绝不进 formatAmount
+ * 出 ¥0/¥0.00——档位行渲染点共用，新增渲染点直接调本函数。
+ */
+export function tierAmountText(
+  tier: Pick<PriceTier, 'amountCents'>,
+  pendingText: string
+): string {
+  return tier.amountCents === null ? pendingText : `¥${formatAmount(tier.amountCents)}`
 }
 
 /** 订单状态词表（my-enrollments 缴费态 + order-pay 页共用） */
@@ -197,6 +223,25 @@ const CARD_ORDER_STATUSES: Record<string, true> = {
   refund_failed: true
 }
 
+/** 报名名下「有缴费事实」的订单（白名单过滤；缴费文案与 M7 付费卡触点判据共用）。 */
+function cardOrdersOf(
+  enrollmentId: string,
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[]
+): Pick<OrderSummary, 'enrollmentId' | 'status'>[] {
+  return orders.filter((order) => order.enrollmentId === enrollmentId && CARD_ORDER_STATUSES[order.status])
+}
+
+/**
+ * M7 付费卡触点判据（#683）：缴费事实报名的 id 集（一次 O(orders) 预分组，
+ * 页面 useMemo 后逐卡 O(1) 查 `paidIds.has(id)`）。**不看 enrollment.status**——
+ * 退款落定时报名可能已 cancelled，卡上仍应能补订阅授权（配额结转）。
+ */
+export function paidEnrollmentIds(
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[]
+): ReadonlySet<string> {
+  return new Set(orders.filter((order) => CARD_ORDER_STATUSES[order.status]).map((order) => order.enrollmentId))
+}
+
 /**
  * 报名卡缴费文案（R16，单源）：payment_pending 由报名状态自身表达（待支付 + 名额
  * 保留提示）；confirmed 报名只认白名单订单状态（已支付/退款中/已退款/押金未退/
@@ -213,7 +258,7 @@ export function enrollmentPaymentText(
   }
   if (enrollment.status !== 'confirmed') return null
 
-  const statuses = orders.filter((order) => order.enrollmentId === enrollment.id && CARD_ORDER_STATUSES[order.status])
+  const statuses = cardOrdersOf(enrollment.id, orders)
   const latest = statuses[statuses.length - 1]
   return latest ? `缴费状态：${PAYMENT_STATUS_LABEL[latest.status]}` : null
 }
@@ -262,13 +307,26 @@ export function cancelRefundRuleText(paymentMode: EnrollmentSummary['paymentMode
 /* ---------------- 押金场支付前同意（资金动作门） ---------------- */
 
 /**
+ * 展示金额守卫（#627 引入，本模块为小程序端单源；#675 收敛到此）：
+ * **只有正整数**算有效金额，缺失 / 0 / 负 / **小数分** / 非数值一律 null——调用方据此退化
+ * 为不表态形态（押金 →「押金（金额待定）」），**绝不显示 ¥0 / ¥0.00**。
+ *
+ * `Number.isInteger` 是必要的一半：后端以「分」为整数单位，`0.4` 经 `formatAmount`
+ * 会四舍五入成 `¥0.00`（实测）——与 web `lib/payment.ts#positiveAmountOrNull` 同判据。
+ * 后端已按同判据降级（`Offering.deposit_amount_cents/1`，#586），此处是展示层兜底。
+ */
+export function positiveAmountOrNull(cents: number | null | undefined): number | null {
+  return typeof cents === 'number' && Number.isInteger(cents) && cents > 0 ? cents : null
+}
+
+/**
  * 押金金额行（单源）：详情页缴费块与支付页同意块共用同一出口，杜绝两处口径漂移。
- * 金额缺失/非正 → 降级「押金（到场退）」不出价，绝不显示 ¥0.00。
+ * 脏金额（缺失/0/负/非整数分）→ 不表态「押金（金额待定）」（与 web #627/#675 同一句），
+ * 绝不显示 ¥0.00。
  */
 function depositAmountLine(amountCents: number | null): string {
-  return typeof amountCents === 'number' && Number.isFinite(amountCents) && amountCents > 0
-    ? `押金 ¥${formatAmount(amountCents)}（到场退）`
-    : '押金（到场退）'
+  const cents = positiveAmountOrNull(amountCents)
+  return cents === null ? '押金（金额待定）' : `押金 ¥${formatAmount(cents)}（到场退）`
 }
 
 /** 押金场支付前同意块文案（与 web checkout.depositForfeit / depositAckLabel 同口径） */
@@ -318,6 +376,40 @@ export function canRequestPayment(input: {
   return input.order.orderKind !== 'deposit' || input.ack
 }
 
+/* ---------------- 押金创单前门（#727：勾选 → 创单（带同意）→ 支付） ---------------- */
+
+/**
+ * 创单前押金门判据（纯函数；order-pay 页只做渲染与调起）。
+ *
+ * 非 null = 押金场：先出披露 + 勾选，同意后才创单（携带 depositConsent）；
+ * null = 非押金/报名读不到 → 直接创单。判据 = 报名快照的
+ * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取
+ * `depositAmountCents`——#749 起它与创单实付同源同值（活动现值权威，
+ * payload 不参与金额）。报名读不到（null）→ null：本端 fail-open 由后端
+ * 权威闸兜底（押金单缺同意被 order_deposit_consent_required 拒，#751 自愈
+ * 转披露+勾选流程）。
+ */
+
+export function preCreateDepositGate(
+  enrollment: Pick<EnrollmentSummary, 'paymentMode' | 'depositAmountCents'> | null
+): DepositPayNotice | null {
+  if (enrollment?.paymentMode !== 'deposit') return null
+  return depositPayNotice(enrollment.depositAmountCents ?? null)
+}
+
+/**
+ * 创单失败的自愈判定（#751-②，纯函数；order-pay 页 catch 分派用）。
+ *
+ * `order_deposit_consent_required` = 后端判押金而本端预检未识别（旧版缓存/
+ * 预检失败走裸创单）→ 页面转「披露 + 勾选」流程，用户勾选后重试创单带上
+ * `depositConsent: true`——重试不再同构死循环。其余错误（网络/会话/业务）
+ * → false，页面落可重试错误态。
+ */
+export function createOrderSelfHealsToConsent(reason: unknown): boolean {
+  return reason instanceof BusinessError &&
+    reason.code === 'order_deposit_consent_required'
+}
+
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */
 
 /** 详情页缴费块三态文案（R10 单一缴费槽：免费 / 收费 ¥xx / 押金 ¥xx（到场退）） */
@@ -333,8 +425,8 @@ export interface PaymentBlockCopy {
 }
 
 /**
- * 详情页缴费块文案（R10）。押金态：金额可缺（后端校验要求正金额，缺额时降级为
- * 「押金（到场退）」不出价——绝不显示 ¥0.00），且说明行明示「未到场不退」；
+ * 详情页缴费块文案（R10）。押金态：金额可缺（后端校验要求正金额，缺额/脏值时降级为
+ * 「押金（金额待定）」不出价——绝不显示 ¥0.00），且说明行明示「未到场不退」；
  * 定价态透传档位（金额在档位行上，无可售档时给出联系组织者兜底）；免费态仅「免费」。
  */
 export function paymentBlockCopy(input: {

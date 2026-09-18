@@ -116,9 +116,9 @@ env:
     - DOUYIN_MP_SECRET
     # 订阅消息模板 ID（2026-08-26 平台申请 3 键；#406 2026-09-05 补 7 键：
     # 报名提交/报名成功/支付成功/收款到账/订单超时/退款成功/退款失败；
-    # #606 2026-09-16 再补 7 键：开班成班/未达阈值/改期/主理人指派/
-    # speaker 接受与完成/学习停滞；#546 补核销码通知 1 键 —— 与 runtime.exs 的
-    # 18 键集合一致）。
+    # #606 2026-09-16 再补 7 键：成班/未达阈值/改期/主理人指派/
+    # speaker 接受与完成/学习停滞；#546 补核销码通知 1 键；#585 补管理侧成班
+    # 结果 1 键 —— 与 runtime.exs 的 19 键集合一致）。
     # 未配置的槽位发送侧 template_not_configured 静默跳过，不阻塞）
     - WECHAT_MP_TEMPLATE_APPROVAL_RESULT
     - WECHAT_MP_TEMPLATE_APPROVAL_REMINDER
@@ -133,8 +133,10 @@ env:
     - WECHAT_MP_TEMPLATE_REFUND_FAILED
     - WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED
     - WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED
+    - WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER
     - WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED
     - WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED
+    - WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED
     - WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED
     - WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED
     - WECHAT_MP_TEMPLATE_LEARNING_STAGNATION

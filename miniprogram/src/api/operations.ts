@@ -97,6 +97,9 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       # 阶段1：挂载 Initiative 的活动带出隶属 id（公开字段白名单内，匿名可读）；
       # 详情页据此渲染「所属倡导活动」回链
       initiativeId
+      #538：公开主理人投影（[JsonString!]，每行 {display_name, member_number}；
+      # assignedAt 升序，详情页渲染「本场主理人」行——三端同口径）
+      publicModerators
     }
     # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
     myEnrollment(kind: "event", offeringId: $id) {
@@ -216,6 +219,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         insertedAt
         checkInCode
         paymentMode
+        depositAmountCents
         startsAt
         venue
         registrationDeadline
@@ -467,7 +471,7 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
       cityCount eventCount confirmedCount qualifiedEventCount
       cities {
         city
-        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy }
+        events { id slug title status startsAt endsAt registrationDeadline venue archived qualificationBadge shortBy paymentMode deposit { enabled amountCents refundableOnCheckIn } minAge priceRangeMinCents }
       }
     }
   }

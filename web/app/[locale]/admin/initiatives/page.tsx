@@ -20,20 +20,42 @@ const RULE_KEYS = ["deposit", "age_gate", "min_participants", "deadline_rule"] a
  * 规则变更影响预览的数字（#595）：全部由已加载的挂载场清单本地推导——
  * 与操作者同屏看到的行同源，不引入第二处计数真源。
  *
- * 口径：`terminal` = 非 draft/open 的场（closed / cancelled），只做事实分组，
- * 不断言"哪些场会被改写"（传播范围基线为全量、#587 后限 draft/open，前端不预判）；
- * `confirmed` 用 events.confirmed_count 展示投影（权威计数在名额账本，可能滞后一拍）。
+ * 口径（#641 对齐 #587 守卫）：`total` / `pricingBlocked` 只数非终态场
+ * （draft / open，即后端 `lock_propagatable_events/1` 的传播范围）——终态场的
+ * 定价不可能触发 `event_payment_mode_exclusive`，计入只会把管理员指去处理一个
+ * 不会造成拒绝的场。`terminal`（closed / cancelled）与 `confirmed`
+ * （events.confirmed_count 投影；权威计数在名额账本，可能滞后一拍）仍是
+ * 全量事实分组，与 total 的传播范围口径刻意不同。
+ *
+ * 两处计数刻意不同是**有意设计**，不要为了「一致」把它们统一：弹层
+ * total = 非终态传播范围；表头「挂载场（N）」= `mounts.length` 全量挂载
+ * （Mounts.list 如实投影全状态，表格也展示全部行）。
  */
 function mountedImpact(mounts: AdminInitiativeMountedEvent[]) {
-	const draft = mounts.filter((mount) => mount.status === "draft").length;
-	const open = mounts.filter((mount) => mount.status === "open").length;
+	// 单趟计数（每次 render 都会重算，不留只为读 .length 的中间数组）。
+	// `propagatable` 命名对齐后端 `lock_propagatable_events/1`——不用 `active`：
+	// 仓库里 active 一贯指报名/订单「进行中」，且活动侧与场次侧两条状态轴
+	// 刻意不复刻（rule_inheritance.ex moduledoc），别让词形暗示可互推。
+	let draft = 0;
+	let open = 0;
+	let terminal = 0;
+	let confirmed = 0;
+	let pricingBlocked = 0;
+	for (const mount of mounts) {
+		const propagatable = mount.status === "draft" || mount.status === "open";
+		if (mount.status === "draft") draft += 1;
+		else if (mount.status === "open") open += 1;
+		else terminal += 1;
+		if (propagatable && mount.pricingEnabled) pricingBlocked += 1;
+		confirmed += mount.confirmedCount ?? 0;
+	}
 	return {
-		total: mounts.length,
+		total: draft + open,
 		draft,
 		open,
-		terminal: mounts.length - draft - open,
-		confirmed: mounts.reduce((sum, mount) => sum + (mount.confirmedCount ?? 0), 0),
-		pricingBlocked: mounts.filter((mount) => mount.pricingEnabled).length,
+		terminal,
+		confirmed,
+		pricingBlocked,
 	};
 }
 
@@ -577,6 +599,10 @@ export default function AdminInitiativesPage() {
 								terminal: impact.terminal,
 							})}</p>
 							<p>{t("initiativeRuleImpactConfirmed", { count: impact.confirmed })}</p>
+							{/* 文案保留「可能/may」对冲（#641，勿当冗余措辞删掉）：① 提示对
+							    「关闭押金」的变更也显示，而服务端守卫只在押金 enabling 时拒绝
+							    （rule_inheritance.ex 的 deposit_enabling?/1）；② 清单是本地
+							    快照，可能落后于真值。 */}
 							{pendingRule.key === "deposit" && impact.pricingBlocked > 0
 								? <p>{t("initiativeRuleImpactBlocked", { count: impact.pricingBlocked })}</p>
 								: null}

@@ -15,6 +15,10 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
   无成班判定且无报名截止的活动（min_participants 与 registration_deadline
   均 nil，押金场即属此类）在 ends_at 过点时关闭——这也是押金场进入 no-show
   结算的前提（DepositForfeitWorker 只结算 closed 场）。
+
+  无截止场的成班判定兜底（#585 R2）：registration_deadline 未设的场以
+  starts_at - 72h 为判定锚点（单源 `Qualification.effective_deadline/1`）；
+  starts_at 也未设的场显式永不判定（接受语义，见该函数 doc）。
   """
 
   use Oban.Worker,
@@ -49,16 +53,26 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
   # 结束；配置了阈值的活动在截止时只落一次 qualification 事实，成班活动保持
   # open 到 ends_at，未达活动转 cancelled 触发现有批量退款信号。
   defp sweep_events(now) do
+    # 无截止场候选（#585 R2）：判定锚点 = starts_at - 72h（单源
+    # Qualification.effective_deadline/1），候选按 starts_at < now + 72h 圈入
+    # （⟺ starts_at - 72h < now）。deadline 未过的场也会混入候选，由下方 cond
+    # 按 effective_deadline 精判后空转一行，可忽略。
+    fallback_cutoff = DateTime.add(now, Qualification.fallback_window_hours(), :hour)
+
     events =
       Event
       |> Ash.Query.filter(
         status == :open and
           ((not is_nil(registration_deadline) and registration_deadline < ^now) or
-             (not is_nil(ends_at) and ends_at < ^now))
+             (not is_nil(ends_at) and ends_at < ^now) or
+             (is_nil(registration_deadline) and not is_nil(starts_at) and
+                starts_at < ^fallback_cutoff))
       )
       |> Ash.read!(authorize?: false)
 
     Enum.reduce(events, {0, 0}, fn event, {qualified, closed} ->
+      deadline = Qualification.effective_deadline(event)
+
       cond do
         event.qualification_status == :underfilled && event.status == :open ->
           case cancel_record(event) do
@@ -67,7 +81,7 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
           end
 
         event.min_participants && event.qualification_status == :pending &&
-          event.registration_deadline && DateTime.compare(event.registration_deadline, now) == :lt ->
+          not is_nil(deadline) && DateTime.compare(deadline, now) == :lt ->
           case qualify_event(event) do
             {:ok, :underfilled, _enrollments, _count} ->
               case cancel_record(event) do
@@ -113,7 +127,9 @@ defmodule Cgc2046.Events.EventLifecycleWorker do
     Qualification.qualify(event)
   end
 
-  # registration_deadline = nil（无截止）永不扫中（同 Invitation expires_at 语义）。
+  # registration_deadline = nil（无截止）永不在此扫中（同 Invitation expires_at
+  # 语义；仅指 Course 关闭面——Event 成班判定的无截止兜底见 sweep_events 的
+  # starts_at 支）。
   defp close_overdue(resource, now) do
     resource
     |> Ash.Query.filter(

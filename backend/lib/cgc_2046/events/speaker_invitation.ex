@@ -40,6 +40,10 @@ defmodule Cgc2046.Events.SpeakerInvitation do
   @status_values [:invited, :accepted, :declined, :completed]
   @non_terminal_statuses [:invited, :accepted]
 
+  # run 侧非终态（Curriculum.Prep / Reaper 同清单；与上方邀请状态机的
+  # @non_terminal_statuses 是两个状态空间，故异名）。
+  @active_run_statuses [:pending, :running, :waiting]
+
   @accepted_signal "speaker.accepted"
   @declined_signal "speaker.declined"
   @completed_signal "speaker.completed"
@@ -164,6 +168,13 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     )
 
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun, define_attribute?: false)
+
+    # #745：accepted_by 归因列（可空）的 FK 契约显式化——DB 侧 baseline 即
+    # delete_all（DB 实测 confdeltype=c）；无 DDL，仅 DSL+snapshot 追平。
+    belongs_to(:accepted_by_user, Cgc2046.Accounts.User,
+      define_attribute?: false,
+      source_attribute: :accepted_by
+    )
   end
 
   identities do
@@ -339,6 +350,19 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     table("speaker_invitations")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline（workspace/event/
+    # speaker_user_id/invited_by = delete_all，workflow_run = nilify_all；
+    # DB 实测 c/c/c/c/n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:speaker, on_delete: :delete)
+      reference(:inviter, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+
+      reference(:accepted_by_user, on_delete: :delete)
+    end
+
     identity_wheres_to_sql(
       unique_event_speaker: "speaker_email IS NOT NULL AND status IN ('invited', 'accepted')"
     )
@@ -471,6 +495,61 @@ defmodule Cgc2046.Events.SpeakerInvitation do
         {:error, error}
     end
   end
+
+  @doc """
+  收口活动的非终态讲者邀请 run（`Event :delete` 同事务级联，#688）。
+
+  邀请行由 FK `speaker_invitations_event_id_fkey`（delete_all）级联删除，但
+  workflow_runs 无指向 events 的外键——after_action 时邀请行已删，run 只能按
+  `input_snapshot["event_id"]` 定位（SpeakerInvitationInstantiator.start_run 写入
+  约定；Curriculum.Prep.stop_active_runs 的 input_snapshot 过滤同款先例）。
+  非终态 run 经 `WorkflowRun :cancel`（含 checkpoint 清理与 finished_at）收口为
+  cancelled——留痕语义：facts（含 materials 镜像）保留，终态 run 不动。
+
+  失败上抛让调用方（Event `:delete`）整体回滚——收口与删除原子
+  （Curriculum.Prep.stop_active_runs 同款纪律）。
+  """
+  @spec stop_event_runs(Cgc2046.Events.Event.t()) :: :ok | {:error, String.t()}
+  def stop_event_runs(%Cgc2046.Events.Event{} = event) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :speaker_invitation and
+        status in ^@active_run_statuses and
+        input_snapshot["event_id"] == ^event.id
+    )
+    |> Ash.read!(authorize?: false, tenant: event.workspace_id)
+    |> Enum.reduce_while(:ok, fn run, :ok ->
+      case cancel_event_run(run) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # authorize?: false——授权已在 Event :delete 的 policy 面完成，内部级联
+  # 不收第二道门（Output.delete_for_course 同款纪律）；tenant 收紧到活动
+  # 所属工作台，他台同 id 的 run 读不到。
+  defp cancel_event_run(%WorkflowRun{} = run) do
+    case run
+         |> Ash.Changeset.for_update(:cancel, %{}, tenant: run.workspace_id)
+         |> Ash.Changeset.set_context(%{warn_on_transaction_hooks?: false})
+         |> Ash.update(tenant: run.workspace_id, authorize?: false) do
+      {:ok, _} ->
+        :ok
+
+      {:error, error} ->
+        {:error, run_error_message(error, "failed to cancel speaker invitation run")}
+    end
+  end
+
+  # Ash 错误归一为字符串。与 prep.error_message **有意不同**：这里出原始叶子
+  # 文案（prep 走 DatabaseError.safe_message 供用户面脱敏）；本函数结果只作
+  # 回滚触发与测试断言锚（原子性用例按 "stale record" 原文断言——换成
+  # safe_message 摘要会破该断言，勿「合并同类项」）。
+  defp run_error_message(%Ash.Changeset{errors: [_ | _] = errors}, _fallback),
+    do: Enum.map_join(errors, "; ", &Exception.message/1)
+
+  defp run_error_message(_other, fallback), do: fallback
 
   # 创建/重发后尽力而为发邀请邮件（KD1/R1/R4）：有 speaker_email 才发；
   # 组装与投递失败只落日志/遥测，不影响业务结果（补救 = 重发按钮）。
