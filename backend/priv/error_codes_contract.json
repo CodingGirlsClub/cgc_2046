@@ -120,6 +120,7 @@
     "version_conflict",
     "volunteer_application_already_submitted",
     "volunteer_application_application_id_unavailable",
+    "volunteer_application_assignment_failed",
     "volunteer_application_cohort_closed",
     "volunteer_application_cohort_not_found",
     "volunteer_application_error",

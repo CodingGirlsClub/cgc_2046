@@ -40,6 +40,7 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Recruitment
 
+  alias Cgc2046.Recruitment.Assignment
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Recruitment.{ApplicationWorkflowInstantiator, RecruitmentCohort}
   alias Cgc2046.Workflows.SignalEmitter
@@ -273,6 +274,10 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
       )
 
       change(before_action(&prepare_assign/2))
+
+      # R15：分配副作用（入台 + 角色映射 + 主理人指派）——与状态流转同事务，
+      # 失败回滚（申请保持 training，运营可重试）。
+      change(before_action(&complete_assignment/2))
 
       change({SignalEmitter, type: @assigned_signal, payload: &__MODULE__.signal_payload/2})
 
@@ -509,6 +514,22 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
     end
   end
 
+  # R15：分配副作用（跨域编排）——同事务 fail-closed；event_id 取 argument
+  # （prepare_assign 已把它写进 attribute，但 argument 是本次调用的原始意图）。
+  defp complete_assignment(changeset, _context) do
+    attrs = %{
+      user_id: changeset.data.user_id,
+      workspace_id: changeset.data.workspace_id,
+      position: changeset.data.position,
+      assigned_event_id: Ash.Changeset.get_argument(changeset, :assigned_event_id)
+    }
+
+    case Assignment.complete(attrs) do
+      :ok -> changeset
+      {:error, reason} -> add_domain_error(changeset, {:assignment_failed, reason})
+    end
+  end
+
   # 拒绝必带原因文本（R12/AE3）：空白原因与缺失同判（R14 拒绝通知要带原因）
   defp prepare_reject(changeset, _context) do
     reason = normalize_reason(Ash.Changeset.get_argument(changeset, :reason))
@@ -721,6 +742,9 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
   defp domain_error_message({:exemption_fact_failed, _reason}),
     do: "failed to record initial review exemption"
 
+  defp domain_error_message({:assignment_failed, reason}),
+    do: "failed to complete assignment side effects: #{inspect(reason)}"
+
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(:application_id_unavailable), do: "application id is unavailable"
   defp domain_error_message(reason), do: inspect(reason)
@@ -739,6 +763,9 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
 
   defp domain_error_code({:exemption_fact_failed, _reason}),
     do: "volunteer_application_exemption_fact_failed"
+
+  defp domain_error_code({:assignment_failed, _reason}),
+    do: "volunteer_application_assignment_failed"
 
   defp domain_error_code({:database, _reason}), do: "database_error"
 
