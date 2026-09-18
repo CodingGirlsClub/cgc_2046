@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PublicOfferingDetailPage from "./public-offering-detail";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 import { MY_PENDING_ORDERS, ORDER_STATUS } from "@/lib/graphql/orders";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -113,6 +114,10 @@ beforeEach(() => {
   eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
   initiativesMocks.fetchPublicInitiatives.mockResolvedValue([]);
   QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
+  // 开框守卫兜底（#748 CI 修复）：同 offering-pages——弹框两条守卫查询拿到
+  // 裸 vi.fn() 的 undefined 会让 allSettled 传 fulfilled undefined 给组件；
+  // `{ data: {} }` = 「报名读不到 → 非押金」既定兜底，押金用例显式覆盖。
+  apollo.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);
@@ -1365,6 +1370,23 @@ function mockPaidCheckoutFlow() {
     if (query === MY_PENDING_ORDERS) {
       return Promise.resolve({ data: { myOrders: { results: [] } } });
     }
+    // #748：弹框自取报名快照押金事实（MY_ENROLLMENT）
+    if (query === MY_ENROLLMENT) {
+      return Promise.resolve({
+        data: {
+          myEnrollments: {
+            results: [
+              {
+                id: "enr-dep",
+                status: "payment_pending",
+                paymentMode: "deposit",
+                depositAmountCents: 6900,
+              },
+            ],
+          },
+        },
+      });
+    }
     if (query === ORDER_STATUS) {
       return Promise.resolve({ data: { orderStatus: { ...order, status: "paid" } } });
     }
@@ -1456,6 +1478,7 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
       result: { id: "enr-deposit", status: "payment_pending" },
       errors: [],
     });
+    mockPaidCheckoutFlow();
 
     render(<PublicOfferingDetailPage kind="event" />);
     fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
@@ -1466,20 +1489,40 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     );
 
     const dialog = await screen.findByTestId("checkout-dialog");
-    expect(dialog).toHaveTextContent("¥69.00");
-    const note = within(dialog).getByTestId("checkout-deposit-note");
+    const note = await within(dialog).findByTestId("checkout-deposit-note");
     expect(note).toHaveTextContent("押金 ¥69（到场退）");
     expect(note).toHaveTextContent("未到场不退。");
   });
 
-  it("押金场报名开框即停同意门（#686 D4 钉）：公开页把 depositEnabled 随载荷传下去，未勾选零创单", async () => {
+  it("押金场报名开框即停同意门（#686 D4 钉，#748 弹框自取报名快照）：未勾选零创单", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     mocks.submitEnrollment.mockResolvedValueOnce({
       result: { id: "enr-deposit", status: "payment_pending" },
       errors: [],
     });
     eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
-    apollo.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    apollo.query.mockImplementation(({ query }: { query: unknown }) => {
+      if (query === MY_PENDING_ORDERS) {
+        return Promise.resolve({ data: { myOrders: { results: [] } } });
+      }
+      if (query === MY_ENROLLMENT) {
+        return Promise.resolve({
+          data: {
+            myEnrollments: {
+              results: [
+                {
+                  id: "enr-deposit",
+                  status: "payment_pending",
+                  paymentMode: "deposit",
+                  depositAmountCents: 6900,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
 
     render(<PublicOfferingDetailPage kind="event" />);
     fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
@@ -1489,7 +1532,6 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     ).toBeInTheDocument();
     expect(apollo.mutate).not.toHaveBeenCalled();
   });
-
   it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 payload 的二维码，并提示勿截图转发", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     eventsMocks.fetchMyEnrollment.mockResolvedValue({

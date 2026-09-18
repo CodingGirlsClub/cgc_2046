@@ -1,3 +1,4 @@
+import { BusinessError } from '../api/business-error.ts'
 import type { EnrollmentStatus, EnrollmentSummary, OrderKind, OrderSummary } from './models'
 
 /**
@@ -382,17 +383,31 @@ export function canRequestPayment(input: {
  *
  * 非 null = 押金场：先出披露 + 勾选，同意后才创单（携带 depositConsent）；
  * null = 非押金/报名读不到 → 直接创单。判据 = 报名快照的
- * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取**报名快照**
- * `depositAmountCents`——它同时是后端下单的实付金额源
- * （submission_payload["deposit_amount_cents"]），不是活动现价（改价不漂移）。
- * 报名读不到（null）→ null：本端 fail-open 由后端权威闸兜底（押金单缺同意被
- * order_deposit_consent_required 拒，页面落可重试错误态）。
+ * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取
+ * `depositAmountCents`——#749 起它与创单实付同源同值（活动现值权威，
+ * payload 不参与金额）。报名读不到（null）→ null：本端 fail-open 由后端
+ * 权威闸兜底（押金单缺同意被 order_deposit_consent_required 拒，#751 自愈
+ * 转披露+勾选流程）。
  */
+
 export function preCreateDepositGate(
   enrollment: Pick<EnrollmentSummary, 'paymentMode' | 'depositAmountCents'> | null
 ): DepositPayNotice | null {
   if (enrollment?.paymentMode !== 'deposit') return null
   return depositPayNotice(enrollment.depositAmountCents ?? null)
+}
+
+/**
+ * 创单失败的自愈判定（#751-②，纯函数；order-pay 页 catch 分派用）。
+ *
+ * `order_deposit_consent_required` = 后端判押金而本端预检未识别（旧版缓存/
+ * 预检失败走裸创单）→ 页面转「披露 + 勾选」流程，用户勾选后重试创单带上
+ * `depositConsent: true`——重试不再同构死循环。其余错误（网络/会话/业务）
+ * → false，页面落可重试错误态。
+ */
+export function createOrderSelfHealsToConsent(reason: unknown): boolean {
+  return reason instanceof BusinessError &&
+    reason.code === 'order_deposit_consent_required'
 }
 
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */

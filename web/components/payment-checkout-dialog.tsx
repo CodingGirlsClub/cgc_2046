@@ -8,11 +8,12 @@
  * 无活单按记忆渠道（cgc:last-payment-provider，缺省 wechat_native）
  * createOrder 即出码。渠道选择与二维码同屏，切换渠道走 replaceProvider
  * （R11：旧单作废新码即换，框内无感）。
- *
- * 押金口径判据（#580/#686）：有活单 → 同意门与说明行金额只认**订单快照**
- * （orderKind / amountCents，下单时定，组织者事后改配置不漂移）；订单未建立
- * 的瞬间（无活单、consent 预判路径）→ 同意门认报名目标存在性 depositEnabled
- * （#686），头部/说明行金额才用活动现价——那一刻现价即承诺价。
+ * 押金口径判据（#580/#686/#748）：有活单 → 同意门与说明行金额只认**订单快照**
+ * （orderKind / amountCents，下单时定，组织者事后改配置不漂移）；订单未建立的
+ * 瞬间 → 押金事实由本框**自取 MY_ENROLLMENT**（#748 快照化：paymentMode 识别 +
+ * depositAmountCents 披露，与 /orders/new、后端创单金额同源同值），调用方不再
+ * 下传活动现价——弹框两调用方传现价的旧路径是「同意的金额 ≠ 扣款金额」的
+ * 根因（#748 F-02 HIGH）。快照不可得（查询失败/金额脏）→「金额待定」（#675）。
  * orderKind 解析 fail-closed（parseOrderKind 未知值 → error 态，不猜方向）。
  *
  * 轮询（R14）与倒计时（R6）复用 use-order-polling / lib/payment 纯函数，
@@ -35,6 +36,7 @@ import { useQrDataUrl } from "@/lib/use-qr-data-url";
 import {
   CREATE_ORDER,
   DEPOSIT_CONSENT_REQUIRED_CODE,
+  DEPOSIT_CONSENT_MISSING_CODE,
   createOrderInput,
   MY_PENDING_ORDERS,
   ORDER_STATUS,
@@ -67,6 +69,7 @@ import {
 } from "@/lib/last-payment-provider";
 import { useOrderPolling } from "@/lib/use-order-polling";
 import OrderPaidDetails from "./order-paid-details";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 import { useDialogA11y } from "./modal-a11y";
 
 const COUNTDOWN_TICK_MS = 500;
@@ -86,8 +89,15 @@ type CheckoutOrder = Pick<
 >;
 
 // U1：押金单在钱动前停在「以到场为退还条件」确认态（consent）——门由订单
-// 快照口径（或无单时刻的活动现价）判定（#580），未确认前不产生任何渠道单/凭据
+// 快照口径（或无单时刻的报名快照）判定（#580/#748），未确认前不产生任何
+// 渠道单/凭据
 type Phase = "consent" | "checking" | "paying" | "error";
+
+/** 押金事实（MY_ENROLLMENT 随返，#748）：识别 + 披露金额与创单同源 */
+type EnrollDeposit = {
+  paymentMode: string | null;
+  depositAmountCents: number | null;
+};
 
 export interface PaymentCheckoutDialogProps {
   /** payment_pending 报名 id（承接其下单/复用活单） */
@@ -99,27 +109,14 @@ export interface PaymentCheckoutDialogProps {
   amountCents?: number | null;
   /** 所选档位名（头部展示；复访承接时可不传） */
   tierName?: string | null;
-  /**
-   * 押金场识别（#686）：按**存在性**判定——报名目标开启押金即押金收银，与金额
-   * 是否就绪无关。无活单的 consent 预判分支与 isDepositCheckout 渲染判据都以
-   * 它定门；金额缺失不再让押金场漏过同意勾选（fail-open）。
-   * 缺省 false = 视为非押金场（无同意门、直接创单）；调用方必须显式下传
-   * 报名目标的押金事实，漏传即 fail-open（#686 同一失败类）。
-   */
-  depositEnabled?: boolean;
-  /**
-   * 押金金额（分；R10/KTD10，#686 后纯表态）：头部金额与「押金 ¥xx（到场退）」
-   * 说明行的展示值；不参与押金场识别（识别只认 depositEnabled / 订单快照）。
-   */
-  depositAmountCents?: number | null;
   /** 活动标题（头部展示） */
   title?: string | null;
 }
 
 /**
  * 收银上下文（调用方 state 形状 = 弹框 props 减去回调）。Required 刻意收紧：
- * 调用方组装载荷时漏传任一押金事实（depositEnabled/depositAmountCents）
- * 都是编译错，不给「漏传静默 fail-open」留缝（#686）。
+ * 调用方组装载荷漏传任一键都是编译错，不给「漏传静默 fail-open」留缝（#686）。
+ * 押金事实不在载荷里（#748 快照化）：弹框自取 MY_ENROLLMENT。
  */
 export type PaymentCheckoutContext = Required<
   Omit<PaymentCheckoutDialogProps, "onClose" | "onPaid">
@@ -131,8 +128,6 @@ export default function PaymentCheckoutDialog({
   onPaid,
   amountCents: amountHintCents = null,
   tierName = null,
-  depositEnabled = false,
-  depositAmountCents = null,
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
@@ -140,17 +135,25 @@ export default function PaymentCheckoutDialog({
   // 押金不表态文案单源在 `offerings`（#675，与公开页/报名页同句）
   const tOfferings = useTranslations("offerings");
   const labelsT = useTranslations();
-  // 开框统一 checking：先查活单拿订单快照口径（orderKind）再定 consent/paying
-  // （#580）——押金门不再由活动实时配置预判
+  // 开框统一 checking：并行查活单（订单快照口径 orderKind）与报名快照（押金
+  // 事实 paymentMode/depositAmountCents，#748）再定 consent/paying
+  // （#580）——押金门不再由调用方下传的活动实时配置预判
   const [phase, setPhase] = useState<Phase>("checking");
   // 押金确认勾选（本框生命周期内一次性；重开框重置）
   const [depositAck, setDepositAck] = useState(false);
   // 后端判定「这是押金单」（order_deposit_consent_required，#727 自愈）：本框
   // 押金识别缺失/过期时采纳，让重试创单带上同意标记（而非再次裸发）
   const [backendDepositRequired, setBackendDepositRequired] = useState(false);
+  // 报名快照押金事实（#748 自取 MY_ENROLLMENT）：无活单时识别判据 +
+  // 披露金额源；查询失败落 null → 按非押金场处理（既有「不阻塞下单」兜底，
+  // 错误由 createOrder 翻译层承接 + #727 自愈回 consent）
+  const [enrollDeposit, setEnrollDeposit] = useState<EnrollDeposit | null>(null);
   const [order, setOrder] = useState<CheckoutOrder | null>(null);
   const [credential, setCredential] = useState<unknown>(null);
   const [provider, setProvider] = useState<PaymentProvider | null>(null);
+  // 同帧连点锁（#751）：setState 异步生效，快速双击两次 click 都带旧 state，
+  // disabled 拦不住——ref 在第一次进入时即置位，第二次直接返回（防双创单）
+  const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -196,15 +199,17 @@ export default function PaymentCheckoutDialog({
     onTick: fetchStatus,
   });
 
-  // 押金口径（#580/#686）：订单就绪 → 只认订单快照 orderKind；未就绪（无活单的
-  // consent 预判路径）→ 押金场存在性（#686：depositEnabled，金额不参与识别——
-  // 脏金额绝不让押金单掉进非押金分支连披露门都不出）；后端拒单
-  // order_deposit_consent_required 是第三来源（#727 自愈）：后端按 order_kind
-  // 判押金而本框识别缺失时，采纳后端判定——否则自愈路径会带着「非押金」的
-  // 身份重试创单，形成死循环。创单门与渲染判据共用本表达式（单源）。
+  // 押金口径（#580/#686/#748）：订单就绪 → 只认订单快照 orderKind；未就绪
+  // （无活单的 consent 预判路径）→ 报名快照 paymentMode（#748 自取
+  // MY_ENROLLMENT，与后端创单金额同源；金额不参与识别——脏金额绝不让押金单
+  // 掉进非押金分支连披露门都不出）；后端拒单 order_deposit_consent_required
+  // 是第三来源（#727 自愈）：后端按 order_kind 判押金而本框识别缺失时，采纳
+  // 后端判定——否则自愈路径会带着「非押金」的身份重试创单，形成死循环。
+  // 创单门与渲染判据共用本表达式（单源）。
   const isDepositCheckout =
     order?.orderKind === "deposit" ||
-    (order === null && (depositEnabled || backendDepositRequired));
+    (order === null &&
+      (enrollDeposit?.paymentMode === "deposit" || backendDepositRequired));
 
   // 下单（无活单初始路径；也承接下单失败后的换渠道重试）
   const createOrder = useCallback(
@@ -215,6 +220,8 @@ export default function PaymentCheckoutDialog({
         setPhase("consent");
         return;
       }
+      if (busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -230,11 +237,21 @@ export default function PaymentCheckoutDialog({
         });
         const payload = data?.createOrder;
         if (payload?.result) {
-          if (parseOrderKind(payload.result.orderKind) === null) {
+          const kind = parseOrderKind(payload.result.orderKind);
+          if (kind === null) {
             // fail-closed（#580）：新单口径不可判——停支付面不出码，单留 pending
             // 可经换渠道重试 / 「继续支付」承接
             setPhase("error");
             setError(t("orderKindUnknown"));
+            return;
+          }
+          // 口径漂移（#748 F-08）：以押金同意身份发起、落单却是非押金（勾选后
+          // 创单前组织者关押金的时序窗口）。fail-safe：不出码——静默出示一笔
+          // 用户没同意过的定价单不如显式中断；单留 pending，重试即按新口径
+          // 幂等落单出码。
+          if (isDepositCheckout && kind !== "deposit") {
+            setPhase("error");
+            setError(t("orderKindDrifted"));
             return;
           }
           // 凭据落 sessionStorage（/orders/[id] 兜底路径可续），不落 URL
@@ -251,8 +268,10 @@ export default function PaymentCheckoutDialog({
           setError(translatePaymentError(code, t("orderFailed")));
           // 自愈（#727）：后端判押金而本框押金识别缺失/过期（fail-open 类）→
           // 采纳后端判定 + 就地回 consent 补披露与勾选；用户勾选后重试创单即带
-          // depositConsent: true，不落死 error 态
+          // depositConsent: true，不落死 error 态。保留用户已选渠道（F-06）：
+          // consent 确认按钮沿 next 重发，不回落记忆渠道
           if (code === DEPOSIT_CONSENT_REQUIRED_CODE) {
+            setProvider(next);
             setBackendDepositRequired(true);
             setPhase("consent");
           } else {
@@ -268,6 +287,7 @@ export default function PaymentCheckoutDialog({
           ),
         );
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     },
@@ -281,27 +301,49 @@ export default function PaymentCheckoutDialog({
     ],
   );
 
-  // 开框初始化（一次）：查活单 → 按订单快照口径定押金门（#580），复用活单 or
-  // 初始下单。押金口径不可判（orderKind 缺失/未知）→ fail-closed 停支付面
-  const initializedRef = useRef(false);
+  // 开框初始化：并行查活单（订单快照口径）与报名快照（押金事实，#748）
+  // → 复用活单 or 初始下单。押金口径不可判（orderKind 缺失/未知）→ fail-closed
+  // 停支付面。
+  // 守卫在 cleanup 中解锁（React StrictMode dev 双跑：mount→unmount→remount
+  // 会取消首次异步；守卫若不解锁，remount 一眼看到「已初始化」直接跳过，
+  // 弹框永久停在 checking）
+  const initInFlightRef = useRef(false);
   useEffect(() => {
-    if (phase !== "checking" || initializedRef.current) return;
-    initializedRef.current = true;
+    if (phase !== "checking" || initInFlightRef.current) return;
+    initInFlightRef.current = true;
     let cancelled = false;
     (async () => {
-      let pending: CheckoutOrder | null = null;
-      try {
-        const { data } = await client.query({
+      // 两查并行；押金事实查询失败不阻塞（enrollDeposit = null 按非押金场
+      // 处理，错误由 createOrder 翻译层兜底）——同 /orders/new 守卫口径
+      const [pendingResult, enrollResult] = await Promise.allSettled([
+        client.query({
           query: MY_PENDING_ORDERS,
           variables: { enrollmentId },
           fetchPolicy: "network-only",
-        });
-        pending = data?.myOrders?.results?.[0] ?? null;
-      } catch {
-        // 守卫查询失败不阻塞：落 createOrder 由其错误面兜底
-        pending = null;
-      }
+        }),
+        client.query({
+          query: MY_ENROLLMENT,
+          variables: { id: enrollmentId },
+          fetchPolicy: "network-only",
+        }),
+      ]);
       if (cancelled) return;
+
+      // fulfilled 的 value 兜底 `?.`：测试 mock 漏实现时 allSettled 会把
+      // undefined 当 fulfilled 值传入，不应伪装成组件崩溃（CI #757 教训）
+      const pending: CheckoutOrder | null =
+        pendingResult.status === "fulfilled"
+          ? (pendingResult.value?.data?.myOrders?.results?.[0] ?? null)
+          : null;
+      const enrollment =
+        enrollResult.status === "fulfilled"
+          ? (enrollResult.value?.data?.myEnrollments?.results?.[0] ?? null)
+          : null;
+      setEnrollDeposit({
+        paymentMode: enrollment?.paymentMode ?? null,
+        depositAmountCents: enrollment?.depositAmountCents ?? null,
+      });
+
       if (pending) {
         const kind = parseOrderKind(pending.orderKind);
         if (kind === null) {
@@ -319,10 +361,10 @@ export default function PaymentCheckoutDialog({
         setPhase(kind === "deposit" ? "consent" : "paying");
         return;
       }
-      if (depositEnabled) {
+      if (enrollment?.paymentMode === "deposit") {
         // 无活单 + 押金场：先停确认态（U1），确认后才创单——此刻尚无订单，
-        // 活动现价即承诺价。识别按存在性（#686）：depositEnabled 开即押金收银，
-        // 金额缺失不漏门（金额只用于表态）
+        // 披露金额 = 报名快照（#748），与创单实付同源。识别按 paymentMode
+        // 存在性（#686）：金额缺失不漏门（金额只用于表态）
         setPhase("consent");
         return;
       }
@@ -330,13 +372,15 @@ export default function PaymentCheckoutDialog({
     })();
     return () => {
       cancelled = true;
+      initInFlightRef.current = false;
     };
-  }, [phase, enrollmentId, title, createOrder, depositEnabled, t]);
+  }, [phase, enrollmentId, title, createOrder, t]);
 
   // 换渠道（R11）：旧单作废新单新凭据，框内就地换码；轮询窗重置
   const switchProvider = useCallback(
     async (next: PaymentProvider) => {
-      if (!order || busy || next === provider) return;
+      if (!order || busyRef.current || next === provider) return;
+      busyRef.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -355,12 +399,17 @@ export default function PaymentCheckoutDialog({
           rememberPaymentProvider(next);
           poll.reset();
         } else {
-          setError(
-            translatePaymentError(
-              payload?.errors[0]?.code,
-              t("switchFailed"),
-            ),
-          );
+          const code = payload?.errors[0]?.code;
+          // #750/F-05 自愈：存量押金单无同意留痕被拒 → 带同意标记重新创单
+          // （createOrder 幂等废旧单、按当前权威金额落新单并补留痕），框内
+          if (code === DEPOSIT_CONSENT_MISSING_CODE && depositAck) {
+            // createOrder 内部自持 busyRef 锁：先释放本函数持有的锁
+            busyRef.current = false;
+            setBusy(false);
+            await createOrder(next);
+            return;
+          }
+          setError(translatePaymentError(code, t("switchFailed")));
         }
       } catch (e) {
         setError(
@@ -370,10 +419,11 @@ export default function PaymentCheckoutDialog({
           ),
         );
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     },
-    [order, busy, provider, poll, title, t, translatePaymentError],
+    [order, provider, poll, title, t, translatePaymentError, depositAck, createOrder],
   );
 
   // 支付成功：✓ 报名已确认 → 1.5s 自动关框（onPaid 先行，报名区就地刷新）
@@ -405,14 +455,14 @@ export default function PaymentCheckoutDialog({
     dispatch.mode === "unsupported" &&
     credential === null &&
     status === "pending";
-  const amountCents = order?.amountCents ?? amountHintCents ?? depositAmountCents;
-  // 说明行金额同源：快照优先、现价兜底，且表态过守卫（#675）：脏金额 →
-  // 「押金（金额待定）」。识别（isDepositCheckout）与创单门同源，见上。
-  // 脏金额（缺失/0/负/非整数分）→ null → 说明行「押金（金额待定）」（#675）；
-  // 框头金额同步不显示（既有 null 分支），绝不出现「¥0.00」。识别不读金额
-  // （#686：depositEnabled/后端判定定门），脏金额只影响表态不影响门。
+  const amountCents = order?.amountCents ?? amountHintCents;
+  // 说明行金额同源：订单快照优先、报名快照兜底（#748：与创单实付同源），
+  // 且表态过守卫（#675）：脏金额（缺失/0/负/非整数分）→ null → 说明行
+  // 「押金（金额待定）」，框头金额同步不显示（既有 null 分支），绝不出现
+  // 「¥0.00」。识别不读金额（#686/#748：paymentMode/订单口径/后端判定定门），
+  // 脏金额只影响表态不影响门。
   const depositNoteCents = positiveAmountOrNull(
-    order?.amountCents ?? depositAmountCents,
+    order?.amountCents ?? enrollDeposit?.depositAmountCents,
   );
   const headerAmountCents = positiveAmountOrNull(amountCents);
 
@@ -512,14 +562,30 @@ export default function PaymentCheckoutDialog({
               />
               <span>{t("depositAckLabel")}</span>
             </label>
+            {/* F-06：自愈回 consent 时不吞错误文案——错误权威来自后端拒单，
+                折叠掉用户就不知道为何要重新确认 */}
+            {error ? (
+              <p
+                role="alert"
+                className="text-[13px] text-red-300"
+                data-testid="checkout-consent-error"
+              >
+                {error}
+              </p>
+            ) : null}
             <button
               type="button"
-              disabled={!depositAck}
+              disabled={!depositAck || busy}
               onClick={() => {
                 // 复用活单路径：单已就绪（含凭据），确认即进支付；无单路径：
-                // 确认后才创单（U1：未确认前不产生任何订单/凭据）
+                // 确认后才创单（U1：未确认前不产生任何订单/凭据）。
+                // F-06：自愈前用户点过渠道（provider 已记住），沿它重发，
+                // 不回落记忆渠道；busy 同帧锁在 createOrder 内部（#751）
                 if (order !== null) setPhase("paying");
-                else void createOrder(readLastPaymentProvider() ?? DEFAULT_PROVIDER);
+                else
+                  void createOrder(
+                    provider ?? readLastPaymentProvider() ?? DEFAULT_PROVIDER,
+                  );
               }}
               data-testid="checkout-deposit-consent-button"
               className="join-button join-button--primary disabled:opacity-50"
