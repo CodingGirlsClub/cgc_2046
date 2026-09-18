@@ -1,0 +1,135 @@
+@startuml er-map
+title Hacker Start 1024 · 志愿者招募实体关系图 v2（★新建 vs 既有复用）
+hide circle
+skinparam linetype ortho
+skinparam entity {
+  BackgroundColor<<新建>> #FAEDF2
+  BorderColor<<新建>> #C9497D
+}
+
+entity "users 用户" as users <<既有>> {
+  * id : uuid <<PK>>
+  --
+  phone / email（登录身份）
+  display_name（昵称——正式姓名在简历档案）
+}
+
+entity "workspaces 工作台" as ws <<既有>> {
+  * id : uuid <<PK>>
+  --
+  name（2046 主工作台，不新建）
+}
+
+entity "workspace_memberships 台籍" as wm <<既有>> {
+  * id <<PK>>
+  --
+  # user_id <<FK>>
+  # workspace_id <<FK>>
+  roles（owner / admin / tutor / volunteer / learner）
+}
+
+entity "initiatives 倡导活动" as init <<既有>> {
+  * id <<PK>>
+  --
+  slug = hacker-start-1024
+  status = open
+  hashtag = #hackerstart1024
+  四规则：deposit 69 / age 18+ / min 8 / deadline_rule
+}
+
+entity "events 场次" as ev <<既有>> {
+  * id <<PK>>
+  --
+  # workspace_id <<FK>>
+  # initiative_id <<FK>>（挂载）
+  slug / title / city / venue / starts_at
+  status : draft → open → closed
+  （2046 Owner/Admin 预建、录入、发布）
+}
+
+entity "event_moderators 场次主理人指派" as mod <<既有>> {
+  * id <<PK>>
+  --
+  # event_id <<FK>>
+  # user_id <<FK>>
+  assigned_by / assigned_at
+  （主理人系统权限 = 本场核销 + 名单展示）
+}
+
+entity "recruitment_cohorts 招募批次" as cohort <<新建>> {
+  * id : uuid <<PK>>
+  --
+  * name（第 1 批 · 首批招募）
+  * apply_deadline_at 申请截止
+  * execution_start / execution_end 执行周期
+  * status : draft | open | closed（申请页状态徽章）
+  --
+  人线：与 Initiative/Event 无外键（松耦合，Q3/Q4）
+}
+
+entity "resume_profiles 简历档案" as resume <<新建>> {
+  * id <<PK>>
+  --
+  # user_id <<FK, unique 一人一档>>
+  * full_name 申请人姓名（第 1 步填写）
+  file_path / file_name / mime / size_bytes
+  weekly_hours 每周可投入
+  skills : jsonb 多选
+  uploaded_at / updated_at
+  （仅招募审核方可见 · PIPL）
+}
+
+entity "volunteer_applications 志愿者申请" as app <<新建>> {
+  * id <<PK>>
+  --
+  # user_id <<FK>> 申请人
+  # cohort_id <<FK>> 批次
+  * position : enum(event_moderator | tutor | coach)\n（职位为代码枚举 + i18n 文案，无职位表）
+  * city 申请城市（Tutor 可「远程」）
+  source 如何得知我们
+  has_referral 是否有内部推荐人
+  note 留言（选填）
+  * status : submitted → interview → training → assigned
+  | rejected | canceled（管理员取消，A1：无申请人自撤流程）
+  reject_reason（rejected 必填；canceled 备注选填）
+  # assigned_event_id <<FK, nullable>> 主理人分配目标
+  assignment_note（Tutor 课程任务记录）
+  assigned_at
+  --
+  <<unique>> (user_id, cohort_id) 同批限申一个职位
+  （rejected / canceled 后本批结束，下一批可换职位再申；
+    批次关闭不影响在途申请走完——B3）
+}
+
+users ||--o| resume : 一人一档
+users ||--o{ app : 申请人
+cohort ||--o{ app : 人线·属于批次
+app }o--o| ev : assigned_event_id\n分配时指派（两线相交点）
+users ||--o{ wm
+ws ||--o{ wm : 2046 台
+ws ||--o{ ev : 事线·场次
+init |o--o{ ev : 挂载
+ev ||--o{ mod : 场次主理人
+users ||--o{ mod
+
+app ..> mod : 主理人分配时\nEventModerator.assign
+app ..> wm : 项目分配时\n邀请加入 2046 台
+app ..> "courses 训练营课程（既有）" : training 段\n运营手动拉入
+
+note top of cohort
+  批次（人线·招人节奏）与 Initiative/Event（事线·办场次）
+  是两条独立线：v1 不建 cohort→initiative 外键，
+  靠「本 campaign 唯一 Initiative」约定松耦合
+end note
+
+note bottom of resume
+  PIPL：档案仅招募审核方（2046 Owner/Admin）可见，
+  不用于招募以外用途；被拒/批次结束不删除
+end note
+
+note bottom of cohort
+  宣传页批次卡不写死日期（Q2=c）：
+  只写「首批招募进行中」，真实状态由申请页读本表
+  同一时间至多一个 open：先关旧批才能开新批（A4）
+end note
+@enduml
