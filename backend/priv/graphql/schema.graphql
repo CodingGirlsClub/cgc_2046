@@ -3989,6 +3989,8 @@ enum OrderSortField {
   AMOUNT_CENTS
   TIER_SNAPSHOT
   STATUS
+  DEPOSIT_CONSENT_AT
+  DEPOSIT_TERMS_VERSION
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
@@ -4168,6 +4170,43 @@ input OrderFilterExpireAt {
   eq: DateTime
   notEq: DateTime
   in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input OrderFilterDepositTermsVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterDepositConsentAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
   lessThan: DateTime
   greaterThan: DateTime
   lessThanOrEqual: DateTime
@@ -4376,6 +4415,10 @@ input OrderFilterInput {
 
   status: OrderFilterStatus
 
+  depositConsentAt: OrderFilterDepositConsentAt
+
+  depositTermsVersion: OrderFilterDepositTermsVersion
+
   expireAt: OrderFilterExpireAt
 
   refundedAt: OrderFilterRefundedAt
@@ -4426,6 +4469,10 @@ type Order {
   tierSnapshot: JsonString!
 
   status: String!
+
+  depositConsentAt: DateTime
+
+  depositTermsVersion: String
 
   expireAt: DateTime!
 
@@ -5470,14 +5517,26 @@ type RootQueryType {
   "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
   listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
 
-  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
-  reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
+  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
 
   "平台管理员：倡导活动列表"
   listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
 
   "平台管理员：倡导活动详情及四项规则"
   getInitiative(id: ID!): AdminInitiative
+
+  "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
+
+  "平台管理员：跨租户课程列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminCourses(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminCourse!]!
+
+  "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
+  getAdminEvent(id: ID!): AdminEventDetail
+
+  "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
+  getAdminCourse(id: ID!): AdminCourseDetail
 
   "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
   initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
@@ -6482,6 +6541,9 @@ type AdminActionLog {
 
   "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
   metadata: AdminActionMetadata
+
+  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
+  offeringChange: AdminOfferingChangeMetadata
 }
 
 type AdminActionMetadata {
@@ -6505,6 +6567,218 @@ type AdminActionMetadata {
 
   "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
   valueAfterOmitted: Boolean!
+}
+
+"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
+type AdminOfferingChangeMetadata {
+  "变更前标题；该属性未变更 → null"
+  titleBefore: String
+
+  "变更后标题；该属性未变更 → null"
+  titleAfter: String
+
+  "变更前可见性（public | workspace）"
+  visibilityBefore: String
+
+  "变更后可见性（public | workspace）"
+  visibilityAfter: String
+
+  "变更前报名名额上限；nil 表示不限"
+  capacityBefore: Int
+
+  "变更后报名名额上限；nil 表示不限"
+  capacityAfter: Int
+
+  "变更前定价槽位"
+  pricingEnabledBefore: Boolean
+
+  "变更后定价槽位"
+  pricingEnabledAfter: Boolean
+
+  "变更前押金槽位（Event-only；Course 恒 null）"
+  depositEnabledBefore: Boolean
+
+  "变更后押金槽位（Event-only；Course 恒 null）"
+  depositEnabledAfter: Boolean
+}
+
+type AdminEvent {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminEventDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
+  不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
+  nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
+  不得当 0。0 表示真实无已确认报名（免费场零计数）。
+  """
+  confirmedCount: Int
+
+  """
+  权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
+  关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
+  同 confirmedCount（不可用，非 0）。
+  """
+  paymentPendingCount: Int
+
+  "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
+  moderators: [EventModerator!]
+
+  "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
+  detachedRuleProvenance: JsonString
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourse {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourseDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+  currentRevisionNumber: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
+  不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
+  不得当 0；0 表示真实无已确认报名。
+  """
+  confirmedCount: Int
+
+  "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
+  paymentPendingCount: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
 }
 
 type AdminReconciliationFinding {
@@ -6630,8 +6904,46 @@ input AdminInitiativeInput {
   windowEndsAt: DateTime
 }
 
+input AdminEventUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  venue: JsonString
+  pricingEnabled: Boolean
+  depositEnabled: Boolean
+}
+
+input AdminCourseUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  pricingEnabled: Boolean
+}
+
 type AdminInitiativePayload {
   result: AdminInitiative
+  errors: [MutationError]
+}
+
+"治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminEventPayload {
+  result: Event
+  errors: [MutationError]
+}
+
+"治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminCoursePayload {
+  result: Course
   errors: [MutationError]
 }
 
@@ -6982,6 +7294,30 @@ type RootMutationType {
 
   "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
   cancelInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
+  adminLaunchEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
+  adminCloseEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
+
+  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
+  adminLaunchCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
+  adminCloseCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
 
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload

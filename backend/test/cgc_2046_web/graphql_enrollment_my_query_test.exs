@@ -354,11 +354,12 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     free_row = Enum.find(rows, &(&1["eventId"] == free_event.id))
     assert free_row["paymentMode"] == "free"
 
-    # 无快照键（免费/定价报名）→ null，绝不落 0（展示面「金额待定」口径）
+    # 无押金（免费/定价报名）→ nil，绝不落 0（展示面「金额待定」口径）
     assert free_row["depositAmountCents"] == nil
 
-    # 脏快照（裸 SQL 置 0，历史脏行形态；布置纪律同 order_test #405 幂等用例）
-    # → 判据单源（Offering.deposit_amount_cents/1）落 nil，绝不 0
+    # 脏 payload（裸 SQL 置 0，历史脏行形态；布置纪律同 order_test #405 幂等用例）
+    # → #749 起读面与 submission_payload 完全脱钩：金额跟随活动现值 6900
+    # （与创单实付同源），脏键绝不污染展示，也绝不落 0
     Cgc2046.Repo.query!(
       "UPDATE enrollments SET submission_payload = jsonb_set(submission_payload, '{deposit_amount_cents}', '0'::jsonb) WHERE id = $1",
       [Cgc2046.Repo.uuid!(deposit_enrollment.id)]
@@ -367,8 +368,7 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     dirty_row =
       learner |> my_enrollment_rows() |> Enum.find(&(&1["eventId"] == deposit_event.id))
 
-    assert dirty_row["paymentMode"] == "deposit"
-    assert dirty_row["depositAmountCents"] == nil
+    assert dirty_row["depositAmountCents"] == 6900
   end
 
   defp my_enrollment_rows(learner) do
