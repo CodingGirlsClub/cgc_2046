@@ -2501,7 +2501,10 @@
 			"meta": "{total} companions from that year · developed ones have been sent",
 			"todayTag": "Today",
 			"dashed": "Her answers are still waiting for her",
-			"dashedAria": "Content slot empty: not sent yet"
+			"dashedAria": "Content slot empty: not sent yet",
+			"stackHint": "{count} more beneath the stack",
+			"expandAll": "Unfold all {count}",
+			"collapse": "Fold back (keep the first few)"
 		},
 		"todaySlot": {
 			"when": "⚡ Today",
