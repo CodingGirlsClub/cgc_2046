@@ -369,8 +369,6 @@ export default function PublicOfferingDetailPage({
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
-      depositEnabled: depositOn,
-      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
@@ -1060,8 +1058,6 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
-          depositEnabled={checkout.depositEnabled}
-          depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
           onPaid={() => void handlePaid()}

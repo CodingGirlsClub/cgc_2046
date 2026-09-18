@@ -12,9 +12,10 @@ import {
   mapPaymentCredential,
   nextPollTick,
   preCreateDepositGate,
+  createOrderSelfHealsToConsent,
   type DepositPayNotice,
   type OrderPollStatus,
-  type RequestPaymentArgs
+  type RequestPaymentArgs,
 } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
 import { paymentResultTouchpoint, requestAndGrant } from '@/domain/subscription'
@@ -73,9 +74,13 @@ export default function OrderPayPage() {
   const startedRef = useRef(false)
 
   // 下单：凭据即取，失败可重试。同意标记 = 预检判定押金且本页已勾选
-  // （后端 fail-closed 复核，非押金单忽略该字段）
+  // （后端 fail-closed 复核，非押金单忽略该字段）。
+  // 同帧连点锁（#751-①）：setState 异步生效，快速双击两次 click 都带旧 state，
+  // disabled 拦不住——ref 在第一次进入时即置位，第二次直接返回（防双创单）
+  const creatingRef = useRef(false)
   const createOrderFlow = useCallback(async () => {
-    if (!enrollmentId) return
+    if (!enrollmentId || creatingRef.current) return
+    creatingRef.current = true
     setPhase('creating')
     setError('')
     try {
@@ -91,7 +96,17 @@ export default function OrderPayPage() {
       }
       setPhase('await')
     } catch (reason) {
+      // 自愈（#751-②）：后端判押金而本端预检未识别（预检失败/旧缓存）→
+      // 拒单转「披露 + 勾选」流程，勾选后重试带 depositConsent，不再同构死循环
+      if (createOrderSelfHealsToConsent(reason)) {
+        setGate(depositPayNotice(null))
+        setError('')
+        setPhase('consent')
+        return
+      }
       setError(reason instanceof Error ? reason.message : '下单失败，请重试')
+    } finally {
+      creatingRef.current = false
     }
   }, [enrollmentId, gate, ack])
 

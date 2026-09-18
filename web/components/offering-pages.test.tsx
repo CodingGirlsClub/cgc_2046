@@ -7,6 +7,7 @@ import {
   OfferingsListPage,
   OfferingNewPage,
 } from "./offering-pages";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
@@ -205,6 +206,11 @@ beforeEach(() => {
     retry: vi.fn(),
   });
   moderatorMocks.fetchEventModerators.mockResolvedValue([]);
+  // 开框守卫兜底（#748 CI 修复）：不关心弹框的用例点了「继续支付」后，弹框的
+  // 两条守卫查询若拿到裸 vi.fn() 的 undefined，allSettled 会把 undefined 当
+  // fulfilled 值传给组件导致 TypeError。`{ data: {} }` = 「报名读不到 → 非押金」
+  // 的既定兜底语义；押金用例仍用 mockImplementation 显式分派覆盖。
+  apolloClient.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);
@@ -847,9 +853,26 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
       id: "enr-deposit",
       status: "payment_pending",
     });
-    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）
-    apolloClient.query.mockResolvedValue({
-      data: { myOrders: { results: [] } },
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）；
+    // #748：押金事实由弹框自取 MY_ENROLLMENT（paymentMode=deposit + 现值同源金额）
+    apolloClient.query.mockImplementation(({ query }: { query: unknown }) => {
+      if (query === MY_ENROLLMENT) {
+        return Promise.resolve({
+          data: {
+            myEnrollments: {
+              results: [
+                {
+                  id: "enr-deposit",
+                  status: "payment_pending",
+                  paymentMode: "deposit",
+                  depositAmountCents: 6900,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { myOrders: { results: [] } } });
     });
 
     render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);
