@@ -382,6 +382,105 @@ defmodule Cgc2046.Flashback.Tokens do
     end
   end
 
+  # ── 微信一键收好（R27 小程序路径） ───────────────────────────────────
+
+  @doc """
+  微信一键收好（R27 小程序侧）：已登录用户把档案收进账号。
+
+  - **带 token**：绑定该链接的档案并作废链接（同 `register_bind` 的 bind+claim，
+    只是身份来自会话而非验证码）；
+  - **不带 token**：按**库里已有且已验证的手机/邮箱**自动匹配未认领档案并全部
+    绑定（手机已由微信登录验证过，不再二次发码）——「登录后自动匹配 → 直接
+    认领」的落点；
+  - 幂等：已绑定同一账号 → `bound: true` 且不重复写入；无匹配 → `bound: false`。
+  """
+  @spec claim_for_user(map() | nil, String.t() | nil) ::
+          {:ok,
+           %{bound: boolean(), bound_count: non_neg_integer(), masked_phone: String.t() | nil}}
+          | {:error, term()}
+  def claim_for_user(actor, token_plaintext \\ nil)
+
+  def claim_for_user(%{id: _user_id} = actor, token_plaintext) when is_binary(token_plaintext) do
+    with {:ok, token} <- fetch_valid(token_plaintext),
+         :ok <- bind_person_and_claim(token, actor) do
+      notify_bound(token.person)
+
+      {:ok, %{bound: true, bound_count: 1, masked_phone: mask_phone(token.person.phone)}}
+    end
+  end
+
+  def claim_for_user(%{id: user_id} = actor, _no_token) do
+    persons = matched_persons(actor)
+
+    Enum.each(persons, fn %{id: person_id} ->
+      Cgc2046.Flashback.Person
+      |> Ash.get!(person_id, authorize?: false)
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:user_id, user_id)
+      |> Ash.update!(authorize?: false)
+    end)
+
+    case persons do
+      [] ->
+        {:ok, %{bound: false, bound_count: 0, masked_phone: nil}}
+
+      [%{phone: phone} | _] ->
+        {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
+    end
+  end
+
+  def claim_for_user(_actor, _token) do
+    {:error,
+     %{
+       code: "flashback_auth_required",
+       message: "authentication required",
+       reason: :auth_required
+     }}
+  end
+
+  # 未认领（user_id 空）且手机/邮箱命中登录用户者——not_selected 也认领
+  # （圆梦线同样有档案，只是不进名册）。
+  defp matched_persons(%{id: _user_id} = actor) do
+    import Ecto.Query
+
+    # 逐个字段按需拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）；
+    # email 在 Ash 里是 CiString，进裸 SQL 前转普通 binary
+    matches =
+      [
+        Map.get(actor, :phone) && to_string(Map.get(actor, :phone)),
+        Map.get(actor, :email) && to_string(Map.get(actor, :email))
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn value ->
+        dynamic([p], p.phone == ^value or p.email == ^value)
+      end)
+
+    case matches do
+      [] ->
+        []
+
+      [single] ->
+        query_matched(single)
+
+      many ->
+        query_matched(Enum.reduce(many, &dynamic([p], ^&1 or ^&2)))
+    end
+  end
+
+  defp query_matched(condition) do
+    import Ecto.Query
+
+    from(p in "flashback_people",
+      where: is_nil(p.user_id) and is_nil(p.deleted_at),
+      where: ^condition,
+      select: %{id: fragment("?::text", p.id), phone: p.phone}
+    )
+    |> Cgc2046.Repo.all()
+  end
+
+  defp mask_phone(phone) when is_binary(phone), do: Cgc2046.Accounts.PhoneNumber.mask(phone)
+  defp mask_phone(_), do: nil
+
   # ── 联系方式更新（R17/KTD7 防劫持） ──────────────────────────────────
 
   @doc """

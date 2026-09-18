@@ -6626,6 +6626,17 @@ type FlashbackQuoteStats {
   likeCount: Int!
 }
 
+type FlashbackClaimResult {
+  "是否已绑定（false = 库里没有匹配的未认领档案）"
+  bound: Boolean!
+
+  "本次绑定\/已绑定的档案数"
+  boundCount: Int!
+
+  "掩码回显（完整号码不出接口）"
+  maskedPhone: String
+}
+
 type FlashbackQuoteHiddenResult {
   personId: ID!
 
@@ -7355,6 +7366,9 @@ type RootMutationType {
   flashbackAdminScheduleCard(
     cardId: ID!, initiativeSlug: String!, workspaceId: ID, title: String, startsAt: DateTime, venue: Json
   ): FlashbackActionCardResult
+
+  "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
+  flashbackClaim(token: String): FlashbackClaimResult
 
   "金句点赞\/取消（R36）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数"
   flashbackLikeQuote(

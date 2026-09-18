@@ -2527,6 +2527,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案"
+    field :flashback_claim, :flashback_claim_result do
+      arg(:token, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.Tokens.claim_for_user(context[:actor], Map.get(args, :token))
+        end)
+      end)
+    end
+
     @desc "金句点赞/取消（R36）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数"
     field :flashback_like_quote, :flashback_quote_like_result do
       arg(:person_id, non_null(:id))
@@ -3433,6 +3444,15 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_quote_stats do
     @desc "点赞数（R36：作者侧回访面，实时 COUNT）"
     field(:like_count, non_null(:integer))
+  end
+
+  object :flashback_claim_result do
+    @desc "是否已绑定（false = 库里没有匹配的未认领档案）"
+    field(:bound, non_null(:boolean))
+    @desc "本次绑定/已绑定的档案数"
+    field(:bound_count, non_null(:integer))
+    @desc "掩码回显（完整号码不出接口）"
+    field(:masked_phone, :string)
   end
 
   object :flashback_quote_hidden_result do
