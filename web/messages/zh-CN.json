@@ -265,6 +265,7 @@
 	},
 	"landing": {
 		"nav": {
+			"campaign": "Hacker Start 1024",
 			"ariaLabel": "主导航",
 			"events": "活动",
 			"courses": "课程",
