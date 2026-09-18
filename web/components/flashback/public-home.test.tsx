@@ -213,7 +213,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 		expect(await screen.findByText("找到了你的 2 张卡——它们都归你了")).toBeInTheDocument();
 		expect(screen.getByText("王** · Rails Girls 北京 · 北京")).toBeInTheDocument();
 
-		fireEvent.click(screen.getByRole("button", { name: "进入时间胶囊 →" }));
+		fireEvent.click(screen.getByRole("button", { name: "进入时间长廊 →" }));
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
 

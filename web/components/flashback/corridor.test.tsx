@@ -6,7 +6,7 @@ import Corridor, { cityPiles } from "./corridor";
 import { tiltClass } from "./tilt";
 
 /**
- * 长廊收口（定稿 D）：一帧只留城市照片堆 + 「进入这一场 →」入口。
+ * 长廊收口（定稿 D + 收尾）：一帧只留城市照片堆（堆可点）；叙事标签 flabel。
  * 堆 = 名册聚合的 {city,count}（city 空值不计；count 降序 → 城市码位序；最多 4 堆）；
  * 转角确定性（tilt 类按城市名派生，禁止随机）；显影进视口才播
  * （无 IntersectionObserver / reduced-motion 直达终态）。
@@ -56,19 +56,26 @@ const entry = (id: string, city: string | null): FlashbackCapsuleArchive["roster
 	answers: [],
 });
 
-const archive = (key: string, roster: FlashbackCapsuleArchive["roster"]): FlashbackCapsuleArchive => ({
+const archive = (
+	key: string,
+	roster: FlashbackCapsuleArchive["roster"],
+	label?: string | null,
+): FlashbackCapsuleArchive => ({
 	key,
 	name: `场次 ${key}`,
 	city: "北京",
 	occurredOn: "2014-01-11",
 	appliedCount: 344,
 	attendedCount: roster.length,
+	label: label ?? null,
 	isMine: false,
 	roster,
 });
 
-/** 帧一：4 城（第 5 城深圳被 4 堆上限截断）+ 3 条空城市名不计；帧二：单城 */
-const multiCity = archive("2014-01-11-bj", [
+/** 帧一：4 城（第 5 城深圳被 4 堆上限截断）+ 3 条空城市名不计，带叙事标签；帧二：单城无 label（回落场次名） */
+const multiCity = archive(
+	"2014-01-11-bj",
+	[
 	entry("1", "北京"),
 	entry("2", "北京"),
 	entry("3", "北京"),
@@ -80,7 +87,7 @@ const multiCity = archive("2014-01-11-bj", [
 	entry("9", null),
 	entry("10", ""),
 	entry("11", "   "),
-]);
+], "六城同日");
 const singleCity = archive("2016-05-21-sh", [entry("12", "上海")]);
 
 const capsule: FlashbackCapsule = {
@@ -133,7 +140,7 @@ describe("cityPiles（城市堆聚合判据）", () => {
 });
 
 describe("Corridor · 城市堆与入口（定稿 D）", () => {
-	it("每帧：城市堆（城市名 + 计数 + 确定性 tilt）+ 进入这一场入口；长廊零名册元素", () => {
+	it("每帧：城市堆（城市名 + 计数 + 确定性 tilt，堆可点）+ 叙事标签；长廊零名册元素", () => {
 		render(<Corridor capsule={capsule} />);
 
 		const piles = screen.getAllByTestId("fb-corridor-pile");
@@ -150,12 +157,18 @@ describe("Corridor · 城市堆与入口（定稿 D）", () => {
 		// 转角确定性：城市名派生档位（同城恒同档，非随机）
 		expect(first.className).toContain(tiltClass("北京"));
 
-		// 入口保留：每帧一个「进入这一场 →」，指向场次页
-		const opens = screen.getAllByRole("link", { name: "进入这一场 →" });
-		expect(opens.map((link) => link.getAttribute("href"))).toEqual([
-			"/flashback/event/2014-01-11-bj",
-			"/flashback/event/2016-05-21-sh",
-		]);
+		// 文字链接已下线（堆可点后多此一举）：长廊内无「进入这一场 →」
+		expect(screen.queryAllByRole("link", { name: "进入这一场 →" })).toHaveLength(0);
+		// 叙事标签（原型 D ia-frame-label）：label 优先，缺失回落场次名
+		const whens = screen.getAllByTestId("fb-corridor-when");
+		expect(whens[0]).toHaveTextContent("六城同日");
+		expect(whens[1]).toHaveTextContent("场次 2016-05-21-sh");
+
+		// 堆可点（用户定稿收尾）：每个堆整体是链接，与帧头入口并存、同目标
+		const pileLinks = piles.map((pile) => pile.querySelector("a"));
+		expect(pileLinks.every((link) => link !== null)).toBe(true);
+		expect(pileLinks[0]!.getAttribute("href")).toBe("/flashback/event/2014-01-11-bj");
+		expect(pileLinks[4]!.getAttribute("href")).toBe("/flashback/event/2016-05-21-sh");
 
 		// 名册已整体归场次页：长廊内零 .fb-roster-*
 		expect(document.querySelector(".fb-roster-card, .fb-roster-grid, .fb-roster-meta")).toBeNull();

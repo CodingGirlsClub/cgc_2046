@@ -163,7 +163,7 @@ export default function CapsuleView() {
 					))}
 				</div>
 			)}
-			<Corridor capsule={capsule} cityFiltered={city !== null} />
+			<Corridor capsule={capsule} cityFiltered={city !== null} city={city} />
 			<ActionBoard
 				cards={capsule.actionCards}
 				token={token}

@@ -2320,7 +2320,7 @@
 			"enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
 			"homeTitle": "In a Flash",
 			"homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years.",
-			"capsuleTitle": "Time Capsule · In a Flash",
+			"capsuleTitle": "Time Corridor · In a Flash",
 			"capsuleDescription": "Companions from those years are developing here — send your photo and see the next card on the wall.",
 			"profileTitle": "In a Flash · Credited Profile"
 		},
@@ -2348,7 +2348,7 @@
 			"codePlaceholder": "Verification code",
 			"verify": "Verify and enter",
 			"cardsTitle": "Found your {count} cards — they're all yours now",
-			"enterCapsule": "Enter the time capsule →",
+			"enterCapsule": "Enter the time corridor →",
 			"bound": "Your archive is bound to your account. From now on, enter from \"Mine\".",
 			"errorCode": "That code is wrong or has expired — try again.",
 			"errorRetry": "That step didn't succeed — try again shortly."
@@ -2388,7 +2388,7 @@
 			"envelopeSeal": "To the you of back then"
 		},
 		"scatter": {
-			"title": "A table of scattered photos",
+			"title": "A table of Polaroids, still undeveloped",
 			"hint": "Open one and zoom in — the clue is in the photo.",
 			"groupAria": "A pile of blurry old photos from different years, pick one to zoom in",
 			"cardAria": "Photo {index} ({label})",
@@ -2464,12 +2464,13 @@
 			"quoteNoCandidate": "(All your old lines carry fog — lift the fog before picking a quote)",
 			"creditedNoteLabel": "What you're doing now, in your words (public, credited)",
 			"creditedNotePlaceholder": "e.g. accessibility development",
-			"submit": "Done writing — send it →"
+			"submit": "Done writing — send it →",
+			"quoteCourage": "Your answers can become someone else’s courage."
 		},
 		"sendRegister": {
 			"title": "Your photo is going up on the wall.",
-			"lead": "The front is you back then; the back is you today. Once sent, this card joins the time capsule.",
-			"send": "Send — back to the time capsule →",
+			"lead": "The front is you back then; the back is you today. Once sent, this card joins the time corridor.",
+			"send": "Send — back to the time corridor →",
 			"errorSend": "Sending didn't succeed — try once more.",
 			"errorCode": "That step didn't succeed — check and retry.",
 			"sentTitle": "Sent",
@@ -2487,20 +2488,23 @@
 			"retry": "Try again",
 			"boundTitle": "Your account has taken over",
 			"boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
-			"enterCapsule": "Enter the time capsule →"
+			"enterCapsule": "Enter the time corridor →"
 		},
 		"capsule": {
-			"loading": "Developing the time capsule…",
+			"loading": "Developing the time corridor…",
 			"error": "The capsule won't open right now — try again shortly.",
 			"retry": "Retry",
-			"title": "In a Flash · Time Capsule",
+			"title": "In a Flash · Time Corridor",
 			"subtitle": "Scroll down = time moves forward: that year on top, the future waiting for you at the bottom",
 			"authRequiredTitle": "The capsule needs your identity",
 			"authRequiredBody": "Enter via the personal link from your email/SMS, or sign in with a bound account — if the link is lost, you can recover it yourself.",
 			"authRequiredAction": "Self-service recovery",
 			"footerHint": "The silent stay safe: until you send, only you can see your answers.",
 			"cityAria": "Filter by city",
-			"cityAll": "All"
+			"cityAll": "All",
+			"scrollHint": "Scroll down = moving forward in time: developed past on top, the future waiting below",
+			"scrollHintWide": "Scroll right: developed past on the left, the future waiting to be co-created on the right — {city}",
+			"cityAllWide": "All cities"
 		},
 		"event": {
 			"loading": "Developing this gathering…",
@@ -2518,7 +2522,8 @@
 			"ariaLabel": "Time capsule corridor",
 			"emptyCity": "No roster photos from this city yet.",
 			"pilesAria": "{name} city photo piles",
-			"pileCount": "{city} · {count} people"
+			"pileCount": "{city} · {count} people",
+			"frameLabelFallback": "that year, that event"
 		},
 		"roster": {
 			"groupAria": "{name} roster",

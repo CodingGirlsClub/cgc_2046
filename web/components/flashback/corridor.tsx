@@ -45,28 +45,36 @@ export function cityPiles(archive: FlashbackCapsuleArchive): CityPile[] {
 export default function Corridor({
 	capsule,
 	cityFiltered = false,
+	city = null,
 }: {
 	capsule: FlashbackCapsule;
 	/** 城市钉筛选中（R34）：名册为空时给「该城无名册」而非裸空走廊 */
 	cityFiltered?: boolean;
+	/** 当前选中城市（null = 全部）——宽屏提示尾注用 */
+	city?: string | null;
 }) {
-	const t = useTranslations("flashback.corridor");
+	const t = useTranslations("flashback.capsule");
+	const tCorridor = useTranslations("flashback.corridor");
 	const wide = useWideCorridor();
+	// 提示分端（用户定稿）：宽屏横滑照原型 D 逐字语序（尾注 = 当前城市/全部城市）；
+	// 窄屏与小程序保留竖滑版
+	const hint = wide
+		? t("scrollHintWide", { city: city ?? t("cityAllWide") })
+		: t("scrollHint");
 
 	return (
-		<section className={`fb-corridor${wide ? " fb-corridor--wide" : ""}`} aria-label={t("ariaLabel")}>
+		<section className={`fb-corridor${wide ? " fb-corridor--wide" : ""}`} aria-label={tCorridor("ariaLabel")}>
+			<p className="fb-hint fb-corridor-scrollhint">{hint}</p>
 			{capsule.archives.length === 0 && cityFiltered && (
-				<p className="fb-hint fb-corridor-empty">{t("emptyCity")}</p>
+				<p className="fb-hint fb-corridor-empty">{tCorridor("emptyCity")}</p>
 			)}
 			{capsule.archives.map((archive) => (
 				<article key={archive.key} className="fb-corridor-frame">
-					<h3 className="fb-corridor-when">
+					<h3 className="fb-corridor-when" data-testid="fb-corridor-when">
 						{archive.occurredOn?.replace(/-/g, ".") ?? archive.key}
-						<span className="fb-corridor-flabel">{archive.name}</span>
-						{/* 点格进场次页（E 的 event 步）：统计 + 3 列名册 + 找回出口 */}
-						<Link href={`/flashback/event/${archive.key}`} className="fb-corridor-open">
-							{t("openEvent")}
-						</Link>
+						{/* 叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名；
+						    导入未带的场次回落场次名 */}
+						<span className="fb-corridor-flabel">{archive.label ?? archive.name}</span>
 					</h3>
 					<CityPiles archive={archive} />
 				</article>
@@ -82,7 +90,7 @@ export default function Corridor({
  * 派生（tilt 类，禁止随机）；显影照名册（进视口才播，只播一次）。
  */
 function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
-	const t = useTranslations("flashback.corridor");
+	const tCorridor = useTranslations("flashback.corridor");
 	const reduced = usePrefersReducedMotion();
 	const developActive = useDevelopEnabled(reduced);
 	const { developed, registerDevelop } = useDevelopOnView(developActive);
@@ -93,7 +101,7 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 	return (
 		<ul
 			className="fb-corridor-piles"
-			aria-label={t("pilesAria", { name: archive.name ?? archive.key })}
+			aria-label={tCorridor("pilesAria", { name: archive.name ?? archive.key })}
 		>
 			{piles.map((pile) => (
 				<li
@@ -103,18 +111,22 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 					data-city={pile.city}
 					data-count={pile.count}
 				>
-					<div
-						ref={registerDevelop}
-						data-develop-id={pile.city}
-						className={`fb-polaroid fb-grain fb-corridor-polaroid ${tiltClass(pile.city)}${developClass(
-							"fb-corridor-polaroid",
-							developActive,
-							developed.has(pile.city),
-						)}`}
-					>
-						<span className="fb-photo fb-corridor-photo">{pile.city}</span>
-					</div>
-					<p className="fb-corridor-count">{t("pileCount", { city: pile.city, count: pile.count })}</p>
+					{/* 堆可点（用户定稿）：点堆直接进该场次页（链接删除后这是唯一入口）。
+					    整堆（拍立得+计数）都是可点面，hover/按压反馈在 CSS。 */}
+					<Link href={`/flashback/event/${archive.key}`} className="fb-corridor-pile-link">
+						<div
+							ref={registerDevelop}
+							data-develop-id={pile.city}
+							className={`fb-polaroid fb-grain fb-corridor-polaroid ${tiltClass(pile.city)}${developClass(
+								"fb-corridor-polaroid",
+								developActive,
+								developed.has(pile.city),
+							)}`}
+						>
+							<span className="fb-photo fb-corridor-photo">{pile.city}</span>
+						</div>
+						<p className="fb-corridor-count">{tCorridor("pileCount", { city: pile.city, count: pile.count })}</p>
+					</Link>
 				</li>
 			))}
 		</ul>

@@ -254,6 +254,7 @@ export default function Write({
 							{t(`quote_${level}`)}
 						</label>
 					))}
+					<p className="fb-quote-courage">{t("quoteCourage")}</p>
 					{form.quoteLevel !== "off" && (
 						<div className="fb-quote-picker">
 							<p className="fb-field-label">{t("quotePick")}</p>

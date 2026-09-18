@@ -79,9 +79,9 @@ const memoryEntry: FlashbackEnterResult = {
 	progress: { quoteLevel: "off", maskedPhone: "138****5678", maskedEmail: "w***@x.com" },
 	scatter: {
 		entries: [
-			{ photoKey: "p-self", label: "2012 · 上海", isMine: true, surname: "王" },
-			{ photoKey: "p-bj", label: "2014 · 北京", isMine: false, surname: "李" },
-			{ photoKey: "p-gz", label: "2015 · 广州", isMine: false, surname: "张" },
+			{ photoKey: "p-self", label: "2012 · 上海", dateStamp: "2012 02 20", isMine: true, surname: "王" },
+			{ photoKey: "p-bj", label: "2014 · 北京", dateStamp: "2014 01 11", isMine: false, surname: "李" },
+			{ photoKey: "p-gz", label: "2015 · 广州", dateStamp: "2015 08 15", isMine: false, surname: "张" },
 		],
 	},
 };
@@ -208,7 +208,7 @@ describe("Journey · 记忆线", () => {
 		fireEvent.click(photos[0]);
 		await waitFor(() => expect(screen.getAllByTestId("fb-scatter-photo")[0]).toHaveAttribute("data-picked", "true"));
 		expect(screen.getByTestId("fb-quiz-sheet")).toBeInTheDocument();
-		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+		expect(screen.getByText("散落一桌的拍立得，都还没显影")).toBeInTheDocument();
 
 		// 换着看：点第三张 → 放大态转移，旧的那张回正
 		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[2]);
@@ -219,7 +219,7 @@ describe("Journey · 记忆线", () => {
 		fireEvent.click(screen.getByRole("button", { name: /重挑一张/ }));
 		await waitFor(() => expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument());
 		expect(screen.getAllByTestId("fb-scatter-photo")[2]).toHaveAttribute("data-picked", "false");
-		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+		expect(screen.getByText("散落一桌的拍立得，都还没显影")).toBeInTheDocument();
 	});
 
 	it("原位显影：选定后同一场景里长出显影卡（桌面退到背景，不换页）", async () => {
@@ -235,7 +235,7 @@ describe("Journey · 记忆线", () => {
 		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
 		expect(screen.getByTestId("fb-desk-reveal")).toBeInTheDocument();
 		expect(screen.getAllByTestId("fb-scatter-photo")[1]).toHaveAttribute("data-picked", "true");
-		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+		expect(screen.getByText("散落一桌的拍立得，都还没显影")).toBeInTheDocument();
 		expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument();
 	});
 
@@ -277,7 +277,7 @@ describe("Journey · 记忆线", () => {
 	it("单场自适应（pilot 初期）：候选仅一场 → 点照片直接原位显影、跳过问答", async () => {
 		const single: FlashbackEnterResult = {
 			...memoryEntry,
-			scatter: { entries: [{ photoKey: "p-self", label: "2012 · 上海", isMine: true, surname: "王" }] },
+			scatter: { entries: [{ photoKey: "p-self", label: "2012 · 上海", dateStamp: "2012 02 20", isMine: true, surname: "王" }] },
 		};
 		mockEnterResolve(single);
 		await renderJourney();
@@ -296,12 +296,15 @@ describe("Journey · 记忆线", () => {
 		await renderJourney();
 		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
 		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
-		// 摆位按本人 id 哈希旋转（非固定第一张）——用线索标签定位本人那张
+		// 摆位按本人 id 哈希旋转（非固定第一张）——用日期戳定位本人那张
 		const photos = screen.getAllByTestId("fb-scatter-photo");
-		const mine = photos.find((el) => el.getAttribute("data-label") === "2012 · 上海")!;
+		const mine = photos.find((el) => el.getAttribute("data-stamp") === "2012 02 20")!;
 		fireEvent.click(mine);
 		await waitFor(() => expect(mine).toHaveAttribute("data-picked", "true"));
-		expect(mine.querySelector('[data-testid="fb-scatter-label"]')).toHaveTextContent("2012 · 上海");
+		// 日期戳渐显（只含日期）；城市名不进散照 DOM——线索要经认知参与才成立
+		const stamp = mine.querySelector('[data-testid="fb-scatter-stamp"]');
+		expect(stamp).toHaveTextContent("2012 02 20");
+		expect(within(mine).queryByText(/上海/)).not.toBeInTheDocument();
 	});
 
 	it("「重挑一张」出口回到散照", async () => {
@@ -449,7 +452,7 @@ describe("Journey · 记忆线", () => {
 		fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
 
 		expect(await screen.findByText("账号已接管")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "进入时间胶囊 →" }));
+		fireEvent.click(screen.getByRole("button", { name: "进入时间长廊 →" }));
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
 

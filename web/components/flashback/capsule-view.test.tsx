@@ -90,7 +90,7 @@ async function renderCapsule(capsule: FlashbackCapsule = baseCapsule, token = "t
 	capsuleQuery.mockReset();
 	capsuleQuery.mockResolvedValue({ data: { flashbackCapsule: capsule } });
 	render(<CapsuleView />);
-	await screen.findByText("闪念间 · 时间胶囊");
+	await screen.findByText("闪念间 · 时间长廊");
 }
 
 beforeEach(() => {
@@ -114,7 +114,7 @@ afterEach(() => {
 });
 
 describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
-	it("每帧渲染城市堆：聚合计数 + 城市名 + 「进入这一场 →」（长廊不再有 .fb-roster-*）", async () => {
+	it("每帧渲染城市堆：聚合计数 + 城市名 + 叙事标签（长廊不再有 .fb-roster-*，入口为堆链接）", async () => {
 		await renderCapsule();
 
 		// baseCapsule 名册 2 人同城 → 1 堆「北京 · 2 位」
@@ -128,7 +128,7 @@ describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
 		expect(piles[0].querySelector(".fb-corridor-photo")).toHaveTextContent("北京");
 
 		// 入口保留：逐个名册归场次页 3 列网格
-		expect(screen.getByRole("link", { name: "进入这一场 →" })).toHaveAttribute(
+		expect(screen.getAllByTestId("fb-corridor-pile")[0].querySelector("a")).toHaveAttribute(
 			"href",
 			"/flashback/event/2014-01-11-bj",
 		);
@@ -377,7 +377,7 @@ describe("CapsuleView · 身份与回访", () => {
 		window.sessionStorage.clear();
 		render(<CapsuleView />);
 
-		expect(await screen.findByText("进入胶囊需要你的身份")).toBeInTheDocument();
+		expect(await screen.findByText("进入长廊需要你的身份")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "去自助找回" })).toHaveAttribute("href", "/flashback");
 	});
 });

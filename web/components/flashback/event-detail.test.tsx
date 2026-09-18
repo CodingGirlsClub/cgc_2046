@@ -109,7 +109,7 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		expect(cta).toHaveAttribute("href", "/flashback");
 
 		// 返回长廊
-		expect(screen.getByRole("link", { name: /时间胶囊/ })).toHaveAttribute("href", "/flashback/capsule");
+		expect(screen.getByRole("link", { name: /时间长廊/ })).toHaveAttribute("href", "/flashback/capsule");
 	});
 
 	it("已寄出=显影卡带名字；未回来=雾卡（姓氏隐名 + 答案还在等她）", async () => {
