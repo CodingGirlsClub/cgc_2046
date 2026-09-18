@@ -13,20 +13,24 @@ defmodule Cgc2046.Accounts.Calculations.MemberNumber do
 
   use Ash.Resource.Calculation
 
+  @doc """
+  由 uuid 确定性生成编号（nil / 非串 → nil）。
+
+  规则单源（#537）：本 calculation 与 `Events.Calculations.MemberNumberOf`
+  （EventModerator 行的 user_id / assigned_by 平铺）共用，禁止第二套实现。
+  """
+  @spec from_uuid(String.t() | nil) :: String.t() | nil
+  def from_uuid(nil), do: nil
+
+  def from_uuid(id) when is_binary(id) do
+    hex = id |> String.replace("-", "") |> String.slice(0, 6) |> String.upcase()
+    "CGC-" <> hex
+  end
+
+  def from_uuid(_), do: nil
+
   @impl true
   def calculate(records, _opts, _context) do
-    Enum.map(records, fn record ->
-      case record.id do
-        nil ->
-          nil
-
-        id when is_binary(id) ->
-          hex = id |> String.replace("-", "") |> String.slice(0, 6) |> String.upcase()
-          "CGC-" <> hex
-
-        _ ->
-          nil
-      end
-    end)
+    Enum.map(records, &from_uuid(&1.id))
   end
 end
