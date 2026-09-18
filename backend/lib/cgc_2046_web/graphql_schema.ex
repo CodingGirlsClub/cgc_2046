@@ -2152,7 +2152,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_enter, :flashback_enter_result do
       arg(:token, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, %{token: token}, _ ->
         flashback_call(fn -> Cgc2046.Flashback.Tokens.enter(token) end)
@@ -2163,7 +2165,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_mark_revealed, :flashback_touch_result do
       arg(:token, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, %{token: token}, _ ->
         flashback_call(fn -> Cgc2046.Flashback.Tokens.mark_revealed(token) end)
@@ -2175,7 +2179,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:token, :string)
       arg(:input, non_null(:flashback_today_input))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
@@ -2199,7 +2205,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_send_to_wall, :flashback_send_to_wall_result do
       arg(:token, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, %{token: token}, _ ->
         flashback_call(fn -> Cgc2046.Flashback.Tokens.send_to_wall(token) end)
@@ -2210,7 +2218,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_retract, :flashback_retract_result do
       arg(:token, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, %{token: token}, _ ->
         flashback_call(fn -> Cgc2046.Flashback.Tokens.retract(token) end)
@@ -2223,7 +2233,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:answer_id, non_null(:id))
       arg(:spans, non_null(list_of(non_null(:flashback_fog_span_input))))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
@@ -2252,7 +2264,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:chosen_quote_span, :flashback_fog_span_input)
       arg(:credited_note, :string)
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, %{level: level} = args, %{context: context} ->
         if level in ["off", "anonymous", "credited"] do
@@ -2323,7 +2337,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:token, :string)
       arg(:confirm, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
@@ -2351,7 +2367,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:token, :string)
       arg(:channel_note, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
@@ -2369,7 +2387,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:card_id, non_null(:id))
       arg(:role_claimed, :string)
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token])
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
