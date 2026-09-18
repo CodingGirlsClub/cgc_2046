@@ -272,13 +272,16 @@ defmodule Cgc2046.Notifications.Service do
 
   # 缺值与空串同义（venue / tier_name 键可能整体缺失 → nil 而非 ""）
   defp blank_to_nil(nil), do: nil
+
   defp blank_to_nil(""), do: nil
+
   defp blank_to_nil(text) when is_binary(text), do: text
 
   # character_string 槽的人话时间（成场通知）：北京时区「10.24 14:00」（无前导
   # 零；解析失败按缺值跳过——drop_nils 兜底，不炸发送）。中国无夏令时，固定
   # UTC+8 偏移计算（项目无 tzdata，:utc_only_time_zone_database 下 shift_zone!
-  # 会炸——不为一个格式化引入时区库依赖）。
+  # 会炸——不为一个格式化引入时区库依赖）。≤32 截断同 code/1 先例（当前格式
+  # 恒 11 字符，截断是防御性格式演进兜底）。
   defp sched_text(nil), do: nil
 
   defp sched_text(iso) when is_binary(iso) do
@@ -287,6 +290,7 @@ defmodule Cgc2046.Notifications.Service do
         dt
         |> DateTime.add(8 * 3600, :second)
         |> Calendar.strftime("%-m.%-d %H:%M")
+        |> String.slice(0, 32)
 
       _ ->
         nil
