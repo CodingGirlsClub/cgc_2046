@@ -417,6 +417,16 @@ defmodule Cgc2046.Events.Event do
     )
 
     has_many(:moderators, Cgc2046.Events.EventModerator, destination_attribute: :event_id)
+
+    # #745：created_by 归因列（可空）的 FK 契约显式化——DB 侧 20260913155651
+    # alter 即 nilify_all（DB 实测 confdeltype=n）；无 DDL，仅 DSL+snapshot 追平。
+    # public? 默认 false：不进 GraphQL/policy 读面。
+    belongs_to(:created_by_user, Cgc2046.Accounts.User,
+      source_attribute: :created_by,
+      destination_attribute: :id,
+      define_attribute?: false,
+      allow_nil?: true
+    )
   end
 
   actions do
@@ -1027,6 +1037,8 @@ defmodule Cgc2046.Events.Event do
     # （DB 实测 confdeltype=n）；无 DDL，仅 snapshot 追平。
     references do
       reference(:initiative, on_delete: :nilify)
+
+      reference(:created_by_user, on_delete: :nilify)
     end
 
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
