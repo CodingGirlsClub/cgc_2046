@@ -274,7 +274,7 @@ export default function FlashbackPage() {
                   key={option.value}
                   className={`${styles.licenseOption} ${quoteLevel === option.value ? styles.licenseOptionActive : ''}`}
                 >
-                  <Radio className={styles.licenseRadio} value={option.value} checked={quoteLevel === option.value} color="#e8b04b" />
+                  <Radio className={styles.licenseRadio} value={option.value} checked={quoteLevel === option.value} color="#ea5504" />
                   <View>
                     <Text className={styles.licenseLabel}>{option.label}</Text>
                     <Text className={styles.licenseDesc}>{option.desc}</Text>

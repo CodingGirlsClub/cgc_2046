@@ -1,15 +1,18 @@
-.page { min-height: 100vh; background: #1a1714; }
+/* 皮肤：小程序品牌 token（对齐 pages/discover）——浅灰底 #f7f7f7、白卡 #fff、
+ * 文字 #222326/#4b4d54/#8a8f98、主 CTA 品牌橙 #ea5504（TabBar 选中色）。
+ * 拍立得卡（.polaroid 一族）是嵌在亮色界面里的纸白物件：纸白+时间戳白边+雾面照旧。 */
+.page { min-height: 100vh; background: #f7f7f7; }
 .section { padding: 0 28rpx; }
 .header { padding: 44rpx 32rpx 30rpx; }
-.eyebrow { display: block; color: #e8b04b; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
-.headline { display: block; margin-top: 10rpx; color: #f5efe4; font-size: 44rpx; font-weight: 700; }
-.subline { display: block; margin-top: 8rpx; color: #a89f90; font-size: 24rpx; }
+.eyebrow { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
+.headline { display: block; margin-top: 10rpx; color: #222326; font-size: 44rpx; font-weight: 700; }
+.subline { display: block; margin-top: 8rpx; color: #4b4d54; font-size: 24rpx; }
 .wallBadge { display: inline-block; margin-top: 14rpx; padding: 6rpx 16rpx; border-radius: 16rpx; font-size: 21rpx; }
-.onWall { color: #e8b04b; background: rgba(232,176,75,.14); }
-.offWall { color: #a89f90; background: rgba(168,159,144,.14); }
+.onWall { color: #ea5504; background: #fdeadf; }
+.offWall { color: #8a8f98; background: rgba(138,143,152,.1); }
 
-/* 我的卡：拍立得白框（当年正面 + 今天背面） */
-.polaroid { margin: 8rpx 0 26rpx; padding: 24rpx 24rpx 34rpx; background: #f5efe4; border-radius: 14rpx; box-shadow: 0 6rpx 24rpx rgba(0,0,0,.35); }
+/* 我的卡：拍立得白框（当年正面 + 今天背面）——纸白物件，嵌在亮色界面里 */
+.polaroid { margin: 8rpx 0 26rpx; padding: 24rpx 24rpx 34rpx; background: #f5efe4; border-radius: 14rpx; box-shadow: 0 6rpx 24rpx rgba(34,35,38,.08); }
 .polaroidLabel { display: block; color: #6b6156; font-size: 20rpx; letter-spacing: 2rpx; }
 .cardFaceTitle { display: block; margin-top: 16rpx; color: #2d2a26; font-size: 26rpx; font-weight: 700; }
 .answerMeta { display: block; margin-top: 6rpx; color: #8a7f70; font-size: 21rpx; }
@@ -22,39 +25,37 @@
 .todayLabel { display: block; color: #8a7f70; font-size: 21rpx; }
 .todayText { display: block; margin-top: 4rpx; color: #2d2a26; font-size: 26rpx; }
 .todayEmpty { display: block; margin-top: 4rpx; color: #b3a899; font-size: 24rpx; }
-.editorToggle { margin: 20rpx 0 0; color: #6b6156; background: #e6dcc9; border-radius: 24rpx; font-size: 22rpx; }
-.saveButton { margin: 18rpx 0 0; color: #f5efe4; background: #2d2a26; border-radius: 24rpx; font-size: 22rpx; }
+.editorToggle { margin: 20rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 22rpx; }
+.saveButton { margin: 18rpx 0 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 22rpx; }
 .textarea { margin-top: 12rpx; padding: 16rpx; width: 100%; box-sizing: border-box; min-height: 110rpx; background: #fff; border-radius: 12rpx; font-size: 25rpx; color: #2d2a26; }
 
-/* 金句授权（R31） */
-.licenseCard { margin-bottom: 26rpx; padding: 26rpx; background: #241f1a; border-radius: 22rpx; }
-.sectionTitle { display: block; color: #f5efe4; font-size: 30rpx; font-weight: 700; }
-.sectionDesc { display: block; margin-top: 6rpx; color: #a89f90; font-size: 22rpx; }
-.licenseOption { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 16rpx 18rpx; background: rgba(245,239,228,.06); border-radius: 14rpx; border: 2rpx solid transparent; }
-.licenseOptionActive { border-color: #e8b04b; background: rgba(232,176,75,.1); }
+/* 金句授权（R31）*/
+.licenseCard { margin-bottom: 26rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
+.sectionTitle { display: block; color: #222326; font-size: 30rpx; font-weight: 700; }
+.sectionDesc { display: block; margin-top: 6rpx; color: #8a8f98; font-size: 22rpx; }
+.licenseOption { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 16rpx 18rpx; background: #f7f7f7; border-radius: 14rpx; border: 2rpx solid transparent; }
+.licenseOptionActive { border-color: #ea5504; background: rgba(234,85,4,.06); }
 .licenseRadio { margin-right: 14rpx; transform: scale(.8); }
-.licenseLabel { color: #f5efe4; font-size: 25rpx; font-weight: 600; }
-.licenseDesc { display: block; margin-top: 4rpx; color: #a89f90; font-size: 21rpx; }
+.licenseLabel { color: #222326; font-size: 25rpx; font-weight: 600; }
+.licenseDesc { display: block; margin-top: 4rpx; color: #8a8f98; font-size: 21rpx; }
 
-/* 行动板（R13 四态） */
+/* 行动板（R13 四态）*/
 .board { padding-bottom: 60rpx; }
-.boardHint { display: block; margin: 6rpx 0 18rpx; color: #a89f90; font-size: 22rpx; }
-.actionCard { margin-bottom: 18rpx; padding: 26rpx; background: #241f1a; border-radius: 22rpx; }
+.boardHint { display: block; margin: 6rpx 0 18rpx; color: #8a8f98; font-size: 22rpx; }
+.actionCard { margin-bottom: 18rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .actionHeader { display: flex; align-items: center; justify-content: space-between; }
-.actionTitle { color: #f5efe4; font-size: 30rpx; font-weight: 600; }
+.actionTitle { color: #222326; font-size: 30rpx; font-weight: 600; }
 .actionStatus { padding: 5rpx 14rpx; border-radius: 16rpx; font-size: 21rpx; }
-.proposed { color: #a89f90; background: rgba(168,159,144,.15); }
-.forming { color: #e8b04b; background: rgba(232,176,75,.15); }
-.scheduled { color: #34d399; background: rgba(52,211,153,.15); }
-.done { color: #60a5fa; background: rgba(96,165,250,.15); }
-.actionMeta { display: block; margin-top: 10rpx; color: #a89f90; font-size: 22rpx; }
-.rolesRow { display: block; margin-top: 8rpx; color: #8a7f70; font-size: 21rpx; }
-.endorseButton { margin: 18rpx 0 0; color: #1a1714; background: #e8b04b; border-radius: 24rpx; font-size: 23rpx; font-weight: 600; }
-.endorseButtonPlain { color: #f5efe4; background: rgba(245,239,228,.12); }
-.roleSheetRow { padding: 26rpx 32rpx; color: #f5efe4; font-size: 27rpx; border-bottom: 1rpx solid rgba(245,239,228,.08); }
-.roleSheetCancel { padding: 26rpx 32rpx; color: #a89f90; font-size: 25rpx; text-align: center; }
+.proposed { color: #8a8f98; background: rgba(138,143,152,.12); }
+.forming { color: #ea5504; background: #fdeadf; }
+.scheduled { color: #0e9f6e; background: rgba(14,159,110,.1); }
+.done { color: #2563eb; background: rgba(37,99,235,.08); }
+.actionMeta { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 22rpx; }
+.rolesRow { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 21rpx; }
+.endorseButton { margin: 18rpx 0 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 23rpx; font-weight: 600; }
+.endorseButtonPlain { color: #4b4d54; background: #f7f7f7; }
 
-/* 状态面（加载/错误/未绑定） */
+/* 状态面（加载/错误/未绑定）*/
 .stateBlock { padding: 120rpx 60rpx; text-align: center; }
-.stateText { color: #a89f90; font-size: 25rpx; line-height: 1.8; }
-.stateAction { margin-top: 26rpx; color: #1a1714; background: #e8b04b; border-radius: 26rpx; font-size: 24rpx; }
+.stateText { color: #8a8f98; font-size: 25rpx; line-height: 1.8; }
+.stateAction { margin-top: 26rpx; color: #fff; background: #ea5504; border-radius: 26rpx; font-size: 24rpx; }
