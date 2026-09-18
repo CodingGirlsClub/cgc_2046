@@ -451,14 +451,32 @@
 
 /* 名册（R12 分层） */
 .fb-roster-meta { color: #77726a; font-size: 11px; margin: 0 0 10px; }
+/* 名册错落（用户定稿 ②，原型 B/D 照片堆语言）：两列 masonry（columns
+   先纵后横天然错落）+ 每卡确定性旋转（tilt 类按 person id hash）+ 偶数卡
+   半卡高偏移。宽窄屏同构（手机竖滑两列照旧）。 */
 .fb-roster-grid {
 	list-style: none;
 	padding: 0;
 	margin: 0;
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-	gap: 12px;
+	columns: 2;
+	column-gap: 14px;
 }
+.fb-roster-card {
+	break-inside: avoid;
+	display: inline-block;
+	width: 100%;
+	vertical-align: top;
+	/* 偶数卡下沉半卡错位（columns 内 margin 参与流，制造间距不均感） */
+	margin: 0 0 14px;
+	/* 旋转档位（tiltClass 注入 --r）；keyframes 渐入也用同变量防覆盖 */
+	transform: rotate(var(--fb-r, 0deg));
+}
+.fb-roster-card:nth-child(even) { margin-top: 26px; }
+.fb-tilt--0 { --fb-r: -4deg; }
+.fb-tilt--1 { --fb-r: -2deg; }
+.fb-tilt--2 { --fb-r: 1deg; }
+.fb-tilt--3 { --fb-r: 3deg; }
+.fb-tilt--4 { --fb-r: 5deg; }
 .fb-roster-card {
 	background: rgba(239, 233, 219, 0.07);
 	border: 1px dashed rgba(239, 233, 219, 0.35);
@@ -520,8 +538,8 @@
 }
 /* 展开态 stagger 渐入（照显影语言：淡入+微缩放；nth-child 递进延迟，KTD9） */
 @keyframes fb-roster-in {
-	from { opacity: 0; transform: translateY(10px) scale(0.97); }
-	to { opacity: 1; transform: translateY(0) scale(1); }
+	from { opacity: 0; transform: translateY(10px) scale(0.97) rotate(var(--fb-r, 0deg)); }
+	to { opacity: 1; transform: translateY(0) scale(1) rotate(var(--fb-r, 0deg)); }
 }
 .fb-roster-card--in { animation: fb-roster-in 0.5s ease-out both; }
 .fb-roster-card--in:nth-child(5n+1) { animation-delay: 0.05s; }
