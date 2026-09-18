@@ -1023,6 +1023,12 @@ defmodule Cgc2046.Events.Event do
     table("events")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 20260913155651 的 nilify_all
+    # （DB 实测 confdeltype=n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:initiative, on_delete: :nilify)
+    end
+
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
     # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /

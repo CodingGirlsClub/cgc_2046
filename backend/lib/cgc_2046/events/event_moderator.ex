@@ -138,6 +138,11 @@ defmodule Cgc2046.Events.EventModerator do
     # snapshot 链同步（CI --check 门禁，PR #721 红根因）。
     references do
       reference(:assigned_by_user, on_delete: :nilify)
+
+      # #724：event_id / user_id 的 ON DELETE CASCADE 显式化——对齐
+      # 20260913155651 的 delete_all（DB 实测 confdeltype=c）；无 DDL。
+      reference(:event, on_delete: :delete)
+      reference(:user, on_delete: :delete)
     end
   end
 

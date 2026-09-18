@@ -493,6 +493,21 @@ defmodule Cgc2046.Admission.Enrollment do
     table("enrollments")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline：workspace/event/course/user = delete_all，workflow_run/
+    # invite_batch/approved_by = nilify_all；DB 实测 c/c/c/c/n/n/n）。
+    # 无 DDL，仅 snapshot 追平（原 snapshot 记 null，未来 generator 触碰
+    # 这些列会生成 NO ACTION 版 modify 造成行为回退）。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:course, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+      reference(:invite_batch, on_delete: :nilify)
+      reference(:approver, on_delete: :nilify)
+    end
+
     identity_wheres_to_sql(
       unique_event_user:
         "event_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
