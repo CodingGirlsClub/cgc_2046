@@ -320,6 +320,17 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
     table("sponsorships")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline（workspace/event/
+    # sponsor_user_id = delete_all，workflow_run/approved_by = nilify_all；
+    # DB 实测 c/c/c/n/n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:sponsor, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+      reference(:approver, on_delete: :nilify)
+    end
+
     identity_wheres_to_sql(
       unique_event_sponsor: "level = 'event' AND status IN ('pending', 'active')",
       unique_workspace_sponsor: "level = 'workspace' AND status IN ('pending', 'active')"

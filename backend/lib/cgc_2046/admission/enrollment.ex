@@ -210,26 +210,18 @@ defmodule Cgc2046.Admission.Enrollment do
       end
     )
 
-    # 押金快照金额（#696）：报名提交时物化进 submission_payload 的
-    # "deposit_amount_cents"（create/approve 落点见 put_deposit_snapshot/2），
-    # 与 createOrder 押金单金额（Payments.Order.enrollment_deposit_tier/1）同键
-    # 同源——/orders/new 披露行展示的即实付金额。判据单源
+    # 押金金额（#696 展示面，#749 收紧）：与 createOrder 押金单金额同源——
+    # 都以**活动现值**（target_schedule 投影的 deposit_amount_cents）为权威，
+    # `submission_payload` 不参与金额（历史预埋的脏键天然免疫）。组织者改押金
+    # 额后，未支付报名的披露与实付同步跟随现值，披露=扣款恒成立。判据单源
     # Offering.deposit_amount_cents/1（正整数才算金额，否则 nil → 展示面
-    # 「金额待定」口径，绝不 ¥0）。定价/免费报名无此键 → nil。
+    # 「金额待定」口径，绝不 ¥0）。定价/免费目标 → nil。
     calculate(:deposit_amount_cents, :integer,
       public?: true,
-      # submission_payload 不在 GraphQL 字段集（managed query 按请求字段 select），
-      # 须显式 load 才能读到——同 target_title 的先例
-      load: [:submission_payload],
+      load: [:target_schedule],
       calculation: fn enrollments, _opts ->
         Enum.map(enrollments, fn enrollment ->
-          amount =
-            case enrollment.submission_payload do
-              %{"deposit_amount_cents" => value} -> value
-              _ -> nil
-            end
-
-          Cgc2046.Offering.deposit_amount_cents(%{deposit_amount_cents: amount})
+          Cgc2046.Offering.deposit_amount_cents(enrollment.target_schedule)
         end)
       end
     )
@@ -493,6 +485,21 @@ defmodule Cgc2046.Admission.Enrollment do
     table("enrollments")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline：workspace/event/course/user = delete_all，workflow_run/
+    # invite_batch/approved_by = nilify_all；DB 实测 c/c/c/c/n/n/n）。
+    # 无 DDL，仅 snapshot 追平（原 snapshot 记 null，未来 generator 触碰
+    # 这些列会生成 NO ACTION 版 modify 造成行为回退）。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:course, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+      reference(:invite_batch, on_delete: :nilify)
+      reference(:approver, on_delete: :nilify)
+    end
+
     identity_wheres_to_sql(
       unique_event_user:
         "event_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
@@ -741,7 +748,6 @@ defmodule Cgc2046.Admission.Enrollment do
          {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
          {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
          {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
-         {:ok, attrs} <- put_deposit_selection(changeset, target, attrs),
          {:ok, attrs} <- put_age_confirmation(changeset, target, attrs),
          {:ok, attrs} <- put_check_in_code(attrs, target_kind, target_id) do
       changeset =
@@ -913,31 +919,6 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp put_tier_selection(_changeset, _target, attrs), do: {:ok, attrs}
 
-  # 押金快照（U2/KTD1）：报名提交时物化目标押金金额，下单链以该快照为押金单
-  # 金额源——Owner 事后改价不追溯存量 payment_pending 报名的承诺金额。定价目标
-  # 忽略（金额源 = 下单时的档位解析）。金额非正（U3 校验前写入的历史脏行）不写
-  # 快照：下单链 fail-closed 报 order_deposit_amount_missing，绝不以零金额调渠道。
-  defp put_deposit_selection(
-         changeset,
-         %{deposit_enabled: true, deposit_amount_cents: amount},
-         attrs
-       )
-       when is_integer(amount) and amount > 0 do
-    {:ok,
-     Map.put(
-       attrs,
-       :submission_payload,
-       merge_payload_key(
-         changeset,
-         Map.get(attrs, :submission_payload),
-         "deposit_amount_cents",
-         amount
-       )
-     )}
-  end
-
-  defp put_deposit_selection(_changeset, _target, attrs), do: {:ok, attrs}
-
   # ── 年龄门槛（#510）──────────────────────────────────────────────────────
   # min_age 非空的目标活动（仅 events 有该列；course 恒 nil 走兜底）必须显式
   # 确认：argument :age_confirmed 非 true 即拒（fail-closed，MCP 不传同拒）。
@@ -956,9 +937,9 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp put_age_confirmation(_changeset, _target, attrs), do: {:ok, attrs}
 
-  # submission_payload 累加写点（U2 起 tier_id 与 deposit_amount_cents 共存）：
-  # 优先取链上已累积值、回落客户端提交原值，只覆盖本键——后写者不吞前写者，
-  # 也不丢报名表单自带字段（reason / targetTitle）。
+  # submission_payload 累加写点（tier_id，KTD9）：优先取链上已累积值、回落客户端
+  # 提交原值，只覆盖本键——后写者不吞前写者，也不丢报名表单自带字段
+  # （reason / targetTitle）。
   defp merge_payload_key(changeset, payload, key, value) do
     (payload || Ash.Changeset.get_attribute(changeset, :submission_payload) || %{})
     |> Map.put(key, value)
@@ -1019,14 +1000,13 @@ defmodule Cgc2046.Admission.Enrollment do
          :ok <- lock_qualification_target(changeset.data.event_id),
          {:ok, _} <- lock_for_order(changeset.data.id),
          {:ok, sequence} <- reserve_capacity(kind, target_id),
-         {:ok, target_status, deposit_amount_cents} <- confirm_target_status(kind, target_id),
+         {:ok, target_status} <- confirm_target_status(kind, target_id),
          {:ok, 1} <- claim_pending(changeset.data.id, target_status, actor.id, now, nil) do
       changeset
       |> Ash.Changeset.force_change_attribute(:status, target_status)
       |> Ash.Changeset.force_change_attribute(:capacity_seq, sequence)
       |> Ash.Changeset.force_change_attribute(:approved_by, actor.id)
       |> Ash.Changeset.force_change_attribute(:approved_at, now)
-      |> put_deposit_snapshot(deposit_amount_cents)
       |> stash_target_policy(kind, target_id)
     else
       {:ok, 0} -> add_domain_error(changeset, :already_processed)
@@ -1050,18 +1030,16 @@ defmodule Cgc2046.Admission.Enrollment do
            "SELECT status, pricing_enabled#{deposit_columns(table)} FROM #{table} WHERE id = $1",
            [Cgc2046.Repo.uuid!(target_id)]
          ) do
-      {:ok, %{rows: [["open", pricing_enabled, deposit_enabled, deposit_amount]]}} ->
+      {:ok, %{rows: [["open", pricing_enabled, deposit_enabled]]}} ->
         status =
           auto_confirm_status(%{
             pricing_enabled: pricing_enabled,
             deposit_enabled: deposit_enabled
           })
 
-        # 押金快照（U2/KTD1）：审批通过落 payment_pending 与 create 路径共用同一
-        # 金额源。定价目标不写（金额源 = 下单时的档位解析）。
-        {:ok, status, if(deposit_enabled, do: deposit_amount, else: nil)}
+        {:ok, status}
 
-      {:ok, %{rows: [[_status, _pricing_enabled, _deposit_enabled, _deposit_amount]]}} ->
+      {:ok, %{rows: [[_status, _pricing_enabled, _deposit_enabled]]}} ->
         {:error, :target_not_open_or_registration_closed}
 
       {:ok, %{rows: []}} ->
@@ -1070,18 +1048,6 @@ defmodule Cgc2046.Admission.Enrollment do
       {:error, reason} ->
         {:error, {:database, reason}}
     end
-  end
-
-  # 审批通过路径的押金快照写入（U2/KTD1）：与 create 路径的 put_deposit_selection
-  # 同源（同一 key），供下单链合成押金 tier。
-  defp put_deposit_snapshot(changeset, nil), do: changeset
-
-  defp put_deposit_snapshot(changeset, amount_cents) do
-    Ash.Changeset.force_change_attribute(
-      changeset,
-      :submission_payload,
-      merge_payload_key(changeset, nil, "deposit_amount_cents", amount_cents)
-    )
   end
 
   defp prepare_reject(changeset) do
@@ -1548,7 +1514,7 @@ defmodule Cgc2046.Admission.Enrollment do
     # 入口走同一 createEnrollment）。非成员/匿名对 workspace-only 报名 → 本函数
     # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
     # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
-    # 押金两列（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
+    # 押金开关（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
     # 的 deposit_column 同款写法）。
     # min_age 列（#510）：仅 events 表有，courses 补 NULL 保持列数一致（同
     # deposit_columns 形状）。
@@ -1578,7 +1544,6 @@ defmodule Cgc2046.Admission.Enrollment do
              pricing_enabled,
              price_tiers,
              deposit_enabled,
-             deposit_amount,
              min_age
            ]
          ]
@@ -1595,7 +1560,6 @@ defmodule Cgc2046.Admission.Enrollment do
                pricing_enabled: pricing_enabled,
                price_tiers: price_tiers || [],
                deposit_enabled: deposit_enabled,
-               deposit_amount_cents: deposit_amount,
                min_age: min_age
              }}
         end
@@ -1767,9 +1731,9 @@ defmodule Cgc2046.Admission.Enrollment do
   defp target_table(:event), do: "events"
   defp target_table(:course), do: "courses"
 
-  # 押金两列（KTD2）：仅 events 表有；courses 补 false/NULL 保持 SELECT 列数一致。
-  defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false), deposit_amount_cents"
-  defp deposit_columns(_table), do: ", false, NULL"
+  # 押金开关一列（KTD2）：仅 events 表有；courses 补 false 保持 SELECT 列数一致。
+  defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false)"
+  defp deposit_columns(_table), do: ", false"
   # 年龄一列（#510）：仅 events 表有；courses 补 NULL。
   defp min_age_columns("events"), do: ", min_age"
   defp min_age_columns(_table), do: ", NULL"

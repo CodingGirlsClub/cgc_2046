@@ -21,23 +21,40 @@ defmodule Cgc2046.Payments.Order do
   - 状态迁移原子性：每条迁移一条 `UPDATE ... WHERE id = $ AND status IN (源状态)`
     条件 UPDATE，num_rows=0 即非法迁移。
 
-  U2 金额源（KTD1）：下单与换渠道按 `order_kind` 分派——押金单跳过定价档位解析，
-  以报名提交时物化的押金快照（`submission_payload["deposit_amount_cents"]`）合成
-  `%{"name" => "押金", "amount_cents" => …}` 形状 tier；换渠道沿被替换订单的
-  `order_kind` 与 `tier_snapshot`（不重新读 Event，改价不追溯在途单）。定价单
-  维持现状（`resolve_tier/2` 取当前档位）。快照缺失 fail-closed 报
+  U2 金额源（KTD1，#749 收紧）：下单与换渠道按 `order_kind` 分派——押金单跳过
+  定价档位解析，押金金额以**活动现值**（`events.deposit_amount_cents`）为权威
+  合成 `%{"name" => "押金", "amount_cents" => …}` 形状 tier；`submission_payload`
+  不参与金额（历史预埋/毒化键天然免疫）。换渠道沿被替换订单的 `order_kind` 与
+  `tier_snapshot`（不重新读 Event，改价不追溯在途单）。定价单维持现状
+  （`resolve_tier/2` 取当前档位）。现值金额非正 fail-closed 报
   `order_deposit_amount_missing`，绝不以 nil/零金额调渠道。
+
+  押金同意门（#727）：`create_for_enrollment` 对押金单要求显式同意
+  （`deposit_consent: true`），缺失/非 true 一律拒（`order_deposit_consent_required`），
+  且校验在作废旧 pending 单与调渠道之前——拒单零副作用。判据是后端
+  `order_kind/2`，不认客户端的押金识别（#686/#696 的前端三面披露门是引导，
+  本闸才是权威）。非押金单忽略该参数。
+
+  同意留痕（#750，#510 同形）：门通过即落 `deposit_consent_at` +
+  `deposit_terms_version`（不可逆没收动作的事后举证依据）。换渠道沿旧单承诺
+  不重复要同意，但要求旧单有留痕——存量部署前押金单无留痕时
+  `replace_provider` 拒（`order_deposit_consent_missing`，fail-safe；窗口有界：
+  expire_at 封顶），重新创单走同意门补留痕；留痕齐全时新单继承旧单的同意
+  时点与条款版本（同一承诺沿单延续）。
 
   U1 骨架：全部动作均为内部路径（worker/域服务 authorize?: false 调用），
   GraphQL/管理面尚未暴露；policy 占位为 actor 在场（拒匿名），面向用户的正式
   授权（学员本人 / Owner/Admin / 平台管理员）随 U5/U9 暴露时细化。
   """
-
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshGraphql.Resource, AshAdmin.Resource],
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Payments
+
+  # 押金条款版本（#750，#510 terms_version 同形）：随同意时点落列，改版披露
+  # 文案时递进新值，审计可回答「同意的是哪一版」。须先于 prepare_* 使用点定义。
+  @deposit_terms_version "2026-09-deposit"
 
   attributes do
     uuid_primary_key(:id)
@@ -110,6 +127,19 @@ defmodule Cgc2046.Payments.Order do
           :forfeited
         ]
       ]
+    )
+
+    # 押金同意留痕（#750，#510 同形）：押金单创建时落同意时点与条款版本；
+    # 非押金单/存量部署前押金单为 NULL（后者 replace_provider 拒换渠道）。
+    # writable?: false——只由 prepare 内部 force_change 写入，不开放任何入参面。
+    attribute(:deposit_consent_at, :utc_datetime,
+      public?: true,
+      writable?: false
+    )
+
+    attribute(:deposit_terms_version, :string,
+      public?: true,
+      writable?: false
     )
 
     attribute(:expire_at, :utc_datetime, allow_nil?: false, public?: true, writable?: true)
@@ -252,6 +282,17 @@ defmodule Cgc2046.Payments.Order do
           one_of: [:wechat_jsapi, :wechat_native, :alipay_page, :alipay_wap, :alipay_qr]
         ],
         description: "支付渠道"
+      )
+
+      # 押金同意门下沉（#727，路线 B）：押金单（order_kind=deposit，判据是
+      # **后端**的 order_kind/2，不认客户端识别）必须显式同意，否则拒单。
+      # 非押金单忽略本参数——定价/免费单零改动。可选布尔而非 Boolean!：
+      # 老客户端/非押金调用方拿到的是可翻译的业务错误码
+      # （order_deposit_consent_required），不是 GraphQL 校验错（同 #510
+      # ageConfirmed 的形状）。
+      argument(:deposit_consent, :boolean,
+        allow_nil?: true,
+        description: "确认已阅读并同意押金条款（仅押金单需要；非押金单忽略）"
       )
 
       # unique_active_order 部分索引冲突兜底转业务错误（幂等设计见
@@ -562,6 +603,13 @@ defmodule Cgc2046.Payments.Order do
     table("payments_orders")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline delete_all（DB 实测
+    # 两列 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:enrollment, on_delete: :delete)
+    end
+
     identity_wheres_to_sql(
       unique_active_order: "status IN ('pending', 'paid', 'refunding', 'refund_failed')"
     )
@@ -671,9 +719,16 @@ defmodule Cgc2046.Payments.Order do
 
   # ── U5 下单链路 ────────────────────────────────────────────────────────────
 
-  # 下单前校验链：本人 payment_pending 报名 → 目标定价 → 档位快照 → 截止时间 →
-  # 渠道下单（同事务，失败整单回滚：无凭据无订单）。档位取 Event/Course 当前配置
-  # （R3：下单时快照，改价/删档不追溯已生成订单；档位在下单前被删/过期则拒绝）。
+  # 下单前校验链：本人 payment_pending 报名 → 目标定价 → 押金同意门 → 档位快照
+  # → 截止时间 → 渠道下单（同事务，失败整单回滚：无凭据无订单）。档位取
+  # Event/Course 当前配置（R3：下单时快照，改价/删档不追溯已生成订单；档位在
+  # 下单前被删/过期则拒绝）。
+  #
+  # 顺序纪律（#727）：校验先于副作用——门排在 `discard_stale_pending_order` 与
+  # `channel_create_payment` 之前。渠道下单是事务外副作用（真会向渠道下 prepay
+  # 单），门必须先于它；排在废旧单之前是 validate-before-mutate 纪律（action 事务
+  # 回滚本会撤销废旧单，但正确性不该依赖回滚）。未带 consent 的老客户端重进支付页：
+  # 拒单、不新增订单、已有 pending 单原样存活。
   defp prepare_create_for_enrollment(changeset) do
     actor = changeset.context[:private][:actor]
     enrollment_id = Ash.Changeset.get_argument(changeset, :enrollment_id)
@@ -687,15 +742,23 @@ defmodule Cgc2046.Payments.Order do
     with {:ok, enrollment} <- load_enrollment(enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          :ok <- payment_pending_only(enrollment),
+         {:ok, target} <- load_target(enrollment),
+         :ok <- deposit_consent_gate(changeset, enrollment, target),
          # 幂等下单（#405）：重进支付页在锁内废掉该报名的现有 pending 单
          # （cancelled/reenter_refresh，审计留痕），腾出唯一索引窗口再开新单——
          # 不再向用户抛 order_duplicate_active 死循环。渠道侧旧 prepay 单自然
          # 过期，支付回调按新单号路由。
          :ok <- discard_stale_pending_order(enrollment.id),
-         {:ok, target} <- load_target(enrollment),
          {:ok, tier} <- resolve_order_amount(enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
          {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no) do
+      # 同意留痕（#750）：门通过即落同意事实（时点 + 条款版本，#510 同形）——
+      # 押金没收（no-show forfeit）是不可逆资金动作，事后可举证。非押金单不落。
+      {consent_at, consent_terms} =
+        if order_kind(enrollment, target) == :deposit,
+          do: {DateTime.utc_now() |> DateTime.truncate(:second), @deposit_terms_version},
+          else: {nil, nil}
+
       changeset
       |> Ash.Changeset.force_change_attribute(:workspace_id, enrollment.workspace_id)
       |> Ash.Changeset.force_change_attribute(:enrollment_id, enrollment.id)
@@ -705,6 +768,8 @@ defmodule Cgc2046.Payments.Order do
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
       |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
       |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
+      |> Ash.Changeset.force_change_attribute(:deposit_consent_at, consent_at)
+      |> Ash.Changeset.force_change_attribute(:deposit_terms_version, consent_terms)
       |> Ash.Changeset.put_context(:payment_credential, credential)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
@@ -725,6 +790,11 @@ defmodule Cgc2046.Payments.Order do
          {:ok, enrollment} <- load_enrollment(old_order.enrollment_id),
          :ok <- enrollee_only(enrollment, actor),
          {:ok, target} <- load_target(enrollment),
+         # 同意事实校验（#750/F-05）：押金单沿旧单承诺换渠道的前提是旧单有
+         # 同意留痕——存量部署前押金单无留痕（窗口有界：expire_at 封顶），
+         # 拒换渠道 fail-safe；重新创单走同意门补留痕。新单继承旧单的同意
+         # 时点与条款版本（同一承诺沿单延续，不产生新的同意时点）。
+         :ok <- deposit_consent_inheritable?(old_order),
          {:ok, tier} <- resolve_replaced_amount(old_order, enrollment, target),
          {:ok, expire_at} <- order_expire_at(target),
          {:ok, credential} <- channel_create_payment(provider, enrollment, tier, out_trade_no),
@@ -741,6 +811,14 @@ defmodule Cgc2046.Payments.Order do
       |> Ash.Changeset.force_change_attribute(:amount_cents, tier["amount_cents"])
       |> Ash.Changeset.force_change_attribute(:tier_snapshot, tier)
       |> Ash.Changeset.force_change_attribute(:expire_at, expire_at)
+      |> Ash.Changeset.force_change_attribute(
+        :deposit_consent_at,
+        old_order.deposit_consent_at
+      )
+      |> Ash.Changeset.force_change_attribute(
+        :deposit_terms_version,
+        old_order.deposit_terms_version
+      )
       |> Ash.Changeset.put_context(:payment_credential, credential)
     else
       {:error, reason} -> add_domain_error(changeset, reason)
@@ -782,14 +860,27 @@ defmodule Cgc2046.Payments.Order do
   # 按原单快照换渠道，不重新读 Event）。
   defp load_order(id) when is_binary(id) do
     sql = """
-    SELECT id, enrollment_id, provider, status, amount_cents, order_kind, tier_snapshot
+    SELECT id, enrollment_id, provider, status, amount_cents, order_kind, tier_snapshot,
+           deposit_consent_at, deposit_terms_version
     FROM payments_orders WHERE id = $1
     """
 
     case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id)]) do
       {:ok,
        %{
-         rows: [[id, enrollment_id, _provider, status, amount_cents, order_kind, snapshot]]
+         rows: [
+           [
+             id,
+             enrollment_id,
+             _provider,
+             status,
+             amount_cents,
+             order_kind,
+             snapshot,
+             deposit_consent_at,
+             deposit_terms_version
+           ]
+         ]
        }} ->
         {:ok,
          %{
@@ -798,7 +889,13 @@ defmodule Cgc2046.Payments.Order do
            status: existing_atom(status),
            amount_cents: amount_cents,
            order_kind: existing_atom(order_kind),
-           tier_snapshot: snapshot
+           tier_snapshot: snapshot,
+           # 换渠道的同意事实继承源（#750）：NaiveDateTime（无时区解码）与
+           # order_expire_at 同款归一
+           deposit_consent_at:
+             deposit_consent_at &&
+               DateTime.from_naive!(deposit_consent_at, "Etc/UTC"),
+           deposit_terms_version: deposit_terms_version
          }}
 
       {:ok, %{rows: []}} ->
@@ -834,21 +931,38 @@ defmodule Cgc2046.Payments.Order do
 
   defp load_target(_enrollment), do: {:error, :enrollment_required}
 
+  # 押金单 tier 快照的展示名：管理面 tier_name、渠道订单 subject（微信/支付宝
+  # payment_description/payment_subject）、通知 receipt_data 同源读此名。
+  @deposit_tier_name "押金"
+
+  # 换渠道的同意事实校验（#750/F-05）：押金单必须有同意留痕才可沿旧单承诺
+  # 换渠道。存量部署前押金单无留痕——拒（fail-safe），用户重新创单走同意门
+  # 补留痕；窗口有界（expire_at 封顶，最长 2h）。定价单无此约束。
+  defp deposit_consent_inheritable?(%{order_kind: :deposit, deposit_consent_at: nil}),
+    do: {:error, :deposit_consent_missing}
+
+  defp deposit_consent_inheritable?(_order), do: :ok
+
   defp load_target_row(table, id) do
-    deposit_column =
-      if table == "events", do: ", COALESCE(deposit_enabled, false)", else: ", false"
+    # 押金金额以活动现值为权威（#749）：events 带 deposit_amount_cents 列，
+    # courses 无押金语义补常量 nil（同 deposit_enabled 的分支写法）
+    deposit_columns =
+      if table == "events",
+        do: ", COALESCE(deposit_enabled, false), deposit_amount_cents",
+        else: ", false, NULL"
 
     case Cgc2046.Repo.query(
-           "SELECT pricing_enabled, price_tiers, registration_deadline#{deposit_column} FROM #{table} WHERE id = $1",
+           "SELECT pricing_enabled, price_tiers, registration_deadline#{deposit_columns} FROM #{table} WHERE id = $1",
            [Cgc2046.Repo.uuid!(id)]
          ) do
-      {:ok, %{rows: [[pricing_enabled, price_tiers, deadline, deposit_enabled]]}} ->
+      {:ok, %{rows: [[pricing_enabled, price_tiers, deadline, deposit_enabled, deposit_amount]]}} ->
         {:ok,
          %{
            pricing_enabled: pricing_enabled,
            price_tiers: price_tiers || [],
            registration_deadline: deadline,
-           deposit_enabled: deposit_enabled
+           deposit_enabled: deposit_enabled,
+           deposit_amount_cents: deposit_amount
          }}
 
       {:ok, %{rows: []}} ->
@@ -864,18 +978,35 @@ defmodule Cgc2046.Payments.Order do
 
   defp order_kind(_enrollment, _target), do: :enrollment
 
+  # 押金同意门（#727，U1/KTD10 披露门下沉）：判据是后端自己的 order_kind/2
+  # （enrollment.event_id + events.deposit_enabled），**不认客户端提交的押金
+  # 识别**——客户端漏传/脏值只影响它自己是否被拒，绝不影响门的强弱。
+  # 非押金单忽略本参数（定价/免费单零改动）；押金单只有 `deposit_consent == true`
+  # 放行，缺失、null、false 一律拒（fail-closed，同 #510 age_confirmed 口径）。
+  defp deposit_consent_gate(changeset, enrollment, target) do
+    case order_kind(enrollment, target) do
+      :deposit ->
+        if Ash.Changeset.get_argument(changeset, :deposit_consent) == true,
+          do: :ok,
+          else: {:error, :deposit_consent_required}
+
+      :enrollment ->
+        :ok
+    end
+  end
+
   # ── 金额源分派（U2/KTD1）────────────────────────────────────────────────
 
   # 押金单 tier 快照的展示名：管理面 tier_name、渠道订单 subject（微信/支付宝
   # payment_description/payment_subject）、通知 receipt_data 同源读此名。
   @deposit_tier_name "押金"
 
-  # 下单金额源按 order_kind 分派：押金单跳过 resolve_tier/2，以报名提交时的押金
-  # 快照合成「押金」形状 tier——amount_cents / tier_snapshot /
+  # 下单金额源按 order_kind 分派：押金单跳过 resolve_tier/2，以**活动现值**
+  # 押金金额合成「押金」形状 tier——amount_cents / tier_snapshot /
   # channel_create_payment/4 / 管理面 tier_name 等下游消费者零改动。
   defp resolve_order_amount(enrollment, target) do
     case order_kind(enrollment, target) do
-      :deposit -> enrollment_deposit_tier(enrollment)
+      :deposit -> enrollment_deposit_tier(target)
       :enrollment -> resolve_tier(enrollment, target)
     end
   end
@@ -890,12 +1021,12 @@ defmodule Cgc2046.Payments.Order do
     end
   end
 
-  # 押金快照 → tier：金额非正整数（历史报名无快照、脏配置 0/nil）一律
-  # fail-closed——绝不以零金额调渠道下单，报稳定业务错误交前端重报名。
-  defp enrollment_deposit_tier(%{submission_payload: payload}) when is_map(payload),
-    do: deposit_tier(Map.get(payload, "deposit_amount_cents"))
-
-  defp enrollment_deposit_tier(_enrollment), do: {:error, :deposit_amount_missing}
+  # 押金现值 → tier（#749）：金额源是 `events.deposit_amount_cents` 现值，
+  # `submission_payload` 不参与（历史预埋的脏键天然免疫）。非正整数（脏配置
+  # 0/nil）一律 fail-closed——绝不以零金额调渠道下单，报稳定业务错误交前端
+  # 重报名。
+  defp enrollment_deposit_tier(%{deposit_amount_cents: amount_cents}),
+    do: deposit_tier(amount_cents)
 
   defp order_deposit_tier(%{tier_snapshot: snapshot}) when is_map(snapshot),
     do: deposit_tier(Map.get(snapshot, "amount_cents"))
@@ -1295,6 +1426,13 @@ defmodule Cgc2046.Payments.Order do
   defp domain_error_message(:tier_amount_invalid),
     do: "selected price tier has an invalid amount"
 
+  defp domain_error_message(:deposit_consent_required),
+    do: "deposit consent is required before creating a deposit order"
+
+  # 换渠道校验（#750/F-05）：存量部署前押金单无同意留痕，拒换渠道
+  defp domain_error_message(:deposit_consent_missing),
+    do: "this deposit order has no recorded consent; create a new order to record it"
+
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
 
@@ -1312,6 +1450,12 @@ defmodule Cgc2046.Payments.Order do
 
   # 定价单档位金额脏（#687，resolve_tier/2 fail-closed）：显式子句化以进契约工件
   defp domain_error_code(:tier_amount_invalid), do: "order_tier_amount_invalid"
+
+  # 押金同意门（#727）：显式子句化以进契约工件（兜底拼出的同名字符串 AST 提取不到）
+  defp domain_error_code(:deposit_consent_required), do: "order_deposit_consent_required"
+
+  # 换渠道同意事实校验（#750/F-05）：显式子句化以进契约工件
+  defp domain_error_code(:deposit_consent_missing), do: "order_deposit_consent_missing"
   # 已含资源语义的 load_*/openid 原子显式子句化（#241 F3）：兜底会拼出
   # order_order_not_found 双前缀；openid_required 显式化以进契约工件
   defp domain_error_code(:order_not_found), do: "order_not_found"

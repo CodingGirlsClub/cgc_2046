@@ -417,6 +417,16 @@ defmodule Cgc2046.Events.Event do
     )
 
     has_many(:moderators, Cgc2046.Events.EventModerator, destination_attribute: :event_id)
+
+    # #745：created_by 归因列（可空）的 FK 契约显式化——DB 侧 20260913155651
+    # alter 即 nilify_all（DB 实测 confdeltype=n）；无 DDL，仅 DSL+snapshot 追平。
+    # public? 默认 false：不进 GraphQL/policy 读面。
+    belongs_to(:created_by_user, Cgc2046.Accounts.User,
+      source_attribute: :created_by,
+      destination_attribute: :id,
+      define_attribute?: false,
+      allow_nil?: true
+    )
   end
 
   actions do
@@ -643,6 +653,17 @@ defmodule Cgc2046.Events.Event do
          payload: &__MODULE__.schedule_changed_payload/2,
          skip_unless: &__MODULE__.schedule_changed_and_published?/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 update 同事务落一行 admin_event_update
+      # （闭集标量前后值），非平台管理员跳过。raise 型：留痕失败整体回滚（fail-closed）。
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_update,
+         target_type: :event,
+         metadata: &Cgc2046.Accounts.Changes.LogAdminAction.offering_change_metadata/2,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
@@ -699,6 +720,15 @@ defmodule Cgc2046.Events.Event do
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（course.launch 同款，Readiness 统一）。
       change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 launch 同事务落一行 admin_event_launch
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_launch,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → closed：结束活动（手动，或 registration_deadline 到点由
@@ -742,6 +772,15 @@ defmodule Cgc2046.Events.Event do
         {Cgc2046.Workflows.SignalEmitter,
          type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 close 同事务落一行 admin_event_close
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_close,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → cancelled：取消活动。同样发 event.ended（D4：closed/cancelled 即 ended）。
@@ -779,6 +818,15 @@ defmodule Cgc2046.Events.Event do
       change(
         {Cgc2046.Workflows.SignalEmitter,
          type: "event.ended", payload: &__MODULE__.ended_payload/2}
+      )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 cancel 同事务落一行 admin_event_cancel
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_cancel,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
       )
     end
 
@@ -1023,6 +1071,14 @@ defmodule Cgc2046.Events.Event do
     table("events")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 20260913155651 的 nilify_all
+    # （DB 实测 confdeltype=n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:initiative, on_delete: :nilify)
+
+      reference(:created_by_user, on_delete: :nilify)
+    end
+
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
     # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /
@@ -1110,9 +1166,15 @@ defmodule Cgc2046.Events.Event do
       authorize_if({Cgc2046.Events.ReadsArchivedInitiativeEvent, []})
     end
 
-    # 写操作：Owner/Admin（多角色并集）
+    # 写操作：Owner/Admin（多角色并集）；平台治理写（U1/KTD1）经第二个
+    # authorize_if 收在**同一 policy**——Ash 的策略组合是「条件命中的 policy
+    # 必须全部放行」而非任一放行，独立 policy 块会把 Owner/Admin 的正常写挤掉
+    # （见 Cgc2046.Offering.PlatformAdminGovernanceWrite moduledoc）。白名单只含
+    # :update/:launch/:close/:cancel：create（自动指派创建者为主理人）与内部
+    # update 型 action（:qualify / :link_curriculum_run）保持拒绝（R7 无旁路）。
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Offering.PlatformAdminGovernanceWrite)
     end
 
     # 删除（#676，ADR-0015）：收窄面——Workspace Owner ∪ 平台管理员（同 Course

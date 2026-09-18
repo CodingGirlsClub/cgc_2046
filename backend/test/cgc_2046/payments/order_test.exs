@@ -224,12 +224,12 @@ defmodule Cgc2046.Payments.OrderTest do
   end
 
   describe "U2：押金单金额源与下单分派（R4/KTD1）" do
-    test "押金 ¥69 场 payment_pending 报名下单 → deposit 单金额取押金快照 + 凭据" do
+    test "押金 ¥69 场 payment_pending 报名下单 → deposit 单金额取活动现值 + 凭据" do
       %{enrollment: enrollment, learner: learner} =
         deposit_payment_pending_enrollment("u2-create")
 
-      # 报名提交即物化押金快照（KTD1 金额源）
-      assert enrollment.submission_payload["deposit_amount_cents"] == 6900
+      # #749：金额以活动现值为权威，submission_payload 不参与
+      refute Map.has_key?(enrollment.submission_payload, "deposit_amount_cents")
 
       assert {:ok, order} = checkout(enrollment, learner)
 
@@ -414,7 +414,7 @@ defmodule Cgc2046.Payments.OrderTest do
       assert order.tier_snapshot["name"] == "早鸟"
     end
 
-    test "request 押金场审批通过 → 快照随 payment_pending 落库，下单金额 = 押金" do
+    test "request 押金场审批通过 → payment_pending，下单金额 = 活动现值" do
       admin = Fixtures.platform_admin("payments-deposit-request-admin")
       workspace = Fixtures.create_workspace(admin)
 
@@ -436,14 +436,13 @@ defmodule Cgc2046.Payments.OrderTest do
                |> Ash.update(tenant: workspace.id, actor: admin)
 
       assert approved.status == :payment_pending
-      assert approved.submission_payload["deposit_amount_cents"] == 6900
 
       assert {:ok, order} = checkout(approved, learner)
       assert order.order_kind == :deposit
       assert order.amount_cents == 6900
     end
 
-    test "报名后 Owner 改押金 69→99：存量 payment_pending 报名按 69（快照），新报名按 99" do
+    test "报名后 Owner 改押金 69→99：未支付报名创单按现值（#749，披露=扣款同源）" do
       %{
         enrollment: enrollment,
         learner: learner,
@@ -459,35 +458,226 @@ defmodule Cgc2046.Payments.OrderTest do
 
       assert updated.deposit_amount_cents == 9900
 
-      # 存量报名：承诺金额以报名提交时为准（改价不追溯）
+      # 改价后未支付报名创单按现值——与 MY_ENROLLMENT 披露（同一现值源）恒一致
       assert {:ok, existing_order} = checkout(enrollment, learner)
-      assert existing_order.amount_cents == 6900
+      assert existing_order.amount_cents == 9900
 
-      # 新报名拿新价（新快照）
+      # 新报名同样按现值
       fresh_learner = Fixtures.register_user("payments-deposit-learner-u2-reprice-new")
       assert {:ok, fresh} = create_enrollment(event, fresh_learner)
       assert fresh.status == :payment_pending
-      assert fresh.submission_payload["deposit_amount_cents"] == 9900
 
       assert {:ok, fresh_order} = checkout(fresh, fresh_learner)
       assert fresh_order.amount_cents == 9900
     end
 
-    test "存量报名无押金快照（U1→U2 窗口行）→ fail-closed 拒单且零订单残留" do
+    test "submission_payload 预埋 deposit_amount_cents 毒化键 → 创单无视，金额取活动现值（#749）" do
       %{enrollment: enrollment, learner: learner} =
-        deposit_payment_pending_enrollment("u2-nosnapshot")
+        deposit_payment_pending_enrollment("u2-poisoned-payload")
 
-      # 布置：抹掉押金快照——U1 落地（押金场进 payment_pending）到 U2 落地
-      # （下单链读快照）之间产生的报名正是这种形状，域内当前无路径可产出。
+      # 布置：历史/恶意客户端预埋 1 分钱「押金」（定价场不清洗的存量形状）
       Repo.query!(
-        "UPDATE enrollments SET submission_payload = submission_payload - 'deposit_amount_cents' WHERE id = $1",
+        "UPDATE enrollments SET submission_payload = jsonb_set(submission_payload, '{deposit_amount_cents}', '1') WHERE id = $1",
         [Repo.uuid!(enrollment.id)]
       )
 
-      # 无承诺金额可依据 → 拒单，绝不以 nil/零金额调渠道
-      assert {:error, error} = checkout(enrollment, learner)
-      assert Exception.message(error) =~ "deposit amount snapshot is missing"
+      # 毒化键不参与金额：创单按活动现值 6900，绝不出现 1 分钱押金单
+      assert {:ok, order} = checkout(enrollment, learner)
+      assert order.order_kind == :deposit
+      assert order.amount_cents == 6900
+      assert order.tier_snapshot == %{"name" => "押金", "amount_cents" => 6900}
+    end
+
+    test "定价场报名预埋毒化键 → 组织者后开押金 → 创单金额取押金现值（#749 完整毒化链）" do
+      %{admin: admin, workspace: workspace} = deposit_payment_pending_enrollment("u2-poison-flip")
+
+      learner = Fixtures.register_user("payments-deposit-learner-poison-flip")
+
+      priced_event =
+        EventFixtures.create_event(workspace, admin, %{
+          pricing_enabled: true,
+          price_tiers: [
+            %{"id" => @idempotent_tier_id, "name" => "早鸟", "amount_cents" => 9900}
+          ]
+        })
+
+      assert {:ok, enrollment} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 event_id: priced_event.id,
+                 user_id: learner.id,
+                 tier_id: @idempotent_tier_id
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert enrollment.status == :payment_pending
+
+      Repo.query!(
+        "UPDATE enrollments SET submission_payload = jsonb_set(submission_payload, '{deposit_amount_cents}', '1') WHERE id = $1",
+        [Repo.uuid!(enrollment.id)]
+      )
+
+      # 布置：绕过 Event.update 动作翻转缴费槽（标准 update 会触发 KTD4 批量
+      # 免缴，把存量报名转 confirmed——本测试钉的是「翻转后存量报名仍可创单」
+      # 的形状：非标准路径/预置数据均可产出），报名保持 payment_pending。
+      Repo.query!(
+        """
+        UPDATE events
+        SET pricing_enabled = false,
+            price_tiers = '[]'::jsonb,
+            deposit_enabled = true,
+            deposit_amount_cents = 6900,
+            ends_at = $2
+        WHERE id = $1
+        """,
+        [Repo.uuid!(priced_event.id), DateTime.add(DateTime.utc_now(), 30, :day)]
+      )
+
+      assert {:ok, order} = checkout(enrollment, learner)
+      assert order.order_kind == :deposit
+      assert order.amount_cents == 6900
+    end
+  end
+
+  # 押金同意门（#727）：域面（Ash action）就是权威闸——GraphQL/任何调用方同门。
+  describe "#727：押金同意门（create_for_enrollment）" do
+    test "押金单未带 consent → order_deposit_consent_required，零订单" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-missing")
+
+      assert {:error, error} = checkout(enrollment, learner, deposit_consent: nil)
+      assert Exception.message(error) =~ "deposit consent is required"
       assert order_count(enrollment.id) == 0
+    end
+
+    test "押金单显式 false → 同样拒（false ≠ 同意）" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-false")
+
+      assert {:error, error} = checkout(enrollment, learner, deposit_consent: false)
+      assert Exception.message(error) =~ "deposit consent is required"
+      assert order_count(enrollment.id) == 0
+    end
+
+    test "拒单零副作用：不新增订单，已有 pending 押金单原样存活" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-keep")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:error, _error} = checkout(enrollment, learner, deposit_consent: nil)
+      assert reload(first).status == :pending
+      assert order_count(enrollment.id) == 1
+    end
+
+    test "非押金单忽略 consent：定价单不带同意照常下单" do
+      {enrollment, learner} = payment_pending_enrollment("consent-pricing")
+
+      assert {:ok, order} = checkout(enrollment, learner, deposit_consent: nil)
+      assert order.order_kind == :enrollment
+    end
+
+    test "换渠道不重复要同意：押金单 replace_provider 无 consent 亦放行" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("consent-replace")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:ok, replaced} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert replaced.order_kind == :deposit
+      assert replaced.amount_cents == 6900
+    end
+  end
+
+  # 同意留痕（#750，#510 同形落列）：同意事实落订单行，replace/审计可校验。
+  describe "#750：押金同意留痕（deposit_consent_at/deposit_terms_version）" do
+    test "押金单创单落同意时点与条款版本；非押金单不落" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-ledger")
+
+      before = DateTime.truncate(DateTime.utc_now(), :second)
+      assert {:ok, deposit_order} = checkout(enrollment, learner)
+      refute is_nil(deposit_order.deposit_consent_at)
+      assert DateTime.compare(deposit_order.deposit_consent_at, before) in [:gt, :eq]
+      assert deposit_order.deposit_terms_version == "2026-09-deposit"
+
+      {priced_enrollment, priced_learner} =
+        payment_pending_enrollment("consent-ledger-priced")
+
+      assert {:ok, priced_order} = checkout(priced_enrollment, priced_learner)
+      assert is_nil(priced_order.deposit_consent_at)
+      assert is_nil(priced_order.deposit_terms_version)
+    end
+
+    test "换渠道继承旧单同意事实（时点与条款版本原样沿单）" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("consent-ledger-inherit")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:ok, second} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert second.deposit_consent_at == first.deposit_consent_at
+      assert second.deposit_terms_version == first.deposit_terms_version
+    end
+
+    test "存量押金单无同意留痕 → 换渠道拒（order_deposit_consent_missing），旧单存活" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("consent-ledger-legacy")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      # 布置：抹掉同意留痕——部署前创建的押金单正是这种形状（无可考证的同意
+      # 事实），域内当前无路径可产出。
+      Repo.query!(
+        "UPDATE payments_orders SET deposit_consent_at = NULL, deposit_terms_version = NULL WHERE id = $1",
+        [Repo.uuid!(first.id)]
+      )
+
+      assert {:error, error} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert Exception.message(error) =~ "no recorded consent"
+
+      # fail-safe：拒单零副作用，旧 pending 单原样存活（可原渠道支付或等过期）
+      assert reload(first).status == :pending
+      assert order_count(enrollment.id) == 1
+    end
+
+    test "存量定价单无留痕 → 换渠道不受影响（校验只对押金单）" do
+      {enrollment, learner} = payment_pending_enrollment("consent-ledger-legacy-priced")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+      assert is_nil(first.deposit_consent_at)
+
+      assert {:ok, second} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: enrollment.workspace_id, actor: learner)
+
+      assert second.order_kind == :enrollment
+      assert is_nil(second.deposit_consent_at)
     end
   end
 
@@ -749,12 +939,15 @@ defmodule Cgc2046.Payments.OrderTest do
     {enrollment, learner}
   end
 
-  # native 渠道无 openid 前置校验（jsapi 需真实微信 openid，测试用户没有）
-  defp checkout(enrollment, actor) do
+  # native 渠道无 openid 前置校验（jsapi 需真实微信 openid，测试用户没有）。
+  # deposit_consent: true 是 #727 押金同意门的默认放行值（非押金单忽略该参数）；
+  # 门本身的负例显式传 false/nil。
+  defp checkout(enrollment, actor, opts \\ []) do
     Order
     |> Ash.Changeset.for_create(:create_for_enrollment, %{
       enrollment_id: enrollment.id,
-      provider: :wechat_native
+      provider: :wechat_native,
+      deposit_consent: Keyword.get(opts, :deposit_consent, true)
     })
     |> Ash.create(tenant: enrollment.workspace_id, actor: actor)
   end

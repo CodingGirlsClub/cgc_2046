@@ -82,6 +82,12 @@ defmodule Cgc2046.Mcp.Token do
   postgres do
     table("mcp_tokens")
     repo(Cgc2046.Repo)
+
+    # #745：FK 补齐（B 类）——DB 原无 FK；token 必须不后留于 user
+    # （安全硬要求；NOT NULL 不可 nilify）。
+    references do
+      reference(:user, on_delete: :delete)
+    end
   end
 
   actions do

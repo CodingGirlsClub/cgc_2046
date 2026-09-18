@@ -163,28 +163,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
 
   describe "押金场 createOrder（U2/KTD1：金额源 = 押金快照）" do
     test "押金报名 order-pay 端到端：deposit 单 + 押金金额 + 渠道凭据" do
-      admin = Fixtures.platform_admin()
-      workspace = Fixtures.create_workspace(admin)
-
-      event =
-        EventFixtures.create_event(workspace, admin, %{
-          deposit_enabled: true,
-          deposit_amount_cents: 6900,
-          ends_at: EventFixtures.days_from_now(8)
-        })
-
-      learner = Fixtures.register_user("order-deposit-learner")
-      token = sign_in_token(learner)
-
-      # 押金场报名：无 tierId（档位只属于定价态），落 payment_pending
-      assert %{
-               "data" => %{
-                 "createEnrollment" => %{
-                   "result" => %{"id" => enrollment_id, "status" => "payment_pending"},
-                   "errors" => []
-                 }
-               }
-             } = graphql(enroll_mutation(event, learner, nil), token)
+      %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("e2e")
 
       assert %{
                "data" => %{
@@ -194,7 +173,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
                    "metadata" => %{"credential" => credential}
                  }
                }
-             } = graphql(order_mutation(enrollment_id, "wechat_native"), token)
+             } = graphql(order_mutation(enrollment_id, "wechat_native", true), token)
 
       assert order["orderKind"] == "deposit"
       assert order["status"] == "pending"
@@ -209,6 +188,95 @@ defmodule Cgc2046Web.GraphqlOrderTest do
       # order-pay 页拉起支付所需的渠道凭据随单号回出（Fake 回显 out_trade_no）
       assert %{"out_trade_no" => out_trade_no} = Jason.decode!(credential)
       assert out_trade_no == order["outTradeNo"]
+    end
+  end
+
+  # 押金同意门下沉（#727）：押金单必须显式 deposit_consent: true；判据是后端
+  # order_kind/2，非押金单忽略该参数；拒单零副作用（不废旧单、不调渠道）。
+  describe "押金同意门（#727）" do
+    test "押金单缺 consent → order_deposit_consent_required，零订单且未调渠道" do
+      %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("no-consent")
+
+      # 渠道被调即失败（script 成错误）：断言返回的是同意门错误码而非 channel 错误
+      Fake.script!(create_payment: {:error, :channel_down})
+
+      assert %{
+               "data" => %{
+                 "createOrder" => %{"result" => nil, "errors" => [error | _]}
+               }
+             } = graphql(order_mutation(enrollment_id, "wechat_native"), token)
+
+      assert error["code"] == "order_deposit_consent_required"
+      assert error["message"] =~ "deposit consent"
+      assert Order |> list_orders(enrollment_id) |> Enum.empty?()
+    after
+      Fake.reset!()
+    end
+
+    test "押金单显式 consent: false → 同样拒（false ≠ 同意）" do
+      %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("false-consent")
+
+      assert %{"data" => %{"createOrder" => %{"result" => nil, "errors" => [error | _]}}} =
+               graphql(order_mutation(enrollment_id, "wechat_native", false), token)
+
+      assert error["code"] == "order_deposit_consent_required"
+      assert Order |> list_orders(enrollment_id) |> Enum.empty?()
+    end
+
+    test "拒单零副作用：不新增订单，已有 pending 押金单原样存活" do
+      %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("keep-pending")
+
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => order_id}}}} =
+               graphql(order_mutation(enrollment_id, "wechat_native", true), token)
+
+      # 老客户端重进支付页（不带 consent）：拒单，已有单必须原样存活
+      # （门在废旧单/渠道下单之前 + 事务回滚双保险）
+      assert %{"data" => %{"createOrder" => %{"errors" => [error | _]}}} =
+               graphql(order_mutation(enrollment_id, "wechat_native"), token)
+
+      assert error["code"] == "order_deposit_consent_required"
+      assert [%Order{id: ^order_id, status: :pending}] = Order |> list_orders(enrollment_id)
+    end
+
+    test "非押金单忽略参数：不带 consent 与显式 false 都正常下单" do
+      %{learner: learner, enrollment_id: enrollment_id} = paid_enrollment(%{})
+      token = sign_in_token(learner)
+
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => first_id}, "errors" => []}}} =
+               graphql(order_mutation(enrollment_id, "wechat_native"), token)
+
+      assert %{"data" => %{"createOrder" => %{"result" => %{"id" => second_id}, "errors" => []}}} =
+               graphql(order_mutation(enrollment_id, "alipay_page", false), token)
+
+      assert first_id != second_id
+    end
+
+    test "越权不变：他人报名带 consent: true 仍被拒且零订单" do
+      %{enrollment_id: enrollment_id} = deposit_enrollment("not-enrollee")
+      other = Fixtures.register_user("order-deposit-other")
+
+      assert [%{"message" => _} | _] =
+               gql_errors(
+                 graphql(
+                   order_mutation(enrollment_id, "wechat_native", true),
+                   sign_in_token(other)
+                 )
+               )
+
+      assert Order |> list_orders(enrollment_id) |> Enum.empty?()
+    end
+
+    test "换渠道边界：押金单 replaceProvider 不要求 consent（继承旧单承诺）" do
+      %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("replace")
+
+      assert %{"data" => %{"createOrder" => %{"result" => first}}} =
+               graphql(order_mutation(enrollment_id, "wechat_native", true), token)
+
+      assert %{"data" => %{"replaceProvider" => %{"result" => second, "errors" => []}}} =
+               graphql(replace_mutation(first["id"], "alipay_page"), token)
+
+      assert second["status"] == "pending"
+      assert second["provider"] == "alipay_page"
     end
   end
 
@@ -338,6 +406,40 @@ defmodule Cgc2046Web.GraphqlOrderTest do
     |> Ash.create(tenant: event.workspace_id, actor: learner)
   end
 
+  # 押金场 + payment_pending 报名（无 tierId：档位只属于定价态），押金同意门用例共用
+  defp deposit_enrollment(tag) do
+    admin = Fixtures.platform_admin("order-deposit-admin-#{tag}")
+    workspace = Fixtures.create_workspace(admin)
+
+    event =
+      EventFixtures.create_event(workspace, admin, %{
+        deposit_enabled: true,
+        deposit_amount_cents: 6900,
+        ends_at: EventFixtures.days_from_now(8)
+      })
+
+    learner = Fixtures.register_user("order-deposit-learner-#{tag}")
+    token = sign_in_token(learner)
+
+    assert %{
+             "data" => %{
+               "createEnrollment" => %{
+                 "result" => %{"id" => enrollment_id, "status" => "payment_pending"},
+                 "errors" => []
+               }
+             }
+           } = graphql(enroll_mutation(event, learner, nil), token)
+
+    %{
+      admin: admin,
+      workspace: workspace,
+      event: event,
+      learner: learner,
+      token: token,
+      enrollment_id: enrollment_id
+    }
+  end
+
   defp create_enrollment(event, user) do
     Cgc2046.Admission.Enrollment
     |> Ash.Changeset.for_create(:create_enrollment, %{event_id: event.id, user_id: user.id})
@@ -369,12 +471,19 @@ defmodule Cgc2046Web.GraphqlOrderTest do
     """
   end
 
-  defp order_mutation(enrollment_id, provider) do
+  # deposit_consent 三态：nil = 不带字段（老客户端/非押金路径）/ true / false
+  defp order_mutation(enrollment_id, provider, deposit_consent \\ nil) do
+    consent_input =
+      case deposit_consent do
+        nil -> ""
+        value -> ", depositConsent: #{value}"
+      end
+
     """
     mutation {
-      createOrder(input: {enrollmentId: "#{enrollment_id}", provider: "#{provider}"}) {
+      createOrder(input: {enrollmentId: "#{enrollment_id}", provider: "#{provider}"#{consent_input}}) {
         result { id orderKind status provider outTradeNo amountCents tierSnapshot expireAt }
-        errors { message }
+        errors { message code }
         metadata { credential }
       }
     }

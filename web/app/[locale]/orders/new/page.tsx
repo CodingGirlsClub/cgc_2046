@@ -21,7 +21,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { client } from "@/lib/apollo-client";
 import {
 	CREATE_ORDER,
+	DEPOSIT_CONSENT_REQUIRED_CODE,
 	MY_PENDING_ORDERS,
+	createOrderInput,
 	type PaymentProvider,
 } from "@/lib/graphql/orders";
 import { MY_ENROLLMENT } from "@/lib/graphql/events";
@@ -81,11 +83,18 @@ function NewOrderForm() {
 	} | null>(null);
 	// 押金同意勾选：未勾选不放行创单（弹框 #686 同构）
 	const [depositAck, setDepositAck] = useState(false);
+	// 守卫重跑触发器（命中 order_deposit_consent_required 时 +1）：>0 即「后端判定
+	// 押金而本页押金事实不可信」，是自愈路径的唯一状态（不另存布尔，避免双源漂移）
+	const [guardNonce, setGuardNonce] = useState(0);
+	const consentRequired = guardNonce > 0;
 	// 押金披露门（#696，#686 教训）：识别只认 paymentMode 存在性（deposit 场即
 	// 出门），金额不参与识别——脏快照走「押金（金额待定）」（#675），绝不 ¥0、
 	// 绝不因金额缺失漏门。守卫查询失败时 enrollDeposit 为 null → 按非押金场
 	// 处理（既有「不阻塞下单」兜底语义，错误由 createOrder 翻译层承接）。
-	const isDeposit = enrollDeposit?.paymentMode === "deposit";
+	// #727：后端判定（consentRequired）优先于本页守卫事实——守卫可能读到旧缓存/
+	// 旧配置，后端 order_kind 才是权威；否则自愈会被守卫的旧值否决成 dead-end。
+	const isDeposit =
+		enrollDeposit?.paymentMode === "deposit" || consentRequired;
 	const depositNoteCents = positiveAmountOrNull(
 		enrollDeposit?.depositAmountCents,
 	);
@@ -100,6 +109,9 @@ function NewOrderForm() {
 				const { data: enrData } = await client.query({
 					query: MY_ENROLLMENT,
 					variables: { id: enrollmentId },
+					// 支付门前的事实必须新鲜：默认 cache-first 会拿旧 enrollment
+					// （金额/缴费模式漂移），自愈重跑更必须绕缓存
+					fetchPolicy: "network-only",
 				});
 				const enrollment = enrData?.myEnrollments?.results?.[0];
 				if (!enrollment || enrollment.status !== "payment_pending") {
@@ -137,7 +149,7 @@ function NewOrderForm() {
 		return () => {
 			cancelled = true;
 		};
-	}, [enrollmentId, authed, confirmed, router, t]);
+	}, [enrollmentId, authed, confirmed, router, t, guardNonce]);
 
 	// 已有 pending 订单 → 直接跳订单页（不重复下单）
 	useEffect(() => {
@@ -152,7 +164,14 @@ function NewOrderForm() {
 		try {
 			const { data } = await client.mutate({
 				mutation: CREATE_ORDER,
-				variables: { input: { enrollmentId, provider } },
+				variables: {
+					// 押金同意条件携带单源在 graphql/orders.createOrderInput（#727）
+					input: createOrderInput(
+						enrollmentId,
+						provider,
+						isDeposit ? depositAck : undefined,
+					),
+				},
 			});
 			const payload = data?.createOrder;
 			if (payload?.result) {
@@ -168,12 +187,15 @@ function NewOrderForm() {
 				router.replace(`/orders/${payload.result.id}`);
 				return;
 			}
+			const code = payload?.errors[0]?.code ?? null;
 			setError(
-				translatePaymentError(
-					payload?.errors[0]?.code ?? null,
-					t("orderFailed"),
-				),
+				translatePaymentError(code, t("orderFailed")),
 			);
+			// 自愈（#727）：后端按 order_kind 判押金，本页押金事实缺失/过期
+			// （守卫失败 → 不带 consent 创单）→ 补门 + 重跑守卫取快照金额
+			if (code === DEPOSIT_CONSENT_REQUIRED_CODE) {
+				setGuardNonce((nonce) => nonce + 1);
+			}
 		} catch (e) {
 			setError(
 				translatePaymentError(

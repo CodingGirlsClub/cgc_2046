@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { render } from "@/test-utils";
 import PaymentCheckoutDialog from "./payment-checkout-dialog";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
+import { MY_PENDING_ORDERS, ORDER_STATUS } from "@/lib/graphql/orders";
 
 const { client } = vi.hoisted(() => ({
   client: { query: vi.fn(), mutate: vi.fn() },
@@ -73,6 +75,46 @@ function pendingOrder(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const emptyEnrollments = { myEnrollments: { results: [] } };
+
+/**
+ * #748：弹框自取押金事实（MY_ENROLLMENT）——mock 按 document 分派守卫查询。
+ * 非轮询测试误触 ORDER_STATUS 会显式炸掉（流程不对就该红）。
+ */
+function mockQueries(
+  myOrders: unknown,
+  myEnrollments: unknown = emptyEnrollments,
+) {
+  client.query.mockImplementation(async ({ query }: { query: unknown }) => {
+    if (query === MY_PENDING_ORDERS) return { data: { myOrders } };
+    if (query === MY_ENROLLMENT) return { data: { myEnrollments } };
+    throw new Error(`unexpected query: ${String(query)}`);
+  });
+}
+
+/** 轮询场景分派：初始两查 + 后续 ORDER_STATUS 全走 status */
+function mockPollingQueries(orderStatus: unknown) {
+  client.query.mockImplementation(async ({ query }: { query: unknown }) => {
+    if (query === MY_PENDING_ORDERS) {
+      return { data: { myOrders: { results: [] } } };
+    }
+    if (query === MY_ENROLLMENT) return { data: emptyEnrollments };
+    if (query === ORDER_STATUS) return { data: { orderStatus } };
+    throw new Error(`unexpected query: ${String(query)}`);
+  });
+}
+
+/** 押金场报名快照（#748：MY_ENROLLMENT 随返） */
+function depositEnrollment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "enr-1",
+    status: "payment_pending",
+    paymentMode: "deposit",
+    depositAmountCents: 6900,
+    ...overrides,
+  };
+}
+
 function createOrderPayload(overrides: Record<string, unknown> = {}) {
   return {
     createOrder: {
@@ -107,7 +149,7 @@ afterEach(() => {
 
 describe("payment-checkout-dialog 开框初始化", () => {
   it("无活单 → createOrder（默认渠道 wechat_native）→ 二维码渲染 + 记住渠道", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
 
     render(
       <PaymentCheckoutDialog
@@ -143,7 +185,7 @@ describe("payment-checkout-dialog 开框初始化", () => {
 
   it("首开默认渠道：localStorage 有记忆（alipay_qr）则用之", async () => {
     localStorage.setItem("cgc:last-payment-provider", "alipay_qr");
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
 
     render(
       <PaymentCheckoutDialog
@@ -163,7 +205,7 @@ describe("payment-checkout-dialog 开框初始化", () => {
 
   it("localStorage 记忆未签约渠道（脏值）→ 忽略回退 wechat_native", async () => {
     localStorage.setItem("cgc:last-payment-provider", "alipay_page");
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
 
     render(
       <PaymentCheckoutDialog
@@ -184,9 +226,7 @@ describe("payment-checkout-dialog 开框初始化", () => {
   });
 
   it("已有活单 → 复用（不 createOrder）+ 凭据在 sessionStorage → 直接出码", async () => {
-    client.query.mockResolvedValue({
-      data: { myOrders: { results: [pendingOrder()] } },
-    });
+    mockQueries({ results: [pendingOrder()] });
     sessionStorage.setItem(
       "order-credential:o1",
       JSON.stringify({ type: "qr_code", code_url: "weixin://wxpay/reuse" }),
@@ -211,9 +251,7 @@ describe("payment-checkout-dialog 开框初始化", () => {
   });
 
   it("复用活单但凭据丢失（sessionStorage 焚毁）→ 换渠道恢复引导 + 其他渠道按钮 primary", async () => {
-    client.query.mockResolvedValue({
-      data: { myOrders: { results: [pendingOrder()] } },
-    });
+    mockQueries({ results: [pendingOrder()] });
 
     render(
       <PaymentCheckoutDialog
@@ -237,7 +275,7 @@ describe("payment-checkout-dialog 开框初始化", () => {
 
 describe("payment-checkout-dialog 换渠道", () => {
   it("切渠道 → replaceProvider 新凭据即换 + 轮询窗重置 + 更新记忆", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
     client.mutate
       .mockResolvedValueOnce({ data: createOrderPayload() })
       .mockResolvedValueOnce({
@@ -284,7 +322,7 @@ describe("payment-checkout-dialog 换渠道", () => {
   });
 
   it("pending 态渠道按钮禁点自身（防重）", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
 
     render(
       <PaymentCheckoutDialog
@@ -300,7 +338,7 @@ describe("payment-checkout-dialog 换渠道", () => {
   });
 
   it("replaceProvider 失败 → 翻译层文案，不换码", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
     client.mutate
       .mockResolvedValueOnce({ data: createOrderPayload() })
       .mockResolvedValueOnce({
@@ -333,11 +371,7 @@ describe("payment-checkout-dialog 换渠道", () => {
 describe("payment-checkout-dialog 支付成功与关闭", () => {
   it("轮询到 paid → onPaid 触发 + ✓ 报名已确认 + 1.5s 自动关闭（fake timers）", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    client.query
-      .mockResolvedValueOnce({ data: { myOrders: { results: [] } } })
-      .mockResolvedValue({
-        data: { orderStatus: pendingOrder({ status: "paid" }) },
-      });
+    mockPollingQueries(pendingOrder({ status: "paid" }));
     const onPaid = vi.fn();
     const onClose = vi.fn();
 
@@ -366,7 +400,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
   });
 
   it("Esc / 关闭按钮 / 点击遮罩 → onClose（订单保留不撤）", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
     const onClose = vi.fn();
 
     render(
@@ -390,7 +424,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
   });
 
   it("跳转凭据（redirect）：渲染前往支付宝按钮", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
     client.mutate.mockResolvedValue({
       data: createOrderPayload({
         metadata: {
@@ -416,7 +450,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
   });
 
   it("createOrder 失败（not_payment_pending）→ 翻译层错误 + error 态可重试", async () => {
-    client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+    mockQueries({ results: [] });
     client.mutate.mockResolvedValue({
       data: {
         createOrder: {
@@ -446,18 +480,29 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     // 第一轮轮询（旧单 o1）挂起受控；换渠道后新单 o2 正常轮询
     const stale = Promise.withResolvers<unknown>();
+    const dispatch = async ({ query }: { query: unknown }) => {
+      if (query === MY_PENDING_ORDERS) {
+        return { data: { myOrders: { results: [] } } };
+      }
+      if (query === MY_ENROLLMENT) return { data: emptyEnrollments };
+      if (query === ORDER_STATUS) {
+        return {
+          data: {
+            orderStatus: pendingOrder({
+              id: "o2",
+              provider: "alipay_qr",
+              status: "pending",
+            }),
+          },
+        };
+      }
+      throw new Error(`unexpected query: ${String(query)}`);
+    };
     client.query
-      .mockResolvedValueOnce({ data: { myOrders: { results: [] } } })
-      .mockImplementationOnce(() => stale.promise)
-      .mockResolvedValue({
-        data: {
-          orderStatus: pendingOrder({
-            id: "o2",
-            provider: "alipay_qr",
-            status: "pending",
-          }),
-        },
-      });
+      .mockImplementationOnce(dispatch) // 初始 MY_PENDING_ORDERS
+      .mockImplementationOnce(dispatch) // 初始 MY_ENROLLMENT
+      .mockImplementationOnce(() => stale.promise) // 旧单 o1 第一轮轮询挂起
+      .mockImplementation(dispatch); // 新单 o2 轮询
     client.mutate
       .mockResolvedValueOnce({ data: createOrderPayload() })
       .mockResolvedValueOnce({
@@ -486,7 +531,7 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
 
     // 触发第一轮轮询（o1 查询在飞、挂起）
     await vi.advanceTimersByTimeAsync(2100);
-    expect(client.query).toHaveBeenCalledTimes(2);
+    expect(client.query).toHaveBeenCalledTimes(3); // 初始两查（#748 并行）+ o1 首轮轮询
 
     // 换渠道 → 新单 o2 就位
     fireEvent.click(screen.getByTestId("checkout-provider-alipay_qr"));
@@ -528,15 +573,13 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
 
 describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退还条件）", () => {
 	it("押金场（无活单）：开框查活单后停确认态——未勾选时确认按钮禁用、零创单、无二维码", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		mockQueries({ results: [] }, { results: [depositEnrollment()] });
 
 		render(
 			<PaymentCheckoutDialog
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled
-				depositAmountCents={6900}
 			/>,
 		);
 
@@ -560,21 +603,19 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 
 	// #675：押金脏金额（0/缺失/非整数分）→ 说明行不表态「押金（金额待定）」，
 	// 框头金额整体不显示——绝不出现「押金 ¥0（到场退）」/「¥0.00」。
-	// 合并后识别走存在性 depositEnabled（#686），金额（含脏值）不参与识别：
+	// #748 起识别走报名快照 paymentMode（弹框自取），金额（含脏值）不参与识别：
 	// 押金场 + 脏金额 → 披露门照常出现，不 fail-open 成非押金口径。
 	it.each([
 		["0", 0],
 		["非整数分", 0.4],
 	])("押金金额脏（%s）：披露门仍在（不 fail-open），说明行落待定、框头无 ¥0", async (_label, dirty) => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		mockQueries({ results: [] }, { results: [depositEnrollment({ depositAmountCents: dirty })] });
 
 		render(
 			<PaymentCheckoutDialog
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled
-				depositAmountCents={dirty}
 			/>,
 		);
 
@@ -590,15 +631,17 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 	});
 
 	it("押金场：勾选并确认后才下单 → 二维码渲染", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		client.mutate.mockResolvedValue({
+			data: createOrderPayload({
+				result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+			}),
+		});
 
 		render(
 			<PaymentCheckoutDialog
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled
-				depositAmountCents={6900}
 			/>,
 		);
 
@@ -622,19 +665,101 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			"src",
 			"data:image/png;base64,qr",
 		);
+		// #727：押金单创单必须携带同意标记（后端权威闸）
 		expect(client.mutate).toHaveBeenCalledWith(
 			expect.objectContaining({
-				variables: { input: { enrollmentId: "enr-1", provider: "wechat_native" } },
+				variables: {
+					input: {
+						enrollmentId: "enr-1",
+						provider: "wechat_native",
+						depositConsent: true,
+					},
+				},
+			}),
+		);
+	});
+
+	it("押金场 + 后端拒单（本框识别缺失的 fail-open 类）→ 自愈回 consent 补勾选（#727/#748 F-06）", async () => {
+		// 报名快照非押金/不可得（enrollments 空）→ 直接创单不带 consent → 后端拒
+		mockQueries({ results: [] });
+		client.mutate.mockResolvedValueOnce({
+			data: {
+				createOrder: {
+					result: null,
+					errors: [
+						{
+							code: "order_deposit_consent_required",
+							message:
+								"deposit consent is required before creating a deposit order",
+						},
+					],
+					metadata: null,
+				},
+			},
+		});
+		// 第二次创单（勾选后重试）落押金单：漂移检测放行、出码
+		client.mutate.mockResolvedValue({
+			data: createOrderPayload({
+				result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+			}),
+		});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 第一次创单：不带 consent（本框押金识别未成立）
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
+		expect(client.mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				variables: {
+					input: { enrollmentId: "enr-1", provider: "wechat_native" },
+				},
+			}),
+		);
+
+		// 自愈：不落死 error 态，就地出披露 + 勾选；F-06：后端拒单文案不吞
+		// （快照不可得 → 金额走「金额待定」口径，#675）
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("checkout-consent-error")).toHaveTextContent(
+			"押金支付需先阅读并同意押金条款",
+		);
+		expect(screen.getByTestId("checkout-deposit-note")).toHaveTextContent(
+			"押金（金额待定）",
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				variables: {
+					input: {
+						enrollmentId: "enr-1",
+						provider: "wechat_native",
+						depositConsent: true,
+					},
+				},
 			}),
 		);
 	});
 
 	it("押金场：确认后走复用活单路径（不重复下单）", async () => {
 		// #580：复用活单的门由订单快照口径判定——押金单（orderKind=deposit）
-		client.query.mockResolvedValue({
-			data: {
-				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 6900 })] },
-			},
+		mockQueries({
+			results: [pendingOrder({ orderKind: "deposit", amountCents: 6900 })],
 		});
 		sessionStorage.setItem("order-credential:o1", JSON.stringify({
 			type: "qr_code",
@@ -646,8 +771,6 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled
-				depositAmountCents={6900}
 			/>,
 		);
 
@@ -668,7 +791,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 	});
 
 	it("定价场（无 depositAmountCents）：不出现确认块，直接初始化（回归）", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		mockQueries({ results: [] });
 
 		render(
 			<PaymentCheckoutDialog
@@ -693,19 +816,22 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		);
 	});
 
-	it("押金场识别按存在性（#686）：depositEnabled 且金额缺失 → 仍停确认态，未勾选零创单", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+	it("押金场识别按存在性（#686/#748）：paymentMode=deposit 且金额缺失 → 仍停确认态，未勾选零创单", async () => {
+		mockQueries(
+			{ results: [] },
+			{ results: [depositEnrollment({ depositAmountCents: null })] },
+		);
 
 		render(
 			<PaymentCheckoutDialog
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled
 			/>,
 		);
 
-		// 金额缺失（未传 depositAmountCents）不影响门：确认块仍出现、未勾选禁用、零创单
+		// 金额缺失（快照 depositAmountCents=null）不影响门：确认块仍出现、
+		// 未勾选禁用、零创单
 		expect(
 			await screen.findByTestId("checkout-deposit-consent"),
 		).toBeInTheDocument();
@@ -714,7 +840,12 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		).toBeDisabled();
 		expect(client.mutate).not.toHaveBeenCalled();
 
-		// 勾选确认后才创单
+		// 创单返回押金单（漂移检测放行）；勾选确认后才创单
+		client.mutate.mockResolvedValue({
+			data: createOrderPayload({
+				result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+			}),
+		});
 		await act(async () => {
 			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
 		});
@@ -725,8 +856,11 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
 	});
 
-	it("单变量对照（#686）：缺 depositEnabled → 视为非押金场，无确认块直接创单", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+	it("反向断言（#686/#748）：报名快照非押金（paymentMode=pricing）即使金额在场也不出门——识别已脱离金额", async () => {
+		mockQueries(
+			{ results: [] },
+			{ results: [depositEnrollment({ paymentMode: "pricing" })] },
+		);
 
 		render(
 			<PaymentCheckoutDialog
@@ -736,42 +870,253 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			/>,
 		);
 
-		// 不出同意门、直接进支付面（单拿走存在性事实，其余一字不动）
 		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
 		expect(
 			screen.queryByTestId("checkout-deposit-consent"),
 		).not.toBeInTheDocument();
+		expect(client.mutate).toHaveBeenCalledTimes(1);
+	});
+
+	// F-06：error 态点渠道（alipay_qr）创单又被后端拒 → 自愈回 consent，
+	// 确认按钮沿 alipay_qr 重发，不回落记忆渠道（wechat_native）
+	it("自愈保留用户已选渠道：点了 alipay_qr 被拒 → 确认后以 alipay_qr 重发（F-06）", async () => {
+		mockQueries({ results: [] });
+		localStorage.setItem("cgc:last-payment-provider", "wechat_native");
+		client.mutate
+			.mockResolvedValueOnce({
+				data: {
+					createOrder: {
+						result: null,
+						errors: [
+							{
+								code: "order_not_payment_pending",
+								message: "not pending",
+							},
+						],
+						metadata: null,
+					},
+				},
+			})
+			.mockResolvedValueOnce({
+				data: {
+					createOrder: {
+						result: null,
+						errors: [
+							{
+								code: "order_deposit_consent_required",
+								message: "deposit consent is required",
+							},
+						],
+						metadata: null,
+					},
+				},
+			})
+			.mockResolvedValue({
+				data: createOrderPayload({
+					result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+				}),
+			});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 首创（记忆渠道 wechat_native）失败（非押金拒单）→ error 态，渠道按钮在场
+		expect(await screen.findByTestId("checkout-error")).toBeInTheDocument();
+
+		// 用户在渠道区点 alipay_qr（无单路径 = 直接以该渠道重发创单）→ 撞押金门 → 自愈回 consent
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-provider-alipay_qr"));
+		});
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+
+		// 勾选 + 确认：沿 alipay_qr 重发（而非回落记忆渠道 wechat_native）
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+		await waitFor(() =>
+			expect(client.mutate).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					variables: {
+						input: {
+							enrollmentId: "enr-1",
+							provider: "alipay_qr",
+							depositConsent: true,
+						},
+					},
+				}),
+			),
+		);
+	});
+	it("口径漂移（押金身份 → 落定价单）：不出码 + 提示，单留 pending 可重试（F-08）", async () => {
+		mockQueries({ results: [] }, { results: [depositEnrollment()] });
+		client.mutate.mockResolvedValue({
+			data: createOrderPayload(), // 默认 enrollment 单 = 漂移
+		});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 押金场停确认态后再操作（初始化查询异步完成）
+		await screen.findByTestId("checkout-deposit-consent");
+
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+
+		expect(await screen.findByTestId("checkout-error")).toHaveTextContent(
+			"活动缴费方式刚刚发生变化",
+		);
+		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
+		// 单已创建但状态与 UI 分叉最小化：mutate 只发了一次
 		expect(client.mutate).toHaveBeenCalledTimes(1);
 	});
 
-	it("反向断言（#686）：非押金场（depositEnabled=false）即使押金金额在场也不出门——识别已脱离金额", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+	// #751-①：busy 同帧锁——disabled 拦不住同帧双击（第二次 click 带旧 state），
+	// ref 在第一次进入时即置位，第二次直接返回 → 只有一次创单请求
+	it("consent 确认按钮同帧连点：busy ref 拦截，只发一次创单（#751）", async () => {
+		mockQueries({ results: [] }, { results: [depositEnrollment()] });
+		const { promise, resolve: resolveCreate } =
+			Promise.withResolvers<unknown>();
+		client.mutate.mockImplementation(() => promise);
 
 		render(
 			<PaymentCheckoutDialog
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositEnabled={false}
-				depositAmountCents={6900}
 			/>,
 		);
 
-		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
-		expect(
-			screen.queryByTestId("checkout-deposit-consent"),
-		).not.toBeInTheDocument();
+		// 押金场停确认态后再操作（初始化查询异步完成）
+		await screen.findByTestId("checkout-deposit-consent");
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		const confirm = screen.getByTestId("checkout-deposit-consent-button");
+		expect(confirm).toBeEnabled();
+
+		// 同帧双击：两次 click handler 顺序执行，第二次撞 busyRef 返回
+		await act(async () => {
+			fireEvent.click(confirm);
+			fireEvent.click(confirm);
+		});
 		expect(client.mutate).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			resolveCreate({
+				data: createOrderPayload({
+					result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+				}),
+			});
+		});
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+	});
+
+	// #750/F-05 自愈：存量押金单换渠道被拒 → 自动带同意重下（补留痕），框内换码
+	it("换渠道撞 order_deposit_consent_missing → 自动带同意重新创单（#750 F-05）", async () => {
+		mockQueries({ results: [] }, { results: [depositEnrollment()] });
+		client.mutate
+			.mockResolvedValueOnce({
+				data: createOrderPayload({
+					result: pendingOrder({ orderKind: "deposit", amountCents: 6900 }),
+				}),
+			})
+			.mockResolvedValueOnce({
+				data: {
+					replaceProvider: {
+						result: null,
+						errors: [
+							{
+								code: "order_deposit_consent_missing",
+								message: "no recorded consent",
+							},
+						],
+						metadata: null,
+					},
+				},
+			})
+			.mockResolvedValue({
+				data: createOrderPayload({
+					result: pendingOrder({
+						id: "o2",
+						orderKind: "deposit",
+						amountCents: 6900,
+					}),
+					metadata: {
+						credential: JSON.stringify({
+							type: "qr_code",
+							code_url: "https://qr.alipay.com/y",
+						}),
+					},
+				}),
+			});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+			/>,
+		);
+
+		// 押金场停 consent → 勾选确认（首创押金单出码）→ 点 alipay_qr 换渠道
+		// → replace 被拒（order_deposit_consent_missing）→ 自愈带同意重下
+		await screen.findByTestId("checkout-deposit-consent");
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+		await screen.findByTestId("checkout-qr");
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-provider-alipay_qr"));
+		});
+
+		await waitFor(() =>
+			expect(QRCodeStub.toDataURL).toHaveBeenCalledWith(
+				"https://qr.alipay.com/y",
+				expect.anything(),
+			),
+		);
+		expect(client.mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				variables: {
+					input: {
+						enrollmentId: "enr-1",
+						provider: "alipay_qr",
+						depositConsent: true,
+					},
+				},
+			}),
+		);
+		expect(screen.queryByTestId("checkout-error")).not.toBeInTheDocument();
 	});
 });
 
 describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => {
 	it("组织者关押金后复用押金活单：门仍出现（不零披露），说明行用订单快照金额", async () => {
 		// 活动实时配置已非押金（不传 depositAmountCents），但活单是押金单
-		client.query.mockResolvedValue({
-			data: {
-				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
-			},
+		mockQueries({
+			results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })],
 		});
 		sessionStorage.setItem("order-credential:o1", JSON.stringify({
 			type: "qr_code",
@@ -797,13 +1142,12 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
 	});
 
-	it("改押金额后复用活单：说明行显示订单快照价而非活动现价（不漂移）", async () => {
-		// 活动现价已下调到 6900，在途单仍是报名时快照 9900
-		client.query.mockResolvedValue({
-			data: {
-				myOrders: { results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
-			},
-		});
+	it("改押金额后复用活单：说明行显示订单快照价而非报名快照现值（不漂移）", async () => {
+		// 报名快照（MY_ENROLLMENT）已跟随现值 6900（#749），在途单仍是创单时快照 9900
+		mockQueries(
+			{ results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
+			{ results: [depositEnrollment({ depositAmountCents: 6900 })] },
+		);
 		sessionStorage.setItem("order-credential:o1", JSON.stringify({
 			type: "qr_code",
 			code_url: "weixin://wxpay/x",
@@ -814,7 +1158,6 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 				enrollmentId="enr-1"
 				onClose={vi.fn()}
 				onPaid={vi.fn()}
-				depositAmountCents={6900}
 			/>,
 		);
 
@@ -825,9 +1168,7 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 	});
 
 	it("定价活单（orderKind=enrollment）：无押金门无说明行，直接出码", async () => {
-		client.query.mockResolvedValue({
-			data: { myOrders: { results: [pendingOrder()] } },
-		});
+		mockQueries({ results: [pendingOrder()] });
 		sessionStorage.setItem("order-credential:o1", JSON.stringify({
 			type: "qr_code",
 			code_url: "weixin://wxpay/x",
@@ -852,11 +1193,7 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 	});
 
 	it("活单 orderKind 未知值：fail-closed 停支付面，不出码不出门", async () => {
-		client.query.mockResolvedValue({
-			data: {
-				myOrders: { results: [pendingOrder({ orderKind: "mystery_kind" })] },
-			},
-		});
+		mockQueries({ results: [pendingOrder({ orderKind: "mystery_kind" })] });
 
 		render(
 			<PaymentCheckoutDialog
@@ -876,7 +1213,7 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 	});
 
 	it("创单返回未知 orderKind：fail-closed 停支付面不出码", async () => {
-		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		mockQueries({ results: [] });
 		client.mutate.mockResolvedValue({
 			data: createOrderPayload({
 				result: pendingOrder({ orderKind: "mystery_kind" }),

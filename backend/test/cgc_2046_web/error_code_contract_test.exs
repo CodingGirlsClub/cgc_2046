@@ -101,6 +101,35 @@ defmodule Cgc2046Web.ErrorCodeContractTest do
              "已确认报名下单 code 应为 order_not_payment_pending，实际 #{inspect(error)}"
     end
 
+    test "押金单不带同意 → order_deposit_consent_required（#727）" do
+      admin = Fixtures.platform_admin("code-deposit-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      learner = Fixtures.register_user("code-deposit-learner")
+      token = sign_in_token(learner)
+
+      assert %{
+               "data" => %{
+                 "createEnrollment" => %{
+                   "result" => %{"id" => enrollment_id, "status" => "payment_pending"}
+                 }
+               }
+             } = graphql(create_enrollment_mutation(event, learner), token)
+
+      assert %{"data" => %{"createOrder" => %{"result" => nil, "errors" => [error | _]}}} =
+               graphql(order_mutation(enrollment_id), token)
+
+      assert error["code"] == "order_deposit_consent_required",
+             "押金单缺同意 code 应为 order_deposit_consent_required，实际 #{inspect(error)}"
+    end
+
     test "approveSponsorship 对已 active 赞助再审批 → sponsorship_already_processed" do
       admin = Fixtures.platform_admin("code-sponsor-admin")
       workspace = Fixtures.create_workspace(admin, %{sponsorship_tiers: [@sponsor_tier]})

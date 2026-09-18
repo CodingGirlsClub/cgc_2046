@@ -103,14 +103,17 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   end
 
   # 造 ToolCallLog / PendingOperation 审计记录（params 内含 workspace_id，D5 JSONB）
+  # user_id 必须真用户：#745 起 mcp 两表有 user_id FK（假 uuid 直接 FK violation）
   defp create_tool_call_log(attrs) do
+    user = Fixtures.register_user("tcl-log")
+
     {:ok, log} =
       ToolCallLog
       |> Ash.Changeset.for_create(
         :log,
         Map.merge(
           %{
-            user_id: Ecto.UUID.generate(),
+            user_id: user.id,
             tool: "get_workspace_context",
             params: %{"workspace_id" => Ecto.UUID.generate()},
             result_status: :ok
@@ -124,13 +127,15 @@ defmodule Cgc2046Web.GraphqlAdminQueriesTest do
   end
 
   defp create_pending_operation(attrs) do
+    user = Fixtures.register_user("po-log")
+
     {:ok, op} =
       PendingOperation
       |> Ash.Changeset.for_create(
         :pend,
         Map.merge(
           %{
-            user_id: Ecto.UUID.generate(),
+            user_id: user.id,
             tool: "create_invitation",
             params: %{"workspace_id" => Ecto.UUID.generate()},
             summary: "创建邀请"
