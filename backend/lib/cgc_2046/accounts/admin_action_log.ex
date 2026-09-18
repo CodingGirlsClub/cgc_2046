@@ -76,7 +76,18 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # 押金制 U6/KTD6：核销即退（每笔押金退还一行，actor = 核销人，
           # target = 押金单）。规 13 资金动作爆发白名单**不**收录本 action
           # ——核销是主理人现场的正常高频动作，收录即告警风暴。
-          :attendance_refund
+          :attendance_refund,
+          # 平台治理后台 U1（R8/KTD2）：offering 治理写（平台管理员对 Course/Event
+          # 执行 update/launch/close/cancel 各一行；target_type 区分 event/course）。
+          # 非平台管理员（工作台 Owner/Admin）经挂接的 skip_unless 谓词跳过，不落行。
+          :admin_event_update,
+          :admin_event_launch,
+          :admin_event_close,
+          :admin_event_cancel,
+          :admin_course_update,
+          :admin_course_launch,
+          :admin_course_close,
+          :admin_course_cancel
         ]
       ],
       description: "治理动作类型"

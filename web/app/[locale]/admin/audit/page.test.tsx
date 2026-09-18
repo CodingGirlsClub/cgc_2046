@@ -71,6 +71,45 @@ const adminActionLogs = [
 		insertedAt: "2026-08-03T00:00:00Z",
 		// #607：未收录的 action → 读面 null（无默认透传）
 		metadata: null,
+		offeringChange: null,
+	},
+];
+
+/** U1 offering 治理写变更投影行（闭集标量；未变更列不落键 → 只渲染变了的列） */
+const offeringChangeLogs = [
+	{
+		id: "offering-update",
+		actorId: "admin-1",
+		action: "admin_event_update",
+		targetType: "event",
+		targetId: "evt-abcdef123456",
+		result: "success",
+		insertedAt: "2026-08-04T00:00:00Z",
+		metadata: null,
+		offeringChange: {
+			titleBefore: null,
+			titleAfter: null,
+			visibilityBefore: "public",
+			visibilityAfter: "workspace",
+			capacityBefore: 10,
+			capacityAfter: 20,
+			pricingEnabledBefore: null,
+			pricingEnabledAfter: null,
+			depositEnabledBefore: null,
+			depositEnabledAfter: null,
+		},
+	},
+	{
+		id: "offering-launch",
+		actorId: "admin-1",
+		action: "admin_event_launch",
+		targetType: "event",
+		targetId: "evt-launch123456",
+		result: "success",
+		insertedAt: "2026-08-04T00:00:01Z",
+		metadata: null,
+		// launch 未收录 → 投影 null
+		offeringChange: null,
 	},
 ];
 
@@ -299,6 +338,34 @@ describe("/admin/audit 审计仪表盘", () => {
 		const nonRuleRow = screen.getByText("创建工作台").closest("tr");
 		expect(nonRuleRow).not.toBeNull();
 		expect(within(nonRuleRow as HTMLElement).getByText("—")).toBeInTheDocument();
+	});
+
+	it("U1 offering 变更投影（admin_event_update）：渲染闭集标量前后值；未收录 action 仍 —", async () => {
+		fetchToolCallLogs.mockResolvedValue(toolLogs);
+		fetchAdminActionLogs.mockResolvedValue(offeringChangeLogs);
+
+		render(<AdminAuditPage />);
+		await screen.findByText("get_workspace_context");
+
+		fireEvent.click(screen.getByRole("button", { name: /治理操作/ }));
+		await screen.findAllByText("evt-abcd");
+
+		const row = screen.getByText("evt-abcd").closest("tr");
+		expect(row).not.toBeNull();
+		// 动作列经 ACTION_LABEL 词表本地化：缺表时渲染 missing-message 回退串（admin.admin_event_update）
+		expect(within(row as HTMLElement).getByText("编辑活动")).toBeInTheDocument();
+
+		const before = within(row as HTMLElement).getByTestId("audit-change-before");
+		const after = within(row as HTMLElement).getByTestId("audit-change-after");
+		// 键序 = 后端闭集次序；未变更列不渲染（不是 0/false 假值）
+		expect(before).toHaveTextContent("visibility=public, capacity=10");
+		expect(after).toHaveTextContent("visibility=workspace, capacity=20");
+		expect(before).not.toHaveTextContent("title=");
+		expect(before).not.toHaveTextContent("pricing_enabled=");
+
+		// launch（未收录 action）→ 变更列 —
+		const launchRow = screen.getByText("evt-laun").closest("tr");
+		expect(within(launchRow as HTMLElement).getByText("—")).toBeInTheDocument();
 	});
 
 	it("#607 省略标记：白名单外字段以 … 标出并带可读说明", async () => {

@@ -127,8 +127,9 @@ export type OfferingUpdateInput = {
 /**
  * venue 四键草稿 → JsonString（KTD5 形状校验后端兜底）；
  * null/全空（trim 后）→ null。all-or-none 缺键拦截在表单层（不下发）。
+ * 治理面（/admin/events 元数据编辑）与工作台表单共用这一条序列化路径。
  */
-function venueDraftToJson(venue: VenueInfo | null | undefined): string | null {
+export function venueDraftToJson(venue: VenueInfo | null | undefined): string | null {
 	if (!venue) return null;
 	const v = {
 		country: venue.country.trim(),

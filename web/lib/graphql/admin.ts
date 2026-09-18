@@ -1,6 +1,6 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
-import type { MutationError } from "./shared";
+import type { MutationError, MutationResult } from "./shared";
 import type { JoinPolicy } from "./workspace";
 
 /**
@@ -169,6 +169,8 @@ export interface AdminActionLog {
 	insertedAt: string;
 	/** #607 治理 metadata 白名单投影；未收录的 action、或形状不完整的历史行（#587 之前）= null */
 	metadata: AdminActionMetadata | null;
+	/** U1 offering 治理写变更投影；未收录的 action（launch/close/cancel 等）或闭集列零变更 = null */
+	offeringChange: AdminOfferingChangeMetadata | null;
 }
 
 /**
@@ -193,6 +195,26 @@ export interface AdminActionMetadata {
 	valueAfterJson: string;
 	valueBeforeOmitted: boolean;
 	valueAfterOmitted: boolean;
+}
+
+/**
+ * U1 offering 治理写变更投影（`adminActionLog.offeringChange`，**非** rule 族 metadata）。
+ *
+ * 闭集标量前后值分列：标题 / visibility / capacity / pricingEnabled / depositEnabled。
+ * 写面只为**真变更**的属性落键 → 该列两侧同为 null = 本次未改该属性（不是「改成空」）；
+ * `depositEnabled*` 对 Course 恒 null（该资源无押金槽位）。自由文本（描述/场地）不在此面。
+ */
+export interface AdminOfferingChangeMetadata {
+	titleBefore: string | null;
+	titleAfter: string | null;
+	visibilityBefore: string | null;
+	visibilityAfter: string | null;
+	capacityBefore: number | null;
+	capacityAfter: number | null;
+	pricingEnabledBefore: boolean | null;
+	pricingEnabledAfter: boolean | null;
+	depositEnabledBefore: boolean | null;
+	depositEnabledAfter: boolean | null;
 }
 
 /** promoteUser/demoteUser 返回（set_platform_admin 结果信封） */
@@ -432,6 +454,18 @@ export const LIST_ADMIN_ACTION_LOGS: TypedDocumentNode<
         valueBeforeOmitted
         valueAfterOmitted
       }
+      offeringChange {
+        titleBefore
+        titleAfter
+        visibilityBefore
+        visibilityAfter
+        capacityBefore
+        capacityAfter
+        pricingEnabledBefore
+        pricingEnabledAfter
+        depositEnabledBefore
+        depositEnabledAfter
+      }
     }
   }
 `;
@@ -453,6 +487,8 @@ export const RECONCILIATION_FINDINGS: TypedDocumentNode<
 	{
 		rule?: string | null;
 		entityType?: string | null;
+		/** KTD5：必须与 entityType 成对下发（单独下发后端 `invalid_input` 拒绝） */
+		entityId?: string | null;
 		workspaceId?: string | null;
 		first?: number;
 		after?: string;
@@ -461,6 +497,7 @@ export const RECONCILIATION_FINDINGS: TypedDocumentNode<
   query ReconciliationFindings(
     $rule: String
     $entityType: String
+    $entityId: String
     $workspaceId: ID
     $first: Int
     $after: String
@@ -468,6 +505,7 @@ export const RECONCILIATION_FINDINGS: TypedDocumentNode<
     reconciliationFindings(
       rule: $rule
       entityType: $entityType
+      entityId: $entityId
       workspaceId: $workspaceId
       first: $first
       after: $after
@@ -634,6 +672,164 @@ export const DEMOTE_USER: TypedDocumentNode<
   }
 `;
 
+/* -------- U3 治理面：Event 读投影与生命周期/元数据写（对齐 SDL AdminEvent/AdminEventDetail） -------- */
+
+/**
+ * 平台管理员跨租户 Event 行投影（`listAdminEvents`；含 draft 与终态行，
+ * 不受公开可见性过滤）。
+ *
+ * 列表刻意不带报名计数：KTD4 的权威计数只在 `getAdminEvent` 详情现取——
+ * 展示投影列（events.confirmed_count）可能滞后一拍，不做治理判据。
+ */
+export interface AdminEvent {
+	id: string;
+	workspaceId: string;
+	title: string;
+	slug?: string | null;
+	/** draft | open | closed | cancelled */
+	status: string;
+	visibility: string;
+	/** nil = 不限名额 */
+	capacity?: number | null;
+	registrationDeadline?: string | null;
+	startsAt?: string | null;
+	endsAt?: string | null;
+	pricingEnabled: boolean;
+	depositEnabled: boolean;
+	depositAmountCents?: number | null;
+	insertedAt: string;
+	updatedAt: string;
+}
+
+/** 主理人（`getAdminEvent.moderators` 元素） */
+export interface AdminEventModerator {
+	id: string;
+	userId: string;
+}
+
+/**
+ * Event 治理详情（`getAdminEvent`；id 不存在返回 null，不是 GraphQL 错误）。
+ *
+ * 计数语义（KTD4，与 SDL 注释逐字对齐）：`null` = **计数不可用**（现取失败），
+ * 界面必须按不可用态呈现并禁用依赖它的入口，不得当 0；`0` 才是真实无报名。
+ * 同理 `moderators`：`null` = 清单加载失败，`[]` = 真的无主理人。
+ */
+export interface AdminEventDetail extends AdminEvent {
+	description?: string | null;
+	/** 结构化场地 JSON 串（JsonString；nil = 线上/未定） */
+	venue?: string | null;
+	confirmedCount?: number | null;
+	paymentPendingCount?: number | null;
+	moderators?: AdminEventModerator[] | null;
+	/** 解除挂载来源标记 JSON 串；nil = 无标记 */
+	detachedRuleProvenance?: string | null;
+}
+
+/** 治理 update 输入：只落**本次真变更**的键（未传 = 不改；显式 null = 清空该列）。 */
+export interface AdminEventUpdateInput {
+	title?: string;
+	visibility?: string;
+	capacity?: number | null;
+	registrationDeadline?: string | null;
+	startsAt?: string | null;
+	endsAt?: string | null;
+	venue?: string | null;
+	pricingEnabled?: boolean;
+	depositEnabled?: boolean;
+}
+
+export const LIST_ADMIN_EVENTS: TypedDocumentNode<
+	{ listAdminEvents: AdminEvent[] },
+	{
+		status?: string | null;
+		search?: string | null;
+		workspaceId?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs
+> = gql`
+  query ListAdminEvents(
+    $status: String
+    $search: String
+    $workspaceId: ID
+    $first: Int
+    $after: String
+  ) {
+    listAdminEvents(
+      status: $status
+      search: $search
+      workspaceId: $workspaceId
+      first: $first
+      after: $after
+    ) {
+      id
+      workspaceId
+      title
+      slug
+      status
+      visibility
+      capacity
+      registrationDeadline
+      startsAt
+      endsAt
+      pricingEnabled
+      depositEnabled
+      depositAmountCents
+      insertedAt
+      updatedAt
+    }
+  }
+`;
+
+export const GET_ADMIN_EVENT: TypedDocumentNode<
+	{ getAdminEvent: AdminEventDetail | null },
+	{ id: string }
+> = gql`
+  query GetAdminEvent($id: ID!) {
+    getAdminEvent(id: $id) {
+      id
+      workspaceId
+      title
+      slug
+      description
+      status
+      visibility
+      capacity
+      registrationDeadline
+      startsAt
+      endsAt
+      venue
+      pricingEnabled
+      depositEnabled
+      depositAmountCents
+      confirmedCount
+      paymentPendingCount
+      moderators {
+        id
+        userId
+      }
+      detachedRuleProvenance
+      insertedAt
+      updatedAt
+    }
+  }
+`;
+
+/** 治理写结果的行子集（状态切换/元数据写都不需要整行回读——刷新走 get 现取） */
+export type AdminEventMutationResult = {
+	id: string;
+	slug?: string | null;
+	status: string;
+};
+
+export type AdminEventPayload = MutationResult<AdminEventMutationResult>;
+
+/** 状态迁移：draft → open / open → closed / open → cancelled（后端状态机复验） */
+export const ADMIN_LAUNCH_EVENT = gql`mutation AdminLaunchEvent($id: ID!) { adminLaunchEvent(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_CLOSE_EVENT = gql`mutation AdminCloseEvent($id: ID!) { adminCloseEvent(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_CANCEL_EVENT = gql`mutation AdminCancelEvent($id: ID!) { adminCancelEvent(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_UPDATE_EVENT = gql`mutation AdminUpdateEvent($id: ID!, $input: AdminEventUpdateInput!) { adminUpdateEvent(id: $id, input: $input) { result { id slug status } errors { code message fields } } }`;
+
 /* ---------------- 展示辅助 ---------------- */
 
 export const APPLICATION_STATUS_LABEL: Record<AdminApplicationStatus, string> = {
@@ -657,3 +853,165 @@ export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
 	closed: "l-badge l-badge-muted",
 	cancelled: "l-badge l-badge-danger",
 };
+
+/** Offering（Event/Course）状态徽章：与 `INITIATIVE_STATUS_CLASS` 同映射，未知状态同样由调用侧兜底。 */
+export const OFFERING_STATUS_CLASS: Record<string, string> = {
+	draft: "l-badge l-badge-muted",
+	open: "l-badge l-badge-success",
+	closed: "l-badge l-badge-muted",
+	cancelled: "l-badge l-badge-danger",
+};
+
+/**
+ * 状态下拉枚举（后端 `Event.status_values/0` 单源镜像）：只给合法值，
+ * 规避后端 `maybe_status_filter` 对非法值静默回退的误判面（plan Assumptions）。
+ */
+export const OFFERING_STATUS_VALUES = [
+	"draft",
+	"open",
+	"closed",
+	"cancelled",
+] as const;
+
+/** 可见性枚举（后端 `@visibility_values` 单源镜像；标签取 `labels.visibility.*`） */
+export const OFFERING_VISIBILITY_VALUES = ["public", "workspace"] as const;
+
+/* -------- U4 治理面：Course 读投影与生命周期/元数据写（对齐 SDL AdminCourse/AdminCourseDetail） -------- */
+
+/**
+ * 平台管理员跨租户 Course 行投影（`listAdminCourses`；含 draft 与终态行，
+ * 不受公开可见性过滤）。
+ *
+ * 列表刻意不带报名计数：KTD4 的权威计数只在 `getAdminCourse` 详情现取——
+ * 展示投影列（courses.confirmed_count）可能滞后一拍，不做治理判据。
+ *
+ * Course 无 `depositEnabled` / `depositAmountCents`（押金为 Event-only 槽位），
+ * 也无 venue / 主理人 / 挂载来源标记——投影差异照 SDL，不补齐 Event 形状。
+ */
+export interface AdminCourse {
+	id: string;
+	workspaceId: string;
+	title: string;
+	/** 标题是否为系统生成的临时占位（未命名课程）；发布前置门，列表据此标黄 */
+	provisionalTitle: boolean;
+	slug?: string | null;
+	/** draft | open | closed | cancelled */
+	status: string;
+	visibility: string;
+	/** nil = 不限名额 */
+	capacity?: number | null;
+	registrationDeadline?: string | null;
+	startsAt?: string | null;
+	endsAt?: string | null;
+	pricingEnabled: boolean;
+	insertedAt: string;
+	updatedAt: string;
+}
+
+/**
+ * Course 治理详情（`getAdminCourse`；id 不存在返回 null，不是 GraphQL 错误）。
+ *
+ * 计数语义（KTD4，与 SDL 注释逐字对齐）：`null` = **计数不可用**（现取失败），
+ * 界面必须按不可用态呈现并禁用依赖它的入口，不得当 0；`0` 才是真实无报名。
+ */
+export interface AdminCourseDetail extends AdminCourse {
+	description?: string | null;
+	confirmedCount?: number | null;
+	paymentPendingCount?: number | null;
+}
+
+/** 治理 update 输入：只落**本次真变更**的键（未传 = 不改；显式 null = 清空该列）。 */
+export interface AdminCourseUpdateInput {
+	title?: string;
+	description?: string | null;
+	visibility?: string;
+	capacity?: number | null;
+	registrationDeadline?: string | null;
+	startsAt?: string | null;
+	endsAt?: string | null;
+	pricingEnabled?: boolean;
+}
+
+export const LIST_ADMIN_COURSES: TypedDocumentNode<
+	{ listAdminCourses: AdminCourse[] },
+	{
+		status?: string | null;
+		search?: string | null;
+		workspaceId?: string | null;
+		first?: number;
+		after?: string;
+	} & AdminListArgs
+> = gql`
+  query ListAdminCourses(
+    $status: String
+    $search: String
+    $workspaceId: ID
+    $first: Int
+    $after: String
+  ) {
+    listAdminCourses(
+      status: $status
+      search: $search
+      workspaceId: $workspaceId
+      first: $first
+      after: $after
+    ) {
+      id
+      workspaceId
+      title
+      provisionalTitle
+      slug
+      status
+      visibility
+      capacity
+      registrationDeadline
+      startsAt
+      endsAt
+      pricingEnabled
+      insertedAt
+      updatedAt
+    }
+  }
+`;
+
+export const GET_ADMIN_COURSE: TypedDocumentNode<
+	{ getAdminCourse: AdminCourseDetail | null },
+	{ id: string }
+> = gql`
+  query GetAdminCourse($id: ID!) {
+    getAdminCourse(id: $id) {
+      id
+      workspaceId
+      title
+      provisionalTitle
+      slug
+      description
+      status
+      visibility
+      capacity
+      registrationDeadline
+      startsAt
+      endsAt
+      pricingEnabled
+      confirmedCount
+      paymentPendingCount
+      insertedAt
+      updatedAt
+    }
+  }
+`;
+
+/** 治理写结果的行子集（状态切换/元数据写都不需要整行回读——刷新走 get 现取） */
+export type AdminCourseMutationResult = {
+	id: string;
+	slug?: string | null;
+	status: string;
+};
+
+export type AdminCoursePayload = MutationResult<AdminCourseMutationResult>;
+
+/** 状态迁移：draft → open / open → closed / open → cancelled（后端状态机复验） */
+export const ADMIN_LAUNCH_COURSE = gql`mutation AdminLaunchCourse($id: ID!) { adminLaunchCourse(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_CLOSE_COURSE = gql`mutation AdminCloseCourse($id: ID!) { adminCloseCourse(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_CANCEL_COURSE = gql`mutation AdminCancelCourse($id: ID!) { adminCancelCourse(id: $id) { result { id slug status } errors { code message fields } } }`;
+export const ADMIN_UPDATE_COURSE = gql`mutation AdminUpdateCourse($id: ID!, $input: AdminCourseUpdateInput!) { adminUpdateCourse(id: $id, input: $input) { result { id slug status } errors { code message fields } } }`;
