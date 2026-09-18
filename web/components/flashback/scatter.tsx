@@ -8,7 +8,9 @@ import { useStageTitleFocus } from "./use-reduced-motion";
  * 散照认领（R5）：一叠模糊旧照片供点击认领。
  *
  * pilot 单场事实（计划 U4 Approach）：认领不设对错——「随便挑一张，
- * 它都会变成你的」；散照以城市快显影呈现（fb-develop-soft，0.6s 档）。
+ * 它都会变成你的」；散照 = 入场（fb-card-in 0.7s）+ 快显影（fb-develop-soft
+ * 0.6s）两条动画错峰进场——两条由 .fb-scatter-photo 同源声明（第 5 件修复：
+ * 分开声明时 animation 简写互相覆盖，快显影与 --fb-d 错峰都曾是死参数）。
  * 键盘可操作：每张照片是 button（Enter/Space 触发 onPick）。
  *
  * 角色差异化（教练看学员名单/志愿者看档案）依赖导入数据，2014-01-11
@@ -38,7 +40,7 @@ export default function Scatter({
 					<button
 						key={index}
 						type="button"
-						className="fb-polaroid fb-grain fb-scatter-photo fb-card-in fb-develop-soft"
+						className="fb-polaroid fb-grain fb-scatter-photo"
 						onClick={onPick}
 						aria-label={cardLabel(index + 1)}
 					>

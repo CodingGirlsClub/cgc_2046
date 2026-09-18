@@ -2379,7 +2379,9 @@
 			"envelopeTitle": "有一封信，寄了 {years}才到",
 			"envelopeLead": "当年你报了名，却没能走进那间教室。这封信迟到了很多年——但你的答案一直都在。",
 			"openEnvelope": "拆开这封信",
-			"envelopeHint": "拆开后，你会看到当年写下的自己"
+			"envelopeHint": "点击拆开这封信",
+			"envelopeTo": "{name} 亲启",
+			"envelopeSeal": "致 当年的你"
 		},
 		"scatter": {
 			"title": "散落一桌的照片",
@@ -2410,7 +2412,8 @@
 			"dreamCtaInitiatives": "看看正在发生的活动",
 			"dreamFallback": "你所在城市的场次还在筹备。写下今天的你并寄出——留下联系方式，你附议的场成真时，我们会第一个告诉你。",
 			"writeBack": "翻过来，写今天的你",
-			"writeBackHint": "背面还是空白的——写给未来"
+			"writeBackHint": "点击卡面翻到背面，写下今天的你",
+			"flipBack": "翻回正面"
 		},
 		"tags": {
 			"want_offline": "想参加线下聚会",
@@ -2555,6 +2558,7 @@
 			"downloadPng": "保存卡片图片",
 			"downloadMd": "下载 Markdown",
 			"privacyNote": "你标记过雾面的句子不会出现在卡片里。",
+			"shareTo": "分享到…",
 			"brand": "IN A FLASH · 闪念间",
 			"canvasFooter": "闪念间 · In a Flash"
 		},

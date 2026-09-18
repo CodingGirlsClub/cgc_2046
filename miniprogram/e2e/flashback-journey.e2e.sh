@@ -189,14 +189,16 @@ wait_route '/pages/flashback/index' || true
 ck "入口进入闪念间" "$(ROUTE)" '/pages/flashback/index'
 shot 03-flashback-from-profile.png
 
-echo "### 3.5) 我的卡两态（用户定稿 ①）：默认合着卡面 → 点开正反两面 → 合上"
+echo "### 3.5) 我的卡两态（用户定稿 ① / 第 3b 件）：默认合着卡面 → 点击卡面 3D 翻转看正反两面 → 合上"
 POLAROID_COVER=$(cls pages/flashback 'polaroidCover')
 COVER_NAME=$(cls pages/flashback 'coverName')
 FLIP_OPEN=$(cls pages/flashback 'polaroidFlipOpen')
 FOLD_BACK=$(cls pages/flashback 'foldBackButton')
+CARD_FLIP=$(cls pages/flashback 'cardFlip')
 ck "默认=合着卡面（容器在）" "$(COUNT "$POLAROID_COVER")" '^1$'
 ck "卡面全名" "$(RES automation_element_action --action text --selector "$COVER_NAME")" '^王小明$'
 ck "默认内容区不渲染（答案在卡面后）" "$(COUNT "$FLIP_OPEN")" '^0$'
+ck "3D 翻面容器在（第 3b 件：点击卡面翻转）" "$(COUNT "$CARD_FLIP")" '^1$'
 TAP "$POLAROID_COVER"
 sleep 1
 ck "点开后正反两面容器出现" "$(COUNT "$FLIP_OPEN")" '^1$'

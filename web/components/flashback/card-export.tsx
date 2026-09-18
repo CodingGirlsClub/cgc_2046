@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { appliedStamp, type FlashbackCapsuleMe } from "@/lib/graphql/flashback";
 
@@ -89,14 +89,58 @@ export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
 		ctx.fillText(t("canvasFooter"), SUMMARY_W / 2, SUMMARY_H - 56);
 	}, [kind, stampText, quoteText, todayText, fullLines, t]);
 
+	/** 出图 blob（保存与分享共用同一物件；R15「页面卡片与下载图同一模板源」） */
+	const renderPngBlob = useCallback(
+		() =>
+			new Promise<Blob | null>((resolve) => {
+				drawCard();
+				const canvas = canvasRef.current;
+				if (!canvas) {
+					resolve(null);
+					return;
+				}
+				canvas.toBlob((blob) => resolve(blob), "image/png");
+			}),
+		[drawCard],
+	);
+
 	const downloadPng = () => {
-		drawCard();
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-		canvas.toBlob((blob) => {
-			if (!blob) return;
-			triggerDownload(URL.createObjectURL(blob), "flashback-card.png", "image/png");
-		}, "image/png");
+		void renderPngBlob().then((blob) => {
+			if (blob) triggerDownload(URL.createObjectURL(blob), "flashback-card.png", "image/png");
+		});
+	};
+
+	/**
+	 * 系统分享（第 4 件，轻档：只做 navigator.share，不引微信 JS-SDK/扫码）。
+	 * 能力探测全在客户端（effect）：无 navigator.share 的浏览器不渲染按钮，只留下载。
+	 * 优先分享卡片图文件（canShare 通过时），否则降级 url+text；用户取消（AbortError）静默。
+	 */
+	const [shareSupported, setShareSupported] = useState(false);
+	useEffect(() => {
+		setShareSupported(typeof navigator !== "undefined" && typeof navigator.share === "function");
+	}, []);
+
+	const shareCard = async () => {
+		if (typeof navigator === "undefined" || !navigator.share) return;
+		const blob = await renderPngBlob();
+		const file =
+			blob && typeof File !== "undefined"
+				? new File([blob], "flashback-card.png", { type: "image/png" })
+				: null;
+		const filePayload = file && navigator.canShare?.({ files: [file] }) ? { files: [file] } : null;
+		try {
+			if (filePayload) {
+				await navigator.share({ ...filePayload, title: t("summaryTitle") });
+			} else {
+				await navigator.share({
+					title: t("summaryTitle"),
+					text: `${quoteText}${todayText ? `\n${todayText}` : ""}`,
+					url: window.location.href,
+				});
+			}
+		} catch {
+			// 用户取消或系统拒绝：不弹错（分享不是主路径）
+		}
 	};
 
 	const downloadMarkdown = () => {
@@ -160,6 +204,11 @@ export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
 				<button type="button" className="fb-cta fb-cta-primary" onClick={downloadPng}>
 					{t("downloadPng")}
 				</button>
+				{shareSupported && (
+					<button type="button" className="fb-cta" data-testid="fb-export-share" onClick={() => void shareCard()}>
+						{t("shareTo")}
+					</button>
+				)}
 				<button type="button" className="fb-cta" onClick={downloadMarkdown}>
 					{t("downloadMd")}
 				</button>

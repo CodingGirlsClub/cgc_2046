@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Canvas, Radio, RadioGroup, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api, FlashbackNotBoundError, SessionExpiredError } from '@/api'
@@ -49,8 +49,21 @@ export default function FlashbackPage() {
   const [endorsing, setEndorsing] = useState(false)
   // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤行动板）
   const [city, setCity] = useState<string | null>(null)
-  // 用户定稿 ①：我的卡两态——合着卡面（默认）→ 点按 3D 翻转看正反两面 → 再按回卡面
+  // 用户定稿 ① / 第 3b 件：我的卡两态——合着卡面（默认）→ 点击卡面 3D 翻转看正反两面 → 再按合上
   const [flipped, setFlipped] = useState(false)
+  // 两段式翻面：前半程转到侧棱（cardFlipOut）→ 侧棱处换面 → 后半程转回（cardFlipIn）
+  const [flipPhase, setFlipPhase] = useState<'idle' | 'out' | 'in'>('idle')
+  const flipTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  useEffect(() => () => { flipTimers.current.forEach(clearTimeout) }, [])
+  const flipCard = (next: boolean) => {
+    if (flipPhase !== 'idle' || next === flipped) return
+    setFlipPhase('out')
+    flipTimers.current.push(setTimeout(() => {
+      setFlipped(next)
+      setFlipPhase('in')
+      flipTimers.current.push(setTimeout(() => setFlipPhase('idle'), 340))
+    }, 320))
+  }
   // 用户定稿 ③：分享浮层（好友/朋友圈/保存卡片）+ 保存中态
   const [shareSheet, setShareSheet] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -330,89 +343,95 @@ export default function FlashbackPage() {
         </View>
 
         <View className={styles.section}>
-          {/* 合着卡面（默认态）：全名 + 年份·城市 + 已寄出微标；点击翻开（用户定稿 ①） */}
-          {!flipped && (
-            <View className={styles.polaroidCover} onClick={() => setFlipped(true)}>
-              <View className={styles.coverDot} />
-              <Text className={styles.coverName}>{capsule.me.fullName}</Text>
-              <Text className={styles.coverFacts}>
-                {[
-                  capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 4) : '',
-                  capsule.me.city
-                ].filter(Boolean).join(' · ')}
-              </Text>
-              <Text className={styles.coverHint}>点按翻开你的拍立得</Text>
-            </View>
-          )}
-          {flipped && (
-          <View className={styles.polaroidFlipOpen}>
-          <View className={styles.polaroid}>
-            <Text className={styles.polaroidLabel}>POLAROID · {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10) : '当年'}</Text>
-            {answers.map((answer) => (
-              <View key={answer.id}>
-                <Text className={styles.cardFaceTitle}>当年正面 · 你的答案</Text>
-                <Text className={styles.answerMeta}>点按句子切换雾面：雾面句对外隐藏，你这里永远完整</Text>
-                <View className={styles.sentences}>
-                  {sentencesWithFog(answer).map((sentence, index) => (
-                    <Text
-                      key={`${answer.id}-${index}`}
-                      className={`${styles.sentence} ${sentence.fogged ? styles.sentenceFogged : ''}`}
-                      onClick={() => void toggleFog(answer, index)}
-                    >
-                      {sentence.text}
-                    </Text>
-                  ))}
-                </View>
+          {/* 第 3b 件：点击卡面 3D 翻转（两段式：0.32s 转出 → 侧棱换面 → 0.32s 转入，原型 E ia-flip 语言） */}
+          <View className={styles.cardFlipScene}>
+            <View
+              className={`${styles.cardFlip} ${flipPhase === 'out' ? styles.cardFlipOut : ''} ${flipPhase === 'in' ? styles.cardFlipIn : ''}`}
+            >
+            {/* 合着卡面（默认态）：全名 + 年份·城市 + 已寄出微标；点击翻开（用户定稿 ①） */}
+            {!flipped && (
+              <View className={styles.polaroidCover} onClick={() => flipCard(true)}>
+                <View className={styles.coverDot} />
+                <Text className={styles.coverName}>{capsule.me.fullName}</Text>
+                <Text className={styles.coverFacts}>
+                  {[
+                    capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 4) : '',
+                    capsule.me.city
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+                <Text className={styles.coverHint}>点按翻开你的拍立得</Text>
               </View>
-            ))}
+            )}
+            {flipped && (
+            <View className={styles.polaroidFlipOpen}>
+            <View className={styles.polaroid}>
+              <Text className={styles.polaroidLabel}>POLAROID · {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10) : '当年'}</Text>
+              {answers.map((answer) => (
+                <View key={answer.id}>
+                  <Text className={styles.cardFaceTitle}>当年正面 · 你的答案</Text>
+                  <Text className={styles.answerMeta}>点按句子切换雾面：雾面句对外隐藏，你这里永远完整</Text>
+                  <View className={styles.sentences}>
+                    {sentencesWithFog(answer).map((sentence, index) => (
+                      <Text
+                        key={`${answer.id}-${index}`}
+                        className={`${styles.sentence} ${sentence.fogged ? styles.sentenceFogged : ''}`}
+                        onClick={() => void toggleFog(answer, index)}
+                      >
+                        {sentence.text}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+              ))}
 
-            <View className={styles.todayBlock}>
-              <Text className={styles.cardFaceTitle}>今天背面 · 今天的你</Text>
-              {editing ? (
-                <View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>现在在做什么</Text>
-                    <Textarea className={styles.textarea} value={draftNow} onInput={(event) => setDraftNow(event.detail.value)} maxlength={200} />
+              <View className={styles.todayBlock}>
+                <Text className={styles.cardFaceTitle}>今天背面 · 今天的你</Text>
+                {editing ? (
+                  <View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>现在在做什么</Text>
+                      <Textarea className={styles.textarea} value={draftNow} onInput={(event) => setDraftNow(event.detail.value)} maxlength={200} />
+                    </View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
+                      <Textarea className={styles.textarea} value={draftWant} onInput={(event) => setDraftWant(event.detail.value)} maxlength={200} />
+                    </View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
+                      <Textarea className={styles.textarea} value={draftSay} onInput={(event) => setDraftSay(event.detail.value)} maxlength={200} />
+                    </View>
+                    <Button className={styles.saveButton} onClick={() => void saveToday()}>保存</Button>
                   </View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
-                    <Textarea className={styles.textarea} value={draftWant} onInput={(event) => setDraftWant(event.detail.value)} maxlength={200} />
+                ) : (
+                  <View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>现在在做什么</Text>
+                      <Text className={capsule.me.today?.nowStatus ? styles.todayText : styles.todayEmpty}>
+                        {capsule.me.today?.nowStatus || '还没写下'}
+                      </Text>
+                    </View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
+                      <Text className={capsule.me.today?.want ? styles.todayText : styles.todayEmpty}>
+                        {capsule.me.today?.want || '还没写下'}
+                      </Text>
+                    </View>
+                    <View className={styles.todayRow}>
+                      <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
+                      <Text className={capsule.me.today?.say ? styles.todayText : styles.todayEmpty}>
+                        {capsule.me.today?.say || '还没写下'}
+                      </Text>
+                    </View>
+                    <Button className={styles.editorToggle} onClick={() => setEditing(true)}>编辑今天的你</Button>
                   </View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
-                    <Textarea className={styles.textarea} value={draftSay} onInput={(event) => setDraftSay(event.detail.value)} maxlength={200} />
-                  </View>
-                  <Button className={styles.saveButton} onClick={() => void saveToday()}>保存</Button>
-                </View>
-              ) : (
-                <View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>现在在做什么</Text>
-                    <Text className={capsule.me.today?.nowStatus ? styles.todayText : styles.todayEmpty}>
-                      {capsule.me.today?.nowStatus || '还没写下'}
-                    </Text>
-                  </View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
-                    <Text className={capsule.me.today?.want ? styles.todayText : styles.todayEmpty}>
-                      {capsule.me.today?.want || '还没写下'}
-                    </Text>
-                  </View>
-                  <View className={styles.todayRow}>
-                    <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
-                    <Text className={capsule.me.today?.say ? styles.todayText : styles.todayEmpty}>
-                      {capsule.me.today?.say || '还没写下'}
-                    </Text>
-                  </View>
-                  <Button className={styles.editorToggle} onClick={() => setEditing(true)}>编辑今天的你</Button>
-                </View>
-              )}
+                )}
+              </View>
+            </View>
+            <Button className={styles.foldBackButton} onClick={() => flipCard(false)}>合上（回到卡面）</Button>
+            </View>
+            )}
             </View>
           </View>
-          <Button className={styles.foldBackButton} onClick={() => setFlipped(false)}>合上（回到卡面）</Button>
-          </View>
-          )}
-
           {/* R14 分享入口（用户定稿 ③）：显式按钮唤起分享 sheet（··· 胶囊菜单原生分享由 hooks 常驻注册） */}
           <Button className={styles.shareButton} onClick={() => setShareSheet(true)}>分享 · 把这一刻做成卡片</Button>
           <Canvas id="fbShareCanvas" canvasId="fbShareCanvas" type="2d" className={styles.shareCanvas} />
