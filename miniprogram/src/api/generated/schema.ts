@@ -2242,6 +2242,8 @@ export type FlashbackCapsuleArchive = {
   /** 本人的场次（胶囊「今天」格与本人名册卡的定位锚） */
   isMine: Scalars['Boolean']['output'];
   key: Scalars['String']['output'];
+  /** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
+  label?: Maybe<Scalars['String']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
   roster: Array<FlashbackRosterEntry>;
@@ -2414,6 +2416,7 @@ export type FlashbackPublicStatsArchive = {
   attendedCount?: Maybe<Scalars['Int']['output']>;
   city?: Maybe<Scalars['String']['output']>;
   key: Scalars['String']['output'];
+  label?: Maybe<Scalars['String']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
 };
@@ -2541,9 +2544,11 @@ export type FlashbackScatter = {
 };
 
 export type FlashbackScatterPhoto = {
+  /** 拍立得日期戳「2016 10 15」——放大时渐显，只给日期不给城市（谜不泄底） */
+  dateStamp: Scalars['String']['output'];
   /** 是否本人那张 */
   isMine: Scalars['Boolean']['output'];
-  /** 线索标签「年份 · 城市」——放大时显影，帮助答题 */
+  /** 场次全名标签「年份 · 城市」——问答选项与读屏线索用（散照卡只显日期戳） */
   label: Scalars['String']['output'];
   /** 照片定位键（本人 = 本人档案 id；他人 = 他人档案 id） */
   photoKey: Scalars['ID']['output'];
