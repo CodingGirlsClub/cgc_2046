@@ -46,6 +46,44 @@ defmodule Cgc2046.Events.EventModerator do
       destination_attribute: :id,
       define_attribute?: false
     )
+
+    # #537 assigned_by 回显平铺用（复用现有列，无新属性）
+    belongs_to(:assigned_by_user, Cgc2046.Accounts.User,
+      source_attribute: :assigned_by,
+      destination_attribute: :id,
+      define_attribute?: false
+    )
+  end
+
+  calculations do
+    # #537 回显平铺（BypassReads 平铺先例，同 WorkspaceMembership.user_display_name）：
+    # 嵌套 user 加载会被 User read policy 滤空（only_me），平铺 LEFT JOIN 绕过；
+    # 安全契约与 quirk 知识见 BypassReads（旁路读取面）moduledoc。
+    calculate(:user_display_name, :string, expr(user.display_name),
+      public?: true,
+      description: "主理人显示名（平铺自 user 关系，#537；回显 fallback 链首选）"
+    )
+
+    calculate(:assigned_by_display_name, :string, expr(assigned_by_user.display_name),
+      public?: true,
+      description: "指派人显示名（平铺自 assigned_by_user 关系，#537；assigned_by 为空时为 null）"
+    )
+
+    calculate(
+      :user_member_number,
+      :string,
+      {Cgc2046.Events.Calculations.MemberNumberOf, field: :user_id},
+      public?: true,
+      description: "主理人成员编号（CGC-XXXXXX，由 user_id 现算，#537；恒非空）"
+    )
+
+    calculate(
+      :assigned_by_member_number,
+      :string,
+      {Cgc2046.Events.Calculations.MemberNumberOf, field: :assigned_by},
+      public?: true,
+      description: "指派人成员编号（CGC-XXXXXX，由 assigned_by 现算，#537；assigned_by 为空时为 null）"
+    )
   end
 
   actions do
@@ -94,6 +132,13 @@ defmodule Cgc2046.Events.EventModerator do
   postgres do
     table("event_moderators")
     repo(Cgc2046.Repo)
+
+    # #537：assigned_by 的 FK 契约显式化——DB 侧 20260913155651 手写建表即
+    # SET NULL（用户删除 → 指派人置空，行保留），此处对齐而非新引入；
+    # snapshot 链同步（CI --check 门禁，PR #721 红根因）。
+    references do
+      reference(:assigned_by_user, on_delete: :nilify)
+    end
   end
 
   policies do

@@ -6510,6 +6510,10 @@ type EventModerator {
   userId: ID!
   assignedBy: ID
   assignedAt: DateTime!
+  userDisplayName: String
+  userMemberNumber: String
+  assignedByDisplayName: String
+  assignedByMemberNumber: String
 }
 
 type EventModeratorPayload {
@@ -6747,7 +6751,14 @@ type RootMutationType {
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
 
-  assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
 
   removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
 
