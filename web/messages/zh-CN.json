@@ -1835,7 +1835,7 @@
 		"initiativeRules": "共享规则",
 		"initiativeRule_deposit": "押金规则",
 		"initiativeRule_age_gate": "年龄门槛",
-		"initiativeRule_min_participants": "最小开班人数",
+		"initiativeRule_min_participants": "最小成班人数",
 		"initiativeRule_deadline_rule": "报名截止规则",
 		"initiativeRuleLocked": "锁死（Event 侧不可改）",
 		"initiativeMounts": "挂载场（{count}）",
