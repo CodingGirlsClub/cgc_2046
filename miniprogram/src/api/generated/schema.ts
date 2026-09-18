@@ -1007,6 +1007,8 @@ export type CreateMcpTokenPayload = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: InputMaybe<Scalars['Boolean']['input']>;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: Scalars['ID']['input'];
   /** 支付渠道 */

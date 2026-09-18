@@ -375,6 +375,26 @@ export function canRequestPayment(input: {
   return input.order.orderKind !== 'deposit' || input.ack
 }
 
+/* ---------------- 押金创单前门（#727：勾选 → 创单（带同意）→ 支付） ---------------- */
+
+/**
+ * 创单前押金门判据（纯函数；order-pay 页只做渲染与调起）。
+ *
+ * 非 null = 押金场：先出披露 + 勾选，同意后才创单（携带 depositConsent）；
+ * null = 非押金/报名读不到 → 直接创单。判据 = 报名快照的
+ * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取**报名快照**
+ * `depositAmountCents`——它同时是后端下单的实付金额源
+ * （submission_payload["deposit_amount_cents"]），不是活动现价（改价不漂移）。
+ * 报名读不到（null）→ null：本端 fail-open 由后端权威闸兜底（押金单缺同意被
+ * order_deposit_consent_required 拒，页面落可重试错误态）。
+ */
+export function preCreateDepositGate(
+  enrollment: Pick<EnrollmentSummary, 'paymentMode' | 'depositAmountCents'> | null
+): DepositPayNotice | null {
+  if (enrollment?.paymentMode !== 'deposit') return null
+  return depositPayNotice(enrollment.depositAmountCents ?? null)
+}
+
 /* ---------------- Event 详情缴费块（R10：免费 / 收费 / 押金 单一缴费槽） ---------------- */
 
 /** 详情页缴费块三态文案（R10 单一缴费槽：免费 / 收费 ¥xx / 押金 ¥xx（到场退）） */
