@@ -89,10 +89,6 @@ export interface OfferingItem {
   companionCourse?: string | null;
   /** Initiative parent; writable only while Event is draft. */
   initiativeId?: string | null;
-  /** 公开主理人投影（JsonString 数组——每行 JSON.parse 后为 {display_name,
-      member_number}；availablePriceTiers 同款；仅 event；#538。assignedAt 升序；
-      displayName null → memberNumber 回退见 lib/public-offerings 的 moderatorNames） */
-  publicModerators?: string[] | null;
   /** 押金开关（Initiative 规则物化值；挂载后由规则锁决定是否可改） */
   depositEnabled?: boolean | null;
   /** 押金金额（分） */
@@ -578,6 +574,11 @@ export interface PublicOfferingItem {
   companionCourse?: string | null;
   /** 挂载的 Initiative id（仅 event；详情页据此渲染回 /initiatives/[slug] 的隶属回链） */
   initiativeId?: string | null;
+
+  /** 公开主理人投影（JsonString 数组，每行 JSON.parse 后为 {display_name, member_number}；
+      availablePriceTiers 同款；仅 event 详情查询，#538。assignedAt 升序；displayName null
+      → memberNumber 回退见 lib/public-offerings 的 moderatorNames） */
+  publicModerators?: string[] | null;
 }
 
 // first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
