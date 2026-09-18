@@ -3,7 +3,6 @@ import { cleanup, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import Corridor, { cityPiles } from "./corridor";
-import { tiltClass } from "./tilt";
 
 /**
  * 长廊收口（定稿 D + 收尾）：一帧只留城市照片堆（堆可点）；叙事标签 flabel。
@@ -72,7 +71,7 @@ const archive = (
 	roster,
 });
 
-/** 帧一：4 城（第 5 城深圳被 4 堆上限截断）+ 3 条空城市名不计，带叙事标签；帧二：单城无 label（回落场次名） */
+/** 帧一：9 城（第 9 城「西安」按码位序被 8 堆上限截断）+ 3 条空城市名不计，带叙事标签；帧二：单城无 label（回落场次名） */
 const multiCity = archive(
 	"2014-01-11-bj",
 	[
@@ -84,9 +83,13 @@ const multiCity = archive(
 	entry("6", "广州"),
 	entry("7", "杭州"),
 	entry("8", "深圳"),
-	entry("9", null),
-	entry("10", ""),
-	entry("11", "   "),
+	entry("9", "南京"),
+	entry("9a", "武汉"),
+	entry("9b", "西安"),
+	entry("9c", "成都"),
+	entry("10", null),
+	entry("11", ""),
+	entry("12", "   "),
 ], "六城同日");
 const singleCity = archive("2016-05-21-sh", [entry("12", "上海")]);
 
@@ -108,7 +111,7 @@ const capsule: FlashbackCapsule = {
 };
 
 function pileClasses(): string[] {
-	return [...document.querySelectorAll(".fb-corridor-polaroid")].map((node) => node.className);
+	return [...document.querySelectorAll(".fb-corridor-stack")].map((node) => node.className);
 }
 
 beforeEach(() => {
@@ -123,12 +126,16 @@ afterEach(() => {
 });
 
 describe("cityPiles（城市堆聚合判据）", () => {
-	it("city 空值/空白不计；count 降序 → 城市码位序；最多 4 堆", () => {
+	it("city 空值/空白不计；count 降序 → 城市码位序；最多 8 堆", () => {
 		expect(cityPiles(multiCity)).toEqual([
 			{ city: "北京", count: 3 },
 			{ city: "上海", count: 2 },
+			{ city: "南京", count: 1 },
 			{ city: "广州", count: 1 },
+			{ city: "成都", count: 1 },
 			{ city: "杭州", count: 1 },
+			{ city: "武汉", count: 1 },
+			{ city: "深圳", count: 1 },
 		]);
 		// 确定性：同输入恒同输出（无 Math.random）
 		expect(cityPiles(multiCity)).toEqual(cityPiles(multiCity));
@@ -140,22 +147,28 @@ describe("cityPiles（城市堆聚合判据）", () => {
 });
 
 describe("Corridor · 城市堆与入口（定稿 D）", () => {
-	it("每帧：城市堆（城市名 + 计数 + 确定性 tilt，堆可点）+ 叙事标签；长廊零名册元素", () => {
+	it("每帧：一城一摞（4 张层叠拍立得）+ 计数，堆可点 + 叙事标签；长廊零名册元素", () => {
 		render(<Corridor capsule={capsule} />);
 
 		const piles = screen.getAllByTestId("fb-corridor-pile");
-		expect(piles).toHaveLength(5); // 帧一 4 堆 + 帧二 1 堆
-		expect(piles.map((pile) => pile.dataset.city)).toEqual(["北京", "上海", "广州", "杭州", "上海"]);
-		expect(piles.map((pile) => pile.dataset.count)).toEqual(["3", "2", "1", "1", "1"]);
+		expect(piles).toHaveLength(9); // 帧一 8 堆 + 帧二 1 堆
+		expect(piles.map((pile) => pile.dataset.city)).toEqual([
+			"北京", "上海", "南京", "广州", "成都", "杭州", "武汉", "深圳", "上海",
+		]);
+		expect(piles.map((pile) => pile.dataset.count)).toEqual(["3", "2", "1", "1", "1", "1", "1", "1", "1"]);
 		expect(piles[0]).toHaveTextContent("北京 · 3 位");
-		expect(piles[4]).toHaveTextContent("上海 · 1 位");
+		expect(piles[7]).toHaveTextContent("深圳 · 1 位");
+		expect(piles[8]).toHaveTextContent("上海 · 1 位");
 
-		// 拍立得结构：纸白卡（.fb-polaroid）+ grain 质感 + 照片窗内城市名
-		const first = piles[0].querySelector(".fb-corridor-polaroid") as HTMLElement;
-		expect(first).toHaveClass("fb-polaroid", "fb-grain");
-		expect(first.querySelector(".fb-corridor-photo")).toHaveTextContent("北京");
-		// 转角确定性：城市名派生档位（同城恒同档，非随机）
-		expect(first.className).toContain(tiltClass("北京"));
+		// 一城一摞（原型错落感）：堆容器 + 同卡 4 张层叠；纸白卡 + grain + 窗内城市名
+		const stack = piles[0].querySelector(".fb-corridor-stack") as HTMLElement;
+		expect(stack).not.toBeNull();
+		const cards = stack.querySelectorAll(".fb-corridor-polaroid");
+		expect(cards).toHaveLength(4);
+		expect(cards[0]).toHaveClass("fb-polaroid", "fb-grain");
+		expect(cards[0].querySelector(".fb-corridor-photo")).toHaveTextContent("北京");
+		// 每张都印窗下小字（原型 caption）
+		expect(cards[3].querySelector(".fb-corridor-caption")).toHaveTextContent("3 位 · 她们的档案");
 
 		// 文字链接已下线（堆可点后多此一举）：长廊内无「进入这一场 →」
 		expect(screen.queryAllByRole("link", { name: "进入这一场 →" })).toHaveLength(0);
@@ -168,7 +181,8 @@ describe("Corridor · 城市堆与入口（定稿 D）", () => {
 		const pileLinks = piles.map((pile) => pile.querySelector("a"));
 		expect(pileLinks.every((link) => link !== null)).toBe(true);
 		expect(pileLinks[0]!.getAttribute("href")).toBe("/flashback/event/2014-01-11-bj");
-		expect(pileLinks[4]!.getAttribute("href")).toBe("/flashback/event/2016-05-21-sh");
+		expect(pileLinks[7]!.getAttribute("href")).toBe("/flashback/event/2014-01-11-bj");
+		expect(pileLinks[8]!.getAttribute("href")).toBe("/flashback/event/2016-05-21-sh");
 
 		// 名册已整体归场次页：长廊内零 .fb-roster-*
 		expect(document.querySelector(".fb-roster-card, .fb-roster-grid, .fb-roster-meta")).toBeNull();
@@ -187,21 +201,21 @@ describe("Corridor · 城市堆显影（进视口才播）", () => {
 	it("初始 --pending；进视口转 --develop 且只播一次（unobserve）", async () => {
 		render(<Corridor capsule={capsule} />);
 
-		// 每帧一个观察器（帧一 4 堆，帧二 1 堆）
+		// 每帧一个观察器（帧一 8 堆，帧二 1 堆）
 		await waitFor(() => expect(FakeIntersectionObserver.instances.length).toBe(2));
 		const [firstFrame, secondFrame] = FakeIntersectionObserver.instances;
-		expect(firstFrame.targets.size).toBe(4);
+		expect(firstFrame.targets.size).toBe(8);
 		expect(secondFrame.targets.size).toBe(1);
 		for (const className of pileClasses()) {
-			expect(className).toContain("fb-corridor-polaroid--pending");
-			expect(className).not.toContain("fb-corridor-polaroid--develop");
+			expect(className).toContain("fb-corridor-stack--pending");
+			expect(className).not.toContain("fb-corridor-stack--develop");
 		}
 
 		firstFrame.enterViewport();
 
 		await waitFor(() => {
 			const developed = pileClasses().filter((className) => className.includes("--develop"));
-			expect(developed).toHaveLength(4);
+			expect(developed).toHaveLength(8);
 		});
 		// 第二帧未进视口 → 仍前置态；已显影的堆不再被观测
 		expect(pileClasses().filter((className) => className.includes("--pending"))).toHaveLength(1);
@@ -213,8 +227,8 @@ describe("Corridor · 城市堆显影（进视口才播）", () => {
 		render(<Corridor capsule={capsule} />);
 
 		for (const className of pileClasses()) {
-			expect(className).not.toContain("fb-corridor-polaroid--pending");
-			expect(className).not.toContain("fb-corridor-polaroid--develop");
+			expect(className).not.toContain("fb-corridor-stack--pending");
+			expect(className).not.toContain("fb-corridor-stack--develop");
 		}
 	});
 

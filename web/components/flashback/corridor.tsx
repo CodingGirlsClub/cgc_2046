@@ -4,15 +4,14 @@ import { useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
-import { tiltClass } from "./tilt";
 import TodaySlot from "./today-slot";
 import { usePrefersReducedMotion } from "./use-reduced-motion";
 import { developClass, useDevelopEnabled, useDevelopOnView } from "./use-develop-on-view";
 
 const WIDE_QUERY = "(min-width: 768px)";
 
-/** 每帧最多几堆（原型 D：piles.slice(0,4)）——城市再多也只挂计数最高的前 4 城 */
-const MAX_PILES = 4;
+/** 每帧最多几堆——城市再多也只挂计数最高的前 8 城（2016 帧八城排版定稿实验） */
+const MAX_PILES = 8;
 
 export type CityPile = { city: string; count: number };
 
@@ -76,9 +75,9 @@ export default function Corridor({
 }
 
 /**
- * 一帧的城市堆（用户定稿 D / 原型 mobile-journey corridor 步）：每城一张小拍立得
- * （纸白 + grain + 城市名，84px 宽）+ 下方「城市 · n 位」小字；转角由城市名确定性
- * 派生（tilt 类，禁止随机）；显影照名册（进视口才播，只播一次）。
+ * 一帧的城市堆（用户定稿 D / 原型 variant-d 错落感）：一城一摞——同卡重复 4 张
+ * 层叠（阶梯偏移/转角序列/显影错峰全在 CSS），堆底「城市 · n 位」小字；
+ * 显影照名册（进视口才播，堆级观测、只播一次）。
  */
 function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 	const tCorridor = useTranslations("flashback.corridor");
@@ -105,18 +104,23 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 					{/* 堆可点（用户定稿）：点堆直接进该场次页（链接删除后这是唯一入口）。
 					    整堆（拍立得+计数）都是可点面，hover/按压反馈在 CSS。 */}
 					<Link href={`/flashback/event/${archive.key}`} className="fb-corridor-pile-link">
+						{/* 一城一摞（原型 D 错落感）：同卡重复 4 张层叠，阶梯/转角/显影错峰在 CSS */}
 						<div
 							ref={registerDevelop}
 							data-develop-id={pile.city}
-							className={`fb-polaroid fb-grain fb-corridor-polaroid ${tiltClass(pile.city)}${developClass(
-								"fb-corridor-polaroid",
+							className={`fb-corridor-stack${developClass(
+								"fb-corridor-stack",
 								developActive,
 								developed.has(pile.city),
 							)}`}
 						>
-							<span className="fb-photo fb-corridor-photo">{pile.city}</span>
-							{/* 窗下小字（原型 D）：印在纸白边内，拍立得语感的收尾 */}
-							<span className="fb-corridor-caption">{tCorridor("pileCaption", { count: pile.count })}</span>
+							{[0, 1, 2, 3].map((i) => (
+								<div key={i} className="fb-polaroid fb-grain fb-corridor-polaroid">
+									<span className="fb-photo fb-corridor-photo">{pile.city}</span>
+									{/* 窗下小字（原型 D）：印在纸白边内，拍立得语感的收尾 */}
+									<span className="fb-corridor-caption">{tCorridor("pileCaption", { count: pile.count })}</span>
+								</div>
+							))}
 						</div>
 						<p className="fb-corridor-count">{tCorridor("pileCount", { city: pile.city, count: pile.count })}</p>
 					</Link>

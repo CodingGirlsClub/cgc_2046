@@ -636,7 +636,7 @@
 		flex-direction: row;
 		overflow-x: auto;
 		padding: 18px 28px 26px;
-		gap: 28px;
+		gap: 0; /* 原型：帧间无缝隙，分隔线两侧就是各自 28px padding（ia-corridor gap:0） */
 	}
 }
 .fb-corridor-scrollhint { margin: 0 0 10px; text-align: center; }
@@ -652,7 +652,7 @@
 		min-width: 260px; /* 原型 variant-d ia-frame：窄列竖长密度 */
 		border-bottom: none;
 		border-right: 1px solid rgba(255, 255, 255, 0.07);
-		padding: 0 28px 0 0;
+		padding: 0 28px; /* 左右对称：摞内阶梯左探（-138px 起）落进帧 padding 不被滚剪 */
 	}
 }
 .fb-corridor-when {
@@ -676,28 +676,30 @@
 .fb-corridor-piles {
 	list-style: none;
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: wrap; /* 一行两摞（原型）：摞盒占宽 92px，阶梯左探为纯视觉溢出，相邻摞交错贴合出紧凑感 */
 	gap: 14px 12px;
 	margin: 0;
 	padding: 0;
 }
 .fb-corridor-pile { text-align: center; }
-/* 堆可点（用户定稿收尾）：hover 抬起 + 按压下沉，两个入口并存 */
+/* 堆可点（用户定稿收尾）：hover 整摞微抬 + 按压下沉，两个入口并存 */
 .fb-corridor-pile-link { display: inline-block; text-decoration: none; }
-.fb-corridor-pile-link .fb-corridor-polaroid { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-.fb-corridor-pile-link:hover .fb-corridor-polaroid {
-	transform: rotate(var(--fb-r, 0deg)) scale(1.06);
-	box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65);
-}
-.fb-corridor-pile-link:active .fb-corridor-polaroid { transform: rotate(var(--fb-r, 0deg)) scale(0.97); }
+.fb-corridor-stack { display: flex; flex-direction: column; align-items: center; transition: transform 0.2s ease; }
+.fb-corridor-pile-link:hover .fb-corridor-stack { transform: scale(1.04); }
+.fb-corridor-pile-link:active .fb-corridor-stack { transform: scale(0.98); }
 .fb-corridor-pile-link:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
-	.fb-corridor-pile-link .fb-corridor-polaroid { transition: none; }
+	.fb-corridor-stack { transition: none; }
 }
+/* 一城一摞（原型 variant-d ia-pile）：同卡 4 张，逐张左移 46px / 下移 8px / 转角交错 */
+.fb-corridor-stack .fb-corridor-polaroid { transform: rotate(var(--fb-r, 0deg)); }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(1) { --fb-r: -7deg; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(2) { --fb-r: 1deg; margin: 8px 0 0 -46px; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(3) { --fb-r: -6deg; margin: 16px 0 0 -92px; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(4) { --fb-r: 2deg; margin: 24px 0 0 -138px; }
 .fb-corridor-polaroid {
 	width: 92px; /* 原型 variant-d ia-polaroid */
 	padding: 5% 5% 0;
-	transform: rotate(var(--fb-r, 0deg));
 }
 .fb-corridor-photo {
 	display: grid;
@@ -707,15 +709,13 @@
 }
 .fb-corridor-caption { display: block; font-size: 8px; padding: 3px 5px; opacity: 0.6; text-align: center; white-space: nowrap; }
 .fb-corridor-count { font-size: 9px; color: var(--fb-sub); margin: 6px 0 0; }
-/* 显影：--pending 前置态（未进视口）→ --develop 弱显影（只播一次）；
-   pile 间 0.3s 错峰（原型 pile 的 0.3s 档，2.8s 慢显影留给「还没认领」的持续感） */
-.fb-corridor-polaroid--pending { opacity: 0.1; filter: blur(18px) brightness(1.6); }
-.fb-corridor-polaroid--develop {
-	animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out both;
-}
-.fb-corridor-pile:nth-child(2) .fb-corridor-polaroid--develop { animation-delay: 0.3s; }
-.fb-corridor-pile:nth-child(3) .fb-corridor-polaroid--develop { animation-delay: 0.6s; }
-.fb-corridor-pile:nth-child(4) .fb-corridor-polaroid--develop { animation-delay: 0.9s; }
+/* 显影：--pending 前置态（未进视口）→ --develop 弱显影（堆级观测、只播一次）；
+   摞内 0.2s 错峰（原型 --d 的 0.2s 档），2.8s 慢显影留给「还没认领」的持续感 */
+.fb-corridor-stack--pending .fb-corridor-polaroid { opacity: 0.1; filter: blur(18px) brightness(1.6); }
+.fb-corridor-stack--develop .fb-corridor-polaroid { animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out both; }
+.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(2) { animation-delay: 0.2s; }
+.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(3) { animation-delay: 0.4s; }
+.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(4) { animation-delay: 0.6s; }
 
 /* 名册（R12 分层；场次页 3 列网格——长廊收口 D 后不再挂名册） */
 .fb-roster-meta { color: #77726a; font-size: 11px; margin: 0 0 10px; }
@@ -1186,8 +1186,8 @@
 	.fb-roster-card--develop { animation: none; }
 	.fb-roster-card--pending { opacity: 1; filter: none; }
 	/* 城市堆显影同样跳过（直达终态，弱显影的 0.94 也归 1） */
-	.fb-corridor-polaroid--develop { animation: none; }
-	.fb-corridor-polaroid--pending { opacity: 1; filter: none; }
+	.fb-corridor-stack--develop .fb-corridor-polaroid { animation: none; }
+	.fb-corridor-stack--pending .fb-corridor-polaroid { opacity: 1; filter: none; }
 	/* 翻面两段动画跳过（JS 侧同时直达目标面，use-card-flip.ts） */
 	.fb-flip-swap--out > *,
 	.fb-flip-swap--in > * { animation: none; }
