@@ -176,7 +176,7 @@ describe('触点不变式', () => {
 })
 
 describe('M1 报名结果页（按报名状态分派）', () => {
-  test('pending → 审批结果 + 开班/未达阈值，恰 3 个', () => {
+  test('pending → 审批结果 + 成班/未达阈值，恰 3 个', () => {
     const touchpoint = enrollmentResultTouchpoint('pending')!
     assert.deepEqual(touchpoint.scenarios, [
       'approval_result',
@@ -185,14 +185,14 @@ describe('M1 报名结果页（按报名状态分派）', () => {
     ])
   })
 
-  test('已通过（confirmed）→ 活动提醒 + 开班/未达阈值', () => {
+  test('已通过（confirmed）→ 活动提醒 + 成班/未达阈值', () => {
     const touchpoint = enrollmentResultTouchpoint('confirmed')!
     assert.deepEqual(touchpoint.scenarios, [
       'event_reminder',
       'event_qualification_confirmed',
       'event_qualification_underfilled'
     ])
-    assert.match(touchpoint.label, /开班/)
+    assert.match(touchpoint.label, /成班/)
   })
 
   test('待付款（payment_pending）→ 无触点（保持既有 !paymentPending 口径，支付页再问）', () => {
