@@ -353,6 +353,7 @@
 	outline-offset: 3px;
 }
 .fb-scatter-photo .fb-photo {
+	position: relative;
 	display: grid;
 	place-items: center;
 	font-size: 11px;
@@ -360,23 +361,30 @@
 	filter: blur(3px);
 }
 .fb-scatter-photo--picked .fb-photo { filter: blur(0); }
-/* 线索标签（批次二 R5）：放大=回报——「年份 · 城市」从双重模糊中显影出来。
- * 未放大时整卡模糊 + 标签自身再模糊（谜面）；放大时标签清晰显影（谜底线索）。 */
-.fb-scatter-label {
-	display: inline-block;
-	letter-spacing: 0.1em;
-	font-weight: 600;
-	filter: blur(6px);
-	opacity: 0.4;
-	transition: filter 0.45s ease, opacity 0.45s ease;
+/* 拍立得日期戳（批次二收尾）：放大=回报——右下角橙色歪斜日期「2016 10 15」
+ * 渐显（真拍立得的经典元素）。只给日期不给城市：玩家对照问答里的场次全名，
+ * 一小步认知参与后猜才成立，谜不泄底。渐显 0.8s 完成。 */
+.fb-scatter-stamp {
+	position: absolute;
+	right: 6%;
+	bottom: 5%;
+	color: #e8541e;
+	font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	transform: rotate(-6deg);
+	text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+	filter: blur(5px);
+	opacity: 0;
+	transition: filter 0.8s ease, opacity 0.8s ease;
 }
-.fb-scatter-photo--picked .fb-scatter-label {
+.fb-scatter-photo--picked .fb-scatter-stamp {
 	filter: blur(0);
 	opacity: 1;
-	text-shadow: 0 0 14px rgba(203, 191, 143, 0.5);
 }
 @media (prefers-reduced-motion: reduce) {
-	.fb-scatter-label { transition: none; }
+	.fb-scatter-stamp { transition: none; }
 }
 /* 原位显影：桌面退后，同一场景里长出显影卡（1.2s 中速显影由 reveal 承载） */
 .fb-desk-reveal { width: 100%; animation: fb-desk-reveal-in 0.6s ease-out both; }
@@ -397,10 +405,11 @@
 	padding: 20px;
 	z-index: 40;
 	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-	animation: fb-sheet-in 0.35s ease-out 0.5s both;
+	animation: fb-sheet-in 0.35s ease-out 1s both; /* 日期戳 0.8s 渐显完成后半拍再滑入 */
 
 }
 .fb-quiz-hint { margin: 4px 0 14px; color: #77726a; font-size: 11px; letter-spacing: 0.05em; }
+.fb-quote-courage { margin: 10px 0 0; color: var(--fb-sub); font-size: 12px; letter-spacing: 0.02em; }
 /* 场次选项 = 紧凑胶囊（原型 B wrap 形态）：多场下 4+2 个选项两行内收，
    sheet 变矮不遮放大卡——焦点顺序：放大卡（线索）> 胶囊选项（作答） */
 .fb-quiz-sheet .fb-options {
@@ -627,6 +636,7 @@
 		gap: 28px;
 	}
 }
+.fb-corridor-scrollhint { margin: 0 0 10px; }
 .fb-corridor-frame {
 	display: flex;
 	flex-direction: column;
@@ -636,7 +646,7 @@
 }
 @media (min-width: 768px) {
 	.fb-corridor-frame {
-		min-width: 420px;
+		min-width: 384px; /* 收窄：一行 3-4 堆密度（84px 堆 × 4 + gap） */
 		border-bottom: none;
 		border-right: 1px solid rgba(255, 255, 255, 0.07);
 		padding: 0 28px 0 0;
@@ -650,8 +660,6 @@
 	margin: 0;
 }
 .fb-corridor-flabel { color: #77726a; font-size: 10px; margin-left: 8px; letter-spacing: 0.05em; }
-.fb-corridor-open { float: right; color: var(--fb-accent); font-size: 11px; font-weight: 400; text-decoration: none; letter-spacing: 0; }
-.fb-corridor-open:hover { text-decoration: underline; }
 .fb-corridor-now { border-bottom: none; }
 .fb-corridor-when--now { color: #cbbf8f; font-weight: 600; }
 .fb-corridor-now {
@@ -671,6 +679,18 @@
 	padding: 0;
 }
 .fb-corridor-pile { text-align: center; }
+/* 堆可点（用户定稿收尾）：hover 抬起 + 按压下沉，两个入口并存 */
+.fb-corridor-pile-link { display: inline-block; text-decoration: none; }
+.fb-corridor-pile-link .fb-corridor-polaroid { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.fb-corridor-pile-link:hover .fb-corridor-polaroid {
+	transform: rotate(var(--fb-r, 0deg)) scale(1.06);
+	box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65);
+}
+.fb-corridor-pile-link:active .fb-corridor-polaroid { transform: rotate(var(--fb-r, 0deg)) scale(0.97); }
+.fb-corridor-pile-link:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+	.fb-corridor-pile-link .fb-corridor-polaroid { transition: none; }
+}
 .fb-corridor-polaroid {
 	width: 84px;
 	padding: 5% 5% 0;
@@ -708,11 +728,11 @@
 	/* 旋转档位（tiltClass 注入 --fb-r）：确定性转角，无随机 */
 	transform: rotate(var(--fb-r, 0deg));
 }
-.fb-tilt--0 { --fb-r: -6deg; }
+.fb-tilt--0 { --fb-r: -5deg; }
 .fb-tilt--1 { --fb-r: -3deg; }
 .fb-tilt--2 { --fb-r: 0.5deg; }
 .fb-tilt--3 { --fb-r: 3.5deg; }
-.fb-tilt--4 { --fb-r: 6deg; }
+.fb-tilt--4 { --fb-r: 5deg; }
 /* 拍立得结构（第 7c 件，原型 D/F 语言）：卡 = 白边（padding）+ 照片区 + 窗下小字。
    未寄出为雾卡（虚框 + 透明窗），已寄出为纸白卡 + 灰窗。 */
 .fb-roster-card {
@@ -746,16 +766,17 @@
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
 .fb-roster-facts { font-size: 10px; opacity: 0.65; }
 /* ── 名册显影（第 7a 件：对齐原型 D 的 develop-soft 节奏） ──────────────
-   进入视口才从模糊到清晰（blur→0），只播一次；滚动进视口的新卡同样显影。
+   进入视口才显影，只播一次；终态**不归零**（blur(1px)/brightness(1.08)/0.94，
+   对齐原型 ia-develop-soft「墙上别人照片的持续感」——整面墙保持将显未定的
+   微光）；滚动进视口的新卡同样显影。
    两态：--pending（未进视口的前置态，静态）+ --develop（进视口后播动画，
    both 填充保证延迟期间停在 0% 帧）。JS 侧见 use-develop-on-view.ts。
    注意：这里仍是 animation 简写——同一元素不要再挂第二条同类简写（第 5 件陷阱）。 */
 @keyframes fb-roster-develop {
-	0% { opacity: 0.12; filter: blur(14px) brightness(1.35); }
-	60% { opacity: 0.9; filter: blur(3px) brightness(1.08); }
-	100% { opacity: 1; filter: blur(0) brightness(1); }
+	0% { opacity: 0.1; filter: blur(18px) brightness(1.6); }
+	100% { opacity: 0.94; filter: blur(1px) brightness(1.08); }
 }
-.fb-roster-card--pending { opacity: 0.12; filter: blur(14px) brightness(1.35); }
+.fb-roster-card--pending { opacity: 0.1; filter: blur(18px) brightness(1.6); }
 .fb-roster-card--develop {
 	animation: fb-roster-develop var(--fb-develop-wall-dur) ease-out both;
 }

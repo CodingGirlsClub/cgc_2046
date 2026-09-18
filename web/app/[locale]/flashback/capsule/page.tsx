@@ -9,7 +9,7 @@ type PageProps = {
 };
 
 /**
- * 时间胶囊（U5）：/flashback/capsule（token 或登录态；server wrapper +
+ * 时间长廊（U5）：/flashback/capsule（token 或登录态；server wrapper +
  * client 主体，照 enter/page.tsx 范式）。个人档案面——整页 noindex。
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {

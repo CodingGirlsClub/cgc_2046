@@ -96,7 +96,7 @@
 		"invalid_or_expired_code": "验证码不对或已过期，请重试。",
 		"invalid_phone": "手机号格式不正确，请检查后重填。",
 		"flashback_card_not_found": "找不到这张行动卡，请刷新后重试。",
-		"flashback_auth_required": "进入时间胶囊需要你的专属链接，或登录已绑定的账号。",
+		"flashback_auth_required": "进入时间长廊需要你的专属链接，或登录已绑定的账号。",
 		"flashback_person_not_bound": "当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。",
 		"flashback_recover_rate_limited": "找回尝试过于频繁，请一小时后再试。",
 		"flashback_like_rate_limited": "点赞操作过于频繁，请稍后再试。",
@@ -2320,7 +2320,7 @@
 			"enterDescription": "十几年前你写下的答案，一直在等你。",
 			"homeTitle": "闪念间 · In a Flash",
 			"homeDescription": "把 2012-2018 年 Rails Girls / Girls Coding Day 的报名答案变成拍立得档案，唤醒当年的学员、教练与志愿者。",
-			"capsuleTitle": "时间胶囊 · 闪念间",
+			"capsuleTitle": "时间长廊 · 闪念间",
 			"capsuleDescription": "当年的同行者们正在这里显影——寄出你的照片，看看墙上的下一张卡。",
 			"profileTitle": "闪念间 · 实名档案"
 		},
@@ -2348,7 +2348,7 @@
 			"codePlaceholder": "验证码",
 			"verify": "验证并进入",
 			"cardsTitle": "找到了你的 {count} 张卡——它们都归你了",
-			"enterCapsule": "进入时间胶囊 →",
+			"enterCapsule": "进入时间长廊 →",
 			"bound": "档案已与你的账号绑定。从今往后从「我的」进入。",
 			"errorCode": "验证码不对或已过期，请重试。",
 			"errorRetry": "刚才那步没有成功，请稍后重试。"
@@ -2388,7 +2388,7 @@
 			"envelopeSeal": "致 当年的你"
 		},
 		"scatter": {
-			"title": "散落一桌的照片",
+			"title": "散落一桌的拍立得，都还没显影",
 			"hint": "点开一张，放大看看——线索藏在照片里。",
 			"groupAria": "一叠模糊的旧照片，来自不同年代的场次，选一张放大看看",
 			"cardAria": "第 {index} 张照片（{label}）",
@@ -2464,12 +2464,13 @@
 			"quoteNoCandidate": "（当年的句子里都带着雾面——解开后才能选金句）",
 			"creditedNoteLabel": "现在在做什么、想说的话（实名公开）",
 			"creditedNotePlaceholder": "例：在做无障碍开发",
-			"submit": "写好了，去寄出 →"
+			"submit": "写好了，去寄出 →",
+			"quoteCourage": "你的答案，会成为别人的勇气。"
 		},
 		"sendRegister": {
 			"title": "照片正在贴上墙。",
-			"lead": "正面是当年的你，背面是今天的你。寄出后，这张卡会出现在时间胶囊。",
-			"send": "寄出，回到时间胶囊 →",
+			"lead": "正面是当年的你，背面是今天的你。寄出后，这张卡会出现在时间长廊。",
+			"send": "寄出，回到时间长廊 →",
 			"errorSend": "寄出没有成功，请再试一次。",
 			"errorCode": "刚才那步没有成功，请检查后重试。",
 			"sentTitle": "已经寄出了",
@@ -2487,24 +2488,27 @@
 			"retry": "再试一次",
 			"boundTitle": "账号已接管",
 			"boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
-			"enterCapsule": "进入时间胶囊 →"
+			"enterCapsule": "进入时间长廊 →"
 		},
 		"capsule": {
-			"loading": "正在显影时间胶囊……",
-			"error": "时间胶囊暂时打不开，请稍后重试。",
+			"loading": "正在显影时间长廊……",
+			"error": "时间长廊暂时打不开，请稍后重试。",
 			"retry": "重试",
-			"title": "闪念间 · 时间胶囊",
+			"title": "闪念间 · 时间长廊",
 			"subtitle": "下滑 = 时间前进：顶上是那年，底部是等你的未来",
-			"authRequiredTitle": "进入胶囊需要你的身份",
+			"authRequiredTitle": "进入长廊需要你的身份",
 			"authRequiredBody": "从邮件/短信里的专属链接进入，或登录已绑定的账号——如果你找不到链接，可以自助找回。",
 			"authRequiredAction": "去自助找回",
 			"footerHint": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
 			"cityAria": "按城市筛选",
-			"cityAll": "全部"
+			"cityAll": "全部",
+			"scrollHint": "↓ 下滑 = 时间前进：顶上是那年，底部是等你的未来",
+			"scrollHintWide": "向右滚动：左边是已显影的过去，右边是等你共创的未来 —— {city}",
+			"cityAllWide": "全部城市"
 		},
 		"event": {
 			"loading": "正在显影这一场……",
-			"back": "‹ 时间胶囊",
+			"back": "‹ 时间长廊",
 			"applied": "报名 {count} 位",
 			"attended": "走进教室 {count} 位",
 			"returned": "{count} 位已回来",
@@ -2515,10 +2519,11 @@
 		},
 		"corridor": {
 			"openEvent": "进入这一场 →",
-			"ariaLabel": "时间胶囊走廊",
+			"ariaLabel": "时间长廊走廊",
 			"emptyCity": "这座城市还没有名册照片。",
 			"pilesAria": "{name} 的城市照片堆",
-			"pileCount": "{city} · {count} 位"
+			"pileCount": "{city} · {count} 位",
+			"frameLabelFallback": "那年那一场"
 		},
 		"roster": {
 			"groupAria": "{name} 场次名册",

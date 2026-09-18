@@ -9,9 +9,10 @@ import { useStageTitleFocus } from "./use-reduced-motion";
  * 桌面散照（原型 B「桌面散照式」，批次二 R5 数据驱动迭代）：
  *
  * - 照片**来自多场次**（后端 enter scatter 投影：本人那张 + 其他场次各一人），
- *   不再是单场的固定三张——每张绑定一个场次的人与「年份 · 城市」线索；
- * - **放大 = 回报**：被放大的那张显影出线索标签（年份 · 城市，参照原型 B 的
- *   「2012 · 上海」），帮玩家在问答里认出自己的场次；
+ *   不再是单场的固定三张——每张绑定一个场次的人与真实日期；
+ * - **放大 = 回报**：被放大的那张渐显**拍立得日期戳**（「2016 10 15」，只给
+ *   日期不给城市——玩家对照问答里的场次全名，中间有一小步认知参与，猜才
+ *   成立，谜不泄底）；
  * - 单场库（pilot 上线初期）候选仅一张，散照仍是仪式——自适应逻辑在 desk.tsx。
  *
  * 位置/转角/入场延迟全部由 CSS nth-child 驱动（KTD9：零内联 style）且确定性；
@@ -49,14 +50,14 @@ export default function Scatter({
 						data-testid="fb-scatter-photo"
 						data-picked={picked === index ? "true" : "false"}
 						data-mine={photo.isMine ? "true" : "false"}
-						data-label={photo.label}
+						data-stamp={photo.dateStamp}
 						aria-pressed={picked === index}
 						onClick={() => onPick(index)}
 						aria-label={t("cardAria", { index: index + 1, label: photo.label })}
 					>
 						<span className="fb-photo">
-							<span className="fb-scatter-label" data-testid="fb-scatter-label">
-								{photo.label}
+							<span className="fb-scatter-stamp" data-testid="fb-scatter-stamp">
+								{photo.dateStamp}
 							</span>
 							<span className="fb-visually-hidden">{t("photoHidden")}</span>
 						</span>

@@ -74,8 +74,10 @@ export type FlashbackLine = "memory" | "dream";
 
 export interface FlashbackScatterPhoto {
 	photoKey: string;
-	/** 线索标签「年份 · 城市」——放大时显影，帮助答题（R5 数据驱动） */
+	/** 场次全名「年份 · 城市」——问答选项与读屏线索用（散照卡只显日期戳） */
 	label: string;
+	/** 拍立得日期戳「2016 10 15」——放大时渐显，只给日期不给城市（谜不泄底） */
+	dateStamp: string;
 	isMine: boolean;
 	/** 照片主人姓氏（前端渲染姓氏级脱敏 王**，R12） */
 	surname?: string | null;
@@ -195,6 +197,8 @@ export interface FlashbackCapsuleArchive {
 	occurredOn?: string | null;
 	appliedCount?: number | null;
 	attendedCount?: number | null;
+	/** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
+	label?: string | null;
 	isMine: boolean;
 	roster: FlashbackRosterEntry[];
 }
@@ -252,6 +256,7 @@ export interface FlashbackPublicStatsArchive {
 	occurredOn?: string | null;
 	appliedCount?: number | null;
 	attendedCount?: number | null;
+	label?: string | null;
 }
 
 export interface FlashbackPublicStats {
@@ -347,6 +352,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				entries {
 					photoKey
 					label
+					dateStamp
 					isMine
 					surname
 				}
@@ -554,6 +560,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				occurredOn
 				appliedCount
 				attendedCount
+				label
 				isMine
 				roster {
 					id
@@ -668,6 +675,7 @@ export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
 				occurredOn
 				appliedCount
 				attendedCount
+				label
 			}
 			returnedCount
 			sentCount
