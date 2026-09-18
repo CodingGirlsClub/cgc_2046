@@ -74,6 +74,7 @@
     "pricing_disable_actor_required",
     "pricing_disable_batch_limit",
     "pricing_starts_at_required",
+    "recruitment_cohort_open_conflict",
     "registration_failed",
     "sms_send_failed",
     "speaker_invitation_duplicate_invitation",
@@ -113,6 +114,7 @@
     "sponsorship_unknown",
     "sponsorship_unknown_level",
     "version_conflict",
+    "volunteer_application_already_submitted",
     "wechat_login_unavailable"
   ]
 }
