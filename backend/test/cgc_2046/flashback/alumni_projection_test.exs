@@ -173,6 +173,32 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       assert other_entry.answers == []
     end
 
+    test "社交媒体不出墙（用户拍板）：寄出者的 social_media 答案不进名册投影" do
+      archive = create_archive()
+      mine = create_person(archive, %{email: "s@example.com"})
+
+      # 本人：社交答案 + 寄出
+      create_answer(mine, "social_media", "http://weibo.com/someone")
+      create_answer(mine, "self_intro", "一句普通自我介绍。")
+      upsert_today(mine, %{sent_to_wall_at: DateTime.utc_now()})
+
+      capsule = capsule_for(issue_token(mine))
+      [archive_payload] = capsule.archives
+      mine_entry = Enum.find(archive_payload.roster, &(&1.surname_masked == "王**"))
+
+      # 墙上只有 self_intro；social_media 键零出现（含段内/键名）
+      keys = Enum.map(mine_entry.answers, & &1.question_key)
+      assert keys == ["self_intro"]
+      # 墙面（名册）整体零出现；本人 me 面另断言保留
+      roster_payload = inspect(archive_payload.roster)
+      refute roster_payload =~ "weibo.com"
+      refute roster_payload =~ "social_media"
+
+      # me（本人导出面）保留完整键集——用户口径：本人显影/导出不受影响
+      me_keys = Enum.map(capsule.me.answers, & &1.question_key) |> Enum.sort()
+      assert "social_media" in me_keys
+    end
+
     test "撤回后三处呈现：名册回结构化卡、内容清空、「今天」格回虚线（R30）" do
       archive = create_archive()
       mine = create_person(archive, %{})

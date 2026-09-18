@@ -330,14 +330,16 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   defp filter_city(query, city), do: where(query, [row], row.city == ^city)
 
   # 已寄出者的当年答案（雾化版）：墙上是「寄出物」，他人与自己对外同规则
-  # （KTD4 一律遮蔽；本人的完整原文由 U4 enter 面承担）。
+  # （KTD4 一律遮蔽；本人的完整原文由 U4 enter 面承担）。社交媒体不进墙
+  # （用户拍板：很多人没填；展示须本人授权，本期无授权开关=一律不显示——
+  # 本人 enter 显影页与胶囊导出面不受影响）。
   defp wall_answers_by_person do
     rows =
       Repo.all(
         from(a in "flashback_answers",
           join: t in "flashback_todays",
           on: t.person_id == a.person_id and not is_nil(t.sent_to_wall_at),
-          where: a.question_key in ["self_intro", "funny_thing", "os", "social_media"],
+          where: a.question_key in ["self_intro", "funny_thing", "os"],
           order_by: [asc: a.inserted_at],
           select: %{
             # 文本化与 roster entry 的 id（::text）同型——attach_content 的
