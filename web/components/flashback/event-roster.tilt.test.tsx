@@ -47,7 +47,6 @@ describe("名册错落结构", () => {
 		render(<EventRoster archive={archive(6)} />);
 		const cards = screen.getAllByTestId("fb-roster-card");
 		for (const card of cards) {
-			const id = card.getAttribute("key") ?? card.textContent ?? "";
 			// li 的 key prop 不上 DOM——改为对 data 源断言：直接验证每卡类名 ∈ 档位集
 			expect(card.className).toMatch(/fb-tilt--[0-4]/);
 		}
