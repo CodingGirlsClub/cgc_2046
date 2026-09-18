@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # 「我的闪念间」旅程 E2E（小程序 / weapp 模拟器，本地回归用，**不进 CI**）
 #
-# 覆盖（对齐 U9/R28 flashback 回访正门）：
+# 覆盖（对齐 U9/R28 flashback 回访正门 + 批次二 mp 版原型 F）：
 #   1. 未登录深链直达 → 登录引导面（mock: flashback_auth_required → SessionExpiredError → need_login，P1）
 #   2. mock 登录链（手机号授权 passthrough）→ profile「我的」入口 → 闪念间页
 #   3. 我的卡：当年正面（句子级雾面）+ 今天背面（编辑/保存回显）+ 金句授权三档切换
 #   4. 雾化编辑：点按雾面句 → 解雾（R16/KTD4 本人视图原文永远完整）
 #   5. 行动板：四态卡各一次、已附议在前、已成场卡 goEvent 直链
+#  批次二：
+#   11. 首程旅程（token 面免登录）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
+#   13. 长廊：垂直墙 + 城市堆 + ⚡今天格 + 未来行动卡（R12/R34）
+#   13.5 场次页：统计行 + 3 列网格（显影/雾卡）+ 找回 CTA
+#   14. 三级视角（R32）：路人围观 → 未匹配找回引导 → 登录自动认领闭环
 #
 # 为什么不在 CI：需要微信开发者工具 GUI（已登录）+ wechatide CLI，见
 # miniprogram/AGENTS.md「E2E」一节。web 端 E2E 走 ego-browser，与本脚本无关。
@@ -306,8 +311,8 @@ ck "无人处于已附议素按钮态" "$(COUNT "$ENDORSE_PLAIN")" '^0$'
 shot 08-flashback-action-board.png
 
 echo "### 8.5) 城市钉筛选（R34）：点城市 → 行动板只剩该城；回全部恢复"
-# mock cities 字节序 [上海,北京,天津,杭州]：.cityPin 第一匹配=上海钉（全部钉为独立类 cityPinAll）
-ck "城市钉条渲染（全部 + 四城）" "$(COUNT "$CITY_PIN")" '^4$'
+# mock cities 字节序 [上海,北京,天津,广州,杭州]（批次二并入名册城市）：.cityPin 第一匹配=上海钉（全部钉为独立类 cityPinAll）
+ck "城市钉条渲染（全部 + 五城）" "$(COUNT "$CITY_PIN")" '^5$'
 ck "全部钉唯一" "$(COUNT "$CITY_PIN_ALL")" '^1$'
 ck "初始选中钉=全部（恰一选中）" "$(COUNT "$CITY_PIN_ACTIVE")" '^1$'
 ck "全部钉带选中态" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
@@ -316,7 +321,7 @@ sleep 2
 ck "筛上海后行动板只剩 1 卡" "$(COUNT "$ACTION_CARD")" '^1$'
 ck "该卡=上海已成场卡（名册只含该城）" "$(RES automation_element_action --action text --selector "$ACTION_META")" '^上海 · 已有 12 人附议$'
 ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
-ck "钉条不随过滤收缩（仍 4 城钉）" "$(COUNT "$CITY_PIN")" '^4$'
+ck "钉条不随过滤收缩（仍 5 城钉）" "$(COUNT "$CITY_PIN")" '^5$'
 shot 08.5-flashback-city-filtered.png
 TAP "$CITY_PIN_ALL"
 sleep 2
@@ -342,6 +347,155 @@ sleep 2.5
 ck "附议后 forming 卡计数 +1（4→5）" "$(RES automation_element_action --action text --selector "$STATUS_FORM $ACTION_META")" '^北京 · 已有 5 人附议$'
 ck "forming 卡附议后=已附议素按钮态" "$(COUNT "$ENDORSE_PLAIN")" '^1$'
 shot 10-flashback-endorsed.png
+
+echo "### 11) 首程旅程（mp 版原型 F；token 面，免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层"
+RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
+sleep 2
+if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
+# 清 journey token（cgc.flashback_token）与首程 mock 态——段 3-9 写过的 state 不入旅程
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
+RAW automation_navigate --action reLaunch --url '/pages/flashback-journey/index?token=e2e-flashback-token' >/dev/null
+sleep 2
+JOURNEY='pages/flashback-journey'
+JSHUTTER=$(cls "$JOURNEY" shutter)
+JLEAD=$(cls "$JOURNEY" introLead)
+JQUESTION=$(cls "$JOURNEY" quizQuestion)
+JOPTION=$(cls "$JOURNEY" quizOption)
+JLABEL=$(cls "$JOURNEY" quizLabel)
+JFEEDBACK=$(cls "$JOURNEY" quizFeedback)
+JPOLAROID=$(cls "$JOURNEY" polaroid)
+JNAME=$(cls "$JOURNEY" polaroidName)
+JSTAMP=$(cls "$JOURNEY" polaroidStamp)
+JBACK=$(cls "$JOURNEY" backTitle)
+JTEXTAREA=$(cls "$JOURNEY" textarea)
+JCTA=$(cls "$JOURNEY" cta)
+JOVERLAY=$(cls "$JOURNEY" overlay)
+JOVER_TITLE=$(cls "$JOURNEY" overlayTitle)
+JOVER_PRIMARY=$(cls "$JOURNEY" overlayPrimary)
+JOVER_SKIP=$(cls "$JOURNEY" overlaySkip)
+JOVER_EXPECT=$(cls "$JOURNEY" overlayExpectation)
+ck "落在旅程页" "$(ROUTE)" '/pages/flashback-journey/index'
+ck "intro 引子=动态相对年数（R3）" "$(RES automation_element_action --action text --selector "$JLEAD")" '^[0-9]+ 年前，你写过一些答案。$'
+ck "呼吸快门在" "$(COUNT "$JSHUTTER")" '^1$'
+shot 11-journey-intro.png
+TAP "$JSHUTTER"
+sleep 1
+ck "确认问句（R6）" "$(RES automation_element_action --action text --selector "$JQUESTION")" '^还记得……是哪一场吗？$'
+ck "选项=正确项(池内)+3 干扰+我不记得了" "$(COUNT "$JOPTION")" '^5$'
+ck "正确项首位=2014.1.11 六城同日（mock 档案命中池）" "$(RES automation_element_action --action text --selector "$JOPTION $JLABEL")" '^2014\.1\.11 · 六城同日$'
+TAP "$JOPTION"
+sleep 1
+ck "答对反馈" "$(RES automation_element_action --action text --selector "$JFEEDBACK")" '^答对了。这张照片一直在等你。$'
+ck "显影卡正面=本人名" "$(RES automation_element_action --action text --selector "$JNAME")" '^王小明$'
+ck "时间戳=2014.01.11 13:06" "$(RES automation_element_action --action text --selector "$JSTAMP")" '^2014\.01\.11 13:06$'
+shot 11.5-journey-reveal.png
+TAP "$JPOLAROID"
+sleep 1.2
+ck "翻面=今天背面书写" "$(RES automation_element_action --action text --selector "$JBACK")" '^今天的你 · 写完寄出$'
+ck "背面 3 个输入框" "$(COUNT "$JTEXTAREA")" '^3$'
+RAW automation_element_action --action input --selector "$JTEXTAREA" --value 'E2E 首程寄出' >/dev/null
+TAP "$JCTA"
+sleep 2
+ck "寄出浮层弹出" "$(COUNT "$JOVERLAY")" '^1$'
+ck "浮层标题（R29 定稿）" "$(RES automation_element_action --action text --selector "$JOVER_TITLE")" '^照片正在贴上墙。$'
+ck "主按钮=微信一键收好（R27）" "$(RES automation_element_action --action text --selector "$JOVER_PRIMARY")" '^微信一键收好$'
+ck "次出口=跳过，直接上墙" "$(RES automation_element_action --action text --selector "$JOVER_SKIP")" '^跳过，直接上墙$'
+ck "期望管理文案" "$(RES automation_element_action --action text --selector "$JOVER_EXPECT")" '^你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。$'
+shot 12-journey-overlay.png
+TAP "$JOVER_SKIP"
+wait_route '/pages/flashback-corridor/index' || true
+ck "跳过后落长廊" "$(ROUTE)" '/pages/flashback-corridor/index'
+
+echo "### 13) 长廊（mp 版原型 F corridor；token 态=R12/R34）：垂直墙+城市堆+今天格+未来卡"
+CORRIDOR='pages/flashback-corridor'
+CTITLE=$(cls "$CORRIDOR" title)
+CHINT=$(cls "$CORRIDOR" hint)
+CFRAME_WHEN=$(cls "$CORRIDOR" frameWhen)
+CFRAME_OPEN=$(cls "$CORRIDOR" frameOpen)
+CPILE=$(cls "$CORRIDOR" pile)
+CPILE_COUNT=$(cls "$CORRIDOR" pileCount)
+CRETURNED=$(cls "$CORRIDOR" frameReturned)
+CTODAY_SUB=$(cls "$CORRIDOR" todaySub)
+CFUTURE_CARD=$(cls "$CORRIDOR" futureCard)
+CCTA=$(cls "$CORRIDOR" cta)
+ck "墙头「闪念间 · 时间胶囊」" "$(RES automation_element_action --action text --selector "$CTITLE")" '^闪念间 · 时间胶囊$'
+ck "下滑=时间前进提示" "$(RES automation_element_action --action text --selector "$CHINT")" '^↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场$'
+ck "帧标 4 = 2 过去帧 + ⚡今天格 + 未来帧（升序）" "$(COUNT "$CFRAME_WHEN")" '^4$'
+ck "第一帧=2012.02.26（顶上是更早的）" "$(RES automation_element_action --action text --selector "$CFRAME_WHEN")" '^2012\.02\.26'
+ck "城市堆 4（上海场 1 城 + 北京场 北京/上海/广州 3 堆，上限 4）" "$(COUNT "$CPILE")" '^4$'
+ck "首堆计数=上海 · 3 位" "$(RES automation_element_action --action text --selector "$CPILE_COUNT")" '^上海 · 3 位$'
+ck "第一帧（上海场）已回来=2 位" "$(RES automation_element_action --action text --selector "$CRETURNED")" '^2 位已回来$'
+ck "今天格=你刚寄出的照片" "$(RES automation_element_action --action text --selector "$CTODAY_SUB")" '^你刚寄出的照片$'
+ck "未来行动卡 4 张" "$(COUNT "$CFUTURE_CARD")" '^4$'
+ck "序列终点 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CCTA")" '^把这一刻做成卡片 →$'
+shot 13-corridor.png
+TAP "$CFRAME_OPEN"
+wait_route '/pages/flashback-event/index' || true
+ck "点格进场次页" "$(ROUTE)" '"/pages/flashback-event/index\?key=2012-02-26-sh"'
+
+echo "### 13.5) 场次页（E 的 event 步）：统计行+3 列网格+找回 CTA"
+RAW automation_navigate --action reLaunch --url '/pages/flashback-event/index?key=2014-01-11-bj' >/dev/null
+sleep 2
+EVENT='pages/flashback-event'
+EBACK=$(cls "$EVENT" back)
+ETITLE=$(cls "$EVENT" title)
+ESTAT=$(cls "$EVENT" stat)
+ECELL=$(cls "$EVENT" cell)
+ELIT=$(cls "$EVENT" cardLit)
+EFOG=$(cls "$EVENT" cardFog)
+EFOG_NAME=$(cls "$EVENT" cardNameFog)
+EFIND=$(cls "$EVENT" cta)
+ck "返回链接" "$(RES automation_element_action --action text --selector "$EBACK")" '^‹ 时间胶囊$'
+ck "标题=日期 · 场次名" "$(RES automation_element_action --action text --selector "$ETITLE")" '^2014\.01\.11 · Rails Girls Beijing$'
+ck "统计行三项（报名/走进教室/已回来，R12 缺数不显示口径由 mock 全值覆盖）" "$(COUNT "$ESTAT")" '^3$'
+ck "报名数=344" "$(RES automation_element_action --action text --selector "$ESTAT")" '^344 位报名$'
+ck "网格 6 人" "$(COUNT "$ECELL")" '^6$'
+ck "显影卡 3（寄出了的）" "$(COUNT "$ELIT")" '^3$'
+ck "雾卡 3（还没回来的）" "$(COUNT "$EFOG")" '^3$'
+ECARD_NAME=$(cls "$EVENT" cardName)
+ck "显影卡带名字（第一格=本人王小明）" "$(RES automation_element_action --action text --selector "$ECARD_NAME")" '^王小明$'
+ck "雾卡姓氏隐名" "$(RES automation_element_action --action text --selector "$EFOG_NAME")" '^杨\*\*$'
+ck "找回 CTA" "$(RES automation_element_action --action text --selector "$EFIND")" '^你也在这一场？找回你的那一张 →$'
+shot 13.5-event-grid.png
+
+echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配引导 → 自动认领闭环"
+# 14a 路人态：清 token/登录 → 公开统计长廊（无名单），登录引导
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.flashback_token"); wx.setStorageSync("cgc.e2e.flashback_unclaimed", "1"); wx.setStorageSync("cgc.e2e.flashback_claim_miss", "1") }' >/dev/null
+RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
+sleep 2
+if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
+RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
+sleep 2.5
+CGUIDE=$(cls "$CORRIDOR" guideText)
+CVIEWER=$(cls "$CORRIDOR" viewerHint)
+ck "路人态=登录引导文案" "$(RES automation_element_action --action text --selector "$CGUIDE")" '^你也在这些照片里吗？登录后我们帮你找。$'
+ck "路人 CTA=微信一键登录找回" "$(RES automation_element_action --action text --selector "$CCTA")" '^微信一键登录，找回你的那一张 →$'
+ck "路人帧=公开统计（2012 场在，无名册内容）" "$(RES automation_element_action --action text --selector "$CFRAME_WHEN")" '^2012\.02\.26'
+ck "路人态无行动卡（R32 无未授权内容）" "$(COUNT "$CFUTURE_CARD")" '^0$'
+shot 14-corridor-viewer.png
+
+# 14b 登录但库内未匹配（claim miss）→ 「找回你的那一张」会话引导
+RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
+sleep 2
+TAP "$LOGIN_BUTTON"
+sleep 1
+TAP "$DIALOG_PRIMARY"
+wait_route '/pages/profile/index' || true
+RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
+sleep 3
+ck "未匹配 → 找回引导文案" "$(RES automation_element_action --action text --selector "$CGUIDE")" '^我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。$'
+shot 14.5-corridor-recover.png
+
+# 14c 自动认领（claim 命中）→ 直接进参与态
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
+RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
+sleep 3.5
+ck "自动认领后=参与态长廊（帧标恢复 4：2 过去帧+今天+未来）" "$(COUNT "$CFRAME_WHEN")" '^4$'
+ck "参与态恢复行动卡" "$(COUNT "$CFUTURE_CARD")" '^4$'
+ck "收尾：路人提示不再出现（已认领）" "$(COUNT "$CVIEWER")" '^0$'
+shot 15-corridor-claimed.png
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_unclaimed") }' >/dev/null
+
 
 echo "### 10) 隔离取证：mock 不走网络 + 无运行时报错"
 NET=$(RAW get_simulator_network --command 'grep -i graphql' | sed -n 's/.*"result": "\(.*\)"/\1/p' | tail -1)

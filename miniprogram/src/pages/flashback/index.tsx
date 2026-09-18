@@ -16,17 +16,17 @@ import {
   quoteLikeBadge,
   shareOptInState,
   shareMessage,
-  summaryCardLayout,
-  summaryCardModel,
   sentencesWithFog,
   splitActionCards,
   toggleSentenceFog,
   type QuoteCandidate,
   type QuoteLevel
 } from '@/domain/flashback'
+import { buildFlashbackJourneyPath } from '@/domain/share-route'
 import { flashbackEndorseTouchpoint, submitAfterConsent } from '@/domain/subscription'
 import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from '@/domain/models'
 import { requestPlatformSubscriptions } from '@/platform'
+import { SUMMARY_CARD_CANVAS_ID, saveFlashbackSummaryCard } from '@/platform/summary-card'
 import styles from './index.module.css'
 
 type LoadState =
@@ -111,12 +111,13 @@ export default function FlashbackPage() {
   useDidShow(() => { void load(city) })
 
   // R14 分享（用户定稿 ③）：··· 胶囊菜单转发好友 / 朋友圈（iOS 朋友圈仅
-  // 文字+首图，平台限制，可用即达）；标题动态相对年数
+  // 文字+首图，平台限制，可用即达）；标题动态相对年数。卡片落旅程入口
+  // （批次二：朋友从闪念间首程进入；不带本人 token，R32 边界）
   useShareAppMessage(() => {
     const me = state.kind === 'ready' ? state.capsule.me : null
     return {
       title: me ? shareMessage(me).title : '闪念间 · 找回当年的自己',
-      path: '/pages/flashback/index'
+      path: buildFlashbackJourneyPath()
     }
   })
   useShareTimeline(() => {
@@ -258,101 +259,14 @@ export default function FlashbackPage() {
 
   const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
 
-  // R14 保存摘要卡（用户定稿 ③）：画布尺寸语义定式——node.width/height 是**布局
-  // 尺寸（CSS px）**，而 canvas 后备存储默认仅 300×150：旧版既没设 canvas.width/height
-  // 又把 node.width/height 当 dpr 基准（W=2×布局宽），绘制坐标与画布空间错位，
-  // 「今天的我」画在 y=1180、脚注 y=H-80 均越出画布必不显示。现在 CSS 尺寸即画布
-  // 尺寸（600×800 = 3:4，1:1 无缩放，导出区域无歧义），排版全部落在画布内，
-  // 折行/截断判据在 domain（wrapCardText，node --test 钉住）。
+  // R14 保存摘要卡（用户定稿 ③）：绘制/导出/保存已下沉 platform/summary-card
+  // （旅程终点长廊共用同一实现）；这里只管 saving 态与关闭 sheet
   const saveSummaryCard = async () => {
     if (state.kind !== 'ready' || saving) return
     setSaving(true)
     try {
-      const model = summaryCardModel(state.capsule.me)
-      const query = Taro.createSelectorQuery()
-      const node = await new Promise<{ node: unknown; width: number; height: number }>((resolve, reject) => {
-        query.select('#fbShareCanvas').fields({ node: true, size: true }, (res: { node?: unknown; width?: number; height?: number }) => {
-          if (res?.node) resolve(res as { node: unknown; width: number; height: number })
-          else reject(new Error('画布未就绪'))
-        }).exec()
-      })
-      const canvas = node.node as { getContext: (t: '2d') => CanvasRenderingContext2D; width: number; height: number }
-      const W = node.width
-      const H = node.height
-      canvas.width = W
-      canvas.height = H
-      const ctx = canvas.getContext('2d')
-      const serif = "'Kaiti SC', 'STKaiti', 'Noto Serif SC', serif"
-
-      // 纸底 + 内框
-      ctx.fillStyle = '#f6f2e8'
-      ctx.fillRect(0, 0, W, H)
-      ctx.strokeStyle = 'rgba(43,39,35,0.25)'
-      ctx.lineWidth = 2
-      ctx.strokeRect(24, 24, W - 48, H - 48)
-
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-
-      // 版式坐标全部来自 domain（summaryCardLayout：行数与位置，保证在画布内）
-      const layout = summaryCardLayout(model, W, H)
-
-      // kicker + 时间戳·城市（原型 F 摘要卡版式）
-      ctx.fillStyle = '#2b2723'
-      ctx.font = `600 22px ${serif}`
-      ctx.fillText('IN A FLASH · 闪念间', W / 2, layout.kickerTop)
-      ctx.fillStyle = 'rgba(43,39,35,0.7)'
-      ctx.font = `20px ${serif}`
-      ctx.fillText(model.stamp || '当年', W / 2, layout.stampTop)
-
-      ctx.fillStyle = '#2b2723'
-      ctx.font = `italic 30px ${serif}`
-      layout.quoteLines.forEach((line, index) =>
-        ctx.fillText(line, W / 2, layout.quoteTop + index * layout.quoteLineHeight)
-      )
-
-      if (layout.todayLines.length) {
-        ctx.strokeStyle = 'rgba(43,39,35,0.25)'
-        ctx.lineWidth = 2
-        ctx.beginPath()
-        ctx.moveTo(140, layout.dividerY)
-        ctx.lineTo(W - 140, layout.dividerY)
-        ctx.stroke()
-        ctx.fillStyle = 'rgba(43,39,35,0.85)'
-        ctx.font = `22px ${serif}`
-        layout.todayLines.forEach((line, index) =>
-          ctx.fillText(line, W / 2, layout.todayTop + index * layout.todayLineHeight)
-        )
-      }
-
-      ctx.fillStyle = 'rgba(43,39,35,0.5)'
-      ctx.font = `16px ${serif}`
-      ctx.fillText(model.footer, W / 2, layout.footerTop)
-
-      const res = await Taro.canvasToTempFilePath({
-        canvas: canvas as never,
-        x: 0,
-        y: 0,
-        width: W,
-        height: H,
-        destWidth: W,
-        destHeight: H
-      })
-      await Taro.saveImageToPhotosAlbum({ filePath: res.tempFilePath })
-      Taro.showToast({ title: '已保存到相册', icon: 'success' })
+      await saveFlashbackSummaryCard(state.capsule.me)
       setShareSheet(false)
-    } catch (error) {
-      const text = `${error instanceof Error ? error.message : ''} ${String((error as { errMsg?: string } | null)?.errMsg ?? '')}`
-      if (/auth|deny|denied|权限/i.test(text)) {
-        Taro.showModal({
-          title: '需要相册权限',
-          content: '请在设置中允许「保存到相册」后重试',
-          confirmText: '去设置',
-          success: ({ confirm }) => { if (confirm) void Taro.openSetting({}) }
-        })
-      } else {
-        Taro.showToast({ title: '保存失败，请重试', icon: 'none' })
-      }
     } finally {
       setSaving(false)
     }
@@ -506,7 +420,7 @@ export default function FlashbackPage() {
           </View>
           {/* R14 分享入口（用户定稿 ③）：显式按钮唤起分享 sheet（··· 胶囊菜单原生分享由 hooks 常驻注册） */}
           <Button className={styles.shareButton} onClick={() => setShareSheet(true)}>分享 · 把这一刻做成卡片</Button>
-          <Canvas id="fbShareCanvas" canvasId="fbShareCanvas" type="2d" className={styles.shareCanvas} />
+          <Canvas id={SUMMARY_CARD_CANVAS_ID} canvasId={SUMMARY_CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
 
           <View className={styles.licenseCard}>
             <Text className={styles.sectionTitle}>金句授权</Text>
