@@ -479,6 +479,56 @@
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
 .fb-roster-facts { font-size: 10px; opacity: 0.65; }
+/* 折叠（用户改进：叠照隐喻）——首屏 + 叠层边缘暗示 + 展开 stagger */
+.fb-roster-card--stacked {
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	position: relative;
+	min-height: 120px;
+	/* 叠层边缘：三层错位描边模拟照片堆 */
+}
+.fb-roster-card--stacked::before,
+.fb-roster-card--stacked::after {
+	content: "";
+	position: absolute;
+	inset: 4px 6px auto 2px;
+	height: 96px;
+	border: 1px solid rgba(239, 233, 219, 0.22);
+	border-radius: 6px;
+	background: rgba(239, 233, 219, 0.05);
+}
+.fb-roster-card--stacked::before { transform: rotate(-2.4deg); }
+.fb-roster-card--stacked::after { transform: rotate(1.8deg) translate(6px, 5px); }
+.fb-roster-card--stacked .fb-roster-name {
+	position: absolute;
+	bottom: 6px;
+	left: 12px;
+	font-size: 12px;
+	color: #a09a8f;
+	z-index: 1;
+}
+.fb-roster-toggle {
+	margin-top: 12px;
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--fb-accent);
+	font-size: 13px;
+	text-decoration: underline;
+	cursor: pointer;
+}
+/* 展开态 stagger 渐入（照显影语言：淡入+微缩放；nth-child 递进延迟，KTD9） */
+@keyframes fb-roster-in {
+	from { opacity: 0; transform: translateY(10px) scale(0.97); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.fb-roster-card--in { animation: fb-roster-in 0.5s ease-out both; }
+.fb-roster-card--in:nth-child(5n+1) { animation-delay: 0.05s; }
+.fb-roster-card--in:nth-child(5n+2) { animation-delay: 0.12s; }
+.fb-roster-card--in:nth-child(5n+3) { animation-delay: 0.19s; }
+.fb-roster-card--in:nth-child(5n+4) { animation-delay: 0.26s; }
+.fb-roster-card--in:nth-child(5n+5) { animation-delay: 0.33s; }
 .fb-roster-content { display: grid; gap: 6px; }
 .fb-roster-answer, .fb-roster-today { font-size: 11px; line-height: 1.6; margin: 0; color: var(--fb-ink); }
 .fb-roster-dashed {
@@ -719,6 +769,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	/* 展开的 stagger 跳过（直达终态） */
+	.fb-roster-card--in { animation: none; }
 	.fb-root {
 		--fb-flash-dur: 0.01ms;
 		--fb-develop-dur: 0.01ms;

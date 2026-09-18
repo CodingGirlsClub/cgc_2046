@@ -2501,7 +2501,10 @@
 			"meta": "{total} 位当年的同行者 · 显影的是已经寄出的",
 			"todayTag": "今天",
 			"dashed": "她的答案，还在等她",
-			"dashedAria": "内容位为空：尚未寄出"
+			"dashedAria": "内容位为空：尚未寄出",
+			"stackHint": "还有 {count} 位在叠照下",
+			"expandAll": "展开全部 {count} 位",
+			"collapse": "收起（保留前几张）"
 		},
 		"todaySlot": {
 			"when": "⚡ 今天",

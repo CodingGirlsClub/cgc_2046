@@ -157,6 +157,55 @@ describe("CapsuleView · 分层墙（R12）", () => {
 	});
 });
 
+describe("CapsuleView · 名册折叠（叠照，用户改进 1）", () => {
+	const bigRoster = Array.from({ length: 30 }, (_, i) =>
+		rosterEntry({ id: `p-${i}`, surnameMasked: `${String.fromCharCode(0x7389 + (i % 20))}${"*".repeat(1 + (i % 2))}` }),
+	);
+
+	it("大场默认折叠：首屏 12 张 + 叠层暗示 + 展开按钮带总数", async () => {
+		await renderCapsule({
+			...baseCapsule,
+			archives: [{ ...baseCapsule.archives[0], roster: bigRoster }],
+		});
+
+		const grid = screen.getByTestId("fb-roster-grid");
+		expect(grid.dataset.total).toBe("30");
+		// 首屏 12 张真卡；叠层暗示卡 aria-hidden、无 testid（非数据卡）
+		expect(screen.getAllByTestId("fb-roster-card").length).toBe(12);
+		expect(document.querySelector(".fb-roster-card--stacked")).toBeTruthy();
+		const toggle = screen.getByTestId("fb-roster-toggle");
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(toggle).toHaveTextContent("展开全部 30 位");
+		expect(screen.getByText("还有 18 位在叠照下")).toBeInTheDocument();
+	});
+
+	it("展开 → 全量 30 张 + 收起按钮；再点收起回 12", async () => {
+		await renderCapsule({
+			...baseCapsule,
+			archives: [{ ...baseCapsule.archives[0], roster: bigRoster }],
+		});
+
+		fireEvent.click(screen.getByTestId("fb-roster-toggle"));
+		expect(await screen.findByRole("button", { name: "收起（保留前几张）" })).toBeInTheDocument();
+		expect(screen.getAllByTestId("fb-roster-card").length).toBe(30);
+		expect(screen.queryByText(/在叠照下/)).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByTestId("fb-roster-toggle"));
+		await waitFor(() => {
+			expect(screen.getAllByTestId("fb-roster-card").length).toBe(12);
+			expect(document.querySelector(".fb-roster-card--stacked")).toBeTruthy();
+		});
+		expect(screen.getByTestId("fb-roster-toggle")).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("小场（2 人）不折叠：无按钮无叠层卡", async () => {
+		await renderCapsule();
+
+		expect(screen.queryByTestId("fb-roster-toggle")).not.toBeInTheDocument();
+		expect(screen.getAllByTestId("fb-roster-card").length).toBe(2);
+	});
+});
+
 describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => {
 	it("窄屏（<768px）：走廊为纵向形态（无 --wide 类）", async () => {
 		await renderCapsule();
