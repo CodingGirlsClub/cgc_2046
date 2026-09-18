@@ -68,6 +68,7 @@ Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Se
 
 - feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）。
 - 紧急修复可直接 hotfix→main PR：head 非 develop 时 4 checks 在 PR 上重新跑，绿了即可合并部署，不必绕道 develop。
+- **后端 API 收紧 × 客户端依赖的组合发布纪律（#752，2026-09-18）**：后端新增必填校验/收紧参数（如 #727 的押金 `depositConsent` 门）而客户端（小程序/APP）需过审才能带上新参数时——后端与客户端**同窗口发布**，或**客户端先行过审**后再合后端；窗口期存量客户端的对应请求会被硬拒。同时为新增拒绝错误码加监控曲线（观察窗口期拒绝量回落至基线）。
 
 ### Deploy deps 镜像节奏
 
