@@ -116,6 +116,10 @@ defmodule Cgc2046.Recruitment.RecruitmentCohort do
     end
   end
 
+  graphql do
+    type(:recruitment_cohort)
+  end
+
   postgres do
     table("recruitment_cohorts")
     repo(Cgc2046.Repo)

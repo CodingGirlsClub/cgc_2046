@@ -140,6 +140,10 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
     end
   end
 
+  graphql do
+    type(:resume_profile)
+  end
+
   postgres do
     table("resume_profiles")
     repo(Cgc2046.Repo)
