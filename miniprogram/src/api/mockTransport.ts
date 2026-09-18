@@ -178,6 +178,32 @@ let orderStatusOverride: string | null = null
 // #508-A：核销幂等标记（同一报名第二次核销 → already； enrollment 重置时随之复位）
 let checkedIn = false
 
+// ── 志愿者招募（R20/R21）mock 态：一人一档 + 一人一批一份申请 ────────────────
+// 与后端语义对齐的最小投影：批次恒有 open（空态分支由 e2e 脚本改 mock 也走不到，
+// 见 e2e 的招募路径说明）；档案与申请在登录后才可见（getWorkspace 需登录）。
+const RECRUITMENT_WORKSPACE = { id: workspace.id, name: workspace.name }
+let resumeProfile: {
+  id: string
+  fullName: string
+  contactEmail: string
+  weeklyHours: number | null
+  skills: string[]
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  uploadedAt: string | null
+} | null = null
+let volunteerApplications: Array<Record<string, unknown>> = []
+
+const recruitmentCohort = {
+  id: 'cohort-1',
+  name: '第 1 批 · 首批志愿者招募',
+  applyDeadlineAt: new Date(Date.now() + 21 * 24 * 3_600_000).toISOString(),
+  startsAt: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString(),
+  endsAt: null,
+  status: 'open'
+}
+
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
   pending: true,
@@ -508,6 +534,107 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('query MyOrders')) {
     return { myOrders: { results: loggedIn && order ? [order] : [] } }
+  }
+  // ── 志愿者招募（R20/R21）：slug 解析 → 批次 / 档案 / 申请 ──────────────────
+  if (document.includes('query RecruitmentWorkspace')) {
+    // getWorkspace 需登录（策略 actor_present）——匿名按未授权口径返回 null，
+    // 真端是 GraphQL 错误 → real.ts 的 resolveRecruitmentWorkspaceId 早退在
+    // 登录检查上（这里只是兜底不给跨租户数据）
+    return { getWorkspace: loggedIn ? RECRUITMENT_WORKSPACE : null }
+  }
+  if (document.includes('query CurrentRecruitmentCohort')) {
+    return { currentRecruitmentCohort: loggedIn ? recruitmentCohort : null }
+  }
+  if (document.includes('query MyResumeProfile')) {
+    return { myResumeProfile: loggedIn ? resumeProfile : null }
+  }
+  if (document.includes('query MyVolunteerApplications')) {
+    return { myVolunteerApplications: loggedIn ? volunteerApplications : [] }
+  }
+  if (document.includes('mutation UpsertResumeProfile')) {
+    const input = values.input as Record<string, unknown>
+    const skills = Array.isArray(input.skills) ? (input.skills as string[]) : resumeProfile?.skills ?? []
+    resumeProfile = {
+      // 一人一档：二次 upsert 更新同一行（保留已上传的文件元数据）
+      id: resumeProfile?.id ?? 'resume-profile-1',
+      fullName: String(input.fullName ?? ''),
+      contactEmail: String(input.contactEmail ?? ''),
+      weeklyHours: typeof input.weeklyHours === 'number' ? input.weeklyHours : null,
+      skills,
+      fileName: resumeProfile?.fileName ?? null,
+      fileContentType: resumeProfile?.fileContentType ?? null,
+      fileSize: resumeProfile?.fileSize ?? null,
+      uploadedAt: resumeProfile?.uploadedAt ?? null
+    }
+    return { upsertResumeProfile: { result: resumeProfile, errors: [] } }
+  }
+  if (document.includes('mutation UploadResumeFile')) {
+    const input = values.input as Record<string, unknown>
+    // 先建档再上传（U2 契约：档案缺失 → resume_profile_not_found）
+    if (!resumeProfile) {
+      return {
+        uploadResumeFile: {
+          result: null,
+          errors: [
+            { message: 'resume profile not found', code: 'resume_profile_not_found' }
+          ]
+        }
+      }
+    }
+    // 大小以**实际解码字节数**为准（与后端同规则）：base64 长度 → 原始字节数
+    const content = typeof input.contentBase64 === 'string' ? input.contentBase64 : ''
+    resumeProfile = {
+      ...resumeProfile,
+      fileName: String(input.fileName ?? ''),
+      fileContentType: String(input.contentType ?? ''),
+      fileSize: Math.floor((content.length * 3) / 4),
+      uploadedAt: new Date().toISOString()
+    }
+    return { uploadResumeFile: { result: resumeProfile, errors: [] } }
+  }
+  if (document.includes('mutation CreateVolunteerApplication')) {
+    const input = values.input as Record<string, unknown>
+    const cohortId = String(input.cohortId ?? '')
+    if (cohortId !== recruitmentCohort.id) {
+      return {
+        createVolunteerApplication: {
+          result: null,
+          errors: [
+            { message: 'recruitment cohort not found', code: 'volunteer_application_cohort_not_found' }
+          ]
+        }
+      }
+    }
+    // 同批一份（后端 unique_per_cohort 的 mock 投影，AE2 数据面）
+    if (volunteerApplications.some((row) => row.cohortId === cohortId)) {
+      return {
+        createVolunteerApplication: {
+          result: null,
+          errors: [
+            {
+              message: 'volunteer application already submitted for this cohort',
+              code: 'volunteer_application_already_submitted'
+            }
+          ]
+        }
+      }
+    }
+    const application = {
+      id: `volunteer-application-${volunteerApplications.length + 1}`,
+      cohortId,
+      position: String(input.position ?? ''),
+      city: typeof input.city === 'string' ? input.city : null,
+      heardAboutUs: typeof input.heardAboutUs === 'string' ? input.heardAboutUs : null,
+      hasInternalReferrer: input.hasInternalReferrer === true,
+      message: typeof input.message === 'string' ? input.message : null,
+      status: 'submitted',
+      rejectionReason: null,
+      assignedEventId: null,
+      assignmentNote: null,
+      assignedAt: null
+    }
+    volunteerApplications = [application, ...volunteerApplications]
+    return { createVolunteerApplication: { result: application, errors: [] } }
   }
   if (document.includes('mutation AdmitMemberByToken')) {
     return {

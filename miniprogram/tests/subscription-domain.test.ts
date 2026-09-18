@@ -25,6 +25,8 @@ import {
   requestAndGrant,
   submitAfterConsent,
   subscriptionTransport,
+  volunteerApplyTouchpoint,
+  volunteerFollowUpTouchpoint,
   workspaceOpsTouchpoint,
   workspaceTouchpoint
 } from '../src/domain/subscription.ts'
@@ -42,7 +44,9 @@ const allTouchpoints = () => [
   paymentResultTouchpoint(false),
   paymentResultTouchpoint(true),
   refundCardTouchpoint(),
-  workspaceOpsTouchpoint()
+  workspaceOpsTouchpoint(),
+  volunteerApplyTouchpoint(),
+  volunteerFollowUpTouchpoint()
 ]
 
 /**
@@ -59,9 +63,9 @@ const allTouchpoints = () => [
 const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 20 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 20)
-    assert.equal(new Set(ALL_SCENARIOS).size, 20)
+  test('恰好 26 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 26)
+    assert.equal(new Set(ALL_SCENARIOS).size, 26)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {

@@ -73,7 +73,7 @@ function extractAuthToken(cookies: string[] | undefined, header: Record<string, 
 export async function graphqlRequest<TData, TVariables extends object>(
   document: RequestDocument,
   variables: TVariables,
-  options: { captureAuthCookie?: boolean } = {}
+  options: { captureAuthCookie?: boolean; timeoutMs?: number } = {}
 ): Promise<TData> {
   if (__E2E_MOCK__) {
     if (options.captureAuthCookie) setAuthToken('e2e-mock-token')
@@ -86,7 +86,8 @@ export async function graphqlRequest<TData, TVariables extends object>(
   const response = await Taro.request<GraphQLResponse<TData>>({
     url: __GRAPHQL_ENDPOINT__,
     method: 'POST',
-    timeout: 15_000,
+    // 默认 15s；大载荷（简历上传 base64 ~6.7MB）由调用方显式放宽（R20/U2）
+    timeout: options.timeoutMs ?? 15_000,
     header,
     data: { query: String(document), variables }
   })

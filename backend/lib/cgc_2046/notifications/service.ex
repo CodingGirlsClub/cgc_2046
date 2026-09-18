@@ -281,6 +281,80 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  # 志愿者段位通知六模板（U4/KTD6；R14 阶段通知表逐行）。**模板 ID 待申请**，
+  # 字段编号按「每模板 = 批次/场次 + 状态细节 + 固定提示」的最小形状拟定，
+  # 申请到模板后按公众平台「我的模板 → 详情」核对槽位并就地改（先例 #606）。
+  #
+  # 逻辑键（data_keys）与收件人：
+  # - submitted「提交确认」：批次名/职位/固定「申请已提交，等待初审」
+  # - interview「面试安排」：批次名/群面时间（time2，批次执行周期开始；群面约时
+  #   为线下运营动作，缺排期时该字段跳过——入群方式文案在邮件里）/固定「运营将
+  #   联系你入群」
+  # - training「训练营预约」：批次名/训练营排期（time2）/固定「凭邀请码在课程页
+  #   自助报名」
+  # - assigned「分配结果」：场次名（Tutor 可无场次）/课程任务（assignment_note）/
+  #   固定「项目分配已完成」保底（两值皆缺时不至空 data）
+  # - rejected「拒绝通知」：批次名/拒绝原因（thing 顶 20 字，全文在邮件）/
+  #   固定「很遗憾，本次申请未通过」
+  # - canceled「取消通知」：批次名/取消备注（选填）/固定「申请已取消」
+  # 招募六段：槽位编号为各模板实际字段（2026-09-18 微信后台实抄，与
+  # miniprogram_templates 的 template_id 一一对应）；数据语义不变，仅键名对齐。
+
+  defp render(:wechat, "volunteer_application_submitted", %{} = data) do
+    %{
+      "thing7" => thing(data["cohort_name"]),
+      "thing5" => thing(data["position_label"]),
+      "thing6" => "申请已提交，等待初审"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_interview", %{} = data) do
+    %{
+      "thing5" => thing(data["cohort_name"]),
+      # date3 为 date 类型：走 date/1（年月日 + 时刻，官方支持形态）
+      "date3" => date(data["group_time"]),
+      "thing7" => "运营将联系你入群"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_training", %{} = data) do
+    %{
+      "thing39" => thing(data["cohort_name"]),
+      "time47" => time(data["training_starts_at"]),
+      "thing19" => "凭邀请码在课程页自助报名"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_assigned", %{} = data) do
+    %{
+      "thing19" => thing(data["event_title"]),
+      "thing7" => thing(data["assignment_note"]),
+      "thing5" => "项目分配已完成"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_rejected", %{} = data) do
+    %{
+      "thing21" => thing(data["cohort_name"]),
+      "thing12" => thing(data["rejection_reason"]),
+      "thing11" => "很遗憾，本次申请未通过"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_canceled", %{} = data) do
+    %{
+      "thing1" => thing(data["cohort_name"]),
+      "thing4" => thing(data["cancel_note"]),
+      "thing9" => "申请已取消"
+    }
+    |> drop_nils()
+  end
+
   defp render(_platform, _template_key, data), do: data
 
   defp drop_nils(fields), do: Map.reject(fields, fn {_k, v} -> is_nil(v) end)

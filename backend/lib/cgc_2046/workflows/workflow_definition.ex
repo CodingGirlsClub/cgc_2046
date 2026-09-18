@@ -36,17 +36,20 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
     authorizers: [Ash.Policy.Authorizer],
     domain: Cgc2046.Workflows
 
-  # WorkflowDefinition.type 全 6 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
+  # WorkflowDefinition.type 全 7 枚举（R3 裁决 2026-08-16：删 platform_ops——零驱动的死枚举；
   # enrollment/sponsorship 为实体自序贯预留，learning/curriculum/speaker_invitation 有
   # instantiator；role-agent-journeys-v2 S5 加 course_preparation——课程教研流程，协议而非
-  # DAG，PrepInstantiator 订阅 course.created 实例化）
+  # DAG，PrepInstantiator 订阅 course.created 实例化；
+  # hackerstart-1024 U3 加 recruitment_application——志愿者申请段位状态机镜像，
+  # ApplicationWorkflowInstantiator 在申请 create 事务内实例化）
   @type_values [
     :learning,
     :enrollment,
     :sponsorship,
     :speaker_invitation,
     :curriculum,
-    :course_preparation
+    :course_preparation,
+    :recruitment_application
   ]
   @status_values [:draft, :published, :archived]
 
@@ -75,7 +78,7 @@ defmodule Cgc2046.Workflows.WorkflowDefinition do
       description:
         "workflow 类型：learning 学习 / enrollment 报名 / " <>
           "sponsorship 赞助 / speaker_invitation 邀请讲者 / curriculum 教研 / " <>
-          "course_preparation 课程教研流程（S5）"
+          "course_preparation 课程教研流程（S5）/ recruitment_application 志愿者申请"
     )
 
     attribute(:version, :integer,

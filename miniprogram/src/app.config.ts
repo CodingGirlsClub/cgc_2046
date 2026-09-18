@@ -27,7 +27,12 @@ const fullPages = [
   'pages/join/index',
   'pages/openclacky/index',
   // #508-A：主理人现场核销（管理面，裁剪端不挂）
-  'pages/check-in/index'
+  'pages/check-in/index',
+  // R19：campaign 宣传页（微信端专属——发现页入口卡同款分流，见 pages/discover/index）
+  'pages/campaign/index',
+  // R20/R21：志愿者招募流（微信端专属——campaign 页「成为志愿者」入口的落点；
+  // 审核面板不进小程序，管理面在 web）
+  'pages/volunteer-apply/index'
 ]
 
 const cutTabList = [

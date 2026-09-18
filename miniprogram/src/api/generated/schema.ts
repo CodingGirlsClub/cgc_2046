@@ -1217,6 +1217,17 @@ export type CreatePortfolioItemInput = {
   url?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type CreateRecruitmentCohortInput = {
+  /** 申请截止时间（UTC） */
+  applyDeadlineAt: Scalars['DateTime']['input'];
+  /** 执行周期结束（可空） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort） */
+  name: Scalars['String']['input'];
+  /** 执行周期开始（可空） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type CreateSpeakerInvitationInput = {
   eventId: Scalars['ID']['input'];
   expiresAt?: InputMaybe<Scalars['DateTime']['input']>;
@@ -1262,6 +1273,21 @@ export type CreateSponsorshipResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<Sponsorship>;
+};
+
+export type CreateVolunteerApplicationInput = {
+  /** 申请城市（Tutor 可远程） */
+  city?: InputMaybe<Scalars['String']['input']>;
+  /** createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入） */
+  cohortId: Scalars['ID']['input'];
+  /** 是否有内部推荐人（缺省 false） */
+  hasInternalReferrer?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 如何得知我们 */
+  heardAboutUs?: InputMaybe<Scalars['String']['input']>;
+  /** 留言（选填） */
+  message?: InputMaybe<Scalars['String']['input']>;
+  /** 职位：event_moderator | tutor | coach */
+  position: Scalars['String']['input'];
 };
 
 export type CreateWorkspaceApplicationInput = {
@@ -3933,6 +3959,28 @@ export type ReassignWorkspaceOwnerResult = {
   result?: Maybe<Workspace>;
 };
 
+export type RecruitmentCohort = {
+  /** 申请截止时间（UTC 存储，展示走既有格式化路径） */
+  applyDeadlineAt: Scalars['DateTime']['output'];
+  /** 执行周期结束（可空） */
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 批次名称（如「第 1 批」） */
+  name: Scalars['String']['output'];
+  /** 执行周期开始（可空） */
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 状态：draft | open | closed（仅 :open / :close 动作可迁移） */
+  status: Scalars['String']['output'];
+  /** 所属工作台（租户）ID（KTD2：workspace_id + global?(true)） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type RecruitmentCohortPayload = {
+  errors: Array<MutationError>;
+  /** 批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict） */
+  result?: Maybe<RecruitmentCohort>;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4022,6 +4070,36 @@ export type ResendSpeakerInvitationPayload = {
 
 export type ResetPasswordResult = {
   ok: Scalars['Boolean']['output'];
+};
+
+export type ResumeProfile = {
+  /** 联系邮箱（必填；R14 邮件保底通道的收件地址） */
+  contactEmail: Scalars['String']['output'];
+  /** 简历文件 MIME（PDF/Word；U2 上传管道写入） */
+  fileContentType?: Maybe<Scalars['String']['output']>;
+  /** 简历文件名（U2 上传管道写入） */
+  fileName?: Maybe<Scalars['String']['output']>;
+  /** 简历文件字节数（原始文件；U2 上传管道写入） */
+  fileSize?: Maybe<Scalars['Int']['output']>;
+  /** 姓名 */
+  fullName: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  /** 技能多选（字符串列表） */
+  skills: Array<Scalars['String']['output']>;
+  /** 简历文件上传时间（U2 上传管道写入） */
+  uploadedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 档案所属用户 ID（创建/upsert 时由 actor 强制填充） */
+  userId: Scalars['ID']['output'];
+  /** 每周可投入小时数 */
+  weeklyHours?: Maybe<Scalars['Int']['output']>;
+  /** 所属工作台（租户）ID */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type ResumeProfilePayload = {
+  errors: Array<MutationError>;
+  /** 简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误 */
+  result?: Maybe<ResumeProfile>;
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -4158,6 +4236,10 @@ export type RootMutationType = {
   adminUpdateEvent?: Maybe<AdminEventPayload>;
   /** 使用一次性小程序 scene 接受工作台邀请 */
   admitMemberByToken?: Maybe<Invitation>;
+  /** 初审通过：submitted → interview（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition） */
+  advanceVolunteerApplicationToInterview?: Maybe<VolunteerApplicationPayload>;
+  /** 群面通过：interview → training（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition） */
+  advanceVolunteerApplicationToTraining?: Maybe<VolunteerApplicationPayload>;
   /** 审批通过加入申请（Owner/Admin，自动建 Membership（默认无标签角色）） */
   approveJoinRequest: ApproveJoinRequestResult;
   /** 审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery） */
@@ -4167,6 +4249,8 @@ export type RootMutationType = {
   assignEventModerator?: Maybe<EventModeratorPayload>;
   /** 分配成员角色（多角色并集，仅 Owner/Admin） */
   assignRoles: AssignRolesResult;
+  /** 训练营完成·项目分配：training → assigned（Owner/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落） */
+  assignVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 微信扫码绑定手机号完成登录（plan 002 U4；phone 5/15min 限流） */
   bindWechatWithPhone?: Maybe<SignInWithPhoneCodeResult>;
   /** 取消课程：open → cancelled，发 course.ended 信号 */
@@ -4181,6 +4265,8 @@ export type RootMutationType = {
   cancelOperation?: Maybe<OperationResolution>;
   /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
   cancelOrder: CancelOrderResult;
+  /** 取消申请：submitted | interview | training → canceled（Owner/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束） */
+  cancelVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   checkInEnrollment?: Maybe<CheckInEnrollmentPayload>;
   /** 结束课程：open → closed，发 course.ended 信号 */
   closeCourse: CloseCourseResult;
@@ -4188,6 +4274,8 @@ export type RootMutationType = {
   closeEvent: CloseEventResult;
   /** 平台管理员：结束倡导活动 */
   closeInitiative?: Maybe<AdminInitiativePayload>;
+  /** 关闭批次：open → closed（Owner/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完） */
+  closeRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 材料产出后完成邀请（Speaker 本人自助或 Owner/Admin 兜底；accepted → completed） */
   completeSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** Owner/Admin 确认 pending 报名并原子占用名额 */
@@ -4213,10 +4301,14 @@ export type RootMutationType = {
   createOrder: CreateOrderResult;
   /** 在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造） */
   createPortfolioItem?: Maybe<PortfolioItem>;
+  /** 创建招募批次（Owner/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort） */
+  createRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** Owner/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希） */
   createSpeakerInvitation?: Maybe<CreateSpeakerInvitationPayload>;
   /** 提交赞助意向：校验后创建 pending（不生效权益，等审批） */
   createSponsorship: CreateSponsorshipResult;
+  /** 提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed */
+  createVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 创建工作台（仅平台管理员） */
   createWorkspace: CreateWorkspaceResult;
   /** 提交创建工作台申请 */
@@ -4248,6 +4340,8 @@ export type RootMutationType = {
   launchEvent: LaunchEventResult;
   /** 平台管理员：设置倡导活动状态为进行中 */
   openInitiative?: Maybe<AdminInitiativePayload>;
+  /** 开放批次：draft | closed → open（Owner/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底） */
+  openRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调） */
   promoteUser?: Maybe<AdminUserPayload>;
   /** 重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请 */
@@ -4260,6 +4354,8 @@ export type RootMutationType = {
   rejectJoinRequest: RejectJoinRequestResult;
   /** 审批拒绝：pending → rejected，rejection_reason 落审计字段 */
   rejectSponsorship: RejectSponsorshipResult;
+  /** 拒绝申请：submitted | interview | training → rejected（Owner/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截） */
+  rejectVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 拒绝创建工作台申请（platform_admin） */
   rejectWorkspaceApplication: RejectWorkspaceApplicationResult;
   removeEventModerator?: Maybe<EventModeratorPayload>;
@@ -4309,12 +4405,18 @@ export type RootMutationType = {
   updateMyPhone?: Maybe<User>;
   /** 更新某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   updatePortfolioItem?: Maybe<PortfolioItem>;
+  /** 编辑招募批次元数据（Owner/Admin ∪ platform_admin；状态迁移不经本 mutation） */
+  updateRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 更新工作台（Owner/Admin 或平台管理员） */
   updateWorkspace: UpdateWorkspaceResult;
   /** 更新当前用户在某工作台的资料（ADR-0004 per-workspace） */
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
+  /** 上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF/Word，原始文件 ≤5MB，扩展名/声明 MIME/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid */
+  uploadResumeFile?: Maybe<ResumeProfilePayload>;
   /** 平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串 */
   upsertInitiativeRule?: Maybe<AdminInitiativeRulePayload>;
+  /** 完善 / 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 / 联系邮箱 / 每周可投入 / 技能；文件内容经 U2 上传专线，不走本 mutation */
+  upsertResumeProfile?: Maybe<ResumeProfilePayload>;
   /** 免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认 */
   waivePayment?: Maybe<PendingOperationConfirmation>;
   /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
@@ -4380,6 +4482,18 @@ export type RootMutationTypeAdmitMemberByTokenArgs = {
 };
 
 
+export type RootMutationTypeAdvanceVolunteerApplicationToInterviewArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdvanceVolunteerApplicationToTrainingArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeApproveJoinRequestArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<ApproveJoinRequestInput>;
@@ -4406,6 +4520,14 @@ export type RootMutationTypeAssignEventModeratorArgs = {
 export type RootMutationTypeAssignRolesArgs = {
   id: Scalars['ID']['input'];
   input: AssignRolesInput;
+};
+
+
+export type RootMutationTypeAssignVolunteerApplicationArgs = {
+  assignedEventId?: InputMaybe<Scalars['ID']['input']>;
+  assignmentNote?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4446,6 +4568,13 @@ export type RootMutationTypeCancelOrderArgs = {
 };
 
 
+export type RootMutationTypeCancelVolunteerApplicationArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCheckInEnrollmentArgs = {
   code: Scalars['String']['input'];
   eventId: Scalars['ID']['input'];
@@ -4465,6 +4594,12 @@ export type RootMutationTypeCloseEventArgs = {
 
 export type RootMutationTypeCloseInitiativeArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCloseRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4534,6 +4669,12 @@ export type RootMutationTypeCreatePortfolioItemArgs = {
 };
 
 
+export type RootMutationTypeCreateRecruitmentCohortArgs = {
+  input: CreateRecruitmentCohortInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCreateSpeakerInvitationArgs = {
   input: CreateSpeakerInvitationInput;
 };
@@ -4541,6 +4682,12 @@ export type RootMutationTypeCreateSpeakerInvitationArgs = {
 
 export type RootMutationTypeCreateSponsorshipArgs = {
   input: CreateSponsorshipInput;
+};
+
+
+export type RootMutationTypeCreateVolunteerApplicationArgs = {
+  input: CreateVolunteerApplicationInput;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4623,6 +4770,12 @@ export type RootMutationTypeOpenInitiativeArgs = {
 };
 
 
+export type RootMutationTypeOpenRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypePromoteUserArgs = {
   id: Scalars['ID']['input'];
 };
@@ -4654,6 +4807,13 @@ export type RootMutationTypeRejectJoinRequestArgs = {
 export type RootMutationTypeRejectSponsorshipArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<RejectSponsorshipInput>;
+};
+
+
+export type RootMutationTypeRejectVolunteerApplicationArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4796,6 +4956,13 @@ export type RootMutationTypeUpdatePortfolioItemArgs = {
 };
 
 
+export type RootMutationTypeUpdateRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateRecruitmentCohortInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeUpdateWorkspaceArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<UpdateWorkspaceInput>;
@@ -4808,11 +4975,23 @@ export type RootMutationTypeUpdateWorkspaceProfileArgs = {
 };
 
 
+export type RootMutationTypeUploadResumeFileArgs = {
+  input: UploadResumeFileInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeUpsertInitiativeRuleArgs = {
   initiativeId: Scalars['ID']['input'];
   key: Scalars['String']['input'];
   locked: Scalars['Boolean']['input'];
   valueJson: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeUpsertResumeProfileArgs = {
+  input: UpsertResumeProfileInput;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4836,6 +5015,8 @@ export type RootQueryType = {
   courseLearningDetail?: Maybe<CourseLearningDetail>;
   /** 公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist */
   courseMap?: Maybe<CourseMap>;
+  /** 当前 open 招募批次（公开申请页数据面，匿名可读；R10/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft/closed 不因本字段露面 */
+  currentRecruitmentCohort?: Maybe<RecruitmentCohort>;
   /** 报名列表（graphql enrollments；按插入时间倒序） */
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
@@ -4880,12 +5061,16 @@ export type RootQueryType = {
   listInitiatives: Array<AdminInitiative>;
   /** 平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5） */
   listPendingOperations: Array<AdminPendingOperation>;
+  /** Owner/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限） */
+  listRecruitmentCohorts: Array<RecruitmentCohort>;
   /** 平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after） */
   listSignalLogs: Array<AdminSignalLog>;
   /** 平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5） */
   listToolCallLogs: Array<AdminToolCallLog>;
   /** 平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after） */
   listUsers: Array<AdminUser>;
+  /** Owner/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 / 职位 / 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden */
+  listVolunteerApplications: Array<VolunteerApplication>;
   /** 平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after） */
   listWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after） */
@@ -4908,8 +5093,12 @@ export type RootQueryType = {
   myPendingApprovals: Array<PendingApproval>;
   /** 当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面） */
   myPhone?: Maybe<Scalars['String']['output']>;
+  /** 本人简历档案（R11 第 1 步；仅本人 ∪ Owner/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容 */
+  myResumeProfile?: Maybe<ResumeProfile>;
   /** 当前用户跨工作台的赞助意向 */
   mySponsorships?: Maybe<KeysetPageOfSponsorship>;
+  /** 本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因） */
+  myVolunteerApplications: Array<VolunteerApplication>;
   /** 当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请） */
   myWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace） */
@@ -4940,6 +5129,8 @@ export type RootQueryType = {
   sponsorships?: Maybe<KeysetPageOfSponsorship>;
   /** 校验邀请 token，返回邀请信息 + 工作台预览 */
   validateInvitation?: Maybe<Invitation>;
+  /** Owner/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden */
+  volunteerApplicationDetail?: Maybe<VolunteerApplicationDetail>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
@@ -4975,6 +5166,11 @@ export type RootQueryTypeCourseLearningDetailArgs = {
 
 export type RootQueryTypeCourseMapArgs = {
   slug: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeCurrentRecruitmentCohortArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5152,6 +5348,11 @@ export type RootQueryTypeListPendingOperationsArgs = {
 };
 
 
+export type RootQueryTypeListRecruitmentCohortsArgs = {
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootQueryTypeListSignalLogsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -5176,6 +5377,16 @@ export type RootQueryTypeListUsersArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeListVolunteerApplicationsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  cohortId?: InputMaybe<Scalars['ID']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  position?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5230,6 +5441,11 @@ export type RootQueryTypeMyPendingApprovalsArgs = {
 };
 
 
+export type RootQueryTypeMyResumeProfileArgs = {
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootQueryTypeMySponsorshipsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -5237,6 +5453,11 @@ export type RootQueryTypeMySponsorshipsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<SponsorshipSortInput>>>;
+};
+
+
+export type RootQueryTypeMyVolunteerApplicationsArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5308,6 +5529,12 @@ export type RootQueryTypeSponsorshipsArgs = {
 export type RootQueryTypeValidateInvitationArgs = {
   filter?: InputMaybe<InvitationFilterInput>;
   token: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeVolunteerApplicationDetailArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -6221,6 +6448,14 @@ export type UpdatePortfolioItemInput = {
   url?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateRecruitmentCohortInput = {
+  applyDeadlineAt?: InputMaybe<Scalars['DateTime']['input']>;
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** updateRecruitmentCohort 输入（只传要改的字段） */
+  name?: InputMaybe<Scalars['String']['input']>;
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type UpdateWorkspaceInput = {
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<Scalars['String']['input']>;
@@ -6253,6 +6488,26 @@ export type UpdateWorkspaceResult = {
   result?: Maybe<Workspace>;
 };
 
+export type UploadResumeFileInput = {
+  /** 文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内） */
+  contentBase64: Scalars['String']['input'];
+  /** 声明的 MIME（须与扩展名同族） */
+  contentType: Scalars['String']['input'];
+  /** uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收） */
+  fileName: Scalars['String']['input'];
+};
+
+export type UpsertResumeProfileInput = {
+  /** 联系邮箱（R14 邮件保底通道收件地址） */
+  contactEmail: Scalars['String']['input'];
+  /** upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充） */
+  fullName: Scalars['String']['input'];
+  /** 技能多选（字符串列表；缺省不改动） */
+  skills?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** 每周可投入小时数（选填） */
+  weeklyHours?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type User = {
   /** 显示名（全局身份字段；可为 null，前端以 email 前缀兜底） */
   displayName?: Maybe<Scalars['String']['output']>;
@@ -6269,6 +6524,48 @@ export type User = {
   memberNumber?: Maybe<Scalars['String']['output']>;
   /** 首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致） */
   onboardingInvitationDismissedAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
+export type VolunteerApplication = {
+  /** 分配时间 */
+  assignedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 分配的场次 ID（可空；项目分配时写入） */
+  assignedEventId?: Maybe<Scalars['ID']['output']>;
+  /** 分配备注（如 Tutor 的课程任务；不建任务实体） */
+  assignmentNote?: Maybe<Scalars['String']['output']>;
+  /** 申请城市（Tutor 可远程） */
+  city?: Maybe<Scalars['String']['output']>;
+  /** 申请批次 ID */
+  cohortId: Scalars['ID']['output'];
+  /** 是否有内部推荐人 */
+  hasInternalReferrer: Scalars['Boolean']['output'];
+  /** 如何得知我们 */
+  heardAboutUs?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  /** 留言（选填） */
+  message?: Maybe<Scalars['String']['output']>;
+  /** 职位：event_moderator | tutor | coach（枚举，不建表） */
+  position: Scalars['String']['output'];
+  /** 拒绝原因（状态转 rejected 时必填；写入在 U3 的流转 action） */
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  /** 段位（R12 状态图；流转 action 在 U3） */
+  status: Scalars['String']['output'];
+  /** 申请人 ID（创建时由 actor 强制填充，不可代他人提交） */
+  userId: Scalars['ID']['output'];
+  /** 所属工作台（租户）ID（KTD2：所有倡导活动都在 2046 台） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type VolunteerApplicationDetail = {
+  /** 审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null） */
+  application: VolunteerApplication;
+  resumeProfile?: Maybe<ResumeProfile>;
+};
+
+export type VolunteerApplicationPayload = {
+  errors: Array<MutationError>;
+  /** 招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案） */
+  result?: Maybe<VolunteerApplication>;
 };
 
 export type WechatLoginStartResult = {

@@ -81,6 +81,14 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted
                         event_qualification_manager)
 
+  # 志愿者段位通知六模板（U4；R14）→ 招募流「我的申请」页：申请人查看批次/
+  # 段位/拒绝原因/分配结果的权威面（#232 落页契约：点开必须有权威内容，不能落
+  # profile 本机通知记录——服务端下发的通知不在其中）。该页由小程序招募流
+  # （U10）注册（pages/volunteer-apply/index，仅微信端页清单）。
+  @applicant_templates ~w(volunteer_application_submitted volunteer_application_interview
+                          volunteer_application_training volunteer_application_assigned
+                          volunteer_application_rejected volunteer_application_canceled)
+
   defp notification_page(platform, template_key, data) do
     cond do
       # 裁剪端（tt/xhs）仅注册「发现/我的报名」两 tab（app.config.ts cutPages）
@@ -96,6 +104,9 @@ defmodule Cgc2046.Integrations.Wechat.Client do
 
       template_key in @learner_templates ->
         "pages/my-enrollments/index"
+
+      template_key in @applicant_templates ->
+        "pages/volunteer-apply/index"
 
       template_key in @manager_templates ->
         "pages/workspace/index"

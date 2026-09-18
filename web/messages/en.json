@@ -27,6 +27,15 @@
 	},
 	"errors": {
 		"enrollment_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
+		"volunteer_application_already_submitted": "You have already applied for this cohort (one role per cohort). You can pick another role when the next cohort opens.",
+		"volunteer_application_cohort_closed": "This cohort is closed and no longer accepts new applications.",
+		"volunteer_application_cohort_deadline_passed": "The application deadline has passed and this cohort no longer accepts applications.",
+		"volunteer_application_cohort_not_open": "This cohort is not open for applications yet — check back once it opens.",
+		"volunteer_application_cohort_not_found": "This cohort does not exist or is offline. Refresh the page and try again.",
+		"resume_profile_not_found": "Fill in your name and contact email (complete the resume profile) before uploading the file.",
+		"resume_profile_file_type_invalid": "Resumes must be PDF / Word files (.pdf / .doc / .docx).",
+		"resume_profile_file_too_large": "The resume exceeds the 5MB limit. Compress it and try again.",
+		"resume_profile_file_content_invalid": "The resume content could not be parsed (the file may be corrupted). Please choose it again.",
 		"enrollment_check_in_code_exhausted": "Could not generate your check-in code due to a concurrent conflict. Please submit again.",
 		"enrollment_age_confirmation_required": "This activity is limited to participants who meet the minimum age requirement. Please confirm your age and retry.",
 		"enrollment_not_payment_pending": "Your enrollment status has changed (paid or cancelled). Please enroll again or check My Enrollments.",
@@ -90,7 +99,11 @@
 		"initiative_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier).",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
-		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
+		"deadlock_detected": "A lock conflict was detected. Please try again in a moment.",
+		"volunteer_application_invalid_transition": "The application status changed. Refresh and try again.",
+		"volunteer_application_rejection_reason_required": "A rejection reason is required.",
+		"volunteer_application_assignment_failed": "Assignment did not complete (workspace join or session assignment failed). The application is unchanged; try again.",
+		"recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -253,6 +266,7 @@
 	},
 	"landing": {
 		"nav": {
+			"campaign": "Hacker Start 1024",
 			"ariaLabel": "Primary",
 			"events": "Events",
 			"courses": "Courses",
@@ -2446,5 +2460,761 @@
 		"qrGenerating": "Generating QR code…",
 		"depositRefundHint": "After on-site check-in with this code, your deposit will be refunded.",
 		"keepPrivateHint": "Do not screenshot or forward: anyone with this code can check in for you, which refunds the deposit."
+	},
+	"hackerstart1024": {
+		"meta": {
+			"title": "Hacker Start 1024 · Your first working build, made with an agent",
+			"description": "Founded in 2016, so this is year ten — and therefore 1,024 workshops. Three hours, no experience needed, an agent alongside you. Nationwide from 24 Oct 2026."
+		},
+		"hashtag": "#hackerstart1024",
+		"hero": {
+			"eyebrow": "CODING GIRLS CLUB · 10TH ANNIVERSARY CAMPAIGN",
+			"slot": "CGC × your brand",
+			"title": "Hacker Start 1024",
+			"sub": "So ordinary people build something that actually runs — with an agent, hands on, for the first time",
+			"nums": {
+				"sessions": "<b>1,024</b> workshops nationwide (<pow>10</pow>)",
+				"start": "kicks off <b>24 Oct 2026</b> (<pow>0</pow>)",
+				"batch": "First batch of <b>32</b> sessions (<pow>5</pow>)"
+			},
+			"join": "Join a session",
+			"volunteer": "Become a volunteer",
+			"brand": "Sponsorship",
+			"scaleAria": "Founded in 2016, ten years in, 1,024 workshops starting in 2026",
+			"scaleStart": "2016 · founded",
+			"scaleNow": "year ten",
+			"scaleEnd": "2026 · <pow>10</pow> = 1,024 workshops",
+			"hook": "Founded in 2016, so this is year <b>10</b> — which makes it <pow>10</pow> = <b>1,024</b> workshops."
+		},
+		"why": {
+			"badge": "Why now",
+			"label": "The moment",
+			"title": "Agents are past the capability tipping point. <em>What's missing is ordinary people daring to start.</em>",
+			"lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
+		},
+		"join": {
+			"badge": "Join a session",
+			"label": "For participants",
+			"title": "Three hours, from zero to <em>demoing on stage</em>",
+			"rhythm": [
+				{
+					"min": "15",
+					"t": "Warm-up",
+					"d": "Meet the agent and the people you're building with — no code yet, just what you came to make"
+				},
+				{
+					"min": "120",
+					"t": "Build",
+					"d": "An agent adapts to how you learn and stays alongside you — your first idea becomes something that runs"
+				},
+				{
+					"min": "30",
+					"t": "Demo",
+					"d": "Everyone takes the stage with their own build — take it home, post it, run it again"
+				}
+			],
+			"facts": "Classes of 8 (<pow>3</pow>) · capped at 32 (<pow>5</pow>) · 18 and over · 40+ cities nationwide.",
+			"cta": "Registration opens from 24 Oct 2026 →",
+			"ctaNote": "Sessions go live city by city — check back soon"
+		},
+		"faq": {
+			"badge": "FAQ",
+			"label": "Before you ask",
+			"title": "What first-timers <em>usually want to know</em>",
+			"items": [
+				{
+					"q": "I've never written a line of code. Can I still join?",
+					"a": "Yes. This session is built for first-timers: three hours, an agent alongside you the whole way, no programming background needed. You leave with something you made yourself that actually runs."
+				},
+				{
+					"q": "How does the 87 yuan deposit work?",
+					"a": "You pay an 87 yuan deposit when you register, and it's refunded in full when you turn up. No-shows don't get it back — seats are limited, and the deposit is how we keep them for people who really come."
+				},
+				{
+					"q": "Do I need to bring a laptop?",
+					"a": "A laptop is recommended — the session is hands-on. Device requirements for a particular session are listed on its registration page."
+				},
+				{
+					"q": "Is there an age limit?",
+					"a": "Yes — participants must be 18 or over."
+				},
+				{
+					"q": "How do I know if there's a session in my city?",
+					"a": "Sessions open city by city from 24 Oct 2026, rolling out across 40+ cities. Head to the initiatives page for the full list — every session open for registration shows up there."
+				}
+			]
+		},
+		"volunteer": {
+			"badge": "Become a volunteer",
+			"label": "For volunteers",
+			"title": "Bring Hacker Start 1024 <em>to your city</em>",
+			"lead": "Three roles — one of them is yours.",
+			"roles": [
+				{
+					"t": "Event Moderator",
+					"en": "Lead role",
+					"badge": "Most needed now",
+					"one": "Own a three-hour workshop end to end — and bring it to your city",
+					"fit": "For: organisers with a venue or a community, one weekend per round"
+				},
+				{
+					"t": "Tutor",
+					"en": "Remote",
+					"one": "Turn the curriculum into reusable tutorials and example projects, so teaching quality scales",
+					"fit": "For: programmers who write as well as they code · remote"
+				},
+				{
+					"t": "Coach",
+					"en": "On site",
+					"one": "Hands-on support in the room — roaming questions, helping participants through the build, no lecturing",
+					"fit": "For: people who have used agent coding tools and enjoy teaching by doing"
+				}
+			],
+			"cohortStatus": "Open now",
+			"cohortName": "Batch 1 · founding volunteers",
+			"cohortNote": "Now recruiting our first volunteers · rolling, batch by batch — the exact deadline lives on the application page",
+			"cohortCta": "Apply to volunteer →",
+			"support": [
+				"Curriculum kit + playbook",
+				"Ops platform, no money handling",
+				"Venue partnerships",
+				"40+ city communities and reach"
+			],
+			"note": "Role details, the four-stage process and common questions live on the application page · volunteer benefits are still being co-designed"
+		},
+		"timeline": {
+			"badge": "What happens next",
+			"label": "Roadmap",
+			"title": "Kicks off 24 Oct 2026, <em>rolling through 2027</em>",
+			"start": {
+				"t": "24 Oct 2026 · kick-off",
+				"d": "The first session runs and the campaign begins"
+			},
+			"firstBatch": {
+				"t": "First 64 sessions (<pow>6</pow>)",
+				"d": "＝ the opening two batches, 32 sessions (<pow>5</pow>) each, delivered back to back"
+			},
+			"rolling": {
+				"t": "Batches roll on",
+				"d": "Opening city by city across 40+, all the way to 1,024 sessions (<pow>10</pow>)"
+			}
+		},
+		"who": {
+			"badge": "Who we are",
+			"label": "Track record",
+			"title": "Ten years of community, <em>ten years you can check</em>",
+			"lead": "Coding Girls Club, founded on 1 June 2016 — China's first and largest women-in-programming community, run as a social enterprise.",
+			"stats": [
+				{
+					"v": "10",
+					"l": "Cities reached"
+				},
+				{
+					"v": "50+",
+					"l": "In-person workshops"
+				},
+				{
+					"v": "17",
+					"l": "University partners"
+				},
+				{
+					"v": "4,000+",
+					"l": "Participants"
+				},
+				{
+					"v": "1,000+",
+					"l": "Coaches"
+				},
+				{
+					"v": "20M+",
+					"l": "Total reads"
+				}
+			],
+			"statsCap": "Historical: cumulative to 2025 (2016–2025)",
+			"endorse": [
+				{
+					"text": "Published at ICSE CHASE 2021 (IEEE)",
+					"url": "https://cmustrudel.github.io/papers/chase21code_camps.pdf"
+				},
+				{
+					"text": "UNDP \"Tech for Philanthropy\" case study (2018)",
+					"url": "https://www.undp.org/zh/china/publications/kejiyucishankechixufazhanxingdongbaogao"
+				},
+				{
+					"text": "Partnership Award, Communist Youth League Central Committee"
+				},
+				{
+					"text": "UNDP China on LinkedIn · #HerStory #WomenInTech",
+					"url": "https://www.linkedin.com/posts/undp-china_herstory-womenintech-%E7%A7%91%E6%8A%80%E9%81%87%E8%A7%81%E5%A5%B9-activity-6787232105513525248-w6vp"
+				},
+				{
+					"text": "China Daily (2017)",
+					"url": "https://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
+				},
+				{
+					"text": "Global Times",
+					"url": "https://www.globaltimes.cn/content/954372.shtml"
+				},
+				{
+					"text": "CCTV (CGTN)",
+					"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
+				},
+				{
+					"text": "Guokr"
+				},
+				{
+					"text": "A participant's story",
+					"url": "https://mp.weixin.qq.com/s/IfRSC8sA7THv-YPBa4_XAg"
+				}
+			],
+			"lever": "What one campaign aims to reach ≈ what the past ten years have reached in total"
+		},
+		"brand": {
+			"badge": "Sponsorship",
+			"label": "Batch by batch",
+			"title": "32 sessions a batch (<pow>5</pow>), <em>rolling with your brand</em>",
+			"lead": "Multiple brands per batch, courses developed by the CGC course team, zero commission — your brand stands where ordinary people ship their first working build, side by side with the 1,024-session plan.",
+			"benefitsTitle": "What you get",
+			"benefits": {
+				"reach": {
+					"t": "Brand presence",
+					"d": "The first 64 sessions (<pow>6</pow>) bring 512–2,048 participants on site (this round's plan, 8–32 per session) — your brand stands next to every first working build"
+				},
+				"data": {
+					"t": "Data and cases",
+					"d": "A library of participant builds, anonymised real usage data, and a batch delivery report published jointly"
+				},
+				"network": {
+					"t": "Channel network",
+					"d": "40+ city moderators, 128 (<pow>7</pow>) volunteers, and recruiting channels built on 17 university partnerships and interest communities"
+				},
+				"esg": {
+					"t": "ESG and brand trust",
+					"d": "A publicly verifiable public-interest record — including the UNDP \"Tech for Good\" case (2018) — that goes straight into your CSR narrative"
+				},
+				"exposure": {
+					"t": "Reach, start to finish",
+					"d": "Your name on recruiting assets, social, press and the batch impact report (the organiser's historical reads total 20M+, cumulative 2016–2025)"
+				}
+			},
+			"benefitsCap": "Hardest evidence first — one line and one verifiable number per item.",
+			"capsTitle": "How we deliver",
+			"caps": {
+				"course": {
+					"t": "Curriculum",
+					"d": "The three-hour intro workshop runs on a standing schedule; the professional AI Agent course is developed and iterated by the CGC course team (60–100 hours per course)"
+				},
+				"ops": {
+					"t": "Operations engine",
+					"d": "Classes of 8 (<pow>3</pow>) opening, 32 (<pow>5</pow>) full, with deposits as the no-show control; 40+ city moderators and 128 (<pow>7</pow>) volunteers; every session delivered to one playbook"
+				},
+				"data": {
+					"t": "Data platform",
+					"d": "Registration, deposits, check-in and learning records all run in-house; data comes back from every session into a batch delivery report, broken out per sponsor"
+				}
+			},
+			"openqsTitle": "What we can do together",
+			"openqs": [
+				{
+					"t": "On-site presence",
+					"d": "Your product appears on site as one of the options for storing and showing learner projects — experience first, no conversion KPIs"
+				},
+				{
+					"t": "Where charity reaches",
+					"d": "Schools, cities or mountain regions you want to support but have never reached — a batch can go there, written into the ESG story together"
+				},
+				{
+					"t": "Anything else",
+					"d": "Scholarships, certification, a talent pipeline… the brief is open; let's design it together"
+				}
+			],
+			"openqsCap": "These are open questions — bring yours and let's talk.",
+			"structure": [
+				"Partnership sponsorship",
+				"32 sessions / batch (2⁵), rolling",
+				"First batch validated, then the next"
+			],
+			"cta": "Talk sponsorship · reply within 48 hours",
+			"ctaNote": "partners@codinggirlsclub.com · Partnership opens batch by batch; the first batch is in preparation"
+		},
+		"follow": {
+			"qr": "Coding Girls Club WeChat official account QR code — scan to follow",
+			"title": "Follow along before registration opens",
+			"desc": "Sessions go live from 24 Oct 2026 — be first to know when registration opens."
+		},
+		"footer": {
+			"org": "Coding Girls Club · founded 2016 · codinggirlsclub.com",
+			"volunteer": "No session in your city yet? Volunteer and bring one →"
+		}
+	},
+	"volunteerApply": {
+		"hero": {
+			"eyebrow": "#HACKERSTART1024 · BECOME A VOLUNTEER · JOIN THE CREW",
+			"title": "Bring Hacker Start 1024 <em>to your city</em>",
+			"sub": "We are recruiting the volunteer crew: run a three-hour workshop, or turn the curriculum into tutorials.",
+			"nums": [
+				"40+ cities and growing",
+				"8-32 people per session",
+				"1,024 sessions"
+			],
+			"ctaApply": "Apply now",
+			"ctaRoles": "See the roles"
+		},
+		"cohort": {
+			"badge": "Current cohort",
+			"label": "Cohort",
+			"title": "One cohort at a time, <em>with dates you can plan around</em>",
+			"note": "Each cohort is recruited and scheduled on its own — miss this one and you can apply again when the next opens.",
+			"loading": "Loading cohort information…",
+			"loadFailed": "Could not load the cohort information.",
+			"retryHint": "A failed read is never shown as “no open cohort” — that would report an outage as an empty cohort.",
+			"emptyBadge": "No cohort",
+			"emptyTitle": "No cohort is open right now",
+			"emptyDesc": "The next opening date is to be confirmed; come back to this page once it opens.",
+			"loginRequired": "Log in to see the current cohort, its deadline and the application entry.",
+			"openBadge": "Open now",
+			"deadline": "Apply by {time}",
+			"period": "Delivery window: {time}",
+			"cta": "Apply to this cohort"
+		},
+		"roles": {
+			"badge": "Pick your role",
+			"label": "Open Roles",
+			"title": "One crew, <em>three ways in</em>",
+			"featured": "Most needed now",
+			"dutyTitle": "What you do",
+			"reqTitle": "What we look for",
+			"pill": [
+				"One role per cohort",
+				"Pick another role next cohort",
+				"Roles are not exclusive once you are in — switch per session"
+			],
+			"items": [
+				{
+					"id": "event_moderator",
+					"t": "Event Moderator",
+					"en": "Event Moderator",
+					"featured": true,
+					"duty": [
+						"Before the session: coordinate venue and timing, help with promotion (sign-ups run on the platform — no forms for you to build), prepare the room from the kit list",
+						"Three hours on site: run the session SOP — 15-minute kickoff → 2 hours building → 30-minute demo; the kit and the agent's adaptive learning carry the technical parts",
+						"After the session: collect projects, pull the data (the platform does it), gather photos for social media, do a short retrospective — then run the next one"
+					],
+					"reqs": [
+						"Believe in the mission: helping ordinary people make their first real thing with an agent",
+						"Can host an offline session for 8+ people (you have a venue or a community)",
+						"One weekend per round plus prep time; 18 or older",
+						"No programming background required — the kit and the agent cover the technical parts"
+					]
+				},
+				{
+					"id": "tutor",
+					"t": "Tutor",
+					"en": "Tutor",
+					"duty": [
+						"Turn the agent workshop curriculum into reusable tutorials and example projects",
+						"Iterate teaching content, cases and exercises together with the curriculum team",
+						"Make teaching quality repeatable across every session"
+					],
+					"reqs": [
+						"Programming and writing skills — you can explain technology to non-programmers",
+						"Experience with agent coding tools is a plus",
+						"Roughly 5-10 hours per course unit",
+						"Remote collaboration, any city"
+					]
+				},
+				{
+					"id": "coach",
+					"t": "Coach",
+					"en": "Coach",
+					"duty": [
+						"Hands-on teaching support on site: roam the room, answer questions, help participants through the build",
+						"Look around, unblock people — participants self-learn; coaches do not lecture",
+						"Work with the moderator to protect the experience of each session"
+					],
+					"reqs": [
+						"Have used agent coding tools and can unblock the usual on-site snags",
+						"Willing to run alongside participants and learn by teaching; no teaching experience needed",
+						"Shift-based: three hours per session",
+						"On site in a city that runs sessions"
+					]
+				}
+			],
+			"tablistLabel": "Choose a role"
+		},
+		"deep": {
+			"badge": "Inside the Event Moderator role",
+			"label": "Role Deep-dive",
+			"quote": "“The most meaningful way to succeed is to help others succeed.”",
+			"quoteBy": "— Adam Grant, Give and Take",
+			"title": "Give a weekend, <em>gain a city</em>",
+			"duty": [
+				{
+					"t": "Before the session",
+					"d": "Coordinate venue and timing, help with promotion (sign-ups run on the platform — no forms for you to build), prepare the room from the kit list"
+				},
+				{
+					"t": "Three hours on site",
+					"d": "Run the session SOP: 15-minute kickoff → 2 hours building → 30-minute demo; the kit and the agent's adaptive learning carry the technical parts"
+				},
+				{
+					"t": "After the session",
+					"d": "Collect projects, pull the data (the platform does it), gather photos for social media with #hackerstart1024, do a short retrospective — then run the next one"
+				}
+			],
+			"supply": [
+				{
+					"t": "Curriculum kit and SOP",
+					"d": "Ready-made content, a session playbook and the agent's adaptive learning platform — follow them and you can run a session"
+				},
+				{
+					"t": "Operations platform",
+					"d": "Sign-ups, the 87 yuan deposit and on-site check-in run end to end on the platform — no money passes through your hands"
+				},
+				{
+					"t": "Free venue partnerships",
+					"d": "We aim for free partner venues; café sessions are supported by what participants spend on site — no venue budget pressure, you just coordinate the room"
+				},
+				{
+					"t": "Community and reach",
+					"d": "A network of moderators in 40+ cities, 128 volunteers, campaign-level promotion; volunteer benefits are being finalised"
+				}
+			]
+		},
+		"flow": {
+			"badge": "From application to kickoff",
+			"label": "The Journey",
+			"title": "Four steps, <em>and you always know what happens next</em>",
+			"cap": "Timings are current expectations (draft) — every step notifies you by email and in the mini program",
+			"steps": [
+				{
+					"t": "Apply",
+					"when": "about 15 minutes",
+					"what": "Two small steps: complete your resume profile first (upload once, reused across cohorts), then apply for the project (cohort, role, city, commitment)",
+					"you": "One role per cohort",
+					"notice": "A confirmation email when you submit"
+				},
+				{
+					"t": "Interview",
+					"when": "about 1 week",
+					"what": "If you pass the first review, you join a WeChat group to schedule a group interview — a 30-second introduction plus a group discussion of a reading",
+					"you": "30 minutes online; show how you communicate and organise",
+					"notice": "Interview results by email and mini program"
+				},
+				{
+					"t": "Training camp",
+					"when": "1-2 weeks",
+					"what": "An online training camp (a course on the platform): curriculum walkthrough plus joint preparation, attendance confirmed; operations then adds you to the course",
+					"you": "Walk through the whole kit once, covering every part of your first session",
+					"notice": "Camp scheduling and results by email and mini program"
+				},
+				{
+					"t": "Assignment",
+					"when": "after the camp",
+					"what": "A moderator is assigned to your city's session; tutors receive curriculum tasks — you are part of the volunteer network",
+					"you": "Schedule at your own pace, with the platform behind you",
+					"notice": "Assignment details by email and mini program"
+				}
+			]
+		},
+		"faq": {
+			"badge": "Questions",
+			"label": "FAQ",
+			"title": "Before you apply, <em>what you probably want to ask</em>",
+			"groups": [
+				{
+					"g": "Everyone asks",
+					"items": [
+						{
+							"q": "Does it cost anything?",
+							"a": "No. Volunteers contribute no money and take no cut: the registration deposit (87 yuan, refunded on attendance) runs entirely on the platform, so you handle organisation, not money. Venues are mostly free partnerships and never come out of your budget."
+						},
+						{
+							"q": "How is my resume used?",
+							"a": "It goes into your volunteer resume profile: reusable for this and later cohorts without re-uploading, and editable at any time. Only the recruitment team can see it, under PIPL, and never for anything beyond recruitment."
+						},
+						{
+							"q": "How many roles can I apply for in one cohort?",
+							"a": "One. You pick a single role from the available ones per cohort; you can apply for a different role in the next cohort."
+						},
+						{
+							"q": "Can I take on more than one role?",
+							"a": "Yes. You apply for one role per cohort, but roles are not exclusive once you are in — a tutor can coach offline sessions too, depending on sessions and tasks."
+						}
+					]
+				},
+				{
+					"g": "Event Moderator",
+					"items": [
+						{
+							"q": "Do I need a programming background?",
+							"a": "No. The curriculum kit and the agent's adaptive learning carry the technical parts — the best preparation is to take part in a session yourself first."
+						},
+						{
+							"q": "Who sorts out the venue?",
+							"a": "We aim for free partner venues: community spaces, company meeting rooms, university classrooms. For café sessions, participants support the venue by spending on site (one coffee covers it; no separate venue fee). You choose and coordinate the place."
+						},
+						{
+							"q": "How many people per session? I have limited time.",
+							"a": "Eight people is enough to run one (2³), 32 fills it (2⁵). Start with one session per round and scale once it runs smoothly."
+						}
+					]
+				},
+				{
+					"g": "Coach",
+					"items": [
+						{
+							"q": "Do I have to teach?",
+							"a": "No. Participants mostly self-learn with the agent, while coaches roam the room, answer questions and help people through the build — look around, unblock a few people, that is the job."
+						},
+						{
+							"q": "How do coaches and moderators work together?",
+							"a": "The moderator owns the session organisation; the coach owns the in-room experience. You can coach only, or do both roles across different sessions."
+						}
+					]
+				},
+				{
+					"g": "Tutor",
+					"items": [
+						{
+							"q": "How much time does a course take?",
+							"a": "Roughly 5-10 hours per course unit, counted by course rather than fixed weekly hours."
+						},
+						{
+							"q": "How do we collaborate?",
+							"a": "Remotely and asynchronously with the curriculum team, from any city; the tutorials you write get reused by sessions nationwide."
+						}
+					]
+				}
+			]
+		},
+		"form": {
+			"badge": "Application",
+			"label": "Apply",
+			"title": "Two steps, <em>resume first, then the project</em>",
+			"lead": "Fill this in after logging in; returning applicants can update their resume and skip the re-upload.",
+			"checking": "Confirming your sign-in…",
+			"loginFirst": "You need to log in to apply: after logging in you come back here and finish both steps (complete the resume profile, then apply for the project).",
+			"login": "Log in and continue",
+			"register": "No account yet? Register",
+			"appliedTitle": "You have already applied for this cohort",
+			"appliedDesc": "One role per cohort; you can apply for a different role when the next cohort opens.",
+			"stepNow": "Step {n} · current",
+			"stepDone": "Step {n} · done",
+			"stepTodo": "Step {n}",
+			"step1Title": "Step 1 · Resume profile",
+			"step2Title": "Step 2 · Apply for the project",
+			"profileReused": "We found your resume profile: it is reused across cohorts, so there is nothing to re-upload; you can still replace the file.",
+			"fullName": "Name",
+			"contactEmail": "Contact email (results for every step)",
+			"contactEmailFromAccount": "Using your account email; change it in account settings if needed.",
+			"weeklyHours": "Hours per week you can commit (optional)",
+			"skills": "Skills (multiple choice)",
+			"skillOptions": [
+				{
+					"value": "organizing",
+					"label": "Organising"
+				},
+				{
+					"value": "community",
+					"label": "Community"
+				},
+				{
+					"value": "writing",
+					"label": "Writing"
+				},
+				{
+					"value": "development",
+					"label": "Development"
+				},
+				{
+					"value": "design",
+					"label": "Design"
+				},
+				{
+					"value": "other",
+					"label": "Other"
+				}
+			],
+			"resume": "Resume (PDF / Word, up to 5MB; reused across cohorts)",
+			"consentPrefix": "I have read and agree that the recruitment team may process the personal information I submit under the ",
+			"consentLink": "Privacy Policy",
+			"consentSuffix": ": visible to the recruitment team only, and never used beyond recruitment.",
+			"consentRequired": "Tick the collection notice and consent before uploading or submitting.",
+			"profileIncomplete": "Please fill in your name and contact email.",
+			"fileRequired": "Please upload your resume first (PDF / Word, up to 5MB).",
+			"uploadNeedsProfile": "Fill in your name and contact email before uploading the resume file.",
+			"uploadFailed": "Resume upload failed. Please try again.",
+			"saving": "Saving…",
+			"next": "Next: apply for the project",
+			"back": "Back",
+			"cohortLine": "Cohort: {name}",
+			"position": "Role (pick one)",
+			"positionNote": "One role per cohort; you can pick another role next cohort.",
+			"city": "City",
+			"cityHint": "Tutors can enter “Remote”; moderators and coaches enter the city running sessions.",
+			"heardAboutUs": "How did you hear about us",
+			"hasReferrer": "I have an internal referral",
+			"message": "Anything you want to tell us (optional)",
+			"noticeHint": "Every step notifies you by email and in the WeChat mini program; subscription consent is collected inside the mini program.",
+			"privacyNote": "Your resume profile is visible to the recruitment team only, follows PIPL, and is never used beyond recruitment.",
+			"submitting": "Submitting…",
+			"submit": "Submit application",
+			"submitFailed": "Submission failed. Please try again later.",
+			"anonCohortHint": "Log in to see the current cohort, its deadline and the application entry.",
+			"previewSteps": [
+				{
+					"n": 1,
+					"t": "Resume profile",
+					"fields": [
+						"Upload resume (PDF / Word, reused across cohorts)",
+						"Name · contact email (required for phone-signup accounts)",
+						"Weekly hours you can invest",
+						"Skill tags (multi-select)"
+					]
+				},
+				{
+					"n": 2,
+					"t": "Apply for a track",
+					"fields": [
+						"Cohort (defaults to the current one: Batch 1)",
+						"Role (single choice: Event Moderator / Tutor / Coach)",
+						"City (Tutors may enter \"Remote\")",
+						"How you found us",
+						"Internal referral (yes / no)",
+						"A note for us (optional)"
+					]
+				}
+			]
+		},
+		"upload": {
+			"choose": "Choose a file",
+			"replace": "Replace resume",
+			"uploading": "Uploading…",
+			"hint": "PDF / Word (.pdf / .doc / .docx), up to 5MB",
+			"uploaded": "Uploaded: {name} ({size})",
+			"rejectType": "Only PDF / Word files are supported (.pdf / .doc / .docx).",
+			"rejectSize": "The file exceeds the 5MB limit. Compress it and upload again.",
+			"consentRequired": "Tick the collection notice and consent below to upload your resume."
+		},
+		"myApps": {
+			"badge": "My application",
+			"label": "My Application",
+			"title": "After you submit, <em>check it any time</em>",
+			"submitted": "Submitted! Your application is in the list, and the stage updates as the review moves.",
+			"loading": "Loading your applications…",
+			"loadFailed": "Could not load your applications.",
+			"empty": "No applications yet: finish the two-step form and your stage shows up here.",
+			"city": "City: {city}",
+			"rejected": "Not selected this cohort: you can apply again next cohort.",
+			"canceled": "This application was cancelled.",
+			"rejectionReason": "Reason: {reason}",
+			"assignmentNote": "Assignment note: {note}",
+			"assignedAt": "Assigned at: {time}",
+			"anonHint": "Log in to see your application progress."
+		},
+		"stageLabels": {
+			"submitted": "Applied",
+			"interview": "Interview",
+			"training": "Training camp",
+			"assigned": "Assignment"
+		},
+		"statusLabels": {
+			"submitted": "Submitted",
+			"interview": "Interview",
+			"training": "Training camp",
+			"assigned": "Assigned",
+			"rejected": "Not selected",
+			"canceled": "Cancelled"
+		},
+		"positions": {
+			"event_moderator": "Event Moderator",
+			"tutor": "Tutor",
+			"coach": "Coach"
+		},
+		"footer": {
+			"org": "Coding Girls Club · Hacker Start 1024",
+			"back": "← Back to the campaign page",
+			"hashtag": "#hackerstart1024"
+		}
+	},
+	"recruitmentPanel": {
+		"title": "Volunteer recruitment review",
+		"description": "Review volunteer applications: cohorts, stage transitions, project assignment, and resumes.",
+		"loading": "Loading…",
+		"loadFailed": "Failed to load recruitment data.",
+		"actionFailed": "The action failed. Try again shortly.",
+		"positions": {
+			"event_moderator": "Event Moderator",
+			"tutor": "Tutor",
+			"coach": "Coach"
+		},
+		"status": {
+			"submitted": "Submitted",
+			"interview": "Interview",
+			"training": "Training",
+			"assigned": "Assigned",
+			"rejected": "Rejected",
+			"canceled": "Canceled"
+		},
+		"cohorts": {
+			"title": "Cohorts",
+			"empty": "No cohorts yet — create one first.",
+			"status": {
+				"draft": "Draft",
+				"open": "Open",
+				"closed": "Closed"
+			},
+			"deadline": "Closes {date}",
+			"open": "Open",
+			"close": "Close",
+			"create": "New cohort",
+			"namePlaceholder": "Cohort name (e.g. Batch 1)",
+			"deadlineLabel": "Application deadline"
+		},
+		"applications": {
+			"title": "Applications",
+			"empty": "No applications yet.",
+			"remote": "Remote",
+			"detail": "Details",
+			"filterCohort": "Filter by cohort",
+			"filterStatus": "Filter by status",
+			"allCohorts": "All cohorts",
+			"allStatuses": "All statuses"
+		},
+		"actions": {
+			"advance_interview": "Advance to interview",
+			"advance_training": "Advance to training",
+			"assign": "Assign",
+			"reject": "Reject",
+			"cancel": "Cancel"
+		},
+		"reject": {
+			"reasonPlaceholder": "Rejection reason (required; sent to the applicant)",
+			"reasonLabel": "Rejection reason",
+			"confirm": "Confirm rejection"
+		},
+		"assign": {
+			"eventLabel": "Assign to session",
+			"noEvent": "No session (e.g. Tutor)",
+			"notePlaceholder": "Assignment note (e.g. course tasks)",
+			"noteLabel": "Assignment note",
+			"confirm": "Confirm assignment"
+		},
+		"cancel": {
+			"notePlaceholder": "Cancellation note (optional)",
+			"noteLabel": "Cancellation note",
+			"confirm": "Confirm cancellation"
+		},
+		"detail": {
+			"fullName": "Name",
+			"contactEmail": "Contact email",
+			"download": "Download resume ({name})",
+			"noResume": "No profile yet",
+			"noFile": "No resume file uploaded",
+			"loadFailed": "Failed to load details"
+		},
+		"breadcrumbHome": "Workspace",
+		"retry": "Retry"
 	}
 }

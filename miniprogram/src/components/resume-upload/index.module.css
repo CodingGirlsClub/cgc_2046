@@ -1,0 +1,13 @@
+/* 简历上传控件样式：token 取自既有页面（橙 #ea5504 / 白卡 22rpx 圆角 / 灰 #8a8f98），
+   数值按小程序惯例以 rpx（750 设计宽度）书写。 */
+
+.wrap { padding: 20rpx 0 4rpx; }
+.label { display: block; color: #222326; font-size: 26rpx; font-weight: 600; }
+.file { display: block; margin-top: 10rpx; color: #222326; font-size: 24rpx; }
+.hint { display: block; margin-top: 10rpx; color: #8a8f98; font-size: 24rpx; line-height: 1.5; }
+.button {
+  margin: 18rpx 0 0; height: 64rpx; line-height: 64rpx; padding: 0 32rpx;
+  color: #ea5504; background: #fdeadf; border-radius: 999rpx;
+  font-size: 24rpx; font-weight: 600;
+}
+.note { display: block; margin-top: 12rpx; color: #8a8f98; font-size: 22rpx; line-height: 1.5; }
