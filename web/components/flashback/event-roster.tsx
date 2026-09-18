@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import { usePrefersReducedMotion } from "./use-reduced-motion";
 import PolaroidFlip from "./polaroid-flip";
+import { tiltClass } from "./tilt";
 
 /** 折叠阈值：首屏叠照张数；不足两行（<2×行容量）的小场不折叠 */
 const COLLAPSED_COUNT = 12;
@@ -39,7 +40,7 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 	const renderCard = (entry: FlashbackCapsuleArchive["roster"][number]) => (
 		<li
 			key={entry.id}
-			className={`fb-roster-card${entry.sentToWallAt ? " fb-roster-card--lit" : ""}${
+			className={`fb-roster-card ${tiltClass(entry.id)}${entry.sentToWallAt ? " fb-roster-card--lit" : ""}${
 				expanded && !reduced ? " fb-roster-card--in" : ""
 			}`}
 			data-testid="fb-roster-card"
