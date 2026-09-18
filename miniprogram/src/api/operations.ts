@@ -523,6 +523,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         occurredOn
         appliedCount
         attendedCount
+        label
         isMine
         roster {
           id
@@ -574,6 +575,7 @@ export const FlashbackPublicStatsQueryDocument = /* GraphQL */ `
         occurredOn
         appliedCount
         attendedCount
+        label
       }
       returnedCount
       sentCount

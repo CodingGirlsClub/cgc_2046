@@ -162,7 +162,7 @@ export default function FlashbackCorridorPage() {
     <View className={styles.page}>
       <ScrollView scrollY className={styles.wall} style={{ height: '100vh' }}>
         <View className={styles.header}>
-          <Text className={styles.title}>闪念间 · 时间胶囊</Text>
+          <Text className={styles.title}>闪念间 · 时间长廊</Text>
           <Text className={styles.hint}>↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场</Text>
         </View>
 
@@ -187,12 +187,12 @@ export default function FlashbackCorridorPage() {
                 {frame.when}
                 {frame.label ? <Text className={styles.frameLabel}> {frame.label}</Text> : null}
               </Text>
-              <Text className={styles.frameOpen}>进入这一场 →</Text>
             </View>
             <View className={styles.piles}>
               {frame.piles.map((pile, index) => (
-                <View key={pile.city} className={styles.pile}>
-                  {/* 转角五档按堆序取模（确定性，无 Math.random；CSS 见 .tilt0-.tilt4） */}
+                <View key={pile.city} className={styles.pile} hoverClass={styles.pilePressed} hoverStayTime={120}>
+                  {/* 转角五档按堆序取模（确定性，无 Math.random；CSS 见 .tilt0-.tilt4）。
+                      点堆进场次：帧级 onClick 已覆盖（整帧可点），按压反馈给「堆」入口。 */}
                   <View className={`${styles.pileCard} ${styles[`tilt${(index * 2) % 5}`]}`}>
                     <Text className={styles.pileCity}>{pile.city}</Text>
                   </View>
@@ -226,7 +226,7 @@ export default function FlashbackCorridorPage() {
         {/* 未来行动卡（参与态）：proposed/forming/scheduled/done */}
         {mode.kind === 'member' && (
           <View className={`${styles.frame} ${styles.futureFrame}`}>
-            <Text className={styles.frameWhen}>未来 · 一起做点什么</Text>
+            <Text className={styles.frameWhen}>未来 · 一起做点什么<Text className={styles.frameLabel}> 未显影 · 等你们共创</Text></Text>
             {orderedCards.length === 0 && (
               <Text className={styles.futureEmpty}>还没有提议的卡——回信里许下的愿望经运营确认后会成卡上墙。</Text>
             )}

@@ -135,9 +135,10 @@
   font-size: 20rpx;
 }
 
-/* 确定性转角五档（按堆序取模，不依赖 Math.random——e2e/单测可精确断言） */
-.tilt0 { transform: rotate(-4deg); }
+/* 确定性转角五档（按堆序取模，不依赖 Math.random——e2e/单测可精确断言；±5° 错落） */
+.tilt0 { transform: rotate(-5deg); }
 .tilt1 { transform: rotate(-2deg); }
+.pilePressed { transform: scale(0.96); opacity: 0.85; }
 .tilt2 { transform: rotate(1deg); }
 .tilt3 { transform: rotate(3deg); }
 .tilt4 { transform: rotate(5deg); }

@@ -185,7 +185,8 @@ export function corridorFrames(archives: FlashbackCapsuleArchive[]): CorridorFra
     .map((archive) => ({
       key: archive.key,
       when: archive.occurredOn ? archive.occurredOn.slice(0, 10).replace(/-/g, '.') : archive.key,
-      label: archive.name ?? '',
+      // 叙事短标签（原型 D ia-frame-label）优先；导入未带时回落场次名
+      label: archive.label ?? archive.name ?? '',
       piles: corridorPiles(archive.roster),
       returned: archive.roster.filter((entry) => entry.sentToWallAt).length
     }))
@@ -208,7 +209,7 @@ export function statsFrames(archives: FlashbackPublicStatsArchive[]): CorridorFr
       return {
         key: archive.key,
         when: archive.occurredOn ? archive.occurredOn.slice(0, 10).replace(/-/g, '.') : archive.key,
-        label: archive.name ?? '',
+        label: archive.label ?? archive.name ?? '',
         piles: city ? [{ city, count }] : [],
         returned: 0
       }

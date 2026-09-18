@@ -391,6 +391,8 @@ export interface FlashbackCapsuleArchive {
   occurredOn: string | null
   appliedCount: number | null
   attendedCount: number | null
+  /** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
+  label: string | null
   isMine: boolean
   roster: FlashbackRosterEntry[]
 }
@@ -451,6 +453,7 @@ export interface FlashbackPublicStatsArchive {
   occurredOn: string | null
   appliedCount: number | null
   attendedCount: number | null
+  label: string | null
 }
 
 export interface FlashbackPublicStats {

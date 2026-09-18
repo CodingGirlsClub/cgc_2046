@@ -411,27 +411,30 @@ CORRIDOR='pages/flashback-corridor'
 CTITLE=$(cls "$CORRIDOR" title)
 CHINT=$(cls "$CORRIDOR" hint)
 CFRAME_WHEN=$(cls "$CORRIDOR" frameWhen)
-CFRAME_OPEN=$(cls "$CORRIDOR" frameOpen)
 CPILE=$(cls "$CORRIDOR" pile)
+CPILE_CARD=$(cls "$CORRIDOR" pileCard)
+CFRAME_LABEL=$(cls "$CORRIDOR" frameLabel)
 CPILE_COUNT=$(cls "$CORRIDOR" pileCount)
 CRETURNED=$(cls "$CORRIDOR" frameReturned)
 CTODAY_SUB=$(cls "$CORRIDOR" todaySub)
 CFUTURE_CARD=$(cls "$CORRIDOR" futureCard)
 CCTA=$(cls "$CORRIDOR" cta)
-ck "墙头「闪念间 · 时间胶囊」" "$(RES automation_element_action --action text --selector "$CTITLE")" '^闪念间 · 时间胶囊$'
+ck "墙头「闪念间 · 时间长廊」（用户定稿改名）" "$(RES automation_element_action --action text --selector "$CTITLE")" '^闪念间 · 时间长廊$'
 ck "下滑=时间前进提示" "$(RES automation_element_action --action text --selector "$CHINT")" '^↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场$'
 ck "帧标 4 = 2 过去帧 + ⚡今天格 + 未来帧（升序）" "$(COUNT "$CFRAME_WHEN")" '^4$'
 ck "第一帧=2012.02.26（顶上是更早的）" "$(RES automation_element_action --action text --selector "$CFRAME_WHEN")" '^2012\.02\.26'
 ck "城市堆 4（上海场 1 城 + 北京场 北京/上海/广州 3 堆，上限 4）" "$(COUNT "$CPILE")" '^4$'
 ck "首堆计数=上海 · 3 位" "$(RES automation_element_action --action text --selector "$CPILE_COUNT")" '^上海 · 3 位$'
+ck "首帧叙事标签=一切的开始（原型 D ia-frame-label）" "$(RES automation_element_action --action text --selector "$CFRAME_LABEL")" '^一切的开始$'
 ck "第一帧（上海场）已回来=2 位" "$(RES automation_element_action --action text --selector "$CRETURNED")" '^2 位已回来$'
 ck "今天格=你刚寄出的照片" "$(RES automation_element_action --action text --selector "$CTODAY_SUB")" '^你刚寄出的照片$'
 ck "未来行动卡 4 张" "$(COUNT "$CFUTURE_CARD")" '^4$'
 ck "序列终点 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CCTA")" '^把这一刻做成卡片 →$'
 shot 13-corridor.png
-TAP "$CFRAME_OPEN"
+# 堆可点（用户定稿收尾：文字链接已删，点堆=唯一格入口）
+TAP "$CPILE_CARD"
 wait_route '/pages/flashback-event/index' || true
-ck "点格进场次页" "$(ROUTE)" '"/pages/flashback-event/index\?key=2012-02-26-sh"'
+ck "点堆进场次页" "$(ROUTE)" '"/pages/flashback-event/index\?key=2012-02-26-sh"'
 
 echo "### 13.5) 场次页（E 的 event 步）：统计行+3 列网格+找回 CTA"
 RAW automation_navigate --action reLaunch --url '/pages/flashback-event/index?key=2014-01-11-bj' >/dev/null

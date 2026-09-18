@@ -312,6 +312,7 @@ function flashbackArchives(mySentAt: string | null) {
       ...FLASHBACK_E2E_ARCHIVE,
       appliedCount: 344,
       attendedCount: 102,
+      label: '六城同日',
       isMine: true,
       roster: [
         rosterEntry('fb-person-1', '王**', '王小明', '北京', '测试工程师', mySentAt),
@@ -329,6 +330,7 @@ function flashbackArchives(mySentAt: string | null) {
       occurredOn: '2012-02-26',
       appliedCount: 30,
       attendedCount: 12,
+      label: '一切的开始',
       isMine: false,
       roster: [
         rosterEntry('fb-person-7', '郑**', '郑子涵', '上海', '学生', '2026-09-16T01:00:00Z'),
