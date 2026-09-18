@@ -233,16 +233,22 @@ jobs:
             WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED \
             WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED \
             WECHAT_MP_TEMPLATE_LEARNING_STAGNATION \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED \
+            WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED \
             DOUYIN_MP_APPID DOUYIN_MP_SECRET \
             XHS_MP_APPID XHS_MP_SECRET; do
-          # （原 31 项 + 18 模板 + 2 tt + 2 xhs = 53 项）
+          # （原 31 项 + 24 模板 + 2 tt + 2 xhs = 59 项）
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
           # missing 累积后必须真断言（此前无条件 echo 成功，注释承诺的
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
-          echo "secrets 非空校验通过（53 项）"
+          echo "secrets 非空校验通过（59 项）"
         env:
           KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -292,6 +298,14 @@ jobs:
           WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED: ${{ secrets.WECHAT_MP_TEMPLATE_SPEAKER_ACCEPTED }}
           WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED: ${{ secrets.WECHAT_MP_TEMPLATE_SPEAKER_COMPLETED }}
           WECHAT_MP_TEMPLATE_LEARNING_STAGNATION: ${{ secrets.WECHAT_MP_TEMPLATE_LEARNING_STAGNATION }}
+          # U4 志愿者段位通知六模板（R14）：**待申请**——公众平台申请到模板后补
+          # 同名 GitHub secrets；本步非空断言在缺失时红（fail-closed，旧容器继续服务）
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED }}
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW }}
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING }}
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED }}
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED }}
+          WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED: ${{ secrets.WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED }}
           DOUYIN_MP_APPID: ${{ vars.DOUYIN_MP_APPID }}
           DOUYIN_MP_SECRET: ${{ secrets.DOUYIN_MP_SECRET }}
           XHS_MP_APPID: ${{ vars.XHS_MP_APPID }}

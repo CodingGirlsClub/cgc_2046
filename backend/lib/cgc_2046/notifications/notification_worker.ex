@@ -209,6 +209,57 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       job_meta_keys: ["event_id"],
       unique: :default,
       stale: nil
+    },
+    # 志愿者招募段位通知六模板（U4/KTD6；R14 阶段通知表逐行）：生产方 =
+    # Recruitment.Subscriber（volunteer_application.* 六信号），收件人 = 申请人
+    # 本人；邮件保底发往档案联系邮箱（R9）。模板 ID 待申请（值见 config/*.exs）。
+    %{
+      template_key: "volunteer_application_submitted",
+      id_key: nil,
+      data_keys: ["cohort_name", "position_label"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "volunteer_application_interview",
+      id_key: nil,
+      data_keys: ["cohort_name", "group_time"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "volunteer_application_training",
+      id_key: nil,
+      data_keys: ["cohort_name", "training_starts_at"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "volunteer_application_assigned",
+      id_key: nil,
+      data_keys: ["event_title", "assignment_note"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "volunteer_application_rejected",
+      id_key: nil,
+      data_keys: ["cohort_name", "rejection_reason"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
+    },
+    %{
+      template_key: "volunteer_application_canceled",
+      id_key: nil,
+      data_keys: ["cohort_name", "cancel_note"],
+      job_meta_keys: ["volunteer_application_id", "idempotency_key"],
+      unique: :default,
+      stale: nil
     }
   ]
 
@@ -242,7 +293,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
           {:discard, "consent_exhausted"}
 
         # 配置里缺模板 ID（#606 生产 480 条 discarded 的成因）：
-        # - wechat：18 个模板生产全部注入（deploy.yml 的 allowlist 循环），故这条
+        # - wechat：24 个模板生产全部注入（deploy.yml 的 allowlist 循环），故这条
         #   **只可能是配置事故**——不是「本就不该发」，而是整类通知归零；
         # - tt/xhs：模板未申请（键保留、值 nil，见 runtime.exs 注释）⇒ 这里按设计
         #   终态 discard + 日志，属**已知预期**（运维文档 §6），不是事故。

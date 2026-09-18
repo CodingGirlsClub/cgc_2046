@@ -212,6 +212,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       Cgc2046.Events.CapacityProjectionSubscriber => "capacity_projection_subscriber",
       Cgc2046.Notifications.Subscriber => "subscriber",
       Cgc2046.Events.SpeakerSubscriber => "speaker_subscriber",
+      Cgc2046.Recruitment.Subscriber => "recruitment_subscriber",
       Cgc2046.Sponsorship.SponsorshipEndedSubscriber => "sponsorship_ended_subscriber",
       Cgc2046.Admission.Workers.OfferingCancelRefundWorker => "offering_cancel_refund_worker",
       Cgc2046.Learning.LearningInstantiator => "learning_instantiator",
@@ -548,7 +549,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
     end
   end
 
-  # #244 B2：探测测试 after 恢复 bus 后须等待 9 个 app 级订阅方全部重订阅完成
+  # #244 B2：探测测试 after 恢复 bus 后须等待 10 个 app 级订阅方全部重订阅完成
   # 再返回——terminate_child 期间它们与 fixture 一同进入退避链，restart_child
   # 后订阅窗口（subscriptions == %{}）最长可达退避 cap 级；smoke 无重试断言
   # map_size > 0（async: false 串行），seed 排到紧随即 flake。列表与 smoke
@@ -558,6 +559,7 @@ defmodule Cgc2046.Workflows.SignalSubscriberTest do
       [
         Cgc2046.Notifications.Subscriber,
         Cgc2046.Events.SpeakerSubscriber,
+        Cgc2046.Recruitment.Subscriber,
         Cgc2046.Sponsorship.SponsorshipEndedSubscriber,
         Cgc2046.Learning.LearningInstantiator,
         Cgc2046.Curriculum.Instantiator,

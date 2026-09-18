@@ -51,6 +51,8 @@ defmodule Cgc2046.Application do
       # SpeakerInvitation 生命周期信号 → Oban 异步订阅消息（E-4 #49；
       # SignalIdempotency 幂等去重）。
       Cgc2046.Events.SpeakerSubscriber,
+      # 志愿者段位信号 → 小程序订阅消息 + 邮件保底（U4/R14；KTD6）。
+      Cgc2046.Recruitment.Subscriber,
       # 分享链接预生成（plan 011：订阅 event/course.launched → Oban 异步生成 scheme）。
       Cgc2046.Workflows.ShareSchemeInstantiator,
       # AshAuthentication supervisor (periodic token cleanup etc.)
