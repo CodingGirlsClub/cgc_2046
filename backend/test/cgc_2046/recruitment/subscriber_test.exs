@@ -304,8 +304,9 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
       assert :ok = perform_job(NotificationWorker, job)
 
       assert_receive {:notification, :wechat, %{"data" => data}}
-      assert data["thing1"] == %{"value" => "第 1 批"}
-      assert data["thing2"] == %{"value" => "教程研究员"}
+      # 槽位对齐实际模板（2026-09-18 申请）：thing7=批次名 / thing5=申请职位
+      assert data["thing7"] == %{"value" => "第 1 批"}
+      assert data["thing5"] == %{"value" => "教程研究员"}
 
       assert {:ok, 0} =
                Consent.remaining(applicant.id, :wechat, "volunteer_application_submitted")
