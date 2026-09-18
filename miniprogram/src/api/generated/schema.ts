@@ -106,6 +106,8 @@ export type AdminCourseDetail = {
    * 不得当 0；0 表示真实无已确认报名。
    */
   confirmedCount?: Maybe<Scalars['Int']['output']>;
+  /** 当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造 */
+  currentRevisionNumber?: Maybe<Scalars['Int']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   endsAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
