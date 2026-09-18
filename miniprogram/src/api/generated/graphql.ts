@@ -1074,10 +1074,16 @@ export type PublicInitiativeQuery = { publicInitiative: { id: string, name: stri
 
 export type FlashbackCapsuleQueryVariables = Exact<{
   city?: string | null | undefined;
+  token?: string | null | undefined;
 }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteQuestionKey: string | null, quoteSpan: { start: number, len: number } | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteQuestionKey: string | null, quoteSpan: { start: number, len: number } | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+
+export type FlashbackPublicStatsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackPublicStatsQuery = { flashbackPublicStats: { returnedCount: number, sentCount: number, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null }> } | null };
 
 export type FlashbackEndorseMutationVariables = Exact<{
   cardId: string | number;
@@ -1089,6 +1095,7 @@ export type FlashbackEndorseMutation = { flashbackEndorse: { cardId: string, sta
 
 export type FlashbackSubmitTodayMutationVariables = Exact<{
   input: FlashbackTodayInput;
+  token?: string | null | undefined;
 }>;
 
 
@@ -1098,10 +1105,39 @@ export type FlashbackSetQuoteLicenseMutationVariables = Exact<{
   level: string;
   questionKey?: string | null | undefined;
   chosenQuoteSpan?: FlashbackFogSpanInput | null | undefined;
+  token?: string | null | undefined;
 }>;
 
 
 export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string, questionKey: string | null, chosenQuoteSpan: { start: number, len: number } | null } | null };
+
+export type FlashbackEnterMutationVariables = Exact<{
+  token: string;
+}>;
+
+
+export type FlashbackEnterMutation = { flashbackEnter: { line: string, profile: { fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, role: string, appliedAt: string | null, archive: { key: string, name: string | null, city: string | null, occurredOn: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, fogSpans: Array<{ start: number, len: number } | null> | null } | null> | null } | null, progress: { quoteLevel: string, maskedPhone: string | null, maskedEmail: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null } | null } | null };
+
+export type FlashbackMarkRevealedMutationVariables = Exact<{
+  token: string;
+}>;
+
+
+export type FlashbackMarkRevealedMutation = { flashbackMarkRevealed: { recorded: boolean } | null };
+
+export type FlashbackSendToWallMutationVariables = Exact<{
+  token: string;
+}>;
+
+
+export type FlashbackSendToWallMutation = { flashbackSendToWall: { sentToWallAt: string | null } | null };
+
+export type FlashbackClaimMutationVariables = Exact<{
+  token?: string | null | undefined;
+}>;
+
+
+export type FlashbackClaimMutation = { flashbackClaim: { bound: boolean, boundCount: number, maskedPhone: string | null } | null };
 
 export type FlashbackAdjustFogMutationVariables = Exact<{
   answerId: string | number;

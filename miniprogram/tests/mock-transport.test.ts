@@ -202,12 +202,13 @@ test('mock FlashbackCapsule：未登录 → 顶层 errors（flashback_auth_requi
 test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序；city 过滤 actionCards', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
   type Capsule = { flashbackCapsule: { cities: string[]; actionCards: Array<{ city: string }> } }
-  // 字节序去重排序（与后端 capsule_cities 同口径）
+  // 字节序去重排序（与后端 capsule_cities 同口径）；批次二起 cities 并入
+  // 名册城市（roster 的广州进来），恒全量、不随 city 过滤收缩
   const all = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {})
-  assert.deepEqual(all.flashbackCapsule.cities, ['上海', '北京', '天津', '杭州'])
+  assert.deepEqual(all.flashbackCapsule.cities, ['上海', '北京', '天津', '广州', '杭州'])
 
   const beijing = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, { city: '北京' })
-  assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '天津', '杭州'])
+  assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '天津', '广州', '杭州'])
   assert.deepEqual(
     beijing.flashbackCapsule.actionCards.map((card) => card.city),
     ['北京']

@@ -2277,6 +2277,15 @@ export type FlashbackCapsuleToday = {
   want?: Maybe<Scalars['String']['output']>;
 };
 
+export type FlashbackClaimResult = {
+  /** 是否已绑定（false = 库里没有匹配的未认领档案） */
+  bound: Scalars['Boolean']['output'];
+  /** 本次绑定/已绑定的档案数 */
+  boundCount: Scalars['Int']['output'];
+  /** 掩码回显（完整号码不出接口） */
+  maskedPhone?: Maybe<Scalars['String']['output']>;
+};
+
 export type FlashbackDeletePreviewResult = {
   alreadyDeleted: Scalars['Boolean']['output'];
   /** 将一并删除的附议数 */
@@ -4403,6 +4412,8 @@ export type RootMutationType = {
   flashbackAdminSetQuoteHidden?: Maybe<FlashbackQuoteHiddenResult>;
   /** 兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed */
   flashbackAdminUpdateRedemption?: Maybe<FlashbackRedemptionUpdateResult>;
+  /** 微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案 */
+  flashbackClaim?: Maybe<FlashbackClaimResult>;
   /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
   flashbackDelete?: Maybe<FlashbackDeleteResult>;
   /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交） */
@@ -4787,6 +4798,11 @@ export type RootMutationTypeFlashbackAdminUpdateRedemptionArgs = {
   handledNote?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['ID']['input'];
   status: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackClaimArgs = {
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
