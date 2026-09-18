@@ -357,6 +357,8 @@ export interface FlashbackMyActionCard {
 export interface FlashbackCapsule {
   me: FlashbackMyCard
   actionCards: FlashbackMyActionCard[]
+  /** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
+  cities: string[]
 }
 
 /** 附议提交结果（幂等：再点 = 改角色，firstTime=false） */
@@ -424,7 +426,8 @@ export interface MiniProgramApi {
    * U9/R28「我的闪念间」：登录账号绑定档案的时间胶囊投影（me + 行动板）。
    * 未绑定档案 → FlashbackNotBoundError（页面引导去 web 首程/自助找回）。
    */
-  getFlashbackCapsule(): Promise<FlashbackCapsule>
+  /** city（R34 城市钉）：非空时行动板按城市过滤；cities 供钉条渲染 */
+  getFlashbackCapsule(city?: string | null): Promise<FlashbackCapsule>
   /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
   flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult>
   /** U9/R8：编辑「今天的你」（会话面不重计意图率） */

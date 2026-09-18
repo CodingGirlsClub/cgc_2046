@@ -154,7 +154,8 @@ describe('myCardView（R2 分线 + R3 年数 + R11 寄出态）', () => {
         today: { nowStatus: null, want: null, say: null, sentToWallAt },
         answers: []
       },
-      actionCards: []
+      actionCards: [],
+      cities: []
     })
 
     const onWall = myCardView(capsule('attended', '2026-09-01T00:00:00Z'), new Date('2026-09-18T00:00:00Z'))

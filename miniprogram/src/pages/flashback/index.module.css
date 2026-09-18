@@ -39,6 +39,12 @@
 .licenseLabel { color: #222326; font-size: 25rpx; font-weight: 600; }
 .licenseDesc { display: block; margin-top: 4rpx; color: #8a8f98; font-size: 21rpx; }
 
+/* 城市钉（R34，原型 D ia-pin 语义贴品牌 token）：胶囊钉、选中品牌橙白字、未选白底灰字。
+ * cityPinAll/cityPin 分立——e2e 类名定位（全部钉唯一、城市钉第一匹配） */
+.cityPins { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 6rpx 0 20rpx; }
+.cityPin, .cityPinAll { padding: 8rpx 28rpx; background: #fff; color: #4b4d54; border: 2rpx solid rgba(34,35,38,.08); border-radius: 999rpx; font-size: 22rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,.03); }
+.cityPinActive { background: #ea5504; border-color: #ea5504; color: #fff; font-weight: 600; }
+
 /* 行动板（R13 四态）*/
 .board { padding-bottom: 60rpx; }
 .boardHint { display: block; margin: 6rpx 0 18rpx; color: #8a8f98; font-size: 22rpx; }

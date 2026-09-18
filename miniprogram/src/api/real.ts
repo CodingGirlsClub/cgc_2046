@@ -631,10 +631,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
 
-  async getFlashbackCapsule(): Promise<FlashbackCapsule> {
+  async getFlashbackCapsule(city?: string | null): Promise<FlashbackCapsule> {
     const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
       FlashbackCapsuleQueryDocument,
-      {}
+      { city: city ?? null }
     ).catch((error: unknown) => {
       if (error instanceof GraphQLRequestError) {
         // 登录账号没绑定档案（会话腿 miss）→ 引导态
@@ -694,7 +694,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         endorsementCount: card.endorsementCount,
         endorsedByMe: card.endorsedByMe,
         rolesClaimed: card.rolesClaimed ?? []
-      }))
+      })),
+      cities: capsule.cities ?? []
     }
   }
 

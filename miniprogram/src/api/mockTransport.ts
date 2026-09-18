@@ -587,6 +587,54 @@ function responseFor(document: string, variables: object): unknown {
     }
     const state = flashbackState()
     const endorseCount = (cardId: string) => state.endorsedCardIds.length + (cardId === 'card-forming' ? 4 : 0)
+    // R34 城市钉：卡集按 values.city 过滤；cities 恒全量（模拟后端投影，字节序去重排序）
+    const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
+    const allCards = [
+      {
+        id: 'card-proposed',
+        title: '天津 1024 城市场',
+        city: '天津',
+        status: 'proposed',
+        eventId: null,
+        eventSlug: null,
+        endorsementCount: 0,
+        endorsedByMe: false,
+        rolesClaimed: []
+      },
+      {
+        id: 'card-forming',
+        title: '骑行场',
+        city: '北京',
+        status: 'forming',
+        eventId: null,
+        eventSlug: null,
+        endorsementCount: endorseCount('card-forming'),
+        endorsedByMe: state.endorsedCardIds.includes('card-forming'),
+        rolesClaimed: ['organizer']
+      },
+      {
+        id: 'card-scheduled',
+        title: 'Python 共学场',
+        city: '上海',
+        status: 'scheduled',
+        eventId: 'event-1',
+        eventSlug: 'python-workshop',
+        endorsementCount: 12,
+        endorsedByMe: true,
+        rolesClaimed: ['promoter', 'venue']
+      },
+      {
+        id: 'card-done',
+        title: '杭州开源沙龙',
+        city: '杭州',
+        status: 'done',
+        eventId: null,
+        eventSlug: null,
+        endorsementCount: 8,
+        endorsedByMe: true,
+        rolesClaimed: []
+      }
+    ]
     return {
       flashbackCapsule: {
         me: {
@@ -611,52 +659,10 @@ function responseFor(document: string, variables: object): unknown {
             }
           ]
         },
-        actionCards: [
-          {
-            id: 'card-proposed',
-            title: '天津 1024 城市场',
-            city: '天津',
-            status: 'proposed',
-            eventId: null,
-            eventSlug: null,
-            endorsementCount: 0,
-            endorsedByMe: false,
-            rolesClaimed: []
-          },
-          {
-            id: 'card-forming',
-            title: '骑行场',
-            city: '北京',
-            status: 'forming',
-            eventId: null,
-            eventSlug: null,
-            endorsementCount: endorseCount('card-forming'),
-            endorsedByMe: state.endorsedCardIds.includes('card-forming'),
-            rolesClaimed: ['organizer']
-          },
-          {
-            id: 'card-scheduled',
-            title: 'Python 共学场',
-            city: '上海',
-            status: 'scheduled',
-            eventId: 'event-1',
-            eventSlug: 'python-workshop',
-            endorsementCount: 12,
-            endorsedByMe: true,
-            rolesClaimed: ['promoter', 'venue']
-          },
-          {
-            id: 'card-done',
-            title: '杭州开源沙龙',
-            city: '杭州',
-            status: 'done',
-            eventId: null,
-            eventSlug: null,
-            endorsementCount: 8,
-            endorsedByMe: true,
-            rolesClaimed: []
-          }
-        ]
+        actionCards: cityFilter
+          ? allCards.filter((card) => card.city === cityFilter)
+          : allCards,
+        cities: [...new Set(allCards.map((card) => card.city))].sort()
       }
     }
   }
