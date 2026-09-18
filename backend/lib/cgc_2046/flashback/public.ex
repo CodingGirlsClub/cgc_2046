@@ -126,11 +126,23 @@ defmodule Cgc2046.Flashback.Public do
   # ── 金句墙（R31/R32：授权者的脱敏金句） ─────────────────────────────
 
   @doc """
-  匿名金句墙：`quote_license.level in (anonymous, credited)` 且选定区间
-  非空者——金句文本（区间切片）、署「姓\\*\\* · 年 · 城」。credited 者附
-  public_slug（可链实名页）。未授权者的任何内容不出现。
+  匿名金句墙（R31/R32/R36/R38）：`quote_license.level in (anonymous, credited)`、
+  选定区间非空、且**未被管理端下线**（`hidden_at` 为空，R38）者——金句文本
+  （区间切片）、署「姓\\*\\* · 年 · 城」。credited 者附 public_slug（可链实名页）。
+  未授权者的任何内容不出现。
+
+  ## 点赞（R36）
+
+  - `like_count`：实时 COUNT（不落冗余计数列，去重靠 `flashback_likes` 唯一索引）；
+  - `liked_by_viewer`：按客户端去重键 `voter_key`（`u:<user_id>` / `a:<device_uuid>`）
+    判断本访客是否已赞；不传（nil）恒 false；
+  - **排序 = 点赞数优先、更新时间次之**（涌现排序）——排序在 SQL 里做，
+    `limit 60` 之后才映射 DTO，保证「最热 60 条」而不是「最新 60 条里再排」。
+
+  `person_id` 是点赞的定位键（`flashbackLikeQuote(personId, ...)`）；投影里
+  它是唯一进公开面的内部标识，除点赞外不承载任何可读信息。
   """
-  def quotes do
+  def quotes(voter_key \\ nil) do
     rows =
       Repo.all(
         from(q in "flashback_quote_licenses",
@@ -140,18 +152,41 @@ defmodule Cgc2046.Flashback.Public do
           on: p.id == q.person_id,
           left_join: arch in "flashback_event_archives",
           on: arch.id == p.archive_event_id,
-          where: q.level in ["anonymous", "credited"] and not is_nil(q.chosen_quote_span),
-          order_by: [desc: q.updated_at],
+          where:
+            q.level in ["anonymous", "credited"] and not is_nil(q.chosen_quote_span) and
+              is_nil(q.hidden_at) and is_nil(p.deleted_at),
+          # 涌现排序：点赞数优先、更新时间次之（同一子查询在 select 里复用）
+          # 涌现排序：点赞数优先、更新时间次之（同一子查询在 select 里复用）
+          order_by: [
+            desc:
+              fragment(
+                "(SELECT COUNT(*) FROM flashback_likes l WHERE l.person_id = ?)",
+                q.person_id
+              ),
+            desc: q.updated_at
+          ],
           limit: 60,
           select: %{
             span: q.chosen_quote_span,
             raw_text: a.raw_text,
             full_name: p.full_name,
             surname: p.surname,
+            person_id: q.person_id,
             city: fragment("COALESCE(?, ?)", p.city, arch.city),
             year: fragment("EXTRACT(YEAR FROM ?)::int", arch.occurred_on),
             level: q.level,
-            public_slug: p.public_slug
+            public_slug: p.public_slug,
+            like_count:
+              fragment(
+                "(SELECT COUNT(*) FROM flashback_likes l WHERE l.person_id = ?)",
+                q.person_id
+              ),
+            liked_by_viewer:
+              fragment(
+                "EXISTS (SELECT 1 FROM flashback_likes l WHERE l.person_id = ? AND l.voter_key = ?)",
+                q.person_id,
+                ^voter_key
+              )
           }
         )
       )
@@ -172,7 +207,12 @@ defmodule Cgc2046.Flashback.Public do
          attribution:
            "#{masked(row.full_name, row.surname)} · #{row.year && trunc(row.year)} · #{row.city || ""}",
          level: row.level,
-         public_slug: if(row.level == "credited", do: row.public_slug)
+         public_slug: if(row.level == "credited", do: row.public_slug),
+         # 裸表查询回的是 16 字节 uuid：显式转文本（否则 Jason 序列化炸，且
+         # 点赞定位要用文本 id 比对——既有「uuid binary 炸 Jason」教训同源）
+         person_id: Ecto.UUID.load!(row.person_id),
+         like_count: row.like_count || 0,
+         liked_by_viewer: row.liked_by_viewer || false
        }
      end)}
   end
@@ -195,7 +235,7 @@ defmodule Cgc2046.Flashback.Public do
           on: arch.id == p.archive_event_id,
           where:
             p.public_slug == ^slug and not is_nil(p.public_slug_published_at) and
-              not is_nil(q.chosen_quote_span),
+              not is_nil(q.chosen_quote_span) and is_nil(q.hidden_at),
           left_join: a in "flashback_answers",
           on: a.person_id == p.id and a.question_key == q.question_key,
           select: %{

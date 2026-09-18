@@ -238,7 +238,11 @@
 	color: var(--fb-sub);
 	font-size: 16px;
 	line-height: 2.1;
-	max-width: 280px;
+	/* 布局修复：原来只有 280px 的手机值且没有水平居中——桌面端贴左、行宽过窄
+	   （实测 1573px 视口下文本块中心 x=166，页面中心 787）。手机占满可用宽，
+	   桌面约 34em（≈544px）并居中；字号与行高不动。 */
+	max-width: min(100%, 34em);
+	margin: 0 auto;
 }
 .fb-hint {
 	font-size: 12px;
@@ -868,6 +872,20 @@
 .fb-export-today { font-size: 11px; opacity: 0.85; border-top: 1px solid rgba(0, 0, 0, 0.12); padding-top: 8px; margin: 0; }
 .fb-export-full-line { font-size: 10px; line-height: 1.7; margin: 0; text-align: left; }
 .fb-export-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+/* R37 分享 opt-in：默认不勾；已授权时勾选态 + 禁用（分享改不了档位） */
+.fb-export-optin {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	justify-content: center;
+	margin-top: 14px;
+	font-size: 12px;
+	color: #d9d4ca;
+	cursor: pointer;
+}
+.fb-export-optin input { accent-color: var(--fb-accent); }
+.fb-export-optin input:disabled { cursor: default; }
+.fb-export-optin input:disabled + span { color: #a09a8f; }
 
 /* ── U6 公开层：首页 / 金句墙 / 找回 / 实名页 ─────────────────────── */
 .fb-public { min-height: 100vh; display: flex; flex-direction: column; }
@@ -893,6 +911,29 @@
 }
 .fb-quote-text { color: #d9d4ca; font-size: 14px; line-height: 1.8; margin: 0; font-style: normal; }
 .fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
+/* 点赞（R36）：♡/♥ + 计数——未赞中性灰、已赞品牌金；点击即就地更新 */
+.fb-root .fb-quote-like {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	justify-self: start;
+	background: rgba(239, 233, 219, 0.08);
+	border: 1px solid rgba(239, 233, 219, 0.28);
+	border-radius: 999px;
+	padding: 4px 12px;
+	color: #b9b4aa;
+	font-size: 12px;
+	cursor: pointer;
+}
+.fb-root .fb-quote-like:hover { color: #d9d4ca; border-color: rgba(239, 233, 219, 0.45); }
+.fb-root .fb-quote-like--on,
+.fb-root .fb-quote-like--on:hover {
+	color: var(--fb-accent);
+	border-color: rgba(203, 191, 143, 0.6);
+	background: rgba(203, 191, 143, 0.12);
+}
+.fb-root .fb-quote-like:disabled { opacity: 0.6; cursor: default; }
+.fb-quote-like-count { font-variant-numeric: tabular-nums; }
 .fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
 .fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
 /* 暗底输入控件（实测 bug 2：对比度不足）——文字 ≥7:1、placeholder ≥4.5:1、

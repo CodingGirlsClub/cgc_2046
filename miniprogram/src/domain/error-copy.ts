@@ -15,6 +15,9 @@ export const COPY: Record<string, string> = {
   database_error: '服务暂时不可用，请稍后重试。',
   // 重复活跃报名（唯一约束冲突，含并发）
   enrollment_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
+  // 金句点赞（R36）：IP 窗口限频 / 目标已下墙（R38 下线或授权撤回）
+  flashback_like_rate_limited: '点赞太频繁了，歇一会儿再试。',
+  flashback_quote_not_found: '这句话已经不在墙上了，刷新看看别的。',
   // 核销码生成失败（同场并发撞码，可重试；U4/KTD5）
   enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）

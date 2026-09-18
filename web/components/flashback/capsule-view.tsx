@@ -170,7 +170,7 @@ export default function CapsuleView() {
 				onChanged={reload}
 				filtered={city !== null}
 			/>
-			<CardExport me={capsule.me} />
+			<CardExport me={capsule.me} token={token} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>
 				<DeleteAccount token={token} />

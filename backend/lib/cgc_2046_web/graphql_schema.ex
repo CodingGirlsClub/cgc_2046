@@ -320,9 +320,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
     end
 
-    @desc "闪念间匿名金句墙（U6/R31/R32）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现"
+    @desc "闪念间匿名金句墙（U6/R31/R32/R36）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
     field :flashback_public_quotes, non_null(list_of(non_null(:flashback_public_quote))) do
-      resolve(fn _, _, _ -> Cgc2046.Flashback.Public.quotes() end)
+      @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 likedByViewer 回显"
+      arg(:voter_key, :string)
+
+      resolve(fn _, args, _ ->
+        Cgc2046.Flashback.Public.quotes(Map.get(args, :voter_key))
+      end)
     end
 
     @desc "闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
@@ -2522,6 +2527,46 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "金句点赞/取消（R36）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数"
+    field :flashback_like_quote, :flashback_quote_like_result do
+      arg(:person_id, non_null(:id))
+      arg(:voter_key, non_null(:string))
+      @desc "true=点赞（幂等）；false=取消（幂等）"
+      arg(:liked, non_null(:boolean))
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, person_id} <- validate_like_person_id(args.person_id),
+               {:ok, result} <-
+                 Cgc2046.Flashback.Likes.set_like(
+                   person_id,
+                   args.voter_key,
+                   args.liked,
+                   context_ip(context)
+                 ) do
+            {:ok, result}
+          end
+        end)
+      end)
+    end
+
+    @desc "金句下线开关（R38，PlatformAdmin）：hidden_at 置位/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线）"
+    field :flashback_admin_set_quote_hidden, :flashback_quote_hidden_result do
+      arg(:person_id, non_null(:id))
+      @desc "true=下线；false=恢复"
+      arg(:hidden, non_null(:boolean))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            with {:ok, person_id} <- validate_like_person_id(args.person_id) do
+              Cgc2046.Flashback.QuoteLicenses.set_hidden(actor, person_id, args.hidden)
+            end
+          end)
+        end)
+      end)
+    end
+
     @desc "闪念间·管理员回贴 done（U7/R13，PlatformAdmin）：scheduled → done；活动照片 data-URL（MIME 白名单 + ~3MB 上限）与回顾文字上墙"
     field :flashback_admin_mark_card_done, :flashback_action_card_result do
       arg(:card_id, non_null(:id))
@@ -2536,6 +2581,28 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+  end
+
+  # id 入参形态校验（R36/R38）：Absinthe 的 :id 是 string，非法 uuid 直接进
+  # Ecto.UUID.dump! 会抛；这里 fail-closed 成业务码（不泄露存在性）。
+  defp validate_like_person_id(person_id) when is_binary(person_id) do
+    case Ecto.UUID.cast(person_id) do
+      {:ok, uuid} ->
+        {:ok, uuid}
+
+      :error ->
+        {:error,
+         %{
+           code: "flashback_quote_not_found",
+           message: "quote not found",
+           reason: :quote_not_found
+         }}
+    end
+  end
+
+  defp validate_like_person_id(_) do
+    {:error,
+     %{code: "flashback_quote_not_found", message: "quote not found", reason: :quote_not_found}}
   end
 
   # ── RBAC 类型（#66 角色权限矩阵；原 rbac_types.ex 内联，唯一消费者为本 schema） ──
@@ -3065,6 +3132,12 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:quote_level, non_null(:string))
     @desc "选定金句（R14 摘要卡；off/未选为 null）"
     field(:quote, :string)
+    @desc "选定金句的来源题（R37 分享 opt-in 原样回填：只传 level 会把 span 覆盖成 nil）"
+    field(:quote_question_key, :string)
+    @desc "选定金句的区间（R37 分享 opt-in 与卡片展示同源）"
+    field(:quote_span, :flashback_fog_span)
+    @desc "本人金句的点赞数（R36；仅匿名/实名授权档返回，未授权为 null）"
+    field(:quote_stats, :flashback_quote_stats)
     @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
     field(:answers, non_null(list_of(non_null(:flashback_me_answer))))
   end
@@ -3241,6 +3314,12 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:level, non_null(:string))
     @desc "credited 档才有：链实名档案页"
     field(:public_slug, :string)
+    @desc "点赞定位键（R36）：flashbackLikeQuote 的 personId 入参"
+    field(:person_id, non_null(:id))
+    @desc "实时点赞数（R36，无冗余计数列）"
+    field(:like_count, non_null(:integer))
+    @desc "本访客是否已赞（按 voterKey 去重；未传 voterKey 恒 false）"
+    field(:liked_by_viewer, non_null(:boolean))
   end
 
   object :flashback_public_profile do
@@ -3349,6 +3428,22 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_adjust_fog_result do
     field(:answer_id, non_null(:id))
     field(:fog_spans, list_of(:flashback_fog_span))
+  end
+
+  object :flashback_quote_stats do
+    @desc "点赞数（R36：作者侧回访面，实时 COUNT）"
+    field(:like_count, non_null(:integer))
+  end
+
+  object :flashback_quote_hidden_result do
+    field(:person_id, non_null(:id))
+    @desc "操作后的下线态（true=已下线）"
+    field(:hidden, non_null(:boolean))
+  end
+
+  object :flashback_quote_like_result do
+    @desc "点赞后的实时计数——前端就地更新，免二次拉取"
+    field(:like_count, non_null(:integer))
   end
 
   object :flashback_quote_license_result do

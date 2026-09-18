@@ -49,6 +49,10 @@ defmodule Cgc2046.Flashback.QuoteLicense do
     # 实名补充：「现在在做什么、想法」（:credited 档才消费）。
     attribute(:credited_note, :string, public?: true, writable?: true)
 
+    # R38 平台下线开关：管理端人工撤下红线内容（无审核流水线）。置位后公开读面
+    # （金句墙/实名档案页）立即过滤；本人视图与本人授权档不受影响。
+    attribute(:hidden_at, :utc_datetime_usec, public?: true, writable?: true)
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -83,6 +87,13 @@ defmodule Cgc2046.Flashback.QuoteLicense do
       require_atomic?(false)
       accept([:level, :question_key, :chosen_quote_span, :credited_note])
       change(&validate_span/2)
+    end
+
+    # R38 管理端下线开关（PlatformAdmin；hidden_at 置位/清空）。
+    # 用户面 update 不接受 hidden_at——授权档调整永远动不了下线态。
+    update :set_hidden do
+      require_atomic?(false)
+      accept([:hidden_at])
     end
 
     # U10 删除级联专用（authorize?: false 路径）。
@@ -123,7 +134,7 @@ defmodule Cgc2046.Flashback.QuoteLicense do
   admin do
     resource_group(:flashback)
 
-    table_columns([:id, :person_id, :level, :question_key, :credited_note])
+    table_columns([:id, :person_id, :level, :question_key, :credited_note, :hidden_at])
   end
 
   policies do

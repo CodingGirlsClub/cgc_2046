@@ -184,6 +184,11 @@ const FLASHBACK_MOCK_STATE = 'cgc.e2e.flashback_mock_state'
 interface FlashbackMockState {
   fogSpans: Array<{ start: number; len: number }>
   quoteLevel: 'off' | 'anonymous' | 'credited'
+  /** R35 圈选结果（questionKey + 区间）：capsule 回读 + 点赞徽章共用 */
+  quoteQuestionKey: string | null
+  chosenQuoteSpan: { start: number; len: number } | null
+  /** R36 点赞数（mock 固定 3：授权档下有值，供回访面回读） */
+  likeCount: number
   today: { nowStatus: string | null; want: string | null; say: string | null; sentToWallAt: string | null }
   endorsedCardIds: string[]
 }
@@ -191,6 +196,9 @@ interface FlashbackMockState {
 const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   fogSpans: [{ start: 0, len: 7 }],
   quoteLevel: 'off',
+  quoteQuestionKey: null,
+  chosenQuoteSpan: null,
+  likeCount: 3,
   today: { nowStatus: null, want: null, say: null, sentToWallAt: null },
   endorsedCardIds: []
 }
@@ -215,6 +223,10 @@ function loadFlashbackState(): FlashbackMockState {
       Array.isArray(parsed.fogSpans) &&
       parsed.fogSpans.every((span) => Number.isInteger(span?.start) && Number.isInteger(span?.len)) &&
       (parsed.quoteLevel === 'off' || parsed.quoteLevel === 'anonymous' || parsed.quoteLevel === 'credited') &&
+      (parsed.quoteQuestionKey === null || typeof parsed.quoteQuestionKey === 'string') &&
+      (parsed.chosenQuoteSpan === null ||
+        (Number.isInteger(parsed.chosenQuoteSpan?.start) && Number.isInteger(parsed.chosenQuoteSpan?.len))) &&
+      Number.isInteger(parsed.likeCount) &&
       typeof parsed.today === 'object' &&
       parsed.today !== null &&
       Array.isArray(parsed.endorsedCardIds) &&
@@ -646,7 +658,17 @@ function responseFor(document: string, variables: object): unknown {
           participation: 'attended',
           appliedAt: '2014-01-11T13:06:00Z',
           quoteLevel: state.quoteLevel,
-          quote: null,
+          quote:
+            state.chosenQuoteSpan && state.quoteQuestionKey
+              ? FLASHBACK_RAW_TEXT.slice(
+                  state.chosenQuoteSpan.start,
+                  state.chosenQuoteSpan.start + state.chosenQuoteSpan.len
+                )
+              : null,
+          quoteQuestionKey: state.quoteQuestionKey,
+          quoteSpan: state.chosenQuoteSpan,
+          quoteStats:
+            state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
           today: state.today,
           answers: [
             {
@@ -696,10 +718,24 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation FlashbackSetQuoteLicense')) {
     const level = values.level
+    const questionKey = typeof values.questionKey === 'string' ? values.questionKey : null
+    const span = (values.chosenQuoteSpan ?? null) as { start: number; len: number } | null
     if (level === 'off' || level === 'anonymous' || level === 'credited') {
-      updateFlashbackState((state) => ({ ...state, quoteLevel: level }))
+      updateFlashbackState((state) => ({
+        ...state,
+        quoteLevel: level,
+        // R35 未圈选 = 不上墙：level 非 off 但没带区间时保留既有区间（后端同语义）
+        quoteQuestionKey: level === 'off' ? null : (questionKey ?? state.quoteQuestionKey),
+        chosenQuoteSpan: level === 'off' ? null : (span ?? state.chosenQuoteSpan)
+      }))
     }
-    return { flashbackSetQuoteLicense: { level: flashbackState().quoteLevel } }
+    return {
+      flashbackSetQuoteLicense: {
+        level: flashbackState().quoteLevel,
+        questionKey: flashbackState().quoteQuestionKey,
+        chosenQuoteSpan: flashbackState().chosenQuoteSpan
+      }
+    }
   }
   if (document.includes('mutation FlashbackAdjustFog')) {
     // 写面落 mock state（capsule 回读不再恒定初始 span，P2）

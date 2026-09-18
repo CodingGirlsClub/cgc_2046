@@ -43,7 +43,7 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 	// 环境能力（IntersectionObserver）用 useSyncExternalStore 读：SSR/首帧取服务端快照
 	// false（终态），客户端随即纠正为 true——与 usePrefersReducedMotion 同一手法，
 	// 避免水合不一致，也避免「先清晰后模糊」的闪一下。
-	const developActive = developEnabled(reduced);
+	const developActive = useDevelopEnabled(reduced);
 	const { developed, registerCard } = useDevelopOnView(developActive);
 
 	const total = archive.roster.length;
@@ -160,7 +160,7 @@ function useDevelopOnView(enabled: boolean) {
 }
 
 /** 显影是否启用：非 reduced-motion 且环境有 IntersectionObserver（能力只读一次） */
-function developEnabled(reduced: boolean): boolean {
+function useDevelopEnabled(reduced: boolean): boolean {
 	const supported = useSyncExternalStore(
 		() => () => {},
 		() => typeof IntersectionObserver !== "undefined",

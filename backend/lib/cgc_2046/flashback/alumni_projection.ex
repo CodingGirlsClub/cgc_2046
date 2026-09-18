@@ -145,6 +145,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   # ── 本人「今天」格（R30 撤回后回虚线 = sent_to_wall_at 为 nil） ──────
 
   defp me_payload(person) do
+    quote = quote_payload(person.id)
+
     today =
       Repo.one(
         from(t in "flashback_todays",
@@ -172,9 +174,25 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       # quote_level（R31）：授权档位独立于金句文本——回访端恢复选中态的数据源，
       # 无授权行为 "off"（与 enter 面 progress.quote_level 同口径）。
       quote_level: quote_level(person.id),
-      quote: quote_text(person.id),
+      quote: quote.quote,
+      quote_question_key: quote.quote_question_key,
+      quote_span: quote.quote_span,
+      # 作者侧点赞数（R36）：仅授权档 ∈ {anonymous, credited} 时返回——
+      # 未授权者不在墙上，0 赞的「战绩」对本人无意义（前端只在上墙且 >0 时展示）。
+      quote_stats: quote_stats(person.id),
       answers: me_answers(person.id)
     }
+  end
+
+  # 本人金句的点赞数（R36）：level ∈ {anonymous, credited} 才有（否则 nil）。
+  defp quote_stats(person_id) do
+    case quote_level(person_id) do
+      level when level in ["anonymous", "credited"] ->
+        %{like_count: Cgc2046.Flashback.Likes.count_for_person(person_id)}
+
+      _ ->
+        nil
+    end
   end
 
   # 金句授权档（R31）：每人至多一行（unique_person）；无行 = 从未设置 = "off"
@@ -187,23 +205,35 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     ) || "off"
   end
 
-  # 本人金句（R14）：quote_license 选定区间应用于来源答案；off/未选 → nil
-  defp quote_text(person_id) do
+  # 本人金句（R14/R37）：quote_license 选定区间应用于来源答案；off/未选 → 三者皆 nil。
+  # 除文本外一并给出来源 question_key 与区间——分享 opt-in（R37）要原样回填
+  # 「卡片上展示的那句」的 span（现有 setQuoteLicense 的 update 会按传入值覆盖，
+  # 只传 level 会把 span 抹成 nil）。
+  defp quote_payload(person_id) do
     Repo.one(
       from(q in "flashback_quote_licenses",
         join: a in "flashback_answers",
         on: a.person_id == q.person_id and a.question_key == q.question_key,
         where: q.person_id == ^uuid_param(person_id) and not is_nil(q.chosen_quote_span),
         limit: 1,
-        select: %{raw_text: a.raw_text, span: q.chosen_quote_span}
+        select: %{raw_text: a.raw_text, span: q.chosen_quote_span, question_key: q.question_key}
       )
     )
     |> case do
-      %{raw_text: raw_text, span: span} ->
-        FogSpans.mask(String.slice(raw_text, span["start"], span["len"]), nil, @fog_placeholder)
+      %{raw_text: raw_text, span: span, question_key: question_key} ->
+        %{
+          quote:
+            FogSpans.mask(
+              String.slice(raw_text, span["start"], span["len"]),
+              nil,
+              @fog_placeholder
+            ),
+          quote_question_key: question_key,
+          quote_span: %{start: span["start"], len: span["len"]}
+        }
 
       nil ->
-        nil
+        %{quote: nil, quote_question_key: nil, quote_span: nil}
     end
   end
 

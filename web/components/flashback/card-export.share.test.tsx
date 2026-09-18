@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
-import type { FlashbackCapsuleMe } from "@/lib/graphql/flashback";
+import { FLASHBACK_SET_QUOTE_LICENSE, type FlashbackCapsuleMe } from "@/lib/graphql/flashback";
 import CardExport from "./card-export";
+
+const { licenseRunner } = vi.hoisted(() => ({ licenseRunner: vi.fn() }));
+
+vi.mock("@apollo/client/react", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@apollo/client/react")>();
+	return {
+		...actual,
+		useMutation: (doc: unknown) => {
+			if (doc === FLASHBACK_SET_QUOTE_LICENSE) return [licenseRunner, { loading: false }];
+			return [vi.fn(), { loading: false }];
+		},
+	};
+});
 
 /**
  * 第 4 件：web 分享轻档——navigator.share 存在才显示「分享到…」，
@@ -19,6 +32,9 @@ const me: FlashbackCapsuleMe = {
 	appliedAt: "2014-01-05T05:06:00.000Z",
 	today: { nowStatus: "还在写代码", want: "想骑行", say: null, sentToWallAt: null },
 	quote: "我想亲眼看看是不是。",
+	quoteLevel: "off",
+	quoteQuestionKey: "self_intro",
+	quoteSpan: { start: 0, len: 10 },
 	answers: [{ id: "m1", questionKey: "self_intro", rawText: "一句当年答案。", text: "一句当年答案。" }],
 };
 
@@ -52,6 +68,7 @@ function clearShare() {
 afterEach(() => {
 	cleanup();
 	clearShare();
+	licenseRunner.mockReset();
 	vi.restoreAllMocks();
 });
 
@@ -114,5 +131,76 @@ describe("CardExport · 系统分享（第 4 件）", () => {
 		fireEvent.click(await screen.findByTestId("fb-export-share"));
 		await waitFor(() => expect(share).toHaveBeenCalled());
 		expect(screen.getByTestId("fb-export-share")).toBeInTheDocument();
+	});
+});
+
+describe("CardExport · 分享 opt-in（R37）", () => {
+	const props = { me, token: "tok-share" };
+
+	it("默认不勾；勾选 → 用卡片同源 span 开匿名金句档", async () => {
+		licenseRunner.mockResolvedValue({ data: { flashbackSetQuoteLicense: { level: "anonymous" } } });
+		render(
+			<div className="fb-root">
+				<CardExport {...props} />
+			</div>,
+		);
+
+		const optIn = screen.getByTestId("fb-export-optin") as HTMLInputElement;
+		expect(optIn.checked).toBe(false);
+		expect(optIn.disabled).toBe(false);
+
+		fireEvent.click(optIn);
+
+		await waitFor(() => expect(licenseRunner).toHaveBeenCalledTimes(1));
+		expect(licenseRunner.mock.calls[0][0].variables).toEqual({
+			token: "tok-share",
+			level: "anonymous",
+			questionKey: "self_intro",
+			chosenQuoteSpan: { start: 0, len: 10 },
+		});
+		await waitFor(() => expect((screen.getByTestId("fb-export-optin") as HTMLInputElement).checked).toBe(true));
+	});
+
+	it("失败回滚为不勾", async () => {
+		licenseRunner.mockRejectedValue(new Error("nope"));
+		render(
+			<div className="fb-root">
+				<CardExport {...props} />
+			</div>,
+		);
+
+		fireEvent.click(screen.getByTestId("fb-export-optin"));
+
+		await waitFor(() => expect((screen.getByTestId("fb-export-optin") as HTMLInputElement).checked).toBe(false));
+	});
+
+	it("已授权：勾选态 + 禁用（分享改不了档位）", () => {
+		render(
+			<div className="fb-root">
+				<CardExport {...props} me={{ ...me, quoteLevel: "credited" }} />
+			</div>,
+		);
+
+		const optIn = screen.getByTestId("fb-export-optin") as HTMLInputElement;
+		expect(optIn.checked).toBe(true);
+		expect(optIn.disabled).toBe(true);
+		expect(screen.getByText(/已在授权中/)).toBeInTheDocument();
+	});
+
+	it("卡上没有真金句（未选/占位）或无 token → 不显示选项", () => {
+		const { unmount } = render(
+			<div className="fb-root">
+				<CardExport {...props} me={{ ...me, quote: null }} />
+			</div>,
+		);
+		expect(screen.queryByTestId("fb-export-optin")).not.toBeInTheDocument();
+		unmount();
+
+		render(
+			<div className="fb-root">
+				<CardExport me={me} token={null} />
+			</div>,
+		);
+		expect(screen.queryByTestId("fb-export-optin")).not.toBeInTheDocument();
 	});
 });

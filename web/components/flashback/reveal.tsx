@@ -65,19 +65,20 @@ export default function Reveal({
 	const locale = useLocale();
 	const notifyRevealed = useOnceCallback(onRevealed);
 	const { face, phase, flip } = useCardFlip(startOnBack ? "back" : "front", reduced);
-	/** 显影只跑一次：翻回正面不重播（重播会把「唯一的慢时刻」变成噪声） */
-	const [developed, setDeveloped] = useState(false);
+	/** 显影只跑一次：翻回正面不重播（重播会把「唯一的慢时刻」变成噪声）；
+	 *  reduced-motion 直接在渲染期取终态（不在 effect 里 setState） */
+	const [animationDone, setAnimationDone] = useState(false);
+	const developed = reduced || animationDone;
 
 	const handleDeveloped = useCallback(() => {
-		setDeveloped(true);
+		setAnimationDone(true);
 		notifyRevealed();
 	}, [notifyRevealed]);
 
-	// reduced-motion：不等待动画，直达终态并记 revealed（ref 防重，零 setState）
+	// reduced-motion：不等待动画即记 revealed（ref 防重，零 setState）
 	useEffect(() => {
-		if (reduced) handleDeveloped();
-		// eslint-disable-next-line react-hooks/exhaustive-deps -- 终态通知一次性
-	}, [reduced]);
+		if (reduced) notifyRevealed();
+	}, [reduced, notifyRevealed]);
 
 	const years = yearsAgo(profile.appliedAt);
 	const stamp = appliedStamp(profile.appliedAt);

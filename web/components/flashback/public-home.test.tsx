@@ -4,6 +4,7 @@ import { render } from "@/test-utils";
 import PublicHome from "./public-home";
 import ProfileView from "./profile-view";
 import {
+	FLASHBACK_LIKE_QUOTE,
 	FLASHBACK_PUBLIC_PROFILE,
 	FLASHBACK_PUBLIC_QUOTES,
 	FLASHBACK_PUBLIC_STATS,
@@ -37,18 +38,19 @@ const profileQuery = vi.fn();
 
 vi.mock("@/lib/apollo-client", () => ({
 	client: {
-		query: ({ query }: { query: unknown }) => {
-			if (query === FLASHBACK_PUBLIC_STATS) return statsQuery();
-			if (query === FLASHBACK_PUBLIC_QUOTES) return quotesQuery();
-			if (query === FLASHBACK_PUBLIC_PROFILE) return profileQuery();
+		query: (options: { query: unknown }) => {
+			if (options.query === FLASHBACK_PUBLIC_STATS) return statsQuery(options);
+			if (options.query === FLASHBACK_PUBLIC_QUOTES) return quotesQuery(options);
+			if (options.query === FLASHBACK_PUBLIC_PROFILE) return profileQuery(options);
 			throw new Error("unexpected query");
 		},
 	},
 }));
 
-const { recoverRunner, verifyRunner } = vi.hoisted(() => ({
+const { recoverRunner, verifyRunner, likeRunner } = vi.hoisted(() => ({
 	recoverRunner: vi.fn(),
 	verifyRunner: vi.fn(),
+	likeRunner: vi.fn(),
 }));
 
 vi.mock("@apollo/client/react", async (importOriginal) => {
@@ -58,6 +60,7 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 		useMutation: (doc: unknown) => {
 			if (doc === FLASHBACK_RECOVER) return [recoverRunner, { loading: false }];
 			if (doc === FLASHBACK_RECOVER_VERIFY) return [verifyRunner, { loading: false }];
+			if (doc === FLASHBACK_LIKE_QUOTE) return [likeRunner, { loading: false }];
 			return [vi.fn(), { loading: false }];
 		},
 	};
@@ -79,8 +82,24 @@ const statsWith: Partial<FlashbackPublicStats> = {
 };
 
 const quoteList: FlashbackPublicQuote[] = [
-	{ text: "我想亲眼看看是", attribution: "王** · 2014 · 北京", level: "anonymous", publicSlug: null },
-	{ text: "想亲眼看看是不是", attribution: "李** · 2015 · 广州", level: "credited", publicSlug: "li-yinuo" },
+	{
+		text: "我想亲眼看看是",
+		attribution: "王** · 2014 · 北京",
+		level: "anonymous",
+		publicSlug: null,
+		personId: "p-alice",
+		likeCount: 3,
+		likedByViewer: false,
+	},
+	{
+		text: "想亲眼看看是不是",
+		attribution: "李** · 2015 · 广州",
+		level: "credited",
+		publicSlug: "li-yinuo",
+		personId: "p-bob",
+		likeCount: 0,
+		likedByViewer: true,
+	},
 ];
 
 beforeEach(() => {
@@ -89,6 +108,8 @@ beforeEach(() => {
 	profileQuery.mockReset();
 	recoverRunner.mockReset();
 	verifyRunner.mockReset();
+	likeRunner.mockReset();
+	window.localStorage.clear();
 	pushMock.mockReset();
 });
 
@@ -257,5 +278,80 @@ describe("ProfileView · 实名档案页（R31 credited 档）", () => {
 
 		expect(await screen.findByText("这一页还没有显影")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "回到闪念间首页" })).toHaveAttribute("href", "/flashback");
+	});
+});
+
+describe("PublicHome · 金句点赞（R36）", () => {
+	const renderWithQuotes = async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quoteList } });
+		render(<PublicHome />);
+		await screen.findAllByTestId("fb-quote-like");
+	};
+
+	it("按 likedByViewer 渲染 ♡/♥ + 计数，请求带 localStorage 去重键", async () => {
+		await renderWithQuotes();
+
+		const buttons = screen.getAllByTestId("fb-quote-like");
+		expect(buttons[0]).toHaveTextContent("♡3");
+		expect(buttons[0]).toHaveAttribute("aria-pressed", "false");
+		expect(buttons[1]).toHaveTextContent("♥0");
+		expect(buttons[1]).toHaveAttribute("aria-pressed", "true");
+
+		const voterKey = window.localStorage.getItem("flashback.voterKey");
+		expect(voterKey).toMatch(/^a:/);
+		expect(quotesQuery).toHaveBeenCalledWith(
+			expect.objectContaining({ variables: { voterKey } }),
+		);
+	});
+
+	it("点击：乐观 +1 → 服务端计数校正；不就地重排", async () => {
+		let resolveLike: (value: unknown) => void = () => {};
+		likeRunner.mockReturnValue(new Promise((resolve) => (resolveLike = resolve)));
+		await renderWithQuotes();
+
+		const [first] = screen.getAllByTestId("fb-quote-like");
+		first.click();
+
+		// 乐观更新：立刻 +1 且变已赞
+		await waitFor(() => expect(screen.getAllByTestId("fb-quote-like")[0]).toHaveTextContent("♥4"));
+		expect(likeRunner).toHaveBeenCalledWith(
+			expect.objectContaining({
+				variables: expect.objectContaining({ personId: "p-alice", liked: true }),
+			}),
+		);
+
+		// 服务端计数校正（真实计数可能与乐观值不同）
+		resolveLike({ data: { flashbackLikeQuote: { likeCount: 9 } } });
+		await waitFor(() => expect(screen.getAllByTestId("fb-quote-like")[0]).toHaveTextContent("♥9"));
+
+		// 顺序不变（涌现排序只在下次加载生效）
+		const texts = screen.getAllByTestId("fb-quote-like").map((node) => node.textContent);
+		expect(texts).toHaveLength(2);
+	});
+
+	it("失败回滚到点击前状态", async () => {
+		likeRunner.mockRejectedValue(new Error("rate limited"));
+		await renderWithQuotes();
+
+		screen.getAllByTestId("fb-quote-like")[0].click();
+
+		await waitFor(() => expect(screen.getAllByTestId("fb-quote-like")[0]).toHaveTextContent("♡3"));
+		expect(screen.getAllByTestId("fb-quote-like")[0]).toHaveAttribute("aria-pressed", "false");
+	});
+
+	it("存储不可用（拿不到去重键）→ 不渲染点赞按钮", async () => {
+		vi.spyOn(window.localStorage, "getItem").mockReturnValue(null);
+		vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+			throw new Error("storage disabled");
+		});
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quoteList } });
+
+		render(<PublicHome />);
+		await screen.findByText(/我想亲眼看看是/);
+
+		expect(screen.queryAllByTestId("fb-quote-like")).toHaveLength(0);
+		vi.restoreAllMocks();
 	});
 });

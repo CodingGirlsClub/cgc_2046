@@ -99,6 +99,9 @@
 		"flashback_auth_required": "Entering the capsule takes your personal link, or a signed-in bound account.",
 		"flashback_person_not_bound": "This account has no In-a-Flash archive bound yet — enter once via your personal link.",
 		"flashback_recover_rate_limited": "Too many recovery attempts — try again in an hour.",
+		"flashback_like_rate_limited": "Too many likes from here — please try again later.",
+		"flashback_quote_not_found": "This quote is no longer on the wall — refresh to see others.",
+		"flashback_invalid_voter_key": "Could not verify this device for likes — refresh and try again.",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment.",
 		"flashback_invalid_transition": "This action card can't take that step — the four states only move forward in order.",
@@ -2333,6 +2336,7 @@
 			"statsStarted": "Someone came back. Each person develops one more photo on this wall.",
 			"quotesTitle": "Quotes from those years",
 			"quotesEmpty": "The quote wall is still empty — the first line will come from an alumna's license.",
+			"likeAria": "Like ({count} so far)",
 			"footer": "The silent stay safe: until sent, only you can see your answers."
 		},
 		"recover": {
@@ -2559,6 +2563,8 @@
 			"downloadMd": "Download Markdown",
 			"privacyNote": "Lines you fogged never appear on the card.",
 			"shareTo": "Share…",
+			"shareOptIn": "Also let In a Flash show this line on the home page",
+			"shareOptInAlready": "Already authorized — adjust it in your revisit page",
 			"brand": "IN A FLASH",
 			"canvasFooter": "In a Flash"
 		},

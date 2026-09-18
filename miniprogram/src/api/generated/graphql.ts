@@ -1077,7 +1077,7 @@ export type FlashbackCapsuleQueryVariables = Exact<{
 }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteQuestionKey: string | null, quoteSpan: { start: number, len: number } | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, actionCards: Array<{ id: string, title: string, city: string | null, status: string, eventId: string | null, eventSlug: string | null, endorsementCount: number, endorsedByMe: boolean, rolesClaimed: Array<string> }> } | null };
 
 export type FlashbackEndorseMutationVariables = Exact<{
   cardId: string | number;
@@ -1096,10 +1096,12 @@ export type FlashbackSubmitTodayMutation = { flashbackSubmitToday: { today: { no
 
 export type FlashbackSetQuoteLicenseMutationVariables = Exact<{
   level: string;
+  questionKey?: string | null | undefined;
+  chosenQuoteSpan?: FlashbackFogSpanInput | null | undefined;
 }>;
 
 
-export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string } | null };
+export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string, questionKey: string | null, chosenQuoteSpan: { start: number, len: number } | null } | null };
 
 export type FlashbackAdjustFogMutationVariables = Exact<{
   answerId: string | number;

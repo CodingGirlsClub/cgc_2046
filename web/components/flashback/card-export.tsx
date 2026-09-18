@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
-import { appliedStamp, type FlashbackCapsuleMe } from "@/lib/graphql/flashback";
+import { useMutation } from "@apollo/client/react";
+import {
+	appliedStamp,
+	FLASHBACK_SET_QUOTE_LICENSE,
+	type FlashbackCapsuleMe,
+} from "@/lib/graphql/flashback";
 
 /** 摘要卡竖版比例（R14：适配朋友圈/小红书） */
 const SUMMARY_W = 600;
@@ -14,12 +19,51 @@ const SUMMARY_H = 800;
  * Markdown 用 Blob 下载——页面卡片与下载图是同一物件的两态。
  *
  * 缺省版式（R14）：未选金句 → 占位句；未填今天 → 省略今天段。
+ *
+ * R37 分享 opt-in：卡片展示的金句就是 `me.quote`——它的来源（question_key +
+ * chosen_quote_span）由 capsule.me 一并给出，勾选即用**同一区间**开匿名金句档
+ * （现有 setQuoteLicense mutation；只传 level 会把 span 覆盖成 nil，见
+ * AlumniProjection.quote_payload 注释）。因此：
+ * - 卡上没有真金句（占位句/未选）→ 不显示该选项（保守：无法映射到候选区间）；
+ * - 已授权（anonymous/credited）→ 勾选态 + 禁用（分享永不改档，也不静默撤权）。
+ * 授权永不预选：默认不勾。
  */
-export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
+export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; token?: string | null }) {
 	const t = useTranslations("flashback.cardExport");
 	const questionT = useTranslations("flashback.questionLabels");
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const [kind, setKind] = useState<"summary" | "full">("summary");
+	const [runSetQuoteLicense] = useMutation(FLASHBACK_SET_QUOTE_LICENSE);
+	/** 本地勾选覆盖（null = 跟随授权档；授权永不预选，已在授权中才显示勾选态） */
+	const [optInOverride, setOptInOverride] = useState<boolean | null>(null);
+	const [optInBusy, setOptInBusy] = useState(false);
+
+	const alreadyLicensed = (me.quoteLevel ?? "off") !== "off";
+	const shareOptIn = optInOverride ?? alreadyLicensed;
+	/** 可回填的区间三件套齐备才给选项（R37：span = 卡片上展示的金句） */
+	const optInAvailable = Boolean(token && me.quote && me.quoteQuestionKey && me.quoteSpan);
+
+	/** 勾选 → 开匿名金句档（span 与卡片同源）；取消勾选 → 保持关闭（不撤销既有档位） */
+	const toggleShareOptIn = async (next: boolean) => {
+		if (!token || !optInAvailable || alreadyLicensed) return;
+		setOptInOverride(next);
+		if (!next) return;
+		setOptInBusy(true);
+		try {
+			await runSetQuoteLicense({
+				variables: {
+					token,
+					level: "anonymous",
+					questionKey: me.quoteQuestionKey ?? undefined,
+					chosenQuoteSpan: me.quoteSpan ?? undefined,
+				},
+			});
+		} catch {
+			setOptInOverride(false);
+		} finally {
+			setOptInBusy(false);
+		}
+	};
 
 	const stamp = appliedStamp(me.appliedAt);
 	const quote = me.quote?.trim() || null;
@@ -115,10 +159,11 @@ export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
 	 * 能力探测全在客户端（effect）：无 navigator.share 的浏览器不渲染按钮，只留下载。
 	 * 优先分享卡片图文件（canShare 通过时），否则降级 url+text；用户取消（AbortError）静默。
 	 */
-	const [shareSupported, setShareSupported] = useState(false);
-	useEffect(() => {
-		setShareSupported(typeof navigator !== "undefined" && typeof navigator.share === "function");
-	}, []);
+	const shareSupported = useSyncExternalStore(
+		() => () => {},
+		() => typeof navigator !== "undefined" && typeof navigator.share === "function",
+		() => false,
+	);
 
 	const shareCard = async () => {
 		if (typeof navigator === "undefined" || !navigator.share) return;
@@ -213,6 +258,18 @@ export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
 					{t("downloadMd")}
 				</button>
 			</div>
+			{optInAvailable && (
+				<label className="fb-export-optin">
+					<input
+						type="checkbox"
+						data-testid="fb-export-optin"
+						checked={shareOptIn}
+						disabled={alreadyLicensed || optInBusy}
+						onChange={(event) => void toggleShareOptIn(event.target.checked)}
+					/>
+					<span>{alreadyLicensed ? t("shareOptInAlready") : t("shareOptIn")}</span>
+				</label>
+			)}
 			<p className="fb-hint">{t("privacyNote")}</p>
 			<canvas ref={canvasRef} className="fb-visually-hidden" aria-hidden="true" />
 		</section>

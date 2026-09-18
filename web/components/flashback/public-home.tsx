@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
+import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
+import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
+	FLASHBACK_LIKE_QUOTE,
 	FLASHBACK_PUBLIC_QUOTES,
 	FLASHBACK_PUBLIC_STATS,
 	type FlashbackPublicQuote,
@@ -19,6 +22,12 @@ import { useStageTitleFocus } from "./use-reduced-motion";
  *
  * 空态设计（U6）：pilot 首日统计与金句必空——以「正在发生」进度叙事承接
  * （场次档案先于数字出现，回来的人从 0 开始计数本身就是叙事）。
+ *
+ * 点赞（R36）：路人与登录用户都可点，去重键 = localStorage 里的设备键
+ * （`a:<uuid>`，见 lib/flashback-voter.ts）——公开页不做鉴权读取，服务端只校验
+ * 格式，唯一约束兜底。点击即就地 ±1（乐观更新，失败回滚）；**不就地重排**：
+ * 排序是服务端涌现口径（点赞数优先），点一下就跳位会让人找不到刚点的那句，
+ * 下次加载自然归位。
  */
 export default function PublicHome() {
 	const t = useTranslations("flashback.home");
@@ -26,17 +35,69 @@ export default function PublicHome() {
 
 	const [stats, setStats] = useState<FlashbackPublicStats | null>(null);
 	const [quotes, setQuotes] = useState<FlashbackPublicQuote[]>([]);
+	// 去重键（R36）：客户端快照 = 读或生成一次后落盘（幂等，React 多次取快照同值）；
+	// SSR/首帧用服务端快照 null（不渲染按钮），客户端随即纠正——同一手法见
+	// usePrefersReducedMotion / 名册显影能力探测，避免在 effect 里 setState。
+	const voter = useSyncExternalStore(
+		() => () => {},
+		() => ensureVoterKey(window.localStorage),
+		() => null,
+	);
+	const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
+	const [runLike] = useMutation(FLASHBACK_LIKE_QUOTE);
 
 	useEffect(() => {
 		client
 			.query({ query: FLASHBACK_PUBLIC_STATS, fetchPolicy: "network-only" })
 			.then(({ data }) => setStats(data?.flashbackPublicStats ?? null))
 			.catch(() => setStats(null));
+
 		client
-			.query({ query: FLASHBACK_PUBLIC_QUOTES, fetchPolicy: "network-only" })
+			.query({
+				query: FLASHBACK_PUBLIC_QUOTES,
+				variables: { voterKey: ensureVoterKey(window.localStorage) },
+				fetchPolicy: "network-only",
+			})
 			.then(({ data }) => setQuotes(data?.flashbackPublicQuotes ?? []))
 			.catch(() => setQuotes([]));
 	}, []);
+
+	/** 点赞开关（R36）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
+	const toggleLike = useCallback(
+		(quote: FlashbackPublicQuote) => {
+			if (!voter || pending.has(quote.personId)) return;
+			const liked = !quote.likedByViewer;
+			const before = quotes;
+			setQuotes(
+				quotes.map((item) =>
+					item.personId === quote.personId
+						? { ...item, likedByViewer: liked, likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)) }
+						: item,
+				),
+			);
+			setPending((prev) => new Set([...prev, quote.personId]));
+
+			runLike({ variables: { personId: quote.personId, voterKey: voter, liked } })
+				.then(({ data }) => {
+					const count = data?.flashbackLikeQuote?.likeCount;
+					if (typeof count !== "number") return;
+					setQuotes((current) =>
+						current.map((item) =>
+							item.personId === quote.personId ? { ...item, likeCount: count } : item,
+						),
+					);
+				})
+				.catch(() => setQuotes(before))
+				.finally(() =>
+					setPending((prev) => {
+						const next = new Set(prev);
+						next.delete(quote.personId);
+						return next;
+					}),
+				);
+		},
+		[pending, quotes, runLike, voter],
+	);
 
 	const started = (stats?.returnedCount ?? 0) > 0 || (stats?.archives.length ?? 0) > 0;
 
@@ -85,8 +146,8 @@ export default function PublicHome() {
 				</h2>
 				{quotes.length > 0 ? (
 					<ul className="fb-quote-wall">
-						{quotes.map((quote, index) => (
-							<li key={`${quote.attribution}:${index}`} className="fb-quote-item">
+						{quotes.map((quote) => (
+							<li key={quote.personId} className="fb-quote-item">
 								<blockquote className="fb-quote-text">“{quote.text}”</blockquote>
 								<cite className="fb-quote-cite">
 									{quote.publicSlug ? (
@@ -95,6 +156,22 @@ export default function PublicHome() {
 										quote.attribution
 									)}
 								</cite>
+								{/* 点赞（R36）：♡/♥ + 实时计数；未拿到去重键（禁用存储）不渲染 */}
+								{voter && (
+									<button
+										type="button"
+										className={`fb-quote-like${quote.likedByViewer ? " fb-quote-like--on" : ""}`}
+										data-testid="fb-quote-like"
+										data-liked={quote.likedByViewer ? "true" : "false"}
+										aria-pressed={quote.likedByViewer}
+										aria-label={t("likeAria", { count: quote.likeCount })}
+										disabled={pending.has(quote.personId)}
+										onClick={() => toggleLike(quote)}
+									>
+										<span aria-hidden="true">{quote.likedByViewer ? "♥" : "♡"}</span>
+										<span className="fb-quote-like-count">{quote.likeCount}</span>
+									</button>
+								)}
 							</li>
 						))}
 					</ul>

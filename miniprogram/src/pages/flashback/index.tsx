@@ -8,19 +8,24 @@ import {
   cardStatusText,
   ENDORSE_ROLES,
   endorseAction,
+  isCandidatePicked,
   myCardView,
   parseQuoteLevel,
   QUOTE_LEVEL_OPTIONS,
+  quoteCandidatesOf,
+  quoteLikeBadge,
+  shareOptInState,
   shareMessage,
   summaryCardLayout,
   summaryCardModel,
   sentencesWithFog,
   splitActionCards,
   toggleSentenceFog,
+  type QuoteCandidate,
   type QuoteLevel
 } from '@/domain/flashback'
 import { flashbackEndorseTouchpoint, submitAfterConsent } from '@/domain/subscription'
-import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard } from '@/domain/models'
+import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from '@/domain/models'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -46,6 +51,11 @@ export default function FlashbackPage() {
   const [draftWant, setDraftWant] = useState('')
   const [draftSay, setDraftSay] = useState('')
   const [quoteLevel, setQuoteLevel] = useState<QuoteLevel>('off')
+  // R35 圈选：已选句（questionKey + 区间）——load 时从 capsule 回显
+  const [pickedQuote, setPickedQuote] = useState<{ questionKey: string | null; start: number; len: number } | null>(null)
+  // R37 分享 opt-in（默认不勾；已授权则勾选态 + 禁用）
+  const [shareOptIn, setShareOptIn] = useState(false)
+  const [quoteBusy, setQuoteBusy] = useState(false)
   const [endorsing, setEndorsing] = useState(false)
   // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤行动板）
   const [city, setCity] = useState<string | null>(null)
@@ -75,6 +85,14 @@ export default function FlashbackPage() {
       setAnswers(capsule.me.answers)
       // 授权档从 capsule 恢复（R31；非法值 fail-closed 落 off）——不再恒定重置 off（P3）
       setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
+      // R35/R37：圈选区间与分享 opt-in 初值都来自 capsule（授权永不预选：
+      // 只有已授权才置勾，否则保持 false）
+      setPickedQuote(
+        capsule.me.quoteQuestionKey && capsule.me.quoteSpan
+          ? { questionKey: capsule.me.quoteQuestionKey, start: capsule.me.quoteSpan.start, len: capsule.me.quoteSpan.len }
+          : null
+      )
+      setShareOptIn(shareOptInState(capsule.me) === 'already')
       setDraftNow(capsule.me.today?.nowStatus ?? '')
       setDraftWant(capsule.me.today?.want ?? '')
       setDraftSay(capsule.me.today?.say ?? '')
@@ -140,15 +158,61 @@ export default function FlashbackPage() {
     }
   }
 
-  const changeQuoteLevel = async (level: QuoteLevel) => {
-    setQuoteLevel(level)
+  /** 授权提交（R31/R35）：档位 + 圈选区间一起发——只发档位会把已选区间覆盖成空 */
+  const submitLicense = async (
+    level: QuoteLevel,
+    candidate: { questionKey: string | null; start: number; len: number } | null
+  ): Promise<boolean> => {
+    if (quoteBusy) return false
+    setQuoteBusy(true)
     try {
-      await api.flashbackSetQuoteLicense(level)
+      await api.flashbackSetQuoteLicense(
+        level,
+        level === 'off' ? null : (candidate?.questionKey ?? null),
+        level === 'off' ? null : (candidate ? { start: candidate.start, len: candidate.len } : null)
+      )
       Taro.showToast({ title: '授权已更新', icon: 'none' })
+      void load()
+      return true
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '设置失败', icon: 'none' })
       void load()
+      return false
+    } finally {
+      setQuoteBusy(false)
     }
+  }
+
+  /** 切档：off 直接生效；anonymous/credited 需要圈选——已有圈选则直接换档，
+   * 否则只展开候选列表（未圈选 = 不上墙，提交发生在点句时）。 */
+  const changeQuoteLevel = async (level: QuoteLevel) => {
+    setQuoteLevel(level)
+    if (level === 'off') {
+      setPickedQuote(null)
+      await submitLicense('off', null)
+      return
+    }
+    if (pickedQuote) await submitLicense(level, pickedQuote)
+  }
+
+  /** 圈选一句（R35）：本地即时高亮 + 落库（span 与展示同源） */
+  const pickQuoteCandidate = async (candidate: QuoteCandidate) => {
+    const next = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
+    setPickedQuote(next)
+    await submitLicense(quoteLevel === 'off' ? 'anonymous' : quoteLevel, next)
+    if (quoteLevel === 'off') setQuoteLevel('anonymous')
+  }
+
+  /** R37 分享 opt-in：勾选即开匿名档（span = 卡片金句）；取消勾选不动既有档位 */
+  const toggleShareOptIn = async (next: boolean, me: FlashbackMyCard) => {
+    if (next === shareOptIn) return
+    setShareOptIn(next)
+    if (!next) return
+    const ok = await submitLicense(
+      'anonymous',
+      me.quoteSpan ? { questionKey: me.quoteQuestionKey, start: me.quoteSpan.start, len: me.quoteSpan.len } : null
+    )
+    if (!ok) setShareOptIn(false)
   }
 
   // 附议提交前先订阅授权（KTD5/R13a：一次授权恰好覆盖「成场那一条」；
@@ -327,6 +391,8 @@ export default function FlashbackPage() {
 
   const { capsule } = state
   const view = myCardView(capsule)
+  const quoteCandidates = quoteCandidatesOf(answers)
+  const shareOptInMode = shareOptInState(capsule.me)
   const { endorsed, open } = splitActionCards(capsule.actionCards)
   const orderedCards = [...endorsed, ...open]
 
@@ -340,6 +406,12 @@ export default function FlashbackPage() {
           <Text className={`${styles.wallBadge} ${view.wallState === 'on_wall' ? styles.onWall : styles.offWall}`}>
             {view.wallState === 'on_wall' ? '已寄出到校友墙' : '还未寄出（可在网页端寄出）'}
           </Text>
+          {/* R36：作者侧点赞回显——上墙且有点赞才出现（domain 判据 quoteLikeBadge） */}
+          {quoteLikeBadge(capsule.me) && (
+            <Text className={styles.likeBadge} data-testid="fb-like-badge">
+              {quoteLikeBadge(capsule.me)}
+            </Text>
+          )}
         </View>
 
         <View className={styles.section}>
@@ -439,6 +511,27 @@ export default function FlashbackPage() {
           <View className={styles.licenseCard}>
             <Text className={styles.sectionTitle}>金句授权</Text>
             <Text className={styles.sectionDesc}>你的授权随时可调，默认全部关闭</Text>
+            {/* R35 选句器：匿名/实名档下展开候选句（按句切分、排除雾面段）；
+                未圈选 = 不上墙；点句即提交（span 与这里展示的同源） */}
+            {quoteLevel !== 'off' && (
+              <View className={styles.quotePicker}>
+                <Text className={styles.quotePickHint}>选一句放上首页金句墙（未选 = 不上墙）</Text>
+                {quoteCandidates.map((candidate) => (
+                  <Text
+                    key={`${candidate.questionKey}:${candidate.start}`}
+                    className={`${styles.quoteCandidate} ${
+                      isCandidatePicked(candidate, pickedQuote) ? styles.quoteCandidateActive : ''
+                    }`}
+                    onClick={() => void pickQuoteCandidate(candidate)}
+                  >
+                    {candidate.sentence}
+                  </Text>
+                ))}
+                {quoteCandidates.length === 0 && (
+                  <Text className={styles.quotePickHint}>当年的句子里都带着雾面——解开后才能选金句</Text>
+                )}
+              </View>
+            )}
             <RadioGroup onChange={(event) => void changeQuoteLevel((event.detail.value as QuoteLevel) ?? 'off')}>
               {QUOTE_LEVEL_OPTIONS.map((option) => (
                 <View
@@ -520,6 +613,23 @@ export default function FlashbackPage() {
         <View className={styles.shareMask} onClick={() => setShareSheet(false)}>
           <View className={styles.shareSheet} onClick={(event) => event.stopPropagation()}>
             <Text className={styles.shareSheetTitle}>把这一刻做成卡片</Text>
+            {shareOptInMode !== 'hidden' && (
+              <View
+                className={`${styles.shareOptIn} ${shareOptInMode === 'already' ? styles.shareOptInLocked : ''}`}
+                data-testid="fb-share-optin"
+                onClick={() => {
+                  if (shareOptInMode === 'already' || quoteBusy) return
+                  void toggleShareOptIn(!shareOptIn, capsule.me)
+                }}
+              >
+                <Text className={styles.shareOptInBox}>{shareOptIn ? '☑' : '☐'}</Text>
+                <Text className={styles.shareOptInLabel}>
+                  {shareOptInMode === 'already'
+                    ? '已允许闪念间把这句话展示在首页（档位可在上方调整）'
+                    : '同时允许闪念间把这句话展示在首页'}
+                </Text>
+              </View>
+            )}
             <View className={styles.shareEntries}>
               <Button className={styles.shareEntry} openType="share">
                 <Text className={styles.shareEntryIcon}>💬</Text>
