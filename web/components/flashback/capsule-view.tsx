@@ -9,7 +9,7 @@ import {
 	FLASHBACK_CAPSULE,
 	type FlashbackCapsule,
 } from "@/lib/graphql/flashback";
-import Corridor from "./corridor";
+import Corridor, { useWideCorridor } from "./corridor";
 import ActionBoard from "./action-board";
 import CardExport from "./card-export";
 import DeleteAccount from "./delete-account";
@@ -37,6 +37,7 @@ export default function CapsuleView() {
 	const [reloadKey, setReloadKey] = useState(0);
 	/** 城市钉筛选（R34）：null = 全部；切换即带 city 重拉（服务端过滤名册与行动板） */
 	const [city, setCity] = useState<string | null>(null);
+	const wide = useWideCorridor();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([state.phase]);
 
 	const reload = useCallback(() => {
@@ -163,7 +164,12 @@ export default function CapsuleView() {
 					))}
 				</div>
 			)}
-			<Corridor capsule={capsule} cityFiltered={city !== null} city={city} />
+			{/* 提示分端（用户定稿）：位置照原型 D——城市钉下方；宽屏横滑照原型逐字
+			    语序（尾注 = 当前城市/全部城市），窄屏与小程序保留竖滑版 */}
+			<p className="fb-hint fb-corridor-scrollhint">
+				{wide ? t("scrollHintWide", { city: city ?? t("cityAllWide") }) : t("scrollHint")}
+			</p>
+			<Corridor capsule={capsule} cityFiltered={city !== null} />
 			<ActionBoard
 				cards={capsule.actionCards}
 				token={token}
