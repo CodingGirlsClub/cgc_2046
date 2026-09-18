@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
-import EventRoster, { rosterDevelopClass } from "./event-roster";
+import EventRoster from "./event-roster";
+import { developClass } from "./use-develop-on-view";
 
 /**
  * 第 7a 件：名册显影——进视口才播（--pending → --develop，只播一次），
@@ -142,11 +143,12 @@ describe("EventRoster · 视口内显影（第 7a 件）", () => {
 	});
 });
 
-describe("rosterDevelopClass（判据单源）", () => {
+describe("developClass（判据单源，名册与城市堆共用）", () => {
 	it("active=false → 无类（终态）；未显影 → pending；已显影 → develop", () => {
-		expect(rosterDevelopClass(false, false)).toBe("");
-		expect(rosterDevelopClass(false, true)).toBe("");
-		expect(rosterDevelopClass(true, false)).toBe(" fb-roster-card--pending");
-		expect(rosterDevelopClass(true, true)).toBe(" fb-roster-card--develop");
+		expect(developClass("fb-roster-card", false, false)).toBe("");
+		expect(developClass("fb-roster-card", false, true)).toBe("");
+		expect(developClass("fb-roster-card", true, false)).toBe(" fb-roster-card--pending");
+		expect(developClass("fb-roster-card", true, true)).toBe(" fb-roster-card--develop");
+		expect(developClass("fb-corridor-polaroid", true, false)).toBe(" fb-corridor-polaroid--pending");
 	});
 });
