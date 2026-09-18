@@ -22,7 +22,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relPath) => readFileSync(join(root, relPath), 'utf8')
 
 /** 期望场景数：改这个数必须是有意识的决定（防「四处一起被删空」也能通过相等断言）。 */
-const EXPECTED_SCENARIO_COUNT = 20
+const EXPECTED_SCENARIO_COUNT = 26
 
 /** 去掉行注释：注释里出现的示例字面量不得计入名单（守卫只认真实条目）。 */
 const stripLineComments = (source) => source.replace(/\/\/[^\n]*/g, '')

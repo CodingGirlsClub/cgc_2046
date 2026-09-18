@@ -412,11 +412,45 @@ defmodule Cgc2046.Accounts.MembershipContext do
         create_membership_and_roles(user_id, workspace_id, role_names, on_conflict, error_message)
 
       {:ok, [membership | _]} when on_conflict == :idempotent ->
-        {:ok, membership}
+        ensure_idempotent_roles(membership, role_names, workspace_id)
 
       {:ok, [_ | _]} ->
         {:error, already_member_error(error_message)}
 
+      {:error, _error} ->
+        {:error, membership_check_error()}
+    end
+  end
+
+  # 幂等补授（换职位再分配，AE11 豁免路径）：existing 分支不能吞掉本次请求的
+  # 角色——第一批 [:volunteer] 的人第二批被分配为 Tutor 时，请求的 tutor 必须
+  # 补授；原实现直接返回 membership，新角色静默丢失，RBAC 与申请状态漂移且
+  # 无报错无日志。已持有的角色跳过；角色/成员角色读失败按保守方向返结构化
+  # 错误，不假装成功（#14 原则）。
+  defp ensure_idempotent_roles(membership, role_names, workspace_id) do
+    with {:ok, roles} <- Ash.read(Cgc2046.Accounts.Role, tenant: workspace_id, authorize?: false),
+         {:ok, membership_roles} <-
+           Cgc2046.Accounts.MembershipRole
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(membership_id == ^membership.id)
+           |> Ash.read(tenant: workspace_id, authorize?: false) do
+      role_name_by_id = Map.new(roles, &{to_string(&1.id), to_string(&1.name)})
+
+      held_names =
+        MapSet.new(membership_roles, &Map.get(role_name_by_id, to_string(&1.role_id)))
+
+      missing =
+        role_names
+        |> Enum.map(&to_string/1)
+        |> Enum.uniq()
+        |> Enum.reject(&MapSet.member?(held_names, &1))
+
+      if missing == [] do
+        {:ok, membership}
+      else
+        seat_roles(membership, missing, roles, workspace_id)
+      end
+    else
       {:error, _error} ->
         {:error, membership_check_error()}
     end
@@ -446,7 +480,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
       {:error, error} ->
         if unique_membership_conflict?(error) do
-          handle_unique_conflict(on_conflict, error_message, workspace_id, user_id)
+          handle_unique_conflict(on_conflict, error_message, workspace_id, user_id, role_names)
         else
           # 非 unique 的真实 DB 故障（连接断、磁盘满）必须原样上抛，不能吞成「已是成员」，
           # 否则用户被误导且无告警（静默数据丢失）。
@@ -490,8 +524,11 @@ defmodule Cgc2046.Accounts.MembershipContext do
   # unique 冲突的两种外露姿态（同一不变量）：
   # - :business_error → 转「已是成员」业务错误（Invitation.accept / JoinRequest.approve）
   # - :idempotent → 幂等成功，回查已有 membership 返回（Workspace.join）
-  defp handle_unique_conflict(:idempotent, _error_message, workspace_id, user_id) do
+  defp handle_unique_conflict(:idempotent, _error_message, workspace_id, user_id, role_names) do
     # 幂等成功：并发下另一请求已建 Membership，回查取已有记录返回。
+    # 回查成功后同样要补授本次请求的角色（ensure_idempotent_roles）——
+    # 守卫读到 [] 与胜者 INSERT 提交之间有竞态窗口，此处若直接返回，
+    # 败者请求的角色会静默丢失（与 existing 守卫分支同型，见其注释）。
     # 非 bang Ash.read：回查失败（连接断、极端：刚建好又被删）按保守方向当结构化错误，
     # 不 raise 也不假装成功（#14 原则）。
     WorkspaceMembership
@@ -499,13 +536,19 @@ defmodule Cgc2046.Accounts.MembershipContext do
     |> Ash.Query.filter(workspace_id == ^workspace_id and user_id == ^user_id)
     |> Ash.read(tenant: workspace_id, authorize?: false)
     |> case do
-      {:ok, [membership | _]} -> {:ok, membership}
+      {:ok, [membership | _]} -> ensure_idempotent_roles(membership, role_names, workspace_id)
       {:ok, []} -> {:error, already_member_error(@enroll_already_member_default)}
       {:error, _error} -> {:error, membership_check_error()}
     end
   end
 
-  defp handle_unique_conflict(:business_error, error_message, _workspace_id, _user_id) do
+  defp handle_unique_conflict(
+         :business_error,
+         error_message,
+         _workspace_id,
+         _user_id,
+         _role_names
+       ) do
     {:error, already_member_error(error_message)}
   end
 

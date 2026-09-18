@@ -69,7 +69,18 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		const labels = Array.from(nav.querySelectorAll("a")).map((a) =>
 			a.textContent.trim(),
 		);
-		expect(labels).toEqual(["活动", "课程", "我的报名", "我的学习", "倡导活动"]);
+		// 十周年主 campaign 排首位（活动期站内唯一入口）
+		expect(labels).toEqual([
+			"Hacker Start 1024",
+			"活动",
+			"课程",
+			"我的报名",
+			"我的学习",
+			"倡导活动",
+		]);
+		expect(
+			screen.getByRole("link", { name: "Hacker Start 1024" }),
+		).toHaveAttribute("href", "/hackerstart-1024");
 		expect(
 			screen.getByRole("link", { name: "我的报名" }),
 		).toHaveAttribute("href", "/participations");
@@ -90,5 +101,16 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		expect(
 			screen.getByRole("link", { name: "倡导活动" }),
 		).toHaveAttribute("href", "/initiatives");
+	});
+
+	it("campaign 项：active 传 campaign 时高亮（aria-current）", () => {
+		render(<SiteHeader active="campaign" />);
+		const link = screen.getByRole("link", { name: "Hacker Start 1024" });
+		expect(link).toHaveAttribute("aria-current", "page");
+		expect(link.className).toContain("site-nav__link--active");
+		// 其余项不高亮
+		expect(screen.getByRole("link", { name: "活动" })).not.toHaveAttribute(
+			"aria-current",
+		);
 	});
 });

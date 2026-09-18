@@ -4,6 +4,7 @@ import Taro, { useDidHide, useDidShow, useUnload } from '@tarojs/taro'
 import { api } from '@/api'
 import { getPublicInitiatives } from '@/api/initiatives'
 import { buildInitiativeSharePath } from '@/domain/share-route'
+import { openCampaignPage } from '@/domain/campaign'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, PublicInitiativeCard } from '@/domain/models'
@@ -116,6 +117,21 @@ export default function DiscoverPage() {
             />
           </View>
         </View>
+
+        {/* R19 入口：campaign 页只在微信端页清单登记（src/app.config.ts），裁剪端与
+            微信端共用本页——这里必须同款分流，否则裁剪端上是一条死链（且文案会撞
+            零导流扫描）。 */}
+        {process.env.TARO_ENV === 'weapp' && (
+          <View className={styles.campaignCard} data-testid='campaign-entry' onClick={() => openCampaignPage(Taro)}>
+            <Text className={styles.campaignKicker}>十周年 CAMPAIGN</Text>
+            <Text className={styles.campaignTitle}>Hacker Start 1024</Text>
+            <Text className={styles.campaignDesc}>让普通人第一次亲手用 Agent 做出能跑的作品</Text>
+            <View className={styles.campaignFoot}>
+              <Text className={styles.campaignMeta}>全国 1,024 场 · 2026.10.24 启动</Text>
+              <Text className={styles.campaignArrow}>›</Text>
+            </View>
+          </View>
+        )}
 
         {isVisitor && !loading && (
           <View className={styles.visitor} data-testid='visitor-state'>

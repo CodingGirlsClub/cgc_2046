@@ -1,0 +1,108 @@
+@startuml user-journey
+title Hacker Start 1024 · User Journey（参与者 / 志愿者 / 运营审核 / 品牌方）
+skinparam linetype ortho
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #C9497D
+}
+
+state "参与者旅程 —— A1 游客→学员" as J1 {
+  state "公众号 / 社群看到传播" as p1
+  state "打开宣传页（H5 / 小程序）" as p2
+  state "读叙事：为什么是现在 · 可以查证的十年" as p3
+  state "我要参加：节奏卡 + FAQ" as p4
+  state "CTA → /initiatives 场次页" as p5
+  state "报名：选城市 · 69 元押金" as p6
+  state "到场 · 主理人核销" as p7
+  state "3 小时做出作品 → demo" as p8
+  state "带 #hackerstart1024 发社媒" as p9
+  state "不成班 · 押金自动退（既有系统）" as p6r #FAEDF2
+  state "查无本城市场次 → 留存位关注公众号" as p5r #FAEDF2
+  [*] --> p1
+  p1 --> p2
+  p2 --> p3
+  p3 --> p4
+  p4 --> p5
+  p5 --> p6
+  p5 --> p5r : 查无本城市场次
+  p6 --> p6r : 报名后不成班（< 8 人）
+  p6 --> p7
+  p7 --> p8
+  p8 --> p9
+  p9 --> [*]
+}
+
+state "志愿者旅程 —— A2" as J2 {
+  state "宣传页 / 小程序入口：成为志愿者" as v1
+  state "读三职位卡 + 四段流程 + 分职位 FAQ" as v2
+  state "登录 · 第 1 步：完善简历档案（上传+投入+技能）" as v3
+  state "第 2 步：申请项目（批次 · 职位 · 城市）" as v4
+  state "确认通知（邮件 + 微信小程序）" as v5
+  state "初审通过 · 微信群约群面" as v6
+  state "群面 30 分钟 → 通过通知" as v7
+  state "训练营（站内课程 · 运营拉入）" as v8
+  state "项目分配：入台 2046 + 指派场次 / 课程任务" as v9
+  state "上岗：组织 / 陪跑 / 写教程 · 核销 · 素材 · 社媒" as v10
+  state "rejected · 收到含原因通知（下一批可换职位再申）" as vr #FAEDF2
+  [*] --> v1
+  v1 --> v2
+  v2 --> v3
+  v3 --> v4
+  v4 --> v5
+  v5 --> v6
+  v6 --> v7
+  v7 --> v8
+  v8 --> v9
+  v9 --> v10
+  v10 --> [*]
+  v6 --> vr
+  vr --> [*]
+  note bottom of vr
+    rejected 可从任一审核段进入；同批不可再申，
+    下一批可换职位（Q4）。
+    另有 canceled：由 2046 管理员取消（本人放弃等），
+    无申请人自撤流程（A1）
+  end note
+}
+
+note bottom of J2
+  已上岗志愿者跨职位再申请（下一批）：初审豁免，新职位训练营必修（B2）
+end note
+
+state "运营 / 审核旅程 —— A3 + A5" as J3 {
+  state "前置：建 Initiative(open) + 第 1 批 + 3 职位" as o1
+  state "预建多城市 draft 场次（挂 Initiative）" as o2
+  state "审核面板（2046 管理面）：看申请 · 初审" as o3
+  state "微信群组织群面 → 录入结果" as o4
+  state "训练营：拉人进课程 → 录入完成" as o5
+  state "项目分配：邀请入 2046 台 + 指派主理人 / 记录 Tutor 任务" as o6
+  state "录入场次信息并发布（Owner/Admin 权限）" as o7
+  state "批次结束 → 关批 / 开下一批" as o8
+  [*] --> o1
+  o1 --> o2
+  o2 --> o3
+  o3 --> o4
+  o4 --> o5
+  o5 --> o6
+  o6 --> o7
+  o7 --> o8
+  o8 --> [*]
+  note bottom of o7
+    取证（event.ex:1100-1102）：主理人无 Event 编辑/发布/读 draft 权限，
+    录入与发布必须由 2046 Owner/Admin 操作；
+    主理人系统内职责 = 本场核销 + 名单展示（Q11=a）
+  end note
+}
+
+state "品牌方旅程 —— A4" as J4 {
+  state "收到 PDF / 传播" as b1
+  state "宣传页品牌段：公式 · 权益 · 价值阶梯" as b2
+  state "mailto partners@（附一句话介绍）" as b3
+  state "48 小时内人工回复 → 线下推进" as b4
+  [*] --> b1
+  b1 --> b2
+  b2 --> b3
+  b3 --> b4
+  b4 --> [*]
+}
+@enduml
