@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import type { FlashbackCapsule } from "@/lib/graphql/flashback";
 import EventRoster from "./event-roster";
 import TodaySlot from "./today-slot";
@@ -34,6 +35,10 @@ export default function Corridor({
 					<h3 className="fb-corridor-when">
 						{archive.occurredOn?.replace(/-/g, ".") ?? archive.key}
 						<span className="fb-corridor-flabel">{archive.name}</span>
+						{/* 点格进场次页（E 的 event 步）：统计 + 3 列名册 + 找回出口 */}
+						<Link href={`/flashback/event/${archive.key}`} className="fb-corridor-open">
+							{t("openEvent")}
+						</Link>
 					</h3>
 					<EventRoster archive={archive} />
 				</article>
