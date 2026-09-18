@@ -5832,6 +5832,8 @@ type Enrollment {
 
   paymentMode: String
 
+  depositAmountCents: Int
+
   "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
   checkInCode: String
 }

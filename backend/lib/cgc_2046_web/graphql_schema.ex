@@ -2174,6 +2174,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # 押金快照金额（#696）：报名提交时物化的 submission_payload 键，与 createOrder
+    # 押金单实付金额同源——/orders/new 披露行的金额源；定价/免费报名 nil（展示面
+    # 走「金额待定」，绝不 ¥0）。
+    field(:deposit_amount_cents, :integer) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :deposit_amount_cents)}
+      end)
+    end
+
     # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
     # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
     # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层
