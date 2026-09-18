@@ -54,13 +54,13 @@ defmodule Cgc2046.Flashback.Import do
       "姓名" => :full_name,
       "性别" => :gender,
       "城市" => :city,
-      "手机" => {:pii_answer, "phone"},
+      "手机号" => {:pii_answer, "phone"},
       "邮箱" => {:pii_answer, "email"},
       "职业" => :occupation,
-      "操作系统" => {:answer, "os"},
-      "自我介绍" => {:answer, "self_intro"},
-      "社交媒体" => {:answer, "social_media"},
-      "有意思的事" => {:answer, "funny_thing"},
+      "您的电脑操作系统" => {:answer, "os"},
+      "请简单的介绍一下自己" => {:answer, "self_intro"},
+      "您的社交媒体" => {:answer, "social_media"},
+      "请详细介绍一两件你做过的有意思的事情" => {:answer, "funny_thing"},
       "提交时间" => :applied_at
     },
     admission_sheet: "学生",
@@ -208,13 +208,13 @@ defmodule Cgc2046.Flashback.Import do
 
   defp cell_at(_row, _), do: ""
 
+  # 匹配 key 两侧（报名行 vs 名单行）同一归一口径：仅 11 位大陆手机做
+  # {:phone, digits} key；否则 {:name_city, name, city}。口径不一致会把
+  # 同一人错判成两形态 key 互不匹配（2014 pilot 记忆线 2/102 的根因之一）。
   defp admission_key(phone, name, city) do
-    digits = phone && String.replace(phone, ~r/\D/, "")
-
-    if digits != nil and digits != "" do
-      {:phone, digits}
-    else
-      {:name_city, name, city}
+    case normalize_phone(phone || "") do
+      {:ok, digits} -> {:phone, digits}
+      _ -> {:name_city, name, city}
     end
   end
 
@@ -245,11 +245,11 @@ defmodule Cgc2046.Flashback.Import do
 
       # Person 侧联系字段（触达通道）与 PII Answer 同源取值（KTD3：原始
       # 值只进 admin 域，不进任何投影）。
-      phone = blank_to_nil(get(cols, {:pii_answer, "phone"}))
+      phone = phone_value(get(cols, {:pii_answer, "phone"}))
       email = blank_to_nil(get(cols, {:pii_answer, "email"}))
 
       with {:ok, answers} <- build_answers(row_idx, cols) do
-        applied_at = parse_applied_at(get(cols, :applied_at))
+        {applied_at_format, applied_at} = parse_applied_at(get(cols, :applied_at))
 
         {:ok,
          %{
@@ -262,6 +262,7 @@ defmodule Cgc2046.Flashback.Import do
            phone: phone,
            email: email,
            applied_at: applied_at,
+           applied_at_format: applied_at_format,
            applied_at_raw: blank_to_nil(get(cols, :applied_at)),
            role: config[:role],
            # 姓名 PII Answer 由 Person 字段派生（R16a：结构化 PII 直接标雾）。
@@ -286,6 +287,8 @@ defmodule Cgc2046.Flashback.Import do
 
         kind == :pii_answer ->
           # 结构化 PII（手机/邮箱）：整段自动雾化，无需离线标记。
+          # 手机与 Person.phone 同源归一（11 位文本），形态一致才可对账。
+          value = if(question_key == "phone", do: phone_value(value), else: value)
           {:cont, {:ok, [pii_answer(question_key, value) | acc]}}
 
         true ->
@@ -316,17 +319,111 @@ defmodule Cgc2046.Flashback.Import do
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(v) when is_binary(v), do: String.trim(v)
 
-  # 2014 场已核 ISO8601 到秒带时区（R22）；Excel 单元格可能带引号或空格。
+  # 提交时间兼容两种形态（2014 pilot LibreOffice 转换副本实测）：
+  # - ISO8601 文本（原始表单导出形态，2014 场已核到秒带时区，R22）；
+  # - Excel 1900 日期序号（数字 cell 文本化，如 "41651.74702546"）——
+  #   序号语义含 1900 假闰日惯例偏移（1900-02-29 不存在但占序号 60），
+  #   墙钟按东八区解释（原始数据全部 +08:00）后转 UTC。
+  # 返回 {format, datetime | nil}，format 供 dry-run 报告分形态计数。
   defp parse_applied_at(raw) do
     raw = String.trim(raw || "")
 
     if raw == "" do
-      nil
+      {:empty, nil}
     else
       case DateTime.from_iso8601(raw) do
-        {:ok, dt, _offset} -> dt
-        _ -> nil
+        {:ok, dt, _offset} -> {:iso, dt}
+        _ -> parse_excel_serial(raw)
       end
+    end
+  end
+
+  # 序号合理域 1970-01-01（25569）～ 2099-12-31（73051）；域外视为不可解析。
+  defp parse_excel_serial(raw) do
+    parsed =
+      if raw =~ ~r/^\d+$/, do: Integer.parse(raw), else: Float.parse(raw)
+
+    case parsed do
+      {serial, ""} when is_number(serial) and serial >= 25569 and serial <= 73051 ->
+        {:serial, excel_serial_to_utc(serial)}
+
+      _ ->
+        {:unparsed, nil}
+    end
+  end
+
+  defp excel_serial_to_utc(serial) do
+    days = trunc(serial)
+    frac = serial - days
+
+    # 1900 假闰日：序号 ≥ 61（1900-03-01）起的真实日期 = 1899-12-31 + (days - 1)。
+    adj = if days >= 61, do: days - 1, else: days
+    date = Date.add(~D[1899-12-31], adj)
+    secs = min(round(frac * 86400), 86399)
+    time = Time.new!(div(secs, 3600), div(rem(secs, 3600), 60), rem(secs, 60))
+    {:ok, wall_clock} = NaiveDateTime.new(date, time)
+    # 东八区固定 +08:00（无夏令时）：墙钟 − 8h = UTC。
+    {:ok, utc} =
+      NaiveDateTime.add(wall_clock, -8 * 3600, :second) |> DateTime.from_naive("Etc/UTC")
+
+    utc
+  end
+
+  # 手机号归一：文本数字（含分隔符/全角括号备注）、浮点尾（"13800138000.0"）、
+  # 科学计数法（"1.3800138E10"，LibreOffice 数值 cell 文本化形态）、+86 前缀
+  # → 统一 11 位文本。非 11 位大陆手机号的非空值返回 {:warn, 原文}——
+  # dry-run 报警告（contact_coverage.phone_unmappable），不再静默置空。
+  defp normalize_phone(raw) do
+    trimmed = String.trim(raw || "")
+
+    cond do
+      trimmed == "" ->
+        :empty
+
+      true ->
+        case phone_digits(trimmed) do
+          {:ok, digits} -> {:ok, digits}
+          :error -> {:warn, trimmed}
+        end
+    end
+  end
+
+  defp phone_digits(trimmed) do
+    digits = String.replace(trimmed, ~r/\D/, "")
+
+    cond do
+      digits =~ ~r/^1\d{10}$/ ->
+        {:ok, digits}
+
+      # +86 前缀：13 位数字 = 86 + 11 位本体。
+      String.starts_with?(digits, "86") and byte_size(digits) == 13 ->
+        body = binary_part(digits, 2, 11)
+        if body =~ ~r/^1\d{10}$/, do: {:ok, body}, else: :error
+
+      # 浮点/科学计数法：先去分隔符外字符再 parseFloat，round 回整数。
+      (trimmed =~ "." or trimmed =~ "e" or trimmed =~ "E") and
+          trimmed =~ ~r/^[\d.\s]+[eE]?[+-]?\d*$/ ->
+        case trimmed |> String.replace(~r/[\s]/, "") |> Float.parse() do
+          {f, ""} ->
+            int = f |> round() |> Integer.to_string()
+            if int =~ ~r/^1\d{10}$/, do: {:ok, int}, else: :error
+
+          _ ->
+            :error
+        end
+
+      true ->
+        :error
+    end
+  end
+
+  # Person.phone / phone PII Answer 取值：归一成功存 11 位文本；不可归一的
+  # 非空值保留原文（触达数据不丢，落 dry-run 警告）；空存 nil。
+  defp phone_value(raw) do
+    case normalize_phone(raw) do
+      {:ok, digits} -> digits
+      {:warn, original} -> original
+      :empty -> nil
     end
   end
 
@@ -369,10 +466,23 @@ defmodule Cgc2046.Flashback.Import do
       contact_coverage: %{
         with_phone: Enum.count(importable, & &1.phone),
         with_email: Enum.count(importable, & &1.email),
-        empty_phone_with_email: Enum.count(importable, &(!&1.phone and &1.email))
+        empty_phone_with_email: Enum.count(importable, &(!&1.phone and &1.email)),
+        # 非空但不可归一为 11 位手机号的行（行号 + 原文）：警告而非静默。
+        phone_unmappable:
+          importable
+          |> Enum.filter(fn p ->
+            case normalize_phone(p.phone || "") do
+              {:warn, _} -> true
+              _ -> false
+            end
+          end)
+          |> Enum.map(&{&1.row, &1.phone})
       },
       applied_at: %{
         parsed: Enum.count(importable, & &1.applied_at),
+        # 两种形态各自计数（R22：报告头记录，供人工签收转换质量）。
+        parsed_iso: Enum.count(importable, &(&1.applied_at_format == :iso)),
+        parsed_serial: Enum.count(importable, &(&1.applied_at_format == :serial)),
         failed:
           importable
           |> Enum.filter(&(!&1.applied_at))
@@ -399,12 +509,9 @@ defmodule Cgc2046.Flashback.Import do
   end
 
   defp person_key(person) do
-    digits = person.phone && String.replace(person.phone, ~r/\D/, "")
-
-    if digits != nil and digits != "" do
-      {:phone, digits}
-    else
-      {:name_city, person.full_name, person.city || ""}
+    case normalize_phone(person.phone || "") do
+      {:ok, digits} -> {:phone, digits}
+      _ -> {:name_city, person.full_name, person.city || ""}
     end
   end
 

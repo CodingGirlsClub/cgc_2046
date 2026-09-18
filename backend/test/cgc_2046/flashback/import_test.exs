@@ -11,7 +11,10 @@ defmodule Cgc2046.Flashback.ImportTest do
     指引、坏 zip；
   - Import dry-run：报告字段齐全（含源格式）、名单真源裁决、城市过滤、
     结构化 PII 自动雾化、残留标记 = 0；
-  - Import --commit：场次/人数/参与状态/答案 fog_spans 落库正确。
+  - Import --commit：场次/人数/参与状态/答案 fog_spans 落库正确；
+  - 转换副本形态回归（2014 pilot 三缺陷）：稀疏 cell 列位展开、数值手机
+    归一（科学计数/浮点尾/+86/分隔符）、Excel 1900 日期序号、名单匹配
+    key 形态对齐。
   """
 
   use Cgc2046.DataCase, async: true
@@ -62,22 +65,36 @@ defmodule Cgc2046.Flashback.ImportTest do
     {Enum.reverse(shared_acc) |> Enum.uniq() |> Enum.reverse(), Enum.reverse(parts)}
   end
 
+  # cell 形态：binary = 文本（t="s"）；{:num, raw} = 数值 cell（无 t，
+  # LibreOffice 数值化手机号/日期序号的载体）；{:skip, n} = 跳 n 列（构造
+  # 稀疏行，验证列位展开）。
   defp encode_rows(rows, shared, _sheet_no) do
     Enum.reduce(Enum.with_index(rows, 1), {"", shared}, fn {row, row_no}, {xml, shared_acc} ->
-      {cells_xml, shared_final} =
-        Enum.reduce(Enum.with_index(row, 0), {"", shared_acc}, fn {cell, col_no}, {cx, acc} ->
-          {index, acc2} =
-            case Enum.find_index(acc, &(&1 == cell)) do
-              nil -> {length(acc), acc ++ [cell]}
-              i -> {i, acc}
-            end
-
-          ref = col_letters(col_no) <> Integer.to_string(row_no)
-          {cx <> ~s(<c r="#{ref}" t="s"><v>#{index}</v></c>), acc2}
+      {cells_xml, shared_final, _col} =
+        Enum.reduce(row, {"", shared_acc, 0}, fn cell, {cx, acc, col_no} ->
+          encode_cell(cell, col_no, row_no, cx, acc)
         end)
 
       {xml <> ~s(<row r="#{row_no}">) <> cells_xml <> "</row>", shared_final}
     end)
+  end
+
+  defp encode_cell({:skip, n}, col_no, _row_no, cx, acc), do: {cx, acc, col_no + n}
+
+  defp encode_cell({:num, raw}, col_no, row_no, cx, acc) do
+    ref = col_letters(col_no) <> Integer.to_string(row_no)
+    {cx <> ~s(<c r="#{ref}"><v>#{raw}</v></c>), acc, col_no + 1}
+  end
+
+  defp encode_cell(cell, col_no, row_no, cx, acc) when is_binary(cell) do
+    {index, acc2} =
+      case Enum.find_index(acc, &(&1 == cell)) do
+        nil -> {length(acc), acc ++ [cell]}
+        i -> {i, acc}
+      end
+
+    ref = col_letters(col_no) <> Integer.to_string(row_no)
+    {cx <> ~s(<c r="#{ref}" t="s"><v>#{index}</v></c>), acc2, col_no + 1}
   end
 
   defp col_letters(n) when n < 26, do: <<n + ?A>>
@@ -158,7 +175,19 @@ defmodule Cgc2046.Flashback.ImportTest do
 
   # ── fixture 数据（合成，结构对齐 2014-01-11 场：R22） ────────────────
 
-  @header ["姓名", "性别", "城市", "手机", "邮箱", "职业", "操作系统", "自我介绍", "有意思的事", "提交时间"]
+  @header [
+    "姓名",
+    "性别",
+    "城市",
+    "手机号",
+    "邮箱",
+    "职业",
+    "您的电脑操作系统",
+    "请简单的介绍一下自己",
+    "您的社交媒体",
+    "请详细介绍一两件你做过的有意思的事情",
+    "提交时间"
+  ]
 
   defp sample_sheet do
     [
@@ -172,6 +201,7 @@ defmodule Cgc2046.Flashback.ImportTest do
         "学生",
         "Mac",
         "我在⟦盛大做测试⟧，想亲眼看看是不是。",
+        "",
         "想学 Rails。",
         "2014-01-03T13:06:11+08:00"
       ],
@@ -184,6 +214,7 @@ defmodule Cgc2046.Flashback.ImportTest do
         "产品",
         "Windows",
         "大家好。",
+        "",
         "⟦和韩梅梅一起报名|同学姓名⟧",
         "2014-01-04T09:00:00+08:00"
       ],
@@ -196,6 +227,7 @@ defmodule Cgc2046.Flashback.ImportTest do
         "设计师",
         "Linux",
         "⟦我叫韩梅梅，手机 139 0000 0003⟧想学前端。",
+        "http://weibo.com/hanmeimei",
         "",
         "2014-01-05T18:30:00+08:00"
       ],
@@ -209,6 +241,7 @@ defmodule Cgc2046.Flashback.ImportTest do
         "Mac",
         "上海报名者，不应进北京 pilot。",
         "",
+        "",
         "2014-01-06T10:00:00+08:00"
       ]
     ]
@@ -217,7 +250,7 @@ defmodule Cgc2046.Flashback.ImportTest do
   # 录取名单：王小明（手机匹配）、李雷（无手机 → 姓名+城市兜底）。
   defp admission_sheet do
     [
-      ["姓名", "城市", "手机"],
+      ["姓名", "城市", "手机号"],
       ["王小明", "北京", "13900000001"],
       ["李雷", "北京", ""]
     ]
@@ -345,6 +378,9 @@ defmodule Cgc2046.Flashback.ImportTest do
       assert report.contact_coverage.empty_phone_with_email == 1
       assert report.contact_coverage.with_phone == 2
       assert report.applied_at.parsed == 3
+      assert report.applied_at.parsed_iso == 3
+      assert report.applied_at.parsed_serial == 0
+      assert report.contact_coverage.phone_unmappable == []
       # U3 验收不变量：零残留、零非法区间
       assert report.fog.residual_markers == 0
       assert report.fog.invalid_spans == 0
@@ -402,6 +438,173 @@ defmodule Cgc2046.Flashback.ImportTest do
         ])
 
       assert {:error, {:admission_sheet_not_found, "学生", _sheets}} = Import.run(missing)
+    end
+  end
+
+  # ── LibreOffice 转换副本形态（2014 pilot 三缺陷回归） ───────────────
+
+  describe "转换副本形态回归（稀疏列位 / 数值手机 / 日期序号 / 匹配 key）" do
+    alias Cgc2046.Flashback.Import.Xlsx
+
+    test "稀疏 cell 按 r 属性列位展开——缺列补空，不整体左移错位" do
+      {:ok, sheets} =
+        build_xlsx([{"S", [["A", "B", "C"], ["1", "2", {:skip, 1}, "4"]]}])
+        |> Xlsx.read()
+
+      assert sheets["S"] == [["A", "B", "C"], ["1", "2", "", "4"]]
+    end
+
+    test "数值 cell 文本化读取（数值手机/日期序号的载体）" do
+      {:ok, sheets} =
+        build_xlsx([
+          {"S", [["手机号", "提交时间"], [{:num, "1.3800138E10"}, {:num, "41643.375"}]]}
+        ])
+        |> Xlsx.read()
+
+      assert sheets["S"] == [["手机号", "提交时间"], ["1.3800138E10", "41643.375"]]
+    end
+
+    test "数值形态手机归一：科学计数/浮点尾/+86/分隔符 → 11 位；12 位落警告" do
+      sheet = [
+        @header,
+        [
+          "赵科学",
+          "女",
+          "北京",
+          {:num, "1.3800138000E10"},
+          "zhao@example.com",
+          "学生",
+          "Mac",
+          "自我介绍甲。",
+          "",
+          "有意思甲。",
+          "2014-01-03T13:06:11+08:00"
+        ],
+        [
+          "钱浮点",
+          "女",
+          "北京",
+          {:num, "13800138002.0"},
+          "",
+          "学生",
+          "Mac",
+          "自我介绍乙。",
+          "",
+          "有意思乙。",
+          "2014-01-03T13:06:11+08:00"
+        ],
+        [
+          "孙国冠",
+          "女",
+          "北京",
+          "+8613800138003",
+          "",
+          "学生",
+          "Mac",
+          "自我介绍丙。",
+          "",
+          "有意思丙。",
+          "2014-01-03T13:06:11+08:00"
+        ],
+        [
+          "李横线",
+          "女",
+          "北京",
+          "186-0000-0004",
+          "",
+          "学生",
+          "Mac",
+          "自我介绍丁。",
+          "",
+          "有意思丁。",
+          "2014-01-03T13:06:11+08:00"
+        ],
+        [
+          "周十二位",
+          "女",
+          "北京",
+          "152302007977",
+          "",
+          "学生",
+          "Mac",
+          "自我介绍戊。",
+          "",
+          "有意思戊。",
+          "2014-01-03T13:06:11+08:00"
+        ]
+      ]
+
+      admission = [
+        ["姓名", "城市", "手机号"],
+        ["赵科学", "北京", "13800138000"],
+        ["钱浮点", "北京", "13800138002"],
+        ["孙国冠", "北京", "13800138003"],
+        ["李横线", "北京", "18600000004"]
+      ]
+
+      {:ok, report, _counts} =
+        Import.run(build_xlsx([{"Sheet1", sheet}, {"学生", admission}]), dry_run: false)
+
+      # 数值/前缀/分隔符形态全部归一 11 位；12 位不可归一 → 警告而非静默空
+      assert report.contact_coverage.phone_unmappable == [{6, "152302007977"}]
+
+      people = people_of_archive()
+      assert phone_of(people, "赵科学") == "13800138000"
+      assert phone_of(people, "钱浮点") == "13800138002"
+      assert phone_of(people, "孙国冠") == "13800138003"
+      assert phone_of(people, "李横线") == "18600000004"
+      # 12 位原值保留（触达数据不丢），但不参与 phone key
+      assert phone_of(people, "周十二位") == "152302007977"
+
+      # 数值手机（归一后）与名单文本手机命中同一 {:phone, key} → attended；
+      # 周十二位未入名单，走 name_city 兜底未命中 → not_selected
+      assert report.participation == %{attended: 4, not_selected: 1}
+    end
+
+    test "Excel 1900 日期序号 → UTC：假闰日偏移 + 东八区语义，与 ISO 等值" do
+      sheet = [
+        @header,
+        [
+          "王序号",
+          "女",
+          "北京",
+          "13900000001",
+          "wx@example.com",
+          "学生",
+          "Mac",
+          "自我介绍。",
+          "",
+          "有意思。",
+          {:num, "41643.375"}
+        ],
+        [
+          "李文本",
+          "女",
+          "北京",
+          "13900000002",
+          "",
+          "学生",
+          "Mac",
+          "自我介绍。",
+          "",
+          "有意思。",
+          "2014-01-04T09:00:00+08:00"
+        ]
+      ]
+
+      admission = [["姓名", "城市", "手机号"], []]
+
+      {:ok, report, _counts} =
+        Import.run(build_xlsx([{"Sheet1", sheet}, {"学生", admission}]), dry_run: false)
+
+      assert report.applied_at.parsed_iso == 1
+      assert report.applied_at.parsed_serial == 1
+      assert report.applied_at.failed == []
+
+      # 41643.375 = 2014-01-04 09:00 东八区墙钟 → UTC 01:00，与 ISO 行等值
+      people = people_of_archive()
+      assert applied_at_of(people, "王序号") == ~U[2014-01-04 01:00:00.000000Z]
+      assert applied_at_of(people, "李文本") == ~U[2014-01-04 01:00:00.000000Z]
     end
   end
 
@@ -465,6 +668,23 @@ defmodule Cgc2046.Flashback.ImportTest do
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────
+
+  defp people_of_archive do
+    archive = get_archive!("2014-01-11-bj")
+
+    Flashback.Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(archive_event_id == ^archive.id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp phone_of(people, name) do
+    people |> Enum.find(&(&1.full_name == name)) |> Map.get(:phone)
+  end
+
+  defp applied_at_of(people, name) do
+    people |> Enum.find(&(&1.full_name == name)) |> Map.get(:applied_at)
+  end
 
   defp count_archives(key) do
     Flashback.EventArchive
