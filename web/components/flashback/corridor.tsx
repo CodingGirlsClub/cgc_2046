@@ -50,21 +50,12 @@ export default function Corridor({
 	capsule: FlashbackCapsule;
 	/** 城市钉筛选中（R34）：名册为空时给「该城无名册」而非裸空走廊 */
 	cityFiltered?: boolean;
-	/** 当前选中城市（null = 全部）——宽屏提示尾注用 */
-	city?: string | null;
 }) {
-	const t = useTranslations("flashback.capsule");
 	const tCorridor = useTranslations("flashback.corridor");
 	const wide = useWideCorridor();
-	// 提示分端（用户定稿）：宽屏横滑照原型 D 逐字语序（尾注 = 当前城市/全部城市）；
-	// 窄屏与小程序保留竖滑版
-	const hint = wide
-		? t("scrollHintWide", { city: city ?? t("cityAllWide") })
-		: t("scrollHint");
 
 	return (
 		<section className={`fb-corridor${wide ? " fb-corridor--wide" : ""}`} aria-label={tCorridor("ariaLabel")}>
-			<p className="fb-hint fb-corridor-scrollhint">{hint}</p>
 			{capsule.archives.length === 0 && cityFiltered && (
 				<p className="fb-hint fb-corridor-empty">{tCorridor("emptyCity")}</p>
 			)}
@@ -134,7 +125,7 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 }
 
 /** 宽屏判定（两形态单源；SSR 快照按窄屏，客户端首帧纠正） */
-function useWideCorridor(): boolean {
+export function useWideCorridor(): boolean {
 	return useSyncExternalStore(
 		(callback) => {
 			const query = window.matchMedia(WIDE_QUERY);
