@@ -1,0 +1,54 @@
+/* campaign 页样式（R19）：token 全部取自 miniprogram/src 既有页面
+   （橙 #ea5504 / 渐变 hero #fdeadf→#fff / 白卡 22rpx 圆角 + 橙左边框 / 底 #f7f7f7），
+   数值按原型 weapp.css 的 px × 2 换算成 rpx（750 设计宽度）。 */
+
+.page { min-height: 100vh; background: #f7f7f7; padding-bottom: calc(48rpx + env(safe-area-inset-bottom)); }
+
+/* hero：同发现页的渐变语言，全宽出血 */
+.hero { padding: 44rpx 32rpx 40rpx; background: linear-gradient(145deg, #fdeadf 0%, #fff 68%); }
+.brand { font-size: 26rpx; font-weight: 700; letter-spacing: 1rpx; }
+.brandAccent { color: #ea5504; }
+.title { display: block; margin: 16rpx 0 12rpx; font-size: 58rpx; line-height: 1.15; font-weight: 700; letter-spacing: -2rpx; }
+.subtitle { display: block; color: #4b4d54; font-size: 26rpx; line-height: 1.55; }
+.numbers { display: flex; flex-wrap: wrap; gap: 12rpx 32rpx; margin-top: 24rpx; font-size: 26rpx; font-weight: 600; }
+.number { display: block; }
+.numberValue { font-weight: 700; }
+
+/* 幂标记（R4）：等宽 + 缩小 + 橙色，与主数字视觉分离 */
+.pow { font-family: ui-monospace, Menlo, monospace; color: #ea5504; font-weight: 700; font-size: 0.8em; }
+.powExp { font-size: 0.72em; vertical-align: super; }
+
+.ctaRow { display: flex; gap: 20rpx; margin-top: 32rpx; }
+.cta { flex: 1; padding: 22rpx 16rpx; text-align: center; background: linear-gradient(135deg, #ea5504, #f26a1f); border-radius: 28rpx; box-shadow: 0 10rpx 28rpx rgba(234, 85, 4, .22); }
+.ctaText { color: #fff; font-size: 28rpx; font-weight: 600; }
+.ctaGhost { background: #fff; border: 1rpx solid #ea5504; box-shadow: none; }
+.ctaTextGhost { color: #ea5504; font-size: 28rpx; font-weight: 600; }
+
+.body { padding: 0 32rpx; }
+.sectionTitle { display: block; margin: 40rpx 0 18rpx; font-size: 32rpx; font-weight: 650; }
+.sectionEn { display: inline; margin-left: 12rpx; color: #8a8f98; font-size: 22rpx; font-weight: 400; letter-spacing: 2rpx; }
+
+/* 白卡（同发现页 contentCard 骨架）+ 橙左边框（同倡导活动卡） */
+.card { margin-bottom: 18rpx; padding: 26rpx 28rpx; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, .04); border-radius: 22rpx; }
+.cardBorder { border-left: 6rpx solid #ea5504; }
+.cardTop { display: flex; align-items: center; justify-content: space-between; }
+.kicker { color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 4rpx; }
+.arrow { color: #8a8f98; font-size: 34rpx; }
+.cardTitle { display: block; margin-top: 10rpx; font-size: 31rpx; line-height: 1.35; font-weight: 600; }
+.cardDesc { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 24rpx; line-height: 1.6; }
+.cardNote { display: block; margin-top: 10rpx; color: #8a8f98; font-size: 22rpx; }
+
+/* 品牌合作：邮箱 + 复制按钮（小程序无 web-view 业务域名，出口 = 剪贴板） */
+.brandRow { margin-top: 18rpx; display: flex; align-items: center; justify-content: space-between; }
+.brandEmail { color: #222326; font-size: 24rpx; font-weight: 600; }
+.copyButton { margin: 0; height: 60rpx; line-height: 60rpx; padding: 0 26rpx; color: #fff; background: #ea5504; border-radius: 999rpx; font-size: 24rpx; font-weight: 600; }
+
+/* 时间线 */
+.step { display: flex; padding: 18rpx 0; border-bottom: 1rpx solid #f0f0f2; }
+.step:last-child { border-bottom: 0; }
+.stepIndex { flex: none; width: 40rpx; height: 40rpx; margin-right: 20rpx; color: #ea5504; background: #fdeadf; border-radius: 999rpx; font-size: 22rpx; font-weight: 700; text-align: center; line-height: 40rpx; }
+.stepText { flex: 1; color: #4b4d54; font-size: 25rpx; line-height: 1.55; }
+.stepTitle { color: #222326; font-weight: 700; }
+
+/* 十年：杠杆句（本轮计划 vs 历史累计的分野行） */
+.lever { display: block; margin-top: 14rpx; color: #ea5504; font-size: 24rpx; font-weight: 700; line-height: 1.6; }
