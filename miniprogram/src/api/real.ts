@@ -636,11 +636,20 @@ export class RealMiniProgramApi implements MiniProgramApi {
       FlashbackCapsuleQueryDocument,
       {}
     ).catch((error: unknown) => {
-      if (
-        error instanceof GraphQLRequestError &&
-        error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_person_not_bound')
-      ) {
-        throw new FlashbackNotBoundError()
+      if (error instanceof GraphQLRequestError) {
+        // 登录账号没绑定档案（会话腿 miss）→ 引导态
+        if (error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_person_not_bound')) {
+          throw new FlashbackNotBoundError()
+        }
+        // 未登录/会话失效（会话腿 code = flashback_auth_required，与后端
+        // alumni_projection 同源）→ 登录引导而非错误面——对齐 getMyEnrollments/
+        // getMyOrders 的 SessionExpiredError 先例（P1）
+        if (
+          isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required')
+        ) {
+          throw new SessionExpiredError()
+        }
       }
       throw error
     })
@@ -657,6 +666,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
         occupationThen: capsule.me.occupationThen ?? null,
         participation: capsule.me.participation === 'not_selected' ? 'not_selected' : 'attended',
         appliedAt: capsule.me.appliedAt ?? null,
+        quoteLevel: capsule.me.quoteLevel,
         quote: capsule.me.quote ?? null,
         today: capsule.me.today
           ? {

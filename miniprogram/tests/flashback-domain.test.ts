@@ -6,6 +6,7 @@ import {
   cardStatusText,
   endorseAction,
   myCardView,
+  parseQuoteLevel,
   sentencesWithFog,
   splitActionCards,
   splitSentences,
@@ -149,6 +150,7 @@ describe('myCardView（R2 分线 + R3 年数 + R11 寄出态）', () => {
         participation,
         appliedAt: '2014-01-11T13:06:00Z',
         quote: null,
+        quoteLevel: 'off',
         today: { nowStatus: null, want: null, say: null, sentToWallAt },
         answers: []
       },
@@ -163,5 +165,20 @@ describe('myCardView（R2 分线 + R3 年数 + R11 寄出态）', () => {
     const offWall = myCardView(capsule('not_selected', null), new Date('2026-09-18T00:00:00Z'))
     assert.equal(offWall.subline, '圆梦线 · 北京')
     assert.equal(offWall.wallState, 'off_wall')
+  })
+})
+
+describe('parseQuoteLevel（R31 授权档恢复，fail-closed）', () => {
+  test('合法三档透传', () => {
+    assert.equal(parseQuoteLevel('off'), 'off')
+    assert.equal(parseQuoteLevel('anonymous'), 'anonymous')
+    assert.equal(parseQuoteLevel('credited'), 'credited')
+  })
+
+  test('非法/未知/缺省 → off（默认关，不透传）', () => {
+    assert.equal(parseQuoteLevel('whitelist'), 'off')
+    assert.equal(parseQuoteLevel(''), 'off')
+    assert.equal(parseQuoteLevel(null), 'off')
+    assert.equal(parseQuoteLevel(undefined), 'off')
   })
 })

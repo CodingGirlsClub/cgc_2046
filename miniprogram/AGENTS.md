@@ -37,6 +37,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 | `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | **已失效**：断言全用 `[data-testid]`，而 Taro 4 运行时不渲染该属性（#579） |
 | `e2e/order-pay-deposit-consent.e2e.sh`（`pnpm e2e:order-pay-consent`） | wechatide CLI + 已登录的 DevTools | 可用；押金同意门回归（11 断言 + 截图） |
 | `e2e/initiative-journey.e2e.sh`（`pnpm e2e:initiative`） | wechatide CLI + 已登录的 DevTools | 可用；倡导活动旅程 + 详情页回链/成班徽章回归（16 断言 + 截图） |
+| `e2e/flashback-journey.e2e.sh`（`pnpm e2e:flashback`） | wechatide CLI + 已登录的 DevTools | 可用；「我的闪念间」旅程：未登录引导面 / 雾化与授权档回读 / 附议闭环（48 断言 + 截图） |
 
 跑 e2e 的四条纪律：
 

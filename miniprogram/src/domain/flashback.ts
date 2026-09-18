@@ -164,6 +164,12 @@ export function quoteLevelText(level: string): string {
   return QUOTE_LEVEL_OPTIONS.find((option) => option.value === level)?.label ?? level
 }
 
+/** 授权档 fail-closed 解析（P3）：capsule.me.quoteLevel 原始 string → 合法档；
+ * 非法/未知/缺省一律回落 off（R31 默认关——授权是白名单行为，不做透传）。 */
+export function parseQuoteLevel(value: string | null | undefined): QuoteLevel {
+  return value === 'anonymous' || value === 'credited' ? value : 'off'
+}
+
 // ── 我的卡视图 ────────────────────────────────────────────────────────
 
 export interface MyCardView {

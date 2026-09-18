@@ -336,6 +336,8 @@ export interface FlashbackMyCard {
   participation: 'attended' | 'not_selected'
   appliedAt: string | null
   quote: string | null
+  /** 金句授权档原始值（R31：off/anonymous/credited；非法值由 parseQuoteLevel 落 off） */
+  quoteLevel: string
   today: FlashbackMyToday | null
   answers: FlashbackMeAnswer[]
 }

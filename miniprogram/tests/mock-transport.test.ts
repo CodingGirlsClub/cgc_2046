@@ -9,10 +9,15 @@ import {
   CreateOrderMutationDocument,
   EventDetailQueryDocument,
   EnrollmentQueryDocument,
+  FlashbackAdjustFogMutationDocument,
+  FlashbackCapsuleQueryDocument,
+  FlashbackEndorseMutationDocument,
+  FlashbackSetQuoteLicenseMutationDocument,
   MyEnrollmentsQueryDocument,
   PublicInitiativeQueryDocument,
   PublicInitiativesQueryDocument,
-  SignInWithPlatformMutationDocument
+  SignInWithPlatformMutationDocument,
+  SignOutMutationDocument
 } from '../src/api/operations.ts'
 
 interface CatalogResults {
@@ -185,4 +190,37 @@ test('#617 mock parity：e2e 走的读面回带 startsAt/venue（从目标记录
   // 关键：mock 必须给**文本化** venue（读面契约 = Venue.text/1 的 city+district），
   // 不能把目标记录里的 JsonString 直接透传——否则 mock/真机形态不一致
   assert.equal(row?.venue, '北京海淀区')
+})
+// ── U9 闪念间：会话腿拒绝态 + mock 写面落 state 后 capsule 回读（P2） ──
+
+test('mock FlashbackCapsule：未登录 → 顶层 errors（flashback_auth_required）', () => {
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const body = mockGraphQLRequest<{ errors?: Array<{ code: string }> }>(FlashbackCapsuleQueryDocument, {})
+  assert.equal(body.errors?.[0]?.code, 'flashback_auth_required')
+})
+
+test('mock 闪念间写面落 state：adjustFog / setQuoteLicense / endorse 后 capsule 回读', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+
+  // 雾面：解掉初始 [0,7) → capsule 回读空 spans（不再恒定初始区间）
+  mockGraphQLRequest(FlashbackAdjustFogMutationDocument, { answerId: 'fb-answer-1', spans: [] })
+  let capsule = mockGraphQLRequest<{
+    flashbackCapsule: {
+      me: { quoteLevel: string; answers: Array<{ fogSpans: Array<{ start: number; len: number }> }> }
+      actionCards: Array<{ id: string; endorsementCount: number; endorsedByMe: boolean }>
+    }
+  }>(FlashbackCapsuleQueryDocument, {})
+  assert.deepEqual(capsule.flashbackCapsule.me.answers[0]?.fogSpans, [])
+
+  // 授权档：off → anonymous → capsule 回读（me.quoteLevel 不再恒定 off，P2/P3）
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'anonymous' })
+  capsule = mockGraphQLRequest<typeof capsule>(FlashbackCapsuleQueryDocument, {})
+  assert.equal(capsule.flashbackCapsule.me.quoteLevel, 'anonymous')
+
+  // 附议：forming 卡计数 4 → 5、endorsedByMe 翻真
+  mockGraphQLRequest(FlashbackEndorseMutationDocument, { cardId: 'card-forming', roleClaimed: 'organizer' })
+  capsule = mockGraphQLRequest<typeof capsule>(FlashbackCapsuleQueryDocument, {})
+  const forming = capsule.flashbackCapsule.actionCards.find((card) => card.id === 'card-forming')
+  assert.equal(forming?.endorsementCount, 5)
+  assert.equal(forming?.endorsedByMe, true)
 })

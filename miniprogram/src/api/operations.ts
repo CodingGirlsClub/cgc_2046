@@ -488,6 +488,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         occupationThen
         participation
         appliedAt
+        quoteLevel
         quote
         today {
           nowStatus
