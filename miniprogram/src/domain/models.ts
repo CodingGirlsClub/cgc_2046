@@ -163,7 +163,8 @@ export interface MyEnrollmentState {
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值 → null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
 export interface UserSummary {

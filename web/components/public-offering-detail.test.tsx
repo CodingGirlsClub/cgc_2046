@@ -252,6 +252,40 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
     expect(screen.queryByTestId("price-tier-tier-1")).not.toBeInTheDocument();
   });
 
+  // #687：脏档位金额（0/负/非整数分/缺失）→ 档位行保留、金额「金额待定」+ radio
+  // 禁选（隐藏档位副作用更大），全文绝不出 ¥0/¥0.00——有效档照常可选可支付。
+  it.each([
+    ["0", 0],
+    ["负数", -100],
+    ["非整数分", 0.4],
+    ["缺失", null],
+  ])("档位金额脏（%s）→ 金额待定 + 禁选，不出 ¥0（#687）", async (_label, dirty) => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      availablePriceTiers: [
+        JSON.stringify({ id: "tier-clean", name: "标准", amount_cents: 19900 }),
+        JSON.stringify({ id: "tier-dirty", name: "脏档", amount_cents: dirty }),
+      ],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    // 静态信息块（匿名可见）：脏档金额不表态
+    const infoBlock = await screen.findByTestId("price-tier-info");
+    expect(infoBlock).toHaveTextContent("脏档");
+    expect(infoBlock).toHaveTextContent("金额待定");
+
+    // 选档行（enrollChecked 门控后渲染，findBy 等待）：脏档禁选，有效档照常
+    const dirtyRow = await screen.findByTestId("price-tier-tier-dirty");
+    expect(dirtyRow).toHaveTextContent("金额待定");
+    expect(dirtyRow.querySelector("input")).toBeDisabled();
+    const cleanRow = screen.getByTestId("price-tier-tier-clean");
+    expect(cleanRow).toHaveTextContent("¥199.00");
+    expect(cleanRow.querySelector("input")).not.toBeDisabled();
+
+    expect(document.body.textContent).not.toContain("¥0");
+  });
+
   it("后端 :tier_id_required 错误 → 映射为档位引导文案（错误分支不再死胡同）", async () => {
     mocks.submitEnrollment.mockResolvedValueOnce({
       result: null,
