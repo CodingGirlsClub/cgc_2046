@@ -5,6 +5,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import {
 	appliedStamp,
+	scatterLabelOf,
 	yearsAgo,
 	type FlashbackAnswer,
 	type FlashbackDreamTarget,
@@ -47,7 +48,7 @@ export default function Reveal({
 	profile: FlashbackProfile;
 	line: "memory" | "dream";
 	dreamTarget: FlashbackDreamTarget | null;
-	quizChoice: "correct" | "dunno" | null;
+	quizChoice: "correct" | "wrong" | "dunno" | null;
 	/** 回访（AE9）：已填今天但未寄出 → 直接落在背面书写面 */
 	startOnBack?: boolean;
 	onRevealed: () => void;
@@ -102,7 +103,9 @@ export default function Reveal({
 			? t("dunnoFeedback", { event: archiveName })
 			: quizChoice === "correct"
 				? t("correctFeedback")
-				: null;
+				: quizChoice === "wrong"
+					? t("wrongFeedback", { label: scatterLabelOf(profile.archive) })
+					: null;
 
 	const freeAnswers = (profile.answers ?? []).filter(
 		(answer) => (FREE_TEXT_KEYS as readonly string[]).includes(answer.questionKey),

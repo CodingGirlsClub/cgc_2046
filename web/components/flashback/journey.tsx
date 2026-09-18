@@ -232,6 +232,7 @@ export default function Journey() {
 					role={profile.role}
 					answers={freeAnswers}
 					progress={entry.progress ?? { quoteLevel: "off" }}
+					scatter={entry.scatter?.entries ?? []}
 					onAnswer={(choice) => setQuizChoice(choice)}
 					onRevealed={() => {
 						if (token) void runMarkRevealed({ variables: { token } });

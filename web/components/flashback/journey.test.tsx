@@ -77,6 +77,13 @@ const memoryEntry: FlashbackEnterResult = {
 		],
 	},
 	progress: { quoteLevel: "off", maskedPhone: "138****5678", maskedEmail: "w***@x.com" },
+	scatter: {
+		entries: [
+			{ photoKey: "p-self", label: "2012 · 上海", isMine: true, surname: "王" },
+			{ photoKey: "p-bj", label: "2014 · 北京", isMine: false, surname: "李" },
+			{ photoKey: "p-gz", label: "2015 · 广州", isMine: false, surname: "张" },
+		],
+	},
 };
 
 const dreamEntry: FlashbackEnterResult = {
@@ -113,14 +120,14 @@ async function renderJourney(url = "/flashback/enter?token=tok-123") {
 async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	await renderJourney();
 	fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
-	await screen.findByText("随便挑一张——它都会变成你的。");
+	await screen.findByText("点开一张，放大看看——线索藏在照片里。");
 	if (stage === "scatter") return;
 
 	fireEvent.click(screen.getAllByRole("button", { name: /第 1 张照片/ })[0]);
 	await screen.findByText("还记得……是哪一场吗？");
 	if (stage === "quiz") return;
 
-	fireEvent.click(screen.getByRole("button", { name: /Rails Girls 上海/ }));
+	fireEvent.click(screen.getAllByTestId("fb-quiz-option").find((el) => el.getAttribute("data-mine") === "true")!);
 	await screen.findByTestId("fb-polaroid");
 	if (stage === "reveal") return;
 
@@ -191,7 +198,7 @@ describe("Journey · 记忆线", () => {
 		mockEnterResolve(memoryEntry);
 		await renderJourney();
 		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
-		await screen.findByText("随便挑一张——它都会变成你的。");
+		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
 
 		const photos = screen.getAllByTestId("fb-scatter-photo");
 		expect(photos).toHaveLength(3);
@@ -219,10 +226,10 @@ describe("Journey · 记忆线", () => {
 		mockEnterResolve(memoryEntry);
 		await renderJourney();
 		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
-		await screen.findByText("随便挑一张——它都会变成你的。");
+		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
 		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[1]);
 		await screen.findByTestId("fb-quiz-sheet");
-		fireEvent.click(screen.getByRole("button", { name: /Rails Girls 上海/ }));
+		fireEvent.click(screen.getAllByTestId("fb-quiz-option").find((el) => el.getAttribute("data-mine") === "true")!);
 
 		// 显影卡出现 + 桌面仍在场（dimmed）——场景连续性
 		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
@@ -252,13 +259,58 @@ describe("Journey · 记忆线", () => {
 		expect(screen.queryByText(/错误|失败|答错/)).not.toBeInTheDocument();
 	});
 
+	it("答错也有回报（三态 R5）：干扰项显影 + 指回本人场次线索", async () => {
+		mockEnterResolve(memoryEntry);
+		await renderJourney();
+		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
+		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
+		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[1]);
+		await screen.findByTestId("fb-quiz-sheet");
+		fireEvent.click(screen.getAllByTestId("fb-quiz-option").find((el) => el.getAttribute("data-mine") === "false")!);
+
+		expect(
+			await screen.findByText("差一点——但也显影给你看。你的照片其实在 2012 · 上海。"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("fb-polaroid")).toBeInTheDocument();
+	});
+
+	it("单场自适应（pilot 初期）：候选仅一场 → 点照片直接原位显影、跳过问答", async () => {
+		const single: FlashbackEnterResult = {
+			...memoryEntry,
+			scatter: { entries: [{ photoKey: "p-self", label: "2012 · 上海", isMine: true, surname: "王" }] },
+		};
+		mockEnterResolve(single);
+		await renderJourney();
+		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
+		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
+		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[0]);
+
+		// 无谜不设谜：没有问答 sheet，直接显影；标题为默认（非对/错反馈）
+		expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument();
+		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
+		expect(screen.getByText("慢慢显影——这是当年的你")).toBeInTheDocument();
+	});
+
+	it("放大 = 回报：线索标签显影（年份 · 城市）", async () => {
+		mockEnterResolve(memoryEntry);
+		await renderJourney();
+		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
+		await screen.findByText("点开一张，放大看看——线索藏在照片里。");
+		// 摆位按本人 id 哈希旋转（非固定第一张）——用线索标签定位本人那张
+		const photos = screen.getAllByTestId("fb-scatter-photo");
+		const mine = photos.find((el) => el.getAttribute("data-label") === "2012 · 上海")!;
+		fireEvent.click(mine);
+		await waitFor(() => expect(mine).toHaveAttribute("data-picked", "true"));
+		expect(mine.querySelector('[data-testid="fb-scatter-label"]')).toHaveTextContent("2012 · 上海");
+	});
+
 	it("「重挑一张」出口回到散照", async () => {
 		mockEnterResolve(memoryEntry);
 		await walkTo("quiz");
 
 		fireEvent.click(screen.getByRole("button", { name: /重挑一张/ }));
 
-		expect(await screen.findByText("随便挑一张——它都会变成你的。")).toBeInTheDocument();
+		expect(await screen.findByText("点开一张，放大看看——线索藏在照片里。")).toBeInTheDocument();
 	});
 
 	it("显影完成（animationend）写 revealed 行为事件（四时刻之二）", async () => {
@@ -631,7 +683,7 @@ describe("Journey · 无障碍", () => {
 		await renderJourney();
 
 		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
-		expect(await screen.findByText("随便挑一张——它都会变成你的。")).toBeInTheDocument();
+		expect(await screen.findByText("点开一张，放大看看——线索藏在照片里。")).toBeInTheDocument();
 		expect(document.querySelector(".fb-flash-overlay")).toBeNull();
 	});
 

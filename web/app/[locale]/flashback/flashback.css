@@ -360,6 +360,24 @@
 	filter: blur(3px);
 }
 .fb-scatter-photo--picked .fb-photo { filter: blur(0); }
+/* 线索标签（批次二 R5）：放大=回报——「年份 · 城市」从双重模糊中显影出来。
+ * 未放大时整卡模糊 + 标签自身再模糊（谜面）；放大时标签清晰显影（谜底线索）。 */
+.fb-scatter-label {
+	display: inline-block;
+	letter-spacing: 0.1em;
+	font-weight: 600;
+	filter: blur(6px);
+	opacity: 0.4;
+	transition: filter 0.45s ease, opacity 0.45s ease;
+}
+.fb-scatter-photo--picked .fb-scatter-label {
+	filter: blur(0);
+	opacity: 1;
+	text-shadow: 0 0 14px rgba(203, 191, 143, 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+	.fb-scatter-label { transition: none; }
+}
 /* 原位显影：桌面退后，同一场景里长出显影卡（1.2s 中速显影由 reveal 承载） */
 .fb-desk-reveal { width: 100%; animation: fb-desk-reveal-in 0.6s ease-out both; }
 @keyframes fb-desk-reveal-in {
@@ -379,7 +397,25 @@
 	padding: 20px;
 	z-index: 40;
 	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-	animation: fb-sheet-in 0.35s ease-out both;
+	animation: fb-sheet-in 0.35s ease-out 0.5s both;
+
+}
+.fb-quiz-hint { margin: 4px 0 14px; color: #77726a; font-size: 11px; letter-spacing: 0.05em; }
+/* 场次选项 = 紧凑胶囊（原型 B wrap 形态）：多场下 4+2 个选项两行内收，
+   sheet 变矮不遮放大卡——焦点顺序：放大卡（线索）> 胶囊选项（作答） */
+.fb-quiz-sheet .fb-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: auto;
+	max-width: none;
+}
+.fb-quiz-sheet .fb-option {
+	flex: 0 1 auto;
+	justify-content: center;
+	border-radius: 999px;
+	font-size: 13px;
+	padding: 8px 16px;
 }
 .fb-quiz-title { margin: 0 0 14px; font-size: 16px; line-height: 1.5; color: #d9d4ca; }
 @keyframes fb-sheet-in {

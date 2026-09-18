@@ -2388,21 +2388,21 @@
 			"envelopeSeal": "To the you of back then"
 		},
 		"scatter": {
-			"title": "Photos scattered on the table",
-			"hint": "Pick any one — it will become yours.",
-			"groupAria": "A stack of blurred old photos; choose one to claim",
-			"cardAria": "Photo {index} ({city})",
-			"fallbackCity": "that year",
-			"photoHidden": "A blurred old photo"
+			"title": "A table of scattered photos",
+			"hint": "Open one and zoom in — the clue is in the photo.",
+			"groupAria": "A pile of blurry old photos from different years, pick one to zoom in",
+			"cardAria": "Photo {index} ({label})",
+			"photoHidden": "A blurred old photo",
+			"mystery": "Whose photo?",
+			"owned": "Photo of {name}"
 		},
 		"quiz": {
 			"question": "Do you remember… which gathering it was?",
-			"myEventHint": "your gathering",
 			"dontRemember": "I don't remember",
 			"dontRememberHint": "That's okay — we do",
 			"repick": "Pick another photo",
 			"repickHint": "back to the stack",
-			"fallbackArchiveName": "that year"
+			"sheetHint": "To develop it, first recognise it"
 		},
 		"reveal": {
 			"title": "Developing slowly — this is you, back then",
@@ -2417,7 +2417,8 @@
 			"dreamFallback": "The gathering in your city is still taking shape. Write today's you and send it — leave your contact, and you'll be the first to know when a card you endorsed becomes real.",
 			"writeBack": "Flip it over — write today's you",
 			"writeBackHint": "Tap the card to flip it over and write today’s you",
-			"flipBack": "Flip back to the front"
+			"flipBack": "Flip back to the front",
+			"wrongFeedback": "So close — but developing it anyway. Yours was actually at {label}."
 		},
 		"tags": {
 			"want_offline": "Want to join offline meetups",
@@ -2526,7 +2527,7 @@
 			"dashed": "Her answers are still waiting for her",
 			"dashedAria": "Content slot empty: not sent yet",
 			"fogAria": "This passage is fogged — protected by her choice",
-"flip": {
+			"flip": {
 				"backAria": "She came back — tap to open her polaroid",
 				"backTitle": "Her today",
 				"backEmpty": "The back is still blank",
