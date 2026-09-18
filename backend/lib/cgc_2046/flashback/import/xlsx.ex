@@ -163,7 +163,7 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
         row
         |> children_of("c")
         |> Enum.map(fn cell ->
-          ref = attr(cell, "ref") || ""
+          ref = attr(cell, "r") || ""
           {cell_value(cell, shared), col_index(ref)}
         end)
         |> expand_row()
