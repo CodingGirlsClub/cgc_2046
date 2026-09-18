@@ -13,6 +13,7 @@ import { richTags } from "@/components/hackerstart-1024/pow";
 import { rawArray } from "@/components/hackerstart-1024/raw-array";
 import { useAuthed } from "@/lib/use-authed";
 import { fetchCurrentProfile } from "@/lib/profile";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { formatDeadline } from "@/lib/events";
 import {
 	VOLUNTEER_REVIEW_STAGES,
@@ -81,7 +82,6 @@ type CohortView =
 export default function VolunteerApplyPage() {
 	const t = useTranslations("volunteerApply");
 	const tCommon = useTranslations("common");
-	const errorsT = useTranslations("errors");
 	const locale = useLocale();
 	const { authed, confirmed } = useAuthed();
 
@@ -194,12 +194,7 @@ export default function VolunteerApplyPage() {
 		setNonce((n) => n + 1);
 	}, []);
 
-	/** 业务 code → 文案（未知 code 走调用方兜底，不直出英文原文） */
-	const codeMessage = useCallback(
-		(code: string | null | undefined, fallback: string) =>
-			code && errorsT.has(code) ? errorsT(code) : fallback,
-		[errorsT],
-	);
+	const codeMessage = usePaymentErrorTranslator();
 
 	/** 有账号邮箱 → 预填且只读（手机号建号账号无邮箱 → 必填手输） */
 	const emailLocked = accountEmail !== "";

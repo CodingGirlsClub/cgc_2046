@@ -1,6 +1,7 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
+import type { MutationError, MutationResult } from "./shared";
 import { fetchMyWorkspaces } from "@/lib/workspaces";
 
 /**
@@ -19,7 +20,7 @@ import { fetchMyWorkspaces } from "@/lib/workspaces";
 /** 招募活动工作台 slug（KTD8：所有倡导活动都在 2046 台；后端种子同值） */
 export const CAMPAIGN_WORKSPACE_SLUG = "2046";
 
-export type RecruitmentCohortStatus = "draft" | "open" | "closed";
+type RecruitmentCohortStatus = "draft" | "open" | "closed";
 
 /** 招募批次（只投影公开面需要的四项 + 状态） */
 export type RecruitmentCohort = {
@@ -80,17 +81,9 @@ export type VolunteerApplication = {
 	assignmentNote: string | null;
 };
 
-/** mutation 业务错误（AshGraphql payload 通道；code 稳定，文案查 errors.<code>） */
-export type MutationError = {
-	message: string | null;
-	code: string | null;
-};
-
-/** payload 通道返回（result 失败为 null；errors 为业务错误） */
-export type MutationOutcome<T> = {
-	result: T | null;
-	errors: MutationError[];
-};
+// mutation 业务错误与 payload 信封走跨域单源（message/code 可选、含 fields，
+// 见 shared.ts moduledoc）；文案查 errors.<code> 的纪律不变
+type MutationOutcome<T> = MutationResult<T>;
 
 export type UpsertResumeProfileInput = {
 	fullName: string;
@@ -466,16 +459,14 @@ export async function advanceVolunteerApplication(
 			mutation: ADVANCE_TO_INTERVIEW,
 			variables: { workspaceId, id },
 		});
-		const outcome = data?.advanceVolunteerApplicationToInterview ?? { result: null, errors: [] };
-		return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+		return data?.advanceVolunteerApplicationToInterview ?? { result: null, errors: [] };
 	}
 
 	const { data } = await client.mutate({
 		mutation: ADVANCE_TO_TRAINING,
 		variables: { workspaceId, id },
 	});
-	const outcome = data?.advanceVolunteerApplicationToTraining ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.advanceVolunteerApplicationToTraining ?? { result: null, errors: [] };
 }
 
 /** 项目分配（R15：分配副作用由后端同事务完成——入台 + 角色 + EventModerator） */
@@ -493,8 +484,7 @@ export async function assignVolunteerApplication(
 			assignmentNote: args.assignmentNote ?? null,
 		},
 	});
-	const outcome = data?.assignVolunteerApplication ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.assignVolunteerApplication ?? { result: null, errors: [] };
 }
 
 /** 拒绝（原因必填；空白/缺失 → 服务端 volunteer_application_rejection_reason_required） */
@@ -507,8 +497,7 @@ export async function rejectVolunteerApplication(
 		mutation: REJECT_APPLICATION,
 		variables: { workspaceId, id, reason },
 	});
-	const outcome = data?.rejectVolunteerApplication ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.rejectVolunteerApplication ?? { result: null, errors: [] };
 }
 
 /** 取消（备注选填；与拒绝不同，无必填约束） */
@@ -521,8 +510,7 @@ export async function cancelVolunteerApplication(
 		mutation: CANCEL_APPLICATION,
 		variables: { workspaceId, id, reason: reason ?? null },
 	});
-	const outcome = data?.cancelVolunteerApplication ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.cancelVolunteerApplication ?? { result: null, errors: [] };
 }
 
 export async function createRecruitmentCohort(
@@ -533,8 +521,7 @@ export async function createRecruitmentCohort(
 		mutation: CREATE_RECRUITMENT_COHORT,
 		variables: { workspaceId, input },
 	});
-	const outcome = data?.createRecruitmentCohort ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.createRecruitmentCohort ?? { result: null, errors: [] };
 }
 
 /** 开放批次（同台已有 open → 服务端 recruitment_cohort_open_conflict） */
@@ -546,8 +533,7 @@ export async function openRecruitmentCohort(
 		mutation: OPEN_RECRUITMENT_COHORT,
 		variables: { workspaceId, id },
 	});
-	const outcome = data?.openRecruitmentCohort ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.openRecruitmentCohort ?? { result: null, errors: [] };
 }
 
 export async function closeRecruitmentCohort(
@@ -558,6 +544,5 @@ export async function closeRecruitmentCohort(
 		mutation: CLOSE_RECRUITMENT_COHORT,
 		variables: { workspaceId, id },
 	});
-	const outcome = data?.closeRecruitmentCohort ?? { result: null, errors: [] };
-	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	return data?.closeRecruitmentCohort ?? { result: null, errors: [] };
 }

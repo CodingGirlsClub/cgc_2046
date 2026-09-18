@@ -163,6 +163,8 @@ defmodule Cgc2046.Recruitment.Upload do
   defp fetch_profile(workspace_id, actor) do
     ResumeProfile
     |> Ash.Query.for_read(:read)
+    # 定位行只为发起 update（新 blob 由 force_change 覆盖，不读旧值），不拖 file_data
+    |> Ash.Query.deselect(:file_data)
     |> Ash.Query.filter(user_id == ^actor.id)
     |> Ash.read_one(tenant: workspace_id, actor: actor)
     |> case do

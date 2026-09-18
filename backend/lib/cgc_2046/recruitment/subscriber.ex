@@ -150,6 +150,8 @@ defmodule Cgc2046.Recruitment.Subscriber do
 
   defp fetch_profile(application) do
     ResumeProfile
+    # 段位通知只消费 contact_email/full_name，不拖 file_data blob（6 段通知 = 最多 6×5MB）
+    |> Ash.Query.deselect(:file_data)
     |> Ash.Query.filter(user_id == ^application.user_id)
     |> Ash.read_one(tenant: application.workspace_id, authorize?: false)
     |> case do

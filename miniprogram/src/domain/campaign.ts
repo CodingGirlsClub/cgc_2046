@@ -8,6 +8,7 @@
  */
 
 import { buildInitiativeSharePath } from './share-route'
+import { VOLUNTEER_APPLY_PATH } from './recruitment'
 
 /**
  * campaign 落地 Initiative：slug 由上线检查单（plan R16）创建，发布后不可改
@@ -15,8 +16,6 @@ import { buildInitiativeSharePath } from './share-route'
  */
 export const CAMPAIGN_INITIATIVE_SLUG = 'hackerstart1024'
 
-/** 招募流页面路径（U10 实现；本单元只引用路径，不创建页面） */
-export const VOLUNTEER_APPLY_PATH = '/pages/volunteer-apply/index'
 
 /** campaign 页自身（发现页入口卡的落点；仅在微信端页清单登记，见 src/app.config.ts） */
 export const CAMPAIGN_PAGE_PATH = '/pages/campaign/index'

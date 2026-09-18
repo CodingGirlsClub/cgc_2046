@@ -39,19 +39,19 @@ export default function HackerStart1024Page() {
 			<WhoWeAreSection />
 			<BrandSection />
 
-			{/* ⑨ 留存位：公众号二维码素材待提供，先占位（与分享卡图同批补齐） */}
+			{/* ⑨ 留存位：公众号关注 */}
 			<section className="hs24-section" aria-label={t("follow.title")}>
 				<div className="hs24-container">
 					<div className="hs24-follow">
 						<div className="hs24-follow__row">
 							{/* 公众号二维码：素材已定稿（430px 源图，2x 显示 104px 框） */}
-						<img
-							className="hs24-follow__qr"
-							src="/hackerstart-1024/cgc-wechat-qr-430.jpg"
-							alt={t("follow.qr")}
-							width={104}
-							height={104}
-						/>
+							<img
+								className="hs24-follow__qr"
+								src="/hackerstart-1024/cgc-wechat-qr-430.jpg"
+								alt={t("follow.qr")}
+								width={104}
+								height={104}
+							/>
 							<div className="hs24-follow__copy">
 								<div className="hs24-follow__t">{t("follow.title")}</div>
 								<div className="hs24-follow__d">{t("follow.desc")}</div>

@@ -21,7 +21,7 @@ export type ResumeFileInfo = {
 };
 
 /** 原始文件上限 5MB（KTD3；与后端 `Upload.@max_file_size` 同值） */
-export const RESUME_MAX_BYTES = 5 * 1024 * 1024;
+const RESUME_MAX_BYTES = 5 * 1024 * 1024;
 
 /** 扩展名白名单（与后端接受集合同源：.pdf / .doc / .docx） */
 export const RESUME_ACCEPT = ".pdf,.doc,.docx";
@@ -34,7 +34,7 @@ const RESUME_CONTENT_TYPES: Record<string, string> = {
 };
 
 /** 文件扩展名（小写，无点）；无法识别返回 "" */
-export function resumeExtension(fileName: string): string {
+function resumeExtension(fileName: string): string {
 	const index = fileName.lastIndexOf(".");
 	return index < 0 ? "" : fileName.slice(index + 1).toLowerCase();
 }
@@ -45,7 +45,7 @@ export function resumeContentType(fileName: string): string {
 }
 
 /** 选择侧守卫：类型 / 大小（返回拒收原因，通过则 null） */
-export function rejectResumeFile(file: File): "type" | "size" | null {
+function rejectResumeFile(file: File): "type" | "size" | null {
 	if (!(resumeExtension(file.name) in RESUME_CONTENT_TYPES)) return "type";
 	if (file.size > RESUME_MAX_BYTES) return "size";
 	return null;
@@ -74,7 +74,7 @@ export function readFileAsBase64(file: File): Promise<string> {
 }
 
 /** 字节数 → 人类可读（KB / MB，一位小数） */
-export function formatFileSize(bytes: number): string {
+function formatFileSize(bytes: number): string {
 	if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
