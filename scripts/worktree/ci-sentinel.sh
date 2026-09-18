@@ -66,8 +66,18 @@ pr_meta() {
 # Extract "N passed/failed/skipped/total" from: summary: "6 passed, 0 failed, 1 skipped, 7 total"
 sum_field() { printf '%s' "$1" | sed -n "s/.*\([0-9][0-9]*\) $2.*/\1/p"; }
 
+# p_head is assigned only when pr_meta returns non-empty; keep a safe default so
+# the failure-printing paths below never hit "unbound variable" under set -u
+# (2026-09-18 PR #738 flake round: empty meta + real-fail path crashed).
+p_head=""
+
 while :; do
   meta="$(pr_meta)"
+  if [ -z "$meta" ] && [ -z "$p_head" ]; then
+    # pr_meta 瞬时空响应（限流/网络）时补取 head 分支名，
+    # 防后续 rerun/失败打印路径引用未绑定 p_head（set -u 下崩溃）。
+    p_head="$(ghx api "repos/{owner}/{repo}/pulls/$pr" --jq .head.ref 2>/dev/null)"
+  fi
   if [ -n "$meta" ]; then
     IFS=',' read -r p_state p_merged p_ms p_head <<< "$meta"
     if [ "$p_state" = "closed" ] && [ "$p_merged" = "true" ]; then
