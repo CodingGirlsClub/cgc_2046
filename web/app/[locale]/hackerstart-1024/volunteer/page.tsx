@@ -264,6 +264,8 @@ export default function VolunteerApplyPage() {
 			});
 			if (uploaded.result) {
 				setProfile(uploaded.result);
+				// 文件已就位，第 1 步的 fileRequired 校验前提已满足，旧错误随之过期
+				setFormError(null);
 			} else {
 				setUploadError(codeMessage(uploaded.errors[0]?.code, t("form.uploadFailed")));
 			}
