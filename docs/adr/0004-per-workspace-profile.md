@@ -40,7 +40,7 @@
   - ThemeProvider 需感知当前 workspace（SSR/hydration 沿用首帧 dark + 客户端异步应用模式）。
   - 迁移属 Data/service 级：需回滚演练 + signoff。
   - 默认 workspace 2046 无平台管理员时 owner 缺失（角色仍 seed），后续首个平台管理员可认领。
-  - `workspace_profiles.workspace_id/user_id` 与 `portfolio_items.workspace_id` 未加 FK 约束（沿用全库其它租户表同风格，无 references()）；删除 user/workspace 不会级联清理 profile/portfolio，留孤儿行。ADR-0004 让 profile 数据量翻倍，孤儿成本升高，FK 留待数据规模上来后单独决策。
+  - `workspace_profiles.workspace_id/user_id` 与 `portfolio_items.workspace_id` 未加 FK 约束（沿用全库其它租户表同风格，无 references()）；删除 user/workspace 不会级联清理 profile/portfolio，留孤儿行。ADR-0004 让 profile 数据量翻倍，孤儿成本升高，FK 留待数据规模上来后单独决策。**后续落地（#745，2026-09-18）**：三列 FK 已由 `20260918131057` 补齐（profile 两列 :delete、portfolio.workspace_id :delete），孤儿防御清理随迁移内置。
 
 ## 决策依赖
 
