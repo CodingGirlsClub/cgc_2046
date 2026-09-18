@@ -88,7 +88,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:wechat, "event_qualification_confirmed", "pages/my-enrollments/index"},
       {:wechat, "event_qualification_underfilled", "pages/my-enrollments/index"},
       {:wechat, "event_schedule_changed", "pages/my-enrollments/index"},
-      # #585 管理侧开班结果 → 工作台（管理类；后续处理面在那）
+      # #585 管理侧成班结果 → 工作台（管理类；后续处理面在那）
       {:wechat, "event_qualification_manager", "pages/workspace/index"},
       # 裁剪端分支（tt/xhs）对四模板同款不变（无 workspace tab，一律我的报名）
       {:tt, "event_qualification_underfilled", "pages/my-enrollments/index"},

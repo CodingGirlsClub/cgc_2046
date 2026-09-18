@@ -22,7 +22,7 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
   @env_example ".env.example"
   @runtime "config/runtime.exs"
 
-  # #546 核销码通知：17 → 18；#585 管理侧开班结果：18 → 19；#538 主理人移除：19 → 20
+  # #546 核销码通知：17 → 18；#585 管理侧成班结果：18 → 19；#538 主理人移除：19 → 20
   @expected_size 20
 
   test "wechat 模板 env 四处名单集合完全一致（20 键）" do

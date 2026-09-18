@@ -80,7 +80,7 @@ defmodule Cgc2046.Notifications.Service do
   #   平台无 number 槽位，不下发）
   # - event_qualification_manager（#585，#720 平台选用）：模板标题「活动申请
   #   结果通知」（公共库无成班/开班措辞，选了全库唯一「活动名称+结果」双
-  #   thing 槽位的中性模板）。槽位编号非顺序：活动名称=thing2 / 开班结果
+  #   thing 槽位的中性模板）。槽位编号非顺序：活动名称=thing2 / 申请结果
   #   =thing5（outcome 驱动：confirmed →「已达最低人数{min}人，活动成班」；
   #   underfilled →「未达最低人数{min}人，已取消并发起退款」——approval_result
   #   单键双文案同款；ID 已入 secret WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER，
@@ -294,7 +294,7 @@ defmodule Cgc2046.Notifications.Service do
   defp expiry_note("true"), do: "订单超时作废，报名截止前可重新报名"
   defp expiry_note(_), do: "订单超时作废"
 
-  # 开班结果动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
+  # 成班判定动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
   # （confirmed）与 16/17/18 字（underfilled），守卫测试钉边界；min ≥6 位时
   # 由外层 thing/1 截断到 20（保 API 不 47003，代价是句子截尾——min_participants
   # 是组织者配置项，实际不会到 6 位）
@@ -303,7 +303,7 @@ defmodule Cgc2046.Notifications.Service do
 
   defp underfilled_note(min) when is_integer(min), do: "未达最低成班人数#{min}人，活动未成行"
   defp underfilled_note(_), do: nil
-  # 管理侧开班结果文案（#585）：thing ≤20 字。min 1/2/3 位 → 13/14/15 字
+  # 管理侧成班结果文案（#585）：thing ≤20 字。min 1/2/3 位 → 13/14/15 字
   # （confirmed）与 18/19/20 字（underfilled，3 位恰满）；min ≥4 位由外层
   # thing/1 截断（同 qualified_note/underfilled_note 取舍）
   defp qualification_manager_note("confirmed", min) when is_integer(min),
