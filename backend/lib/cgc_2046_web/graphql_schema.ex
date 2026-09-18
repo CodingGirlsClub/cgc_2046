@@ -3420,6 +3420,27 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:line, non_null(:string))
     field(:profile, :flashback_profile)
     field(:progress, :flashback_progress)
+
+    @desc "桌面散照候选（R5 数据驱动）：本人那张 + 其他场次各一人；空库时仅本人一张"
+    field(:scatter, :flashback_scatter)
+  end
+
+  object :flashback_scatter do
+    field(:entries, non_null(list_of(non_null(:flashback_scatter_photo))))
+  end
+
+  object :flashback_scatter_photo do
+    @desc "照片定位键（本人 = 本人档案 id；他人 = 他人档案 id）"
+    field(:photo_key, non_null(:id))
+
+    @desc "线索标签「年份 · 城市」——放大时显影，帮助答题"
+    field(:label, non_null(:string))
+
+    @desc "是否本人那张"
+    field(:is_mine, non_null(:boolean))
+
+    @desc "照片主人姓氏（前端渲染姓氏级脱敏 王**，R12）"
+    field(:surname, :string)
   end
 
   object :flashback_touch_result do
