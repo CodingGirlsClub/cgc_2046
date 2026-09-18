@@ -445,7 +445,10 @@ defmodule Cgc2046.Recruitment.WorkflowFlowTest do
                RecruitmentCohort
                |> Ash.Changeset.for_create(
                  :create,
-                 %{name: "draft 批", apply_deadline_at: DateTime.add(DateTime.utc_now(), 14, :day)},
+                 %{
+                   name: "draft 批",
+                   apply_deadline_at: DateTime.add(DateTime.utc_now(), 14, :day)
+                 },
                  tenant: ws.id
                )
                |> Ash.create(tenant: ws.id, actor: owner)

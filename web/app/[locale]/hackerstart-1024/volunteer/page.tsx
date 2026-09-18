@@ -363,7 +363,7 @@ export default function VolunteerApplyPage() {
 
 	return (
 		<main className="hs24-root">
-			<SiteHeader />
+			<SiteHeader active="campaign" />
 
 			{/* ① Hero（照原型：十周年封面 + 两句 CTA） */}
 			<div className="hs24-hero-wrap">

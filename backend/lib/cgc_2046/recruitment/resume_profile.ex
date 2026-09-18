@@ -211,6 +211,7 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
       DateTime.truncate(DateTime.utc_now(), :second)
     )
   end
+
   # 空白防线（R9）：两端（web/小程序）都有前置校验，但 API 才是契约——
   # allow_nil? 拦不住空串，空白姓名/邮箱会让 R14 邮件保底通道静默失效。
   # #680：自定义校验不得返回 keyword 错误（转换强制 value: nil，MCP 出口
@@ -235,9 +236,7 @@ defmodule Cgc2046.Recruitment.ResumeProfile do
            field: field,
            message: "must not be blank",
            value:
-             Cgc2046.Errors.ValueSummary.describe(
-               Ash.Changeset.get_attribute(changeset, field)
-             )
+             Cgc2046.Errors.ValueSummary.describe(Ash.Changeset.get_attribute(changeset, field))
          )}
     end
   end
