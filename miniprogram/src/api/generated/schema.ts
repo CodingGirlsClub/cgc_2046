@@ -3148,6 +3148,8 @@ export type Order = {
   cancelReason?: Maybe<Scalars['String']['output']>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositConsentAt?: Maybe<Scalars['DateTime']['output']>;
+  depositTermsVersion?: Maybe<Scalars['String']['output']>;
   enrollmentId: Scalars['ID']['output'];
   /** 关联报名当前状态 */
   enrollmentStatus?: Maybe<Scalars['String']['output']>;
@@ -3222,6 +3224,43 @@ export type OrderFilterCourseId = {
   rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderFilterDepositConsentAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type OrderFilterDepositTermsVersion = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterEnrollmentId = {
@@ -3310,6 +3349,8 @@ export type OrderFilterInput = {
   cancelReason?: InputMaybe<OrderFilterCancelReason>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: InputMaybe<OrderFilterCourseId>;
+  depositConsentAt?: InputMaybe<OrderFilterDepositConsentAt>;
+  depositTermsVersion?: InputMaybe<OrderFilterDepositTermsVersion>;
   enrollmentId?: InputMaybe<OrderFilterEnrollmentId>;
   /** 关联报名当前状态 */
   enrollmentStatus?: InputMaybe<OrderFilterEnrollmentStatus>;
@@ -3540,6 +3581,8 @@ export type OrderSortField =
   | 'AMOUNT_CENTS'
   | 'CANCEL_REASON'
   | 'COURSE_ID'
+  | 'DEPOSIT_CONSENT_AT'
+  | 'DEPOSIT_TERMS_VERSION'
   | 'ENROLLMENT_ID'
   | 'ENROLLMENT_STATUS'
   | 'EVENT_ID'
