@@ -119,11 +119,17 @@ export default function Journey() {
 						setEnterError(true);
 						return;
 					}
-					// 回访（AE9）：已有「今天的你」→ 直达胶囊，不重走仪式
-					if (result.progress?.today) {
-						router.push("/flashback/capsule");
-						return;
-					}
+				// 回访（AE9）：已寄出（完成态）→ 直达胶囊；已填今天但未寄出
+				// → 跳过仪式直达写字（否则 todaySlot 的「去寄出」出口会把用户
+				// 弹回胶囊，死循环——e2e 实测）
+				const revisitToday = result.progress?.today;
+				if (revisitToday?.sentToWallAt) {
+					router.push("/flashback/capsule");
+					return;
+				}
+				if (revisitToday) {
+					setStage("write");
+				}
 					setEntry(result);
 					setEntering(false);
 				})

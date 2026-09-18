@@ -461,22 +461,26 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
   describe "限流（同 token 高频调用）" do
     setup do
       :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
-      Application.put_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 3)
 
       on_exit(fn ->
         :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
-        Application.put_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999)
       end)
 
       :ok
     end
 
-    test "第 4 次 enter → rate_limited" do
+    # flashback token 面显式 max_attempts: 30（e2e 实测：默认 5 次会让完整
+    # 首程 enter→revealed→submit→quote→send + 回访必然撞限）；防滥用语义
+    # 保留——第 31 次拒绝。
+    test "前 30 次（完整首程 + 回访余量）放行，第 31 次 → rate_limited" do
       archive = create_archive()
       person = create_person(archive)
       {plain, _} = issue_token(person)
 
-      for _ <- 1..3, do: post_graphql(enter_query(plain))
+      for i <- 1..30 do
+        res = post_graphql(enter_query(plain))
+        refute res["errors"], "attempt #{i} should pass, got: #{inspect(res["errors"])}"
+      end
 
       assert [%{"code" => "rate_limited"}] = post_graphql(enter_query(plain))["errors"]
     end

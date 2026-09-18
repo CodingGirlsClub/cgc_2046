@@ -430,7 +430,22 @@ describe("Journey · 失效与回访", () => {
 		expect(mutations.get(FLASHBACK_ENTER)).not.toHaveBeenCalled();
 	});
 
-	it("回访（progress.today 已存在）：跳过仪式直达胶囊（AE9）", async () => {
+	it("回访（已寄出）：跳过仪式直达胶囊（AE9 完成态）", async () => {
+		mockEnterResolve({
+			...memoryEntry,
+			progress: {
+				quoteLevel: "off",
+				today: { nowStatus: "还在写东西", sentToWallAt: "2026-09-18T00:00:00Z" },
+			},
+		});
+		window.history.replaceState({}, "", "/flashback/enter?token=tok-again");
+		window.sessionStorage.clear();
+		render(<Journey />);
+
+		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
+	});
+
+	it("回访（已填今天但未寄出）：跳过仪式直达写字，不再被锁在胶囊外（e2e 实测死循环）", async () => {
 		mockEnterResolve({
 			...memoryEntry,
 			progress: { quoteLevel: "off", today: { nowStatus: "还在写东西" } },
@@ -439,7 +454,8 @@ describe("Journey · 失效与回访", () => {
 		window.sessionStorage.clear();
 		render(<Journey />);
 
-		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
+		expect(await screen.findByText("今天的你")).toBeInTheDocument();
+		expect(pushMock).not.toHaveBeenCalled();
 	});
 });
 
