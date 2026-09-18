@@ -828,6 +828,17 @@ function AdminCoursesContent() {
 																		)}
 																	</span>
 																</div>
+															{/* 当前修订（计划 R3）：current_revision_id 现取；— = 未绑定（draft 常态）或不可用 */}
+															<div className="admin-field">
+																<span className="admin-field__label">
+																	{t("courseCurrentRevision")}
+																</span>
+																<span>
+																	{expandedCourse.currentRevisionNumber != null
+																		? `R${expandedCourse.currentRevisionNumber}`
+																		: "—"}
+																</span>
+															</div>
 																<div className="admin-field">
 																	<span className="admin-field__label">
 																		{t("courseStartsAt")}

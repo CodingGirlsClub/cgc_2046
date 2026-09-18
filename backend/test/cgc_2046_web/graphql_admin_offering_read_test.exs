@@ -385,6 +385,26 @@ defmodule Cgc2046Web.GraphqlAdminOfferingReadTest do
 
       course = EventFixtures.create_course(a.workspace, a.owner, %{title: "甲台课程"})
       enroll(course.workspace_id, Fixtures.register_user("course-count"), %{course_id: course.id})
+      # 当前修订投影（计划 R3）：造修订并走真实换绑 action，详情现取 number
+      {:ok, revision} =
+        Cgc2046.Curriculum.CourseRevision
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            course_id: course.id,
+            number: 1,
+            content: %{"goals" => [], "issues" => []},
+            published_at: DateTime.utc_now()
+          },
+          tenant: course.workspace_id
+        )
+        |> Ash.create(tenant: course.workspace_id, authorize?: false)
+
+      course
+      |> Ash.Changeset.for_update(:bind_current_revision, %{current_revision_id: revision.id},
+        tenant: course.workspace_id
+      )
+      |> Ash.update!(tenant: course.workspace_id, authorize?: false)
 
       rows =
         """
@@ -410,6 +430,7 @@ defmodule Cgc2046Web.GraphqlAdminOfferingReadTest do
             workspaceId
             status
             provisionalTitle
+            currentRevisionNumber
             confirmedCount
             paymentPendingCount
           }
@@ -423,13 +444,14 @@ defmodule Cgc2046Web.GraphqlAdminOfferingReadTest do
       assert detail["workspaceId"] == a.workspace.id
       assert detail["status"] == "open"
       assert detail["provisionalTitle"] == false
+      assert detail["currentRevisionNumber"] == 1
       assert detail["confirmedCount"] == 1
       assert detail["paymentPendingCount"] == 0
 
       placeholder_detail =
         """
         query {
-          getAdminCourse(id: "#{placeholder.id}") { title provisionalTitle confirmedCount }
+          getAdminCourse(id: "#{placeholder.id}") { title provisionalTitle currentRevisionNumber confirmedCount }
         }
         """
         |> graphql(token)
@@ -438,6 +460,8 @@ defmodule Cgc2046Web.GraphqlAdminOfferingReadTest do
 
       assert placeholder_detail["provisionalTitle"] == true
       assert placeholder_detail["title"] == placeholder.title
+      # draft 未发布：未绑定修订 → nil（不伪造）
+      assert placeholder_detail["currentRevisionNumber"] == nil
       assert placeholder_detail["confirmedCount"] == 0
     end
   end

@@ -3332,6 +3332,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:ends_at, :datetime)
     field(:pricing_enabled, non_null(:boolean))
 
+    @desc "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+    field(:current_revision_number, :integer)
+
     @desc """
     权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
     不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
@@ -3862,11 +3865,29 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp admin_course_detail_row(course) do
     Map.merge(admin_course_row(course), %{
       description: course.description,
+      current_revision_number: current_revision_number(course),
       confirmed_count:
         offering_enrollment_count(:course_id, course.id, course.workspace_id, :confirmed),
       payment_pending_count:
         offering_enrollment_count(:course_id, course.id, course.workspace_id, :payment_pending)
     })
+  end
+
+  # 当前修订号（计划 R3「Course 详情加当前 revision」）：按 current_revision_id
+  # 现取 `CourseRevision.number`（不是 number 最大的行——可能存在已生成未绑定的
+  # 更高号修订）。nil = 未绑定（draft 未发布常态）或现取失败；与 KTD4 同纪律，
+  # 不伪造值。
+  defp current_revision_number(course) do
+    with id when not is_nil(id) <- course.current_revision_id,
+         {:ok, revision} <-
+           Ash.get(Cgc2046.Curriculum.CourseRevision, id,
+             authorize?: false,
+             tenant: course.workspace_id
+           ) do
+      revision.number
+    else
+      _ -> nil
+    end
   end
 
   # KTD4 权威报名计数：按 offering 现取 `Enrollment` 行数（`status` 分列），
