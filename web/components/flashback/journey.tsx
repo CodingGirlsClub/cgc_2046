@@ -19,15 +19,18 @@ import {
 	type FlashbackTodayInput,
 } from "@/lib/graphql/flashback";
 import Intro from "./intro";
-import Scatter from "./scatter";
-import Quiz, { type QuizChoice } from "./quiz";
-import Reveal from "./reveal";
+import Desk from "./desk";
+import type { QuizChoice } from "./quiz";
 import { emptyTodayForm, type TodayFormState } from "./write";
 import SendRegister from "./send-register";
 import InvalidToken, { type InvalidTokenReason } from "./invalid-token";
 import { usePrefersReducedMotion } from "./use-reduced-motion";
 
-type Stage = "intro" | "scatter" | "quiz" | "reveal" | "send";
+/**
+ * 阶段只剩两站（原型 E/F 的场景连续性）：开场 → 散照桌面（散照/问答/显影/
+ * 翻面写字同场景）→ 寄出浮层覆盖其上，不跳页。
+ */
+type Stage = "intro" | "desk";
 
 /** URL 读入的 token 即刻清除，sessionStorage 仅会话内持有（KTD2；reset-password 先例） */
 const TOKEN_STORAGE_KEY = "flashback.token";
@@ -72,6 +75,8 @@ export default function Journey() {
 	const [form, setForm] = useState<TodayFormState>(emptyTodayForm);
 	const [flash, setFlash] = useState(false);
 	const [startOnBack, setStartOnBack] = useState(false);
+	/** 寄出浮层（原型 E/F：覆盖在显影场景上，不换页） */
+	const [sendOpen, setSendOpen] = useState(false);
 	const [dreamTarget, setDreamTarget] = useState<FlashbackDreamTarget | null>(null);
 
 	const [runEnter] = useMutation(FLASHBACK_ENTER);
@@ -129,10 +134,10 @@ export default function Journey() {
 					return;
 				}
 				if (revisitToday) {
-					// 已填今天未寄出 → 跳过仪式直达显影卡的背面书写面
+					// 已填今天未寄出 → 跳过仪式直达桌面显影态（背面书写面）
 					//（第 3 件：写字并入卡背面；AE9 回访不重走快门）
 					setStartOnBack(true);
-					setStage("reveal");
+					setStage("desk");
 				}
 					setEntry(result);
 					setEntering(false);
@@ -213,23 +218,12 @@ export default function Journey() {
 				<Intro
 					line={entry.line}
 					profile={profile}
-					onShutter={() => goTo("scatter")}
-					onOpen={() => goTo("reveal")}
+					onShutter={() => goTo("desk")}
+					onOpen={() => goTo("desk")}
 				/>
 			)}
-			{stage === "scatter" && <Scatter profile={profile} onPick={() => goTo("quiz")} />}
-			{stage === "quiz" && (
-				<Quiz
-					profile={profile}
-					onAnswer={(choice) => {
-						setQuizChoice(choice);
-						goTo("reveal");
-					}}
-					onRepick={() => goTo("scatter")}
-				/>
-			)}
-			{stage === "reveal" && (
-				<Reveal
+			{stage === "desk" && (
+				<Desk
 					profile={profile}
 					line={entry.line}
 					dreamTarget={dreamTarget}
@@ -238,17 +232,20 @@ export default function Journey() {
 					role={profile.role}
 					answers={freeAnswers}
 					progress={entry.progress ?? { quoteLevel: "off" }}
+					onAnswer={(choice) => setQuizChoice(choice)}
 					onRevealed={() => {
 						if (token) void runMarkRevealed({ variables: { token } });
 					}}
 					onWriteNext={(nextForm) => {
 						setForm(nextForm);
-						goTo("send");
+						// 浮层化：不换页，直接盖在显影场景上（原型 E/F）
+						setSendOpen(true);
 					}}
 				/>
 			)}
-			{stage === "send" && token && (
-				<SendRegister
+			{sendOpen && token && (
+				<div className="fb-send-overlay" role="dialog" aria-modal="true" aria-labelledby="fb-send-title">
+					<SendRegister
 					form={form}
 					maskedPhone={entry.progress?.maskedPhone}
 					maskedEmail={entry.progress?.maskedEmail}
@@ -290,8 +287,9 @@ export default function Journey() {
 							return false;
 						}
 					}}
-					onDone={finish}
-				/>
+						onDone={finish}
+					/>
+				</div>
 			)}
 		</div>
 	);

@@ -36,7 +36,14 @@ function rosterNeedsFold(total: number): boolean {
  * （--pending 前置态 → --develop 动画，只播一次），滚动进视口的新卡同样显影；
  * reduced-motion 或环境无 IntersectionObserver（jsdom）时直接终态。
  */
-export default function EventRoster({ archive }: { archive: FlashbackCapsuleArchive }) {
+export default function EventRoster({
+	archive,
+	variant = "masonry",
+}: {
+	archive: FlashbackCapsuleArchive;
+	/** masonry = 长廊的错落照片墙（默认）；grid = 场次页 3 列名册（不折叠） */
+	variant?: "masonry" | "grid";
+}) {
 	const t = useTranslations("flashback.roster");
 	const [expanded, setExpanded] = useState(false);
 	const reduced = usePrefersReducedMotion();
@@ -47,7 +54,7 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 	const { developed, registerCard } = useDevelopOnView(developActive);
 
 	const total = archive.roster.length;
-	const fold = rosterNeedsFold(total) && !expanded;
+	const fold = variant === "masonry" && rosterNeedsFold(total) && !expanded;
 	const visible = fold ? archive.roster.slice(0, COLLAPSED_COUNT) : archive.roster;
 
 	// 展开后的错峰与「进视口才显影」同源：CSS nth-child 递进延迟（KTD9 纪律，零内联 style）
@@ -91,7 +98,9 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 				})}
 			</p>
 			<ul
-				className={`fb-roster-grid${fold ? " fb-roster-grid--folded" : ""}`}
+				className={`fb-roster-grid${fold ? " fb-roster-grid--folded" : ""}${
+					variant === "grid" ? " fb-roster-grid--grid" : ""
+				}`}
 				data-total={total}
 				data-testid="fb-roster-grid"
 			>
@@ -102,7 +111,7 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 					</li>
 				)}
 			</ul>
-			{rosterNeedsFold(total) && (
+			{variant === "masonry" && rosterNeedsFold(total) && (
 				<button
 					type="button"
 					className="fb-roster-toggle"

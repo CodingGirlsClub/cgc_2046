@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import type * as ApolloReact from "@apollo/client/react";
 import type { TypedDocumentNode } from "@apollo/client";
@@ -109,7 +109,7 @@ async function renderJourney(url = "/flashback/enter?token=tok-123") {
 	await waitFor(() => expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument());
 }
 
-/** 快进到指定阶段（记忆线：intro→scatter→quiz→reveal→write→send）；自带 render */
+/** 快进到指定阶段（记忆线：快门→散照桌面→同屏问答→原位显影→写字→寄出浮层）；自带 render */
 async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	await renderJourney();
 	fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
@@ -129,7 +129,9 @@ async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	if (stage === "write") return;
 
 	fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
-	await screen.findByText("寄出这一刻");
+	// 浮层化（E/F）：不换页，浮层打开即自动寄出
+	await screen.findByText("照片正在贴上墙。");
+	await screen.findByRole("button", { name: "跳过，直接上墙" });
 }
 
 beforeEach(() => {
@@ -174,13 +176,70 @@ describe("Journey · 记忆线", () => {
 
 		expect(screen.getByText("答对了。这张照片一直在等你。")).toBeInTheDocument();
 		expect(screen.getByText("一个刚毕业的文科生，在出版社做校对。")).toBeInTheDocument();
-		expect(screen.getByText("上海")).toBeInTheDocument();
-		expect(screen.getByText("校对")).toBeInTheDocument();
+		// 桌面与显影卡同屏（场景连续性）：结构化身份限定在卡面里断言
+		const card = within(screen.getByTestId("fb-polaroid"));
+		expect(card.getByText("上海")).toBeInTheDocument();
+		expect(card.getByText("校对")).toBeInTheDocument();
 		// 相对年数动态计算（R3/AE1）：2012-02 → 2026-09 为 14 年；日期为 ISO 日期部分（时区无关）
 		expect(screen.getByText(/14 年前的 2012\.02\.20/)).toBeInTheDocument();
 		expect(screen.getByText("王晓雨")).toBeInTheDocument();
 		// 比特币提醒全场展示（session-settled 决策②）
 		expect(screen.getByText(/比特币/)).toBeInTheDocument();
+	});
+
+	it("散照把玩（原型 B）：点一张放大到最前、可换一张；问答与散照同屏不换页", async () => {
+		mockEnterResolve(memoryEntry);
+		await renderJourney();
+		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
+		await screen.findByText("随便挑一张——它都会变成你的。");
+
+		const photos = screen.getAllByTestId("fb-scatter-photo");
+		expect(photos).toHaveLength(3);
+		expect(photos.every((photo) => photo.getAttribute("data-picked") === "false")).toBe(true);
+
+		// 点第一张：放大到最前 + 同屏弹出问答 sheet（不跳页）
+		fireEvent.click(photos[0]);
+		await waitFor(() => expect(screen.getAllByTestId("fb-scatter-photo")[0]).toHaveAttribute("data-picked", "true"));
+		expect(screen.getByTestId("fb-quiz-sheet")).toBeInTheDocument();
+		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+
+		// 换着看：点第三张 → 放大态转移，旧的那张回正
+		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[2]);
+		await waitFor(() => expect(screen.getAllByTestId("fb-scatter-photo")[2]).toHaveAttribute("data-picked", "true"));
+		expect(screen.getAllByTestId("fb-scatter-photo")[0]).toHaveAttribute("data-picked", "false");
+
+		// 「重挑一张」：关 sheet、取消放大，仍在同一场景
+		fireEvent.click(screen.getByRole("button", { name: /重挑一张/ }));
+		await waitFor(() => expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument());
+		expect(screen.getAllByTestId("fb-scatter-photo")[2]).toHaveAttribute("data-picked", "false");
+		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+	});
+
+	it("原位显影：选定后同一场景里长出显影卡（桌面退到背景，不换页）", async () => {
+		mockEnterResolve(memoryEntry);
+		await renderJourney();
+		fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
+		await screen.findByText("随便挑一张——它都会变成你的。");
+		fireEvent.click(screen.getAllByTestId("fb-scatter-photo")[1]);
+		await screen.findByTestId("fb-quiz-sheet");
+		fireEvent.click(screen.getByRole("button", { name: /Rails Girls 上海/ }));
+
+		// 显影卡出现 + 桌面仍在场（dimmed）——场景连续性
+		expect(await screen.findByTestId("fb-polaroid")).toBeInTheDocument();
+		expect(screen.getByTestId("fb-desk-reveal")).toBeInTheDocument();
+		expect(screen.getAllByTestId("fb-scatter-photo")[1]).toHaveAttribute("data-picked", "true");
+		expect(screen.getByText("散落一桌的照片")).toBeInTheDocument();
+		expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument();
+	});
+
+	it("圆梦线拆信：不走散照/问答，直接显影（R9）", async () => {
+		mockEnterResolve(dreamEntry);
+		await renderJourney();
+		fireEvent.click(screen.getByTestId("fb-envelope"));
+		await screen.findByTestId("fb-polaroid", {}, { timeout: 3000 });
+
+		expect(screen.queryAllByTestId("fb-scatter-photo")).toHaveLength(0);
+		expect(screen.queryByTestId("fb-quiz-sheet")).not.toBeInTheDocument();
 	});
 
 	it("「我不记得了」兜底：直接给正确答案、无挫败文案（AE2）", async () => {
@@ -277,17 +336,39 @@ describe("Journey · 记忆线", () => {
 			data: { flashbackSendToWall: { sentToWallAt: "2026-09-18T00:00:00Z" } },
 		});
 		mockEnterResolve(memoryEntry);
+		// 浮层打开即自动寄出（原型 E/F：照片正在贴上墙）
 		await walkTo("send");
 
-		fireEvent.click(screen.getByRole("button", { name: "寄出，回到时间胶囊 →" }));
-
-		// R29 期望管理文案在寄出成功后出现
-		expect(await screen.findByText(/这些愿望不会消失/)).toBeInTheDocument();
+		// R29 期望管理文案在寄出成功后出现（与注册引导同屏）
+		expect(await screen.findByText(/愿望不会消失/)).toBeInTheDocument();
 		await waitFor(() => expect(wall).toHaveBeenCalledWith({ variables: { token: "tok-123" } }));
 		expect(submit).toHaveBeenCalledTimes(1);
 
-		fireEvent.click(screen.getByRole("button", { name: "跳过注册，先进胶囊" }));
+		fireEvent.click(screen.getByRole("button", { name: "跳过，直接上墙" }));
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
+	});
+
+	it("寄出浮层（原型 E/F）：自动寄出、不跳页；浮层盖在显影场景上", async () => {
+		mutations.get(FLASHBACK_SUBMIT_TODAY)!.mockResolvedValue({
+			data: { flashbackSubmitToday: { today: {} } },
+		});
+		const wall = mutations.get(FLASHBACK_SEND_TO_WALL)!;
+		wall.mockResolvedValue({ data: { flashbackSendToWall: { sentToWallAt: "2026-09-18T00:00:00Z" } } });
+		mockEnterResolve(memoryEntry);
+		await walkTo("write");
+
+		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
+
+		// 浮层出现：显影场景仍在 DOM（写字面 = 翻开的卡背面），路由未跳转
+		expect(await screen.findByRole("dialog")).toBeInTheDocument();
+		expect(screen.getByTestId("fb-desk-reveal")).toBeInTheDocument();
+		expect(document.querySelector('form[data-face="back"]')).toBeTruthy();
+		expect(pushMock).not.toHaveBeenCalled();
+
+		// 自动寄出（无需再点一次「寄出」）
+		await waitFor(() => expect(wall).toHaveBeenCalledTimes(1));
+		expect(await screen.findByRole("button", { name: "跳过，直接上墙" })).toBeInTheDocument();
+		expect(screen.getByText(/愿望不会消失/)).toBeInTheDocument();
 	});
 
 	it("注册引导：发码 → 绑定成功 → 进胶囊（R27 一句话术在场）", async () => {
@@ -306,11 +387,10 @@ describe("Journey · 记忆线", () => {
 		mockEnterResolve(memoryEntry);
 		await walkTo("send");
 
-		fireEvent.click(screen.getByRole("button", { name: "寄出，回到时间胶囊 →" }));
 		expect(await screen.findByText(/想收好这张卡/)).toBeInTheDocument();
 
 		fireEvent.change(screen.getByLabelText("手机号"), { target: { value: "13800000000" } });
-		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
+		fireEvent.click(screen.getByRole("button", { name: "手机号验证收好" }));
 		expect(await screen.findByLabelText("验证码")).toBeInTheDocument();
 
 		fireEvent.change(screen.getByLabelText("验证码"), { target: { value: "123456" } });
@@ -342,7 +422,8 @@ describe("Journey · 记忆线", () => {
 		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
 		fireEvent.click(await screen.findByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }));
 		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
-		fireEvent.click(await screen.findByRole("button", { name: "寄出，回到时间胶囊 →" }));
+		// 浮层自动寄出：等注册引导出现即说明 submitToday/quote/sendToWall 已顺序发出
+		await screen.findByRole("button", { name: "跳过，直接上墙" });
 
 		await waitFor(() => expect(quote).toHaveBeenCalled());
 		const variables = quote.mock.calls[0][0].variables;

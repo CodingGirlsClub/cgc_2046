@@ -2466,22 +2466,24 @@
 			"submit": "Done writing — send it →"
 		},
 		"sendRegister": {
-			"title": "Send this moment",
+			"title": "Your photo is going up on the wall.",
 			"lead": "The front is you back then; the back is you today. Once sent, this card joins the time capsule.",
 			"send": "Send — back to the time capsule →",
 			"errorSend": "Sending didn't succeed — try once more.",
 			"errorCode": "That step didn't succeed — check and retry.",
 			"sentTitle": "Sent",
-			"promise": "These wishes of yours won't vanish — they'll be answered, one by one, through the Newsletter and real people.",
+			"promise": "The wishes you wrote down won't disappear — we'll answer them one by one, through the Newsletter and through real people.",
 			"registerPitch": "Want to keep this card safe, and get notified when a gathering you endorsed becomes real?",
 			"registerCurrent": "Contact on record: {phone} · {email}",
 			"contactNone": "(none)",
 			"phonePlaceholder": "Phone number",
 			"codePlaceholder": "Verification code",
-			"sendCode": "Send code",
+			"sendCode": "Verify by phone to keep it",
 			"bind": "Bind account",
-			"skip": "Skip for now, enter the capsule",
+			"skip": "Skip — straight to the wall",
 			"skipHint": "The link stays valid until you register — bind anytime.",
+			"failedTitle": "It didn't stick this time",
+			"retry": "Try again",
 			"boundTitle": "Your account has taken over",
 			"boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
 			"enterCapsule": "Enter the time capsule →"
@@ -2499,7 +2501,19 @@
 			"cityAria": "Filter by city",
 			"cityAll": "All"
 		},
+		"event": {
+			"loading": "Developing this gathering…",
+			"back": "‹ Time capsule",
+			"applied": "{count} applied",
+			"attended": "{count} walked in",
+			"returned": "{count} came back",
+			"peopleTitle": "People of this gathering",
+			"peopleHint": "developed = sent their card; fogged = not back yet",
+			"missing": "This gathering isn’t in your roster (or the link expired).",
+			"findMine": "Were you there too? Claim your photo →"
+		},
 		"corridor": {
+			"openEvent": "Open this gathering →",
 			"ariaLabel": "Time capsule corridor",
 			"emptyCity": "No roster photos from this city yet."
 		},

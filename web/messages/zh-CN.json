@@ -2466,22 +2466,24 @@
 			"submit": "写好了，去寄出 →"
 		},
 		"sendRegister": {
-			"title": "寄出这一刻",
+			"title": "照片正在贴上墙。",
 			"lead": "正面是当年的你，背面是今天的你。寄出后，这张卡会出现在时间胶囊。",
 			"send": "寄出，回到时间胶囊 →",
 			"errorSend": "寄出没有成功，请再试一次。",
 			"errorCode": "刚才那步没有成功，请检查后重试。",
 			"sentTitle": "已经寄出了",
-			"promise": "你的这些愿望不会消失——会通过 Newsletter 和具体的人，逐个回应。",
+			"promise": "你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。",
 			"registerPitch": "想收好这张卡、并在你附议的场成真时收到通知吗？",
 			"registerCurrent": "我们记录的联系方式：{phone} · {email}",
 			"contactNone": "（无）",
 			"phonePlaceholder": "手机号",
 			"codePlaceholder": "验证码",
-			"sendCode": "发送验证码",
+			"sendCode": "手机号验证收好",
 			"bind": "绑定账号",
-			"skip": "跳过注册，先进胶囊",
+			"skip": "跳过，直接上墙",
 			"skipHint": "链接在注册前一直有效，随时可以再绑定。",
+			"failedTitle": "这次没贴上",
+			"retry": "再试一次",
 			"boundTitle": "账号已接管",
 			"boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
 			"enterCapsule": "进入时间胶囊 →"
@@ -2499,7 +2501,19 @@
 			"cityAria": "按城市筛选",
 			"cityAll": "全部"
 		},
+		"event": {
+			"loading": "正在显影这一场……",
+			"back": "‹ 时间胶囊",
+			"applied": "报名 {count} 位",
+			"attended": "走进教室 {count} 位",
+			"returned": "{count} 位已回来",
+			"peopleTitle": "这一场的人",
+			"peopleHint": "显影的是寄出了的，雾着的是还没回来的",
+			"missing": "这一场不在你的名册里（或链接已失效）。",
+			"findMine": "你也在这一场？找回你的那一张 →"
+		},
 		"corridor": {
+			"openEvent": "进入这一场 →",
 			"ariaLabel": "时间胶囊走廊",
 			"emptyCity": "这座城市还没有名册照片。"
 		},
