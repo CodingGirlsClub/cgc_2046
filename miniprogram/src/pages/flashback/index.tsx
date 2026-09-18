@@ -46,6 +46,8 @@ export default function FlashbackPage() {
   const [endorsing, setEndorsing] = useState(false)
   // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤行动板）
   const [city, setCity] = useState<string | null>(null)
+  // 用户定稿 ①：我的卡两态——合着卡面（默认）→ 点按 3D 翻转看正反两面 → 再按回卡面
+  const [flipped, setFlipped] = useState(false)
 
   const load = useCallback(async (cityFilter?: string | null) => {
     setState({ kind: 'loading' })
@@ -208,6 +210,22 @@ export default function FlashbackPage() {
         </View>
 
         <View className={styles.section}>
+          {/* 合着卡面（默认态）：全名 + 年份·城市 + 已寄出微标；点击翻开（用户定稿 ①） */}
+          {!flipped && (
+            <View className={styles.polaroidCover} onClick={() => setFlipped(true)}>
+              <View className={styles.coverDot} />
+              <Text className={styles.coverName}>{capsule.me.fullName}</Text>
+              <Text className={styles.coverFacts}>
+                {[
+                  capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 4) : '',
+                  capsule.me.city
+                ].filter(Boolean).join(' · ')}
+              </Text>
+              <Text className={styles.coverHint}>点按翻开你的拍立得</Text>
+            </View>
+          )}
+          {flipped && (
+          <View className={styles.polaroidFlipOpen}>
           <View className={styles.polaroid}>
             <Text className={styles.polaroidLabel}>POLAROID · {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10) : '当年'}</Text>
             {answers.map((answer) => (
@@ -271,6 +289,9 @@ export default function FlashbackPage() {
               )}
             </View>
           </View>
+          <Button className={styles.foldBackButton} onClick={() => setFlipped(false)}>合上（回到卡面）</Button>
+          </View>
+          )}
 
           <View className={styles.licenseCard}>
             <Text className={styles.sectionTitle}>金句授权</Text>

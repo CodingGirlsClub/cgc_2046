@@ -157,6 +157,10 @@ export interface FlashbackRosterAnswer {
 export interface FlashbackRosterEntry {
 	id: string;
 	surnameMasked: string;
+	/** 寄出者全名（她回来了即亮名）；未寄出者 null（R12 隐名） */
+	fullName?: string | null;
+	/** 寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null */
+	appliedAt?: string | null;
 	city?: string | null;
 	occupationThen?: string | null;
 	sentToWallAt?: string | null;
@@ -504,6 +508,8 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				roster {
 					id
 					surnameMasked
+					fullName
+					appliedAt
 					city
 					occupationThen
 					sentToWallAt

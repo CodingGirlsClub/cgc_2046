@@ -2503,6 +2503,12 @@
 			"dashed": "Her answers are still waiting for her",
 			"dashedAria": "Content slot empty: not sent yet",
 			"fogAria": "This passage is fogged — protected by her choice",
+"flip": {
+				"backAria": "She came back — tap to open her polaroid",
+				"backTitle": "Her today",
+				"backEmpty": "The back is still blank",
+				"noStamp": "back then"
+			},
 			"stackHint": "{count} more beneath the stack",
 			"expandAll": "Unfold all {count}",
 			"collapse": "Fold back (keep the first few)"

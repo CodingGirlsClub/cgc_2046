@@ -305,6 +305,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           archive_event_id: p.archive_event_id,
           # uuid 文本化：裸查询默认返回 16 字节 binary，:id 标量序列化会炸
           id: fragment("?::text", p.id),
+          applied_at: p.applied_at,
           surname: p.surname,
           full_name: p.full_name,
           city: p.city,
@@ -383,6 +384,9 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       id: row.id,
       surname: row.surname,
       surname_masked: masked_name(row.full_name, row.surname),
+      # 寄出者卡面显示全名（用户定稿：她回来了即亮名）；未寄出者 null（R12 隐名）
+      full_name: sent && row.full_name,
+      applied_at: sent && iso8601(row.applied_at),
       city: row.city,
       occupation_then: row.occupation_then,
       sent_to_wall_at: iso8601(row.sent_to_wall_at),

@@ -2503,6 +2503,12 @@
 			"dashed": "她的答案，还在等她",
 			"dashedAria": "内容位为空：尚未寄出",
 			"fogAria": "这一段被呵了气——内容被本人雾面保护",
+"flip": {
+				"backAria": "她回来了——点击翻开她的拍立得",
+				"backTitle": "今天的她",
+				"backEmpty": "背面还是空白的",
+				"noStamp": "当年"
+			},
 			"stackHint": "还有 {count} 位在叠照下",
 			"expandAll": "展开全部 {count} 位",
 			"collapse": "收起（保留前几张）"

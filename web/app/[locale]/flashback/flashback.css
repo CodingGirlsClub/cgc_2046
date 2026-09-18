@@ -570,6 +570,55 @@
 .fb-fog-block--s { width: 3.5em; }
 .fb-fog-block--m { width: 6.5em; }
 .fb-fog-block--l { width: 10em; }
+/* ── 两态拍立得（用户定稿 ①）：合着卡面 → 点击 3D 翻转 ─────────────────── */
+.fb-polaroid-flip {
+	display: block;
+	width: 100%;
+	text-align: left;
+	background: var(--fb-paper);
+	color: var(--fb-ink);
+	border: none;
+	padding: 8% 8% 6%;
+	border-radius: 4px;
+	cursor: pointer;
+}
+/* 合着卡面：白边拍立得——全名 + 年份·城市 + 「她回来了」金色微点 */
+.fb-flip-cover {
+	display: grid;
+	gap: 4px;
+	justify-items: start;
+	position: relative;
+	padding-top: 4px;
+}
+.fb-flip-cover-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--fb-accent);
+	box-shadow: 0 0 8px rgba(203, 191, 143, 0.8);
+	position: absolute;
+	top: 4px;
+	right: 0;
+}
+.fb-flip-cover-name { font-size: 15px; font-weight: 600; }
+.fb-flip-cover-facts { font-size: 10px; opacity: 0.7; }
+/* 翻开态：正反两面并置的拍立得内容（翻转交互语言：进入时 3D 转入） */
+.fb-flip-open {
+	display: grid;
+	gap: 8px;
+	animation: fb-flip-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes fb-flip-in {
+	from { transform: rotateY(-84deg); opacity: 0.3; }
+	to { transform: rotateY(0); opacity: 1; }
+}
+.fb-flip-face { display: grid; gap: 5px; }
+.fb-flip-face--front { border-bottom: 1px dashed rgba(43, 39, 35, 0.2); padding-bottom: 7px; }
+.fb-flip-stamp { font-size: 9px; opacity: 0.6; letter-spacing: 0.08em; }
+.fb-flip-answer { font-size: 11px; line-height: 1.7; display: block; }
+.fb-flip-face--back { padding-top: 2px; }
+.fb-flip-today-line { font-size: 11px; line-height: 1.7; display: block; }
+.fb-flip-today-empty { font-size: 11px; opacity: 0.55; font-style: italic; }
 .fb-roster-content { display: grid; gap: 6px; }
 .fb-roster-answer, .fb-roster-today { font-size: 11px; line-height: 1.6; margin: 0; color: var(--fb-ink); }
 .fb-roster-dashed {
@@ -814,6 +863,8 @@
 	.fb-roster-card--in { animation: none; }
 	/* 雾面微光呼吸关——静态雾 */
 	.fb-fog-block { animation: none; }
+	/* 翻转转入直达终态 */
+	.fb-flip-open { animation: none; }
 	.fb-root {
 		--fb-flash-dur: 0.01ms;
 		--fb-develop-dur: 0.01ms;
