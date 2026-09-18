@@ -29,12 +29,13 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # #664 审计开出的 6 键缺口已由 #683 全部补齐前端入口（enrollment_submitted +
-  # payment_received → 工作台第二按钮；payment_succeeded → 支付页双态；退款三键
-  # → 「我的报名」付费卡）；U4 的 6 个志愿者段位场景为过渡态登记（见下），前端
-  # 场景落地后即回 0。本表**结构保留**：registry 未来新增无前端场景的键必须在
-  # 此登记（守卫第 4 条 uncovered 会红），登记数在下方断言写死——改本表/本数必须
-  # 是有意识的决定。前端侧镜像清单 =
+  # 本表恒空（结构保留）：两次过渡态登记都已收尾——#683 补齐 #664 审计开出的
+  # 6 键前端入口（enrollment_submitted + payment_received → 工作台第二按钮；
+  # payment_succeeded → 支付页双态；退款三键 → 「我的报名」付费卡）；U10 补齐
+  # 志愿者段位六键的小程序订阅触点（M9 提交前 3 键 + M10 我的申请 3 键，见
+  # `miniprogram/src/domain/subscription.ts`）。
+  # registry 未来新增无前端场景的键必须在此登记（守卫第 4 条 uncovered 会红），
+  # 登记数在下方断言写死——改本表/本数必须是有意识的决定。前端侧镜像清单 =
   # `miniprogram/tests/subscription-domain.test.ts` 的 UNCOVERED_SCENARIOS。
   @scenario_gaps [
     # 残余缺口（不占本表，记录于 subscription.ts moduledoc「覆盖缺口」节）：
@@ -42,21 +43,10 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
     #   无退款操作面（refundOrder 仅 web），最佳授权时刻不可达，先例 =
     #   speaker_completed 分享者腿；
     # - enrollment_completed 的 web 报名腿：微信一次性订阅只能在小程序内发起。
-    #
-    # U4 志愿者段位通知六模板：后端已落地（R14 六订阅场景），小程序侧订阅触点与
-    # 场景映射由 U10（招募流）落地——U10 把这 6 个场景加进 subscription.ts 的
-    # ALL_SCENARIOS 后，**必须清空本表并把下方断言数改回 0**（本表是过渡态登记，
-    # 不是永久豁免）。
-    "volunteer_application_submitted",
-    "volunteer_application_interview",
-    "volunteer_application_training",
-    "volunteer_application_assigned",
-    "volunteer_application_rejected",
-    "volunteer_application_canceled"
   ]
 
-  # U4 过渡态缺口数（U10 落地后回 0）——改本数必须是有意识的决定
-  @scenario_gap_count 6
+  # 缺口数恒为 0（#683 / U10 两次收尾后）——改本数必须是有意识的决定
+  @scenario_gap_count 0
 
   # 投递路径 stub wechat 平台（SDK client + Tesla.Mock；token 由 SDK ETS 管理）。
   # 跳过路径不触达 HTTP（stale 重查拦在 deliver 之前），mock 仅兜底防误发真实请求。
