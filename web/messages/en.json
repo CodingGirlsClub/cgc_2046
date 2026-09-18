@@ -2495,7 +2495,6 @@
 			"error": "The capsule won't open right now — try again shortly.",
 			"retry": "Retry",
 			"title": "In a Flash · Time Corridor",
-			"subtitle": "Scroll down = time moves forward: that year on top, the future waiting for you at the bottom",
 			"authRequiredTitle": "The capsule needs your identity",
 			"authRequiredBody": "Enter via the personal link from your email/SMS, or sign in with a bound account — if the link is lost, you can recover it yourself.",
 			"authRequiredAction": "Self-service recovery",
@@ -2523,6 +2522,7 @@
 			"emptyCity": "No roster photos from this city yet.",
 			"pilesAria": "{name} city photo piles",
 			"pileCount": "{city} · {count} people",
+			"pileCaption": "{count} · their stories",
 			"frameLabelFallback": "that year, that event"
 		},
 		"roster": {
