@@ -19,6 +19,10 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     `detached_rule_provenance`（无标记 nil；detach 后含 initiative 身份 + 只含
     locked 字段），MCP 编辑标记内字段逐字段清除；公开 MCP 面（list/get public
     offering、discover_offerings）负向不透出
+  - #539 assign_event_moderator 三锚点（email / CGC 编号 / UUID，域层
+    UserResolution 单源）：错误码 `user_not_found` / `user_anchor_ambiguous`
+    前缀透传（不落笼统 fallback）；权限门先于解析（越权者探测不到
+    user_not_found）；list_event_moderators 行带回显平铺字段
   """
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
@@ -32,6 +36,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
   alias Cgc2046.Mcp.Tools.{
+    AssignEventModerator,
     CancelEvent,
     CloseEvent,
     ConfirmEnrollment,
@@ -42,10 +47,13 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     GetPublicOffering,
     LaunchEvent,
     ListEnrollments,
+    ListEventModerators,
     ListPublicOfferings,
     ListWorkspaceEvents,
     UpdateEvent
   }
+
+  alias Cgc2046.Events.Moderators
 
   require Ash.Query
 
@@ -1830,5 +1838,208 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
     end
+  end
+
+  describe "assign_event_moderator（#539 三锚点指派）" do
+    setup do
+      owner = Fixtures.platform_admin("539-owner")
+      workspace = Fixtures.create_workspace(owner)
+      event = EventFixtures.create_event(workspace, owner)
+      %{owner: owner, workspace: workspace, event: event}
+    end
+
+    test "三锚点命中：email（大小写混合）/ CGC 编号（小写）/ UUID（大写），响应 user_id 为解析后落库 UUID",
+         %{owner: owner, workspace: workspace, event: event} do
+      user = Fixtures.register_user_with_email("mcp-anchor@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      anchors = [
+        "Mcp-Anchor@Example.com",
+        String.downcase(expected_member_number(user.id)),
+        String.upcase(user.id)
+      ]
+
+      for anchor <- anchors do
+        assert {:reply, _, _} =
+                 reply =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(owner)
+                 ),
+               "anchor: #{anchor}"
+
+        payload = decode_reply(reply)
+        assert payload["user_id"] == user.id, "anchor: #{anchor}"
+        assert is_binary(payload["moderator_id"])
+
+        # 同用户连续三锚：前一次指派先撤销，撞不到 already_assigned
+        assert :ok = Moderators.remove(payload["moderator_id"], workspace.id, owner)
+      end
+    end
+
+    test "任一锚未命中统一 user_not_found 前缀透传（不落笼统 fallback）", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      for anchor <- [
+            "nobody-539@example.com",
+            "cgc-000000",
+            Ecto.UUID.generate(),
+            "not-an-anchor"
+          ] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(owner)
+                 ),
+               "anchor: #{anchor}"
+
+        assert msg =~ "user_not_found", "anchor: #{anchor}"
+        # 变异点：删工具内 BusinessError 子句 → 坍缩回 fallback，此断言红
+        refute msg =~ "failed to assign moderator", "anchor: #{anchor}"
+      end
+    end
+
+    test "CGC 前缀命中多人 user_anchor_ambiguous + 引导换用户 ID", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      user_a = Fixtures.register_user_with_email("ambiguous-a-539@example.com")
+      Fixtures.add_member(workspace, user_a, [:learner])
+
+      prefix = user_a.id |> String.replace("-", "") |> String.slice(0, 6)
+      hex_b = prefix <> (:crypto.strong_rand_bytes(13) |> Base.encode16(case: :lower))
+
+      <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
+        e::binary-size(12)>> = hex_b
+
+      register_user_with_uuid("ambiguous-b-539@example.com", "#{a}-#{b}-#{c}-#{d}-#{e}")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "cgc-" <> String.downcase(prefix)
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "user_anchor_ambiguous"
+      assert msg =~ "use the user ID"
+    end
+
+    test "越权双层门：learner 即便持不存在锚也只拿 forbidden（权限先于解析，防探测）；非成员撞 member 门",
+         %{owner: owner, workspace: workspace, event: event} do
+      learner = Fixtures.register_user("539-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+
+      for anchor <- ["ghost-539@example.com", Ecto.UUID.generate()] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(learner)
+                 ),
+               "anchor: #{anchor}"
+
+        assert msg =~ "forbidden: owner or admin required"
+
+        # 权限门先于解析：越权者探测不到 user_not_found（#537 域序，MCP 面钉住）
+        refute msg =~ "user_not_found"
+      end
+
+      outsider = Fixtures.register_user("539-outsider")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "ghost-539@example.com"
+                 },
+                 frame_for(outsider)
+               )
+
+      assert msg =~ "not a member"
+    end
+
+    test "重复指派走 Invalid 树折叠文案，不经新子句（code 前缀形状不出现）", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      user = Fixtures.register_user_with_email("dup-539@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      # user.email 加载后是 Ash.CiString；MCP 线上入参恒为 JSON string——
+      # 测试直调给字面量，与生产形状一致（两次同锚指派共用）
+      first_assign = %{
+        "workspace_id" => workspace.id,
+        "event_id" => event.id,
+        "user_id" => "dup-539@example.com"
+      }
+
+      assert {:reply, _, _} = AssignEventModerator.execute(first_assign, frame_for(owner))
+
+      # 同 email 锚二次指派：解析成功后撞 identity 唯一索引 → Ash.Error.Invalid
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(first_assign, frame_for(owner))
+
+      assert msg =~ "already a moderator"
+      # Invalid 树路径保持既有折叠行为：不带 "<code>: " 前缀形状
+      refute msg =~ "event_moderator_already_assigned: "
+    end
+
+    test "list_event_moderators 行带回显平铺字段（display_name 可空、member_number 恒有值）",
+         %{owner: owner, workspace: workspace, event: event} do
+      owner
+      |> Ash.Changeset.for_update(:update_display_name, %{display_name: "台主"})
+      |> Ash.update!(actor: owner)
+
+      user = Fixtures.register_user_with_email("echo-539@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      # user.email 是 Ash.CiString，测试直调给字面量与生产 JSON 入参形状一致
+      assert {:reply, _, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "echo-539@example.com"
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               reply =
+               ListEventModerators.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      rows = decode_reply(reply)["moderators"]
+      row = Enum.find(rows, &(&1["user_id"] == user.id))
+
+      assert row["user_display_name"] == nil
+      assert row["user_member_number"] == expected_member_number(user.id)
+      assert row["assigned_by_display_name"] == "台主"
+      assert row["assigned_by_member_number"] == expected_member_number(owner.id)
+    end
+  end
+
+  defp expected_member_number(uuid),
+    do: "CGC-" <> (uuid |> String.replace("-", "") |> String.slice(0, 6) |> String.upcase())
+
+  # 歧义布置（域层同款手法）：force 指定 uuid，测试需要前缀可控
+  defp register_user_with_uuid(email, uuid) do
+    Cgc2046.Accounts.User
+    |> Ash.Changeset.for_create(:register_with_password, %{
+      email: email,
+      password: Fixtures.password()
+    })
+    |> Ash.Changeset.force_change_attribute(:id, uuid)
+    |> Ash.create!(authorize?: false)
   end
 end
