@@ -242,6 +242,15 @@
 	padding: 20px;
 }
 .hs24-tile--featured { border-color: #c9497d; border-width: 2px; }
+/* 职位选择卡（可点选的 tab 组）：选中 = 玫红边 + 浅粉底；悬停给预览反馈 */
+.hs24-tile--selectable { cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.hs24-tile--selectable:hover { border-color: #c9497d; }
+.hs24-tile--selected {
+	border-color: #c9497d;
+	border-width: 2px;
+	background: #faedf2;
+	box-shadow: 0 6px 18px rgba(201, 73, 125, 0.12);
+}
 .hs24-tile__n {
 	display: inline-grid;
 	place-items: center;

@@ -152,7 +152,34 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("/hackerstart-1024/volunteer 志愿者申请页（U7）", () => {
+	describe("职位选择卡（tab 交互）", () => {
+		it("点击职位卡 → 选中高亮迁移，且联动第 2 步职位单选（AE 前端交互）", async () => {
+			render(<VolunteerApplyPage />);
+
+			// 初始：featured（场次主理人）选中
+			const tiles = () => Array.from(document.querySelectorAll("#va-roles [role=radio]"));
+			expect(tiles().length).toBe(3);
+			expect(tiles()[0].getAttribute("aria-checked")).toBe("true");
+			expect(tiles()[0].className).toContain("hs24-tile--selected");
+
+			// 点击第三张（活动教练）→ 高亮迁移、表单单选联动
+			fireEvent.click(tiles()[2]);
+			expect(tiles()[2].getAttribute("aria-checked")).toBe("true");
+			expect(tiles()[0].getAttribute("aria-checked")).toBe("false");
+			expect(tiles()[2].className).toContain("hs24-tile--selected");
+			expect(tiles()[0].className).not.toContain("hs24-tile--selected");
+		});
+
+		it("键盘可达：Enter/Space 选中（radiogroup 语义）", async () => {
+			render(<VolunteerApplyPage />);
+			const tiles = () => Array.from(document.querySelectorAll("#va-roles [role=radio]"));
+			expect(tiles()[1].getAttribute("tabindex")).toBe("0");
+			fireEvent.keyDown(tiles()[1], { key: "Enter" });
+			expect(tiles()[1].getAttribute("aria-checked")).toBe("true");
+		});
+	});
+
+	describe("/hackerstart-1024/volunteer 志愿者申请页（U7）", () => {
 	it("叙事结构：hero / 批次 / 三职位 / featured 深读 / 四段流程 / 分组 FAQ / 表单 / 我的申请 / 页脚", async () => {
 		render(<VolunteerApplyPage />);
 		await screen.findByText(zhCN.volunteerApply.cohort.openBadge);
@@ -180,7 +207,7 @@ describe("/hackerstart-1024/volunteer 志愿者申请页（U7）", () => {
 		// 三职位：featured 是场次主理人；职责与要求成对出现
 		const roleTiles = Array.from(document.querySelectorAll("#va-roles .hs24-cap3 .hs24-tile"));
 		expect(roleTiles).toHaveLength(3);
-		expect(roleTiles[0]?.className).toContain("hs24-tile--featured");
+		expect(roleTiles[0]?.className).toContain("hs24-tile--selected");
 		for (const [index, role] of ZH.roles.items.entries()) {
 			const tile = roleTiles[index];
 			expect(tile?.textContent).toContain(role.t);
