@@ -112,6 +112,14 @@ defmodule Cgc2046.Admission.InviteBatch do
   postgres do
     table("invite_batches")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline delete_all（DB 实测
+    # 三列 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:course, on_delete: :delete)
+    end
   end
 
   policies do
