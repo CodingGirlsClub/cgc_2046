@@ -345,6 +345,10 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
     end
   end
 
+  graphql do
+    type(:volunteer_application)
+  end
+
   postgres do
     table("volunteer_applications")
     repo(Cgc2046.Repo)
