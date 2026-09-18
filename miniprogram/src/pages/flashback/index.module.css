@@ -140,11 +140,13 @@
   padding: 14rpx 0;
   line-height: 1.6;
 }
+/* 摘要卡离屏画布：CSS 尺寸 = 画布尺寸（600×800 = 3:4），绘制与导出区域 1:1
+ * 无歧义（详见 index.tsx saveSummaryCard 的尺寸语义说明） */
 .shareCanvas {
   position: fixed;
   left: -9999rpx;
-  width: 300px;
-  height: 400px;
+  width: 600px;
+  height: 800px;
 }
 .shareMask {
   position: fixed;

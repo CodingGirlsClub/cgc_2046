@@ -185,7 +185,7 @@ describe('parseQuoteLevel（R31 授权档恢复，fail-closed）', () => {
 })
 
 // ── R14 分享（用户定稿 ③）：shareMessage / summaryCardModel ───────────────
-import { shareMessage, summaryCardModel } from '../src/domain/flashback.ts'
+import { shareMessage, summaryCardLayout, summaryCardModel, wrapCardText } from '../src/domain/flashback.ts'
 import type { FlashbackMyCard } from '../src/domain/models'
 
 const me = (over: Partial<FlashbackMyCard> = {}): FlashbackMyCard => ({
@@ -220,4 +220,44 @@ test('summaryCardModel：时间戳+城市 / 金句兜底链 / 今天行 / 年份
   const noQuote = summaryCardModel(me({ quote: null, today: null }))
   assert.equal(noQuote.quote, '答案还在显影中')
   assert.equal(noQuote.todayLine, null)
+})
+
+test('wrapCardText：全角 1em/半角 0.5em 折行 + 超行截断省略（摘要卡排版判据）', () => {
+  // 全角 10em 宽：每行 5 个汉字
+  assert.deepEqual(wrapCardText('一二三四五六七八九十', 5, 5), ['一二三四五', '六七八九十'])
+  // 半角计 0.5em：10 个半角字符 = 5em → 一行放得下 20 个
+  assert.deepEqual(wrapCardText('abcdefghij', 5, 5), ['abcdefghij'])
+  // 超行数 → 截断 + 省略号（末行去掉一个字符再补 …）
+  assert.deepEqual(wrapCardText('一二三四五六七八九十', 5, 1), ['一二三四…'])
+  // 换行符按硬换行处理；空文本/非法上限返回空
+  assert.deepEqual(wrapCardText('一\n二', 5, 5), ['一', '二'])
+  assert.deepEqual(wrapCardText('', 5, 5), [])
+  assert.deepEqual(wrapCardText('一', 5, 0), [])
+  // 长金句的极端用例：绝不超过 maxLines（画布内不越界）
+  const long = wrapCardText(`“${'我想知道写东西的人能不能学会让机器听懂人话。'.repeat(6)}”`, 440 / 30, 5)
+  assert.equal(long.length, 5)
+  assert.ok(long[4].endsWith('…'))
+})
+
+test('summaryCardLayout：kicker/时间戳/金句/今天的你/脚注全部落在 600×800 画布内', () => {
+  const cases = [
+    { quote: '我想亲眼看看是不是。', todayLine: '想骑行', footer: '12 年前 · IN A FLASH 闪念间' },
+    { quote: '答案还在显影中', todayLine: null, footer: 'IN A FLASH · 闪念间' },
+    { quote: '短', todayLine: '一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十', footer: 'f' },
+    { quote: '我想知道写东西的人能不能学会让机器听懂人话。'.repeat(8), todayLine: 'x'.repeat(200), footer: 'f' }
+  ]
+  for (const model of cases) {
+    const l = summaryCardLayout(model)
+    const lastQuoteBottom = l.quoteTop + l.quoteLines.length * l.quoteLineHeight
+    const lastTodayBottom = l.todayTop + l.todayLines.length * l.todayLineHeight
+    assert.ok(l.kickerTop >= 24, `kicker ${l.kickerTop}`)
+    assert.ok(l.stampTop > l.kickerTop, 'stamp 在 kicker 之下')
+    assert.ok(l.quoteTop > l.stampTop + 20, '金句在时间戳之下')
+    // 下边界：金句不压分割线、今天的你不压脚注、脚注在内框之内
+    assert.ok(lastQuoteBottom <= l.dividerY - 20, `金句底 ${lastQuoteBottom} vs 分割线 ${l.dividerY}`)
+    if (l.todayLines.length) assert.ok(lastTodayBottom <= l.footerTop - 20, `今天底 ${lastTodayBottom} vs 脚注 ${l.footerTop}`)
+    assert.ok(l.footerTop + 16 <= l.H - 24, `脚注底 ${l.footerTop + 16} 越内框`)
+    assert.ok(l.dividerY <= l.H - 24 && l.todayTop <= l.H - 24, '分割线/今天起点在画布内')
+    assert.ok(l.quoteLines.length <= 5 && l.todayLines.length <= 3, '行数封顶')
+  }
 })
