@@ -62,7 +62,7 @@ const baseCapsule: FlashbackCapsule = {
 		appliedAt: "2012-02-20T11:03:00Z",
 		today: { nowStatus: "还在写东西", want: "想学 AI", say: null, sentToWallAt: "2026-09-17T00:00:00Z" },
 		quote: "我想亲眼看看是不是。",
-		answers: [{ questionKey: "self_intro", text: "一个文科生。▓▓。" }],
+		answers: [{ id: "me-a1", questionKey: "self_intro", rawText: "一个文科生。在出版社。", text: "一个文科生。▓▓。" }],
 	},
 	// 单城：钉条隐藏（<2 城不渲染），不影响既有断言
 	cities: ["北京"],
@@ -76,7 +76,7 @@ const baseCapsule: FlashbackCapsule = {
 			attendedCount: 102,
 			isMine: false,
 			roster: [
-				rosterEntry({ id: "sent-1", surnameMasked: "李**", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", text: "▓▓。喜欢周末骑行。" }] }),
+				rosterEntry({ id: "sent-1", surnameMasked: "李**", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", segments: [{ text: "", fog: true, len: 3 }, { text: "。喜欢周末骑行。", fog: false, len: 0 }] }] }),
 				rosterEntry({ id: "quiet-1", surnameMasked: "王**" }),
 			],
 		},
@@ -129,9 +129,14 @@ describe("CapsuleView · 分层墙（R12）", () => {
 		expect(quiet).not.toHaveTextContent("骑行");
 
 		const sent = cards.find((card) => card.dataset.sent === "true");
+		expect(sent).toBeTruthy();
+		if (!sent) return;
 		expect(sent).toHaveTextContent("李**");
-		// 寄出者：雾化文本（▓▓）与今天摘要显影
-		expect(sent).toHaveTextContent("▓▓。喜欢周末骑行。");
+		// 寄出者：段渲染——明文段可见 + 雾段为视觉雾块（原文零出 DOM）
+		expect(sent).toHaveTextContent("。喜欢周末骑行。");
+		const fogBlock = sent.querySelector(".fb-fog-block");
+		expect(fogBlock).toBeTruthy();
+		expect(fogBlock?.textContent?.trim()).not.toContain("盛大");
 		expect(sent).toHaveTextContent("想参加骑行");
 	});
 

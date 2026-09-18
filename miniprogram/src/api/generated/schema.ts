@@ -2462,9 +2462,9 @@ export type FlashbackRetractResult = {
 };
 
 export type FlashbackRosterAnswer = {
-  /** 当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现 */
+  /** 当年答案（对外版）：段结构——明文段与雾面段交替，雾面段零字符泄露 */
   questionKey: Scalars['String']['output'];
-  text: Scalars['String']['output'];
+  segments: Array<FlashbackRosterSegment>;
 };
 
 export type FlashbackRosterEntry = {
@@ -2484,6 +2484,13 @@ export type FlashbackRosterEntryToday = {
   nowStatus?: Maybe<Scalars['String']['output']>;
   say?: Maybe<Scalars['String']['output']>;
   want?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackRosterSegment = {
+  fog: Scalars['Boolean']['output'];
+  len: Scalars['Int']['output'];
+  /** 雾面段（对外版）：fog=true 时 text 恒为空——原文字符不出 DOM，len 供视觉档位 */
+  text: Scalars['String']['output'];
 };
 
 export type FlashbackSendToWallResult = {

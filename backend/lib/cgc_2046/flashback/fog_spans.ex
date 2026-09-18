@@ -75,6 +75,42 @@ defmodule Cgc2046.Flashback.FogSpans do
 
   def mask(nil, _spans, placeholder), do: placeholder
 
+  @doc """
+  对外遮蔽段结构（U 雾化视觉升级）：按已验证区间把原文切成段列表
+  `[%{text, fog, len}]`——fog 段 `text` 为空字符串（**原文字符不出现**，
+  前端渲染为纯视觉雾块，长度按 `len` 提示档位）。校验失败按全雾
+  fail-closed（同 `mask/3` 语义）。
+  """
+  @spec segments(String.t() | nil, span() | nil) :: [map()]
+  def segments(text, spans) when is_binary(text) do
+    case validate(spans, text) do
+      {:ok, normalized} ->
+        {acc, cursor} =
+          Enum.reduce(Enum.sort_by(normalized, &field(&1, :start)), {[], 0}, fn span,
+                                                                                {acc, cursor} ->
+            start = field(span, :start)
+            len = field(span, :len)
+            head = String.slice(text, cursor, max(start - cursor, 0))
+            {acc |> append_plain(head) |> append_fog(len), start + len}
+          end)
+
+        append_plain(acc, String.slice(text, cursor..-1//1))
+
+      {:error, _} ->
+        [%{text: "", fog: true, len: String.length(text)}]
+    end
+  end
+
+  def segments(nil, _spans), do: []
+
+  defp append_plain(acc, ""), do: acc
+
+  defp append_plain(acc, text), do: [%{text: text, fog: false, len: 0} | acc]
+
+  defp append_fog(acc, len) when len > 0, do: [%{text: "", fog: true, len: len} | acc]
+
+  defp append_fog(acc, _len), do: acc
+
   defp normalize([], acc), do: {:ok, Enum.reverse(acc)}
 
   defp normalize([span | rest], acc) do

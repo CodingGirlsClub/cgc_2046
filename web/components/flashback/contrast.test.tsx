@@ -184,7 +184,7 @@ describe("防线 3：组件行为不回归（card-export 交互冒烟）", () =>
 			appliedAt: null,
 			today: null,
 			quote: null,
-			answers: [{ questionKey: "self_intro", text: "一句当年答案。" }],
+			answers: [{ id: "m1", questionKey: "self_intro", rawText: "一句当年答案。", text: "一句当年答案。" }],
 		};
 		render(
 			<div className="fb-root">

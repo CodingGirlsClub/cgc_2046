@@ -57,7 +57,20 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 							<span className="fb-answer-q">
 								{questionT.has(answer.questionKey) ? questionT(answer.questionKey) : answer.questionKey}
 							</span>
-							{answer.text}
+							{answer.segments.map((segment, i) =>
+								segment.fog ? (
+									// 雾面段：纯视觉雾块（原文零出 DOM）——宽度按 len 三档
+									<span
+										key={i}
+										className={`fb-fog-block fb-fog-block--${segment.len <= 6 ? "s" : segment.len <= 14 ? "m" : "l"}`}
+										aria-hidden="true"
+									>
+										<span className="fb-visually-hidden">{t("fogAria")}</span>
+									</span>
+								) : (
+									<span key={i}>{segment.text}</span>
+								),
+							)}
 						</p>
 					))}
 					{entry.today?.want ? (

@@ -6267,11 +6267,20 @@ type FlashbackMeAnswer {
   text: String!
 }
 
+type FlashbackRosterSegment {
+  "雾面段（对外版）：fog=true 时 text 恒为空——原文字符不出 DOM，len 供视觉档位"
+  text: String!
+
+  fog: Boolean!
+
+  len: Int!
+}
+
 type FlashbackRosterAnswer {
-  "当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现"
+  "当年答案（对外版）：段结构——明文段与雾面段交替，雾面段零字符泄露"
   questionKey: String!
 
-  text: String!
+  segments: [FlashbackRosterSegment!]!
 }
 
 type FlashbackRosterEntryToday {
