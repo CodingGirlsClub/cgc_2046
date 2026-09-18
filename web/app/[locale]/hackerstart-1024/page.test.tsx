@@ -164,7 +164,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		for (const [label, anchor] of [
 			["我要参加", "#hs24-join"],
 			["成为志愿者", "#hs24-volunteer"],
-			["品牌合作", "#hs24-brand"],
+			["赞助合作", "#hs24-brand"],
 		] as const) {
 			const link = screen.getByRole("link", { name: label });
 			expect(link).toHaveAttribute("href", anchor);
@@ -192,7 +192,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		).toEqual([
 			plain(ZH.hero.nums.sessions),
 			plain(ZH.hero.nums.start),
-			plain(ZH.hero.nums.seats),
+			plain(ZH.hero.nums.batch),
 		]);
 	});
 
@@ -201,12 +201,11 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 
 		const powSupers = Array.from(document.querySelectorAll(".hs24-pow sup"));
 		const exponents = powSupers.map((node) => node.textContent ?? "");
-		// 2⁰（启动日）/ 2³ / 2⁴ / 2⁵ / 2⁶ / 2⁷ / 2¹⁰ —— 与 R4 列举逐一对应
+		// 2⁰（启动日）/ 2³ / 2⁵ / 2⁶ / 2⁷ / 2¹⁰ —— 与 R4 列举逐一对应
 		expect([...new Set(exponents)].sort()).toEqual([
 			"0",
 			"10",
 			"3",
-			"4",
 			"5",
 			"6",
 			"7",
@@ -224,9 +223,9 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 
 		const occurrences = JSON.stringify(ZH).match(/<pow>/g)?.length ?? 0;
 		expect(occurrences).toBeGreaterThan(0);
-		// 幂标记两个来源：消息里的 <pow> 标签（富文本）+ 64 场公式行的 3 个 <Pow>
-		// （结构化字段，value/pow 分列，不经富文本）
-		expect(document.querySelectorAll(".hs24-pow")).toHaveLength(occurrences + 3);
+		// 幂标记全部来自消息里的 <pow> 标签（富文本；16×64 公式行已随
+		// Partnership 改版移除，不再有结构化 <Pow> 来源）
+		expect(document.querySelectorAll(".hs24-pow")).toHaveLength(occurrences);
 
 		// 富文本标签全在 richTags 登记（漏登记会把字面量 <tag> 漏到页面上）
 		const tags = new Set(
@@ -277,30 +276,23 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		expect(haystack).not.toMatch(/\d+\s*万(?!\s*\+)/);
 	});
 
-	it("R4 押金口径：69 元押金四处告知，且只出现在押金语境（zh/en 同步）", () => {
+	it("R4 押金口径：87 元押金三处告知，且只出现在押金语境（zh/en 同步）", () => {
 		render(<HackerStart1024Page />);
 
-		// ① why 段 lead（原型口径：69 元押金（到场退））
+		// ① why 段 lead：87 元押金（到场退）
 		const whySection = document.querySelector("#hs24-why-title")?.closest("section");
 		expect(whySection).not.toBeNull();
 		expect(
 			(whySection as HTMLElement).querySelector(".hs24-lead")?.textContent,
-		).toContain("69 元押金（到场退）");
+		).toContain("87 元押金（到场退）");
 		// ② 参与者 FAQ：问句与答案都含金额与退法
-		expect(screen.getByText("69 元押金是怎么回事？怎么退？")).toBeInTheDocument();
-		expect(screen.getByText(/报名时缴纳 69 元押金/)).toBeInTheDocument();
-		// ③ 价值阶梯「激活用户」层
-		expect(
-			Array.from(document.querySelectorAll(".hs24-ladder__d")).some((node) =>
-				/18 岁以上、付 69 元押金/.test(node.textContent ?? ""),
-			),
-		).toBe(true);
+		expect(screen.getByText("87 元押金是怎么回事？怎么退？")).toBeInTheDocument();
+		expect(screen.getByText(/报名时缴纳 87 元押金/)).toBeInTheDocument();
 
-		// 消息侧（zh）：金额只允许出现在这四个条目，且每条都必须带「押金」
+		// 消息侧（zh）：金额只允许出现在押金语境的这三条，且每条都必须带「押金」
 		const zhEntries = messageEntries(ZH);
 		const amountEntries = zhEntries.filter(([, value]) => /\d+\s*元/.test(value));
 		expect(amountEntries.map(([key]) => key).sort()).toEqual([
-			"brand.ladder[1].d",
 			"faq.items[1].a",
 			"faq.items[1].q",
 			"why.lead",
@@ -309,12 +301,11 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 			expect(value, key).toContain("押金");
 		}
 
-		// 消息侧（en）：镜像同一条纪律——出现 69 的条目必须同时含 deposit
+		// 消息侧（en）：镜像同一条纪律——出现 87 yuan 的条目必须同时含 deposit
 		const enAmountEntries = messageEntries(EN).filter(([, value]) =>
-			/69/.test(value),
+			/87 yuan/.test(value),
 		);
 		expect(enAmountEntries.map(([key]) => key).sort()).toEqual([
-			"brand.ladder[1].d",
 			"faq.items[1].a",
 			"faq.items[1].q",
 			"why.lead",
@@ -335,23 +326,23 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		expect(historyBand?.textContent).not.toMatch(/本轮|2026\.10-2027/);
 		expect(textOf(".hs24-stats__cap")).toBe("2016-2025 历史累计");
 
-		// 本轮侧：凡是出现本轮计划数字的段落，都必须带「本轮」标注
-		const planParagraphs = Array.from(document.querySelectorAll("p")).filter(
-			(node) => /512-2,048/.test(node.textContent ?? ""),
-		);
-		expect(planParagraphs.length).toBeGreaterThan(0);
-		for (const node of planParagraphs) {
-			expect(node.textContent).toMatch(/本轮/);
+		// 本轮侧：收益段的 512-2,048 参与者口径必须自带「本轮计划」标注
+		const reachLines = Array.from(
+			document.querySelectorAll(".hs24-ladder__d"),
+		).filter((node) => /512-2,048/.test(node.textContent ?? ""));
+		expect(reachLines.length).toBeGreaterThan(0);
+		for (const node of reachLines) {
+			expect(node.textContent).toMatch(/本轮计划/);
 		}
-		expect(textOf(".hs24-plan-cap")).toBe(ZH.brand.planCap);
-		expect(textOf(".hs24-plan-cap")).toContain("本轮计划");
 
 		// 两口径的对照句单列（杠杆句），避免被读成本轮数字
 		expect(textOf(".hs24-lever")).toBe(
 			"本轮一个 campaign 的参与人数目标 ≈ 过去十年累计",
 		);
-		// 历史累计在阶梯里也必须自带标注，不能裸用
-		expect(screen.getByText(/历史总阅读 2,000 万\+，历史累计/)).toBeInTheDocument();
+		// 历史累计在收益段引用时也必须自带标注，不能裸用
+		expect(
+			screen.getByText(/历史总阅读 2,000 万\+，2016-2025 历史累计/),
+		).toBeInTheDocument();
 	});
 
 	it("R5：证据墙 7 条外链 href 与列举一致，共青团中央与果壳网保留文字不挂链", () => {
@@ -396,7 +387,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 			screen.getByRole("link", { name: "申请成为志愿者 →" }),
 		).toHaveAttribute("href", VOLUNTEER_PATH);
 		expect(
-			screen.getByRole("link", { name: /聊品牌专场合作/ }),
+			screen.getByRole("link", { name: /聊赞助合作/ }),
 		).toHaveAttribute("href", "mailto:partners@codinggirlsclub.com");
 		// footer 志愿者回链走页内锚点（F2 先读职位与流程）
 		expect(
@@ -443,12 +434,12 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		expect(nodes[2]?.textContent).toContain("1,024 场");
 	});
 
-	it("参与者 FAQ：5 条问答，含押金问答（金额按整合复核恢复）", () => {
+	it("参与者 FAQ：5 条问答，含押金问答（87 元，到场退）", () => {
 		render(<HackerStart1024Page />);
 
 		const details = Array.from(document.querySelectorAll(".hs24-faq details"));
 		expect(details).toHaveLength(5);
-		expect(screen.getByText("69 元押金是怎么回事？怎么退？")).toBeInTheDocument();
+		expect(screen.getByText("87 元押金是怎么回事？怎么退？")).toBeInTheDocument();
 		expect(screen.getByText(/到场参加即全额退还/)).toBeInTheDocument();
 		expect(screen.getByText(/零基础真的能参加吗？/)).toBeInTheDocument();
 	});
@@ -482,15 +473,14 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		expect(ZH.faq.items).toHaveLength(5);
 		expect(ZH.who.stats).toHaveLength(6);
 		expect(ZH.who.endorse).toHaveLength(9);
-		expect(ZH.brand.ladder).toHaveLength(6);
+		// Partnership 改版：赞助段主体是五项收益（对象 keyed，rich 可达）
+		expect(Object.keys(ZH.brand.benefits)).toHaveLength(5);
 
 		// en 侧零中文（人工译文，不是 zh 直出）
 		expect(JSON.stringify(EN)).not.toMatch(/[\u4e00-\u9fff]/);
 		// 口径纪律句两语言都要正确标注
 		expect(EN.who.statsCap).toMatch(/Historical/i);
 		expect(EN.who.statsCap).toContain("2016–2025");
-		expect(EN.brand.planCap).toMatch(/this round's plan/i);
-		expect(EN.brand.ladder[1]?.d).toMatch(/this round's plan/i);
 	});
 
 	it("en：整页渲染英文文案（含 hero / 品牌段 / 证据墙）", () => {
@@ -504,10 +494,9 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 			screen.getByRole("link", { name: "Join a session" }),
 		).toHaveAttribute("href", "#hs24-join");
 		expect(screen.getByText("Historical: cumulative to 2025 (2016–2025)")).toBeInTheDocument();
-		expect(screen.getByText(/All figures above are this round's plan/)).toBeInTheDocument();
 		// 押金金额 en 侧同样告知（人工译文，非 zh 直出）
-		expect(screen.getByText("How does the 69 yuan deposit work?")).toBeInTheDocument();
-		expect(screen.getByText(/You pay a 69 yuan deposit when you register/)).toBeInTheDocument();
+		expect(screen.getByText("How does the 87 yuan deposit work?")).toBeInTheDocument();
+		expect(screen.getByText(/You pay an 87 yuan deposit when you register/)).toBeInTheDocument();
 
 		// 页面主体（不含顶导的语言切换器，那里本来就并排显示「中文」）零中文
 		const campaignText = Array.from(

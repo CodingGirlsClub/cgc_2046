@@ -117,17 +117,23 @@ describe('campaign 页内容（weapp 渲染）', () => {
   const html = renderToStaticMarkup(createElement(CampaignPage))
 
   it('hero：十周年 + 关键数字 + 幂标记', () => {
-    for (const text of ['十周年 CAMPAIGN', 'Hacker Start 1024', '让普通人第一次亲手用 Agent 做出能跑的作品', '1,024', '10.24', '个品牌席位']) {
+    for (const text of ['十周年 CAMPAIGN', 'Hacker Start 1024', '让普通人第一次亲手用 Agent 做出能跑的作品', '1,024', '10.24', '场 / 批']) {
       expect(html).toContain(text)
     }
-    // 幂标记（2⁰ / 2³ / 2⁴ / 2⁵ / 2⁶ / 2¹⁰）逐个在位
-    for (const exponent of [0, 3, 4, 5, 6, 10]) expect(html).toContain(`data-testid="pow-${exponent}"`)
+    // 幂标记（2⁰ / 2³ / 2⁵ / 2¹⁰）逐个在位（Partnership 改版后 2⁴ 席位、2⁶ 专场公式退场）
+    for (const exponent of [0, 3, 5, 10]) expect(html).toContain(`data-testid="pow-${exponent}"`)
+    expect(html).not.toContain('data-testid="pow-4"')
   })
 
-  it('三入口卡齐全（JOIN / VOLUNTEER / BRAND）且各带自己的标题', () => {
-    for (const text of ['>JOIN<', '>VOLUNTEER<', '>BRAND<', '我要参加一场', '成为志愿者', '品牌专场合作']) {
+  it('三入口卡齐全（JOIN / VOLUNTEER / PARTNERSHIP）且各带自己的标题', () => {
+    for (const text of ['>JOIN<', '>VOLUNTEER<', '>PARTNERSHIP<', '我要参加一场', '成为志愿者', '赞助合作', '多品牌同批', '零抽成']) {
       expect(html).toContain(text)
     }
+    // 旧模型残留不得回归：无席位、无「为你定制的课程」卖法、无品牌专场、无满屏否定句
+    expect(html).not.toContain('席位')
+    expect(html).not.toContain('为你定制')
+    expect(html).not.toContain('品牌专场')
+    expect(html).not.toContain('不专场')
   })
 
   it('hero 两个 CTA 各就各位（参加 / 志愿者）', () => {
