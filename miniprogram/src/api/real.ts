@@ -728,6 +728,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
         occurredOn: archive.occurredOn ?? null,
         appliedCount: archive.appliedCount ?? null,
         attendedCount: archive.attendedCount ?? null,
+        label: archive.label ?? null,
         isMine: archive.isMine,
         roster: (archive.roster ?? []).map((entry) => ({
           id: entry.id,
@@ -948,7 +949,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         city: archive.city ?? null,
         occurredOn: archive.occurredOn ?? null,
         appliedCount: archive.appliedCount ?? null,
-        attendedCount: archive.attendedCount ?? null
+        attendedCount: archive.attendedCount ?? null,
+        label: archive.label ?? null
       })),
       returnedCount: data.flashbackPublicStats?.returnedCount ?? 0,
       sentCount: data.flashbackPublicStats?.sentCount ?? 0

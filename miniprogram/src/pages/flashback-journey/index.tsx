@@ -184,7 +184,7 @@ export default function FlashbackJourneyPage() {
             className={styles.invalidAction}
             onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })}
           >
-            先去时间胶囊看看
+            先去时间长廊看看
           </Button>
         </View>
       </View>
@@ -271,7 +271,7 @@ export default function FlashbackJourneyPage() {
           </View>
           {!flipped && <Text className={styles.revealHint}>点击照片翻面写字</Text>}
           <Button className={styles.cta} disabled={sending || !flipped} onClick={() => void send()}>
-            {sending ? '正在寄出…' : '寄出，回到时间胶囊 →'}
+            {sending ? '正在寄出…' : '寄出，回到时间长廊 →'}
           </Button>
         </View>
       )}

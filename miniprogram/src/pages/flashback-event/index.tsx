@@ -123,7 +123,7 @@ export default function FlashbackEventPage() {
     <View className={styles.page}>
       <ScrollView scrollY className={styles.board} style={{ height: '100vh' }}>
         <Text className={styles.back} onClick={back}>
-          ‹ 时间胶囊
+          ‹ 时间长廊
         </Text>
         <View className={styles.header}>
           <Text className={styles.title}>

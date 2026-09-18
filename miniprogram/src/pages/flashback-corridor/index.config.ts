@@ -1,1 +1,1 @@
-export default definePageConfig({ navigationBarTitleText: '闪念间 · 时间胶囊' })
+export default definePageConfig({ navigationBarTitleText: '闪念间 · 时间长廊' })
