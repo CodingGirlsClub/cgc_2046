@@ -35,11 +35,6 @@ const LEGAL_PAGE_EXEMPT = [
 	"app/[locale]/privacy/page.tsx",
 ];
 
-// 设计参照原型（Hacker Start 1024 campaign，plan 2026-09-18-0040）：
-// 草图性质、硬编码文案、为开发期对照而存在，不进主仓发布物；
-// 实现定稿后整目录与本豁免一并删除（see plan Dependencies）。
-const PROTOTYPE_EXEMPT = ["app/[locale]/prototype/"];
-
 /** 收集目录下所有 .ts/.tsx 源码（排除 *.test.*、*.d.ts） */
 function collectSourceFiles(dir) {
 	const out = [];
@@ -76,8 +71,6 @@ function templateTextFragments(node) {
 function isWhitelisted(node, parent, file) {
 	// 法务页整页豁免（LEGAL_PAGE_EXEMPT，见常量注释）
 	if (LEGAL_PAGE_EXEMPT.some((p) => file.includes(p))) return true;
-	// 设计参照原型目录豁免（PROTOTYPE_EXEMPT，见常量注释）
-	if (PROTOTYPE_EXEMPT.some((p) => file.includes(p))) return true;
 	// console.xxx("...") 参数
 	if (
 		parent &&

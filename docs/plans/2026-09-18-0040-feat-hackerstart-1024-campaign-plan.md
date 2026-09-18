@@ -185,7 +185,7 @@ stateDiagram-v2
 - 微信订阅消息需在小程序后台申请模板，且用户授权后才可触达（R14/R21 的机制前提）；邮件为唯一保底。
 - 素材与文案依赖（上线前收齐）：公众号二维码；FAQ「自带设备」运营口径；志愿者权益文案定稿；第 1 批批次日期定稿（页面草案 2026.10.10 23:59）；**Initiative 报名截止倒推规则取值（hours_before_start）与裁决人（OQ7，检查单第 1/3 步前置）**；训练营课程内容（运营侧）；首批预建城市清单（运营提供）；学员故事标题与主人公背景；微信分享卡图；职位描述 en 文案翻译（与 en 口径句同人把关）。
 - EventModerator 机制按现状复用：成员前提（先邀请入台再指派）、成员离台级联撤销指派——既有不变量，不为本需求修改。
-- 视觉与 IA 的可运行原型在 worktree `.worktrees/cgc_2046/hackerstart-1024-landing`（分支 `sundevilyang/hackerstart-1024-landing`）：`variant-d`（宣传页）、`host-apply`（申请页，实现时更名志愿者路由）、`mobile/page.tsx`（390px 手机壳预览）、`weapp-d` / `weapp-host` + `weapp.css`（小程序视觉版，token 取自 `miniprogram/src` 真实样式）、`hs1024.css`（PPT 色板 + ≤640px 响应式块）。原型目录本身不合并。
+- 视觉与 IA 的可运行原型在 worktree `.worktrees/cgc_2046/hackerstart-1024-landing`（分支 `sundevilyang/hackerstart-1024-landing`）：`variant-d`（宣传页）、`host-apply`（申请页，实现时更名志愿者路由）、`mobile/page.tsx`（390px 手机壳预览）、`weapp-d` / `weapp-host` + `weapp.css`（小程序视觉版，token 取自 `miniprogram/src` 真实样式）、`hs1024.css`（PPT 色板 + ≤640px 响应式块）。原型目录不并入本分支——已整体保存至远端分支 `sundevilyang/hackerstart-1024-prototype`（查看原型请切换该分支）。
 
 ### Success Criteria
 
