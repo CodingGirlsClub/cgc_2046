@@ -27,6 +27,7 @@ import { useAuthed } from "@/lib/use-authed";
 import {
   fetchPublicOffering,
   formatVenue,
+  moderatorNames,
   parseSponsorshipTiers,
   parseCompanionCourse,
   parseVenue,
@@ -324,6 +325,8 @@ export default function PublicOfferingDetailPage({
   // 收费目标：可售档位（R2 后端 availablePriceTiers 已过滤过期档，公开报名面
   // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
+  // #538 公开主理人行：仅 event；空名单/解析失败 → []，下方 length 门即「无主理人不渲染」
+  const moderators = kind === "event" ? moderatorNames(offering?.publicModerators) : [];
   const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
   // 押金金额表态统一过守卫（#675）：脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
   // 绝不显示 ¥0；押金**区块存在性**仍由 offering.depositEnabled 决定（脏金额不得
@@ -628,6 +631,14 @@ export default function PublicOfferingDetailPage({
                   )}
                 </dd>
               </div>
+              {moderators.length > 0 ? (
+                <div>
+                  <dt>{t("moderatorsTitle")}</dt>
+                  <dd data-testid="public-detail-moderators">
+                    {moderators.join(" · ")}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
 
             <aside

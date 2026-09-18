@@ -89,8 +89,13 @@ defmodule Cgc2046.Notifications.Service do
   #   地点=thing5（venue，缺值跳过）。date2 是 **date 类型**、非 time——见
   #   date/1 的格式假设注释；venue 变更本身也是本通知的触发条件
   #   （event.ex schedule_changed?/1），故 thing5 放地点而非重复时间
-  # - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
-  #   「你已被指派为该活动主理人」）
+  #   - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
+  #     「你已被指派为该活动主理人」）
+  # - event_moderator_removed（#538）：模板标题「活动名额转移提醒」（全库无
+  #   身份/移除类标题，选中性双 thing 模板；2026-09-18 批次申请，ID 已配置
+  #   secret WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED）。**槽位非惯例**：
+  #   活动名称=thing1 / 内容（备注）=thing5（不是 thing2！）；内容固定
+  #   「主理人身份已解除」（7 字 ≤20，勿带活动名前缀免截断）
   # - speaker_accepted（#606）：活动名称=thing14 / 状态=thing6（固定「已接受」）；
   #   speaker_invitation_id 不下发（平台无 character_string 槽位，本就是 job meta）
   # - speaker_completed（#606）：活动名称=thing1（speaker 本人面无 title → 跳过，
@@ -238,6 +243,16 @@ defmodule Cgc2046.Notifications.Service do
     %{
       "thing1" => thing(data["title"]),
       "thing5" => "你已被指派为该活动主理人"
+    }
+    |> drop_nils()
+  end
+
+  # #538：模板「活动名额转移提醒」实际槽位 = thing1 活动名 / thing5 内容
+  # （非 thing2——槽位注释块见本文件头部清单；thing ≤20 字）
+  defp render(:wechat, "event_moderator_removed", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "thing5" => "主理人身份已解除"
     }
     |> drop_nils()
   end

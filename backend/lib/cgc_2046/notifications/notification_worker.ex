@@ -218,6 +218,17 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       job_meta_keys: ["event_id"],
       unique: :default,
       stale: nil
+    },
+    # 主理人移除（#538）：仅主动移除发送（Moderators.remove）；成员离台级联
+    # 撤销不发（RevokeModerationsOnLeave 另有语境）。深链同 assigned 落
+    # event-detail——公开主理人投影即「名单里没有我了」的对照面。
+    %{
+      template_key: "event_moderator_removed",
+      id_key: nil,
+      data_keys: ["event_id", "title"],
+      job_meta_keys: ["event_id"],
+      unique: :default,
+      stale: nil
     }
   ]
 

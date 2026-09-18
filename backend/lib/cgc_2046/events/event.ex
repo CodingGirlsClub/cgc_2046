@@ -374,6 +374,20 @@ defmodule Cgc2046.Events.Event do
         Enum.map(records, &Cgc2046.Offering.EnrollmentBadge.badge(&1, now))
       end
     )
+
+    # #538 公开主理人投影：[{display_name, member_number}] 最小集（JsonString
+    # 序列化，companion_course 同款）。命名避开 has_many :moderators 关系
+    # （公开面零 row 暴露——user_id/email/phone 结构性不存在）。无本表列依赖
+    # （只读主键，恒 selected），NotLoaded 教训（available_price_tiers 的 load
+    # 声明）在此不适用；主理人行由投影模块单趟批量查询。
+    calculate(:public_moderators, {:array, :map},
+      public?: true,
+      description:
+        "公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人）",
+      calculation: fn records, _opts ->
+        Cgc2046.Events.PublicModerators.project(records)
+      end
+    )
   end
 
   multitenancy do
