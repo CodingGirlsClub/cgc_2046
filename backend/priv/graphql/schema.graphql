@@ -6295,6 +6295,12 @@ type FlashbackRosterEntry {
   "姓氏隐名（R12）：王**；名册结构化卡的核心标识"
   surnameMasked: String!
 
+  "寄出者全名（用户定稿：她回来了即亮名）；未寄出者 null（隐名）"
+  fullName: String
+
+  "寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null"
+  appliedAt: String
+
   city: String
 
   occupationThen: String

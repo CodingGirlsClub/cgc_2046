@@ -76,7 +76,7 @@ const baseCapsule: FlashbackCapsule = {
 			attendedCount: 102,
 			isMine: false,
 			roster: [
-				rosterEntry({ id: "sent-1", surnameMasked: "李**", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", segments: [{ text: "", fog: true, len: 3 }, { text: "。喜欢周末骑行。", fog: false, len: 0 }] }] }),
+				rosterEntry({ id: "sent-1", surnameMasked: "李*", fullName: "李雷", appliedAt: "2014-01-05T05:06:00Z", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", segments: [{ text: "", fog: true, len: 3 }, { text: "。喜欢周末骑行。", fog: false, len: 0 }] }] }),
 				rosterEntry({ id: "quiet-1", surnameMasked: "王**" }),
 			],
 		},
@@ -131,13 +131,25 @@ describe("CapsuleView · 分层墙（R12）", () => {
 		const sent = cards.find((card) => card.dataset.sent === "true");
 		expect(sent).toBeTruthy();
 		if (!sent) return;
-		expect(sent).toHaveTextContent("李**");
-		// 寄出者：段渲染——明文段可见 + 雾段为视觉雾块（原文零出 DOM）
-		expect(sent).toHaveTextContent("。喜欢周末骑行。");
-		const fogBlock = sent.querySelector(".fb-fog-block");
+		// 默认态 = 合着卡面：全名 + 年份·城市 + 回来了微点；内容文字零出现
+		const flip = sent.querySelector('[data-testid="fb-polaroid-flip"]') as HTMLElement;
+		expect(flip).toBeTruthy();
+		expect(flip.dataset.flipped).toBe("false");
+		expect(flip).toHaveTextContent("李雷");
+		expect(flip).toHaveTextContent("2014 · 北京");
+		expect(sent.querySelector(".fb-flip-cover-dot")).toBeTruthy();
+		expect(flip.textContent).not.toContain("骑行");
+		// 点击翻转 → 正面当年答案（雾段）+ 背面今天的她
+		fireEvent.click(flip);
+		expect(flip.dataset.flipped).toBe("true");
+		expect(flip).toHaveTextContent("。喜欢周末骑行。");
+		const fogBlock = flip.querySelector(".fb-fog-block");
 		expect(fogBlock).toBeTruthy();
-		expect(fogBlock?.textContent?.trim()).not.toContain("盛大");
-		expect(sent).toHaveTextContent("想参加骑行");
+		expect(flip).toHaveTextContent("想参加骑行");
+		// 再点翻回卡面态（内容再次不可见）
+		fireEvent.click(flip);
+		expect(flip.dataset.flipped).toBe("false");
+		expect(flip.textContent).not.toContain("骑行");
 	});
 
 	it("「今天」格：寄出者亮起；token 从 URL 读入后即刻清除", async () => {

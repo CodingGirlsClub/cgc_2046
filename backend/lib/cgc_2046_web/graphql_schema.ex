@@ -3103,6 +3103,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:id, non_null(:id))
     @desc "姓氏隐名（R12）：王**；名册结构化卡的核心标识"
     field(:surname_masked, non_null(:string))
+    @desc "寄出者全名（用户定稿：她回来了即亮名）；未寄出者 null（隐名）"
+    field(:full_name, :string)
+    @desc "寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null"
+    field(:applied_at, :string)
     field(:city, :string)
     field(:occupation_then, :string)
     field(:sent_to_wall_at, :string)

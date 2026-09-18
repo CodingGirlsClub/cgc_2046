@@ -2470,7 +2470,11 @@ export type FlashbackRosterAnswer = {
 export type FlashbackRosterEntry = {
   /** 空数组 = 未寄出；寄出者才有内容层（雾化版当年答案） */
   answers: Array<FlashbackRosterAnswer>;
+  /** 寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null */
+  appliedAt?: Maybe<Scalars['String']['output']>;
   city?: Maybe<Scalars['String']['output']>;
+  /** 寄出者全名（用户定稿：她回来了即亮名）；未寄出者 null（隐名） */
+  fullName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   occupationThen?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;

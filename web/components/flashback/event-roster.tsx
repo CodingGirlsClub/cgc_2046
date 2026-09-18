@@ -4,20 +4,22 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import { usePrefersReducedMotion } from "./use-reduced-motion";
+import PolaroidFlip from "./polaroid-flip";
 
 /** 折叠阈值：首屏叠照张数；不足两行（<2×行容量）的小场不折叠 */
 const COLLAPSED_COUNT = 12;
 
 function rosterNeedsFold(total: number): boolean {
-	// 12 张一屏约 3-4 行（auto-fill 网格）；≥2 行余量才值得折叠（用户规格）
+	// 12 张一屏约 3-4 行（两列错落）；≥2 行余量才值得折叠（用户规格）
 	return total > COLLAPSED_COUNT + 6;
 }
 
 /**
- * 场次名册（U5/R12 分层墙 + 用户折叠改进）：
- * - 结构化层满员——每人一张结构化卡（姓氏隐名 + 城市 + 当年职业，R12）；
- * - 内容层待点亮——未寄出者 today/answers 为空 → 虚线内容位「她的答案，
- *   还等她」；寄出者完整显影（当年雾化版 + 今天摘要）。
+ * 场次名册（U5/R12 分层墙 + 用户定稿两态卡）：
+ * - 名册 = 一叠**合着的拍立得**（默认卡面：寄出者全名+年份+城市+回来了微标）；
+ *   点击 3D 翻转看内容（正面当年雾面段 + 背面今天的你）——PolaroidFlip；
+ * - 未寄出者保持结构化卡（姓氏隐名 + 虚线内容位「她的答案，还在等她」，
+ *   R12：不寄出不亮名、无内容可翻）；
  * 名册仅含当年实际参与者（后端已滤 not_selected，R12）。
  *
  * 折叠（叠照隐喻）：大场（≥2 行余量）默认叠起——首屏 COLLAPSED_COUNT 张 +
@@ -26,7 +28,6 @@ function rosterNeedsFold(total: number): boolean {
  */
 export default function EventRoster({ archive }: { archive: FlashbackCapsuleArchive }) {
 	const t = useTranslations("flashback.roster");
-	const questionT = useTranslations("flashback.questionLabels");
 	const [expanded, setExpanded] = useState(false);
 	const reduced = usePrefersReducedMotion();
 
@@ -44,46 +45,20 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 			data-testid="fb-roster-card"
 			data-sent={entry.sentToWallAt ? "true" : "false"}
 		>
-			<div className="fb-roster-head">
-				<span className="fb-roster-name">{entry.surnameMasked}</span>
-				<span className="fb-roster-facts">
-					{[entry.city, entry.occupationThen].filter(Boolean).join(" · ")}
-				</span>
-			</div>
 			{entry.sentToWallAt ? (
-				<div className="fb-roster-content">
-					{entry.answers.map((answer) => (
-						<p key={answer.questionKey} className="fb-roster-answer">
-							<span className="fb-answer-q">
-								{questionT.has(answer.questionKey) ? questionT(answer.questionKey) : answer.questionKey}
-							</span>
-							{answer.segments.map((segment, i) =>
-								segment.fog ? (
-									// 雾面段：纯视觉雾块（原文零出 DOM）——宽度按 len 三档
-									<span
-										key={i}
-										className={`fb-fog-block fb-fog-block--${segment.len <= 6 ? "s" : segment.len <= 14 ? "m" : "l"}`}
-										aria-hidden="true"
-									>
-										<span className="fb-visually-hidden">{t("fogAria")}</span>
-									</span>
-								) : (
-									<span key={i}>{segment.text}</span>
-								),
-							)}
-						</p>
-					))}
-					{entry.today?.want ? (
-						<p className="fb-roster-today">
-							<span className="fb-answer-q">{t("todayTag")}</span>
-							{entry.today.want}
-						</p>
-					) : null}
-				</div>
+				<PolaroidFlip entry={entry} />
 			) : (
-				<p className="fb-roster-dashed" aria-label={t("dashedAria")}>
-					{t("dashed")}
-				</p>
+				<>
+					<div className="fb-roster-head">
+						<span className="fb-roster-name">{entry.surnameMasked}</span>
+						<span className="fb-roster-facts">
+							{[entry.city, entry.occupationThen].filter(Boolean).join(" · ")}
+						</span>
+					</div>
+					<p className="fb-roster-dashed" aria-label={t("dashedAria")}>
+						{t("dashed")}
+					</p>
+				</>
 			)}
 		</li>
 	);

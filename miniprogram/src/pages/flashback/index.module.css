@@ -65,3 +65,45 @@
 .stateBlock { padding: 120rpx 60rpx; text-align: center; }
 .stateText { color: #8a8f98; font-size: 25rpx; line-height: 1.8; }
 .stateAction { margin-top: 26rpx; color: #fff; background: #ea5504; border-radius: 26rpx; font-size: 24rpx; }
+
+/* 用户定稿 ①：合着卡面 → 3D 翻转（与 web polaroid-flip 同语义） */
+.polaroidCover {
+  background: #f6f2e8;
+  color: #2b2723;
+  border-radius: 12rpx;
+  padding: 48rpx 40rpx 40rpx;
+  position: relative;
+  display: grid;
+  gap: 8rpx;
+  justify-items: start;
+}
+.coverDot {
+  position: absolute;
+  top: 20rpx;
+  right: 24rpx;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #cbbf8f;
+  box-shadow: 0 0 16rpx rgba(203, 191, 143, 0.9);
+}
+.coverName { font-size: 34rpx; font-weight: 600; }
+.coverFacts { font-size: 22rpx; opacity: 0.7; }
+.coverHint { font-size: 20rpx; opacity: 0.5; margin-top: 12rpx; }
+.polaroidFlipOpen {
+  animation: mpFlipIn 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes mpFlipIn {
+  from { transform: rotateY(-84deg); opacity: 0.3; }
+  to { transform: rotateY(0); opacity: 1; }
+}
+.foldBackButton {
+  margin-top: 16rpx;
+  background: none;
+  border: none;
+  color: #cbbf8f;
+  font-size: 24rpx;
+  text-decoration: underline;
+  padding: 0;
+  line-height: 1.6;
+}
