@@ -27,45 +27,30 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
   | `ignore?: true` | 是（显式忽略）| 否 | DB 不得有约束 |
 
   后两张表是**报备清单而非豁免**：条目必须写明理由、必须与 DB 现状相符，DB 侧一变
-  （补了 FK / 加了约束）就红，逼一次显式对齐。两个清单都属 #724 的"发现必须有归宿"
-  产物，处置（补 FK 还是标 `ignore?: true`）留给后续 issue。
+  （补了 FK / 加了约束）就红，逼一次显式对齐。#745 完成处置：@db_only_fks 6 列补
+  relationship（零 DDL 纯追平）、@no_db_fk_relationships 9 列补 FK migration，两清单
+  双双清空、条目移入对齐主体；机制保留给未来缺口。
   """
 
   # DB-only FK：列在 DB 有 FK，但 resource 里只有 `attribute`、没有 relationship，
   # `references do` 无从挂载。形如 {table, column, 期望 on_delete, 理由}
-  @db_only_fks [
-    {"event_moderators", "workspace_id", :delete,
-     "20260913155651 建表 delete_all；resource 仅 attribute 无 belongs_to"},
-    {"events", "created_by", :nilify,
-     "20260913155651 alter 加列 nilify_all；resource 仅 attribute 无 belongs_to"},
-    {"speaker_invitations", "accepted_by", :delete,
-     "squash baseline delete_all；resource 仅 attribute 无 belongs_to"},
-    {"sponsorship_deliveries", "workspace_id", :delete,
-     "squash baseline delete_all；resource 仅 attribute 无 belongs_to"},
-    {"notification_deliveries", "user_id", :delete,
-     "20260913183000 建表 delete_all；resource 仅 attribute 无 belongs_to"},
-    {"signal_idempotency", "workspace_id", :delete,
-     "squash baseline delete_all；resource 仅 attribute 无 belongs_to"}
-  ]
+  # #745 已清空：原 6 列（event_moderators.workspace_id / events.created_by /
+  # speaker_invitations.accepted_by / sponsorship_deliveries.workspace_id /
+  # notification_deliveries.user_id / signal_idempotency.workspace_id）全部补上
+  # belongs_to + references 条目（DB 约束本就存在，零 DDL 纯追平），移入对齐主体。
+  # 后续新缺口按原格式登记于此。
+  @db_only_fks []
 
   # 反向缺口：resource 声明了 belongs_to（→ snapshot 有 reference），但手写 migration
   # 只写了裸 `add :col, :uuid`、从未建 FK。形如 {table, column, relationship, 理由}
-  @no_db_fk_relationships [
-    {"curriculum_outputs", "workflow_run_id", :workflow_run,
-     "squash baseline 只给 workspace_id 建 references，workflow_run_id 是裸 :uuid"},
-    {"invitations", "inviter_id", :inviter,
-     "squash baseline 只给 workspace_id 建 references，inviter_id 是裸 :uuid"},
-    {"invitations", "accepted_by", :accepted_by_user,
-     "squash baseline 只给 workspace_id 建 references，accepted_by 是裸 :uuid"},
-    {"portfolio_items", "workspace_id", :workspace,
-     "squash baseline 只给 user_id 建 references，workspace_id 是裸 :uuid"},
-    {"workspace_profiles", "workspace_id", :workspace, "squash baseline 建表两列皆裸 :uuid（该表无任何 FK）"},
-    {"workspace_profiles", "user_id", :user, "squash baseline 建表两列皆裸 :uuid（该表无任何 FK）"},
-    {"mcp_pending_operations", "user_id", :user,
-     "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"},
-    {"mcp_tokens", "user_id", :user, "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"},
-    {"mcp_tool_call_logs", "user_id", :user, "squash baseline 建表 user_id 裸 :uuid（mcp_* 三表均无 FK）"}
-  ]
+  # #745 已清空：原 9 列（curriculum_outputs.workflow_run_id / invitations.inviter_id /
+  # invitations.accepted_by / portfolio_items.workspace_id / workspace_profiles.
+  # workspace_id / workspace_profiles.user_id / mcp_pending_operations.user_id /
+  # mcp_tokens.user_id / mcp_tool_call_logs.user_id）已由 20260918131057 补上
+  # FK（孤儿防御清理 + 4 索引 + 9 约束；mcp_tool_call_logs 走 NOT VALID +
+  # VALIDATE 两段式），并逐列声明 on_delete 移入对齐主体。
+  # 后续新缺口按原格式登记于此。
+  @no_db_fk_relationships []
 
   # 未声明 on_delete → 生成迁移不打印 on_delete → Ecto 不写 ON DELETE 子句 → NO ACTION
   defp confdeltype(nil), do: "a"

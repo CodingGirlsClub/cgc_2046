@@ -65,6 +65,13 @@ defmodule Cgc2046.Sponsorship.SponsorshipDelivery do
 
   relationships do
     belongs_to(:sponsorship, Cgc2046.Sponsorship.Sponsorship, define_attribute?: false)
+
+    # #745：workspace_id 的 FK 契约显式化——DB 侧 baseline 即 delete_all
+    # （DB 实测 confdeltype=c）；无 DDL，仅 DSL+snapshot 追平。
+    belongs_to(:workspace, Cgc2046.Accounts.Workspace,
+      define_attribute?: false,
+      allow_nil?: false
+    )
   end
 
   actions do
@@ -90,6 +97,8 @@ defmodule Cgc2046.Sponsorship.SponsorshipDelivery do
     # confdeltype=c）；无 DDL，仅 snapshot 追平。
     references do
       reference(:sponsorship, on_delete: :delete)
+
+      reference(:workspace, on_delete: :delete)
     end
   end
 

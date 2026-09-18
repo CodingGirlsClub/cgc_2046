@@ -24,7 +24,7 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 1. **draft-only destroy（硬删，无回收站）**：`Course :delete` / `Event :delete`，仅 `status == :draft` 可删；其余状态一律 `cannot delete from status=…`（fail-closed，未来新增状态默认不可删）。
 2. **行锁守卫而非裸状态检查**：`before_action` 内 `SELECT status FROM <table> WHERE id = $1 FOR UPDATE`——确认窗内被并发 launch 的课程，本事务等锁后读到新状态即拒；反向 launch 的 CAS UPDATE（`StatusTransition`）等锁后命中 0 行亦败。**恰一成一败**（`Initiative.transition/3` 同款行锁模式；`StatusTransition` 仅支持 UPDATE，故此处用行锁而非 CAS）。
 3. **级联与 slug 释放（同事务，任一步失败整体回滚；#688 修订级联清单）**：
-   - Course：`Prep.stop_active_runs/1` 收口非终态 prep run（run → cancelled，**保留痕迹**）+ `Output.delete_for_course/2` 删除 `key = course_<id>` 的内容行（`curriculum_outputs` 无 FK，只能显式删）+ `CapacityLedger.delete_for_offering/2` 删除名额账本行（`offering_id` 多态无 FK，#688 补）；
+   - Course：`Prep.stop_active_runs/1` 收口非终态 prep run（run → cancelled，**保留痕迹**）+ `Output.delete_for_course/2` 删除 `key = course_<id>` 的内容行（`curriculum_outputs` 对 course 无 FK——`key` 文本约定，只能显式删；#745 加的 workflow_run_id FK 不触及本路径）+ `CapacityLedger.delete_for_offering/2` 删除名额账本行（`offering_id` 多态无 FK，#688 补）；
    - Event：`SpeakerInvitation.stop_event_runs/1` 收口非终态讲者邀请 run（#688 补——讲者邀请在 draft 合法，run 在**邀请创建时**实例化而非 launch 后，原「无级联」论证被证伪；run → cancelled 留痕）+ `CapacityLedger.delete_for_offering/2` 删除名额账本行；moderator / sponsorships / speaker_invitations / invite_batches 行由 FK `on_delete: delete_all` 承接；
    - slug 随行删除自然释放全局唯一索引，同 slug 可立即重建；`ToolCallLog` / `AdminActionLog` 审计保留。
 4. **权限收窄（与同族生命周期工具的 Owner/Admin 口径刻意不同）**：
@@ -48,7 +48,7 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 - **级联清单（逐一核查，#688 按事实重写为三类；迁移侧无需改动）**：
   - **结构性不存在**：`enrollments` / `attendances`（报名需 offering open；attendances 为 RESTRICT，异常存在即 DELETE 被 FK 拒绝——fail-closed 不静默丢数据）、`curriculum_course_revisions`（RESTRICT，revision 生成即发布）、Event 的教研 curriculum run（launch 后由 Instantiator 创建）；
   - **FK 承接（`on_delete: delete_all`）**：`event_moderators` / `sponsorships` / `speaker_invitations` / `invite_batches`（event + course 维度）——speaker_invitations 与 invite_batches 对 draft **并非结构性不存在**（邀请在 draft 合法、批次创建无状态门），MCP 摘要须披露连带删除；
-  - **显式收口**：`curriculum_outputs` 无 FK（`key` 文本约定），由 `Output.delete_for_course/2` 删除；`workflow_runs` 无指向 events/courses 的 FK——Course 侧非终态 prep run 由 `Prep.stop_active_runs/1` 收口、Event 侧非终态讲者邀请 run 由 `SpeakerInvitation.stop_event_runs/1` 收口（#688 补；终态 run 与 facts 作为历史痕迹保留——run facts 含教研 issues 镜像与讲者 materials 镜像，「不可恢复」仅指业务行，留痕按审计保留）；`admission_capacity_ledgers.offering_id` 多态无 FK，由 `CapacityLedger.delete_for_offering/2` 删除（#688 补——draft 期可经 `offering.capacity_changed` 信号 / Initiative 规则传播建行）。
+  - **显式收口**：`curriculum_outputs` 对 course 无 FK（`key` 文本约定；#745 起表上有 workflow_run_id FK，但 run 只 cancel 不 destroy，不触及本路径），由 `Output.delete_for_course/2` 删除；`workflow_runs` 无指向 events/courses 的 FK——Course 侧非终态 prep run 由 `Prep.stop_active_runs/1` 收口、Event 侧非终态讲者邀请 run 由 `SpeakerInvitation.stop_event_runs/1` 收口（#688 补；终态 run 与 facts 作为历史痕迹保留——run facts 含教研 issues 镜像与讲者 materials 镜像，「不可恢复」仅指业务行，留痕按审计保留）；`admission_capacity_ledgers.offering_id` 多态无 FK，由 `CapacityLedger.delete_for_offering/2` 删除（#688 补——draft 期可经 `offering.capacity_changed` 信号 / Initiative 规则传播建行）。
 - **正面**：错建 draft 有官方出口（MCP 与 web 同源同语义）；slug 释放使「重来一遍」不必换公开 URL；行锁使删除与发布互斥，不会出现「删掉已发布课程」。
 - **代价/风险**：
   - 删除不可逆、无回收站——误删只能重建（内容行与教研进度一并丢失）；
