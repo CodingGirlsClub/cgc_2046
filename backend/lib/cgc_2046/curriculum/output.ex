@@ -202,6 +202,12 @@ defmodule Cgc2046.Curriculum.Output do
     table("curriculum_outputs")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline delete_all，DB 实测 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+    end
+
     custom_indexes do
       index([:workspace_id])
     end
