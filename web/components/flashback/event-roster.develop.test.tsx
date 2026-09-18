@@ -7,7 +7,7 @@ import { developClass } from "./use-develop-on-view";
 
 /**
  * 第 7a 件：名册显影——进视口才播（--pending → --develop，只播一次），
- * 无 IntersectionObserver / reduced-motion 时直达终态（无显影类）。
+ * 无 IntersectionObserver 时直达终态（无显影类）；reduced-motion 不短路显影（叙事动画）。
  */
 
 class FakeIntersectionObserver {

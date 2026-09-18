@@ -709,13 +709,14 @@
 }
 .fb-corridor-caption { display: block; font-size: 8px; padding: 3px 5px; opacity: 0.6; text-align: center; white-space: nowrap; }
 .fb-corridor-count { font-size: 9px; color: var(--fb-sub); margin: 6px 0 0; }
-/* 显影：--pending 前置态（未进视口）→ --develop 弱显影（堆级观测、只播一次）；
-   摞内 0.2s 错峰（原型 --d 的 0.2s 档），2.8s 慢显影留给「还没认领」的持续感 */
-.fb-corridor-stack--pending .fb-corridor-polaroid { opacity: 0.1; filter: blur(18px) brightness(1.6); }
-.fb-corridor-stack--develop .fb-corridor-polaroid { animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out both; }
-.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(2) { animation-delay: 0.2s; }
-.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(3) { animation-delay: 0.4s; }
-.fb-corridor-stack--develop .fb-corridor-polaroid:nth-child(4) { animation-delay: 0.6s; }
+/* 显影（原型 --d 手法）：加载即播、全局时间线（--fb-d 内联：摞间 +0.3s、摞内 +0.2s）。
+   fill-mode 只 forwards（非 both）——delay 期间卡清晰在場，轮到自己才「闪熄」（0% 处
+   brightness 1.6 + blur 18 + opacity 0.1）再渐稳，逐卡错峰即「群星闪耀」；
+   forwards 停在 blur(1px)/亮度 1.08/透明 0.94 的雾化稳态——「朦胧感」的来源 */
+.fb-corridor-stack .fb-corridor-polaroid {
+	animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out forwards;
+	animation-delay: var(--fb-d, 0s);
+}
 
 /* 名册（R12 分层；场次页 3 列网格——长廊收口 D 后不再挂名册） */
 .fb-roster-meta { color: #77726a; font-size: 11px; margin: 0 0 10px; }
@@ -1182,12 +1183,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	/* 名册显影跳过（直达终态；前置态也不再压暗） */
-	.fb-roster-card--develop { animation: none; }
-	.fb-roster-card--pending { opacity: 1; filter: none; }
-	/* 城市堆显影同样跳过（直达终态，弱显影的 0.94 也归 1） */
-	.fb-corridor-stack--develop .fb-corridor-polaroid { animation: none; }
-	.fb-corridor-stack--pending .fb-corridor-polaroid { opacity: 1; filter: none; }
+	/* 名册/城市堆显影不跳过：暗房叙事动画（用户定稿），温和无位移，reduce 下照播 */
 	/* 翻面两段动画跳过（JS 侧同时直达目标面，use-card-flip.ts） */
 	.fb-flip-swap--out > *,
 	.fb-flip-swap--in > * { animation: none; }

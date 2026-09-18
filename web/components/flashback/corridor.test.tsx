@@ -1,14 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import Corridor, { cityPiles } from "./corridor";
 
 /**
  * 长廊收口（定稿 D + 收尾）：一帧只留城市照片堆（堆可点）；叙事标签 flabel。
- * 堆 = 名册聚合的 {city,count}（city 空值不计；count 降序 → 城市码位序；最多 4 堆）；
- * 转角确定性（tilt 类按城市名派生，禁止随机）；显影进视口才播
- * （无 IntersectionObserver / reduced-motion 直达终态）。
+ * 堆 = 名册聚合的 {city,count}（city 空值不计；count 降序 → 城市码位序；最多 8 堆）；
+ * 显影照原型 --d 手法：加载即播、全局时间线（摞间 +0.3s、摞内 +0.2s），forwards 停雾态。
  */
 
 vi.mock("@/i18n/navigation", () => ({
@@ -20,30 +19,6 @@ vi.mock("@/i18n/navigation", () => ({
 	usePathname: () => "/flashback/capsule",
 	useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
-
-class FakeIntersectionObserver {
-	static instances: FakeIntersectionObserver[] = [];
-	targets = new Set<Element>();
-	constructor(private readonly callback: IntersectionObserverCallback) {
-		FakeIntersectionObserver.instances.push(this);
-	}
-	observe(target: Element) {
-		this.targets.add(target);
-	}
-	unobserve(target: Element) {
-		this.targets.delete(target);
-	}
-	disconnect() {
-		this.targets.clear();
-	}
-	/** 测试驱动：让当前观测目标全部「进入视口」 */
-	enterViewport() {
-		const entries = [...this.targets].map(
-			(target) => ({ target, isIntersecting: true }) as IntersectionObserverEntry,
-		);
-		this.callback(entries, this as unknown as IntersectionObserver);
-	}
-}
 
 const entry = (id: string, city: string | null): FlashbackCapsuleArchive["roster"][number] => ({
 	id,
@@ -110,18 +85,8 @@ const capsule: FlashbackCapsule = {
 	actionCards: [],
 };
 
-function pileClasses(): string[] {
-	return [...document.querySelectorAll(".fb-corridor-stack")].map((node) => node.className);
-}
-
-beforeEach(() => {
-	FakeIntersectionObserver.instances = [];
-	vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-});
-
 afterEach(() => {
 	cleanup();
-	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
 
@@ -197,60 +162,23 @@ describe("Corridor · 城市堆与入口（定稿 D）", () => {
 	});
 });
 
-describe("Corridor · 城市堆显影（进视口才播）", () => {
-	it("初始 --pending；进视口转 --develop 且只播一次（unobserve）", async () => {
+describe("Corridor · 城市堆显影（原型 --d 全局时间线）", () => {
+	it("每张卡常驻显影动画；--fb-d = (count%5)*0.3 + i*0.2（人数取模打散，群星闪耀）", () => {
 		render(<Corridor capsule={capsule} />);
 
-		// 每帧一个观察器（帧一 8 堆，帧二 1 堆）
-		await waitFor(() => expect(FakeIntersectionObserver.instances.length).toBe(2));
-		const [firstFrame, secondFrame] = FakeIntersectionObserver.instances;
-		expect(firstFrame.targets.size).toBe(8);
-		expect(secondFrame.targets.size).toBe(1);
-		for (const className of pileClasses()) {
-			expect(className).toContain("fb-corridor-stack--pending");
-			expect(className).not.toContain("fb-corridor-stack--develop");
-		}
-
-		firstFrame.enterViewport();
-
-		await waitFor(() => {
-			const developed = pileClasses().filter((className) => className.includes("--develop"));
-			expect(developed).toHaveLength(8);
-		});
-		// 第二帧未进视口 → 仍前置态；已显影的堆不再被观测
-		expect(pileClasses().filter((className) => className.includes("--pending"))).toHaveLength(1);
-		expect(firstFrame.targets.size).toBe(0);
-	});
-
-	it("无 IntersectionObserver：直达终态（不挂显影类）", () => {
-		vi.stubGlobal("IntersectionObserver", undefined);
-		render(<Corridor capsule={capsule} />);
-
-		for (const className of pileClasses()) {
-			expect(className).not.toContain("fb-corridor-stack--pending");
-			expect(className).not.toContain("fb-corridor-stack--develop");
-		}
-	});
-
-	it("reduced-motion：直达终态（不挂显影类）", () => {
-		vi.spyOn(window, "matchMedia").mockImplementation(
-			(query: string) =>
-				({
-					matches: query.includes("reduce"),
-					media: query,
-					onchange: null,
-					addListener: vi.fn(),
-					removeListener: vi.fn(),
-					addEventListener: vi.fn(),
-					removeEventListener: vi.fn(),
-					dispatchEvent: vi.fn(),
-				}) as unknown as MediaQueryList,
-		);
-		render(<Corridor capsule={capsule} />);
-
-		for (const className of pileClasses()) {
-			expect(className).not.toContain("--pending");
-			expect(className).not.toContain("--develop");
-		}
+		const cards = [...document.querySelectorAll(".fb-corridor-polaroid")] as HTMLElement[];
+		expect(cards.every((card) => card.classList.contains("fb-develop-soft"))).toBe(true);
+		// 帧一前 3 摞：北京3 → 0.9 起；上海2 → 0.6 起；南京1 → 0.3 起（摞内 +0.2 步进）
+		const delays = cards.slice(0, 12).map((card) => card.style.getPropertyValue("--fb-d"));
+		expect(delays).toEqual([
+			"0.9s", "1.1s", "1.3s", "1.5s",
+			"0.6s", "0.8s", "1.0s", "1.2s",
+			"0.3s", "0.5s", "0.7s", "0.9s",
+		]);
+		// 帧二上海 1 位 → 0.3 起（与帧一的 1 位城同刻——跨帧同时闪耀）
+		const secondFrameCards = [...document.querySelectorAll(".fb-corridor-frame")[1].querySelectorAll(".fb-corridor-polaroid")] as HTMLElement[];
+		expect(secondFrameCards.map((card) => card.style.getPropertyValue("--fb-d"))).toEqual([
+			"0.3s", "0.5s", "0.7s", "0.9s",
+		]);
 	});
 });

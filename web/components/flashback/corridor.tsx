@@ -1,12 +1,10 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import TodaySlot from "./today-slot";
-import { usePrefersReducedMotion } from "./use-reduced-motion";
-import { developClass, useDevelopEnabled, useDevelopOnView } from "./use-develop-on-view";
 
 const WIDE_QUERY = "(min-width: 768px)";
 
@@ -76,14 +74,10 @@ export default function Corridor({
 
 /**
  * 一帧的城市堆（用户定稿 D / 原型 variant-d 错落感）：一城一摞——同卡重复 4 张
- * 层叠（阶梯偏移/转角序列/显影错峰全在 CSS），堆底「城市 · n 位」小字；
- * 显影照名册（进视口才播，堆级观测、只播一次）。
+ * 层叠（阶梯偏移/转角序列在 CSS），堆底「城市 · n 位」小字。
  */
 function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 	const tCorridor = useTranslations("flashback.corridor");
-	const reduced = usePrefersReducedMotion();
-	const developActive = useDevelopEnabled(reduced);
-	const { developed, registerDevelop } = useDevelopOnView(developActive);
 	const piles = cityPiles(archive);
 
 	if (piles.length === 0) return null;
@@ -93,7 +87,7 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 			className="fb-corridor-piles"
 			aria-label={tCorridor("pilesAria", { name: archive.name ?? archive.key })}
 		>
-			{piles.map((pile) => (
+			{piles.map((pile, pileIdx) => (
 				<li
 					key={pile.city}
 					className="fb-corridor-pile"
@@ -104,18 +98,16 @@ function CityPiles({ archive }: { archive: FlashbackCapsuleArchive }) {
 					{/* 堆可点（用户定稿）：点堆直接进该场次页（链接删除后这是唯一入口）。
 					    整堆（拍立得+计数）都是可点面，hover/按压反馈在 CSS。 */}
 					<Link href={`/flashback/event/${archive.key}`} className="fb-corridor-pile-link">
-						{/* 一城一摞（原型 D 错落感）：同卡重复 4 张层叠，阶梯/转角/显影错峰在 CSS */}
-						<div
-							ref={registerDevelop}
-							data-develop-id={pile.city}
-							className={`fb-corridor-stack${developClass(
-								"fb-corridor-stack",
-								developActive,
-								developed.has(pile.city),
-							)}`}
-						>
+						{/* 一城一摞（原型 D 错落感）：同卡重复 4 张层叠，阶梯/转角在 CSS */}
+						<div className="fb-corridor-stack">
 							{[0, 1, 2, 3].map((i) => (
-								<div key={i} className="fb-polaroid fb-grain fb-corridor-polaroid">
+								<div
+									key={i}
+									className="fb-polaroid fb-grain fb-corridor-polaroid fb-develop-soft"
+									/* 原型 --d 手法：(count%5)*0.3 + i*0.2——基数按人数取模打散，
+									    同人数的城跨帧同时闪、异人数错开，空间上多点闪耀（群星感） */
+									style={{ "--fb-d": `${((pile.count % 5) * 0.3 + i * 0.2).toFixed(1)}s` } as CSSProperties}
+								>
 									<span className="fb-photo fb-corridor-photo">{pile.city}</span>
 									{/* 窗下小字（原型 D）：印在纸白边内，拍立得语感的收尾 */}
 									<span className="fb-corridor-caption">{tCorridor("pileCaption", { count: pile.count })}</span>
