@@ -53,7 +53,7 @@ defmodule Cgc2046.Events.Moderators do
 
   def list(event_id, workspace_id, actor) do
     with {:ok, event} <- Ash.get(Event, event_id, authorize?: false, tenant: workspace_id),
-         true <- event && can_moderate?(actor, event) do
+         true <- event && can_read?(actor, event) do
       EventModerator
       |> Ash.Query.filter(event_id == ^event_id)
       |> Ash.Query.sort(assigned_at: :asc, id: :asc)
@@ -129,6 +129,15 @@ defmodule Cgc2046.Events.Moderators do
   def can_moderate?(actor, event) do
     Rbac.manage?(actor, event.workspace_id) or moderator?(actor.id, event.id, event.workspace_id)
   end
+
+  # 读面放宽（U2 治理详情）：平台管理员读主理人清单不要求本台成员身份——与
+  # Event/Course 读 policy 的 PlatformAdmin 放行同口径（治理排查「这场谁在管」
+  # 不必先入台）。**只放宽读**：写面 assign/remove 仍走 manage?/2，非成员平台
+  # 管理员不获得主理人指派权（R7 无旁路）。
+  defp can_read?(actor, event),
+    do:
+      can_moderate?(actor, event) or
+        Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor)
 
   defp manage?(actor, workspace_id),
     do: if(Rbac.manage?(actor, workspace_id), do: :ok, else: {:error, :forbidden})

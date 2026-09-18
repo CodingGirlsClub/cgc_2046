@@ -31,3 +31,27 @@ export function formatDateTime(value?: string | null): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/**
+ * ISO8601 → `<input type="datetime-local">` 值（本地时区，分钟精度）。
+ * 空值/不可解析 → ""（input 的未定态）。
+ */
+export function toLocalInput(datetime?: string | null): string {
+	if (!datetime) return "";
+	const d = new Date(datetime);
+	if (Number.isNaN(d.getTime())) return "";
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * `<input type="datetime-local">` 值 → UTC ISO8601；空值/不可解析 → null（= 未定）。
+ *
+ * 注意精度：输入只到分钟，回读同一值再提交会把库里的秒截断——表单必须做
+ * 脏检查（未改动不下发），见 offering-pages 的 registrationDeadlineDirty 纪律。
+ */
+export function fromLocalInput(value: string): string | null {
+	if (!value) return null;
+	const d = new Date(value);
+	return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}

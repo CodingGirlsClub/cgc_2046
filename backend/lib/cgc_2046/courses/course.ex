@@ -449,6 +449,17 @@ defmodule Cgc2046.Courses.Course do
          payload: &__MODULE__.capacity_changed_payload/2,
          skip_unless: &__MODULE__.capacity_or_deadline_changed?/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 update 同事务落一行 admin_course_update
+      # （闭集标量前后值），非平台管理员跳过。raise 型：留痕失败整体回滚（fail-closed）。
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_course_update,
+         target_type: :course,
+         metadata: &Cgc2046.Accounts.Changes.LogAdminAction.offering_change_metadata/2,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # draft → open：发布课程，发 course.launched 信号（教研实例化入口）。
@@ -533,6 +544,15 @@ defmodule Cgc2046.Courses.Course do
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（event.launch 同款，Readiness 统一）。
       change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 launch 同事务落一行 admin_course_launch
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_course_launch,
+         target_type: :course,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → closed：结束课程（手动，或 registration_deadline 到点由
@@ -589,6 +609,15 @@ defmodule Cgc2046.Courses.Course do
           end
         end)
       end)
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 close 同事务落一行 admin_course_close
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_course_close,
+         target_type: :course,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → cancelled：取消课程。同样发 course.ended（D4：closed/cancelled 即 ended）。
@@ -640,6 +669,15 @@ defmodule Cgc2046.Courses.Course do
           end
         end)
       end)
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 cancel 同事务落一行 admin_course_cancel
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_course_cancel,
+         target_type: :course,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     defaults([:read])
@@ -905,9 +943,15 @@ defmodule Cgc2046.Courses.Course do
       authorize_if(expr(status == :open and visibility == :public))
     end
 
-    # 写操作：Owner/Admin（多角色并集）
+    # 写操作：Owner/Admin（多角色并集）；平台治理写（U1/KTD1）经第二个
+    # authorize_if 收在**同一 policy**——Ash 的策略组合是「条件命中的 policy
+    # 必须全部放行」而非任一放行，独立 policy 块会把 Owner/Admin 的正常写挤掉
+    # （见 Cgc2046.Offering.PlatformAdminGovernanceWrite moduledoc）。白名单只含
+    # :update/:launch/:close/:cancel：create（触发 prep run 实例化）与内部 update
+    # 型 action（:link_curriculum_run / :bind_current_revision）保持拒绝（R7 无旁路）。
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Offering.PlatformAdminGovernanceWrite)
     end
   end
 
