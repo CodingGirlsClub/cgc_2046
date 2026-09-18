@@ -105,7 +105,16 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-wechat-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-wechat-event-qualification-underfilled",
     "event_schedule_changed" => "dev-wechat-event-schedule-changed",
-    "event_moderator_assigned" => "dev-wechat-event-moderator-assigned"
+    "event_moderator_assigned" => "dev-wechat-event-moderator-assigned",
+    # 志愿者段位通知六模板（U4/KTD6；R14 阶段通知表逐行）——**真实模板 ID 待申请**，
+    # 此处仅 dev/test 占位值；prod 经 runtime.exs env 注入（未配置时发送侧
+    # template_not_configured 终态 discard + 日志，boot 不崩）
+    "volunteer_application_submitted" => "dev-wechat-volunteer-application-submitted",
+    "volunteer_application_interview" => "dev-wechat-volunteer-application-interview",
+    "volunteer_application_training" => "dev-wechat-volunteer-application-training",
+    "volunteer_application_assigned" => "dev-wechat-volunteer-application-assigned",
+    "volunteer_application_rejected" => "dev-wechat-volunteer-application-rejected",
+    "volunteer_application_canceled" => "dev-wechat-volunteer-application-canceled"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -128,7 +137,14 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-tt-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-tt-event-qualification-underfilled",
     "event_schedule_changed" => "dev-tt-event-schedule-changed",
-    "event_moderator_assigned" => "dev-tt-event-moderator-assigned"
+    "event_moderator_assigned" => "dev-tt-event-moderator-assigned",
+    # 志愿者段位通知六模板（U4/KTD6）——抖音端模板未申请，占位值仅 dev/test
+    "volunteer_application_submitted" => "dev-tt-volunteer-application-submitted",
+    "volunteer_application_interview" => "dev-tt-volunteer-application-interview",
+    "volunteer_application_training" => "dev-tt-volunteer-application-training",
+    "volunteer_application_assigned" => "dev-tt-volunteer-application-assigned",
+    "volunteer_application_rejected" => "dev-tt-volunteer-application-rejected",
+    "volunteer_application_canceled" => "dev-tt-volunteer-application-canceled"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -151,7 +167,14 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-xhs-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-xhs-event-qualification-underfilled",
     "event_schedule_changed" => "dev-xhs-event-schedule-changed",
-    "event_moderator_assigned" => "dev-xhs-event-moderator-assigned"
+    "event_moderator_assigned" => "dev-xhs-event-moderator-assigned",
+    # 志愿者段位通知六模板（U4/KTD6）——小红书端模板未申请，占位值仅 dev/test
+    "volunteer_application_submitted" => "dev-xhs-volunteer-application-submitted",
+    "volunteer_application_interview" => "dev-xhs-volunteer-application-interview",
+    "volunteer_application_training" => "dev-xhs-volunteer-application-training",
+    "volunteer_application_assigned" => "dev-xhs-volunteer-application-assigned",
+    "volunteer_application_rejected" => "dev-xhs-volunteer-application-rejected",
+    "volunteer_application_canceled" => "dev-xhs-volunteer-application-canceled"
   }
 }
 
