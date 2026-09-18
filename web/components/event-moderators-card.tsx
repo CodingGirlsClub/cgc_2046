@@ -17,7 +17,8 @@ import { Icon } from "@/components/icons";
  * Event 主理人管理卡（R12–R14，U7）。
  * - Owner/Admin 随时可增删（含 closed/cancelled 场次），目标用户须为本工作台
  *   成员（#558 / #542 决策 A1：非成员指派被后端拒绝，按 code 出引导文案）；
- * - 输入为用户 ID（计划口径：不按邮箱检索，避免泄露全站用户名录）；
+ * - 输入为三锚点精确匹配（#537）：邮箱 / CGC 编号 / 用户 ID——名录泄露的
+ *   本质是可枚举，精确匹配不可枚举，任一锚未命中统一「用户不存在」；
  * - U9/KTD10：附「复制核销页链接」——核销页在工作台壳内
  *   （#559：`/[locale]/w/[slug]/events/[id]/check-in`），主理人手输 6 位码
  *   核销，组织者转发入口。
@@ -155,26 +156,42 @@ export default function EventModeratorsCard({
 				<p className="mt-3 text-sm text-ink-3">{t("moderatorsEmpty")}</p>
 			) : (
 				<ul className="mt-3 space-y-2">
-					{rows.map((row) => (
-						<li key={row.id} className="flex items-center gap-3 text-sm">
-							<span className="font-mono text-ink">{row.userId}</span>
-							<button
-								type="button"
-								disabled={busy}
-								onClick={() => void remove(row.id)}
-								className="rounded-large border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong"
-							>
-								{t("moderatorRemove")}
-							</button>
-						</li>
-					))}
+					{rows.map((row) => {
+						// 回显 fallback 链（#537）：displayName → memberNumber（恒有值）；
+						// UUID 降为次要信息（title + 小字）
+						const name = row.userDisplayName ?? row.userMemberNumber ?? row.userId;
+						const assigner = row.assignedByDisplayName ?? row.assignedByMemberNumber;
+						return (
+							<li key={row.id} className="flex items-center gap-3 text-sm">
+								<div className="min-w-0">
+									<span className="text-ink" title={row.userId}>
+										{name}
+									</span>
+									<span className="ml-2 font-mono text-xs text-ink-3">{row.userId}</span>
+										{assigner ? (
+											<span className="ml-2 text-xs text-ink-3">
+												{t("moderatorAssignedBy", { name: assigner })}
+											</span>
+										) : null}
+								</div>
+								<button
+									type="button"
+									disabled={busy}
+									onClick={() => void remove(row.id)}
+									className="rounded-large border border-line px-2 py-0.5 text-xs text-ink-2 hover:border-line-strong"
+								>
+									{t("moderatorRemove")}
+								</button>
+							</li>
+						);
+					})}
 				</ul>
 			)}
 			<div className="mt-3 flex items-center gap-2">
 				<input
-					aria-label={t("moderatorUserId")}
+					aria-label={t("moderatorUserAnchor")}
 					value={userId}
-					placeholder={t("moderatorUserId")}
+					placeholder={t("moderatorUserAnchor")}
 					onChange={(e) => setUserId(e.target.value)}
 					className="ui-input w-full max-w-md"
 				/>
