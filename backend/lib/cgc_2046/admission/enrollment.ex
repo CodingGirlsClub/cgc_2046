@@ -210,6 +210,30 @@ defmodule Cgc2046.Admission.Enrollment do
       end
     )
 
+    # 押金快照金额（#696）：报名提交时物化进 submission_payload 的
+    # "deposit_amount_cents"（create/approve 落点见 put_deposit_snapshot/2），
+    # 与 createOrder 押金单金额（Payments.Order.enrollment_deposit_tier/1）同键
+    # 同源——/orders/new 披露行展示的即实付金额。判据单源
+    # Offering.deposit_amount_cents/1（正整数才算金额，否则 nil → 展示面
+    # 「金额待定」口径，绝不 ¥0）。定价/免费报名无此键 → nil。
+    calculate(:deposit_amount_cents, :integer,
+      public?: true,
+      # submission_payload 不在 GraphQL 字段集（managed query 按请求字段 select），
+      # 须显式 load 才能读到——同 target_title 的先例
+      load: [:submission_payload],
+      calculation: fn enrollments, _opts ->
+        Enum.map(enrollments, fn enrollment ->
+          amount =
+            case enrollment.submission_payload do
+              %{"deposit_amount_cents" => value} -> value
+              _ -> nil
+            end
+
+          Cgc2046.Offering.deposit_amount_cents(%{deposit_amount_cents: amount})
+        end)
+      end
+    )
+
     calculate(:venue, :string,
       public?: true,
       load: [:target_schedule],
@@ -469,6 +493,21 @@ defmodule Cgc2046.Admission.Enrollment do
     table("enrollments")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline：workspace/event/course/user = delete_all，workflow_run/
+    # invite_batch/approved_by = nilify_all；DB 实测 c/c/c/c/n/n/n）。
+    # 无 DDL，仅 snapshot 追平（原 snapshot 记 null，未来 generator 触碰
+    # 这些列会生成 NO ACTION 版 modify 造成行为回退）。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:course, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+      reference(:invite_batch, on_delete: :nilify)
+      reference(:approver, on_delete: :nilify)
+    end
+
     identity_wheres_to_sql(
       unique_event_user:
         "event_id IS NOT NULL AND status IN ('pending', 'payment_pending', 'confirmed')",
@@ -504,7 +543,10 @@ defmodule Cgc2046.Admission.Enrollment do
 
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+
+      # #547：管理面行级过滤见 ActorManagesEnrollmentWorkspace 的 moduledoc；
+      # platform_admin 跨租户全局面是有意设计，保持 SimpleCheck。
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesEnrollmentWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

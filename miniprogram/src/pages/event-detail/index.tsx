@@ -5,11 +5,11 @@ import { api } from '@/api'
 import { getPublicInitiatives } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind, PublicInitiativeCard } from '@/domain/models'
-import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
-import { formatAmount, paymentBlockCopy } from '@/domain/payment'
+import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, moderatorNames, scheduleText, venueText } from '@/domain/format'
+import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
-import { moderatorTouchpoint } from '@/domain/subscription'
+import { moderatorTouchpoint, requestAndGrant } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -97,20 +97,12 @@ export default function EventDetailPage() {
   useUnload(() => { requestSeq.current++ })
 
   // M5 主理人订阅（仅 canCheckIn 时渲染入口，见下方 footer）
-  const subscribeModerator = async () => {
-    const touchpoint = moderatorTouchpoint()
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
-        return
-      }
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
-    } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
-    }
-  }
+  const subscribeModerator = () =>
+    requestAndGrant(moderatorTouchpoint(), {
+      request: requestPlatformSubscriptions,
+      grant: (scenario) => api.grantConsent(scenario),
+      notify: ({ kind, title }) => Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
+    })
 
   const register = async () => {
     if (!item || item.status !== 'open') return
@@ -144,6 +136,8 @@ export default function EventDetailPage() {
 
   const payment = paymentBlockCopy(item)
   const badgeText = detailQualificationBadgeText(item)
+  // #538 公开主理人（单次解析；displayName null → memberNumber 回退，空名单下方不渲染）
+  const moderatorLine = item.kind === 'event' ? moderatorNames(item.publicModerators) : []
 
   return (
     <View className={styles.page}>
@@ -192,6 +186,13 @@ export default function EventDetailPage() {
               <Text className={styles.value}>{venueText(item.venue) ?? '地点待定'}</Text>
             </View>
           )}
+          {/* #538 公开主理人：与 web 公开详情页同口径（后端投影单源；空名单不渲染） */}
+          {moderatorLine.length > 0 && (
+            <View className={styles.row} data-testid='detail-moderators'>
+              <Text className={styles.label}>主理人</Text>
+              <Text className={styles.value}>{moderatorLine.join(' · ')}</Text>
+            </View>
+          )}
         </View>
 
         <View className={styles.block} data-testid='payment-block'>
@@ -200,7 +201,8 @@ export default function EventDetailPage() {
           {payment.tiers.map((tier) => (
             <View key={tier.id} className={styles.row} data-testid={`price-tier-${tier.id}`}>
               <Text className={styles.label}>{tier.name}</Text>
-              <Text className={styles.value}>¥{formatAmount(tier.amountCents)}</Text>
+              {/* #687：脏金额不表态——「金额待定」，绝不 ¥0/¥0.00 */}
+              <Text className={styles.value}>{tierAmountText(tier, '金额待定')}</Text>
             </View>
           ))}
           {payment.notes.map((note) => (

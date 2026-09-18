@@ -2260,6 +2260,9 @@ type Event {
   availablePriceTiers: [JsonString!]
 
   enrollmentBadge: String
+
+  "公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人）"
+  publicModerators: [JsonString!]
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -3970,6 +3973,9 @@ input CreateOrderInput {
 
   "支付渠道"
   provider: String!
+
+  "确认已阅读并同意押金条款（仅押金单需要；非押金单忽略）"
+  depositConsent: Boolean
 }
 
 enum OrderSortField {
@@ -5963,6 +5969,8 @@ type Enrollment {
 
   paymentMode: String
 
+  depositAmountCents: Int
+
   "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
   checkInCode: String
 }
@@ -6639,6 +6647,10 @@ type EventModerator {
   userId: ID!
   assignedBy: ID
   assignedAt: DateTime!
+  userDisplayName: String
+  userMemberNumber: String
+  assignedByDisplayName: String
+  assignedByMemberNumber: String
 }
 
 type EventModeratorPayload {
@@ -6974,7 +6986,14 @@ type RootMutationType {
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
 
-  assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
 
   removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
 

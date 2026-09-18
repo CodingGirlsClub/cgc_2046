@@ -58,7 +58,7 @@ import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers, positiveAmountOrNull, tierAmountText } from "@/lib/payment";
 import {
   COURSE_PAYMENT_MODES,
   PAYMENT_MODES,
@@ -1120,7 +1120,9 @@ export function OfferingDetailPage({
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   // 默认选中第一档（产品拍板:有可售档不该强制手点;可再点换档）——派生值
   // 而非 effect 补 setState（react-hooks/set-state-in-effect）;?? 保留用户已选。
-  const effectiveTierId = tierId ?? priceTiers[0]?.id ?? null;
+  // #687：默认档跳过金额脏档（禁选档不可作为默认选择）。
+  const effectiveTierId =
+    tierId ?? priceTiers.find((t) => t.amountCents !== null)?.id ?? null;
   const paidTier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
   // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），押金场带押金口径
   // （#686：depositEnabled 按存在性定门随载荷下传；金额/「押金」名只表态，
@@ -1660,8 +1662,9 @@ export function OfferingDetailPage({
   // 未报）。复用 submitEnrollment（createEnrollment mutation，鉴权后端管）。
   async function submitForMe() {
     if (!offering || !userId) return;
-    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）
-    if (offering.pricingEnabled && !effectiveTierId) {
+    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）；#687 加一层：
+    // 所选档金额脏（金额待定、禁选）同样不可提交——金额待定的档不收钱。
+    if (offering.pricingEnabled && (!paidTier || paidTier.amountCents === null)) {
       setSubmitState({ kind: "error", message: t("pickTierFirst") });
       return;
     }
@@ -1858,9 +1861,11 @@ export function OfferingDetailPage({
                         ? t("paymentSlotPricing", {
                             overview:
                               parsePriceTiers(offering.availablePriceTiers)
-                                .map(
-                                  (tier) =>
-                                    `${tier.name} ¥${formatAmountShort(tier.amountCents)}`,
+                                .map((tier) =>
+                                  // #687：脏金额不表态——「（金额待定）」
+                                  tier.amountCents === null
+                                    ? `${tier.name}（${t("tierAmountPending")}）`
+                                    : `${tier.name} ¥${formatAmountShort(tier.amountCents)}`,
                                 )
                                 .join(" / ") || t("noTier"),
                           })
@@ -2444,11 +2449,11 @@ export function OfferingDetailPage({
                             priceTiers.map((tier) => (
                               <label
                                 key={tier.id}
-                                className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                                className={`flex items-center justify-between rounded-large border px-3 py-2 text-sm ${
                                   effectiveTierId === tier.id
                                     ? "border-line-strong bg-soft-2 text-ink"
                                     : "border-line bg-card text-ink-2"
-                                }`}
+                                } ${tier.amountCents === null ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                                 data-testid={`price-tier-${tier.id}`}
                               >
                                 <span className="flex items-center gap-2">
@@ -2458,11 +2463,12 @@ export function OfferingDetailPage({
                                     value={tier.id}
                                     checked={effectiveTierId === tier.id}
                                     onChange={() => setTierId(tier.id)}
+                                    disabled={tier.amountCents === null}
                                   />
                                   {tier.name}
                                 </span>
                                 <span className="font-medium">
-                                  ¥{formatAmount(tier.amountCents)}
+                                  {tierAmountText(tier, t("tierAmountPending"))}
                                 </span>
                               </label>
                             ))
@@ -2493,7 +2499,7 @@ export function OfferingDetailPage({
                       >
                         {enrollBusy
                           ? t("submitting")
-                          : offering.pricingEnabled && paidTier
+                          : offering.pricingEnabled && paidTier?.amountCents != null
                             ? t("submitWithPay", {
                                 amount: formatAmount(paidTier.amountCents),
                               })

@@ -88,9 +88,13 @@ defmodule Cgc2046.Notifications.ServiceTest do
       {:wechat, "event_qualification_confirmed", "pages/my-enrollments/index"},
       {:wechat, "event_qualification_underfilled", "pages/my-enrollments/index"},
       {:wechat, "event_schedule_changed", "pages/my-enrollments/index"},
-      # 裁剪端分支（tt/xhs）对三模板同款不变
+      # #585 管理侧成班结果 → 工作台（管理类；后续处理面在那）
+      {:wechat, "event_qualification_manager", "pages/workspace/index"},
+      # 裁剪端分支（tt/xhs）对四模板同款不变（无 workspace tab，一律我的报名）
       {:tt, "event_qualification_underfilled", "pages/my-enrollments/index"},
+      {:tt, "event_qualification_manager", "pages/my-enrollments/index"},
       {:xhs, "event_schedule_changed", "pages/my-enrollments/index"},
+      {:xhs, "event_qualification_manager", "pages/my-enrollments/index"},
       # 未知模板兜底不变
       {:wechat, "unknown_template_key", "pages/profile/index"}
     ]
@@ -171,8 +175,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert "event_qualification_underfilled" in registry_keys
 
     for template_key <- registry_keys, template_key not in deliberate_profile_fallback do
-      # 深链模板（event_moderator_assigned）需 event_id 才走深链分支——带 id
-      # 发送即覆盖「data 完整」的真实态；其余模板 data 不影响落页。
+      # 深链模板（event_moderator_assigned / removed，#538）需 event_id 才走
+      # 深链分支——带 id 发送即覆盖「data 完整」的真实态；其余模板 data 不影响落页。
       assert :ok =
                Client.send_notification(
                  :wechat,
@@ -629,6 +633,32 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert no_min == %{"thing4" => %{"value" => "活动"}, "number16" => %{"value" => "2"}}
   end
 
+  test "event_qualification_manager 渲染：thing2 活动名 + thing5 outcome 驱动双文案（#585/#720）" do
+    confirmed =
+      send_and_capture("event_qualification_manager", %{
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "outcome" => "confirmed"
+      })
+
+    assert confirmed == %{
+             "thing2" => %{"value" => "AI 入门工作坊"},
+             "thing5" => %{"value" => "已达最低人数3人，活动成班"}
+           }
+
+    underfilled =
+      send_and_capture("event_qualification_manager", %{
+        "title" => "AI 入门工作坊",
+        "min_participants" => 3,
+        "outcome" => "underfilled"
+      })
+
+    assert underfilled == %{
+             "thing2" => %{"value" => "AI 入门工作坊"},
+             "thing5" => %{"value" => "未达最低人数3人，已取消并发起退款"}
+           }
+  end
+
   test "event_qualification_underfilled 渲染：thing1 活动名 + thing5 未达阈值文案" do
     data =
       send_and_capture("event_qualification_underfilled", %{
@@ -690,6 +720,19 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert data == %{
              "thing1" => %{"value" => "押金制黑客松"},
              "thing5" => %{"value" => "你已被指派为该活动主理人"}
+           }
+  end
+
+  test "event_moderator_removed 渲染：thing1 活动名 + thing5 固定移除文案（#538，模板「活动名额转移提醒」槽位非惯例）" do
+    data =
+      send_and_capture("event_moderator_removed", %{
+        "event_id" => Ecto.UUID.generate(),
+        "title" => "押金制黑客松"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "押金制黑客松"},
+             "thing5" => %{"value" => "主理人身份已解除"}
            }
   end
 
@@ -802,8 +845,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 24 键集合（防表被改空）
-    assert length(registry_keys) == 24
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 26 键集合（防表被改空）
+    assert length(registry_keys) == 26
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))
@@ -841,6 +884,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
       "starts_at" -> {"starts_at", "2026-09-20T07:00:00Z"}
       "approval_deadline" -> {"approval_deadline", "2026-09-20T07:00:00Z"}
       "min_participants" -> {"min_participants", 3}
+      "outcome" -> {"outcome", "confirmed"}
       "confirmed_count" -> {"confirmed_count", 2}
       "capacity_seq" -> {"capacity_seq", 7}
       "re_enrollable" -> {"re_enrollable", "true"}

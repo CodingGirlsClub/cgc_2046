@@ -1,7 +1,7 @@
 # ADR-0015: draft 课程/活动可删除——draft-only destroy、slug 释放、权限收窄到 Owner ∪ 平台管理员
 
-> 日期：2026-09-17 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
-> 关联：#676（本 ADR 随其落地）、ADR-0014（slug 发布后锁死，本 ADR 论证 draft slug 释放不违其契约）、#619（slug 唯一索引与错误码）、#453（slug 锁定实施）、#39 / role-agent-journeys-v2 S5-S6（教研 run 与内容行）、#545 / #508（工作台管理面工具族）
+> 日期：2026-09-17 ｜ 状态：**已接受（Accepted；#688 修订级联论证与清单）** ｜ 决策者：用户（product owner）
+> 关联：#676（本 ADR 随其落地）、#688（级联完备性修订）、ADR-0014（slug 发布后锁死，本 ADR 论证 draft slug 释放不违其契约）、#619（slug 唯一索引与错误码）、#453（slug 锁定实施）、#39 / role-agent-journeys-v2 S5-S6（教研 run 与内容行）、#545 / #508（工作台管理面工具族）
 > 触发：真实事故——在错误 Workspace 建出的 draft 课程**无法清理**：`cancel_course` 仅 open 可取消、核心实体无 destroy、而 slug 全局唯一（`courses_slug_index`）被 draft 永久占位。「删除重建」与「slug 占用」互相锁死。
 
 ---
@@ -23,16 +23,16 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 
 1. **draft-only destroy（硬删，无回收站）**：`Course :delete` / `Event :delete`，仅 `status == :draft` 可删；其余状态一律 `cannot delete from status=…`（fail-closed，未来新增状态默认不可删）。
 2. **行锁守卫而非裸状态检查**：`before_action` 内 `SELECT status FROM <table> WHERE id = $1 FOR UPDATE`——确认窗内被并发 launch 的课程，本事务等锁后读到新状态即拒；反向 launch 的 CAS UPDATE（`StatusTransition`）等锁后命中 0 行亦败。**恰一成一败**（`Initiative.transition/3` 同款行锁模式；`StatusTransition` 仅支持 UPDATE，故此处用行锁而非 CAS）。
-3. **级联与 slug 释放（同事务，任一步失败整体回滚）**：
-   - Course：`Prep.stop_active_runs/1` 收口非终态 prep run（run → cancelled，**保留痕迹**）+ `Output.delete_for_course/2` 删除 `key = course_<id>` 的内容行（`curriculum_outputs` 无 FK，只能显式删）；
-   - Event：无级联（draft 阶段无教研 run、无内容行；moderator 等行由 FK `on_delete: delete_all` 承接）；
+3. **级联与 slug 释放（同事务，任一步失败整体回滚；#688 修订级联清单）**：
+   - Course：`Prep.stop_active_runs/1` 收口非终态 prep run（run → cancelled，**保留痕迹**）+ `Output.delete_for_course/2` 删除 `key = course_<id>` 的内容行（`curriculum_outputs` 对 course 无 FK——`key` 文本约定，只能显式删；#745 加的 workflow_run_id FK 不触及本路径）+ `CapacityLedger.delete_for_offering/2` 删除名额账本行（`offering_id` 多态无 FK，#688 补）；
+   - Event：`SpeakerInvitation.stop_event_runs/1` 收口非终态讲者邀请 run（#688 补——讲者邀请在 draft 合法，run 在**邀请创建时**实例化而非 launch 后，原「无级联」论证被证伪；run → cancelled 留痕）+ `CapacityLedger.delete_for_offering/2` 删除名额账本行；moderator / sponsorships / speaker_invitations / invite_batches 行由 FK `on_delete: delete_all` 承接；
    - slug 随行删除自然释放全局唯一索引，同 slug 可立即重建；`ToolCallLog` / `AdminActionLog` 审计保留。
 4. **权限收窄（与同族生命周期工具的 Owner/Admin 口径刻意不同）**：
    - Workspace **Owner** ✅（MCP + GraphQL 两面）；
    - **平台管理员**（`is_platform_admin`）✅（域 policy `PlatformAdmin` 放行）——MCP 面 member-only 门**不含** platform_admin 豁免（S2 成文契约，见 `Wrapper` 双面契约），非成员平台管理员走 GraphQL 域；
    - workspace **admin ❌**、普通成员 ❌（fail-closed）。
    - 排除 admin 的理由：删除不可逆、无回收站、无审计回滚路径，风险与「编辑元数据」不同级；owner 是工作台最终责任人，平台管理员是跨台治理兜底——两者构成最小可解释集合。
-5. **暴露面**：MCP 确认流工具 `delete_course` / `delete_event`（two-tool，摘要强提示「不可恢复、教研草稿一并删除、slug 释放」）+ GraphQL mutation `deleteCourse` / `deleteEvent`。MCP 工具不声明 meta ⇒ 落 fail-closed 默认门（member-only + workspace_id 必填）。
+5. **暴露面**：MCP 确认流工具 `delete_course` / `delete_event`（two-tool，摘要强提示「不可恢复、一并删除项、留痕保留、slug 释放」——连带披露为 #688 补）+ GraphQL mutation `deleteCourse` / `deleteEvent`（resource graphql 声明的 destroy，`schema.graphql` 已暴露；摘要披露只在 MCP 确认流——GraphQL mutation 直接执行无摘要面）。MCP 工具不声明 meta ⇒ 落 fail-closed 默认门（member-only + workspace_id 必填）。
 6. **范围外**：跨台转移 / 跨台授权复用（ADR-0013）、`admin_` 治理族删除工具、Initiative 统一（见下）、回收站 / 软删。
 
 ### 拒绝的替代
@@ -45,13 +45,19 @@ Initiative 侧已有先例（`update :cancel` 接受 draft，注释「误建的�
 
 ## 后果（Consequences）
 
-- **FK 级联清单（逐一核查，迁移侧无需改动）**：
-  - `enrollments`（`event_id` / `course_id`）、`invite_batches`（`event_id` / `course_id`）、`sponsorships`（`event_id`）、`speaker_invitations`（`event_id`）、`event_moderators`（`event_id`）：均为 `on_delete: delete_all`，DB 自动级联；
-  - `curriculum_course_revisions`（`course_id`）、`attendances`（`event_id`）：RESTRICT——**draft 结构性不产生行**（revision 生成即发布；核销行只在 open 后由 confirmed 报名产生），若因数据异常存在则 DELETE 被 FK 拒绝（fail-closed，不静默丢数据）；
-  - `curriculum_outputs`：无 FK（`key` 文本约定），由 `Output.delete_for_course/2` 显式删除；`workflow_runs`：无 FK，非终态 run 由 `Prep.stop_active_runs/1` 收口（终态 run 与 `input_snapshot.course_id` 作为历史痕迹保留）。
+- **级联清单（逐一核查，#688 按事实重写为三类；迁移侧无需改动）**：
+  - **结构性不存在**：`enrollments` / `attendances`（报名需 offering open；attendances 为 RESTRICT，异常存在即 DELETE 被 FK 拒绝——fail-closed 不静默丢数据）、`curriculum_course_revisions`（RESTRICT，revision 生成即发布）、Event 的教研 curriculum run（launch 后由 Instantiator 创建）；
+  - **FK 承接（`on_delete: delete_all`）**：`event_moderators` / `sponsorships` / `speaker_invitations` / `invite_batches`（event + course 维度）——speaker_invitations 与 invite_batches 对 draft **并非结构性不存在**（邀请在 draft 合法、批次创建无状态门），MCP 摘要须披露连带删除；
+  - **显式收口**：`curriculum_outputs` 对 course 无 FK（`key` 文本约定；#745 起表上有 workflow_run_id FK，但 run 只 cancel 不 destroy，不触及本路径），由 `Output.delete_for_course/2` 删除；`workflow_runs` 无指向 events/courses 的 FK——Course 侧非终态 prep run 由 `Prep.stop_active_runs/1` 收口、Event 侧非终态讲者邀请 run 由 `SpeakerInvitation.stop_event_runs/1` 收口（#688 补；终态 run 与 facts 作为历史痕迹保留——run facts 含教研 issues 镜像与讲者 materials 镜像，「不可恢复」仅指业务行，留痕按审计保留）；`admission_capacity_ledgers.offering_id` 多态无 FK，由 `CapacityLedger.delete_for_offering/2` 删除（#688 补——draft 期可经 `offering.capacity_changed` 信号 / Initiative 规则传播建行）。
 - **正面**：错建 draft 有官方出口（MCP 与 web 同源同语义）；slug 释放使「重来一遍」不必换公开 URL；行锁使删除与发布互斥，不会出现「删掉已发布课程」。
 - **代价/风险**：
   - 删除不可逆、无回收站——误删只能重建（内容行与教研进度一并丢失）；
   - `Output` 的「行只增不删」（学习记录按行 id 引用）在设计上多了一个**例外**路径，例外边界经 `authorize?: false` 内部 action + 唯一调用方 `Course :delete` 收口（资源 policy 未覆盖 destroy ⇒ 任何授权调用一律拒绝）；
   - draft 删除后同 slug 重建会产生「同 URL、不同 id」的两段历史——审计（ToolCallLog）按 id 留痕，URL 层面无重定向（与 ADR-0014「无 rename 后门」同款取向）。
 - **无迁移**：只新增 action / policy / 内部函数与工具，无 attribute / identity / 约束变化（`mix ash_postgres.generate_migrations --check` 零 pending）。
+
+---
+
+## 修订记录
+
+- **2026-09-17（#688）**：PR #678 deep 评审证伪「Event 无级联」论证——讲者邀请 run 在**邀请创建时**实例化（draft 合法，`ensure_event_eligible_status` 放行 `:draft`），非 launch 后；`workflow_runs` 无指向 events 的 FK，`speaker_invitations_event_id_fkey` 的 delete_all 级联不到 run，且 `approval_timeout: nil`（永不超时）/ Reaper（event-only + curriculum-only）/ 对账规则（无宿主判据）三路兜底均扫不中 → 永久孤儿。决策 3 与级联清单按事实重写为三类；Event `:delete` 补 `SpeakerInvitation.stop_event_runs/1`，两侧补 `CapacityLedger.delete_for_offering/2`（账本 `offering_id` 多态无 FK，draft 期可建行——capacity_changed 信号无状态门 + Initiative 规则传播直连建行）。MCP 摘要补连带披露与留痕措辞（「记录删除、留痕保留」——run facts 按审计保留，「不可恢复」仅指业务行）。（#688 实施中曾误记「GraphQL delete mutation 未暴露」——实为 resource graphql 声明的 destroy mutation（`event.ex` / `course.ex` 的 `destroy(:delete_event/:delete_course, :delete)`），`schema.graphql` 已暴露 deleteEvent / deleteCourse；连带披露因此只需改 MCP 摘要，GraphQL mutation 无摘要面。误记源于只 grep 了手写 resolver 文件 graphql_schema.ex，未查 resource 声明——留此存照防复发。）存量普查（本 PR 前置，dev + 生产只读）：孤儿 run 与孤儿账本均为 0，无存量清理需求。

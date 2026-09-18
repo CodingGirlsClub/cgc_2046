@@ -78,12 +78,24 @@ defmodule Cgc2046.Notifications.Service do
   # - event_qualification_underfilled（#606）：活动名称=thing1 / 未达阈值说明
   #   =thing5（动态「未达最低成班人数{min}人，活动未成行」；confirmed_count
   #   平台无 number 槽位，不下发）
+  # - event_qualification_manager（#585，#720 平台选用）：模板标题「活动申请
+  #   结果通知」（公共库无成班/开班措辞，选了全库唯一「活动名称+结果」双
+  #   thing 槽位的中性模板）。槽位编号非顺序：活动名称=thing2 / 申请结果
+  #   =thing5（outcome 驱动：confirmed →「已达最低人数{min}人，活动成班」；
+  #   underfilled →「未达最低人数{min}人，已取消并发起退款」——approval_result
+  #   单键双文案同款；ID 已入 secret WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER，
+  #   未配置走 template_not_configured）
   # - event_schedule_changed（#606）：活动名称=thing1 / 新开始时间=date2 /
   #   地点=thing5（venue，缺值跳过）。date2 是 **date 类型**、非 time——见
   #   date/1 的格式假设注释；venue 变更本身也是本通知的触发条件
   #   （event.ex schedule_changed?/1），故 thing5 放地点而非重复时间
-  # - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
-  #   「你已被指派为该活动主理人」）
+  #   - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
+  #     「你已被指派为该活动主理人」）
+  # - event_moderator_removed（#538）：模板标题「活动名额转移提醒」（全库无
+  #   身份/移除类标题，选中性双 thing 模板；2026-09-18 批次申请，ID 已配置
+  #   secret WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED）。**槽位非惯例**：
+  #   活动名称=thing1 / 内容（备注）=thing5（不是 thing2！）；内容固定
+  #   「主理人身份已解除」（7 字 ≤20，勿带活动名前缀免截断）
   # - speaker_accepted（#606）：活动名称=thing14 / 状态=thing6（固定「已接受」）；
   #   speaker_invitation_id 不下发（平台无 character_string 槽位，本就是 job meta）
   # - speaker_completed（#606）：活动名称=thing1（speaker 本人面无 title → 跳过，
@@ -210,6 +222,14 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  defp render(:wechat, "event_qualification_manager", %{} = data) do
+    %{
+      "thing2" => thing(data["title"]),
+      "thing5" => thing(qualification_manager_note(data["outcome"], data["min_participants"]))
+    }
+    |> drop_nils()
+  end
+
   defp render(:wechat, "event_schedule_changed", %{} = data) do
     %{
       "thing1" => thing(data["title"]),
@@ -223,6 +243,16 @@ defmodule Cgc2046.Notifications.Service do
     %{
       "thing1" => thing(data["title"]),
       "thing5" => "你已被指派为该活动主理人"
+    }
+    |> drop_nils()
+  end
+
+  # #538：模板「活动名额转移提醒」实际槽位 = thing1 活动名 / thing5 内容
+  # （非 thing2——槽位注释块见本文件头部清单；thing ≤20 字）
+  defp render(:wechat, "event_moderator_removed", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "thing5" => "主理人身份已解除"
     }
     |> drop_nils()
   end
@@ -338,7 +368,7 @@ defmodule Cgc2046.Notifications.Service do
   defp expiry_note("true"), do: "订单超时作废，报名截止前可重新报名"
   defp expiry_note(_), do: "订单超时作废"
 
-  # 开班结果动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
+  # 成班判定动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
   # （confirmed）与 16/17/18 字（underfilled），守卫测试钉边界；min ≥6 位时
   # 由外层 thing/1 截断到 20（保 API 不 47003，代价是句子截尾——min_participants
   # 是组织者配置项，实际不会到 6 位）
@@ -347,6 +377,20 @@ defmodule Cgc2046.Notifications.Service do
 
   defp underfilled_note(min) when is_integer(min), do: "未达最低成班人数#{min}人，活动未成行"
   defp underfilled_note(_), do: nil
+  # 管理侧成班结果文案（#585）：thing ≤20 字。min 1/2/3 位 → 13/14/15 字
+  # （confirmed）与 18/19/20 字（underfilled，3 位恰满）；min ≥4 位由外层
+  # thing/1 截断（同 qualified_note/underfilled_note 取舍）
+  defp qualification_manager_note("confirmed", min) when is_integer(min),
+    do: "已达最低人数#{min}人，活动成班"
+
+  defp qualification_manager_note("confirmed", _), do: "活动成班"
+
+  defp qualification_manager_note("underfilled", min) when is_integer(min),
+    do: "未达最低人数#{min}人，已取消并发起退款"
+
+  defp qualification_manager_note("underfilled", _), do: "未达最低人数，已取消并发起退款"
+
+  defp qualification_manager_note(_, _), do: nil
 
   defp approval_result_text("approved"), do: "已通过"
   defp approval_result_text("rejected"), do: "未通过"

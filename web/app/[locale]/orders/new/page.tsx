@@ -21,12 +21,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { client } from "@/lib/apollo-client";
 import {
 	CREATE_ORDER,
+	DEPOSIT_CONSENT_REQUIRED_CODE,
 	MY_PENDING_ORDERS,
+	createOrderInput,
 	type PaymentProvider,
 } from "@/lib/graphql/orders";
 import { MY_ENROLLMENT } from "@/lib/graphql/events";
 import { useAuthed } from "@/lib/use-authed";
-import { PROVIDER_LABEL, WEB_ENABLED_PROVIDERS } from "@/lib/payment";
+import {
+	PROVIDER_LABEL,
+	WEB_ENABLED_PROVIDERS,
+	formatAmountShort,
+	positiveAmountOrNull,
+} from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { storeOrderContext } from "@/lib/order-context";
 import SitePage from "@/components/site-page";
@@ -57,6 +64,9 @@ function NewOrderForm() {
 	const { authed, confirmed } = useAuthed();
 	const translatePaymentError = usePaymentErrorTranslator();
 	const t = useTranslations("orders");
+	// 押金披露文案单源：与 payment-checkout-dialog 同用 checkout ns（#686）
+	const tCheckout = useTranslations("checkout");
+	const tOfferings = useTranslations("offerings");
 	const labelsT = useTranslations();
 
 	const [provider, setProvider] = useState<PaymentProvider>("wechat_native");
@@ -65,6 +75,29 @@ function NewOrderForm() {
 	const [guard, setGuard] = useState<GuardState>({ kind: "checking" });
 	// 报名对象标题（守卫查询随返）：下单成功时经 sessionStorage 交接订单页成功卡
 	const [enrollTitle, setEnrollTitle] = useState<string | null>(null);
+	// 押金事实（守卫查询随返，#696）：现行 paymentMode（识别判据）+ 报名时物化
+	// 的押金快照金额（与 createOrder 实付同源，纯表态）
+	const [enrollDeposit, setEnrollDeposit] = useState<{
+		paymentMode: string | null;
+		depositAmountCents: number | null;
+	} | null>(null);
+	// 押金同意勾选：未勾选不放行创单（弹框 #686 同构）
+	const [depositAck, setDepositAck] = useState(false);
+	// 守卫重跑触发器（命中 order_deposit_consent_required 时 +1）：>0 即「后端判定
+	// 押金而本页押金事实不可信」，是自愈路径的唯一状态（不另存布尔，避免双源漂移）
+	const [guardNonce, setGuardNonce] = useState(0);
+	const consentRequired = guardNonce > 0;
+	// 押金披露门（#696，#686 教训）：识别只认 paymentMode 存在性（deposit 场即
+	// 出门），金额不参与识别——脏快照走「押金（金额待定）」（#675），绝不 ¥0、
+	// 绝不因金额缺失漏门。守卫查询失败时 enrollDeposit 为 null → 按非押金场
+	// 处理（既有「不阻塞下单」兜底语义，错误由 createOrder 翻译层承接）。
+	// #727：后端判定（consentRequired）优先于本页守卫事实——守卫可能读到旧缓存/
+	// 旧配置，后端 order_kind 才是权威；否则自愈会被守卫的旧值否决成 dead-end。
+	const isDeposit =
+		enrollDeposit?.paymentMode === "deposit" || consentRequired;
+	const depositNoteCents = positiveAmountOrNull(
+		enrollDeposit?.depositAmountCents,
+	);
 
 	// 进页守卫（P1）：报名状态校验 + 已有 pending 订单跳转
 	useEffect(() => {
@@ -76,6 +109,9 @@ function NewOrderForm() {
 				const { data: enrData } = await client.query({
 					query: MY_ENROLLMENT,
 					variables: { id: enrollmentId },
+					// 支付门前的事实必须新鲜：默认 cache-first 会拿旧 enrollment
+					// （金额/缴费模式漂移），自愈重跑更必须绕缓存
+					fetchPolicy: "network-only",
 				});
 				const enrollment = enrData?.myEnrollments?.results?.[0];
 				if (!enrollment || enrollment.status !== "payment_pending") {
@@ -86,7 +122,13 @@ function NewOrderForm() {
 						});
 					return;
 				}
-				if (!cancelled) setEnrollTitle(enrollment.targetTitle ?? null);
+				if (!cancelled) {
+					setEnrollTitle(enrollment.targetTitle ?? null);
+					setEnrollDeposit({
+						paymentMode: enrollment.paymentMode ?? null,
+						depositAmountCents: enrollment.depositAmountCents ?? null,
+					});
+				}
 				const { data: ordData } = await client.query({
 					query: MY_PENDING_ORDERS,
 					variables: { enrollmentId },
@@ -107,7 +149,7 @@ function NewOrderForm() {
 		return () => {
 			cancelled = true;
 		};
-	}, [enrollmentId, authed, confirmed, router, t]);
+	}, [enrollmentId, authed, confirmed, router, t, guardNonce]);
 
 	// 已有 pending 订单 → 直接跳订单页（不重复下单）
 	useEffect(() => {
@@ -122,7 +164,14 @@ function NewOrderForm() {
 		try {
 			const { data } = await client.mutate({
 				mutation: CREATE_ORDER,
-				variables: { input: { enrollmentId, provider } },
+				variables: {
+					// 押金同意条件携带单源在 graphql/orders.createOrderInput（#727）
+					input: createOrderInput(
+						enrollmentId,
+						provider,
+						isDeposit ? depositAck : undefined,
+					),
+				},
 			});
 			const payload = data?.createOrder;
 			if (payload?.result) {
@@ -138,12 +187,15 @@ function NewOrderForm() {
 				router.replace(`/orders/${payload.result.id}`);
 				return;
 			}
+			const code = payload?.errors[0]?.code ?? null;
 			setError(
-				translatePaymentError(
-					payload?.errors[0]?.code ?? null,
-					t("orderFailed"),
-				),
+				translatePaymentError(code, t("orderFailed")),
 			);
+			// 自愈（#727）：后端按 order_kind 判押金，本页押金事实缺失/过期
+			// （守卫失败 → 不带 consent 创单）→ 补门 + 重跑守卫取快照金额
+			if (code === DEPOSIT_CONSENT_REQUIRED_CODE) {
+				setGuardNonce((nonce) => nonce + 1);
+			}
 		} catch (e) {
 			setError(
 				translatePaymentError(
@@ -254,6 +306,39 @@ function NewOrderForm() {
 				})}
 			</fieldset>
 
+			{isDeposit ? (
+				// 押金披露门（#696）：创单前明示押金口径 + 未到场不退，勾选同意后
+				// 才放行 createOrder（#686 弹框同构）；金额 = 报名快照 = 实付金额
+				<div
+					className="mt-5 grid gap-2 rounded-large border border-line bg-soft-2 px-3 py-3"
+					data-testid="deposit-note"
+				>
+					<p className="text-[13px] leading-5 text-ink-2">
+						{depositNoteCents === null
+							? tOfferings("paymentSlotDepositUnknown")
+							: tCheckout("depositLine", {
+									amount: formatAmountShort(depositNoteCents),
+								})}
+						<span className="ml-2 text-ink-3">
+							{tCheckout("depositForfeit")}
+						</span>
+					</p>
+					<label
+						className="flex items-start gap-2 text-[13px] leading-5 text-ink-2"
+						data-testid="deposit-consent"
+					>
+						<input
+							type="checkbox"
+							checked={depositAck}
+							onChange={(e) => setDepositAck(e.target.checked)}
+							className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+							data-testid="deposit-consent-checkbox"
+						/>
+						<span>{tCheckout("depositAckLabel")}</span>
+					</label>
+				</div>
+			) : null}
+
 			{error ? (
 				<p role="alert" className="mt-4 text-[13px] text-red-300">
 					{error}
@@ -263,12 +348,16 @@ function NewOrderForm() {
 			<div className="mt-5 flex items-center gap-3">
 				<button
 					type="button"
-					disabled={busy}
+					disabled={busy || (isDeposit && !depositAck)}
 					onClick={() => void createOrder()}
 					className="rounded-large border border-line-strong bg-card px-4 py-2 text-sm font-medium text-ink hover:border-line disabled:opacity-50"
 					data-testid="create-order"
 				>
-					{busy ? t("ordering") : t("goPay")}
+					{busy
+						? t("ordering")
+						: isDeposit
+							? tCheckout("depositAckButton")
+							: t("goPay")}
 				</button>
 				<Link href="/participations" className="text-sm text-ink-3 underline">
 					{t("backToEnrollments")}

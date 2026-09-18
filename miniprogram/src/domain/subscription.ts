@@ -19,8 +19,12 @@ import type { ContentKind, EnrollmentStatus, SubscriptionScenario } from './mode
  *   **无入口**，由后端 `consent_exhausted` 可观测性暴露（#635 C1）。
  * - `learning_stagnation` 的学习行为发生在 OpenClacky 桌面端（见 pages/openclacky），
  *   小程序内唯一近似落点是「我的报名」里的**课程**卡。
- * - `event_moderator_assigned` 有鸡生蛋问题：用户正是通过该通知才首次得知被指派，
- *   故**第一次指派必然送不到**；M5 覆盖的是「已是某活动主理人者订阅后续指派」。
+ * - `event_moderator_assigned` / `event_moderator_removed`（#538）有鸡生蛋问题：
+ *   用户正是通过 assigned 通知才首次得知被指派，故**第一次指派必然送不到**；
+ *   removed 同构——未点过 M5 就被移除的那条也送不到。M5 双键覆盖的是
+ *   「当前是主理人者」订阅后续指派与移除（移除授权必须发生在移除前，唯一
+ *   能提前授权的人 = 当前主理人，故扩 M5 而非新触点；M8 已 3/3 满且面向
+ *   Owner/Admin，被移除者通常是普通成员）。
  * - `refund_succeeded` / `refund_failed` / `payment_expired` 有**双受众**（付款人 +
  *   管理者/发起人）：付款人腿由 M7 付费卡覆盖（#683）；**管理者腿无小程序入口**
  *   ——最佳授权时刻是「管理员点退款时的顺手授权」，但小程序无退款操作面
@@ -40,8 +44,10 @@ export const ALL_SCENARIOS = [
   'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
+  'event_qualification_manager',
   'event_schedule_changed',
   'event_moderator_assigned',
+  'event_moderator_removed',
   'speaker_accepted',
   'speaker_completed',
   'learning_stagnation',
@@ -132,11 +138,11 @@ export function enrollmentResultTouchpoint(
   return {
     page: 'pages/enrollment-result/index',
     trigger: '报名提交后进入结果页，点按订阅按钮',
-    // 文案按状态分派：审批中要的是「进展」，已通过要的是「开班与活动变动」，
+    // 文案按状态分派：审批中要的是「进展」，已通过要的是「成班与活动变动」，
     // 用一句通用文案会在已通过时误导（审批早已结束）。
-    label: pending ? '订阅报名进展通知' : '订阅开班与活动提醒',
+    label: pending ? '订阅报名进展通知' : '订阅成班与活动提醒',
     scenarios: [pending ? 'approval_result' : 'event_reminder', 'event_qualification_confirmed', 'event_qualification_underfilled'],
-    acceptedCopy: pending ? '已订阅，报名进展会通知你' : '已订阅，开班与活动变动会通知你',
+    acceptedCopy: pending ? '已订阅，报名进展会通知你' : '已订阅，成班与活动变动会通知你',
     deniedCopy: '你暂未授权，可稍后在「我的报名」再次订阅'
   }
 }
@@ -198,15 +204,17 @@ export function workspaceTouchpoint(): SubscriptionTouchpoint {
 
 /**
  * M5 活动详情页 · 主理人（pages/event-detail，仅 `canModerateEvent()` 为真时渲染）
- * ——唯一能证明「我是主理人」的页面，也是该模板自身的深链落页。
+ * ——唯一能证明「我是主理人」的页面，也是两个主理人模板共同的深链落页。
+ * #538 扩为双键（assigned + removed，2/3）：移除通知的受众 = 被移除者，授权
+ * 必须发生在移除前，唯一入口就是本触点。
  */
 export function moderatorTouchpoint(): SubscriptionTouchpoint {
   return {
     page: 'pages/event-detail/index（canCheckIn 为真）',
     trigger: '主理人打开自己主理的活动详情页，点按订阅按钮',
-    label: '订阅主理人指派通知',
-    scenarios: ['event_moderator_assigned'],
-    acceptedCopy: '已订阅，被指派为新活动主理人时会通知你',
+    label: '订阅主理人指派与变动通知',
+    scenarios: ['event_moderator_assigned', 'event_moderator_removed'],
+    acceptedCopy: '已订阅，主理人指派与变动会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }
@@ -260,9 +268,9 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
   return {
     page: 'pages/workspace/index',
     trigger: 'Owner/Admin 打开工作台，点按第二个订阅按钮',
-    label: '订阅新报名与收款通知',
-    scenarios: ['enrollment_submitted', 'payment_received'],
-    acceptedCopy: '已订阅，新报名与收款到账会通知你',
+    label: '订阅新报名、收款与成班通知',
+    scenarios: ['enrollment_submitted', 'payment_received', 'event_qualification_manager'],
+    acceptedCopy: '已订阅，新报名、收款与成班结果会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }
@@ -320,6 +328,12 @@ export function volunteerFollowUpTouchpoint(): SubscriptionTouchpoint {
 }
 
 // --- 请求期 fail-closed（纯函数，页面/transport 只做调起） ---------------------
+/** 订阅 helper 的注入式依赖（platform ↔ api 依赖环 → domain 不得 import Taro，
+ * 由页面注入 request/grant——#546 起的既定形状，#693 沿用）。 */
+interface ConsentDeps {
+  request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
+  grant: (scenario: SubscriptionScenario) => Promise<unknown>
+}
 
 /**
  * #546/#664 顺序契约：报名结果通知的授权**必须先于报名提交**（理由见
@@ -334,10 +348,7 @@ export function volunteerFollowUpTouchpoint(): SubscriptionTouchpoint {
  */
 export async function submitAfterConsent<T>(
   touchpoint: SubscriptionTouchpoint,
-  deps: {
-    request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
-    grant: (scenario: SubscriptionScenario) => Promise<unknown>
-  },
+  deps: ConsentDeps,
   submit: () => Promise<T>
 ): Promise<T> {
   try {
@@ -347,6 +358,44 @@ export async function submitAfterConsent<T>(
     // 未授权不阻断报名（同上）
   }
   return submit()
+}
+/** `requestAndGrant` 的反馈：页面据此选 toast icon 或落到页面状态文案。 */
+export type SubscriptionFeedback =
+  | { kind: 'accepted'; title: string }
+  | { kind: 'denied'; title: string }
+  | { kind: 'error'; title: string }
+
+/**
+ * 带用户反馈的订阅触点 handler（#693）：request → 逐个 grant 被接受的 → 反馈。
+ * 7 处页面按钮的同构收敛（M1–M8），与 `submitAfterConsent` 的区别只在反馈——
+ * 那边静默不阻断提交，这边每次点按都要告知结果。
+ *
+ * fail-closed 语义（由 tests/subscription-domain.test.ts 钉住）：
+ * - **部分接受只 grant 被接受的**（请求 3 接受 2 → 恰好 grant 那 2 个，
+ *   顺序 = 接受顺序）；拒绝全部（accepted 为空）→ 零 grant，反馈 denied；
+ * - request / grant 抛错 → 反馈 error 并正常返回，**不阻断页面后续动作**；
+ *   非 Error 抛出值的兜底文案统一为「订阅失败」（#693 裁决：多数派口径）。
+ */
+export async function requestAndGrant(
+  touchpoint: SubscriptionTouchpoint,
+  deps: ConsentDeps & { notify: (feedback: SubscriptionFeedback) => void }
+): Promise<void> {
+  let accepted: SubscriptionScenario[]
+  try {
+    accepted = await deps.request(touchpoint.scenarios)
+    if (accepted.length > 0) {
+      // 一次授权 = 后端 +1 配额，逐场景顺序上报（部分接受只报被接受的）
+      for (const scenario of accepted) await deps.grant(scenario)
+    }
+  } catch (reason) {
+    deps.notify({ kind: 'error', title: reason instanceof Error ? reason.message : '订阅失败' })
+    return
+  }
+  deps.notify(
+    accepted.length === 0
+      ? { kind: 'denied', title: touchpoint.deniedCopy }
+      : { kind: 'accepted', title: touchpoint.acceptedCopy }
+  )
 }
 
 /**

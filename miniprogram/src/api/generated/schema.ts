@@ -1007,6 +1007,8 @@ export type CreateMcpTokenPayload = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: InputMaybe<Scalars['Boolean']['input']>;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: Scalars['ID']['input'];
   /** 支付渠道 */
@@ -1195,6 +1197,7 @@ export type Enrollment = {
   /** 6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null） */
   checkInCode?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -1612,6 +1615,8 @@ export type Event = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人） */
+  publicModerators?: Maybe<Array<Scalars['JsonString']['output']>>;
   qualificationBadge?: Maybe<Scalars['String']['output']>;
   /** 成班事实：pending / confirmed / underfilled */
   qualificationStatus: Scalars['String']['output'];
@@ -2150,9 +2155,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 

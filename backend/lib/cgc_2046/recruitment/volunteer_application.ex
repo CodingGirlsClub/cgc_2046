@@ -357,6 +357,16 @@ defmodule Cgc2046.Recruitment.VolunteerApplication do
   postgres do
     table("volunteer_applications")
     repo(Cgc2046.Repo)
+
+    # on_delete 与 create_recruitment_tables 迁移显式对齐（#724 FK 守卫）：
+    # workspace/user/cohort CASCADE；assigned_event SET NULL（主理人场次删了
+    # 申请不删，只解绑）
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+      reference(:cohort, on_delete: :delete)
+      reference(:assigned_event, on_delete: :nilify)
+    end
   end
 
   policies do

@@ -653,11 +653,14 @@ defmodule Cgc2046.Courses.Course do
     # slug 随行删除释放全局唯一索引：draft slug 从未发布、无公开契约（ADR-0014
     # 锁的是发布后的 URL 段），释放不破坏任何已分发链接。
     #
-    # 级联（同事务，任一步失败整体回滚）：取消非终态 prep run（close/cancel 的
-    # stop_active_runs 同款纪律——课程行没了，遗留 active run 只会成为孤儿）+
-    # 删除教研内容行（curriculum_outputs 无 FK，key = course_<id>）。
-    # FK 上挂的子行（enrollments / course_revisions / invite_batches）对 draft
-    # 结构性不存在（报名需 offering open；revision 生成即发布），故不预告删除。
+    # 级联（同事务，任一步失败整体回滚，#688 补账本级联）：取消非终态 prep run
+    # （close/cancel 的 stop_active_runs 同款纪律——课程行没了，遗留 active run
+    # 只会成为孤儿）+ 删除教研内容行（curriculum_outputs 无 FK，key = course_<id>）
+    # + 删除名额账本行（admission_capacity_ledgers.offering_id 多态无 FK；draft
+    # 行 occupancy 结构性为 0，reserve 三守卫含 status='open'）。
+    # FK 上挂的子行由 delete_all 承接：enrollments / course_revisions 对 draft
+    # 结构性不存在（报名需 offering open；revision 生成即发布）；invite_batches
+    # 创建无状态门、draft 可建（#688），MCP 摘要已披露。
     #
     # 审计面：经 MCP 调用自然落 ToolCallLog（GraphQL 面与 close/cancel 同款，不另
     # 写审计行）；本 action 不发信号（draft 无订阅方——course.ended 的订阅方针对
@@ -695,7 +698,8 @@ defmodule Cgc2046.Courses.Course do
         Ash.Changeset.after_action(changeset, fn _cs, course ->
           with :ok <- Cgc2046.Curriculum.Prep.stop_active_runs(course),
                :ok <-
-                 Cgc2046.Curriculum.Output.delete_for_course(course.id, course.workspace_id) do
+                 Cgc2046.Curriculum.Output.delete_for_course(course.id, course.workspace_id),
+               :ok <- Cgc2046.Admission.CapacityLedger.delete_for_offering(:course, course.id) do
             {:ok, course}
           end
         end)

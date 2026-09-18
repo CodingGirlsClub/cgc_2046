@@ -39,7 +39,13 @@ const records = [
     // initiativeId 让 event-detail 的「所属倡导活动」回链有落点
     qualificationBadge: 'short_by',
     shortBy: 3,
-    initiativeId: 'initiative-1'
+    initiativeId: 'initiative-1',
+    // #538 公开主理人投影样例：一行有 displayName、一行 null 回退 memberNumber，
+    // 详情页渲染「本场主理人：主讲小援 · CGC-9A3F2C」（与真机 [JsonString!] 同形）
+    publicModerators: [
+      JSON.stringify({ display_name: '主讲小援', member_number: 'CGC-000001' }),
+      JSON.stringify({ display_name: null, member_number: 'CGC-9A3F2C' })
+    ]
   },
   {
     id: 'event-open',
@@ -155,6 +161,8 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
+  /** #727 押金快照金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
+  depositAmountCents: number | null
   /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
   startsAt: string | null
   /** #617 目标场地：后端 Enrollment.venue 同形 = Venue.text/1 文本化 city+district */
@@ -393,6 +401,12 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
+      // #727：押金快照金额（与后端 Enrollment.depositAmountCents 同源口径——
+      // 报名提交时物化；非押金场 null）。order-pay 创单前披露的金额源
+      depositAmountCents:
+        paymentMode === 'deposit' && target && 'depositAmountCents' in target
+          ? (target.depositAmountCents ?? null)
+          : null,
       // #617：与后端 Enrollment 计算字段同形——startsAt 直接取目标记录；
       // venue 必须文本化为 city+district（读面契约是 Venue.text 结果，不是
       // 目标记录里的 JsonString；course 无 venue 槽 → null）
@@ -465,9 +479,26 @@ function responseFor(document: string, variables: object): unknown {
     // 同意门以它为准，mock 漏带字段会被 parseOrderKind fail-closed 抓住
     const depositOrder =
       targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
+    const input = (values.input ?? {}) as Record<string, unknown>
+    // #727 押金同意门（后端 action 语义的 mock 投影，同 #510 年龄门）：押金单
+    // 未带 depositConsent=true → 业务错误（与真实后端同 code，前端文案表命中）
+    if (depositOrder && input.depositConsent !== true) {
+      return {
+        createOrder: {
+          result: null,
+          errors: [
+            {
+              message: 'deposit consent is required before creating a deposit order',
+              code: 'order_deposit_consent_required'
+            }
+          ],
+          metadata: null
+        }
+      }
+    }
     order = {
       id: 'order-1',
-      enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
+      enrollmentId: String(input.enrollmentId ?? ''),
       status: 'pending',
       amountCents: depositOrder ? DEPOSIT_AMOUNT_CENTS : 19900,
       expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
