@@ -529,6 +529,44 @@
 .fb-roster-card--in:nth-child(5n+3) { animation-delay: 0.19s; }
 .fb-roster-card--in:nth-child(5n+4) { animation-delay: 0.26s; }
 .fb-roster-card--in:nth-child(5n+5) { animation-delay: 0.33s; }
+/* ── 雾面段（视觉升级）：相纸上被呵了气 / 显影未完成的遮蔽 ──────────────
+   多层手法：backdrop-filter 把纸面纹理糊开 + 噪点纹理（同 fb-grain）叠加
+   + mask 边缘羽化过渡 + 非 reduced 下的极缓微光呼吸。零内联 style（KTD9），
+   宽度按 len 三档类（s/m/l）。本人视图（enter reveal）不受影响——原文永显。 */
+.fb-fog-block {
+	display: inline-block;
+	vertical-align: baseline;
+	height: 1em;
+	margin: 0 2px;
+	border-radius: 0.25em;
+	background: rgba(43, 39, 35, 0.16);
+	/* 呵气感：背后内容糊开提亮（相纸灰雾） */
+	backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
+	-webkit-backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
+	position: relative;
+	overflow: hidden;
+	/* 边缘羽化：两端渐隐过渡（呵气无硬边） */
+	mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+	-webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12%, #000 88%, transparent 100%);
+}
+/* 噪点纹理：与相纸颗粒同源（fb-grain 的 SVG noise） */
+.fb-fog-block::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.44 0 0 0 0.2 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+/* 微光呼吸：呵气在慢慢散（极缓、非必要动画——reduced-motion 关） */
+@keyframes fb-fog-breathe {
+	0%, 100% { filter: brightness(1) opacity(1); }
+	50% { filter: brightness(1.05) opacity(0.94); }
+}
+.fb-fog-block { animation: fb-fog-breathe 6s ease-in-out infinite; }
+.fb-fog-block--s { width: 3.5em; }
+.fb-fog-block--m { width: 6.5em; }
+.fb-fog-block--l { width: 10em; }
 .fb-roster-content { display: grid; gap: 6px; }
 .fb-roster-answer, .fb-roster-today { font-size: 11px; line-height: 1.6; margin: 0; color: var(--fb-ink); }
 .fb-roster-dashed {
@@ -771,6 +809,8 @@
 @media (prefers-reduced-motion: reduce) {
 	/* 展开的 stagger 跳过（直达终态） */
 	.fb-roster-card--in { animation: none; }
+	/* 雾面微光呼吸关——静态雾 */
+	.fb-fog-block { animation: none; }
 	.fb-root {
 		--fb-flash-dur: 0.01ms;
 		--fb-develop-dur: 0.01ms;

@@ -366,9 +366,11 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     answers =
       if sent do
         Enum.map(Map.get(answers_by_person, row.id, []), fn answer ->
+          # 段结构（雾化视觉升级）：fog 段 text 恒空——原文字符不出 DOM，
+          # 前端按 len 档位渲染纯视觉雾块
           %{
             question_key: answer.question_key,
-            text: FogSpans.mask(answer.raw_text, answer.fog_spans, @fog_placeholder)
+            segments: FogSpans.segments(answer.raw_text, answer.fog_spans) |> Enum.reverse()
           }
         end)
       else

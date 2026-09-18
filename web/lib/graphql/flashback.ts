@@ -141,10 +141,17 @@ export interface FlashbackActionCard {
 	rolesClaimed: string[];
 }
 
+/** 雾面段（对外版）：fog=true 时 text 恒空——原文字符不出 DOM */
+export interface FlashbackRosterSegment {
+	text: string;
+	fog: boolean;
+	len: number;
+}
+
 export interface FlashbackRosterAnswer {
 	questionKey: string;
-	/** 对外版：雾面已按 ▓▓ 遮蔽（原文字符不出现，KTD4） */
-	text: string;
+	/** 段结构：明文段与雾面段交替（雾面段零字符泄露，KTD4） */
+	segments: FlashbackRosterSegment[];
 }
 
 export interface FlashbackRosterEntry {
@@ -184,8 +191,17 @@ export interface FlashbackCapsuleMe {
 	} | null;
 	/** 选定金句（R14 摘要卡；off/未选为 null） */
 	quote?: string | null;
-	/** 本人当年答案雾化版（R15 全文卡） */
-	answers: FlashbackRosterAnswer[];
+	/** 本人当年答案雾化版（R15 全文卡；text 形态——me 面 SDL 独立，本人导出用） */
+	answers: FlashbackMeAnswer[];
+}
+
+/** 本人答案（胶囊 me / 全文卡导出）：雾化版 text + 完整原文与区间（KTD4 本人完整） */
+export interface FlashbackMeAnswer {
+	id: string;
+	questionKey: string;
+	rawText: string;
+	fogSpans?: FlashbackFogSpan[] | null;
+	text: string;
 }
 
 export interface FlashbackCapsule {
@@ -498,7 +514,11 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					}
 					answers {
 						questionKey
-						text
+						segments {
+							text
+							fog
+							len
+						}
 					}
 				}
 			}

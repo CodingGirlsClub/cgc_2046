@@ -3080,10 +3080,17 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:text, non_null(:string))
   end
 
-  object :flashback_roster_answer do
-    @desc "当年答案（对外版）：雾面区间已按 ▓▓ 遮蔽，原文字符不出现"
-    field(:question_key, non_null(:string))
+  object :flashback_roster_segment do
+    @desc "雾面段（对外版）：fog=true 时 text 恒为空——原文字符不出 DOM，len 供视觉档位"
     field(:text, non_null(:string))
+    field(:fog, non_null(:boolean))
+    field(:len, non_null(:integer))
+  end
+
+  object :flashback_roster_answer do
+    @desc "当年答案（对外版）：段结构——明文段与雾面段交替，雾面段零字符泄露"
+    field(:question_key, non_null(:string))
+    field(:segments, non_null(list_of(non_null(:flashback_roster_segment))))
   end
 
   object :flashback_roster_entry_today do

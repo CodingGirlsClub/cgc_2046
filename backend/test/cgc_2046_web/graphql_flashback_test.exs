@@ -702,7 +702,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
         me { id fullName quoteLevel: quote_level quote answers { questionKey: question_key text } today { sentToWallAt: sent_to_wall_at } }
         archives { key isMine appliedCount: applied_count attendedCount: attended_count
           roster { id surnameMasked: surname_masked sentToWallAt: sent_to_wall_at
-            today { nowStatus: now_status } answers { questionKey: question_key text } } }
+            today { nowStatus: now_status } answers { questionKey: question_key segments { text fog len } } } }
         actionCards { id title status eventId: event_id endorsementCount: endorsement_count endorsedByMe: endorsed_by_me rolesClaimed: roles_claimed }
       } }
       """
@@ -736,8 +736,11 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert sent["today"]["nowStatus"] == "还在写代码"
       # 雾化文本：PII 段 ▓▓ 遮蔽，原文不出现
       [answer] = sent["answers"]
-      assert answer["text"] == "▓▓。喜欢周末骑行。"
-      refute answer["text"] =~ "在盛大做测试"
+      fog = Enum.find(answer["segments"], & &1["fog"])
+      plain = Enum.find(answer["segments"], &(!&1["fog"]))
+      assert fog["len"] == 6 and fog["text"] == ""
+      assert plain["text"] == "。喜欢周末骑行。"
+      refute inspect(answer["segments"]) =~ "在盛大做测试"
 
       [card_payload] = capsule["actionCards"]
       assert card_payload["id"] =~ ~r/^[0-9a-f-]{36}$/

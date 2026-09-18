@@ -160,8 +160,13 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       assert mine_entry.today.now_status == "还在写代码"
       [answer] = mine_entry.answers
       assert answer.question_key == "self_intro"
-      assert answer.text == "▓▓。喜欢周末骑行。"
-      refute answer.text =~ "在盛大做测试"
+
+      # 段结构（雾化升级）：fog 段零字符（原文字符不出投影），明文段完整
+      fog = Enum.find(answer.segments, & &1.fog)
+      plain = Enum.find(answer.segments, &(!&1.fog))
+      assert fog.len == 6 and fog.text == ""
+      assert plain.text == "。喜欢周末骑行。"
+      refute inspect(answer.segments) =~ "在盛大做测试"
 
       # 未寄出者：内容层为空（前端渲染虚线位）
       assert is_nil(other_entry.today)
