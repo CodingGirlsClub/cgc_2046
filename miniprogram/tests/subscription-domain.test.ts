@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import type { SubscriptionScenario } from '../src/domain/models.ts'
+import type { SubscriptionFeedback } from '../src/domain/subscription.ts'
 import {
   ALL_SCENARIOS,
   MAX_TMPL_IDS_PER_REQUEST,
@@ -18,13 +19,17 @@ import {
   enrollmentResultTouchpoint,
   eventCardTouchpoint,
   moderatorTouchpoint,
+  paymentResultTouchpoint,
   preSubmitTouchpoint,
+  refundCardTouchpoint,
+  requestAndGrant,
   submitAfterConsent,
   subscriptionTransport,
+  workspaceOpsTouchpoint,
   workspaceTouchpoint
 } from '../src/domain/subscription.ts'
 
-/** 全量触点的「正常态」取样（M0–M5）；payment_pending 与终态另有专门断言。 */
+/** 全量触点的「正常态」取样（M0–M8）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
   preSubmitTouchpoint('event'),
   preSubmitTouchpoint('course'),
@@ -33,39 +38,38 @@ const allTouchpoints = () => [
   enrollmentCardTouchpoint('event'),
   enrollmentCardTouchpoint('course'),
   workspaceTouchpoint(),
-  moderatorTouchpoint()
+  moderatorTouchpoint(),
+  paymentResultTouchpoint(false),
+  paymentResultTouchpoint(true),
+  refundCardTouchpoint(),
+  workspaceOpsTouchpoint()
 ]
 
 /**
  * 确实没有触点的场景（显式缺口表，#664 审计）——后端镜像清单 =
  * `notification_worker_test.exs` 的 @scenario_gaps，逐键「谁收 / 为什么没入口 /
- * 挂哪」见那里的注释与 #683（6 键授权入口补齐）。
+ * 挂哪」见那里的注释。#683 已把 6 键全部补齐触点，本表清空但**结构保留**：
+ * 未来新增无入口场景必须在此登记（否则下方 uncovered 断言红），登记数写死 0
+ * ——改本表/本数 = 有意识的决定。
  *
  * 纪律与后端同款：改这份列表 = 有意识承认一个缺口；补了触点必须同步删行
  * （下面「每个场景至少一个触点」守卫会红）。两个列表各自自洽：某一侧补了入口
  * 而没删行，那一侧必红。
  */
-const UNCOVERED_SCENARIOS: SubscriptionScenario[] = [
-  'enrollment_submitted',
-  'payment_succeeded',
-  'refund_succeeded',
-  'refund_failed',
-  'payment_received',
-  'payment_expired'
-]
+const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 12 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 12)
-    assert.equal(new Set(ALL_SCENARIOS).size, 12)
+  test('恰好 20 个场景，无重复', () => {
+    assert.equal(ALL_SCENARIOS.length, 20)
+    assert.equal(new Set(ALL_SCENARIOS).size, 20)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {
     const covered = new Set(allTouchpoints().flatMap((t) => t?.scenarios ?? []))
     const gaps = new Set<SubscriptionScenario>(UNCOVERED_SCENARIOS)
 
-    // 缺口数先钉死：防「新场景被随手塞进缺口表」与「缺口表被清空」蒙混过关
-    assert.equal(gaps.size, 6, `缺口数变了：${[...gaps].sort().join(', ')}`)
+    // 缺口数先钉死（#683 后为 0）：防「新场景被随手塞进缺口表」蒙混过关
+    assert.equal(gaps.size, 0, `缺口数变了：${[...gaps].sort().join(', ')}`)
 
     // 缺口表不得腐烂：缺口键与场景表互补——一旦某键进入 ALL_SCENARIOS（= 补入口
     // 的第一步），必须同步从本表移除，否则这里红。
@@ -98,6 +102,41 @@ describe('场景键集', () => {
       !preSubmitTouchpoint('course').scenarios.includes('enrollment_check_in_code'),
       '课程报名收不到核销码通知，不应请求其授权'
     )
+  })
+})
+
+describe('M6/M7/M8（#683 新触点）', () => {
+  test('M6 支付页双态：同一场景集 [payment_succeeded, event_reminder]，label 按态分派', () => {
+    const pending = paymentResultTouchpoint(false)
+    const paid = paymentResultTouchpoint(true)
+
+    // 场景集双态一致（同函数分派 label，场景不许漂移）；恰 2 个（≤3 上限）
+    assert.deepEqual(pending.scenarios, ['payment_succeeded', 'event_reminder'])
+    assert.deepEqual(paid.scenarios, pending.scenarios)
+
+    // pending 态文案聚焦「支付结果」（引导付款前授权），paid 态并入活动提醒
+    assert.equal(pending.label, '订阅支付结果通知')
+    assert.equal(paid.label, '订阅支付与活动通知')
+  })
+
+  test('M7 付费卡：退款三键恰满 3（资金类付款人腿一次问齐）', () => {
+    const touchpoint = refundCardTouchpoint()
+    assert.deepEqual(touchpoint.scenarios, ['refund_succeeded', 'refund_failed', 'payment_expired'])
+    // 文案必须覆盖三键语义（裁决收紧 1）：label 提「退款与订单变动」，不只写「退款到账」
+    assert.match(touchpoint.label, /退款与订单变动/)
+  })
+
+  test('M8 工作台第二按钮：管理者三键恰满 3（#585 加成班结果），与 M4 互不重叠', () => {
+    const ops = workspaceOpsTouchpoint()
+    assert.deepEqual(ops.scenarios, [
+      'enrollment_submitted',
+      'payment_received',
+      'event_qualification_manager'
+    ])
+
+    const m4 = workspaceTouchpoint()
+    const overlap = ops.scenarios.filter((scenario) => m4.scenarios.includes(scenario))
+    assert.deepEqual(overlap, [], `M4/M8 场景重叠：${overlap.join(', ')}`)
   })
 })
 
@@ -143,7 +182,7 @@ describe('触点不变式', () => {
 })
 
 describe('M1 报名结果页（按报名状态分派）', () => {
-  test('pending → 审批结果 + 开班/未达阈值，恰 3 个', () => {
+  test('pending → 审批结果 + 成班/未达阈值，恰 3 个', () => {
     const touchpoint = enrollmentResultTouchpoint('pending')!
     assert.deepEqual(touchpoint.scenarios, [
       'approval_result',
@@ -152,14 +191,14 @@ describe('M1 报名结果页（按报名状态分派）', () => {
     ])
   })
 
-  test('已通过（confirmed）→ 活动提醒 + 开班/未达阈值', () => {
+  test('已通过（confirmed）→ 活动提醒 + 成班/未达阈值', () => {
     const touchpoint = enrollmentResultTouchpoint('confirmed')!
     assert.deepEqual(touchpoint.scenarios, [
       'event_reminder',
       'event_qualification_confirmed',
       'event_qualification_underfilled'
     ])
-    assert.match(touchpoint.label, /开班/)
+    assert.match(touchpoint.label, /成班/)
   })
 
   test('待付款（payment_pending）→ 无触点（保持既有 !paymentPending 口径，支付页再问）', () => {
@@ -208,8 +247,12 @@ describe('M4/M5 管理面', () => {
     ])
   })
 
-  test('活动详情（主理人）→ 主理人指派', () => {
-    assert.deepEqual(moderatorTouchpoint().scenarios, ['event_moderator_assigned'])
+  test('活动详情（主理人）→ 主理人指派 + 移除（#538 双键，2/3 ≤ 单次上限）', () => {
+    assert.deepEqual(moderatorTouchpoint().scenarios, [
+      'event_moderator_assigned',
+      'event_moderator_removed'
+    ])
+    assert.match(moderatorTouchpoint().label, /指派与变动/)
   })
 })
 
@@ -356,6 +399,99 @@ describe('M0 报名提交前授权（#546/#664 顺序契约）', () => {
       ),
       /容量已满/
     )
+  })
+})
+
+describe('M1–M8 订阅按钮（requestAndGrant，#693 收敛）', () => {
+  // 7 处页面按钮的同构 handler 收敛后的 fail-closed 守卫：分支语义若被改坏
+  // （比如 grant 了未被接受的场景、拒绝时误报成功、抛错穿透页面），这里必红。
+  const deps = (
+    request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>,
+    calls: string[],
+    feedbacks: SubscriptionFeedback[]
+  ) => ({
+    request,
+    grant: async (scenario: SubscriptionScenario) => void calls.push(`grant:${scenario}`),
+    notify: (feedback: SubscriptionFeedback) => void feedbacks.push(`${feedback.kind}:${feedback.title}`)
+  })
+
+  test('部分接受：只 grant 被接受的场景，顺序 = 接受顺序，反馈 accepted', async () => {
+    const calls: string[] = []
+    const feedbacks: string[] = []
+    // 请求 3（refund_succeeded/refund_failed/payment_expired）只接受后 2 个，
+    // 且接受顺序与请求顺序不同——grant 必须恰好是被接受的 2 个、按接受顺序
+    const touchpoint = refundCardTouchpoint()
+    await requestAndGrant(
+      touchpoint,
+      deps(async () => ['payment_expired', 'refund_failed'], calls, feedbacks)
+    )
+
+    assert.deepEqual(calls, ['grant:payment_expired', 'grant:refund_failed'])
+    assert.deepEqual(feedbacks, [`accepted:${touchpoint.acceptedCopy}`])
+  })
+
+  test('拒绝全部（accepted 为空）→ 零 grant，反馈 denied', async () => {
+    const calls: string[] = []
+    const feedbacks: string[] = []
+    const touchpoint = refundCardTouchpoint()
+    await requestAndGrant(
+      touchpoint,
+      deps(async () => [], calls, feedbacks)
+    )
+
+    assert.deepEqual(calls, [])
+    assert.deepEqual(feedbacks, [`denied:${touchpoint.deniedCopy}`])
+  })
+
+  test('request 抛错（Error）→ 零 grant，反馈 error 带原信息，helper 不 reject', async () => {
+    const calls: string[] = []
+    const feedbacks: string[] = []
+    await requestAndGrant(
+      refundCardTouchpoint(),
+      deps(async () => {
+        throw new Error('订阅授权失败')
+      }, calls, feedbacks)
+    )
+
+    assert.deepEqual(calls, [])
+    assert.deepEqual(feedbacks, ['error:订阅授权失败'])
+  })
+
+  test('request 抛非 Error 值 → 兜底文案与其余触点统一「订阅失败」（#693 裁决）', async () => {
+    const feedbacks: string[] = []
+    await requestAndGrant(
+      refundCardTouchpoint(),
+      deps(
+        async () => {
+          throw '神秘字符串'
+        },
+        [],
+        feedbacks
+      )
+    )
+
+    assert.deepEqual(feedbacks, ['error:订阅失败'])
+  })
+
+  test('grant 中途抛错 → 已 grant 的保留、反馈 error，helper 不 reject', async () => {
+    const calls: string[] = []
+    const feedbacks: string[] = []
+    await requestAndGrant(
+      refundCardTouchpoint(),
+      {
+        request: async () => ['refund_succeeded', 'refund_failed', 'payment_expired'],
+        grant: async (scenario) => {
+          calls.push(`grant:${scenario}`)
+          if (scenario === 'refund_failed') throw new Error('Consent grant failed')
+        },
+        notify: (feedback) => void feedbacks.push(`${feedback.kind}:${feedback.title}`)
+      }
+    )
+
+    // 第 1 个已上报成功保留，第 2 个失败即收口 error——与收敛前 7 处页面
+    // handler 的 try/catch 语义逐字一致（同一个 catch 接住 request 与 grant）
+    assert.deepEqual(calls, ['grant:refund_succeeded', 'grant:refund_failed'])
+    assert.deepEqual(feedbacks, ['error:Consent grant failed'])
   })
 })
 

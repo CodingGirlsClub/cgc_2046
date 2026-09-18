@@ -43,6 +43,8 @@ export const COPY: Record<string, string> = {
   // 收费档位
   enrollment_tier_id_required: '该报名为收费项，请先选择价格档位。',
   enrollment_tier_not_available: '所选档位已过期或不可用，请重新选择。',
+  // #687 脏金额档位下单 fail-closed（展示侧「金额待定」禁选，此为后端兜底）
+  order_tier_amount_invalid: '所选档位金额异常，请联系组织者。',
   // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
   enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
   // 现场核销（#508-A；与 web zh-CN errors 命名空间同文案互指）

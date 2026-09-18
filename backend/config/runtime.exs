@@ -190,8 +190,11 @@ if config_env() == :prod do
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -215,8 +218,11 @@ if config_env() == :prod do
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -240,8 +246,11 @@ if config_env() == :prod do
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_CONFIRMED"),
       "event_qualification_underfilled" =>
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_UNDERFILLED"),
+      "event_qualification_manager" =>
+        System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
-      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED")
+      "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     }
   }
 

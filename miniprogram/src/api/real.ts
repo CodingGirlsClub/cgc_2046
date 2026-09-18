@@ -120,6 +120,7 @@ type ContentRecord = (EventRecord | CourseRecord) &
     depositAmountCents: number | null
     initiativeId: string | null
     minAge: number | null
+    publicModerators: string[] | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
@@ -160,6 +161,7 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     endsAt: record.endsAt,
     venue: 'venue' in record ? record.venue : null,
     initiativeId: record.initiativeId ?? null,
+    publicModerators: record.publicModerators ?? null,
     enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge),
     myEnrollment: mapMyEnrollment(myEnrollment)
   }

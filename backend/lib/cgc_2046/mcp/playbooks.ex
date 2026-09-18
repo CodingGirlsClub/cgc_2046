@@ -242,6 +242,7 @@ defmodule Cgc2046.Mcp.Playbooks do
      - list_workspace_events(workspace_id, status?) 列出本台全部活动(含 draft),返回报名状态徽章 enrollment_badge 与解除挂载来源标记 detached_rule_provenance(无标记为 null);
      - preview_initiative_mount(workspace_id, initiative_id) 挂载前预览:读该 Initiative 四项规则(押金/年龄/人数/报名截止)的原始值与锁态(locked=挂载后强制且不可改;locked=false=挂载时按当时取值快照,之后可改),missing_rules 非空或 status 非 open 即挂载必失败——先把这些如实复述给用户再决定挂不挂;
      - create_event(workspace_id, title, ...) 直接写,创建 draft 活动;title 必填;venue(结构化场地 country/province/city/district 四键)与 sponsorship_enabled / sponsorship_tiers / sponsorship_deadline(赞助入口与档位) 为活动独有概念,课程工具无对应字段;带 initiative_id 挂载时会按规则强制写入押金/年龄/人数/报名截止,响应 inherited 逐字段给出「本次生效的值与来源(locked/default)」、initiative 给出所挂 Initiative——必须据此复述被强制的字段,不要只说"已挂载";
+     - batch_create_events(workspace_id, rows) 批量创建 draft 活动(#511):一次建多场(每行一个活动,字段同 create_event 且多余字段丢弃,行数上限 1024),适合「同构模板 × 城市/场地/时间差异」的批量场次(如 1024 Build Festival);**每行 slug 必填**——确定性 slug 就是幂等键,重放同批次时已存在的行(同 slug 同工作台)返回 skipped(已存在,未改动,数据以首次为准),不重复创建;slug 被其他工作台占用则该行失败报 event_slug_taken;命名模板由你(调用侧)决定(如 1024-<城市拼音>-<三位序号>),不要省略 slug 让系统生成随机值——随机 slug 会毁掉幂等;失败行在响应 rows 里给 行号+字段+原因,修正后把失败行原样重喂即可(已成功行会 skipped);行级只回 row/status/slug/title/event_id(失败行另有 error:{code,fields,message}),initiative 挂载的继承结果不回传,需要时用 list_workspace_events 逐场查;大批量参数会让审计存证退化为元数据摘要(仅保留 workspace_id 等查询锚,不是审计丢失);
      - update_event(workspace_id, event_id, ...) 改标题/描述/场地/定价/报名策略/赞助配置等;pricing_enabled 改 false 会批量免缴该活动全部待支付报名(与课程同语义,摘要展示受影响笔数);改 initiative_id 会换挂载并按新规则重新快照,响应 inherited 同款回传(未改挂载时只回 locked 项),响应另恒带 detached_rule_provenance(解除挂载来源标记,无则 null);
      - 解除挂载(detach)语义:活动可能在网站侧被解除挂载(initiative_id → nil;本工具的 initiative_id 传 nil = 未提供,不能 detach)。detach 不回收平台锁死规则强制写入的值——值留在活动上、回归普通可编辑字段;响应与 list_workspace_events 行的 detached_rule_provenance 标记这些值来自哪个已解除的倡导活动(逐字段 value + source=locked),无标记为 null。看到标记先向用户复述「该字段的值来自已解除的倡导活动《name》,尚未被本地改写」再按用户决定编辑;编辑标记内字段即清除该字段标记(全部清空后整列 null),编辑未标记字段(标题/时间等)不动标记;重挂载会清空整列并按新规则覆盖旧值,响应 inherited 同款回传;
      - launch_event(workspace_id, event_id) 发布 draft → open;
@@ -254,7 +255,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   10. 角色边界:管理模式不创作课程内容;课程创建与配置完成后,把 issue 卡与 objectives 创作转交 Tutor 模式;
   11. get_workspace_context(workspace_id) 读取工作台基本信息与你在其中的角色。
 
-  确认流纪律:上述写操作（除 create_course 与 create_event）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
+  确认流纪律:上述写操作（除 create_course、create_event 与 batch_create_events）第一次调用不会真正执行,返回 needs_confirmation + pending_id + summary——
   先把 summary 复述给用户,再用宿主内置 ask_user 弹可点击卡片（选项 确认执行/取消;多个 pending 则每个 pending 一个 question）让用户点击选择:
   点「确认执行」后调 confirm_operation(pending_id);点「取消」或反悔则 cancel_operation(pending_id);
   ask_user 结果出现 auto_reply（无人在场）一律 cancel_operation。未经确认不落库。确认成功后若返回明文凭证(如 invitation_token),
@@ -291,7 +292,7 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-09-17.1", content: @workspace_admin_content},
+    workspace_admin: %{version: "2026-09-17.2", content: @workspace_admin_content},
     tutor: %{version: "2026-09-17.1", content: @tutor_content},
     learner: %{version: "2026-09-17.1", content: @learner_content}
   }

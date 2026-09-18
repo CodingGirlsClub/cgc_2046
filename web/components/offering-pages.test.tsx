@@ -823,6 +823,48 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("押金场 payment_pending 既有报名 → 继续支付开框即停同意门，未勾选零创单（#686）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-deposit",
+      title: "押金活动",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      depositEnabled: true,
+      depositAmountCents: 6900,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-deposit",
+      status: "payment_pending",
+    });
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）
+    apolloClient.query.mockResolvedValue({
+      data: { myOrders: { results: [] } },
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);
+
+    fireEvent.click(await screen.findByTestId("enrollment-pending-pay"));
+    expect(
+      await screen.findByTestId("checkout-deposit-consent"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("checkout-deposit-consent-button"),
+    ).toBeDisabled();
+    // 未勾选：零创单——披露门不再 fail-open
+    expect(apolloClient.mutate).not.toHaveBeenCalled();
+  });
+
   it("confirmed 既有报名 → 你已报名，不渲染报名表单", async () => {
     mocks.fetchMyEnrollment.mockResolvedValueOnce({
       id: "enr-confirmed",
@@ -2043,6 +2085,48 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     const card = screen.getByText("基本信息").parentElement as HTMLElement;
     expect(within(card).getByText("收费 标准 ¥199")).toBeInTheDocument();
     expect(card.textContent).not.toContain("免费");
+  });
+
+  // #687：脏档位金额不丢档——缴费槽 overview 落「（金额待定）」，绝不出 ¥0
+  it("AE8：定价场脏档位金额 → 缴费槽 overview「金额待定」，无 ¥0（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+          JSON.stringify({ id: "t2", name: "脏档", amount_cents: 0 }),
+        ],
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(
+      within(card).getByText("收费 标准 ¥199 / 脏档（金额待定）"),
+    ).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+  });
+
+  // #687：代报名选档行——脏档可见但禁选，默认选档跳过脏档落在首个有效档
+  it("脏档在前：选档行金额待定 + 禁选，默认选中首个有效档（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t-dirty", name: "脏档", amount_cents: 0 }),
+          JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+        ],
+      }),
+    );
+
+    const dirty = await screen.findByTestId("price-tier-t-dirty");
+    expect(dirty).toHaveTextContent("金额待定");
+    expect(dirty.querySelector("input")).toBeDisabled();
+    const clean = screen.getByTestId("price-tier-t-clean");
+    expect(clean.querySelector("input")).toBeChecked();
+    expect(dirty.textContent).not.toContain("¥0");
   });
 
   it("新建 event 选押金填 69 → payload 三态互斥（押金开、档位清空）", async () => {

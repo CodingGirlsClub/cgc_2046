@@ -252,6 +252,40 @@ describe("公开收费详情页档位选择（e2e #3）", () => {
     expect(screen.queryByTestId("price-tier-tier-1")).not.toBeInTheDocument();
   });
 
+  // #687：脏档位金额（0/负/非整数分/缺失）→ 档位行保留、金额「金额待定」+ radio
+  // 禁选（隐藏档位副作用更大），全文绝不出 ¥0/¥0.00——有效档照常可选可支付。
+  it.each([
+    ["0", 0],
+    ["负数", -100],
+    ["非整数分", 0.4],
+    ["缺失", null],
+  ])("档位金额脏（%s）→ 金额待定 + 禁选，不出 ¥0（#687）", async (_label, dirty) => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      availablePriceTiers: [
+        JSON.stringify({ id: "tier-clean", name: "标准", amount_cents: 19900 }),
+        JSON.stringify({ id: "tier-dirty", name: "脏档", amount_cents: dirty }),
+      ],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    // 静态信息块（匿名可见）：脏档金额不表态
+    const infoBlock = await screen.findByTestId("price-tier-info");
+    expect(infoBlock).toHaveTextContent("脏档");
+    expect(infoBlock).toHaveTextContent("金额待定");
+
+    // 选档行（enrollChecked 门控后渲染，findBy 等待）：脏档禁选，有效档照常
+    const dirtyRow = await screen.findByTestId("price-tier-tier-dirty");
+    expect(dirtyRow).toHaveTextContent("金额待定");
+    expect(dirtyRow.querySelector("input")).toBeDisabled();
+    const cleanRow = screen.getByTestId("price-tier-tier-clean");
+    expect(cleanRow).toHaveTextContent("¥199.00");
+    expect(cleanRow.querySelector("input")).not.toBeDisabled();
+
+    expect(document.body.textContent).not.toContain("¥0");
+  });
+
   it("后端 :tier_id_required 错误 → 映射为档位引导文案（错误分支不再死胡同）", async () => {
     mocks.submitEnrollment.mockResolvedValueOnce({
       result: null,
@@ -1438,6 +1472,24 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(note).toHaveTextContent("未到场不退。");
   });
 
+  it("押金场报名开框即停同意门（#686 D4 钉）：公开页把 depositEnabled 随载荷传下去，未勾选零创单", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
+    mocks.submitEnrollment.mockResolvedValueOnce({
+      result: { id: "enr-deposit", status: "payment_pending" },
+      errors: [],
+    });
+    eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
+    apollo.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+    fireEvent.click(await screen.findByRole("button", { name: "提交报名" }));
+
+    expect(
+      await screen.findByTestId("checkout-deposit-consent"),
+    ).toBeInTheDocument();
+    expect(apollo.mutate).not.toHaveBeenCalled();
+  });
+
   it("confirmed 本人报名：报名卡出示 6 位码 + 承载核销 payload 的二维码，并提示勿截图转发", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     eventsMocks.fetchMyEnrollment.mockResolvedValue({
@@ -1552,5 +1604,55 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("公开主理人行（#538）", () => {
+  it("event 多主理人：displayName 优先、缺失回退 memberNumber、· 连接、后端序", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [
+        JSON.stringify({ display_name: "张三", member_number: "CGC-000001" }),
+        JSON.stringify({ display_name: null, member_number: "CGC-000002" }),
+      ],
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByText("本场主理人")).toBeInTheDocument();
+    expect(screen.getByTestId("public-detail-moderators")).toHaveTextContent(
+      "张三 · CGC-000002",
+    );
+  });
+
+  it("空名单 / 脏 JsonString：整行不渲染（无主理人不占版面）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [],
+    });
+    const { unmount } = render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
+    unmount();
+
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: ["not-json"],
+    });
+    render(<PublicOfferingDetailPage kind="event" />);
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
+  });
+
+  it("course 不渲染（查询无该字段，kind 门优先于数据）", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      publicModerators: [JSON.stringify({ display_name: "张三", member_number: "CGC-000001" })],
+    });
+
+    render(<PublicOfferingDetailPage kind="course" />);
+
+    expect(await screen.findByText("报名方式")).toBeInTheDocument();
+    expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
   });
 });

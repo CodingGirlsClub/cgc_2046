@@ -1136,6 +1136,22 @@ export type CreateWorkspaceResult = {
   result?: Maybe<Workspace>;
 };
 
+/** The result of the :delete_course mutation */
+export type DeleteCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Course>;
+};
+
+/** The result of the :delete_event mutation */
+export type DeleteEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Event>;
+};
+
 /** The result of the :disable_invite_batch mutation */
 export type DisableInviteBatchResult = {
   /** Any errors generated, if the mutation failed */
@@ -1153,6 +1169,7 @@ export type Enrollment = {
   /** 6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null） */
   checkInCode?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -1570,6 +1587,8 @@ export type Event = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人） */
+  publicModerators?: Maybe<Array<Scalars['JsonString']['output']>>;
   qualificationBadge?: Maybe<Scalars['String']['output']>;
   /** 成班事实：pending / confirmed / underfilled */
   qualificationStatus: Scalars['String']['output'];
@@ -2108,9 +2127,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 
@@ -3960,6 +3983,10 @@ export type RootMutationType = {
   createWorkspaceApplication: CreateWorkspaceApplicationResult;
   /** Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效） */
   declineSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
+  /** 删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676） */
+  deleteCourse: DeleteCourseResult;
+  /** 删除草稿活动：仅 draft；不可恢复；slug 释放（#676） */
+  deleteEvent: DeleteEventResult;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   deletePortfolioItem?: Maybe<PortfolioItem>;
   /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
@@ -4247,6 +4274,16 @@ export type RootMutationTypeCreateWorkspaceApplicationArgs = {
 
 export type RootMutationTypeDeclineSpeakerInvitationArgs = {
   token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeDeleteCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeDeleteEventArgs = {
+  id: Scalars['ID']['input'];
 };
 
 

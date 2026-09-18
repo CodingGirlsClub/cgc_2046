@@ -12,7 +12,7 @@ import styles from './index.module.css'
 export function InitiativeContent({ data }: { data: PublicInitiative }) {
   const counters = [
     ['城市', data.cityCount], ['场次', data.eventCount],
-    ['报名', data.confirmedCount], ['开成', data.qualifiedEventCount]
+    ['报名', data.confirmedCount], ['成班', data.qualifiedEventCount]
   ] as const
 
   return (
