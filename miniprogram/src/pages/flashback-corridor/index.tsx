@@ -25,6 +25,7 @@ type Mode =
 
 const NO_CARDS = { endorsed: [] as FlashbackMyActionCard[], open: [] as FlashbackMyActionCard[] }
 
+
 /**
  * 长廊（mp 版原型 F corridor；R12/R32/R34）：垂直时间墙「↓ 下滑 = 时间前进」+
  * 城市堆（确定性转角 + 错峰显影）+ ⚡今天格 + 未来行动卡，点格进场次页。

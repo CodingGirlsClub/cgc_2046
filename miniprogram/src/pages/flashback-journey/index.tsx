@@ -15,6 +15,7 @@ import {
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
 import styles from './index.module.css'
 
+
 type Phase =
   | { kind: 'boot' }
   | { kind: 'invalid'; code: FlashbackTokenInvalidCode }
