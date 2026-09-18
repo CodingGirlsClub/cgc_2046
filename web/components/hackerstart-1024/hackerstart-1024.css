@@ -191,6 +191,23 @@
 	margin: 0 0 12px;
 }
 .hs24-title em { font-style: normal; color: #c9497d; }
+
+/* Give and Take 引言（volunteer 深读区）：小号引文块，区别于 38px 标题 */
+.hs24-epi {
+	font-size: 20px;
+	line-height: 1.75;
+	color: #4b4d54;
+	max-width: 44em;
+	margin: 0 0 20px;
+}
+.hs24-epi em {
+	display: block;
+	margin-top: 8px;
+	font-style: normal;
+	font-size: 13px;
+	letter-spacing: 0.06em;
+	color: #b9b3c2;
+}
 .hs24-lead {
 	font-size: 16.5px;
 	line-height: 1.85;
