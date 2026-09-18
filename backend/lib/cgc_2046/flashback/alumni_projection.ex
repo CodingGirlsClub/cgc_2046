@@ -241,7 +241,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           order_by: [asc: p.full_name],
           select: %{
             archive_event_id: p.archive_event_id,
-            id: p.id,
+            # uuid 文本化：裸查询默认返回 16 字节 binary，:id 标量序列化会炸
+            id: fragment("?::text", p.id),
             surname: p.surname,
             full_name: p.full_name,
             city: p.city,
@@ -268,7 +269,9 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           where: a.question_key in ["self_intro", "funny_thing", "os", "social_media"],
           order_by: [asc: a.inserted_at],
           select: %{
-            person_id: a.person_id,
+            # 文本化与 roster entry 的 id（::text）同型——attach_content 的
+            # Map.get join 才能命中（binary key 对 text id 会静默失配）
+            person_id: fragment("?::text", a.person_id),
             question_key: a.question_key,
             raw_text: a.raw_text,
             fog_spans: a.fog_spans
@@ -341,11 +344,11 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           group_by: [c.id, c.title, c.city, c.status, c.event_id, ev.slug, c.inserted_at],
           order_by: [asc: c.inserted_at],
           select: %{
-            id: c.id,
+            id: fragment("?::text", c.id),
             title: c.title,
             city: c.city,
             status: c.status,
-            event_id: c.event_id,
+            event_id: fragment("?::text", c.event_id),
             event_slug: ev.slug,
             endorsement_count: count(e.id),
             endorsed_by_me: fragment("BOOL_OR(? = ?)", e.person_id, ^uuid_param(person_id)),

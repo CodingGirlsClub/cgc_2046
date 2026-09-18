@@ -125,12 +125,13 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
     |> Ash.create!(authorize?: false)
   end
 
-  defp create_answer(person, key \\ "self_intro", text \\ "我在盛大做测试，想亲眼看看是不是。") do
+  defp create_answer(person, key \\ "self_intro", text \\ "我在盛大做测试，想亲眼看看是不是。", fog_spans \\ nil) do
     Flashback.Answer
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       question_key: key,
-      raw_text: text
+      raw_text: text,
+      fog_spans: fog_spans
     })
     |> Ash.create!(authorize?: false)
   end
@@ -656,6 +657,78 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       res = post_as_user(endorse_query, user)
       assert [%{"code" => "flashback_person_not_bound"}] = res["errors"]
+    end
+  end
+
+  describe "flashbackCapsule 全字段冒烟（实测 bug：uuid binary 炸 Jason 序列化）" do
+    test "roster/actionCards 的 id 经完整字段 query 可 JSON 序列化且为 uuid 文本" do
+      archive = create_archive()
+      person = create_person(archive)
+      other = create_person(archive, %{full_name: "李雷", surname: "李"})
+
+      # 李雷寄出（带雾面答案），本人不寄出（虚线位分支同场覆盖）
+      create_answer(other, "self_intro", "在盛大做测试。喜欢周末骑行。", [%{"start" => 0, "len" => 6}])
+
+      Today
+      |> Ash.Changeset.for_create(:create, %{person_id: other.id})
+      |> Ash.create!(authorize?: false)
+      |> Ash.Changeset.for_update(:update, %{
+        sent_to_wall_at: DateTime.utc_now(),
+        now_status: "还在写代码"
+      })
+      |> Ash.update!(authorize?: false)
+
+      card =
+        Cgc2046.Flashback.ActionCard
+        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
+        |> Ash.create!(authorize?: false)
+
+      {plain, _token} = issue_token(person)
+
+      query = """
+      query { flashbackCapsule(token: "#{plain}") {
+        me { id fullName quote answers { questionKey: question_key text } today { sentToWallAt: sent_to_wall_at } }
+        archives { key isMine appliedCount: applied_count attendedCount: attended_count
+          roster { id surnameMasked: surname_masked sentToWallAt: sent_to_wall_at
+            today { nowStatus: now_status } answers { questionKey: question_key text } } }
+        actionCards { id title status eventId: event_id endorsementCount: endorsement_count endorsedByMe: endorsed_by_me rolesClaimed: roles_claimed }
+      } }
+      """
+
+      res =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+        |> json_response(200)
+
+      # 修复前此处是 500（Jason.EncodeError：裸查询 id 为 16 字节 binary）
+      refute Map.has_key?(res, "errors")
+
+      capsule = res["data"]["flashbackCapsule"]
+      assert capsule["me"]["id"] =~ ~r/^[0-9a-f-]{36}$/
+
+      [archive_payload] = capsule["archives"]
+      assert length(archive_payload["roster"]) == 2
+
+      for entry <- archive_payload["roster"] do
+        assert entry["id"] =~ ~r/^[0-9a-f-]{36}$/
+      end
+
+      quiet = Enum.find(archive_payload["roster"], &(&1["surnameMasked"] == "王**"))
+      assert quiet["today"] == nil
+      assert quiet["answers"] == []
+
+      sent = Enum.find(archive_payload["roster"], &(&1["surnameMasked"] == "李*"))
+      assert sent["today"]["nowStatus"] == "还在写代码"
+      # 雾化文本：PII 段 ▓▓ 遮蔽，原文不出现
+      [answer] = sent["answers"]
+      assert answer["text"] == "▓▓。喜欢周末骑行。"
+      refute answer["text"] =~ "在盛大做测试"
+
+      [card_payload] = capsule["actionCards"]
+      assert card_payload["id"] =~ ~r/^[0-9a-f-]{36}$/
+      assert card_payload["endorsementCount"] == 0
+      assert card_payload["rolesClaimed"] == []
     end
   end
 end
