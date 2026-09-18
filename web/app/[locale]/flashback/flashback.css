@@ -56,7 +56,8 @@
 }
 .fb-develop { animation: fb-develop var(--fb-develop-dur) ease-out forwards; }
 
-/* 弱显影：墙上/散照的「还没认领」持续感（散照卡经 .fb-scatter-photo 组合动画挂载） */
+/* 弱显影：墙上/散照/长廊城市堆的「还没认领」持续感
+   （散照卡经 .fb-scatter-photo 组合动画挂载；城市堆经 .fb-corridor-polaroid--develop） */
 @keyframes fb-develop-soft {
 	0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
 	100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
@@ -621,33 +622,56 @@
 	background: radial-gradient(70% 60% at 30% 20%, rgba(203, 191, 143, 0.09), transparent);
 }
 
-/* 名册（R12 分层） */
+/* ── 城市照片堆（用户定稿 D / 原型 mobile-journey corridor 步的生产化） ──
+   一帧只留城市照片堆 + 「进入这一场 →」入口（逐个名册归场次页 3 列网格）：
+   每城一张小拍立得（纸白 + grain + 城市名，原型 84px 档）+ 下方「城市 · n 位」
+   小字。转角按城市名确定性派生（tilt 类，无随机）。 */
+.fb-corridor-piles {
+	list-style: none;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px 12px;
+	margin: 0;
+	padding: 0;
+}
+.fb-corridor-pile { text-align: center; }
+.fb-corridor-polaroid {
+	width: 84px;
+	padding: 5% 5% 0;
+	transform: rotate(var(--fb-r, 0deg));
+}
+.fb-corridor-photo {
+	display: grid;
+	place-items: center;
+	font-size: 10px;
+	color: #4a463f;
+}
+.fb-corridor-count { font-size: 9px; color: var(--fb-sub); margin: 6px 0 0; }
+/* 显影：--pending 前置态（未进视口）→ --develop 弱显影（只播一次）；
+   pile 间 0.3s 错峰（原型 pile 的 0.3s 档，2.8s 慢显影留给「还没认领」的持续感） */
+.fb-corridor-polaroid--pending { opacity: 0.1; filter: blur(18px) brightness(1.6); }
+.fb-corridor-polaroid--develop {
+	animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out both;
+}
+.fb-corridor-pile:nth-child(2) .fb-corridor-polaroid--develop { animation-delay: 0.3s; }
+.fb-corridor-pile:nth-child(3) .fb-corridor-polaroid--develop { animation-delay: 0.6s; }
+.fb-corridor-pile:nth-child(4) .fb-corridor-polaroid--develop { animation-delay: 0.9s; }
+
+/* 名册（R12 分层；场次页 3 列网格——长廊收口 D 后不再挂名册） */
 .fb-roster-meta { color: #77726a; font-size: 11px; margin: 0 0 10px; }
-/* 名册错落（用户定稿 ②，原型 B/D 照片堆语言）：两列 masonry（columns
-   先纵后横天然错落）+ 每卡确定性旋转（tilt 类按 person id hash）+ 偶数卡
-   半卡高偏移。宽窄屏同构（手机竖滑两列照旧）。 */
+/* 整齐的名册网格：3 列拍立得（错落感归长廊的城市照片堆，名册回到可数的格子） */
 .fb-roster-grid {
 	list-style: none;
 	padding: 0;
 	margin: 0;
-	columns: 2;
-	column-gap: 14px;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 14px;
 }
 .fb-roster-card {
-	break-inside: avoid;
-	display: inline-block;
-	width: 100%;
-	vertical-align: top;
-	/* 偶数卡下沉半卡错位（columns 内 margin 参与流，制造间距不均感） */
-	margin: 0 0 14px;
-	/* 旋转档位（tiltClass 注入 --r）；keyframes 渐入也用同变量防覆盖 */
+	/* 旋转档位（tiltClass 注入 --fb-r）：确定性转角，无随机 */
 	transform: rotate(var(--fb-r, 0deg));
 }
-/* 错落校准（第 7b 件，对照 D 照片堆 rotate ((i*53)%15)-7 → ±7° 的量级）：
-   旋转五档放宽到 ±6°，垂直错位不再只认奇偶——3 个档位交替（0/26/9px），
-   两列各自起始高度也不同，读起来更像随手摊在桌上的照片。 */
-.fb-roster-card:nth-child(2n) { margin-top: 26px; }
-.fb-roster-card:nth-child(4n+1) { margin-top: 9px; }
 .fb-tilt--0 { --fb-r: -6deg; }
 .fb-tilt--1 { --fb-r: -3deg; }
 .fb-tilt--2 { --fb-r: 0.5deg; }
@@ -685,49 +709,10 @@
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
 .fb-roster-facts { font-size: 10px; opacity: 0.65; }
-/* 折叠（用户改进：叠照隐喻）——首屏 + 叠层边缘暗示 + 展开 stagger */
-.fb-roster-card--stacked {
-	background: transparent;
-	border: none;
-	box-shadow: none;
-	position: relative;
-	min-height: 120px;
-	/* 叠层边缘：三层错位描边模拟照片堆 */
-}
-.fb-roster-card--stacked::before,
-.fb-roster-card--stacked::after {
-	content: "";
-	position: absolute;
-	inset: 4px 6px auto 2px;
-	height: 96px;
-	border: 1px solid rgba(239, 233, 219, 0.22);
-	border-radius: 6px;
-	background: rgba(239, 233, 219, 0.05);
-}
-.fb-roster-card--stacked::before { transform: rotate(-2.4deg); }
-.fb-roster-card--stacked::after { transform: rotate(1.8deg) translate(6px, 5px); }
-.fb-roster-card--stacked .fb-roster-name {
-	position: absolute;
-	bottom: 6px;
-	left: 12px;
-	font-size: 12px;
-	color: #a09a8f;
-	z-index: 1;
-}
-.fb-roster-toggle {
-	margin-top: 12px;
-	background: none;
-	border: none;
-	padding: 0;
-	color: var(--fb-accent);
-	font-size: 13px;
-	text-decoration: underline;
-	cursor: pointer;
-}
 /* ── 名册显影（第 7a 件：对齐原型 D 的 develop-soft 节奏） ──────────────
    进入视口才从模糊到清晰（blur→0），只播一次；滚动进视口的新卡同样显影。
    两态：--pending（未进视口的前置态，静态）+ --develop（进视口后播动画，
-   both 填充保证延迟期间停在 0% 帧）。JS 侧见 event-roster.tsx useDevelopOnView。
+   both 填充保证延迟期间停在 0% 帧）。JS 侧见 use-develop-on-view.ts。
    注意：这里仍是 animation 简写——同一元素不要再挂第二条同类简写（第 5 件陷阱）。 */
 @keyframes fb-roster-develop {
 	0% { opacity: 0.12; filter: blur(14px) brightness(1.35); }
@@ -862,20 +847,6 @@
 	flex: 1;
 }
 
-/* 场次页（E 的 event 步）：3 列拍立得网格——已寄出=显影卡带名字，
-   未回来=雾卡；不折叠、垂直错位归零（整齐的名册视图，与长廊的错落 masonry 区分） */
-.fb-roster-grid--grid {
-	columns: auto;
-	display: grid;
-	grid-template-columns: repeat(3, 1fr);
-	gap: 14px;
-}
-.fb-roster-grid--grid .fb-roster-card,
-.fb-roster-grid--grid .fb-roster-card:nth-child(2n),
-.fb-roster-grid--grid .fb-roster-card:nth-child(4n+1) {
-	display: block;
-	margin: 0;
-}
 .fb-event { min-height: 100vh; display: flex; flex-direction: column; padding: 24px 22px 40px; gap: 14px; }
 .fb-event-back { align-self: flex-start; color: #b9b4aa; font-size: 13px; text-decoration: none; }
 .fb-event-title { margin: 0; font-size: 20px; color: #d9d4ca; }
@@ -1153,6 +1124,9 @@
 	/* 名册显影跳过（直达终态；前置态也不再压暗） */
 	.fb-roster-card--develop { animation: none; }
 	.fb-roster-card--pending { opacity: 1; filter: none; }
+	/* 城市堆显影同样跳过（直达终态，弱显影的 0.94 也归 1） */
+	.fb-corridor-polaroid--develop { animation: none; }
+	.fb-corridor-polaroid--pending { opacity: 1; filter: none; }
 	/* 翻面两段动画跳过（JS 侧同时直达目标面，use-card-flip.ts） */
 	.fb-flip-swap--out > *,
 	.fb-flip-swap--in > * { animation: none; }

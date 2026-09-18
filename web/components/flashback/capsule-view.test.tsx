@@ -113,43 +113,28 @@ afterEach(() => {
 	window.sessionStorage.clear();
 });
 
-describe("CapsuleView · 分层墙（R12）", () => {
-	it("结构化卡满员：姓氏隐名 + 城市 + 职业；未寄出者内容位为虚线且无文本泄露", async () => {
+describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
+	it("每帧渲染城市堆：聚合计数 + 城市名 + 「进入这一场 →」（长廊不再有 .fb-roster-*）", async () => {
 		await renderCapsule();
 
-		const cards = screen.getAllByTestId("fb-roster-card");
-		expect(cards).toHaveLength(2);
+		// baseCapsule 名册 2 人同城 → 1 堆「北京 · 2 位」
+		const piles = screen.getAllByTestId("fb-corridor-pile");
+		expect(piles).toHaveLength(1);
+		expect(piles[0].dataset.city).toBe("北京");
+		expect(piles[0].dataset.count).toBe("2");
+		expect(piles[0]).toHaveTextContent("北京 · 2 位");
+		// 拍立得结构：纸白卡 + grain 质感 + 城市名在照片窗内
+		expect(piles[0].querySelector(".fb-corridor-polaroid.fb-grain.fb-polaroid")).toBeTruthy();
+		expect(piles[0].querySelector(".fb-corridor-photo")).toHaveTextContent("北京");
 
-		const quiet = cards.find((card) => card.dataset.sent === "false");
-		expect(quiet).toBeTruthy();
-		expect(quiet).toHaveTextContent("王**");
-		expect(quiet).toHaveTextContent("北京 · 学生");
-		expect(quiet).toHaveTextContent("她的答案，还在等她");
-		// 零文本泄露：未寄出者不出现任何答案内容
-		expect(quiet).not.toHaveTextContent("骑行");
-
-		const sent = cards.find((card) => card.dataset.sent === "true");
-		expect(sent).toBeTruthy();
-		if (!sent) return;
-		// 默认态 = 合着卡面：全名 + 年份·城市 + 回来了微点；内容文字零出现
-		const flip = sent.querySelector('[data-testid="fb-polaroid-flip"]') as HTMLElement;
-		expect(flip).toBeTruthy();
-		expect(flip.dataset.flipped).toBe("false");
-		expect(flip).toHaveTextContent("李雷");
-		expect(flip).toHaveTextContent("2014 · 北京");
-		expect(sent.querySelector(".fb-flip-cover-dot")).toBeTruthy();
-		expect(flip.textContent).not.toContain("骑行");
-		// 点击翻转 → 正面当年答案（雾段）+ 背面今天的她
-		fireEvent.click(flip);
-		expect(flip.dataset.flipped).toBe("true");
-		expect(flip).toHaveTextContent("。喜欢周末骑行。");
-		const fogBlock = flip.querySelector(".fb-fog-block");
-		expect(fogBlock).toBeTruthy();
-		expect(flip).toHaveTextContent("想参加骑行");
-		// 再点翻回卡面态（内容再次不可见）
-		fireEvent.click(flip);
-		expect(flip.dataset.flipped).toBe("false");
-		expect(flip.textContent).not.toContain("骑行");
+		// 入口保留：逐个名册归场次页 3 列网格
+		expect(screen.getByRole("link", { name: "进入这一场 →" })).toHaveAttribute(
+			"href",
+			"/flashback/event/2014-01-11-bj",
+		);
+		// 长廊内零名册元素（卡/网格/统计行都只在场次页）
+		expect(document.querySelector(".fb-corridor .fb-roster-card, .fb-corridor .fb-roster-grid, .fb-corridor .fb-roster-meta")).toBeNull();
+		expect(screen.queryAllByTestId("fb-roster-card")).toHaveLength(0);
 	});
 
 	it("「今天」格：寄出者亮起；token 从 URL 读入后即刻清除", async () => {
@@ -171,55 +156,6 @@ describe("CapsuleView · 分层墙（R12）", () => {
 		expect(today.dataset.sent).toBe("false");
 		expect(today).toHaveTextContent("你的照片还没寄出");
 		expect(screen.getByRole("link", { name: "去寄出它 →" })).toHaveAttribute("href", "/flashback/enter");
-	});
-});
-
-describe("CapsuleView · 名册折叠（叠照，用户改进 1）", () => {
-	const bigRoster = Array.from({ length: 30 }, (_, i) =>
-		rosterEntry({ id: `p-${i}`, surnameMasked: `${String.fromCharCode(0x7389 + (i % 20))}${"*".repeat(1 + (i % 2))}` }),
-	);
-
-	it("大场默认折叠：首屏 12 张 + 叠层暗示 + 展开按钮带总数", async () => {
-		await renderCapsule({
-			...baseCapsule,
-			archives: [{ ...baseCapsule.archives[0], roster: bigRoster }],
-		});
-
-		const grid = screen.getByTestId("fb-roster-grid");
-		expect(grid.dataset.total).toBe("30");
-		// 首屏 12 张真卡；叠层暗示卡 aria-hidden、无 testid（非数据卡）
-		expect(screen.getAllByTestId("fb-roster-card").length).toBe(12);
-		expect(document.querySelector(".fb-roster-card--stacked")).toBeTruthy();
-		const toggle = screen.getByTestId("fb-roster-toggle");
-		expect(toggle).toHaveAttribute("aria-expanded", "false");
-		expect(toggle).toHaveTextContent("展开全部 30 位");
-		expect(screen.getByText("还有 18 位在叠照下")).toBeInTheDocument();
-	});
-
-	it("展开 → 全量 30 张 + 收起按钮；再点收起回 12", async () => {
-		await renderCapsule({
-			...baseCapsule,
-			archives: [{ ...baseCapsule.archives[0], roster: bigRoster }],
-		});
-
-		fireEvent.click(screen.getByTestId("fb-roster-toggle"));
-		expect(await screen.findByRole("button", { name: "收起（保留前几张）" })).toBeInTheDocument();
-		expect(screen.getAllByTestId("fb-roster-card").length).toBe(30);
-		expect(screen.queryByText(/在叠照下/)).not.toBeInTheDocument();
-
-		fireEvent.click(screen.getByTestId("fb-roster-toggle"));
-		await waitFor(() => {
-			expect(screen.getAllByTestId("fb-roster-card").length).toBe(12);
-			expect(document.querySelector(".fb-roster-card--stacked")).toBeTruthy();
-		});
-		expect(screen.getByTestId("fb-roster-toggle")).toHaveAttribute("aria-expanded", "false");
-	});
-
-	it("小场（2 人）不折叠：无按钮无叠层卡", async () => {
-		await renderCapsule();
-
-		expect(screen.queryByTestId("fb-roster-toggle")).not.toBeInTheDocument();
-		expect(screen.getAllByTestId("fb-roster-card").length).toBe(2);
 	});
 });
 

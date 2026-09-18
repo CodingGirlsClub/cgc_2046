@@ -2515,7 +2515,9 @@
 		"corridor": {
 			"openEvent": "Open this gathering →",
 			"ariaLabel": "Time capsule corridor",
-			"emptyCity": "No roster photos from this city yet."
+			"emptyCity": "No roster photos from this city yet.",
+			"pilesAria": "{name} city photo piles",
+			"pileCount": "{city} · {count} people"
 		},
 		"roster": {
 			"groupAria": "{name} roster",
@@ -2529,10 +2531,7 @@
 				"backTitle": "Her today",
 				"backEmpty": "The back is still blank",
 				"noStamp": "back then"
-			},
-			"stackHint": "{count} more beneath the stack",
-			"expandAll": "Unfold all {count}",
-			"collapse": "Fold back (keep the first few)"
+			}
 		},
 		"todaySlot": {
 			"when": "⚡ Today",

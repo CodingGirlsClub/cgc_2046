@@ -117,7 +117,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			<p className="fb-event-section">
 				{t("peopleTitle")} · {t("peopleHint")}
 			</p>
-			<EventRoster archive={archive} variant="grid" />
+			<EventRoster archive={archive} />
 			<div className="fb-event-find">
 				<Link href="/flashback" className="fb-cta fb-cta-primary fb-dream-cta">
 					{t("findMine")}

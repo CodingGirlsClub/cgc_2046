@@ -99,10 +99,10 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		expect(screen.getByText("走进教室 3 位")).toBeInTheDocument();
 		expect(screen.getByText("1 位已回来")).toBeInTheDocument();
 
-		// 3 列网格（与长廊的错落 masonry 区分）
+		// 名册 = 单形态 3 列网格（长廊只留城市堆，名册不再有错落 masonry 形态）
 		const grid = screen.getByTestId("fb-roster-grid");
-		expect(grid.className).toContain("fb-roster-grid--grid");
-		expect(grid.className).not.toContain("folded");
+		expect(grid.className).toBe("fb-roster-grid");
+		expect(grid.dataset.total).toBe("3");
 
 		// 找回 CTA → 公开首页的自助找回入口
 		const cta = screen.getByRole("link", { name: /找回你的那一张/ });

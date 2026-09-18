@@ -6,8 +6,8 @@ import { tiltClass } from "./tilt";
 import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 
 /**
- * 名册错落（用户定稿 ②）：确定性旋转 + 两列 masonry + 两态卡共存。
- * vitest 不加载样式表——布局由「结构类名」断言（columns/tilt 类），
+ * 名册格（场次页 3 列网格）：确定性转角（tilt 类按 person id 派生）+ 两态卡共存。
+ * vitest 不加载样式表——布局由「结构类名」断言（grid/tilt 类），
  * computed style 数值断言在 ego-browser 复核（收尾阶段）。
  */
 
@@ -42,7 +42,7 @@ describe("tiltClass 确定性（变异锚点：改 hash → 档位断言红）",
 	});
 });
 
-describe("名册错落结构", () => {
+describe("名册格结构（场次页 3 列网格）", () => {
 	it("每张卡带确定性 tilt 类（id 派生，非随机）", () => {
 		render(<EventRoster archive={archive(6)} />);
 		const cards = screen.getAllByTestId("fb-roster-card");
@@ -54,7 +54,7 @@ describe("名册错落结构", () => {
 		expect(tiltClass("p-0")).toMatch(/^fb-tilt--[0-4]$/);
 	});
 
-	it("偶数卡错位由 CSS nth-child 承载（结构无需 JS 偏移）+ 两态卡在 masonry 内共存", () => {
+	it("两态卡共存：已寄出可点开翻面看内容，未寄出保持虚线位", () => {
 		const mixed: FlashbackCapsuleArchive = {
 			...archive(2),
 			roster: [
