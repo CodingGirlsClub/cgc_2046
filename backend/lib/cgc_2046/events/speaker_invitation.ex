@@ -168,6 +168,13 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     )
 
     belongs_to(:workflow_run, Cgc2046.Workflows.WorkflowRun, define_attribute?: false)
+
+    # #745：accepted_by 归因列（可空）的 FK 契约显式化——DB 侧 baseline 即
+    # delete_all（DB 实测 confdeltype=c）；无 DDL，仅 DSL+snapshot 追平。
+    belongs_to(:accepted_by_user, Cgc2046.Accounts.User,
+      define_attribute?: false,
+      source_attribute: :accepted_by
+    )
   end
 
   identities do
@@ -352,6 +359,8 @@ defmodule Cgc2046.Events.SpeakerInvitation do
       reference(:speaker, on_delete: :delete)
       reference(:inviter, on_delete: :delete)
       reference(:workflow_run, on_delete: :nilify)
+
+      reference(:accepted_by_user, on_delete: :delete)
     end
 
     identity_wheres_to_sql(
