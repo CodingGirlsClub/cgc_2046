@@ -72,6 +72,12 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
     identity(:unique_signal_key, [:signal_type, :idempotency_key])
   end
 
+  relationships do
+    # #745：workspace_id（观测用，可空）的 FK 契约显式化——DB 侧 baseline 即
+    # delete_all（DB 实测 confdeltype=c）；无 DDL，仅 DSL+snapshot 追平。
+    belongs_to(:workspace, Cgc2046.Accounts.Workspace, define_attribute?: false)
+  end
+
   actions do
     default_accept([:workspace_id, :signal_type, :idempotency_key, :inserted_at])
     defaults([:read])
@@ -87,6 +93,11 @@ defmodule Cgc2046.Workflows.SignalIdempotency do
   postgres do
     table("signal_idempotency")
     repo(Cgc2046.Repo)
+
+    # #745：同上（DB 实测 confdeltype=c）。
+    references do
+      reference(:workspace, on_delete: :delete)
+    end
   end
 
   @doc """
