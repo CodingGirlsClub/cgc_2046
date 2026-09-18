@@ -2125,9 +2125,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 

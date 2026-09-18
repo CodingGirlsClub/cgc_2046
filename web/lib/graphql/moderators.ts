@@ -3,7 +3,12 @@ import type { TypedDocumentNode } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
 import type { MutationError } from "./shared";
 
-/** Event 主理人（R12–R14）：Owner/Admin 增删；目标用户无需 Workspace 成员资格。 */
+/**
+ * Event 主理人（R12–R14）：Owner/Admin 增删；被指派者须为本工作台成员
+ * （#558 成员前提，非成员报 event_moderator_not_workspace_member）。
+ * 指派输入为三锚点（#537）：邮箱 / CGC 编号 / 用户 ID 精确匹配，域层
+ * resolve 后落 UUID。回显平铺字段走 displayName → memberNumber fallback 链。
+ */
 export type EventModerator = {
 	id: string;
 	workspaceId: string;
@@ -11,6 +16,14 @@ export type EventModerator = {
 	userId: string;
 	assignedBy: string | null;
 	assignedAt: string;
+	/** 主理人显示名（平铺投影，#537；未设置为 null） */
+	userDisplayName: string | null;
+	/** 主理人成员编号 CGC-XXXXXX（由 userId 确定性现算，恒非空） */
+	userMemberNumber: string | null;
+	/** 指派人显示名（assignedBy 为空时 null） */
+	assignedByDisplayName: string | null;
+	/** 指派人成员编号（assignedBy 为空时 null） */
+	assignedByMemberNumber: string | null;
 };
 
 export type EventModeratorPayload = {
@@ -30,6 +43,10 @@ const EVENT_MODERATORS: TypedDocumentNode<
 			userId
 			assignedBy
 			assignedAt
+			userDisplayName
+			userMemberNumber
+			assignedByDisplayName
+			assignedByMemberNumber
 		}
 	}
 `;
@@ -40,7 +57,15 @@ const ASSIGN_EVENT_MODERATOR: TypedDocumentNode<
 > = gql`
 	mutation AssignEventModerator($workspaceId: ID!, $eventId: ID!, $userId: ID!) {
 		assignEventModerator(workspaceId: $workspaceId, eventId: $eventId, userId: $userId) {
-			result { id userId assignedAt }
+			result {
+				id
+				userId
+				assignedAt
+				userDisplayName
+				userMemberNumber
+				assignedByDisplayName
+				assignedByMemberNumber
+			}
 			errors { code message }
 		}
 	}

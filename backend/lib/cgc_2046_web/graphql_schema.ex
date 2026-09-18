@@ -1948,7 +1948,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :assign_event_moderator, :event_moderator_payload do
       arg(:workspace_id, non_null(:id))
       arg(:event_id, non_null(:id))
-      arg(:user_id, non_null(:id))
+
+      # #537：锚语义放宽（域层 resolve 后落 UUID，存储不变）。ID 标量对
+      # email / CGC 编号原样放行（string 标量，无格式校验）。
+      arg(:user_id, non_null(:id), description: "被指派用户锚：邮箱 / CGC 编号 / 用户 ID 任一精确匹配")
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
@@ -1977,6 +1980,13 @@ defmodule Cgc2046Web.GraphqlSchema do
                      Cgc2046.Events
                    )
                }}
+
+            # #537 三锚点解析错误（user_not_found / user_anchor_ambiguous）：
+            # 域函数直返的 BusinessError 不在 Ash.Error.Invalid 容器里，单独
+            # 映射进 payload errors——code 直达前端 i18n（graphql_schema.ex
+            # 顶层 {:error, message:, code:} 同款先例）。
+            {:error, %Cgc2046.Errors.BusinessError{code: code, message: message}} ->
+              {:ok, %{result: nil, errors: [%{message: message, code: code}]}}
 
             {:error, _} ->
               {:ok,
@@ -3105,6 +3115,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # #537 回显平铺：displayName → memberNumber fallback 链的数据面（nullable；
+  # member_number 由 uuid 确定性现算恒非空，display_name 可空）
   object :event_moderator do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
@@ -3112,6 +3124,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:user_id, non_null(:id))
     field(:assigned_by, :id)
     field(:assigned_at, non_null(:datetime))
+    field(:user_display_name, :string)
+    field(:user_member_number, :string)
+    field(:assigned_by_display_name, :string)
+    field(:assigned_by_member_number, :string)
   end
 
   object :event_moderator_payload do
