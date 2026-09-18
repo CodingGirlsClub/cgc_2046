@@ -2204,6 +2204,14 @@ export type FlashbackAdjustFogResult = {
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
 };
 
+export type FlashbackAdminStats = {
+  /** 圆梦线（participation=not_selected）四率 */
+  dream: FlashbackRates;
+  /** 记忆线（participation=attended）四率 */
+  memory: FlashbackRates;
+  overall: FlashbackRates;
+};
+
 export type FlashbackAnswer = {
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
   /** 当年答案（本人视图：raw_text 永远完整，KTD4） */
@@ -2390,6 +2398,15 @@ export type FlashbackQuoteLicenseResult = {
   questionKey?: Maybe<Scalars['String']['output']>;
 };
 
+export type FlashbackRates = {
+  /** 分母：成功送达人数（sent 的 distinct person，硬退信与退订剔除） */
+  delivered: Scalars['Int']['output'];
+  intentSubmitted: Scalars['Int']['output'];
+  linkOpened: Scalars['Int']['output'];
+  revealed: Scalars['Int']['output'];
+  sentToWall: Scalars['Int']['output'];
+};
+
 export type FlashbackRecoverCard = {
   city?: Maybe<Scalars['String']['output']>;
   eventName?: Maybe<Scalars['String']['output']>;
@@ -2406,6 +2423,28 @@ export type FlashbackRecoverVerifyResult = {
   bound: Scalars['Boolean']['output'];
   /** 绑定档案的脱敏卡列表——多档案=「你的 N 张卡」由本人选择先看哪张 */
   cards: Array<FlashbackRecoverCard>;
+};
+
+export type FlashbackRedeemResult = {
+  status: Scalars['String']['output'];
+  updated: Scalars['Boolean']['output'];
+};
+
+export type FlashbackRedemption = {
+  /** 用户提交的收款渠道信息（admin-only，KTD3） */
+  channelNote: Scalars['String']['output'];
+  city?: Maybe<Scalars['String']['output']>;
+  handledNote?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt?: Maybe<Scalars['String']['output']>;
+  /** 掩码署名（姓** · 城市）——运营定位用 */
+  maskedName?: Maybe<Scalars['String']['output']>;
+  status: Scalars['String']['output'];
+};
+
+export type FlashbackRedemptionUpdateResult = {
+  id: Scalars['ID']['output'];
+  status: Scalars['String']['output'];
 };
 
 export type FlashbackRegisterBindResult = {
@@ -4317,6 +4356,8 @@ export type RootMutationType = {
   flashbackAdminScheduleCard?: Maybe<FlashbackActionCardResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
+  /** 兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed */
+  flashbackAdminUpdateRedemption?: Maybe<FlashbackRedemptionUpdateResult>;
   /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
   flashbackDelete?: Maybe<FlashbackDeleteResult>;
   /** 附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交） */
@@ -4329,6 +4370,8 @@ export type RootMutationType = {
   flashbackRecover?: Maybe<FlashbackRecoverResult>;
   /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
   flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
+  /** 提交奖品兑换申请（U11/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动） */
+  flashbackRedeem?: Maybe<FlashbackRedeemResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
   /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡 */
@@ -4687,6 +4730,13 @@ export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
 };
 
 
+export type RootMutationTypeFlashbackAdminUpdateRedemptionArgs = {
+  handledNote?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  status: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackDeleteArgs = {
   confirm: Scalars['String']['input'];
   token?: InputMaybe<Scalars['String']['input']>;
@@ -4718,6 +4768,12 @@ export type RootMutationTypeFlashbackRecoverArgs = {
 export type RootMutationTypeFlashbackRecoverVerifyArgs = {
   code: Scalars['String']['input'];
   identifier: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRedeemArgs = {
+  channelNote: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -5015,6 +5071,10 @@ export type RootQueryType = {
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
   eventModerators: Array<EventModerator>;
+  /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
+  flashbackAdminRedemptions: Array<FlashbackRedemption>;
+  /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
+  flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
   flashbackCapsule?: Maybe<FlashbackCapsule>;
   /** 删除摘要（U10/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号） */
@@ -5170,6 +5230,11 @@ export type RootQueryTypeEnrollmentsArgs = {
 export type RootQueryTypeEventModeratorsArgs = {
   eventId: Scalars['ID']['input'];
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

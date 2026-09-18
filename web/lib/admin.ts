@@ -18,6 +18,8 @@ import type {
   AdminInitiativeRule,
   ApproveApplicationResultData,
   RejectApplicationResultData,
+  FlashbackAdminStats,
+  FlashbackRedemption,
 } from "./graphql/admin";
 import {
   APPROVE_WORKSPACE_APPLICATION,
@@ -38,6 +40,9 @@ import {
   PROMOTE_USER,
   RECONCILIATION_FINDINGS,
   REJECT_WORKSPACE_APPLICATION,
+  FLASHBACK_ADMIN_STATS,
+  FLASHBACK_ADMIN_REDEMPTIONS,
+  FLASHBACK_ADMIN_UPDATE_REDEMPTION,
   type CreateWorkspaceApplicationInput,
   type CreateWorkspaceApplicationResultData,
 } from "./graphql/admin";
@@ -411,4 +416,38 @@ export async function reassignWorkspaceOwner(
       errors: [],
     }
   );
+}
+
+/** 闪念间看板：四率 + 分线（U11/R24/KTD10）。 */
+export async function fetchFlashbackAdminStats(): Promise<FlashbackAdminStats | null> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_STATS,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminStats ?? null;
+}
+
+/** 闪念间兑换申请队列（U11/R25）：倒序封顶，channel_note 为用户提交的收款渠道。 */
+export async function fetchFlashbackAdminRedemptions(
+  limit?: number,
+): Promise<FlashbackRedemption[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_REDEMPTIONS,
+    variables: { limit: limit ?? null },
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminRedemptions ?? [];
+}
+
+/** 兑换状态流转（U11/R25，platform_admin）：非法转移由后端 fail-closed 拒绝。 */
+export async function updateFlashbackRedemption(
+  id: string,
+  status: string,
+  handledNote?: string,
+): Promise<{ id: string; status: string } | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_UPDATE_REDEMPTION,
+    variables: { id, status, handledNote: handledNote ?? null },
+  });
+  return data?.flashbackAdminUpdateRedemption ?? null;
 }
