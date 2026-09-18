@@ -2,7 +2,6 @@
 
 import { useTranslations } from "next-intl";
 import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
-import { usePrefersReducedMotion } from "./use-reduced-motion";
 import { developClass, useDevelopEnabled, useDevelopOnView } from "./use-develop-on-view";
 import PolaroidFlip from "./polaroid-flip";
 import { tiltClass } from "./tilt";
@@ -17,15 +16,14 @@ import { tiltClass } from "./tilt";
  *
  * 显影（第 7a 件，对齐原型 D 的 develop-soft 节奏）：卡片进入视口才从模糊到清晰
  * （--pending 前置态 → --develop 动画，只播一次），滚动进视口的新卡同样显影；
- * reduced-motion 或环境无 IntersectionObserver（jsdom）时直接终态。
+ * 环境无 IntersectionObserver（jsdom）时直接终态。
  */
 export default function EventRoster({ archive }: { archive: FlashbackCapsuleArchive }) {
 	const t = useTranslations("flashback.roster");
-	const reduced = usePrefersReducedMotion();
 	// 环境能力（IntersectionObserver）用 useSyncExternalStore 读：SSR/首帧取服务端快照
-	// false（终态），客户端随即纠正为 true——与 usePrefersReducedMotion 同一手法，
-	// 避免水合不一致，也避免「先清晰后模糊」的闪一下。
-	const developActive = useDevelopEnabled(reduced);
+	// false（终态），客户端随即纠正为 true——避免水合不一致，也避免「先清晰后模糊」的闪一下。
+	// 显影是暗房叙事动画，不受 prefers-reduced-motion 短路（用户定稿）。
+	const developActive = useDevelopEnabled();
 	const { developed, registerDevelop } = useDevelopOnView(developActive);
 
 	return (
