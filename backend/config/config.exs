@@ -103,6 +103,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "payment_expired" => "dev-wechat-payment-expired",
     "event_qualification_confirmed" => "dev-wechat-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-wechat-event-qualification-underfilled",
+    "event_qualification_manager" => "dev-wechat-event-qualification-manager",
     "event_schedule_changed" => "dev-wechat-event-schedule-changed",
     "event_moderator_assigned" => "dev-wechat-event-moderator-assigned"
   },
@@ -126,6 +127,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "payment_expired" => "dev-tt-payment-expired",
     "event_qualification_confirmed" => "dev-tt-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-tt-event-qualification-underfilled",
+    "event_qualification_manager" => "dev-tt-event-qualification-manager",
     "event_schedule_changed" => "dev-tt-event-schedule-changed",
     "event_moderator_assigned" => "dev-tt-event-moderator-assigned"
   },
@@ -149,6 +151,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "payment_expired" => "dev-xhs-payment-expired",
     "event_qualification_confirmed" => "dev-xhs-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-xhs-event-qualification-underfilled",
+    "event_qualification_manager" => "dev-xhs-event-qualification-manager",
     "event_schedule_changed" => "dev-xhs-event-schedule-changed",
     "event_moderator_assigned" => "dev-xhs-event-moderator-assigned"
   }

@@ -40,6 +40,7 @@ export const ALL_SCENARIOS = [
   'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
+  'event_qualification_manager',
   'event_schedule_changed',
   'event_moderator_assigned',
   'speaker_accepted',
@@ -253,9 +254,9 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
   return {
     page: 'pages/workspace/index',
     trigger: 'Owner/Admin 打开工作台，点按第二个订阅按钮',
-    label: '订阅新报名与收款通知',
-    scenarios: ['enrollment_submitted', 'payment_received'],
-    acceptedCopy: '已订阅，新报名与收款到账会通知你',
+    label: '订阅新报名、收款与开班通知',
+    scenarios: ['enrollment_submitted', 'payment_received', 'event_qualification_manager'],
+    acceptedCopy: '已订阅，新报名、收款与开班结果会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }
