@@ -29,6 +29,7 @@ import {
   updateOffering,
 } from "@/lib/events";
 import type { EventTransition } from "@/lib/events";
+import { fromLocalInput, toLocalInput } from "@/lib/format";
 import type {
   EnrollmentPolicy,
   OfferingItem,
@@ -171,20 +172,6 @@ function offeringErrorText(
 ): string {
   const known = error?.code ? translateCode(error.code, "") : "";
   return known !== "" ? known : t(friendlyOfferingError(error, fallbackKey));
-}
-
-function toLocalInput(datetime: string | null): string {
-  if (!datetime) return "";
-  const d = new Date(datetime);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 /* ---------------- 时间与 venue 录入（U5/R14，KTD5/KTD6） ---------------- */
