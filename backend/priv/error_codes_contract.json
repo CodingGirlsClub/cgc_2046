@@ -68,6 +68,7 @@
     "order_provider_not_configured",
     "order_required",
     "order_target_tenant_mismatch",
+    "order_tier_amount_invalid",
     "order_unknown",
     "password_reset_failed",
     "phone_already_registered",
@@ -112,6 +113,8 @@
     "sponsorship_tier_not_found",
     "sponsorship_unknown",
     "sponsorship_unknown_level",
+    "user_anchor_ambiguous",
+    "user_not_found",
     "version_conflict",
     "wechat_login_unavailable"
   ]

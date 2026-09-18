@@ -1169,6 +1169,7 @@ export type Enrollment = {
   /** 6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null） */
   checkInCode?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -2124,9 +2125,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 

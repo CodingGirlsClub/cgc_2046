@@ -2087,6 +2087,48 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     expect(card.textContent).not.toContain("免费");
   });
 
+  // #687：脏档位金额不丢档——缴费槽 overview 落「（金额待定）」，绝不出 ¥0
+  it("AE8：定价场脏档位金额 → 缴费槽 overview「金额待定」，无 ¥0（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+          JSON.stringify({ id: "t2", name: "脏档", amount_cents: 0 }),
+        ],
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(
+      within(card).getByText("收费 标准 ¥199 / 脏档（金额待定）"),
+    ).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+  });
+
+  // #687：代报名选档行——脏档可见但禁选，默认选档跳过脏档落在首个有效档
+  it("脏档在前：选档行金额待定 + 禁选，默认选中首个有效档（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t-dirty", name: "脏档", amount_cents: 0 }),
+          JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+        ],
+      }),
+    );
+
+    const dirty = await screen.findByTestId("price-tier-t-dirty");
+    expect(dirty).toHaveTextContent("金额待定");
+    expect(dirty.querySelector("input")).toBeDisabled();
+    const clean = screen.getByTestId("price-tier-t-clean");
+    expect(clean.querySelector("input")).toBeChecked();
+    expect(dirty.textContent).not.toContain("¥0");
+  });
+
   it("新建 event 选押金填 69 → payload 三态互斥（押金开、档位清空）", async () => {
     mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
     mocks.createOffering.mockResolvedValueOnce({
