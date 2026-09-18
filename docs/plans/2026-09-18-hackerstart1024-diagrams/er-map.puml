@@ -34,7 +34,7 @@ entity "initiatives 倡导活动" as init <<既有>> {
   slug = hacker-start-1024
   status = open
   hashtag = #hackerstart1024
-  四规则：deposit 69 / age 18+ / min 8 / deadline_rule
+  四规则：deposit 87 / age 18+ / min 8 / deadline_rule
 }
 
 entity "events 场次" as ev <<既有>> {
