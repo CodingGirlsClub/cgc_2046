@@ -382,7 +382,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 
 		expect(
 			screen.getByRole("link", { name: "报名通道 2026.10.24 起陆续开放 →" }),
-		).toHaveAttribute("href", "/initiatives");
+		).toHaveAttribute("href", "/initiatives/hackerstart1024");
 		expect(
 			screen.getByRole("link", { name: "申请成为志愿者 →" }),
 		).toHaveAttribute("href", VOLUNTEER_PATH);

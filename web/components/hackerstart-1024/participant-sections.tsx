@@ -67,7 +67,10 @@ export function JoinSection() {
 					))}
 				</div>
 				<p className="hs24-lead hs24-lead--muted">{t.rich("facts", richTags)}</p>
-				<Link href="/initiatives" className="hs24-cta--rose">
+				{/* 直达本活动详情页（场次聚合），不再经 /initiatives 列表中转——
+					与小程序 join 入口（buildInitiativeSharePath）同径；slug 由 R16
+					前置数据创建（backend 种子同值 hackerstart1024） */}
+				<Link href="/initiatives/hackerstart1024" className="hs24-cta--rose">
 					{t("cta")}
 				</Link>
 				<p className="hs24-cta-note">{t("ctaNote")}</p>

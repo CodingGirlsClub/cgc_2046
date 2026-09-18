@@ -265,6 +265,7 @@
 	},
 	"landing": {
 		"nav": {
+			"campaign": "Hacker Start 1024",
 			"ariaLabel": "Primary",
 			"events": "Events",
 			"courses": "Courses",
