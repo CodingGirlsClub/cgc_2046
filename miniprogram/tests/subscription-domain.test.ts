@@ -124,7 +124,7 @@ describe('M6/M7/M8（#683 新触点）', () => {
     assert.match(touchpoint.label, /退款与订单变动/)
   })
 
-  test('M8 工作台第二按钮：管理者三键恰满 3（#585 加开班结果），与 M4 互不重叠', () => {
+  test('M8 工作台第二按钮：管理者三键恰满 3（#585 加成班结果），与 M4 互不重叠', () => {
     const ops = workspaceOpsTouchpoint()
     assert.deepEqual(ops.scenarios, [
       'enrollment_submitted',
