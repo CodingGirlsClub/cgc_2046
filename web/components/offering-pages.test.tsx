@@ -206,6 +206,11 @@ beforeEach(() => {
     retry: vi.fn(),
   });
   moderatorMocks.fetchEventModerators.mockResolvedValue([]);
+  // 开框守卫兜底（#748 CI 修复）：不关心弹框的用例点了「继续支付」后，弹框的
+  // 两条守卫查询若拿到裸 vi.fn() 的 undefined，allSettled 会把 undefined 当
+  // fulfilled 值传给组件导致 TypeError。`{ data: {} }` = 「报名读不到 → 非押金」
+  // 的既定兜底语义；押金用例仍用 mockImplementation 显式分派覆盖。
+  apolloClient.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);

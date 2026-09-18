@@ -114,6 +114,10 @@ beforeEach(() => {
   eventsMocks.fetchMyEnrollment.mockResolvedValue(null);
   initiativesMocks.fetchPublicInitiatives.mockResolvedValue([]);
   QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
+  // 开框守卫兜底（#748 CI 修复）：同 offering-pages——弹框两条守卫查询拿到
+  // 裸 vi.fn() 的 undefined 会让 allSettled 传 fulfilled undefined 给组件；
+  // `{ data: {} }` = 「报名读不到 → 非押金」既定兜底，押金用例显式覆盖。
+  apollo.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);

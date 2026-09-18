@@ -329,13 +329,15 @@ export default function PaymentCheckoutDialog({
       ]);
       if (cancelled) return;
 
+      // fulfilled 的 value 兜底 `?.`：测试 mock 漏实现时 allSettled 会把
+      // undefined 当 fulfilled 值传入，不应伪装成组件崩溃（CI #757 教训）
       const pending: CheckoutOrder | null =
         pendingResult.status === "fulfilled"
-          ? (pendingResult.value.data?.myOrders?.results?.[0] ?? null)
+          ? (pendingResult.value?.data?.myOrders?.results?.[0] ?? null)
           : null;
       const enrollment =
         enrollResult.status === "fulfilled"
-          ? (enrollResult.value.data?.myEnrollments?.results?.[0] ?? null)
+          ? (enrollResult.value?.data?.myEnrollments?.results?.[0] ?? null)
           : null;
       setEnrollDeposit({
         paymentMode: enrollment?.paymentMode ?? null,
