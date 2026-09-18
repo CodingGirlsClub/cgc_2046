@@ -5,7 +5,6 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useMutation } from "@apollo/client/react";
 import { FLASHBACK_ENDORSE, type FlashbackActionCard } from "@/lib/graphql/flashback";
-import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import EndorseForm from "./endorse-form";
 
 /**
