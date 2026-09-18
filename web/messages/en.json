@@ -78,6 +78,7 @@
 		"event_deposit_registration_deadline_required": "A registration deadline is required when deposit is enabled (self-cancel cutoff).",
 		"event_ends_at_frozen": "Cannot move the end time earlier while deposit orders are unsettled.",
 		"order_deposit_amount_missing": "Deposit amount is missing; please register again.",
+		"order_deposit_consent_required": "Please read and agree to the deposit terms before paying (refunded after check-in; not refunded for no-shows). If your mini program is outdated, please update and retry.",
 		"order_tier_amount_invalid": "The selected tier's price is unavailable; please contact the organizer.",
 		"course_slug_locked": "This course's public link is live, so its slug can no longer be changed (editable in draft only).",
 		"course_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier).",

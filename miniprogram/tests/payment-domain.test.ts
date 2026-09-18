@@ -15,6 +15,7 @@ import {
   parsePriceTiers,
   paymentBlockCopy,
   paymentLandingUrl,
+  preCreateDepositGate,
   parseOrderKind,
   positiveAmountOrNull,
   POLL_INTERVAL_MS,
@@ -358,6 +359,33 @@ test('支付门判据：押金单未勾选不放行；一般报名单零回归�
   // 既有门不回归：凭据未就绪 / 调起中
   assert.equal(canRequestPayment({ ...base, order: enrollment, hasCredential: false }), false)
   assert.equal(canRequestPayment({ ...base, order: deposit, ack: true, paying: true }), false)
+})
+
+// ── #727 创单前门：勾选 → 创单（带同意）→ 支付 ──
+
+test('创单前门判据：押金场 required + 报名快照金额；非押金/读不到不拦', () => {
+  // 押金场：出门（非 null），金额取报名快照（与后端下单实付同源）
+  const depositGate = preCreateDepositGate({
+    paymentMode: 'deposit',
+    depositAmountCents: 6900
+  })
+  assert.equal(depositGate?.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(depositGate?.forfeitText, '未到场不退。')
+
+  // 押金场 + 脏快照（缺失/0/负/非整数分）：门照常，金额待定，绝不 ¥0
+  for (const dirty of [null, 0, -1, 6900.5]) {
+    const gate = preCreateDepositGate({ paymentMode: 'deposit', depositAmountCents: dirty })
+    assert.equal(gate?.amountText, '押金（金额待定）')
+    assert.equal(gate?.amountText.includes('¥0'), false)
+  }
+
+  // 定价/免费场：不出门（零回归）
+  for (const mode of ['pricing', 'free', null] as const) {
+    assert.equal(preCreateDepositGate({ paymentMode: mode, depositAmountCents: 6900 }), null)
+  }
+
+  // 报名读不到（null）：不出门，交后端权威闸兜底（fail-open 有界）
+  assert.equal(preCreateDepositGate(null), null)
 })
 
 test('订单口径解析：只认后端两个值，未知值上抛（资金门判据不得猜方向）', () => {
