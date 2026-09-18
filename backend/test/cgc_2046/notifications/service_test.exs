@@ -845,9 +845,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 20 键集合（防表被改空；
-    # #538 加 event_moderator_removed 后 19 → 20）
-    assert length(registry_keys) == 20
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 26 键集合（防表被改空）
+    assert length(registry_keys) == 26
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))

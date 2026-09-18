@@ -35,7 +35,15 @@ const WECHAT_SCENARIOS = [
   'refund_succeeded',
   'refund_failed',
   'enrollment_submitted',
-  'payment_received'
+  'payment_received',
+  // R14/R21 志愿者段位通知六键（模板 ID 待微信公众号后台申请；缺配 → 请求期
+  // fail-closed 剔除，招募流照常提交，邮件为保底通道）
+  'volunteer_application_submitted',
+  'volunteer_application_interview',
+  'volunteer_application_training',
+  'volunteer_application_assigned',
+  'volunteer_application_rejected',
+  'volunteer_application_canceled'
 ] as const
 
 // 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）

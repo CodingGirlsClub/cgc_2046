@@ -27,6 +27,15 @@
 	},
 	"errors": {
 		"enrollment_duplicate_active": "你已有待支付订单，请关闭后重新打开继续支付。",
+		"volunteer_application_already_submitted": "本批次你已提交过申请（同批限一个职位），下一批开放时可换职位再申请。",
+		"volunteer_application_cohort_closed": "该批次已截止，不再接收新申请。",
+		"volunteer_application_cohort_deadline_passed": "已过报名截止时间，本批次不再接收申请。",
+		"volunteer_application_cohort_not_open": "该批次尚未开放申请，开放后欢迎再来。",
+		"volunteer_application_cohort_not_found": "批次不存在或已下线，请刷新后重试。",
+		"resume_profile_not_found": "请先填写姓名与联系邮箱（完善简历档案），再上传简历文件。",
+		"resume_profile_file_type_invalid": "简历仅支持 PDF / Word 文件（.pdf / .doc / .docx）。",
+		"resume_profile_file_too_large": "简历文件超过 5MB 上限，请压缩后再上传。",
+		"resume_profile_file_content_invalid": "简历文件内容无法解析（可能已损坏），请重新选择。",
 		"enrollment_check_in_code_exhausted": "核销码生成失败（同场并发冲突），请重新提交报名。",
 		"enrollment_age_confirmation_required": "本活动仅限达到最低年龄要求的人士参加，请勾选年龄确认后重试。",
 		"enrollment_not_payment_pending": "报名状态已变化（已支付或已取消），请重新报名或查看我的报名。",
@@ -90,7 +99,11 @@
 		"initiative_slug_taken": "该 slug 已被占用，请换一个（slug 是公开链接的唯一标识）。",
 		"initiative_rule_already_exists": "该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
-		"deadlock_detected": "检测到锁冲突，请稍后重试"
+		"deadlock_detected": "检测到锁冲突，请稍后重试",
+		"volunteer_application_invalid_transition": "申请状态已变化，请刷新后重试。",
+		"volunteer_application_rejection_reason_required": "拒绝原因必填。",
+		"volunteer_application_assignment_failed": "分配未完成（入台或场次指派失败），申请保持原状态，请重试。",
+		"recruitment_cohort_open_conflict": "已有一个招募中的批次，请先关闭后再开放。"
 	},
 	"auth": {
 		"helpCenter": "帮助中心",
@@ -253,6 +266,7 @@
 	},
 	"landing": {
 		"nav": {
+			"campaign": "Hacker Start 1024",
 			"ariaLabel": "主导航",
 			"events": "活动",
 			"courses": "课程",
@@ -2446,5 +2460,761 @@
 		"qrGenerating": "二维码生成中…",
 		"depositRefundHint": "到场出示此码核销后，押金将原路退回。",
 		"keepPrivateHint": "请勿截图转发：核销码被他人获取后可代为核销，押金将随之退还。"
+	},
+	"hackerstart1024": {
+		"meta": {
+			"title": "Hacker Start 1024 · 让普通人第一次亲手用 Agent 做出能跑的作品",
+			"description": "2016 年成立、今年第 10 年 —— 所以是 1,024 场。3 小时零基础 Agent 动手工作坊，2026.10.24 全国启动，40+ 城滚动开班。"
+		},
+		"hashtag": "#hackerstart1024",
+		"hero": {
+			"eyebrow": "CODING GIRLS CLUB 程序媛汇 · 十周年 CAMPAIGN",
+			"slot": "CGC × 你的品牌",
+			"title": "Hacker Start 1024",
+			"sub": "让普通人第一次亲手用 Agent 做出能跑的作品",
+			"nums": {
+				"sessions": "全国 <b>1,024</b> 场（<pow>10</pow>）",
+				"start": "<b>2026.10.24</b> 启动（<pow>0</pow>）",
+				"batch": "首批 <b>32</b> 场（<pow>5</pow>）"
+			},
+			"join": "我要参加",
+			"volunteer": "成为志愿者",
+			"brand": "赞助合作",
+			"scaleAria": "2016 年成立，十年积累，2026 年启动 1,024 场",
+			"scaleStart": "2016 · 成立",
+			"scaleNow": "第 10 年",
+			"scaleEnd": "2026 · <pow>10</pow>＝1,024 场",
+			"hook": "2016 年成立，今年正好第 <b>10</b> 年 —— 所以是 <pow>10</pow>＝<b>1,024</b> 场。"
+		},
+		"why": {
+			"badge": "为什么是现在",
+			"label": "Why Now",
+			"title": "Agent 已经过了能力拐点，<em>缺的是普通人敢不敢开始</em>",
+			"lead": "Agent coding 已经能干活了，瓶颈变成了「普通人敢不敢开始、第一次有没有人陪跑」。现有 AI 编程产品的自然流量都在开发者一侧，零基础普通人的第一次，市场上没有现成通道。Hacker Start 1024 就是这条通道：3 小时一场 · 8-32 人小班 · Agent 自适应学习 · 87 元押金（到场退）——把「第一次亲手做出可运行的作品」变成可交付的东西。"
+		},
+		"join": {
+			"badge": "我要参加",
+			"label": "Join a Session",
+			"title": "3 小时，从零到<em>上台 demo</em>",
+			"rhythm": [
+				{
+					"min": "15",
+					"t": "开场",
+					"d": "认识 Agent、认识同场伙伴——不写代码，先知道要做什么"
+				},
+				{
+					"min": "120",
+					"t": "动手",
+					"d": "Agent 自适应学习陪你跑，第一次亲手把想法变成能跑的作品"
+				},
+				{
+					"min": "30",
+					"t": "Demo",
+					"d": "人人上台展示自己的作品——带得走、发得出、跑得起来"
+				}
+			],
+			"facts": "8 人开班（<pow>3</pow>）· 32 人满班（<pow>5</pow>）· 18 岁以上 · 全国 40+ 城。",
+			"cta": "报名通道 2026.10.24 起陆续开放 →",
+			"ctaNote": "场次将陆续上线，敬请关注"
+		},
+		"faq": {
+			"badge": "常见问题",
+			"label": "FAQ",
+			"title": "第一次来，<em>你大概想问</em>",
+			"items": [
+				{
+					"q": "零基础真的能参加吗？",
+					"a": "能。这一场就是为「第一次」设计的：3 小时、Agent 自适应学习全程陪跑，不需要任何编程基础——结束的时候，你会带着一个自己亲手做出来、能运行的作品离开。"
+				},
+				{
+					"q": "87 元押金是怎么回事？怎么退？",
+					"a": "报名时缴纳 87 元押金，到场参加即全额退还；未到场不退——名额有限，押金是为了把位置留给真的会来的人。"
+				},
+				{
+					"q": "需要自带电脑吗？",
+					"a": "建议自带笔记本电脑（现场以实操为主）；具体场次的设备说明以报名页为准。"
+				},
+				{
+					"q": "有年龄限制吗？",
+					"a": "有，参与者需年满 18 岁。"
+				},
+				{
+					"q": "怎么知道我所在的城市有没有场次？",
+					"a": "首批场次 2026.10.24 起陆续上线，全国 40+ 城滚动开放。到倡导活动页查看全部场次——开放报名的场次都会出现在那里。"
+				}
+			]
+		},
+		"volunteer": {
+			"badge": "成为志愿者",
+			"label": "Volunteer Crew",
+			"title": "把 Hacker Start 1024 <em>开到你的城市</em>",
+			"lead": "三个职位，总有一个适合你。",
+			"roles": [
+				{
+					"t": "场次主理人",
+					"en": "Event Moderator",
+					"badge": "首批最需要",
+					"one": "组织一场 3 小时工作坊的完整 owner——把它开到你的城市",
+					"fit": "适合：有场地或社群资源、每期能投入一个周末的组织者"
+				},
+				{
+					"t": "教程研究员",
+					"en": "Tutor",
+					"one": "把课程写成可复用的教程与示例项目，让教学质量可持续复制",
+					"fit": "适合：会编程、能写作的程序员 · 远程参与"
+				},
+				{
+					"t": "活动教练",
+					"en": "Coach",
+					"one": "线下现场的教学支持——巡场答疑、陪学员跑通动手环节，不讲课",
+					"fit": "适合：用过 Agent coding 工具、愿意教学相长的人"
+				}
+			],
+			"cohortStatus": "进行中",
+			"cohortName": "第 1 批 · 首批志愿者招募",
+			"cohortNote": "首批招募进行中 · 按批次滚动录取，截止时间以申请页为准",
+			"cohortCta": "申请成为志愿者 →",
+			"support": [
+				"课程包与 SOP",
+				"运营平台 · 不碰钱",
+				"免费场地合作",
+				"40+ 城社区与曝光"
+			],
+			"note": "职位详情、四段流程与常见问题见申请页 · 志愿者权益共创定稿中"
+		},
+		"timeline": {
+			"badge": "接下来会发生什么",
+			"label": "Timeline",
+			"title": "2026.10.24 启动，<em>批次滚动至 2027</em>",
+			"start": {
+				"t": "2026.10.24 启动",
+				"d": "全国首场开课，campaign 正式开始"
+			},
+			"firstBatch": {
+				"t": "首期 64 场（<pow>6</pow>）",
+				"d": "＝ 前两批，每批 32 场（<pow>5</pow>），集中交付"
+			},
+			"rolling": {
+				"t": "批次滚动",
+				"d": "在 40+ 城陆续开班，直至 1,024 场（<pow>10</pow>）"
+			}
+		},
+		"who": {
+			"badge": "我们是谁",
+			"label": "Recognition",
+			"title": "十年社区，<em>可以被查证的十年</em>",
+			"lead": "Coding Girls Club 程序媛汇，2016 年 6 月 1 日成立，中国首个、规模最大的女性编程社区（社会企业）。",
+			"stats": [
+				{
+					"v": "10 城",
+					"l": "覆盖城市"
+				},
+				{
+					"v": "50+",
+					"l": "线下工作坊"
+				},
+				{
+					"v": "17 所",
+					"l": "高校联动"
+				},
+				{
+					"v": "4,000+",
+					"l": "学员"
+				},
+				{
+					"v": "1,000+",
+					"l": "教练"
+				},
+				{
+					"v": "2,000 万+",
+					"l": "总阅读量"
+				}
+			],
+			"statsCap": "2016-2025 历史累计",
+			"endorse": [
+				{
+					"text": "ICSE CHASE 2021（IEEE）论文收录",
+					"url": "https://cmustrudel.github.io/papers/chase21code_camps.pdf"
+				},
+				{
+					"text": "联合国开发计划署「科技与慈善」案例（2018）",
+					"url": "https://www.undp.org/zh/china/publications/kejiyucishankechixufazhanxingdongbaogao"
+				},
+				{
+					"text": "共青团中央「伙伴计划」获奖"
+				},
+				{
+					"text": "UNDP China LinkedIn · #科技遇见她#",
+					"url": "https://www.linkedin.com/posts/undp-china_herstory-womenintech-%E7%A7%91%E6%8A%80%E9%81%87%E8%A7%81%E5%A5%B9-activity-6787232105513525248-w6vp"
+				},
+				{
+					"text": "中国日报（2017）",
+					"url": "https://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
+				},
+				{
+					"text": "环球时报",
+					"url": "https://www.globaltimes.cn/content/954372.shtml"
+				},
+				{
+					"text": "CCTV（CGTN）",
+					"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
+				},
+				{
+					"text": "果壳网"
+				},
+				{
+					"text": "学员的故事",
+					"url": "https://mp.weixin.qq.com/s/IfRSC8sA7THv-YPBa4_XAg"
+				}
+			],
+			"lever": "本轮一个 campaign 的参与人数目标 ≈ 过去十年累计"
+		},
+		"brand": {
+			"badge": "赞助合作",
+			"label": "Partnership",
+			"title": "一批 32 场（<pow>5</pow>），<em>和你的品牌滚动开批</em>",
+			"lead": "多品牌同批、课程由 CGC 课程组统一研发、零抽成——你的品牌出现在普通人第一次亲手做出作品的现场，与 1,024 场计划同框。",
+			"benefitsTitle": "你能得到什么 · What You Get",
+			"benefits": {
+				"reach": {
+					"t": "品牌同行",
+					"d": "首批 64 场（<pow>6</pow>）、512-2,048 名现场参与者（本轮计划，每场 8-32 人）——你的品牌与每一次「第一次做出作品」同框"
+				},
+				"data": {
+					"t": "数据与案例",
+					"d": "学员作品 demo 库、真实使用数据匿名回收、联合发布批次交付报告"
+				},
+				"network": {
+					"t": "渠道网络",
+					"d": "40+ 城主理人、128 名（<pow>7</pow>）志愿者、17 所高校合作历史与兴趣社群招生通道"
+				},
+				"esg": {
+					"t": "ESG 与品牌信任",
+					"d": "联合国开发计划署「科技与慈善」案例（2018）等可公开检索的公益履历，直接进入你的企业社会责任叙事"
+				},
+				"exposure": {
+					"t": "全程曝光",
+					"d": "招生物料 / 社媒 / 媒体报道 / 批次影响力报告联名署名（主办方历史总阅读 2,000 万+，2016-2025 历史累计）"
+				}
+			},
+			"benefitsCap": "从最硬的讲起——每项一句话、一个可查证的数字。",
+			"capsTitle": "我们凭什么交付 · How We Deliver",
+			"caps": {
+				"course": {
+					"t": "课程研发",
+					"d": "3 小时科普工作坊常态开班；AI Agent 专业课程由 CGC 课程组持续研发迭代（每门 60-100 小时）"
+				},
+				"ops": {
+					"t": "运营机器",
+					"d": "8 人开班（<pow>3</pow>）/ 32 满班（<pow>5</pow>）押金风控；40+ 城主理人 + 128 名（<pow>7</pow>）志愿者；单场 SOP 标准交付"
+				},
+				"data": {
+					"t": "数据平台",
+					"d": "报名、押金、核销、学习记录全链路自有；每场数据回收，按赞助商维度出批次交付报告"
+				}
+			},
+			"openqsTitle": "可以一起做的事 · Co-create",
+			"openqs": [
+				{
+					"t": "现场体验位",
+					"d": "你的产品作为学员作品存放、展示的选项之一出现在现场——体验优先，不做转化 KPI"
+				},
+				{
+					"t": "公益延伸",
+					"d": "你想支持而尚未覆盖的学校 / 城市 / 山区，批次可以开过去，联合写入 ESG 叙事"
+				},
+				{
+					"t": "其他共创",
+					"d": "奖学金、认证、人才通道……开放的题，一起设计"
+				}
+			],
+			"openqsCap": "以上为开放性议题，欢迎带着你的想法来聊。",
+			"structure": [
+				"赞助合作 Partnership",
+				"32 场 / 批（2⁵）滚动开批",
+				"首批验收后续批"
+			],
+			"cta": "聊赞助合作 · 48 小时内回复",
+			"ctaNote": "partners@codinggirlsclub.com · Partnership 按批次开放，首批批次筹备中"
+		},
+		"follow": {
+			"qr": "Coding Girls Club 公众号二维码，扫码关注",
+			"title": "报名开启前，先关注我们",
+			"desc": "首批场次 2026.10.24 上线——开放报名第一时间知道。"
+		},
+		"footer": {
+			"org": "Coding Girls Club 程序媛汇 · 成立于 2016 · codinggirlsclub.com",
+			"volunteer": "你的城市还没有场次？来成为志愿者 →"
+		}
+	},
+	"volunteerApply": {
+		"hero": {
+			"eyebrow": "#HACKERSTART1024 · 成为志愿者 · JOIN THE CREW",
+			"title": "把 Hacker Start 1024<em>开到你的城市</em>",
+			"sub": "志愿者体系招募中：组织一场 3 小时的工作坊，或把课程写成教程。",
+			"nums": [
+				"40+ 城 网络正在扩张",
+				"单场 8-32 人",
+				"1,024 场"
+			],
+			"ctaApply": "直接申请",
+			"ctaRoles": "先看职位"
+		},
+		"cohort": {
+			"badge": "当前批次",
+			"label": "Cohort",
+			"title": "每批单独招募，<em>时间规划透明</em>",
+			"note": "每批单独招募、单独排期——错过这一批，下一批开放时可以再申请。",
+			"loading": "批次信息加载中…",
+			"loadFailed": "批次信息读取失败。",
+			"retryHint": "读取失败不按「无开放批次」处理——那会把故障说成没有批次。",
+			"emptyBadge": "暂无批次",
+			"emptyTitle": "当前无开放批次",
+			"emptyDesc": "下一批开放时间待定；开放后可回到本页申请。",
+			"loginRequired": "登录后可查看当前批次、截止时间与申请入口。",
+			"openBadge": "开放申请中",
+			"deadline": "申请截止：{time}",
+			"period": "执行周期：{time}",
+			"cta": "申请本批"
+		},
+		"roles": {
+			"badge": "选择你的职位",
+			"label": "Open Roles",
+			"title": "一个体系，<em>三种打开方式</em>",
+			"featured": "首批最需要",
+			"dutyTitle": "职责说明",
+			"reqTitle": "职位要求",
+			"pill": [
+				"同一批次只能申请一个职位",
+				"下一批可换职位再申请",
+				"入职后职位不互斥，可跨角色参与"
+			],
+			"items": [
+				{
+					"id": "event_moderator",
+					"t": "场次主理人",
+					"en": "Event Moderator",
+					"featured": true,
+					"duty": [
+						"开场前：协调场地与时间、配合招生（报名走平台，你不用做表单）、按物料清单准备现场",
+						"现场 3 小时：执行单场 SOP——15 分钟开场 → 2 小时动手 → 30 分钟 demo；技术环节由课程包与 Agent 自适应学习兜底",
+						"场后：作品收集、数据回收（平台自动）、现场素材整理与社媒动员、一次简短复盘；跑顺后滚动开班"
+					],
+					"reqs": [
+						"认同「让普通人第一次用 Agent 做出作品」的使命",
+						"能组织 8 人以上的线下场次（有场地或社群资源）",
+						"每期可投入一个周末 + 共备时间，年满 18 岁",
+						"无编程背景要求——课程包与 Agent 兜住技术环节"
+					]
+				},
+				{
+					"id": "tutor",
+					"t": "教程研究员",
+					"en": "Tutor",
+					"duty": [
+						"把 Agent 工作坊课程写成可复用的教程与示例项目",
+						"与课程组共同迭代教学内容、案例与练习",
+						"让每一场工作坊的教学质量可持续复制"
+					],
+					"reqs": [
+						"有编程与写作能力，能把技术讲给普通人听",
+						"Agent coding 工具使用经验加分",
+						"一门课程预估投入 5-10 小时",
+						"远程协作，不限城市"
+					]
+				},
+				{
+					"id": "coach",
+					"t": "活动教练",
+					"en": "Coach",
+					"duty": [
+						"线下活动现场的教学支持：巡场答疑、帮学员跑通动手环节",
+						"现场看一看、解决点问题——学员自学为主，教练不讲课",
+						"与主理人配合，保障单场体验"
+					],
+					"reqs": [
+						"用过 Agent coding 工具，能解现场常见卡点",
+						"愿意陪跑、教学相长，无需授课经验",
+						"按场次排班，一场 3 小时",
+						"开班城市现场参与"
+					]
+				}
+			],
+			"tablistLabel": "选择职位"
+		},
+		"deep": {
+			"badge": "走近「场次主理人」",
+			"label": "Role Deep-dive",
+			"quote": "「The most meaningful way to succeed is to help others succeed.」",
+			"quoteBy": "—— Adam Grant《Give and Take》",
+			"title": "给出一个周末，<em>收获一座城市</em>",
+			"duty": [
+				{
+					"t": "开场前",
+					"d": "协调场地与时间、配合招生（报名走平台，你不用做表单）、按物料清单准备现场"
+				},
+				{
+					"t": "现场 3 小时",
+					"d": "执行单场 SOP：15 分钟开场 → 2 小时动手 → 30 分钟 demo；技术环节由课程包与 Agent 自适应学习兜底"
+				},
+				{
+					"t": "场后",
+					"d": "作品收集、数据回收（平台自动）、现场素材整理与社媒动员（带 #hackerstart1024）、一次简短复盘；跑顺后滚动开班"
+				}
+			],
+			"supply": [
+				{
+					"t": "课程包与 SOP",
+					"d": "定制课程内容、单场流程手册、Agent 自适应学习平台——照着做就能开一场"
+				},
+				{
+					"t": "运营系统",
+					"d": "报名、87 元押金风控、到场核销全链路平台，你不碰钱"
+				},
+				{
+					"t": "免费场地合作",
+					"d": "我们尽量找免费的合作场地；咖啡馆场次由学员现场消费支持——你没有场地预算压力，只负责落地协调"
+				},
+				{
+					"t": "社区与曝光",
+					"d": "40+ 城主理人网络、128 名志愿者体系、campaign 级联合宣传；志愿者权益定稿中"
+				}
+			]
+		},
+		"flow": {
+			"badge": "从申请到上岗",
+			"label": "The Journey",
+			"title": "四段流程，<em>每段都知道会发生什么</em>",
+			"cap": "时长为当前预期（草案）——每一段的结果都邮件 + 微信小程序双通道通知",
+			"steps": [
+				{
+					"t": "网申",
+					"when": "约 15 分钟",
+					"what": "两小步：先【完善简历】（上传一次，跨批次复用），再【申请项目】（批次、职位、城市、投入）",
+					"you": "同批次只能选一个职位",
+					"notice": "提交即收确认邮件"
+				},
+				{
+					"t": "面试",
+					"when": "约 1 周",
+					"what": "通过后进微信群约群面——30 秒自我介绍 + 阅读材料集体讨论",
+					"you": "线上 30 分钟，展示你的表达与组织热情",
+					"notice": "面试结果双通道通知"
+				},
+				{
+					"t": "训练营",
+					"when": "1-2 周",
+					"what": "线上训练营（站内的一门课程）：课程 walkthrough + 共备，需确认出席；入选后运营会把你拉进对应课程",
+					"you": "完整走一次课程包，把第一场的每个环节过一遍",
+					"notice": "训练营预约与结果双通道通知"
+				},
+				{
+					"t": "项目分配",
+					"when": "训练营结束后",
+					"what": "主理人指派到你的城市场次；教程研究员分配课程任务——正式进入志愿者网络",
+					"you": "按你的节奏排期，平台持续支持",
+					"notice": "分配结果双通道通知"
+				}
+			]
+		},
+		"faq": {
+			"badge": "常见问题",
+			"label": "FAQ",
+			"title": "申请之前，<em>你大概想问</em>",
+			"groups": [
+				{
+					"g": "共同关心",
+					"items": [
+						{
+							"q": "要花钱吗？",
+							"a": "不用。志愿者零出资零抽成：报名押金（87 元，到场退）全程走平台，你经手的是组织不是钱；场地以免费合作为主，不占你的预算。"
+						},
+						{
+							"q": "简历传了之后怎么用？",
+							"a": "简历进入你的志愿者简历档案：本批和以后批次都能复用，不用重传；可随时更新。仅招募团队可见，遵循 PIPL，不用于招募以外的用途。"
+						},
+						{
+							"q": "同一批能申请几个职位？",
+							"a": "一个。同一批次只能在可选职位中选一个参与；下一批可以换职位再申请。"
+						},
+						{
+							"q": "可以同时做几个职位吗？",
+							"a": "可以。申请时一批一个职位；入职后职位不互斥——比如教程研究员也可以去线下当活动教练，按场次和任务参与就行。"
+						}
+					]
+				},
+				{
+					"g": "场次主理人",
+					"items": [
+						{
+							"q": "需要编程背景吗？",
+							"a": "不需要。课程包与 Agent 自适应学习会兜住技术环节——你自己先作为参与者完整体验一次，就是最好的准备。"
+						},
+						{
+							"q": "场地谁解决？",
+							"a": "我们尽量找免费的合作场地：社区空间、企业会议室、高校教室；用咖啡馆时，由学员现场消费来支持（到场点杯咖啡即可，不另付场地费）。你负责选点与协调落地。"
+						},
+						{
+							"q": "一场多少人？我时间有限。",
+							"a": "8 人即可开班（2³）、32 人满班（2⁵）。建议一期一场起步，跑顺后再滚动。"
+						}
+					]
+				},
+				{
+					"g": "活动教练",
+					"items": [
+						{
+							"q": "要讲课吗？",
+							"a": "不用。学员自学为主（Agent 自适应学习陪跑），教练现场巡场、答疑、帮学员跑通动手环节——现场看一看、解决点问题就好。"
+						},
+						{
+							"q": "和主理人什么关系？",
+							"a": "主理人管整场组织，教练管现场体验。可以只当教练，也可以在不同场次两个职位都做。"
+						}
+					]
+				},
+				{
+					"g": "教程研究员",
+					"items": [
+						{
+							"q": "一门课要投入多少时间？",
+							"a": "一门课程预估 5-10 小时，以课程为单位投入，不用每周固定坐班。"
+						},
+						{
+							"q": "怎么协作？",
+							"a": "远程参与、不限城市，与课程组异步协作；你写的教程会被全国场次复用。"
+						}
+					]
+				}
+			]
+		},
+		"form": {
+			"badge": "申请表单",
+			"label": "Apply",
+			"title": "两步网申，<em>先简历后项目</em>",
+			"lead": "登录后填写；过往申请人可直接更新简历、跳过重传。",
+			"checking": "正在确认登录状态…",
+			"loginFirst": "申请需要登录：登录后回到本页，两步完成网申（先完善简历档案，再申请项目）。",
+			"login": "登录并继续申请",
+			"register": "还没有账号？注册",
+			"appliedTitle": "本批你已提交过申请",
+			"appliedDesc": "同一批次限一个职位；下一批开放时可换职位再申请。",
+			"stepNow": "第 {n} 步 · 当前",
+			"stepDone": "第 {n} 步 · 已完成",
+			"stepTodo": "第 {n} 步",
+			"step1Title": "第 1 步 · 完善简历",
+			"step2Title": "第 2 步 · 申请项目",
+			"profileReused": "已找到你的简历档案：跨批次复用，无需重传；要更新可直接替换文件。",
+			"fullName": "姓名",
+			"contactEmail": "联系邮箱（接收各段结果）",
+			"contactEmailFromAccount": "已使用账号邮箱；如需更换请在账号设置中修改。",
+			"weeklyHours": "每周可投入小时数（选填）",
+			"skills": "技能（多选）",
+			"skillOptions": [
+				{
+					"value": "organizing",
+					"label": "组织协调"
+				},
+				{
+					"value": "community",
+					"label": "社群运营"
+				},
+				{
+					"value": "writing",
+					"label": "写作"
+				},
+				{
+					"value": "development",
+					"label": "开发"
+				},
+				{
+					"value": "design",
+					"label": "设计"
+				},
+				{
+					"value": "other",
+					"label": "其他"
+				}
+			],
+			"resume": "简历（PDF / Word，原始文件 ≤5MB；跨批次复用）",
+			"consentPrefix": "我已知悉并同意招募方按",
+			"consentLink": "《隐私政策》",
+			"consentSuffix": "处理我提交的个人信息：仅招募团队可见，不用于招募以外的用途。",
+			"consentRequired": "请先勾选采集告知同意，再上传或提交。",
+			"profileIncomplete": "请填写姓名与联系邮箱。",
+			"fileRequired": "请先上传简历文件（PDF / Word，≤5MB）。",
+			"uploadNeedsProfile": "请先填写姓名与联系邮箱，再上传简历文件。",
+			"uploadFailed": "简历上传失败，请重试。",
+			"saving": "保存中…",
+			"next": "下一步：申请项目",
+			"back": "返回上一步",
+			"cohortLine": "申请批次：{name}",
+			"position": "申请职位（单选）",
+			"positionNote": "同一批次只能申请一个职位；下一批可换职位再申请。",
+			"city": "申请城市",
+			"cityHint": "教程研究员可填「远程」；主理人 / 教练填开班城市。",
+			"heardAboutUs": "如何得知我们",
+			"hasReferrer": "有内部推荐人",
+			"message": "想对我们说的话（选填）",
+			"noticeHint": "每段结果邮件 + 微信小程序双通道通知；订阅消息授权在小程序内引导。",
+			"privacyNote": "简历档案仅招募团队可见，遵循 PIPL，不用于招募以外的用途。",
+			"submitting": "提交中…",
+			"submit": "提交申请",
+			"submitFailed": "提交失败，请稍后重试。",
+			"anonCohortHint": "登录后可查看当前批次、截止时间，并在线提交申请。",
+			"previewSteps": [
+				{
+					"n": 1,
+					"t": "完善简历",
+					"fields": [
+						"上传简历（PDF / Word，跨批次复用）",
+						"姓名 · 联系邮箱（手机号建号必填邮箱）",
+						"每周可投入小时数",
+						"技能标签（多选）"
+					]
+				},
+				{
+					"n": 2,
+					"t": "申请项目",
+					"fields": [
+						"招募批次（默认当前批次：第 1 批）",
+						"申请职位（单选：场次主理人 / 教程研究员 / 活动教练）",
+						"申请城市（教程研究员可填「远程」）",
+						"如何得知我们",
+						"是否有内部推荐人",
+						"想对我们说的话（选填）"
+					]
+				}
+			]
+		},
+		"upload": {
+			"choose": "选择文件",
+			"replace": "替换简历",
+			"uploading": "上传中…",
+			"hint": "PDF / Word（.pdf / .doc / .docx），原始文件 ≤5MB",
+			"uploaded": "已上传：{name}（{size}）",
+			"rejectType": "仅支持 PDF / Word（.pdf / .doc / .docx）。",
+			"rejectSize": "文件超过 5MB 上限，请压缩后再上传。",
+			"consentRequired": "勾选下方采集告知同意后，才能上传简历。"
+		},
+		"myApps": {
+			"badge": "我的申请",
+			"label": "My Application",
+			"title": "提交之后，<em>随时可查</em>",
+			"submitted": "提交成功！申请已进入列表，段位会随审核推进更新。",
+			"loading": "申请列表加载中…",
+			"loadFailed": "申请列表读取失败。",
+			"empty": "还没有申请记录：完成两步网申后在这里查看段位。",
+			"city": "城市：{city}",
+			"rejected": "本批未通过：可等下一批再申请。",
+			"canceled": "申请已取消。",
+			"rejectionReason": "拒绝原因：{reason}",
+			"assignmentNote": "分配备注：{note}",
+			"assignedAt": "分配时间：{time}",
+			"anonHint": "登录后可查看你的申请进度。"
+		},
+		"stageLabels": {
+			"submitted": "网申",
+			"interview": "面试",
+			"training": "训练营",
+			"assigned": "项目分配"
+		},
+		"statusLabels": {
+			"submitted": "已提交",
+			"interview": "面试中",
+			"training": "训练营中",
+			"assigned": "已分配",
+			"rejected": "未通过",
+			"canceled": "已取消"
+		},
+		"positions": {
+			"event_moderator": "场次主理人",
+			"tutor": "教程研究员",
+			"coach": "活动教练"
+		},
+		"footer": {
+			"org": "Coding Girls Club 程序媛汇 · Hacker Start 1024",
+			"back": "← 返回宣传页",
+			"hashtag": "#hackerstart1024"
+		}
+	},
+	"recruitmentPanel": {
+		"title": "志愿者招募审核",
+		"description": "审核志愿者申请：批次管理、段位流转、项目分配与简历查看。",
+		"loading": "加载中…",
+		"loadFailed": "招募数据加载失败。",
+		"actionFailed": "操作失败，请稍后重试。",
+		"positions": {
+			"event_moderator": "场次主理人",
+			"tutor": "教程研究员",
+			"coach": "活动教练"
+		},
+		"status": {
+			"submitted": "已提交",
+			"interview": "面试中",
+			"training": "训练营",
+			"assigned": "已分配",
+			"rejected": "已拒绝",
+			"canceled": "已取消"
+		},
+		"cohorts": {
+			"title": "批次",
+			"empty": "还没有批次，先创建一个。",
+			"status": {
+				"draft": "草稿",
+				"open": "招募中",
+				"closed": "已结束"
+			},
+			"deadline": "截止 {date}",
+			"open": "开放",
+			"close": "关闭",
+			"create": "新建批次",
+			"namePlaceholder": "批次名称（如：第 1 批）",
+			"deadlineLabel": "申请截止日期"
+		},
+		"applications": {
+			"title": "申请列表",
+			"empty": "暂无申请。",
+			"remote": "远程",
+			"detail": "详情",
+			"filterCohort": "按批次过滤",
+			"filterStatus": "按状态过滤",
+			"allCohorts": "全部批次",
+			"allStatuses": "全部状态"
+		},
+		"actions": {
+			"advance_interview": "推进到面试",
+			"advance_training": "推进到训练营",
+			"assign": "项目分配",
+			"reject": "拒绝",
+			"cancel": "取消"
+		},
+		"reject": {
+			"reasonPlaceholder": "拒绝原因（必填，将随通知发给申请人）",
+			"reasonLabel": "拒绝原因",
+			"confirm": "确认拒绝"
+		},
+		"assign": {
+			"eventLabel": "分配场次",
+			"noEvent": "不指定场次（如教程研究员）",
+			"notePlaceholder": "分配备注（如课程任务）",
+			"noteLabel": "分配备注",
+			"confirm": "确认分配"
+		},
+		"cancel": {
+			"notePlaceholder": "取消备注（选填）",
+			"noteLabel": "取消备注",
+			"confirm": "确认取消"
+		},
+		"detail": {
+			"fullName": "姓名",
+			"contactEmail": "联系邮箱",
+			"download": "下载简历（{name}）",
+			"noResume": "未建档",
+			"noFile": "未上传简历文件",
+			"loadFailed": "详情加载失败"
+		},
+		"breadcrumbHome": "工作台",
+		"retry": "重试"
 	}
 }

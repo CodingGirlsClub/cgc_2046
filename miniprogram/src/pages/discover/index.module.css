@@ -14,6 +14,15 @@
 .visitorTitle { display: block; font-size: 27rpx; font-weight: 600; }
 .visitorText { display: block; margin-top: 6rpx; color: rgba(255,255,255,.85); font-size: 22rpx; }
 .loginButton { margin: 0 0 0 20rpx; color: #ea5504; background: #fff; border-radius: 28rpx; font-size: 22rpx; }
+/* campaign 入口卡（R19）：微信端专属（渲染侧分流见 index.tsx），渐变同 visitor 卡；
+   独立类名——e2e 选择器锚点（data-testid 在 Taro 4 不落地，见 #579） */
+.campaignCard { margin: 22rpx 32rpx 0; padding: 26rpx; background: linear-gradient(135deg, #ea5504, #f26a1f); box-shadow: 0 10rpx 28rpx rgba(234, 85, 4, .22); color: #fff; border-radius: 20rpx; }
+.campaignKicker { display: block; color: rgba(255,255,255,.85); font-size: 20rpx; font-weight: 700; letter-spacing: 2rpx; }
+.campaignTitle { display: block; margin-top: 8rpx; font-size: 36rpx; font-weight: 700; }
+.campaignDesc { display: block; margin-top: 8rpx; color: rgba(255,255,255,.88); font-size: 23rpx; line-height: 1.5; }
+.campaignFoot { margin-top: 16rpx; display: flex; align-items: center; justify-content: space-between; }
+.campaignMeta { color: rgba(255,255,255,.88); font-size: 22rpx; }
+.campaignArrow { color: #fff; font-size: 34rpx; }
 .content { padding: 0 32rpx 36rpx; }
 .section { margin-top: 38rpx; }
 .sectionHeader { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18rpx; }

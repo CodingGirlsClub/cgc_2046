@@ -1,0 +1,91 @@
+/* 志愿者招募流样式（R20）：token 全部取自既有页面（橙 #ea5504 / 渐变 hero
+   #fdeadf→#fff / 白卡 22rpx 圆角 + 橙左边框 / 底 #f7f7f7 / 底栏 #8a8f98），
+   数值按原型 weapp.css 的 px × 2 换算成 rpx（750 设计宽度）。 */
+
+.page { min-height: 100vh; background: #f7f7f7; padding-bottom: calc(48rpx + env(safe-area-inset-bottom)); }
+
+/* hero：同发现页/campaign 页的渐变语言，全宽出血 */
+.hero { padding: 44rpx 32rpx 36rpx; background: linear-gradient(145deg, #fdeadf 0%, #fff 68%); }
+.brand { font-size: 26rpx; font-weight: 700; letter-spacing: 1rpx; }
+.brandAccent { color: #ea5504; }
+.title { display: block; margin: 16rpx 0 12rpx; font-size: 58rpx; line-height: 1.15; font-weight: 700; letter-spacing: -2rpx; }
+.subtitle { display: block; color: #4b4d54; font-size: 26rpx; line-height: 1.55; }
+
+.body { padding: 0 32rpx; }
+.sectionTitle { display: block; margin: 40rpx 0 18rpx; font-size: 32rpx; font-weight: 650; }
+.sectionEn { display: inline; margin-left: 12rpx; color: #8a8f98; font-size: 22rpx; font-weight: 400; letter-spacing: 2rpx; }
+
+/* 白卡 + 橙左边框（同 campaign 页/发现页卡片骨架） */
+.card { margin-bottom: 18rpx; padding: 26rpx 28rpx; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, .04); border-radius: 22rpx; }
+.cardBorder { border-left: 6rpx solid #ea5504; }
+.cardTop { display: flex; align-items: center; justify-content: space-between; }
+.kicker { color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 2rpx; }
+.chip { padding: 4rpx 16rpx; color: #ea5504; background: #fdeadf; border-radius: 999rpx; font-size: 20rpx; font-weight: 700; }
+.cardTitle { display: block; margin-top: 10rpx; font-size: 31rpx; line-height: 1.35; font-weight: 600; }
+.cardDesc { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 24rpx; line-height: 1.6; }
+.cardNote { display: block; margin-top: 12rpx; color: #8a8f98; font-size: 22rpx; line-height: 1.5; }
+.footnote { display: block; margin: 4rpx 0 8rpx; color: #8a8f98; font-size: 22rpx; line-height: 1.55; }
+
+/* 批次卡（原型：橙色渐变 + 白字，与 campaign 主 CTA 同款渐变） */
+.cohortCard {
+  padding: 30rpx 28rpx; border-radius: 22rpx;
+  background: linear-gradient(135deg, #ea5504, #f26a1f);
+  box-shadow: 0 10rpx 28rpx rgba(234, 85, 4, .22);
+}
+.cohortChip { display: inline-block; padding: 4rpx 18rpx; color: #fff; background: rgba(255, 255, 255, .22); border-radius: 999rpx; font-size: 20rpx; font-weight: 700; }
+.cohortName { display: block; margin-top: 16rpx; color: #fff; font-size: 34rpx; font-weight: 700; }
+.cohortMeta { display: block; margin-top: 8rpx; color: rgba(255, 255, 255, .9); font-size: 24rpx; line-height: 1.55; }
+.cohortNote { display: block; margin-top: 14rpx; color: rgba(255, 255, 255, .82); font-size: 22rpx; line-height: 1.5; }
+
+/* 四段流程 */
+.step { display: flex; padding: 18rpx 0; border-bottom: 1rpx solid #f0f0f2; }
+.step:last-child { border-bottom: 0; }
+.stepIndex { flex: none; width: 40rpx; height: 40rpx; margin-right: 20rpx; color: #ea5504; background: #fdeadf; border-radius: 999rpx; font-size: 22rpx; font-weight: 700; text-align: center; line-height: 40rpx; }
+.stepText { flex: 1; color: #4b4d54; font-size: 25rpx; line-height: 1.55; }
+.stepTitle { color: #222326; font-weight: 700; }
+
+/* 表单 */
+.stepBadge { display: block; color: #ea5504; font-size: 26rpx; font-weight: 700; }
+.field { margin-top: 24rpx; }
+.label { display: block; color: #222326; font-size: 26rpx; font-weight: 600; }
+.input { margin-top: 12rpx; padding: 0 22rpx; height: 78rpx; background: #f7f7f7; border-radius: 14rpx; font-size: 26rpx; }
+.textarea { margin-top: 12rpx; padding: 18rpx 22rpx; width: 100%; height: 160rpx; background: #f7f7f7; border-radius: 14rpx; font-size: 26rpx; }
+.skillRow { display: flex; flex-wrap: wrap; gap: 16rpx; margin-top: 12rpx; }
+.skill { padding: 12rpx 26rpx; background: #f7f7f7; border-radius: 999rpx; }
+.skillActive { background: #fdeadf; }
+.skillText { color: #4b4d54; font-size: 24rpx; }
+.skillActive .skillText { color: #ea5504; font-weight: 600; }
+
+/* 职位单选（申请项）：选中态 = 橙边框 + 浅橙底 */
+.option { margin-top: 14rpx; padding: 20rpx 22rpx; background: #fff; border: 2rpx solid #ececef; border-radius: 16rpx; }
+.optionActive { border-color: #ea5504; background: #fdeadf; }
+.optionTitle { display: block; color: #222326; font-size: 28rpx; font-weight: 600; }
+.optionNote { display: block; margin-top: 6rpx; color: #8a8f98; font-size: 21rpx; }
+
+/* 复选行（同 register-form 的年龄确认行/order-pay 同意门） */
+.ackRow { display: flex; align-items: center; margin-top: 24rpx; }
+.ackBox { flex: none; width: 34rpx; height: 34rpx; margin-right: 16rpx; background: #fff; border: 2rpx solid #d8d8dd; border-radius: 8rpx; }
+.ackBoxChecked { background: #ea5504; border-color: #ea5504; }
+.ackLabel { flex: 1; color: #4b4d54; font-size: 25rpx; line-height: 1.5; }
+
+/* 按钮 */
+.primaryButton { margin-top: 32rpx; height: 88rpx; line-height: 88rpx; color: #fff; background: linear-gradient(135deg, #ea5504, #f26a1f); border-radius: 28rpx; font-size: 30rpx; font-weight: 600; box-shadow: 0 10rpx 28rpx rgba(234, 85, 4, .22); }
+.ghostButton { margin-top: 16rpx; height: 64rpx; line-height: 64rpx; padding: 0 32rpx; color: #4b4d54; background: #f7f7f7; border-radius: 999rpx; font-size: 24rpx; }
+.secondaryButton { margin-top: 7rpx; height: 68rpx; line-height: 68rpx; padding: 0 32rpx; color: #ea5504; background: #fdeadf; border-radius: 999rpx; font-size: 26rpx; font-weight: 600; }
+.linkButton { margin: 0; height: 56rpx; line-height: 56rpx; padding: 0 24rpx; color: #ea5504; background: #fdeadf; border-radius: 999rpx; font-size: 22rpx; }
+.error { display: block; margin-top: 20rpx; color: #d0342c; font-size: 24rpx; line-height: 1.5; }
+
+/* 我的申请：段位行 + 四段进度 */
+.statusChip { color: #ea5504; font-size: 22rpx; font-weight: 700; }
+.progress { display: flex; margin-top: 18rpx; }
+.progressCell { flex: 1; padding: 14rpx 6rpx; margin-right: 8rpx; background: #f7f7f7; border-radius: 12rpx; text-align: center; }
+.progressCell:last-child { margin-right: 0; }
+.progressCurrent { background: #fdeadf; }
+.progressLabel { display: block; color: #222326; font-size: 21rpx; font-weight: 600; }
+.progressCurrent .progressLabel { color: #ea5504; }
+.progressState { display: block; margin-top: 4rpx; color: #8a8f98; font-size: 18rpx; }
+.rejectReason { display: block; margin-top: 12rpx; color: #d0342c; font-size: 24rpx; line-height: 1.5; }
+.subscribeCopy { display: block; margin-top: 14rpx; color: #4b4d54; font-size: 23rpx; line-height: 1.5; }
+
+/* 页内轻提示（表单提交/上传结果；与 toast 并存，供无 toast 环境阅读） */
+.toast { display: block; margin: 24rpx 32rpx 0; color: #4b4d54; font-size: 23rpx; line-height: 1.5; }

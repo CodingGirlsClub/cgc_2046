@@ -56,7 +56,14 @@ export const ALL_SCENARIOS = [
   'refund_succeeded',
   'refund_failed',
   'enrollment_submitted',
-  'payment_received'
+  'payment_received',
+  // 志愿者段位通知六键（R14/R21；后端 Subscriber 六信号同名同集）
+  'volunteer_application_submitted',
+  'volunteer_application_interview',
+  'volunteer_application_training',
+  'volunteer_application_assigned',
+  'volunteer_application_rejected',
+  'volunteer_application_canceled'
 ] as const satisfies readonly SubscriptionScenario[]
 
 /** 微信单次 `tmplIds` 上限（官方文档：一次调用最多可订阅 3 条消息）。 */
@@ -268,6 +275,58 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
   }
 }
 
+/**
+ * M9 志愿者申请 · 第 2 步「提交申请」**提交前**（pages/volunteer-apply）——镜像
+ * 报名流 M0 的顺序判据（见 preSubmitTouchpoint）：`volunteer_application_submitted`
+ * 与提交同一事务落定（后端 Subscriber 收到 submitted 信号即入队），后置触点拿不到
+ * 首段通知，故授权必须在提交之前。
+ *
+ * 一次最多 3 键，取**前进路径**三键（提交确认 → 面试安排 → 训练营预约）：申请一旦
+ * 提交，接下来按段位图必然依次触发这三条；脱路径的两条（拒绝 / 取消）与终点
+ * （分配结果）留给提交完成页 / 我的申请页的第二触点（volunteerFollowUpTouchpoint），
+ * 合起来覆盖 R14 的六段映射表（两条触点各 ≤3，微信单次上限内）。
+ *
+ * 授权被拒 / 模板未配 / 平台报错一律不阻断提交（submitAfterConsent 内化）；
+ * 未授权时**邮件是唯一可达通道**（R9 档案联系邮箱），故文案不承诺小程序通知必达。
+ */
+export function volunteerApplyTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/volunteer-apply/index（第 2 步「提交申请」前）',
+    trigger: '用户点按「提交申请」，先请求授权再提交申请请求',
+    label: '订阅申请进度通知',
+    scenarios: [
+      'volunteer_application_submitted',
+      'volunteer_application_interview',
+      'volunteer_application_training'
+    ],
+    acceptedCopy: '已订阅，每段申请进展会通知你',
+    deniedCopy: '你暂未授权，可再试；每段结果也会发到你的联系邮箱'
+  }
+}
+
+/**
+ * M10 申请完成页 · 我的申请（pages/volunteer-apply）——前进路径三键用满单次上限
+ * 后的增量：分配结果 + 拒绝 + 取消。三个模板的触发都可能在 M9 之后很久才发生，
+ * 而**拒绝后的补授权位**（R21）正是本页：状态已落 rejected 的用户在这里补订阅，
+ * 结转的授权留给下一次段位变动（一次性订阅的配额按 template_key 累积）。
+ *
+ * 与 M9 同页但独立手势（同工作台 M4/M8 的先例）：场景不重叠，按钮各自 ≤3。
+ */
+export function volunteerFollowUpTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/volunteer-apply/index（申请完成页 · 我的申请）',
+    trigger: '已提交申请的用户点按订阅按钮（补授权位）',
+    label: '订阅分配与结果通知',
+    scenarios: [
+      'volunteer_application_assigned',
+      'volunteer_application_rejected',
+      'volunteer_application_canceled'
+    ],
+    acceptedCopy: '已订阅，分配结果与处理结果会通知你',
+    deniedCopy: '你暂未授权，可再试；结果也会发到你的联系邮箱'
+  }
+}
+
 // --- 请求期 fail-closed（纯函数，页面/transport 只做调起） ---------------------
 /** 订阅 helper 的注入式依赖（platform ↔ api 依赖环 → domain 不得 import Taro，
  * 由页面注入 request/grant——#546 起的既定形状，#693 沿用）。 */
@@ -337,6 +396,31 @@ export async function requestAndGrant(
       ? { kind: 'denied', title: touchpoint.deniedCopy }
       : { kind: 'accepted', title: touchpoint.acceptedCopy }
   )
+}
+
+/**
+ * 独立订阅触点（没有随行的提交动作，如「我的申请」的补授权位）：请求 → 逐个 grant
+ * → 返回该时刻应展示的文案（acceptedCopy / deniedCopy）。
+ *
+ * 与 submitAfterConsent 同一 fail-closed 纪律：拒绝授权、模板缺配、平台报错一律
+ * **不抛**，只回落 deniedCopy——未授权时邮件是唯一可达通道（AE10），页面不得报错。
+ * 文案由调用方展示（toast / 页内文案皆可）。
+ */
+export async function requestTouchpointConsent(
+  touchpoint: SubscriptionTouchpoint,
+  deps: {
+    request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
+    grant: (scenario: SubscriptionScenario) => Promise<unknown>
+  }
+): Promise<string> {
+  try {
+    const accepted = await deps.request(touchpoint.scenarios)
+    if (accepted.length === 0) return touchpoint.deniedCopy
+    for (const scenario of accepted) await deps.grant(scenario)
+    return touchpoint.acceptedCopy
+  } catch {
+    return touchpoint.deniedCopy
+  }
 }
 
 /** 订阅消息的调起平台。 */

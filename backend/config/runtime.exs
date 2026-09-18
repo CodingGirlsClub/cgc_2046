@@ -194,6 +194,21 @@ if config_env() == :prod do
         System.get_env("WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
       "event_moderator_assigned" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      # 志愿者段位通知六模板（U4/KTD6；R14）：**真实模板 ID 待申请**——env
+      # 未提供时键保留、值 nil → 发送侧 template_not_configured 终态 discard
+      # + 日志（运维文档 §6 已知预期），邮件保底通道不受影响
+      "volunteer_application_submitted" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED"),
+      "volunteer_application_interview" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW"),
+      "volunteer_application_training" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING"),
+      "volunteer_application_assigned" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED"),
+      "volunteer_application_rejected" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
+      "volunteer_application_canceled" =>
+        System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
       "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     tt: %{
@@ -222,6 +237,19 @@ if config_env() == :prod do
         System.get_env("DOUYIN_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
       "event_moderator_assigned" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      # 志愿者段位通知六模板（U4/KTD6）：抖音端模板未申请（键保留、值 nil）
+      "volunteer_application_submitted" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED"),
+      "volunteer_application_interview" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW"),
+      "volunteer_application_training" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING"),
+      "volunteer_application_assigned" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED"),
+      "volunteer_application_rejected" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
+      "volunteer_application_canceled" =>
+        System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
       "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     },
     xhs: %{
@@ -250,6 +278,19 @@ if config_env() == :prod do
         System.get_env("XHS_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER"),
       "event_schedule_changed" => System.get_env("XHS_MP_TEMPLATE_EVENT_SCHEDULE_CHANGED"),
       "event_moderator_assigned" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_ASSIGNED"),
+      # 志愿者段位通知六模板（U4/KTD6）：小红书端模板未申请（键保留、值 nil）
+      "volunteer_application_submitted" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_SUBMITTED"),
+      "volunteer_application_interview" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_INTERVIEW"),
+      "volunteer_application_training" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_TRAINING"),
+      "volunteer_application_assigned" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_ASSIGNED"),
+      "volunteer_application_rejected" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
+      "volunteer_application_canceled" =>
+        System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
       "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
     }
   }
