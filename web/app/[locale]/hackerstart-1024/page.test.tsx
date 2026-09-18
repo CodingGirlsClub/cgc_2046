@@ -553,6 +553,12 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		vi.unstubAllEnvs();
 	});
 
+	it("留存位：公众号二维码真实素材（alt + 资源存在）", async () => {
+		render(<HackerStart1024Page />);
+		const qr = screen.getByAltText(zhCN.hackerstart1024.follow.qr);
+		expect(qr).toHaveAttribute("src", "/hackerstart-1024/cgc-wechat-qr-430.jpg");
+	});
+
 	it("错误路径：messages 缺 namespace 时不白屏（next-intl 回落 key 路径）", () => {
 		// 部署侧 messages 失配（命名空间整段缺失）时页面必须照常渲染骨架，
 		// 而不是 500——真实缺口由上面的键集/数组/标签守卫负责拦截。

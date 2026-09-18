@@ -491,9 +491,10 @@
 }
 .hs24-follow__row { display: flex; align-items: center; justify-content: center; gap: 26px; flex-wrap: wrap; }
 .hs24-follow__qr {
-	width: 104px; height: 104px; border: 2px dashed #c9497d; border-radius: 14px;
-	display: grid; place-items: center; font-size: 11px; color: #c9497d; background: #fff;
-	text-align: center; padding: 0 8px;
+	width: 104px; height: 104px;
+	object-fit: cover;
+	border-radius: 12px;
+	border: 1px solid #e8e4ec;
 }
 .hs24-follow__copy { text-align: left; }
 .hs24-follow__t { font-size: 20px; font-weight: 800; color: #2b2b33; }
