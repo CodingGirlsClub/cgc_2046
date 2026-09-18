@@ -385,6 +385,7 @@ defmodule Cgc2046Web.GraphqlAdminOfferingReadTest do
 
       course = EventFixtures.create_course(a.workspace, a.owner, %{title: "甲台课程"})
       enroll(course.workspace_id, Fixtures.register_user("course-count"), %{course_id: course.id})
+
       # 当前修订投影（计划 R3）：造修订并走真实换绑 action，详情现取 number
       {:ok, revision} =
         Cgc2046.Curriculum.CourseRevision
