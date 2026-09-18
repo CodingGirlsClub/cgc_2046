@@ -34,14 +34,14 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 | 脚本 | 依赖 | 状态 |
 | --- | --- | --- |
-| `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | **已失效**：断言全用 `[data-testid]`，而 Taro 4 运行时不渲染该属性（#579） |
+| `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | 可用（#579 已修）：全链旅程回归（13 断言·分组计数）；锚点表 `e2e/anchors.mjs`，CI 侧 `node scripts/check-anchors.mjs` 构建后静态自检 |
 | `e2e/order-pay-deposit-consent.e2e.sh`（`pnpm e2e:order-pay-consent`） | wechatide CLI + 已登录的 DevTools | 可用；押金同意门回归（11 断言 + 截图） |
 | `e2e/initiative-journey.e2e.sh`（`pnpm e2e:initiative`） | wechatide CLI + 已登录的 DevTools | 可用；倡导活动旅程 + 详情页回链/成班徽章回归（16 断言 + 截图） |
 
 跑 e2e 的四条纪律：
 
 1. **前置**：小程序依赖——**Paseo 建的 worktree 由 `paseo.json` 的 setup 自动装好**；手工 `git worktree add` 建的、或早于该 setup 的 worktree 需自己跑一次 `cd miniprogram && pnpm install --frozen-lockfile`（缺依赖时脚本会预检报错并直说，不会伪装成「mock 构建失败」）。另需 wechatide-skill 装在 `.agents/skills/wechatide-skill`；首次调用 `wechatide` 会在工具内弹授权窗，需人工点同意（client 名默认 `DSH`，用 `CGC_WECHATIDE_CLIENT` 覆盖）。工具没登录 → 先扫码。
-2. **选择器只用 CSS-module 类名**（`data-testid` 是惰性属性，见 #579）。类名哈希随样式变，运行时从 `dist/weapp/<page>/index.wxss` 解析，别写死——`e2e/order-pay-deposit-consent.e2e.sh` 的 `cls()` 是参考实现。
+2. **选择器只用 CSS-module 类名**（`data-testid` 是惰性属性，见 #579）。类名哈希随样式变，运行时解析、别写死：journey 走 `e2e/anchors.mjs`（锚点表单源，页面类从 `dist/weapp/<page>/index.wxss`、组件类从 `dist/weapp/common.wxss` 解析），shell 版参考 `e2e/order-pay-deposit-consent.e2e.sh` 的 `cls()`。
 3. **`--wait-for-selector` 是「执行前等待」**（`automation_navigate` / `automation_element_action` 都是）。用它等**本步要操作的元素**；当成「导航后等新页面」用会卡在等一个还不存在的元素上，页面根本不跳。
 4. **e2e 走 mock transport**（`CGC_E2E_MOCK=true` 构建）。样例与流转逻辑在 `src/api/mockTransport.ts`：加字段/加页面要同步改它，否则 `parseOrderKind` 这类 fail-closed 解析会直接把页面打成错误态，e2e 红得莫名其妙。
 

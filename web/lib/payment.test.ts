@@ -158,6 +158,27 @@ describe("U11 payment 纯逻辑", () => {
 			expect(parsePriceTiers(null)).toEqual([]);
 		});
 
+		// #687：脏金额（缺失/0/负/非整数分/非数值）不丢档——amountCents 落 null，
+		// 渲染层据此「金额待定」+ 禁选；只有缺身份（id/name）才整档丢弃。
+		it("档位金额脏 → 档位保留 amountCents null（positiveAmountOrNull 判据，#687）", () => {
+			const raw = [
+				JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+				JSON.stringify({ id: "t-missing", name: "缺额档" }),
+				JSON.stringify({ id: "t-zero", name: "零档", amount_cents: 0 }),
+				JSON.stringify({ id: "t-neg", name: "负档", amount_cents: -100 }),
+				JSON.stringify({ id: "t-frac", name: "非整档", amount_cents: 0.4 }),
+				JSON.stringify({ id: "t-null", name: "空额档", amount_cents: null }),
+			];
+			expect(parsePriceTiers(raw)).toEqual([
+				{ id: "t-clean", name: "标准", amountCents: 19900, availableUntil: null },
+				{ id: "t-missing", name: "缺额档", amountCents: null, availableUntil: null },
+				{ id: "t-zero", name: "零档", amountCents: null, availableUntil: null },
+				{ id: "t-neg", name: "负档", amountCents: null, availableUntil: null },
+				{ id: "t-frac", name: "非整档", amountCents: null, availableUntil: null },
+				{ id: "t-null", name: "空额档", amountCents: null, availableUntil: null },
+			]);
+		});
+
 		it("formatAmount 分 → 元两位小数", () => {
 			expect(formatAmount(19900)).toBe("199.00");
 			expect(formatAmount(9900)).toBe("99.00");

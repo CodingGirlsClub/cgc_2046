@@ -13,7 +13,7 @@
 '   backend/lib/cgc_2046/accounts/portfolio_item.ex（作品 title/description/url，尚无 Event 关联）
 '   backend/lib/cgc_2046/mcp/tools/create_event.ex（单场创建原语，无批量）
 '   backend/priv/repo/seeds.exs:41（默认 Workspace 2046，join_policy open，注册即加入）
-' 相关 issue：#508 核销 · #509 押金自动退款 · #510 18+ · #512 开班阈值 · #513 城市主理流程
+' 相关 issue：#508 核销 · #509 押金自动退款 · #510 18+ · #512 成班阈值 · #513 城市主理流程
 '   （#511 批量建场：本设计下关闭，由 agent 循环调 create_event 替代）
 ' 决策来源：2026-09-13 brainstorm Q1–Q8：Initiative 平台级、opt-in、Workspace 从人里长、
 '   规则逐字段锁 / 默认（锁死实时读、默认建场快照）、Event 级角色 moderator（主理人，一场多人）；
@@ -40,7 +40,7 @@ start
 
 group 阶段一：发起 Initiative {
   :创建 Initiative（草稿）\n名称 / slug / 品牌标签 #hackerstart1024\n时间窗 / 描述;
-  :配置规则并逐字段标「锁死 / 默认」\n押金 69（锁）· 18+（锁）\n开班阈值 8（默认）· 截止 = 开场前 72h（默认）;
+  :配置规则并逐字段标「锁死 / 默认」\n押金 69（锁）· 18+（锁）\n成班阈值 8（默认）· 截止 = 开场前 72h（默认）;
   :发布 Initiative → 进行中;
   |平台 + OpenClacky agent|
   :Initiative 公开页上线\n（城市列表为空，计数 0）;
@@ -82,7 +82,7 @@ group 阶段二（未来分支）：城市自建（opt-in，非 v1） {
 group 阶段三：报名与付押金 {
   |参与者（学员）|
   :从微信 / 小红书分享的公开页链接进入\n（web H5 与小程序 discover，小程序覆盖微信 / 抖音 / 小红书）;
-  :选城市 → 看场次\n时间 · 场地 · 剩余名额 · 开班徽章（已成班 / 还差 N 人）;
+  :选城市 → 看场次\n时间 · 场地 · 剩余名额 · 成班徽章（已成班 / 还差 N 人）;
   :进入既有 Event 页 → 报名;
   |平台 + OpenClacky agent|
   :18+ 确认 + 条款版本留痕\n（锁死规则，#510）;
@@ -96,11 +96,11 @@ group 阶段三：报名与付押金 {
   end note
 }
 
-group 阶段四：开班判定（T-72h） {
+group 阶段四：成班判定（T-72h） {
   |平台 + OpenClacky agent|
-  :到截止时点按阈值判定并落「成班」事实（#512，v1 必须）\n开成数与「还差 N 人」徽章读它;
+  :到截止时点按阈值判定并落「成班」事实（#512，v1 必须）\n成班数与「还差 N 人」徽章读它;
   if (confirmed ≥ 阈值?) then (是)
-    :【v1 应该】开班确认通知;
+    :【v1 应该】成班确认通知;
   else (否)
     :【v1 应该】自动 cancel_event\n兜底：总部手动 cancel;
     :既有 worker 批量全额退款;
@@ -134,7 +134,7 @@ group 阶段六：结算与收官 {
   :收到退款通知;
   :【未来】注册时已是 2046 成员；\n将来城市 Workspace 从这些人里长出来（申请 → 审批）;
   |总部（平台管理员 / 2046 owner）|
-  :看公开页计数（城市 / 场次 / 报名 / 开成）\n内部报表（退款 / no-show / 财务）用 agent 查;
+  :看公开页计数（城市 / 场次 / 报名 / 成班）\n内部报表（退款 / no-show / 财务）用 agent 查;
   :场次改期 / 换场地 → 通知已报名者（新信号，A4）\n不接受者的退款人工处理;
   :规则修正：改锁死字段 → 全场实时生效\n改默认字段 → 只影响之后新建的场次;
   :收官：Initiative → 已结束，公开页留档;

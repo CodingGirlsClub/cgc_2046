@@ -187,8 +187,8 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     "capacity" => 50
   }
 
-  # #630：MCP update_event 不支持解除挂载（initiative_id nil = 未提供），测试经
-  # 域侧 detach 布置状态，再验 MCP 读/写面的标记回传。
+  # 域侧布置 detach 状态：MCP 已支持 detach_initiative: true（#632），此 helper
+  # 供标记相关测试直接布置，少走一轮确认流。
   defp detach!(event, actor, workspace) do
     event
     |> Ash.Changeset.for_update(:update, %{initiative_id: nil}, tenant: workspace.id)
@@ -895,6 +895,280 @@ defmodule Cgc2046.Mcp.EventToolsTest do
         Enum.filter(decode_reply(discover_reply)["offerings"], &(&1["id"] == event_id))
 
       refute Map.has_key?(offering, "detached_rule_provenance")
+    end
+  end
+
+  describe "解除挂载（#632 detach_initiative）" do
+    test "端到端：draft 挂载场 detach → 值保留 + 来源标记 + inherited 空壳（响应 == 落库）" do
+      owner = Fixtures.platform_admin("s3-ev-632-e2e-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-e2e-init")
+
+      event_id = mount_event(owner, workspace, initiative, "待解除")
+
+      mounted = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert mounted.initiative_id == initiative.id
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      # 确认流摘要给用户过目：特化渲染（不是 initiative_id → null），含名称与值保留语义
+      payload = decode_reply(pending)
+      assert payload["summary"] =~ "解除挂载"
+      assert payload["summary"] =~ initiative.name
+      assert payload["summary"] =~ "值保留在场"
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => payload["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      assert result["initiative"] == nil
+      assert result["inherited"] == %{}
+      assert "initiative_id" in result["updated_fields"]
+
+      # 只标 locked 规则字段（min_participants / deadline_rule 是挂载快照，不标）
+      assert result["detached_rule_provenance"] == %{
+               "initiative" => %{
+                 "id" => initiative.id,
+                 "name" => initiative.name,
+                 "slug" => initiative.slug
+               },
+               "fields" => %{
+                 "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+                 "deposit_enabled" => %{"value" => true, "source" => "locked"},
+                 "min_age" => %{"value" => 18, "source" => "locked"}
+               }
+             }
+
+      # 响应 == 落库真值；locked 值保留在场（#624 方案 C）
+      reloaded = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert reloaded.initiative_id == nil
+      assert reloaded.detached_rule_provenance == result["detached_rule_provenance"]
+      assert reloaded.min_age == mounted.min_age
+      assert reloaded.deposit_enabled == mounted.deposit_enabled
+    end
+
+    test "互斥：detach_initiative 与 initiative_id 同传 → 报错不建 pending" do
+      owner = Fixtures.platform_admin("s3-ev-632-mutex-owner")
+      workspace = Fixtures.create_workspace(owner)
+      mounted_initiative = mixed_initiative(owner, "s3-ev-632-mutex-a")
+      other_initiative = all_default_initiative(owner, "s3-ev-632-mutex-b")
+
+      event_id = mount_event(owner, workspace, mounted_initiative, "互斥目标")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true,
+                   "initiative_id" => other_initiative.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "mutually exclusive"
+      assert pending_count() == 0
+
+      # 未动库：挂载原样
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).initiative_id ==
+               mounted_initiative.id
+    end
+
+    test "越权不变：非 Owner/Admin 带 detach_initiative 撞工具层判定，未动库" do
+      owner = Fixtures.platform_admin("s3-ev-632-authz-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-authz-init")
+
+      event_id = mount_event(owner, workspace, initiative, "越权目标")
+
+      member = Fixtures.register_user("s3-ev-632-authz-member")
+      Fixtures.add_member(workspace, member, [])
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(member)
+               )
+
+      assert msg =~ "forbidden: owner or admin required"
+
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).initiative_id ==
+               initiative.id
+    end
+
+    test "幂等：已 detach 再 detach 标记不变；从未挂载 detach 无变化无标记" do
+      owner = Fixtures.platform_admin("s3-ev-632-idem-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-idem-init")
+
+      # 已 detach（域侧布置）→ 再走 MCP detach：成功且标记不变
+      detached =
+        mount_event(owner, workspace, initiative, "已解除再解除")
+        |> then(&Ash.get!(Event, &1, authorize?: false, tenant: workspace.id))
+        |> detach!(owner, workspace)
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => detached.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      assert result["detached_rule_provenance"] == detached.detached_rule_provenance
+
+      assert Ash.get!(Event, detached.id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               detached.detached_rule_provenance
+
+      # 从未挂载的 draft 场 detach：幂等成功，无标记
+      plain = draft_event(workspace, owner, %{title: "从未挂载"})
+
+      assert {:reply, _, _} =
+               pending_plain =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => plain.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed_plain =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending_plain)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result_plain = decode_reply(confirmed_plain)["result"]
+      assert result_plain["initiative"] == nil
+      assert result_plain["inherited"] == %{}
+      assert result_plain["detached_rule_provenance"] == nil
+    end
+
+    test "非 draft 挂载中 → 第一段快速失败不建 pending；非 draft 未挂载幂等放行" do
+      owner = Fixtures.platform_admin("s3-ev-632-draft-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-draft-init")
+
+      # open + 挂载中（挂载规则所需 starts_at/ends_at/capacity 同 @mounted_event_attrs）
+      open_mounted =
+        open_event(workspace, owner, %{
+          initiative_id: initiative.id,
+          starts_at: ~U[2027-01-10 10:00:00Z],
+          ends_at: ~U[2027-01-10 12:00:00Z],
+          capacity: 50
+        })
+
+      assert open_mounted.status == :open
+      assert open_mounted.initiative_id == initiative.id
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => open_mounted.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      # 与域层 ensure_mount_state 同一句判据文案
+      assert msg =~ "draft"
+      assert pending_count() == 0
+
+      assert Ash.get!(Event, open_mounted.id, authorize?: false, tenant: workspace.id).initiative_id ==
+               initiative.id
+
+      # 非 draft 未挂载（从未挂载的 open 场）：幂等 detach 无变更，不拦
+      open_plain = open_event(workspace, owner, %{title: "未挂载 open 场"})
+
+      assert {:reply, _, _} =
+               pending_plain =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => open_plain.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed_plain =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending_plain)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      assert decode_reply(confirmed_plain)["result"]["detached_rule_provenance"] == nil
+    end
+
+    test "nil ≠ detach：显式 initiative_id: nil 仍视为未提供，挂载原样保留" do
+      owner = Fixtures.platform_admin("s3-ev-632-nil-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-nil-init")
+
+      event_id = mount_event(owner, workspace, initiative, "nil 不解除")
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "title" => "改名不改挂载",
+                   "initiative_id" => nil
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      # title 改了、挂载保留；initiative_id 不在变更清单
+      assert result["initiative"]["id"] == initiative.id
+      assert "initiative_id" not in result["updated_fields"]
+
+      reloaded = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert reloaded.title == "改名不改挂载"
+      assert reloaded.initiative_id == initiative.id
     end
   end
 

@@ -69,7 +69,7 @@ entity "Event（既有 + 新字段）" as EVENT #E3F2FD {
     starts_at / ends_at
     **min_participants : integer 可空（新，#512；来自 Initiative 默认快照）**
     registration_deadline : datetime（由 deadline_rule 快照算出）
-    **成班判定结果 : pending|confirmed|underfilled（新，#512 v1 必须；开成数与徽章读它）**
+    **成班判定结果 : pending|confirmed|underfilled（新，#512 v1 必须；成班数与徽章读它）**
     改期 / 换场地 → 通知已报名者（新信号，A4）
     capacity / enrollment_policy / visibility / status
     course_revision_id : uuid 可空（#505 配套课）
@@ -153,7 +153,7 @@ note bottom of INITIATIVE
   **派生关系（不建表）**
   参与 Workspace = 挂载 Event 的 distinct workspace_id
   城市 = 挂载 Event 的 venue.city；venue 为空的场次归「线上 / 待定」
-  公开计数 = 城市数 / 场次数 / 报名数 / 开成数（只统计 open + public 的 Event）
+  公开计数 = 城市数 / 场次数 / 报名数 / 成班数（只统计 open + public 的 Event）
   公开页入口：web H5 + 小程序 discover（微信 / 抖音 / 小红书三平台构建）（A5）
   内部报表（退款 / no-show / 财务）不上公开页，总部用 agent 查
 end note
