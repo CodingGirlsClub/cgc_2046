@@ -200,6 +200,14 @@ defmodule Cgc2046.Accounts.Invitation do
   postgres do
     table("invitations")
     repo(Cgc2046.Repo)
+
+    # #745：FK 补齐（B 类）——DB 原无 FK。inviter 随邀请人删除（列 NOT NULL
+    # 不可 nilify；先例 speaker_invitations.invited_by delete_all）；
+    # accepted_by 为归因列、删号置空保留邀请记录（同 events.created_by 先例）。
+    references do
+      reference(:inviter, on_delete: :delete)
+      reference(:accepted_by_user, on_delete: :nilify)
+    end
   end
 
   # 过期判定双轨（#114）：ApprovalExpiryWorker 经 :expire action 主动落库过期；
