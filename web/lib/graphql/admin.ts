@@ -916,6 +916,8 @@ export interface AdminCourse {
  */
 export interface AdminCourseDetail extends AdminCourse {
 	description?: string | null;
+	/** 当前绑定修订号（current_revision_id 现取）；null = 未绑定（draft 未发布常态）或现取失败 */
+	currentRevisionNumber?: number | null;
 	confirmedCount?: number | null;
 	paymentPendingCount?: number | null;
 }
@@ -993,6 +995,7 @@ export const GET_ADMIN_COURSE: TypedDocumentNode<
       startsAt
       endsAt
       pricingEnabled
+      currentRevisionNumber
       confirmedCount
       paymentPendingCount
       insertedAt

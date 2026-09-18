@@ -6632,6 +6632,9 @@ type AdminCourseDetail {
 
   pricingEnabled: Boolean!
 
+  "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+  currentRevisionNumber: Int
+
   """
   权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
   不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），

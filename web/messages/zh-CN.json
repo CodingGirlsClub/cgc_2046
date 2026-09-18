@@ -1981,6 +1981,7 @@
 		"courseCountsUnavailable": "计数不可用",
 		"courseProvisionalTitle": "占位标题",
 		"courseProvisionalTitleHint": "标题仍是系统生成的占位标题：这是发布前置门，发布前请先把标题改成真实课程名。",
+		"courseCurrentRevision": "当前修订",
 		"courseFindings": "对账发现",
 		"courseFindingsEmpty": "暂无发现。",
 		"courseFindingsUnavailable": "对账发现加载失败。",

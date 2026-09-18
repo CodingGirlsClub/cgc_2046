@@ -1981,6 +1981,7 @@
 		"courseCountsUnavailable": "Counts unavailable",
 		"courseProvisionalTitle": "Placeholder title",
 		"courseProvisionalTitleHint": "The title is still a system-generated placeholder: it gates publishing — rename the course before launching.",
+		"courseCurrentRevision": "Current revision",
 		"courseFindings": "Reconciliation findings",
 		"courseFindingsEmpty": "No findings.",
 		"courseFindingsUnavailable": "Findings failed to load.",

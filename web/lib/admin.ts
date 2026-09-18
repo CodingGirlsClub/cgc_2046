@@ -185,6 +185,9 @@ export async function fetchAdminEvents(
 		},
 		"listAdminEvents",
 		opts,
+		// P3 同款：治理写后 refreshAfterWrite → loadList 必须现取，
+		// cache-first 会命中同 variables 的旧快照（#754 FAIL-1）
+		"network-only",
 	);
 }
 
@@ -287,6 +290,9 @@ export async function fetchAdminCourses(
 		},
 		"listAdminCourses",
 		opts,
+		// P3 同款：治理写后 refreshAfterWrite → loadList 必须现取，
+		// cache-first 会命中同 variables 的旧快照（#754 FAIL-1）
+		"network-only",
 	);
 }
 
