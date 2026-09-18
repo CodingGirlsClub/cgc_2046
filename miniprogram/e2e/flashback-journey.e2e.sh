@@ -127,6 +127,10 @@ ACTION_META=$(cls "$FLASHBACK" actionMeta)
 ACTION_STATUS=$(cls "$FLASHBACK" actionStatus)
 ENDORSE_BUTTON=$(cls "$FLASHBACK" endorseButton)
 ENDORSE_PLAIN=$(cls "$FLASHBACK" endorseButtonPlain)
+CITY_PINS=$(cls "$FLASHBACK" cityPins)
+CITY_PIN=$(cls "$FLASHBACK" cityPin)
+CITY_PIN_ALL=$(cls "$FLASHBACK" cityPinAll)
+CITY_PIN_ACTIVE=$(cls "$FLASHBACK" cityPinActive)
 STATUS_SCHED=$(cls "$FLASHBACK" scheduled)
 STATUS_DONE=$(cls "$FLASHBACK" done)
 STATUS_PROP=$(cls "$FLASHBACK" proposed)
@@ -246,6 +250,24 @@ ck "已认领角色行（首卡）" "$(RES automation_element_action --action te
 ck "附议按钮共 3 张卡可见（sched+proposed+forming）" "$(COUNT "$ENDORSE_BUTTON")" '^3$'
 ck "无人处于已附议素按钮态" "$(COUNT "$ENDORSE_PLAIN")" '^0$'
 shot 08-flashback-action-board.png
+
+echo "### 8.5) 城市钉筛选（R34）：点城市 → 行动板只剩该城；回全部恢复"
+# mock cities 字节序 [上海,北京,天津,杭州]：.cityPin 第一匹配=上海钉（全部钉为独立类 cityPinAll）
+ck "城市钉条渲染（全部 + 四城）" "$(COUNT "$CITY_PIN")" '^4$'
+ck "全部钉唯一" "$(COUNT "$CITY_PIN_ALL")" '^1$'
+ck "初始选中钉=全部（恰一选中）" "$(COUNT "$CITY_PIN_ACTIVE")" '^1$'
+ck "全部钉带选中态" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
+TAP "$CITY_PIN"
+sleep 2
+ck "筛上海后行动板只剩 1 卡" "$(COUNT "$ACTION_CARD")" '^1$'
+ck "该卡=上海已成场卡（名册只含该城）" "$(RES automation_element_action --action text --selector "$ACTION_META")" '^上海 · 已有 12 人附议$'
+ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
+ck "钉条不随过滤收缩（仍 4 城钉）" "$(COUNT "$CITY_PIN")" '^4$'
+shot 08.5-flashback-city-filtered.png
+TAP "$CITY_PIN_ALL"
+sleep 2
+ck "回全部恢复四张卡" "$(COUNT "$ACTION_CARD")" '^4$'
+ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
 
 echo "### 9) 已成场卡 goEvent 直链（R13：不在闪念间内闭环）"
 TAP "$ENDORSE_BUTTON"

@@ -44,11 +44,13 @@ export default function FlashbackPage() {
   const [draftSay, setDraftSay] = useState('')
   const [quoteLevel, setQuoteLevel] = useState<QuoteLevel>('off')
   const [endorsing, setEndorsing] = useState(false)
+  // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤行动板）
+  const [city, setCity] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (cityFilter?: string | null) => {
     setState({ kind: 'loading' })
     try {
-      const capsule = await api.getFlashbackCapsule()
+      const capsule = await api.getFlashbackCapsule(cityFilter ?? null)
       setAnswers(capsule.me.answers)
       // 授权档从 capsule 恢复（R31；非法值 fail-closed 落 off）——不再恒定重置 off（P3）
       setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
@@ -67,7 +69,12 @@ export default function FlashbackPage() {
     }
   }, [])
 
-  useDidShow(() => { void load() })
+  useDidShow(() => { void load(city) })
+
+  const pickCity = (next: string | null) => {
+    setCity(next)
+    void load(next)
+  }
 
   // 句子雾/解雾：本地即时切换 + 整份 spans 提交（后端校验重叠/越界，失败重载）
   const toggleFog = async (answer: FlashbackMeAnswer, sentenceIndex: number) => {
@@ -284,6 +291,26 @@ export default function FlashbackPage() {
             </RadioGroup>
           </View>
 
+          {capsule.cities.length > 1 && (
+            <View className={styles.cityPins}>
+              {/* 全部钉独立类（cityPinAll）：e2e 类名定位——城市钉取 .cityPin 第一匹配 */}
+              <Text
+                className={`${styles.cityPinAll} ${city === null ? styles.cityPinActive : ''}`}
+                onClick={() => pickCity(null)}
+              >
+                全部
+              </Text>
+              {capsule.cities.map((name) => (
+                <Text
+                  key={name}
+                  className={`${styles.cityPin} ${city === name ? styles.cityPinActive : ''}`}
+                  onClick={() => pickCity(name)}
+                >
+                  {name}
+                </Text>
+              ))}
+            </View>
+          )}
           <Text className={styles.sectionTitle}>行动板</Text>
           <Text className={styles.boardHint}>已附议的卡排前面；附议后成场时会收到通知</Text>
           {orderedCards.length === 0 && (
