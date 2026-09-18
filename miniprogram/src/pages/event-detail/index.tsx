@@ -9,7 +9,7 @@ import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, fo
 import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
-import { moderatorTouchpoint } from '@/domain/subscription'
+import { moderatorTouchpoint, requestAndGrant } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -97,20 +97,12 @@ export default function EventDetailPage() {
   useUnload(() => { requestSeq.current++ })
 
   // M5 主理人订阅（仅 canCheckIn 时渲染入口，见下方 footer）
-  const subscribeModerator = async () => {
-    const touchpoint = moderatorTouchpoint()
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
-        return
-      }
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
-    } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
-    }
-  }
+  const subscribeModerator = () =>
+    requestAndGrant(moderatorTouchpoint(), {
+      request: requestPlatformSubscriptions,
+      grant: (scenario) => api.grantConsent(scenario),
+      notify: ({ kind, title }) => Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
+    })
 
   const register = async () => {
     if (!item || item.status !== 'open') return

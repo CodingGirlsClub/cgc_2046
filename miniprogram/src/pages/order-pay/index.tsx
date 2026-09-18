@@ -15,7 +15,7 @@ import {
   type RequestPaymentArgs
 } from '@/domain/payment'
 import type { OrderSummary } from '@/domain/models'
-import { paymentResultTouchpoint } from '@/domain/subscription'
+import { paymentResultTouchpoint, requestAndGrant } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
 
@@ -158,19 +158,12 @@ export default function OrderPayPage() {
 
   // M6 双态触点（#683 收紧 2）：pending 态先授权 → 首单即送达；paid 态兜底补
   // 授权（本单或已 discard，配额结转下一单）。判据/文案/时机下沉 domain。
-  const subscribePayment = async () => {
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
-        return
-      }
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
-    } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
-    }
-  }
+  const subscribePayment = () =>
+    requestAndGrant(touchpoint, {
+      request: requestPlatformSubscriptions,
+      grant: (scenario) => api.grantConsent(scenario),
+      notify: ({ kind, title }) => Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
+    })
 
   if (!enrollmentId) return <PageState kind='empty' message='缺少报名信息' />
   if (phase === 'creating' && !error) return <PageState kind='loading' />

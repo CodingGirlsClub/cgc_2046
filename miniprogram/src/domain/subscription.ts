@@ -269,6 +269,12 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
 }
 
 // --- 请求期 fail-closed（纯函数，页面/transport 只做调起） ---------------------
+/** 订阅 helper 的注入式依赖（platform ↔ api 依赖环 → domain 不得 import Taro，
+ * 由页面注入 request/grant——#546 起的既定形状，#693 沿用）。 */
+interface ConsentDeps {
+  request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
+  grant: (scenario: SubscriptionScenario) => Promise<unknown>
+}
 
 /**
  * #546/#664 顺序契约：报名结果通知的授权**必须先于报名提交**（理由见
@@ -283,10 +289,7 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
  */
 export async function submitAfterConsent<T>(
   touchpoint: SubscriptionTouchpoint,
-  deps: {
-    request: (scenarios: SubscriptionScenario[]) => Promise<SubscriptionScenario[]>
-    grant: (scenario: SubscriptionScenario) => Promise<unknown>
-  },
+  deps: ConsentDeps,
   submit: () => Promise<T>
 ): Promise<T> {
   try {
@@ -296,6 +299,44 @@ export async function submitAfterConsent<T>(
     // 未授权不阻断报名（同上）
   }
   return submit()
+}
+/** `requestAndGrant` 的反馈：页面据此选 toast icon 或落到页面状态文案。 */
+export type SubscriptionFeedback =
+  | { kind: 'accepted'; title: string }
+  | { kind: 'denied'; title: string }
+  | { kind: 'error'; title: string }
+
+/**
+ * 带用户反馈的订阅触点 handler（#693）：request → 逐个 grant 被接受的 → 反馈。
+ * 7 处页面按钮的同构收敛（M1–M8），与 `submitAfterConsent` 的区别只在反馈——
+ * 那边静默不阻断提交，这边每次点按都要告知结果。
+ *
+ * fail-closed 语义（由 tests/subscription-domain.test.ts 钉住）：
+ * - **部分接受只 grant 被接受的**（请求 3 接受 2 → 恰好 grant 那 2 个，
+ *   顺序 = 接受顺序）；拒绝全部（accepted 为空）→ 零 grant，反馈 denied；
+ * - request / grant 抛错 → 反馈 error 并正常返回，**不阻断页面后续动作**；
+ *   非 Error 抛出值的兜底文案统一为「订阅失败」（#693 裁决：多数派口径）。
+ */
+export async function requestAndGrant(
+  touchpoint: SubscriptionTouchpoint,
+  deps: ConsentDeps & { notify: (feedback: SubscriptionFeedback) => void }
+): Promise<void> {
+  let accepted: SubscriptionScenario[]
+  try {
+    accepted = await deps.request(touchpoint.scenarios)
+    if (accepted.length > 0) {
+      // 一次授权 = 后端 +1 配额，逐场景顺序上报（部分接受只报被接受的）
+      for (const scenario of accepted) await deps.grant(scenario)
+    }
+  } catch (reason) {
+    deps.notify({ kind: 'error', title: reason instanceof Error ? reason.message : '订阅失败' })
+    return
+  }
+  deps.notify(
+    accepted.length === 0
+      ? { kind: 'denied', title: touchpoint.deniedCopy }
+      : { kind: 'accepted', title: touchpoint.acceptedCopy }
+  )
 }
 
 /** 订阅消息的调起平台。 */
