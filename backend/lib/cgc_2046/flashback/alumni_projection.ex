@@ -122,10 +122,23 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       applied_at: iso8601(person.applied_at),
       today: today && %{today | sent_to_wall_at: iso8601(today.sent_to_wall_at)},
       # 摘要卡/全文卡数据（U5 card-export）：金句（选定区间的遮蔽版——金句
-      # 候选本就排除雾面句，正常无雾；防御性仍走 mask）+ 本人当年答案雾化版
+      # 候选本就排除雾面句，正常无雾；防御性仍走 mask）+ 本人当年答案雾化版。
+      # quote_level（R31）：授权档位独立于金句文本——回访端恢复选中态的数据源，
+      # 无授权行为 "off"（与 enter 面 progress.quote_level 同口径）。
+      quote_level: quote_level(person.id),
       quote: quote_text(person.id),
       answers: me_answers(person.id)
     }
+  end
+
+  # 金句授权档（R31）：每人至多一行（unique_person）；无行 = 从未设置 = "off"
+  defp quote_level(person_id) do
+    Repo.one(
+      from(q in "flashback_quote_licenses",
+        where: q.person_id == ^uuid_param(person_id),
+        select: q.level
+      )
+    ) || "off"
   end
 
   # 本人金句（R14）：quote_license 选定区间应用于来源答案；off/未选 → nil

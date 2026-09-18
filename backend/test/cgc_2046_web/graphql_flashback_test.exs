@@ -628,6 +628,14 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       res = post_as_user(quote_query, user)
       assert res["data"]["flashbackSetQuoteLicense"]["level"] == "anonymous"
 
+      # 回访端恢复选中态：写后 capsule me 回读授权档（P3 契约）
+      capsule_query = """
+      query { flashbackCapsule { me { quoteLevel: quote_level } } }
+      """
+
+      res = post_as_user(capsule_query, user)
+      assert res["data"]["flashbackCapsule"]["me"]["quoteLevel"] == "anonymous"
+
       today_query = """
       mutation { flashbackSubmitToday(input: { want: "回访编辑" }) { today { want } } }
       """
@@ -691,7 +699,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       query = """
       query { flashbackCapsule(token: "#{plain}") {
-        me { id fullName quote answers { questionKey: question_key text } today { sentToWallAt: sent_to_wall_at } }
+        me { id fullName quoteLevel: quote_level quote answers { questionKey: question_key text } today { sentToWallAt: sent_to_wall_at } }
         archives { key isMine appliedCount: applied_count attendedCount: attended_count
           roster { id surnameMasked: surname_masked sentToWallAt: sent_to_wall_at
             today { nowStatus: now_status } answers { questionKey: question_key text } } }
@@ -710,6 +718,8 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       capsule = res["data"]["flashbackCapsule"]
       assert capsule["me"]["id"] =~ ~r/^[0-9a-f-]{36}$/
+      # 授权档默认关（R31：无授权行为 off）
+      assert capsule["me"]["quoteLevel"] == "off"
 
       [archive_payload] = capsule["archives"]
       assert length(archive_payload["roster"]) == 2

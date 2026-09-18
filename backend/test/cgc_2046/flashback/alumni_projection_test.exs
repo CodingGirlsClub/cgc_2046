@@ -16,7 +16,17 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
 
   alias Cgc2046.Accounts.TokenCredential
   alias Cgc2046.Flashback
-  alias Cgc2046.Flashback.{ActionCard, AlumniProjection, Endorsement, Endorsements, Person, Token}
+
+  alias Cgc2046.Flashback.{
+    ActionCard,
+    AlumniProjection,
+    Endorsement,
+    Endorsements,
+    Person,
+    QuoteLicense,
+    Token
+  }
+
   alias Cgc2046.Repo
 
   defp create_archive(attrs \\ %{}) do
@@ -301,6 +311,22 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
                AlumniProjection.resolve_person(nil, %{id: user_id})
 
       assert person.id == me.id
+    end
+  end
+
+  describe "金句授权档（R31）" do
+    test "无授权行为 off；设置后 capsule me 回读档位" do
+      archive = create_archive()
+      me = create_person(archive, %{})
+
+      capsule = capsule_for(issue_token(me))
+      assert capsule.me.quote_level == "off"
+
+      QuoteLicense
+      |> Ash.Changeset.for_create(:create, %{person_id: me.id, level: :anonymous})
+      |> Ash.create!(authorize?: false)
+
+      assert capsule_for(issue_token(me)).me.quote_level == "anonymous"
     end
   end
 end

@@ -3058,6 +3058,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:participation, non_null(:string))
     field(:applied_at, :string)
     field(:today, :flashback_capsule_today)
+    @desc "金句授权档（R31：off/anonymous/credited；无授权行为 off）——回访端恢复选中态"
+    field(:quote_level, non_null(:string))
     @desc "选定金句（R14 摘要卡；off/未选为 null）"
     field(:quote, :string)
     @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
