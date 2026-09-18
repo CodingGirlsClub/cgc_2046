@@ -46,6 +46,7 @@ export type SubscriptionScenario =
   | 'enrollment_check_in_code'
   | 'event_qualification_confirmed'
   | 'event_qualification_underfilled'
+  | 'event_qualification_manager'
   | 'event_schedule_changed'
   | 'event_moderator_assigned'
   | 'speaker_accepted'
