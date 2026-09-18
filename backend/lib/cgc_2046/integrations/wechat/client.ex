@@ -88,7 +88,10 @@ defmodule Cgc2046.Integrations.Wechat.Client do
         "pages/my-enrollments/index"
 
       # 深链仅在 data 带 event_id 时成立；缺失回落通用路由（不拼坏 URL）
-      template_key == "event_moderator_assigned" and is_binary(data["event_id"]) ->
+      # removed（#538）同落 event-detail：公开主理人投影即「名单里没有我了」
+      # 的对照面；被移除者 canModerateEvent 变 false，核销入口自然消失。
+      template_key in ~w(event_moderator_assigned event_moderator_removed) and
+          is_binary(data["event_id"]) ->
         "pages/event-detail/index?id=#{data["event_id"]}&kind=event"
 
       template_key in @learner_templates ->

@@ -26,6 +26,7 @@ const WECHAT_SCENARIOS = [
   'event_qualification_manager',
   'event_schedule_changed',
   'event_moderator_assigned',
+  'event_moderator_removed',
   'speaker_accepted',
   'speaker_completed',
   'learning_stagnation',

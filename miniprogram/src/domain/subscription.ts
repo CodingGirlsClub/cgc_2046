@@ -19,8 +19,12 @@ import type { ContentKind, EnrollmentStatus, SubscriptionScenario } from './mode
  *   **无入口**，由后端 `consent_exhausted` 可观测性暴露（#635 C1）。
  * - `learning_stagnation` 的学习行为发生在 OpenClacky 桌面端（见 pages/openclacky），
  *   小程序内唯一近似落点是「我的报名」里的**课程**卡。
- * - `event_moderator_assigned` 有鸡生蛋问题：用户正是通过该通知才首次得知被指派，
- *   故**第一次指派必然送不到**；M5 覆盖的是「已是某活动主理人者订阅后续指派」。
+ * - `event_moderator_assigned` / `event_moderator_removed`（#538）有鸡生蛋问题：
+ *   用户正是通过 assigned 通知才首次得知被指派，故**第一次指派必然送不到**；
+ *   removed 同构——未点过 M5 就被移除的那条也送不到。M5 双键覆盖的是
+ *   「当前是主理人者」订阅后续指派与移除（移除授权必须发生在移除前，唯一
+ *   能提前授权的人 = 当前主理人，故扩 M5 而非新触点；M8 已 3/3 满且面向
+ *   Owner/Admin，被移除者通常是普通成员）。
  * - `refund_succeeded` / `refund_failed` / `payment_expired` 有**双受众**（付款人 +
  *   管理者/发起人）：付款人腿由 M7 付费卡覆盖（#683）；**管理者腿无小程序入口**
  *   ——最佳授权时刻是「管理员点退款时的顺手授权」，但小程序无退款操作面
@@ -43,6 +47,7 @@ export const ALL_SCENARIOS = [
   'event_qualification_manager',
   'event_schedule_changed',
   'event_moderator_assigned',
+  'event_moderator_removed',
   'speaker_accepted',
   'speaker_completed',
   'learning_stagnation',
@@ -192,15 +197,17 @@ export function workspaceTouchpoint(): SubscriptionTouchpoint {
 
 /**
  * M5 活动详情页 · 主理人（pages/event-detail，仅 `canModerateEvent()` 为真时渲染）
- * ——唯一能证明「我是主理人」的页面，也是该模板自身的深链落页。
+ * ——唯一能证明「我是主理人」的页面，也是两个主理人模板共同的深链落页。
+ * #538 扩为双键（assigned + removed，2/3）：移除通知的受众 = 被移除者，授权
+ * 必须发生在移除前，唯一入口就是本触点。
  */
 export function moderatorTouchpoint(): SubscriptionTouchpoint {
   return {
     page: 'pages/event-detail/index（canCheckIn 为真）',
     trigger: '主理人打开自己主理的活动详情页，点按订阅按钮',
-    label: '订阅主理人指派通知',
-    scenarios: ['event_moderator_assigned'],
-    acceptedCopy: '已订阅，被指派为新活动主理人时会通知你',
+    label: '订阅主理人指派与变动通知',
+    scenarios: ['event_moderator_assigned', 'event_moderator_removed'],
+    acceptedCopy: '已订阅，主理人指派与变动会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }

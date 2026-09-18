@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { getPublicInitiatives } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind, PublicInitiativeCard } from '@/domain/models'
-import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, moderatorNames, scheduleText, venueText } from '@/domain/format'
 import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
@@ -144,6 +144,8 @@ export default function EventDetailPage() {
 
   const payment = paymentBlockCopy(item)
   const badgeText = detailQualificationBadgeText(item)
+  // #538 公开主理人（单次解析；displayName null → memberNumber 回退，空名单下方不渲染）
+  const moderatorLine = item.kind === 'event' ? moderatorNames(item.publicModerators) : []
 
   return (
     <View className={styles.page}>
@@ -190,6 +192,13 @@ export default function EventDetailPage() {
             <View className={styles.row} data-testid='detail-venue'>
               <Text className={styles.label}>地点</Text>
               <Text className={styles.value}>{venueText(item.venue) ?? '地点待定'}</Text>
+            </View>
+          )}
+          {/* #538 公开主理人：与 web 公开详情页同口径（后端投影单源；空名单不渲染） */}
+          {moderatorLine.length > 0 && (
+            <View className={styles.row} data-testid='detail-moderators'>
+              <Text className={styles.label}>主理人</Text>
+              <Text className={styles.value}>{moderatorLine.join(' · ')}</Text>
             </View>
           )}
         </View>

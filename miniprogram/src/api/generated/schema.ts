@@ -1587,6 +1587,8 @@ export type Event = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人） */
+  publicModerators?: Maybe<Array<Scalars['JsonString']['output']>>;
   qualificationBadge?: Maybe<Scalars['String']['output']>;
   /** 成班事实：pending / confirmed / underfilled */
   qualificationStatus: Scalars['String']['output'];

@@ -49,6 +49,7 @@ export type SubscriptionScenario =
   | 'event_qualification_manager'
   | 'event_schedule_changed'
   | 'event_moderator_assigned'
+  | 'event_moderator_removed'
   | 'speaker_accepted'
   | 'speaker_completed'
   | 'learning_stagnation'
@@ -95,6 +96,12 @@ export interface CatalogItem {
    * 「所属倡导活动」回链；列表查询不带该字段 → 恒 null。
    */
   initiativeId: string | null
+  /**
+   * 公开主理人投影（#538；[JsonString!]，每行 parse 后 {display_name,
+   * member_number}，assignedAt 升序）。仅 event 详情查询携带；列表/课程恒
+   * null。回退链 displayName → memberNumber 见 format.ts 的 moderatorNames。
+   */
+  publicModerators: string[] | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
   /**
