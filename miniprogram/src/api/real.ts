@@ -31,8 +31,18 @@ import type {
   FlashbackAdjustFogMutationVariables,
   FlashbackCapsuleQuery,
   FlashbackCapsuleQueryVariables,
+  FlashbackClaimMutation,
+  FlashbackClaimMutationVariables,
   FlashbackEndorseMutation,
   FlashbackEndorseMutationVariables,
+  FlashbackEnterMutation,
+  FlashbackEnterMutationVariables,
+  FlashbackMarkRevealedMutation,
+  FlashbackMarkRevealedMutationVariables,
+  FlashbackPublicStatsQuery,
+  FlashbackPublicStatsQueryVariables,
+  FlashbackSendToWallMutation,
+  FlashbackSendToWallMutationVariables,
   FlashbackSetQuoteLicenseMutation,
   FlashbackSetQuoteLicenseMutationVariables,
   FlashbackSubmitTodayMutation,
@@ -59,7 +69,7 @@ import type {
   SignInWithPlatformMutationVariables
 } from './generated/graphql'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
-import { FlashbackNotBoundError } from '@/domain/models'
+import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -79,7 +89,12 @@ import {
   EventModeratorsQueryDocument,
   FlashbackAdjustFogMutationDocument,
   FlashbackCapsuleQueryDocument,
+  FlashbackClaimMutationDocument,
   FlashbackEndorseMutationDocument,
+  FlashbackEnterMutationDocument,
+  FlashbackMarkRevealedMutationDocument,
+  FlashbackPublicStatsQueryDocument,
+  FlashbackSendToWallMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSubmitTodayMutationDocument,
   GenerateMiniProgramCodeMutationDocument,
@@ -106,8 +121,11 @@ import type {
   EnrollmentForm,
   EnrollmentSummary,
   FlashbackCapsule,
+  FlashbackClaimResult,
   FlashbackEndorseResult,
+  FlashbackEnterResult,
   FlashbackFogSpan,
+  FlashbackPublicStats,
   MyEnrollmentState,
   MiniProgramApi,
   MiniProgramCode,
@@ -233,6 +251,18 @@ export class SessionExpiredError extends Error {
   }
 }
 
+
+/** 首程链接失效 code → 类型化错误（不存在/已注册/已删除三分支，KTD2/ADR-0015）；
+ * capsule 与 enter 共用（token 面一切读写的失效语义同源）。 */
+function throwIfFlashbackTokenInvalid(error: unknown): void {
+  if (!(error instanceof GraphQLRequestError)) return
+  const codes = error.errors.map((entry) => entry.code ?? entry.extensions?.code)
+  const invalid = codes.find(
+    (code): code is FlashbackTokenInvalidCode =>
+      code === 'flashback_token_not_found' || code === 'flashback_token_claimed' || code === 'flashback_token_revoked'
+  )
+  if (invalid) throw new FlashbackTokenInvalidError(invalid)
+}
 
 export class RealMiniProgramApi implements MiniProgramApi {
   // #355 P2-10：keyword 非空走服务端 title ilike 过滤（catalogSearchVariables 构造
@@ -631,11 +661,13 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
 
-  async getFlashbackCapsule(city?: string | null): Promise<FlashbackCapsule> {
+  async getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule> {
     const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
       FlashbackCapsuleQueryDocument,
-      { city: city ?? null }
+      { city: city ?? null, token: token ?? null }
     ).catch((error: unknown) => {
+      // 首程链接失效（token 面）：类型化抛出，页面按三态渲染失效落地（KTD2）
+      throwIfFlashbackTokenInvalid(error)
       if (error instanceof GraphQLRequestError) {
         // 登录账号没绑定档案（会话腿 miss）→ 引导态
         if (error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_person_not_bound')) {
@@ -689,6 +721,39 @@ export class RealMiniProgramApi implements MiniProgramApi {
           text: answer.text
         }))
       },
+      archives: (capsule.archives ?? []).map((archive) => ({
+        key: archive.key,
+        name: archive.name ?? null,
+        city: archive.city ?? null,
+        occurredOn: archive.occurredOn ?? null,
+        appliedCount: archive.appliedCount ?? null,
+        attendedCount: archive.attendedCount ?? null,
+        isMine: archive.isMine,
+        roster: (archive.roster ?? []).map((entry) => ({
+          id: entry.id,
+          surnameMasked: entry.surnameMasked,
+          fullName: entry.fullName ?? null,
+          appliedAt: entry.appliedAt ?? null,
+          city: entry.city ?? null,
+          occupationThen: entry.occupationThen ?? null,
+          sentToWallAt: entry.sentToWallAt ?? null,
+          today: entry.today
+            ? {
+                nowStatus: entry.today.nowStatus ?? null,
+                want: entry.today.want ?? null,
+                say: entry.today.say ?? null
+              }
+            : null,
+          answers: (entry.answers ?? []).map((answer) => ({
+            questionKey: answer.questionKey,
+            segments: (answer.segments ?? []).map((segment) => ({
+              text: segment.text,
+              fog: segment.fog,
+              len: segment.len
+            }))
+          }))
+        }))
+      })),
       actionCards: (capsule.actionCards ?? []).map((card) => ({
         id: card.id,
         title: card.title,
@@ -719,16 +784,22 @@ export class RealMiniProgramApi implements MiniProgramApi {
     }
   }
 
-  async flashbackSubmitToday(input: {
-    nowStatus?: string | null
-    want?: string | null
-    need?: string | null
-    say?: string | null
-  }): Promise<void> {
+  async flashbackSubmitToday(
+    input: {
+      nowStatus?: string | null
+      want?: string | null
+      need?: string | null
+      say?: string | null
+    },
+    token?: string | null
+  ): Promise<void> {
     await graphqlRequest<FlashbackSubmitTodayMutation, FlashbackSubmitTodayMutationVariables>(
       FlashbackSubmitTodayMutationDocument,
-      { input }
-    )
+      { input, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
   }
 
   async flashbackSetQuoteLicense(
@@ -757,6 +828,131 @@ export class RealMiniProgramApi implements MiniProgramApi {
         spans: spans.map((span) => ({ start: span.start, len: span.len, reason: span.reason ?? 'owner' }))
       }
     )
+  }
+
+  // ── 首程 token 面（mp 版原型 F：旅程 → 长廊 → 场次；R1/R4-R11/R27） ──
+
+  async flashbackEnter(token: string): Promise<FlashbackEnterResult> {
+    const data = await graphqlRequest<FlashbackEnterMutation, FlashbackEnterMutationVariables>(
+      FlashbackEnterMutationDocument,
+      { token }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const result = data.flashbackEnter
+    if (!result) throw new Error('进入闪念间失败，请重试')
+    return {
+      line: result.line === 'dream' ? 'dream' : 'memory',
+      profile: result.profile
+        ? {
+            fullName: result.profile.fullName,
+            surname: result.profile.surname ?? null,
+            city: result.profile.city ?? null,
+            occupationThen: result.profile.occupationThen ?? null,
+            participation: result.profile.participation === 'not_selected' ? 'not_selected' : 'attended',
+            role: result.profile.role,
+            appliedAt: result.profile.appliedAt ?? null,
+            archive: result.profile.archive
+              ? {
+                  key: result.profile.archive.key,
+                  name: result.profile.archive.name ?? null,
+                  city: result.profile.archive.city ?? null,
+                  occurredOn: result.profile.archive.occurredOn ?? null
+                }
+              : null,
+            // codegen 列表元素可空（SDL 列表未加 !）：先滤再映射
+            answers: (result.profile.answers ?? [])
+              .filter((answer): answer is NonNullable<typeof answer> => answer != null)
+              .map((answer) => ({
+                id: answer.id,
+                questionKey: answer.questionKey,
+                rawText: answer.rawText,
+                fogSpans: (answer.fogSpans ?? [])
+                  .filter((span): span is NonNullable<typeof span> => span != null)
+                  .map((span) => ({ start: span.start, len: span.len }))
+              }))
+          }
+        : null,
+      progress: result.progress
+        ? {
+            quoteLevel: result.progress.quoteLevel,
+            maskedPhone: result.progress.maskedPhone ?? null,
+            maskedEmail: result.progress.maskedEmail ?? null,
+            today: result.progress.today
+              ? {
+                  nowStatus: result.progress.today.nowStatus ?? null,
+                  want: result.progress.today.want ?? null,
+                  say: result.progress.today.say ?? null,
+                  sentToWallAt: result.progress.today.sentToWallAt ?? null
+                }
+              : null
+          }
+        : null
+    }
+  }
+
+  async flashbackMarkRevealed(token: string): Promise<void> {
+    await graphqlRequest<FlashbackMarkRevealedMutation, FlashbackMarkRevealedMutationVariables>(
+      FlashbackMarkRevealedMutationDocument,
+      { token }
+    )
+  }
+
+  async flashbackSendToWall(token: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackSendToWallMutation, FlashbackSendToWallMutationVariables>(
+      FlashbackSendToWallMutationDocument,
+      { token }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackSendToWall?.sentToWallAt) throw new Error('寄出失败，请重试')
+  }
+
+  async flashbackClaim(token?: string | null): Promise<FlashbackClaimResult> {
+    const data = await graphqlRequest<FlashbackClaimMutation, FlashbackClaimMutationVariables>(
+      FlashbackClaimMutationDocument,
+      { token: token ?? null }
+    ).catch((error: unknown) => {
+      // 带 token 但链接已失效 → 类型化（页面提示链接已被账号接管）
+      throwIfFlashbackTokenInvalid(error)
+      if (error instanceof GraphQLRequestError) {
+        if (
+          isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required')
+        ) {
+          throw new SessionExpiredError()
+        }
+      }
+      throw error
+    })
+    const result = data.flashbackClaim
+    if (!result) throw new Error('收好失败，请重试')
+    return {
+      bound: result.bound,
+      boundCount: result.boundCount,
+      maskedPhone: result.maskedPhone ?? null
+    }
+  }
+
+  async getFlashbackPublicStats(): Promise<FlashbackPublicStats> {
+    const data = await graphqlRequest<FlashbackPublicStatsQuery, FlashbackPublicStatsQueryVariables>(
+      FlashbackPublicStatsQueryDocument,
+      {}
+    )
+    return {
+      archives: (data.flashbackPublicStats?.archives ?? []).map((archive) => ({
+        key: archive.key,
+        name: archive.name ?? null,
+        city: archive.city ?? null,
+        occurredOn: archive.occurredOn ?? null,
+        appliedCount: archive.appliedCount ?? null,
+        attendedCount: archive.attendedCount ?? null
+      })),
+      returnedCount: data.flashbackPublicStats?.returnedCount ?? 0,
+      sentCount: data.flashbackPublicStats?.sentCount ?? 0
+    }
   }
 
   async createOrder(enrollmentId: string): Promise<CreatedOrder> {

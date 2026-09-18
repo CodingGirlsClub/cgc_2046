@@ -359,11 +359,104 @@ export interface FlashbackMyActionCard {
   rolesClaimed: string[]
 }
 
+/** 名册答案段（对外版）：fog=true 时 text 恒空（原文字符不出 DOM，KTD4） */
+export interface FlashbackRosterSegment {
+  text: string
+  fog: boolean
+  len: number
+}
+
+export interface FlashbackRosterAnswer {
+  questionKey: string
+  segments: FlashbackRosterSegment[]
+}
+
+/** 场次名册成员（R12 分层墙）：未寄出者只有结构化字段，寄出者才有全名与内容 */
+export interface FlashbackRosterEntry {
+  id: string
+  surnameMasked: string
+  fullName: string | null
+  appliedAt: string | null
+  city: string | null
+  occupationThen: string | null
+  sentToWallAt: string | null
+  today: { nowStatus: string | null; want: string | null; say: string | null } | null
+  answers: FlashbackRosterAnswer[]
+}
+
+export interface FlashbackCapsuleArchive {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+  appliedCount: number | null
+  attendedCount: number | null
+  isMine: boolean
+  roster: FlashbackRosterEntry[]
+}
+
 export interface FlashbackCapsule {
   me: FlashbackMyCard
   actionCards: FlashbackMyActionCard[]
   /** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
   cities: string[]
+  /** 场次时间轴与名册（长廊/场次页数据源；city 过滤时空名册场次被服务端撤下） */
+  archives: FlashbackCapsuleArchive[]
+}
+
+// ── 首程旅程（token 面；mp 版原型 F） ─────────────────────────────────
+
+export interface FlashbackEnterArchiveRef {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+}
+
+export interface FlashbackEnterProfile {
+  fullName: string
+  surname: string | null
+  city: string | null
+  occupationThen: string | null
+  participation: 'attended' | 'not_selected'
+  role: string
+  appliedAt: string | null
+  archive: FlashbackEnterArchiveRef | null
+  answers: { id: string; questionKey: string; rawText: string; fogSpans: FlashbackFogSpan[] }[]
+}
+
+export interface FlashbackEnterResult {
+  line: 'memory' | 'dream'
+  profile: FlashbackEnterProfile | null
+  progress: {
+    quoteLevel: string
+    maskedPhone: string | null
+    maskedEmail: string | null
+    today: FlashbackMyToday | null
+  } | null
+}
+
+/** 微信一键收好（R27）：bound=false = 库里没有匹配的未认领档案 */
+export interface FlashbackClaimResult {
+  bound: boolean
+  boundCount: number
+  maskedPhone: string | null
+}
+
+/** 公开统计层（R32）：路人态长廊数据源 */
+export interface FlashbackPublicStatsArchive {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+  appliedCount: number | null
+  attendedCount: number | null
+}
+
+export interface FlashbackPublicStats {
+  archives: FlashbackPublicStatsArchive[]
+  returnedCount: number
+  sentCount: number
 }
 
 /** 附议提交结果（幂等：再点 = 改角色，firstTime=false） */
@@ -432,16 +525,30 @@ export interface MiniProgramApi {
    * 未绑定档案 → FlashbackNotBoundError（页面引导去 web 首程/自助找回）。
    */
   /** city（R34 城市钉）：非空时行动板按城市过滤；cities 供钉条渲染 */
-  getFlashbackCapsule(city?: string | null): Promise<FlashbackCapsule>
+  /** token：首程链接身份（KTD2）；缺省走登录会话腿 */
+  getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule>
+  /** 首程进入（R1/R2，token 面）：分流 + 本人档案 + 进度快照 */
+  flashbackEnter(token: string): Promise<FlashbackEnterResult>
+  /** 显影完成打点（四率之 revealed） */
+  flashbackMarkRevealed(token: string): Promise<void>
+  /** 寄出上墙（R11，幂等） */
+  flashbackSendToWall(token: string): Promise<void>
+  /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
+  flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
+  /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */
+  getFlashbackPublicStats(): Promise<FlashbackPublicStats>
   /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
   flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult>
-  /** U9/R8：编辑「今天的你」（会话面不重计意图率） */
-  flashbackSubmitToday(input: {
-    nowStatus?: string | null
-    want?: string | null
-    need?: string | null
-    say?: string | null
-  }): Promise<void>
+  /** U9/R8：编辑「今天的你」（会话面不重计意图率）；旅程 token 面传 token（KTD2） */
+  flashbackSubmitToday(
+    input: {
+      nowStatus?: string | null
+      want?: string | null
+      need?: string | null
+      say?: string | null
+    },
+    token?: string | null
+  ): Promise<void>
   /** U9/R31：金句授权三档（off/anonymous/credited） */
   /** R35：档位与圈选区间一起提交（questionKey/span 缺省 = 不动既有区间） */
   flashbackSetQuoteLicense(
@@ -458,5 +565,21 @@ export class FlashbackNotBoundError extends Error {
   constructor() {
     super('flashback person not bound')
     this.name = 'FlashbackNotBoundError'
+  }
+}
+
+/** 首程链接已失效（KTD2）：已注册/已删除/不存在三分支——页面按 code 渲染失效落地。 */
+export type FlashbackTokenInvalidCode =
+  | 'flashback_token_not_found'
+  | 'flashback_token_claimed'
+  | 'flashback_token_revoked'
+
+export class FlashbackTokenInvalidError extends Error {
+  readonly code: FlashbackTokenInvalidCode
+
+  constructor(code: FlashbackTokenInvalidCode) {
+    super(code)
+    this.name = 'FlashbackTokenInvalidError'
+    this.code = code
   }
 }

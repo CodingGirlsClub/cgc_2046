@@ -247,6 +247,98 @@ function saveFlashbackState(state: FlashbackMockState): void {
 
 let flashback: FlashbackMockState = loadFlashbackState()
 
+// ── 首程 token 面（mp 版原型 F：旅程 → 长廊 → 场次；R1/R4-R11/R27） ──
+// 链接作废（claim 后）用模块态即可：e2e 在同一段内断言「收好后链接失效」。
+// 三级视角开关走 wx storage（e2e 脚本经 automation_evaluate 可写，node --test
+// 无 storage 读为 false = 默认行为不变）：
+//   cgc.e2e.flashback_unclaimed = '1' → 登录了但库里没有匹配档案（capsule 会话腿
+//     报 flashback_person_not_bound，驱动长廊自动认领分支）；
+//   cgc.e2e.flashback_claim_miss = '1' → claim 不命中（bound:false，驱动
+//     「找回你的那一张」会话引导）。
+const FLASHBACK_UNCLAIMED_KEY = 'cgc.e2e.flashback_unclaimed'
+const FLASHBACK_CLAIM_MISS_KEY = 'cgc.e2e.flashback_claim_miss'
+const flashbackClaimedTokens = new Set<string>()
+let flashbackUnclaimed = false
+
+function e2eFlag(key: string): boolean {
+  try {
+    return wxStorage()?.getStorageSync(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** e2e 钩子（node --test 用）：模拟登录账号暂无匹配档案 */
+export function __setFlashbackUnclaimed(value: boolean): void {
+  flashbackUnclaimed = value
+}
+
+// 首程档案（2014-01-11 六城同日 · 北京）：与既有 capsule 的「我」同一个人——
+// 旅程（token 面）与回访（会话面）在 e2e 里可交叉断言同一档案。
+const FLASHBACK_E2E_ARCHIVE = {
+  key: '2014-01-11-bj',
+  name: 'Rails Girls Beijing',
+  city: '北京',
+  occurredOn: '2014-01-11'
+}
+const FLASHBACK_FUN_RAW = '我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。'
+
+// 场次名册 fixture（R12：仅 attended；未寄出者只有结构化字段，无内容层）。
+// 城市分布（北京3/上海2/广州1 + 上海场3）= 长廊城市堆计数与场次页雾卡的
+// e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
+function flashbackArchives(mySentAt: string | null) {
+  const rosterEntry = (
+    id: string,
+    surnameMasked: string,
+    fullName: string | null,
+    city: string,
+    occupationThen: string | null,
+    sentToWallAt: string | null
+  ) => ({
+    id,
+    surnameMasked,
+    fullName,
+    appliedAt: sentToWallAt ? '2014-01-11T13:06:00Z' : null,
+    city,
+    occupationThen,
+    sentToWallAt,
+    today: sentToWallAt ? { nowStatus: '还在写代码', want: null, say: null } : null,
+    // 名册内容层（web 翻卡读面）mp 场次页不消费——空段即可
+    answers: [] as Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number }> }>
+  })
+
+  return [
+    {
+      ...FLASHBACK_E2E_ARCHIVE,
+      appliedCount: 344,
+      attendedCount: 102,
+      isMine: true,
+      roster: [
+        rosterEntry('fb-person-1', '王**', '王小明', '北京', '测试工程师', mySentAt),
+        rosterEntry('fb-person-2', '李**', '李一诺', '上海', '学生', '2026-09-17T02:00:00Z'),
+        rosterEntry('fb-person-3', '陈**', '陈静怡', '北京', '学生', '2026-09-17T03:00:00Z'),
+        rosterEntry('fb-person-4', '杨**', null, '北京', '工程师', null),
+        rosterEntry('fb-person-5', '周**', null, '广州', '设计', null),
+        rosterEntry('fb-person-6', '吴**', null, '上海', '学生', null)
+      ]
+    },
+    {
+      key: '2012-02-26-sh',
+      name: 'Rails Girls Shanghai',
+      city: '上海',
+      occurredOn: '2012-02-26',
+      appliedCount: 30,
+      attendedCount: 12,
+      isMine: false,
+      roster: [
+        rosterEntry('fb-person-7', '郑**', '郑子涵', '上海', '学生', '2026-09-16T01:00:00Z'),
+        rosterEntry('fb-person-8', '冯**', '冯欣然', '上海', '教师', '2026-09-16T02:00:00Z'),
+        rosterEntry('fb-person-9', '蒋**', null, '上海', '学生', null)
+      ]
+    }
+  ]
+}
+
 // wx storage 是闪念间 mock 态的唯一真源：模块态跨 e2e 脚本运行存活（同 loggedIn），
 // 清 storage 必须等价于完全重置——有 storage 时每次读都从 storage 载入；
 // node --test 无 storage，回落模块态（进程内一致）。
@@ -591,13 +683,19 @@ function responseFor(document: string, variables: object): unknown {
     }
   }
   if (document.includes('query FlashbackCapsule')) {
-    // 会话腿：未登录 → errors（真实端 forbidden/未签名由 real 层抛错，e2e 先登录）
-    if (!loggedIn) {
-      return {
-        errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }]
-      }
-    }
     const state = flashbackState()
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    // token 面优先（claim 后链接作废 → 可区分错误）；会话腿：未登录 → auth_required
+    if (token && flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    if (!loggedIn && !token) {
+      return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+    }
+    // 三级视角：登录了但库里还没有匹配档案（__setFlashbackUnclaimed / storage 开关驱动）
+    if (!token && (flashbackUnclaimed || e2eFlag(FLASHBACK_UNCLAIMED_KEY))) {
+      return { errors: [{ message: 'person not bound', code: 'flashback_person_not_bound' }] }
+    }
     const endorseCount = (cardId: string) => state.endorsedCardIds.length + (cardId === 'card-forming' ? 4 : 0)
     // R34 城市钉：卡集按 values.city 过滤；cities 恒全量（模拟后端投影，字节序去重排序）
     const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
@@ -681,12 +779,142 @@ function responseFor(document: string, variables: object): unknown {
             }
           ]
         },
+        // R34 城市钉同款语义：名册按人城市过滤，筛空场次整架撤下
+        archives: flashbackArchives(state.today.sentToWallAt)
+          .map((archive) => ({
+            ...archive,
+            roster: cityFilter
+              ? archive.roster.filter((entry) => entry.city === cityFilter)
+              : archive.roster
+          }))
+          .filter((archive) => archive.roster.length > 0),
         actionCards: cityFilter
           ? allCards.filter((card) => card.city === cityFilter)
           : allCards,
-        cities: [...new Set(allCards.map((card) => card.city))].sort()
+        cities: [
+          ...new Set([
+            ...allCards.map((card) => card.city),
+            ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>
+              archive.roster.map((entry) => entry.city)
+            )
+          ])
+        ].sort()
       }
     }
+  }
+
+  if (document.includes('query FlashbackPublicStats')) {
+    // 路人态长廊（R32 统计层）：场次 + 城市 + 走进教室人数 + 全局已回来计数
+    return {
+      flashbackPublicStats: {
+        archives: [
+          {
+            key: '2012-02-26-sh',
+            name: 'Rails Girls Shanghai',
+            city: '上海',
+            occurredOn: '2012-02-26',
+            appliedCount: 30,
+            attendedCount: 12
+          },
+          {
+            key: FLASHBACK_E2E_ARCHIVE.key,
+            name: FLASHBACK_E2E_ARCHIVE.name,
+            city: FLASHBACK_E2E_ARCHIVE.city,
+            occurredOn: FLASHBACK_E2E_ARCHIVE.occurredOn,
+            appliedCount: 344,
+            attendedCount: 102
+          }
+        ],
+        returnedCount: 4,
+        sentCount: 4
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackEnter')) {
+    const token = typeof values.token === 'string' ? values.token : ''
+    if (!token) {
+      return { errors: [{ message: 'token not found', code: 'flashback_token_not_found' }] }
+    }
+    if (flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    const state = flashbackState()
+    return {
+      flashbackEnter: {
+        line: 'memory',
+        profile: {
+          fullName: '王小明',
+          surname: '王',
+          city: '北京',
+          occupationThen: '测试工程师',
+          participation: 'attended',
+          role: 'learner',
+          appliedAt: '2014-01-11T13:06:00Z',
+          archive: { ...FLASHBACK_E2E_ARCHIVE },
+          answers: [
+            {
+              id: 'fb-answer-1',
+              questionKey: 'self_intro',
+              rawText: FLASHBACK_RAW_TEXT,
+              fogSpans: state.fogSpans
+            },
+            {
+              id: 'fb-answer-2',
+              questionKey: 'funny_thing',
+              rawText: FLASHBACK_FUN_RAW,
+              fogSpans: []
+            }
+          ]
+        },
+        progress: {
+          quoteLevel: state.quoteLevel,
+          maskedPhone: '139****0001',
+          maskedEmail: null,
+          today: state.today
+        }
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackMarkRevealed')) {
+    return { flashbackMarkRevealed: { recorded: true } }
+  }
+
+  if (document.includes('mutation FlashbackSendToWall')) {
+    // 幂等（R11）：已有寄出时间原样返回，不覆盖
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      today: { ...state.today, sentToWallAt: state.today.sentToWallAt ?? new Date().toISOString() }
+    }))
+    return {
+      flashbackSendToWall: {
+        sentToWallAt: next.today.sentToWallAt,
+        maskedPhone: '139****0001',
+        maskedEmail: null
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackClaim')) {
+    if (!loggedIn) {
+      return { errors: [{ message: 'authentication required', code: 'flashback_auth_required' }] }
+    }
+    // claim_miss 开关：模拟库里没有匹配（bound:false → 前端给找回引导）
+    if (e2eFlag(FLASHBACK_CLAIM_MISS_KEY)) {
+      return { flashbackClaim: { bound: false, boundCount: 0, maskedPhone: null } }
+    }
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    if (token) flashbackClaimedTokens.add(token)
+    // 登录即视为库内匹配成功（bound）；unclaimed 开关复位（模块态 + storage——
+    // storage 不清会让后续 capsule 会话腿仍报 not_bound，前端认领循环）
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已复位
+    }
+    return { flashbackClaim: { bound: true, boundCount: 1, maskedPhone: '139****0001' } }
   }
   if (document.includes('mutation FlashbackEndorse')) {
     const cardId = typeof values.cardId === 'string' ? values.cardId : ''

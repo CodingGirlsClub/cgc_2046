@@ -474,13 +474,13 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
 `
 
 // ── 闪念间「我的」（U9/R28）──────────────────────────────────────────────
-// 登录态（person.user_id 绑定档案）双入口：token 省略走会话腿。投影只选
-// me + actionCards（小程序无名册/场次页读面，archives 不拉）。
-// city（R34 城市钉）：非空时行动板按城市过滤；cities 供钉条渲染（全量）。
+// 双入口：token（首程链接身份，KTD2）优先，缺省走登录会话腿。投影含
+// archives（长廊/场次页读面，R12/R28 批次二）：
+// city（R34 城市钉）：非空时名册/行动板按城市过滤；cities 供钉条渲染（全量）。
 
 export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
-  query FlashbackCapsule($city: String) {
-    flashbackCapsule(city: $city) {
+  query FlashbackCapsule($city: String, $token: String) {
+    flashbackCapsule(city: $city, token: $token) {
       me {
         id
         fullName
@@ -516,6 +516,37 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           text
         }
       }
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+        isMine
+        roster {
+          id
+          surnameMasked
+          fullName
+          appliedAt
+          city
+          occupationThen
+          sentToWallAt
+          today {
+            nowStatus
+            want
+            say
+          }
+          answers {
+            questionKey
+            segments {
+              text
+              fog
+              len
+            }
+          }
+        }
+      }
       actionCards {
         id
         title
@@ -532,6 +563,24 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
   }
 `
 
+// 公开统计层（R32 路人态长廊数据源）：场次档案 + 已回来人数，无个人内容
+export const FlashbackPublicStatsQueryDocument = /* GraphQL */ `
+  query FlashbackPublicStats {
+    flashbackPublicStats {
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+      }
+      returnedCount
+      sentCount
+    }
+  }
+`
+
 export const FlashbackEndorseMutationDocument = /* GraphQL */ `
   mutation FlashbackEndorse($cardId: ID!, $roleClaimed: String) {
     flashbackEndorse(cardId: $cardId, roleClaimed: $roleClaimed) {
@@ -544,8 +593,8 @@ export const FlashbackEndorseMutationDocument = /* GraphQL */ `
 `
 
 export const FlashbackSubmitTodayMutationDocument = /* GraphQL */ `
-  mutation FlashbackSubmitToday($input: FlashbackTodayInput!) {
-    flashbackSubmitToday(input: $input) {
+  mutation FlashbackSubmitToday($input: FlashbackTodayInput!, $token: String) {
+    flashbackSubmitToday(input: $input, token: $token) {
       today {
         nowStatus
         want
@@ -561,14 +610,91 @@ export const FlashbackSetQuoteLicenseMutationDocument = /* GraphQL */ `
     $level: String!
     $questionKey: String
     $chosenQuoteSpan: FlashbackFogSpanInput
+    $token: String
   ) {
-    flashbackSetQuoteLicense(level: $level, questionKey: $questionKey, chosenQuoteSpan: $chosenQuoteSpan) {
+    flashbackSetQuoteLicense(
+      level: $level
+      questionKey: $questionKey
+      chosenQuoteSpan: $chosenQuoteSpan
+      token: $token
+    ) {
       level
       questionKey
       chosenQuoteSpan {
         start
         len
       }
+    }
+  }
+`
+
+// 首程 token 面（R1/R4-R9；mp 旅程用）：enter 分流 + 显影事件 + 寄出上墙。
+export const FlashbackEnterMutationDocument = /* GraphQL */ `
+  mutation FlashbackEnter($token: String!) {
+    flashbackEnter(token: $token) {
+      line
+      profile {
+        fullName
+        surname
+        city
+        occupationThen
+        participation
+        role
+        appliedAt
+        archive {
+          key
+          name
+          city
+          occurredOn
+        }
+        answers {
+          id
+          questionKey
+          rawText
+          fogSpans {
+            start
+            len
+          }
+        }
+      }
+      progress {
+        quoteLevel
+        maskedPhone
+        maskedEmail
+        today {
+          nowStatus
+          want
+          say
+          sentToWallAt
+        }
+      }
+    }
+  }
+`
+
+export const FlashbackMarkRevealedMutationDocument = /* GraphQL */ `
+  mutation FlashbackMarkRevealed($token: String!) {
+    flashbackMarkRevealed(token: $token) {
+      recorded
+    }
+  }
+`
+
+export const FlashbackSendToWallMutationDocument = /* GraphQL */ `
+  mutation FlashbackSendToWall($token: String!) {
+    flashbackSendToWall(token: $token) {
+      sentToWallAt
+    }
+  }
+`
+
+// R27 小程序路径「微信一键收好」：带 token 收该链接档案；不带则按登录手机/邮箱自动匹配。
+export const FlashbackClaimMutationDocument = /* GraphQL */ `
+  mutation FlashbackClaim($token: String) {
+    flashbackClaim(token: $token) {
+      bound
+      boundCount
+      maskedPhone
     }
   }
 `
