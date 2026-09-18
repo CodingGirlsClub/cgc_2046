@@ -200,6 +200,39 @@ export function shareMessage(me: FlashbackMyCard, now: Date = new Date()): { tit
   return { title: `我找到了 ${tail} · 闪念间` }
 }
 
+/** 摘要卡折行（纯函数，node --test 钉住）：CJK 全角计 1em、其余计 0.5em，
+ * 超宽折行；超过 maxLines 截断并加省略号。canvas 只按行绘制——
+ * 排版判据下沉 domain（页面无渲染测试），也免去 measureText 的平台差异。 */
+export function wrapCardText(text: string, maxEmPerLine: number, maxLines: number): string[] {
+  if (!text || maxLines <= 0 || maxEmPerLine <= 0) return []
+  const widthOf = (ch: string): number => (/[\u2E80-\u9FFF\u3000-\u303F\uFF00-\uFF60\uFE30-\uFE4F]/.test(ch) ? 1 : 0.5)
+  const lines: string[] = []
+  let line = ''
+  let lineEm = 0
+  for (const ch of Array.from(text)) {
+    if (ch === '\n') {
+      if (line) lines.push(line)
+      line = ''
+      lineEm = 0
+      continue
+    }
+    const w = widthOf(ch)
+    if (line && lineEm + w > maxEmPerLine) {
+      lines.push(line)
+      line = ''
+      lineEm = 0
+    }
+    line += ch
+    lineEm += w
+  }
+  if (line) lines.push(line)
+  if (lines.length <= maxLines) return lines
+  const kept = lines.slice(0, maxLines)
+  const last = Array.from(kept[maxLines - 1])
+  kept[maxLines - 1] = `${last.slice(0, Math.max(1, last.length - 1)).join('')}…`
+  return kept
+}
+
 /** 摘要卡绘图模型（R14：时间戳+城市+金句+今天的你，竖版 3:4）——纯函数，
  * canvas 绘制与保存流程（页面层）消费；title 兜底链：金句 → 想做的事 → 当年文案 */
 export function summaryCardModel(me: FlashbackMyCard, now: Date = new Date()): {
@@ -215,4 +248,50 @@ export function summaryCardModel(me: FlashbackMyCard, now: Date = new Date()): {
   const todayLine = (me.today?.want ?? me.today?.nowStatus ?? '').trim() || null
   const footer = years ? `${years} · IN A FLASH 闪念间` : 'IN A FLASH · 闪念间'
   return { stamp, quote, todayLine, footer }
+}
+
+/** 摘要卡版式（纯函数，node --test 钉住）：给定画布尺寸算出每一段的行与坐标，
+ * **保证全部落在画布内**（旧版 today/脚注越界即此判据缺失）。canvas 只按结果绘制。 */
+export function summaryCardLayout(
+  model: { quote: string; todayLine: string | null; footer: string },
+  width = 600,
+  height = 800
+): {
+  W: number
+  H: number
+  kickerTop: number
+  stampTop: number
+  quoteLines: string[]
+  quoteTop: number
+  quoteLineHeight: number
+  todayLines: string[]
+  todayTop: number
+  todayLineHeight: number
+  dividerY: number
+  footerTop: number
+} {
+  const W = width
+  const H = height
+  const quoteLineHeight = 46
+  const todayLineHeight = 34
+  const quoteLines = wrapCardText(`“${model.quote}”`, (W - 160) / 30, 5)
+  const todayLines = model.todayLine ? wrapCardText(`今天的我：${model.todayLine}`, (W - 200) / 22, 3) : []
+  const footerTop = H - 72
+  const todayTop = todayLines.length ? footerTop - 44 - todayLines.length * todayLineHeight : footerTop
+  const dividerY = todayLines.length ? todayTop - 30 : footerTop - 60
+  const quoteTop = Math.max(210, Math.min(300, dividerY - quoteLines.length * quoteLineHeight - 34))
+  return {
+    W,
+    H,
+    kickerTop: 84,
+    stampTop: 136,
+    quoteLines,
+    quoteTop,
+    quoteLineHeight,
+    todayLines,
+    todayTop,
+    todayLineHeight,
+    dividerY,
+    footerTop
+  }
 }

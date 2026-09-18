@@ -12,6 +12,7 @@ import {
   parseQuoteLevel,
   QUOTE_LEVEL_OPTIONS,
   shareMessage,
+  summaryCardLayout,
   summaryCardModel,
   sentencesWithFog,
   splitActionCards,
@@ -180,9 +181,12 @@ export default function FlashbackPage() {
 
   const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
 
-  // R14 保存摘要卡（用户定稿 ③）：canvas 2d 绘制竖版 3:4（版式对齐 web
-  // card-export：纸底 + IN A FLASH + 时间戳·城市 + 金句 + 今天的你 + 年份
-  // 脚注）→ 临时文件 → 相册；权限拒绝给「去设置」引导
+  // R14 保存摘要卡（用户定稿 ③）：画布尺寸语义定式——node.width/height 是**布局
+  // 尺寸（CSS px）**，而 canvas 后备存储默认仅 300×150：旧版既没设 canvas.width/height
+  // 又把 node.width/height 当 dpr 基准（W=2×布局宽），绘制坐标与画布空间错位，
+  // 「今天的我」画在 y=1180、脚注 y=H-80 均越出画布必不显示。现在 CSS 尺寸即画布
+  // 尺寸（600×800 = 3:4，1:1 无缩放，导出区域无歧义），排版全部落在画布内，
+  // 折行/截断判据在 domain（wrapCardText，node --test 钉住）。
   const saveSummaryCard = async () => {
     if (state.kind !== 'ready' || saving) return
     setSaving(true)
@@ -195,34 +199,68 @@ export default function FlashbackPage() {
           else reject(new Error('画布未就绪'))
         }).exec()
       })
-      const canvas = node.node as { getContext: (t: '2d') => CanvasRenderingContext2D }
+      const canvas = node.node as { getContext: (t: '2d') => CanvasRenderingContext2D; width: number; height: number }
+      const W = node.width
+      const H = node.height
+      canvas.width = W
+      canvas.height = H
       const ctx = canvas.getContext('2d')
-      const W = node.width * 2
-      const H = node.height * 2
+      const serif = "'Kaiti SC', 'STKaiti', 'Noto Serif SC', serif"
+
+      // 纸底 + 内框
       ctx.fillStyle = '#f6f2e8'
       ctx.fillRect(0, 0, W, H)
       ctx.strokeStyle = 'rgba(43,39,35,0.25)'
-      ctx.lineWidth = 4
+      ctx.lineWidth = 2
       ctx.strokeRect(24, 24, W - 48, H - 48)
+
       ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+
+      // 版式坐标全部来自 domain（summaryCardLayout：行数与位置，保证在画布内）
+      const layout = summaryCardLayout(model, W, H)
+
+      // kicker + 时间戳·城市（原型 F 摘要卡版式）
       ctx.fillStyle = '#2b2723'
-      ctx.font = '600 44px sans-serif'
-      ctx.fillText('IN A FLASH · 闪念间', W / 2, 120)
-      ctx.font = '38px sans-serif'
+      ctx.font = `600 22px ${serif}`
+      ctx.fillText('IN A FLASH · 闪念间', W / 2, layout.kickerTop)
       ctx.fillStyle = 'rgba(43,39,35,0.7)'
-      ctx.fillText(model.stamp || '当年', W / 2, 200)
+      ctx.font = `20px ${serif}`
+      ctx.fillText(model.stamp || '当年', W / 2, layout.stampTop)
+
       ctx.fillStyle = '#2b2723'
-      ctx.font = 'italic 54px serif'
-      wrapCanvasText(ctx, `“${model.quote}”`, W / 2, 340, W - 200, 78)
-      if (model.todayLine) {
-        ctx.font = '40px sans-serif'
+      ctx.font = `italic 30px ${serif}`
+      layout.quoteLines.forEach((line, index) =>
+        ctx.fillText(line, W / 2, layout.quoteTop + index * layout.quoteLineHeight)
+      )
+
+      if (layout.todayLines.length) {
+        ctx.strokeStyle = 'rgba(43,39,35,0.25)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.moveTo(140, layout.dividerY)
+        ctx.lineTo(W - 140, layout.dividerY)
+        ctx.stroke()
         ctx.fillStyle = 'rgba(43,39,35,0.85)'
-        wrapCanvasText(ctx, `今天的我：${model.todayLine}`, W / 2, 1180, W - 200, 60)
+        ctx.font = `22px ${serif}`
+        layout.todayLines.forEach((line, index) =>
+          ctx.fillText(line, W / 2, layout.todayTop + index * layout.todayLineHeight)
+        )
       }
-      ctx.font = '32px sans-serif'
+
       ctx.fillStyle = 'rgba(43,39,35,0.5)'
-      ctx.fillText(model.footer, W / 2, H - 80)
-      const res = await Taro.canvasToTempFilePath({ canvas: canvas as never, width: node.width, height: node.height, destWidth: W, destHeight: H })
+      ctx.font = `16px ${serif}`
+      ctx.fillText(model.footer, W / 2, layout.footerTop)
+
+      const res = await Taro.canvasToTempFilePath({
+        canvas: canvas as never,
+        x: 0,
+        y: 0,
+        width: W,
+        height: H,
+        destWidth: W,
+        destHeight: H
+      })
       await Taro.saveImageToPhotosAlbum({ filePath: res.tempFilePath })
       Taro.showToast({ title: '已保存到相册', icon: 'success' })
       setShareSheet(false)
@@ -483,17 +521,4 @@ export default function FlashbackPage() {
       )}
     </View>
   )
-}
-
-/** canvas 文本换行（grapheme 逐字累计，超宽换行） */
-function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, centerX: number, startY: number, maxWidth: number, lineHeight: number): void {
-  const chars = Array.from(text)
-  let line = ''
-  let y = startY
-  const flush = () => { ctx.fillText(line, centerX, y); line = ''; y += lineHeight }
-  for (const ch of chars) {
-    if (ctx.measureText(line + ch).width > maxWidth) flush()
-    line += ch
-  }
-  if (line) flush()
 }
