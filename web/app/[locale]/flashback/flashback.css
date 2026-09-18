@@ -15,7 +15,10 @@
 	--fb-flash-dur: 0.55s;
 	--fb-flip-dur: 0.9s;
 	background: #0a0a0c;
-	color: var(--fb-ink);
+	/* 暗底默认亮字（对比度审计的系统性根源修复）：页面主体在近黑底上，
+	   --fb-ink 深墨只属于纸面卡内部——纸面容器显式 color: var(--fb-ink)，
+	   暗底元素继承本值 #d9d4ca（≥10:1） */
+	color: #d9d4ca;
 	min-height: 100vh;
 	font-family: "Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", serif;
 	overflow-x: hidden;
@@ -65,6 +68,7 @@
 /* ── 拍立得本体 ────────────────────────────────────────────────── */
 .fb-polaroid {
 	background: var(--fb-paper);
+	color: var(--fb-ink);
 	border-radius: 4px;
 	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
 	position: relative;
@@ -183,7 +187,9 @@
 	cursor: pointer;
 }
 
-.fb-cta {
+/* .fb-root 前缀（0-2-0）压过 .fb-root button { color: inherit }（0-1-1）
+   ——两起实测对比度 bug 的根源：显式色被继承链吞掉 */
+.fb-root .fb-cta {
 	margin-top: 22px;
 	font-size: 15px;
 	padding: 12px 28px;
@@ -195,7 +201,7 @@
 	color: #cfcabf;
 	border: 1px solid rgba(255, 255, 255, 0.3);
 }
-.fb-cta-primary {
+.fb-root .fb-cta-primary {
 	background: var(--fb-accent);
 	color: #17161a;
 	border: none;
@@ -204,7 +210,7 @@
 
 .fb-question { font-size: 19px; margin-bottom: 24px; line-height: 1.5; color: #d9d4ca; }
 .fb-options { display: grid; gap: 12px; width: 100%; max-width: 420px; }
-.fb-option {
+.fb-root .fb-option {
 	text-align: left;
 	background: rgba(255, 255, 255, 0.06);
 	border: 1px solid rgba(255, 255, 255, 0.14);
@@ -217,7 +223,7 @@
 	justify-content: space-between;
 	gap: 12px;
 }
-.fb-option-hint { opacity: 0.45; font-size: 12px; }
+.fb-root .fb-option-hint { opacity: 0.7; font-size: 12px; }
 
 /* 散照桌（R5）：一叠模糊旧照片 */
 .fb-scatter {
@@ -307,6 +313,7 @@
 	gap: 14px;
 	text-align: left;
 	background: #efe9db;
+	color: var(--fb-ink);
 }
 .fb-field-label { font-size: 11px; opacity: 0.7; }
 .fb-field-input,
@@ -440,6 +447,7 @@
 }
 .fb-roster-card--lit {
 	background: var(--fb-paper);
+	color: var(--fb-ink);
 	border: none;
 	box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
 }
@@ -462,6 +470,7 @@
 .fb-today-card { width: 190px; }
 .fb-today-card--lit {
 	border: 1px solid rgba(203, 191, 143, 0.55);
+	color: var(--fb-ink);
 	box-shadow: 0 0 22px rgba(203, 191, 143, 0.32), 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 .fb-paper-blank {
@@ -518,20 +527,27 @@
 /* 卡片导出 */
 .fb-card-export { padding: 22px; text-align: center; }
 .fb-export-switch { display: inline-flex; gap: 8px; margin-bottom: 14px; }
-.fb-export-tab {
-	background: rgba(255, 255, 255, 0.06);
-	border: 1px solid rgba(255, 255, 255, 0.14);
+/* 用户二报的按钮组：未选中 #b9b4aa（≥7:1）、选中金色（≈8:1）——
+   .fb-root 前缀确保显式色不再被 color:inherit 压制 */
+.fb-root .fb-export-tab {
+	background: rgba(255, 255, 255, 0.08);
+	border: 1px solid rgba(255, 255, 255, 0.3);
 	border-radius: 999px;
 	color: #b9b4aa;
 	font-size: 13px;
 	padding: 8px 18px;
 	cursor: pointer;
 }
-.fb-export-tab--active { border-color: var(--fb-accent); color: var(--fb-accent); }
+.fb-root .fb-export-tab--active {
+	border-color: var(--fb-accent);
+	background: rgba(203, 191, 143, 0.14);
+	color: var(--fb-accent);
+}
 .fb-export-card { width: min(300px, 80vw); margin: 0 auto; }
 .fb-export-photo {
 	aspect-ratio: 3 / 4;
 	background: linear-gradient(160deg, #efe9db, #ddd6c6);
+	color: var(--fb-ink);
 	display: grid;
 	align-content: space-between;
 	padding: 10%;
@@ -573,22 +589,23 @@
 .fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
 .fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
 /* 暗底输入控件（实测 bug 2：对比度不足）——文字 ≥7:1、placeholder ≥4.5:1、
-   边框为可见边界（非装饰）；focus 态 accent 高亮 */
-.fb-recover-input,
-.fb-register-input {
+   边框为可见边界（非装饰）；focus 态 accent 高亮。选择器带 input 标签提升
+   特异性，压过上方 .fb-root input { color: inherit } 的深色继承。 */
+.fb-root input.fb-recover-input,
+.fb-root input.fb-register-input {
 	background: rgba(239, 233, 219, 0.12);
 	border: 1px solid rgba(239, 233, 219, 0.45);
 	border-radius: 8px;
 	padding: 12px 14px;
 	color: #ece8de;
 }
-.fb-recover-input::placeholder,
-.fb-register-input::placeholder {
+.fb-root input.fb-recover-input::placeholder,
+.fb-root input.fb-register-input::placeholder {
 	color: #a09a8f;
 	opacity: 1;
 }
-.fb-recover-input:focus-visible,
-.fb-register-input:focus-visible {
+.fb-root input.fb-recover-input:focus-visible,
+.fb-root input.fb-register-input:focus-visible {
 	outline: none;
 	border-color: var(--fb-accent);
 }
@@ -603,13 +620,15 @@
 .fb-delete {
 	margin-top: 28px;
 	padding-top: 20px;
-	border-top: 1px dashed var(--fb-ink-soft, #8a7f70);
+	border-top: 1px dashed rgba(239, 233, 219, 0.3);
 }
-.fb-delete-open {
+/* 删除面板（U10）曾引用不存在的 --fb-ink-soft 变量、暗底深字——
+   对比度清扫统一为暗底可读色（≥4.5:1） */
+.fb-root .fb-delete-open {
 	background: none;
 	border: none;
 	padding: 0;
-	color: var(--fb-ink-soft, #8a7f70);
+	color: #a09a8f;
 	font-size: 13px;
 	text-decoration: underline;
 	cursor: pointer;
@@ -622,24 +641,30 @@
 .fb-delete-title {
 	margin: 0;
 	font-size: 15px;
-	color: #b3261e;
+	color: #e8857d;
 }
 .fb-delete-facts {
 	margin: 0;
 	padding-left: 18px;
-	color: var(--fb-ink-soft, #8a7f70);
+	color: #b9b4aa;
 	font-size: 13px;
 }
 .fb-delete-label {
 	font-size: 13px;
-	color: var(--fb-ink, #2d2a26);
+	color: #d9d4ca;
 }
-.fb-delete-input {
+.fb-root .fb-delete-input {
 	padding: 8px 10px;
-	border: 1px solid var(--fb-ink-soft, #8a7f70);
+	border: 1px solid rgba(239, 233, 219, 0.45);
 	border-radius: 8px;
 	font: inherit;
 	width: 180px;
+	color: #ece8de;
+	background: rgba(239, 233, 219, 0.12);
+}
+.fb-root .fb-delete-input::placeholder {
+	color: #a09a8f;
+	opacity: 1;
 }
 .fb-delete-actions {
 	display: flex;
@@ -649,7 +674,7 @@
 	padding: 8px 16px;
 	border: none;
 	border-radius: 999px;
-	background: #b3261e;
+	background: #9e1b15; /* 白字对比 5.6:1（原 #b3261e 4.43<4.5） */
 	color: #fff;
 	font-size: 13px;
 	cursor: pointer;
@@ -658,13 +683,13 @@
 	opacity: 0.45;
 	cursor: not-allowed;
 }
-.fb-delete-cancel {
+.fb-root .fb-delete-cancel {
 	padding: 8px 16px;
 	border: none;
 	border-radius: 999px;
 	background: transparent;
-	border: 1px solid var(--fb-ink-soft, #8a7f70);
-	color: var(--fb-ink, #2d2a26);
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	color: #d9d4ca;
 	font-size: 13px;
 	cursor: pointer;
 }
