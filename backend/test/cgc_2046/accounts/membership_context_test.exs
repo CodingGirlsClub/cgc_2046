@@ -409,6 +409,31 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert "tutor" in held_names
     end
 
+    test "并发 admit（同 user 不同角色集）：无论谁撞 unique，最终角色为两请求并集" do
+      admin = Fixtures.platform_admin("mc-admin-race")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member-race")
+
+      # 两个请求并发越过 existing 守卫（都读到空）→ 一方 INSERT 胜出、
+      # 另一方撞 unique 走回查分支；两条幂等路径都必须补授，最终并集成立
+      tasks =
+        for role <- [:volunteer, :tutor] do
+          Task.async(fn ->
+            MembershipContext.admit_member(member.id, workspace.id, [role],
+              on_conflict: :idempotent
+            )
+          end)
+        end
+
+      results = Task.await_many(tasks)
+
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+      membership = elem(hd(results), 1)
+      held_names = held_role_names(workspace.id, membership.id)
+      assert "volunteer" in held_names
+      assert "tutor" in held_names
+    end
+
     test "并发 unique 冲突 → business_error：越过守卫后 DB unique index 拒绝，转业务错误" do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)

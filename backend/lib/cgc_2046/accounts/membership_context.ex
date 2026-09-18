@@ -480,7 +480,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
       {:error, error} ->
         if unique_membership_conflict?(error) do
-          handle_unique_conflict(on_conflict, error_message, workspace_id, user_id)
+          handle_unique_conflict(on_conflict, error_message, workspace_id, user_id, role_names)
         else
           # 非 unique 的真实 DB 故障（连接断、磁盘满）必须原样上抛，不能吞成「已是成员」，
           # 否则用户被误导且无告警（静默数据丢失）。
@@ -524,8 +524,11 @@ defmodule Cgc2046.Accounts.MembershipContext do
   # unique 冲突的两种外露姿态（同一不变量）：
   # - :business_error → 转「已是成员」业务错误（Invitation.accept / JoinRequest.approve）
   # - :idempotent → 幂等成功，回查已有 membership 返回（Workspace.join）
-  defp handle_unique_conflict(:idempotent, _error_message, workspace_id, user_id) do
+  defp handle_unique_conflict(:idempotent, _error_message, workspace_id, user_id, role_names) do
     # 幂等成功：并发下另一请求已建 Membership，回查取已有记录返回。
+    # 回查成功后同样要补授本次请求的角色（ensure_idempotent_roles）——
+    # 守卫读到 [] 与胜者 INSERT 提交之间有竞态窗口，此处若直接返回，
+    # 败者请求的角色会静默丢失（与 existing 守卫分支同型，见其注释）。
     # 非 bang Ash.read：回查失败（连接断、极端：刚建好又被删）按保守方向当结构化错误，
     # 不 raise 也不假装成功（#14 原则）。
     WorkspaceMembership
@@ -533,13 +536,13 @@ defmodule Cgc2046.Accounts.MembershipContext do
     |> Ash.Query.filter(workspace_id == ^workspace_id and user_id == ^user_id)
     |> Ash.read(tenant: workspace_id, authorize?: false)
     |> case do
-      {:ok, [membership | _]} -> {:ok, membership}
+      {:ok, [membership | _]} -> ensure_idempotent_roles(membership, role_names, workspace_id)
       {:ok, []} -> {:error, already_member_error(@enroll_already_member_default)}
       {:error, _error} -> {:error, membership_check_error()}
     end
   end
 
-  defp handle_unique_conflict(:business_error, error_message, _workspace_id, _user_id) do
+  defp handle_unique_conflict(:business_error, error_message, _workspace_id, _user_id, _role_names) do
     {:error, already_member_error(error_message)}
   end
 
