@@ -122,6 +122,27 @@ test('档位解析：availablePriceTiers JsonString 数组，非法项丢弃', (
   assert.deepEqual(parsePriceTiers(null), [])
 })
 
+// #687：脏金额（缺失/0/负/非整数分/null）不丢档——amountCents 落 null，
+// 渲染层据此「金额待定」+ 禁选；只有缺身份（id/name）才整档丢弃。
+test('档位金额脏 → 档位保留 amountCents null（positiveAmountOrNull 判据，#687）', () => {
+  const raw = [
+    JSON.stringify({ id: 't-clean', name: '标准', amount_cents: 19900 }),
+    JSON.stringify({ id: 't-missing', name: '缺额档' }),
+    JSON.stringify({ id: 't-zero', name: '零档', amount_cents: 0 }),
+    JSON.stringify({ id: 't-neg', name: '负档', amount_cents: -100 }),
+    JSON.stringify({ id: 't-frac', name: '非整档', amount_cents: 0.4 }),
+    JSON.stringify({ id: 't-null', name: '空额档', amount_cents: null })
+  ]
+  assert.deepEqual(parsePriceTiers(raw), [
+    { id: 't-clean', name: '标准', amountCents: 19900 },
+    { id: 't-missing', name: '缺额档', amountCents: null },
+    { id: 't-zero', name: '零档', amountCents: null },
+    { id: 't-neg', name: '负档', amountCents: null },
+    { id: 't-frac', name: '非整档', amountCents: null },
+    { id: 't-null', name: '空额档', amountCents: null }
+  ])
+})
+
 test('金额分→元两位小数；订单/缴费状态词表覆盖 plan R16 状态面', () => {
   assert.equal(formatAmount(19900), '199.00')
   assert.equal(formatAmount(1), '0.01')

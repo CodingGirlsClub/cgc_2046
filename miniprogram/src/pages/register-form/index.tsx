@@ -6,7 +6,7 @@ import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { enrollmentBlockedNotice } from '@/domain/format'
-import { formatAmount, paymentLandingUrl } from '@/domain/payment'
+import { paymentLandingUrl, tierAmountText } from '@/domain/payment'
 import { preSubmitTouchpoint, submitAfterConsent } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
@@ -33,9 +33,10 @@ export default function RegisterFormPage() {
     try {
       const [content, session] = await Promise.all([api.getContent(kind, id), api.getSession()])
       setTarget(content)
-      // 收费目标默认选中第一档（用户拍板:有档不该强制手点;可再点换档）
+      // 收费目标默认选中第一档（用户拍板:有档不该强制手点;可再点换档）；
+      // #687：默认档跳过金额脏档（禁选档不可作为默认选择）
       if (content.pricingEnabled && content.priceTiers.length > 0) {
-        setTierId(content.priceTiers[0].id)
+        setTierId(content.priceTiers.find((t) => t.amountCents !== null)?.id ?? '')
       }
       // 双门（status + badge）与详情页 CTA 同源：深链 / 登录期间被取消的场
       // 也会在此被挡（此前只看 badge，#574）
@@ -56,11 +57,14 @@ export default function RegisterFormPage() {
 
   const submit = async () => {
     if (!target || submitting) return
+    // 所选档（脏档禁选后的有效选择；undefined == null 涵盖未选）
+    const selectedTier = target.priceTiers.find((t) => t.id === tierId)
     if (target.enrollmentPolicy === 'invite_only' && !inviteCode.trim()) {
       Taro.showToast({ title: '请输入批次码', icon: 'none' })
       return
     }
-    if (target.pricingEnabled && !tierId) {
+    // #687 加一层：所选档金额脏（金额待定、禁选）同样不可提交——金额待定的档不收钱
+    if (target.pricingEnabled && selectedTier?.amountCents == null) {
       Taro.showToast({ title: '请选择价格档位', icon: 'none' })
       return
     }
@@ -140,12 +144,13 @@ export default function RegisterFormPage() {
             ) : target.priceTiers.map((tier) => (
               <View
                 key={tier.id}
-                className={`${styles.tierOption} ${tierId === tier.id ? styles.tierActive : ''}`}
+                className={`${styles.tierOption} ${tierId === tier.id ? styles.tierActive : ''} ${tier.amountCents === null ? styles.tierDisabled : ''}`}
                 data-testid={`tier-option-${tier.id}`}
-                onClick={() => setTierId(tier.id)}
+                onClick={() => { if (tier.amountCents !== null) setTierId(tier.id) }}
               >
                 <Text className={styles.tierName}>{tier.name}</Text>
-                <Text className={styles.tierPrice}>¥{formatAmount(tier.amountCents)}</Text>
+                {/* #687：脏金额不表态——「金额待定」，绝不 ¥0/¥0.00 */}
+                <Text className={styles.tierPrice}>{tierAmountText(tier, '金额待定')}</Text>
               </View>
             ))}
           </View>

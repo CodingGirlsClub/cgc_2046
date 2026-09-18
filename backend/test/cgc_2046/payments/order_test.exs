@@ -491,6 +491,57 @@ defmodule Cgc2046.Payments.OrderTest do
     end
   end
 
+  describe "#687：定价单档位金额 fail-closed（脏金额绝不物化订单/调渠道）" do
+    for {label, dirty} <- [{"0 元", 0}, {"负数", -100}, {"非整数分", 0.4}] do
+      @tag dirty: dirty
+      test "脏档位金额（#{label}）下单 → order_tier_amount_invalid，零物化（#687）" do
+        dirty = @tag[:dirty]
+        admin = Fixtures.platform_admin("payments-dirty-tier-admin")
+        workspace = Fixtures.create_workspace(admin)
+
+        event =
+          EventFixtures.create_event(workspace, admin, %{
+            pricing_enabled: true,
+            price_tiers: [
+              %{"id" => @idempotent_tier_id, "name" => "早鸟", "amount_cents" => 9900}
+            ]
+          })
+
+        learner = Fixtures.register_user("payments-dirty-tier-learner")
+
+        {:ok, enrollment} =
+          Enrollment
+          |> Ash.Changeset.for_create(:create_enrollment, %{
+            event_id: event.id,
+            user_id: learner.id,
+            tier_id: @idempotent_tier_id
+          })
+          |> Ash.create(tenant: workspace.id, actor: learner)
+
+        assert enrollment.status == :payment_pending
+
+        # 布置而非被测对象：域校验（PriceTiersValidation ≥1 分）挡住脏档，
+        # 只有裸 SQL 能造出存量脏行（#627 F5 同款布置）；jsonb 参数直接传
+        # Elixir 结构（postgrex 经 Jason 编码；预编码字符串会被再包一层
+        # JSON 引号存成 string scalar）
+        Cgc2046.Repo.query!(
+          "UPDATE events SET price_tiers = $2 WHERE id = $1",
+          [
+            Ecto.UUID.dump!(event.id),
+            [%{"id" => @idempotent_tier_id, "name" => "早鸟", "amount_cents" => dirty}]
+          ]
+        )
+
+        # 下单 fail-closed（与押金单 deposit_tier 的 order_deposit_amount_missing
+        # 同款红线）：渠道调用在事务内，拒绝即回滚——无凭据无订单
+        assert {:error, %Ash.Error.Invalid{errors: [error]}} = checkout(enrollment, learner)
+        assert error.code == "order_tier_amount_invalid"
+        assert Exception.message(error) =~ "invalid amount"
+        assert order_count(enrollment.id) == 0
+      end
+    end
+  end
+
   describe "R21：WebhookEvent (provider, event_id) 幂等去重" do
     test "重复 (provider, event_id) 插入被拒；不同 provider 同 event_id 可并存" do
       assert {:ok, _} = create_webhook_event(:wechat, "evt-dup-1")
