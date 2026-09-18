@@ -488,7 +488,7 @@ export default function VolunteerApplyPage() {
 						<span className="hs24-badge">{t("deep.badge")}</span>
 						<span className="hs24-badge-label">{t("deep.label")}</span>
 					</div>
-					<blockquote className="hs24-title">
+					<blockquote className="hs24-epi">
 						{t("deep.quote")}
 						<em>{t("deep.quoteBy")}</em>
 					</blockquote>
