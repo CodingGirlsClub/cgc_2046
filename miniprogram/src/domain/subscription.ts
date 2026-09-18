@@ -254,9 +254,9 @@ export function workspaceOpsTouchpoint(): SubscriptionTouchpoint {
   return {
     page: 'pages/workspace/index',
     trigger: 'Owner/Admin 打开工作台，点按第二个订阅按钮',
-    label: '订阅新报名、收款与开班通知',
+    label: '订阅新报名、收款与成班通知',
     scenarios: ['enrollment_submitted', 'payment_received', 'event_qualification_manager'],
-    acceptedCopy: '已订阅，新报名、收款与开班结果会通知你',
+    acceptedCopy: '已订阅，新报名、收款与成班结果会通知你',
     deniedCopy: '你暂未授权，可稍后再试'
   }
 }
