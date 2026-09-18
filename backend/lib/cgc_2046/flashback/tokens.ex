@@ -526,6 +526,7 @@ defmodule Cgc2046.Flashback.Tokens do
     mine = %{
       photo_key: person.id,
       label: scatter_label(person.archive_event),
+      date_stamp: date_stamp(person.archive_event),
       is_mine: true,
       surname: person.surname
     }
@@ -541,6 +542,7 @@ defmodule Cgc2046.Flashback.Tokens do
             %{
               photo_key: other.id,
               label: scatter_label(archive),
+              date_stamp: date_stamp(archive),
               is_mine: false,
               surname: other.surname
             }
@@ -555,6 +557,12 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp scatter_label(archive) do
     "#{archive.occurred_on.year} · #{archive.city}"
+  end
+
+  # 拍立得日期戳（批次二收尾）：「2016 10 15」——只给日期不给城市，答题的
+  # 线索经一小步认知参与（对照 sheet 场次全名）才成立，谜不泄底。
+  defp date_stamp(archive) do
+    archive.occurred_on |> Date.to_iso8601() |> String.replace("-", " ")
   end
 
   defp other_archives(archive_event_id) do

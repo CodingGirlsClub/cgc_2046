@@ -25,6 +25,10 @@ defmodule Cgc2046.Flashback.EventArchive do
     attribute(:applied_count, :integer, public?: true, writable?: true)
     attribute(:attended_count, :integer, public?: true, writable?: true)
 
+    # 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」这类故事话；
+    # nullable——导入未带的场次长廊只显 when 行。
+    attribute(:label, :string, public?: true, writable?: true)
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -51,7 +55,7 @@ defmodule Cgc2046.Flashback.EventArchive do
 
     # 导入脚本专用（authorize?: false 路径）；运营经 admin 面可见。
     create :create do
-      accept([:key, :name, :city, :occurred_on, :applied_count, :attended_count])
+      accept([:key, :name, :city, :occurred_on, :applied_count, :attended_count, :label])
     end
   end
 

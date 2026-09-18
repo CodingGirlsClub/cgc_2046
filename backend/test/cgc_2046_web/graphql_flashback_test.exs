@@ -47,7 +47,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
         today { nowStatus: now_status want need say sentToWallAt: sent_to_wall_at
           wantGiveTags: want_give_tags reconnectTags: reconnect_tags
           newsletterOptIn: newsletter_opt_in mobilization } }
-      scatter { entries { photoKey: photo_key label isMine: is_mine surname } }
+      scatter { entries { photoKey: photo_key label dateStamp: date_stamp isMine: is_mine surname } }
     } }
     """
   end
@@ -266,6 +266,9 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       [only] = entries
       assert only["isMine"] == true
       assert only["label"] == "2014 · 北京"
+      # 拍立得日期戳：只含日期（空格分隔），不含城市名（谜不泄底）
+      assert only["dateStamp"] == "2014 01 11"
+      refute only["dateStamp"] =~ "北京"
       assert only["photoKey"] == person.id
     end
 
@@ -310,6 +313,9 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert first == second
       assert Enum.any?(first, &(&1["isMine"] && &1["label"] == "2014 · 北京"))
       assert Enum.any?(first, &(!&1["isMine"] && &1["label"] == "2012 · 上海"))
+      # 每张（含非本人）都带各自场次的真实日期戳
+      assert Enum.any?(first, &(&1["dateStamp"] == "2012 02 26"))
+      assert Enum.any?(first, &(&1["dateStamp"] == "2014 01 11"))
       # 姓氏级脱敏由前端渲染；接口只出姓，不出明文姓名
       assert Enum.any?(first, &(&1["surname"] == "陈"))
       refute Enum.any?(first, &(&1["surname"] == "陈查查"))
