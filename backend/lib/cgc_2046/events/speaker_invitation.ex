@@ -343,6 +343,17 @@ defmodule Cgc2046.Events.SpeakerInvitation do
     table("speaker_invitations")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline（workspace/event/
+    # speaker_user_id/invited_by = delete_all，workflow_run = nilify_all；
+    # DB 实测 c/c/c/c/n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:event, on_delete: :delete)
+      reference(:speaker, on_delete: :delete)
+      reference(:inviter, on_delete: :delete)
+      reference(:workflow_run, on_delete: :nilify)
+    end
+
     identity_wheres_to_sql(
       unique_event_speaker: "speaker_email IS NOT NULL AND status IN ('invited', 'accepted')"
     )
