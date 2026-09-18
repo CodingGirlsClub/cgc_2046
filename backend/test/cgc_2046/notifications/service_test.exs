@@ -633,7 +633,7 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert no_min == %{"thing4" => %{"value" => "活动"}, "number16" => %{"value" => "2"}}
   end
 
-  test "event_qualification_manager 渲染：thing1 活动名 + thing2 outcome 驱动双文案（#585）" do
+  test "event_qualification_manager 渲染：thing2 活动名 + thing5 outcome 驱动双文案（#585/#720）" do
     confirmed =
       send_and_capture("event_qualification_manager", %{
         "title" => "AI 入门工作坊",
@@ -642,8 +642,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       })
 
     assert confirmed == %{
-             "thing1" => %{"value" => "AI 入门工作坊"},
-             "thing2" => %{"value" => "已达最低人数3人，活动成班"}
+             "thing2" => %{"value" => "AI 入门工作坊"},
+             "thing5" => %{"value" => "已达最低人数3人，活动成班"}
            }
 
     underfilled =
@@ -654,8 +654,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       })
 
     assert underfilled == %{
-             "thing1" => %{"value" => "AI 入门工作坊"},
-             "thing2" => %{"value" => "未达最低人数3人，已取消并发起退款"}
+             "thing2" => %{"value" => "AI 入门工作坊"},
+             "thing5" => %{"value" => "未达最低人数3人，已取消并发起退款"}
            }
   end
 

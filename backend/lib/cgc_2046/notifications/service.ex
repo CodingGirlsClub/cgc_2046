@@ -78,10 +78,13 @@ defmodule Cgc2046.Notifications.Service do
   # - event_qualification_underfilled（#606）：活动名称=thing1 / 未达阈值说明
   #   =thing5（动态「未达最低成班人数{min}人，活动未成行」；confirmed_count
   #   平台无 number 槽位，不下发）
-  # - event_qualification_manager（#585）：活动名称=thing1 / 开班结果=thing2
-  #   （outcome 驱动：confirmed →「已达最低人数{min}人，活动成班」；
+  # - event_qualification_manager（#585，#720 平台选用）：模板标题「活动申请
+  #   结果通知」（公共库无成班/开班措辞，选了全库唯一「活动名称+结果」双
+  #   thing 槽位的中性模板）。槽位编号非顺序：活动名称=thing2 / 开班结果
+  #   =thing5（outcome 驱动：confirmed →「已达最低人数{min}人，活动成班」；
   #   underfilled →「未达最低人数{min}人，已取消并发起退款」——approval_result
-  #   单键双文案同款；模板申请为部署前置，未配置走 template_not_configured）
+  #   单键双文案同款；ID 已入 secret WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER，
+  #   未配置走 template_not_configured）
   # - event_schedule_changed（#606）：活动名称=thing1 / 新开始时间=date2 /
   #   地点=thing5（venue，缺值跳过）。date2 是 **date 类型**、非 time——见
   #   date/1 的格式假设注释；venue 变更本身也是本通知的触发条件
@@ -216,8 +219,8 @@ defmodule Cgc2046.Notifications.Service do
 
   defp render(:wechat, "event_qualification_manager", %{} = data) do
     %{
-      "thing1" => thing(data["title"]),
-      "thing2" => thing(qualification_manager_note(data["outcome"], data["min_participants"]))
+      "thing2" => thing(data["title"]),
+      "thing5" => thing(qualification_manager_note(data["outcome"], data["min_participants"]))
     }
     |> drop_nils()
   end
