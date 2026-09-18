@@ -29,6 +29,8 @@
 		"enrollment_duplicate_active": "You already have a pending order. Close it and reopen to continue payment.",
 		"volunteer_application_already_submitted": "You have already applied for this cohort (one role per cohort). You can pick another role when the next cohort opens.",
 		"volunteer_application_cohort_closed": "This cohort is closed and no longer accepts new applications.",
+		"volunteer_application_cohort_deadline_passed": "The application deadline has passed and this cohort no longer accepts applications.",
+		"volunteer_application_cohort_not_open": "This cohort is not open for applications yet — check back once it opens.",
 		"volunteer_application_cohort_not_found": "This cohort does not exist or is offline. Refresh the page and try again.",
 		"resume_profile_not_found": "Fill in your name and contact email (complete the resume profile) before uploading the file.",
 		"resume_profile_file_type_invalid": "Resumes must be PDF / Word files (.pdf / .doc / .docx).",
