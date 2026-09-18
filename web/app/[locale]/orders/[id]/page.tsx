@@ -34,6 +34,8 @@ import {
   countdownText,
   dispatchCredential,
   formatAmount,
+  formatAmountShort,
+  positiveAmountOrNull,
   tierSnapshotName,
   type CredentialDispatch,
   type OrderPollStatus,
@@ -63,6 +65,9 @@ export default function OrderDetailPage() {
   const { authed, confirmed } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("orders");
+  // 押金披露文案单源：与 payment-checkout-dialog 同用 checkout ns（#686）
+  const tCheckout = useTranslations("checkout");
+  const tOfferings = useTranslations("offerings");
   const labelsT = useTranslations();
 
   const [order, setOrder] = useState<Order | null>(null);
@@ -249,6 +254,13 @@ export default function OrderDetailPage() {
   const remain = countdownText(nowMs, order?.expireAt, t("countdownExpired"));
   const expired = remain === t("countdownExpired");
   const paid = status === "paid";
+  // 押金披露行（#696）：判据 = 订单自己的口径快照 orderKind（活动实时配置会改，
+  // 这一笔不会），fail-closed——非 "enrollment" 一律披露（未知口径沉默 = 默认普通
+  // 报名单，#586 同款病根）；金额 = 订单实付，脏值守卫（#675）→「押金（金额
+  // 待定）」，绝不 ¥0。全态渲染（pending/paid/expired：到场退规则付完更需可见）
+  const isDepositOrder =
+    order?.orderKind != null && order.orderKind !== "enrollment";
+  const depositNoteCents = positiveAmountOrNull(order?.amountCents);
 
   return (
     <SitePage>
@@ -281,6 +293,21 @@ export default function OrderDetailPage() {
                   {PROVIDER_LABEL[order.provider] ? labelsT(PROVIDER_LABEL[order.provider]) : order.provider} · ¥
                   {formatAmount(order.amountCents)}
                 </p>
+                {isDepositOrder ? (
+                  <p
+                    className="mt-2 text-[13px] leading-5 text-ink-2"
+                    data-testid="order-deposit-note"
+                  >
+                    {depositNoteCents === null
+                      ? tOfferings("paymentSlotDepositUnknown")
+                      : tCheckout("depositLine", {
+                          amount: formatAmountShort(depositNoteCents),
+                        })}
+                    <span className="ml-2 text-ink-3">
+                      {tCheckout("depositForfeit")}
+                    </span>
+                  </p>
+                ) : null}
               </div>
               <span
                 data-testid="order-countdown"
