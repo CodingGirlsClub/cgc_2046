@@ -80,6 +80,8 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
         name: "Rails Girls Shanghai",
         city: "上海",
         occurred_on: ~D[2012-02-26],
+        # 长廊场次格叙事短标签（原型 D ia-frame-label）：写故事，不写日期城市
+        label: "一切的开始",
         token_for: "沈知一",
         people: shanghai()
       },
@@ -88,6 +90,7 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
         name: "Girls Coding Day Guangzhou",
         city: "广州",
         occurred_on: ~D[2016-10-15],
+        label: "GCD 华南站",
         token_for: "麦穗宁",
         people: guangzhou()
       },
@@ -96,6 +99,7 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
         name: "Girls Coding Day Shenzhen",
         city: "深圳",
         occurred_on: ~D[2018-04-21],
+        label: "湾区之夜",
         token_for: "蒲晓棠",
         people: shenzhen()
       }
@@ -496,7 +500,8 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
           city: spec.city,
           occurred_on: spec.occurred_on,
           applied_count: length(spec.people),
-          attended_count: Enum.count(spec.people, &(&1[:participation] != :not_selected))
+          attended_count: Enum.count(spec.people, &(&1[:participation] != :not_selected)),
+          label: spec[:label]
         })
         |> Ash.create!(authorize?: false)
 
@@ -607,25 +612,41 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
     "2014-01-11-bj" => {344, 102}
   }
 
+  # 既有场次叙事标签补齐（幂等；get-or-create 不会回写已存在行）
+  @label_patches %{
+    "2014-01-11-bj" => "六城同日",
+    "2012-02-26-sh" => "一切的开始",
+    "2016-10-15-gz" => "GCD 华南站",
+    "2018-04-21-sz" => "湾区之夜"
+  }
+
   defp backfill_known_counts do
-    Enum.each(@count_patches, fn {key, {applied, attended}} ->
+    patches =
+      Enum.map(@count_patches, fn {key, {applied, attended}} ->
+        {key, applied_count: applied, attended_count: attended}
+      end) ++
+        Enum.map(@label_patches, fn {key, label} ->
+          {key, label: label}
+        end)
+
+    Enum.each(patches, fn {key, set} ->
       case get_archive(key) do
         {:ok, %{} = archive} ->
-          # EventArchive 无 update action（只读资源）——运维补数直走 Repo
-          if is_nil(archive.applied_count) or is_nil(archive.attended_count) do
+          # EventArchive 无 update action（只读资源）——运维补数直走 Repo；
+          # 仅补空列，不覆盖人工修正值
+          missing? = Enum.any?(set, fn {col, _} -> is_nil(Map.get(archive, col)) end)
+
+          if missing? do
             import Ecto.Query
 
             {n, _} =
               Cgc2046.Repo.update_all(
-                from(a in "flashback_event_archives",
-                  where: a.key == ^key,
-                  update: [set: [applied_count: ^applied, attended_count: ^attended]]
-                ),
-                []
+                from(a in "flashback_event_archives", where: a.key == ^key),
+                set: set
               )
 
             if n > 0 do
-              Mix.shell().info("  补齐 #{key} 计数：报名 #{applied} / 走进教室 #{attended}")
+              Mix.shell().info("  补齐 #{key}：#{inspect(set)}")
             end
           end
 

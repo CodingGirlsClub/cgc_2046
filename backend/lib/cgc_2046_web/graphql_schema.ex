@@ -3207,6 +3207,9 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:occurred_on, :string)
     field(:applied_count, :integer)
     field(:attended_count, :integer)
+
+    @desc "长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名"
+    field(:label, :string)
     @desc "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
     field(:is_mine, non_null(:boolean))
     field(:roster, non_null(list_of(non_null(:flashback_roster_entry))))
@@ -3308,6 +3311,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:occurred_on, :string)
     field(:applied_count, :integer)
     field(:attended_count, :integer)
+    field(:label, :string)
   end
 
   object :flashback_public_stats do
@@ -3433,8 +3437,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "照片定位键（本人 = 本人档案 id；他人 = 他人档案 id）"
     field(:photo_key, non_null(:id))
 
-    @desc "线索标签「年份 · 城市」——放大时显影，帮助答题"
+    @desc "场次全名标签「年份 · 城市」——问答选项与读屏线索用（散照卡只显日期戳）"
     field(:label, non_null(:string))
+
+    @desc "拍立得日期戳「2016 10 15」——放大时渐显，只给日期不给城市（谜不泄底）"
+    field(:date_stamp, non_null(:string))
 
     @desc "是否本人那张"
     field(:is_mine, non_null(:boolean))

@@ -79,7 +79,8 @@ defmodule Cgc2046.Flashback.Public do
             city: a.city,
             occurred_on: a.occurred_on,
             applied_count: a.applied_count,
-            attended_count: a.attended_count
+            attended_count: a.attended_count,
+            label: a.label
           }
         )
       )
@@ -115,7 +116,8 @@ defmodule Cgc2046.Flashback.Public do
              city: archive.city,
              occurred_on: archive.occurred_on && Date.to_iso8601(archive.occurred_on),
              applied_count: archive.applied_count,
-             attended_count: archive.attended_count
+             attended_count: archive.attended_count,
+             label: archive.label
            }
          end),
        returned_count: returned || 0,
