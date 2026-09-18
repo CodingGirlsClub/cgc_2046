@@ -2305,5 +2305,291 @@
 		"qrGenerating": "Generating QR code…",
 		"depositRefundHint": "After on-site check-in with this code, your deposit will be refunded.",
 		"keepPrivateHint": "Do not screenshot or forward: anyone with this code can check in for you, which refunds the deposit."
+	},
+	"hackerstart1024": {
+		"meta": {
+			"title": "Hacker Start 1024 · Your first working build, made with an agent",
+			"description": "Founded in 2016, so this is year ten — and therefore 1,024 workshops. Three hours, no experience needed, an agent alongside you. Nationwide from 24 Oct 2026."
+		},
+		"hashtag": "#hackerstart1024",
+		"hero": {
+			"eyebrow": "CODING GIRLS CLUB · 10TH ANNIVERSARY CAMPAIGN",
+			"slot": "CGC × your brand",
+			"title": "Hacker Start 1024",
+			"sub": "So ordinary people build something that actually runs — with an agent, hands on, for the first time",
+			"nums": {
+				"sessions": "<b>1,024</b> workshops nationwide (<pow>10</pow>)",
+				"start": "kicks off <b>24 Oct 2026</b> (<pow>0</pow>)",
+				"seats": "<b>16</b> brand-track slots (<pow>4</pow>)"
+			},
+			"join": "Join a session",
+			"volunteer": "Become a volunteer",
+			"brand": "Brand partnership",
+			"scaleAria": "Founded in 2016, ten years in, 1,024 workshops starting in 2026",
+			"scaleStart": "2016 · founded",
+			"scaleNow": "year ten",
+			"scaleEnd": "2026 · <pow>10</pow> = 1,024 workshops",
+			"hook": "Founded in 2016, so this is year <b>10</b> — which makes it <pow>10</pow> = <b>1,024</b> workshops."
+		},
+		"why": {
+			"badge": "Why now",
+			"label": "The moment",
+			"title": "Agents are past the capability tipping point. <em>What's missing is ordinary people daring to start.</em>",
+			"lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · a 69 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
+		},
+		"join": {
+			"badge": "Join a session",
+			"label": "For participants",
+			"title": "Three hours, from zero to <em>demoing on stage</em>",
+			"rhythm": [
+				{
+					"min": "15",
+					"t": "Warm-up",
+					"d": "Meet the agent and the people you're building with — no code yet, just what you came to make"
+				},
+				{
+					"min": "120",
+					"t": "Build",
+					"d": "An agent adapts to how you learn and stays alongside you — your first idea becomes something that runs"
+				},
+				{
+					"min": "30",
+					"t": "Demo",
+					"d": "Everyone takes the stage with their own build — take it home, post it, run it again"
+				}
+			],
+			"facts": "Classes of 8 (<pow>3</pow>) · capped at 32 (<pow>5</pow>) · 18 and over · 40+ cities nationwide.",
+			"cta": "Registration opens from 24 Oct 2026 →",
+			"ctaNote": "Sessions go live city by city — check back soon"
+		},
+		"faq": {
+			"badge": "FAQ",
+			"label": "Before you ask",
+			"title": "What first-timers <em>usually want to know</em>",
+			"items": [
+				{
+					"q": "I've never written a line of code. Can I still join?",
+					"a": "Yes. This session is built for first-timers: three hours, an agent alongside you the whole way, no programming background needed. You leave with something you made yourself that actually runs."
+				},
+				{
+					"q": "How does the 69 yuan deposit work?",
+					"a": "You pay a 69 yuan deposit when you register, and it's refunded in full when you turn up. No-shows don't get it back — seats are limited, and the deposit is how we keep them for people who really come."
+				},
+				{
+					"q": "Do I need to bring a laptop?",
+					"a": "A laptop is recommended — the session is hands-on. Device requirements for a particular session are listed on its registration page."
+				},
+				{
+					"q": "Is there an age limit?",
+					"a": "Yes — participants must be 18 or over."
+				},
+				{
+					"q": "How do I know if there's a session in my city?",
+					"a": "Sessions open city by city from 24 Oct 2026, rolling out across 40+ cities. Head to the initiatives page for the full list — every session open for registration shows up there."
+				}
+			]
+		},
+		"volunteer": {
+			"badge": "Become a volunteer",
+			"label": "For volunteers",
+			"title": "Bring Hacker Start 1024 <em>to your city</em>",
+			"lead": "Three roles — one of them is yours.",
+			"roles": [
+				{
+					"t": "Event Moderator",
+					"en": "Lead role",
+					"badge": "Most needed now",
+					"one": "Own a three-hour workshop end to end — and bring it to your city",
+					"fit": "For: organisers with a venue or a community, one weekend per round"
+				},
+				{
+					"t": "Tutor",
+					"en": "Remote",
+					"one": "Turn the curriculum into reusable tutorials and example projects, so teaching quality scales",
+					"fit": "For: programmers who write as well as they code · remote"
+				},
+				{
+					"t": "Coach",
+					"en": "On site",
+					"one": "Hands-on support in the room — roaming questions, helping participants through the build, no lecturing",
+					"fit": "For: people who have used agent coding tools and enjoy teaching by doing"
+				}
+			],
+			"cohortStatus": "Open now",
+			"cohortName": "Batch 1 · founding volunteers",
+			"cohortNote": "Now recruiting our first volunteers · rolling, batch by batch — the exact deadline lives on the application page",
+			"cohortCta": "Apply to volunteer →",
+			"support": [
+				"Curriculum kit + playbook",
+				"Ops platform, no money handling",
+				"Venue partnerships",
+				"40+ city communities and reach"
+			],
+			"note": "Role details, the four-stage process and common questions live on the application page · volunteer benefits are still being co-designed"
+		},
+		"timeline": {
+			"badge": "What happens next",
+			"label": "Roadmap",
+			"title": "Kicks off 24 Oct 2026, <em>rolling through 2027</em>",
+			"start": {
+				"t": "24 Oct 2026 · kick-off",
+				"d": "The first session runs and the campaign begins"
+			},
+			"firstBatch": {
+				"t": "First 64 sessions (<pow>6</pow>)",
+				"d": "The opening batches are delivered back to back"
+			},
+			"rolling": {
+				"t": "Batches roll on",
+				"d": "Opening city by city across 40+, all the way to 1,024 sessions (<pow>10</pow>)"
+			}
+		},
+		"who": {
+			"badge": "Who we are",
+			"label": "Track record",
+			"title": "Ten years of community, <em>ten years you can check</em>",
+			"lead": "Coding Girls Club, founded on 1 June 2016 — China's first and largest women-in-programming community, run as a social enterprise.",
+			"stats": [
+				{ "v": "10", "l": "Cities reached" },
+				{ "v": "50+", "l": "In-person workshops" },
+				{ "v": "17", "l": "University partners" },
+				{ "v": "4,000+", "l": "Participants" },
+				{ "v": "1,000+", "l": "Coaches" },
+				{ "v": "20M+", "l": "Total reads" }
+			],
+			"statsCap": "Historical: cumulative to 2025 (2016–2025)",
+			"endorse": [
+				{
+					"text": "Published at ICSE CHASE 2021 (IEEE)",
+					"url": "https://cmustrudel.github.io/papers/chase21code_camps.pdf"
+				},
+				{
+					"text": "UNDP \"Tech for Philanthropy\" case study (2018)",
+					"url": "https://www.undp.org/zh/china/publications/kejiyucishankechixufazhanxingdongbaogao"
+				},
+				{ "text": "Partnership Award, Communist Youth League Central Committee" },
+				{
+					"text": "UNDP China on LinkedIn · #HerStory #WomenInTech",
+					"url": "https://www.linkedin.com/posts/undp-china_herstory-womenintech-%E7%A7%91%E6%8A%80%E9%81%87%E8%A7%81%E5%A5%B9-activity-6787232105513525248-w6vp"
+				},
+				{
+					"text": "China Daily (2017)",
+					"url": "https://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
+				},
+				{ "text": "Global Times", "url": "https://www.globaltimes.cn/content/954372.shtml" },
+				{
+					"text": "CCTV (CGTN)",
+					"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
+				},
+				{ "text": "Guokr" },
+				{
+					"text": "A participant's story",
+					"url": "https://mp.weixin.qq.com/s/IfRSC8sA7THv-YPBa4_XAg"
+				}
+			],
+			"lever": "What one campaign aims to reach ≈ what the past ten years have reached in total"
+		},
+		"brand": {
+			"badge": "Brand partnership",
+			"label": "Your branded track",
+			"title": "64 branded sessions (<pow>6</pow>), <em>taught with a course built for you</em>",
+			"lead": "Ten years of community × your brand: turn this round's 512–2,048 paying participants (Oct 2026 – 2027) into your product's first ordinary users.",
+			"formula": {
+				"seats": { "value": "16", "pow": "4", "label": "brand slots" },
+				"sessions": { "value": "64", "pow": "6", "label": "branded sessions" },
+				"nationwide": { "value": "1,024", "pow": "10", "label": "sessions, nationwide plan" }
+			},
+			"planCap": "All figures above are this round's plan (Oct 2026 – 2027)",
+			"perks": [
+				{
+					"t": "Series naming",
+					"d": "Your brand in the series name — a co-branded series, not a one-session title slot"
+				},
+				{
+					"t": "A course built for you",
+					"d": "Topic, cases and teaching path are shaped around your product; once taught, the course is a content asset you keep"
+				},
+				{
+					"t": "On-site conversion hooks",
+					"d": "Sign-ups to your account / product perks handed out / builds saved into your platform — activation becomes countable conversion data"
+				},
+				{
+					"t": "Your team in the room",
+					"d": "Your people sit in on the sessions, and beginners' unfiltered feedback goes straight into your product backlog"
+				}
+			],
+			"pill": "Example: \"____ × CGC One-Day Agent Workshop · 64 sessions nationwide\"",
+			"capsTitle": "How we deliver",
+			"caps": {
+				"course": {
+					"t": "Curriculum",
+					"d": "The three-hour intro workshop runs on a standing schedule; the professional AI Agent course is co-developed with your team (60–100 hours)"
+				},
+				"ops": {
+					"t": "Operations engine",
+					"d": "Classes of 8 (<pow>3</pow>) opening, 32 (<pow>5</pow>) full, with deposits as the no-show control; 40+ city moderators and 128 (<pow>7</pow>) volunteers; every session delivered to one playbook"
+				},
+				"data": {
+					"t": "Data platform",
+					"d": "Registration, deposits, check-in and learning records all run in-house; data comes back from every session and can be reported per sponsor"
+				}
+			},
+			"ladderTitle": "What you get",
+			"ladder": [
+				{
+					"t": "A course of your own",
+					"d": "One course built around your product — teaching IP shared by agreement, still working long after the campaign ends"
+				},
+				{
+					"t": "Activated users",
+					"d": "512–2,048 paying participants (this round's plan): 18 and over, a 69 yuan deposit, three hands-on hours and a build to show"
+				},
+				{
+					"t": "Data and cases",
+					"d": "A library of participant builds; anonymised real usage data; cost and impact reports published jointly"
+				},
+				{
+					"t": "Channel network",
+					"d": "40+ city moderators and a volunteer bench; 17 university partnerships and community recruiting channels"
+				},
+				{
+					"t": "ESG and brand trust",
+					"d": "A UN-endorsed women-in-digital narrative you can put straight into a CSR report"
+				},
+				{
+					"t": "Reach, start to finish",
+					"d": "Recruiting assets / social / press / a co-signed impact report at the close (the organiser's historical reads total 20M+, cumulative to date)"
+				}
+			],
+			"ladderCap": "Hardest evidence first — one line and one number per rung",
+			"openqsTitle": "Open to co-create",
+			"openqs": [
+				{
+					"t": "A joint competition",
+					"d": "Set up a track competition together — your brand on it, a shared brief, prize money, and the best builds entering your ecosystem"
+				},
+				{
+					"t": "Where charity reaches",
+					"d": "Schools, cities or mountain regions you want to support but have never reached — a session can go there, written into the ESG story together"
+				},
+				{
+					"t": "Anything else",
+					"d": "Scholarships, certification, a talent pipeline… the brief is open; let's design it together"
+				}
+			],
+			"openqsCap": "These are open questions — bring yours and let's talk.",
+			"structure": ["Packaged partnership", "Resources can offset", "First 20 sessions, then a batch review"],
+			"cta": "Talk brand partnership · reply within 48 hours",
+			"ctaNote": "partners@codinggirlsclub.com · Brand slots update as contracts advance; the first slots are under review"
+		},
+		"follow": {
+			"qr": "WeChat QR code (asset to come)",
+			"title": "Follow along before registration opens",
+			"desc": "Sessions go live from 24 Oct 2026 — be first to know when registration opens."
+		},
+		"footer": {
+			"org": "Coding Girls Club · founded 2016 · codinggirlsclub.com",
+			"volunteer": "No session in your city yet? Volunteer and bring one →"
+		}
 	}
 }

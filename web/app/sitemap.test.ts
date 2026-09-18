@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "./sitemap";
 
 /** 静态公开路由数（sitemap.ts STATIC_PATHS）——新增公开页时同步 */
-const STATIC_COUNT = 8;
+const STATIC_COUNT = 9;
 
 /**
  * sitemap 现在分两条独立查询（供给物一条、Initiative 一条，见 sitemap.ts 注释：
@@ -93,6 +93,15 @@ describe("sitemap", () => {
 		expect(initiativesEntry?.alternates?.languages).toEqual({
 			"zh-CN": "https://codingirlsclub.com/initiatives",
 			en: "https://codingirlsclub.com/en/initiatives",
+		});
+
+		// campaign 宣传页登记钉（U6）：静态条目 + 双语言 alternates 一并进索引
+		const campaignEntry = entries.find(
+			(e) => e.url === "https://codingirlsclub.com/hackerstart-1024",
+		);
+		expect(campaignEntry?.alternates?.languages).toEqual({
+			"zh-CN": "https://codingirlsclub.com/hackerstart-1024",
+			en: "https://codingirlsclub.com/en/hackerstart-1024",
 		});
 	});
 
