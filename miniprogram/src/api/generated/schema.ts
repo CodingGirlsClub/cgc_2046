@@ -1007,6 +1007,8 @@ export type CreateMcpTokenPayload = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: InputMaybe<Scalars['Boolean']['input']>;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: Scalars['ID']['input'];
   /** 支付渠道 */
@@ -1136,6 +1138,22 @@ export type CreateWorkspaceResult = {
   result?: Maybe<Workspace>;
 };
 
+/** The result of the :delete_course mutation */
+export type DeleteCourseResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Course>;
+};
+
+/** The result of the :delete_event mutation */
+export type DeleteEventResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The record that was successfully deleted */
+  result?: Maybe<Event>;
+};
+
 /** The result of the :disable_invite_batch mutation */
 export type DisableInviteBatchResult = {
   /** Any errors generated, if the mutation failed */
@@ -1153,6 +1171,7 @@ export type Enrollment = {
   /** 6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null） */
   checkInCode?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -1570,6 +1589,8 @@ export type Event = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人） */
+  publicModerators?: Maybe<Array<Scalars['JsonString']['output']>>;
   qualificationBadge?: Maybe<Scalars['String']['output']>;
   /** 成班事实：pending / confirmed / underfilled */
   qualificationStatus: Scalars['String']['output'];
@@ -2108,9 +2129,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 
@@ -3123,6 +3148,8 @@ export type Order = {
   cancelReason?: Maybe<Scalars['String']['output']>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositConsentAt?: Maybe<Scalars['DateTime']['output']>;
+  depositTermsVersion?: Maybe<Scalars['String']['output']>;
   enrollmentId: Scalars['ID']['output'];
   /** 关联报名当前状态 */
   enrollmentStatus?: Maybe<Scalars['String']['output']>;
@@ -3197,6 +3224,43 @@ export type OrderFilterCourseId = {
   rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderFilterDepositConsentAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type OrderFilterDepositTermsVersion = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterEnrollmentId = {
@@ -3285,6 +3349,8 @@ export type OrderFilterInput = {
   cancelReason?: InputMaybe<OrderFilterCancelReason>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: InputMaybe<OrderFilterCourseId>;
+  depositConsentAt?: InputMaybe<OrderFilterDepositConsentAt>;
+  depositTermsVersion?: InputMaybe<OrderFilterDepositTermsVersion>;
   enrollmentId?: InputMaybe<OrderFilterEnrollmentId>;
   /** 关联报名当前状态 */
   enrollmentStatus?: InputMaybe<OrderFilterEnrollmentStatus>;
@@ -3515,6 +3581,8 @@ export type OrderSortField =
   | 'AMOUNT_CENTS'
   | 'CANCEL_REASON'
   | 'COURSE_ID'
+  | 'DEPOSIT_CONSENT_AT'
+  | 'DEPOSIT_TERMS_VERSION'
   | 'ENROLLMENT_ID'
   | 'ENROLLMENT_STATUS'
   | 'EVENT_ID'
@@ -3635,12 +3703,23 @@ export type PublicInitiativeCity = {
   events: Array<PublicInitiativeEvent>;
 };
 
+/** 公开页押金明细（#627）：金额缺失/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0 */
+export type PublicInitiativeDeposit = {
+  amountCents?: Maybe<Scalars['Int']['output']>;
+  enabled: Scalars['Boolean']['output'];
+  refundableOnCheckIn?: Maybe<Scalars['Boolean']['output']>;
+};
+
 export type PublicInitiativeEvent = {
   archived: Scalars['Boolean']['output'];
   confirmedCount: Scalars['Int']['output'];
+  deposit: PublicInitiativeDeposit;
   endsAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
+  minAge?: Maybe<Scalars['Int']['output']>;
   minParticipants?: Maybe<Scalars['Int']['output']>;
+  paymentMode: Scalars['String']['output'];
+  priceRangeMinCents?: Maybe<Scalars['Int']['output']>;
   qualificationBadge: Scalars['String']['output'];
   qualificationStatus?: Maybe<Scalars['String']['output']>;
   registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
@@ -3949,6 +4028,10 @@ export type RootMutationType = {
   createWorkspaceApplication: CreateWorkspaceApplicationResult;
   /** Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效） */
   declineSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
+  /** 删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676） */
+  deleteCourse: DeleteCourseResult;
+  /** 删除草稿活动：仅 draft；不可恢复；slug 释放（#676） */
+  deleteEvent: DeleteEventResult;
   /** 删除某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   deletePortfolioItem?: Maybe<PortfolioItem>;
   /** 平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫） */
@@ -4236,6 +4319,16 @@ export type RootMutationTypeCreateWorkspaceApplicationArgs = {
 
 export type RootMutationTypeDeclineSpeakerInvitationArgs = {
   token: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeDeleteCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeDeleteEventArgs = {
+  id: Scalars['ID']['input'];
 };
 
 

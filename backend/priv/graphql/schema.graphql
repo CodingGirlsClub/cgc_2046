@@ -753,6 +753,15 @@ type MutationError {
   path: [String!]
 }
 
+"The result of the :delete_course mutation"
+type DeleteCourseResult {
+  "The record that was successfully deleted"
+  result: Course
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
 "The result of the :cancel_course mutation"
 type CancelCourseResult {
   "The successful result of the mutation"
@@ -1367,6 +1376,15 @@ type SpeakerInvitation {
 
   "来源邀请 workflow run（材料产出落点，邀请设计 §5.3；仅 create action 内部写入，同 Event.workflow_run_id 先例）"
   workflowRunId: ID
+}
+
+"The result of the :delete_event mutation"
+type DeleteEventResult {
+  "The record that was successfully deleted"
+  result: Event
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
 }
 
 "The result of the :cancel_event mutation"
@@ -2242,6 +2260,9 @@ type Event {
   availablePriceTiers: [JsonString!]
 
   enrollmentBadge: String
+
+  "公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人）"
+  publicModerators: [JsonString!]
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -3952,6 +3973,9 @@ input CreateOrderInput {
 
   "支付渠道"
   provider: String!
+
+  "确认已阅读并同意押金条款（仅押金单需要；非押金单忽略）"
+  depositConsent: Boolean
 }
 
 enum OrderSortField {
@@ -3965,6 +3989,8 @@ enum OrderSortField {
   AMOUNT_CENTS
   TIER_SNAPSHOT
   STATUS
+  DEPOSIT_CONSENT_AT
+  DEPOSIT_TERMS_VERSION
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
@@ -4144,6 +4170,43 @@ input OrderFilterExpireAt {
   eq: DateTime
   notEq: DateTime
   in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input OrderFilterDepositTermsVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterDepositConsentAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
   lessThan: DateTime
   greaterThan: DateTime
   lessThanOrEqual: DateTime
@@ -4352,6 +4415,10 @@ input OrderFilterInput {
 
   status: OrderFilterStatus
 
+  depositConsentAt: OrderFilterDepositConsentAt
+
+  depositTermsVersion: OrderFilterDepositTermsVersion
+
   expireAt: OrderFilterExpireAt
 
   refundedAt: OrderFilterRefundedAt
@@ -4402,6 +4469,10 @@ type Order {
   tierSnapshot: JsonString!
 
   status: String!
+
+  depositConsentAt: DateTime
+
+  depositTermsVersion: String
 
   expireAt: DateTime!
 
@@ -5826,6 +5897,8 @@ type Enrollment {
 
   paymentMode: String
 
+  depositAmountCents: Int
+
   "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
   checkInCode: String
 }
@@ -6752,6 +6825,10 @@ type EventModerator {
   userId: ID!
   assignedBy: ID
   assignedAt: DateTime!
+  userDisplayName: String
+  userMemberNumber: String
+  assignedByDisplayName: String
+  assignedByMemberNumber: String
 }
 
 type EventModeratorPayload {
@@ -6830,6 +6907,17 @@ type PublicInitiativeEvent {
   archived: Boolean!
   qualificationBadge: String!
   shortBy: Int
+  paymentMode: String!
+  deposit: PublicInitiativeDeposit!
+  minAge: Int
+  priceRangeMinCents: Int
+}
+
+"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+type PublicInitiativeDeposit {
+  enabled: Boolean!
+  amountCents: Int
+  refundableOnCheckIn: Boolean
 }
 
 type AdminUserPayload {
@@ -7002,7 +7090,14 @@ type RootMutationType {
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
 
-  assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
 
   removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
 
@@ -7091,6 +7186,9 @@ type RootMutationType {
   "取消活动：open → cancelled，发 event.ended 信号"
   cancelEvent(id: ID!): CancelEventResult!
 
+  "删除草稿活动：仅 draft；不可恢复；slug 释放（#676）"
+  deleteEvent(id: ID!): DeleteEventResult!
+
   "创建课程（默认 status=draft）"
   createCourse(input: CreateCourseInput!): CreateCourseResult!
 
@@ -7105,6 +7203,9 @@ type RootMutationType {
 
   "取消课程：open → cancelled，发 course.ended 信号"
   cancelCourse(id: ID!): CancelCourseResult!
+
+  "删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676）"
+  deleteCourse(id: ID!): DeleteCourseResult!
 
   "创建报名；open\/invite_only 立即占位，request 等待审批"
   createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!

@@ -78,14 +78,33 @@ defmodule Cgc2046.Offering.PriceTier do
     end
   end
 
-  @doc "过滤当前可售档位（报名面 availablePriceTiers 计算字段的数据源）。"
+  @doc """
+  过滤当前可售档位（报名面 availablePriceTiers 计算字段的数据源）。
+
+  金额表态守卫（#687）：档内 `amount_cents` 脏（非正整数分——写入路径
+  `PriceTiersValidation` 已拦，脏值仅来自 force write / 裸 SQL 存量）→ 投
+  `nil`（**档位保留、金额不表态**，缺键补 nil 键统一形状），与押金
+  `Offering.deposit_amount_cents/1` 同判据同形态。可售性（available_until）
+  与金额表态分离：脏金额不改变档位可售，但消费方据此降级——web/小程序
+  渲染「金额待定」并禁选，MCP 投面不携脏值，`resolve_tier/2` 下单侧另守。
+  """
   @spec available_tiers(term()) :: [map()]
   def available_tiers(tiers) when is_list(tiers) do
     now = DateTime.utc_now()
-    Enum.filter(tiers, &(is_map(&1) and available?(&1, now)))
+
+    for tier <- tiers, is_map(tier), available?(tier, now) do
+      sanitize_amount_cents(tier)
+    end
   end
 
   def available_tiers(_tiers), do: []
+
+  defp sanitize_amount_cents(%{"amount_cents" => cents} = tier)
+       when is_integer(cents) and cents > 0,
+       do: tier
+
+  defp sanitize_amount_cents(tier) when is_map(tier),
+    do: Map.put(tier, "amount_cents", nil)
 end
 
 defmodule Cgc2046.Offering.PriceTiersValidation do
@@ -108,6 +127,7 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
 
   use Ash.Resource.Validation
 
+  alias Cgc2046.Errors.ValueSummary
   alias Cgc2046.Offering.PriceTier
 
   @impl true
@@ -118,13 +138,23 @@ defmodule Cgc2046.Offering.PriceTiersValidation do
     cond do
       not PriceTier.valid?(tiers) ->
         {:error,
-         field: :price_tiers,
-         message:
-           "price tiers must be a list of maps with id/name/amount_cents keys (amount_cents integer >= 1)"}
+         Ash.Error.Changes.InvalidAttribute.exception(
+           field: :price_tiers,
+           message:
+             "price tiers must be a list of maps with id/name/amount_cents keys (amount_cents integer >= 1)",
+           value: %{"price_tiers" => ValueSummary.describe(tiers)}
+         )}
 
       pricing_enabled == true and tiers == [] ->
         {:error,
-         field: :pricing_enabled, message: "pricing_enabled requires at least one price tier"}
+         Ash.Error.Changes.InvalidAttribute.exception(
+           field: :pricing_enabled,
+           message: "pricing_enabled requires at least one price tier",
+           value: %{
+             "pricing_enabled" => pricing_enabled,
+             "price_tiers" => ValueSummary.describe(tiers)
+           }
+         )}
 
       # #543：定价场 ⇒ starts_at 在位（自助取消退款锚）。只拦本次写入造成的
       # 新违规（pricing/starts_at 任一被改动才校验写后状态；存量缺口行不因

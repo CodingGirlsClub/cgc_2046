@@ -61,7 +61,7 @@ Initiative `hackerstart1024`（open；押金 ¥69 锁死、18+ 锁死、最小�
 
 9. `/w/2046/events/new`：Initiative 下拉（聚焦时加载）选 hackerstart1024，建草稿 → 编辑页显示「Initiative rules in effect」（押金 ¥69 / 18+ / 最小成班 8）。
 10. 草稿期可换挂/摘除；已发布场次 Initiative 下拉禁用（不挂不摘），但名称回显正确。
-11. 主理人卡片：列表（建场创建者默认在列）、按用户 ID 指派、移除即时生效；closed/cancelled 场次同样可操作。
+11. 主理人卡片：列表（建场创建者默认在列，主显昵称、无昵称落 CGC 编号，含「由谁指派」）、按邮箱 / CGC 编号 / 用户 ID 精确指派（任一未命中统一「用户不存在」，防枚举）、移除即时生效；closed/cancelled 场次同样可操作。
 12. 改期（starts_at/ends_at 同改）→ 保存成功；有效报名者收到 event_schedule_changed 通知投递（durable outbox）。注意：默认截止规则不随改期级联（KTD2 挂载快照），需要时手动改截止时间；锁死规则才会跟随。
 
 ### A1 平台管理员（uat-admin 登录）

@@ -17,9 +17,18 @@ defmodule Cgc2046.Initiatives.Public do
     有可点进、可报名的入口），hero 与统计保留。
   """
 
+  alias Cgc2046.Offering
+  alias Cgc2046.Offering.PriceTier
   alias Cgc2046.Repo
 
-  @doc "按 slug 返回活动页白名单 DTO；不存在或 draft 返回 not_found。"
+  @doc """
+  按 slug 返回活动页白名单 DTO；不存在或 draft 返回 not_found。
+
+  事件 DTO 含**参与条件披露**（#627，全部取 Event 已物化快照列，读面不碰规则表）：
+  `payment_mode` + `deposit`（缴费槽三态与押金明细）、`min_age`（年龄门槛存在性）、
+  `price_range_min_cents`（收费态金额锚）、以及既有 `short_by`/`qualification_badge`
+  （成班进度）。**不投**：规则原始 value map、`locked` 等治理标志、传播历史。
+  """
   def get_by_slug(slug) when is_binary(slug) do
     with {:ok, initiative} <- fetch_initiative(slug),
          {:ok, events} <- fetch_events(initiative) do
@@ -77,19 +86,25 @@ defmodule Cgc2046.Initiatives.Public do
   # 与「closed 活动的 open 场次照样挂出」两个错——两个方向都会被错误地判对。
   defp fetch_events(%{status: status}) when status != "open", do: {:ok, []}
 
+  # 参与条件（#627）：押金三态 / 年龄门槛 / 成班进度全部取 **Event 已物化快照列**
+  # （挂载时规则效果已落到 events.*），读面不碰 initiatives 规则表——零新查询面。
   defp fetch_events(initiative) do
     query = """
     SELECT e.id, e.slug, e.title, e.status, e.visibility, e.starts_at, e.ends_at,
            e.registration_deadline, e.venue,
            COUNT(en.id) FILTER (WHERE en.status = 'confirmed') AS confirmed_count,
-           e.min_participants, e.qualification_status
+           e.min_participants, e.qualification_status,
+           e.pricing_enabled, e.deposit_enabled, e.deposit_amount_cents, e.min_age,
+           e.price_tiers
     FROM events e
     LEFT JOIN enrollments en ON en.event_id = e.id
     WHERE e.initiative_id = $1
       AND e.status IN ('open', 'closed', 'cancelled')
       AND e.visibility = 'public'
     GROUP BY e.id, e.slug, e.title, e.status, e.visibility, e.starts_at, e.ends_at,
-             e.registration_deadline, e.venue, e.min_participants, e.qualification_status
+             e.registration_deadline, e.venue, e.min_participants, e.qualification_status,
+             e.pricing_enabled, e.deposit_enabled, e.deposit_amount_cents, e.min_age,
+             e.price_tiers
     ORDER BY e.starts_at NULLS LAST, e.inserted_at, e.id
     """
 
@@ -171,22 +186,63 @@ defmodule Cgc2046.Initiatives.Public do
          venue,
          confirmed,
          min,
-         qualification
-       ]),
-       do: %{
-         id: uuid_text(id),
-         slug: slug,
-         title: title,
-         status: status,
-         visibility: visibility,
-         starts_at: to_utc_datetime(starts),
-         ends_at: to_utc_datetime(ends),
-         registration_deadline: to_utc_datetime(deadline),
-         venue: venue,
-         confirmed_count: confirmed || 0,
-         min_participants: min,
-         qualification_status: qualification
-       }
+         qualification,
+         pricing_enabled,
+         deposit_enabled,
+         deposit_amount_cents,
+         min_age,
+         price_tiers
+       ]) do
+    # 缴费槽三态（#627）：`Offering.payment_mode/1` 只认 atom 键，裸 SQL 行不是
+    # struct——判定的输入显式构 atom 键 map，**不进 DTO**（三态以 payment_mode
+    # 单键表达，原始开关列不外泄；string 键会静默判成 free，见 #586 病根）。
+    slot_input = %{
+      pricing_enabled: pricing_enabled == true,
+      deposit_enabled: deposit_enabled == true,
+      deposit_amount_cents: deposit_amount_cents
+    }
+
+    slot = Offering.payment_slot(slot_input)
+
+    %{
+      id: uuid_text(id),
+      slug: slug,
+      title: title,
+      status: status,
+      visibility: visibility,
+      starts_at: to_utc_datetime(starts),
+      ends_at: to_utc_datetime(ends),
+      registration_deadline: to_utc_datetime(deadline),
+      venue: venue,
+      confirmed_count: confirmed || 0,
+      min_participants: min,
+      qualification_status: qualification,
+      # 年龄门槛只出**正数**（与两个金额锚同纪律）：非正来自 force write / 裸 SQL 的
+      # 存量脏行（`events.min_age` 无 DB CHECK），渲染层「限 0+」比不出更糟。
+      min_age: positive_int(min_age)
+    }
+    |> Map.merge(slot)
+    |> Map.put(:price_range_min_cents, price_range_min_cents(slot.payment_mode, price_tiers))
+  end
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value), do: nil
+
+  # 收费态金额锚：**只在 pricing 态出值**——free/pricing 开关与档位是两根独立列，
+  # `update_event(pricing_enabled: false)` 会把档位残留下来（无 DB CHECK 拦这一侧），
+  # 那时「免费场 + 金额锚」会一并给到 agent（客户端按 mode 门控看不见，MCP 看得见）。
+  # 只出**可售**档位的最小值（`PriceTier.available_tiers/1` 的 available_until
+  # fail-closed 谓词与 web/MCP 同源）；原始档位数组不进公开 DTO。押金场档位恒空
+  # （DB CHECK events_deposit_excludes_price_tiers）。
+  defp price_range_min_cents("pricing", tiers) do
+    tiers
+    |> PriceTier.available_tiers()
+    |> Enum.map(&Map.get(&1, "amount_cents"))
+    |> Enum.filter(&(is_integer(&1) and &1 > 0))
+    |> Enum.min(fn -> nil end)
+  end
+
+  defp price_range_min_cents(_mode, _tiers), do: nil
 
   # 裸 SQL 绕过 Ecto 类型加载，utc_datetime 列返回 NaiveDateTime；
   # GraphQL :datetime 标量只接受 DateTime，统一按 UTC 抬升。

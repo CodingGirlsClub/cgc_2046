@@ -5,14 +5,14 @@ import { getPublicInitiative } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { PublicInitiative } from '@/domain/models'
 import { formatDateTime, scheduleText, venueText } from '@/domain/format'
-import { initiativeCancelledNotice, initiativeStatusText, qualificationBadgeText } from '@/domain/initiative'
+import { initiativeCancelledNotice, initiativeStatusText, participationConditionText, qualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
 import styles from './index.module.css'
 
 export function InitiativeContent({ data }: { data: PublicInitiative }) {
   const counters = [
     ['城市', data.cityCount], ['场次', data.eventCount],
-    ['报名', data.confirmedCount], ['开成', data.qualifiedEventCount]
+    ['报名', data.confirmedCount], ['成班', data.qualifiedEventCount]
   ] as const
 
   return (
@@ -40,6 +40,8 @@ export function InitiativeContent({ data }: { data: PublicInitiative }) {
               <Text className={styles.schedule}>{scheduleText(event.startsAt, event.endsAt)}</Text>
               <Text className={styles.cardMeta}>地点：{venueText(event.venue) ?? '地点待定'}</Text>
               <Text className={styles.cardMeta}>报名截止：{event.registrationDeadline ? formatDateTime(event.registrationDeadline) : '无截止'}</Text>
+              {/* 参与条件（#627）：缴费槽单槽三态 + 年龄门槛存在性；成班进度仍只由徽章承载 */}
+              <Text className={styles.condition} data-testid='initiative-event-condition'>{participationConditionText(event)}</Text>
               <Text className={styles.badge}>{qualificationBadgeText(event)}</Text>
               <Text className={styles.link}>{event.archived ? '查看活动留档' : '查看活动详情'} →</Text>
             </View>

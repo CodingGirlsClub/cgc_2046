@@ -63,6 +63,14 @@ defmodule Cgc2046.Accounts.InvitationCode do
   postgres do
     table("invitation_codes")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐 baseline delete_all（表经
+    # 20260903000000 由 miniprogram_codes 更名，DB 实测两列 confdeltype=c）；
+    # 无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:invitation, on_delete: :delete)
+    end
   end
 
   policies do

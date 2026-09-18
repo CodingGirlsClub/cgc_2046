@@ -5,10 +5,24 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { canManageMembers, isUrgent, remainingLabel } from '@/domain/format'
-import type { SessionSnapshot } from '@/domain/models'
-import { workspaceTouchpoint } from '@/domain/subscription'
+import type { SessionSnapshot, SubscriptionScenario } from '@/domain/models'
+import {
+  requestAndGrant,
+  workspaceOpsTouchpoint,
+  workspaceTouchpoint,
+  type SubscriptionFeedback
+} from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
+
+// 本页两个订阅触点（M4 + M8）共用的注入式 deps——反馈通道 = toast
+// （accepted → success，其余 none），语义见 domain/subscription.ts。
+const subscriptionDeps = {
+  request: requestPlatformSubscriptions,
+  grant: (scenario: SubscriptionScenario) => api.grantConsent(scenario),
+  notify: ({ kind, title }: SubscriptionFeedback) =>
+    Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
+}
 
 const roleText: Record<string, string> = {
   owner: 'Owner', admin: 'Admin', tutor: 'Tutor', volunteer: '志愿者', learner: 'Learner'
@@ -46,20 +60,10 @@ export default function WorkspacePage() {
   // M4：工作台是三个**管理者收件人**模板的落页（后端 client.ex @manager_templates
   // + speaker_completed 的管理者腿）——审批提醒 + speaker 接受 + speaker 完成，
   // 恰好用满微信单次 tmplIds 上限 3。判据/文案见 domain/subscription.ts。
-  const subscribeReminder = async () => {
-    const touchpoint = workspaceTouchpoint()
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        Taro.showToast({ title: touchpoint.deniedCopy, icon: 'none' })
-        return
-      }
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      Taro.showToast({ title: touchpoint.acceptedCopy, icon: 'success' })
-    } catch (reason) {
-      Taro.showToast({ title: reason instanceof Error ? reason.message : '订阅失败', icon: 'none' })
-    }
-  }
+  const subscribeReminder = () => requestAndGrant(workspaceTouchpoint(), subscriptionDeps)
+  // M8（#683 裁决 A）：M4 用满 3 后的管理者增量——新报名 + 收款到账，两键的
+  // 深链落页都是本页。微信单次上限 3 → 同页第二按钮、独立手势，不重组 M4。
+  const subscribeOps = () => requestAndGrant(workspaceOpsTouchpoint(), subscriptionDeps)
 
   const decide = async (approval: SessionSnapshot['approvals'][number], decision: 'approve' | 'reject') => {
     setActingId(approval.id)
@@ -131,9 +135,14 @@ export default function WorkspacePage() {
                   {/* 入口只需 manageable：空队列时管理者同样该能订阅（既有实现额外
                       要求 approvals.length > 0，导致「无待审批」即无法订阅） */}
                   {manageable && (
-                    <Button className={styles.subscribe} size='mini' onClick={subscribeReminder}>
-                      {workspaceTouchpoint().label}
-                    </Button>
+                    <View className={styles.subscribeGroup}>
+                      <Button className={styles.subscribe} size='mini' onClick={subscribeReminder}>
+                        {workspaceTouchpoint().label}
+                      </Button>
+                      <Button className={styles.subscribe} size='mini' onClick={subscribeOps}>
+                        {workspaceOpsTouchpoint().label}
+                      </Button>
+                    </View>
                   )}
                 </View>
 

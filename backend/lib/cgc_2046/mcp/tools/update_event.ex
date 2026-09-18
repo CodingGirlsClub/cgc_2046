@@ -24,12 +24,12 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   每次写入都被强制重写，改成别的值会被拒绝）/ default（仅本次改挂载时按规则
   快照））。未改挂载的普通更新只回 locked 项，与「本次生效」语义一致。
 
-  解除挂载来源标记（#630）：响应恒带 `detached_rule_provenance`（持久化属性
+  解除挂载来源标记（#630/#632）：响应恒带 `detached_rule_provenance`（持久化属性
   `event.detached_rule_provenance`，不是 metadata；无标记为 nil）——活动被
-  detach（网站 / GraphQL 侧把 initiative_id 置 nil）后仍留在场上的锁死规则强制
-  值及其来源 Initiative，形状同 GraphQL 列。本工具不支持解除挂载：initiative_id
-  传 nil 视为未提供（同 course_revision_id 纪律）；但经本工具编辑标记内字段会
-  逐字段清除标记（域内 `prepare_event_changes/2` 同事务处理）。
+  detach（本工具 `detach_initiative: true`，或网站 / GraphQL 侧把 initiative_id
+  置 nil）后仍留在场上的锁死规则强制值及其来源 Initiative，形状同 GraphQL 列。
+  initiative_id 传 nil 仍视为未提供（nil ≠ detach，解除须用布尔开关）；经本工具
+  编辑标记内字段会逐字段清除标记（域内 `prepare_event_changes/2` 同事务处理）。
 
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定（第一段
   快速拒绝省 pending）；confirm 段由 update policy 兜底。
@@ -81,7 +81,12 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
 
     field(:initiative_id, :string,
       description:
-        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；传 UUID 会挂载或换挂载并按新规则强制写入押金/年龄/人数/报名截止，生效结果见返回 inherited。本工具不支持解除挂载——nil 视为未提供（同 course_revision_id 纪律），解除挂载请在网站侧操作；已解除挂载的活动在响应/列表带 detached_rule_provenance 来源标记，编辑标记内字段即清除该字段标记"
+        "草稿所属 Initiative UUID（须为 open 且四规则齐备）；传 UUID 会挂载或换挂载并按新规则强制写入押金/年龄/人数/报名截止，生效结果见返回 inherited。解除挂载请改用 detach_initiative: true（勿与本参数同传）；nil 视为未提供（同 course_revision_id 纪律）；已解除挂载的活动在响应/列表带 detached_rule_provenance 来源标记，编辑标记内字段即清除该字段标记"
+    )
+
+    field(:detach_initiative, :boolean,
+      description:
+        "解除挂载：true = 把 initiative_id 置 nil，走域内 detach 路径——locked 规则强制写入的值保留在场、打 detached_rule_provenance 来源标记、场主首改对应字段即清除该字段标记、重新挂载整列清空。仅 draft 且当前挂载中可用；与 initiative_id 互斥（同传报错）；未挂载/已解除时幂等无变化"
     )
 
     field(:deposit_enabled, :boolean, description: "是否收取活动押金")
@@ -99,11 +104,15 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
         with :ok <- authorize(actor, workspace_id),
              {:ok, event} <- fetch_event(actor, workspace_id, event_id),
              :ok <- check_deposit_reopen_explicit_amount(event, params),
+             :ok <- check_detach_draft(event, params),
              {:ok, changes} <- collect_changes(params) do
+          event = load_initiative_name(event, changes)
+
           summary =
             "更新活动「#{event.title}」（#{event.id}）字段：" <>
-              Enum.map_join(changes, "；", fn {field, value} ->
-                "#{field} → #{preview(value)}"
+              Enum.map_join(changes, "；", fn
+                {"initiative_id", nil} -> detach_summary(event)
+                {field, value} -> "#{field} → #{preview(value)}"
               end) <> waive_impact_summary(event, changes)
 
           Confirmation.request(
@@ -181,7 +190,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
   end
 
   # tenant 收紧活动归属（update_course 同款纪律）：他租户 event_id 与不存在
-  # 同一「not found」，不泄露存在性
+  # 同一「not found」，不泄露存在性。
   defp fetch_event(actor, workspace_id, event_id) do
     case Event
          |> Ash.Query.for_read(:get_by_id, %{id: event_id})
@@ -200,23 +209,92 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
     end
   end
 
-  # 白名单 ∩ 入参（nil 视为未提供；false 是合法值——pricing_enabled true→false 是
-  # 本工具的高风险主路径，不能用 || 收集），保持 @updatable_fields 声明序
-  defp collect_changes(params) do
-    changes =
-      Enum.flat_map(@updatable_fields, fn field ->
-        value = Map.get(params, field)
+  # #632：detach 仅 draft（域层 ensure_mount_state 同款判据前移第一段）——非
+  # draft 挂载中的解除注定被域层拒，不值得一轮确认。幂等 detach（已未挂载，
+  # 同值删键无变更，域层视为普通编辑）不在此列。
+  defp detach_requested?(params), do: params["detach_initiative"] == true
 
-        case value do
-          nil -> []
-          value -> [{field, value}]
-        end
-      end)
-
-    if changes == [] do
-      {:error, "no updatable fields provided (#{Enum.join(@updatable_fields, "|")})"}
+  defp check_detach_draft(event, params) do
+    if detach_requested?(params) and not is_nil(event.initiative_id) and
+         event.status not in [nil, :draft] do
+      {:error,
+       "detach_initiative is only allowed while the event is draft and currently mounted " <>
+         "(initiative can only be mounted or changed while event is draft)"}
     else
-      {:ok, changes}
+      :ok
+    end
+  end
+
+  # 白名单 ∩ 入参（nil 视为未提供；false 是合法值——pricing_enabled true→false 是
+  # 本工具的高风险主路径，不能用 || 收集），保持 @updatable_fields 声明序。
+  # #632：detach_initiative: true 在此转换为 {"initiative_id", nil} 条目（布尔
+  # 开关是表达 nil 的唯一入口，nil 本身仍视为未提供）；execute 与
+  # execute_confirmed 两段共用本函数，pending 落库的原始 params 含该布尔，
+  # confirm 段重新收集结果一致。与 initiative_id 同传 = 请求自相矛盾，报错。
+  defp collect_changes(params) do
+    if detach_requested?(params) and not is_nil(params["initiative_id"]) do
+      {:error,
+       "detach_initiative and initiative_id are mutually exclusive: pass the new initiative " <>
+         "to mount, or detach_initiative: true to unmount — not both"}
+    else
+      detach? = detach_requested?(params)
+
+      changes =
+        Enum.flat_map(@updatable_fields, fn field ->
+          if field == "initiative_id" and detach? do
+            [{"initiative_id", nil}]
+          else
+            case Map.get(params, field) do
+              nil -> []
+              value -> [{field, value}]
+            end
+          end
+        end)
+
+      if changes == [] do
+        {:error, "no updatable fields provided (#{Enum.join(@updatable_fields, "|")})"}
+      else
+        {:ok, changes}
+      end
+    end
+  end
+
+  # #632：detach 摘要需要挂载对象名称。Initiative 全资源仅 platform_admin 可读
+  # （policy），挂载方 workspace owner 走关联 load 会让整条 Event 读被 Forbidden；
+  # name/slug 本就是公开投影信息（Initiatives.Public 同款语义），authorize?: false
+  # 只取展示字段，不改变 fetch_event 的 policy 边界。
+  defp load_initiative_name(event, changes) do
+    if Enum.any?(changes, &match?({"initiative_id", nil}, &1)) and event.initiative_id do
+      case Ash.load(event, :initiative, authorize?: false) do
+        {:ok, loaded} -> loaded
+        {:error, _} -> event
+      end
+    else
+      event
+    end
+  end
+
+  # #632：detach 的确认流摘要特化渲染——通用形态会渲染成 initiative_id → null，
+  # 既不可读也丢了 #624 方案 C「值保留 + 来源标记」的关键语义；用户过目摘要
+  # 即在这轮确认里看到 detach 的完整后果。
+  defp detach_summary(event) do
+    "解除挂载：initiative #{initiative_label(event)} → 不挂载（locked 规则值保留在场，" <>
+      "detached_rule_provenance 来源标记，首改即清）"
+  end
+
+  # 名字优先级：挂载中（已 load）→ 已解除（provenance 里的原 initiative 身份）→
+  # UUID → 未挂载。fetch_event 不做关联 load（Initiative 是 platform_admin-only
+  # 资源，挂 owner 会被整条读 Forbidden），挂载中由 load_initiative_name 补载。
+  defp initiative_label(%{initiative: %Ash.NotLoaded{}} = event), do: fallback_label(event)
+  defp initiative_label(%{initiative: nil} = event), do: fallback_label(event)
+
+  defp initiative_label(%{initiative: initiative}),
+    do: "「#{initiative.name}」(#{initiative.slug})"
+
+  defp fallback_label(event) do
+    case event.detached_rule_provenance do
+      %{"initiative" => %{"name" => name, "slug" => slug}} -> "「#{name}」(#{slug})"
+      _ -> event.initiative_id || "未挂载"
     end
   end
 

@@ -76,7 +76,10 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   # review #422 捕获其误兜底 profile 的断点残留。speaker_completed 双受众
   # （管理者 + speaker 本人）维持兜底 profile——已知取舍：speaker 侧点开无
   # 权威页，多数方（管理者）可从 workspace  speakers 面板查看。
-  @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted)
+  # #585 event_qualification_manager：成班结果的管理腿（Owner/Admin 收件），
+  # 落工作台——成班/取消的后续处理面在那；参与者两键仍归 @learner_templates。
+  @manager_templates ~w(approval_reminder enrollment_submitted payment_received speaker_accepted
+                        event_qualification_manager)
 
   defp notification_page(platform, template_key, data) do
     cond do
@@ -85,7 +88,10 @@ defmodule Cgc2046.Integrations.Wechat.Client do
         "pages/my-enrollments/index"
 
       # 深链仅在 data 带 event_id 时成立；缺失回落通用路由（不拼坏 URL）
-      template_key == "event_moderator_assigned" and is_binary(data["event_id"]) ->
+      # removed（#538）同落 event-detail：公开主理人投影即「名单里没有我了」
+      # 的对照面；被移除者 canModerateEvent 变 false，核销入口自然消失。
+      template_key in ~w(event_moderator_assigned event_moderator_removed) and
+          is_binary(data["event_id"]) ->
         "pages/event-detail/index?id=#{data["event_id"]}&kind=event"
 
       template_key in @learner_templates ->

@@ -11,6 +11,7 @@ import {
   enrollmentVenueText,
   formatDateTime,
   isUrgent,
+  moderatorNames,
   parseEnrollmentBadge,
   parseEnrollmentPolicy,
   parseEnrollmentStatus,
@@ -21,6 +22,34 @@ import {
 } from '../src/domain/format.ts'
 import type { CatalogItem } from '../src/domain/models.ts'
 
+
+test('公开主理人投影回退链（#538）：displayName 优先，null/空串回退 memberNumber', () => {
+  assert.deepEqual(
+    moderatorNames([
+      JSON.stringify({ display_name: '张三', member_number: 'CGC-000001' }),
+      JSON.stringify({ display_name: null, member_number: 'CGC-000002' }),
+      JSON.stringify({ display_name: '', member_number: 'CGC-000003' })
+    ]),
+    ['张三', 'CGC-000002', 'CGC-000003']
+  )
+})
+
+test('公开主理人投影脏数据收窄（#538）：null/非 JSON/行结构非法 → 空或丢弃', () => {
+  assert.deepEqual(moderatorNames(null), [])
+  assert.deepEqual(moderatorNames(undefined), [])
+  assert.deepEqual(moderatorNames([]), [])
+  assert.deepEqual(moderatorNames(['not-json']), [])
+  // 有 displayName 的行缺 member_number 仍合法；两标识皆缺才丢弃
+  assert.deepEqual(
+    moderatorNames([
+      'not-json',
+      JSON.stringify({ display_name: null }),
+      JSON.stringify({ display_name: '李四' }),
+      JSON.stringify({ display_name: null, member_number: 'CGC-000004' })
+    ]),
+    ['李四', 'CGC-000004']
+  )
+})
 
 test('审批倒计时和 24 小时紧急阈值一致', () => {
   const now = Date.parse('2026-08-09T00:00:00Z')

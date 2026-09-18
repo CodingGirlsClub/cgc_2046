@@ -314,6 +314,81 @@ defmodule Cgc2046.Curriculum.OutputTest do
       assert %{errors: errors} = changeset
       assert Enum.any?(errors, &(&1.field == :kind))
     end
+
+    # #677:生产 44+ 次提交全部返回逐字节相同的 base_message(Value: nil)。
+    # 文案必须点名具体违规(含 story.checklist 位置),且 Value 摘要显示服务端
+    # 实际收到的顶层形状(而不是误导的 nil)。
+    test "checklist 放 issue 卡顶层 → 文案点名 story.checklist 与非卡顶层" do
+      admin = Fixtures.platform_admin("ro-shape-checklist")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      [%{"story" => story} = issue | rest] = content_fixture()["issues"]
+
+      misplaced =
+        issue
+        |> Map.put("checklist", story["checklist"])
+        |> Map.put("story", Map.delete(story, "checklist"))
+
+      content = %{"goals" => ["g"], "issues" => [misplaced | rest]}
+
+      assert {:error, error} = upsert(workspace, admin, course, content)
+      message = Cgc2046.Mcp.Errors.message(error, "fallback")
+
+      assert message =~ "story.checklist"
+      assert message =~ "非卡顶层"
+      assert message =~ ~s{"goals" => "list(1)"}
+      assert message =~ ~s{"chapters" => "nil"}
+      assert message =~ ~s{"issues" => "list(2)"}
+      refute message =~ "Value: nil"
+    end
+
+    test "不同坏输入产生不同文案(本次事故症状是逐字节相同)" do
+      admin = Fixtures.platform_admin("ro-shape-distinct")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      [%{"story" => story} = issue | rest] = content_fixture()["issues"]
+
+      misplaced =
+        issue
+        |> Map.put("checklist", story["checklist"])
+        |> Map.put("story", Map.delete(story, "checklist"))
+
+      checklist_message =
+        upsert(workspace, admin, course, %{"goals" => ["g"], "issues" => [misplaced | rest]})
+        |> shape_error_message()
+
+      goals_message =
+        upsert(workspace, admin, course, %{
+          "goals" => %{"shaped" => "wrong"},
+          "issues" => content_fixture()["issues"]
+        })
+        |> shape_error_message()
+
+      refute checklist_message == goals_message
+      assert checklist_message =~ "story.checklist"
+      assert goals_message =~ "goals 须为非空字符串数组"
+      assert goals_message =~ ~s{"goals" => "map"}
+    end
+
+    test "违规文案有界:超过 2 KB 截断且保持合法 UTF-8" do
+      admin = Fixtures.platform_admin("ro-shape-truncate")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{})
+
+      issues = Enum.map(1..200, fn index -> %{"id" => "issue-#{index}"} end)
+
+      message =
+        upsert(workspace, admin, course, %{"goals" => ["g"], "issues" => issues})
+        |> shape_error_message()
+
+      assert byte_size(message) <= 2048
+      assert String.valid?(message)
+      assert message =~ "…(truncated)"
+    end
+
+    defp shape_error_message({:error, error}), do: Cgc2046.Mcp.Errors.message(error, "fallback")
   end
 
   describe "材料协议错误码(H3/H4,保存错误带结构化码与位置路径)" do

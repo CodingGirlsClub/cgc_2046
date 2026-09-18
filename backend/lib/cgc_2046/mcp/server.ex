@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(68,role-agent-journeys-v2 S3 event 管理面后):
+  工具集(86,#676 draft 删除后):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -22,9 +22,12 @@ defmodule Cgc2046.Mcp.Server do
     Course 生命周期 create_course(直接写——零输入草稿可逆低风险,title 缺省
     生成「未命名课程 <hex8>」+ provisional_title 标记,launch 命名门拦截) /
     update_course(pricing_enabled true→false 摘要含批量免缴影响) / launch_course /
-    close_course / cancel_course(终态不可逆提示);Event 生命周期 create_event
+    close_course / cancel_course(终态不可逆提示) /
+    delete_course(#676 draft 删除:仅 draft、不可恢复——教研草稿一并删除、slug 立即
+    释放;权限收窄为 Owner ∪ 平台管理员,admin 不放行);Event 生命周期 create_event
     (直接写,title 必填,venue/sponsorship 为活动独有概念) / update_event /
-    launch_event / close_event / cancel_event + member-only 发现面
+    launch_event / close_event / cancel_event / delete_event(同口径,无教研级联)
+    + member-only 发现面
     list_workspace_courses / list_workspace_events(含报名状态徽章);
     报名管理 list_enrollments(读,kind 必填 event|course 分派,报名人摘要投影) /
     confirm_enrollment / reject_enrollment / waive_payment
@@ -144,13 +147,22 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.LaunchCourse)
   component(Cgc2046.Mcp.Tools.CloseCourse)
   component(Cgc2046.Mcp.Tools.CancelCourse)
+
+  # #676 draft 删除（ADR-0015）：工作台管理面 +2（Owner ∪ 平台管理员收窄面，
+  # member-only 门不变——admin 不放行，见各工具 moduledoc）
+  component(Cgc2046.Mcp.Tools.DeleteCourse)
   component(Cgc2046.Mcp.Tools.CreateEvent)
+  # #511 批量建场：工具面 86 → 87（member-only 门 + 工具层 Owner/Admin 判定，
+  # 直接写不进确认流——对齐 create_event 的 R12 先例；行级幂等 = slug 唯一约束
+  # + read-back 归属判定，零 migration 零批次表）
+  component(Cgc2046.Mcp.Tools.BatchCreateEvents)
   component(Cgc2046.Mcp.Tools.PreviewInitiativeMount)
   component(Cgc2046.Mcp.Tools.ListWorkspaceEvents)
   component(Cgc2046.Mcp.Tools.UpdateEvent)
   component(Cgc2046.Mcp.Tools.LaunchEvent)
   component(Cgc2046.Mcp.Tools.CloseEvent)
   component(Cgc2046.Mcp.Tools.CancelEvent)
+  component(Cgc2046.Mcp.Tools.DeleteEvent)
   component(Cgc2046.Mcp.Tools.ListEventModerators)
   component(Cgc2046.Mcp.Tools.AssignEventModerator)
   component(Cgc2046.Mcp.Tools.RemoveEventModerator)

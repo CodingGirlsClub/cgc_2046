@@ -33,6 +33,9 @@ defmodule Cgc2046.Admission.CapacityLedger do
     是本模块缓存的第二个写来源，**有意不走 `offering.capacity_changed` 信号**
     （信号经 Oban 异步投递，而报名截止的执法缓存在同一事务里就必须收敛；
     issue #587）。新增订阅方不得假设规则传播会发信号，必须显式把该路径纳入。
+  - `delete_for_offering/2`：draft 删除级联的整行删除（#688，按
+    `(offering_kind, offering_id)` 键；无行删 0 行幂等；唯一调用方 =
+    Course/Event `:delete` 的 after_action）。
 
   invite_only 双 CAS 锁序（KTD7）：账本行永远先于 invite_batches 行获取
   （Enrollment prepare_policy 内 reserve → consume_invite_quota 顺序不变）。
@@ -127,6 +130,12 @@ defmodule Cgc2046.Admission.CapacityLedger do
   postgres do
     table("admission_capacity_ledgers")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline delete_all，DB 实测 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+    end
   end
 
   policies do
@@ -205,6 +214,26 @@ defmodule Cgc2046.Admission.CapacityLedger do
 
       {:error, reason} ->
         {:error, {:database, reason}}
+    end
+  end
+
+  @doc """
+  删除某 offering 的账本行（draft 删除级联，#688；唯一调用方 = Course/Event
+  `:delete` 的 after_action）。
+
+  裸 SQL（本模块写路径纪律）；无行删 0 行，幂等。失败上抛让调用方的事务
+  整体回滚。不加 occupancy 守卫——draft 行 occupancy 结构性为 0（`reserve/2`
+  三守卫含账本缓存 `status='open'`，draft 行恒拒新单），守卫是废层。
+  """
+  @spec delete_for_offering(:event | :course, String.t()) ::
+          :ok | {:error, {:database, term()}}
+  def delete_for_offering(kind, offering_id) when kind in @offering_kinds do
+    case Repo.query(
+           "DELETE FROM admission_capacity_ledgers WHERE offering_kind = $1 AND offering_id = $2",
+           [Atom.to_string(kind), Repo.uuid!(offering_id)]
+         ) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, {:database, reason}}
     end
   end
 

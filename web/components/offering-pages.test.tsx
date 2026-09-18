@@ -7,6 +7,7 @@ import {
   OfferingsListPage,
   OfferingNewPage,
 } from "./offering-pages";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
@@ -205,6 +206,11 @@ beforeEach(() => {
     retry: vi.fn(),
   });
   moderatorMocks.fetchEventModerators.mockResolvedValue([]);
+  // 开框守卫兜底（#748 CI 修复）：不关心弹框的用例点了「继续支付」后，弹框的
+  // 两条守卫查询若拿到裸 vi.fn() 的 undefined，allSettled 会把 undefined 当
+  // fulfilled 值传给组件导致 TypeError。`{ data: {} }` = 「报名读不到 → 非押金」
+  // 的既定兜底语义；押金用例仍用 mockImplementation 显式分派覆盖。
+  apolloClient.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);
@@ -821,6 +827,65 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
     expect(
       screen.queryByRole("button", { name: "报名" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("押金场 payment_pending 既有报名 → 继续支付开框即停同意门，未勾选零创单（#686）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: WORKSPACE,
+      readOnlyVisitor: false,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-deposit",
+      title: "押金活动",
+      status: "open",
+      visibility: "workspace",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+      depositEnabled: true,
+      depositAmountCents: 6900,
+    });
+    mocks.fetchMyEnrollment.mockResolvedValueOnce({
+      id: "enr-deposit",
+      status: "payment_pending",
+    });
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）；
+    // #748：押金事实由弹框自取 MY_ENROLLMENT（paymentMode=deposit + 现值同源金额）
+    apolloClient.query.mockImplementation(({ query }: { query: unknown }) => {
+      if (query === MY_ENROLLMENT) {
+        return Promise.resolve({
+          data: {
+            myEnrollments: {
+              results: [
+                {
+                  id: "enr-deposit",
+                  status: "payment_pending",
+                  paymentMode: "deposit",
+                  depositAmountCents: 6900,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { myOrders: { results: [] } } });
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);
+
+    fireEvent.click(await screen.findByTestId("enrollment-pending-pay"));
+    expect(
+      await screen.findByTestId("checkout-deposit-consent"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("checkout-deposit-consent-button"),
+    ).toBeDisabled();
+    // 未勾选：零创单——披露门不再 fail-open
+    expect(apolloClient.mutate).not.toHaveBeenCalled();
   });
 
   it("confirmed 既有报名 → 你已报名，不渲染报名表单", async () => {
@@ -2004,6 +2069,31 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     expect((screen.getByTestId("deposit-amount-input") as HTMLInputElement).value).toBe("69");
   });
 
+  // #675：脏金额（缺失/0/负/非整数分）不表态——绝不显示「押金 ¥0（到场退）」，
+  // 也绝不把押金场读成免费（#586 红线）。押金**场次识别**仍走 depositEnabled。
+  it.each([
+    ["null", null],
+    ["0", 0],
+    ["负数", -6900],
+    ["非整数分", 0.4],
+  ])("AE8+：押金金额脏（%s）→ 缴费槽「押金（金额待定）」，无 ¥0、无「免费」", async (_label, dirty) => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        depositEnabled: true,
+        depositAmountCents: dirty,
+        endsAt: "2026-10-24T02:00:00.000Z",
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(within(card).getByText("押金（金额待定）")).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+    expect(card.textContent).not.toContain("免费");
+  });
+
+
   it("AE8：定价场缴费槽显示「收费 档位 ¥xx」（无「免费」并列）", async () => {
     await renderManageDetail(
       "event",
@@ -2018,6 +2108,48 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     const card = screen.getByText("基本信息").parentElement as HTMLElement;
     expect(within(card).getByText("收费 标准 ¥199")).toBeInTheDocument();
     expect(card.textContent).not.toContain("免费");
+  });
+
+  // #687：脏档位金额不丢档——缴费槽 overview 落「（金额待定）」，绝不出 ¥0
+  it("AE8：定价场脏档位金额 → 缴费槽 overview「金额待定」，无 ¥0（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+          JSON.stringify({ id: "t2", name: "脏档", amount_cents: 0 }),
+        ],
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(
+      within(card).getByText("收费 标准 ¥199 / 脏档（金额待定）"),
+    ).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+  });
+
+  // #687：代报名选档行——脏档可见但禁选，默认选档跳过脏档落在首个有效档
+  it("脏档在前：选档行金额待定 + 禁选，默认选中首个有效档（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t-dirty", name: "脏档", amount_cents: 0 }),
+          JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+        ],
+      }),
+    );
+
+    const dirty = await screen.findByTestId("price-tier-t-dirty");
+    expect(dirty).toHaveTextContent("金额待定");
+    expect(dirty.querySelector("input")).toBeDisabled();
+    const clean = screen.getByTestId("price-tier-t-clean");
+    expect(clean.querySelector("input")).toBeChecked();
+    expect(dirty.textContent).not.toContain("¥0");
   });
 
   it("新建 event 选押金填 69 → payload 三态互斥（押金开、档位清空）", async () => {
@@ -2797,6 +2929,32 @@ describe("倡导活动规则面板（#596）", () => {
     ).toHaveTextContent("默认规则");
   });
 
+  // #675：施加态规则摘要同样是资金陈述——脏金额（缺失/0/非整数分）复用同一句
+  // 「押金（金额待定）」（不新增 key），不得出「押金：¥0（到场退）」，也不得把
+  // 「已开启」读成「未开启」（fail-open 成免费）。
+  it.each([
+    ["null", null],
+    ["0", 0],
+    ["非整数分", 0.4],
+  ])("施加态规则摘要：押金金额脏（%s）→「押金（金额待定）」，不出 ¥0 也不出「未开启」", async (_label, dirty) => {
+    stubRulesRead();
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        initiativeId: "init-1",
+        pricingEnabled: false,
+        depositEnabled: true,
+        depositAmountCents: dirty,
+        registrationDeadline: "2026-10-20T12:00:00.000Z",
+      }),
+    );
+
+    const row = await screen.findByTestId("initiative-rule-deposit");
+    expect(row).toHaveTextContent("押金（金额待定）");
+    expect(row).not.toHaveTextContent("¥0");
+    expect(row).not.toHaveTextContent("未开启");
+  });
+
   it("挂载前预览：编辑页选中未保存的 Initiative 即显示规则（不改 Event 值）", async () => {
     stubRulesRead();
     await renderManageDetail("event", offeringRow({ pricingEnabled: false }));
@@ -3240,6 +3398,30 @@ describe("解除挂载语义（#624：保留值 + 来源标记 + 门槛输入）
     expect(
       await screen.findByTestId("initiative-detached-rule-deposit"),
     ).toHaveTextContent("押金：¥69（到场退）");
+  });
+
+  // #675：标记里的金额是脏值（0/非整数分）→ 行落「押金（金额待定）」，
+  // 绝不显示「押金：¥0（到场退）」（键缺席走「已开启」，见上一用例）。
+  it.each([
+    ["0", 0],
+    ["非整数分", 0.4],
+  ])("detach 标记的押金金额脏（%s）→「押金（金额待定）」，不编造 ¥0", async (_label, dirty) => {
+    const depositMarker = JSON.stringify({
+      initiative: { id: "init-1", name: "1024 杭州站", slug: "hz1024" },
+      fields: {
+        deposit_enabled: { value: true, source: "locked" },
+        deposit_amount_cents: { value: dirty, source: "locked" },
+      },
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({ detachedRuleProvenance: depositMarker }),
+    );
+
+    const row = await screen.findByTestId("initiative-detached-rule-deposit");
+    expect(row).toHaveTextContent("押金（金额待定）");
+    expect(row).not.toHaveTextContent("¥0");
   });
 
   it("detach 来源标记：逐字段渲染「来自已解除的倡导活动」并带 data-state 钩子", async () => {

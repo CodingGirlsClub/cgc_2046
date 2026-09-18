@@ -193,10 +193,12 @@ defmodule Cgc2046.Mcp.Tools.DiscoverOfferings do
     do: %{id: enrollment.id, status: to_string(enrollment.status)}
 
   # 「from ¥X」语义 = 当前可售档位的最低价；无可售档（含免费条目）落 nil。
+  # #687：脏金额（0/负/非整数分/nil——available_tiers/1 投 nil 后的形状）不得
+  # 静默参与 min——判据与 initiatives/public.ex 的 price_range_min_cents 同源。
   defp min_amount_cents(tiers) when is_list(tiers) do
     tiers
     |> Enum.map(& &1["amount_cents"])
-    |> Enum.filter(&is_integer/1)
+    |> Enum.filter(&(is_integer(&1) and &1 > 0))
     |> Enum.min(fn -> nil end)
   end
 

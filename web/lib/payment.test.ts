@@ -6,9 +6,11 @@ import {
 	countdownText,
 	dispatchCredential,
 	formatAmount,
+	formatAmountShort,
 	nextPollTick,
 	parsePaymentStats,
 	parsePriceTiers,
+	positiveAmountOrNull,
 	tierSnapshotName,
 	truncateOutTradeNo,
 } from "./payment";
@@ -156,6 +158,27 @@ describe("U11 payment 纯逻辑", () => {
 			expect(parsePriceTiers(null)).toEqual([]);
 		});
 
+		// #687：脏金额（缺失/0/负/非整数分/非数值）不丢档——amountCents 落 null，
+		// 渲染层据此「金额待定」+ 禁选；只有缺身份（id/name）才整档丢弃。
+		it("档位金额脏 → 档位保留 amountCents null（positiveAmountOrNull 判据，#687）", () => {
+			const raw = [
+				JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+				JSON.stringify({ id: "t-missing", name: "缺额档" }),
+				JSON.stringify({ id: "t-zero", name: "零档", amount_cents: 0 }),
+				JSON.stringify({ id: "t-neg", name: "负档", amount_cents: -100 }),
+				JSON.stringify({ id: "t-frac", name: "非整档", amount_cents: 0.4 }),
+				JSON.stringify({ id: "t-null", name: "空额档", amount_cents: null }),
+			];
+			expect(parsePriceTiers(raw)).toEqual([
+				{ id: "t-clean", name: "标准", amountCents: 19900, availableUntil: null },
+				{ id: "t-missing", name: "缺额档", amountCents: null, availableUntil: null },
+				{ id: "t-zero", name: "零档", amountCents: null, availableUntil: null },
+				{ id: "t-neg", name: "负档", amountCents: null, availableUntil: null },
+				{ id: "t-frac", name: "非整档", amountCents: null, availableUntil: null },
+				{ id: "t-null", name: "空额档", amountCents: null, availableUntil: null },
+			]);
+		});
+
 		it("formatAmount 分 → 元两位小数", () => {
 			expect(formatAmount(19900)).toBe("199.00");
 			expect(formatAmount(9900)).toBe("99.00");
@@ -182,5 +205,27 @@ describe("U11 payment 纯逻辑", () => {
 			expect(truncateOutTradeNo("T1")).toBe("T1");
 			expect(truncateOutTradeNo("1234567890123456")).toBe("1234567890123456");
 		});
+	});
+});
+
+/**
+ * #627：参与条件披露的金额守卫。`null`（缺失）与非正（0 / 负，DB CHECK 上线前的
+ * 存量脏行）都必须降级为「不表态」，**绝不显示 ¥0**——押金与收费金额锚共用。
+ */
+describe("展示金额守卫（#627）", () => {
+	it("null / undefined / 0 / 负数 / 小数分一律 null（绝不 ¥0）", () => {
+		for (const dirty of [null, undefined, 0, -1]) {
+			expect(positiveAmountOrNull(dirty)).toBeNull();
+		}
+		// F3：后端以「分」为整数单位；0.4 这类非整分值经 formatAmountShort 会
+		// 四舍五入成 "0.00" → 必须被守卫挡住（Number.isInteger）
+		expect(positiveAmountOrNull(0.4)).toBeNull();
+		expect(formatAmountShort(0.4)).toBe("0.00");
+	});
+
+	it("正整数原样返回；短式格式化整元省略小数", () => {
+		expect(positiveAmountOrNull(6900)).toBe(6900);
+		expect(formatAmountShort(6900)).toBe("69");
+		expect(formatAmountShort(9950)).toBe("99.50");
 	});
 });

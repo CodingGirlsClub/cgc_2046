@@ -19,14 +19,23 @@ const WECHAT_SCENARIOS = [
   'approval_result',
   'approval_reminder',
   'event_reminder',
+  'enrollment_completed',
   'enrollment_check_in_code',
   'event_qualification_confirmed',
   'event_qualification_underfilled',
+  'event_qualification_manager',
   'event_schedule_changed',
   'event_moderator_assigned',
+  'event_moderator_removed',
   'speaker_accepted',
   'speaker_completed',
-  'learning_stagnation'
+  'learning_stagnation',
+  'payment_succeeded',
+  'payment_expired',
+  'refund_succeeded',
+  'refund_failed',
+  'enrollment_submitted',
+  'payment_received'
 ] as const
 
 // 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）
