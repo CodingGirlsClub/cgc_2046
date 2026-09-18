@@ -68,6 +68,7 @@
     "order_provider_not_configured",
     "order_required",
     "order_target_tenant_mismatch",
+    "order_tier_amount_invalid",
     "order_unknown",
     "password_reset_failed",
     "phone_already_registered",

@@ -140,10 +140,17 @@ export function countdownText(nowMs: number, expireAt: string | null | undefined
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值（缺失/0/负/非整数分）→ null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
-/** 可售档位逐项解析（后端已过滤过期档）；非法项静默丢弃 */
+/**
+ * 可售档位逐项解析（后端已过滤过期档）；坏 JSON/缺身份（id/name）项静默丢弃。
+ * **金额不丢档**（#687）：脏 amount_cents 过 positiveAmountOrNull 守卫 → null——
+ * 档位保留可见，渲染层据此降级「金额待定」并禁选，绝不进 formatAmount 出
+ * ¥0/¥0.00。与押金（#675）同判据；后端 available_tiers/1 已按同判据投 nil，
+ * 此处是展示层兜底（旧缓存 payload / 部署窗口）。
+ */
 export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
   if (!Array.isArray(raw)) return []
 
@@ -152,8 +159,14 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
     if (!parsed || typeof parsed !== 'object') return []
     const t = parsed as Record<string, unknown>
     if (typeof t.id !== 'string' || typeof t.name !== 'string') return []
-    if (typeof t.amount_cents !== 'number' || !Number.isFinite(t.amount_cents)) return []
-    return [{ id: t.id, name: t.name, amountCents: t.amount_cents }]
+    return [
+      {
+        id: t.id,
+        name: t.name,
+        amountCents:
+          typeof t.amount_cents === 'number' ? positiveAmountOrNull(t.amount_cents) : null
+      }
+    ]
   })
 }
 
@@ -162,6 +175,18 @@ export function parsePriceTiers(raw: string[] | null | undefined): PriceTier[] {
 /** 分 → 元（两位小数，R20 存储一律分） */
 export function formatAmount(cents: number): string {
   return (cents / 100).toFixed(2)
+}
+
+/**
+ * 档位行金额标签（#687 单源，与 web lib/payment.ts#tierAmountText 同式）：
+ * 脏金额（amountCents null）→ pendingText（「金额待定」），绝不进 formatAmount
+ * 出 ¥0/¥0.00——档位行渲染点共用，新增渲染点直接调本函数。
+ */
+export function tierAmountText(
+  tier: Pick<PriceTier, 'amountCents'>,
+  pendingText: string
+): string {
+  return tier.amountCents === null ? pendingText : `¥${formatAmount(tier.amountCents)}`
 }
 
 /** 订单状态词表（my-enrollments 缴费态 + order-pay 页共用） */
