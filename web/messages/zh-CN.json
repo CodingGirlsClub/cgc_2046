@@ -2957,7 +2957,32 @@
 			"privacyNote": "简历档案仅招募团队可见，遵循 PIPL，不用于招募以外的用途。",
 			"submitting": "提交中…",
 			"submit": "提交申请",
-			"submitFailed": "提交失败，请稍后重试。"
+			"submitFailed": "提交失败，请稍后重试。",
+			"anonCohortHint": "登录后可查看当前批次、截止时间，并在线提交申请。",
+			"previewSteps": [
+				{
+					"n": 1,
+					"t": "完善简历",
+					"fields": [
+						"上传简历（PDF / Word，跨批次复用）",
+						"姓名 · 联系邮箱（手机号建号必填邮箱）",
+						"每周可投入小时数",
+						"技能标签（多选）"
+					]
+				},
+				{
+					"n": 2,
+					"t": "申请项目",
+					"fields": [
+						"招募批次（默认当前批次：第 1 批）",
+						"申请职位（单选：场次主理人 / 教程研究员 / 活动教练）",
+						"申请城市（教程研究员可填「远程」）",
+						"如何得知我们",
+						"是否有内部推荐人",
+						"想对我们说的话（选填）"
+					]
+				}
+			]
 		},
 		"upload": {
 			"choose": "选择文件",
@@ -2982,7 +3007,8 @@
 			"canceled": "申请已取消。",
 			"rejectionReason": "拒绝原因：{reason}",
 			"assignmentNote": "分配备注：{note}",
-			"assignedAt": "分配时间：{time}"
+			"assignedAt": "分配时间：{time}",
+			"anonHint": "登录后可查看你的申请进度。"
 		},
 		"stageLabels": {
 			"submitted": "网申",

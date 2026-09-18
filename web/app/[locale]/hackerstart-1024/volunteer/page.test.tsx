@@ -259,9 +259,13 @@ afterEach(cleanup);
 			);
 		}
 
-		// 表单不渲染 + 我的申请区不渲染 + 批次卡为登录引导态
+		// 表单不渲染 + 批次卡为登录引导态；两步概览与我的申请中性预览照常展示（原型同款）
 		expect(document.querySelector("#va-apply form")).toBeNull();
-		expect(document.querySelector("#va-my-apps")).toBeNull();
+		expect(document.querySelector("#va-apply [type=email]")).toBeNull();
+		expect(document.querySelector("#va-my-apps")?.textContent).toContain(
+			zhCN.volunteerApply.myApps.anonHint,
+		);
+		expect(document.querySelectorAll("#va-my-apps li")).toHaveLength(4);
 		expect(document.querySelector("#va-cohort")?.textContent).toContain(
 			zhCN.volunteerApply.cohort.loginRequired,
 		);

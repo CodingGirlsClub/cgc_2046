@@ -211,6 +211,11 @@ export default function VolunteerApplyPage() {
 	const steps = rawArray<RawStep>(t.raw("flow.steps"));
 	const faqGroups = rawArray<RawFaqGroup>(t.raw("faq.groups"));
 
+	// 未登录访客的两步概览（原型 FORM_STEPS 展示；字段交互在登录后的表单里）
+	const previewSteps = rawArray<{ n: number; t: string; fields: string[] }>(
+		t.raw("form.previewSteps"),
+	);
+
 	const cohortView: CohortView = !confirmed
 		? { kind: "checking" }
 		: !authed
@@ -597,6 +602,7 @@ export default function VolunteerApplyPage() {
 							<p className="text-[15px] text-[#2b2b33]">
 								{cohortView.kind === "checking" ? t("form.checking") : t("form.loginFirst")}
 							</p>
+							<p className="mt-[8px] text-[13px] text-[#857f8f]">{t("form.anonCohortHint")}</p>
 							{cohortView.kind === "anonymous" ? (
 								<div className="mt-[14px] flex flex-wrap items-center gap-4">
 									<Link href={loginHref} className="hs24-cta--rose hs24-cta--flush">
@@ -643,6 +649,36 @@ export default function VolunteerApplyPage() {
 								className="mt-[16px] border-[1.5px] border-[#e8e4ec] rounded-[14px] p-[16px]"
 							/>
 						</div>
+					) : !authed ? (
+						<>
+							{/* 未登录：原型同款两步概览（说明性内容 + 登录 CTA；字段交互需登录） */}
+							<div className="hs24-cap3 mt-[26px]">
+								{previewSteps.map((step) => (
+									<div key={step.t} className="hs24-tile">
+										<div className="hs24-tile__t">
+											<span className="hs24-tile__n">{step.n}</span>
+											{step.t}
+										</div>
+										<ul className="hs24-tile__d mt-[8px] flex list-disc flex-col gap-[6px] pl-[18px]">
+											{step.fields.map((field) => (
+												<li key={field}>{field}</li>
+											))}
+										</ul>
+									</div>
+								))}
+							</div>
+							<div className="hs24-tile mt-[18px] max-w-[720px]">
+								<p className="text-[15px] font-bold text-[#2b2b33]">{t("form.loginFirst")}</p>
+								<div className="hs24-cta-row mt-[14px]">
+									<Link href={loginHref} className="hs24-cta--rose hs24-cta--flush">
+										{t("form.login")}
+									</Link>
+									<Link href="/register" className="hs24-cta--rose hs24-cta--ghost hs24-cta--flush">
+										{t("form.register")}
+									</Link>
+								</div>
+							</div>
+						</>
 					) : (
 						<form onSubmit={submitApplication} className="mt-[26px] max-w-[720px]">
 							<ol className="hs24-pill mt-0">
@@ -883,8 +919,8 @@ export default function VolunteerApplyPage() {
 				</div>
 			</section>
 
-			{/* ⑧ 我的申请（段位展示；未登录不渲染） */}
-			{confirmed && authed ? (
+			{/* ⑧ 我的申请（未登录 → 中性四段预览；登录后展示真实段位） */}
+			{confirmed ? (
 				<section className="hs24-section" id="va-my-apps" aria-labelledby="va-my-apps-title">
 					<div className="hs24-container">
 						<div className="hs24-badge-row">
@@ -901,7 +937,22 @@ export default function VolunteerApplyPage() {
 							</p>
 						) : null}
 
-						{appsFailed ? (
+						{!authed ? (
+							<div className="mt-[22px]">
+								<p className="text-[14px] text-[#857f8f]">{t("myApps.anonHint")}</p>
+								<ol className="mt-[18px] grid grid-cols-1 gap-2 sm:grid-cols-4">
+									{VOLUNTEER_REVIEW_STAGES.map((stage) => (
+										<li key={stage} className="flex items-center gap-2 text-[13.5px]">
+											<span
+												aria-hidden="true"
+												className="inline-block h-[10px] w-[10px] flex-none rounded-full bg-[#e8e4ec]"
+											/>
+											<span className="text-[#b9b3c2]">{t(`stageLabels.${stage}`)}</span>
+										</li>
+									))}
+								</ol>
+							</div>
+						) : appsFailed ? (
 							<div className="hs24-tile mt-[22px] max-w-[720px]" role="alert">
 								<p className="text-[15px] text-[#2b2b33]">{t("myApps.loadFailed")}</p>
 								<button

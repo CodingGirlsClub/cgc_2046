@@ -2957,7 +2957,32 @@
 			"privacyNote": "Your resume profile is visible to the recruitment team only, follows PIPL, and is never used beyond recruitment.",
 			"submitting": "Submitting…",
 			"submit": "Submit application",
-			"submitFailed": "Submission failed. Please try again later."
+			"submitFailed": "Submission failed. Please try again later.",
+			"anonCohortHint": "Log in to see the current cohort, its deadline and the application entry.",
+			"previewSteps": [
+				{
+					"n": 1,
+					"t": "Resume profile",
+					"fields": [
+						"Upload resume (PDF / Word, reused across cohorts)",
+						"Name · contact email (required for phone-signup accounts)",
+						"Weekly hours you can invest",
+						"Skill tags (multi-select)"
+					]
+				},
+				{
+					"n": 2,
+					"t": "Apply for a track",
+					"fields": [
+						"Cohort (defaults to the current one: Batch 1)",
+						"Role (single choice: Event Moderator / Tutor / Coach)",
+						"City (Tutors may enter \"Remote\")",
+						"How you found us",
+						"Internal referral (yes / no)",
+						"A note for us (optional)"
+					]
+				}
+			]
 		},
 		"upload": {
 			"choose": "Choose a file",
@@ -2982,7 +3007,8 @@
 			"canceled": "This application was cancelled.",
 			"rejectionReason": "Reason: {reason}",
 			"assignmentNote": "Assignment note: {note}",
-			"assignedAt": "Assigned at: {time}"
+			"assignedAt": "Assigned at: {time}",
+			"anonHint": "Log in to see your application progress."
 		},
 		"stageLabels": {
 			"submitted": "Applied",
