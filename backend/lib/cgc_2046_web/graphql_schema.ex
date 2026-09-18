@@ -263,7 +263,7 @@ defmodule Cgc2046Web.GraphqlSchema do
                    context[:actor]
                  ),
                {:ok, capsule} <- Cgc2046.Flashback.AlumniProjection.capsule(resolved) do
-            capsule
+            {:ok, capsule}
           end
         end)
       end)
