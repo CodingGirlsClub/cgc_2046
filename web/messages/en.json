@@ -92,7 +92,11 @@
 		"initiative_slug_taken": "That slug is already taken — pick another one (the slug is the public link's unique identifier).",
 		"initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
-		"deadlock_detected": "A lock conflict was detected. Please try again in a moment."
+		"deadlock_detected": "A lock conflict was detected. Please try again in a moment.",
+		"volunteer_application_invalid_transition": "The application status changed. Refresh and try again.",
+		"volunteer_application_rejection_reason_required": "A rejection reason is required.",
+		"volunteer_application_assignment_failed": "Assignment did not complete (workspace join or session assignment failed). The application is unchanged; try again.",
+		"recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another."
 	},
 	"auth": {
 		"helpCenter": "Help Center",
@@ -2457,12 +2461,30 @@
 			"title": "Ten years of community, <em>ten years you can check</em>",
 			"lead": "Coding Girls Club, founded on 1 June 2016 — China's first and largest women-in-programming community, run as a social enterprise.",
 			"stats": [
-				{ "v": "10", "l": "Cities reached" },
-				{ "v": "50+", "l": "In-person workshops" },
-				{ "v": "17", "l": "University partners" },
-				{ "v": "4,000+", "l": "Participants" },
-				{ "v": "1,000+", "l": "Coaches" },
-				{ "v": "20M+", "l": "Total reads" }
+				{
+					"v": "10",
+					"l": "Cities reached"
+				},
+				{
+					"v": "50+",
+					"l": "In-person workshops"
+				},
+				{
+					"v": "17",
+					"l": "University partners"
+				},
+				{
+					"v": "4,000+",
+					"l": "Participants"
+				},
+				{
+					"v": "1,000+",
+					"l": "Coaches"
+				},
+				{
+					"v": "20M+",
+					"l": "Total reads"
+				}
 			],
 			"statsCap": "Historical: cumulative to 2025 (2016–2025)",
 			"endorse": [
@@ -2474,7 +2496,9 @@
 					"text": "UNDP \"Tech for Philanthropy\" case study (2018)",
 					"url": "https://www.undp.org/zh/china/publications/kejiyucishankechixufazhanxingdongbaogao"
 				},
-				{ "text": "Partnership Award, Communist Youth League Central Committee" },
+				{
+					"text": "Partnership Award, Communist Youth League Central Committee"
+				},
 				{
 					"text": "UNDP China on LinkedIn · #HerStory #WomenInTech",
 					"url": "https://www.linkedin.com/posts/undp-china_herstory-womenintech-%E7%A7%91%E6%8A%80%E9%81%87%E8%A7%81%E5%A5%B9-activity-6787232105513525248-w6vp"
@@ -2483,12 +2507,17 @@
 					"text": "China Daily (2017)",
 					"url": "https://www.chinadaily.com.cn/china/2017-01/13/content_27943492.htm"
 				},
-				{ "text": "Global Times", "url": "https://www.globaltimes.cn/content/954372.shtml" },
+				{
+					"text": "Global Times",
+					"url": "https://www.globaltimes.cn/content/954372.shtml"
+				},
 				{
 					"text": "CCTV (CGTN)",
 					"url": "https://news.cgtn.com/news/3d49544e31516a4d/share_p.html"
 				},
-				{ "text": "Guokr" },
+				{
+					"text": "Guokr"
+				},
 				{
 					"text": "A participant's story",
 					"url": "https://mp.weixin.qq.com/s/IfRSC8sA7THv-YPBa4_XAg"
@@ -2502,9 +2531,21 @@
 			"title": "64 branded sessions (<pow>6</pow>), <em>taught with a course built for you</em>",
 			"lead": "Ten years of community × your brand: turn this round's 512–2,048 paying participants (Oct 2026 – 2027) into your product's first ordinary users.",
 			"formula": {
-				"seats": { "value": "16", "pow": "4", "label": "brand slots" },
-				"sessions": { "value": "64", "pow": "6", "label": "branded sessions" },
-				"nationwide": { "value": "1,024", "pow": "10", "label": "sessions, nationwide plan" }
+				"seats": {
+					"value": "16",
+					"pow": "4",
+					"label": "brand slots"
+				},
+				"sessions": {
+					"value": "64",
+					"pow": "6",
+					"label": "branded sessions"
+				},
+				"nationwide": {
+					"value": "1,024",
+					"pow": "10",
+					"label": "sessions, nationwide plan"
+				}
 			},
 			"planCap": "All figures above are this round's plan (Oct 2026 – 2027)",
 			"perks": [
@@ -2585,7 +2626,11 @@
 				}
 			],
 			"openqsCap": "These are open questions — bring yours and let's talk.",
-			"structure": ["Packaged partnership", "Resources can offset", "First 20 sessions, then a batch review"],
+			"structure": [
+				"Packaged partnership",
+				"Resources can offset",
+				"First 20 sessions, then a batch review"
+			],
 			"cta": "Talk brand partnership · reply within 48 hours",
 			"ctaNote": "partners@codinggirlsclub.com · Brand slots update as contracts advance; the first slots are under review"
 		},
@@ -2604,7 +2649,11 @@
 			"eyebrow": "#HACKERSTART1024 · BECOME A VOLUNTEER · JOIN THE CREW",
 			"title": "Bring Hacker Start 1024<em>to your city</em>",
 			"sub": "We are recruiting the volunteer crew: run a three-hour workshop, or turn the curriculum into tutorials.",
-			"nums": ["40+ cities and growing", "8-32 people per session", "1,024 sessions"],
+			"nums": [
+				"40+ cities and growing",
+				"8-32 people per session",
+				"1,024 sessions"
+			],
 			"ctaApply": "Apply now",
 			"ctaRoles": "See the roles"
 		},
@@ -2632,7 +2681,11 @@
 			"featured": "Most needed now",
 			"dutyTitle": "What you do",
 			"reqTitle": "What we look for",
-			"pill": ["One role per cohort", "Pick another role next cohort", "Roles are not exclusive once you are in — switch per session"],
+			"pill": [
+				"One role per cohort",
+				"Pick another role next cohort",
+				"Roles are not exclusive once you are in — switch per session"
+			],
 			"items": [
 				{
 					"id": "event_moderator",
@@ -2692,15 +2745,36 @@
 			"quoteBy": "— Adam Grant, Give and Take",
 			"title": "Give a weekend, <em>gain a city</em>",
 			"duty": [
-				{ "t": "Before the session", "d": "Coordinate venue and timing, help with promotion (sign-ups run on the platform — no forms for you to build), prepare the room from the kit list" },
-				{ "t": "Three hours on site", "d": "Run the session SOP: 15-minute kickoff → 2 hours building → 30-minute demo; the kit and the agent's adaptive learning carry the technical parts" },
-				{ "t": "After the session", "d": "Collect projects, pull the data (the platform does it), gather photos for social media with #hackerstart1024, do a short retrospective — then run the next one" }
+				{
+					"t": "Before the session",
+					"d": "Coordinate venue and timing, help with promotion (sign-ups run on the platform — no forms for you to build), prepare the room from the kit list"
+				},
+				{
+					"t": "Three hours on site",
+					"d": "Run the session SOP: 15-minute kickoff → 2 hours building → 30-minute demo; the kit and the agent's adaptive learning carry the technical parts"
+				},
+				{
+					"t": "After the session",
+					"d": "Collect projects, pull the data (the platform does it), gather photos for social media with #hackerstart1024, do a short retrospective — then run the next one"
+				}
 			],
 			"supply": [
-				{ "t": "Curriculum kit and SOP", "d": "Ready-made content, a session playbook and the agent's adaptive learning platform — follow them and you can run a session" },
-				{ "t": "Operations platform", "d": "Sign-ups, the 69 yuan deposit and on-site check-in run end to end on the platform — no money passes through your hands" },
-				{ "t": "Free venue partnerships", "d": "We aim for free partner venues; café sessions are supported by what participants spend on site — no venue budget pressure, you just coordinate the room" },
-				{ "t": "Community and reach", "d": "A network of moderators in 40+ cities, 128 volunteers, campaign-level promotion; volunteer benefits are being finalised" }
+				{
+					"t": "Curriculum kit and SOP",
+					"d": "Ready-made content, a session playbook and the agent's adaptive learning platform — follow them and you can run a session"
+				},
+				{
+					"t": "Operations platform",
+					"d": "Sign-ups, the 69 yuan deposit and on-site check-in run end to end on the platform — no money passes through your hands"
+				},
+				{
+					"t": "Free venue partnerships",
+					"d": "We aim for free partner venues; café sessions are supported by what participants spend on site — no venue budget pressure, you just coordinate the room"
+				},
+				{
+					"t": "Community and reach",
+					"d": "A network of moderators in 40+ cities, 128 volunteers, campaign-level promotion; volunteer benefits are being finalised"
+				}
 			]
 		},
 		"flow": {
@@ -2747,32 +2821,65 @@
 				{
 					"g": "Everyone asks",
 					"items": [
-						{ "q": "Does it cost anything?", "a": "No. Volunteers contribute no money and take no cut: the registration deposit (69 yuan, refunded on attendance) runs entirely on the platform, so you handle organisation, not money. Venues are mostly free partnerships and never come out of your budget." },
-						{ "q": "How is my resume used?", "a": "It goes into your volunteer resume profile: reusable for this and later cohorts without re-uploading, and editable at any time. Only the recruitment team can see it, under PIPL, and never for anything beyond recruitment." },
-						{ "q": "How many roles can I apply for in one cohort?", "a": "One. You pick a single role from the available ones per cohort; you can apply for a different role in the next cohort." },
-						{ "q": "Can I take on more than one role?", "a": "Yes. You apply for one role per cohort, but roles are not exclusive once you are in — a tutor can coach offline sessions too, depending on sessions and tasks." }
+						{
+							"q": "Does it cost anything?",
+							"a": "No. Volunteers contribute no money and take no cut: the registration deposit (69 yuan, refunded on attendance) runs entirely on the platform, so you handle organisation, not money. Venues are mostly free partnerships and never come out of your budget."
+						},
+						{
+							"q": "How is my resume used?",
+							"a": "It goes into your volunteer resume profile: reusable for this and later cohorts without re-uploading, and editable at any time. Only the recruitment team can see it, under PIPL, and never for anything beyond recruitment."
+						},
+						{
+							"q": "How many roles can I apply for in one cohort?",
+							"a": "One. You pick a single role from the available ones per cohort; you can apply for a different role in the next cohort."
+						},
+						{
+							"q": "Can I take on more than one role?",
+							"a": "Yes. You apply for one role per cohort, but roles are not exclusive once you are in — a tutor can coach offline sessions too, depending on sessions and tasks."
+						}
 					]
 				},
 				{
 					"g": "Event Moderator",
 					"items": [
-						{ "q": "Do I need a programming background?", "a": "No. The curriculum kit and the agent's adaptive learning carry the technical parts — the best preparation is to take part in a session yourself first." },
-						{ "q": "Who sorts out the venue?", "a": "We aim for free partner venues: community spaces, company meeting rooms, university classrooms. For café sessions, participants support the venue by spending on site (one coffee covers it; no separate venue fee). You choose and coordinate the place." },
-						{ "q": "How many people per session? I have limited time.", "a": "Eight people is enough to run one (2³), 32 fills it (2⁵). Start with one session per round and scale once it runs smoothly." }
+						{
+							"q": "Do I need a programming background?",
+							"a": "No. The curriculum kit and the agent's adaptive learning carry the technical parts — the best preparation is to take part in a session yourself first."
+						},
+						{
+							"q": "Who sorts out the venue?",
+							"a": "We aim for free partner venues: community spaces, company meeting rooms, university classrooms. For café sessions, participants support the venue by spending on site (one coffee covers it; no separate venue fee). You choose and coordinate the place."
+						},
+						{
+							"q": "How many people per session? I have limited time.",
+							"a": "Eight people is enough to run one (2³), 32 fills it (2⁵). Start with one session per round and scale once it runs smoothly."
+						}
 					]
 				},
 				{
 					"g": "Coach",
 					"items": [
-						{ "q": "Do I have to teach?", "a": "No. Participants mostly self-learn with the agent, while coaches roam the room, answer questions and help people through the build — look around, unblock a few people, that is the job." },
-						{ "q": "How do coaches and moderators work together?", "a": "The moderator owns the session organisation; the coach owns the in-room experience. You can coach only, or do both roles across different sessions." }
+						{
+							"q": "Do I have to teach?",
+							"a": "No. Participants mostly self-learn with the agent, while coaches roam the room, answer questions and help people through the build — look around, unblock a few people, that is the job."
+						},
+						{
+							"q": "How do coaches and moderators work together?",
+							"a": "The moderator owns the session organisation; the coach owns the in-room experience. You can coach only, or do both roles across different sessions."
+						}
 					]
 				},
 				{
 					"g": "Tutor",
 					"items": [
-						{ "q": "How much time does a course take?", "a": "Roughly 5-10 hours per course unit, counted by course rather than fixed weekly hours." },
-						{ "q": "How do we collaborate?", "a": "Remotely and asynchronously with the curriculum team, from any city; the tutorials you write get reused by sessions nationwide." }
+						{
+							"q": "How much time does a course take?",
+							"a": "Roughly 5-10 hours per course unit, counted by course rather than fixed weekly hours."
+						},
+						{
+							"q": "How do we collaborate?",
+							"a": "Remotely and asynchronously with the curriculum team, from any city; the tutorials you write get reused by sessions nationwide."
+						}
 					]
 				}
 			]
@@ -2800,12 +2907,30 @@
 			"weeklyHours": "Hours per week you can commit (optional)",
 			"skills": "Skills (multiple choice)",
 			"skillOptions": [
-				{ "value": "organizing", "label": "Organising" },
-				{ "value": "community", "label": "Community" },
-				{ "value": "writing", "label": "Writing" },
-				{ "value": "development", "label": "Development" },
-				{ "value": "design", "label": "Design" },
-				{ "value": "other", "label": "Other" }
+				{
+					"value": "organizing",
+					"label": "Organising"
+				},
+				{
+					"value": "community",
+					"label": "Community"
+				},
+				{
+					"value": "writing",
+					"label": "Writing"
+				},
+				{
+					"value": "development",
+					"label": "Development"
+				},
+				{
+					"value": "design",
+					"label": "Design"
+				},
+				{
+					"value": "other",
+					"label": "Other"
+				}
 			],
 			"resume": "Resume (PDF / Word, up to 5MB; reused across cohorts)",
 			"consentPrefix": "I have read and agree that the recruitment team may process the personal information I submit under the ",
@@ -2882,5 +3007,84 @@
 			"back": "← Back to the campaign page",
 			"hashtag": "#hackerstart1024"
 		}
+	},
+	"recruitmentPanel": {
+		"title": "Volunteer recruitment review",
+		"description": "Review volunteer applications: cohorts, stage transitions, project assignment, and resumes.",
+		"loading": "Loading…",
+		"loadFailed": "Failed to load recruitment data.",
+		"actionFailed": "The action failed. Try again shortly.",
+		"positions": {
+			"event_moderator": "Event Moderator",
+			"tutor": "Tutor",
+			"coach": "Coach"
+		},
+		"status": {
+			"submitted": "Submitted",
+			"interview": "Interview",
+			"training": "Training",
+			"assigned": "Assigned",
+			"rejected": "Rejected",
+			"canceled": "Canceled"
+		},
+		"cohorts": {
+			"title": "Cohorts",
+			"empty": "No cohorts yet — create one first.",
+			"status": {
+				"draft": "Draft",
+				"open": "Open",
+				"closed": "Closed"
+			},
+			"deadline": "Closes {date}",
+			"open": "Open",
+			"close": "Close",
+			"create": "New cohort",
+			"namePlaceholder": "Cohort name (e.g. Batch 1)",
+			"deadlineLabel": "Application deadline"
+		},
+		"applications": {
+			"title": "Applications",
+			"empty": "No applications yet.",
+			"remote": "Remote",
+			"detail": "Details",
+			"filterCohort": "Filter by cohort",
+			"filterStatus": "Filter by status",
+			"allCohorts": "All cohorts",
+			"allStatuses": "All statuses"
+		},
+		"actions": {
+			"advance_interview": "Advance to interview",
+			"advance_training": "Advance to training",
+			"assign": "Assign",
+			"reject": "Reject",
+			"cancel": "Cancel"
+		},
+		"reject": {
+			"reasonPlaceholder": "Rejection reason (required; sent to the applicant)",
+			"reasonLabel": "Rejection reason",
+			"confirm": "Confirm rejection"
+		},
+		"assign": {
+			"eventLabel": "Assign to session",
+			"noEvent": "No session (e.g. Tutor)",
+			"notePlaceholder": "Assignment note (e.g. course tasks)",
+			"noteLabel": "Assignment note",
+			"confirm": "Confirm assignment"
+		},
+		"cancel": {
+			"notePlaceholder": "Cancellation note (optional)",
+			"noteLabel": "Cancellation note",
+			"confirm": "Confirm cancellation"
+		},
+		"detail": {
+			"fullName": "Name",
+			"contactEmail": "Contact email",
+			"download": "Download resume ({name})",
+			"noResume": "No profile yet",
+			"noFile": "No resume file uploaded",
+			"loadFailed": "Failed to load details"
+		},
+		"breadcrumbHome": "Workspace",
+		"retry": "Retry"
 	}
 }

@@ -279,3 +279,285 @@ export async function createVolunteerApplication(
 	});
 	return data?.createVolunteerApplication ?? { result: null, errors: [] };
 }
+
+// ── 管理侧（U8 审核面板；2046 台 Owner/Admin ∪ platform_admin）──────────────
+
+/** 管理侧申请行（= 申请人侧同形 + userId：面板要显示与筛选「是谁」） */
+export type AdminVolunteerApplication = VolunteerApplication & { userId: string };
+
+export type VolunteerApplicationDetail = {
+	application: AdminVolunteerApplication;
+	/** 申请人简历档案（未建档 → null） */
+	resumeProfile: ResumeProfile | null;
+};
+
+const ADMIN_APPLICATION_FIELDS = `id userId cohortId position city heardAboutUs hasInternalReferrer message status rejectionReason assignedAt assignmentNote`;
+
+const DETAIL_RESUME_FIELDS = `id fullName contactEmail weeklyHours skills fileName fileContentType fileSize uploadedAt`;
+
+const LIST_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
+	{ listVolunteerApplications: AdminVolunteerApplication[] },
+	{
+		workspaceId: string;
+		cohortId?: string | null;
+		position?: string | null;
+		status?: string | null;
+	}
+> = gql`
+	query ListVolunteerApplications($workspaceId: ID!, $cohortId: ID, $position: String, $status: String) {
+		listVolunteerApplications(workspaceId: $workspaceId, cohortId: $cohortId, position: $position, status: $status) {
+			${ADMIN_APPLICATION_FIELDS}
+		}
+	}
+`;
+
+const VOLUNTEER_APPLICATION_DETAIL: TypedDocumentNode<
+	{ volunteerApplicationDetail: VolunteerApplicationDetail | null },
+	{ workspaceId: string; id: string }
+> = gql`
+	query VolunteerApplicationDetail($workspaceId: ID!, $id: ID!) {
+		volunteerApplicationDetail(workspaceId: $workspaceId, id: $id) {
+			application { ${ADMIN_APPLICATION_FIELDS} }
+			resumeProfile { ${DETAIL_RESUME_FIELDS} }
+		}
+	}
+`;
+
+const LIST_RECRUITMENT_COHORTS: TypedDocumentNode<
+	{ listRecruitmentCohorts: RecruitmentCohort[] },
+	{ workspaceId: string }
+> = gql`
+	query ListRecruitmentCohorts($workspaceId: ID!) {
+		listRecruitmentCohorts(workspaceId: $workspaceId) { ${COHORT_FIELDS} }
+	}
+`;
+
+/** 段位推进返回（与申请人侧 create 同通道：result + errors） */
+const APPLICATION_MUTATION_RESULT = `
+	result { ${ADMIN_APPLICATION_FIELDS} }
+	errors { message code }
+`;
+
+const ADVANCE_TO_INTERVIEW: TypedDocumentNode<
+	{ advanceVolunteerApplicationToInterview: MutationOutcome<AdminVolunteerApplication> },
+	{ workspaceId: string; id: string }
+> = gql`
+	mutation AdvanceToInterview($workspaceId: ID!, $id: ID!) {
+		advanceVolunteerApplicationToInterview(workspaceId: $workspaceId, id: $id) { ${APPLICATION_MUTATION_RESULT} }
+	}
+`;
+
+const ADVANCE_TO_TRAINING: TypedDocumentNode<
+	{ advanceVolunteerApplicationToTraining: MutationOutcome<AdminVolunteerApplication> },
+	{ workspaceId: string; id: string }
+> = gql`
+	mutation AdvanceToTraining($workspaceId: ID!, $id: ID!) {
+		advanceVolunteerApplicationToTraining(workspaceId: $workspaceId, id: $id) { ${APPLICATION_MUTATION_RESULT} }
+	}
+`;
+
+const ASSIGN_APPLICATION: TypedDocumentNode<
+	{ assignVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
+	{ workspaceId: string; id: string; assignedEventId: string | null; assignmentNote: string | null }
+> = gql`
+	mutation AssignVolunteerApplication($workspaceId: ID!, $id: ID!, $assignedEventId: ID, $assignmentNote: String) {
+		assignVolunteerApplication(workspaceId: $workspaceId, id: $id, assignedEventId: $assignedEventId, assignmentNote: $assignmentNote) { ${APPLICATION_MUTATION_RESULT} }
+	}
+`;
+
+const REJECT_APPLICATION: TypedDocumentNode<
+	{ rejectVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
+	{ workspaceId: string; id: string; reason: string }
+> = gql`
+	mutation RejectVolunteerApplication($workspaceId: ID!, $id: ID!, $reason: String) {
+		rejectVolunteerApplication(workspaceId: $workspaceId, id: $id, reason: $reason) { ${APPLICATION_MUTATION_RESULT} }
+	}
+`;
+
+const CANCEL_APPLICATION: TypedDocumentNode<
+	{ cancelVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
+	{ workspaceId: string; id: string; reason: string | null }
+> = gql`
+	mutation CancelVolunteerApplication($workspaceId: ID!, $id: ID!, $reason: String) {
+		cancelVolunteerApplication(workspaceId: $workspaceId, id: $id, reason: $reason) { ${APPLICATION_MUTATION_RESULT} }
+	}
+`;
+
+const COHORT_MUTATION_RESULT = `
+	result { ${COHORT_FIELDS} }
+	errors { message code }
+`;
+
+const CREATE_RECRUITMENT_COHORT: TypedDocumentNode<
+	{ createRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
+	{ workspaceId: string; input: { name: string; applyDeadlineAt: string; startsAt?: string | null; endsAt?: string | null } }
+> = gql`
+	mutation CreateRecruitmentCohort($workspaceId: ID!, $input: CreateRecruitmentCohortInput!) {
+		createRecruitmentCohort(workspaceId: $workspaceId, input: $input) { ${COHORT_MUTATION_RESULT} }
+	}
+`;
+
+const OPEN_RECRUITMENT_COHORT: TypedDocumentNode<
+	{ openRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
+	{ workspaceId: string; id: string }
+> = gql`
+	mutation OpenRecruitmentCohort($workspaceId: ID!, $id: ID!) {
+		openRecruitmentCohort(workspaceId: $workspaceId, id: $id) { ${COHORT_MUTATION_RESULT} }
+	}
+`;
+
+const CLOSE_RECRUITMENT_COHORT: TypedDocumentNode<
+	{ closeRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
+	{ workspaceId: string; id: string }
+> = gql`
+	mutation CloseRecruitmentCohort($workspaceId: ID!, $id: ID!) {
+		closeRecruitmentCohort(workspaceId: $workspaceId, id: $id) { ${COHORT_MUTATION_RESULT} }
+	}
+`;
+
+/** 管理侧申请列表（按批次/职位/状态过滤；非管理角色 → 服务端 forbidden 抛出） */
+export async function fetchVolunteerApplications(
+	workspaceId: string,
+	filter: { cohortId?: string | null; position?: string | null; status?: string | null } = {},
+): Promise<AdminVolunteerApplication[]> {
+	const { data } = await client.query({
+		query: LIST_VOLUNTEER_APPLICATIONS,
+		variables: {
+			workspaceId,
+			cohortId: filter.cohortId ?? null,
+			position: filter.position ?? null,
+			status: filter.status ?? null,
+		},
+		fetchPolicy: "network-only",
+	});
+	return data?.listVolunteerApplications ?? [];
+}
+
+/** 申请详情（含申请人档案元数据；未建档 → resumeProfile null） */
+export async function fetchVolunteerApplicationDetail(
+	workspaceId: string,
+	id: string,
+): Promise<VolunteerApplicationDetail | null> {
+	const { data } = await client.query({
+		query: VOLUNTEER_APPLICATION_DETAIL,
+		variables: { workspaceId, id },
+		fetchPolicy: "network-only",
+	});
+	return data?.volunteerApplicationDetail ?? null;
+}
+
+/** 全部批次（管理侧；含 draft/closed，供过滤与批次管理） */
+export async function fetchRecruitmentCohorts(workspaceId: string): Promise<RecruitmentCohort[]> {
+	const { data } = await client.query({
+		query: LIST_RECRUITMENT_COHORTS,
+		variables: { workspaceId },
+		fetchPolicy: "network-only",
+	});
+	return data?.listRecruitmentCohorts ?? [];
+}
+
+export async function advanceVolunteerApplication(
+	workspaceId: string,
+	id: string,
+	stage: "interview" | "training",
+): Promise<MutationOutcome<AdminVolunteerApplication>> {
+	if (stage === "interview") {
+		const { data } = await client.mutate({
+			mutation: ADVANCE_TO_INTERVIEW,
+			variables: { workspaceId, id },
+		});
+		const outcome = data?.advanceVolunteerApplicationToInterview ?? { result: null, errors: [] };
+		return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+	}
+
+	const { data } = await client.mutate({
+		mutation: ADVANCE_TO_TRAINING,
+		variables: { workspaceId, id },
+	});
+	const outcome = data?.advanceVolunteerApplicationToTraining ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+/** 项目分配（R15：分配副作用由后端同事务完成——入台 + 角色 + EventModerator） */
+export async function assignVolunteerApplication(
+	workspaceId: string,
+	id: string,
+	args: { assignedEventId?: string | null; assignmentNote?: string | null } = {},
+): Promise<MutationOutcome<AdminVolunteerApplication>> {
+	const { data } = await client.mutate({
+		mutation: ASSIGN_APPLICATION,
+		variables: {
+			workspaceId,
+			id,
+			assignedEventId: args.assignedEventId ?? null,
+			assignmentNote: args.assignmentNote ?? null,
+		},
+	});
+	const outcome = data?.assignVolunteerApplication ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+/** 拒绝（原因必填；空白/缺失 → 服务端 volunteer_application_rejection_reason_required） */
+export async function rejectVolunteerApplication(
+	workspaceId: string,
+	id: string,
+	reason: string,
+): Promise<MutationOutcome<AdminVolunteerApplication>> {
+	const { data } = await client.mutate({
+		mutation: REJECT_APPLICATION,
+		variables: { workspaceId, id, reason },
+	});
+	const outcome = data?.rejectVolunteerApplication ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+/** 取消（备注选填；与拒绝不同，无必填约束） */
+export async function cancelVolunteerApplication(
+	workspaceId: string,
+	id: string,
+	reason?: string | null,
+): Promise<MutationOutcome<AdminVolunteerApplication>> {
+	const { data } = await client.mutate({
+		mutation: CANCEL_APPLICATION,
+		variables: { workspaceId, id, reason: reason ?? null },
+	});
+	const outcome = data?.cancelVolunteerApplication ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+export async function createRecruitmentCohort(
+	workspaceId: string,
+	input: { name: string; applyDeadlineAt: string; startsAt?: string | null; endsAt?: string | null },
+): Promise<MutationOutcome<RecruitmentCohort>> {
+	const { data } = await client.mutate({
+		mutation: CREATE_RECRUITMENT_COHORT,
+		variables: { workspaceId, input },
+	});
+	const outcome = data?.createRecruitmentCohort ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+/** 开放批次（同台已有 open → 服务端 recruitment_cohort_open_conflict） */
+export async function openRecruitmentCohort(
+	workspaceId: string,
+	id: string,
+): Promise<MutationOutcome<RecruitmentCohort>> {
+	const { data } = await client.mutate({
+		mutation: OPEN_RECRUITMENT_COHORT,
+		variables: { workspaceId, id },
+	});
+	const outcome = data?.openRecruitmentCohort ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
+
+export async function closeRecruitmentCohort(
+	workspaceId: string,
+	id: string,
+): Promise<MutationOutcome<RecruitmentCohort>> {
+	const { data } = await client.mutate({
+		mutation: CLOSE_RECRUITMENT_COHORT,
+		variables: { workspaceId, id },
+	});
+	const outcome = data?.closeRecruitmentCohort ?? { result: null, errors: [] };
+	return { result: outcome?.result ?? null, errors: outcome?.errors ?? [] };
+}
