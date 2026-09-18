@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 押金同意门 E2E（小程序 / weapp 模拟器，本地回归用，**不进 CI**）
 #
-# 覆盖：押金单在 order-pay 的「资金动作前披露 + 显式同意」——披露口径与金额、
-# 未勾选禁用、勾选后放行。这是 #544 第 2 项 + U1 小程序落点的回归网。
+# 覆盖：押金单的「创单前披露 + 显式同意」（#727 重排：勾选 → 创单（带 consent）
+# → 支付）——披露口径与金额、未勾选零创单、勾选后创单出支付区。这是 #544 第 2 项
+# + U1 小程序落点 + #727 后端下沉的回归网。
 #
 # 为什么不在 CI：需要微信开发者工具 GUI（已登录）+ wechatide CLI（随工具分发），
 # 见 miniprogram/AGENTS.md「E2E」一节。web 端 E2E 走 ego-browser，与本脚本无关。
@@ -84,6 +85,7 @@ NOTICE=$(cls "$ORDER_PAY" depositNotice)
 ACK_ROW=$(cls "$ORDER_PAY" ackRow)
 ACK_BOX_ON=$(cls "$ORDER_PAY" ackBoxChecked)
 PAY_BTN=$(cls "$ORDER_PAY" primaryButton)
+TITLE=$(cls "$ORDER_PAY" title)
 
 echo "### 1) 进入押金支付页（先试直达 mock 报名 enrollment-1，失败则走完整报名链）"
 RAW automation_navigate --action reLaunch --url '/pages/order-pay/index?enrollmentId=enrollment-1' >/dev/null
@@ -104,28 +106,40 @@ if [ "$(COUNT "$NOTICE")" != "1" ]; then
     TAP "$AGREE"
     wait_route '/pages/register-form/index' || true
   fi
+  # event-deposit 带 minAge（#510）：年龄确认未勾选时提交被拦（不出页），
+  # 必须先把年龄行点掉——否则本回退链会静默停在报名表单
+  AGE_ROW=$(cls 'pages/register-form' ackRow)
+  TAP "$AGE_ROW"
+  sleep 1
   TAP "$SUBMIT"
   wait_route '/pages/order-pay/index' || true
 fi
 ck "落在 order-pay" "$(ROUTE)" '/pages/order-pay/index'
 
-echo "### 2) 资金动作前披露（口径 + 金额 = 订单快照）"
+echo "### 2) 创单前：披露（口径 + 金额 = 报名快照）+ 未勾选零创单（#727 重排）"
+ck "阶段标题=押金确认（创单前）" "$(RES automation_element_action --action text --selector "$TITLE")" '押金确认'
 ck "押金金额行" "$(RES automation_element_action --action text --selector "$NOTICE")" '押金 ¥[0-9]+\.[0-9]{2}（到场退）'
 ck "未到场不退明示" "$(RES automation_element_action --action text --selector "$NOTICE")" '未到场不退。'
 ck "退还条件（勾选文案）" "$(RES automation_element_action --action text --selector "$NOTICE")" '押金以到场为退还条件'
 ck "勾选行存在" "$(COUNT "$ACK_ROW")" '^1$'
 
-echo "### 3) 未勾选不放行"
+echo "### 3) 未勾选不放行（零创单：停在 consent，按钮禁用）"
 ck "按钮文案=请先勾选确认" "$(RES automation_element_action --action text --selector "$PAY_BTN")" '请先勾选确认'
 ck "按钮 disabled=true" "$(RES automation_element_action --action property --name disabled --selector "$PAY_BTN")" '^true$'
 ck "勾选盒未选中" "$(COUNT "$ACK_BOX_ON")" '^0$'
 
-echo "### 4) 勾选后放行"
+echo "### 4) 勾选 → 创单（带 consent）→ 支付区（订单快照金额）"
 TAP "$ACK_ROW"
 sleep 1
 ck "勾选盒选中态" "$(COUNT "$ACK_BOX_ON")" '^1$'
-ck "按钮文案=立即支付" "$(RES automation_element_action --action text --selector "$PAY_BTN")" '立即支付'
+ck "按钮文案=同意并支付" "$(RES automation_element_action --action text --selector "$PAY_BTN")" '同意并支付'
 ck "按钮 disabled=false" "$(RES automation_element_action --action property --name disabled --selector "$PAY_BTN")" '^false$'
+TAP "$PAY_BTN"
+sleep 2
+ck "创单后阶段标题=等待支付" "$(RES automation_element_action --action text --selector "$TITLE")" '等待支付'
+ck "支付区仍披露（订单快照金额）" "$(RES automation_element_action --action text --selector "$NOTICE")" '押金 ¥[0-9]+\.[0-9]{2}（到场退）'
+ck "支付按钮文案=立即支付" "$(RES automation_element_action --action text --selector "$PAY_BTN")" '立即支付'
+ck "支付按钮 disabled=false" "$(RES automation_element_action --action property --name disabled --selector "$PAY_BTN")" '^false$'
 
 echo "### 5) 截图取证（给人看；脚本本身不做视觉判定）"
 SHOT="${TMPDIR:-/tmp}/order-pay-deposit-consent.png"

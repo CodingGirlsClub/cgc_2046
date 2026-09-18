@@ -491,6 +491,63 @@ defmodule Cgc2046.Payments.OrderTest do
     end
   end
 
+  # 押金同意门（#727）：域面（Ash action）就是权威闸——GraphQL/任何调用方同门。
+  describe "#727：押金同意门（create_for_enrollment）" do
+    test "押金单未带 consent → order_deposit_consent_required，零订单" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-missing")
+
+      assert {:error, error} = checkout(enrollment, learner, deposit_consent: nil)
+      assert Exception.message(error) =~ "deposit consent is required"
+      assert order_count(enrollment.id) == 0
+    end
+
+    test "押金单显式 false → 同样拒（false ≠ 同意）" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-false")
+
+      assert {:error, error} = checkout(enrollment, learner, deposit_consent: false)
+      assert Exception.message(error) =~ "deposit consent is required"
+      assert order_count(enrollment.id) == 0
+    end
+
+    test "拒单零副作用：不新增订单，已有 pending 押金单原样存活" do
+      %{enrollment: enrollment, learner: learner} =
+        deposit_payment_pending_enrollment("consent-keep")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:error, _error} = checkout(enrollment, learner, deposit_consent: nil)
+      assert reload(first).status == :pending
+      assert order_count(enrollment.id) == 1
+    end
+
+    test "非押金单忽略 consent：定价单不带同意照常下单" do
+      {enrollment, learner} = payment_pending_enrollment("consent-pricing")
+
+      assert {:ok, order} = checkout(enrollment, learner, deposit_consent: nil)
+      assert order.order_kind == :enrollment
+    end
+
+    test "换渠道不重复要同意：押金单 replace_provider 无 consent 亦放行" do
+      %{enrollment: enrollment, learner: learner, workspace: workspace} =
+        deposit_payment_pending_enrollment("consent-replace")
+
+      assert {:ok, first} = checkout(enrollment, learner)
+
+      assert {:ok, replaced} =
+               Order
+               |> Ash.Changeset.for_create(:replace_provider, %{
+                 order_id: first.id,
+                 provider: :alipay_page
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      assert replaced.order_kind == :deposit
+      assert replaced.amount_cents == 6900
+    end
+  end
+
   describe "#687：定价单档位金额 fail-closed（脏金额绝不物化订单/调渠道）" do
     for {label, dirty} <- [{"0 元", 0}, {"负数", -100}, {"非整数分", 0.4}] do
       @tag dirty: dirty
@@ -749,12 +806,15 @@ defmodule Cgc2046.Payments.OrderTest do
     {enrollment, learner}
   end
 
-  # native 渠道无 openid 前置校验（jsapi 需真实微信 openid，测试用户没有）
-  defp checkout(enrollment, actor) do
+  # native 渠道无 openid 前置校验（jsapi 需真实微信 openid，测试用户没有）。
+  # deposit_consent: true 是 #727 押金同意门的默认放行值（非押金单忽略该参数）；
+  # 门本身的负例显式传 false/nil。
+  defp checkout(enrollment, actor, opts \\ []) do
     Order
     |> Ash.Changeset.for_create(:create_for_enrollment, %{
       enrollment_id: enrollment.id,
-      provider: :wechat_native
+      provider: :wechat_native,
+      deposit_consent: Keyword.get(opts, :deposit_consent, true)
     })
     |> Ash.create(tenant: enrollment.workspace_id, actor: actor)
   end

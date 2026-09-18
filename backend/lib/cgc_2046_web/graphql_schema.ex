@@ -3674,13 +3674,20 @@ defmodule Cgc2046Web.GraphqlSchema do
   # enrollment calculation 字段的 alias 感知取值（手写 object 无 AshGraphql
   # resolve_calculation）：alias 查询读 AshGraphql 加载槽；无 alias 读
   # calculations map（Ash 加载后写入），原字段兜底。
+  #
+  # parent 双形态（#727 健壮化）：Ash record（calculations 键存在，未加载为 nil）
+  # 与 my_enrollment 的白名单 payload map（**没有** :calculations 键）——
+  # `parent.calculations` 对后者抛 KeyError（不是 nil），必须走 Map.get/3 兜底；
+  # 裸 map 上计算字段取不到值即 nil（该投影不携带计算值，不是崩溃）。
   defp enrollment_calc_value(parent, %{alias: nil}, field) do
-    Map.get(parent.calculations, field) || Map.get(parent, field)
+    Map.get(calculations(parent), field) || Map.get(parent, field)
   end
 
   defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
-    Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
+    Map.get(calculations(parent), {:__ash_graphql_calculation__, field_alias})
   end
+
+  defp calculations(parent), do: Map.get(parent, :calculations) || %{}
 
   # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
   # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
