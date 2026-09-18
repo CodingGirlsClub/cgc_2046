@@ -142,7 +142,7 @@ test('mock 押金场：报名落 payment_pending（零档位）→ 押金单金�
 
   const order = mockGraphQLRequest<{ createOrder: { result: { amountCents: number } } }>(
     CreateOrderMutationDocument,
-    { input: { enrollmentId: 'enrollment-1' } }
+    { input: { enrollmentId: 'enrollment-1', depositConsent: true } }
   )
   assert.equal(order.createOrder.result.amountCents, 6900)
 
@@ -151,6 +151,47 @@ test('mock 押金场：报名落 payment_pending（零档位）→ 押金单金�
     enrollments: { results: Array<{ checkInCode: string | null }> }
   }>(MyEnrollmentsQueryDocument, { userId: 'user-1' })
   assert.equal(mine.enrollments.results[0]?.checkInCode, '042317')
+})
+
+// #727：mock 门控投影——押金单未带 depositConsent → order_deposit_consent_required；
+// 带 true 放行；非押金单忽略该字段（与后端 action 同语义，前端文案表命中同 code）
+test('mock 押金同意门：押金单缺 consent 拒单、带 true 放行、非押金单忽略', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+
+  // 押金场报名（event-deposit 带 minAge 18 → 需 ageConfirmed）
+  const enrolled = mockGraphQLRequest<{
+    createEnrollment: { result: { paymentMode: string | null; depositAmountCents: number | null } | null }
+  }>(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
+  })
+  // #727：报名快照带押金金额（order-pay 创单前披露的金额源）
+  assert.equal(enrolled.createEnrollment.result?.paymentMode, 'deposit')
+  assert.equal(enrolled.createEnrollment.result?.depositAmountCents, 6900)
+
+  const rejected = mockGraphQLRequest<{
+    createOrder: {
+      result: { orderKind: string } | null
+      errors: Array<{ code: string | null }>
+    }
+  }>(CreateOrderMutationDocument, { input: { enrollmentId: 'enrollment-1' } })
+  assert.equal(rejected.createOrder.result, null)
+  assert.equal(rejected.createOrder.errors[0]?.code, 'order_deposit_consent_required')
+
+  const passed = mockGraphQLRequest<{ createOrder: { result: { orderKind: string } | null } }>(
+    CreateOrderMutationDocument,
+    { input: { enrollmentId: 'enrollment-1', depositConsent: true } }
+  )
+  assert.equal(passed.createOrder.result?.orderKind, 'deposit')
+
+  // 非押金场（免费 event-open）：不带 consent 也照常下单（字段被忽略）
+  mockGraphQLRequest(CreateEnrollmentMutationDocument, {
+    input: { userId: 'user-1', eventId: 'event-open' }
+  })
+  const nonDeposit = mockGraphQLRequest<{ createOrder: { result: { orderKind: string } | null } }>(
+    CreateOrderMutationDocument,
+    { input: { enrollmentId: 'enrollment-1' } }
+  )
+  assert.equal(nonDeposit.createOrder.result?.orderKind, 'enrollment')
 })
 
 // ── #617：selection 契约 + mock 夹具 parity ──
@@ -167,6 +208,18 @@ test('#617 契约：两处报名 selection 都含 startsAt/venue', () => {
     assert.match(doc, /\bstartsAt\b/, `${name} 缺 startsAt`)
     assert.match(doc, /\bvenue\b/, `${name} 缺 venue`)
     assert.match(doc, /\bregistrationDeadline\b/, `${name} 缺 registrationDeadline（既有字段回归）`)
+    // #727：押金快照金额只给单条回查（order-pay 创单前门的金额源）——列表查询
+    // 不选（该计算字段 load submission_payload，列表最多 100 行，白拉 JSONB）；
+    // 少选即静默「金额待定」，多选即列表浪费，两侧都钉住
+    if (name === 'EnrollmentQueryDocument') {
+      assert.match(doc, /\bdepositAmountCents\b/, `${name} 缺 depositAmountCents（#727 押金披露金额源）`)
+    } else {
+      assert.doesNotMatch(
+        doc,
+        /\bdepositAmountCents\b/,
+        `${name} 不应选 depositAmountCents（无消费方且列表拉 submission_payload）`
+      )
+    }
   }
 })
 

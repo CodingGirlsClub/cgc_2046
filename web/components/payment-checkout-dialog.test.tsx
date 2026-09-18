@@ -622,9 +622,84 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 			"src",
 			"data:image/png;base64,qr",
 		);
+		// #727：押金单创单必须携带同意标记（后端权威闸）
 		expect(client.mutate).toHaveBeenCalledWith(
 			expect.objectContaining({
-				variables: { input: { enrollmentId: "enr-1", provider: "wechat_native" } },
+				variables: {
+					input: {
+						enrollmentId: "enr-1",
+						provider: "wechat_native",
+						depositConsent: true,
+					},
+				},
+			}),
+		);
+	});
+
+	it("押金场 + 后端拒单（识别缺失的 fail-open 类）→ 自愈回 consent 补勾选（#727）", async () => {
+		// 调用方漏传 depositEnabled（#686 fail-open 类）→ 直接创单不带 consent
+		client.query.mockResolvedValue({ data: { myOrders: { results: [] } } });
+		client.mutate.mockResolvedValueOnce({
+			data: {
+				createOrder: {
+					result: null,
+					errors: [
+						{
+							code: "order_deposit_consent_required",
+							message:
+								"deposit consent is required before creating a deposit order",
+						},
+					],
+					metadata: null,
+				},
+			},
+		});
+
+		render(
+			<PaymentCheckoutDialog
+				enrollmentId="enr-1"
+				onClose={vi.fn()}
+				onPaid={vi.fn()}
+				depositAmountCents={6900}
+			/>,
+		);
+
+		// 第一次创单：不带 consent（本框押金识别未成立）
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
+		expect(client.mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				variables: {
+					input: { enrollmentId: "enr-1", provider: "wechat_native" },
+				},
+			}),
+		);
+
+		// 自愈：不落死 error 态，就地出披露 + 勾选（披露行金额取调用方给的押金金额）
+		expect(
+			await screen.findByTestId("checkout-deposit-consent"),
+		).toBeInTheDocument();
+		expect(screen.getByTestId("checkout-deposit-note")).toHaveTextContent(
+			"押金 ¥69（到场退）",
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-checkbox"));
+		});
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("checkout-deposit-consent-button"));
+		});
+
+		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
+		await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+		expect(client.mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				variables: {
+					input: {
+						enrollmentId: "enr-1",
+						provider: "wechat_native",
+						depositConsent: true,
+					},
+				},
 			}),
 		);
 	});

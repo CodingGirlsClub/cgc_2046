@@ -219,6 +219,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         insertedAt
         checkInCode
         paymentMode
+        depositAmountCents
         startsAt
         venue
         registrationDeadline

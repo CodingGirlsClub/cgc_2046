@@ -15,6 +15,9 @@ import type { MutationError, MutationResult } from "./shared";
  * - createOrder/replaceProvider 的支付凭据在 metadata.credential（JsonString：
  *   qr_code → code_url；redirect → url；jsapi 仅小程序），分派见
  *   lib/payment.dispatchCredential。
+ * - 押金同意门（#727）：createOrder 对押金单要求 `depositConsent: true`（后端
+ *   按 order_kind 判定，非押金单忽略）；前端三面（弹框两调用方 + /orders/new）
+ *   的披露/勾选是引导，权威闸在后端。
  */
 
 /* ---------------- 类型 ---------------- */
@@ -88,7 +91,18 @@ export interface OperationResolution {
 
 export const CREATE_ORDER: TypedDocumentNode<
   { createOrder: CreateOrderPayload },
-  { input: { enrollmentId: string; provider: PaymentProvider } }
+  {
+    input: {
+      enrollmentId: string;
+      provider: PaymentProvider;
+      /**
+       * 押金同意门（#727 后端下沉）：押金单必须显式 true，缺失/false 一律被拒
+       * （错误码 order_deposit_consent_required）。非押金单忽略该字段——调用方
+       * 只在自家押金识别成立时携带（undefined = 不带键，同 #510 ageConfirmed）。
+       */
+      depositConsent?: boolean;
+    };
+  }
 > = gql`
   mutation CreateOrder($input: CreateOrderInput!) {
     createOrder(input: $input) {
@@ -112,6 +126,36 @@ export const CREATE_ORDER: TypedDocumentNode<
     }
   }
 `;
+
+/** createOrder 入参（押金同意条件携带的唯一构造点，#727） */
+export interface CreateOrderInput {
+  enrollmentId: string;
+  provider: PaymentProvider;
+  depositConsent?: boolean;
+}
+
+/**
+ * createOrder 入参构造（#727）：押金收银才带 depositConsent 键——非押金单的
+ * 负载与今天逐字一致（`undefined` = 不带键，同 #510 ageConfirmed 的条件携带
+ * 口径）；押金单带勾选态（`false` 也显式带，后端 `== true` 才放行）。
+ */
+export function createOrderInput(
+  enrollmentId: string,
+  provider: PaymentProvider,
+  depositConsent?: boolean,
+): CreateOrderInput {
+  return {
+    enrollmentId,
+    provider,
+    ...(depositConsent === undefined ? {} : { depositConsent }),
+  };
+}
+
+/**
+ * 后端押金同意门拒单码（#727）：客户端押金识别缺失/过期（fail-open 类）时
+ * 命中——两处创单面据此自愈回同意态（就地补披露与勾选），不落死 error 态。
+ */
+export const DEPOSIT_CONSENT_REQUIRED_CODE = "order_deposit_consent_required";
 
 export const REPLACE_PROVIDER: TypedDocumentNode<
   { replaceProvider: CreateOrderPayload },

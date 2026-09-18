@@ -3973,6 +3973,9 @@ input CreateOrderInput {
 
   "支付渠道"
   provider: String!
+
+  "确认已阅读并同意押金条款（仅押金单需要；非押金单忽略）"
+  depositConsent: Boolean
 }
 
 enum OrderSortField {

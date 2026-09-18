@@ -59,6 +59,7 @@
     "order_already_processed",
     "order_channel_create_failed",
     "order_deposit_amount_missing",
+    "order_deposit_consent_required",
     "order_duplicate_active",
     "order_enrollment_not_found",
     "order_enrollment_required",
