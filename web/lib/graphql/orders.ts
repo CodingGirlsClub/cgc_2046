@@ -157,6 +157,12 @@ export function createOrderInput(
  */
 export const DEPOSIT_CONSENT_REQUIRED_CODE = "order_deposit_consent_required";
 
+/**
+ * 换渠道同意事实校验拒单码（#750/F-05）：存量押金单无同意留痕时命中——
+ * 弹框据此自动带同意标记重新创单（补留痕），不把用户钉死在错误文案上。
+ */
+export const DEPOSIT_CONSENT_MISSING_CODE = "order_deposit_consent_missing";
+
 export const REPLACE_PROVIDER: TypedDocumentNode<
   { replaceProvider: CreateOrderPayload },
   { input: { orderId: string; provider: PaymentProvider } }

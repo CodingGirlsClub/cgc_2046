@@ -7,6 +7,7 @@ import {
   OfferingsListPage,
   OfferingNewPage,
 } from "./offering-pages";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
@@ -847,9 +848,26 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
       id: "enr-deposit",
       status: "payment_pending",
     });
-    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）
-    apolloClient.query.mockResolvedValue({
-      data: { myOrders: { results: [] } },
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）；
+    // #748：押金事实由弹框自取 MY_ENROLLMENT（paymentMode=deposit + 现值同源金额）
+    apolloClient.query.mockImplementation(({ query }: { query: unknown }) => {
+      if (query === MY_ENROLLMENT) {
+        return Promise.resolve({
+          data: {
+            myEnrollments: {
+              results: [
+                {
+                  id: "enr-deposit",
+                  status: "payment_pending",
+                  paymentMode: "deposit",
+                  depositAmountCents: 6900,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { myOrders: { results: [] } } });
     });
 
     render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);

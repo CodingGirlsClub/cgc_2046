@@ -3989,6 +3989,8 @@ enum OrderSortField {
   AMOUNT_CENTS
   TIER_SNAPSHOT
   STATUS
+  DEPOSIT_CONSENT_AT
+  DEPOSIT_TERMS_VERSION
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
@@ -4168,6 +4170,43 @@ input OrderFilterExpireAt {
   eq: DateTime
   notEq: DateTime
   in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input OrderFilterDepositTermsVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterDepositConsentAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
   lessThan: DateTime
   greaterThan: DateTime
   lessThanOrEqual: DateTime
@@ -4376,6 +4415,10 @@ input OrderFilterInput {
 
   status: OrderFilterStatus
 
+  depositConsentAt: OrderFilterDepositConsentAt
+
+  depositTermsVersion: OrderFilterDepositTermsVersion
+
   expireAt: OrderFilterExpireAt
 
   refundedAt: OrderFilterRefundedAt
@@ -4426,6 +4469,10 @@ type Order {
   tierSnapshot: JsonString!
 
   status: String!
+
+  depositConsentAt: DateTime
+
+  depositTermsVersion: String
 
   expireAt: DateTime!
 

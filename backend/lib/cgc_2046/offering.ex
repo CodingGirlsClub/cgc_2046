@@ -105,10 +105,21 @@ defmodule Cgc2046.Offering do
   与 `fetch_titles_by_ids/2` 同形状（per-kind per-tenant 批量读，消 N+1；
   空 id 列表不查询）。starts_at 为供给物原始值（可 nil）；venue 为 Event
   venue map 经 `Events.Venue.text/1` 的「city+district」文本化（Course 或无
-  venue → nil），与 event_reminder 通知文案同款。
+  venue → nil），与 event_reminder 通知文案同款。另带缴费槽字段
+  `registration_deadline / deposit_enabled / deposit_amount_cents /
+  pricing_enabled`（#749 起 deposit 金额入投影，Enrollment 展示面与创单同源）。
   """
   @spec fetch_schedule_by_ids(%{optional(:event | :course) => [String.t()]}, String.t()) ::
-          %{String.t() => %{starts_at: DateTime.t() | nil, venue: String.t() | nil}}
+          %{
+            String.t() => %{
+              starts_at: DateTime.t() | nil,
+              venue: String.t() | nil,
+              registration_deadline: DateTime.t() | nil,
+              deposit_enabled: boolean(),
+              deposit_amount_cents: pos_integer() | nil,
+              pricing_enabled: boolean()
+            }
+          }
   def fetch_schedule_by_ids(ids_by_kind, tenant) do
     Enum.reduce(ids_by_kind, %{}, fn {kind, ids}, acc ->
       Map.merge(acc, schedule_for(resource_for(kind), ids, tenant))
@@ -235,6 +246,9 @@ defmodule Cgc2046.Offering do
          venue: venue_text_for(offering),
          registration_deadline: offering.registration_deadline,
          deposit_enabled: Map.get(offering, :deposit_enabled) == true,
+         # 押金现值（#749）：Enrollment.deposit_amount_cents 计算字段与创单金额
+         # 同源（活动现值权威）；course 无押金列 → nil
+         deposit_amount_cents: Map.get(offering, :deposit_amount_cents),
          pricing_enabled: offering.pricing_enabled == true
        }}
     end)
