@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
 import PublicHome from "@/components/flashback/public-home";
-import "../flashback.css";
+import "./flashback.css";
 
 type PageProps = {
 	params: Promise<{ locale: string }>;
