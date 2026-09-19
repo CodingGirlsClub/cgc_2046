@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
@@ -47,6 +47,8 @@ export default function FlashbackCorridorPage() {
   const [scrollAnchor, setScrollAnchor] = useState('')
   // U4 开卡层/U7 授权层(U3 先立桩,交互后续单元接线)
   const [cardOpen, setCardOpen] = useState(false)
+  // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
+  const [shutter, setShutter] = useState(false)
   const cardOpenedAt = useRef(0)
   const [licenseOpen, setLicenseOpen] = useState(false)
   // U7 授权弹层:三档+多选圈选+预览(数据 me;写走 useQuoteLicense 单源)
@@ -127,6 +129,15 @@ export default function FlashbackCorridorPage() {
     },
     [loadStats]
   )
+
+  // U8:member 就绪(非 welcome 首程)→ 快门仪式层
+  useEffect(() => {
+    if (mode.kind !== 'member') return
+    const params = Taro.getCurrentInstance().router?.params
+    if (params?.welcome === '1') return
+    setShutter(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
+  }, [mode.kind])
 
   // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点。
   // U6「看看未来」:?future=1 → 数据就绪后滚到未来段(计划原文 scrollIntoView)
@@ -467,6 +478,18 @@ export default function FlashbackCorridorPage() {
             <Text className={styles.viewerHint}>名册只对同场的人可见——这里是每一年发生过的事。</Text>
           )}
       </ScrollView>
+
+      {/* U8 快门仪式层:回访进门——呼吸快门,点按即入(原型 G intro) */}
+      {shutter && mode.kind === 'member' && (
+        <View className={styles.shutterMask} onClick={() => setShutter(false)}>
+          <View className={styles.shutterCenter}>
+            <Text className={styles.shutterEyebrow}>IN A FLASH · 闪念间</Text>
+            <Text className={styles.shutterLead}>多年前，{'\n'}你写过一些答案。</Text>
+            <View className={styles.shutterBtn} onClick={(e) => { e.stopPropagation(); setShutter(false) }} />
+            <Text className={styles.shutterHint}>按下快门，回到那天</Text>
+          </View>
+        </View>
+      )}
 
       {/* U4 开卡层:暗场+MyCard(autoOpen 翻面);卡外空白/点卡外=合上(500ms 闸) */}
       {mode.kind === 'member' && cardOpen && (
