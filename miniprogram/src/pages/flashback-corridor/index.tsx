@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import { futureEventCards } from '@/domain/flashback'
 import MyCard from '@/components/MyCard'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
@@ -229,6 +230,35 @@ export default function FlashbackCorridorPage() {
             </View>
           )}
         </View>
+
+        {/* U3 未来·场次段(修断裂 1):三行简卡,亮金可报名/灰卡状态标签,CTA 端内闭环 */}
+        {mode.kind === 'member' &&
+          mode.capsule.futureEvents.length > 0 &&
+          (() => {
+            const cards = futureEventCards(mode.capsule.futureEvents)
+            if (cards.length === 0) return null
+            return (
+              <View className={styles.futureSection}>
+                <Text className={styles.futureTitle}>未来 · 一起做点什么</Text>
+                {cards.map((card) => (
+                  <View
+                    key={card.id}
+                    className={`${styles.eventCard} ${card.status === 'open' ? styles.eventCardLit : styles.eventCardMuted}`}
+                    onClick={() => {
+                      if (card.status !== 'open') return
+                      void Taro.navigateTo({ url: `/pages/event-detail/index?id=${card.id}&kind=event` })
+                    }}
+                  >
+                    <Text className={styles.eventTitle}>{card.title}</Text>
+                    <Text className={styles.eventMeta}>{card.meta}</Text>
+                    <Text className={card.status === 'open' ? styles.eventCta : styles.eventBadge}>
+                      {card.status === 'open' ? '报名 →' : card.status === 'full' ? '名额已满' : '报名已截止'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )
+          })()}
         </View>
 
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}

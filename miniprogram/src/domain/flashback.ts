@@ -1,4 +1,4 @@
-import type { FlashbackCapsule, FlashbackFogSpan, FlashbackMeAnswer, FlashbackMyCard } from './models'
+import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard } from './models'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -286,4 +286,45 @@ export function summaryCardLayout(
     dividerY,
     footerTop
   }
+}
+
+// ── U3 未来段:场次三行卡判据(节点测试钉住) ─────────────────────────
+
+export interface FutureEventCardView {
+  id: string
+  slug: string
+  title: string
+  /** 城市钉联动行:城市 · 日期 · N 人已报名 */
+  meta: string
+  /** 可报名=亮金带 CTA;满员/截止=灰卡状态标签 */
+  status: 'open' | 'full' | 'closed'
+}
+
+/** 场次卡视图(KTD4 三行简卡):满员=capacity≠null 且 confirmed≥capacity;
+ * 截止=deadline<now;两者皆命中优先报「满员」。 */
+export function futureEventCards(
+  frames: FlashbackFutureFrame[],
+  now: Date = new Date()
+): FutureEventCardView[] {
+  const cards: FutureEventCardView[] = []
+  for (const frame of frames) {
+    for (const event of frame.events) {
+      const full =
+        event.capacity !== null && event.confirmedCount >= event.capacity
+      const closed =
+        !full &&
+        event.registrationDeadline !== null &&
+        new Date(event.registrationDeadline) < now
+      const date = event.startsAt ? new Date(event.startsAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : ''
+      const parts = [event.city, date, `${event.confirmedCount} 人已报名`].filter(Boolean)
+      cards.push({
+        id: event.id,
+        slug: event.slug,
+        title: event.title,
+        meta: parts.join(' · '),
+        status: full ? 'full' : closed ? 'closed' : 'open'
+      })
+    }
+  }
+  return cards
 }
