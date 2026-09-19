@@ -2389,39 +2389,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "附议 Action 卡（U5/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer/promoter/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
-    field :flashback_endorse, :flashback_endorse_result do
-      arg(:token, :string)
-      arg(:card_id, non_null(:id))
-      arg(:role_claimed, :string)
-
-      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
-      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
-
-      resolve(fn _, args, %{context: context} ->
-        flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context) do
-            case identity do
-              {:token, token} ->
-                Cgc2046.Flashback.Endorsements.endorse(
-                  token,
-                  args[:card_id],
-                  Map.get(args, :role_claimed)
-                )
-
-              {:person, person_id} ->
-                Cgc2046.Flashback.Endorsements.endorse_as_person(
-                  person_id,
-                  args[:card_id],
-                  Map.get(args, :role_claimed)
-                )
-            end
-          end
-        end)
-      end)
-    end
-
     @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
     field :flashback_recover, :flashback_recover_result do
       arg(:identifier, non_null(:string))
@@ -2494,39 +2461,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "闪念间·管理员建卡（U7/R13，PlatformAdmin）：从 Want/Give 导出人工挑卡（pilot 无自动聚类）；建卡即上墙（proposed 态）"
-    field :flashback_admin_create_card, :flashback_action_card_result do
-      arg(:title, non_null(:string))
-      arg(:city, :string)
-      arg(:proposer_person_id, :id)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          flashback_call(fn ->
-            Cgc2046.Flashback.ActionCards.create_card(actor, to_string_keys(args))
-          end)
-        end)
-      end)
-    end
-
-    @desc "闪念间·管理员确认成场（U7/KTD5，PlatformAdmin）：forming → scheduled + 完整 Event 编排（建 draft → 回填 event_id → :launch 到 open → 置 scheduled → 入队成场通知）；initiativeSlug 必填（1024 立项），workspaceId 缺省走默认工作台"
-    field :flashback_admin_schedule_card, :flashback_action_card_result do
-      arg(:card_id, non_null(:id))
-      arg(:initiative_slug, non_null(:string))
-      arg(:workspace_id, :id)
-      arg(:title, :string)
-      arg(:starts_at, :datetime)
-      arg(:venue, :json)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          flashback_call(fn ->
-            Cgc2046.Flashback.ActionCards.schedule(actor, args.card_id, to_string_keys(args))
-          end)
-        end)
-      end)
-    end
-
     @desc "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案"
     field :flashback_claim, :flashback_claim_result do
       arg(:token, :string)
@@ -2573,21 +2507,6 @@ defmodule Cgc2046Web.GraphqlSchema do
             with {:ok, person_id} <- validate_like_person_id(args.person_id) do
               Cgc2046.Flashback.QuoteLicenses.set_hidden(actor, person_id, args.hidden)
             end
-          end)
-        end)
-      end)
-    end
-
-    @desc "闪念间·管理员回贴 done（U7/R13，PlatformAdmin）：scheduled → done；活动照片 data-URL（MIME 白名单 + ~3MB 上限）与回顾文字上墙"
-    field :flashback_admin_mark_card_done, :flashback_action_card_result do
-      arg(:card_id, non_null(:id))
-      arg(:photo_url, :string)
-      arg(:recap, :string)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          flashback_call(fn ->
-            Cgc2046.Flashback.ActionCards.mark_done(actor, args.card_id, to_string_keys(args))
           end)
         end)
       end)
@@ -3215,35 +3134,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:roster, non_null(list_of(non_null(:flashback_roster_entry))))
   end
 
-  object :flashback_action_card do
-    field(:id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:city, :string)
-    @desc "四态：proposed/forming/scheduled/done（R13 生命周期）"
-    field(:status, non_null(:string))
-    field(:event_id, :id)
-    @desc "scheduled 起有值：直链 /events/{event_slug} 报名页（不在闪念间内部闭环）"
-    field(:event_slug, :string)
-    field(:endorsement_count, non_null(:integer))
-    field(:endorsed_by_me, non_null(:boolean))
-    @desc "已认领角色集合（organizer/promoter/venue）"
-    field(:roles_claimed, non_null(list_of(non_null(:string))))
-  end
-
   object :flashback_capsule do
     field(:me, non_null(:flashback_capsule_me))
     field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
-    field(:action_cards, non_null(list_of(non_null(:flashback_action_card))))
-    @desc "城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩"
+    @desc "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
     field(:cities, non_null(list_of(non_null(:string))))
-  end
-
-  object :flashback_endorse_result do
-    field(:card_id, non_null(:id))
-    field(:status, non_null(:string))
-    field(:role_claimed, :string)
-    @desc "首次附议 true；再次点击（改角色）false——附议计数只随首次 +1"
-    field(:first_time, non_null(:boolean))
   end
 
   # ── 看板与兑换（U11/R24/R25）────────────────────────────────────────
@@ -3523,21 +3418,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:skipped, non_null(:integer))
   end
 
-  object :flashback_action_card_result do
-    field(:id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:city, :string)
-    @desc "proposed | forming | scheduled | done"
-    field(:status, non_null(:string))
-    field(:event_id, :id)
-    @desc "成场后卡的报名按钮直链该 Event 的公开 slug"
-    field(:event_slug, :string)
-    @desc "done 态回贴的活动照片（data-URL 或 http(s) URL）"
-    field(:photo_url, :string)
-    @desc "done 态回贴的回顾文字"
-    field(:recap, :string)
-  end
-
   input_object :flashback_today_input do
     @desc "「今天的你」问卷（R8）：四个自由文本 + Want/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
     field(:now_status, :string)
@@ -3620,14 +3500,6 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # 动员勾选拍平 → mobilization map（存储形状单一，前端不必拼 JSON）。
-  # 闪念间 admin mutation 的 atom 键 args → string 键 params（域层统一 string 键）。
-  defp to_string_keys(%{} = args) do
-    Map.new(args, fn
-      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
-      {k, v} -> {k, v}
-    end)
-  end
-
   defp today_params(input) do
     %{
       now_status: Map.get(input, :now_status),

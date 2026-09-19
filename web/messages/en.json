@@ -104,8 +104,6 @@
 		"flashback_invalid_voter_key": "Could not verify this device for likes — refresh and try again.",
 		"lock_timeout": "This workspace is busy right now. Please try again in a moment.",
 		"deadlock_detected": "A lock conflict was detected. Please try again in a moment.",
-		"flashback_invalid_transition": "This action card can't take that step — the four states only move forward in order.",
-		"flashback_forbidden": "Only platform admins can perform this action.",
 		"flashback_photo_invalid": "That photo format isn't supported — use a PNG/JPEG/WebP/GIF image.",
 		"flashback_photo_too_large": "That photo is too large — compress it to about 2.2MB or less and retry.",
 		"flashback_initiative_not_found": "That initiative can't be found — check the slug and retry.",

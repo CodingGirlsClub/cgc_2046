@@ -35,7 +35,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
 
   # 触达模板白名单（邮件渲染子句与短信模板各自对应；新模板须同步
   # Outreach.Emails 与 OutreachWorker 的渲染分派）。
-  @templates ~w(reconnect action_scheduled)
+  @templates ~w(reconnect)
 
   # 退订 token 的签名盐与有效期（首封触达后 90 天内可退；过期再点走找回入口）。
   @unsub_salt "flashback-unsubscribe"

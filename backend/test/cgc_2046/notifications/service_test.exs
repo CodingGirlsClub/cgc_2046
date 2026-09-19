@@ -680,38 +680,6 @@ defmodule Cgc2046.Notifications.ServiceTest do
     assert bad == %{"thing1" => %{"value" => "坏数据"}}
   end
 
-  test "flashback_action_scheduled 渲染：新活动发布提醒四槽（thing6/character_string10/thing4/thing11）" do
-    data =
-      send_and_capture("flashback_action_scheduled", %{
-        "card_id" => Ecto.UUID.generate(),
-        "event_id" => Ecto.UUID.generate(),
-        "title" => "骑行场",
-        "starts_at" => "2026-10-24T06:00:00Z",
-        "venue" => "北京"
-      })
-
-    # 模板 432「新活动发布提醒」（2026-09-18 申请）：活动名称/活动时间/活动地点/备注
-    assert data["thing6"]["value"] == "骑行场"
-    # character_string 槽人话时间：UTC 06:00 → 北京时区 14:00，无前导零
-    assert data["character_string10"]["value"] == "10.24 14:00"
-    assert data["thing4"]["value"] == "北京"
-    assert data["thing11"]["value"] == "你附议的行动成真了，来报名"
-  end
-
-  test "flashback_action_scheduled 渲染：starts_at 缺失/不可解析时时间槽跳过（drop_nils），其余槽照发" do
-    data =
-      send_and_capture("flashback_action_scheduled", %{
-        "card_id" => Ecto.UUID.generate(),
-        "event_id" => Ecto.UUID.generate(),
-        "title" => "骑行场",
-        "venue" => "北京"
-      })
-
-    refute Map.has_key?(data, "character_string10")
-    assert data["thing6"]["value"] == "骑行场"
-    assert data["thing11"]["value"] == "你附议的行动成真了，来报名"
-  end
-
   test "event_moderator_assigned 渲染：thing1 活动名 + thing5 固定指派文案" do
     data =
       send_and_capture("event_moderator_assigned", %{
@@ -834,8 +802,8 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 19 键集合（防表被改空）
-    assert length(registry_keys) == 19
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 18 键集合（防表被改空）
+    assert length(registry_keys) == 18
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))

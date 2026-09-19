@@ -6,7 +6,6 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   - 内容层待点亮：未寄出者 today=nil + answers=[]（零文本泄露）；
   - 寄出者内容显影（雾化版：▓▓ 遮蔽、原文字符不出现）；
   - 撤回后呈现：名册回到结构化卡 + 虚线内容位、「今天」格回虚线；
-  - 行动板计数与 endorsed_by_me / roles_claimed；
   - 附议幂等（一人一卡一行，再点改角色不重复计数）。
 
   手机/邮箱零出现在任何投影（KTD3 白名单断言）。
@@ -18,10 +17,7 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   alias Cgc2046.Flashback
 
   alias Cgc2046.Flashback.{
-    ActionCard,
     AlumniProjection,
-    Endorsement,
-    Endorsements,
     Person,
     QuoteLicense,
     Token
@@ -220,103 +216,6 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
     end
   end
 
-  describe "行动板（R13）" do
-    test "四态卡计数、endorsed_by_me 与 roles_claimed" do
-      archive = create_archive()
-      me = create_person(archive, %{})
-      other = create_person(archive, %{full_name: "李安静", surname: "李"})
-
-      proposed =
-        ActionCard
-        |> Ash.Changeset.for_create(:create, %{
-          title: "骑行场",
-          city: "北京",
-          proposer_person_id: me.id
-        })
-        |> Ash.create!(authorize?: false)
-
-      forming =
-        ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: "潜水场", city: "上海"})
-        |> Ash.create!(authorize?: false)
-
-      Endorsement
-      |> Ash.Changeset.for_create(:create, %{
-        card_id: forming.id,
-        person_id: me.id,
-        role_claimed: "organizer"
-      })
-      |> Ash.create!(authorize?: false)
-
-      Endorsement
-      |> Ash.Changeset.for_create(:create, %{card_id: proposed.id, person_id: other.id})
-      |> Ash.create!(authorize?: false)
-
-      capsule = capsule_for(issue_token(me))
-      by_title = Enum.map(capsule.action_cards, &{&1.title, &1}) |> Map.new()
-
-      assert by_title["骑行场"].endorsement_count == 1
-      assert by_title["骑行场"].endorsed_by_me == false
-      assert by_title["骑行场"].status == "proposed"
-
-      assert by_title["潜水场"].endorsement_count == 1
-      assert by_title["潜水场"].endorsed_by_me == true
-      assert by_title["潜水场"].roles_claimed == ["organizer"]
-    end
-  end
-
-  describe "附议写面（R13）" do
-    test "首次附议 first_time=true；再次点击改角色不重复计数" do
-      archive = create_archive()
-      me = create_person(archive, %{})
-
-      card =
-        ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-        |> Ash.create!(authorize?: false)
-
-      token = issue_token(me)
-
-      assert {:ok, %{first_time: true, role_claimed: "promoter"}} =
-               Endorsements.endorse(token, card.id, "promoter")
-
-      assert {:ok, %{first_time: false, role_claimed: "organizer"}} =
-               Endorsements.endorse(token, card.id, "organizer")
-
-      count =
-        Repo.aggregate(
-          Ecto.Query.from(e in "flashback_endorsements",
-            where: e.card_id == ^Ecto.UUID.dump!(card.id)
-          ),
-          :count
-        )
-
-      assert count == 1
-
-      capsule = capsule_for(token)
-      [card_payload] = capsule.action_cards
-      assert card_payload.endorsement_count == 1
-      assert card_payload.roles_claimed == ["organizer"]
-    end
-
-    test "非法角色与不存在的卡被拒" do
-      archive = create_archive()
-      me = create_person(archive, %{})
-      token = issue_token(me)
-
-      card =
-        ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-        |> Ash.create!(authorize?: false)
-
-      assert {:error, %{code: "flashback_invalid_input"}} =
-               Endorsements.endorse(token, card.id, "hacker")
-
-      assert {:error, %{code: "flashback_card_not_found"}} =
-               Endorsements.endorse(token, Ecto.UUID.generate(), nil)
-    end
-  end
-
   describe "身份双入口（R28 回访正门）" do
     test "无 token 未登录 → auth_required；登录未绑定 → not_bound" do
       assert {:error, %{code: "flashback_auth_required"}} =
@@ -362,7 +261,7 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   end
 
   describe "城市钉（R34）" do
-    test "cities 投影：名册城市 ∪ 行动卡城市，去重排序；未入选者城市不进" do
+    test "cities 投影：名册城市，去重排序；未入选者城市不进" do
       archive = create_archive()
       create_person(archive, %{})
       create_person(archive, %{full_name: "李安静", surname: "李", city: "上海"})
@@ -374,18 +273,14 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
         participation: :not_selected
       })
 
-      ActionCard
-      |> Ash.Changeset.for_create(:create, %{title: "杭州骑行", city: "杭州"})
-      |> Ash.create!(authorize?: false)
-
       capsule =
         capsule_for(issue_token(create_person(archive, %{full_name: "周发起", surname: "周"})))
 
-      # "上海" < "北京" < "杭州"（UTF-8 字节序）；广州（not_selected）不在
-      assert capsule.cities == ["上海", "北京", "杭州"]
+      # "上海" < "北京"（UTF-8 字节序）；广州（not_selected）不在
+      assert capsule.cities == ["上海", "北京"]
     end
 
-    test "city 过滤：roster 按人城市、行动卡按卡城市、筛空场次整架撤下；cities 不随过滤收缩" do
+    test "city 过滤：roster 按人城市、筛空场次整架撤下；cities 不随过滤收缩" do
       bj_archive =
         create_archive(%{key: "2014-01-11-bj", name: "Rails Girls Beijing", city: "北京"})
 
@@ -396,14 +291,6 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       create_person(bj_archive, %{full_name: "李安静", surname: "李", city: "上海"})
       create_person(sh_archive, %{full_name: "张广州", surname: "张", city: "广州"})
 
-      ActionCard
-      |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京", proposer_person_id: me.id})
-      |> Ash.create!(authorize?: false)
-
-      ActionCard
-      |> Ash.Changeset.for_create(:create, %{title: "潜水场", city: "上海"})
-      |> Ash.create!(authorize?: false)
-
       capsule = capsule_for(issue_token(me), "上海")
 
       # 名册按**人**的城市筛：北京场次里的上海人保留（场次城市是北京），
@@ -412,16 +299,13 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       assert only.key == "2014-01-11-bj"
       assert Enum.map(only.roster, & &1.surname_masked) == ["李**"]
 
-      assert Enum.map(capsule.action_cards, & &1.title) == ["潜水场"]
-
       # 钉条数据源不随过滤收缩（否则选定城市后其余钉消失，无法切回全部）
       assert capsule.cities == ["上海", "北京", "广州"]
 
-      # 未筛：全量名册（3 人 2 场）与 2 卡
+      # 未筛：全量名册（3 人 2 场）
       all = capsule_for(issue_token(me))
       assert length(all.archives) == 2
       assert Enum.map(all.archives, &length(&1.roster)) |> Enum.sum() == 3
-      assert length(all.action_cards) == 2
     end
 
     test "空串 city 视为未筛（query 变量空串不筛）" do

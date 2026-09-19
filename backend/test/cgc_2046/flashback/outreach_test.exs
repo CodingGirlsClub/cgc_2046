@@ -156,18 +156,6 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert email.text_body =~ "/api/flashback/unsubscribe?t="
     end
 
-    test "email 腿（成场通知）：args 只带 card_id 锚点，卡未 scheduled 时静默跳过" do
-      archive = create_archive()
-      person = create_person(archive)
-      card = create_card(%{title: "骑行场", city: "北京"})
-
-      args = enqueue_one(person, "action_scheduled", %{"card_id" => card.id})
-
-      assert :ok = perform_job(OutreachWorker, args)
-      refute_receive {:email, _}, 50
-      assert outreach_row!(person.id, :email).status == :queued
-    end
-
     test "sms 腿：phone-only 档案 → SendCloud 模板短信带 url + unsub 变量" do
       archive = create_archive()
       person = create_person(archive, email: nil, phone: @phone)
@@ -364,20 +352,10 @@ defmodule Cgc2046.Flashback.OutreachTest do
   # ── 邮件模板纪律（R30：页脚退订链接不可漏） ─────────────────────────
 
   describe "邮件模板（页脚退订链接硬约束）" do
-    test "reconnect / action_scheduled 两模板的 HTML 与纯文本均含退订链接" do
-      for email <- [
-            Emails.reconnect(@email, "王同学", "https://x/enter?token=abc", "https://x/unsub?t=d"),
-            Emails.action_scheduled(
-              @email,
-              "王同学",
-              "骑行场",
-              "https://x/events/ride",
-              "https://x/unsub?t=d"
-            )
-          ] do
-        assert email.html_body =~ "https://x/unsub?t=d"
-        assert email.text_body =~ "https://x/unsub?t=d"
-      end
+    test "reconnect 模板的 HTML 与纯文本均含退订链接" do
+      email = Emails.reconnect(@email, "王同学", "https://x/enter?token=abc", "https://x/unsub?t=d")
+      assert email.html_body =~ "https://x/unsub?t=d"
+      assert email.text_body =~ "https://x/unsub?t=d"
     end
   end
 
@@ -438,12 +416,6 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
     {^n, nil} = Repo.insert_all("flashback_people", rows)
     :ok
-  end
-
-  defp create_card(attrs) do
-    Flashback.ActionCard
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create!(authorize?: false)
   end
 
   defp enqueue_one(person, template, extra \\ %{}) do

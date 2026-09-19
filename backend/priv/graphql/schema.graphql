@@ -6348,49 +6348,13 @@ type FlashbackCapsuleArchive {
   roster: [FlashbackRosterEntry!]!
 }
 
-type FlashbackActionCard {
-  id: ID!
-
-  title: String!
-
-  city: String
-
-  "四态：proposed\/forming\/scheduled\/done（R13 生命周期）"
-  status: String!
-
-  eventId: ID
-
-  "scheduled 起有值：直链 \/events\/{event_slug} 报名页（不在闪念间内部闭环）"
-  eventSlug: String
-
-  endorsementCount: Int!
-
-  endorsedByMe: Boolean!
-
-  "已认领角色集合（organizer\/promoter\/venue）"
-  rolesClaimed: [String!]!
-}
-
 type FlashbackCapsule {
   me: FlashbackCapsuleMe!
 
   archives: [FlashbackCapsuleArchive!]!
 
-  actionCards: [FlashbackActionCard!]!
-
-  "城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩"
+  "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
   cities: [String!]!
-}
-
-type FlashbackEndorseResult {
-  cardId: ID!
-
-  status: String!
-
-  roleClaimed: String
-
-  "首次附议 true；再次点击（改角色）false——附议计数只随首次 +1"
-  firstTime: Boolean!
 }
 
 type FlashbackRates {
@@ -6705,28 +6669,6 @@ type FlashbackOutreachDispatchResult {
 
   "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
   skipped: Int!
-}
-
-type FlashbackActionCardResult {
-  id: ID!
-
-  title: String!
-
-  city: String
-
-  "proposed | forming | scheduled | done"
-  status: String!
-
-  eventId: ID
-
-  "成场后卡的报名按钮直链该 Event 的公开 slug"
-  eventSlug: String
-
-  "done 态回贴的活动照片（data-URL 或 http(s) URL）"
-  photoUrl: String
-
-  "done 态回贴的回顾文字"
-  recap: String
 }
 
 input FlashbackTodayInput {
@@ -7372,9 +7314,6 @@ type RootMutationType {
   "提交奖品兑换申请（U11\/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动）"
   flashbackRedeem(token: String, channelNote: String!): FlashbackRedeemResult
 
-  "附议 Action 卡（U5\/R13）：一人一卡一行幂等（再点=改认角色）；角色 organizer\/promoter\/venue。U9 起双入口：token 省略时按登录账号绑定档案（小程序「我的闪念间」——先订阅授权后提交）"
-  flashbackEndorse(token: String, cardId: ID!, roleClaimed: String): FlashbackEndorseResult
-
   "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
   flashbackRecover(identifier: String!): FlashbackRecoverResult
 
@@ -7386,14 +7325,6 @@ type RootMutationType {
 
   "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（email 优先\/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
   flashbackAdminSendOutreach(archiveKey: String!, template: String!): FlashbackOutreachDispatchResult
-
-  "闪念间·管理员建卡（U7\/R13，PlatformAdmin）：从 Want\/Give 导出人工挑卡（pilot 无自动聚类）；建卡即上墙（proposed 态）"
-  flashbackAdminCreateCard(title: String!, city: String, proposerPersonId: ID): FlashbackActionCardResult
-
-  "闪念间·管理员确认成场（U7\/KTD5，PlatformAdmin）：forming → scheduled + 完整 Event 编排（建 draft → 回填 event_id → :launch 到 open → 置 scheduled → 入队成场通知）；initiativeSlug 必填（1024 立项），workspaceId 缺省走默认工作台"
-  flashbackAdminScheduleCard(
-    cardId: ID!, initiativeSlug: String!, workspaceId: ID, title: String, startsAt: DateTime, venue: Json
-  ): FlashbackActionCardResult
 
   "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
   flashbackClaim(token: String): FlashbackClaimResult
@@ -7415,9 +7346,6 @@ type RootMutationType {
     "true=下线；false=恢复"
     hidden: Boolean!
   ): FlashbackQuoteHiddenResult
-
-  "闪念间·管理员回贴 done（U7\/R13，PlatformAdmin）：scheduled → done；活动照片 data-URL（MIME 白名单 + ~3MB 上限）与回顾文字上墙"
-  flashbackAdminMarkCardDone(cardId: ID!, photoUrl: String, recap: String): FlashbackActionCardResult
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

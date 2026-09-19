@@ -5,8 +5,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
 
   模板清单与 `Outreach.Dispatch.templates/0` 白名单一一对应：
 
-  - `reconnect`——唤醒首封（快门开场 + 专属链接）；
-  - `action_scheduled`——成场通知（U7 消费：你附议的卡成真了，报名直达）。
+  - `reconnect`——唤醒首封（快门开场 + 专属链接）。
 
   收件地址与退订链接由 worker 传入（退订 token 按 person 铸造，模板层不自造）。
   """
@@ -23,25 +22,6 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
         <p>按下快门，白光一闪——那张照片会慢慢显影出当年的你写下的每个字。</p>
         #{cta(enter_url, "打开我的闪念间")}
         #{plain_url(enter_url)}
-        """,
-        unsub_url
-      )
-    )
-  end
-
-  @doc "成场通知（U7/R13a）：附议的卡成真了——报名直达链接。"
-  @spec action_scheduled(String.t(), String.t() | nil, String.t(), String.t(), String.t()) ::
-          Swoosh.Email.t()
-  def action_scheduled(to_email, display_name, card_title, event_url, unsub_url) do
-    base(to_email, display_name, "你附议的「#{card_title}」成真了——来报名")
-    |> Swoosh.Email.text_body(action_scheduled_text(card_title, event_url, unsub_url))
-    |> Swoosh.Email.html_body(
-      wrap(
-        ~s"""
-        <p>你在闪念间附议的「#{escape(card_title)}」已经成场。</p>
-        <p>日期与城市都在活动页上，报名入口现在打开着。</p>
-        #{cta(event_url, "查看场次并报名")}
-        #{plain_url(event_url)}
         """,
         unsub_url
       )
@@ -68,20 +48,6 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     按下快门，白光一闪——那张照片会慢慢显影出当年的你写下的每个字。
 
     打开我的闪念间：#{enter_url}
-
-    不想再收到此类邮件？取消订阅：#{unsub_url}
-
-    —— CGC 2046
-    """
-  end
-
-  defp action_scheduled_text(card_title, event_url, unsub_url) do
-    """
-    你在闪念间附议的「#{card_title}」已经成场。
-
-    日期与城市都在活动页上，报名入口现在打开着。
-
-    查看场次并报名：#{event_url}
 
     不想再收到此类邮件？取消订阅：#{unsub_url}
 

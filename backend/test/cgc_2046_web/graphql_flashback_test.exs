@@ -651,37 +651,6 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       |> Ash.update!(authorize?: false)
     end
 
-    test "绑定账号 endorse：首条 proposed → forming，再点幂等改角色" do
-      archive = create_archive()
-      person = create_person(archive)
-      user = Cgc2046.AccountsFixtures.register_user("fb-session-endorse")
-      bind_person(person, user.id)
-
-      card =
-        Flashback.ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-        |> Ash.create!(authorize?: false)
-
-      first_query = """
-      mutation { flashbackEndorse(cardId: "#{card.id}", roleClaimed: "organizer") {
-        cardId: card_id status roleClaimed: role_claimed firstTime: first_time } }
-      """
-
-      res = post_as_user(first_query, user)
-      payload = res["data"]["flashbackEndorse"]
-      assert payload["status"] == "forming"
-      assert payload["firstTime"] == true
-
-      again_query = """
-      mutation { flashbackEndorse(cardId: "#{card.id}", roleClaimed: "promoter") {
-        cardId: card_id status roleClaimed: role_claimed firstTime: first_time } }
-      """
-
-      res = post_as_user(again_query, user)
-      assert res["data"]["flashbackEndorse"]["firstTime"] == false
-      assert res["data"]["flashbackEndorse"]["roleClaimed"] == "promoter"
-    end
-
     test "绑定账号：adjustFog / setQuoteLicense / submitToday（不写 intent_submitted）" do
       archive = create_archive()
       person = create_person(archive)
@@ -724,7 +693,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
     test "未登录且无 token → auth_required（不泄露存在性）" do
       endorse_query = """
-      mutation { flashbackEndorse(cardId: "#{Ecto.UUID.generate()}") { cardId: card_id } }
+      query { flashbackDeletePreview { personId: person_id } }
       """
 
       res =
@@ -740,7 +709,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       user = Cgc2046.AccountsFixtures.register_user("fb-session-unbound")
 
       endorse_query = """
-      mutation { flashbackEndorse(cardId: "#{Ecto.UUID.generate()}") { cardId: card_id } }
+      query { flashbackDeletePreview { personId: person_id } }
       """
 
       res = post_as_user(endorse_query, user)
@@ -749,7 +718,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
   end
 
   describe "flashbackCapsule 全字段冒烟（实测 bug：uuid binary 炸 Jason 序列化）" do
-    test "roster/actionCards 的 id 经完整字段 query 可 JSON 序列化且为 uuid 文本" do
+    test "roster 的 id 经完整字段 query 可 JSON 序列化且为 uuid 文本" do
       archive = create_archive()
       person = create_person(archive)
       other = create_person(archive, %{full_name: "李雷", surname: "李"})
@@ -766,11 +735,6 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       })
       |> Ash.update!(authorize?: false)
 
-      card =
-        Cgc2046.Flashback.ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-        |> Ash.create!(authorize?: false)
-
       {plain, _token} = issue_token(person)
 
       query = """
@@ -779,7 +743,6 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
         archives { key isMine appliedCount: applied_count attendedCount: attended_count
           roster { id surnameMasked: surname_masked sentToWallAt: sent_to_wall_at
             today { nowStatus: now_status } answers { questionKey: question_key segments { text fog len } } } }
-        actionCards { id title status eventId: event_id endorsementCount: endorsement_count endorsedByMe: endorsed_by_me rolesClaimed: roles_claimed }
       } }
       """
 
@@ -817,23 +780,12 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert fog["len"] == 6 and fog["text"] == ""
       assert plain["text"] == "。喜欢周末骑行。"
       refute inspect(answer["segments"]) =~ "在盛大做测试"
-
-      [card_payload] = capsule["actionCards"]
-      assert card_payload["id"] =~ ~r/^[0-9a-f-]{36}$/
-      assert card_payload["endorsementCount"] == 0
-      assert card_payload["rolesClaimed"] == []
     end
 
-    test "city 参数（R34 城市钉）：roster 按人城市、actionCards 按卡城市过滤；cities 全量不缩" do
+    test "city 参数（R34 城市钉）：roster 按人城市过滤；cities 全量不缩" do
       archive = create_archive()
       person = create_person(archive, %{city: "北京"})
       create_person(archive, %{full_name: "李雷", surname: "李", city: "上海"})
-
-      for {title, city} <- [{"骑行场", "北京"}, {"潜水场", "上海"}] do
-        Cgc2046.Flashback.ActionCard
-        |> Ash.Changeset.for_create(:create, %{title: title, city: city})
-        |> Ash.create!(authorize?: false)
-      end
 
       {plain, _token} = issue_token(person)
 
@@ -841,7 +793,6 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       query { flashbackCapsule(token: "#{plain}", city: "上海") {
         cities
         archives { key roster { surnameMasked: surname_masked city } }
-        actionCards { title city }
       } }
       """
 
@@ -859,8 +810,6 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       [archive_payload] = capsule["archives"]
       assert [%{"surnameMasked" => "李*", "city" => "上海"}] = archive_payload["roster"]
-
-      assert [%{"title" => "潜水场", "city" => "上海"}] = capsule["actionCards"]
     end
   end
 end

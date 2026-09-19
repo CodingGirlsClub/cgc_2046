@@ -13,9 +13,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   ## 模板分派
 
-  `reconnect`（唤醒首封）/ `action_scheduled`（U7 成场通知；args 带 `card_id`
-  锚点，worker 内 stale 重查取最新 title 与 event slug——不在 args 里快照业务
-  字段）。
+  `reconnect`（唤醒首封）。
   """
 
   use Oban.Worker,
@@ -26,12 +24,9 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   require Ash.Query
   require Logger
 
-  import Ecto.Query
-
   alias Cgc2046.Accounts.TokenCredential
 
   alias Cgc2046.Flashback.{
-    ActionCard,
     Outreach,
     Outreach.Dispatch,
     Outreach.Emails,
@@ -40,7 +35,6 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   }
 
   alias Cgc2046.Mailer
-  alias Cgc2046.Repo
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -158,18 +152,6 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     end
   end
 
-  defp render_and_deliver("action_scheduled", :email, person, _plaintext, args) do
-    with {:ok, %{title: title, url: url}} <- scheduled_card(args) do
-      person.email
-      |> Emails.action_scheduled(display_name(person), title, url, unsub_url(person.id))
-      |> Mailer.deliver()
-      |> case do
-        {:ok, _} -> {:ok, :email}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
   # 短信模板附退订短链（KTD6）：vars = url + unsub 两个模板变量（SendCloud
   # 后台申请触达模板时按此变量名定制）；模板未配置时入队面已抑制 sms 通道，
   # 此处再 fail-closed 一次（配置竞态）。
@@ -196,49 +178,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     {:skip, "no_renderer_for_#{template}"}
   end
 
-  # action_scheduled 的活动直达链接（stale 重查：args 只带 card_id 锚点）。
-  defp scheduled_card(%{"card_id" => card_id}) do
-    ActionCard
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^card_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, %ActionCard{status: :scheduled, event_id: event_id} = card}
-      when not is_nil(event_id) ->
-        case event_slug(event_id) do
-          nil -> {:skip, "event_missing"}
-          slug -> {:ok, %{title: card.title, url: event_url(slug)}}
-        end
-
-      # 卡被撤下/未成场/不存在（含 nil）：通知已无意义，静默跳过（重查教训 L5）。
-      {:ok, _card} ->
-        {:skip, "card_not_scheduled"}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp scheduled_card(_args), do: {:skip, "card_id_missing"}
-
   defp sms_link("reconnect", plaintext, _args), do: {:ok, enter_url(plaintext)}
-
-  defp sms_link("action_scheduled", _plaintext, args) do
-    case scheduled_card(args) do
-      {:ok, %{url: url}} -> {:ok, url}
-      other -> other
-    end
-  end
-
-  # events 是多租户表，跨租户取 slug 用裸查询（Ash 全局读要 tenant；此处只读
-  # 公开投影同款字段，无策略面）。
-  defp event_slug(event_id) do
-    from(e in "events",
-      where: e.id == type(^event_id, Ecto.UUID) and e.status == "open",
-      select: e.slug
-    )
-    |> Repo.one()
-  end
 
   # ── 状态回写 ─────────────────────────────────────────────────────────
 
@@ -292,10 +232,6 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   defp enter_url(plaintext) do
     "#{base_url()}/zh-CN/flashback/enter?token=#{plaintext}"
-  end
-
-  defp event_url(slug) do
-    "#{base_url()}/zh-CN/events/#{slug}"
   end
 
   defp unsub_url(person_id) do
