@@ -118,6 +118,7 @@ import type {
   EnrollmentForm,
   EnrollmentSummary,
   FlashbackCapsule,
+  FlashbackWish,
   FlashbackClaimResult,
   FlashbackEnterResult,
   FlashbackFogSpan,
@@ -747,6 +748,22 @@ export class RealMiniProgramApi implements MiniProgramApi {
           }))
         }))
       })),
+      futureEvents: (capsule.futureEvents ?? []).map((frame) => ({
+        initiativeSlug: frame.initiativeSlug,
+        initiativeName: frame.initiativeName,
+        events: (frame.events ?? []).map((event) => ({
+          id: event.id,
+          slug: event.slug,
+          title: event.title,
+          city: event.city ?? null,
+          startsAt: event.startsAt ?? null,
+          capacity: event.capacity ?? null,
+          confirmedCount: event.confirmedCount ?? 0,
+          registrationDeadline: event.registrationDeadline ?? null
+        }))
+      })),
+      publicWishes: (capsule.publicWishes ?? []).map(mapWish),
+      myPrivateWishes: (capsule.myPrivateWishes ?? []).map(mapWish),
       cities: capsule.cities ?? []
     }
   }
@@ -988,5 +1005,36 @@ export class RealMiniProgramApi implements MiniProgramApi {
       }))
       // 非终态优先(一 enrollment 至多一非终态单,U1 不变量),终态单按同序稳定输出
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
+  }
+}
+
+
+// 愿望映射（U1）：comments 遮罩姓与计数直传
+function mapWish(wish: {
+  id: string
+  content: string
+  city?: string | null
+  wisherMasked?: string | null
+  endorsementCount: number
+  endorsedByMe: boolean
+  mine: boolean
+  comments?: Array<{ id: string; content: string; commenterMasked?: string | null; insertedAt: string }>
+  insertedAt: string
+}): FlashbackWish {
+  return {
+    id: wish.id,
+    content: wish.content,
+    city: wish.city ?? null,
+    wisherMasked: wish.wisherMasked ?? null,
+    endorsementCount: wish.endorsementCount ?? 0,
+    endorsedByMe: wish.endorsedByMe ?? false,
+    mine: wish.mine ?? false,
+    comments: (wish.comments ?? []).map((c) => ({
+      id: c.id,
+      content: c.content,
+      commenterMasked: c.commenterMasked ?? null,
+      insertedAt: c.insertedAt
+    })),
+    insertedAt: wish.insertedAt
   }
 }
