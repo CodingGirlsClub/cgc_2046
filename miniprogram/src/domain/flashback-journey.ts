@@ -248,3 +248,10 @@ export function eventStats(archive: FlashbackCapsuleArchive): CorridorEventStats
 export function eventFogLine(entry: Pick<FlashbackRosterEntry, 'city' | 'occupationThen'>): string {
   return [[entry.city, entry.occupationThen].filter(Boolean).join(' · '), '答案还在等她'].filter(Boolean).join(' · ')
 }
+
+/** 卡面题干（questionKey → 中文；free 题白名单外的 key 原样显示兜底） */
+export function questionLabel(questionKey: string): string {
+  if (questionKey === 'self_intro') return '请简单的介绍一下自己'
+  if (questionKey === 'funny_thing') return '你做过的有意思的事情'
+  return questionKey
+}

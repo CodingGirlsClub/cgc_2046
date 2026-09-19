@@ -10,8 +10,7 @@ import {
   journeyQuiz,
   quizResultText,
   revealStamp,
-  SEND_OVERLAY
-} from '@/domain/flashback-journey'
+  SEND_OVERLAY, questionLabel } from '@/domain/flashback-journey'
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
 import styles from './index.module.css'
 
@@ -28,13 +27,6 @@ const INVALID_COPY: Record<FlashbackTokenInvalidCode, string> = {
   flashback_token_claimed: '这张卡已经被收进一个账号了。登录那个账号，或用网页端「闪念间」找回你的那一张。',
   flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，网页端「闪念间」凭手机号可以找回。',
   flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭手机号找回。'
-}
-
-/** 卡面题干（questionKey → 中文；free 题白名单外的 key 原样显示兜底） */
-function questionLabel(questionKey: string): string {
-  if (questionKey === 'self_intro') return '请简单的介绍一下自己'
-  if (questionKey === 'funny_thing') return '你做过的有意思的事情'
-  return questionKey
 }
 
 /**

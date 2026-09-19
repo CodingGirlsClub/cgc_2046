@@ -4,7 +4,7 @@ import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, shareMessage } from '@/domain/flashback'
+import { myCardView, quoteLikeBadge, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
@@ -45,11 +45,22 @@ export default function FlashbackCorridorPage() {
   const [shareSheet, setShareSheet] = useState(false)
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
-  // U4 开卡层/U7 授权层(U3 先立桩,交互后续单元接线)
-  const [cardOpen, setCardOpen] = useState(false)
+  // U4 开卡层/U7 授权层:分层入口(view=看档案停在合着面;write=错峰翻面+定位今天块)
+  const [cardLayer, setCardLayer] = useState<null | 'view' | 'write'>(null)
+  // write 模式翻面落定后抽屉内滚动锚点
+  const [cardScrollTo, setCardScrollTo] = useState('')
   // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
   const [shutter, setShutter] = useState(false)
   const cardOpenedAt = useRef(0)
+  const openCardLayer = (mode: 'view' | 'write') => {
+    setCardLayer(mode)
+    setCardScrollTo('')
+    cardOpenedAt.current = Date.now()
+    if (mode === 'write') {
+      // 翻面错峰(抽屉升起 0.28s + 翻转 0.9s)完成后滚到今天块
+      setTimeout(() => setCardScrollTo('fbTodayBlock'), 1250)
+    }
+  }
   const [licenseOpen, setLicenseOpen] = useState(false)
   // U7 授权弹层:三档+多选圈选+预览(数据 me;写走 useQuoteLicense 单源)
   const [licensePicks, setLicensePicks] = useState<QuoteSpanPick[]>([])
@@ -282,10 +293,7 @@ export default function FlashbackCorridorPage() {
         <View className={styles.cardDock}>
           <View
           className={styles.miniCard}
-          onClick={() => {
-            setCardOpen(true)
-            cardOpenedAt.current = Date.now()
-          }}
+          onClick={() => openCardLayer('view')}
         >
             <Text className={styles.miniCardName}>{me.fullName}</Text>
             <Text className={styles.miniCardFacts}>
@@ -296,10 +304,7 @@ export default function FlashbackCorridorPage() {
           <View className={styles.dockActions}>
             <Text
               className={styles.dockWritePrimary}
-              onClick={() => {
-                setCardOpen(true)
-                cardOpenedAt.current = Date.now()
-              }}
+              onClick={() => openCardLayer('write')}
             >
               ✎ 写今天的你
             </Text>
@@ -396,7 +401,7 @@ export default function FlashbackCorridorPage() {
                 <Text className={styles.todayLitCap}>你刚寄出的照片</Text>
               </View>
             ) : me ? (
-              <View className={styles.todayVacant} onClick={() => setCardOpen(true)}>
+              <View className={styles.todayVacant} onClick={() => openCardLayer('write')}>
                 <Text className={styles.todayVacantText}>你的位置</Text>
               </View>
             ) : (
@@ -524,31 +529,55 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* U4 开卡层:暗场+MyCard(autoOpen 翻面);卡外空白/点卡外=合上(500ms 闸) */}
-      {mode.kind === 'member' && cardOpen && (
+      {/* U4 开卡层:暗场+MyCard;view=停在合着面(点按翻开),write=错峰翻面+定位今天块;
+          遮罩 catchTouchMove 防滚动穿透;闸 1100ms≥翻转时长 */}
+      {mode.kind === 'member' && !!cardLayer && (
         <View
           className={styles.layerMask}
+          catchMove
           onClick={() => {
-            if (Date.now() - cardOpenedAt.current < 500) return
-            setCardOpen(false)
+            if (Date.now() - cardOpenedAt.current < 1100) return
+            setCardLayer(null)
           }}
         >
-          <View
+          {/* chrome 全部悬浮于遮罩:状态小字在卡上方,分享胶囊在卡下方,卡是唯一主角 */}
+          <View className={styles.maskBadge}>
+            <View className={styles.maskBadgeLeft}>
+              {(() => {
+                const today = mode.capsule.me.today
+                const hasToday = !!(today && (today.nowStatus || today.want || today.say))
+                const text = today?.sentToWallAt && hasToday
+                  ? '已寄出到校友墙'
+                  : hasToday
+                    ? '写好了 · 寄出贴上墙'
+                    : '点击照片翻面写字 · 再点寄出'
+                return <Text className={today?.sentToWallAt && hasToday ? styles.wallOn : styles.wallOff}>{text}</Text>
+              })()}
+              {quoteLikeBadge(mode.capsule.me) && (
+                <Text className={styles.maskLike}>{quoteLikeBadge(mode.capsule.me)}</Text>
+              )}
+            </View>
+            <Text className={styles.layerClose} onClick={() => setCardLayer(null)}>✕</Text>
+          </View>
+          <ScrollView
+            scrollY
+            scrollIntoView={cardScrollTo}
             className={styles.layerCard}
             onClick={(e) => e.stopPropagation()}
           >
             <MyCard
               capsule={mode.capsule}
+              token={mode.token}
               onWrite={() => void reloadMember()}
-              autoOpen
-              onOpenShare={() => setLicenseOpen(true)}
+              autoOpen={cardLayer === 'write'}
+              chrome={false}
             />
-          </View>
+          </ScrollView>
         </View>
       )}
       {/* U7 金句授权弹层:badge 勇气语+三档+多选圈选+两档预览(所见即所得) */}
       {licenseOpen && mode.kind === 'member' && (
-        <View className={styles.wishSheetMask} onClick={() => setLicenseOpen(false)}>
+        <View className={styles.wishSheetMask} catchMove onClick={() => setLicenseOpen(false)}>
           <View className={styles.licenseSheet} onClick={(e) => e.stopPropagation()}>
             <View className={styles.wishSheetBar} />
             <Text className={styles.wishSheetTitle}>金句授权</Text>
@@ -670,7 +699,7 @@ export default function FlashbackCorridorPage() {
 
       {/* U4 公开愿望模态(R6):全文+留言流+附议/已附议+本人删除两步确认 */}
       {wishModal && (
-        <View className={styles.wishModalMask} onClick={() => setWishModal(null)}>
+        <View className={styles.wishModalMask} catchMove onClick={() => setWishModal(null)}>
           <View className={styles.wishModal} onClick={(e) => e.stopPropagation()}>
             <Text className={styles.wishModalContent}>{wishModal.content}</Text>
             <View className={styles.wishFoot}>
@@ -717,7 +746,7 @@ export default function FlashbackCorridorPage() {
       )}
       {/* U7 报名 sheet:详情+押金;报名→event-detail 端内闭环(押金支付在那里) */}
       {eventSheet && (
-        <View className={styles.wishSheetMask} onClick={() => setEventSheet(null)}>
+        <View className={styles.wishSheetMask} catchMove onClick={() => setEventSheet(null)}>
           <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
             <View className={styles.wishSheetBar} />
             <Text className={styles.wishSheetTitle}>{eventSheet.title}</Text>
@@ -740,7 +769,7 @@ export default function FlashbackCorridorPage() {
 
       {/* U5 许愿半屏弹层(KD3/R8):文本+可见性+提交,提交后落位反馈 */}
       {wishSheet && (
-        <View className={styles.wishSheetMask} onClick={() => setWishSheet(false)}>
+        <View className={styles.wishSheetMask} catchMove onClick={() => setWishSheet(false)}>
           <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
             <View className={styles.wishSheetBar} />
             <Text className={styles.wishSheetTitle}>许个愿</Text>

@@ -756,6 +756,13 @@ function responseFor(document: string, variables: object): unknown {
               // 雾面区间与雾化文本都从 mock state 推导（adjustFog 写后回读，P2）
               fogSpans: state.fogSpans,
               text: fogMaskedText(FLASHBACK_RAW_TEXT, state.fogSpans)
+            },
+            {
+              id: 'fb-answer-2',
+              questionKey: 'funny_thing',
+              rawText: FLASHBACK_FUN_RAW,
+              fogSpans: [],
+              text: FLASHBACK_FUN_RAW
             }
           ]
         },
