@@ -957,3 +957,21 @@
   border: 1rpx solid rgba(234, 85, 4, 0.45);
   border-radius: 999rpx; padding: 8rpx 22rpx;
 }
+
+/* 金句授权引导(一次性轻推) */
+.nudgeMask { position: fixed; inset: 0; background: rgba(12, 11, 14, 0.72); z-index: 340; display: flex; align-items: center; justify-content: center; }
+.nudgeCard {
+  width: 80vw; background: #f6f2e8; border-radius: 20rpx; padding: 48rpx 40rpx 36rpx;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.nudgeLead { font-size: 32rpx; color: #2d2a26; font-weight: 700; line-height: 1.6; }
+.nudgeSub { font-size: 24rpx; color: #6b6156; margin-top: 16rpx; line-height: 1.7; }
+.nudgePrimary {
+  margin-top: 36rpx; width: 100%; background: #ea5504; color: #fff; border: none;
+  border-radius: 999rpx; font-size: 28rpx; font-weight: 600; padding: 18rpx 0; line-height: 1.5;
+}
+.nudgePrimary::after { border: none; }
+.nudgeSkip { margin-top: 8rpx; width: 100%; background: none; border: none; color: #b0aca4; font-size: 24rpx; padding: 12rpx 0; line-height: 1.5; }
+.nudgeSkip::after { border: none; }
+/* 候选句题干小字 */
+.quoteCandidateQ { display: block; font-size: 18rpx; color: #8a8f98; margin-top: 6rpx; letter-spacing: 0.04em; }
