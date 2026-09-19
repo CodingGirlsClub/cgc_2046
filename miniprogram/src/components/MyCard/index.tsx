@@ -135,6 +135,8 @@ export default function MyCard({ capsule, onWrite }: { capsule: FlashbackCapsule
       <Text className={styles.licenseDesc}>
         {QUOTE_LEVEL_OPTIONS.find((option) => option.value === quoteLevel)?.desc}
       </Text>
+      {/* 勇气语(与 web quoteCourage/原独立页 licenseInspire 同源):档位后、选句前 */}
+      <Text className={styles.licenseInspire}>你的答案，会成为别人的勇气。</Text>
       {capsule.me.quote && <Text className={styles.quotePreview}>「{capsule.me.quote}」</Text>}
     </View>
   )
