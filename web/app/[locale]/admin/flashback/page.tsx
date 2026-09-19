@@ -97,6 +97,15 @@ export default function AdminFlashbackPage() {
 	const [previewError, setPreviewError] = useState(false);
 
 	// .then/.catch 链（reconciliation 页模式）：effect 内调用不触发 set-state-in-effect
+	const loadOutreachBase = useCallback(() => {
+		return fetchFlashbackAdminArchives()
+			.then((rows) => {
+				setArchives(rows);
+				setArchivesError(false);
+			})
+			.catch(() => setArchivesError(true));
+	}, []);
+
 	const load = useCallback(() => {
 		void loadOutreachBase();
 		return Promise.all([
@@ -116,7 +125,7 @@ export default function AdminFlashbackPage() {
 			.finally(() => {
 				setLoading(false);
 			});
-	}, []);
+	}, [loadOutreachBase]);
 
 	useEffect(() => {
 		void load();
@@ -161,15 +170,6 @@ export default function AdminFlashbackPage() {
 			})
 			.catch(() => setUpdateError(true));
 	};
-
-	const loadOutreachBase = useCallback(() => {
-		return fetchFlashbackAdminArchives()
-			.then((rows) => {
-				setArchives(rows);
-				setArchivesError(false);
-			})
-			.catch(() => setArchivesError(true));
-	}, []);
 
 	const loadBatchesAndRoster = useCallback((key: string) => {
 		if (!key) return Promise.resolve();
