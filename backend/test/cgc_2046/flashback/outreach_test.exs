@@ -233,6 +233,89 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── 单人重发（R2/R5：拒绝语义 + resend-* 批次；KD8 不频控） ──────────
+
+  describe "单人重发（resend_for_person）" do
+    test "未认领可达者：重发成功落 resend-* 批次，通道按可达性" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert {:ok, %{queued: 1, skipped: 0, batch: batch}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+
+      assert String.starts_with?(batch, "resend-")
+      assert %{status: :queued} = outreach_row!(person.id, :email)
+
+      # KD8 不频控：独立第二次重发照常入队（新批次）
+      assert {:ok, %{queued: 1, batch: batch2}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+
+      refute batch2 == batch
+      assert outreach_count(%{person_id: person.id}) == 2
+    end
+
+    test "重发通道选择：仅短信档走 sms 通道" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert {:ok, %{queued: 1}} = Dispatch.resend_for_person(person.id, "reconnect", :sms)
+
+      assert %{channel: :sms} = outreach_row!(person.id, :sms)
+    end
+
+    test "已认领者 → flashback_person_claimed，零新增行" do
+      archive = create_archive()
+      person = create_person(archive)
+      claim_person(person)
+
+      assert {:error, %{code: "flashback_person_claimed"}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+
+      assert outreach_count(%{person_id: person.id}) == 0
+    end
+
+    test "已退订者 → flashback_person_unsubscribed，零新增行" do
+      archive = create_archive()
+      person = create_person(archive)
+      :ok = Dispatch.unsubscribe_person(person.id)
+
+      assert {:error, %{code: "flashback_person_unsubscribed"}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+
+      assert outreach_count(%{person_id: person.id}) == 0
+    end
+
+    test "已删除者 → flashback_already_deleted，零新增行" do
+      archive = create_archive()
+      person = create_person(archive)
+      mark_deleted(person)
+
+      assert {:error, %{code: "flashback_already_deleted"}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+
+      assert outreach_count(%{person_id: person.id}) == 0
+    end
+
+    test "无可用通道者（字段全空）→ ok 零入队" do
+      archive = create_archive()
+      person = create_person(archive, email: nil, phone: nil)
+
+      assert {:ok, %{queued: 0, skipped: 1}} =
+               Dispatch.resend_for_person(person.id, "reconnect")
+    end
+
+    test "未知 person / 未知模板 → 显式业务错误" do
+      assert {:error, %{code: "flashback_person_not_found"}} =
+               Dispatch.resend_for_person(Ecto.UUID.generate(), "reconnect")
+
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert {:error, %{code: "flashback_invalid_input"}} =
+               Dispatch.resend_for_person(person.id, "bogus_template")
+    end
+  end
+
   # ── worker：token 铸造与双通道发送（KTD2/KTD6） ───────────────────────
 
   describe "outreach worker（token 在 worker 内铸造，明文只落邮件体）" do
@@ -520,6 +603,20 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
     {^n, nil} = Repo.insert_all("flashback_people", rows)
     :ok
+  end
+
+  defp claim_person(person) do
+    person
+    |> Ash.Changeset.for_update(:update, %{})
+    |> Ash.Changeset.force_change_attribute(:user_id, Ecto.UUID.generate())
+    |> Ash.update!(authorize?: false)
+  end
+
+  defp mark_deleted(person) do
+    person
+    |> Ash.Changeset.for_update(:update, %{})
+    |> Ash.Changeset.force_change_attribute(:deleted_at, DateTime.utc_now())
+    |> Ash.update!(authorize?: false)
   end
 
   defp enqueue_one(person, template, extra \\ %{}) do

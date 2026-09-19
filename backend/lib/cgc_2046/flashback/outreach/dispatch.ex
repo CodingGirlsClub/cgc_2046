@@ -133,6 +133,27 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   def templates, do: @templates
 
   @doc """
+  单人重发（R2/R5 运营补救路径）：对未认领、未退订、未删除且可达的校友
+  重新入队，批次号 `resend-<uuid 短码>`（独立于 archive 批次，幂等语义同
+  unique_send）。不可重发者返回带原因的业务错误，零新增行；不做频控
+  （KD8——每次重发都经确认流把关）。通道选择同 `enqueue_for_archive/3`。
+  """
+  @spec resend_for_person(String.t(), String.t(), atom()) ::
+          {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer(), batch: String.t()}}
+          | {:error, term()}
+  def resend_for_person(person_id, template, channel \\ :all) do
+    with {:ok, person} <- fetch_person(person_id),
+         :ok <- validate_resendable(person),
+         :ok <- validate_template(template),
+         :ok <- validate_channel(channel) do
+      batch = "resend-" <> binary_part(Ecto.UUID.generate(), 0, 8)
+      {queued, skipped} = enqueue_persons([person_id], template, batch, channel)
+
+      {:ok, %{queued: queued, skipped: skipped, batch: batch}}
+    end
+  end
+
+  @doc """
   通道字符串 → atom（R11；GraphQL/MCP 面共用，未知值 fail-closed）。
   """
   @spec parse_channel(String.t()) :: {:ok, atom()} | {:error, :invalid_channel}
@@ -271,6 +292,37 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────
+
+  defp fetch_person(person_id) do
+    Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^person_id)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, %{code: "flashback_person_not_found"}}
+      {:ok, person} -> {:ok, person}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # R5 拒绝表：删除 > 退订 > 认领（互斥状态，顺序只为错误码确定性）。
+  defp validate_resendable(person) do
+    cond do
+      person.deleted_at ->
+        {:error, %{code: "flashback_already_deleted", message: "person deleted"}}
+
+      person.outreach_unsubscribed_at ->
+        {:error, %{code: "flashback_person_unsubscribed", message: "person unsubscribed"}}
+
+      # 认领真源 = person.user_id（R27 注册即接管档案，token 同步作废）；
+      # claimed_by_user_id 是 token 面字段。
+      person.user_id ->
+        {:error, %{code: "flashback_person_claimed", message: "person already claimed"}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp fetch_archive(archive_key) do
     EventArchive
