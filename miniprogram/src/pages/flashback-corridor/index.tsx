@@ -295,7 +295,7 @@ export default function FlashbackCorridorPage() {
           </View>
           <View className={styles.dockActions}>
             <Text
-              className={styles.dockWrite}
+              className={styles.dockWritePrimary}
               onClick={() => {
                 setCardOpen(true)
                 cardOpenedAt.current = Date.now()
@@ -384,7 +384,7 @@ export default function FlashbackCorridorPage() {
 
         {/* ⚡今天格:G 状态机——member 未寄=虚线「你的位置」(点开卡);已寄=发光拍立得;路人=空位 */}
         <View className={styles.capFrame} id="todayAnchor">
-          <Text className={styles.todayTitle}>⚡ 今天 {todayFrameLabel()} · 一闪念间</Text>
+          <Text className={styles.todayTitle}>{todayFrameLabel()}</Text>
           <View className={styles.todaySlot}>
             {me && me.today?.sentToWallAt ? (
               <View className={styles.todayLit}>
@@ -426,7 +426,7 @@ export default function FlashbackCorridorPage() {
                     </View>
                   )
                 })}
-                <Text className={styles.futureTitle}>未来 · 一起做什么</Text>
+                <Text className={styles.futureTitleDark}>未来 · 一起做什么</Text>
                 {cards.map((card) => (
                   <View
                     key={card.id}
@@ -457,7 +457,7 @@ export default function FlashbackCorridorPage() {
         {mode.kind === 'member' && (
           <View className={styles.futureSection}>
             <View className={styles.wishSectionHead}>
-              <Text className={styles.futureTitle}>未来 · 大家许的愿</Text>
+              <Text className={styles.futureTitleDark}>未来 · 大家许的愿</Text>
               <Text className={styles.wishAddBtn} onClick={() => setWishSheet(true)}>
                 + 许个愿
               </Text>
