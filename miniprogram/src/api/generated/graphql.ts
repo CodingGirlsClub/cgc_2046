@@ -860,6 +860,12 @@ export type FlashbackFogSpanInput = {
   start: number;
 };
 
+export type FlashbackQuoteSpanInput = {
+  len: number;
+  questionKey: string;
+  start: number;
+};
+
 export type FlashbackTodayInput = {
   mobilizationDonateIntent?: boolean | null | undefined;
   mobilizationHelpPromote?: boolean | null | undefined;
@@ -1078,7 +1084,7 @@ export type FlashbackCapsuleQueryVariables = Exact<{
 }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteQuestionKey: string | null, quoteSpan: { start: number, len: number } | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, say: string | null, sentToWallAt: string | null } | null, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
 
 export type FlashbackPublicStatsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1095,13 +1101,12 @@ export type FlashbackSubmitTodayMutation = { flashbackSubmitToday: { today: { no
 
 export type FlashbackSetQuoteLicenseMutationVariables = Exact<{
   level: string;
-  questionKey?: string | null | undefined;
-  chosenQuoteSpan?: FlashbackFogSpanInput | null | undefined;
+  chosenQuoteSpans?: Array<FlashbackQuoteSpanInput> | FlashbackQuoteSpanInput | null | undefined;
   token?: string | null | undefined;
 }>;
 
 
-export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string, questionKey: string | null, chosenQuoteSpan: { start: number, len: number } | null } | null };
+export type FlashbackSetQuoteLicenseMutation = { flashbackSetQuoteLicense: { level: string, chosenQuoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null } | null };
 
 export type FlashbackEnterMutationVariables = Exact<{
   token: string;

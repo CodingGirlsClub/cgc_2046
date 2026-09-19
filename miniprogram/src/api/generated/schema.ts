@@ -2244,10 +2244,8 @@ export type FlashbackCapsuleMe = {
   quote?: Maybe<Scalars['String']['output']>;
   /** 金句授权档（R31：off/anonymous/credited；无授权行为 off）——回访端恢复选中态 */
   quoteLevel: Scalars['String']['output'];
-  /** 选定金句的来源题（R37 分享 opt-in 原样回填：只传 level 会把 span 覆盖成 nil） */
-  quoteQuestionKey?: Maybe<Scalars['String']['output']>;
-  /** 选定金句的区间（R37 分享 opt-in 与卡片展示同源） */
-  quoteSpan?: Maybe<FlashbackFogSpan>;
+  /** 句子白名单区间列表（首句 = 消费面展示句;圈选器回显全量） */
+  quoteSpans?: Maybe<Array<Maybe<FlashbackQuoteSpan>>>;
   /** 本人金句的点赞数（R36；仅匿名/实名授权档返回，未授权为 null） */
   quoteStats?: Maybe<FlashbackQuoteStats>;
   surname?: Maybe<Scalars['String']['output']>;
@@ -2475,15 +2473,26 @@ export type FlashbackQuoteHiddenResult = {
 };
 
 export type FlashbackQuoteLicenseResult = {
-  chosenQuoteSpan?: Maybe<FlashbackFogSpan>;
+  chosenQuoteSpans?: Maybe<Array<Maybe<FlashbackQuoteSpan>>>;
   creditedNote?: Maybe<Scalars['String']['output']>;
   level: Scalars['String']['output'];
-  questionKey?: Maybe<Scalars['String']['output']>;
 };
 
 export type FlashbackQuoteLikeResult = {
   /** 点赞后的实时计数——前端就地更新，免二次拉取 */
   likeCount: Scalars['Int']['output'];
+};
+
+export type FlashbackQuoteSpan = {
+  len: Scalars['Int']['output'];
+  questionKey: Scalars['String']['output'];
+  start: Scalars['Int']['output'];
+};
+
+export type FlashbackQuoteSpanInput = {
+  len: Scalars['Int']['input'];
+  questionKey: Scalars['String']['input'];
+  start: Scalars['Int']['input'];
 };
 
 export type FlashbackQuoteStats = {
@@ -4972,10 +4981,9 @@ export type RootMutationTypeFlashbackSendToWallArgs = {
 
 
 export type RootMutationTypeFlashbackSetQuoteLicenseArgs = {
-  chosenQuoteSpan?: InputMaybe<FlashbackFogSpanInput>;
+  chosenQuoteSpans?: InputMaybe<Array<InputMaybe<FlashbackQuoteSpanInput>>>;
   creditedNote?: InputMaybe<Scalars['String']['input']>;
   level: Scalars['String']['input'];
-  questionKey?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
 };
 

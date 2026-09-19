@@ -153,8 +153,7 @@ const me = (over: Partial<FlashbackMyCard> = {}): FlashbackMyCard => ({
   appliedAt: '2014-01-05T05:06:00.000Z',
   quote: '我想亲眼看看是不是。',
   quoteLevel: 'anonymous',
-  quoteQuestionKey: 'self_intro',
-  quoteSpan: { start: 0, len: 10 },
+  quoteSpans: [{ questionKey: 'self_intro', start: 0, len: 10 }],
   quoteStats: { likeCount: 0 },
   today: { nowStatus: '还在写代码', want: '想骑行', say: null, sentToWallAt: null },
   answers: [],
@@ -255,21 +254,35 @@ test('quoteCandidatesOf：按句切分、排除雾面句、区间可回切原文
   assert.equal(two[two.length - 1].questionKey, 'funny_thing')
 })
 
-test('isCandidatePicked：区间与来源题同时相等才命中（存档回显/高亮）', () => {
+test('isCandidatePicked：区间与来源题同时相等才命中（多选白名单；存档回显/高亮）', () => {
   const candidate = quoteCandidatesOf([quoteAnswer()])[0]
   assert.equal(isCandidatePicked(candidate, null), false)
   assert.equal(
-    isCandidatePicked(candidate, { questionKey: 'self_intro', start: candidate.start, len: candidate.len }),
+    isCandidatePicked(candidate, [
+      { questionKey: 'self_intro', start: candidate.start, len: candidate.len },
+    ]),
     true
   )
   // 长度或题不同 → 不命中（防止跨题同偏移误高亮）
   assert.equal(
-    isCandidatePicked(candidate, { questionKey: 'self_intro', start: candidate.start, len: candidate.len + 1 }),
+    isCandidatePicked(candidate, [
+      { questionKey: 'self_intro', start: candidate.start, len: candidate.len + 1 },
+    ]),
     false
   )
   assert.equal(
-    isCandidatePicked(candidate, { questionKey: 'funny_thing', start: candidate.start, len: candidate.len }),
+    isCandidatePicked(candidate, [
+      { questionKey: 'funny_thing', start: candidate.start, len: candidate.len },
+    ]),
     false
+  )
+  // 多选：第二句命中也 true
+  assert.equal(
+    isCandidatePicked(candidate, [
+      { questionKey: 'funny_thing', start: candidate.start, len: candidate.len },
+      { questionKey: 'self_intro', start: candidate.start, len: candidate.len },
+    ]),
+    true
   )
 })
 
@@ -295,15 +308,15 @@ test('quoteLikeBadge：上墙且有点赞才出现（R36）', () => {
   )
 })
 
-test('shareOptInState：未圈选不显示 / 已授权锁定 / 可勾选默认不勾（R37）', () => {
+test('shareOptInState：未圈选不显示 / 已授权锁定 / 可勾选默认不勾（R37,多句）', () => {
   const base = { ...me(), quoteLevel: 'off' }
-  // 有选定金句（questionKey + span 齐备）→ 可勾选（默认不勾由页面 state 保证）
+  // 有白名单句（quote + spans 齐备）→ 可勾选（默认不勾由页面 state 保证）
   assert.equal(shareOptInState(base), 'available')
   // 已授权（anonymous/credited）→ 锁定态
   assert.equal(shareOptInState({ ...base, quoteLevel: 'anonymous' }), 'already')
   assert.equal(shareOptInState({ ...base, quoteLevel: 'credited' }), 'already')
-  // 无金句 / 缺区间 / 缺来源题 → 不显示（保守：无法可靠回填 span）
+  // 无金句 / 白名单空 → 不显示（保守：无法可靠回填 spans）
   assert.equal(shareOptInState({ ...base, quote: null }), 'hidden')
-  assert.equal(shareOptInState({ ...base, quoteSpan: null }), 'hidden')
-  assert.equal(shareOptInState({ ...base, quoteQuestionKey: null }), 'hidden')
+  assert.equal(shareOptInState({ ...base, quoteSpans: [] }), 'hidden')
+  assert.equal(shareOptInState({ ...base, quoteSpans: null }), 'hidden')
 })

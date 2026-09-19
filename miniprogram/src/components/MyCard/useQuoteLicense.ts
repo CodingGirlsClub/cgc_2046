@@ -9,7 +9,7 @@ import { api } from '@/api'
 import type { QuoteLevel } from '@/domain/flashback'
 
 export interface QuoteSpanPick {
-  questionKey: string | null
+  questionKey: string
   start: number
   len: number
 }
@@ -18,15 +18,11 @@ export function useQuoteLicense(reload: () => void) {
   const [quoteBusy, setQuoteBusy] = useState(false)
 
   const submitLicense = useCallback(
-    async (level: QuoteLevel, candidate: QuoteSpanPick | null): Promise<boolean> => {
+    async (level: QuoteLevel, picks: QuoteSpanPick[]): Promise<boolean> => {
       if (quoteBusy) return false
       setQuoteBusy(true)
       try {
-        await api.flashbackSetQuoteLicense(
-          level,
-          level === 'off' ? null : (candidate?.questionKey ?? null),
-          level === 'off' ? null : candidate ? { start: candidate.start, len: candidate.len } : null
-        )
+        await api.flashbackSetQuoteLicense(level, level === 'off' ? null : picks)
         Taro.showToast({ title: '授权已更新', icon: 'none' })
         reload()
         return true

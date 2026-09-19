@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
+import MyCard from '@/components/MyCard'
 import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
@@ -45,6 +46,7 @@ export default function FlashbackCorridorPage() {
   const [scrollAnchor, setScrollAnchor] = useState('')
   // U4 开卡层/U7 授权层(U3 先立桩,交互后续单元接线)
   const [cardOpen, setCardOpen] = useState(false)
+  const cardOpenedAt = useRef(0)
   const [licenseOpen, setLicenseOpen] = useState(false)
   const [sendingCard, setSendingCard] = useState(false)
 
@@ -258,7 +260,13 @@ export default function FlashbackCorridorPage() {
       )}
       {mode.kind === 'member' && me && myView && (
         <View className={styles.cardDock}>
-          <View className={styles.miniCard} onClick={() => setCardOpen(true)}>
+          <View
+          className={styles.miniCard}
+          onClick={() => {
+            setCardOpen(true)
+            cardOpenedAt.current = Date.now()
+          }}
+        >
             <Text className={styles.miniCardName}>{me.fullName}</Text>
             <Text className={styles.miniCardFacts}>
               {(me.appliedAt ? me.appliedAt.slice(0, 4) : '') + (me.city ? ` · ${me.city}` : '')}
@@ -430,12 +438,25 @@ export default function FlashbackCorridorPage() {
           )}
       </ScrollView>
 
-      {/* U4 开卡层占位(U4 单元填充:迎面翻开+原位编辑) */}
-      {cardOpen && (
-        <View className={styles.layerMask} onClick={() => setCardOpen(false)}>
-          <View className={styles.layerStub} onClick={(e) => e.stopPropagation()}>
-            <Text>开卡层 · U4 填充</Text>
-            <Button size="mini" onClick={() => setCardOpen(false)}>合上</Button>
+      {/* U4 开卡层:暗场+MyCard(autoOpen 翻面);卡外空白/点卡外=合上(500ms 闸) */}
+      {mode.kind === 'member' && cardOpen && (
+        <View
+          className={styles.layerMask}
+          onClick={() => {
+            if (Date.now() - cardOpenedAt.current < 500) return
+            setCardOpen(false)
+          }}
+        >
+          <View
+            className={styles.layerCard}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MyCard
+              capsule={mode.capsule}
+              onWrite={() => void reloadMember()}
+              autoOpen
+              onOpenShare={() => setLicenseOpen(true)}
+            />
           </View>
         </View>
       )}

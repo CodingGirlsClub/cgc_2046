@@ -63,10 +63,12 @@ export default function ShareSheet({
                   const next = !shareOptIn
                   setShareOptIn(next)
                   if (!next) return
-                  const span = me.quoteSpan && me.quoteQuestionKey
-                    ? { questionKey: me.quoteQuestionKey, start: me.quoteSpan.start, len: me.quoteSpan.len }
-                    : null
-                  void submitLicense('anonymous', span).then((ok) => {
+                  const spans = (me.quoteSpans ?? []).map((s) => ({
+                    questionKey: s.questionKey,
+                    start: s.start,
+                    len: s.len,
+                  }))
+                  void submitLicense('anonymous', spans).then((ok) => {
                     if (!ok) setShareOptIn(false)
                   })
                 }}
