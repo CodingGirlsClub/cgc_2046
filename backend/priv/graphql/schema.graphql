@@ -6353,6 +6353,9 @@ type FlashbackCapsule {
 
   archives: [FlashbackCapsuleArchive!]!
 
+  "未来场次帧：按 initiative 分组、组内按场次时间升序（KTD1）；报名直链 \/events\/{slug}"
+  futureEvents: [FlashbackFutureFrame!]!
+
   "公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示"
   publicWishes: [FlashbackWish!]!
 
@@ -6361,6 +6364,35 @@ type FlashbackCapsule {
 
   "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
   cities: [String!]!
+}
+
+type FlashbackFutureFrame {
+  "帧头跳转目标：\/initiatives\/{initiative_slug}（R1）"
+  initiativeSlug: String!
+
+  initiativeName: String!
+
+  events: [FlashbackFutureEvent!]!
+}
+
+type FlashbackFutureEvent {
+  id: ID!
+
+  "报名直链：\/events\/{slug}（R2\/R3，不在走廊内闭环）"
+  slug: String!
+
+  title: String!
+
+  city: String
+
+  startsAt: DateTime
+
+  "名额进度（U7 与 web enrollmentBadge 口径对齐）"
+  capacity: Int
+
+  confirmedCount: Int!
+
+  registrationDeadline: DateTime
 }
 
 type FlashbackWish {

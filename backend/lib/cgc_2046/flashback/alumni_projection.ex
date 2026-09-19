@@ -90,6 +90,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   """
   @spec capsule(%{person: map()}, String.t() | nil) :: {:ok, map()} | {:error, term()}
   def capsule(%{person: person}, city \\ nil) do
+    future_frames = list_future_events(clean_city(city))
+
     with {:ok, archives} <- list_archives(person, city) do
       endorsed = Cgc2046.Flashback.Wishes.endorsed_wish_ids(person.id)
 
@@ -104,10 +106,82 @@ defmodule Cgc2046.Flashback.AlumniProjection do
              Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, id))
            end),
          my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
+         future_events: future_frames,
          cities: capsule_cities()
        }}
     end
   end
+
+  # ── 未来场次帧（KTD1：dream_target 形状 + starts_at > now + initiative 分组）──
+
+  @doc """
+  未来场次按 initiative 分组（R1/R2/R4/R16）：帧按 initiative 最早未来场次
+  时间升序；场次于开始时刻自然离开未来帧（无定时任务）。城市钉筛选用
+  `venue->>'city'`；满员/截止由 `enrollmentBadge` 表达（U7 渲染）。
+  """
+  def list_future_events(city \\ nil) do
+    query = """
+    SELECT e.id::text, e.slug, e.title, e.starts_at, e.venue->>'city',
+           e.capacity, COUNT(en.id) FILTER (WHERE en.status = 'confirmed'),
+           e.registration_deadline, i.slug, i.name
+    FROM events e
+    JOIN initiatives i ON e.initiative_id = i.id
+    LEFT JOIN enrollments en ON en.event_id = e.id
+    WHERE e.visibility = 'public'
+      AND e.status = 'open'
+      AND i.status = 'open'
+      AND e.starts_at > now()
+      AND ($1::text IS NULL OR e.venue->>'city' = $1)
+    GROUP BY e.id, e.slug, e.title, e.starts_at, e.venue, e.capacity,
+             e.registration_deadline, i.slug, i.name
+    ORDER BY min(e.starts_at) ASC, e.starts_at ASC
+    """
+
+    rows =
+      case Repo.query(query, [city]) do
+        {:ok, %{rows: rows}} -> rows
+        _ -> []
+      end
+
+    rows
+    |> Enum.map(fn [
+                     id,
+                     slug,
+                     title,
+                     starts_at,
+                     event_city,
+                     capacity,
+                     confirmed,
+                     deadline,
+                     initiative_slug,
+                     initiative_name
+                   ] ->
+      %{
+        id: id,
+        slug: slug,
+        title: title,
+        starts_at: to_iso8601(starts_at),
+        city: event_city,
+        capacity: capacity,
+        confirmed_count: confirmed || 0,
+        registration_deadline: to_iso8601(deadline),
+        initiative_slug: initiative_slug,
+        initiative_name: initiative_name
+      }
+    end)
+    |> Enum.group_by(&{&1.initiative_slug, &1.initiative_name})
+    |> Enum.map(fn {{initiative_slug, initiative_name}, events} ->
+      %{initiative_slug: initiative_slug, initiative_name: initiative_name, events: events}
+    end)
+    |> Enum.sort_by(&hd(&1.events).starts_at)
+  end
+
+  defp to_iso8601(nil), do: nil
+
+  defp to_iso8601(%NaiveDateTime{} = value),
+    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+
+  defp to_iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   # 空串/纯空白视为未筛（query 变量传来空串不筛）
   defp clean_city(nil), do: nil

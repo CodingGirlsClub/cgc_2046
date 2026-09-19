@@ -3223,12 +3223,34 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_capsule do
     field(:me, non_null(:flashback_capsule_me))
     field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
+    @desc "未来场次帧：按 initiative 分组、组内按场次时间升序（KTD1）；报名直链 /events/{slug}"
+    field(:future_events, non_null(list_of(non_null(:flashback_future_frame))))
     @desc "公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示"
     field(:public_wishes, non_null(list_of(non_null(:flashback_wish))))
     @desc "本人私有许愿（私人许愿帧，仅自己可见）"
     field(:my_private_wishes, non_null(list_of(non_null(:flashback_wish))))
     @desc "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
     field(:cities, non_null(list_of(non_null(:string))))
+  end
+
+  object :flashback_future_frame do
+    @desc "帧头跳转目标：/initiatives/{initiative_slug}（R1）"
+    field(:initiative_slug, non_null(:string))
+    field(:initiative_name, non_null(:string))
+    field(:events, non_null(list_of(non_null(:flashback_future_event))))
+  end
+
+  object :flashback_future_event do
+    field(:id, non_null(:id))
+    @desc "报名直链：/events/{slug}（R2/R3，不在走廊内闭环）"
+    field(:slug, non_null(:string))
+    field(:title, non_null(:string))
+    field(:city, :string)
+    field(:starts_at, :datetime)
+    @desc "名额进度（U7 与 web enrollmentBadge 口径对齐）"
+    field(:capacity, :integer)
+    field(:confirmed_count, non_null(:integer))
+    field(:registration_deadline, :datetime)
   end
 
   object :flashback_wish do
