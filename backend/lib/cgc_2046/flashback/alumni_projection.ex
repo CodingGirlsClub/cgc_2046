@@ -100,7 +100,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
          me: me_payload(person),
          archives: archives,
          public_wishes:
-           Cgc2046.Flashback.Wishes.list_public(clean_city(city))
+           Cgc2046.Flashback.Wishes.list_public(clean_city(city), person.id)
            |> Enum.map(fn wish ->
              Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, wish.id))
            end),

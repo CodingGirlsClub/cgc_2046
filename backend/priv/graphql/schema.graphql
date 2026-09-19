@@ -6410,6 +6410,9 @@ type FlashbackWish {
   "本人已附议（已附议态渲染依据，R7）"
   endorsedByMe: Boolean!
 
+  "本人许愿（删除入口只对本人显示，R14）"
+  mine: Boolean!
+
   comments: [FlashbackWishComment!]!
 
   insertedAt: DateTime!

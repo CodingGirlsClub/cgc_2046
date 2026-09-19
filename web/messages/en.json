@@ -2611,7 +2611,11 @@
       "comment": "Comment",
       "commentPlaceholder": "Leave a note…",
       "delete": "Delete",
-      "cancel": "Close"
+      "cancel": "Close",
+      "close": "Close",
+      "deleteConfirm": "Delete this wish?",
+      "deleteYes": "Delete",
+      "deleteNo": "Cancel"
     }
   },
   "initiatives": {
