@@ -11,7 +11,7 @@ import Taro from '@tarojs/taro'
 import { Button, Text, Textarea, View } from '@tarojs/components'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '@/domain/models'
 import { api } from '@/api'
-import { myCardView, sentencesWithFog, toggleSentenceFog, quoteLevelText, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
+import { myCardView, sentencesWithFog, toggleSentenceFog, QUOTE_LEVEL_OPTIONS, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
 import styles from '@/pages/flashback/index.module.css'
 
 export default function MyCard({ capsule, onWrite }: { capsule: FlashbackCapsule; onWrite: () => void }) {
@@ -118,19 +118,23 @@ export default function MyCard({ capsule, onWrite }: { capsule: FlashbackCapsule
         </View>
       </View>
 
-      {/* 金句授权三档(R31):文案指明可见处=CGC 官网首页(U2/R3 修断裂 5) */}
-      <Text className={styles.sectionTitle}>金句授权 · 展示在 CGC 官网首页</Text>
+      {/* 金句授权三档(R31):文案与 web 端 quoteLegend/quote_* 对齐,跨端一致 */}
+      <Text className={styles.sectionTitle}>金句授权</Text>
       <View className={styles.quoteLevelRow}>
-        {(['off', 'anonymous', 'credited'] as const).map((level) => (
+        {QUOTE_LEVEL_OPTIONS.map((option) => (
           <Text
-            key={level}
-            className={`${styles.quoteLevelBtn} ${quoteLevel === level ? styles.quoteLevelActive : ''}`}
-            onClick={() => void setLicense(level)}
+            key={option.value}
+            className={`${styles.quoteLevelBtn} ${quoteLevel === option.value ? styles.quoteLevelActive : ''}`}
+            onClick={() => void setLicense(option.value)}
           >
-            {quoteLevelText(level)}
+            {option.label}
           </Text>
         ))}
       </View>
+      {/* 当前档说明(与 web 端 quote_* 同文案):授权是白名单行为,desc 讲清去向 */}
+      <Text className={styles.licenseDesc}>
+        {QUOTE_LEVEL_OPTIONS.find((option) => option.value === quoteLevel)?.desc}
+      </Text>
       {capsule.me.quote && <Text className={styles.quotePreview}>「{capsule.me.quote}」</Text>}
     </View>
   )

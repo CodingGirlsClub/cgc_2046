@@ -147,9 +147,11 @@ export function shareOptInState(me: FlashbackMyCard): 'hidden' | 'already' | 'av
 export type QuoteLevel = 'off' | 'anonymous' | 'credited'
 
 export const QUOTE_LEVEL_OPTIONS: { value: QuoteLevel; label: string; desc: string }[] = [
-  { value: 'off', label: '不授权', desc: '你的答案只对自己可见' },
-  { value: 'anonymous', label: '匿名金句', desc: '你的金句可能展示在 CGC 官网首页（姓** · 年 · 城）' },
-  { value: 'credited', label: '实名支持', desc: '匿名档之上补充近况并实名展示在 CGC 官网首页' }
+  // 文案与 web 端 i18n(flashback.write.quote_*)逐字对齐——同一授权动作跨端一致;
+  // web 端经 UAT 定稿,「你的答案,会成为别人的勇气。」底部语两端同源
+  { value: 'off', label: '关闭', desc: '（默认）你的答案只对自己可见' },
+  { value: 'anonymous', label: '匿名金句', desc: '平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）' },
+  { value: 'credited', label: '实名支持', desc: '补充你现在在做什么，实名公开（可作品牌素材）' }
 ]
 
 export function quoteLevelText(level: string): string {
