@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.ConfirmationDispatchTest do
                         ~w(update_course launch_course close_course cancel_course delete_course update_event launch_event close_event cancel_event delete_event confirm_enrollment reject_enrollment waive_payment refund_order retry_refund update_join_policy) ++
                         ~w(update_prep_policy override_prep_gate approve_prep) ++
                         ~w(unforfeit_order) ++
-                        ~w(admin_soft_delete_wish admin_soft_delete_wish_comment)
+                        ~w(admin_soft_delete_wish admin_soft_delete_wish_comment admin_send_flashback_outreach admin_resend_flashback_outreach)
 
   defp registered_tools do
     Server.__components__(:tool) |> Map.new(fn tool -> {tool.name, tool.handler} end)

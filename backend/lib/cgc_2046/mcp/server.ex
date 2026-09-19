@@ -128,6 +128,8 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminGetWish)
   component(Cgc2046.Mcp.Tools.AdminSoftDeleteWish)
   component(Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment)
+  component(Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach)
+  component(Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach)
   component(Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminCreateWorkspace)

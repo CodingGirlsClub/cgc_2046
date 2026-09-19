@@ -76,7 +76,11 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           # 押金制 U6/KTD6：核销即退（每笔押金退还一行，actor = 核销人，
           # target = 押金单）。规 13 资金动作爆发白名单**不**收录本 action
           # ——核销是主理人现场的正常高频动作，收录即告警风暴。
-          :attendance_refund
+          :attendance_refund,
+          # 闪念间触达运营（R1/R2，PlatformAdmin 确认流工具）：批量发送与
+          # 单人重发各一行（metadata 带场次/模板/通道/入队计数，非每人一行）
+          :flashback_outreach_send,
+          :flashback_outreach_resend
         ]
       ],
       description: "治理动作类型"
@@ -94,7 +98,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :order,
           :event,
           :course,
-          :initiative
+          :initiative,
+          # 闪念间触达运营（R1/R2）：批量发送 target = 场次，重发 target = 校友
+          :flashback_event_archive,
+          :flashback_person
         ]
       ],
       description: "目标资源类型"

@@ -142,14 +142,73 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
           {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer(), batch: String.t()}}
           | {:error, term()}
   def resend_for_person(person_id, template, channel \\ :all) do
-    with {:ok, person} <- fetch_person(person_id),
-         :ok <- validate_resendable(person),
+    with {:ok, _person} <- validate_resend_for_person(person_id),
          :ok <- validate_template(template),
          :ok <- validate_channel(channel) do
       batch = "resend-" <> binary_part(Ecto.UUID.generate(), 0, 8)
       {queued, skipped} = enqueue_persons([person_id], template, batch, channel)
 
       {:ok, %{queued: queued, skipped: skipped, batch: batch}}
+    end
+  end
+
+  @doc """
+  场次名册的通道分布（R4 确认摘要 / 页面预览共用口径，KTD2 单源）：
+  三档计数 + 退订/不可达剔除。sms 腿是否就绪由调用方取 `sms_configured?/0`
+  标示（sms_only 计数恒含「有 phone 但短信未就绪」者，仅影响可达性不影响计数）。
+  """
+  @spec archive_channel_breakdown(String.t()) ::
+          {:ok,
+           %{
+             email_only: non_neg_integer(),
+             sms_only: non_neg_integer(),
+             both: non_neg_integer(),
+             unsubscribed: non_neg_integer(),
+             unreachable: non_neg_integer()
+           }}
+          | {:error, term()}
+  def archive_channel_breakdown(archive_id) do
+    suppressed = suppressed_person_ids()
+
+    counts =
+      Person
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(archive_event_id == ^archive_id)
+      |> Ash.read!(authorize?: false, page: false)
+      |> Enum.reduce(%{email_only: 0, sms_only: 0, both: 0, unsubscribed: 0, unreachable: 0}, fn
+        person, acc ->
+          cond do
+            MapSet.member?(suppressed, person.id) ->
+              Map.update!(acc, :unsubscribed, &(&1 + 1))
+
+            present?(person.email) and present?(person.phone) ->
+              Map.update!(acc, :both, &(&1 + 1))
+
+            present?(person.email) ->
+              Map.update!(acc, :email_only, &(&1 + 1))
+
+            present?(person.phone) ->
+              Map.update!(acc, :sms_only, &(&1 + 1))
+
+            true ->
+              Map.update!(acc, :unreachable, &(&1 + 1))
+          end
+      end)
+
+    {:ok, counts}
+  end
+
+  @doc """
+  重发资格校验（R5 拒绝表；MCP 确认流第一段与页面确认预览共用口径）：
+  返回 `{:ok, person}` 或带原因业务错误（not_found / already_deleted /
+  unsubscribed / claimed）。
+  """
+  @spec validate_resend_for_person(String.t()) ::
+          {:ok, Person.t()} | {:error, %{code: String.t(), message: String.t()}}
+  def validate_resend_for_person(person_id) do
+    with {:ok, person} <- fetch_person(person_id),
+         :ok <- validate_resendable(person) do
+      {:ok, person}
     end
   end
 
