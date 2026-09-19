@@ -126,9 +126,23 @@ describe('corridorPiles（R12/R34 城市堆）', () => {
       roster({ city: '  ' })
     ])
     assert.deepEqual(piles, [
-      { city: '北京', count: 3 },
-      { city: '上海', count: 2 },
-      { city: '广州', count: 1 }
+      { city: '北京', count: 3, returned: 0 },
+      { city: '上海', count: 2, returned: 0 },
+      { city: '广州', count: 1, returned: 0 }
+    ])
+  })
+
+  test('堆级已回来:per-city sentToWallAt 计数(G 原型:堆下「N 位已回来」)', () => {
+    const piles = corridorPiles([
+      roster({ city: '北京', sentToWallAt: '2026-01-01' }),
+      roster({ city: '北京' }),
+      roster({ city: '上海', sentToWallAt: '2026-01-02' }),
+      roster({ city: '上海', sentToWallAt: '2026-01-03' }),
+      roster({ city: '上海' })
+    ])
+    assert.deepEqual(piles, [
+      { city: '上海', count: 3, returned: 2 },
+      { city: '北京', count: 2, returned: 1 }
     ])
   })
 
