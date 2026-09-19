@@ -2341,6 +2341,33 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @doc "今天的你句级雾面（U10 第二刀）：field ∈ now/want/need/say，spans 与当年雾面同坐标同校验；双入口"
+    field :flashback_adjust_today_fog, :flashback_adjust_today_fog_result do
+      arg(:token, :string)
+      arg(:field, non_null(:string))
+      arg(:spans, non_null(list_of(non_null(:flashback_fog_span_input))))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} ->
+                Cgc2046.Flashback.Tokens.adjust_today_fog(token, args[:field], args[:spans])
+
+              {:person, person_id} ->
+                Cgc2046.Flashback.Tokens.adjust_today_fog_as_person(
+                  person_id,
+                  args[:field],
+                  args[:spans]
+                )
+            end
+          end
+        end)
+      end)
+    end
+
     @desc "金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
     field :flashback_set_quote_license, :flashback_quote_license_result do
       arg(:token, :string)
@@ -3655,6 +3682,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:sent_to_wall_at, :string)
     field(:masked_phone, :string)
     field(:masked_email, :string)
+  end
+
+  object :flashback_adjust_today_fog_result do
+    field(:field, non_null(:string))
+    field(:fog_spans, :json)
   end
 
   object :flashback_adjust_fog_result do

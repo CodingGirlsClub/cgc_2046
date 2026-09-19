@@ -343,6 +343,25 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   end
 
   # 宿主答案原文（多句可跨题；宿主被删的悬空句跳过文本、保留区间）。
+  defp answer_raw_text(person_id, "today." <> field = _qk)
+       when field in ~w(now want need say) do
+    Repo.one(
+      from(t in "flashback_todays",
+        where: t.person_id == ^uuid_param(person_id),
+        limit: 1,
+        select:
+          fragment(
+            "case ? when 'now' then ? when 'want' then ? when 'need' then ? else ? end",
+            ^field,
+            t.now_status,
+            t.want,
+            t.need,
+            t.say
+          )
+      )
+    )
+  end
+
   defp answer_raw_text(person_id, question_key) do
     Repo.one(
       from(a in "flashback_answers",
