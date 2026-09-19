@@ -1331,7 +1331,15 @@
 }
 .fb-wish-modal-radios { display: flex; gap: 16px; font-size: 11px; margin-top: 10px; }
 .fb-wish-modal-radios label { cursor: pointer; }
-.fb-wish-modal-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+/* 操作行：主操作(留言)贴右下角(UAT),其余(附议/删除/确认)靠左 */
+.fb-wish-modal-actions {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-top: 14px;
+	flex-wrap: wrap;
+}
+.fb-wish-modal-submit { margin-left: auto; }
 /* 同上特异性：黑底必须压回 .fb-root button 的 color:inherit */
 .fb-root .fb-wish-modal-submit {
 	background: #2b2723;
