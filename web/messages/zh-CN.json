@@ -2586,6 +2586,32 @@
       "cancel": "取消",
       "doneTitle": "你的档案已清除",
       "doneBody": "数据已删除、链接已失效。感谢你曾经来过。"
+    },
+    "wish": {
+      "publicTitle": "大家的愿望",
+      "publicLabel": "公开 · 附议 + 留言",
+      "privateTitle": "我的私人许愿",
+      "privateLabel": "只有你和平台可见",
+      "privateMark": "私人许愿",
+      "empty": "还没有公开的愿望——许下第一个",
+      "makeWish": "许个愿",
+      "endorse": "附议 +1",
+      "endorsedByMe": "已附议",
+      "endorsed": "{count} 人附议",
+      "enrolled": "{count} 人已报名",
+      "join": "报名 →",
+      "full": "名额已满",
+      "closed": "报名已截止",
+      "futureLabel": "未显影 · 等你们共创",
+      "formPlaceholder": "你想参加什么、想一起做什么？（课程、一本书、任何事）",
+      "visibilityLabel": "许愿可见性",
+      "visibilityPrivate": "私有 · 只给平台和自己看",
+      "visibilityPublic": "公开 · 进走廊，让大家附议",
+      "submit": "许下这个愿",
+      "comment": "留言",
+      "commentPlaceholder": "留句话……",
+      "delete": "删除",
+      "cancel": "关闭"
     }
   },
   "initiatives": {

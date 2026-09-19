@@ -224,10 +224,51 @@ export interface FlashbackMeAnswer {
 	text: string;
 }
 
+export interface FlashbackWishComment {
+	id: string;
+	content: string;
+	commenterMasked: string | null;
+	insertedAt: string;
+}
+
+export interface FlashbackWish {
+	id: string;
+	content: string;
+	city: string | null;
+	wisherMasked: string | null;
+	endorsementCount: number;
+	endorsedByMe: boolean;
+	comments: FlashbackWishComment[];
+	insertedAt: string;
+}
+
+export interface FlashbackFutureEvent {
+	id: string;
+	slug: string;
+	title: string;
+	city: string | null;
+	startsAt: string | null;
+	capacity: number | null;
+	confirmedCount: number;
+	registrationDeadline: string | null;
+}
+
+export interface FlashbackFutureFrame {
+	initiativeSlug: string;
+	initiativeName: string;
+	events: FlashbackFutureEvent[];
+}
+
 export interface FlashbackCapsule {
 	me: FlashbackCapsuleMe;
 	archives: FlashbackCapsuleArchive[];
-	/** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
+	/** 未来场次帧（KTD1）：按 initiative 分组、时间升序 */
+	futureEvents: FlashbackFutureFrame[];
+	/** 公开愿望（附议数降序） */
+	publicWishes: FlashbackWish[];
+	/** 本人私有许愿（仅自己可见） */
+	myPrivateWishes: FlashbackWish[];
+	/** 城市钉数据源（KTD6）：名册 ∪ 未来场次 ∪ 公开许愿城市 */
 	cities: string[];
 }
 
@@ -569,12 +610,61 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					}
 				}
 			}
+			futureEvents {
+				initiativeSlug
+				initiativeName
+				events {
+					id
+					slug
+					title
+					city
+					startsAt
+					capacity
+					confirmedCount
+					registrationDeadline
+				}
+			}
+			publicWishes {
+				id
+				content
+				city
+				wisherMasked
+				endorsementCount
+				endorsedByMe
+				comments {
+					id
+					content
+					commenterMasked
+					insertedAt
+				}
+				insertedAt
+			}
+			myPrivateWishes {
+				id
+				content
+				city
+				wisherMasked
+				endorsementCount
+				endorsedByMe
+				comments {
+					id
+					content
+					commenterMasked
+					insertedAt
+				}
+				insertedAt
+			}
 			cities
 		}
 	}
 `;
 
 
+
+export interface FogSegment {
+	text: string;
+	fog: boolean;
+}
 
 /**
  * 按 fog_spans 把原文切成渲染段（grapheme 偏移 → code point 近似：导入文本为
@@ -657,3 +747,180 @@ export function splitSentences(text: string): string[] {
 		.map((s) => s.trim())
 		.filter((s) => s.length > 0);
 }
+
+/** 删除摘要（U10/R30 二次确认页数据源）：双入口（token 或登录态） */
+export const FLASHBACK_DELETE_PREVIEW: TypedDocumentNode<
+	{
+		flashbackDeletePreview: {
+			personId: string;
+			fullName: string;
+			sentToWallAt?: string | null;
+			endorsementCount: number;
+			alreadyDeleted: boolean;
+		} | null;
+	},
+	{ token?: string | null }
+> = gql`
+	query FlashbackDeletePreview($token: String) {
+		flashbackDeletePreview(token: $token) {
+			personId
+			fullName
+			sentToWallAt
+			endorsementCount
+			alreadyDeleted
+		}
+	}
+`;
+
+/** 删除我的档案（U10/R30/ADR-0015）：不可逆；confirm 必须为 "DELETE" */
+export const FLASHBACK_DELETE: TypedDocumentNode<
+	{ flashbackDelete: { deleted: boolean; deletedAt: string } },
+	{ token?: string | null; confirm: string }
+> = gql`
+	mutation FlashbackDelete($token: String, $confirm: String!) {
+		flashbackDelete(token: $token, confirm: $confirm) {
+			deleted
+			deletedAt
+		}
+	}
+`;
+
+/** 公开统计层（U6/R32）：匿名可读的聚合数字 */
+export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
+	{ flashbackPublicStats: FlashbackPublicStats },
+	Record<string, never>
+> = gql`
+	query FlashbackPublicStats {
+		flashbackPublicStats {
+			archives {
+				key
+				name
+				city
+				occurredOn
+				appliedCount
+				attendedCount
+				label
+			}
+			returnedCount
+			sentCount
+		}
+	}
+`;
+
+/** 匿名金句墙（U6/R31/R32）：授权者的脱敏金句 */
+export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
+	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
+	{ voterKey?: string | null }
+> = gql`
+	query FlashbackPublicQuotes($voterKey: String) {
+		flashbackPublicQuotes(voterKey: $voterKey) {
+			text
+			attribution
+			level
+			publicSlug
+			personId
+			likeCount
+			likedByViewer
+		}
+	}
+`;
+
+/** 点赞/取消（R36）：公开无登录，voterKey 去重 + IP 限频；返回实时计数 */
+export const FLASHBACK_LIKE_QUOTE: TypedDocumentNode<
+	{ flashbackLikeQuote: { likeCount: number } },
+	{ personId: string; voterKey: string; liked: boolean }
+> = gql`
+	mutation FlashbackLikeQuote($personId: ID!, $voterKey: String!, $liked: Boolean!) {
+		flashbackLikeQuote(personId: $personId, voterKey: $voterKey, liked: $liked) {
+			likeCount
+		}
+	}
+`;
+
+/** 实名档案页（U6/R31 credited 档）：null = 未授权（404 态） */
+export const FLASHBACK_PUBLIC_PROFILE: TypedDocumentNode<
+	{ flashbackPublicProfile: FlashbackPublicProfile | null },
+	{ slug: string }
+> = gql`
+	query FlashbackPublicProfile($slug: String!) {
+		flashbackPublicProfile(slug: $slug) {
+			fullName
+			city
+			eventName
+			year
+			creditedNote
+			quote
+		}
+	}
+`;
+
+/** 自助找回·发起（U6/R21）：命中与未命中同形返回（不泄露存在性） */
+export const FLASHBACK_RECOVER: TypedDocumentNode<
+	{ flashbackRecover: { dispatched: boolean } },
+	{ identifier: string }
+> = gql`
+	mutation FlashbackRecover($identifier: String!) {
+		flashbackRecover(identifier: $identifier) {
+			dispatched
+		}
+	}
+`;
+
+/** 自助找回·验证（U6/R21）：手机码通过 → 绑定全部匹配档案；多档案返回「你的 N 张卡」 */
+export const FLASHBACK_RECOVER_VERIFY: TypedDocumentNode<
+	{ flashbackRecoverVerify: { bound: boolean; cards: FlashbackRecoverCard[] } },
+	{ identifier: string; code: string }
+> = gql`
+	mutation FlashbackRecoverVerify($identifier: String!, $code: String!) {
+		flashbackRecoverVerify(identifier: $identifier, code: $code) {
+			bound
+			cards {
+				personId
+				surnameMasked
+				eventName
+				city
+			}
+		}
+	}
+`;
+
+/* ---------------- 许愿（U4/R5-R14） ---------------- */
+
+export const FLASHBACK_CREATE_WISH = gql`
+	mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
+		flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+			endorsementCount
+			endorsedByMe
+		}
+	}
+`;
+
+export const FLASHBACK_ENDORSE_WISH = gql`
+	mutation FlashbackEndorseWish($token: String, $wishId: ID!) {
+		flashbackEndorseWish(token: $token, wishId: $wishId) {
+			endorsementCount
+			endorsedByMe
+		}
+	}
+`;
+
+export const FLASHBACK_ADD_WISH_COMMENT = gql`
+	mutation FlashbackAddWishComment($token: String, $wishId: ID!, $content: String!) {
+		flashbackAddWishComment(token: $token, wishId: $wishId, content: $content) {
+			endorsementCount
+			endorsedByMe
+		}
+	}
+`;
+
+export const FLASHBACK_DELETE_WISH = gql`
+	mutation FlashbackDeleteWish($token: String, $wishId: ID!) {
+		flashbackDeleteWish(token: $token, wishId: $wishId)
+	}
+`;
+
+export const FLASHBACK_DELETE_WISH_COMMENT = gql`
+	mutation FlashbackDeleteWishComment($token: String, $commentId: ID!) {
+		flashbackDeleteWishComment(token: $token, commentId: $commentId)
+	}
+`;
