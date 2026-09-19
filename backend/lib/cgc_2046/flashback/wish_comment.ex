@@ -27,7 +27,7 @@ defmodule Cgc2046.Flashback.WishComment do
   end
 
   actions do
-    defaults([:read])
+    defaults([:read, :destroy])
 
     create :create do
       accept([:wish_id, :person_id, :content])

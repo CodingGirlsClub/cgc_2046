@@ -41,7 +41,7 @@ defmodule Cgc2046.Flashback.Wish do
   end
 
   actions do
-    defaults([:read])
+    defaults([:read, :destroy])
 
     create :create do
       accept([:person_id, :content, :visibility, :city])

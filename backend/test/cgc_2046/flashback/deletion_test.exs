@@ -71,6 +71,15 @@ defmodule Cgc2046.Flashback.DeletionTest do
       })
       |> Ash.create!(authorize?: false)
 
+    # 许愿三项（U8）：本人许愿 + 本人附议他人愿 + 他人许愿保留
+    {:ok, _my_wish} =
+      Cgc2046.Flashback.Wishes.create_wish(person.id, "一起出一本书", "public")
+
+    other_wish_owner = create_person(archive)
+    {:ok, other_wish} = Cgc2046.Flashback.Wishes.create_wish(other_wish_owner.id, "开课", "public")
+    {:ok, _} = Cgc2046.Flashback.Wishes.endorse(person.id, other_wish.id)
+    {:ok, _} = Cgc2046.Flashback.Wishes.add_comment(person.id, other_wish.id, "算我一个")
+
     # 已发布的公开 slug（实名页占用）
     person
     |> Ash.Changeset.for_update(:update, %{})
@@ -161,7 +170,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
       # 2. 回信删除（含寄出态——行硬删）
       assert count_rows(Flashback.Today, fx.person.id) == 0
 
-      # 3.（附议删除已随行动卡移除；许愿级联在 U8 接入）
+      # 3. 许愿三项级联：本人许愿(含其上他人附议)、本人留言与附议全清
 
       # 4. 金句授权删除
       assert count_rows(Flashback.QuoteLicense, fx.person.id) == 0
@@ -226,7 +235,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
         })
 
       roster_before = archives.archives |> hd() |> Map.get(:roster)
-      assert length(roster_before) == 2
+      assert length(roster_before) == 3
 
       Deletion.delete(%{person: fx.person}, "DELETE")
 
@@ -247,8 +256,9 @@ defmodule Cgc2046.Flashback.DeletionTest do
         })
 
       roster_after = archives.archives |> hd() |> Map.get(:roster)
-      # R30：本人卡从墙上撤下（结构性卡也不剩——她已不在名单里）
-      assert length(roster_after) == 1
+      # R30：本人卡从墙上撤下（结构性卡也不剩——她已不在名单里）；
+      # 许愿 fixture 的第三人在册 → 删除后剩 other 与 wish_owner 两人
+      assert length(roster_after) == 2
       # 裸 SQL 的 uuid 是 16 字节 binary（同 alumni_projection 的 uuid_param 反向）
       assert Ecto.UUID.cast!(hd(roster_after).id) == other.id
 
