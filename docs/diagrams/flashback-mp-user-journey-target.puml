@@ -1,0 +1,58 @@
+@startuml flash-mp-user-journey-target
+!theme plain
+skinparam backgroundColor #FAF9F6
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #B9B4AA
+}
+skinparam note {
+  BackgroundColor #EAF6EA
+  BorderColor #A8D4A8
+}
+title 小程序「闪念间」目标 User Journey(方案 A · 长廊为主容器)
+
+|#F3F1EC|入口|
+start
+:专属链接(短信/邮件 token);
+:微信分享 / 发现页(路人);
+:profile「我的」页闪念间入口\n(新增:回访正门补齐);
+
+|#EAF2EC|① 首程 flashback-journey(不变)|
+:呼吸快门 intro;
+:场次确认(我记得 / 我不记得了);
+:显影卡翻面(当年 + 写今天);
+:寄出浮层(一键收好 / 跳过上墙);
+
+|#F3F1EC|② 长廊 = 闪念间主容器|
+note right
+  <b>页内 Tab:时间廊 | 我的卡</b>
+  修断裂 4:两键互达,死胡同消除
+end note
+
+if (参与态?) then (token/已绑定)
+  :— 时间廊 Tab —;
+  :过去帧…(城市堆显影);
+  #FFE8CC:⚡ 今天格;
+  #D5F0D5:未来·场次段\n亮金卡·端内报名闭环\n(event-detail + 押金支付);
+  note right #E8F5E9: <b>修断裂 1</b>\n时间线到底\n下滑=时间前进兑现到未来
+  #D5F0D5:未来·公开愿望段\n纸白卡·附议 +1 / 留言;
+  #D5F0D5:未来·私愿段(仅本人)\n+ 许个愿(私有/公开);
+else (路人)
+  #D5F0D5:顶部 1024 活动横幅(可报名);
+  note right #E8F5E9: <b>修断裂 2</b>\n路人→拉新最高转化入口
+  :公开统计墙 + 登录引导;
+endif
+
+:— 我的卡 Tab(参与态)—;
+:当年正面(雾化开关);
+:今天背面(编辑);
+:金句授权「展示在 CGC 官网首页」;
+note right #E8F5E9: <b>修断裂 5</b>\n文案指明可见处\n(小程序不建墙)
+
+|#EAF2EC|③ 场次页(叶子→回环)|
+:统计行 + 这一场的人(雾卡/显影卡);
+:尾部回环——下一场·回到今天·看看未来;
+note right #E8F5E9: <b>修断裂 3</b>\n情感出口\n想再见→看别场 想参加→去未来
+
+stop
+@enduml
