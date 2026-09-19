@@ -191,12 +191,13 @@ export default function ProfilePage() {
               </>
             )}
 
-            {/* U9/R28：「我的 · 我的闪念间」回访入口（AE9 小程序侧） */}
+            {/* U9/R28 回访入口;U2/R1 改接长廊主容器(时间廊|我的卡 Tab),
+                独立页保留为深链兼容 */}
             <Text className={styles.sectionTitle}>我的闪念间</Text>
-            <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/flashback/index' })}>
+            <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/flashback-corridor/index' })}>
               <View>
                 <Text className={styles.openclackyTitle}>我的闪念间</Text>
-                <Text className={styles.openclackyText}>当年的拍立得、今天的回答、你附议的行动卡。</Text>
+                <Text className={styles.openclackyText}>当年的拍立得、今天的回答、等你的未来场次与愿望。</Text>
               </View>
               <Text className={styles.openclackyArrow}>→</Text>
             </View>
