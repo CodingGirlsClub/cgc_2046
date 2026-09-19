@@ -409,7 +409,17 @@
 
 }
 .fb-quiz-hint { margin: 4px 0 14px; color: #77726a; font-size: 11px; letter-spacing: 0.05em; }
-.fb-quote-courage { margin: 10px 0 0; color: var(--fb-sub); font-size: 12px; letter-spacing: 0.02em; }
+.fb-quote-courage {
+	display: inline-block;
+	margin: 8px 0 10px;
+	padding: 5px 14px;
+	border: 1px solid rgba(203, 191, 143, 0.55);
+	border-radius: 999px;
+	background: #fdf6e9;
+	color: #b34700;
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
 /* 场次选项 = 紧凑胶囊（原型 B wrap 形态）：多场下 4+2 个选项两行内收，
    sheet 变矮不遮放大卡——焦点顺序：放大卡（线索）> 胶囊选项（作答） */
 .fb-quiz-sheet .fb-options {

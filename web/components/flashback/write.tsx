@@ -19,9 +19,8 @@ const RECONNECT_TAGS = ["job", "project", "social", "hobby"] as const;
 /** 表单状态（受控；提交由父级 send-register 在寄出前统一落库） */
 export interface TodayFormState extends FlashbackTodayInput {
 	quoteLevel: "off" | "anonymous" | "credited";
-	quoteQuestionKey?: string;
-	quoteStart?: number;
-	quoteLen?: number;
+	/** 句子白名单（多选 toggle）；提交为 chosenQuoteSpans 列表 */
+	quotePicks?: { questionKey: string; start: number; len: number }[];
 	creditedNote?: string;
 }
 
@@ -111,13 +110,27 @@ export default function Write({
 			};
 		});
 
+	/** 圈选 toggle（多选）：再点取消；顺序 = 提交顺序（首句优先展示） */
 	const pickQuote = (candidate: QuoteCandidate) => {
-		setForm((prev) => ({
-			...prev,
-			quoteQuestionKey: candidate.questionKey,
-			quoteStart: candidate.start,
-			quoteLen: Array.from(candidate.sentence).length,
-		}));
+		const pick = {
+			questionKey: candidate.questionKey,
+			start: candidate.start,
+			len: Array.from(candidate.sentence).length,
+		};
+		setForm((prev) => {
+			const current = prev.quotePicks ?? [];
+			const exists = current.some(
+				(item) => item.questionKey === pick.questionKey && item.start === pick.start,
+			);
+			return {
+				...prev,
+				quotePicks: exists
+					? current.filter(
+							(item) => !(item.questionKey === pick.questionKey && item.start === pick.start),
+						)
+					: [...current, pick],
+			};
+		});
 	};
 
 	const handleSubmit = (event: FormEvent) => {
@@ -243,6 +256,7 @@ export default function Write({
 
 				<fieldset className="fb-checks fb-quote">
 					<legend className="fb-field-label">{t("quoteLegend")}</legend>
+					<p className="fb-quote-courage">{t("quoteCourage")}</p>
 					{(["off", "anonymous", "credited"] as const).map((level) => (
 						<label key={level}>
 							<input
@@ -254,7 +268,6 @@ export default function Write({
 							{t(`quote_${level}`)}
 						</label>
 					))}
-					<p className="fb-quote-courage">{t("quoteCourage")}</p>
 					{form.quoteLevel !== "off" && (
 						<div className="fb-quote-picker">
 							<p className="fb-field-label">{t("quotePick")}</p>
@@ -264,16 +277,20 @@ export default function Write({
 										<button
 											type="button"
 											className={`fb-option${
-												form.quoteQuestionKey === candidate.questionKey &&
-												form.quoteStart === candidate.start
+												(form.quotePicks ?? []).some(
+													(item) =>
+														item.questionKey === candidate.questionKey &&
+														item.start === candidate.start,
+												)
 													? " fb-option-selected"
 													: ""
 											}`}
 											onClick={() => pickQuote(candidate)}
-											aria-pressed={
-												form.quoteQuestionKey === candidate.questionKey &&
-												form.quoteStart === candidate.start
-											}
+											aria-pressed={(form.quotePicks ?? []).some(
+												(item) =>
+													item.questionKey === candidate.questionKey &&
+													item.start === candidate.start,
+											)}
 										>
 											{candidate.sentence.trim()}
 										</button>

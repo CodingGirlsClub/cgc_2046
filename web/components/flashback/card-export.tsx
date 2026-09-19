@@ -41,7 +41,7 @@ export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; toke
 	const alreadyLicensed = (me.quoteLevel ?? "off") !== "off";
 	const shareOptIn = optInOverride ?? alreadyLicensed;
 	/** 可回填的区间三件套齐备才给选项（R37：span = 卡片上展示的金句） */
-	const optInAvailable = Boolean(token && me.quote && me.quoteQuestionKey && me.quoteSpan);
+	const optInAvailable = Boolean(token && me.quote && (me.quoteSpans?.length ?? 0) > 0);
 
 	/** 勾选 → 开匿名金句档（span 与卡片同源）；取消勾选 → 保持关闭（不撤销既有档位） */
 	const toggleShareOptIn = async (next: boolean) => {
@@ -54,8 +54,7 @@ export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; toke
 				variables: {
 					token,
 					level: "anonymous",
-					questionKey: me.quoteQuestionKey ?? undefined,
-					chosenQuoteSpan: me.quoteSpan ?? undefined,
+					chosenQuoteSpans: me.quoteSpans ?? undefined,
 				},
 			});
 		} catch {

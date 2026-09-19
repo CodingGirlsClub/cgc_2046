@@ -1937,13 +1937,11 @@
     "fbSmsNotReady": "短信腿未配置：仅短信不可发送，「全部」只走邮件。",
     "fbSendDone": "已入队 {queued} 人，跳过 {skipped} 人；错峰发送进行中。",
     "fbNoReachable": "无可触达校友（分布全为零）。",
-
-
     "fbBatchesTitle": "批次历史",
     "fbBatchesNote": "按批次聚合的发送计数（含单人重发批次），与四率看板按场次对照。",
     "fbThBatch": "批次",
     "fbThTemplate": "模板",
-"fbThFailed": "失败",
+    "fbThFailed": "失败",
     "fbThFirstAt": "触发时间",
     "fbEmailShort": "邮件",
     "fbSmsShort": "短信",
@@ -2510,12 +2508,12 @@
       "quote_off": "关闭（默认）",
       "quote_anonymous": "匿名金句——平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）",
       "quote_credited": "实名支持——补充你现在在做什么，实名公开（可作品牌素材）",
-      "quotePick": "从当年答案里选一句作为你的金句：",
+      "quotePick": "选出可以展示的句子（可多选，平台从中挑选）：",
       "quoteNoCandidate": "（当年的句子里都带着雾面——解开后才能选金句）",
       "creditedNoteLabel": "现在在做什么、想说的话（实名公开）",
       "creditedNotePlaceholder": "例：在做无障碍开发",
       "submit": "写好了，去寄出 →",
-      "quoteCourage": "你的答案，会成为别人的勇气。"
+      "quoteCourage": "你的语言，会成为别人的勇气。"
     },
     "sendRegister": {
       "title": "照片正在贴上墙。",

@@ -261,10 +261,9 @@ export default function Journey() {
 							variables: {
 								token,
 								level: formState.quoteLevel,
-								questionKey: formState.quoteQuestionKey,
-								chosenQuoteSpan:
-									formState.quoteStart !== undefined && formState.quoteLen !== undefined
-										? { start: formState.quoteStart, len: formState.quoteLen }
+								chosenQuoteSpans:
+									formState.quoteLevel !== "off" && (formState.quotePicks?.length ?? 0) > 0
+										? formState.quotePicks
 										: undefined,
 								creditedNote:
 									formState.quoteLevel === "credited" ? formState.creditedNote : undefined,
