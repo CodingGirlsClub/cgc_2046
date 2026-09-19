@@ -46,15 +46,20 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   @doc """
   按场次批量入队（R23）：该场次全部**可触达**校友（email 或 phone 非空、未退订）
   逐人入 outreach 队列，批次号 `archive-<key>`。返回入队/跳过计数。
-  """
-  @spec enqueue_for_archive(String.t(), String.t()) ::
-          {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer()}} | {:error, term()}
-  def enqueue_for_archive(archive_key, template) do
-    with {:ok, archive} <- fetch_archive(archive_key),
-         :ok <- validate_template(template) do
-      {person_ids, filtered_out} = reachable_person_ids(archive.id)
 
-      {queued, skipped} = enqueue_persons(person_ids, template, "archive-" <> archive.key)
+  通道选择（R11）：`:all` = email 优先、phone 需短信就绪（现行为）；`:email` =
+  仅 email 可达者走 email；`:sms` = 仅 phone 可达者走 sms（含也有 email 者）。
+  """
+  @spec enqueue_for_archive(String.t(), String.t(), atom()) ::
+          {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer()}} | {:error, term()}
+  def enqueue_for_archive(archive_key, template, channel \\ :all) do
+    with {:ok, archive} <- fetch_archive(archive_key),
+         :ok <- validate_template(template),
+         :ok <- validate_channel(channel) do
+      {person_ids, filtered_out} = reachable_person_ids(archive.id, channel)
+
+      {queued, skipped} =
+        enqueue_persons(person_ids, template, "archive-" <> archive.key, channel)
 
       # skipped 三路合计：退订/无通道（解析层）+ 本批次已入队（幂等层）——运营面
       # 从计数即可读出「多少人有通道、多少人被抑制、多少人重复」。
@@ -64,11 +69,12 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
 
   @doc """
   定向入队（U7 成场通知）：给定 person 列表入队，批次号由调用方给定
-  （成场用 `card-<card_id>`）。退订者在入队面即被抑制。
+  （成场用 `card-<card_id>`）。退订者在入队面即被抑制。通道选择同
+  `enqueue_for_archive/3`（R11）。
   """
-  @spec enqueue_persons([String.t()], String.t(), String.t()) ::
+  @spec enqueue_persons([String.t()], String.t(), String.t(), atom()) ::
           {non_neg_integer(), non_neg_integer()}
-  def enqueue_persons(person_ids, template, batch) when is_list(person_ids) do
+  def enqueue_persons(person_ids, template, batch, channel \\ :all) when is_list(person_ids) do
     suppressed = suppressed_person_ids()
     persons = persons_by_id(person_ids)
     now = DateTime.utc_now()
@@ -81,7 +87,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
             {acc, skipped + 1}
 
           true ->
-            case persons |> Map.get(person_id) |> channel_for() do
+            case persons |> Map.get(person_id) |> channel_for(channel) do
               nil ->
                 {acc, skipped + 1}
 
@@ -125,6 +131,15 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   @doc "入队模板白名单。"
   @spec templates() :: [String.t()]
   def templates, do: @templates
+
+  @doc """
+  通道字符串 → atom（R11；GraphQL/MCP 面共用，未知值 fail-closed）。
+  """
+  @spec parse_channel(String.t()) :: {:ok, atom()} | {:error, :invalid_channel}
+  def parse_channel("all"), do: {:ok, :all}
+  def parse_channel("email"), do: {:ok, :email}
+  def parse_channel("sms"), do: {:ok, :sms}
+  def parse_channel(_), do: {:error, :invalid_channel}
 
   # ── 退订（R30：真源 = flashback_people.outreach_unsubscribed_at） ────
 
@@ -287,10 +302,10 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   defp invalid_input_error(message),
     do: %{code: "flashback_invalid_input", message: message, reason: :invalid_input}
 
-  # 可触达 = 有可用通道（email 优先，phone 需短信模板就绪）且未退订。
-  # 返回 {ids, filtered_out}：解析层被抑制/无通道的人数计入 skipped（运营面
-  # 从 enqueue 计数即可读出触达面收窄了多少）。
-  defp reachable_person_ids(archive_id) do
+  # 可触达 = 所选通道档下有可用通道且未退订（R11 三档；:all = email 优先、
+  # phone 需短信模板就绪）。返回 {ids, filtered_out}：解析层被抑制/无通道的
+  # 人数计入 skipped（运营面从 enqueue 计数即可读出触达面收窄了多少）。
+  defp reachable_person_ids(archive_id, channel) do
     suppressed = suppressed_person_ids()
 
     {ids, filtered_out} =
@@ -299,7 +314,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       |> Ash.Query.filter(archive_event_id == ^archive_id)
       |> Ash.read!(authorize?: false, page: false)
       |> Enum.reduce({[], 0}, fn person, {ids, out} ->
-        if MapSet.member?(suppressed, person.id) or channel_for(person) == nil do
+        if MapSet.member?(suppressed, person.id) or channel_for(person, channel) == nil do
           {ids, out + 1}
         else
           {[person.id | ids], out}
@@ -317,6 +332,16 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
     |> Map.new(&{&1.id, &1})
   end
 
+  defp channel_for(person, :all), do: channel_for(person)
+
+  defp channel_for(person, :email) do
+    if present?(person.email), do: :email
+  end
+
+  defp channel_for(person, :sms) do
+    if present?(person.phone) and sms_configured?(), do: :sms
+  end
+
   defp channel_for(person) do
     cond do
       present?(person.email) -> :email
@@ -324,6 +349,11 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       true -> nil
     end
   end
+
+  defp validate_channel(c) when c in [:all, :email, :sms], do: :ok
+
+  defp validate_channel(_),
+    do: {:error, invalid_input_error("channel must be one of all|email|sms")}
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
 

@@ -94,6 +94,110 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── 通道选择（R11：全部/仅邮件/仅短信三档） ─────────────────────────
+
+  describe "通道选择（R11 三档）" do
+    # 名册：2 email-only + 1 phone-only + 1 双通道
+    defp mixed_roster(archive) do
+      email_only_a = create_person(archive, full_name: "邮甲", phone: nil)
+
+      email_only_b =
+        create_person(archive, full_name: "邮乙", email: "youyi@example.com", phone: nil)
+
+      phone_only = create_person(archive, full_name: "短丙", email: nil)
+      both = create_person(archive, full_name: "双丁")
+
+      {email_only_a, email_only_b, phone_only, both}
+    end
+
+    test "仅邮件：email 可达者全走 email 通道；phone-only 零行" do
+      archive = create_archive()
+      {email_a, email_b, phone_only, _both} = mixed_roster(archive)
+      batch = "archive-" <> archive.key
+
+      assert {:ok, %{queued: 3, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :email)
+
+      assert outreach_count(%{batch: batch, channel: :email}) == 3
+      assert outreach_count(%{person_id: phone_only.id}) == 0
+      assert %{channel: :email} = outreach_row!(email_a.id, :email)
+      assert %{channel: :email} = outreach_row!(email_b.id, :email)
+    end
+
+    test "全部：双通道者走 email（优先）、phone-only 走 sms（现行为锚点）" do
+      archive = create_archive()
+      {_ea, _eb, phone_only, both} = mixed_roster(archive)
+      batch = "archive-" <> archive.key
+
+      assert {:ok, %{queued: 4, skipped: 0}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :all)
+
+      assert outreach_count(%{batch: batch, channel: :email}) == 3
+      assert outreach_count(%{batch: batch, channel: :sms}) == 1
+      assert %{channel: :email} = outreach_row!(both.id, :email)
+      assert %{channel: :sms} = outreach_row!(phone_only.id, :sms)
+    end
+
+    test "仅短信：sms 可达者全走 sms 通道；email-only 零行" do
+      archive = create_archive()
+      {email_a, _eb, _po, _both} = mixed_roster(archive)
+      batch = "archive-" <> archive.key
+
+      assert {:ok, %{queued: 2, skipped: 2}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :sms)
+
+      assert outreach_count(%{batch: batch, channel: :sms}) == 2
+      assert outreach_count(%{person_id: email_a.id}) == 0
+    end
+
+    test "短信未配置：仅短信全跳过；全部退化为纯邮件腿（fail-closed 回归）" do
+      Application.put_env(:cgc_2046, :flashback_sms, template_id: nil)
+
+      archive = create_archive()
+      {_ea, _eb, _po, _both} = mixed_roster(archive)
+      batch = "archive-" <> archive.key
+
+      assert {:ok, %{queued: 0, skipped: 4}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :sms)
+
+      assert {:ok, %{queued: 3, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :all)
+
+      assert outreach_count(%{batch: batch, channel: :sms}) == 0
+      assert outreach_count(%{batch: batch, channel: :email}) == 3
+    end
+
+    test "非法通道 → flashback_invalid_input" do
+      archive = create_archive()
+
+      assert {:error, %{code: "flashback_invalid_input"}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :fax)
+    end
+
+    test "GraphQL：channel 参数传导到入队（admin token）" do
+      archive = create_archive()
+      {_ea, _eb, phone_only, _both} = mixed_roster(archive)
+      batch = "archive-" <> archive.key
+      admin = register_and_sign_in("outreach-channel", :admin)
+
+      res =
+        post_graphql(
+          """
+          mutation {
+            flashbackAdminSendOutreach(archiveKey: "#{archive.key}", template: "reconnect", channel: "sms") {
+              queued skipped
+            }
+          }
+          """,
+          admin.token
+        )
+
+      assert %{"queued" => 2, "skipped" => 2} = res["data"]["flashbackAdminSendOutreach"]
+      assert outreach_count(%{batch: batch, channel: :sms}) == 2
+      assert outreach_count(%{person_id: phone_only.id, channel: :sms}) == 1
+    end
+  end
+
   # ── 退订（R30：按人抑制双通道） ───────────────────────────────────────
 
   describe "退订抑制（email 与 sms 双通道均不再入队）" do
