@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import TodaySlot from "./today-slot";
+import { FutureEventFrames, WishFrames } from "./wish-frames";
 
 const WIDE_QUERY = "(min-width: 768px)";
 
@@ -42,11 +43,16 @@ export function cityPiles(archive: FlashbackCapsuleArchive): CityPile[] {
 export default function Corridor({
 	capsule,
 	cityFiltered = false,
-	city = null,
+	token = null,
+	onChanged = () => {},
 }: {
 	capsule: FlashbackCapsule;
 	/** 城市钉筛选中（R34）：名册为空时给「该城无名册」而非裸空走廊 */
 	cityFiltered?: boolean;
+	/** 许愿 mutations 的双入口 token（U7） */
+	token?: string | null;
+	/** 许愿/附议/留言/删除成功后的重拉（U7） */
+	onChanged?: () => void;
 }) {
 	const tCorridor = useTranslations("flashback.corridor");
 	const wide = useWideCorridor();
@@ -68,6 +74,13 @@ export default function Corridor({
 				</article>
 			))}
 			<TodaySlot me={capsule.me} />
+			<FutureEventFrames frames={capsule.futureEvents} hiddenWhenFiltered={cityFiltered} />
+			<WishFrames
+				publicWishes={capsule.publicWishes}
+				myPrivateWishes={capsule.myPrivateWishes}
+				token={token}
+				onChanged={onChanged}
+			/>
 		</section>
 	);
 }

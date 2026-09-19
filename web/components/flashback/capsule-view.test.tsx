@@ -62,7 +62,10 @@ const baseCapsule: FlashbackCapsule = {
 		answers: [{ id: "me-a1", questionKey: "self_intro", rawText: "一个文科生。在出版社。", text: "一个文科生。▓▓。" }],
 	},
 	// 单城：钉条隐藏（<2 城不渲染），不影响既有断言
-	cities: ["北京"],
+		futureEvents: [],
+	publicWishes: [],
+	myPrivateWishes: [],
+cities: ["北京"],
 	archives: [
 		{
 			key: "2014-01-11-bj",

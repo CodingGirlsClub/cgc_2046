@@ -10,6 +10,15 @@ import Corridor, { cityPiles } from "./corridor";
  * 显影照原型 --d 手法：加载即播、全局时间线（摞间 +0.3s、摞内 +0.2s），forwards 停雾态。
  */
 
+const { useMutationMock } = vi.hoisted(() => ({
+	useMutationMock: vi.fn(() => [vi.fn(), { loading: false }]),
+}));
+
+vi.mock("@apollo/client/react", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@apollo/client/react")>();
+	return { ...actual, useMutation: useMutationMock };
+});
+
 vi.mock("@/i18n/navigation", () => ({
 	Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
 		<a href={href} {...rest}>
@@ -80,6 +89,9 @@ const capsule: FlashbackCapsule = {
 		quote: null,
 		answers: [],
 	},
+	futureEvents: [],
+	publicWishes: [],
+	myPrivateWishes: [],
 	cities: ["上海", "北京"],
 	archives: [multiCity, singleCity],
 };

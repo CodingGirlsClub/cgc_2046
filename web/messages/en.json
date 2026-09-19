@@ -2586,6 +2586,32 @@
       "cancel": "Cancel",
       "doneTitle": "Your archive has been erased",
       "doneBody": "Data deleted, link invalidated. Thank you for having been here."
+    },
+    "wish": {
+      "publicTitle": "Everyone's Wishes",
+      "publicLabel": "Public · endorse & comment",
+      "privateTitle": "My Private Wishes",
+      "privateLabel": "Only you and the platform can see",
+      "privateMark": "Private wish",
+      "empty": "No public wishes yet — make the first one",
+      "makeWish": "Make a wish",
+      "endorse": "Endorse +1",
+      "endorsedByMe": "Endorsed",
+      "endorsed": "{count} endorsements",
+      "enrolled": "{count} enrolled",
+      "join": "Join →",
+      "full": "Fully booked",
+      "closed": "Registration closed",
+      "futureLabel": "Undeveloped · yours to co-create",
+      "formPlaceholder": "What do you want to join or build? (a course, a book, anything)",
+      "visibilityLabel": "Wish visibility",
+      "visibilityPrivate": "Private — only the platform and you",
+      "visibilityPublic": "Public — in the corridor for endorsements",
+      "submit": "Make this wish",
+      "comment": "Comment",
+      "commentPlaceholder": "Leave a note…",
+      "delete": "Delete",
+      "cancel": "Close"
     }
   },
   "initiatives": {

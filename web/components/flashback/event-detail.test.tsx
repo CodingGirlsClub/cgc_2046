@@ -75,7 +75,7 @@ const archive: FlashbackCapsuleArchive = {
 
 function withCapsule(archives: FlashbackCapsuleArchive[]) {
 	capsuleQuery.mockResolvedValue({
-		data: { flashbackCapsule: { me: {}, archives, cities: [] } },
+		data: { flashbackCapsule: { me: {}, archives, futureEvents: [], publicWishes: [], myPrivateWishes: [], cities: [] } },
 	});
 }
 

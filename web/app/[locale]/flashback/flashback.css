@@ -1174,3 +1174,154 @@
 		opacity: 1;
 	}
 }
+
+/* ── 未来帧群（U7/版 D）：场次帧(亮金) + 公开愿望帧 + 私人许愿帧 ────── */
+.fb-corridor-when--future { color: #cbbf8f; }
+.fb-future-initiative { color: inherit; text-decoration: none; letter-spacing: inherit; }
+.fb-future-initiative:hover { text-decoration: underline; }
+.fb-future-list, .fb-wish-list {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+}
+.fb-event-card {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
+	padding: 10px 12px;
+}
+.fb-event-card--lit {
+	background: radial-gradient(80% 70% at 50% 0%, rgba(203, 191, 143, 0.22), rgba(203, 191, 143, 0.06) 70%, transparent);
+	border-color: rgba(203, 191, 143, 0.45);
+	box-shadow: 0 0 18px rgba(203, 191, 143, 0.15);
+}
+.fb-event-title { font-size: 13px; color: #d9d4ca; margin: 0; font-weight: 600; }
+.fb-event-meta { font-size: 10px; color: #77726a; margin: 4px 0 0; }
+.fb-event-cta {
+	display: inline-block;
+	margin-top: 6px;
+	background: var(--fb-accent);
+	color: #141317;
+	font-size: 10px;
+	padding: 4px 12px;
+	border-radius: 999px;
+	text-decoration: none;
+}
+.fb-event-note { display: block; margin-top: 6px; font-size: 10px; color: #77726a; }
+
+.fb-wish-card {
+	background: rgba(255, 255, 255, 0.05);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 6px;
+	padding: 10px 12px;
+	cursor: pointer;
+}
+.fb-wish-card--private { border-style: dashed; }
+.fb-wish-content { font-size: 12px; color: #d9d4ca; margin: 0; line-height: 1.7; }
+.fb-wish-meta { font-size: 10px; color: #77726a; margin: 4px 0 0; }
+.fb-wish-endorse-btn {
+	background: none;
+	border: 1px solid rgba(203, 191, 143, 0.5);
+	color: var(--fb-accent);
+	font: inherit;
+	font-size: 10px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	cursor: pointer;
+	margin-top: 6px;
+}
+.fb-wish-endorsed { display: inline-block; font-size: 10px; color: var(--fb-sub); margin-top: 6px; }
+.fb-wish-empty { list-style: none; }
+.fb-wish-blank-card {
+	display: block;
+	border: 2px dashed rgba(239, 233, 219, 0.25);
+	border-radius: 6px;
+	color: #8d887e;
+	font-size: 11px;
+	padding: 22px 14px;
+	text-align: center;
+	cursor: pointer;
+}
+.fb-wish-add {
+	background: none;
+	border: none;
+	color: #77726a;
+	font: inherit;
+	font-size: 9px;
+	letter-spacing: 0.08em;
+	margin-top: 10px;
+	cursor: pointer;
+	padding: 0;
+}
+.fb-wish-add:hover { color: var(--fb-accent); }
+
+/* 许愿/愿望模态（R6/R8）：暗遮罩 + 纸面板 */
+.fb-wish-modal-layer {
+	position: fixed;
+	inset: 0;
+	background: rgba(10, 9, 12, 0.62);
+	display: grid;
+	place-items: center;
+	z-index: 60;
+}
+.fb-wish-modal {
+	width: min(400px, calc(100vw - 48px));
+	background: #f6f2e8;
+	color: #2b2723;
+	border-radius: 8px;
+	padding: 18px 20px;
+	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7);
+}
+.fb-wish-modal-title { font-size: 15px; font-weight: 600; margin: 0; line-height: 1.6; }
+.fb-wish-modal-meta { font-size: 11px; opacity: 0.7; margin: 6px 0 0; }
+.fb-wish-modal-comments { list-style: none; margin: 10px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.fb-wish-modal-comments li {
+	font-size: 11px;
+	line-height: 1.7;
+	padding-left: 8px;
+	border-left: 2px solid rgba(43, 39, 35, 0.15);
+	margin-top: 6px;
+	display: flex;
+	gap: 8px;
+}
+.fb-wish-modal-commenter { opacity: 0.6; flex-shrink: 0; }
+.fb-wish-modal-textarea {
+	width: 100%;
+	height: 64px;
+	border: 1px solid rgba(43, 39, 35, 0.3);
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.5);
+	font: inherit;
+	font-size: 12px;
+	padding: 8px;
+	color: #2b2723;
+	resize: none;
+	margin-top: 10px;
+}
+.fb-wish-modal-radios { display: flex; gap: 16px; font-size: 11px; margin-top: 10px; }
+.fb-wish-modal-radios label { cursor: pointer; }
+.fb-wish-modal-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.fb-wish-modal-submit {
+	background: #2b2723;
+	color: #efe9db;
+	border: none;
+	font: inherit;
+	font-size: 11px;
+	padding: 6px 16px;
+	border-radius: 999px;
+	cursor: pointer;
+}
+.fb-wish-endorse-btn { font-family: inherit; }
+.fb-wish-modal-cancel, .fb-wish-modal-delete {
+	background: none;
+	border: none;
+	font: inherit;
+	font-size: 11px;
+	color: #8d887e;
+	cursor: pointer;
+	text-decoration: underline;
+	padding: 0;
+}

@@ -167,7 +167,7 @@ export default function CapsuleView() {
 			<p className="fb-hint fb-corridor-scrollhint">
 				{wide ? t("scrollHintWide", { city: city ?? t("cityAllWide") }) : t("scrollHint")}
 			</p>
-			<Corridor capsule={capsule} cityFiltered={city !== null} />
+			<Corridor capsule={capsule} cityFiltered={city !== null} token={token} onChanged={reload} />
 			<CardExport me={capsule.me} token={token} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>
