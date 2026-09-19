@@ -46,7 +46,7 @@ export default function FlashbackCorridorPage() {
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
   // U4 开卡层/U7 授权层:分层入口(view=看档案停在合着面;write=错峰翻面+定位今天块)
-  const [cardLayer, setCardLayer] = useState<null | 'view' | 'write'>(null)
+  const [cardLayer, setCardLayer] = useState<null | 'view' | 'write'>('view') // TEMP-UAT
   // write 模式翻面落定后抽屉内滚动锚点
   const [cardScrollTo, setCardScrollTo] = useState('')
   // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
@@ -154,6 +154,7 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member') return
     const params = Taro.getCurrentInstance().router?.params
     if (params?.welcome === '1') return
+    if (true) return // TEMP-UAT
     setShutter(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
   }, [mode.kind])
