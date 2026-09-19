@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import MyCard from '@/components/MyCard'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
   FlashbackCapsule,
@@ -125,6 +126,14 @@ export default function FlashbackCorridorPage() {
     void Taro.navigateTo({ url: `/pages/flashback-event/index?key=${encodeURIComponent(key)}` })
   }
 
+  // U2/R1:页内 Tab(时间廊|我的卡)——参与态两键互达(修断裂 4);路人/找回只显示时间廊
+  const [tab, setTab] = useState<'corridor' | 'mine'>('corridor')
+  const reloadMember = async () => {
+    if (mode.kind !== 'member') return
+    const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
+    if (capsule) setMode({ ...mode, capsule })
+  }
+
   const goLogin = () => {
     void Taro.navigateTo({
       url: `/pages/login/index?returnUrl=${encodeURIComponent('/pages/flashback-corridor/index')}`
@@ -152,6 +161,18 @@ export default function FlashbackCorridorPage() {
           <Text className={styles.hint}>↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场</Text>
         </View>
 
+        {mode.kind === 'member' && (
+          <View className={styles.mpTabBar}>
+            <Text className={`${styles.mpTab} ${tab === 'corridor' ? styles.mpTabActive : ''}`} onClick={() => setTab('corridor')}>
+              时间廊
+            </Text>
+            <Text className={`${styles.mpTab} ${tab === 'mine' ? styles.mpTabActive : ''}`} onClick={() => setTab('mine')}>
+              我的卡
+            </Text>
+          </View>
+        )}
+
+        <View style={{ display: mode.kind === 'member' && tab === 'mine' ? 'none' : 'block' }}>
         {mode.kind === 'member' && cities.length > 1 && (
           <View className={styles.cityPins}>
             <Text className={`${styles.cityPinAll} ${city === null ? styles.cityPinActive : ''}`} onClick={() => pickCity(null)}>
@@ -208,8 +229,13 @@ export default function FlashbackCorridorPage() {
             </View>
           )}
         </View>
+        </View>
 
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
+        {mode.kind === 'member' && tab === 'mine' && (
+          <MyCard capsule={mode.capsule} onWrite={() => void reloadMember()} />
+        )}
+
         <View className={styles.footer}>
           {mode.kind === 'member' && (
             <Button className={styles.cta} onClick={() => setShareSheet(true)}>

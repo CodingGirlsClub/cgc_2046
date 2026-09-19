@@ -389,3 +389,25 @@
   line-height: 1.6;
 }
 .shareCancel::after { border: none; }
+
+/* U2 页内 Tab(时间廊|我的卡,修断裂 4):胶囊双钮,选中橙 */
+.mpTabBar {
+  display: flex;
+  gap: 8px;
+  padding: 0 22px;
+  margin-bottom: 12px;
+}
+.mpTab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  font-size: 26rpx;
+  color: #8a8f98;
+  background: #f7f7f7;
+  border-radius: 24rpx;
+}
+.mpTabActive {
+  color: #fff;
+  background: #ea5504;
+  font-weight: 600;
+}
