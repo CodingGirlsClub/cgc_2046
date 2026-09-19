@@ -578,8 +578,9 @@ defmodule Mix.Tasks.Flashback.SeedDemo do
       |> Ash.Changeset.for_create(:create, %{
         person_id: row.id,
         level: :anonymous,
-        question_key: "self_intro",
-        chosen_quote_span: %{"start" => 0, "len" => sent.quote_len}
+        chosen_quote_spans: [
+          %{"question_key" => "self_intro", "start" => 0, "len" => sent.quote_len}
+        ]
       })
       |> Ash.create!(authorize?: false)
     end

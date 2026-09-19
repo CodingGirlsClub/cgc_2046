@@ -68,8 +68,13 @@ defmodule Cgc2046.Flashback.PublicLayerTest do
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       level: level,
-      question_key: "self_intro",
-      chosen_quote_span: span,
+      chosen_quote_spans: [
+        %{
+          question_key: "self_intro",
+          start: span["start"] || span[:start],
+          len: span["len"] || span[:len]
+        }
+      ],
       credited_note: note
     })
     |> Ash.create!(authorize?: false)

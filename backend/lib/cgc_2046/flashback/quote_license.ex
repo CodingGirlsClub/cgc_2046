@@ -6,9 +6,10 @@ defmodule Cgc2046.Flashback.QuoteLicense do
   - `:credited` 实名支持——在其上补充现状并实名公开（`credited_note` +
     Person.public_slug 发布，发布入口在 U6）。
 
-  `chosen_quote_span` 指向 `question_key` 对应答案 `raw_text` 的一段
-  （grapheme 偏移，结构同 fog span）；越界校验在 U2 mutation 拿得到原文处补齐，
-  本资源只钉结构（整数、start >= 0、len > 0）。
+  `chosen_quote_spans` 是句子白名单（多选）：每个元素携带自己的宿主
+  `question_key` 与区间（grapheme 偏移，结构同 fog span）；消费面
+  （金句墙/摘要卡）取首句，选句顺序即优先级。越界校验在 mutation 拿得到
+  原文处补齐，本资源只钉结构（整数、start >= 0、len > 0）。
   """
 
   use Ash.Resource,
@@ -32,16 +33,18 @@ defmodule Cgc2046.Flashback.QuoteLicense do
       constraints: [one_of: @levels]
     )
 
-    # 金句来源答案的键（span 的宿主）。
-    attribute(:question_key, :string, public?: true, writable?: true)
-    # %{"start" => int, "len" => int}；金句候选只从非雾面句子取（U5 消费）。
-    attribute(:chosen_quote_span, :map,
+    # 句子白名单（多选）：[%{"question_key" => str, "start" => int, "len" => int}]；
+    # 金句候选只从非雾面句子取（U5 消费）；首句 = 消费面优先展示句。
+    attribute(:chosen_quote_spans, {:array, :map},
       public?: true,
       writable?: true,
       constraints: [
-        fields: [
-          start: [type: :integer, allow_nil?: false],
-          len: [type: :integer, allow_nil?: false]
+        items: [
+          fields: [
+            question_key: [type: :string, allow_nil?: false],
+            start: [type: :integer, allow_nil?: false],
+            len: [type: :integer, allow_nil?: false]
+          ]
         ]
       ]
     )
@@ -79,14 +82,14 @@ defmodule Cgc2046.Flashback.QuoteLicense do
 
     # U2 flashbackSetQuoteLicense 专用（authorize?: false 路径）。
     create :create do
-      accept([:person_id, :level, :question_key, :chosen_quote_span, :credited_note])
-      change(&validate_span/2)
+      accept([:person_id, :level, :chosen_quote_spans, :credited_note])
+      change(&validate_spans/2)
     end
 
     update :update do
       require_atomic?(false)
-      accept([:level, :question_key, :chosen_quote_span, :credited_note])
-      change(&validate_span/2)
+      accept([:level, :chosen_quote_spans, :credited_note])
+      change(&validate_spans/2)
     end
 
     # R38 管理端下线开关（PlatformAdmin；hidden_at 置位/清空）。
@@ -100,33 +103,38 @@ defmodule Cgc2046.Flashback.QuoteLicense do
     destroy(:destroy)
   end
 
-  # 结构校验（整数、start >= 0、len > 0）；nil 放行（默认关）。
-  defp validate_span(changeset, _context) do
-    case Ash.Changeset.get_attribute(changeset, :chosen_quote_span) do
+  # 结构校验（每句:question_key 非空、整数、start >= 0、len > 0）；nil/[] 放行（默认关）。
+  defp validate_spans(changeset, _context) do
+    case Ash.Changeset.get_attribute(changeset, :chosen_quote_spans) do
       nil ->
         changeset
 
-      span when is_map(span) ->
-        start = Map.get(span, "start") || Map.get(span, :start)
-        len = Map.get(span, "len") || Map.get(span, :len)
-
-        if is_integer(start) and start >= 0 and is_integer(len) and len > 0 do
-          changeset
-        else
-          add_span_error(changeset)
-        end
+      spans when is_list(spans) ->
+        if Enum.all?(spans, &valid_span?/1), do: changeset, else: add_span_error(changeset)
 
       _ ->
         add_span_error(changeset)
     end
   end
 
+  defp valid_span?(span) when is_map(span) do
+    qk = Map.get(span, "question_key") || Map.get(span, :question_key)
+    start = Map.get(span, "start") || Map.get(span, :start)
+    len = Map.get(span, "len") || Map.get(span, :len)
+
+    is_binary(qk) and qk != "" and is_integer(start) and start >= 0 and is_integer(len) and
+      len > 0
+  end
+
+  defp valid_span?(_), do: false
+
   defp add_span_error(changeset) do
     Ash.Changeset.add_error(
       changeset,
       Ash.Error.Changes.InvalidAttribute.exception(
-        field: :chosen_quote_span,
-        message: "invalid quote span: start must be >= 0 and len > 0 (grapheme offsets)"
+        field: :chosen_quote_spans,
+        message:
+          "invalid quote spans: each needs question_key, start >= 0 and len > 0 (grapheme offsets)"
       )
     )
   end
@@ -134,7 +142,7 @@ defmodule Cgc2046.Flashback.QuoteLicense do
   admin do
     resource_group(:flashback)
 
-    table_columns([:id, :person_id, :level, :question_key, :credited_note, :hidden_at])
+    table_columns([:id, :person_id, :level, :credited_note, :hidden_at])
   end
 
   policies do
