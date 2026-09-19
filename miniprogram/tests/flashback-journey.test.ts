@@ -170,7 +170,7 @@ describe('corridorFrames / statsFrames（R12/R32 长廊帧）', () => {
       { key: 'k2', name: 'B', city: null, occurredOn: '2014-01-11', appliedCount: 344, attendedCount: null }
     ]
     const frames = statsFrames(stats)
-    assert.deepEqual(frames[0].piles, [{ city: '上海', count: 12 }])
+    assert.deepEqual(frames[0].piles, [{ city: '上海', count: 12, returned: 0 }])
     // 走进教室缺失回落报名数（仍不泄露任何名单）；无城市的场次不渲染堆
     assert.deepEqual(frames[1].piles, [])
     assert.ok(frames.every(({ returned }) => returned === 0))
