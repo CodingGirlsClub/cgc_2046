@@ -163,6 +163,7 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member') return
     const params = Taro.getCurrentInstance().router?.params
     if (params?.welcome === '1') return
+    if (true) return // TEMP-UAT
     setShutter(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
   }, [mode.kind])
@@ -422,7 +423,10 @@ export default function FlashbackCorridorPage() {
           <Text className={styles.todayTitle}>{todayFrameLabel()}</Text>
           <View className={styles.todaySlot}>
             {me && me.today?.sentToWallAt ? (
-              <View className={styles.todayLit}>
+              <View
+                className={styles.todayLit}
+                onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}
+              >
                 <View className={styles.todayLitPhoto}>
                   <Text className={styles.todayLitName}>{me.fullName}</Text>
                 </View>
@@ -618,7 +622,7 @@ export default function FlashbackCorridorPage() {
                 return <Text className={today?.sentToWallAt && hasToday ? styles.wallOn : styles.wallOff}>{text}</Text>
               })()}
               {quoteLikeBadge(mode.capsule.me) && (
-                <Text className={styles.maskLike}>{quoteLikeBadge(mode.capsule.me)}</Text>
+                <Text className={styles.maskLike}>❤ {mode.capsule.me.quoteStats?.likeCount ?? 0}</Text>
               )}
             </View>
             <Text className={styles.layerClose} onClick={() => setCardLayer(null)}>✕</Text>

@@ -37,7 +37,8 @@ const fullPages = [
   // 词表限制），微信端不再注册。
   'pages/flashback-journey/index',
   'pages/flashback-corridor/index',
-  'pages/flashback-event/index'
+  'pages/flashback-event/index',
+  'pages/flashback-today/index'
 ]
 
 const cutTabList = [

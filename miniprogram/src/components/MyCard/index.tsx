@@ -12,6 +12,7 @@ import Taro from '@tarojs/taro'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '@/domain/models'
 import { api } from '@/api'
 import {
+  isCandidatePicked,
   quoteLikeBadge,
   sentencesWithFog,
   toggleSentenceFog
@@ -118,7 +119,7 @@ export default function MyCard({
           </Text>
           {quoteLikeBadge(capsule.me) && (
             <Text className={styles.likeBadge} data-testid='fb-like-badge'>
-              {quoteLikeBadge(capsule.me)}
+              ❤ {capsule.me.quoteStats?.likeCount ?? 0}
             </Text>
           )}
         </View>
@@ -203,6 +204,60 @@ export default function MyCard({
           分享 · 把这一刻做成卡片
         </Button>
       )}
+    </View>
+  )
+}
+
+/**
+ * 今天回看卡(今天格 lit 点击):单面相纸=「这张卡在别人眼里的样子」——
+ * 今天的你三行(只读)+当年答案按句渲染(雾句=雾块示意对外隐藏,
+ * 已授权金句浅金高亮)+署名行。分享钩子由页面挂在卡下。
+ */
+export function TodayReview({ me, level }: { me: FlashbackCapsule['me']; level: 'off' | 'anonymous' | 'credited' }) {
+  const spans = me.quoteSpans ?? []
+  return (
+    <View className={styles.paperFace}>
+      <View className={styles.paperPhotoB}>
+        <Text className={styles.paperTodayTitle}>
+          今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
+        </Text>
+        {([
+          ['nowStatus', '现在在做什么'],
+          ['want', '想做的事 / 想学的东西'],
+          ['say', '想对 CGC 说'],
+        ] as const).map(([key, label]) => (
+          <View key={key} className={styles.writeRow}>
+            <Text className={styles.writeLabel}>{label}</Text>
+            <Text className={styles.rvTodayText}>{me.today?.[key] || '—'}</Text>
+          </View>
+        ))}
+      </View>
+      <View className={styles.paperPhotoA}>
+        <Text className={styles.paperTodayTitle}>当年的你 · {me.appliedAt ? me.appliedAt.slice(0, 4) : ''}</Text>
+        {me.answers.map((answer) => (
+          <View key={answer.id} className={styles.paperQA}>
+            <Text className={styles.paperQ}>{questionLabel(answer.questionKey)}</Text>
+            <View className={styles.paperA}>
+              {sentencesWithFog(answer).map((sentence, index) => {
+                const span = { questionKey: answer.questionKey, start: sentence.start, len: sentence.len }
+                const isQuote = level !== 'off' && isCandidatePicked({ ...span, sentence: sentence.text }, spans)
+                return (
+                  <Text
+                    key={`${answer.id}-${index}`}
+                    className={`${styles.rvSentence} ${sentence.fogged ? styles.rvFog : ''} ${isQuote ? styles.rvQuote : ''}`}
+                  >
+                    {sentence.text}
+                  </Text>
+                )
+              })}
+            </View>
+          </View>
+        ))}
+      </View>
+      <View className={styles.signRow}>
+        <Text className={styles.signName}>{me.fullName}</Text>
+        <Text className={styles.signTime}>{me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''}</Text>
+      </View>
     </View>
   )
 }
