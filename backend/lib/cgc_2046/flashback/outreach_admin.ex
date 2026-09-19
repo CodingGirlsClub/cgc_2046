@@ -3,13 +3,16 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
   闪念间触达管理查询面（R4/R8/R9，PlatformAdmin 专用口径）。
 
   与 `AdminStats` 的分工：本模块只服务「触达发送」运营闭环——确认摘要/页面
-  预览的通道分布（`preview/2`）、批次历史（后续 U）、名册视图（后续 U）。
-  三档口径与 `Dispatch.archive_channel_breakdown/1` 单源（KTD2），不在此重复
-  可达性规则。
+  预览的通道分布（`preview/2`）、批次历史（`batch_history/1`）、名册视图
+  （`roster/3`）。三档口径与 `Dispatch.archive_channel_breakdown/1` 单源
+  （KTD2），不在此重复可达性规则。
   """
+
+  import Ecto.Query
 
   alias Cgc2046.Flashback.EventArchive
   alias Cgc2046.Flashback.Outreach.Dispatch
+  alias Cgc2046.Repo
 
   require Ash.Query
 
@@ -53,10 +56,182 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
          both: breakdown.both,
          unsubscribed: breakdown.unsubscribed,
          unreachable: breakdown.unreachable,
-         sms_ready?: Dispatch.sms_configured?()
+         sms_ready: Dispatch.sms_configured?()
        }}
     end
   end
+
+  @doc """
+  场次触达批次历史（R8）：按批次聚合发送计数（通道 × 状态），含 resend-*
+  补救批次；`first_at` = 批次最早建行时刻（触发时间近似）。已删除档案的
+  历史行保留（发送事实，KTD10 口径）。
+  """
+  @spec batch_history(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def batch_history(archive_key) do
+    with {:ok, archive} <- fetch_archive(archive_key) do
+      rows =
+        from(o in "flashback_outreaches",
+          join: p in "flashback_people",
+          on: p.id == o.person_id,
+          where: p.archive_event_id == ^Ecto.UUID.dump!(archive.id),
+          group_by: [o.batch, o.template, o.channel, o.status],
+          select: %{
+            batch: o.batch,
+            template: o.template,
+            channel: o.channel,
+            status: o.status,
+            count: count(o.id),
+            first_at: min(o.inserted_at)
+          }
+        )
+        |> Repo.all()
+
+      grouped =
+        Enum.group_by(rows, & &1.batch)
+        |> Map.new(fn {batch, rows} ->
+          template = rows |> hd() |> Map.get(:template)
+
+          channel_counts =
+            Map.new(rows, fn row ->
+              {{String.to_existing_atom(row.channel), String.to_existing_atom(row.status)},
+               row.count}
+            end)
+
+          ch = fn c ->
+            %{
+              queued: channel_counts[{c, :queued}] || 0,
+              sent: channel_counts[{c, :sent}] || 0,
+              failed: channel_counts[{c, :failed}] || 0
+            }
+          end
+
+          first_at = rows |> Enum.map(& &1.first_at) |> Enum.min()
+
+          {{first_at, batch},
+           %{
+             batch: batch,
+             template: template,
+             email: ch.(:email),
+             sms: ch.(:sms),
+             first_at: first_at
+           }}
+        end)
+
+      {:ok,
+       grouped
+       |> Map.values()
+       |> Enum.sort_by(&{&1.first_at, &1.batch}, {:desc, DateTime})}
+    end
+  end
+
+  @doc """
+  场次名册（R9）：全部档案行（含已删除——其个人字段已匿名化，展示删除
+  标记而非 PII）带最近一次触达结果；`filter` 支持未认领/已退订/仅短信可达/
+  发送失败；`search` 按 full_name 不区分大小写包含。行数以场次规模为上限
+  （pilot 344），封顶 `@roster_limit` 防御性截断。
+  """
+  @spec roster(String.t(), String.t() | nil, String.t() | nil) ::
+          {:ok, [map()]} | {:error, term()}
+  def roster(archive_key, filter \\ nil, search \\ nil)
+      when filter in [nil, "unclaimed", "unsubscribed", "sms_only", "send_failed"] do
+    with {:ok, archive} <- fetch_archive(archive_key) do
+      people =
+        Cgc2046.Flashback.Person
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(archive_event_id == ^archive.id)
+        |> Ash.read!(authorize?: false, page: false)
+
+      last_by_person = last_outreach_by_person(people)
+
+      entries =
+        Enum.map(people, fn person ->
+          last = Map.get(last_by_person, person.id)
+
+          %{
+            person_id: person.id,
+            full_name: person.full_name,
+            email: person.email,
+            phone: person.phone,
+            claimed: not is_nil(person.user_id),
+            participation: Atom.to_string(person.participation),
+            unsubscribed: not is_nil(person.outreach_unsubscribed_at),
+            deleted: not is_nil(person.deleted_at),
+            email_reachable: present?(person.email),
+            sms_reachable: present?(person.phone),
+            last_outreach: last
+          }
+        end)
+
+      filtered =
+        entries
+        |> apply_filter(filter)
+        |> apply_search(search)
+
+      {:ok, Enum.take(filtered, @roster_limit)}
+    end
+  end
+
+  @roster_limit 500
+
+  defp apply_filter(entries, nil), do: entries
+
+  defp apply_filter(entries, "unclaimed"),
+    do: Enum.filter(entries, &(&1.claimed == false and &1.deleted == false))
+
+  defp apply_filter(entries, "unsubscribed"), do: Enum.filter(entries, & &1.unsubscribed)
+
+  defp apply_filter(entries, "sms_only"),
+    do: Enum.filter(entries, &(&1.sms_reachable and not &1.email_reachable and not &1.deleted))
+
+  defp apply_filter(entries, "send_failed"),
+    do: Enum.filter(entries, &match?(%{last_outreach: %{status: :failed}}, &1))
+
+  defp apply_search(entries, nil), do: entries
+
+  defp apply_search(entries, search) do
+    needle = String.downcase(String.trim(search))
+
+    if needle == "" do
+      entries
+    else
+      Enum.filter(entries, &String.contains?(String.downcase(&1.full_name), needle))
+    end
+  end
+
+  defp last_outreach_by_person(people) do
+    # 裸表查询：UUID 需 16 字节 binary（Ash 读出的 id 是字符串，dump 后绑定）
+    ids = Enum.map(people, &Ecto.UUID.dump!(&1.id))
+
+    if ids == [] do
+      %{}
+    else
+      from(o in "flashback_outreaches",
+        where: o.person_id in ^ids,
+        distinct: [desc: o.person_id, desc: o.inserted_at],
+        order_by: [desc: o.person_id, desc: o.inserted_at],
+        select: %{
+          person_id: o.person_id,
+          channel: o.channel,
+          status: o.status,
+          batch: o.batch,
+          inserted_at: o.inserted_at
+        }
+      )
+      |> Repo.all()
+      |> Map.new(fn row ->
+        {Ecto.UUID.load!(row.person_id),
+         %{
+           channel: String.to_existing_atom(row.channel),
+           status: String.to_existing_atom(row.status),
+           batch: row.batch,
+           at: row.inserted_at
+         }}
+      end)
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_), do: false
 
   defp fetch_archive(archive_key) do
     EventArchive

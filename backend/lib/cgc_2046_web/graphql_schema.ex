@@ -290,6 +290,51 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
+    field :flashback_outreach_preview, :flashback_outreach_preview do
+      arg(:archive_key, non_null(:string))
+      arg(:channel, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          alias = Cgc2046.Flashback.Outreach.Dispatch
+
+          with {:ok, channel} <- alias.parse_channel(Map.get(args, :channel, "all")) do
+            Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel)
+          else
+            {:error, :invalid_channel} ->
+              {:error,
+               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
+          end
+        end)
+      end)
+    end
+
+    @desc "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
+    field :flashback_outreach_batches, non_null(list_of(non_null(:flashback_outreach_batch))) do
+      arg(:archive_key, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          Cgc2046.Flashback.OutreachAdmin.batch_history(args[:archive_key])
+        end)
+      end)
+    end
+
+    @desc "场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed"
+    field :flashback_outreach_roster,
+          non_null(list_of(non_null(:flashback_outreach_roster_entry))) do
+      arg(:archive_key, non_null(:string))
+      arg(:filter, :string)
+      arg(:search, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          Cgc2046.Flashback.OutreachAdmin.roster(args[:archive_key], args[:filter], args[:search])
+        end)
+      end)
+    end
+
     @desc "删除摘要（U10/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
     field :flashback_delete_preview, :flashback_delete_preview_result do
       arg(:token, :string)
@@ -3332,6 +3377,60 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_redemption_update_result do
     field(:id, non_null(:id))
     field(:status, non_null(:string))
+  end
+
+  # ── 触达运营台（R4/R8/R9）────────────────────────────────────────────
+  object :flashback_outreach_preview do
+    field(:archive_key, non_null(:string))
+    field(:archive_name, non_null(:string))
+    @desc "所选通道档的预估入队数"
+    field(:channel, non_null(:string))
+    field(:queued, non_null(:integer))
+    @desc "三档分布：仅邮件可达 / 仅短信可达 / 双通道"
+    field(:email_only, non_null(:integer))
+    field(:sms_only, non_null(:integer))
+    field(:both, non_null(:integer))
+    field(:unsubscribed, non_null(:integer))
+    field(:unreachable, non_null(:integer))
+    @desc "短信腿就绪位（SendCloud 触达模板已配置）"
+    field(:sms_ready, non_null(:boolean))
+  end
+
+  object :flashback_outreach_batch_channel do
+    field(:queued, non_null(:integer))
+    field(:sent, non_null(:integer))
+    field(:failed, non_null(:integer))
+  end
+
+  object :flashback_outreach_batch do
+    field(:batch, non_null(:string))
+    field(:template, non_null(:string))
+    field(:email, non_null(:flashback_outreach_batch_channel))
+    field(:sms, non_null(:flashback_outreach_batch_channel))
+    @desc "批次最早建行时刻（触发时间近似）"
+    field(:first_at, :string)
+  end
+
+  object :flashback_outreach_last do
+    field(:channel, non_null(:string))
+    field(:status, non_null(:string))
+    field(:batch, non_null(:string))
+    field(:at, :string)
+  end
+
+  object :flashback_outreach_roster_entry do
+    field(:person_id, non_null(:id))
+    field(:full_name, non_null(:string))
+    @desc "完整联系方式（KD6/R13：platform_admin 门控，排查核对用）"
+    field(:email, :string)
+    field(:phone, :string)
+    field(:claimed, non_null(:boolean))
+    field(:participation, non_null(:string))
+    field(:unsubscribed, non_null(:boolean))
+    field(:deleted, non_null(:boolean))
+    field(:email_reachable, non_null(:boolean))
+    field(:sms_reachable, non_null(:boolean))
+    field(:last_outreach, :flashback_outreach_last)
   end
 
   object :flashback_redeem_result do
