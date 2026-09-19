@@ -6,7 +6,8 @@ import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
 import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
-import { futureEventCards } from '@/domain/flashback'
+import { futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
+import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
 import ShareSheet from '@/components/MyCard/ShareSheet'
 import { STORAGE_KEYS } from '@/state/storage'
@@ -48,6 +49,14 @@ export default function FlashbackCorridorPage() {
   const [cardOpen, setCardOpen] = useState(false)
   const cardOpenedAt = useRef(0)
   const [licenseOpen, setLicenseOpen] = useState(false)
+  // U7 授权弹层:三档+多选圈选+预览(数据 me;写走 useQuoteLicense 单源)
+  const [licensePicks, setLicensePicks] = useState<QuoteSpanPick[]>([])
+  const [licenseLevel, setLicenseLevel] = useState<QuoteLevel>('off')
+  const [licenseInited, setLicenseInited] = useState(false)
+  const { submitLicense } = useQuoteLicense(() => void reloadMember())
+  // U7 报名 sheet:点场次卡→详情(押金);报名→event-detail 端内闭环
+  const [eventSheet, setEventSheet] = useState<{ id: string; title: string; meta: string } | null>(null)
+  const [enrolled, setEnrolled] = useState<string[]>([])
   const [sendingCard, setSendingCard] = useState(false)
 
   /** 寄出(U5 完整三拍);骨架期:发送 → toast + 交 U5 落定 */
@@ -281,10 +290,20 @@ export default function FlashbackCorridorPage() {
               {sendingCard ? '正在贴上墙…' : '写完寄出 →'}
             </Text>
             <Text
-              className={styles.dockLicense}
-              onClick={() => setLicenseOpen(true)}
+              className={`${styles.dockLicense} ${me && parseQuoteLevel(me.quoteLevel) !== 'off' ? styles.dockLicenseOn : ''}`}
+              onClick={() => {
+                const meLv = me ? parseQuoteLevel(me.quoteLevel) : 'off'
+                setLicenseLevel(meLv)
+                setLicensePicks(
+                  me && me.quoteSpans
+                    ? me.quoteSpans.map((sp) => ({ questionKey: sp.questionKey, start: sp.start, len: sp.len }))
+                    : [],
+                )
+                setLicenseInited(true)
+                setLicenseOpen(true)
+              }}
             >
-              ← 金句授权
+              ← 金句授权{me && parseQuoteLevel(me.quoteLevel) !== 'off' ? ' · 已授权 ✓' : ''}
             </Text>
           </View>
         </View>
@@ -374,13 +393,19 @@ export default function FlashbackCorridorPage() {
                     className={`${styles.eventCard} ${card.status === 'open' ? styles.eventCardLit : styles.eventCardMuted}`}
                     onClick={() => {
                       if (card.status !== 'open') return
-                      void Taro.navigateTo({ url: `/pages/event-detail/index?id=${card.id}&kind=event` })
+                      setEventSheet({ id: card.id, title: card.title, meta: card.meta })
                     }}
                   >
                     <Text className={styles.eventTitle}>{card.title}</Text>
                     <Text className={styles.eventMeta}>{card.meta}</Text>
                     <Text className={card.status === 'open' ? styles.eventCta : styles.eventBadge}>
-                      {card.status === 'open' ? '报名 →' : card.status === 'full' ? '名额已满' : '报名已截止'}
+                      {card.status !== 'open'
+                        ? card.status === 'full'
+                          ? '名额已满'
+                          : '报名已截止'
+                        : enrolled.includes(card.title)
+                          ? '已报名 ✓'
+                          : '报名 →'}
                     </Text>
                   </View>
                 ))}
@@ -465,12 +490,100 @@ export default function FlashbackCorridorPage() {
           </View>
         </View>
       )}
-      {/* U7 授权层占位(U7 单元填充:三档+多选圈选+预览) */}
-      {licenseOpen && (
-        <View className={styles.layerMask} onClick={() => setLicenseOpen(false)}>
-          <View className={styles.layerStub} onClick={(e) => e.stopPropagation()}>
-            <Text>金句授权 · U7 填充</Text>
-            <Button size="mini" onClick={() => setLicenseOpen(false)}>关闭</Button>
+      {/* U7 金句授权弹层:badge 勇气语+三档+多选圈选+两档预览(所见即所得) */}
+      {licenseOpen && mode.kind === 'member' && (
+        <View className={styles.wishSheetMask} onClick={() => setLicenseOpen(false)}>
+          <View className={styles.licenseSheet} onClick={(e) => e.stopPropagation()}>
+            <View className={styles.wishSheetBar} />
+            <Text className={styles.wishSheetTitle}>金句授权</Text>
+            <View className={styles.courageBadge}>
+              <Text className={styles.courageBadgeText}>你说的话会成为别人的勇气！</Text>
+            </View>
+            {(
+              [
+                ['off', '关闭', '（默认）你的答案只对自己可见'],
+                ['anonymous', '匿名金句', '平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）'],
+                ['credited', '实名支持', '补充你现在在做什么，实名公开（可作品牌素材）'],
+              ] as const
+            ).map(([lv, label, desc]) => (
+              <View
+                key={lv}
+                className={`${styles.licenseRow} ${licenseLevel === lv ? styles.licenseRowActive : ''}`}
+                onClick={() => {
+                  setLicenseLevel(lv)
+                  const next = lv === 'off' ? [] : licensePicks
+                  if (lv === 'off') setLicensePicks([])
+                  void submitLicense(lv, next)
+                }}
+              >
+                <View className={styles.licenseDot} />
+                <View>
+                  <Text className={styles.licenseLabel}>{label}</Text>
+                  <Text className={styles.licenseDesc}>{desc}</Text>
+                </View>
+              </View>
+            ))}
+            {licenseLevel !== 'off' && (
+              <View className={styles.quotePickerSheet}>
+                <Text className={styles.quotePickHint}>
+                  选出可以展示的句子（可多选，平台从中挑选）：已选 {licensePicks.length} 句
+                </Text>
+                {quoteCandidatesOf(mode.capsule.me.answers).map((candidate) => {
+                  const picked = isCandidatePicked(candidate, licensePicks)
+                  const order = licensePicks.findIndex(
+                    (p) => p.questionKey === candidate.questionKey && p.start === candidate.start,
+                  )
+                  return (
+                    <Text
+                      key={`${candidate.questionKey}:${candidate.start}`}
+                      className={`${styles.quoteCandidate} ${picked ? styles.quoteCandidateActive : ''}`}
+                      onClick={() => {
+                        const pick = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
+                        const next = picked
+                          ? licensePicks.filter(
+                              (p) => !(p.questionKey === pick.questionKey && p.start === pick.start),
+                            )
+                          : [...licensePicks, pick]
+                        setLicensePicks(next)
+                        void submitLicense(licenseLevel, next)
+                      }}
+                    >
+                      {picked ? `✓${order + 1} ` : ''}
+                      {candidate.sentence}
+                    </Text>
+                  )
+                })}
+                {licensePicks.length > 0 && licenseInited && (
+                  <View className={styles.quotePreview}>
+                    <Text className={styles.quotePreviewHint}>这句话将这样出现：</Text>
+                    {licenseLevel === 'credited' ? (
+                      <View className={styles.quotePreviewCard}>
+                        <Text className={styles.quotePreviewQ}>
+                          「{mode.capsule.me.quote ?? ''}」
+                        </Text>
+                        <View className={styles.quotePreviewBy}>
+                          <Text className={styles.quotePreviewName}>{mode.capsule.me.fullName}</Text>
+                          <Text className={styles.quotePreviewLink}>点开看实名档案 ›</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View className={styles.quotePreviewCard}>
+                        <Text className={styles.quotePreviewQ}>
+                          「{mode.capsule.me.quote ?? ''}」
+                        </Text>
+                        <View className={styles.quotePreviewBy}>
+                          <Text className={styles.quotePreviewName}>
+                            {mode.capsule.me.surname}** · {mode.capsule.me.appliedAt?.slice(0, 4)} · {mode.capsule.me.city ?? ''}
+                          </Text>
+                          <Text className={styles.quotePreviewDim}>匿名 · 不可点</Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            )}
+            <Text className={styles.licenseFoot}>你的授权随时可调，默认全部关闭</Text>
           </View>
         </View>
       )}
@@ -546,6 +659,29 @@ export default function FlashbackCorridorPage() {
           </View>
         </View>
       )}
+      {/* U7 报名 sheet:详情+押金;报名→event-detail 端内闭环(押金支付在那里) */}
+      {eventSheet && (
+        <View className={styles.wishSheetMask} onClick={() => setEventSheet(null)}>
+          <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
+            <View className={styles.wishSheetBar} />
+            <Text className={styles.wishSheetTitle}>{eventSheet.title}</Text>
+            <Text className={styles.eventMeta}>{eventSheet.meta}</Text>
+            <Text className={styles.enrollDeposit}>押金 ¥69 · 到场退 · 限 18+</Text>
+            <Button
+              className={styles.wishSheetSubmit}
+              onClick={() => {
+                setEnrolled((prev) => (prev.includes(eventSheet.title) ? prev : [...prev, eventSheet.title]))
+                setEventSheet(null)
+                Taro.showToast({ title: '已报名 · 详情将发你微信', icon: 'none' })
+                void Taro.navigateTo({ url: `/pages/event-detail/index?id=${eventSheet.id}&kind=event` })
+              }}
+            >
+              报名 · 押金 ¥69
+            </Button>
+          </View>
+        </View>
+      )}
+
       {/* U5 许愿半屏弹层(KD3/R8):文本+可见性+提交,提交后落位反馈 */}
       {wishSheet && (
         <View className={styles.wishSheetMask} onClick={() => setWishSheet(false)}>
