@@ -1222,7 +1222,9 @@
 .fb-wish-card--private { border-style: dashed; }
 .fb-wish-content { font-size: 12px; color: #d9d4ca; margin: 0; line-height: 1.7; }
 .fb-wish-meta { font-size: 10px; color: #77726a; margin: 4px 0 0; }
-.fb-wish-endorse-btn {
+/* 特异性教训（同 .fb-city-pin）：.fb-root button { color: inherit }（0-1-1）压过
+   单类（0-1-0）——留言按钮黑底黑字、附议按钮金边深字的根因，故加 .fb-root 前缀 */
+.fb-root .fb-wish-endorse-btn {
 	background: none;
 	border: 1px solid rgba(203, 191, 143, 0.5);
 	color: var(--fb-accent);
@@ -1232,6 +1234,14 @@
 	border-radius: 999px;
 	cursor: pointer;
 	margin-top: 6px;
+	transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.fb-root .fb-wish-endorse-btn:not(:disabled):hover {
+	background: rgba(203, 191, 143, 0.18);
+	color: #e8e0c8;
+}
+.fb-root .fb-wish-endorse-btn:not(:disabled):active {
+	transform: scale(0.96);
 }
 .fb-wish-endorsed { display: inline-block; font-size: 10px; color: var(--fb-sub); margin-top: 6px; }
 .fb-wish-empty { list-style: none; }
@@ -1304,7 +1314,8 @@
 .fb-wish-modal-radios { display: flex; gap: 16px; font-size: 11px; margin-top: 10px; }
 .fb-wish-modal-radios label { cursor: pointer; }
 .fb-wish-modal-actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
-.fb-wish-modal-submit {
+/* 同上特异性：黑底必须压回 .fb-root button 的 color:inherit */
+.fb-root .fb-wish-modal-submit {
 	background: #2b2723;
 	color: #efe9db;
 	border: none;
@@ -1313,8 +1324,11 @@
 	padding: 6px 16px;
 	border-radius: 999px;
 	cursor: pointer;
+	transition: opacity 0.15s ease, transform 0.15s ease;
 }
-.fb-wish-endorse-btn { font-family: inherit; }
+.fb-root .fb-wish-modal-submit:not(:disabled):hover { opacity: 0.88; }
+.fb-root .fb-wish-modal-submit:not(:disabled):active { transform: scale(0.97); }
+.fb-root .fb-wish-modal-submit:disabled { opacity: 0.45; cursor: not-allowed; }
 .fb-wish-modal-cancel, .fb-wish-modal-delete {
 	background: none;
 	border: none;
