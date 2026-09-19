@@ -19,7 +19,7 @@ import {
  * 群星显影（KTD7）由 corridor 传入 --fb-d。
  */
 
-type WishFormKind = { kind: "closed" } | { kind: "form" } | { kind: "wish"; wish: FlashbackWish };
+type WishFormKind = { kind: "closed" } | { kind: "form" } | { kind: "wish"; wishId: string };
 
 export function WishFrames({
 	publicWishes,
@@ -53,6 +53,13 @@ export function WishFrames({
 		}
 	};
 
+	// 模态持有 id 而非快照：附议/留言触发 reload 后，每次渲染从最新 props 解析——
+	// 留言立刻上墙、附议立刻翻「已附议」态（用户 UAT 反馈 ②③）
+	const resolveWish = (wishId: string): FlashbackWish | null =>
+		publicWishes.find((w) => w.id === wishId) ??
+		myPrivateWishes.find((w) => w.id === wishId) ??
+		null;
+
 	return (
 		<>
 			<article className="fb-corridor-frame fb-future-frame">
@@ -73,7 +80,7 @@ export function WishFrames({
 							<div
 								className="fb-wish-card fb-develop-soft"
 								style={{ "--fb-d": `${(i % 5) * 0.3}s` } as React.CSSProperties}
-								onClick={() => setModal({ kind: "wish", wish })}
+								onClick={() => setModal({ kind: "wish", wishId: wish.id })}
 							>
 								<p className="fb-wish-content">{wish.content}</p>
 								<p className="fb-wish-meta">
@@ -110,12 +117,12 @@ export function WishFrames({
 						<span className="fb-corridor-flabel">{t("privateLabel")}</span>
 					</h3>
 					<ul className="fb-wish-list">
-						{myPrivateWishes.map((wish) => (
-							<li key={wish.id}>
-								<div
-									className="fb-wish-card fb-wish-card--private"
-									onClick={() => setModal({ kind: "wish", wish })}
-								>
+											{myPrivateWishes.map((wish) => (
+						<li key={wish.id}>
+							<div
+								className="fb-wish-card fb-wish-card--private"
+								onClick={() => setModal({ kind: "wish", wishId: wish.id })}
+							>
 									<p className="fb-wish-content">{wish.content}</p>
 									<p className="fb-wish-meta">{t("privateMark")}</p>
 								</div>
@@ -131,17 +138,18 @@ export function WishFrames({
 			{modal.kind === "form" && (
 				<WishFormModal token={token} busy={busy} onClose={() => setModal({ kind: "closed" })} onDone={onChanged} />
 			)}
-			{modal.kind === "wish" && (
-				<WishModal
-					wish={modal.wish}
-					token={token}
-					busy={busy}
-					onClose={() => setModal({ kind: "closed" })}
-					onEndorse={(wishId) => run(() => endorse({ variables: { token, wishId } }))}
-					onComment={(wishId, content) => run(() => comment({ variables: { token, wishId, content } }))}
-					onDelete={(wishId) => run(() => deleteWish({ variables: { token, wishId } }))}
-				/>
-			)}
+			{modal.kind === "wish" &&
+				resolveWish(modal.wishId) && (
+					<WishModal
+						wish={resolveWish(modal.wishId) as FlashbackWish}
+						token={token}
+						busy={busy}
+						onClose={() => setModal({ kind: "closed" })}
+						onEndorse={(wishId) => run(() => endorse({ variables: { token, wishId } }))}
+						onComment={(wishId, content) => run(() => comment({ variables: { token, wishId, content } }))}
+						onDelete={(wishId) => run(() => deleteWish({ variables: { token, wishId } }))}
+					/>
+				)}
 		</>
 	);
 }

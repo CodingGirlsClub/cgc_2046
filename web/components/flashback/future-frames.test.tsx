@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import type { FlashbackCapsule, FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
 import Corridor from "./corridor";
@@ -130,7 +130,7 @@ describe("Corridor · 未来帧群（U7 版 D）", () => {
 		);
 
 		expect(screen.getByText("一起出一本书")).toBeInTheDocument();
-		expect(screen.getByText("已附议")).toBeInTheDocument();
+		expect(screen.getAllByText("已附议").length).toBeGreaterThan(0);
 		expect(screen.getByText("+ 许个愿")).toBeInTheDocument();
 		// 无私人许愿 → 私人帧不渲染
 		expect(screen.queryByText("我的私人许愿")).not.toBeInTheDocument();
@@ -151,5 +151,30 @@ describe("Corridor · 未来帧群（U7 版 D）", () => {
 		render(<Corridor capsule={capsule()} />);
 
 		expect(screen.getByText(/还没有公开的愿望/)).toBeInTheDocument();
+	});
+});
+
+describe("WishModal 实时反馈（UAT 反馈 ②③）", () => {
+	it("模态持有 id：reload 后新 props 的留言立刻显示、附议态立刻翻转", async () => {
+		const { rerender } = render(
+			<Corridor capsule={capsule({ publicWishes: [wish({ endorsementCount: 2 })] })} />,
+		);
+
+		// 打开模态
+		fireEvent.click(screen.getByText("一起出一本书"));
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+		expect(screen.getAllByRole("button", { name: "附议 +1" }).length).toBeGreaterThan(0);
+
+		// reload 语义：同组件换新 props（新留言 + 已附议）
+		const updated = wish({
+			endorsementCount: 3,
+			endorsedByMe: true,
+			comments: [{ id: "c-new", content: "新的留言立刻上墙", commenterMasked: "李**", insertedAt: "2026-09-19T03:00:00Z" }],
+		});
+		rerender(<Corridor capsule={capsule({ publicWishes: [updated] })} />);
+
+		expect(screen.getByText("新的留言立刻上墙")).toBeInTheDocument();
+		expect(screen.getAllByText("已附议").length).toBeGreaterThan(0);
+		expect(screen.queryAllByRole("button", { name: "附议 +1" })).toHaveLength(0);
 	});
 });
