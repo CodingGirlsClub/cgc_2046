@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { api } from '@/api'
@@ -38,6 +38,10 @@ export default function FlashbackEventPage() {
   const [mode, setMode] = useState<Mode>({ kind: 'loading' })
   // U6 回环数据:capsule 邻近未来场次(「下一场」出口)
   const [futureFrames, setFutureFrames] = useState<FlashbackFutureFrame[]>([])
+  // U6 看别人的卡:点已寄出名册卡 → 覆盖层迎面翻开(雾面版当年+她的今天只读)
+  const [viewPerson, setViewPerson] = useState<FlashbackRosterEntry | null>(null)
+  const [viewOpen, setViewOpen] = useState(false)
+  const viewOpenedAt = useRef(0)
 
   const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
     try {
@@ -151,7 +155,18 @@ export default function FlashbackEventPage() {
             <Text className={styles.peopleHint}>这一场的人 · 显影的是寄出了的，雾着的是还没回来的</Text>
             <View className={styles.grid}>
               {mode.archive.roster.map((entry) => (
-                <RosterCell key={entry.id} entry={entry} />
+                <View key={entry.id} onClick={() => {
+                  if (!entry.sentToWallAt) {
+                    Taro.showToast({ title: 'ta 还没回来——点击下方找回你的那一张', icon: 'none' })
+                    return
+                  }
+                  setViewPerson(entry)
+                  setViewOpen(false)
+                  viewOpenedAt.current = Date.now()
+                  setTimeout(() => setViewOpen(true), 260)
+                }}>
+                  <RosterCell entry={entry} />
+                </View>
               ))}
             </View>
           </View>
@@ -206,6 +221,57 @@ export default function FlashbackEventPage() {
           </View>
         )}
       </ScrollView>
+
+      {/* U6 看别人的卡:封面(她的名字)→0.9s 翻开——当年(雾面句遮蔽)+她的今天(只读) */}
+      {viewPerson && (
+        <View
+          className={styles.layerMask}
+          onClick={() => {
+            if (Date.now() - viewOpenedAt.current < 500) return
+            setViewOpen(false)
+            setTimeout(() => setViewPerson(null), 920)
+          }}
+        >
+          <View className={styles.layerCard} onClick={(e) => e.stopPropagation()}>
+            <View className={styles.viewFlip} style={{ transform: viewOpen ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
+              <View className={styles.viewFace}>
+                <View className={styles.viewCover}>
+                  <Text className={styles.viewCoverName}>{viewPerson.fullName ?? viewPerson.surnameMasked}</Text>
+                  <Text className={styles.viewCoverHint}>点按翻开她的拍立得</Text>
+                </View>
+              </View>
+              <View className={styles.viewFaceBack}>
+                <View className={styles.viewPolaroid}>
+                  <View className={styles.viewPhoto}>
+                    {viewPerson.answers.map((answer) => (
+                      <View key={answer.questionKey}>
+                        <Text className={styles.viewSegments}>
+                          {answer.segments.map((seg, i) =>
+                            seg.fog ? (
+                              <Text key={i} className={styles.viewFog}>{seg.text}</Text>
+                            ) : (
+                              <Text key={i}>{seg.text}</Text>
+                            ),
+                          )}
+                        </Text>
+                      </View>
+                    ))}
+                    <View style={{ marginTop: 12 }}>
+                      {viewPerson.today?.nowStatus ? (
+                        <Text className={styles.viewToday}>现在在做什么:{viewPerson.today.nowStatus}</Text>
+                      ) : null}
+                      {viewPerson.today?.want ? (
+                        <Text className={styles.viewToday}>想做的事:{viewPerson.today.want}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Text className={styles.viewFoot}>她雾住的句子,只有她自己能看到 · 点空白处合上</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   )
 }
