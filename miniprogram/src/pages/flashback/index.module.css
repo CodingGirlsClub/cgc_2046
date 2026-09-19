@@ -105,19 +105,6 @@
 
 /* 行动板（R13 四态）*/
 .board { padding-bottom: 60rpx; }
-.boardHint { display: block; margin: 6rpx 0 18rpx; color: #8a8f98; font-size: 22rpx; }
-.actionCard { margin-bottom: 18rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
-.actionHeader { display: flex; align-items: center; justify-content: space-between; }
-.actionTitle { color: #222326; font-size: 30rpx; font-weight: 600; }
-.actionStatus { padding: 5rpx 14rpx; border-radius: 16rpx; font-size: 21rpx; }
-.proposed { color: #8a8f98; background: rgba(138,143,152,.12); }
-.forming { color: #ea5504; background: #fdeadf; }
-.scheduled { color: #0e9f6e; background: rgba(14,159,110,.1); }
-.done { color: #2563eb; background: rgba(37,99,235,.08); }
-.actionMeta { display: block; margin-top: 10rpx; color: #4b4d54; font-size: 22rpx; }
-.rolesRow { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 21rpx; }
-.endorseButton { margin: 18rpx 0 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 23rpx; font-weight: 600; }
-.endorseButtonPlain { color: #4b4d54; background: #f7f7f7; }
 
 /* 状态面（加载/错误/未绑定）*/
 .stateBlock { padding: 120rpx 60rpx; text-align: center; }
