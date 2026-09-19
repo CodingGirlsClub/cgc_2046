@@ -72,6 +72,13 @@ export default function FlashbackCorridorPage() {
   const [enrolled, setEnrolled] = useState<string[]>([])
   const [sendingCard, setSendingCard] = useState(false)
 
+  /** 寄出落定(U5 三拍收尾):关抽屉 → 滚到 ⚡今天格,让用户看到自己上墙 */
+  const sentLanding = () => {
+    setCardLayer(null)
+    setScrollAnchor('')
+    setTimeout(() => setScrollAnchor('todayAnchor'), 350)
+  }
+
   /** 寄出(U5 完整三拍);骨架期:发送 → toast + 交 U5 落定 */
   const sendTodayCard = async () => {
     if (mode.kind !== 'member' || sendingCard) return
@@ -80,6 +87,7 @@ export default function FlashbackCorridorPage() {
       await api.flashbackSendToWall(mode.token ?? "")
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       await reloadMember()
+      sentLanding()
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
     } finally {
@@ -390,7 +398,7 @@ export default function FlashbackCorridorPage() {
         ))}
 
         {/* ⚡今天格:G 状态机——member 未寄=虚线「你的位置」(点开卡);已寄=发光拍立得;路人=空位 */}
-        <View className={styles.capFrame} id="todayAnchor">
+        <View className={`${styles.capFrame} ${styles.capFrameNow}`} id="todayAnchor">
           <Text className={styles.todayTitle}>{todayFrameLabel()}</Text>
           <View className={styles.todaySlot}>
             {me && me.today?.sentToWallAt ? (
@@ -569,6 +577,7 @@ export default function FlashbackCorridorPage() {
               capsule={mode.capsule}
               token={mode.token}
               onWrite={() => void reloadMember()}
+              onSent={sentLanding}
               autoOpen={cardLayer === 'write'}
               chrome={false}
             />
