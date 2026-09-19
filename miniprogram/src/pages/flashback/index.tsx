@@ -374,13 +374,13 @@ export default function FlashbackPage() {
           <Canvas id={SUMMARY_CARD_CANVAS_ID} canvasId={SUMMARY_CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
 
           <View className={styles.licenseCard}>
-            <Text className={styles.sectionTitle}>金句授权</Text>
+            <Text className={styles.sectionTitle}>金句授权 · 展示在 CGC 官网首页</Text>
             <Text className={styles.sectionDesc}>你的授权随时可调，默认全部关闭</Text>
             {/* R35 选句器：匿名/实名档下展开候选句（按句切分、排除雾面段）；
                 未圈选 = 不上墙；点句即提交（span 与这里展示的同源） */}
             {quoteLevel !== 'off' && (
               <View className={styles.quotePicker}>
-                <Text className={styles.quotePickHint}>选一句放上首页金句墙（未选 = 不上墙）</Text>
+                <Text className={styles.quotePickHint}>选一句展示在 CGC 官网首页（未选 = 不展示）</Text>
                 {quoteCandidates.map((candidate) => (
                   <Text
                     key={`${candidate.questionKey}:${candidate.start}`}
