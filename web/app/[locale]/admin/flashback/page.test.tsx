@@ -6,11 +6,23 @@ import AdminFlashbackPage from "./page";
 const fetchFlashbackAdminStats = vi.hoisted(() => vi.fn());
 const fetchFlashbackAdminRedemptions = vi.hoisted(() => vi.fn());
 const updateFlashbackRedemption = vi.hoisted(() => vi.fn());
+const fetchFlashbackAdminArchives = vi.hoisted(() => vi.fn());
+const fetchFlashbackOutreachPreview = vi.hoisted(() => vi.fn());
+const fetchFlashbackOutreachBatches = vi.hoisted(() => vi.fn());
+const fetchFlashbackOutreachRoster = vi.hoisted(() => vi.fn());
+const sendFlashbackOutreach = vi.hoisted(() => vi.fn());
+const resendFlashbackOutreach = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/admin", () => ({
 	fetchFlashbackAdminStats,
 	fetchFlashbackAdminRedemptions,
 	updateFlashbackRedemption,
+	fetchFlashbackAdminArchives,
+	fetchFlashbackOutreachPreview,
+	fetchFlashbackOutreachBatches,
+	fetchFlashbackOutreachRoster,
+	sendFlashbackOutreach,
+	resendFlashbackOutreach,
 }));
 
 const stats = {
@@ -42,6 +54,11 @@ const redemptions = [
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	fetchFlashbackAdminArchives.mockResolvedValue([
+		{ key: "2014-01-11-bj", name: "Rails Girls Beijing", city: "北京", occurredOn: "2014-01-11" },
+	]);
+	fetchFlashbackOutreachBatches.mockResolvedValue([]);
+	fetchFlashbackOutreachRoster.mockResolvedValue([]);
 });
 
 afterEach(cleanup);
@@ -193,3 +210,143 @@ describe("/admin/flashback 闪念间看板", () => {
 		expect(screen.queryByText("记忆线")).not.toBeInTheDocument();
 	});
 });
+
+	describe("/admin/flashback 触达运营台（R7-R10）", () => {
+		const zeroRates = { delivered: 0, linkOpened: 0, revealed: 0, sentToWall: 0, intentSubmitted: 0 };
+
+		beforeEach(() => {
+			fetchFlashbackAdminStats.mockResolvedValue({
+				memory: zeroRates,
+				dream: zeroRates,
+				overall: zeroRates,
+			});
+			fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		});
+
+		const preview = {
+			archiveKey: "2014-01-11-bj",
+			archiveName: "Rails Girls Beijing",
+			channel: "all",
+			queued: 3,
+			emailOnly: 1,
+			smsOnly: 1,
+			both: 1,
+			unsubscribed: 1,
+			unreachable: 0,
+			smsReady: true,
+		};
+
+		const batches = [
+			{
+				batch: "archive-2014-01-11-bj",
+				template: "reconnect",
+				firstAt: "2026-09-19T04:00:00Z",
+				email: { queued: 1, sent: 1, failed: 1 },
+				sms: { queued: 1, sent: 0, failed: 0 },
+			},
+		];
+
+		const rosterEntry = (over = {}) => ({
+			personId: "p1",
+			fullName: "王小明",
+			email: "w@example.com",
+			phone: "13900000001",
+			claimed: false,
+			participation: "attended",
+			unsubscribed: false,
+			deleted: false,
+			emailReachable: true,
+			smsReachable: true,
+			lastOutreach: { channel: "email", status: "failed", batch: "archive-x", at: null },
+			...over,
+		});
+
+		it("发送入口：预览三档分布 → 确认发送 → 反映入队计数", async () => {
+			fetchFlashbackOutreachPreview.mockResolvedValue(preview);
+			sendFlashbackOutreach.mockResolvedValue({ queued: 3, skipped: 1 });
+
+			render(<AdminFlashbackPage />);
+			fireEvent.change(await screen.findByLabelText("选择场次"), {
+				target: { value: "2014-01-11-bj" },
+			});
+			fireEvent.click(await screen.findByText("预览影响面"));
+
+			expect(await screen.findByText(/仅邮件可达: 1/)).toBeInTheDocument();
+			expect(screen.getByText(/退订剔除: 1/)).toBeInTheDocument();
+
+			fireEvent.click(screen.getByText("确认发送"));
+			expect(await screen.findByText(/已入队 3 人/)).toBeInTheDocument();
+			expect(sendFlashbackOutreach).toHaveBeenCalledWith(
+				"2014-01-11-bj",
+				"reconnect",
+				"all",
+			);
+		});
+
+		it("空态：预览全零 → 确认按钮禁用", async () => {
+			fetchFlashbackOutreachPreview.mockResolvedValue({ ...preview, queued: 0 });
+
+			render(<AdminFlashbackPage />);
+			fireEvent.change(await screen.findByLabelText("选择场次"), {
+				target: { value: "2014-01-11-bj" },
+			});
+			fireEvent.click(await screen.findByText("预览影响面"));
+
+			expect(await screen.findByText("无可触达校友（分布全为零）。")).toBeInTheDocument();
+			expect(screen.getByText("确认发送")).toBeDisabled();
+		});
+
+		it("批次历史：渲染通道计数与触发时间", async () => {
+			fetchFlashbackOutreachBatches.mockResolvedValue(batches);
+
+			render(<AdminFlashbackPage />);
+			fireEvent.change(await screen.findByLabelText("选择场次"), {
+				target: { value: "2014-01-11-bj" },
+			});
+
+			expect(await screen.findByText("archive-2014-01-11-bj")).toBeInTheDocument();
+			expect(screen.getByText(/失败 1/)).toBeInTheDocument();
+			expect(screen.getByText(/已发送 1/)).toBeInTheDocument();
+		});
+
+		it("名册：完整联系方式 + 触达结果列 + 重发确认链路（AE8）", async () => {
+			fetchFlashbackOutreachRoster.mockResolvedValue([rosterEntry()]);
+			resendFlashbackOutreach.mockResolvedValue({ queued: 1, skipped: 0, batch: "resend-x" });
+
+			render(<AdminFlashbackPage />);
+			fireEvent.change(await screen.findByLabelText("选择场次"), {
+				target: { value: "2014-01-11-bj" },
+			});
+
+			// 完整联系方式（KD6）与最近触达失败结果
+			expect(await screen.findByText("w@example.com")).toBeInTheDocument();
+			expect(screen.getAllByText(/失败/).length).toBeGreaterThan(0);
+
+			// 重发：行内按钮 → 确认条 → 确认调用
+			fireEvent.click(screen.getByText("重发"));
+			expect(screen.getByText(/确认向 王小明 重发/)).toBeInTheDocument();
+			fireEvent.click(screen.getByText("已确认"));
+			// 确认条消失 = 重发已被受理（成功态不弹全局提示，名册/批次刷新承载反馈）
+			expect(await screen.findByText(/确认向 王小明 重发/)).not.toBeInTheDocument();
+			expect(resendFlashbackOutreach).toHaveBeenCalledWith("p1", "reconnect", "all");
+		});
+
+		it("名册筛选：发送失败筛选正确子集", async () => {
+			fetchFlashbackOutreachRoster.mockResolvedValue([rosterEntry()]);
+
+			render(<AdminFlashbackPage />);
+			fireEvent.change(await screen.findByLabelText("选择场次"), {
+				target: { value: "2014-01-11-bj" },
+			});
+			await screen.findByText("王小明");
+
+			fireEvent.change(screen.getByLabelText("名册"), {
+				target: { value: "send_failed" },
+			});
+			expect(fetchFlashbackOutreachRoster).toHaveBeenLastCalledWith(
+				"2014-01-11-bj",
+				"send_failed",
+				undefined,
+			);
+		});
+	});

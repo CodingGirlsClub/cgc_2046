@@ -5328,6 +5328,21 @@ type RootQueryType {
   "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
   flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
 
+  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
+  flashbackOutreachPreview(archiveKey: String!, channel: String): FlashbackOutreachPreview
+
+  "场次列表（R7 发送入口数据源，PlatformAdmin）"
+  flashbackAdminArchives: [FlashbackAdminArchive!]!
+
+  "闪念间·单人重发（R2\/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+  flashbackAdminResendOutreach(personId: ID!, template: String!, channel: String): FlashbackOutreachDispatchResult
+
+  "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
+  flashbackOutreachBatches(archiveKey: String!): [FlashbackOutreachBatch!]!
+
+  "场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6\/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed"
+  flashbackOutreachRoster(archiveKey: String!, filter: String, search: String): [FlashbackOutreachRosterEntry!]!
+
   "删除摘要（U10\/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
   flashbackDeletePreview(token: String): FlashbackDeletePreviewResult
 
@@ -6482,6 +6497,89 @@ type FlashbackRedemptionUpdateResult {
   status: String!
 }
 
+type FlashbackAdminArchive {
+  key: String!
+  name: String!
+  city: String!
+  occurredOn: String!
+}
+
+type FlashbackOutreachPreview {
+  archiveKey: String!
+
+  archiveName: String!
+
+  "所选通道档的预估入队数"
+  channel: String!
+
+  queued: Int!
+
+  "三档分布：仅邮件可达 \/ 仅短信可达 \/ 双通道"
+  emailOnly: Int!
+
+  smsOnly: Int!
+
+  both: Int!
+
+  unsubscribed: Int!
+
+  unreachable: Int!
+
+  "短信腿就绪位（SendCloud 触达模板已配置）"
+  smsReady: Boolean!
+}
+
+type FlashbackOutreachBatchChannel {
+  queued: Int!
+  sent: Int!
+  failed: Int!
+}
+
+type FlashbackOutreachBatch {
+  batch: String!
+
+  template: String!
+
+  email: FlashbackOutreachBatchChannel!
+
+  sms: FlashbackOutreachBatchChannel!
+
+  "批次最早建行时刻（触发时间近似）"
+  firstAt: String
+}
+
+type FlashbackOutreachLast {
+  channel: String!
+  status: String!
+  batch: String!
+  at: String
+}
+
+type FlashbackOutreachRosterEntry {
+  personId: ID!
+
+  fullName: String!
+
+  "完整联系方式（KD6\/R13：platform_admin 门控，排查核对用）"
+  email: String
+
+  phone: String
+
+  claimed: Boolean!
+
+  participation: String!
+
+  unsubscribed: Boolean!
+
+  deleted: Boolean!
+
+  emailReachable: Boolean!
+
+  smsReachable: Boolean!
+
+  lastOutreach: FlashbackOutreachLast
+}
+
 type FlashbackRedeemResult {
   status: String!
   updated: Boolean!
@@ -7416,8 +7514,8 @@ type RootMutationType {
   "兑换状态流转（U11\/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
   flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
 
-  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（email 优先\/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
-  flashbackAdminSendOutreach(archiveKey: String!, template: String!): FlashbackOutreachDispatchResult
+  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
+  flashbackAdminSendOutreach(archiveKey: String!, template: String!, channel: String): FlashbackOutreachDispatchResult
 
   "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
   flashbackClaim(token: String): FlashbackClaimResult
