@@ -261,7 +261,7 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   end
 
   describe "城市钉（R34）" do
-    test "cities 投影：名册城市，去重排序；未入选者城市不进" do
+    test "cities 投影：名册 ∪ 未来场次 ∪ 公开许愿三源，去重排序；未入选者/私有许愿城市不进（KTD6）" do
       archive = create_archive()
       create_person(archive, %{})
       create_person(archive, %{full_name: "李安静", surname: "李", city: "上海"})
@@ -278,6 +278,57 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
 
       # "上海" < "北京"（UTF-8 字节序）；广州（not_selected）不在
       assert capsule.cities == ["上海", "北京"]
+
+      # 三源各自可区分：未入选者城市不进名册源；其**公开许愿**城市进 wish 源
+      # （成都）；私有许愿城市（西安）不进；未来场次城市（杭州）进
+      ws =
+        case Cgc2046.Repo.query!("SELECT id FROM workspaces LIMIT 1") do
+          %{rows: [[id]]} -> id
+          _ -> Ecto.UUID.generate()
+        end
+
+      Cgc2046.Repo.query!(
+        """
+        WITH i AS (
+          INSERT INTO initiatives (id, slug, name, status, inserted_at, updated_at)
+          VALUES (gen_random_uuid(), 'city-pin-init', '城市钉场次', 'open', now(), now())
+          RETURNING id
+        )
+        INSERT INTO events (id, slug, title, status, visibility, starts_at, venue, initiative_id, workspace_id, inserted_at, updated_at)
+        SELECT gen_random_uuid(), 'city-pin-ev', '场次', 'open', 'public', now() + interval '30 days',
+               jsonb_build_object('country', '中国', 'province', '-', 'city', '杭州', 'district', '-'),
+               i.id, $1::uuid, now(), now()
+        FROM i
+        """,
+        [ws]
+      )
+
+      wisher =
+        create_person(archive, %{
+          full_name: "许愿人",
+          surname: "许",
+          city: "成都",
+          participation: :not_selected
+        })
+
+      {:ok, _} = Cgc2046.Flashback.Wishes.create_wish(wisher.id, "公开愿望", "public")
+
+      private_person =
+        create_person(archive, %{
+          full_name: "私愿人",
+          surname: "私",
+          city: "西安",
+          participation: :not_selected
+        })
+
+      {:ok, _} = Cgc2046.Flashback.Wishes.create_wish(private_person.id, "私愿", "private")
+
+      capsule2 =
+        capsule_for(issue_token(create_person(archive, %{full_name: "周发起", surname: "周"})))
+
+      assert "杭州" in capsule2.cities
+      assert "成都" in capsule2.cities
+      refute "西安" in capsule2.cities
     end
 
     test "city 过滤：roster 按人城市、筛空场次整架撤下；cities 不随过滤收缩" do

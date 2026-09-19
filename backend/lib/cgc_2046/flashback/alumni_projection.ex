@@ -193,18 +193,42 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     end
   end
 
-  # 城市钉数据源（R34）：有名册成员的城市（去重排序）。
-  # 与 roster_by_archive 同口径（attended + 未删除），名册里看不到的城不进钉条。
+  # 城市钉数据源（KTD6）：名册城市 ∪ 未来场次城市（events.venue->>'city'，公开 open
+  # 且未开始）∪ 公开许愿城市（未删 wishes.city）。私有许愿城市不进钉条（R9 不可
+  # 由钉条推断存在）；与 roster 同口径 attended + 未删除。
   defp capsule_cities do
-    Repo.all(
-      from(p in "flashback_people",
-        where:
-          p.participation == "attended" and is_nil(p.deleted_at) and
-            not is_nil(p.city) and p.city != "",
-        select: p.city,
-        distinct: true
+    roster_cities =
+      Repo.all(
+        from(p in "flashback_people",
+          where:
+            p.participation == "attended" and is_nil(p.deleted_at) and
+              not is_nil(p.city) and p.city != "",
+          select: p.city,
+          distinct: true
+        )
       )
-    )
+
+    future_event_cities =
+      Repo.query!("""
+      SELECT DISTINCT e.venue->>'city'
+      FROM events e
+      JOIN initiatives i ON e.initiative_id = i.id
+      WHERE e.visibility = 'public' AND e.status = 'open' AND i.status = 'open'
+        AND e.starts_at > now()
+        AND e.venue->>'city' IS NOT NULL AND e.venue->>'city' != ''
+      """).rows
+      |> List.flatten()
+
+    wish_cities =
+      Repo.query!("""
+      SELECT DISTINCT city FROM flashback_wishes
+      WHERE visibility = 'public' AND deleted_at IS NULL
+        AND city IS NOT NULL AND city != ''
+      """).rows
+      |> List.flatten()
+
+    (roster_cities ++ future_event_cities ++ wish_cities)
+    |> Enum.uniq()
     |> Enum.sort()
   end
 
