@@ -400,10 +400,13 @@ function responseFor(document: string, variables: object): unknown {
 
   if (document.includes('query PublicInitiatives')) return { publicInitiatives: [initiativeCard] }
   if (document.includes('query PublicInitiative(')) {
-    if (values.slug !== initiativeCard.slug) return { publicInitiative: null }
+    // 1024 横幅(R9)指向 hackerstart1024(dev/prod 真实 slug);mock 归一到样例卡
+    const knownSlugs = [initiativeCard.slug, 'hackerstart1024']
+    if (!knownSlugs.includes(values.slug)) return { publicInitiative: null }
     return {
       publicInitiative: {
         ...initiativeCard,
+        slug: values.slug,
         cityCount: 1,
         eventCount: 1,
         confirmedCount: 1,
