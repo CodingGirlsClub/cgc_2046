@@ -7,7 +7,6 @@ import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
 import type { FlashbackWish } from '@/domain/models'
-import MyCard from '@/components/MyCard'
 import ShareSheet from '@/components/MyCard/ShareSheet'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
@@ -44,6 +43,25 @@ export default function FlashbackCorridorPage() {
   const [shareSheet, setShareSheet] = useState(false)
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
+  // U4 开卡层/U7 授权层(U3 先立桩,交互后续单元接线)
+  const [cardOpen, setCardOpen] = useState(false)
+  const [licenseOpen, setLicenseOpen] = useState(false)
+  const [sendingCard, setSendingCard] = useState(false)
+
+  /** 寄出(U5 完整三拍);骨架期:发送 → toast + 交 U5 落定 */
+  const sendTodayCard = async () => {
+    if (mode.kind !== 'member' || sendingCard) return
+    setSendingCard(true)
+    try {
+      await api.flashbackSendToWall(mode.token ?? "")
+      Taro.showToast({ title: '已贴上墙', icon: 'none' })
+      await reloadMember()
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
+    } finally {
+      setSendingCard(false)
+    }
+  }
 
   const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
     try {
@@ -125,8 +143,6 @@ export default function FlashbackCorridorPage() {
     void Taro.navigateTo({ url: `/pages/flashback-event/index?key=${encodeURIComponent(key)}` })
   }
 
-  // U2/R1:页内 Tab(时间廊|我的卡)——参与态两键互达(修断裂 4);路人/找回只显示时间廊
-  const [tab, setTab] = useState<'corridor' | 'mine'>('corridor')
   // U4 愿望段:私愿折叠(KD2 防瞥屏)/公开愿模态(R6)
   const [privateOpen, setPrivateOpen] = useState(false)
   const [wishModal, setWishModal] = useState<FlashbackWish | null>(null)
@@ -230,35 +246,43 @@ export default function FlashbackCorridorPage() {
 
   return (
     <View className={styles.page}>
-      <ScrollView scrollY scrollIntoView={scrollAnchor} className={styles.wall} style={{ height: '100vh' }}>
-        <View className={styles.header}>
-          <Text className={styles.title}>闪念间 · 时间长廊</Text>
-          <Text className={styles.hint}>↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场</Text>
+      {/* 路人态 1024 横幅(U8 细化);member 卡区 U4 覆盖层入口 */}
+      {mode.kind === 'viewer' && (
+        <View
+          className={styles.banner1024}
+          onClick={() => void Taro.navigateTo({ url: '/pages/initiative-detail/index?slug=hackerstart1024' })}
+        >
+          <Text className={styles.banner1024Title}>1024 程序员节 · Hacker Start</Text>
+          <Text className={styles.banner1024Sub}>新一年活动开放报名 →</Text>
         </View>
-
-        {/* U6/R9 路人态 1024 活动横幅(修断裂 2):可点进 initiative 详情报名 */}
-        {mode.kind === 'viewer' && (
-          <View
-            className={styles.banner1024}
-            onClick={() => void Taro.navigateTo({ url: '/pages/initiative-detail/index?slug=hackerstart1024' })}
-          >
-            <Text className={styles.banner1024Title}>1024 程序员节 · Hacker Start</Text>
-            <Text className={styles.banner1024Sub}>新一年活动开放报名 →</Text>
-          </View>
-        )}
-
-        {mode.kind === 'member' && (
-          <View className={styles.mpTabBar}>
-            <Text className={`${styles.mpTab} ${tab === 'corridor' ? styles.mpTabActive : ''}`} onClick={() => setTab('corridor')}>
-              时间廊
+      )}
+      {mode.kind === 'member' && me && myView && (
+        <View className={styles.cardDock}>
+          <View className={styles.miniCard} onClick={() => setCardOpen(true)}>
+            <Text className={styles.miniCardName}>{me.fullName}</Text>
+            <Text className={styles.miniCardFacts}>
+              {(me.appliedAt ? me.appliedAt.slice(0, 4) : '') + (me.city ? ` · ${me.city}` : '')}
             </Text>
-            <Text className={`${styles.mpTab} ${tab === 'mine' ? styles.mpTabActive : ''}`} onClick={() => setTab('mine')}>
-              我的卡
+            <Text className={styles.miniCardHint}>点按翻面写字</Text>
+          </View>
+          <View className={styles.dockActions}>
+            <Text className={styles.dockSend} onClick={() => void sendTodayCard()}>写完寄出 →</Text>
+            <Text
+              className={styles.dockLicense}
+              onClick={() => setLicenseOpen(true)}
+            >
+              ← 金句授权
             </Text>
           </View>
-        )}
+        </View>
+      )}
 
-        <View style={{ display: mode.kind === 'member' && tab === 'mine' ? 'none' : 'block' }}>
+      <ScrollView
+        scrollY
+        scrollIntoView={scrollAnchor}
+        scrollWithAnimation
+        className={styles.capsule}
+      >
         {mode.kind === 'member' && cities.length > 1 && (
           <View className={styles.cityPins}>
             <Text className={`${styles.cityPinAll} ${city === null ? styles.cityPinActive : ''}`} onClick={() => pickCity(null)}>
@@ -274,46 +298,52 @@ export default function FlashbackCorridorPage() {
 
         {/* 过去场次：城市堆（确定性转角 + CSS 错峰显影）+ 进入这一场 */}
         {frames.map((frame) => (
-          <View key={frame.key} className={styles.frame} onClick={() => openEvent(frame.key)}>
-            <View className={styles.frameHead}>
-              <Text className={styles.frameWhen}>
-                {frame.when}
-                {frame.label ? <Text className={styles.frameLabel}> {frame.label}</Text> : null}
-              </Text>
+          <View key={frame.key} className={styles.capFrame} onClick={() => openEvent(frame.key)}>
+            <View className={styles.capFrameHead}>
+              <Text className={styles.capWhen}>{frame.when}</Text>
+              {frame.label ? <Text className={styles.capLabel}> {frame.label}</Text> : null}
             </View>
             <View className={styles.piles}>
               {frame.piles.map((pile, index) => (
-                <View key={pile.city} className={styles.pile} hoverClass={styles.pilePressed} hoverStayTime={120}>
-                  {/* 转角五档按堆序取模（确定性，无 Math.random；CSS 见 .tilt0-.tilt4）。
-                      点堆进场次：帧级 onClick 已覆盖（整帧可点），按压反馈给「堆」入口。 */}
-                  <View className={`${styles.pileCard} ${styles[`tilt${(index * 2) % 5}`]}`}>
-                    <Text className={styles.pileCity}>{pile.city}</Text>
+                <View key={pile.city} className={styles.pileItem}>
+                  <View
+                    className={`${styles.pinPolaroid} ${index % 4 === 0 ? styles.tiltA : index % 4 === 1 ? styles.tiltB : index % 4 === 2 ? styles.tiltC : styles.tiltD}`}
+                  >
+                    <View className={styles.pinPhoto}>
+                      <Text className={styles.pinCity}>{pile.city}</Text>
+                      <Text className={styles.pinCount}>{pile.count} 位</Text>
+                    </View>
                   </View>
-                  <Text className={styles.pileCount}>
-                    {pile.city} · {pile.count} 位
-                  </Text>
+                  {frame.returned > 0 && pile.count >= Math.max(...frame.piles.map((x) => x.count)) ? (
+                    <Text className={styles.capReturned}>{frame.returned} 位已回来</Text>
+                  ) : null}
                 </View>
               ))}
             </View>
-            {frame.returned > 0 && <Text className={styles.frameReturned}>{frame.returned} 位已回来</Text>}
           </View>
         ))}
 
-        {/* ⚡今天格：参与态=我的卡（未寄出为虚线位）；路人态=回到此刻 */}
-        <View className={`${styles.frame} ${styles.todayFrame}`}>
-          <Text className={`${styles.frameWhen} ${styles.frameWhenNow}`}>{todayFrameLabel()}</Text>
-          {me && myView ? (
-            <View className={styles.todayCard}>
-              <Text className={styles.todayName}>{me.fullName}</Text>
-              <Text className={styles.todaySub}>
-                {me.today?.sentToWallAt ? '你刚寄出的照片' : '你的照片还没贴上墙——在旅程里寄出它'}
-              </Text>
-            </View>
-          ) : (
-            <View className={styles.todayEmpty}>
-              <Text className={styles.todayEmptyText}>这一刻，还没有你的照片</Text>
-            </View>
-          )}
+        {/* ⚡今天格:G 状态机——member 未寄=虚线「你的位置」(点开卡);已寄=发光拍立得;路人=空位 */}
+        <View className={styles.capFrame} id="todayAnchor">
+          <Text className={styles.todayTitle}>⚡ 今天 {todayFrameLabel()} · 一闪念间</Text>
+          <View className={styles.todaySlot}>
+            {me && me.today?.sentToWallAt ? (
+              <View className={styles.todayLit}>
+                <View className={styles.todayLitPhoto}>
+                  <Text className={styles.todayLitName}>{me.fullName}</Text>
+                </View>
+                <Text className={styles.todayLitCap}>你刚寄出的照片</Text>
+              </View>
+            ) : me ? (
+              <View className={styles.todayVacant} onClick={() => setCardOpen(true)}>
+                <Text className={styles.todayVacantText}>你的位置</Text>
+              </View>
+            ) : (
+              <View className={styles.todayVacant} onClick={() => Taro.showToast({ title: '登录后，找回你的那一张', icon: 'none' })}>
+                <Text className={styles.todayVacantText}>这一刻，还没有你的照片</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* U3 未来·场次段(修断裂 1):三行简卡,亮金可报名/灰卡状态标签,CTA 端内闭环 */}
@@ -344,7 +374,6 @@ export default function FlashbackCorridorPage() {
               </View>
             )
           })()}
-        </View>
 
         {/* U4 愿望段(R6):公开愿望纸白卡——愿望/遮罩姓/附议数,点卡开模态 */}
         {mode.kind === 'member' && (
@@ -396,40 +425,42 @@ export default function FlashbackCorridorPage() {
         )}
 
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
-        {mode.kind === 'member' && tab === 'mine' && (
-          <MyCard
-            capsule={mode.capsule}
-            onWrite={() => void reloadMember()}
-            onOpenShare={() => setShareSheet(true)}
-          />
-        )}
-
-        <View className={styles.footer}>
-          {mode.kind === 'member' && (
-            <Button className={styles.cta} onClick={() => setShareSheet(true)}>
-              把这一刻做成卡片 →
-            </Button>
-          )}
-          {mode.kind === 'viewer' && mode.guide === 'login' && (
-            <View className={styles.guideBlock}>
-              <Text className={styles.guideText}>你也在这些照片里吗？登录后我们帮你找。</Text>
-              <Button className={styles.cta} onClick={goLogin}>
-                微信一键登录，找回你的那一张 →
-              </Button>
-            </View>
-          )}
-          {mode.kind === 'viewer' && mode.guide === 'recover' && (
-            <View className={styles.guideBlock}>
-              <Text className={styles.guideText}>
-                我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。
-              </Text>
-            </View>
-          )}
           {mode.kind === 'viewer' && mode.guide === null && (
             <Text className={styles.viewerHint}>名册只对同场的人可见——这里是每一年发生过的事。</Text>
           )}
-        </View>
       </ScrollView>
+
+      {/* U4 开卡层占位(U4 单元填充:迎面翻开+原位编辑) */}
+      {cardOpen && (
+        <View className={styles.layerMask} onClick={() => setCardOpen(false)}>
+          <View className={styles.layerStub} onClick={(e) => e.stopPropagation()}>
+            <Text>开卡层 · U4 填充</Text>
+            <Button size="mini" onClick={() => setCardOpen(false)}>合上</Button>
+          </View>
+        </View>
+      )}
+      {/* U7 授权层占位(U7 单元填充:三档+多选圈选+预览) */}
+      {licenseOpen && (
+        <View className={styles.layerMask} onClick={() => setLicenseOpen(false)}>
+          <View className={styles.layerStub} onClick={(e) => e.stopPropagation()}>
+            <Text>金句授权 · U7 填充</Text>
+            <Button size="mini" onClick={() => setLicenseOpen(false)}>关闭</Button>
+          </View>
+        </View>
+      )}
+
+      {/* 底部固定 CTA 条(胶囊外,白底):member=做成卡片;viewer=登录找回 */}
+      <View className={styles.footerBar}>
+        {mode.kind === 'member' ? (
+          <Button className={styles.cta} onClick={() => setShareSheet(true)}>
+            把这一刻做成卡片 →
+          </Button>
+        ) : (
+          <Button className={styles.cta} onClick={goLogin}>
+            你也在这些照片里吗？登录找回 →
+          </Button>
+        )}
+      </View>
 
       {/* 分享 sheet(R14 用户定稿 ③,三入口+R37 opt-in)——组件与裁剪端薄壳单源 */}
       {mode.kind === 'member' && myView && (

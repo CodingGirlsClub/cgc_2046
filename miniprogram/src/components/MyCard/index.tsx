@@ -264,7 +264,7 @@ export default function MyCard({
           ))}
         </RadioGroup>
         {/* 激励文案(用户选 C):三档下方常显 */}
-        <Text className={styles.licenseInspire}>你的答案，会成为别人的勇气。</Text>
+        <Text className={styles.licenseInspire}>你的语言，会成为别人的勇气。</Text>
       </View>
     </View>
   )
