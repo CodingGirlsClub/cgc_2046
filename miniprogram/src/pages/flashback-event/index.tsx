@@ -175,7 +175,7 @@ export default function FlashbackEventPage() {
         {/* 三级视角②：没回来的人从这里认领自己那张（参与态里 = 回我的闪念间） */}
         {mode.kind === 'member' && (
           <View className={styles.findBlock}>
-            <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback/index' })}>
+            <Button className={styles.cta} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })}>
               你也在这一场？找回你的那一张 →
             </Button>
           </View>
@@ -197,7 +197,7 @@ export default function FlashbackEventPage() {
                   <Button className={styles.loopBtn} onClick={back}>
                     回到今天
                   </Button>
-                  <Button className={styles.loopBtn} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })}>
+                  <Button className={styles.loopBtn} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index?future=1' })}>
                     看看未来
                   </Button>
                 </>
