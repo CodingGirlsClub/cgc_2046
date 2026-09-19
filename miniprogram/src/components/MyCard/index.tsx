@@ -8,7 +8,7 @@
  * 后经 onWrite 通知父级 reload;分享 sheet/canvas 属页面级资源,经 onOpenShare
  * 唤起——corridor(微信端)与裁剪端薄壳共用本组件,视觉与交互单源。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Radio, RadioGroup, Text, Textarea, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '@/domain/models'
@@ -50,11 +50,8 @@ export default function MyCard({
       ? { questionKey: capsule.me.quoteQuestionKey, start: capsule.me.quoteSpan.start, len: capsule.me.quoteSpan.len }
       : null
   )
-  // 第 3b 件:两段式翻面状态机
+  // 第 3b 件:翻转态(原型 ia-flip——连续 180°,transition 驱动,无 JS 状态机)
   const [flipped, setFlipped] = useState(false)
-  const [flipPhase, setFlipPhase] = useState<'idle' | 'out' | 'in'>('idle')
-  const flipTimers = useRef<ReturnType<typeof setTimeout>[]>([])
-  useEffect(() => () => { flipTimers.current.forEach(clearTimeout) }, [])
 
   // capsule 更新(reload/写后)同步本地受控态
   useEffect(() => {
@@ -71,16 +68,6 @@ export default function MyCard({
   }, [capsule])
 
   const { submitLicense } = useQuoteLicense(onWrite)
-
-  const flipCard = (next: boolean) => {
-    if (flipPhase !== 'idle' || next === flipped) return
-    setFlipPhase('out')
-    flipTimers.current.push(setTimeout(() => {
-      setFlipped(next)
-      setFlipPhase('in')
-      flipTimers.current.push(setTimeout(() => setFlipPhase('idle'), 340))
-    }, 320))
-  }
 
   // 句子雾/解雾:本地即时切换 + 整份 spans 提交(后端校验重叠/越界,失败 reload 纠正)
   const toggleFog = async (answer: FlashbackMeAnswer, sentenceIndex: number) => {
@@ -150,14 +137,11 @@ export default function MyCard({
         )}
       </View>
 
-      {/* 第 3b 件:点击卡面 3D 翻转(两段式:0.32s 转出 → 侧棱换面 → 0.32s 转入) */}
+      {/* 第 3b 件:点击卡面 3D 翻转(原型 E/F ia-flip:一次连贯 180°,两面常挂) */}
       <View className={styles.cardFlipScene}>
-        <View
-          className={`${styles.cardFlip} ${flipPhase === 'out' ? styles.cardFlipOut : ''} ${flipPhase === 'in' ? styles.cardFlipIn : ''}`}
-        >
-          {/* 合着卡面(默认态):全名 + 年份·城市;点击翻开(用户定稿 ①) */}
-          {!flipped && (
-            <View className={styles.polaroidCover} onClick={() => flipCard(true)}>
+        <View className={`${styles.cardFlip} ${flipped ? styles.cardFlipFlipped : ''}`}>
+          {/* 合着卡面(正面):全名 + 年份·城市;点击翻开(用户定稿 ①) */}
+          <View className={`${styles.cardFlipFace} ${styles.polaroidCover}`} onClick={() => setFlipped(true)}>
               <View className={styles.coverDot} />
               <Text className={styles.coverName}>{capsule.me.fullName}</Text>
               <Text className={styles.coverFacts}>
@@ -167,10 +151,9 @@ export default function MyCard({
                 ].filter(Boolean).join(' · ')}
               </Text>
               <Text className={styles.coverHint}>点按翻开你的拍立得</Text>
-            </View>
-          )}
-          {flipped && (
-            <View className={styles.polaroidFlipOpen}>
+          </View>
+          {/* 开态(背面):答案 + 今天;常挂,backface-visibility 换面 */}
+          <View className={`${styles.cardFlipFace} ${styles.cardFlipFaceBack} ${styles.polaroidFlipOpen}`}>
               <View className={styles.polaroid}>
                 <Text className={styles.polaroidLabel}>POLAROID · {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10) : '当年'}</Text>
                 {answers.map((answer) => (
@@ -234,9 +217,8 @@ export default function MyCard({
                   )}
                 </View>
               </View>
-              <Button className={styles.foldBackButton} onClick={() => flipCard(false)}>合上（回到卡面）</Button>
-            </View>
-          )}
+              <Button className={styles.foldBackButton} onClick={() => setFlipped(false)}>合上（回到卡面）</Button>
+          </View>
         </View>
       </View>
 
