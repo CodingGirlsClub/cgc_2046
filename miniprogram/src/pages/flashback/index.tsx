@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Canvas, Radio, RadioGroup, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api, FlashbackNotBoundError, SessionExpiredError } from '@/api'
+import { FlashbackTokenInvalidError } from '@/domain/models'
+import { STORAGE_KEYS } from '@/state/storage'
 import { PageState } from '@/components/PageState'
 import {
   isCandidatePicked,
@@ -74,8 +76,11 @@ export default function FlashbackPage() {
 
   const load = useCallback(async (cityFilter?: string | null) => {
     setState({ kind: 'loading' })
+    // 双入口 token(U6 修):corridor 同语义——token 腿用户(无平台登录)直达本页
+    // 也能出档案;失效即清(claim 后链接作废,按会话腿/无 token 重载)
+    const token = Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null
     try {
-      const capsule = await api.getFlashbackCapsule(cityFilter ?? null)
+      const capsule = await api.getFlashbackCapsule(cityFilter ?? null, token)
       setAnswers(capsule.me.answers)
       // 授权档从 capsule 恢复（R31；非法值 fail-closed 落 off）——不再恒定重置 off（P3）
       setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
@@ -92,6 +97,11 @@ export default function FlashbackPage() {
       setDraftSay(capsule.me.today?.say ?? '')
       setState({ kind: 'ready', capsule })
     } catch (error) {
+      if (error instanceof FlashbackTokenInvalidError) {
+        Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
+        void load(cityFilter)
+        return
+      }
       if (error instanceof FlashbackNotBoundError) {
         setState({ kind: 'not_bound' })
       } else if (error instanceof SessionExpiredError) {
