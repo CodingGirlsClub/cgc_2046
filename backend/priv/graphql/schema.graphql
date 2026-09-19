@@ -6785,6 +6785,11 @@ type FlashbackSendToWallResult {
   maskedEmail: String
 }
 
+type FlashbackAdjustTodayFogResult {
+  field: String!
+  fogSpans: Json
+}
+
 type FlashbackAdjustFogResult {
   answerId: ID!
   fogSpans: [FlashbackFogSpan]
@@ -7484,6 +7489,8 @@ type RootMutationType {
 
   "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
   flashbackAdjustFog(token: String, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
+
+  flashbackAdjustTodayFog(token: String, field: String!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustTodayFogResult
 
   "金句授权（R31 两档 + 关）：level ∈ off\/anonymous\/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
   flashbackSetQuoteLicense(

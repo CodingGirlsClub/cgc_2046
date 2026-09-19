@@ -255,6 +255,99 @@ defmodule Cgc2046.Flashback.Tokens do
     end
   end
 
+  @doc """
+  今天的你句级雾面调整（U10 第二刀）：field ∈ now/want/need/say，spans 与
+  当年 FogSpans 同坐标同校验（越界/重叠拒），落 flashback_todays.fog_spans[field]。
+  """
+  @today_fog_fields ~w(now want need say)
+
+  def adjust_today_fog(token_plaintext, field, spans) do
+    with {:ok, token} <- fetch_valid(token_plaintext) do
+      adjust_today_fog_as_person(token.person_id, field, spans)
+    end
+  end
+
+  @spec adjust_today_fog_as_person(String.t(), String.t(), [map()]) ::
+          {:ok, map()} | {:error, term()}
+  def adjust_today_fog_as_person(person_id, field, spans)
+      when field in @today_fog_fields do
+    today = ensure_today(person_id)
+
+    case Cgc2046.Flashback.FogSpans.validate(spans, Map.get(today, today_field(field)) || "") do
+      {:ok, _normalized} ->
+        next_fog =
+          today.fog_spans
+          |> Kernel.||(%{})
+          |> Map.put(field, normalize_span_payloads(spans))
+
+        today
+        |> Ash.Changeset.for_update(:update, %{fog_spans: next_fog})
+        |> Ash.update(authorize?: false)
+        |> case do
+          {:ok, updated} ->
+            {:ok, %{field: field, fog_spans: updated.fog_spans}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, _reason} ->
+        {:error, span_out_of_bounds_error()}
+    end
+  end
+
+  def adjust_today_fog_as_person(_person_id, field, _spans) do
+    {:error,
+     %{
+       code: "flashback_invalid_today_field",
+       message: "invalid today field",
+       reason: :invalid_today_field,
+       field: field
+     }}
+  end
+
+  defp today_field("now"), do: :now_status
+  defp today_field(field) when field in ~w(want need say), do: String.to_existing_atom(field)
+
+  defp span_out_of_bounds_error do
+    %{
+      code: "flashback_fog_span_out_of_bounds",
+      message: "today fog span is out of bounds for the field text",
+      reason: :quote_span_out_of_bounds
+    }
+  end
+
+  defp normalize_span_payloads(spans) do
+    Enum.map(List.wrap(spans || []), fn span ->
+      %{
+        "start" => span["start"] || span[:start],
+        "len" => span["len"] || span[:len]
+      }
+    end)
+  end
+
+  # 金句宿主原文：当年答案（Answer 表）优先；today.now/want/need/say 回落
+  # flashback_todays 对应字段（U10 第二刀——今天与当年同一套坐标/校验）。
+  defp quote_host_text(person_id, "today." <> field) when field in @today_fog_fields do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> :error
+      {:ok, today} -> {:ok, Map.get(today, today_field(field)) || ""}
+    end
+  end
+
+  defp quote_host_text(person_id, question_key) do
+    case Answer
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id and question_key == ^question_key)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> :error
+      {:ok, answer} -> {:ok, answer.raw_text}
+    end
+  end
+
   defp owned_answer(person_id, answer_id) do
     case Ash.get(Answer, answer_id, authorize?: false) do
       {:ok, %Answer{person_id: owner_id} = answer} when owner_id == person_id ->
@@ -324,27 +417,16 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp validate_quote_spans(_person_id, _), do: :ok
 
-  # 金句候选只允许指向本人答案（person + question_key 双因子定位）；
-  # 多句：按宿主分组一次取答案，逐组校验越界（首错即返）。
+  # 金句候选只允许指向本人答案（person + question_key 双因子定位）；U10 第二刀
+  # 起 today.now/want/need/say 也是合法宿主（回落 flashback_todays 对应字段文本）。
+  # 多句：按宿主分组一次取原文，逐组校验越界（首错即返）。
   defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
     spans
     |> Enum.group_by(fn span -> span["question_key"] || span[:question_key] end)
     |> Enum.reduce_while(:ok, fn {qk, group_spans}, :ok ->
-      case Answer
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^person_id and question_key == ^qk)
-           |> Ash.read_one(authorize?: false) do
-        {:ok, nil} ->
-          {:halt,
-           {:error,
-            %{
-              code: "flashback_answer_not_found",
-              message: "answer not found",
-              reason: :answer_not_found
-            }}}
-
-        {:ok, answer} ->
-          case Cgc2046.Flashback.FogSpans.validate(group_spans, answer.raw_text) do
+      case quote_host_text(person_id, qk) do
+        {:ok, text} ->
+          case Cgc2046.Flashback.FogSpans.validate(group_spans, text) do
             {:ok, _normalized} ->
               {:cont, :ok}
 
@@ -357,6 +439,15 @@ defmodule Cgc2046.Flashback.Tokens do
                   reason: :quote_span_out_of_bounds
                 }}}
           end
+
+        :error ->
+          {:halt,
+           {:error,
+            %{
+              code: "flashback_answer_not_found",
+              message: "answer not found",
+              reason: :answer_not_found
+            }}}
       end
     end)
   end

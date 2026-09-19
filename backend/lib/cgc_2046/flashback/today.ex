@@ -25,6 +25,10 @@ defmodule Cgc2046.Flashback.Today do
     # Want（想要）/ Give（能给）分类标签（KTD 回信即参与；供需撮合全量阶段启用）。
     attribute(:want_give_tags, {:array, :string}, public?: true, writable?: true, default: [])
 
+    # 今天的你句级雾面（U10 第二刀）：field("now"/"want"/"need"/"say") → spans，
+    # 与当年 FogSpans 同坐标（grapheme）同校验；对外渲染按句遮蔽。
+    attribute(:fog_spans, :map, public?: true, writable?: true)
+
     # 动员勾选（R20）：参加 1024 城市活动 / 帮宣传 / 捐赠意向 + 志愿者牵头追问（R8）。
     # 自由 map（键由 U2 输入契约钉住），不出投影面。
     attribute(:mobilization, :map, public?: true, writable?: true, default: %{})
@@ -77,7 +81,8 @@ defmodule Cgc2046.Flashback.Today do
         :want_give_tags,
         :mobilization,
         :newsletter_opt_in,
-        :reconnect_tags
+        :reconnect_tags,
+        :fog_spans
       ])
     end
 
@@ -96,6 +101,7 @@ defmodule Cgc2046.Flashback.Today do
         :mobilization,
         :newsletter_opt_in,
         :reconnect_tags,
+        :fog_spans,
         :sent_to_wall_at
       ])
     end
