@@ -587,3 +587,94 @@
   padding: 12rpx 18rpx;
   font-size: 24rpx;
 }
+
+/* U5 许愿半屏弹层(KTD5 CSS transform 自实现):微信任务手势,提交后落位反馈 */
+.wishSectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.wishSectionHead .futureTitle {
+  margin-bottom: 0;
+}
+.wishAddBtn {
+  font-size: 24rpx;
+  color: #ea5504;
+  border: 1rpx solid #ea5504;
+  border-radius: 24rpx;
+  padding: 6rpx 20rpx;
+}
+.wishSheetMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 400;
+}
+.wishSheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 20rpx 32rpx calc(env(safe-area-inset-bottom) + 28rpx);
+  animation: wishSheetUp 0.24s ease-out;
+}
+@keyframes wishSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.wishSheetBar {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 8rpx;
+  background: #e2e3e5;
+  margin: 0 auto 20rpx;
+}
+.wishSheetTitle {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #222326;
+  margin-bottom: 20rpx;
+}
+.wishSheetInput {
+  width: 100%;
+  min-height: 160rpx;
+  background: #f6f6f4;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  font-size: 26rpx;
+  box-sizing: border-box;
+}
+.wishSheetVisibility {
+  display: flex;
+  gap: 14rpx;
+  margin: 20rpx 0 28rpx;
+}
+.visibilityBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 22rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 0;
+}
+.visibilityActive {
+  color: #ea5504;
+  background: #fdf0e6;
+  border: 1rpx solid #ea5504;
+  font-weight: 600;
+}
+.wishSheetSubmit {
+  background: #ea5504;
+  color: #fff;
+  font-size: 28rpx;
+  border-radius: 44rpx;
+}

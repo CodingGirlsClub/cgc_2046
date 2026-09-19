@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Button, Canvas, Input, ScrollView, Text, View } from '@tarojs/components'
+import { Button, Canvas, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
@@ -133,12 +133,33 @@ export default function FlashbackCorridorPage() {
   // U4 愿望段:私愿折叠(KD2 防瞥屏)/公开愿模态(R6)
   const [privateOpen, setPrivateOpen] = useState(false)
   const [wishModal, setWishModal] = useState<FlashbackWish | null>(null)
+  // U5 许愿半屏弹层(KD3):文本+可见性+提交,落位反馈
+  const [wishSheet, setWishSheet] = useState(false)
+  const [wishDraft, setWishDraft] = useState('')
+  const [wishVisibility, setWishVisibility] = useState<'private' | 'public'>('private')
   const [wishComment, setWishComment] = useState('')
   const [wishBusy, setWishBusy] = useState(false)
   const reloadMember = async () => {
     if (mode.kind !== 'member') return
     const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
     if (capsule) setMode({ ...mode, capsule })
+  }
+
+  const submitWish = async () => {
+    if (mode.kind !== 'member' || wishBusy || !wishDraft.trim()) return
+    setWishBusy(true)
+    try {
+      await api.flashbackCreateWish(wishDraft.trim(), wishVisibility, mode.token)
+      setWishSheet(false)
+      setWishDraft('')
+      setWishVisibility('private')
+      await reloadMember()
+      Taro.showToast({ title: wishVisibility === 'public' ? '愿望已上墙' : '已收进你的私人许愿', icon: 'none' })
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '许愿失败', icon: 'none' })
+    } finally {
+      setWishBusy(false)
+    }
   }
 
   const endorse = async (wish: FlashbackWish) => {
@@ -318,9 +339,14 @@ export default function FlashbackCorridorPage() {
         </View>
 
         {/* U4 愿望段(R6):公开愿望纸白卡——愿望/遮罩姓/附议数,点卡开模态 */}
-        {mode.kind === 'member' && mode.capsule.publicWishes.length > 0 && (
+        {mode.kind === 'member' && (
           <View className={styles.futureSection}>
-            <Text className={styles.futureTitle}>未来 · 大家许的愿</Text>
+            <View className={styles.wishSectionHead}>
+              <Text className={styles.futureTitle}>未来 · 大家许的愿</Text>
+              <Text className={styles.wishAddBtn} onClick={() => setWishSheet(true)}>
+                + 许个愿
+              </Text>
+            </View>
             {mode.capsule.publicWishes.map((wish) => (
               <View key={wish.id} className={styles.wishCard} onClick={() => setWishModal(wish)}>
                 <Text className={styles.wishContent}>{wish.content}</Text>
@@ -468,6 +494,44 @@ export default function FlashbackCorridorPage() {
                 发送
               </Button>
             </View>
+          </View>
+        </View>
+      )}
+      {/* U5 许愿半屏弹层(KD3/R8):文本+可见性+提交,提交后落位反馈 */}
+      {wishSheet && (
+        <View className={styles.wishSheetMask} onClick={() => setWishSheet(false)}>
+          <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
+            <View className={styles.wishSheetBar} />
+            <Text className={styles.wishSheetTitle}>许个愿</Text>
+            <Textarea
+              className={styles.wishSheetInput}
+              value={wishDraft}
+              onInput={(e) => setWishDraft(e.detail.value)}
+              maxlength={500}
+              placeholder="写下你想和 CGC 一起实现的…(500 字内)"
+              autoHeight
+            />
+            <View className={styles.wishSheetVisibility}>
+              <Text
+                className={`${styles.visibilityBtn} ${wishVisibility === 'public' ? styles.visibilityActive : ''}`}
+                onClick={() => setWishVisibility('public')}
+              >
+                公开 · 上墙让大家附议
+              </Text>
+              <Text
+                className={`${styles.visibilityBtn} ${wishVisibility === 'private' ? styles.visibilityActive : ''}`}
+                onClick={() => setWishVisibility('private')}
+              >
+                🔒 私人 · 仅自己可见
+              </Text>
+            </View>
+            <Button
+              className={styles.wishSheetSubmit}
+              disabled={wishBusy || !wishDraft.trim()}
+              onClick={() => void submitWish()}
+            >
+              {wishBusy ? '许愿中…' : '许下这个愿'}
+            </Button>
           </View>
         </View>
       )}
