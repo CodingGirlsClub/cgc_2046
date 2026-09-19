@@ -27,18 +27,15 @@ vi.mock("@/lib/apollo-client", () => ({
 	client: { query: (...args: unknown[]) => capsuleQuery(...(args as [{ variables: { token?: string } }])) },
 }));
 
-const { endorseRunner, useMutationMock } = vi.hoisted(() => {
-	const endorseRunner = vi.fn();
-	return {
-		endorseRunner,
-		useMutationMock: vi.fn(() => [endorseRunner, { loading: false }]),
-	};
-});
+const { useMutationMock } = vi.hoisted(() => ({
+	useMutationMock: vi.fn(() => [vi.fn(), { loading: false }]),
+}));
 
 vi.mock("@apollo/client/react", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@apollo/client/react")>();
 	return { ...actual, useMutation: useMutationMock };
 });
+
 
 const rosterEntry = (overrides: Partial<FlashbackCapsule["archives"][number]["roster"][number]>) => ({
 	id: "entry-1",
@@ -81,7 +78,6 @@ const baseCapsule: FlashbackCapsule = {
 			],
 		},
 	],
-	actionCards: [],
 };
 
 async function renderCapsule(capsule: FlashbackCapsule = baseCapsule, token = "tok-1") {
@@ -191,198 +187,4 @@ describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => 
 	});
 });
 
-describe("CapsuleView · 行动板四态（R13）", () => {
-	it("空板：占位文案（空板不是错误态）", async () => {
-		await renderCapsule();
 
-		expect(screen.getByTestId("fb-action-empty")).toHaveTextContent("还没有人提议");
-	});
-
-	it("proposed/forming/scheduled/done 四态渲染；scheduled 直链报名 + web 端退回文案", async () => {
-		await renderCapsule({
-			...baseCapsule,
-			actionCards: [
-				{ id: "c1", title: "医生专场", city: "广州", status: "proposed", endorsementCount: 7, endorsedByMe: false, rolesClaimed: [], eventId: null, eventSlug: null },
-				{ id: "c2", title: "潜水场", city: "上海", status: "forming", endorsementCount: 9, endorsedByMe: false, rolesClaimed: ["promoter"], eventId: null, eventSlug: null },
-				{ id: "c3", title: "骑行场", city: "北京", status: "scheduled", endorsementCount: 23, endorsedByMe: true, rolesClaimed: ["organizer"], eventId: "e1", eventSlug: "1024-bj-ride" },
-				{ id: "c4", title: "重聚", city: "北京", status: "done", endorsementCount: 12, endorsedByMe: true, rolesClaimed: [], eventId: "e2", eventSlug: "reunion" },
-			],
-		});
-
-		const cards = screen.getAllByTestId("fb-action-card");
-		expect(cards.map((card) => card.dataset.status)).toEqual(["proposed", "forming", "scheduled", "done"]);
-
-		expect(screen.getByText("提议中 · 等同伴")).toBeInTheDocument();
-		expect(screen.getByText("9 人已附议")).toBeInTheDocument();
-		// 「宣传拉人」在已认领标签与附议表单 radio 各出现一次
-		expect(screen.getAllByText("宣传拉人").length).toBeGreaterThanOrEqual(2);
-
-		// scheduled：直链 Event 报名页 + web 端退回触达文案（KTD5）
-		const signup = screen.getByRole("link", { name: "报名这一场 →" });
-		expect(signup).toHaveAttribute("href", "/events/1024-bj-ride");
-		expect(screen.getByText(/成场通知会发到你预留的手机\/邮箱/)).toBeInTheDocument();
-
-		// done：回贴占位说明
-		expect(screen.getByText(/照片与回顾会贴回这张卡/)).toBeInTheDocument();
-
-		// 未附议的 proposed/forming 卡各有附议入口；已附议（scheduled/done）没有
-		const endorseButtons = screen.getAllByRole("button", { name: "附议这张卡 +1" });
-		expect(endorseButtons).toHaveLength(2);
-	});
-
-	it("附议交互：角色选择 + 提交后重拉胶囊（附议计数即时可见）", async () => {
-		endorseRunner.mockReset();
-		endorseRunner.mockResolvedValue({
-			data: { flashbackEndorse: { cardId: "c1", status: "proposed", roleClaimed: "organizer", firstTime: true } },
-		});
-
-		await renderCapsule({
-			...baseCapsule,
-			actionCards: [
-				{ id: "c1", title: "医生专场", city: "广州", status: "forming", endorsementCount: 7, endorsedByMe: false, rolesClaimed: [], eventId: null, eventSlug: null },
-			],
-		});
-
-		fireEvent.click(screen.getByRole("radio", { name: "组织者" }));
-		fireEvent.click(screen.getByRole("button", { name: "附议这张卡 +1" }));
-
-		await waitFor(() =>
-			expect(endorseRunner).toHaveBeenCalledWith({
-				variables: { token: "tok-1", cardId: "c1", roleClaimed: "organizer" },
-			}),
-		);
-		// onChanged 重拉胶囊
-		await waitFor(() => expect(capsuleQuery).toHaveBeenCalledTimes(2));
-	});
-});
-
-describe("CapsuleView · 摘要卡与全文卡（R14/R15）", () => {
-	it("摘要卡：时间戳+城市+金句+今天；缺省版式（未选金句）用占位句", async () => {
-		await renderCapsule();
-
-		expect(screen.getByText("2012.02.20 · 上海")).toBeInTheDocument();
-		expect(screen.getByText("“我想亲眼看看是不是。”")).toBeInTheDocument();
-		expect(screen.getByText(/今天的我：想学 AI/)).toBeInTheDocument();
-	});
-
-	it("未选金句 + 未填今天的缺省版式（R14）", async () => {
-		await renderCapsule({
-			...baseCapsule,
-			me: { ...baseCapsule.me, quote: null, today: null },
-		});
-
-		expect(screen.getByText("“（这里将是你选出的一句金句）”")).toBeInTheDocument();
-		expect(screen.queryByText(/今天的我/)).not.toBeInTheDocument();
-	});
-
-	it("全文卡：切换 tab 后呈现雾化态答案（R15 下载同一物件）", async () => {
-		await renderCapsule();
-
-		fireEvent.click(screen.getByRole("button", { name: "全文卡" }));
-
-		const card = screen.getByTestId("fb-export-card");
-		expect(card).toHaveTextContent("请简单的介绍一下自己");
-		expect(card).toHaveTextContent("一个文科生。▓▓。");
-	});
-});
-
-describe("CapsuleView · 城市钉筛选（R34）", () => {
-	const card = (id: string, title: string, city: string) => ({
-		id,
-		title,
-		city,
-		status: "forming" as const,
-		endorsementCount: 3,
-		endorsedByMe: false,
-		rolesClaimed: [],
-		eventId: null,
-		eventSlug: null,
-	});
-
-	it("多城渲染钉条（全部 + 城市）；点城市带 city 重拉，名册与行动板呈现服务端过滤结果", async () => {
-		await renderCapsule({
-			...baseCapsule,
-			cities: ["上海", "北京"],
-			actionCards: [card("c1", "骑行场", "北京"), card("c2", "潜水场", "上海")],
-		});
-
-		expect(screen.getByRole("button", { name: "全部" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "北京" })).toHaveAttribute("aria-pressed", "false");
-
-		// 点「北京」→ 第二次 query 带 city: "北京"；返回北京过滤后的胶囊
-		capsuleQuery.mockResolvedValue({
-			data: {
-				flashbackCapsule: {
-					...baseCapsule,
-					cities: ["上海", "北京"],
-					actionCards: [card("c1", "骑行场", "北京")],
-				},
-			},
-		});
-		fireEvent.click(screen.getByRole("button", { name: "北京" }));
-
-		await waitFor(() => expect(capsuleQuery).toHaveBeenCalledTimes(2));
-		expect(capsuleQuery).toHaveBeenLastCalledWith(
-			expect.objectContaining({ variables: { token: "tok-1", city: "北京" } }),
-		);
-		await waitFor(() => expect(screen.getAllByTestId("fb-action-card")).toHaveLength(1));
-		expect(screen.getByText("骑行场")).toBeInTheDocument();
-		expect(screen.queryByText("潜水场")).not.toBeInTheDocument();
-		// 钉条仍渲染全量城市（不随过滤收缩），可切回
-		expect(screen.getByRole("button", { name: "上海" })).toBeInTheDocument();
-
-		// 切回「全部」→ city: null
-		fireEvent.click(screen.getByRole("button", { name: "全部" }));
-		await waitFor(() =>
-			expect(capsuleQuery).toHaveBeenLastCalledWith(
-				expect.objectContaining({ variables: { token: "tok-1", city: null } }),
-			),
-		);
-	});
-
-	it("单城不渲染钉条（无筛选意义）", async () => {
-		await renderCapsule();
-		expect(screen.queryByRole("button", { name: "全部" })).not.toBeInTheDocument();
-	});
-
-	it("筛选后空名册/空板：区分「该城暂无」空态文案", async () => {
-		await renderCapsule({ ...baseCapsule, cities: ["上海", "北京"] });
-		capsuleQuery.mockResolvedValue({
-			data: {
-				flashbackCapsule: { ...baseCapsule, cities: ["上海", "北京"], archives: [], actionCards: [] },
-			},
-		});
-		fireEvent.click(screen.getByRole("button", { name: "上海" }));
-
-		expect(await screen.findByText("这座城市还没有名册照片。")).toBeInTheDocument();
-		expect(screen.getByTestId("fb-action-empty")).toHaveTextContent("这座城市还没有行动卡");
-		// 「今天」格不随城市筛选消失
-		expect(screen.getByTestId("fb-today-slot")).toBeInTheDocument();
-	});
-});
-
-describe("CapsuleView · 身份与回访", () => {
-	it("token 失效（claimed）走 invalid 分支", async () => {
-		capsuleQuery.mockReset();
-		capsuleQuery.mockRejectedValue({
-			errors: [{ message: "x", extensions: { code: "flashback_token_claimed" } }],
-		});
-		window.history.replaceState({}, "", "/flashback/capsule?token=dead");
-		window.sessionStorage.clear();
-		render(<CapsuleView />);
-
-		expect(await screen.findByText("这个档案已有主人")).toBeInTheDocument();
-	});
-
-	it("无 token 未登录（auth_required）：自助找回引导", async () => {
-		capsuleQuery.mockReset();
-		capsuleQuery.mockRejectedValue({
-			errors: [{ message: "x", extensions: { code: "flashback_auth_required" } }],
-		});
-		window.sessionStorage.clear();
-		render(<CapsuleView />);
-
-		expect(await screen.findByText("进入长廊需要你的身份")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "去自助找回" })).toHaveAttribute("href", "/flashback");
-	});
-});

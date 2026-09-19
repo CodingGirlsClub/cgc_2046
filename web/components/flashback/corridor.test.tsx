@@ -82,7 +82,6 @@ const capsule: FlashbackCapsule = {
 	},
 	cities: ["上海", "北京"],
 	archives: [multiCity, singleCity],
-	actionCards: [],
 };
 
 afterEach(() => {

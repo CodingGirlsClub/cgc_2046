@@ -148,21 +148,6 @@ export interface FlashbackDreamTarget {
 /* ---------------- U5 时间胶囊（校友层） ---------------- */
 
 /** Action 卡四态（R13 生命周期） */
-export type FlashbackActionCardStatus = "proposed" | "forming" | "scheduled" | "done";
-
-export interface FlashbackActionCard {
-	id: string;
-	title: string;
-	city?: string | null;
-	status: FlashbackActionCardStatus;
-	eventId?: string | null;
-	/** scheduled 起有值：直链 /events/{eventSlug}（R13 不在闪念间内部闭环） */
-	eventSlug?: string | null;
-	endorsementCount: number;
-	endorsedByMe: boolean;
-	rolesClaimed: string[];
-}
-
 /** 雾面段（对外版）：fog=true 时 text 恒空——原文字符不出 DOM */
 export interface FlashbackRosterSegment {
 	text: string;
@@ -242,7 +227,6 @@ export interface FlashbackMeAnswer {
 export interface FlashbackCapsule {
 	me: FlashbackCapsuleMe;
 	archives: FlashbackCapsuleArchive[];
-	actionCards: FlashbackActionCard[];
 	/** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
 	cities: string[];
 }
@@ -585,188 +569,12 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					}
 				}
 			}
-			actionCards {
-				id
-				title
-				city
-				status
-				eventId
-				eventSlug
-				endorsementCount
-				endorsedByMe
-				rolesClaimed
-			}
 			cities
 		}
 	}
 `;
 
-/** 附议（U5/R13）：一人一卡一行幂等（再点=改认领角色）。U9 起双入口：
- * token 省略时按登录账号绑定档案（登录态回访者同样可附议） */
-export const FLASHBACK_ENDORSE: TypedDocumentNode<
-	{
-		flashbackEndorse: {
-			cardId: string;
-			status: FlashbackActionCardStatus;
-			roleClaimed?: string | null;
-			firstTime: boolean;
-		};
-	},
-	{ token?: string | null; cardId: string; roleClaimed?: string | null }
-> = gql`
-	mutation FlashbackEndorse($token: String, $cardId: ID!, $roleClaimed: String) {
-		flashbackEndorse(token: $token, cardId: $cardId, roleClaimed: $roleClaimed) {
-			cardId
-			status
-			roleClaimed
-			firstTime
-		}
-	}
-`;
 
-/** 删除摘要（U10/R30 二次确认页数据源）：双入口（token 或登录态） */
-export const FLASHBACK_DELETE_PREVIEW: TypedDocumentNode<
-	{
-		flashbackDeletePreview: {
-			personId: string;
-			fullName: string;
-			sentToWallAt?: string | null;
-			endorsementCount: number;
-			alreadyDeleted: boolean;
-		} | null;
-	},
-	{ token?: string | null }
-> = gql`
-	query FlashbackDeletePreview($token: String) {
-		flashbackDeletePreview(token: $token) {
-			personId
-			fullName
-			sentToWallAt
-			endorsementCount
-			alreadyDeleted
-		}
-	}
-`;
-
-/** 删除我的档案（U10/R30/ADR-0015）：不可逆；confirm 必须为 "DELETE" */
-export const FLASHBACK_DELETE: TypedDocumentNode<
-	{ flashbackDelete: { deleted: boolean; deletedAt: string } },
-	{ token?: string | null; confirm: string }
-> = gql`
-	mutation FlashbackDelete($token: String, $confirm: String!) {
-		flashbackDelete(token: $token, confirm: $confirm) {
-			deleted
-			deletedAt
-		}
-	}
-`;
-
-/** 公开统计层（U6/R32）：匿名可读的聚合数字 */
-export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
-	{ flashbackPublicStats: FlashbackPublicStats },
-	Record<string, never>
-> = gql`
-	query FlashbackPublicStats {
-		flashbackPublicStats {
-			archives {
-				key
-				name
-				city
-				occurredOn
-				appliedCount
-				attendedCount
-				label
-			}
-			returnedCount
-			sentCount
-		}
-	}
-`;
-
-/** 匿名金句墙（U6/R31/R32）：授权者的脱敏金句 */
-export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
-	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
-	{ voterKey?: string | null }
-> = gql`
-	query FlashbackPublicQuotes($voterKey: String) {
-		flashbackPublicQuotes(voterKey: $voterKey) {
-			text
-			attribution
-			level
-			publicSlug
-			personId
-			likeCount
-			likedByViewer
-		}
-	}
-`;
-
-/** 点赞/取消（R36）：公开无登录，voterKey 去重 + IP 限频；返回实时计数 */
-export const FLASHBACK_LIKE_QUOTE: TypedDocumentNode<
-	{ flashbackLikeQuote: { likeCount: number } },
-	{ personId: string; voterKey: string; liked: boolean }
-> = gql`
-	mutation FlashbackLikeQuote($personId: ID!, $voterKey: String!, $liked: Boolean!) {
-		flashbackLikeQuote(personId: $personId, voterKey: $voterKey, liked: $liked) {
-			likeCount
-		}
-	}
-`;
-
-/** 实名档案页（U6/R31 credited 档）：null = 未授权（404 态） */
-export const FLASHBACK_PUBLIC_PROFILE: TypedDocumentNode<
-	{ flashbackPublicProfile: FlashbackPublicProfile | null },
-	{ slug: string }
-> = gql`
-	query FlashbackPublicProfile($slug: String!) {
-		flashbackPublicProfile(slug: $slug) {
-			fullName
-			city
-			eventName
-			year
-			creditedNote
-			quote
-		}
-	}
-`;
-
-/** 自助找回·发起（U6/R21）：命中与未命中同形返回（不泄露存在性） */
-export const FLASHBACK_RECOVER: TypedDocumentNode<
-	{ flashbackRecover: { dispatched: boolean } },
-	{ identifier: string }
-> = gql`
-	mutation FlashbackRecover($identifier: String!) {
-		flashbackRecover(identifier: $identifier) {
-			dispatched
-		}
-	}
-`;
-
-/** 自助找回·验证（U6/R21）：手机码通过 → 绑定全部匹配档案；多档案返回「你的 N 张卡」 */
-export const FLASHBACK_RECOVER_VERIFY: TypedDocumentNode<
-	{ flashbackRecoverVerify: { bound: boolean; cards: FlashbackRecoverCard[] } },
-	{ identifier: string; code: string }
-> = gql`
-	mutation FlashbackRecoverVerify($identifier: String!, $code: String!) {
-		flashbackRecoverVerify(identifier: $identifier, code: $code) {
-			bound
-			cards {
-				personId
-				surnameMasked
-				eventName
-				city
-			}
-		}
-	}
-`;
-
-/* ---------------- 渲染辅助（组件共用单源） ---------------- */
-
-/** 雾面渲染段：fog=true 的段落对外遮蔽（「这里有一段当年写的话」），本人视图保留原文 */
-export interface FogSegment {
-	text: string;
-	fog: boolean;
-}
 
 /**
  * 按 fog_spans 把原文切成渲染段（grapheme 偏移 → code point 近似：导入文本为

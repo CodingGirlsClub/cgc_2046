@@ -10,7 +10,6 @@ import {
 	type FlashbackCapsule,
 } from "@/lib/graphql/flashback";
 import Corridor, { useWideCorridor } from "./corridor";
-import ActionBoard from "./action-board";
 import CardExport from "./card-export";
 import DeleteAccount from "./delete-account";
 import InvalidToken from "./invalid-token";
@@ -169,12 +168,6 @@ export default function CapsuleView() {
 				{wide ? t("scrollHintWide", { city: city ?? t("cityAllWide") }) : t("scrollHint")}
 			</p>
 			<Corridor capsule={capsule} cityFiltered={city !== null} />
-			<ActionBoard
-				cards={capsule.actionCards}
-				token={token}
-				onChanged={reload}
-				filtered={city !== null}
-			/>
 			<CardExport me={capsule.me} token={token} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>

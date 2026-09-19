@@ -932,48 +932,6 @@
 .fb-today-photo { display: grid; align-content: start; gap: 6px; padding: 9%; background: transparent; }
 .fb-today-placeholder { display: grid; gap: 10px; }
 
-/* 行动板（R13 四态） */
-.fb-action-board { padding: 22px; text-align: left; }
-.fb-action-title { color: #d9d4ca; font-size: 15px; letter-spacing: 0.15em; font-weight: 600; margin: 0 0 14px; }
-.fb-action-empty {
-	color: #8d887e;
-	font-size: 13px;
-	border: 2px dashed rgba(239, 233, 219, 0.26);
-	border-radius: 8px;
-	padding: 22px 18px;
-	margin: 0;
-}
-.fb-action-grid { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
-.fb-action-card {
-	background: rgba(239, 233, 219, 0.07);
-	border: 1px solid rgba(239, 233, 219, 0.2);
-	border-radius: 8px;
-	padding: 14px 16px;
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-.fb-action-card--scheduled {
-	border-color: rgba(203, 191, 143, 0.55);
-	box-shadow: 0 0 22px rgba(203, 191, 143, 0.28);
-}
-.fb-action-card--done { opacity: 0.85; }
-.fb-action-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.fb-action-name { color: #d9d4ca; font-size: 15px; font-weight: 600; }
-.fb-action-city { font-size: 11px; color: #8d887e; }
-.fb-action-count { color: #cbbf8f; font-size: 12px; margin: 0; }
-.fb-action-roles { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.fb-action-roles li {
-	font-size: 10px;
-	color: #d9d4ca;
-	border: 1px solid rgba(239, 233, 219, 0.3);
-	border-radius: 999px;
-	padding: 2px 8px;
-}
-.fb-action-status { font-size: 11px; color: #8d887e; margin: 0; }
-.fb-action-scheduled { display: grid; gap: 6px; justify-items: start; }
-.fb-endorse { display: grid; gap: 8px; }
-.fb-endorse-roles { display: flex; flex-wrap: wrap; gap: 8px; border: none; padding: 0; margin: 0; font-size: 11px; color: #b9b4aa; }
 
 /* 卡片导出 */
 .fb-card-export { padding: 22px; text-align: center; }
