@@ -617,7 +617,7 @@
   right: 0;
   bottom: 0;
   background: #fff;
-  border-radius: 28rpx 28rpx 0 0;
+  border-radius: 32rpx;
   padding: 20rpx 32rpx calc(env(safe-area-inset-bottom) + 28rpx);
   animation: wishSheetUp 0.24s ease-out;
 }
