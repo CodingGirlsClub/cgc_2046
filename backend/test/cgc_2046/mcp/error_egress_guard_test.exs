@@ -81,6 +81,8 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
     "confirmation.ex" => {2, "仅 Logger.error（内部留痕，不回调用方、不落库）"},
     "playbooks.ex" => {1, "Logger.warning 里的文件路径"},
     "redact.ex" => {1, "byte_size(inspect(value)) 长度估算"},
+    "tools/admin_resend_flashback_outreach.ex" => {2, "未知错误形状字符串化（错误树出口）+ Logger.error 审计留痕"},
+    "tools/admin_send_flashback_outreach.ex" => {3, "未知错误形状字符串化（错误树出口）+ Logger.error 审计留痕"},
     "tools/approve_join_request.ex" => {1, "回显非法角色入参（非错误树）"},
     "tools/assign_roles.ex" => {3, "回显角色入参（非错误树）"},
     "tools/create_invitation.ex" => {1, "回显非法角色入参（非错误树）"},
