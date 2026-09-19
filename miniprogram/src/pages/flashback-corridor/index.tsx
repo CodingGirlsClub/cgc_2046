@@ -274,7 +274,12 @@ export default function FlashbackCorridorPage() {
             <Text className={styles.miniCardHint}>点按翻面写字</Text>
           </View>
           <View className={styles.dockActions}>
-            <Text className={styles.dockSend} onClick={() => void sendTodayCard()}>写完寄出 →</Text>
+            <Text
+              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : ''}`}
+              onClick={() => void sendTodayCard()}
+            >
+              {sendingCard ? '正在贴上墙…' : '写完寄出 →'}
+            </Text>
             <Text
               className={styles.dockLicense}
               onClick={() => setLicenseOpen(true)}
