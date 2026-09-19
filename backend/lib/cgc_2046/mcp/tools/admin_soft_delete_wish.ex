@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
-  alias Cgc2046.Flashback.{Wish, Wishes}
+  alias Cgc2046.Flashback.{AlumniProjection, Wish, Wishes}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   require Ash.Query
 
@@ -44,10 +44,8 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
   确认后真正执行（Confirmation.execute 分派）。
   """
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
-  def execute_confirmed(actor, params) do
-    person_id = actor_person_id(actor)
-
-    case Wishes.soft_delete_wish(params["wish_id"], person_id, admin?: true) do
+  def execute_confirmed(_actor, params) do
+    case Wishes.soft_delete_wish(params["wish_id"], nil, admin?: true) do
       {:ok, wish} ->
         {:ok,
          %{
@@ -94,25 +92,6 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
   defp summary(wish, reason) do
     head = String.slice(wish.content, 0, 80)
 
-    "软删许愿「#{head}」(#{wish.visibility}) · 许愿人 #{masked(wish.person)} · 理由：#{reason}。软删：走廊对学员不可见；数据保留，平台当前无恢复入口。"
+    "软删许愿「#{head}」(#{wish.visibility}) · 许愿人 #{AlumniProjection.masked_name(wish.person)} · 理由：#{reason}。软删：走廊对学员不可见；数据保留，平台当前无恢复入口。"
   end
-
-  defp masked(person) do
-    full = (person && person.full_name) || ""
-
-    if (person && is_binary(person.surname)) and person.surname != "" and
-         String.starts_with?(full, person.surname) do
-      person.surname <>
-        String.duplicate("*", max(String.length(full) - String.length(person.surname), 1))
-    else
-      case String.graphemes(full) do
-        [first | rest] -> first <> String.duplicate("*", max(length(rest), 1))
-        [] -> ""
-      end
-    end
-  end
-
-  # MCP 连接 token 绑定的是平台账号（users），许愿归属是 flashback_people——
-  # 治理删除不需要许愿人身份，deleted_by 语义由 ToolCallLog 的 actor 承担
-  defp actor_person_id(_actor), do: Ecto.UUID.generate()
 end

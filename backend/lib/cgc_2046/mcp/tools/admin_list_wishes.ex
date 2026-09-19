@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListWishes do
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
-  alias Cgc2046.Flashback.Wish
+  alias Cgc2046.Flashback.{AlumniProjection, Wish}
   alias Cgc2046.Mcp.Wrapper
   require Ash.Query
 
@@ -85,27 +85,13 @@ defmodule Cgc2046.Mcp.Tools.AdminListWishes do
       visibility: wish.visibility,
       city: wish.city,
       created_at: wish.inserted_at,
-      wisher: %{person_id: wish.person_id, display_name: masked(wish.person)},
+      wisher: %{
+        person_id: wish.person_id,
+        display_name: AlumniProjection.masked_name(wish.person)
+      },
       endorsement_count: length(wish.endorsements),
       comment_count: Enum.count(wish.comments, &is_nil(&1.deleted_at))
     }
-  end
-
-  defp masked(person) do
-    full = (person && person.full_name) || ""
-
-    cond do
-      (person && is_binary(person.surname)) and person.surname != "" and
-          String.starts_with?(full, person.surname) ->
-        person.surname <>
-          String.duplicate("*", max(String.length(full) - String.length(person.surname), 1))
-
-      true ->
-        case String.graphemes(full) do
-          [first | rest] -> first <> String.duplicate("*", max(length(rest), 1))
-          [] -> ""
-        end
-    end
   end
 
   defp parse_visibility("public"), do: :public

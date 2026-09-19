@@ -646,12 +646,6 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				wisherMasked
 				endorsementCount
 				endorsedByMe
-				comments {
-					id
-					content
-					commenterMasked
-					insertedAt
-				}
 				insertedAt
 			}
 			cities

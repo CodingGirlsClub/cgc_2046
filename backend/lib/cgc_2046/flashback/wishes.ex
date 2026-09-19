@@ -15,7 +15,7 @@ defmodule Cgc2046.Flashback.Wishes do
 
   require Ash.Query
 
-  alias Cgc2046.Flashback.{Person, Wish, WishComment, WishEndorsement}
+  alias Cgc2046.Flashback.{AlumniProjection, Person, Wish, WishComment, WishEndorsement}
 
   @content_max_length 500
   @visibilities ~w(public private)
@@ -87,12 +87,17 @@ defmodule Cgc2046.Flashback.Wishes do
     |> Ash.Query.filter(wish_id == ^wish_id and is_nil(deleted_at))
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!(authorize?: false, page: false, load: [:person])
-    |> Enum.map(fn comment ->
+    |> project_comments()
+  end
+
+  # 留言投影（list_comments 与 list_public 批量加载共用）
+  defp project_comments(comments) do
+    Enum.map(comments, fn comment ->
       %{
         id: comment.id,
         content: comment.content,
         inserted_at: comment.inserted_at,
-        commenter_masked: masked_name(comment.person)
+        commenter_masked: AlumniProjection.masked_name(comment.person)
       }
     end)
   end
@@ -137,7 +142,8 @@ defmodule Cgc2046.Flashback.Wishes do
     base =
       Wish
       |> Ash.Query.filter(visibility == "public" and is_nil(deleted_at))
-      |> Ash.Query.load([:endorsements, :person])
+      # 批量带出留言（N+1 修复）：一次查询投影全部愿望+附议+留言+许愿人
+      |> Ash.Query.load([:endorsements, :person, :comments])
 
     base =
       if city do
@@ -155,9 +161,9 @@ defmodule Cgc2046.Flashback.Wishes do
         content: wish.content,
         city: wish.city,
         inserted_at: wish.inserted_at,
-        wisher_masked: masked_name(wish.person),
+        wisher_masked: AlumniProjection.masked_name(wish.person),
         endorsement_count: length(wish.endorsements),
-        comments: list_comments(wish.id)
+        comments: project_comments(wish.comments)
       }
     end)
     |> Enum.sort_by(&{-&1.endorsement_count, &1.inserted_at})
@@ -243,6 +249,7 @@ defmodule Cgc2046.Flashback.Wishes do
     %{endorsement_count: count, endorsed_by_me: mine?}
   end
 
+  # MCP 治理删除走 admin?: true，actor 传 nil（平台侧身份由 ToolCallLog 审计承担）
   defp do_soft_delete_wish(%Wish{person_id: person_id} = wish, actor_person_id, admin?) do
     if admin? or person_id == actor_person_id do
       wish
@@ -260,24 +267,6 @@ defmodule Cgc2046.Flashback.Wishes do
       |> Ash.update(authorize?: false)
     else
       {:error, %{code: "flashback_forbidden_wish"}}
-    end
-  end
-
-  defp masked_name(nil), do: nil
-
-  defp masked_name(person) do
-    full = person.full_name || ""
-    surname = person.surname
-
-    cond do
-      is_binary(surname) and surname != "" and String.starts_with?(full, surname) ->
-        surname <> String.duplicate("*", max(String.length(full) - String.length(surname), 1))
-
-      true ->
-        case String.graphemes(full) do
-          [first | rest] -> first <> String.duplicate("*", max(length(rest), 1))
-          [] -> ""
-        end
     end
   end
 end
