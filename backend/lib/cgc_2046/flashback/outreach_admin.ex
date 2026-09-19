@@ -16,6 +16,8 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
 
   require Ash.Query
 
+  @roster_limit 500
+
   @doc """
   批量触达预览（R4 摘要口径）：给定场次与通道档，返回预估入队数、三档分布、
   退订剔除数与短信腿就绪位。不入队、零副作用——MCP 确认摘要与页面预览共用。
@@ -170,8 +172,6 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
       {:ok, Enum.take(filtered, @roster_limit)}
     end
   end
-
-  @roster_limit 500
 
   defp apply_filter(entries, nil), do: entries
 
