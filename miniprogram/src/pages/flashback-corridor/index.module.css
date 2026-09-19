@@ -795,3 +795,66 @@
 .todayLitPhoto { aspect-ratio: 1; background: #efe9db; border-radius: 6rpx; display: flex; align-items: center; justify-content: center; }
 .todayLitName { font-size: 26rpx; color: #2b2723; font-weight: 700; }
 .todayLitCap { font-size: 17rpx; color: #7a756c; text-align: center; padding: 10rpx 0 12rpx; }
+
+/* U7 报名 sheet */
+.enrollDeposit { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 12rpx; }
+
+/* U7 授权弹层:半屏滚动,badge/三档行/圈选/预览 */
+.licenseSheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 78vh;
+  overflow-y: scroll;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 20rpx 32rpx calc(env(safe-area-inset-bottom) + 24rpx);
+}
+.courageBadge {
+  display: flex;
+  justify-content: center;
+  margin: 14rpx 0 18rpx;
+}
+.courageBadgeText {
+  font-size: 24rpx;
+  color: #b34700;
+  background: #fdf6e9;
+  border: 1rpx solid rgba(203, 191, 143, 0.55);
+  border-radius: 999rpx;
+  padding: 10rpx 28rpx;
+}
+.licenseRow {
+  display: flex;
+  gap: 20rpx;
+  align-items: flex-start;
+  padding: 20rpx 22rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid transparent;
+  margin-bottom: 12rpx;
+}
+.licenseRowActive { background: #fdf0e6; border-color: #ea5504; }
+.licenseDot {
+  width: 30rpx; height: 30rpx; border-radius: 50%;
+  border: 3rpx solid #b0aca4; margin-top: 4rpx; flex-shrink: 0;
+}
+.licenseRowActive .licenseDot { border-color: #ea5504; background: radial-gradient(circle, #ea5504 45%, transparent 50%); }
+.licenseLabel { display: block; font-size: 26rpx; font-weight: 700; color: #222326; }
+.licenseDesc { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 4rpx; line-height: 1.6; }
+.quotePickerSheet { margin-top: 20rpx; }
+.quotePickHint { display: block; font-size: 22rpx; color: #4b4d54; margin-bottom: 12rpx; }
+.quoteCandidate {
+  display: block; font-size: 24rpx; color: #2b2723; line-height: 1.7;
+  border-left: 4rpx solid rgba(0, 0, 0, 0.1); padding: 8rpx 20rpx; margin-top: 12rpx;
+}
+.quoteCandidateActive { border-left-color: #ea5504; background: #fdf0e6; color: #b34700; font-weight: 700; }
+.quotePreview { margin-top: 24rpx; border-top: 1rpx dashed rgba(0, 0, 0, 0.12); padding-top: 16rpx; }
+.quotePreviewHint { display: block; font-size: 22rpx; color: #4b4d54; }
+.quotePreviewCard { background: #fffdf7; border: 1rpx solid rgba(203, 191, 143, 0.35); border-radius: 18rpx; padding: 20rpx 24rpx; margin-top: 14rpx; }
+.quotePreviewQ { display: block; font-size: 24rpx; color: #2b2723; line-height: 1.7; }
+.quotePreviewBy { display: flex; justify-content: space-between; margin-top: 10rpx; }
+.quotePreviewName { font-size: 20rpx; color: #8a8f98; }
+.quotePreviewLink { font-size: 20rpx; color: #ea5504; }
+.quotePreviewDim { font-size: 20rpx; color: #b0aca4; }
+.licenseFoot { display: block; font-size: 20rpx; color: #b0aca4; text-align: center; margin-top: 18rpx; }
+.dockLicenseOn { color: #b34700; border-color: rgba(203, 191, 143, 0.55); background: #fdf6e9; }
