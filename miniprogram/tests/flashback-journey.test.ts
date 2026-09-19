@@ -210,3 +210,19 @@ test('futureEventCards:可报名亮金带 CTA;满员/截止灰卡状态标签', 
   const both = futureEventCards([{ initiativeSlug: 'x', initiativeName: 'x', events: [{ id: 'e', slug: 's', title: 't', city: null, startsAt: null, capacity: 10, confirmedCount: 10, registrationDeadline: '2020-01-01T00:00:00Z' }] }])
   assert.equal(both[0].status, 'full')
 })
+
+// ── U5/U6 判据:弹层可见性与回环出口数据 ───────────────────────────
+test('futureEventCards:场次页回环「下一场」取首个 open(AE4/回环数据面)', () => {
+  const frames = [{
+    initiativeSlug: 'x', initiativeName: 'x',
+    events: [
+      { id: 'ev-full', slug: 's1', title: '满员场', city: null, startsAt: null, capacity: 10, confirmedCount: 10, registrationDeadline: null },
+      { id: 'ev-open', slug: 's2', title: '可报名场', city: null, startsAt: null, capacity: 20, confirmedCount: 3, registrationDeadline: null }
+    ]
+  }]
+  const next = futureEventCards(frames).find((card) => card.status === 'open')
+  assert.equal(next?.id, 'ev-open')
+  // 全满/全截止 → 无「下一场」出口(渲染层隐藏该钮)
+  const allFull = futureEventCards([{ initiativeSlug: 'x', initiativeName: 'x', events: frames[0].events.map((e) => ({ ...e, id: e.id + 'x', confirmedCount: e.capacity ?? 10 })) }])
+  assert.equal(allFull.find((card) => card.status === 'open'), undefined)
+})
