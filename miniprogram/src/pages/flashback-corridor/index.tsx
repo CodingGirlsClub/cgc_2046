@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Button, Canvas, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
+import { Button, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
@@ -8,6 +8,7 @@ import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback
 import { futureEventCards } from '@/domain/flashback'
 import type { FlashbackWish } from '@/domain/models'
 import MyCard from '@/components/MyCard'
+import ShareSheet from '@/components/MyCard/ShareSheet'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
   FlashbackCapsule,
@@ -15,7 +16,6 @@ import type {
   FlashbackPublicStats
 } from '@/domain/models'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
-import { SUMMARY_CARD_CANVAS_ID, saveFlashbackSummaryCard } from '@/platform/summary-card'
 import styles from './index.module.css'
 
 type Mode =
@@ -42,7 +42,8 @@ export default function FlashbackCorridorPage() {
   const [city, setCity] = useState<string | null>(null)
   // R14 分享（用户定稿 ③）：sheet 三入口 + 保存中态
   const [shareSheet, setShareSheet] = useState(false)
-  const [saving, setSaving] = useState(false)
+  // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
+  const [scrollAnchor, setScrollAnchor] = useState('')
 
   const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
     try {
@@ -98,9 +99,15 @@ export default function FlashbackCorridorPage() {
     [loadStats]
   )
 
-  // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点
+  // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点。
+  // U6「看看未来」:?future=1 → 数据就绪后滚到未来段(计划原文 scrollIntoView)
   useDidShow(() => {
     void load(city)
+    const params = Taro.getCurrentInstance().router?.params
+    if (params?.future === '1') {
+      setScrollAnchor('')
+      setTimeout(() => setScrollAnchor('futureAnchor'), 400)
+    }
   })
 
   const pickCity = (next: string | null) => {
@@ -113,16 +120,6 @@ export default function FlashbackCorridorPage() {
   useShareAppMessage(() => ({ title: shareTitle, path: '/pages/flashback-journey/index' }))
   useShareTimeline(() => ({ title: shareTitle }))
 
-  const saveCard = async () => {
-    if (mode.kind !== 'member' || saving) return
-    setSaving(true)
-    try {
-      await saveFlashbackSummaryCard(mode.capsule.me)
-      setShareSheet(false)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const openEvent = (key: string) => {
     void Taro.navigateTo({ url: `/pages/flashback-event/index?key=${encodeURIComponent(key)}` })
@@ -233,7 +230,7 @@ export default function FlashbackCorridorPage() {
 
   return (
     <View className={styles.page}>
-      <ScrollView scrollY className={styles.wall} style={{ height: '100vh' }}>
+      <ScrollView scrollY scrollIntoView={scrollAnchor} className={styles.wall} style={{ height: '100vh' }}>
         <View className={styles.header}>
           <Text className={styles.title}>闪念间 · 时间长廊</Text>
           <Text className={styles.hint}>↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场</Text>
@@ -326,7 +323,7 @@ export default function FlashbackCorridorPage() {
             const cards = futureEventCards(mode.capsule.futureEvents)
             if (cards.length === 0) return null
             return (
-              <View className={styles.futureSection}>
+              <View id="futureAnchor" className={styles.futureSection}>
                 <Text className={styles.futureTitle}>未来 · 一起做点什么</Text>
                 {cards.map((card) => (
                   <View
@@ -400,7 +397,11 @@ export default function FlashbackCorridorPage() {
 
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
         {mode.kind === 'member' && tab === 'mine' && (
-          <MyCard capsule={mode.capsule} onWrite={() => void reloadMember()} />
+          <MyCard
+            capsule={mode.capsule}
+            onWrite={() => void reloadMember()}
+            onOpenShare={() => setShareSheet(true)}
+          />
         )}
 
         <View className={styles.footer}>
@@ -430,35 +431,15 @@ export default function FlashbackCorridorPage() {
         </View>
       </ScrollView>
 
-      <Canvas id={SUMMARY_CARD_CANVAS_ID} canvasId={SUMMARY_CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
-
-      {/* 分享 sheet（用户定稿 ③，与我的页同款三入口） */}
-      {shareSheet && mode.kind === 'member' && myView && (
-        <View className={styles.shareMask} onClick={() => setShareSheet(false)}>
-          <View className={styles.shareSheet} onClick={(event) => event.stopPropagation()}>
-            <Text className={styles.shareSheetTitle}>{shareTitle}</Text>
-            <View className={styles.shareEntries}>
-              <Button className={styles.shareEntry} openType="share">
-                <Text className={styles.shareEntryIcon}>💬</Text>
-                <Text className={styles.shareEntryLabel}>转发给好友</Text>
-              </Button>
-              <View
-                className={styles.shareEntry}
-                onClick={() => Taro.showToast({ title: '朋友圈分享请点右上角「···」选择', icon: 'none' })}
-              >
-                <Text className={styles.shareEntryIcon}>📷</Text>
-                <Text className={styles.shareEntryLabel}>朋友圈</Text>
-              </View>
-              <View className={styles.shareEntry} onClick={() => void saveCard()}>
-                <Text className={styles.shareEntryIcon}>⬇️</Text>
-                <Text className={styles.shareEntryLabel}>{saving ? '保存中…' : '保存卡片'}</Text>
-              </View>
-            </View>
-            <Button className={styles.shareCancel} onClick={() => setShareSheet(false)}>
-              取消
-            </Button>
-          </View>
-        </View>
+      {/* 分享 sheet(R14 用户定稿 ③,三入口+R37 opt-in)——组件与裁剪端薄壳单源 */}
+      {mode.kind === 'member' && myView && (
+        <ShareSheet
+          open={shareSheet}
+          title={shareTitle}
+          me={mode.capsule.me}
+          onClose={() => setShareSheet(false)}
+          onWrite={() => void reloadMember()}
+        />
       )}
 
       {/* U4 公开愿望模态(R6):全文+留言流+附议/已附议+本人删除两步确认 */}
