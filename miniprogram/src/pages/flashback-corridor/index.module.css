@@ -748,7 +748,8 @@
 .capsule {
   flex: 1;
   min-height: 0;
-  border-radius: 28rpx 28rpx 0 0;
+  margin-bottom: 20rpx;
+  border-radius: 32rpx;
   background: linear-gradient(180deg, #17161a 0%, #1d1c22 55%, #131217 100%);
   padding: 12rpx 44rpx 40rpx;
 }
