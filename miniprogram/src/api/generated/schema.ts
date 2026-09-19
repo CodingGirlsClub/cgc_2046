@@ -2174,6 +2174,13 @@ export type FlashbackAdjustFogResult = {
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
 };
 
+export type FlashbackAdminArchive = {
+  city: Scalars['String']['output'];
+  key: Scalars['String']['output'];
+  name: Scalars['String']['output'];
+  occurredOn: Scalars['String']['output'];
+};
+
 export type FlashbackAdminStats = {
   /** 圆梦线（participation=not_selected）四率 */
   dream: FlashbackRates;
@@ -2338,11 +2345,64 @@ export type FlashbackMeAnswer = {
   text: Scalars['String']['output'];
 };
 
+export type FlashbackOutreachBatch = {
+  batch: Scalars['String']['output'];
+  email: FlashbackOutreachBatchChannel;
+  /** 批次最早建行时刻（触发时间近似） */
+  firstAt?: Maybe<Scalars['String']['output']>;
+  sms: FlashbackOutreachBatchChannel;
+  template: Scalars['String']['output'];
+};
+
+export type FlashbackOutreachBatchChannel = {
+  failed: Scalars['Int']['output'];
+  queued: Scalars['Int']['output'];
+  sent: Scalars['Int']['output'];
+};
+
 export type FlashbackOutreachDispatchResult = {
   /** 入队件数（错峰 scheduled_at 限速后由 worker 续发） */
   queued: Scalars['Int']['output'];
   /** 跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处） */
   skipped: Scalars['Int']['output'];
+};
+
+export type FlashbackOutreachLast = {
+  at?: Maybe<Scalars['String']['output']>;
+  batch: Scalars['String']['output'];
+  channel: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+};
+
+export type FlashbackOutreachPreview = {
+  archiveKey: Scalars['String']['output'];
+  archiveName: Scalars['String']['output'];
+  both: Scalars['Int']['output'];
+  /** 所选通道档的预估入队数 */
+  channel: Scalars['String']['output'];
+  /** 三档分布：仅邮件可达 / 仅短信可达 / 双通道 */
+  emailOnly: Scalars['Int']['output'];
+  queued: Scalars['Int']['output'];
+  smsOnly: Scalars['Int']['output'];
+  /** 短信腿就绪位（SendCloud 触达模板已配置） */
+  smsReady: Scalars['Boolean']['output'];
+  unreachable: Scalars['Int']['output'];
+  unsubscribed: Scalars['Int']['output'];
+};
+
+export type FlashbackOutreachRosterEntry = {
+  claimed: Scalars['Boolean']['output'];
+  deleted: Scalars['Boolean']['output'];
+  /** 完整联系方式（KD6/R13：platform_admin 门控，排查核对用） */
+  email?: Maybe<Scalars['String']['output']>;
+  emailReachable: Scalars['Boolean']['output'];
+  fullName: Scalars['String']['output'];
+  lastOutreach?: Maybe<FlashbackOutreachLast>;
+  participation: Scalars['String']['output'];
+  personId: Scalars['ID']['output'];
+  phone?: Maybe<Scalars['String']['output']>;
+  smsReachable: Scalars['Boolean']['output'];
+  unsubscribed: Scalars['Boolean']['output'];
 };
 
 export type FlashbackProfile = {
@@ -2598,6 +2658,8 @@ export type FlashbackWish = {
   endorsementCount: Scalars['Int']['output'];
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  /** 本人许愿（删除入口只对本人显示，R14） */
+  mine: Scalars['Boolean']['output'];
   /** 许愿人遮罩姓（王**） */
   wisherMasked?: Maybe<Scalars['String']['output']>;
 };
@@ -4438,7 +4500,7 @@ export type RootMutationType = {
   flashbackAddWishComment?: Maybe<FlashbackWishResult>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
-  /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
+  /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 金句下线开关（R38，PlatformAdmin）：hidden_at 置位/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线） */
   flashbackAdminSetQuoteHidden?: Maybe<FlashbackQuoteHiddenResult>;
@@ -4804,6 +4866,7 @@ export type RootMutationTypeFlashbackAdjustFogArgs = {
 
 export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
   archiveKey: Scalars['String']['input'];
+  channel?: InputMaybe<Scalars['String']['input']>;
   template: Scalars['String']['input'];
 };
 
@@ -5185,8 +5248,12 @@ export type RootQueryType = {
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
   eventModerators: Array<EventModerator>;
+  /** 场次列表（R7 发送入口数据源，PlatformAdmin） */
+  flashbackAdminArchives: Array<FlashbackAdminArchive>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
+  /** 闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
+  flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
@@ -5195,6 +5262,12 @@ export type RootQueryType = {
   flashbackDeletePreview?: Maybe<FlashbackDeletePreviewResult>;
   /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
+  /** 触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次 */
+  flashbackOutreachBatches: Array<FlashbackOutreachBatch>;
+  /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2） */
+  flashbackOutreachPreview?: Maybe<FlashbackOutreachPreview>;
+  /** 场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed */
+  flashbackOutreachRoster: Array<FlashbackOutreachRosterEntry>;
   /** 闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态） */
   flashbackPublicProfile?: Maybe<FlashbackPublicProfile>;
   /** 闪念间匿名金句墙（U6/R31/R32/R36）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false） */
@@ -5352,6 +5425,13 @@ export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
 };
 
 
+export type RootQueryTypeFlashbackAdminResendOutreachArgs = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  personId: Scalars['ID']['input'];
+  template: Scalars['String']['input'];
+};
+
+
 export type RootQueryTypeFlashbackCapsuleArgs = {
   city?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
@@ -5365,6 +5445,24 @@ export type RootQueryTypeFlashbackDeletePreviewArgs = {
 
 export type RootQueryTypeFlashbackDreamTargetArgs = {
   city?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackOutreachBatchesArgs = {
+  archiveKey: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeFlashbackOutreachPreviewArgs = {
+  archiveKey: Scalars['String']['input'];
+  channel?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackOutreachRosterArgs = {
+  archiveKey: Scalars['String']['input'];
+  filter?: InputMaybe<Scalars['String']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
 };
 
 

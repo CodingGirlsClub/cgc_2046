@@ -384,8 +384,51 @@ export interface FlashbackCapsuleArchive {
   roster: FlashbackRosterEntry[]
 }
 
+export interface FlashbackWishComment {
+  id: string
+  content: string
+  commenterMasked: string | null
+  insertedAt: string
+}
+
+export interface FlashbackWish {
+  id: string
+  content: string
+  city: string | null
+  wisherMasked: string | null
+  endorsementCount: number
+  endorsedByMe: boolean
+  /** 本人许愿（删除入口只对本人显示，R14） */
+  mine: boolean
+  comments: FlashbackWishComment[]
+  insertedAt: string
+}
+
+export interface FlashbackFutureEvent {
+  id: string
+  slug: string
+  title: string
+  city: string | null
+  startsAt: string | null
+  capacity: number | null
+  confirmedCount: number
+  registrationDeadline: string | null
+}
+
+export interface FlashbackFutureFrame {
+  initiativeSlug: string
+  initiativeName: string
+  events: FlashbackFutureEvent[]
+}
+
 export interface FlashbackCapsule {
   me: FlashbackMyCard
+  /** 未来场次帧（KTD1）：按 initiative 分组、时间升序 */
+  futureEvents: FlashbackFutureFrame[]
+  /** 公开愿望（附议数降序） */
+  publicWishes: FlashbackWish[]
+  /** 本人私有许愿（仅自己可见，折叠段） */
+  myPrivateWishes: FlashbackWish[]
   /** 城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩 */
   cities: string[]
   /** 场次时间轴与名册（长廊/场次页数据源；city 过滤时空名册场次被服务端撤下） */

@@ -408,6 +408,25 @@ function responseFor(document: string, variables: object): unknown {
         eventCount: 1,
         confirmedCount: 1,
         qualifiedEventCount: 1,
+
+        futureEvents: [
+          {
+            initiativeSlug: 'hackerstart1024',
+            initiativeName: 'Hacker Start 1024',
+            events: [
+              { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
+              { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
+              { id: 'ev-3', slug: 'hs-gz-01', title: '广州站(已截止)', city: '广州', startsAt: '2026-12-01T06:00:00Z', capacity: 24, confirmedCount: 5, registrationDeadline: '2026-09-01T00:00:00Z' }
+            ]
+          }
+        ],
+        publicWishes: [
+          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
+          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
+        myPrivateWishes: [
+          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
         cities: [{ city: '北京', events: [initiativeEvent] }]
       }
     }
@@ -743,6 +762,25 @@ function responseFor(document: string, variables: object): unknown {
               : archive.roster
           }))
           .filter((archive) => archive.roster.length > 0),
+
+        futureEvents: [
+          {
+            initiativeSlug: 'hackerstart1024',
+            initiativeName: 'Hacker Start 1024',
+            events: [
+              { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
+              { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
+              { id: 'ev-3', slug: 'hs-gz-01', title: '广州站(已截止)', city: '广州', startsAt: '2026-12-01T06:00:00Z', capacity: 24, confirmedCount: 5, registrationDeadline: '2026-09-01T00:00:00Z' }
+            ]
+          }
+        ],
+        publicWishes: [
+          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
+          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
+        myPrivateWishes: [
+          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
         cities: [
           ...new Set([
             ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>

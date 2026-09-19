@@ -548,6 +548,46 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           }
         }
       }
+      futureEvents {
+        initiativeSlug
+        initiativeName
+        events {
+          id
+          slug
+          title
+          city
+          startsAt
+          capacity
+          confirmedCount
+          registrationDeadline
+        }
+      }
+      publicWishes {
+        id
+        content
+        city
+        wisherMasked
+        endorsementCount
+        endorsedByMe
+        mine
+        comments {
+          id
+          content
+          commenterMasked
+          insertedAt
+        }
+        insertedAt
+      }
+      myPrivateWishes {
+        id
+        content
+        city
+        wisherMasked
+        endorsementCount
+        endorsedByMe
+        mine
+        insertedAt
+      }
       cities
     }
   }
