@@ -124,6 +124,10 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminListReconciliationFindings)
   # 闪念间看板（U11/R24/R25）：platform_admin 门 + AdminStats 单源四率与兑换队列
   component(Cgc2046.Mcp.Tools.ListFlashbackStats)
+  component(Cgc2046.Mcp.Tools.AdminListWishes)
+  component(Cgc2046.Mcp.Tools.AdminGetWish)
+  component(Cgc2046.Mcp.Tools.AdminSoftDeleteWish)
+  component(Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment)
   component(Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication)
   component(Cgc2046.Mcp.Tools.AdminCreateWorkspace)
