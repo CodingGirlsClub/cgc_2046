@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
       Wrapper.run(frame, params, "admin_resend_flashback_outreach", fn _actor, _ws, params ->
         with {:ok, channel} <- parse_channel(params["channel"]),
              {:ok, person} <- Dispatch.validate_resend_for_person(params["person_id"]),
-             :ok <- validate_template_known(params["template"]) do
+             :ok <- Dispatch.validate_template(params["template"]) do
           Confirmation.request(
             frame.assigns[:current_user],
             "admin_resend_flashback_outreach",
@@ -58,7 +58,7 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
         _ -> :all
       end
 
-    with :ok <- ensure_channel_ready(channel),
+    with :ok <- Dispatch.ensure_channel_ready(channel),
          {:ok, %{queued: queued, skipped: skipped, batch: batch}} <-
            Dispatch.resend_for_person(params["person_id"], params["template"], channel) do
       log_admin_action(actor, params, channel, batch, queued, skipped)
@@ -80,28 +80,6 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
 
   defp parse_channel(nil), do: {:ok, :all}
   defp parse_channel(raw), do: Dispatch.parse_channel(raw)
-
-  defp validate_template_known(template) do
-    if template in Dispatch.templates() do
-      :ok
-    else
-      {:error,
-       %{
-         code: "flashback_invalid_input",
-         message: "template must be one of #{Enum.join(Dispatch.templates(), "|")}"
-       }}
-    end
-  end
-
-  defp ensure_channel_ready(:sms) do
-    if Dispatch.sms_configured?() do
-      :ok
-    else
-      {:error, "sms channel not configured: template must be registered in SendCloud first"}
-    end
-  end
-
-  defp ensure_channel_ready(_), do: :ok
 
   defp summary(person, template, channel) do
     channel_text =

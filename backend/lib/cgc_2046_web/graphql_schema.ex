@@ -297,9 +297,8 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
-          dispatch = Cgc2046.Flashback.Outreach.Dispatch
-
-          with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
+          with {:ok, channel} <-
+                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
             Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel)
           else
             {:error, :invalid_channel} ->
@@ -327,10 +326,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
-          dispatch = Cgc2046.Flashback.Outreach.Dispatch
-
-          with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
-            dispatch.resend_for_person(args[:person_id], args[:template], channel)
+          with {:ok, channel} <-
+                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
+            Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
+              args[:person_id],
+              args[:template],
+              channel
+            )
           else
             {:error, :invalid_channel} ->
               {:error,
@@ -2621,10 +2623,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{archive_key: archive_key, template: template} = args, %{context: context} ->
         with_admin(context, fn _actor ->
           flashback_call(fn ->
-            dispatch = Cgc2046.Flashback.Outreach.Dispatch
-
-            with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
-              dispatch.enqueue_for_archive(archive_key, template, channel)
+            with {:ok, channel} <-
+                   Cgc2046.Flashback.Outreach.Dispatch.parse_channel(
+                     Map.get(args, :channel, "all")
+                   ) do
+              Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(
+                archive_key,
+                template,
+                channel
+              )
             else
               {:error, :invalid_channel} ->
                 {:error,
