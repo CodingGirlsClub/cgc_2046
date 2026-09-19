@@ -589,6 +589,11 @@ export interface MiniProgramApi {
   ): Promise<void>
   /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界） */
   flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void>
+  // U4 愿望写操作(双入口 token)
+  flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void>
+  flashbackEndorseWish(wishId: string, token?: string | null): Promise<number>
+  flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void>
+  flashbackDeleteWish(wishId: string, token?: string | null): Promise<void>
 }
 
 /** 登录账号没有绑定闪念间档案（capsule 双入口的会话腿 miss）——页面按引导态渲染。 */

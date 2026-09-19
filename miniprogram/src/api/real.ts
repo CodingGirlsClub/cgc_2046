@@ -32,6 +32,14 @@ import type {
   FlashbackCapsuleQuery,
   FlashbackCapsuleQueryVariables,
   FlashbackClaimMutation,
+  FlashbackCreateWishMutation,
+  FlashbackCreateWishMutationVariables,
+  FlashbackEndorseWishMutation,
+  FlashbackEndorseWishMutationVariables,
+  FlashbackAddWishCommentMutation,
+  FlashbackAddWishCommentMutationVariables,
+  FlashbackDeleteWishMutation,
+  FlashbackDeleteWishMutationVariables,
   FlashbackClaimMutationVariables,
   FlashbackEnterMutation,
   FlashbackEnterMutationVariables,
@@ -86,8 +94,12 @@ import {
   EventModerationScopeQueryDocument,
   EventModeratorsQueryDocument,
   FlashbackAdjustFogMutationDocument,
+  FlashbackAddWishCommentMutationDocument,
   FlashbackCapsuleQueryDocument,
   FlashbackClaimMutationDocument,
+  FlashbackCreateWishMutationDocument,
+  FlashbackDeleteWishMutationDocument,
+  FlashbackEndorseWishMutationDocument,
   FlashbackEnterMutationDocument,
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
@@ -653,6 +665,48 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
+
+  // U4 愿望写操作:双入口 token,失效抛 FlashbackNotBoundError 由页面处理
+  async flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackCreateWishMutation, FlashbackCreateWishMutationVariables>(
+      FlashbackCreateWishMutationDocument,
+      { content, visibility, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
+
+  async flashbackEndorseWish(wishId: string, token?: string | null): Promise<number> {
+    const data = await graphqlRequest<FlashbackEndorseWishMutation, FlashbackEndorseWishMutationVariables>(
+      FlashbackEndorseWishMutationDocument,
+      { wishId, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    return data.flashbackEndorseWish?.endorsementCount ?? 0
+  }
+
+  async flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackAddWishCommentMutation, FlashbackAddWishCommentMutationVariables>(
+      FlashbackAddWishCommentMutationDocument,
+      { wishId, content, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
+
+  async flashbackDeleteWish(wishId: string, token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackDeleteWishMutation, FlashbackDeleteWishMutationVariables>(
+      FlashbackDeleteWishMutationDocument,
+      { wishId, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
 
   async getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule> {
     const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(

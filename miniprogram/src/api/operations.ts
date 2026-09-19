@@ -730,3 +730,37 @@ export const FlashbackAdjustFogMutationDocument = /* GraphQL */ `
     }
   }
 `
+
+// U4 愿望写操作(双入口 token:独立 token 或登录会话)
+export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
+    flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackEndorseWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackEndorseWish($token: String, $wishId: ID!) {
+    flashbackEndorseWish(token: $token, wishId: $wishId) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackAddWishCommentMutationDocument = /* GraphQL */ `
+  mutation FlashbackAddWishComment($token: String, $wishId: ID!, $content: String!) {
+    flashbackAddWishComment(token: $token, wishId: $wishId, content: $content) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackDeleteWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackDeleteWish($token: String, $wishId: ID!) {
+    flashbackDeleteWish(token: $token, wishId: $wishId)
+  }
+`
