@@ -1941,7 +1941,7 @@
     "fbBatchesNote": "Per-batch send counts (including manual resends), cross-checked with the rates board per archive.",
     "fbThBatch": "Batch",
     "fbThTemplate": "Template",
-"fbThFailed": "Failed",
+    "fbThFailed": "Failed",
     "fbThFirstAt": "Triggered at",
     "fbEmailShort": "Email",
     "fbSmsShort": "SMS",
@@ -2508,12 +2508,12 @@
       "quote_off": "Off (default)",
       "quote_anonymous": "Anonymous quote — the platform may pick one line from your old answers to share anonymously (credited as \"W** · year · city\")",
       "quote_credited": "Credited support — add what you do now and go public under your name (usable as brand material)",
-      "quotePick": "Pick one line from your old answers as your quote:",
-      "quoteNoCandidate": "(All your old lines carry fog — lift the fog before picking a quote)",
+      "quotePick": "Pick sentences to allow (multi-select; we choose from them):",
+      "quoteNoCandidate": "(All sentences are fogged — clear the fog to pick quotes)",
       "creditedNoteLabel": "What you're doing now, in your words (public, credited)",
       "creditedNotePlaceholder": "e.g. accessibility development",
       "submit": "Done writing — send it →",
-      "quoteCourage": "Your answers can become someone else’s courage."
+      "quoteCourage": "Your words can become someone else’s courage."
     },
     "sendRegister": {
       "title": "Your photo is going up on the wall.",

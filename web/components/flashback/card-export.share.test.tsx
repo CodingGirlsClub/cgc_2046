@@ -33,8 +33,7 @@ const me: FlashbackCapsuleMe = {
 	today: { nowStatus: "还在写代码", want: "想骑行", say: null, sentToWallAt: null },
 	quote: "我想亲眼看看是不是。",
 	quoteLevel: "off",
-	quoteQuestionKey: "self_intro",
-	quoteSpan: { start: 0, len: 10 },
+	quoteSpans: [{ questionKey: "self_intro", start: 0, len: 10 }],
 	answers: [{ id: "m1", questionKey: "self_intro", rawText: "一句当年答案。", text: "一句当年答案。" }],
 };
 
@@ -155,8 +154,7 @@ describe("CardExport · 分享 opt-in（R37）", () => {
 		expect(licenseRunner.mock.calls[0][0].variables).toEqual({
 			token: "tok-share",
 			level: "anonymous",
-			questionKey: "self_intro",
-			chosenQuoteSpan: { start: 0, len: 10 },
+			chosenQuoteSpans: [{ questionKey: "self_intro", start: 0, len: 10 }],
 		});
 		await waitFor(() => expect((screen.getByTestId("fb-export-optin") as HTMLInputElement).checked).toBe(true));
 	});

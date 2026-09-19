@@ -108,8 +108,7 @@ export interface FlashbackSendToWallResult {
 
 export interface FlashbackQuoteLicenseResult {
 	level: string;
-	questionKey?: string | null;
-	chosenQuoteSpan?: FlashbackFogSpan | null;
+	chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null;
 	creditedNote?: string | null;
 }
 
@@ -206,9 +205,8 @@ export interface FlashbackCapsuleMe {
 	quote?: string | null;
 	/** 金句授权档（R31/R37：off/anonymous/credited）——分享 opt-in 用它判断是否已授权 */
 	quoteLevel?: string | null;
-	/** 选定金句的来源题与区间（R37 分享 opt-in 原样回填，与卡片展示同源） */
-	quoteQuestionKey?: string | null;
-	quoteSpan?: { start: number; len: number } | null;
+	/** 句子白名单区间（多选；首句 = 消费面展示句，圈选器回显全量） */
+	quoteSpans?: { questionKey: string; start: number; len: number }[] | null;
 	/** 本人金句点赞数（R36；未授权档为 null） */
 	quoteStats?: { likeCount: number } | null;
 	/** 本人当年答案雾化版（R15 全文卡；text 形态——me 面 SDL 独立，本人导出用） */
@@ -459,31 +457,27 @@ export const FLASHBACK_SET_QUOTE_LICENSE: TypedDocumentNode<
 	{
 		token: string;
 		level: string;
-		questionKey?: string;
-		chosenQuoteSpan?: FlashbackFogSpan;
+		chosenQuoteSpans?: { questionKey: string; start: number; len: number }[];
 		creditedNote?: string;
 	}
 > = gql`
 	mutation FlashbackSetQuoteLicense(
 		$token: String!
 		$level: String!
-		$questionKey: String
-		$chosenQuoteSpan: FlashbackFogSpanInput
+		$chosenQuoteSpans: [FlashbackQuoteSpanInput!]
 		$creditedNote: String
 	) {
 		flashbackSetQuoteLicense(
 			token: $token
 			level: $level
-			questionKey: $questionKey
-			chosenQuoteSpan: $chosenQuoteSpan
+			chosenQuoteSpans: $chosenQuoteSpans
 			creditedNote: $creditedNote
 		) {
 			level
-			questionKey
-			chosenQuoteSpan {
+			chosenQuoteSpans {
+				questionKey
 				start
 				len
-				reason
 			}
 			creditedNote
 		}
@@ -567,8 +561,8 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				}
 				quote
 				quoteLevel
-				quoteQuestionKey
-				quoteSpan {
+				quoteSpans {
+					questionKey
 					start
 					len
 				}

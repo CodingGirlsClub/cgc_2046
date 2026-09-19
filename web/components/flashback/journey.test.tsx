@@ -341,7 +341,7 @@ describe("Journey · 记忆线", () => {
 		expect(screen.getByText("金句授权")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
-		expect(await screen.findByText("从当年答案里选一句作为你的金句：")).toBeInTheDocument();
+		expect(await screen.findByText("选出可以展示的句子（可多选，平台从中挑选）：")).toBeInTheDocument();
 		expect(
 			screen.getByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }),
 		).toBeInTheDocument();
@@ -483,7 +483,7 @@ describe("Journey · 记忆线", () => {
 		await waitFor(() => expect(quote).toHaveBeenCalled());
 		const variables = quote.mock.calls[0][0].variables;
 		expect(variables.level).toBe("anonymous");
-		expect(variables.chosenQuoteSpan).toEqual({ start: 0, len: 18 });
+		expect(variables.chosenQuoteSpans).toEqual([{ questionKey: "self_intro", start: 0, len: 18 }]);
 	});
 });
 
