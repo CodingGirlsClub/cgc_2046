@@ -335,12 +335,14 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
+      <View className={styles.capsuleShell}>
       <ScrollView
         scrollY
         scrollIntoView={scrollAnchor}
         scrollWithAnimation
         className={styles.capsule}
       >
+        <View className={styles.capsuleInner}>
         {mode.kind === 'member' && cities.length > 1 && (
           <View className={styles.cityPins}>
             <Text className={`${styles.cityPinAll} ${city === null ? styles.cityPinActive : ''}`} onClick={() => pickCity(null)}>
@@ -506,7 +508,9 @@ export default function FlashbackCorridorPage() {
           {mode.kind === 'viewer' && mode.guide === null && (
             <Text className={styles.viewerHint}>名册只对同场的人可见——这里是每一年发生过的事。</Text>
           )}
+        </View>
       </ScrollView>
+      </View>
 
       {/* U8 快门仪式层:回访进门——呼吸快门,点按即入(原型 G intro) */}
       {shutter && mode.kind === 'member' && (
