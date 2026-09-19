@@ -3331,6 +3331,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "帧头跳转目标：/initiatives/{initiative_slug}（R1）"
     field(:initiative_slug, non_null(:string))
     field(:initiative_name, non_null(:string))
+    @desc "未显影帧时间：initiative 窗口开始时间（未来=还没冲洗的底片,报名/附议即显影）"
+    field(:initiative_starts_at, :datetime)
     field(:events, non_null(list_of(non_null(:flashback_future_event))))
   end
 

@@ -804,6 +804,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       futureEvents: (capsule.futureEvents ?? []).map((frame) => ({
         initiativeSlug: frame.initiativeSlug,
         initiativeName: frame.initiativeName,
+        initiativeStartsAt: frame.initiativeStartsAt ?? null,
         events: (frame.events ?? []).map((event) => ({
           id: event.id,
           slug: event.slug,

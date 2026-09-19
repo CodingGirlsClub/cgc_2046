@@ -291,14 +291,29 @@ export default function FlashbackCorridorPage() {
             <Text className={styles.miniCardFacts}>
               {(me.appliedAt ? me.appliedAt.slice(0, 4) : '') + (me.city ? ` · ${me.city}` : '')}
             </Text>
-            <Text className={styles.miniCardHint}>点按翻面写字</Text>
+            <Text className={styles.miniCardHint}>点卡片翻开</Text>
           </View>
           <View className={styles.dockActions}>
             <Text
-              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : ''}`}
+              className={styles.dockWrite}
+              onClick={() => {
+                setCardOpen(true)
+                cardOpenedAt.current = Date.now()
+              }}
+            >
+              ✎ 写今天的你
+            </Text>
+            <Text
+              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : me?.today && (me.today.nowStatus || me.today.want || me.today.say) ? (me.today.sentToWallAt ? styles.dockSendDone : '') : styles.dockSendDim}`}
               onClick={() => void sendTodayCard()}
             >
-              {sendingCard ? '正在贴上墙…' : '写完寄出 →'}
+              {sendingCard
+                ? '正在贴上墙…'
+                : me?.today?.sentToWallAt
+                  ? `已寄出 ✓`
+                  : me?.today && (me.today.nowStatus || me.today.want || me.today.say)
+                    ? '写完寄出 →'
+                    : '写完寄出 →'}
             </Text>
             <Text
               className={`${styles.dockLicense} ${me && parseQuoteLevel(me.quoteLevel) !== 'off' ? styles.dockLicenseOn : ''}`}
@@ -314,7 +329,7 @@ export default function FlashbackCorridorPage() {
                 setLicenseOpen(true)
               }}
             >
-              ← 金句授权{me && parseQuoteLevel(me.quoteLevel) !== 'off' ? ' · 已授权 ✓' : ''}
+              ← 金句授权{me && parseQuoteLevel(me.quoteLevel) !== 'off' ? ` · ${parseQuoteLevel(me.quoteLevel) === 'anonymous' ? '匿名' : '实名'} ✓` : ''}
             </Text>
           </View>
         </View>
@@ -345,21 +360,22 @@ export default function FlashbackCorridorPage() {
             <View className={styles.capFrameHead}>
               <Text className={styles.capWhen}>{frame.when}</Text>
               {frame.label ? <Text className={styles.capLabel}> {frame.label}</Text> : null}
+              {frame.returned > 0 ? (
+                <Text className={styles.capReturnedInline}>{frame.returned} 位已回来</Text>
+              ) : null}
             </View>
             <View className={styles.piles}>
               {frame.piles.map((pile, index) => (
                 <View key={pile.city} className={styles.pileItem}>
                   <View
                     className={`${styles.pinPolaroid} ${index % 4 === 0 ? styles.tiltA : index % 4 === 1 ? styles.tiltB : index % 4 === 2 ? styles.tiltC : styles.tiltD}`}
+                    style={{ animationDelay: `${index * 0.15}s` }}
                   >
                     <View className={styles.pinPhoto}>
                       <Text className={styles.pinCity}>{pile.city}</Text>
                       <Text className={styles.pinCount}>{pile.count} 位</Text>
                     </View>
                   </View>
-                  {frame.returned > 0 && pile.count >= Math.max(...frame.piles.map((x) => x.count)) ? (
-                    <Text className={styles.capReturned}>{frame.returned} 位已回来</Text>
-                  ) : null}
                 </View>
               ))}
             </View>
@@ -397,7 +413,20 @@ export default function FlashbackCorridorPage() {
             if (cards.length === 0) return null
             return (
               <View id="futureAnchor" className={styles.futureSection}>
-                <Text className={styles.futureTitle}>未来 · 一起做点什么</Text>
+                {mode.capsule.futureEvents.map((frame) => {
+                  const when = frame.initiativeStartsAt
+                    ? new Date(frame.initiativeStartsAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '.')
+                    : ''
+                  return (
+                    <View key={frame.initiativeSlug} className={styles.capFrame} style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                      <View className={styles.capFrameHead}>
+                        <Text className={styles.capFuture}>{when || '即将'} · {frame.initiativeName}</Text>
+                        <Text className={styles.capFutureDim}>未显影</Text>
+                      </View>
+                    </View>
+                  )
+                })}
+                <Text className={styles.futureTitle}>未来 · 一起做什么</Text>
                 {cards.map((card) => (
                   <View
                     key={card.id}
@@ -454,7 +483,7 @@ export default function FlashbackCorridorPage() {
         {/* U4 私愿折叠段(KD2/R7):一行「🔒 私人许愿(N)」点击展开,防瞥屏;仅本人 */}
         {mode.kind === 'member' && mode.capsule.myPrivateWishes.length > 0 && (
           <View className={styles.futureSection}>
-            <View className={styles.privateFold} onClick={() => setPrivateOpen(!privateOpen)}>
+            <View className={`${styles.privateFold} ${styles.privateFoldDark}`} onClick={() => setPrivateOpen(!privateOpen)}>
               <Text className={styles.privateFoldLabel}>🔒 私人许愿({mode.capsule.myPrivateWishes.length} 条)</Text>
               <Text className={styles.privateFoldArrow}>{privateOpen ? '收起 ▲' : '展开 ▼'}</Text>
             </View>

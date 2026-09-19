@@ -419,6 +419,7 @@ function responseFor(document: string, variables: object): unknown {
           {
             initiativeSlug: 'hackerstart1024',
             initiativeName: 'Hacker Start 1024',
+            initiativeStartsAt: '2026-10-24T00:00:00Z',
             events: [
               { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
               { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
@@ -772,6 +773,7 @@ function responseFor(document: string, variables: object): unknown {
           {
             initiativeSlug: 'hackerstart1024',
             initiativeName: 'Hacker Start 1024',
+            initiativeStartsAt: '2026-10-24T00:00:00Z',
             events: [
               { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
               { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },

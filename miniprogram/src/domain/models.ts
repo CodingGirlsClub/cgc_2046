@@ -417,6 +417,8 @@ export interface FlashbackFutureEvent {
 export interface FlashbackFutureFrame {
   initiativeSlug: string
   initiativeName: string
+  /** 未显影帧时间(initiative 窗口开始;null=窗口未定) */
+  initiativeStartsAt: string | null
   events: FlashbackFutureEvent[]
 }
 

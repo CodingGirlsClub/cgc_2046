@@ -122,7 +122,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     query = """
     SELECT e.id::text, e.slug, e.title, e.starts_at, e.venue->>'city',
            e.capacity, COUNT(en.id) FILTER (WHERE en.status = 'confirmed'),
-           e.registration_deadline, i.slug, i.name
+           e.registration_deadline, i.slug, i.name, min(i.window_starts_at) OVER (PARTITION BY i.id)
     FROM events e
     JOIN initiatives i ON e.initiative_id = i.id
     LEFT JOIN enrollments en ON en.event_id = e.id
@@ -132,7 +132,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       AND e.starts_at > now()
       AND ($1::text IS NULL OR e.venue->>'city' = $1)
     GROUP BY e.id, e.slug, e.title, e.starts_at, e.venue, e.capacity,
-             e.registration_deadline, i.slug, i.name
+             e.registration_deadline, i.slug, i.name, i.window_starts_at
     ORDER BY min(e.starts_at) ASC, e.starts_at ASC
     """
 
@@ -153,7 +153,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
                      confirmed,
                      deadline,
                      initiative_slug,
-                     initiative_name
+                     initiative_name,
+                     initiative_starts_at
                    ] ->
       %{
         id: id,
@@ -165,12 +166,18 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         confirmed_count: confirmed || 0,
         registration_deadline: to_datetime(deadline),
         initiative_slug: initiative_slug,
-        initiative_name: initiative_name
+        initiative_name: initiative_name,
+        initiative_starts_at: to_datetime(initiative_starts_at)
       }
     end)
-    |> Enum.group_by(&{&1.initiative_slug, &1.initiative_name})
-    |> Enum.map(fn {{initiative_slug, initiative_name}, events} ->
-      %{initiative_slug: initiative_slug, initiative_name: initiative_name, events: events}
+    |> Enum.group_by(&{&1.initiative_slug, &1.initiative_name, &1.initiative_starts_at})
+    |> Enum.map(fn {{initiative_slug, initiative_name, initiative_starts_at}, events} ->
+      %{
+        initiative_slug: initiative_slug,
+        initiative_name: initiative_name,
+        initiative_starts_at: initiative_starts_at,
+        events: events
+      }
     end)
     |> Enum.sort_by(&hd(&1.events).starts_at, DateTime)
   end

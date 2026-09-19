@@ -551,6 +551,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
       futureEvents {
         initiativeSlug
         initiativeName
+        initiativeStartsAt
         events {
           id
           slug

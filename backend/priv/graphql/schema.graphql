@@ -6384,6 +6384,9 @@ type FlashbackFutureFrame {
 
   initiativeName: String!
 
+  "未显影帧时间：initiative 窗口开始时间（未来=还没冲洗的底片,报名\/附议即显影）"
+  initiativeStartsAt: DateTime
+
   events: [FlashbackFutureEvent!]!
 }
 
