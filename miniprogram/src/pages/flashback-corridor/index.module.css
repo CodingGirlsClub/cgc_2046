@@ -39,8 +39,8 @@
 }
 .cityPin, .cityPinAll {
   padding: 8rpx 28rpx;
-  background: #fff;
-  color: #4b4d54;
+  background: rgba(255, 255, 255, 0.06);
+  color: #b9b4aa;
   border: 2rpx solid rgba(34,35,38,.08);
   border-radius: 999rpx;
   font-size: 22rpx;
@@ -903,3 +903,11 @@
 .privateCardDark { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.18); }
 .privateCardDark .wishContent { color: #d9d4ca; }
 .privateCardDark .wishWho { color: #7a756c; }
+
+/* G gap 视觉修:未来段深色适配/城市钉深色/主钮轻量 */
+.futureTitleDark { display: block; font-size: 26rpx; color: #b9b4aa; font-weight: 700; margin: 22rpx 0 2rpx; }
+.dockWritePrimary {
+  font-size: 20rpx; color: #ea5504; background: #fff;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx; padding: 8rpx 22rpx;
+}
