@@ -402,7 +402,7 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('query PublicInitiative(')) {
     // 1024 横幅(R9)指向 hackerstart1024(dev/prod 真实 slug);mock 归一到样例卡
     const knownSlugs = [initiativeCard.slug, 'hackerstart1024']
-    if (!knownSlugs.includes(values.slug)) return { publicInitiative: null }
+    if (typeof values.slug !== 'string' || !knownSlugs.includes(values.slug)) return { publicInitiative: null }
     return {
       publicInitiative: {
         ...initiativeCard,
