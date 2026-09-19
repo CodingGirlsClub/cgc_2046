@@ -137,6 +137,8 @@ export const SEND_OVERLAY = {
 export interface CorridorPile {
   city: string
   count: number
+  /** 堆级已回来人数(该城市 sentToWallAt 非空;G 原型:堆下「N 位已回来」) */
+  returned: number
 }
 
 /** 城市堆上限（原型 piles.slice(0, 4)：一帧最多四个堆，多的在计数里） */
@@ -145,17 +147,21 @@ export const CORRIDOR_PILE_LIMIT = 4
 /** 名册 → 城市堆：按城市聚合计数（空城名过滤），计数降序、同数城市字典序——
  * 确定性排序（不依赖服务端顺序，e2e 与单测可精确断言）。 */
 export function corridorPiles(
-  roster: Pick<FlashbackRosterEntry, 'city'>[],
+  roster: Pick<FlashbackRosterEntry, 'city' | 'sentToWallAt'>[],
   limit = CORRIDOR_PILE_LIMIT
 ): CorridorPile[] {
-  const counts = new Map<string, number>()
+  const counts = new Map<string, { count: number; returned: number }>()
   for (const entry of roster) {
     const city = (entry.city ?? '').trim()
     if (!city) continue
-    counts.set(city, (counts.get(city) ?? 0) + 1)
+    const prev = counts.get(city) ?? { count: 0, returned: 0 }
+    counts.set(city, {
+      count: prev.count + 1,
+      returned: prev.returned + (entry.sentToWallAt ? 1 : 0)
+    })
   }
   return [...counts.entries()]
-    .map(([city, count]) => ({ city, count }))
+    .map(([city, { count, returned }]) => ({ city, count, returned }))
     .sort((a, b) => b.count - a.count || a.city.localeCompare(b.city, 'zh-Hans-CN'))
     .slice(0, limit)
 }
@@ -210,7 +216,7 @@ export function statsFrames(archives: FlashbackPublicStatsArchive[]): CorridorFr
         key: archive.key,
         when: archive.occurredOn ? archive.occurredOn.slice(0, 10).replace(/-/g, '.') : archive.key,
         label: archive.label ?? archive.name ?? '',
-        piles: city ? [{ city, count }] : [],
+        piles: city ? [{ city, count, returned: 0 }] : [],
         returned: 0
       }
     })

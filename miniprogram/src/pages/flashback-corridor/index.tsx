@@ -360,9 +360,6 @@ export default function FlashbackCorridorPage() {
             <View className={styles.capFrameHead}>
               <Text className={styles.capWhen}>{frame.when}</Text>
               {frame.label ? <Text className={styles.capLabel}> {frame.label}</Text> : null}
-              {frame.returned > 0 ? (
-                <Text className={styles.capReturnedInline}>{frame.returned} 位已回来</Text>
-              ) : null}
             </View>
             <View className={styles.piles}>
               {frame.piles.map((pile, index) => (
@@ -376,6 +373,9 @@ export default function FlashbackCorridorPage() {
                       <Text className={styles.pinCount}>{pile.count} 位</Text>
                     </View>
                   </View>
+                  {pile.returned > 0 ? (
+                    <Text className={styles.capReturned}>{pile.returned} 位已回来</Text>
+                  ) : null}
                 </View>
               ))}
             </View>
