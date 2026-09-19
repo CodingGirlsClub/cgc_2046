@@ -501,7 +501,7 @@ describe("Journey · 圆梦线", () => {
 		expect(screen.getByText("我想亲眼看看是不是。")).toBeInTheDocument();
 		// CTA 两态之「无场次」：落 Initiative 公开页 + 兜底出口文案
 		expect(screen.getByRole("link", { name: "看看正在发生的活动" })).toHaveAttribute("href", "/initiatives");
-		expect(screen.getByText(/场次还在筹备/)).toBeInTheDocument();
+		expect(screen.getByText(/留下联系方式/)).toBeInTheDocument();
 		// 圆梦线不展示比特币提醒（记忆线专属）
 		expect(screen.queryByText(/比特币/)).not.toBeInTheDocument();
 	});
