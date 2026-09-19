@@ -2435,8 +2435,10 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
           with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity) do
-            Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, person_id)
+               {:ok, person_id} <- identity_person_id(identity),
+               {:ok, _wish} <-
+                 Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, person_id) do
+            {:ok, true}
           end
         end)
       end)
@@ -2450,8 +2452,10 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
           with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity) do
-            Cgc2046.Flashback.Wishes.soft_delete_comment(args.comment_id, person_id)
+               {:ok, person_id} <- identity_person_id(identity),
+               {:ok, _comment} <-
+                 Cgc2046.Flashback.Wishes.soft_delete_comment(args.comment_id, person_id) do
+            {:ok, true}
           end
         end)
       end)
