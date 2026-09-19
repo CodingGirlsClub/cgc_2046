@@ -245,10 +245,19 @@ function WishModal({
 }) {
 	const t = useTranslations("flashback.wish");
 	const [draft, setDraft] = useState("");
+	const [confirmingDelete, setConfirmingDelete] = useState(false);
 
 	return (
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
 			<div className="fb-wish-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={wish.content}>
+				<button
+					type="button"
+					className="fb-wish-modal-close"
+					aria-label={t("close")}
+					onClick={onClose}
+				>
+					✕
+				</button>
 				<h4 className="fb-wish-modal-title">{wish.content}</h4>
 				<p className="fb-wish-modal-meta">
 					{wish.wisherMasked} · {t("endorsed", { count: wish.endorsementCount })}
@@ -292,12 +301,38 @@ function WishModal({
 					>
 						{t("comment")}
 					</button>
-					<button type="button" className="fb-wish-modal-delete" disabled={busy} onClick={() => onDelete(wish.id)}>
-						{t("delete")}
-					</button>
-					<button type="button" className="fb-wish-modal-cancel" onClick={onClose}>
-						{t("cancel")}
-					</button>
+					{confirmingDelete ? (
+						<>
+							<span className="fb-wish-modal-confirm-text">{t("deleteConfirm")}</span>
+							<button
+								type="button"
+								className="fb-wish-modal-delete"
+								disabled={busy}
+								onClick={() => {
+									onDelete(wish.id);
+									onClose();
+								}}
+							>
+								{t("deleteYes")}
+							</button>
+							<button
+								type="button"
+								className="fb-wish-modal-cancel"
+								onClick={() => setConfirmingDelete(false)}
+							>
+								{t("deleteNo")}
+							</button>
+						</>
+					) : wish.mine ? (
+						<button
+							type="button"
+							className="fb-wish-modal-delete"
+							disabled={busy}
+							onClick={() => setConfirmingDelete(true)}
+						>
+							{t("delete")}
+						</button>
+					) : null}
 				</div>
 			</div>
 		</div>

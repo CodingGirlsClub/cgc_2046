@@ -136,9 +136,10 @@ defmodule Cgc2046.Flashback.Wishes do
 
   # ── 读面（投影用） ───────────────────────────────────────────────────
 
-  @doc "公开愿望（附议数降序、时间稳定序）；city 过滤 nil = 不过滤。"
-  @spec list_public(String.t() | nil) :: list(map())
-  def list_public(city \\ nil) do
+  @doc "公开愿望（附议数降序、时间稳定序）；city 过滤 nil = 不过滤；
+  viewer_id 供 `mine` 标记（本人愿望显示删除入口，R14）。"
+  @spec list_public(String.t() | nil, String.t() | nil) :: list(map())
+  def list_public(city \\ nil, viewer_id \\ nil) do
     base =
       Wish
       |> Ash.Query.filter(visibility == "public" and is_nil(deleted_at))
@@ -163,7 +164,8 @@ defmodule Cgc2046.Flashback.Wishes do
         inserted_at: wish.inserted_at,
         wisher_masked: AlumniProjection.masked_name(wish.person),
         endorsement_count: length(wish.endorsements),
-        comments: project_comments(wish.comments)
+        comments: project_comments(wish.comments),
+        mine: viewer_id != nil and wish.person_id == viewer_id
       }
     end)
     |> Enum.sort_by(&{-&1.endorsement_count, &1.inserted_at})

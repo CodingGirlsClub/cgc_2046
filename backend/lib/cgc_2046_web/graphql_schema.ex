@@ -3266,6 +3266,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:endorsement_count, non_null(:integer))
     @desc "本人已附议（已附议态渲染依据，R7）"
     field(:endorsed_by_me, non_null(:boolean))
+    @desc "本人许愿（删除入口只对本人显示，R14）"
+    field(:mine, non_null(:boolean))
     field(:comments, non_null(list_of(non_null(:flashback_wish_comment))))
     field(:inserted_at, non_null(:datetime))
   end

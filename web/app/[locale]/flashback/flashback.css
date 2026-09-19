@@ -1278,6 +1278,7 @@
 	z-index: 60;
 }
 .fb-wish-modal {
+	position: relative;
 	width: min(400px, calc(100vw - 48px));
 	background: #f6f2e8;
 	color: #2b2723;
@@ -1285,7 +1286,24 @@
 	padding: 18px 20px;
 	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7);
 }
-.fb-wish-modal-title { font-size: 15px; font-weight: 600; margin: 0; line-height: 1.6; }
+.fb-wish-modal-title { font-size: 15px; font-weight: 600; margin: 0 28px 0 0; line-height: 1.6; }
+/* 关闭叉：绝对定位右上角（UAT 反馈——右角叉而非按钮文案） */
+.fb-wish-modal-close {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	background: none;
+	border: none;
+	font: inherit;
+	font-size: 15px;
+	line-height: 1;
+	color: #8d887e;
+	cursor: pointer;
+	padding: 4px 8px;
+	border-radius: 6px;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+.fb-wish-modal-close:hover { background: rgba(43, 39, 35, 0.08); color: #2b2723; }
 .fb-wish-modal-meta { font-size: 11px; opacity: 0.7; margin: 6px 0 0; }
 .fb-wish-modal-comments { list-style: none; margin: 10px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
 .fb-wish-modal-comments li {

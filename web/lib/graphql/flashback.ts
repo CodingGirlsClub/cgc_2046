@@ -238,6 +238,8 @@ export interface FlashbackWish {
 	wisherMasked: string | null;
 	endorsementCount: number;
 	endorsedByMe: boolean;
+	/** 本人许愿（删除入口只对本人显示，R14） */
+	mine: boolean;
 	comments: FlashbackWishComment[];
 	insertedAt: string;
 }
@@ -631,6 +633,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				wisherMasked
 				endorsementCount
 				endorsedByMe
+				mine
 				comments {
 					id
 					content

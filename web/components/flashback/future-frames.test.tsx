@@ -58,6 +58,7 @@ const wish = (overrides: Partial<FlashbackWish> = {}): FlashbackWish => ({
 	wisherMasked: "李**",
 	endorsementCount: 5,
 	endorsedByMe: false,
+	mine: false,
 	comments: [],
 	insertedAt: "2026-09-18T00:00:00Z",
 	...overrides,
