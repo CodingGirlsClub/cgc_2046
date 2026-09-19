@@ -3,13 +3,12 @@ import { Button, Canvas, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
-import { cardStatusText, myCardView, shareMessage, splitActionCards, endorseAction } from '@/domain/flashback'
+import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
   FlashbackCapsule,
   FlashbackClaimResult,
-  FlashbackMyActionCard,
   FlashbackPublicStats
 } from '@/domain/models'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
@@ -23,7 +22,6 @@ type Mode =
   /** 路人围观态（R32）：长廊 + 统计，无任何未授权内容；guide = 回头找到自己档案的出口 */
   | { kind: 'viewer'; stats: FlashbackPublicStats | null; guide: 'login' | 'recover' | null }
 
-const NO_CARDS = { endorsed: [] as FlashbackMyActionCard[], open: [] as FlashbackMyActionCard[] }
 
 
 /**
@@ -127,16 +125,6 @@ export default function FlashbackCorridorPage() {
     void Taro.navigateTo({ url: `/pages/flashback-event/index?key=${encodeURIComponent(key)}` })
   }
 
-  /** 未来行动卡的下一步（R13 每张卡有下一步）：scheduled 直链报名，其余去我的页附议 */
-  const openCard = (card: FlashbackMyActionCard) => {
-    const action = endorseAction(card)
-    if (action.kind === 'goEvent' && card.eventId) {
-      void Taro.navigateTo({ url: `/pages/event-detail/index?id=${card.eventId}&kind=event` })
-      return
-    }
-    void Taro.navigateTo({ url: '/pages/flashback/index' })
-  }
-
   const goLogin = () => {
     void Taro.navigateTo({
       url: `/pages/login/index?returnUrl=${encodeURIComponent('/pages/flashback-corridor/index')}`
@@ -153,8 +141,6 @@ export default function FlashbackCorridorPage() {
 
   const frames = mode.kind === 'member' ? corridorFrames(mode.capsule.archives) : statsFrames(mode.stats?.archives ?? [])
   const cities = mode.kind === 'member' ? mode.capsule.cities : []
-  const cards = mode.kind === 'member' ? splitActionCards(mode.capsule.actionCards) : NO_CARDS
-  const orderedCards = [...cards.endorsed, ...cards.open]
   const me = mode.kind === 'member' ? mode.capsule.me : null
   const myView = me && mode.kind === 'member' ? myCardView(mode.capsule) : null
 
@@ -222,31 +208,6 @@ export default function FlashbackCorridorPage() {
             </View>
           )}
         </View>
-
-        {/* 未来行动卡（参与态）：proposed/forming/scheduled/done */}
-        {mode.kind === 'member' && (
-          <View className={`${styles.frame} ${styles.futureFrame}`}>
-            <Text className={styles.frameWhen}>未来 · 一起做点什么<Text className={styles.frameLabel}> 未显影 · 等你们共创</Text></Text>
-            {orderedCards.length === 0 && (
-              <Text className={styles.futureEmpty}>还没有提议的卡——回信里许下的愿望经运营确认后会成卡上墙。</Text>
-            )}
-            {orderedCards.map((card) => {
-              const action = endorseAction(card)
-              return (
-                <View key={card.id} className={`${styles.futureCard} ${styles[card.status]}`} onClick={() => openCard(card)}>
-                  <View className={styles.futureHead}>
-                    <Text className={styles.futureTitle}>{card.title}</Text>
-                    <Text className={`${styles.futureStatus} ${styles[card.status]}`}>{cardStatusText(card.status)}</Text>
-                  </View>
-                  <Text className={styles.futureMeta}>
-                    {card.city ?? '城市待定'} · {action.hint}
-                  </Text>
-                  {action.kind !== 'done' && <Text className={styles.futureAction}>{action.label} →</Text>}
-                </View>
-              )
-            })}
-          </View>
-        )}
 
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
         <View className={styles.footer}>

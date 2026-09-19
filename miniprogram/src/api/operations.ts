@@ -548,17 +548,6 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           }
         }
       }
-      actionCards {
-        id
-        title
-        city
-        status
-        eventId
-        eventSlug
-        endorsementCount
-        endorsedByMe
-        rolesClaimed
-      }
       cities
     }
   }
@@ -579,17 +568,6 @@ export const FlashbackPublicStatsQueryDocument = /* GraphQL */ `
       }
       returnedCount
       sentCount
-    }
-  }
-`
-
-export const FlashbackEndorseMutationDocument = /* GraphQL */ `
-  mutation FlashbackEndorse($cardId: ID!, $roleClaimed: String) {
-    flashbackEndorse(cardId: $cardId, roleClaimed: $roleClaimed) {
-      cardId
-      status
-      roleClaimed
-      firstTime
     }
   }
 `

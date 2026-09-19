@@ -25,7 +25,6 @@ const WECHAT_SCENARIOS = [
   'event_qualification_underfilled',
   'event_schedule_changed',
   'event_moderator_assigned',
-  'flashback_action_scheduled',
   'speaker_accepted',
   'speaker_completed',
   'learning_stagnation',

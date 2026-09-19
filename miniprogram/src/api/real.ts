@@ -33,8 +33,6 @@ import type {
   FlashbackCapsuleQueryVariables,
   FlashbackClaimMutation,
   FlashbackClaimMutationVariables,
-  FlashbackEndorseMutation,
-  FlashbackEndorseMutationVariables,
   FlashbackEnterMutation,
   FlashbackEnterMutationVariables,
   FlashbackMarkRevealedMutation,
@@ -90,7 +88,6 @@ import {
   FlashbackAdjustFogMutationDocument,
   FlashbackCapsuleQueryDocument,
   FlashbackClaimMutationDocument,
-  FlashbackEndorseMutationDocument,
   FlashbackEnterMutationDocument,
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
@@ -122,7 +119,6 @@ import type {
   EnrollmentSummary,
   FlashbackCapsule,
   FlashbackClaimResult,
-  FlashbackEndorseResult,
   FlashbackEnterResult,
   FlashbackFogSpan,
   FlashbackPublicStats,
@@ -231,10 +227,6 @@ function parseOrderStatus(value: string): OrderStatus {
 }
 
 // Action 卡四态 fail-closed：未知态落 done（终态只读，无写面风险）。
-function parseActionCardStatus(value: string): 'proposed' | 'forming' | 'scheduled' | 'done' {
-  return value === 'proposed' || value === 'forming' || value === 'scheduled' ? value : 'done'
-}
-
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
   // code 命中 → 中文文案；未命中 join message（通用兜底，拿不到 code 的场景用）
   const copy = errors.map(({ code }) => errorCopy(code)).find(Boolean)
@@ -755,35 +747,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
           }))
         }))
       })),
-      actionCards: (capsule.actionCards ?? []).map((card) => ({
-        id: card.id,
-        title: card.title,
-        city: card.city ?? null,
-        status: parseActionCardStatus(card.status),
-        eventId: card.eventId ?? null,
-        eventSlug: card.eventSlug ?? null,
-        endorsementCount: card.endorsementCount,
-        endorsedByMe: card.endorsedByMe,
-        rolesClaimed: card.rolesClaimed ?? []
-      })),
       cities: capsule.cities ?? []
     }
   }
 
-  async flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult> {
-    const data = await graphqlRequest<FlashbackEndorseMutation, FlashbackEndorseMutationVariables>(
-      FlashbackEndorseMutationDocument,
-      { cardId, roleClaimed }
-    )
-    const result = data.flashbackEndorse
-    if (!result) throw new Error('附议失败，请重试')
-    return {
-      cardId: result.cardId,
-      status: result.status,
-      roleClaimed: result.roleClaimed ?? null,
-      firstTime: result.firstTime
-    }
-  }
 
   async flashbackSubmitToday(
     input: {

@@ -1,4 +1,4 @@
-import type { FlashbackCapsule, FlashbackFogSpan, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from './models'
+import type { FlashbackCapsule, FlashbackFogSpan, FlashbackMeAnswer, FlashbackMyCard } from './models'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -141,80 +141,6 @@ export function shareOptInState(me: FlashbackMyCard): 'hidden' | 'already' | 'av
   if (!me.quote || !me.quoteQuestionKey || !me.quoteSpan) return 'hidden'
   return 'available'
 }
-
-// ── Action 卡视图（R13 四态） ─────────────────────────────────────────
-
-export type ActionCardStatus = 'proposed' | 'forming' | 'scheduled' | 'done'
-
-export function cardStatusText(status: string): string {
-  switch (status) {
-    case 'proposed':
-      return '提议中'
-    case 'forming':
-      return '附议中'
-    case 'scheduled':
-      return '已成场'
-    case 'done':
-      return '已落地'
-    default:
-      return status
-  }
-}
-
-export type EndorseAction =
-  | { kind: 'endorse'; label: string; hint: string }
-  | { kind: 'goEvent'; label: string; hint: string }
-  | { kind: 'done'; label: string; hint: string }
-
-/** 附议按钮状态机：每张卡任何时刻都有可见的下一步动作（R13）。 */
-export function endorseAction(card: FlashbackMyActionCard): EndorseAction {
-  switch (card.status) {
-    case 'proposed':
-    case 'forming':
-      return {
-        kind: 'endorse',
-        label: card.endorsedByMe ? '已附议（调整角色）' : '附议 +1',
-        hint: card.endorsedByMe
-          ? `已有 ${card.endorsementCount} 人附议`
-          : `当前 ${card.endorsementCount} 人附议，附议成场时会通知你`
-      }
-    case 'scheduled':
-      return {
-        kind: 'goEvent',
-        label: '成场了，去报名',
-        hint: `已有 ${card.endorsementCount} 人附议`
-      }
-    case 'done':
-      return { kind: 'done', label: '已落地', hint: '活动回顾已贴回卡片' }
-    default:
-      return { kind: 'done', label: cardStatusText(card.status), hint: '' }
-  }
-}
-
-/** 行动板分组：已附议在前（回访者最关心自己参与的卡），其余按态。 */
-export function splitActionCards(cards: FlashbackMyActionCard[]): {
-  endorsed: FlashbackMyActionCard[]
-  open: FlashbackMyActionCard[]
-} {
-  const endorsed = cards.filter((card) => card.endorsedByMe)
-  const open = cards.filter((card) => !card.endorsedByMe)
-  return { endorsed, open }
-}
-
-/** scheduled 卡的直链（不在闪念间内部闭环，R13）；无 slug → null（页面兜底文案）。 */
-export function actionCardTarget(card: FlashbackMyActionCard): string | null {
-  if (card.status === 'scheduled' && card.eventId) {
-    return `/pages/event-detail/index?id=${card.eventId}&kind=event`
-  }
-  return null
-}
-
-/** 附议角色选项（organizer/promoter/venue，与后端 Endorsements @roles 同集）。 */
-export const ENDORSE_ROLES = [
-  { value: 'organizer', label: '组织者' },
-  { value: 'promoter', label: '宣传拉人' },
-  { value: 'venue', label: '场地资源' }
-] as const
 
 // ── 金句授权（R31 两档 + 关） ─────────────────────────────────────────
 

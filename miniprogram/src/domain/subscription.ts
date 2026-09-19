@@ -167,36 +167,6 @@ export function courseCardTouchpoint(): SubscriptionTouchpoint {
   }
 }
 
-/**
- * 闪念间成场通知（U7 `flashback_action_scheduled`）的活动卡承接触点：已报名过
- * 活动的人顺手授权。正主触点是 U9 的 flashbackEndorseTouchpoint（附议提交前）。
- */
-export function eventCardFlashbackTouchpoint(): SubscriptionTouchpoint {
-  return {
-    page: 'pages/my-enrollments/index（活动卡）',
-    trigger: '活动报名者点按订阅按钮',
-    label: '订阅成场通知',
-    scenarios: ['flashback_action_scheduled'],
-    acceptedCopy: '已订阅，你附议的场次成真时会通知你',
-    deniedCopy: '你暂未授权，可稍后再试'
-  }
-}
-
-/**
- * U9/R13a 正主触点：「我的闪念间」页的**附议提交前**——先授权后提交
- * （`submitAfterConsent` 范式：一次授权恰好覆盖「成场那一条」订阅消息；
- * 授权被拒/缺配不阻断附议，成场通知按 KTD5 退回邮件/短信）。
- */
-export function flashbackEndorseTouchpoint(): SubscriptionTouchpoint {
-  return {
-    page: 'pages/flashback/index（行动板附议按钮）',
-    trigger: '校友在「我的闪念间」点附议（提交前）',
-    label: '附议并订阅成场通知',
-    scenarios: ['flashback_action_scheduled'],
-    acceptedCopy: '已订阅，你附议的场次成真时会通知你',
-    deniedCopy: '你暂未授权，附议仍会记录，成场时改用短信/邮件通知你'
-  }
-}
 
 /** 按报名条目类型分派 M2/M3（活动 → 变更提醒；课程 → 学习提醒）。 */
 export function enrollmentCardTouchpoint(kind: ContentKind): SubscriptionTouchpoint {
