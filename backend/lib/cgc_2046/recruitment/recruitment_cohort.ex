@@ -20,6 +20,10 @@ defmodule Cgc2046.Recruitment.RecruitmentCohort do
 
   @statuses [:draft, :open, :closed]
 
+  @doc false
+  @spec status_values() :: [atom()]
+  def status_values, do: @statuses
+
   attributes do
     uuid_primary_key(:id)
 

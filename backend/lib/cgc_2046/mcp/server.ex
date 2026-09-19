@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Server do
   @moduledoc """
   全平台唯一 MCP server（D6 / #42）：anubis_mcp streamable HTTP。
 
-  工具集(86,#676 draft 删除后):
+  工具集(91,含招募批次五件):
   - 读:get_workspace_context / list_members / list_join_requests / get_workflow / get_step_output
   - 公开浏览(membership: :public,KTD2/KTD3;任何持连接 token 的登录用户,匿名白名单口径):
     list_public_offerings / get_public_offering
@@ -208,4 +208,15 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.SubmitLearningAttempt)
   component(Cgc2046.Mcp.Tools.GetLearningState)
   component(Cgc2046.Mcp.Tools.GetCourseLearningAnalytics)
+  # 招募批次五件(campaign 运营通道，#747 链路收尾):工具面 86 → 91
+  # (Owner/Admin 管理面——member 门 + 工具层 Rbac.manage?/2 判定，批次写面与
+  # GraphQL 同边界(ADR-0001 D6「Agent 权限 = 用户权限」/ D7「管理类全进」);
+  # create 为直接写——draft 公开申请页不可见、可逆低风险，create_event R12 先例;
+  # update/open/close 走确认流两段式;list 为 member-only 发现面，#366 同款;
+  # 「同台至多一个 open」由 DB 部分唯一索引兜底，撞线转 recruitment_cohort_open_conflict)
+  component(Cgc2046.Mcp.Tools.CreateRecruitmentCohort)
+  component(Cgc2046.Mcp.Tools.UpdateRecruitmentCohort)
+  component(Cgc2046.Mcp.Tools.OpenRecruitmentCohort)
+  component(Cgc2046.Mcp.Tools.CloseRecruitmentCohort)
+  component(Cgc2046.Mcp.Tools.ListRecruitmentCohorts)
 end
