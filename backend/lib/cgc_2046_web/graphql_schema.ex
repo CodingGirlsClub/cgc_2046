@@ -2370,7 +2370,93 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "提交奖品兑换申请（U11/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动）"
+    @desc "许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）"
+    field :flashback_create_wish, :flashback_wish_result do
+      arg(:token, :string)
+      arg(:content, non_null(:string))
+      arg(:visibility, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity),
+               {:ok, _wish} <-
+                 Cgc2046.Flashback.Wishes.create_wish(person_id, args.content, args.visibility) do
+            {:ok, %{endorsement_count: 0, endorsed_by_me: false}}
+          end
+        end)
+      end)
+    end
+
+    @desc "附议愿望（R7 幂等）：返回实时计数与本人态"
+    field :flashback_endorse_wish, :flashback_wish_result do
+      arg(:token, :string)
+      arg(:wish_id, non_null(:id))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 60)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity) do
+            Cgc2046.Flashback.Wishes.endorse(person_id, args.wish_id)
+          end
+        end)
+      end)
+    end
+
+    @desc "愿望留言（R8）：公开愿望可留言讨论"
+    field :flashback_add_wish_comment, :flashback_wish_result do
+      arg(:token, :string)
+      arg(:wish_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity),
+               {:ok, _comments} <-
+                 Cgc2046.Flashback.Wishes.add_comment(person_id, args.wish_id, args.content) do
+            {:ok, %{endorsement_count: 0, endorsed_by_me: false}}
+          end
+        end)
+      end)
+    end
+
+    @desc "删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除"
+    field :flashback_delete_wish, :boolean do
+      arg(:token, :string)
+      arg(:wish_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity) do
+            Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, person_id)
+          end
+        end)
+      end)
+    end
+
+    @desc "删除自己的留言（R14 软删）"
+    field :flashback_delete_wish_comment, :boolean do
+      arg(:token, :string)
+      arg(:comment_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context),
+               {:ok, person_id} <- identity_person_id(identity) do
+            Cgc2046.Flashback.Wishes.soft_delete_comment(args.comment_id, person_id)
+          end
+        end)
+      end)
+    end
+
     field :flashback_redeem, :flashback_redeem_result do
       arg(:token, :string)
       arg(:channel_note, non_null(:string))
@@ -3137,8 +3223,39 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_capsule do
     field(:me, non_null(:flashback_capsule_me))
     field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
+    @desc "公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示"
+    field(:public_wishes, non_null(list_of(non_null(:flashback_wish))))
+    @desc "本人私有许愿（私人许愿帧，仅自己可见）"
+    field(:my_private_wishes, non_null(list_of(non_null(:flashback_wish))))
     @desc "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
     field(:cities, non_null(list_of(non_null(:string))))
+  end
+
+  object :flashback_wish do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:city, :string)
+    @desc "许愿人遮罩姓（王**）"
+    field(:wisher_masked, :string)
+    field(:endorsement_count, non_null(:integer))
+    @desc "本人已附议（已附议态渲染依据，R7）"
+    field(:endorsed_by_me, non_null(:boolean))
+    field(:comments, non_null(list_of(non_null(:flashback_wish_comment))))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_wish_comment do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    @desc "留言人遮罩姓"
+    field(:commenter_masked, :string)
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_wish_result do
+    @desc "附议后实时计数与本人态"
+    field(:endorsement_count, non_null(:integer))
+    field(:endorsed_by_me, non_null(:boolean))
   end
 
   # ── 看板与兑换（U11/R24/R25）────────────────────────────────────────

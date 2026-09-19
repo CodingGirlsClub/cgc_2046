@@ -6353,8 +6353,52 @@ type FlashbackCapsule {
 
   archives: [FlashbackCapsuleArchive!]!
 
+  "公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示"
+  publicWishes: [FlashbackWish!]!
+
+  "本人私有许愿（私人许愿帧，仅自己可见）"
+  myPrivateWishes: [FlashbackWish!]!
+
   "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
   cities: [String!]!
+}
+
+type FlashbackWish {
+  id: ID!
+
+  content: String!
+
+  city: String
+
+  "许愿人遮罩姓（王**）"
+  wisherMasked: String
+
+  endorsementCount: Int!
+
+  "本人已附议（已附议态渲染依据，R7）"
+  endorsedByMe: Boolean!
+
+  comments: [FlashbackWishComment!]!
+
+  insertedAt: DateTime!
+}
+
+type FlashbackWishComment {
+  id: ID!
+
+  content: String!
+
+  "留言人遮罩姓"
+  commenterMasked: String
+
+  insertedAt: DateTime!
+}
+
+type FlashbackWishResult {
+  "附议后实时计数与本人态"
+  endorsementCount: Int!
+
+  endorsedByMe: Boolean!
 }
 
 type FlashbackRates {
@@ -7311,7 +7355,21 @@ type RootMutationType {
   "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
   flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
 
-  "提交奖品兑换申请（U11\/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动）"
+  "许愿（R5\/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）"
+  flashbackCreateWish(token: String, content: String!, visibility: String!): FlashbackWishResult
+
+  "附议愿望（R7 幂等）：返回实时计数与本人态"
+  flashbackEndorseWish(token: String, wishId: ID!): FlashbackWishResult
+
+  "愿望留言（R8）：公开愿望可留言讨论"
+  flashbackAddWishComment(token: String, wishId: ID!, content: String!): FlashbackWishResult
+
+  "删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除"
+  flashbackDeleteWish(token: String, wishId: ID!): Boolean
+
+  "删除自己的留言（R14 软删）"
+  flashbackDeleteWishComment(token: String, commentId: ID!): Boolean
+
   flashbackRedeem(token: String, channelNote: String!): FlashbackRedeemResult
 
   "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"

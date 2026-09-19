@@ -91,10 +91,19 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   @spec capsule(%{person: map()}, String.t() | nil) :: {:ok, map()} | {:error, term()}
   def capsule(%{person: person}, city \\ nil) do
     with {:ok, archives} <- list_archives(person, city) do
+      endorsed = Cgc2046.Flashback.Wishes.endorsed_wish_ids(person.id)
+
       {:ok,
        %{
          me: me_payload(person),
          archives: archives,
+         public_wishes:
+           Cgc2046.Flashback.Wishes.list_public(clean_city(city))
+           |> Enum.map(&{&1.id, &1})
+           |> Enum.map(fn {id, wish} ->
+             Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, id))
+           end),
+         my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
          cities: capsule_cities()
        }}
     end
