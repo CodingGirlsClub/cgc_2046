@@ -297,9 +297,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
-          alias = Cgc2046.Flashback.Outreach.Dispatch
+          dispatch = Cgc2046.Flashback.Outreach.Dispatch
 
-          with {:ok, channel} <- alias.parse_channel(Map.get(args, :channel, "all")) do
+          with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
             Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel)
           else
             {:error, :invalid_channel} ->
@@ -327,10 +327,10 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
-          alias = Cgc2046.Flashback.Outreach.Dispatch
+          dispatch = Cgc2046.Flashback.Outreach.Dispatch
 
-          with {:ok, channel} <- alias.parse_channel(Map.get(args, :channel, "all")) do
-            alias.resend_for_person(args[:person_id], args[:template], channel)
+          with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
+            dispatch.resend_for_person(args[:person_id], args[:template], channel)
           else
             {:error, :invalid_channel} ->
               {:error,
