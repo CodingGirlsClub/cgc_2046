@@ -113,13 +113,14 @@ export function quoteCandidatesOf(answers: FlashbackMeAnswer[]): QuoteCandidate[
 /** 圈选命中判定（存档态回显与列表高亮共用）：区间与来源题同时相等 */
 export function isCandidatePicked(
   candidate: QuoteCandidate,
-  picked: { questionKey: string | null; start: number; len: number } | null
+  picked: { questionKey: string; start: number; len: number }[] | null
 ): boolean {
-  if (!picked) return false
-  return (
-    picked.questionKey === candidate.questionKey &&
-    picked.start === candidate.start &&
-    picked.len === candidate.len
+  if (!picked || picked.length === 0) return false
+  return picked.some(
+    (item) =>
+      item.questionKey === candidate.questionKey &&
+      item.start === candidate.start &&
+      item.len === candidate.len,
   )
 }
 
@@ -138,7 +139,7 @@ export function quoteLikeBadge(me: FlashbackMyCard): string | null {
  *  - available：可勾选，默认不勾（授权永不预选）。 */
 export function shareOptInState(me: FlashbackMyCard): 'hidden' | 'already' | 'available' {
   if (me.quoteLevel === 'anonymous' || me.quoteLevel === 'credited') return 'already'
-  if (!me.quote || !me.quoteQuestionKey || !me.quoteSpan) return 'hidden'
+  if (!me.quote || !(me.quoteSpans ?? []).length) return 'hidden'
   return 'available'
 }
 

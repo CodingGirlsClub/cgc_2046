@@ -31,12 +31,15 @@ import { useQuoteLicense, type QuoteSpanPick } from './useQuoteLicense'
 export default function MyCard({
   capsule,
   onWrite,
+  autoOpen = false,
   onOpenShare
 }: {
   capsule: FlashbackCapsule
   onWrite: () => void
+  /** 层弹出后自动翻开(首程答对/今天格点击);独立入口默认手点 */
+  autoOpen?: boolean
   /** 唤起页面级分享 sheet(canvas 与「···」原生分享 hook 都在页面) */
-  onOpenShare: () => void
+  onOpenShare?: () => void
 }) {
   const [answers, setAnswers] = useState<FlashbackMeAnswer[]>(capsule.me.answers)
   const [editing, setEditing] = useState(false)
@@ -44,14 +47,17 @@ export default function MyCard({
   const [draftWant, setDraftWant] = useState(capsule.me.today?.want ?? '')
   const [draftSay, setDraftSay] = useState(capsule.me.today?.say ?? '')
   const [quoteLevel, setQuoteLevel] = useState<QuoteLevel>(parseQuoteLevel(capsule.me.quoteLevel))
-  // R35 圈选:已选句(questionKey + 区间)——capsule 更新时从 me 回显
-  const [pickedQuote, setPickedQuote] = useState<QuoteSpanPick | null>(
-    capsule.me.quoteSpan && capsule.me.quoteQuestionKey
-      ? { questionKey: capsule.me.quoteQuestionKey, start: capsule.me.quoteSpan.start, len: capsule.me.quoteSpan.len }
-      : null
+  // R35 圈选(多选):capsule 更新时从 me.quoteSpans 回显
+  const [pickedQuotes, setPickedQuotes] = useState<QuoteSpanPick[]>(
+    (capsule.me.quoteSpans ?? []).map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
   )
   // 第 3b 件:翻转态(原型 ia-flip——连续 180°,transition 驱动,无 JS 状态机)
   const [flipped, setFlipped] = useState(false)
+
+  // autoOpen:层弹出即自动翻面(首程答对/今天格点击)
+  useEffect(() => {
+    if (autoOpen) setFlipped(true)
+  }, [autoOpen])
 
   // capsule 更新(reload/写后)同步本地受控态
   useEffect(() => {
@@ -60,10 +66,8 @@ export default function MyCard({
     setDraftWant(capsule.me.today?.want ?? '')
     setDraftSay(capsule.me.today?.say ?? '')
     setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
-    setPickedQuote(
-      capsule.me.quoteSpan && capsule.me.quoteQuestionKey
-        ? { questionKey: capsule.me.quoteQuestionKey, start: capsule.me.quoteSpan.start, len: capsule.me.quoteSpan.len }
-        : null
+    setPickedQuotes(
+      (capsule.me.quoteSpans ?? []).map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
     )
   }, [capsule])
 
@@ -102,19 +106,23 @@ export default function MyCard({
   const changeQuoteLevel = async (level: QuoteLevel) => {
     setQuoteLevel(level)
     if (level === 'off') {
-      setPickedQuote(null)
-      await submitLicense('off', null)
+      setPickedQuotes([])
+      await submitLicense('off', [])
       return
     }
-    if (pickedQuote) await submitLicense(level, pickedQuote)
+    if (pickedQuotes.length) await submitLicense(level, pickedQuotes)
   }
 
-  /** 圈选一句(R35):本地即时高亮 + 落库(span 与展示同源) */
+  /** 圈选一句(R35 多选):toggle 本地高亮 + 落库(span 与展示同源) */
   const pickQuoteCandidate = async (candidate: QuoteCandidate) => {
-    const next = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
-    setPickedQuote(next)
-    await submitLicense(quoteLevel === 'off' ? 'anonymous' : quoteLevel, next)
+    const pick = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
+    const exists = pickedQuotes.some((p) => p.questionKey === pick.questionKey && p.start === pick.start)
+    const next = exists
+      ? pickedQuotes.filter((p) => !(p.questionKey === pick.questionKey && p.start === pick.start))
+      : [...pickedQuotes, pick]
+    setPickedQuotes(next)
     if (quoteLevel === 'off') setQuoteLevel('anonymous')
+    await submitLicense(quoteLevel === 'off' ? 'anonymous' : quoteLevel, next)
   }
 
   const view = myCardView(capsule)
@@ -223,7 +231,9 @@ export default function MyCard({
       </View>
 
       {/* R14 分享入口(用户定稿 ③):显式按钮唤起页面级 sheet(··· 胶囊菜单原生分享由页面 hook 常驻注册) */}
-      <Button className={styles.shareButton} onClick={onOpenShare}>分享 · 把这一刻做成卡片</Button>
+      {onOpenShare && (
+        <Button className={styles.shareButton} onClick={onOpenShare}>分享 · 把这一刻做成卡片</Button>
+      )}
 
       <View className={styles.licenseCard}>
         <Text className={styles.sectionTitle}>金句授权</Text>
@@ -237,7 +247,7 @@ export default function MyCard({
               <Text
                 key={`${candidate.questionKey}:${candidate.start}`}
                 className={`${styles.quoteCandidate} ${
-                  isCandidatePicked(candidate, pickedQuote) ? styles.quoteCandidateActive : ''
+                  isCandidatePicked(candidate, pickedQuotes) ? styles.quoteCandidateActive : ''
                 }`}
                 onClick={() => void pickQuoteCandidate(candidate)}
               >

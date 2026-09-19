@@ -185,8 +185,7 @@ interface FlashbackMockState {
   fogSpans: Array<{ start: number; len: number }>
   quoteLevel: 'off' | 'anonymous' | 'credited'
   /** R35 圈选结果（questionKey + 区间）：capsule 回读 + 点赞徽章共用 */
-  quoteQuestionKey: string | null
-  chosenQuoteSpan: { start: number; len: number } | null
+  chosenQuoteSpans: Array<{ questionKey: string; start: number; len: number }>
   /** R36 点赞数（mock 固定 3：授权档下有值，供回访面回读） */
   likeCount: number
   today: { nowStatus: string | null; want: string | null; say: string | null; sentToWallAt: string | null }
@@ -196,8 +195,7 @@ interface FlashbackMockState {
 const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   fogSpans: [{ start: 0, len: 7 }],
   quoteLevel: 'off',
-  quoteQuestionKey: null,
-  chosenQuoteSpan: null,
+  chosenQuoteSpans: [],
   likeCount: 3,
   today: { nowStatus: null, want: null, say: null, sentToWallAt: null },
   endorsedCardIds: []
@@ -223,9 +221,14 @@ function loadFlashbackState(): FlashbackMockState {
       Array.isArray(parsed.fogSpans) &&
       parsed.fogSpans.every((span) => Number.isInteger(span?.start) && Number.isInteger(span?.len)) &&
       (parsed.quoteLevel === 'off' || parsed.quoteLevel === 'anonymous' || parsed.quoteLevel === 'credited') &&
-      (parsed.quoteQuestionKey === null || typeof parsed.quoteQuestionKey === 'string') &&
-      (parsed.chosenQuoteSpan === null ||
-        (Number.isInteger(parsed.chosenQuoteSpan?.start) && Number.isInteger(parsed.chosenQuoteSpan?.len))) &&
+      (parsed.chosenQuoteSpans === null ||
+        (Array.isArray(parsed.chosenQuoteSpans) &&
+          parsed.chosenQuoteSpans.every(
+            (span) =>
+              typeof span?.questionKey === 'string' &&
+              Number.isInteger(span?.start) &&
+              Number.isInteger(span?.len),
+          ))) &&
       Number.isInteger(parsed.likeCount) &&
       typeof parsed.today === 'object' &&
       parsed.today !== null &&
@@ -734,14 +737,13 @@ function responseFor(document: string, variables: object): unknown {
           appliedAt: '2014-01-11T13:06:00Z',
           quoteLevel: state.quoteLevel,
           quote:
-            state.chosenQuoteSpan && state.quoteQuestionKey
+            (state.chosenQuoteSpans ?? []).length > 0 && state.chosenQuoteSpans[0]
               ? FLASHBACK_RAW_TEXT.slice(
-                  state.chosenQuoteSpan.start,
-                  state.chosenQuoteSpan.start + state.chosenQuoteSpan.len
+                  state.chosenQuoteSpans[0].start,
+                  state.chosenQuoteSpans[0].start + state.chosenQuoteSpans[0].len
                 )
               : null,
-          quoteQuestionKey: state.quoteQuestionKey,
-          quoteSpan: state.chosenQuoteSpan,
+          quoteSpans: state.chosenQuoteSpans ?? [],
           quoteStats:
             state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
           today: state.today,
@@ -923,22 +925,21 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('mutation FlashbackSetQuoteLicense')) {
     const level = values.level
-    const questionKey = typeof values.questionKey === 'string' ? values.questionKey : null
-    const span = (values.chosenQuoteSpan ?? null) as { start: number; len: number } | null
+    const spans = (values.chosenQuoteSpans ?? null) as
+      | Array<{ questionKey: string; start: number; len: number }>
+      | null
     if (level === 'off' || level === 'anonymous' || level === 'credited') {
       updateFlashbackState((state) => ({
         ...state,
         quoteLevel: level,
         // R35 未圈选 = 不上墙：level 非 off 但没带区间时保留既有区间（后端同语义）
-        quoteQuestionKey: level === 'off' ? null : (questionKey ?? state.quoteQuestionKey),
-        chosenQuoteSpan: level === 'off' ? null : (span ?? state.chosenQuoteSpan)
+        chosenQuoteSpans: level === 'off' ? [] : (spans ?? state.chosenQuoteSpans)
       }))
     }
     return {
       flashbackSetQuoteLicense: {
         level: flashbackState().quoteLevel,
-        questionKey: flashbackState().quoteQuestionKey,
-        chosenQuoteSpan: flashbackState().chosenQuoteSpan
+        chosenQuoteSpans: flashbackState().chosenQuoteSpans
       }
     }
   }

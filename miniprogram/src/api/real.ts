@@ -747,10 +747,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
         appliedAt: capsule.me.appliedAt ?? null,
         quoteLevel: capsule.me.quoteLevel,
         quote: capsule.me.quote ?? null,
-        quoteQuestionKey: capsule.me.quoteQuestionKey ?? null,
-        quoteSpan: capsule.me.quoteSpan
-          ? { start: capsule.me.quoteSpan.start, len: capsule.me.quoteSpan.len }
-          : null,
+        quoteSpans: (capsule.me.quoteSpans ?? [])
+          .filter((s): s is NonNullable<typeof s> => s != null)
+          .map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
         quoteStats: capsule.me.quoteStats ? { likeCount: capsule.me.quoteStats.likeCount } : null,
         today: capsule.me.today
           ? {
@@ -841,21 +840,14 @@ export class RealMiniProgramApi implements MiniProgramApi {
     })
   }
 
-  async flashbackSetQuoteLicense(
+    async flashbackSetQuoteLicense(
     level: 'off' | 'anonymous' | 'credited',
-    questionKey?: string | null,
-    chosenQuoteSpan?: { start: number; len: number } | null
+    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
   ): Promise<void> {
-    // R35 圈选：档位与区间一起提交——只传 level 会把既有 span 覆盖成 nil
-    //（后端 update 按传入值覆盖），未圈选 = 不上墙。
-    const data = await graphqlRequest<
-      FlashbackSetQuoteLicenseMutation,
-      FlashbackSetQuoteLicenseMutationVariables
-    >(FlashbackSetQuoteLicenseMutationDocument, {
-      level,
-      questionKey: questionKey ?? null,
-      chosenQuoteSpan: chosenQuoteSpan ?? null
-    })
+    const data = await graphqlRequest<FlashbackSetQuoteLicenseMutation, FlashbackSetQuoteLicenseMutationVariables>(
+      FlashbackSetQuoteLicenseMutationDocument,
+      { level, chosenQuoteSpans: chosenQuoteSpans ?? null }
+    )
     if (!data.flashbackSetQuoteLicense) throw new Error('授权设置失败，请重试')
   }
 
