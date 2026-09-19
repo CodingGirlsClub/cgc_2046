@@ -2201,7 +2201,13 @@ export type FlashbackCapsule = {
   archives: Array<FlashbackCapsuleArchive>;
   /** 城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩 */
   cities: Array<Scalars['String']['output']>;
+  /** 未来场次帧：按 initiative 分组、组内按场次时间升序（KTD1）；报名直链 /events/{slug} */
+  futureEvents: Array<FlashbackFutureFrame>;
   me: FlashbackCapsuleMe;
+  /** 本人私有许愿（私人许愿帧，仅自己可见） */
+  myPrivateWishes: Array<FlashbackWish>;
+  /** 公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示 */
+  publicWishes: Array<FlashbackWish>;
 };
 
 export type FlashbackCapsuleArchive = {
@@ -2299,6 +2305,26 @@ export type FlashbackFogSpanInput = {
   len: Scalars['Int']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   start: Scalars['Int']['input'];
+};
+
+export type FlashbackFutureEvent = {
+  /** 名额进度（U7 与 web enrollmentBadge 口径对齐） */
+  capacity?: Maybe<Scalars['Int']['output']>;
+  city?: Maybe<Scalars['String']['output']>;
+  confirmedCount: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  /** 报名直链：/events/{slug}（R2/R3，不在走廊内闭环） */
+  slug: Scalars['String']['output'];
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  title: Scalars['String']['output'];
+};
+
+export type FlashbackFutureFrame = {
+  events: Array<FlashbackFutureEvent>;
+  initiativeName: Scalars['String']['output'];
+  /** 帧头跳转目标：/initiatives/{initiative_slug}（R1） */
+  initiativeSlug: Scalars['String']['output'];
 };
 
 export type FlashbackMeAnswer = {
@@ -2561,6 +2587,33 @@ export type FlashbackTouchResult = {
 export type FlashbackUpdateContactResult = {
   maskedPhone?: Maybe<Scalars['String']['output']>;
   updated: Scalars['Boolean']['output'];
+};
+
+export type FlashbackWish = {
+  city?: Maybe<Scalars['String']['output']>;
+  comments: Array<FlashbackWishComment>;
+  content: Scalars['String']['output'];
+  /** 本人已附议（已附议态渲染依据，R7） */
+  endorsedByMe: Scalars['Boolean']['output'];
+  endorsementCount: Scalars['Int']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** 许愿人遮罩姓（王**） */
+  wisherMasked?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackWishComment = {
+  /** 留言人遮罩姓 */
+  commenterMasked?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+};
+
+export type FlashbackWishResult = {
+  endorsedByMe: Scalars['Boolean']['output'];
+  /** 附议后实时计数与本人态 */
+  endorsementCount: Scalars['Int']['output'];
 };
 
 export type FulfillDeliveryInput = {
@@ -4381,6 +4434,8 @@ export type RootMutationType = {
   disableInviteBatch: DisableInviteBatchResult;
   /** 拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人） */
   dismissOnboardingInvitation?: Maybe<User>;
+  /** 愿望留言（R8）：公开愿望可留言讨论 */
+  flashbackAddWishComment?: Maybe<FlashbackWishResult>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成 */
@@ -4391,8 +4446,16 @@ export type RootMutationType = {
   flashbackAdminUpdateRedemption?: Maybe<FlashbackRedemptionUpdateResult>;
   /** 微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案 */
   flashbackClaim?: Maybe<FlashbackClaimResult>;
+  /** 许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参） */
+  flashbackCreateWish?: Maybe<FlashbackWishResult>;
   /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
   flashbackDelete?: Maybe<FlashbackDeleteResult>;
+  /** 删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除 */
+  flashbackDeleteWish?: Maybe<Scalars['Boolean']['output']>;
+  /** 删除自己的留言（R14 软删） */
+  flashbackDeleteWishComment?: Maybe<Scalars['Boolean']['output']>;
+  /** 附议愿望（R7 幂等）：返回实时计数与本人态 */
+  flashbackEndorseWish?: Maybe<FlashbackWishResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
   flashbackEnter?: Maybe<FlashbackEnterResult>;
   /** 金句点赞/取消（R36）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数 */
@@ -4403,7 +4466,6 @@ export type RootMutationType = {
   flashbackRecover?: Maybe<FlashbackRecoverResult>;
   /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
   flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
-  /** 提交奖品兑换申请（U11/R25）：token 或登录账号双入口；一人一行幂等（再交=更新渠道信息，状态不动） */
   flashbackRedeem?: Maybe<FlashbackRedeemResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
@@ -4726,6 +4788,13 @@ export type RootMutationTypeDisableInviteBatchArgs = {
 };
 
 
+export type RootMutationTypeFlashbackAddWishCommentArgs = {
+  content: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
+  wishId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeFlashbackAdjustFogArgs = {
   answerId: Scalars['ID']['input'];
   spans: Array<FlashbackFogSpanInput>;
@@ -4757,9 +4826,34 @@ export type RootMutationTypeFlashbackClaimArgs = {
 };
 
 
+export type RootMutationTypeFlashbackCreateWishArgs = {
+  content: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
+  visibility: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackDeleteArgs = {
   confirm: Scalars['String']['input'];
   token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootMutationTypeFlashbackDeleteWishArgs = {
+  token?: InputMaybe<Scalars['String']['input']>;
+  wishId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackDeleteWishCommentArgs = {
+  commentId: Scalars['ID']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootMutationTypeFlashbackEndorseWishArgs = {
+  token?: InputMaybe<Scalars['String']['input']>;
+  wishId: Scalars['ID']['input'];
 };
 
 
