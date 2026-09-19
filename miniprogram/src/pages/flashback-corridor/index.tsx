@@ -239,6 +239,17 @@ export default function FlashbackCorridorPage() {
           <Text className={styles.hint}>↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场</Text>
         </View>
 
+        {/* U6/R9 路人态 1024 活动横幅(修断裂 2):可点进 initiative 详情报名 */}
+        {mode.kind === 'viewer' && (
+          <View
+            className={styles.banner1024}
+            onClick={() => void Taro.navigateTo({ url: '/pages/initiative-detail/index?slug=hackerstart1024' })}
+          >
+            <Text className={styles.banner1024Title}>1024 程序员节 · Hacker Start</Text>
+            <Text className={styles.banner1024Sub}>新一年活动开放报名 →</Text>
+          </View>
+        )}
+
         {mode.kind === 'member' && (
           <View className={styles.mpTabBar}>
             <Text className={`${styles.mpTab} ${tab === 'corridor' ? styles.mpTabActive : ''}`} onClick={() => setTab('corridor')}>

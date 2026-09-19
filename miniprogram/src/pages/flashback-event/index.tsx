@@ -4,7 +4,9 @@ import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { eventFogLine, eventStats } from '@/domain/flashback-journey'
+import { futureEventCards } from '@/domain/flashback'
 import { STORAGE_KEYS } from '@/state/storage'
+import type { FlashbackFutureFrame } from '@/domain/models'
 import type {
   FlashbackCapsuleArchive,
   FlashbackClaimResult,
@@ -34,6 +36,8 @@ export default function FlashbackEventPage() {
   const router = useRouter()
   const eventKey = typeof router.params.key === 'string' ? router.params.key : ''
   const [mode, setMode] = useState<Mode>({ kind: 'loading' })
+  // U6 回环数据:capsule 邻近未来场次(「下一场」出口)
+  const [futureFrames, setFutureFrames] = useState<FlashbackFutureFrame[]>([])
 
   const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
     try {
@@ -50,6 +54,7 @@ export default function FlashbackEventPage() {
       const archive = capsule.archives.find((item) => item.key === eventKey)
       if (archive) {
         setMode({ kind: 'member', archive })
+        setFutureFrames(capsule.futureEvents)
         return
       }
       setMode({ kind: 'viewer', stats: await loadStats(), guide: null })
@@ -173,6 +178,31 @@ export default function FlashbackEventPage() {
             <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback/index' })}>
               你也在这一场？找回你的那一张 →
             </Button>
+          </View>
+        )}
+
+        {/* U6/R10 场次页回环(修断裂 3):下一场/回到今天/看看未来 三出口 */}
+        {mode.kind === 'member' && (
+          <View className={styles.loopBlock}>
+            {(() => {
+              const cards = futureEventCards(futureFrames)
+              const next = cards.find((card) => card.status === 'open')
+              return (
+                <>
+                  {next && (
+                    <Button className={styles.loopBtn} onClick={() => void Taro.navigateTo({ url: `/pages/event-detail/index?id=${next.id}&kind=event` })}>
+                      下一场:{next.title} →
+                    </Button>
+                  )}
+                  <Button className={styles.loopBtn} onClick={back}>
+                    回到今天
+                  </Button>
+                  <Button className={styles.loopBtn} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })}>
+                    看看未来
+                  </Button>
+                </>
+              )
+            })()}
           </View>
         )}
       </ScrollView>

@@ -160,3 +160,17 @@
   font-weight: 600;
   line-height: 2.2;
 }
+
+/* U6 回环三出口(R10):次级按钮排 */
+.loopBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+  padding: 24rpx 22rpx calc(env(safe-area-inset-bottom) + 24rpx);
+}
+.loopBtn {
+  background: #f6f6f4;
+  color: #4b4d54;
+  font-size: 26rpx;
+  border-radius: 14rpx;
+}

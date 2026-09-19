@@ -148,8 +148,8 @@ export type QuoteLevel = 'off' | 'anonymous' | 'credited'
 
 export const QUOTE_LEVEL_OPTIONS: { value: QuoteLevel; label: string; desc: string }[] = [
   { value: 'off', label: '不授权', desc: '你的答案只对自己可见' },
-  { value: 'anonymous', label: '匿名金句', desc: '平台可筛选你当年的答案匿名传播（姓** · 年 · 城）' },
-  { value: 'credited', label: '实名支持', desc: '匿名档之上补充近况并实名公开，可作品牌素材' }
+  { value: 'anonymous', label: '匿名金句', desc: '你的金句可能展示在 CGC 官网首页（姓** · 年 · 城）' },
+  { value: 'credited', label: '实名支持', desc: '匿名档之上补充近况并实名展示在 CGC 官网首页' }
 ]
 
 export function quoteLevelText(level: string): string {
