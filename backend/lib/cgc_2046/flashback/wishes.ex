@@ -143,7 +143,7 @@ defmodule Cgc2046.Flashback.Wishes do
       Wish
       |> Ash.Query.filter(visibility == "public" and is_nil(deleted_at))
       # 批量带出留言（N+1 修复）：一次查询投影全部愿望+附议+留言+许愿人
-      |> Ash.Query.load([:endorsements, :person, :comments])
+      |> Ash.Query.load([:endorsements, :person, comments: [:person]])
 
     base =
       if city do
@@ -179,7 +179,18 @@ defmodule Cgc2046.Flashback.Wishes do
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.map(fn wish ->
-      %{id: wish.id, content: wish.content, city: wish.city, inserted_at: wish.inserted_at}
+      # 形状与公开愿望同构——GraphQL flashback_wish 的 comments/endorsement_count/
+      # endorsed_by_me 为 non_null，私有投影给空/零默认（私有愿望不可附议留言，R9）
+      %{
+        id: wish.id,
+        content: wish.content,
+        city: wish.city,
+        inserted_at: wish.inserted_at,
+        wisher_masked: nil,
+        endorsement_count: 0,
+        endorsed_by_me: false,
+        comments: []
+      }
     end)
   end
 

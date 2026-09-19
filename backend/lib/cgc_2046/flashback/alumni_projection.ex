@@ -159,11 +159,11 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         id: id,
         slug: slug,
         title: title,
-        starts_at: to_iso8601(starts_at),
+        starts_at: to_datetime(starts_at),
         city: event_city,
         capacity: capacity,
         confirmed_count: confirmed || 0,
-        registration_deadline: to_iso8601(deadline),
+        registration_deadline: to_datetime(deadline),
         initiative_slug: initiative_slug,
         initiative_name: initiative_name
       }
@@ -172,15 +172,14 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     |> Enum.map(fn {{initiative_slug, initiative_name}, events} ->
       %{initiative_slug: initiative_slug, initiative_name: initiative_name, events: events}
     end)
-    |> Enum.sort_by(&hd(&1.events).starts_at)
+    |> Enum.sort_by(&hd(&1.events).starts_at, DateTime)
   end
 
-  defp to_iso8601(nil), do: nil
+  # GraphQL :datetime scalar 需要 DateTime 结构（字符串会在 Absinthe 序列化时炸）
+  defp to_datetime(nil), do: nil
 
-  defp to_iso8601(%NaiveDateTime{} = value),
-    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
-
-  defp to_iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp to_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp to_datetime(%DateTime{} = value), do: value
 
   # 空串/纯空白视为未筛（query 变量传来空串不筛）
   defp clean_city(nil), do: nil
