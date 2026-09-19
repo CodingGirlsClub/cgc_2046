@@ -783,7 +783,7 @@
 .maskBadgeLeft { display: flex; align-items: center; gap: 12rpx; }
 .wallOn { font-size: 22rpx; color: #cbbf8f; letter-spacing: 0.08em; }
 .wallOff { font-size: 22rpx; color: #8d887e; letter-spacing: 0.08em; }
-.maskLike { font-size: 22rpx; color: #e8c66a; }
+.maskLike { font-size: 22rpx; color: #e8666a; letter-spacing: 0.04em; }
 .layerClose {
   width: 56rpx; height: 56rpx; line-height: 52rpx; text-align: center;
   border-radius: 999rpx; background: rgba(239, 233, 219, 0.22); color: #efe9db; font-size: 26rpx;
@@ -975,3 +975,5 @@
 .nudgeSkip::after { border: none; }
 /* 候选句题干小字 */
 .quoteCandidateQ { display: block; font-size: 18rpx; color: #8a8f98; margin-top: 6rpx; letter-spacing: 0.04em; }
+
+

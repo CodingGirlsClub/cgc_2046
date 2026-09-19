@@ -173,8 +173,8 @@
   padding: 6rpx 16rpx;
   border-radius: 16rpx;
   font-size: 21rpx;
-  color: #ea5504;
-  background: #fdeadf;
+  color: #e8666a;
+  background: rgba(232, 102, 106, 0.08);
 }
 
 /* 相纸面公共:纸白边框+圆角,整面可点(当年面点击翻面) */
@@ -251,3 +251,11 @@
   color: #cbbf8f;
   text-decoration: underline;
 }
+
+/* TodayReview(今天回看卡) */
+.rvTodayText { font-size: 24rpx; color: #3a362f; line-height: 1.8; text-align: center; }
+.rvSentence { font-size: 24rpx; line-height: 1.9; color: #3a362f; }
+/* 雾句=对外隐藏,别人视角雾块(不可点) */
+.rvFog { color: transparent; background: rgba(43, 39, 35, 0.2); border-radius: 8rpx; padding: 0 10rpx; }
+/* 已授权金句=浅金高亮 */
+.rvQuote { background: rgba(232, 198, 106, 0.22); border-radius: 8rpx; padding: 0 10rpx; }
