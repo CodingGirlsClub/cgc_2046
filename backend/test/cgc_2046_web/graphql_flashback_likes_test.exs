@@ -102,8 +102,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       level: :anonymous,
-      question_key: "self_intro",
-      chosen_quote_span: %{"start" => 0, "len" => 5}
+      chosen_quote_spans: [%{"question_key" => "self_intro", "start" => 0, "len" => 5}]
     })
     |> Ash.create!(authorize?: false)
 

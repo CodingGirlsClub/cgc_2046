@@ -2345,8 +2345,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_set_quote_license, :flashback_quote_license_result do
       arg(:token, :string)
       arg(:level, non_null(:string))
-      arg(:question_key, :string)
-      arg(:chosen_quote_span, :flashback_fog_span_input)
+      arg(:chosen_quote_spans, list_of(:flashback_quote_span_input))
       arg(:credited_note, :string)
 
       # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
@@ -2357,8 +2356,7 @@ defmodule Cgc2046Web.GraphqlSchema do
         if level in ["off", "anonymous", "credited"] do
           params = %{
             level: level,
-            question_key: Map.get(args, :question_key),
-            chosen_quote_span: Map.get(args, :chosen_quote_span),
+            chosen_quote_spans: Map.get(args, :chosen_quote_spans),
             credited_note: Map.get(args, :credited_note)
           }
 
@@ -3246,10 +3244,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:quote_level, non_null(:string))
     @desc "选定金句（R14 摘要卡；off/未选为 null）"
     field(:quote, :string)
-    @desc "选定金句的来源题（R37 分享 opt-in 原样回填：只传 level 会把 span 覆盖成 nil）"
-    field(:quote_question_key, :string)
-    @desc "选定金句的区间（R37 分享 opt-in 与卡片展示同源）"
-    field(:quote_span, :flashback_fog_span)
+    @desc "句子白名单区间列表（首句 = 消费面展示句;圈选器回显全量）"
+    field(:quote_spans, list_of(:flashback_quote_span))
     @desc "本人金句的点赞数（R36；仅匿名/实名授权档返回，未授权为 null）"
     field(:quote_stats, :flashback_quote_stats)
     @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
@@ -3689,10 +3685,22 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:like_count, non_null(:integer))
   end
 
+  # 多句金句:每句自带宿主与区间(grapheme 偏移,结构同 fog span)
+  input_object :flashback_quote_span_input do
+    field(:question_key, non_null(:string))
+    field(:start, non_null(:integer))
+    field(:len, non_null(:integer))
+  end
+
+  object :flashback_quote_span do
+    field(:question_key, non_null(:string))
+    field(:start, non_null(:integer))
+    field(:len, non_null(:integer))
+  end
+
   object :flashback_quote_license_result do
     field(:level, non_null(:string))
-    field(:question_key, :string)
-    field(:chosen_quote_span, :flashback_fog_span)
+    field(:chosen_quote_spans, list_of(:flashback_quote_span))
     field(:credited_note, :string)
   end
 

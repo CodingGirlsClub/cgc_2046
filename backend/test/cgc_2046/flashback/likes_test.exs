@@ -77,12 +77,16 @@ defmodule Cgc2046.Flashback.LikesTest do
   end
 
   defp set_license(person, level \\ :anonymous, span \\ %{"start" => 0, "len" => 5}) do
+    spans =
+      if span,
+        do: [%{question_key: "self_intro", start: span["start"], len: span["len"]}],
+        else: []
+
     QuoteLicense
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       level: level,
-      question_key: "self_intro",
-      chosen_quote_span: span
+      chosen_quote_spans: spans
     })
     |> Ash.create!(authorize?: false)
   end

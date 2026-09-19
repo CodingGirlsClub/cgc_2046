@@ -149,13 +149,20 @@ defmodule Cgc2046.Flashback.Public do
       Repo.all(
         from(q in "flashback_quote_licenses",
           join: a in "flashback_answers",
-          on: a.person_id == q.person_id and a.question_key == q.question_key,
+          on:
+            a.person_id == q.person_id and
+              a.question_key == fragment("(?)[1]->>'question_key'", q.chosen_quote_spans),
           join: p in "flashback_people",
           on: p.id == q.person_id,
           left_join: arch in "flashback_event_archives",
           on: arch.id == p.archive_event_id,
           where:
-            q.level in ["anonymous", "credited"] and not is_nil(q.chosen_quote_span) and
+            q.level in ["anonymous", "credited"] and
+              fragment(
+                "? IS NOT NULL AND array_length(?, 1) > 0",
+                q.chosen_quote_spans,
+                q.chosen_quote_spans
+              ) and
               is_nil(q.hidden_at) and is_nil(p.deleted_at),
           # 涌现排序：点赞数优先、更新时间次之（同一子查询在 select 里复用）
           # 涌现排序：点赞数优先、更新时间次之（同一子查询在 select 里复用）
@@ -169,7 +176,7 @@ defmodule Cgc2046.Flashback.Public do
           ],
           limit: 60,
           select: %{
-            span: q.chosen_quote_span,
+            span: fragment("(?)[1]", q.chosen_quote_spans),
             raw_text: a.raw_text,
             full_name: p.full_name,
             surname: p.surname,
@@ -237,16 +244,23 @@ defmodule Cgc2046.Flashback.Public do
           on: arch.id == p.archive_event_id,
           where:
             p.public_slug == ^slug and not is_nil(p.public_slug_published_at) and
-              not is_nil(q.chosen_quote_span) and is_nil(q.hidden_at),
+              fragment(
+                "? IS NOT NULL AND array_length(?, 1) > 0",
+                q.chosen_quote_spans,
+                q.chosen_quote_spans
+              ) and
+              is_nil(q.hidden_at),
           left_join: a in "flashback_answers",
-          on: a.person_id == p.id and a.question_key == q.question_key,
+          on:
+            a.person_id == p.id and
+              a.question_key == fragment("(?)[1]->>'question_key'", q.chosen_quote_spans),
           select: %{
             full_name: p.full_name,
             city: fragment("COALESCE(?, ?)", p.city, arch.city),
             event_name: arch.name,
             year: fragment("EXTRACT(YEAR FROM ?)::int", arch.occurred_on),
             credited_note: q.credited_note,
-            span: q.chosen_quote_span,
+            span: fragment("(?)[1]", q.chosen_quote_spans),
             raw_text: a.raw_text
           }
         )

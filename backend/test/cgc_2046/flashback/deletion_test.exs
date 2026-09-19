@@ -65,8 +65,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
       |> Ash.Changeset.for_create(:create, %{
         person_id: person.id,
         level: :credited,
-        question_key: "self_intro",
-        chosen_quote_span: %{start: 0, len: 5},
+        chosen_quote_spans: [%{question_key: "self_intro", start: 0, len: 5}],
         credited_note: "现在在做无障碍开发"
       })
       |> Ash.create!(authorize?: false)

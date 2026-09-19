@@ -266,9 +266,9 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       # quote_level（R31）：授权档位独立于金句文本——回访端恢复选中态的数据源，
       # 无授权行为 "off"（与 enter 面 progress.quote_level 同口径）。
       quote_level: quote_level(person.id),
+      # 多句白名单：quote = 首句文本（摘要卡/分享卡消费面取首句），quote_spans = 全量（圈选器回显）
       quote: quote.quote,
-      quote_question_key: quote.quote_question_key,
-      quote_span: quote.quote_span,
+      quote_spans: quote.quote_spans,
       # 作者侧点赞数（R36）：仅授权档 ∈ {anonymous, credited} 时返回——
       # 未授权者不在墙上，0 赞的「战绩」对本人无意义（前端只在上墙且 >0 时展示）。
       quote_stats: quote_stats(person.id),
@@ -297,36 +297,53 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     ) || "off"
   end
 
-  # 本人金句（R14/R37）：quote_license 选定区间应用于来源答案；off/未选 → 三者皆 nil。
-  # 除文本外一并给出来源 question_key 与区间——分享 opt-in（R37）要原样回填
-  # 「卡片上展示的那句」的 span（现有 setQuoteLicense 的 update 会按传入值覆盖，
-  # 只传 level 会把 span 抹成 nil）。
+  # 本人金句（R14/R37，多句白名单）：quote = 首句文本（消费面取首句），
+  # quote_spans = 全量区间（圈选器回显；分享 opt-in 原样回填首句 span）。
+  # off/未选 → 皆 nil。每句携带自己的宿主 question_key（多句可跨题）。
   defp quote_payload(person_id) do
-    Repo.one(
-      from(q in "flashback_quote_licenses",
-        join: a in "flashback_answers",
-        on: a.person_id == q.person_id and a.question_key == q.question_key,
-        where: q.person_id == ^uuid_param(person_id) and not is_nil(q.chosen_quote_span),
-        limit: 1,
-        select: %{raw_text: a.raw_text, span: q.chosen_quote_span, question_key: q.question_key}
-      )
-    )
-    |> case do
-      %{raw_text: raw_text, span: span, question_key: question_key} ->
+    case Repo.one(
+           from(q in "flashback_quote_licenses",
+             where: q.person_id == ^uuid_param(person_id),
+             limit: 1,
+             select: %{spans: q.chosen_quote_spans}
+           )
+         ) do
+      %{spans: spans} when is_list(spans) and spans != [] ->
+        texts =
+          Enum.map(spans, fn span ->
+            raw = answer_raw_text(person_id, span["question_key"])
+
+            if raw do
+              FogSpans.mask(String.slice(raw, span["start"], span["len"]), nil, @fog_placeholder)
+            else
+              nil
+            end
+          end)
+
+        first_text = Enum.find(texts, fn t -> is_binary(t) and t != "" end)
+
         %{
-          quote:
-            FogSpans.mask(
-              String.slice(raw_text, span["start"], span["len"]),
-              nil,
-              @fog_placeholder
-            ),
-          quote_question_key: question_key,
-          quote_span: %{start: span["start"], len: span["len"]}
+          quote: first_text,
+          quote_spans:
+            Enum.map(spans, fn span ->
+              %{question_key: span["question_key"], start: span["start"], len: span["len"]}
+            end)
         }
 
-      nil ->
-        %{quote: nil, quote_question_key: nil, quote_span: nil}
+      _ ->
+        %{quote: nil, quote_spans: nil}
     end
+  end
+
+  # 宿主答案原文（多句可跨题；宿主被删的悬空句跳过文本、保留区间）。
+  defp answer_raw_text(person_id, question_key) do
+    Repo.one(
+      from(a in "flashback_answers",
+        where: a.person_id == ^uuid_param(person_id) and a.question_key == ^question_key,
+        limit: 1,
+        select: a.raw_text
+      )
+    )
   end
 
   # 本人视图（KTD4）：原文永远完整 + answer id 与既有 spans——U9 小程序

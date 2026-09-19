@@ -286,7 +286,7 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc "金句授权——会话面（U9/R31 端内入口）：与 token 面同规则同幂等。"
   @spec set_quote_license_as_person(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def set_quote_license_as_person(person_id, params) do
-    with :ok <- validate_quote_span(person_id, params) do
+    with :ok <- validate_quote_spans(person_id, params) do
       case QuoteLicense
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(person_id == ^person_id)
@@ -315,43 +315,50 @@ defmodule Cgc2046.Flashback.Tokens do
     end
   end
 
-  defp validate_quote_span(_person_id, %{chosen_quote_span: nil}), do: :ok
+  defp validate_quote_spans(_person_id, %{chosen_quote_spans: nil}), do: :ok
+  defp validate_quote_spans(_person_id, %{chosen_quote_spans: []}), do: :ok
 
-  defp validate_quote_span(person_id, %{chosen_quote_span: span} = params)
-       when is_map(span) and not is_struct(span),
-       do: do_validate_quote_span(person_id, params)
+  defp validate_quote_spans(person_id, %{chosen_quote_spans: spans} = params)
+       when is_list(spans) and not is_struct(spans),
+       do: do_validate_quote_spans(person_id, params)
 
-  defp validate_quote_span(_person_id, _), do: :ok
+  defp validate_quote_spans(_person_id, _), do: :ok
 
-  # 金句候选只允许指向本人答案（person + question_key 双因子定位）。
-  defp do_validate_quote_span(person_id, %{chosen_quote_span: span, question_key: qk})
-       when is_binary(qk) do
-    case Answer
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(person_id == ^person_id and question_key == ^qk)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} ->
-        {:error,
-         %{
-           code: "flashback_answer_not_found",
-           message: "answer not found",
-           reason: :answer_not_found
-         }}
+  # 金句候选只允许指向本人答案（person + question_key 双因子定位）；
+  # 多句：按宿主分组一次取答案，逐组校验越界（首错即返）。
+  defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
+    spans
+    |> Enum.group_by(fn span -> span["question_key"] || span[:question_key] end)
+    |> Enum.reduce_while(:ok, fn {qk, group_spans}, :ok ->
+      case Answer
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(person_id == ^person_id and question_key == ^qk)
+           |> Ash.read_one(authorize?: false) do
+        {:ok, nil} ->
+          {:halt,
+           {:error,
+            %{
+              code: "flashback_answer_not_found",
+              message: "answer not found",
+              reason: :answer_not_found
+            }}}
 
-      {:ok, answer} ->
-        case Cgc2046.Flashback.FogSpans.validate([span], answer.raw_text) do
-          {:ok, _normalized} ->
-            :ok
+        {:ok, answer} ->
+          case Cgc2046.Flashback.FogSpans.validate(group_spans, answer.raw_text) do
+            {:ok, _normalized} ->
+              {:cont, :ok}
 
-          {:error, _reason} ->
-            {:error,
-             %{
-               code: "flashback_quote_span_out_of_bounds",
-               message: "chosen quote span is out of bounds for the source answer",
-               reason: :quote_span_out_of_bounds
-             }}
-        end
-    end
+            {:error, _reason} ->
+              {:halt,
+               {:error,
+                %{
+                  code: "flashback_quote_span_out_of_bounds",
+                  message: "chosen quote span is out of bounds for the source answer",
+                  reason: :quote_span_out_of_bounds
+                }}}
+          end
+      end
+    end)
   end
 
   # ── 注册绑定（R27/KTD7） ─────────────────────────────────────────────
@@ -660,8 +667,8 @@ defmodule Cgc2046.Flashback.Tokens do
   defp license_payload(license) do
     %{
       level: Atom.to_string(license.level),
-      question_key: license.question_key,
-      chosen_quote_span: license.chosen_quote_span && span_payload(license.chosen_quote_span),
+      chosen_quote_spans:
+        license.chosen_quote_spans && Enum.map(license.chosen_quote_spans, &span_payload/1),
       credited_note: license.credited_note
     }
   end
@@ -670,6 +677,7 @@ defmodule Cgc2046.Flashback.Tokens do
   # 原子键解析，投影层统一转原子键（enter/adjustFog/quoteLicense 三处共用）。
   defp span_payload(%{} = span) do
     %{
+      question_key: Map.get(span, "question_key") || Map.get(span, :question_key),
       start: Map.get(span, "start") || Map.get(span, :start),
       len: Map.get(span, "len") || Map.get(span, :len),
       reason: Map.get(span, "reason") || Map.get(span, :reason)

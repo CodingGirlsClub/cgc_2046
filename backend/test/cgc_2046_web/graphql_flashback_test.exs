@@ -80,7 +80,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
   defp set_quote_query(token, level, rest \\ "") do
     """
-    mutation { flashbackSetQuoteLicense(token: "#{token}", level: "#{level}"#{rest}) { level questionKey: question_key creditedNote: credited_note } }
+    mutation { flashbackSetQuoteLicense(token: "#{token}", level: "#{level}"#{rest}) { level creditedNote: credited_note } }
     """
   end
 
@@ -413,7 +413,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
           set_quote_query(
             plain,
             "anonymous",
-            ~s(, questionKey: "funny_thing", chosenQuoteSpan: {start: 6, len: 8})
+            ~s(, chosenQuoteSpans: [{questionKey: "funny_thing", start: 6, len: 8}])
           )
         )
 
@@ -430,7 +430,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
           set_quote_query(
             plain,
             "anonymous",
-            ~s(, questionKey: "funny_thing", chosenQuoteSpan: {start: 0, len: 999})
+            ~s(, chosenQuoteSpans: [{questionKey: "funny_thing", start: 0, len: 999}])
           )
         )
 
