@@ -37,6 +37,13 @@ const EVENTS = [
 	{ key: "intentSubmitted", label: "fbIntentSubmitted" },
 ] as const;
 
+/** 通道三档（R11）：select 选项与重发确认文案共用。 */
+const CHANNELS = [
+	{ value: "all", label: "fbChannelAll" },
+	{ value: "email", label: "fbChannelEmail" },
+	{ value: "sms", label: "fbChannelSms" },
+] as const;
+
 const LINES = [
 	{ key: "memory", label: "fbLineMemory" },
 	{ key: "dream", label: "fbLineDream" },
@@ -324,9 +331,11 @@ export default function AdminFlashbackPage() {
 						aria-label={t("fbSelectChannel")}
 						className="l-input"
 					>
-						<option value="all">{t("fbChannelAll")}</option>
-						<option value="email">{t("fbChannelEmail")}</option>
-						<option value="sms">{t("fbChannelSms")}</option>
+						{CHANNELS.map((c) => (
+							<option key={c.value} value={c.value}>
+								{t(c.label)}
+							</option>
+						))}
 					</select>
 					<button
 						type="button"
@@ -528,11 +537,8 @@ export default function AdminFlashbackPage() {
 													{t("fbResendConfirm", {
 														name: entry.fullName,
 														channel: t(
-															channel === "email"
-																? "fbChannelEmail"
-																: channel === "sms"
-																	? "fbChannelSms"
-																	: "fbChannelAll",
+															CHANNELS.find((c) => c.value === channel)
+																?.label ?? "fbChannelAll",
 														),
 													})}
 												</span>

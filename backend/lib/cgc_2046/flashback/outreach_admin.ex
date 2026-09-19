@@ -254,7 +254,7 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
     |> Ash.Query.filter(key == ^archive_key)
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, nil} -> {:error, %{code: "flashback_archive_not_found"}}
+      {:ok, nil} -> {:error, %{code: "flashback_archive_not_found", message: "archive not found"}}
       {:ok, archive} -> {:ok, archive}
       {:error, reason} -> {:error, reason}
     end

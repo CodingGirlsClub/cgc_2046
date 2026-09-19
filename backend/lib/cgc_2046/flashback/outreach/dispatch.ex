@@ -213,6 +213,21 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   end
 
   @doc """
+  通道就绪校验（R6 第二道闸，MCP 确认段与 GraphQL 面共用）：仅短信档要求
+  SendCloud 触达模板就绪；未就绪 → 显式错误（不静默零入队）。
+  """
+  @spec ensure_channel_ready(atom()) :: :ok | {:error, String.t()}
+  def ensure_channel_ready(:sms) do
+    if sms_configured?() do
+      :ok
+    else
+      {:error, "sms channel not configured: template must be registered in SendCloud first"}
+    end
+  end
+
+  def ensure_channel_ready(_), do: :ok
+
+  @doc """
   通道字符串 → atom（R11；GraphQL/MCP 面共用，未知值 fail-closed）。
   """
   @spec parse_channel(String.t()) :: {:ok, atom()} | {:error, :invalid_channel}
@@ -405,9 +420,14 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
     end
   end
 
-  defp validate_template(template) when template in @templates, do: :ok
+  @doc """
+  入队模板白名单校验（MCP 工具确认流第一段共用，错误经 dispatch_error_message
+  字符串化）。
+  """
+  @spec validate_template(String.t()) :: :ok | {:error, %{code: String.t(), message: String.t()}}
+  def validate_template(template) when template in @templates, do: :ok
 
-  defp validate_template(_),
+  def validate_template(_),
     do: {:error, invalid_input_error("template must be one of #{Enum.join(@templates, "|")}")}
 
   defp invalid_input_error(message),

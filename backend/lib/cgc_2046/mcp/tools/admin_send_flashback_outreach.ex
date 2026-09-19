@@ -32,7 +32,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
       Wrapper.run(frame, params, "admin_send_flashback_outreach", fn _actor, _ws, params ->
         with {:ok, channel} <- parse_channel(params["channel"]),
              {:ok, preview} <- OutreachAdmin.preview(params["archive_key"], channel),
-             :ok <- validate_template_known(params["template"]) do
+             :ok <- Dispatch.validate_template(params["template"]) do
           Confirmation.request(
             frame.assigns[:current_user],
             "admin_send_flashback_outreach",
@@ -66,7 +66,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
 
     # R6 fail-closed 第二道闸：入队面已抑制 sms 通道，配置竞态窗口内确认的
     # 仅短信发送在此显式拒绝（不静默零入队）。
-    with :ok <- ensure_channel_ready(channel),
+    with :ok <- Dispatch.ensure_channel_ready(channel),
          {:ok, %{queued: queued, skipped: skipped}} <-
            Dispatch.enqueue_for_archive(params["archive_key"], params["template"], channel),
          {:ok, archive_id} <- fetch_archive_id(params["archive_key"]) do
@@ -98,30 +98,8 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
     end
   end
 
-  defp ensure_channel_ready(:sms) do
-    if Dispatch.sms_configured?() do
-      :ok
-    else
-      {:error, "sms channel not configured: template must be registered in SendCloud first"}
-    end
-  end
-
-  defp ensure_channel_ready(_), do: :ok
-
   defp parse_channel(nil), do: {:ok, :all}
   defp parse_channel(raw), do: Dispatch.parse_channel(raw)
-
-  defp validate_template_known(template) do
-    if template in Dispatch.templates() do
-      :ok
-    else
-      {:error,
-       %{
-         code: "flashback_invalid_input",
-         message: "template must be one of #{Enum.join(Dispatch.templates(), "|")}"
-       }}
-    end
-  end
 
   defp summary(preview, template) do
     channel_text =
