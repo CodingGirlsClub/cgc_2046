@@ -31,6 +31,7 @@ export default function MyCard({
   capsule,
   token,
   onWrite,
+  onSent,
   autoOpen = false,
   chrome = true,
   onOpenShare
@@ -39,6 +40,8 @@ export default function MyCard({
   /** 会话腿寄出需要(capsule token 或登录态二选一,与 corridor 加载同源) */
   token?: string | null
   onWrite: () => void
+  /** 寄出成功(保存+上墙)后通知页面:关抽屉+滚到今天格 */
+  onSent?: () => void
   /** write 入口:抽屉升起直接落在「今天写入面」;view 入口落在「当年答案面」 */
   autoOpen?: boolean
   /** chrome:状态行+分享按钮(独立页需要;corridor 居中模态里外移到遮罩,传 false) */
@@ -96,6 +99,7 @@ export default function MyCard({
       await api.flashbackSendToWall(token ?? '')
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       onWrite()
+      onSent?.()
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
     } finally {
