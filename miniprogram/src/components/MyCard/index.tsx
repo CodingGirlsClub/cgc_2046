@@ -1,79 +1,65 @@
 /**
- * 我的卡(U2/R2 完整版,从原独立页整体搬迁):合着拍立得卡面 → 点击两段式 3D 翻转
- * (0.32s 转出 → 侧棱换面 → 0.32s 转入,原型 E ia-flip 语言)→ 当年正面(句子级
- * 雾化开关,KTD4 本人视图原文永远完整)+ 今天背面(编辑);金句授权三档(R31)+
- * R35 圈选器(点句即提交);R36 作者侧点赞回显;分享按钮唤起页面级 sheet。
- *
- * 数据由父级传入 capsule(父级负责加载),写操作(雾化/今天/授权)组件内直调 api
- * 后经 onWrite 通知父级 reload;分享 sheet/canvas 属页面级资源,经 onOpenShare
- * 唤起——corridor(微信端)与裁剪端薄壳共用本组件,视觉与交互单源。
+ * 我的卡(F 式两面拍立得,用户定稿):点开即「当年答案相纸」——题干+雾化句
+ * 直接印在相纸上(点句切换雾面),再点卡面翻到「今天写入面」——三行手写线
+ * 直接可输入(placeholder 引导,失焦自动保存),「写完寄出 →」= 保存+上墙
+ * 一步到位;无「编辑」按钮,无需进入编辑态。
+ * 数据由父级传入 capsule/token;雾化/今天/寄出直调 api 后经 onWrite 通知
+ * 父级 reload;分享 sheet 由页面级 onOpenShare 唤起(canvas 在页面)。
  */
 import { useEffect, useState } from 'react'
-import { Button, Radio, RadioGroup, Text, Textarea, View } from '@tarojs/components'
+import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '@/domain/models'
 import { api } from '@/api'
 import {
-  isCandidatePicked,
-  myCardView,
-  parseQuoteLevel,
-  QUOTE_LEVEL_OPTIONS,
-  quoteCandidatesOf,
   quoteLikeBadge,
   sentencesWithFog,
-  toggleSentenceFog,
-  type QuoteCandidate,
-  type QuoteLevel
+  toggleSentenceFog
 } from '@/domain/flashback'
+import { questionLabel } from '@/domain/flashback-journey'
 import styles from './index.module.css'
-import { useQuoteLicense, type QuoteSpanPick } from './useQuoteLicense'
+
+const TODAY_FIELDS = [
+  { key: 'nowStatus', label: '现在在做什么', placeholder: '比如:还在写代码,下班带娃' },
+  { key: 'want', label: '想做的事 / 想学的东西', placeholder: '比如:学 Rust,做一个小工具' },
+  { key: 'say', label: '想对 CGC 说', placeholder: '比如:十周年快乐!' }
+] as const
+
+type TodayKey = (typeof TODAY_FIELDS)[number]['key']
 
 export default function MyCard({
   capsule,
+  token,
   onWrite,
   autoOpen = false,
+  chrome = true,
   onOpenShare
 }: {
   capsule: FlashbackCapsule
+  /** 会话腿寄出需要(capsule token 或登录态二选一,与 corridor 加载同源) */
+  token?: string | null
   onWrite: () => void
-  /** 层弹出后自动翻开(首程答对/今天格点击);独立入口默认手点 */
+  /** write 入口:抽屉升起直接落在「今天写入面」;view 入口落在「当年答案面」 */
   autoOpen?: boolean
+  /** chrome:状态行+分享按钮(独立页需要;corridor 居中模态里外移到遮罩,传 false) */
+  chrome?: boolean
   /** 唤起页面级分享 sheet(canvas 与「···」原生分享 hook 都在页面) */
   onOpenShare?: () => void
 }) {
   const [answers, setAnswers] = useState<FlashbackMeAnswer[]>(capsule.me.answers)
-  const [editing, setEditing] = useState(false)
-  const [draftNow, setDraftNow] = useState(capsule.me.today?.nowStatus ?? '')
-  const [draftWant, setDraftWant] = useState(capsule.me.today?.want ?? '')
-  const [draftSay, setDraftSay] = useState(capsule.me.today?.say ?? '')
-  const [quoteLevel, setQuoteLevel] = useState<QuoteLevel>(parseQuoteLevel(capsule.me.quoteLevel))
-  // R35 圈选(多选):capsule 更新时从 me.quoteSpans 回显
-  const [pickedQuotes, setPickedQuotes] = useState<QuoteSpanPick[]>(
-    (capsule.me.quoteSpans ?? []).map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
-  )
-  // 第 3b 件:翻转态(原型 ia-flip——连续 180°,transition 驱动,无 JS 状态机)
-  const [flipped, setFlipped] = useState(false)
+  const [flipped, setFlipped] = useState(autoOpen)
+  const [draft, setDraft] = useState<Record<TodayKey, string>>({
+    nowStatus: capsule.me.today?.nowStatus ?? '',
+    want: capsule.me.today?.want ?? '',
+    say: capsule.me.today?.say ?? ''
+  })
+  const [saving, setSaving] = useState(false)
 
-  // autoOpen:层弹出即自动翻面(首程答对/今天格点击)
-  useEffect(() => {
-    if (autoOpen) setFlipped(true)
-  }, [autoOpen])
-
-  // capsule 更新(reload/写后)同步本地受控态
+  // capsule 更新(reload/写后)同步本地雾化态
   useEffect(() => {
     setAnswers(capsule.me.answers)
-    setDraftNow(capsule.me.today?.nowStatus ?? '')
-    setDraftWant(capsule.me.today?.want ?? '')
-    setDraftSay(capsule.me.today?.say ?? '')
-    setQuoteLevel(parseQuoteLevel(capsule.me.quoteLevel))
-    setPickedQuotes(
-      (capsule.me.quoteSpans ?? []).map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
-    )
   }, [capsule])
 
-  const { submitLicense } = useQuoteLicense(onWrite)
-
-  // 句子雾/解雾:本地即时切换 + 整份 spans 提交(后端校验重叠/越界,失败 reload 纠正)
   const toggleFog = async (answer: FlashbackMeAnswer, sentenceIndex: number) => {
     const sentences = sentencesWithFog(answer)
     const sentence = sentences[sentenceIndex]
@@ -87,196 +73,132 @@ export default function MyCard({
     }
   }
 
-  const saveToday = async () => {
+  const persistToday = async (next: Record<TodayKey, string>) => {
+    await api.flashbackSubmitToday({
+      nowStatus: next.nowStatus || null,
+      want: next.want || null,
+      say: next.say || null
+    })
+    onWrite()
+  }
+
+  const saveOnBlur = () => {
+    void persistToday(draft).catch((error: unknown) =>
+      Taro.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
+    )
+  }
+
+  const sendToday = async () => {
+    if (saving) return
+    setSaving(true)
     try {
-      await api.flashbackSubmitToday({
-        nowStatus: draftNow || null,
-        want: draftWant || null,
-        say: draftSay || null
-      })
-      setEditing(false)
+      await persistToday(draft)
+      await api.flashbackSendToWall(token ?? '')
+      Taro.showToast({ title: '已贴上墙', icon: 'none' })
       onWrite()
     } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '保存失败', icon: 'none' })
+      Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
+    } finally {
+      setSaving(false)
     }
   }
-
-  /** 切档:off 直接生效;anonymous/credited 已有圈选则直接换档,
-   * 否则只展开候选列表(未圈选 = 不上墙,提交发生在点句时)。 */
-  const changeQuoteLevel = async (level: QuoteLevel) => {
-    setQuoteLevel(level)
-    if (level === 'off') {
-      setPickedQuotes([])
-      await submitLicense('off', [])
-      return
-    }
-    if (pickedQuotes.length) await submitLicense(level, pickedQuotes)
-  }
-
-  /** 圈选一句(R35 多选):toggle 本地高亮 + 落库(span 与展示同源) */
-  const pickQuoteCandidate = async (candidate: QuoteCandidate) => {
-    const pick = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
-    const exists = pickedQuotes.some((p) => p.questionKey === pick.questionKey && p.start === pick.start)
-    const next = exists
-      ? pickedQuotes.filter((p) => !(p.questionKey === pick.questionKey && p.start === pick.start))
-      : [...pickedQuotes, pick]
-    setPickedQuotes(next)
-    if (quoteLevel === 'off') setQuoteLevel('anonymous')
-    await submitLicense(quoteLevel === 'off' ? 'anonymous' : quoteLevel, next)
-  }
-
-  const view = myCardView(capsule)
-  const quoteCandidates = quoteCandidatesOf(answers)
 
   return (
     <View className={styles.section}>
-      <View className={styles.header}>
-        <Text className={styles.eyebrow}>IN A FLASH · 闪念间</Text>
-        <Text className={styles.headline}>{view.headline}</Text>
-        <Text className={styles.subline}>{view.subline}</Text>
-        <Text className={`${styles.wallBadge} ${view.wallState === 'on_wall' ? styles.onWall : styles.offWall}`}>
-          {view.wallState === 'on_wall' ? '已寄出到校友墙' : '还未寄出（可在网页端寄出）'}
-        </Text>
-        {/* R36:作者侧点赞回显——上墙且有点赞才出现(domain 判据 quoteLikeBadge) */}
-        {quoteLikeBadge(capsule.me) && (
-          <Text className={styles.likeBadge} data-testid="fb-like-badge">
-            {quoteLikeBadge(capsule.me)}
+      {chrome && (
+        <View className={styles.statusRow}>
+          <Text
+            className={`${styles.wallBadge} ${capsule.me.today?.sentToWallAt ? styles.onWall : styles.offWall}`}
+          >
+            {capsule.me.today?.sentToWallAt ? '已寄出到校友墙' : '还没寄出 · 写完贴上面'}
           </Text>
-        )}
-      </View>
-
-      {/* 第 3b 件:点击卡面 3D 翻转(原型 E/F ia-flip:一次连贯 180°,两面常挂) */}
+          {quoteLikeBadge(capsule.me) && (
+            <Text className={styles.likeBadge} data-testid='fb-like-badge'>
+              {quoteLikeBadge(capsule.me)}
+            </Text>
+          )}
+        </View>
+      )}
+      {/* F 式两面拍立得:当年答案相纸 ⇄ 今天写入相纸(一次连贯 180°,两面常挂) */}
       <View className={styles.cardFlipScene}>
         <View className={`${styles.cardFlip} ${flipped ? styles.cardFlipFlipped : ''}`}>
-          {/* 合着卡面(正面):全名 + 年份·城市;点击翻开(用户定稿 ①) */}
-          <View className={`${styles.cardFlipFace} ${styles.polaroidCover}`} onClick={() => setFlipped(true)}>
-              <View className={styles.coverDot} />
-              <Text className={styles.coverName}>{capsule.me.fullName}</Text>
-              <Text className={styles.coverFacts}>
-                {[
-                  capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 4) : '',
-                  capsule.me.city
-                ].filter(Boolean).join(' · ')}
-              </Text>
-              <Text className={styles.coverHint}>点按翻开你的拍立得</Text>
-          </View>
-          {/* 开态(背面):答案 + 今天;常挂,backface-visibility 换面 */}
-          <View className={`${styles.cardFlipFace} ${styles.cardFlipFaceBack} ${styles.polaroidFlipOpen}`}>
-              <View className={styles.polaroid}>
-                <Text className={styles.polaroidLabel}>POLAROID · {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10) : '当年'}</Text>
-                {answers.map((answer) => (
-                  <View key={answer.id}>
-                    <Text className={styles.cardFaceTitle}>当年正面 · 你的答案</Text>
-                    <Text className={styles.answerMeta}>点按句子切换雾面：雾面句对外隐藏，你这里永远完整</Text>
-                    <View className={styles.sentences}>
-                      {sentencesWithFog(answer).map((sentence, index) => (
-                        <Text
-                          key={`${answer.id}-${index}`}
-                          className={`${styles.sentence} ${sentence.fogged ? styles.sentenceFogged : ''}`}
-                          onClick={() => void toggleFog(answer, index)}
-                        >
-                          {sentence.text}
-                        </Text>
-                      ))}
-                    </View>
+          {/* 正面:当年答案相纸(题干+雾化句+署名行);点击翻到今天写入面 */}
+          <View
+            className={`${styles.cardFlipFace} ${styles.paperFace}`}
+            onClick={() => setFlipped(true)}
+          >
+            <View className={styles.paperPhotoA}>
+              {answers.map((answer) => (
+                <View key={answer.id} className={styles.paperQA}>
+                  <Text className={styles.paperQ}>{questionLabel(answer.questionKey)}</Text>
+                  <View className={styles.paperA}>
+                    {sentencesWithFog(answer).map((sentence, index) => (
+                      <Text
+                        key={`${answer.id}-${index}`}
+                        className={`${styles.sentence} ${sentence.fogged ? styles.sentenceFogged : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void toggleFog(answer, index)
+                        }}
+                      >
+                        {sentence.text}
+                      </Text>
+                    ))}
                   </View>
-                ))}
-
-                <View className={styles.todayBlock}>
-                  <Text className={styles.cardFaceTitle}>今天背面 · 今天的你</Text>
-                  {editing ? (
-                    <View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>现在在做什么</Text>
-                        <Textarea className={styles.textarea} value={draftNow} onInput={(event) => setDraftNow(event.detail.value)} maxlength={200} />
-                      </View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
-                        <Textarea className={styles.textarea} value={draftWant} onInput={(event) => setDraftWant(event.detail.value)} maxlength={200} />
-                      </View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
-                        <Textarea className={styles.textarea} value={draftSay} onInput={(event) => setDraftSay(event.detail.value)} maxlength={200} />
-                      </View>
-                      <Button className={styles.saveButton} onClick={() => void saveToday()}>保存</Button>
-                    </View>
-                  ) : (
-                    <View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>现在在做什么</Text>
-                        <Text className={capsule.me.today?.nowStatus ? styles.todayText : styles.todayEmpty}>
-                          {capsule.me.today?.nowStatus || '还没写下'}
-                        </Text>
-                      </View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>想做的事 / 想学的东西</Text>
-                        <Text className={capsule.me.today?.want ? styles.todayText : styles.todayEmpty}>
-                          {capsule.me.today?.want || '还没写下'}
-                        </Text>
-                      </View>
-                      <View className={styles.todayRow}>
-                        <Text className={styles.todayLabel}>想对 CGC 说的话</Text>
-                        <Text className={capsule.me.today?.say ? styles.todayText : styles.todayEmpty}>
-                          {capsule.me.today?.say || '还没写下'}
-                        </Text>
-                      </View>
-                      <Button className={styles.editorToggle} onClick={() => setEditing(true)}>编辑今天的你</Button>
-                    </View>
-                  )}
                 </View>
-              </View>
-              <Button className={styles.foldBackButton} onClick={() => setFlipped(false)}>合上（回到卡面）</Button>
+              ))}
+            </View>
+            <View className={styles.signRow}>
+              <Text className={styles.signName}>{capsule.me.fullName}</Text>
+              <Text className={styles.signTime}>
+                {capsule.me.appliedAt ? capsule.me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''}
+              </Text>
+            </View>
+          </View>
+
+          {/* 背面:今天写入相纸(三行手写线直接输入,失焦自动保存) */}
+          <View
+            className={`${styles.cardFlipFace} ${styles.cardFlipFaceBack} ${styles.paperFace}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <View className={styles.paperPhotoB}>
+              <Text className={styles.paperTodayTitle}>
+                今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
+              </Text>
+              {TODAY_FIELDS.map((field) => (
+                <View key={field.key} className={styles.writeRow}>
+                  <Text className={styles.writeLabel}>{field.label}</Text>
+                  <Input
+                    className={styles.writeInput}
+                    value={draft[field.key]}
+                    placeholder={field.placeholder}
+                    placeholderClass={styles.writePlaceholder}
+                    maxlength={100}
+                    onInput={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.detail.value }))}
+                    onBlur={() => saveOnBlur()}
+                  />
+                </View>
+              ))}
+            </View>
+            <Button
+              className={`${styles.sendBtn} ${saving ? styles.sendBtnBusy : ''}`}
+              disabled={saving}
+              onClick={() => void sendToday()}
+            >
+              {saving ? '正在贴上墙…' : '写完寄出 →'}
+            </Button>
+            <Text className={styles.backLink} onClick={() => setFlipped(false)}>
+              ← 回到当年答案
+            </Text>
           </View>
         </View>
       </View>
 
-      {/* R14 分享入口(用户定稿 ③):显式按钮唤起页面级 sheet(··· 胶囊菜单原生分享由页面 hook 常驻注册) */}
-      {onOpenShare && (
-        <Button className={styles.shareButton} onClick={onOpenShare}>分享 · 把这一刻做成卡片</Button>
+      {chrome && onOpenShare && (
+        <Button className={styles.shareButton} onClick={onOpenShare}>
+          分享 · 把这一刻做成卡片
+        </Button>
       )}
-
-      <View className={styles.licenseCard}>
-        <Text className={styles.sectionTitle}>金句授权</Text>
-        <Text className={styles.sectionDesc}>你的授权随时可调，默认全部关闭</Text>
-        {/* R35 选句器:匿名/实名档下展开候选句(按句切分、排除雾面段);
-            未圈选 = 不上墙;点句即提交(span 与这里展示的同源) */}
-        {quoteLevel !== 'off' && (
-          <View className={styles.quotePicker}>
-            <Text className={styles.quotePickHint}>从当年答案里选一句作为你的金句（未选 = 不展示）：</Text>
-            {quoteCandidates.map((candidate) => (
-              <Text
-                key={`${candidate.questionKey}:${candidate.start}`}
-                className={`${styles.quoteCandidate} ${
-                  isCandidatePicked(candidate, pickedQuotes) ? styles.quoteCandidateActive : ''
-                }`}
-                onClick={() => void pickQuoteCandidate(candidate)}
-              >
-                {candidate.sentence}
-              </Text>
-            ))}
-            {quoteCandidates.length === 0 && (
-              <Text className={styles.quotePickHint}>当年的句子里都带着雾面——解开后才能选金句</Text>
-            )}
-          </View>
-        )}
-        <RadioGroup onChange={(event) => void changeQuoteLevel((event.detail.value as QuoteLevel) ?? 'off')}>
-          {QUOTE_LEVEL_OPTIONS.map((option) => (
-            <View
-              key={option.value}
-              className={`${styles.licenseOption} ${quoteLevel === option.value ? styles.licenseOptionActive : ''}`}
-            >
-              <Radio className={styles.licenseRadio} value={option.value} checked={quoteLevel === option.value} color="#ea5504" />
-              <View>
-                <Text className={styles.licenseLabel}>{option.label}</Text>
-                <Text className={styles.licenseDesc}>{option.desc}</Text>
-              </View>
-            </View>
-          ))}
-        </RadioGroup>
-        {/* 激励文案(用户选 C):三档下方常显 */}
-        <Text className={styles.licenseInspire}>你的语言，会成为别人的勇气。</Text>
-      </View>
     </View>
   )
 }
-

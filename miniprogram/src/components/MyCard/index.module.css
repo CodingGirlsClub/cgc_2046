@@ -2,66 +2,30 @@
  * 文字 #222326/#4b4d54/#8a8f98、主 CTA 品牌橙 #ea5504（TabBar 选中色）。
  * 拍立得卡（.polaroid 一族）是嵌在亮色界面里的纸白物件：纸白+时间戳白边+雾面照旧。 */
 .page { min-height: 100vh; background: #f7f7f7; }
-.section { padding: 0 28rpx; }
-.header { padding: 44rpx 32rpx 30rpx; }
-.eyebrow { display: block; color: #ea5504; font-size: 19rpx; font-weight: 700; letter-spacing: 3rpx; }
-.headline { display: block; margin-top: 10rpx; color: #222326; font-size: 44rpx; font-weight: 700; }
-.subline { display: block; margin-top: 8rpx; color: #4b4d54; font-size: 24rpx; }
-.wallBadge { display: inline-block; margin-top: 14rpx; padding: 6rpx 16rpx; border-radius: 16rpx; font-size: 21rpx; }
-.onWall { color: #ea5504; background: #fdeadf; }
-.offWall { color: #8a8f98; background: rgba(138,143,152,.1); }
 
 /* 我的卡：拍立得白框（当年正面 + 今天背面）——纸白物件，嵌在亮色界面里 */
-.polaroid { margin: 8rpx 0 26rpx; padding: 24rpx 24rpx 34rpx; background: #f5efe4; border-radius: 14rpx; box-shadow: 0 6rpx 24rpx rgba(34,35,38,.08); }
-.polaroidLabel { display: block; color: #6b6156; font-size: 20rpx; letter-spacing: 2rpx; }
-.cardFaceTitle { display: block; margin-top: 16rpx; color: #2d2a26; font-size: 26rpx; font-weight: 700; }
-.answerMeta { display: block; margin-top: 6rpx; color: #8a7f70; font-size: 21rpx; }
-.sentences { margin-top: 14rpx; }
-.sentence { display: inline; color: #2d2a26; font-size: 27rpx; line-height: 1.8; }
+.sentence { display: inline; color: #2d2a26; font-size: 27rpx; line-height: 1.8; padding: 10rpx 2rpx; margin: -10rpx -2rpx; box-sizing: content-box; }
 /* 雾面段（对齐 web fb-fog-block 的呵气语言）：小程序不支持 backdrop-filter，
  * 用「横竖双向线性渐变收边（羽化）+ 内联 PNG 噪点（相纸颗粒）+ 极缓微光呼吸」
  * 三层叠加模拟。原文节点与文本不变（读屏/文本断言完整），视觉由雾块承载；
  * 点句切换雾面的交互不变（fogHint 提示仍在）。 */
 .sentenceFogged {
-  position: relative;
-  color: transparent;
-  padding: 0 6rpx;
-  border-radius: 10rpx;
-  background-color: rgba(43, 39, 35, 0.07);
-  background-image:
-    url("data:image/png;base64,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"),
-    linear-gradient(90deg, rgba(43, 39, 35, 0) 0%, rgba(43, 39, 35, 0.15) 12%, rgba(43, 39, 35, 0.15) 88%, rgba(43, 39, 35, 0) 100%),
-    linear-gradient(180deg, rgba(43, 39, 35, 0) 0%, rgba(43, 39, 35, 0.12) 20%, rgba(43, 39, 35, 0.12) 80%, rgba(43, 39, 35, 0) 100%);
-  background-size: 36rpx 36rpx, 100% 100%, 100% 100%;
-  background-repeat: repeat, no-repeat, no-repeat;
-  animation: mpFogBreathe 6s ease-in-out infinite;
+  opacity: 0.72;
+  border-bottom: 2rpx dotted rgba(43, 39, 35, 0.45);
+}
+@keyframes mpFogBreathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.86; }
 }
 @keyframes mpFogBreathe {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.86; }
 }
 .fogHint { display: block; margin-top: 12rpx; color: #8a7f70; font-size: 20rpx; }
-.todayBlock { margin-top: 26rpx; padding-top: 20rpx; border-top: 2rpx dashed #d8cdbd; }
-.todayRow { margin-top: 12rpx; }
-.todayLabel { display: block; color: #8a7f70; font-size: 21rpx; }
-.todayText { display: block; margin-top: 4rpx; color: #2d2a26; font-size: 26rpx; }
-.todayEmpty { display: block; margin-top: 4rpx; color: #b3a899; font-size: 24rpx; }
-.editorToggle { margin: 20rpx 0 0; color: #ea5504; background: #fdeadf; border-radius: 24rpx; font-size: 22rpx; }
-.saveButton { margin: 18rpx 0 0; color: #fff; background: #ea5504; border-radius: 24rpx; font-size: 22rpx; }
-.textarea { margin-top: 12rpx; padding: 16rpx; width: 100%; box-sizing: border-box; min-height: 110rpx; background: #fff; border-radius: 12rpx; font-size: 25rpx; color: #2d2a26; }
 
 /* 金句授权（R31）*/
-.licenseCard { margin-bottom: 26rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
-.sectionTitle { display: block; color: #222326; font-size: 30rpx; font-weight: 700; }
-.sectionDesc { display: block; margin-top: 6rpx; color: #8a8f98; font-size: 22rpx; }
-.licenseOption { display: flex; align-items: flex-start; margin-top: 18rpx; padding: 16rpx 18rpx; background: #f7f7f7; border-radius: 14rpx; border: 2rpx solid transparent; }
-.licenseOptionActive { border-color: #ea5504; background: rgba(234,85,4,.06); }
-.licenseRadio { margin-right: 14rpx; transform: scale(.8); }
-.licenseLabel { color: #222326; font-size: 25rpx; font-weight: 600; }
-.licenseDesc { display: block; margin-top: 4rpx; color: #8a8f98; font-size: 21rpx; }
 
 /* 激励文案（用户选 C）：三档下方常显一行小字 */
-.licenseInspire { display: block; margin-top: 14rpx; color: #8a8f98; font-size: 22rpx; line-height: 1.6; }
 
 /* 城市钉（R34，原型 D ia-pin 语义贴品牌 token)：胶囊钉、选中品牌橙白字、未选白底灰字。
  * cityPinAll/cityPin 分立——e2e 类名定位（全部钉唯一、城市钉第一匹配） */
@@ -70,20 +34,6 @@
 .cityPinActive { background: #ea5504; border-color: #ea5504; color: #fff; font-weight: 600; }
 
 /* R35 选句器（授权区）：候选句列表 + 选中态（品牌橙描边） */
-.quotePicker { margin-top: 14rpx; }
-.quotePickHint { display: block; color: #8a8f98; font-size: 21rpx; margin: 6rpx 0 10rpx; }
-.quoteCandidate {
-  display: block;
-  margin-bottom: 12rpx;
-  padding: 16rpx 18rpx;
-  background: #f7f7f7;
-  border: 2rpx solid transparent;
-  border-radius: 14rpx;
-  color: #222326;
-  font-size: 24rpx;
-  line-height: 1.7;
-}
-.quoteCandidateActive { border-color: #ea5504; background: rgba(234, 85, 4, 0.06); }
 
 /* R36 作者侧点赞徽章 */
 .likeBadge {
@@ -112,29 +62,6 @@
 .stateAction { margin-top: 26rpx; color: #fff; background: #ea5504; border-radius: 26rpx; font-size: 24rpx; }
 
 /* 用户定稿 ①：合着卡面 → 3D 翻转（与 web polaroid-flip 同语义） */
-.polaroidCover {
-  background: #f6f2e8;
-  color: #2b2723;
-  border-radius: 12rpx;
-  padding: 48rpx 40rpx 40rpx;
-  position: relative;
-  display: grid;
-  gap: 8rpx;
-  justify-items: start;
-}
-.coverDot {
-  position: absolute;
-  top: 20rpx;
-  right: 24rpx;
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 50%;
-  background: #cbbf8f;
-  box-shadow: 0 0 16rpx rgba(203, 191, 143, 0.9);
-}
-.coverName { font-size: 34rpx; font-weight: 600; }
-.coverFacts { font-size: 22rpx; opacity: 0.7; }
-.coverHint { font-size: 20rpx; opacity: 0.5; margin-top: 12rpx; }
 /* 原型 E/F ia-flip 同款:一次连贯 180° 翻转。两面常挂 grid 叠放(容器取高面),
  * backface-visibility 自然换面;0.9s 长缓动 = 原型 ia-flip-inner transition 原值 */
 .cardFlipScene { perspective: 1400rpx; }
@@ -235,3 +162,92 @@
   line-height: 1.6;
 }
 .shareCancel::after { border: none; }
+
+/* ── F 式两面拍立得(用户定稿):相纸质感+直接写入 ── */
+.section { /* 抽屉内容容器 */ }
+.wallBadge { display: inline-block; padding: 6rpx 16rpx; border-radius: 16rpx; font-size: 21rpx; }
+.onWall { color: #ea5504; background: #fdeadf; }
+.offWall { color: #8a8f98; background: rgba(138, 143, 152, 0.1); }
+.likeBadge {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: 16rpx;
+  font-size: 21rpx;
+  color: #ea5504;
+  background: #fdeadf;
+}
+
+/* 相纸面公共:纸白边框+圆角,整面可点(当年面点击翻面) */
+.paperFace {
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  overflow: hidden;
+  padding: 44rpx 44rpx 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.55), 0 4rpx 16rpx rgba(0, 0, 0, 0.4);
+}
+/* 当年答案面:未显影相纸底,答案居中楷体(F 排版);flex:1 吃掉两面高差,下巴比例恒定 */
+.paperPhotoA {
+  flex: 1;
+  background: linear-gradient(160deg, #c9c2b1, #a49b88);
+  padding: 40rpx 28rpx;
+  display: grid;
+  gap: 40rpx;
+  align-content: center;
+  text-align: center;
+}
+.paperQ { display: block; font-size: 18rpx; opacity: 0.55; letter-spacing: 0.2em; margin-bottom: 12rpx; }
+.paperA { font-size: 26rpx; line-height: 1.9; color: #3a362f; }
+/* 宝丽来厚下巴:署名区 */
+.signRow {
+  padding: 22rpx 8rpx 26rpx;
+  font-size: 24rpx;
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.85;
+  color: #2d2a26;
+}
+.signName { display: inline-block; transform: rotate(-1.2deg); }
+.signTime { display: inline-block; }
+/* 今天写入面:纯相纸黄(#efe9db,原型 F 同值) */
+.paperPhotoB {
+  background: #efe9db;
+  padding: 44rpx 40rpx 48rpx;
+  display: grid;
+  gap: 26rpx;
+}
+.paperTodayTitle { font-size: 20rpx; opacity: 0.55; color: #4a463f; letter-spacing: 0.08em; }
+.writeRow { display: grid; gap: 6rpx; }
+.writeLabel { font-size: 20rpx; opacity: 0.7; color: #4a463f; }
+.writeInput {
+  font-family: inherit;
+  font-size: 25rpx;
+  color: #2d2a26;
+  padding: 10rpx 2rpx;
+  border-bottom: 2rpx dashed #b9ac95;
+  background: none;
+}
+.writePlaceholder { color: #b0a894; font-size: 23rpx; }
+.sendBtn {
+  margin: 16rpx 8rpx 6rpx;
+  width: auto;
+  background: #ea5504;
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  padding: 16rpx 0;
+  line-height: 1.5;
+}
+.sendBtn::after { border: none; }
+.sendBtnBusy { opacity: 0.6; }
+.backLink {
+  display: block;
+  text-align: center;
+  padding: 6rpx 0 14rpx;
+  font-size: 22rpx;
+  color: #cbbf8f;
+  text-decoration: underline;
+}

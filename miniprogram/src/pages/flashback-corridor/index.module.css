@@ -766,7 +766,28 @@
   padding: 26rpx 32rpx calc(env(safe-area-inset-bottom) + 30rpx);
   background: #f7f7f7;
 }
-.layerMask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 300; }
+.layerMask {
+  position: fixed; inset: 0; background: rgba(12, 11, 14, 0.92); z-index: 300;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+/* 卡是唯一主角:容器透明,chrome(badge 行/分享)正常流排于卡上下 */
+.layerCard {
+  position: relative; width: 86vw; max-height: 64vh;
+  background: transparent; padding: 0;
+}
+.maskBadge {
+  width: 86vw;
+  display: flex; justify-content: space-between; align-items: center; gap: 12rpx;
+  margin-bottom: 24rpx;
+}
+.maskBadgeLeft { display: flex; align-items: center; gap: 12rpx; }
+.wallOn { font-size: 22rpx; color: #cbbf8f; letter-spacing: 0.08em; }
+.wallOff { font-size: 22rpx; color: #8d887e; letter-spacing: 0.08em; }
+.maskLike { font-size: 22rpx; color: #e8c66a; }
+.layerClose {
+  width: 56rpx; height: 56rpx; line-height: 52rpx; text-align: center;
+  border-radius: 999rpx; background: rgba(239, 233, 219, 0.22); color: #efe9db; font-size: 26rpx;
+}
 .layerStub {
   margin: 30% auto 0; width: 60%; background: #fff; border-radius: 16rpx; padding: 40rpx;
   display: flex; flex-direction: column; gap: 20rpx; align-items: center;

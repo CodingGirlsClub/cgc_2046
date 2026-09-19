@@ -51,7 +51,7 @@ export default function ShareSheet({
       <Canvas id={SUMMARY_CARD_CANVAS_ID} canvasId={SUMMARY_CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
 
       {open && (
-        <View className={styles.shareMask} onClick={onClose}>
+        <View className={styles.shareMask} catchMove onClick={onClose}>
           <View className={styles.shareSheet} onClick={(event) => event.stopPropagation()}>
             <Text className={styles.shareSheetTitle}>{title}</Text>
             {optInMode !== 'hidden' && (
