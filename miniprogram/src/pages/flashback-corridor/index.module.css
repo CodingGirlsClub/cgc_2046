@@ -756,6 +756,8 @@
 }
 .capsule {
   height: 100%;
+}
+.capsuleInner {
   padding: 12rpx 44rpx 40rpx;
 }
 .footerBar {
