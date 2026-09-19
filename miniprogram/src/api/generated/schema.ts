@@ -2330,6 +2330,8 @@ export type FlashbackFutureFrame = {
   initiativeName: Scalars['String']['output'];
   /** 帧头跳转目标：/initiatives/{initiative_slug}（R1） */
   initiativeSlug: Scalars['String']['output'];
+  /** 未显影帧时间：initiative 窗口开始时间（未来=还没冲洗的底片,报名/附议即显影） */
+  initiativeStartsAt?: Maybe<Scalars['DateTime']['output']>;
 };
 
 export type FlashbackMeAnswer = {

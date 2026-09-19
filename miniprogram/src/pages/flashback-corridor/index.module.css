@@ -879,3 +879,27 @@
   50% { transform: scale(1.06); opacity: 0.85; }
 }
 .shutterHint { font-size: 24rpx; color: #8a8f98; margin-top: 28rpx; }
+
+/* G gap 一:错峰显影/三钮态/未显影帧 */
+@keyframes pinDevelop {
+  from { opacity: 0; transform: translateY(14rpx) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.pinPolaroid { animation: pinDevelop 0.6s ease-out both; }
+.tiltA { transform: rotate(4deg); }
+.tiltB { transform: rotate(-3deg); }
+.dockWrite {
+  font-size: 20rpx; color: #fff; background: #ea5504;
+  border-radius: 999rpx; padding: 8rpx 22rpx;
+}
+.dockSendDim { opacity: 0.45; }
+.dockSendDone { color: #b0aca4; border-color: rgba(176, 172, 164, 0.4); }
+.capReturnedInline { font-size: 18rpx; color: #cbbf8f; margin-left: auto; }
+.capFuture { font-size: 26rpx; color: #8d887e; font-weight: 700; }
+.capFutureDim { font-size: 20rpx; color: #5a564d; }
+.privateFoldDark { background: rgba(255, 255, 255, 0.06); }
+.privateFoldDark .privateFoldLabel { color: #b9b4aa; }
+.privateFoldDark .privateFoldArrow { color: #7a756c; }
+.privateCardDark { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.18); }
+.privateCardDark .wishContent { color: #d9d4ca; }
+.privateCardDark .wishWho { color: #7a756c; }

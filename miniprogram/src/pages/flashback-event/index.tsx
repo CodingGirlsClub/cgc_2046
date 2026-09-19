@@ -155,7 +155,7 @@ export default function FlashbackEventPage() {
             <Text className={styles.peopleHint}>这一场的人 · 显影的是寄出了的，雾着的是还没回来的</Text>
             <View className={styles.grid}>
               {mode.archive.roster.map((entry) => (
-                <View key={entry.id} onClick={() => {
+                <View key={entry.id} className={styles.rosterCellWrap} style={{ animationDelay: `${mode.archive.roster.indexOf(entry) * 0.12}s` }} onClick={() => {
                   if (!entry.sentToWallAt) {
                     Taro.showToast({ title: 'ta 还没回来——点击下方找回你的那一张', icon: 'none' })
                     return
