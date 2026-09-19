@@ -45,5 +45,8 @@ defmodule Cgc2046.Flashback do
     resource(Cgc2046.Flashback.Outreach)
     resource(Cgc2046.Flashback.Redemption)
     resource(Cgc2046.Flashback.Like)
+    resource(Cgc2046.Flashback.Wish)
+    resource(Cgc2046.Flashback.WishEndorsement)
+    resource(Cgc2046.Flashback.WishComment)
   end
 end
