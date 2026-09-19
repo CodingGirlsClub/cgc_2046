@@ -17,7 +17,6 @@ const cutPages = [
 ]
 
 const fullPages = [
-  'pages/flashback-corridor/index', // TEMP-UAT
   'pages/discover/index',
   'pages/initiative-detail/index',
   'pages/event-detail/index',
@@ -37,6 +36,7 @@ const fullPages = [
   // 在 components/MyCard）。旧独立页仅保留给裁剪端（tt/xhs 未注册长廊，diversion
   // 词表限制），微信端不再注册。
   'pages/flashback-journey/index',
+  'pages/flashback-corridor/index',
   'pages/flashback-event/index'
 ]
 

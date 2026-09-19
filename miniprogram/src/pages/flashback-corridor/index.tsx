@@ -5,6 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
 import { myCardView, quoteLikeBadge, shareMessage } from '@/domain/flashback'
+import { questionLabel } from '@/domain/flashback-journey'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
@@ -46,7 +47,7 @@ export default function FlashbackCorridorPage() {
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
   // U4 开卡层/U7 授权层:分层入口(view=看档案停在合着面;write=错峰翻面+定位今天块)
-  const [cardLayer, setCardLayer] = useState<null | 'view' | 'write'>('view') // TEMP-UAT
+  const [cardLayer, setCardLayer] = useState<null | 'view' | 'write'>(null)
   // write 模式翻面落定后抽屉内滚动锚点
   const [cardScrollTo, setCardScrollTo] = useState('')
   // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
@@ -71,12 +72,20 @@ export default function FlashbackCorridorPage() {
   const [eventSheet, setEventSheet] = useState<{ id: string; title: string; meta: string } | null>(null)
   const [enrolled, setEnrolled] = useState<string[]>([])
   const [sendingCard, setSendingCard] = useState(false)
+  // 金句授权引导(一次性):首程落地或寄出落定且未授权未推过 → 轻推
+  const [licenseNudge, setLicenseNudge] = useState(false)
+  const maybeNudgeLicense = (level: string) => {
+    if (level !== 'off') return
+    if (Taro.getStorageSync<boolean>(STORAGE_KEYS.flashbackLicenseNudge)) return
+    setLicenseNudge(true)
+  }
 
   /** 寄出落定(U5 三拍收尾):关抽屉 → 滚到 ⚡今天格,让用户看到自己上墙 */
   const sentLanding = () => {
     setCardLayer(null)
     setScrollAnchor('')
     setTimeout(() => setScrollAnchor('todayAnchor'), 350)
+    if (mode.kind === 'member') maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
   }
 
   /** 寄出(U5 完整三拍);骨架期:发送 → toast + 交 U5 落定 */
@@ -154,7 +163,6 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member') return
     const params = Taro.getCurrentInstance().router?.params
     if (params?.welcome === '1') return
-    if (true) return // TEMP-UAT
     setShutter(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
   }, [mode.kind])
@@ -169,6 +177,17 @@ export default function FlashbackCorridorPage() {
       setTimeout(() => setScrollAnchor('futureAnchor'), 400)
     }
   })
+
+  // 首程落地(welcome=1):member 就绪后一次性推金句授权引导
+  const welcomeNudged = useRef(false)
+  useEffect(() => {
+    if (mode.kind !== 'member' || welcomeNudged.current) return
+    const params = Taro.getCurrentInstance().router?.params
+    if (params?.welcome !== '1') return
+    welcomeNudged.current = true
+    maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 落地一次性
+  }, [mode.kind])
 
   const pickCity = (next: string | null) => {
     setCity(next)
@@ -526,6 +545,42 @@ export default function FlashbackCorridorPage() {
       </ScrollView>
       </View>
 
+      {/* 金句授权引导(一次性):勇气语+去授权/先不 */}
+      {licenseNudge && (
+        <View className={styles.nudgeMask} catchMove onClick={() => setLicenseNudge(false)}>
+          <View className={styles.nudgeCard} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.nudgeLead}>你说的话，会成为别人的勇气。</Text>
+            <Text className={styles.nudgeSub}>从当年的答案里选一句，匿名或实名地传下去。</Text>
+            <Button
+              className={styles.nudgePrimary}
+              onClick={() => {
+                Taro.setStorageSync(STORAGE_KEYS.flashbackLicenseNudge, true)
+                setLicenseNudge(false)
+                setLicenseLevel('anonymous')
+                setLicensePicks(
+                  me?.quoteSpans
+                    ? me.quoteSpans.map((sp) => ({ questionKey: sp.questionKey, start: sp.start, len: sp.len }))
+                    : [],
+                )
+                setLicenseInited(true)
+                setLicenseOpen(true)
+              }}
+            >
+              选一句试试 →
+            </Button>
+            <Button
+              className={styles.nudgeSkip}
+              onClick={() => {
+                Taro.setStorageSync(STORAGE_KEYS.flashbackLicenseNudge, true)
+                setLicenseNudge(false)
+              }}
+            >
+              先不
+            </Button>
+          </View>
+        </View>
+      )}
+
       {/* U8 快门仪式层:回访进门——呼吸快门,点按即入(原型 G intro) */}
       {shutter && mode.kind === 'member' && (
         <View className={styles.shutterMask} onClick={() => setShutter(false)}>
@@ -598,7 +653,7 @@ export default function FlashbackCorridorPage() {
               [
                 ['off', '关闭', '（默认）你的答案只对自己可见'],
                 ['anonymous', '匿名金句', '平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）'],
-                ['credited', '实名支持', '补充你现在在做什么，实名公开（可作品牌素材）'],
+                ['credited', '实名支持', '用你的名字公开这句话（可作品牌素材）'],
               ] as const
             ).map(([lv, label, desc]) => (
               <View
@@ -645,6 +700,7 @@ export default function FlashbackCorridorPage() {
                     >
                       {picked ? `✓${order + 1} ` : ''}
                       {candidate.sentence}
+                      <Text className={styles.quoteCandidateQ}>{questionLabel(candidate.questionKey)}</Text>
                     </Text>
                   )
                 })}
