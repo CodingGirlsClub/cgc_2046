@@ -40,7 +40,7 @@ defmodule Cgc2046.Flashback.Deletion do
 
   require Ash.Query
 
-  alias Cgc2046.Flashback.{Answer, Endorsement, Person, QuoteLicense, Today, Token, Tokens}
+  alias Cgc2046.Flashback.{Answer, Person, QuoteLicense, Today, Token, Tokens}
   alias Cgc2046.Flashback.Outreach.Dispatch
   alias Cgc2046.Repo
 
@@ -53,11 +53,8 @@ defmodule Cgc2046.Flashback.Deletion do
   """
   @spec preview(map()) :: {:ok, map()}
   def preview(%{person: person}) do
-    endorsement_count =
-      Endorsement
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(person_id == ^person.id)
-      |> Ash.count!(authorize?: false)
+    # 行动卡附议已随行动卡移除；许愿附议计数在许愿单元（U8）接入
+    endorsement_count = 0
 
     sent_to_wall_at =
       case Today
@@ -154,12 +151,7 @@ defmodule Cgc2046.Flashback.Deletion do
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.each(&Ash.destroy!(&1, authorize?: false, action: :destroy))
 
-    # 3. 附议删除
-    Endorsement
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(person_id == ^person.id)
-    |> Ash.read!(authorize?: false, page: false)
-    |> Enum.each(&Ash.destroy!(&1, authorize?: false, action: :destroy))
+    # 3.（原附议删除已随行动卡移除；许愿级联在 U8 接入）
 
     # 4. 金句授权删除
     QuoteLicense

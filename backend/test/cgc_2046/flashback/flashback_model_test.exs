@@ -218,42 +218,4 @@ defmodule Cgc2046.Flashback.FlashbackModelTest do
                |> Ash.update(authorize?: false)
     end
   end
-
-  describe "授权面：管理动作 gate 于 PlatformAdmin（U1 变异验证钉住点）" do
-    setup do
-      archive = create_archive()
-
-      %{
-        archive: archive,
-        admin: AccountsFixtures.platform_admin("fb-admin"),
-        member: AccountsFixtures.register_user("fb-member")
-      }
-    end
-
-    test "非管理员建 ActionCard 被拒（Forbidden）", %{archive: _archive, member: member} do
-      assert {:error, %Ash.Error.Forbidden{}} =
-               Flashback.ActionCard
-               |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-               |> Ash.create(actor: member)
-    end
-
-    test "匿名（actor nil）建 ActionCard 被拒", %{archive: _archive} do
-      assert {:error, %Ash.Error.Forbidden{}} =
-               Flashback.ActionCard
-               |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-               |> Ash.create(authorize?: true)
-    end
-
-    test "平台管理员可建可读", %{archive: _archive, admin: admin} do
-      assert {:ok, _card} =
-               Flashback.ActionCard
-               |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-               |> Ash.create(actor: admin)
-
-      assert {:ok, [_]} =
-               Flashback.ActionCard
-               |> Ash.Query.for_read(:read)
-               |> Ash.read(actor: admin)
-    end
-  end
 end

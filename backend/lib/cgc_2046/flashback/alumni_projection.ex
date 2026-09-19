@@ -82,21 +82,19 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   end
 
   @doc """
-  时间胶囊总览：me（本人格）+ archives（场次时间轴与名册）+ action_cards + cities。
+  时间胶囊总览：me（本人格）+ archives（场次时间轴与名册）+ cities。
 
-  city（R34 城市钉）：非空时名册与行动板按城市过滤——roster 按人城市、行动卡
-  按卡城市，筛空的场次整架撤下；cities 始终投影**全量**（钉条数据源，不随
-  过滤收缩，否则选定城市后其余钉消失、无法切回「全部」）。
+  city（R34 城市钉）：非空时名册按城市过滤，筛空的场次整架撤下；cities 始终
+  投影**全量**（钉条数据源，不随过滤收缩，否则选定城市后其余钉消失、无法切
+  回「全部」）。
   """
   @spec capsule(%{person: map()}, String.t() | nil) :: {:ok, map()} | {:error, term()}
   def capsule(%{person: person}, city \\ nil) do
-    with {:ok, archives} <- list_archives(person, city),
-         {:ok, cards} <- list_action_cards(person.id, city) do
+    with {:ok, archives} <- list_archives(person, city) do
       {:ok,
        %{
          me: me_payload(person),
          archives: archives,
-         action_cards: cards,
          cities: capsule_cities()
        }}
     end
@@ -112,30 +110,19 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     end
   end
 
-  # 城市钉数据源（R34）：有名册成员的城市 ∪ 有行动卡的城市（去重排序）。
+  # 城市钉数据源（R34）：有名册成员的城市（去重排序）。
   # 与 roster_by_archive 同口径（attended + 未删除），名册里看不到的城不进钉条。
   defp capsule_cities do
-    roster_cities =
-      Repo.all(
-        from(p in "flashback_people",
-          where:
-            p.participation == "attended" and is_nil(p.deleted_at) and
-              not is_nil(p.city) and p.city != "",
-          select: p.city,
-          distinct: true
-        )
+    Repo.all(
+      from(p in "flashback_people",
+        where:
+          p.participation == "attended" and is_nil(p.deleted_at) and
+            not is_nil(p.city) and p.city != "",
+        select: p.city,
+        distinct: true
       )
-
-    card_cities =
-      Repo.all(
-        from(c in "flashback_action_cards",
-          where: not is_nil(c.city) and c.city != "",
-          select: c.city,
-          distinct: true
-        )
-      )
-
-    (roster_cities ++ card_cities) |> Enum.uniq() |> Enum.sort()
+    )
+    |> Enum.sort()
   end
 
   # 裸查询绕过 Ecto 类型加载：uuid 文本须 dump 成 16 字节（同 initiatives/public.ex）
@@ -440,54 +427,5 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           [] -> ""
         end
     end
-  end
-
-  # ── 行动板（R13 四态） ───────────────────────────────────────────────
-
-  defp list_action_cards(person_id, city) do
-    rows =
-      from(c in "flashback_action_cards",
-        left_join: e in "flashback_endorsements",
-        on: e.card_id == c.id,
-        left_join: ev in "events",
-        on: ev.id == c.event_id,
-        group_by: [c.id, c.title, c.city, c.status, c.event_id, ev.slug, c.inserted_at],
-        order_by: [asc: c.inserted_at],
-        select: %{
-          id: fragment("?::text", c.id),
-          title: c.title,
-          city: c.city,
-          status: c.status,
-          event_id: fragment("?::text", c.event_id),
-          event_slug: ev.slug,
-          endorsement_count: count(e.id),
-          endorsed_by_me: fragment("BOOL_OR(? = ?)", e.person_id, ^uuid_param(person_id)),
-          roles_claimed:
-            fragment(
-              "ARRAY_AGG(DISTINCT ?) FILTER (WHERE ? IS NOT NULL)",
-              e.role_claimed,
-              e.role_claimed
-            )
-        }
-      )
-      |> filter_city(clean_city(city))
-      |> Repo.all()
-
-    cards =
-      Enum.map(rows, fn row ->
-        %{
-          id: row.id,
-          title: row.title,
-          city: row.city,
-          status: row.status,
-          event_id: row.event_id,
-          event_slug: row.event_slug,
-          endorsement_count: row.endorsement_count,
-          endorsed_by_me: row.endorsed_by_me || false,
-          roles_claimed: row.roles_claimed || []
-        }
-      end)
-
-    {:ok, cards}
   end
 end

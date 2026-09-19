@@ -105,8 +105,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-wechat-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-wechat-event-qualification-underfilled",
     "event_schedule_changed" => "dev-wechat-event-schedule-changed",
-    "event_moderator_assigned" => "dev-wechat-event-moderator-assigned",
-    "flashback_action_scheduled" => "dev-wechat-flashback-action-scheduled"
+    "event_moderator_assigned" => "dev-wechat-event-moderator-assigned"
   },
   tt: %{
     "approval_result" => "dev-tt-approval-result",
@@ -129,8 +128,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-tt-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-tt-event-qualification-underfilled",
     "event_schedule_changed" => "dev-tt-event-schedule-changed",
-    "event_moderator_assigned" => "dev-tt-event-moderator-assigned",
-    "flashback_action_scheduled" => "dev-tt-flashback-action-scheduled"
+    "event_moderator_assigned" => "dev-tt-event-moderator-assigned"
   },
   xhs: %{
     "approval_result" => "dev-xhs-approval-result",
@@ -153,8 +151,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "event_qualification_confirmed" => "dev-xhs-event-qualification-confirmed",
     "event_qualification_underfilled" => "dev-xhs-event-qualification-underfilled",
     "event_schedule_changed" => "dev-xhs-event-schedule-changed",
-    "event_moderator_assigned" => "dev-xhs-event-moderator-assigned",
-    "flashback_action_scheduled" => "dev-xhs-flashback-action-scheduled"
+    "event_moderator_assigned" => "dev-xhs-event-moderator-assigned"
   }
 }
 

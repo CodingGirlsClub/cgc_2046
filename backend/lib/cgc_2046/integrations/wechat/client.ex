@@ -88,10 +88,6 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       template_key == "event_moderator_assigned" and is_binary(data["event_id"]) ->
         "pages/event-detail/index?id=#{data["event_id"]}&kind=event"
 
-      # 闪念间成场通知（U7）：同款 event-detail 深链——报名直达（R13a）。
-      template_key == "flashback_action_scheduled" and is_binary(data["event_id"]) ->
-        "pages/event-detail/index?id=#{data["event_id"]}&kind=event"
-
       template_key in @learner_templates ->
         "pages/my-enrollments/index"
 

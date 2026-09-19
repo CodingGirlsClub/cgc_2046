@@ -71,20 +71,6 @@ defmodule Cgc2046.Flashback.DeletionTest do
       })
       |> Ash.create!(authorize?: false)
 
-    card =
-      Flashback.ActionCard
-      |> Ash.Changeset.for_create(:create, %{title: "骑行场", city: "北京"})
-      |> Ash.create!(authorize?: false)
-
-    endorsement =
-      Flashback.Endorsement
-      |> Ash.Changeset.for_create(:create, %{
-        card_id: card.id,
-        person_id: person.id,
-        role_claimed: "organizer"
-      })
-      |> Ash.create!(authorize?: false)
-
     # 已发布的公开 slug（实名页占用）
     person
     |> Ash.Changeset.for_update(:update, %{})
@@ -121,8 +107,6 @@ defmodule Cgc2046.Flashback.DeletionTest do
       answer: answer,
       today: today,
       license: license,
-      card: card,
-      endorsement: endorsement,
       outreach: outreach,
       user_id: user_id
     }
@@ -159,7 +143,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
   end
 
   describe "级联清单逐项（KTD8）" do
-    test "全部落点：token 作废/回信删/附议删/授权删/答案删/slug 下线/匿名化/解绑/deleted_at" do
+    test "全部落点：token 作废/回信删/授权删/答案删/slug 下线/匿名化/解绑/deleted_at" do
       fx = full_fixture()
       {plain, token} = issue_token(fx.person)
 
@@ -177,8 +161,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
       # 2. 回信删除（含寄出态——行硬删）
       assert count_rows(Flashback.Today, fx.person.id) == 0
 
-      # 3. 附议删除
-      assert count_rows(Flashback.Endorsement, fx.person.id) == 0
+      # 3.（附议删除已随行动卡移除；许愿级联在 U8 接入）
 
       # 4. 金句授权删除
       assert count_rows(Flashback.QuoteLicense, fx.person.id) == 0

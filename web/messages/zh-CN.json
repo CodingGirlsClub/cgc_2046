@@ -104,8 +104,6 @@
 		"flashback_invalid_voter_key": "点赞身份校验失败，请刷新页面后重试。",
 		"lock_timeout": "工作台操作暂时繁忙，请稍后重试",
 		"deadlock_detected": "检测到锁冲突，请稍后重试",
-		"flashback_invalid_transition": "这张行动卡当前状态不允许该操作（四态只能依次推进）。",
-		"flashback_forbidden": "只有平台管理员可以执行这个操作。",
 		"flashback_photo_invalid": "活动照片格式不支持，请使用 PNG/JPEG/WebP/GIF 图片。",
 		"flashback_photo_too_large": "活动照片太大了，请压缩到约 2.2MB 以内再试。",
 		"flashback_initiative_not_found": "找不到这个倡导活动，请确认标识后重试。",
