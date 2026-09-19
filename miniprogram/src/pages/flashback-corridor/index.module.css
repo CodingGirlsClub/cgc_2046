@@ -35,7 +35,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12rpx;
-  padding: 0 44rpx 20rpx;
+  padding: 12rpx 0 20rpx;
 }
 .cityPin, .cityPinAll {
   padding: 8rpx 28rpx;
@@ -99,6 +99,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 22rpx;
+  margin-top: 24rpx;
 }
 
 .pile {
@@ -745,12 +746,16 @@
   font-size: 20rpx; color: #6b7076; border: 1rpx solid rgba(0, 0, 0, 0.14);
   border-radius: 999rpx; padding: 8rpx 22rpx; background: #fff;
 }
-.capsule {
+.capsuleShell {
   flex: 1;
   min-height: 0;
   margin-bottom: 20rpx;
   border-radius: 32rpx;
+  overflow: hidden;
   background: linear-gradient(180deg, #17161a 0%, #1d1c22 55%, #131217 100%);
+}
+.capsule {
+  height: 100%;
   padding: 12rpx 44rpx 40rpx;
 }
 .footerBar {
