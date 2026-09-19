@@ -132,7 +132,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
       end
 
     sms_note =
-      if preview.sms_ready? do
+      if preview.sms_ready do
         ""
       else
         "；短信腿未配置，仅短信发送将被拒绝，全部档只走邮件"
