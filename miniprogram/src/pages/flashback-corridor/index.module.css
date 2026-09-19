@@ -411,3 +411,57 @@
   background: #ea5504;
   font-weight: 600;
 }
+
+/* U3 未来·场次段:三行简卡——亮金可报名/灰卡状态标签 */
+.futureSection {
+  padding: 24rpx 22rpx 12rpx;
+}
+.futureTitle {
+  display: block;
+  font-size: 28rpx;
+  color: #222326;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+.eventCard {
+  border-radius: 16rpx;
+  padding: 22rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+.eventCardLit {
+  background: linear-gradient(135deg, #fdf3dd, #f5e8c4);
+  border: 1rpx solid rgba(203, 191, 143, 0.45);
+  box-shadow: 0 2rpx 12rpx rgba(203, 191, 143, 0.2);
+}
+.eventCardMuted {
+  background: #f2f2f0;
+  border: 1rpx solid rgba(0, 0, 0, 0.05);
+  opacity: 0.75;
+}
+.eventTitle {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222326;
+}
+.eventMeta {
+  display: block;
+  font-size: 22rpx;
+  color: #6b7076;
+  margin-top: 8rpx;
+}
+.eventCta {
+  display: inline-block;
+  margin-top: 14rpx;
+  font-size: 24rpx;
+  color: #fff;
+  background: #ea5504;
+  border-radius: 24rpx;
+  padding: 8rpx 28rpx;
+}
+.eventBadge {
+  display: inline-block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: #8a8f98;
+}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { futureEventCards } from '../src/domain/flashback.ts'
 import type { FlashbackCapsuleArchive, FlashbackMeAnswer, FlashbackPublicStatsArchive, FlashbackRosterEntry } from '../src/domain/models.ts'
 import {
   cardFaceAnswers,
@@ -183,4 +184,29 @@ describe('todayFrameLabel / 场次页判据', () => {
     assert.equal(eventFogLine({ city: null, occupationThen: '学生' }), '学生 · 答案还在等她')
     assert.equal(eventFogLine({ city: null, occupationThen: null }), '答案还在等她')
   })
+})
+
+// ── U3 未来段:场次三行卡判据(AE1) ─────────────────────────────────
+test('futureEventCards:可报名亮金带 CTA;满员/截止灰卡状态标签', () => {
+  const frames = [
+    {
+      initiativeSlug: 'hackerstart1024',
+      initiativeName: 'Hacker Start 1024',
+      events: [
+        { id: 'ev-1', slug: 'hs-1', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
+        { id: 'ev-2', slug: 'hs-2', title: '上海站', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
+        { id: 'ev-3', slug: 'hs-3', title: '广州站(截止)', city: '广州', startsAt: '2026-12-01T06:00:00Z', capacity: 24, confirmedCount: 5, registrationDeadline: '2026-09-01T00:00:00Z' }
+      ]
+    }
+  ]
+  const cards = futureEventCards(frames)
+  assert.equal(cards.length, 3)
+  assert.equal(cards[0].status, 'open')
+  assert.ok(cards[0].meta.includes('北京'))
+  assert.ok(cards[0].meta.includes('23 人已报名'))
+  assert.equal(cards[1].status, 'full')
+  assert.equal(cards[2].status, 'closed')
+  // 满员+截止同时命中 → 优先报满员
+  const both = futureEventCards([{ initiativeSlug: 'x', initiativeName: 'x', events: [{ id: 'e', slug: 's', title: 't', city: null, startsAt: null, capacity: 10, confirmedCount: 10, registrationDeadline: '2020-01-01T00:00:00Z' }] }])
+  assert.equal(both[0].status, 'full')
 })
