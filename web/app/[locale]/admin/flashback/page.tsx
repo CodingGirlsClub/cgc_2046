@@ -13,11 +13,21 @@ import {
 	fetchFlashbackAdminRedemptions,
 	fetchFlashbackAdminStats,
 	updateFlashbackRedemption,
+	fetchFlashbackAdminArchives,
+	fetchFlashbackOutreachPreview,
+	fetchFlashbackOutreachBatches,
+	fetchFlashbackOutreachRoster,
+	sendFlashbackOutreach,
+	resendFlashbackOutreach,
 } from "@/lib/admin";
 import { formatDateTime } from "@/lib/format";
 import type {
 	FlashbackAdminStats,
 	FlashbackRedemption,
+	FlashbackAdminArchive,
+	FlashbackOutreachPreview,
+	FlashbackOutreachBatch,
+	FlashbackOutreachRosterEntry,
 } from "@/lib/graphql/admin";
 
 const EVENTS = [
@@ -68,8 +78,27 @@ export default function AdminFlashbackPage() {
 	const [notes, setNotes] = useState<Record<string, string>>({});
 	const [updateError, setUpdateError] = useState(false);
 
+	// ── 触达运营台（R4/R7-R10） ──
+	const [archives, setArchives] = useState<FlashbackAdminArchive[]>([]);
+	const [outreachKey, setOutreachKey] = useState("");
+	const [channel, setChannel] = useState("all");
+	const [preview, setPreview] = useState<FlashbackOutreachPreview | null>(null);
+	const [previewing, setPreviewing] = useState(false);
+	const [sending, setSending] = useState(false);
+	const [sendResult, setSendResult] = useState<{ queued: number; skipped: number } | null>(null);
+	const [sendError, setSendError] = useState(false);
+	const [batches, setBatches] = useState<FlashbackOutreachBatch[] | null>(null);
+	const [roster, setRoster] = useState<FlashbackOutreachRosterEntry[] | null>(null);
+	const [rosterFilter, setRosterFilter] = useState("");
+	const [rosterSearch, setRosterSearch] = useState("");
+	const [resendTarget, setResendTarget] = useState<FlashbackOutreachRosterEntry | null>(null);
+	const [resendError, setResendError] = useState(false);
+	const [archivesError, setArchivesError] = useState(false);
+	const [previewError, setPreviewError] = useState(false);
+
 	// .then/.catch 链（reconciliation 页模式）：effect 内调用不触发 set-state-in-effect
 	const load = useCallback(() => {
+		void loadOutreachBase();
 		return Promise.all([
 			fetchFlashbackAdminStats(),
 			fetchFlashbackAdminRedemptions(),
@@ -133,6 +162,73 @@ export default function AdminFlashbackPage() {
 			.catch(() => setUpdateError(true));
 	};
 
+	const loadOutreachBase = useCallback(() => {
+		return fetchFlashbackAdminArchives()
+			.then((rows) => {
+				setArchives(rows);
+				setArchivesError(false);
+			})
+			.catch(() => setArchivesError(true));
+	}, []);
+
+	const loadBatchesAndRoster = useCallback((key: string) => {
+		if (!key) return Promise.resolve();
+		return Promise.all([
+			fetchFlashbackOutreachBatches(key),
+			fetchFlashbackOutreachRoster(key, rosterFilter || undefined, rosterSearch || undefined),
+		])
+			.then(([b, r]) => {
+				setBatches(b);
+				setRoster(r);
+			})
+			.catch(() => {
+				setBatches([]);
+				setRoster([]);
+			});
+	}, [rosterFilter, rosterSearch]);
+
+	const handlePreview = () => {
+		if (!outreachKey) return;
+		setPreviewing(true);
+		setSendResult(null);
+		fetchFlashbackOutreachPreview(outreachKey, channel)
+			.then((p) => {
+				setPreview(p);
+				setPreviewError(false);
+			})
+			.catch(() => setPreviewError(true))
+			.finally(() => setPreviewing(false));
+	};
+
+	const handleSend = () => {
+		if (!preview || preview.queued === 0) return;
+		setSending(true);
+		sendFlashbackOutreach(outreachKey, "reconnect", channel)
+			.then((r) => {
+				if (r) setSendResult(r);
+				setSendError(false);
+				return loadBatchesAndRoster(outreachKey);
+			})
+			.catch(() => setSendError(true))
+			.finally(() => setSending(false));
+	};
+
+	const handleRosterReload = (key: string, filter: string, search?: string) => {
+		fetchFlashbackOutreachRoster(key, filter || undefined, search || undefined)
+			.then(setRoster)
+			.catch(() => setRoster([]));
+	};
+
+	const handleResend = (entry: FlashbackOutreachRosterEntry) => {
+		setResendError(false);
+		resendFlashbackOutreach(entry.personId, "reconnect", channel)
+			.then(() => {
+				setResendTarget(null);
+				return loadBatchesAndRoster(outreachKey);
+			})
+			.catch(() => setResendError(true));
+	};
+
 	return (
 		<section>
 			<div className="admin-page__head">
@@ -177,6 +273,300 @@ export default function AdminFlashbackPage() {
 									</tr>
 								);
 							})}
+						</tbody>
+					</table>
+				</div>
+			)}
+
+			{/* ── 触达发送（R7/R4/KTD1/KTD2） ── */}
+			{!loading && !error && (
+				<div className="admin-page__head">
+					<div>
+						<h2>{t("fbOutreachTitle")}</h2>
+						<p className="admin-page__desc">{t("fbOutreachNote")}</p>
+					</div>
+				</div>
+			)}
+
+			{!loading && !error && archivesError && (
+				<p className="admin-alert admin-alert--error">{t("fbLoadArchivesFailed")}</p>
+			)}
+
+			{!loading && !error && !archivesError && (
+				<div className="admin-card admin-toolbar">
+					<select
+						value={outreachKey}
+						onChange={(e) => {
+							setOutreachKey(e.target.value);
+							setPreview(null);
+							setSendResult(null);
+							setBatches(null);
+							setRoster(null);
+							void loadBatchesAndRoster(e.target.value);
+						}}
+						aria-label={t("fbSelectArchive")}
+						className="l-input"
+					>
+						<option value="">{t("fbSelectArchive")}</option>
+						{archives.map((a) => (
+							<option key={a.key} value={a.key}>
+								{a.name} · {a.key}
+							</option>
+						))}
+					</select>
+					<select
+						value={channel}
+						onChange={(e) => {
+							setChannel(e.target.value);
+							setPreview(null);
+							setSendResult(null);
+						}}
+						aria-label={t("fbSelectChannel")}
+						className="l-input"
+					>
+						<option value="all">{t("fbChannelAll")}</option>
+						<option value="email">{t("fbChannelEmail")}</option>
+						<option value="sms">{t("fbChannelSms")}</option>
+					</select>
+					<button
+						type="button"
+						onClick={handlePreview}
+						disabled={!outreachKey || previewing}
+						className="l-btn-outline"
+					>
+						{t("fbPreview")}
+					</button>
+				</div>
+			)}
+
+			{!loading && !error && previewError && (
+				<p className="admin-alert admin-alert--error">{t("loadFailed")}</p>
+			)}
+
+			{!loading && !error && preview && (
+				<div className="admin-card">
+					<p>
+						{t("fbQueued")}: <strong>{preview.queued}</strong> ·{" "}
+						{t("fbEmailOnly")}: {preview.emailOnly} · {t("fbSmsOnly")}: {preview.smsOnly} ·{" "}
+						{t("fbBoth")}: {preview.both} · {t("fbUnsubscribedExcluded")}:{" "}
+						{preview.unsubscribed} · {t("fbUnreachable")}: {preview.unreachable}
+					</p>
+					{!preview.smsReady && (
+						<p className="admin-alert admin-alert--error">{t("fbSmsNotReady")}</p>
+					)}
+					{preview.queued === 0 && <p className="admin-empty">{t("fbNoReachable")}</p>}
+					<button
+						type="button"
+						onClick={handleSend}
+						disabled={sending || preview.queued === 0}
+						className="l-btn-outline"
+					>
+						{t("fbConfirmSend")}
+					</button>
+				</div>
+			)}
+
+			{!loading && !error && sendResult && (
+				<p className="admin-alert admin-alert--info">
+					{t("fbSendDone", {
+						queued: sendResult.queued,
+						skipped: sendResult.skipped,
+					})}
+				</p>
+			)}
+			{!loading && !error && sendError && (
+				<p className="admin-alert admin-alert--error">{t("loadFailed")}</p>
+			)}
+
+			{/* ── 批次历史（R8） ── */}
+			{!loading && !error && (
+				<div className="admin-page__head">
+					<div>
+						<h2>{t("fbBatchesTitle")}</h2>
+						<p className="admin-page__desc">{t("fbBatchesNote")}</p>
+					</div>
+				</div>
+			)}
+
+			{!loading && !error && batches && batches.length === 0 && (
+				<p className="admin-empty">{t("fbNoBatches")}</p>
+			)}
+
+			{!loading && !error && batches && batches.length > 0 && (
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>{t("fbThBatch")}</th>
+								<th>{t("fbThTemplate")}</th>
+								<th>{t("fbEmailShort")}</th>
+								<th>{t("fbSmsShort")}</th>
+								<th>{t("fbThFirstAt")}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{batches.map((b) => (
+								<tr key={b.batch}>
+									<td>{b.batch}</td>
+									<td>{b.template}</td>
+									<td>
+										{t("fbStatusQueued")} {b.email.queued} · {t("fbStatusSent")}{" "}
+										{b.email.sent} · {t("fbThFailed")} {b.email.failed}
+									</td>
+									<td>
+										{t("fbStatusQueued")} {b.sms.queued} · {t("fbStatusSent")} {b.sms.sent} ·{" "}
+										{t("fbThFailed")} {b.sms.failed}
+									</td>
+									<td>{b.firstAt ? formatDateTime(b.firstAt) : "—"}</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			)}
+
+			{/* ── 名册（R9/R10） ── */}
+			{!loading && !error && (
+				<div className="admin-page__head">
+					<div>
+						<h2>{t("fbRosterTitle")}</h2>
+						<p className="admin-page__desc">{t("fbRosterNote")}</p>
+					</div>
+				</div>
+			)}
+
+			{!loading && !error && (
+				<div className="admin-card admin-toolbar">
+					<select
+						value={rosterFilter}
+						onChange={(e) => {
+							setRosterFilter(e.target.value);
+							handleRosterReload(outreachKey, e.target.value, rosterSearch);
+						}}
+						aria-label={t("fbRosterTitle")}
+						className="l-input"
+					>
+						<option value="">{t("fbFilterAll")}</option>
+						<option value="unclaimed">{t("fbFilterUnclaimed")}</option>
+						<option value="unsubscribed">{t("fbFilterUnsubscribed")}</option>
+						<option value="sms_only">{t("fbFilterSmsOnly")}</option>
+						<option value="send_failed">{t("fbFilterSendFailed")}</option>
+					</select>
+					<input
+						value={rosterSearch}
+						onChange={(e) => setRosterSearch(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") handleRosterReload(outreachKey, rosterFilter, rosterSearch);
+						}}
+						placeholder={t("fbSearchPlaceholder")}
+						aria-label={t("fbSearchPlaceholder")}
+						className="l-input"
+					/>
+					<button
+						type="button"
+						onClick={() => handleRosterReload(outreachKey, rosterFilter, rosterSearch)}
+						className="l-btn-outline"
+					>
+						{t("fbSearchPlaceholder")}
+					</button>
+				</div>
+			)}
+
+			{!loading && !error && resendError && (
+				<p className="admin-alert admin-alert--error">{t("fbResendFailed")}</p>
+			)}
+
+			{!loading && !error && roster && roster.length === 0 && (
+				<p className="admin-empty">{t("fbNoRoster")}</p>
+			)}
+
+			{!loading && !error && roster && roster.length > 0 && (
+				<div className="admin-card admin-table-wrap">
+					<table className="admin-table">
+						<thead>
+							<tr>
+								<th>{t("fbThFullName")}</th>
+								<th>{t("fbThEmailAddr")}</th>
+								<th>{t("fbThPhone")}</th>
+								<th>{t("fbThClaimed")}</th>
+								<th>{t("fbThParticipation")}</th>
+								<th>{t("fbThUnsub")}</th>
+								<th>{t("fbThDeleted")}</th>
+								<th>{t("fbThReach")}</th>
+								<th>{t("fbThLast")}</th>
+								<th>{t("fbThActions")}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{roster.map((entry) => (
+								<tr key={entry.personId}>
+									<td>{entry.fullName}</td>
+									<td>{entry.email ?? "—"}</td>
+									<td>{entry.phone ?? "—"}</td>
+									<td>{entry.claimed ? t("fbYes") : t("fbNo")}</td>
+									<td>
+										{entry.participation === "attended"
+											? t("fbPartAttended")
+											: t("fbPartNotSelected")}
+									</td>
+									<td>{entry.unsubscribed ? t("fbYes") : t("fbNo")}</td>
+									<td>{entry.deleted ? t("fbYes") : t("fbNo")}</td>
+									<td>
+										{[entry.emailReachable ? t("fbChannelEmail") : null, entry.smsReachable ? t("fbSmsShort") : null]
+											.filter(Boolean)
+											.join("/") || "—"}
+									</td>
+									<td>
+										{entry.lastOutreach
+											? `${t(entry.lastOutreach.channel === "email" ? "fbEmailShort" : "fbSmsShort")} · ${t(entry.lastOutreach.status === "sent" ? "fbStatusSent" : entry.lastOutreach.status === "failed" ? "fbThFailed" : "fbStatusQueued")}`
+											: "—"}
+									</td>
+									<td>
+										{resendTarget?.personId === entry.personId ? (
+											<div className="admin-toolbar">
+												<span>
+													{t("fbResendConfirm", {
+														name: entry.fullName,
+														channel: t(
+															channel === "email"
+																? "fbChannelEmail"
+																: channel === "sms"
+																	? "fbChannelSms"
+																	: "fbChannelAll",
+														),
+													})}
+												</span>
+												<button
+													type="button"
+													onClick={() => handleResend(entry)}
+													className="l-btn-outline"
+												>
+													{t("fbResendOk")}
+												</button>
+												<button
+													type="button"
+													onClick={() => setResendTarget(null)}
+													className="l-btn-outline"
+												>
+													{t("fbResendCancel")}
+												</button>
+											</div>
+										) : (
+											<button
+												type="button"
+												onClick={() => {
+													setResendError(false);
+													setResendTarget(entry);
+												}}
+												disabled={entry.claimed || entry.unsubscribed || entry.deleted}
+												className="l-btn-outline"
+											>
+												{t("fbResend")}
+											</button>
+										)}
+									</td>
+								</tr>
+							))}
 						</tbody>
 					</table>
 				</div>

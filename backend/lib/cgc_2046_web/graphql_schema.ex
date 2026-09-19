@@ -310,6 +310,36 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "场次列表（R7 发送入口数据源，PlatformAdmin）"
+    field :flashback_admin_archives, non_null(list_of(non_null(:flashback_admin_archive))) do
+      resolve(fn _, _, %{context: context} ->
+        with_admin(context, fn _actor ->
+          Cgc2046.Flashback.OutreachAdmin.archives()
+        end)
+      end)
+    end
+
+    @desc "闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+    field :flashback_admin_resend_outreach, :flashback_outreach_dispatch_result do
+      arg(:person_id, non_null(:id))
+      arg(:template, non_null(:string))
+      arg(:channel, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          alias = Cgc2046.Flashback.Outreach.Dispatch
+
+          with {:ok, channel} <- alias.parse_channel(Map.get(args, :channel, "all")) do
+            alias.resend_for_person(args[:person_id], args[:template], channel)
+          else
+            {:error, :invalid_channel} ->
+              {:error,
+               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
+          end
+        end)
+      end)
+    end
+
     @desc "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
     field :flashback_outreach_batches, non_null(list_of(non_null(:flashback_outreach_batch))) do
       arg(:archive_key, non_null(:string))
@@ -3380,6 +3410,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   # ── 触达运营台（R4/R8/R9）────────────────────────────────────────────
+  object :flashback_admin_archive do
+    field(:key, non_null(:string))
+    field(:name, non_null(:string))
+    field(:city, non_null(:string))
+    field(:occurred_on, non_null(:string))
+  end
+
   object :flashback_outreach_preview do
     field(:archive_key, non_null(:string))
     field(:archive_name, non_null(:string))

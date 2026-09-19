@@ -745,3 +745,176 @@ export const FLASHBACK_ADMIN_UPDATE_REDEMPTION: TypedDocumentNode<
 		}
 	}
 `;
+
+// ── 闪念间触达运营台（R4/R7-R10）──────────────────────────────────────────
+
+export interface FlashbackOutreachPreview {
+	archiveKey: string;
+	archiveName: string;
+	channel: string;
+	queued: number;
+	emailOnly: number;
+	smsOnly: number;
+	both: number;
+	unsubscribed: number;
+	unreachable: number;
+	smsReady: boolean;
+}
+
+export interface FlashbackOutreachBatchChannel {
+	queued: number;
+	sent: number;
+	failed: number;
+}
+
+export interface FlashbackOutreachBatch {
+	batch: string;
+	template: string;
+	firstAt?: string | null;
+	email: FlashbackOutreachBatchChannel;
+	sms: FlashbackOutreachBatchChannel;
+}
+
+export interface FlashbackOutreachLast {
+	channel: string;
+	status: string;
+	batch: string;
+	at?: string | null;
+}
+
+export interface FlashbackOutreachRosterEntry {
+	personId: string;
+	fullName: string;
+	email?: string | null;
+	phone?: string | null;
+	claimed: boolean;
+	participation: string;
+	unsubscribed: boolean;
+	deleted: boolean;
+	emailReachable: boolean;
+	smsReachable: boolean;
+	lastOutreach?: FlashbackOutreachLast | null;
+}
+
+export interface FlashbackAdminArchive {
+	key: string;
+	name: string;
+	city: string;
+	occurredOn: string;
+}
+
+export const FLASHBACK_OUTREACH_PREVIEW: TypedDocumentNode<
+	{ flashbackOutreachPreview: FlashbackOutreachPreview },
+	{ archiveKey: string; channel?: string | null }
+> = gql`
+	query FlashbackOutreachPreview($archiveKey: String!, $channel: String) {
+		flashbackOutreachPreview(archiveKey: $archiveKey, channel: $channel) {
+			archiveKey
+			archiveName
+			channel
+			queued
+			emailOnly
+			smsOnly
+			both
+			unsubscribed
+			unreachable
+			smsReady
+		}
+	}
+`;
+
+export const FLASHBACK_OUTREACH_BATCHES: TypedDocumentNode<
+	{ flashbackOutreachBatches: FlashbackOutreachBatch[] },
+	{ archiveKey: string }
+> = gql`
+	query FlashbackOutreachBatches($archiveKey: String!) {
+		flashbackOutreachBatches(archiveKey: $archiveKey) {
+			batch
+			template
+			firstAt
+			email {
+				queued
+				sent
+				failed
+			}
+			sms {
+				queued
+				sent
+				failed
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_OUTREACH_ROSTER: TypedDocumentNode<
+	{ flashbackOutreachRoster: FlashbackOutreachRosterEntry[] },
+	{ archiveKey: string; filter?: string | null; search?: string | null }
+> = gql`
+	query FlashbackOutreachRoster($archiveKey: String!, $filter: String, $search: String) {
+		flashbackOutreachRoster(archiveKey: $archiveKey, filter: $filter, search: $search) {
+			personId
+			fullName
+			email
+			phone
+			claimed
+			participation
+			unsubscribed
+			deleted
+			emailReachable
+			smsReachable
+			lastOutreach {
+				channel
+				status
+				batch
+				at
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_ARCHIVES: TypedDocumentNode<
+	{ flashbackAdminArchives: FlashbackAdminArchive[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminArchives {
+		flashbackAdminArchives {
+			key
+			name
+			city
+			occurredOn
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_SEND_OUTREACH: TypedDocumentNode<
+	{ flashbackAdminSendOutreach: { queued: number; skipped: number } },
+	{ archiveKey: string; template: string; channel?: string | null }
+> = gql`
+	mutation FlashbackAdminSendOutreach($archiveKey: String!, $template: String!, $channel: String) {
+		flashbackAdminSendOutreach(
+			archiveKey: $archiveKey
+			template: $template
+			channel: $channel
+		) {
+			queued
+			skipped
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
+	{ flashbackAdminResendOutreach: { queued: number; skipped: number; batch: string } },
+	{ personId: string; template: string; channel?: string | null }
+> = gql`
+	mutation FlashbackAdminResendOutreach($personId: ID!, $template: String!, $channel: String) {
+		flashbackAdminResendOutreach(
+			personId: $personId
+			template: $template
+			channel: $channel
+		) {
+			queued
+			skipped
+			batch
+		}
+	}
+`;

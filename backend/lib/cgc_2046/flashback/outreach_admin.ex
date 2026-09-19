@@ -63,6 +63,21 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
     end
   end
 
+  @doc "场次列表（R7 发送入口数据源，PlatformAdmin）：按举办时间倒序。"
+  @spec archives() :: {:ok, [map()]}
+  def archives do
+    archives =
+      EventArchive
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.sort(desc: :occurred_on)
+      |> Ash.read!(authorize?: false, page: false)
+      |> Enum.map(fn a ->
+        %{key: a.key, name: a.name, city: a.city, occurred_on: Date.to_iso8601(a.occurred_on)}
+      end)
+
+    {:ok, archives}
+  end
+
   @doc """
   场次触达批次历史（R8）：按批次聚合发送计数（通道 × 状态），含 resend-*
   补救批次；`first_at` = 批次最早建行时刻（触发时间近似）。已删除档案的
