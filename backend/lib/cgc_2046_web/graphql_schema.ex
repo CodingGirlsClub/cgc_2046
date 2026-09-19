@@ -2537,15 +2537,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（email 优先/phone 兜底、未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；token 铸造在 worker 内完成"
+    @desc "闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
     field :flashback_admin_send_outreach, :flashback_outreach_dispatch_result do
       arg(:archive_key, non_null(:string))
       arg(:template, non_null(:string))
+      arg(:channel, :string)
 
-      resolve(fn _, %{archive_key: archive_key, template: template}, %{context: context} ->
+      resolve(fn _, %{archive_key: archive_key, template: template} = args, %{context: context} ->
         with_admin(context, fn _actor ->
           flashback_call(fn ->
-            Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(archive_key, template)
+            dispatch = Cgc2046.Flashback.Outreach.Dispatch
+
+            with {:ok, channel} <- dispatch.parse_channel(Map.get(args, :channel, "all")) do
+              dispatch.enqueue_for_archive(archive_key, template, channel)
+            else
+              {:error, :invalid_channel} ->
+                {:error,
+                 %{
+                   code: "flashback_invalid_input",
+                   message: "channel must be one of all|email|sms"
+                 }}
+            end
           end)
         end)
       end)
