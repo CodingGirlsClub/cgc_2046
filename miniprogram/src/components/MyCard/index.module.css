@@ -135,21 +135,22 @@
 .coverName { font-size: 34rpx; font-weight: 600; }
 .coverFacts { font-size: 22rpx; opacity: 0.7; }
 .coverHint { font-size: 20rpx; opacity: 0.5; margin-top: 12rpx; }
-/* 第 3b 件：点击卡面 3D 翻转（两段式：0.32s 转到侧棱 → 侧棱处换面 → 0.32s 转回）。
- * 曲线与 web 同源（cubic-bezier(.2,.7,.2,1)，整程 0.64s ↔ web 0.9s 的同一手感）。 */
+/* 原型 E/F ia-flip 同款:一次连贯 180° 翻转。两面常挂 grid 叠放(容器取高面),
+ * backface-visibility 自然换面;0.9s 长缓动 = 原型 ia-flip-inner transition 原值 */
 .cardFlipScene { perspective: 1400rpx; }
-.cardFlip { transform-style: preserve-3d; }
-@keyframes mpFlipHalfOut {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(90deg); }
+.cardFlip {
+  transform-style: preserve-3d;
+  display: grid;
+  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-@keyframes mpFlipHalfIn {
-  from { transform: rotateY(-90deg); }
-  to { transform: rotateY(0deg); }
+.cardFlipFlipped { transform: rotateY(180deg); }
+.cardFlipFace {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
-.cardFlipOut { animation: mpFlipHalfOut 0.32s cubic-bezier(.2, .7, .2, 1) forwards; }
-.cardFlipIn { animation: mpFlipHalfIn 0.32s cubic-bezier(.2, .7, .2, 1) both; }
-/* 翻开态容器（e2e 以本类名定位开态）：入场动画移到外层 .cardFlipIn，本类只作态标记 */
+.cardFlipFaceBack { transform: rotateY(180deg); }
+/* 翻开态标记（e2e 以本类名定位开态） */
 .polaroidFlipOpen { display: block; }
 .foldBackButton {
   margin-top: 16rpx;
