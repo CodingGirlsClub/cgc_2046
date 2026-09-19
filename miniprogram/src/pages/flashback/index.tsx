@@ -4,10 +4,6 @@ import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/
 import { api, FlashbackNotBoundError, SessionExpiredError } from '@/api'
 import { PageState } from '@/components/PageState'
 import {
-  actionCardTarget,
-  cardStatusText,
-  ENDORSE_ROLES,
-  endorseAction,
   isCandidatePicked,
   myCardView,
   parseQuoteLevel,
@@ -17,7 +13,6 @@ import {
   shareOptInState,
   shareMessage,
   sentencesWithFog,
-  splitActionCards,
   toggleSentenceFog,
   type QuoteCandidate,
   type QuoteLevel
@@ -26,9 +21,7 @@ import { buildFlashbackJourneyPath } from '@/domain/share-route'
 
 // 裁剪端（抖音/小红书）未注册闪念间旅程页——分享卡片回落回访页自身
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-import { flashbackEndorseTouchpoint, submitAfterConsent } from '@/domain/subscription'
-import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard, FlashbackMyCard } from '@/domain/models'
-import { requestPlatformSubscriptions } from '@/platform'
+import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyCard } from '@/domain/models'
 import { SUMMARY_CARD_CANVAS_ID, saveFlashbackSummaryCard } from '@/platform/summary-card'
 import styles from './index.module.css'
 
@@ -43,7 +36,6 @@ type LoadState =
  * U9/R28「我的闪念间」：回访正门（登录账号绑定档案）。
  * - 我的卡：当年正面（句子级雾化开关，KTD4 本人视图原文永远完整）+ 今天背面（编辑）；
  * - 金句授权三档（R31 端内入口）；
- * - 行动板：附议前先订阅授权（`submitAfterConsent` 顺序契约，成场通知优先订阅消息）。
  * 判据与文案全部下沉 domain/flashback.ts（页面无渲染测试，纯函数 node --test 钉住）。
  */
 export default function FlashbackPage() {
@@ -59,8 +51,7 @@ export default function FlashbackPage() {
   // R37 分享 opt-in（默认不勾；已授权则勾选态 + 禁用）
   const [shareOptIn, setShareOptIn] = useState(false)
   const [quoteBusy, setQuoteBusy] = useState(false)
-  const [endorsing, setEndorsing] = useState(false)
-  // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤行动板）
+  // R34 城市钉：null = 全部；点钉带 city 重拉（服务端过滤名册）
   const [city, setCity] = useState<string | null>(null)
   // 用户定稿 ① / 第 3b 件：我的卡两态——合着卡面（默认）→ 点击卡面 3D 翻转看正反两面 → 再按合上
   const [flipped, setFlipped] = useState(false)
@@ -219,47 +210,6 @@ export default function FlashbackPage() {
     if (!ok) setShareOptIn(false)
   }
 
-  // 附议提交前先订阅授权（KTD5/R13a：一次授权恰好覆盖「成场那一条」；
-  // 授权被拒/缺配不阻断附议，成场通知退回邮件/短信）
-  const endorse = async (card: FlashbackMyActionCard, role: string | null) => {
-    if (endorsing) return
-    setEndorsing(true)
-    try {
-      await submitAfterConsent(
-        flashbackEndorseTouchpoint(),
-        {
-          request: requestPlatformSubscriptions,
-          grant: (scenario) => api.grantConsent(scenario)
-        },
-        () => api.flashbackEndorse(card.id, role)
-      )
-      Taro.showToast({ title: '已附议', icon: 'success' })
-      void load()
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '附议失败', icon: 'none' })
-    } finally {
-      setEndorsing(false)
-    }
-  }
-
-  const pickRoleAndEndorse = (card: FlashbackMyActionCard) => {
-    const items = [...ENDORSE_ROLES.map(({ label }) => label), '只附议，不认领角色']
-    Taro.showActionSheet({
-      itemList: items,
-      success: ({ tapIndex }) => {
-        const role = tapIndex < ENDORSE_ROLES.length ? ENDORSE_ROLES[tapIndex].value : null
-        void endorse(card, role)
-      }
-    })
-  }
-
-  const openCard = (card: FlashbackMyActionCard) => {
-    const target = actionCardTarget(card)
-    if (target) {
-      void Taro.navigateTo({ url: target })
-    }
-  }
-
   const goLogin = () => Taro.navigateTo({ url: '/pages/login/index' })
 
   // R14 保存摘要卡（用户定稿 ③）：绘制/导出/保存已下沉 platform/summary-card
@@ -310,8 +260,6 @@ export default function FlashbackPage() {
   const view = myCardView(capsule)
   const quoteCandidates = quoteCandidatesOf(answers)
   const shareOptInMode = shareOptInState(capsule.me)
-  const { endorsed, open } = splitActionCards(capsule.actionCards)
-  const orderedCards = [...endorsed, ...open]
 
   return (
     <View className={styles.page}>
@@ -487,43 +435,6 @@ export default function FlashbackPage() {
               ))}
             </View>
           )}
-          <Text className={styles.sectionTitle}>行动板</Text>
-          <Text className={styles.boardHint}>已附议的卡排前面；附议后成场时会收到通知</Text>
-          {orderedCards.length === 0 && (
-            <Text className={styles.boardHint}>行动板还没有卡——回信里许下的愿望经运营确认后会成卡上墙。</Text>
-          )}
-          {orderedCards.map((card) => {
-            const action = endorseAction(card)
-            return (
-              <View key={card.id} className={`${styles.actionCard} ${styles[card.status]}`}>
-                <View className={styles.actionHeader}>
-                  <Text className={styles.actionTitle}>{card.title}</Text>
-                  <Text className={`${styles.actionStatus} ${styles[card.status]}`}>{cardStatusText(card.status)}</Text>
-                </View>
-                <Text className={styles.actionMeta}>
-                  {card.city ?? '城市待定'} · {action.hint}
-                </Text>
-                {card.rolesClaimed.length > 0 && (
-                  <Text className={styles.rolesRow}>
-                    已认领：{card.rolesClaimed.map((role) => ENDORSE_ROLES.find(({ value }) => value === role)?.label ?? role).join('、')}
-                  </Text>
-                )}
-                {action.kind === 'endorse' && (
-                  <Button
-                    className={`${styles.endorseButton} ${card.endorsedByMe ? styles.endorseButtonPlain : ''}`}
-                    disabled={endorsing}
-                    onClick={() => pickRoleAndEndorse(card)}
-                  >
-                    {action.label}
-                  </Button>
-                )}
-                {action.kind === 'goEvent' && (
-                  <Button className={styles.endorseButton} onClick={() => openCard(card)}>{action.label}</Button>
-                )}
-                {action.kind === 'done' && <Text className={styles.rolesRow}>{action.label}</Text>}
-              </View>
-            )
-          })}
         </View>
       </ScrollView>
 

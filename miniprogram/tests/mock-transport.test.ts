@@ -11,7 +11,6 @@ import {
   EnrollmentQueryDocument,
   FlashbackAdjustFogMutationDocument,
   FlashbackCapsuleQueryDocument,
-  FlashbackEndorseMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   MyEnrollmentsQueryDocument,
   PublicInitiativeQueryDocument,
@@ -199,23 +198,18 @@ test('mock FlashbackCapsule：未登录 → 顶层 errors（flashback_auth_requi
   assert.equal(body.errors?.[0]?.code, 'flashback_auth_required')
 })
 
-test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序；city 过滤 actionCards', () => {
+test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
-  type Capsule = { flashbackCapsule: { cities: string[]; actionCards: Array<{ city: string }> } }
-  // 字节序去重排序（与后端 capsule_cities 同口径）；批次二起 cities 并入
-  // 名册城市（roster 的广州进来），恒全量、不随 city 过滤收缩
+  type Capsule = { flashbackCapsule: { cities: string[] } }
+  // 字节序去重排序（与后端 capsule_cities 同口径）：名册城市恒全量、不随 city 过滤收缩
   const all = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {})
-  assert.deepEqual(all.flashbackCapsule.cities, ['上海', '北京', '天津', '广州', '杭州'])
+  assert.deepEqual(all.flashbackCapsule.cities, ['上海', '北京', '广州'])
 
   const beijing = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, { city: '北京' })
-  assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '天津', '广州', '杭州'])
-  assert.deepEqual(
-    beijing.flashbackCapsule.actionCards.map((card) => card.city),
-    ['北京']
-  )
+  assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '广州'])
 })
 
-test('mock 闪念间写面落 state：adjustFog / setQuoteLicense / endorse 后 capsule 回读', () => {
+test('mock 闪念间写面落 state：adjustFog / setQuoteLicense 后 capsule 回读', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
 
   // 雾面：解掉初始 [0,7) → capsule 回读空 spans（不再恒定初始区间）
@@ -223,7 +217,6 @@ test('mock 闪念间写面落 state：adjustFog / setQuoteLicense / endorse 后 
   let capsule = mockGraphQLRequest<{
     flashbackCapsule: {
       me: { quoteLevel: string; answers: Array<{ fogSpans: Array<{ start: number; len: number }> }> }
-      actionCards: Array<{ id: string; endorsementCount: number; endorsedByMe: boolean }>
     }
   }>(FlashbackCapsuleQueryDocument, {})
   assert.deepEqual(capsule.flashbackCapsule.me.answers[0]?.fogSpans, [])
@@ -233,10 +226,4 @@ test('mock 闪念间写面落 state：adjustFog / setQuoteLicense / endorse 后 
   capsule = mockGraphQLRequest<typeof capsule>(FlashbackCapsuleQueryDocument, {})
   assert.equal(capsule.flashbackCapsule.me.quoteLevel, 'anonymous')
 
-  // 附议：forming 卡计数 4 → 5、endorsedByMe 翻真
-  mockGraphQLRequest(FlashbackEndorseMutationDocument, { cardId: 'card-forming', roleClaimed: 'organizer' })
-  capsule = mockGraphQLRequest<typeof capsule>(FlashbackCapsuleQueryDocument, {})
-  const forming = capsule.flashbackCapsule.actionCards.find((card) => card.id === 'card-forming')
-  assert.equal(forming?.endorsementCount, 5)
-  assert.equal(forming?.endorsedByMe, true)
 })

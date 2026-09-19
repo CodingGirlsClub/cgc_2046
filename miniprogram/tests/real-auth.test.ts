@@ -442,7 +442,6 @@ describe('闪念间 capsule 错误映射与授权档回读（P1/P3）', () => {
           today: null,
           answers: []
         },
-        actionCards: []
       }
     })
     const api = new RealMiniProgramApi()

@@ -48,7 +48,6 @@ export type SubscriptionScenario =
   | 'event_qualification_underfilled'
   | 'event_schedule_changed'
   | 'event_moderator_assigned'
-  | 'flashback_action_scheduled'
   | 'speaker_accepted'
   | 'speaker_completed'
   | 'learning_stagnation'
@@ -347,18 +346,6 @@ export interface FlashbackMyCard {
   answers: FlashbackMeAnswer[]
 }
 
-export interface FlashbackMyActionCard {
-  id: string
-  title: string
-  city: string | null
-  status: 'proposed' | 'forming' | 'scheduled' | 'done'
-  eventId: string | null
-  eventSlug: string | null
-  endorsementCount: number
-  endorsedByMe: boolean
-  rolesClaimed: string[]
-}
-
 /** 名册答案段（对外版）：fog=true 时 text 恒空（原文字符不出 DOM，KTD4） */
 export interface FlashbackRosterSegment {
   text: string
@@ -399,8 +386,7 @@ export interface FlashbackCapsuleArchive {
 
 export interface FlashbackCapsule {
   me: FlashbackMyCard
-  actionCards: FlashbackMyActionCard[]
-  /** 城市钉数据源（R34）：有名册成员或行动卡的城市，去重排序；不随 city 过滤收缩 */
+  /** 城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩 */
   cities: string[]
   /** 场次时间轴与名册（长廊/场次页数据源；city 过滤时空名册场次被服务端撤下） */
   archives: FlashbackCapsuleArchive[]
@@ -541,7 +527,6 @@ export interface MiniProgramApi {
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */
   getFlashbackPublicStats(): Promise<FlashbackPublicStats>
   /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
-  flashbackEndorse(cardId: string, roleClaimed: string | null): Promise<FlashbackEndorseResult>
   /** U9/R8：编辑「今天的你」（会话面不重计意图率）；旅程 token 面传 token（KTD2） */
   flashbackSubmitToday(
     input: {

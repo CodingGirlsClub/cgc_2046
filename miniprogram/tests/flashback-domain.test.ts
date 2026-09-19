@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import type { FlashbackCapsule, FlashbackMeAnswer, FlashbackMyActionCard } from '../src/domain/models.ts'
+import type { FlashbackCapsule, FlashbackMeAnswer } from '../src/domain/models.ts'
 import {
-  actionCardTarget,
-  cardStatusText,
-  endorseAction,
   myCardView,
   parseQuoteLevel,
   sentencesWithFog,
-  splitActionCards,
   splitSentences,
   toggleSentenceFog,
   yearsAgoText
@@ -85,56 +81,6 @@ describe('句子雾化（R16/KTD4）', () => {
     assert.deepEqual(sentencesWithFog(answer({ rawText: '', text: '' })), [])
     const partial = answer({ fogSpans: [{ start: 1, len: 2 }] })
     assert.deepEqual(sentencesWithFog(partial).map(({ fogged }) => fogged), [true, false, false])
-  })
-})
-
-describe('行动板（R13 四态）', () => {
-  const card = (overrides: Partial<FlashbackMyActionCard>): FlashbackMyActionCard => ({
-    id: 'c1',
-    title: '骑行场',
-    city: '北京',
-    status: 'forming',
-    eventId: null,
-    eventSlug: null,
-    endorsementCount: 3,
-    endorsedByMe: false,
-    rolesClaimed: [],
-    ...overrides
-  })
-
-  test('cardStatusText 四态中文', () => {
-    assert.equal(cardStatusText('proposed'), '提议中')
-    assert.equal(cardStatusText('forming'), '附议中')
-    assert.equal(cardStatusText('scheduled'), '已成场')
-    assert.equal(cardStatusText('done'), '已落地')
-  })
-
-  test('endorseAction：每张卡任何时刻有下一步（R13）', () => {
-    assert.equal(endorseAction(card({ status: 'proposed', endorsementCount: 0 })).kind, 'endorse')
-    const mine = endorseAction(card({ endorsedByMe: true }))
-    assert.equal(mine.kind, 'endorse')
-    assert.match(mine.label, /已附议/)
-
-    const scheduled = endorseAction(card({ status: 'scheduled', eventId: 'e1', eventSlug: 's1' }))
-    assert.equal(scheduled.kind, 'goEvent')
-    assert.match(scheduled.label, /去报名/)
-
-    assert.equal(endorseAction(card({ status: 'done' })).kind, 'done')
-  })
-
-  test('splitActionCards：已附议在前；actionCardTarget 仅 scheduled 有直链', () => {
-    const cards = [
-      card({ id: 'open-1' }),
-      card({ id: 'mine-1', endorsedByMe: true }),
-      card({ id: 'done-1', status: 'done', endorsedByMe: true })
-    ]
-    const { endorsed, open } = splitActionCards(cards)
-    assert.deepEqual(endorsed.map(({ id }) => id), ['mine-1', 'done-1'])
-    assert.deepEqual(open.map(({ id }) => id), ['open-1'])
-
-    assert.equal(actionCardTarget(card({ status: 'scheduled', eventId: 'e9' })), '/pages/event-detail/index?id=e9&kind=event')
-    assert.equal(actionCardTarget(card({ status: 'forming', eventId: 'e9' })), null)
-    assert.equal(actionCardTarget(card({ status: 'scheduled', eventId: null })), null)
   })
 })
 
