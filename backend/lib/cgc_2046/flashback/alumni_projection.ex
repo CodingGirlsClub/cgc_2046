@@ -101,9 +101,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
          archives: archives,
          public_wishes:
            Cgc2046.Flashback.Wishes.list_public(clean_city(city))
-           |> Enum.map(&{&1.id, &1})
-           |> Enum.map(fn {id, wish} ->
-             Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, id))
+           |> Enum.map(fn wish ->
+             Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, wish.id))
            end),
          my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
          future_events: future_frames,
@@ -521,8 +520,20 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     }
   end
 
-  # 姓氏隐名（R12）：保留姓、隐去名（surname 缺失时按 full_name 首字符兜底）
-  defp masked_name(full_name, surname) when is_binary(full_name) do
+  # 姓氏隐名（R12）：保留姓、隐去名（surname 缺失时按 full_name 首字符兜底）。
+  # 许愿/留言投影与 MCP 治理工具共用同一遮罩口径（U4/U9 复用单源）。
+  @doc """
+  person 版隐名（nil 安全）：许愿人/留言人遮罩姓的公共入口。
+  未加载的 relationship（Ash.NotLoaded）也落 nil——批量投影路径漏 load 时不炸，静默隐名。
+  """
+  def masked_name(%{full_name: full_name, surname: surname})
+      when is_binary(full_name),
+      do: masked_name(full_name, surname)
+
+  # 兜底：NotLoaded/nil/缺名 → nil（静默隐名，不炸投影）
+  def masked_name(_person), do: nil
+
+  def masked_name(full_name, surname) when is_binary(full_name) do
     cond do
       is_binary(surname) and surname != "" and String.starts_with?(full_name, surname) ->
         surname <>
@@ -535,4 +546,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         end
     end
   end
+
+  # nil/非文本 full_name 兜底（nil 安全入口的底部子句）
+  def masked_name(_full_name, _surname), do: nil
 end

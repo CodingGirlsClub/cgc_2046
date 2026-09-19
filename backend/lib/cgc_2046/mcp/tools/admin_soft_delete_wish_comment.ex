@@ -41,7 +41,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment do
 
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
   def execute_confirmed(_actor, params) do
-    case Wishes.soft_delete_comment(params["comment_id"], Ecto.UUID.generate(), admin?: true) do
+    case Wishes.soft_delete_comment(params["comment_id"], nil, admin?: true) do
       {:ok, comment} ->
         remaining =
           comment
