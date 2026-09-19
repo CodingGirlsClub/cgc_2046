@@ -227,3 +227,25 @@ test('mock 闪念间写面落 state：adjustFog / setQuoteLicense 后 capsule �
   assert.equal(capsule.flashbackCapsule.me.quoteLevel, 'anonymous')
 
 })
+
+test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已附议态、私愿仅本人', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  type Capsule = {
+    flashbackCapsule: {
+      futureEvents: Array<{ events: Array<{ id: string; capacity: number | null; confirmedCount: number; registrationDeadline: string | null }> }>
+      publicWishes: Array<{ id: string; endorsedByMe: boolean; comments: unknown[] }>
+      myPrivateWishes: Array<{ id: string; mine: boolean }>
+    }
+  }
+  const data = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {})
+  const events = data.flashbackCapsule.futureEvents[0].events
+  assert.equal(events.length, 3)
+  // ev-2 满员 16/16、ev-3 截止(deadline 过去)
+  assert.equal(events.find((e) => e.id === 'ev-2')?.confirmedCount, 16)
+  assert.equal(events.find((e) => e.id === 'ev-3')?.registrationDeadline, '2026-09-01T00:00:00Z')
+  assert.equal(data.flashbackCapsule.publicWishes.length, 2)
+  assert.equal(data.flashbackCapsule.publicWishes[1].endorsedByMe, true)
+  assert.equal(data.flashbackCapsule.publicWishes[0].comments.length, 1)
+  assert.equal(data.flashbackCapsule.myPrivateWishes.length, 1)
+  assert.equal(data.flashbackCapsule.myPrivateWishes[0].mine, true)
+})

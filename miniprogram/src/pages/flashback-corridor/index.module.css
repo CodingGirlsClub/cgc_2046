@@ -465,3 +465,125 @@
   font-size: 22rpx;
   color: #8a8f98;
 }
+
+/* U4 愿望段:纸白卡/折叠行/模态 */
+.wishCard {
+  background: #fffdf7;
+  border: 1rpx solid rgba(203, 191, 143, 0.35);
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 14rpx;
+}
+.wishCardPrivate {
+  background: #f6f6f4;
+  border-style: dashed;
+}
+.wishContent {
+  display: block;
+  font-size: 26rpx;
+  color: #222326;
+  line-height: 1.6;
+}
+.wishFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12rpx;
+  gap: 12rpx;
+}
+.wishWho {
+  font-size: 22rpx;
+  color: #8a8f98;
+  flex: 1;
+}
+.wishEndorse {
+  font-size: 22rpx;
+  color: #ea5504;
+}
+.wishEndorsed {
+  font-size: 22rpx;
+  color: #4b4d54;
+}
+.wishDelete {
+  font-size: 22rpx;
+  color: #b0432f;
+}
+.privateFold {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18rpx 24rpx;
+  background: #f2f2f0;
+  border-radius: 12rpx;
+  margin-bottom: 14rpx;
+}
+.privateFoldLabel {
+  font-size: 24rpx;
+  color: #4b4d54;
+}
+.privateFoldArrow {
+  font-size: 22rpx;
+  color: #8a8f98;
+}
+.wishModalMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wishModal {
+  width: 82%;
+  max-height: 70vh;
+  overflow-y: scroll;
+  background: #fffdf7;
+  border-radius: 20rpx;
+  padding: 30rpx 28rpx;
+}
+.wishModalContent {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222326;
+  line-height: 1.7;
+}
+.wishComments {
+  margin-top: 24rpx;
+  border-top: 1rpx solid rgba(0, 0, 0, 0.06);
+  padding-top: 16rpx;
+}
+.wishCommentsTitle {
+  display: block;
+  font-size: 24rpx;
+  color: #4b4d54;
+  margin-bottom: 12rpx;
+}
+.wishCommentRow {
+  display: flex;
+  gap: 8rpx;
+  margin-bottom: 10rpx;
+}
+.wishCommentWho {
+  font-size: 22rpx;
+  color: #8a8f98;
+  flex-shrink: 0;
+}
+.wishCommentText {
+  font-size: 22rpx;
+  color: #222326;
+}
+.wishCommentInput {
+  display: flex;
+  gap: 12rpx;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.wishInput {
+  flex: 1;
+  background: #f2f2f0;
+  border-radius: 12rpx;
+  padding: 12rpx 18rpx;
+  font-size: 24rpx;
+}

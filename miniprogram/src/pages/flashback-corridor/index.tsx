@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react'
-import { Button, Canvas, ScrollView, Text, View } from '@tarojs/components'
+import { Button, Canvas, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { myCardView, shareMessage } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
+import type { FlashbackWish } from '@/domain/models'
 import MyCard from '@/components/MyCard'
 import { STORAGE_KEYS } from '@/state/storage'
 import type {
@@ -129,10 +130,65 @@ export default function FlashbackCorridorPage() {
 
   // U2/R1:页内 Tab(时间廊|我的卡)——参与态两键互达(修断裂 4);路人/找回只显示时间廊
   const [tab, setTab] = useState<'corridor' | 'mine'>('corridor')
+  // U4 愿望段:私愿折叠(KD2 防瞥屏)/公开愿模态(R6)
+  const [privateOpen, setPrivateOpen] = useState(false)
+  const [wishModal, setWishModal] = useState<FlashbackWish | null>(null)
+  const [wishComment, setWishComment] = useState('')
+  const [wishBusy, setWishBusy] = useState(false)
   const reloadMember = async () => {
     if (mode.kind !== 'member') return
     const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
     if (capsule) setMode({ ...mode, capsule })
+  }
+
+  const endorse = async (wish: FlashbackWish) => {
+    if (mode.kind !== 'member' || wishBusy) return
+    setWishBusy(true)
+    try {
+      const count = await api.flashbackEndorseWish(wish.id, mode.token)
+      Taro.showToast({ title: wish.endorsedByMe ? '已取消附议' : `已附议 · ${count} 人`, icon: 'none' })
+      await reloadMember()
+      const fresh = (mode.capsule.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
+      if (fresh && wishModal) setWishModal({ ...fresh })
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
+    } finally {
+      setWishBusy(false)
+    }
+  }
+
+  const addComment = async (wish: FlashbackWish) => {
+    if (mode.kind !== 'member' || wishBusy || !wishComment.trim()) return
+    setWishBusy(true)
+    try {
+      await api.flashbackAddWishComment(wish.id, wishComment.trim(), mode.token)
+      setWishComment('')
+      await reloadMember()
+      const fresh = (mode.capsule.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
+      if (fresh) setWishModal(fresh)
+      Taro.showToast({ title: '留言已上墙', icon: 'none' })
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
+    } finally {
+      setWishBusy(false)
+    }
+  }
+
+  const deleteWish = async (wish: FlashbackWish) => {
+    if (mode.kind !== 'member' || !wish.mine || wishBusy) return
+    const { confirm } = await Taro.showModal({ title: '删除这条愿望?', content: wish.content, confirmText: '删除' })
+    if (!confirm) return
+    setWishBusy(true)
+    try {
+      await api.flashbackDeleteWish(wish.id, mode.token)
+      setWishModal(null)
+      await reloadMember()
+      Taro.showToast({ title: '已删除', icon: 'none' })
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : '删除失败', icon: 'none' })
+    } finally {
+      setWishBusy(false)
+    }
   }
 
   const goLogin = () => {
@@ -261,6 +317,50 @@ export default function FlashbackCorridorPage() {
           })()}
         </View>
 
+        {/* U4 愿望段(R6):公开愿望纸白卡——愿望/遮罩姓/附议数,点卡开模态 */}
+        {mode.kind === 'member' && mode.capsule.publicWishes.length > 0 && (
+          <View className={styles.futureSection}>
+            <Text className={styles.futureTitle}>未来 · 大家许的愿</Text>
+            {mode.capsule.publicWishes.map((wish) => (
+              <View key={wish.id} className={styles.wishCard} onClick={() => setWishModal(wish)}>
+                <Text className={styles.wishContent}>{wish.content}</Text>
+                <View className={styles.wishFoot}>
+                  <Text className={styles.wishWho}>
+                    {wish.wisherMasked ?? '匿名'}
+                    {wish.city ? ` · ${wish.city}` : ''}
+                  </Text>
+                  <Text className={wish.endorsedByMe ? styles.wishEndorsed : styles.wishEndorse}>
+                    👍 {wish.endorsementCount}
+                    {wish.endorsedByMe ? ' · 已附议' : ''}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* U4 私愿折叠段(KD2/R7):一行「🔒 私人许愿(N)」点击展开,防瞥屏;仅本人 */}
+        {mode.kind === 'member' && mode.capsule.myPrivateWishes.length > 0 && (
+          <View className={styles.futureSection}>
+            <View className={styles.privateFold} onClick={() => setPrivateOpen(!privateOpen)}>
+              <Text className={styles.privateFoldLabel}>🔒 私人许愿({mode.capsule.myPrivateWishes.length} 条)</Text>
+              <Text className={styles.privateFoldArrow}>{privateOpen ? '收起 ▲' : '展开 ▼'}</Text>
+            </View>
+            {privateOpen &&
+              mode.capsule.myPrivateWishes.map((wish) => (
+                <View key={wish.id} className={`${styles.wishCard} ${styles.wishCardPrivate}`}>
+                  <Text className={styles.wishContent}>{wish.content}</Text>
+                  <View className={styles.wishFoot}>
+                    <Text className={styles.wishWho}>仅自己可见</Text>
+                    <Text className={styles.wishDelete} onClick={() => void deleteWish(wish)}>
+                      删除
+                    </Text>
+                  </View>
+                </View>
+              ))}
+          </View>
+        )}
+
         {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
         {mode.kind === 'member' && tab === 'mine' && (
           <MyCard capsule={mode.capsule} onWrite={() => void reloadMember()} />
@@ -320,6 +420,54 @@ export default function FlashbackCorridorPage() {
             <Button className={styles.shareCancel} onClick={() => setShareSheet(false)}>
               取消
             </Button>
+          </View>
+        </View>
+      )}
+
+      {/* U4 公开愿望模态(R6):全文+留言流+附议/已附议+本人删除两步确认 */}
+      {wishModal && (
+        <View className={styles.wishModalMask} onClick={() => setWishModal(null)}>
+          <View className={styles.wishModal} onClick={(e) => e.stopPropagation()}>
+            <Text className={styles.wishModalContent}>{wishModal.content}</Text>
+            <View className={styles.wishFoot}>
+              <Text className={styles.wishWho}>
+                {wishModal.wisherMasked ?? '匿名'}
+                {wishModal.city ? ` · ${wishModal.city}` : ''}
+              </Text>
+              <Text
+                className={wishModal.endorsedByMe ? styles.wishEndorsed : styles.wishEndorse}
+                onClick={() => void endorse(wishModal)}
+              >
+                {wishModal.endorsedByMe ? '✓ 已附议' : '👍 附议'} · {wishModal.endorsementCount}
+              </Text>
+              {wishModal.mine && (
+                <Text className={styles.wishDelete} onClick={() => void deleteWish(wishModal)}>
+                  删除
+                </Text>
+              )}
+            </View>
+            <View className={styles.wishComments}>
+              <Text className={styles.wishCommentsTitle}>留言({wishModal.comments.length})</Text>
+              {wishModal.comments.map((comment) => (
+                <View key={comment.id} className={styles.wishCommentRow}>
+                  <Text className={styles.wishCommentWho}>{comment.commenterMasked ?? '匿名'}:</Text>
+                  <Text className={styles.wishCommentText}>{comment.content}</Text>
+                </View>
+              ))}
+            </View>
+            <View className={styles.wishCommentInput}>
+              <Input
+                className={styles.wishInput}
+                value={wishComment}
+                onInput={(e) => setWishComment(e.detail.value)}
+                maxlength={200}
+                placeholder="留一句支持…"
+                confirmHold
+              />
+              <Button size="mini" disabled={wishBusy || !wishComment.trim()} onClick={() => void addComment(wishModal)}>
+                发送
+              </Button>
+            </View>
           </View>
         </View>
       )}

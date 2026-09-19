@@ -1138,3 +1138,37 @@ export type FlashbackAdjustFogMutationVariables = Exact<{
 
 
 export type FlashbackAdjustFogMutation = { flashbackAdjustFog: { answerId: string, fogSpans: Array<{ start: number, len: number } | null> | null } | null };
+
+export type FlashbackCreateWishMutationVariables = Exact<{
+  token?: string | null | undefined;
+  content: string;
+  visibility: string;
+}>;
+
+
+export type FlashbackCreateWishMutation = { flashbackCreateWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+
+export type FlashbackEndorseWishMutationVariables = Exact<{
+  token?: string | null | undefined;
+  wishId: string | number;
+}>;
+
+
+export type FlashbackEndorseWishMutation = { flashbackEndorseWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+
+export type FlashbackAddWishCommentMutationVariables = Exact<{
+  token?: string | null | undefined;
+  wishId: string | number;
+  content: string;
+}>;
+
+
+export type FlashbackAddWishCommentMutation = { flashbackAddWishComment: { endorsementCount: number, endorsedByMe: boolean } | null };
+
+export type FlashbackDeleteWishMutationVariables = Exact<{
+  token?: string | null | undefined;
+  wishId: string | number;
+}>;
+
+
+export type FlashbackDeleteWishMutation = { flashbackDeleteWish: boolean | null };
