@@ -51,13 +51,24 @@ assert_file_contains "mcp.json 含生产 URL" "$OMP_AGENT_DIR/mcp.json" 'api.cod
 assert_file_exists "config.yml 生成" "$OMP_AGENT_DIR/config.yml"
 assert_file_contains "config.yml 含守门配置" "$OMP_AGENT_DIR/config.yml" 'mcp__cgc_2046_confirm_operation: prompt'
 
-echo "== 场景 2: 重复 install（幂等 + 备份） =="
+echo "== 场景 2: 重复 install（幂等 + 备份 + token 保留） =="
 echo "modified" > "$OMP_AGENT_DIR/agents/cgc.md"
+# 模拟 onboarding 已写入 token
+python3 -c '
+import json, os
+path = os.environ["OMP_AGENT_DIR"] + "/mcp.json"
+with open(path) as f:
+    config = json.load(f)
+config["mcpServers"]["cgc-2046"]["headers"] = {"Authorization": "Bearer test-token-123"}
+with open(path, "w") as f:
+    json.dump(config, f, indent=2)
+'
 bash "$PACK_DIR/install.sh" install >/dev/null
 assert_file_contains "agent 被覆盖为新版本" "$OMP_AGENT_DIR/agents/cgc.md" 'CGC-2046 平台助手'
 assert "备份文件产生" "ls '$OMP_AGENT_DIR/agents/cgc.md.bak-'* >/dev/null 2>&1"
 assert "mcp.json 无重复条目" "[[ \$(grep -c '\"cgc-2046\"' '$OMP_AGENT_DIR/mcp.json') == 1 ]]"
 assert "config.yml 无重复守门配置" "[[ \$(grep -c 'mcp__cgc_2046_confirm_operation' '$OMP_AGENT_DIR/config.yml') == 1 ]]"
+assert_file_contains "重复 install 保留 token" "$OMP_AGENT_DIR/mcp.json" 'test-token-123'
 
 echo "== 场景 3: 已有其他 server/策略的 merge 保留 =="
 cat > "$OMP_AGENT_DIR/mcp.json" <<'EOF'

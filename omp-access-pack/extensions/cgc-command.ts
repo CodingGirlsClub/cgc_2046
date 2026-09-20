@@ -15,6 +15,8 @@
  *   - 连接失败（401/网络错误）：显示错误与重试入口，不静默
  */
 
+import { execSync } from "node:child_process";
+
 export default function cgcCommand(pi) {
   pi.registerCommand("cgc", {
     description: "CGC-2046 状态总览：连接状态、待办、可进入角色、快捷操作",
@@ -39,14 +41,51 @@ export default function cgcCommand(pi) {
 
       // 已连接：拉工作区与待办
       // 注意：extension 的 ctx 不直接暴露 MCP 工具调用入口（OMP extension API 无 invokeMcpTool），
-      // 所以这里只渲染连接状态与引导，实际待办/角色数据由用户在对话中问 agent 拉取。
-      // 这是有意的设计：/cgc 是「主动发现入口」，不是「数据面板」——数据面板在网站页面。
+      // 所以这里用 exec 调 omp CLI 的 mcp 子命令拉取数据（如果可用），否则降级为引导。
+      // 这是有意的设计：/cgc 是「主动发现入口」，数据来自 MCP 工具而非网站 API 直调。
       const toolCount = mcpTools.length;
+
+      let tasksText = "（待办拉取需要 agent 会话，输入「我有什么待办」）";
+      let rolesText = "（角色拉取需要 agent 会话，输入「我能进哪些工作区」）";
+
+      // 尝试用 omp CLI 拉取（如果 OMP 暴露 mcp call 子命令）
+      try {
+        const tasksJson = execSync(
+          `omp mcp call cgc-2046 list_my_tasks '{}' 2>/dev/null || echo '{"error":"unavailable"}'`,
+          { encoding: "utf8", timeout: 10_000 },
+        );
+        const tasks = JSON.parse(tasksJson);
+        if (!tasks.error && Array.isArray(tasks.items)) {
+          tasksText = tasks.items.length === 0
+            ? "无待办"
+            : tasks.items.slice(0, 5).map((t) => `  · ${t.title ?? t.id}`).join("\n") +
+              (tasks.items.length > 5 ? `\n  … 共 ${tasks.items.length} 项` : "");
+        }
+      } catch {
+        // omp mcp call 不可用，保持引导文本
+      }
+
+      try {
+        const wsJson = execSync(
+          `omp mcp call cgc-2046 list_my_workspaces '{}' 2>/dev/null || echo '{"error":"unavailable"}'`,
+          { encoding: "utf8", timeout: 10_000 },
+        );
+        const ws = JSON.parse(wsJson);
+        if (!ws.error && Array.isArray(ws.items)) {
+          rolesText = ws.items.length === 0
+            ? "无可进入工作区"
+            : ws.items.slice(0, 5).map((w) => `  · ${w.name}（${w.role}）`).join("\n") +
+              (ws.items.length > 5 ? `\n  … 共 ${ws.items.length} 个` : "");
+        }
+      } catch {
+        // omp mcp call 不可用，保持引导文本
+      }
+
       ctx.ui.notify(
         `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
+          `我的待办：\n${tasksText}\n\n` +
+          `可进入的工作区与角色：\n${rolesText}\n\n` +
           "接下来可以：\n" +
-          "  · 问 agent「我有什么待办」→ 拉取 list_my_tasks\n" +
-          "  · 问 agent「我能进哪些工作区」→ 拉取 list_my_workspaces + 角色\n" +
           "  · 说「帮我开课/教研/学习」→ agent 按角色 playbook 工作\n" +
           "  · 打开网站对应页面（学习/教研/管理后台）→ agent 可用 browser 工具代开\n\n" +
           "快捷操作：\n" +
