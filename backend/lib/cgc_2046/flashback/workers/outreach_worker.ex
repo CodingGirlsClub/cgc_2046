@@ -66,6 +66,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   defp fetch_person(person_id, channel) do
     Person
     |> Ash.Query.for_read(:read)
+    |> Ash.Query.load(:archive_event)
     |> Ash.Query.filter(id == ^person_id)
     |> Ash.read_one(authorize?: false)
     |> case do
@@ -144,7 +145,13 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   defp render_and_deliver("reconnect", :email, person, plaintext, _args) do
     person.email
-    |> Emails.reconnect(display_name(person), enter_url(plaintext), unsub_url(person.id))
+    |> Emails.reconnect(
+      display_name(person),
+      occurred_on(person),
+      enter_url(plaintext),
+      unsub_url(person.id),
+      screenshot_url()
+    )
     |> Mailer.deliver()
     |> case do
       {:ok, _} -> {:ok, :email}
@@ -244,12 +251,18 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     |> String.trim_trailing("/")
   end
 
-  defp display_name(%Person{surname: surname, full_name: full_name}) do
-    case surname do
-      s when is_binary(s) and s != "" -> "#{s}同学"
-      _ -> full_name
-    end
-  end
+  # 称呼用全名（「你好，王小明：」）；无名字 → nil，模板层兜底「同学」。
+  defp display_name(%Person{full_name: full_name})
+       when is_binary(full_name) and full_name != "",
+       do: full_name
+
+  defp display_name(_), do: nil
+
+  # 本人场次日期（EventArchive.occurred_on 可空，nil 由模板降级「那年」）。
+  defp occurred_on(%Person{archive_event: %{occurred_on: d}}), do: d
+  defp occurred_on(_), do: nil
+
+  defp screenshot_url, do: "#{base_url()}/flashback/weibo-screenshot.png"
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_), do: false
