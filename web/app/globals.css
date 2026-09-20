@@ -2837,15 +2837,14 @@ button:focus-visible,
 
   .public-catalog-card__facts {
     display: grid;
-    gap: 9px;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 9px 10px;
+    align-items: baseline;
     margin: 24px 0 0;
   }
 
   .public-catalog-card__facts > div {
-    display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 10px;
-    align-items: baseline;
+    display: contents;
   }
 
   .public-catalog-card__facts dd {
