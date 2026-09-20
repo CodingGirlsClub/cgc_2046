@@ -77,9 +77,13 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   defp period(%Date{} = d), do: "#{d.year} 年 #{d.month} 月"
 
   # 页脚自我介绍句按本人场次派生（写死「2012-2018」对新场次不成立）；日期
-  # 或场次名缺失 → 历史区间兜底句。
-  defp footer_line(%Date{} = d, name) when is_binary(name) and name != "",
-    do: "你在 #{d.year} 年参加过 #{escape(name)} 的活动。"
+  # 或场次名缺失 → 历史区间兜底句。场次名以中文结尾（如「…北京」）时名前
+  # 不加空格（「参加过 Rails Girls / Girls Coding Day 北京 的活动」会多出
+  # 一个空格）。
+  defp footer_line(%Date{} = d, name) when is_binary(name) and name != "" do
+    spacing = if String.last(name) =~ ~r/^[\x{4e00}-\x{9fff}]$/u, do: "", else: " "
+    "你在 #{d.year} 年参加过 #{escape(name)}#{spacing}的活动。"
+  end
 
   defp footer_line(_occurred_on, _archive_name),
     do: "你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动。"

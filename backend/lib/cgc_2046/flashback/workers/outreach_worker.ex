@@ -51,7 +51,14 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
       mark_sent(row)
       {:ok, delivered}
     else
-      {:skip, _detail} ->
+      {:skip, detail} ->
+        # 两类 skip 分治：退订/已认领/不可达是「统计分母自动剔除」（KTD10，
+        # 行停 queued 不改）；sms_vars 派生不出是「数据缺陷」（行落 failed
+        # 终态，批次历史不显示「排队中」永不收敛）。
+        if detail == "sms_vars_missing" do
+          mark_failed(person_id, channel, template, batch, {:skip, detail})
+        end
+
         :ok
 
       {:error, reason} = error ->
