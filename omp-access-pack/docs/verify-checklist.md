@@ -25,9 +25,14 @@
 - `/mcp list` 可见 `cgc-2046`（记录实际注册的工具名，回填 plan KTD4 的配置键）
 - `/cgc` 显示「未连接」+ onboarding 引导
 
-**实际**：
+**实际**（2026-09-20 沙盒验证，清洁 `$HOME`）：
+- install 输出含守门验证指引 ✓
+- agent/skill/extension 落位 ✓
+- mcp.json 生成且权限 600 ✓
+- config.yml 含守门配置 `mcp__cgc_2046_confirm_operation: prompt` ✓
+- `/agents`、`/mcp list`、`/cgc` 三项需真实 OMP 会话，待用户执行
 
-**结论**：
+**结论**：沙盒 install 部分 ✓；OMP 会话内三项（/agents、/mcp list、/cgc）待用户执行。
 
 ---
 
@@ -45,9 +50,16 @@
 - `/mcp test cgc-2046` 握手成功
 - agent 报告连接建立
 
-**实际**：
+**实际**（2026-09-20 真实环境验证，用户 Chrome + relay）：
+- agent 用 browser 工具接管 Chrome，打开 MCP 页 ✓
+- 签发新 token `omp-auto-20260920` ✓
+- **事故**：agent 每次动作后 dump page text 用于状态确认，签发后页面渲染 token 明文被 dump 进会话记录——token 泄漏。agent 意识到后撤销该 token 并重签干净 token ✓（教训已写入 onboarding skill 纪律）
+- **误伤**：撤销时误点了 `dsh-auto-20260909`（用户手动创建、非 `omp-auto-*` 命名）的撤销按钮——该 token 被误撤销。教训：撤销按钮定位需精确匹配卡片，不能只按按钮文本找。
+- 剪贴板管道写入 mcp.json ✓（`authHeader: True`）
+- 端到端只读调用 `list_my_workspaces` 返回真实数据（2 个 workspace、角色、is_platform_admin）✓
+- mcp.json 权限 600、config.yml 守门配置在位 ✓
 
-**结论**：
+**结论**：连接建立 ✓；两个执行细节（page text dump 泄漏、误撤销非目标 token）已记录为 skill 改进点。
 
 ---
 
@@ -61,9 +73,12 @@
 - 连接 token 不出现对话记录与工具调用参数中
 - `~/.omp/agent/mcp.json` 权限为 600（`stat -f '%Lp' ~/.omp/agent/mcp.json` 或 `stat -c '%a'`）
 
-**实际**：
+**实际**（2026-09-20 真实环境验证）：
+- mcp.json 权限 600 ✓
+- **token 曾泄漏**：agent dump page text 导致 token 明文进入会话记录——已撤销并重签干净 token。教训：签发后页面渲染 token 明文，任何 page text dump 都会带进会话记录；已写入 onboarding skill 纪律。
+- 重签后的干净 token 未进对话（agent 只点复制按钮，未读页面文本）✓
 
-**结论**：
+**结论**：权限断言 ✓；token 泄漏事故已处理（撤销+重签），纪律已写入 skill。
 
 ---
 
