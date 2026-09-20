@@ -937,6 +937,7 @@ function responseFor(document: string, variables: object): unknown {
         ...state.today,
         nowStatus: typeof input.nowStatus === 'string' ? input.nowStatus : state.today.nowStatus,
         want: typeof input.want === 'string' ? input.want : state.today.want,
+        need: typeof input.need === 'string' ? input.need : state.today.need,
         say: typeof input.say === 'string' ? input.say : state.today.say
       }
     }))

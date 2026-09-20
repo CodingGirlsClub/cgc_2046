@@ -201,7 +201,7 @@ export default function ProfilePage() {
               onClick={() => void Taro.navigateTo({ url: '/pages/my-enrollments/index' })}
             >
               <View>
-                <Text className={styles.openclackyTitle}>我的报名</Text>
+                <Text className={styles.openclackyTitle}>查看报名与核销</Text>
                 <Text className={styles.openclackyText}>报名的活动与课程、现场核销码、缴费状态。</Text>
               </View>
               <Text className={styles.openclackyArrow}>→</Text>

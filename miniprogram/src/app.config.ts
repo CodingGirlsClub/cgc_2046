@@ -1,6 +1,10 @@
+// tabBar 清单的唯一真源在 domain/tab-routes（app.config 的 tabBar.list、
+// components/AppTabBar 的渲染、路由分流判断三处共用）——手工维护多份必然
+// 漂移，且漂移后果是 switchTab 静默失败（无编译期兜底）
+import { CUT_TABS, FULL_TABS, toTabBarEntry } from './domain/tab-routes'
+
 // 裁剪端（抖音/小红书）：2 Tab 漏斗——发现/我的报名 + 流程页，无管理/协作功能
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-
 const cutPages = [
   'pages/discover/index',
   'pages/initiative-detail/index',
@@ -41,18 +45,9 @@ const fullPages = [
   'pages/flashback-today/index'
 ]
 
-const cutTabList = [
-  { pagePath: 'pages/discover/index', text: '发现' },
-  { pagePath: 'pages/my-enrollments/index', text: '我的报名' }
-]
+const cutTabList = CUT_TABS.map(toTabBarEntry)
 
-const fullTabList = [
-  { pagePath: 'pages/discover/index', text: '发现' },
-  // 闪念间主容器（长廊）——tabBar 页面，仅微信全量端（裁剪端未注册长廊）
-  { pagePath: 'pages/flashback-corridor/index', text: '闪念间' },
-  { pagePath: 'pages/workspace/index', text: '工作台' },
-  { pagePath: 'pages/profile/index', text: '我的' }
-]
+const fullTabList = FULL_TABS.map(toTabBarEntry)
 
 export default defineAppConfig({
   pages: isCut ? cutPages : fullPages,

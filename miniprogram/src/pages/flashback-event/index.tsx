@@ -195,7 +195,7 @@ export default function FlashbackEventPage() {
           </View>
         )}
 
-        {/* 三级视角②：没回来的人从这里认领自己那张（参与态里 = 回我的闪念间） */}
+        {/* 三级视角②：没回来的人从这里认领自己那张（参与态里 = 回长廊） */}
         {mode.kind === 'member' && (
           <View className={styles.findBlock}>
             <Button className={styles.cta} onClick={enterCorridor}>
