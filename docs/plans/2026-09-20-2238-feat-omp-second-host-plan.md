@@ -13,7 +13,7 @@ execution: code
 ## Goal Capsule
 
 - **Objective:** 平台四类角色用户（平台管理员、Workspace Owner/Admin、Tutor、Learner）能在 OMP（oh-my-pi）终端里通过 MCP 完成 OpenClacky 宿主所支持的全部平台操作，且高风险确认流的安全强度不降级。
-- **Means:** 交付一个 OMP 接入包（一个 `cgc` 主 agent + 连接 onboarding skill + `/cgc` 斜杠命令 extension + 安装脚本与 README），全部能力复用网站既有 MCP server 与 OMP 原生能力，网站侧零改动。（KTD1-KTD5）
+- **Means:** 交付一个 OMP 接入包（一个 `cgc` 主 agent + 连接 onboarding skill + `/cgc` 斜杠命令 extension + 安装脚本与 README），全部能力复用网站既有 MCP server 与 OMP 原生能力，网站侧零改动。（KTD1-KTD6）
 - **Product authority:** 本轮对话的用户决策，以及 `docs/adr/0001-website-as-mcp-server-byo.md`（BYO 架构）、`docs/adr/0012-single-extension-platform-sop-private-supplement.md`（playbook 单源）的既有边界。
 - **Stop conditions:** 任何一步需要改动网站（backend/web）才能继续时停止并上报（R14 红线）；确认守门无法经 OMP 原生审批配置达成时停止（R3 红线）。
 - **Execution profile:** `execution: code`；实现与验证归执行者（ce-work 或人工），交付物全部位于 `omp-access-pack/`。
@@ -81,7 +81,7 @@ flowchart LR
 
 **接入包交付**
 
-- R1. 接入包提供一个 `cgc` 主 agent 对话入口，覆盖四角色（platform_admin / workspace_admin / tutor / learner）：入口协议（连接、选上下文、拉 playbook、纪律）从 `openclacky-ext/cgc-2046/agents/` 移植并去除 OpenClacky 宿主耦合（宿主 `ask_user` 映射为 OMP `ask`，移除面板引用）；角色方法论全部来自 `get_role_playbook` 运行时拉取，接入包不内嵌角色 skill 文件。
+- R1. 接入包提供一个 `cgc` 主 agent 对话入口，覆盖四角色（platform_admin / workspace_admin / tutor / learner）：入口协议（连接、选上下文、拉 playbook、纪律）从 `openclacky-ext/cgc-2046/agents/` 移植并去除 OpenClacky 宿主耦合（宿主 `ask_user` 映射为 OMP `ask`，移除面板引用）。
 - R2. 接入包提供连接 onboarding skill，自动连接为主路径：agent 经 OMP 内置浏览器（relay 接管用户已登录的 Chrome）代操作网站 token 页——清理旧 `omp-auto-*` token（只动本命名）、签发新 token、把 MCP server 条目写入 OMP 配置（项目级 `.omp/mcp.json` 或用户级 `~/.omp/agent/mcp.json`）并完成健康检查；用户只做关键确认，不代填账号密码；relay 不可用或未登录时回退手工引导路径，不伪装成功。
 - R3. 接入包经 OMP 原生审批配置实现确认守门：install 往用户级 `~/.omp/agent/config.yml` merge 写入 `tools.approval.mcp__cgc_2046_confirm_operation: prompt`，使 `confirm_operation` 每次调用弹 OMP 原生审批框，用户批准才执行；headless 子代理中 `prompt` 策略直接拒绝调用（比 OpenClacky 守门 hook 的 headless 放行更强）；install 后必须实测验证（调一次 confirm 类工具确认弹审批框），配置丢失/被覆盖即静默无闸的脆弱性记入 Risks。业务工具第一段（建 pending）与 `cancel_operation` 不拦。
 - R4. 角色 playbook 运行时从网站拉取（`get_role_playbook`），接入包不内嵌静态角色指令副本；playbook 版本号向用户展示。
