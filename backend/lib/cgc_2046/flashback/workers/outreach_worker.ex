@@ -148,6 +148,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     |> Emails.reconnect(
       display_name(person),
       occurred_on(person),
+      archive_name(person),
       enter_url(plaintext),
       unsub_url(person.id),
       screenshot_url()
@@ -159,16 +160,19 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     end
   end
 
-  # 短信模板附退订短链（KTD6）：vars = url + unsub 两个模板变量（SendCloud
-  # 后台申请触达模板时按此变量名定制）；模板未配置时入队面已抑制 sms 通道，
-  # 此处再 fail-closed 一次（配置竞态）。
-  defp render_and_deliver(template, :sms, person, plaintext, args) do
+  # 短信腿（942116 行业通知模板）：vars = year + brand 两个模板变量（正文
+  # 「还记得%year%年报名过 %brand% 吗？……回T退订」，退订走通道上行「回T」，
+  # SendCloud 拉黑后通道侧拦发，平台侧 outreach_unsubscribed_at 不回写——
+  # 已入队面/重发面仍按既有状态判重与抑制）。年份或品牌派生不出（场次日期
+  # 可空 / 场次名不含已知品牌词）→ skip：宁缺毋滥，不发错文案。
+  # 模板未配置时入队面已抑制 sms 通道，此处再 fail-closed 一次（配置竞态）。
+  defp render_and_deliver("reconnect", :sms, person, _plaintext, _args) do
     if Dispatch.sms_configured?() do
-      with {:ok, url} <- sms_link(template, plaintext, args) do
+      with {:ok, vars} <- sms_vars(person) do
         Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
           person.phone,
           Dispatch.sms_template_id(),
-          %{"url" => url, "unsub" => unsub_url(person.id)},
+          vars,
           "flashback-outreach-#{person.id}"
         )
         |> case do
@@ -185,7 +189,29 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     {:skip, "no_renderer_for_#{template}"}
   end
 
-  defp sms_link("reconnect", plaintext, _args), do: {:ok, enter_url(plaintext)}
+  # 品牌词枚举派生（SendCloud 变量值上限 16 字符）：场次名含已知品牌词 →
+  # 裸品牌名（「Girls Coding Day」恰 16 字符压线）；未知品牌名 → nil → skip。
+  # 不用 name 剥城市——name 里是英文城市名、city 字段是中文，子串替换命中不了。
+  defp sms_brand(nil), do: nil
+
+  defp sms_brand(name) do
+    cond do
+      String.contains?(name, "Girls Coding Day") -> "Girls Coding Day"
+      String.contains?(name, "Rails Girls") -> "Rails Girls"
+      true -> nil
+    end
+  end
+
+  defp sms_vars(person) do
+    year = occurred_on(person)
+    brand = sms_brand(archive_name(person))
+
+    if year && brand do
+      {:ok, %{"year" => Integer.to_string(year.year), "brand" => brand}}
+    else
+      {:skip, "sms_vars_missing"}
+    end
+  end
 
   # ── 状态回写 ─────────────────────────────────────────────────────────
 
@@ -261,6 +287,10 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   # 本人场次日期（EventArchive.occurred_on 可空，nil 由模板降级「那年」）。
   defp occurred_on(%Person{archive_event: %{occurred_on: d}}), do: d
   defp occurred_on(_), do: nil
+
+  # 本人场次名（EventArchive.name 非空——档案必有归属场次）。
+  defp archive_name(%Person{archive_event: %{name: name}}), do: name
+  defp archive_name(_), do: nil
 
   defp screenshot_url, do: "#{base_url()}/flashback/weibo-screenshot.png"
 
