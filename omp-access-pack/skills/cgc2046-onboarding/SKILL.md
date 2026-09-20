@@ -168,3 +168,4 @@ print("OK: cgc-2046 entry written, token file removed")
 - 用户没给 token 时**不要编造**；写入失败或握手失败就说明 token 缺失、过期或格式不对，如实告诉用户。
 - token 明文只在网站创建时显示一次；用户弄丢了就让他回 MCP 页撤销旧 token、重新签一个。
 - **签发后页面会渲染 token 明文**——任何 `document.body.innerText` / page text dump / DOM 读取都会把它带进会话记录（OMP 把 tool arguments 全量记入会话文件）。签发后**只能点复制按钮**（返回 `{clicked: true}` 即可），**不能读页面文本**。若 token 已泄漏到会话记录，立即撤销该 token 并重签一个干净的——泄漏的 token 已污染，不能写入 mcp.json。
+- **验证连接只看 MCP 握手/工具调用结果，禁止 read mcp.json**——agent 验证连接时会读 `~/.omp/agent/mcp.json` 把 token 拉进会话记录（与 page text dump 同类事故）。连接状态的唯一可信来源是 MCP 握手（`/mcp test` 或工具调用结果），不是配置文件内容。
