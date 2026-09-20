@@ -230,7 +230,7 @@ const quoteAnswer = (over: Partial<FlashbackMeAnswer> = {}): FlashbackMeAnswer =
   ...over
 })
 
-test('quoteCandidatesOf：按句切分、排除雾面句、区间可回切原文（R35）', () => {
+test('quoteCandidatesOf：按句切分、雾句灰显（U10）、区间可回切原文（R35）', () => {
   const candidates = quoteCandidatesOf([quoteAnswer()])
 
   assert.deepEqual(
@@ -242,12 +242,39 @@ test('quoteCandidatesOf：按句切分、排除雾面句、区间可回切原文
     assert.equal(quoteAnswer().rawText.slice(candidate.start, candidate.start + candidate.len), candidate.sentence)
   }
 
-  // 雾面句不进候选（首句被雾面罩住）
+  // U10：雾面句不再被排除——带 fogged 标记（渲染层灰显锁定，想选先解雾）
   const fogged = quoteCandidatesOf([quoteAnswer({ fogSpans: [{ start: 0, len: 7 }] })])
-  assert.deepEqual(fogged.map((c) => c.sentence), ['喜欢周末骑行。'])
+  assert.deepEqual(
+    fogged.map((c) => [c.sentence, c.fogged === true]),
+    [
+      ['我在盛大做测试。', true],
+      ['喜欢周末骑行。', false]
+    ]
+  )
 
-  // 全雾面 → 空候选（前端给「解开后才能选金句」提示）
-  assert.deepEqual(quoteCandidatesOf([quoteAnswer({ fogSpans: [{ start: 0, len: 20 }] })]), [])
+  // today 三/四行进候选（questionKey=today.*，带雾标记）
+  const withToday = quoteCandidatesOf([quoteAnswer()], {
+    nowStatus: '还在写代码，下班带娃。想开源一个工具。',
+    want: null,
+    need: null,
+    say: '十周年快乐！',
+    fogSpans: { now: [{ start: 0, len: 9 }] },
+    sentToWallAt: null
+  })
+  const todayCands = withToday.filter((c) => c.questionKey.startsWith('today.'))
+  assert.deepEqual(
+    todayCands.map((c) => [c.questionKey, c.sentence, c.fogged === true]),
+    [
+      ['today.now', '还在写代码，下班带娃。', true],
+      ['today.now', '想开源一个工具。', false],
+      ['today.say', '十周年快乐！', false]
+    ]
+  )
+  // 全雾面 → 候选保留但全部灰显锁定（想选先解雾）
+  assert.deepEqual(
+    quoteCandidatesOf([quoteAnswer({ fogSpans: [{ start: 0, len: 20 }] })]).map((c) => c.fogged === true),
+    [true, true]
+  )
   // 空文本/空白句丢弃；多题合并保留各自 questionKey
   assert.deepEqual(quoteCandidatesOf([quoteAnswer({ rawText: '   ' })]), [])
   const two = quoteCandidatesOf([quoteAnswer(), quoteAnswer({ id: 'a2', questionKey: 'funny_thing', rawText: '学过吉他。' })])

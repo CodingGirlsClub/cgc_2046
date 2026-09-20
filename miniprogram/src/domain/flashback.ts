@@ -1,4 +1,4 @@
-import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard } from './models'
+import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard, FlashbackMyToday } from './models'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -76,6 +76,31 @@ export function toggleSentenceFog(
   return next.sort((a, b) => a.start - b.start)
 }
 
+// ── 今天的你句级雾(与当年同坐标同语义) ──────────────────────
+
+/** today 字段文本按句切分并标记雾态(spans 与当年同口径) */
+export function todaySentencesWithFog(
+  rawText: string,
+  spans: Array<{ start: number; len: number }> | undefined
+): SentenceRange[] {
+  return splitSentences(rawText).map((sentence) => ({
+    ...sentence,
+    fogged: (spans ?? []).some((span) => spansOverlap(span, sentence))
+  }))
+}
+
+/** 切换 today 某句雾/解雾 → 该字段整份新 spans(提交 flashbackAdjustTodayFog) */
+export function toggleTodaySentenceFog(
+  spans: Array<{ start: number; len: number }> | undefined,
+  sentence: SentenceRange
+): Array<{ start: number; len: number }> {
+  const existing = spans ?? []
+  const hit = existing.some((span) => spansOverlap(span, sentence))
+  const next = hit
+    ? existing.filter((span) => !spansOverlap(span, sentence))
+    : [...existing, { start: sentence.start, len: sentence.len }]
+  return next.sort((a, b) => a.start - b.start)
+}
 // ── R35 金句圈选（候选句 = 按句切分、排除雾面段） ──────────────────────
 
 export interface QuoteCandidate {
@@ -85,26 +110,60 @@ export interface QuoteCandidate {
   /** 原文偏移（与 fog span 同一坐标系：splitSentences 的切片口径） */
   start: number
   len: number
+  /** U10:雾句灰显不可选（想选先去解雾;当年与今天同规则） */
+  fogged?: boolean
 }
 
-/** 金句候选（R35，与 web write.tsx 的 quoteCandidatesOf 同规则）：
- *  - 按句读切分（splitSentences，保留分隔符）；
- *  - **排除雾面段**（雾面句对外不可见，不能当金句——KTD4/R14 纪律）；
- *  - 空白句丢弃；grapheme 偏移随句携带，圈选后原样回填 chosen_quote_span。
- * 「未圈选 = 不上墙」：候选只是选项，真正授权由调用方在选中时提交。 */
-export function quoteCandidatesOf(answers: FlashbackMeAnswer[]): QuoteCandidate[] {
+/** today 句宿主键 → 字段（今天的你与当年答案同套雾/金句语言） */
+export const TODAY_QUOTE_FIELDS = [
+  { key: 'today.now', field: 'nowStatus' },
+  { key: 'today.want', field: 'want' },
+  { key: 'today.need', field: 'need' },
+  { key: 'today.say', field: 'say' }
+] as const
+
+/** today 宿主键 → fogSpans 键(now/want/need/say,与后端 field 同名) */
+export function todayFogKey(questionKey: string): string | null {
+  const hit = TODAY_QUOTE_FIELDS.find((host) => host.key === questionKey)
+  return hit ? hit.key.replace('today.', '') : null
+}
+
+/** 金句候选（R35/U10）：当年答案 + 今天三/四行,同一切句口径;
+ * 雾句不再排除——带 fogged 标记由渲染层灰显锁定(「这句被雾住了所以不能选」)。 */
+export function quoteCandidatesOf(answers: FlashbackMeAnswer[], today?: FlashbackMyToday | null): QuoteCandidate[] {
   const result: QuoteCandidate[] = []
   for (const answer of answers) {
     for (const sentence of sentencesWithFog(answer)) {
-      if (sentence.fogged) continue
       const sentenceText = sentence.text.trim()
       if (!sentenceText) continue
       result.push({
         questionKey: answer.questionKey,
         sentence: sentenceText,
         start: sentence.start,
-        len: sentence.len
+        len: sentence.len,
+        fogged: sentence.fogged || undefined
       })
+    }
+  }
+  if (today) {
+    for (const host of TODAY_QUOTE_FIELDS) {
+      const raw = today[host.field]
+      if (!raw) continue
+      const fogSpans = today.fogSpans?.[host.field === 'nowStatus' ? 'now' : host.field] ?? []
+      for (const sentence of splitSentences(raw)) {
+        const sentenceText = sentence.text.trim()
+        if (!sentenceText) continue
+        const fogged = fogSpans.some(
+          (span) => sentence.start < span.start + span.len && span.start < sentence.start + sentence.len
+        )
+        result.push({
+          questionKey: host.key,
+          sentence: sentenceText,
+          start: sentence.start,
+          len: sentence.len,
+          fogged: fogged || undefined
+        })
+      }
     }
   }
   return result
@@ -239,8 +298,20 @@ export function summaryCardModel(me: FlashbackMyCard, now: Date = new Date()): {
   const years = yearsAgoText(me.appliedAt, now)
   const date = me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''
   const stamp = [date, me.city].filter(Boolean).join(' · ')
-  const quote = (me.quote ?? '').trim() || (me.today?.want ?? '').trim() || '答案还在显影中'
-  const todayLine = (me.today?.want ?? me.today?.nowStatus ?? '').trim() || null
+  // 分享物只显未雾句(雾住的句子不进卡,也不画雾块)
+  const visibleToday = (field: 'nowStatus' | 'want' | 'need' | 'say'): string => {
+    const raw = me.today?.[field]
+    if (!raw) return ''
+    const fogKey = field === 'nowStatus' ? 'now' : field
+    const fog = me.today?.fogSpans?.[fogKey] ?? []
+    return todaySentencesWithFog(raw, fog)
+      .filter((sentence) => !sentence.fogged)
+      .map((sentence) => sentence.text)
+      .join('')
+      .trim()
+  }
+  const quote = (me.quote ?? '').trim() || visibleToday('want') || '答案还在显影中'
+  const todayLine = visibleToday('want') || visibleToday('nowStatus') || null
   const footer = years ? `${years} · IN A FLASH 闪念间` : 'IN A FLASH · 闪念间'
   return { stamp, quote, todayLine, footer }
 }
