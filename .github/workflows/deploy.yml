@@ -194,7 +194,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           # 新装系统 host key 已换新；显式写入当前指纹，绕开 known_hosts
           # 哈希条目与 Net::SSH 的读取兼容问题
-          echo "${{ vars.SERVER_HOST }} ssh-ed25519 ${{ vars.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
+          echo "${{ secrets.SERVER_HOST }} ssh-ed25519 ${{ secrets.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
 
       # Kamal env.secret 从 .kamal/secrets（dotenv）解析而非进程 env——
       # CI 侧必须生成该文件（含 backend 全部 secret 注入源）
@@ -255,7 +255,7 @@ jobs:
           SENDCLOUD_FROM_NAME: ${{ vars.SENDCLOUD_FROM_NAME }}
           SENDCLOUD_SMS_USER: ${{ secrets.SENDCLOUD_SMS_USER }}
           SENDCLOUD_SMS_KEY: ${{ secrets.SENDCLOUD_SMS_KEY }}
-          SENDCLOUD_SMS_TEMPLATE_ID: ${{ vars.SENDCLOUD_SMS_TEMPLATE_ID }}
+          SENDCLOUD_SMS_TEMPLATE_ID: ${{ secrets.SENDCLOUD_SMS_TEMPLATE_ID }}
           SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID: ${{ secrets.SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID }}
           WEB_BASE_URL: ${{ vars.WEB_BASE_URL }}
           CORS_ORIGIN: ${{ vars.CORS_ORIGIN }}
@@ -309,9 +309,9 @@ jobs:
         timeout-minutes: 85
         run: |
           # sed 到临时副本：工作区保持干净，避免 Kamal dirty tag
-          sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
-              -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
-              -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
+          sed -e "s|<TCR_REGISTRY>|${{ secrets.TCR_REGISTRY }}|" \
+              -e "s|<TCR_USERNAME>|\"${{ secrets.TCR_USERNAME }}\"|" \
+              -e "s|<SERVER_HOST>|\"${{ secrets.SERVER_HOST }}\"|" \
               config/deploy.yml > config/deploy.ci.yml
           # 显式 login（runner 本地 + 服务器）：隔离 deploy 内部 login，
           # 失败信息直指凭证链而非埋在 build 之后
@@ -324,7 +324,7 @@ jobs:
           # exec format error（run 32487795766 第二败实证）；错架构按
           # 缺失处理，原生重建覆盖推送即自愈
           LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)
-          DEPS_IMAGE="${{ vars.TCR_REGISTRY }}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
+          DEPS_IMAGE="${{ secrets.TCR_REGISTRY }}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
           DEPS_ARCH=$(docker manifest inspect -v "$DEPS_IMAGE" 2>/dev/null \
             | grep -m1 '"architecture"' | grep -o 'amd64\|arm64' || true)
           if [ "$DEPS_ARCH" = "amd64" ]; then
@@ -369,7 +369,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          echo "${{ vars.SERVER_HOST }} ssh-ed25519 ${{ vars.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
+          echo "${{ secrets.SERVER_HOST }} ssh-ed25519 ${{ secrets.SERVER_HOST_KEY }}" > ~/.ssh/known_hosts
 
       - name: Write .kamal/secrets (web)
         working-directory: web
@@ -399,9 +399,9 @@ jobs:
           [ -z "$missing" ] || { echo "::error::GitHub 侧 vars 漏配（值为空）:$missing"; exit 1; }
           # builder args 与 registry/host 同走 sed 占位符（Kamal 对 ${VAR}
           # 零插值）；values 含斜杠，sed 用 | 分隔符
-          sed -e "s|<TCR_REGISTRY>|${{ vars.TCR_REGISTRY }}|" \
-              -e "s|<TCR_USERNAME>|\"${{ vars.TCR_USERNAME }}\"|" \
-              -e "s|<SERVER_HOST>|\"${{ vars.SERVER_HOST }}\"|" \
+          sed -e "s|<TCR_REGISTRY>|${{ secrets.TCR_REGISTRY }}|" \
+              -e "s|<TCR_USERNAME>|\"${{ secrets.TCR_USERNAME }}\"|" \
+              -e "s|<SERVER_HOST>|\"${{ secrets.SERVER_HOST }}\"|" \
               -e "s|<NEXT_PUBLIC_WEB_BASE_URL>|${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}|" \
               -e "s|<BACKEND_URL>|${{ vars.BACKEND_URL }}|" \
               config/deploy.yml > config/deploy.ci.yml
@@ -412,9 +412,9 @@ jobs:
           kamal deploy -c config/deploy.ci.yml
         env:
           # 仅供上方非空断言的 ${!v} 间接引用；sed 仍走 ${{ }} 内联
-          TCR_REGISTRY: ${{ vars.TCR_REGISTRY }}
-          TCR_USERNAME: ${{ vars.TCR_USERNAME }}
-          SERVER_HOST: ${{ vars.SERVER_HOST }}
+          TCR_REGISTRY: ${{ secrets.TCR_REGISTRY }}
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
           NEXT_PUBLIC_WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
           BACKEND_URL: ${{ vars.BACKEND_URL }}
 

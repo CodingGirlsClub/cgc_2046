@@ -170,11 +170,10 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     end
   end
 
-  # 短信腿（942116 行业通知模板）：vars = year + brand 两个模板变量（正文
-  # 「还记得%year%年报名过 %brand% 吗？……闪念回到当年。」——审核要求去掉
-  # 回T退订；退订后续如需平台侧同步，走 SendCloud 上行 webhook 置
-  # outreach_unsubscribed_at，当前未接入）。年份或品牌派生不出（场次日期
-  # 可空 / 场次名首段不含已知品牌词）→ skip：宁缺毋滥，不发错文案。
+  # 短信腿（当前线上行业通知模板）：vars = year + brand 两个模板变量（正文
+  # 「曾记否%year%年报名%brand%？……闪念到当年，系愿于今朝。」）。年份或
+  # 品牌派生不出（场次日期可空 / 场次名首段不含已知品牌词）→ skip：宁缺
+  # 毋滥，不发错文案。
   # 模板未配置时入队面已抑制 sms 通道，此处再 fail-closed 一次（配置竞态）。
   defp render_and_deliver("reconnect", :sms, person, _args) do
     if Dispatch.sms_configured?() do
