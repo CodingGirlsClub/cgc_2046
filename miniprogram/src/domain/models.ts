@@ -97,6 +97,11 @@ export interface CatalogItem {
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
   endsAt: string | null
+  /**
+   * 活动介绍（公开展示文案）。仅详情查询携带（列表查询不选）——列表记录恒 null；
+   * 详情页按 toParagraphs 分段渲染，null/空串不渲染介绍块。
+   */
+  description: string | null
   /** 结构化场地 JsonString（parse 后 {country,province,city,district}）；仅 event 有位置槽，course 恒 null（R3） */
   venue: string | null
   /**
