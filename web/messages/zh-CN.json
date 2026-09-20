@@ -2437,7 +2437,9 @@
 		"paymentPricingUnknown": "收费（档位以活动页为准）",
 		"paymentUnknown": "缴费信息待定",
 		"indexEmpty": "暂无倡导活动",
-		"loadFailed": "加载失败"
+		"loadFailed": "加载失败",
+		"descExpand": "展开全部",
+		"descCollapse": "收起"
 	},
 	"checkIn": {
 		"title": "现场核销",
