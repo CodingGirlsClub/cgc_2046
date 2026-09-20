@@ -156,6 +156,14 @@ defmodule Cgc2046.Flashback.Person do
       # 撞 slug 的唯一索引冲突转稳定业务错误（范式同 initiative #604）。
       error_handler({__MODULE__, :handle_write_error, []})
     end
+
+    # 导入去重时的 participation 升级专用面：仅接受 attendance 状态变更，
+    # 入口只有 Import.persist（录取名单修正场景：已有 not_selected、新行
+    # attended → 升级）。GraphQL 不直连本 action。
+    update :set_participation do
+      require_atomic?(false)
+      accept([:participation])
+    end
   end
 
   # flashback_people 只有一个 identity（unique_public_slug），按类型判定即可；
