@@ -10,8 +10,13 @@ import {
   EventDetailQueryDocument,
   EnrollmentQueryDocument,
   FlashbackAdjustFogMutationDocument,
+  FlashbackAdjustTodayFogMutationDocument,
   FlashbackCapsuleQueryDocument,
+  FlashbackClaimMutationDocument,
+  FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
+  FlashbackSharedCardQueryDocument,
+  FlashbackSubmitTodayMutationDocument,
   MyEnrollmentsQueryDocument,
   PublicInitiativeQueryDocument,
   PublicInitiativesQueryDocument,
@@ -270,4 +275,251 @@ test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已�
   assert.equal(data.flashbackCapsule.publicWishes[0].comments.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes[0].mine, true)
+})
+
+// ── #771 卡片站外公开：mock 写面 → capsule 回读 + 匿名公开读面 ────────────
+// 本组用例自带种子（每次先显式开/关再断言），不依赖彼此的执行顺序；
+// 唯一例外是第一条——它断言的是**模块初始态**（没有任何隐式开启），
+// 必须排在本文件所有 cardSharing 写操作之前。
+
+interface ShareState { enabled: boolean; shareId: string | null; preview: ShareCard }
+interface ShareCard {
+  displayName: string
+  city: string | null
+  appliedAt: string | null
+  answers: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number }> }>
+  today: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number }> }>
+}
+
+const readCardSharing = (): ShareState => {
+  const data = mockGraphQLRequest<{ flashbackCapsule: { me: { cardSharing: ShareState } } }>(
+    FlashbackCapsuleQueryDocument,
+    {}
+  )
+  return data.flashbackCapsule.me.cardSharing
+}
+
+const readSharedCard = (shareId: string): ShareCard | null =>
+  mockGraphQLRequest<{ flashbackSharedCard: ShareCard | null }>(FlashbackSharedCardQueryDocument, { shareId })
+    .flashbackSharedCard
+
+const setSharing = (enabled: boolean, token?: string): ShareState =>
+  mockGraphQLRequest<{ flashbackSetCardSharing: ShareState }>(
+    FlashbackSetCardSharingMutationDocument,
+    token === undefined ? { enabled } : { enabled, token }
+  ).flashbackSetCardSharing
+
+test('mock 公开开关默认关且无 id（没有任何隐式开启路径）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const sharing = readCardSharing()
+  assert.equal(sharing.enabled, false)
+  assert.equal(sharing.shareId, null)
+  // 关着时预览仍在（本人视角），但公开读面不可达
+  assert.ok(sharing.preview.answers.length > 0)
+
+  // 从未开启过的人点「关闭」→ id 仍为 null：只有首次**开启**才铸 id，
+  // 关闭不得宣告此人开过（否则凭空多出一个本该不存在的分享链接）
+  const closed = setSharing(false)
+  assert.equal(closed.enabled, false)
+  assert.equal(closed.shareId, null)
+  assert.equal(readCardSharing().shareId, null)
+})
+
+test('mock 公开开关要求本人身份：匿名不给写面，带 token 即可（链接腿）', () => {
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const denied = mockGraphQLRequest<{ errors?: Array<{ code: string }> }>(
+    FlashbackSetCardSharingMutationDocument,
+    { enabled: true }
+  )
+  assert.equal(denied.errors?.[0]?.code, 'flashback_auth_required')
+
+  const enabled = setSharing(true, 'tk-first-trip')
+  assert.equal(enabled.enabled, true)
+  assert.match(enabled.shareId ?? '', /^[0-9a-f]{48}$/)
+})
+
+test('mock 公开开关：已作废的首程链接不构成写权限（claim 后 token 失效）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  // 收好即作废该链接（与 capsule token 腿同源）
+  mockGraphQLRequest(FlashbackClaimMutationDocument, { token: 'tk-consumed' })
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  const denied = mockGraphQLRequest<{ errors?: Array<{ code: string }> }>(
+    FlashbackSetCardSharingMutationDocument,
+    { enabled: true, token: 'tk-consumed' }
+  )
+  assert.equal(denied.errors?.[0]?.code, 'flashback_token_claimed')
+})
+
+test('mock 公开读面匿名可达；关闭后同 id 不可读且 id 保留，重开复用同一 id', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const opened = setSharing(true)
+  const shareId = opened.shareId as string
+
+  // 匿名（无登录态也能读——朋友视角）：不开任何会话腿
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const card = readSharedCard(shareId)
+  assert.ok(card, '开启后匿名应能读到卡')
+  assert.equal(card.displayName, '王**', '公开面只出隐名，不出全名')
+  assert.equal(card.city, '北京')
+
+  // 关闭 = 解除发布（读面立即 404），但 id 不变（ADR-0014 发布即锁死）
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const closed = setSharing(false)
+  assert.equal(closed.enabled, false)
+  assert.equal(closed.shareId, shareId, '关闭不得重生成 id')
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(readSharedCard(shareId), null, '关闭后公开读面必须为空')
+
+  // 重开 → 复用同一 id，读面恢复
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  assert.equal(setSharing(true).shareId, shareId)
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.ok(readSharedCard(shareId))
+})
+
+test('mock 公开读面：未知 id / 错误 id / 空 id 一律 null', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const shareId = setSharing(true).shareId as string
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  assert.equal(readSharedCard('0'.repeat(48)), null)
+  assert.equal(readSharedCard(`${shareId.slice(0, 47)}0`), null)
+  assert.equal(readSharedCard(''), null)
+})
+
+test('mock 公开卡白名单：三题当年答案 + today 四问，姓名隐名', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  mockGraphQLRequest(FlashbackSubmitTodayMutationDocument, {
+    input: { nowStatus: '还在写代码', want: '学 Rust', need: '想找人一起组队', say: '谢谢你还在' }
+  })
+  const shareId = setSharing(true).shareId as string
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  const card = readSharedCard(shareId)
+  assert.ok(card)
+  // 白名单 = self_intro/funny_thing/os（PII 行 phone/email/social_media 不进）
+  assert.deepEqual(
+    card.answers.map(({ questionKey }) => questionKey),
+    ['self_intro', 'funny_thing', 'os']
+  )
+  assert.deepEqual(
+    card.today.map(({ questionKey }) => questionKey),
+    ['today.now', 'today.want', 'today.need', 'today.say']
+  )
+  assert.ok(!JSON.stringify(card).includes('phone'))
+  // 公开面不含任何全名
+  assert.ok(!JSON.stringify(card).includes('王小明'))
+})
+
+test('mock 公开卡雾面 fail-closed：合法区间切雾段（text 恒空），非法区间整段全雾', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  // 合法区间：首句 7 字（mock 原文「我在盛大做测试。…」）
+  mockGraphQLRequest(FlashbackAdjustFogMutationDocument, { answerId: 'fb-answer-1', spans: [{ start: 0, len: 7 }] })
+  const shareId = setSharing(true).shareId as string
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  const fogged = readSharedCard(shareId)
+  assert.ok(fogged)
+  const intro = fogged.answers.find(({ questionKey }) => questionKey === 'self_intro')
+  assert.ok(intro)
+  assert.equal(intro.segments[0].fog, true)
+  assert.equal(intro.segments[0].text, '', '雾段不得携带原文字符')
+  assert.equal(intro.segments[0].len, 7)
+  assert.ok(intro.segments[1].text.length > 0, '雾外原文照常可见')
+  // 唯一不可原谅的错误：雾住的原文字符出现在公开面
+  assert.ok(!JSON.stringify(fogged).includes('我在盛大做测试'), '雾面原文不得出现在公开读面')
+
+  // 非法区间（越界）→ 整段全雾，且仍不泄露原文
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  mockGraphQLRequest(FlashbackAdjustFogMutationDocument, { answerId: 'fb-answer-1', spans: [{ start: 0, len: 9999 }] })
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const allFog = readSharedCard(shareId)
+  assert.ok(allFog)
+  const foggedIntro = allFog.answers.find(({ questionKey }) => questionKey === 'self_intro')
+  assert.deepEqual(foggedIntro?.segments.map(({ fog }) => fog), [true])
+  assert.ok(!JSON.stringify(allFog).includes('我在盛大做测试'))
+})
+
+test('mock today 雾面同口径：公开面 today 段也走雾块', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  mockGraphQLRequest(FlashbackSubmitTodayMutationDocument, {
+    input: { nowStatus: '还在写代码', want: null, need: null, say: null }
+  })
+  mockGraphQLRequest(FlashbackAdjustTodayFogMutationDocument, { field: 'now', spans: [{ start: 0, len: 2 }] })
+  const shareId = setSharing(true).shareId as string
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  const card = readSharedCard(shareId)
+  assert.ok(card)
+  const now = card.today.find(({ questionKey }) => questionKey === 'today.now')
+  assert.ok(now)
+  assert.equal(now.segments[0].fog, true)
+  assert.equal(now.segments[0].text, '')
+  assert.ok(!JSON.stringify(card).includes('还在写代码'), 'today 雾面原文不得出现在公开读面')
+})
+
+test('mock 本人预览与匿名读面同一份投影（关着也一致，不漂移）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const shareId = setSharing(true).shareId as string
+  const preview = readCardSharing().preview
+
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.deepEqual(readSharedCard(shareId), preview, '预览与公开读面必须同形（关着时预览也照出）')
+
+  // 关闭态：预览仍在（本人视角），公开读面为空
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  setSharing(false)
+  assert.ok(readCardSharing().preview.answers.length > 0)
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(readSharedCard(shareId), null)
+})
+
+test('mock 公开卡不受「上墙」与「金句授权」门控（公开的是全文卡，不是金句档）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  // 关授权档 + 清空雾面（今天也没写 → 未上墙），公开卡仍必须完整可读
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'off' })
+  mockGraphQLRequest(FlashbackAdjustFogMutationDocument, { answerId: 'fb-answer-1', spans: [] })
+  const shareId = setSharing(true).shareId as string
+  mockGraphQLRequest(SignOutMutationDocument, {})
+
+  const card = readSharedCard(shareId)
+  assert.ok(card, 'quoteLevel=off 不是公开卡的门（两者互相独立）')
+  // 未上墙也照出三题原文：R14 公开的是「全文卡」，不是上墙卡也不是金句卡
+  assert.equal(card.answers.length, 3)
+  const intro = card.answers.find(({ questionKey }) => questionKey === 'self_intro')
+  assert.equal(intro?.segments.length, 1)
+  assert.equal(intro?.segments[0].fog, false)
+  assert.equal(intro?.segments[0].text, '我在盛大做测试。想亲眼看看是不是真的！后来我成了程序员。')
+})
+
+test('mock 公开开关与金句授权档互不牵连（关公开不动 quoteLevel/圈选，关授权不动 enabled）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  type Me = {
+    quoteLevel: string
+    quoteSpans: Array<{ questionKey: string; start: number; len: number }>
+    cardSharing: { enabled: boolean; shareId: string | null }
+  }
+  const readMe = () => mockGraphQLRequest<{ flashbackCapsule: { me: Me } }>(FlashbackCapsuleQueryDocument, {}).flashbackCapsule.me
+
+  // 开公开 + 开授权档 + 圈一句
+  const shareId = setSharing(true).shareId as string
+  const picked = [{ questionKey: 'today.say', start: 0, len: 6 }]
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'credited', chosenQuoteSpans: picked })
+  assert.equal(readMe().quoteLevel, 'credited')
+
+  // 关公开：授权档与圈选都不受影响（#771 设计要点 3：公开开关独立于金句授权；
+  // 关闭只解除发布——撤回公开不等于撤回金句）
+  setSharing(false)
+  assert.equal(readMe().quoteLevel, 'credited')
+  assert.deepEqual(readMe().quoteSpans, picked)
+  assert.equal(readMe().cardSharing.enabled, false)
+
+  // 重开：id 复用（不受授权档变动影响）
+  assert.equal(setSharing(true).shareId, shareId)
+
+  // 关授权档：公开开关不受影响
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'off' })
+  assert.equal(readMe().cardSharing.enabled, true)
+  assert.equal(readMe().cardSharing.shareId, shareId)
 })

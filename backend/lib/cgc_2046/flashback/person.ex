@@ -67,6 +67,17 @@ defmodule Cgc2046.Flashback.Person do
 
     attribute(:public_slug, :string, public?: true, writable?: true)
     attribute(:public_slug_published_at, :utc_datetime_usec, public?: true, writable?: false)
+
+    # 卡片分享链接标识（#771）：服务端铸的 24 字节随机十六进制串（48 字符），
+    # 一旦铸出即**不可变**——关闭只清 `card_share_enabled_at`，重开复用同 id
+    # （已投出的链接不因开关而换号）。public?: false：它是能力凭据（知道即能读
+    # 那张分享卡），与 public_slug 的「公开档案页地址」不同，不进任何自动面；
+    # 读出口只有显式白名单投影（SharedCard）。
+    attribute(:card_share_slug, :string, public?: false, writable?: false)
+
+    # 分享开关（#771）：置位 = 公开分享链接可解析；清空 = 关闭（slug 保留）。
+    # 与 public_slug 发布锁、quote_license 授权档**无依赖**——分享独立成立。
+    attribute(:card_share_enabled_at, :utc_datetime_usec, public?: true, writable?: false)
     # 触达退订（U8/R30，KTD6 按人抑制双通道）：置位后任何批次、任何通道
     # （email/sms）不再入队。真源在 person 行而非 outreach 行——首封邮件点击
     # 退订时尚无发送行。
@@ -98,6 +109,10 @@ defmodule Cgc2046.Flashback.Person do
 
   identities do
     identity(:unique_public_slug, [:public_slug])
+
+    # 分享链接标识全局唯一（#771）：服务端铸 48 字符 hex，唯一索引是最后防线
+    # （撞了重铸，见 CardSharing）。
+    identity(:unique_card_share_slug, [:card_share_slug])
   end
 
   postgres do
@@ -164,20 +179,82 @@ defmodule Cgc2046.Flashback.Person do
       require_atomic?(false)
       accept([:participation])
     end
+
+    # 卡片分享开关（#771）专用内部面：入口只有 CardSharing 服务（它先解析
+    # token/账号身份，再把服务端确认的 person_id 传进来），GraphQL 不直连本
+    # action。`card_share_slug` / `card_share_enabled_at` 皆不在 accept 列表——
+    # 标识由本 action **服务端铸出**（客户端无注入面），开关只动 enabled_at。
+    update :set_card_sharing do
+      require_atomic?(false)
+      argument(:enabled, :boolean, allow_nil?: false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn cs ->
+          enabled = Ash.Changeset.get_argument(cs, :enabled)
+          existing_slug = Ash.Changeset.get_data(cs, :card_share_slug)
+
+          cs =
+            if enabled and is_nil(existing_slug) do
+              # 首开才铸；已铸出的值**永不改写**（关闭只清 enabled_at，重开复用同 id）
+              Ash.Changeset.force_change_attribute(
+                cs,
+                :card_share_slug,
+                mint_card_share_slug()
+              )
+            else
+              cs
+            end
+
+          Ash.Changeset.force_change_attribute(
+            cs,
+            :card_share_enabled_at,
+            if(enabled, do: DateTime.utc_now())
+          )
+        end)
+      end)
+
+      error_handler({__MODULE__, :handle_write_error, []})
+    end
   end
 
-  # flashback_people 只有一个 identity（unique_public_slug），按类型判定即可；
-  # 日后新增 identity 须改按约束名分派（同 initiative 注记）。
+  # 分享标识：24 字节 CSPRNG → 48 字符小写 hex（URL 段安全字符集，无需转义）。
+  @doc false
+  def mint_card_share_slug do
+    :crypto.strong_rand_bytes(24) |> Base.encode16(case: :lower)
+  end
+
+  # create/update error_handler：**按约束名分派**（范式同 Course #619 /
+  # InitiativeRule #611）。本资源现有两个 identity：
+  #   - unique_public_slug → flashback_people_unique_public_slug_index（既有契约）
+  #   - unique_card_share_slug → flashback_people_unique_card_share_slug_index（#771）
+  # 泛化的「任意 unique 冲突」判据会把新增 identity 误归因成 slug_taken（静默
+  # 数据丢失），故逐名显式分派，未登记约束名一律原样上抛（fail-closed）。
   @doc false
   def handle_write_error(_changeset, error) do
-    if Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) do
-      Cgc2046.Errors.BusinessError.exception(
-        message: "public slug has already been taken",
-        code: "flashback_slug_taken",
-        fields: [:public_slug]
-      )
-    else
-      error
+    cond do
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(
+        error,
+        "flashback_people_unique_public_slug_index"
+      ) ->
+        Cgc2046.Errors.BusinessError.exception(
+          message: "public slug has already been taken",
+          code: "flashback_slug_taken",
+          fields: [:public_slug]
+        )
+
+      Cgc2046.Errors.ConstraintConflict.constraint_named?(
+        error,
+        "flashback_people_unique_card_share_slug_index"
+      ) ->
+        # 2^-192 量级的理论碰撞：调用方（CardSharing）据此重铸重试；重试耗尽才出用户面。
+        Cgc2046.Errors.BusinessError.exception(
+          message: "card share identifier collided, please retry",
+          code: "flashback_card_share_conflict",
+          fields: [:card_share_slug]
+        )
+
+      true ->
+        error
     end
   end
 

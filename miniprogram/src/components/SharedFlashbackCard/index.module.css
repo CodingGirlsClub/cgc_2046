@@ -1,0 +1,122 @@
+/* 对外分享卡（#771）：本人卡（MyCard 相纸一族）的**只读投影**——同一套纸卡
+ * 语言（纸白 #f6f2e8 / 当年照片窗米灰渐变 / 今天相纸 #efe9db / 厚下巴署名行），
+ * 但没有任何可点句、编辑入口或隐私开关。
+ *
+ * 层级：卡是嵌在 #f7f7f7 页底（访客页）与米色对话框（本人预览）里的纸物件，
+ * 所以深度靠「纸白 vs 页面灰」的色阶 + 一层外阴影，不靠边框。 */
+.card {
+  background: #f6f2e8;
+  border-radius: 12rpx;
+  padding: 40rpx 36rpx 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 18rpx 48rpx rgba(34, 35, 38, 0.14);
+}
+
+/* 卡头：品牌小字 + 城市/报名时间戳（两者都缺则整行不出，见 index.tsx）。
+   两行都在纸白 #f6f2e8 上，都按 AA 取色——品牌橙 #ea5504 只有 3.24:1，
+   故用更深的 #b34700（5.6:1），仍是同一色相、仍读得出是品牌色。 */
+.head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  padding-bottom: 28rpx;
+}
+.kicker {
+  font-size: 20rpx;
+  font-weight: 700;
+  color: #b34700;
+  letter-spacing: 0.28em;
+}
+.stamp {
+  font-size: 20rpx;
+  color: #6b6154;
+  letter-spacing: 0.06em;
+}
+
+/* 当年答案照片窗：与本人卡 .paperPhotoA 同族（米灰渐变 = 显影相纸） */
+.photoPast {
+  background: linear-gradient(160deg, #c9c2b1, #a49b88);
+  border-radius: 6rpx;
+  padding: 32rpx 26rpx;
+  display: grid;
+  gap: 30rpx;
+}
+/* 小标题：渐变窗最深处是 #a49b88，故这里不能用浅灰小字——纸底上可用的
+   rgba 在这里只有 2.7:1。取 #2b2723 实色：最深处 5.38:1、最浅处 8.35:1，
+   整条渐变都过 AA。 */
+.photoTitle {
+  font-size: 18rpx;
+  color: #2b2723;
+  letter-spacing: 0.2em;
+}
+
+/* 今天的你：纯相纸黄（#efe9db，本人卡 .paperPhotoB 同值） */
+.photoToday {
+  margin-top: 20rpx;
+  background: #efe9db;
+  border-radius: 6rpx;
+  padding: 32rpx 26rpx;
+  display: grid;
+  gap: 30rpx;
+}
+
+.qa { display: grid; gap: 10rpx; }
+.question {
+  display: block;
+  font-size: 18rpx;
+  color: #2b2723;
+  letter-spacing: 0.14em;
+}
+.todayQuestion {
+  display: block;
+  font-size: 19rpx;
+  color: #57524a;
+  letter-spacing: 0.08em;
+}
+
+/* 答案行：与本人卡 .paperA 同字号行高（26rpx/1.9），段内联排版。
+   取 #33302a 而非本人卡的 #3a362f：渐变窗最深处 #a49b88 上 #3a362f 只有
+   4.36:1（差一点点过 AA），#33302a 是 4.77:1，肉眼无差。 */
+.answer { font-size: 26rpx; line-height: 1.9; color: #33302a; }
+.seg { font-size: 26rpx; line-height: 1.9; color: #33302a; }
+
+/* 雾段：**定宽定高**的雾块——不按 len 画宽度。原句长短同样是信息，
+ * 按长度画等于把「她写了多长」这一手也递出去；定宽块只表达「这里有话，
+ * 但不在你能看到的范围」。色值与本人卡 .rvFog 同源（同一种遮蔽语义）。 */
+.fogSeg {
+  display: inline-block;
+  width: 96rpx;
+  height: 26rpx;
+  margin: 0 6rpx;
+  vertical-align: middle;
+  background: rgba(43, 39, 35, 0.22);
+  border-radius: 6rpx;
+}
+
+/* 厚下巴：署名行（隐名 + 时间戳）。本人卡是白下巴，这里直接落在纸上——
+ * 对外卡没有「翻面写字」那半边，下巴不必再切一刀。 */
+.signRow {
+  margin-top: 24rpx;
+  padding: 22rpx 4rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: #2d2a26;
+  font-size: 24rpx;
+  opacity: 0.85;
+}
+.signName { display: inline-block; transform: rotate(-1.2deg); }
+.signTime { font-size: 22rpx; }
+
+/* 底部口径说明：这一行是对外卡的「说明书」——雾面不是渲染瑕疵，
+ * 是本人设过的边界。色值 #6b6154 在纸底 #f6f2e8 上 5.2:1。 */
+.fogNote {
+  display: block;
+  padding: 4rpx 0 28rpx;
+  text-align: center;
+  font-size: 19rpx;
+  color: #6b6154;
+  line-height: 1.7;
+}

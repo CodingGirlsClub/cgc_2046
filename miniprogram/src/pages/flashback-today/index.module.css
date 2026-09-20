@@ -38,7 +38,9 @@
 .actions { margin-top: 36rpx; width: 70vw; display: flex; gap: 20rpx; }
 .actionPrimary, .actionSecondary {
   flex: 1; border: none; border-radius: 999rpx;
-  font-size: 28rpx; font-weight: 600; padding: 18rpx 0; line-height: 1.5;
+  /* padding 20rpx（非 18rpx）：20+20+28×1.5 = 41px，过 40px 最小点按面积 */
+  font-size: 28rpx; font-weight: 600; padding: 20rpx 0; line-height: 1.5;
+  transition: transform 0.12s ease-out, opacity 0.12s ease-out;
 }
 .actionPrimary { background: #ea5504; color: #fff; box-shadow: 0 8rpx 24rpx rgba(234, 85, 4, 0.24); }
 .actionPrimary[disabled] { opacity: 0.6; }
@@ -48,3 +50,71 @@
 
 /* 离屏画布：canvas.width/height 是画布像素（与 CSS 无关），尺寸由 domain 版式算出 */
 .cardCanvas { position: fixed; left: -9999rpx; top: 0; width: 600px; height: 800px; }
+
+/* ── 「朋友将看到的全文卡」对话框（#771）────────────────────────────────
+   与 MyCard 的 ShareSheet 同族（底部圆角面板 + 半透明遮罩），但内容更长：
+   预览区吃掉剩余高度并可滚，说明与动作固定在面板底部——滚动时「开启/发送」
+   始终够得着。遮罩 catchMove 防滚动穿透。 */
+.shareMask {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 320;
+  display: flex; align-items: flex-end;
+}
+.sharePanel {
+  width: 100%; max-height: 88vh; box-sizing: border-box;
+  background: #f7f7f7; border-radius: 32rpx 32rpx 0 0;
+  padding: 32rpx 32rpx calc(env(safe-area-inset-bottom) + 28rpx);
+  display: flex; flex-direction: column;
+}
+.shareTitle {
+  display: block; text-align: center; font-size: 26rpx; font-weight: 600;
+  color: #222326; letter-spacing: 0.04em; margin-bottom: 22rpx;
+}
+/* 预览区：唯一可滚的部分。flex:1 + min-height:0 让它在面板的 max-height
+   约束内收缩（min-height 不归零的话 flex 项不会小于内容高度，滚动永远不触发）。 */
+.sharePreview { flex: 1; min-height: 0; }
+
+/* 缺状态兜底：不给假卡，只给一句实话 + 刷新 + 退出 */
+.shareMissing { padding: 60rpx 20rpx; display: flex; flex-direction: column; align-items: stretch; gap: 16rpx; }
+.shareMissingText { font-size: 24rpx; color: #4b4d54; line-height: 1.8; text-align: center; }
+
+/* 说明区：四条边界（全文而非摘要 / 可转发可截图 / 雾面联动 / 无联系方式） */
+.shareNotice { margin-top: 20rpx; display: grid; gap: 8rpx; }
+.shareNoticeLine { font-size: 20rpx; color: #6b6f78; line-height: 1.7; }
+
+.shareActions { margin-top: 20rpx; display: grid; gap: 14rpx; }
+.shareConsent { font-size: 21rpx; color: #6b6f78; line-height: 1.7; text-align: center; }
+.shareStatus { display: flex; flex-direction: column; align-items: center; gap: 6rpx; }
+/* 小字按 AA 取色：#ea5504 在 #f7f7f7 上只有 3.38:1，故状态用 #b34700（5.6:1）；
+   提示与「先不分享」用 #6b6f78（4.70:1），不用 3.03:1 的 #8a8f98。 */
+.shareStatusOn { font-size: 24rpx; font-weight: 600; color: #b34700; letter-spacing: 0.06em; }
+.shareStatusHint { font-size: 20rpx; color: #6b6f78; }
+
+/* 主/次/收尾三级：发送（橙实心）> 允许生成链接（橙实心，同一动作的入口态）
+   > 关闭链接/刷新（描边）> 先不分享（无底色）。 */
+.sharePrimary, .shareQuiet, .shareCancel {
+  border: none; border-radius: 999rpx; line-height: 1.6;
+  transition: transform 0.12s ease-out, opacity 0.12s ease-out;
+}
+.sharePrimary {
+  background: #ea5504; color: #fff; font-size: 28rpx; font-weight: 600; padding: 20rpx 0;
+  box-shadow: 0 8rpx 24rpx rgba(234, 85, 4, 0.24);
+}
+.sharePrimary[disabled] { opacity: 0.6; }
+.shareQuiet {
+  background: #fff; color: #4b4d54; font-size: 24rpx; padding: 22rpx 0;
+  border: 1rpx solid rgba(0, 0, 0, 0.08);
+}
+.shareQuiet[disabled] { opacity: 0.6; }
+/* 收尾动作：视觉最轻（无底色 + 灰字），但点按面积仍过 40px——轻的是权重，
+   不是可点范围。 */
+.shareCancel { background: transparent; color: #6b6f78; font-size: 24rpx; padding: 22rpx 0; }
+.sharePrimary::after, .shareQuiet::after, .shareCancel::after { border: none; }
+/* 按压反馈（hover-class）：面板里的动作都要「按下去有回应」 */
+.pressed { transform: scale(0.96); opacity: 0.86; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sharePrimary, .shareQuiet, .shareCancel,
+  .actionPrimary, .actionSecondary { transition: none; }
+  .pressed { transform: none; }
+}
+

@@ -414,6 +414,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, %{slug: slug}, _ -> Cgc2046.Flashback.Public.profile(slug) end)
     end
 
+    @desc "卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机）"
+    field :flashback_shared_card, :flashback_shared_card do
+      arg(:share_id, non_null(:string))
+
+      resolve(fn _, %{share_id: share_id}, _ ->
+        {:ok, Cgc2046.Flashback.SharedCard.get(share_id)}
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -2341,7 +2350,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @doc "今天的你句级雾面：field ∈ now/want/need/say，spans 与当年雾面同坐标同校验；双入口"
+    # 今天的你句级雾面：field ∈ now/want/need/say，spans 与当年雾面同坐标同校验；双入口
     field :flashback_adjust_today_fog, :flashback_adjust_today_fog_result do
       arg(:token, :string)
       arg(:field, non_null(:string))
@@ -2401,6 +2410,24 @@ defmodule Cgc2046Web.GraphqlSchema do
         else
           {:error, message: "Invalid quote license level", code: "invalid_input"}
         end
+      end)
+    end
+
+    @desc "卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档/公开 slug 无依赖。双入口（token 或登录账号）"
+    field :flashback_set_card_sharing, :flashback_card_sharing do
+      arg(:enabled, non_null(:boolean))
+      arg(:token, :string)
+
+      # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
+      # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            Cgc2046.Flashback.CardSharing.set(args[:enabled], identity)
+          end
+        end)
       end)
     end
 
@@ -3280,6 +3307,45 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:quote_stats, :flashback_quote_stats)
     @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
     field(:answers, non_null(list_of(non_null(:flashback_me_answer))))
+    @desc "卡片分享（#771）：开关态 + 标识 + 本人预览；预览独立于公开门（关着也有）"
+    field(:card_sharing, non_null(:flashback_card_sharing))
+  end
+
+  # ── 卡片分享（#771）：本人管理面 + 匿名公开面 ──────────────────────────
+  # 投影纪律（KTD3 同款）：分享卡只出隐名（王**）+ 城市 + 报名时间 +
+  # 当年三题与今天四格；手机/邮箱/性别/职业/公开 slug/授权档一律不进 SELECT。
+  # 雾面段 text 恒空串——原文字符不出响应体（FogSpans.segments 保证）。
+  object :flashback_card_sharing do
+    @desc "分享链接是否可被访客解析（关 = 链接 404，标识仍保留）"
+    field(:enabled, non_null(:boolean))
+    @desc "分享标识：首开铸出后**永不变**（关闭不清、重开复用）；从未开启为 null"
+    field(:share_id, :string)
+    @desc "本人预览（与公开面同一投影，不受 enabled 门限制）；档案已删除为 null"
+    field(:preview, :flashback_shared_card)
+  end
+
+  object :flashback_shared_card do
+    @desc "隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径"
+    field(:display_name, non_null(:string))
+    field(:city, :string)
+    @desc "报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」）"
+    field(:applied_at, :string)
+    @desc "当年答案（实时保存数据，无「已寄出」前置）：键 self_intro / funny_thing / os；空节剔除"
+    field(:answers, non_null(list_of(non_null(:flashback_shared_card_section))))
+    @desc "今天四格（实时保存数据）：键 today.now / today.want / today.need / today.say；空节剔除"
+    field(:today, non_null(list_of(non_null(:flashback_shared_card_section))))
+  end
+
+  object :flashback_shared_card_section do
+    field(:question_key, non_null(:string))
+    @desc "段结构（原文顺序）：明文段 text 有字、雾面段 text 恒空串（原文零泄露），len 供视觉档位"
+    field(:segments, non_null(list_of(non_null(:flashback_shared_card_segment))))
+  end
+
+  object :flashback_shared_card_segment do
+    field(:text, non_null(:string))
+    field(:fog, non_null(:boolean))
+    field(:len, non_null(:integer))
   end
 
   object :flashback_me_answer do

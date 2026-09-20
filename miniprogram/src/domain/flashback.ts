@@ -128,10 +128,17 @@ export type TodayField = (typeof TODAY_FIELDS)[number]['field']
 
 /** 卡面题干（questionKey → 中文；白名单外的 key 原样显示兜底）。
  *  从 flashback-journey 迁来：它是纯文案映射（与 TODAY_FIELDS 同类），
- *  放本模块后 recordCardModel 可直接消费，且消除 journey → card 的反向依赖。 */
+ *  放本模块后 recordCardModel 可直接消费，且消除 journey → card 的反向依赖。
+ *
+ *  `os` / `social_media` 是导入期的结构化题（import.ex 的列映射），两处白名单
+ *  都会用到（alumni_projection.ex: roster/enter 出 4 题、公开卡出 3 题含 os），
+ *  但这里原先没有分支——它们会回落成原始 key，于是题干显示为字面量「os」。
+ *  文案对齐 web（messages/zh-CN.json 的 flashback.questionLabels）。 */
 export function questionLabel(questionKey: string): string {
   if (questionKey === 'self_intro') return '请简单的介绍一下自己'
   if (questionKey === 'funny_thing') return '你做过的有意思的事情'
+  if (questionKey === 'os') return '当时的操作系统'
+  if (questionKey === 'social_media') return '当时的社交媒体'
   if (questionKey === 'today.now') return '现在在做什么'
   if (questionKey === 'today.want') return '想做的事 / 想学的东西'
   if (questionKey === 'today.need') return '需要什么帮助'

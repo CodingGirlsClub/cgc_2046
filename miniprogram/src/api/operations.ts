@@ -507,6 +507,31 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           fogSpans
           sentToWallAt
         }
+        cardSharing {
+          enabled
+          shareId
+          preview {
+            displayName
+            city
+            appliedAt
+            answers {
+              questionKey
+              segments {
+                text
+                fog
+                len
+              }
+            }
+            today {
+              questionKey
+              segments {
+                text
+                fog
+                len
+              }
+            }
+          }
+        }
         answers {
           id
           questionKey
@@ -772,5 +797,66 @@ export const FlashbackAddWishCommentMutationDocument = /* GraphQL */ `
 export const FlashbackDeleteWishMutationDocument = /* GraphQL */ `
   mutation FlashbackDeleteWish($token: String, $wishId: ID!) {
     flashbackDeleteWish(token: $token, wishId: $wishId)
+  }
+`
+
+// ── 卡片站外公开（#771/R14）──────────────────────────────────────────────
+// 开关（本人面，双入口 token）：返回状态含 shareId 与本人预览。preview 在
+// enabled=false 时**仍在**（本人预览与公开门独立），故选择集固定，不做条件分叉。
+export const FlashbackSetCardSharingMutationDocument = /* GraphQL */ `
+  mutation FlashbackSetCardSharing($enabled: Boolean!, $token: String) {
+    flashbackSetCardSharing(enabled: $enabled, token: $token) {
+      enabled
+      shareId
+      preview {
+        displayName
+        city
+        appliedAt
+        answers {
+          questionKey
+          segments {
+            text
+            fog
+            len
+          }
+        }
+        today {
+          questionKey
+          segments {
+            text
+            fog
+            len
+          }
+        }
+      }
+    }
+  }
+`
+
+// 公开读面（匿名，无 token/slug）：shareId 不存在/已关闭/档案已删 → null。
+// 「朋友点开看到我的卡」的全部数据源——段结构即雾面口径，原文字符不出服务端。
+export const FlashbackSharedCardQueryDocument = /* GraphQL */ `
+  query FlashbackSharedCard($shareId: String!) {
+    flashbackSharedCard(shareId: $shareId) {
+      displayName
+      city
+      appliedAt
+      answers {
+        questionKey
+        segments {
+          text
+          fog
+          len
+        }
+      }
+      today {
+        questionKey
+        segments {
+          text
+          fog
+          len
+        }
+      }
+    }
   }
 `

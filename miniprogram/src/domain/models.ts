@@ -346,6 +346,12 @@ export interface FlashbackMyCard {
   quoteStats: { likeCount: number } | null
   today: FlashbackMyToday | null
   answers: FlashbackMeAnswer[]
+  /**
+   * 卡片公开开关（#771）。**TS 侧可选**只为兼容旧 fixture/旧后端快照；真实
+   * payload 恒带本字段（后端非空）。缺省 = 「未知」，页面须按**关**处理
+   * （判据 `me.cardSharing?.enabled === true`，fail-closed：非 true 一律按关）。
+   */
+  cardSharing?: FlashbackCardSharing
 }
 
 /** 名册答案段（对外版）：fog=true 时 text 恒空（原文字符不出 DOM，KTD4） */
@@ -358,6 +364,46 @@ export interface FlashbackRosterSegment {
 export interface FlashbackRosterAnswer {
   questionKey: string
   segments: FlashbackRosterSegment[]
+}
+
+// ── 卡片站外公开（#771/R14：分享给朋友 → 朋友点开看到「我的卡」） ──────
+
+/**
+ * 对外分享卡（#771）：朋友视角的**雾面版**卡面。与本人卡（FlashbackMyCard）
+ * 是两条投影——这里只有白名单字段，姓名走 `surname_masked` 口径，
+ * 当年答案只出 self_intro/funny_thing/os 三题（PII 行 phone/email/social_media
+ * 不进），today 四问全出。
+ *
+ * 段结构复用名册口径（FlashbackRosterSegment）：fog=true 时 `text` 恒空字符串
+ * ——原文字符不进 DOM，渲染层画**定宽**雾块（不按 `len` 定宽：句长本身也是
+ * 信息，不该从雾块宽度泄出去）。**这是唯一不可原谅的错误防线**：
+ * 本类型的入参形状里根本没有原文（后端投影只出段结构），映射层
+ * （api/real.mapSharedCard）无从回退到本人卡原文，页面也不得自行补字。
+ */
+export interface FlashbackSharedCard {
+  /** 隐名（后端 surname_masked 口径：王**）——不是本人卡的全名 */
+  displayName: string
+  city: string | null
+  appliedAt: string | null
+  /** 当年答案白名单（self_intro/funny_thing/os） */
+  answers: FlashbackRosterAnswer[]
+  /** 今天的你（questionKey = today.now/want/need/say；无内容时空数组） */
+  today: FlashbackRosterAnswer[]
+}
+
+/**
+ * 卡片公开开关状态（capsule.me.cardSharing / flashbackSetCardSharing 返回值）。
+ *
+ * 与金句授权档（quoteLevel）**互相独立**：开实名档不会连带公开回忆（#771 设计
+ * 要点 3）。`shareId` 首次开启时生成、此后**永不变更**——关闭只清公开态，
+ * 不改 id（ADR-0014：发布即锁死，无 rename 后门），重新开启复用同一 id。
+ */
+export interface FlashbackCardSharing {
+  enabled: boolean
+  /** null 仅在「从未开启过」时出现；开过之后关闭也保留 */
+  shareId: string | null
+  /** 本人视角的卡面预览（与公开读面同形，同一份段结构） */
+  preview: FlashbackSharedCard
 }
 
 /** 场次名册成员（R12 分层墙）：未寄出者只有结构化字段，寄出者才有全名与内容 */
@@ -600,6 +646,17 @@ export interface MiniProgramApi {
   flashbackEndorseWish(wishId: string, token?: string | null): Promise<number>
   flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void>
   flashbackDeleteWish(wishId: string, token?: string | null): Promise<void>
+  /**
+   * #771/R14：站外公开开关（本人可调，默认关）。开启时后端生成 shareId，
+   * 关闭只解除公开、**不改 id**（重新开启复用同一 id）。
+   * token 可选 = 首程链接身份（KTD2），与 today/雾面写面同规则。
+   */
+  flashbackSetCardSharing(enabled: boolean, token?: string | null): Promise<FlashbackCardSharing>
+  /**
+   * #771：按 shareId 读公开卡（**匿名面**，朋友无账号也可读）。
+   * 关闭/不存在/已删档 → null（合法空态，不是错误）；网络/服务端故障照常抛。
+   */
+  getFlashbackSharedCard(shareId: string): Promise<FlashbackSharedCard | null>
 }
 
 /** 登录账号没有绑定闪念间档案（capsule 双入口的会话腿 miss）——页面按引导态渲染。 */

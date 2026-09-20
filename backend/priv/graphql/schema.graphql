@@ -5358,6 +5358,9 @@ type RootQueryType {
   "闪念间实名档案页（U6\/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
   flashbackPublicProfile(slug: String!): FlashbackPublicProfile
 
+  "卡片分享链接（#771）：匿名可读（无 token \/ 无 slug \/ 无授权依赖）；null = 未命中 \/ 已关闭 \/ 已删除（不区分原因，不做存在性预言机）"
+  flashbackSharedCard(shareId: String!): FlashbackSharedCard
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6282,6 +6285,49 @@ type FlashbackCapsuleMe {
 
   "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
   answers: [FlashbackMeAnswer!]!
+
+  "卡片分享（#771）：开关态 + 标识 + 本人预览；预览独立于公开门（关着也有）"
+  cardSharing: FlashbackCardSharing!
+}
+
+type FlashbackCardSharing {
+  "分享链接是否可被访客解析（关 = 链接 404，标识仍保留）"
+  enabled: Boolean!
+
+  "分享标识：首开铸出后**永不变**（关闭不清、重开复用）；从未开启为 null"
+  shareId: String
+
+  "本人预览（与公开面同一投影，不受 enabled 门限制）；档案已删除为 null"
+  preview: FlashbackSharedCard
+}
+
+type FlashbackSharedCard {
+  "隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径"
+  displayName: String!
+
+  city: String
+
+  "报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」）"
+  appliedAt: String
+
+  "当年答案（实时保存数据，无「已寄出」前置）：键 self_intro \/ funny_thing \/ os；空节剔除"
+  answers: [FlashbackSharedCardSection!]!
+
+  "今天四格（实时保存数据）：键 today.now \/ today.want \/ today.need \/ today.say；空节剔除"
+  today: [FlashbackSharedCardSection!]!
+}
+
+type FlashbackSharedCardSection {
+  questionKey: String!
+
+  "段结构（原文顺序）：明文段 text 有字、雾面段 text 恒空串（原文零泄露），len 供视觉档位"
+  segments: [FlashbackSharedCardSegment!]!
+}
+
+type FlashbackSharedCardSegment {
+  text: String!
+  fog: Boolean!
+  len: Int!
 }
 
 type FlashbackMeAnswer {
@@ -7504,6 +7550,9 @@ type RootMutationType {
   flashbackSetQuoteLicense(
     token: String, level: String!, chosenQuoteSpans: [FlashbackQuoteSpanInput], creditedNote: String
   ): FlashbackQuoteLicenseResult
+
+  "卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档\/公开 slug 无依赖。双入口（token 或登录账号）"
+  flashbackSetCardSharing(enabled: Boolean!, token: String): FlashbackCardSharing
 
   "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
   flashbackRegisterBind(token: String!, phone: String!, code: String!): FlashbackRegisterBindResult

@@ -202,7 +202,8 @@ defmodule Cgc2046.Flashback.Deletion do
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.each(&Ash.destroy!(&1, authorize?: false, action: :destroy))
 
-    # 5/8/9. slug 下线 + 账号解绑 + deleted_at 置位（一次 update）
+    # 5/8/9. slug 下线 + 账号解绑 + deleted_at 置位（一次 update）；卡片分享
+    # 两列一并强清（#771：删除 = 分享链接即刻失效，标识不留残值）。
     deleted_at = DateTime.utc_now()
 
     person
@@ -211,6 +212,8 @@ defmodule Cgc2046.Flashback.Deletion do
     |> Ash.Changeset.force_change_attribute(:user_id, nil)
     |> Ash.Changeset.force_change_attribute(:public_slug, nil)
     |> Ash.Changeset.force_change_attribute(:public_slug_published_at, nil)
+    |> Ash.Changeset.force_change_attribute(:card_share_slug, nil)
+    |> Ash.Changeset.force_change_attribute(:card_share_enabled_at, nil)
     |> Ash.update!(authorize?: false)
 
     %{deleted_at: deleted_at}
