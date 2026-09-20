@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import InitiativeDetail from "./initiative-detail";
 
@@ -134,7 +134,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("/initiatives/[slug] 公开页", () => {
-	it("渲染四项计数、城市分组与后端派生徽章矩阵", async () => {
+	it("渲染四项计数、城市筛选 chips 与后端派生徽章矩阵", async () => {
 		fetchPublicInitiative.mockResolvedValue(PAYLOAD);
 
 		render(<InitiativeDetail slug="hackerstart1024" />);
@@ -149,8 +149,14 @@ describe("/initiatives/[slug] 公开页", () => {
 		expect(stats.textContent).toContain("14");
 		expect(stats.textContent).toContain("1");
 
-		expect(screen.getByRole("heading", { name: "长沙市" })).toBeInTheDocument();
-		expect(screen.getByRole("heading", { name: "深圳市" })).toBeInTheDocument();
+		// 城市名从分组 h2 移到筛选 chip（button）
+		expect(screen.getByRole("button", { name: /长沙市/ })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /深圳市/ })).toBeInTheDocument();
+
+		// 平铺后四场同屏（不再按城市分 section）
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
 
 		// hero 状态行 + 倡导窗口（与小程序 initiative-detail hero 同信息）
 		const hero = document.querySelector(".initiative-hero")!;
@@ -191,6 +197,45 @@ describe("/initiatives/[slug] 公开页", () => {
 		// 分叉钉死：cancelled 与 closed 文案不得相同
 		expect(hero.querySelector(".initiative-hero__status")!.textContent).not.toBe("已结束 · 活动留档");
 		expect(screen.queryByRole("link", { name: /长沙站/ })).toBeNull();
+	});
+
+	it("平铺 + 城市筛选：chip 过滤场次，「全部城市」恢复", async () => {
+		fetchPublicInitiative.mockResolvedValue(PAYLOAD);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		// 平铺：四场同屏
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
+
+		// 筛选「长沙市」：深圳站离场，长沙组三场仍在
+		fireEvent.click(screen.getByRole("button", { name: /长沙市/ }));
+		expect(screen.queryByRole("link", { name: /深圳站/ })).toBeNull();
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+
+		// 「全部城市」恢复四场
+		fireEvent.click(screen.getByRole("button", { name: "全部城市" }));
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
+	});
+
+	it("单城市不渲染筛选条", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			cityCount: 1,
+			eventCount: 1,
+			cities: [{ city: "长沙市", events: [PAYLOAD.cities[0].events[0]] }],
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-filter")).toBeNull();
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
 	});
 
 	it("加载失败渲染 notFound 与返回入口", async () => {
