@@ -161,9 +161,9 @@
 
 **预期**：显示连接状态（工具数）、待办引导、角色引导、快捷操作。
 
-**实际**（2026-09-20 真实环境验证，pBR 子代理）：agent 自动拉 3 次工具（list_my_workspaces + list_my_tasks × 2）渲染角色/待办/快捷操作 ✓；notify 即时反馈需用户重启 OMP 后实测。
+**实际**（2026-09-20 真实环境验证，用户亲测 + pBR 子代理）：notify 立即显示连接状态与引导 ✓；agent 自动拉 3 次工具（list_my_workspaces + list_my_tasks × 2）渲染汇总 ✓——连接状态（MCP 握手成功、is_platform_admin: true）、待办列表（5 条，按工作区分组，含类型/课程/阶段）、可进入角色（2046 社区 owner/tutor、Girls Into Diving Club owner/tutor）、快捷操作（断开/重连/文档）✓；诚实标注 approval_deadline 字段在当前待办负载里不存在（只出现在报名/加入申请/赞助类 pending 审批上）✓。
 
-**结论**：✓ 渲染路径通过；notify 即时反馈待用户重启 OMP 后实测。
+**结论**：✓ 通过——AE8 字面完全满足（无需先问 agent 即见连接状态、待办列表、可进入角色与快捷操作）。
 
 ---
 
