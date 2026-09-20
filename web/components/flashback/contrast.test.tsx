@@ -62,6 +62,10 @@ function declaredColor(selector: string): string | null {
 
 const PAGE_BG: [number, number, number] = [10, 10, 12]; // .fb-root #0a0a0c
 const CARD_BG: [number, number, number] = [26, 26, 28]; // 暗卡片 ≈ 0.07 纸 over 页底
+const PAPER_BG: [number, number, number] = [0xef, 0xe9, 0xdb]; // 纸底 .fb-write-form #efe9db
+/** 次要文字变量取值（数值断言 + cascade 断言共用；定义见 .fb-root 块） */
+const SUB_DARK = "#918c82";
+const SUB_INK = "#6b6154";
 
 // RecoverForm 走 useMutation：本文件主题是样式，mock 掉 Apollo hook
 const { useMutationMock } = vi.hoisted(() => ({ useMutationMock: vi.fn(() => [vi.fn(), { loading: false }]) }));
@@ -159,8 +163,22 @@ describe("防线 1：CSS 源对比度数值断言（WCAG ≥4.5:1）", () => {
 		expect(css).toMatch(/\.fb-root \.fb-send-note\s*\{/);
 
 		const note = declaredColor(".fb-root .fb-send-note");
-		expect(note, "须有显式色（不沿用 var(--fb-sub)：其 #77726a 在暗底仅 4.14）").toBe("#918c82");
-		expect(contrastRatio(note!, PAGE_BG)).toBeGreaterThanOrEqual(4.5);
+		expect(note, "须有显式色（不可缺省——缺省即落回继承链的深墨）").toBe("var(--fb-sub)");
+		expect(contrastRatio(SUB_DARK, PAGE_BG)).toBeGreaterThanOrEqual(4.5);
+	});
+
+	it("次要文字变量：--fb-sub 暗底 / --fb-sub-ink 纸底，两侧均 ≥4.5", () => {
+		// 同一语义跨两种底色，单值无解（原 #77726a：暗底 4.14 / 纸底 3.94 双双不过）
+		const dark = css.match(/--fb-sub:\s*(#[0-9a-fA-F]{6})/);
+		const ink = css.match(/--fb-sub-ink:\s*(#[0-9a-fA-F]{6})/);
+		expect(dark, "--fb-sub 须定义").toBeTruthy();
+		expect(ink, "--fb-sub-ink 须定义").toBeTruthy();
+
+		expect(contrastRatio(dark![1], PAGE_BG)).toBeGreaterThanOrEqual(4.5);
+		expect(contrastRatio(ink![1], PAPER_BG)).toBeGreaterThanOrEqual(4.5);
+
+		// 纸底表单内的 .fb-hint 必须覆盖为 ink 色——否则亮色落在浅底上（反向失败）
+		expect(css).toMatch(/\.fb-write-form \.fb-hint\s*\{[^}]*color:\s*var\(--fb-sub-ink\)/);
 	});
 });
 
@@ -178,6 +196,24 @@ describe("防线 2：继承链守卫（.fb-root 默认亮字）", () => {
 			const re = new RegExp(`${sel.replace(".", "\\.")}\\s*\\{[^}]*color:\\s*var\\(--fb-ink\\)`);
 			expect(css.match(re), `${sel} 须显式 color: var(--fb-ink)`).toBeTruthy();
 		}
+	});
+
+	it("次要文字变量在真实 cascade 中解析：暗底 =--fb-sub，纸底表单内 =--fb-sub-ink", () => {
+		// 源文本断言的补强：证明变量链路通、纸底覆盖规则真的赢了 cascade
+		// （规则写对了但被更高特异性压掉 → 源断言仍绿，此断言红）
+		const root = document.createElement("div");
+		root.innerHTML = `
+			<div class="fb-root">
+				<p class="fb-hint" id="t-dark">暗底提示</p>
+				<div class="fb-write-form">
+					<p class="fb-hint" id="t-paper">纸底提示</p>
+				</div>
+			</div>`;
+		document.body.appendChild(root);
+
+		expect(getComputedStyle(document.getElementById("t-dark")!).color).toBe(SUB_DARK);
+		expect(getComputedStyle(document.getElementById("t-paper")!).color).toBe(SUB_INK);
+		root.remove();
 	});
 });
 

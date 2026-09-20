@@ -8,7 +8,11 @@
 .fb-root {
 	--fb-paper: #f6f2e8;
 	--fb-ink: #2b2723;
-	--fb-sub: #77726a;
+	/* 次要文字：同一语义跨两种底色，单值无解（暗底 #0a0a0c 要亮色、
+	   纸底 #efe9db 要深色，任何单值总有一侧不过 AA）。故拆两个变量：
+	   --fb-sub 暗底用（5.91:1）、--fb-sub-ink 纸底用（5.01:1）。 */
+	--fb-sub: #918c82;
+	--fb-sub-ink: #6b6154;
 	--fb-accent: #cbbf8f;
 	--fb-develop-dur: 1.2s; /* 主照中速显影（R7：慢时刻留给认出自己） */
 	--fb-develop-scatter-dur: 0.6s; /* 散照快显影（R7） */
@@ -250,6 +254,11 @@
 	margin-top: 16px;
 	color: var(--fb-sub);
 }
+/* 纸底表单内的次要文字覆盖：--fb-sub 是为暗底调的亮色，落在纸底 #efe9db
+   上不过 AA——纸底容器改用 --fb-sub-ink（5.01:1）。 */
+.fb-write-form .fb-hint {
+	color: var(--fb-sub-ink);
+}
 
 .fb-shutter {
 	margin-top: 56px;
@@ -282,13 +291,12 @@
 	font-weight: 600;
 }
 /* 寄出即公开的后果说明（按钮下方小字；.fb-root 前缀同 .fb-cta 的特异性教训）。
-   色值 #918c82:暗底 #0a0a0c 上 5.91:1——不沿用 var(--fb-sub)(#77726a 仅 4.14,
-   跨暗底/纸底双底色，任何单值都过不了 AA)。 */
+   用 --fb-sub（暗底 5.91:1）——它与提交按钮同在暗底 stage，非纸底表单内。 */
 .fb-root .fb-send-note {
 	margin: 10px 0 0;
 	font-size: 12px;
 	line-height: 1.6;
-	color: #918c82;
+	color: var(--fb-sub);
 	text-align: center;
 }
 
