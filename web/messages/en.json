@@ -2426,6 +2426,8 @@
 		"shortBy": "{count} more needed to qualify",
 		"open": "Open",
 		"cityEvents": "{count, plural, one {# event} other {# events}}",
+		"allCities": "All cities",
+		"filterByCity": "Filter by city",
 		"indexTitle": "Initiatives",
 		"indexDesc": "Public initiatives across workspaces. Open one to browse its events.",
 		"conditionWithAge": "{payment} · Age {age}+",
