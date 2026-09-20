@@ -18,7 +18,31 @@
 export default function cgcCommand(pi) {
   pi.registerCommand("cgc", {
     description: "CGC-2046 状态总览：连接状态、待办、可进入角色、快捷操作",
-    handler: async (_args, ctx) => {
+    handler: async (args, ctx) => {
+      // /cgc help：完整命令参考（小白友好：「你说什么」+「会发生什么」）
+      const argText = typeof args === "string" ? args.trim().toLowerCase() : "";
+      if (argText === "help" || argText === "--help" || argText === "-h") {
+        ctx.ui.notify(
+          "CGC-2046 命令参考\n\n" +
+            "你说什么 → 会发生什么：\n\n" +
+            "  /cgc → 查看连接状态、待办、可进入角色\n" +
+            "  /cgc help → 显示本参考\n" +
+            "  「连接 CGC」→ 连接你的 CGC 账号（自动或手工）\n" +
+            "  「断开连接」→ 我来指导你断开\n" +
+            "  「开始 CGC 工作」→ 以 cgc agent 身份开始角色工作\n" +
+            "  「帮我处理待办」→ 查看并处理你的待办\n" +
+            "  「帮我开课」→ 创建课程（Owner/Admin）\n" +
+            "  「帮我教研」→ 生产课程内容（Tutor）\n" +
+            "  「帮我学习」→ 开始学习（Learner）\n\n" +
+            "技术细节（不需要懂）：\n" +
+            "  · 配置文件在 ~/.omp/agent/mcp.json（0600 权限，只有你能读）\n" +
+            "  · 卸载：跑 install.sh remove（保留备份）\n" +
+            "  · 文档：omp-access-pack/README.md",
+          "info",
+        );
+        return;
+      }
+
       // 连接状态：从工具注册表读 cgc-2046 server 的 MCP 工具是否存在
       // 双兜底：ctx.getAllTools（command handler ctx）→ pi.getAllTools（extension API）
       const allTools = ctx.getAllTools?.() ?? pi.getAllTools?.() ?? [];
@@ -28,11 +52,10 @@ export default function cgcCommand(pi) {
       if (!connected) {
         ctx.ui.notify(
           "CGC-2046 未连接。\n\n" +
-            "接入步骤：\n" +
-            "  1. 确认已安装接入包（omp-access-pack）\n" +
-            "  2. 确认 ~/.omp/agent/mcp.json 含 cgc-2046 条目\n" +
-            "  3. 跑 onboarding skill 完成连接（或手动在网站 MCP 页生成 token 写入配置）\n\n" +
-            "连接后重试 /cgc。",
+            "说「连接 CGC」开始。\n\n" +
+            "其他：\n" +
+            "  · 查看完整命令参考：/cgc help\n" +
+            "  · 查看文档：omp-access-pack/README.md",
           "warning",
         );
         return;
@@ -49,8 +72,9 @@ export default function cgcCommand(pi) {
           "  · 说「帮我处理待办」→ 查看并处理待办\n" +
           "  · 说「开始 CGC 工作」→ 以 cgc agent 身份开始角色工作（开课/教研/学习）\n\n" +
           "其他：\n" +
-          "  · 断开连接：编辑 ~/.omp/agent/mcp.json 删除 cgc-2046 条目，或跑 install.sh remove\n" +
-          "  · 重新连接：说「连接 CGC」\n" +
+          "  · 说「断开连接」→ 我来指导你断开\n" +
+          "  · 说「连接 CGC」→ 重新连接\n" +
+          "  · 查看完整命令参考：/cgc help\n" +
           "  · 查看文档：omp-access-pack/README.md",
         "info",
       );
