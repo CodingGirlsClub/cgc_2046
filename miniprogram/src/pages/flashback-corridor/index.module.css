@@ -307,90 +307,6 @@
   line-height: 1.7;
 }
 
-/* 摘要卡离屏画布（600×800，与我的页同一定式） */
-.shareCanvas {
-  position: fixed;
-  left: -9999rpx;
-  width: 600px;
-  height: 800px;
-}
-
-/* 分享 sheet（与我的页同款） */
-.shareMask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 30;
-  display: flex;
-  align-items: flex-end;
-}
-
-.shareSheet {
-  width: 100%;
-  background: #f7f7f7;
-  border-radius: 32rpx 32rpx 0 0;
-  padding: 36rpx 32rpx 60rpx;
-  box-sizing: border-box;
-}
-
-.shareSheetTitle {
-  display: block;
-  margin-bottom: 28rpx;
-  color: #8a8f98;
-  font-size: 24rpx;
-  text-align: center;
-}
-
-.shareEntries {
-  display: flex;
-  gap: 44rpx;
-  justify-content: center;
-}
-
-.shareEntry {
-  display: grid;
-  justify-items: center;
-  gap: 12rpx;
-  width: auto;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  line-height: 1.4;
-}
-.shareEntry::after { border: none; }
-
-.shareEntryIcon {
-  width: 104rpx;
-  height: 104rpx;
-  border-radius: 28rpx;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40rpx;
-  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
-  text-align: center;
-}
-
-.shareEntryLabel {
-  font-size: 20rpx;
-  color: #4b4d54;
-}
-
-.shareCancel {
-  margin-top: 36rpx;
-  width: 100%;
-  background: #fff;
-  border: none;
-  border-radius: 24rpx;
-  padding: 24rpx 0;
-  font-size: 28rpx;
-  color: #222326;
-  line-height: 1.6;
-}
-.shareCancel::after { border: none; }
-
 /* U2 页内 Tab(时间廊|我的卡,修断裂 4):胶囊双钮,选中橙 */
 .mpTabBar {
   display: flex;
@@ -682,14 +598,6 @@
 
 /* U6 路人态 1024 活动横幅(R9)：已撤——活动推广归「发现」Tab，
    长廊里重复推同一活动。原样式（.banner1024 一族）随之删除。 */
-
-.shareOptIn { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 24rpx; padding: 18rpx 20rpx; background: #fff; border-radius: 16rpx; }
-
-.shareOptInLocked { opacity: .7; }
-
-.shareOptInBox { color: #ea5504; font-size: 26rpx; line-height: 1.5; }
-
-.shareOptInLabel { flex: 1; color: #4b4d54; font-size: 22rpx; line-height: 1.6; }
 
 /* U3 G 布局:楷体栈 + 固定卡区 + 胶囊 + 底部条 */
 .page {

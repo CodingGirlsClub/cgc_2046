@@ -14,9 +14,9 @@ import { useState } from 'react'
 import { Button, Canvas, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackMyCard } from '@/domain/models'
-import { shareOptInState, type FlashbackCardMode } from '@/domain/flashback'
+import type { FlashbackCardMode } from '@/domain/flashback'
 import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
-import { useQuoteLicense } from './useQuoteLicense'
+import QuoteOptIn from './QuoteOptIn'
 import styles from './index.module.css'
 
 export default function ShareSheet({
@@ -37,11 +37,6 @@ export default function ShareSheet({
   onWrite: () => void
 }) {
   const [saving, setSaving] = useState(false)
-  const [shareOptIn, setShareOptIn] = useState(false)
-  const { quoteBusy, submitLicense } = useQuoteLicense(onWrite)
-
-  // R37 opt-in(判据 shareOptInState):勾选即开匿名档(span=卡片金句);取消勾选不动档位
-  const optInMode = shareOptInState(me)
 
   const saveCard = async () => {
     if (saving) return
@@ -62,33 +57,7 @@ export default function ShareSheet({
         <View className={styles.shareMask} catchMove onClick={onClose}>
           <View className={styles.shareSheet} onClick={(event) => event.stopPropagation()}>
             <Text className={styles.shareSheetTitle}>{title}</Text>
-            {optInMode !== 'hidden' && (
-              <View
-                className={`${styles.shareOptIn} ${optInMode === 'already' ? styles.shareOptInLocked : ''}`}
-                data-testid='fb-share-optin'
-                onClick={() => {
-                  if (optInMode === 'already' || quoteBusy) return
-                  const next = !shareOptIn
-                  setShareOptIn(next)
-                  if (!next) return
-                  const spans = (me.quoteSpans ?? []).map((s) => ({
-                    questionKey: s.questionKey,
-                    start: s.start,
-                    len: s.len
-                  }))
-                  void submitLicense('anonymous', spans).then((ok) => {
-                    if (!ok) setShareOptIn(false)
-                  })
-                }}
-              >
-                <Text className={styles.shareOptInBox}>{shareOptIn ? '☑' : '☐'}</Text>
-                <Text className={styles.shareOptInLabel}>
-                  {optInMode === 'already'
-                    ? '已允许闪念间把这句话展示在首页（档位可在上方调整）'
-                    : '同时允许闪念间把这句话展示在首页'}
-                </Text>
-              </View>
-            )}
+            <QuoteOptIn me={me} onWrite={onWrite} />
             <View className={styles.shareEntries}>
               <Button className={styles.shareEntry} openType="share">
                 <Text className={styles.shareEntryIcon}>💬</Text>
