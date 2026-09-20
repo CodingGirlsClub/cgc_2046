@@ -5,12 +5,10 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, type QuoteLevel } from '@/domain/flashback'
-import { questionLabel } from '@/domain/flashback-journey'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
-import ShareSheet from '@/components/MyCard/ShareSheet'
 import { STORAGE_KEYS } from '@/state/storage'
 import { consumeFlashbackEntry, type FlashbackEntryIntent } from '@/state/flashbackEntry'
 import type {
@@ -43,8 +41,6 @@ type Mode =
 export default function FlashbackCorridorPage() {
   const [mode, setMode] = useState<Mode>({ kind: 'loading' })
   const [city, setCity] = useState<string | null>(null)
-  // R14 分享（用户定稿 ③）：sheet 三入口 + 保存中态
-  const [shareSheet, setShareSheet] = useState(false)
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
   // U4 开卡层/U7 授权层:分层入口(view=看档案停在合着面;write=错峰翻面+定位今天块)
@@ -789,10 +785,12 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* 底部固定 CTA 条(胶囊外,白底):member=做成卡片;viewer=登录找回 */}
+      {/* 底部固定 CTA 条(胶囊外,白底):member=进卡片页;viewer=登录找回。
+          member 侧进卡片页而非直接开分享面板——先看到"要保存的卡"再决定
+          存哪张/分享，与今天格入口同一落点（所见即所得）。 */}
       <View className={styles.footerBar}>
         {mode.kind === 'member' ? (
-          <Button className={styles.cta} onClick={() => setShareSheet(true)}>
+          <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
             把这一刻做成卡片 →
           </Button>
         ) : (
@@ -801,17 +799,6 @@ export default function FlashbackCorridorPage() {
           </Button>
         )}
       </View>
-
-      {/* 分享 sheet(R14 用户定稿 ③,三入口+R37 opt-in)——组件与裁剪端薄壳单源 */}
-      {mode.kind === 'member' && myView && (
-        <ShareSheet
-          open={shareSheet}
-          title={shareTitle}
-          me={mode.capsule.me}
-          onClose={() => setShareSheet(false)}
-          onWrite={() => void reloadMember()}
-        />
-      )}
 
       {/* U4 公开愿望模态(R6):全文+留言流+附议/已附议+本人删除两步确认 */}
       {wishModal && (

@@ -5,27 +5,35 @@
  *
  * corridor(微信端)与裁剪端薄壳共用;标题与保存动作由页面传入(页面持有
  * useShareAppMessage hook 与 capsule)。
+ *
+ * R37 opt-in 只出现在「圈了金句但还没授权」这一个窗口（判据 shareOptInState）——
+ * 那是授权意愿最高的时刻（刚亲手挑出一句想让别人看到的话）；已授权则显示
+ * 锁定态告知，没有金句则整个不出现。
  */
 import { useState } from 'react'
 import { Button, Canvas, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackMyCard } from '@/domain/models'
-import { shareOptInState } from '@/domain/flashback'
-import { SUMMARY_CARD_CANVAS_ID, saveFlashbackSummaryCard } from '@/platform/summary-card'
-import styles from './index.module.css'
+import { shareOptInState, type FlashbackCardMode } from '@/domain/flashback'
+import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
 import { useQuoteLicense } from './useQuoteLicense'
+import styles from './index.module.css'
 
 export default function ShareSheet({
   open,
   title,
   me,
+  mode = 'summary',
   onClose,
   onWrite
 }: {
   open: boolean
   title: string
   me: FlashbackMyCard
+  /** 保存哪一态（裁剪端薄壳页固定摘要卡；卡片页按当前切换态传入） */
+  mode?: FlashbackCardMode
   onClose: () => void
+  /** opt-in 提交授权后通知页面 reload（档位以服务端为准） */
   onWrite: () => void
 }) {
   const [saving, setSaving] = useState(false)
@@ -39,7 +47,7 @@ export default function ShareSheet({
     if (saving) return
     setSaving(true)
     try {
-      await saveFlashbackSummaryCard(me)
+      await saveFlashbackCard(me, mode)
       onClose()
     } finally {
       setSaving(false)
@@ -48,7 +56,7 @@ export default function ShareSheet({
 
   return (
     <>
-      <Canvas id={SUMMARY_CARD_CANVAS_ID} canvasId={SUMMARY_CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
+      <Canvas id={CARD_CANVAS_ID} canvasId={CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
 
       {open && (
         <View className={styles.shareMask} catchMove onClick={onClose}>
@@ -57,7 +65,7 @@ export default function ShareSheet({
             {optInMode !== 'hidden' && (
               <View
                 className={`${styles.shareOptIn} ${optInMode === 'already' ? styles.shareOptInLocked : ''}`}
-                data-testid="fb-share-optin"
+                data-testid='fb-share-optin'
                 onClick={() => {
                   if (optInMode === 'already' || quoteBusy) return
                   const next = !shareOptIn
@@ -66,7 +74,7 @@ export default function ShareSheet({
                   const spans = (me.quoteSpans ?? []).map((s) => ({
                     questionKey: s.questionKey,
                     start: s.start,
-                    len: s.len,
+                    len: s.len
                   }))
                   void submitLicense('anonymous', spans).then((ok) => {
                     if (!ok) setShareOptIn(false)

@@ -18,9 +18,9 @@ import {
   toggleSentenceFog,
   todaySentencesWithFog,
   toggleTodaySentenceFog,
-  TODAY_FIELDS
+  TODAY_FIELDS,
+  questionLabel
 } from '@/domain/flashback'
-import { questionLabel } from '@/domain/flashback-journey'
 import styles from './index.module.css'
 
 type TodayKey = (typeof TODAY_FIELDS)[number]['field']
@@ -69,7 +69,7 @@ export default function MyCard({
     const nextSpans = toggleSentenceFog(answer, sentence)
     setAnswers((prev) => prev.map((item) => (item.id === answer.id ? { ...answer, fogSpans: nextSpans } : item)))
     try {
-      await api.flashbackAdjustFog(answer.id, nextSpans)
+      await api.flashbackAdjustFog(answer.id, nextSpans, token)
     } catch {
       onWrite()
     }
@@ -212,22 +212,34 @@ export default function MyCard({
 /**
  * 今天回看卡(今天格 lit 点击):单面相纸=「这张卡在别人眼里的样子」——
  * 今天的你按句渲染(U10 起句级雾:点句切换,雾句=雾块示意对外隐藏)、
- * 当年答案按句渲染(雾句=雾块,已授权金句浅金高亮)+署名行。分享钩子由页面挂在卡下。
- * onToggleTodayFog:页面实现调 flashbackAdjustTodayFog(传 null = 只读,如他人视角)。
+ * 当年答案按句渲染(U11 起同样点句切换,雾句=雾块,已授权金句浅金高亮)+署名行。
+ * 分享钩子由页面挂在卡下。
+ * onToggleTodayFog / onTogglePastFog:页面实现,分别调
+ * flashbackAdjustTodayFog / flashbackAdjustFog(传 null = 只读,如他人视角)。
+ *
+ * `mode` 控制渲染哪几段（卡片页的四态切换）：
+ * - `today` 只渲染今天的你、`past` 只渲染当年的你、`both`（默认）两段 + 署名。
+ * - 两段**各在自己的段被渲染时可点雾**——卡片页是寄出后全部内容唯一的雾化
+ *   入口面（写入面不做雾化），故 `today`/`past`/`both` 必须继续传对应回调。
  */
 export function TodayReview({
   me,
   level,
-  onToggleTodayFog
+  mode = 'both',
+  onToggleTodayFog,
+  onTogglePastFog
 }: {
   me: FlashbackCapsule['me']
   level: 'off' | 'anonymous' | 'credited'
+  mode?: 'today' | 'past' | 'both'
   onToggleTodayFog?: ((field: 'now' | 'want' | 'need' | 'say', spans: Array<{ start: number; len: number }>) => void) | null
+  onTogglePastFog?: ((answerId: string, spans: Array<{ start: number; len: number }>) => void) | null
 }) {
   const spans = me.quoteSpans ?? []
   const todayFog = me.today?.fogSpans ?? {}
   return (
     <View className={styles.paperFace}>
+      {mode !== 'past' && (
       <View className={styles.paperPhotoB}>
         <Text className={styles.paperTodayTitle}>
           今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
@@ -256,6 +268,8 @@ export function TodayReview({
           )
         })}
       </View>
+      )}
+      {mode !== 'today' && (
       <View className={styles.paperPhotoA}>
         <Text className={styles.paperTodayTitle}>当年的你 · {me.appliedAt ? me.appliedAt.slice(0, 4) : ''}</Text>
         {me.answers.map((answer) => (
@@ -269,6 +283,10 @@ export function TodayReview({
                   <Text
                     key={`${answer.id}-${index}`}
                     className={`${styles.rvSentence} ${sentence.fogged ? styles.rvFog : ''} ${isQuote ? styles.rvQuote : ''}`}
+                    onClick={() => {
+                      if (!onTogglePastFog) return
+                      onTogglePastFog(answer.id, toggleSentenceFog(answer, sentence))
+                    }}
                   >
                     {sentence.text}
                   </Text>
@@ -278,6 +296,7 @@ export function TodayReview({
           </View>
         ))}
       </View>
+      )}
       <View className={styles.signRow}>
         <Text className={styles.signName}>{me.fullName}</Text>
         <Text className={styles.signTime}>{me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''}</Text>

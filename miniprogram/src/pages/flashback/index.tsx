@@ -111,6 +111,7 @@ export default function FlashbackPage() {
       <View className={styles.board}>
         <MyCard
           capsule={capsule}
+          token={Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null}
           onWrite={() => void load()}
           onOpenShare={() => setShareSheet(true)}
         />

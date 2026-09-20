@@ -44,12 +44,6 @@
   background: #fdeadf;
 }
 
-/* R37 分享 opt-in（默认不勾；已授权 = 锁定态） */
-.shareOptIn { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 24rpx; padding: 18rpx 20rpx; background: #fff; border-radius: 16rpx; }
-.shareOptInLocked { opacity: .7; }
-.shareOptInBox { color: #ea5504; font-size: 26rpx; line-height: 1.5; }
-.shareOptInLabel { flex: 1; color: #4b4d54; font-size: 22rpx; line-height: 1.6; }
-
 /* 行动板（R13 四态）*/
 .board { padding-bottom: 60rpx; }
 
@@ -121,6 +115,11 @@
   padding: 36rpx 32rpx 60rpx;
 }
 .shareSheetTitle { font-size: 24rpx; color: #8a8f98; text-align: center; display: block; margin-bottom: 28rpx; }
+/* R37 分享 opt-in（默认不勾；已授权 = 锁定态） */
+.shareOptIn { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 24rpx; padding: 18rpx 20rpx; background: #fff; border-radius: 16rpx; }
+.shareOptInLocked { opacity: .7; }
+.shareOptInBox { color: #ea5504; font-size: 26rpx; line-height: 1.5; }
+.shareOptInLabel { flex: 1; color: #4b4d54; font-size: 22rpx; line-height: 1.6; }
 .shareEntries { display: flex; gap: 44rpx; justify-content: center; }
 .shareEntry {
   background: none;

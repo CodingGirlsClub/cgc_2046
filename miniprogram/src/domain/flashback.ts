@@ -126,6 +126,19 @@ export const TODAY_FIELDS = [
 
 export type TodayField = (typeof TODAY_FIELDS)[number]['field']
 
+/** 卡面题干（questionKey → 中文；白名单外的 key 原样显示兜底）。
+ *  从 flashback-journey 迁来：它是纯文案映射（与 TODAY_FIELDS 同类），
+ *  放本模块后 recordCardModel 可直接消费，且消除 journey → card 的反向依赖。 */
+export function questionLabel(questionKey: string): string {
+  if (questionKey === 'self_intro') return '请简单的介绍一下自己'
+  if (questionKey === 'funny_thing') return '你做过的有意思的事情'
+  if (questionKey === 'today.now') return '现在在做什么'
+  if (questionKey === 'today.want') return '想做的事 / 想学的东西'
+  if (questionKey === 'today.need') return '需要什么帮助'
+  if (questionKey === 'today.say') return '想对 CGC 说'
+  return questionKey
+}
+
 /** 金句候选（R35/U10）：当年答案 + 今天三/四行,同一切句口径;
  * 雾句不再排除——带 fogged 标记由渲染层灰显锁定(「这句被雾住了所以不能选」)。 */
 export function quoteCandidatesOf(answers: FlashbackMeAnswer[], today?: FlashbackMyToday | null): QuoteCandidate[] {
@@ -177,7 +190,7 @@ export function isCandidatePicked(
   )
 }
 
-// ── R36 作者侧点赞数 / R37 分享 opt-in ────────────────────────────────
+// ── R36 作者侧点赞数 ──────────────────────────────────────────────────
 
 /** 我的卡上的点赞徽章（R36）：上墙且有点赞才出现，否则 null（不占位） */
 export function quoteLikeBadge(me: FlashbackMyCard): string | null {
@@ -186,7 +199,7 @@ export function quoteLikeBadge(me: FlashbackMyCard): string | null {
   return count > 0 ? `你的话被 ${count} 人点赞` : null
 }
 
-/** 分享 opt-in 三态（R37）：
+/** R37 分享 opt-in 的显示判据（ShareSheet 消费）：
  *  - hidden：卡上没有可回填的选定金句（未圈选/未授权无 span）→ 不显示选项；
  *  - already：已授权（anonymous/credited）→ 勾选态 + 禁用（分享改不了档位）；
  *  - available：可勾选，默认不勾（授权永不预选）。 */
@@ -352,6 +365,149 @@ export function summaryCardLayout(
     todayLineHeight,
     dividerY,
     footerTop
+  }
+}
+
+// ── 卡片四态（保存/分享的落版） ──────────────────────────────────────
+
+/** 卡片形态：摘要卡（R14 分享默认物：金句版式 + 固定 3:4）与记录态三选。 */
+export type FlashbackCardMode = 'summary' | 'today' | 'past' | 'both'
+
+/** 形态切换器的选项单表（卡片页 chip 条消费）。
+ *  顺序 = 用户价值序：合起来（全貌，默认）→ 当年的你（重逢，保存/分享冲动最强）
+ *  → 今天的你（自己刚写的，已知）→ 摘要卡（派生成品）。 */
+export const CARD_MODES: Array<{ value: FlashbackCardMode; label: string }> = [
+  { value: 'both', label: '合起来' },
+  { value: 'past', label: '当年的你' },
+  { value: 'today', label: '今天的你' },
+  { value: 'summary', label: '摘要卡' }
+]
+
+/** 记录卡的一段：题干 + 逐句内容（fogged 由 canvas 画灰块） */
+export interface CardSection {
+  title: string
+  sentences: Array<{ text: string; fogged: boolean }>
+}
+
+export interface RecordCardModel {
+  stamp: string
+  sections: CardSection[]
+  footer: string
+}
+
+/** 记录卡内容模型（today / past / both）。
+ *
+ *  **雾句保留并标记**——与预览（`rvFog` 灰块）和校友墙（`viewFog` 灰块）
+ *  同口径。旧摘要卡的「只显未雾句、也不画雾块」口径已废弃：它让句子凭空
+ *  消失、标点悬空（「今天在做什么：，下班带娃。」），且与"这张卡在别人眼里
+ *  的样子"自相矛盾。摘要卡（summary）走 summaryCardModel，不受影响。 */
+export function recordCardModel(
+  me: FlashbackMyCard,
+  mode: 'today' | 'past' | 'both',
+  now: Date = new Date()
+): RecordCardModel {
+  const date = me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''
+  const stamp = [date, me.city].filter(Boolean).join(' · ')
+  const years = yearsAgoText(me.appliedAt, now)
+  const footer = years ? `${years} · IN A FLASH 闪念间` : 'IN A FLASH · 闪念间'
+
+  const todaySections: CardSection[] = TODAY_FIELDS.flatMap((row) => {
+    const raw = me.today?.[row.field]
+    if (!raw) return []
+    return [
+      {
+        title: row.label,
+        sentences: todaySentencesWithFog(raw, me.today?.fogSpans?.[row.fog]).map((s) => ({
+          text: s.text,
+          fogged: s.fogged
+        }))
+      }
+    ]
+  })
+
+  const pastSections: CardSection[] = me.answers.map((answer) => ({
+    title: questionLabel(answer.questionKey),
+    sentences: sentencesWithFog(answer).map((s) => ({ text: s.text, fogged: s.fogged }))
+  }))
+
+  const sections =
+    mode === 'today' ? todaySections : mode === 'past' ? pastSections : [...todaySections, ...pastSections]
+
+  return { stamp, sections, footer }
+}
+
+/** 记录卡版式（纯函数，node --test 钉住）：**动态高度**——内容驱动且完整
+ *  保留（「保存过去的回答」若被截断就失去意义）；超 maxHeight 时截断尾部
+ *  并置 `truncated`（调用方据此提示）。canvas 只按返回坐标绘制。 */
+export function recordCardLayout(
+  model: RecordCardModel,
+  width = 600,
+  maxHeight = 2400
+): {
+  W: number
+  H: number
+  kickerTop: number
+  stampTop: number
+  blocks: Array<{
+    title: string
+    titleTop: number
+    /** 逐行坐标：fogged 行 canvas 画灰块（宽度按文本测量） */
+    lines: Array<{ text: string; fogged: boolean; top: number }>
+  }>
+  lineHeight: number
+  dividerY: number
+  footerTop: number
+  truncated: boolean
+} {
+  const W = width
+  const lineHeight = 38
+  const titleGap = 54
+  const sectionGap = 26
+  const linesPerEm = (W - 120) / 26
+
+  const blocks: Array<{ title: string; titleTop: number; lines: Array<{ text: string; fogged: boolean; top: number }> }> = []
+  let cursor = 208
+  let truncated = false
+
+  for (const section of model.sections) {
+    if (cursor + titleGap > maxHeight - 140) {
+      truncated = true
+      break
+    }
+    const lines: Array<{ text: string; fogged: boolean; top: number }> = []
+    cursor += titleGap
+    for (const sentence of section.sentences) {
+      for (const line of wrapCardText(sentence.text, linesPerEm, 99)) {
+        if (cursor + lineHeight > maxHeight - 140) {
+          truncated = true
+          break
+        }
+        lines.push({ text: line, fogged: sentence.fogged, top: cursor })
+        cursor += lineHeight
+      }
+      if (truncated) break
+      cursor += 8
+    }
+    if (lines.length) blocks.push({ title: section.title, titleTop: lines[0].top - titleGap, lines })
+    if (truncated) break
+    cursor += sectionGap
+  }
+
+  // 高度：内容驱动，下限 800（保 3:4 视觉比例）、上限 maxHeight
+  const H = Math.min(maxHeight, Math.max(800, cursor + 140))
+  const footerTop = H - 72
+  const dividerY = footerTop - 40
+
+  return {
+    W,
+    H,
+    kickerTop: 84,
+    stampTop: 136,
+    blocks,
+    lineHeight,
+    dividerY,
+    footerTop,
+    truncated
   }
 }
 

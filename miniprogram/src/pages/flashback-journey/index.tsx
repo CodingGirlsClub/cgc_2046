@@ -11,7 +11,8 @@ import {
   journeyQuiz,
   quizResultText,
   revealStamp,
-  SEND_OVERLAY, questionLabel } from '@/domain/flashback-journey'
+  SEND_OVERLAY } from '@/domain/flashback-journey'
+import { questionLabel } from '@/domain/flashback'
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
 import styles from './index.module.css'
 
