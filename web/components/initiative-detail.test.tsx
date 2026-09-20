@@ -643,6 +643,8 @@ describe("hero 描述分段渲染", () => {
 		expect(paragraphs[0].textContent).toBe("第一段。");
 		expect(paragraphs[1].textContent).toBe("第二段。");
 		expect(paragraphs[2].textContent).toBe("第三段。");
+		// 短描述（≤3 段且 ≤300 字）不收折：无 toggle 按钮
+		expect(screen.queryByRole("button", { name: "展开全部" })).toBeNull();
 	});
 
 	it("描述为 null 时不渲染 .initiative-hero__desc", async () => {
@@ -652,5 +654,82 @@ describe("hero 描述分段渲染", () => {
 		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
 
 		expect(document.querySelector(".initiative-hero__desc")).toBeNull();
+	});
+});
+
+/**
+ * hero 长描述收折（plan 004）：状态/窗口是首屏首要信息，长描述（线上实测 689 字）
+ * 默认收折到前 2 段，把首屏还给场次列表；短描述（≤3 段且 ≤300 字）原样展示。
+ * 触发是「或」关系：段数 >3 或总字数 >300 即收折。
+ */
+describe("hero 长描述收折", () => {
+	it("长描述（4 段）默认收折为前 2 段，toggle 为展开态文案 + aria-expanded=false", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		const paragraphs = desc.querySelectorAll("p");
+		expect(paragraphs).toHaveLength(2);
+		expect(paragraphs[0].textContent).toBe("一。");
+		expect(paragraphs[1].textContent).toBe("二。");
+
+		const toggle = screen.getByRole("button", { name: "展开全部" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("展开/收起往返：点击后 4 段全在、aria-expanded 同步，再点回到 2 段", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		fireEvent.click(screen.getByRole("button", { name: "展开全部" }));
+
+		expect(desc.querySelectorAll("p")).toHaveLength(4);
+		const collapse = screen.getByRole("button", { name: "收起" });
+		expect(collapse).toHaveAttribute("aria-expanded", "true");
+
+		fireEvent.click(collapse);
+		expect(desc.querySelectorAll("p")).toHaveLength(2);
+		expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("按字数触发：3 段但总字数 >300 同样收折（与段数是「或」关系）", async () => {
+		const longParagraph = "长".repeat(160);
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: `${longParagraph}\n\n${longParagraph}\n\n${longParagraph}`,
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		expect(desc.querySelectorAll("p")).toHaveLength(2);
+		expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("en 同步：长描述渲染 Show more / Show less", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const toggle = screen.getByRole("button", { name: "Show more" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		fireEvent.click(toggle);
+		expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
 	});
 });

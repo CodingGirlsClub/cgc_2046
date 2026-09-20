@@ -2437,7 +2437,9 @@
 		"paymentPricingUnknown": "Paid (tiers are listed on the event page)",
 		"paymentUnknown": "Payment info TBD",
 		"indexEmpty": "No initiatives yet",
-		"loadFailed": "Failed to load"
+		"loadFailed": "Failed to load",
+		"descExpand": "Show more",
+		"descCollapse": "Show less"
 	},
 	"checkIn": {
 		"title": "On-site check-in",

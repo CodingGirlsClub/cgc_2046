@@ -2966,20 +2966,33 @@ button:focus-visible,
     margin-top: 12px;
   }
 
-  /* 状态行 + 倡导窗口：与小程序 initiative-detail hero 同信息（进行中/已结束 · 留档、窗口区间） */
+  /* 状态行 + 倡导窗口：与小程序 initiative-detail hero 同信息（进行中/已结束 · 留档、窗口区间）。
+     提级为正文信息（ink-2 / 正文字号）——「还能不能报」是首屏首要判断，不再是装饰性 mono 小字 */
   .initiative-hero__status {
     margin: 10px 0 0;
-    color: var(--ink-3);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.04em;
+    color: var(--ink-2);
+    font-size: 14px;
   }
 
   .initiative-hero__window {
     margin: 6px 0 0;
-    color: var(--ink-3);
-    font-family: var(--font-mono);
-    font-size: 13px;
+    color: var(--ink-2);
+    font-size: 15px;
+  }
+
+  /* 长描述收折开关：文字链接语言（对齐 .public-catalog-heading__switch），min-height 保触达 */
+  .initiative-hero__desc-toggle {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    margin-top: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent-strong);
+    font-size: 14px;
+    font-weight: 510;
+    cursor: pointer;
   }
 
   /* 中止说明行（#628）：仅 cancelled 渲染——与 closed（留档）文案分叉的可见面 */
