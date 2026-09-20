@@ -377,7 +377,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       refute email.html_body =~ "2014 年 1 月"
     end
 
-    test "sms 腿：phone-only 档案 → SendCloud 模板短信带 url + unsub 变量" do
+    test "sms 腿：phone-only 档案 → SendCloud 模板短信带 year + brand 变量" do
       archive = create_archive()
       person = create_person(archive, email: nil, phone: @phone)
 
@@ -395,9 +395,43 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert_receive {:sms, template_id, vars}
       assert template_id == "test-flashback-sms-template"
-      assert vars["url"] =~ "/zh-CN/flashback/enter?token="
-      assert vars["unsub"] =~ "/api/flashback/unsubscribe?t="
+
+      # 942116 行业通知模板：正文「还记得%year%年报名过 %brand% 吗？……回T退订」
+      assert vars == %{"year" => "2014", "brand" => "Rails Girls"}
       assert outreach_row!(person.id, :sms).status == :sent
+    end
+
+    test "sms 腿：场次日期缺失或未知品牌名 → skip 不发错文案" do
+      no_date =
+        Flashback.EventArchive
+        |> Ash.Changeset.for_create(:create, %{
+          key: "no-date-sms-#{System.unique_integer([:positive])}",
+          name: "Rails Girls Beijing",
+          city: "北京"
+        })
+        |> Ash.create!(authorize?: false)
+
+      person = create_person(no_date, email: nil, phone: @phone)
+      args = enqueue_one(person, "reconnect")
+
+      assert :ok = perform_job(OutreachWorker, args)
+      assert outreach_row!(person.id, :sms).status == :queued
+
+      unknown_brand =
+        Flashback.EventArchive
+        |> Ash.Changeset.for_create(:create, %{
+          key: "unknown-brand-#{System.unique_integer([:positive])}",
+          name: "某黑客松 2026",
+          city: "北京",
+          occurred_on: ~D[2026-10-18]
+        })
+        |> Ash.create!(authorize?: false)
+
+      person2 = create_person(unknown_brand, email: nil, phone: @phone)
+      args2 = enqueue_one(person2, "reconnect")
+
+      assert :ok = perform_job(OutreachWorker, args2)
+      assert outreach_row!(person2.id, :sms).status == :queued
     end
 
     test "发送失败 → 行 failed + Oban 重试；配置就绪后重试成功推进到 sent" do
@@ -579,6 +613,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
           @email,
           "王小明",
           ~D[2014-01-11],
+          "Rails Girls Beijing",
           "https://x/enter?token=abc",
           "https://x/unsub?t=d",
           "https://x/flashback/weibo-screenshot.png"
@@ -586,15 +621,19 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert email.html_body =~ "https://x/unsub?t=d"
       assert email.text_body =~ "https://x/unsub?t=d"
-      # 日期个性化 + 逐字引文（与截图并排可对照）
+      # 日期个性化 + 逐字引文（与截图并排可对照）+ 页脚按本人场次派生
       assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
+      assert email.html_body =~ "你在 2014 年参加过 Rails Girls Beijing 的活动"
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
     end
 
     test "reconnect 模板：occurred_on 为 nil → 「那年」降级，不崩" do
-      email = Emails.reconnect(@email, nil, nil, "https://x/e", "https://x/u", "https://x/s.png")
+      email =
+        Emails.reconnect(@email, nil, nil, nil, "https://x/e", "https://x/u", "https://x/s.png")
 
       assert email.html_body =~ "你也在 那年推开过这扇窗"
+      # 页脚无场次信息 → 历史区间兜底句
+      assert email.html_body =~ "你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动"
       # 无名字 → 模板层兜底「同学」
       assert email.text_body =~ "你好，同学："
     end

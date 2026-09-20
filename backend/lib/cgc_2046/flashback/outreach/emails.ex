@@ -24,21 +24,37 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   @quote_sign "—— 一位 2013 年 5 月参加 Rails Girls 的学员"
   @mini_program_line "手机上也可以在微信 / 小红书 / 抖音小程序搜索「程序媛汇」或「程序媛汇2046」，体验更顺手。"
 
-  @doc "唤醒首封（R23）：称呼 + 本人场次日期（可空）+ 专属链接。"
+  @doc "唤醒首封（R23）：称呼 + 本人场次日期/场次名（均可空）+ 专属链接。"
   @spec reconnect(
           String.t(),
           String.t() | nil,
           Date.t() | nil,
+          String.t() | nil,
           String.t(),
           String.t(),
           String.t()
         ) ::
           Swoosh.Email.t()
-  def reconnect(to_email, display_name, occurred_on, enter_url, unsub_url, screenshot_url) do
+  def reconnect(
+        to_email,
+        display_name,
+        occurred_on,
+        archive_name,
+        enter_url,
+        unsub_url,
+        screenshot_url
+      ) do
     base(to_email, display_name, @subject)
     |> Swoosh.Email.text_body(reconnect_text(display_name, occurred_on, enter_url, unsub_url))
     |> Swoosh.Email.html_body(
-      reconnect_html(display_name, occurred_on, enter_url, unsub_url, screenshot_url)
+      reconnect_html(
+        display_name,
+        occurred_on,
+        archive_name,
+        enter_url,
+        unsub_url,
+        screenshot_url
+      )
     )
   end
 
@@ -59,6 +75,14 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   # 可空）→「那年」。两个模板面共用同一判定，永不崩。
   defp period(nil), do: "那年"
   defp period(%Date{} = d), do: "#{d.year} 年 #{d.month} 月"
+
+  # 页脚自我介绍句按本人场次派生（写死「2012-2018」对新场次不成立）；日期
+  # 或场次名缺失 → 历史区间兜底句。
+  defp footer_line(%Date{} = d, name) when is_binary(name) and name != "",
+    do: "你在 #{d.year} 年参加过 #{escape(name)} 的活动。"
+
+  defp footer_line(_occurred_on, _archive_name),
+    do: "你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动。"
 
   defp reconnect_text(display_name, occurred_on, enter_url, unsub_url) do
     """
@@ -84,7 +108,14 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
 
   # 视觉稿即实现（全内联）：暗房底 + 金 kicker + 拍立得白框原图 + 小字引文
   # 兜底（QQ/163 拦远程图时它就是完整引文）+ 相机式 CTA。
-  defp reconnect_html(display_name, occurred_on, enter_url, unsub_url, screenshot_url) do
+  defp reconnect_html(
+         display_name,
+         occurred_on,
+         archive_name,
+         enter_url,
+         unsub_url,
+         screenshot_url
+       ) do
     name = escape(display_name || "同学")
 
     """
@@ -100,7 +131,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。你也在 #{period(occurred_on)}推开过这扇窗——那天的报名表，每个字都还在。</p>
     <div style="text-align:center;margin:0 0 22px;"><a href="#{enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
     <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年一起学习的同伴和教练。<br>#{@mini_program_line}</p>
-    <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动。<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
+    <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
     </div>
     </div>
     """
