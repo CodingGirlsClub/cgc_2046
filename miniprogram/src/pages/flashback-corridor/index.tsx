@@ -200,6 +200,49 @@ export default function FlashbackCorridorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 落地一次性
   }, [mode.kind])
 
+  // 首次进入（member 数据就绪）→ 定位到「今天」格：长廊按时间序排列，真实
+  // 数据的历史场次（2012-2018 六城）会把今天格推到数屏之外，用户点进来第一
+  // 眼看不到任何属于自己的东西。只滚一次——切 Tab 回来保持用户自己的位置
+  // （手动翻到历史后不该被强拉回来）。
+  //
+  // 用 scrollTop 精确居中而非 scrollIntoView：后者只能顶部对齐（微信
+  // scroll-view 无对齐参数），今天格会贴住黑框上沿；靠插入空白留白来下推
+  // 又会在框顶露出空白——测量后把今天格中心对准黑框中心，上方自然是历史
+  // 帧的内容。
+  const initialCentered = useRef(false)
+  const [scrollTop, setScrollTop] = useState<number | undefined>(undefined)
+
+  const centerToday = () => {
+    const query = Taro.createSelectorQuery()
+    query.select('#fbCapsule').boundingClientRect()
+    query.select('#todayAnchor').boundingClientRect()
+    query.select('#fbCapsule').scrollOffset()
+    query.exec((res) => {
+      const [viewport, today, offset] = res as [
+        { top: number; height: number } | null,
+        { top: number; height: number } | null,
+        { scrollTop: number } | null
+      ]
+      if (!viewport || !today || !offset) {
+        // 测量失败（节点未就绪等）→ 退化为顶部对齐，至少让今天格可见
+        setScrollAnchor('')
+        setTimeout(() => setScrollAnchor('todayAnchor'), 50)
+        return
+      }
+      const next = offset.scrollTop + (today.top - viewport.top) - (viewport.height - today.height) / 2
+      setScrollTop(Math.max(0, Math.round(next)))
+    })
+  }
+
+  useEffect(() => {
+    if (mode.kind !== 'member' || initialCentered.current) return
+    initialCentered.current = true
+    // future intent（用户明确要看未来段）优先于默认定位——useDidShow 已设锚点
+    if (entryIntent.current === 'future') return
+    setTimeout(centerToday, 300)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 首次就绪一次性
+  }, [mode.kind])
+
   const pickCity = (next: string | null) => {
     setCity(next)
     void load(next)
@@ -372,8 +415,10 @@ export default function FlashbackCorridorPage() {
 
       <View className={styles.capsuleShell}>
       <ScrollView
+        id='fbCapsule'
         scrollY
         scrollIntoView={scrollAnchor}
+        scrollTop={scrollTop}
         scrollWithAnimation
         className={styles.capsule}
       >
