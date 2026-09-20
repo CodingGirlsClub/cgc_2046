@@ -374,6 +374,20 @@ defmodule Cgc2046.Events.Event do
         Enum.map(records, &Cgc2046.Offering.EnrollmentBadge.badge(&1, now))
       end
     )
+
+    # #538 公开主理人投影：[{display_name, member_number}] 最小集（JsonString
+    # 序列化，companion_course 同款）。命名避开 has_many :moderators 关系
+    # （公开面零 row 暴露——user_id/email/phone 结构性不存在）。无本表列依赖
+    # （只读主键，恒 selected），NotLoaded 教训（available_price_tiers 的 load
+    # 声明）在此不适用；主理人行由投影模块单趟批量查询。
+    calculate(:public_moderators, {:array, :map},
+      public?: true,
+      description:
+        "公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人）",
+      calculation: fn records, _opts ->
+        Cgc2046.Events.PublicModerators.project(records)
+      end
+    )
   end
 
   multitenancy do
@@ -403,6 +417,16 @@ defmodule Cgc2046.Events.Event do
     )
 
     has_many(:moderators, Cgc2046.Events.EventModerator, destination_attribute: :event_id)
+
+    # #745：created_by 归因列（可空）的 FK 契约显式化——DB 侧 20260913155651
+    # alter 即 nilify_all（DB 实测 confdeltype=n）；无 DDL，仅 DSL+snapshot 追平。
+    # public? 默认 false：不进 GraphQL/policy 读面。
+    belongs_to(:created_by_user, Cgc2046.Accounts.User,
+      source_attribute: :created_by,
+      destination_attribute: :id,
+      define_attribute?: false,
+      allow_nil?: true
+    )
   end
 
   actions do
@@ -629,6 +653,17 @@ defmodule Cgc2046.Events.Event do
          payload: &__MODULE__.schedule_changed_payload/2,
          skip_unless: &__MODULE__.schedule_changed_and_published?/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 update 同事务落一行 admin_event_update
+      # （闭集标量前后值），非平台管理员跳过。raise 型：留痕失败整体回滚（fail-closed）。
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_update,
+         target_type: :event,
+         metadata: &Cgc2046.Accounts.Changes.LogAdminAction.offering_change_metadata/2,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # ensure_launched 守卫会静默丢弃实例化。提交后发布，订阅方读到 open。
@@ -685,6 +720,15 @@ defmodule Cgc2046.Events.Event do
       # GO/NO-GO（D3 警告放行）：清单非 ready 记 warning 不阻塞发布，
       # 明细经 GraphQL readiness 查询暴露后台（course.launch 同款，Readiness 统一）。
       change(after_transaction(&Cgc2046.Offering.Readiness.warn_unless_ready/3))
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 launch 同事务落一行 admin_event_launch
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_launch,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → closed：结束活动（手动，或 registration_deadline 到点由
@@ -728,6 +772,15 @@ defmodule Cgc2046.Events.Event do
         {Cgc2046.Workflows.SignalEmitter,
          type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 close 同事务落一行 admin_event_close
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_close,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
     # open → cancelled：取消活动。同样发 event.ended（D4：closed/cancelled 即 ended）。
@@ -766,18 +819,37 @@ defmodule Cgc2046.Events.Event do
         {Cgc2046.Workflows.SignalEmitter,
          type: "event.ended", payload: &__MODULE__.ended_payload/2}
       )
+
+      # 治理写留痕（U1/KTD2）：平台管理员的 cancel 同事务落一行 admin_event_cancel
+      change(
+        {Cgc2046.Accounts.Changes.LogAdminAction,
+         action: :admin_event_cancel,
+         target_type: :event,
+         skip_unless: &Cgc2046.Accounts.Changes.LogAdminAction.platform_admin_actor?/2,
+         raise_on_failure?: true}
+      )
     end
 
-    # draft-only 删除（#676，ADR-0015）：与 Course :delete 同款（行锁守卫 + 状态
-    # 裁决 + slug 释放），差异 = **无教研级联**。
+    # draft-only 删除（#676，ADR-0015；级联完备性 #688 修订）：与 Course :delete
+    # 同款（行锁守卫 + 状态裁决 + slug 释放 + 同事务级联）。
     #
-    # 无级联的论证：draft 活动没有教研 run（course 的 prep run 在创建时由
-    # course.created 实例化；event 的 run 在 launch 后由 Instantiator 创建，draft
-    # 阶段结构性不存在），也没有内容行（curriculum_outputs 只有 course 维度）。
-    # FK 上挂的子行由 DB 承接（见各自迁移）：event_moderators / enrollments /
-    # sponsorships / speaker_invitations / invite_batches 均 on_delete: delete_all
-    # 自动级联；attendances 无 on_delete（核销行只在 open 后由 confirmed 报名产生，
-    # draft 结构性不存在——存在即 DELETE 被 FK 拒绝，fail-closed 不静默丢数据）。
+    # 级联分三类（#688 按事实重写，原「无级联」论证被证伪——讲者邀请 run 在
+    # **邀请创建时**实例化（draft 合法，speaker_invitation.ex 的状态门放行
+    # :draft），不是 launch 后）：
+    #
+    # - 结构性不存在：教研 curriculum run（launch 后由 Instantiator 创建）、
+    #   内容行（curriculum_outputs 只有 course 维度）、enrollments / attendances
+    #   （报名需 offering open；attendances 无 on_delete，异常存在即 DELETE 被 FK
+    #   拒绝，fail-closed 不静默丢数据）。
+    # - FK 承接（on_delete: delete_all，迁移侧无需改动）：event_moderators /
+    #   sponsorships / speaker_invitations / invite_batches（后两者对 draft 并非
+    #   结构性不存在——邀请在 draft 合法、批次创建无状态门，故 MCP 摘要须披露）。
+    # - 显式收口（同事务，任一步失败整体回滚）：讲者邀请 run 收口
+    #   （SpeakerInvitation.stop_event_runs/1——workflow_runs 无指向 events 的
+    #   外键，FK 级联不到 run；非终态 run → cancelled 留痕，facts 保留）+
+    #   名额账本行删除（CapacityLedger.delete_for_offering/2——offering_id 多态
+    #   无外键；draft 行 occupancy 结构性为 0，reserve 三守卫含 status='open'）。
+    #
     # 治理留痕（admin_action_logs / tool_calls）不随业务行删除。
     #
     # 行锁守卫（SELECT … FOR UPDATE）与 slug 释放论证同 Course :delete（见该 action
@@ -805,6 +877,17 @@ defmodule Cgc2046.Events.Event do
 
             {:error, reason} ->
               Ash.Changeset.add_error(cs, {:database, reason})
+          end
+        end)
+      end)
+
+      # 收口与删除原子（Course :delete 的 stop_active_runs + delete_for_course
+      # 同款 with 模板）：失败上抛整体回滚——event 行仍在、run 状态不变（fail-closed）。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn _cs, event ->
+          with :ok <- Cgc2046.Events.SpeakerInvitation.stop_event_runs(event),
+               :ok <- Cgc2046.Admission.CapacityLedger.delete_for_offering(:event, event.id) do
+            {:ok, event}
           end
         end)
       end)
@@ -988,6 +1071,14 @@ defmodule Cgc2046.Events.Event do
     table("events")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐 20260913155651 的 nilify_all
+    # （DB 实测 confdeltype=n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:initiative, on_delete: :nilify)
+
+      reference(:created_by_user, on_delete: :nilify)
+    end
+
     # KTD3 并发兜底：资源校验是友好报错层，两个并发编辑/规则传播各基于
     # 旧值通过时由本 CHECK 拒绝；create/update 的 error_handler 把冲突映射为
     # event_payment_mode_exclusive / event_deposit_price_tiers_conflict /
@@ -1075,9 +1166,15 @@ defmodule Cgc2046.Events.Event do
       authorize_if({Cgc2046.Events.ReadsArchivedInitiativeEvent, []})
     end
 
-    # 写操作：Owner/Admin（多角色并集）
+    # 写操作：Owner/Admin（多角色并集）；平台治理写（U1/KTD1）经第二个
+    # authorize_if 收在**同一 policy**——Ash 的策略组合是「条件命中的 policy
+    # 必须全部放行」而非任一放行，独立 policy 块会把 Owner/Admin 的正常写挤掉
+    # （见 Cgc2046.Offering.PlatformAdminGovernanceWrite moduledoc）。白名单只含
+    # :update/:launch/:close/:cancel：create（自动指派创建者为主理人）与内部
+    # update 型 action（:qualify / :link_curriculum_run）保持拒绝（R7 无旁路）。
     policy action_type([:create, :update]) do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Offering.PlatformAdminGovernanceWrite)
     end
 
     # 删除（#676，ADR-0015）：收窄面——Workspace Owner ∪ 平台管理员（同 Course

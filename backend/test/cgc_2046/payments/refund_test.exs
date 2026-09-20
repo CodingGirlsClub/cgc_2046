@@ -447,10 +447,14 @@ defmodule Cgc2046.Payments.RefundTest do
         assert reload_order(order).status == :cancelled
       end
 
-      # 审计行：course 批量 action + target_type（U1 枚举 + U2 接线）
+      # 审计行：course 批量 action + target_type（U1 枚举 + U2 接线）。
+      # 只断言 worker 的 batch_refund 行——U1 起平台管理员触发的 cancel/close
+      # 另落 admin_course_* 治理留痕行（合法新行为），不属于本断言范围。
       assert [%{action: :course_cancel_batch_refund, target_type: :course}] =
                Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
-               |> Enum.filter(&(&1.target_id == setup.course.id))
+               |> Enum.filter(
+                 &(&1.action == :course_cancel_batch_refund and &1.target_id == setup.course.id)
+               )
     end
 
     test "Course closed（正常结束）：零订单变化，明确不退", ctx do
@@ -484,7 +488,9 @@ defmodule Cgc2046.Payments.RefundTest do
 
       assert [] =
                Ash.read!(Cgc2046.Accounts.AdminActionLog, authorize?: false)
-               |> Enum.filter(&(&1.target_id == setup.course.id))
+               |> Enum.filter(
+                 &(&1.action == :course_cancel_batch_refund and &1.target_id == setup.course.id)
+               )
     end
 
     test "信号重投幂等：同一 idempotency_key 二次投递不重复退款", ctx do

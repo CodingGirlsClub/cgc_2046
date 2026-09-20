@@ -58,9 +58,17 @@ defmodule Cgc2046.Flashback.Redemption do
     identity(:unique_person, [:person_id])
   end
 
+  relationships do
+    belongs_to(:person, Cgc2046.Flashback.Person, attribute_writable?: true)
+  end
+
   postgres do
     table("flashback_redemptions")
     repo(Cgc2046.Repo)
+
+    references do
+      reference(:person, on_delete: :nothing)
+    end
   end
 
   actions do

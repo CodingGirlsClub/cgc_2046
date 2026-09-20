@@ -76,9 +76,20 @@ defmodule Cgc2046.Notifications.NotificationDelivery do
     identity(:unique_delivery, [:idempotency_key])
   end
 
+  relationships do
+    # #745：user_id 的 FK 契约显式化——DB 侧 20260913183000 建表即 delete_all
+    # （DB 实测 confdeltype=c）；无 DDL，仅 DSL+snapshot 追平。
+    belongs_to(:user, Cgc2046.Accounts.User, define_attribute?: false, allow_nil?: false)
+  end
+
   postgres do
     table("notification_deliveries")
     repo(Cgc2046.Repo)
+
+    # #745：同上（DB 实测 confdeltype=c）。
+    references do
+      reference(:user, on_delete: :delete)
+    end
   end
 
   policies do

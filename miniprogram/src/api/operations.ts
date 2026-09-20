@@ -82,6 +82,8 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       status
       enrollmentPolicy
       registrationDeadline
+      # 活动介绍（公开展示文案；仅详情查询携带，列表不选）
+      description
       pricingEnabled
       availablePriceTiers
       depositEnabled
@@ -97,6 +99,9 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       # 阶段1：挂载 Initiative 的活动带出隶属 id（公开字段白名单内，匿名可读）；
       # 详情页据此渲染「所属倡导活动」回链
       initiativeId
+      #538：公开主理人投影（[JsonString!]，每行 {display_name, member_number}；
+      # assignedAt 升序，详情页渲染「本场主理人」行——三端同口径）
+      publicModerators
     }
     # #355 P1-3：同文档带出「我的报名」（匿名/未报名 → null）
     myEnrollment(kind: "event", offeringId: $id) {
@@ -115,6 +120,8 @@ export const CourseDetailQueryDocument = /* GraphQL */ `
       status
       enrollmentPolicy
       registrationDeadline
+      # 课程介绍（公开展示文案；仅详情查询携带，列表不选）
+      description
       pricingEnabled
       availablePriceTiers
       startsAt
@@ -216,6 +223,7 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
         insertedAt
         checkInCode
         paymentMode
+        depositAmountCents
         startsAt
         venue
         registrationDeadline
@@ -860,6 +868,149 @@ export const FlashbackSharedCardQueryDocument = /* GraphQL */ `
           fog
           len
         }
+      }
+    }
+  }
+`
+
+// ── 志愿者招募（R20/R21；U5 招募域 GraphQL 面）───────────────────────────────
+//
+// 三资源都带 workspace_id 租户，入口 workspaceId 是显式 argument（KTD2）。小程序
+// 没有 URL slug，故先按 slug 解析入口工作台（getWorkspace 需登录 → 招募流先登录，
+// 见 domain/recruitment.ts 的 moduledoc），后续三读写面共用该 id。
+//
+// 档案 selection（九键）在查询与两条 mutation 里各写一遍：本仓 operations.ts 一贯
+// 内联 selection（见 Enrollment 两处），codegen 的文档加载器不认选择集常量插值。
+export const RecruitmentWorkspaceQueryDocument = /* GraphQL */ `
+  query RecruitmentWorkspace($slug: String!) {
+    getWorkspace(slug: $slug) {
+      id
+      name
+    }
+  }
+`
+
+// 批次：匿名可读 open（申请侧的 workspaceId 需登录解析，故本页先登录再读）。
+// 无 open 批次 → null（AE12 小程序侧的空态）；draft/closed 不因本字段露面。
+export const CurrentRecruitmentCohortQueryDocument = /* GraphQL */ `
+  query CurrentRecruitmentCohort($workspaceId: ID!) {
+    currentRecruitmentCohort(workspaceId: $workspaceId) {
+      id
+      name
+      applyDeadlineAt
+      startsAt
+      endsAt
+      status
+    }
+  }
+`
+
+// 档案元数据：文件内容列（file_data）结构上不在 GraphQL 面（KTD3），读的是
+// 文件名 / MIME / 大小 / 上传时间四键。
+export const MyResumeProfileQueryDocument = /* GraphQL */ `
+  query MyResumeProfile($workspaceId: ID!) {
+    myResumeProfile(workspaceId: $workspaceId) {
+      id
+      fullName
+      contactEmail
+      weeklyHours
+      skills
+      fileName
+      fileContentType
+      fileSize
+      uploadedAt
+    }
+  }
+`
+
+export const UpsertResumeProfileMutationDocument = /* GraphQL */ `
+  mutation UpsertResumeProfile($workspaceId: ID!, $input: UpsertResumeProfileInput!) {
+    upsertResumeProfile(workspaceId: $workspaceId, input: $input) {
+      result {
+        id
+        fullName
+        contactEmail
+        weeklyHours
+        skills
+        fileName
+        fileContentType
+        fileSize
+        uploadedAt
+      }
+      errors {
+        message
+        code
+      }
+    }
+  }
+`
+
+// U2 单入口：先 upsertResumeProfile 建档，再上传（档案缺失 → resume_profile_not_found）。
+// 文件经 base64-over-JSON（KTD3），请求体接近 endpoint 8MB 闸门 → 调用方放宽超时。
+export const UploadResumeFileMutationDocument = /* GraphQL */ `
+  mutation UploadResumeFile($workspaceId: ID!, $input: UploadResumeFileInput!) {
+    uploadResumeFile(workspaceId: $workspaceId, input: $input) {
+      result {
+        id
+        fullName
+        contactEmail
+        weeklyHours
+        skills
+        fileName
+        fileContentType
+        fileSize
+        uploadedAt
+      }
+      errors {
+        message
+        code
+      }
+    }
+  }
+`
+
+// 申请列表（申请人视角，跨批次新→旧；段位与拒绝原因）
+export const MyVolunteerApplicationsQueryDocument = /* GraphQL */ `
+  query MyVolunteerApplications($workspaceId: ID!) {
+    myVolunteerApplications(workspaceId: $workspaceId) {
+      id
+      cohortId
+      position
+      city
+      heardAboutUs
+      hasInternalReferrer
+      message
+      status
+      rejectionReason
+      assignedEventId
+      assignmentNote
+      assignedAt
+    }
+  }
+`
+
+// 第 2 步提交（user_id 由 actor 强制填充，不接受客户端传入）；同批一份由后端
+// 唯一约束 + volunteer_application_already_submitted 兜底。
+export const CreateVolunteerApplicationMutationDocument = /* GraphQL */ `
+  mutation CreateVolunteerApplication($workspaceId: ID!, $input: CreateVolunteerApplicationInput!) {
+    createVolunteerApplication(workspaceId: $workspaceId, input: $input) {
+      result {
+        id
+        cohortId
+        position
+        city
+        heardAboutUs
+        hasInternalReferrer
+        message
+        status
+        rejectionReason
+        assignedEventId
+        assignmentNote
+        assignedAt
+      }
+      errors {
+        message
+        code
       }
     }
   }

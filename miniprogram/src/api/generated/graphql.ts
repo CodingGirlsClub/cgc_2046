@@ -343,10 +343,27 @@ export type CreateEnrollmentInput = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: boolean | null | undefined;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: string | number;
   /** 支付渠道 */
   provider: string;
+};
+
+export type CreateVolunteerApplicationInput = {
+  /** 申请城市（Tutor 可远程） */
+  city?: string | null | undefined;
+  /** createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入） */
+  cohortId: string | number;
+  /** 是否有内部推荐人（缺省 false） */
+  hasInternalReferrer?: boolean | null | undefined;
+  /** 如何得知我们 */
+  heardAboutUs?: string | null | undefined;
+  /** 留言（选填） */
+  message?: string | null | undefined;
+  /** 职位：event_moderator | tutor | coach */
+  position: string;
 };
 
 export type EventFilterCapacity = {
@@ -890,6 +907,26 @@ export type RejectJoinRequestInput = {
   rejectionReason?: string | null | undefined;
 };
 
+export type UploadResumeFileInput = {
+  /** 文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内） */
+  contentBase64: string;
+  /** 声明的 MIME（须与扩展名同族） */
+  contentType: string;
+  /** uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收） */
+  fileName: string;
+};
+
+export type UpsertResumeProfileInput = {
+  /** 联系邮箱（R14 邮件保底通道收件地址） */
+  contactEmail: string;
+  /** upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充） */
+  fullName: string;
+  /** 技能多选（字符串列表；缺省不改动） */
+  skills?: Array<string> | null | undefined;
+  /** 每周可投入小时数（选填） */
+  weeklyHours?: number | null | undefined;
+};
+
 export type CatalogQueryVariables = Exact<{
   first?: number | null | undefined;
 }>;
@@ -911,14 +948,14 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, description: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null, publicModerators: Array<string> | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, description: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -938,7 +975,7 @@ export type EnrollmentQueryVariables = Exact<{
 }>;
 
 
-export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
+export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, depositAmountCents: number | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
@@ -1202,3 +1239,55 @@ export type FlashbackSharedCardQueryVariables = Exact<{
 
 
 export type FlashbackSharedCardQuery = { flashbackSharedCard: { displayName: string, city: string | null, appliedAt: string | null, occurredOn: string | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }>, today: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> } | null };
+
+export type RecruitmentWorkspaceQueryVariables = Exact<{
+  slug: string;
+}>;
+
+
+export type RecruitmentWorkspaceQuery = { getWorkspace: { id: string, name: string } | null };
+
+export type CurrentRecruitmentCohortQueryVariables = Exact<{
+  workspaceId: string | number;
+}>;
+
+
+export type CurrentRecruitmentCohortQuery = { currentRecruitmentCohort: { id: string, name: string, applyDeadlineAt: string, startsAt: string | null, endsAt: string | null, status: string } | null };
+
+export type MyResumeProfileQueryVariables = Exact<{
+  workspaceId: string | number;
+}>;
+
+
+export type MyResumeProfileQuery = { myResumeProfile: { id: string, fullName: string, contactEmail: string, weeklyHours: number | null, skills: Array<string>, fileName: string | null, fileContentType: string | null, fileSize: number | null, uploadedAt: string | null } | null };
+
+export type UpsertResumeProfileMutationVariables = Exact<{
+  workspaceId: string | number;
+  input: UpsertResumeProfileInput;
+}>;
+
+
+export type UpsertResumeProfileMutation = { upsertResumeProfile: { result: { id: string, fullName: string, contactEmail: string, weeklyHours: number | null, skills: Array<string>, fileName: string | null, fileContentType: string | null, fileSize: number | null, uploadedAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } | null };
+
+export type UploadResumeFileMutationVariables = Exact<{
+  workspaceId: string | number;
+  input: UploadResumeFileInput;
+}>;
+
+
+export type UploadResumeFileMutation = { uploadResumeFile: { result: { id: string, fullName: string, contactEmail: string, weeklyHours: number | null, skills: Array<string>, fileName: string | null, fileContentType: string | null, fileSize: number | null, uploadedAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } | null };
+
+export type MyVolunteerApplicationsQueryVariables = Exact<{
+  workspaceId: string | number;
+}>;
+
+
+export type MyVolunteerApplicationsQuery = { myVolunteerApplications: Array<{ id: string, cohortId: string, position: string, city: string | null, heardAboutUs: string | null, hasInternalReferrer: boolean, message: string | null, status: string, rejectionReason: string | null, assignedEventId: string | null, assignmentNote: string | null, assignedAt: string | null }> };
+
+export type CreateVolunteerApplicationMutationVariables = Exact<{
+  workspaceId: string | number;
+  input: CreateVolunteerApplicationInput;
+}>;
+
+
+export type CreateVolunteerApplicationMutation = { createVolunteerApplication: { result: { id: string, cohortId: string, position: string, city: string | null, heardAboutUs: string | null, hasInternalReferrer: boolean, message: string | null, status: string, rejectionReason: string | null, assignedEventId: string | null, assignmentNote: string | null, assignedAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } | null };

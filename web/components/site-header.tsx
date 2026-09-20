@@ -6,7 +6,7 @@ import LanguageSwitcher from "@/components/language-switcher";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAuthed } from "@/lib/use-authed";
 
-export type SiteNavLink = "events" | "courses" | "initiatives" | "flashback";
+export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives" | "flashback";
 
 /**
  * 站点级品牌导航条（全站唯一实现，R8 parity 同源零跳变原则）。
@@ -36,6 +36,14 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 					<BrandLockup />
 				</Link>
 				<nav className="site-nav__links" aria-label={t("ariaLabel")}>
+					{/* 十周年主 campaign（2026.10-2027 全年）：站内唯一入口，活动结束随本项一并移除 */}
+					<Link
+						href="/hackerstart-1024"
+						aria-current={active === "campaign" ? "page" : undefined}
+						className={`site-nav__link${active === "campaign" ? " site-nav__link--active" : ""}`}
+					>
+						{t("campaign")}
+					</Link>
 					<Link
 						href="/events"
 						aria-current={active === "events" ? "page" : undefined}

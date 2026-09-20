@@ -30,6 +30,7 @@ interval=60          # seconds between polls
 settle=90            # fixed settle after update-branch (new-run registration)
 max_wait=7200        # give up after this many seconds overall
 max_reruns=2         # known-flake rerun budget
+update_retried=0     # merge 被拒（分支落后）时的 update-branch 兜底：只用一次
 reruns=0
 waited=0
 
@@ -65,8 +66,18 @@ pr_meta() {
 # Extract "N passed/failed/skipped/total" from: summary: "6 passed, 0 failed, 1 skipped, 7 total"
 sum_field() { printf '%s' "$1" | sed -n "s/.*\([0-9][0-9]*\) $2.*/\1/p"; }
 
+# p_head is assigned only when pr_meta returns non-empty; keep a safe default so
+# the failure-printing paths below never hit "unbound variable" under set -u
+# (2026-09-18 PR #738 flake round: empty meta + real-fail path crashed).
+p_head=""
+
 while :; do
   meta="$(pr_meta)"
+  if [ -z "$meta" ] && [ -z "$p_head" ]; then
+    # pr_meta 瞬时空响应（限流/网络）时补取 head 分支名，
+    # 防后续 rerun/失败打印路径引用未绑定 p_head（set -u 下崩溃）。
+    p_head="$(ghx api "repos/{owner}/{repo}/pulls/$pr" --jq .head.ref 2>/dev/null)"
+  fi
   if [ -n "$meta" ]; then
     IFS=',' read -r p_state p_merged p_ms p_head <<< "$meta"
     if [ "$p_state" = "closed" ] && [ "$p_merged" = "true" ]; then
@@ -114,9 +125,26 @@ while :; do
   if [ "$failed" -eq 0 ]; then
     if [ "$total" -gt 0 ] && [ $((passed + skipped)) -ge "$total" ]; then
       say "checks 全绿（${summary}）→ merge（merge commit）"
-      if ghx pr merge "$pr" --merge; then
+      if merge_out="$(ghx pr merge "$pr" --merge 2>&1)"; then
+        printf '%s\n' "$merge_out" >&2
         say "已合并 ✓"
         exit 0
+      fi
+      printf '%s\n' "$merge_out" >&2
+      # merge 被拒且原因是分支落后（strict up-to-date：等待期 develop 前移，
+      # 串行落地时的常态而非异常）→ 兜底一次 update-branch，回主循环沿用
+      # settle / 未就绪逻辑等 checks 重新全绿后再 merge；只重试一次，第二次
+      # 仍失败才判红退出，避免死循环。
+      if [ "$update_retried" -eq 0 ] && printf '%s' "$merge_out" | grep -qi 'not up to date\|not mergeable'; then
+        update_retried=1
+        sub "merge 被拒（分支落后）→ update-branch 后等 checks 重新全绿再试一次（仅此一次）"
+        if ! ghx pr update-branch "$pr" >&2; then
+          say "update-branch 失败 — 编排者介入"
+          exit 1
+        fi
+        sub "settle ${settle}s（新 run 注册前 checks 为空属正常空窗，不当红）"
+        sleep "$settle"; waited=$((waited + settle))
+        continue
       fi
       say "merge 失败 — 编排者介入"
       exit 1

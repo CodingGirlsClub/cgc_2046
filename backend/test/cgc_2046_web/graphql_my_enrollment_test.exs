@@ -29,6 +29,22 @@ defmodule Cgc2046Web.GraphqlMyEnrollmentTest do
     """
   end
 
+  # 计算字段选择集（#727 健壮化）：单条 payload 是白名单 map，**没有**
+  # :calculations 键——取值必须走 Map.get/3 兜底而不是 parent.calculations
+  # （后者 KeyError → Absinthe 报错）。投影不携带计算值 → null 是诚实结果。
+  defp calc_query(kind, offering_id) do
+    """
+    query {
+      myEnrollment(kind: "#{kind}", offeringId: "#{offering_id}") {
+        id
+        targetTitle
+        paymentMode
+        depositAmountCents
+      }
+    }
+    """
+  end
+
   defp anon(query) do
     build_conn()
     |> put_req_header("content-type", "application/json")
@@ -106,6 +122,40 @@ defmodule Cgc2046Web.GraphqlMyEnrollmentTest do
 
       assert result["id"] == enrollment.id
       assert result["status"] == "confirmed"
+    end
+
+    test "选计算字段不炸（#727）：押金场活跃报名 → 无 errors、值为 null" do
+      admin = Fixtures.platform_admin()
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          deposit_enabled: true,
+          deposit_amount_cents: 6900,
+          ends_at: EventFixtures.days_from_now(8)
+        })
+
+      learner = Fixtures.register_user("gql-my-enr-calc")
+      enrollment = enroll_on_event(event, learner)
+      assert enrollment.status == :payment_pending
+
+      response = graphql(calc_query("event", event.id), sign_in_token(learner))
+
+      refute Map.has_key?(response, "errors"),
+             "单条 payload 选计算字段不得报错（parent.calculations 对裸 map 抛 KeyError），实际 #{inspect(response["errors"])}"
+
+      assert %{
+               "data" => %{
+                 "myEnrollment" => %{
+                   "id" => id,
+                   "targetTitle" => nil,
+                   "paymentMode" => nil,
+                   "depositAmountCents" => nil
+                 }
+               }
+             } = response
+
+      assert id == enrollment.id
     end
   end
 

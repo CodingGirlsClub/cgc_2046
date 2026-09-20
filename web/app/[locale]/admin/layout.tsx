@@ -25,6 +25,8 @@ const ADMIN_NAV = [
 	{ href: "/admin/reconciliation", label: "navReconciliation" },
 	{ href: "/admin/openclacky", label: "navOpenclacky" },
 	{ href: "/admin/initiatives", label: "navInitiatives" },
+	{ href: "/admin/events", label: "navEvents" },
+	{ href: "/admin/courses", label: "navCourses" },
 	{ href: "/admin/flashback", label: "navFlashback" },
 ];
 

@@ -17,6 +17,7 @@ defmodule Cgc2046.Courses.CourseDraftDeletionTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Accounts.MembershipContext
+  alias Cgc2046.Admission.CapacityLedger
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.{Output, Prep, PrepInstantiator}
   alias Cgc2046.Workflows.{SignalSubscriber, WorkflowRun}
@@ -170,6 +171,51 @@ defmodule Cgc2046.Courses.CourseDraftDeletionTest do
 
     assert :ok = delete(platform_course, platform)
     assert_deleted(platform_course.id)
+  end
+
+  test "#688 名额账本行随 draft 删除一并消失；不误伤他行；delete_for_offering 幂等" do
+    %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+    course_a = draft_course(workspace, owner, %{slug: "issue688-ledger-a"})
+    course_b = draft_course(workspace, owner, %{slug: "issue688-ledger-b"})
+
+    # 布置（非被测对象）：直连建行（sync_offering_cache，真实建行路径之一）
+    for course <- [course_a, course_b] do
+      :ok =
+        CapacityLedger.sync_offering_cache(%{
+          kind: :course,
+          offering_id: course.id,
+          workspace_id: workspace.id,
+          status: :draft,
+          capacity: 20
+        })
+    end
+
+    # 不误伤负例的第三行：同 offering_id、kind=:event（批量 DELETE 写错 kind
+    # 维度即丢这行——现实中两 kind 不会同 id，此为守护测试）
+    :ok =
+      CapacityLedger.sync_offering_cache(%{
+        kind: :event,
+        offering_id: course_a.id,
+        workspace_id: workspace.id,
+        status: :draft,
+        capacity: 5
+      })
+
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_a.id)
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_b.id)
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:event, course_a.id)
+
+    assert :ok = delete(course_a, owner)
+
+    # 目标行消失；同台另一课程的行、同 id 的 :event 行仍在
+    assert {:error, :not_found} = CapacityLedger.fetch_by_offering(:course, course_a.id)
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_b.id)
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:event, course_a.id)
+
+    # 幂等（#688 收紧 2①）：连删第二次（0 行）不报错；不存在的 offering 亦 :ok
+    assert :ok = CapacityLedger.delete_for_offering(:course, course_a.id)
+    assert :ok = CapacityLedger.delete_for_offering(:course, Ecto.UUID.generate())
+    assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_b.id)
   end
 
   describe "launch × delete 并发（行锁互斥，恰一成一败）" do

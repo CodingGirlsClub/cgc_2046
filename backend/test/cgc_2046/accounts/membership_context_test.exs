@@ -389,6 +389,51 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       assert membership.id == existing.id
     end
 
+    test "已有成员 → idempotent 补授：换职位再分配请求的新角色不丢失" do
+      admin = Fixtures.platform_admin("mc-admin-grant")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member-grant")
+      existing = Fixtures.add_member(workspace, member, [:volunteer])
+
+      # AE11 豁免路径：第一批 volunteer，第二批换职位分配为 Tutor——
+      # 幂等分支必须补授新角色，否则 RBAC 与申请状态漂移且无报错
+      assert {:ok, membership} =
+               MembershipContext.admit_member(member.id, workspace.id, [:tutor],
+                 on_conflict: :idempotent
+               )
+
+      assert membership.id == existing.id
+
+      assert held_names = held_role_names(workspace.id, membership.id)
+      assert "volunteer" in held_names
+      assert "tutor" in held_names
+    end
+
+    test "并发 admit（同 user 不同角色集）：无论谁撞 unique，最终角色为两请求并集" do
+      admin = Fixtures.platform_admin("mc-admin-race")
+      workspace = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("mc-member-race")
+
+      # 两个请求并发越过 existing 守卫（都读到空）→ 一方 INSERT 胜出、
+      # 另一方撞 unique 走回查分支；两条幂等路径都必须补授，最终并集成立
+      tasks =
+        for role <- [:volunteer, :tutor] do
+          Task.async(fn ->
+            MembershipContext.admit_member(member.id, workspace.id, [role],
+              on_conflict: :idempotent
+            )
+          end)
+        end
+
+      results = Task.await_many(tasks)
+
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+      membership = elem(hd(results), 1)
+      held_names = held_role_names(workspace.id, membership.id)
+      assert "volunteer" in held_names
+      assert "tutor" in held_names
+    end
+
     test "并发 unique 冲突 → business_error：越过守卫后 DB unique index 拒绝，转业务错误" do
       admin = Fixtures.platform_admin("mc-admin")
       workspace = Fixtures.create_workspace(admin)
@@ -602,5 +647,16 @@ defmodule Cgc2046.Accounts.MembershipContextTest do
       membership = MembershipContext.membership_of(user, ws.id)
       refute is_nil(membership)
     end
+  end
+
+  defp held_role_names(workspace_id, membership_id) do
+    roles = Ash.read!(Cgc2046.Accounts.Role, tenant: workspace_id, authorize?: false)
+    name_by_id = Map.new(roles, &{&1.id, to_string(&1.name)})
+
+    Cgc2046.Accounts.MembershipRole
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(membership_id == ^membership_id)
+    |> Ash.read!(tenant: workspace_id, authorize?: false)
+    |> Enum.map(&Map.fetch!(name_by_id, &1.role_id))
   end
 end

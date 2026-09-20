@@ -117,6 +117,15 @@ export function scheduleText(startsAt: string | null, endsAt: string | null): st
   return '时间待定'
 }
 
+/** 纯文本描述 → 段落数组：按空行（\n\s*\n）切分，去掉空白段；null/空串 → [] */
+export function toParagraphs(text: string | null | undefined): string[] {
+  if (!text) return []
+  return text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+}
+
 /**
  * venue JsonString → 展示文本（KTD5/R3）。解析遵循严格四键形状（与 backend
  * Venue.valid?/1 同构）：对象恰有 country/province/city/district 四键且值均为
@@ -151,6 +160,29 @@ export function venueText(raw: string | null): string | null {
   if (!venue) return null
   const parts = [venue.country, venue.province, venue.city, venue.district].filter((s) => s.trim() !== '')
   return parts.length > 0 ? parts.join(' ') : null
+}
+
+/**
+ * 公开主理人投影（#538）→ 展示名列表：逐行 parse `[JsonString!]`（每行
+ * {display_name, member_number}），脏行丢弃。回退链与 #537 管理面、web
+ * `moderatorNames` 同语义：displayName → memberNumber（后端恒非空；
+ * displayName 为 null 是「用户没填名字」的固有成本，不做特殊兜底）。
+ * 空/解析全失败 → []（展示层「无主理人不渲染」）。
+ */
+export function moderatorNames(raw: readonly string[] | null | undefined): string[] {
+  if (!raw) return []
+  return raw.flatMap((item): string[] => {
+    try {
+      const v: unknown = JSON.parse(item)
+      if (typeof v !== 'object' || v === null) return []
+      const r = v as Record<string, unknown>
+      if (typeof r.display_name === 'string' && r.display_name !== '') return [r.display_name]
+      if (typeof r.member_number === 'string' && r.member_number !== '') return [r.member_number]
+      return []
+    } catch {
+      return []
+    }
+  })
 }
 
 // ── #617 「我的报名」读面时间/地点行 ──

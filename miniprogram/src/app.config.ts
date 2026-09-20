@@ -36,6 +36,11 @@ const fullPages = [
   'pages/openclacky/index',
   // #508-A：主理人现场核销（管理面，裁剪端不挂）
   'pages/check-in/index',
+  // R19：campaign 宣传页（微信端专属——发现页入口卡同款分流，见 pages/discover/index）
+  'pages/campaign/index',
+  // R20/R21：志愿者招募流（微信端专属——campaign 页「成为志愿者」入口的落点；
+  // 审核面板不进小程序，管理面在 web）
+  'pages/volunteer-apply/index',
   // U9/R28：闪念间主容器=长廊（页内 Tab：时间廊|我的卡，U2 完整化后卡面单源
   // 在 components/MyCard）。旧独立页仅保留给裁剪端（tt/xhs 未注册长廊，diversion
   // 词表限制），微信端不再注册。

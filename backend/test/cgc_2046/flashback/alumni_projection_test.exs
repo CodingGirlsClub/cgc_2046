@@ -302,8 +302,17 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       # （成都）；私有许愿城市（西安）不进；未来场次城市（杭州）进
       ws =
         case Cgc2046.Repo.query!("SELECT id FROM workspaces LIMIT 1") do
-          %{rows: [[id]]} -> id
-          _ -> Ecto.UUID.generate()
+          %{rows: [[id]]} ->
+            id
+
+          _ ->
+            %{rows: [[id]]} =
+              Cgc2046.Repo.query!(
+                "INSERT INTO workspaces (id, name, slug, inserted_at, updated_at)
+                 VALUES (gen_random_uuid(), 'AlumniProjectionTest', 'alumni-projection-test', now(), now()) RETURNING id"
+              )
+
+            id
         end
 
       Cgc2046.Repo.query!(

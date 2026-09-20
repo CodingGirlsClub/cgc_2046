@@ -40,7 +40,15 @@ const records = [
     // initiativeId 让 event-detail 的「所属倡导活动」回链有落点
     qualificationBadge: 'short_by',
     shortBy: 3,
-    initiativeId: 'initiative-1'
+    initiativeId: 'initiative-1',
+    // 无介绍样例：详情页不渲染「活动介绍」块（null 分支）
+    description: null,
+    // #538 公开主理人投影样例：一行有 displayName、一行 null 回退 memberNumber，
+    // 详情页渲染「本场主理人：主讲小援 · CGC-9A3F2C」（与真机 [JsonString!] 同形）
+    publicModerators: [
+      JSON.stringify({ display_name: '主讲小援', member_number: 'CGC-000001' }),
+      JSON.stringify({ display_name: null, member_number: 'CGC-9A3F2C' })
+    ]
   },
   {
     id: 'event-open',
@@ -73,6 +81,8 @@ const records = [
     depositEnabled: true,
     depositAmountCents: DEPOSIT_AMOUNT_CENTS,
     minAge: 18,
+    // 多段介绍样例（空行分段）：详情页「活动介绍」块逐段渲染
+    description: '两天的线下共学，一起读完《重构》并现场动手实践。\n\n适合有半年以上编程经验、想提升代码设计能力的同学。\n\n请自带电脑，现场提供午餐与饮品。',
     startsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + (5 * 24 + 2) * 3_600_000).toISOString(),
     venue: JSON.stringify({ country: '中国', province: '上海市', city: '上海', district: '徐汇区' }),
@@ -156,6 +166,8 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
+  /** #727 押金快照金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
+  depositAmountCents: number | null
   /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
   startsAt: string | null
   /** #617 目标场地：后端 Enrollment.venue 同形 = Venue.text/1 文本化 city+district */
@@ -468,6 +480,32 @@ function fogMaskedText(raw: string, spans: Array<{ start: number; len: number }>
   return out + raw.slice(cursor)
 }
 
+// ── 志愿者招募（R20/R21）mock 态：一人一档 + 一人一批一份申请 ────────────────
+// 与后端语义对齐的最小投影：批次恒有 open（空态分支由 e2e 脚本改 mock 也走不到，
+// 见 e2e 的招募路径说明）；档案与申请在登录后才可见（getWorkspace 需登录）。
+const RECRUITMENT_WORKSPACE = { id: workspace.id, name: workspace.name }
+let resumeProfile: {
+  id: string
+  fullName: string
+  contactEmail: string
+  weeklyHours: number | null
+  skills: string[]
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  uploadedAt: string | null
+} | null = null
+let volunteerApplications: Array<Record<string, unknown>> = []
+
+const recruitmentCohort = {
+  id: 'cohort-1',
+  name: '第 1 批 · 首批志愿者招募',
+  applyDeadlineAt: new Date(Date.now() + 21 * 24 * 3_600_000).toISOString(),
+  startsAt: new Date(Date.now() + 30 * 24 * 3_600_000).toISOString(),
+  endsAt: null,
+  status: 'open'
+}
+
 // 与后端 Enrollment.active_statuses 同口径（pending/payment_pending/confirmed）
 const ACTIVE_STATUSES: Record<string, true> = {
   pending: true,
@@ -688,6 +726,12 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
+      // #727：押金快照金额（与后端 Enrollment.depositAmountCents 同源口径——
+      // 报名提交时物化；非押金场 null）。order-pay 创单前披露的金额源
+      depositAmountCents:
+        paymentMode === 'deposit' && target && 'depositAmountCents' in target
+          ? (target.depositAmountCents ?? null)
+          : null,
       // #617：与后端 Enrollment 计算字段同形——startsAt 直接取目标记录；
       // venue 必须文本化为 city+district（读面契约是 Venue.text 结果，不是
       // 目标记录里的 JsonString；course 无 venue 槽 → null）
@@ -760,9 +804,26 @@ function responseFor(document: string, variables: object): unknown {
     // 同意门以它为准，mock 漏带字段会被 parseOrderKind fail-closed 抓住
     const depositOrder =
       targetRecord && 'depositEnabled' in targetRecord && targetRecord.depositEnabled === true
+    const input = (values.input ?? {}) as Record<string, unknown>
+    // #727 押金同意门（后端 action 语义的 mock 投影，同 #510 年龄门）：押金单
+    // 未带 depositConsent=true → 业务错误（与真实后端同 code，前端文案表命中）
+    if (depositOrder && input.depositConsent !== true) {
+      return {
+        createOrder: {
+          result: null,
+          errors: [
+            {
+              message: 'deposit consent is required before creating a deposit order',
+              code: 'order_deposit_consent_required'
+            }
+          ],
+          metadata: null
+        }
+      }
+    }
     order = {
       id: 'order-1',
-      enrollmentId: String((values.input as Record<string, unknown>).enrollmentId ?? ''),
+      enrollmentId: String(input.enrollmentId ?? ''),
       status: 'pending',
       amountCents: depositOrder ? DEPOSIT_AMOUNT_CENTS : 19900,
       expireAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
@@ -798,6 +859,107 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('query MyOrders')) {
     return { myOrders: { results: loggedIn && order ? [order] : [] } }
+  }
+  // ── 志愿者招募（R20/R21）：slug 解析 → 批次 / 档案 / 申请 ──────────────────
+  if (document.includes('query RecruitmentWorkspace')) {
+    // getWorkspace 需登录（策略 actor_present）——匿名按未授权口径返回 null，
+    // 真端是 GraphQL 错误 → real.ts 的 resolveRecruitmentWorkspaceId 早退在
+    // 登录检查上（这里只是兜底不给跨租户数据）
+    return { getWorkspace: loggedIn ? RECRUITMENT_WORKSPACE : null }
+  }
+  if (document.includes('query CurrentRecruitmentCohort')) {
+    return { currentRecruitmentCohort: loggedIn ? recruitmentCohort : null }
+  }
+  if (document.includes('query MyResumeProfile')) {
+    return { myResumeProfile: loggedIn ? resumeProfile : null }
+  }
+  if (document.includes('query MyVolunteerApplications')) {
+    return { myVolunteerApplications: loggedIn ? volunteerApplications : [] }
+  }
+  if (document.includes('mutation UpsertResumeProfile')) {
+    const input = values.input as Record<string, unknown>
+    const skills = Array.isArray(input.skills) ? (input.skills as string[]) : resumeProfile?.skills ?? []
+    resumeProfile = {
+      // 一人一档：二次 upsert 更新同一行（保留已上传的文件元数据）
+      id: resumeProfile?.id ?? 'resume-profile-1',
+      fullName: String(input.fullName ?? ''),
+      contactEmail: String(input.contactEmail ?? ''),
+      weeklyHours: typeof input.weeklyHours === 'number' ? input.weeklyHours : null,
+      skills,
+      fileName: resumeProfile?.fileName ?? null,
+      fileContentType: resumeProfile?.fileContentType ?? null,
+      fileSize: resumeProfile?.fileSize ?? null,
+      uploadedAt: resumeProfile?.uploadedAt ?? null
+    }
+    return { upsertResumeProfile: { result: resumeProfile, errors: [] } }
+  }
+  if (document.includes('mutation UploadResumeFile')) {
+    const input = values.input as Record<string, unknown>
+    // 先建档再上传（U2 契约：档案缺失 → resume_profile_not_found）
+    if (!resumeProfile) {
+      return {
+        uploadResumeFile: {
+          result: null,
+          errors: [
+            { message: 'resume profile not found', code: 'resume_profile_not_found' }
+          ]
+        }
+      }
+    }
+    // 大小以**实际解码字节数**为准（与后端同规则）：base64 长度 → 原始字节数
+    const content = typeof input.contentBase64 === 'string' ? input.contentBase64 : ''
+    resumeProfile = {
+      ...resumeProfile,
+      fileName: String(input.fileName ?? ''),
+      fileContentType: String(input.contentType ?? ''),
+      fileSize: Math.floor((content.length * 3) / 4),
+      uploadedAt: new Date().toISOString()
+    }
+    return { uploadResumeFile: { result: resumeProfile, errors: [] } }
+  }
+  if (document.includes('mutation CreateVolunteerApplication')) {
+    const input = values.input as Record<string, unknown>
+    const cohortId = String(input.cohortId ?? '')
+    if (cohortId !== recruitmentCohort.id) {
+      return {
+        createVolunteerApplication: {
+          result: null,
+          errors: [
+            { message: 'recruitment cohort not found', code: 'volunteer_application_cohort_not_found' }
+          ]
+        }
+      }
+    }
+    // 同批一份（后端 unique_per_cohort 的 mock 投影，AE2 数据面）
+    if (volunteerApplications.some((row) => row.cohortId === cohortId)) {
+      return {
+        createVolunteerApplication: {
+          result: null,
+          errors: [
+            {
+              message: 'volunteer application already submitted for this cohort',
+              code: 'volunteer_application_already_submitted'
+            }
+          ]
+        }
+      }
+    }
+    const application = {
+      id: `volunteer-application-${volunteerApplications.length + 1}`,
+      cohortId,
+      position: String(input.position ?? ''),
+      city: typeof input.city === 'string' ? input.city : null,
+      heardAboutUs: typeof input.heardAboutUs === 'string' ? input.heardAboutUs : null,
+      hasInternalReferrer: input.hasInternalReferrer === true,
+      message: typeof input.message === 'string' ? input.message : null,
+      status: 'submitted',
+      rejectionReason: null,
+      assignedEventId: null,
+      assignmentNote: null,
+      assignedAt: null
+    }
+    volunteerApplications = [application, ...volunteerApplications]
+    return { createVolunteerApplication: { result: application, errors: [] } }
   }
   if (document.includes('mutation AdmitMemberByToken')) {
     return {
