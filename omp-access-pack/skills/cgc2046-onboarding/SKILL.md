@@ -48,7 +48,8 @@ mkdir -p ~/.omp/agent && \
 pbpaste | python3 -c '
 import json, sys, os, tempfile
 token = sys.stdin.read().strip()
-if not token or not token.replace("-", "").replace("_", "").isalnum():
+import re
+if not token or not re.fullmatch(r'cgc_[A-Za-z0-9_-]+', token):
     print("ERROR: clipboard does not contain a valid token — nothing was written; re-copy the token from the MCP page", file=sys.stderr)
     sys.exit(1)
 path = os.path.expanduser("~/.omp/agent/mcp.json")
@@ -114,7 +115,8 @@ import json, sys, os, tempfile
 token_path = os.path.expanduser("~/.omp/agent/cgc-token.txt")
 with open(token_path) as f:
     token = f.read().strip()
-if not token or not token.replace("-", "").replace("_", "").isalnum():
+import re
+if not token or not re.fullmatch(r'cgc_[A-Za-z0-9_-]+', token):
     print("ERROR: ~/.omp/agent/cgc-token.txt does not contain a valid token — nothing was written", file=sys.stderr)
     sys.exit(1)
 path = os.path.expanduser("~/.omp/agent/mcp.json")
@@ -146,7 +148,7 @@ print("OK: cgc-2046 entry written, token file removed")
 
 ## 备用路径 B（最后手段：对话粘贴）
 
-仅在主流程与备选 A 都不可用时，允许用户在对话里粘贴 token，agent 再放进写入命令。agent 在写入前先做同样的形态校验（非空且字母数字+连字符+下划线，不匹配就请用户重新粘贴，绝不带着可疑内容写入）。**必须事先明示代价**：
+仅在主流程与备选 A 都不可用时，允许用户在对话里粘贴 token，agent 再放进写入命令。agent 在写入前先做同样的形态校验（`re.fullmatch(r'cgc_[A-Za-z0-9_-]+', token)`，不匹配就请用户重新粘贴，绝不带着可疑内容写入）。**必须事先明示代价**：
 
 > 这种方式 token 会留在本机会话记录文件里。建议连接完成后回到 MCP 页**撤销这个 token**，然后改用剪贴板管道（主流程）或临时文件管道（备选 A）重签一个并完成连接——新通道不留痕，补救真实有效。
 

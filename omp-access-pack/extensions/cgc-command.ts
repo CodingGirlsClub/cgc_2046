@@ -6,23 +6,22 @@
  *
  * 落盘位置：~/.omp/agent/extensions/cgc-command.ts（用户级，install.sh 拷贝）。
  *
- * 数据来源：CGC MCP 工具（server 条目名 cgc-2046）。本 extension 不注册任何工具，
- * 只读 MCP 状态并渲染摘要；连接状态从 OMP MCP manager 读取，不直接调网站 API。
+ * 数据来源：CGC MCP 工具（server 条目名 cgc-2046）。本 extension 不注册任何工具。
+ * 连接状态从工具注册表读取；待办/角色数据经 sendUserMessage 注入由 agent 拉取渲染。
  *
  * 三态：
- *   - 已连接：显示连接状态 + 待办列表 + 可进入角色 + 快捷操作
+ *   - 已连接：notify 即时反馈 + sendUserMessage 注入 agent 拉待办/角色渲染
  *   - 未连接：显示「未连接」+ 引导跑 onboarding skill
  *   - 连接失败（401/网络错误）：显示错误与重试入口，不静默
  */
-
-import { execSync } from "node:child_process";
 
 export default function cgcCommand(pi) {
   pi.registerCommand("cgc", {
     description: "CGC-2046 状态总览：连接状态、待办、可进入角色、快捷操作",
     handler: async (_args, ctx) => {
-      // 连接状态：从 OMP MCP manager 读 cgc-2046 server 是否在工具注册表里
-      const allTools = ctx.getAllTools?.() ?? [];
+      // 连接状态：从工具注册表读 cgc-2046 server 的 MCP 工具是否存在
+      // 双兜底：ctx.getAllTools（command handler ctx）→ pi.getAllTools（extension API）
+      const allTools = ctx.getAllTools?.() ?? pi.getAllTools?.() ?? [];
       const mcpTools = allTools.filter((t) => typeof t?.name === "string" && t.name.startsWith("mcp__cgc_2046_"));
       const connected = mcpTools.length > 0;
 
@@ -39,60 +38,19 @@ export default function cgcCommand(pi) {
         return;
       }
 
-      // 已连接：拉工作区与待办
-      // 注意：extension 的 ctx 不直接暴露 MCP 工具调用入口（OMP extension API 无 invokeMcpTool），
-      // 所以这里用 exec 调 omp CLI 的 mcp 子命令拉取数据（如果可用），否则降级为引导。
-      // 这是有意的设计：/cgc 是「主动发现入口」，数据来自 MCP 工具而非网站 API 直调。
+      // 已连接：notify 即时反馈 + sendUserMessage 注入 agent 拉待办/角色渲染
       const toolCount = mcpTools.length;
+      ctx.ui.notify(`CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。正在拉取待办与角色…`, "info");
 
-      let tasksText = "（待办拉取需要 agent 会话，输入「我有什么待办」）";
-      let rolesText = "（角色拉取需要 agent 会话，输入「我能进哪些工作区」）";
-
-      // 尝试用 omp CLI 拉取（如果 OMP 暴露 mcp call 子命令）
-      try {
-        const tasksJson = execSync(
-          `omp mcp call cgc-2046 list_my_tasks '{}' 2>/dev/null || echo '{"error":"unavailable"}'`,
-          { encoding: "utf8", timeout: 10_000 },
-        );
-        const tasks = JSON.parse(tasksJson);
-        if (!tasks.error && Array.isArray(tasks.items)) {
-          tasksText = tasks.items.length === 0
-            ? "无待办"
-            : tasks.items.slice(0, 5).map((t) => `  · ${t.title ?? t.id}`).join("\n") +
-              (tasks.items.length > 5 ? `\n  … 共 ${tasks.items.length} 项` : "");
-        }
-      } catch {
-        // omp mcp call 不可用，保持引导文本
-      }
-
-      try {
-        const wsJson = execSync(
-          `omp mcp call cgc-2046 list_my_workspaces '{}' 2>/dev/null || echo '{"error":"unavailable"}'`,
-          { encoding: "utf8", timeout: 10_000 },
-        );
-        const ws = JSON.parse(wsJson);
-        if (!ws.error && Array.isArray(ws.items)) {
-          rolesText = ws.items.length === 0
-            ? "无可进入工作区"
-            : ws.items.slice(0, 5).map((w) => `  · ${w.name}（${w.role}）`).join("\n") +
-              (ws.items.length > 5 ? `\n  … 共 ${ws.items.length} 个` : "");
-        }
-      } catch {
-        // omp mcp call 不可用，保持引导文本
-      }
-
-      ctx.ui.notify(
-        `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
-          `我的待办：\n${tasksText}\n\n` +
-          `可进入的工作区与角色：\n${rolesText}\n\n` +
-          "接下来可以：\n" +
-          "  · 说「帮我开课/教研/学习」→ agent 按角色 playbook 工作\n" +
-          "  · 打开网站对应页面（学习/教研/管理后台）→ agent 可用 browser 工具代开\n\n" +
-          "快捷操作：\n" +
-          "  · 断开连接：编辑 ~/.omp/agent/mcp.json 删除 cgc-2046 条目，或跑 install.sh remove\n" +
-          "  · 重新连接：跑 onboarding skill（cgc2046-onboarding）\n" +
-          "  · 查看文档：omp-access-pack/README.md",
-        "info",
+      // 注入结构化汇总请求，由 agent 调 MCP 工具拉数据并渲染
+      // 这满足 AE8「无需先问 agent 即见待办/角色」——/cgc 一键触发，agent 自动拉取渲染
+      pi.sendUserMessage(
+        "请拉取并渲染 CGC-2046 状态汇总：\n" +
+          "1. 调 list_my_workspaces 列出我可进入的 Workspace 与角色（按名称展示，不要 UUID）\n" +
+          "2. 对每个 Workspace 调 list_my_tasks 列出我的待办（含 approval_deadline）\n" +
+          "3. 渲染成紧凑汇总：连接状态、待办列表（按工作区分组）、可进入角色\n" +
+          "4. 末尾加快捷操作提示：断开连接（编辑 ~/.omp/agent/mcp.json）、重新连接（onboarding skill）、查看文档（omp-access-pack/README.md）",
+        { deliverAs: "followUp" },
       );
     },
   });
