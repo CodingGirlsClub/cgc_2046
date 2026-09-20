@@ -2426,6 +2426,8 @@
 		"shortBy": "还差 {count} 人成班",
 		"open": "开放报名",
 		"cityEvents": "{count} 场",
+		"allCities": "全部城市",
+		"filterByCity": "按城市筛选",
 		"indexTitle": "倡导活动",
 		"indexDesc": "跨工作台的公开倡导活动，点击进入详情。",
 		"conditionWithAge": "{payment} · 限 {age}+",

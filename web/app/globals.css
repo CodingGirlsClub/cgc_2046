@@ -2957,6 +2957,15 @@ button:focus-visible,
     text-wrap: pretty;
   }
 
+  /* 描述按 \n\n 分段渲染为多 <p>：容器承载字号/颜色，段落间距由兄弟选择器承担 */
+  .initiative-hero__desc p {
+    margin: 0;
+  }
+
+  .initiative-hero__desc p + p {
+    margin-top: 12px;
+  }
+
   /* 状态行 + 倡导窗口：与小程序 initiative-detail hero 同信息（进行中/已结束 · 留档、窗口区间） */
   .initiative-hero__status {
     margin: 10px 0 0;
@@ -3020,29 +3029,31 @@ button:focus-visible,
     line-height: 1.2;
   }
 
-  .initiative-city {
-    margin-top: 44px;
-  }
-
-  .initiative-city__head {
+  .initiative-filter {
     display: flex;
-    align-items: baseline;
-    gap: 12px;
-    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
   }
 
-  .initiative-city__head h2 {
-    margin: 0;
-    color: var(--ink);
-    font-size: 20px;
-    font-weight: 590;
-    line-height: 1.4;
+  .initiative-filter__chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 2px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-2);
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background-color 120ms ease;
   }
 
-  .initiative-city__count {
-    color: var(--ink-3);
-    font-family: var(--font-mono);
-    font-size: 12px;
+  .initiative-filter__chip--active {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    color: var(--accent-strong);
   }
 
   /* 成班徽章：后端派生 qualificationBadge 的五态色板，对齐 EnrollmentBadgeTag 的 pill 语言 */
@@ -3266,10 +3277,6 @@ button:focus-visible,
 
     .initiative-stats dd {
       font-size: 22px;
-    }
-
-    .initiative-city {
-      margin-top: 36px;
     }
   }
 
