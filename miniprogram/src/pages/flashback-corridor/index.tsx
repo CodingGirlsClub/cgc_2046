@@ -661,7 +661,7 @@ export default function FlashbackCorridorPage() {
             <View className={styles.maskBadgeLeft}>
               {(() => {
                 const today = mode.capsule.me.today
-                const hasToday = !!(today && (today.nowStatus || today.want || today.say))
+                const hasToday = todayWritten
                 const text = today?.sentToWallAt && hasToday
                   ? '已寄出到校友墙'
                   : hasToday
