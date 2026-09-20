@@ -8,6 +8,7 @@ import { formatDeadline } from "@/lib/events";
 import { fetchPublicInitiative, type InitiativeEvent, type PublicInitiative } from "@/lib/graphql/initiatives";
 import { formatAmountShort, positiveAmountOrNull } from "@/lib/payment";
 import { formatVenue, parseVenue } from "@/lib/public-offerings";
+import { toParagraphs } from "@/lib/text-paragraphs";
 
 /**
  * Initiative 公开详情页主体（/initiatives/[slug] 的客户端渲染面）。
@@ -125,7 +126,11 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 					{`${formatDeadline(data.windowStartsAt, tCommon("timeTbd"), locale)} – ${formatDeadline(data.windowEndsAt, tCommon("timeTbd"), locale)}`}
 				</p>
 			) : null}
-			{data.description ? <p className="initiative-hero__desc">{data.description}</p> : null}
+			{data.description ? (
+				<div className="initiative-hero__desc">
+					{toParagraphs(data.description).map((p, i) => <p key={i}>{p}</p>)}
+				</div>
+			) : null}
 			<dl className="initiative-stats">
 				<div><dt>{t("cities")}</dt><dd>{data.cityCount}</dd></div>
 				<div><dt>{t("events")}</dt><dd>{data.eventCount}</dd></div>
