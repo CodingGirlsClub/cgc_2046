@@ -160,15 +160,6 @@ export default function FlashbackCorridorPage() {
     [loadStats]
   )
 
-  // U8:member 就绪(非 welcome 首程)→ 快门仪式层
-  useEffect(() => {
-    if (mode.kind !== 'member') return
-    const params = Taro.getCurrentInstance().router?.params
-    if (params?.welcome === '1') return
-    setShutter(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
-  }, [mode.kind])
-
   // 闪念间入口 intent（长廊成为 tabBar 页面后 switchTab 不带 query）：useDidShow
   // 一次性消费，供 future（滚未来段）与 welcome（推金句引导）两处共用——两处
   // 各自消费的话，先跑的那处会把 intent 清掉，后一处永远读不到。
@@ -184,6 +175,15 @@ export default function FlashbackCorridorPage() {
       setTimeout(() => setScrollAnchor('futureAnchor'), 400)
     }
   })
+
+  // U8:member 就绪(非 welcome 首程)→ 快门仪式层。intent 在 useDidShow 里已同步
+  // 消费，本 effect 待 load 完成（mode 转 member）才触发，时序上读得到。
+  useEffect(() => {
+    if (mode.kind !== 'member') return
+    if (entryIntent.current === 'welcome') return
+    setShutter(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
+  }, [mode.kind])
 
   // 首程落地（welcome intent）：member 就绪后一次性推金句授权引导
   const welcomeNudged = useRef(false)
