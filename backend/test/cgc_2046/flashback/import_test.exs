@@ -269,6 +269,51 @@ defmodule Cgc2046.Flashback.ImportTest do
     build_xlsx([{"Sheet1", sample_sheet()}, {"学生", admission_sheet()}, {"工作表1", alt_sheet()}])
   end
 
+  # Excel 内重复：Sheet1 多一行王小明（同手机号）。
+  defp fixture_xlsx_with_duplicate_row do
+    sheet =
+      sample_sheet() ++
+        [
+          [
+            "王小明",
+            "女",
+            "北京",
+            "13900000001",
+            "wxm2@example.com",
+            "学生",
+            "Mac",
+            "重复行。",
+            "",
+            "",
+            "2014-01-04T10:00:00+08:00"
+          ]
+        ]
+
+    build_xlsx([{"Sheet1", sheet}, {"学生", admission_sheet()}, {"工作表1", alt_sheet()}])
+  end
+
+  # 修正后的录取名单：王小明改为 attended（原 fixture 里他不在名单 → not_selected）。
+  defp fixture_xlsx_with_fixed_admission do
+    admission = [
+      ["姓名", "城市", "手机号"],
+      ["王小明", "北京", "13900000001"],
+      ["李雷", "北京", ""],
+      ["韩梅梅", "北京", "13900000003"]
+    ]
+
+    build_xlsx([{"Sheet1", sample_sheet()}, {"学生", admission}, {"工作表1", alt_sheet()}])
+  end
+
+  # 录取名单不含王小明（让他在第一次导入时是 not_selected）。
+  defp fixture_xlsx_without_wang_in_admission do
+    admission = [
+      ["姓名", "城市", "手机号"],
+      ["李雷", "北京", ""]
+    ]
+
+    build_xlsx([{"Sheet1", sample_sheet()}, {"学生", admission}, {"工作表1", alt_sheet()}])
+  end
+
   # ── FogMarkup：标记语法 ──────────────────────────────────────────────
 
   describe "FogMarkup 标记语法（契约 = docs/运维/闪念间雾化标记语法.md）" do
@@ -657,13 +702,88 @@ defmodule Cgc2046.Flashback.ImportTest do
       assert funny.fog_spans == [%{"start" => 0, "len" => 8, "reason" => "同学姓名"}]
     end
 
-    test "EventArchive 幂等（重跑不建重复场次；人叠加——dry-run 报告已警示）" do
+    test "EventArchive 幂等 + 人员去重（重跑不建重复场次；重复人员跳过）" do
       {:ok, _r, _c} = Import.run(fixture_xlsx(), dry_run: false)
       {:ok, report2, counts2} = Import.run(fixture_xlsx(), dry_run: false)
 
       assert count_archives("2014-01-11-bj") == 1
       assert report2.existing_people_in_archive == 3
-      assert counts2.people == 3
+      assert report2.duplicates_vs_existing == 3
+      # 全部 3 行都与已有重复 → 零插入、零升级（同 participation）
+      assert counts2.people == 0
+      assert counts2.upgraded == 0
+    end
+
+    test "Excel 内重复：同 key 多行只建第一行，dry-run 报告 duplicates_in_excel" do
+      xlsx = fixture_xlsx_with_duplicate_row()
+      {:ok, report, counts} = Import.run(xlsx, dry_run: false)
+
+      assert report.duplicates_in_excel == 1
+      assert counts.people == 3
+
+      people = people_of_archive()
+      assert length(people) == 3
+    end
+
+    test "participation 升级：已有 not_selected、新行 attended → 仅升级 participation" do
+      # 第一次导入：王小明不在录取名单（not_selected）
+      {:ok, _r1, _c1} = Import.run(fixture_xlsx_without_wang_in_admission(), dry_run: false)
+
+      wang_before =
+        people_of_archive()
+        |> Enum.find(&(&1.full_name == "王小明"))
+
+      assert wang_before.participation == :not_selected
+
+      # 第二次导入：修正后的录取名单含王小明（attended）
+      xlsx_fixed = fixture_xlsx_with_fixed_admission()
+      {:ok, report2, counts2} = Import.run(xlsx_fixed, dry_run: false)
+
+      assert report2.duplicates_to_upgrade == 2
+      assert counts2.upgraded == 2
+      assert counts2.people == 0
+
+      wang_after =
+        people_of_archive()
+        |> Enum.find(&(&1.full_name == "王小明"))
+
+      assert wang_after.participation == :attended
+      # 其他字段不动（phone/email/city 等）
+      assert wang_after.phone == wang_before.phone
+    end
+
+    test "反例：已有 not_selected、新行不在录取名单 → 不升级，participation 保持 not_selected" do
+      # 第一次导入：王小明不在录取名单（not_selected）
+      {:ok, _r1, _c1} = Import.run(fixture_xlsx_without_wang_in_admission(), dry_run: false)
+
+      wang_before =
+        people_of_archive()
+        |> Enum.find(&(&1.full_name == "王小明"))
+
+      assert wang_before.participation == :not_selected
+
+      # 第二次导入：标准 fixture（录取名单含王小明+李雷，但王小明已在库里是 not_selected）
+      # 新 Excel 里王小明在 Sheet1（会匹配已有），但他在录取名单里 → attended → 升级
+      # 反例：韩梅梅在 Sheet1（会匹配已有），但她**不在**录取名单 → 不升级
+      {:ok, report2, counts2} = Import.run(fixture_xlsx(), dry_run: false)
+
+      # 韩梅梅：已有 not_selected、新行不在录取名单 → 不升级
+      han_after =
+        people_of_archive()
+        |> Enum.find(&(&1.full_name == "韩梅梅"))
+
+      assert han_after.participation == :not_selected
+
+      # 王小明：已有 not_selected、新行在录取名单 → 升级
+      wang_after =
+        people_of_archive()
+        |> Enum.find(&(&1.full_name == "王小明"))
+
+      assert wang_after.participation == :attended
+
+      # 升级计数 = 1（只有王小明）
+      assert report2.duplicates_to_upgrade == 1
+      assert counts2.upgraded == 1
     end
   end
 
