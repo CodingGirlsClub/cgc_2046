@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omp-access-pack 安装脚本
+# omp-ext/cgc-2046 安装脚本
 #
 # 子命令：
 #   install   安装/升级接入包（拷 agent/skill/extension，merge 写 mcp.json 与 config.yml）
@@ -42,8 +42,8 @@ usage() {
 EOF
 }
 
-log() { echo "[omp-access-pack] $*"; }
-die() { echo "[omp-access-pack] ERROR: $*" >&2; exit 1; }
+log() { echo "[omp-ext/cgc-2046] $*"; }
+die() { echo "[omp-ext/cgc-2046] ERROR: $*" >&2; exit 1; }
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -123,7 +123,7 @@ except Exception:
     os.unlink(tmp)
     raise
 
-print(f"[omp-access-pack] merge 写 {path}（cgc-2046 条目，0600）")
+print(f"[omp-ext/cgc-2046] merge 写 {path}（cgc-2046 条目，0600）")
 PYEOF
 }
 
@@ -150,7 +150,7 @@ if os.path.exists(path):
 # 检查是否已有守门配置
 content = "".join(lines)
 if GUARD_KEY in content:
-    print(f"[omp-access-pack] {path} 已含守门配置，跳过")
+    print(f"[omp-ext/cgc-2046] {path} 已含守门配置，跳过")
     raise SystemExit(0)
 
 # 找 tools: 节
@@ -188,7 +188,7 @@ except Exception:
     os.unlink(tmp)
     raise
 
-print(f"[omp-access-pack] merge 写 {path}（守门配置：{GUARD_KEY}: prompt）")
+print(f"[omp-ext/cgc-2046] merge 写 {path}（守门配置：{GUARD_KEY}: prompt）")
 PYEOF
 }
 
@@ -249,7 +249,7 @@ if "cgc-2046" in config.get("mcpServers", {}):
     except Exception:
         os.unlink(tmp)
         raise
-    print(f"[omp-access-pack] 从 {path} 删除 cgc-2046 条目")
+    print(f"[omp-ext/cgc-2046] 从 {path} 删除 cgc-2046 条目")
 PYEOF
     CONFIG_YML="$CONFIG_YML" python3 <<'PYEOF'
 import os, re, tempfile
@@ -271,7 +271,7 @@ try:
 except Exception:
     os.unlink(tmp)
     raise
-print(f"[omp-access-pack] 从 {path} 删除守门配置")
+print(f"[omp-ext/cgc-2046] 从 {path} 删除守门配置")
 PYEOF
   fi
   log "卸载完成。备份文件（*.bak-*）保留在原位，可手动清理。"

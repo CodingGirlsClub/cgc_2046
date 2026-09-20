@@ -8,6 +8,8 @@ product_contract_source: ce-brainstorm
 execution: code
 ---
 
+> **路径注记**：2026-09-21 起接入包路径为 `omp-ext/cgc-2046`（原 `omp-access-pack`）。本文件内的路径引用已更新，历史验证记录基于原路径。
+
 # OMP 第二官方 Agent 宿主接入 - Plan
 
 ## Goal Capsule

@@ -39,7 +39,7 @@ export default function cgcCommand(pi) {
           "技术细节（不需要懂）：\n" +
           "  · 配置文件在 ~/.omp/agent/mcp.json（0600 权限，只有你能读）\n" +
           "  · 卸载：跑 install.sh remove（保留备份）\n" +
-          "  · 文档：omp-access-pack/README.md",
+          "  · 文档：omp-ext/cgc-2046/README.md",
         "info",
       );
       return;
@@ -57,7 +57,7 @@ export default function cgcCommand(pi) {
           "说「连接 CGC」开始。\n\n" +
           "其他：\n" +
           "  · 查看完整命令参考：/cgc help\n" +
-          "  · 查看文档：omp-access-pack/README.md",
+          "  · 查看文档：omp-ext/cgc-2046/README.md",
         "warning",
       );
       return;
@@ -77,7 +77,7 @@ export default function cgcCommand(pi) {
         "  · 说「断开连接」→ 我来指导你断开\n" +
         "  · 说「连接 CGC」→ 重新连接\n" +
         "  · 查看完整命令参考：/cgc help\n" +
-        "  · 查看文档：omp-access-pack/README.md",
+        "  · 查看文档：omp-ext/cgc-2046/README.md",
       "info",
     );
 
