@@ -95,7 +95,7 @@ flowchart LR
 
 **连接与配置**
 
-- R10. MCP 配置使用 http transport 指向网站 MCP 端点（生产 `https://api.codingirlsclub.com/mcp`），Bearer token 经环境变量或 `!command` 间接引用，不硬编码进仓库文件。
+- R10. MCP 配置使用 http transport 指向网站 MCP 端点（生产 `https://api.codingirlsclub.com/mcp`），连接 token 以 `Authorization: Bearer <token>` 值写入用户级 mcp.json（0600 权限语义），不硬编码进仓库文件。
 - R11. 连接可自证：提供健康检查方式（OMP `/mcp test` 或 onboarding skill 内置检查），返回结构化状态且永不回显 token。
 - R12. token 纪律与 OpenClacky 宿主一致：自动签发的 token 用可识别命名（如 `omp-auto-<日期>`），清理旧 token 只动本命名；token 不进入对话记录、日志或配置以外的文件；凭证类返回（如 `invitation_token`）只展示一次。
 
