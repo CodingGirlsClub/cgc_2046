@@ -91,6 +91,7 @@
     "flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
     "flashback_archive_not_found": "That event archive can't be found — check the archive key and retry.",
     "flashback_quote_span_out_of_bounds": "The selected quote span goes beyond the original text — pick again.",
+    "flashback_quote_span_fogged": "That sentence is still fogged — clear the fog before picking it.",
     "flashback_invalid_input": "Something in your submission is off — check and retry.",
     "initiative_rule_already_exists": "That rule already exists — edit the existing rule instead (each rule key is unique per initiative).",
     "invalid_or_expired_code": "That code is wrong or has expired — try again.",
