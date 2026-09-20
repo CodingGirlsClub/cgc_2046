@@ -347,8 +347,8 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert email.html_body =~ "weibo-screenshot.png"
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
       assert email.text_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
-      assert email.html_body =~ "搜索「程序员汇」"
-      assert email.text_body =~ "搜索「程序员汇」"
+      assert email.html_body =~ "搜索「程序媛汇」或「程序媛汇2046」"
+      assert email.text_body =~ "搜索「程序媛汇」或「程序媛汇2046」"
       assert email.html_body =~ "/zh-CN/flashback/enter?token="
       assert email.text_body =~ "/zh-CN/flashback/enter?token="
       # R30：页脚退订链接（HTML 与纯文本都带）
