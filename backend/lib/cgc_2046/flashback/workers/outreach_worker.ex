@@ -211,8 +211,8 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     |> hd()
     |> then(fn segment ->
       cond do
-        String.contains?(segment, "Girls Coding Day") -> "Girls Coding Day"
-        String.contains?(segment, "Rails Girls") -> "Rails Girls"
+        String.contains?(segment, "Girls Coding Day") -> "CodingGirlsDay"
+        String.contains?(segment, "Rails Girls") -> "RailsGirls"
         true -> nil
       end
     end)
