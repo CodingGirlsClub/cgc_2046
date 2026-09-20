@@ -69,7 +69,7 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
     archives =
       EventArchive
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.sort(desc: :occurred_on)
+      |> Ash.Query.sort(occurred_on: :desc)
       |> Ash.read!(authorize?: false, page: false)
       |> Enum.map(fn a ->
         %{key: a.key, name: a.name, city: a.city, occurred_on: Date.to_iso8601(a.occurred_on)}
