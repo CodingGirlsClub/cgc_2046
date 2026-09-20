@@ -1345,6 +1345,8 @@
 		"researchTitle": "教研",
 		"editMeta": "编辑元数据",
 		"fieldTitle": "标题",
+		"fieldDescription": "活动介绍",
+		"fieldDescriptionHint": "向参与者介绍活动内容、适合谁、会有什么收获",
 		"initiativeLabel": "倡导活动",
 		"initiativeNone": "不挂载倡导活动",
 		"initiativeDraftOnly": "只有草稿活动可以更改倡导活动挂载。",

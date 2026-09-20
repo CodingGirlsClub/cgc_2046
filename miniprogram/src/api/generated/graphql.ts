@@ -921,14 +921,14 @@ export type EventDetailQueryVariables = Exact<{
 }>;
 
 
-export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null, publicModerators: Array<string> | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type EventDetailQuery = { getEvent: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, description: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, depositEnabled: boolean, depositAmountCents: number | null, minAge: number | null, startsAt: string | null, endsAt: string | null, venue: string | null, enrollmentBadge: string | null, qualificationBadge: string | null, shortBy: number | null, initiativeId: string | null, publicModerators: Array<string> | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type CourseDetailQueryVariables = Exact<{
   id: string | number;
 }>;
 
 
-export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
+export type CourseDetailQuery = { getCourse: { id: string, title: string, status: string, enrollmentPolicy: string, registrationDeadline: string | null, description: string | null, pricingEnabled: boolean, availablePriceTiers: Array<string> | null, startsAt: string | null, endsAt: string | null, enrollmentBadge: string | null } | null, myEnrollment: { id: string, status: string, approvalDeadline: string | null } | null };
 
 export type SessionQueryVariables = Exact<{ [key: string]: never; }>;
 
