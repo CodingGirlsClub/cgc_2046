@@ -384,7 +384,10 @@ test('mock 公开读面：未知 id / 错误 id / 空 id 一律 null', () => {
   mockGraphQLRequest(SignOutMutationDocument, {})
 
   assert.equal(readSharedCard('0'.repeat(48)), null)
-  assert.equal(readSharedCard(`${shareId.slice(0, 47)}0`), null)
+  // 末位改成另一个字符——不能硬写 '0'：铸出的 hex 末位本身就是 '0' 时，
+  // 这个「错 id」等于真 id，断言随机挂（1/16）
+  const tampered = shareId.slice(0, 47) + (shareId.endsWith('0') ? '1' : '0')
+  assert.equal(readSharedCard(tampered), null)
   assert.equal(readSharedCard(''), null)
 })
 
