@@ -155,6 +155,7 @@ type ContentRecord = (EventRecord | CourseRecord) &
     initiativeId: string | null
     minAge: number | null
     publicModerators: string[] | null
+    description: string | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
@@ -197,6 +198,8 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     minAge: 'minAge' in record && typeof record.minAge === 'number' ? record.minAge : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
+    // 活动介绍：仅详情查询携带（列表记录 → null，不渲染介绍块）
+    description: record.description ?? null,
     venue: 'venue' in record ? record.venue : null,
     initiativeId: record.initiativeId ?? null,
     publicModerators: record.publicModerators ?? null,

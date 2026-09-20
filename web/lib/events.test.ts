@@ -39,6 +39,7 @@ describe("createOffering input 组装（U5/R14：时间落键 + venue 组 JsonSt
 				input: {
 					workspaceId: "ws-1",
 					title: "线下工作坊",
+					description: "做一个属于自己的小工具。",
 					enrollmentPolicy: "open",
 					visibility: "public",
 					capacity: null,
@@ -58,6 +59,7 @@ describe("createOffering input 组装（U5/R14：时间落键 + venue 组 JsonSt
 
 		await createOffering("ws-1", "event", {
 			title: "线下工作坊",
+			description: "做一个属于自己的小工具。",
 			enrollmentPolicy: "open",
 			visibility: "public",
 			startsAt: "2026-09-01T01:30:00.000Z",
