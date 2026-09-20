@@ -246,12 +246,12 @@ export default function FlashbackEventPage() {
             setTimeout(() => setViewPerson(null), 920)
           }}
         >
-          <View className={styles.layerCard} onClick={(e) => e.stopPropagation()}>
+          <View className={styles.layerCard}>
             <View className={styles.viewFlip} style={{ transform: viewOpen ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
               <View className={styles.viewFace}>
                 <View className={styles.viewCover}>
                   <Text className={styles.viewCoverName}>{viewPerson.fullName ?? viewPerson.surnameMasked}</Text>
-                  <Text className={styles.viewCoverHint}>点按翻开她的拍立得</Text>
+                  <Text className={styles.viewCoverHint}>点按任意处合上</Text>
                 </View>
               </View>
               <View className={styles.viewFaceBack}>
@@ -279,7 +279,7 @@ export default function FlashbackEventPage() {
                       ) : null}
                     </View>
                   </View>
-                  <Text className={styles.viewFoot}>她雾住的句子,只有她自己能看到 · 点空白处合上</Text>
+                  <Text className={styles.viewFoot}>她雾住的句子,只有她自己能看到 · 点任意处合上</Text>
                 </View>
               </View>
             </View>
