@@ -54,15 +54,15 @@ export default function cgcCommand(pi) {
         "info",
       );
 
-      // 注入结构化汇总请求，agent 在用户下次输入时拉数据渲染（不阻塞当前）
-      // deliverAs: "nextTurn" 存储到下一次用户 prompt 时注入，避免 agent 空闲时 followUp 不触发的问题
+      // 注入结构化汇总请求，agent 立即起 turn 拉数据渲染（idle 时 triggerTurn 立即 prompt，不阻塞当前 notify）
+      // deliverAs: "nextTurn" + triggerTurn: true = idle 时立即开始一轮，避免 followUp 空闲挂起与 nextTurn 单用等用户先说话
       pi.sendUserMessage(
         "请拉取并渲染 CGC-2046 状态汇总：\n" +
           "1. 调 list_my_workspaces 列出我可进入的 Workspace 与角色（按名称展示，不要 UUID）\n" +
           "2. 对每个 Workspace 调 list_my_tasks 列出我的待办（含 approval_deadline）\n" +
           "3. 渲染成紧凑汇总：连接状态、待办列表（按工作区分组）、可进入角色\n" +
           "4. 末尾加快捷操作提示：断开连接（编辑 ~/.omp/agent/mcp.json）、重新连接（onboarding skill）、查看文档（omp-access-pack/README.md）",
-        { deliverAs: "nextTurn" },
+        { deliverAs: "nextTurn", triggerTurn: true },
       );
     },
   });
