@@ -69,6 +69,7 @@
     "flashback_wish_invalid_content",
     "flashback_wish_invalid_visibility",
     "flashback_wish_not_found",
+    "flashback_wish_quota_exceeded",
     "initiative_not_open",
     "initiative_rule_already_exists",
     "initiative_slug_locked",

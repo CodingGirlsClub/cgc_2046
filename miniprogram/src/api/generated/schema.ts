@@ -2218,6 +2218,8 @@ export type FlashbackCapsule = {
   me: FlashbackCapsuleMe;
   /** 本人私有许愿（私人许愿帧，仅自己可见） */
   myPrivateWishes: Array<FlashbackWish>;
+  /** 本人今年剩余许愿额度（每年 3 条，R20）；capsule 可解析时恒有值，nullable 仅为 schema 演进安全 */
+  myWishQuotaRemaining?: Maybe<Scalars['Int']['output']>;
   /** 公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示 */
   publicWishes: Array<FlashbackWish>;
 };
@@ -4565,7 +4567,7 @@ export type RootMutationType = {
   flashbackAdminUpdateRedemption?: Maybe<FlashbackRedemptionUpdateResult>;
   /** 微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案 */
   flashbackClaim?: Maybe<FlashbackClaimResult>;
-  /** 许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参） */
+  /** 许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded */
   flashbackCreateWish?: Maybe<FlashbackWishResult>;
   /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
   flashbackDelete?: Maybe<FlashbackDeleteResult>;

@@ -6431,6 +6431,9 @@ type FlashbackCapsule {
   "本人私有许愿（私人许愿帧，仅自己可见）"
   myPrivateWishes: [FlashbackWish!]!
 
+  "本人今年剩余许愿额度（每年 3 条，R20）；capsule 可解析时恒有值，nullable 仅为 schema 演进安全"
+  myWishQuotaRemaining: Int
+
   "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
   cities: [String!]!
 }
@@ -7566,7 +7569,7 @@ type RootMutationType {
   "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
   flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
 
-  "许愿（R5\/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）"
+  "许愿（R5\/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
   flashbackCreateWish(token: String, content: String!, visibility: String!): FlashbackWishResult
 
   "附议愿望（R7 幂等）：返回实时计数与本人态"

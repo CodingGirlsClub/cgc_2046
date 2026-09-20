@@ -78,6 +78,7 @@ export default function Corridor({
 			<WishFrames
 				publicWishes={capsule.publicWishes}
 				myPrivateWishes={capsule.myPrivateWishes}
+				myWishQuotaRemaining={capsule.myWishQuotaRemaining}
 				token={token}
 				onChanged={onChanged}
 			/>

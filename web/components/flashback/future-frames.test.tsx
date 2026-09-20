@@ -80,6 +80,7 @@ const capsule = (overrides: Partial<FlashbackCapsule> = {}): FlashbackCapsule =>
 	futureEvents: [],
 	publicWishes: [],
 	myPrivateWishes: [],
+	myWishQuotaRemaining: null,
 	cities: [],
 	...overrides,
 }) as FlashbackCapsule;
@@ -177,5 +178,81 @@ describe("WishModal 实时反馈（UAT 反馈 ②③）", () => {
 		expect(screen.getByText("新的留言立刻上墙")).toBeInTheDocument();
 		expect(screen.getAllByText("已附议").length).toBeGreaterThan(0);
 		expect(screen.queryAllByRole("button", { name: "附议 +1" })).toHaveLength(0);
+	});
+});
+
+describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => {
+	const openForm = () => {
+		fireEvent.click(screen.getByText("+ 许个愿"));
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	};
+
+	it("登录态显示剩余条数：「今年还可许 2 条」", () => {
+		render(<Corridor capsule={capsule({ myWishQuotaRemaining: 2 })} token="tok" />);
+		openForm();
+
+		expect(screen.getByText("今年还可许 2 条")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeEnabled();
+	});
+
+	it("额度为 0：显示已用完文案且提交按钮禁用", () => {
+		render(<Corridor capsule={capsule({ myWishQuotaRemaining: 0 })} token="tok" />);
+		openForm();
+
+		expect(screen.getByText("今年许愿名额已用完（每年最多 3 条，删除不退还名额）")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeDisabled();
+	});
+
+	it("未登录（myWishQuotaRemaining 为 null）：不显示额度行，提交可用", () => {
+		render(<Corridor capsule={capsule({ myWishQuotaRemaining: null })} token={null} />);
+		openForm();
+
+		expect(screen.queryByText(/今年还可许/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/许愿名额已用完/)).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeEnabled();
+	});
+
+	it("mutation 抛 flashback_wish_quota_exceeded：内联文案 + 触发 refetch 刷新额度（F2）", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "quota exceeded", extensions: { code: "flashback_wish_quota_exceeded" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+		const onChanged = vi.fn();
+
+		const { rerender } = render(
+			<Corridor capsule={capsule({ myWishQuotaRemaining: 1 })} token="tok" onChanged={onChanged} />,
+		);
+		openForm();
+		fireEvent.change(screen.getByPlaceholderText(/你想参加什么/), { target: { value: "想办一场读书会" } });
+		fireEvent.click(screen.getByRole("button", { name: "许下这个愿" }));
+
+		expect(createWish).toHaveBeenCalledTimes(1);
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"今年许愿名额已用完（每年最多 3 条，删除不退还名额）。",
+		);
+		// F2：拒绝即刷新额度——onChanged 触发胶囊 refetch（私有也占额度，再试必败，
+		// 不存在「改私有再试」的出路）；模态保持打开，用户可关闭
+		expect(onChanged).toHaveBeenCalledTimes(1);
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+		// refetch 完成：新 capsule 额度 0 → 额度行变用完文案 + 提交禁用
+		rerender(<Corridor capsule={capsule({ myWishQuotaRemaining: 0 })} token="tok" onChanged={onChanged} />);
+		expect(await screen.findByText("今年许愿名额已用完（每年最多 3 条，删除不退还名额）")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeDisabled();
+	});
+
+	it("无 code 的失败：兜底 database_error 文案，不触发 refetch（只有 quota_exceeded 才刷）", async () => {
+		const createWish = vi.fn().mockRejectedValue(new Error("network down"));
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+		const onChanged = vi.fn();
+
+		render(<Corridor capsule={capsule({ myWishQuotaRemaining: 3 })} token="tok" onChanged={onChanged} />);
+		openForm();
+		fireEvent.change(screen.getByPlaceholderText(/你想参加什么/), { target: { value: "想办一场读书会" } });
+		fireEvent.click(screen.getByRole("button", { name: "许下这个愿" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("服务暂时不可用，请稍后重试。");
+		expect(onChanged).not.toHaveBeenCalled();
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
 	});
 });

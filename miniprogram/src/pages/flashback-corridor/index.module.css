@@ -560,6 +560,13 @@
   color: #222326;
   margin-bottom: 20rpx;
 }
+/* R20 年度额度行:紧跟标题,剩余/用完同位(用完时提交钮同时禁用) */
+.wishSheetQuota {
+  display: block;
+  font-size: 22rpx;
+  color: #6b7076;
+  margin: -8rpx 0 16rpx;
+}
 .wishSheetInput {
   width: 100%;
   min-height: 160rpx;

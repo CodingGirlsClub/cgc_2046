@@ -482,6 +482,8 @@ export interface FlashbackCapsule {
   publicWishes: FlashbackWish[]
   /** 本人私有许愿（仅自己可见，折叠段） */
   myPrivateWishes: FlashbackWish[]
+  /** 本人今年剩余许愿条数（R20：每年 3 条，含私有与已软删，删除不退还）；未登录/无 person 为 null */
+  myWishQuotaRemaining: number | null
   /** 城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩 */
   cities: string[]
   /** 场次时间轴与名册（长廊/场次页数据源；city 过滤时空名册场次被服务端撤下） */

@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, canSubmitWish, wishQuotaCopy, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
@@ -270,7 +270,7 @@ export default function FlashbackCorridorPage() {
   }
 
   const submitWish = async () => {
-    if (mode.kind !== 'member' || wishBusy || !wishDraft.trim()) return
+    if (mode.kind !== 'member' || wishBusy || !canSubmitWish(mode.capsule.myWishQuotaRemaining, wishDraft)) return
     setWishBusy(true)
     try {
       await api.flashbackCreateWish(wishDraft.trim(), wishVisibility, mode.token)
@@ -280,6 +280,9 @@ export default function FlashbackCorridorPage() {
       await reloadMember()
       Taro.showToast({ title: wishVisibility === 'public' ? '愿望已上墙' : '已收进你的私人许愿', icon: 'none' })
     } catch (error) {
+      // R20 额度被拒（F2）：先刷新胶囊——额度归 0 后 wishQuotaCopy/canSubmitWish
+      // 自动纠正文案与禁用态；不刷新则旧额度残留，用户会被无限拒绝
+      if ((error as { code?: string }).code === 'flashback_wish_quota_exceeded') await reloadMember()
       Taro.showToast({ title: error instanceof Error ? error.message : '许愿失败', icon: 'none' })
     } finally {
       setWishBusy(false)
@@ -354,6 +357,9 @@ export default function FlashbackCorridorPage() {
   const cities = mode.kind === 'member' ? mode.capsule.cities : []
   const me = mode.kind === 'member' ? mode.capsule.me : null
   const myView = me && mode.kind === 'member' ? myCardView(mode.capsule) : null
+  // U5 许愿年度额度(R20):member 态取 capsule 投影;其余态 null(弹层不渲染额度行)
+  const wishQuota = mode.kind === 'member' ? mode.capsule.myWishQuotaRemaining : null
+  const wishQuotaText = wishQuotaCopy(wishQuota)
 
   // 「今天写过没」：三处 dock 状态共用判定。遍历 TODAY_FIELDS 单表——原实现
   // 手写 nowStatus/want/say 三项，**漏了 need**（只填「需要什么帮助」的用户
@@ -876,6 +882,7 @@ export default function FlashbackCorridorPage() {
           <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
             <View className={styles.wishSheetBar} />
             <Text className={styles.wishSheetTitle}>许个愿</Text>
+            {wishQuotaText && <Text className={styles.wishSheetQuota}>{wishQuotaText}</Text>}
             <Textarea
               className={styles.wishSheetInput}
               value={wishDraft}
@@ -900,7 +907,7 @@ export default function FlashbackCorridorPage() {
             </View>
             <Button
               className={styles.wishSheetSubmit}
-              disabled={wishBusy || !wishDraft.trim()}
+              disabled={wishBusy || !canSubmitWish(wishQuota, wishDraft)}
               onClick={() => void submitWish()}
             >
               {wishBusy ? '许愿中…' : '许下这个愿'}

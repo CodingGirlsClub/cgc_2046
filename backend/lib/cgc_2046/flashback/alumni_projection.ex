@@ -105,6 +105,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
              Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, wish.id))
            end),
          my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
+         my_wish_quota_remaining: Cgc2046.Flashback.Wishes.quota_remaining(person.id),
          future_events: future_frames,
          cities: capsule_cities()
        }}

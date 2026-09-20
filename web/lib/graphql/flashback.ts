@@ -304,6 +304,8 @@ export interface FlashbackCapsule {
 	publicWishes: FlashbackWish[];
 	/** 本人私有许愿（仅自己可见） */
 	myPrivateWishes: FlashbackWish[];
+	/** 本人今年剩余许愿条数（每年 3 条，含私有与已软删；未登录为 null） */
+	myWishQuotaRemaining: number | null;
 	/** 城市钉数据源（KTD6）：名册 ∪ 未来场次 ∪ 公开许愿城市 */
 	cities: string[];
 }
@@ -683,6 +685,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				endorsedByMe
 				insertedAt
 			}
+			myWishQuotaRemaining
 			cities
 		}
 	}

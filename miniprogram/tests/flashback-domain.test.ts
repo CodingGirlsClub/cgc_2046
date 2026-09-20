@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '../src/domain/models.ts'
 import {
+  canSubmitWish,
   myCardView,
   parseQuoteLevel,
   sentencesWithFog,
   splitSentences,
   toggleSentenceFog,
+  wishQuotaCopy,
   yearsAgoText
 } from '../src/domain/flashback.ts'
 
@@ -415,3 +417,25 @@ test('recordCardLayout：动态高（下限 800 / 内容驱动 / 超限截断）
   }
 })
 
+
+describe('许愿年度额度（R20：每年 3 条，含私有与已软删，删除不退还）', () => {
+  test('canSubmitWish：草稿去空白非空 且 额度未尽', () => {
+    // 空 draft（含纯空白）一律不可提交
+    assert.equal(canSubmitWish(3, ''), false)
+    assert.equal(canSubmitWish(3, '   \n\t '), false)
+    // 额度 0 禁用（即使有内容）
+    assert.equal(canSubmitWish(0, '想学 Rust'), false)
+    // 正常：有内容 + 剩余额度
+    assert.equal(canSubmitWish(3, '想学 Rust'), true)
+    assert.equal(canSubmitWish(1, '想学 Rust'), true)
+    // null（未登录/无 person）不拦——后端以 flashback_wish_quota_exceeded 兜底
+    assert.equal(canSubmitWish(null, '想学 Rust'), true)
+  })
+
+  test('wishQuotaCopy：null 不渲染 / >0 报剩余 / 0 报用完', () => {
+    assert.equal(wishQuotaCopy(null), null)
+    assert.equal(wishQuotaCopy(3), '今年还可许 3 条')
+    assert.equal(wishQuotaCopy(1), '今年还可许 1 条')
+    assert.equal(wishQuotaCopy(0), '今年许愿名额已用完（每年最多 3 条，删除不退还名额）')
+  })
+})
