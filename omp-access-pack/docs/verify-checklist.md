@@ -58,8 +58,9 @@
 - 剪贴板管道写入 mcp.json ✓（`authHeader: True`）
 - 端到端只读调用 `list_my_workspaces` 返回真实数据（2 个 workspace、角色、is_platform_admin）✓
 - mcp.json 权限 600、config.yml 守门配置在位 ✓
+- **撤销状态确认**（2026-09-20 23:57）：泄漏的 `omp-auto-20260920`（23:39 签发）已撤销 ✓；当前生效的干净 token `omp-auto-20260920`（23:42 签发，最近使用 23:57）有效 ✓；误撤销的 `dsh-auto-20260909` 已撤销（从未使用，恢复路径：若 dsh-cgc 集成在用需重签，若已废弃可忽略）；`MBP16 openclacky 2`（用户 OpenClacky 客户端）未受影响 ✓
 
-**结论**：连接建立 ✓；两个执行细节（page text dump 泄漏、误撤销非目标 token）已记录为 skill 改进点。
+**结论**：连接建立 ✓；两个执行细节（page text dump 泄漏、误撤销非目标 token）已记录为 skill 改进点；撤销状态已确认，误撤销恢复路径已记录。
 
 ---
 
