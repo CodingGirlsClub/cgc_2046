@@ -59,7 +59,7 @@ export function WishFrames({
 	};
 
 	// 模态持有 id 而非快照：附议/留言触发 reload 后，每次渲染从最新 props 解析——
-	// 留言立刻上墙、附议立刻翻「已附议」态（用户 UAT 反馈 ②③）
+	// 留言立刻上墙、附议立刻翻「已附议」态
 	const resolveWish = (wishId: string): FlashbackWish | null =>
 		publicWishes.find((w) => w.id === wishId) ??
 		myPrivateWishes.find((w) => w.id === wishId) ??

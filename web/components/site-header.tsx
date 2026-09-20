@@ -21,7 +21,7 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 	const t = useTranslations("landing.nav");
 	const { authed, confirmed } = useAuthed();
 	const signedIn = confirmed && authed;
-	// 报名引导链路（UAT 实证断链）：从公开页点「登录/注册」后必须回得来。
+	// 报名引导链路：从公开页点「登录/注册」后必须回得来。
 	// home/login/register 本身不构造 next，避免无意义回环。
 	const pathname = usePathname();
 	const withNext = (href: string) =>
