@@ -66,7 +66,33 @@ export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; toke
 
 	const stamp = appliedStamp(me.appliedAt);
 	const quote = me.quote?.trim() || null;
-	const todayLine = me.today?.want?.trim() || me.today?.nowStatus?.trim() || null;
+	// 分享物只显未雾句(雾住的句子不进卡,也不画雾块)
+	const visibleToday = (field: "nowStatus" | "want" | "need" | "say"): string => {
+		const raw = me.today?.[field];
+		if (!raw) return "";
+		const fogKey = field === "nowStatus" ? "now" : field;
+		const spans = me.today?.fogSpans?.[fogKey] ?? [];
+		const chars = Array.from(raw);
+		const hidden = new Set<number>();
+		for (const span of spans) {
+			for (let i = Math.max(span.start, 0); i < Math.min(span.start + span.len, chars.length); i++) {
+				hidden.add(i);
+			}
+		}
+		let out = "";
+		let start = 0;
+		const separators = "。！？!?\n";
+		for (let i = 0; i <= chars.length; i++) {
+			if (i < chars.length && !separators.includes(chars[i])) continue;
+			const end = i < chars.length ? i + 1 : i;
+			let hasFog = false;
+			for (let j = start; j < end; j++) if (hidden.has(j)) { hasFog = true; break; }
+			if (!hasFog) out += chars.slice(start, end).join("");
+			start = end;
+		}
+		return out.trim();
+	};
+	const todayLine = visibleToday("want") || visibleToday("nowStatus") || null;
 
 	const stampText = stamp ? `${stamp}${me.city ? " · " + me.city : ""}` : (me.city ?? "");
 	const quoteText = quote ?? t("quoteFallback");

@@ -31,9 +31,23 @@ export interface QuoteCandidate {
 	start: number;
 }
 
-function quoteCandidatesOf(answers: FlashbackAnswer[]): QuoteCandidate[] {
+function quoteCandidatesOf(answers: FlashbackAnswer[], today?: { nowStatus?: string | null; want?: string | null; need?: string | null; say?: string | null }): QuoteCandidate[] {
 	const result: QuoteCandidate[] = [];
 	const separators = "。！？!?\n";
+
+	const pushSentences = (questionKey: string, rawText: string) => {
+		const chars = Array.from(rawText);
+		let start = 0;
+		for (let i = 0; i <= chars.length; i++) {
+			if (i < chars.length && !separators.includes(chars[i])) continue;
+			const end = i < chars.length ? i + 1 : i;
+			const sentence = chars.slice(start, end).join("");
+			if (sentence.trim().length > 0) {
+				result.push({ questionKey, sentence, start });
+			}
+			start = end;
+		}
+	};
 
 	for (const answer of answers) {
 		const chars = Array.from(answer.rawText);
@@ -60,6 +74,18 @@ function quoteCandidatesOf(answers: FlashbackAnswer[]): QuoteCandidate[] {
 				result.push({ questionKey: answer.questionKey, sentence, start });
 			}
 			start = end;
+		}
+	}
+
+	// 今天正在写的句子也是金句候选(首程表单值,此刻尚无雾面)
+	if (today) {
+		for (const host of [
+			{ key: "today.now", value: today.nowStatus },
+			{ key: "today.want", value: today.want },
+			{ key: "today.need", value: today.need },
+			{ key: "today.say", value: today.say },
+		] as const) {
+			if (host.value) pushSentences(host.key, host.value);
 		}
 	}
 
@@ -94,7 +120,7 @@ export default function Write({
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
 	const [form, setForm] = useState<TodayFormState>(emptyTodayForm);
-	const quoteCandidates = quoteCandidatesOf(answers);
+	const quoteCandidates = quoteCandidatesOf(answers, form);
 
 	const set = <K extends keyof TodayFormState>(key: K, value: TodayFormState[K]) =>
 		setForm((prev) => ({ ...prev, [key]: value }));
