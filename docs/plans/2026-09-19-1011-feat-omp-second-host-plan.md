@@ -37,7 +37,7 @@ execution: code
 
 ### Problem Frame
 
-平台的 BYO 架构（ADR-0001）已把「Agent 执行宿主」与「业务中枢」解耦：网站是 MCP server + RBAC + 审计，宿主负责对话与执行。目前唯一受支持的宿主是 OpenClacky（`cgc-2046` 扩展 + 一键安装包）。团队与部分用户日常主力环境是 OMP，却无法直接操作网站——要么切到 OpenClacky，要么手写 curl。宿主无关的基座（87 个 MCP 工具、版本化角色 playbook、two-tool 确认流、连接 token）已经稳定，缺的只是 OMP 侧的接入层：角色 agent 入口、连接引导、与 OpenClacky 同强度的确认守门。
+平台的 BYO 架构（ADR-0001）已把「Agent 执行宿主」与「业务中枢」解耦：网站是 MCP server + RBAC + 审计，宿主负责对话与执行。目前唯一受支持的宿主是 OpenClacky（`cgc-2046` 扩展 + 一键安装包）。团队与部分用户日常主力环境是 OMP，却无法直接操作网站——要么切到 OpenClacky，要么手写 curl。宿主无关的基座（91 个 MCP 工具、版本化角色 playbook、two-tool 确认流、连接 token）已经稳定，缺的只是 OMP 侧的接入层：角色 agent 入口、连接引导、与 OpenClacky 同强度的确认守门。
 
 ### Key Decisions
 
@@ -52,7 +52,7 @@ execution: code
 ```mermaid
 flowchart LR
   subgraph website["CGC 网站（本计划零改动）"]
-    MCP["MCP server · 87 工具"]
+    MCP["MCP server · 91 工具"]
     PB["角色 playbook 单源"]
     CONF["two-tool 确认流"]
     AUD["审计 ToolCallLog"]
@@ -73,7 +73,7 @@ flowchart LR
 - A3. **Tutor/Reviewer** — 通过 OMP 领取并完成教研任务：草稿生产、质检提交、审核发布。
 - A4. **Learner** — 通过 OMP 发现、报名、支付并完成学习循环。
 - A5. **OMP 接入包** — 本计划交付物：四角色 agents、onboarding skill、确认守门 extension、MCP 配置指引。
-- A6. **CGC 网站 MCP server** — 既有宿主无关基座：87 工具、Bearer 鉴权、RBAC、确认流、审计；零改动。
+- A6. **CGC 网站 MCP server** — 既有宿主无关基座：91 工具、Bearer 鉴权、RBAC、确认流、审计；零改动。
 - A7. **网站连接页/token 管理页** — 既有页面；用户在此生成连接 token，本计划不改其行为。
 
 ### Requirements
@@ -148,7 +148,7 @@ flowchart LR
 ### Dependencies / Assumptions
 
 - ADR-0001（BYO、网站作为 MCP server）与 ADR-0012（playbook 单源、tutor 私有增量）继续有效；多宿主不改变「网站 = 业务中枢 + MCP server」定位。
-- 网站 MCP server 当前基线已具备全部所需能力（本计划零网站改动的依据）：87 工具注册面、`get_role_playbook` 四角色版本化 playbook（`backend/lib/cgc_2046/mcp/playbooks.ex`）、two-tool 确认流与 600 秒 pending TTL（`backend/lib/cgc_2046/mcp/pending_operation.ex`）、连接 token 90 天滚动闲置过期与每用户 10 个 active 上限（`backend/lib/cgc_2046/mcp/token.ex`）。
+- 网站 MCP server 当前基线已具备全部所需能力（本计划零网站改动的依据）：91 工具注册面、`get_role_playbook` 四角色版本化 playbook（`backend/lib/cgc_2046/mcp/playbooks.ex`）、two-tool 确认流与 600 秒 pending TTL（`backend/lib/cgc_2046/mcp/pending_operation.ex`）、连接 token 90 天滚动闲置过期与每用户 10 个 active 上限（`backend/lib/cgc_2046/mcp/token.ex`）。
 - OMP 已内置本计划依赖的全部宿主能力：MCP http client（Bearer header、`${VAR}`/`!command` 间接引用）、`.omp/agents` task agents、`.omp/skills` skills、extension 的 `tool_call` 拦截与 `ctx.ui.confirm` 原生确认框、`ask` 阻塞问答、内置浏览器（含 relay 接管用户 Chrome）。
 - `openclacky-ext/cgc-2046/agents/` 的三个 system prompt 是角色指令的移植源；`openclacky-ext/cgc-2046/hooks/before_tool_use.rb` 是确认守门强度的对照基线。
 - OMP browser relay 需要用户 Chrome 安装 relay 扩展（一次性门槛）；不可用时 onboarding 走手工回退，不阻塞阶段一交付。
@@ -164,7 +164,7 @@ flowchart LR
 
 ### Sources / Research
 
-- `backend/lib/cgc_2046/mcp/server.ex` — 87 工具注册面、鉴权、确认流、playbook、elicitation 未启用的依据。
+- `backend/lib/cgc_2046/mcp/server.ex` — 91 工具注册面、鉴权、确认流、playbook、elicitation 未启用的依据。
 - `backend/lib/cgc_2046/mcp/playbooks.ex`、`backend/lib/cgc_2046/mcp/pending_operation.ex`、`backend/lib/cgc_2046/mcp/token.ex` — playbook 单源、确认流 TTL、token 生命周期。
 - `openclacky-ext/cgc-2046/ext.yml`、`openclacky-ext/cgc-2046/hooks/before_tool_use.rb` — 既有扩展容器结构与守门先例。
 - `openclacky-ext/cgc-2046/agents/cgc-assistant/system_prompt.md` — 角色指令宿主耦合点清单（ask_user、browser、面板注入）。
