@@ -15,7 +15,6 @@
 export const FULL_TAB_PATHS: readonly string[] = [
   'pages/discover/index',
   'pages/flashback-corridor/index',
-  'pages/my-enrollments/index',
   'pages/workspace/index',
   'pages/profile/index'
 ]

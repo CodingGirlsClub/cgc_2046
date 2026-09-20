@@ -24,7 +24,7 @@ export function EventRegistrationActions({ item, onRegister }: { item: CatalogIt
   const blockedNotice = enrollmentBlockedNotice(item)
   const enrolled = item.myEnrollment ? <>
     <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>已报名 · {enrollmentStatusText[item.myEnrollment.status]}</Text>
-    <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>
+    <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.navigateTo({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>
   </> : null
   // 活跃报名最优先：非成班活动「报名截止即 closed」（closed ≠ 活动结束），
   // 截止后、活动开始前已报名用户仍保留「查看我的报名」入口（承载核销码）
@@ -117,7 +117,7 @@ export default function EventDetailPage() {
     // 已有活跃报名（pending/payment_pending/confirmed）不再进报名漏斗——
     // 后端唯一索引会拒绝，此处提前收口到「我的报名」（#355 P1-3）
     if (item.myEnrollment) {
-      await Taro.switchTab({ url: '/pages/my-enrollments/index' })
+      await Taro.navigateTo({ url: '/pages/my-enrollments/index' })
       return
     }
     const target = `/pages/register-form/index?id=${item.id}&kind=${item.kind}`

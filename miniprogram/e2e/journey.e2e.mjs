@@ -70,7 +70,11 @@ async function run() {
     // M1 文案（#635）：pending 报名 → 按钮「订阅报名进展通知」→ 接受后「已订阅，报名进展会通知你」
     await expectText(page, '[data-testid="subscription-state"]', /已订阅，报名进展会通知你/)
 
-    page = await miniProgram.switchTab('/pages/my-enrollments/index')
+    // 我的报名已降为「我的」页内入口（原 tabBar 项）——从「我的」Tab 点卡片进入
+    page = await miniProgram.switchTab('/pages/profile/index')
+    await tap(page, '[data-testid="profile-my-enrollments"]')
+    await page.waitFor(300)
+    page = await miniProgram.currentPage()
     await expectText(page, '[data-testid="enrollment-enrollment-1"]', /等待审批/)
 
     page = await miniProgram.switchTab('/pages/workspace/index')
