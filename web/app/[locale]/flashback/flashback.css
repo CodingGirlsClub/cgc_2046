@@ -1315,7 +1315,7 @@
 	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7);
 }
 .fb-wish-modal-title { font-size: 15px; font-weight: 600; margin: 0 28px 0 0; line-height: 1.6; }
-/* 关闭叉：绝对定位右上角（UAT 反馈——右角叉而非按钮文案） */
+/* 关闭叉：绝对定位右上角（右角叉而非按钮文案） */
 .fb-wish-modal-close {
 	position: absolute;
 	top: 10px;
@@ -1359,7 +1359,7 @@
 }
 .fb-wish-modal-radios { display: flex; gap: 16px; font-size: 11px; margin-top: 10px; }
 .fb-wish-modal-radios label { cursor: pointer; }
-/* 操作行：主操作(留言)贴右下角(UAT),其余(附议/删除/确认)靠左 */
+/* 操作行：主操作(留言)贴右下角,其余(附议/删除/确认)靠左 */
 .fb-wish-modal-actions {
 	display: flex;
 	gap: 10px;

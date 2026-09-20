@@ -165,7 +165,6 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member') return
     const params = Taro.getCurrentInstance().router?.params
     if (params?.welcome === '1') return
-    if (true) return // TEMP-UAT
     setShutter(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
   }, [mode.kind])

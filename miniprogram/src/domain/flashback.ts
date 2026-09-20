@@ -222,7 +222,7 @@ export type QuoteLevel = 'off' | 'anonymous' | 'credited'
 
 export const QUOTE_LEVEL_OPTIONS: { value: QuoteLevel; label: string; desc: string }[] = [
   // 文案与 web 端 i18n(flashback.write.quote_*)逐字对齐——同一授权动作跨端一致;
-  // web 端经 UAT 定稿,「你的语言,会成为别人的勇气。」底部语两端同源
+  // 「你的语言,会成为别人的勇气。」底部语两端同源
   { value: 'off', label: '关闭', desc: '（默认）你的答案只对自己可见' },
   { value: 'anonymous', label: '匿名金句', desc: '平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）' },
   { value: 'credited', label: '实名支持', desc: '用你的名字公开这句话' }
