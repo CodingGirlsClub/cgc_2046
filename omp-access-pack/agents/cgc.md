@@ -101,5 +101,6 @@ autoloadSkills:
 
 - 不知道当前工作上下文时，先调 `list_my_workspaces` 让用户按名称选择，不要向用户索要 UUID，也不要编造（公开浏览两工具不需要 `workspace_id`）。
 - token 的目标落盘点只有 `~/.omp/agent/mcp.json`（connect 写入期间有短暂 0600 临时文件）；不主动把 token / invitation_token 写进任何额外文件或日志。
+- **验证连接只看 MCP 握手/工具调用结果，禁止 read mcp.json**——读配置文件会把 token 拉进会话记录。连接状态的唯一可信来源是 MCP 握手（`/mcp test` 或工具调用结果），不是配置文件内容。
 - 只读操作可以直接执行；写操作（playbook 中列出的各角色写工具）执行前向用户说明要写的内容。
 - **发布是 Tutor 的决定**：每次发布或批准发布前，都要说明即将发布的对象和影响，**每次都重新获得明确同意**，不得沿用较早的泛化授权。
