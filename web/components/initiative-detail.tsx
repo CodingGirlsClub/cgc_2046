@@ -54,6 +54,7 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(false);
 	const [selectedCity, setSelectedCity] = useState<string | null>(null); // null = 全部
+	const [descExpanded, setDescExpanded] = useState(false);
 
 	const badgeText = (event: InitiativeEvent): string => {
 		switch (event.qualificationBadge) {
@@ -119,6 +120,12 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 	const allEvents = data.cities.flatMap((g) => g.events.map((e) => ({ ...e, city: g.city })));
 	const visibleEvents = selectedCity === null ? allEvents : allEvents.filter((e) => e.city === selectedCity);
 
+	const descParagraphs = toParagraphs(data.description);
+	const descLength = descParagraphs.reduce((n, p) => n + p.length, 0);
+	// 阈值收折：短描述（≤300 字且 ≤3 段）原样完整展示；长描述默认前 2 段
+	const descCollapsible = descParagraphs.length > 3 || descLength > 300;
+	const visibleDescParagraphs = descCollapsible && !descExpanded ? descParagraphs.slice(0, 2) : descParagraphs;
+
 	return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container initiative-page">
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
@@ -132,7 +139,14 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 			) : null}
 			{data.description ? (
 				<div className="initiative-hero__desc">
-					{toParagraphs(data.description).map((p, i) => <p key={i}>{p}</p>)}
+					{visibleDescParagraphs.map((p, i) => <p key={i}>{p}</p>)}
+					{descCollapsible ? (
+						<button type="button" className="initiative-hero__desc-toggle"
+							aria-expanded={descExpanded}
+							onClick={() => setDescExpanded((v) => !v)}>
+							{descExpanded ? t("descCollapse") : t("descExpand")}
+						</button>
+					) : null}
 				</div>
 			) : null}
 			<dl className="initiative-stats">
