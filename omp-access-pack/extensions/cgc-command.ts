@@ -38,19 +38,31 @@ export default function cgcCommand(pi) {
         return;
       }
 
-      // 已连接：notify 即时反馈 + sendUserMessage 注入 agent 拉待办/角色渲染
+      // 已连接：notify 立即显示连接状态与引导（不依赖 agent 拉数据，用户立即看到结果）
       const toolCount = mcpTools.length;
-      ctx.ui.notify(`CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。正在拉取待办与角色…`, "info");
+      ctx.ui.notify(
+        `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
+          "接下来可以：\n" +
+          "  · 问 agent「我有什么待办」→ 拉取 list_my_tasks\n" +
+          "  · 问 agent「我能进哪些工作区」→ 拉取 list_my_workspaces + 角色\n" +
+          "  · 说「帮我开课/教研/学习」→ agent 按角色 playbook 工作\n" +
+          "  · 打开网站对应页面（学习/教研/管理后台）→ agent 可用 browser 工具代开\n\n" +
+          "快捷操作：\n" +
+          "  · 断开连接：编辑 ~/.omp/agent/mcp.json 删除 cgc-2046 条目，或跑 install.sh remove\n" +
+          "  · 重新连接：跑 onboarding skill（cgc2046-onboarding）\n" +
+          "  · 查看文档：omp-access-pack/README.md",
+        "info",
+      );
 
-      // 注入结构化汇总请求，由 agent 调 MCP 工具拉数据并渲染
-      // 这满足 AE8「无需先问 agent 即见待办/角色」——/cgc 一键触发，agent 自动拉取渲染
+      // 注入结构化汇总请求，agent 在用户下次输入时拉数据渲染（不阻塞当前）
+      // deliverAs: "nextTurn" 存储到下一次用户 prompt 时注入，避免 agent 空闲时 followUp 不触发的问题
       pi.sendUserMessage(
         "请拉取并渲染 CGC-2046 状态汇总：\n" +
           "1. 调 list_my_workspaces 列出我可进入的 Workspace 与角色（按名称展示，不要 UUID）\n" +
           "2. 对每个 Workspace 调 list_my_tasks 列出我的待办（含 approval_deadline）\n" +
           "3. 渲染成紧凑汇总：连接状态、待办列表（按工作区分组）、可进入角色\n" +
           "4. 末尾加快捷操作提示：断开连接（编辑 ~/.omp/agent/mcp.json）、重新连接（onboarding skill）、查看文档（omp-access-pack/README.md）",
-        { deliverAs: "followUp" },
+        { deliverAs: "nextTurn" },
       );
     },
   });
