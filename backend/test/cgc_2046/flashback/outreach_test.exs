@@ -397,7 +397,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert template_id == "test-flashback-sms-template"
 
       # 942116 行业通知模板：正文「还记得%year%年报名过 %brand% 吗？……回T退订」
-      assert vars == %{"year" => "2014", "brand" => "Rails Girls"}
+      assert vars == %{"year" => "2014", "brand" => "RailsGirls"}
       # sms 腿无链接：不铸 token（身份凭证表零垃圾行）
       assert token_count(person.id) == 0
       assert outreach_row!(person.id, :sms).status == :sent
@@ -465,7 +465,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert_receive {:sms, _template_id, vars}
       # 2014 pilot 是 Rails Girls 场——含双品牌词时按首段判主品牌
-      assert vars == %{"year" => "2014", "brand" => "Rails Girls"}
+      assert vars == %{"year" => "2014", "brand" => "RailsGirls"}
     end
 
     test "发送失败 → 行 failed + Oban 重试；配置就绪后重试成功推进到 sent" do
