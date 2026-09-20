@@ -336,11 +336,45 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert_receive {:email, email}, 1_000
       {_name, address} = List.first(email.to)
       assert address == @email
+      # 称呼用全名；主题逐字引学员原话「刚刚一闪念间」
+      assert email.subject =~ "刚刚一闪念间"
+      assert email.text_body =~ "你好，王小明："
+      assert email.html_body =~ "你好，王小明："
+      # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
+      assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
+      assert email.text_body =~ "你也在 2014 年 1 月推开过这扇窗"
+      # 逐字引文（与截图并排可对照）+ 原图 + 小程序搜索引导
+      assert email.html_body =~ "weibo-screenshot.png"
+      assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
+      assert email.text_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
+      assert email.html_body =~ "搜索「程序员汇」"
+      assert email.text_body =~ "搜索「程序员汇」"
       assert email.html_body =~ "/zh-CN/flashback/enter?token="
       assert email.text_body =~ "/zh-CN/flashback/enter?token="
       # R30：页脚退订链接（HTML 与纯文本都带）
       assert email.html_body =~ "/api/flashback/unsubscribe?t="
       assert email.text_body =~ "/api/flashback/unsubscribe?t="
+    end
+
+    test "email 腿：场次日期缺失 → 文案降级「那年」，不因 nil 崩发送" do
+      archive =
+        Flashback.EventArchive
+        |> Ash.Changeset.for_create(:create, %{
+          key: "no-date-#{System.unique_integer([:positive])}",
+          name: "Rails Girls Shanghai",
+          city: "上海"
+        })
+        |> Ash.create!(authorize?: false)
+
+      person = create_person(archive)
+      args = enqueue_one(person, "reconnect")
+
+      assert {:ok, :email} = perform_job(OutreachWorker, args)
+
+      assert_receive {:email, email}, 1_000
+      assert email.html_body =~ "你也在 那年推开过这扇窗"
+      assert email.text_body =~ "你也在 那年推开过这扇窗"
+      refute email.html_body =~ "2014 年 1 月"
     end
 
     test "sms 腿：phone-only 档案 → SendCloud 模板短信带 url + unsub 变量" do
@@ -540,9 +574,29 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
   describe "邮件模板（页脚退订链接硬约束）" do
     test "reconnect 模板的 HTML 与纯文本均含退订链接" do
-      email = Emails.reconnect(@email, "王同学", "https://x/enter?token=abc", "https://x/unsub?t=d")
+      email =
+        Emails.reconnect(
+          @email,
+          "王小明",
+          ~D[2014-01-11],
+          "https://x/enter?token=abc",
+          "https://x/unsub?t=d",
+          "https://x/flashback/weibo-screenshot.png"
+        )
+
       assert email.html_body =~ "https://x/unsub?t=d"
       assert email.text_body =~ "https://x/unsub?t=d"
+      # 日期个性化 + 逐字引文（与截图并排可对照）
+      assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
+      assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
+    end
+
+    test "reconnect 模板：occurred_on 为 nil → 「那年」降级，不崩" do
+      email = Emails.reconnect(@email, nil, nil, "https://x/e", "https://x/u", "https://x/s.png")
+
+      assert email.html_body =~ "你也在 那年推开过这扇窗"
+      # 无名字 → 模板层兜底「同学」
+      assert email.text_body =~ "你好，同学："
     end
   end
 
