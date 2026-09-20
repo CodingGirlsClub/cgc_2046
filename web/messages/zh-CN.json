@@ -91,6 +91,7 @@
     "flashback_answer_not_found": "找不到这条当年答案，请刷新后重试。",
     "flashback_archive_not_found": "找不到这个场次档案，请确认场次标识后重试。",
     "flashback_quote_span_out_of_bounds": "选中的金句区间超出了原文范围，请重新选择。",
+    "flashback_quote_span_fogged": "选中的句子还带着雾面，先解雾再选。",
     "flashback_invalid_input": "提交的内容有误，请检查后重试。",
     "initiative_rule_already_exists": "该项规则已存在，请直接编辑现有规则（同一倡导活动下每项规则唯一）。",
     "invalid_or_expired_code": "验证码不对或已过期，请重试。",

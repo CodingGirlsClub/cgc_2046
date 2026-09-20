@@ -247,6 +247,7 @@ defmodule Cgc2046.Flashback.Tokens do
       |> Ash.update(authorize?: false)
       |> case do
         {:ok, updated} ->
+          prune_license_after_fog(person_id, answer.question_key, updated.fog_spans || [])
           {:ok, %{answer_id: updated.id, fog_spans: Enum.map(updated.fog_spans, &span_payload/1)}}
 
         {:error, reason} ->
@@ -285,6 +286,7 @@ defmodule Cgc2046.Flashback.Tokens do
         |> Ash.update(authorize?: false)
         |> case do
           {:ok, updated} ->
+            prune_license_after_fog(person_id, "today." <> field, next_fog[field] || [])
             {:ok, %{field: field, fog_spans: updated.fog_spans}}
 
           {:error, reason} ->
@@ -308,6 +310,64 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp today_field("now"), do: :now_status
   defp today_field(field) when field in ~w(want need say), do: String.to_existing_atom(field)
+
+  # ── 雾×金句一致性(MEDIUM 修):雾是「对外隐藏」的承诺,授权穿透它即违约。
+  # 双向纪律:雾改动联动剔除与该雾交叠的已授权句;授权校验拒选落在雾区间上的句。
+
+  defp span_int(span, key) do
+    v = Map.get(span, key) || Map.get(span, Atom.to_string(key))
+    if is_integer(v), do: v, else: 0
+  end
+
+  # 区间交叠判定(半开区间 [start, start+len)):任一字位重叠即算交叠。
+  defp spans_overlap?(a, b) do
+    a_start = span_int(a, :start)
+    a_end = a_start + span_int(a, :len)
+    b_start = span_int(b, :start)
+    b_end = b_start + span_int(b, :len)
+    a_start < b_end and b_start < a_end
+  end
+
+  # 剔除 chosen_quote_spans 中与宿主雾区间交叠的句(其余原样保留)。
+  defp prune_fogged_quote_spans(chosen, host_key, fog_spans) when is_list(chosen) do
+    fog_spans = List.wrap(fog_spans)
+
+    Enum.reject(chosen, fn span ->
+      qk = Map.get(span, "question_key") || Map.get(span, :question_key)
+      qk == host_key and Enum.any?(fog_spans, &spans_overlap?(&1, span))
+    end)
+  end
+
+  defp prune_fogged_quote_spans(chosen, _host_key, _fog_spans), do: chosen
+
+  # 雾改动后联动清理授权档;license 更新失败不回滚雾(两写独立,宁留档不丢雾)。
+  defp prune_license_after_fog(person_id, host_key, fog_spans) do
+    case QuoteLicense
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, license} ->
+        pruned = prune_fogged_quote_spans(license.chosen_quote_spans || [], host_key, fog_spans)
+
+        if pruned == (license.chosen_quote_spans || []) do
+          :ok
+        else
+          license
+          |> Ash.Changeset.for_update(:update, %{chosen_quote_spans: pruned})
+          |> Ash.update(authorize?: false)
+          |> case do
+            {:ok, _} -> :ok
+            {:error, _} -> :ok
+          end
+        end
+
+      {:error, _} ->
+        :ok
+    end
+  end
 
   defp span_out_of_bounds_error do
     %{
@@ -345,6 +405,43 @@ defmodule Cgc2046.Flashback.Tokens do
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} -> :error
       {:ok, answer} -> {:ok, answer.raw_text}
+    end
+  end
+
+  # 金句宿主的当前雾区间(授权校验用):today.* 取 fog_spans[field],当年取 answer.fog_spans。
+  defp quote_host_fog_spans(person_id, "today." <> field) when field in @today_fog_fields do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> []
+      {:ok, today} -> Map.get(today.fog_spans || %{}, field) || []
+    end
+  end
+
+  defp quote_host_fog_spans(person_id, question_key) do
+    case Answer
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id and question_key == ^question_key)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} -> []
+      {:ok, answer} -> answer.fog_spans || []
+    end
+  end
+
+  # 雾是「对外隐藏」的承诺:授权不得穿透——选中的句落在宿主任一雾区间上即拒。
+  defp ensure_quote_not_fogged(person_id, question_key, group_spans) do
+    fog_spans = quote_host_fog_spans(person_id, question_key)
+
+    if Enum.any?(group_spans, fn span -> Enum.any?(fog_spans, &spans_overlap?(&1, span)) end) do
+      {:error,
+       %{
+         code: "flashback_quote_span_fogged",
+         message: "chosen quote span overlaps a fogged span; clear the fog first",
+         reason: :quote_span_fogged
+       }}
+    else
+      :ok
     end
   end
 
@@ -427,8 +524,11 @@ defmodule Cgc2046.Flashback.Tokens do
       case quote_host_text(person_id, qk) do
         {:ok, text} ->
           case Cgc2046.Flashback.FogSpans.validate(group_spans, text) do
-            {:ok, _normalized} ->
-              {:cont, :ok}
+            {:ok, normalized} ->
+              case ensure_quote_not_fogged(person_id, qk, normalized) do
+                :ok -> {:cont, :ok}
+                {:error, _} = err -> {:halt, err}
+              end
 
             {:error, _reason} ->
               {:halt,

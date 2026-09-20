@@ -11,6 +11,8 @@ defmodule Cgc2046.Flashback.TodayFogTest do
 
   use Cgc2046.DataCase, async: true
 
+  require Ash.Query
+
   alias Cgc2046.Flashback
   alias Cgc2046.Flashback.{EventArchive, Person, Today}
   alias Cgc2046.Flashback.Tokens
@@ -177,6 +179,105 @@ defmodule Cgc2046.Flashback.TodayFogTest do
       # （mask 无 fog spans → 原样首句「十周年快乐！」）
       {:ok, capsule} = Cgc2046.Flashback.AlumniProjection.capsule(%{person: person}, nil)
       assert capsule.me.quote =~ "十周年快乐"
+    end
+  end
+
+  describe "雾×金句一致性（雾改动联动清理 / 授权拒选雾句）" do
+    test "雾住已授权的 today 句 → 授权档联动剔除该句（其余保留）" do
+      person = create_person()
+      {:ok, _} = submit_today(person, %{say: "十周年快乐！愿更多人写下第一行代码。"})
+
+      # 授权两句（6 + 12 graphemes）
+      {:ok, _} =
+        Tokens.set_quote_license_as_person(person.id, %{
+          level: "anonymous",
+          chosen_quote_spans: [
+            %{question_key: "today.say", start: 0, len: 6},
+            %{question_key: "today.say", start: 6, len: 12}
+          ]
+        })
+
+      # 雾住首句 → 该句被剔除，第二句保留
+      {:ok, _} =
+        Tokens.adjust_today_fog_as_person(person.id, "say", [%{"start" => 0, "len" => 6}])
+
+      {:ok, capsule} = Cgc2046.Flashback.AlumniProjection.capsule(%{person: person}, nil)
+      assert capsule.me.quote_spans == [%{question_key: "today.say", start: 6, len: 12}]
+      assert capsule.me.quote =~ "愿更多人"
+      refute capsule.me.quote =~ "十周年快乐"
+    end
+
+    test "雾住已授权的当年答案句 → 授权档联动剔除" do
+      person = create_person()
+
+      Flashback.Answer
+      |> Ash.Changeset.for_create(:create, %{
+        person_id: person.id,
+        question_key: "self_intro",
+        raw_text: "我想亲眼看看是不是。"
+      })
+      |> Ash.create!(authorize?: false)
+
+      {:ok, _} =
+        Tokens.set_quote_license_as_person(person.id, %{
+          level: "anonymous",
+          chosen_quote_spans: [%{question_key: "self_intro", start: 0, len: 6}]
+        })
+
+      answer =
+        Flashback.Answer
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(person_id == ^person.id)
+        |> Ash.read_one!(authorize?: false)
+
+      {:ok, _} = Tokens.adjust_fog_as_person(person.id, answer.id, [%{"start" => 0, "len" => 6}])
+
+      {:ok, capsule} = Cgc2046.Flashback.AlumniProjection.capsule(%{person: person}, nil)
+      assert capsule.me.quote_spans == nil
+      assert capsule.me.quote == nil
+    end
+
+    test "授权选落在雾区间上的句 → 拒（先解雾才能选）" do
+      person = create_person()
+      {:ok, _} = submit_today(person, %{say: "十周年快乐！愿更多人写下第一行代码。"})
+
+      {:ok, _} =
+        Tokens.adjust_today_fog_as_person(person.id, "say", [%{"start" => 0, "len" => 6}])
+
+      assert {:error, %{reason: :quote_span_fogged}} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: [%{question_key: "today.say", start: 0, len: 6}]
+               })
+
+      # 不交叠的句照常可授权
+      assert {:ok, _} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: [%{question_key: "today.say", start: 6, len: 12}]
+               })
+    end
+
+    test "解雾后可重新授权（雾是当前态，不是永久黑名单）" do
+      person = create_person()
+      {:ok, _} = submit_today(person, %{say: "十周年快乐！"})
+
+      {:ok, _} =
+        Tokens.adjust_today_fog_as_person(person.id, "say", [%{"start" => 0, "len" => 6}])
+
+      assert {:error, %{reason: :quote_span_fogged}} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: [%{question_key: "today.say", start: 0, len: 6}]
+               })
+
+      {:ok, _} = Tokens.adjust_today_fog_as_person(person.id, "say", [])
+
+      assert {:ok, _} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: [%{question_key: "today.say", start: 0, len: 6}]
+               })
     end
   end
 
