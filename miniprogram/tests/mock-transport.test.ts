@@ -228,6 +228,28 @@ test('mock 闪念间写面落 state：adjustFog / setQuoteLicense 后 capsule �
 
 })
 
+test('mock FlashbackSetQuoteLicense：提交即覆盖——off 带区间保留圈选，缺省清空（关档不清圈选）', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  type Capsule = {
+    flashbackCapsule: { me: { quoteLevel: string; quoteSpans: Array<{ start: number; len: number }> } }
+  }
+  const readMe = () => mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {}).flashbackCapsule.me
+  const picked = [{ questionKey: 'today.say', start: 0, len: 6 }]
+
+  // 圈选（授权档 + 区间）
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'anonymous', chosenQuoteSpans: picked })
+  assert.equal(readMe().quoteSpans.length, 1)
+
+  // 关档但带上现有区间 → **保留**：关档只关档，撤回后能立刻再开
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'off', chosenQuoteSpans: picked })
+  assert.equal(readMe().quoteLevel, 'off')
+  assert.equal(readMe().quoteSpans.length, 1, '关档带区间应保留圈选，而不是随档位一起清空')
+
+  // 不带区间（前端真清空时传 null）→ 覆盖为空（对齐后端 Ash：nil 照写即清空）
+  mockGraphQLRequest(FlashbackSetQuoteLicenseMutationDocument, { level: 'anonymous' })
+  assert.deepEqual(readMe().quoteSpans, [], '缺省区间提交应清空（提交即覆盖）')
+})
+
 test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已附议态、私愿仅本人', () => {
   mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
   type Capsule = {
