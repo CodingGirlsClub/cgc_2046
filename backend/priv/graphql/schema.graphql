@@ -6307,8 +6307,11 @@ type FlashbackSharedCard {
 
   city: String
 
-  "报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」）"
+  "报名时间戳（ISO8601，精确到秒）；落款用——她写下这张卡的那一刻"
   appliedAt: String
+
+  "活动举办日（ISO8601 日期，如 2014-01-11）；头部场景定位用——记忆真正发生的那天"
+  occurredOn: String
 
   "当年答案（实时保存数据，无「已寄出」前置）：键 self_intro \/ funny_thing \/ os；空节剔除"
   answers: [FlashbackSharedCardSection!]!

@@ -109,14 +109,3 @@
 }
 .signName { display: inline-block; transform: rotate(-1.2deg); }
 .signTime { font-size: 22rpx; }
-
-/* 底部口径说明：这一行是对外卡的「说明书」——雾面不是渲染瑕疵，
- * 是本人设过的边界。色值 #6b6154 在纸底 #f6f2e8 上 5.2:1。 */
-.fogNote {
-  display: block;
-  padding: 4rpx 0 28rpx;
-  text-align: center;
-  font-size: 19rpx;
-  color: #6b6154;
-  line-height: 1.7;
-}

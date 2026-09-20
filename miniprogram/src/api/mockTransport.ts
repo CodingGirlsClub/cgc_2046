@@ -371,7 +371,8 @@ function flashbackSharedCard(state: FlashbackMockState) {
     // surname_masked 口径（王**）——不是本人卡的全名
     displayName: '王**',
     city: '北京',
-    appliedAt: '2014-01-11T13:06:00Z',
+    appliedAt: '2014-01-11T13:06:00+08:00',
+    occurredOn: FLASHBACK_E2E_ARCHIVE.occurredOn,
     answers: FLASHBACK_SHARE_ANSWERS.map(({ questionKey, raw }) => ({
       questionKey,
       segments: safeSegments(raw, questionKey === 'self_intro' ? state.fogSpans : [])
@@ -834,7 +835,7 @@ function responseFor(document: string, variables: object): unknown {
           city: '北京',
           occupationThen: '测试工程师',
           participation: 'attended',
-          appliedAt: '2014-01-11T13:06:00Z',
+          appliedAt: '2014-01-11T13:06:00+08:00',
           quoteLevel: state.quoteLevel,
           quote: (() => {
             const first = (state.chosenQuoteSpans ?? [])[0]
@@ -959,7 +960,7 @@ function responseFor(document: string, variables: object): unknown {
           occupationThen: '测试工程师',
           participation: 'attended',
           role: 'learner',
-          appliedAt: '2014-01-11T13:06:00Z',
+          appliedAt: '2014-01-11T13:06:00+08:00',
           archive: { ...FLASHBACK_E2E_ARCHIVE },
           answers: [
             {

@@ -333,6 +333,7 @@ function mapSharedCard(card: {
   displayName: string
   city?: string | null
   appliedAt?: string | null
+  occurredOn?: string | null
   answers?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
   today?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
 }): FlashbackSharedCard {
@@ -340,6 +341,7 @@ function mapSharedCard(card: {
     displayName: card.displayName,
     city: card.city ?? null,
     appliedAt: card.appliedAt ?? null,
+    occurredOn: card.occurredOn ?? null,
     answers: mapSharedCardSections(card.answers),
     today: mapSharedCardSections(card.today)
   }
@@ -853,7 +855,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
               shareId: capsule.me.cardSharing.shareId ?? null,
               preview: capsule.me.cardSharing.preview
                 ? mapSharedCard(capsule.me.cardSharing.preview)
-                : { displayName: '', city: null, appliedAt: null, answers: [], today: [] }
+                : { displayName: '', city: null, appliedAt: null, occurredOn: null, answers: [], today: [] }
             }
           : undefined
       },
@@ -1110,7 +1112,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       shareId: result.shareId ?? null,
       preview: result.preview
         ? mapSharedCard(result.preview)
-        : { displayName: '', city: null, appliedAt: null, answers: [], today: [] }
+        : { displayName: '', city: null, appliedAt: null, occurredOn: null, answers: [], today: [] }
     }
   }
 

@@ -58,6 +58,8 @@ defmodule Cgc2046.Flashback.SharedCard do
   def get(share_id) when is_binary(share_id) and share_id != "" do
     Repo.one(
       from(p in "flashback_people",
+        join: a in "flashback_event_archives",
+        on: a.id == p.archive_event_id,
         where:
           p.card_share_slug == ^share_id and not is_nil(p.card_share_enabled_at) and
             is_nil(p.deleted_at),
@@ -66,7 +68,8 @@ defmodule Cgc2046.Flashback.SharedCard do
           full_name: p.full_name,
           surname: p.surname,
           city: p.city,
-          applied_at: p.applied_at
+          applied_at: p.applied_at,
+          occurred_on: a.occurred_on
         }
       )
     )
@@ -89,13 +92,16 @@ defmodule Cgc2046.Flashback.SharedCard do
   def owner_preview(person_id) do
     Repo.one(
       from(p in "flashback_people",
+        join: a in "flashback_event_archives",
+        on: a.id == p.archive_event_id,
         where: p.id == ^uuid_param(person_id) and is_nil(p.deleted_at),
         select: %{
           id: fragment("?::text", p.id),
           full_name: p.full_name,
           surname: p.surname,
           city: p.city,
-          applied_at: p.applied_at
+          applied_at: p.applied_at,
+          occurred_on: a.occurred_on
         }
       )
     )
@@ -112,6 +118,7 @@ defmodule Cgc2046.Flashback.SharedCard do
       display_name: AlumniProjection.masked_name(row.full_name, row.surname),
       city: row.city,
       applied_at: iso8601(row.applied_at),
+      occurred_on: date_iso(row.occurred_on),
       answers: historical_sections(row.id),
       today: today_sections(row.id)
     }
@@ -191,4 +198,7 @@ defmodule Cgc2046.Flashback.SharedCard do
 
   defp iso8601(%NaiveDateTime{} = ndt),
     do: DateTime.to_iso8601(DateTime.from_naive!(ndt, "Etc/UTC"))
+
+  defp date_iso(nil), do: nil
+  defp date_iso(%Date{} = d), do: Date.to_iso8601(d)
 end

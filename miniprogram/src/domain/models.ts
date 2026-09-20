@@ -384,7 +384,10 @@ export interface FlashbackSharedCard {
   /** 隐名（后端 surname_masked 口径：王**）——不是本人卡的全名 */
   displayName: string
   city: string | null
+  /** 报名时间戳（ISO8601，精确到秒）——落款用：她写下这张卡的那一刻 */
   appliedAt: string | null
+  /** 活动举办日（ISO8601 日期，如 2014-01-11）——头部场景定位：记忆真正发生的那天 */
+  occurredOn: string | null
   /** 当年答案白名单（self_intro/funny_thing/os） */
   answers: FlashbackRosterAnswer[]
   /** 今天的你（questionKey = today.now/want/need/say；无内容时空数组） */
