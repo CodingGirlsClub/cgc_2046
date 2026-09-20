@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, type QuoteLevel } from '@/domain/flashback'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, type QuoteLevel } from '@/domain/flashback'
 import { questionLabel } from '@/domain/flashback-journey'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
@@ -316,6 +316,11 @@ export default function FlashbackCorridorPage() {
   const me = mode.kind === 'member' ? mode.capsule.me : null
   const myView = me && mode.kind === 'member' ? myCardView(mode.capsule) : null
 
+  // 「今天写过没」：三处 dock 状态共用判定。遍历 TODAY_FIELDS 单表——原实现
+  // 手写 nowStatus/want/say 三项，**漏了 need**（只填「需要什么帮助」的用户
+  // 被判成没写）；单表遍历随字段增减自动跟随。
+  const todayWritten = !!me?.today && TODAY_FIELDS.some((row) => !!me.today?.[row.field])
+
   return (
     <View className={styles.page}>
       {/* member 卡区（U4 覆盖层入口）；路人态直接是长廊（原 1024 横幅已撤——
@@ -337,19 +342,13 @@ export default function FlashbackCorridorPage() {
               className={styles.dockWritePrimary}
               onClick={() => openCardLayer('write')}
             >
-              ✎ 写今天的你
+              ✎ 写今天的你{todayWritten ? ' ✓' : ''}
             </Text>
             <Text
-              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : me?.today && (me.today.nowStatus || me.today.want || me.today.say) ? (me.today.sentToWallAt ? styles.dockSendDone : '') : styles.dockSendDim}`}
+              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : me?.today?.sentToWallAt ? styles.dockSendDone : todayWritten ? '' : styles.dockSendDim}`}
               onClick={() => void sendTodayCard()}
             >
-              {sendingCard
-                ? '正在贴上墙…'
-                : me?.today?.sentToWallAt
-                  ? `已寄出 ✓`
-                  : me?.today && (me.today.nowStatus || me.today.want || me.today.say)
-                    ? '写完寄出 →'
-                    : '写完寄出 →'}
+              {sendingCard ? '正在贴上墙…' : me?.today?.sentToWallAt ? '已寄出 ✓' : '写完寄出 →'}
             </Text>
             <Text
               className={`${styles.dockLicense} ${me && parseQuoteLevel(me.quoteLevel) !== 'off' ? styles.dockLicenseOn : ''}`}
