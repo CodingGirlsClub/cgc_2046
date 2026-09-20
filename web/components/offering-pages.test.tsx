@@ -1122,6 +1122,7 @@ describe("OfferingNewPage 新建调用链", () => {
       await waitFor(() =>
         expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", kind, {
           title: "春季训练营",
+          description: null,
           enrollmentPolicy: "request",
           visibility: "workspace",
           capacity: 20,
@@ -1282,6 +1283,7 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
       await waitFor(() =>
         expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", kind, {
           title: "新标题",
+          description: null,
           enrollmentPolicy: "request",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
@@ -1305,6 +1307,79 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
       expect(
         screen.getByRole("button", { name: "保存元数据" }),
       ).not.toBeDisabled();
+    },
+  );
+
+  it.each(["event", "course"] as const)(
+    "%s 填写活动介绍 → updateOffering 携带 trim 后的 description",
+    async (kind) => {
+      mocks.updateOffering.mockResolvedValueOnce({
+        result: {
+          id: "offering-1",
+          title: "测试活动",
+          status: "draft",
+          visibility: "public",
+          enrollmentPolicy: "open",
+          capacity: null,
+          registrationDeadline: null,
+        },
+        errors: [],
+      });
+
+      await renderManageDetail(kind, offeringRow({}));
+
+      fireEvent.change(screen.getByLabelText("活动介绍"), {
+        target: { value: "  第一段：做什么。\n\n第二段：适合谁。  " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+      await waitFor(() =>
+        expect(mocks.updateOffering).toHaveBeenCalledWith(
+          "offering-1",
+          kind,
+          expect.objectContaining({
+            description: "第一段：做什么。\n\n第二段：适合谁。",
+          }),
+        ),
+      );
+    },
+  );
+
+  it.each(["event", "course"] as const)(
+    "%s 活动介绍清空（纯空白）→ payload description 归一为 null",
+    async (kind) => {
+      mocks.updateOffering.mockResolvedValueOnce({
+        result: {
+          id: "offering-1",
+          title: "测试活动",
+          status: "draft",
+          visibility: "public",
+          enrollmentPolicy: "open",
+          capacity: null,
+          registrationDeadline: null,
+        },
+        errors: [],
+      });
+
+      await renderManageDetail(kind, offeringRow({ description: "既有介绍" }));
+
+      // 既有值回填表单
+      expect(
+        (screen.getByLabelText("活动介绍") as HTMLTextAreaElement).value,
+      ).toBe("既有介绍");
+
+      fireEvent.change(screen.getByLabelText("活动介绍"), {
+        target: { value: "   " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+      await waitFor(() =>
+        expect(mocks.updateOffering).toHaveBeenCalledWith(
+          "offering-1",
+          kind,
+          expect.objectContaining({ description: null }),
+        ),
+      );
     },
   );
 
@@ -1633,6 +1708,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
         title: "线下工作坊",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1678,6 +1754,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
         title: "线上分享",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1714,6 +1791,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "course", {
         title: "春季训练营",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1809,6 +1887,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "event", {
         title: "测试活动",
+        description: null,
         enrollmentPolicy: "open",
         capacity: null,
         // 截止未改动 → 不下发（见 registrationDeadlineDirty；分钟级重序列化会截断秒）
@@ -1875,6 +1954,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "course", {
         title: "测试活动",
+        description: null,
         enrollmentPolicy: "open",
         capacity: null,
         // 截止未改动 → 不下发（同 event）

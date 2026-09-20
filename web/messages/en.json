@@ -1345,6 +1345,8 @@
 		"researchTitle": "Research",
 		"editMeta": "Edit metadata",
 		"fieldTitle": "Title",
+		"fieldDescription": "Description",
+		"fieldDescriptionHint": "Tell participants what this is about, who it's for, and what they'll get",
 		"initiativeLabel": "Initiative",
 		"initiativeNone": "No Initiative",
 		"initiativeDraftOnly": "Initiative can only be changed while the event is a draft.",

@@ -31,6 +31,8 @@ export const ANCHORS = {
   'detail-title': ['pages/event-detail/index.wxss', 'title'],
   'qualification-badge': ['pages/event-detail/index.wxss', 'qualificationBadge'],
   'register-action': ['pages/event-detail/index.wxss', 'primaryButton'],
+  // 活动介绍块（无介绍的场不渲染——锚点仅供静态自检与有介绍 fixture 的 e2e 使用）
+  'detail-description': ['pages/event-detail/index.wxss', 'descriptionPara'],
   // login（协议弹窗在 mask 上）
   'login-title': ['pages/login/index.wxss', 'title'],
   'platform-login': ['pages/login/index.wxss', 'loginButton'],
