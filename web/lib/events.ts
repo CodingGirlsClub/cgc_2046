@@ -70,6 +70,8 @@ export function formatDeadline(
 
 export type OfferingDraftInput = {
 	title: string;
+	/** 公开展示文案（可空；空串由表单归一为 null） */
+	description?: string | null;
 	enrollmentPolicy: EnrollmentPolicy;
 	visibility: Visibility;
 	capacity?: number | null;
@@ -97,6 +99,8 @@ export type OfferingDraftInput = {
 
 export type OfferingUpdateInput = {
 	title?: string;
+	/** 公开展示文案（null = 清除；未传 = 不落键保留既有值） */
+	description?: string | null;
 	enrollmentPolicy?: EnrollmentPolicy;
 	visibility?: Visibility;
 	capacity?: number | null;
@@ -241,6 +245,7 @@ export async function createOffering(
 			input: {
 				workspaceId,
 				title: input.title,
+				description: input.description ?? null,
 				enrollmentPolicy: input.enrollmentPolicy,
 				visibility: input.visibility,
 				capacity: input.capacity ?? null,

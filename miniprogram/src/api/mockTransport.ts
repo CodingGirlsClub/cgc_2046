@@ -40,6 +40,8 @@ const records = [
     qualificationBadge: 'short_by',
     shortBy: 3,
     initiativeId: 'initiative-1',
+    // 无介绍样例：详情页不渲染「活动介绍」块（null 分支）
+    description: null,
     // #538 公开主理人投影样例：一行有 displayName、一行 null 回退 memberNumber，
     // 详情页渲染「本场主理人：主讲小援 · CGC-9A3F2C」（与真机 [JsonString!] 同形）
     publicModerators: [
@@ -78,6 +80,8 @@ const records = [
     depositEnabled: true,
     depositAmountCents: DEPOSIT_AMOUNT_CENTS,
     minAge: 18,
+    // 多段介绍样例（空行分段）：详情页「活动介绍」块逐段渲染
+    description: '两天的线下共学，一起读完《重构》并现场动手实践。\n\n适合有半年以上编程经验、想提升代码设计能力的同学。\n\n请自带电脑，现场提供午餐与饮品。',
     startsAt: new Date(Date.now() + 5 * 24 * 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + (5 * 24 + 2) * 3_600_000).toISOString(),
     venue: JSON.stringify({ country: '中国', province: '上海市', city: '上海', district: '徐汇区' }),

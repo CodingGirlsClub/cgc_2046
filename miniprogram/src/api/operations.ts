@@ -82,6 +82,8 @@ export const EventDetailQueryDocument = /* GraphQL */ `
       status
       enrollmentPolicy
       registrationDeadline
+      # 活动介绍（公开展示文案；仅详情查询携带，列表不选）
+      description
       pricingEnabled
       availablePriceTiers
       depositEnabled
@@ -118,6 +120,8 @@ export const CourseDetailQueryDocument = /* GraphQL */ `
       status
       enrollmentPolicy
       registrationDeadline
+      # 课程介绍（公开展示文案；仅详情查询携带，列表不选）
+      description
       pricingEnabled
       availablePriceTiers
       startsAt
