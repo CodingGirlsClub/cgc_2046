@@ -2958,6 +2958,15 @@ button:focus-visible,
     text-wrap: pretty;
   }
 
+  /* 描述按 \n\n 分段渲染为多 <p>：容器承载字号/颜色，段落间距由兄弟选择器承担 */
+  .initiative-hero__desc p {
+    margin: 0;
+  }
+
+  .initiative-hero__desc p + p {
+    margin-top: 12px;
+  }
+
   /* 状态行 + 倡导窗口：与小程序 initiative-detail hero 同信息（进行中/已结束 · 留档、窗口区间） */
   .initiative-hero__status {
     margin: 10px 0 0;
