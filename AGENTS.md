@@ -10,6 +10,12 @@
 - **Study how established products solve the problem** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
 - **License compliance is a hard gate for new dependencies.** Any Hex/npm/native dependency you introduce must be AGPL-3.0-compatible: permissive licenses (MIT/Apache-2.0/BSD/ISC/0BSD/CC0) or AGPL-compatible weak copyleft (MPL-2.0/LGPL-3.0+/EPL-2.0). **Forbidden:** GPL-2.0-only, SSPL, BUSL, Elastic, proprietary, unlicensed. Multi-license declarations are OK only if at least one allowed option exists. When unsure, open an issue instead of adding the dependency. Rules: `docs/开源合规/依赖引入规则.md`; CI enforces via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
 
+## 安全红线（Security red lines）
+
+- **敏感文件不读内容**：`.env`、密钥文件、证书、token 文件——用存在性检查（`grep -q "KEY_NAME" .env && echo "present"`），不输出值到对话/日志/截图。
+- **内部标识符不进公开面**：模板 ID、批次号、person_id、内部 URL——公开 Issue/文档用占位符（`<模板ID>`）或「见 SendCloud 后台」。commit message 是例外（git 历史需要可追溯性），但代码注释避免写死 ID（用「当前模板」而非「942118」）。
+- **凭证泄露即轮换**：任何密钥/token 意外暴露在对话/日志/公开面，立即建议用户轮换（重新生成，旧的作废）——不假设「没人看到」。
+
 ## Agent skills
 
 ### Issue tracker
