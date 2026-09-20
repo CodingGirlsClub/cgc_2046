@@ -95,9 +95,9 @@
 - agent 展示 playbook 版本号
 - 全程无 UUID 手填
 
-**实际**：待用户在新 OMP 会话执行。
+**实际**（2026-09-20 真实环境验证，pBR 子代理）：playbook v2026-09-17.2 加载 ✓，按名称选 Workspace ✓，全程 0 UUID 手填 ✓
 
-**结论**：待用户执行。
+**结论**：✓ 通过。
 
 ---
 
@@ -114,9 +114,9 @@
 - 调 `submit_learning_attempt` 提交评价
 - 调 `get_learning_state` 确认进度
 
-**实际**：待用户在新 OMP 会话执行。
+**实际**：前置不满足——用户无 confirmed 课程报名（get_my_enrollments 返回空），且用户角色为 owner/tutor 非 learner。创建报名属写操作会落库，需用户授权，故跳过。
 
-**结论**：待用户执行。
+**结论**：豁免——前置不满足（无 confirmed 报名），需用户授权创建报名后实测。
 
 ---
 
@@ -133,9 +133,9 @@
 - 用户在审批框确认后才落库
 - 对话记录含 ask 复述，审批框决策进 OMP 会话记录（两层可追溯）
 
-**实际**：待用户在新 OMP 会话执行。
+**实际**（2026-09-20 真实环境验证，pBR + watcher 协作）：业务工具返回 needs_confirmation + 摘要 ✓；agent 复述摘要并调 ask ✓；confirm_operation 触发 OMP 原生审批框 ✓；watcher 点 Approve 后落库（status: confirmed, join_policy: open）✓；watcher 点 Deny 后拒绝（Tool call denied by user: write）✓；可重复性验证（3 次：denied → allowed → denied）✓；cancel_operation 走 allow 无审批框 ✓。
 
-**结论**：待用户执行。
+**结论**：✓ 通过——确认流安全强度不弱于 OpenClacky 宿主。
 
 ---
 
@@ -147,9 +147,9 @@
 
 **预期**：调用被直接拒绝（headless 中 `prompt` 策略无法满足，拒绝调用）。
 
-**实际**：待用户在新 OMP 会话执行（vibe 模式 spawn worker）。
+**实际**（2026-09-20 真实环境验证，pBR headless 子代理）：headless 子代理调 confirm_operation 直接被拒，逐字错误「Tool "write" requires approval but no interactive UI available」✓——headless 中 prompt 策略无法满足，拒绝调用。
 
-**结论**：待用户执行。
+**结论**：✓ 通过——比 OpenClacky 守门的 headless 放行更强。
 
 ---
 
@@ -161,9 +161,9 @@
 
 **预期**：显示连接状态（工具数）、待办引导、角色引导、快捷操作。
 
-**实际**：待用户在新 OMP 会话执行。
+**实际**（2026-09-20 真实环境验证，pBR 子代理）：agent 自动拉 3 次工具（list_my_workspaces + list_my_tasks × 2）渲染角色/待办/快捷操作 ✓；notify 即时反馈需用户重启 OMP 后实测。
 
-**结论**：待用户执行。
+**结论**：✓ 渲染路径通过；notify 即时反馈待用户重启 OMP 后实测。
 
 ---
 
@@ -175,9 +175,9 @@
 
 **预期**：agent 检测 relay 不可用，回退手工 token 流程（引导用户在网站 MCP 页创建 token、复制到剪贴板、跑管道命令），不报错中断。
 
-**实际**：待用户在新 OMP 会话执行（临时禁用 relay 扩展后重试连接）。
+**实际**（2026-09-20 真实环境验证，pBR 隔离 profile + PI_BROWSER_RELAY=0）：relay 不可用 → agent 检测失败不崩溃 ✓，给出明确可继续指引（引导装扩展，skill 第 1 步）✓；手工 token 分支未触发——本机有 live token，任何 prompt 变体都被短路为「已连接」（正确且安全的行为，不无谓重签）。
 
-**结论**：待用户执行。
+**结论**：部分验证——「relay 不可用 → 不报错中断 + 给可继续路径」✓；手工 token 分支待用户实测（清洁环境无 token 或禁用扩展后说「连接 CGC」）。
 
 ---
 
