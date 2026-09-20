@@ -1,26 +1,43 @@
 #!/usr/bin/env bash
 # 「我的闪念间」旅程 E2E（小程序 / weapp 模拟器，本地回归用，**不进 CI**）
 #
-# 覆盖（对齐 U9/R28 flashback 回访正门 + 批次二 mp 版原型 F）：
-#   1. 未登录深链直达 → 登录引导面（mock: flashback_auth_required → SessionExpiredError → need_login，P1）
-#   2. mock 登录链（手机号授权 passthrough）→ profile「我的」入口 → 闪念间页
-#   3. 我的卡：当年正面（句子级雾面）+ 今天背面（编辑/保存回显）+ 金句授权三档切换
-#   4. 雾化编辑：点按雾面句 → 解雾（R16/KTD4 本人视图原文永远完整）
-#   5. 行动板：四态卡各一次、已附议在前、已成场卡 goEvent 直链
+# 覆盖（闪念间主容器 = tabBar 页 pages/flashback-corridor；卡面单源 = components/MyCard）：
+#   1. 未登录路人态：switchTab 长廊 → 公开统计帧（无名册内容）+ 登录引导 CTA → 登录页（R32）
+#   2. mock 登录链（手机号授权 passthrough）→ profile「我的」tab
+#   3. tabBar 入口（自绘 AppTabBar 含「闪念间」项）+ 快门仪式层（U8：出现 → 点按 → 解散）
+#      + 参与态长廊结构（卡 dock / 城市钉 / 时间帧 / 今天格 / 未来场次 / 愿望段 / 底部 CTA）
+#   3.5–5. 我的卡开卡层（MyCard，类名在 common.wxss）：view 合着面 → 翻面 → 当年答案面
+#      （题干/切句/雾面句/KTD4 本人原文完整）→ 点雾句解雾（R16）
+#   6. 金句授权层默认关（R31：三档 + 选中「关闭」+ 圈选器不展开）
+#   7. 今天写入面：write 入口直接翻面 → 写入 → 「写完寄出」一步到位（U5：层关 +
+#      今天格点亮 + dock 回读）→ 金句授权引导层（nudge）弹出
+#   7.5 nudge「选一句试试」→ 匿名档预选 → 圈选一句（R35）→ 匿名预览 → dock 回读
+#      → 寄出+授权后点赞徽章（R36 正例）
+#   8. 卡片页（pages/flashback-today）：四态 chip（默认合起来）+ 金句高亮（rvQuote）
+#      + 分享面板（#771：朋友将看到的全文卡 → 允许生成分享链接 → 链接已开启 → 先不分享）
+#   8.5 城市钉筛选（R34 重映射到长廊城市堆：点上海 → 堆 4→2 → 回全部恢复）
+#   9. 愿望段（附议闭环重映射，只读）：公开愿模态（全文/留言/附议行）+ 私愿折叠展开
 #  批次二：
-#   11. 首程旅程（token 面免登录）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
-#   13. 长廊：垂直墙 + 城市堆 + ⚡今天格 + 未来行动卡（R12/R34）
-#   13.5 场次页：统计行 + 3 列网格（显影/雾卡）+ 找回 CTA
-#   14. 三级视角（R32）：路人围观 → 未匹配找回引导 → 登录自动认领闭环
+#   11. 首程旅程（token 面免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
+#   13. 长廊首程落地：welcome 金句引导（先不）+ 今天格已寄出 + 点堆进场次页
+#   13.5 场次页：统计行 + 3 列网格（显影/雾卡）+ 找回 CTA + 回环三出口
+#   14. 三级视角（R32）：路人围观 → 登录未匹配仍路人 → 自动认领闭环（含快门）
 #
 # 为什么不在 CI：需要微信开发者工具 GUI（已登录）+ wechatide CLI，见
 # miniprogram/AGENTS.md「E2E」一节。web 端 E2E 走 ego-browser，与本脚本无关。
 #
-# 已知边界（首跑 2026-09-18 实测；同日修复后附议闭环已进段 9.5）：
-#   - 附议按钮曾无法自动化触达（element_action 多匹配只作用于 DOM 第一个）。
-#     修复：行动卡容器挂四态类名（P4）后，后代选择器 `.forming卡容器 .endorseButton`
-#     唯一定位 + automation_wx_api mock showActionSheet（tapIndex 0）走通角色选择。
-#   - 行动板空态 / not_bound 态：mock capsule 固定四卡 + 登录即绑定，无法构造。
+# 已知边界（2026-09-21 重写时实测）：
+#   - 行动板（四态行动卡）已随 refactor 移除（e0e0c0ed/41de6b0b/f14bc734），旧段
+#     8/8.5/9/9.5 整段删除；城市钉筛选重映射到长廊城市堆，附议闭环只保留愿望模态
+#     只读断言——mock 未实现 wish 写面（flashbackEndorseWish/CreateWish/AddWishComment/
+#     DeleteWish 在 mockTransport 抛「未处理」），点附议无法自动化闭环。
+#   - 金句授权档位行（licenseRow ×3 同类名）无法按文案点第 2 行：wechatide 选择器
+#     实测不支持 :nth-child/:not/elementId/x-y 偏移（静默退化为首匹配）。匿名档切换
+#     改走 nudge「选一句试试」（唯一锚点，且是产品既定的寄出后引导路径）。同理卡片页
+#     四态 chip 不可点第 4 个「摘要卡」——摘要卡版式由 domain 单测钉住，e2e 只断言
+#     默认「合起来」态。
+#   - 今天写入面的「失焦自动保存」（saveOnBlur）自动化不可触发（input action 不聚焦，
+#     点他处不派生 blur）——保存经「写完寄出」覆盖（sendToday 先 persistToday 再寄出）。
 #   - loading 态一闪而过（mock 即时返回），不做断言。
 #
 # 前置：
@@ -32,8 +49,12 @@
 #
 # 选择器纪律：Taro 4 weapp 运行时**不把 data-testid 渲染进 WXML**（渲染树只有
 # id/class/data-sid，见 #579），所以本脚本一律用 CSS-module 类名。哈希随样式变，
-# 故运行时从 dist 产物里解析，不写死。另：wechatide 的 --wait-for-selector 是
-# 「执行**前**等待」，用它等本步要操作的元素，不要当导航后的等待用。
+# 故运行时从 dist 产物里解析，不写死：页面类读 pages/<page>/index.wxss（cls），
+# MyCard/AppTabBar 等非页面组件的 CSS module 被 Taro 打进 common.wxss（clsCommon，
+# 多哈希即跨组件同名 → 报错换锚，与 e2e/anchors.mjs 同纪律）。另：wechatide 的
+# --wait-for-selector 是「执行**前**等待」，用它等本步要操作的元素，不要当导航后的
+# 等待用。遮罩/模态中心被内容盖住、元素 tap 打不中时，用 trigger 派发 tap 事件
+# （直发元素本身，不做命中测试）关层。
 set -uo pipefail
 
 CLIENT="${CGC_WECHATIDE_CLIENT:-DSH}"
@@ -63,7 +84,7 @@ RAW() { timeout 120 wechatide -c "$CLIENT" "$@" --project "$MP_DIR" 2>&1; }
 # 取 toolCall 结果里的字符串值（text / property 类读取）
 RES() { RAW "$@" | sed -n 's/.*"result": "\(.*\)"/\1/p' | tail -1; }
 TAP() { RAW automation_element_action --selector "$1" --action tap --wait-for-selector "$1" >/dev/null; }
-# 在唯一节点上派发自定义事件（radio-group 等无类名原生容器的事件驱动交互）
+# 在唯一节点上派发自定义事件；type=tap 时用于「中心被遮罩内容盖住」的关层（直发元素，不做命中测试）
 TRIGGER() { RAW automation_element_action --action trigger --type "$1" --detail "$2" --selector "$3" >/dev/null; }
 ROUTE() { RAW automation_runtime_info --action currentPage | grep -o '"route": "[^"]*"' | head -1; }
 COUNT() { RAW automation_page_action --action querySelectorAll --selector "$1" | grep -c elementId; }
@@ -88,6 +109,18 @@ cls() {
   printf '.%s' "$hit"
 }
 
+# 组件类名（MyCard/AppTabBar/SharedFlashbackCard 等非页面组件，样式打进 common.wxss）：
+# clsCommon <className>。多哈希 = 跨组件同名类（如 signName/icon），无法唯一定位，
+# 直接报错换锚——与 e2e/anchors.mjs 的锚点纪律一致。
+clsCommon() {
+  local hits n
+  hits="$(grep -o "index-module__$1___[A-Za-z0-9_]*" "$DIST/common.wxss" 2>/dev/null | sort -u)"
+  [ -n "$hits" ] || { echo "✗ common.wxss 里找不到类名 $1——样式改动后请重跑 mock 构建" >&2; exit 2; }
+  n="$(printf '%s\n' "$hits" | wc -l | tr -d ' ')"
+  [ "$n" = "1" ] || { echo "✗ common.wxss 里类名 $1 有 $n 个哈希（跨组件同名），无法唯一定位——换锚点" >&2; exit 2; }
+  printf '.%s' "$hits"
+}
+
 restore() {
   echo "→ 还原非 mock 构建"
   (cd "$MP_DIR" && ./node_modules/.bin/taro build --type weapp >/dev/null 2>&1) || true
@@ -102,84 +135,172 @@ echo "→ mock 构建 weapp（E2E 走 mock transport，不碰真后端）"
 echo "→ 打开项目窗口（已开则复用）"
 RAW open_project_window >/dev/null
 
-FLASHBACK='pages/flashback'
 LOGIN='pages/login'
 PROFILE='pages/profile'
+COR='pages/flashback-corridor'
+EVENT='pages/flashback-event'
+TODAY='pages/flashback-today'
 
-# 页面级类名
-EYEBROW=$(cls "$FLASHBACK" eyebrow)
-HEADLINE=$(cls "$FLASHBACK" headline)
-SUBLINE=$(cls "$FLASHBACK" subline)
-WALL_BADGE=$(cls "$FLASHBACK" wallBadge)
-POLAROID_LABEL=$(cls "$FLASHBACK" polaroidLabel)
-CARD_FACE_TITLE=$(cls "$FLASHBACK" cardFaceTitle)
-ANSWER_META=$(cls "$FLASHBACK" answerMeta)
-SENTENCE=$(cls "$FLASHBACK" sentence)
-SENTENCE_FOGGED=$(cls "$FLASHBACK" sentenceFogged)
-TODAY_EMPTY=$(cls "$FLASHBACK" todayEmpty)
-TODAY_TEXT=$(cls "$FLASHBACK" todayText)
-EDITOR_TOGGLE=$(cls "$FLASHBACK" editorToggle)
-TEXTAREA=$(cls "$FLASHBACK" textarea)
-SAVE_BUTTON=$(cls "$FLASHBACK" saveButton)
-LICENSE_CARD=$(cls "$FLASHBACK" licenseCard)
-LICENSE_OPTION=$(cls "$FLASHBACK" licenseOption)
-LICENSE_ACTIVE=$(cls "$FLASHBACK" licenseOptionActive)
-LICENSE_LABEL=$(cls "$FLASHBACK" licenseLabel)
-BOARD_HINT=$(cls "$FLASHBACK" boardHint)
-ACTION_CARD=$(cls "$FLASHBACK" actionCard)
-ACTION_TITLE=$(cls "$FLASHBACK" actionTitle)
-ACTION_META=$(cls "$FLASHBACK" actionMeta)
-ACTION_STATUS=$(cls "$FLASHBACK" actionStatus)
-ENDORSE_BUTTON=$(cls "$FLASHBACK" endorseButton)
-ENDORSE_PLAIN=$(cls "$FLASHBACK" endorseButtonPlain)
-CITY_PINS=$(cls "$FLASHBACK" cityPins)
-CITY_PIN=$(cls "$FLASHBACK" cityPin)
-QUOTE_PICKER=$(cls pages/flashback 'quotePicker')
-QUOTE_CANDIDATE=$(cls pages/flashback 'quoteCandidate')
-QUOTE_CANDIDATE_ACTIVE=$(cls pages/flashback 'quoteCandidateActive')
-SHARE_OPTIN=$(cls pages/flashback 'shareOptIn')
-LIKE_BADGE=$(cls pages/flashback 'likeBadge')
-CITY_PIN_ALL=$(cls "$FLASHBACK" cityPinAll)
-CITY_PIN_ACTIVE=$(cls "$FLASHBACK" cityPinActive)
-STATUS_SCHED=$(cls "$FLASHBACK" scheduled)
-STATUS_DONE=$(cls "$FLASHBACK" done)
-STATUS_PROP=$(cls "$FLASHBACK" proposed)
-STATUS_FORM=$(cls "$FLASHBACK" forming)
-ROLES_ROW=$(cls "$FLASHBACK" rolesRow)
 # 登录/我的页类名
 LOGIN_BUTTON=$(cls "$LOGIN" loginButton)
 DIALOG_PRIMARY=$(cls "$LOGIN" dialogPrimary)
-OPENCLACKY=$(cls "$PROFILE" openclacky)
-OPENCLACKY_TEXT=$(cls "$PROFILE" openclackyText)
 LOGOUT=$(cls "$PROFILE" logout)
-# 状态面（P1 后未登录直达渲染登录引导而非 PageState error 面）
-STATE_TEXT=$(cls "$FLASHBACK" stateText)
-STATE_ACTION=$(cls "$FLASHBACK" stateAction)
 
-echo "### 0) 清态：退出残留登录 + 清 FLASHBACK_MOCK_STATE（mock 持久档，P2；不清则雾面/授权档/附议跨跑残留）"
+# 长廊页类名
+CTA=$(cls "$COR" cta)
+CAPWHEN=$(cls "$COR" capWhen)
+CAPLABEL=$(cls "$COR" capLabel)
+PINPOL=$(cls "$COR" pinPolaroid)
+PINCITY=$(cls "$COR" pinCity)
+PINCOUNT=$(cls "$COR" pinCount)
+CAPRETURNED=$(cls "$COR" capReturned)
+CARDDOCK=$(cls "$COR" cardDock)
+MINICARD=$(cls "$COR" miniCard)
+MINICARD_NAME=$(cls "$COR" miniCardName)
+MINICARD_FACTS=$(cls "$COR" miniCardFacts)
+MINICARD_HINT=$(cls "$COR" miniCardHint)
+DOCK_WRITE=$(cls "$COR" dockWritePrimary)
+DOCK_SEND=$(cls "$COR" dockSend)
+DOCK_LICENSE=$(cls "$COR" dockLicense)
+CITY_PINS=$(cls "$COR" cityPins)
+CITY_PIN=$(cls "$COR" cityPin)
+CITY_PIN_ALL=$(cls "$COR" cityPinAll)
+CITY_PIN_ACTIVE=$(cls "$COR" cityPinActive)
+TODAY_TITLE=$(cls "$COR" todayTitle)
+TODAY_VACANT_TEXT=$(cls "$COR" todayVacantText)
+TODAY_LIT=$(cls "$COR" todayLit)
+TODAY_LIT_NAME=$(cls "$COR" todayLitName)
+TODAY_LIT_CAP=$(cls "$COR" todayLitCap)
+CAP_FUTURE=$(cls "$COR" capFuture)
+CAP_FUTURE_DIM=$(cls "$COR" capFutureDim)
+FUTURE_TITLE=$(cls "$COR" futureTitleDark)
+EVENT_CARD=$(cls "$COR" eventCard)
+EVENT_CARD_LIT=$(cls "$COR" eventCardLit)
+EVENT_CARD_MUTED=$(cls "$COR" eventCardMuted)
+EVENT_TITLE=$(cls "$COR" eventTitle)
+EVENT_CTA=$(cls "$COR" eventCta)
+EVENT_BADGE=$(cls "$COR" eventBadge)
+WISH_ADD=$(cls "$COR" wishAddBtn)
+WISH_CARD=$(cls "$COR" wishCard)
+WISH_CONTENT=$(cls "$COR" wishContent)
+WISH_ENDORSE=$(cls "$COR" wishEndorse)
+WISH_ENDORSED=$(cls "$COR" wishEndorsed)
+WISH_DELETE=$(cls "$COR" wishDelete)
+WISH_MODAL=$(cls "$COR" wishModal)
+WISH_MODAL_MASK=$(cls "$COR" wishModalMask)
+WISH_MODAL_CONTENT=$(cls "$COR" wishModalContent)
+WISH_COMMENTS_TITLE=$(cls "$COR" wishCommentsTitle)
+WISH_COMMENT_ROW=$(cls "$COR" wishCommentRow)
+WISH_COMMENT_TEXT=$(cls "$COR" wishCommentText)
+PRIVATE_FOLD=$(cls "$COR" privateFold)
+PRIVATE_FOLD_LABEL=$(cls "$COR" privateFoldLabel)
+PRIVATE_FOLD_ARROW=$(cls "$COR" privateFoldArrow)
+WISH_CARD_PRIVATE=$(cls "$COR" wishCardPrivate)
+LAYER_MASK=$(cls "$COR" layerMask)
+LAYER_CLOSE=$(cls "$COR" layerClose)
+WALL_OFF=$(cls "$COR" wallOff)
+WALL_ON=$(cls "$COR" wallOn)
+MASK_LIKE=$(cls "$COR" maskLike)
+SHUTTER_MASK=$(cls "$COR" shutterMask)
+SHUTTER_BTN=$(cls "$COR" shutterBtn)
+SHUTTER_EYEBROW=$(cls "$COR" shutterEyebrow)
+SHUTTER_LEAD=$(cls "$COR" shutterLead)
+SHUTTER_HINT=$(cls "$COR" shutterHint)
+NUDGE_MASK=$(cls "$COR" nudgeMask)
+NUDGE_LEAD=$(cls "$COR" nudgeLead)
+NUDGE_SUB=$(cls "$COR" nudgeSub)
+NUDGE_PRIMARY=$(cls "$COR" nudgePrimary)
+NUDGE_SKIP=$(cls "$COR" nudgeSkip)
+SHEET_MASK=$(cls "$COR" wishSheetMask)
+SHEET_TITLE=$(cls "$COR" wishSheetTitle)
+COURAGE=$(cls "$COR" courageBadgeText)
+LICENSE_ROW=$(cls "$COR" licenseRow)
+LICENSE_ROW_ACTIVE=$(cls "$COR" licenseRowActive)
+LICENSE_LABEL=$(cls "$COR" licenseLabel)
+LICENSE_FOOT=$(cls "$COR" licenseFoot)
+QUOTE_PICKER=$(cls "$COR" quotePickerSheet)
+QUOTE_PICKHINT=$(cls "$COR" quotePickHint)
+QUOTE_CANDIDATE=$(cls "$COR" quoteCandidate)
+QUOTE_CANDIDATE_ACTIVE=$(cls "$COR" quoteCandidateActive)
+QUOTE_CANDIDATE_FOGGED=$(cls "$COR" quoteCandidateFogged)
+QUOTE_PREVIEW=$(cls "$COR" quotePreview)
+QUOTE_PREVIEW_Q=$(cls "$COR" quotePreviewQ)
+QUOTE_PREVIEW_NAME=$(cls "$COR" quotePreviewName)
+QUOTE_PREVIEW_DIM=$(cls "$COR" quotePreviewDim)
+
+# MyCard / AppTabBar / SharedFlashbackCard 组件类名（common.wxss）
+CARD_FLIP=$(clsCommon cardFlip)
+CARD_FLIPPED=$(clsCommon cardFlipFlipped)
+SENTENCE=$(clsCommon sentence)
+SENTENCE_FOGGED=$(clsCommon sentenceFogged)
+FOG_HINT=$(clsCommon fogHint)
+PAPER_Q=$(clsCommon paperQ)
+WRITE_INPUT=$(clsCommon writeInput)
+WRITE_LABEL=$(clsCommon writeLabel)
+PAPER_TODAY_TITLE=$(clsCommon paperTodayTitle)
+SEND_BTN=$(clsCommon sendBtn)
+SEND_NOTE=$(clsCommon sendNote)
+BACK_LINK=$(clsCommon backLink)
+RV_SENTENCE=$(clsCommon rvSentence)
+RV_FOG=$(clsCommon rvFog)
+RV_QUOTE=$(clsCommon rvQuote)
+SHARE_OPTIN=$(clsCommon shareOptIn)
+SHARE_OPTIN_LABEL=$(clsCommon shareOptInLabel)
+TAB_BAR=$(clsCommon bar)
+TAB_ITEM=$(clsCommon item)
+TAB_SELECTED=$(clsCommon selected)
+SC_KICKER=$(clsCommon kicker)
+SC_STAMP=$(clsCommon stamp)
+SC_PHOTO_TITLE=$(clsCommon photoTitle)
+
+# 卡片页类名
+MODE_CHIP=$(cls "$TODAY" modeChip)
+MODE_CHIP_ACTIVE=$(cls "$TODAY" modeChipActive)
+TODAY_TIP=$(cls "$TODAY" tip)
+ACTION_SECONDARY=$(cls "$TODAY" actionSecondary)
+SHARE_MASK=$(cls "$TODAY" shareMask)
+SHARE_TITLE=$(cls "$TODAY" shareTitle)
+SHARE_NOTICE_LINE=$(cls "$TODAY" shareNoticeLine)
+SHARE_CONSENT=$(cls "$TODAY" shareConsent)
+SHARE_PRIMARY=$(cls "$TODAY" sharePrimary)
+SHARE_STATUS_ON=$(cls "$TODAY" shareStatusOn)
+SHARE_STATUS_HINT=$(cls "$TODAY" shareStatusHint)
+SHARE_CANCEL=$(cls "$TODAY" shareCancel)
+
+echo "### 0) 清态：退出残留登录 + 清闪念间相关 storage（mock 持久档/token/intent/nudge/视角开关；不清则跨跑残留）"
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
 sleep 2
 # 清 storage 放 reLaunch 后（runtime 已就绪）；刚开窗口时 evaluate 可能还没就绪，重试一次
 cleared=0
 for _ in 1 2; do
-  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state") }' \
+  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.workspace_tab_visible"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' \
     | grep -q '"success": true'; then cleared=1; break; fi
   sleep 1.5
 done
-[ "$cleared" = 1 ] || { echo "✗ 清 FLASHBACK_MOCK_STATE 失败（automation_evaluate）" >&2; exit 2; }
+[ "$cleared" = 1 ] || { echo "✗ 清 flashback storage 失败（automation_evaluate）" >&2; exit 2; }
 if [ "$(COUNT "$LOGOUT")" != "0" ]; then
   TAP "$LOGOUT"
   sleep 1
 fi
 ck "清态后未登录（无退出按钮）" "$(COUNT "$LOGOUT")" '^0$'
 
-echo "### 1) 未登录深链直达闪念间 → 登录引导面（P1：flashback_auth_required → SessionExpiredError → need_login）"
-RAW automation_navigate --action reLaunch --url '/pages/flashback/index' >/dev/null
+echo "### 1) 未登录路人态（R32）：switchTab 长廊 → 公开统计帧（无名册内容）+ 登录引导 CTA → 登录页"
+RAW automation_navigate --action switchTab --url '/pages/flashback-corridor/index' >/dev/null
+sleep 3
+ck "落在长廊 tab" "$(ROUTE)" '/pages/flashback-corridor/index'
+ck "路人 CTA=登录找回" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
+ck "公开统计帧 2（2012 上海场 + 2014 北京场）" "$(COUNT "$CAPWHEN")" '^2$'
+ck "第一帧=2012.02.26（升序，顶上是更早的）" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
+ck "统计堆 2（每帧一城市堆）" "$(COUNT "$PINPOL")" '^2$'
+ck "首堆计数=走进教室 12 位（无名册人数口径）" "$(RES automation_element_action --action text --selector "$PINCOUNT")" '^12 位$'
+ck "路人无卡 dock（member 才渲染）" "$(COUNT "$CARDDOCK")" '^0$'
+ck "路人无城市钉/愿望/未来场次卡" "$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0$'
+ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
+ck "路人无快门仪式（member 专属）" "$(COUNT "$SHUTTER_MASK")" '^0$'
+shot 01-corridor-viewer.png
+TAP "$CTA"
 sleep 2
-ck "落在 flashback 页" "$(ROUTE)" '/pages/flashback/index'
-ck "引导文案=登录后可见（不再渲染 error 面）" "$(RES automation_element_action --action text --selector "$STATE_TEXT")" '^登录后可以看到你的闪念间档案$'
-ck "引导面有去登录按钮" "$(COUNT "$STATE_ACTION")" '^1$'
-shot 01-flashback-not-logged-in.png
+ck "CTA 落登录页（带 returnUrl 回跳长廊）" "$(ROUTE)" 'pages/login/index\?returnUrl='
 
 echo "### 2) mock 登录链（手机号授权 passthrough，不碰真实凭据）"
 RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
@@ -191,169 +312,239 @@ wait_route '/pages/profile/index' || true
 ck "登录成功落「我的」tab" "$(ROUTE)" '/pages/profile/index'
 shot 02-after-login-profile.png
 
-echo "### 3) profile「我的」入口 → 闪念间（AE9 小程序侧入口可达）"
-ck "入口区块（闪念间/OpenClacky 复用同款卡样式，各一）" "$(COUNT "$OPENCLACKY")" '^2$'
-ck "入口文案（当年的拍立得…）" "$(RES automation_element_action --action text --selector "$OPENCLACKY_TEXT")" '当年的拍立得、今天的回答、你附议的行动卡。'
-TAP "$OPENCLACKY"
-wait_route '/pages/flashback/index' || true
-ck "入口进入闪念间" "$(ROUTE)" '/pages/flashback/index'
-shot 03-flashback-from-profile.png
-
-echo "### 3.5) 我的卡两态（用户定稿 ① / 第 3b 件）：默认合着卡面 → 点击卡面 3D 翻转看正反两面 → 合上"
-POLAROID_COVER=$(cls pages/flashback 'polaroidCover')
-COVER_NAME=$(cls pages/flashback 'coverName')
-FLIP_OPEN=$(cls pages/flashback 'polaroidFlipOpen')
-FOLD_BACK=$(cls pages/flashback 'foldBackButton')
-CARD_FLIP=$(cls pages/flashback 'cardFlip')
-ck "默认=合着卡面（容器在）" "$(COUNT "$POLAROID_COVER")" '^1$'
-ck "卡面全名" "$(RES automation_element_action --action text --selector "$COVER_NAME")" '^王小明$'
-ck "默认内容区不渲染（答案在卡面后）" "$(COUNT "$FLIP_OPEN")" '^0$'
-ck "3D 翻面容器在（第 3b 件：点击卡面翻转）" "$(COUNT "$CARD_FLIP")" '^1$'
-TAP "$POLAROID_COVER"
+echo "### 3) tabBar 入口 + 快门仪式（U8）+ 参与态长廊结构"
+ck "自绘 tabBar 四项（发现/闪念间/工作台/我的；mock 会话带一个工作台 → 能力段下发）" "$(COUNT "$TAB_ITEM")" '^4$'
+ck "tabBar 含「闪念间」项" "$(RES automation_element_action --action text --selector "$TAB_BAR")" '闪念间'
+ck "当前选中=我的" "$(RES automation_element_action --action text --selector "$TAB_SELECTED")" '我的$'
+RAW automation_navigate --action switchTab --url '/pages/flashback-corridor/index' >/dev/null
+sleep 3.5
+ck "switchTab 达长廊" "$(ROUTE)" '/pages/flashback-corridor/index'
+ck "快门仪式层出现（member 进门）" "$(COUNT "$SHUTTER_MASK")" '^1$'
+ck "仪式 eyebrow" "$(RES automation_element_action --action text --selector "$SHUTTER_EYEBROW")" '^IN A FLASH · 闪念间$'
+ck "仪式引子（JSON 换行转义形态）" "$(RES automation_element_action --action text --selector "$SHUTTER_LEAD")" '多年前，\\n你写过一些答案。'
+ck "橙色快门钮在" "$(COUNT "$SHUTTER_BTN")" '^1$'
+ck "快门提示" "$(RES automation_element_action --action text --selector "$SHUTTER_HINT")" '^按下快门，回到那天$'
+shot 03-corridor-shutter.png
+TAP "$SHUTTER_BTN"
 sleep 1
-ck "点开后正反两面容器出现" "$(COUNT "$FLIP_OPEN")" '^1$'
-shot 035-flashback-flipped.png
-ck "合上按钮出现" "$(COUNT "$FOLD_BACK")" '^1$'
-TAP "$FOLD_BACK"
-sleep 0.6
-ck "合上回卡面态" "$(COUNT "$POLAROID_COVER")" '^1$'
-ck "合上后内容区收起" "$(COUNT "$FLIP_OPEN")" '^0$'
-TAP "$POLAROID_COVER"
-sleep 0.8
-echo "### 4) 我的卡：当年正面（雾面句）+ 今天背面 + 头部口径（R3/R2/R11）"
-ck "eyebrow" "$(RES automation_element_action --action text --selector "$EYEBROW")" '^IN A FLASH · 闪念间$'
-ck "headline=本人 · 相对年数" "$(RES automation_element_action --action text --selector "$HEADLINE")" '王小明 · [0-9]+ 年前的你'
-ck "subline=记忆线 · 城市" "$(RES automation_element_action --action text --selector "$SUBLINE")" '^记忆线 · 北京$'
-ck "寄出态默认未寄出" "$(RES automation_element_action --action text --selector "$WALL_BADGE")" '^还未寄出（可在网页端寄出）$'
-ck "拍立得标签=申请日" "$(RES automation_element_action --action text --selector "$POLAROID_LABEL")" '^POLAROID · 2014-01-11$'
-ck "两行卡面标题（正面+背面）" "$(COUNT "$CARD_FACE_TITLE")" '^2$'
-ck "雾化操作提示" "$(RES automation_element_action --action text --selector "$ANSWER_META")" '点按句子切换雾面：雾面句对外隐藏，你这里永远完整'
-ck "切句=3 句" "$(COUNT "$SENTENCE")" '^3$'
+ck "点按快门后仪式层解散" "$(COUNT "$SHUTTER_MASK")" '^0$'
+ck "卡 dock 在（mini 卡 + 三动作）" "$(COUNT "$CARDDOCK")" '^1$'
+ck "mini 卡全名" "$(RES automation_element_action --action text --selector "$MINICARD_NAME")" '^王小明$'
+ck "mini 卡年份 · 城市" "$(RES automation_element_action --action text --selector "$MINICARD_FACTS")" '^2014 · 北京$'
+ck "mini 卡提示" "$(RES automation_element_action --action text --selector "$MINICARD_HINT")" '^点卡片翻开$'
+ck "dock 写入口（今天未写无 ✓）" "$(RES automation_element_action --action text --selector "$DOCK_WRITE")" '^✎ 写今天的你$'
+ck "dock 寄出（未寄出态）" "$(RES automation_element_action --action text --selector "$DOCK_SEND")" '^写完寄出 →$'
+ck "dock 授权（默认关无后缀）" "$(RES automation_element_action --action text --selector "$DOCK_LICENSE")" '^← 金句授权$'
+ck "城市钉 3（名册城市：上海/北京/广州）" "$(COUNT "$CITY_PIN")" '^3$'
+ck "初始选中=全部（全部钉带选中态）" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
+ck "时间帧 2（升序）" "$(COUNT "$CAPWHEN")" '^2$'
+ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
+ck "首帧叙事标签=一切的开始" "$(RES automation_element_action --action text --selector "$CAPLABEL")" '一切的开始$'
+ck "城市堆 4（上海场 1 堆 + 北京场 北京/上海/广州 3 堆）" "$(COUNT "$PINPOL")" '^4$'
+ck "首堆=上海 · 3 位" "$(RES automation_element_action --action text --selector "$PINCITY")/$(RES automation_element_action --action text --selector "$PINCOUNT")" '^上海/3 位$'
+ck "已回来标记 3 堆（上海场 2 位 + 北京场两堆各 1 位）" "$(COUNT "$CAPRETURNED")" '^3$'
+ck "今天格标头（动态日期）" "$(RES automation_element_action --action text --selector "$TODAY_TITLE")" '^⚡ 今天 [0-9]+\.[0-9]+\.[0-9]+ · 此刻 · 一闪念间$'
+ck "今天格=你的位置（member 未寄出）" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^你的位置$'
+ck "未来场次帧头（日期 · 倡议名）" "$(RES automation_element_action --action text --selector "$CAP_FUTURE")" '^[0-9]+\.[0-9]+ · Hacker Start 1024$'
+ck "未来帧未显影标记" "$(RES automation_element_action --action text --selector "$CAP_FUTURE_DIM")" '^未显影$'
+ck "未来段标题" "$(RES automation_element_action --action text --selector "$FUTURE_TITLE")" '^未来 · 一起做什么$'
+ck "未来场次卡 3" "$(COUNT "$EVENT_CARD")" '^3$'
+ck "亮金可报名 1 / 灰卡 2" "$(COUNT "$EVENT_CARD_LIT")/$(COUNT "$EVENT_CARD_MUTED")" '^1/2$'
+ck "首张场卡=Agent 入门工作坊" "$(RES automation_element_action --action text --selector "$EVENT_TITLE")" '^Agent 入门工作坊$'
+ck "可报名卡 CTA=报名 →" "$(RES automation_element_action --action text --selector "$EVENT_CTA")" '^报名 →$'
+ck "满员卡徽章=名额已满" "$(RES automation_element_action --action text --selector "$EVENT_BADGE")" '^名额已满$'
+ck "公开愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
+ck "首愿内容" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^一起出一本书:《她们的第一行代码》$'
+ck "首愿附议行（未附议态）" "$(RES automation_element_action --action text --selector "$WISH_ENDORSE")" '^👍 5$'
+ck "次愿已附议态" "$(RES automation_element_action --action text --selector "$WISH_ENDORSED")" '^👍 2 · 已附议$'
+ck "许愿入口" "$(RES automation_element_action --action text --selector "$WISH_ADD")" '^\+ 许个愿$'
+ck "私愿折叠行" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_LABEL")" '^🔒 私人许愿\(1 条\)$'
+ck "私愿折叠箭头" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_ARROW")" '^展开 ▼$'
+ck "底部 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CTA")" '^把这一刻做成卡片 →$'
+shot 03.5-corridor-member.png
+
+echo "### 3.5) 我的卡开卡层两态（MyCard 单源）：view 停合着面 → 点按翻面看写入面 → 合回"
+TAP "$MINICARD"
+sleep 2
+ck "开卡层出现（暗场）" "$(COUNT "$LAYER_MASK")" '^1$'
+ck "3D 翻面容器在" "$(COUNT "$CARD_FLIP")" '^1$'
+ck "view 入口停在合着面（未翻面）" "$(COUNT "$CARD_FLIPPED")" '^0$'
+ck "层 chrome=未寄出口径" "$(RES automation_element_action --action text --selector "$WALL_OFF")" '^点击照片翻面写字 · 再点寄出$'
+ck "未寄出：无点赞徽章（R36）" "$(COUNT "$MASK_LIKE")" '^0$'
+TAP "$FOG_HINT"
+sleep 1.2
+ck "点当年面翻到今天写入面" "$(COUNT "$CARD_FLIPPED")" '^1$'
+ck "写入面 4 行输入（现在/想学/帮助/想说）" "$(COUNT "$WRITE_INPUT")" '^4$'
+ck "首行标签=现在在做什么" "$(RES automation_element_action --action text --selector "$WRITE_LABEL")" '^现在在做什么$'
+ck "写入面标题（动态日期）" "$(RES automation_element_action --action text --selector "$PAPER_TODAY_TITLE")" '^今天的你 · [0-9]+\.[0-9]+\.[0-9]+$'
+ck "寄出钮=写完寄出" "$(RES automation_element_action --action text --selector "$SEND_BTN")" '^写完寄出 →$'
+ck "寄出公开性提示" "$(RES automation_element_action --action text --selector "$SEND_NOTE")" '^寄出即公开 · 包括当年的答案 · 随时可调$'
+ck "回当年面链接" "$(RES automation_element_action --action text --selector "$BACK_LINK")" '^← 回到当年答案$'
+shot 035-card-write-face.png
+TAP "$BACK_LINK"
+sleep 1
+ck "合回当年答案面" "$(COUNT "$CARD_FLIPPED")" '^0$'
+
+echo "### 4) 当年答案面（题干 + 句子级雾面 + KTD4 本人原文完整）"
+ck "题干 2（self_intro + funny_thing）" "$(COUNT "$PAPER_Q")" '^2$'
+ck "首题干=请简单的介绍一下自己" "$(RES automation_element_action --action text --selector "$PAPER_Q")" '^请简单的介绍一下自己$'
+ck "切句=4 句（自我介绍 3 句 + 有意思的事 1 句）" "$(COUNT "$SENTENCE")" '^4$'
 ck "雾面句=1 句（mock fogSpans [0,7) 只罩首句）" "$(COUNT "$SENTENCE_FOGGED")" '^1$'
 ck "本人视图首句永远完整（KTD4）" "$(RES automation_element_action --action text --selector "$SENTENCE")" '^我在盛大做测试。'
-ck "今天背面三行均未写" "$(COUNT "$TODAY_EMPTY")" '^3$'
-ck "编辑入口文案" "$(RES automation_element_action --action text --selector "$EDITOR_TOGGLE")" '^编辑今天的你$'
-# R36：点赞徽章只在「上墙且有点赞」时出现——mock 未寄出，故此处不渲染（判据在 domain 单测钉住）
-ck "未寄出：无点赞徽章（R36）" "$(COUNT "$LIKE_BADGE")" '^0$'
-shot 04-flashback-my-card.png
+ck "雾化操作提示" "$(RES automation_element_action --action text --selector "$FOG_HINT")" '^点句子可切换雾面 · 雾面句对外不可见$'
+shot 04-card-front-fog.png
 
 echo "### 5) 雾化编辑：点按雾面句 → 解雾（R16 句子级开关）"
 TAP "$SENTENCE_FOGGED"
 sleep 1.5
 ck "点按后雾面清空" "$(COUNT "$SENTENCE_FOGGED")" '^0$'
-shot 05-flashback-fog-cleared.png
-
-echo "### 6) 今天背面：编辑 → 填写 → 保存回显"
-TAP "$EDITOR_TOGGLE"
+shot 05-card-fog-cleared.png
+TAP "$LAYER_CLOSE"
 sleep 1
-ck "编辑态 3 个输入框" "$(COUNT "$TEXTAREA")" '^3$'
-ck "保存按钮出现" "$(COUNT "$SAVE_BUTTON")" '^1$'
-RAW automation_element_action --action input --selector "$TEXTAREA" --value 'E2E 闪念间回访' >/dev/null
-TAP "$SAVE_BUTTON"
-sleep 2
-ck "保存后退回展示态" "$(COUNT "$TEXTAREA")" '^0$'
-ck "回显=刚写的现在在做什么" "$(RES automation_element_action --action text --selector "$TODAY_TEXT")" '^E2E 闪念间回访$'
-ck "保存重载后雾面仍清空（mock state 持久回读，P2）" "$(COUNT "$SENTENCE_FOGGED")" '^0$'
-shot 06-flashback-today-saved.png
+ck "合卡层关闭" "$(COUNT "$LAYER_MASK")" '^0$'
 
-echo "### 7) 金句授权三档（R31）：默认关 + trigger 切匿名"
-ck "授权卡存在" "$(COUNT "$LICENSE_CARD")" '^1$'
-ck "三档选项" "$(COUNT "$LICENSE_OPTION")" '^3$'
-ck "默认选中恰好一档" "$(COUNT "$LICENSE_ACTIVE")" '^1$'
-ck "默认档=不授权" "$(RES automation_element_action --action text --selector "$LICENSE_ACTIVE $LICENSE_LABEL")" '^不授权$'
-# radio 无类名差异可定位第 2 个，radio-group 是页面唯一原生容器：
-# 在其上派发 change 事件（与真机点 radio 同一事件源）
-TRIGGER change '{"value":"anonymous"}' 'radio-group'
+echo "### 6) 金句授权层·默认关（R31）：dock 入口 → 三档 + 选中「关闭」+ 圈选器不展开"
+TAP "$DOCK_LICENSE"
 sleep 1.5
-ck "切换后选中=匿名金句" "$(RES automation_element_action --action text --selector "$LICENSE_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
-# R35 选句器：匿名档下展开候选句（按句切分、排除雾面段——mock 首句带雾面 → 2 句候选）；
-# 未圈选 = 不上墙，所以授权提交发生在点句这一步
-ck "选句器展开（R35）" "$(COUNT "$QUOTE_PICKER")" '^1$'
-# 段 5 已把唯一雾面句解开 → 3 句全部可作候选（雾面排除判据在 domain 单测钉住）
-ck "候选句=3（雾面已在段 5 解开）" "$(COUNT "$QUOTE_CANDIDATE")" '^3$'
-ck "默认无圈选高亮" "$(COUNT "$QUOTE_CANDIDATE_ACTIVE")" '^0$'
+ck "授权层弹出" "$(COUNT "$SHEET_MASK")" '^1$'
+ck "层标题=金句授权" "$(RES automation_element_action --action text --selector "$SHEET_TITLE")" '^金句授权$'
+ck "勇气语徽章" "$(RES automation_element_action --action text --selector "$COURAGE")" '^你说的话会成为别人的勇气！$'
+ck "三档选项" "$(COUNT "$LICENSE_ROW")" '^3$'
+ck "默认选中恰好一档=关闭" "$(RES automation_element_action --action text --selector "$LICENSE_ROW_ACTIVE $LICENSE_LABEL")" '^关闭$'
+ck "关档下圈选器不展开" "$(COUNT "$QUOTE_PICKER")" '^0$'
+ck "底部口径=默认全部关闭" "$(RES automation_element_action --action text --selector "$LICENSE_FOOT")" '^你的授权随时可调，默认全部关闭$'
+TRIGGER tap '{}' "$SHEET_MASK"
+sleep 1
+ck "授权层关闭（遮罩 trigger 关层）" "$(COUNT "$SHEET_MASK")" '^0$'
+
+echo "### 7) 今天写入面：write 入口 → 写入 → 写完寄出（U5 三拍收尾）→ 金句引导层弹出"
+TAP "$DOCK_WRITE"
+sleep 1.5
+ck "write 入口直接落在写入面（autoOpen 翻面）" "$(COUNT "$CARD_FLIPPED")" '^1$'
+RAW automation_element_action --action input --selector "$WRITE_INPUT" --value 'E2E 闪念间回访' >/dev/null
+sleep 0.5
+ck "首行输入回读" "$(RES automation_element_action --action value --selector "$WRITE_INPUT")" '^E2E 闪念间回访$'
+TAP "$SEND_BTN"
+sleep 3
+ck "寄出后开卡层关闭（落定三拍之一）" "$(COUNT "$LAYER_MASK")" '^0$'
+ck "金句授权引导层弹出（寄出落定轻推）" "$(COUNT "$NUDGE_MASK")" '^1$'
+ck "引导勇气语" "$(RES automation_element_action --action text --selector "$NUDGE_LEAD")" '^你说的话，会成为别人的勇气。$'
+ck "引导副文案" "$(RES automation_element_action --action text --selector "$NUDGE_SUB")" '^从当年的答案里选一句，匿名或实名地传下去。$'
+ck "引导主钮=选一句试试" "$(RES automation_element_action --action text --selector "$NUDGE_PRIMARY")" '^选一句试试 →$'
+ck "引导次出口=先不" "$(RES automation_element_action --action text --selector "$NUDGE_SKIP")" '^先不$'
+ck "dock 寄出回读=已寄出 ✓" "$(RES automation_element_action --action text --selector "$DOCK_SEND")" '^已寄出 ✓$'
+ck "dock 写入口补完成态勾" "$(RES automation_element_action --action text --selector "$DOCK_WRITE")" '^✎ 写今天的你 ✓$'
+ck "今天格点亮（瘦长黑相纸）" "$(COUNT "$TODAY_LIT")" '^1$'
+ck "今天格照片=本人名" "$(RES automation_element_action --action text --selector "$TODAY_LIT_NAME")" '^王小明$'
+shot 07-corridor-sent-nudge.png
+
+echo "### 7.5) nudge「选一句试试」→ 匿名档预选 + 圈选一句（R35）→ 匿名预览 → 回读 + R36 点赞徽章"
+TAP "$NUDGE_PRIMARY"
+sleep 2
+ck "引导转授权层" "$(COUNT "$SHEET_MASK")" '^1$'
+ck "引导层已关" "$(COUNT "$NUDGE_MASK")" '^0$'
+ck "预选档=匿名金句（nudge 路径）" "$(RES automation_element_action --action text --selector "$LICENSE_ROW_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
+ck "首行档仍=关闭（三档都在）" "$(RES automation_element_action --action text --selector "$LICENSE_ROW $LICENSE_LABEL")" '^关闭$'
+ck "圈选器展开，已选 0 句" "$(RES automation_element_action --action text --selector "$QUOTE_PICKHINT")" '已选 0 句$'
+ck "候选句=5（当年 4 句已解雾 + 今天 1 句）" "$(COUNT "$QUOTE_CANDIDATE")" '^5$'
+ck "无雾句候选（段 5 已解雾）" "$(COUNT "$QUOTE_CANDIDATE_FOGGED")" '^0$'
 TAP "$QUOTE_CANDIDATE"
-sleep 1.5
+sleep 2
 ck "圈选后高亮恰一句" "$(COUNT "$QUOTE_CANDIDATE_ACTIVE")" '^1$'
-shot 07-flashback-quote-anonymous.png
+ck "已选计数=1" "$(RES automation_element_action --action text --selector "$QUOTE_PICKHINT")" '已选 1 句$'
+ck "匿名预览金句=首句原文" "$(RES automation_element_action --action text --selector "$QUOTE_PREVIEW_Q")" '^「我在盛大做测试。」$'
+ck "匿名预览署名=王** · 2014 · 北京" "$(RES automation_element_action --action text --selector "$QUOTE_PREVIEW_NAME")" '^王\*\* · 2014 · 北京$'
+ck "匿名预览=不可点" "$(RES automation_element_action --action text --selector "$QUOTE_PREVIEW_DIM")" '^匿名 · 不可点$'
+ck "dock 授权回读=匿名 ✓（capsule.me.quoteLevel）" "$(RES automation_element_action --action text --selector "$DOCK_LICENSE")" '^← 金句授权 · 匿名 ✓$'
+shot 075-license-anonymous.png
+TRIGGER tap '{}' "$SHEET_MASK"
+sleep 1
+ck "授权层关闭" "$(COUNT "$SHEET_MASK")" '^0$'
+TAP "$MINICARD"
+sleep 2
+ck "寄出后层 chrome=已寄出到校友墙" "$(RES automation_element_action --action text --selector "$WALL_ON")" '^已寄出到校友墙$'
+ck "点赞徽章出现（R36 正例：寄出+授权+有赞）" "$(RES automation_element_action --action text --selector "$MASK_LIKE")" '^❤ 3$'
+TAP "$LAYER_CLOSE"
+sleep 1
 
-echo "### 7.5) 分享三件（用户定稿 ③）：入口按钮 + sheet 三入口 + 取消收起"
-SHARE_BUTTON=$(cls pages/flashback 'shareButton')
-SHARE_SHEET=$(cls pages/flashback 'shareSheet')
-SHARE_CANCEL=$(cls pages/flashback 'shareCancel')
-SHARE_ENTRY=$(cls pages/flashback 'shareEntry')
-ck "分享入口按钮" "$(COUNT "$SHARE_BUTTON")" '^1$'
-TAP "$SHARE_BUTTON"
-sleep 0.8
-ck "分享 sheet 弹出" "$(COUNT "$SHARE_SHEET")" '^1$'
-ck "三入口（好友/朋友圈/保存）" "$(COUNT "$SHARE_ENTRY")" '^3$'
-# R37 分享 opt-in：已授权（上一步圈选开了匿名档）→ 显示且为锁定态（分享改不了档位）
-ck "分享 opt-in 行出现（R37）" "$(COUNT "$SHARE_OPTIN")" '^1$'
-shot 075-share-sheet.png
+echo "### 8) 卡片页（长廊 CTA → flashback-today）：四态 chip + 金句高亮 + 分享面板（#771）"
+TAP "$CTA"
+wait_route '/pages/flashback-today/index' || true
+ck "落卡片页" "$(ROUTE)" '/pages/flashback-today/index'
+ck "四态 chip 4" "$(COUNT "$MODE_CHIP")" '^4$'
+ck "默认选中=合起来" "$(RES automation_element_action --action text --selector "$MODE_CHIP_ACTIVE")" '^合起来$'
+ck "两段句数=5（今天 1 + 当年 4）" "$(COUNT "$RV_SENTENCE")" '^5$'
+ck "无雾句（段 5 解雾后）" "$(COUNT "$RV_FOG")" '^0$'
+ck "金句浅金高亮恰一句（rvQuote）" "$(COUNT "$RV_QUOTE")" '^1$'
+ck "页底提示=点句切雾" "$(RES automation_element_action --action text --selector "$TODAY_TIP")" '^点句子可切换雾面 · 雾面句对外不可见$'
+ck "金句 opt-in 行（R37 已授权=勾上态）" "$(COUNT "$SHARE_OPTIN")" '^1$'
+ck "opt-in 文案=已允许 · 点按关闭" "$(RES automation_element_action --action text --selector "$SHARE_OPTIN_LABEL")" '^已允许金句放进金句墙 · 点按关闭$'
+TAP "$ACTION_SECONDARY"
+sleep 1.5
+ck "分享面板弹出" "$(COUNT "$SHARE_MASK")" '^1$'
+ck "面板标题=朋友将看到的全文卡" "$(RES automation_element_action --action text --selector "$SHARE_TITLE")" '^朋友将看到的全文卡$'
+ck "四条边界提示" "$(COUNT "$SHARE_NOTICE_LINE")" '^4$'
+ck "开启前知情文案" "$(RES automation_element_action --action text --selector "$SHARE_CONSENT")" '^开启后，任何拿到链接的人都能看到上面这张卡。随时可以关。$'
+ck "主钮=允许生成分享链接" "$(RES automation_element_action --action text --selector "$SHARE_PRIMARY")" '^允许生成分享链接$'
+ck "预览卡 kicker（与访客读面同组件）" "$(RES automation_element_action --action text --selector "$SC_KICKER")" '^IN A FLASH · 闪念间$'
+ck "预览卡场景标=城市 · 活动日" "$(RES automation_element_action --action text --selector "$SC_STAMP")" '^北京 · 2014\.01\.11$'
+ck "预览卡两段（当年的你 + 今天的你）" "$(COUNT "$SC_PHOTO_TITLE")" '^2$'
+TAP "$SHARE_PRIMARY"
+sleep 2
+ck "开启后=链接已开启" "$(RES automation_element_action --action text --selector "$SHARE_STATUS_ON")" '^链接已开启$'
+ck "开启后提示" "$(RES automation_element_action --action text --selector "$SHARE_STATUS_HINT")" '^朋友点开就能看到上面这张卡$'
+shot 08-today-share-enabled.png
 TAP "$SHARE_CANCEL"
-sleep 0.6
-ck "取消后 sheet 收起" "$(COUNT "$SHARE_SHEET")" '^0$'
-
-echo "### 8) 行动板：四态卡各一次 + 已附议在前（R13 分组）"
-ck "行动板提示" "$(RES automation_element_action --action text --selector "$BOARD_HINT")" '^已附议的卡排前面；附议后成场时会收到通知$'
-ck "四张行动卡" "$(COUNT "$ACTION_CARD")" '^4$'
-# P4 起容器也挂四态类（.scheduled 等首匹配变成整卡容器）——徽章用
-# `<状态卡容器> .actionStatus` 后代选择器唯一命中该卡状态徽章
-ck "已成场徽章" "$(RES automation_element_action --action text --selector "$STATUS_SCHED $ACTION_STATUS")" '^已成场$'
-ck "已落地徽章" "$(RES automation_element_action --action text --selector "$STATUS_DONE $ACTION_STATUS")" '^已落地$'
-ck "提议中徽章" "$(RES automation_element_action --action text --selector "$STATUS_PROP $ACTION_STATUS")" '^提议中$'
-ck "附议中徽章" "$(RES automation_element_action --action text --selector "$STATUS_FORM $ACTION_STATUS")" '^附议中$'
-ck "第一张卡=已附议的已成场卡（分组在前）" "$(RES automation_element_action --action text --selector "$ACTION_TITLE")" '^Python 共学场$'
-ck "首卡动作=成场了，去报名（goEvent）" "$(RES automation_element_action --action text --selector "$ENDORSE_BUTTON")" '^成场了，去报名$'
-ck "已认领角色行（首卡）" "$(RES automation_element_action --action text --selector "$ROLES_ROW")" '^已认领：宣传拉人、场地资源$'
-ck "附议按钮共 3 张卡可见（sched+proposed+forming）" "$(COUNT "$ENDORSE_BUTTON")" '^3$'
-ck "无人处于已附议素按钮态" "$(COUNT "$ENDORSE_PLAIN")" '^0$'
-shot 08-flashback-action-board.png
-
-echo "### 8.5) 城市钉筛选（R34）：点城市 → 行动板只剩该城；回全部恢复"
-# mock cities 字节序 [上海,北京,天津,广州,杭州]（批次二并入名册城市）：.cityPin 第一匹配=上海钉（全部钉为独立类 cityPinAll）
-ck "城市钉条渲染（全部 + 五城）" "$(COUNT "$CITY_PIN")" '^5$'
-ck "全部钉唯一" "$(COUNT "$CITY_PIN_ALL")" '^1$'
-ck "初始选中钉=全部（恰一选中）" "$(COUNT "$CITY_PIN_ACTIVE")" '^1$'
-ck "全部钉带选中态" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
-TAP "$CITY_PIN"
-sleep 2
-ck "筛上海后行动板只剩 1 卡" "$(COUNT "$ACTION_CARD")" '^1$'
-ck "该卡=上海已成场卡（名册只含该城）" "$(RES automation_element_action --action text --selector "$ACTION_META")" '^上海 · 已有 12 人附议$'
-ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
-ck "钉条不随过滤收缩（仍 5 城钉）" "$(COUNT "$CITY_PIN")" '^5$'
-shot 08.5-flashback-city-filtered.png
-TAP "$CITY_PIN_ALL"
-sleep 2
-ck "回全部恢复四张卡" "$(COUNT "$ACTION_CARD")" '^4$'
-ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
-
-echo "### 9) 已成场卡 goEvent 直链（R13：不在闪念间内闭环）"
-TAP "$ENDORSE_BUTTON"
-wait_route '/pages/event-detail/index' || true
-ck "直链落活动详情（id=event-1）" "$(ROUTE)" '"/pages/event-detail/index\?id=event-1&kind=event"'
-shot 09-flashback-goevent-link.png
+sleep 1
+ck "先不分享后面板关闭" "$(COUNT "$SHARE_MASK")" '^0$'
 RAW automation_navigate --action navigateBack >/dev/null
 sleep 2.5
-ck "返回闪念间授权档回读=匿名（capsule.me.quoteLevel，P3）" "$(RES automation_element_action --action text --selector "$LICENSE_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
+ck "返回长廊" "$(ROUTE)" '/pages/flashback-corridor/index'
+ck "授权档回读仍=匿名（capsule.me.quoteLevel，P3）" "$(RES automation_element_action --action text --selector "$DOCK_LICENSE")" '^← 金句授权 · 匿名 ✓$'
 
-echo "### 9.5) 附议闭环（P4）：forming 卡附议 → showActionSheet mock → 计数 +1"
-# 行动卡容器挂四态类名（P4）后 `.forming .endorseButton` 唯一命中 forming 卡按钮
-# （.forming 的另一处在状态徽章 Text 上，其内无按钮）。showActionSheet mock
-# 已实测可用：tapIndex 0 = 组织者（ENDORSE_ROLES[0]）。
-RAW automation_wx_api --action mock --method showActionSheet --result '{"tapIndex":0,"errMsg":"showActionSheet:ok"}' >/dev/null
-TAP "$STATUS_FORM $ENDORSE_BUTTON"
+echo "### 8.5) 城市钉筛选（R34 重映射到长廊城市堆）：点上海 → 堆 4→2；回全部恢复"
+ck "城市钉 3 + 全部钉选中" "$(COUNT "$CITY_PIN")/$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^3/全部$'
+ck "筛选前堆 4" "$(COUNT "$PINPOL")" '^4$'
+TAP "$CITY_PIN"
 sleep 2.5
-ck "附议后 forming 卡计数 +1（4→5）" "$(RES automation_element_action --action text --selector "$STATUS_FORM $ACTION_META")" '^北京 · 已有 5 人附议$'
-ck "forming 卡附议后=已附议素按钮态" "$(COUNT "$ENDORSE_PLAIN")" '^1$'
-shot 10-flashback-endorsed.png
+ck "筛上海后堆只剩 2（两场的上海堆）" "$(COUNT "$PINPOL")" '^2$'
+ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
+ck "钉条不随过滤收缩（仍 3 城钉）" "$(COUNT "$CITY_PIN")" '^3$'
+shot 08.5-corridor-city-filtered.png
+TAP "$CITY_PIN_ALL"
+sleep 2.5
+ck "回全部恢复 4 堆" "$(COUNT "$PINPOL")" '^4$'
+ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
+
+echo "### 9) 愿望段（附议闭环重映射，只读）：公开愿模态 + 私愿折叠"
+TAP "$WISH_CARD"
+sleep 1.5
+ck "愿望模态弹出" "$(COUNT "$WISH_MODAL")" '^1$'
+ck "模态全文" "$(RES automation_element_action --action text --selector "$WISH_MODAL_CONTENT")" '^一起出一本书:《她们的第一行代码》$'
+ck "留言区标题=留言(1)" "$(RES automation_element_action --action text --selector "$WISH_COMMENTS_TITLE")" '^留言\(1\)$'
+ck "留言 1 条" "$(COUNT "$WISH_COMMENT_ROW")" '^1$'
+ck "留言内容" "$(RES automation_element_action --action text --selector "$WISH_COMMENT_TEXT")" '^算我一个$'
+ck "模态附议行=👍 附议 · 5（未附议态；mock 无 wish 写面，不点按）" "$(RES automation_element_action --action text --selector "$WISH_MODAL $WISH_ENDORSE")" '^👍 附议 · 5$'
+shot 09-wish-modal.png
+TRIGGER tap '{}' "$WISH_MODAL_MASK"
+sleep 1
+ck "模态关闭" "$(COUNT "$WISH_MODAL")" '^0$'
+TAP "$PRIVATE_FOLD"
+sleep 1
+ck "私愿展开箭头=收起 ▲" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_ARROW")" '^收起 ▲$'
+ck "私愿卡 1（仅自己可见）" "$(COUNT "$WISH_CARD_PRIVATE")" '^1$'
+ck "本人私愿带删除" "$(COUNT "$WISH_DELETE")" '^1$'
+TAP "$PRIVATE_FOLD"
+sleep 1
+ck "私愿收起" "$(COUNT "$WISH_CARD_PRIVATE")" '^0$'
 
 echo "### 11) 首程旅程（mp 版原型 F；token 面，免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层"
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
 sleep 2
 if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
-# 清 journey token（cgc.flashback_token）与首程 mock 态——段 3-9 写过的 state 不入旅程
-RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
+# 清 journey token（cgc.flashback_token）与首程 mock 态——段 3-9 写过的 state 不入旅程；
+# nudge 已推标记一并清（段 13 要断言 welcome 引导）；入口 intent 防上次崩溃残留
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/flashback-journey/index?token=e2e-flashback-token' >/dev/null
 sleep 2
 JOURNEY='pages/flashback-journey'
@@ -406,78 +597,82 @@ TAP "$JOVER_SKIP"
 wait_route '/pages/flashback-corridor/index' || true
 ck "跳过后落长廊" "$(ROUTE)" '/pages/flashback-corridor/index'
 
-echo "### 13) 长廊（mp 版原型 F corridor；token 态=R12/R34）：垂直墙+城市堆+今天格+未来卡"
-CORRIDOR='pages/flashback-corridor'
-CTITLE=$(cls "$CORRIDOR" title)
-CHINT=$(cls "$CORRIDOR" hint)
-CFRAME_WHEN=$(cls "$CORRIDOR" frameWhen)
-CPILE=$(cls "$CORRIDOR" pile)
-CPILE_CARD=$(cls "$CORRIDOR" pileCard)
-CFRAME_LABEL=$(cls "$CORRIDOR" frameLabel)
-CPILE_COUNT=$(cls "$CORRIDOR" pileCount)
-CRETURNED=$(cls "$CORRIDOR" frameReturned)
-CTODAY_SUB=$(cls "$CORRIDOR" todaySub)
-CFUTURE_CARD=$(cls "$CORRIDOR" futureCard)
-CCTA=$(cls "$CORRIDOR" cta)
-ck "墙头「闪念间 · 时间长廊」（用户定稿改名）" "$(RES automation_element_action --action text --selector "$CTITLE")" '^闪念间 · 时间长廊$'
-ck "下滑=时间前进提示" "$(RES automation_element_action --action text --selector "$CHINT")" '^↓ 下滑 = 时间前进：顶上是当年，底部是等你的未来 · 点任一格进入那一场$'
-ck "帧标 4 = 2 过去帧 + ⚡今天格 + 未来帧（升序）" "$(COUNT "$CFRAME_WHEN")" '^4$'
-ck "第一帧=2012.02.26（顶上是更早的）" "$(RES automation_element_action --action text --selector "$CFRAME_WHEN")" '^2012\.02\.26'
-ck "城市堆 4（上海场 1 城 + 北京场 北京/上海/广州 3 堆，上限 4）" "$(COUNT "$CPILE")" '^4$'
-ck "首堆计数=上海 · 3 位" "$(RES automation_element_action --action text --selector "$CPILE_COUNT")" '^上海 · 3 位$'
-ck "首帧叙事标签=一切的开始（原型 D ia-frame-label）" "$(RES automation_element_action --action text --selector "$CFRAME_LABEL")" '^一切的开始$'
-ck "第一帧（上海场）已回来=2 位" "$(RES automation_element_action --action text --selector "$CRETURNED")" '^2 位已回来$'
-ck "今天格=你刚寄出的照片" "$(RES automation_element_action --action text --selector "$CTODAY_SUB")" '^你刚寄出的照片$'
-ck "未来行动卡 4 张" "$(COUNT "$CFUTURE_CARD")" '^4$'
-ck "序列终点 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CCTA")" '^把这一刻做成卡片 →$'
-shot 13-corridor.png
-# 堆可点（用户定稿收尾：文字链接已删，点堆=唯一格入口）
-TAP "$CPILE_CARD"
+echo "### 13) 长廊首程落地（token 态）：welcome 金句引导 + 今天格已寄出 + 点堆进场次页"
+sleep 3
+# welcome intent 抑制快门仪式（intent 走 storage 单次传递——switchTab 不带 query，
+# router.params 永远读不到；曾因此首程落地误弹快门）
+ck "首程落地不弹快门（welcome intent 抑制）" "$(COUNT "$SHUTTER_MASK")" '^0$'
+ck "welcome 金句引导弹出（一次性轻推）" "$(COUNT "$NUDGE_MASK")" '^1$'
+ck "引导勇气语" "$(RES automation_element_action --action text --selector "$NUDGE_LEAD")" '^你说的话，会成为别人的勇气。$'
+TAP "$NUDGE_SKIP"
+sleep 1
+ck "先不 后引导关闭" "$(COUNT "$NUDGE_MASK")" '^0$'
+ck "token 腿同档案=王小明" "$(RES automation_element_action --action text --selector "$MINICARD_NAME")" '^王小明$'
+ck "dock 寄出=已寄出 ✓（首程寄出同源）" "$(RES automation_element_action --action text --selector "$DOCK_SEND")" '^已寄出 ✓$'
+ck "dock 写入口带完成勾（首程写了今天）" "$(RES automation_element_action --action text --selector "$DOCK_WRITE")" '^✎ 写今天的你 ✓$'
+ck "今天格点亮" "$(COUNT "$TODAY_LIT")" '^1$'
+ck "今天格照片=本人名" "$(RES automation_element_action --action text --selector "$TODAY_LIT_NAME")" '^王小明$'
+ck "今天格可点提示" "$(RES automation_element_action --action text --selector "$TODAY_LIT_CAP")" '^点开看你的卡 · 可保存分享$'
+ck "时间帧 2（参与态完整长廊）" "$(COUNT "$CAPWHEN")" '^2$'
+ck "城市堆 4" "$(COUNT "$PINPOL")" '^4$'
+ck "已回来标记 3 堆（本人寄出后北京堆 2 位）" "$(COUNT "$CAPRETURNED")" '^3$'
+ck "未来场次卡 3" "$(COUNT "$EVENT_CARD")" '^3$'
+ck "公开愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
+ck "底部 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CTA")" '^把这一刻做成卡片 →$'
+shot 13-corridor-after-journey.png
+# 堆可点（点堆=唯一格入口）：首堆=2012 上海场
+TAP "$PINPOL"
 wait_route '/pages/flashback-event/index' || true
 ck "点堆进场次页" "$(ROUTE)" '"/pages/flashback-event/index\?key=2012-02-26-sh"'
 
-echo "### 13.5) 场次页（E 的 event 步）：统计行+3 列网格+找回 CTA"
+echo "### 13.5) 场次页（E 的 event 步）：统计行+3 列网格+找回 CTA+回环三出口"
 RAW automation_navigate --action reLaunch --url '/pages/flashback-event/index?key=2014-01-11-bj' >/dev/null
 sleep 2
-EVENT='pages/flashback-event'
 EBACK=$(cls "$EVENT" back)
 ETITLE=$(cls "$EVENT" title)
 ESTAT=$(cls "$EVENT" stat)
+EPEOPLE_HINT=$(cls "$EVENT" peopleHint)
 ECELL=$(cls "$EVENT" cell)
 ELIT=$(cls "$EVENT" cardLit)
 EFOG=$(cls "$EVENT" cardFog)
+ECARD_NAME=$(cls "$EVENT" cardName)
 EFOG_NAME=$(cls "$EVENT" cardNameFog)
 EFIND=$(cls "$EVENT" cta)
-ck "返回链接" "$(RES automation_element_action --action text --selector "$EBACK")" '^‹ 时间胶囊$'
+ELOOP=$(cls "$EVENT" loopBtn)
+ck "返回链接=‹ 时间长廊（长廊升 tabBar 后改名）" "$(RES automation_element_action --action text --selector "$EBACK")" '^‹ 时间长廊$'
 ck "标题=日期 · 场次名" "$(RES automation_element_action --action text --selector "$ETITLE")" '^2014\.01\.11 · Rails Girls Beijing$'
 ck "统计行三项（报名/走进教室/已回来，R12 缺数不显示口径由 mock 全值覆盖）" "$(COUNT "$ESTAT")" '^3$'
 ck "报名数=344" "$(RES automation_element_action --action text --selector "$ESTAT")" '^344 位报名$'
+ck "名册提示行" "$(RES automation_element_action --action text --selector "$EPEOPLE_HINT")" '^这一场的人 · 显影的是寄出了的，雾着的是还没回来的$'
 ck "网格 6 人" "$(COUNT "$ECELL")" '^6$'
-ck "显影卡 3（寄出了的）" "$(COUNT "$ELIT")" '^3$'
+ck "显影卡 3（本人首程寄出 + 另两位）" "$(COUNT "$ELIT")" '^3$'
 ck "雾卡 3（还没回来的）" "$(COUNT "$EFOG")" '^3$'
-ECARD_NAME=$(cls "$EVENT" cardName)
 ck "显影卡带名字（第一格=本人王小明）" "$(RES automation_element_action --action text --selector "$ECARD_NAME")" '^王小明$'
 ck "雾卡姓氏隐名" "$(RES automation_element_action --action text --selector "$EFOG_NAME")" '^杨\*\*$'
 ck "找回 CTA" "$(RES automation_element_action --action text --selector "$EFIND")" '^你也在这一场？找回你的那一张 →$'
+ck "回环三出口（下一场/回到今天/看看未来）" "$(COUNT "$ELOOP")" '^3$'
+ck "下一场=最近可报名场" "$(RES automation_element_action --action text --selector "$ELOOP")" '^下一场:Agent 入门工作坊 →$'
 shot 13.5-event-grid.png
 
-echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配引导 → 自动认领闭环"
+echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配仍路人 → 自动认领闭环"
 # 14a 路人态：清 token/登录 → 公开统计长廊（无名单），登录引导
 RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.flashback_token"); wx.setStorageSync("cgc.e2e.flashback_unclaimed", "1"); wx.setStorageSync("cgc.e2e.flashback_claim_miss", "1") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
 sleep 2
 if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
 RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
-sleep 2.5
-CGUIDE=$(cls "$CORRIDOR" guideText)
-CVIEWER=$(cls "$CORRIDOR" viewerHint)
-ck "路人态=登录引导文案" "$(RES automation_element_action --action text --selector "$CGUIDE")" '^你也在这些照片里吗？登录后我们帮你找。$'
-ck "路人 CTA=微信一键登录找回" "$(RES automation_element_action --action text --selector "$CCTA")" '^微信一键登录，找回你的那一张 →$'
-ck "路人帧=公开统计（2012 场在，无名册内容）" "$(RES automation_element_action --action text --selector "$CFRAME_WHEN")" '^2012\.02\.26'
-ck "路人态无行动卡（R32 无未授权内容）" "$(COUNT "$CFUTURE_CARD")" '^0$'
+sleep 3
+ck "路人 CTA=登录找回" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
+ck "路人帧=公开统计 2（无名册内容）" "$(COUNT "$CAPWHEN")" '^2$'
+ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
+ck "统计堆 2（走进教室计数口径）" "$(COUNT "$PINPOL")" '^2$'
+ck "路人无卡 dock/城市钉/愿望/场次卡（R32 无未授权内容）" "$(COUNT "$CARDDOCK")/$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0/0$'
+ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
 shot 14-corridor-viewer.png
 
-# 14b 登录但库内未匹配（claim miss）→ 「找回你的那一张」会话引导
+# 14b 登录但库内未匹配（claim miss）→ 仍路人态（找回引导出口=同一 CTA；
+# 注：guide=login/recover 在长廊无差异化渲染——recover 文案只在场次页出，
+# 产品问题已记录）
 RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
 sleep 2
 TAP "$LOGIN_BUTTON"
@@ -485,17 +680,27 @@ sleep 1
 TAP "$DIALOG_PRIMARY"
 wait_route '/pages/profile/index' || true
 RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
-sleep 3
-ck "未匹配 → 找回引导文案" "$(RES automation_element_action --action text --selector "$CGUIDE")" '^我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。$'
-shot 14.5-corridor-recover.png
+sleep 3.5
+ck "未匹配仍路人态 CTA" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
+ck "未匹配无卡 dock（不伪造参与态）" "$(COUNT "$CARDDOCK")" '^0$'
+ck "未匹配帧仍=公开统计 2" "$(COUNT "$CAPWHEN")" '^2$'
+shot 14.5-corridor-claim-miss.png
 
-# 14c 自动认领（claim 命中）→ 直接进参与态
+# 14c 自动认领（claim 命中）→ 直接进参与态（member 转变 → 快门仪式层）
 RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
-sleep 3.5
-ck "自动认领后=参与态长廊（帧标恢复 4：2 过去帧+今天+未来）" "$(COUNT "$CFRAME_WHEN")" '^4$'
-ck "参与态恢复行动卡" "$(COUNT "$CFUTURE_CARD")" '^4$'
-ck "收尾：路人提示不再出现（已认领）" "$(COUNT "$CVIEWER")" '^0$'
+sleep 4
+ck "认领后 member 转变 → 快门仪式层出现" "$(COUNT "$SHUTTER_MASK")" '^1$'
+TAP "$SHUTTER_BTN"
+sleep 1
+ck "点按解散" "$(COUNT "$SHUTTER_MASK")" '^0$'
+ck "认领后卡 dock 恢复" "$(COUNT "$CARDDOCK")" '^1$'
+ck "认领档案=王小明" "$(RES automation_element_action --action text --selector "$MINICARD_NAME")" '^王小明$'
+ck "参与态时间帧 2" "$(COUNT "$CAPWHEN")" '^2$'
+ck "参与态恢复未来场次卡 3" "$(COUNT "$EVENT_CARD")" '^3$'
+ck "参与态恢复愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
+ck "参与态恢复城市钉 3" "$(COUNT "$CITY_PIN")" '^3$'
+ck "收尾 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CTA")" '^把这一刻做成卡片 →$'
 shot 15-corridor-claimed.png
 RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_unclaimed") }' >/dev/null
 
