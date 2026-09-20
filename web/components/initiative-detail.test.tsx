@@ -622,3 +622,35 @@ describe("F1 布局结构 + F4 未知缴费态（#627）", () => {
 		);
 	});
 });
+
+/**
+ * 描述按 \n\n 分段渲染（plan 001）：单 <p> + white-space:normal 会把多段描述
+ * 塌成一堵文字墙；空段（连续空行）必须丢弃，否则段距随空行数漂移。
+ */
+describe("hero 描述分段渲染", () => {
+	it("多段描述渲染为恰好 3 个 <p>，空段被丢弃", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "\n\n第一段。\n\n第二段。\n\n\n\n第三段。\n\n",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		const paragraphs = desc.querySelectorAll("p");
+		expect(paragraphs).toHaveLength(3);
+		expect(paragraphs[0].textContent).toBe("第一段。");
+		expect(paragraphs[1].textContent).toBe("第二段。");
+		expect(paragraphs[2].textContent).toBe("第三段。");
+	});
+
+	it("描述为 null 时不渲染 .initiative-hero__desc", async () => {
+		fetchPublicInitiative.mockResolvedValue({ ...PAYLOAD, description: null });
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-hero__desc")).toBeNull();
+	});
+});
