@@ -17,19 +17,13 @@ import {
   sentencesWithFog,
   toggleSentenceFog,
   todaySentencesWithFog,
-  toggleTodaySentenceFog
+  toggleTodaySentenceFog,
+  TODAY_FIELDS
 } from '@/domain/flashback'
 import { questionLabel } from '@/domain/flashback-journey'
 import styles from './index.module.css'
 
-const TODAY_FIELDS = [
-  { key: 'nowStatus', label: '现在在做什么', placeholder: '比如:还在写代码,下班带娃' },
-  { key: 'want', label: '想做的事 / 想学的东西', placeholder: '比如:学 Rust,做一个小工具' },
-  { key: 'need', label: '需要什么帮助', placeholder: '比如:想找人一起组队学习' },
-  { key: 'say', label: '想对 CGC 说', placeholder: '比如:十周年快乐!' }
-] as const
-
-type TodayKey = (typeof TODAY_FIELDS)[number]['key']
+type TodayKey = (typeof TODAY_FIELDS)[number]['field']
 
 export default function MyCard({
   capsule,
@@ -176,15 +170,15 @@ export default function MyCard({
                 今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
               </Text>
               {TODAY_FIELDS.map((field) => (
-                <View key={field.key} className={styles.writeRow}>
+                <View key={field.field} className={styles.writeRow}>
                   <Text className={styles.writeLabel}>{field.label}</Text>
                   <Input
                     className={styles.writeInput}
-                    value={draft[field.key]}
+                    value={draft[field.field]}
                     placeholder={field.placeholder}
                     placeholderClass={styles.writePlaceholder}
                     maxlength={100}
-                    onInput={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.detail.value }))}
+                    onInput={(e) => setDraft((prev) => ({ ...prev, [field.field]: e.detail.value }))}
                     onBlur={() => saveOnBlur()}
                   />
                 </View>
@@ -230,32 +224,26 @@ export function TodayReview({
 }) {
   const spans = me.quoteSpans ?? []
   const todayFog = me.today?.fogSpans ?? {}
-  const TODAY_ROWS = [
-    { field: 'now' as const, key: 'nowStatus' as const, label: '现在在做什么' },
-    { field: 'want' as const, key: 'want' as const, label: '想做的事 / 想学的东西' },
-    { field: 'need' as const, key: 'need' as const, label: '需要什么帮助' },
-    { field: 'say' as const, key: 'say' as const, label: '想对 CGC 说' }
-  ]
   return (
     <View className={styles.paperFace}>
       <View className={styles.paperPhotoB}>
         <Text className={styles.paperTodayTitle}>
           今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
         </Text>
-        {TODAY_ROWS.map((row) => {
-          const raw = me.today?.[row.key]
+        {TODAY_FIELDS.map((row) => {
+          const raw = me.today?.[row.field]
           if (!raw) return null
           return (
             <View key={row.field} className={styles.writeRow}>
               <Text className={styles.writeLabel}>{row.label}</Text>
               <View className={styles.paperA}>
-                {todaySentencesWithFog(raw, todayFog[row.field]).map((sentence, index) => (
+                {todaySentencesWithFog(raw, todayFog[row.fog]).map((sentence, index) => (
                   <Text
-                    key={`${row.field}-${index}`}
+                    key={`${row.fog}-${index}`}
                     className={`${styles.rvSentence} ${sentence.fogged ? styles.rvFog : ''}`}
                     onClick={() => {
                       if (!onToggleTodayFog) return
-                      onToggleTodayFog(row.field, toggleTodaySentenceFog(todayFog[row.field], sentence))
+                      onToggleTodayFog(row.fog, toggleTodaySentenceFog(todayFog[row.fog], sentence))
                     }}
                   >
                     {sentence.text}

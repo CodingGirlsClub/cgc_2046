@@ -6,6 +6,8 @@ import {
 	type FlashbackAnswer,
 	type FlashbackProgress,
 	type FlashbackTodayInput,
+	TODAY_FIELDS,
+	sentencesWithFogMark,
 } from "@/lib/graphql/flashback";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
@@ -31,64 +33,23 @@ export interface QuoteCandidate {
 	start: number;
 }
 
-function quoteCandidatesOf(answers: FlashbackAnswer[], today?: { nowStatus?: string | null; want?: string | null; need?: string | null; say?: string | null }): QuoteCandidate[] {
+function quoteCandidatesOf(answers: FlashbackAnswer[], today?: Partial<FlashbackTodayInput>): QuoteCandidate[] {
 	const result: QuoteCandidate[] = [];
-	const separators = "。！？!?\n";
-
-	const pushSentences = (questionKey: string, rawText: string) => {
-		const chars = Array.from(rawText);
-		let start = 0;
-		for (let i = 0; i <= chars.length; i++) {
-			if (i < chars.length && !separators.includes(chars[i])) continue;
-			const end = i < chars.length ? i + 1 : i;
-			const sentence = chars.slice(start, end).join("");
-			if (sentence.trim().length > 0) {
-				result.push({ questionKey, sentence, start });
-			}
-			start = end;
-		}
-	};
-
 	for (const answer of answers) {
-		const chars = Array.from(answer.rawText);
-		const fogIndexes = new Set<number>();
-		for (const span of answer.fogSpans ?? []) {
-			const from = Math.max(span.start, 0);
-			const to = Math.min(span.start + span.len, chars.length);
-			for (let i = from; i < to; i++) fogIndexes.add(i);
-		}
-
-		let start = 0;
-		for (let i = 0; i <= chars.length; i++) {
-			if (i < chars.length && !separators.includes(chars[i])) continue;
-			const end = i < chars.length ? i + 1 : i;
-			const sentence = chars.slice(start, end).join("");
-			let hasFog = false;
-			for (let j = start; j < end; j++) {
-				if (fogIndexes.has(j)) {
-					hasFog = true;
-					break;
-				}
-			}
-			if (sentence.trim().length > 0 && !hasFog) {
-				result.push({ questionKey: answer.questionKey, sentence, start });
-			}
-			start = end;
+		for (const sentence of sentencesWithFogMark(answer.rawText, answer.fogSpans)) {
+			if (!sentence.fogged) result.push({ questionKey: answer.questionKey, sentence: sentence.text, start: sentence.start });
 		}
 	}
-
 	// 今天正在写的句子也是金句候选(首程表单值,此刻尚无雾面)
 	if (today) {
-		for (const host of [
-			{ key: "today.now", value: today.nowStatus },
-			{ key: "today.want", value: today.want },
-			{ key: "today.need", value: today.need },
-			{ key: "today.say", value: today.say },
-		] as const) {
-			if (host.value) pushSentences(host.key, host.value);
+		for (const host of TODAY_FIELDS) {
+			const raw = today[host.field];
+			if (!raw) continue;
+			for (const sentence of sentencesWithFogMark(raw, null)) {
+				result.push({ questionKey: host.questionKey, sentence: sentence.text, start: sentence.start });
+			}
 		}
 	}
-
 	return result;
 }
 

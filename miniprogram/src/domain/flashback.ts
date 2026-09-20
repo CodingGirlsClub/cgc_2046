@@ -114,19 +114,17 @@ export interface QuoteCandidate {
   fogged?: boolean
 }
 
-/** today 句宿主键 → 字段（今天的你与当年答案同套雾/金句语言） */
-export const TODAY_QUOTE_FIELDS = [
-  { key: 'today.now', field: 'nowStatus' },
-  { key: 'today.want', field: 'want' },
-  { key: 'today.need', field: 'need' },
-  { key: 'today.say', field: 'say' }
+/** 今天的你字段单表(今天的你与当年答案同套雾/金句语言):
+ *  questionKey=金句/雾 span 宿主键;field=FlashbackMyToday 字段;fog=雾区间键(后端 field 名);
+ *  label/placeholder=写入面与回看卡的行文案。MyCard/TodayReview/候选/mock 共用。 */
+export const TODAY_FIELDS = [
+  { questionKey: 'today.now', field: 'nowStatus', fog: 'now', label: '现在在做什么', placeholder: '比如:还在写代码,下班带娃' },
+  { questionKey: 'today.want', field: 'want', fog: 'want', label: '想做的事 / 想学的东西', placeholder: '比如:学 Rust,做一个小工具' },
+  { questionKey: 'today.need', field: 'need', fog: 'need', label: '需要什么帮助', placeholder: '比如:想找人一起组队学习' },
+  { questionKey: 'today.say', field: 'say', fog: 'say', label: '想对 CGC 说', placeholder: '比如:十周年快乐!' }
 ] as const
 
-/** today 宿主键 → fogSpans 键(now/want/need/say,与后端 field 同名) */
-export function todayFogKey(questionKey: string): string | null {
-  const hit = TODAY_QUOTE_FIELDS.find((host) => host.key === questionKey)
-  return hit ? hit.key.replace('today.', '') : null
-}
+export type TodayField = (typeof TODAY_FIELDS)[number]['field']
 
 /** 金句候选（R35/U10）：当年答案 + 今天三/四行,同一切句口径;
  * 雾句不再排除——带 fogged 标记由渲染层灰显锁定(「这句被雾住了所以不能选」)。 */
@@ -146,22 +144,18 @@ export function quoteCandidatesOf(answers: FlashbackMeAnswer[], today?: Flashbac
     }
   }
   if (today) {
-    for (const host of TODAY_QUOTE_FIELDS) {
+    for (const host of TODAY_FIELDS) {
       const raw = today[host.field]
       if (!raw) continue
-      const fogSpans = today.fogSpans?.[host.field === 'nowStatus' ? 'now' : host.field] ?? []
-      for (const sentence of splitSentences(raw)) {
+      for (const sentence of todaySentencesWithFog(raw, today.fogSpans?.[host.fog])) {
         const sentenceText = sentence.text.trim()
         if (!sentenceText) continue
-        const fogged = fogSpans.some(
-          (span) => sentence.start < span.start + span.len && span.start < sentence.start + sentence.len
-        )
         result.push({
-          questionKey: host.key,
+          questionKey: host.questionKey,
           sentence: sentenceText,
           start: sentence.start,
           len: sentence.len,
-          fogged: fogged || undefined
+          fogged: sentence.fogged || undefined
         })
       }
     }
@@ -299,12 +293,11 @@ export function summaryCardModel(me: FlashbackMyCard, now: Date = new Date()): {
   const date = me.appliedAt ? me.appliedAt.slice(0, 10).replace(/-/g, '.') : ''
   const stamp = [date, me.city].filter(Boolean).join(' · ')
   // 分享物只显未雾句(雾住的句子不进卡,也不画雾块)
-  const visibleToday = (field: 'nowStatus' | 'want' | 'need' | 'say'): string => {
+  const visibleToday = (field: TodayField): string => {
+    const host = TODAY_FIELDS.find((row) => row.field === field)
     const raw = me.today?.[field]
-    if (!raw) return ''
-    const fogKey = field === 'nowStatus' ? 'now' : field
-    const fog = me.today?.fogSpans?.[fogKey] ?? []
-    return todaySentencesWithFog(raw, fog)
+    if (!host || !raw) return ''
+    return todaySentencesWithFog(raw, me.today?.fogSpans?.[host.fog])
       .filter((sentence) => !sentence.fogged)
       .map((sentence) => sentence.text)
       .join('')
