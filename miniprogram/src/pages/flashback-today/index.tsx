@@ -18,6 +18,7 @@ import Taro, { useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { TodayReview } from '@/components/MyCard'
+import QuoteOptIn from '@/components/MyCard/QuoteOptIn'
 import { CARD_MODES, parseQuoteLevel, shareMessage, summaryCardModel, type FlashbackCardMode } from '@/domain/flashback'
 import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
 import { STORAGE_KEYS } from '@/state/storage'
@@ -145,6 +146,11 @@ export default function FlashbackTodayPage() {
           分享给朋友
         </Button>
       </View>
+
+      {/* R37：授权引导只在「圈了金句但还没授权」时出现（判据在组件内）。
+          放在按钮之后：勾是分享时的选项，紧贴分享按钮；tip 讲的是卡片本身，留在最底。
+          plain 变体 = 去白底、字号更小——不让它读起来像分享的必填项。 */}
+      <QuoteOptIn me={capsule.me} onWrite={() => void load()} variant='plain' />
 
       <Text className={styles.tip}>
         {mode === 'summary'
