@@ -152,6 +152,7 @@ export default function MyCard({
                 </View>
               ))}
             </View>
+            <Text className={styles.fogHint}>点句子可切换雾面 · 雾面句对外不可见</Text>
             <View className={styles.signRow}>
               <Text className={styles.signName}>{capsule.me.fullName}</Text>
               <Text className={styles.signTime}>
@@ -191,6 +192,7 @@ export default function MyCard({
             >
               {saving ? '正在贴上墙…' : '写完寄出 →'}
             </Button>
+            <Text className={styles.sendNote}>寄出即公开 · 包括当年的答案</Text>
             <Text className={styles.backLink} onClick={() => setFlipped(false)}>
               ← 回到当年答案
             </Text>

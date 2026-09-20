@@ -79,11 +79,16 @@ export default function FlashbackCorridorPage() {
     setLicenseNudge(true)
   }
 
+  // 寄出落定后今天格一次性强调(脉冲 1.5s;静态卡无可点信号,用户不会想到去点)
+  const [todayLanded, setTodayLanded] = useState(false)
+
   /** 寄出落定(U5 三拍收尾):关抽屉 → 滚到 ⚡今天格,让用户看到自己上墙 */
   const sentLanding = () => {
     setCardLayer(null)
     setScrollAnchor('')
     setTimeout(() => setScrollAnchor('todayAnchor'), 350)
+    setTodayLanded(true)
+    setTimeout(() => setTodayLanded(false), 2000)
     if (mode.kind === 'member') maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
   }
 
@@ -423,13 +428,13 @@ export default function FlashbackCorridorPage() {
           <View className={styles.todaySlot}>
             {me && me.today?.sentToWallAt ? (
               <View
-                className={styles.todayLit}
+                className={`${styles.todayLit} ${todayLanded ? styles.todayLitLanded : ''}`}
                 onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}
               >
                 <View className={styles.todayLitPhoto}>
                   <Text className={styles.todayLitName}>{me.fullName}</Text>
                 </View>
-                <Text className={styles.todayLitCap}>你刚寄出的照片</Text>
+                <Text className={styles.todayLitCap}>点开看你的卡 · 可保存分享</Text>
               </View>
             ) : me ? (
               <View className={styles.todayVacant} onClick={() => openCardLayer('write')}>

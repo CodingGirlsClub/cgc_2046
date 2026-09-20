@@ -153,6 +153,15 @@ describe("防线 1：CSS 源对比度数值断言（WCAG ≥4.5:1）", () => {
 		// 金底 #cbbf8f 上的深字
 		expect(contrastRatio(color!, [0xcb, 0xbf, 0x8f])).toBeGreaterThanOrEqual(4.5);
 	});
+
+	it("fb-send-note 寄出公开性提示：选择器带 .fb-root 前缀 + 暗底 ≥4.5", () => {
+		// 特异性守卫：与 .fb-cta 同源教训——不带前缀会被 color:inherit 吞成深墨
+		expect(css).toMatch(/\.fb-root \.fb-send-note\s*\{/);
+
+		const note = declaredColor(".fb-root .fb-send-note");
+		expect(note, "须有显式色（不沿用 var(--fb-sub)：其 #77726a 在暗底仅 4.14）").toBe("#918c82");
+		expect(contrastRatio(note!, PAGE_BG)).toBeGreaterThanOrEqual(4.5);
+	});
 });
 
 describe("防线 2：继承链守卫（.fb-root 默认亮字）", () => {
