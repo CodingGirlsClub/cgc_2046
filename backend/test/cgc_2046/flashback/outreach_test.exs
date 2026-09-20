@@ -337,7 +337,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       {_name, address} = List.first(email.to)
       assert address == @email
       # 称呼用全名；主题逐字引学员原话「刚刚一闪念间」
-      assert email.subject =~ "刚刚一闪念间"
+      assert email.subject =~ "程序媛汇：闪念回当年，系愿于今朝"
       assert email.text_body =~ "你好，王小明："
       assert email.html_body =~ "你好，王小明："
       # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
