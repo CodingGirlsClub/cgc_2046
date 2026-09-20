@@ -214,6 +214,25 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       assert mine_entry.answers == []
       assert is_nil(capsule.me.today.sent_to_wall_at)
     end
+
+    test "本人胶囊「今天」四格齐备：now/want/need/say 都在投影里" do
+      archive = create_archive()
+      me = create_person(archive, %{})
+
+      upsert_today(me, %{
+        sent_to_wall_at: DateTime.utc_now(),
+        now_status: "还在写代码",
+        want: "学 Rust",
+        need: "找搭子",
+        say: "十周年快乐！"
+      })
+
+      today = capsule_for(issue_token(me)).me.today
+      assert today.now_status == "还在写代码"
+      assert today.want == "学 Rust"
+      assert today.need == "找搭子"
+      assert today.say == "十周年快乐！"
+    end
   end
 
   describe "身份双入口（R28 回访正门）" do
