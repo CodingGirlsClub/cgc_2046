@@ -1,6 +1,6 @@
 defmodule Cgc2046.Flashback.TodayFogTest do
   @moduledoc """
-  U10 第二刀：今天的你句级雾面 + 金句宿主扩展。
+  今天的你句级雾面 + 金句宿主扩展。
 
   - adjust_today_fog：合法 spans 落 fog_spans[field]；越界/重叠拒；非法 field 拒；
     无 Today 记录时自动建（ensure_today 幂等）。

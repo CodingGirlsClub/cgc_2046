@@ -2174,6 +2174,11 @@ export type FlashbackAdjustFogResult = {
   fogSpans?: Maybe<Array<Maybe<FlashbackFogSpan>>>;
 };
 
+export type FlashbackAdjustTodayFogResult = {
+  field: Scalars['String']['output'];
+  fogSpans?: Maybe<Scalars['Json']['output']>;
+};
+
 export type FlashbackAdminArchive = {
   city: Scalars['String']['output'];
   key: Scalars['String']['output'];
@@ -2253,6 +2258,9 @@ export type FlashbackCapsuleMe = {
 };
 
 export type FlashbackCapsuleToday = {
+  /** 句级雾面：field(now/want/need/say) → spans；本人管理面专用 */
+  fogSpans?: Maybe<Scalars['Json']['output']>;
+  need?: Maybe<Scalars['String']['output']>;
   nowStatus?: Maybe<Scalars['String']['output']>;
   say?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;
@@ -4511,6 +4519,7 @@ export type RootMutationType = {
   flashbackAddWishComment?: Maybe<FlashbackWishResult>;
   /** 调整雾面区间（R16/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackAdjustFog?: Maybe<FlashbackAdjustFogResult>;
+  flashbackAdjustTodayFog?: Maybe<FlashbackAdjustTodayFogResult>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 金句下线开关（R38，PlatformAdmin）：hidden_at 置位/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线） */
@@ -4870,6 +4879,13 @@ export type RootMutationTypeFlashbackAddWishCommentArgs = {
 
 export type RootMutationTypeFlashbackAdjustFogArgs = {
   answerId: Scalars['ID']['input'];
+  spans: Array<FlashbackFogSpanInput>;
+  token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootMutationTypeFlashbackAdjustTodayFogArgs = {
+  field: Scalars['String']['input'];
   spans: Array<FlashbackFogSpanInput>;
   token?: InputMaybe<Scalars['String']['input']>;
 };

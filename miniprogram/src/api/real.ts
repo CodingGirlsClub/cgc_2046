@@ -29,6 +29,8 @@ import type {
   EventModeratorsQueryVariables,
   FlashbackAdjustFogMutation,
   FlashbackAdjustFogMutationVariables,
+  FlashbackAdjustTodayFogMutation,
+  FlashbackAdjustTodayFogMutationVariables,
   FlashbackCapsuleQuery,
   FlashbackCapsuleQueryVariables,
   FlashbackClaimMutation,
@@ -94,6 +96,7 @@ import {
   EventModerationScopeQueryDocument,
   EventModeratorsQueryDocument,
   FlashbackAdjustFogMutationDocument,
+  FlashbackAdjustTodayFogMutationDocument,
   FlashbackAddWishCommentMutationDocument,
   FlashbackCapsuleQueryDocument,
   FlashbackClaimMutationDocument,
@@ -267,6 +270,20 @@ function throwIfFlashbackTokenInvalid(error: unknown): void {
       code === 'flashback_token_not_found' || code === 'flashback_token_claimed' || code === 'flashback_token_revoked'
   )
   if (invalid) throw new FlashbackTokenInvalidError(invalid)
+}
+/** today fogSpans 解析:真实后端经 :json 标量(字符串),mock 直传对象——两者兼容 */
+function parseTodayFog(
+  raw: unknown
+): Record<string, Array<{ start: number; len: number }>> | null {
+  if (!raw) return null
+  if (typeof raw === 'object') return raw as Record<string, Array<{ start: number; len: number }>>
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Array<{ start: number; len: number }>>
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 export class RealMiniProgramApi implements MiniProgramApi {
@@ -755,7 +772,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
           ? {
               nowStatus: capsule.me.today.nowStatus ?? null,
               want: capsule.me.today.want ?? null,
+              need: capsule.me.today.need ?? null,
               say: capsule.me.today.say ?? null,
+              // 本人管理面雾区间(field → spans;:json 标量→解析容错)
+              fogSpans: parseTodayFog(capsule.me.today.fogSpans),
               sentToWallAt: capsule.me.today.sentToWallAt ?? null
             }
           : null,
@@ -861,6 +881,17 @@ export class RealMiniProgramApi implements MiniProgramApi {
       }
     )
   }
+  // 今天的你句级雾面(field ∈ now/want/need/say;token 可选=会话面)
+  async flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackAdjustTodayFogMutation, FlashbackAdjustTodayFogMutationVariables>(
+      FlashbackAdjustTodayFogMutationDocument,
+      {
+        token: token ?? undefined,
+        field,
+        spans: spans.map((span) => ({ start: span.start, len: span.len }))
+      }
+    )
+  }
 
   // ── 首程 token 面（mp 版原型 F：旅程 → 长廊 → 场次；R1/R4-R11/R27） ──
 
@@ -915,7 +946,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
               ? {
                   nowStatus: result.progress.today.nowStatus ?? null,
                   want: result.progress.today.want ?? null,
+                  need: null,
                   say: result.progress.today.say ?? null,
+                  fogSpans: null,
                   sentToWallAt: result.progress.today.sentToWallAt ?? null
                 }
               : null

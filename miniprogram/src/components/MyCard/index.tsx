@@ -15,7 +15,9 @@ import {
   isCandidatePicked,
   quoteLikeBadge,
   sentencesWithFog,
-  toggleSentenceFog
+  toggleSentenceFog,
+  todaySentencesWithFog,
+  toggleTodaySentenceFog
 } from '@/domain/flashback'
 import { questionLabel } from '@/domain/flashback-journey'
 import styles from './index.module.css'
@@ -23,6 +25,7 @@ import styles from './index.module.css'
 const TODAY_FIELDS = [
   { key: 'nowStatus', label: '现在在做什么', placeholder: '比如:还在写代码,下班带娃' },
   { key: 'want', label: '想做的事 / 想学的东西', placeholder: '比如:学 Rust,做一个小工具' },
+  { key: 'need', label: '需要什么帮助', placeholder: '比如:想找人一起组队学习' },
   { key: 'say', label: '想对 CGC 说', placeholder: '比如:十周年快乐!' }
 ] as const
 
@@ -55,6 +58,7 @@ export default function MyCard({
   const [draft, setDraft] = useState<Record<TodayKey, string>>({
     nowStatus: capsule.me.today?.nowStatus ?? '',
     want: capsule.me.today?.want ?? '',
+    need: capsule.me.today?.need ?? '',
     say: capsule.me.today?.say ?? ''
   })
   const [saving, setSaving] = useState(false)
@@ -81,6 +85,7 @@ export default function MyCard({
     await api.flashbackSubmitToday({
       nowStatus: next.nowStatus || null,
       want: next.want || null,
+      need: next.need || null,
       say: next.say || null
     })
     onWrite()
@@ -210,27 +215,56 @@ export default function MyCard({
 
 /**
  * 今天回看卡(今天格 lit 点击):单面相纸=「这张卡在别人眼里的样子」——
- * 今天的你三行(只读)+当年答案按句渲染(雾句=雾块示意对外隐藏,
- * 已授权金句浅金高亮)+署名行。分享钩子由页面挂在卡下。
+ * 今天的你按句渲染(U10 起句级雾:点句切换,雾句=雾块示意对外隐藏)、
+ * 当年答案按句渲染(雾句=雾块,已授权金句浅金高亮)+署名行。分享钩子由页面挂在卡下。
+ * onToggleTodayFog:页面实现调 flashbackAdjustTodayFog(传 null = 只读,如他人视角)。
  */
-export function TodayReview({ me, level }: { me: FlashbackCapsule['me']; level: 'off' | 'anonymous' | 'credited' }) {
+export function TodayReview({
+  me,
+  level,
+  onToggleTodayFog
+}: {
+  me: FlashbackCapsule['me']
+  level: 'off' | 'anonymous' | 'credited'
+  onToggleTodayFog?: ((field: 'now' | 'want' | 'need' | 'say', spans: Array<{ start: number; len: number }>) => void) | null
+}) {
   const spans = me.quoteSpans ?? []
+  const todayFog = me.today?.fogSpans ?? {}
+  const TODAY_ROWS = [
+    { field: 'now' as const, key: 'nowStatus' as const, label: '现在在做什么' },
+    { field: 'want' as const, key: 'want' as const, label: '想做的事 / 想学的东西' },
+    { field: 'need' as const, key: 'need' as const, label: '需要什么帮助' },
+    { field: 'say' as const, key: 'say' as const, label: '想对 CGC 说' }
+  ]
   return (
     <View className={styles.paperFace}>
       <View className={styles.paperPhotoB}>
         <Text className={styles.paperTodayTitle}>
           今天的你 · {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).replace(/\//g, '.')}
         </Text>
-        {([
-          ['nowStatus', '现在在做什么'],
-          ['want', '想做的事 / 想学的东西'],
-          ['say', '想对 CGC 说'],
-        ] as const).map(([key, label]) => (
-          <View key={key} className={styles.writeRow}>
-            <Text className={styles.writeLabel}>{label}</Text>
-            <Text className={styles.rvTodayText}>{me.today?.[key] || '—'}</Text>
-          </View>
-        ))}
+        {TODAY_ROWS.map((row) => {
+          const raw = me.today?.[row.key]
+          if (!raw) return null
+          return (
+            <View key={row.field} className={styles.writeRow}>
+              <Text className={styles.writeLabel}>{row.label}</Text>
+              <View className={styles.paperA}>
+                {todaySentencesWithFog(raw, todayFog[row.field]).map((sentence, index) => (
+                  <Text
+                    key={`${row.field}-${index}`}
+                    className={`${styles.rvSentence} ${sentence.fogged ? styles.rvFog : ''}`}
+                    onClick={() => {
+                      if (!onToggleTodayFog) return
+                      onToggleTodayFog(row.field, toggleTodaySentenceFog(todayFog[row.field], sentence))
+                    }}
+                  >
+                    {sentence.text}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          )
+        })}
       </View>
       <View className={styles.paperPhotoA}>
         <Text className={styles.paperTodayTitle}>当年的你 · {me.appliedAt ? me.appliedAt.slice(0, 4) : ''}</Text>

@@ -256,7 +256,7 @@ defmodule Cgc2046.Flashback.Tokens do
   end
 
   @doc """
-  今天的你句级雾面调整（U10 第二刀）：field ∈ now/want/need/say，spans 与
+  今天的你句级雾面调整：field ∈ now/want/need/say，spans 与
   当年 FogSpans 同坐标同校验（越界/重叠拒），落 flashback_todays.fog_spans[field]。
   """
   @today_fog_fields ~w(now want need say)
@@ -327,7 +327,7 @@ defmodule Cgc2046.Flashback.Tokens do
   end
 
   # 金句宿主原文：当年答案（Answer 表）优先；today.now/want/need/say 回落
-  # flashback_todays 对应字段（U10 第二刀——今天与当年同一套坐标/校验）。
+  # flashback_todays 对应字段（今天与当年同一套坐标/校验）。
   defp quote_host_text(person_id, "today." <> field) when field in @today_fog_fields do
     case Today
          |> Ash.Query.for_read(:read)
@@ -417,7 +417,7 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp validate_quote_spans(_person_id, _), do: :ok
 
-  # 金句候选只允许指向本人答案（person + question_key 双因子定位）；U10 第二刀
+  # 金句候选只允许指向本人答案（person + question_key 双因子定位）；
   # 起 today.now/want/need/say 也是合法宿主（回落 flashback_todays 对应字段文本）。
   # 多句：按宿主分组一次取原文，逐组校验越界（首错即返）。
   defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
@@ -751,6 +751,8 @@ defmodule Cgc2046.Flashback.Tokens do
       mobilization: today.mobilization,
       newsletter_opt_in: today.newsletter_opt_in,
       reconnect_tags: today.reconnect_tags,
+      # 本人管理面：明文 + fogSpans（前端句级渲染/切雾）
+      fog_spans: today.fog_spans,
       sent_to_wall_at: today.sent_to_wall_at && DateTime.to_iso8601(today.sent_to_wall_at)
     }
   end

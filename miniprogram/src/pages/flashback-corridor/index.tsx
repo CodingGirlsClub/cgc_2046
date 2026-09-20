@@ -682,7 +682,7 @@ export default function FlashbackCorridorPage() {
                 <Text className={styles.quotePickHint}>
                   选出可以展示的句子（可多选，平台从中挑选）：已选 {licensePicks.length} 句
                 </Text>
-                {quoteCandidatesOf(mode.capsule.me.answers).map((candidate) => {
+                {quoteCandidatesOf(mode.capsule.me.answers, mode.capsule.me.today).map((candidate) => {
                   const picked = isCandidatePicked(candidate, licensePicks)
                   const order = licensePicks.findIndex(
                     (p) => p.questionKey === candidate.questionKey && p.start === candidate.start,
@@ -690,8 +690,12 @@ export default function FlashbackCorridorPage() {
                   return (
                     <Text
                       key={`${candidate.questionKey}:${candidate.start}`}
-                      className={`${styles.quoteCandidate} ${picked ? styles.quoteCandidateActive : ''}`}
+                      className={`${styles.quoteCandidate} ${picked ? styles.quoteCandidateActive : ''} ${candidate.fogged ? styles.quoteCandidateFogged : ''}`}
                       onClick={() => {
+                        if (candidate.fogged) {
+                          Taro.showToast({ title: '这句已雾住,先解雾才能选', icon: 'none' })
+                          return
+                        }
                         const pick = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len }
                         const next = picked
                           ? licensePicks.filter(

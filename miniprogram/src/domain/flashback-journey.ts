@@ -253,5 +253,9 @@ export function eventFogLine(entry: Pick<FlashbackRosterEntry, 'city' | 'occupat
 export function questionLabel(questionKey: string): string {
   if (questionKey === 'self_intro') return '请简单的介绍一下自己'
   if (questionKey === 'funny_thing') return '你做过的有意思的事情'
+  if (questionKey === 'today.now') return '现在在做什么'
+  if (questionKey === 'today.want') return '想做的事 / 想学的东西'
+  if (questionKey === 'today.need') return '需要什么帮助'
+  if (questionKey === 'today.say') return '想对 CGC 说'
   return questionKey
 }

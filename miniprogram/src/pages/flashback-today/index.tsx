@@ -58,7 +58,22 @@ export default function FlashbackTodayPage() {
     <View className={styles.page}>
       <Text className={styles.head}>你的摘要卡 · 保存或分享</Text>
       <View className={styles.cardWrap}>
-        <TodayReview me={capsule.me} level={parseQuoteLevel(capsule.me.quoteLevel)} />
+        <TodayReview
+          me={capsule.me}
+          level={parseQuoteLevel(capsule.me.quoteLevel)}
+          onToggleTodayFog={(field, spans) => {
+            const token = Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null
+            void api
+              .flashbackAdjustTodayFog(field, spans, token)
+              .then(() => load())
+              .catch((error: unknown) =>
+                Taro.showToast({
+                  title: error instanceof Error ? error.message : '雾面调整失败',
+                  icon: 'none'
+                }),
+              )
+          }}
+        />
       </View>
       <Button className={styles.cta} onClick={() => setShareSheet(true)}>
         分享 · 转发给朋友

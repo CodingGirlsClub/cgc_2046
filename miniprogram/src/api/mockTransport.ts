@@ -188,7 +188,15 @@ interface FlashbackMockState {
   chosenQuoteSpans: Array<{ questionKey: string; start: number; len: number }>
   /** R36 点赞数（mock 固定 3：授权档下有值，供回访面回读） */
   likeCount: number
-  today: { nowStatus: string | null; want: string | null; say: string | null; sentToWallAt: string | null }
+  today: {
+    nowStatus: string | null
+    want: string | null
+    need: string | null
+    say: string | null
+    sentToWallAt: string | null
+  }
+  /** today 句级雾面(field → spans) */
+  todayFogSpans: Record<string, Array<{ start: number; len: number }>>
   endorsedCardIds: string[]
 }
 
@@ -197,7 +205,8 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   quoteLevel: 'off',
   chosenQuoteSpans: [],
   likeCount: 3,
-  today: { nowStatus: null, want: null, say: null, sentToWallAt: null },
+  today: { nowStatus: null, want: null, need: null, say: null, sentToWallAt: null },
+  todayFogSpans: {},
   endorsedCardIds: []
 }
 
@@ -737,17 +746,25 @@ function responseFor(document: string, variables: object): unknown {
           participation: 'attended',
           appliedAt: '2014-01-11T13:06:00Z',
           quoteLevel: state.quoteLevel,
-          quote:
-            (state.chosenQuoteSpans ?? []).length > 0 && state.chosenQuoteSpans[0]
-              ? FLASHBACK_RAW_TEXT.slice(
-                  state.chosenQuoteSpans[0].start,
-                  state.chosenQuoteSpans[0].start + state.chosenQuoteSpans[0].len
-                )
-              : null,
+          quote: (() => {
+            const first = (state.chosenQuoteSpans ?? [])[0]
+            if (!first) return null
+            const host =
+              first.questionKey === 'today.now'
+                ? state.today.nowStatus
+                : first.questionKey === 'today.want'
+                  ? state.today.want
+                  : first.questionKey === 'today.need'
+                    ? state.today.need
+                    : first.questionKey === 'today.say'
+                      ? state.today.say
+                      : FLASHBACK_RAW_TEXT
+            return host ? host.slice(first.start, first.start + first.len) : null
+          })(),
           quoteSpans: state.chosenQuoteSpans ?? [],
           quoteStats:
             state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
-          today: state.today,
+          today: { ...state.today, fogSpans: state.todayFogSpans ?? {} },
           answers: [
             {
               id: 'fb-answer-1',
@@ -962,6 +979,27 @@ function responseFor(document: string, variables: object): unknown {
       flashbackAdjustFog: {
         answerId: values.answerId,
         fogSpans: next.fogSpans
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackAdjustTodayFog')) {
+    // today 句级雾面写面(mock state.todayFogSpans[field] 整份覆写)
+    const field = typeof values.field === 'string' ? values.field : ''
+    const validFields = ['now', 'want', 'need', 'say']
+    if (!validFields.includes(field)) {
+      return { errors: [{ message: 'invalid today field', code: 'flashback_invalid_today_field' }] }
+    }
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      todayFogSpans: {
+        ...(state.todayFogSpans ?? {}),
+        [field]: (values.spans ?? []) as Array<{ start: number; len: number }>
+      }
+    }))
+    return {
+      flashbackAdjustTodayFog: {
+        field,
+        fogSpans: JSON.stringify(next.todayFogSpans ?? {})
       }
     }
   }

@@ -2341,7 +2341,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @doc "今天的你句级雾面（U10 第二刀）：field ∈ now/want/need/say，spans 与当年雾面同坐标同校验；双入口"
+    @doc "今天的你句级雾面：field ∈ now/want/need/say，spans 与当年雾面同坐标同校验；双入口"
     field :flashback_adjust_today_fog, :flashback_adjust_today_fog_result do
       arg(:token, :string)
       arg(:field, non_null(:string))
@@ -3254,7 +3254,10 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_capsule_today do
     field(:now_status, :string)
     field(:want, :string)
+    field(:need, :string)
     field(:say, :string)
+    @desc "句级雾面：field(now/want/need/say) → spans；本人管理面专用"
+    field(:fog_spans, :json)
     field(:sent_to_wall_at, :string)
   end
 

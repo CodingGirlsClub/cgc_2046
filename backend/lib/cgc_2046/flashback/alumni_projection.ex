@@ -480,7 +480,9 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           sent_to_wall_at: t.sent_to_wall_at,
           now_status: t.now_status,
           want: t.want,
-          say: t.say
+          say: t.say,
+          # today 句级雾面原始区间(他人视角在输出前 mask)
+          today_fog_spans: t.fog_spans
         }
       )
 
@@ -488,8 +490,22 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       base
       |> filter_city(clean_city(city))
       |> Repo.all()
+      |> Enum.map(&mask_roster_today/1)
 
     Enum.group_by(rows, & &1.archive_event_id)
+  end
+
+  # 他人视角(名册):today 三行按本人 fogSpans mask——雾句对外不出现原字。
+  defp mask_roster_today(row) do
+    fog = row[:today_fog_spans] || %{}
+
+    %{
+      row
+      | now_status: FogSpans.mask(row[:now_status] || "", fog["now"], @fog_placeholder),
+        want: FogSpans.mask(row[:want] || "", fog["want"], @fog_placeholder),
+        say: FogSpans.mask(row[:say] || "", fog["say"], @fog_placeholder)
+    }
+    |> Map.delete(:today_fog_spans)
   end
 
   # 主表（位置 0）城市等值筛；nil 不筛

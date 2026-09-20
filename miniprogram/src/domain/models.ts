@@ -322,7 +322,10 @@ export interface FlashbackMeAnswer {
 export interface FlashbackMyToday {
   nowStatus: string | null
   want: string | null
+  need: string | null
   say: string | null
+  /** today 句级雾区间(field → spans),本人管理面专用 */
+  fogSpans: Record<string, Array<{ start: number; len: number }>> | null
   sentToWallAt: string | null
 }
 
@@ -589,6 +592,8 @@ export interface MiniProgramApi {
   ): Promise<void>
   /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界） */
   flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void>
+  /** U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
+  flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
   // U4 愿望写操作(双入口 token)
   flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void>
   flashbackEndorseWish(wishId: string, token?: string | null): Promise<number>

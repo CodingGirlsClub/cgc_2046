@@ -502,7 +502,9 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         today {
           nowStatus
           want
+          need
           say
+          fogSpans
           sentToWallAt
         }
         answers {
@@ -726,6 +728,15 @@ export const FlashbackAdjustFogMutationDocument = /* GraphQL */ `
         start
         len
       }
+    }
+  }
+`
+// 今天的你句级雾面(field ∈ now/want/need/say;双入口 token)
+export const FlashbackAdjustTodayFogMutationDocument = /* GraphQL */ `
+  mutation FlashbackAdjustTodayFog($token: String, $field: String!, $spans: [FlashbackFogSpanInput!]!) {
+    flashbackAdjustTodayFog(token: $token, field: $field, spans: $spans) {
+      field
+      fogSpans
     }
   }
 `

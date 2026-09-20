@@ -977,3 +977,5 @@
 .quoteCandidateQ { display: block; font-size: 18rpx; color: #8a8f98; margin-top: 6rpx; letter-spacing: 0.04em; }
 
 
+/* U10:雾句候选灰显锁定(不可选,点按提示先解雾) */
+.quoteCandidateFogged { opacity: 0.45; }

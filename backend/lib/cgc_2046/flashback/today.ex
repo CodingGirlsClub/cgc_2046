@@ -25,7 +25,7 @@ defmodule Cgc2046.Flashback.Today do
     # Want（想要）/ Give（能给）分类标签（KTD 回信即参与；供需撮合全量阶段启用）。
     attribute(:want_give_tags, {:array, :string}, public?: true, writable?: true, default: [])
 
-    # 今天的你句级雾面（U10 第二刀）：field("now"/"want"/"need"/"say") → spans，
+    # 今天的你句级雾面：field("now"/"want"/"need"/"say") → spans，
     # 与当年 FogSpans 同坐标（grapheme）同校验；对外渲染按句遮蔽。
     attribute(:fog_spans, :map, public?: true, writable?: true)
 
