@@ -638,6 +638,33 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── 场次列表（R7 发送入口数据源） ───────────────────────────────────
+
+  describe "OutreachAdmin.archives（R7 发送入口数据源）" do
+    test "按 occurred_on 倒序返回（E2E 曾抓到 sort 参数写反：desc: :occurred_on 直接 500）" do
+      for {suffix, date} <- [{"old", ~D[2014-01-11]}, {"new", ~D[2018-05-20]}] do
+        Flashback.EventArchive
+        |> Ash.Changeset.for_create(:create, %{
+          key: "archive-order-#{suffix}-#{System.unique_integer([:positive])}",
+          name: "排序钉-#{suffix}",
+          city: "北京",
+          occurred_on: date
+        })
+        |> Ash.create!(authorize?: false)
+      end
+
+      {:ok, rows} = Cgc2046.Flashback.OutreachAdmin.archives()
+      keys = Enum.map(rows, & &1.key)
+
+      assert [new_idx, old_idx] = [
+               Enum.find_index(keys, &String.contains?(&1, "-new-")),
+               Enum.find_index(keys, &String.contains?(&1, "-old-"))
+             ]
+
+      assert new_idx < old_idx
+    end
+  end
+
   # ── 邮件模板纪律（R30：页脚退订链接不可漏） ─────────────────────────
 
   describe "邮件模板（页脚退订链接硬约束）" do
