@@ -191,18 +191,19 @@ export default function ProfilePage() {
               </>
             )}
 
-            {/* U9/R28 回访入口;U2/R1 改接长廊主容器(时间廊|我的卡 Tab),
-                独立页保留为深链兼容 */}
+            {/* U9/R28 回访入口；U2/R1 接长廊主容器——长廊现为 tabBar 页面，
+                微信端只能 switchTab（navigateTo 跳 Tab 页会失败）；裁剪端未注册
+                长廊，仍用薄壳页 flashback/index 走 navigateTo */}
             <Text className={styles.sectionTitle}>我的闪念间</Text>
             <View
               className={styles.openclacky}
-              onClick={() =>
-                Taro.navigateTo({
-                  url: process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-                    ? '/pages/flashback/index'
-                    : '/pages/flashback-corridor/index'
-                })
-              }
+              onClick={() => {
+                if (process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs') {
+                  void Taro.navigateTo({ url: '/pages/flashback/index' })
+                } else {
+                  void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
+                }
+              }}
             >
               <View>
                 <Text className={styles.openclackyTitle}>我的闪念间</Text>

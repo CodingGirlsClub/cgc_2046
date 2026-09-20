@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
+import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
 import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, type QuoteLevel } from '@/domain/flashback'
@@ -11,6 +12,7 @@ import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuot
 import type { FlashbackWish } from '@/domain/models'
 import ShareSheet from '@/components/MyCard/ShareSheet'
 import { STORAGE_KEYS } from '@/state/storage'
+import { consumeFlashbackEntry, type FlashbackEntryIntent } from '@/state/flashbackEntry'
 import type {
   FlashbackCapsule,
   FlashbackClaimResult,
@@ -172,23 +174,27 @@ export default function FlashbackCorridorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
   }, [mode.kind])
 
-  // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点。
-  // U6「看看未来」:?future=1 → 数据就绪后滚到未来段(计划原文 scrollIntoView)
+  // 闪念间入口 intent（长廊成为 tabBar 页面后 switchTab 不带 query）：useDidShow
+  // 一次性消费，供 future（滚未来段）与 welcome（推金句引导）两处共用——两处
+  // 各自消费的话，先跑的那处会把 intent 清掉，后一处永远读不到。
+  const entryIntent = useRef<FlashbackEntryIntent | null>(null)
+
+  // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点；
+  // 切 Tab 回本页同样触发（数据刷新）。intent 已消费时本段无副作用。
   useDidShow(() => {
+    entryIntent.current = consumeFlashbackEntry()
     void load(city)
-    const params = Taro.getCurrentInstance().router?.params
-    if (params?.future === '1') {
+    if (entryIntent.current === 'future') {
       setScrollAnchor('')
       setTimeout(() => setScrollAnchor('futureAnchor'), 400)
     }
   })
 
-  // 首程落地(welcome=1):member 就绪后一次性推金句授权引导
+  // 首程落地（welcome intent）：member 就绪后一次性推金句授权引导
   const welcomeNudged = useRef(false)
   useEffect(() => {
     if (mode.kind !== 'member' || welcomeNudged.current) return
-    const params = Taro.getCurrentInstance().router?.params
-    if (params?.welcome !== '1') return
+    if (entryIntent.current !== 'welcome') return
     welcomeNudged.current = true
     maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 落地一次性
@@ -312,16 +318,8 @@ export default function FlashbackCorridorPage() {
 
   return (
     <View className={styles.page}>
-      {/* 路人态 1024 横幅(U8 细化);member 卡区 U4 覆盖层入口 */}
-      {mode.kind === 'viewer' && (
-        <View
-          className={styles.banner1024}
-          onClick={() => void Taro.navigateTo({ url: '/pages/initiative-detail/index?slug=hackerstart1024' })}
-        >
-          <Text className={styles.banner1024Title}>1024 程序员节 · Hacker Start</Text>
-          <Text className={styles.banner1024Sub}>新一年活动开放报名 →</Text>
-        </View>
-      )}
+      {/* member 卡区（U4 覆盖层入口）；路人态直接是长廊（原 1024 横幅已撤——
+          活动推广归「发现」，双 Tab 重复推送同一活动） */}
       {mode.kind === 'member' && me && myView && (
         <View className={styles.cardDock}>
           <View
@@ -552,6 +550,8 @@ export default function FlashbackCorridorPage() {
         </View>
       </ScrollView>
       </View>
+
+      <AppTabBar selected='flashback' />
 
       {/* 金句授权引导(一次性):勇气语+去授权/先不 */}
       {licenseNudge && (

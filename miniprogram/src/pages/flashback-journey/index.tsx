@@ -4,6 +4,7 @@ import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { STORAGE_KEYS } from '@/state/storage'
+import { setFlashbackEntry } from '@/state/flashbackEntry'
 import {
   cardFaceAnswers,
   journeyIntroLead,
@@ -27,6 +28,13 @@ const INVALID_COPY: Record<FlashbackTokenInvalidCode, string> = {
   flashback_token_claimed: '这张卡已经被收进一个账号了。登录那个账号，或用网页端「闪念间」找回你的那一张。',
   flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，网页端「闪念间」凭手机号可以找回。',
   flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭手机号找回。'
+}
+
+/** 进长廊（现为 tabBar 页面）：switchTab 不接受 query，welcome 语义改走一次性
+ * intent——抑制快门仪式 + 推一次金句引导（首程刚走完，不该再演一遍开场）。 */
+function enterCorridor(): void {
+  setFlashbackEntry('welcome')
+  void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
 }
 
 /**
@@ -63,7 +71,7 @@ export default function FlashbackJourneyPage() {
       setEntry(result)
       // 回访（AE9 对齐 web journey）：已寄出 → 直达长廊不重走仪式
       if (result.progress?.today?.sentToWallAt) {
-        void Taro.redirectTo({ url: '/pages/flashback-corridor/index?welcome=1' })
+        enterCorridor()
         return
       }
       const today = result.progress?.today
@@ -92,7 +100,7 @@ export default function FlashbackJourneyPage() {
     try {
       const result = await api.flashbackClaim(token)
       Taro.showToast({ title: result.bound ? '已收好这张卡' : '还没找到你的档案', icon: 'none' })
-      void Taro.redirectTo({ url: '/pages/flashback-corridor/index?welcome=1' })
+      enterCorridor()
     } catch (error) {
       if ((error as { name?: string }).name === 'SessionExpiredError') {
         // returnUrl 不带 token（KTD2）：token 已在 storage，回跳后凭 claim=1 续跑
@@ -174,7 +182,7 @@ export default function FlashbackJourneyPage() {
           <Text className={styles.invalidText}>{INVALID_COPY[phase.code]}</Text>
           <Button
             className={styles.invalidAction}
-            onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index?welcome=1' })}
+            onClick={enterCorridor}
           >
             先去时间长廊看看
           </Button>
@@ -279,7 +287,7 @@ export default function FlashbackJourneyPage() {
             </Button>
             <Button
               className={styles.overlaySkip}
-              onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index?welcome=1' })}
+              onClick={enterCorridor}
             >
               {SEND_OVERLAY.skip}
             </Button>

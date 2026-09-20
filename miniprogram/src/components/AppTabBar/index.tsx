@@ -4,12 +4,13 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { hasWorkspaceTab, subscribeWorkspaceTab } from '@/state/workspaceTab'
 import styles from './index.module.css'
 
-type TabKey = 'discover' | 'enrollments' | 'workspace' | 'profile'
+type TabKey = 'discover' | 'flashback' | 'enrollments' | 'workspace' | 'profile'
 
 interface Props { selected: TabKey }
 
 const baseTabs = [
   { key: 'discover' as const, text: '发现', icon: '⌕', path: '/pages/discover/index' },
+  { key: 'flashback' as const, text: '闪念间', icon: '⚡', path: '/pages/flashback-corridor/index' },
   { key: 'enrollments' as const, text: '我的报名', icon: '✓', path: '/pages/my-enrollments/index' }
 ]
 

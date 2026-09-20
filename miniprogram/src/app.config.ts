@@ -48,6 +48,8 @@ const cutTabList = [
 
 const fullTabList = [
   { pagePath: 'pages/discover/index', text: '发现' },
+  // 闪念间主容器（长廊）——tabBar 页面，仅微信全量端（裁剪端未注册长廊）
+  { pagePath: 'pages/flashback-corridor/index', text: '闪念间' },
   { pagePath: 'pages/my-enrollments/index', text: '我的报名' },
   { pagePath: 'pages/workspace/index', text: '工作台' },
   { pagePath: 'pages/profile/index', text: '我的' }

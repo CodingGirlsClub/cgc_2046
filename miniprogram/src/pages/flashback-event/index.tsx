@@ -6,6 +6,7 @@ import { PageState } from '@/components/PageState'
 import { eventFogLine, eventStats } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
 import { STORAGE_KEYS } from '@/state/storage'
+import { setFlashbackEntry } from '@/state/flashbackEntry'
 import type { FlashbackFutureFrame } from '@/domain/models'
 import type {
   FlashbackCapsuleArchive,
@@ -23,6 +24,12 @@ type Mode =
   | { kind: 'member'; archive: FlashbackCapsuleArchive }
   /** 路人态（R32）：只有统计行（缺数不显示），无任何名册内容 */
   | { kind: 'viewer'; stats: FlashbackPublicStats | null; guide: 'login' | 'recover' | null }
+
+/** 回长廊（现为 tabBar 页面）：switchTab 是 Tab 页唯一合法入口。
+ *  「看看未来」的 future 语义走一次性 intent（switchTab 不接受 query）。 */
+function enterCorridor(): void {
+  void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
+}
 
 /**
  * 场次页（E 的 event 步 / R12）：长廊点某一格 → 这一场——统计行（报名/走进
@@ -106,9 +113,10 @@ export default function FlashbackEventPage() {
   }
 
   const back = () => {
-    // 长廊是唯一上游（深链直达时栈可能只有本页）——栈底退长廊
+    // 长廊是唯一上游（深链直达时栈可能只有本页）——栈底退长廊；
+    // 长廊现为 tabBar 页面，栈空时只能 switchTab（redirectTo 跳 Tab 页会失败）
     if (Taro.getCurrentPages().length > 1) void Taro.navigateBack()
-    else void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })
+    else enterCorridor()
   }
 
   if (mode.kind === 'loading') {
@@ -190,7 +198,7 @@ export default function FlashbackEventPage() {
         {/* 三级视角②：没回来的人从这里认领自己那张（参与态里 = 回我的闪念间） */}
         {mode.kind === 'member' && (
           <View className={styles.findBlock}>
-            <Button className={styles.cta} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index' })}>
+            <Button className={styles.cta} onClick={enterCorridor}>
               你也在这一场？找回你的那一张 →
             </Button>
           </View>
@@ -212,7 +220,13 @@ export default function FlashbackEventPage() {
                   <Button className={styles.loopBtn} onClick={back}>
                     回到今天
                   </Button>
-                  <Button className={styles.loopBtn} onClick={() => void Taro.redirectTo({ url: '/pages/flashback-corridor/index?future=1' })}>
+                  <Button
+                    className={styles.loopBtn}
+                    onClick={() => {
+                      setFlashbackEntry('future')
+                      enterCorridor()
+                    }}
+                  >
                     看看未来
                   </Button>
                 </>
