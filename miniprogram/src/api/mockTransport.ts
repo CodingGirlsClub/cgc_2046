@@ -3,6 +3,7 @@ import type { RequestDocument } from 'graphql-request'
 // （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
 // 见 src/domain/entry.ts 的 './share-route.ts'。
 import { venueCityDistrictText } from '../domain/format.ts'
+import { TODAY_FIELDS } from '../domain/flashback.ts'
 
 const workspace = {
   id: 'workspace-1',
@@ -749,16 +750,8 @@ function responseFor(document: string, variables: object): unknown {
           quote: (() => {
             const first = (state.chosenQuoteSpans ?? [])[0]
             if (!first) return null
-            const host =
-              first.questionKey === 'today.now'
-                ? state.today.nowStatus
-                : first.questionKey === 'today.want'
-                  ? state.today.want
-                  : first.questionKey === 'today.need'
-                    ? state.today.need
-                    : first.questionKey === 'today.say'
-                      ? state.today.say
-                      : FLASHBACK_RAW_TEXT
+            const todayHost = TODAY_FIELDS.find((row) => row.questionKey === first.questionKey)
+            const host = (todayHost ? state.today[todayHost.field] : null) || FLASHBACK_RAW_TEXT
             return host ? host.slice(first.start, first.start + first.len) : null
           })(),
           quoteSpans: state.chosenQuoteSpans ?? [],

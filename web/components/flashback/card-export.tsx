@@ -7,6 +7,8 @@ import {
 	appliedStamp,
 	FLASHBACK_SET_QUOTE_LICENSE,
 	type FlashbackCapsuleMe,
+	TODAY_FIELDS,
+	sentencesWithFogMark,
 } from "@/lib/graphql/flashback";
 
 /** 摘要卡竖版比例（R14：适配朋友圈/小红书） */
@@ -67,30 +69,15 @@ export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; toke
 	const stamp = appliedStamp(me.appliedAt);
 	const quote = me.quote?.trim() || null;
 	// 分享物只显未雾句(雾住的句子不进卡,也不画雾块)
-	const visibleToday = (field: "nowStatus" | "want" | "need" | "say"): string => {
+	const visibleToday = (field: (typeof TODAY_FIELDS)[number]["field"]): string => {
+		const host = TODAY_FIELDS.find((row) => row.field === field);
 		const raw = me.today?.[field];
-		if (!raw) return "";
-		const fogKey = field === "nowStatus" ? "now" : field;
-		const spans = me.today?.fogSpans?.[fogKey] ?? [];
-		const chars = Array.from(raw);
-		const hidden = new Set<number>();
-		for (const span of spans) {
-			for (let i = Math.max(span.start, 0); i < Math.min(span.start + span.len, chars.length); i++) {
-				hidden.add(i);
-			}
-		}
-		let out = "";
-		let start = 0;
-		const separators = "。！？!?\n";
-		for (let i = 0; i <= chars.length; i++) {
-			if (i < chars.length && !separators.includes(chars[i])) continue;
-			const end = i < chars.length ? i + 1 : i;
-			let hasFog = false;
-			for (let j = start; j < end; j++) if (hidden.has(j)) { hasFog = true; break; }
-			if (!hasFog) out += chars.slice(start, end).join("");
-			start = end;
-		}
-		return out.trim();
+		if (!host || !raw) return "";
+		return sentencesWithFogMark(raw, me.today?.fogSpans?.[host.fog])
+			.filter((sentence) => !sentence.fogged)
+			.map((sentence) => sentence.text)
+			.join("")
+			.trim();
 	};
 	const todayLine = visibleToday("want") || visibleToday("nowStatus") || null;
 

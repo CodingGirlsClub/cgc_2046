@@ -63,6 +63,45 @@ export interface FlashbackToday {
 	fogSpans?: Record<string, Array<{ start: number; len: number }>> | null;
 	sentToWallAt?: string | null;
 }
+/** 今天的你字段单表:questionKey=金句/雾 span 宿主键;field=FlashbackToday 字段;fog=雾区间键 */
+export const TODAY_FIELDS = [
+	{ questionKey: "today.now", field: "nowStatus", fog: "now" },
+	{ questionKey: "today.want", field: "want", fog: "want" },
+	{ questionKey: "today.need", field: "need", fog: "need" },
+	{ questionKey: "today.say", field: "say", fog: "say" },
+] as const;
+
+/** 句级切分并按雾区间标记(保留分隔符,grapheme 偏移;候选圈选与分享物滤雾共用) */
+export function sentencesWithFogMark(
+	rawText: string,
+	spans: Array<{ start: number; len: number }> | null | undefined,
+): Array<{ text: string; start: number; len: number; fogged: boolean }> {
+	const chars = Array.from(rawText);
+	const separators = "。！？!?\n";
+	const hidden = new Set<number>();
+	for (const span of spans ?? []) {
+		for (let i = Math.max(span.start, 0); i < Math.min(span.start + span.len, chars.length); i++) {
+			hidden.add(i);
+		}
+	}
+	const result: Array<{ text: string; start: number; len: number; fogged: boolean }> = [];
+	let start = 0;
+	for (let i = 0; i <= chars.length; i++) {
+		if (i < chars.length && !separators.includes(chars[i])) continue;
+		const end = i < chars.length ? i + 1 : i;
+		const text = chars.slice(start, end).join("");
+		let fogged = false;
+		for (let j = start; j < end; j++) {
+			if (hidden.has(j)) {
+				fogged = true;
+				break;
+			}
+		}
+		if (text.trim().length > 0) result.push({ text, start, len: end - start, fogged });
+		start = end;
+	}
+	return result;
+}
 
 export interface FlashbackProgress {
 	today?: FlashbackToday | null;
