@@ -1698,3 +1698,26 @@ describe("公开主理人行（#538）", () => {
     expect(screen.queryByText("本场主理人")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * 「关于」区块描述按 \n\n 分段渲染（plan 001）：单 <p> 会把多段描述塌成一堵
+ * 文字墙；空段（连续空行）必须丢弃，否则段距随空行数漂移。
+ */
+describe("「关于」区块描述分段渲染", () => {
+  it("description 含 \\n\\n 时渲染对应数量的 <p>，空段被丢弃", async () => {
+    mocks.fetchPublicOffering.mockResolvedValue({
+      ...PAID_OFFERING,
+      description: "\n\n第一段。\n\n第二段。\n\n\n\n第三段。\n\n",
+    });
+
+    render(<PublicOfferingDetailPage kind="event" />);
+
+    expect(await screen.findByText("第一段。")).toBeInTheDocument();
+    const about = document.querySelector(".public-detail__about")!;
+    const paragraphs = about.querySelectorAll("p");
+    expect(paragraphs).toHaveLength(3);
+    expect(paragraphs[0].textContent).toBe("第一段。");
+    expect(paragraphs[1].textContent).toBe("第二段。");
+    expect(paragraphs[2].textContent).toBe("第三段。");
+  });
+});
