@@ -2514,6 +2514,7 @@
       "creditedNoteLabel": "What you're doing now, in your words (public, credited)",
       "creditedNotePlaceholder": "e.g. accessibility development",
       "submit": "Done writing — send it →",
+      "sendPublicNote": "Sending makes it public · including your answers from back then",
       "quoteCourage": "Your words can become someone else’s courage."
     },
     "sendRegister": {

@@ -841,6 +841,27 @@
   display: block; width: 100%; font-size: 16rpx;
   color: rgba(239, 233, 219, 0.6); text-align: center; padding-top: 20rpx;
 }
+/* 可点暗示：寄出落定后轻浮动（静态卡无任何可点信号，用户不会想到去点——
+   而它背后是整条旅程的终点：摘要卡 → 保存/分享）。
+   注意：必须带上 rotate(2deg)，否则动画会覆盖 .todayLit 的确定性转角。 */
+@keyframes todayLitFloat {
+  0%, 100% { transform: rotate(2deg) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-6rpx); }
+}
+.todayLit { animation: todayLitFloat 2.6s ease-in-out infinite; }
+/* 落定脉冲：寄出后滚到本格的一次性强调（复用显影语言的亮度起伏）。
+   animation 是简写属性——必须把 float 一并写上，否则会覆盖掉持续浮动。 */
+@keyframes todayLitPulse {
+  0% { box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.4), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+  40% { box-shadow: 0 0 72rpx rgba(203, 191, 143, 0.9), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+  100% { box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.4), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+}
+.todayLitLanded {
+  animation: todayLitPulse 1.5s ease-out 1, todayLitFloat 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .todayLit, .todayLitLanded { animation: none; }
+}
 
 /* U7 报名 sheet */
 .enrollDeposit { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 12rpx; }

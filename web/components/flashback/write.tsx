@@ -307,6 +307,7 @@ export default function Write({
 			<button type="submit" className="fb-cta fb-cta-primary">
 				{t("submit")}
 			</button>
+			<p className="fb-send-note">{t("sendPublicNote")}</p>
 		</form>
 	);
 }

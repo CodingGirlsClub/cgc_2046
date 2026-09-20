@@ -5,23 +5,20 @@
 
 /* 我的卡：拍立得白框（当年正面 + 今天背面）——纸白物件，嵌在亮色界面里 */
 .sentence { display: inline; color: #2d2a26; font-size: 27rpx; line-height: 1.8; padding: 10rpx 2rpx; margin: -10rpx -2rpx; box-sizing: content-box; }
-/* 雾面段（对齐 web fb-fog-block 的呵气语言）：小程序不支持 backdrop-filter，
- * 用「横竖双向线性渐变收边（羽化）+ 内联 PNG 噪点（相纸颗粒）+ 极缓微光呼吸」
- * 三层叠加模拟。原文节点与文本不变（读屏/文本断言完整），视觉由雾块承载；
- * 点句切换雾面的交互不变（fogHint 提示仍在）。 */
+/* 雾面段（R16/KTD4：对外遮蔽）——本人视图用「雾块」而非轻糊：文本转透明，
+ * 只留底色块，点击即切换（点前是普通文本、点后是雾块，状态变化是质变而非
+ * 变淡几个百分点，因果自明）。语义与摘要卡 .rvFog（别人眼里的样子）同款，
+ * 与场次页 .viewFog 的 blur 先例同族。原文节点与文本不变（读屏/文本断言完整）。 */
 .sentenceFogged {
-  opacity: 0.72;
-  border-bottom: 2rpx dotted rgba(43, 39, 35, 0.45);
+  color: transparent;
+  background: rgba(43, 39, 35, 0.2);
+  border-radius: 6rpx;
+  padding: 0 6rpx;
+  user-select: none;
 }
-@keyframes mpFogBreathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.86; }
-}
-@keyframes mpFogBreathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.86; }
-}
-.fogHint { display: block; margin-top: 12rpx; color: #8a7f70; font-size: 20rpx; }
+/* 雾面操作说明：卡内一次性提示（点句切换 + 对外不可见两层语义）。
+   色值同 .sendNote（纸底 #efe9db 上 5.01:1）。 */
+.fogHint { display: block; margin-top: 12rpx; color: #6b6154; font-size: 20rpx; }
 
 /* 金句授权（R31）*/
 
@@ -243,6 +240,15 @@
 }
 .sendBtn::after { border: none; }
 .sendBtnBusy { opacity: 0.6; }
+/* 寄出即公开的后果说明(按钮下方小字,不进按钮内——橙色实心 pill 塞两行会撑破视觉)。
+   色值 #6b6154:纸底 #efe9db 上 5.01:1(原 #8a7f70 仅 3.24,低于 WCAG AA 4.5)。 */
+.sendNote {
+  display: block;
+  text-align: center;
+  padding: 8rpx 8rpx 0;
+  font-size: 20rpx;
+  color: #6b6154;
+}
 .backLink {
   display: block;
   text-align: center;
