@@ -253,6 +253,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           select: %{
             now_status: t.now_status,
             want: t.want,
+            need: t.need,
             say: t.say,
             sent_to_wall_at: t.sent_to_wall_at
           }
@@ -279,7 +280,10 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       # 作者侧点赞数（R36）：仅授权档 ∈ {anonymous, credited} 时返回——
       # 未授权者不在墙上，0 赞的「战绩」对本人无意义（前端只在上墙且 >0 时展示）。
       quote_stats: quote_stats(person.id),
-      answers: me_answers(person.id)
+      answers: me_answers(person.id),
+      # 卡片分享（#771）：开关态 + 标识 + 本人预览（预览独立于公开门——
+      # 关着也能看见自己会分享出什么）。恒提供（前端类型为可选只为兼容旧夹具）。
+      card_sharing: Cgc2046.Flashback.CardSharing.state(person.id)
     }
   end
 

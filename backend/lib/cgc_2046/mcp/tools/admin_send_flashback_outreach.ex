@@ -12,7 +12,6 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
 
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback.Outreach.Dispatch
-  alias Cgc2046.Flashback.EventArchive
   alias Cgc2046.Flashback.OutreachAdmin
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 

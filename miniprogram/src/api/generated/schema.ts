@@ -2240,6 +2240,8 @@ export type FlashbackCapsuleMe = {
   /** 本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版） */
   answers: Array<FlashbackMeAnswer>;
   appliedAt?: Maybe<Scalars['String']['output']>;
+  /** 卡片分享（#771）：开关态 + 标识 + 本人预览；预览独立于公开门（关着也有） */
+  cardSharing: FlashbackCardSharing;
   city?: Maybe<Scalars['String']['output']>;
   fullName: Scalars['String']['output'];
   id: Scalars['ID']['output'];
@@ -2265,6 +2267,15 @@ export type FlashbackCapsuleToday = {
   say?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;
   want?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackCardSharing = {
+  /** 分享链接是否可被访客解析（关 = 链接 404，标识仍保留） */
+  enabled: Scalars['Boolean']['output'];
+  /** 本人预览（与公开面同一投影，不受 enabled 门限制）；档案已删除为 null */
+  preview?: Maybe<FlashbackSharedCard>;
+  /** 分享标识：首开铸出后**永不变**（关闭不清、重开复用）；从未开启为 null */
+  shareId?: Maybe<Scalars['String']['output']>;
 };
 
 export type FlashbackClaimResult = {
@@ -2626,6 +2637,30 @@ export type FlashbackSendToWallResult = {
   maskedEmail?: Maybe<Scalars['String']['output']>;
   maskedPhone?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;
+};
+
+export type FlashbackSharedCard = {
+  /** 当年答案（实时保存数据，无「已寄出」前置）：键 self_intro / funny_thing / os；空节剔除 */
+  answers: Array<FlashbackSharedCardSection>;
+  /** 报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」） */
+  appliedAt?: Maybe<Scalars['String']['output']>;
+  city?: Maybe<Scalars['String']['output']>;
+  /** 隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径 */
+  displayName: Scalars['String']['output'];
+  /** 今天四格（实时保存数据）：键 today.now / today.want / today.need / today.say；空节剔除 */
+  today: Array<FlashbackSharedCardSection>;
+};
+
+export type FlashbackSharedCardSection = {
+  questionKey: Scalars['String']['output'];
+  /** 段结构（原文顺序）：明文段 text 有字、雾面段 text 恒空串（原文零泄露），len 供视觉档位 */
+  segments: Array<FlashbackSharedCardSegment>;
+};
+
+export type FlashbackSharedCardSegment = {
+  fog: Scalars['Boolean']['output'];
+  len: Scalars['Int']['output'];
+  text: Scalars['String']['output'];
 };
 
 export type FlashbackToday = {
@@ -4555,6 +4590,8 @@ export type RootMutationType = {
   flashbackRetract?: Maybe<FlashbackRetractResult>;
   /** 寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27） */
   flashbackSendToWall?: Maybe<FlashbackSendToWallResult>;
+  /** 卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档/公开 slug 无依赖。双入口（token 或登录账号） */
+  flashbackSetCardSharing?: Maybe<FlashbackCardSharing>;
   /** 金句授权（R31 两档 + 关）：level ∈ off/anonymous/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案 */
   flashbackSetQuoteLicense?: Maybe<FlashbackQuoteLicenseResult>;
   /** 提交「今天的你」（R8/R18/R19/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率） */
@@ -4998,6 +5035,12 @@ export type RootMutationTypeFlashbackSendToWallArgs = {
 };
 
 
+export type RootMutationTypeFlashbackSetCardSharingArgs = {
+  enabled: Scalars['Boolean']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type RootMutationTypeFlashbackSetQuoteLicenseArgs = {
   chosenQuoteSpans?: InputMaybe<Array<InputMaybe<FlashbackQuoteSpanInput>>>;
   creditedNote?: InputMaybe<Scalars['String']['input']>;
@@ -5300,6 +5343,8 @@ export type RootQueryType = {
   flashbackPublicQuotes: Array<FlashbackPublicQuote>;
   /** 闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接） */
   flashbackPublicStats?: Maybe<FlashbackPublicStats>;
+  /** 卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机） */
+  flashbackSharedCard?: Maybe<FlashbackSharedCard>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;
   /** 按 slug 获取（E-5 公开宿主页） */
@@ -5499,6 +5544,11 @@ export type RootQueryTypeFlashbackPublicProfileArgs = {
 
 export type RootQueryTypeFlashbackPublicQuotesArgs = {
   voterKey?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackSharedCardArgs = {
+  shareId: Scalars['String']['input'];
 };
 
 

@@ -199,6 +199,12 @@ interface FlashbackMockState {
   /** today 句级雾面(field → spans) */
   todayFogSpans: Record<string, Array<{ start: number; len: number }>>
   endorsedCardIds: string[]
+  /**
+   * #771 卡片站外公开开关。**默认关**（不开是唯一初始态，没有任何隐式开启），
+   * 且与 quoteLevel 完全独立——开实名档不会连带公开回忆。`shareId` 首次开启
+   * 时生成、此后永不变更（关闭只清公开态，重开复用同一 id）。
+   */
+  cardSharing: { enabled: boolean; shareId: string | null }
 }
 
 const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
@@ -208,7 +214,8 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   likeCount: 3,
   today: { nowStatus: null, want: null, need: null, say: null, sentToWallAt: null },
   todayFogSpans: {},
-  endorsedCardIds: []
+  endorsedCardIds: [],
+  cardSharing: { enabled: false, shareId: null }
 }
 
 interface WxLikeStorage {
@@ -243,7 +250,15 @@ function loadFlashbackState(): FlashbackMockState {
       typeof parsed.today === 'object' &&
       parsed.today !== null &&
       Array.isArray(parsed.endorsedCardIds) &&
-      parsed.endorsedCardIds.every((id) => typeof id === 'string')
+      parsed.endorsedCardIds.every((id) => typeof id === 'string') &&
+      // #771：旧快照（本字段出现前写的）缺 cardSharing → 整体回落初始态。
+      // 初始态 = 关且无 id，等价于「这台设备从没开过公开」——正是旧快照的真实
+      // 语义，故回落不会伪造出一次公开（不做「补默认关」的部分合并：那会让
+      // 脏数据里的 enabled:true 被静默保留）。
+      typeof parsed.cardSharing === 'object' &&
+      parsed.cardSharing !== null &&
+      typeof parsed.cardSharing.enabled === 'boolean' &&
+      (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string')
     return valid ? parsed : FLASHBACK_INITIAL_STATE
   } catch {
     return FLASHBACK_INITIAL_STATE
@@ -295,6 +310,80 @@ const FLASHBACK_E2E_ARCHIVE = {
   occurredOn: '2014-01-11'
 }
 const FLASHBACK_FUN_RAW = '我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。'
+
+// ── #771 卡片站外公开：公开面 fixture 与生成规则 ──────────────────────────
+// 公开卡是**独立投影**，不复用本人卡字段：姓名走 surname_masked 口径（王**），
+// 当年答案只出 self_intro/funny_thing/os 三题（PII 行 phone/email/social_media
+// 与 why_join 都不进），today 四问全出。雾段 text 恒空——与后端 FogSpans.segments
+// 同规则（原文字符不出服务端）。
+const FLASHBACK_SHARE_ANSWERS = [
+  { questionKey: 'self_intro', raw: FLASHBACK_RAW_TEXT },
+  { questionKey: 'funny_thing', raw: FLASHBACK_FUN_RAW },
+  { questionKey: 'os', raw: '当年我用的是 Windows XP，装了个假的 Mac 主题。' }
+]
+
+/** 48 位十六进制（与后端 share id 同格式：24 字节随机数的 hex）。 */
+function newShareId(): string {
+  let out = ''
+  while (out.length < 48) {
+    out += Math.floor(Math.random() * 0x100000000)
+      .toString(16)
+      .padStart(8, '0')
+  }
+  return out.slice(0, 48)
+}
+
+/** 与后端 FogSpans.segments 同规则：按已验证区间切段，fog 段 text 恒空。
+ *  校验失败（重叠/越界/非法 span）按**全雾** fail-closed——宁过度保护不泄露。 */
+function safeSegments(
+  raw: string,
+  spans: Array<{ start: number; len: number }>
+): Array<{ text: string; fog: boolean; len: number }> {
+  const sorted = [...spans].sort((a, b) => a.start - b.start)
+  const valid =
+    sorted.every((span) => Number.isInteger(span.start) && Number.isInteger(span.len) && span.len > 0 && span.start >= 0) &&
+    sorted.every((span, index) => index === 0 || span.start >= sorted[index - 1].start + sorted[index - 1].len) &&
+    sorted.every((span) => span.start + span.len <= raw.length)
+  if (!valid) return [{ text: '', fog: true, len: raw.length }]
+
+  const segments: Array<{ text: string; fog: boolean; len: number }> = []
+  let cursor = 0
+  for (const span of sorted) {
+    const head = raw.slice(cursor, span.start)
+    if (head) segments.push({ text: head, fog: false, len: 0 })
+    segments.push({ text: '', fog: true, len: span.len })
+    cursor = span.start + span.len
+  }
+  const tail = raw.slice(cursor)
+  if (tail) segments.push({ text: tail, fog: false, len: 0 })
+  return segments
+}
+
+/** 公开卡（#771）：本人预览与匿名读面**同一份**——一处口径，两条入口不漂移。 */
+function flashbackSharedCard(state: FlashbackMockState) {
+  const todayRows: Array<[string, string | null, Array<{ start: number; len: number }>]> = [
+    ['today.now', state.today.nowStatus, state.todayFogSpans?.now ?? []],
+    ['today.want', state.today.want, state.todayFogSpans?.want ?? []],
+    ['today.need', state.today.need, state.todayFogSpans?.need ?? []],
+    ['today.say', state.today.say, state.todayFogSpans?.say ?? []]
+  ]
+  return {
+    // surname_masked 口径（王**）——不是本人卡的全名
+    displayName: '王**',
+    city: '北京',
+    appliedAt: '2014-01-11T13:06:00Z',
+    answers: FLASHBACK_SHARE_ANSWERS.map(({ questionKey, raw }) => ({
+      questionKey,
+      segments: safeSegments(raw, questionKey === 'self_intro' ? state.fogSpans : [])
+    })),
+    today: todayRows
+      .filter(([, text]) => typeof text === 'string' && text !== '')
+      .map(([questionKey, text, spans]) => ({
+        questionKey,
+        segments: safeSegments(text as string, spans)
+      }))
+  }
+}
 
 // 场次名册 fixture（R12：仅 attended；未寄出者只有结构化字段，无内容层）。
 // 城市分布（北京3/上海2/广州1 + 上海场3）= 长廊城市堆计数与场次页雾卡的
@@ -758,6 +847,13 @@ function responseFor(document: string, variables: object): unknown {
           quoteStats:
             state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
           today: { ...state.today, fogSpans: state.todayFogSpans ?? {} },
+          // #771：开关与本人预览恒带（后端非空字段）。enabled/shareId 从 state
+          // 派生，preview 与匿名读面同一份投影——关着时预览仍在（本人视角）。
+          cardSharing: {
+            enabled: state.cardSharing.enabled === true,
+            shareId: state.cardSharing.shareId ?? null,
+            preview: flashbackSharedCard(state)
+          },
           answers: [
             {
               id: 'fb-answer-1',
@@ -999,6 +1095,49 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
+  if (document.includes('mutation FlashbackSetCardSharing')) {
+    // #771：本人可调开关。要求登录（会话腿）或有效 token（链接腿）——匿名不给
+    // 任何写面。开启时**首次**生成 shareId，之后复用；关闭只清 enabled，
+    // **保留 shareId**（ADR-0014：发布即锁死，重开同一 id）。
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    if (!loggedIn && !token) {
+      return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+    }
+    // 已作废的首程链接（claim 之后）不构成写权限——与 capsule token 腿同规则
+    if (token && flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    const enabled = values.enabled === true
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      cardSharing: {
+        enabled,
+        // shareId 只在**首次开启**时生成（后端口径：从未开启过时恒 null）。
+        // 因此「从未开过的人点关闭」必须保持 null，不能凭空铸一个 id——
+        // 铸了就等于宣告「这个人开过」，而分享链接本不该存在。
+        shareId: enabled ? (state.cardSharing.shareId ?? newShareId()) : state.cardSharing.shareId
+      }
+    }))
+    return {
+      flashbackSetCardSharing: {
+        enabled: next.cardSharing.enabled,
+        shareId: next.cardSharing.shareId,
+        preview: flashbackSharedCard(next)
+      }
+    }
+  }
+
+  if (document.includes('query FlashbackSharedCard')) {
+    // #771 匿名公开读面：无 token、无 slug、无 auth——朋友拿到链接就能读。
+    // 只有「开着且有 id」才出卡；未开启/未知 id/已关闭一律 null（合法空态）。
+    const state = flashbackState()
+    const shareId = typeof values.shareId === 'string' ? values.shareId : ''
+    if (!state.cardSharing.enabled || !state.cardSharing.shareId || shareId !== state.cardSharing.shareId) {
+      return { flashbackSharedCard: null }
+    }
+    return { flashbackSharedCard: flashbackSharedCard(state) }
+  }
+
   if (document.includes('mutation CheckInEnrollment')) {
     // #508-A：核销三分支（成功/重复/错码）。幂等由 checkedIn 标记承担——同一
     // 报名第二次核销稳定返回 already（后端唯一索引语义的 mock 投影）

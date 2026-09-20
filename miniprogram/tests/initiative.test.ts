@@ -204,6 +204,30 @@ describe('三平台页面注册', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  // #771：公开卡页只在微信全量端注册——它由分享链接进入，裁剪端没有闪念间
+  // 深度场景（页内「站外公开」文案也过不了 check:diversion 词表）。
+  // 平台清单在模块加载期读 process.env，故必须逐平台 resetModules + 动态 import。
+  it('公开卡页仅微信全量端注册（裁剪端不挂）', async () => {
+    const original = process.env.TARO_ENV
+    vi.stubGlobal('defineAppConfig', (config: unknown) => config)
+    try {
+      for (const platform of ['weapp', 'tt', 'xhs']) {
+        process.env.TARO_ENV = platform
+        vi.resetModules()
+        const { default: config } = await import('../src/app.config')
+        if (platform === 'weapp') {
+          expect(config.pages).toContain('pages/flashback-shared-card/index')
+        } else {
+          expect(config.pages).not.toContain('pages/flashback-shared-card/index')
+        }
+      }
+    } finally {
+      if (original === undefined) delete process.env.TARO_ENV
+      else process.env.TARO_ENV = original
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 /**

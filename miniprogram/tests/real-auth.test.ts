@@ -53,7 +53,9 @@ vi.mock('../src/api/operations', () => ({
   GrantConsentMutationDocument: 'GRANT_CONSENT',
   GenerateMiniProgramCodeMutationDocument: 'GENERATE_CODE',
   AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER',
-  FlashbackCapsuleQueryDocument: 'FLASHBACK_CAPSULE'
+  FlashbackCapsuleQueryDocument: 'FLASHBACK_CAPSULE',
+  FlashbackSetCardSharingMutationDocument: 'FLASHBACK_SET_CARD_SHARING',
+  FlashbackSharedCardQueryDocument: 'FLASHBACK_SHARED_CARD'
 }))
 
 vi.mock('../src/state/workspaceTab', () => ({
@@ -73,7 +75,7 @@ vi.mock('../src/platform', () => ({
 }))
 
 import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
-import { FlashbackNotBoundError } from '../src/domain/models'
+import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '../src/domain/models'
 
 const SESSION_USER = {
   id: 'u-42',
@@ -448,5 +450,138 @@ describe('闪念间 capsule 错误映射与授权档回读（P1/P3）', () => {
 
     const capsule = await api.getFlashbackCapsule()
     expect(capsule.me.quoteLevel).toBe('anonymous')
+  })
+})
+
+// ── #771 卡片站外公开：写面失败语义 + 公开读面空态/雾面映射 ──────────────
+
+describe('卡片站外公开写面（#771）', () => {
+  it('mutation 未返回状态 → 抛错而不是当作成功（失败不得静默）', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({ flashbackSetCardSharing: null })
+    const api = new RealMiniProgramApi()
+
+    await expect(api.flashbackSetCardSharing(true)).rejects.toThrow('公开设置失败，请重试')
+  })
+
+  it('token 失效（flashback_token_claimed）→ 类型化错误，不返回成功态', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('token claimed', 200, [
+        { message: 'token claimed', code: 'flashback_token_claimed' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    await expect(api.flashbackSetCardSharing(true, 'tk')).rejects.toBeInstanceOf(FlashbackTokenInvalidError)
+  })
+
+  it('开启成功 → 状态与预览映射（enabled 严格布尔，段结构原样）', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackSetCardSharing: {
+        enabled: true,
+        shareId: 'a'.repeat(48),
+        preview: {
+          displayName: '王**',
+          city: '北京',
+          appliedAt: '2014-01-11T13:06:00Z',
+          answers: [
+            { questionKey: 'self_intro', segments: [{ text: '', fog: true, len: 7 }, { text: '后来我成了程序员。', fog: false, len: 0 }] }
+          ],
+          today: [{ questionKey: 'today.now', segments: [{ text: '还在写代码', fog: false, len: 0 }] }]
+        }
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    const state = await api.flashbackSetCardSharing(true)
+    expect(state.enabled).toBe(true)
+    expect(state.shareId).toBe('a'.repeat(48))
+    expect(state.preview.displayName).toBe('王**')
+    expect(state.preview.answers[0].segments).toEqual([
+      { text: '', fog: true, len: 7 },
+      { text: '后来我成了程序员。', fog: false, len: 0 }
+    ])
+    expect(state.preview.today[0].questionKey).toBe('today.now')
+  })
+
+  it('关闭成功但 shareId 保留 → 原样回读（不改 id 的口径由后端保证，前端不重生成）', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackSetCardSharing: { enabled: false, shareId: 'b'.repeat(48), preview: { displayName: '王**', answers: [], today: [] } }
+    })
+    const api = new RealMiniProgramApi()
+
+    const state = await api.flashbackSetCardSharing(false)
+    expect(state.enabled).toBe(false)
+    expect(state.shareId).toBe('b'.repeat(48))
+  })
+
+  it('capsule.me.cardSharing 缺省（旧 fixture/旧后端）→ undefined，不伪造「已开」', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackCapsule: {
+        me: {
+          id: 'p1', fullName: '王小明', surname: null, city: null, occupationThen: null,
+          participation: 'attended', appliedAt: null, quoteLevel: 'off', quote: null,
+          today: null, answers: []
+        }
+      }
+    })
+    const capsule = await new RealMiniProgramApi().getFlashbackCapsule()
+    expect(capsule.me.cardSharing).toBeUndefined()
+  })
+})
+
+describe('公开卡读面（#771，匿名）', () => {
+  it('null 是合法空态（未开启/不存在/已收回）→ 返回 null 而不抛错', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({ flashbackSharedCard: null })
+    const api = new RealMiniProgramApi()
+
+    await expect(api.getFlashbackSharedCard('deadbeef')).resolves.toBeNull()
+    // 匿名面：不携带 token，variables 只有 shareId
+    expect(mocks.graphqlRequest).toHaveBeenCalledWith('FLASHBACK_SHARED_CARD', { shareId: 'deadbeef' })
+  })
+
+  it('网络故障照常抛出（不吞成 null——空态与故障必须可分辨）', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(new Error('request:fail timeout'))
+    const api = new RealMiniProgramApi()
+
+    await expect(api.getFlashbackSharedCard('abc')).rejects.toThrow('request:fail timeout')
+  })
+
+  it('读面映射 fail-closed：fog 段即使被后端错误地带上 text 也丢弃（原文不出 DOM）', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackSharedCard: {
+        displayName: '王**',
+        city: null,
+        appliedAt: null,
+        answers: [
+          {
+            questionKey: 'self_intro',
+            // 故意违规：fog 段带了原文（后端投影 bug / 契约漂移）
+            segments: [{ text: '我在盛大做测试', fog: true, len: 7 }]
+          }
+        ],
+        today: null
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    const card = await api.getFlashbackSharedCard('abc')
+    expect(card?.answers[0].segments[0]).toEqual({ text: '', fog: true, len: 7 })
+    expect(JSON.stringify(card)).not.toContain('我在盛大做测试')
+  })
+
+  it('读面映射：列表元素可空（SDL 未加 !）→ 先滤再映射，不炸不缩位', async () => {
+    mocks.graphqlRequest.mockResolvedValueOnce({
+      flashbackSharedCard: {
+        displayName: '王**',
+        answers: [null, { questionKey: 'os', segments: [null, { text: '当年我用 Windows', fog: false, len: 0 }] }],
+        today: null
+      }
+    })
+    const api = new RealMiniProgramApi()
+
+    const card = await api.getFlashbackSharedCard('abc')
+    expect(card?.answers).toHaveLength(1)
+    expect(card?.answers[0].segments).toHaveLength(1)
+    expect(card?.today).toEqual([])
   })
 })

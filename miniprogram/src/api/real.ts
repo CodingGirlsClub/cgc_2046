@@ -51,8 +51,12 @@ import type {
   FlashbackPublicStatsQueryVariables,
   FlashbackSendToWallMutation,
   FlashbackSendToWallMutationVariables,
+  FlashbackSetCardSharingMutation,
+  FlashbackSetCardSharingMutationVariables,
   FlashbackSetQuoteLicenseMutation,
   FlashbackSetQuoteLicenseMutationVariables,
+  FlashbackSharedCardQuery,
+  FlashbackSharedCardQueryVariables,
   FlashbackSubmitTodayMutation,
   FlashbackSubmitTodayMutationVariables,
   GenerateMiniProgramCodeMutation,
@@ -107,7 +111,9 @@ import {
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
   FlashbackSendToWallMutationDocument,
+  FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
+  FlashbackSharedCardQueryDocument,
   FlashbackSubmitTodayMutationDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
@@ -133,6 +139,10 @@ import type {
   EnrollmentForm,
   EnrollmentSummary,
   FlashbackCapsule,
+  FlashbackCardSharing,
+  FlashbackSharedCard,
+  FlashbackRosterAnswer,
+  FlashbackRosterSegment,
   FlashbackWish,
   FlashbackClaimResult,
   FlashbackEnterResult,
@@ -283,6 +293,55 @@ function parseTodayFog(
     return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
     return null
+  }
+}
+
+/** 公开卡段结构（#771）：与名册段（capsule.archives[].roster[].answers[].segments）
+ *  同口径——fog=true 时 text 恒空（后端已置空；这里再兜一层：fog 段只要带了
+ *  原文就丢弃，宁多雾一块也不放原文字符过去）。 */
+function mapSharedCardSegments(
+  segments: Array<{ text: string; fog: boolean; len: number } | null> | null | undefined
+): FlashbackRosterSegment[] {
+  return (segments ?? [])
+    .filter((segment): segment is NonNullable<typeof segment> => segment != null)
+    .map((segment) => ({
+      text: segment.fog ? '' : segment.text,
+      fog: segment.fog === true,
+      len: segment.len
+    }))
+}
+
+/** 公开卡题段列表（#771）：answers 与 today 同形（questionKey + 段列表），
+ *  后者键为 today.now/want/need/say；两处共用本映射。 */
+function mapSharedCardSections(
+  sections:
+    | Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null>
+    | null
+    | undefined
+): FlashbackRosterAnswer[] {
+  return (sections ?? [])
+    .filter((section): section is NonNullable<typeof section> => section != null)
+    .map((section) => ({
+      questionKey: section.questionKey,
+      segments: mapSharedCardSegments(section.segments)
+    }))
+}
+
+/** 公开卡（#771）——**入参形状里根本没有原文**（后端投影只出段结构），
+ *  所以不存在「回退到本人卡原文」的代码路径：这是防线的第一层。 */
+function mapSharedCard(card: {
+  displayName: string
+  city?: string | null
+  appliedAt?: string | null
+  answers?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
+  today?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
+}): FlashbackSharedCard {
+  return {
+    displayName: card.displayName,
+    city: card.city ?? null,
+    appliedAt: card.appliedAt ?? null,
+    answers: mapSharedCardSections(card.answers),
+    today: mapSharedCardSections(card.today)
   }
 }
 
@@ -785,7 +844,18 @@ export class RealMiniProgramApi implements MiniProgramApi {
           rawText: answer.rawText,
           fogSpans: (answer.fogSpans ?? []).map((span) => ({ start: span.start, len: span.len })),
           text: answer.text
-        }))
+        })),
+        // #771：公开开关与本人预览。**没有 rawText 兜底**——预览段与公开读面
+        // 同源（后端同一投影），页面不得拿 me.answers 的原文字符去补段。
+        cardSharing: capsule.me.cardSharing
+          ? {
+              enabled: capsule.me.cardSharing.enabled === true,
+              shareId: capsule.me.cardSharing.shareId ?? null,
+              preview: capsule.me.cardSharing.preview
+                ? mapSharedCard(capsule.me.cardSharing.preview)
+                : { displayName: '', city: null, appliedAt: null, answers: [], today: [] }
+            }
+          : undefined
       },
       archives: (capsule.archives ?? []).map((archive) => ({
         key: archive.key,
@@ -1020,6 +1090,39 @@ export class RealMiniProgramApi implements MiniProgramApi {
       returnedCount: data.flashbackPublicStats?.returnedCount ?? 0,
       sentCount: data.flashbackPublicStats?.sentCount ?? 0
     }
+  }
+
+  // ── 卡片站外公开（#771/R14）────────────────────────────────────────────
+
+  async flashbackSetCardSharing(enabled: boolean, token?: string | null): Promise<FlashbackCardSharing> {
+    const data = await graphqlRequest<FlashbackSetCardSharingMutation, FlashbackSetCardSharingMutationVariables>(
+      FlashbackSetCardSharingMutationDocument,
+      { enabled, token: token ?? null }
+    ).catch((error: unknown) => {
+      // 首程链接失效（token 面）→ 类型化抛出（与其余 token 面写操作同规则）
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const result = data.flashbackSetCardSharing
+    if (!result) throw new Error('公开设置失败，请重试')
+    return {
+      enabled: result.enabled === true,
+      shareId: result.shareId ?? null,
+      preview: result.preview
+        ? mapSharedCard(result.preview)
+        : { displayName: '', city: null, appliedAt: null, answers: [], today: [] }
+    }
+  }
+
+  async getFlashbackSharedCard(shareId: string): Promise<FlashbackSharedCard | null> {
+    const data = await graphqlRequest<FlashbackSharedCardQuery, FlashbackSharedCardQueryVariables>(
+      FlashbackSharedCardQueryDocument,
+      { shareId }
+    )
+    // null 是**合法**空态（未开启/不存在/已删档），不是错误——页面据此渲染
+    // 「这张卡已经收回」而不是错误面。网络/服务端故障仍由 graphqlRequest 抛出。
+    if (!data.flashbackSharedCard) return null
+    return mapSharedCard(data.flashbackSharedCard)
   }
 
   async createOrder(enrollmentId: string): Promise<CreatedOrder> {
