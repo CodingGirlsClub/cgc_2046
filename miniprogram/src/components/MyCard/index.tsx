@@ -192,7 +192,7 @@ export default function MyCard({
             >
               {saving ? '正在贴上墙…' : '写完寄出 →'}
             </Button>
-            <Text className={styles.sendNote}>寄出即公开 · 包括当年的答案</Text>
+            <Text className={styles.sendNote}>寄出即公开 · 包括当年的答案 · 随时可调</Text>
             <Text className={styles.backLink} onClick={() => setFlipped(false)}>
               ← 回到当年答案
             </Text>
