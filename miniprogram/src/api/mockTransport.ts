@@ -902,6 +902,8 @@ function responseFor(document: string, variables: object): unknown {
         myPrivateWishes: [
           { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
         ],
+        // R20 年度额度:mock 恒满额(许愿写面不入 mock,额度递减无 mock 投影)
+        myWishQuotaRemaining: 3,
         cities: [
           ...new Set([
             ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>

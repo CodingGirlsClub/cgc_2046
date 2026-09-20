@@ -262,6 +262,7 @@ test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已�
       futureEvents: Array<{ events: Array<{ id: string; capacity: number | null; confirmedCount: number; registrationDeadline: string | null }> }>
       publicWishes: Array<{ id: string; endorsedByMe: boolean; comments: unknown[] }>
       myPrivateWishes: Array<{ id: string; mine: boolean }>
+      myWishQuotaRemaining: number | null
     }
   }
   const data = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {})
@@ -275,6 +276,8 @@ test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已�
   assert.equal(data.flashbackCapsule.publicWishes[0].comments.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes[0].mine, true)
+  // R20 年度额度:mock 恒满额 3(fail-closed 解析缺字段会红,此处钉住形状)
+  assert.equal(data.flashbackCapsule.myWishQuotaRemaining, 3)
 })
 
 // ── #771 卡片站外公开：mock 写面 → capsule 回读 + 匿名公开读面 ────────────

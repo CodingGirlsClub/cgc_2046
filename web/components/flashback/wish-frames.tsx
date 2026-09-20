@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
+import { graphqlErrorDetails } from "@/lib/graphql/auth";
+import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import type { FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
 import {
 	FLASHBACK_CREATE_WISH,
@@ -24,11 +26,14 @@ type WishFormKind = { kind: "closed" } | { kind: "form" } | { kind: "wish"; wish
 export function WishFrames({
 	publicWishes,
 	myPrivateWishes,
+	myWishQuotaRemaining,
 	token,
 	onChanged,
 }: {
 	publicWishes: FlashbackWish[];
 	myPrivateWishes: FlashbackWish[];
+	/** 本人今年剩余许愿条数（未登录为 null，表单模态不显示额度行） */
+	myWishQuotaRemaining: number | null;
 	token: string | null;
 	onChanged: () => void;
 }) {
@@ -136,7 +141,13 @@ export function WishFrames({
 			)}
 
 			{modal.kind === "form" && (
-				<WishFormModal token={token} busy={busy} onClose={() => setModal({ kind: "closed" })} onDone={onChanged} />
+				<WishFormModal
+					token={token}
+					busy={busy}
+					myWishQuotaRemaining={myWishQuotaRemaining}
+					onClose={() => setModal({ kind: "closed" })}
+					onDone={onChanged}
+				/>
 			)}
 			{modal.kind === "wish" &&
 				resolveWish(modal.wishId) && (
@@ -157,28 +168,42 @@ export function WishFrames({
 function WishFormModal({
 	token,
 	busy,
+	myWishQuotaRemaining,
 	onClose,
 	onDone,
 }: {
 	token: string | null;
 	busy: boolean;
+	myWishQuotaRemaining: number | null;
 	onClose: () => void;
 	onDone: () => void;
 }) {
 	const t = useTranslations("flashback.wish");
+	const tErrors = useTranslations("errors");
+	const errorT = usePaymentErrorTranslator();
 	const [content, setContent] = useState("");
 	const [visibility, setVisibility] = useState<"private" | "public">("public");
+	const [error, setError] = useState<string | null>(null);
 	const [createWish, { loading }] = useMutation(FLASHBACK_CREATE_WISH);
+
+	const quotaExhausted = myWishQuotaRemaining === 0;
 
 	const submit = async () => {
 		const trimmed = content.trim();
-		if (!trimmed || loading || busy) return;
+		if (!trimmed || loading || busy || quotaExhausted) return;
+		setError(null);
 		try {
 			await createWish({ variables: { token, content: trimmed, visibility } });
 			onDone();
 			onClose();
-		} catch {
-			// 静默
+		} catch (e) {
+			// 业务错误（如 flashback_wish_quota_exceeded）按 code 映射 errors 文案；
+			// 无 code / 未知 code 兜底 database_error，不透传后端原文（错误文案纪律）
+			const code = graphqlErrorDetails(e)?.code;
+			setError(errorT(code, tErrors("database_error")));
+			// 额度被拒即触发胶囊 refetch（F2）：refetch 完成后 prop 变 0 → 额度行变
+			// 用完文案 + 提交禁用，不再陷入无限被拒循环；模态保持打开，用户可关闭
+			if (code === "flashback_wish_quota_exceeded") onDone();
 		}
 	};
 
@@ -186,6 +211,11 @@ function WishFormModal({
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
 			<div className="fb-wish-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t("makeWish")}>
 				<h4 className="fb-wish-modal-title">{t("makeWish")}</h4>
+				{myWishQuotaRemaining !== null && (
+					<p className="fb-wish-modal-quota">
+						{quotaExhausted ? t("quotaExhausted") : t("quotaRemaining", { count: myWishQuotaRemaining })}
+					</p>
+				)}
 				<textarea
 					className="fb-wish-modal-textarea"
 					value={content}
@@ -213,8 +243,18 @@ function WishFormModal({
 						{t("visibilityPublic")}
 					</label>
 				</div>
+				{error && (
+					<p role="alert" className="fb-hint">
+						{error}
+					</p>
+				)}
 				<div className="fb-wish-modal-actions">
-					<button type="button" className="fb-wish-modal-submit" disabled={loading || busy} onClick={() => void submit()}>
+					<button
+						type="button"
+						className="fb-wish-modal-submit"
+						disabled={loading || busy || quotaExhausted}
+						onClick={() => void submit()}
+					>
 						{t("submit")}
 					</button>
 					<button type="button" className="fb-wish-modal-cancel" onClick={onClose}>

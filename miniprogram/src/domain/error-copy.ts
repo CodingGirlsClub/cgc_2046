@@ -19,6 +19,8 @@ export const COPY: Record<string, string> = {
   flashback_like_rate_limited: '点赞太频繁了，歇一会儿再试。',
   flashback_quote_not_found: '这句话已经不在墙上了，刷新看看别的。',
   flashback_quote_span_fogged: '选中的句子还带着雾面，先解雾再选。',
+  // 许愿年度额度（R20：每年 3 条，含私有与已软删，删除不退还；与 web zh-CN errors 同文案互指）
+  flashback_wish_quota_exceeded: '今年许愿名额已用完（每年最多 3 条，删除不退还名额）。',
   // 核销码生成失败（同场并发撞码，可重试；U4/KTD5）
   enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）

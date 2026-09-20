@@ -11,32 +11,50 @@ defmodule Cgc2046.Flashback.Wishes do
   - **软删单源**（KTD4）：`soft_delete_wish/2`、`soft_delete_comment/2`
     ——学员自助删除（R14）与平台 MCP 删除（R18）共用同一实现，只置
     `deleted_at`（审计由 ToolCallLog 承担），不写第二条删除路径。
+  - **年度额度**（R20）：每 person 每自然年（Asia/Shanghai）最多创建
+    3 条愿望，按创建行为计数——含私有、含已软删，删除不退还额度；
+    并发经 person 行 FOR UPDATE 锁串行化（同 card_sharing lock_row 协议）；
+    `quota_remaining/1` 供走廊读面透出本人剩余额度。
   """
 
   require Ash.Query
 
-  alias Cgc2046.Flashback.{AlumniProjection, Person, Wish, WishComment, WishEndorsement}
+  alias Cgc2046.Flashback.{AlumniProjection, Wish, WishComment, WishEndorsement}
+  alias Cgc2046.Repo
 
   @content_max_length 500
   @visibilities ~w(public private)
+  @annual_wish_quota 3
 
   # ── 创建（R5/R6） ────────────────────────────────────────────────────
 
-  @doc "许愿：visibility 二选一；city 快照许愿人名册城市。"
+  @doc "许愿：visibility 二选一；city 快照许愿人名册城市；年度额度 R20。"
   @spec create_wish(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def create_wish(person_id, content, visibility) do
     with :ok <- validate_content(content),
-         :ok <- validate_visibility(visibility),
-         {:ok, city} <- person_city(person_id) do
-      Wish
-      |> Ash.Changeset.for_create(:create, %{
-        person_id: person_id,
-        content: String.trim(content),
-        visibility: visibility,
-        city: city
-      })
-      |> Ash.create(authorize?: false)
+         :ok <- validate_visibility(visibility) do
+      # 锁 + COUNT + INSERT 同事务：Repo.rollback 透传 {:error, %{code: ...}}
+      # 形状（Ecto 语义：error tuple 回滚不 raise），返回契约不变。
+      Repo.transaction(fn ->
+        with {:ok, city} <- lock_person_city(person_id),
+             :ok <- check_quota(person_id) do
+          Wish
+          |> Ash.Changeset.for_create(:create, %{
+            person_id: person_id,
+            content: String.trim(content),
+            visibility: visibility,
+            city: city
+          })
+          |> Ash.create(authorize?: false)
+          |> case do
+            {:ok, wish} -> wish
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
     end
   end
 
@@ -205,6 +223,12 @@ defmodule Cgc2046.Flashback.Wishes do
     |> MapSet.new(& &1.wish_id)
   end
 
+  @doc "本人今年剩余许愿额度（R20：每年 #{@annual_wish_quota} 条，含私有与已软删）。"
+  @spec quota_remaining(String.t()) :: non_neg_integer()
+  def quota_remaining(person_id) do
+    max(0, @annual_wish_quota - wishes_created_this_year(person_id))
+  end
+
   # ── 内部 ─────────────────────────────────────────────────────────────
 
   defp validate_content(content) when is_binary(content) do
@@ -227,13 +251,51 @@ defmodule Cgc2046.Flashback.Wishes do
   defp validate_visibility(visibility) when visibility in @visibilities, do: :ok
   defp validate_visibility(_), do: {:error, %{code: "flashback_wish_invalid_visibility"}}
 
-  defp person_city(person_id) do
-    Person
-    |> Ash.Query.filter(id == ^person_id)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> {:error, %{code: "flashback_person_not_found"}}
-      {:ok, person} -> {:ok, person.city}
+  # R20：年度额度按创建行为计数——不过滤 deleted_at/visibility（软删不退还、
+  # 私有也计），防删除重许刷热度信号使额度失效。
+  defp check_quota(person_id) do
+    if wishes_created_this_year(person_id) >= @annual_wish_quota do
+      {:error,
+       %{
+         code: "flashback_wish_quota_exceeded",
+         message: "今年的许愿名额已用完（每年最多 #{@annual_wish_quota} 条）。"
+       }}
+    else
+      :ok
+    end
+  end
+
+  defp wishes_created_this_year(person_id) do
+    Wish
+    |> Ash.Query.filter(person_id == ^person_id and inserted_at >= ^shanghai_year_start_utc())
+    |> Ash.count!(authorize?: false)
+  end
+
+  # Asia/Shanghai 固定 UTC+8 无夏令时；项目无 tzdata 依赖（Calendar 默认
+  # UTCOnly，shift_zone 不可用），算术偏移行为在 dev/test/prod 一致。
+  defp shanghai_year_start_utc do
+    shanghai_now = DateTime.add(DateTime.utc_now(), 8 * 3600, :second)
+
+    DateTime.new!(Date.new!(shanghai_now.year, 1, 1), ~T[00:00:00], "Etc/UTC")
+    |> DateTime.add(-8 * 3600, :second)
+  end
+
+  # R20 并发串行点（同 card_sharing lock_row 协议）：事务内对 person 行
+  # FOR UPDATE——后到者锁内重数会看到先到者已提交的愿望，check_quota 的
+  # COUNT 与 Ash.create 的 INSERT 不再分离成两条独立语句。锁读顺带返回
+  # city（创建快照入参）；num_rows=0 即 person 不存在。
+  defp lock_person_city(person_id) do
+    case Repo.query("SELECT city FROM flashback_people WHERE id = $1 FOR UPDATE", [
+           Repo.uuid!(person_id)
+         ]) do
+      {:ok, %{num_rows: 1, rows: [[city]]}} ->
+        {:ok, city}
+
+      {:ok, %{num_rows: 0}} ->
+        {:error, %{code: "flashback_person_not_found"}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

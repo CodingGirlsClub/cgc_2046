@@ -617,6 +617,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         mine
         insertedAt
       }
+      myWishQuotaRemaining
       cities
     }
   }

@@ -558,3 +558,19 @@ export function futureEventCards(
   }
   return cards
 }
+
+// ── U5 许愿年度额度(R20:每年 3 条,含私有与已软删,删除不退还) ─────────────
+
+/** 提交判据:草稿去空白非空 且 额度未尽(quota===0 禁用;null 不拦,后端会以
+ * flashback_wish_quota_exceeded 兜底拒绝)。 */
+export function canSubmitWish(quota: number | null, draft: string): boolean {
+  return draft.trim().length > 0 && quota !== 0
+}
+
+/** 弹层额度行文案:null 不渲染(未登录/无 person);>0 报剩余;0 报用完
+ * （与 web zh-CN flashback.wish.quotaExhausted 同文案互指）。 */
+export function wishQuotaCopy(quota: number | null): string | null {
+  if (quota === null) return null
+  if (quota === 0) return '今年许愿名额已用完（每年最多 3 条，删除不退还名额）'
+  return `今年还可许 ${quota} 条`
+}

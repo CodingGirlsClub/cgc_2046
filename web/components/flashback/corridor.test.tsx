@@ -92,6 +92,7 @@ const capsule: FlashbackCapsule = {
 	futureEvents: [],
 	publicWishes: [],
 	myPrivateWishes: [],
+	myWishQuotaRemaining: 3,
 	cities: ["上海", "北京"],
 	archives: [multiCity, singleCity],
 };

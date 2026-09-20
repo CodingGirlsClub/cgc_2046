@@ -65,6 +65,7 @@ const baseCapsule: FlashbackCapsule = {
 		futureEvents: [],
 	publicWishes: [],
 	myPrivateWishes: [],
+	myWishQuotaRemaining: 3,
 cities: ["北京"],
 	archives: [
 		{

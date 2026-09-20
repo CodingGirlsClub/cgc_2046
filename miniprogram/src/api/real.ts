@@ -252,11 +252,26 @@ function parseOrderStatus(value: string): OrderStatus {
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
 
+/** 后端业务错误（BusinessError code 命中 error-copy 表）：message 为中文文案，
+ * code 原样携带——页面按码分流（如 R20 许愿额度被拒后先刷新额度再 toast，F2）。
+ * 与 FlashbackTokenInvalidError 同型（Error 子类 + readonly code）。 */
+export class BusinessError extends Error {
+  readonly code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.name = 'BusinessError'
+    this.code = code
+  }
+}
+
 // Action 卡四态 fail-closed：未知态落 done（终态只读，无写面风险）。
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
-  // code 命中 → 中文文案；未命中 join message（通用兜底，拿不到 code 的场景用）
-  const copy = errors.map(({ code }) => errorCopy(code)).find(Boolean)
-  if (copy) throw new Error(copy)
+  // code 命中 → 中文文案（BusinessError 携带 code）；未命中 join message（通用兜底，拿不到 code 的场景用）
+  for (const { code } of errors) {
+    const copy = errorCopy(code)
+    if (code && copy) throw new BusinessError(code, copy)
+  }
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 
@@ -751,6 +766,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { content, visibility, token: token ?? null }
     ).catch((error: unknown) => {
       throwIfFlashbackTokenInvalid(error)
+      // R20 年度额度等业务错误:code 命中 errorCopy 抛中文(如 flashback_wish_quota_exceeded)
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
       throw error
     })
   }
@@ -910,6 +927,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       })),
       publicWishes: (capsule.publicWishes ?? []).map(mapWish),
       myPrivateWishes: (capsule.myPrivateWishes ?? []).map(mapWish),
+      myWishQuotaRemaining: capsule.myWishQuotaRemaining ?? null,
       cities: capsule.cities ?? []
     }
   }

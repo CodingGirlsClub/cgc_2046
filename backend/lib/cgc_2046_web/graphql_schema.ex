@@ -2499,7 +2499,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）"
+    @desc "许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
     field :flashback_create_wish, :flashback_wish_result do
       arg(:token, :string)
       arg(:content, non_null(:string))
@@ -3421,6 +3421,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:public_wishes, non_null(list_of(non_null(:flashback_wish))))
     @desc "本人私有许愿（私人许愿帧，仅自己可见）"
     field(:my_private_wishes, non_null(list_of(non_null(:flashback_wish))))
+    @desc "本人今年剩余许愿额度（每年 3 条，R20）；capsule 可解析时恒有值，nullable 仅为 schema 演进安全"
+    field(:my_wish_quota_remaining, :integer)
     @desc "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
     field(:cities, non_null(list_of(non_null(:string))))
   end

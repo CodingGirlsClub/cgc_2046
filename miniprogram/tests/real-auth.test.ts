@@ -54,6 +54,7 @@ vi.mock('../src/api/operations', () => ({
   GenerateMiniProgramCodeMutationDocument: 'GENERATE_CODE',
   AdmitMemberByTokenMutationDocument: 'ADMIT_MEMBER',
   FlashbackCapsuleQueryDocument: 'FLASHBACK_CAPSULE',
+  FlashbackCreateWishMutationDocument: 'FLASHBACK_CREATE_WISH',
   FlashbackSetCardSharingMutationDocument: 'FLASHBACK_SET_CARD_SHARING',
   FlashbackSharedCardQueryDocument: 'FLASHBACK_SHARED_CARD'
 }))
@@ -74,7 +75,7 @@ vi.mock('../src/platform', () => ({
   currentPlatform: mocks.currentPlatform
 }))
 
-import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
+import { BusinessError, RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '../src/domain/models'
 
 const SESSION_USER = {
@@ -450,6 +451,50 @@ describe('闪念间 capsule 错误映射与授权档回读（P1/P3）', () => {
 
     const capsule = await api.getFlashbackCapsule()
     expect(capsule.me.quoteLevel).toBe('anonymous')
+  })
+})
+
+// ── R20/F2 许愿额度被拒：mapped 错误携带 code（页面据此刷新额度，破死循环） ──
+
+describe('flashbackCreateWish 错误映射（R20/F2：mapped 错误携带 code）', () => {
+  it('flashback_wish_quota_exceeded → BusinessError：中文文案 + code 透传', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('quota exceeded', 200, [
+        { message: 'quota exceeded', code: 'flashback_wish_quota_exceeded' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    const error = await api.flashbackCreateWish('想学 Rust', 'private').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(BusinessError)
+    expect((error as BusinessError).code).toBe('flashback_wish_quota_exceeded')
+    expect((error as Error).message).toBe('今年许愿名额已用完（每年最多 3 条，删除不退还名额）。')
+  })
+
+  it('token 失效优先于 mutationError 映射（throwIfFlashbackTokenInvalid 既有优先级不变）', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('token claimed', 200, [
+        { message: 'token claimed', code: 'flashback_token_claimed' },
+        { message: 'quota exceeded', code: 'flashback_wish_quota_exceeded' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    await expect(api.flashbackCreateWish('想学 Rust', 'private')).rejects.toBeInstanceOf(FlashbackTokenInvalidError)
+  })
+
+  it('未知 code → 兜底 join message，不挂 code（非 BusinessError）', async () => {
+    mocks.graphqlRequest.mockRejectedValueOnce(
+      new mocks.GraphQLRequestError('something broke', 200, [
+        { message: 'something broke', code: 'some_unknown_code' }
+      ])
+    )
+    const api = new RealMiniProgramApi()
+
+    const error = await api.flashbackCreateWish('想学 Rust', 'private').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(BusinessError)
+    expect((error as Error).message).toBe('something broke')
   })
 })
 
