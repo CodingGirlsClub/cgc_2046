@@ -104,10 +104,13 @@ if os.path.exists(path):
     with open(path) as f:
         config = json.load(f)
 
-config.setdefault("mcpServers", {})["cgc-2046"] = {
+config.setdefault("mcpServers", {})
+existing = config["mcpServers"].get("cgc-2046", {})
+# 保留已有 headers（含 onboarding 写入的 token），只更新 type/url
+config["mcpServers"]["cgc-2046"] = {
     "type": "http",
     "url": url,
-    # headers.Authorization 由 onboarding 流程补入，install 不写 token
+    **({"headers": existing["headers"]} if "headers" in existing else {}),
 }
 
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".mcp.json.", text=True)
