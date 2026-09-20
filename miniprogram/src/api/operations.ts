@@ -514,6 +514,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
             displayName
             city
             appliedAt
+            occurredOn
             answers {
               questionKey
               segments {
@@ -812,6 +813,7 @@ export const FlashbackSetCardSharingMutationDocument = /* GraphQL */ `
         displayName
         city
         appliedAt
+        occurredOn
         answers {
           questionKey
           segments {
@@ -841,6 +843,7 @@ export const FlashbackSharedCardQueryDocument = /* GraphQL */ `
       displayName
       city
       appliedAt
+      occurredOn
       answers {
         questionKey
         segments {

@@ -3328,8 +3328,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径"
     field(:display_name, non_null(:string))
     field(:city, :string)
-    @desc "报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」）"
+    @desc "报名时间戳（ISO8601，精确到秒）；落款用——她写下这张卡的那一刻"
     field(:applied_at, :string)
+    @desc "活动举办日（ISO8601 日期，如 2014-01-11）；头部场景定位用——记忆真正发生的那天"
+    field(:occurred_on, :string)
     @desc "当年答案（实时保存数据，无「已寄出」前置）：键 self_intro / funny_thing / os；空节剔除"
     field(:answers, non_null(list_of(non_null(:flashback_shared_card_section))))
     @desc "今天四格（实时保存数据）：键 today.now / today.want / today.need / today.say；空节剔除"

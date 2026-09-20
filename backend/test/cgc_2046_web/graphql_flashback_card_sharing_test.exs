@@ -26,6 +26,7 @@ defmodule Cgc2046Web.GraphqlFlashbackCardSharingTest do
     displayName
     city
     appliedAt
+    occurredOn
     answers { questionKey segments { text fog len } }
     today { questionKey segments { text fog len } }
   }
@@ -233,6 +234,7 @@ defmodule Cgc2046Web.GraphqlFlashbackCardSharingTest do
       card = res["data"]["flashbackSharedCard"]
       assert card["displayName"] == "王**"
       assert card["city"] == "北京"
+      assert card["occurredOn"] == "2014-01-11"
       assert Enum.map(card["answers"], & &1["questionKey"]) == ["self_intro", "funny_thing", "os"]
 
       assert Enum.map(card["today"], & &1["questionKey"]) == [

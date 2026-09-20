@@ -38,10 +38,14 @@ function Segments({ section }: { section: FlashbackRosterAnswer }) {
 }
 
 export default function SharedFlashbackCard({ card }: { card: FlashbackSharedCard }) {
-  // 报名时间戳（`2014-01-05T…` → `2014.01.05`）；不可解析则不出（不编造日期）
-  const day = card.appliedAt?.slice(0, 10)
-  const stamp = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day.replace(/-/g, '.') : null
-  const year = stamp ? stamp.slice(0, 4) : null
+  // 头部场景定位：活动举办日（occurred_on，如 2014-01-11 → 2014.01.11）——
+  // 记忆真正发生的那天。不可解析则不出（不编造日期）。
+  const occurredDay = card.occurredOn?.slice(0, 10)
+  const occurredStamp =
+    occurredDay && /^\d{4}-\d{2}-\d{2}$/.test(occurredDay) ? occurredDay.replace(/-/g, '.') : null
+  const occurredYear = occurredStamp ? occurredStamp.slice(0, 4) : null
+  // 落款：报名时间（applied_at，精确到分）——她写下这张卡的那一刻。
+  const appliedStamp = formatAppliedStamp(card.appliedAt)
   // 排除空文本段：无段、或全是空文本且无雾段 → 不渲染。**雾段一律算有内容**
   // ——雾住的是真话，只是不能说，漏掉它等于告诉访客「这题她没写」。
   const withContent = (section: FlashbackRosterAnswer): boolean =>
@@ -53,14 +57,14 @@ export default function SharedFlashbackCard({ card }: { card: FlashbackSharedCar
     <View className={styles.card} data-testid='fb-shared-card'>
       <View className={styles.head}>
         <Text className={styles.kicker}>IN A FLASH · 闪念间</Text>
-        {(card.city || stamp) && (
-          <Text className={styles.stamp}>{[card.city, stamp].filter(Boolean).join(' · ')}</Text>
+        {(card.city || occurredStamp) && (
+          <Text className={styles.stamp}>{[card.city, occurredStamp].filter(Boolean).join(' · ')}</Text>
         )}
       </View>
 
       {answers.length > 0 && (
         <View className={styles.photoPast}>
-          <Text className={styles.photoTitle}>当年的你{year ? ` · ${year}` : ''}</Text>
+          <Text className={styles.photoTitle}>当年的你{occurredYear ? ` · ${occurredYear}` : ''}</Text>
           {answers.map((section) => (
             <View key={section.questionKey} className={styles.qa}>
               <Text className={styles.question}>{questionLabel(section.questionKey)}</Text>
@@ -84,10 +88,48 @@ export default function SharedFlashbackCard({ card }: { card: FlashbackSharedCar
 
       <View className={styles.signRow}>
         <Text className={styles.signName}>{card.displayName}</Text>
-        {stamp && <Text className={styles.signTime}>{stamp}</Text>}
+        {appliedStamp && <Text className={styles.signTime}>{appliedStamp}</Text>}
       </View>
-
-      <Text className={styles.fogNote}>雾住的句子不会出现在这张卡上</Text>
     </View>
   )
+}
+
+/** 落款时间：按数据真实精度分级显示，绝不渲染假精度（如 `13:06:42.000`）。
+ *
+ *  数据血统（导入两条路径）：ISO 字符串行可能自带毫秒/微秒；Excel 序号行
+ *  只到秒（`excel_serial_to_utc` 的 `Time.new!(h, m, s)`）。两条路径存的都是
+ *  **真 UTC**（Excel 墙钟按 +08:00 减 8h；ISO 带偏移的也归一到 UTC）。
+ *  显示层必须转回北京墙钟（+08:00），否则「她写下那一刻」差 8 小时、
+ *  凌晨提交的行连日期都会偏一天。
+ *
+ *  精度分级（跟随数据，不编造不截断）：
+ *  - 有毫秒且非 `.000` → `2014.01.11 13:06:42.317`（保留真实毫秒）
+ *  - 有秒且非 `:00` → `2014.01.11 13:06:42`
+ *  - 秒为 `:00` 或只有分 → `2014.01.11 13:06`（`:00` 是精度占位，省略）
+ *  不可解析回落日期部分；再不行返回 null（不编造）。 */
+function formatAppliedStamp(appliedAt: string | null): string | null {
+  if (!appliedAt) return null
+  const date = new Date(appliedAt)
+  if (Number.isNaN(date.getTime())) {
+    const day = appliedAt.slice(0, 10)
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day.replace(/-/g, '.') : null
+  }
+  // 转北京墙钟：UTC 毫秒 + 8h，再取 UTC 字段（等价于 Asia/Shanghai 的墙钟）
+  const beijing = new Date(date.getTime() + 8 * 3600_000)
+  const y = beijing.getUTCFullYear()
+  const mo = String(beijing.getUTCMonth() + 1).padStart(2, '0')
+  const d = String(beijing.getUTCDate()).padStart(2, '0')
+  const hh = String(beijing.getUTCHours()).padStart(2, '0')
+  const mm = String(beijing.getUTCMinutes()).padStart(2, '0')
+  const ss = beijing.getUTCSeconds()
+  const ms = beijing.getUTCMilliseconds()
+
+  let stamp = `${y}.${mo}.${d} ${hh}:${mm}`
+  // 秒为 0 时省略（`:00` 是精度占位，不是「她特意在整秒写下」）
+  if (ss !== 0 || ms !== 0) {
+    stamp += `:${String(ss).padStart(2, '0')}`
+    // 毫秒仅在有真实值时追加——`.000` 是精度占位（Excel 序号导入到秒），不显示
+    if (ms !== 0) stamp += `.${String(ms).padStart(3, '0')}`
+  }
+  return stamp
 }

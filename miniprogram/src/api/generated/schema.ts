@@ -2642,11 +2642,13 @@ export type FlashbackSendToWallResult = {
 export type FlashbackSharedCard = {
   /** 当年答案（实时保存数据，无「已寄出」前置）：键 self_intro / funny_thing / os；空节剔除 */
   answers: Array<FlashbackSharedCardSection>;
-  /** 报名时间戳（ISO8601）；缺列回落 null（前端渲染「当年的你」） */
+  /** 报名时间戳（ISO8601，精确到秒）；落款用——她写下这张卡的那一刻 */
   appliedAt?: Maybe<Scalars['String']['output']>;
   city?: Maybe<Scalars['String']['output']>;
   /** 隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径 */
   displayName: Scalars['String']['output'];
+  /** 活动举办日（ISO8601 日期，如 2014-01-11）；头部场景定位用——记忆真正发生的那天 */
+  occurredOn?: Maybe<Scalars['String']['output']>;
   /** 今天四格（实时保存数据）：键 today.now / today.want / today.need / today.say；空节剔除 */
   today: Array<FlashbackSharedCardSection>;
 };

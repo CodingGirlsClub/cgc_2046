@@ -212,12 +212,13 @@ defmodule Cgc2046.Flashback.CardSharingTest do
       %{person: person, share_id: share_id, card: SharedCard.get(share_id)}
     end
 
-    test "字段白名单：只有隐名/城市/报名时间/answers/today", %{card: card} do
+    test "字段白名单：隐名/城市/报名时间/活动日/answers/today", %{card: card} do
       assert Map.keys(card) |> Enum.sort() ==
-               [:answers, :applied_at, :city, :display_name, :today]
+               [:answers, :applied_at, :city, :display_name, :occurred_on, :today]
 
       assert card.display_name == "王**"
       assert card.city == "北京"
+      assert card.occurred_on == "2014-01-11"
     end
 
     test "当年答案只出三键（self_intro / funny_thing / os），social_media 零出现", %{card: card} do
