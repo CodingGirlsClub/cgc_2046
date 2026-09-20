@@ -590,8 +590,9 @@ export interface MiniProgramApi {
     level: 'off' | 'anonymous' | 'credited',
     chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
   ): Promise<void>
-  /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界） */
-  flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void>
+  /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界）；
+   *  token 可选=会话腿（跳过注册的回访者），与 today 版同规则 */
+  flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
   /** U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
   flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
   // U4 愿望写操作(双入口 token)

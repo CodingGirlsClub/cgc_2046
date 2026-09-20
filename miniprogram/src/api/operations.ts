@@ -721,8 +721,8 @@ export const FlashbackClaimMutationDocument = /* GraphQL */ `
 `
 
 export const FlashbackAdjustFogMutationDocument = /* GraphQL */ `
-  mutation FlashbackAdjustFog($answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
-    flashbackAdjustFog(answerId: $answerId, spans: $spans) {
+  mutation FlashbackAdjustFog($token: String, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
+    flashbackAdjustFog(token: $token, answerId: $answerId, spans: $spans) {
       answerId
       fogSpans {
         start

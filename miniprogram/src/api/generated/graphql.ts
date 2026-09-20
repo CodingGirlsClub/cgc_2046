@@ -1137,6 +1137,7 @@ export type FlashbackClaimMutationVariables = Exact<{
 export type FlashbackClaimMutation = { flashbackClaim: { bound: boolean, boundCount: number, maskedPhone: string | null } | null };
 
 export type FlashbackAdjustFogMutationVariables = Exact<{
+  token?: string | null | undefined;
   answerId: string | number;
   spans: Array<FlashbackFogSpanInput> | FlashbackFogSpanInput;
 }>;

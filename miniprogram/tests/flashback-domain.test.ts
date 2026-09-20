@@ -135,6 +135,8 @@ import {
   isCandidatePicked,
   quoteCandidatesOf,
   quoteLikeBadge,
+  recordCardLayout,
+  recordCardModel,
   shareMessage,
   shareOptInState,
   summaryCardLayout,
@@ -335,6 +337,8 @@ test('quoteLikeBadge：上墙且有点赞才出现（R36）', () => {
   )
 })
 
+// ── 卡片四态（recordCardModel / recordCardLayout） ──────────────────
+
 test('shareOptInState：未圈选不显示 / 已授权锁定 / 可勾选默认不勾（R37,多句）', () => {
   const base = { ...me(), quoteLevel: 'off' }
   // 有白名单句（quote + spans 齐备）→ 可勾选（默认不勾由页面 state 保证）
@@ -347,3 +351,67 @@ test('shareOptInState：未圈选不显示 / 已授权锁定 / 可勾选默认�
   assert.equal(shareOptInState({ ...base, quoteSpans: [] }), 'hidden')
   assert.equal(shareOptInState({ ...base, quoteSpans: null }), 'hidden')
 })
+
+test('recordCardModel：三态内容切分 + 雾句保留标记（不再凭空消失）', () => {
+  const withFog = me({
+    answers: [
+      {
+        id: 'a1',
+        questionKey: 'self_intro',
+        rawText: '我在盛大做测试。想亲眼看看是不是真的！',
+        text: '',
+        fogSpans: [{ start: 0, len: 7 }]
+      }
+    ]
+  })
+
+  // today：题干取自 TODAY_FIELDS.label，只有有值的行成段（工厂 today 无 need）
+  const today = recordCardModel(withFog, 'today')
+  assert.deepEqual(
+    today.sections.map((s) => s.title),
+    ['现在在做什么', '想做的事 / 想学的东西']
+  )
+
+  // past：题干走 questionLabel；雾句**保留并标记**（旧口径会整句丢弃）
+  const past = recordCardModel(withFog, 'past')
+  assert.equal(past.sections[0].title, '请简单的介绍一下自己')
+  assert.equal(past.sections[0].sentences[0].fogged, true)
+  assert.equal(past.sections[0].sentences[0].text, '我在盛大做测试。')
+  assert.equal(past.sections[0].sentences[1].fogged, false)
+
+  // both：今天段在前、当年段在后
+  const both = recordCardModel(withFog, 'both')
+  assert.equal(both.sections.length, today.sections.length + past.sections.length)
+  assert.equal(both.stamp, '2014.01.05 · 北京')
+})
+
+test('recordCardLayout：动态高（下限 800 / 内容驱动 / 超限截断）+ 坐标落在画布内', () => {
+  const short = recordCardModel(me(), 'today')
+  const shortLayout = recordCardLayout(short)
+  assert.equal(shortLayout.H, 800)
+  assert.equal(shortLayout.truncated, false)
+
+  const heavy = recordCardModel(
+    me({
+      answers: Array.from({ length: 14 }, (_, i) => ({
+        id: `a${i}`,
+        questionKey: `q${i}`,
+        rawText: '一段足够长的回答，用来把画布撑到上限。'.repeat(4),
+        text: '',
+        fogSpans: []
+      }))
+    }),
+    'past'
+  )
+  const heavyLayout = recordCardLayout(heavy)
+  assert.ok(heavyLayout.H > 800, '内容多应撑高')
+  assert.ok(heavyLayout.H <= 2400, '不超过上限')
+  assert.equal(heavyLayout.truncated, true, '超上限应标截断')
+
+  for (const block of heavyLayout.blocks) {
+    for (const line of block.lines) {
+      assert.ok(line.top > 0 && line.top < heavyLayout.H, '行坐标应在画布内')
+    }
+  }
+})
+

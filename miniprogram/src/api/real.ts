@@ -872,10 +872,11 @@ export class RealMiniProgramApi implements MiniProgramApi {
     if (!data.flashbackSetQuoteLicense) throw new Error('授权设置失败，请重试')
   }
 
-  async flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[]): Promise<void> {
+  async flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void> {
     await graphqlRequest<FlashbackAdjustFogMutation, FlashbackAdjustFogMutationVariables>(
       FlashbackAdjustFogMutationDocument,
       {
+        token: token ?? undefined,
         answerId,
         spans: spans.map((span) => ({ start: span.start, len: span.len, reason: span.reason ?? 'owner' }))
       }
