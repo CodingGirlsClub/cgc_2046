@@ -417,7 +417,9 @@ defmodule Cgc2046.Flashback.OutreachTest do
       args = enqueue_one(person, "reconnect")
 
       assert :ok = perform_job(OutreachWorker, args)
-      assert outreach_row!(person.id, :sms).status == :queued
+      # 建行后 skip 落 failed 终态（批次历史不显示「排队中」永不收敛）
+      assert outreach_row!(person.id, :sms).status == :failed
+      assert outreach_row!(person.id, :sms).detail =~ "sms_vars_missing"
 
       unknown_brand =
         Flashback.EventArchive
@@ -433,7 +435,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       args2 = enqueue_one(person2, "reconnect")
 
       assert :ok = perform_job(OutreachWorker, args2)
-      assert outreach_row!(person2.id, :sms).status == :queued
+      assert outreach_row!(person2.id, :sms).status == :failed
     end
 
     test "sms 腿：pilot 双品牌场次名 → 首段主品牌 Rails Girls（非 GCD）" do
@@ -656,6 +658,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       # 日期个性化 + 逐字引文（与截图并排可对照）+ 页脚按本人场次派生
       assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
       assert email.html_body =~ "你在 2014 年参加过 Rails Girls Beijing 的活动"
+      # 中文结尾场次名：名前不加空格（「…北京 的活动」不多空格）
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
     end
 
