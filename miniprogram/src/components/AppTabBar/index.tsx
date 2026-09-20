@@ -8,9 +8,16 @@ type TabKey = 'discover' | 'flashback' | 'enrollments' | 'workspace' | 'profile'
 
 interface Props { selected: TabKey }
 
-const baseTabs = [
+/** 微信全量端基础 Tab（我的报名已降为「我的」页内入口，见 profile） */
+const fullBaseTabs = [
   { key: 'discover' as const, text: '发现', icon: '⌕', path: '/pages/discover/index' },
-  { key: 'flashback' as const, text: '闪念间', icon: '⚡', path: '/pages/flashback-corridor/index' },
+  { key: 'flashback' as const, text: '闪念间', icon: '⚡', path: '/pages/flashback-corridor/index' }
+]
+
+/** 裁剪端（抖音/小红书）：2 Tab 漏斗——未注册长廊，故无闪念间；无「我的」页，
+ *  故我的报名仍是 Tab（与 app.config cutTabList 同步） */
+const cutTabs = [
+  { key: 'discover' as const, text: '发现', icon: '⌕', path: '/pages/discover/index' },
   { key: 'enrollments' as const, text: '我的报名', icon: '✓', path: '/pages/my-enrollments/index' }
 ]
 
@@ -31,9 +38,9 @@ export function AppTabBar({ selected }: Props) {
   useEffect(() => (isCut ? undefined : subscribeWorkspaceTab(setShowWorkspace)), [])
 
   const tabs = isCut
-    ? baseTabs
+    ? cutTabs
     : [
-        ...baseTabs,
+        ...fullBaseTabs,
         ...(showWorkspace ? [workspaceTab] : []),
         profileTab
       ]

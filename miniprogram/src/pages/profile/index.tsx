@@ -191,23 +191,18 @@ export default function ProfilePage() {
               </>
             )}
 
-            {/* U9/R28 回访入口；U2/R1 接长廊主容器——长廊现为 tabBar 页面，
-                微信端只能 switchTab（navigateTo 跳 Tab 页会失败）；裁剪端未注册
-                长廊，仍用薄壳页 flashback/index 走 navigateTo */}
-            <Text className={styles.sectionTitle}>我的闪念间</Text>
+            {/* 闪念间已升为 tabBar 入口，本页不再重复；此位改放「我的报名」
+                （原 Tab 项降级——报名记录/核销码/缴费态属「我的」事务，
+                从本页直达；裁剪端不注册本页，其「我的报名」仍是 Tab） */}
+            <Text className={styles.sectionTitle}>我的报名</Text>
             <View
               className={styles.openclacky}
-              onClick={() => {
-                if (process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs') {
-                  void Taro.navigateTo({ url: '/pages/flashback/index' })
-                } else {
-                  void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
-                }
-              }}
+              data-testid='profile-my-enrollments'
+              onClick={() => void Taro.navigateTo({ url: '/pages/my-enrollments/index' })}
             >
               <View>
-                <Text className={styles.openclackyTitle}>我的闪念间</Text>
-                <Text className={styles.openclackyText}>当年的拍立得、今天的回答、等你的未来场次与愿望。</Text>
+                <Text className={styles.openclackyTitle}>我的报名</Text>
+                <Text className={styles.openclackyText}>报名的活动与课程、现场核销码、缴费状态。</Text>
               </View>
               <Text className={styles.openclackyArrow}>→</Text>
             </View>

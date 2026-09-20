@@ -131,7 +131,7 @@ export default function MyEnrollmentsPage() {
         <Text className={styles.subtitle}>状态变化会同步到这里。</Text>
       </View>
 
-      <ScrollView scrollY className={styles.list}>
+      <ScrollView scrollY className={`${styles.list} ${process.env.TARO_ENV === 'weapp' ? styles.listPlain : ''}`}>
         {loading ? (
           <PageState kind='loading' />
         ) : error ? (
@@ -289,10 +289,14 @@ export default function MyEnrollmentsPage() {
           )
         })}
       </ScrollView>
+      {/* 裁剪端（tt/xhs）仍是 tabBar 页，保留底部 TabBar；微信端已降为
+          「我的」页内入口（见 profile），普通页不挂 TabBar */}
       {process.env.TARO_ENV !== 'weapp' && (
-        <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>
+        <>
+          <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>
+          <AppTabBar selected='enrollments' />
+        </>
       )}
-      <AppTabBar selected='enrollments' />
     </View>
   )
 }

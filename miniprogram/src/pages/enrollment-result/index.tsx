@@ -98,7 +98,7 @@ export default function EnrollmentResultPage() {
       )}
       {subscriptionState && <Text className={styles.subscriptionState} data-testid='subscription-state'>{subscriptionState}</Text>}
 
-      <Button className={styles.secondaryButton} onClick={() => Taro.switchTab({ url: '/pages/my-enrollments/index' })}>
+      <Button className={styles.secondaryButton} onClick={() => Taro.navigateTo({ url: '/pages/my-enrollments/index' })}>
         查看我的报名
       </Button>
     </View>

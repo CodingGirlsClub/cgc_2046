@@ -53,7 +53,10 @@ export default function JoinPage() {
       // takePendingScene 已在页面初始化时消费并删除持久 scene，这里无需再 remove
       Taro.showToast({ title: `已加入${result.workspaceName}`, icon: 'success' })
       const nextTab = await landingTabAfterJoin(result.workspaceId)
-      setTimeout(() => Taro.switchTab({ url: nextTab }), 500)
+      // reLaunch 对两种落点都合法：工作台仍是 tabBar 页（只能 switchTab），
+      // 我的报名已降为普通页（switchTab 会失败）——reLaunch 同时胜任且保留
+      // 原设计的「清栈」语义（邀请码落地页完成后不该返回）
+      setTimeout(() => Taro.reLaunch({ url: nextTab }), 500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '邀请码无效或已过期')
     } finally {
