@@ -2508,7 +2508,7 @@
       "quoteLegend": "Quote license",
       "quote_off": "Off (default)",
       "quote_anonymous": "Anonymous quote — the platform may pick one line from your old answers to share anonymously (credited as \"W** · year · city\")",
-      "quote_credited": "Credited support — share this line publicly under your name (usable as brand material)",
+      "quote_credited": "Credited support — share this line publicly under your name",
       "quotePick": "Pick sentences to allow (multi-select; we choose from them):",
       "quoteNoCandidate": "(All sentences are fogged — clear the fog to pick quotes)",
       "creditedNoteLabel": "What you're doing now, in your words (public, credited)",
