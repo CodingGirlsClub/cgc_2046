@@ -59,6 +59,8 @@ export interface FlashbackToday {
 	mobilization?: Record<string, unknown> | null;
 	newsletterOptIn?: boolean | null;
 	reconnectTags?: string[] | null;
+	/** 句级雾面(field(now/want/need/say) → spans);本人管理面专用 */
+	fogSpans?: Record<string, Array<{ start: number; len: number }>> | null;
 	sentToWallAt?: string | null;
 }
 
@@ -195,12 +197,7 @@ export interface FlashbackCapsuleMe {
 	occupationThen?: string | null;
 	participation: string;
 	appliedAt?: string | null;
-	today?: {
-		nowStatus?: string | null;
-		want?: string | null;
-		say?: string | null;
-		sentToWallAt?: string | null;
-	} | null;
+	today?: FlashbackToday | null;
 	/** 选定金句（R14 摘要卡；off/未选为 null） */
 	quote?: string | null;
 	/** 金句授权档（R31/R37：off/anonymous/credited）——分享 opt-in 用它判断是否已授权 */
@@ -556,7 +553,9 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				today {
 					nowStatus
 					want
+					need
 					say
+					fogSpans
 					sentToWallAt
 				}
 				quote
