@@ -500,8 +500,69 @@ defmodule Cgc2046.Flashback.Import do
             a.question_key in ["full_name", "phone", "email"] and a.fog_spans != []
           end)
       },
-      existing_people_in_archive: count_existing(config[:archive][:key])
+      existing_people_in_archive: count_existing(config[:archive][:key]),
+      duplicates_in_excel: count_duplicates_in_excel(people),
+      duplicates_vs_existing: count_duplicates_vs_existing(people, config[:archive][:key]),
+      duplicates_to_upgrade:
+        count_duplicates_to_upgrade(people, admitted_keys, config[:archive][:key])
     }
+  end
+
+  # Excel 内重复：同 key 多行（取第一行，其余计入重复）。
+  defp count_duplicates_in_excel(people) do
+    keys = Enum.map(people, &person_key/1)
+    length(keys) - length(Enum.uniq(keys))
+  end
+
+  # 对已有重复：同 archive 内已有同 key person 的行数。
+  defp count_duplicates_vs_existing(people, archive_key) do
+    existing_keys = load_existing_keys(archive_key)
+    Enum.count(people, fn p -> MapSet.member?(existing_keys, person_key(p)) end)
+  end
+
+  # 待升级：已有 not_selected、新行 attended（录取名单修正）的行数。
+  defp count_duplicates_to_upgrade(people, admitted_keys, archive_key) do
+    existing_by_key = load_existing_people_by_key(archive_key)
+
+    Enum.count(people, fn p ->
+      key = person_key(p)
+
+      case Map.get(existing_by_key, key) do
+        nil ->
+          false
+
+        existing ->
+          existing.participation == :not_selected and MapSet.member?(admitted_keys, key)
+      end
+    end)
+  end
+
+  defp load_existing_keys(archive_key) do
+    case get_archive_by_key(archive_key) do
+      nil ->
+        MapSet.new()
+
+      archive ->
+        Flashback.Person
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(archive_event_id == ^archive.id)
+        |> Ash.read!(authorize?: false, page: false)
+        |> MapSet.new(&person_key/1)
+    end
+  end
+
+  defp load_existing_people_by_key(archive_key) do
+    case get_archive_by_key(archive_key) do
+      nil ->
+        %{}
+
+      archive ->
+        Flashback.Person
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(archive_event_id == ^archive.id)
+        |> Ash.read!(authorize?: false, page: false)
+        |> Map.new(fn p -> {person_key(p), p} end)
+    end
   end
 
   defp count_status(participation, status) do
@@ -562,25 +623,76 @@ defmodule Cgc2046.Flashback.Import do
     archive = ensure_archive(config[:archive])
 
     importable = Enum.filter(people, &is_map_key(&1, :full_name))
+    {to_insert, to_upgrade, _skipped} = deduplicate(importable, admitted_keys, archive)
 
-    Enum.reduce(importable, %{people: 0, answers: 0}, fn person, counts ->
-      participation =
-        if MapSet.member?(admitted_keys, person_key(person)), do: :attended, else: :not_selected
+    counts =
+      Enum.reduce(to_insert, %{people: 0, answers: 0}, fn person, counts ->
+        participation =
+          if MapSet.member?(admitted_keys, person_key(person)), do: :attended, else: :not_selected
 
-      {:ok, row} = insert_person(archive, person, participation)
+        {:ok, row} = insert_person(archive, person, participation)
 
-      Enum.each(person.answers, fn answer ->
-        Flashback.Answer
-        |> Ash.Changeset.for_create(:create, %{
-          person_id: row.id,
-          question_key: answer.question_key,
-          raw_text: answer.raw_text,
-          fog_spans: answer.fog_spans
-        })
-        |> Ash.create!(authorize?: false)
+        Enum.each(person.answers, fn answer ->
+          Flashback.Answer
+          |> Ash.Changeset.for_create(:create, %{
+            person_id: row.id,
+            question_key: answer.question_key,
+            raw_text: answer.raw_text,
+            fog_spans: answer.fog_spans
+          })
+          |> Ash.create!(authorize?: false)
+        end)
+
+        %{counts | people: counts.people + 1, answers: counts.answers + length(person.answers)}
       end)
 
-      %{counts | people: counts.people + 1, answers: counts.answers + length(person.answers)}
+    # 录取名单修正场景：已有 not_selected、新行 attended → 仅升级 participation
+    Enum.each(to_upgrade, fn {existing, _new_person} ->
+      existing
+      |> Ash.Changeset.for_update(:set_participation, %{participation: :attended})
+      |> Ash.update!(authorize?: false)
+    end)
+
+    Map.put(counts, :upgraded, length(to_upgrade))
+  end
+
+  # 去重（同 archive 内）：Excel 内重复 + 对已有重复。返回 {待插入, 待升级,
+  # 已跳过}——待升级 = 已有 not_selected、新行 attended（录取名单修正）；
+  # 已跳过 = 其他重复（同 participation 或降级，不动）。
+  defp deduplicate(importable, admitted_keys, archive) do
+    existing_by_key =
+      Flashback.Person
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(archive_event_id == ^archive.id)
+      |> Ash.read!(authorize?: false)
+      |> Map.new(fn p -> {person_key(p), p} end)
+
+    Enum.reduce(importable, {[], [], []}, fn person, {insert, upgrade, skip} ->
+      key = person_key(person)
+
+      new_participation =
+        if MapSet.member?(admitted_keys, key), do: :attended, else: :not_selected
+
+      case Map.get(existing_by_key, key) do
+        nil ->
+          # Excel 内重复：本次 reduce 已见过此 key → 跳过
+          if Enum.any?(insert, fn p -> person_key(p) == key end) do
+            {insert, upgrade, [{person, :duplicate_in_excel} | skip]}
+          else
+            {[person | insert], upgrade, skip}
+          end
+
+        existing ->
+          # 对已有重复：attended 覆盖 not_selected → 升级；其他 → 跳过
+          if existing.participation == :not_selected and new_participation == :attended do
+            {insert, [{existing, person} | upgrade], skip}
+          else
+            {insert, upgrade, [{person, :duplicate_vs_existing} | skip]}
+          end
+      end
+    end)
+    |> then(fn {insert, upgrade, skip} ->
+      {Enum.reverse(insert), Enum.reverse(upgrade), Enum.reverse(skip)}
     end)
   end
 
