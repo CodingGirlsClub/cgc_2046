@@ -4,10 +4,9 @@ import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, quoteLikeBadge, shareMessage } from '@/domain/flashback'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, type QuoteLevel } from '@/domain/flashback'
 import { questionLabel } from '@/domain/flashback-journey'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
-import { futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, type QuoteLevel } from '@/domain/flashback'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
 import ShareSheet from '@/components/MyCard/ShareSheet'
@@ -653,13 +652,7 @@ export default function FlashbackCorridorPage() {
             <View className={styles.courageBadge}>
               <Text className={styles.courageBadgeText}>你说的话会成为别人的勇气！</Text>
             </View>
-            {(
-              [
-                ['off', '关闭', '（默认）你的答案只对自己可见'],
-                ['anonymous', '匿名金句', '平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）'],
-                ['credited', '实名支持', '用你的名字公开这句话（可作品牌素材）'],
-              ] as const
-            ).map(([lv, label, desc]) => (
+            {QUOTE_LEVEL_OPTIONS.map(({ value: lv, label, desc }) => (
               <View
                 key={lv}
                 className={`${styles.licenseRow} ${licenseLevel === lv ? styles.licenseRowActive : ''}`}
