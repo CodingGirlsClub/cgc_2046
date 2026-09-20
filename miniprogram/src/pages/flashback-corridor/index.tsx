@@ -703,9 +703,9 @@ export default function FlashbackCorridorPage() {
                 className={`${styles.licenseRow} ${licenseLevel === lv ? styles.licenseRowActive : ''}`}
                 onClick={() => {
                   setLicenseLevel(lv)
-                  const next = lv === 'off' ? [] : licensePicks
-                  if (lv === 'off') setLicensePicks([])
-                  void submitLicense(lv, next)
+                  // 切档位不动圈选：关档只关档——圈选是用户的挑句劳动，保留它
+                  // 才能在切回来时立刻复原（减句走下面的逐句取消）。
+                  void submitLicense(lv, licensePicks)
                 }}
               >
                 <View className={styles.licenseDot} />

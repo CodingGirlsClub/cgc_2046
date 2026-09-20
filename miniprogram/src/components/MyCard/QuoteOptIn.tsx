@@ -43,19 +43,20 @@ export default function QuoteOptIn({
       data-testid='fb-share-optin'
       onClick={() => {
         if (quoteBusy) return
-        // 已授权 → 点按 = 关闭（对称撤回；quoteBusy 期间不响应，避免连点）
-        if (mode === 'already') {
-          void submitLicense('off', [])
-          return
-        }
-        const next = !checked
-        setChecked(next)
-        if (!next) return
         const spans = (me.quoteSpans ?? []).map((s) => ({
           questionKey: s.questionKey,
           start: s.start,
           len: s.len
         }))
+        // 已授权 → 点按 = 关闭（对称撤回）。圈选随行带走：关档只关档，
+        // 用户再点一下即可复原，不必重新挑句。
+        if (mode === 'already') {
+          void submitLicense('off', spans)
+          return
+        }
+        const next = !checked
+        setChecked(next)
+        if (!next) return
         void submitLicense('anonymous', spans).then((ok) => {
           if (!ok) setChecked(false)
         })

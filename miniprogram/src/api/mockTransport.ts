@@ -952,8 +952,10 @@ function responseFor(document: string, variables: object): unknown {
       updateFlashbackState((state) => ({
         ...state,
         quoteLevel: level,
-        // R35 未圈选 = 不上墙：level 非 off 但没带区间时保留既有区间（后端同语义）
-        chosenQuoteSpans: level === 'off' ? [] : (spans ?? state.chosenQuoteSpans)
+        // 提交即覆盖（对齐后端 tokens.ex：resolver 把缺省与 null 一律传成 nil，
+        // attribute 允许 nil → Ash 照写即清空）。所以前端**关档时也带现有区间
+        // 原值回写**，圈选才保得住；真清空 = 提交空数组（等价 null）。
+        chosenQuoteSpans: spans ?? []
       }))
     }
     return {
