@@ -2546,7 +2546,7 @@
       "retry": "重试",
       "title": "闪念间 · 时间长廊",
       "authRequiredTitle": "进入长廊需要你的身份",
-      "authRequiredBody": "从邮件/短信里的专属链接进入，或登录已绑定的账号——如果你找不到链接，可以自助找回。",
+      "authRequiredBody": "从邮件里的专属链接进入，或登录已绑定的账号——小程序里也能找回；链接丢了可自助找回。",
       "authRequiredAction": "去自助找回",
       "footerHint": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
       "cityAria": "按城市筛选",

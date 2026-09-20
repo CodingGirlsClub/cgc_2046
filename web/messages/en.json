@@ -2546,7 +2546,7 @@
       "retry": "Retry",
       "title": "In a Flash · Time Corridor",
       "authRequiredTitle": "The capsule needs your identity",
-      "authRequiredBody": "Enter via the personal link from your email/SMS, or sign in with a bound account — if the link is lost, you can recover it yourself.",
+      "authRequiredBody": "Enter via the personal link from your email, or sign in with a bound account — the mini program works too; if the link is lost, you can recover it yourself.",
       "authRequiredAction": "Self-service recovery",
       "footerHint": "The silent stay safe: until you send, only you can see your answers.",
       "cityAria": "Filter by city",

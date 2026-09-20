@@ -47,8 +47,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
          :ok <- ensure_not_unsubscribed(person_id),
          {:ok, row} <- ensure_outreach_row(person_id, channel, template, batch),
          :ok <- ensure_not_sent(row),
-         {:ok, plaintext} <- mint_token(person_id),
-         {:ok, delivered} <- render_and_deliver(template, channel, person, plaintext, args) do
+         {:ok, delivered} <- render_and_deliver(template, channel, person, args) do
       mark_sent(row)
       {:ok, delivered}
     else
@@ -143,30 +142,34 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   # ── 渲染与发送（email / sms 双通道） ─────────────────────────────────
 
-  defp render_and_deliver("reconnect", :email, person, plaintext, _args) do
-    person.email
-    |> Emails.reconnect(
-      display_name(person),
-      occurred_on(person),
-      archive_name(person),
-      enter_url(plaintext),
-      unsub_url(person.id),
-      screenshot_url()
-    )
-    |> Mailer.deliver()
-    |> case do
-      {:ok, _} -> {:ok, :email}
+  defp render_and_deliver("reconnect", :email, person, _args) do
+    # token 只在 email 腿铸造（明文进链接）；sms 腿无链接不铸——身份凭证表
+    # 不留永远用不上的 hash 行。
+    with {:ok, plaintext} <- mint_token(person.id),
+         email <-
+           Emails.reconnect(
+             person.email,
+             display_name(person),
+             occurred_on(person),
+             archive_name(person),
+             enter_url(plaintext),
+             unsub_url(person.id),
+             screenshot_url()
+           ),
+         {:ok, _} <- Mailer.deliver(email) do
+      {:ok, :email}
+    else
       {:error, reason} -> {:error, reason}
     end
   end
 
   # 短信腿（942116 行业通知模板）：vars = year + brand 两个模板变量（正文
-  # 「还记得%year%年报名过 %brand% 吗？……回T退订」，退订走通道上行「回T」，
-  # SendCloud 拉黑后通道侧拦发，平台侧 outreach_unsubscribed_at 不回写——
-  # 已入队面/重发面仍按既有状态判重与抑制）。年份或品牌派生不出（场次日期
-  # 可空 / 场次名不含已知品牌词）→ skip：宁缺毋滥，不发错文案。
+  # 「还记得%year%年报名过 %brand% 吗？……闪念回到当年。」——审核要求去掉
+  # 回T退订；退订后续如需平台侧同步，走 SendCloud 上行 webhook 置
+  # outreach_unsubscribed_at，当前未接入）。年份或品牌派生不出（场次日期
+  # 可空 / 场次名首段不含已知品牌词）→ skip：宁缺毋滥，不发错文案。
   # 模板未配置时入队面已抑制 sms 通道，此处再 fail-closed 一次（配置竞态）。
-  defp render_and_deliver("reconnect", :sms, person, _plaintext, _args) do
+  defp render_and_deliver("reconnect", :sms, person, _args) do
     if Dispatch.sms_configured?() do
       with {:ok, vars} <- sms_vars(person) do
         Cgc2046.Integrations.SendCloud.Sms.send_template_sms(
@@ -185,21 +188,27 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     end
   end
 
-  defp render_and_deliver(template, _channel, _person, _plaintext, _args) do
+  defp render_and_deliver(template, _channel, _person, _args) do
     {:skip, "no_renderer_for_#{template}"}
   end
 
-  # 品牌词枚举派生（SendCloud 变量值上限 16 字符）：场次名含已知品牌词 →
-  # 裸品牌名（「Girls Coding Day」恰 16 字符压线）；未知品牌名 → nil → skip。
-  # 不用 name 剥城市——name 里是英文城市名、city 字段是中文，子串替换命中不了。
+  # 品牌派生：先按「/」切段取首段再匹配——pilot 场名「Rails Girls / Girls
+  # Coding Day 北京」两个品牌词同现，直接 contains 会把 2014 的 Rails Girls
+  # 场判成 GCD（GCD 2016 年才有）；首段必是主品牌。段落不含已知品牌词 →
+  # nil → skip。值恒 ≤16 字符（SendCloud 变量值上限）。
   defp sms_brand(nil), do: nil
 
   defp sms_brand(name) do
-    cond do
-      String.contains?(name, "Girls Coding Day") -> "Girls Coding Day"
-      String.contains?(name, "Rails Girls") -> "Rails Girls"
-      true -> nil
-    end
+    name
+    |> String.split("/", parts: 2)
+    |> hd()
+    |> then(fn segment ->
+      cond do
+        String.contains?(segment, "Girls Coding Day") -> "Girls Coding Day"
+        String.contains?(segment, "Rails Girls") -> "Rails Girls"
+        true -> nil
+      end
+    end)
   end
 
   defp sms_vars(person) do

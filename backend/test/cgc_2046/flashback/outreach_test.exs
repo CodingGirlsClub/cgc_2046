@@ -398,6 +398,8 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       # 942116 行业通知模板：正文「还记得%year%年报名过 %brand% 吗？……回T退订」
       assert vars == %{"year" => "2014", "brand" => "Rails Girls"}
+      # sms 腿无链接：不铸 token（身份凭证表零垃圾行）
+      assert token_count(person.id) == 0
       assert outreach_row!(person.id, :sms).status == :sent
     end
 
@@ -432,6 +434,36 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert :ok = perform_job(OutreachWorker, args2)
       assert outreach_row!(person2.id, :sms).status == :queued
+    end
+
+    test "sms 腿：pilot 双品牌场次名 → 首段主品牌 Rails Girls（非 GCD）" do
+      pilot =
+        Flashback.EventArchive
+        |> Ash.Changeset.for_create(:create, %{
+          key: "pilot-dual-#{System.unique_integer([:positive])}",
+          name: "Rails Girls / Girls Coding Day 北京",
+          city: "北京",
+          occurred_on: ~D[2014-01-11]
+        })
+        |> Ash.create!(authorize?: false)
+
+      person = create_person(pilot, email: nil, phone: @phone)
+
+      test_pid = self()
+
+      Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
+        vars = conn.body_params["vars"] |> Jason.decode!()
+        send(test_pid, {:sms, conn.body_params["templateId"], vars})
+        Req.Test.json(conn, %{"result" => true})
+      end)
+
+      args = enqueue_one(person, "reconnect")
+
+      assert {:ok, :sms} = perform_job(OutreachWorker, args)
+
+      assert_receive {:sms, _template_id, vars}
+      # 2014 pilot 是 Rails Girls 场——含双品牌词时按首段判主品牌
+      assert vars == %{"year" => "2014", "brand" => "Rails Girls"}
     end
 
     test "发送失败 → 行 failed + Oban 重试；配置就绪后重试成功推进到 sent" do
