@@ -20,6 +20,7 @@ import {
 } from "@/lib/admin";
 import type {
 	AdminActionLog,
+	AdminOfferingChangeMetadata,
 	AdminPendingOperation,
 	AdminSignalLog,
 	AdminToolCallLog,
@@ -86,17 +87,25 @@ interface AuditRow {
 	/** 副标识的 i18n key（#607 规则变更行的规则名）；有值时渲染 t() 而非 summary 本身 */
 	summaryKey?: string;
 	status: string;
-	/** #607 变更列（仅治理操作 tab 渲染）；before === null ⇔ 新建规则 */
-	change?: {
-		/** 变更前规则值 JSON；null ⇔ 新建 */
-		before: string | null;
-		after: string;
-		/** 变更前锁定态；新建时为 null */
-		lockedBefore: boolean | null;
-		locked: boolean;
-		beforeOmitted: boolean;
-		afterOmitted: boolean;
-	};
+	/** #607 变更列（仅治理操作 tab 渲染）；`rule` = 规则值快照，`offering` = U1 offering 闭集标量 */
+	change?:
+		| {
+				kind: "rule";
+				/** 变更前规则值 JSON；null ⇔ 新建 */
+				before: string | null;
+				after: string;
+				/** 变更前锁定态；新建时为 null */
+				lockedBefore: boolean | null;
+				locked: boolean;
+				beforeOmitted: boolean;
+				afterOmitted: boolean;
+		  }
+		| {
+				kind: "offering";
+				/** 已格式化的变更列（`key=value, ...`；两侧键序一致，便于对照） */
+				before: string;
+				after: string;
+		  };
 }
 
 function toolCallToRow(log: AdminToolCallLog): AuditRow {
@@ -148,6 +157,15 @@ const ACTION_LABEL: Record<string, string> = {
 	owner_reassign: "actionOwnerReassign",
 	owner_invitation_cancel: "actionOwnerInvitationCancel",
 	initiative_rule_update: "actionInitiativeRuleUpdate",
+	// U1 offering 治理写（R8）：8 个 action 各有人读标签，缺表即渲染 missing-message 回退串
+	admin_event_update: "actionAdminEventUpdate",
+	admin_event_launch: "actionAdminEventLaunch",
+	admin_event_close: "actionAdminEventClose",
+	admin_event_cancel: "actionAdminEventCancel",
+	admin_course_update: "actionAdminCourseUpdate",
+	admin_course_launch: "actionAdminCourseLaunch",
+	admin_course_close: "actionAdminCourseClose",
+	admin_course_cancel: "actionAdminCourseCancel",
 };
 
 /** #607 规则键 → admin messages key（未知规则键回退原串） */
@@ -184,6 +202,7 @@ function adminActionToRow(log: AdminActionLog): AuditRow {
 	const md = log.metadata;
 	const shortId = log.targetId.slice(0, 8);
 	const ruleLabelKey = md ? RULE_KEY_LABEL[md.ruleKey] : undefined;
+	const offeringEntries = log.offeringChange ? offeringChangeEntries(log.offeringChange) : [];
 
 	return {
 		id: log.id,
@@ -194,17 +213,56 @@ function adminActionToRow(log: AdminActionLog): AuditRow {
 		summary: ruleLabelKey || !md ? shortId : `${md.ruleKey} · ${shortId}`,
 		summaryKey: ruleLabelKey,
 		status: log.result,
-		change: md
-			? {
-					before: md.valueBeforeJson,
-					after: md.valueAfterJson,
-					lockedBefore: md.lockedBefore,
-					locked: md.locked,
-					beforeOmitted: md.valueBeforeOmitted,
-					afterOmitted: md.valueAfterOmitted,
-				}
-			: undefined,
+		change:
+			offeringEntries.length > 0
+				? {
+						kind: "offering",
+						before: formatOfferingSide(offeringEntries, "before"),
+						after: formatOfferingSide(offeringEntries, "after"),
+					}
+				: md
+					? {
+							kind: "rule",
+							before: md.valueBeforeJson,
+							after: md.valueAfterJson,
+							lockedBefore: md.lockedBefore,
+							locked: md.locked,
+							beforeOmitted: md.valueBeforeOmitted,
+							afterOmitted: md.valueAfterOmitted,
+						}
+					: undefined,
 	};
+}
+
+/**
+ * U1 offering 变更投影 → 变更列条目（`[字段名, 前值, 后值]`）。
+ * 列序 = 后端闭集次序（键序单源在后端白名单表）；两侧同为 null = 本次未改该属性 → 不渲染。
+ */
+function offeringChangeEntries(
+	change: AdminOfferingChangeMetadata,
+): Array<[string, unknown, unknown]> {
+	const pairs: Array<[string, unknown, unknown]> = [
+		["title", change.titleBefore, change.titleAfter],
+		["visibility", change.visibilityBefore, change.visibilityAfter],
+		["capacity", change.capacityBefore, change.capacityAfter],
+		["pricing_enabled", change.pricingEnabledBefore, change.pricingEnabledAfter],
+		["deposit_enabled", change.depositEnabledBefore, change.depositEnabledAfter],
+	];
+	return pairs.filter(([, before, after]) => before !== null || after !== null);
+}
+
+/** 变更列单侧：`key=value, ...`；缺值（未设/nil）渲染 "—"，不编造 0/false。 */
+function formatOfferingSide(
+	entries: Array<[string, unknown, unknown]>,
+	side: "before" | "after",
+): string {
+	const index = side === "before" ? 1 : 2;
+	return entries
+		.map((entry) => {
+			const value = entry[index];
+			return `${entry[0]}=${value === null || value === undefined ? "—" : String(value)}`;
+		})
+		.join(", ");
 }
 
 const TABS: Array<{ id: AuditTab; label: string }> = [
@@ -434,6 +492,18 @@ export default function AdminAuditPage() {
  */
 function renderChange(row: AuditRow, createdLabel: string, omittedLabel: string) {
 	if (!row.change) return "—";
+
+	// U1：offering 变更已格式化为平行两侧（`key=value, ...`），无「新建/省略」语义
+	if (row.change.kind === "offering") {
+		return (
+			<>
+				<span data-testid="audit-change-before">{row.change.before}</span>
+				{/* 箭头不加 aria-hidden：两侧快照需要可读分隔，否则读屏会把前后态连成一串 */}
+				<span> → </span>
+				<span data-testid="audit-change-after">{row.change.after}</span>
+			</>
+		);
+	}
 
 	const { before, after, lockedBefore, locked, beforeOmitted, afterOmitted } = row.change;
 

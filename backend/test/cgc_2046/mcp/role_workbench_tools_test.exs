@@ -332,8 +332,8 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "order_kind"
       assert payload["content"] =~ "摘要写明押金单/报名单"
 
-      # #676 bump:workspace_admin playbook 补 delete_course / delete_event 口径
-      assert payload["version"] == "2026-09-17.1"
+      # #511 bump:batch_create_events 条目 + 确认流纪律句更新
+      assert payload["version"] == "2026-09-17.2"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do

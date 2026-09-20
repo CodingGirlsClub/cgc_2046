@@ -90,6 +90,12 @@ defmodule Cgc2046.Mcp.ToolCallLog do
     table("mcp_tool_call_logs")
     repo(Cgc2046.Repo)
 
+    # #745：FK 补齐（B 类）——DB 原无 FK；审计行随 user 删除
+    # （先例 notification_deliveries.user_id delete_all；NOT NULL 不可 nilify）。
+    references do
+      reference(:user, on_delete: :delete)
+    end
+
     # 018 审计立项：本表是增长最快的 append-only 面，此前只有 (tool)/(user_id)
     # 索引——admin 审计页按 params->>'workspace_id' 过滤 + inserted_at 排序全靠
     # seq scan，随行数线性劣化。表达式索引用字符串 fields（AshPostgres 原样拼

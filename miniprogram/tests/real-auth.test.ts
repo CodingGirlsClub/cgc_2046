@@ -75,7 +75,8 @@ vi.mock('../src/platform', () => ({
   currentPlatform: mocks.currentPlatform
 }))
 
-import { BusinessError, RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
+import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
+import { BusinessError } from '../src/api/business-error'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '../src/domain/models'
 
 const SESSION_USER = {

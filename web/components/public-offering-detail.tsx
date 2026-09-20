@@ -27,6 +27,7 @@ import { useAuthed } from "@/lib/use-authed";
 import {
   fetchPublicOffering,
   formatVenue,
+  moderatorNames,
   parseSponsorshipTiers,
   parseCompanionCourse,
   parseVenue,
@@ -43,9 +44,10 @@ import CheckInCodeCard from "@/components/check-in-code-card";
 import QualificationBadgeTag from "@/components/qualification-badge-tag";
 import CourseMapSection from "@/components/learning/course-map-section";
 import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql/initiatives";
-import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull, tierAmountText } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
+import { toParagraphs } from "@/lib/text-paragraphs";
 import PaymentCheckoutDialog, {
   type PaymentCheckoutContext,
 } from "@/components/payment-checkout-dialog";
@@ -324,6 +326,8 @@ export default function PublicOfferingDetailPage({
   // 收费目标：可售档位（R2 后端 availablePriceTiers 已过滤过期档，公开报名面
   // 只展示未过期档）与所选档（R5 报名须选档，e2e #3）
   const priceTiers = parsePriceTiers(offering?.availablePriceTiers);
+  // #538 公开主理人行：仅 event；空名单/解析失败 → []，下方 length 门即「无主理人不渲染」
+  const moderators = kind === "event" ? moderatorNames(offering?.publicModerators) : [];
   const paidTier = priceTiers.find((t) => t.id === tierId) ?? null;
   // 押金金额表态统一过守卫（#675）：脏值（缺失/0/负/非整数分）→「押金（金额待定）」，
   // 绝不显示 ¥0；押金**区块存在性**仍由 offering.depositEnabled 决定（脏金额不得
@@ -366,16 +370,18 @@ export default function PublicOfferingDetailPage({
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
-      depositEnabled: depositOn,
-      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
   async function submit() {
     if (!offering || !authed || !userId) return;
     // 收费目标必须选档（R5）：当前有效 paidTier（B3）——tierId 字符串可能
-    // 已因 refetch 后档位下架而失效，只认仍在可售集合中的选择。
-    if (offering.pricingEnabled && !paidTier) {
+    // 已因 refetch 后档位下架而失效，只认仍在可售集合中的选择；#687 加一层：
+    // 档位仍在但金额脏（金额待定、禁选）同样不可提交——金额待定的档不收钱。
+    if (
+      offering.pricingEnabled &&
+      (!paidTier || paidTier.amountCents === null)
+    ) {
       setSubmitState({
         kind: "error",
         message: tierId ? t("submitFailed") : t("pickTierFirst"),
@@ -624,6 +630,14 @@ export default function PublicOfferingDetailPage({
                   )}
                 </dd>
               </div>
+              {moderators.length > 0 ? (
+                <div>
+                  <dt>{t("moderatorsTitle")}</dt>
+                  <dd data-testid="public-detail-moderators">
+                    {moderators.join(" · ")}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
 
             <aside
@@ -645,7 +659,13 @@ export default function PublicOfferingDetailPage({
                     {priceTiers.map((tier) => (
                       <li key={tier.id}>
                         <span>{tier.name}</span>
-                        <strong>¥{formatAmount(tier.amountCents)}</strong>
+                        {/* #687：脏金额不表态——「金额待定」，绝不 ¥0/¥0.00 */}
+                        <strong>
+                          {tierAmountText(
+                            tier,
+                            tOfferings("tierAmountPending"),
+                          )}
+                        </strong>
                       </li>
                     ))}
                   </ul>
@@ -832,11 +852,11 @@ export default function PublicOfferingDetailPage({
                           priceTiers.map((tier) => (
                             <label
                               key={tier.id}
-                              className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                              className={`flex items-center justify-between rounded-large border px-3 py-2 text-sm ${
                                 tierId === tier.id
                                   ? "border-line-strong bg-soft-2 text-ink"
                                   : "border-line bg-card text-ink-2"
-                              }`}
+                              } ${tier.amountCents === null ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                               data-testid={`price-tier-${tier.id}`}
                             >
                               <span className="flex items-center gap-2">
@@ -846,11 +866,15 @@ export default function PublicOfferingDetailPage({
                                   value={tier.id}
                                   checked={tierId === tier.id}
                                   onChange={() => setTierId(tier.id)}
+                                  disabled={tier.amountCents === null}
                                 />
                                 {tier.name}
                               </span>
                               <span className="font-medium">
-                                ¥{formatAmount(tier.amountCents)}
+                                {tierAmountText(
+                                  tier,
+                                  tOfferings("tierAmountPending"),
+                                )}
                               </span>
                             </label>
                           ))
@@ -916,7 +940,7 @@ export default function PublicOfferingDetailPage({
                       >
                         {busy
                           ? t("submitting")
-                          : offering.pricingEnabled && paidTier
+                          : offering.pricingEnabled && paidTier?.amountCents != null
                             ? t("submitWithPay", {
                                 amount: formatAmount(paidTier.amountCents),
                               })
@@ -934,7 +958,9 @@ export default function PublicOfferingDetailPage({
                 aria-labelledby="public-detail-about-title"
               >
                 <h2 id="public-detail-about-title">{t("aboutTitle")}</h2>
-                <p>{offering.description}</p>
+                {toParagraphs(offering.description).map((p, i) => (
+                  <p key={i}>{p}</p>
+                ))}
               </section>
             ) : null}
 
@@ -1035,8 +1061,6 @@ export default function PublicOfferingDetailPage({
           enrollmentId={checkout.enrollmentId}
           amountCents={checkout.amountCents}
           tierName={checkout.tierName}
-          depositEnabled={checkout.depositEnabled}
-          depositAmountCents={checkout.depositAmountCents}
           title={checkout.title}
           onClose={() => setCheckout(null)}
           onPaid={() => void handlePaid()}

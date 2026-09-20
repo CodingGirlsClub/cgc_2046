@@ -29,6 +29,7 @@ import {
   updateOffering,
 } from "@/lib/events";
 import type { EventTransition } from "@/lib/events";
+import { fromLocalInput, toLocalInput } from "@/lib/format";
 import type {
   EnrollmentPolicy,
   OfferingItem,
@@ -58,7 +59,7 @@ import SpeakerInvitationPanel from "@/components/speaker-invitation-panel";
 import InviteBatchPanel from "@/components/invite-batch-panel";
 import { Icon } from "@/components/icons";
 import SponsorshipManagement from "@/components/sponsorship-management";
-import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers, positiveAmountOrNull } from "@/lib/payment";
+import { formatAmount, formatAmountShort, parsePaymentStats, parsePriceTiers, positiveAmountOrNull, tierAmountText } from "@/lib/payment";
 import {
   COURSE_PAYMENT_MODES,
   PAYMENT_MODES,
@@ -171,20 +172,6 @@ function offeringErrorText(
 ): string {
   const known = error?.code ? translateCode(error.code, "") : "";
   return known !== "" ? known : t(friendlyOfferingError(error, fallbackKey));
-}
-
-function toLocalInput(datetime: string | null): string {
-  if (!datetime) return "";
-  const d = new Date(datetime);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 /* ---------------- 时间与 venue 录入（U5/R14，KTD5/KTD6） ---------------- */
@@ -935,6 +922,8 @@ interface OfferingState {
 interface MetaDraft {
   offeringId: string;
   title: string;
+  /** 活动介绍草稿（"" = 未填写；保存时 trim，空串归一为 null 下发） */
+  description: string;
   enrollmentPolicy: EnrollmentPolicy;
   capacity: string;
   deadline: string;
@@ -1120,7 +1109,9 @@ export function OfferingDetailPage({
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   // 默认选中第一档（产品拍板:有可售档不该强制手点;可再点换档）——派生值
   // 而非 effect 补 setState（react-hooks/set-state-in-effect）;?? 保留用户已选。
-  const effectiveTierId = tierId ?? priceTiers[0]?.id ?? null;
+  // #687：默认档跳过金额脏档（禁选档不可作为默认选择）。
+  const effectiveTierId =
+    tierId ?? priceTiers.find((t) => t.amountCents !== null)?.id ?? null;
   const paidTier = priceTiers.find((t) => t.id === effectiveTierId) ?? null;
   // 开收银模态框：收费目标带所选档上下文（金额/档名/标题），押金场带押金口径
   // （#686：depositEnabled 按存在性定门随载荷下传；金额/「押金」名只表态，
@@ -1135,8 +1126,6 @@ export function OfferingDetailPage({
       amountCents: depositCents ?? paidTier?.amountCents ?? null,
       tierName:
         depositCents != null ? t("depositName") : (paidTier?.name ?? null),
-      depositEnabled: depositOn,
-      depositAmountCents: depositCents,
       title: offering?.title ?? "",
     });
   }
@@ -1229,6 +1218,7 @@ export function OfferingDetailPage({
           ? {
               offeringId: offering.id,
               title: offering.title,
+              description: offering.description ?? "",
               enrollmentPolicy: offering.enrollmentPolicy,
               capacity:
                 offering.capacity === null ? "" : String(offering.capacity),
@@ -1515,8 +1505,14 @@ export function OfferingDetailPage({
     setSaveBusy(true);
     setSaveMessage(null);
     try {
+      // description 恒下发（无 dirty 检查；空串归一为 null），保存后局部 state 用同一值
+      const description =
+        activeDraft.description.trim() === ""
+          ? null
+          : activeDraft.description.trim();
       const res = await updateOffering(offering.id, kind, {
         title: activeDraft.title,
+        description,
         enrollmentPolicy: activeDraft.enrollmentPolicy,
         capacity:
           activeDraft.capacity === "" ? null : Number(activeDraft.capacity),
@@ -1559,6 +1555,8 @@ export function OfferingDetailPage({
           row: {
             ...offering,
             title: res.result.title,
+            // mutation 选择集不含 description：用已下发的草稿值就地更新
+            description,
             enrollmentPolicy: res.result.enrollmentPolicy,
             capacity: res.result.capacity,
             registrationDeadline: res.result.registrationDeadline,
@@ -1660,8 +1658,9 @@ export function OfferingDetailPage({
   // 未报）。复用 submitEnrollment（createEnrollment mutation，鉴权后端管）。
   async function submitForMe() {
     if (!offering || !userId) return;
-    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）
-    if (offering.pricingEnabled && !effectiveTierId) {
+    // 收费目标必须选档（R5：报名选档 → 占位 → payment_pending）；#687 加一层：
+    // 所选档金额脏（金额待定、禁选）同样不可提交——金额待定的档不收钱。
+    if (offering.pricingEnabled && (!paidTier || paidTier.amountCents === null)) {
       setSubmitState({ kind: "error", message: t("pickTierFirst") });
       return;
     }
@@ -1858,9 +1857,11 @@ export function OfferingDetailPage({
                         ? t("paymentSlotPricing", {
                             overview:
                               parsePriceTiers(offering.availablePriceTiers)
-                                .map(
-                                  (tier) =>
-                                    `${tier.name} ¥${formatAmountShort(tier.amountCents)}`,
+                                .map((tier) =>
+                                  // #687：脏金额不表态——「（金额待定）」
+                                  tier.amountCents === null
+                                    ? `${tier.name}（${t("tierAmountPending")}）`
+                                    : `${tier.name} ¥${formatAmountShort(tier.amountCents)}`,
                                 )
                                 .join(" / ") || t("noTier"),
                           })
@@ -1942,6 +1943,24 @@ export function OfferingDetailPage({
                           })
                         }
                         className="ui-input mt-1 w-full"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="block text-[13px] text-ink-3">
+                        {t("fieldDescription")}
+                      </span>
+                      <textarea
+                        rows={4}
+                        value={activeDraft.description}
+                        onChange={(e) =>
+                          setMetaDraft({
+                            ...activeDraft,
+                            description: e.target.value,
+                          })
+                        }
+                        className="ui-textarea mt-1 w-full"
+                        placeholder={t("fieldDescriptionHint")}
                       />
                     </label>
 
@@ -2444,11 +2463,11 @@ export function OfferingDetailPage({
                             priceTiers.map((tier) => (
                               <label
                                 key={tier.id}
-                                className={`flex cursor-pointer items-center justify-between rounded-large border px-3 py-2 text-sm ${
+                                className={`flex items-center justify-between rounded-large border px-3 py-2 text-sm ${
                                   effectiveTierId === tier.id
                                     ? "border-line-strong bg-soft-2 text-ink"
                                     : "border-line bg-card text-ink-2"
-                                }`}
+                                } ${tier.amountCents === null ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                                 data-testid={`price-tier-${tier.id}`}
                               >
                                 <span className="flex items-center gap-2">
@@ -2458,11 +2477,12 @@ export function OfferingDetailPage({
                                     value={tier.id}
                                     checked={effectiveTierId === tier.id}
                                     onChange={() => setTierId(tier.id)}
+                                    disabled={tier.amountCents === null}
                                   />
                                   {tier.name}
                                 </span>
                                 <span className="font-medium">
-                                  ¥{formatAmount(tier.amountCents)}
+                                  {tierAmountText(tier, t("tierAmountPending"))}
                                 </span>
                               </label>
                             ))
@@ -2493,7 +2513,7 @@ export function OfferingDetailPage({
                       >
                         {enrollBusy
                           ? t("submitting")
-                          : offering.pricingEnabled && paidTier
+                          : offering.pricingEnabled && paidTier?.amountCents != null
                             ? t("submitWithPay", {
                                 amount: formatAmount(paidTier.amountCents),
                               })
@@ -2730,8 +2750,6 @@ export function OfferingDetailPage({
             enrollmentId={checkout.enrollmentId}
             amountCents={checkout.amountCents}
             tierName={checkout.tierName}
-            depositEnabled={checkout.depositEnabled}
-            depositAmountCents={checkout.depositAmountCents}
             title={checkout.title}
             onClose={() => setCheckout(null)}
             onPaid={() => void refetchEnrollment()}
@@ -2759,6 +2777,7 @@ export function OfferingNewPage({
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
 
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [enrollmentPolicy, setEnrollmentPolicy] =
     useState<EnrollmentPolicy>("open");
   const [visibility, setVisibility] = useState<Visibility>("public");
@@ -2829,6 +2848,7 @@ export function OfferingNewPage({
     try {
       const res = await createOffering(ws.id, kind, {
         title: title.trim(),
+        description: description.trim() === "" ? null : description.trim(),
         enrollmentPolicy,
         visibility,
         capacity: capacity === "" ? null : Number(capacity),
@@ -2932,6 +2952,19 @@ export function OfferingNewPage({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="ui-input mt-1 w-full"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-[13px] text-ink-3">
+                {t("fieldDescription")}
+              </span>
+              <textarea
+                rows={4}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="ui-textarea mt-1 w-full"
+                placeholder={t("fieldDescriptionHint")}
               />
             </label>
 

@@ -239,6 +239,12 @@ defmodule Cgc2046.Initiatives.Initiative do
   postgres do
     table("initiatives")
     repo(Cgc2046.Repo)
+
+    # #724：FK 的 ON DELETE 契约显式化——对齐 20260913155651 的 nilify_all
+    # （created_by，DB 实测 confdeltype=n）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:creator, on_delete: :nilify)
+    end
   end
 
   policies do

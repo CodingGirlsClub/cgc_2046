@@ -16,6 +16,9 @@
 .row { display: flex; gap: 24rpx; padding: 24rpx 0; border-bottom: 1rpx solid #e4e4e7; }
 .label { width: 150rpx; flex-shrink: 0; color: #4b4d54; font-size: 25rpx; }
 .value { flex: 1; color: #4b4d54; font-size: 27rpx; line-height: 1.55; }
+.descriptionPara { display: block; color: #4b4d54; font-size: 27rpx; line-height: 1.55; }
+/* 段间距只落在段与段之间（首段紧跟 blockTitle，不另加距） */
+.descriptionPara + .descriptionPara { margin-top: 12rpx; }
 .amountLine { display: block; margin-top: 10rpx; font-size: 30rpx; font-weight: 650; }
 .noteLine { display: block; margin-top: 10rpx; color: #c24a02; font-size: 23rpx; line-height: 1.5; }
 .policyBlock { margin: 30rpx 32rpx; padding: 26rpx; background: #fdeadf; border-radius: 18rpx; }

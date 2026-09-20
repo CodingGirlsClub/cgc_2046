@@ -234,6 +234,13 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
     repo(Cgc2046.Repo)
 
     identity_index_names(unique_profile_per_workspace_user: "wsp_unique_ws_user_idx")
+
+    # #745：FK 补齐（B 类，ADR-0004 挂账项落地）——DB 原无 FK，profile 无任一
+    # 父行即死（#724 §3.6 孤儿档案即此表证据）；两列皆 NOT NULL 不可 nilify。
+    references do
+      reference(:workspace, on_delete: :delete)
+      reference(:user, on_delete: :delete)
+    end
   end
 
   policies do

@@ -7,6 +7,7 @@ import {
   OfferingsListPage,
   OfferingNewPage,
 } from "./offering-pages";
+import { MY_ENROLLMENT } from "@/lib/graphql/events";
 
 const mocks = vi.hoisted(() => ({
   createOffering: vi.fn(),
@@ -205,6 +206,11 @@ beforeEach(() => {
     retry: vi.fn(),
   });
   moderatorMocks.fetchEventModerators.mockResolvedValue([]);
+  // 开框守卫兜底（#748 CI 修复）：不关心弹框的用例点了「继续支付」后，弹框的
+  // 两条守卫查询若拿到裸 vi.fn() 的 undefined，allSettled 会把 undefined 当
+  // fulfilled 值传给组件导致 TypeError。`{ data: {} }` = 「报名读不到 → 非押金」
+  // 的既定兜底语义；押金用例仍用 mockImplementation 显式分派覆盖。
+  apolloClient.query.mockResolvedValue({ data: {} });
 });
 
 afterEach(cleanup);
@@ -847,9 +853,26 @@ describe("OfferingDetailPage 报名状态分叉（支付接续）", () => {
       id: "enr-deposit",
       status: "payment_pending",
     });
-    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）
-    apolloClient.query.mockResolvedValue({
-      data: { myOrders: { results: [] } },
+    // 开框守卫查询：无活单（后端报名链不建单，可达性已由派生测试库实测钉死）；
+    // #748：押金事实由弹框自取 MY_ENROLLMENT（paymentMode=deposit + 现值同源金额）
+    apolloClient.query.mockImplementation(({ query }: { query: unknown }) => {
+      if (query === MY_ENROLLMENT) {
+        return Promise.resolve({
+          data: {
+            myEnrollments: {
+              results: [
+                {
+                  id: "enr-deposit",
+                  status: "payment_pending",
+                  paymentMode: "deposit",
+                  depositAmountCents: 6900,
+                },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: { myOrders: { results: [] } } });
     });
 
     render(<OfferingDetailPage slug="demo" id="event-deposit" kind="event" />);
@@ -1099,6 +1122,7 @@ describe("OfferingNewPage 新建调用链", () => {
       await waitFor(() =>
         expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", kind, {
           title: "春季训练营",
+          description: null,
           enrollmentPolicy: "request",
           visibility: "workspace",
           capacity: 20,
@@ -1259,6 +1283,7 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
       await waitFor(() =>
         expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", kind, {
           title: "新标题",
+          description: null,
           enrollmentPolicy: "request",
           capacity: 20,
           registrationDeadline: new Date("2026-12-31T23:59").toISOString(),
@@ -1282,6 +1307,79 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
       expect(
         screen.getByRole("button", { name: "保存元数据" }),
       ).not.toBeDisabled();
+    },
+  );
+
+  it.each(["event", "course"] as const)(
+    "%s 填写活动介绍 → updateOffering 携带 trim 后的 description",
+    async (kind) => {
+      mocks.updateOffering.mockResolvedValueOnce({
+        result: {
+          id: "offering-1",
+          title: "测试活动",
+          status: "draft",
+          visibility: "public",
+          enrollmentPolicy: "open",
+          capacity: null,
+          registrationDeadline: null,
+        },
+        errors: [],
+      });
+
+      await renderManageDetail(kind, offeringRow({}));
+
+      fireEvent.change(screen.getByLabelText("活动介绍"), {
+        target: { value: "  第一段：做什么。\n\n第二段：适合谁。  " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+      await waitFor(() =>
+        expect(mocks.updateOffering).toHaveBeenCalledWith(
+          "offering-1",
+          kind,
+          expect.objectContaining({
+            description: "第一段：做什么。\n\n第二段：适合谁。",
+          }),
+        ),
+      );
+    },
+  );
+
+  it.each(["event", "course"] as const)(
+    "%s 活动介绍清空（纯空白）→ payload description 归一为 null",
+    async (kind) => {
+      mocks.updateOffering.mockResolvedValueOnce({
+        result: {
+          id: "offering-1",
+          title: "测试活动",
+          status: "draft",
+          visibility: "public",
+          enrollmentPolicy: "open",
+          capacity: null,
+          registrationDeadline: null,
+        },
+        errors: [],
+      });
+
+      await renderManageDetail(kind, offeringRow({ description: "既有介绍" }));
+
+      // 既有值回填表单
+      expect(
+        (screen.getByLabelText("活动介绍") as HTMLTextAreaElement).value,
+      ).toBe("既有介绍");
+
+      fireEvent.change(screen.getByLabelText("活动介绍"), {
+        target: { value: "   " },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+      await waitFor(() =>
+        expect(mocks.updateOffering).toHaveBeenCalledWith(
+          "offering-1",
+          kind,
+          expect.objectContaining({ description: null }),
+        ),
+      );
     },
   );
 
@@ -1610,6 +1708,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
         title: "线下工作坊",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1655,6 +1754,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "event", {
         title: "线上分享",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1691,6 +1791,7 @@ describe("OfferingNewPage 时间与 venue 录入（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.createOffering).toHaveBeenCalledWith("workspace-1", "course", {
         title: "春季训练营",
+        description: null,
         enrollmentPolicy: "open",
         visibility: "public",
         capacity: null,
@@ -1786,6 +1887,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "event", {
         title: "测试活动",
+        description: null,
         enrollmentPolicy: "open",
         capacity: null,
         // 截止未改动 → 不下发（见 registrationDeadlineDirty；分钟级重序列化会截断秒）
@@ -1852,6 +1954,7 @@ describe("OfferingDetailPage MetaDraft 时间与 venue（U5/R14）", () => {
     await waitFor(() =>
       expect(mocks.updateOffering).toHaveBeenCalledWith("offering-1", "course", {
         title: "测试活动",
+        description: null,
         enrollmentPolicy: "open",
         capacity: null,
         // 截止未改动 → 不下发（同 event）
@@ -2085,6 +2188,48 @@ describe("缴费槽三态（U9/KTD10/R1/R3/R10，AE1/AE8）", () => {
     const card = screen.getByText("基本信息").parentElement as HTMLElement;
     expect(within(card).getByText("收费 标准 ¥199")).toBeInTheDocument();
     expect(card.textContent).not.toContain("免费");
+  });
+
+  // #687：脏档位金额不丢档——缴费槽 overview 落「（金额待定）」，绝不出 ¥0
+  it("AE8：定价场脏档位金额 → 缴费槽 overview「金额待定」，无 ¥0（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 }),
+          JSON.stringify({ id: "t2", name: "脏档", amount_cents: 0 }),
+        ],
+      }),
+    );
+
+    const card = screen.getByText("基本信息").parentElement as HTMLElement;
+    expect(
+      within(card).getByText("收费 标准 ¥199 / 脏档（金额待定）"),
+    ).toBeInTheDocument();
+    expect(card.textContent).not.toContain("¥0");
+  });
+
+  // #687：代报名选档行——脏档可见但禁选，默认选档跳过脏档落在首个有效档
+  it("脏档在前：选档行金额待定 + 禁选，默认选中首个有效档（#687）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        status: "open",
+        pricingEnabled: true,
+        availablePriceTiers: [
+          JSON.stringify({ id: "t-dirty", name: "脏档", amount_cents: 0 }),
+          JSON.stringify({ id: "t-clean", name: "标准", amount_cents: 19900 }),
+        ],
+      }),
+    );
+
+    const dirty = await screen.findByTestId("price-tier-t-dirty");
+    expect(dirty).toHaveTextContent("金额待定");
+    expect(dirty.querySelector("input")).toBeDisabled();
+    const clean = screen.getByTestId("price-tier-t-clean");
+    expect(clean.querySelector("input")).toBeChecked();
+    expect(dirty.textContent).not.toContain("¥0");
   });
 
   it("新建 event 选押金填 69 → payload 三态互斥（押金开、档位清空）", async () => {

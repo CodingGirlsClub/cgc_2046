@@ -202,6 +202,17 @@ defmodule Cgc2046.Curriculum.Output do
     table("curriculum_outputs")
     repo(Cgc2046.Repo)
 
+    # #724：FK 的 ON DELETE 契约显式化——对齐手写 migration 的 on_delete
+    # （baseline delete_all，DB 实测 confdeltype=c）；无 DDL，仅 snapshot 追平。
+    references do
+      reference(:workspace, on_delete: :delete)
+
+      # #745：workflow_run_id FK 补齐（B 类）——run 只 cancel 不 destroy，但若
+      # 未来 destroy，output 与三个兄弟表（enrollments/sponsorships/
+      # speaker_invitations 的 workflow_run_id）同取 nilify：留工件清归因。
+      reference(:workflow_run, on_delete: :nilify)
+    end
+
     custom_indexes do
       index([:workspace_id])
     end

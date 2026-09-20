@@ -58,6 +58,8 @@ export default function AdminHomePage() {
 		{ label: "linkAudit", href: "/admin/audit" },
 		{ label: "linkOpenclacky", href: "/admin/openclacky" },
 		{ label: "linkInitiatives", href: "/admin/initiatives" },
+		{ label: "navEvents", href: "/admin/events" },
+		{ label: "navCourses", href: "/admin/courses" },
 	];
 
 	return (

@@ -78,12 +78,24 @@ defmodule Cgc2046.Notifications.Service do
   # - event_qualification_underfilled（#606）：活动名称=thing1 / 未达阈值说明
   #   =thing5（动态「未达最低成班人数{min}人，活动未成行」；confirmed_count
   #   平台无 number 槽位，不下发）
+  # - event_qualification_manager（#585，#720 平台选用）：模板标题「活动申请
+  #   结果通知」（公共库无成班/开班措辞，选了全库唯一「活动名称+结果」双
+  #   thing 槽位的中性模板）。槽位编号非顺序：活动名称=thing2 / 申请结果
+  #   =thing5（outcome 驱动：confirmed →「已达最低人数{min}人，活动成班」；
+  #   underfilled →「未达最低人数{min}人，已取消并发起退款」——approval_result
+  #   单键双文案同款；ID 已入 secret WECHAT_MP_TEMPLATE_EVENT_QUALIFICATION_MANAGER，
+  #   未配置走 template_not_configured）
   # - event_schedule_changed（#606）：活动名称=thing1 / 新开始时间=date2 /
   #   地点=thing5（venue，缺值跳过）。date2 是 **date 类型**、非 time——见
   #   date/1 的格式假设注释；venue 变更本身也是本通知的触发条件
   #   （event.ex schedule_changed?/1），故 thing5 放地点而非重复时间
-  # - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
-  #   「你已被指派为该活动主理人」）
+  #   - event_moderator_assigned（#606）：活动名称=thing1 / 说明=thing5（固定
+  #     「你已被指派为该活动主理人」）
+  # - event_moderator_removed（#538）：模板标题「活动名额转移提醒」（全库无
+  #   身份/移除类标题，选中性双 thing 模板；2026-09-18 批次申请，ID 已配置
+  #   secret WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED）。**槽位非惯例**：
+  #   活动名称=thing1 / 内容（备注）=thing5（不是 thing2！）；内容固定
+  #   「主理人身份已解除」（7 字 ≤20，勿带活动名前缀免截断）
   # - speaker_accepted（#606）：活动名称=thing14 / 状态=thing6（固定「已接受」）；
   #   speaker_invitation_id 不下发（平台无 character_string 槽位，本就是 job meta）
   # - speaker_completed（#606）：活动名称=thing1（speaker 本人面无 title → 跳过，
@@ -210,6 +222,14 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  defp render(:wechat, "event_qualification_manager", %{} = data) do
+    %{
+      "thing2" => thing(data["title"]),
+      "thing5" => thing(qualification_manager_note(data["outcome"], data["min_participants"]))
+    }
+    |> drop_nils()
+  end
+
   defp render(:wechat, "event_schedule_changed", %{} = data) do
     %{
       "thing1" => thing(data["title"]),
@@ -223,6 +243,16 @@ defmodule Cgc2046.Notifications.Service do
     %{
       "thing1" => thing(data["title"]),
       "thing5" => "你已被指派为该活动主理人"
+    }
+    |> drop_nils()
+  end
+
+  # #538：模板「活动名额转移提醒」实际槽位 = thing1 活动名 / thing5 内容
+  # （非 thing2——槽位注释块见本文件头部清单；thing ≤20 字）
+  defp render(:wechat, "event_moderator_removed", %{} = data) do
+    %{
+      "thing1" => thing(data["title"]),
+      "thing5" => "主理人身份已解除"
     }
     |> drop_nils()
   end
@@ -251,6 +281,80 @@ defmodule Cgc2046.Notifications.Service do
     |> drop_nils()
   end
 
+  # 志愿者段位通知六模板（U4/KTD6；R14 阶段通知表逐行）。**模板 ID 待申请**，
+  # 字段编号按「每模板 = 批次/场次 + 状态细节 + 固定提示」的最小形状拟定，
+  # 申请到模板后按公众平台「我的模板 → 详情」核对槽位并就地改（先例 #606）。
+  #
+  # 逻辑键（data_keys）与收件人：
+  # - submitted「提交确认」：批次名/职位/固定「申请已提交，等待初审」
+  # - interview「面试安排」：批次名/群面时间（time2，批次执行周期开始；群面约时
+  #   为线下运营动作，缺排期时该字段跳过——入群方式文案在邮件里）/固定「运营将
+  #   联系你入群」
+  # - training「训练营预约」：批次名/训练营排期（time2）/固定「凭邀请码在课程页
+  #   自助报名」
+  # - assigned「分配结果」：场次名（Tutor 可无场次）/课程任务（assignment_note）/
+  #   固定「项目分配已完成」保底（两值皆缺时不至空 data）
+  # - rejected「拒绝通知」：批次名/拒绝原因（thing 顶 20 字，全文在邮件）/
+  #   固定「很遗憾，本次申请未通过」
+  # - canceled「取消通知」：批次名/取消备注（选填）/固定「申请已取消」
+  # 招募六段：槽位编号为各模板实际字段（2026-09-18 微信后台实抄，与
+  # miniprogram_templates 的 template_id 一一对应）；数据语义不变，仅键名对齐。
+
+  defp render(:wechat, "volunteer_application_submitted", %{} = data) do
+    %{
+      "thing7" => thing(data["cohort_name"]),
+      "thing5" => thing(data["position_label"]),
+      "thing6" => "申请已提交，等待初审"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_interview", %{} = data) do
+    %{
+      "thing5" => thing(data["cohort_name"]),
+      # date3 为 date 类型：走 date/1（年月日 + 时刻，官方支持形态）
+      "date3" => date(data["group_time"]),
+      "thing7" => "运营将联系你入群"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_training", %{} = data) do
+    %{
+      "thing39" => thing(data["cohort_name"]),
+      "time47" => time(data["training_starts_at"]),
+      "thing19" => "凭邀请码在课程页自助报名"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_assigned", %{} = data) do
+    %{
+      "thing19" => thing(data["event_title"]),
+      "thing7" => thing(data["assignment_note"]),
+      "thing5" => "项目分配已完成"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_rejected", %{} = data) do
+    %{
+      "thing21" => thing(data["cohort_name"]),
+      "thing12" => thing(data["rejection_reason"]),
+      "thing11" => "很遗憾，本次申请未通过"
+    }
+    |> drop_nils()
+  end
+
+  defp render(:wechat, "volunteer_application_canceled", %{} = data) do
+    %{
+      "thing1" => thing(data["cohort_name"]),
+      "thing4" => thing(data["cancel_note"]),
+      "thing9" => "申请已取消"
+    }
+    |> drop_nils()
+  end
+
   defp render(_platform, _template_key, data), do: data
 
   defp drop_nils(fields), do: Map.reject(fields, fn {_k, v} -> is_nil(v) end)
@@ -266,7 +370,7 @@ defmodule Cgc2046.Notifications.Service do
   defp expiry_note("true"), do: "订单超时作废，报名截止前可重新报名"
   defp expiry_note(_), do: "订单超时作废"
 
-  # 开班结果动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
+  # 成班判定动态文案（#606）：thing ≤20 字。min 1/2/3 位 → 10/11/12 字
   # （confirmed）与 16/17/18 字（underfilled），守卫测试钉边界；min ≥6 位时
   # 由外层 thing/1 截断到 20（保 API 不 47003，代价是句子截尾——min_participants
   # 是组织者配置项，实际不会到 6 位）
@@ -275,6 +379,20 @@ defmodule Cgc2046.Notifications.Service do
 
   defp underfilled_note(min) when is_integer(min), do: "未达最低成班人数#{min}人，活动未成行"
   defp underfilled_note(_), do: nil
+  # 管理侧成班结果文案（#585）：thing ≤20 字。min 1/2/3 位 → 13/14/15 字
+  # （confirmed）与 18/19/20 字（underfilled，3 位恰满）；min ≥4 位由外层
+  # thing/1 截断（同 qualified_note/underfilled_note 取舍）
+  defp qualification_manager_note("confirmed", min) when is_integer(min),
+    do: "已达最低人数#{min}人，活动成班"
+
+  defp qualification_manager_note("confirmed", _), do: "活动成班"
+
+  defp qualification_manager_note("underfilled", min) when is_integer(min),
+    do: "未达最低人数#{min}人，已取消并发起退款"
+
+  defp qualification_manager_note("underfilled", _), do: "未达最低人数，已取消并发起退款"
+
+  defp qualification_manager_note(_, _), do: nil
 
   defp approval_result_text("approved"), do: "已通过"
   defp approval_result_text("rejected"), do: "未通过"

@@ -19,6 +19,10 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     `detached_rule_provenance`（无标记 nil；detach 后含 initiative 身份 + 只含
     locked 字段），MCP 编辑标记内字段逐字段清除；公开 MCP 面（list/get public
     offering、discover_offerings）负向不透出
+  - #539 assign_event_moderator 三锚点（email / CGC 编号 / UUID，域层
+    UserResolution 单源）：错误码 `user_not_found` / `user_anchor_ambiguous`
+    前缀透传（不落笼统 fallback）；权限门先于解析（越权者探测不到
+    user_not_found）；list_event_moderators 行带回显平铺字段
   """
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
@@ -32,6 +36,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
   alias Cgc2046.Mcp.Tools.{
+    AssignEventModerator,
     CancelEvent,
     CloseEvent,
     ConfirmEnrollment,
@@ -42,10 +47,13 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     GetPublicOffering,
     LaunchEvent,
     ListEnrollments,
+    ListEventModerators,
     ListPublicOfferings,
     ListWorkspaceEvents,
     UpdateEvent
   }
+
+  alias Cgc2046.Events.Moderators
 
   require Ash.Query
 
@@ -179,8 +187,8 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     "capacity" => 50
   }
 
-  # #630：MCP update_event 不支持解除挂载（initiative_id nil = 未提供），测试经
-  # 域侧 detach 布置状态，再验 MCP 读/写面的标记回传。
+  # 域侧布置 detach 状态：MCP 已支持 detach_initiative: true（#632），此 helper
+  # 供标记相关测试直接布置，少走一轮确认流。
   defp detach!(event, actor, workspace) do
     event
     |> Ash.Changeset.for_update(:update, %{initiative_id: nil}, tenant: workspace.id)
@@ -890,6 +898,280 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     end
   end
 
+  describe "解除挂载（#632 detach_initiative）" do
+    test "端到端：draft 挂载场 detach → 值保留 + 来源标记 + inherited 空壳（响应 == 落库）" do
+      owner = Fixtures.platform_admin("s3-ev-632-e2e-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-e2e-init")
+
+      event_id = mount_event(owner, workspace, initiative, "待解除")
+
+      mounted = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert mounted.initiative_id == initiative.id
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      # 确认流摘要给用户过目：特化渲染（不是 initiative_id → null），含名称与值保留语义
+      payload = decode_reply(pending)
+      assert payload["summary"] =~ "解除挂载"
+      assert payload["summary"] =~ initiative.name
+      assert payload["summary"] =~ "值保留在场"
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => payload["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      assert result["initiative"] == nil
+      assert result["inherited"] == %{}
+      assert "initiative_id" in result["updated_fields"]
+
+      # 只标 locked 规则字段（min_participants / deadline_rule 是挂载快照，不标）
+      assert result["detached_rule_provenance"] == %{
+               "initiative" => %{
+                 "id" => initiative.id,
+                 "name" => initiative.name,
+                 "slug" => initiative.slug
+               },
+               "fields" => %{
+                 "deposit_amount_cents" => %{"value" => 6900, "source" => "locked"},
+                 "deposit_enabled" => %{"value" => true, "source" => "locked"},
+                 "min_age" => %{"value" => 18, "source" => "locked"}
+               }
+             }
+
+      # 响应 == 落库真值；locked 值保留在场（#624 方案 C）
+      reloaded = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert reloaded.initiative_id == nil
+      assert reloaded.detached_rule_provenance == result["detached_rule_provenance"]
+      assert reloaded.min_age == mounted.min_age
+      assert reloaded.deposit_enabled == mounted.deposit_enabled
+    end
+
+    test "互斥：detach_initiative 与 initiative_id 同传 → 报错不建 pending" do
+      owner = Fixtures.platform_admin("s3-ev-632-mutex-owner")
+      workspace = Fixtures.create_workspace(owner)
+      mounted_initiative = mixed_initiative(owner, "s3-ev-632-mutex-a")
+      other_initiative = all_default_initiative(owner, "s3-ev-632-mutex-b")
+
+      event_id = mount_event(owner, workspace, mounted_initiative, "互斥目标")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true,
+                   "initiative_id" => other_initiative.id
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "mutually exclusive"
+      assert pending_count() == 0
+
+      # 未动库：挂载原样
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).initiative_id ==
+               mounted_initiative.id
+    end
+
+    test "越权不变：非 Owner/Admin 带 detach_initiative 撞工具层判定，未动库" do
+      owner = Fixtures.platform_admin("s3-ev-632-authz-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-authz-init")
+
+      event_id = mount_event(owner, workspace, initiative, "越权目标")
+
+      member = Fixtures.register_user("s3-ev-632-authz-member")
+      Fixtures.add_member(workspace, member, [])
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(member)
+               )
+
+      assert msg =~ "forbidden: owner or admin required"
+
+      assert Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id).initiative_id ==
+               initiative.id
+    end
+
+    test "幂等：已 detach 再 detach 标记不变；从未挂载 detach 无变化无标记" do
+      owner = Fixtures.platform_admin("s3-ev-632-idem-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-idem-init")
+
+      # 已 detach（域侧布置）→ 再走 MCP detach：成功且标记不变
+      detached =
+        mount_event(owner, workspace, initiative, "已解除再解除")
+        |> then(&Ash.get!(Event, &1, authorize?: false, tenant: workspace.id))
+        |> detach!(owner, workspace)
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => detached.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+      assert result["detached_rule_provenance"] == detached.detached_rule_provenance
+
+      assert Ash.get!(Event, detached.id, authorize?: false, tenant: workspace.id).detached_rule_provenance ==
+               detached.detached_rule_provenance
+
+      # 从未挂载的 draft 场 detach：幂等成功，无标记
+      plain = draft_event(workspace, owner, %{title: "从未挂载"})
+
+      assert {:reply, _, _} =
+               pending_plain =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => plain.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed_plain =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending_plain)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result_plain = decode_reply(confirmed_plain)["result"]
+      assert result_plain["initiative"] == nil
+      assert result_plain["inherited"] == %{}
+      assert result_plain["detached_rule_provenance"] == nil
+    end
+
+    test "非 draft 挂载中 → 第一段快速失败不建 pending；非 draft 未挂载幂等放行" do
+      owner = Fixtures.platform_admin("s3-ev-632-draft-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-draft-init")
+
+      # open + 挂载中（挂载规则所需 starts_at/ends_at/capacity 同 @mounted_event_attrs）
+      open_mounted =
+        open_event(workspace, owner, %{
+          initiative_id: initiative.id,
+          starts_at: ~U[2027-01-10 10:00:00Z],
+          ends_at: ~U[2027-01-10 12:00:00Z],
+          capacity: 50
+        })
+
+      assert open_mounted.status == :open
+      assert open_mounted.initiative_id == initiative.id
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => open_mounted.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      # 与域层 ensure_mount_state 同一句判据文案
+      assert msg =~ "draft"
+      assert pending_count() == 0
+
+      assert Ash.get!(Event, open_mounted.id, authorize?: false, tenant: workspace.id).initiative_id ==
+               initiative.id
+
+      # 非 draft 未挂载（从未挂载的 open 场）：幂等 detach 无变更，不拦
+      open_plain = open_event(workspace, owner, %{title: "未挂载 open 场"})
+
+      assert {:reply, _, _} =
+               pending_plain =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => open_plain.id,
+                   "detach_initiative" => true
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed_plain =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending_plain)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      assert decode_reply(confirmed_plain)["result"]["detached_rule_provenance"] == nil
+    end
+
+    test "nil ≠ detach：显式 initiative_id: nil 仍视为未提供，挂载原样保留" do
+      owner = Fixtures.platform_admin("s3-ev-632-nil-owner")
+      workspace = Fixtures.create_workspace(owner)
+      initiative = mixed_initiative(owner, "s3-ev-632-nil-init")
+
+      event_id = mount_event(owner, workspace, initiative, "nil 不解除")
+
+      assert {:reply, _, _} =
+               pending =
+               UpdateEvent.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event_id,
+                   "title" => "改名不改挂载",
+                   "initiative_id" => nil
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               confirmed =
+               ConfirmOperation.execute(
+                 %{"pending_id" => decode_reply(pending)["pending_id"]},
+                 frame_for(owner)
+               )
+
+      result = decode_reply(confirmed)["result"]
+
+      # title 改了、挂载保留；initiative_id 不在变更清单
+      assert result["initiative"]["id"] == initiative.id
+      assert "initiative_id" not in result["updated_fields"]
+
+      reloaded = Ash.get!(Event, event_id, authorize?: false, tenant: workspace.id)
+      assert reloaded.title == "改名不改挂载"
+      assert reloaded.initiative_id == initiative.id
+    end
+  end
+
   describe "update_event（确认流）" do
     test "两段：摘要列出将变更字段 → 无副作用 → confirm 落库" do
       owner = Fixtures.platform_admin("s3-ev-uc-owner")
@@ -1245,6 +1527,11 @@ defmodule Cgc2046.Mcp.EventToolsTest do
       payload = decode_reply(reply)
       assert payload["status"] == "needs_confirmation"
       assert payload["summary"] =~ "不可恢复"
+
+      # #688 连带披露：主理人指派 + 讲者邀请（draft 合法）+ 邀请批次 + 留痕
+      assert payload["summary"] =~ "主理人指派"
+      assert payload["summary"] =~ "讲者邀请记录"
+      assert payload["summary"] =~ "留痕"
       assert payload["summary"] =~ event.slug
 
       # 无副作用：第一段不落库
@@ -1551,5 +1838,208 @@ defmodule Cgc2046.Mcp.EventToolsTest do
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
     end
+  end
+
+  describe "assign_event_moderator（#539 三锚点指派）" do
+    setup do
+      owner = Fixtures.platform_admin("539-owner")
+      workspace = Fixtures.create_workspace(owner)
+      event = EventFixtures.create_event(workspace, owner)
+      %{owner: owner, workspace: workspace, event: event}
+    end
+
+    test "三锚点命中：email（大小写混合）/ CGC 编号（小写）/ UUID（大写），响应 user_id 为解析后落库 UUID",
+         %{owner: owner, workspace: workspace, event: event} do
+      user = Fixtures.register_user_with_email("mcp-anchor@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      anchors = [
+        "Mcp-Anchor@Example.com",
+        String.downcase(expected_member_number(user.id)),
+        String.upcase(user.id)
+      ]
+
+      for anchor <- anchors do
+        assert {:reply, _, _} =
+                 reply =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(owner)
+                 ),
+               "anchor: #{anchor}"
+
+        payload = decode_reply(reply)
+        assert payload["user_id"] == user.id, "anchor: #{anchor}"
+        assert is_binary(payload["moderator_id"])
+
+        # 同用户连续三锚：前一次指派先撤销，撞不到 already_assigned
+        assert :ok = Moderators.remove(payload["moderator_id"], workspace.id, owner)
+      end
+    end
+
+    test "任一锚未命中统一 user_not_found 前缀透传（不落笼统 fallback）", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      for anchor <- [
+            "nobody-539@example.com",
+            "cgc-000000",
+            Ecto.UUID.generate(),
+            "not-an-anchor"
+          ] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(owner)
+                 ),
+               "anchor: #{anchor}"
+
+        assert msg =~ "user_not_found", "anchor: #{anchor}"
+        # 变异点：删工具内 BusinessError 子句 → 坍缩回 fallback，此断言红
+        refute msg =~ "failed to assign moderator", "anchor: #{anchor}"
+      end
+    end
+
+    test "CGC 前缀命中多人 user_anchor_ambiguous + 引导换用户 ID", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      user_a = Fixtures.register_user_with_email("ambiguous-a-539@example.com")
+      Fixtures.add_member(workspace, user_a, [:learner])
+
+      prefix = user_a.id |> String.replace("-", "") |> String.slice(0, 6)
+      hex_b = prefix <> (:crypto.strong_rand_bytes(13) |> Base.encode16(case: :lower))
+
+      <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
+        e::binary-size(12)>> = hex_b
+
+      register_user_with_uuid("ambiguous-b-539@example.com", "#{a}-#{b}-#{c}-#{d}-#{e}")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "cgc-" <> String.downcase(prefix)
+                 },
+                 frame_for(owner)
+               )
+
+      assert msg =~ "user_anchor_ambiguous"
+      assert msg =~ "use the user ID"
+    end
+
+    test "越权双层门：learner 即便持不存在锚也只拿 forbidden（权限先于解析，防探测）；非成员撞 member 门",
+         %{owner: owner, workspace: workspace, event: event} do
+      learner = Fixtures.register_user("539-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+
+      for anchor <- ["ghost-539@example.com", Ecto.UUID.generate()] do
+        assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+                 AssignEventModerator.execute(
+                   %{"workspace_id" => workspace.id, "event_id" => event.id, "user_id" => anchor},
+                   frame_for(learner)
+                 ),
+               "anchor: #{anchor}"
+
+        assert msg =~ "forbidden: owner or admin required"
+
+        # 权限门先于解析：越权者探测不到 user_not_found（#537 域序，MCP 面钉住）
+        refute msg =~ "user_not_found"
+      end
+
+      outsider = Fixtures.register_user("539-outsider")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "ghost-539@example.com"
+                 },
+                 frame_for(outsider)
+               )
+
+      assert msg =~ "not a member"
+    end
+
+    test "重复指派走 Invalid 树折叠文案，不经新子句（code 前缀形状不出现）", %{
+      owner: owner,
+      workspace: workspace,
+      event: event
+    } do
+      user = Fixtures.register_user_with_email("dup-539@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      # user.email 加载后是 Ash.CiString；MCP 线上入参恒为 JSON string——
+      # 测试直调给字面量，与生产形状一致（两次同锚指派共用）
+      first_assign = %{
+        "workspace_id" => workspace.id,
+        "event_id" => event.id,
+        "user_id" => "dup-539@example.com"
+      }
+
+      assert {:reply, _, _} = AssignEventModerator.execute(first_assign, frame_for(owner))
+
+      # 同 email 锚二次指派：解析成功后撞 identity 唯一索引 → Ash.Error.Invalid
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               AssignEventModerator.execute(first_assign, frame_for(owner))
+
+      assert msg =~ "already a moderator"
+      # Invalid 树路径保持既有折叠行为：不带 "<code>: " 前缀形状
+      refute msg =~ "event_moderator_already_assigned: "
+    end
+
+    test "list_event_moderators 行带回显平铺字段（display_name 可空、member_number 恒有值）",
+         %{owner: owner, workspace: workspace, event: event} do
+      owner
+      |> Ash.Changeset.for_update(:update_display_name, %{display_name: "台主"})
+      |> Ash.update!(actor: owner)
+
+      user = Fixtures.register_user_with_email("echo-539@example.com")
+      Fixtures.add_member(workspace, user, [:learner])
+
+      # user.email 是 Ash.CiString，测试直调给字面量与生产 JSON 入参形状一致
+      assert {:reply, _, _} =
+               AssignEventModerator.execute(
+                 %{
+                   "workspace_id" => workspace.id,
+                   "event_id" => event.id,
+                   "user_id" => "echo-539@example.com"
+                 },
+                 frame_for(owner)
+               )
+
+      assert {:reply, _, _} =
+               reply =
+               ListEventModerators.execute(
+                 %{"workspace_id" => workspace.id, "event_id" => event.id},
+                 frame_for(owner)
+               )
+
+      rows = decode_reply(reply)["moderators"]
+      row = Enum.find(rows, &(&1["user_id"] == user.id))
+
+      assert row["user_display_name"] == nil
+      assert row["user_member_number"] == expected_member_number(user.id)
+      assert row["assigned_by_display_name"] == "台主"
+      assert row["assigned_by_member_number"] == expected_member_number(owner.id)
+    end
+  end
+
+  defp expected_member_number(uuid),
+    do: "CGC-" <> (uuid |> String.replace("-", "") |> String.slice(0, 6) |> String.upcase())
+
+  # 歧义布置（域层同款手法）：force 指定 uuid，测试需要前缀可控
+  defp register_user_with_uuid(email, uuid) do
+    Cgc2046.Accounts.User
+    |> Ash.Changeset.for_create(:register_with_password, %{
+      email: email,
+      password: Fixtures.password()
+    })
+    |> Ash.Changeset.force_change_attribute(:id, uuid)
+    |> Ash.create!(authorize?: false)
   end
 end

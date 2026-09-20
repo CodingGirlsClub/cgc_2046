@@ -49,6 +49,13 @@ export const COPY: Record<string, string> = {
   // 收费档位
   enrollment_tier_id_required: '该报名为收费项，请先选择价格档位。',
   enrollment_tier_not_available: '所选档位已过期或不可用，请重新选择。',
+  // #687 脏金额档位下单 fail-closed（展示侧「金额待定」禁选，此为后端兜底）
+  order_tier_amount_invalid: '所选档位金额异常，请联系组织者。',
+  // #727 押金同意门（后端权威闸）：押金单缺显式同意被拒——正常路径不会出现
+  // （创单前已勾选），命中即本端预检失败/旧版本；与 web zh-CN 同文案互指
+  order_deposit_consent_required: '押金支付需先阅读并同意押金条款（到场核销后原路退回、未到场不退）；若小程序为旧版本，请更新后重试。',
+  order_deposit_consent_missing:
+    '该订单创建于押金同意留痕上线前，暂不支持直接更换支付方式；请重新发起支付（重新确认押金条款后生成新单）。',
   // 报名 reason 内容安全检查拒绝（plan 009；无平台字样，零导流）
   enrollment_content_rejected: '提交内容未通过安全检查，请修改后重试。',
   // 现场核销（#508-A；与 web zh-CN errors 命名空间同文案互指）
@@ -92,7 +99,20 @@ export const COPY: Record<string, string> = {
   // 小程序无这两条锁路径的调用方（web admin 成员管理 / 邀请码生成为真实消费方），
   // 本表为「两端文案表同步」义务（与 web zh-CN errors 同文案互指）。
   lock_timeout: '工作台操作暂时繁忙，请稍后重试',
-  deadlock_detected: '检测到锁冲突，请稍后重试'
+  deadlock_detected: '检测到锁冲突，请稍后重试',
+  // 志愿者招募（R20/R21；消费方 = 小程序 pages/volunteer-apply 的写面三条）。
+  // 管理侧段位流转/批次管理的 code（invalid_transition / rejection_reason_required
+  // 等）小程序无入口，不在此表——审核面在 web（R13）。
+  volunteer_application_already_submitted: '本批次你已经提交过申请，可在下方查看当前段位。',
+  volunteer_application_cohort_closed: '本批次已结束申请，请等下一批开放后再试。',
+  volunteer_application_cohort_deadline_passed: '已过报名截止时间，本批次不再接收申请。',
+  volunteer_application_cohort_not_open: '该批次尚未开放申请，开放后欢迎再来。',
+  volunteer_application_cohort_not_found: '招募批次不可用，请刷新后重试。',
+  // U2 上传管道（先建档再上传；文件判据以后端为准）
+  resume_profile_not_found: '请先完善简历档案，再上传简历文件。',
+  resume_profile_file_type_invalid: '简历仅支持 PDF 或 Word（.pdf / .doc / .docx）文件。',
+  resume_profile_file_too_large: '简历文件超过 5MB，请压缩后重试。',
+  resume_profile_file_content_invalid: '简历文件内容无法识别，请重新选择文件。'
 }
 
 /**

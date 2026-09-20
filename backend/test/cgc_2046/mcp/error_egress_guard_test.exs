@@ -284,10 +284,10 @@ defmodule Cgc2046.Mcp.ErrorEgressGuardTest do
 
     # 收敛基线两侧一致（有意识改动闸）：AST 基线数字 = 行为契约表行数。
     # 增删站点表行必须同步改 @converted_keyword_error_sites，反之亦然。
-    assert length(Cgc2046.Errors.InvalidAttributeValueRenderTest.sites()) ==
+    assert length(Cgc2046.Errors.InvalidAttributeValueRenderSites.sites()) ==
              @converted_keyword_error_sites,
            "#680 收敛基线两侧不一致：AST 基线 #{@converted_keyword_error_sites} 处 vs " <>
-             "行为契约表 #{length(Cgc2046.Errors.InvalidAttributeValueRenderTest.sites())} 行"
+             "行为契约表 #{length(Cgc2046.Errors.InvalidAttributeValueRenderSites.sites())} 行"
   end
 
   # 扫描视图 = 剥掉整行注释后的源码：注释里为了说明纪律写出 `Exception.message`

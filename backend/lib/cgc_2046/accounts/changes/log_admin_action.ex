@@ -27,7 +27,9 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
     站点 invitation revoke 用 fn 取 invitation.workspace_id）
   - `metadata`：fn changeset, record -> map（默认 %{}；函数式传裸 map 亦可）
   - `skip_unless`：可选 fn changeset, record -> boolean，false 时不落行（站点
-    invitation revoke 的条件谓词）
+    invitation revoke 的条件谓词；治理写站点用 `platform_admin_actor?/2`）
+  - `raise_on_failure?`：可选 boolean，默认 false。true = 留痕写入失败即上抛
+    （`log!/3`，整事务回滚）；false = 返回型 `{:error, _}`（存量站点形状）
   - `on_missing_actor`：:log | :skip，默认 :log（CLI 无 actor 时 actor_id 落 nil
     仍留痕）；:skip = 无 actor 时不落行（workspace create 双记防护）
 
@@ -41,7 +43,11 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
   @impl true
   def change(changeset, opts, _context) do
     Ash.Changeset.after_action(changeset, fn changeset, record ->
-      log(changeset, record, opts)
+      if opts[:raise_on_failure?] do
+        log!(changeset, record, opts)
+      else
+        log(changeset, record, opts)
+      end
     end)
   end
 
@@ -51,31 +57,72 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
   返回 `{:ok, record}`。失败返回 `{:error, _}`。
   """
   def log(changeset, record, attrs) do
+    case log_attrs(changeset, record, attrs) do
+      :skip ->
+        {:ok, record}
+
+      {:log, log_attrs} ->
+        with {:ok, _log} <- AdminActionLog.log(log_attrs), do: {:ok, record}
+    end
+  end
+
+  @doc """
+  `log/3` 的 raise 型：留痕写入失败即上抛（`AdminActionLog.log!/1`）。供「留痕失败
+  ⇒ 整个治理写回滚」的站点使用——Ash 3.33 的 after_action 返回 `{:error, _}` 会
+  **提交**事务（`transaction_rollback_on_error?` 未设），上抛是唯一能整事务回滚的
+  形状（先例：`Cgc2046.Admission.Attendance` 核销即退的 `log_attendance_refund!/2`）。
+
+  声明式挂接经 `raise_on_failure?: true` 走本路径；存量站点默认走返回型，行为零变化。
+  跳过语义（`skip_unless` / `on_missing_actor: :skip`）与 `log/3` 完全一致。
+  """
+  def log!(changeset, record, attrs) do
+    case log_attrs(changeset, record, attrs) do
+      :skip ->
+        {:ok, record}
+
+      {:log, log_attrs} ->
+        AdminActionLog.log!(log_attrs)
+        {:ok, record}
+    end
+  end
+
+  @doc """
+  治理写留痕的 `skip_unless` 谓词：actor 是平台管理员才落行。
+
+  工作台 Owner/Admin 的写、系统/CLI 与匿名调用一律跳过——工作台写的审计语义不
+  因治理挂接而变（`AdminActionLog` 只覆盖平台治理操作）。
+  """
+  def platform_admin_actor?(changeset, _record) do
+    changeset.context
+    |> get_in([:private, :actor])
+    |> Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?()
+  end
+
+  # 留痕跳过判定 + attrs 归一的唯一实现：log/3 与 log!/3 的分叉只在写入调用本身
+  defp log_attrs(changeset, record, attrs) do
     actor = get_in(changeset.context, [:private, :actor])
 
     cond do
       not is_nil(attrs[:skip_unless]) and not attrs[:skip_unless].(changeset, record) ->
-        {:ok, record}
+        :skip
 
       is_nil(actor) and attrs[:on_missing_actor] == :skip ->
-        {:ok, record}
+        :skip
 
       true ->
-        with {:ok, _log} <-
-               AdminActionLog.log(%{
-                 actor_id: actor && actor.id,
-                 action: resolve(attrs[:action], changeset, record),
-                 target_type: resolve(attrs[:target_type], changeset, record),
-                 target_id:
-                   resolve(
-                     attrs[:target_id] || fn _changeset, record -> record.id end,
-                     changeset,
-                     record
-                   ),
-                 metadata: resolve(attrs[:metadata] || %{}, changeset, record)
-               }) do
-          {:ok, record}
-        end
+        {:log,
+         %{
+           actor_id: actor && actor.id,
+           action: resolve(attrs[:action], changeset, record),
+           target_type: resolve(attrs[:target_type], changeset, record),
+           target_id:
+             resolve(
+               attrs[:target_id] || fn _changeset, record -> record.id end,
+               changeset,
+               record
+             ),
+           metadata: resolve(attrs[:metadata] || %{}, changeset, record)
+         }}
     end
   end
 
@@ -102,6 +149,32 @@ defmodule Cgc2046.Accounts.Changes.LogAdminAction do
       value_before: value_before(changeset),
       value_after: rule.value
     }
+  end
+
+  # offering 治理 update 的闭集标量（U1/KTD2）：标题 / 可见性 / 容量 / 定价槽位 /
+  # 押金槽位。**只有这些**进 metadata——description / venue / price_tiers /
+  # curriculum_requirements 等自由文本与结构体一律不落（审计面不收自由文本）。
+  # deposit_enabled 是 Event-only 属性：Course changeset 上 `changing_attribute?/2`
+  # 查的是 attributes map，恒 false，不会落键。
+  @offering_change_scalars [:title, :visibility, :capacity, :pricing_enabled, :deposit_enabled]
+
+  @doc """
+  offering 治理 update 的审计元数据（读面 `adminActionLog.offeringChange` 投影的来源；
+  白名单表在 `Cgc2046Web.GraphqlSchema` 顶部 `@admin_offering_change_metadata_whitelist`）。
+
+  只记**闭集标量**的变更前后值（`<field>_before` / `<field>_after`）：属性未变更不落键，
+  读面据此只渲染真正变了的列；自由文本与结构体属性（description / venue / …）不进 metadata。
+  """
+  def offering_change_metadata(changeset, record) do
+    Enum.reduce(@offering_change_scalars, %{}, fn key, acc ->
+      if Ash.Changeset.changing_attribute?(changeset, key) do
+        acc
+        |> Map.put(:"#{key}_before", Ash.Changeset.get_data(changeset, key))
+        |> Map.put(:"#{key}_after", Map.get(record, key))
+      else
+        acc
+      end
+    end)
   end
 
   defp value_before(%{action_type: :create}), do: nil

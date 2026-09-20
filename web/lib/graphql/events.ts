@@ -52,6 +52,8 @@ export interface OfferingItem {
   title: string;
   /** 公开 URL 段（E-4 Speaker 邀请链接原料；成员可见） */
   slug: string | null;
+  /** 公开展示文案（可空；仅详情查询携带，列表查询不选 → undefined） */
+  description?: string | null;
   status: EventStatus;
   visibility: Visibility;
   enrollmentPolicy: EnrollmentPolicy;
@@ -238,6 +240,7 @@ export const GET_EVENT: TypedDocumentNode<
       workspaceId
       title
       slug
+      description
       status
       visibility
       enrollmentPolicy
@@ -274,6 +277,7 @@ export const GET_COURSE: TypedDocumentNode<
       id
       workspaceId
       title
+      description
       status
       visibility
       enrollmentPolicy
@@ -574,6 +578,11 @@ export interface PublicOfferingItem {
   companionCourse?: string | null;
   /** 挂载的 Initiative id（仅 event；详情页据此渲染回 /initiatives/[slug] 的隶属回链） */
   initiativeId?: string | null;
+
+  /** 公开主理人投影（JsonString 数组，每行 JSON.parse 后为 {display_name, member_number}；
+      availablePriceTiers 同款；仅 event 详情查询，#538。assignedAt 升序；displayName null
+      → memberNumber 回退见 lib/public-offerings 的 moderatorNames） */
+  publicModerators?: string[] | null;
 }
 
 // first 250 显式声明上限（服务端 default_limit 同款值）；翻页 UI 触发器 = 单工作台 ~200 供给物
@@ -659,6 +668,7 @@ export const PUBLIC_GET_EVENT: TypedDocumentNode<
       depositAmountCents
       companionCourse
       initiativeId
+      publicModerators
     }
   }
 `;
@@ -757,6 +767,17 @@ export interface MyEnrollmentRow {
   targetTitle?: string | null;
   /** 6 位核销码（押金制 U4/KTD5：仅本人 confirmed 活动报名返回；course 恒 null） */
   checkInCode?: string | null;
+  /**
+   * 目标现行缴费模式 free/pricing/deposit（#696：/orders/new 押金识别判据，
+   * 存在性判定——金额不参与识别）。仅 MY_ENROLLMENT 选取。
+   */
+  paymentMode?: string | null;
+  /**
+   * 押金快照金额（分；#696）：报名提交时物化，与 createOrder 押金单实付金额
+   * 同源；脏值/无键 → null（披露行「押金（金额待定）」，绝不 ¥0）。
+   * 仅 MY_ENROLLMENT 选取。
+   */
+  depositAmountCents?: number | null;
 }
 
 export const MY_EVENT_ENROLLMENT: TypedDocumentNode<
@@ -818,6 +839,8 @@ export const MY_ENROLLMENT: TypedDocumentNode<
         id
         status
         targetTitle
+        paymentMode
+        depositAmountCents
       }
     }
   }

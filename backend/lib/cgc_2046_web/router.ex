@@ -62,6 +62,14 @@ defmodule Cgc2046Web.Router do
     plug(AshGraphql.Plug)
   end
 
+  # 简历文件下载（R13/U8）：复用认证 plug 链但走 controller——文件字节不经
+  # GraphQL（敏感列），响应头需 controller 控制（见 RecruitmentResumeController）。
+  pipeline :recruitment_resume do
+    plug(Cgc2046Web.Plugs.AuthCookiePlug, :read)
+    plug(:load_from_bearer)
+    plug(:load_actor)
+  end
+
   # MCP endpoint（Slice D #42）：独立 Bearer 鉴权（连接 token，非 AshAuthentication token），
   # 不过 :api（anubis transport 自行处理 body/streaming）。
   # McpProtocolCompatPlug 必须在鉴权之前：OpenClacky ≤1.5.6 client 硬编码的旧版
@@ -116,6 +124,12 @@ defmodule Cgc2046Web.Router do
     # 无登录无 JS，点开即完成（web 前端经 proxy 转发 /api 到本服务）。
     # 不过 :graphql（无 actor 依赖，退订 token 即凭据）。
     get("/flashback/unsubscribe", FlashbackUnsubscribeController, :show)
+  end
+
+  scope "/api/recruitment", Cgc2046Web do
+    pipe_through([:api, :recruitment_resume])
+
+    get("/resumes/:profile_id", RecruitmentResumeController, :show)
   end
 
   # Phase 6 / R12：AshAdmin 挂载（ops 调试面）。

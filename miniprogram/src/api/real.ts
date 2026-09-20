@@ -19,6 +19,10 @@ import type {
   CourseDetailQueryVariables,
   CreateEnrollmentMutation,
   CreateEnrollmentMutationVariables,
+  CurrentRecruitmentCohortQuery,
+  CurrentRecruitmentCohortQueryVariables,
+  CreateVolunteerApplicationMutation,
+  CreateVolunteerApplicationMutationVariables,
   EnrollmentQuery,
   EnrollmentQueryVariables,
   EventDetailQuery,
@@ -67,8 +71,14 @@ import type {
   MyEnrollmentsQueryVariables,
   MyOrdersQuery,
   MyOrdersQueryVariables,
+  MyResumeProfileQuery,
+  MyResumeProfileQueryVariables,
+  MyVolunteerApplicationsQuery,
+  MyVolunteerApplicationsQueryVariables,
   OrderStatusQuery,
   OrderStatusQueryVariables,
+  RecruitmentWorkspaceQuery,
+  RecruitmentWorkspaceQueryVariables,
   RejectEnrollmentMutation,
   RejectEnrollmentMutationVariables,
   RejectJoinRequestMutation,
@@ -78,8 +88,13 @@ import type {
   SignOutMutation,
   SignOutMutationVariables,
   SignInWithPlatformMutation,
-  SignInWithPlatformMutationVariables
+  SignInWithPlatformMutationVariables,
+  UploadResumeFileMutation,
+  UploadResumeFileMutationVariables,
+  UpsertResumeProfileMutation,
+  UpsertResumeProfileMutationVariables
 } from './generated/graphql'
+import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import {
@@ -95,6 +110,8 @@ import {
   ConfirmEnrollmentMutationDocument,
   CourseDetailQueryDocument,
   CreateEnrollmentMutationDocument,
+  CurrentRecruitmentCohortQueryDocument,
+  CreateVolunteerApplicationMutationDocument,
   EnrollmentQueryDocument,
   EventDetailQueryDocument,
   EventModerationScopeQueryDocument,
@@ -118,11 +135,16 @@ import {
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
+  MyResumeProfileQueryDocument,
+  MyVolunteerApplicationsQueryDocument,
+  RecruitmentWorkspaceQueryDocument,
   RejectEnrollmentMutationDocument,
   RejectJoinRequestMutationDocument,
   SessionQueryDocument,
   SignOutMutationDocument,
-  SignInWithPlatformMutationDocument
+  SignInWithPlatformMutationDocument,
+  UploadResumeFileMutationDocument,
+  UpsertResumeProfileMutationDocument
 } from './operations'
 import { parseEnrollmentBadge, parseEnrollmentPolicy, parseEnrollmentStatus, parsePaymentMode } from '@/domain/format'
 import { errorCopy } from '@/domain/error-copy'
@@ -153,12 +175,24 @@ import type {
   MiniProgramCode,
   NotificationItem,
   PlatformPhonePayload,
+  RecruitmentCohort,
+  ResumeFileInput,
+  ResumeProfileForm,
+  ResumeProfileSummary,
   SessionSnapshot,
   SubscriptionScenario,
+  VolunteerApplicationForm,
+  VolunteerApplicationSummary,
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
 import { parseQualificationBadge } from '@/domain/initiative'
+import {
+  RECRUITMENT_WORKSPACE_SLUG,
+  parseCohortStatus,
+  parseVolunteerPosition,
+  parseVolunteerStatus
+} from '@/domain/recruitment'
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
 import {
   activateAccount,
@@ -179,12 +213,18 @@ type ContentRecord = (EventRecord | CourseRecord) &
     depositAmountCents: number | null
     initiativeId: string | null
     minAge: number | null
+    publicModerators: string[] | null
+    description: string | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
 type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
-// enrollments 列表查询行（MyEnrollments/Enrollment 两查询同形状，#355 P1-4）
-type EnrollmentRecord = NonNullable<NonNullable<MyEnrollmentsQuery['enrollments']>['results']>[number]
+// enrollments 两查询的行形状（#355 P1-4 列表 + 按 id 回查）。两文档选择集只在
+// #727 押金快照金额上分叉：单条回查选 depositAmountCents（order-pay 创单前门用），
+// 列表不选（该计算字段 load submission_payload，列表最多 100 行——不白拉 JSONB）
+type EnrollmentRecord =
+  | NonNullable<NonNullable<MyEnrollmentsQuery['enrollments']>['results']>[number]
+  | NonNullable<NonNullable<EnrollmentQuery['enrollments']>['results']>[number]
 
 function mapMyEnrollment(record: MyEnrollmentRecord | null | undefined): MyEnrollmentState | null {
   if (!record) return null
@@ -217,8 +257,11 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     minAge: 'minAge' in record && typeof record.minAge === 'number' ? record.minAge : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
+    // 活动介绍：仅详情查询携带（列表记录 → null，不渲染介绍块）
+    description: record.description ?? null,
     venue: 'venue' in record ? record.venue : null,
     initiativeId: record.initiativeId ?? null,
+    publicModerators: record.publicModerators ?? null,
     enrollmentBadge: parseEnrollmentBadge(record.enrollmentBadge),
     myEnrollment: mapMyEnrollment(myEnrollment)
   }
@@ -237,6 +280,10 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     insertedAt: enrollment.insertedAt,
     checkInCode: enrollment.checkInCode ?? null,
     paymentMode: parsePaymentMode(enrollment.paymentMode ?? null),
+    // #727：押金快照金额（order-pay 创单前披露的金额源，与下单实付同源）。
+    // 只有单条回查文档选了该字段；列表路径取不到 → null（诚实缺省，非 0）
+    depositAmountCents:
+      'depositAmountCents' in enrollment ? (enrollment.depositAmountCents ?? null) : null,
     // #617：改期/开课提醒的权威落点——目标开始时间与场地原样透传
     startsAt: enrollment.startsAt ?? null,
     venue: enrollment.venue ?? null,
@@ -252,25 +299,15 @@ function parseOrderStatus(value: string): OrderStatus {
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
 
-/** 后端业务错误（BusinessError code 命中 error-copy 表）：message 为中文文案，
- * code 原样携带——页面按码分流（如 R20 许愿额度被拒后先刷新额度再 toast，F2）。
- * 与 FlashbackTokenInvalidError 同型（Error 子类 + readonly code）。 */
-export class BusinessError extends Error {
-  readonly code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.name = 'BusinessError'
-    this.code = code
-  }
-}
-
 // Action 卡四态 fail-closed：未知态落 done（终态只读，无写面风险）。
+// BusinessError 单源在 ./business-error（#751 独立成文件：domain 纯函数与
+// node --test 都要加载它）；code 与文案精确配对（抛出产出文案的那个 code）。
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
-  // code 命中 → 中文文案（BusinessError 携带 code）；未命中 join message（通用兜底，拿不到 code 的场景用）
+  // code 命中 → 中文文案 + BusinessError（保留 code 供页面分派自愈，#751）；
+  // 未命中 join message（通用兜底，拿不到 code 的场景用）
   for (const { code } of errors) {
     const copy = errorCopy(code)
-    if (code && copy) throw new BusinessError(code, copy)
+    if (code && copy) throw new BusinessError(copy, code)
   }
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
@@ -281,6 +318,47 @@ export class SessionExpiredError extends Error {
   constructor(message = '登录已过期，请重新登录') {
     super(message)
     this.name = 'SessionExpiredError'
+  }
+}
+
+// ── 志愿者招募（R20/R21）：三资源读面映射 ──────────────────────────────────
+//
+// 段位 / 职位 / 批次状态都走 domain/recruitment 的解析器（未知值 fail-closed 抛错），
+// 不在这里静默兜底成某个合法值——后端加了新段位而前端未同步时，宁可报「服务端返回
+// 未知申请段位」也不要把它显示成「已提交」。
+
+type ResumeProfileRecord = NonNullable<MyResumeProfileQuery['myResumeProfile']>
+type VolunteerApplicationRecord = MyVolunteerApplicationsQuery['myVolunteerApplications'][number]
+
+function mapResumeProfile(record: ResumeProfileRecord): ResumeProfileSummary {
+  return {
+    id: record.id,
+    fullName: record.fullName,
+    contactEmail: record.contactEmail,
+    weeklyHours: record.weeklyHours ?? null,
+    skills: record.skills ?? [],
+    // 文件元数据四键同源：未上传 → fileName null（其余三键随后端落 null/未设）
+    fileName: record.fileName ?? null,
+    fileContentType: record.fileContentType ?? null,
+    fileSize: record.fileSize ?? null,
+    uploadedAt: record.uploadedAt ?? null
+  }
+}
+
+function mapVolunteerApplication(record: VolunteerApplicationRecord): VolunteerApplicationSummary {
+  return {
+    id: record.id,
+    cohortId: record.cohortId,
+    position: parseVolunteerPosition(record.position),
+    city: record.city ?? null,
+    heardAboutUs: record.heardAboutUs ?? null,
+    hasInternalReferrer: record.hasInternalReferrer === true,
+    message: record.message ?? null,
+    status: parseVolunteerStatus(record.status),
+    rejectionReason: record.rejectionReason ?? null,
+    assignedEventId: record.assignedEventId ?? null,
+    assignmentNote: record.assignmentNote ?? null,
+    assignedAt: record.assignedAt ?? null
   }
 }
 
@@ -363,6 +441,15 @@ function mapSharedCard(card: {
 }
 
 export class RealMiniProgramApi implements MiniProgramApi {
+  /**
+   * 招募三资源的租户 id 缓存（同一部署内恒定）。小程序没有 URL slug，入口工作台
+   * 只能按 slug 解析一次（getWorkspace，需登录），三次读写面共用——避免每页每个
+   * 请求都打一次 slug 查询。失败不缓存（下次重试）。
+   */
+  private recruitmentWorkspaceId: string | null = null
+  /** in-flight 去重：并发首载共享同一次解析；rejected 时清掉，保持「失败不缓存、下次重试」 */
+  private recruitmentWorkspaceIdPromise: Promise<string> | null = null
+
   // #355 P2-10：keyword 非空走服务端 title ilike 过滤（catalogSearchVariables 构造
   // filter）；空关键词保持原 CatalogQueryDocument（无 filter 变量，行为不变）。
   async getCatalog(keyword?: string): Promise<CatalogItem[]> {
@@ -597,6 +684,10 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // create 结果未选缴费模式/截止时间（两查询同形状仅列表/单条回查）——
       // 从报名目标本地推导，与后端 payment_mode 计算同规则（押金优先于定价）
       paymentMode: form.target.depositEnabled ? 'deposit' : form.target.pricingEnabled ? 'pricing' : 'free',
+      // #727：押金快照金额同样未选，按目标押金配置本地推导（与 paymentMode 同款
+      // 理由：同一时刻报名快照 = 目标配置；服务端计算字段的权威读取走
+      // getEnrollment/getEnrollments。非押金场 null）
+      depositAmountCents: form.target.depositEnabled ? form.target.depositAmountCents : null,
       // #617：create 结果同样未选 startsAt/venue。startsAt 与 form.target 同形
       // （都是供给物 starts_at 的 ISO 值）→ 本地取；venue 不行——读面契约是后端
       // 已文本化的 city+district，而 form.target.venue 是 JsonString，本地转换等于
@@ -1145,10 +1236,18 @@ export class RealMiniProgramApi implements MiniProgramApi {
     return mapSharedCard(data.flashbackSharedCard)
   }
 
-  async createOrder(enrollmentId: string): Promise<CreatedOrder> {
+  async createOrder(enrollmentId: string, depositConsent?: boolean): Promise<CreatedOrder> {
     const data = await graphqlRequest<CreateOrderMutation, CreateOrderMutationVariables>(
       CreateOrderMutationDocument,
-      { input: { enrollmentId, provider: 'wechat_jsapi' } }
+      {
+        input: {
+          enrollmentId,
+          provider: 'wechat_jsapi',
+          // 押金同意（#727）：预检判定押金且用户已勾选才携带——缺失/false 时后端
+          // 对押金单 fail-closed（order_deposit_consent_required）；非押金单忽略
+          ...(depositConsent === true ? { depositConsent: true } : {})
+        }
+      }
     )
     const result = data.createOrder.result
     if (!result) mutationError(data.createOrder.errors)
@@ -1209,6 +1308,144 @@ export class RealMiniProgramApi implements MiniProgramApi {
       }))
       // 非终态优先(一 enrollment 至多一非终态单,U1 不变量),终态单按同序稳定输出
       .sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9))
+  }
+
+  // ── 志愿者招募（R20/R21；tenant 见 domain/recruitment.ts 的 moduledoc）──────
+
+  /** 入口工作台 id（slug 解析一次 + 进程内缓存；失败不缓存，下次重试）。
+   * 并发首载（页面 load() 的三个读取并发进来）共享 in-flight promise，
+   * 不各自重复发 session + getWorkspace。 */
+  private async resolveRecruitmentWorkspaceId(): Promise<string> {
+    if (this.recruitmentWorkspaceId) return this.recruitmentWorkspaceId
+    if (this.recruitmentWorkspaceIdPromise) return this.recruitmentWorkspaceIdPromise
+    const promise = (async () => {
+      // 未登录时不发请求：这是「先登录再读批次」的门（getWorkspace 策略要求
+      // actor 在场），也给页面一个可读的错误而不是 forbidden 原文。
+      const session = await this.getSession()
+      if (!session.user) throw new Error('请先登录后再申请')
+      const data = await graphqlRequest<RecruitmentWorkspaceQuery, RecruitmentWorkspaceQueryVariables>(
+        RecruitmentWorkspaceQueryDocument,
+        { slug: RECRUITMENT_WORKSPACE_SLUG }
+      )
+      const id = data.getWorkspace?.id
+      if (!id) throw new Error('招募入口工作台未配置，请稍后重试')
+      this.recruitmentWorkspaceId = id
+      return id
+    })()
+    this.recruitmentWorkspaceIdPromise = promise
+    try {
+      return await promise
+    } catch (error) {
+      // 失败不缓存 in-flight（下次调用重试）；缓存语义与 slug 缓存一致
+      if (this.recruitmentWorkspaceIdPromise === promise) this.recruitmentWorkspaceIdPromise = null
+      throw error
+    }
+  }
+
+  async getCurrentRecruitmentCohort(): Promise<RecruitmentCohort | null> {
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<CurrentRecruitmentCohortQuery, CurrentRecruitmentCohortQueryVariables>(
+      CurrentRecruitmentCohortQueryDocument,
+      { workspaceId }
+    )
+    const record = data.currentRecruitmentCohort
+    // null = 无 open 批次（空态）；读取失败在上面抛错（失败态）——两者不同桶
+    if (!record) return null
+    return {
+      id: record.id,
+      name: record.name,
+      applyDeadlineAt: record.applyDeadlineAt,
+      startsAt: record.startsAt ?? null,
+      endsAt: record.endsAt ?? null,
+      status: parseCohortStatus(record.status)
+    }
+  }
+
+  async getMyResumeProfile(): Promise<ResumeProfileSummary | null> {
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<MyResumeProfileQuery, MyResumeProfileQueryVariables>(
+      MyResumeProfileQueryDocument,
+      { workspaceId }
+    )
+    return data.myResumeProfile ? mapResumeProfile(data.myResumeProfile) : null
+  }
+
+  async saveResumeProfile(form: ResumeProfileForm): Promise<ResumeProfileSummary> {
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<UpsertResumeProfileMutation, UpsertResumeProfileMutationVariables>(
+      UpsertResumeProfileMutationDocument,
+      {
+        workspaceId,
+        input: {
+          fullName: form.fullName.trim(),
+          contactEmail: form.contactEmail.trim(),
+          // hours 选填：非法值在 domain 已归 undefined；此处只做「有没有」的分派
+          ...(form.weeklyHours != null ? { weeklyHours: form.weeklyHours } : {}),
+          // skills 缺省不改动（后端语义）：空数组视为「清空」由 domain 决定，
+          // 本层不下判断——有就传，没有就不传。
+          ...(form.skills != null ? { skills: form.skills } : {})
+        }
+      }
+    )
+    const result = data.upsertResumeProfile?.result
+    if (!result) mutationError(data.upsertResumeProfile?.errors ?? [])
+    return mapResumeProfile(result)
+  }
+
+  /**
+   * 简历文件上传（U2 单入口）。base64 载荷可达 ~6.7MB（5MB 原始文件），远超默认
+   * 15s 请求超时 → 单独放宽到 60s；其余 GraphQL 调用保持默认。
+   *
+   * 上传前必须先 upsertResumeProfile 建档：后端不代建半成品档案，会回
+   * resume_profile_not_found（文案见 domain/error-copy.ts）。调用顺序由页面保证
+   * （components/resume-upload 的 ensureProfile 回调）。
+   */
+  async uploadResumeFile(input: ResumeFileInput): Promise<ResumeProfileSummary> {
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<UploadResumeFileMutation, UploadResumeFileMutationVariables>(
+      UploadResumeFileMutationDocument,
+      { workspaceId, input: { fileName: input.fileName, contentType: input.contentType, contentBase64: input.contentBase64 } },
+      { timeoutMs: 60_000 }
+    )
+    const result = data.uploadResumeFile?.result
+    if (!result) mutationError(data.uploadResumeFile?.errors ?? [])
+    return mapResumeProfile(result)
+  }
+
+  async getMyVolunteerApplications(): Promise<VolunteerApplicationSummary[]> {
+    // 掉线 ≠ 没有申请（同 getEnrollments 口径）：拒绝而非静默 []，页面渲染重登空态
+    const session = await this.getSession()
+    if (!session.user) {
+      if (session.authExpired) throw new SessionExpiredError()
+      return []
+    }
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<MyVolunteerApplicationsQuery, MyVolunteerApplicationsQueryVariables>(
+      MyVolunteerApplicationsQueryDocument,
+      { workspaceId }
+    )
+    return (data.myVolunteerApplications ?? []).map(mapVolunteerApplication)
+  }
+
+  async createVolunteerApplication(form: VolunteerApplicationForm): Promise<VolunteerApplicationSummary> {
+    const workspaceId = await this.resolveRecruitmentWorkspaceId()
+    const data = await graphqlRequest<CreateVolunteerApplicationMutation, CreateVolunteerApplicationMutationVariables>(
+      CreateVolunteerApplicationMutationDocument,
+      {
+        workspaceId,
+        input: {
+          cohortId: form.cohortId,
+          position: form.position,
+          ...(form.city ? { city: form.city } : {}),
+          ...(form.heardAboutUs ? { heardAboutUs: form.heardAboutUs } : {}),
+          hasInternalReferrer: form.hasInternalReferrer === true,
+          ...(form.message ? { message: form.message } : {})
+        }
+      }
+    )
+    const result = data.createVolunteerApplication?.result
+    if (!result) mutationError(data.createVolunteerApplication?.errors ?? [])
+    return mapVolunteerApplication(result)
   }
 }
 

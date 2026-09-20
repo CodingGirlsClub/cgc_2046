@@ -26,6 +26,49 @@ defmodule Cgc2046Web.GraphqlSchema do
     initiative_rule_update: ~w(rule_key locked locked_before value_before value_after)
   }
 
+  # U1 治理写变更投影（offering）：闭集标量 → 每列 value_before / value_after 分列。
+  # **不收自由文本**（description / venue / price_tiers 等不进 metadata），不复用
+  # rule 族的 JSON 槽——形状不同另立 object（`admin_offering_change_metadata`）。
+  # 表是行级可见性清单：只有 admin_event_update / admin_course_update 落表的行才
+  # 投影；其余 action（含 launch/close/cancel）投影 nil（默认拒不破）。
+  # Course 无 deposit_enabled（Event-only 槽位）→ 该 action 少两列。
+  @offering_change_scalars ~w(title visibility capacity pricing_enabled deposit_enabled)
+  @admin_offering_change_metadata_whitelist %{
+    admin_event_update: @offering_change_scalars,
+    admin_course_update: @offering_change_scalars -- ["deposit_enabled"]
+  }
+
+  # U1 治理 update mutation 的输入闭集（R5 标准元数据全集里治理面的可编辑子集：
+  # 标题/时间/容量/截止/定价与押金槽位/visibility/venue）。
+  # slug 在内——R7 的「已发布锁死」必须经同一 action 守卫落稳定 code
+  # （event_slug_locked / course_slug_locked）；教研内容（curriculum_enabled /
+  # curriculum_requirements / price_tiers / workflow_run_id 一类）不在治理面输入，
+  # 仍只能走各自既有路径。字段名须与 input_object 的键一致（map_input/2 取键）。
+  @admin_event_update_fields [
+    :title,
+    :slug,
+    :description,
+    :visibility,
+    :capacity,
+    :registration_deadline,
+    :starts_at,
+    :ends_at,
+    :venue,
+    :pricing_enabled,
+    :deposit_enabled
+  ]
+  @admin_course_update_fields [
+    :title,
+    :slug,
+    :description,
+    :visibility,
+    :capacity,
+    :registration_deadline,
+    :starts_at,
+    :ends_at,
+    :pricing_enabled
+  ]
+
   # 二级白名单：rule_key → 该规则 value map 可出面的键（次序 = 界面渲染次序）。
   # 四项规则值都是治理设置（押金开关与金额分 / 年龄门槛 / 成班阈值 / 截止小时数），
   # 本身非敏感；未收录的 rule_key 投影为空 + omitted=true。
@@ -47,6 +90,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Learning,
       Cgc2046.Payments,
       Cgc2046.Reconciliation,
+      Cgc2046.Recruitment,
       Cgc2046.Sponsorship,
       Cgc2046.Workflows
     ],
@@ -710,10 +754,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       )
     end
 
-    @desc "平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after）"
+    @desc "平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after；entityId 必须与 entityType 成对——KTD5）"
     field :reconciliation_findings, non_null(list_of(non_null(:admin_reconciliation_finding))) do
       arg(:rule, :string)
       arg(:entity_type, :string)
+      arg(:entity_id, :string)
       arg(:workspace_id, :id)
       arg(:first, :integer)
       arg(:after, :string)
@@ -726,9 +771,11 @@ defmodule Cgc2046Web.GraphqlSchema do
             # atom 约束字段精确过滤（非枚举值静默忽略，同 AdminList.maybe_status_filter 语义）
             |> AdminList.maybe_status_filter(args[:rule], :rule)
             |> AdminList.maybe_status_filter(args[:entity_type], :entity_type)
+            |> maybe_finding_entity_id(args[:entity_id])
             |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
           end,
-          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation)
+          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation),
+          validate: &validate_finding_entity_pair/1
         )
       )
     end
@@ -807,6 +854,110 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    # ── U2 平台治理：offering（Event / Course）治理读面 ──────────────────────
+    # 门控 = with_admin（非平台管理员 forbidden / 未登录 unauthorized）；读走
+    # `Ash.Query.for_read(:read)` + actor 直传的标准授权——Event/Course 均
+    # `global?(true)` multitenant，无 tenant 即跨租户全表读，read policy 对
+    # PlatformAdmin 已放行（KTD3）。列表行不带报名计数（计数只在详情，KTD4）。
+
+    @desc "平台管理员：跨租户活动列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled）"
+    field :list_admin_events, non_null(list_of(non_null(:admin_event))) do
+      arg(:status, :string)
+      arg(:search, :string)
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(
+        admin_list(
+          Cgc2046.Events.Event,
+          fn q, args ->
+            q
+            |> AdminList.maybe_status_filter(args[:status])
+            |> AdminList.maybe_offering_search(args[:search])
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
+          end,
+          admin_rows(Cgc2046.Events.Event, Cgc2046.Events, &admin_event_row/1)
+        )
+      )
+    end
+
+    @desc "平台管理员：跨租户课程列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled）"
+    field :list_admin_courses, non_null(list_of(non_null(:admin_course))) do
+      arg(:status, :string)
+      arg(:search, :string)
+      arg(:workspace_id, :id)
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(
+        admin_list(
+          Cgc2046.Courses.Course,
+          fn q, args ->
+            q
+            |> AdminList.maybe_status_filter(args[:status])
+            |> AdminList.maybe_offering_search(args[:search])
+            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
+          end,
+          admin_rows(Cgc2046.Courses.Course, Cgc2046.Courses, &admin_course_row/1)
+        )
+      )
+    end
+
+    @desc "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
+    field :get_admin_event, :admin_event_detail do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_admin(context, fn actor ->
+          case Ash.get(Cgc2046.Events.Event, id, actor: actor, not_found_error?: false) do
+            {:ok, nil} ->
+              {:ok, nil}
+
+            {:ok, event} ->
+              {:ok, admin_event_detail_row(event, actor)}
+
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :read,
+                 Cgc2046.Events.Event,
+                 Cgc2046.Events
+               )}
+          end
+        end)
+      end)
+    end
+
+    @desc "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
+    field :get_admin_course, :admin_course_detail do
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{id: id}, %{context: context} ->
+        with_admin(context, fn actor ->
+          case Ash.get(Cgc2046.Courses.Course, id, actor: actor, not_found_error?: false) do
+            {:ok, nil} ->
+              {:ok, nil}
+
+            {:ok, course} ->
+              {:ok, admin_course_detail_row(course)}
+
+            {:error, error} ->
+              {:error,
+               to_ash_graphql_errors(
+                 error,
+                 context,
+                 :read,
+                 Cgc2046.Courses.Course,
+                 Cgc2046.Courses
+               )}
+          end
+        end)
+      end)
+    end
+
     @desc "Owner/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner/Admin 一律 forbidden"
     field :initiative_mount_preview, :initiative_mount_preview do
       arg(:workspace_id, non_null(:id))
@@ -840,6 +991,145 @@ defmodule Cgc2046Web.GraphqlSchema do
             {:error, :forbidden} -> {:error, [message: "forbidden", code: "forbidden"]}
             {:error, _} -> {:error, [message: "event not found", code: "not_found"]}
           end
+        end)
+      end)
+    end
+
+    # ── Recruitment（Hacker Start 1024 campaign；R10 申请侧 / R13 管理侧读面）──
+    #
+    # 三资源类型由 AshGraphql 从资源属性派生（`recruitment_cohort` /
+    # `resume_profile` / `volunteer_application`），本段只声明读取入口与投影。
+    # 简历文件内容列（`resume_profiles.file_data`，`public?: false` +
+    # `sensitive?: true`）**结构上不在类型里**——GraphQL 面只投影文件名 /
+    # MIME / 大小 / 上传时间元数据，文件读写走 U2 专线。
+    #
+    # 租户惯例（KTD2 / #104）：入口 `workspaceId` 显式 argument，不注入 tenant；
+    # 内部 Ash 调用一律传 `tenant:`。管理面入口另经 with_workspace_manager 显式
+    # 门控——单靠 read policy 会退化成「过滤」语义（非管理面静默只见自己的行，
+    # 而非 R13 契约的 Forbidden）。
+
+    @desc "当前 open 招募批次（公开申请页数据面，匿名可读；R10/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft/closed 不因本字段露面"
+    field :current_recruitment_cohort, :recruitment_cohort do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        Cgc2046.Recruitment.RecruitmentCohort
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(status == :open)
+        |> Ash.read_one(tenant: workspace_id, actor: context[:actor])
+        |> map_error(
+          context,
+          :read,
+          Cgc2046.Recruitment.RecruitmentCohort,
+          Cgc2046.Recruitment
+        )
+      end)
+    end
+
+    @desc "本人简历档案（R11 第 1 步；仅本人 ∪ Owner/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
+    field :my_resume_profile, :resume_profile do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Recruitment.ResumeProfile
+          |> Ash.Query.for_read(:read)
+          # file_data（≤5MB blob）不出 GraphQL 面，读路径不拖它——否则每次打开
+          # 申请页都白拉 5MB；本 resolver 只投影元数据
+          |> Ash.Query.deselect(:file_data)
+          |> Ash.Query.filter(user_id == ^actor.id)
+          |> Ash.read_one(tenant: workspace_id, actor: actor)
+          |> map_error(
+            context,
+            :read,
+            Cgc2046.Recruitment.ResumeProfile,
+            Cgc2046.Recruitment
+          )
+        end)
+      end)
+    end
+
+    @desc "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
+    field :my_volunteer_applications, non_null(list_of(non_null(:volunteer_application))) do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        with_actor(context, fn actor ->
+          Cgc2046.Recruitment.VolunteerApplication
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.filter(user_id == ^actor.id)
+          |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+          |> Ash.read(tenant: workspace_id, actor: actor)
+          |> map_error(
+            context,
+            :read,
+            Cgc2046.Recruitment.VolunteerApplication,
+            Cgc2046.Recruitment
+          )
+        end)
+      end)
+    end
+
+    @desc "Owner/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
+    field :list_recruitment_cohorts, non_null(list_of(non_null(:recruitment_cohort))) do
+      arg(:workspace_id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id}, %{context: context} ->
+        with_workspace_manager(context, workspace_id, fn actor ->
+          Cgc2046.Recruitment.RecruitmentCohort
+          |> Ash.Query.for_read(:read)
+          |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+          |> Ash.read(tenant: workspace_id, actor: actor)
+          |> map_error(
+            context,
+            :read,
+            Cgc2046.Recruitment.RecruitmentCohort,
+            Cgc2046.Recruitment
+          )
+        end)
+      end)
+    end
+
+    @desc "Owner/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 / 职位 / 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
+    field :list_volunteer_applications, non_null(list_of(non_null(:volunteer_application))) do
+      arg(:workspace_id, non_null(:id))
+      arg(:cohort_id, :id)
+      arg(:position, :string, description: "event_moderator | tutor | coach（非枚举值忽略过滤）")
+
+      arg(:status, :string,
+        description: "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
+      )
+
+      arg(:first, :integer)
+      arg(:after, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_workspace_manager(context, args[:workspace_id], fn actor ->
+          Cgc2046.Recruitment.VolunteerApplication
+          |> Ash.Query.for_read(:read)
+          |> maybe_cohort_filter(args[:cohort_id])
+          |> AdminList.maybe_status_filter(args[:position], :position)
+          |> AdminList.maybe_status_filter(args[:status])
+          |> AdminList.paginate(args[:first], args[:after])
+          |> Ash.read(tenant: args[:workspace_id], actor: actor)
+          |> map_error(
+            context,
+            :read,
+            Cgc2046.Recruitment.VolunteerApplication,
+            Cgc2046.Recruitment
+          )
+        end)
+      end)
+    end
+
+    @desc "Owner/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
+    field :volunteer_application_detail, :volunteer_application_detail do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+
+      resolve(fn _, %{workspace_id: workspace_id, id: id}, %{context: context} ->
+        with_workspace_manager(context, workspace_id, fn actor ->
+          resolve_volunteer_application_detail(workspace_id, id, actor, context)
         end)
       end)
     end
@@ -2057,6 +2347,75 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(initiative_status_mutation(:cancel))
     end
 
+    # ── U1 平台治理：offering（Event / Course）治理写 ────────────────────────
+    # 门控 = with_admin（非平台管理员 forbidden / 未登录 unauthorized）+ 治理
+    # mutation 内 actor 直传的标准授权——复用同一资源 action，slug 锁、命名门、
+    # prep 门、状态机 CAS、信号链与留痕挂接全部零复刻（R4/R5/R7/R9）。
+
+    @desc "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
+    field :admin_launch_event, :admin_event_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Events.Event, :launch, Cgc2046.Events))
+    end
+
+    @desc "平台管理员：结束活动（open → closed；发 event.ended 信号）"
+    field :admin_close_event, :admin_event_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Events.Event, :close, Cgc2046.Events))
+    end
+
+    @desc "平台管理员：取消活动（open → cancelled；报名/退款按既有取消链路异步处理）"
+    field :admin_cancel_event, :admin_event_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Events.Event, :cancel, Cgc2046.Events))
+    end
+
+    @desc "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+    field :admin_update_event, :admin_event_payload do
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:admin_event_update_input))
+
+      resolve(
+        offering_update_mutation(
+          Cgc2046.Events.Event,
+          @admin_event_update_fields,
+          Cgc2046.Events
+        )
+      )
+    end
+
+    @desc "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
+    field :admin_launch_course, :admin_course_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Courses.Course, :launch, Cgc2046.Courses))
+    end
+
+    @desc "平台管理员：结束课程（open → closed；发 course.ended 信号）"
+    field :admin_close_course, :admin_course_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Courses.Course, :close, Cgc2046.Courses))
+    end
+
+    @desc "平台管理员：取消课程（open → cancelled；报名/退款按既有取消链路异步处理）"
+    field :admin_cancel_course, :admin_course_payload do
+      arg(:id, non_null(:id))
+      resolve(offering_status_mutation(Cgc2046.Courses.Course, :cancel, Cgc2046.Courses))
+    end
+
+    @desc "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+    field :admin_update_course, :admin_course_payload do
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:admin_course_update_input))
+
+      resolve(
+        offering_update_mutation(
+          Cgc2046.Courses.Course,
+          @admin_course_update_fields,
+          Cgc2046.Courses
+        )
+      )
+    end
+
     @desc "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
     field :upsert_initiative_rule, :admin_initiative_rule_payload do
       arg(:initiative_id, non_null(:id))
@@ -2130,7 +2489,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :assign_event_moderator, :event_moderator_payload do
       arg(:workspace_id, non_null(:id))
       arg(:event_id, non_null(:id))
-      arg(:user_id, non_null(:id))
+
+      # #537：锚语义放宽（域层 resolve 后落 UUID，存储不变）。ID 标量对
+      # email / CGC 编号原样放行（string 标量，无格式校验）。
+      arg(:user_id, non_null(:id), description: "被指派用户锚：邮箱 / CGC 编号 / 用户 ID 任一精确匹配")
 
       resolve(fn _, args, %{context: context} ->
         with_actor(context, fn actor ->
@@ -2159,6 +2521,13 @@ defmodule Cgc2046Web.GraphqlSchema do
                      Cgc2046.Events
                    )
                }}
+
+            # #537 三锚点解析错误（user_not_found / user_anchor_ambiguous）：
+            # 域函数直返的 BusinessError 不在 Ash.Error.Invalid 容器里，单独
+            # 映射进 payload errors——code 直达前端 i18n（graphql_schema.ex
+            # 顶层 {:error, message:, code:} 同款先例）。
+            {:error, %Cgc2046.Errors.BusinessError{code: code, message: message}} ->
+              {:ok, %{result: nil, errors: [%{message: message, code: code}]}}
 
             {:error, _} ->
               {:ok,
@@ -2747,6 +3116,172 @@ defmodule Cgc2046Web.GraphqlSchema do
         end)
       end)
     end
+
+    # ── Recruitment（Hacker Start 1024 campaign；R11 申请侧 + R13 管理侧写面）──
+    #
+    # 全部走 payload（result + errors）通道：业务错误（同批已申请、批次已关闭、
+    # 非法段位、拒绝未填原因、唯一 open 冲突）以稳定 code 进 errors，前端按 code
+    # 查文案——与自动生成 mutation 的错误协议一致，不落顶层 error。
+    # 段位/租户边界由资源 policy 兜底（create 限本人、流转限 Owner/Admin ∪
+    # platform_admin）；管理面入口另经 with_workspace_manager 显式门控。
+
+    @desc "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
+    field :create_volunteer_application, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:create_volunteer_application_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          attrs =
+            map_input(input, [
+              :cohort_id,
+              :position,
+              :city,
+              :heard_about_us,
+              :has_internal_referrer,
+              :message
+            ])
+
+          Cgc2046.Recruitment.VolunteerApplication
+          |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id)
+          |> Ash.create(tenant: workspace_id, actor: actor)
+          |> recruitment_mutation_result(
+            context,
+            :create,
+            Cgc2046.Recruitment.VolunteerApplication
+          )
+        end)
+      end)
+    end
+
+    @desc "完善 / 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 / 联系邮箱 / 每周可投入 / 技能；文件内容经 U2 上传专线，不走本 mutation"
+    field :upsert_resume_profile, :resume_profile_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:upsert_resume_profile_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          attrs = map_input(input, [:full_name, :contact_email, :weekly_hours, :skills])
+
+          Cgc2046.Recruitment.ResumeProfile
+          |> Ash.Changeset.for_create(:upsert, attrs, tenant: workspace_id)
+          |> Ash.create(tenant: workspace_id, actor: actor)
+          |> recruitment_mutation_result(context, :upsert, Cgc2046.Recruitment.ResumeProfile)
+        end)
+      end)
+    end
+
+    @desc "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF/Word，原始文件 ≤5MB，扩展名/声明 MIME/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+    field :upload_resume_file, :resume_profile_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:upload_resume_file_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        with_actor(context, fn actor ->
+          attrs = map_input(input, [:file_name, :content_type, :content_base64])
+
+          Cgc2046.Recruitment.Upload.store(workspace_id, actor, attrs)
+          |> recruitment_mutation_result(context, :upload_file, Cgc2046.Recruitment.ResumeProfile)
+        end)
+      end)
+    end
+
+    @desc "初审通过：submitted → interview（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+    field :advance_volunteer_application_to_interview, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+
+      resolve(recruitment_stage_transition(:advance_to_interview))
+    end
+
+    @desc "群面通过：interview → training（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+    field :advance_volunteer_application_to_training, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+
+      resolve(recruitment_stage_transition(:advance_to_training))
+    end
+
+    @desc "训练营完成·项目分配：training → assigned（Owner/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
+    field :assign_volunteer_application, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+      arg(:assigned_event_id, :id, description: "分配的目标场次 ID（可空：Tutor 可无场次）")
+      arg(:assignment_note, :string, description: "分配备注（可空，如 Tutor 的课程任务）")
+
+      resolve(recruitment_stage_transition(:assign))
+    end
+
+    @desc "拒绝申请：submitted | interview | training → rejected（Owner/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
+    field :reject_volunteer_application, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+      arg(:reason, :string, description: "拒绝原因（必填；进入申请人通知）")
+
+      resolve(recruitment_stage_transition(:reject))
+    end
+
+    @desc "取消申请：submitted | interview | training → canceled（Owner/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
+    field :cancel_volunteer_application, :volunteer_application_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+      arg(:reason, :string, description: "取消备注（选填）")
+
+      resolve(recruitment_stage_transition(:cancel))
+    end
+
+    @desc "创建招募批次（Owner/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
+    field :create_recruitment_cohort, :recruitment_cohort_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:input, non_null(:create_recruitment_cohort_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, input: input}, %{context: context} ->
+        with_workspace_manager(context, workspace_id, fn actor ->
+          attrs = map_input(input, [:name, :apply_deadline_at, :starts_at, :ends_at])
+
+          Cgc2046.Recruitment.RecruitmentCohort
+          |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id)
+          |> Ash.create(tenant: workspace_id, actor: actor)
+          |> recruitment_mutation_result(context, :create, Cgc2046.Recruitment.RecruitmentCohort)
+        end)
+      end)
+    end
+
+    @desc "编辑招募批次元数据（Owner/Admin ∪ platform_admin；状态迁移不经本 mutation）"
+    field :update_recruitment_cohort, :recruitment_cohort_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+      arg(:input, non_null(:update_recruitment_cohort_input))
+
+      resolve(fn _, %{workspace_id: workspace_id, id: id, input: input}, %{context: context} ->
+        with_workspace_manager(context, workspace_id, fn actor ->
+          attrs = map_input(input, [:name, :apply_deadline_at, :starts_at, :ends_at])
+
+          recruitment_cohort_update(workspace_id, id, :update, attrs, actor)
+          |> recruitment_mutation_result(
+            context,
+            :update,
+            Cgc2046.Recruitment.RecruitmentCohort
+          )
+        end)
+      end)
+    end
+
+    @desc "开放批次：draft | closed → open（Owner/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
+    field :open_recruitment_cohort, :recruitment_cohort_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+
+      resolve(recruitment_cohort_status_mutation(:open))
+    end
+
+    @desc "关闭批次：open → closed（Owner/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
+    field :close_recruitment_cohort, :recruitment_cohort_payload do
+      arg(:workspace_id, non_null(:id))
+      arg(:id, non_null(:id))
+
+      resolve(recruitment_cohort_status_mutation(:close))
+    end
   end
 
   # id 入参形态校验（R36/R38）：Absinthe 的 :id 是 string，非法 uuid 直接进
@@ -2886,6 +3421,15 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:payment_mode, :string) do
       resolve(fn parent, _args, %{definition: definition} ->
         {:ok, enrollment_calc_value(parent, definition, :payment_mode)}
+      end)
+    end
+
+    # 押金快照金额（#696）：报名提交时物化的 submission_payload 键，与 createOrder
+    # 押金单实付金额同源——/orders/new 披露行的金额源；定价/免费报名 nil（展示面
+    # 走「金额待定」，绝不 ¥0）。
+    field(:deposit_amount_cents, :integer) do
+      resolve(fn parent, _args, %{definition: definition} ->
+        {:ok, enrollment_calc_value(parent, definition, :deposit_amount_cents)}
       end)
     end
 
@@ -4318,6 +4862,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       # 显式 resolver：默认 resolver 会直接读 `log.metadata` 原始列（透传），必须挡掉
       resolve(fn log, _, _ -> {:ok, admin_action_metadata(log)} end)
     end
+
+    field(:offering_change, :admin_offering_change_metadata,
+      description:
+        "offering 治理写的变更投影（U1）：admin_event_update / admin_course_update 落表的行才有值，" <>
+          "其余 action（含 launch/close/cancel）为 null。闭集标量的前后值分列，不收自由文本"
+    ) do
+      resolve(fn log, _, _ -> {:ok, admin_offering_change_metadata(log)} end)
+    end
   end
 
   # #607：metadata 白名单投影（非原始 metadata 列）。白名单表见模块顶部
@@ -4347,6 +4899,143 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:value_after_omitted, non_null(:boolean),
       description: "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
     )
+  end
+
+  # U1：offering 治理写的变更投影（闭集标量前后值分列，非 rule 族 JSON 槽）。
+  # 白名单表见模块顶部 `@admin_offering_change_metadata_whitelist`；Course 行无
+  # deposit 两列（该资源无此属性）。全列可空——读者从「哪些列有值」看变更面。
+  object :admin_offering_change_metadata do
+    description("offering 治理写（admin_event_update / admin_course_update）的变更前后值投影")
+
+    field(:title_before, :string, description: "变更前标题；该属性未变更 → null")
+    field(:title_after, :string, description: "变更后标题；该属性未变更 → null")
+    field(:visibility_before, :string, description: "变更前可见性（public | workspace）")
+    field(:visibility_after, :string, description: "变更后可见性（public | workspace）")
+    field(:capacity_before, :integer, description: "变更前报名名额上限；nil 表示不限")
+    field(:capacity_after, :integer, description: "变更后报名名额上限；nil 表示不限")
+    field(:pricing_enabled_before, :boolean, description: "变更前定价槽位")
+    field(:pricing_enabled_after, :boolean, description: "变更后定价槽位")
+    field(:deposit_enabled_before, :boolean, description: "变更前押金槽位（Event-only；Course 恒 null）")
+    field(:deposit_enabled_after, :boolean, description: "变更后押金槽位（Event-only；Course 恒 null）")
+  end
+
+  # U2 治理读面：offering（Event / Course）行与详情两组投影（KTD3/KTD4）——
+  #   行（admin_event / admin_course）：listAdminEvents / listAdminCourses 用。
+  #     跨租户定位与生命周期按钮所需的最小集（带 workspace_id，前端用既有
+  #     workspaces 数据映射名称）；**不带报名计数**——计数需要按场现取，属于
+  #     开弹窗/展开详情那一次取数（KTD4）。
+  #   详情（admin_event_detail / admin_course_detail）：get 查询用 = 行字段 +
+  #     处置与排查字段（权威报名计数、主理人、挂载来源标记 / 版本指针）。
+  object :admin_event do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:slug, :string)
+    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
+    field(:visibility, non_null(:string), description: "public | workspace")
+    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:pricing_enabled, non_null(:boolean))
+    field(:deposit_enabled, non_null(:boolean))
+    field(:deposit_amount_cents, :integer)
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
+  end
+
+  object :admin_event_detail do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:title, non_null(:string))
+    field(:slug, :string)
+    field(:description, :string)
+    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
+    field(:visibility, non_null(:string), description: "public | workspace")
+    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    @desc "结构化场地 JSON 串（country/province/city/district；nil = 线上或未定）"
+    field(:venue, :json_string)
+    field(:pricing_enabled, non_null(:boolean))
+    field(:deposit_enabled, non_null(:boolean))
+    field(:deposit_amount_cents, :integer)
+
+    @desc """
+    权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
+    不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
+    nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
+    不得当 0。0 表示真实无已确认报名（免费场零计数）。
+    """
+    field(:confirmed_count, :integer)
+
+    @desc """
+    权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
+    关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
+    同 confirmedCount（不可用，非 0）。
+    """
+    field(:payment_pending_count, :integer)
+
+    @desc "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
+    field(:moderators, list_of(non_null(:event_moderator)))
+
+    @desc "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
+    field(:detached_rule_provenance, :json_string)
+
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
+  end
+
+  object :admin_course do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:title, non_null(:string))
+    @desc "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+    field(:provisional_title, non_null(:boolean))
+    field(:slug, :string)
+    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
+    field(:visibility, non_null(:string), description: "public | workspace")
+    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:pricing_enabled, non_null(:boolean))
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
+  end
+
+  object :admin_course_detail do
+    field(:id, non_null(:id))
+    field(:workspace_id, non_null(:id))
+    field(:title, non_null(:string))
+    @desc "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+    field(:provisional_title, non_null(:boolean))
+    field(:slug, :string)
+    field(:description, :string)
+    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
+    field(:visibility, non_null(:string), description: "public | workspace")
+    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:pricing_enabled, non_null(:boolean))
+
+    @desc "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+    field(:current_revision_number, :integer)
+
+    @desc """
+    权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
+    不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
+    不得当 0；0 表示真实无已确认报名。
+    """
+    field(:confirmed_count, :integer)
+
+    @desc "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
+    field(:payment_pending_count, :integer)
+
+    field(:inserted_at, non_null(:datetime))
+    field(:updated_at, non_null(:datetime))
   end
 
   # E-10 #125：对账扫描发现（rule/entity_type 为 atom 枚举的字符串形态；detail
@@ -4469,8 +5158,52 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:window_ends_at, :datetime)
   end
 
+  # U1 治理 update 输入（键集 = `@admin_event_update_fields` / `@admin_course_update_fields`；
+  # 未提供的字段不落 changeset——map_input/2 只取存在的键）
+  input_object :admin_event_update_input do
+    field(:title, :string)
+    field(:slug, :string)
+    field(:description, :string)
+    field(:visibility, :string)
+    field(:capacity, :integer)
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:venue, :json_string)
+    field(:pricing_enabled, :boolean)
+    field(:deposit_enabled, :boolean)
+  end
+
+  input_object :admin_course_update_input do
+    field(:title, :string)
+    field(:slug, :string)
+    field(:description, :string)
+    field(:visibility, :string)
+    field(:capacity, :integer)
+    field(:registration_deadline, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+    field(:pricing_enabled, :boolean)
+  end
+
   object :admin_initiative_payload do
     field(:result, :admin_initiative)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  # U1：治理写 payload 回**资源本体**（Event/Course 既有 GraphQL 类型）——前端
+  # 写成功后即可就地更新行，亦可按 KTD4 单一取数契约重取治理投影。
+  object :admin_event_payload do
+    description("治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload")
+
+    field(:result, :event)
+    field(:errors, list_of(:mutation_error))
+  end
+
+  object :admin_course_payload do
+    description("治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload")
+
+    field(:result, :course)
     field(:errors, list_of(:mutation_error))
   end
 
@@ -4479,6 +5212,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # #537 回显平铺：displayName → memberNumber fallback 链的数据面（nullable；
+  # member_number 由 uuid 确定性现算恒非空，display_name 可空）
   object :event_moderator do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
@@ -4486,6 +5221,10 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:user_id, non_null(:id))
     field(:assigned_by, :id)
     field(:assigned_at, non_null(:datetime))
+    field(:user_display_name, :string)
+    field(:user_member_number, :string)
+    field(:assigned_by_display_name, :string)
+    field(:assigned_by_member_number, :string)
   end
 
   object :event_moderator_payload do
@@ -4672,6 +5411,82 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:errors, list_of(:mutation_error))
   end
 
+  # ── Recruitment（Hacker Start 1024 campaign）：payload / input / 详情类型 ──
+  #
+  # 资源记录类型（recruitment_cohort / resume_profile / volunteer_application）
+  # 由 AshGraphql 从资源属性派生，此处只声明本面自有的包装形状。
+  # 简历文件内容（file_data）不在任何投影里——`public?: false` + `sensitive?`
+  # 使其结构上不可达（KTD3；文件读写走 U2 专线）。
+
+  object :volunteer_application_payload do
+    @desc "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
+    field(:result, :volunteer_application)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  object :resume_profile_payload do
+    @desc "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
+    field(:result, :resume_profile)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  object :recruitment_cohort_payload do
+    @desc "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
+    field(:result, :recruitment_cohort)
+    field(:errors, non_null(list_of(non_null(:mutation_error))))
+  end
+
+  object :volunteer_application_detail do
+    @desc "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
+    field(:application, non_null(:volunteer_application))
+    field(:resume_profile, :resume_profile)
+  end
+
+  input_object :create_volunteer_application_input do
+    @desc "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
+    field(:cohort_id, non_null(:id), description: "申请批次 ID（默认当前 open 批次）")
+    field(:position, non_null(:string), description: "职位：event_moderator | tutor | coach")
+
+    field(:city, :string, description: "申请城市（Tutor 可远程）")
+    field(:heard_about_us, :string, description: "如何得知我们")
+    field(:has_internal_referrer, :boolean, description: "是否有内部推荐人（缺省 false）")
+    field(:message, :string, description: "留言（选填）")
+  end
+
+  input_object :upsert_resume_profile_input do
+    @desc "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
+    field(:full_name, non_null(:string), description: "姓名")
+    field(:contact_email, non_null(:string), description: "联系邮箱（R14 邮件保底通道收件地址）")
+    field(:weekly_hours, :integer, description: "每周可投入小时数（选填）")
+    field(:skills, list_of(non_null(:string)), description: "技能多选（字符串列表；缺省不改动）")
+  end
+
+  input_object :upload_resume_file_input do
+    @desc "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收）"
+    field(:file_name, non_null(:string), description: "文件名（含扩展名：.pdf / .doc / .docx）")
+    field(:content_type, non_null(:string), description: "声明的 MIME（须与扩展名同族）")
+
+    field(:content_base64, non_null(:string),
+      description: "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+    )
+  end
+
+  input_object :create_recruitment_cohort_input do
+    @desc "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
+    field(:name, non_null(:string), description: "批次名称（如「第 1 批」）")
+    field(:apply_deadline_at, non_null(:datetime), description: "申请截止时间（UTC）")
+    field(:starts_at, :datetime, description: "执行周期开始（可空）")
+    field(:ends_at, :datetime, description: "执行周期结束（可空）")
+  end
+
+  input_object :update_recruitment_cohort_input do
+    @desc "updateRecruitmentCohort 输入（只传要改的字段）"
+    field(:name, :string)
+    field(:apply_deadline_at, :datetime)
+    field(:starts_at, :datetime)
+    field(:ends_at, :datetime)
+  end
+
   # ── Platform Admin Dashboard Phase 5：resolver helpers ─────────────────
 
   # actor 门控组合子（PR-E）：nil → unauthorized_error()（on_nil 可覆盖——消费方：
@@ -4741,6 +5556,152 @@ defmodule Cgc2046Web.GraphqlSchema do
     }
   end
 
+  # ── U2 治理读面：offering（Event / Course）行与详情投影 ────────────────────
+  # 行 = 列表用最小集（`admin_event` / `admin_course` 的字段全集，SDL 与投影
+  # 一一对应）；详情 = 行 ⊕ 处置/排查字段。计数按场现取（KTD4），不入行投影。
+
+  defp admin_event_row(event) do
+    %{
+      id: event.id,
+      workspace_id: event.workspace_id,
+      title: event.title,
+      slug: event.slug,
+      status: to_string(event.status),
+      visibility: to_string(event.visibility),
+      capacity: event.capacity,
+      registration_deadline: event.registration_deadline,
+      starts_at: event.starts_at,
+      ends_at: event.ends_at,
+      pricing_enabled: event.pricing_enabled,
+      deposit_enabled: event.deposit_enabled,
+      deposit_amount_cents: event.deposit_amount_cents,
+      inserted_at: event.inserted_at,
+      updated_at: event.updated_at
+    }
+  end
+
+  defp admin_event_detail_row(event, actor) do
+    Map.merge(admin_event_row(event), %{
+      description: event.description,
+      venue: event.venue,
+      confirmed_count:
+        offering_enrollment_count(:event_id, event.id, event.workspace_id, :confirmed),
+      payment_pending_count:
+        offering_enrollment_count(:event_id, event.id, event.workspace_id, :payment_pending),
+      moderators: admin_event_moderators(event, actor),
+      detached_rule_provenance: event.detached_rule_provenance
+    })
+  end
+
+  # 主理人清单（U2）：走 `Moderators.list/3` 的读面（平台管理员分支已放行），
+  # 不另起直读 EventModerator 的第二条读序；失败返回 nil（Logger 留痕）——
+  # 附挂信息不阻断详情主读，且「空清单」与「清单加载失败」在 SDL 上可区分
+  # （同 admin_initiative.mountedEvents 先例）。
+  defp admin_event_moderators(event, actor) do
+    case Cgc2046.Events.Moderators.list(event.id, event.workspace_id, actor) do
+      {:ok, rows} ->
+        rows
+
+      {:error, reason} ->
+        Logger.error("[get_admin_event.moderators] load failed: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp admin_course_row(course) do
+    %{
+      id: course.id,
+      workspace_id: course.workspace_id,
+      title: course.title,
+      provisional_title: course.provisional_title,
+      slug: course.slug,
+      status: to_string(course.status),
+      visibility: to_string(course.visibility),
+      capacity: course.capacity,
+      registration_deadline: course.registration_deadline,
+      starts_at: course.starts_at,
+      ends_at: course.ends_at,
+      pricing_enabled: course.pricing_enabled,
+      inserted_at: course.inserted_at,
+      updated_at: course.updated_at
+    }
+  end
+
+  defp admin_course_detail_row(course) do
+    Map.merge(admin_course_row(course), %{
+      description: course.description,
+      current_revision_number: current_revision_number(course),
+      confirmed_count:
+        offering_enrollment_count(:course_id, course.id, course.workspace_id, :confirmed),
+      payment_pending_count:
+        offering_enrollment_count(:course_id, course.id, course.workspace_id, :payment_pending)
+    })
+  end
+
+  # 当前修订号（计划 R3「Course 详情加当前 revision」）：按 current_revision_id
+  # 现取 `CourseRevision.number`（不是 number 最大的行——可能存在已生成未绑定的
+  # 更高号修订）。nil = 未绑定（draft 未发布常态）或现取失败；与 KTD4 同纪律，
+  # 不伪造值。
+  defp current_revision_number(course) do
+    with id when not is_nil(id) <- course.current_revision_id,
+         {:ok, revision} <-
+           Ash.get(Cgc2046.Curriculum.CourseRevision, id,
+             authorize?: false,
+             tenant: course.workspace_id
+           ) do
+      revision.number
+    else
+      _ -> nil
+    end
+  end
+
+  # KTD4 权威报名计数：按 offering 现取 `Enrollment` 行数（`status` 分列），
+  # **不读** `events.confirmed_count` / `courses.confirmed_count` 展示投影
+  # （自述可能滞后一拍）。filter 形状与工作台侧批量免缴披露（update_event /
+  # update_course 的 payment_pending_count）逐字同源——治理面披露的数字与
+  # 写面 200 笔上限判定的数字必须来自同一口径。
+  #
+  # 查询失败返回 nil（= SDL 的 nil「计数不可用」），**不回退 0**：0 是「确实
+  # 没有」的事实，不可用与 0 混同会让界面骗人（KTD4 不落假值）。
+  defp offering_enrollment_count(offering_field, offering_id, workspace_id, status) do
+    Cgc2046.Admission.Enrollment
+    |> Ash.Query.filter(^[{offering_field, offering_id}])
+    |> Ash.Query.filter(status == ^status)
+    |> Ash.count(authorize?: false, tenant: workspace_id)
+    |> case do
+      {:ok, count} ->
+        count
+
+      {:error, error} ->
+        Logger.error(
+          "[admin_offering_detail.enrollment_count] #{offering_field}/#{status} failed: " <>
+            inspect(error)
+        )
+
+        nil
+    end
+  end
+
+  # KTD5：`entity_id` 必须与 `entity_type` 成对。Finding.entity_id 混装 uuid
+  # （event/course/enrollment…）与 oban_job 数字串，单用 entity_id 不是自解释的
+  # 维数，还会跨实体类型误命中同号行——缺配对直接拒绝（不静默全表扫）。
+  # 空串按未提供处理（同各 maybe_* 组合子的 "" 分支）。
+  defp validate_finding_entity_pair(args) do
+    if is_binary(args[:entity_id]) and args[:entity_id] != "" and
+         args[:entity_type] in [nil, ""] do
+      {:error, [message: "entity_id requires entity_type", code: "invalid_input"]}
+    else
+      :ok
+    end
+  end
+
+  defp maybe_finding_entity_id(query, nil), do: query
+  defp maybe_finding_entity_id(query, ""), do: query
+
+  defp maybe_finding_entity_id(query, entity_id) do
+    Ash.Query.filter(query, entity_id == ^entity_id)
+  end
+
   # #607：治理 metadata → 白名单投影（`admin_action_log.metadata` 字段的唯一出口）。
   # 白名单表在模块顶部（`@admin_action_metadata_whitelist` / `@rule_value_whitelist`）。
   #
@@ -4784,6 +5745,41 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   defp admin_action_metadata(_log), do: nil
+
+  # U1：offering 治理写 → 闭集标量前后值投影（`adminActionLog.offeringChange` 的唯一出口）。
+  # 白名单表在模块顶部 `@admin_offering_change_metadata_whitelist`；键名同样取 jsonb
+  # 读回的字符串形态。
+  #
+  # 返回 nil = 该 action 未收录（launch/close/cancel 等：行本身仍可见，只是没有变更
+  # 投影），或该行一条 `*_after` 键都没有（如只改了自由文本属性——写面只为真变更的属性
+  # 落键，全空对象会假装「有一条变更」）。
+  defp admin_offering_change_metadata(%{action: action, metadata: metadata})
+       when is_map(metadata) do
+    case Map.get(@admin_offering_change_metadata_whitelist, action) do
+      nil ->
+        nil
+
+      scalars ->
+        projected =
+          Map.take(metadata, Enum.flat_map(scalars, &["#{&1}_before", "#{&1}_after"]))
+
+        if Enum.any?(scalars, &Map.has_key?(projected, "#{&1}_after")) do
+          # 键名 → Absinthe 字段名（atom 在 object 声明处编译期存在；值侧标量门：
+          # 非标量一律 nil——闭集字段类型固定，嵌套结构只可能是写面 bug，不透传）
+          Map.new(projected, fn {key, value} ->
+            {String.to_existing_atom(key), offering_change_scalar(value)}
+          end)
+        end
+    end
+  end
+
+  defp admin_offering_change_metadata(_log), do: nil
+
+  defp offering_change_scalar(value)
+       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
+       do: value
+
+  defp offering_change_scalar(_value), do: nil
 
   # #607 形状门：只有带**完整** #607 元数据形状的行才投影，否则整行落 nil（界面显示「—」）。
   # 两条理由：
@@ -4899,6 +5895,51 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+  # ── U1 治理写 resolver（Event / Course 共用同一对工厂）─────────────────────
+  # with_admin 门控 → Ash.get（multitenant global 资源，无 tenant 跨租户定位）→
+  # for_update + Ash.update（actor 直传、标准授权，无 authorize?: false 旁路）——
+  # 与 initiative_status_mutation/1 同形：守卫/信号链/留痕全部由 action 本体承担。
+  defp offering_status_mutation(resource, action, domain) do
+    fn _, %{id: id}, %{context: context} ->
+      with_admin(context, fn actor ->
+        with {:ok, offering} <- Ash.get(resource, id, actor: actor) do
+          offering
+          |> Ash.Changeset.for_update(action, %{})
+          |> Ash.update(actor: actor)
+          |> offering_mutation_result(resource, action, domain, context)
+        else
+          {:error, error} ->
+            {:ok,
+             %{result: nil, errors: mutation_errors(error, context, action, resource, domain)}}
+        end
+      end)
+    end
+  end
+
+  defp offering_update_mutation(resource, fields, domain) do
+    fn _, %{id: id, input: input}, %{context: context} ->
+      with_admin(context, fn actor ->
+        with {:ok, offering} <- Ash.get(resource, id, actor: actor) do
+          offering
+          |> Ash.Changeset.for_update(:update, map_input(input, fields))
+          |> Ash.update(actor: actor)
+          |> offering_mutation_result(resource, :update, domain, context)
+        else
+          {:error, error} ->
+            {:ok,
+             %{result: nil, errors: mutation_errors(error, context, :update, resource, domain)}}
+        end
+      end)
+    end
+  end
+
+  defp offering_mutation_result({:ok, offering}, _resource, _action, _domain, _context),
+    do: {:ok, %{result: offering, errors: []}}
+
+  defp offering_mutation_result({:error, error}, resource, action, domain, context) do
+    {:ok, %{result: nil, errors: mutation_errors(error, context, action, resource, domain)}}
+  end
+
   defp decode_rule_json(value) when is_binary(value) do
     case Jason.decode(value) do
       {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
@@ -4940,22 +5981,28 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # admin 列表 resolver 工厂：with_admin 门控 → for_read → filter → pre_read →
-  # paginate → read → post_read。一处接线顺序，N 个 query 声明式复用（leverage）；
-  # gate/filter/paginate 顺序只在此验证（locality）。
+  # admin 列表 resolver 工厂：with_admin 门控 → args 校验 → for_read → filter →
+  # pre_read → paginate → read → post_read。一处接线顺序，N 个 query 声明式复用
+  # （leverage）；gate/validate/filter/paginate 顺序只在此验证（locality）。
   # my_workspace_applications 不用此构造器：gate 是 applicant 非 platform_admin，形状不同。
   defp admin_list(resource, filter_fn, post_fn, opts \\ []) do
     pre_read = Keyword.get(opts, :pre_read, fn q -> q end)
 
+    # 成对/互斥类 args 约束（如 KTD5 entity_id 必须与 entity_type 成对）：门控之后、
+    # 触库之前校验，返回 :ok | {:error, absinthe_error}；默认无约束。
+    validate = Keyword.get(opts, :validate, fn _args -> :ok end)
+
     fn _, args, %{context: context} ->
       with_admin(context, fn actor ->
-        resource
-        |> Ash.Query.for_read(:read)
-        |> filter_fn.(args)
-        |> pre_read.()
-        |> AdminList.paginate(args[:first], args[:after])
-        |> Ash.read(actor: actor)
-        |> post_fn.(context)
+        with :ok <- validate.(args) do
+          resource
+          |> Ash.Query.for_read(:read)
+          |> filter_fn.(args)
+          |> pre_read.()
+          |> AdminList.paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> post_fn.(context)
+        end
       end)
     end
   end
@@ -4963,6 +6010,16 @@ defmodule Cgc2046Web.GraphqlSchema do
   # admin 列表 read 结果 → map_error（统一 :read action；resource/domain 按 query 闭包）
   defp admin_result(resource, domain) do
     fn result, context -> map_error(result, context, :read, resource, domain) end
+  end
+
+  # admin 列表 read 结果 → map_error 后逐行过投影（治理读面的行投影出口）
+  defp admin_rows(resource, domain, row_fun) do
+    fn result, context ->
+      case map_error(result, context, :read, resource, domain) do
+        {:ok, records} -> {:ok, Enum.map(records, row_fun)}
+        {:error, _} = error -> error
+      end
+    end
   end
 
   # Ash.read 结果 → Absinthe 结果（错误统一走 to_ash_graphql_errors）
@@ -5032,13 +6089,20 @@ defmodule Cgc2046Web.GraphqlSchema do
   # enrollment calculation 字段的 alias 感知取值（手写 object 无 AshGraphql
   # resolve_calculation）：alias 查询读 AshGraphql 加载槽；无 alias 读
   # calculations map（Ash 加载后写入），原字段兜底。
+  #
+  # parent 双形态（#727 健壮化）：Ash record（calculations 键存在，未加载为 nil）
+  # 与 my_enrollment 的白名单 payload map（**没有** :calculations 键）——
+  # `parent.calculations` 对后者抛 KeyError（不是 nil），必须走 Map.get/3 兜底；
+  # 裸 map 上计算字段取不到值即 nil（该投影不携带计算值，不是崩溃）。
   defp enrollment_calc_value(parent, %{alias: nil}, field) do
-    Map.get(parent.calculations, field) || Map.get(parent, field)
+    Map.get(calculations(parent), field) || Map.get(parent, field)
   end
 
   defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
-    Map.get(parent.calculations, {:__ash_graphql_calculation__, field_alias})
+    Map.get(calculations(parent), {:__ash_graphql_calculation__, field_alias})
   end
+
+  defp calculations(parent), do: Map.get(parent, :calculations) || %{}
 
   # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
   # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
@@ -5085,5 +6149,181 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:ok, entity} -> {:ok, entity}
       {:error, _} -> Cgc2046.Offering.fetch(:course, id, actor: actor, authorize?: true)
     end
+  end
+
+  # --- Recruitment（Hacker Start 1024 campaign）resolver helpers -----------------
+
+  # Owner/Admin 门控（KTD2 / KTD8 管理面边界）+ platform_admin 穿透，形状同 with_admin。
+  #
+  # 管理面入口为什么显式门控而不是只靠 read policy：VolunteerApplication /
+  # ResumeProfile 的 read policy 含 `authorize_if(expr(user_id == ^actor(:id)))`
+  # 这类**可下推为过滤**的检查——非管理角色调用时 Ash 退化成「只见自己的行」
+  # 而不是 Forbidden（cohort 的匿名读也正是靠同一语义只见 open）。R13 管理面
+  # 契约要的是非本台管理角色明确 forbidden（而非静默空集），故入口先判定；
+  # 资源 policy 仍是第二层（platform_admin 穿透两处一致）。
+  defp with_workspace_manager(context, workspace_id, fun) do
+    with_actor(context, fn actor ->
+      cond do
+        Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) -> fun.(actor)
+        Cgc2046.Accounts.Rbac.manage?(actor, workspace_id) -> fun.(actor)
+        true -> {:error, [message: "forbidden", code: "forbidden"]}
+      end
+    end)
+  end
+
+  # R13 列表按批次过滤（nil = 不过滤）；职位/段位过滤复用 AdminList.maybe_status_filter
+  # （field 参数化 + 非枚举值静默忽略，与该组合子既有语义一致）。
+  defp maybe_cohort_filter(query, nil), do: query
+
+  defp maybe_cohort_filter(query, cohort_id),
+    do: Ash.Query.filter(query, cohort_id == ^cohort_id)
+
+  # Ash 写结果 → payload（result + errors）：业务错误进 payload errors（稳定 code），
+  # 不落顶层 error——与自动生成 mutation 的错误协议一致（前端单一路径按 code 查文案）。
+  #
+  # `{:ok, nil}` 子句必须排在通用 `{:ok, record}` 之前：不静默当成功（result 与
+  # errors 双空会让前端无法区分「无记录」与「操作成功」）。定位型 helper 已显式
+  # 处理，此处是兜底。
+  defp recruitment_mutation_result({:ok, nil}, context, action, resource),
+    do:
+      recruitment_mutation_result(
+        {:error, recruitment_not_found_error(nil, resource)},
+        context,
+        action,
+        resource
+      )
+
+  defp recruitment_mutation_result({:ok, record}, _context, _action, _resource),
+    do: {:ok, %{result: record, errors: []}}
+
+  defp recruitment_mutation_result({:error, error}, context, action, resource),
+    do:
+      {:ok,
+       %{
+         result: nil,
+         errors: mutation_errors(error, context, action, resource, Cgc2046.Recruitment)
+       }}
+
+  # 段位流转（advance_to_interview / advance_to_training / assign / reject / cancel）
+  # 的 resolver 工厂：管理面门控 → tenant 内定位（授权读）→ for_update(action, args)。
+  # 段位合法性（初始段位 CAS）与拒绝原因必填单源在域层，非法流转落稳定 code。
+  defp recruitment_stage_transition(action) do
+    fn _, args, %{context: context} ->
+      with_workspace_manager(context, args[:workspace_id], fn actor ->
+        resource = Cgc2046.Recruitment.VolunteerApplication
+
+        # 只透传本 action 声明的参数：Absinthe 的 args 已按声明过滤键，nil 值不进 attrs
+        attrs =
+          args
+          |> Map.take([:assigned_event_id, :assignment_note, :reason])
+          |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+          |> Map.new()
+
+        with {:ok, %Cgc2046.Recruitment.VolunteerApplication{} = application} <-
+               Ash.get(resource, args[:id], tenant: args[:workspace_id], actor: actor) do
+          application
+          |> Ash.Changeset.for_update(action, attrs,
+            tenant: args[:workspace_id],
+            actor: actor
+          )
+          |> Ash.update(tenant: args[:workspace_id], actor: actor)
+          |> recruitment_mutation_result(context, action, resource)
+        else
+          {:ok, nil} ->
+            recruitment_mutation_result(
+              {:error, recruitment_not_found_error(args[:id], resource)},
+              context,
+              action,
+              resource
+            )
+
+          {:error, error} ->
+            recruitment_mutation_result({:error, error}, context, action, resource)
+        end
+      end)
+    end
+  end
+
+  # 批次状态迁移（open / close）resolver 工厂：形状同段位流转（唯一 open 冲突与
+  # 状态迁移的 DB 部分唯一索引错误都在域层 action 上，落稳定 code）。
+  defp recruitment_cohort_status_mutation(action) do
+    fn _, args, %{context: context} ->
+      with_workspace_manager(context, args[:workspace_id], fn actor ->
+        resource = Cgc2046.Recruitment.RecruitmentCohort
+
+        recruitment_cohort_update(args[:workspace_id], args[:id], action, %{}, actor)
+        |> recruitment_mutation_result(context, action, resource)
+      end)
+    end
+  end
+
+  # 批次定位（tenant 内授权读）+ 更新/迁移：id 不存在或跨台 → not_found
+  # （与自动 mutation 的 NotFound 映射同形，不泄露存在性），不静默成功。
+  defp recruitment_cohort_update(workspace_id, id, action, attrs, actor) do
+    resource = Cgc2046.Recruitment.RecruitmentCohort
+
+    case Ash.get(resource, id, tenant: workspace_id, actor: actor) do
+      {:ok, %Cgc2046.Recruitment.RecruitmentCohort{} = cohort} ->
+        cohort
+        |> Ash.Changeset.for_update(action, attrs, tenant: workspace_id, actor: actor)
+        |> Ash.update(tenant: workspace_id, actor: actor)
+
+      {:ok, nil} ->
+        {:error, recruitment_not_found_error(id, resource)}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp recruitment_not_found_error(id, resource),
+    do: Ash.Error.Query.NotFound.exception(primary_key: %{id: id}, resource: resource)
+
+  # R13 申请详情：tenant 内取申请（owner 视图读全量），再按申请人取简历档案
+  # （同 tenant；Owner/Admin ∪ platform_admin 可读）。无档案 → resumeProfile null；
+  # 文件内容列不出面（KTD3，U2 专线）。
+  defp resolve_volunteer_application_detail(workspace_id, id, actor, context) do
+    case Ash.get(Cgc2046.Recruitment.VolunteerApplication, id,
+           tenant: workspace_id,
+           actor: actor
+         ) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, %Cgc2046.Recruitment.VolunteerApplication{} = application} ->
+        case fetch_resume_profile(workspace_id, application.user_id, actor) do
+          {:ok, profile} ->
+            {:ok, %{application: application, resume_profile: profile}}
+
+          {:error, error} ->
+            {:error,
+             to_ash_graphql_errors(
+               error,
+               context,
+               :read,
+               Cgc2046.Recruitment.ResumeProfile,
+               Cgc2046.Recruitment
+             )}
+        end
+
+      {:error, error} ->
+        {:error,
+         to_ash_graphql_errors(
+           error,
+           context,
+           :read,
+           Cgc2046.Recruitment.VolunteerApplication,
+           Cgc2046.Recruitment
+         )}
+    end
+  end
+
+  defp fetch_resume_profile(workspace_id, user_id, actor) do
+    Cgc2046.Recruitment.ResumeProfile
+    |> Ash.Query.for_read(:read)
+    # 同 my_resume_profile：详情投影只用元数据，不拖 file_data blob
+    |> Ash.Query.deselect(:file_data)
+    |> Ash.Query.filter(user_id == ^user_id)
+    |> Ash.read_one(tenant: workspace_id, actor: actor)
   end
 end

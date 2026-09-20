@@ -2260,6 +2260,9 @@ type Event {
   availablePriceTiers: [JsonString!]
 
   enrollmentBadge: String
+
+  "公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人）"
+  publicModerators: [JsonString!]
 }
 
 "The result of the :reject_workspace_application mutation"
@@ -3970,6 +3973,9 @@ input CreateOrderInput {
 
   "支付渠道"
   provider: String!
+
+  "确认已阅读并同意押金条款（仅押金单需要；非押金单忽略）"
+  depositConsent: Boolean
 }
 
 enum OrderSortField {
@@ -3983,6 +3989,8 @@ enum OrderSortField {
   AMOUNT_CENTS
   TIER_SNAPSHOT
   STATUS
+  DEPOSIT_CONSENT_AT
+  DEPOSIT_TERMS_VERSION
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
@@ -4162,6 +4170,43 @@ input OrderFilterExpireAt {
   eq: DateTime
   notEq: DateTime
   in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
+  rangeAdjacent: DateTime
+  rangeContains: String
+  rangeOverlaps: DateTime
+}
+
+input OrderFilterDepositTermsVersion {
+  isNil: Boolean
+  eq: String
+  notEq: String
+  in: [String]
+  lessThan: String
+  greaterThan: String
+  lessThanOrEqual: String
+  greaterThanOrEqual: String
+  contains: String
+  isDistinctFrom: String
+  isNotDistinctFrom: String
+  rangeAdjacent: String
+  rangeContains: String
+  rangeOverlaps: String
+  stringEndsWith: String
+  stringStartsWith: String
+  like: String
+  ilike: String
+}
+
+input OrderFilterDepositConsentAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime]
   lessThan: DateTime
   greaterThan: DateTime
   lessThanOrEqual: DateTime
@@ -4370,6 +4415,10 @@ input OrderFilterInput {
 
   status: OrderFilterStatus
 
+  depositConsentAt: OrderFilterDepositConsentAt
+
+  depositTermsVersion: OrderFilterDepositTermsVersion
+
   expireAt: OrderFilterExpireAt
 
   refundedAt: OrderFilterRefundedAt
@@ -4421,6 +4470,10 @@ type Order {
 
   status: String!
 
+  depositConsentAt: DateTime
+
+  depositTermsVersion: String
+
   expireAt: DateTime!
 
   refundedAt: DateTime
@@ -4444,6 +4497,105 @@ type Order {
 
   "下单时档位快照 id（U8 已售档守卫）"
   tierId: String
+}
+
+type VolunteerApplication {
+  id: ID!
+
+  "所属工作台（租户）ID（KTD2：所有倡导活动都在 2046 台）"
+  workspaceId: ID!
+
+  "申请人 ID（创建时由 actor 强制填充，不可代他人提交）"
+  userId: ID!
+
+  "申请批次 ID"
+  cohortId: ID!
+
+  "职位：event_moderator | tutor | coach（枚举，不建表）"
+  position: String!
+
+  "申请城市（Tutor 可远程）"
+  city: String
+
+  "如何得知我们"
+  heardAboutUs: String
+
+  "是否有内部推荐人"
+  hasInternalReferrer: Boolean!
+
+  "留言（选填）"
+  message: String
+
+  "段位（R12 状态图；流转 action 在 U3）"
+  status: String!
+
+  "拒绝原因（状态转 rejected 时必填；写入在 U3 的流转 action）"
+  rejectionReason: String
+
+  "分配的场次 ID（可空；项目分配时写入）"
+  assignedEventId: ID
+
+  "分配备注（如 Tutor 的课程任务；不建任务实体）"
+  assignmentNote: String
+
+  "分配时间"
+  assignedAt: DateTime
+}
+
+type ResumeProfile {
+  id: ID!
+
+  "所属工作台（租户）ID"
+  workspaceId: ID!
+
+  "档案所属用户 ID（创建\/upsert 时由 actor 强制填充）"
+  userId: ID!
+
+  "姓名"
+  fullName: String!
+
+  "联系邮箱（必填；R14 邮件保底通道的收件地址）"
+  contactEmail: String!
+
+  "每周可投入小时数"
+  weeklyHours: Int
+
+  "技能多选（字符串列表）"
+  skills: [String!]!
+
+  "简历文件名（U2 上传管道写入）"
+  fileName: String
+
+  "简历文件 MIME（PDF\/Word；U2 上传管道写入）"
+  fileContentType: String
+
+  "简历文件字节数（原始文件；U2 上传管道写入）"
+  fileSize: Int
+
+  "简历文件上传时间（U2 上传管道写入）"
+  uploadedAt: DateTime
+}
+
+type RecruitmentCohort {
+  id: ID!
+
+  "所属工作台（租户）ID（KTD2：workspace_id + global?(true)）"
+  workspaceId: ID!
+
+  "批次名称（如「第 1 批」）"
+  name: String!
+
+  "申请截止时间（UTC 存储，展示走既有格式化路径）"
+  applyDeadlineAt: DateTime!
+
+  "执行周期开始（可空）"
+  startsAt: DateTime
+
+  "执行周期结束（可空）"
+  endsAt: DateTime
+
+  "状态：draft | open | closed（仅 :open \/ :close 动作可迁移）"
+  status: String!
 }
 
 "The result of the :fulfill_delivery mutation"
@@ -5415,8 +5567,8 @@ type RootQueryType {
   "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
   listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
 
-  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after）"
-  reconciliationFindings(rule: String, entityType: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
+  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
 
   "平台管理员：倡导活动列表"
   listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
@@ -5424,11 +5576,55 @@ type RootQueryType {
   "平台管理员：倡导活动详情及四项规则"
   getInitiative(id: ID!): AdminInitiative
 
+  "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
+
+  "平台管理员：跨租户课程列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminCourses(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminCourse!]!
+
+  "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
+  getAdminEvent(id: ID!): AdminEventDetail
+
+  "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
+  getAdminCourse(id: ID!): AdminCourseDetail
+
   "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
   initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
 
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
+
+  "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
+  currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
+
+  "本人简历档案（R11 第 1 步；仅本人 ∪ Owner\/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
+  myResumeProfile(workspaceId: ID!): ResumeProfile
+
+  "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
+  myVolunteerApplications(workspaceId: ID!): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft\/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
+  listRecruitmentCohorts(workspaceId: ID!): [RecruitmentCohort!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 \/ 职位 \/ 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
+  listVolunteerApplications(
+    workspaceId: ID!
+
+    cohortId: ID
+
+    "event_moderator | tutor | coach（非枚举值忽略过滤）"
+    position: String
+
+    "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
+    status: String
+
+    first: Int
+
+    after: String
+  ): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
+  volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
   sponsorships(
     "How to sort the records in the response"
@@ -5881,6 +6077,8 @@ type Enrollment {
   registrationDeadline: DateTime
 
   paymentMode: String
+
+  depositAmountCents: Int
 
   "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
   checkInCode: String
@@ -7116,6 +7314,9 @@ type AdminActionLog {
 
   "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
   metadata: AdminActionMetadata
+
+  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
+  offeringChange: AdminOfferingChangeMetadata
 }
 
 type AdminActionMetadata {
@@ -7139,6 +7340,218 @@ type AdminActionMetadata {
 
   "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
   valueAfterOmitted: Boolean!
+}
+
+"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
+type AdminOfferingChangeMetadata {
+  "变更前标题；该属性未变更 → null"
+  titleBefore: String
+
+  "变更后标题；该属性未变更 → null"
+  titleAfter: String
+
+  "变更前可见性（public | workspace）"
+  visibilityBefore: String
+
+  "变更后可见性（public | workspace）"
+  visibilityAfter: String
+
+  "变更前报名名额上限；nil 表示不限"
+  capacityBefore: Int
+
+  "变更后报名名额上限；nil 表示不限"
+  capacityAfter: Int
+
+  "变更前定价槽位"
+  pricingEnabledBefore: Boolean
+
+  "变更后定价槽位"
+  pricingEnabledAfter: Boolean
+
+  "变更前押金槽位（Event-only；Course 恒 null）"
+  depositEnabledBefore: Boolean
+
+  "变更后押金槽位（Event-only；Course 恒 null）"
+  depositEnabledAfter: Boolean
+}
+
+type AdminEvent {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminEventDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
+  不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
+  nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
+  不得当 0。0 表示真实无已确认报名（免费场零计数）。
+  """
+  confirmedCount: Int
+
+  """
+  权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
+  关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
+  同 confirmedCount（不可用，非 0）。
+  """
+  paymentPendingCount: Int
+
+  "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
+  moderators: [EventModerator!]
+
+  "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
+  detachedRuleProvenance: JsonString
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourse {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourseDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+  currentRevisionNumber: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
+  不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
+  不得当 0；0 表示真实无已确认报名。
+  """
+  confirmedCount: Int
+
+  "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
+  paymentPendingCount: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
 }
 
 type AdminReconciliationFinding {
@@ -7264,8 +7677,46 @@ input AdminInitiativeInput {
   windowEndsAt: DateTime
 }
 
+input AdminEventUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  venue: JsonString
+  pricingEnabled: Boolean
+  depositEnabled: Boolean
+}
+
+input AdminCourseUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  pricingEnabled: Boolean
+}
+
 type AdminInitiativePayload {
   result: AdminInitiative
+  errors: [MutationError]
+}
+
+"治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminEventPayload {
+  result: Event
+  errors: [MutationError]
+}
+
+"治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminCoursePayload {
+  result: Course
   errors: [MutationError]
 }
 
@@ -7281,6 +7732,10 @@ type EventModerator {
   userId: ID!
   assignedBy: ID
   assignedAt: DateTime!
+  userDisplayName: String
+  userMemberNumber: String
+  assignedByDisplayName: String
+  assignedByMemberNumber: String
 }
 
 type EventModeratorPayload {
@@ -7377,6 +7832,104 @@ type AdminUserPayload {
   email: String
   isPlatformAdmin: Boolean
   errors: [MutationError]
+}
+
+type VolunteerApplicationPayload {
+  "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
+  result: VolunteerApplication
+
+  errors: [MutationError!]!
+}
+
+type ResumeProfilePayload {
+  "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
+  result: ResumeProfile
+
+  errors: [MutationError!]!
+}
+
+type RecruitmentCohortPayload {
+  "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
+  result: RecruitmentCohort
+
+  errors: [MutationError!]!
+}
+
+type VolunteerApplicationDetail {
+  "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
+  application: VolunteerApplication!
+
+  resumeProfile: ResumeProfile
+}
+
+input CreateVolunteerApplicationInput {
+  "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
+  cohortId: ID!
+
+  "职位：event_moderator | tutor | coach"
+  position: String!
+
+  "申请城市（Tutor 可远程）"
+  city: String
+
+  "如何得知我们"
+  heardAboutUs: String
+
+  "是否有内部推荐人（缺省 false）"
+  hasInternalReferrer: Boolean
+
+  "留言（选填）"
+  message: String
+}
+
+input UpsertResumeProfileInput {
+  "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
+  fullName: String!
+
+  "联系邮箱（R14 邮件保底通道收件地址）"
+  contactEmail: String!
+
+  "每周可投入小时数（选填）"
+  weeklyHours: Int
+
+  "技能多选（字符串列表；缺省不改动）"
+  skills: [String!]
+}
+
+input UploadResumeFileInput {
+  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
+  fileName: String!
+
+  "声明的 MIME（须与扩展名同族）"
+  contentType: String!
+
+  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+  contentBase64: String!
+}
+
+input CreateRecruitmentCohortInput {
+  "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
+  name: String!
+
+  "申请截止时间（UTC）"
+  applyDeadlineAt: DateTime!
+
+  "执行周期开始（可空）"
+  startsAt: DateTime
+
+  "执行周期结束（可空）"
+  endsAt: DateTime
+}
+
+input UpdateRecruitmentCohortInput {
+  "updateRecruitmentCohort 输入（只传要改的字段）"
+  name: String
+
+  applyDeadlineAt: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
 }
 
 type RootMutationType {
@@ -7515,10 +8068,41 @@ type RootMutationType {
   "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
   cancelInitiative(id: ID!): AdminInitiativePayload
 
+  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
+  adminLaunchEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
+  adminCloseEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
+
+  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
+  adminLaunchCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
+  adminCloseCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
+
   "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
   upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
 
-  assignEventModerator(workspaceId: ID!, eventId: ID!, userId: ID!): EventModeratorPayload
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
 
   removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
 
@@ -7618,6 +8202,66 @@ type RootMutationType {
     "true=下线；false=恢复"
     hidden: Boolean!
   ): FlashbackQuoteHiddenResult
+
+  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
+  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
+
+  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
+  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
+
+  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
+
+  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
+  assignVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "分配的目标场次 ID（可空：Tutor 可无场次）"
+    assignedEventId: ID
+
+    "分配备注（可空，如 Tutor 的课程任务）"
+    assignmentNote: String
+  ): VolunteerApplicationPayload
+
+  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
+  rejectVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "拒绝原因（必填；进入申请人通知）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
+  cancelVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "取消备注（选填）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
+  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
+  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
+  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
+  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
+  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!

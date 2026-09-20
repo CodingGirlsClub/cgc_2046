@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { fetchReconciliationFindings } from "@/lib/admin";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -19,6 +20,16 @@ const PAGE_SIZE = 50;
 
 /** 规则下拉选项（值 = 后端枚举串，label = 中文名） */
 const RULE_OPTIONS = Object.entries(RECONCILIATION_RULE_LABEL);
+
+/**
+ * finding 的处置落点（D5）：只有供给物实体能跳到治理 tab 的详情
+ * （`/admin/<tab>?entity_id=<uuid>`，目标页读参数定位并自动展开）；
+ * 其余 entity_type（enrollment / oban_job / …）本需求不承接，保持不可点。
+ */
+const ENTITY_JUMP: Record<string, string> = {
+	event: "/admin/events",
+	course: "/admin/courses",
+};
 
 export default function AdminReconciliationPage() {
 	const t = useTranslations("admin");
@@ -114,20 +125,33 @@ export default function AdminReconciliationPage() {
 							</tr>
 						</thead>
 						<tbody>
-							{rows.map((row) => (
-								<tr key={row.id}>
-									<td>{labelsT(RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule)}</td>
-									<td>
-										{labelsT(
-											RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType,
-										)}
-									</td>
-									<td className="l-mono">{row.entityId}</td>
-									<td className="l-mono">{row.workspaceId ?? "—"}</td>
-									<td>{formatDateTime(row.firstSeenAt)}</td>
-									<td>{formatDateTime(row.lastSeenAt)}</td>
-								</tr>
-							))}
+							{rows.map((row) => {
+								const jump = ENTITY_JUMP[row.entityType];
+								const entityLabel = labelsT(
+									RECONCILIATION_ENTITY_LABEL[row.entityType] ?? row.entityType,
+								);
+								return (
+									<tr key={row.id}>
+										<td>{labelsT(RECONCILIATION_RULE_LABEL[row.rule] ?? row.rule)}</td>
+										<td>
+											{jump ? (
+												<Link
+													href={`${jump}?entity_id=${encodeURIComponent(row.entityId)}`}
+													className="admin-link"
+												>
+													{entityLabel}
+												</Link>
+											) : (
+												entityLabel
+											)}
+										</td>
+										<td className="l-mono">{row.entityId}</td>
+										<td className="l-mono">{row.workspaceId ?? "—"}</td>
+										<td>{formatDateTime(row.firstSeenAt)}</td>
+										<td>{formatDateTime(row.lastSeenAt)}</td>
+									</tr>
+								);
+							})}
 						</tbody>
 					</table>
 				</div>

@@ -96,7 +96,7 @@ describe('Initiative 公开 API 契约', () => {
 describe('Initiative 与留档详情展示', () => {
   it('城市/四计数/closed/取消徽章均呈现后端结果', () => {
     const html = renderToStaticMarkup(createElement(InitiativeContent, { data: initiative }))
-    for (const text of ['城市', '场次', '报名', '开成', '>7<', '>11<', '>89<', '>5<', '线上 / 待定', '已结束 · 活动留档', '已取消', '还差 3 人成班', '查看活动留档', '地点：中国 湖南省 长沙市 岳麓区', '地点：地点待定', '报名截止：无截止']) expect(html).toContain(text)
+    for (const text of ['城市', '场次', '报名', '>成班<', '>7<', '>11<', '>89<', '>5<', '线上 / 待定', '已结束 · 活动留档', '已取消', '还差 3 人成班', '查看活动留档', '地点：中国 湖南省 长沙市 岳麓区', '地点：地点待定', '报名截止：无截止']) expect(html).toContain(text)
   })
 
   // #627 卡片实际渲染内容（D4 覆盖证据）：三态缴费 + 年龄门槛在卡片上，成班进度在徽章上

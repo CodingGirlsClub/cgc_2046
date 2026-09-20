@@ -52,6 +52,8 @@ export type AdminActionLog = {
   insertedAt: Scalars['DateTime']['output'];
   /** 治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 /ops/admin（AshAdmin）可见 */
   metadata?: Maybe<AdminActionMetadata>;
+  /** offering 治理写的变更投影（U1）：admin_event_update / admin_course_update 落表的行才有值，其余 action（含 launch/close/cancel）为 null。闭集标量的前后值分列，不收自由文本 */
+  offeringChange?: Maybe<AdminOfferingChangeMetadata>;
   result: Scalars['String']['output'];
   targetId: Scalars['ID']['output'];
   targetType: Scalars['String']['output'];
@@ -72,6 +74,159 @@ export type AdminActionMetadata = {
   valueBeforeJson?: Maybe<Scalars['JsonString']['output']>;
   /** true = 变更前 value 含白名单外键，已被省略（界面以 … 标出） */
   valueBeforeOmitted: Scalars['Boolean']['output'];
+};
+
+export type AdminCourse = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: Maybe<Scalars['Int']['output']>;
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  pricingEnabled: Scalars['Boolean']['output'];
+  /** 标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄 */
+  provisionalTitle: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug?: Maybe<Scalars['String']['output']>;
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** draft | open | closed | cancelled */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  /** public | workspace */
+  visibility: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type AdminCourseDetail = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: Maybe<Scalars['Int']['output']>;
+  /**
+   * 权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
+   * 不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
+   * 不得当 0；0 表示真实无已确认报名。
+   */
+  confirmedCount?: Maybe<Scalars['Int']['output']>;
+  /** 当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造 */
+  currentRevisionNumber?: Maybe<Scalars['Int']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** 权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount */
+  paymentPendingCount?: Maybe<Scalars['Int']['output']>;
+  pricingEnabled: Scalars['Boolean']['output'];
+  /** 标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄 */
+  provisionalTitle: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug?: Maybe<Scalars['String']['output']>;
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** draft | open | closed | cancelled */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  /** public | workspace */
+  visibility: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
+/** 治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload */
+export type AdminCoursePayload = {
+  errors?: Maybe<Array<Maybe<MutationError>>>;
+  result?: Maybe<Course>;
+};
+
+export type AdminCourseUpdateInput = {
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  slug?: InputMaybe<Scalars['String']['input']>;
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  visibility?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type AdminEvent = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: Maybe<Scalars['Int']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
+  depositEnabled: Scalars['Boolean']['output'];
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  pricingEnabled: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug?: Maybe<Scalars['String']['output']>;
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** draft | open | closed | cancelled */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  /** public | workspace */
+  visibility: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type AdminEventDetail = {
+  /** 报名名额上限；nil 表示不限 */
+  capacity?: Maybe<Scalars['Int']['output']>;
+  /**
+   * 权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
+   * 不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
+   * nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
+   * 不得当 0。0 表示真实无已确认报名（免费场零计数）。
+   */
+  confirmedCount?: Maybe<Scalars['Int']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
+  depositEnabled: Scalars['Boolean']['output'];
+  description?: Maybe<Scalars['String']['output']>;
+  /** 解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属） */
+  detachedRuleProvenance?: Maybe<Scalars['JsonString']['output']>;
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** 主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读） */
+  moderators?: Maybe<Array<EventModerator>>;
+  /**
+   * 权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
+   * 关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
+   * 同 confirmedCount（不可用，非 0）。
+   */
+  paymentPendingCount?: Maybe<Scalars['Int']['output']>;
+  pricingEnabled: Scalars['Boolean']['output'];
+  registrationDeadline?: Maybe<Scalars['DateTime']['output']>;
+  slug?: Maybe<Scalars['String']['output']>;
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** draft | open | closed | cancelled */
+  status: Scalars['String']['output'];
+  title: Scalars['String']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  /** 结构化场地 JSON 串（country/province/city/district；nil = 线上或未定） */
+  venue?: Maybe<Scalars['JsonString']['output']>;
+  /** public | workspace */
+  visibility: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
+};
+
+/** 治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload */
+export type AdminEventPayload = {
+  errors?: Maybe<Array<Maybe<MutationError>>>;
+  result?: Maybe<Event>;
+};
+
+export type AdminEventUpdateInput = {
+  capacity?: InputMaybe<Scalars['Int']['input']>;
+  depositEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  description?: InputMaybe<Scalars['String']['input']>;
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  pricingEnabled?: InputMaybe<Scalars['Boolean']['input']>;
+  registrationDeadline?: InputMaybe<Scalars['DateTime']['input']>;
+  slug?: InputMaybe<Scalars['String']['input']>;
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  title?: InputMaybe<Scalars['String']['input']>;
+  venue?: InputMaybe<Scalars['JsonString']['input']>;
+  visibility?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type AdminInitiative = {
@@ -151,6 +306,30 @@ export type AdminInitiativeRule = {
 export type AdminInitiativeRulePayload = {
   errors?: Maybe<Array<Maybe<MutationError>>>;
   result?: Maybe<AdminInitiativeRule>;
+};
+
+/** offering 治理写（admin_event_update / admin_course_update）的变更前后值投影 */
+export type AdminOfferingChangeMetadata = {
+  /** 变更后报名名额上限；nil 表示不限 */
+  capacityAfter?: Maybe<Scalars['Int']['output']>;
+  /** 变更前报名名额上限；nil 表示不限 */
+  capacityBefore?: Maybe<Scalars['Int']['output']>;
+  /** 变更后押金槽位（Event-only；Course 恒 null） */
+  depositEnabledAfter?: Maybe<Scalars['Boolean']['output']>;
+  /** 变更前押金槽位（Event-only；Course 恒 null） */
+  depositEnabledBefore?: Maybe<Scalars['Boolean']['output']>;
+  /** 变更后定价槽位 */
+  pricingEnabledAfter?: Maybe<Scalars['Boolean']['output']>;
+  /** 变更前定价槽位 */
+  pricingEnabledBefore?: Maybe<Scalars['Boolean']['output']>;
+  /** 变更后标题；该属性未变更 → null */
+  titleAfter?: Maybe<Scalars['String']['output']>;
+  /** 变更前标题；该属性未变更 → null */
+  titleBefore?: Maybe<Scalars['String']['output']>;
+  /** 变更后可见性（public | workspace） */
+  visibilityAfter?: Maybe<Scalars['String']['output']>;
+  /** 变更前可见性（public | workspace） */
+  visibilityBefore?: Maybe<Scalars['String']['output']>;
 };
 
 export type AdminPendingOperation = {
@@ -1007,6 +1186,8 @@ export type CreateMcpTokenPayload = {
 };
 
 export type CreateOrderInput = {
+  /** 确认已阅读并同意押金条款（仅押金单需要；非押金单忽略） */
+  depositConsent?: InputMaybe<Scalars['Boolean']['input']>;
   /** 目标报名（须为本人 payment_pending 报名） */
   enrollmentId: Scalars['ID']['input'];
   /** 支付渠道 */
@@ -1034,6 +1215,17 @@ export type CreatePortfolioItemInput = {
   /** createPortfolioItem 输入：title 必填，description/url/icon 可选 */
   title: Scalars['String']['input'];
   url?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type CreateRecruitmentCohortInput = {
+  /** 申请截止时间（UTC） */
+  applyDeadlineAt: Scalars['DateTime']['input'];
+  /** 执行周期结束（可空） */
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort） */
+  name: Scalars['String']['input'];
+  /** 执行周期开始（可空） */
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type CreateSpeakerInvitationInput = {
@@ -1081,6 +1273,21 @@ export type CreateSponsorshipResult = {
   errors: Array<MutationError>;
   /** The successful result of the mutation */
   result?: Maybe<Sponsorship>;
+};
+
+export type CreateVolunteerApplicationInput = {
+  /** 申请城市（Tutor 可远程） */
+  city?: InputMaybe<Scalars['String']['input']>;
+  /** createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入） */
+  cohortId: Scalars['ID']['input'];
+  /** 是否有内部推荐人（缺省 false） */
+  hasInternalReferrer?: InputMaybe<Scalars['Boolean']['input']>;
+  /** 如何得知我们 */
+  heardAboutUs?: InputMaybe<Scalars['String']['input']>;
+  /** 留言（选填） */
+  message?: InputMaybe<Scalars['String']['input']>;
+  /** 职位：event_moderator | tutor | coach */
+  position: Scalars['String']['input'];
 };
 
 export type CreateWorkspaceApplicationInput = {
@@ -1169,6 +1376,7 @@ export type Enrollment = {
   /** 6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null） */
   checkInCode?: Maybe<Scalars['String']['output']>;
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositAmountCents?: Maybe<Scalars['Int']['output']>;
   eventId?: Maybe<Scalars['ID']['output']>;
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -1586,6 +1794,8 @@ export type Event = {
   priceTiers: Array<Scalars['JsonString']['output']>;
   /** 是否收费（默认免费；true 时报名须选档并完成支付，R4） */
   pricingEnabled: Scalars['Boolean']['output'];
+  /** 公开主理人投影（JsonString 序列化的 [{display_name, member_number}]；assignedAt 升序；空数组 = 无主理人） */
+  publicModerators?: Maybe<Array<Scalars['JsonString']['output']>>;
   qualificationBadge?: Maybe<Scalars['String']['output']>;
   /** 成班事实：pending / confirmed / underfilled */
   qualificationStatus: Scalars['String']['output'];
@@ -2124,9 +2334,13 @@ export type EventFilterWorkspaceId = {
 export type EventModerator = {
   assignedAt: Scalars['DateTime']['output'];
   assignedBy?: Maybe<Scalars['ID']['output']>;
+  assignedByDisplayName?: Maybe<Scalars['String']['output']>;
+  assignedByMemberNumber?: Maybe<Scalars['String']['output']>;
   eventId: Scalars['ID']['output'];
   id: Scalars['ID']['output'];
+  userDisplayName?: Maybe<Scalars['String']['output']>;
   userId: Scalars['ID']['output'];
+  userMemberNumber?: Maybe<Scalars['String']['output']>;
   workspaceId: Scalars['ID']['output'];
 };
 
@@ -3706,6 +3920,8 @@ export type Order = {
   cancelReason?: Maybe<Scalars['String']['output']>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: Maybe<Scalars['ID']['output']>;
+  depositConsentAt?: Maybe<Scalars['DateTime']['output']>;
+  depositTermsVersion?: Maybe<Scalars['String']['output']>;
   enrollmentId: Scalars['ID']['output'];
   /** 关联报名当前状态 */
   enrollmentStatus?: Maybe<Scalars['String']['output']>;
@@ -3780,6 +3996,43 @@ export type OrderFilterCourseId = {
   rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
   rangeContains?: InputMaybe<Scalars['String']['input']>;
   rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type OrderFilterDepositConsentAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['DateTime']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
+export type OrderFilterDepositTermsVersion = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
+  rangeContains?: InputMaybe<Scalars['String']['input']>;
+  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterEnrollmentId = {
@@ -3868,6 +4121,8 @@ export type OrderFilterInput = {
   cancelReason?: InputMaybe<OrderFilterCancelReason>;
   /** 关联报名所属 Course（KTD2：订单按课程筛选） */
   courseId?: InputMaybe<OrderFilterCourseId>;
+  depositConsentAt?: InputMaybe<OrderFilterDepositConsentAt>;
+  depositTermsVersion?: InputMaybe<OrderFilterDepositTermsVersion>;
   enrollmentId?: InputMaybe<OrderFilterEnrollmentId>;
   /** 关联报名当前状态 */
   enrollmentStatus?: InputMaybe<OrderFilterEnrollmentStatus>;
@@ -4098,6 +4353,8 @@ export type OrderSortField =
   | 'AMOUNT_CENTS'
   | 'CANCEL_REASON'
   | 'COURSE_ID'
+  | 'DEPOSIT_CONSENT_AT'
+  | 'DEPOSIT_TERMS_VERSION'
   | 'ENROLLMENT_ID'
   | 'ENROLLMENT_STATUS'
   | 'EVENT_ID'
@@ -4269,6 +4526,28 @@ export type ReassignWorkspaceOwnerResult = {
   result?: Maybe<Workspace>;
 };
 
+export type RecruitmentCohort = {
+  /** 申请截止时间（UTC 存储，展示走既有格式化路径） */
+  applyDeadlineAt: Scalars['DateTime']['output'];
+  /** 执行周期结束（可空） */
+  endsAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  /** 批次名称（如「第 1 批」） */
+  name: Scalars['String']['output'];
+  /** 执行周期开始（可空） */
+  startsAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 状态：draft | open | closed（仅 :open / :close 动作可迁移） */
+  status: Scalars['String']['output'];
+  /** 所属工作台（租户）ID（KTD2：workspace_id + global?(true)） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type RecruitmentCohortPayload = {
+  errors: Array<MutationError>;
+  /** 批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict） */
+  result?: Maybe<RecruitmentCohort>;
+};
+
 export type RejectEnrollmentInput = {
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4358,6 +4637,36 @@ export type ResendSpeakerInvitationPayload = {
 
 export type ResetPasswordResult = {
   ok: Scalars['Boolean']['output'];
+};
+
+export type ResumeProfile = {
+  /** 联系邮箱（必填；R14 邮件保底通道的收件地址） */
+  contactEmail: Scalars['String']['output'];
+  /** 简历文件 MIME（PDF/Word；U2 上传管道写入） */
+  fileContentType?: Maybe<Scalars['String']['output']>;
+  /** 简历文件名（U2 上传管道写入） */
+  fileName?: Maybe<Scalars['String']['output']>;
+  /** 简历文件字节数（原始文件；U2 上传管道写入） */
+  fileSize?: Maybe<Scalars['Int']['output']>;
+  /** 姓名 */
+  fullName: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  /** 技能多选（字符串列表） */
+  skills: Array<Scalars['String']['output']>;
+  /** 简历文件上传时间（U2 上传管道写入） */
+  uploadedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 档案所属用户 ID（创建/upsert 时由 actor 强制填充） */
+  userId: Scalars['ID']['output'];
+  /** 每周可投入小时数 */
+  weeklyHours?: Maybe<Scalars['Int']['output']>;
+  /** 所属工作台（租户）ID */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type ResumeProfilePayload = {
+  errors: Array<MutationError>;
+  /** 简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误 */
+  result?: Maybe<ResumeProfile>;
 };
 
 /** The result of the :revoke_invitation mutation */
@@ -4476,8 +4785,28 @@ export type RootMutationType = {
   acceptInvitation?: Maybe<AcceptInvitationResult>;
   /** Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效） */
   acceptSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
+  /** 平台管理员：取消课程（open → cancelled；报名/退款按既有取消链路异步处理） */
+  adminCancelCourse?: Maybe<AdminCoursePayload>;
+  /** 平台管理员：取消活动（open → cancelled；报名/退款按既有取消链路异步处理） */
+  adminCancelEvent?: Maybe<AdminEventPayload>;
+  /** 平台管理员：结束课程（open → closed；发 course.ended 信号） */
+  adminCloseCourse?: Maybe<AdminCoursePayload>;
+  /** 平台管理员：结束活动（open → closed；发 event.ended 信号） */
+  adminCloseEvent?: Maybe<AdminEventPayload>;
+  /** 平台管理员：发布课程（draft → open；同工作台 launch action 语义） */
+  adminLaunchCourse?: Maybe<AdminCoursePayload>;
+  /** 平台管理员：发布活动（draft → open；同工作台 launch action 语义） */
+  adminLaunchEvent?: Maybe<AdminEventPayload>;
+  /** 平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
+  adminUpdateCourse?: Maybe<AdminCoursePayload>;
+  /** 平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行） */
+  adminUpdateEvent?: Maybe<AdminEventPayload>;
   /** 使用一次性小程序 scene 接受工作台邀请 */
   admitMemberByToken?: Maybe<Invitation>;
+  /** 初审通过：submitted → interview（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition） */
+  advanceVolunteerApplicationToInterview?: Maybe<VolunteerApplicationPayload>;
+  /** 群面通过：interview → training（Owner/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition） */
+  advanceVolunteerApplicationToTraining?: Maybe<VolunteerApplicationPayload>;
   /** 审批通过加入申请（Owner/Admin，自动建 Membership（默认无标签角色）） */
   approveJoinRequest: ApproveJoinRequestResult;
   /** 审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery） */
@@ -4487,6 +4816,8 @@ export type RootMutationType = {
   assignEventModerator?: Maybe<EventModeratorPayload>;
   /** 分配成员角色（多角色并集，仅 Owner/Admin） */
   assignRoles: AssignRolesResult;
+  /** 训练营完成·项目分配：training → assigned（Owner/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落） */
+  assignVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 微信扫码绑定手机号完成登录（plan 002 U4；phone 5/15min 限流） */
   bindWechatWithPhone?: Maybe<SignInWithPhoneCodeResult>;
   /** 取消课程：open → cancelled，发 course.ended 信号 */
@@ -4501,6 +4832,8 @@ export type RootMutationType = {
   cancelOperation?: Maybe<OperationResolution>;
   /** 报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12） */
   cancelOrder: CancelOrderResult;
+  /** 取消申请：submitted | interview | training → canceled（Owner/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束） */
+  cancelVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   checkInEnrollment?: Maybe<CheckInEnrollmentPayload>;
   /** 结束课程：open → closed，发 course.ended 信号 */
   closeCourse: CloseCourseResult;
@@ -4508,6 +4841,8 @@ export type RootMutationType = {
   closeEvent: CloseEventResult;
   /** 平台管理员：结束倡导活动 */
   closeInitiative?: Maybe<AdminInitiativePayload>;
+  /** 关闭批次：open → closed（Owner/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完） */
+  closeRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 材料产出后完成邀请（Speaker 本人自助或 Owner/Admin 兜底；accepted → completed） */
   completeSpeakerInvitation?: Maybe<SpeakerInvitationActionPayload>;
   /** Owner/Admin 确认 pending 报名并原子占用名额 */
@@ -4533,10 +4868,14 @@ export type RootMutationType = {
   createOrder: CreateOrderResult;
   /** 在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造） */
   createPortfolioItem?: Maybe<PortfolioItem>;
+  /** 创建招募批次（Owner/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort） */
+  createRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** Owner/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希） */
   createSpeakerInvitation?: Maybe<CreateSpeakerInvitationPayload>;
   /** 提交赞助意向：校验后创建 pending（不生效权益，等审批） */
   createSponsorship: CreateSponsorshipResult;
+  /** 提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed */
+  createVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 创建工作台（仅平台管理员） */
   createWorkspace: CreateWorkspaceResult;
   /** 提交创建工作台申请 */
@@ -4616,6 +4955,8 @@ export type RootMutationType = {
   launchEvent: LaunchEventResult;
   /** 平台管理员：设置倡导活动状态为进行中 */
   openInitiative?: Maybe<AdminInitiativePayload>;
+  /** 开放批次：draft | closed → open（Owner/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底） */
+  openRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调） */
   promoteUser?: Maybe<AdminUserPayload>;
   /** 重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请 */
@@ -4628,6 +4969,8 @@ export type RootMutationType = {
   rejectJoinRequest: RejectJoinRequestResult;
   /** 审批拒绝：pending → rejected，rejection_reason 落审计字段 */
   rejectSponsorship: RejectSponsorshipResult;
+  /** 拒绝申请：submitted | interview | training → rejected（Owner/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截） */
+  rejectVolunteerApplication?: Maybe<VolunteerApplicationPayload>;
   /** 拒绝创建工作台申请（platform_admin） */
   rejectWorkspaceApplication: RejectWorkspaceApplicationResult;
   removeEventModerator?: Maybe<EventModeratorPayload>;
@@ -4677,12 +5020,18 @@ export type RootMutationType = {
   updateMyPhone?: Maybe<User>;
   /** 更新某工作台自己的作品集条目（ADR-0004；tenant 隔离） */
   updatePortfolioItem?: Maybe<PortfolioItem>;
+  /** 编辑招募批次元数据（Owner/Admin ∪ platform_admin；状态迁移不经本 mutation） */
+  updateRecruitmentCohort?: Maybe<RecruitmentCohortPayload>;
   /** 更新工作台（Owner/Admin 或平台管理员） */
   updateWorkspace: UpdateWorkspaceResult;
   /** 更新当前用户在某工作台的资料（ADR-0004 per-workspace） */
   updateWorkspaceProfile?: Maybe<WorkspaceProfile>;
+  /** 上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF/Word，原始文件 ≤5MB，扩展名/声明 MIME/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid */
+  uploadResumeFile?: Maybe<ResumeProfilePayload>;
   /** 平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串 */
   upsertInitiativeRule?: Maybe<AdminInitiativeRulePayload>;
+  /** 完善 / 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 / 联系邮箱 / 每周可投入 / 技能；文件内容经 U2 上传专线，不走本 mutation */
+  upsertResumeProfile?: Maybe<ResumeProfilePayload>;
   /** 免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认 */
   waivePayment?: Maybe<PendingOperationConfirmation>;
   /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
@@ -4701,8 +5050,62 @@ export type RootMutationTypeAcceptSpeakerInvitationArgs = {
 };
 
 
+export type RootMutationTypeAdminCancelCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminCancelEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminCloseCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminCloseEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminLaunchCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminLaunchEventArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdminUpdateCourseArgs = {
+  id: Scalars['ID']['input'];
+  input: AdminCourseUpdateInput;
+};
+
+
+export type RootMutationTypeAdminUpdateEventArgs = {
+  id: Scalars['ID']['input'];
+  input: AdminEventUpdateInput;
+};
+
+
 export type RootMutationTypeAdmitMemberByTokenArgs = {
   scene: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeAdvanceVolunteerApplicationToInterviewArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeAdvanceVolunteerApplicationToTrainingArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4732,6 +5135,14 @@ export type RootMutationTypeAssignEventModeratorArgs = {
 export type RootMutationTypeAssignRolesArgs = {
   id: Scalars['ID']['input'];
   input: AssignRolesInput;
+};
+
+
+export type RootMutationTypeAssignVolunteerApplicationArgs = {
+  assignedEventId?: InputMaybe<Scalars['ID']['input']>;
+  assignmentNote?: InputMaybe<Scalars['String']['input']>;
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4772,6 +5183,13 @@ export type RootMutationTypeCancelOrderArgs = {
 };
 
 
+export type RootMutationTypeCancelVolunteerApplicationArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCheckInEnrollmentArgs = {
   code: Scalars['String']['input'];
   eventId: Scalars['ID']['input'];
@@ -4791,6 +5209,12 @@ export type RootMutationTypeCloseEventArgs = {
 
 export type RootMutationTypeCloseInitiativeArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeCloseRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -4860,6 +5284,12 @@ export type RootMutationTypeCreatePortfolioItemArgs = {
 };
 
 
+export type RootMutationTypeCreateRecruitmentCohortArgs = {
+  input: CreateRecruitmentCohortInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeCreateSpeakerInvitationArgs = {
   input: CreateSpeakerInvitationInput;
 };
@@ -4867,6 +5297,12 @@ export type RootMutationTypeCreateSpeakerInvitationArgs = {
 
 export type RootMutationTypeCreateSponsorshipArgs = {
   input: CreateSponsorshipInput;
+};
+
+
+export type RootMutationTypeCreateVolunteerApplicationArgs = {
+  input: CreateVolunteerApplicationInput;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5104,6 +5540,12 @@ export type RootMutationTypeOpenInitiativeArgs = {
 };
 
 
+export type RootMutationTypeOpenRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypePromoteUserArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5135,6 +5577,13 @@ export type RootMutationTypeRejectJoinRequestArgs = {
 export type RootMutationTypeRejectSponsorshipArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<RejectSponsorshipInput>;
+};
+
+
+export type RootMutationTypeRejectVolunteerApplicationArgs = {
+  id: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5277,6 +5726,13 @@ export type RootMutationTypeUpdatePortfolioItemArgs = {
 };
 
 
+export type RootMutationTypeUpdateRecruitmentCohortArgs = {
+  id: Scalars['ID']['input'];
+  input: UpdateRecruitmentCohortInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeUpdateWorkspaceArgs = {
   id: Scalars['ID']['input'];
   input?: InputMaybe<UpdateWorkspaceInput>;
@@ -5289,11 +5745,23 @@ export type RootMutationTypeUpdateWorkspaceProfileArgs = {
 };
 
 
+export type RootMutationTypeUploadResumeFileArgs = {
+  input: UploadResumeFileInput;
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeUpsertInitiativeRuleArgs = {
   initiativeId: Scalars['ID']['input'];
   key: Scalars['String']['input'];
   locked: Scalars['Boolean']['input'];
   valueJson: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeUpsertResumeProfileArgs = {
+  input: UpsertResumeProfileInput;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5317,6 +5785,8 @@ export type RootQueryType = {
   courseLearningDetail?: Maybe<CourseLearningDetail>;
   /** 公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist */
   courseMap?: Maybe<CourseMap>;
+  /** 当前 open 招募批次（公开申请页数据面，匿名可读；R10/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft/closed 不因本字段露面 */
+  currentRecruitmentCohort?: Maybe<RecruitmentCohort>;
   /** 报名列表（graphql enrollments；按插入时间倒序） */
   enrollments?: Maybe<KeysetPageOfEnrollment>;
   /** 活动主理人列表；主理人或所属 Workspace Owner/Admin 可读 */
@@ -5349,6 +5819,10 @@ export type RootQueryType = {
   flashbackPublicStats?: Maybe<FlashbackPublicStats>;
   /** 卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机） */
   flashbackSharedCard?: Maybe<FlashbackSharedCard>;
+  /** 平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null） */
+  getAdminCourse?: Maybe<AdminCourseDetail>;
+  /** 平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null） */
+  getAdminEvent?: Maybe<AdminEventDetail>;
   /** 按 id 获取课程（#40） */
   getCourse?: Maybe<Course>;
   /** 按 slug 获取（E-5 公开宿主页） */
@@ -5373,6 +5847,10 @@ export type RootQueryType = {
   joinRequests?: Maybe<KeysetPageOfJoinRequest>;
   /** 平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first/after） */
   listAdminActionLogs: Array<AdminActionLog>;
+  /** 平台管理员：跨租户课程列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled） */
+  listAdminCourses: Array<AdminCourse>;
+  /** 平台管理员：跨租户活动列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled） */
+  listAdminEvents: Array<AdminEvent>;
   /** 工作台的课程列表（#40 展示页） */
   listCourses?: Maybe<KeysetPageOfCourse>;
   /** 工作台的活动列表（#40 展示页） */
@@ -5381,12 +5859,16 @@ export type RootQueryType = {
   listInitiatives: Array<AdminInitiative>;
   /** 平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5） */
   listPendingOperations: Array<AdminPendingOperation>;
+  /** Owner/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限） */
+  listRecruitmentCohorts: Array<RecruitmentCohort>;
   /** 平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after） */
   listSignalLogs: Array<AdminSignalLog>;
   /** 平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5） */
   listToolCallLogs: Array<AdminToolCallLog>;
   /** 平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after） */
   listUsers: Array<AdminUser>;
+  /** Owner/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 / 职位 / 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden */
+  listVolunteerApplications: Array<VolunteerApplication>;
   /** 平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after） */
   listWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after） */
@@ -5409,8 +5891,12 @@ export type RootQueryType = {
   myPendingApprovals: Array<PendingApproval>;
   /** 当前登录用户的掩码手机号（仅本人；未绑定返回 null；前 6 后 4 中间 ****，明文不出 GraphQL 面） */
   myPhone?: Maybe<Scalars['String']['output']>;
+  /** 本人简历档案（R11 第 1 步；仅本人 ∪ Owner/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容 */
+  myResumeProfile?: Maybe<ResumeProfile>;
   /** 当前用户跨工作台的赞助意向 */
   mySponsorships?: Maybe<KeysetPageOfSponsorship>;
+  /** 本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因） */
+  myVolunteerApplications: Array<VolunteerApplication>;
   /** 当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请） */
   myWorkspaceApplications: Array<AdminWorkspaceApplication>;
   /** 当前用户在某工作台的作品集条目列表（ADR-0004 per-workspace） */
@@ -5432,7 +5918,7 @@ export type RootQueryType = {
   publicInitiative?: Maybe<PublicInitiative>;
   /** 公开 Initiative 列表；匿名可读 */
   publicInitiatives: Array<PublicInitiativeCard>;
-  /** 平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after） */
+  /** 平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after；entityId 必须与 entityType 成对——KTD5） */
   reconciliationFindings: Array<AdminReconciliationFinding>;
   /** 邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题/时间 + Event 公开信息 + viewerIsInviter；无效/过期/已用 token 统一错误，不泄露其它邀请 */
   speakerInvitationCard?: Maybe<SpeakerInvitationCard>;
@@ -5441,6 +5927,8 @@ export type RootQueryType = {
   sponsorships?: Maybe<KeysetPageOfSponsorship>;
   /** 校验邀请 token，返回邀请信息 + 工作台预览 */
   validateInvitation?: Maybe<Invitation>;
+  /** Owner/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden */
+  volunteerApplicationDetail?: Maybe<VolunteerApplicationDetail>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
@@ -5476,6 +5964,11 @@ export type RootQueryTypeCourseLearningDetailArgs = {
 
 export type RootQueryTypeCourseMapArgs = {
   slug: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeCurrentRecruitmentCohortArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5553,6 +6046,16 @@ export type RootQueryTypeFlashbackPublicQuotesArgs = {
 
 export type RootQueryTypeFlashbackSharedCardArgs = {
   shareId: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeGetAdminCourseArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeGetAdminEventArgs = {
+  id: Scalars['ID']['input'];
 };
 
 
@@ -5648,6 +6151,24 @@ export type RootQueryTypeListAdminActionLogsArgs = {
 };
 
 
+export type RootQueryTypeListAdminCoursesArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type RootQueryTypeListAdminEventsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  search?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
 export type RootQueryTypeListCoursesArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -5686,6 +6207,11 @@ export type RootQueryTypeListPendingOperationsArgs = {
 };
 
 
+export type RootQueryTypeListRecruitmentCohortsArgs = {
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootQueryTypeListSignalLogsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -5710,6 +6236,16 @@ export type RootQueryTypeListUsersArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeListVolunteerApplicationsArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  cohortId?: InputMaybe<Scalars['ID']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  position?: InputMaybe<Scalars['String']['input']>;
+  status?: InputMaybe<Scalars['String']['input']>;
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5764,6 +6300,11 @@ export type RootQueryTypeMyPendingApprovalsArgs = {
 };
 
 
+export type RootQueryTypeMyResumeProfileArgs = {
+  workspaceId: Scalars['ID']['input'];
+};
+
+
 export type RootQueryTypeMySponsorshipsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
   before?: InputMaybe<Scalars['String']['input']>;
@@ -5771,6 +6312,11 @@ export type RootQueryTypeMySponsorshipsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   sort?: InputMaybe<Array<InputMaybe<SponsorshipSortInput>>>;
+};
+
+
+export type RootQueryTypeMyVolunteerApplicationsArgs = {
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -5811,6 +6357,7 @@ export type RootQueryTypePublicInitiativeArgs = {
 
 export type RootQueryTypeReconciliationFindingsArgs = {
   after?: InputMaybe<Scalars['String']['input']>;
+  entityId?: InputMaybe<Scalars['String']['input']>;
   entityType?: InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
   rule?: InputMaybe<Scalars['String']['input']>;
@@ -5841,6 +6388,12 @@ export type RootQueryTypeSponsorshipsArgs = {
 export type RootQueryTypeValidateInvitationArgs = {
   filter?: InputMaybe<InvitationFilterInput>;
   token: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeVolunteerApplicationDetailArgs = {
+  id: Scalars['ID']['input'];
+  workspaceId: Scalars['ID']['input'];
 };
 
 
@@ -6754,6 +7307,14 @@ export type UpdatePortfolioItemInput = {
   url?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateRecruitmentCohortInput = {
+  applyDeadlineAt?: InputMaybe<Scalars['DateTime']['input']>;
+  endsAt?: InputMaybe<Scalars['DateTime']['input']>;
+  /** updateRecruitmentCohort 输入（只传要改的字段） */
+  name?: InputMaybe<Scalars['String']['input']>;
+  startsAt?: InputMaybe<Scalars['DateTime']['input']>;
+};
+
 export type UpdateWorkspaceInput = {
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<Scalars['String']['input']>;
@@ -6786,6 +7347,26 @@ export type UpdateWorkspaceResult = {
   result?: Maybe<Workspace>;
 };
 
+export type UploadResumeFileInput = {
+  /** 文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内） */
+  contentBase64: Scalars['String']['input'];
+  /** 声明的 MIME（须与扩展名同族） */
+  contentType: Scalars['String']['input'];
+  /** uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名/声明 MIME/魔数三者一致才收） */
+  fileName: Scalars['String']['input'];
+};
+
+export type UpsertResumeProfileInput = {
+  /** 联系邮箱（R14 邮件保底通道收件地址） */
+  contactEmail: Scalars['String']['input'];
+  /** upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充） */
+  fullName: Scalars['String']['input'];
+  /** 技能多选（字符串列表；缺省不改动） */
+  skills?: InputMaybe<Array<Scalars['String']['input']>>;
+  /** 每周可投入小时数（选填） */
+  weeklyHours?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type User = {
   /** 显示名（全局身份字段；可为 null，前端以 email 前缀兜底） */
   displayName?: Maybe<Scalars['String']['output']>;
@@ -6802,6 +7383,48 @@ export type User = {
   memberNumber?: Maybe<Scalars['String']['output']>;
   /** 首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致） */
   onboardingInvitationDismissedAt?: Maybe<Scalars['DateTime']['output']>;
+};
+
+export type VolunteerApplication = {
+  /** 分配时间 */
+  assignedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 分配的场次 ID（可空；项目分配时写入） */
+  assignedEventId?: Maybe<Scalars['ID']['output']>;
+  /** 分配备注（如 Tutor 的课程任务；不建任务实体） */
+  assignmentNote?: Maybe<Scalars['String']['output']>;
+  /** 申请城市（Tutor 可远程） */
+  city?: Maybe<Scalars['String']['output']>;
+  /** 申请批次 ID */
+  cohortId: Scalars['ID']['output'];
+  /** 是否有内部推荐人 */
+  hasInternalReferrer: Scalars['Boolean']['output'];
+  /** 如何得知我们 */
+  heardAboutUs?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  /** 留言（选填） */
+  message?: Maybe<Scalars['String']['output']>;
+  /** 职位：event_moderator | tutor | coach（枚举，不建表） */
+  position: Scalars['String']['output'];
+  /** 拒绝原因（状态转 rejected 时必填；写入在 U3 的流转 action） */
+  rejectionReason?: Maybe<Scalars['String']['output']>;
+  /** 段位（R12 状态图；流转 action 在 U3） */
+  status: Scalars['String']['output'];
+  /** 申请人 ID（创建时由 actor 强制填充，不可代他人提交） */
+  userId: Scalars['ID']['output'];
+  /** 所属工作台（租户）ID（KTD2：所有倡导活动都在 2046 台） */
+  workspaceId: Scalars['ID']['output'];
+};
+
+export type VolunteerApplicationDetail = {
+  /** 审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null） */
+  application: VolunteerApplication;
+  resumeProfile?: Maybe<ResumeProfile>;
+};
+
+export type VolunteerApplicationPayload = {
+  errors: Array<MutationError>;
+  /** 招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案） */
+  result?: Maybe<VolunteerApplication>;
 };
 
 export type WechatLoginStartResult = {

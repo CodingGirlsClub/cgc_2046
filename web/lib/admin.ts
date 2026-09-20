@@ -16,6 +16,14 @@ import type {
   AdminInitiative,
   AdminInitiativePayload,
   AdminInitiativeRule,
+  AdminEvent,
+  AdminEventDetail,
+  AdminEventPayload,
+  AdminEventUpdateInput,
+  AdminCourse,
+  AdminCourseDetail,
+  AdminCoursePayload,
+  AdminCourseUpdateInput,
   ApproveApplicationResultData,
   RejectApplicationResultData,
   FlashbackAdminStats,
@@ -26,6 +34,8 @@ import type {
   FlashbackAdminArchive,
 } from "./graphql/admin";
 import {
+  ADMIN_CANCEL_EVENT, ADMIN_CLOSE_EVENT, ADMIN_LAUNCH_EVENT, ADMIN_UPDATE_EVENT,
+  ADMIN_CANCEL_COURSE, ADMIN_CLOSE_COURSE, ADMIN_LAUNCH_COURSE, ADMIN_UPDATE_COURSE,
   APPROVE_WORKSPACE_APPLICATION,
   CREATE_WORKSPACE_APPLICATION,
   DEMOTE_USER,
@@ -36,6 +46,10 @@ import {
   LIST_USERS,
   LIST_INITIATIVES,
   GET_INITIATIVE,
+  GET_ADMIN_EVENT,
+  LIST_ADMIN_EVENTS,
+  GET_ADMIN_COURSE,
+  LIST_ADMIN_COURSES,
   CREATE_INITIATIVE, UPDATE_INITIATIVE, OPEN_INITIATIVE, CLOSE_INITIATIVE, CANCEL_INITIATIVE,
   LIST_WORKSPACE_APPLICATIONS,
   UPSERT_INITIATIVE_RULE,
@@ -157,6 +171,216 @@ export async function closeInitiative(id: string): Promise<AdminInitiativePayloa
 export async function cancelInitiative(id: string): Promise<AdminInitiativePayload> {
   const { data } = await client.mutate<{ cancelInitiative: AdminInitiativePayload }>({ mutation: CANCEL_INITIATIVE, variables: { id } });
   return data?.cancelInitiative ?? { result: null, errors: [] };
+}
+
+/**
+ * Event 治理列表过滤条件（空值 = 不过滤）。
+ * status 只接受 `OFFERING_STATUS_VALUES`（后端 `status_values/0`）；workspaceId 为真实列过滤。
+ */
+export interface AdminEventFilters {
+	status?: string;
+	search?: string;
+	workspaceId?: string;
+}
+
+/**
+ * 平台管理员：跨租户 Event 列表（U2/U3 R1-R2；含 draft 与终态行）。
+ * 列表不带报名计数——权威计数只在 `fetchAdminEvent` 现取（KTD4）。
+ */
+export async function fetchAdminEvents(
+	filters?: AdminEventFilters,
+	opts?: AdminListArgs,
+): Promise<AdminEvent[]> {
+	return adminList(
+		LIST_ADMIN_EVENTS,
+		{
+			status: filters?.status ?? null,
+			search: filters?.search ?? null,
+			workspaceId: filters?.workspaceId ?? null,
+		},
+		"listAdminEvents",
+		opts,
+		// P3 同款：治理写后 refreshAfterWrite → loadList 必须现取，
+		// cache-first 会命中同 variables 的旧快照（#754 FAIL-1）
+		"network-only",
+	);
+}
+
+/**
+ * 平台管理员：Event 治理详情（R3）。
+ *
+ * network-only + id 不存在返回 null（不是错误）：确认弹窗与展开详情共用这一条
+ * 现取路径，是 KTD4「计数单一来源」的取数口。
+ */
+export async function fetchAdminEvent(
+	id: string,
+): Promise<AdminEventDetail | null> {
+	const { data } = await client.query({
+		query: GET_ADMIN_EVENT,
+		variables: { id },
+		fetchPolicy: "network-only",
+	});
+	return data?.getAdminEvent ?? null;
+}
+
+/** 治理写结果兜底：mutation resolve 出空形状时按「未成功、错误未知」处理，不假装成功。 */
+function eventPayloadEnvelope(
+	payload: AdminEventPayload | null | undefined,
+): AdminEventPayload {
+	return payload ?? { result: null, errors: [] };
+}
+
+/** 平台管理员：发布活动（draft → open；同工作台 launch action 语义） */
+export async function adminLaunchEvent(id: string): Promise<AdminEventPayload> {
+	const { data } = await client.mutate<{ adminLaunchEvent: AdminEventPayload }>({
+		mutation: ADMIN_LAUNCH_EVENT,
+		variables: { id },
+	});
+	return eventPayloadEnvelope(data?.adminLaunchEvent);
+}
+
+/** 平台管理员：结束活动（open → closed；发 event.ended 信号） */
+export async function adminCloseEvent(id: string): Promise<AdminEventPayload> {
+	const { data } = await client.mutate<{ adminCloseEvent: AdminEventPayload }>({
+		mutation: ADMIN_CLOSE_EVENT,
+		variables: { id },
+	});
+	return eventPayloadEnvelope(data?.adminCloseEvent);
+}
+
+/**
+ * 平台管理员：取消活动（open → cancelled）。
+ * 受影响报名按既有取消链路**异步**处理（已付批量退款、待付作废释放名额，无同步回执）。
+ */
+export async function adminCancelEvent(id: string): Promise<AdminEventPayload> {
+	const { data } = await client.mutate<{ adminCancelEvent: AdminEventPayload }>({
+		mutation: ADMIN_CANCEL_EVENT,
+		variables: { id },
+	});
+	return eventPayloadEnvelope(data?.adminCancelEvent);
+}
+
+/**
+ * 平台管理员：编辑 Event 元数据（R5 标准元数据全集）。
+ *
+ * input 只落**本次真变更**的键（同值重发会把缴费槽位重新写成"场主的决定"，
+ * 且 datetime-local 的分钟精度会截断库里的秒——见 workbench 表单脏检查纪律）。
+ * slug 不在治理面输入：已发布实体的 slug 编辑由后端 `event_slug_locked` 拒绝（R7）。
+ */
+export async function adminUpdateEvent(
+	id: string,
+	input: AdminEventUpdateInput,
+): Promise<AdminEventPayload> {
+	const { data } = await client.mutate<{ adminUpdateEvent: AdminEventPayload }>({
+		mutation: ADMIN_UPDATE_EVENT,
+		variables: { id, input },
+	});
+	return eventPayloadEnvelope(data?.adminUpdateEvent);
+}
+
+/**
+ * Course 治理列表过滤条件（空值 = 不过滤）。
+ * status 只接受 `OFFERING_STATUS_VALUES`（后端 `status_values/0`）；workspaceId 为真实列过滤。
+ */
+export interface AdminCourseFilters {
+	status?: string;
+	search?: string;
+	workspaceId?: string;
+}
+
+/**
+ * 平台管理员：跨租户 Course 列表（U2/U4 R1-R2；含 draft 与终态行）。
+ * 列表不带报名计数——权威计数只在 `fetchAdminCourse` 现取（KTD4）。
+ */
+export async function fetchAdminCourses(
+	filters?: AdminCourseFilters,
+	opts?: AdminListArgs,
+): Promise<AdminCourse[]> {
+	return adminList(
+		LIST_ADMIN_COURSES,
+		{
+			status: filters?.status ?? null,
+			search: filters?.search ?? null,
+			workspaceId: filters?.workspaceId ?? null,
+		},
+		"listAdminCourses",
+		opts,
+		// P3 同款：治理写后 refreshAfterWrite → loadList 必须现取，
+		// cache-first 会命中同 variables 的旧快照（#754 FAIL-1）
+		"network-only",
+	);
+}
+
+/**
+ * 平台管理员：Course 治理详情（R3）。
+ *
+ * network-only + id 不存在返回 null（不是错误）：确认弹窗与展开详情共用这一条
+ * 现取路径，是 KTD4「计数单一来源」的取数口。
+ */
+export async function fetchAdminCourse(
+	id: string,
+): Promise<AdminCourseDetail | null> {
+	const { data } = await client.query({
+		query: GET_ADMIN_COURSE,
+		variables: { id },
+		fetchPolicy: "network-only",
+	});
+	return data?.getAdminCourse ?? null;
+}
+
+/** 治理写结果兜底：mutation resolve 出空形状时按「未成功、错误未知」处理，不假装成功。 */
+function coursePayloadEnvelope(
+	payload: AdminCoursePayload | null | undefined,
+): AdminCoursePayload {
+	return payload ?? { result: null, errors: [] };
+}
+
+/** 平台管理员：发布课程（draft → open；同工作台 launch action 语义） */
+export async function adminLaunchCourse(id: string): Promise<AdminCoursePayload> {
+	const { data } = await client.mutate<{ adminLaunchCourse: AdminCoursePayload }>({
+		mutation: ADMIN_LAUNCH_COURSE,
+		variables: { id },
+	});
+	return coursePayloadEnvelope(data?.adminLaunchCourse);
+}
+
+/** 平台管理员：结束课程（open → closed；发 course.ended 信号） */
+export async function adminCloseCourse(id: string): Promise<AdminCoursePayload> {
+	const { data } = await client.mutate<{ adminCloseCourse: AdminCoursePayload }>({
+		mutation: ADMIN_CLOSE_COURSE,
+		variables: { id },
+	});
+	return coursePayloadEnvelope(data?.adminCloseCourse);
+}
+
+/**
+ * 平台管理员：取消课程（open → cancelled）。
+ * 受影响报名按既有取消链路**异步**处理（已付批量退款、待付作废释放名额，无同步回执）。
+ */
+export async function adminCancelCourse(id: string): Promise<AdminCoursePayload> {
+	const { data } = await client.mutate<{ adminCancelCourse: AdminCoursePayload }>({
+		mutation: ADMIN_CANCEL_COURSE,
+		variables: { id },
+	});
+	return coursePayloadEnvelope(data?.adminCancelCourse);
+}
+
+/**
+ * 平台管理员：编辑 Course 元数据（R5 标准元数据全集里治理面的可编辑子集）。
+ *
+ * input 只落**本次真变更**的键（同值重发会把定价槽位重新写成「课程主的决定」，
+ * 且 datetime-local 的分钟精度会截断库里的秒——见 workbench 表单脏检查纪律）。
+ * slug 不在治理面输入：已发布实体的 slug 编辑由后端 `course_slug_locked` 拒绝（R7）。
+ */
+export async function adminUpdateCourse(
+	id: string,
+	input: AdminCourseUpdateInput,
+): Promise<AdminCoursePayload> {
+	const { data } = await client.mutate<{ adminUpdateCourse: AdminCoursePayload }>({
+		mutation: ADMIN_UPDATE_COURSE,
+		variables: { id, input },
+	});
+	return coursePayloadEnvelope(data?.adminUpdateCourse);
 }
 
 /** 平台管理员：工作台列表（R13；search 匹配 name/slug） */
@@ -304,14 +528,16 @@ export async function fetchAdminActionLogs(
   );
 }
 
-/** E-10 #125 对账扫描过滤条件（空值 = 不过滤；rule/entityType 为枚举串） */
+/* E-10 #125 对账扫描过滤条件（空值 = 不过滤；rule/entityType 为枚举串） */
 export interface ReconciliationFilters {
   rule?: string;
   entityType?: string;
   workspaceId?: string;
+  /** KTD5：成对下发给 entityType（单独下发后端 invalid_input 拒绝） */
+  entityId?: string;
 }
 
-/** 平台管理员：对账扫描发现（E-10 #125；rule/entityType/workspace 过滤） */
+/** 平台管理员：对账扫描发现（E-10 #125；rule/entityType/entityId/workspace 过滤） */
 export async function fetchReconciliationFindings(
   filters?: ReconciliationFilters,
   opts?: AdminListArgs,
@@ -321,6 +547,7 @@ export async function fetchReconciliationFindings(
     {
       rule: filters?.rule ?? null,
       entityType: filters?.entityType ?? null,
+      entityId: filters?.entityId ?? null,
       workspaceId: filters?.workspaceId ?? null,
     },
     "reconciliationFindings",

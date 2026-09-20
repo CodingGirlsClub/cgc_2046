@@ -43,6 +43,13 @@ const nextConfig: NextConfig = {
 				source: "/api/graphql",
 				destination: `${BACKEND_URL}/api/graphql`,
 			},
+			{
+				// 简历文件下载（R10）：审核面板 <a href> 直出该路径，同源 cookie 随
+				// rewrite 透传，后端下载端点自行鉴权（本人 ∪ 审核方）。不代理则
+				// 链接 404——Next/web 都没有接住 /api/recruitment/* 的层
+				source: "/api/recruitment/resumes/:path*",
+				destination: `${BACKEND_URL}/api/recruitment/resumes/:path*`,
+			},
 		];
 		if (process.env.NODE_ENV !== "production") {
 			rules.push({

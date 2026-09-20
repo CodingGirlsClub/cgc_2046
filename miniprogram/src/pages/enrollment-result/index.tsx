@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { EnrollmentSummary } from '@/domain/models'
 import { enrollmentResultCopy } from '@/domain/payment'
-import { enrollmentResultTouchpoint } from '@/domain/subscription'
+import { enrollmentResultTouchpoint, requestAndGrant } from '@/domain/subscription'
 import { requestPlatformSubscriptions } from '@/platform'
 import { STORAGE_KEYS } from '@/state/storage'
 import styles from './index.module.css'
@@ -57,20 +57,14 @@ export default function EnrollmentResultPage() {
     setSubmitting(true)
     // 先清空上一次提示：二次点按（含改点其他场景）时不留旧文案
     setSubscriptionState('')
-    try {
-      const accepted = await requestPlatformSubscriptions(touchpoint.scenarios)
-      if (accepted.length === 0) {
-        setSubscriptionState(touchpoint.deniedCopy)
-        return
-      }
-      // 一次授权 = 后端 +1 配额，逐场景上报（部分接受只报被接受的）
-      for (const scenario of accepted) await api.grantConsent(scenario)
-      setSubscriptionState(touchpoint.acceptedCopy)
-    } catch (reason) {
-      setSubscriptionState(reason instanceof Error ? reason.message : '订阅失败，请稍后重试')
-    } finally {
-      setSubmitting(false)
-    }
+    // 反馈落页面状态而非 toast（结果页常驻提示位）；helper 永不 reject
+    // （request/grant 抛错都收进 error 反馈，兜底文案与其余触点统一「订阅失败」）
+    await requestAndGrant(touchpoint, {
+      request: requestPlatformSubscriptions,
+      grant: (scenario) => api.grantConsent(scenario),
+      notify: ({ title }) => setSubscriptionState(title)
+    })
+    setSubmitting(false)
   }
 
   return (

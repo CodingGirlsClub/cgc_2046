@@ -133,7 +133,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       AND e.starts_at > now()
       AND ($1::text IS NULL OR e.venue->>'city' = $1)
     GROUP BY e.id, e.slug, e.title, e.starts_at, e.venue, e.capacity,
-             e.registration_deadline, i.slug, i.name, i.window_starts_at
+             e.registration_deadline, i.id, i.slug, i.name, i.window_starts_at
     ORDER BY min(e.starts_at) ASC, e.starts_at ASC
     """
 

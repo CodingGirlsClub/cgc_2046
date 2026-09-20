@@ -29,11 +29,13 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
 
-  # #664 审计开出的 6 键缺口已由 #683 全部补齐前端入口（enrollment_submitted +
-  # payment_received → 工作台第二按钮；payment_succeeded → 支付页双态；退款三键
-  # → 「我的报名」付费卡），本表清空但**结构保留**：registry 未来新增无前端场景
-  # 的键必须在此登记（守卫第 4 条 uncovered 会红），登记数在下方断言写死 0——
-  # 改本表/本数必须是有意识的决定。前端侧镜像清单 =
+  # 本表恒空（结构保留）：两次过渡态登记都已收尾——#683 补齐 #664 审计开出的
+  # 6 键前端入口（enrollment_submitted + payment_received → 工作台第二按钮；
+  # payment_succeeded → 支付页双态；退款三键 → 「我的报名」付费卡）；U10 补齐
+  # 志愿者段位六键的小程序订阅触点（M9 提交前 3 键 + M10 我的申请 3 键，见
+  # `miniprogram/src/domain/subscription.ts`）。
+  # registry 未来新增无前端场景的键必须在此登记（守卫第 4 条 uncovered 会红），
+  # 登记数在下方断言写死——改本表/本数必须是有意识的决定。前端侧镜像清单 =
   # `miniprogram/tests/subscription-domain.test.ts` 的 UNCOVERED_SCENARIOS。
   @scenario_gaps [
     # 残余缺口（不占本表，记录于 subscription.ts moduledoc「覆盖缺口」节）：
@@ -42,6 +44,9 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
     #   speaker_completed 分享者腿；
     # - enrollment_completed 的 web 报名腿：微信一次性订阅只能在小程序内发起。
   ]
+
+  # 缺口数恒为 0（#683 / U10 两次收尾后）——改本数必须是有意识的决定
+  @scenario_gap_count 0
 
   # 投递路径 stub wechat 平台（SDK client + Tesla.Mock；token 由 SDK ETS 管理）。
   # 跳过路径不触达 HTTP（stale 重查拦在 deliver 之前），mock 仅兜底防误发真实请求。
@@ -142,9 +147,10 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
       scenarios = frontend_scenarios()
       gaps = MapSet.new(@scenario_gaps)
 
-      # 缺口数先钉死（#683 补齐 6 键后为 0）：防「新键被随手塞进缺口表」蒙混过关
-      # （改这个数 = 有意识承认一个新缺口，与 #606 allowlist / 前端场景计数同款纪律）
-      assert MapSet.size(gaps) == 0,
+      # 缺口数先钉死（#683 补齐 6 键后为 0；U4 过渡态为 6——见 @scenario_gaps）：
+      # 防「新键被随手塞进缺口表」蒙混过关（改这个数 = 有意识承认一个新缺口，
+      # 与 #606 allowlist / 前端场景计数同款纪律）
+      assert MapSet.size(gaps) == @scenario_gap_count,
              "缺口数变为 #{MapSet.size(gaps)}：#{inspect(Enum.sort(gaps))}——改本表/本数必须是有意识的决定"
 
       # 缺口表不得腐烂：键被删/改名后必须同步删行，否则守卫会为幽灵键放行

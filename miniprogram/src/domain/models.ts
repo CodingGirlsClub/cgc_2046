@@ -46,8 +46,10 @@ export type SubscriptionScenario =
   | 'enrollment_check_in_code'
   | 'event_qualification_confirmed'
   | 'event_qualification_underfilled'
+  | 'event_qualification_manager'
   | 'event_schedule_changed'
   | 'event_moderator_assigned'
+  | 'event_moderator_removed'
   | 'speaker_accepted'
   | 'speaker_completed'
   | 'learning_stagnation'
@@ -57,6 +59,14 @@ export type SubscriptionScenario =
   | 'refund_failed'
   | 'enrollment_submitted'
   | 'payment_received'
+  // 志愿者段位通知六键（R14/R21，U4 后端已落地 templates；键名与后端
+  // template_key 逐字一致）
+  | 'volunteer_application_submitted'
+  | 'volunteer_application_interview'
+  | 'volunteer_application_training'
+  | 'volunteer_application_assigned'
+  | 'volunteer_application_rejected'
+  | 'volunteer_application_canceled'
 
 export interface CatalogItem {
   id: string
@@ -87,6 +97,11 @@ export interface CatalogItem {
   startsAt: string | null
   /** 结束时间（ISO8601）；null = 未定（R3） */
   endsAt: string | null
+  /**
+   * 活动介绍（公开展示文案）。仅详情查询携带（列表查询不选）——列表记录恒 null；
+   * 详情页按 toParagraphs 分段渲染，null/空串不渲染介绍块。
+   */
+  description: string | null
   /** 结构化场地 JsonString（parse 后 {country,province,city,district}）；仅 event 有位置槽，course 恒 null（R3） */
   venue: string | null
   /**
@@ -94,6 +109,12 @@ export interface CatalogItem {
    * 「所属倡导活动」回链；列表查询不带该字段 → 恒 null。
    */
   initiativeId: string | null
+  /**
+   * 公开主理人投影（#538；[JsonString!]，每行 parse 后 {display_name,
+   * member_number}，assignedAt 升序）。仅 event 详情查询携带；列表/课程恒
+   * null。回退链 displayName → memberNumber 见 format.ts 的 moderatorNames。
+   */
+  publicModerators: string[] | null
   /** 公开派生报名标签（KTD1；公开面只暴露派生标签，不暴露原始名额计数） */
   enrollmentBadge: EnrollmentBadge
   /**
@@ -163,7 +184,8 @@ export interface MyEnrollmentState {
 export interface PriceTier {
   id: string
   name: string
-  amountCents: number
+  /** 脏值 → null：档位保留，渲染层降级「金额待定」+ 禁选（#687） */
+  amountCents: number | null
 }
 
 export interface UserSummary {
@@ -230,6 +252,13 @@ export interface EnrollmentSummary {
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
   paymentMode: PaymentMode | null
   /**
+   * 押金快照金额（分；后端 Enrollment.depositAmountCents 计算字段，源 = 报名提交
+   * 时物化的 submission_payload 键，与下单实付金额同源）。order-pay 的**创单前**
+   * 披露用它表态；脏值/无键 → null（文案走「押金（金额待定）」，绝不 ¥0）。
+   * 创单后一律切到订单快照 `order.amountCents`（权威，见 order-pay 页）。
+   */
+  depositAmountCents: number | null
+  /**
    * #617 目标开始时间（后端 Enrollment.startsAt 计算字段，ISO8601；null = 时间待定）。
    * 改期（event_schedule_changed）与开课提醒（event_reminder）都以本页为落页，
    * 二者通知正文里的「新时间」在本卡对应这一行——通知的权威落点。
@@ -254,6 +283,102 @@ export interface EnrollmentForm {
   tierId?: string
   /** 年龄门槛确认（#510：minAge 非空的目标必传 true） */
   ageConfirmed?: boolean
+}
+
+// ── 志愿者招募（R20/R21；U5 招募域 GraphQL 面的小程序侧形状）────────────────
+//
+// 三资源的读面投影：批次（匿名可读 open，但小程序侧解析 workspace 需登录——见
+// domain/recruitment.ts 的 moduledoc）、简历档案（仅本人，不含文件内容）、申请
+// （仅本人）。字段与 operations.ts 的 selection 一一对应，判据/文案在
+// domain/recruitment.ts。
+
+/** 招募职位（后端未建表，字符串枚举；与 CreateVolunteerApplicationInput.position 同集） */
+export type VolunteerPosition = 'event_moderator' | 'tutor' | 'coach'
+
+/** 申请段位（R12 状态图：submitted → interview → training → assigned，任一审核段可转 rejected；canceled 由 2046 管理员操作） */
+export type VolunteerStatus =
+  | 'submitted'
+  | 'interview'
+  | 'training'
+  | 'assigned'
+  | 'rejected'
+  | 'canceled'
+
+/** 批次状态（仅 open 对申请侧可见；draft/closed 只在管理面） */
+export type RecruitmentCohortStatus = 'draft' | 'open' | 'closed'
+
+export interface RecruitmentCohort {
+  id: string
+  name: string
+  /** 申请截止（ISO8601，展示走既有 formatDateTime） */
+  applyDeadlineAt: string
+  startsAt: string | null
+  endsAt: string | null
+  status: RecruitmentCohortStatus
+}
+
+export interface ResumeProfileSummary {
+  id: string
+  fullName: string
+  /** 联系邮箱 = R14 邮件保底通道收件地址（手机号建号用户必须自己填） */
+  contactEmail: string
+  weeklyHours: number | null
+  skills: string[]
+  /** 简历文件元数据（U2 上传管道写入；未上传 → null）。文件内容不出 GraphQL 面。 */
+  fileName: string | null
+  fileContentType: string | null
+  fileSize: number | null
+  uploadedAt: string | null
+}
+
+export interface VolunteerApplicationSummary {
+  id: string
+  cohortId: string
+  position: VolunteerPosition
+  city: string | null
+  heardAboutUs: string | null
+  hasInternalReferrer: boolean
+  message: string | null
+  status: VolunteerStatus
+  rejectionReason: string | null
+  assignedEventId: string | null
+  assignmentNote: string | null
+  assignedAt: string | null
+}
+
+/** 第 2 步申请项（user_id 由后端按 actor 强制填充，不接受客户端传入） */
+export interface VolunteerApplicationForm {
+  cohortId: string
+  position: VolunteerPosition
+  city?: string
+  heardAboutUs?: string
+  hasInternalReferrer?: boolean
+  message?: string
+}
+
+/** 第 1 步档案（姓名/联系邮箱必填；一人一档，二次 upsert 更新同一行） */
+export interface ResumeProfileForm {
+  fullName: string
+  contactEmail: string
+  weeklyHours?: number
+  skills?: string[]
+}
+
+/** 简历文件上传入参（KTD3：base64-over-JSON，U2 单入口；本地文件元数据不参与请求） */
+export interface ResumeFileInput {
+  fileName: string
+  /** 声明 MIME（须与扩展名同族；由 domain/recruitment.resumeContentTypeFor 派生） */
+  contentType: string
+  contentBase64: string
+}
+
+/** 文件选择结果（wx.chooseMessageFile 的本地临时文件，尚未上传） */
+export interface ResumeFileSelection {
+  name: string
+  path: string
+  size: number
+  /** 按扩展名派生的同族 MIME；扩展名不受支持 → null（resumeFileError 已拦） */
+  contentType: string
 }
 
 export interface NotificationItem {
@@ -587,8 +712,13 @@ export interface MiniProgramApi {
   getEnrollment(id: string): Promise<EnrollmentSummary | null>
   cancelEnrollment(id: string): Promise<void>
   createEnrollment(form: EnrollmentForm): Promise<EnrollmentSummary>
-  /** U12：JSAPI 下单（provider 固定 wechat_jsapi，R13） */
-  createOrder(enrollmentId: string): Promise<CreatedOrder>
+  /**
+   * U12：JSAPI 下单（provider 固定 wechat_jsapi，R13）。
+   * depositConsent（#727 后端权威闸）：押金单必须 true，缺失/false 一律被拒
+   * （order_deposit_consent_required）；非押金单忽略——调用方只在预检判定押金
+   * 且用户已勾选时携带（同 #510 ageConfirmed 的条件携带口径）。
+   */
+  createOrder(enrollmentId: string, depositConsent?: boolean): Promise<CreatedOrder>
   /** U12：订单状态轮询（R14 轻量面） */
   getOrderStatus(orderId: string): Promise<OrderSummary>
   /** U12：我的订单（缴费态展示数据源） */
@@ -662,6 +792,23 @@ export interface MiniProgramApi {
    * 关闭/不存在/已删档 → null（合法空态，不是错误）；网络/服务端故障照常抛。
    */
   getFlashbackSharedCard(shareId: string): Promise<FlashbackSharedCard | null>
+  // ── 志愿者招募（R20；页面 pages/volunteer-apply，微信端专属）──────────────
+  //
+  // 三资源都带 workspace_id 租户（入口 workspaceId 显式 argument，KTD2）：小程序
+  // 无 URL slug，入口工作台由 slug 解析（见 domain/recruitment.RECRUITMENT_WORKSPACE_SLUG），
+  // 因此**本组方法都要求已登录**（getWorkspace 的策略是 actor_present）。
+  /** 当前 open 招募批次（无 open → null = 空态；读取失败抛错 = 失败态，两者不同桶） */
+  getCurrentRecruitmentCohort(): Promise<RecruitmentCohort | null>
+  /** 本人简历档案（未建档 → null） */
+  getMyResumeProfile(): Promise<ResumeProfileSummary | null>
+  /** 建档 / 更新档案（一人一档；上传前必须先建档，U2 契约） */
+  saveResumeProfile(form: ResumeProfileForm): Promise<ResumeProfileSummary>
+  /** 上传本人简历文件（U2 单入口：扩展名/声明 MIME/魔术数三者一致 + ≤5MB） */
+  uploadResumeFile(input: ResumeFileInput): Promise<ResumeProfileSummary>
+  /** 本人的志愿者申请列表（跨批次，新→旧） */
+  getMyVolunteerApplications(): Promise<VolunteerApplicationSummary[]>
+  /** 提交申请（R11 第 2 步；同批一份，重复提交由后端 volunteer_application_already_submitted 拒绝） */
+  createVolunteerApplication(form: VolunteerApplicationForm): Promise<VolunteerApplicationSummary>
 }
 
 /** 登录账号没有绑定闪念间档案（capsule 双入口的会话腿 miss）——页面按引导态渲染。 */
