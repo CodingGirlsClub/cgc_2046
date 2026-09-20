@@ -5,7 +5,7 @@ import { api } from '@/api'
 import { getPublicInitiatives } from '@/api/initiatives'
 import { PageState } from '@/components/PageState'
 import type { CatalogItem, ContentKind, PublicInitiativeCard } from '@/domain/models'
-import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, moderatorNames, scheduleText, venueText } from '@/domain/format'
+import { enrollmentBlockedNotice, enrollmentMetricText, enrollmentStatusText, formatDateTime, moderatorNames, scheduleText, toParagraphs, venueText } from '@/domain/format'
 import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
@@ -136,6 +136,8 @@ export default function EventDetailPage() {
 
   const payment = paymentBlockCopy(item)
   const badgeText = detailQualificationBadgeText(item)
+  // 活动介绍：空行分段（domain/format toParagraphs）；无介绍不渲染整块
+  const paragraphs = toParagraphs(item.description)
   // #538 公开主理人（单次解析；displayName null → memberNumber 回退，空名单下方不渲染）
   const moderatorLine = item.kind === 'event' ? moderatorNames(item.publicModerators) : []
 
@@ -194,6 +196,15 @@ export default function EventDetailPage() {
             </View>
           )}
         </View>
+
+        {paragraphs.length > 0 && (
+          <View className={styles.block} data-testid='detail-description'>
+            <Text className={styles.blockTitle}>活动介绍</Text>
+            {paragraphs.map((p, i) => (
+              <Text key={i} className={styles.descriptionPara}>{p}</Text>
+            ))}
+          </View>
+        )}
 
         <View className={styles.block} data-testid='payment-block'>
           <Text className={styles.blockTitle}>{payment.title}</Text>

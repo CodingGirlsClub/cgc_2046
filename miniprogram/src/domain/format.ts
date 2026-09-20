@@ -117,6 +117,15 @@ export function scheduleText(startsAt: string | null, endsAt: string | null): st
   return '时间待定'
 }
 
+/** 纯文本描述 → 段落数组：按空行（\n\s*\n）切分，去掉空白段；null/空串 → [] */
+export function toParagraphs(text: string | null | undefined): string[] {
+  if (!text) return []
+  return text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+}
+
 /**
  * venue JsonString → 展示文本（KTD5/R3）。解析遵循严格四键形状（与 backend
  * Venue.valid?/1 同构）：对象恰有 country/province/city/district 四键且值均为

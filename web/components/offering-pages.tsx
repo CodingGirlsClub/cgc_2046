@@ -922,6 +922,8 @@ interface OfferingState {
 interface MetaDraft {
   offeringId: string;
   title: string;
+  /** 活动介绍草稿（"" = 未填写；保存时 trim，空串归一为 null 下发） */
+  description: string;
   enrollmentPolicy: EnrollmentPolicy;
   capacity: string;
   deadline: string;
@@ -1216,6 +1218,7 @@ export function OfferingDetailPage({
           ? {
               offeringId: offering.id,
               title: offering.title,
+              description: offering.description ?? "",
               enrollmentPolicy: offering.enrollmentPolicy,
               capacity:
                 offering.capacity === null ? "" : String(offering.capacity),
@@ -1502,8 +1505,14 @@ export function OfferingDetailPage({
     setSaveBusy(true);
     setSaveMessage(null);
     try {
+      // description 恒下发（无 dirty 检查；空串归一为 null），保存后局部 state 用同一值
+      const description =
+        activeDraft.description.trim() === ""
+          ? null
+          : activeDraft.description.trim();
       const res = await updateOffering(offering.id, kind, {
         title: activeDraft.title,
+        description,
         enrollmentPolicy: activeDraft.enrollmentPolicy,
         capacity:
           activeDraft.capacity === "" ? null : Number(activeDraft.capacity),
@@ -1546,6 +1555,8 @@ export function OfferingDetailPage({
           row: {
             ...offering,
             title: res.result.title,
+            // mutation 选择集不含 description：用已下发的草稿值就地更新
+            description,
             enrollmentPolicy: res.result.enrollmentPolicy,
             capacity: res.result.capacity,
             registrationDeadline: res.result.registrationDeadline,
@@ -1932,6 +1943,24 @@ export function OfferingDetailPage({
                           })
                         }
                         className="ui-input mt-1 w-full"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="block text-[13px] text-ink-3">
+                        {t("fieldDescription")}
+                      </span>
+                      <textarea
+                        rows={4}
+                        value={activeDraft.description}
+                        onChange={(e) =>
+                          setMetaDraft({
+                            ...activeDraft,
+                            description: e.target.value,
+                          })
+                        }
+                        className="ui-textarea mt-1 w-full"
+                        placeholder={t("fieldDescriptionHint")}
                       />
                     </label>
 
@@ -2748,6 +2777,7 @@ export function OfferingNewPage({
   const { ws, loading: wsLoading } = useWorkspaceBySlugWrapper(slug);
 
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [enrollmentPolicy, setEnrollmentPolicy] =
     useState<EnrollmentPolicy>("open");
   const [visibility, setVisibility] = useState<Visibility>("public");
@@ -2818,6 +2848,7 @@ export function OfferingNewPage({
     try {
       const res = await createOffering(ws.id, kind, {
         title: title.trim(),
+        description: description.trim() === "" ? null : description.trim(),
         enrollmentPolicy,
         visibility,
         capacity: capacity === "" ? null : Number(capacity),
@@ -2921,6 +2952,19 @@ export function OfferingNewPage({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="ui-input mt-1 w-full"
+              />
+            </label>
+
+            <label className="block">
+              <span className="block text-[13px] text-ink-3">
+                {t("fieldDescription")}
+              </span>
+              <textarea
+                rows={4}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="ui-textarea mt-1 w-full"
+                placeholder={t("fieldDescriptionHint")}
               />
             </label>
 
