@@ -1,0 +1,43 @@
+name: Sync omp-ext to plugin repo
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'omp-ext/cgc-2046/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Subtree split omp-ext/cgc-2046
+        run: |
+          git subtree split --prefix=omp-ext/cgc-2046 -b omp-plugin-export
+          git checkout omp-plugin-export
+
+      - name: Clone plugin repo
+        run: |
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/CodingGirlsClub/cgc-omp-plugins.git /tmp/cgc-omp-plugins
+          cd /tmp/cgc-omp-plugins
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Copy plugin files to marketplace structure
+        run: |
+          mkdir -p /tmp/cgc-omp-plugins/plugins/cgc-2046
+          rsync -av --delete omp-ext/cgc-2046/ /tmp/cgc-omp-plugins/plugins/cgc-2046/ --exclude='.git'
+
+      - name: Commit and push if changed
+        run: |
+          cd /tmp/cgc-omp-plugins
+          if [[ -n $(git status --porcelain) ]]; then
+            git add plugins/cgc-2046/
+            git commit -m "sync: omp-ext/cgc-2046 from cgc_2046@$(git rev-parse --short HEAD)"
+            git push origin main
+          else
+            echo "No changes to sync"
+          fi
