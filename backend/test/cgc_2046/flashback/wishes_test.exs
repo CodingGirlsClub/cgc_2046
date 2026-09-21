@@ -471,6 +471,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       _ = attach_identity(user.id, :wechat, "#{@openid}-commenter")
 
       owner = create_person(archive, %{full_name: "韩梅", surname: "韩"})
+
       # owner 无 user 也可以建愿望（KTD4 ③ 是独立路径）——本测试只想让留言面可用。
       {:ok, wish} = Wishes.create_wish(owner.id, "想听到你的声音", "public")
 
