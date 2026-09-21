@@ -205,9 +205,10 @@ describe('campaign 页注册：微信端专属', () => {
   it('微信端页清单登记 campaign，且 4 Tab 结构原样', async () => {
     const config = await loadAppConfig('weapp')
     expect(config.pages).toContain('pages/campaign/index')
+    // tabBar 第二槽是闪念间长廊（U9/R28 起我的报名降为「我的」页内入口）
     expect(config.tabBar.list.map(({ pagePath }) => pagePath)).toEqual([
       'pages/discover/index',
-      'pages/my-enrollments/index',
+      'pages/flashback-corridor/index',
       'pages/workspace/index',
       'pages/profile/index'
     ])

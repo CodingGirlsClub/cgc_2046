@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import InitiativeDetail from "./initiative-detail";
 
@@ -134,7 +134,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("/initiatives/[slug] 公开页", () => {
-	it("渲染四项计数、城市分组与后端派生徽章矩阵", async () => {
+	it("渲染四项计数、城市筛选 chips 与后端派生徽章矩阵", async () => {
 		fetchPublicInitiative.mockResolvedValue(PAYLOAD);
 
 		render(<InitiativeDetail slug="hackerstart1024" />);
@@ -149,8 +149,14 @@ describe("/initiatives/[slug] 公开页", () => {
 		expect(stats.textContent).toContain("14");
 		expect(stats.textContent).toContain("1");
 
-		expect(screen.getByRole("heading", { name: "长沙市" })).toBeInTheDocument();
-		expect(screen.getByRole("heading", { name: "深圳市" })).toBeInTheDocument();
+		// 城市名从分组 h2 移到筛选 chip（button）
+		expect(screen.getByRole("button", { name: /长沙市/ })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /深圳市/ })).toBeInTheDocument();
+
+		// 平铺后四场同屏（不再按城市分 section）
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
 
 		// hero 状态行 + 倡导窗口（与小程序 initiative-detail hero 同信息）
 		const hero = document.querySelector(".initiative-hero")!;
@@ -191,6 +197,45 @@ describe("/initiatives/[slug] 公开页", () => {
 		// 分叉钉死：cancelled 与 closed 文案不得相同
 		expect(hero.querySelector(".initiative-hero__status")!.textContent).not.toBe("已结束 · 活动留档");
 		expect(screen.queryByRole("link", { name: /长沙站/ })).toBeNull();
+	});
+
+	it("平铺 + 城市筛选：chip 过滤场次，「全部城市」恢复", async () => {
+		fetchPublicInitiative.mockResolvedValue(PAYLOAD);
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		// 平铺：四场同屏
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
+
+		// 筛选「长沙市」：深圳站离场，长沙组三场仍在
+		fireEvent.click(screen.getByRole("button", { name: /长沙市/ }));
+		expect(screen.queryByRole("link", { name: /深圳站/ })).toBeNull();
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /上海站/ })).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: /北京站/ })).toBeInTheDocument();
+
+		// 「全部城市」恢复四场
+		fireEvent.click(screen.getByRole("button", { name: "全部城市" }));
+		expect(screen.getByRole("link", { name: /深圳站/ })).toBeInTheDocument();
+	});
+
+	it("单城市不渲染筛选条", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			cityCount: 1,
+			eventCount: 1,
+			cities: [{ city: "长沙市", events: [PAYLOAD.cities[0].events[0]] }],
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-filter")).toBeNull();
+		expect(screen.getByRole("link", { name: /长沙站/ })).toBeInTheDocument();
 	});
 
 	it("加载失败渲染 notFound 与返回入口", async () => {
@@ -575,5 +620,116 @@ describe("F1 布局结构 + F4 未知缴费态（#627）", () => {
 		expect(document.querySelector(".initiative-badge--condition")!.textContent).toBe(
 			"Paid (tiers are listed on the event page)",
 		);
+	});
+});
+
+/**
+ * 描述按 \n\n 分段渲染（plan 001）：单 <p> + white-space:normal 会把多段描述
+ * 塌成一堵文字墙；空段（连续空行）必须丢弃，否则段距随空行数漂移。
+ */
+describe("hero 描述分段渲染", () => {
+	it("多段描述渲染为恰好 3 个 <p>，空段被丢弃", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "\n\n第一段。\n\n第二段。\n\n\n\n第三段。\n\n",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		const paragraphs = desc.querySelectorAll("p");
+		expect(paragraphs).toHaveLength(3);
+		expect(paragraphs[0].textContent).toBe("第一段。");
+		expect(paragraphs[1].textContent).toBe("第二段。");
+		expect(paragraphs[2].textContent).toBe("第三段。");
+		// 短描述（≤3 段且 ≤300 字）不收折：无 toggle 按钮
+		expect(screen.queryByRole("button", { name: "展开全部" })).toBeNull();
+	});
+
+	it("描述为 null 时不渲染 .initiative-hero__desc", async () => {
+		fetchPublicInitiative.mockResolvedValue({ ...PAYLOAD, description: null });
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		expect(document.querySelector(".initiative-hero__desc")).toBeNull();
+	});
+});
+
+/**
+ * hero 长描述收折（plan 004）：状态/窗口是首屏首要信息，长描述（线上实测 689 字）
+ * 默认收折到前 2 段，把首屏还给场次列表；短描述（≤3 段且 ≤300 字）原样展示。
+ * 触发是「或」关系：段数 >3 或总字数 >300 即收折。
+ */
+describe("hero 长描述收折", () => {
+	it("长描述（4 段）默认收折为前 2 段，toggle 为展开态文案 + aria-expanded=false", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		const paragraphs = desc.querySelectorAll("p");
+		expect(paragraphs).toHaveLength(2);
+		expect(paragraphs[0].textContent).toBe("一。");
+		expect(paragraphs[1].textContent).toBe("二。");
+
+		const toggle = screen.getByRole("button", { name: "展开全部" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("展开/收起往返：点击后 4 段全在、aria-expanded 同步，再点回到 2 段", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		fireEvent.click(screen.getByRole("button", { name: "展开全部" }));
+
+		expect(desc.querySelectorAll("p")).toHaveLength(4);
+		const collapse = screen.getByRole("button", { name: "收起" });
+		expect(collapse).toHaveAttribute("aria-expanded", "true");
+
+		fireEvent.click(collapse);
+		expect(desc.querySelectorAll("p")).toHaveLength(2);
+		expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("按字数触发：3 段但总字数 >300 同样收折（与段数是「或」关系）", async () => {
+		const longParagraph = "长".repeat(160);
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: `${longParagraph}\n\n${longParagraph}\n\n${longParagraph}`,
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />);
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const desc = document.querySelector(".initiative-hero__desc")!;
+		expect(desc.querySelectorAll("p")).toHaveLength(2);
+		expect(screen.getByRole("button", { name: "展开全部" })).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("en 同步：长描述渲染 Show more / Show less", async () => {
+		fetchPublicInitiative.mockResolvedValue({
+			...PAYLOAD,
+			description: "一。\n\n二。\n\n三。\n\n四。",
+		});
+
+		render(<InitiativeDetail slug="hackerstart1024" />, { locale: "en" });
+		await screen.findByRole("heading", { name: "Hackerstart 1024 全国黑客松" });
+
+		const toggle = screen.getByRole("button", { name: "Show more" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		fireEvent.click(toggle);
+		expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute("aria-expanded", "true");
 	});
 });

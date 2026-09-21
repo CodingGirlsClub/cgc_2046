@@ -31,6 +31,8 @@ export const ANCHORS = {
   'detail-title': ['pages/event-detail/index.wxss', 'title'],
   'qualification-badge': ['pages/event-detail/index.wxss', 'qualificationBadge'],
   'register-action': ['pages/event-detail/index.wxss', 'primaryButton'],
+  // 活动介绍块（无介绍的场不渲染——锚点仅供静态自检与有介绍 fixture 的 e2e 使用）
+  'detail-description': ['pages/event-detail/index.wxss', 'descriptionPara'],
   // login（协议弹窗在 mask 上）
   'login-title': ['pages/login/index.wxss', 'title'],
   'platform-login': ['pages/login/index.wxss', 'loginButton'],
@@ -50,7 +52,9 @@ export const ANCHORS = {
   'approve-enrollment-1': ['pages/workspace/index.wxss', 'approve'],
   'approval-empty': ['common.wxss', 'state'], // PageState 根类（公共样式块）
   // profile（通知面板 = 本页首个 panel）
-  'notification-list': ['pages/profile/index.wxss', 'panel']
+  'notification-list': ['pages/profile/index.wxss', 'panel'],
+  // profile 页内入口卡（「我的报名」「去 OpenClacky」同款组合类）——journey 按卡片文本挑
+  'profile-entry-card': ['pages/profile/index.wxss', 'openclacky']
 }
 
 // 同一 wxss 供多个锚点共用（discover 3 锚等），内容按路径缓存

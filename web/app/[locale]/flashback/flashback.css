@@ -1,0 +1,1395 @@
+/* 闪念间 In a Flash · 生产版动效与样式（U4-U6）。
+ *
+ * 纪律（KTD9）：全部动效在此文件——@keyframes + CSS 变量 + 切类名；
+ * prod CSP style-src 仅 nonce，组件零内联 style（原型 prototype.css 重写，
+ * 类名前缀 ia- → fb-）。prefers-reduced-motion 下跳过白光/显影直达终态。
+ */
+
+.fb-root {
+	--fb-paper: #f6f2e8;
+	--fb-ink: #2b2723;
+	/* 次要文字：同一语义跨两种底色，单值无解（暗底 #0a0a0c 要亮色、
+	   纸底 #efe9db 要深色，任何单值总有一侧不过 AA）。故拆两个变量：
+	   --fb-sub 暗底用（5.91:1）、--fb-sub-ink 纸底用（5.01:1）。 */
+	--fb-sub: #918c82;
+	--fb-sub-ink: #6b6154;
+	--fb-accent: #cbbf8f;
+	--fb-develop-dur: 1.2s; /* 主照中速显影（R7：慢时刻留给认出自己） */
+	--fb-develop-scatter-dur: 0.6s; /* 散照快显影（R7） */
+	--fb-develop-wall-dur: 2.8s; /* 名册显影（第 7 件：原型 D develop-soft 的 2.8s 档） */
+	--fb-flash-dur: 0.55s;
+	--fb-flip-dur: 0.9s;
+	background: #0a0a0c;
+	/* 暗底默认亮字（对比度审计的系统性根源修复）：页面主体在近黑底上，
+	   --fb-ink 深墨只属于纸面卡内部——纸面容器显式 color: var(--fb-ink)，
+	   暗底元素继承本值 #d9d4ca（≥10:1） */
+	color: #d9d4ca;
+	min-height: 100vh;
+	font-family: "Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", serif;
+	overflow-x: hidden;
+}
+
+.fb-root button,
+.fb-root input,
+.fb-root textarea,
+.fb-root select {
+	font-family: inherit;
+	color: inherit;
+}
+
+/* ── 白光快门（R4） ─────────────────────────────────────────────── */
+@keyframes fb-flash {
+	0% { opacity: 0; }
+	10% { opacity: 1; }
+	100% { opacity: 0; }
+}
+.fb-flash-overlay {
+	position: fixed;
+	inset: 0;
+	background: #fff;
+	pointer-events: none;
+	animation: fb-flash var(--fb-flash-dur) ease-out forwards;
+	z-index: 50;
+}
+
+/* ── 显影：模糊+过曝 → 清晰（R7） ──────────────────────────────── */
+@keyframes fb-develop {
+	0% { filter: blur(26px) brightness(1.9) saturate(0.2); opacity: 0.15; transform: scale(0.97); }
+	55% { filter: blur(9px) brightness(1.35) saturate(0.6); opacity: 0.85; }
+	100% { filter: blur(0) brightness(1) saturate(1); opacity: 1; transform: scale(1); }
+}
+.fb-develop { animation: fb-develop var(--fb-develop-dur) ease-out forwards; }
+
+/* 弱显影：墙上/散照/长廊城市堆的「还没认领」持续感
+   （散照卡经 .fb-scatter-photo 组合动画挂载；城市堆经 .fb-corridor-polaroid--develop） */
+@keyframes fb-develop-soft {
+	0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
+	100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
+}
+
+/* ── 拍立得本体 ────────────────────────────────────────────────── */
+.fb-polaroid {
+	background: var(--fb-paper);
+	color: var(--fb-ink);
+	border-radius: 4px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+	position: relative;
+}
+.fb-photo {
+	aspect-ratio: 1;
+	overflow: hidden;
+	position: relative;
+	background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+}
+/* 相纸颗粒 */
+.fb-grain::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.44 0 0 0 0.14 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+
+/* ── 3D 翻面（R8；只改视觉，背面读屏始终可达） ──────────────────── */
+.fb-flip-scene { perspective: 1400px; }
+.fb-flip-inner {
+	position: relative;
+	transform-style: preserve-3d;
+	transition: transform var(--fb-flip-dur) cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.fb-flip-inner.fb-flipped { transform: rotateY(180deg); }
+.fb-face {
+	backface-visibility: hidden;
+	-webkit-backface-visibility: hidden;
+}
+.fb-face-back { position: absolute; inset: 0; transform: rotateY(180deg); }
+
+/* ── 两段式翻面容器（第 3 件：旅程显影卡「点击卡面翻面写字」，原型 E ia-flip 语言）
+   整程 = 两个半程各 0.45s，同一条 cubic-bezier(0.2, 0.7, 0.2, 1)（= 原型 0.9s 的拆分）。
+   换面在侧棱处发生（use-card-flip.ts），当前面的自然高度决定容器高度。 ───────── */
+.fb-flip-swap {
+	perspective: 1400px;
+	display: flex;
+	justify-content: center;
+	width: 100%;
+}
+.fb-flip-swap > * { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+@keyframes fb-flip-swap-out {
+	from { transform: rotateY(0deg); }
+	to { transform: rotateY(90deg); }
+}
+@keyframes fb-flip-swap-in {
+	from { transform: rotateY(-90deg); }
+	to { transform: rotateY(0deg); }
+}
+.fb-flip-swap--out > * { animation: fb-flip-swap-out 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+.fb-flip-swap--in > * { animation: fb-flip-swap-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+/* 旅程显影卡：拍立得是「物理物件」，需要卡尺寸——原型 A min(380px, 90vw) /
+   E 手机 390 视口的 78vw；此前无宽度约束，桌面端被拉成 1644px 的整幅纸面。 */
+.fb-flip-swap > .fb-reveal-card {
+	width: min(380px, 90vw);
+	display: block;
+	text-align: left;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+/* 对比度：.fb-root button { color: inherit }（0-1-1）会压过 .fb-polaroid 的
+   color: var(--fb-ink)（0-1-0）——沿用 .fb-cta 的特异性教训，显式回写纸面墨色 */
+.fb-root .fb-reveal-card { color: var(--fb-ink); }
+
+/* ── 呼吸的快门 ─────────────────────────────────────────────────── */
+@keyframes fb-breathe {
+	0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.35); }
+	50% { box-shadow: 0 0 0 14px rgba(255, 255, 255, 0); }
+}
+.fb-breathe { animation: fb-breathe 2.4s ease-in-out infinite; }
+
+/* ── 散照入场（R5） ────────────────────────────────────────────── */
+@keyframes fb-card-in {
+	from { opacity: 0; transform: translateY(50px) rotate(var(--fb-r, 0deg)); }
+	to { opacity: 1; transform: translateY(0) rotate(var(--fb-r, 0deg)); }
+}
+
+/* ── 信封（R9 圆梦线；第 6 件：原型 C 的拆信仪式活化） ────────────────
+   物件 = 拍立得尺寸的信封（封套 + 信纸 + 三角封盖），点按 → 封盖旋开 +
+   信纸升起。这里是物件本体尺寸，动画沿用下方 fb-flap / fb-letter-out。 */
+.fb-root .fb-envelope {
+	width: min(320px, 84vw);
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	overflow: hidden;
+	background: linear-gradient(#efe8d8, #e2d9c4);
+}
+.fb-envelope-body { display: block; position: relative; height: 210px; }
+.fb-envelope-letter {
+	position: absolute;
+	left: 6%;
+	right: 6%;
+	top: 14px;
+	bottom: 14px;
+	background: #fbf7ec;
+	border-radius: 3px;
+	box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+	display: grid;
+	place-items: center;
+	font-size: 14px;
+	color: #6a655c;
+}
+.fb-envelope-flap {
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: 58%;
+	background: linear-gradient(#e6ddc8, #dbd0b8);
+	clip-path: polygon(0 0, 100% 0, 50% 100%);
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+	display: grid;
+	place-items: center;
+}
+.fb-envelope-mark { font-size: 22px; margin-top: 32%; opacity: 0.55; }
+
+/* ── 信封（R9 圆梦线） ─────────────────────────────────────────── */
+@keyframes fb-flap-open {
+	from { transform: rotateX(0deg); }
+	to { transform: rotateX(180deg); }
+}
+.fb-flap {
+	transform-origin: top;
+	animation: fb-flap-open 1s ease-in-out forwards;
+}
+@keyframes fb-letter-out {
+	from { transform: translateY(0); }
+	to { transform: translateY(-46%); }
+}
+.fb-letter-out { animation: fb-letter-out 1.2s ease-out forwards; animation-delay: 0.8s; }
+
+/* ── 签名/寄出动效 ─────────────────────────────────────────────── */
+@keyframes fb-sign {
+	from { opacity: 0; transform: translateY(6px) rotate(-4deg); }
+	to { opacity: 1; transform: translateY(0) rotate(-4deg); }
+}
+.fb-sign { animation: fb-sign 0.5s ease-out both; }
+
+/* ── 雾面（R16：对外遮蔽，本人视图完整） ────────────────────────── */
+.fb-fog-span {
+	filter: blur(0.32em);
+	background: rgba(43, 39, 35, 0.12);
+	border-radius: 0.2em;
+	user-select: none;
+}
+
+/* ── 布局骨架 ──────────────────────────────────────────────────── */
+.fb-stage {
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	padding: 60px 26px 40px;
+}
+.fb-stage-pad { padding: 70px 26px 48px; justify-content: flex-start; }
+
+.fb-kicker {
+	color: #cfcbc2;
+	font-size: 13px;
+	letter-spacing: 0.35em;
+	margin-bottom: 30px;
+}
+.fb-lead {
+	color: var(--fb-sub);
+	font-size: 16px;
+	line-height: 2.1;
+	/* 布局修复：原来只有 280px 的手机值且没有水平居中——桌面端贴左、行宽过窄
+	   （实测 1573px 视口下文本块中心 x=166，页面中心 787）。手机占满可用宽，
+	   桌面约 34em（≈544px）并居中；字号与行高不动。 */
+	max-width: min(100%, 34em);
+	margin: 0 auto;
+}
+.fb-hint {
+	font-size: 12px;
+	margin-top: 16px;
+	color: var(--fb-sub);
+}
+/* 纸底表单内的次要文字覆盖：--fb-sub 是为暗底调的亮色，落在纸底 #efe9db
+   上不过 AA——纸底容器改用 --fb-sub-ink（5.01:1）。 */
+.fb-write-form .fb-hint {
+	color: var(--fb-sub-ink);
+}
+
+.fb-shutter {
+	margin-top: 56px;
+	width: 72px;
+	height: 72px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.6);
+	background: radial-gradient(circle at 38% 34%, #3c3c42, #17171c);
+	cursor: pointer;
+}
+
+/* .fb-root 前缀（0-2-0）压过 .fb-root button { color: inherit }（0-1-1）
+   ——两起实测对比度 bug 的根源：显式色被继承链吞掉 */
+.fb-root .fb-cta {
+	margin-top: 22px;
+	font-size: 15px;
+	padding: 12px 28px;
+	border-radius: 999px;
+	cursor: pointer;
+	position: relative;
+	z-index: 5;
+	background: rgba(255, 255, 255, 0.08);
+	color: #cfcabf;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.fb-root .fb-cta-primary {
+	background: var(--fb-accent);
+	color: #17161a;
+	border: none;
+	font-weight: 600;
+}
+/* 寄出即公开的后果说明（按钮下方小字；.fb-root 前缀同 .fb-cta 的特异性教训）。
+   用 --fb-sub（暗底 5.91:1）——它与提交按钮同在暗底 stage，非纸底表单内。 */
+.fb-root .fb-send-note {
+	margin: 10px 0 0;
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--fb-sub);
+	text-align: center;
+}
+
+.fb-question { font-size: 19px; margin-bottom: 24px; line-height: 1.5; color: #d9d4ca; }
+.fb-options { display: grid; gap: 12px; width: 100%; max-width: 420px; }
+.fb-root .fb-option {
+	text-align: left;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 12px;
+	color: #d9d4ca;
+	font-size: 16px;
+	padding: 15px 18px;
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+}
+.fb-root .fb-option-hint { opacity: 0.7; font-size: 12px; }
+
+/* ── 散照桌面（原型 B「桌面散照式」，E 散照步同源） ─────────────────────
+   场景连续性：散照/问答/显影/翻面写字同屏，不再一页一步。
+   三张卡绝对定位 + 确定性转角（KTD9：类名驱动，零内联 style）；点一张放大到
+   最前（scale 1.28 + 摆正 + z 提升）可反复换着看，选定后桌面退到背景。 */
+.fb-desk { min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+.fb-desk-scene {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 56px 26px 0;
+	transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.fb-desk-scene--done { opacity: 0.4; transform: scale(0.94); }
+.fb-desk-table {
+	position: relative;
+	width: min(560px, 100%);
+	height: 54vh;
+	min-height: 330px;
+	margin-top: 8px;
+	transition: height 0.5s ease;
+}
+.fb-desk-scene--done .fb-desk-table { height: 120px; }
+.fb-root .fb-scatter-photo {
+	position: absolute;
+	padding: 5% 5% 0;
+	cursor: pointer;
+	border: none;
+	scale: 1;
+	z-index: 1;
+	transition: scale 0.35s ease, box-shadow 0.35s ease;
+	/* 第 5 件修复：入场 + 快显影必须写在同一条 animation 声明里——分属两条规则时
+	   （等特异性、靠后者胜）简写整条覆盖，0.6s 快显影与 --fb-d 错峰都是死参数。 */
+	animation:
+		fb-card-in 0.7s ease-out both,
+		fb-develop-soft var(--fb-develop-scatter-dur) ease-out both;
+	animation-delay: var(--fb-d, 0s);
+}
+/* 三张卡的落点与转角（B 的 SCATTER 收敛到 3 张：左/右上/中下错落） */
+.fb-scatter-photo:nth-child(1) { left: 1%; top: 4%; width: 45%; --fb-r: -7deg; --fb-d: 0s; }
+.fb-scatter-photo:nth-child(2) { left: 47%; top: 0; width: 41%; --fb-r: 5deg; --fb-d: 0.12s; }
+.fb-scatter-photo:nth-child(3) { left: 22%; top: 42%; width: 47%; --fb-r: -3deg; --fb-d: 0.24s; }
+/* 认领（放大到最前）：摆正 + 抬升；--fb-r 归零让入场动画的 fill 帧也回正 */
+.fb-root .fb-scatter-photo--picked {
+	--fb-r: 0deg;
+	scale: 1.28;
+	z-index: 30;
+	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+}
+.fb-scatter-photo:focus-visible {
+	outline: 2px solid var(--fb-accent);
+	outline-offset: 3px;
+}
+.fb-scatter-photo .fb-photo {
+	position: relative;
+	display: grid;
+	place-items: center;
+	font-size: 11px;
+	color: #4a463f;
+	filter: blur(3px);
+}
+.fb-scatter-photo--picked .fb-photo { filter: blur(0); }
+/* 拍立得日期戳（批次二收尾）：放大=回报——右下角橙色歪斜日期「2016 10 15」
+ * 渐显（真拍立得的经典元素）。只给日期不给城市：玩家对照问答里的场次全名，
+ * 一小步认知参与后猜才成立，谜不泄底。渐显 0.8s 完成。 */
+.fb-scatter-stamp {
+	position: absolute;
+	right: 6%;
+	bottom: 5%;
+	color: #e8541e;
+	font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	transform: rotate(-6deg);
+	text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+	filter: blur(5px);
+	opacity: 0;
+	transition: filter 0.8s ease, opacity 0.8s ease;
+}
+.fb-scatter-photo--picked .fb-scatter-stamp {
+	filter: blur(0);
+	opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+	.fb-scatter-stamp { transition: none; }
+}
+/* 原位显影：桌面退后，同一场景里长出显影卡（1.2s 中速显影由 reveal 承载） */
+.fb-desk-reveal { width: 100%; animation: fb-desk-reveal-in 0.6s ease-out both; }
+@keyframes fb-desk-reveal-in {
+	from { opacity: 0; transform: translateY(20px) scale(0.96); }
+	to { opacity: 1; transform: none; }
+}
+/* 问答 bottom sheet（原型 B：与散照同屏，非模态） */
+.fb-quiz-sheet {
+	position: fixed;
+	left: 50%;
+	bottom: 18px;
+	width: min(520px, calc(100% - 32px));
+	transform: translateX(-50%);
+	background: rgba(18, 17, 16, 0.96);
+	border: 1px solid rgba(255, 255, 255, 0.16);
+	border-radius: 14px;
+	padding: 20px;
+	z-index: 40;
+	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+	animation: fb-sheet-in 0.35s ease-out 1s both; /* 日期戳 0.8s 渐显完成后半拍再滑入 */
+
+}
+.fb-quiz-hint { margin: 4px 0 14px; color: #77726a; font-size: 11px; letter-spacing: 0.05em; }
+.fb-quote-courage {
+	display: inline-block;
+	margin: 8px 0 10px;
+	padding: 5px 14px;
+	border: 1px solid rgba(203, 191, 143, 0.55);
+	border-radius: 999px;
+	background: #fdf6e9;
+	color: #b34700;
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
+/* 场次选项 = 紧凑胶囊（原型 B wrap 形态）：多场下 4+2 个选项两行内收，
+   sheet 变矮不遮放大卡——焦点顺序：放大卡（线索）> 胶囊选项（作答） */
+.fb-quiz-sheet .fb-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	width: auto;
+	max-width: none;
+}
+.fb-quiz-sheet .fb-option {
+	flex: 0 1 auto;
+	justify-content: center;
+	border-radius: 999px;
+	font-size: 13px;
+	padding: 8px 16px;
+}
+.fb-quiz-title { margin: 0 0 14px; font-size: 16px; line-height: 1.5; color: #d9d4ca; }
+@keyframes fb-sheet-in {
+	from { opacity: 0; transform: translate(-50%, 26px); }
+	to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ── 寄出浮层（原型 E/F：覆盖在显影场景上，不换页） ─────────────────── */
+.fb-send-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	display: grid;
+	align-content: center;
+	padding: 24px;
+	z-index: 60;
+	animation: fb-fade-in 0.25s ease-out both;
+}
+@keyframes fb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.fb-send-step {
+	width: min(420px, 100%);
+	margin: 0 auto;
+	padding: 26px 22px;
+	background: #16161a;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	border-radius: 16px;
+	text-align: center;
+	display: grid;
+	gap: 10px;
+	justify-items: center;
+	animation: fb-send-in 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes fb-send-in {
+	from { opacity: 0; transform: translateY(18px) scale(0.97); }
+	to { opacity: 1; transform: none; }
+}
+.fb-send-title { margin: 0; font-size: 18px; line-height: 1.6; color: #d9d4ca; }
+
+/* 拍立得答案区（R7）；卡面是 button（第 3 件翻面），内容用 span + 块级化 */
+.fb-answers { padding: 9%; display: grid; gap: 10px; text-align: left; }
+.fb-answer { display: block; }
+.fb-answer-q { font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
+.fb-answer-a { font-size: 12px; line-height: 1.7; }
+.fb-card-caption {
+	padding: 9px 11px;
+	font-size: 11px;
+	display: flex;
+	justify-content: space-between;
+	opacity: 0.85;
+}
+.fb-caption-tilt { transform: rotate(-1.2deg); display: inline-block; }
+
+/* 「我是谁」结构化行（R7：性别/职业/系统/城市） */
+.fb-identity { display: flex; flex-wrap: wrap; gap: 6px; }
+.fb-identity span {
+	font-size: 10px;
+	border: 1px solid rgba(43, 39, 35, 0.2);
+	border-radius: 999px;
+	padding: 2px 8px;
+	opacity: 0.8;
+}
+
+/* 圆梦线 CTA 两态（U4/R9） */
+.fb-dream-cta { text-decoration: none; display: inline-flex; align-items: center; }
+.fb-dream-fallback { display: flex; flex-direction: column; align-items: center; max-width: 420px; }
+
+/* 写字面 = 影卡背面（第 3 件）：表单即拍立得背面纸面，提交钮在卡外（原型 caption 位） */
+.fb-write-sheet {
+	width: 100%;
+	max-width: 420px;
+	display: grid;
+	gap: 12px;
+	justify-items: center;
+}
+.fb-write-title { margin: 0; font-size: 18px; color: var(--fb-ink); }
+.fb-quote-picker { margin-top: 8px; }
+.fb-quote-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+.fb-quote-list .fb-option { font-size: 14px; padding: 10px 14px; }
+.fb-option-selected {
+	border-color: var(--fb-accent);
+	background: rgba(203, 191, 143, 0.12);
+}
+.fb-contact { text-align: left; }
+
+/* 比特币提醒（R25：全场告知） */
+.fb-btc-note {
+	margin-top: 18px;
+	max-width: 420px;
+	font-size: 12px;
+	line-height: 1.8;
+	color: var(--fb-accent);
+	border: 1px dashed rgba(203, 191, 143, 0.4);
+	border-radius: 10px;
+	padding: 10px 14px;
+	text-align: left;
+}
+
+/* 翻面写字表单（R8） */
+.fb-write-form {
+	padding: 9%;
+	display: grid;
+	gap: 14px;
+	text-align: left;
+	background: #efe9db;
+	color: var(--fb-ink);
+}
+.fb-field-label { font-size: 11px; opacity: 0.7; }
+.fb-field-input,
+.fb-field-textarea {
+	border: none;
+	border-bottom: 1px solid rgba(43, 39, 35, 0.25);
+	background: transparent;
+	font-size: 13px;
+	padding: 6px 2px;
+	width: 100%;
+	min-height: 1.7em;
+	resize: vertical;
+}
+.fb-field-textarea { min-height: 3.4em; }
+.fb-checks { display: grid; gap: 8px; font-size: 12px; }
+.fb-checks label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+
+/* 读屏专用（视觉隐藏） */
+.fb-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* 阶段标题（焦点落点，U4 无障碍验收） */
+.fb-stage-title {
+	font-size: 20px;
+	color: #d9d4ca;
+	margin-bottom: 18px;
+	outline: none;
+}
+
+/* 期望管理（R29） */
+.fb-promise {
+	margin-top: 14px;
+	font-size: 12px;
+	color: var(--fb-accent);
+	line-height: 1.8;
+	max-width: 420px;
+}
+
+/* 失效落地页（U4 三分支） */
+.fb-invalid { color: #d9d4ca; }
+.fb-invalid-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 28px; }
+.fb-invalid-actions a {
+	color: #cfcabf;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 999px;
+	padding: 10px 22px;
+	text-decoration: none;
+	font-size: 14px;
+}
+
+/* ── U5 时间胶囊：走廊两形态 / 名册分层 / 行动板 / 卡片导出 ─────────── */
+.fb-capsule { min-height: 100vh; display: flex; flex-direction: column; }
+.fb-capsule-header, .fb-capsule-footer { text-align: center; padding: 26px 22px 6px; }
+.fb-capsule-footer { padding: 10px 22px 30px; }
+/* 头部照原型 D 收紧：轻量标题（17px/0.2em/灰）+ 紧凑垂直间距 */
+.fb-capsule-header .fb-stage-title { font-size: 17px; color: #b9b4aa; letter-spacing: 0.2em; margin-bottom: 8px; }
+.fb-capsule-header .fb-hint { margin-top: 8px; }
+
+/* 城市钉（R34，原型 D ia-pin）：胶囊钉、选中品牌橙白字、未选中性灰白
+ * （语义与小程序换肤后的钉条同款——选中橙/未选灰白）。
+ * .fb-root 前缀（0-2-0）压过 .fb-root button { color: inherit }（0-1-1）——同 .fb-cta 的特异性教训 */
+.fb-root .fb-city-pins { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 2px 22px 12px; }
+.fb-root .fb-city-pin {
+	background: rgba(255, 255, 255, 0.07);
+	color: #b9b4aa;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	border-radius: 999px;
+	font: inherit;
+	font-size: 13px;
+	padding: 6px 16px;
+	cursor: pointer;
+}
+.fb-root .fb-city-pin:hover { color: #d9d4ca; }
+.fb-root .fb-city-pin--active,
+.fb-root .fb-city-pin--active:hover {
+	background: #ea5504;
+	border-color: #ea5504;
+	color: #fff;
+	font-weight: 600;
+}
+.fb-corridor-empty { text-align: center; padding: 10px 22px; }
+
+/* 走廊：窄屏纵向（默认）——下滑 = 时间前进 */
+.fb-corridor {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px 22px 18px;
+	background: linear-gradient(180deg, #17161a 0%, #1d1c22 55%, #131217 100%);
+}
+/* 宽屏横向：桌面横向滚动走廊（原型 variant-d） */
+@media (min-width: 768px) {
+	.fb-corridor {
+		flex-direction: row;
+		overflow-x: auto;
+		padding: 18px 28px 26px;
+		gap: 0; /* 原型：帧间无缝隙，分隔线两侧就是各自 28px padding（ia-corridor gap:0） */
+	}
+}
+.fb-corridor-scrollhint { margin: 0 0 10px; text-align: center; }
+.fb-corridor-frame {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px 0 8px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+@media (min-width: 768px) {
+	.fb-corridor-frame {
+		min-width: 260px; /* 原型 variant-d ia-frame：窄列竖长密度 */
+		border-bottom: none;
+		border-right: 1px solid rgba(255, 255, 255, 0.07);
+		padding: 0 28px; /* 左右对称：摞内阶梯左探（-138px 起）落进帧 padding 不被滚剪 */
+	}
+}
+.fb-corridor-when {
+	color: #b9b4aa;
+	font-size: 13px;
+	letter-spacing: 0.12em;
+	font-weight: 400;
+	margin: 0;
+}
+.fb-corridor-flabel { color: #77726a; font-size: 10px; margin-left: 8px; letter-spacing: 0.05em; }
+.fb-corridor-now { border-bottom: none; }
+.fb-corridor-when--now { color: #cbbf8f; font-weight: 600; }
+.fb-corridor-now {
+	background: radial-gradient(70% 60% at 30% 20%, rgba(203, 191, 143, 0.09), transparent);
+}
+
+/* ── 城市照片堆（用户定稿 D / 原型 mobile-journey corridor 步的生产化） ──
+   一帧只留城市照片堆 + 「进入这一场 →」入口（逐个名册归场次页 3 列网格）：
+   每城一张小拍立得（纸白 + grain + 城市名，原型 84px 档）+ 下方「城市 · n 位」
+   小字。转角按城市名确定性派生（tilt 类，无随机）。 */
+.fb-corridor-piles {
+	list-style: none;
+	display: flex;
+	flex-wrap: wrap; /* 一行两摞（原型）：摞盒占宽 92px，阶梯左探为纯视觉溢出，相邻摞交错贴合出紧凑感 */
+	gap: 14px 12px;
+	margin: 0;
+	padding: 0;
+}
+.fb-corridor-pile { text-align: center; }
+/* 堆可点（用户定稿收尾）：hover 整摞微抬 + 按压下沉，两个入口并存 */
+.fb-corridor-pile-link { display: inline-block; text-decoration: none; }
+.fb-corridor-stack { display: flex; flex-direction: column; align-items: center; transition: transform 0.2s ease; }
+.fb-corridor-pile-link:hover .fb-corridor-stack { transform: scale(1.04); }
+.fb-corridor-pile-link:active .fb-corridor-stack { transform: scale(0.98); }
+.fb-corridor-pile-link:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+	.fb-corridor-stack { transition: none; }
+}
+/* 一城一摞（原型 variant-d ia-pile）：同卡 4 张，逐张左移 46px / 下移 8px / 转角交错 */
+.fb-corridor-stack .fb-corridor-polaroid { transform: rotate(var(--fb-r, 0deg)); }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(1) { --fb-r: -7deg; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(2) { --fb-r: 1deg; margin: 8px 0 0 -46px; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(3) { --fb-r: -6deg; margin: 16px 0 0 -92px; }
+.fb-corridor-stack .fb-corridor-polaroid:nth-child(4) { --fb-r: 2deg; margin: 24px 0 0 -138px; }
+.fb-corridor-polaroid {
+	width: 92px; /* 原型 variant-d ia-polaroid */
+	padding: 5% 5% 0;
+}
+.fb-corridor-photo {
+	display: grid;
+	place-items: center;
+	font-size: 10px;
+	color: #4a463f;
+}
+.fb-corridor-caption { display: block; font-size: 8px; padding: 3px 5px; opacity: 0.6; text-align: center; white-space: nowrap; }
+.fb-corridor-count { font-size: 9px; color: var(--fb-sub); margin: 6px 0 0; }
+/* 显影（原型 --d 手法）：加载即播、全局时间线（--fb-d 内联：摞间 +0.3s、摞内 +0.2s）。
+   fill-mode 只 forwards（非 both）——delay 期间卡清晰在場，轮到自己才「闪熄」（0% 处
+   brightness 1.6 + blur 18 + opacity 0.1）再渐稳，逐卡错峰即「群星闪耀」；
+   forwards 停在 blur(1px)/亮度 1.08/透明 0.94 的雾化稳态——「朦胧感」的来源 */
+.fb-corridor-stack .fb-corridor-polaroid {
+	animation: fb-develop-soft var(--fb-develop-wall-dur) ease-out forwards;
+	animation-delay: var(--fb-d, 0s);
+}
+
+/* 名册（R12 分层；场次页 3 列网格——长廊收口 D 后不再挂名册） */
+.fb-roster-meta { color: #77726a; font-size: 11px; margin: 0 0 10px; }
+/* 整齐的名册网格：3 列拍立得（错落感归长廊的城市照片堆，名册回到可数的格子） */
+.fb-roster-grid {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 14px;
+}
+.fb-roster-card {
+	/* 旋转档位（tiltClass 注入 --fb-r）：确定性转角，无随机 */
+	transform: rotate(var(--fb-r, 0deg));
+}
+.fb-tilt--0 { --fb-r: -5deg; }
+.fb-tilt--1 { --fb-r: -3deg; }
+.fb-tilt--2 { --fb-r: 0.5deg; }
+.fb-tilt--3 { --fb-r: 3.5deg; }
+.fb-tilt--4 { --fb-r: 5deg; }
+/* 拍立得结构（第 7c 件，原型 D/F 语言）：卡 = 白边（padding）+ 照片区 + 窗下小字。
+   未寄出为雾卡（虚框 + 透明窗），已寄出为纸白卡 + 灰窗。 */
+.fb-roster-card {
+	background: rgba(239, 233, 219, 0.07);
+	border: 1px dashed rgba(239, 233, 219, 0.35);
+	border-radius: 6px;
+	padding: 7% 7% 3%;
+	text-align: left;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.fb-roster-card--lit {
+	background: var(--fb-paper);
+	color: var(--fb-ink);
+	border: none;
+	border-radius: 4px;
+	padding: 7% 7% 0;
+	/* 原型 D 的纸卡投影（.ia-polaroid 同款） */
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.fb-roster-photo {
+	display: grid;
+	place-items: center;
+	aspect-ratio: 1;
+	background: rgba(239, 233, 219, 0.05);
+	border: 1px dashed rgba(239, 233, 219, 0.22);
+	margin-bottom: 6px;
+}
+.fb-roster-name { font-size: 14px; font-weight: 600; }
+.fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
+.fb-roster-facts { font-size: 10px; opacity: 0.65; }
+/* ── 名册显影（第 7a 件：对齐原型 D 的 develop-soft 节奏） ──────────────
+   进入视口才显影，只播一次；终态**不归零**（blur(1px)/brightness(1.08)/0.94，
+   对齐原型 ia-develop-soft「墙上别人照片的持续感」——整面墙保持将显未定的
+   微光）；滚动进视口的新卡同样显影。
+   两态：--pending（未进视口的前置态，静态）+ --develop（进视口后播动画，
+   both 填充保证延迟期间停在 0% 帧）。JS 侧见 use-develop-on-view.ts。
+   注意：这里仍是 animation 简写——同一元素不要再挂第二条同类简写（第 5 件陷阱）。 */
+@keyframes fb-roster-develop {
+	0% { opacity: 0.1; filter: blur(18px) brightness(1.6); }
+	100% { opacity: 0.94; filter: blur(1px) brightness(1.08); }
+}
+.fb-roster-card--pending { opacity: 0.1; filter: blur(18px) brightness(1.6); }
+.fb-roster-card--develop {
+	animation: fb-roster-develop var(--fb-develop-wall-dur) ease-out both;
+}
+/* 错峰：6 档 0.12s 递进（D 的 pile 间 0.2~0.3s 档的收敛版——名册卡比照片堆密，
+   同档位会更像卡顿；滚动进入的卡最多等 0.6s，仍在手感阈值内） */
+.fb-roster-card--develop:nth-child(6n+2) { animation-delay: 0.12s; }
+.fb-roster-card--develop:nth-child(6n+3) { animation-delay: 0.24s; }
+.fb-roster-card--develop:nth-child(6n+4) { animation-delay: 0.36s; }
+.fb-roster-card--develop:nth-child(6n+5) { animation-delay: 0.48s; }
+.fb-roster-card--develop:nth-child(6n+6) { animation-delay: 0.6s; }
+/* ── 雾面段（视觉升级）：相纸上被呵了气 / 显影未完成的遮蔽 ──────────────
+   多层手法：backdrop-filter 把纸面纹理糊开 + 噪点纹理（同 fb-grain）叠加
+   + mask 边缘羽化过渡 + 非 reduced 下的极缓微光呼吸。零内联 style（KTD9），
+   宽度按 len 三档类（s/m/l）。本人视图（enter reveal）不受影响——原文永显。 */
+.fb-fog-block {
+	display: inline-block;
+	vertical-align: baseline;
+	height: 1em;
+	margin: 0 2px;
+	border-radius: 0.5em;
+	/* 自身再糊一层：色块边缘不再锐利（视觉复核两轮反馈：贴片感） */
+	filter: blur(0.5px);
+	background: rgba(43, 39, 35, 0.09);
+	/* 呵气感：背后内容糊开提亮（相纸灰雾） */
+	backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
+	-webkit-backdrop-filter: blur(5px) brightness(1.12) saturate(0.6);
+	position: relative;
+	overflow: hidden;
+	/* 边缘羽化：椭圆 mask（水平 30% 起步即渐入渐出，垂直 40%），
+	 呈呵气椭圆而非贴片矩形 */
+	mask-image: radial-gradient(ellipse 130% 190% at 50% 50%, #000 30%, transparent 78%);
+	-webkit-mask-image: radial-gradient(ellipse 130% 190% at 50% 50%, #000 30%, transparent 78%);
+}
+/* 噪点纹理：与相纸颗粒同源（fb-grain 的 SVG noise） */
+.fb-fog-block::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.48 0 0 0 0 0.44 0 0 0 0.2 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+	mix-blend-mode: multiply;
+	pointer-events: none;
+}
+/* 微光呼吸：呵气在慢慢散（极缓、非必要动画——reduced-motion 关） */
+@keyframes fb-fog-breathe {
+	0%, 100% { filter: brightness(1) opacity(1); }
+	50% { filter: brightness(1.05) opacity(0.94); }
+}
+.fb-fog-block { animation: fb-fog-breathe 6s ease-in-out infinite; }
+.fb-fog-block--s { width: 3.5em; }
+.fb-fog-block--m { width: 6.5em; }
+.fb-fog-block--l { width: 10em; }
+/* ── 两态拍立得（用户定稿 ①）：合着卡面 → 点击 3D 翻转 ───────────────────
+   第 7c 件：白边与纸底交给外层 li（.fb-roster-card--lit，padding 即白边），
+   本件只承载「照片区 + 窗下小字」。 */
+.fb-polaroid-flip {
+	display: block;
+	width: 100%;
+	text-align: left;
+	background: none;
+	color: var(--fb-ink);
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+/* 合着卡面：灰窗内是全名（她的「照片」），窗下是年份·城市小字 */
+.fb-flip-cover {
+	display: grid;
+	gap: 0;
+	justify-items: stretch;
+	position: relative;
+}
+.fb-flip-cover-photo {
+	display: grid;
+	place-items: center;
+	aspect-ratio: 1;
+	position: relative;
+	background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+}
+.fb-flip-cover-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--fb-accent);
+	box-shadow: 0 0 8px rgba(203, 191, 143, 0.8);
+	position: absolute;
+	top: 4px;
+	right: 0;
+}
+.fb-flip-cover-name { font-size: 15px; font-weight: 600; color: var(--fb-ink); }
+.fb-flip-cover-facts { font-size: 10px; opacity: 0.7; padding: 7px 1px; }
+/* 翻开态：正反两面并置的拍立得内容（翻转交互语言：进入时 3D 转入） */
+.fb-flip-open {
+	display: grid;
+	gap: 8px;
+	animation: fb-flip-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes fb-flip-in {
+	from { transform: rotateY(-84deg); opacity: 0.3; }
+	to { transform: rotateY(0); opacity: 1; }
+}
+.fb-flip-face { display: grid; gap: 0; }
+.fb-flip-face--front { border-bottom: 1px dashed rgba(43, 39, 35, 0.2); padding-bottom: 8px; }
+/* 照片区：正面当年答案（灰窗，同封面窗），背面今天的你（纸白窗） */
+.fb-flip-photo {
+	display: grid;
+	gap: 6px;
+	padding: 8%;
+	background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+}
+.fb-flip-photo--back { background: #efe9db; }
+.fb-flip-caption { font-size: 9px; opacity: 0.6; letter-spacing: 0.08em; padding: 7px 1px 2px; }
+.fb-flip-answer { font-size: 11px; line-height: 1.7; display: block; }
+.fb-flip-photo .fb-fog-block { background: rgba(43, 39, 35, 0.16); }
+.fb-flip-face--back { padding-top: 8px; }
+.fb-flip-today-line { font-size: 11px; line-height: 1.7; display: block; }
+.fb-flip-today-empty { font-size: 11px; opacity: 0.55; font-style: italic; }
+.fb-roster-content { display: grid; gap: 6px; }
+.fb-roster-answer, .fb-roster-today { font-size: 11px; line-height: 1.6; margin: 0; color: var(--fb-ink); }
+.fb-roster-dashed {
+	font-size: 11px;
+	color: #8d887e;
+	border-bottom: 1px dashed rgba(239, 233, 219, 0.3);
+	padding-bottom: 6px;
+	margin: 0;
+	flex: 1;
+}
+
+.fb-event { min-height: 100vh; display: flex; flex-direction: column; padding: 24px 22px 40px; gap: 14px; }
+.fb-event-back { align-self: flex-start; color: #b9b4aa; font-size: 13px; text-decoration: none; }
+.fb-event-title { margin: 0; font-size: 20px; color: #d9d4ca; }
+.fb-event-stats { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: #b9b4aa; margin: 0; }
+.fb-event-stats .fb-event-returned { color: var(--fb-accent); }
+.fb-event-section { margin: 4px 0 0; font-size: 13px; color: #8d887e; }
+.fb-event-find { margin-top: 12px; text-align: center; }
+
+/* 「今天」格 */
+.fb-today-card { width: 190px; }
+.fb-today-card--lit {
+	border: 1px solid rgba(203, 191, 143, 0.55);
+	color: var(--fb-ink);
+	box-shadow: 0 0 22px rgba(203, 191, 143, 0.32), 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.fb-paper-blank {
+	background: transparent;
+	border: 2px dashed rgba(239, 233, 219, 0.26);
+	box-shadow: none;
+}
+.fb-today-photo { display: grid; align-content: start; gap: 6px; padding: 9%; background: transparent; }
+.fb-today-placeholder { display: grid; gap: 10px; }
+
+
+/* 卡片导出 */
+.fb-card-export { padding: 22px; text-align: center; }
+.fb-export-switch { display: inline-flex; gap: 8px; margin-bottom: 14px; }
+/* 用户二报的按钮组：未选中 #b9b4aa（≥7:1）、选中金色（≈8:1）——
+   .fb-root 前缀确保显式色不再被 color:inherit 压制 */
+.fb-root .fb-export-tab {
+	background: rgba(255, 255, 255, 0.08);
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 999px;
+	color: #b9b4aa;
+	font-size: 13px;
+	padding: 8px 18px;
+	cursor: pointer;
+}
+.fb-root .fb-export-tab--active {
+	border-color: var(--fb-accent);
+	background: rgba(203, 191, 143, 0.14);
+	color: var(--fb-accent);
+}
+.fb-export-card { width: min(300px, 80vw); margin: 0 auto; }
+.fb-export-photo {
+	aspect-ratio: 3 / 4;
+	background: linear-gradient(160deg, #efe9db, #ddd6c6);
+	color: var(--fb-ink);
+	display: grid;
+	align-content: space-between;
+	padding: 10%;
+	gap: 10px;
+	text-align: center;
+}
+.fb-export-photo { aspect-ratio: auto; min-height: 360px; }
+.fb-export-kicker { font-size: 10px; letter-spacing: 0.2em; opacity: 0.6; }
+.fb-export-stamp { font-size: 11px; opacity: 0.75; }
+.fb-export-quote { font-size: 15px; line-height: 1.8; margin: 0; }
+.fb-export-today { font-size: 11px; opacity: 0.85; border-top: 1px solid rgba(0, 0, 0, 0.12); padding-top: 8px; margin: 0; }
+.fb-export-full-line { font-size: 10px; line-height: 1.7; margin: 0; text-align: left; }
+.fb-export-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+/* R37 分享 opt-in：默认不勾；已授权时勾选态 + 禁用（分享改不了档位） */
+.fb-export-optin {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	justify-content: center;
+	margin-top: 14px;
+	font-size: 12px;
+	color: #d9d4ca;
+	cursor: pointer;
+}
+.fb-export-optin input { accent-color: var(--fb-accent); }
+.fb-export-optin input:disabled { cursor: default; }
+.fb-export-optin input:disabled + span { color: #a09a8f; }
+
+/* ── U6 公开层：首页 / 金句墙 / 找回 / 实名页 ─────────────────────── */
+.fb-public { min-height: 100vh; display: flex; flex-direction: column; }
+.fb-public-hero { text-align: center; padding: 60px 26px 30px; }
+.fb-public-stats, .fb-public-quotes, .fb-recover { padding: 18px 26px; text-align: left; max-width: 720px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.fb-public-archives { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; color: #d9d4ca; font-size: 13px; }
+.fb-public-empty {
+	color: #8d887e;
+	font-size: 13px;
+	line-height: 1.8;
+	border: 1px dashed rgba(239, 233, 219, 0.26);
+	border-radius: 8px;
+	padding: 18px 16px;
+	margin: 0;
+}
+.fb-quote-wall { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.fb-quote-item {
+	background: rgba(239, 233, 219, 0.07);
+	border-radius: 8px;
+	padding: 16px 18px;
+	display: grid;
+	gap: 8px;
+}
+.fb-quote-text { color: #d9d4ca; font-size: 14px; line-height: 1.8; margin: 0; font-style: normal; }
+.fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
+/* 点赞（R36）：♡/♥ + 计数——未赞中性灰、已赞品牌金；点击即就地更新 */
+.fb-root .fb-quote-like {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	justify-self: start;
+	background: rgba(239, 233, 219, 0.08);
+	border: 1px solid rgba(239, 233, 219, 0.28);
+	border-radius: 999px;
+	padding: 4px 12px;
+	color: #b9b4aa;
+	font-size: 12px;
+	cursor: pointer;
+}
+.fb-root .fb-quote-like:hover { color: #d9d4ca; border-color: rgba(239, 233, 219, 0.45); }
+.fb-root .fb-quote-like--on,
+.fb-root .fb-quote-like--on:hover {
+	color: var(--fb-accent);
+	border-color: rgba(203, 191, 143, 0.6);
+	background: rgba(203, 191, 143, 0.12);
+}
+.fb-root .fb-quote-like:disabled { opacity: 0.6; cursor: default; }
+.fb-quote-like-count { font-variant-numeric: tabular-nums; }
+.fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
+.fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
+/* 暗底输入控件（实测 bug 2：对比度不足）——文字 ≥7:1、placeholder ≥4.5:1、
+   边框为可见边界（非装饰）；focus 态 accent 高亮。选择器带 input 标签提升
+   特异性，压过上方 .fb-root input { color: inherit } 的深色继承。 */
+.fb-root input.fb-recover-input,
+.fb-root input.fb-register-input {
+	background: rgba(239, 233, 219, 0.12);
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	border-radius: 8px;
+	padding: 12px 14px;
+	color: #ece8de;
+}
+.fb-root input.fb-recover-input::placeholder,
+.fb-root input.fb-register-input::placeholder {
+	color: #a09a8f;
+	opacity: 1;
+}
+.fb-root input.fb-recover-input:focus-visible,
+.fb-root input.fb-register-input:focus-visible {
+	outline: none;
+	border-color: var(--fb-accent);
+}
+.fb-recover-cards ul { list-style: none; padding: 0; display: grid; gap: 8px; }
+.fb-recover-card { color: #d9d4ca; font-size: 14px; border: 1px dashed rgba(239, 233, 219, 0.3); border-radius: 8px; padding: 10px 14px; }
+.fb-recover-done { display: grid; gap: 10px; }
+.fb-profile { text-align: center; max-width: 560px; margin: 0 auto; padding: 60px 26px 30px; display: grid; gap: 14px; justify-items: center; }
+.fb-profile .fb-quote-text { font-size: 16px; }
+
+/* ── reduced-motion：跳过白光与显影，直达终态（U4 无障碍验收） ──── */
+/* ── 删除通道（U10/R30）────────────────────────────────────────── */
+.fb-delete {
+	margin-top: 28px;
+	padding-top: 20px;
+	border-top: 1px dashed rgba(239, 233, 219, 0.3);
+}
+/* 删除面板（U10）曾引用不存在的 --fb-ink-soft 变量、暗底深字——
+   对比度清扫统一为暗底可读色（≥4.5:1） */
+.fb-root .fb-delete-open {
+	background: none;
+	border: none;
+	padding: 0;
+	color: #a09a8f;
+	font-size: 13px;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.fb-delete-open-panel {
+	display: grid;
+	gap: 10px;
+	justify-items: start;
+}
+.fb-delete-title {
+	margin: 0;
+	font-size: 15px;
+	color: #e8857d;
+}
+.fb-delete-facts {
+	margin: 0;
+	padding-left: 18px;
+	color: #b9b4aa;
+	font-size: 13px;
+}
+.fb-delete-label {
+	font-size: 13px;
+	color: #d9d4ca;
+}
+.fb-root .fb-delete-input {
+	padding: 8px 10px;
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	border-radius: 8px;
+	font: inherit;
+	width: 180px;
+	color: #ece8de;
+	background: rgba(239, 233, 219, 0.12);
+}
+.fb-root .fb-delete-input::placeholder {
+	color: #a09a8f;
+	opacity: 1;
+}
+.fb-delete-actions {
+	display: flex;
+	gap: 12px;
+}
+.fb-delete-submit {
+	padding: 8px 16px;
+	border: none;
+	border-radius: 999px;
+	background: #9e1b15; /* 白字对比 5.6:1（原 #b3261e 4.43<4.5） */
+	color: #fff;
+	font-size: 13px;
+	cursor: pointer;
+}
+.fb-delete-submit:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.fb-root .fb-delete-cancel {
+	padding: 8px 16px;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	color: #d9d4ca;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	/* 名册/城市堆显影不跳过：暗房叙事动画（用户定稿），温和无位移，reduce 下照播 */
+	/* 翻面两段动画跳过（JS 侧同时直达目标面，use-card-flip.ts） */
+	.fb-flip-swap--out > *,
+	.fb-flip-swap--in > * { animation: none; }
+	/* 桌面场景（散照/问答 sheet/寄出浮层/原位显影）跳过动画与过渡直达终态 */
+	.fb-desk-scene,
+	.fb-desk-table,
+	.fb-quiz-sheet,
+	.fb-send-step,
+	.fb-send-overlay,
+	.fb-desk-reveal { animation: none; transition: none; }
+	.fb-scatter-photo { transition: none; }
+	/* 雾面微光呼吸关——静态雾 */
+	.fb-fog-block { animation: none; }
+	/* 翻转转入直达终态 */
+	.fb-flip-open { animation: none; }
+	.fb-root {
+		--fb-flash-dur: 0.01ms;
+		--fb-develop-dur: 0.01ms;
+		--fb-flip-dur: 0.01ms;
+	}
+	.fb-breathe,
+	.fb-scatter-photo,
+	.fb-flap,
+	.fb-letter-out,
+	.fb-sign {
+		animation: none;
+	}
+	.fb-develop {
+		filter: none;
+		opacity: 1;
+	}
+}
+
+/* ── 未来帧群（U7/版 D）：场次帧(亮金) + 公开愿望帧 + 私人许愿帧 ────── */
+.fb-corridor-when--future { color: #cbbf8f; }
+.fb-future-initiative { color: inherit; text-decoration: none; letter-spacing: inherit; }
+.fb-future-initiative:hover { text-decoration: underline; }
+.fb-future-list, .fb-wish-list {
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+}
+.fb-event-card {
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	border-radius: 6px;
+	padding: 10px 12px;
+}
+.fb-event-card--lit {
+	background: radial-gradient(80% 70% at 50% 0%, rgba(203, 191, 143, 0.22), rgba(203, 191, 143, 0.06) 70%, transparent);
+	border-color: rgba(203, 191, 143, 0.45);
+	box-shadow: 0 0 18px rgba(203, 191, 143, 0.15);
+}
+.fb-event-title { font-size: 13px; color: #d9d4ca; margin: 0; font-weight: 600; }
+.fb-event-meta { font-size: 10px; color: #77726a; margin: 4px 0 0; }
+.fb-event-cta {
+	display: inline-block;
+	margin-top: 6px;
+	background: var(--fb-accent);
+	color: #141317;
+	font-size: 10px;
+	padding: 4px 12px;
+	border-radius: 999px;
+	text-decoration: none;
+}
+.fb-event-note { display: block; margin-top: 6px; font-size: 10px; color: #77726a; }
+
+.fb-wish-card {
+	background: rgba(255, 255, 255, 0.05);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 6px;
+	padding: 10px 12px;
+	cursor: pointer;
+}
+.fb-wish-card--private { border-style: dashed; }
+.fb-wish-content { font-size: 12px; color: #d9d4ca; margin: 0; line-height: 1.7; }
+.fb-wish-meta { font-size: 10px; color: #77726a; margin: 4px 0 0; }
+/* 特异性教训（同 .fb-city-pin）：.fb-root button { color: inherit }（0-1-1）压过
+   单类（0-1-0）——留言按钮黑底黑字、附议按钮金边深字的根因，故加 .fb-root 前缀 */
+.fb-root .fb-wish-endorse-btn {
+	background: none;
+	border: 1px solid rgba(203, 191, 143, 0.5);
+	color: var(--fb-accent);
+	font: inherit;
+	font-size: 10px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	cursor: pointer;
+	margin-top: 6px;
+	transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.fb-root .fb-wish-endorse-btn:not(:disabled):hover {
+	background: rgba(203, 191, 143, 0.18);
+	color: #e8e0c8;
+}
+.fb-root .fb-wish-endorse-btn:not(:disabled):active {
+	transform: scale(0.96);
+}
+.fb-wish-endorsed { display: inline-block; font-size: 10px; color: var(--fb-sub); margin-top: 6px; }
+.fb-wish-empty { list-style: none; }
+.fb-wish-blank-card {
+	display: block;
+	border: 2px dashed rgba(239, 233, 219, 0.25);
+	border-radius: 6px;
+	color: #8d887e;
+	font-size: 11px;
+	padding: 22px 14px;
+	text-align: center;
+	cursor: pointer;
+}
+.fb-wish-add {
+	background: none;
+	border: none;
+	color: #77726a;
+	font: inherit;
+	font-size: 9px;
+	letter-spacing: 0.08em;
+	margin-top: 10px;
+	cursor: pointer;
+	padding: 0;
+}
+.fb-wish-add:hover { color: var(--fb-accent); }
+
+/* 许愿/愿望模态（R6/R8）：暗遮罩 + 纸面板 */
+.fb-wish-modal-layer {
+	position: fixed;
+	inset: 0;
+	background: rgba(10, 9, 12, 0.62);
+	display: grid;
+	place-items: center;
+	z-index: 60;
+}
+.fb-wish-modal {
+	position: relative;
+	width: min(400px, calc(100vw - 48px));
+	background: #f6f2e8;
+	color: #2b2723;
+	border-radius: 8px;
+	padding: 18px 20px;
+	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7);
+}
+.fb-wish-modal-title { font-size: 15px; font-weight: 600; margin: 0 28px 0 0; line-height: 1.6; }
+/* 关闭叉：绝对定位右上角（右角叉而非按钮文案） */
+.fb-wish-modal-close {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	background: none;
+	border: none;
+	font: inherit;
+	font-size: 15px;
+	line-height: 1;
+	color: #8d887e;
+	cursor: pointer;
+	padding: 4px 8px;
+	border-radius: 6px;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+.fb-wish-modal-close:hover { background: rgba(43, 39, 35, 0.08); color: #2b2723; }
+.fb-wish-modal-meta { font-size: 11px; opacity: 0.7; margin: 6px 0 0; }
+.fb-wish-modal-comments { list-style: none; margin: 10px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.fb-wish-modal-comments li {
+	font-size: 11px;
+	line-height: 1.7;
+	padding-left: 8px;
+	border-left: 2px solid rgba(43, 39, 35, 0.15);
+	margin-top: 6px;
+	display: flex;
+	gap: 8px;
+}
+.fb-wish-modal-commenter { opacity: 0.6; flex-shrink: 0; }
+.fb-wish-modal-textarea {
+	width: 100%;
+	height: 64px;
+	border: 1px solid rgba(43, 39, 35, 0.3);
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.5);
+	font: inherit;
+	font-size: 12px;
+	padding: 8px;
+	color: #2b2723;
+	resize: none;
+	margin-top: 10px;
+}
+.fb-wish-modal-radios { display: flex; gap: 16px; font-size: 11px; margin-top: 10px; }
+.fb-wish-modal-radios label { cursor: pointer; }
+/* 操作行：主操作(留言)贴右下角,其余(附议/删除/确认)靠左 */
+.fb-wish-modal-actions {
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	margin-top: 14px;
+	flex-wrap: wrap;
+}
+.fb-wish-modal-submit { margin-left: auto; }
+/* 同上特异性：黑底必须压回 .fb-root button 的 color:inherit */
+.fb-root .fb-wish-modal-submit {
+	background: #2b2723;
+	color: #efe9db;
+	border: none;
+	font: inherit;
+	font-size: 11px;
+	padding: 6px 16px;
+	border-radius: 999px;
+	cursor: pointer;
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.fb-root .fb-wish-modal-submit:not(:disabled):hover { opacity: 0.88; }
+.fb-root .fb-wish-modal-submit:not(:disabled):active { transform: scale(0.97); }
+.fb-root .fb-wish-modal-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+.fb-wish-modal-cancel, .fb-wish-modal-delete {
+	background: none;
+	border: none;
+	font: inherit;
+	font-size: 11px;
+	color: #8d887e;
+	cursor: pointer;
+	text-decoration: underline;
+	padding: 0;
+}

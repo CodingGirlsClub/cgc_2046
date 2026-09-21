@@ -361,7 +361,9 @@ defmodule Cgc2046.Notifications.Service do
 
   # 缺值与空串同义（venue / tier_name 键可能整体缺失 → nil 而非 ""）
   defp blank_to_nil(nil), do: nil
+
   defp blank_to_nil(""), do: nil
+
   defp blank_to_nil(text) when is_binary(text), do: text
 
   # thing ≤20 字：「订单超时作废，报名截止前可重新报名」恰 17 字
