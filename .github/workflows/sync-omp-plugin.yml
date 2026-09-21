@@ -1,10 +1,11 @@
-name: Sync omp-ext to plugin repo
+name: Sync omp-plugin to plugin repo
 
 on:
   push:
     branches: [develop]
     paths:
-      - 'omp-ext/cgc-2046/**'
+      - 'omp-plugin/cgc-2046/**'
+      - 'omp-plugin/cgc-2046/**'
 
 jobs:
   sync:
@@ -34,11 +35,11 @@ jobs:
       - name: Copy plugin files to marketplace structure
         run: |
           mkdir -p /tmp/cgc-omp-plugins/plugins/cgc-2046
-          rsync -av --delete omp-ext/cgc-2046/ /tmp/cgc-omp-plugins/plugins/cgc-2046/ --exclude='.git'
+          rsync -av --delete omp-plugin/cgc-2046/ /tmp/cgc-omp-plugins/plugins/cgc-2046/ --exclude='.git'
 
       - name: Read version from package.json and update catalog
         run: |
-          VERSION=$(python3 -c "import json; print(json.load(open('omp-ext/cgc-2046/package.json'))['version'])")
+          VERSION=$(python3 -c "import json; print(json.load(open('omp-plugin/cgc-2046/package.json'))['version'])")
           cd /tmp/cgc-omp-plugins
           python3 <<PYEOF
           import json
@@ -56,7 +57,7 @@ jobs:
           cd /tmp/cgc-omp-plugins
           if [[ -n $(git status --porcelain) ]]; then
             git add plugins/cgc-2046/ .omp-plugin/marketplace.json
-            git commit -m "sync: omp-ext/cgc-2046 from cgc_2046@${{ steps.sha.outputs.CGC_SHA }}"
+            git commit -m "sync: omp-plugin/cgc-2046 from cgc_2046@${{ steps.sha.outputs.CGC_SHA }}"
             git push origin main
           else
             echo "No changes to sync"
@@ -66,6 +67,6 @@ jobs:
 # 播种步骤：
 #   1. 建公开 repo CodingGirlsClub/cgc-omp-plugins
 #   2. 本地 clone，建 .omp-plugin/marketplace.json（catalog 结构见本文件上方）
-#   3. 建 plugins/cgc-2046/ 目录，从 monorepo 复制 omp-ext/cgc-2046/ 内容
+#   3. 建 plugins/cgc-2046/ 目录，从 monorepo 复制 omp-plugin/cgc-2046/ 内容
 #   4. commit 并推送 main 分支
 #   5. 在 cgc_2046 的 Settings → Secrets 加 PLUGIN_SYNC_TOKEN（PAT，repo 权限）

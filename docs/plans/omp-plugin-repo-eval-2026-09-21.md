@@ -1,7 +1,7 @@
 # 评估:CGC-2046 OMP 接入包的分发形态
 
 日期:2026-09-21
-对象:`omp-ext/cgc-2046/`(extensions/cgc-command.ts、agents/cgc.md、skills/cgc2046-onboarding/、install.sh 8.7KB、install.test.sh、docs/verify-checklist.md)
+对象:`omp-plugin/cgc-2046/`(extensions/cgc-command.ts、agents/cgc.md、skills/cgc2046-onboarding/、install.sh 8.7KB、install.test.sh、docs/verify-checklist.md)
 
 ## 结论
 
@@ -21,7 +21,7 @@
 **能。** `omp://marketplace.md` 证据:
 
 - catalog 位置:git source 的 marketplace catalog 在 **repository root** 的 `.omp-plugin/marketplace.json`(或 `.claude-plugin/marketplace.json` fallback)。
-- plugin source 支持相对路径:`"source": "./omp-ext/cgc-2046"`(必须 `./` 开头,在 marketplace root 内解析;可选 `metadata.pluginRoot` prepend)。
+- plugin source 支持相对路径:`"source": "./omp-plugin/cgc-2046"`(必须 `./` 开头,在 marketplace root 内解析;可选 `metadata.pluginRoot` prepend)。
 - 甚至有专为 monorepo 设计的 git-subdir source(`{"source": "git-subdir", "url": ..., "path": ..., "sha": ...}`),可从任意 monorepo 装子目录——独立 repo 从来不是前提。
 - 前提条件已满足:**cgc_2046 是 public repo**(gh-axi 实测 `visibility: public`),用户无需 repo 权限即可 `/marketplace add CodingGirlsClub/cgc_2046`。
 - 体积成本:pack 仅 40.24 MiB,add 时一次 clone、update 时 fetch,量级可接受。
@@ -34,7 +34,7 @@ repo root 已有 `.omp/`(项目级 backend-format-gate.ts),与 `.omp-plugin/` �
 
 | 形态 | 用户操作 | 评价 |
 |---|---|---|
-| A:clone monorepo | 装 git → clone 整个平台后端 monorepo → 找到 omp-ext/cgc-2046 → `bash install.sh install` | 最差:命令最多,clone 大 repo 慢且小白会困惑「为什么装个插件要下载整个平台源码」 |
+| A:clone monorepo | 装 git → clone 整个平台后端 monorepo → 找到 omp-plugin/cgc-2046 → `bash install.sh install` | 最差:命令最多,clone 大 repo 慢且小白会困惑「为什么装个插件要下载整个平台源码」 |
 | B:marketplace | OMP 内两条命令 | 最好:全程在 OMP 内完成,无 git、无文件系统操作;add 支持 GitHub shorthand |
 | C:zip URL | 浏览器下载 → 解压 → 终端 cd 到解压目录 → `bash install.sh install` | 中下:「找下载文件 + 解压 + cd」正是小白的失足点;步骤比 A 还琐碎 |
 
@@ -88,7 +88,7 @@ B' 是唯一有「版本比对 + 更新提示」的形态。注意 marketplace �
     {
       "name": "cgc-2046",
       "description": "CGC-2046 平台 OMP 接入包",
-      "source": "./omp-ext/cgc-2046",
+      "source": "./omp-plugin/cgc-2046",
       "version": "0.1.0"
     }
   ]
