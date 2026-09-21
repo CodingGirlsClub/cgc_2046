@@ -362,7 +362,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       person = create_person(archive)
       user = register_user("u4-wechat")
       :ok = bind_person_to_user(person.id, user.id)
-      _ = attach_identity(user.id, :wechat, openid)
+      %UserIdentity{} = attach_identity(user.id, :wechat, openid)
       %{person: person, user: user, openid: openid}
     end
 
@@ -459,8 +459,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       assert {:ok, wish} = Wishes.create_wish(person.id, "想给主办方一句建议", "private")
       assert wish.visibility == "private"
 
-      # 本批 U4 零人工队列设施（KTD5 收件箱为 admin 读面+U5 新增表）；结构性断言：
-      # 不新增 reviews/reports/queue 任何表与字段。
+      # 本批 U4 零人工队列设施（KTD5 收件箱为 admin 读面+U5 新增表）。
       assert wishes_count_by_person(person.id) == 1
     end
 
@@ -508,6 +507,9 @@ defmodule Cgc2046.Flashback.WishesTest do
     end
   end
 
+  # KTD4 同步 (非 unboxed) 流程下统计：查询走 sandbox 共享连接，能看到本事务内
+  # 已 insert 但尚未 rollback 的愿望（与 unboxed_run 另开连接的 wishes_count/1
+  # 对 R20 并发用例的语义不同）。
   defp wishes_count_by_person(person_id) do
     %{rows: [[count]]} =
       Repo.query!("SELECT COUNT(*) FROM flashback_wishes WHERE person_id = $1", [
