@@ -6,7 +6,7 @@ import ProfileView from "./profile-view";
 import {
 	FLASHBACK_LIKE_QUOTE,
 	FLASHBACK_PUBLIC_PROFILE,
-	FLASHBACK_PUBLIC_QUOTES,
+	FLASHBACK_RANDOM_QUOTES,
 	FLASHBACK_PUBLIC_STATS,
 	FLASHBACK_RECOVER,
 	FLASHBACK_RECOVER_VERIFY,
@@ -40,7 +40,7 @@ vi.mock("@/lib/apollo-client", () => ({
 	client: {
 		query: (options: { query: unknown }) => {
 			if (options.query === FLASHBACK_PUBLIC_STATS) return statsQuery(options);
-			if (options.query === FLASHBACK_PUBLIC_QUOTES) return quotesQuery(options);
+			if (options.query === FLASHBACK_RANDOM_QUOTES) return quotesQuery(options);
 			if (options.query === FLASHBACK_PUBLIC_PROFILE) return profileQuery(options);
 			throw new Error("unexpected query");
 		},
@@ -121,7 +121,7 @@ afterEach(() => {
 describe("PublicHome · 统计层与金句墙（R32）", () => {
 	it("统计与金句渲染；credited 金句链实名页、匿名金句无链接", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quoteList } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: quoteList } });
 		render(<PublicHome />);
 
 		expect(await screen.findByText(/报名 344 人 \/ 走进教室 102 人/)).toBeInTheDocument();
@@ -133,9 +133,24 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(creditedLink).toHaveAttribute("href", "/flashback/li-yinuo");
 	});
 
+	it("U5/R26：金句段带「看全墙 →」导流（链接直 /flashback/voices）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: quoteList } });
+		render(<PublicHome />);
+
+		const wallCta = await screen.findByTestId("fb-quotes-wall-cta");
+		expect(wallCta).toHaveAttribute("href", "/flashback/voices");
+		// 随机查询：limit=3（非精选、非全量）
+		expect(quotesQuery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				variables: expect.objectContaining({ limit: 3 }),
+			}),
+		);
+	});
+
 	it("空态：「正在发生」进度叙事代替空数字（U6 空态设计）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		render(<PublicHome />);
 
 		// 数据到达后（非初始 null 态）仍走空态叙事——flush 查询 promise
@@ -157,7 +172,7 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 describe("PublicHome · 自助找回（R21/KTD7）", () => {
 	it("提交前 trim：聊天复制的首尾空白不进 identifier（实测 bug 1 前半段）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		render(<PublicHome />);
 
@@ -177,7 +192,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 
 	it("发起后进入验证码步，文案不区分命中与否（同形）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		render(<PublicHome />);
 
@@ -190,7 +205,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 
 	it("多档案命中：verify 后展示「你的 N 张卡」选择列表并进胶囊", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		verifyRunner.mockResolvedValue({
 			data: {
@@ -219,7 +234,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 
 	it("单档案命中：直接绑定成功进胶囊；错码映射 code 文案", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		verifyRunner.mockRejectedValue({
 			errors: [{ message: "x", extensions: { code: "invalid_or_expired_code" } }],
@@ -237,7 +252,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 
 	it("限流 code 映射（flashback_recover_rate_limited）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: [] } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockRejectedValue({
 			errors: [{ message: "x", extensions: { code: "flashback_recover_rate_limited" } }],
 		});
@@ -284,7 +299,7 @@ describe("ProfileView · 实名档案页（R31 credited 档）", () => {
 describe("PublicHome · 金句点赞（R36）", () => {
 	const renderWithQuotes = async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quoteList } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: quoteList } });
 		render(<PublicHome />);
 		await screen.findAllByTestId("fb-quote-like");
 	};
@@ -300,8 +315,11 @@ describe("PublicHome · 金句点赞（R36）", () => {
 
 		const voterKey = window.localStorage.getItem("flashback.voterKey");
 		expect(voterKey).toMatch(/^a:/);
+		// U5/R26：落地页 = 随机 3 句（非精选、非全量）
 		expect(quotesQuery).toHaveBeenCalledWith(
-			expect.objectContaining({ variables: { voterKey } }),
+			expect.objectContaining({
+				variables: expect.objectContaining({ limit: 3, voterKey }),
+			}),
 		);
 	});
 
@@ -346,7 +364,7 @@ describe("PublicHome · 金句点赞（R36）", () => {
 			throw new Error("storage disabled");
 		});
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
-		quotesQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quoteList } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: quoteList } });
 
 		render(<PublicHome />);
 		await screen.findByText(/我想亲眼看看是/);
