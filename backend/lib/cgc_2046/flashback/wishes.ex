@@ -20,20 +20,35 @@ defmodule Cgc2046.Flashback.Wishes do
   require Ash.Query
 
   alias Cgc2046.Flashback.{AlumniProjection, Wish, WishComment, WishEndorsement}
+  alias Cgc2046.Integrations.Wechat.Client, as: WechatClient
   alias Cgc2046.Repo
 
   @content_max_length 500
   @visibilities ~w(public private)
   @annual_wish_quota 3
 
+  # KTD4 机审：user_identities.provider → content_check 平台参数。
+  # 与 admission/enrollment.ex:36 同口径（保持先例字段映射单源）。
+  @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
+
+  # KTD4 ③：openid 解析失败（未认领 token-only 长尾）→ 跳过检测并记
+  # telemetry，本批不声称覆盖该长尾，先发后审兜底（KTD5）。
+  @openid_unresolved_event [:cgc_2046, :content_check, :openid_unresolved]
+
   # ── 创建（R5/R6） ────────────────────────────────────────────────────
 
-  @doc "许愿：visibility 二选一；city 快照许愿人名册城市；年度额度 R20。"
+  @doc """
+  许愿：visibility 二选一；city 快照许愿人名册城市；年度额度 R20。
+  KTD4：内容过微信 msgSecCheck v2（enrollment.ex:777-833 同链）——违规/待审
+  fail-closed 返回 `flashback_content_rejected`；「说给主办方听」(private) 同样
+  过机审但不进人工队列（KTD5 收件箱是 admin 读面，本批零队列写入）。
+  """
   @spec create_wish(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def create_wish(person_id, content, visibility) do
     with :ok <- validate_content(content),
-         :ok <- validate_visibility(visibility) do
+         :ok <- validate_visibility(visibility),
+         :ok <- check_content(person_id, content) do
       # 锁 + COUNT + INSERT 同事务：Repo.rollback 透传 {:error, %{code: ...}}
       # 形状（Ecto 语义：error tuple 回滚不 raise），返回契约不变。
       Repo.transaction(fn ->
@@ -78,12 +93,17 @@ defmodule Cgc2046.Flashback.Wishes do
 
   # ── 留言（R8） ───────────────────────────────────────────────────────
 
-  @doc "留言（公开愿望）；返回该愿望的全部未删留言。"
+  @doc """
+  留言（公开愿望）；返回该愿望的全部未删留言。
+  KTD4：content 过微信 msgSecCheck v2 同 create_wish；违规/待审 fail-closed
+  返回 `flashback_content_rejected`。
+  """
   @spec add_comment(String.t(), String.t(), String.t()) ::
           {:ok, list(map())} | {:error, term()}
   def add_comment(person_id, wish_id, content) do
     with :ok <- validate_content(content),
-         {:ok, wish} <- fetch_public_wish(wish_id) do
+         {:ok, wish} <- fetch_public_wish(wish_id),
+         :ok <- check_content(person_id, content) do
       WishComment
       |> Ash.Changeset.for_create(:create, %{
         wish_id: wish.id,
@@ -230,6 +250,115 @@ defmodule Cgc2046.Flashback.Wishes do
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────
+
+  # KTD4 机审正经入口：内容失败 fail-closed 返回业务错误码，infra 故障 fail-open
+  # 放行（Wechat.Client.content_check 内部已记 skipped telemetry），无 openid 记
+  # openid_unresolved telemetry（KTD4 ③三段收口，本批不声称覆盖 token-only 长尾）。
+  #
+  # 与 admission/enrollment.ex:777-833 的 check_content/check_content_with_identity
+  # 同语义，差别仅错误码（enrollment_content_rejected → flashback_content_rejected）。
+  defp check_content(person_id, content) do
+    trimmed = String.trim(content)
+
+    if trimmed == "" do
+      :ok
+    else
+      case resolve_openid_path(person_id) do
+        {:ok, openid} -> run_wechat_check(trimmed, openid)
+        :no_wechat_identity -> :ok
+        :no_user -> :ok
+        :no_person -> :ok
+      end
+    end
+  end
+
+  defp run_wechat_check(content, openid) do
+    case WechatClient.content_check(:wechat, content, openid) do
+      {:ok, _} ->
+        :ok
+
+      {:error, :content_rejected} ->
+        {:error,
+         %{
+           code: "flashback_content_rejected",
+           message: "内容未通过安全检测，请调整后重试。"
+         }}
+    end
+  end
+
+  # openid 三段解析（KTD4）：
+  #   ① 登录 actor（小链路 token=nil + context.actor）→ 该 actor 的 wechat uid。
+  #      实际链路：`person_id → person.user_id → user_identities(wechat uid)`。
+  #      本函数把 ①② 合并成同一访问路径——Flashback write 面只见到 person_id，
+  #      person.user_id 非空即「已认领」（无论是登录 actor 还是 token 链路），
+  #      不存在「person_id 但没 user 也能识别为登录」的状态。
+  #   ② token/成员腿 → person.user_id 非空时经其 user_identities 取（已认领全
+  #      覆盖）。同 ① 一次 SQL 落地。
+  #   ③ 拿不到 → :no_user（person.user_id 为空，未认领 token-only 长尾）
+  #      / :no_wechat_identity（有 user 但无 wechat 身份，如 tt/xhs 单平台
+  #      或 web 注册）——两态均记录 telemetry 并放行，先发后审兜底（KTD5）。
+  # @doc false
+  defp resolve_openid_path(person_id) do
+    case Repo.query(
+           "SELECT user_id FROM flashback_people WHERE id = $1",
+           [Repo.uuid!(person_id)]
+         ) do
+      {:ok, %{rows: [[nil]]}} ->
+        emit_openid_unresolved(:no_user)
+        :no_user
+
+      {:ok, %{rows: [[user_id]]}} ->
+        fetch_wechat_openid(user_id)
+
+      {:ok, %{num_rows: 0}} ->
+        # lock_person_city 兜底：person 不存在时本条不会到达（quota 检查会失败），
+        # add_comment 链路下 person 删除竞态时按 no_person 收口——fail-open 但记。
+        emit_openid_unresolved(:no_person)
+        :no_person
+
+      {:error, _} ->
+        # 同 enrollment.ex actor_identities :error 分支：查询失败时不制造新故障点，
+        # 记 telemetry 后放行（不发外呼也放行——避免 DB 抖动把 UGC 写面打挂）。
+        emit_openid_unresolved(:query_error)
+        :no_person
+    end
+  end
+
+  # @doc false
+  defp fetch_wechat_openid(user_id) do
+    case Repo.query(
+           "SELECT provider, uid FROM user_identities WHERE user_id = $1",
+           [user_id]
+         ) do
+      {:ok, %{rows: rows}} ->
+        identities =
+          rows
+          |> Enum.map(fn [provider, uid] -> {@content_check_platforms[provider], uid} end)
+          |> Enum.reject(fn {provider, _uid} -> is_nil(provider) end)
+          |> Map.new()
+
+        case Map.get(identities, :wechat) do
+          nil ->
+            emit_openid_unresolved(:no_wechat_identity)
+            :no_wechat_identity
+
+          openid ->
+            {:ok, openid}
+        end
+
+      {:error, _} ->
+        emit_openid_unresolved(:identity_query_error)
+        :no_wechat_identity
+    end
+  end
+
+  # KTD4 ③ 长尾 telemetry：只在 openid 拿不到时计数，metadata 仅类别原子
+  # （红线：内容明文/person_id/user_id 不进 telemetry/log）。单独的 event
+  # 与 client.ex 的 [:cgc_2046, :content_check, :skipped]（infra 故障）区分，
+  # 让 dashboard 能拆出「语义性 skip」与「故障性 skip」两类。
+  defp emit_openid_unresolved(reason) do
+    :telemetry.execute(@openid_unresolved_event, %{count: 1}, %{reason: reason})
+  end
 
   defp validate_content(content) when is_binary(content) do
     trimmed = String.trim(content)
