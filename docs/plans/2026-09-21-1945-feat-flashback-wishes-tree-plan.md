@@ -30,24 +30,31 @@ execution: code
 - **排序算法落地**（新 KTD10，用户拍板：现在就搞算法、要随机性）：公开树不做「期待数优先+最新次之」平铺，改用带种子的加权随机洗牌；U6 与验收同步。
 - **期待/附议双指标分离**（KTD2 重写，用户拍板）：期待数 = `COUNT(expectations)`、附议数 = `COUNT(endorsements)` 各自独立，同一人两列各算一次可接受；v2 的 UNION 去重计数、取消附议补写期待行全部移除。
 - **附议登录身份升级**（KTD3）用户确认通过；**公开/私密默认公开 + 加粗明示**确认。
-- **私密文案说真话**（用户指出）：私密愿望对平台 MCP 治理面本就可见（`admin_list_wishes.ex:38-55`），不再写「只有自己知道」，表单与反馈文案改为「仅自己可见；平台做内容安全审核时会查看」（U8/U10）。
+- **私密文案说真话**（用户指出）：私密愿望对平台 MCP 治理面本就可见（`admin_list_wishes.ex:38-55`），不再写「只有自己知道」（v4 进一步改语义，见下）。
 - 一致性修正：限频双窗（voter_key 30 次/分钟 + IP 60 次/小时）与开场记忆 localStorage 对齐批 1 实际实现（`likes.ex:10-12,122-146` / `voices-wall.tsx:34`）；U9/U10 挂 #790 mock 写面缺口依赖。
+
+### v4 追加（2026-09-22 用户第二轮拍板后落笔；随 v4 首次推送）
+
+- **期望地改「自由输入 + 全国城市名单校验」**（用户拍板，放弃下拉框）：候选集从「名册 ∪ 场次 ∪ 公开愿望城市」扩为**全国地级以上城市标准名单（~370 个）**，服务端归一校验（`成都市→成都`），未识别拒绝并给候选；城市坐标随名单下发，树图钉点不再受批 1 手写 45 城表限制。
+- **「私密」语义改「说给主办方听」**（用户拍板）：私密愿望 = 许给平台的愿望——仅本人与平台可见，**平台会认真看、可能主动联系**；admin 新愿望队列按收件箱语义承接。不再用「平台审核时才会看」的表述。
+- **上线门整体撤销**（KTD6 删除，用户拍板）：公开树页随部署直接对外公开，冷清也没关系；收集态/门控配置/相关验收全部移除，空态文案兜底早期冷清期。
+- **举报保留，名义与「踩」区分**（用户确认能力需要）：举报 = 给运营的治理信号（不做「踩」——反对票语义与许愿墙不符，Deferred）。
 
 ## Goal Capsule
 
 - **目标**：把许愿树从「长廊成员面」升级为生产级公开空间——任何人可读公开愿望、零门槛 ❤️ 期待；登录用户（含无档案的非校友）可「附议 · 我能出力」（含回响通知订阅）；已认领校友可写愿望；全链路有机审与运营审核兜底。
 - **手段**：后端扩建 WISH / ENDORSEMENT、新建 EXPECTATION 与举报模型、接入既有微信内容安全检测；Web 独立路由生产化许愿树视图；小程序长廊开放登录 viewer 读面、扩建期待与附议表单。
-- **依据**：需求计划 R15–R21、R30–R32（2026-09-21 讨论定稿）；原型实施计划 §4 J4–J7、§5 ERM；后端/前端现状只读核对（develop `65024478`，2026-09-22，含批 1 #807/#808）；2026-09-22 评审修订与用户对齐拍板（见修订记录）。
+- **依据**：需求计划 R15–R21、R30–R32（2026-09-21 讨论定稿）；原型实施计划 §4 J4–J7、§5 ERM；后端/前端现状只读核对（develop `65024478`，2026-09-22，含批 1 #807/#808）；2026-09-22 评审修订与两轮用户对齐拍板（见修订记录）。
 - **非目标**：Echo 回响能力（生产第三批）、小程序树页地图读面（渲染方案未验证）、作者正反馈、分享度量（见 Scope Boundaries）。
 
 ## Summary
 
-后端：`flashback_wishes` 扩署名快照 / 期望地 / `hidden_at` 下架 / `listed_at` 公开授权 / 信用降级；新建 `flashback_wish_expectations`（voter_key 去重，与 LIKE 同口径）；`flashback_wish_endorsements` 扩出力表单与登录用户身份（actor_key 生成列）；新建 `flashback_reports`；愿望/留言接入既有 `content_check`（openid 三段解析），附议留言随建随接；新增公开匿名查询与期待/举报 mutation；配置开关做上线门。期待数/附议数双指标分离（KTD2）；公开树排序为带种子的加权随机洗牌（KTD10）。
+后端：`flashback_wishes` 扩署名快照 / 期望地 / `hidden_at` 下架 / `listed_at` 公开授权 / 信用降级；新建 `flashback_wish_expectations`（voter_key 去重，与 LIKE 同口径）；`flashback_wish_endorsements` 扩出力表单与登录用户身份（actor_key 生成列）；新建 `flashback_reports`；新建 `Cgc2046.Flashback.Cities` 全国城市名单（校验/归一/坐标）；愿望/留言接入既有 `content_check`（openid 三段解析），附议留言随建随接；新增公开匿名查询与期待/举报 mutation。期待数/附议数双指标分离（KTD2）；公开树排序为带种子的加权随机洗牌（KTD10）；**无上线门，部署即公开**。
 前端：Web 独立路由 `/flashback/wishes` 共享批 1 地图/开场/城市钉条组件（读/期待/换一批/分享/举报/写愿望入口）；小程序长廊对登录 viewer 开放 listed 公开愿望段，加 ❤️ 期待与「附议 · 我能出力」表单（复用既有订阅消息基建，新增 `flashback_wish_echo` 场景，余额单源上报）。
 
 ## Problem Frame
 
-愿望能力已上线但困在成员面：公开愿望只经 `flashback_capsule`（token/登录且可解析 person）透出，路人无处可读、登录非校友（viewer）进长廊被 member 门禁挡住看不到愿望段；「期待」模型不存在（现有附议是 person 匿名点击计数，无用户身份、无出力语义、贴上去撕不下来）；**已上线的许愿/留言 UGC 未过内容安全检测（合规缺口，本批 U4 修复）**；公开面无举报与下架手段。原型已验证许愿树体验，本批把数据模型、审核体系与公开页面补齐。公开树页带上线门：愿望攒到不冷清再由运营开启（已拍板的上线节奏）。
+愿望能力已上线但困在成员面：公开愿望只经 `flashback_capsule`（token/登录且可解析 person）透出，路人无处可读、登录非校友（viewer）进长廊被 member 门禁挡住看不到愿望段；「期待」模型不存在（现有附议是 person 匿名点击计数，无用户身份、无出力语义、贴上去撕不下来）；**已上线的许愿/留言 UGC 未过内容安全检测（合规缺口，本批 U4 修复）**；公开面无举报与下架手段。原型已验证许愿树体验，本批把数据模型、审核体系与公开页面补齐。**公开树页随部署直接对外公开**——早期愿望少也接受、不设上线门（2026-09-22 用户拍板）。
 
 ## Requirements Trace
 
@@ -66,17 +73,16 @@ execution: code
 
 ## Key Technical Decisions
 
-- **KTD1 · WISH 扩四字段，存量愿望不进公开树，公开授权有服务端契约。** Governs R15–R18。`flashback_wishes` 加：`signature`（署名快照，见下）、`city` 改为作者可选「期望地」（默认名册城市，候选集 = 既有城市列表，不允许自由输入）、`hidden_at`（admin 下架，与作者撤回 `deleted_at` 区分）、`listed_at`（公开树授权标记）。**署名快照是本批新规则，不援引 QUOTE**：QUOTE 只快照 city/year，人名是渲染时从 `flashback_people` 实时生成遮蔽（`public.ex:324-325,399-408`）；WISH `signature` 在创建时按作者选择定型（匿名遮罩「王\*\*」 或 display_name），之后不回溯（display_name 改名不影响旧愿望，默认规则，Open Questions 确认）。
+- **KTD1 · WISH 扩四字段，存量愿望不进公开树，公开授权有服务端契约。** Governs R15–R18。`flashback_wishes` 加：`signature`（署名快照，见下）、`city` 改为作者可选「期望地」（默认名册城市；**自由输入 + 全国城市名单校验**，见 KTD11）、`hidden_at`（admin 下架，与作者撤回 `deleted_at` 区分）、`listed_at`（公开树授权标记）。**署名快照是本批新规则，不援引 QUOTE**：QUOTE 只快照 city/year，人名是渲染时从 `flashback_people` 实时生成遮蔽（`public.ex:324-325,399-408`）；WISH `signature` 在创建时按作者选择定型（匿名遮罩「王\*\*」 或 display_name），之后不回溯（display_name 改名不影响旧愿望，用户已同意）。
   **公开授权服务端契约**：`createWish` 入参加 `publicListingConsent: Boolean`（默认 false）；`listed_at` 仅当 `visibility=public AND publicListingConsent=true` 时写入。**旧客户端（无此参数）传 `visibility=public` → `listed_at=null`，维持现状「成员可见」语义，宽容不硬拒**——历史「成员可见」不等于同意全网公开（授权不扩大红线），也不给升级窗口期的存量客户端制造故障（参照 #752 组合发布纪律，本契约天然无发布窗口：后端可先合，小程序/ Web 客户端各自带参数上线即生效）。公开树查询过滤 `listed_at IS NOT NULL`。
 - **KTD2 · 期待独立表；期待数与附议数双指标分离（2026-09-22 用户拍板）。** Governs R30。新建 `flashback_wish_expectations`：`(wish_id, voter_key)` 唯一，voter_key 复用 LIKE 白名单口径（`u:<user_id>` / `a:<device_uuid>`，`likes.ex:22-25,67-87`；**限频双窗复用 `likes.ex` 已实现的模式（`likes.ex:10-12, 122-146`）：voter_key 30 次/分钟 + IP 60 次/小时**，批 1 点赞实际落地规格，R29 防刷单设备高频）。**expect/unexpect 的服务端 key 判定：登录 actor → 强制 `u:<user_id>`；匿名 → 入参 `a:` 设备键**（Web 复用 `web/lib/flashback-voter.ts`，小程序新增 storage 设备键生成）。登录 expect 接受可选 `anonVoterKey`，服务端删除该匿名期待行（同一计数器内、同设备匿名期期待的合并，防同人双计）。
   **双指标分离**：❤️ 期待数 = `COUNT(expectations)`；附议数 = `COUNT(endorsements)`——附议不算期待、取消期待不动附议、取消附议不动期待，无跨表不变量需要维护；同一个人在两个计数里各出现一次是可接受的（用户拍板：分开统计没关系）。展示上两者并列：纸签 ❤️ N 人期待，阅读区 M 人附议 + 出力聚合分布（U6 契约）。`expected_by_viewer` 只看 expectations（登录查 `u:` + 设备 `a:`）；`endorsed_by_viewer` 只看 endorsements。
 - **KTD3 · 附议身份统一为登录用户；通知授权余额单源；存量归并。** Governs R31。`wish_endorsements` 加 `user_id` + 生成列 `actor_key`（`u:<user_id>` / `p:<person_id>`），唯一约束 `(wish_id, actor_key)`；加 `contribution_types text[]`（venue/organize/speak/sponsor/other）、`message`（≤500，一期仅运营可见）、`notify boolean`；新增取消附议 mutation。
   **新附议一律要求登录（user_id）**（2026-09-22 用户确认）：现 endorse 的 token/person 匿名腿下线——登录即手机号快捷登录建完整账号（`signInWithPlatform`，`miniprogram/sign_in_preparation.ex:58-74`），token-only 用户在附议表单处走登录引导（claim 顺带完成，身份自然升级）。成员面旧「点一下计数」轻动作由 ❤️ 期待承接（R30 两动作本义）。`person_id` 保留为可空关联：服务端按 user 认领关系反查填充；**归并规则：endorse 前若该 user 认领的 person 对同 wish 已有存量 `p:` 附议行，旧行升级为 `u:`（填 user_id 与表单字段），不新增行、不双计**。
   **通知授权单源**：余额只由小程序 `requestTouchpointConsent` 的既有上报链（`deps.grant → grantMiniProgramNotificationConsent → Consent.grant`，`subscription.ts:410-425`、`consent.ex:6-36`）增加；endorse 后端**不调** `Consent.grant`，`notify` 仅保存通知意愿（Echo 批发送时校验 `notify AND Consent.take`）。不建新授权表，新增模板键 `flashback_wish_echo`。**外部依赖：该微信订阅消息模板需提前申请**（模板未配置时按既有 fail-closed 模式，附议表单不显示通知勾选，其余流程不受影响；`grantMiniProgramNotificationConsent` 要求登录，与附议登录前提一致）。注意：讨论实录提到的 `flashback_action_scheduled` 模板在代码库中不存在，通知发送链（Notifications.Service → Consent.take → Wechat.Client.send_notification + NotificationWorker 模板注册表）需按既有范式新增 flashback 条目。
-- **KTD4 · 机审复用既有 content_check；openid 三段解析；token-only 长尾诚实收口。** Governs R32。愿望创建、愿望留言接入 `Wechat.Client.content_check/3`（`wechat/client.ex:681-775`），语义与报名 reason 一致（`enrollment.ex:777-833`）：wechat 检查、tt/xhs 跳过、infra 故障 fail-open + telemetry、risky/review fail-closed 返回 `flashback_content_rejected`。私密愿望同样过机审但不进人工队列。
+- **KTD4 · 机审复用既有 content_check；openid 三段解析；token-only 长尾诚实收口。** Governs R32。愿望创建、愿望留言接入 `Wechat.Client.content_check/3`（`wechat/client.ex:681-775`），语义与报名 reason 一致（`enrollment.ex:777-833`）：wechat 检查、tt/xhs 跳过、infra 故障 fail-open + telemetry、risky/review fail-closed 返回 `flashback_content_rejected`。「说给主办方听」愿望同样过机审但不进人工队列。
   **openid 解析链（微信 msg_sec_check v2 必带 openid，token 链路无 openid 字段）**：① 登录 actor → `user_identities` 取 wechat uid（enrollment 先例 `:798-809`）；② token/成员腿 → `person.user_id` 非空时经其 user_identities 取（已认领用户全覆盖）；③ 拿不到（未认领 token-only 长尾）→ `:skipped` + telemetry 监控，与「无平台身份」先例一致，由先发后审（举报 + 巡检，KTD5）兜底。**本批不声称覆盖该长尾**，收口路线（token 入口登录化评估）列 Deferred。附议留言检测随 U3 字段落地同步接入（不属 U4 提前合并范围）。**现有入口的接入（U4）修复已上线 UGC 无检测的合规缺口，可独立提前合并。**
-- **KTD5 · 审核体系：举报新表 + hidden_at 下架 + 信用分级 + admin 管理面。** Governs R32。新建 `flashback_reports`（target wish/comment、reporter voter_key 或 user_id、reason、status），公开举报 mutation 带频控；`wishes.hidden_at` 复用 quote_license `set_hidden` 模式（专用 action，用户面不可写，公开读面过滤）；信用分级：被下架作者的 `wishes_review_required_at` 置位后，其新公开愿望默认 `hidden_at` 待审，admin 放行即清除；admin 闪念间看板新增愿望管理面：新愿望队列 / 举报队列 / 附议留言（按愿望聚合）/ 一键下架与放行。**联系方式：admin 面展示附议者登录账号的 `users.phone` + `users.email`（KTD3 已保证登录前提），仅限 admin 面板、仅供运营对接出力事宜，任何公开响应不返回（U6 契约强制）；附议表单必须明示告知此用途（U9 文案）。** 频控沿用既有：年度 3 条额度 + GraphQL RateLimit（create_wish 30/15min 已有，举报新增 10/15min）。
-- **KTD6 · 上线门用配置开关，fail-closed。** 无 feature-flag 框架，沿用「配置即开关」范式：`config :cgc_2046, :flashback_wishes, public_enabled:` env 注入，默认关。门关闭时公开查询返回未开启态，Web 树页显示「愿望正在收集中」+ 写愿望 CTA（小程序长廊成员面与 viewer listed 段不受门控——listed 段在门关闭期间对成员/登录用户可见，作愿望积累入口）。运营确认愿望攒够后开 env 即上线（改配置重启生效，不发版不改代码）。
+- **KTD5 · 审核体系：举报新表 + hidden_at 下架 + 信用分级 + admin 管理面。** Governs R32。新建 `flashback_reports`（target wish/comment、reporter voter_key 或 user_id、reason、status），公开举报 mutation 带频控；`wishes.hidden_at` 复用 quote_license `set_hidden` 模式（专用 action，用户面不可写，公开读面过滤）；信用分级：被下架作者的 `wishes_review_required_at` 置位后，其新公开愿望默认 `hidden_at` 待审，admin 放行即清除；admin 闪念间看板新增愿望管理面：新愿望队列（**「说给主办方听」愿望按收件箱语义置前/分区，含作者触达信息便于跟进**）/ 举报队列 / 附议留言（按愿望聚合）/ 一键下架与放行。**联系方式：admin 面展示附议者登录账号的 `users.phone` + `users.email`（KTD3 已保证登录前提），仅限 admin 面板、仅供运营对接出力事宜，任何公开响应不返回（U6 契约强制）；附议表单必须明示告知此用途（U9 文案）。** 频控沿用既有：年度 3 条额度 + GraphQL RateLimit（create_wish 30/15min 已有，举报新增 10/15min）。**举报的交互名义：不叫「踩」**——踩是公众不赞同的民意信号（会进排序权重、语义针对别人的愿望，不适用于许愿墙），举报是给运营的治理信号（进队列、由人判断）；本批只做举报。
 - **KTD7 · Web 端一期：期待 + 写愿望，不开放附议；附议引导落小程序深链。** Governs R30–R31。已拍板「Web 游客无订阅通道，想被通知引导去小程序」；附议是承诺动作、需触达通道，故 Web 树页只有 ❤️ 期待，「附议 · 我能出力」入口展示但引导去小程序。**引导落点（P1b 修正）**：小程序长廊对登录 viewer 开放 listed 公开愿望段（U9），附议引导浮层给出小程序码/路径并携 `wishId` 深链，用户到达后定位该愿望、未登录先一键登录再回跳（`returnUrl` 范式现成，`pages/login/index.tsx:31-42`）。Web 写愿望对**已登录且已认领**校友开放（`useAuthed` + person.user_id 判定），未登录点「写下我的愿望」走登录/找回引导。
 - **KTD8 · 与批 1 的协调：路由定案独立路由。** 批 1 已合并（#807/#808）。已合并的 voices 页只解析 `?item=`（金句直达），**无 view state、城市是纯组件 useState 不进 URL**（`voices-page.tsx:30-33`、`voices-wall.tsx:181`）——不具备 view 切换载体。定案：**许愿树为独立路由 `/flashback/wishes`**，与 voices 共享组件（地图、城市钉条、开场骨架、失效视图结构）；**城市经 `?city=` 入 URL**，两页互跳带 city 满足 R21「切换保留城市」；开场播放标记用 **localStorage（无过期）跨页共享**（与批 1 `flashback.voicesIntroSeen` 同机制，`voices-wall.tsx:34`；wishes 页派生 key），「双页切换不重播开场」。wish 直达 `?item=<wish_id>` 复用批 1 同型模式（network-only 校验 + direct 状态随 prop 重置——#808 修复的模式直接照用，杜绝同类白屏）。
 - **KTD9 · 目标资格矩阵：期待/附议按访问面与身份统一判定。** Governs R16、R19、R30。单一愿望对动作的资格：
@@ -85,6 +91,7 @@ execution: code
   - **举报**：公开面任何人对 listed 愿望；成员面举报入口沿用成员可见集。
   UI 按钮可用态与服务端判定一一对应（前端按已拉取数据隐藏不可行动作，服务端兜底）。
 - **KTD10 · 公开树排序：带种子的加权随机洗牌（2026-09-22 用户拍板：本期即做算法，要随机性，不做平铺序）。** Governs R15、R30。采用加权无放回随机抽样（Efraimidis–Spirakis 经典算法，weighted reservoir sampling 同族）：排序键 `k_i = -ln(u_i) / w_i` 升序；权重 `w_i = (1 + 期待数 + 2 × 附议数) × freshness`，freshness = 新愿望 7 天内 ×1.5、否则 ×1；`u_i` = 由 `md5(wish.id || ':' || seed)` 派生的 (0,1] 均匀值（裁剪下界防 `ln(0)`；零新增存储，一条 SQL 完成排序 + LIMIT）。**seed 缺省 = 当日日期 + 访客 voter_key**：同访客当天内翻页稳定（offset 分页不重不漏）、跨天自然轮换；「换一批」按钮传随机 seed 立即重洗。性质：权重高者大概率靠前但非单调——热门不至于霸榜，小愿望和新愿望每天也有露脸机会；固定 seed + 固定权重 = 完全确定的顺序，单测可精确断言；构造「权重极大」用例可断言其必居首（`k → 0` 上界性质）。量纲：公开愿望百–千级，全表排序无压力。
+- **KTD11 · 期望地：自由输入 + 全国城市名单归一校验（2026-09-22 用户拍板，替代下拉候选集）。** Governs R15、R18。新建 `Cgc2046.Flashback.Cities`：静态打包**全国地级以上城市标准名单（~370 条：短名 / 全称 / 拼音序 / 中心经纬度）**，数据派生自 DataV GeoAtlas 各省 `*_full` 文件（与批 1 地图 `china-geo.json` 同族数据源，含港澳台），一次性脚本生成入库、随版本发布，不运行时依赖外部源。服务端 `normalize/1`：trim 后精确命中短名/全称 → ok；「市/地区/盟/自治州」后缀归一（`成都市→成都`、`湘西土家族苗族自治州→湘西`按短名表双向匹配）→ ok；否则 `flashback_wish_city_unknown` 并随错误返回 ≤3 个前缀/子串候选（错误文案：「没认出这是哪个城市，换个写法试试（如：上海、成都）」）。**GraphQL 新增 `flashbackCities`（公开静态查询，返回 name + lngLat）**：Web/小程序表单自动补全与**树图钉点**都消费服务端真源——批 1 手写 45 城 `cities.ts` 只是树页实现细节，wishes 地图钉点直接用下发坐标，任意名单内城市都能钉上。客户端输入 UX：Web 自动补全 combobox、小程序输入框 + 实时候选列表（都不做全量下拉）。默认值：作者名册城市经 `normalize/1` 归一（失败则留空待填）。
 
 ## Implementation Units
 
@@ -93,16 +100,17 @@ execution: code
 - **Goal**：愿望具备公开树所需的署名、期望地、下架与授权标记，公开授权有服务端契约。
 - **Requirements**：R15–R18
 - **Dependencies**：无
-- **Files**：`backend/lib/cgc_2046/flashback/wish.ex`、`backend/lib/cgc_2046/flashback/wishes.ex`、`backend/priv/repo/migrations/`（新迁移）、`backend/test/cgc_2046/flashback/wishes_test.exs`
+- **Files**：`backend/lib/cgc_2046/flashback/wish.ex`、`backend/lib/cgc_2046/flashback/wishes.ex`、`backend/lib/cgc_2046/flashback/cities.ex`（新建，KTD11）、`backend/priv/flashback/china_cities.json`（脚本派生的名单数据）、`backend/priv/repo/migrations/`（新迁移）、`backend/test/cgc_2046/flashback/wishes_test.exs`、`cities_test.exs`
 - **Approach**：
-  1. 按 KTD1 加 `signature` / `hidden_at` / `listed_at`；`city` 增加创建入参（期望地，默认名册城市，候选集校验复用 `alumni_projection.ex:205-239` 城市列表语义）。
-  2. 署名：创建时作者选匿名/展示名（R17 预览文案在 U8/U10），`signature` 存快照值；匿名 = 既有 `masked_name` 口径。
-  3. 迁移：存量愿望 `listed_at = null`、`signature = 遮罩姓`（现状口径不变）。
-  4. **公开授权契约（KTD1）**：`createWish` 入参加 `publicListingConsent: Boolean`（默认 false）；`listed_at` 仅当 `visibility=public AND publicListingConsent=true` 写入；无参数的旧客户端 `visibility=public` 维持 `listed_at=null`（宽容降级，不硬拒）。
-  5. `list_public` 拆分：成员面（长廊/capsule）维持现口径；公开树查询新增 `listed_at + hidden_at + deleted_at + visibility` 过滤（U6 消费）。
+  1. 按 KTD1 加 `signature` / `hidden_at` / `listed_at`；`city` 增加创建入参（期望地，KTD11：自由文本经 `Cities.normalize/1` 归一入库，默认值 = 名册城市归一值）。
+  2. **Cities 名单（KTD11）**：脚本从 DataV GeoAtlas `*_full` 派生 ~370 地级市名表（短名/全称/经纬度/拼音序），生成 `china_cities.json` 入库；`normalize/1`、`list/0`、候选建议逻辑。
+  3. 署名：创建时作者选匿名/展示名（R17 预览文案在 U8/U10），`signature` 存快照值；匿名 = 既有 `masked_name` 口径。
+  4. 迁移：存量愿望 `listed_at = null`、`signature = 遮罩姓`（现状口径不变）。
+  5. **公开授权契约（KTD1）**：`createWish` 入参加 `publicListingConsent: Boolean`（默认 false）；`listed_at` 仅当 `visibility=public AND publicListingConsent=true` 写入；无参数的旧客户端 `visibility=public` 维持 `listed_at=null`（宽容降级，不硬拒）。
+  6. `list_public` 拆分：成员面（长廊/capsule）维持现口径；公开树查询新增 `listed_at + hidden_at + deleted_at + visibility` 过滤（U6 消费）。
 - **Test scenarios**：
   - 迁移后存量愿望 `listed_at` 为空、不出现在公开树查询，仍出现在成员面
-  - 新愿望：署名快照两种取值正确；期望地默认名册城市、可选候选城市、拒绝自由文本
+  - 新愿望：署名快照两种取值正确；**期望地：`成都` / `成都市` 都归一为 `成都`；名单外城市返回 `flashback_wish_city_unknown` 且错误携带 ≤3 候选；默认名册城市归一通过**
   - **授权契约：带/不带 `publicListingConsent` 的 public 请求分别 listed/不 listed；`visibility=private` 永远 null**（旧客户端行为回归）
   - `hidden_at` 置位 → 公开树移除、成员面保留作者本人可见；作者 `deleted_at` 撤回行为不变（回归）
   - 年度额度 3 条回归不破
@@ -158,7 +166,7 @@ execution: code
 - **Test scenarios**：
   - mock 检测通过/拒绝/故障三态：通过即发布、拒绝返回错误码、故障 fail-open 且有 telemetry
   - 登录用户 openid 走 ①；token 腿已认领 person 走 ②；**未认领 token-only → skipped 且有 telemetry（记录 long-tail 量）**
-  - 私密愿望过机审但不产生任何人工队列记录
+  - 「说给主办方听」愿望过机审但不产生任何人工队列记录
 - **Verification**：`mix test` 全绿。**本单元作为独立 PR 提前合并**（修复已上线合规缺口）。
 
 ### U5. 审核体系：举报 + 下架 + 信用分级 + admin 管理面
@@ -168,30 +176,31 @@ execution: code
 - **Dependencies**：U1（hidden_at）、U4
 - **Files**：`backend/lib/cgc_2046/flashback/report.ex`（新建）、`wishes.ex`（set_hidden / 信用降级 / 放行）、`graphql_schema.ex`（`flashbackReportWish` 公开 mutation + admin 查询/mutation）、`web/app/[locale]/admin/flashback/page.tsx` + `web/lib/admin.ts`（愿望管理面）、`web/messages/*.json`、测试
 - **Approach**：
-  1. `flashback_reports`：target_type(wish/comment) + target_id、reporter（voter_key 或 user_id）、reason（≤200）、status(pending/dismissed/actioned)；举报 mutation 频控 10/15min/IP。
+  1. `flashback_reports`：target_type(wish/comment) + target_id、reporter（voter_key 或 user_id）、reason（预设选项：不当内容 / 垃圾信息 / 涉及隐私 / 其他 + 自由补充 ≤200）、status(pending/dismissed/actioned)；举报 mutation 频控 10/15min/IP。
   2. admin：`flashbackAdminSetWishHidden`（复用 quote_license set_hidden 模式）；下架时若作者累计被下架 ≥1 次 → 置 `wishes_review_required_at`；该作者新公开愿望默认 hidden 待审，admin 放行清除 hidden。
-  3. admin 看板新 tab「愿望」：新愿望列表（含 listed 状态）、举报队列（pending 优先）、附议留言聚合（按愿望，含出力分布与**提交者登录账号 phone/email**——KTD5：仅 admin 面板展示、仅供对接、公开响应禁出）、一键下架/放行/驳回举报。
+  3. admin 看板新 tab「愿望」：**「说给主办方听」收件箱分区置前**（私密愿望 = 许给平台的愿望，含作者触达信息——登录账号 phone/email 或档案触达字段，便于运营跟进；本批不做产品内回复通道，回访经既有渠道）、新公开愿望列表（含 listed 状态）、举报队列（pending 优先）、附议留言聚合（按愿望，含出力分布与**提交者登录账号 phone/email**——KTD5：仅 admin 面板展示、仅供对接、公开响应禁出）、一键下架/放行/驳回举报。
 - **Test scenarios**：
-  - 举报写入与频控；同人同目标默认 1 条（重复举报幂等承接，阈值见 Open Questions）
+  - 举报写入与频控；同人同目标默认 1 条（重复举报幂等承接）
   - 下架 → 公开面消失；放行 → 恢复；信用降级作者新愿望默认待审
-  - **联系方式字段仅 admin 查询返回；公开与成员面响应断言无 phone/email 渗漏**
+  - **「说给主办方听」愿望出现在收件箱分区且含触达信息；联系方式字段仅 admin 查询返回；公开与成员面响应断言无 phone/email 渗漏**
   - admin 面非管理员访问被拒（fail-closed 回归）
 - **Verification**：backend + web 测试全绿；admin 面 ego-browser 走通下架/放行。
 
-### U6. 公开 GraphQL 契约与上线门
+### U6. 公开 GraphQL 契约
 
-- **Goal**：公开匿名读面与公开写面就位，门控默认关。
+- **Goal**：公开匿名读面与公开写面就位。
 - **Requirements**：R15、R16、R19、R30、R31
 - **Dependencies**：U2、U3、U5
-- **Files**：`backend/lib/cgc_2046/flashback/public.ex`（新增 wishes 公开查询）、`graphql_schema.ex`（`flashbackPublicWishes` / `flashbackExpectWish` / `flashbackReportWish` / endorse 改造挂载）、`config/config.exs` + `config/runtime.exs`（`flashback_wishes.public_enabled`）、`web/lib/graphql/flashback.ts`、契约测试
+- **Files**：`backend/lib/cgc_2046/flashback/public.ex`（新增 wishes 公开查询）、`graphql_schema.ex`（`flashbackPublicWishes` / `flashbackExpectWish` / `flashbackReportWish` / `flashbackCities` / endorse 改造挂载）、`web/lib/graphql/flashback.ts`、契约测试
 - **Approach**：
   1. `flashbackPublicWishes(city, item, seed)`：过滤 `listed_at + hidden_at + deleted_at + visibility=="public"`；返回 id、内容、署名快照、城市、**期待数（`COUNT(expectations)`）与附议数 + 出力聚合**（M 人附议：场地 ×a · 组织 ×b，**不返回留言、不返回 phone/email 等个人信息**）、expected_by_viewer（只看 expectations：登录查 `u:` + 入参 `a:`）、endorsed_by_viewer（登录）；**排序 = KTD10 带种子加权随机**（seed 缺省 = 当日日期 + 入参 voter_key，翻页经 offset 稳定）；`item=<wish_id>` 单条直达查询供分享（不参与排序）。
-  2. `flashbackExpectWish` / `flashbackUnexpectWish`（公开，KTD2 key 判定 + 双窗限频）、`flashbackReportWish`（公开，频控）。
-  3. KTD6 门控：`public_enabled=false` 时公开查询返回空 + `collecting` 标记（页面显示收集态）；成员面（capsule）不受门控。
+  2. `flashbackExpectWish` / `flashbackUnexpectWish`（公开，KTD2 key 判定 + 双窗限频）、`flashbackReportWish`（公开，频控）、`flashbackCities`（公开静态：name + lngLat，KTD11——表单自动补全与树图钉点共用真源）。
+  3. 门控已撤销（用户拍板）：公开查询部署即可用，无 `public_enabled` 配置。
 - **Test scenarios**：
-  - 门开/关两态查询行为；私密/未 listed/已下架/已撤回愿望不出现在任何公开查询（含 item 直达）
+  - 私密/未 listed/已下架/已撤回愿望不出现在任何公开查询（含 item 直达）
   - 双指标：期待数只随 expect/unexpect 变化、附议数只随 endorse/cancel 变化；聚合分布数值正确且无留言与联系方式泄露
   - **KTD10 排序：固定 seed+权重顺序确定可断言；换 seed 重洗；构造权重极大者必居首（`k→0` 上界）；`u` 裁剪下界防 `ln(0)`；缺省 seed 日级轮换（注入时钟断言）**
+  - `flashbackCities` 返回名单 ~370 条且含坐标、静态缓存头正确
   - expected_by_viewer 匿名/登录两态正确；endorsed_by_viewer 登录态正确
 - **Verification**：backend 测试全绿；契约测试通过。
 
@@ -200,13 +209,13 @@ execution: code
 - **Goal**：原型许愿树视图生产化，接真实数据。
 - **Requirements**：R15–R19、R21–R24、R30
 - **Dependencies**：U6
-- **Files**：`web/app/[locale]/flashback/wishes/`（新独立路由，KTD8）、`web/components/flashback/`（共享：地图、城市钉条、开场骨架、失效视图；新增：愿望阅读区、期待按钮、举报入口、换一批入口、收集态/空态）、`web/messages/*.json`、vitest 测试
+- **Files**：`web/app/[locale]/flashback/wishes/`（新独立路由，KTD8）、`web/components/flashback/`（共享：地图、城市钉条、开场骨架、失效视图；新增：愿望阅读区、期待按钮、举报入口、换一批入口、空态）、`web/messages/*.json`、vitest 测试
 - **Approach**：
-  1. 移植原型 wishes 视图：纸签地图、按城阅读区、❤️ 期待（voter_key，乐观更新**失败按 wishId 函数式回滚——禁止整组快照回滚**（#806 F2 教训），服务端校正同函数式 updater）、聚合出力分布展示、**「换一批」重洗入口（KTD10：传随机 seed 立即重洗；缺省当日序翻页稳定）**。
+  1. 移植原型 wishes 视图：纸签地图（**钉点坐标来自 `flashbackCities` 下发，名单内任意城市可钉**，不受批 1 手写 45 城表限制）、按城阅读区、❤️ 期待（voter_key，乐观更新**失败按 wishId 函数式回滚——禁止整组快照回滚**（#806 F2 教训），服务端校正同函数式 updater）、聚合出力分布展示、**「换一批」重洗入口（KTD10：传随机 seed 立即重洗；缺省当日序翻页稳定）**。
   2. **路由（KTD8 定案）**：`/flashback/wishes` 独立路由；`?city=` 入 URL，voices↔wishes 互跳带 city（R21）；开场播放标记用 localStorage 两页共享不重播（KTD8，与批 1 `flashback.voicesIntroSeen` 同机制）；`?item=<wish_id>` 直达复用 #808 的 direct 状态重置模式（network-only 校验 + prop 变化同步）。
   3. 失效视图：已撤回/下架/不存在 → **统一文案「这个愿望目前无法查看」**（不区分撤回与下架，不替原因代言）+「看看这棵树」入口（与批 1 U4 金句失效页对称）。
-  4. 举报入口（愿望卡与留言）；「附议 · 我能出力」按钮 → 引导去小程序浮层（KTD7：小程序码 + `wishId` 深链说明）；「写下我的愿望」入口 → 未登录走登录/找回引导，已认领校友开 U8 表单。
-  5. 收集态（门关闭）：「愿望正在收集中」+ 写愿望 CTA；空态文案；i18n 全量；减少动态效果分支沿用。
+  4. 举报入口（愿望卡与留言，低调小按钮 + 弹层表单：预设理由 + 自由补充）；「附议 · 我能出力」按钮 → 引导去小程序浮层（KTD7：小程序码 + `wishId` 深链说明）；「写下我的愿望」入口 → 未登录走登录/找回引导，已认领校友开 U8 表单。
+  5. 空态文案（树还空时也有得体引导 + 写愿望 CTA，承接早期冷清期）；i18n 全量；减少动态效果分支沿用。
   6. **#806 F2 顺手修复**：`voices-wall.tsx:339-371` 与 `public-home.tsx:67-101` 两处点赞回滚改为按 quoteId 函数式回滚（issue 内既定修法，与本批同代码路径，一并收口；F1 sync 重复行不在本批）。
   7. 回响相关 UI（筛选/卡片）**不在本批**，页面结构预留。
 - **Test scenarios**：
@@ -214,7 +223,7 @@ execution: code
   - **「换一批」：点击后顺序变化，当天未点击时翻页顺序稳定（结构断言）**
   - 举报提交成功与频控提示
   - item 直达与失效页两路径；**软导航回树后 prop 变化不残留 direct 态（#808 回归）**；双页切换城市保留（`?city=` 结构断言）
-  - 收集态与空态渲染；手机 390 无横向溢出、动作不被工具条遮挡
+  - 空态渲染；名单内城市钉点坐标与下发一致（结构断言）；手机 390 无横向溢出、动作不被工具条遮挡
 - **Verification**：`pnpm vitest` 绿；ego-browser 双端结构断言 + 交互走通 + 截图；`pnpm build` 通过。
 
 ### U8. Web 写愿望表单扩建
@@ -224,13 +233,13 @@ execution: code
 - **Dependencies**：U7
 - **Files**：`web/components/flashback/wish-frames.tsx`（`WishFormModal` :168-267 改造，复用进树页）、`web/lib/graphql/flashback.ts`（CREATE_WISH 入参扩展）、`web/messages/*.json`、测试
 - **Approach**：
-  1. 表单加署名选择（匿名 / display_name，预览明示「将以 display_name 实名展示」，不暗示法定名，R17）+ 期望地选择（候选集）+ 公开/私密选择（**默认公开档**（2026-09-22 已定）+ 选项说明**加粗**明示「公开 = 任何人可见」，选中即随提交带 `publicListingConsent=true`（KTD1 契约）；**私密档说真话：「仅自己可见；平台做内容安全审核时会看到」**——私密愿望对平台 MCP 治理面本就可见（`admin_list_wishes.ex:38-55`），不写「只有自己知道」这种假话）+ 机审拒绝文案（`flashback_content_rejected` →「这句话没能挂上树，换种说法试试」）。
-  2. **分态提交反馈（R18）**：公开 + 门开 → 镜头定位所选城市、新纸签出现（原型 J5 行为）；公开 + 门关 →「愿望已挂上，树开放时所有人可见」；私密 →「已存入你的长廊：只有你能看到它，平台仅会在内容安全审核时查看」；信用降级待审 →「已提交，审核通过后挂上树」。**任何分态都不假装纸签已公开出现**。
-  3. 本人查看与撤回入口（R18）：提交反馈与「我的愿望」处可找到自己的愿望（含私密/待审分态标记）并可撤回；撤回后公开面即不可见（旧链接进 U7 失效视图）。
+  1. 表单加署名选择（匿名 / display_name，预览明示「将以 display_name 实名展示」，不暗示法定名，R17）+ 期望地（**自由输入 + 自动补全**（数据源 `flashbackCities`，KTD11）；提交未识别时展示服务端候选建议）+ 公开/「说给主办方听」选择（**默认公开档**（2026-09-22 已定）+ 选项说明**加粗**明示「公开 = 挂上许愿树，任何人可见」，选中即随提交带 `publicListingConsent=true`（KTD1 契约）；「说给主办方听」档文案：**「只有你和平台能看到。我们会认真看，可能会来找你聊聊怎么一起实现它。」**）+ 机审拒绝文案（`flashback_content_rejected` →「这句话没能挂上树，换种说法试试」）。
+  2. **分态提交反馈（R18）**：公开 → 镜头定位所选城市、新纸签出现（原型 J5 行为）；「说给主办方听」→「收到。这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。」；信用降级待审 →「已提交，审核通过后挂上树」。**任何分态都不假装纸签已公开出现**。
+  3. 本人查看与撤回入口（R18）：提交反馈与「我的愿望」处可找到自己的愿望（含「说给主办方听」/待审分态标记）并可撤回；撤回后公开面即不可见（旧链接进 U7 失效视图）。
 - **Test scenarios**：
   - 署名两档预览与提交值正确；机审拒绝显示文案且不丢草稿
-  - **四种提交分态各自反馈正确（公开门开/门关/私密/待审），门关闭时 listed 正常写入但不进公开查询；私密档默认态为公开且说明文字加粗（结构断言）**
-  - 私密愿望不进公开列表；撤回后公开查询（含 item 直达）不可见
+  - **三种提交分态各自反馈正确（公开/说给主办方听/待审）；默认公开档且说明加粗（结构断言）；期望地输入 `成都市` 归一为 `成都` 提交、名单外城市显示候选建议**
+  - 「说给主办方听」愿望不进公开列表但进 admin 收件箱；撤回后公开查询（含 item 直达）不可见
   - 未认领登录用户被引导认领；额度耗尽文案（既有 `flashback_wish_quota_exceeded`）
 - **Verification**：vitest + ego-browser 走通写→找到→撤回。
 
@@ -241,7 +250,7 @@ execution: code
 - **Dependencies**：U3、U6；#790（小程序 mock transport 缺 wish 写面四 mutation——本单元测试依赖；若 #790 未先行收口，本单元顺手补齐）
 - **Files**：`miniprogram/src/pages/flashback-corridor/index.tsx`（viewer 门禁开放与愿望卡/弹层 :542-590, :808-853）、`miniprogram/src/domain/share-route.ts`（`wishId` 深链解析，`resolveAppShowRoute` :75-122 扩展）、`miniprogram/src/domain/subscription.ts`（新增 `flashback_wish_echo` 场景与触点）、`miniprogram/config/index.ts`（模板 env 槽）、`miniprogram/src/api/operations.ts` + `api/real.ts`（ExpectWish / EndorseWish 改造 / CancelEndorse）、`miniprogram/src/domain/flashback.ts`（voter 设备键生成）、`domain/error-copy.ts`、相关测试
 - **Approach**：
-  1. **viewer 开放（P1b）**：长廊 viewer 态（登录、无档案）显示 listed 公开愿望段（只读样式与成员面一致，KTD6 门关闭期间照常显示作积累）；未登录路人维持现状 viewer 统计 + 登录引导。成员面（member）愿望段现状不变。
+  1. **viewer 开放（P1b）**：长廊 viewer 态（登录、无档案）显示 listed 公开愿望段（样式与成员面一致；无门控，有 listed 愿望即显示，空则空态）；未登录路人维持现状 viewer 统计 + 登录引导。成员面（member）愿望段现状不变。
   2. **`wishId` 深链**：`resolveAppShowRoute` 增加 wishId 解析 → 长廊打开并定位该愿望 modal；Web 附议引导浮层（U7）与后续分享卡片共用此入口。
   3. **期待**：愿望卡加 ❤️，voter 为 `a:` 设备键（小程序 storage 持久化生成，口径同 `web/lib/flashback-voter.ts`）；登录后服务端强制 `u:` 判定与 anonVoterKey 合并由 U2 保证，客户端照常传设备键。
   4. **附议 · 我能出力**（KTD3）：未登录 → 登录页（手机号一键登录，`returnUrl` 回跳范式现成）→ 回跳后重开愿望 modal；表单 = 接收回响通知（默认勾选 → `requestTouchpointConsent` 走既有订阅基建——**grant 唯一来源**，模板未配置时 fail-closed 隐藏勾选）+ 我能出力（场地/组织/讲课分享/物资/其他留言）+ **联系方式告知文案（「提交即同意主办方通过你账号绑定的手机号/邮箱与你联系对接」**KTD5）+ 提交；已附议态与取消（含「已取消附议」正确语义——顺带替换现状 :296 处无取消语义的错误 toast）。
@@ -261,13 +270,13 @@ execution: code
 - **Requirements**：R16–R18、R32
 - **Dependencies**：U4、U8（规则对齐）；#790（同 U9，CreateWish 扩展测试依赖 mock 写面补齐）
 - **Files**：`miniprogram/src/pages/flashback-corridor/index.tsx`（许愿 sheet :878-916）、`miniprogram/src/api/operations.ts`（CreateWish 入参扩展）、`domain/error-copy.ts`、测试
-- **Approach**：许愿 sheet 加署名选择与期望地选择（与 U8 同规则同文案：默认公开档 + 加粗明示；私密档说真话「仅自己可见；平台做内容安全审核时会看到」）；公开档选中即带 `publicListingConsent=true`（KTD1 契约）；机审拒绝文案；**分态提交反馈与 U8 四态一致**（含待审与门关态，不假装纸签已公开出现；本人可在私愿帧找到并撤回）。
-- **Test scenarios**：与 U8 对称（署名/机审/私密边界/额度/四态反馈/撤回/默认加粗档）。
+- **Approach**：许愿 sheet 加署名选择与期望地（与 U8 同规则同文案：自由输入 + 实时候选列表（`flashbackCities`），默认公开档 + 加粗明示；「说给主办方听」档文案同 U8）；公开档选中即带 `publicListingConsent=true`（KTD1 契约）；机审拒绝文案；**分态提交反馈与 U8 三态一致**（含待审态，不假装纸签已公开出现；本人可在私愿帧找到并撤回）。
+- **Test scenarios**：与 U8 对称（署名/机审/私密边界/额度/三态反馈/撤回/默认加粗档/城市归一）。
 - **Verification**：小程序测试绿；开发者工具走通。
 
 ## Scope Boundaries
 
-**本批包含**：WISH/EXPECTATION/ENDORSEMENT/REPORT 模型与迁移、机审接入（现有入口 + 附议留言）、审核体系与 admin 管理面、公开 GraphQL 契约与上线门、KTD10 排序算法、Web 许愿树独立路由公开页与写愿望表单、小程序 viewer listed 读面/期待/附议/写愿望扩建、附议身份升级（登录承诺模型，成员面匿名点击计数由期待承接）、#806 F2 回滚修复。
+**本批包含**：WISH/EXPECTATION/ENDORSEMENT/REPORT 模型与迁移、Cities 全国城市名单、机审接入（现有入口 + 附议留言）、审核体系与 admin 管理面（含「说给主办方听」收件箱）、公开 GraphQL 契约、KTD10 排序算法、Web 许愿树独立路由公开页与写愿望表单、小程序 viewer listed 读面/期待/附议/写愿望扩建、附议身份升级（登录承诺模型，成员面匿名点击计数由期待承接）、#806 F2 回滚修复。
 
 **本批不包含（非目标）**：
 
@@ -276,6 +285,7 @@ execution: code
 - 作者正反馈（R34）、分享度量 SHARE_EVENT、金句排序时间衰减
 - 写愿望资格扩大到非校友（未决项，维持已认领校友；附议不受此限）
 - 作者编辑愿望（维持撤回重发；编辑规则未决）
+- 「说给主办方听」的产品内回复通道（本批 admin 收件箱 + 运营经既有触达渠道跟进）
 - #806 F1（quote sync 重复行唯一约束）——独立归宿
 
 ### Deferred to Follow-Up Work
@@ -283,35 +293,36 @@ execution: code
 - token-only 机审长尾收口（未认领 token 持有者的愿望/留言 skipped）：量纲先经 telemetry 观察，再评估 token 入口登录化（claim 会作废 token，需产品决策）
 - 历史愿望的作者回访征询（「愿意挂到公开树吗？」）——授权不扩大红线下的存量激活，另立小批
 - 金句/档案公开面的举报入口（本批举报表按 target_type 通用设计，UI 只接愿望）
+- 「踩」/不赞同聚合通道（举报已覆盖治理需求；若将来要表达不赞同，另立小批评估其与许愿墙语义的相容性）
 - 附议留言公开化（需审核能力具备后，R31）
 - 小程序发现页入口卡与分享卡片物料（R26 小程序部分）
 - 期待/附议的跨设备账号级合并完整规则（本批：登录期待强制 `u:` + anonVoterKey 同设备合并；跨设备匿名键合并不在范围，与 LIKE 同口径）
+- voices 手写 45 城 `cities.ts` 与 Cities 名单的收敛（本批树页用服务端坐标，voices 维持现状不动）
 
 ## Open Questions（执行时解决，不阻塞开工）
 
-**已定（2026-09-22 用户对齐拍板）**：公开树排序 = KTD10 带种子加权随机（本期实现，不上平铺序）；期待/附议双指标分离（KTD2）；公开/私密**默认公开 + 加粗明示**；新附议一律登录（KTD3）；私密文案说真话（平台审核可见，U8/U10）。
+**已定（2026-09-22 用户两轮拍板）**：公开树排序 = KTD10 带种子加权随机；期待/附议双指标分离（KTD2）；公开/「说给主办方听」默认公开 + 加粗明示；新附议一律登录（KTD3）；「私密」语义改「许给平台」、平台可见且会认真看（KTD5/U5/U8/U10）；署名快照不回溯；期望地 = 自由输入 + 全国名单归一（KTD11）；无上线门（部署即公开）；举报保留、不做「踩」。
 
 **剩余默认（否决请说）**：
 
-- 期望地候选集：复用既有城市列表（名册 ∪ 场次 ∪ 公开愿望城市），不允许自由输入（用途：愿望要钉到地图/树的城市坐标 + 阅读区按城分栏，自由文本无法定位且易产生「上海/上海市」脏数据）。
-- 展示名变更不回溯旧愿望（`signature` 创建时定型；本批新规则，QUOTE 无此先例）。
-- 上线门开启时机与「不冷清」的运营口径：admin 目测手动开，不设自动阈值（机制见 KTD6）。
 - 举报同人同目标默认幂等 1 条；频控 10/15min。
 - **地图审图号**：树页与金句墙共用地图组件，批 1 遗留的审图号确认同为上线前运营确认项。
 - 附议联系方式告知文案的最终措辞（执行时随 U9 落，原则：用途 + 字段 + 仅主办方可见）。
 - `flashback_wish_echo` 模板文案与申请排期（外部依赖，Echo 批前必须就位；申请任务已派 ops agent 跟进）。
+- 城市名单派生细节：台湾/港澳条目的短名口径（台北/香港/澳门）与 DataV 源的对齐方式——执行时定，默认短名以民政口径为准。
 
 ## Verification Contract
 
-- `cd backend && mix test` 全绿（含迁移、期待/附议/举报/机审/门控/排序）；`mix format --check-formatted`、编译零警告。
+- `cd backend && mix test` 全绿（含迁移、期待/附议/举报/机审/排序/城市名单）；`mix format --check-formatted`、编译零警告。
 - `cd web && pnpm vitest` 全绿；`tsc --noEmit` 与 eslint 通过；`pnpm build` 通过。
 - `cd miniprogram && pnpm test` 全绿；微信开发者工具编译预览通过。
-- ego-browser 双端实测：树页读/期待/换一批/举报/写愿望四分态/失效页/收集态；admin 下架与放行；小程序模拟器 viewer 登录→附议→取消全流程。
-- 授权边界专项：私密、未 listed、已下架、已撤回愿望不出现在任何公开查询与页面（含旧链接与 wishId 深链）；附议留言与联系方式（phone/email）不出现在任何公开与成员面响应。
+- ego-browser 双端实测：树页读/期待/换一批/举报/写愿望三分态/失效页/空态；admin 收件箱/下架/放行；小程序模拟器 viewer 登录→附议→取消全流程。
+- 授权边界专项：「说给主办方听」、未 listed、已下架、已撤回愿望不出现在任何公开查询与页面（含旧链接与 wishId 深链）；附议留言与联系方式（phone/email）不出现在任何公开与成员面响应。
 - **公开授权契约专项**：无 `publicListingConsent` 的 `visibility=public` 请求 `listed_at IS NULL`（旧客户端回归）；带 consent 才进公开树。
 - 合规专项：愿望/留言/附议留言三态机审（通过/拒绝/故障）行为正确；token-only openid 缺口走 skipped + telemetry。
 - **计数专项（双指标分离）**：期待数只随 expect/unexpect 变化、附议数只随 endorse/cancel 变化；同一人先匿名期待后登录附议 → 期待 1 + 附议 1（可接受）；登录 expect 带 anonVoterKey 合并匿名行不双计（同一计数器内）；存量 `p:` 附议计入附议数与聚合。
 - **排序专项（KTD10）**：固定 seed+权重 → 精确顺序断言；换 seed 顺序变化；权重极大者必居首（`k→0` 上界性质）；`u` 裁剪防 `ln(0)`；缺省 seed 当天稳定、跨天轮换（注入时钟）；「换一批」端到端重洗。
+- **城市名单专项（KTD11）**：`成都市→成都` 等后缀归一命中；名单外拒绝且错误携带 ≤3 候选；`flashbackCities` 返回条数与坐标抽样核对与派生脚本一致；名单内城市钉点坐标下发一致。
 - **订阅单源专项**：附议 + 授权全流程余额只 +1（endorse 后端零 grant 调用断言）。
 - **并发专项**：两并发期待后到者失败，先到者服务端校正不回滚（#806 F2 验收序列，voices-wall/public-home/树页期待三处同规）；wish 失效页软导航 prop 重置（#808 回归）。
 
@@ -319,8 +330,8 @@ execution: code
 
 - 上述 Verification Contract 全过；
 - 路人在 Web 树页可读公开愿望、❤️ 期待、「换一批」重洗、举报；**登录非校友（viewer）在小程序长廊可见 listed 愿望段并可走完登录回跳→附议（含订阅授权意愿）→取消附议**；
-- 已认领校友在 Web 与小程序均可写愿望（署名/期望地/公开私密明示 + consent 契约），机审拒绝有体面文案，四种提交分态反馈正确且本人可找到可撤回；
-- admin 可看板巡检（含附议留言与登录账号联系方式）、一键下架、放行；信用降级作者先审后发；
-- 上线门默认关，开 env 即公开面生效；
+- 已认领校友在 Web 与小程序均可写愿望（署名/期望地自动补全/公开与「说给主办方听」明示 + consent 契约），机审拒绝有体面文案，分态提交反馈正确且本人可找到可撤回；
+- admin 可看板巡检（「说给主办方听」收件箱、附议留言与登录账号联系方式、举报队列）、一键下架、放行；信用降级作者先审后发；
+- 公开树页自部署起对外可用，空态有得体引导；
 - #806 F2 三处回滚修法落地，F2 issue 按验收口径关闭；
 - PR 以 merge commit 合入 develop（4 checks 绿）；U4 独立 PR 提前合。
