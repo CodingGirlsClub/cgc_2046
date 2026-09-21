@@ -1,0 +1,4 @@
+branch: codex/voices-wishes-web-prototype
+commit: c9c6f5686c2df7c1a0b4b756001d94b45ad3e99f
+base: 04e374e9003c5ff326ca0247f0d3e5e35190d1dc
+local only, no push, not fully verified
