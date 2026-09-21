@@ -8,8 +8,8 @@ import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
 	FLASHBACK_LIKE_QUOTE,
-	FLASHBACK_PUBLIC_QUOTES,
 	FLASHBACK_PUBLIC_STATS,
+	FLASHBACK_RANDOM_QUOTES,
 	type FlashbackPublicQuote,
 	type FlashbackPublicStats,
 } from "@/lib/graphql/flashback";
@@ -52,38 +52,39 @@ export default function PublicHome() {
 			.then(({ data }) => setStats(data?.flashbackPublicStats ?? null))
 			.catch(() => setStats(null));
 
+		// R26：落地页金句段 = 随机几句（非精选、非全量）+「看全墙 →」导流
 		client
 			.query({
-				query: FLASHBACK_PUBLIC_QUOTES,
-				variables: { voterKey: ensureVoterKey(window.localStorage) },
+				query: FLASHBACK_RANDOM_QUOTES,
+				variables: { limit: 3, voterKey: ensureVoterKey(window.localStorage) },
 				fetchPolicy: "network-only",
 			})
-			.then(({ data }) => setQuotes(data?.flashbackPublicQuotes ?? []))
+			.then(({ data }) => setQuotes(data?.flashbackRandomQuotes ?? []))
 			.catch(() => setQuotes([]));
 	}, []);
 
-	/** 点赞开关（R36）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
+	/** 点赞开关（R36/R37）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
 	const toggleLike = useCallback(
 		(quote: FlashbackPublicQuote) => {
-			if (!voter || pending.has(quote.personId)) return;
+			if (!voter || pending.has(quote.quoteId)) return;
 			const liked = !quote.likedByViewer;
 			const before = quotes;
 			setQuotes(
 				quotes.map((item) =>
-					item.personId === quote.personId
+					item.quoteId === quote.quoteId
 						? { ...item, likedByViewer: liked, likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)) }
 						: item,
 				),
 			);
-			setPending((prev) => new Set([...prev, quote.personId]));
+			setPending((prev) => new Set([...prev, quote.quoteId]));
 
-			runLike({ variables: { personId: quote.personId, voterKey: voter, liked } })
+			runLike({ variables: { quoteId: quote.quoteId, voterKey: voter, liked } })
 				.then(({ data }) => {
 					const count = data?.flashbackLikeQuote?.likeCount;
 					if (typeof count !== "number") return;
 					setQuotes((current) =>
 						current.map((item) =>
-							item.personId === quote.personId ? { ...item, likeCount: count } : item,
+							item.quoteId === quote.quoteId ? { ...item, likeCount: count } : item,
 						),
 					);
 				})
@@ -91,7 +92,7 @@ export default function PublicHome() {
 				.finally(() =>
 					setPending((prev) => {
 						const next = new Set(prev);
-						next.delete(quote.personId);
+						next.delete(quote.quoteId);
 						return next;
 					}),
 				);
@@ -140,14 +141,16 @@ export default function PublicHome() {
 				)}
 			</section>
 
+			{/* 品牌词「闪念间」走 flashback.home.kicker（i18n 单源，不硬编码） */}
 			<section className="fb-public-quotes" aria-labelledby="fb-quotes-title">
 				<h2 id="fb-quotes-title" className="fb-action-title">
 					{t("quotesTitle")}
 				</h2>
+				{/* U5/R26：随机几句（非精选、非全量）+ 看全墙导流 */}
 				{quotes.length > 0 ? (
 					<ul className="fb-quote-wall">
 						{quotes.map((quote) => (
-							<li key={quote.personId} className="fb-quote-item">
+							<li key={quote.quoteId} className="fb-quote-item">
 								<blockquote className="fb-quote-text">“{quote.text}”</blockquote>
 								<cite className="fb-quote-cite">
 									{quote.publicSlug ? (
@@ -165,7 +168,7 @@ export default function PublicHome() {
 										data-liked={quote.likedByViewer ? "true" : "false"}
 										aria-pressed={quote.likedByViewer}
 										aria-label={t("likeAria", { count: quote.likeCount })}
-										disabled={pending.has(quote.personId)}
+										disabled={pending.has(quote.quoteId)}
 										onClick={() => toggleLike(quote)}
 									>
 										<span aria-hidden="true">{quote.likedByViewer ? "♥" : "♡"}</span>
@@ -180,6 +183,11 @@ export default function PublicHome() {
 						{t("quotesEmpty")}
 					</p>
 				)}
+				<p className="fb-quotes-wall-cta">
+					<Link href="/flashback/voices" data-testid="fb-quotes-wall-cta">
+						{t("quotesWallCta")}
+					</Link>
+				</p>
 			</section>
 
 			<RecoverForm />

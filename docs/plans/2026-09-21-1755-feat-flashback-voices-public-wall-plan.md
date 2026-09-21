@@ -194,11 +194,16 @@ execution: code
 
 ## Open Questions（执行时解决，不阻塞开工）
 
-- 分享卡（#771）落地页的确切文件位置与现状结构（U7 开工时定位）。
-- 频控阈值与「随便听听」默认句数的最终取值。
-- 失效页与空墙的具体文案（走 messages 评审）。
-- header 入口的最终位置（并列还是闪念间下拉）。
-- 小程序端是否消费 `flashbackPublicQuotes` / `flashbackLikeQuote`（U2 开工时确认，预期否）。
+执行时实际答案（2026-09-22 第一批实施完成时记录）：
+
+- **分享卡（#771）落地页位置**：小程序页 `miniprogram/src/pages/flashback-shared-card/`（web 端对 `flashbackSharedCard` 零消费）——U7 目标面与「小程序端任何实现不在本批」边界冲突，**用户裁决：U7 缓到小程序批**（与小程序金句墙页一并实现，届时分享卡自带「看全墙」入口）。
+- **频控阈值**：voter_key 窗口 **30 次/分钟**（R29 防刷），与既有 IP 窗口（60 次/小时）并存。
+- **「随便听听」默认句数**：**3**（落地页随机段同为 3）。
+- **回访开场记忆范围**：localStorage `flashback.voicesIntroSeen`（无过期；清缓存即重看，降级为「每次进都播、可跳过」）。
+- **失效页与空墙文案**：失效页「这句话已被作者收回 / 写下它的人选择把它收回了。墙上还有更多当年的声音。/ 看全墙 →」；空墙「金句墙还空着——第一句会来自某位校友的授权。」（走 messages 评审，见 `flashback.voices` namespace）。
+- **header 入口位置**：**并列**（现有站点导航为并列链接、无下拉结构）。
+- **小程序端是否消费 `flashbackPublicQuotes` / `flashbackLikeQuote`**：**否**（仅 codegen 类型引用，无查询/变更调用）——personId → quoteId 契约切换无组合发布窗口问题（KTD5 确认通过）。
+- **KTD6 素材合规核对**：① `rivers.json`（Natural Earth 长江/黄河）——public domain，无须署名，通过；② `terrain.png`——团队 AI 生成（image_gen，单张新生成、未编辑源图），无第三方权利，通过；③ `china-geo.json`（DataV GeoAtlas `areas_v3` 100000_full，含 `100000_JD` 南海诸岛插图）——GeoAtlas 是阿里云 DataV 地图组件的官方数据源（其地图产品均以此渲染），`100000_JD` 南海诸岛已按红线保留；**残余事项**：按《公开地图内容表示规范》，正式发布的中国地图可能需在显著位置标注审图号（标准地图服务系统 bzdt.ch.mnr.gov.cn 可免费领取），上线前由运营确认是否需要申请标准地图审图号或替换为审图号标准底图——不阻塞本批开发合并（本批为功能上线前的代码合并）。
 
 ## Verification Contract
 

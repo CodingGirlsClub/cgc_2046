@@ -1061,6 +1061,10 @@
 .fb-root .fb-quote-like:disabled { opacity: 0.6; cursor: default; }
 .fb-quote-like-count { font-variant-numeric: tabular-nums; }
 .fb-quote-cite a { color: #cbbf8f; text-decoration: none; }
+/* U5/R26：看全墙导流（随机几句下方的目录级出口） */
+.fb-quotes-wall-cta { margin: 14px 0 0; font-size: 13px; }
+.fb-quotes-wall-cta a { color: #cbbf8f; text-decoration: none; }
+.fb-quotes-wall-cta a:hover { text-decoration: underline; }
 .fb-recover-form { display: grid; gap: 10px; max-width: 420px; }
 /* 暗底输入控件（实测 bug 2：对比度不足）——文字 ≥7:1、placeholder ≥4.5:1、
    边框为可见边界（非装饰）；focus 态 accent 高亮。选择器带 input 标签提升
