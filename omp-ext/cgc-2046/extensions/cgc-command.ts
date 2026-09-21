@@ -68,7 +68,7 @@ export default function cgcCommand(pi) {
     // 两态：已连接→「说『帮我处理待办』或『开始 CGC 工作』」；未连接→「说『连接 CGC』」
     // 有待办/无待办的差异化引导落在 agent 渲染的汇总开头（注入 turn 已在拉数据）
     const toolCount = mcpTools.length;
-    const currentDir = ctx.cwd ?? "未知";
+    const currentDir = ctx.cwd ?? process.cwd?.() ?? "未知";
 
     // 当前目录检查（非侵入提醒）
     const workspaceDir = "~/cgc2046_workspace";

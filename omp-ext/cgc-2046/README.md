@@ -27,6 +27,8 @@ omp plugin install cgc-2046@cgc-omp-plugins
 omp
 ```
 
+首次连接后，agent 会创建 `~/cgc2046_workspace` 并引导你到这个目录跑 OMP（CGC 会话与其他工作分开，文件也放这里）。
+
 或在 OMP 会话内：
 
 ```
