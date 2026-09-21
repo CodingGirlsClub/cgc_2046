@@ -12,14 +12,29 @@ CGC-2046 平台的 OMP（oh-my-pi）接入包。安装后，平台四类角色�
    然后在 Chrome 手动加载 unpacked 扩展：打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选 `~/.omp/browser-relay/extension`。
    > 该命令只落盘扩展，不自动注入 Chrome。
 
-## 三步接入
+## 安装
+
+**主路径（marketplace）**：
 
 ```bash
-# 1. 克隆本仓库（或下载 omp-ext/cgc-2046/ 目录）
+# 1. 加市场
+/marketplace add CodingGirlsClub/cgc-omp-plugins
+
+# 2. 装 plugin
+/marketplace install cgc-2046@cgc-omp-plugins
+
+# 3. 启动 OMP，对 agent 说「连接 CGC」
+omp
+```
+
+**Fallback（zip 托管）**：
+
+```bash
+# 1. 下载 zip（或 clone monorepo）
 git clone https://github.com/CodingGirlsClub/cgc_2046.git
 cd cgc_2046
 
-# 2. 安装接入包
+# 2. 跑安装脚本
 bash omp-ext/cgc-2046/install.sh install
 
 # 3. 启动 OMP，对 agent 说「连接 CGC」
@@ -81,6 +96,3 @@ A: 能。agent 进入长任务时会用 `todo` 建任务清单，每完成一步
 
 **Q: 跨会话能记住我的常用 workspace 吗？**
 A: 能。开 `memory.backend: local`（见 OMP 文档），agent 会记住常用 workspace 与上次角色。
-trigger sync
-trigger sync after YAML fix
-trigger sync after PAT fix
