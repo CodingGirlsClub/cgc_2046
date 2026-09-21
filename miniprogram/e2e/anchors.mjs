@@ -52,7 +52,9 @@ export const ANCHORS = {
   'approve-enrollment-1': ['pages/workspace/index.wxss', 'approve'],
   'approval-empty': ['common.wxss', 'state'], // PageState 根类（公共样式块）
   // profile（通知面板 = 本页首个 panel）
-  'notification-list': ['pages/profile/index.wxss', 'panel']
+  'notification-list': ['pages/profile/index.wxss', 'panel'],
+  // profile 页内入口卡（「我的报名」「去 OpenClacky」同款组合类）——journey 按卡片文本挑
+  'profile-entry-card': ['pages/profile/index.wxss', 'openclacky']
 }
 
 // 同一 wxss 供多个锚点共用（discover 3 锚等），内容按路径缓存

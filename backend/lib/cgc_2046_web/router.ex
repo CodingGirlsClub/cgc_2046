@@ -119,6 +119,11 @@ defmodule Cgc2046Web.Router do
       ] ++ @graphql_abuse_opts,
       alias: false
     )
+
+    # 闪念间一键退订（U8/R30）：token 化端点，邮件页脚与短信短链共用——
+    # 无登录无 JS，点开即完成（web 前端经 proxy 转发 /api 到本服务）。
+    # 不过 :graphql（无 actor 依赖，退订 token 即凭据）。
+    get("/flashback/unsubscribe", FlashbackUnsubscribeController, :show)
   end
 
   scope "/api/recruitment", Cgc2046Web do

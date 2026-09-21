@@ -426,6 +426,259 @@ export interface PlatformPhonePayload {
   iv?: string
 }
 
+// ── 闪念间「我的」（U9/R28：回访正门 = 登录账号绑定档案） ──────────────
+
+/** 雾面区间（KTD4：start/len 落在原文坐标上；reason 导入期标记为 owner 由本人调整） */
+export interface FlashbackFogSpan {
+  start: number
+  len: number
+  reason?: string | null
+}
+
+/** 本人当年答案（KTD4：本人视图原文永远完整；text 为雾化版） */
+export interface FlashbackMeAnswer {
+  id: string
+  questionKey: string
+  rawText: string
+  fogSpans: FlashbackFogSpan[]
+  text: string
+}
+
+export interface FlashbackMyToday {
+  nowStatus: string | null
+  want: string | null
+  need: string | null
+  say: string | null
+  /** today 句级雾区间(field → spans),本人管理面专用 */
+  fogSpans: Record<string, Array<{ start: number; len: number }>> | null
+  sentToWallAt: string | null
+}
+
+export interface FlashbackMyCard {
+  id: string
+  fullName: string
+  surname: string | null
+  city: string | null
+  occupationThen: string | null
+  participation: 'attended' | 'not_selected'
+  appliedAt: string | null
+  quote: string | null
+  /** 金句授权档原始值（R31：off/anonymous/credited；非法值由 parseQuoteLevel 落 off） */
+  quoteLevel: string
+  /** 句子白名单区间（多选；首句 = 消费面展示句，圈选器回显全量） */
+  quoteSpans: { questionKey: string; start: number; len: number }[] | null
+  /** 本人金句点赞数（R36；未授权档为 null） */
+  quoteStats: { likeCount: number } | null
+  today: FlashbackMyToday | null
+  answers: FlashbackMeAnswer[]
+  /**
+   * 卡片公开开关（#771）。**TS 侧可选**只为兼容旧 fixture/旧后端快照；真实
+   * payload 恒带本字段（后端非空）。缺省 = 「未知」，页面须按**关**处理
+   * （判据 `me.cardSharing?.enabled === true`，fail-closed：非 true 一律按关）。
+   */
+  cardSharing?: FlashbackCardSharing
+}
+
+/** 名册答案段（对外版）：fog=true 时 text 恒空（原文字符不出 DOM，KTD4） */
+export interface FlashbackRosterSegment {
+  text: string
+  fog: boolean
+  len: number
+}
+
+export interface FlashbackRosterAnswer {
+  questionKey: string
+  segments: FlashbackRosterSegment[]
+}
+
+// ── 卡片站外公开（#771/R14：分享给朋友 → 朋友点开看到「我的卡」） ──────
+
+/**
+ * 对外分享卡（#771）：朋友视角的**雾面版**卡面。与本人卡（FlashbackMyCard）
+ * 是两条投影——这里只有白名单字段，姓名走 `surname_masked` 口径，
+ * 当年答案只出 self_intro/funny_thing/os 三题（PII 行 phone/email/social_media
+ * 不进），today 四问全出。
+ *
+ * 段结构复用名册口径（FlashbackRosterSegment）：fog=true 时 `text` 恒空字符串
+ * ——原文字符不进 DOM，渲染层画**定宽**雾块（不按 `len` 定宽：句长本身也是
+ * 信息，不该从雾块宽度泄出去）。**这是唯一不可原谅的错误防线**：
+ * 本类型的入参形状里根本没有原文（后端投影只出段结构），映射层
+ * （api/real.mapSharedCard）无从回退到本人卡原文，页面也不得自行补字。
+ */
+export interface FlashbackSharedCard {
+  /** 隐名（后端 surname_masked 口径：王**）——不是本人卡的全名 */
+  displayName: string
+  city: string | null
+  /** 报名时间戳（ISO8601，精确到秒）——落款用：她写下这张卡的那一刻 */
+  appliedAt: string | null
+  /** 活动举办日（ISO8601 日期，如 2014-01-11）——头部场景定位：记忆真正发生的那天 */
+  occurredOn: string | null
+  /** 当年答案白名单（self_intro/funny_thing/os） */
+  answers: FlashbackRosterAnswer[]
+  /** 今天的你（questionKey = today.now/want/need/say；无内容时空数组） */
+  today: FlashbackRosterAnswer[]
+}
+
+/**
+ * 卡片公开开关状态（capsule.me.cardSharing / flashbackSetCardSharing 返回值）。
+ *
+ * 与金句授权档（quoteLevel）**互相独立**：开实名档不会连带公开回忆（#771 设计
+ * 要点 3）。`shareId` 首次开启时生成、此后**永不变更**——关闭只清公开态，
+ * 不改 id（ADR-0014：发布即锁死，无 rename 后门），重新开启复用同一 id。
+ */
+export interface FlashbackCardSharing {
+  enabled: boolean
+  /** null 仅在「从未开启过」时出现；开过之后关闭也保留 */
+  shareId: string | null
+  /** 本人视角的卡面预览（与公开读面同形，同一份段结构） */
+  preview: FlashbackSharedCard
+}
+
+/** 场次名册成员（R12 分层墙）：未寄出者只有结构化字段，寄出者才有全名与内容 */
+export interface FlashbackRosterEntry {
+  id: string
+  surnameMasked: string
+  fullName: string | null
+  appliedAt: string | null
+  city: string | null
+  occupationThen: string | null
+  sentToWallAt: string | null
+  today: { nowStatus: string | null; want: string | null; say: string | null } | null
+  answers: FlashbackRosterAnswer[]
+}
+
+export interface FlashbackCapsuleArchive {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+  appliedCount: number | null
+  attendedCount: number | null
+  /** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
+  label: string | null
+  isMine: boolean
+  roster: FlashbackRosterEntry[]
+}
+
+export interface FlashbackWishComment {
+  id: string
+  content: string
+  commenterMasked: string | null
+  insertedAt: string
+}
+
+export interface FlashbackWish {
+  id: string
+  content: string
+  city: string | null
+  wisherMasked: string | null
+  endorsementCount: number
+  endorsedByMe: boolean
+  /** 本人许愿（删除入口只对本人显示，R14） */
+  mine: boolean
+  comments: FlashbackWishComment[]
+  insertedAt: string
+}
+
+export interface FlashbackFutureEvent {
+  id: string
+  slug: string
+  title: string
+  city: string | null
+  startsAt: string | null
+  capacity: number | null
+  confirmedCount: number
+  registrationDeadline: string | null
+}
+
+export interface FlashbackFutureFrame {
+  initiativeSlug: string
+  initiativeName: string
+  /** 未显影帧时间(initiative 窗口开始;null=窗口未定) */
+  initiativeStartsAt: string | null
+  events: FlashbackFutureEvent[]
+}
+
+export interface FlashbackCapsule {
+  me: FlashbackMyCard
+  /** 未来场次帧（KTD1）：按 initiative 分组、时间升序 */
+  futureEvents: FlashbackFutureFrame[]
+  /** 公开愿望（附议数降序） */
+  publicWishes: FlashbackWish[]
+  /** 本人私有许愿（仅自己可见，折叠段） */
+  myPrivateWishes: FlashbackWish[]
+  /** 本人今年剩余许愿条数（R20：每年 3 条，含私有与已软删，删除不退还）；未登录/无 person 为 null */
+  myWishQuotaRemaining: number | null
+  /** 城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩 */
+  cities: string[]
+  /** 场次时间轴与名册（长廊/场次页数据源；city 过滤时空名册场次被服务端撤下） */
+  archives: FlashbackCapsuleArchive[]
+}
+
+// ── 首程旅程（token 面；mp 版原型 F） ─────────────────────────────────
+
+export interface FlashbackEnterArchiveRef {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+}
+
+export interface FlashbackEnterProfile {
+  fullName: string
+  surname: string | null
+  city: string | null
+  occupationThen: string | null
+  participation: 'attended' | 'not_selected'
+  role: string
+  appliedAt: string | null
+  archive: FlashbackEnterArchiveRef | null
+  answers: { id: string; questionKey: string; rawText: string; fogSpans: FlashbackFogSpan[] }[]
+}
+
+export interface FlashbackEnterResult {
+  line: 'memory' | 'dream'
+  profile: FlashbackEnterProfile | null
+  progress: {
+    quoteLevel: string
+    maskedPhone: string | null
+    maskedEmail: string | null
+    today: FlashbackMyToday | null
+  } | null
+}
+
+/** 微信一键收好（R27）：bound=false = 库里没有匹配的未认领档案 */
+export interface FlashbackClaimResult {
+  bound: boolean
+  boundCount: number
+  maskedPhone: string | null
+}
+
+/** 公开统计层（R32）：路人态长廊数据源 */
+export interface FlashbackPublicStatsArchive {
+  key: string
+  name: string | null
+  city: string | null
+  occurredOn: string | null
+  appliedCount: number | null
+  attendedCount: number | null
+  label: string | null
+}
+
+export interface FlashbackPublicStats {
+  archives: FlashbackPublicStatsArchive[]
+  returnedCount: number
+  sentCount: number
+}
+
+/** 附议提交结果（幂等：再点 = 改角色，firstTime=false） */
+export interface FlashbackEndorseResult {
+  cardId: string
+  status: string
+  roleClaimed: string | null
+  firstTime: boolean
+}
+
 /** 订单（U12 学员面：order-pay 页 + my-enrollments 缴费态） */
 export interface OrderSummary {
   id: string
@@ -484,6 +737,61 @@ export interface MiniProgramApi {
   /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
   checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
   getNotifications(): Promise<NotificationItem[]>
+  /**
+   * U9/R28「我的闪念间」：登录账号绑定档案的时间胶囊投影（me + 行动板）。
+   * 未绑定档案 → FlashbackNotBoundError（页面引导去 web 首程/自助找回）。
+   */
+  /** city（R34 城市钉）：非空时行动板按城市过滤；cities 供钉条渲染 */
+  /** token：首程链接身份（KTD2）；缺省走登录会话腿 */
+  getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule>
+  /** 首程进入（R1/R2，token 面）：分流 + 本人档案 + 进度快照 */
+  flashbackEnter(token: string): Promise<FlashbackEnterResult>
+  /** 显影完成打点（四率之 revealed） */
+  flashbackMarkRevealed(token: string): Promise<void>
+  /** 寄出上墙（R11，幂等） */
+  flashbackSendToWall(token: string): Promise<void>
+  /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
+  flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
+  /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */
+  getFlashbackPublicStats(): Promise<FlashbackPublicStats>
+  /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
+  /** U9/R8：编辑「今天的你」（会话面不重计意图率）；旅程 token 面传 token（KTD2） */
+  flashbackSubmitToday(
+    input: {
+      nowStatus?: string | null
+      want?: string | null
+      need?: string | null
+      say?: string | null
+    },
+    token?: string | null
+  ): Promise<void>
+  /** U9/R31：金句授权三档（off/anonymous/credited） */
+  /** R35：档位与圈选区间一起提交（questionKey/span 缺省 = 不动既有区间） */
+  flashbackSetQuoteLicense(
+    level: 'off' | 'anonymous' | 'credited',
+    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
+  ): Promise<void>
+  /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界）；
+   *  token 可选=会话腿（跳过注册的回访者），与 today 版同规则 */
+  flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
+  /** U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
+  flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
+  // U4 愿望写操作(双入口 token)
+  flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void>
+  flashbackEndorseWish(wishId: string, token?: string | null): Promise<number>
+  flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void>
+  flashbackDeleteWish(wishId: string, token?: string | null): Promise<void>
+  /**
+   * #771/R14：站外公开开关（本人可调，默认关）。开启时后端生成 shareId，
+   * 关闭只解除公开、**不改 id**（重新开启复用同一 id）。
+   * token 可选 = 首程链接身份（KTD2），与 today/雾面写面同规则。
+   */
+  flashbackSetCardSharing(enabled: boolean, token?: string | null): Promise<FlashbackCardSharing>
+  /**
+   * #771：按 shareId 读公开卡（**匿名面**，朋友无账号也可读）。
+   * 关闭/不存在/已删档 → null（合法空态，不是错误）；网络/服务端故障照常抛。
+   */
+  getFlashbackSharedCard(shareId: string): Promise<FlashbackSharedCard | null>
   // ── 志愿者招募（R20；页面 pages/volunteer-apply，微信端专属）──────────────
   //
   // 三资源都带 workspace_id 租户（入口 workspaceId 显式 argument，KTD2）：小程序
@@ -501,4 +809,28 @@ export interface MiniProgramApi {
   getMyVolunteerApplications(): Promise<VolunteerApplicationSummary[]>
   /** 提交申请（R11 第 2 步；同批一份，重复提交由后端 volunteer_application_already_submitted 拒绝） */
   createVolunteerApplication(form: VolunteerApplicationForm): Promise<VolunteerApplicationSummary>
+}
+
+/** 登录账号没有绑定闪念间档案（capsule 双入口的会话腿 miss）——页面按引导态渲染。 */
+export class FlashbackNotBoundError extends Error {
+  constructor() {
+    super('flashback person not bound')
+    this.name = 'FlashbackNotBoundError'
+  }
+}
+
+/** 首程链接已失效（KTD2）：已注册/已删除/不存在三分支——页面按 code 渲染失效落地。 */
+export type FlashbackTokenInvalidCode =
+  | 'flashback_token_not_found'
+  | 'flashback_token_claimed'
+  | 'flashback_token_revoked'
+
+export class FlashbackTokenInvalidError extends Error {
+  readonly code: FlashbackTokenInvalidCode
+
+  constructor(code: FlashbackTokenInvalidCode) {
+    super(code)
+    this.name = 'FlashbackTokenInvalidError'
+    this.code = code
+  }
 }

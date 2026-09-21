@@ -1,0 +1,271 @@
+/* 皮肤：小程序品牌 token（对齐 pages/discover）——浅灰底 #f7f7f7、白卡 #fff、
+ * 文字 #222326/#4b4d54/#8a8f98、主 CTA 品牌橙 #ea5504（TabBar 选中色）。
+ * 拍立得卡（.polaroid 一族）是嵌在亮色界面里的纸白物件：纸白+时间戳白边+雾面照旧。 */
+.page { min-height: 100vh; background: #f7f7f7; }
+
+/* 我的卡：拍立得白框（当年正面 + 今天背面）——纸白物件，嵌在亮色界面里 */
+.sentence { display: inline; color: #2d2a26; font-size: 27rpx; line-height: 1.8; padding: 10rpx 2rpx; margin: -10rpx -2rpx; box-sizing: content-box; }
+/* 雾面段（R16/KTD4：对外遮蔽）——本人视图用「雾块」而非轻糊：文本转透明，
+ * 只留底色块，点击即切换（点前是普通文本、点后是雾块，状态变化是质变而非
+ * 变淡几个百分点，因果自明）。语义与摘要卡 .rvFog（别人眼里的样子）同款，
+ * 与场次页 .viewFog 的 blur 先例同族。原文节点与文本不变（读屏/文本断言完整）。 */
+.sentenceFogged {
+  color: transparent;
+  background: rgba(43, 39, 35, 0.2);
+  border-radius: 6rpx;
+  padding: 0 6rpx;
+  user-select: none;
+}
+/* 雾面操作说明：卡内一次性提示（点句切换 + 对外不可见两层语义）。
+   色值同 .sendNote（纸底 #efe9db 上 5.01:1）。 */
+.fogHint { display: block; margin-top: 12rpx; color: #6b6154; font-size: 20rpx; }
+
+/* 金句授权（R31）*/
+
+/* 激励文案（用户选 C）：三档下方常显一行小字 */
+
+/* 城市钉（R34，原型 D ia-pin 语义贴品牌 token)：胶囊钉、选中品牌橙白字、未选白底灰字。
+ * cityPinAll/cityPin 分立——e2e 类名定位（全部钉唯一、城市钉第一匹配） */
+.cityPins { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 6rpx 0 20rpx; }
+.cityPin, .cityPinAll { padding: 8rpx 28rpx; background: #fff; color: #4b4d54; border: 2rpx solid rgba(34,35,38,.08); border-radius: 999rpx; font-size: 22rpx; box-shadow: 0 2rpx 8rpx rgba(0,0,0,.03); }
+.cityPinActive { background: #ea5504; border-color: #ea5504; color: #fff; font-weight: 600; }
+
+/* R35 选句器（授权区）：候选句列表 + 选中态（品牌橙描边） */
+
+/* R36 作者侧点赞徽章 */
+.likeBadge {
+  display: inline-block;
+  margin-top: 12rpx;
+  margin-left: 12rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 16rpx;
+  font-size: 21rpx;
+  color: #ea5504;
+  background: #fdeadf;
+}
+
+/* 行动板（R13 四态）*/
+.board { padding-bottom: 60rpx; }
+
+/* 状态面（加载/错误/未绑定）*/
+.stateBlock { padding: 120rpx 60rpx; text-align: center; }
+.stateText { color: #8a8f98; font-size: 25rpx; line-height: 1.8; }
+.stateAction { margin-top: 26rpx; color: #fff; background: #ea5504; border-radius: 26rpx; font-size: 24rpx; }
+
+/* 用户定稿 ①：合着卡面 → 3D 翻转（与 web polaroid-flip 同语义） */
+/* 原型 E/F ia-flip 同款:一次连贯 180° 翻转。两面常挂 grid 叠放(容器取高面),
+ * backface-visibility 自然换面;0.9s 长缓动 = 原型 ia-flip-inner transition 原值 */
+.cardFlipScene { perspective: 1400rpx; }
+.cardFlip {
+  transform-style: preserve-3d;
+  display: grid;
+  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.cardFlipFlipped { transform: rotateY(180deg); }
+.cardFlipFace {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.cardFlipFaceBack { transform: rotateY(180deg); }
+/* 翻开态标记（e2e 以本类名定位开态） */
+.polaroidFlipOpen { display: block; }
+.foldBackButton {
+  margin-top: 16rpx;
+  background: none;
+  border: none;
+  color: #cbbf8f;
+  font-size: 24rpx;
+  text-decoration: underline;
+  padding: 0;
+  line-height: 1.6;
+}
+
+/* 分享入口 + sheet（用户定稿 ③，原型 F 语言） */
+.shareButton {
+  margin-top: 20rpx;
+  background: rgba(234, 85, 4, 0.12);
+  color: #ea5504;
+  border: 1px solid rgba(234, 85, 4, 0.4);
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  padding: 14rpx 0;
+  line-height: 1.6;
+}
+/* 摘要卡离屏画布：CSS 尺寸 = 画布尺寸（600×800 = 3:4），绘制与导出区域 1:1
+ * 无歧义（详见 index.tsx saveSummaryCard 的尺寸语义说明） */
+.shareCanvas {
+  position: fixed;
+  left: -9999rpx;
+  width: 600px;
+  height: 800px;
+}
+.shareMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+}
+.shareSheet {
+  width: 100%;
+  background: #f7f7f7;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 32rpx 60rpx;
+}
+.shareSheetTitle { font-size: 24rpx; color: #8a8f98; text-align: center; display: block; margin-bottom: 28rpx; }
+/* R37 分享 opt-in（默认不勾；已授权 = 勾上态，点按可关闭——撤回与给予同价） */
+.shareOptIn { display: flex; align-items: flex-start; gap: 12rpx; margin-bottom: 24rpx; padding: 18rpx 20rpx; background: #fff; border-radius: 16rpx; }
+.shareOptInOn { opacity: .72; }
+.shareOptInBox { color: #ea5504; font-size: 26rpx; line-height: 1.5; }
+.shareOptInLabel { flex: 1; color: #4b4d54; font-size: 22rpx; line-height: 1.6; }
+/* 卡片页变体：页面本身是米色纸，去白底、字号更小更灰——不让这行读起来像「分享的必填项」
+   （GDPR/UX 惯例：consent 控件不得看起来像必填；ShareSheet 里的白底卡保持原样） */
+.shareOptInPlain { background: transparent; padding: 0 8rpx; margin-bottom: 0; }
+.shareOptInPlain .shareOptInBox { font-size: 23rpx; color: rgba(234, 85, 4, .78); }
+.shareOptInPlain .shareOptInLabel { font-size: 20rpx; color: rgba(75, 77, 84, .62); }
+.shareEntries { display: flex; gap: 44rpx; justify-content: center; }
+.shareEntry {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 12rpx;
+  width: auto;
+  line-height: 1.4;
+}
+.shareEntry::after { border: none; }
+.shareEntryIcon {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 28rpx;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  box-shadow: 0 4rpx 24rpx rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+.shareEntryLabel { font-size: 20rpx; color: #4b4d54; }
+.shareCancel {
+  margin-top: 36rpx;
+  width: 100%;
+  background: #fff;
+  border: none;
+  border-radius: 24rpx;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  color: #222326;
+  line-height: 1.6;
+}
+.shareCancel::after { border: none; }
+
+/* ── F 式两面拍立得(用户定稿):相纸质感+直接写入 ── */
+.section { /* 抽屉内容容器 */ }
+.wallBadge { display: inline-block; padding: 6rpx 16rpx; border-radius: 16rpx; font-size: 21rpx; }
+.onWall { color: #ea5504; background: #fdeadf; }
+.offWall { color: #8a8f98; background: rgba(138, 143, 152, 0.1); }
+.likeBadge {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: 16rpx;
+  font-size: 21rpx;
+  color: #e8666a;
+  background: rgba(232, 102, 106, 0.08);
+}
+
+/* 相纸面公共:纸白边框+圆角,整面可点(当年面点击翻面) */
+.paperFace {
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  overflow: hidden;
+  padding: 44rpx 44rpx 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.55), 0 4rpx 16rpx rgba(0, 0, 0, 0.4);
+}
+/* 当年答案面:未显影相纸底,答案居中楷体(F 排版);flex:1 吃掉两面高差,下巴比例恒定 */
+.paperPhotoA {
+  flex: 1;
+  background: linear-gradient(160deg, #c9c2b1, #a49b88);
+  padding: 40rpx 28rpx;
+  display: grid;
+  gap: 40rpx;
+  align-content: center;
+  text-align: center;
+}
+.paperQ { display: block; font-size: 18rpx; opacity: 0.55; letter-spacing: 0.2em; margin-bottom: 12rpx; }
+.paperA { font-size: 26rpx; line-height: 1.9; color: #3a362f; }
+/* 宝丽来厚下巴:署名区 */
+.signRow {
+  padding: 22rpx 8rpx 26rpx;
+  font-size: 24rpx;
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.85;
+  color: #2d2a26;
+}
+.signName { display: inline-block; transform: rotate(-1.2deg); }
+.signTime { display: inline-block; }
+/* 今天写入面:纯相纸黄(#efe9db,原型 F 同值) */
+.paperPhotoB {
+  background: #efe9db;
+  padding: 44rpx 40rpx 48rpx;
+  display: grid;
+  gap: 26rpx;
+}
+.paperTodayTitle { font-size: 20rpx; opacity: 0.55; color: #4a463f; letter-spacing: 0.08em; }
+.writeRow { display: grid; gap: 6rpx; }
+.writeLabel { font-size: 20rpx; opacity: 0.7; color: #4a463f; }
+.writeInput {
+  font-family: inherit;
+  font-size: 25rpx;
+  color: #2d2a26;
+  padding: 10rpx 2rpx;
+  border-bottom: 2rpx dashed #b9ac95;
+  background: none;
+}
+.writePlaceholder { color: #b0a894; font-size: 23rpx; }
+.sendBtn {
+  margin: 16rpx 8rpx 6rpx;
+  width: auto;
+  background: #ea5504;
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  padding: 16rpx 0;
+  line-height: 1.5;
+}
+.sendBtn::after { border: none; }
+.sendBtnBusy { opacity: 0.6; }
+/* 寄出即公开的后果说明(按钮下方小字,不进按钮内——橙色实心 pill 塞两行会撑破视觉)。
+   色值 #6b6154:纸底 #efe9db 上 5.01:1(原 #8a7f70 仅 3.24,低于 WCAG AA 4.5)。 */
+.sendNote {
+  display: block;
+  text-align: center;
+  padding: 8rpx 8rpx 0;
+  font-size: 20rpx;
+  color: #6b6154;
+}
+.backLink {
+  display: block;
+  text-align: center;
+  padding: 6rpx 0 14rpx;
+  font-size: 22rpx;
+  color: #cbbf8f;
+  text-decoration: underline;
+}
+
+/* TodayReview(今天回看卡) */
+.rvTodayText { font-size: 24rpx; color: #3a362f; line-height: 1.8; text-align: center; }
+.rvSentence { font-size: 24rpx; line-height: 1.9; color: #3a362f; }
+/* 雾句=对外隐藏,别人视角雾块(不可点) */
+.rvFog { color: transparent; background: rgba(43, 39, 35, 0.2); border-radius: 8rpx; padding: 0 10rpx; }
+/* 已授权金句=浅金高亮 */
+.rvQuote { background: rgba(232, 198, 106, 0.22); border-radius: 8rpx; padding: 0 10rpx; }

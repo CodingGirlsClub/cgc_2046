@@ -481,6 +481,398 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
   }
 `
 
+// ── 闪念间「我的」（U9/R28）──────────────────────────────────────────────
+// 双入口：token（首程链接身份，KTD2）优先，缺省走登录会话腿。投影含
+// archives（长廊/场次页读面，R12/R28 批次二）：
+// city（R34 城市钉）：非空时名册/行动板按城市过滤；cities 供钉条渲染（全量）。
+
+export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
+  query FlashbackCapsule($city: String, $token: String) {
+    flashbackCapsule(city: $city, token: $token) {
+      me {
+        id
+        fullName
+        surname
+        city
+        occupationThen
+        participation
+        appliedAt
+        quoteLevel
+        quote
+        quoteSpans {
+          questionKey
+          start
+          len
+        }
+        quoteStats {
+          likeCount
+        }
+        today {
+          nowStatus
+          want
+          need
+          say
+          fogSpans
+          sentToWallAt
+        }
+        cardSharing {
+          enabled
+          shareId
+          preview {
+            displayName
+            city
+            appliedAt
+            occurredOn
+            answers {
+              questionKey
+              segments {
+                text
+                fog
+                len
+              }
+            }
+            today {
+              questionKey
+              segments {
+                text
+                fog
+                len
+              }
+            }
+          }
+        }
+        answers {
+          id
+          questionKey
+          rawText
+          fogSpans {
+            start
+            len
+          }
+          text
+        }
+      }
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+        label
+        isMine
+        roster {
+          id
+          surnameMasked
+          fullName
+          appliedAt
+          city
+          occupationThen
+          sentToWallAt
+          today {
+            nowStatus
+            want
+            say
+          }
+          answers {
+            questionKey
+            segments {
+              text
+              fog
+              len
+            }
+          }
+        }
+      }
+      futureEvents {
+        initiativeSlug
+        initiativeName
+        initiativeStartsAt
+        events {
+          id
+          slug
+          title
+          city
+          startsAt
+          capacity
+          confirmedCount
+          registrationDeadline
+        }
+      }
+      publicWishes {
+        id
+        content
+        city
+        wisherMasked
+        endorsementCount
+        endorsedByMe
+        mine
+        comments {
+          id
+          content
+          commenterMasked
+          insertedAt
+        }
+        insertedAt
+      }
+      myPrivateWishes {
+        id
+        content
+        city
+        wisherMasked
+        endorsementCount
+        endorsedByMe
+        mine
+        insertedAt
+      }
+      myWishQuotaRemaining
+      cities
+    }
+  }
+`
+
+// 公开统计层（R32 路人态长廊数据源）：场次档案 + 已回来人数，无个人内容
+export const FlashbackPublicStatsQueryDocument = /* GraphQL */ `
+  query FlashbackPublicStats {
+    flashbackPublicStats {
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+        label
+      }
+      returnedCount
+      sentCount
+    }
+  }
+`
+
+export const FlashbackSubmitTodayMutationDocument = /* GraphQL */ `
+  mutation FlashbackSubmitToday($input: FlashbackTodayInput!, $token: String) {
+    flashbackSubmitToday(input: $input, token: $token) {
+      today {
+        nowStatus
+        want
+        need
+        say
+      }
+    }
+  }
+`
+
+export const FlashbackSetQuoteLicenseMutationDocument = /* GraphQL */ `
+  mutation FlashbackSetQuoteLicense(
+    $level: String!
+    $chosenQuoteSpans: [FlashbackQuoteSpanInput!]
+    $token: String
+  ) {
+    flashbackSetQuoteLicense(
+      level: $level
+      chosenQuoteSpans: $chosenQuoteSpans
+      token: $token
+    ) {
+      level
+      chosenQuoteSpans {
+        questionKey
+        start
+        len
+      }
+    }
+  }
+`
+
+// 首程 token 面（R1/R4-R9；mp 旅程用）：enter 分流 + 显影事件 + 寄出上墙。
+export const FlashbackEnterMutationDocument = /* GraphQL */ `
+  mutation FlashbackEnter($token: String!) {
+    flashbackEnter(token: $token) {
+      line
+      profile {
+        fullName
+        surname
+        city
+        occupationThen
+        participation
+        role
+        appliedAt
+        archive {
+          key
+          name
+          city
+          occurredOn
+        }
+        answers {
+          id
+          questionKey
+          rawText
+          fogSpans {
+            start
+            len
+          }
+        }
+      }
+      progress {
+        quoteLevel
+        maskedPhone
+        maskedEmail
+        today {
+          nowStatus
+          want
+          say
+          sentToWallAt
+        }
+      }
+    }
+  }
+`
+
+export const FlashbackMarkRevealedMutationDocument = /* GraphQL */ `
+  mutation FlashbackMarkRevealed($token: String!) {
+    flashbackMarkRevealed(token: $token) {
+      recorded
+    }
+  }
+`
+
+export const FlashbackSendToWallMutationDocument = /* GraphQL */ `
+  mutation FlashbackSendToWall($token: String!) {
+    flashbackSendToWall(token: $token) {
+      sentToWallAt
+    }
+  }
+`
+
+// R27 小程序路径「微信一键收好」：带 token 收该链接档案；不带则按登录手机/邮箱自动匹配。
+export const FlashbackClaimMutationDocument = /* GraphQL */ `
+  mutation FlashbackClaim($token: String) {
+    flashbackClaim(token: $token) {
+      bound
+      boundCount
+      maskedPhone
+    }
+  }
+`
+
+export const FlashbackAdjustFogMutationDocument = /* GraphQL */ `
+  mutation FlashbackAdjustFog($token: String, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
+    flashbackAdjustFog(token: $token, answerId: $answerId, spans: $spans) {
+      answerId
+      fogSpans {
+        start
+        len
+      }
+    }
+  }
+`
+// 今天的你句级雾面(field ∈ now/want/need/say;双入口 token)
+export const FlashbackAdjustTodayFogMutationDocument = /* GraphQL */ `
+  mutation FlashbackAdjustTodayFog($token: String, $field: String!, $spans: [FlashbackFogSpanInput!]!) {
+    flashbackAdjustTodayFog(token: $token, field: $field, spans: $spans) {
+      field
+      fogSpans
+    }
+  }
+`
+
+// U4 愿望写操作(双入口 token:独立 token 或登录会话)
+export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
+    flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackEndorseWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackEndorseWish($token: String, $wishId: ID!) {
+    flashbackEndorseWish(token: $token, wishId: $wishId) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackAddWishCommentMutationDocument = /* GraphQL */ `
+  mutation FlashbackAddWishComment($token: String, $wishId: ID!, $content: String!) {
+    flashbackAddWishComment(token: $token, wishId: $wishId, content: $content) {
+      endorsementCount
+      endorsedByMe
+    }
+  }
+`
+
+export const FlashbackDeleteWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackDeleteWish($token: String, $wishId: ID!) {
+    flashbackDeleteWish(token: $token, wishId: $wishId)
+  }
+`
+
+// ── 卡片站外公开（#771/R14）──────────────────────────────────────────────
+// 开关（本人面，双入口 token）：返回状态含 shareId 与本人预览。preview 在
+// enabled=false 时**仍在**（本人预览与公开门独立），故选择集固定，不做条件分叉。
+export const FlashbackSetCardSharingMutationDocument = /* GraphQL */ `
+  mutation FlashbackSetCardSharing($enabled: Boolean!, $token: String) {
+    flashbackSetCardSharing(enabled: $enabled, token: $token) {
+      enabled
+      shareId
+      preview {
+        displayName
+        city
+        appliedAt
+        occurredOn
+        answers {
+          questionKey
+          segments {
+            text
+            fog
+            len
+          }
+        }
+        today {
+          questionKey
+          segments {
+            text
+            fog
+            len
+          }
+        }
+      }
+    }
+  }
+`
+
+// 公开读面（匿名，无 token/slug）：shareId 不存在/已关闭/档案已删 → null。
+// 「朋友点开看到我的卡」的全部数据源——段结构即雾面口径，原文字符不出服务端。
+export const FlashbackSharedCardQueryDocument = /* GraphQL */ `
+  query FlashbackSharedCard($shareId: String!) {
+    flashbackSharedCard(shareId: $shareId) {
+      displayName
+      city
+      appliedAt
+      occurredOn
+      answers {
+        questionKey
+        segments {
+          text
+          fog
+          len
+        }
+      }
+      today {
+        questionKey
+        segments {
+          text
+          fog
+          len
+        }
+      }
+    }
+  }
+`
+
 // ── 志愿者招募（R20/R21；U5 招募域 GraphQL 面）───────────────────────────────
 //
 // 三资源都带 workspace_id 租户，入口 workspaceId 是显式 argument（KTD2）。小程序

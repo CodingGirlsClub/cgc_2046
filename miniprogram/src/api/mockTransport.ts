@@ -3,6 +3,7 @@ import type { RequestDocument } from 'graphql-request'
 // （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
 // 见 src/domain/entry.ts 的 './share-route.ts'。
 import { venueCityDistrictText } from '../domain/format.ts'
+import { TODAY_FIELDS } from '../domain/flashback.ts'
 
 const workspace = {
   id: 'workspace-1',
@@ -182,6 +183,303 @@ let orderStatusOverride: string | null = null
 // #508-A：核销幂等标记（同一报名第二次核销 → already； enrollment 重置时随之复位）
 let checkedIn = false
 
+// ── 闪念间「我的」（U9）：登录即视为已绑定档案的会话腿 ──────────────────
+// 与后端 flashbackCapsule 会话入口同形；四态卡各一（行动板分组的样例覆盖）。
+const FLASHBACK_RAW_TEXT = '我在盛大做测试。想亲眼看看是不是真的！后来我成了程序员。'
+
+// mock 写面落 FLASHBACK_MOCK_STATE（wx storage）：开发者工具重编译（JS 上下文
+// 重建）后仍保持，模拟后端存量；e2e 脚本段 0 清该 key 保证幂等。node --test
+// 直接加载本模块且无 wx storage——探测不到就回落纯模块态（单进程内行为不变）。
+// 本模块不 import Taro：它被 node --experimental-strip-types 直接加载，`@/`
+// 别名与 Taro 副作用在该 runner 下都不可用（同文件头部 format.ts 注释）。
+const FLASHBACK_MOCK_STATE = 'cgc.e2e.flashback_mock_state'
+
+interface FlashbackMockState {
+  fogSpans: Array<{ start: number; len: number }>
+  quoteLevel: 'off' | 'anonymous' | 'credited'
+  /** R35 圈选结果（questionKey + 区间）：capsule 回读 + 点赞徽章共用 */
+  chosenQuoteSpans: Array<{ questionKey: string; start: number; len: number }>
+  /** R36 点赞数（mock 固定 3：授权档下有值，供回访面回读） */
+  likeCount: number
+  today: {
+    nowStatus: string | null
+    want: string | null
+    need: string | null
+    say: string | null
+    sentToWallAt: string | null
+  }
+  /** today 句级雾面(field → spans) */
+  todayFogSpans: Record<string, Array<{ start: number; len: number }>>
+  endorsedCardIds: string[]
+  /**
+   * #771 卡片站外公开开关。**默认关**（不开是唯一初始态，没有任何隐式开启），
+   * 且与 quoteLevel 完全独立——开实名档不会连带公开回忆。`shareId` 首次开启
+   * 时生成、此后永不变更（关闭只清公开态，重开复用同一 id）。
+   */
+  cardSharing: { enabled: boolean; shareId: string | null }
+}
+
+const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
+  fogSpans: [{ start: 0, len: 7 }],
+  quoteLevel: 'off',
+  chosenQuoteSpans: [],
+  likeCount: 3,
+  today: { nowStatus: null, want: null, need: null, say: null, sentToWallAt: null },
+  todayFogSpans: {},
+  endorsedCardIds: [],
+  cardSharing: { enabled: false, shareId: null }
+}
+
+interface WxLikeStorage {
+  getStorageSync(key: string): unknown
+  setStorageSync(key: string, value: string): void
+}
+
+function wxStorage(): WxLikeStorage | null {
+  const scope = globalThis as { wx?: WxLikeStorage }
+  return scope.wx ?? null
+}
+
+// 持久态恢复：形状不符（旧版本/手改脏数据）整体回落初始——fail-closed，不做部分合并
+function loadFlashbackState(): FlashbackMockState {
+  try {
+    const raw = wxStorage()?.getStorageSync(FLASHBACK_MOCK_STATE)
+    if (typeof raw !== 'string' || !raw) return FLASHBACK_INITIAL_STATE
+    const parsed = JSON.parse(raw) as FlashbackMockState
+    const valid =
+      Array.isArray(parsed.fogSpans) &&
+      parsed.fogSpans.every((span) => Number.isInteger(span?.start) && Number.isInteger(span?.len)) &&
+      (parsed.quoteLevel === 'off' || parsed.quoteLevel === 'anonymous' || parsed.quoteLevel === 'credited') &&
+      (parsed.chosenQuoteSpans === null ||
+        (Array.isArray(parsed.chosenQuoteSpans) &&
+          parsed.chosenQuoteSpans.every(
+            (span) =>
+              typeof span?.questionKey === 'string' &&
+              Number.isInteger(span?.start) &&
+              Number.isInteger(span?.len),
+          ))) &&
+      Number.isInteger(parsed.likeCount) &&
+      typeof parsed.today === 'object' &&
+      parsed.today !== null &&
+      Array.isArray(parsed.endorsedCardIds) &&
+      parsed.endorsedCardIds.every((id) => typeof id === 'string') &&
+      // #771：旧快照（本字段出现前写的）缺 cardSharing → 整体回落初始态。
+      // 初始态 = 关且无 id，等价于「这台设备从没开过公开」——正是旧快照的真实
+      // 语义，故回落不会伪造出一次公开（不做「补默认关」的部分合并：那会让
+      // 脏数据里的 enabled:true 被静默保留）。
+      typeof parsed.cardSharing === 'object' &&
+      parsed.cardSharing !== null &&
+      typeof parsed.cardSharing.enabled === 'boolean' &&
+      (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string')
+    return valid ? parsed : FLASHBACK_INITIAL_STATE
+  } catch {
+    return FLASHBACK_INITIAL_STATE
+  }
+}
+
+function saveFlashbackState(state: FlashbackMockState): void {
+  try {
+    wxStorage()?.setStorageSync(FLASHBACK_MOCK_STATE, JSON.stringify(state))
+  } catch {
+    // 无 wx storage（node --test）：仅模块态，进程内仍一致
+  }
+}
+
+let flashback: FlashbackMockState = loadFlashbackState()
+
+// ── 首程 token 面（mp 版原型 F：旅程 → 长廊 → 场次；R1/R4-R11/R27） ──
+// 链接作废（claim 后）用模块态即可：e2e 在同一段内断言「收好后链接失效」。
+// 三级视角开关走 wx storage（e2e 脚本经 automation_evaluate 可写，node --test
+// 无 storage 读为 false = 默认行为不变）：
+//   cgc.e2e.flashback_unclaimed = '1' → 登录了但库里没有匹配档案（capsule 会话腿
+//     报 flashback_person_not_bound，驱动长廊自动认领分支）；
+//   cgc.e2e.flashback_claim_miss = '1' → claim 不命中（bound:false，驱动
+//     「找回你的那一张」会话引导）。
+const FLASHBACK_UNCLAIMED_KEY = 'cgc.e2e.flashback_unclaimed'
+const FLASHBACK_CLAIM_MISS_KEY = 'cgc.e2e.flashback_claim_miss'
+const flashbackClaimedTokens = new Set<string>()
+let flashbackUnclaimed = false
+
+function e2eFlag(key: string): boolean {
+  try {
+    return wxStorage()?.getStorageSync(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** e2e 钩子（node --test 用）：模拟登录账号暂无匹配档案 */
+export function __setFlashbackUnclaimed(value: boolean): void {
+  flashbackUnclaimed = value
+}
+
+// 首程档案（2014-01-11 六城同日 · 北京）：与既有 capsule 的「我」同一个人——
+// 旅程（token 面）与回访（会话面）在 e2e 里可交叉断言同一档案。
+const FLASHBACK_E2E_ARCHIVE = {
+  key: '2014-01-11-bj',
+  name: 'Rails Girls Beijing',
+  city: '北京',
+  occurredOn: '2014-01-11'
+}
+const FLASHBACK_FUN_RAW = '我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。'
+
+// ── #771 卡片站外公开：公开面 fixture 与生成规则 ──────────────────────────
+// 公开卡是**独立投影**，不复用本人卡字段：姓名走 surname_masked 口径（王**），
+// 当年答案只出 self_intro/funny_thing/os 三题（PII 行 phone/email/social_media
+// 与 why_join 都不进），today 四问全出。雾段 text 恒空——与后端 FogSpans.segments
+// 同规则（原文字符不出服务端）。
+const FLASHBACK_SHARE_ANSWERS = [
+  { questionKey: 'self_intro', raw: FLASHBACK_RAW_TEXT },
+  { questionKey: 'funny_thing', raw: FLASHBACK_FUN_RAW },
+  { questionKey: 'os', raw: '当年我用的是 Windows XP，装了个假的 Mac 主题。' }
+]
+
+/** 48 位十六进制（与后端 share id 同格式：24 字节随机数的 hex）。 */
+function newShareId(): string {
+  let out = ''
+  while (out.length < 48) {
+    out += Math.floor(Math.random() * 0x100000000)
+      .toString(16)
+      .padStart(8, '0')
+  }
+  return out.slice(0, 48)
+}
+
+/** 与后端 FogSpans.segments 同规则：按已验证区间切段，fog 段 text 恒空。
+ *  校验失败（重叠/越界/非法 span）按**全雾** fail-closed——宁过度保护不泄露。 */
+function safeSegments(
+  raw: string,
+  spans: Array<{ start: number; len: number }>
+): Array<{ text: string; fog: boolean; len: number }> {
+  const sorted = [...spans].sort((a, b) => a.start - b.start)
+  const valid =
+    sorted.every((span) => Number.isInteger(span.start) && Number.isInteger(span.len) && span.len > 0 && span.start >= 0) &&
+    sorted.every((span, index) => index === 0 || span.start >= sorted[index - 1].start + sorted[index - 1].len) &&
+    sorted.every((span) => span.start + span.len <= raw.length)
+  if (!valid) return [{ text: '', fog: true, len: raw.length }]
+
+  const segments: Array<{ text: string; fog: boolean; len: number }> = []
+  let cursor = 0
+  for (const span of sorted) {
+    const head = raw.slice(cursor, span.start)
+    if (head) segments.push({ text: head, fog: false, len: 0 })
+    segments.push({ text: '', fog: true, len: span.len })
+    cursor = span.start + span.len
+  }
+  const tail = raw.slice(cursor)
+  if (tail) segments.push({ text: tail, fog: false, len: 0 })
+  return segments
+}
+
+/** 公开卡（#771）：本人预览与匿名读面**同一份**——一处口径，两条入口不漂移。 */
+function flashbackSharedCard(state: FlashbackMockState) {
+  const todayRows: Array<[string, string | null, Array<{ start: number; len: number }>]> = [
+    ['today.now', state.today.nowStatus, state.todayFogSpans?.now ?? []],
+    ['today.want', state.today.want, state.todayFogSpans?.want ?? []],
+    ['today.need', state.today.need, state.todayFogSpans?.need ?? []],
+    ['today.say', state.today.say, state.todayFogSpans?.say ?? []]
+  ]
+  return {
+    // surname_masked 口径（王**）——不是本人卡的全名
+    displayName: '王**',
+    city: '北京',
+    appliedAt: '2014-01-11T13:06:00+08:00',
+    occurredOn: FLASHBACK_E2E_ARCHIVE.occurredOn,
+    answers: FLASHBACK_SHARE_ANSWERS.map(({ questionKey, raw }) => ({
+      questionKey,
+      segments: safeSegments(raw, questionKey === 'self_intro' ? state.fogSpans : [])
+    })),
+    today: todayRows
+      .filter(([, text]) => typeof text === 'string' && text !== '')
+      .map(([questionKey, text, spans]) => ({
+        questionKey,
+        segments: safeSegments(text as string, spans)
+      }))
+  }
+}
+
+// 场次名册 fixture（R12：仅 attended；未寄出者只有结构化字段，无内容层）。
+// 城市分布（北京3/上海2/广州1 + 上海场3）= 长廊城市堆计数与场次页雾卡的
+// e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
+function flashbackArchives(mySentAt: string | null) {
+  const rosterEntry = (
+    id: string,
+    surnameMasked: string,
+    fullName: string | null,
+    city: string,
+    occupationThen: string | null,
+    sentToWallAt: string | null
+  ) => ({
+    id,
+    surnameMasked,
+    fullName,
+    appliedAt: sentToWallAt ? '2014-01-11T13:06:00Z' : null,
+    city,
+    occupationThen,
+    sentToWallAt,
+    today: sentToWallAt ? { nowStatus: '还在写代码', want: null, say: null } : null,
+    // 名册内容层（web 翻卡读面）mp 场次页不消费——空段即可
+    answers: [] as Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number }> }>
+  })
+
+  return [
+    {
+      ...FLASHBACK_E2E_ARCHIVE,
+      appliedCount: 344,
+      attendedCount: 102,
+      label: '六城同日',
+      isMine: true,
+      roster: [
+        rosterEntry('fb-person-1', '王**', '王小明', '北京', '测试工程师', mySentAt),
+        rosterEntry('fb-person-2', '李**', '李一诺', '上海', '学生', '2026-09-17T02:00:00Z'),
+        rosterEntry('fb-person-3', '陈**', '陈静怡', '北京', '学生', '2026-09-17T03:00:00Z'),
+        rosterEntry('fb-person-4', '杨**', null, '北京', '工程师', null),
+        rosterEntry('fb-person-5', '周**', null, '广州', '设计', null),
+        rosterEntry('fb-person-6', '吴**', null, '上海', '学生', null)
+      ]
+    },
+    {
+      key: '2012-02-26-sh',
+      name: 'Rails Girls Shanghai',
+      city: '上海',
+      occurredOn: '2012-02-26',
+      appliedCount: 30,
+      attendedCount: 12,
+      label: '一切的开始',
+      isMine: false,
+      roster: [
+        rosterEntry('fb-person-7', '郑**', '郑子涵', '上海', '学生', '2026-09-16T01:00:00Z'),
+        rosterEntry('fb-person-8', '冯**', '冯欣然', '上海', '教师', '2026-09-16T02:00:00Z'),
+        rosterEntry('fb-person-9', '蒋**', null, '上海', '学生', null)
+      ]
+    }
+  ]
+}
+
+// wx storage 是闪念间 mock 态的唯一真源：模块态跨 e2e 脚本运行存活（同 loggedIn），
+// 清 storage 必须等价于完全重置——有 storage 时每次读都从 storage 载入；
+// node --test 无 storage，回落模块态（进程内一致）。
+function flashbackState(): FlashbackMockState {
+  return wxStorage() ? loadFlashbackState() : flashback
+}
+
+function updateFlashbackState(patch: (state: FlashbackMockState) => FlashbackMockState): FlashbackMockState {
+  flashback = patch(flashbackState())
+  saveFlashbackState(flashback)
+  return flashback
+}
+
+// 与后端 FogSpans.mask 同规则（mock 文本 BMP 字符，len 即字符数）：区间替换 ▓
+function fogMaskedText(raw: string, spans: Array<{ start: number; len: number }>): string {
+  let out = ''
+  let cursor = 0
+  for (const { start, len } of [...spans].sort((a, b) => a.start - b.start)) {
+    out += raw.slice(cursor, start) + '▓'.repeat(len)
+    cursor = start + len
+  }
+  return out + raw.slice(cursor)
+}
+
 // ── 志愿者招募（R20/R21）mock 态：一人一档 + 一人一批一份申请 ────────────────
 // 与后端语义对齐的最小投影：批次恒有 open（空态分支由 e2e 脚本改 mock 也走不到，
 // 见 e2e 的招募路径说明）；档案与申请在登录后才可见（getWorkspace 需登录）。
@@ -243,14 +541,37 @@ function responseFor(document: string, variables: object): unknown {
 
   if (document.includes('query PublicInitiatives')) return { publicInitiatives: [initiativeCard] }
   if (document.includes('query PublicInitiative(')) {
-    if (values.slug !== initiativeCard.slug) return { publicInitiative: null }
+    // 1024 横幅(R9)指向 hackerstart1024(dev/prod 真实 slug);mock 归一到样例卡
+    const knownSlugs = [initiativeCard.slug, 'hackerstart1024']
+    if (typeof values.slug !== 'string' || !knownSlugs.includes(values.slug)) return { publicInitiative: null }
     return {
       publicInitiative: {
         ...initiativeCard,
+        slug: values.slug,
         cityCount: 1,
         eventCount: 1,
         confirmedCount: 1,
         qualifiedEventCount: 1,
+
+        futureEvents: [
+          {
+            initiativeSlug: 'hackerstart1024',
+            initiativeName: 'Hacker Start 1024',
+            initiativeStartsAt: '2026-10-24T00:00:00Z',
+            events: [
+              { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
+              { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
+              { id: 'ev-3', slug: 'hs-gz-01', title: '广州站(已截止)', city: '广州', startsAt: '2026-12-01T06:00:00Z', capacity: 24, confirmedCount: 5, registrationDeadline: '2026-09-01T00:00:00Z' }
+            ]
+          }
+        ],
+        publicWishes: [
+          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
+          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
+        myPrivateWishes: [
+          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
         cities: [{ city: '北京', events: [initiativeEvent] }]
       }
     }
@@ -651,6 +972,337 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
+  if (document.includes('query FlashbackCapsule')) {
+    const state = flashbackState()
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    // token 面优先（claim 后链接作废 → 可区分错误）；会话腿：未登录 → auth_required
+    if (token && flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    if (!loggedIn && !token) {
+      return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+    }
+    // 三级视角：登录了但库里还没有匹配档案（__setFlashbackUnclaimed / storage 开关驱动）
+    if (!token && (flashbackUnclaimed || e2eFlag(FLASHBACK_UNCLAIMED_KEY))) {
+      return { errors: [{ message: 'person not bound', code: 'flashback_person_not_bound' }] }
+    }
+    // R34 城市钉：cities 恒全量（模拟后端投影，字节序去重排序）
+    const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
+    return {
+      flashbackCapsule: {
+        me: {
+          id: 'fb-person-1',
+          fullName: '王小明',
+          surname: '王',
+          city: '北京',
+          occupationThen: '测试工程师',
+          participation: 'attended',
+          appliedAt: '2014-01-11T13:06:00+08:00',
+          quoteLevel: state.quoteLevel,
+          quote: (() => {
+            const first = (state.chosenQuoteSpans ?? [])[0]
+            if (!first) return null
+            const todayHost = TODAY_FIELDS.find((row) => row.questionKey === first.questionKey)
+            const host = (todayHost ? state.today[todayHost.field] : null) || FLASHBACK_RAW_TEXT
+            return host ? host.slice(first.start, first.start + first.len) : null
+          })(),
+          quoteSpans: state.chosenQuoteSpans ?? [],
+          quoteStats:
+            state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
+          today: { ...state.today, fogSpans: state.todayFogSpans ?? {} },
+          // #771：开关与本人预览恒带（后端非空字段）。enabled/shareId 从 state
+          // 派生，preview 与匿名读面同一份投影——关着时预览仍在（本人视角）。
+          cardSharing: {
+            enabled: state.cardSharing.enabled === true,
+            shareId: state.cardSharing.shareId ?? null,
+            preview: flashbackSharedCard(state)
+          },
+          answers: [
+            {
+              id: 'fb-answer-1',
+              questionKey: 'self_intro',
+              rawText: FLASHBACK_RAW_TEXT,
+              // 雾面区间与雾化文本都从 mock state 推导（adjustFog 写后回读，P2）
+              fogSpans: state.fogSpans,
+              text: fogMaskedText(FLASHBACK_RAW_TEXT, state.fogSpans)
+            },
+            {
+              id: 'fb-answer-2',
+              questionKey: 'funny_thing',
+              rawText: FLASHBACK_FUN_RAW,
+              fogSpans: [],
+              text: FLASHBACK_FUN_RAW
+            }
+          ]
+        },
+        // R34 城市钉同款语义：名册按人城市过滤，筛空场次整架撤下
+        archives: flashbackArchives(state.today.sentToWallAt)
+          .map((archive) => ({
+            ...archive,
+            roster: cityFilter
+              ? archive.roster.filter((entry) => entry.city === cityFilter)
+              : archive.roster
+          }))
+          .filter((archive) => archive.roster.length > 0),
+
+        futureEvents: [
+          {
+            initiativeSlug: 'hackerstart1024',
+            initiativeName: 'Hacker Start 1024',
+            initiativeStartsAt: '2026-10-24T00:00:00Z',
+            events: [
+              { id: 'ev-1', slug: 'hs-bj-01', title: 'Agent 入门工作坊', city: '北京', startsAt: '2026-10-24T06:00:00Z', capacity: 32, confirmedCount: 23, registrationDeadline: null },
+              { id: 'ev-2', slug: 'hs-sh-01', title: '上海站 · 1024 黑客松', city: '上海', startsAt: '2026-11-24T06:00:00Z', capacity: 16, confirmedCount: 16, registrationDeadline: null },
+              { id: 'ev-3', slug: 'hs-gz-01', title: '广州站(已截止)', city: '广州', startsAt: '2026-12-01T06:00:00Z', capacity: 24, confirmedCount: 5, registrationDeadline: '2026-09-01T00:00:00Z' }
+            ]
+          }
+        ],
+        publicWishes: [
+          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
+          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
+        myPrivateWishes: [
+          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
+        ],
+        // R20 年度额度:mock 恒满额(许愿写面不入 mock,额度递减无 mock 投影)
+        myWishQuotaRemaining: 3,
+        cities: [
+          ...new Set([
+            ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>
+              archive.roster.map((entry) => entry.city)
+            )
+          ])
+        ].sort()
+      }
+    }
+  }
+
+  if (document.includes('query FlashbackPublicStats')) {
+    // 路人态长廊（R32 统计层）：场次 + 城市 + 走进教室人数 + 全局已回来计数
+    return {
+      flashbackPublicStats: {
+        archives: [
+          {
+            key: '2012-02-26-sh',
+            name: 'Rails Girls Shanghai',
+            city: '上海',
+            occurredOn: '2012-02-26',
+            appliedCount: 30,
+            attendedCount: 12
+          },
+          {
+            key: FLASHBACK_E2E_ARCHIVE.key,
+            name: FLASHBACK_E2E_ARCHIVE.name,
+            city: FLASHBACK_E2E_ARCHIVE.city,
+            occurredOn: FLASHBACK_E2E_ARCHIVE.occurredOn,
+            appliedCount: 344,
+            attendedCount: 102
+          }
+        ],
+        returnedCount: 4,
+        sentCount: 4
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackEnter')) {
+    const token = typeof values.token === 'string' ? values.token : ''
+    if (!token) {
+      return { errors: [{ message: 'token not found', code: 'flashback_token_not_found' }] }
+    }
+    if (flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    const state = flashbackState()
+    return {
+      flashbackEnter: {
+        line: 'memory',
+        profile: {
+          fullName: '王小明',
+          surname: '王',
+          city: '北京',
+          occupationThen: '测试工程师',
+          participation: 'attended',
+          role: 'learner',
+          appliedAt: '2014-01-11T13:06:00+08:00',
+          archive: { ...FLASHBACK_E2E_ARCHIVE },
+          answers: [
+            {
+              id: 'fb-answer-1',
+              questionKey: 'self_intro',
+              rawText: FLASHBACK_RAW_TEXT,
+              fogSpans: state.fogSpans
+            },
+            {
+              id: 'fb-answer-2',
+              questionKey: 'funny_thing',
+              rawText: FLASHBACK_FUN_RAW,
+              fogSpans: []
+            }
+          ]
+        },
+        progress: {
+          quoteLevel: state.quoteLevel,
+          maskedPhone: '139****0001',
+          maskedEmail: null,
+          today: state.today
+        }
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackMarkRevealed')) {
+    return { flashbackMarkRevealed: { recorded: true } }
+  }
+
+  if (document.includes('mutation FlashbackSendToWall')) {
+    // 幂等（R11）：已有寄出时间原样返回，不覆盖
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      today: { ...state.today, sentToWallAt: state.today.sentToWallAt ?? new Date().toISOString() }
+    }))
+    return {
+      flashbackSendToWall: {
+        sentToWallAt: next.today.sentToWallAt,
+        maskedPhone: '139****0001',
+        maskedEmail: null
+      }
+    }
+  }
+
+  if (document.includes('mutation FlashbackClaim')) {
+    if (!loggedIn) {
+      return { errors: [{ message: 'authentication required', code: 'flashback_auth_required' }] }
+    }
+    // claim_miss 开关：模拟库里没有匹配（bound:false → 前端给找回引导）
+    if (e2eFlag(FLASHBACK_CLAIM_MISS_KEY)) {
+      return { flashbackClaim: { bound: false, boundCount: 0, maskedPhone: null } }
+    }
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    if (token) flashbackClaimedTokens.add(token)
+    // 登录即视为库内匹配成功（bound）；unclaimed 开关复位（模块态 + storage——
+    // storage 不清会让后续 capsule 会话腿仍报 not_bound，前端认领循环）
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已复位
+    }
+    return { flashbackClaim: { bound: true, boundCount: 1, maskedPhone: '139****0001' } }
+  }
+  if (document.includes('mutation FlashbackSubmitToday')) {
+    const input = (values.input ?? {}) as Record<string, unknown>
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      today: {
+        ...state.today,
+        nowStatus: typeof input.nowStatus === 'string' ? input.nowStatus : state.today.nowStatus,
+        want: typeof input.want === 'string' ? input.want : state.today.want,
+        need: typeof input.need === 'string' ? input.need : state.today.need,
+        say: typeof input.say === 'string' ? input.say : state.today.say
+      }
+    }))
+    return { flashbackSubmitToday: { today: next.today } }
+  }
+  if (document.includes('mutation FlashbackSetQuoteLicense')) {
+    const level = values.level
+    const spans = (values.chosenQuoteSpans ?? null) as
+      | Array<{ questionKey: string; start: number; len: number }>
+      | null
+    if (level === 'off' || level === 'anonymous' || level === 'credited') {
+      updateFlashbackState((state) => ({
+        ...state,
+        quoteLevel: level,
+        // 提交即覆盖（对齐后端 tokens.ex：resolver 把缺省与 null 一律传成 nil，
+        // attribute 允许 nil → Ash 照写即清空）。所以前端**关档时也带现有区间
+        // 原值回写**，圈选才保得住；真清空 = 提交空数组（等价 null）。
+        chosenQuoteSpans: spans ?? []
+      }))
+    }
+    return {
+      flashbackSetQuoteLicense: {
+        level: flashbackState().quoteLevel,
+        chosenQuoteSpans: flashbackState().chosenQuoteSpans
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackAdjustFog')) {
+    // 写面落 mock state（capsule 回读不再恒定初始 span，P2）
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      fogSpans: (values.spans ?? []) as Array<{ start: number; len: number }>
+    }))
+    return {
+      flashbackAdjustFog: {
+        answerId: values.answerId,
+        fogSpans: next.fogSpans
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackAdjustTodayFog')) {
+    // today 句级雾面写面(mock state.todayFogSpans[field] 整份覆写)
+    const field = typeof values.field === 'string' ? values.field : ''
+    const validFields = ['now', 'want', 'need', 'say']
+    if (!validFields.includes(field)) {
+      return { errors: [{ message: 'invalid today field', code: 'flashback_invalid_today_field' }] }
+    }
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      todayFogSpans: {
+        ...(state.todayFogSpans ?? {}),
+        [field]: (values.spans ?? []) as Array<{ start: number; len: number }>
+      }
+    }))
+    return {
+      flashbackAdjustTodayFog: {
+        field,
+        fogSpans: JSON.stringify(next.todayFogSpans ?? {})
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackSetCardSharing')) {
+    // #771：本人可调开关。要求登录（会话腿）或有效 token（链接腿）——匿名不给
+    // 任何写面。开启时**首次**生成 shareId，之后复用；关闭只清 enabled，
+    // **保留 shareId**（ADR-0014：发布即锁死，重开同一 id）。
+    const token = typeof values.token === 'string' && values.token ? values.token : null
+    if (!loggedIn && !token) {
+      return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+    }
+    // 已作废的首程链接（claim 之后）不构成写权限——与 capsule token 腿同规则
+    if (token && flashbackClaimedTokens.has(token)) {
+      return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    }
+    const enabled = values.enabled === true
+    const next = updateFlashbackState((state) => ({
+      ...state,
+      cardSharing: {
+        enabled,
+        // shareId 只在**首次开启**时生成（后端口径：从未开启过时恒 null）。
+        // 因此「从未开过的人点关闭」必须保持 null，不能凭空铸一个 id——
+        // 铸了就等于宣告「这个人开过」，而分享链接本不该存在。
+        shareId: enabled ? (state.cardSharing.shareId ?? newShareId()) : state.cardSharing.shareId
+      }
+    }))
+    return {
+      flashbackSetCardSharing: {
+        enabled: next.cardSharing.enabled,
+        shareId: next.cardSharing.shareId,
+        preview: flashbackSharedCard(next)
+      }
+    }
+  }
+
+  if (document.includes('query FlashbackSharedCard')) {
+    // #771 匿名公开读面：无 token、无 slug、无 auth——朋友拿到链接就能读。
+    // 只有「开着且有 id」才出卡；未开启/未知 id/已关闭一律 null（合法空态）。
+    const state = flashbackState()
+    const shareId = typeof values.shareId === 'string' ? values.shareId : ''
+    if (!state.cardSharing.enabled || !state.cardSharing.shareId || shareId !== state.cardSharing.shareId) {
+      return { flashbackSharedCard: null }
+    }
+    return { flashbackSharedCard: flashbackSharedCard(state) }
+  }
+
   if (document.includes('mutation CheckInEnrollment')) {
     // #508-A：核销三分支（成功/重复/错码）。幂等由 checkedIn 标记承担——同一
     // 报名第二次核销稳定返回 already（后端唯一索引语义的 mock 投影）

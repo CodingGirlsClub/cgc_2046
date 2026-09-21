@@ -372,6 +372,13 @@ if config_env() == :prod do
       secret: System.get_env("WECHAT_WEB_SECRET")
     ]
 
+  # 闪念间唤醒短信模板（U8/KTD6）：**可选** env——SendCloud 后台申请通过前不注入，
+  # `Cgc2046.Flashback.Outreach.Sms.configured?/0` fail-closed（短信腿不外呼，
+  # 邮件腿不受影响）；申请通过后注入即生效，无需改代码（SENDCLOUD_* 惯例）。
+  config :cgc_2046,
+         :flashback_sms,
+         template_id: System.get_env("SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID")
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key
@@ -497,6 +504,11 @@ if config_env() == :dev do
         sms_key: System.get_env("SENDCLOUD_SMS_KEY"),
         template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID")
       ]
+  end
+
+  # 闪念间唤醒短信模板（U8）：dev 同款可选注入（与验证码模板独立，可只配其一）。
+  if flashback_sms_template = System.get_env("SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID") do
+    config :cgc_2046, :flashback_sms, template_id: flashback_sms_template
   end
 
   if wechat_appid = System.get_env("WECHAT_WEB_APPID") do
