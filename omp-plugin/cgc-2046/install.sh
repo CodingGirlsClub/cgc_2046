@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omp-ext/cgc-2046 安装脚本
+# omp-plugin/cgc-2046 安装脚本
 #
 # 角色：zip 托管形态的 fallback 安装器（Phase 2 主形态为 plugin/marketplace）。
 # 主形态：/marketplace add CodingGirlsClub/cgc-omp-plugins && /marketplace install cgc-2046@cgc-omp-plugins
@@ -49,8 +49,8 @@ usage() {
 EOF
 }
 
-log() { echo "[omp-ext/cgc-2046] $*"; }
-die() { echo "[omp-ext/cgc-2046] ERROR: $*" >&2; exit 1; }
+log() { echo "[omp-plugin/cgc-2046] $*"; }
+die() { echo "[omp-plugin/cgc-2046] ERROR: $*" >&2; exit 1; }
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -130,7 +130,7 @@ except Exception:
     os.unlink(tmp)
     raise
 
-print(f"[omp-ext/cgc-2046] merge 写 {path}（cgc-2046 条目，0600）")
+print(f"[omp-plugin/cgc-2046] merge 写 {path}（cgc-2046 条目，0600）")
 PYEOF
 }
 
@@ -157,7 +157,7 @@ if os.path.exists(path):
 # 检查是否已有守门配置
 content = "".join(lines)
 if GUARD_KEY in content:
-    print(f"[omp-ext/cgc-2046] {path} 已含守门配置，跳过")
+    print(f"[omp-plugin/cgc-2046] {path} 已含守门配置，跳过")
     raise SystemExit(0)
 
 # 找 tools: 节
@@ -195,7 +195,7 @@ except Exception:
     os.unlink(tmp)
     raise
 
-print(f"[omp-ext/cgc-2046] merge 写 {path}（守门配置：{GUARD_KEY}: prompt）")
+print(f"[omp-plugin/cgc-2046] merge 写 {path}（守门配置：{GUARD_KEY}: prompt）")
 PYEOF
 }
 
@@ -256,7 +256,7 @@ if "cgc-2046" in config.get("mcpServers", {}):
     except Exception:
         os.unlink(tmp)
         raise
-    print(f"[omp-ext/cgc-2046] 从 {path} 删除 cgc-2046 条目")
+    print(f"[omp-plugin/cgc-2046] 从 {path} 删除 cgc-2046 条目")
 PYEOF
     CONFIG_YML="$CONFIG_YML" python3 <<'PYEOF'
 import os, re, tempfile
@@ -278,7 +278,7 @@ try:
 except Exception:
     os.unlink(tmp)
     raise
-print(f"[omp-ext/cgc-2046] 从 {path} 删除守门配置")
+print(f"[omp-plugin/cgc-2046] 从 {path} 删除守门配置")
 PYEOF
   fi
   log "卸载完成。备份文件（*.bak-*）保留在原位，可手动清理。"
