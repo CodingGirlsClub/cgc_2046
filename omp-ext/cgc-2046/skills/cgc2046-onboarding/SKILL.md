@@ -19,7 +19,8 @@ description: 首次连接 CGC-2046、MCP 连接错误/401、或需要把工作�
 4. **自动签发**：登录成功后，只撤销名称以 `omp-auto-` 开头的旧自动 token，保留用户手动创建的 token；签发新的 `omp-auto-<YYYYMMDD>` token。
 5. **安全复制**：点击一次性 token 的复制按钮，但不要读取、打印或转述明文；直接把剪贴板通过 stdin 管道交给写入命令（见下方「写入并验证」）。
 6. **写入并验证**：用剪贴板管道把 token 写入 `~/.omp/agent/mcp.json` 的 `mcpServers["cgc-2046"]` 条目（read-merge-write，临时文件 + chmod 600 + 原子替换，保留其他 server 与未知字段），再通过 OMP `/mcp test cgc-2046` 或等效 initialize + tools/list 探测做真实连接检查。只有握手成功才向用户报告完成。
-7. **恢复策略**：浏览器登录失败、用户取消或连接检查失败时，保留可重试状态，说明具体下一步；不要让用户回网站手工配置，除非自动路径确实不可用。
+7. **写入守门配置**：握手成功后，执行下方「写入守门配置」节的命令并同样验证（调一次 confirm 类工具确认弹审批框）。
+8. **恢复策略**：浏览器登录失败、用户取消或连接检查失败时，保留可重试状态，说明具体下一步；不要让用户回网站手工配置，除非自动路径确实不可用。
 
 ## 备用路径：手工 token（仅自动连接不可用时）
 
@@ -91,7 +92,66 @@ print("OK: cgc-2046 entry written to ~/.omp/agent/mcp.json")
 - 写入成功后，在 OMP 里跑 `/mcp test cgc-2046` 或等效 initialize + tools/list 探测。
 - 握手成功（工具列表返回）才算连接建立；失败则检查 token 是否过期/撤销、URL 是否正确。
 
-### 4. 告诉用户可以开始
+### 4. 写入守门配置（安全闸）
+
+连接成功后，写入确认守门配置——`confirm_operation` 每次调用弹 OMP 原生审批框，用户批准才执行：
+
+```bash
+python3 -c '
+import os, re, tempfile
+
+path = os.path.expanduser("~/.omp/agent/config.yml")
+GUARD_KEY = "mcp__cgc_2046_confirm_operation"
+GUARD_LINE = f"    {GUARD_KEY}: prompt"
+
+lines = []
+if os.path.exists(path):
+    with open(path) as f:
+        lines = f.readlines()
+
+content = "".join(lines)
+if GUARD_KEY in content:
+    print("OK: guard config already present")
+    raise SystemExit(0)
+
+tools_idx = None
+approval_idx = None
+for i, line in enumerate(lines):
+    if re.match(r"^tools:\s*$", line):
+        tools_idx = i
+    if tools_idx is not None and re.match(r"^  approval:\s*$", line):
+        approval_idx = i
+        break
+
+if approval_idx is not None:
+    lines.insert(approval_idx + 1, GUARD_LINE + "\n")
+elif tools_idx is not None:
+    lines.insert(tools_idx + 1, "  approval:\n")
+    lines.insert(tools_idx + 2, GUARD_LINE + "\n")
+else:
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    lines.append("\ntools:\n")
+    lines.append("  approval:\n")
+    lines.append(GUARD_LINE + "\n")
+
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".config.yml.", text=True)
+try:
+    with os.fdopen(fd, "w") as f:
+        f.writelines(lines)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+except Exception:
+    os.unlink(tmp)
+    raise
+
+print("OK: guard config written to ~/.omp/agent/config.yml")
+'
+```
+
+验证：调一次 confirm 类工具（如 `confirm_operation`）确认弹审批框。若未弹框，检查 `~/.omp/agent/config.yml` 是否被 OMP 设置界面重写；恢复方法见 README。
+
+### 5. 告诉用户可以开始
 
 连接成功后，告知用户可以直接提问。自动连接完成后，给新用户的提示词引导——可以问：
 

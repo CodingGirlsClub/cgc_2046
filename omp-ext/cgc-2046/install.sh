@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # omp-ext/cgc-2046 安装脚本
 #
+# 角色：zip 托管形态的 fallback 安装器（Phase 2 主形态为 plugin/marketplace）。
+# 主形态：/marketplace add CodingGirlsClub/cgc-omp-plugins && /marketplace install cgc-2046@cgc-omp-plugins
+# 本脚本保留为 zip 托管 fallback（OpenClacky 先例：deploy CI 生成 zip 放静态托管，用户下载解压跑本脚本）。
+#
 # 子命令：
 #   install   安装/升级接入包（拷 agent/skill/extension，merge 写 mcp.json 与 config.yml）
 #   remove    卸载接入包（只删本包文件与本条目，保留备份）
@@ -14,6 +18,9 @@
 #   - mcp.json 与 config.yml 的 merge 用临时文件 + chmod 600 + 原子替换，保留其他条目与未知字段
 #   - 同名已有文件先备份为 *.bak-<时间戳> 再覆盖
 #   - install 末尾实测验证守门配置（调一次 confirm 类工具确认弹审批框的指引）
+#
+# Phase 2 注记：守门配置（config.yml）的写入已改道至 onboarding 收尾步骤（skill 指导下，与 token 写入同场）。
+# 本脚本的 config.yml merge 保留为 fallback（zip 形态下无 onboarding skill 指导，仍需脚本写入）。
 
 set -euo pipefail
 

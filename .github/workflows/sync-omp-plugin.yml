@@ -1,0 +1,71 @@
+name: Sync omp-ext to plugin repo
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'omp-ext/cgc-2046/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Store monorepo SHA
+        id: sha
+        run: echo "CGC_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Clone plugin repo
+        env:
+          PLUGIN_SYNC_TOKEN: ${{ secrets.PLUGIN_SYNC_TOKEN }}
+        run: |
+          if [ -z "$PLUGIN_SYNC_TOKEN" ]; then
+            echo "ERROR: PLUGIN_SYNC_TOKEN secret not set. Create a PAT with repo access to CodingGirlsClub/cgc-omp-plugins and add it as a secret."
+            exit 1
+          fi
+          git clone https://x-access-token:${PLUGIN_SYNC_TOKEN}@github.com/CodingGirlsClub/cgc-omp-plugins.git /tmp/cgc-omp-plugins
+          cd /tmp/cgc-omp-plugins
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Copy plugin files to marketplace structure
+        run: |
+          mkdir -p /tmp/cgc-omp-plugins/plugins/cgc-2046
+          rsync -av --delete omp-ext/cgc-2046/ /tmp/cgc-omp-plugins/plugins/cgc-2046/ --exclude='.git'
+
+      - name: Read version from package.json and update catalog
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('omp-ext/cgc-2046/package.json'))['version'])")
+          cd /tmp/cgc-omp-plugins
+          python3 -c "
+import json
+with open('.omp-plugin/marketplace.json') as f:
+    catalog = json.load(f)
+for p in catalog['plugins']:
+    if p['name'] == 'cgc-2046':
+        p['version'] = '$VERSION'
+with open('.omp-plugin/marketplace.json', 'w') as f:
+    json.dump(catalog, f, indent=2, ensure_ascii=False)
+"
+
+      - name: Commit and push if changed
+        run: |
+          cd /tmp/cgc-omp-plugins
+          if [[ -n $(git status --porcelain) ]]; then
+            git add plugins/cgc-2046/ .omp-plugin/marketplace.json
+            git commit -m "sync: omp-ext/cgc-2046 from cgc_2046@${{ steps.sha.outputs.CGC_SHA }}"
+            git push origin main
+          else
+            echo "No changes to sync"
+          fi
+
+# 首跑前提：cgc-omp-plugins 仓须先手工播种（含 main 分支与根 catalog .omp-plugin/marketplace.json）。
+# 播种步骤：
+#   1. 建公开 repo CodingGirlsClub/cgc-omp-plugins
+#   2. 本地 clone，建 .omp-plugin/marketplace.json（catalog 结构见本文件上方）
+#   3. 建 plugins/cgc-2046/ 目录，从 monorepo 复制 omp-ext/cgc-2046/ 内容
+#   4. commit 并推送 main 分支
+#   5. 在 cgc_2046 的 Settings → Secrets 加 PLUGIN_SYNC_TOKEN（PAT，repo 权限）
