@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omp-ext/cgc-2046 安装脚本测试
+# omp-plugin/cgc-2046 安装脚本测试
 #
 # 覆盖 plan U4 的六个测试场景：
 #   1. 干净环境 install：agent/skill/extension 落位，mcp.json 生成且权限 600，config.yml 含守门配置
@@ -9,7 +9,7 @@
 #   5. --dry-run：仅打印计划，零落盘
 #   6. install 后实测验证：守门配置写入 config.yml（调一次 confirm 类工具确认弹审批框的指引输出）
 #
-# 运行：bash omp-ext/cgc-2046/install.test.sh
+# 运行：bash omp-plugin/cgc-2046/install.test.sh
 # 退出码：0 = 全绿，非 0 = 有断言失败
 
 set -euo pipefail

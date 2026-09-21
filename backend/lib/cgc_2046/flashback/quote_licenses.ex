@@ -36,8 +36,13 @@ defmodule Cgc2046.Flashback.QuoteLicenses do
         })
         |> Ash.update(actor: actor)
         |> case do
-          {:ok, _license} -> {:ok, %{person_id: person_id, hidden: hidden?}}
-          {:error, error} -> {:error, error}
+          {:ok, license} ->
+            # R37 级联：license 下线/恢复同步其全部 Quote 行（单句 hidden_at）。
+            :ok = Cgc2046.Flashback.Quotes.sync_license_hidden(license)
+            {:ok, %{person_id: person_id, hidden: hidden?}}
+
+          {:error, error} ->
+            {:error, error}
         end
 
       {:error, error} ->

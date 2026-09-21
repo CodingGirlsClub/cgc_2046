@@ -185,7 +185,7 @@ defmodule Cgc2046.Flashback.Deletion do
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.each(&Ash.destroy!(&1, authorize?: false, action: :destroy))
 
-    # 4. 金句授权删除
+    # 4. 金句授权删除（R37：其 Quote 行与点赞随 FK on_delete: :delete_all 级联）
     QuoteLicense
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(person_id == ^person.id)

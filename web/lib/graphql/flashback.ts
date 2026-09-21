@@ -335,8 +335,12 @@ export interface FlashbackPublicQuote {
 	level: string;
 	/** credited 档才有：链实名档案页 */
 	publicSlug?: string | null;
-	/** 点赞定位键（R36）：flashbackLikeQuote 的 personId 入参 */
-	personId: string;
+	/** 单句定位键（R37）：flashbackLikeQuote 的 quoteId 入参 / 分享链接 ?item= */
+	quoteId: string;
+	/** 城市快照（选城浏览用） */
+	city?: string | null;
+	/** 年份快照 */
+	year?: number | null;
 	/** 实时点赞数（R36） */
 	likeCount: number;
 	/** 本访客是否已赞（按 voterKey 去重） */
@@ -839,7 +843,7 @@ export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
 	}
 `;
 
-/** 匿名金句墙（U6/R31/R32）：授权者的脱敏金句 */
+/** 匿名金句墙（U6/R31/R32/R37）：授权者的脱敏金句，按句输出 */
 export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
 	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
 	{ voterKey?: string | null }
@@ -850,20 +854,62 @@ export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
 			attribution
 			level
 			publicSlug
-			personId
+			quoteId
+			city
+			year
 			likeCount
 			likedByViewer
 		}
 	}
 `;
 
-/** 点赞/取消（R36）：公开无登录，voterKey 去重 + IP 限频；返回实时计数 */
+/** 随便听听（R35 随机入口）：全量未隐藏金句随机取 limit 句 */
+export const FLASHBACK_RANDOM_QUOTES: TypedDocumentNode<
+	{ flashbackRandomQuotes: FlashbackPublicQuote[] },
+	{ limit?: number | null; voterKey?: string | null }
+> = gql`
+	query FlashbackRandomQuotes($limit: Int, $voterKey: String) {
+		flashbackRandomQuotes(limit: $limit, voterKey: $voterKey) {
+			text
+			attribution
+			level
+			publicSlug
+			quoteId
+			city
+			year
+			likeCount
+			likedByViewer
+		}
+	}
+`;
+
+/** 单句直达（R37 分享链接 ?item=）：已撤回/不存在 → null（失效页） */
+export const FLASHBACK_PUBLIC_QUOTE: TypedDocumentNode<
+	{ flashbackPublicQuote: FlashbackPublicQuote | null },
+	{ quoteId: string; voterKey?: string | null }
+> = gql`
+	query FlashbackPublicQuote($quoteId: ID!, $voterKey: String) {
+		flashbackPublicQuote(quoteId: $quoteId, voterKey: $voterKey) {
+			text
+			attribution
+			level
+			publicSlug
+			quoteId
+			city
+			year
+			likeCount
+			likedByViewer
+		}
+	}
+`;
+
+/** 点赞/取消（R36/R37）：公开无登录，voterKey 去重 + IP/voter 双层限频；返回该句实时计数 */
 export const FLASHBACK_LIKE_QUOTE: TypedDocumentNode<
 	{ flashbackLikeQuote: { likeCount: number } },
-	{ personId: string; voterKey: string; liked: boolean }
+	{ quoteId: string; voterKey: string; liked: boolean }
 > = gql`
-	mutation FlashbackLikeQuote($personId: ID!, $voterKey: String!, $liked: Boolean!) {
-		flashbackLikeQuote(personId: $personId, voterKey: $voterKey, liked: $liked) {
+	mutation FlashbackLikeQuote($quoteId: ID!, $voterKey: String!, $liked: Boolean!) {
+		flashbackLikeQuote(quoteId: $quoteId, voterKey: $voterKey, liked: $liked) {
 			likeCount
 		}
 	}

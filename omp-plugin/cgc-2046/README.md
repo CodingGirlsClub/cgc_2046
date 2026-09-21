@@ -1,4 +1,4 @@
-# omp-ext/cgc-2046
+# omp-plugin/cgc-2046
 
 CGC-2046 平台的 OMP（oh-my-pi）接入包。安装后，平台四类角色（平台管理员、Workspace Owner/Admin、Tutor、Learner）可在 OMP 终端里通过 MCP 完成 OpenClacky 宿主所支持的全部平台操作。
 
@@ -12,15 +12,39 @@ CGC-2046 平台的 OMP（oh-my-pi）接入包。安装后，平台四类角色�
    然后在 Chrome 手动加载 unpacked 扩展：打开 `chrome://extensions/` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选 `~/.omp/browser-relay/extension`。
    > 该命令只落盘扩展，不自动注入 Chrome。
 
-## 三步接入
+## 安装
+
+**主路径（marketplace，CLI 或会话内斜杠命令均可）**：
 
 ```bash
-# 1. 克隆本仓库（或下载 omp-ext/cgc-2046/ 目录）
+# 1. 加市场
+omp plugin marketplace add CodingGirlsClub/cgc-omp-plugins
+
+# 2. 装 plugin
+omp plugin install cgc-2046@cgc-omp-plugins
+
+# 3. 启动 OMP，对 agent 说「连接 CGC」
+omp
+```
+
+首次连接后，agent 会创建 `~/cgc2046_workspace` 并引导你到这个目录跑 OMP（CGC 会话与其他工作分开，文件也放这里）。
+
+或在 OMP 会话内：
+
+```
+/marketplace add CodingGirlsClub/cgc-omp-plugins
+/marketplace install cgc-2046@cgc-omp-plugins
+```
+
+**Fallback（zip 托管）**：
+
+```bash
+# 1. 下载 zip（或 clone monorepo）
 git clone https://github.com/CodingGirlsClub/cgc_2046.git
 cd cgc_2046
 
-# 2. 安装接入包
-bash omp-ext/cgc-2046/install.sh install
+# 2. 跑安装脚本
+bash omp-plugin/cgc-2046/install.sh install
 
 # 3. 启动 OMP，对 agent 说「连接 CGC」
 omp
@@ -46,14 +70,14 @@ omp
 | relay 自动连接失败 | 确认 Chrome 已装 relay 扩展；或回退手工 token 流程（onboarding skill 有指引） |
 | 健康检查失败 | 检查 `~/.omp/agent/mcp.json` 的 URL 与 token；跑 `/mcp test cgc-2046` 看具体错误 |
 | 守门配置被覆盖 | OMP 设置界面重写 `config.yml` 可能覆盖 merge 结果——重跑 `install.sh install` 恢复，或手动加回 `tools.approval.mcp__cgc_2046_confirm_operation: prompt` |
-| 卸载 | `bash omp-ext/cgc-2046/install.sh remove`（只删本包文件与条目，保留备份） |
+| 卸载 | `bash omp-plugin/cgc-2046/install.sh remove`（只删本包文件与条目，保留备份） |
 
 ## 开发场景（cgc_2046 仓库内）
 
 在 cgc_2046 仓库内开发时，可用项目级配置替代用户级：
 
 ```bash
-bash omp-ext/cgc-2046/install.sh install --url http://localhost:4000/mcp
+bash omp-plugin/cgc-2046/install.sh install --url http://localhost:4000/mcp
 ```
 
 或在仓库根目录建 `.omp/mcp.json`（dev URL），其余流程相同。
@@ -66,7 +90,7 @@ bash omp-ext/cgc-2046/install.sh install --url http://localhost:4000/mcp
 
 ## 最低 OMP 版本
 
-本接入包验证时的 OMP 版本：____（实现时回填）。升级 OMP 后请重跑 `omp-ext/cgc-2046/docs/verify-checklist.md`。
+本接入包验证时的 OMP 版本：____（实现时回填）。升级 OMP 后请重跑 `omp-plugin/cgc-2046/docs/verify-checklist.md`。
 
 ## FAQ
 
@@ -81,4 +105,3 @@ A: 能。agent 进入长任务时会用 `todo` 建任务清单，每完成一步
 
 **Q: 跨会话能记住我的常用 workspace 吗？**
 A: 能。开 `memory.backend: local`（见 OMP 文档），agent 会记住常用 workspace 与上次角色。
-trigger sync
