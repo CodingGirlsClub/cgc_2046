@@ -1,4 +1,5 @@
 {
+  "_comment": "公开期 interim：cgc_2046 公开时本 catalog 可直接进 marketplace（/marketplace add CodingGirlsClub/cgc_2046）。闭源时废弃，正式分发走独立公开 repo cgc-omp-plugins（见 #793）。",
   "name": "cgc-omp-plugins",
   "version": "0.1.0",
   "description": "CGC-2046 平台的 OMP 插件市场",
