@@ -5,6 +5,13 @@ All notable changes to the CGC-2046 OMP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-09-21
+
+### Added
+
+- 工作目录引导：onboarding 首次连接后创建 `~/cgc2046_workspace`，用 `ask` 分层引导（小白教命令 `cd ~/cgc2046_workspace && omp`，非小白一句话建议）
+- `/cgc` 显示当前目录 + 非侵入提醒（如果不是 `~/cgc2046_workspace`，提醒「建议在 `~/cgc2046_workspace` 跑 OMP」）
+
 ## [0.1.1] - 2026-09-21
 
 ### Fixed
