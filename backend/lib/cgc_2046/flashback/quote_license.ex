@@ -66,6 +66,9 @@ defmodule Cgc2046.Flashback.QuoteLicense do
       destination_attribute: :id,
       define_attribute?: false
     )
+
+    # R37：每个圈选段一行 Quote（sync_for_license 单一入口维护）。
+    has_many(:quotes, Cgc2046.Flashback.Quote)
   end
 
   identities do

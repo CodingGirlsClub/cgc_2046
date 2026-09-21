@@ -41,6 +41,7 @@ defmodule Cgc2046.Flashback do
     resource(Cgc2046.Flashback.Answer)
     resource(Cgc2046.Flashback.Today)
     resource(Cgc2046.Flashback.QuoteLicense)
+    resource(Cgc2046.Flashback.Quote)
     resource(Cgc2046.Flashback.Touch)
     resource(Cgc2046.Flashback.Outreach)
     resource(Cgc2046.Flashback.Redemption)

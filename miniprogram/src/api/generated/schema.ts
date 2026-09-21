@@ -2673,17 +2673,21 @@ export type FlashbackPublicProfile = {
 export type FlashbackPublicQuote = {
   /** 署名：王** · 年 · 城 */
   attribution: Scalars['String']['output'];
+  /** 城市快照（选城浏览用） */
+  city?: Maybe<Scalars['String']['output']>;
   level: Scalars['String']['output'];
   /** 实时点赞数（R36，无冗余计数列） */
   likeCount: Scalars['Int']['output'];
   /** 本访客是否已赞（按 voterKey 去重；未传 voterKey 恒 false） */
   likedByViewer: Scalars['Boolean']['output'];
-  /** 点赞定位键（R36）：flashbackLikeQuote 的 personId 入参 */
-  personId: Scalars['ID']['output'];
   /** credited 档才有：链实名档案页 */
   publicSlug?: Maybe<Scalars['String']['output']>;
+  /** 单句定位键（R37）：flashbackLikeQuote 的 quoteId 入参 / 分享链接 ?item= */
+  quoteId: Scalars['ID']['output'];
   /** 授权金句文本（区间切片；雾面句本就不进候选） */
   text: Scalars['String']['output'];
+  /** 年份快照（选城浏览用） */
+  year?: Maybe<Scalars['Int']['output']>;
 };
 
 export type FlashbackPublicStats = {
@@ -4918,7 +4922,7 @@ export type RootMutationType = {
   flashbackEndorseWish?: Maybe<FlashbackWishResult>;
   /** 闪念间首程进入（R1/R2）：token 分流记忆线/圆梦线；失效原因可区分（not_found/claimed/revoked），写 link_opened 行为事件 */
   flashbackEnter?: Maybe<FlashbackEnterResult>;
-  /** 金句点赞/取消（R36）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数 */
+  /** 金句点赞/取消（R36/R37）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数 */
   flashbackLikeQuote?: Maybe<FlashbackQuoteLikeResult>;
   /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
   flashbackMarkRevealed?: Maybe<FlashbackTouchResult>;
@@ -5431,7 +5435,7 @@ export type RootMutationTypeFlashbackEnterArgs = {
 
 export type RootMutationTypeFlashbackLikeQuoteArgs = {
   liked: Scalars['Boolean']['input'];
-  personId: Scalars['ID']['input'];
+  quoteId: Scalars['ID']['input'];
   voterKey: Scalars['String']['input'];
 };
 
@@ -5813,10 +5817,14 @@ export type RootQueryType = {
   flashbackOutreachRoster: Array<FlashbackOutreachRosterEntry>;
   /** 闪念间实名档案页（U6/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态） */
   flashbackPublicProfile?: Maybe<FlashbackPublicProfile>;
-  /** 闪念间匿名金句墙（U6/R31/R32/R36）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false） */
+  /** 单句直达（R37 分享链接 ?item=）：按 quoteId 取一句；已撤回/未授权/不存在统一 null（不泄露存在性，前端渲染失效页） */
+  flashbackPublicQuote?: Maybe<FlashbackPublicQuote>;
+  /** 闪念间匿名金句墙（U6/R31/R32/R36/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false） */
   flashbackPublicQuotes: Array<FlashbackPublicQuote>;
   /** 闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接） */
   flashbackPublicStats?: Maybe<FlashbackPublicStats>;
+  /** 随便听听（R35 随机入口）：全量未隐藏金句中随机取 limit 句（默认 3）；过滤口径同金句墙 */
+  flashbackRandomQuotes: Array<FlashbackPublicQuote>;
   /** 卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机） */
   flashbackSharedCard?: Maybe<FlashbackSharedCard>;
   /** 平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null） */
@@ -6039,7 +6047,19 @@ export type RootQueryTypeFlashbackPublicProfileArgs = {
 };
 
 
+export type RootQueryTypeFlashbackPublicQuoteArgs = {
+  quoteId: Scalars['ID']['input'];
+  voterKey?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type RootQueryTypeFlashbackPublicQuotesArgs = {
+  voterKey?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackRandomQuotesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
   voterKey?: InputMaybe<Scalars['String']['input']>;
 };
 
