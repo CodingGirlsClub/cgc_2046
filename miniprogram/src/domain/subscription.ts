@@ -180,6 +180,7 @@ export function courseCardTouchpoint(): SubscriptionTouchpoint {
   }
 }
 
+
 /** 按报名条目类型分派 M2/M3（活动 → 变更提醒；课程 → 学习提醒）。 */
 export function enrollmentCardTouchpoint(kind: ContentKind): SubscriptionTouchpoint {
   return kind === 'course' ? courseCardTouchpoint() : eventCardTouchpoint()

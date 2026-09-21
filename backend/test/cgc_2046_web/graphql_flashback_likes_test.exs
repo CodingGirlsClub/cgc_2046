@@ -1,0 +1,265 @@
+defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
+  @moduledoc """
+  R35-R38 GraphQL 契约面：金句墙点赞（公开）/ 点赞数回显 / 作者侧 quoteStats /
+  管理端下线（PlatformAdmin gate）。
+
+  SDL 是 miniprogram codegen 的输入——本文件同时钉住字段名与错误码。
+  """
+
+  use Cgc2046Web.ConnCase, async: false
+
+  require Ash.Query
+
+  alias Cgc2046.Accounts.TokenCredential
+  alias Cgc2046.AccountsFixtures
+  alias Cgc2046.Flashback
+  alias Cgc2046.Flashback.{Answer, Person, QuoteLicense, Token}
+
+  @moduletag :capture_log
+
+  @quotes_query """
+  query($voterKey: String) {
+    flashbackPublicQuotes(voterKey: $voterKey) {
+      text attribution level publicSlug personId likeCount likedByViewer
+    }
+  }
+  """
+
+  defp post_graphql(query, variables \\ %{}, user \\ nil) do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+
+    conn =
+      if user do
+        put_req_header(conn, "authorization", "Bearer #{sign_in_token(user)}")
+      else
+        conn
+      end
+
+    conn
+    |> post("/api/graphql", %{"query" => query, "variables" => variables})
+    |> json_response(200)
+  end
+
+  defp sign_in_token(user) do
+    mutation = """
+    mutation { signIn(login: "#{user.email}", password: "#{AccountsFixtures.password()}") { id } }
+    """
+
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/graphql", %{"query" => mutation})
+    |> Map.fetch!(:resp_cookies)
+    |> Map.fetch!("cgc_token")
+    |> Map.fetch!(:value)
+  end
+
+  defp archive do
+    Flashback.EventArchive
+    |> Ash.Changeset.for_create(:create, %{
+      key: "2014-01-11-bj",
+      name: "Rails Girls Beijing",
+      city: "北京",
+      occurred_on: ~D[2014-01-11],
+      applied_count: 344,
+      attended_count: 102
+    })
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp wall_person(arch, attrs) do
+    person =
+      Person
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(
+          %{
+            archive_event_id: arch.id,
+            full_name: "王晓雨",
+            surname: "王",
+            city: "北京",
+            occupation_then: "学生",
+            role: :learner,
+            participation: :attended,
+            phone: "13900000009",
+            email: "likes-graphql@example.com"
+          },
+          attrs
+        )
+      )
+      |> Ash.create!(authorize?: false)
+
+    Answer
+    |> Ash.Changeset.for_create(:create, %{
+      person_id: person.id,
+      question_key: "self_intro",
+      raw_text: "我想亲眼看看是不是。"
+    })
+    |> Ash.create!(authorize?: false)
+
+    QuoteLicense
+    |> Ash.Changeset.for_create(:create, %{
+      person_id: person.id,
+      level: :anonymous,
+      chosen_quote_spans: [%{"question_key" => "self_intro", "start" => 0, "len" => 5}]
+    })
+    |> Ash.create!(authorize?: false)
+
+    person
+  end
+
+  defp token_for(person) do
+    plain = :crypto.strong_rand_bytes(24) |> Base.url_encode64(padding: false)
+    {:ok, hash} = TokenCredential.hash(plain)
+
+    Token
+    |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
+    |> Ash.create!(authorize?: false)
+
+    plain
+  end
+
+  describe "flashbackLikeQuote（R36 公开面）" do
+    test "点赞幂等 + 返回实时计数 + 取消；voterKey 非法 fail-closed" do
+      person = wall_person(archive(), %{email: "like-mutation@example.com"})
+
+      like = fn voter, liked ->
+        """
+        mutation {
+          flashbackLikeQuote(personId: "#{person.id}", voterKey: "#{voter}", liked: #{liked}) {
+            likeCount
+          }
+        }
+        """
+      end
+
+      assert %{"data" => %{"flashbackLikeQuote" => %{"likeCount" => 1}}} =
+               post_graphql(like.("a:device-gql", true))
+
+      # 幂等：重复点赞不重复计数
+      assert %{"data" => %{"flashbackLikeQuote" => %{"likeCount" => 1}}} =
+               post_graphql(like.("a:device-gql", true))
+
+      assert %{"data" => %{"flashbackLikeQuote" => %{"likeCount" => 2}}} =
+               post_graphql(like.("u:user-gql", true))
+
+      assert %{"data" => %{"flashbackLikeQuote" => %{"likeCount" => 1}}} =
+               post_graphql(like.("a:device-gql", false))
+
+      # 非法 voter_key → 业务码（不是 500）
+      res =
+        post_graphql("""
+        mutation {
+          flashbackLikeQuote(personId: "#{person.id}", voterKey: "nope", liked: true) { likeCount }
+        }
+        """)
+
+      assert [%{"code" => "flashback_invalid_voter_key"}] = res["errors"]
+    end
+  end
+
+  describe "flashbackPublicQuotes（R36 点赞回显与排序）" do
+    test "personId/likeCount/likedByViewer 三字段 + 点击排序生效" do
+      arch = archive()
+      alice = wall_person(arch, %{email: "q-a@example.com", full_name: "王晓雨", surname: "王"})
+      bob = wall_person(arch, %{email: "q-b@example.com", full_name: "李雷", surname: "李"})
+
+      post_graphql("""
+      mutation { flashbackLikeQuote(personId: "#{alice.id}", voterKey: "a:v1", liked: true) { likeCount } }
+      """)
+
+      post_graphql("""
+      mutation { flashbackLikeQuote(personId: "#{alice.id}", voterKey: "a:v2", liked: true) { likeCount } }
+      """)
+
+      post_graphql("""
+      mutation { flashbackLikeQuote(personId: "#{bob.id}", voterKey: "a:v1", liked: true) { likeCount } }
+      """)
+
+      res = post_graphql(@quotes_query, %{"voterKey" => "a:v1"})
+      quotes = res["data"]["flashbackPublicQuotes"]
+
+      assert [first, second] = Enum.take(quotes, 2)
+      assert first["personId"] == alice.id
+      assert first["likeCount"] == 2
+      assert first["likedByViewer"] == true
+      assert first["text"] == "我想亲眼看"
+      assert second["personId"] == bob.id
+      assert second["likeCount"] == 1
+      assert second["likedByViewer"] == true
+
+      # 不传 voterKey：likedByViewer 恒 false（匿名只读）
+      anonymous = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
+      assert Enum.all?(anonymous, &(&1["likedByViewer"] == false))
+    end
+  end
+
+  describe "作者侧 quoteStats（R36 回访面）" do
+    test "capsule.me.quoteStats.likeCount 随点赞变化" do
+      person = wall_person(archive(), %{email: "stats-gql@example.com"})
+      token = token_for(person)
+
+      post_graphql("""
+      mutation { flashbackLikeQuote(personId: "#{person.id}", voterKey: "a:s1", liked: true) { likeCount } }
+      """)
+
+      capsule = """
+      query { flashbackCapsule(token: "#{token}") { me { quoteStats { likeCount } quoteLevel } } }
+      """
+
+      assert %{
+               "data" => %{
+                 "flashbackCapsule" => %{
+                   "me" => %{"quoteStats" => %{"likeCount" => 1}, "quoteLevel" => "anonymous"}
+                 }
+               }
+             } = post_graphql(capsule)
+    end
+  end
+
+  describe "flashbackAdminSetQuoteHidden（R38 平台边界）" do
+    test "非管理员被拒；管理员下线后金句墙与实名档案页同时消失" do
+      person = wall_person(archive(), %{email: "hidden-gql@example.com"})
+
+      published =
+        person
+        |> Ash.Changeset.for_update(:update, %{})
+        |> Ash.Changeset.force_change_attribute(:public_slug, "wang-xiaoyu-gql")
+        |> Ash.Changeset.force_change_attribute(:public_slug_published_at, DateTime.utc_now())
+        |> Ash.update!(authorize?: false)
+
+      hide = """
+      mutation { flashbackAdminSetQuoteHidden(personId: "#{published.id}", hidden: true) { personId hidden } }
+      """
+
+      # 未登录 → unauthorized（with_admin gate）
+      assert [%{"code" => "unauthorized"}] = post_graphql(hide)["errors"]
+
+      # 普通用户（已登录但非 admin）→ forbidden（与未登录的 unauthorized 区分）
+      plain = AccountsFixtures.register_user("flashback-hidden-plain")
+      assert [%{"code" => "forbidden"}] = post_graphql(hide, %{}, plain)["errors"]
+
+      # 管理员 → 下线
+      admin = AccountsFixtures.platform_admin("flashback-hidden-admin")
+
+      assert %{"data" => %{"flashbackAdminSetQuoteHidden" => %{"hidden" => true}}} =
+               post_graphql(hide, %{}, admin)
+
+      quotes = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
+      refute Enum.any?(quotes, &(&1["personId"] == published.id))
+
+      profile =
+        post_graphql("query { flashbackPublicProfile(slug: \"wang-xiaoyu-gql\") { fullName } }")
+
+      assert profile["data"]["flashbackPublicProfile"] == nil
+
+      # 恢复
+      assert %{"data" => %{"flashbackAdminSetQuoteHidden" => %{"hidden" => false}}} =
+               post_graphql(String.replace(hide, "hidden: true", "hidden: false"), %{}, admin)
+
+      quotes = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
+      assert Enum.any?(quotes, &(&1["personId"] == published.id))
+    end
+  end
+end

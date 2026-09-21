@@ -4,6 +4,8 @@
 .title { display: block; margin-top: 10rpx; font-size: 48rpx; font-weight: 700; }
 .subtitle { display: block; margin-top: 8rpx; color: #8a8f98; font-size: 24rpx; }
 .list { height: calc(100vh - 210rpx); padding: 24rpx 28rpx 160rpx; box-sizing: border-box; }
+/* 微信端本页已非 tabBar 页（降为「我的」页内入口）——去掉为 TabBar 预留的留白 */
+.listPlain { padding-bottom: 40rpx; }
 .card { margin-bottom: 18rpx; padding: 26rpx; background: #fff; border-radius: 22rpx; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); }
 .cardHeader { display: flex; align-items: center; justify-content: space-between; }
 .kind { color: #8a8f98; font-size: 21rpx; }

@@ -47,6 +47,7 @@ import { fetchPublicInitiatives, type PublicInitiativeCard } from "@/lib/graphql
 import { formatAmount, formatAmountShort, parsePriceTiers, positiveAmountOrNull, tierAmountText } from "@/lib/payment";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { fetchMyEnrollment, formatDeadline } from "@/lib/events";
+import { toParagraphs } from "@/lib/text-paragraphs";
 import PaymentCheckoutDialog, {
   type PaymentCheckoutContext,
 } from "@/components/payment-checkout-dialog";
@@ -957,7 +958,9 @@ export default function PublicOfferingDetailPage({
                 aria-labelledby="public-detail-about-title"
               >
                 <h2 id="public-detail-about-title">{t("aboutTitle")}</h2>
-                <p>{offering.description}</p>
+                {toParagraphs(offering.description).map((p, i) => (
+                  <p key={i}>{p}</p>
+                ))}
               </section>
             ) : null}
 

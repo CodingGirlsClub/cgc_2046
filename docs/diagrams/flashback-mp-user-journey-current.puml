@@ -1,0 +1,55 @@
+@startuml flash-mp-user-journey-current
+!theme plain
+skinparam backgroundColor #FAF9F6
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #B9B4AA
+}
+skinparam note {
+  BackgroundColor #FFF7E0
+  BorderColor #E8D9A0
+}
+title 小程序「闪念间」现状 User Journey(4 页 · 2026-09-19)
+
+|#F3F1EC|入口|
+start
+:专属链接(短信/邮件 token);
+:微信分享 / 发现页(路人);
+:已绑定登录(回访);
+
+|#EAF2EC|① 首程 flashback-journey|
+:呼吸快门 intro;
+:场次确认\n「我记得 / 我不记得了(出口)」;
+:显影卡翻面\n当年答案 + 写今天;
+:寄出浮层\n微信一键收好=登录+claim / 跳过=上墙;
+
+|#F3F1EC|② 长廊 flashback-corridor|
+if (参与态: token/已绑定) then (是)
+  :垂直时间墙 下滑=时间前进;
+  :城市照片堆(显影错峰);
+  #FFE8CC:今天格;
+  note right #FFD8B0: <b>断裂 1</b>\n今天之后戛然而止\n无未来段(场次/愿望)
+  :点格进场次页;
+else (登录未绑定/路人)
+  if (登录?) then (是)
+    :自动 claim 失败\n「找回你的那一张」引导;
+  else (路人)
+    :公开统计墙 + 登录引导;
+    note right #FFD8B0: <b>断裂 2</b>\n路人无活动入口\n1024 报名恰是拉新最高转化
+  endif
+endif
+
+|#EAF2EC|③ 场次页 flashback-event|
+:统计行(缺数不显示);
+:这一场的人 3 列拍立得;
+note right #FFD8B0: <b>断裂 3</b>\n叶子页\n无横向/回环动线
+:找回 CTA;
+
+|#F3F1EC|④ 我的闪念间 flashback|
+:当年正面\n句子雾化开关(本人恒全文);
+:今天背面(编辑);
+:金句授权三档;
+note right #FFD8B0: <b>断裂 4</b>\n死胡同:无出口\n断裂 5:授权但无金句墙
+
+stop
+@enduml

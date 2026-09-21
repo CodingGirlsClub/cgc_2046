@@ -8,6 +8,7 @@ import { formatDeadline } from "@/lib/events";
 import { fetchPublicInitiative, type InitiativeEvent, type PublicInitiative } from "@/lib/graphql/initiatives";
 import { formatAmountShort, positiveAmountOrNull } from "@/lib/payment";
 import { formatVenue, parseVenue } from "@/lib/public-offerings";
+import { toParagraphs } from "@/lib/text-paragraphs";
 
 /**
  * Initiative 公开详情页主体（/initiatives/[slug] 的客户端渲染面）。
@@ -52,6 +53,8 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 	const [data, setData] = useState<PublicInitiative | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(false);
+	const [selectedCity, setSelectedCity] = useState<string | null>(null); // null = 全部
+	const [descExpanded, setDescExpanded] = useState(false);
 
 	const badgeText = (event: InitiativeEvent): string => {
 		switch (event.qualificationBadge) {
@@ -114,6 +117,15 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 	if (loading) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><p className="public-catalog-state">{t("loading")}</p></div></PublicCatalogShell>;
 	if (error || !data) return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container"><section className="public-catalog-state"><h1>{t("notFound")}</h1><button type="button" className="public-catalog-retry" onClick={() => router.back()}>{t("back")}</button></section></div></PublicCatalogShell>;
 
+	const allEvents = data.cities.flatMap((g) => g.events.map((e) => ({ ...e, city: g.city })));
+	const visibleEvents = selectedCity === null ? allEvents : allEvents.filter((e) => e.city === selectedCity);
+
+	const descParagraphs = toParagraphs(data.description);
+	const descLength = descParagraphs.reduce((n, p) => n + p.length, 0);
+	// 阈值收折：短描述（≤300 字且 ≤3 段）原样完整展示；长描述默认前 2 段
+	const descCollapsible = descParagraphs.length > 3 || descLength > 300;
+	const visibleDescParagraphs = descCollapsible && !descExpanded ? descParagraphs.slice(0, 2) : descParagraphs;
+
 	return <PublicCatalogShell activeKind="initiative"><div className="public-catalog-container initiative-page">
 		<header className="initiative-hero">
 			{data.hashtag ? <p className="initiative-hero__hashtag">{data.hashtag}</p> : null}
@@ -125,7 +137,18 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 					{`${formatDeadline(data.windowStartsAt, tCommon("timeTbd"), locale)} – ${formatDeadline(data.windowEndsAt, tCommon("timeTbd"), locale)}`}
 				</p>
 			) : null}
-			{data.description ? <p className="initiative-hero__desc">{data.description}</p> : null}
+			{data.description ? (
+				<div className="initiative-hero__desc">
+					{visibleDescParagraphs.map((p, i) => <p key={i}>{p}</p>)}
+					{descCollapsible ? (
+						<button type="button" className="initiative-hero__desc-toggle"
+							aria-expanded={descExpanded}
+							onClick={() => setDescExpanded((v) => !v)}>
+							{descExpanded ? t("descCollapse") : t("descExpand")}
+						</button>
+					) : null}
+				</div>
+			) : null}
 			<dl className="initiative-stats">
 				<div><dt>{t("cities")}</dt><dd>{data.cityCount}</dd></div>
 				<div><dt>{t("events")}</dt><dd>{data.eventCount}</dd></div>
@@ -133,35 +156,48 @@ export default function InitiativeDetail({ slug }: { slug: string }) {
 				<div><dt>{t("qualified")}</dt><dd>{data.qualifiedEventCount}</dd></div>
 			</dl>
 		</header>
-		{data.cities.map((group) => <section key={group.city} className="initiative-city">
-			<header className="initiative-city__head"><h2>{group.city}</h2><span className="initiative-city__count">{t("cityEvents", { count: group.events.length })}</span></header>
-			<ul className="public-catalog-grid">{group.events.map((event) => {
-				const startsAt = formatDeadline(event.startsAt, tCommon("timeTbd"), locale);
-				const venue = formatVenue(parseVenue(event.venue)) ?? tCommon("venueTbd");
-				return <li key={event.id}>
-					<Link href={`/events/${event.slug}`} className={`public-catalog-card${event.archived ? " initiative-card--archived" : ""}`}>
-						<span className="public-catalog-card__head">
-							<span className="public-catalog-card__title">{event.title}</span>
-							<span className={`initiative-badge initiative-badge--${BADGE_TONE[event.qualificationBadge]}`}>{badgeText(event)}</span>
-						</span>
-						{/* 参与条件（#627）独占一行：`__head` 是 nowrap flex（标题 flex:1 +
-							成班徽章 flex:none），与成班徽章同排会把标题挤到 0px（360px 视口实测：
-							titleW 0 → 182.8）。成班进度仍只由上一行的徽章承载，本行不出人数。 */}
-						<span className="initiative-badge initiative-badge--condition">{conditionText(event)}</span>
-						<dl className="public-catalog-card__facts">
-							<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
-							<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
-							{/* 复用 hero 同 key「报名人数」——同一数量口径（卡片计数与 hero 汇总同源），
-							    不各写一份文案；minParticipants 是成班阈值不是名额，成班语义只由徽章承载（#593）。 */}
-							<div><dt>{t("participants")}</dt><dd>{event.confirmedCount}</dd></div>
-						</dl>
-						<span className="public-catalog-card__foot">
-							<span>{tOfferings("deadline", { deadline: formatDeadline(event.registrationDeadline, tCommon("noDeadline"), locale) })}</span>
-							<span className="public-catalog-card__arrow" aria-hidden="true">→</span>
-						</span>
-					</Link>
-				</li>;
-			})}</ul>
-		</section>)}
+		{data.cities.length > 1 ? (
+			<div className="initiative-filter" role="group" aria-label={t("filterByCity")}>
+				<button type="button" aria-pressed={selectedCity === null}
+					className={`initiative-filter__chip${selectedCity === null ? " initiative-filter__chip--active" : ""}`}
+					onClick={() => setSelectedCity(null)}>
+					{t("allCities")}
+				</button>
+				{data.cities.map((g) => (
+					<button key={g.city} type="button" aria-pressed={selectedCity === g.city}
+						className={`initiative-filter__chip${selectedCity === g.city ? " initiative-filter__chip--active" : ""}`}
+						onClick={() => setSelectedCity(g.city)}>
+						{g.city} · {t("cityEvents", { count: g.events.length })}
+					</button>
+				))}
+			</div>
+		) : null}
+		<ul className="public-catalog-grid">{visibleEvents.map((event) => {
+			const startsAt = formatDeadline(event.startsAt, tCommon("timeTbd"), locale);
+			const venue = formatVenue(parseVenue(event.venue)) ?? tCommon("venueTbd");
+			return <li key={event.id}>
+				<Link href={`/events/${event.slug}`} className={`public-catalog-card${event.archived ? " initiative-card--archived" : ""}`}>
+					<span className="public-catalog-card__head">
+						<span className="public-catalog-card__title">{event.title}</span>
+						<span className={`initiative-badge initiative-badge--${BADGE_TONE[event.qualificationBadge]}`}>{badgeText(event)}</span>
+					</span>
+					{/* 参与条件（#627）独占一行：`__head` 是 nowrap flex（标题 flex:1 +
+						成班徽章 flex:none），与成班徽章同排会把标题挤到 0px（360px 视口实测：
+						titleW 0 → 182.8）。成班进度仍只由上一行的徽章承载，本行不出人数。 */}
+					<span className="initiative-badge initiative-badge--condition">{conditionText(event)}</span>
+					<dl className="public-catalog-card__facts">
+						<div><dt>{tOfferings("timeLabel")}</dt><dd>{startsAt}</dd></div>
+						<div><dt>{tOfferings("venueLabel")}</dt><dd>{venue}</dd></div>
+						{/* 复用 hero 同 key「报名人数」——同一数量口径（卡片计数与 hero 汇总同源），
+						    不各写一份文案；minParticipants 是成班阈值不是名额，成班语义只由徽章承载（#593）。 */}
+						<div><dt>{t("participants")}</dt><dd>{event.confirmedCount}</dd></div>
+					</dl>
+					<span className="public-catalog-card__foot">
+						<span>{tOfferings("deadline", { deadline: formatDeadline(event.registrationDeadline, tCommon("noDeadline"), locale) })}</span>
+						<span className="public-catalog-card__arrow" aria-hidden="true">→</span>
+					</span>
+				</Link>
+			</li>;
+		})}</ul>
 	</div></PublicCatalogShell>;
 }

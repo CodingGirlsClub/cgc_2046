@@ -1,0 +1,107 @@
+/* 公开卡页（#771）：浅灰页底 + 居中纸卡（与卡片页同语言：页面是墙，卡是纸）。
+ * 访客页只有一件事可做——看卡，或去找回自己的那张。 */
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40rpx 40rpx calc(env(safe-area-inset-bottom) + 48rpx);
+  box-sizing: border-box;
+}
+
+/* 卡宽：与卡片页的卡同宽（卡片页 70vw，窄屏下折算约 620rpx）——同一张卡在
+   本人预览与访客面同宽，换面不换版式。 */
+.cardWrap { width: 100%; max-width: 620rpx; }
+
+/* 访客唯一出口：品牌橙 pill，与卡片页 .actionPrimary 同款（一处 CTA，不并列第二颗） */
+.journeyAction {
+  margin-top: 40rpx;
+  width: 100%;
+  max-width: 620rpx;
+  background: #ea5504;
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  /* padding 20rpx：20+20+28×1.5 = 41px，过 40px 最小点按面积 */
+  font-size: 28rpx;
+  font-weight: 600;
+  padding: 20rpx 0;
+  line-height: 1.5;
+  box-shadow: 0 8rpx 24rpx rgba(234, 85, 4, 0.24);
+}
+.journeyAction::after { border: none; }
+
+.footNote {
+  margin-top: 22rpx;
+  max-width: 620rpx;
+  font-size: 20rpx;
+  color: #6b6f78;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* 收回态（终局）：不给重试按钮——重试一个已被关闭的链接只会重复失败。
+   出口只有「找回我的闪念间」。 */
+.terminalBlock {
+  padding: 140rpx 20rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.terminalEyebrow {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #ea5504;
+  letter-spacing: 5rpx;
+}
+.terminalTitle {
+  margin-top: 28rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #222326;
+  line-height: 1.6;
+}
+.terminalBody {
+  margin-top: 18rpx;
+  font-size: 25rpx;
+  color: #4b4d54;
+  line-height: 1.9;
+}
+.terminalAction {
+  margin-top: 48rpx;
+  background: #ea5504;
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  padding: 20rpx 48rpx;
+  line-height: 1.6;
+}
+.terminalAction::after { border: none; }
+
+/* 故障态：错误面（PageState）在上，找回入口在下——不让故障把用户堵死在死页 */
+.retryFoot { display: flex; justify-content: center; }
+.quietAction {
+  background: transparent;
+  color: #ea5504;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  padding: 22rpx 40rpx;
+  line-height: 1.6;
+}
+.quietAction::after { border: none; }
+
+/* 按压反馈（hover-class）：本页每颗按钮都要「按下去有回应」 */
+.pressed { transform: scale(0.96); opacity: 0.86; }
+.journeyAction, .terminalAction, .quietAction {
+  transition: transform 0.12s ease-out, opacity 0.12s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journeyAction, .terminalAction, .quietAction { transition: none; }
+  .pressed { transform: none; }
+}

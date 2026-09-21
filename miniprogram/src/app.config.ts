@@ -1,6 +1,10 @@
+// tabBar 清单的唯一真源在 domain/tab-routes（app.config 的 tabBar.list、
+// components/AppTabBar 的渲染、路由分流判断三处共用）——手工维护多份必然
+// 漂移，且漂移后果是 switchTab 静默失败（无编译期兜底）
+import { CUT_TABS, FULL_TABS, toTabBarEntry } from './domain/tab-routes'
+
 // 裁剪端（抖音/小红书）：2 Tab 漏斗——发现/我的报名 + 流程页，无管理/协作功能
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-
 const cutPages = [
   'pages/discover/index',
   'pages/initiative-detail/index',
@@ -9,7 +13,11 @@ const cutPages = [
   'pages/login/index',
   'pages/register-form/index',
   'pages/enrollment-result/index',
-  'pages/join/index'
+  'pages/join/index',
+  // U9/R28：闪念间回访页（薄壳，渲染 components/MyCard）——tt/xhs 漏斗端注册
+  // （成场通知深链与「我的」入口）。首程旅程/长廊/场次页**只在微信全量端注册**：
+  // 闪念间深度场景不存在于裁剪端，且页面文案含跨端词（check:diversion）。
+  'pages/flashback/index'
 ]
 
 const fullPages = [
@@ -32,20 +40,22 @@ const fullPages = [
   'pages/campaign/index',
   // R20/R21：志愿者招募流（微信端专属——campaign 页「成为志愿者」入口的落点；
   // 审核面板不进小程序，管理面在 web）
-  'pages/volunteer-apply/index'
+  'pages/volunteer-apply/index',
+  // U9/R28：闪念间主容器=长廊（页内 Tab：时间廊|我的卡，U2 完整化后卡面单源
+  // 在 components/MyCard）。旧独立页仅保留给裁剪端（tt/xhs 未注册长廊，diversion
+  // 词表限制），微信端不再注册。
+  'pages/flashback-journey/index',
+  'pages/flashback-corridor/index',
+  'pages/flashback-event/index',
+  'pages/flashback-today/index',
+  // #771：公开卡页（朋友视角）——微信端专属：它只由分享链接进入，裁剪端
+  // 无闪念间深度场景，且页内「卡片站外公开」文案含跨端词（check:diversion）
+  'pages/flashback-shared-card/index'
 ]
 
-const cutTabList = [
-  { pagePath: 'pages/discover/index', text: '发现' },
-  { pagePath: 'pages/my-enrollments/index', text: '我的报名' }
-]
+const cutTabList = CUT_TABS.map(toTabBarEntry)
 
-const fullTabList = [
-  { pagePath: 'pages/discover/index', text: '发现' },
-  { pagePath: 'pages/my-enrollments/index', text: '我的报名' },
-  { pagePath: 'pages/workspace/index', text: '工作台' },
-  { pagePath: 'pages/profile/index', text: '我的' }
-]
+const fullTabList = FULL_TABS.map(toTabBarEntry)
 
 export default defineAppConfig({
   pages: isCut ? cutPages : fullPages,

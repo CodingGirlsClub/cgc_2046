@@ -6,7 +6,7 @@ import LanguageSwitcher from "@/components/language-switcher";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAuthed } from "@/lib/use-authed";
 
-export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives";
+export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives" | "flashback";
 
 /**
  * 站点级品牌导航条（全站唯一实现，R8 parity 同源零跳变原则）。
@@ -21,7 +21,7 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 	const t = useTranslations("landing.nav");
 	const { authed, confirmed } = useAuthed();
 	const signedIn = confirmed && authed;
-	// 报名引导链路（UAT 实证断链）：从公开页点「登录/注册」后必须回得来。
+	// 报名引导链路：从公开页点「登录/注册」后必须回得来。
 	// home/login/register 本身不构造 next，避免无意义回环。
 	const pathname = usePathname();
 	const withNext = (href: string) =>
@@ -74,6 +74,14 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 						className={`site-nav__link${active === "initiatives" ? " site-nav__link--active" : ""}`}
 					>
 						{t("initiatives")}
+					</Link>
+					{/* 闪念间入口（R10）：Initiative 边上——传播回流的第一落点 */}
+					<Link
+						href="/flashback"
+						aria-current={active === "flashback" ? "page" : undefined}
+						className={`site-nav__link${active === "flashback" ? " site-nav__link--active" : ""}`}
+					>
+						{t("flashback")}
 					</Link>
 				</nav>
 				<div className="site-nav__right">

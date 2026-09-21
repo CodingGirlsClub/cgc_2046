@@ -1,0 +1,209 @@
+/* 场次页（E 的 event 步）：浅灰页底 + 拍立得 3 列网格（显影卡 / 雾卡）。 */
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+}
+
+.board {
+  box-sizing: border-box;
+}
+
+.back {
+  display: block;
+  padding: 30rpx 32rpx 0;
+  color: #8a8f98;
+  font-size: 25rpx;
+}
+
+.header {
+  padding: 20rpx 32rpx 12rpx;
+}
+
+.title {
+  display: block;
+  color: #222326;
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.statsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26rpx;
+  margin-top: 14rpx;
+}
+
+.stat {
+  color: #8a8f98;
+  font-size: 22rpx;
+}
+
+.statReturned {
+  color: #ea5504;
+}
+
+.section {
+  padding: 10rpx 32rpx 0;
+}
+
+.peopleHint {
+  display: block;
+  padding: 14rpx 0 20rpx;
+  color: #8a8f98;
+  font-size: 21rpx;
+}
+
+/* 3 列拍立得网格（原型 event 步 gridTemplateColumns repeat(3,1fr)） */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22rpx;
+  padding-bottom: 20rpx;
+}
+
+.cell {
+  display: grid;
+  justify-items: center;
+  gap: 8rpx;
+}
+
+/* 显影卡（已寄出）：纸白 + 照片窗显影 */
+.cardLit {
+  width: 100%;
+  padding: 10rpx 10rpx 8rpx;
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  box-shadow: 0 12rpx 36rpx rgba(34, 35, 38, 0.12);
+  box-sizing: border-box;
+  animation: fbEventDevelopSoft 2.8s ease-out both;
+}
+@keyframes fbEventDevelopSoft {
+  0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
+  100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cardLit { animation: none; }
+}
+
+.cardWindow {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+  border-radius: 4rpx;
+  padding: 10rpx;
+  text-align: center;
+}
+
+.cardName {
+  color: #4a463f;
+  font-size: 20rpx;
+  line-height: 1.5;
+}
+
+.cardFoot {
+  color: rgba(43, 39, 35, 0.65);
+  font-size: 16rpx;
+  text-align: center;
+}
+
+/* 雾卡（未回来）：虚框 + 透明窗（原型 ia-fog-card） */
+.cardFog {
+  width: 100%;
+  padding: 10rpx 10rpx 8rpx;
+  background: rgba(239, 233, 219, 0.4);
+  border: 2rpx dashed rgba(138, 143, 152, 0.35);
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
+
+.cardWindowFog {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.cardNameFog {
+  color: #8d887e;
+  font-size: 24rpx;
+}
+
+.cardFootFog {
+  color: #8a8f98;
+  font-size: 15rpx;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* 找回 CTA */
+.findBlock,
+.guideBlock {
+  display: grid;
+  gap: 20rpx;
+  padding: 26rpx 32rpx 60rpx;
+}
+
+.guideText {
+  color: #4b4d54;
+  font-size: 23rpx;
+  line-height: 1.8;
+}
+
+.cta {
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 2.2;
+}
+
+/* U6 回环三出口(R10):次级按钮排 */
+.loopBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+  padding: 24rpx 22rpx calc(env(safe-area-inset-bottom) + 24rpx);
+}
+.loopBtn {
+  background: #f6f6f4;
+  color: #4b4d54;
+  font-size: 26rpx;
+  border-radius: 14rpx;
+}
+
+/* U6 看别人的卡:胶囊页深色底+覆盖层翻转(雾面句遮蔽) */
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f7f7f7;
+  color: #222326;
+  font-family: "Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", serif;
+}
+.layerMask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 300; display: flex; justify-content: center; }
+.layerCard { width: min(600rpx, 88vw); margin-top: 40rpx; }
+.viewFlip { position: relative; transform-style: preserve-3d; display: grid; transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.viewFace { grid-area: 1 / 1; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.viewFaceBack { transform: rotateY(180deg); }
+.viewCover {
+  background: #f6f2e8; border-radius: 12rpx; padding: 40rpx 28rpx 30rpx;
+  display: flex; flex-direction: column; align-items: center; gap: 8rpx;
+  box-shadow: 0 10rpx 30rpx rgba(34, 35, 38, 0.2);
+}
+.viewCoverName { font-size: 30rpx; font-weight: 700; color: #2b2723; }
+.viewCoverHint { font-size: 20rpx; color: #b0aca4; margin-top: 8rpx; }
+.viewPolaroid { background: #fdfbf5; border-radius: 12rpx; padding: 24rpx 22rpx; }
+.viewPhoto { display: grid; gap: 12rpx; }
+.viewSegments { font-size: 24rpx; line-height: 1.7; color: #2b2723; }
+.viewFog { filter: blur(4px); user-select: none; background: rgba(74, 70, 63, 0.12); border-radius: 4rpx; padding: 0 6rpx; }
+.viewToday { display: block; font-size: 22rpx; color: #2b2723; line-height: 1.7; }
+.viewFoot { font-size: 18rpx; color: #b0aca4; text-align: center; padding: 14rpx 0 0; }
+@keyframes rosterDevelop {
+  from { opacity: 0; transform: translateY(10rpx) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.rosterCellWrap { animation: rosterDevelop 0.5s ease-out both; }

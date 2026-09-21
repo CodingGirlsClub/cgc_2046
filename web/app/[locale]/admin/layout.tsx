@@ -27,6 +27,7 @@ const ADMIN_NAV = [
 	{ href: "/admin/initiatives", label: "navInitiatives" },
 	{ href: "/admin/events", label: "navEvents" },
 	{ href: "/admin/courses", label: "navCourses" },
+	{ href: "/admin/flashback", label: "navFlashback" },
 ];
 
 export default function AdminLayout({
