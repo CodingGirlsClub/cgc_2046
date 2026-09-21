@@ -27,7 +27,14 @@ export default function VoicesPage({ item }: { item?: string }) {
 	const t = useTranslations("flashback.voices");
 	const reducedMotion = usePrefersReducedMotion();
 	// undefined = 校验中；null = 无直达；quote = 有效直达句；"gone" = 已撤回/不存在
+	// item 变化（失效页「看全墙」软导航回同路由）时同步重置——useState 初值只在
+	// mount 生效，软导航复用组件实例会把 "gone" 带回无 item 的新 URL（e2e 实证）。
+	const [prevItem, setPrevItem] = useState(item);
 	const [direct, setDirect] = useState<Direct | undefined>(item ? undefined : null);
+	if (prevItem !== item) {
+		setPrevItem(item);
+		setDirect(item ? undefined : null);
+	}
 
 	// 回访记忆（R8）：localStorage 快照——SSR 首帧 null（等同 false 的
 	// 「播开场」语义可由客户端随即纠正；storage 不可用按首次处理）。
