@@ -61,7 +61,7 @@ execution: code
 
 - **KTD1 · WISH 扩四字段，存量愿望不进公开树，公开授权有服务端契约。** Governs R15–R18。`flashback_wishes` 加：`signature`（署名快照，见下）、`city` 改为作者可选「期望地」（默认名册城市，候选集 = 既有城市列表，不允许自由输入）、`hidden_at`（admin 下架，与作者撤回 `deleted_at` 区分）、`listed_at`（公开树授权标记）。**署名快照是本批新规则，不援引 QUOTE**：QUOTE 只快照 city/year，人名是渲染时从 `flashback_people` 实时生成遮蔽（`public.ex:324-325,399-408`）；WISH `signature` 在创建时按作者选择定型（匿名遮罩「王\*\*」 或 display_name），之后不回溯（display_name 改名不影响旧愿望，默认规则，Open Questions 确认）。
   **公开授权服务端契约**：`createWish` 入参加 `publicListingConsent: Boolean`（默认 false）；`listed_at` 仅当 `visibility=public AND publicListingConsent=true` 时写入。**旧客户端（无此参数）传 `visibility=public` → `listed_at=null`，维持现状「成员可见」语义，宽容不硬拒**——历史「成员可见」不等于同意全网公开（授权不扩大红线），也不给升级窗口期的存量客户端制造故障（参照 #752 组合发布纪律，本契约天然无发布窗口：后端可先合，小程序/ Web 客户端各自带参数上线即生效）。公开树查询过滤 `listed_at IS NOT NULL`。
-- **KTD2 · 期待独立表；念念不忘数 = 期待 ∪ 附议的 UNION 去重计数。** Governs R30。新建 `flashback_wish_expectations`：`(wish_id, voter_key)` 唯一，voter_key 复用 LIKE 白名单口径（`u:<user_id>` / `a:<device_uuid>`，`likes.ex:22-25,67-87`；IP 限频 60 次/小时复用 `likes.ex:98-116` 模式）。**expect/unexpect 的服务端 key 判定：登录 actor → 强制 `u:<user_id>`；匿名 → 入参 `a:` 设备键**（Web 复用 `web/lib/flashback-voter.ts`，小程序新增 storage 设备键生成）。登录时提交的 expect/endorse 接受可选 `anonVoterKey`，服务端删除该匿名期待行（同设备先期待后登录的合并，防双计）。
+- **KTD2 · 期待独立表；念念不忘数 = 期待 ∪ 附议的 UNION 去重计数。** Governs R30。新建 `flashback_wish_expectations`：`(wish_id, voter_key)` 唯一，voter_key 复用 LIKE 白名单口径（`u:<user_id>` / `a:<device_uuid>`，`likes.ex:22-25,67-87`；**限频双窗复用 `likes.ex` 已实现的模式（`likes.ex:10-12, 122-146`）：voter_key 30 次/分钟 + IP 60 次/小时**（批 1 点赞实际落地规格，R29 防刷单设备高频））。**expect/unexpect 的服务端 key 判定：登录 actor → 强制 `u:<user_id>`；匿名 → 入参 `a:` 设备键**（Web 复用 `web/lib/flashback-voter.ts`，小程序新增 storage 设备键生成）。登录时提交的 expect/endorse 接受可选 `anonVoterKey`，服务端删除该匿名期待行（同设备先期待后登录的合并，防双计）。
   **附议不写 expectations 行。** 念念不忘数 = `COUNT(DISTINCT key FROM (SELECT voter_key FROM expectations WHERE wish_id=X) UNION (SELECT actor_key FROM endorsements WHERE wish_id=X))`——附议者自动计入，且对「附议 → 取消期待」序列天然免疫（期待行不存在 / 删除均不影响附议贡献，永不出「1 人附议 0 人期待」）。存量 person-only 附议经 `p:<person_id>` actor_key 自动计入，无需数据回填。`expected_by_viewer` 按同一 UNION 判定（登录用户查 `u:` + 设备 `a:`）。**取消附议时服务端补写一条 `u:<user_id>` expectations 行**——期待是独立动作（R19），取消附议不收回期待。
 - **KTD3 · 附议身份统一为登录用户；通知授权余额单源；存量归并。** Governs R31。`wish_endorsements` 加 `user_id` + 生成列 `actor_key`（`u:<user_id>` / `p:<person_id>`），唯一约束 `(wish_id, actor_key)`；加 `contribution_types text[]`（venue/organize/speak/sponsor/other）、`message`（≤500，一期仅运营可见）、`notify boolean`；新增取消附议 mutation。
   **新附议一律要求登录（user_id）**：现 endorse 的 token/person 匿名腿下线——登录即手机号快捷登录建完整账号（`signInWithPlatform`，`miniprogram/sign_in_preparation.ex:58-74`），token-only 用户在附议表单处走登录引导（claim 顺带完成，身份自然升级）。成员面旧「点一下计数」轻动作由 ❤️ 期待承接（R30 两动作本义）。`person_id` 保留为可空关联：服务端按 user 认领关系反查填充；**归并规则：endorse 前若该 user 认领的 person 对同 wish 已有存量 `p:` 附议行，旧行升级为 `u:`（填 user_id 与表单字段），不新增行、不双计**。
@@ -71,7 +71,7 @@ execution: code
 - **KTD5 · 审核体系：举报新表 + hidden_at 下架 + 信用分级 + admin 管理面。** Governs R32。新建 `flashback_reports`（target wish/comment、reporter voter_key 或 user_id、reason、status），公开举报 mutation 带频控；`wishes.hidden_at` 复用 quote_license `set_hidden` 模式（专用 action，用户面不可写，公开读面过滤）；信用分级：被下架作者的 `wishes_review_required_at` 置位后，其新公开愿望默认 `hidden_at` 待审，admin 放行即清除；admin 闪念间看板新增愿望管理面：新愿望队列 / 举报队列 / 附议留言（按愿望聚合）/ 一键下架与放行。**联系方式：admin 面展示附议者登录账号的 `users.phone` + `users.email`（KTD3 已保证登录前提），仅限 admin 面板、仅供运营对接出力事宜，任何公开响应不返回（U6 契约强制）；附议表单必须明示告知此用途（U9 文案）。** 频控沿用既有：年度 3 条额度 + GraphQL RateLimit（create_wish 30/15min 已有，举报新增 10/15min）。
 - **KTD6 · 上线门用配置开关，fail-closed。** 无 feature-flag 框架，沿用「配置即开关」范式：`config :cgc_2046, :flashback_wishes, public_enabled:` env 注入，默认关。门关闭时公开查询返回未开启态，Web 树页显示「愿望正在收集中」+ 写愿望 CTA（小程序长廊成员面与 viewer listed 段不受门控——listed 段在门关闭期间对成员/登录用户可见，作愿望积累入口）。运营确认愿望攒够后开 env 即上线，无需发版。
 - **KTD7 · Web 端一期：期待 + 写愿望，不开放附议；附议引导落小程序深链。** Governs R30–R31。已拍板「Web 游客无订阅通道，想被通知引导去小程序」；附议是承诺动作、需触达通道，故 Web 树页只有 ❤️ 期待，「附议 · 我能出力」入口展示但引导去小程序。**引导落点（P1b 修正）**：小程序长廊对登录 viewer 开放 listed 公开愿望段（U9），附议引导浮层给出小程序码/路径并携 `wishId` 深链，用户到达后定位该愿望、未登录先一键登录再回跳（`returnUrl` 范式现成，`pages/login/index.tsx:31-42`）。Web 写愿望对**已登录且已认领**校友开放（`useAuthed` + person.user_id 判定），未登录点「写下我的愿望」走登录/找回引导。
-- **KTD8 · 与批 1 的协调：路由定案独立路由。** 批 1 已合并（#807/#808）。已合并的 voices 页只解析 `?item=`（金句直达），**无 view state、城市是纯组件 useState 不进 URL**（`voices-page.tsx:30-33`、`voices-wall.tsx:181`）——不具备 view 切换载体。定案：**许愿树为独立路由 `/flashback/wishes`**，与 voices 共享组件（地图、城市钉条、开场骨架、失效视图结构）；**城市经 `?city=` 入 URL**，两页互跳带 city 满足 R21「切换保留城市」；开场播放标记用 sessionStorage 跨页共享，「双页切换不重播开场」。wish 直达 `?item=<wish_id>` 复用批 1 同型模式（network-only 校验 + direct 状态随 prop 重置——#808 修复的模式直接照用，杜绝同类白屏）。
+- **KTD8 · 与批 1 的协调：路由定案独立路由。** 批 1 已合并（#807/#808）。已合并的 voices 页只解析 `?item=`（金句直达），**无 view state、城市是纯组件 useState 不进 URL**（`voices-page.tsx:30-33`、`voices-wall.tsx:181`）——不具备 view 切换载体。定案：**许愿树为独立路由 `/flashback/wishes`**，与 voices 共享组件（地图、城市钉条、开场骨架、失效视图结构）；**城市经 `?city=` 入 URL**，两页互跳带 city 满足 R21「切换保留城市」；开场播放标记用 **localStorage（无过期）跨页共享**（与批 1 `flashback.voicesIntroSeen` 同机制，`voices-wall.tsx:34`；wishes 页派生 key），「双页切换不重播开场」。wish 直达 `?item=<wish_id>` 复用批 1 同型模式（network-only 校验 + direct 状态随 prop 重置——#808 修复的模式直接照用，杜绝同类白屏）。
 - **KTD9 · 目标资格矩阵：期待/附议按访问面与身份统一判定。** Governs R16、R19、R30。单一愿望对动作的资格：
   - **期待（公开写）**：目标须 `listed + public + 未 hidden + 未 deleted` → 任何人（匿名 `a:` / 登录 `u:`）。成员面期待（小程序长廊内对未 listed 的成员可见愿望）走同一 mutation，服务端按「actor 能解析 person 且愿望成员可见」放行——两入口一判定函数，资格不满足统一 `flashback_wish_not_found`（不泄露存在性）。
   - **附议（承诺写）**：目标须 `public + 未 hidden + 未 deleted`；另外：`listed` 愿望 → 任何登录用户（KTD3）；未 `listed` 存量成员愿望 → 登录且可解析 person（成员语义不变）。token-only/匿名一律引导登录。
@@ -107,7 +107,7 @@ execution: code
 - **Dependencies**：U1
 - **Files**：`backend/lib/cgc_2046/flashback/wish_expectation.ex`（新建）、`wishes.ex`（计数与期待/取消）、`backend/lib/cgc_2046/flashback.ex`（注册资源）、迁移、测试
 - **Approach**：
-  1. 按 KTD2 建表 `(wish_id, voter_key)` 唯一；voter_key 校验与 IP 限频复用 `likes.ex:22-25, 67-87, 98-116` 模式（60 次/小时/IP）。
+  1. 按 KTD2 建表 `(wish_id, voter_key)` 唯一；voter_key 校验与限频双窗复用 `likes.ex` 模式（voter_key 30 次/分钟 + IP 60 次/小时，`likes.ex:22-30, 67-87, 122-146`）。
   2. expect/unexpect 对称（upsert / 删行）；登录 actor → 服务端强制 `u:<user_id>` key，匿名 → 入参 `a:` 设备键；登录提交带 `anonVoterKey` 时服务端删除该匿名行（合并防双计）。
   3. 计数实时：念念不忘数 = KTD2 的 expectations ∪ endorsements UNION 去重 COUNT（endorsements 侧在 U3 就位，本单元先落 expectations 半边的查询结构与单测），不落冗余列。
   4. 目标资格按 KTD9：公开面仅 listed 目标；成员面按 person 可见性放行。
@@ -194,7 +194,7 @@ execution: code
 - **Files**：`web/app/[locale]/flashback/wishes/`（新独立路由，KTD8）、`web/components/flashback/`（共享：地图、城市钉条、开场骨架、失效视图；新增：愿望阅读区、期待按钮、举报入口、收集态/空态）、`web/messages/*.json`、vitest 测试
 - **Approach**：
   1. 移植原型 wishes 视图：纸签地图、按城阅读区、❤️ 期待（voter_key，乐观更新**失败按 wishId 函数式回滚——禁止整组快照回滚**（#806 F2 教训），服务端校正同函数式 updater）、聚合出力分布展示。
-  2. **路由（KTD8 定案）**：`/flashback/wishes` 独立路由；`?city=` 入 URL，voices↔wishes 互跳带 city（R21）；开场 sessionStorage 标记两页共享不重播；`?item=<wish_id>` 直达复用 #808 的 direct 状态重置模式（network-only 校验 + prop 变化同步）。
+  2. **路由（KTD8 定案）**：`/flashback/wishes` 独立路由；`?city=` 入 URL，voices↔wishes 互跳带 city（R21）；开场播放标记用 localStorage 两页共享不重播（KTD8，与批 1 `flashback.voicesIntroSeen` 同机制）；`?item=<wish_id>` 直达复用 #808 的 direct 状态重置模式（network-only 校验 + prop 变化同步）。
   3. 失效视图：已撤回/下架/不存在 → **统一文案「这个愿望目前无法查看」**（不区分撤回与下架，不替原因代言）+「看看这棵树」入口（与批 1 U4 金句失效页对称）。
   4. 举报入口（愿望卡与留言）；「附议 · 我能出力」按钮 → 引导去小程序浮层（KTD7：小程序码 + `wishId` 深链说明）；「写下我的愿望」入口 → 未登录走登录/找回引导，已认领校友开 U8 表单。
   5. 收集态（门关闭）：「愿望正在收集中」+ 写愿望 CTA；空态文案；i18n 全量；减少动态效果分支沿用。
@@ -228,7 +228,7 @@ execution: code
 
 - **Goal**：登录用户（含非校友）在小程序可发现公开愿望、期待、附议；成员面动作升级为新模型。
 - **Requirements**：R19、R30、R31、R16
-- **Dependencies**：U3、U6
+- **Dependencies**：U3、U6；#790（小程序 mock transport 缺 wish 写面四 mutation——本单元测试依赖；若 #790 未先行收口，本单元顺手补齐）
 - **Files**：`miniprogram/src/pages/flashback-corridor/index.tsx`（viewer 门禁开放与愿望卡/弹层 :542-590, :808-853）、`miniprogram/src/domain/share-route.ts`（`wishId` 深链解析，`resolveAppShowRoute` :75-122 扩展）、`miniprogram/src/domain/subscription.ts`（新增 `flashback_wish_echo` 场景与触点）、`miniprogram/config/index.ts`（模板 env 槽）、`miniprogram/src/api/operations.ts` + `api/real.ts`（ExpectWish / EndorseWish 改造 / CancelEndorse）、`miniprogram/src/domain/flashback.ts`（voter 设备键生成）、`domain/error-copy.ts`、相关测试
 - **Approach**：
   1. **viewer 开放（P1b）**：长廊 viewer 态（登录、无档案）显示 listed 公开愿望段（只读样式与成员面一致，KTD6 门关闭期间照常显示作积累）；未登录路人维持现状 viewer 统计 + 登录引导。成员面（member）愿望段现状不变。
@@ -249,7 +249,7 @@ execution: code
 
 - **Goal**：小程序写愿望与 Web 同规则，公开授权明示。
 - **Requirements**：R16–R18、R32
-- **Dependencies**：U4、U8（规则对齐）
+- **Dependencies**：U4、U8（规则对齐）；#790（同 U9，CreateWish 扩展测试依赖 mock 写面补齐）
 - **Files**：`miniprogram/src/pages/flashback-corridor/index.tsx`（许愿 sheet :878-916）、`miniprogram/src/api/operations.ts`（CreateWish 入参扩展）、`domain/error-copy.ts`、测试
 - **Approach**：许愿 sheet 加署名选择与期望地选择（与 U8 同规则同文案）；公开档明示「公开 = 任何人可见」并带 `publicListingConsent=true`（KTD1 契约）；机审拒绝文案；**分态提交反馈与 U8 四态一致**（含待审与门关态，不假装纸签已公开出现；本人可在私愿帧找到并撤回）。
 - **Test scenarios**：与 U8 对称（署名/机审/私密边界/额度/四态反馈/撤回）。
