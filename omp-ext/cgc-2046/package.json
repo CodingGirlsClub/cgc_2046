@@ -1,0 +1,9 @@
+{
+  "name": "cgc-2046",
+  "version": "0.1.0",
+  "description": "CGC-2046 平台的 OMP 接入包：一个 cgc 主 agent + 连接 onboarding skill + /cgc 斜杠命令 extension",
+  "license": "AGPL-3.0-only",
+  "omp": {
+    "extensions": ["./extensions/cgc-command.ts"]
+  }
+}
