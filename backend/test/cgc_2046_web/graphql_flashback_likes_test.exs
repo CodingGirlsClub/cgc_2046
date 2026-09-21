@@ -8,8 +8,6 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
 
   use Cgc2046Web.ConnCase, async: false
 
-  require Ash.Query
-
   alias Cgc2046.Accounts.TokenCredential
   alias Cgc2046.AccountsFixtures
   alias Cgc2046.Flashback
@@ -20,7 +18,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
   @quotes_query """
   query($voterKey: String) {
     flashbackPublicQuotes(voterKey: $voterKey) {
-      text attribution level publicSlug personId likeCount likedByViewer
+      text attribution level publicSlug quoteId city year likeCount likedByViewer
     }
   }
   """
@@ -98,15 +96,19 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     })
     |> Ash.create!(authorize?: false)
 
-    QuoteLicense
-    |> Ash.Changeset.for_create(:create, %{
-      person_id: person.id,
-      level: :anonymous,
-      chosen_quote_spans: [%{"question_key" => "self_intro", "start" => 0, "len" => 5}]
-    })
-    |> Ash.create!(authorize?: false)
+    license =
+      QuoteLicense
+      |> Ash.Changeset.for_create(:create, %{
+        person_id: person.id,
+        level: :anonymous,
+        chosen_quote_spans: [%{"question_key" => "self_intro", "start" => 0, "len" => 5}]
+      })
+      |> Ash.create!(authorize?: false)
 
-    person
+    # R37：测试夹具直建行（绕过 Tokens.set_quote_license 的同步路径）——
+    # 显式同步 Quote 行，与生产写面同终态。
+    {:ok, [quote | _]} = Cgc2046.Flashback.Quotes.sync_for_license(license)
+    {person, quote}
   end
 
   defp token_for(person) do
@@ -120,14 +122,14 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     plain
   end
 
-  describe "flashbackLikeQuote（R36 公开面）" do
+  describe "flashbackLikeQuote（R36/R37 公开面）" do
     test "点赞幂等 + 返回实时计数 + 取消；voterKey 非法 fail-closed" do
-      person = wall_person(archive(), %{email: "like-mutation@example.com"})
+      {_person, quote} = wall_person(archive(), %{email: "like-mutation@example.com"})
 
       like = fn voter, liked ->
         """
         mutation {
-          flashbackLikeQuote(personId: "#{person.id}", voterKey: "#{voter}", liked: #{liked}) {
+          flashbackLikeQuote(quoteId: "#{quote.id}", voterKey: "#{voter}", liked: #{liked}) {
             likeCount
           }
         }
@@ -151,7 +153,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
       res =
         post_graphql("""
         mutation {
-          flashbackLikeQuote(personId: "#{person.id}", voterKey: "nope", liked: true) { likeCount }
+          flashbackLikeQuote(quoteId: "#{quote.id}", voterKey: "nope", liked: true) { likeCount }
         }
         """)
 
@@ -159,33 +161,39 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     end
   end
 
-  describe "flashbackPublicQuotes（R36 点赞回显与排序）" do
-    test "personId/likeCount/likedByViewer 三字段 + 点击排序生效" do
+  describe "flashbackPublicQuotes（R36/R37 点赞回显与排序）" do
+    test "quoteId/likeCount/likedByViewer 三字段 + 点击排序生效" do
       arch = archive()
-      alice = wall_person(arch, %{email: "q-a@example.com", full_name: "王晓雨", surname: "王"})
-      bob = wall_person(arch, %{email: "q-b@example.com", full_name: "李雷", surname: "李"})
+
+      {_alice, alice_quote} =
+        wall_person(arch, %{email: "q-a@example.com", full_name: "王晓雨", surname: "王"})
+
+      {_bob, bob_quote} =
+        wall_person(arch, %{email: "q-b@example.com", full_name: "李雷", surname: "李"})
 
       post_graphql("""
-      mutation { flashbackLikeQuote(personId: "#{alice.id}", voterKey: "a:v1", liked: true) { likeCount } }
+      mutation { flashbackLikeQuote(quoteId: "#{alice_quote.id}", voterKey: "a:v1", liked: true) { likeCount } }
       """)
 
       post_graphql("""
-      mutation { flashbackLikeQuote(personId: "#{alice.id}", voterKey: "a:v2", liked: true) { likeCount } }
+      mutation { flashbackLikeQuote(quoteId: "#{alice_quote.id}", voterKey: "a:v2", liked: true) { likeCount } }
       """)
 
       post_graphql("""
-      mutation { flashbackLikeQuote(personId: "#{bob.id}", voterKey: "a:v1", liked: true) { likeCount } }
+      mutation { flashbackLikeQuote(quoteId: "#{bob_quote.id}", voterKey: "a:v1", liked: true) { likeCount } }
       """)
 
       res = post_graphql(@quotes_query, %{"voterKey" => "a:v1"})
       quotes = res["data"]["flashbackPublicQuotes"]
 
       assert [first, second] = Enum.take(quotes, 2)
-      assert first["personId"] == alice.id
+      assert first["quoteId"] == alice_quote.id
       assert first["likeCount"] == 2
       assert first["likedByViewer"] == true
       assert first["text"] == "我想亲眼看"
-      assert second["personId"] == bob.id
+      assert first["city"] == "北京"
+      assert first["year"] == 2014
+      assert second["quoteId"] == bob_quote.id
       assert second["likeCount"] == 1
       assert second["likedByViewer"] == true
 
@@ -193,15 +201,42 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
       anonymous = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
       assert Enum.all?(anonymous, &(&1["likedByViewer"] == false))
     end
+
+    test "flashbackRandomQuotes / flashbackPublicQuote（R35/R37 读面）" do
+      arch = archive()
+      {_a, quote} = wall_person(arch, %{email: "rq@example.com"})
+
+      random =
+        post_graphql("""
+        query { flashbackRandomQuotes(limit: 3) { quoteId text } }
+        """)
+
+      assert [%{"quoteId" => _, "text" => "我想亲眼看"}] = random["data"]["flashbackRandomQuotes"]
+
+      direct =
+        post_graphql("""
+        query { flashbackPublicQuote(quoteId: "#{quote.id}") { quoteId text } }
+        """)
+
+      assert direct["data"]["flashbackPublicQuote"]["quoteId"] == quote.id
+
+      # 不存在/非法 id → null（不泄露存在性）
+      missing =
+        post_graphql("""
+        query { flashbackPublicQuote(quoteId: "#{Ecto.UUID.generate()}") { quoteId } }
+        """)
+
+      assert missing["data"]["flashbackPublicQuote"] == nil
+    end
   end
 
   describe "作者侧 quoteStats（R36 回访面）" do
     test "capsule.me.quoteStats.likeCount 随点赞变化" do
-      person = wall_person(archive(), %{email: "stats-gql@example.com"})
+      {person, quote} = wall_person(archive(), %{email: "stats-gql@example.com"})
       token = token_for(person)
 
       post_graphql("""
-      mutation { flashbackLikeQuote(personId: "#{person.id}", voterKey: "a:s1", liked: true) { likeCount } }
+      mutation { flashbackLikeQuote(quoteId: "#{quote.id}", voterKey: "a:s1", liked: true) { likeCount } }
       """)
 
       capsule = """
@@ -220,7 +255,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
 
   describe "flashbackAdminSetQuoteHidden（R38 平台边界）" do
     test "非管理员被拒；管理员下线后金句墙与实名档案页同时消失" do
-      person = wall_person(archive(), %{email: "hidden-gql@example.com"})
+      {person, quote} = wall_person(archive(), %{email: "hidden-gql@example.com"})
 
       published =
         person
@@ -247,7 +282,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
                post_graphql(hide, %{}, admin)
 
       quotes = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
-      refute Enum.any?(quotes, &(&1["personId"] == published.id))
+      refute Enum.any?(quotes, &(&1["quoteId"] == quote.id))
 
       profile =
         post_graphql("query { flashbackPublicProfile(slug: \"wang-xiaoyu-gql\") { fullName } }")
@@ -259,7 +294,7 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
                post_graphql(String.replace(hide, "hidden: true", "hidden: false"), %{}, admin)
 
       quotes = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
-      assert Enum.any?(quotes, &(&1["personId"] == published.id))
+      assert Enum.any?(quotes, &(&1["quoteId"] == quote.id))
     end
   end
 end

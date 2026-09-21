@@ -359,8 +359,25 @@ defmodule Cgc2046.Flashback.Tokens do
           |> Ash.Changeset.for_update(:update, %{chosen_quote_spans: pruned})
           |> Ash.update(authorize?: false)
           |> case do
-            {:ok, _} -> :ok
-            {:error, _} -> :ok
+            {:ok, license} ->
+              # R37：被雾剪掉的 span 对应 Quote 行即删（授权红线：用户已撤
+              # 授权的句子不得留在公开墙）。同步失败沿用既有口径不回滚雾
+              # （两写独立，宁留档不丢雾）——但 Quote 是公开墙唯一数据源，
+              # 失同步会留 stale 行，故失败时显式记日志。
+              case Cgc2046.Flashback.Quotes.sync_for_license(license) do
+                {:ok, _} ->
+                  :ok
+
+                {:error, reason} ->
+                  Logger.error(
+                    "flashback quote sync failed after fog prune: person_id=#{person_id} #{inspect(reason)}"
+                  )
+
+                  :ok
+              end
+
+            {:error, _} ->
+              :ok
           end
         end
 
@@ -386,48 +403,14 @@ defmodule Cgc2046.Flashback.Tokens do
     end)
   end
 
-  # 金句宿主原文：当年答案（Answer 表）优先；today.now/want/need/say 回落
-  # flashback_todays 对应字段（今天与当年同一套坐标/校验）。
-  defp quote_host_text(person_id, "today." <> field) when field in @today_fog_fields do
-    case Today
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(person_id == ^person_id)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} -> :error
-      {:ok, today} -> {:ok, Map.get(today, today_field(field)) || ""}
-    end
-  end
+  # 金句宿主原文/雾区间：双宿主（当年答案 / today.* 字段）读取单源在
+  # `Cgc2046.Flashback.Quotes`（host_text/host_fog_spans）——本模块委托，
+  # 不另存一份（防两处漂移）。
+  defp quote_host_text(person_id, question_key),
+    do: Cgc2046.Flashback.Quotes.host_text(person_id, question_key)
 
-  defp quote_host_text(person_id, question_key) do
-    case Answer
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(person_id == ^person_id and question_key == ^question_key)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} -> :error
-      {:ok, answer} -> {:ok, answer.raw_text}
-    end
-  end
-
-  # 金句宿主的当前雾区间(授权校验用):today.* 取 fog_spans[field],当年取 answer.fog_spans。
-  defp quote_host_fog_spans(person_id, "today." <> field) when field in @today_fog_fields do
-    case Today
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(person_id == ^person_id)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} -> []
-      {:ok, today} -> Map.get(today.fog_spans || %{}, field) || []
-    end
-  end
-
-  defp quote_host_fog_spans(person_id, question_key) do
-    case Answer
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(person_id == ^person_id and question_key == ^question_key)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} -> []
-      {:ok, answer} -> answer.fog_spans || []
-    end
-  end
+  defp quote_host_fog_spans(person_id, question_key),
+    do: Cgc2046.Flashback.Quotes.host_fog_spans(person_id, question_key)
 
   # 雾是「对外隐藏」的承诺:授权不得穿透——选中的句落在宿主任一雾区间上即拒。
   defp ensure_quote_not_fogged(person_id, question_key, group_spans) do
@@ -486,7 +469,7 @@ defmodule Cgc2046.Flashback.Tokens do
           |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, person_id))
           |> Ash.create(authorize?: false)
           |> case do
-            {:ok, license} -> {:ok, license_payload(license)}
+            {:ok, license} -> sync_and_payload(license)
             {:error, reason} -> {:error, reason}
           end
 
@@ -495,13 +478,22 @@ defmodule Cgc2046.Flashback.Tokens do
           |> Ash.Changeset.for_update(:update, params)
           |> Ash.update(authorize?: false)
           |> case do
-            {:ok, license} -> {:ok, license_payload(license)}
+            {:ok, license} -> sync_and_payload(license)
             {:error, reason} -> {:error, reason}
           end
 
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  # R37：授权档变更后同步 Quote 行（单一入口 Quotes.sync_for_license/1）——
+  # 同步失败不吞错（Quote 是公开墙的唯一数据源，失同步 = 墙上内容失真）。
+  defp sync_and_payload(license) do
+    case Cgc2046.Flashback.Quotes.sync_for_license(license) do
+      {:ok, _quotes} -> {:ok, license_payload(license)}
+      {:error, reason} -> {:error, reason}
     end
   end
 

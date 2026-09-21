@@ -64,20 +64,26 @@ defmodule Cgc2046.Flashback.PublicLayerTest do
   end
 
   defp set_license(person, level, span, note \\ nil) do
-    QuoteLicense
-    |> Ash.Changeset.for_create(:create, %{
-      person_id: person.id,
-      level: level,
-      chosen_quote_spans: [
-        %{
-          question_key: "self_intro",
-          start: span["start"] || span[:start],
-          len: span["len"] || span[:len]
-        }
-      ],
-      credited_note: note
-    })
-    |> Ash.create!(authorize?: false)
+    license =
+      QuoteLicense
+      |> Ash.Changeset.for_create(:create, %{
+        person_id: person.id,
+        level: level,
+        chosen_quote_spans: [
+          %{
+            question_key: "self_intro",
+            start: span["start"] || span[:start],
+            len: span["len"] || span[:len]
+          }
+        ],
+        credited_note: note
+      })
+      |> Ash.create!(authorize?: false)
+
+    # R37：测试夹具直建行（绕过 Tokens.set_quote_license 的同步路径）——
+    # 显式同步 Quote 行，与生产写面同终态。
+    {:ok, _quotes} = Cgc2046.Flashback.Quotes.sync_for_license(license)
+    license
   end
 
   # public_slug/published_at 不经 create（发布语义只在绑定通道/后续授权面）

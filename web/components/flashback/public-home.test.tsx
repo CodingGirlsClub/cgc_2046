@@ -87,7 +87,7 @@ const quoteList: FlashbackPublicQuote[] = [
 		attribution: "王** · 2014 · 北京",
 		level: "anonymous",
 		publicSlug: null,
-		personId: "p-alice",
+		quoteId: "q-alice",
 		likeCount: 3,
 		likedByViewer: false,
 	},
@@ -96,7 +96,7 @@ const quoteList: FlashbackPublicQuote[] = [
 		attribution: "李** · 2015 · 广州",
 		level: "credited",
 		publicSlug: "li-yinuo",
-		personId: "p-bob",
+		quoteId: "q-bob",
 		likeCount: 0,
 		likedByViewer: true,
 	},
@@ -317,7 +317,7 @@ describe("PublicHome · 金句点赞（R36）", () => {
 		await waitFor(() => expect(screen.getAllByTestId("fb-quote-like")[0]).toHaveTextContent("♥4"));
 		expect(likeRunner).toHaveBeenCalledWith(
 			expect.objectContaining({
-				variables: expect.objectContaining({ personId: "p-alice", liked: true }),
+				variables: expect.objectContaining({ quoteId: "q-alice", liked: true }),
 			}),
 		);
 
