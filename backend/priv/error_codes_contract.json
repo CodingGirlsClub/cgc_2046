@@ -43,6 +43,7 @@
     "flashback_archive_not_found",
     "flashback_auth_required",
     "flashback_card_share_conflict",
+    "flashback_content_rejected",
     "flashback_delete_confirm_required",
     "flashback_fog_span_out_of_bounds",
     "flashback_forbidden_wish",
