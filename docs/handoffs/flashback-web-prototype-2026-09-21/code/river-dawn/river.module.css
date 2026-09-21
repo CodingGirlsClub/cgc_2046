@@ -1,0 +1,114 @@
+.prototype{min-height:100vh;background:#e9e9e1;padding:0 0 62px;color:#244b3f;font-family:"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.viewport{container-type:inline-size;max-width:1920px;margin:auto}
+.app{--ink:#234b3e;--muted:#718074;--paper:#f7f5ed;--line:#dcded1;position:relative;isolation:isolate;min-height:calc(100svh - 62px);background:var(--paper);color:var(--ink);overflow:hidden}
+.app button,.dialog button,.demoBar button{font:inherit;cursor:pointer;touch-action:manipulation}
+.app button,.dialog button{display:inline-flex;justify-content:center;align-items:center;gap:10px;min-height:44px;border:0;background:none;color:inherit;padding:8px 12px;text-decoration:none;transition:transform .13s ease,opacity .15s ease}
+.app button:active,.dialog button:active,.demoBar button:active{transform:scale(.97)}
+.app button:focus-visible,.app a:focus-visible,.dialog button:focus-visible,.dialog input:focus-visible,.dialog textarea:focus-visible,.dialog select:focus-visible,.demoBar button:focus-visible{outline:2px solid #b68a42;outline-offset:4px}
+.app svg,.dialog svg{flex-shrink:0}
+.atmosphere{position:absolute;inset:0;background:#0d1b21;opacity:calc(1 - var(--daylight));z-index:-1;pointer-events:none}
+.skipLink{position:absolute;top:-100px;left:20px;z-index:100;padding:12px;background:#f5f1e5;color:#193d30}.skipLink:focus{top:12px}
+.header{position:relative;z-index:2;min-height:105px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 3.2%;border-bottom:1px solid var(--line)}
+.brand{text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.brand strong{font-family:"Songti SC","STSong","SimSun",serif;font-size:31px;letter-spacing:2px;font-weight:600;display:flex;align-items:center;gap:13px}
+.brand small{font-size:9px;letter-spacing:1.25px;color:var(--muted)}
+.brandSeal{display:flex;justify-content:center;align-items:center;background:#ab6d4d;color:#f7eddb;letter-spacing:0;width:18px;height:22px;font-size:12px;border-radius:2px}
+.nav{display:flex;gap:26px;align-items:stretch;align-self:stretch;margin-left:auto;margin-right:auto}
+.nav button{position:relative;padding:0 4px;font-family:"Songti SC","STSong",serif;font-size:17px;gap:10px;white-space:nowrap}
+.nav button span{font:10px "PingFang SC",sans-serif;letter-spacing:1.4px;color:var(--muted)}
+.nav .activeNav:after{content:"";position:absolute;bottom:-21px;left:0;right:0;height:2px;background:#355749}
+.headerActions{display:flex;gap:10px;align-items:center;font-size:13px}.headerActions>button{white-space:nowrap}
+.app .primary,.dialog .primary{background:#234f3e;color:#f8f5eb;border:1px solid #234f3e;border-radius:7px;min-height:48px;padding:12px 22px;font-size:14px}
+.app .secondary,.dialog .secondary{border:1px solid #bdc7bb;border-radius:7px;padding:12px 22px;min-height:48px}
+.workspace{display:grid;grid-template-columns:minmax(0,1.32fr) minmax(0,1fr);min-height:calc(100svh - 167px)}
+.mapSection{position:relative;display:flex;flex-direction:column;min-width:0;background:linear-gradient(130deg,#eeeede44,#f4f0e755);padding:36px 0 0}
+.mapHeading{display:flex;align-items:center;justify-content:space-between;padding:0 5.5%;gap:10px}
+.eyebrow{font-size:11px;letter-spacing:1.7px;color:#748173;line-height:1.7;margin:0 0 12px}
+.mapHeading h1{font:400 clamp(22px,2vw,32px)/1.5 "Songti SC","STSong",serif;letter-spacing:.03em;margin:0}
+.mapTag{font-size:11px;white-space:nowrap;color:#6e7a6b;padding:6px 10px;border:1px solid #d7dacb;border-radius:3px;align-self:flex-end;margin-bottom:7px}
+.mapPlot{width:100%;aspect-ratio:1000/720;position:relative;margin:auto 0;isolation:isolate}
+.mapSvg{display:block;width:100%;height:100%}
+.mapPin{position:absolute;transform:translate(-50%,-50%);width:44px;height:44px;min-height:44px;padding:0!important;border-radius:50%;z-index:2;outline-offset:0!important}
+.app .mapPin:active{transform:translate(-50%,-50%) scale(.96)}
+.pinDot{position:absolute;width:9px;height:9px;border:2px solid #f6f0d6;background:#385e4d;border-radius:50%;box-shadow:0 1px 3px #29463333;inset:0;margin:auto}
+.selectedPin .pinDot{width:12px;height:12px;background:#c5913b;border:2px solid #fcf0ca;box-shadow:0 0 0 6px #c5963c24,0 0 20px #d8b45588}
+.pinLabel{position:absolute;left:32px;top:8px;font-family:"Songti SC","STSong",serif;font-size:16px;font-weight:600;white-space:nowrap;line-height:24px;padding:0 3px;text-shadow:0 1px 4px #f7f2df,0 -1px 4px #f7f2df,2px 0 3px #f7f2df}
+.pinLabel small{font-family:"PingFang SC",sans-serif;font-size:10px;font-weight:400}
+.nightPin .pinLabel{color:#f0e6cf;text-shadow:0 1px 4px #101a1c}
+.nightPin .pinDot{background:#f4c975;border-color:#fff3d4;box-shadow:0 0 12px #f3d98caa}
+.app .wishSlip{position:absolute;transform:translate(-70%,-125%) rotate(-4deg);width:164px;padding:17px 18px;background:#fbf5e5;border:1px solid #c5ae7d;box-shadow:0 4px 10px #6e785f15;border-radius:2px;z-index:1;font:15px/1.7 "Songti SC","STSong",serif;text-align:left}.wishSlip:before{content:"";width:4px;height:4px;border-radius:50%;background:#b39456;position:absolute;top:6px;left:50%}.wishSlip:after{content:"";height:25px;width:1px;background:#c2a269;position:absolute;bottom:-25px;left:70%}.wishSlip span{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.app .wishSlip:active{transform:translate(-70%,-125%) rotate(-4deg) scale(.98)}
+.pinPulse{position:absolute;inset:8px;border:1px solid #c3913a;border-radius:50%;animation:pinRipple .8s ease-out forwards}
+@keyframes pinRipple{from{transform:scale(.55);opacity:1}to{transform:scale(2.6);opacity:0}}
+.mapFoot{display:flex;align-items:center;gap:18px;font-size:10px;color:#748271;padding:0 5.5%;min-height:40px}
+.mapFoot>span{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.mapFoot i{width:17px;height:3px;background:#729b8b;border-radius:2px;display:block}.mapFoot>span:nth-child(2) i{background:#bf984a}
+.mapFoot button{margin-left:auto;font-size:10px;padding:4px 0}.mapFoot svg{width:15px;height:15px}
+.cityBar{display:flex;gap:5px;align-items:center;padding:14px 4.5%;border-top:1px solid #d8dccd;margin-top:12px;flex-wrap:wrap}
+.cityBar>span{font-size:10px;margin-right:8px;color:#798475}.cityBar button{font-size:12px;min-height:40px;padding:6px 13px;border-radius:4px}
+.cityBar button[aria-pressed=true]{background:#264e3e;color:#f7f4e9}
+.reader{display:flex;flex-direction:column;min-width:0;padding:clamp(32px,4vw,62px) 9% 22px;border-left:1px solid var(--line);background:#fbfaf5b3}
+.readerTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}
+.readerTop .eyebrow{display:flex;align-items:center;gap:18px;letter-spacing:.1em;font-size:13px;color:#365347;margin:0}
+.readerTop .eyebrow span{height:1px;background:#93a28d;width:25px}.location{font-size:11px;color:#7d897b}
+.quote{font-family:"Songti SC","STSong","SimSun",serif;font-weight:500;font-size:clamp(29px,3.05vw,47px);line-height:1.62;letter-spacing:.025em;margin:12px 0 30px;text-wrap:pretty;overflow-wrap:anywhere}
+.attribution{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;letter-spacing:.06em;margin:0 0 37px;color:#5c7165}.attribution>span{color:#94a18e}
+.quote>span{display:block}
+.reactions{display:flex;gap:12px;align-items:center;margin-bottom:28px}
+.reactions .primary{flex:1;min-height:52px;border-radius:6px;font-size:14px}
+.app .likeButton{border:1px solid #9bae9c;border-radius:6px;min-width:99px;min-height:52px;gap:12px;font-size:16px;font-variant-numeric:tabular-nums}
+.likeButton[aria-pressed=true]{color:#a36442;border-color:#c79f73;background:#ead6b52b}
+.reactions .secondary{flex:1;min-height:52px}
+.pagination{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:17px 0;margin-top:8px;font-size:12px}
+.pagination>span{font-family:Georgia,serif;font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:2px}.pagination i{font-style:normal;color:#93a38f;padding:0 14px}.pagination button{padding:4px 0;font-size:12px;gap:9px}.pagination svg{width:17px;height:17px}
+.disclosure{font-size:11px;line-height:2;color:#879181;margin:22px 0 30px}
+.readerFooter{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:18px;margin-top:auto}
+.readerFooter button{font-size:10px;line-height:1.7;padding:6px 0;gap:9px;text-align:left}.readerFooter svg{width:16px;height:16px}
+.wishQuote{font-size:clamp(27px,2.35vw,36px);margin:20px 0 20px;line-height:1.6}
+.filters{display:flex;gap:6px;margin:-4px 0 0;padding:4px;border-radius:5px;background:#eeede4;align-self:flex-start}
+.filters button{font-size:11px;min-height:34px;padding:6px 15px;border-radius:4px}.filters button[aria-pressed=true]{background:#2c523f;color:#f6f2e5}
+.expectCount{margin:-16px 0 18px;display:flex;align-items:baseline;gap:9px;font-size:12px;color:#718171}.expectCount strong{font-family:Georgia,serif;font-size:27px;font-weight:400;color:#2c4f3e}
+.notifyLink{align-self:flex-start!important;padding:0!important;font-size:11px!important;color:#778471!important;gap:8px!important;margin-top:-17px;margin-bottom:16px}.notifyLink svg{width:15px;height:15px}
+.app .echo{display:flex;align-items:flex-start;flex-direction:column;background:#f1e4d4;padding:18px 20px;border-radius:6px;text-align:left;gap:10px;box-shadow:0 2px 2px #9b7e4810;color:#77533b;margin:0 0 8px}
+.echoBadge{display:inline-flex;padding:4px 8px;background:#b6754e;color:#fff3df;font-size:10px;letter-spacing:.07em;border-radius:3px;align-self:flex-start}
+.echo strong{font-family:"Songti SC","STSong",serif;font-size:19px;font-weight:500;color:#355141}
+.echo>span:last-child{display:flex;align-items:center;justify-content:space-between;width:100%;font-size:10px;color:#987e60}.echo>span:last-child svg{width:16px;height:16px}
+.waitingWish{border-top:1px solid var(--line);padding:18px 0;font-size:12px}.waitingWish span{color:#596e58}.waitingWish p{color:#7d8b75;font-size:11px;line-height:1.8;margin:8px 0}
+.writeMobile{display:none!important}.mine{font-size:9px;border:1px solid #c7ccbc;padding:2px 5px}.withdraw{align-self:flex-start!important;color:#9e6448!important;font-size:11px!important}
+.inIntro .header{color:#e7dfc9;border-color:#8a9c851f}.inIntro .brand small,.inIntro .nav span{color:#a4b09f}.inIntro .nav .activeNav:after{background:#ceb477}
+.dayText .header,.dayText .introCaption,.dayText .introTrack{color:#284c3b;text-shadow:none}.dayText .introCaption small,.dayText .introCaption .eyebrow{color:#627a66}
+.inIntro .workspace{display:block;position:relative;min-height:calc(100svh - 232px)}
+.inIntro .mapSection{background:none;margin:0 auto;padding:0;width:min(1100px,100%)}
+.inIntro .mapPlot{max-height:calc(100svh - 232px);aspect-ratio:1000/720;width:auto;height:calc(100svh - 232px);margin:auto;max-width:100%}
+.inIntro .mapHeading,.inIntro .mapFoot,.inIntro .cityBar,.inIntro .reader{display:none}
+.introCaption{position:absolute;bottom:24px;left:0;max-width:370px;color:#efe7d2;pointer-events:none;text-shadow:0 1px 8px #0a181c}
+.introCaption .eyebrow{color:#c4c7b2;font-size:11px}.introCaption h1{font:400 39px/1.3 "Songti SC","STSong",serif;margin:15px 0}.introCaption h1 span{font-family:Georgia,serif;font-size:35px;color:#cab581;margin-right:13px}.introCaption>p:not(.eyebrow){font-family:"Songti SC","STSong",serif;font-size:17px;line-height:1.7;margin:10px 0 22px}.introCaption small{font-size:10px;color:#bac2b3}
+.introTrack{display:flex;position:relative;gap:35px;justify-content:center;padding:8px 30px 16px;color:#c2c2ab;max-width:850px;margin:auto;border-bottom:1px solid #9eaa962f}
+.introTrack button{font-size:12px;gap:10px;padding:10px 15px}.introTrack button>span{font-family:Georgia,serif;color:#bfa675}.introTrack button[aria-pressed=true]{color:#fff0c9}.trackFill{position:absolute;left:0;bottom:0;height:1px;width:100%;background:#d1b576;transform-origin:left}
+.demoBar{position:fixed;bottom:0;left:0;right:0;z-index:10;min-height:50px;display:flex;align-items:center;justify-content:center;gap:8px;background:#e8e9e1f5;border-top:1px solid #ced2c4;padding:7px 16px;color:#536350;font:11px "PingFang SC",sans-serif}
+.demoBar button{display:flex;align-items:center;gap:6px;border:1px solid transparent;padding:7px 12px;background:none;border-radius:4px;min-height:36px;color:inherit;font-size:11px}.demoBar button[aria-pressed=true]{background:#d5dacb;border-color:#c0c9b8}
+.demoLabel{display:flex;align-items:center;gap:6px;margin-right:20px}.demoLabel i{width:5px;height:5px;border-radius:50%;background:#9d8656}.demoLabel small{color:#929b89;font-size:10px}
+.demoBar .previewButton{border-left:1px solid #c6cebd;border-radius:0;padding-left:20px;margin-left:10px}.previewButton svg{width:15px;height:15px}
+.framePicker{position:absolute;bottom:62px;display:flex;background:#e7e8df;border:1px solid #c1cabc;border-radius:5px;padding:5px;gap:2px;box-shadow:0 7px 30px #193b2a1a}
+.phonePreview{width:390px;margin:28px auto;border:9px solid #24372d;border-radius:34px;overflow:hidden;box-shadow:0 18px 60px #17332526;min-height:800px}
+.toast{position:fixed;bottom:77px;left:50%;transform:translate(-50%,8px);max-width:min(470px,90vw);background:#294b3e;color:#f5f0df;padding:13px 22px;font-size:12px;line-height:1.7;border-radius:5px;z-index:30;opacity:0;pointer-events:none;transition:transform .2s ease,opacity .2s ease;box-shadow:0 5px 25px #19372a22}
+.toast[data-visible=true]{opacity:1;transform:translate(-50%,0)}
+.dialog{color:#294b3d;background:#f8f5ec;border:1px solid #d9dccb;border-radius:12px;padding:0;width:min(510px,calc(100vw - 30px));max-height:90svh;overflow:auto;box-shadow:0 20px 100px #0b251748;font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin:auto;overscroll-behavior:contain}
+.dialog::backdrop{background:#152e2966}
+.dialogInner{padding:24px 30px 32px}
+.dialogHeader{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7d8b75;margin-bottom:20px}.dialogHeader button{padding:0;width:44px;min-height:44px}
+.dialog h2{font:400 28px/1.6 "Songti SC","STSong",serif;margin:12px 0 20px;text-wrap:pretty}
+.dialog p{font-size:13px;line-height:1.9;color:#75816e;margin:14px 0 22px}.dialog .eyebrow{font-size:10px;margin-bottom:4px}.dialog .primary{width:100%;margin-top:8px}.dialog .secondary{width:100%;margin-top:10px}
+.field{display:flex;flex-direction:column;gap:9px;font-size:12px;margin:18px 0;color:#59705f}.field input,.field select,.field textarea{background:#fdfbf5;color:#244b3e;border:1px solid #cbd2c0;border-radius:5px;padding:12px 13px;font-size:14px;line-height:1.7;font-family:inherit;width:100%;min-height:46px}.field textarea{resize:vertical}.field input[readonly]{font-size:11px}.field small{text-align:right;font-size:10px;color:#8e977f}
+.dialog fieldset{border:0;margin:20px 0 12px;padding:0;display:flex;gap:20px}.dialog legend{font-size:12px;margin-bottom:14px}.dialog fieldset label{font-size:12px;display:flex;gap:7px;align-items:center;min-height:28px}.dialog input[type=radio]{accent-color:#31543f;width:16px;height:16px}.dialog .help{font-size:11px;margin:0 0 15px;color:#7f8e79}.demoNote{display:block;font-size:10px;line-height:1.9;margin-top:18px;color:#89937f}.echoOriginal{font:400 20px/1.8 "Songti SC","STSong",serif;margin:20px 0;padding:20px;background:#eeebdd;border-radius:4px}
+@media(hover:hover){.app button:hover,.dialog button:hover{opacity:.8}.mapPin:hover .pinDot{box-shadow:0 0 0 6px #c5963c35}.cityBar button:hover{background:#dfe5d5}.demoBar button:hover{background:#d7ddcf}}
+@container (min-width:1650px){.reader{padding-top:80px}.quote{font-size:52px}.mapSection{padding-top:48px}.mapPlot{max-height:720px}}
+@container (max-width:1050px){.header{gap:15px;padding:20px 3%;min-height:90px}.headerActions .primary{display:none}.nav{gap:20px}.nav button{font-size:15px}.nav button span{font-size:9px}.headerActions{font-size:11px}.brand strong{font-size:27px}.workspace{grid-template-columns:1.16fr 1fr;min-height:calc(100svh - 152px)}.reader{padding:38px 7% 20px}.mapTag{display:none}.mapHeading h1{font-size:24px}.mapFoot{gap:10px}.mapFoot>span{font-size:8px}.mapFoot button{font-size:9px}.quote{font-size:33px}.readerFooter{flex-wrap:wrap}.wishQuote{font-size:29px}.writeMobile{display:flex!important;margin-bottom:20px}.inIntro .mapPlot{height:calc(100svh - 232px);width:auto}.introCaption{left:25px}}
+@container (max-width:760px){
+	.header{min-height:107px;padding:18px 22px 0;flex-wrap:wrap;gap:12px;align-items:center}.brand strong{font-size:25px;gap:9px}.brand small{font-size:8px;letter-spacing:.8px}.brandSeal{width:15px;height:18px;font-size:10px}.nav{order:3;width:100%;height:42px;gap:0;justify-content:space-around;margin:0}.nav button{font-size:15px;width:44%;padding:0;gap:8px}.nav button span{font-size:9px}.nav .activeNav:after{bottom:0}.headerActions{margin-left:auto}.headerActions button{padding:5px 0;min-height:36px;font-size:10px;gap:6px}.headerActions svg{width:17px;height:17px}.headerActions>button>span{font-size:10px}.headerActions .primary{display:none}
+	.workspace{display:flex;flex-direction:column;min-height:auto}.mapSection{padding:17px 0 0;flex:none}.mapHeading{padding:0 23px}.mapHeading .eyebrow{font-size:8px;letter-spacing:1px;margin-bottom:4px}.mapHeading h1{font-size:18px;line-height:1.5}.mapPlot{margin:3px auto 0;width:100%;max-width:520px}.mapSvg{width:100%}.pinDot{width:7px;height:7px;border-width:1.5px}.selectedPin .pinDot{width:9px;height:9px}.pinLabel{font-size:12px;left:29px;top:9px;line-height:22px}.pinLabel small{font-size:8px}.paperNotes{display:none}.mapFoot{display:none}.cityBar{padding:4px 14px 7px;margin:0;border-top:0;gap:1px;justify-content:space-between;flex-wrap:nowrap}.cityBar>span{display:none}.cityBar button{min-height:40px;font-size:11px;padding:4px 14px;flex:1}
+	.reader{padding:27px 25px 20px;border-left:0;border-top:1px solid #d8dccf;background:#fbfaf4}.readerTop{margin-bottom:9px}.readerTop .eyebrow{font-size:11px}.readerTop .eyebrow span{width:18px}.location{font-size:10px}.quote{font-size:30px;line-height:1.65;margin:12px 0 20px;letter-spacing:.01em}.attribution{font-size:11px;gap:10px;margin-bottom:24px}.reactions{margin-bottom:13px;gap:10px}.reactions .primary,.reactions .secondary{min-height:48px;font-size:12px;padding:12px 13px}.app .likeButton{min-height:48px;min-width:90px;font-size:14px}.pagination{margin-top:10px;padding:9px 0;font-size:11px}.pagination button{font-size:11px}.disclosure{font-size:10px;line-height:1.9;margin:9px 0 20px}.readerFooter{padding-top:10px;gap:10px;flex-wrap:nowrap}.readerFooter button{font-size:9px;gap:5px}.readerFooter svg{width:13px;height:13px}.filters{margin:6px 0 2px}.filters button{font-size:10px;min-height:33px}.wishQuote{font-size:27px;margin:14px 0 17px}.expectCount{margin:-5px 0 17px;font-size:11px}.expectCount strong{font-size:25px}.notifyLink{margin:0 0 14px;font-size:10px!important}.echo strong{font-size:17px}.app .echo{padding:15px 17px;gap:10px}.echo>span:last-child{font-size:9px}.writeMobile{display:flex!important;margin:10px 0 20px}.withdraw{margin-bottom:10px}
+	.inIntro .header{min-height:105px}.inIntro .workspace{min-height:calc(100svh - 257px);display:flex;justify-content:center}.inIntro .mapSection{width:100%;position:static}.inIntro .mapPlot{width:100%;height:auto;max-height:none;aspect-ratio:1000/720;margin:0 auto 140px}.introCaption{bottom:0;left:25px;right:25px;max-width:100%}.introCaption h1{font-size:29px;margin:8px 0}.introCaption h1 span{font-size:27px}.introCaption .eyebrow{font-size:9px;margin-bottom:8px}.introCaption>p:not(.eyebrow){font-size:15px;margin:8px 0 12px}.introCaption small{font-size:9px;line-height:1.7;display:block}.introTrack{gap:0;justify-content:space-between;padding:20px 10px 15px;margin-top:10px}.introTrack button{font-size:9px;padding:8px 5px;gap:5px}.introTrack button>span{font-size:10px}
+}
+@media(max-width:760px){.prototype{padding-bottom:54px}.demoBar{min-height:50px;padding:5px 6px;gap:2px;justify-content:space-evenly}.demoBar button{font-size:9px;padding:7px 8px;min-height:40px}.demoLabel{font-size:9px;margin-right:0}.demoLabel small,.previewButton{display:none!important}.framePicker{bottom:59px;gap:0}.framePicker button{font-size:9px}.phonePreview{width:100%;margin:0;border:0;border-radius:0;box-shadow:none}.dialogInner{padding:18px 23px 26px}.dialog h2{font-size:25px}.toast{font-size:11px;padding:12px 16px;bottom:70px;width:max-content;max-width:90vw}}
+@container (max-width:760px){.mapHeading{display:none}.mapSection{padding-top:8px}.mapPlot{max-width:315px;margin:0 auto}.brand small{display:none}.header{min-height:96px;padding-top:12px;gap:8px}.mapPin .pinLabel small{display:none}.reader{padding-top:22px}.quote{font-size:29px;margin-top:9px}.wishQuote{font-size:27px}.app[data-mode=wishes] .readerTop{margin-bottom:0}.app .wishSlip{display:none}.inIntro .mapPlot{max-width:480px}.inIntro .header{min-height:96px}}
+@media(prefers-reduced-motion:reduce){.app *,.dialog *,.toast,.demoBar *{animation:none!important;transition:none!important;scroll-behavior:auto!important}.pinPulse{display:none}}

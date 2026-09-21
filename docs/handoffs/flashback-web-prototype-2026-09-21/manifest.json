@@ -1,0 +1,137 @@
+[
+  {
+    "file": "code/river-dawn/README.md",
+    "bytes": 5284,
+    "sha256": "826f1d29cd6e02412fabc604c25935daae67933507a68b76daf9ccf28af1e94d"
+  },
+  {
+    "file": "code/river-dawn/china-geo.json",
+    "bytes": 582522,
+    "sha256": "99adfeded5223848bbe37a0a12f8023e11ee12161c7800521c27db42fdeac275"
+  },
+  {
+    "file": "code/river-dawn/data.ts",
+    "bytes": 3766,
+    "sha256": "58e00a610770603fb804cee48c10e59512c86ea0dcc08dd351548324bf48f6c5"
+  },
+  {
+    "file": "code/river-dawn/evidence/dawn-frame-03.png",
+    "bytes": 485612,
+    "sha256": "dff35db78e302e454ca8b747b069be0a764201f4c758ece0465377b2c6dd27eb"
+  },
+  {
+    "file": "code/river-dawn/evidence/voices-desktop.png",
+    "bytes": 463288,
+    "sha256": "08c8f81747663337db0b2930d2c9a0cda6f97613fe5bd1aa7b22beafceb4ec53"
+  },
+  {
+    "file": "code/river-dawn/evidence/wishes-mobile.png",
+    "bytes": 131332,
+    "sha256": "3a30cae02903da876cf51742d5ed004c513b38744f28cace3c3bde35bff83f96"
+  },
+  {
+    "file": "code/river-dawn/geography.ts",
+    "bytes": 2309,
+    "sha256": "de7c4bd6a601b098c44ea9a783960f4a0e99185e66ad25c3739e057628dce264"
+  },
+  {
+    "file": "code/river-dawn/map-scene.tsx",
+    "bytes": 5139,
+    "sha256": "6b85dc502e3a8a812bd46b355766344bfbca25b06bf1966670026084d9ec3485"
+  },
+  {
+    "file": "code/river-dawn/page.tsx",
+    "bytes": 768,
+    "sha256": "d2ec08c8862de9b523f74e5ec8b2401c8646fca4dfbc24d4cf7bde8633046634"
+  },
+  {
+    "file": "code/river-dawn/river-dawn.tsx",
+    "bytes": 22995,
+    "sha256": "e57fef9989ac770a59eca07ecdbc11f905a33ee1793190a53c62fa6422f86c04"
+  },
+  {
+    "file": "code/river-dawn/river.module.css",
+    "bytes": 21111,
+    "sha256": "54c642bf729d49fd7fc0bbce22cec0f7d49b3ed4a906044a4f8da7266be2fd38"
+  },
+  {
+    "file": "code/river-dawn/rivers.json",
+    "bytes": 23151,
+    "sha256": "73778777a6323b48402aa11d38e07b3bd49c3f79cfdbcf02d8abe8af5ba6e4d2"
+  },
+  {
+    "file": "code/river-dawn/terrain-prompt.md",
+    "bytes": 1572,
+    "sha256": "159e1fd13a9fba89b5158ac443f8d13bfd3d293e16d257615d1011f8b3b91e10"
+  },
+  {
+    "file": "code/river-dawn/terrain.png",
+    "bytes": 3087320,
+    "sha256": "c14deaf177e2cf3b88fbc913d93d4f2569bf333414de2b0f52bf2b3f5009613b"
+  },
+  {
+    "file": "concepts/china-dawn-storyboard-v2.png",
+    "bytes": 2428028,
+    "sha256": "8d0b33be9ff19bbc120c5d93bead2687883e42864efa9a1e7aa03fb530c62daf"
+  },
+  {
+    "file": "concepts/china-map-v2-prompts.md",
+    "bytes": 11843,
+    "sha256": "7bf644ef6d8189c988db97cbf9e6b4196a4b7b40b4de1ca932a8f5bed2f7ba7b"
+  },
+  {
+    "file": "concepts/china-voices-day-v2.png",
+    "bytes": 2143073,
+    "sha256": "977caf710f19eea7607793828c2077b1bf8228624bf128a41b4957b3c28631b7"
+  },
+  {
+    "file": "concepts/china-wishes-day-v2.png",
+    "bytes": 2071309,
+    "sha256": "c7c54feab40195900b73166b03c3e663862d597c146e869c4efcd9e25d0c77db"
+  },
+  {
+    "file": "context/AGENTS.md",
+    "bytes": 7393,
+    "sha256": "14b7e21a7b5f52f80f4ae8a4518389cd29ba0fee7dddd6dadb6128da7cf76d5c"
+  },
+  {
+    "file": "context/web-AGENTS.md",
+    "bytes": 2932,
+    "sha256": "aac94be215e5b1a4ebc280738b928acc7cc63c31dacd34e69d4b3ca758a1e938"
+  },
+  {
+    "file": "context/web-package.json",
+    "bytes": 1309,
+    "sha256": "eddef9132ed3569a63d57d286578be4e17561e0a5d77e9a9ec28a66715c64498"
+  },
+  {
+    "file": "context/闪念间-金句墙讨论实录.md",
+    "bytes": 52254,
+    "sha256": "728907cc6547dae11b6f1ae5b032ebee4fa4005365ee4b9c2487aec9da325ec9"
+  },
+  {
+    "file": "evidence-extra/river-frame-three.png",
+    "bytes": 480946,
+    "sha256": "a022e068cf551a89d4967d6597f77e7beb984d5fc06266ecc25845eded63d1cf"
+  },
+  {
+    "file": "evidence-extra/voices-mobile-final.png",
+    "bytes": 110864,
+    "sha256": "f4c094c60c0bceff3980abb09638f37eb097672e05fe386e82b0d896044a7ee4"
+  },
+  {
+    "file": "evidence-extra/wishes-desktop.png",
+    "bytes": 467981,
+    "sha256": "b7606324ec1b4e0151859132693ad24934ecaa4b8892d8f4dd209a980a6a46b8"
+  },
+  {
+    "file": "提交状态.txt",
+    "bytes": 178,
+    "sha256": "dff9d024873dd7a743ba166781e946c1cc4ffc738975e8ad561d2040b247996e"
+  },
+  {
+    "file": "给接手Agent的提示词.md",
+    "bytes": 17023,
+    "sha256": "b10387ef9ad0cebf3e46b703800190da4e9fe488f0cfede0fd849a6a592cece9"
+  }
+]
