@@ -343,7 +343,7 @@ defmodule Cgc2046Web.GraphqlSignInWithPlatformTest do
     me_query = "{ me { id } }"
 
     # 旧 token：token 记录已被吊销（purpose=revocation）→ load_from_bearer 查不到
-    # → 与 signOut 测试同构，me 返回 auth_uncertain（签名仍有效但 user 未加载）
+    # → 与 signOut 测试同构。#762：持久失效不标 auth_uncertain，me 返回 unauthorized。
     old_conn =
       build_conn()
       |> put_req_cookie("cgc_token", first_cookie.value)
@@ -354,8 +354,8 @@ defmodule Cgc2046Web.GraphqlSignInWithPlatformTest do
 
     assert %{"data" => %{"me" => nil}, "errors" => old_errors} = old_res
 
-    assert Enum.any?(old_errors, &(&1["code"] == "auth_uncertain")),
-           "重登后旧 token 应失效（auth_uncertain），实际 #{inspect(old_res)}"
+    assert Enum.any?(old_errors, &(&1["code"] == "unauthorized")),
+           "重登后旧 token 应失效（unauthorized，#762），实际 #{inspect(old_res)}"
 
     # 新 token 正常工作
     new_conn =

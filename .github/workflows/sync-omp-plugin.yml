@@ -40,16 +40,16 @@ jobs:
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('omp-ext/cgc-2046/package.json'))['version'])")
           cd /tmp/cgc-omp-plugins
-          python3 -c "
-import json
-with open('.omp-plugin/marketplace.json') as f:
-    catalog = json.load(f)
-for p in catalog['plugins']:
-    if p['name'] == 'cgc-2046':
-        p['version'] = '$VERSION'
-with open('.omp-plugin/marketplace.json', 'w') as f:
-    json.dump(catalog, f, indent=2, ensure_ascii=False)
-"
+          python3 <<PYEOF
+          import json
+          with open('.omp-plugin/marketplace.json') as f:
+              catalog = json.load(f)
+          for p in catalog['plugins']:
+              if p['name'] == 'cgc-2046':
+                  p['version'] = '$VERSION'
+          with open('.omp-plugin/marketplace.json', 'w') as f:
+              json.dump(catalog, f, indent=2, ensure_ascii=False)
+          PYEOF
 
       - name: Commit and push if changed
         run: |

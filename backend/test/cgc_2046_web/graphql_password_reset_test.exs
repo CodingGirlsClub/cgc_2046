@@ -156,11 +156,11 @@ defmodule Cgc2046Web.GraphqlPasswordResetTest do
                post_sign_in("gql-pwd-reset-success@example.com", "brand-new-password-1")
 
       # 重置前签发的 web 会话 token 与小程序等价 token 均被吊销。
-      # 应用对「token 签名有效但已撤销」的既定形状是 auth_uncertain（#13 Finding A：
-      # 吊销 / DB 故障同形，AuthPlug 标记 cgc_auth_uncertain），非 unauthorized。
-      assert %{"errors" => [%{"code" => "auth_uncertain"}]} = post_me(session_token)
+      # #762：吊销 = 持久失效（tokens 表无 purpose: "user" 活跃行），AuthPlug 白名单
+      # 闸门不标 auth_uncertain → me 返回 unauthorized，前端正常判未登录。
+      assert %{"errors" => [%{"code" => "unauthorized"}]} = post_me(session_token)
 
-      assert %{"errors" => [%{"code" => "auth_uncertain"}]} =
+      assert %{"errors" => [%{"code" => "unauthorized"}]} =
                post_me(miniprogram_equivalent_token)
 
       # 另一枚未用 reset token 即刻失效（AE6）

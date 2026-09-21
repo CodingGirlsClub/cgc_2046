@@ -29,15 +29,25 @@ defmodule Cgc2046.Mcp.Confirmation do
   @concurrent_confirm_rejected "Operation is not pending (concurrent confirmation won)"
   @concurrent_cancel_rejected "Operation is not pending (resolved concurrently)"
 
+  # #715：摘要消毒上限。现状最长模板摘要 <<500 字符，2000 是防注入放大的
+  # 宽松顶（不影响任何合法摘要）。
+  @max_summary_chars 2000
+
   @doc """
   为高风险工具建 pending 并返回 needs_confirmation（不落业务库）。
 
-  `summary_fun` 由 tool 提供人类可读摘要（展示给用户确认）。
+  `summary` 由 tool 提供人类可读摘要（展示给用户确认）。**消毒在漏斗单点**
+  （#715）：摘要插值用户可控文本（title/name/reason/email 等，资源层无内容
+  约束），原样放行会让 agent 消费的确认文案携带换行伪指令（prompt-injection
+  面）。此处剥控制字符（\\r\\n\\t 等替换为空格）+ 长度封顶，返回值与落库
+  `PendingOperation.summary` 同一份净化文本。与 params 刻意不同：params 是
+  事务数据必须原样落库，summary 是纯展示文本，净化无副作用。
   """
   @spec request(term(), String.t(), map(), String.t()) ::
           {:needs_confirmation, %{pending_id: String.t(), summary: String.t()}}
           | {:error, String.t()}
   def request(actor, tool_name, params, summary) do
+    summary = sanitize_summary(summary)
     # PendingOperation.params 是 two-tool 事务数据（confirm 时原样喂给
     # execute_confirmed/2 落业务库），**必须落完整 params**——Redact 脱敏/截断
     # 只作用于审计路径（ToolCallLog，由 Wrapper 落行时处理）。在此脱敏会把
@@ -61,6 +71,23 @@ defmodule Cgc2046.Mcp.Confirmation do
       {:error, error} ->
         Logger.error("[Mcp.Confirmation] pend failed: #{inspect(error)}")
         {:error, "failed to create pending operation"}
+    end
+  end
+
+  # #715 摘要消毒：剥 C0 控制字符（含 \r\n\t，替换为空格——换行是伪指令行的
+  # 载体）+ 长度封顶。模板固定文本不含控制字符，整串处理安全；可读性保留
+  # （伪指令文本本身仍在，但失去独立行形态，无法冒充系统指令）。
+  defp sanitize_summary(summary) when is_binary(summary) do
+    summary
+    |> String.replace(~r/[\x00-\x1F\x7F]+/u, " ")
+    |> truncate_summary()
+  end
+
+  defp truncate_summary(summary) do
+    if String.length(summary) <= @max_summary_chars do
+      summary
+    else
+      String.slice(summary, 0, @max_summary_chars - 1) <> "…"
     end
   end
 
