@@ -62,28 +62,28 @@ export default function PublicHome() {
 			.catch(() => setQuotes([]));
 	}, []);
 
-	/** 点赞开关（R36）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
+	/** 点赞开关（R36/R37）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
 	const toggleLike = useCallback(
 		(quote: FlashbackPublicQuote) => {
-			if (!voter || pending.has(quote.personId)) return;
+			if (!voter || pending.has(quote.quoteId)) return;
 			const liked = !quote.likedByViewer;
 			const before = quotes;
 			setQuotes(
 				quotes.map((item) =>
-					item.personId === quote.personId
+					item.quoteId === quote.quoteId
 						? { ...item, likedByViewer: liked, likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)) }
 						: item,
 				),
 			);
-			setPending((prev) => new Set([...prev, quote.personId]));
+			setPending((prev) => new Set([...prev, quote.quoteId]));
 
-			runLike({ variables: { personId: quote.personId, voterKey: voter, liked } })
+			runLike({ variables: { quoteId: quote.quoteId, voterKey: voter, liked } })
 				.then(({ data }) => {
 					const count = data?.flashbackLikeQuote?.likeCount;
 					if (typeof count !== "number") return;
 					setQuotes((current) =>
 						current.map((item) =>
-							item.personId === quote.personId ? { ...item, likeCount: count } : item,
+							item.quoteId === quote.quoteId ? { ...item, likeCount: count } : item,
 						),
 					);
 				})
@@ -91,7 +91,7 @@ export default function PublicHome() {
 				.finally(() =>
 					setPending((prev) => {
 						const next = new Set(prev);
-						next.delete(quote.personId);
+						next.delete(quote.quoteId);
 						return next;
 					}),
 				);
@@ -147,7 +147,7 @@ export default function PublicHome() {
 				{quotes.length > 0 ? (
 					<ul className="fb-quote-wall">
 						{quotes.map((quote) => (
-							<li key={quote.personId} className="fb-quote-item">
+							<li key={quote.quoteId} className="fb-quote-item">
 								<blockquote className="fb-quote-text">“{quote.text}”</blockquote>
 								<cite className="fb-quote-cite">
 									{quote.publicSlug ? (
@@ -165,7 +165,7 @@ export default function PublicHome() {
 										data-liked={quote.likedByViewer ? "true" : "false"}
 										aria-pressed={quote.likedByViewer}
 										aria-label={t("likeAria", { count: quote.likeCount })}
-										disabled={pending.has(quote.personId)}
+										disabled={pending.has(quote.quoteId)}
 										onClick={() => toggleLike(quote)}
 									>
 										<span aria-hidden="true">{quote.likedByViewer ? "♥" : "♡"}</span>

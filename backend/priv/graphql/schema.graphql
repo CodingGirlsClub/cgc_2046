@@ -5501,11 +5501,28 @@ type RootQueryType {
   "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
   flashbackPublicStats: FlashbackPublicStats
 
-  "闪念间匿名金句墙（U6\/R31\/R32\/R36）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
+  "闪念间匿名金句墙（U6\/R31\/R32\/R36\/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权\/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
   flashbackPublicQuotes(
     "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
     voterKey: String
   ): [FlashbackPublicQuote!]!
+
+  "随便听听（R35 随机入口）：全量未隐藏金句中随机取 limit 句（默认 3）；过滤口径同金句墙"
+  flashbackRandomQuotes(
+    "句数（默认 3，上限 20）"
+    limit: Int
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
+    voterKey: String
+  ): [FlashbackPublicQuote!]!
+
+  "单句直达（R37 分享链接 ?item=）：按 quoteId 取一句；已撤回\/未授权\/不存在统一 null（不泄露存在性，前端渲染失效页）"
+  flashbackPublicQuote(
+    quoteId: ID!
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
+    voterKey: String
+  ): FlashbackPublicQuote
 
   "闪念间实名档案页（U6\/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
   flashbackPublicProfile(slug: String!): FlashbackPublicProfile
@@ -6893,8 +6910,14 @@ type FlashbackPublicQuote {
   "credited 档才有：链实名档案页"
   publicSlug: String
 
-  "点赞定位键（R36）：flashbackLikeQuote 的 personId 入参"
-  personId: ID!
+  "单句定位键（R37）：flashbackLikeQuote 的 quoteId 入参 \/ 分享链接 ?item="
+  quoteId: ID!
+
+  "城市快照（选城浏览用）"
+  city: String
+
+  "年份快照（选城浏览用）"
+  year: Int
 
   "实时点赞数（R36，无冗余计数列）"
   likeCount: Int!
@@ -8185,9 +8208,9 @@ type RootMutationType {
   "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
   flashbackClaim(token: String): FlashbackClaimResult
 
-  "金句点赞\/取消（R36）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数"
+  "金句点赞\/取消（R36\/R37）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数"
   flashbackLikeQuote(
-    personId: ID!
+    quoteId: ID!
 
     voterKey: String!
 
