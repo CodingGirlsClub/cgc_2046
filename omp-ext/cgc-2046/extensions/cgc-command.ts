@@ -68,6 +68,14 @@ export default function cgcCommand(pi) {
     // 两态：已连接→「说『帮我处理待办』或『开始 CGC 工作』」；未连接→「说『连接 CGC』」
     // 有待办/无待办的差异化引导落在 agent 渲染的汇总开头（注入 turn 已在拉数据）
     const toolCount = mcpTools.length;
+    const currentDir = ctx.cwd ?? "未知";
+
+    // 当前目录检查（非侵入提醒）
+    const workspaceDir = "~/cgc2046_workspace";
+    const dirHint = currentDir === workspaceDir || currentDir.endsWith("/cgc2046_workspace")
+      ? ""
+      : `\n\n当前目录：${currentDir}\n建议在 ${workspaceDir} 跑 OMP（CGC 会话与其他工作分开）。`;
+
     ctx.ui.notify(
       `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
         "你现在可以：\n" +
@@ -77,7 +85,8 @@ export default function cgcCommand(pi) {
         "  · 说「断开连接」→ 我来指导你断开\n" +
         "  · 说「连接 CGC」→ 重新连接\n" +
         "  · 查看完整命令参考：/cgc help\n" +
-        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins",
+        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins" +
+        dirHint,
       "info",
     );
 

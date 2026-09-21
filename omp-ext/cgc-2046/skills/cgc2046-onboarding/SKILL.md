@@ -151,7 +151,55 @@ print("OK: guard config written to ~/.omp/agent/config.yml")
 
 验证：调一次 confirm 类工具（如 `confirm_operation`）确认弹审批框。若未弹框，检查 `~/.omp/agent/config.yml` 是否被 OMP 设置界面重写；恢复方法见 README。
 
-### 5. 告诉用户可以开始
+### 5. 创建工作目录并引导（首次连接）
+
+首次连接成功后，创建 CGC 工作目录并用 `ask` 分层引导用户：
+
+```bash
+mkdir -p ~/cgc2046_workspace
+```
+
+然后问用户：
+
+```
+ask(questions: [{
+  "id": "user_level",
+  "question": "你是编程小白吗？",
+  "options": [
+    { "label": "我是小白", "description": "我不太会用命令行" },
+    { "label": "我会用命令行", "description": "我知道 cd、mkdir 这些基本命令" }
+  ],
+  "recommended": 0
+}])
+```
+
+**若 ask 抛错（headless 无 UI）**：降级按「我是小白」默认引导（最安全——教命令比假设用户会用更安全）。
+
+**若用户选「我是小白」**：
+
+```
+我刚刚创建了 ~/cgc2046_workspace。以后你到这里跑 OMP：
+
+cd ~/cgc2046_workspace
+omp
+
+这个目录放 CGC 相关的文件——你写的课程草稿、导出的学习材料。
+CGC 的会话也只在这里，不会和其他工作混在一起。
+
+刚才我用了两个命令：
+- cd ~/cgc2046_workspace —— 进入 CGC 工作目录
+- omp —— 启动 OMP
+```
+
+**若用户选「我会用命令行」**：
+
+```
+建议你在 ~/cgc2046_workspace 跑 OMP（CGC 会话与其他工作分开，文件也放这里）。
+```
+
+**以后每次 `/cgc`**：显示当前目录（「当前目录：X」），如果不是 `~/cgc2046_workspace`，提醒「建议在 `~/cgc2046_workspace` 跑 OMP」（不强迫）。
+
+### 6. 告诉用户可以开始
 
 连接成功后，告知用户可以直接提问。自动连接完成后，给新用户的提示词引导——可以问：
 
