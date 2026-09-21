@@ -8,7 +8,7 @@ product_contract_source: ce-brainstorm
 execution: code
 ---
 
-> **路径注记**：2026-09-21 起接入包路径为 `omp-ext/cgc-2046`（原 `omp-access-pack`）。本文件内的路径引用已更新，历史验证记录基于原路径。
+> **路径注记**：2026-09-21 起接入包路径为 `omp-plugin/cgc-2046`（原 `omp-access-pack`）。本文件内的路径引用已更新，历史验证记录基于原路径。
 
 # OMP 第二官方 Agent 宿主接入 - Plan
 
@@ -18,7 +18,7 @@ execution: code
 - **Means:** 交付一个 OMP 接入包（一个 `cgc` 主 agent + 连接 onboarding skill + `/cgc` 斜杠命令 extension + 安装脚本与 README），全部能力复用网站既有 MCP server 与 OMP 原生能力，网站侧零改动。（KTD1-KTD6）
 - **Product authority:** 本轮对话的用户决策，以及 `docs/adr/0001-website-as-mcp-server-byo.md`（BYO 架构）、`docs/adr/0012-single-extension-platform-sop-private-supplement.md`（playbook 单源）的既有边界。
 - **Stop conditions:** 任何一步需要改动网站（backend/web）才能继续时停止并上报（R14 红线）；确认守门无法经 OMP 原生审批配置达成时停止（R3 红线）。
-- **Execution profile:** `execution: code`；实现与验证归执行者（ce-work 或人工），交付物全部位于 `omp-ext/cgc-2046/`。
+- **Execution profile:** `execution: code`；实现与验证归执行者（ce-work 或人工），交付物全部位于 `omp-plugin/cgc-2046/`。
 
 <!-- ce-section: work-relationships -->
 ## How This Work Fits Together
@@ -197,7 +197,7 @@ Product Contract preservation: 本版为重写版（2026-09-20），替代 2026-
 
 ### Key Technical Decisions
 
-- KTD1. 接入包落点与分发形态：cgc_2046 仓库内 `omp-ext/cgc-2046/` 目录承载全部交付物，安装经 `install.sh`；zip URL 直装与 npm 插件包分发链留阶段二。 (session-settled: user-approved — chosen over 独立 npm 包或立即建 zip 托管链: 阶段一最小分发链) Governs R16
+- KTD1. 接入包落点与分发形态：cgc_2046 仓库内 `omp-plugin/cgc-2046/` 目录承载全部交付物，安装经 `install.sh`；zip URL 直装与 npm 插件包分发链留阶段二。 (session-settled: user-approved — chosen over 独立 npm 包或立即建 zip 托管链: 阶段一最小分发链) Governs R16
 - KTD2. 用户级落盘布局：主 agent 拷贝到 `~/.omp/agent/agents/cgc.md`、onboarding skill 到 `~/.omp/agent/skills/cgc2046-onboarding/`、`/cgc` 命令 extension 到 `~/.omp/agent/extensions/cgc-command.ts`（单文件 TS，repo 内 `.omp/extensions/backend-format-gate.ts` 先例同款）；install 对同名已有文件先备份再覆盖。 (session-settled: user-approved — chosen over 项目级 `.omp/` 落盘: 平台用户不在本仓库内工作) Governs R2, R11
 - KTD3. token 直写配置：连接 token 以 `Authorization: Bearer <token>` 值直接写入 `~/.omp/agent/mcp.json`（0600 权限语义），不经环境变量或 keychain 间接引用。 (session-settled: user-approved — chosen over 环境变量/keychain 间接: 与 OpenClacky `Cgc2046McpConfig` 原子写先例和 ADR-0001 D13 单一配置点一致，少一步配置) Governs R2, R11, R13
 - KTD4. 确认守门用 OMP 原生审批配置：install 往 `~/.omp/agent/config.yml` merge 写入 `tools.approval.mcp__cgc_2046_confirm_operation: prompt`；headless 子代理中 prompt 直接拒绝调用（比自研 extension 的 headless 放行更强）；install 后实测验证（调一次 confirm 类工具确认弹审批框）；配置丢失/被覆盖即静默无闸的脆弱性记入 Risks。 (session-settled: user-approved — chosen over 自研 `ctx.ui.confirm` 守门 extension: 原生审批是 OMP 一等公民，零代码零维护，headless 更强) Governs R3
@@ -265,10 +265,10 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 
 ### U1. 接入包骨架与 `cgc` 主 agent
 
-**Goal:** 交付 `omp-ext/cgc-2046/` 目录骨架与唯一主 agent prompt，宿主耦合全部去除。
+**Goal:** 交付 `omp-plugin/cgc-2046/` 目录骨架与唯一主 agent prompt，宿主耦合全部去除。
 **Requirements:** R1, R4（KTD5）。
 **Dependencies:** 无。
-**Files:** `omp-ext/cgc-2046/agents/cgc.md`
+**Files:** `omp-plugin/cgc-2046/agents/cgc.md`
 **Approach:**
 1. 以 `openclacky-ext/cgc-2046/agents/` 下三个 system prompt 为移植源，合并为一个主 agent：入口协议（连接、选上下文、拉 playbook、纪律）取三者公共部分，逐段去除宿主耦合：`ask_user` → `ask`、删除面板引用（学习地图/侧栏段落改为引导打开网站对应页面）、`~/.clacky/mcp.json` → 用户级 OMP 配置（KTD2）、连接 SOP 段替换为指向 onboarding skill。
 2. frontmatter 携带 `name: cgc` 与 `description`；`autoloadSkills` 只引用 `cgc2046-onboarding`。
@@ -287,7 +287,7 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 **Goal:** 自动连接为主、手工回退兜底的 onboarding skill，token 全程不进对话。
 **Requirements:** R2, R12, R13（KTD2, KTD3, KTD6；F1, AE3, AE7）。
 **Dependencies:** U1（agent 引导语与 skill 名一致）。
-**Files:** `omp-ext/cgc-2046/skills/cgc2046-onboarding/SKILL.md`
+**Files:** `omp-plugin/cgc-2046/skills/cgc2046-onboarding/SKILL.md`
 **Approach:**
 1. 首选路径（relay 自动连接）：打开网站 token 页 → 未登录则提醒登录后重试（不代填凭证）→ 撤销旧 `omp-auto-*`（只动本命名）→ 签发新 token → 点页面复制按钮（不读明文）→ 剪贴板管道写入用户级 mcp.json（KTD3/KTD6 形态）→ 健康检查。
 2. 回退路径：relay 不可用、未登录、健康检查失败三种分支各自给出可执行指引（用户自建 token、粘贴 merge 片段或跑 install 脚本），并明确凭证只显示一次，不伪装成功。
@@ -306,7 +306,7 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 **Goal:** 用户主动可发现的入口，一键显示连接状态、待办、可进入角色与快捷操作。
 **Requirements:** R6（F6, AE8）。
 **Dependencies:** 无（与 U1/U2 并行）。
-**Files:** `omp-ext/cgc-2046/extensions/cgc-command.ts`
+**Files:** `omp-plugin/cgc-2046/extensions/cgc-command.ts`
 **Approach:**
 1. factory 内 `registerCommand("cgc", ...)`：handler 调 `list_my_workspaces` + `list_my_tasks`（经 OMP 的 MCP 工具调用机制），渲染连接状态、待办列表、可进入角色、快捷操作（连接/断开/打开网站）。
 2. 未连接时显示「未连接」+ 引导跑 onboarding skill；连接失败显示错误与重试入口。
@@ -324,7 +324,7 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 **Goal:** 一条脚本完成用户级安装/升级/卸载 + 守门配置写入 + 实测验证，文档支撑全量公开自助。
 **Requirements:** R3, R11, R16（KTD1, KTD2, KTD3, KTD4, KTD6）。
 **Dependencies:** U1, U2, U3。
-**Files:** `omp-ext/cgc-2046/install.sh`、`omp-ext/cgc-2046/install.test.sh`、`omp-ext/cgc-2046/README.md`
+**Files:** `omp-plugin/cgc-2046/install.sh`、`omp-plugin/cgc-2046/install.test.sh`、`omp-plugin/cgc-2046/README.md`
 **Approach:**
 1. install.sh 子命令：`install`（拷 agent/skill/extension，同名先备份为 `*.bak-<时间戳>`；merge 写 mcp.json：临时文件 + chmod 600 + 原子替换；merge 写 config.yml：`tools.approval.mcp__cgc_2046_confirm_operation: prompt`）、`remove`（只删本包文件与本条目，保留备份）、`--dry-run`（只打印计划动作）。
 2. mcp.json 条目：server 名 `cgc-2046`、http transport、生产 URL（`--url` 可覆盖 dev）；token 由 onboarding 流程补入，安装脚本不索要。
@@ -339,14 +339,14 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 - remove：本包文件与本条目消失，其他 server 与用户自建 agents/skills/工具策略不受影响。
 - --dry-run：仅打印计划，零落盘。
 - install 后实测验证：调一次 confirm 类工具确认弹审批框。
-**Verification:** `bash omp-ext/cgc-2046/install.test.sh` 全绿；全新 `$HOME` 沙盒实测一轮 install → remove。
+**Verification:** `bash omp-plugin/cgc-2046/install.test.sh` 全绿；全新 `$HOME` 沙盒实测一轮 install → remove。
 
 ### U5. 端到端 smoke 验证
 
 **Goal:** 真实 OMP 会话验证黄金链路切片，产出可复验清单。
 **Requirements:** Success Criteria 全部六条；AE1、AE2、AE3、AE5、AE7、AE8 必验，AE4/AE6/AE9 视环境可用性执行或记录豁免理由。
 **Dependencies:** U4。
-**Files:** `omp-ext/cgc-2046/docs/verify-checklist.md`
+**Files:** `omp-plugin/cgc-2046/docs/verify-checklist.md`
 **Approach:**
 1. 清洁沙盒 `$HOME` 跑 install → 启动 omp → `/agents` 见 `cgc`、`/mcp list` 见 cgc-2046（校验守门实际工具名，回填 KTD4 配置键）、`/cgc` 三态显示正确。
 2. 走 F1（relay 自动连接）与 F2（角色进入）；learner 身份跑 AE5 学习切片（start_learning_run → 一次 attempt → get_learning_state，`todo` 进度可见）。
@@ -364,9 +364,9 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
 
 | 命令 | 覆盖 | 适用单元 | 通过信号 |
 | --- | --- | --- | --- |
-| `bash omp-ext/cgc-2046/install.test.sh` | 安装/升级/卸载/merge/权限/守门配置写入 | U4 | 断言全绿，零副作用残留 |
+| `bash omp-plugin/cgc-2046/install.test.sh` | 安装/升级/卸载/merge/权限/守门配置写入 | U4 | 断言全绿，零副作用残留 |
 | U1/U2 结构断言（grep 清单） | frontmatter、宿主耦合残留、工具名对表 | U1, U2 | 零命中、全一致 |
-| `omp-ext/cgc-2046/docs/verify-checklist.md` 现场执行 | 端到端集成（含 `/cgc` 三态、守门审批框、headless 拒绝） | U3, U5 | 全绿或记录豁免 |
+| `omp-plugin/cgc-2046/docs/verify-checklist.md` 现场执行 | 端到端集成（含 `/cgc` 三态、守门审批框、headless 拒绝） | U3, U5 | 全绿或记录豁免 |
 
 - 零新依赖：接入包不引入任何新 npm/mix 依赖，`pnpm check:licenses` 与 `mix cgc2046.check_licenses` 不受影响。
 - `/cgc` 命令 extension 无单元测试（逻辑薄，价值在集成）；其验证全在 U5 checklist。
@@ -379,7 +379,7 @@ U1（主 agent）与 U3（`/cgc` 命令 extension）无相互依赖，可并行�
   - R1-R17 全部满足；`backend/` 与 `web/` 零 diff（R17）。
   - AE1-AE9 在 verify-checklist 中全绿或带理由豁免。
   - 确认流强度不弱于 OpenClacky 宿主：有 UI 时 `confirm_operation` 必经原生审批框，headless 子代理中直接拒绝（R3）。
-  - 放弃的实验路径与临时脚本已从 `omp-ext/cgc-2046/` 清除，diff 只含交付物。
+  - 放弃的实验路径与临时脚本已从 `omp-plugin/cgc-2046/` 清除，diff 只含交付物。
   - 一名未参与本计划的用户仅凭 README 可完成接入，无需询问团队（对应 Success Criteria 第 2、5 条）。
   - 用户输入 `/cgc` 即可主动发现连接状态、待办与可进入角色（对应 Success Criteria 第 6 条）。
 - Per-unit done 信号见各单元 Verification 字段。

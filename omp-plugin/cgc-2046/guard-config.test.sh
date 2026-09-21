@@ -6,7 +6,7 @@
 #   变体 2：已有 tools.approval（merge 插入）
 #   变体 3：已含 GUARD_KEY（幂等跳过）
 #
-# 运行：bash omp-ext/cgc-2046/guard-config.test.sh
+# 运行：bash omp-plugin/cgc-2046/guard-config.test.sh
 # 退出码：0 = 全绿，非 0 = 有断言失败
 
 set -euo pipefail

@@ -5,6 +5,13 @@ All notable changes to the CGC-2046 OMP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-09-21
+
+### Changed
+
+- 路径迁移：`omp-ext/cgc-2046/` → `omp-plugin/cgc-2046/`（形态已是 Plugin，不是裸 Extension）
+- 全部引用更新：sync workflow `paths:` 过滤、install.sh、install.test.sh、README、plan 文档、interim catalog、CI workflow 名
+
 ## [0.1.2] - 2026-09-21
 
 ### Added
