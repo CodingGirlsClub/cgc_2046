@@ -14,17 +14,24 @@ CGC-2046 平台的 OMP（oh-my-pi）接入包。安装后，平台四类角色�
 
 ## 安装
 
-**主路径（marketplace）**：
+**主路径（marketplace，CLI 或会话内斜杠命令均可）**：
 
 ```bash
 # 1. 加市场
-/marketplace add CodingGirlsClub/cgc-omp-plugins
+omp plugin marketplace add CodingGirlsClub/cgc-omp-plugins
 
 # 2. 装 plugin
-/marketplace install cgc-2046@cgc-omp-plugins
+omp plugin install cgc-2046@cgc-omp-plugins
 
 # 3. 启动 OMP，对 agent 说「连接 CGC」
 omp
+```
+
+或在 OMP 会话内：
+
+```
+/marketplace add CodingGirlsClub/cgc-omp-plugins
+/marketplace install cgc-2046@cgc-omp-plugins
 ```
 
 **Fallback（zip 托管）**：
