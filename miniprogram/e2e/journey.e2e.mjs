@@ -123,7 +123,11 @@ async function run() {
     // M1 文案（#635）：pending 报名 → 按钮「订阅报名进展通知」→ 接受后「已订阅，报名进展会通知你」
     await expectText(page, sel['subscription-state'], /已订阅，报名进展会通知你/, 'result')
 
-    page = await miniProgram.switchTab('/pages/my-enrollments/index')
+    // 我的报名已降为「我的」页内入口（原 tabBar 项）——从「我的」Tab 点卡片进入
+    // （入口卡与「去 OpenClacky」等同款组合类，按卡片文本挑，同 discover 的 event 卡先例）
+    page = await miniProgram.switchTab('/pages/profile/index')
+    await tapCardByText(page, sel['profile-entry-card'], /查看报名与核销/)
+    page = await awaitPage(miniProgram, 'pages/my-enrollments/index')
     await expectText(page, sel['enrollment-enrollment-1'], /等待审批/, 'enrollments')
 
     page = await miniProgram.switchTab('/pages/workspace/index')

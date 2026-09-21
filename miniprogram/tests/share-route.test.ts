@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildJoinSharePath, resolveAppShowRoute, resolveEntry } from '../src/domain/share-route.ts'
+import {
+  buildFlashbackCardSharePath,
+  buildJoinSharePath,
+  FLASHBACK_CARD_SHARE_IMAGE,
+  resolveAppShowRoute,
+  resolveEntry
+} from '../src/domain/share-route.ts'
 
 // P4 冷/热启动路由判定纯函数（plan 011 D-2）：
 // scene 优先（与 pendingScene/join 链路一致）；query 含 id 才跳 event-detail，
@@ -230,4 +236,112 @@ test('热启动取栈顶页（多页栈只用最后一页判定）', () => {
     ]).url,
     null
   )
+})
+
+// ── #771 公开卡（shareId 面）：分享给朋友 → 朋友点开看到「我的卡」 ──────
+// 路由契约与本人面正交：公开链接只带 shareId；转发链里夹带的 token/slug/scene
+// 一律不得劫持（否则「朋友看到我的卡」当场变成「朋友开始玩闪念间」）。
+
+test('#771 公开卡分享 path 只带 shareId（token/slug 不拼）', () => {
+  assert.equal(buildFlashbackCardSharePath('abc123'), '/pages/flashback-shared-card/index?shareId=abc123')
+  // shareId 也是不可信输入（链接可被手改）——必须编码
+  assert.equal(
+    buildFlashbackCardSharePath('a b&c=d'),
+    '/pages/flashback-shared-card/index?shareId=a%20b%26c%3Dd'
+  )
+})
+
+test('#771 分享卡片图 = 品牌资产，不是本人卡截图', () => {
+  assert.equal(FLASHBACK_CARD_SHARE_IMAGE, '/assets/brand/cgc-flame.png')
+})
+
+test('#771 shareId 深链 → 公开卡页（冷启动无页面栈）', () => {
+  const decision = resolveEntry({ query: { shareId: 'abc123' } })
+  assert.deepEqual(sceneAndUrl(decision), {
+    scene: null,
+    url: '/pages/flashback-shared-card/index?shareId=abc123'
+  })
+  assert.equal(decision.navigate, true)
+})
+
+test('#771 冷启动入口即公开卡且 shareId 相同 → 抑制重复导航', () => {
+  const decision = resolveEntry({
+    path: 'pages/flashback-shared-card/index',
+    query: { shareId: 'abc123' }
+  })
+  assert.equal(decision.url, '/pages/flashback-shared-card/index?shareId=abc123')
+  assert.equal(decision.navigate, false)
+})
+
+test('#771 换一张卡（栈上是 A、链接是 B）→ 仍打开目标', () => {
+  // shareId 是定位参数：与 id/slug 同款按值比较，不能退化成「path 相同即目标」
+  const decision = resolveEntry({ query: { shareId: 'bbb' } }, [
+    { route: 'pages/flashback-shared-card/index', options: { shareId: 'aaa' } }
+  ])
+  assert.equal(decision.url, '/pages/flashback-shared-card/index?shareId=bbb')
+  assert.equal(decision.navigate, true)
+})
+
+test('#771 热启动已在同一公开卡 → 不导航；换一张卡 → 导航', () => {
+  assert.equal(
+    resolveEntry({ query: { shareId: 'same' } }, [
+      { route: 'pages/flashback-shared-card/index', options: { shareId: 'same' } }
+    ]).url,
+    null
+  )
+  assert.equal(
+    resolveEntry({ query: { shareId: 'next' } }, [
+      { route: 'pages/flashback-shared-card/index', options: { shareId: 'same' } }
+    ]).url,
+    '/pages/flashback-shared-card/index?shareId=next'
+  )
+})
+
+test('#771 公开卡链接里的 token/slug/scene 不得劫持（朋友看到的仍是那张卡）', () => {
+  // 被转发/手改过的链接可能夹带本人面参数——shareId 出现即意图唯一
+  assert.equal(
+    resolveAppShowRoute(
+      { shareId: 'abc123', token: 'first-trip-token', slug: 'python-1024', scene: 'SC_1', id: 'evt-1' },
+      'pages/discover/index'
+    ),
+    '/pages/flashback-shared-card/index?shareId=abc123'
+  )
+})
+
+test('#771 公开链接不带 token/slug 时，本人面路由行为不变', () => {
+  assert.equal(
+    resolveAppShowRoute({ token: 'tk-1' }, 'pages/discover/index'),
+    '/pages/flashback-journey/index?token=tk-1'
+  )
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-1', kind: 'event' }, 'pages/discover/index'),
+    '/pages/event-detail/index?id=evt-1&kind=event'
+  )
+})
+
+test('#771 shareId 空串/纯空白 → 不当作公开卡（回落既有分支）', () => {
+  assert.equal(resolveAppShowRoute({ shareId: '' }, 'pages/discover/index'), null)
+  assert.equal(resolveAppShowRoute({ shareId: '   ' }, 'pages/discover/index'), null)
+  assert.equal(
+    resolveAppShowRoute({ shareId: '  ', id: 'evt-1', kind: 'event' }, 'pages/discover/index'),
+    '/pages/event-detail/index?id=evt-1&kind=event'
+  )
+})
+
+test('#771 公开卡当前页 options 读不到 → 不视为同卡，照常打开目标', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/flashback-shared-card/index'),
+    '/pages/flashback-shared-card/index?shareId=abc123'
+  )
+})
+
+test('#771 分享链接里的 token 不构成本人身份：路由只落公开卡，不进旅程页', () => {
+  // 「朋友点开」不得被链接里夹带的 token 变成「本人进入首程」——token 面路由
+  // 与公开卡路由互斥，shareId 在场时 token 一律不消费。
+  const decision = resolveEntry({ query: { shareId: 'abc123', token: 'owner-first-trip-token' } })
+  assert.deepEqual(sceneAndUrl(decision), {
+    scene: null,
+    url: '/pages/flashback-shared-card/index?shareId=abc123'
+  })
+  assert.equal(decision.navigate, true)
 })

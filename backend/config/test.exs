@@ -125,6 +125,10 @@ config :cgc_2046, :sms_sendcloud,
 
 config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}
 
+# 闪念间唤醒短信（U8）：测试给 stub 模板 ID 使 configured? 走真实 deliver 分支
+# （请求仍被上面的 Req.Test 拦截，绝不外呼）。
+config :cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template"
+
 # 微信网站应用扫码登录（plan 002 U4）：测试经 Req.Test stub 拦截
 config :cgc_2046, :wechat_web_req_plug, {Req.Test, Cgc2046.WechatWebStub}
 

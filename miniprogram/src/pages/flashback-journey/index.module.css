@@ -1,0 +1,316 @@
+/* 首程旅程（mp 版原型 F）：品牌橙渐变呼吸快门 + 显影拍立得 + 两段式翻面 +
+ * 寄出浮层。皮肤与「我的闪念间」同 token：浅灰底、纸白拍立得、品牌橙 CTA。 */
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+}
+
+.center {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80rpx 52rpx 60rpx;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.pad {
+  padding: 70rpx 52rpx 60rpx;
+}
+
+.brand {
+  color: #ea5504;
+  font-size: 24rpx;
+  font-weight: 700;
+  letter-spacing: 7rpx;
+}
+
+.introLead {
+  margin-top: 40rpx;
+  max-width: 480rpx;
+  color: #4b4d54;
+  font-size: 30rpx;
+  line-height: 2.1;
+}
+
+/* 呼吸的快门（原型 ia-breathe 2.4s；品牌橙渐变，reduced-motion 直达静态） */
+.shutter {
+  margin-top: 100rpx;
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #ff8a3d, #ea5504);
+  animation: fbJourneyBreathe 2.4s ease-in-out infinite;
+}
+@keyframes fbJourneyBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 85, 4, 0.35); }
+  50% { box-shadow: 0 0 0 28rpx rgba(234, 85, 4, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shutter { animation: none; }
+}
+
+.shutterHint {
+  margin-top: 28rpx;
+  color: #8a8f98;
+  font-size: 24rpx;
+}
+
+/* 场次确认（R6） */
+.quizQuestion {
+  display: block;
+  margin-bottom: 44rpx;
+  color: #222326;
+  font-size: 36rpx;
+  line-height: 1.5;
+}
+.quizOptions {
+  display: grid;
+  gap: 22rpx;
+}
+.quizOption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 28rpx 34rpx;
+  background: #fff;
+  border: 2rpx solid rgba(34, 35, 38, 0.08);
+  border-radius: 22rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+.quizLabel {
+  color: #222326;
+  font-size: 30rpx;
+}
+.quizHint {
+  margin-left: 16rpx;
+  color: #8a8f98;
+  font-size: 22rpx;
+}
+
+/* 显影卡（原型 ia-develop 2.8s 中速——全流程唯一的慢时刻留给「认出自己」） */
+.quizFeedback {
+  min-height: 44rpx;
+  margin-bottom: 20rpx;
+  color: #8a6a3f;
+  font-size: 25rpx;
+}
+.flipScene {
+  perspective: 1400rpx;
+}
+.cardFlip {
+  transform-style: preserve-3d;
+}
+@keyframes fbJourneyFlipHalfOut {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(90deg); }
+}
+@keyframes fbJourneyFlipHalfIn {
+  from { transform: rotateY(-90deg); }
+  to { transform: rotateY(0deg); }
+}
+.cardFlipOut { animation: fbJourneyFlipHalfOut 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+.cardFlipIn { animation: fbJourneyFlipHalfIn 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cardFlipOut, .cardFlipIn { animation: none; }
+}
+
+.polaroid {
+  width: 560rpx;
+  padding: 22rpx 22rpx 20rpx;
+  background: #f6f2e8;
+  border-radius: 10rpx;
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.18), 0 4rpx 16rpx rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+/* 照片窗：显影动画只作用于窗内容（纸框先在） */
+.photo {
+  display: grid;
+  gap: 16rpx;
+  padding: 30rpx;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: linear-gradient(160deg, #d8d2c4, #b9b2a2);
+  animation: fbJourneyDevelop 2.8s ease-out both;
+}
+@keyframes fbJourneyDevelop {
+  0% { filter: blur(26px) brightness(1.9) saturate(0.2); opacity: 0.15; }
+  55% { filter: blur(9px) brightness(1.35) saturate(0.6); opacity: 0.85; }
+  100% { filter: blur(0) brightness(1) saturate(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .photo { animation: none; }
+}
+.answerQ {
+  display: block;
+  color: rgba(43, 39, 35, 0.55);
+  font-size: 18rpx;
+  letter-spacing: 2rpx;
+}
+.answerA {
+  display: block;
+  margin-top: 4rpx;
+  color: #2b2723;
+  font-size: 24rpx;
+  line-height: 1.7;
+}
+.polaroidFoot {
+  display: flex;
+  justify-content: space-between;
+  padding: 18rpx 6rpx 4rpx;
+}
+.polaroidName {
+  color: #2b2723;
+  font-size: 22rpx;
+  transform: rotate(-1.2deg);
+}
+.polaroidStamp {
+  color: rgba(43, 39, 35, 0.75);
+  font-size: 22rpx;
+}
+
+/* 背面书写 */
+.backTitle {
+  display: block;
+  margin-bottom: 18rpx;
+  color: #2d2a26;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+.backLabel {
+  display: block;
+  margin-top: 16rpx;
+  color: #8a7f70;
+  font-size: 21rpx;
+}
+.textarea {
+  margin-top: 10rpx;
+  padding: 16rpx;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 88rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  font-size: 25rpx;
+  color: #2d2a26;
+}
+.backHint {
+  color: rgba(43, 39, 35, 0.6);
+  font-size: 20rpx;
+}
+.revealHint {
+  margin-top: 24rpx;
+  color: #8a8f98;
+  font-size: 22rpx;
+}
+
+.cta {
+  margin-top: 36rpx;
+  padding: 22rpx 56rpx;
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.cta[disabled] {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(234, 85, 4, 0.5);
+}
+
+/* 寄出浮层（原型 F：暗遮罩 + 白卡 + 主按钮/跳过 + 期望管理分隔线） */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  padding: 48rpx;
+  background: rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+}
+.overlayCard {
+  width: 100%;
+  padding: 52rpx 44rpx;
+  background: #fff;
+  border-radius: 30rpx;
+  text-align: center;
+  box-sizing: border-box;
+}
+.overlayTitle {
+  display: block;
+  color: #222326;
+  font-size: 32rpx;
+  line-height: 1.7;
+}
+.overlayBody {
+  display: block;
+  margin-top: 18rpx;
+  color: #4b4d54;
+  font-size: 25rpx;
+  line-height: 1.9;
+}
+.overlayPrimary {
+  margin-top: 36rpx;
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 27rpx;
+  line-height: 2.2;
+}
+.overlayPrimary[disabled] {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(234, 85, 4, 0.5);
+}
+.overlaySkip {
+  margin-top: 18rpx;
+  background: none;
+  border: none;
+  color: #8a8f98;
+  font-size: 24rpx;
+  text-decoration: underline;
+  line-height: 1.8;
+}
+.overlaySkip::after { border: none; }
+.overlayDivider {
+  margin-top: 26rpx;
+  padding-top: 20rpx;
+  border-top: 2rpx solid rgba(34, 35, 38, 0.1);
+}
+.overlayExpectation {
+  color: #8a8f98;
+  font-size: 20rpx;
+  line-height: 1.7;
+}
+
+/* 失效落地（三分支文案 + 去长廊出口） */
+.invalidBlock {
+  padding: 160rpx 60rpx;
+  text-align: center;
+}
+.invalidEyebrow {
+  display: block;
+  color: #ea5504;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 5rpx;
+}
+.invalidText {
+  display: block;
+  margin-top: 28rpx;
+  color: #4b4d54;
+  font-size: 26rpx;
+  line-height: 1.9;
+}
+.invalidAction {
+  margin-top: 40rpx;
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 25rpx;
+  line-height: 2.2;
+}
+.invalidAction::after { border: none; }

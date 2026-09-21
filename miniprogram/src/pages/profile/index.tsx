@@ -191,6 +191,22 @@ export default function ProfilePage() {
               </>
             )}
 
+            {/* 闪念间已升为 tabBar 入口，本页不再重复；此位改放「我的报名」
+                （原 Tab 项降级——报名记录/核销码/缴费态属「我的」事务，
+                从本页直达；裁剪端不注册本页，其「我的报名」仍是 Tab） */}
+            <Text className={styles.sectionTitle}>我的报名</Text>
+            <View
+              className={styles.openclacky}
+              data-testid='profile-my-enrollments'
+              onClick={() => void Taro.navigateTo({ url: '/pages/my-enrollments/index' })}
+            >
+              <View>
+                <Text className={styles.openclackyTitle}>查看报名与核销</Text>
+                <Text className={styles.openclackyText}>报名的活动与课程、现场核销码、缴费状态。</Text>
+              </View>
+              <Text className={styles.openclackyArrow}>→</Text>
+            </View>
+
             <Text className={styles.sectionTitle}>继续学习</Text>
             <View className={styles.openclacky} onClick={() => Taro.navigateTo({ url: '/pages/openclacky/index' })}>
               <View>
