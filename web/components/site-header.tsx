@@ -6,7 +6,7 @@ import LanguageSwitcher from "@/components/language-switcher";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useAuthed } from "@/lib/use-authed";
 
-export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives" | "flashback";
+export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives" | "flashback" | "voices";
 
 /**
  * 站点级品牌导航条（全站唯一实现，R8 parity 同源零跳变原则）。
@@ -82,6 +82,14 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 						className={`site-nav__link${active === "flashback" ? " site-nav__link--active" : ""}`}
 					>
 						{t("flashback")}
+					</Link>
+					{/* 金句墙入口（R26）：独立公开页的目录级入口——与闪念间并列 */}
+					<Link
+						href="/flashback/voices"
+						aria-current={active === "voices" ? "page" : undefined}
+						className={`site-nav__link${active === "voices" ? " site-nav__link--active" : ""}`}
+					>
+						{t("voices")}
 					</Link>
 				</nav>
 				<div className="site-nav__right">

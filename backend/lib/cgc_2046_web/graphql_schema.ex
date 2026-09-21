@@ -441,13 +441,37 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
     end
 
-    @desc "闪念间匿名金句墙（U6/R31/R32/R36）：授权者的脱敏金句（姓** · 年 · 城）；未授权者内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
+    @desc "闪念间匿名金句墙（U6/R31/R32/R36/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
     field :flashback_public_quotes, non_null(list_of(non_null(:flashback_public_quote))) do
       @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 likedByViewer 回显"
       arg(:voter_key, :string)
 
       resolve(fn _, args, _ ->
         Cgc2046.Flashback.Public.quotes(Map.get(args, :voter_key))
+      end)
+    end
+
+    @desc "随便听听（R35 随机入口）：全量未隐藏金句中随机取 limit 句（默认 3）；过滤口径同金句墙"
+    field :flashback_random_quotes, non_null(list_of(non_null(:flashback_public_quote))) do
+      @desc "句数（默认 3，上限 20）"
+      arg(:limit, :integer)
+      @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 likedByViewer 回显"
+      arg(:voter_key, :string)
+
+      resolve(fn _, args, _ ->
+        limit = args |> Map.get(:limit, 3) |> max(1) |> min(20)
+        Cgc2046.Flashback.Public.random_quotes(limit, Map.get(args, :voter_key))
+      end)
+    end
+
+    @desc "单句直达（R37 分享链接 ?item=）：按 quoteId 取一句；已撤回/未授权/不存在统一 null（不泄露存在性，前端渲染失效页）"
+    field :flashback_public_quote, :flashback_public_quote do
+      arg(:quote_id, non_null(:id))
+      @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 likedByViewer 回显"
+      arg(:voter_key, :string)
+
+      resolve(fn _, args, _ ->
+        Cgc2046.Flashback.Public.quote(args.quote_id, Map.get(args, :voter_key))
       end)
     end
 
@@ -3077,25 +3101,21 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "金句点赞/取消（R36）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口限频；返回实时计数"
+    @desc "金句点赞/取消（R36/R37）：公开无登录——voterKey（u:<user_id> / a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数"
     field :flashback_like_quote, :flashback_quote_like_result do
-      arg(:person_id, non_null(:id))
+      arg(:quote_id, non_null(:id))
       arg(:voter_key, non_null(:string))
       @desc "true=点赞（幂等）；false=取消（幂等）"
       arg(:liked, non_null(:boolean))
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          with {:ok, person_id} <- validate_like_person_id(args.person_id),
-               {:ok, result} <-
-                 Cgc2046.Flashback.Likes.set_like(
-                   person_id,
-                   args.voter_key,
-                   args.liked,
-                   context_ip(context)
-                 ) do
-            {:ok, result}
-          end
+          Cgc2046.Flashback.Likes.set_like(
+            args.quote_id,
+            args.voter_key,
+            args.liked,
+            context_ip(context)
+          )
         end)
       end)
     end
@@ -4166,8 +4186,12 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:level, non_null(:string))
     @desc "credited 档才有：链实名档案页"
     field(:public_slug, :string)
-    @desc "点赞定位键（R36）：flashbackLikeQuote 的 personId 入参"
-    field(:person_id, non_null(:id))
+    @desc "单句定位键（R37）：flashbackLikeQuote 的 quoteId 入参 / 分享链接 ?item="
+    field(:quote_id, non_null(:id))
+    @desc "城市快照（选城浏览用）"
+    field(:city, :string)
+    @desc "年份快照（选城浏览用）"
+    field(:year, :integer)
     @desc "实时点赞数（R36，无冗余计数列）"
     field(:like_count, non_null(:integer))
     @desc "本访客是否已赞（按 voterKey 去重；未传 voterKey 恒 false）"
