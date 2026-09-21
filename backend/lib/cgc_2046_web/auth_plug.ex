@@ -17,6 +17,20 @@ defmodule Cgc2046Web.AuthPlug do
   （不查 DB，与 `Jwt.verify` 不同），成功说明 token 本身有效（user 未加载是
   撤销或 DB 故障），标记 `cgc_auth_uncertain` 供 `me` resolver 返回
   `auth_uncertain` 让前端保持登录态重试；失败说明真未登录，不标记。
+
+  #762：裸 `Joken.verify` 无法区分「瞬时故障（DB 抖动）」与「持久失效（token
+  撤销 / 过期）」——两者签名都有效，全部误标 uncertain 导致前端对永不会恢复的
+  状态无限重试。补两道闸门收窄判定：
+
+  1. **exp 闸门**：`Joken.verify` 不跑 `Joken.validate`，`exp` 不验——显式校验
+     `claims["exp"] > now`，过期 token 不标记（走 unauthorized）。
+  2. **白名单闸门**：按 jti 查 tokens 表 `purpose: "user"` 活跃行——查不到
+     （撤销 / 从未存储）= 持久失效，不标记；查询本身失败（DB 抖动）= fail-open
+     仍标记（#13 语义保留）。注意不能用 `TokenResource.Actions.jti_revoked?/3`：
+     它查询失败时 fail-closed 假设已撤销，与本处语义相反。
+
+  「user 被删」场景白名单闸门仍判 uncertain（tokens 行无 FK 级联、行存活），
+  由前端 #101 重试耗尽兜底覆盖 UX——不再为此加第二次 DB 查询（多一个误踢窗口）。
   """
   use AshAuthentication.Plug, otp_app: :cgc_2046
 
@@ -29,9 +43,10 @@ defmodule Cgc2046Web.AuthPlug do
 
   Place this plug after `load_from_bearer/2` and before `AshGraphql.Plug`.
 
-  `current_user == nil` 时，若 Bearer token 签名仍有效（DB 无关的 `Jwt.verify`
-  成功），标记 `cgc_auth_uncertain` 进 Absinthe context——区分"token 有效但
-  user 加载失败"（撤销 / DB 故障）与"无 token / token 无效"。
+  `current_user == nil` 时，若 Bearer token 签名仍有效且未过期、且 tokens 表白
+  名单查询确认活跃（或查询失败 fail-open），标记 `cgc_auth_uncertain` 进
+  Absinthe context——区分"token 有效但 user 加载失败"（DB 抖动）与"无 token /
+  token 无效 / token 已撤销"（持久失效）。
   """
   def load_actor(conn, _opts) do
     case conn.assigns[:current_user] do
@@ -47,12 +62,46 @@ defmodule Cgc2046Web.AuthPlug do
     with [<<"Bearer ", token::binary>>] when byte_size(token) > 0 <-
            Plug.Conn.get_req_header(conn, "authorization"),
          signer <- Config.token_signer(Cgc2046.Accounts.User, [], %{}),
-         {:ok, _claims} <- Joken.verify(token, signer) do
+         {:ok, claims} <- Joken.verify(token, signer),
+         :ok <- check_exp(claims),
+         :ok <- check_token_stored(claims) do
       mark_uncertain(conn)
     else
       _ -> conn
     end
   end
+
+  # exp 闸门：Joken.verify 只验签名不跑 validate，exp 必须显式验（#762）。
+  # 过期 / 缺 exp / 非整数 exp 一律不标记——持久失效走 unauthorized。
+  #
+  # 纵深防御层（变异验证锚定：删本闸门，graphql_auth_test.exs exp 闸门测试即红）。
+  # 正常路径下它是冗余的——store_token_change 落行时 expires_at 取自 exp claim
+  # （同刻），get_token preparation 的 `expires_at > now()` 过滤已让过期 token
+  # 对白名单闸门不可见。本闸门防的是两者脱钩的异常形状：DB 与应用时钟偏移、
+  # 手改 tokens 行、依赖过滤语义漂移。
+  defp check_exp(%{"exp" => exp}) when is_integer(exp) do
+    if exp > Joken.current_time(), do: :ok, else: :error
+  end
+
+  defp check_exp(_claims), do: :error
+
+  # 白名单闸门：查 tokens 表 purpose: "user" 活跃行（#762）。
+  # - {:ok, [_]} → 活跃 token 但 user 未加载 → DB 抖动 / user 被删 → 标记（#13 语义）
+  # - {:ok, []} → 撤销 / 从未存储 → 持久失效 → 不标记
+  # - {:error, _} → DB 抖动 → fail-open 标记（#13 语义保留）
+  defp check_token_stored(%{"jti" => jti}) when is_binary(jti) and byte_size(jti) > 0 do
+    case AshAuthentication.TokenResource.Actions.get_token(
+           Cgc2046.Accounts.Token,
+           %{"jti" => jti, "purpose" => "user"},
+           domain: Cgc2046.Accounts
+         ) do
+      {:ok, [_ | _]} -> :ok
+      {:ok, []} -> :error
+      {:error, _} -> :ok
+    end
+  end
+
+  defp check_token_stored(_claims), do: :error
 
   defp mark_uncertain(conn) do
     absinthe = Map.get(conn.private, :absinthe, %{})

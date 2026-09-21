@@ -223,7 +223,8 @@ defmodule Cgc2046Web.GraphqlAuthTest do
       # 再用同一 token 打 me 查询——应判定未认证。
       # revoke 已把 tokens 表中该 jti 的记录 purpose 从 "user" upsert 成 "revocation"，
       # load_from_bearer 的 get_token 查 purpose: "user" 查不到 → user 不被 assign →
-      # me resolver 读到 context[:actor] == nil → 进入 auth_uncertain 分支（Joken.verify 纯签名验证，不查 DB，对已撤销 token 仍成功）。
+      # AuthPlug 白名单闸门（#762）同样查不到 purpose: "user" 活跃行 → 持久失效不标
+      # auth_uncertain → me resolver 走 unauthorized，前端正常判未登录（不再无限重试）。
       me_conn =
         build_conn()
         |> put_req_cookie("cgc_token", token)
@@ -234,8 +235,8 @@ defmodule Cgc2046Web.GraphqlAuthTest do
 
       assert %{"data" => %{"me" => nil}, "errors" => errors} = res
 
-      assert Enum.any?(errors, &(&1["code"] == "auth_uncertain")),
-             "signOut 后旧 token 应返回 auth_uncertain（Joken.verify 不查 DB 故签名仍有效），实际 #{inspect(res)}"
+      assert Enum.any?(errors, &(&1["code"] == "unauthorized")),
+             "signOut 后旧 token 应返回 unauthorized（#762：持久失效不再误标 auth_uncertain），实际 #{inspect(res)}"
     end
   end
 
@@ -301,6 +302,64 @@ defmodule Cgc2046Web.GraphqlAuthTest do
 
       assert Enum.any?(errors, &(&1["code"] == "auth_uncertain")),
              "token 有效但 user 加载失败时应返回 auth_uncertain，实际 #{inspect(res)}"
+    end
+  end
+
+  # #762 exp 闸门锚定：过期 token 是持久失效（不会自愈），必须走 unauthorized 而非
+  # auth_uncertain（否则前端对永不过期变好的状态无限重试）。删掉 AuthPlug 的
+  # check_exp/1 或改错比较方向，本测试变 auth_uncertain 即红。
+  #
+  # 构造要点：白名单闸门（check_token_stored）底层 get_token 的 preparation 带
+  # `expires_at > now()` 过滤（get_token_preparation.ex），且 store_token_change
+  # 落行时 expires_at 取自 exp claim（同刻）——token_for_user 签过期 token 时
+  # 落行的 expires_at 同样在过去，会被该过滤排除，测试仅靠白名单闸门兜底通过、
+  # 锚不到 exp 闸门。因此绕过 token_for_user：Signer 直签（claims exp 在过去）+
+  # 裸 SQL 直插 tokens 行（expires_at 在未来）——构造「行活但 token 过期」的
+  # 异常形状（现实来源：时钟偏移 / 手改 DB / 依赖过滤语义漂移），白名单闸门
+  # 放行，只有 exp 闸门能拦。
+  describe "me resolver exp 闸门（#762：过期 token 不误标 auth_uncertain）" do
+    test "签名有效但 claims.exp 已过期的 token 返回 unauthorized（不标 auth_uncertain）" do
+      user = create_email_user("expired@example.com", @password)
+
+      past = Joken.current_time() - 3600
+      jti = Joken.generate_jti()
+      subject = AshAuthentication.user_to_subject(user)
+
+      signer = AshAuthentication.Jwt.Config.token_signer(Cgc2046.Accounts.User, [], %{})
+
+      {:ok, token, _claims} =
+        Joken.generate_and_sign(
+          %{},
+          %{"sub" => subject, "jti" => jti, "exp" => past},
+          signer
+        )
+
+      # 裸 SQL 直插：expires_at 未来（白名单闸门的 expires_at > now() 过滤放行），
+      # 与 claims.exp 解耦——正是 expunger 滞后窗口内「行存活但 token 已过期」的形状。
+      Ecto.Adapters.SQL.query!(
+        Cgc2046.Repo,
+        """
+        INSERT INTO tokens (jti, subject, purpose, expires_at, extra_data, created_at, updated_at)
+        VALUES ($1, $2, 'user', $3, '{}'::jsonb, now(), now())
+        """,
+        [jti, subject, DateTime.utc_now() |> DateTime.add(3600, :second)]
+      )
+
+      me_conn =
+        build_conn()
+        |> put_req_cookie("cgc_token", token)
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => "{ me { id } }"})
+
+      res = graphql_response(me_conn)
+
+      assert %{"data" => %{"me" => nil}, "errors" => errors} = res
+
+      assert Enum.any?(errors, &(&1["code"] == "unauthorized")),
+             "过期 token 应返回 unauthorized（#762 exp 闸门），实际 #{inspect(res)}"
+
+      refute Enum.any?(errors, &(&1["code"] == "auth_uncertain")),
+             "过期 token 不应误标 auth_uncertain，实际 #{inspect(res)}"
     end
   end
 end
