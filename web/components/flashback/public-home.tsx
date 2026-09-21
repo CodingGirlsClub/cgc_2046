@@ -8,8 +8,8 @@ import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
 	FLASHBACK_LIKE_QUOTE,
-	FLASHBACK_PUBLIC_QUOTES,
 	FLASHBACK_PUBLIC_STATS,
+	FLASHBACK_RANDOM_QUOTES,
 	type FlashbackPublicQuote,
 	type FlashbackPublicStats,
 } from "@/lib/graphql/flashback";
@@ -52,13 +52,14 @@ export default function PublicHome() {
 			.then(({ data }) => setStats(data?.flashbackPublicStats ?? null))
 			.catch(() => setStats(null));
 
+		// R26：落地页金句段 = 随机几句（非精选、非全量）+「看全墙 →」导流
 		client
 			.query({
-				query: FLASHBACK_PUBLIC_QUOTES,
-				variables: { voterKey: ensureVoterKey(window.localStorage) },
+				query: FLASHBACK_RANDOM_QUOTES,
+				variables: { limit: 3, voterKey: ensureVoterKey(window.localStorage) },
 				fetchPolicy: "network-only",
 			})
-			.then(({ data }) => setQuotes(data?.flashbackPublicQuotes ?? []))
+			.then(({ data }) => setQuotes(data?.flashbackRandomQuotes ?? []))
 			.catch(() => setQuotes([]));
 	}, []);
 
@@ -140,10 +141,12 @@ export default function PublicHome() {
 				)}
 			</section>
 
+			{/* 品牌词「闪念间」走 flashback.home.kicker（i18n 单源，不硬编码） */}
 			<section className="fb-public-quotes" aria-labelledby="fb-quotes-title">
 				<h2 id="fb-quotes-title" className="fb-action-title">
 					{t("quotesTitle")}
 				</h2>
+				{/* U5/R26：随机几句（非精选、非全量）+ 看全墙导流 */}
 				{quotes.length > 0 ? (
 					<ul className="fb-quote-wall">
 						{quotes.map((quote) => (
@@ -180,6 +183,11 @@ export default function PublicHome() {
 						{t("quotesEmpty")}
 					</p>
 				)}
+				<p className="fb-quotes-wall-cta">
+					<Link href="/flashback/voices" data-testid="fb-quotes-wall-cta">
+						{t("quotesWallCta")}
+					</Link>
+				</p>
 			</section>
 
 			<RecoverForm />
