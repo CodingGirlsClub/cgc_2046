@@ -82,3 +82,4 @@ A: 能。agent 进入长任务时会用 `todo` 建任务清单，每完成一步
 **Q: 跨会话能记住我的常用 workspace 吗？**
 A: 能。开 `memory.backend: local`（见 OMP 文档），agent 会记住常用 workspace 与上次角色。
 trigger sync
+trigger sync after YAML fix
