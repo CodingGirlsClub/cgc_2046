@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { client } from "@/lib/apollo-client";
+import { useAuthed } from "@/lib/auth-provider";
 import { ensureVoterKey } from "@/lib/flashback-voter";
+import { WishFormModal, type WishSubmitOutcome } from "@/components/flashback/wish-frames";
 import {
 	FLASHBACK_CITIES,
 	FLASHBACK_EXPECT_WISH,
@@ -53,6 +55,9 @@ export default function WishesWall({
 	const [reportReason, setReportReason] = useState<string>("spam");
 	const [reportFree, setReportFree] = useState("");
 	const [endorseGuideFor, setEndorseGuideFor] = useState<FlashbackPublicWish | null>(null);
+	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录走 enter 引导）
+	const [writeOpen, setWriteOpen] = useState(false);
+	const { authed } = useAuthed();
 
 	const [runExpect] = useMutation(FLASHBACK_EXPECT_WISH);
 	const [runReport] = useMutation(FLASHBACK_REPORT_WISH);
@@ -63,6 +68,11 @@ export default function WishesWall({
 		() => ensureVoterKey(window.localStorage),
 		() => null,
 	);
+
+	// wish2 U8：提交后重拉公开树（listed → 新纸签出现）；city 变化触发镜头定位
+	const reloadWishes = useCallback(() => {
+		setLoadGeneration((n) => n + 1);
+	}, []);
 
 	const markIntroSeen = useCallback(() => {
 		try {
@@ -256,9 +266,15 @@ export default function WishesWall({
 							{t("allCities")}
 						</button>
 					)}
-					<a className="fb-action" href="/flashback/enter">
-						{t("writeWish")}
-					</a>
+					{authed ? (
+						<button type="button" className="fb-action" onClick={() => setWriteOpen(true)}>
+							{t("writeWish")}
+						</button>
+					) : (
+						<a className="fb-action" href="/flashback/enter">
+							{t("writeWish")}
+						</a>
+					)}
 				</div>
 
 				{loadState === "loading" ? (
@@ -353,6 +369,23 @@ export default function WishesWall({
 						{t("close")}
 					</button>
 				</div>
+			)}
+
+			{writeOpen && (
+				<WishFormModal
+					token={null}
+					busy={false}
+					myWishQuotaRemaining={null}
+					onClose={() => setWriteOpen(false)}
+					onDone={(outcome) => {
+						// R18 三态落墙：listed → 镜头定位所选城市 + 重拉出新纸签；
+						// pending/private 不动墙（纸签未公开出现——不假装）
+						if (outcome?.status === "listed") {
+							if (outcome.city) setCity(outcome.city);
+							reloadWishes();
+						}
+					}}
+				/>
 			)}
 		</div>
 	);
