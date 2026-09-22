@@ -63,19 +63,35 @@ export default function cgcCommand(pi) {
       return;
     }
 
-    // 已连接：notify 立即显示「你现在该做什么」（下一步引导，不是功能清单）
-    // 不依赖 agent 拉数据——引导文案只依赖连接状态，用户立即看到
-    // 两态：已连接→「说『帮我处理待办』或『开始 CGC 工作』」；未连接→「说『连接 CGC』」
-    // 有待办/无待办的差异化引导落在 agent 渲染的汇总开头（注入 turn 已在拉数据）
+    // 已连接：检查工作目录优先于数据渲染——先解决「在哪工作」，再谈「有什么工作」
     const toolCount = mcpTools.length;
     const currentDir = ctx.cwd ?? process.cwd?.() ?? "未知";
-
-    // 当前目录检查（非侵入提醒）
     const workspaceDir = "~/cgc2046_workspace";
-    const dirHint = currentDir === workspaceDir || currentDir.endsWith("/cgc2046_workspace")
-      ? ""
-      : `\n\n当前目录：${currentDir}\n建议在 ${workspaceDir} 跑 OMP（CGC 会话与其他工作分开）。`;
+    const inWorkspace = currentDir === workspaceDir || currentDir.endsWith("/cgc2046_workspace");
 
+    // 工作目录检查：不在工作目录时，注入「用 ask 引导创建并切换」的提示词（agent 侧执行 ask）
+    if (!inWorkspace) {
+      ctx.ui.notify(
+        `CGC-2046 已连接（${toolCount} 个 MCP 工具可用），但检测到不在 CGC 工作目录（${workspaceDir}）。\n\n` +
+          `当前目录：${currentDir}\n\n` +
+          "正在引导你创建并切换到工作目录…",
+        "warning",
+      );
+
+      pi.sendUserMessage(
+        `检测到用户不在 CGC 工作目录（${workspaceDir}），当前在 ${currentDir}。\n\n` +
+          "请用 ask 引导用户选择：\n" +
+          "1. 创建并切换（推荐）：mkdir -p ~/cgc2046_workspace，然后告诉用户「我创建了 ~/cgc2046_workspace。请退出当前会话（exit 或 Ctrl+D），然后 cd ~/cgc2046_workspace && omp 重新启动」——不渲染汇总，先解决工作目录问题。\n" +
+          "2. 就在当前目录工作：继续拉取并渲染 CGC-2046 状态汇总（list_my_workspaces + list_my_tasks）。\n" +
+          "3. 取消：不做任何操作。\n\n" +
+          "ask 选项：[{ \"label\": \"创建并切换\", \"description\": \"创建工作目录并切换过去（推荐）\" }, { \"label\": \"就在当前目录工作\", \"description\": \"不切换，继续当前会话\" }, { \"label\": \"取消\" }]\n\n" +
+          "ask 抛错（headless 无 UI）时，降级按「创建并切换」默认（最安全——先解决工作目录问题）。",
+        { deliverAs: "nextTurn", triggerTurn: true },
+      );
+      return;
+    }
+
+    // 在工作目录：正常渲染汇总
     ctx.ui.notify(
       `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
         "你现在可以：\n" +
@@ -85,13 +101,11 @@ export default function cgcCommand(pi) {
         "  · 说「断开连接」→ 我来指导你断开\n" +
         "  · 说「连接 CGC」→ 重新连接\n" +
         "  · 查看完整命令参考：/cgc help\n" +
-        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins" +
-        dirHint,
+        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins",
       "info",
     );
 
     // 注入结构化汇总请求，agent 立即起 turn 拉数据渲染（idle 时 triggerTurn 立即 prompt，不阻塞当前 notify）
-    // deliverAs: "nextTurn" + triggerTurn: true = idle 时立即开始一轮，避免 followUp 空闲挂起与 nextTurn 单用等用户先说话
     pi.sendUserMessage(
       "请拉取并渲染 CGC-2046 状态汇总：\n" +
         "1. 调 list_my_workspaces 列出我可进入的 Workspace 与角色（按名称展示，不要 UUID）\n" +
