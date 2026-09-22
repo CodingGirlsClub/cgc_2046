@@ -5,6 +5,18 @@ All notable changes to the CGC-2046 OMP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-09-22
+
+### Added
+
+- `/cgc` 版本检查：读本地安装版本与 catalog 缓存版本，不一致时 notify 提示「有新版本可用：X（当前 Y）。跑 omp plugin upgrade 更新」
+
+## [0.1.4] - 2026-09-21
+
+### Changed
+
+- `/cgc` 工作目录引导：检测不在 `~/cgc2046_workspace` 时，用 `ask` 引导用户「创建并切换」vs「就在当前目录工作」vs「取消」（原仅显示被动提醒）。选「创建并切换」：创建目录并教退出重启，不渲染汇总；选「就在当前目录工作」：继续渲染汇总；选「取消」：不做任何操作。`ask` 抛错（headless）降级按「创建并切换」默认。
+
 ## [0.1.3] - 2026-09-21
 
 ### Changed
