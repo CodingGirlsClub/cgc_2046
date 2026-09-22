@@ -320,7 +320,21 @@ export default function VoicesWall({
 		[finishIntro],
 	);
 
+	// R21：城市入 URL（?city= 写回）——voices↔wishes 互跳与刷新保留当前城市；
+	// replaceState 不触发导航（软更新，与既有 useState 单源不冲突）
+	const syncCityToUrl = useCallback((next: string) => {
+		try {
+			const url = new URL(window.location.href);
+			if (next) url.searchParams.set("city", next);
+			else url.searchParams.delete("city");
+			window.history.replaceState(null, "", url.toString());
+		} catch {
+			// storage/URL 不可用：不阻断选城
+		}
+	}, []);
+
 	const selectCity = (next: string) => {
+		syncCityToUrl(next);
 		const entry = quotes.find((q) => q.city === next);
 		if (entry) {
 			select(entry);
@@ -501,6 +515,10 @@ export default function VoicesWall({
 						<nav className={styles.nav} aria-label={t("navLabel")}>
 							<Link href="/flashback/voices" className={styles.activeNav} aria-current="page">
 								{t("voicesNav")} <span>{t("voicesNavEn")}</span>
+							</Link>
+							{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
+							<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>
+								{t("wishesNav")} <span>{t("wishesNavEn")}</span>
 							</Link>
 						</nav>
 						<div className={styles.headerActions}>

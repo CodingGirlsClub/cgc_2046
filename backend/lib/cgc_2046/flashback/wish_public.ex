@@ -29,19 +29,19 @@ defmodule Cgc2046.Flashback.WishPublic do
     - `:seed` 排序种子（nil = 当日 + voter_key 组合）
     - `:offset` 分页偏移（同 seed 稳定）
     - `:limit` 页大小（默认 60，上限 120）
-    - `:voter_key` viewer 期待/附议回显（u: 或 a:；nil = 恒 false）
+    - `:voter_keys` viewer 期待/附议回显键集（HS-3 双键读面：登录 = 强制
+      `u:<user_id>` + 入参 `a:` 设备键；未登录 = 入参单键）。空集恒 false。
+      旧 `:voter_key` 单键入参仍兼容（包装为单元素集）。
   """
   @spec wishes(keyword()) :: {:ok, list(map())}
   def wishes(opts \\ []) do
     city = Keyword.get(opts, :city)
-    voter_key = Keyword.get(opts, :voter_key)
-    voter_key = voter_key || ""
-    # 形态与 endorsement actor_key 同构；a:/nil 不匹配附议（附议要求登录）
-    endorser_key = if is_binary(voter_key) and String.starts_with?(voter_key, "u:"), do: voter_key, else: ""
-    seed = Keyword.get(opts, :seed) || default_seed(voter_key)
+    voter_keys = normalize_voter_keys(opts)
+    # endorsed_by_viewer 只匹配 u: 键（附议要求登录，actor_key 恒 u: 形态）
+    endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
+    seed = Keyword.get(opts, :seed) || default_seed(List.first(voter_keys))
     offset = max(Keyword.get(opts, :offset, 0), 0)
     limit = opts |> Keyword.get(:limit, @default_limit) |> max(1) |> min(@max_limit)
-
 
     base_where =
       dynamic(
@@ -109,20 +109,20 @@ defmodule Cgc2046.Flashback.WishPublic do
               ),
             expected_by_viewer:
               fragment(
-                "EXISTS (SELECT 1 FROM flashback_wish_expectations e WHERE e.wish_id = ? AND e.voter_key = ?)",
+                "EXISTS (SELECT 1 FROM flashback_wish_expectations e WHERE e.wish_id = ? AND e.voter_key = ANY(?))",
                 w.id,
-                ^voter_key
+                ^voter_keys
               ),
             endorsed_by_viewer:
               fragment(
                 """
                 EXISTS (
                   SELECT 1 FROM flashback_wish_endorsements en
-                  WHERE en.wish_id = ? AND en.actor_key = ?
+                  WHERE en.wish_id = ? AND en.actor_key = ANY(?)
                 )
                 """,
                 w.id,
-                ^endorser_key
+                ^endorser_keys
               )
           }
         )
@@ -131,15 +131,23 @@ defmodule Cgc2046.Flashback.WishPublic do
     {:ok, Enum.map(rows, &payload/1)}
   end
 
-
   @doc """
   单条直达（?item=<wish_id>）：四条件可见才返回 payload；否则 nil（不泄露存在性）。
   """
-  @spec wish(String.t(), String.t() | nil) :: {:ok, map() | nil}
-  def wish(wish_id, voter_key \\ nil) when is_binary(wish_id) do
-    voter_key = voter_key || ""
-    # 与 wishes/1 同构：仅 u: 键可命中附议 actor_key（a:/空串恒 false）
-    endorser_key = if String.starts_with?(voter_key, "u:"), do: voter_key, else: ""
+  # 第二参双形态：voter_key 单键（string|nil，既有调用方）或 keyword
+  # （:voter_keys 双键集——HS-3 登录 u: 强制 + 入参 a: 合并由 resolver 组好）。
+  # 单子句不重载：双子句会让默认参 bridge 与 cast 的类型推断打架
+  # （warnings-as-errors 下必挂）。
+  @spec wish(String.t(), String.t() | keyword() | nil) :: {:ok, map() | nil}
+  def wish(wish_id, voter_key_or_opts \\ nil) when is_binary(wish_id) do
+    voter_keys =
+      case voter_key_or_opts do
+        opts when is_list(opts) -> normalize_voter_keys(opts)
+        key -> normalize_voter_keys(voter_key: key)
+      end
+
+    # 与 wishes/1 同构：仅 u: 键可命中附议 actor_key
+    endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
 
     with {:ok, _uuid} <- Ecto.UUID.cast(wish_id) do
       row =
@@ -171,9 +179,9 @@ defmodule Cgc2046.Flashback.WishPublic do
                 ),
               expected_by_viewer:
                 fragment(
-                  "EXISTS (SELECT 1 FROM flashback_wish_expectations e WHERE e.wish_id = ? AND e.voter_key = ?)",
+                  "EXISTS (SELECT 1 FROM flashback_wish_expectations e WHERE e.wish_id = ? AND e.voter_key = ANY(?))",
                   w.id,
-                  ^voter_key
+                  ^voter_keys
                 ),
               # simplify（审计 U6-2）：单条直达补 endorsed_by_viewer——与 wishes/1
               # 同构 EXISTS（actor_key = u: 键），payload 不再恒 false
@@ -182,11 +190,11 @@ defmodule Cgc2046.Flashback.WishPublic do
                   """
                   EXISTS (
                     SELECT 1 FROM flashback_wish_endorsements en
-                    WHERE en.wish_id = ? AND en.actor_key = ?
+                    WHERE en.wish_id = ? AND en.actor_key = ANY(?)
                   )
                   """,
                   w.id,
-                  ^endorser_key
+                  ^endorser_keys
                 )
             }
           )
@@ -213,6 +221,31 @@ defmodule Cgc2046.Flashback.WishPublic do
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────
+
+  # HS-3 双键读面：voter_keys 优先（列表）；兼容旧 voter_key 单键。恒非空
+  # （[""] 占位）——postgrex 空数组参数无法推断类型，且 = ANY('{""}') 恒 false
+  # 语义等价「无键」。去重保序。
+  defp normalize_voter_keys(opts) do
+    keys =
+      case Keyword.get(opts, :voter_keys) do
+        list when is_list(list) -> Enum.reject(list, &(is_nil(&1) or &1 == ""))
+        _ -> []
+      end
+
+    keys =
+      case keys do
+        [] ->
+          case Keyword.get(opts, :voter_key) do
+            k when is_binary(k) and k != "" -> [k]
+            _ -> []
+          end
+
+        _ ->
+          keys
+      end
+
+    keys |> Enum.uniq() |> then(&if &1 == [], do: [""], else: &1)
+  end
 
   defp default_seed(voter_key) do
     today = Date.to_string(Date.utc_today())

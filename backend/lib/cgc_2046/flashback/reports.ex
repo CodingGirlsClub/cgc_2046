@@ -146,7 +146,8 @@ defmodule Cgc2046.Flashback.Reports do
   end
 
   @doc "作者 user_id 的 wishes_review_required_at 置位（G1 信用字段）"
-  @spec set_author_credit_required(Wish.t(), DateTime.t()) :: {:ok, User.t()} | {:error, term()} | :noop
+  @spec set_author_credit_required(Wish.t(), DateTime.t()) ::
+          {:ok, User.t()} | {:error, term()} | :noop
   def set_author_credit_required(wish, timestamp) do
     case Repo.query(
            "SELECT user_id FROM flashback_people WHERE id = $1",
@@ -243,18 +244,21 @@ defmodule Cgc2046.Flashback.Reports do
       %{
         wish: wish,
         wisher_masked: AlumniProjection.masked_name(wish.person),
-        wisher_user_contact: user_contact  # **仅 admin**，GraphQL 公开禁出
+        # **仅 admin**，GraphQL 公开禁出
+        wisher_user_contact: user_contact
       }
     end)
   end
+
   # FIX-4（KTD9 收口）：公开举报面目标资格 = listed + public + 未 hidden + 未删
   # （plan 允许收口 listed-only——成员面举报入口本批无 UI 消费方）。统一
   # target_not_found：private/未 listed/hidden/不存在同形，不泄露存在性。
   defp validate_target_exists(target_type, target_id) do
-    uuid = case Ecto.UUID.cast(target_id) do
-      {:ok, u} -> u
-      _ -> nil
-    end
+    uuid =
+      case Ecto.UUID.cast(target_id) do
+        {:ok, u} -> u
+        _ -> nil
+      end
 
     found =
       case {target_type, uuid} do
@@ -281,8 +285,7 @@ defmodule Cgc2046.Flashback.Reports do
     if reason_type in Report.reason_types() do
       {:ok, reason_type}
     else
-      {:error,
-       %{code: "flashback_report_invalid_reason_type", message: "举报类型不合法"}}
+      {:error, %{code: "flashback_report_invalid_reason_type", message: "举报类型不合法"}}
     end
   end
 
@@ -316,7 +319,9 @@ defmodule Cgc2046.Flashback.Reports do
            window_seconds: @ip_window_seconds,
            max_attempts: @ip_max_attempts
          ) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       _ ->
         {:error,
          %{
@@ -331,11 +336,11 @@ defmodule Cgc2046.Flashback.Reports do
     case User
          |> Ash.Query.filter(id == ^Repo.uuid!(user_id))
          |> Ash.read_one(authorize?: false) do
-      {:ok, %User{is_platform_admin: true} = admin} -> {:ok, admin}
+      {:ok, %User{is_platform_admin: true} = admin} ->
+        {:ok, admin}
 
       _ ->
-        {:error,
-         %{code: "flashback_auth_required", message: "需要平台管理员身份"}}
+        {:error, %{code: "flashback_auth_required", message: "需要平台管理员身份"}}
     end
   end
 
@@ -350,7 +355,8 @@ defmodule Cgc2046.Flashback.Reports do
       {:ok, wish} ->
         {:ok, wish}
 
-      err -> err
+      err ->
+        err
     end
   end
 
@@ -365,7 +371,8 @@ defmodule Cgc2046.Flashback.Reports do
       {:ok, report} ->
         {:ok, report}
 
-      err -> err
+      err ->
+        err
     end
   end
 
@@ -375,5 +382,4 @@ defmodule Cgc2046.Flashback.Reports do
       {:ok, admin, report}
     end
   end
-
 end

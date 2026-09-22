@@ -117,6 +117,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "volunteer_application_assigned" => "dev-wechat-volunteer-application-assigned",
     "volunteer_application_rejected" => "dev-wechat-volunteer-application-rejected",
     "volunteer_application_canceled" => "dev-wechat-volunteer-application-canceled",
+    "flashback_wish_echo" => "dev-wechat-flashback-wish-echo",
     "event_moderator_removed" => "dev-wechat-event-moderator-removed"
   },
   tt: %{
@@ -149,6 +150,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "volunteer_application_assigned" => "dev-tt-volunteer-application-assigned",
     "volunteer_application_rejected" => "dev-tt-volunteer-application-rejected",
     "volunteer_application_canceled" => "dev-tt-volunteer-application-canceled",
+    "flashback_wish_echo" => "dev-tt-flashback-wish-echo",
     "event_moderator_removed" => "dev-tt-event-moderator-removed"
   },
   xhs: %{
@@ -181,6 +183,7 @@ config :cgc_2046, :miniprogram_templates, %{
     "volunteer_application_assigned" => "dev-xhs-volunteer-application-assigned",
     "volunteer_application_rejected" => "dev-xhs-volunteer-application-rejected",
     "volunteer_application_canceled" => "dev-xhs-volunteer-application-canceled",
+    "flashback_wish_echo" => "dev-xhs-flashback-wish-echo",
     "event_moderator_removed" => "dev-xhs-event-moderator-removed"
   }
 }

@@ -209,9 +209,7 @@ defmodule Cgc2046.Flashback.WishExpectations do
     # KTD2 登录合并：upsert u: 行前先删该 anon 行（若有）
     if anon_voter_key_to_merge && anon_voter_key_to_merge != voter_key do
       WishExpectation
-      |> Ash.Query.filter(
-        wish_id == ^wish.id and voter_key == ^anon_voter_key_to_merge
-      )
+      |> Ash.Query.filter(wish_id == ^wish.id and voter_key == ^anon_voter_key_to_merge)
       |> Ash.read_one(authorize?: false)
       |> case do
         {:ok, %WishExpectation{} = row} -> Ash.destroy(row, authorize?: false)

@@ -12,13 +12,16 @@ defmodule Cgc2046.Repo.Migrations.CreateWishReportsAndUserCreditField do
   def up do
     create table(:flashback_reports, primary_key: false) do
       add(:id, :uuid, primary_key: true)
-      add(:target_type, :string, null: false)  # "wish" / "wish_comment"
+      # "wish" / "wish_comment"
+      add(:target_type, :string, null: false)
       add(:target_id, :uuid, null: false)
       add(:reporter_user_id, :uuid, null: true)
       add(:reporter_voter_key, :string, null: true)
-      add(:reason_type, :string, null: false)   # preset
+      # preset
+      add(:reason_type, :string, null: false)
       add(:reason_free, :string, null: true)
-      add(:status, :string, null: false, default: "pending")  # pending/dismissed/actioned
+      # pending/dismissed/actioned
+      add(:status, :string, null: false, default: "pending")
       add(:acted_at, :utc_datetime_usec, null: true)
       add(:acted_by_user_id, :uuid, null: true)
 

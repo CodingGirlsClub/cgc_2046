@@ -2632,7 +2632,9 @@
       "copyFallback": "请选中上方链接复制。",
       "close": "关闭",
       "random": "随便听听",
-      "randomEmpty": "暂时没有更多声音了。"
+      "randomEmpty": "暂时没有更多声音了。",
+      "wishesNav": "许愿树",
+      "wishesNavEn": "WISHES"
     },
     "recover": {
       "title": "找回你的那份记忆",
@@ -2977,7 +2979,8 @@
       "goneTitle": "这个愿望目前无法查看",
       "goneLead": "它可能已被作者收回，或暂不公开展示。",
       "goneBack": "看全树",
-      "close": "关闭"
+      "close": "关闭",
+      "voicesEntry": "去金句墙"
     }
   },
   "initiatives": {

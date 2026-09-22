@@ -504,14 +504,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 expected/endorsedByViewer 回显"
       arg(:voter_key, :string)
 
-      resolve(fn _, args, _ ->
+      resolve(fn _, args, %{context: context} ->
         {:ok, wishes} =
           Cgc2046.Flashback.WishPublic.wishes(
             city: args[:city],
             seed: args[:seed],
             offset: args[:offset],
             limit: args[:limit],
-            voter_key: args[:voter_key]
+            # HS-3 双键读面：登录 actor 强制 u: 键 + 入参 a: 设备键合并（期待态
+            # 刷新不漂移——mutation 登录态按 u: 记账）；未登录维持入参单键。
+            voter_keys: viewer_voter_keys(context, args[:voter_key])
           )
 
         wishes
@@ -524,8 +526,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       @desc "客户端去重键：只影响 expected/endorsedByViewer 回显"
       arg(:voter_key, :string)
 
-      resolve(fn _, args, _ ->
-        Cgc2046.Flashback.WishPublic.wish(args.wish_id, args[:voter_key])
+      resolve(fn _, args, %{context: context} ->
+        Cgc2046.Flashback.WishPublic.wish(
+          args.wish_id,
+          voter_keys: viewer_voter_keys(context, args[:voter_key])
+        )
       end)
     end
 
@@ -535,7 +540,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
 
     @desc "「说给主办方听」收件箱（wish2 U5/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone/email 仅 admin；公开响应禁出）"
-    field :flashback_admin_wish_inbox, non_null(list_of(non_null(:flashback_admin_wish_inbox_entry))) do
+    field :flashback_admin_wish_inbox,
+          non_null(list_of(non_null(:flashback_admin_wish_inbox_entry))) do
       resolve(fn _, _, %{context: context} ->
         with_admin(context, fn _actor ->
           entries =
@@ -559,7 +565,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
 
     @desc "举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序"
-    field :flashback_admin_wish_reports, non_null(list_of(non_null(:flashback_admin_report_entry))) do
+    field :flashback_admin_wish_reports,
+          non_null(list_of(non_null(:flashback_admin_report_entry))) do
       resolve(fn _, _, %{context: context} ->
         with_admin(context, fn _actor ->
           entries =
@@ -3009,7 +3016,13 @@ defmodule Cgc2046Web.GraphqlSchema do
                    expected_city: args[:expected_city],
                    public_listing_consent: args[:public_listing_consent] || false
                  ) do
-            {:ok, %{id: wish.id, endorsement_count: 0, endorsed_by_me: false, status: wish.listing_status}}
+            {:ok,
+             %{
+               id: wish.id,
+               endorsement_count: 0,
+               endorsed_by_me: false,
+               status: wish.listing_status
+             }}
           end
         end)
       end)
@@ -4739,6 +4752,20 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp actor_user_id(%{actor: %{id: id}}) when is_binary(id), do: id
   defp actor_user_id(_context), do: nil
 
+  # wish2 review HS-3：读面 viewer 双键集——登录 = 强制 u:<uid> + 入参 a: 键
+  # （a: 入参与期待 mutation 的 anonVoterKey merge 语义对称，刷新不漂移）；
+  # 未登录 = 入参单键（a: 设备键原样）。入参 u: 键仅未登录时透传（低危回显，
+  # 登录时被 actor 键取代——不可借此窥探他人）。
+  defp viewer_voter_keys(context, arg_key) do
+    case actor_user_id(context) do
+      nil ->
+        [arg_key]
+
+      uid ->
+        ["u:#{uid}" | [arg_key]]
+    end
+  end
+
   # voter_key 只在 a: 前缀时当 anon 键用（u: 由 actor_user_id 强制）
   defp anon_key_from(nil), do: nil
   defp anon_key_from("a:" <> _ = key), do: key
@@ -4778,7 +4805,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:error, error} -> {:error, error}
     end
   end
-
 
   defp identity_person_id({:person, person_id}), do: {:ok, person_id}
 

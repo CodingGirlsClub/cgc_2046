@@ -74,6 +74,18 @@ export default function WishesWall({
 		setLoadGeneration((n) => n + 1);
 	}, []);
 
+	// R21：城市入 URL（?city= 写回）——voices↔wishes 互跳与刷新保留当前城市
+	const syncCityToUrl = useCallback((next: string) => {
+		try {
+			const url = new URL(window.location.href);
+			if (next) url.searchParams.set("city", next);
+			else url.searchParams.delete("city");
+			window.history.replaceState(null, "", url.toString());
+		} catch {
+			// URL 不可用：不阻断选城
+		}
+	}, []);
+
 	const markIntroSeen = useCallback(() => {
 		try {
 			// KTD8 跨页共享：两页标记都写（voices 读 voicesIntroSeen）
@@ -248,7 +260,11 @@ export default function WishesWall({
 					cities={cities}
 					city={city}
 					progress={1}
-					onCity={(next) => setCity(next === city ? "" : next)}
+					onCity={(next) => {
+						const picked = next === city ? "" : next;
+						setCity(picked);
+						syncCityToUrl(picked);
+					}}
 					pulse={0}
 				/>
 			)}
@@ -261,8 +277,19 @@ export default function WishesWall({
 					<button type="button" className="fb-action" onClick={shuffle}>
 						{t("shuffle")}
 					</button>
+					{/* R21/wish2 U7：双页互跳带城市 */}
+					<a className="fb-action" href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
+						{t("voicesEntry")}
+					</a>
 					{city && (
-						<button type="button" className="fb-action" onClick={() => setCity("")}>
+						<button
+							type="button"
+							className="fb-action"
+							onClick={() => {
+								setCity("");
+								syncCityToUrl("");
+							}}
+						>
 							{t("allCities")}
 						</button>
 					)}

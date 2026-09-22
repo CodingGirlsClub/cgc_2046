@@ -24,6 +24,7 @@ defmodule Cgc2046.Flashback.WishEndorsement do
     uuid_primary_key(:id)
 
     attribute(:wish_id, :uuid, allow_nil?: false, public?: true, writable?: true)
+
     # FIX-2（KTD3/KTD9）：viewer（无 person 登录用户）附议 listed 愿望时为 NULL——
     # 身份由 user_id / actor_key 生成列承载；幂等防重靠 (wish_id, actor_key) unique
     attribute(:person_id, :uuid, public?: true, writable?: true)

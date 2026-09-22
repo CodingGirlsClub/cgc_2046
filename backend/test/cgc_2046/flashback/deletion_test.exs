@@ -76,6 +76,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
 
     other_wish_owner = create_person(archive)
     {:ok, other_wish} = Cgc2046.Flashback.Wishes.create_wish(other_wish_owner.id, "开课", "public")
+
     Repo.query!(
       """
       INSERT INTO flashback_wish_endorsements
@@ -84,6 +85,7 @@ defmodule Cgc2046.Flashback.DeletionTest do
       """,
       [Repo.uuid!(other_wish.id), Repo.uuid!(person.id)]
     )
+
     {:ok, _} = Cgc2046.Flashback.Wishes.add_comment(person.id, other_wish.id, "算我一个")
 
     # 已发布的公开 slug（实名页占用）

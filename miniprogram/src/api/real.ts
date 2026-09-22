@@ -895,7 +895,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
   // wish2 U6/KTD3：附议登录版（旧 token 匿名腿下线——未登录由页面引登录页）
   async flashbackEndorseWish(
     wishId: string,
-    _token?: string | null,
     options?: { contributionTypes?: string[]; message?: string | null; notify?: boolean }
   ): Promise<number> {
     const data = await graphqlRequest<FlashbackEndorseWishMutation, FlashbackEndorseWishMutationVariables>(

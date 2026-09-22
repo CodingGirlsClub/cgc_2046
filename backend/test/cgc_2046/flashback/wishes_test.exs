@@ -141,6 +141,7 @@ defmodule Cgc2046.Flashback.WishesTest do
 
       # viewer（无 person）对不可附议目标统一 not_found（KTD9）
       viewer = register_user("wish-nf")
+
       assert {:error, %{code: "flashback_wish_not_found"}} =
                Wishes.endorse_by_user(viewer.id, private.id)
     end
@@ -529,9 +530,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       person = create_person(archive)
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "公开打卡的心愿", "public",
-          public_listing_consent: true
-        )
+        Wishes.create_wish(person.id, "公开打卡的心愿", "public", public_listing_consent: true)
 
       assert %DateTime{} = wish.listed_at
       assert wish.hidden_at == nil
@@ -554,9 +553,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       person = create_person(archive)
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "私下话", "private",
-          public_listing_consent: true
-        )
+        Wishes.create_wish(person.id, "私下话", "private", public_listing_consent: true)
 
       assert wish.listed_at == nil
       assert wish.visibility == "private"
@@ -578,6 +575,7 @@ defmodule Cgc2046.Flashback.WishesTest do
 
       {:ok, wish1} =
         Wishes.create_wish(person.id, "成都见", "public", expected_city: "成都")
+
       {:ok, wish2} =
         Wishes.create_wish(person.id, "成都市也行", "public", expected_city: "成都市")
 
@@ -611,9 +609,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       person = create_person(archive)
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "要 hidden 的心愿", "public",
-          public_listing_consent: true
-        )
+        Wishes.create_wish(person.id, "要 hidden 的心愿", "public", public_listing_consent: true)
 
       assert Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
 
@@ -723,20 +719,29 @@ defmodule Cgc2046.Flashback.WishesTest do
 
       # Branch A: 王**
       %{rows: [[sig_a]]} =
-        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
-                    [Ecto.UUID.dump!(p_a.id)])
+        Repo.query!(
+          "SELECT signature FROM flashback_wishes WHERE person_id = $1",
+          [Ecto.UUID.dump!(p_a.id)]
+        )
+
       assert sig_a == "王**"
 
       # Branch B: 李**（首字符 + 长度-1 个 *）
       %{rows: [[sig_b]]} =
-        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
-                    [Ecto.UUID.dump!(p_b.id)])
+        Repo.query!(
+          "SELECT signature FROM flashback_wishes WHERE person_id = $1",
+          [Ecto.UUID.dump!(p_b.id)]
+        )
+
       assert sig_b == "李**"
 
       # Branch C: '明*'（单字 full_name 走 ELSE 首字符分支）
       %{rows: [[sig_c]]} =
-        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
-                    [Ecto.UUID.dump!(p_c.id)])
+        Repo.query!(
+          "SELECT signature FROM flashback_wishes WHERE person_id = $1",
+          [Ecto.UUID.dump!(p_c.id)]
+        )
+
       assert sig_c == "明*"
 
       # Branch D: 清 D 的 person.full_name 为空串（full_name allow_nil?: false 不能 NULL）→ '' 分支
@@ -744,11 +749,13 @@ defmodule Cgc2046.Flashback.WishesTest do
         "UPDATE flashback_people SET full_name = '' WHERE id = $1",
         [Ecto.UUID.dump!(p_d.id)]
       )
+
       # 再跑一次回填 only D（之前的 update 已经写入了 signature，需要重置
       Repo.query!(
         "UPDATE flashback_wishes SET signature = '' WHERE person_id = $1",
         [Ecto.UUID.dump!(p_d.id)]
       )
+
       Repo.query!("""
       UPDATE flashback_wishes w
       SET signature = (
@@ -766,8 +773,11 @@ defmodule Cgc2046.Flashback.WishesTest do
       """)
 
       %{rows: [[sig_d]]} =
-        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
-                    [Ecto.UUID.dump!(p_d.id)])
+        Repo.query!(
+          "SELECT signature FROM flashback_wishes WHERE person_id = $1",
+          [Ecto.UUID.dump!(p_d.id)]
+        )
+
       assert sig_d == ""
 
       # 至少证明 wishes 全部 4 个都被迁移进程触及
@@ -780,6 +790,7 @@ defmodule Cgc2046.Flashback.WishesTest do
 
       {:ok, w1} =
         Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true)
+
       {:ok, w2} =
         Wishes.create_wish(person.id, "外邦场", "public",
           expected_city: nil,
@@ -789,6 +800,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       # 全部
       beijing = Wishes.list_public_listed("北京")
       assert Enum.any?(beijing, &(&1.id == w1.id))
+
       # 北京 filter 不该看到 w2（w2 用的是 person.city="北京市" 归一 → 北京）——两人都
       # 在北京但其实 w1/w2 同城，只是看 filter 与原 list_public 一致
       assert Enum.any?(beijing, &(&1.id == w2.id))
@@ -808,12 +820,12 @@ defmodule Cgc2046.Flashback.WishesTest do
       )
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "信用降级后的公开愿", "public",
-          public_listing_consent: true
-        )
+        Wishes.create_wish(person.id, "信用降级后的公开愿", "public", public_listing_consent: true)
 
-      assert is_nil(wish.listed_at)          # 不挂树
-      assert wish.hidden_at != nil           # 待审（hidden）
+      # 不挂树
+      assert is_nil(wish.listed_at)
+      # 待审（hidden）
+      assert wish.hidden_at != nil
 
       refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
     end
@@ -840,9 +852,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       person = create_person(archive)
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "正常公开愿", "public",
-          public_listing_consent: true
-        )
+        Wishes.create_wish(person.id, "正常公开愿", "public", public_listing_consent: true)
 
       assert wish.listed_at != nil
       assert wish.hidden_at == nil
@@ -863,6 +873,7 @@ defmodule Cgc2046.Flashback.WishesTest do
         Wishes.create_wish(person.id, "待审愿", "public", public_listing_consent: true)
 
       admin = register_user("fix3-admin")
+
       Repo.query!("UPDATE users SET is_platform_admin = true WHERE id = $1", [
         Repo.uuid!(admin.id)
       ])
@@ -877,6 +888,7 @@ defmodule Cgc2046.Flashback.WishesTest do
         Repo.query!("SELECT wishes_review_required_at FROM users WHERE id = $1", [
           Repo.uuid!(user.id)
         ])
+
       assert credit != nil
     end
   end
