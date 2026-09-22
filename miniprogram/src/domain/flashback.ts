@@ -563,6 +563,41 @@ export function futureEventCards(
 
 /** 提交判据:草稿去空白非空 且 额度未尽(quota===0 禁用;null 不拦,后端会以
  * flashback_wish_quota_exceeded 兜底拒绝)。 */
+/**
+ * wish2 U9（KTD2）：期待/举报的匿名去重键——`a:<device_uuid>`，口径与 web 的
+ * lib/flashback-voter.ts 完全一致（格式 u:/a: + ≤64；首访落盘恒同键）。
+ * 登录态服务端强制 `u:<user_id>`（客户端照常传设备键，服务端覆盖）。
+ */
+const VOTER_KEY_STORAGE = 'flashback.voterKey'
+const VOTER_KEY_PATTERN = /^[ua]:[A-Za-z0-9_-]{1,60}$/
+
+function wxLikeStorage(): { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } | null {
+  const scope = globalThis as { wx?: { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } }
+  return scope.wx ?? null
+}
+
+export function readWishVoterKey(): string | null {
+  try {
+    const raw = wxLikeStorage()?.getStorageSync(VOTER_KEY_STORAGE)
+    const value = typeof raw === 'string' ? raw : null
+    return value && VOTER_KEY_PATTERN.test(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function ensureWishVoterKey(): string | null {
+  const existing = readWishVoterKey()
+  if (existing) return existing
+  const created = `a:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  try {
+    wxLikeStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
+  } catch {
+    // 存储不可用：仅本次会话有效（期待按钮仍可用，跨会话可能重票——服务端幂等兜底）
+  }
+  return created
+}
+
 export function canSubmitWish(quota: number | null, draft: string): boolean {
   return draft.trim().length > 0 && quota !== 0
 }

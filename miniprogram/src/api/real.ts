@@ -42,6 +42,12 @@ import type {
   FlashbackCreateWishMutationVariables,
   FlashbackEndorseWishMutation,
   FlashbackEndorseWishMutationVariables,
+  FlashbackExpectWishMutation,
+  FlashbackExpectWishMutationVariables,
+  FlashbackCancelEndorseWishMutation,
+  FlashbackCancelEndorseWishMutationVariables,
+  FlashbackReportWishMutation,
+  FlashbackReportWishMutationVariables,
   FlashbackAddWishCommentMutation,
   FlashbackAddWishCommentMutationVariables,
   FlashbackDeleteWishMutation,
@@ -124,6 +130,9 @@ import {
   FlashbackCreateWishMutationDocument,
   FlashbackDeleteWishMutationDocument,
   FlashbackEndorseWishMutationDocument,
+  FlashbackCancelEndorseWishMutationDocument,
+  FlashbackExpectWishMutationDocument,
+  FlashbackReportWishMutationDocument,
   FlashbackEnterMutationDocument,
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
@@ -882,6 +891,50 @@ export class RealMiniProgramApi implements MiniProgramApi {
       throw error
     })
     return data.flashbackEndorseWish?.endorsementCount ?? 0
+  }
+
+  // wish2 U6/U9（KTD2）：期待/取消期待（服务端按登录态强制 u: 键；匿名传设备键）
+  async flashbackExpectWish(wishId: string, expected: boolean, anonVoterKey?: string | null): Promise<number> {
+    const data = await graphqlRequest<FlashbackExpectWishMutation, FlashbackExpectWishMutationVariables>(
+      FlashbackExpectWishMutationDocument,
+      { wishId, expected, anonVoterKey: anonVoterKey ?? null }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    return data.flashbackExpectWish?.expectationCount ?? 0
+  }
+
+  // wish2 U6/U9（KTD3）：取消附议（登录）
+  async flashbackCancelEndorseWish(wishId: string): Promise<void> {
+    await graphqlRequest<FlashbackCancelEndorseWishMutation, FlashbackCancelEndorseWishMutationVariables>(
+      FlashbackCancelEndorseWishMutationDocument,
+      { wishId }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+  }
+
+  // wish2 U6/U9（KTD5）：举报（预设理由 + ≤200 补充；匿名带设备键）
+  async flashbackReportWish(
+    wishId: string,
+    reasonType: string,
+    reasonFree?: string | null,
+    anonVoterKey?: string | null
+  ): Promise<void> {
+    await graphqlRequest<FlashbackReportWishMutation, FlashbackReportWishMutationVariables>(
+      FlashbackReportWishMutationDocument,
+      {
+        wishId,
+        reasonType,
+        reasonFree: reasonFree?.trim() || null,
+        anonVoterKey: anonVoterKey ?? null
+      }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
   }
 
   async flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void> {
