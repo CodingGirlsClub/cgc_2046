@@ -43,6 +43,7 @@ echo "== 场景 1: 干净环境 install =="
 bash "$PACK_DIR/install.sh" install >/dev/null
 assert_file_exists "agent 落位" "$OMP_AGENT_DIR/agents/cgc.md"
 assert_file_exists "skill 落位" "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
+assert_file_exists "质检 skill 落位" "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
 assert_file_exists "extension 落位" "$OMP_AGENT_DIR/extensions/cgc-command.ts"
 assert_file_exists "mcp.json 生成" "$OMP_AGENT_DIR/mcp.json"
 assert_file_mode "mcp.json 权限 600" "$OMP_AGENT_DIR/mcp.json" "600"
@@ -97,6 +98,7 @@ echo "== 场景 4: remove（只删本包，保留其他） =="
 bash "$PACK_DIR/install.sh" remove >/dev/null
 assert_file_not_exists "agent 删除" "$OMP_AGENT_DIR/agents/cgc.md"
 assert_file_not_exists "skill 删除" "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
+assert_file_not_exists "质检 skill 删除" "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
 assert_file_not_exists "extension 删除" "$OMP_AGENT_DIR/extensions/cgc-command.ts"
 assert_file_not_contains "mcp.json 无 cgc-2046" "$OMP_AGENT_DIR/mcp.json" '"cgc-2046"'
 assert_file_contains "mcp.json 其他 server 保留" "$OMP_AGENT_DIR/mcp.json" '"other-server"'
