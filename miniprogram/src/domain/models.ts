@@ -776,8 +776,17 @@ export interface MiniProgramApi {
   flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
   /** wish2 U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
   flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
-  // U4 愿望写操作(双入口 token)
-  flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void>
+  // U4 愿望写操作(双入口 token)；wish2 U8/U10 扩参返回三态（listed/pending_review/private）
+  flashbackCreateWish(
+    content: string,
+    visibility: 'private' | 'public',
+    token?: string | null,
+    options?: {
+      signatureChoice?: 'anonymous' | 'display_name'
+      expectedCity?: string | null
+      publicListingConsent?: boolean
+    }
+  ): Promise<{ id: string; status: string }>
   /** wish2 U6/KTD3：附议（登录版，旧 token 匿名腿下线）；出力多选 + 留言 ≤500 +
    *  回响通知意愿（真实授权由微信 accept 上报 grant，本意愿不冒充授权） */
   flashbackEndorseWish(

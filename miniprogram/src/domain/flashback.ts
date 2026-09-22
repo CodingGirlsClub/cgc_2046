@@ -635,3 +635,24 @@ export const WISH_CONTRIBUTION_OPTIONS = [
 
 /** 附议留言上限（后端 flashback_wish_endorsement_message_too_long 同值） */
 export const WISH_ENDORSE_MESSAGE_MAX = 500
+
+/** 期望地候选名单条目（flashbackCities 读面投影） */
+export interface CityOption {
+  name: string
+  pinyin: string
+}
+
+/**
+ * 期望地实时候选（KTD11）：输入非空时，中文名含输入或拼音前缀命中且不等于
+ * 输入的城市，≤6 个。归一判定在服务端（名单外提交报错带候选）——这里只做
+ * 输入辅助，不阻止提交。
+ */
+export function cityCandidates(input: string, cities: readonly CityOption[]): string[] {
+  const query = input.trim()
+  if (!query) return []
+  const lower = query.toLowerCase()
+  return cities
+    .filter((city) => city.name !== query && (city.name.includes(query) || city.pinyin.startsWith(lower)))
+    .map((city) => city.name)
+    .slice(0, 6)
+}

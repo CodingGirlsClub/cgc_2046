@@ -1195,10 +1195,18 @@ export type FlashbackCreateWishMutationVariables = Exact<{
   token?: string | null | undefined;
   content: string;
   visibility: string;
+  signatureChoice?: string | null | undefined;
+  expectedCity?: string | null | undefined;
+  publicListingConsent?: boolean | null | undefined;
 }>;
 
 
-export type FlashbackCreateWishMutation = { flashbackCreateWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+export type FlashbackCreateWishMutation = { flashbackCreateWish: { id: string | null, endorsementCount: number, endorsedByMe: boolean, status: string } | null };
+
+export type FlashbackCitiesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackCitiesQuery = { flashbackCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };
 
 export type FlashbackEndorseWishMutationVariables = Exact<{
   wishId: string | number;

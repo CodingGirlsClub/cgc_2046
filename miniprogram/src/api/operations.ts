@@ -776,12 +776,41 @@ export const FlashbackAdjustTodayFogMutationDocument = /* GraphQL */ `
   }
 `
 
-// U4 愿望写操作(双入口 token:独立 token 或登录会话)
+// U4 愿望写操作(双入口 token:独立 token 或登录会话)；
+// wish2 U8/U10 扩参：署名快照/期望地归一/公开树授权；返回 id+status 三态
 export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
-  mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
-    flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+  mutation FlashbackCreateWish(
+    $token: String
+    $content: String!
+    $visibility: String!
+    $signatureChoice: String
+    $expectedCity: String
+    $publicListingConsent: Boolean
+  ) {
+    flashbackCreateWish(
+      token: $token
+      content: $content
+      visibility: $visibility
+      signatureChoice: $signatureChoice
+      expectedCity: $expectedCity
+      publicListingConsent: $publicListingConsent
+    ) {
+      id
       endorsementCount
       endorsedByMe
+      status
+    }
+  }
+`
+
+// wish2 U10（KTD11）：期望地候选名单真源（与 web FLASHBACK_CITIES 同一服务端读面）
+export const FlashbackCitiesQueryDocument = /* GraphQL */ `
+  query FlashbackCities {
+    flashbackCities {
+      name
+      fullName
+      pinyin
+      lngLat
     }
   }
 `
