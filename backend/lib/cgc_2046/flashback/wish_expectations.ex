@@ -23,6 +23,7 @@ defmodule Cgc2046.Flashback.WishExpectations do
 
   require Ash.Query
 
+  alias Cgc2046.Repo
   alias Cgc2046.Flashback.{Wish, WishExpectation}
 
   @voter_prefixes ~w(u a)
@@ -146,14 +147,30 @@ defmodule Cgc2046.Flashback.WishExpectations do
       )
 
     base =
-      if actor_user_id do
-        base
-      else
-        # 公开面强制 listed_at IS NOT NULL
-        Ash.Query.filter(base, not is_nil(listed_at))
+      cond do
+        # 匿名公开面：强制 listed
+        is_nil(actor_user_id) ->
+          Ash.Query.filter(base, not is_nil(listed_at))
+
+        # FIX-2（审计 U2 缺口 1 / KTD9）：登录成员面——可解析 person 的成员
+        # 可期待未 listed 愿望；无 person 的 viewer 仅 listed（与附议资格同口径）
+        member?(actor_user_id) ->
+          base
+
+        true ->
+          Ash.Query.filter(base, not is_nil(listed_at))
       end
 
     Ash.read_one(base, authorize?: false)
+  end
+
+  defp member?(actor_user_id) do
+    case Repo.query("SELECT 1 FROM flashback_people WHERE user_id = $1 LIMIT 1", [
+           Repo.uuid!(actor_user_id)
+         ]) do
+      {:ok, %{num_rows: 1}} -> true
+      _ -> false
+    end
   end
 
   defp check_rate_limit(remote_ip, voter_key) do

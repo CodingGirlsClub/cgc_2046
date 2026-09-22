@@ -120,14 +120,68 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
                Wishes.cancel_endorse_by_user(user.id, wish.id)
     end
 
-    test "未认领 user 附议 → flashback_wish_endorsement_requires_claim" do
+    test "viewer（无 person）附议 listed 愿望成功（FIX-2 KTD9：listed → 任何登录用户）" do
       archive = create_archive()
       owner = create_person(archive)
       wish = create_listed_wish(owner, "owner 的心愿")
-      unrelated_user = register_user("u3-unclaimed")
+      viewer = register_user("u3-viewer")
 
-      assert {:error, %{code: "flashback_wish_endorsement_requires_claim"}} =
-               Wishes.endorse_by_user(unrelated_user.id, wish.id)
+      assert {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
+               Wishes.endorse_by_user(viewer.id, wish.id)
+
+      # person_id 落 NULL（身份由 user_id/actor_key 承载）
+      wish_id = wish.id
+      %{rows: [[pid]]} =
+        Repo.query!(
+          "SELECT person_id FROM flashback_wish_endorsements WHERE wish_id = $1",
+          [Repo.uuid!(wish_id)]
+        )
+      assert is_nil(pid)
+
+      # 幂等：重复附议 UPDATE 不双计
+      assert {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
+               Wishes.endorse_by_user(viewer.id, wish.id, contribution_types: ["sponsor"])
+
+      cnt =
+        WishEndorsement
+        |> Ash.Query.filter(wish_id == ^wish_id)
+        |> Ash.count!(authorize?: false)
+      assert cnt == 1
+    end
+
+    test "viewer 附议未 listed 愿望 → flashback_wish_not_found（不泄露存在性）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      {:ok, member_only} =
+        Wishes.create_wish(owner.id, "成员面愿望", "public", public_listing_consent: false)
+      viewer = register_user("u3-viewer2")
+
+      assert {:error, %{code: "flashback_wish_not_found"}} =
+               Wishes.endorse_by_user(viewer.id, member_only.id)
+    end
+
+    test "hidden 愿望附议 → flashback_wish_not_found（审计 U3 缺口 2）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      wish = create_listed_wish(owner, "将被下架")
+      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [Repo.uuid!(wish.id)])
+
+      member = register_user("u3-member")
+      assert {:error, %{code: "flashback_wish_not_found"}} =
+               Wishes.endorse_by_user(member.id, wish.id)
+    end
+
+    test "已认领 member 附议未 listed 愿望成功（成员语义保留）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      {:ok, member_only} =
+        Wishes.create_wish(owner.id, "成员面愿望2", "public", public_listing_consent: false)
+
+      member = register_user("u3-member2")
+      :ok = bind_person_to_user(create_person(archive, %{full_name: "成员甲", surname: "甲"}).id, member.id)
+
+      assert {:ok, %{endorsement_count: 1}} =
+               Wishes.endorse_by_user(member.id, member_only.id)
     end
 
     test "contribution_types 列表外值 → flashback_wish_endorsement_invalid_contribution_types" do

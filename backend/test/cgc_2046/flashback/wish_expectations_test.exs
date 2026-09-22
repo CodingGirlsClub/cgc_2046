@@ -207,6 +207,19 @@ defmodule Cgc2046.Flashback.WishExpectationsTest do
                )
     end
 
+    test "viewer（登录无 person）对未 listed 愿望 → flashback_wish_not_found（FIX-2 KTD9）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      {:ok, member_only} =
+        Wishes.create_wish(owner.id, "成员面期待愿", "public", public_listing_consent: false)
+
+      viewer = register_user("u2-viewer")
+      # viewer 未绑定任何 person
+
+      assert {:error, %{code: "flashback_wish_not_found"}} =
+               WishExpectations.set_expectation(member_only.id, true, actor_user_id: viewer.id)
+    end
+
     test "对 hidden 愿望 → flashback_wish_not_found" do
       archive = create_archive()
       person = create_person(archive)
