@@ -505,18 +505,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:voter_key, :string)
 
       resolve(fn _, args, %{context: context} ->
-        {:ok, wishes} =
-          Cgc2046.Flashback.WishPublic.wishes(
-            city: args[:city],
-            seed: args[:seed],
-            offset: args[:offset],
-            limit: args[:limit],
-            # HS-3 双键读面：登录 actor 强制 u: 键 + 入参 a: 设备键合并（期待态
-            # 刷新不漂移——mutation 登录态按 u: 记账）；未登录维持入参单键。
-            voter_keys: viewer_voter_keys(context, args[:voter_key])
-          )
-
-        wishes
+        # HS-3 双键读面：登录 actor 强制 u: 键 + 入参 a: 设备键合并（期待态
+        # 刷新不漂移——mutation 登录态按 u: 记账）；未登录维持入参单键。
+        Cgc2046.Flashback.WishPublic.wishes(
+          city: args[:city],
+          seed: args[:seed],
+          offset: args[:offset],
+          limit: args[:limit],
+          voter_keys: viewer_voter_keys(context, args[:voter_key])
+        )
       end)
     end
 
