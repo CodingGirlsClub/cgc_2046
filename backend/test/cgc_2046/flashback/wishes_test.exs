@@ -792,6 +792,92 @@ defmodule Cgc2046.Flashback.WishesTest do
     end
   end
 
+  describe "FIX-3 信用降级 create 侧消费（KTD5）" do
+    test "credit 置位作者的新公开愿望默认 hidden_at 待审、不挂树" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = register_user("fix3-a")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(user.id)]
+      )
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "信用降级后的公开愿", "public",
+          public_listing_consent: true
+        )
+
+      assert is_nil(wish.listed_at)          # 不挂树
+      assert wish.hidden_at != nil           # 待审（hidden）
+
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+    end
+
+    test "credit 置位作者的 private 愿望不受影响（说给主办方听不待审）" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = register_user("fix3-b")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(user.id)]
+      )
+
+      {:ok, wish} = Wishes.create_wish(person.id, "悄悄话不待审", "private")
+
+      assert wish.hidden_at == nil
+      assert wish.listed_at == nil
+    end
+
+    test "credit 未置位作者照常挂树（正路径不回归）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "正常公开愿", "public",
+          public_listing_consent: true
+        )
+
+      assert wish.listed_at != nil
+      assert wish.hidden_at == nil
+    end
+
+    test "admin 放行（set_wish_hidden false）清 hidden_at 且不清 credit 字段（G1 pin）" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = register_user("fix3-c")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(user.id)]
+      )
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "待审愿", "public", public_listing_consent: true)
+
+      admin = register_user("fix3-admin")
+      Repo.query!("UPDATE users SET is_platform_admin = true WHERE id = $1", [
+        Repo.uuid!(admin.id)
+      ])
+
+      {:ok, cleared} = Cgc2046.Flashback.Reports.set_wish_hidden(wish.id, admin.id, false)
+      assert is_nil(cleared.hidden_at)
+      # 放行后可挂树？listed_at 仍 nil——放行只清 hidden，挂树由 admin 显式
+      # re-list（后续 admin action）；本断言钉「放行 ≠ 自动挂树」语义边界
+      assert is_nil(cleared.listed_at)
+
+      %{rows: [[credit]]} =
+        Repo.query!("SELECT wishes_review_required_at FROM users WHERE id = $1", [
+          Repo.uuid!(user.id)
+        ])
+      assert credit != nil
+    end
+  end
+
   # KTD4 同步 (非 unboxed) 流程下统计：查询走 sandbox 共享连接，能看到本事务内
   # 已 insert 但尚未 rollback 的愿望（与 unboxed_run 另开连接的 wishes_count/1
   # 对 R20 并发用例的语义不同）。
