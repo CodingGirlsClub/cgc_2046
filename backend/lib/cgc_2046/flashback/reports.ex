@@ -320,10 +320,4 @@ defmodule Cgc2046.Flashback.Reports do
     end
   end
 
-  # 兼容旧调用（无 admin）——公开面仍要求 listed
-  defp fetch_public_wish(wish_id) do
-    Wish
-    |> Ash.Query.filter(id == ^Repo.uuid!(wish_id) and visibility == "public" and is_nil(deleted_at))
-    |> Ash.read_one(authorize?: false)
-  end
 end
