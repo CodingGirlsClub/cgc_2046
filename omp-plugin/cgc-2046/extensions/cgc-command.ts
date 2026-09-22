@@ -93,7 +93,7 @@ export default function cgcCommand(pi) {
 
     // 在工作目录：正常渲染汇总 + 版本检查
     const versionHint = (() => {
-      const v = checkVersion(ctx);
+      const v = checkVersion();
       if (!v) return "";
       return `\n\n有新版本可用：${v.catalogVersion}（当前 ${v.localVersion}）。跑 omp plugin upgrade cgc-2046@cgc-omp-plugins 更新`;
     })();
@@ -126,12 +126,13 @@ export default function cgcCommand(pi) {
   // 版本检查：读本地安装版本与 catalog 缓存版本，不一致时 notify 提示更新
   // 本地：~/.omp/plugins/installed_plugins.json（user scope）
   // catalog：~/.omp/plugins/cache/marketplaces/cgc-omp-plugins/.omp-plugin/marketplace.json
-  const checkVersion = (ctx) => {
+  const checkVersion = () => {
     try {
       const { readFileSync, existsSync } = require("fs");
       const { join } = require("path");
-      const os = require("os");
-      const pluginsRoot = join(os.homedir(), ".omp", "plugins");
+      // os.homedir() 在 Bun 下不读 $HOME 环境变量（缓存/系统调用），测试需要 process.env.HOME
+      const homeDir = process.env.HOME || require("os").homedir();
+      const pluginsRoot = join(homeDir, ".omp", "plugins");
 
       // 读本地安装版本
       const installedPath = join(pluginsRoot, "installed_plugins.json");
