@@ -45,6 +45,7 @@
     "flashback_card_share_conflict",
     "flashback_content_rejected",
     "flashback_delete_confirm_required",
+    "flashback_expectation_rate_limited",
     "flashback_fog_span_out_of_bounds",
     "flashback_forbidden_wish",
     "flashback_invalid_input",
