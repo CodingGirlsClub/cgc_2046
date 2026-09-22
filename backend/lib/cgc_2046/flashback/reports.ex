@@ -20,7 +20,7 @@ defmodule Cgc2046.Flashback.Reports do
   require Ash.Query
 
   alias Cgc2046.Accounts.User
-  alias Cgc2046.Flashback.{AlumniProjection, FlashbackReport, Wish}
+  alias Cgc2046.Flashback.{AlumniProjection, Report, Wish}
   alias Cgc2046.Repo
 
   @ip_window_seconds 900
@@ -30,7 +30,7 @@ defmodule Cgc2046.Flashback.Reports do
   公开举报。要求 actor 登录（或匿名带 device key）+ IP 频控。
   """
   @spec report(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, FlashbackReport.t()} | {:error, term()}
+          {:ok, Report.t()} | {:error, term()}
   def report(target_type, target_id, reason_type, opts \\ []) do
     reason_free = Keyword.get(opts, :reason_free, nil)
     actor_user_id = Keyword.get(opts, :actor_user_id, nil)
@@ -42,7 +42,7 @@ defmodule Cgc2046.Flashback.Reports do
          {:ok, reporter_voter_key} <- resolve_reporter_key(actor_user_id, anon_voter_key),
          :ok <- check_rate_limit(remote_ip),
          :ok <- validate_target_exists(target_type, target_id) do
-      FlashbackReport
+      Report
       |> Ash.Changeset.for_create(:create, %{
         target_type: target_type,
         target_id: target_id,
@@ -122,7 +122,7 @@ defmodule Cgc2046.Flashback.Reports do
   end
 
   @doc "admin 撤销举报：status=dismissed"
-  @spec dismiss_report(String.t(), String.t()) :: {:ok, FlashbackReport.t()} | {:error, term()}
+  @spec dismiss_report(String.t(), String.t()) :: {:ok, Report.t()} | {:error, term()}
   def dismiss_report(report_id, admin_user_id) do
     with {:ok, _admin} <- validate_admin(admin_user_id),
          {:ok, report} <- fetch_report(report_id) do
@@ -137,7 +137,7 @@ defmodule Cgc2046.Flashback.Reports do
   end
 
   @doc "admin 批准举报：status=actioned + 联动 set_wish_hidden(target, admin, true)"
-  @spec approve_report(String.t(), String.t()) :: {:ok, FlashbackReport.t()} | {:error, term()}
+  @spec approve_report(String.t(), String.t()) :: {:ok, Report.t()} | {:error, term()}
   def approve_report(report_id, admin_user_id) do
     with {:ok, _, report} <- fetch_report_and_validate_admin(report_id, admin_user_id),
          {:ok, _hidden_wish} <- set_wish_hidden(report.target_id, admin_user_id, true) do
@@ -152,9 +152,9 @@ defmodule Cgc2046.Flashback.Reports do
   end
 
   @doc "admin 队列：status=pending 按插入时间正序"
-  @spec list_pending_reports() :: list(FlashbackReport.t())
+  @spec list_pending_reports() :: list(Report.t())
   def list_pending_reports do
-    FlashbackReport
+    Report
     |> Ash.Query.filter(status == "pending")
     |> Ash.Query.sort(inserted_at: :asc)
     |> Ash.read!(authorize?: false, page: false)
@@ -198,7 +198,7 @@ defmodule Cgc2046.Flashback.Reports do
   # ── 内部 ─────────────────────────────────────────────────────────────
 
   defp validate_reason_type(reason_type) when is_binary(reason_type) do
-    if reason_type in FlashbackReport.reason_types() do
+    if reason_type in Report.reason_types() do
       {:ok, reason_type}
     else
       {:error,
@@ -299,7 +299,7 @@ defmodule Cgc2046.Flashback.Reports do
   end
 
   defp fetch_report(report_id) do
-    FlashbackReport
+    Report
     |> Ash.Query.filter(id == ^Repo.uuid!(report_id))
     |> Ash.read_one(authorize?: false)
     |> case do
