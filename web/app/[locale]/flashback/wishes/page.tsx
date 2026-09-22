@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
-import VoicesPage from "./voices-page";
+import WishesPage from "./wishes-page";
 
 export const dynamic = "force-dynamic";
 
@@ -11,26 +11,26 @@ type PageProps = {
 };
 
 /**
- * 金句墙独立公开页（R26）：陌生人无需登录即可读、赞、分享单句与整墙。
+ * 许愿树独立公开页（wish2 U7/KTD8）：与 voices 平行的独立路由。
  *
- * - 单句分享链接 `?item=<quote_id>`（KTD4）：直达该句并抑制开场（R7）；
- * - 失效 item（已撤回/未授权/不存在）→ 失效视图（U4，HTTP 200 软 404 语义）；
- * - 回访不重播（R8）与 reduced-motion（R24）在客户端处理。
+ * - `?item=<wish_id>` 单条直达（复用批 1 同型：客户端 network-only 校验 +
+ *   direct 状态随 prop 重置——失效渲染「这个愿望目前无法查看」软 404）；
+ * - `?city=` 城市入 URL（voices↔wishes 互跳带城市，G10）；
+ * - 开场记忆 localStorage 跨页共享（KTD8：双页切换不重播开场）。
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
 	const { locale } = await params;
-	const t = await getTranslations({ locale, namespace: "flashback.voices" });
+	const t = await getTranslations({ locale, namespace: "flashback.wishes" });
 	return {
 		title: t("metaTitle"),
 		description: t("metaDescription"),
-		alternates: pageAlternates("/flashback/voices", locale),
+		alternates: pageAlternates("/flashback/wishes", locale),
 	};
 }
 
 export default async function Page({ searchParams }: PageProps) {
 	const params = await searchParams;
 	const item = typeof params.item === "string" ? params.item : undefined;
-	// wish2 U7/G10：?city= 入 URL（voices↔wishes 互跳带城市；item 直达优先）
 	const city = typeof params.city === "string" ? params.city : undefined;
-	return <VoicesPage item={item} initialCity={city} />;
+	return <WishesPage item={item} initialCity={city} />;
 }

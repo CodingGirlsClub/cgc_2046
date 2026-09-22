@@ -1033,7 +1033,10 @@ export const FLASHBACK_CANCEL_ENDORSE_WISH = gql`
 	}
 `;
 
-export const FLASHBACK_EXPECT_WISH = gql`
+export const FLASHBACK_EXPECT_WISH: TypedDocumentNode<
+	{ flashbackExpectWish: FlashbackWishExpectResult | null },
+	{ wishId: string; expected: boolean; anonVoterKey?: string | null }
+> = gql`
 	mutation FlashbackExpectWish(
 		$wishId: ID!
 		$expected: Boolean!
@@ -1050,7 +1053,15 @@ export const FLASHBACK_EXPECT_WISH = gql`
 	}
 `;
 
-export const FLASHBACK_REPORT_WISH = gql`
+export const FLASHBACK_REPORT_WISH: TypedDocumentNode<
+	{ flashbackReportWish: { reportId: string; status: string } | null },
+	{
+		wishId: string;
+		reasonType: string;
+		reasonFree?: string | null;
+		anonVoterKey?: string | null;
+	}
+> = gql`
 	mutation FlashbackReportWish(
 		$wishId: ID!
 		$reasonType: String!

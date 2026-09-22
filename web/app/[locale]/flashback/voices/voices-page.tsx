@@ -23,7 +23,7 @@ type Direct = FlashbackPublicQuote | "gone" | null;
  * - 无 item：回访（localStorage 已看开场）或 reduced-motion → 直接白昼；
  *   否则播四幕开场。
  */
-export default function VoicesPage({ item }: { item?: string }) {
+export default function VoicesPage({ item, initialCity }: { item?: string; initialCity?: string }) {
 	const t = useTranslations("flashback.voices");
 	const reducedMotion = usePrefersReducedMotion();
 	// undefined = 校验中；null = 无直达；quote = 有效直达句；"gone" = 已撤回/不存在
@@ -112,5 +112,5 @@ export default function VoicesPage({ item }: { item?: string }) {
 
 	// 开场：仅「无直达 + 未看过 + 非 reduced-motion」播（R5/R7/R8/R24）
 	const showIntro = !direct && !introSeen && !reducedMotion;
-	return <VoicesWall initialItem={direct ?? undefined} showIntro={showIntro} />;
+	return <VoicesWall initialItem={direct ?? undefined} showIntro={showIntro} initialCity={initialCity} />;
 }
