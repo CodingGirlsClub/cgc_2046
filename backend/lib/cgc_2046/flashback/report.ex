@@ -1,4 +1,4 @@
-defmodule Cgc2046.Flashback.FlashbackReport do
+defmodule Cgc2046.Flashback.Report do
   @moduledoc """
   愿望/留言举报（KTD5 U5）：公开 mutation `flashbackReportWish` 的服务端记录。
 
