@@ -6755,10 +6755,16 @@ type FlashbackWishComment {
 }
 
 type FlashbackWishResult {
+  "新建愿望 id（本人查看\/撤回入口用）"
+  id: ID
+
   "附议后实时计数与本人态"
   endorsementCount: Int!
 
   endorsedByMe: Boolean!
+
+  "wish2 U8 三态反馈：listed（挂上许愿树）\/ pending_review（信用待审——审核通过后挂树）\/ private（说给主办方听）"
+  status: String!
 }
 
 type FlashbackRates {
@@ -8305,8 +8311,23 @@ type RootMutationType {
   "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
   flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
 
-  "许愿（R5\/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
-  flashbackCreateWish(token: String, content: String!, visibility: String!): FlashbackWishResult
+  "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+  flashbackCreateWish(
+    token: String
+
+    content: String!
+
+    visibility: String!
+
+    "署名快照：anonymous（默认，姓氏遮罩）\/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+    signatureChoice: String
+
+    "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+    expectedCity: String
+
+    "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+    publicListingConsent: Boolean
+  ): FlashbackWishResult
 
   "附议愿望（wish2 U6\/KTD3 改造）：**要求登录**（旧 token\/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
   flashbackEndorseWish(

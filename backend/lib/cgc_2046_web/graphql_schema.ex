@@ -2982,11 +2982,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+    @desc "许愿（R5/R6 + wish2 U8/KTD1/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
     field :flashback_create_wish, :flashback_wish_result do
       arg(:token, :string)
       arg(:content, non_null(:string))
       arg(:visibility, non_null(:string))
+      @desc "署名快照：anonymous（默认，姓氏遮罩）/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+      arg(:signature_choice, :string)
+      @desc "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+      arg(:expected_city, :string)
+      @desc "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+      arg(:public_listing_consent, :boolean)
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
@@ -2994,9 +3000,16 @@ defmodule Cgc2046Web.GraphqlSchema do
         flashback_call(fn ->
           with {:ok, identity} <- flashback_identity(args[:token], context),
                {:ok, person_id} <- identity_person_id(identity),
-               {:ok, _wish} <-
-                 Cgc2046.Flashback.Wishes.create_wish(person_id, args.content, args.visibility) do
-            {:ok, %{endorsement_count: 0, endorsed_by_me: false}}
+               {:ok, wish} <-
+                 Cgc2046.Flashback.Wishes.create_wish(
+                   person_id,
+                   args.content,
+                   args.visibility,
+                   signature_choice: wish_signature_choice(args[:signature_choice]),
+                   expected_city: args[:expected_city],
+                   public_listing_consent: args[:public_listing_consent] || false
+                 ) do
+            {:ok, %{id: wish.id, endorsement_count: 0, endorsed_by_me: false, status: wish.listing_status}}
           end
         end)
       end)
@@ -4255,9 +4268,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   object :flashback_wish_result do
+    @desc "新建愿望 id（本人查看/撤回入口用）"
+    field(:id, :id)
     @desc "附议后实时计数与本人态"
     field(:endorsement_count, non_null(:integer))
     field(:endorsed_by_me, non_null(:boolean))
+    @desc "wish2 U8 三态反馈：listed（挂上许愿树）/ pending_review（信用待审——审核通过后挂树）/ private（说给主办方听）"
+    field(:status, non_null(:string))
   end
 
   # ── 看板与兑换（U11/R24/R25）────────────────────────────────────────
@@ -4762,7 +4779,13 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
+
   defp identity_person_id({:person, person_id}), do: {:ok, person_id}
+
+  # wish2 U8/KTD1：signature_choice 字符串→atom（context opts 契约）；
+  # 非法/缺省宽容降级 anonymous——旧客户端与拼写错误不因此拒绝整单
+  defp wish_signature_choice("display_name"), do: :display_name
+  defp wish_signature_choice(_), do: :anonymous
 
   # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
   # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。
@@ -4771,8 +4794,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:ok, value} ->
         {:ok, value}
 
-      {:error, %{code: code, message: message}} when is_binary(code) ->
-        {:error, message: message, code: code}
+      # wish2 U8/KTD11：city_unknown 信封带 candidates（≤3 候选城市）——
+      # map 模式匹配需余字段容忍，candidates 保留在 extensions 供前端提示
+      {:error, %{code: code, message: message} = envelope}
+      when is_binary(code) and is_map(envelope) ->
+        {:error, [message: message, code: code] ++ envelope_extra(envelope)}
 
       {:error, %Ash.Error.Invalid{errors: [first | _]}} ->
         envelope = Cgc2046.Flashback.Tokens.invalid_input_error(Exception.message(first))
@@ -4780,6 +4806,15 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       {:error, _other} ->
         {:error, message: "服务暂时不可用，请稍后重试。", code: "database_error"}
+    end
+  end
+
+  # 信封余字段（如 city_unknown 的 candidates）→ keyword 附加项；
+  # code/message 已显式消费，只透传非空名单类补充信息
+  defp envelope_extra(envelope) do
+    case envelope[:candidates] || Map.get(envelope, :candidates) do
+      candidates when is_list(candidates) and candidates != [] -> [candidates: candidates]
+      _ -> []
     end
   end
 
