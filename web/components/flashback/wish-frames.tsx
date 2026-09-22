@@ -1,19 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
+import { client } from "@/lib/apollo-client";
 import { graphqlErrorDetails } from "@/lib/graphql/auth";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import type { FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
 import {
+	FLASHBACK_CITIES,
 	FLASHBACK_CREATE_WISH,
 	FLASHBACK_ENDORSE_WISH,
 	FLASHBACK_ADD_WISH_COMMENT,
 	FLASHBACK_DELETE_WISH,
 } from "@/lib/graphql/flashback";
-
 /**
  * 许愿卡与模态（U7/版 D 定稿）：纸白卡（附议 +1 / 留言 / 已附议态）；
  * 点卡开模态——许愿全文 + 留言流 + 附议按钮 + 本人删除（R14）；「+ 许个愿」
@@ -146,14 +147,13 @@ export function WishFrames({
 					busy={busy}
 					myWishQuotaRemaining={myWishQuotaRemaining}
 					onClose={() => setModal({ kind: "closed" })}
-					onDone={onChanged}
+					onDone={() => onChanged()}
 				/>
 			)}
 			{modal.kind === "wish" &&
 				resolveWish(modal.wishId) && (
 					<WishModal
 						wish={resolveWish(modal.wishId) as FlashbackWish}
-						token={token}
 						busy={busy}
 						onClose={() => setModal({ kind: "closed" })}
 						onEndorse={(wishId) => run(() => endorse({ variables: { token, wishId } }))}
@@ -165,7 +165,13 @@ export function WishFrames({
 	);
 }
 
-function WishFormModal({
+/** 提交结果三态（R18）：listed=挂树 / pending_review=信用待审 / private=说给主办方听 */
+export interface WishSubmitOutcome {
+	wishId: string;
+	status: "listed" | "pending_review" | "private";
+	city: string | null;
+}
+export function WishFormModal({
 	token,
 	busy,
 	myWishQuotaRemaining,
@@ -176,36 +182,143 @@ function WishFormModal({
 	busy: boolean;
 	myWishQuotaRemaining: number | null;
 	onClose: () => void;
-	onDone: () => void;
+	/** 提交成功（含三态）与额度被拒（refetch）都会触发；outcome 为 null 表示仅 refetch */
+	onDone: (outcome: WishSubmitOutcome | null) => void;
 }) {
 	const t = useTranslations("flashback.wish");
 	const tErrors = useTranslations("errors");
 	const errorT = usePaymentErrorTranslator();
 	const [content, setContent] = useState("");
+	// wish2 U8：默认公开档（R6 定稿——公开是主路径）；公开档选中即授权挂树
 	const [visibility, setVisibility] = useState<"private" | "public">("public");
+	const [signatureChoice, setSignatureChoice] = useState<"anonymous" | "display_name">("anonymous");
+	const [expectedCity, setExpectedCity] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [outcome, setOutcome] = useState<WishSubmitOutcome | null>(null);
+	const [withdrawn, setWithdrawn] = useState(false);
+	const [cities, setCities] = useState<string[]>([]);
 	const [createWish, { loading }] = useMutation(FLASHBACK_CREATE_WISH);
+	const [deleteWish] = useMutation(FLASHBACK_DELETE_WISH);
 
 	const quotaExhausted = myWishQuotaRemaining === 0;
+
+	// 期望地候选名单（KTD11 真源 flashbackCities；modal 打开拉一次）
+	useEffect(() => {
+		client
+			.query({ query: FLASHBACK_CITIES, fetchPolicy: "cache-first" })
+			.then(({ data }) => setCities((data?.flashbackCities ?? []).map((c) => c.name)))
+			.catch(() => setCities([]));
+	}, []);
+
+	// 前缀/包含匹配的候选（≤6；空输入不提示）
+	const cityCandidates = useMemo(() => {
+		const query = expectedCity.trim();
+		if (!query || cities.length === 0) return [];
+		return cities.filter((name) => name.includes(query) && name !== query).slice(0, 6);
+	}, [expectedCity, cities]);
 
 	const submit = async () => {
 		const trimmed = content.trim();
 		if (!trimmed || loading || busy || quotaExhausted) return;
 		setError(null);
 		try {
-			await createWish({ variables: { token, content: trimmed, visibility } });
-			onDone();
-			onClose();
+			const { data } = await createWish({
+				variables: {
+					token,
+					content: trimmed,
+					visibility,
+					signatureChoice,
+					expectedCity: expectedCity.trim() || null,
+					// 公开档选中即授权（R6）：private 档恒 false
+					publicListingConsent: visibility === "public",
+				},
+			});
+			const result = data?.flashbackCreateWish;
+			const status = result?.status;
+			if (!result?.id || (status !== "listed" && status !== "pending_review" && status !== "private")) {
+				throw new Error("unexpected response");
+			}
+			const done: WishSubmitOutcome = {
+				wishId: result.id,
+				status,
+				city: expectedCity.trim() || null,
+			};
+			setOutcome(done);
+			onDone(done);
 		} catch (e) {
-			// 业务错误（如 flashback_wish_quota_exceeded）按 code 映射 errors 文案；
-			// 无 code / 未知 code 兜底 database_error，不透传后端原文（错误文案纪律）
-			const code = graphqlErrorDetails(e)?.code;
-			setError(errorT(code, tErrors("database_error")));
+			// 业务错误（quota_exceeded / content_rejected / city_unknown）按 code 映射
+			// errors 文案；无 code / 未知 code 兜底 database_error（错误文案纪律）
+			const detail = graphqlErrorDetails(e);
+			setError(errorT(detail?.code, tErrors("database_error")));
 			// 额度被拒即触发胶囊 refetch（F2）：refetch 完成后 prop 变 0 → 额度行变
-			// 用完文案 + 提交禁用，不再陷入无限被拒循环；模态保持打开，用户可关闭
-			if (code === "flashback_wish_quota_exceeded") onDone();
+			// 用完文案 + 提交禁用；模态保持打开
+			if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);
 		}
 	};
+
+	// 撤回（R18）：提交反馈处即可收回——公开面（含 item 直达）立即不可见
+	const withdraw = async () => {
+		if (!outcome || withdrawn) return;
+		try {
+			await deleteWish({ variables: { token, wishId: outcome.wishId } });
+			setWithdrawn(true);
+			onDone(null);
+		} catch (e) {
+			setError(errorT(graphqlErrorDetails(e)?.code, tErrors("database_error")));
+		}
+	};
+
+	// 三态反馈视图（R18）：不关闭模态——反馈 + 「我的愿望」指引 + 撤回入口
+	if (outcome) {
+		return (
+			<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
+				<div className="fb-wish-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t("makeWish")}>
+					{withdrawn ? (
+						<>
+							<h4 className="fb-wish-modal-title">{t("withdrawnToast")}</h4>
+							<p className="fb-wish-modal-quota">{t("myWishHint")}</p>
+						</>
+					) : outcome.status === "listed" ? (
+						<>
+							<h4 className="fb-wish-modal-title">{t("feedbackListedTitle")}</h4>
+							<p className="fb-wish-modal-quota">{t("feedbackListedBody")}</p>
+						</>
+					) : outcome.status === "pending_review" ? (
+						<>
+							<h4 className="fb-wish-modal-title">{t("feedbackPendingTitle")}</h4>
+							<p className="fb-wish-modal-quota">{t("feedbackPendingBody")}</p>
+						</>
+					) : (
+						<>
+							<h4 className="fb-wish-modal-title">{t("feedbackPrivateTitle")}</h4>
+							<p className="fb-wish-modal-quota">{t("feedbackPrivateBody")}</p>
+						</>
+					)}
+					{!withdrawn && (
+						<p className="fb-wish-modal-quota">
+							{t("myWishHint")}
+							{outcome.status === "listed" && (
+								<>
+									{" "}
+									<Link href={`/flashback/wishes?item=${outcome.wishId}`}>{t("viewOnTree")}</Link>
+								</>
+							)}
+						</p>
+					)}
+					<div className="fb-wish-modal-actions">
+						{!withdrawn && (
+							<button type="button" className="fb-wish-modal-cancel" onClick={() => void withdraw()}>
+								{t("withdraw")}
+							</button>
+						)}
+						<button type="button" className="fb-wish-modal-submit" onClick={onClose}>
+							{t("close")}
+						</button>
+					</div>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
@@ -223,8 +336,61 @@ function WishFormModal({
 					placeholder={t("formPlaceholder")}
 					onChange={(e) => setContent(e.target.value)}
 				/>
-				<div className="fb-wish-modal-radios" role="radiogroup" aria-label={t("visibilityLabel")}>
+				<div className="fb-wish-modal-radios" role="radiogroup" aria-label={t("signatureLabel")}>
 					<label>
+						<input
+							type="radio"
+							name="wish-signature"
+							checked={signatureChoice === "anonymous"}
+							onChange={() => setSignatureChoice("anonymous")}
+						/>{" "}
+						{t("signatureAnonymous")}
+					</label>
+					<label>
+						<input
+							type="radio"
+							name="wish-signature"
+							checked={signatureChoice === "display_name"}
+							onChange={() => setSignatureChoice("display_name")}
+						/>{" "}
+						{t("signatureDisplay")}
+					</label>
+				</div>
+				<label className="fb-wish-city-field">
+					<span className="fb-wish-city-label">{t("expectedCityLabel")}</span>
+					<input
+						type="text"
+						value={expectedCity}
+						maxLength={16}
+						placeholder={t("expectedCityPlaceholder")}
+						onChange={(e) => setExpectedCity(e.target.value)}
+					/>
+					{cityCandidates.length > 0 && (
+						<p className="fb-wish-city-candidates">
+							{t("cityCandidatesHint")}{" "}
+							{cityCandidates.map((name, i) => (
+								<span key={name}>
+									{i > 0 && " · "}
+									<button type="button" className="fb-wish-city-candidate" onClick={() => setExpectedCity(name)}>
+										{name}
+									</button>
+								</span>
+							))}
+						</p>
+					)}
+				</label>
+				<div className="fb-wish-modal-radios fb-wish-visibility" role="radiogroup" aria-label={t("visibilityLabel")}>
+					<label className="fb-wish-visibility-option">
+						<input
+							type="radio"
+							name="wish-visibility"
+							checked={visibility === "public"}
+							onChange={() => setVisibility("public")}
+						/>{" "}
+						<strong>{t("visibilityPublicBold")}</strong>
+						<span className="fb-wish-visibility-hint">{t("visibilityPublicHint")}</span>
+					</label>
+					<label className="fb-wish-visibility-option">
 						<input
 							type="radio"
 							name="wish-visibility"
@@ -232,15 +398,7 @@ function WishFormModal({
 							onChange={() => setVisibility("private")}
 						/>{" "}
 						{t("visibilityPrivate")}
-					</label>
-					<label>
-						<input
-							type="radio"
-							name="wish-visibility"
-							checked={visibility === "public"}
-							onChange={() => setVisibility("public")}
-						/>{" "}
-						{t("visibilityPublic")}
+						<span className="fb-wish-visibility-hint">{t("visibilityPrivateHint")}</span>
 					</label>
 				</div>
 				{error && (
@@ -268,7 +426,6 @@ function WishFormModal({
 
 function WishModal({
 	wish,
-	token,
 	busy,
 	onClose,
 	onEndorse,
@@ -276,7 +433,6 @@ function WishModal({
 	onDelete,
 }: {
 	wish: FlashbackWish;
-	token: string | null;
 	busy: boolean;
 	onClose: () => void;
 	onEndorse: (wishId: string) => void;

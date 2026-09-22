@@ -957,6 +957,101 @@ export interface FlashbackOutreachPreview {
 	smsReady: boolean;
 }
 
+// ── wish2 愿望管理（U5/KTD5）────────────────────────────────────────────────
+
+export interface FlashbackAdminWishInboxEntry {
+	wishId: string;
+	content: string;
+	city?: string | null;
+	signature: string;
+	insertedAt: string;
+	wisherMasked?: string | null;
+	/** 仅 platform admin；联系方式仅用于主办方对接出力事宜，不对外公开 */
+	wisherPhone?: string | null;
+	wisherEmail?: string | null;
+}
+
+export interface FlashbackAdminReportEntry {
+	reportId: string;
+	targetType: string;
+	targetId: string;
+	reasonType: string;
+	reasonFree?: string | null;
+	status: string;
+	insertedAt: string;
+}
+
+export const FLASHBACK_ADMIN_WISH_INBOX: TypedDocumentNode<
+	{ flashbackAdminWishInbox: FlashbackAdminWishInboxEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminWishInbox {
+		flashbackAdminWishInbox {
+			wishId
+			content
+			city
+			signature
+			insertedAt
+			wisherMasked
+			wisherPhone
+			wisherEmail
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_WISH_REPORTS: TypedDocumentNode<
+	{ flashbackAdminWishReports: FlashbackAdminReportEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminWishReports {
+		flashbackAdminWishReports {
+			reportId
+			targetType
+			targetId
+			reasonType
+			reasonFree
+			status
+			insertedAt
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_DISMISS_REPORT: TypedDocumentNode<
+	{ flashbackAdminDismissReport: { reportId: string; status: string } | null },
+	{ reportId: string }
+> = gql`
+	mutation FlashbackAdminDismissReport($reportId: ID!) {
+		flashbackAdminDismissReport(reportId: $reportId) {
+			reportId
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_APPROVE_REPORT: TypedDocumentNode<
+	{ flashbackAdminApproveReport: { reportId: string; status: string } | null },
+	{ reportId: string }
+> = gql`
+	mutation FlashbackAdminApproveReport($reportId: ID!) {
+		flashbackAdminApproveReport(reportId: $reportId) {
+			reportId
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_SET_WISH_HIDDEN: TypedDocumentNode<
+	{ flashbackAdminSetWishHidden: { wishId: string; hidden: boolean } | null },
+	{ wishId: string; hidden: boolean }
+> = gql`
+	mutation FlashbackAdminSetWishHidden($wishId: ID!, $hidden: Boolean!) {
+		flashbackAdminSetWishHidden(wishId: $wishId, hidden: $hidden) {
+			wishId
+			hidden
+		}
+	}
+`;
+
 export interface FlashbackOutreachBatchChannel {
 	queued: number;
 	sent: number;

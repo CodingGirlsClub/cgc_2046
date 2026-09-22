@@ -25,6 +25,8 @@ export interface AppShowQuery {
    * **公开面唯一合法参数**——分享路径不带 token/slug（参数会留在转发链里）。
    */
   shareId?: string
+  /** wish2 U9（KTD7）：许愿深链——长廊定位该愿（Web 附议引导携出） */
+  wishId?: string
 }
 
 /** 公开卡页 path（分享卡片 path 单源；#771）——无前导斜杠形态供路由比较 */
@@ -111,6 +113,18 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
     return buildInitiativeSharePath(slug)
   }
 
+  // wish2 U9（KTD7）：许愿深链（Web 附议引导浮层携 wishId）——长廊页定位该愿。
+  // 同 wishId 不打断（按值比较同款）；目标页读 wishId 参数滚动定位 + 弹附议表单。
+  const wishId = query.wishId?.trim()
+  if (wishId) {
+    if (
+      normalizePath(currentRoute).includes('pages/flashback-corridor') &&
+      currentQuery.wishId?.trim() === wishId
+    ) {
+      return null
+    }
+    return `/pages/flashback-corridor/index?wishId=${encodeURIComponent(wishId)}`
+  }
   // 首程专属深链（管理员定向发的链接/卡片带 token；R1）：token 只用于路由，
   // 不做值比较的「已在目标页」判定（KTD2：token 不是路由键）
   const token = query.token?.trim()

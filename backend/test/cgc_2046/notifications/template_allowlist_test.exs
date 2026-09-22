@@ -23,10 +23,10 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
   @runtime "config/runtime.exs"
 
   # #546 核销码通知：17 → 18；#585 管理侧成班结果：18 → 19；#538 主理人移除：19 → 20；
-  # U4 志愿者段位通知六模板：20 → 26
-  @expected_size 26
+  # U4 志愿者段位通知六模板：20 → 26；wish2 U3 附议 Echo：26 → 27
+  @expected_size 27
 
-  test "wechat 模板 env 四处名单集合完全一致（26 键）" do
+  test "wechat 模板 env 四处名单集合完全一致（27 键）" do
     sets =
       for path <- [@workflow, @kamal, @env_example, @runtime], into: %{} do
         {path, keys_in(path)}

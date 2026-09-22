@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
+import { FLASHBACK_DELETE_WISH } from "@/lib/graphql/flashback";
 import type { FlashbackCapsule, FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
 import Corridor from "./corridor";
-
 /**
  * 未来帧群（U7/版 D）：initiative 场次帧（帧头直链 + 满员/截止不出 CTA）、
  * 公开愿望帧（三色语义 + 已附议态 + 空态）、私人许愿帧仅本人可见且空则隐藏。
@@ -254,5 +254,123 @@ describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => 
 		expect(await screen.findByRole("alert")).toHaveTextContent("服务暂时不可用，请稍后重试。");
 		expect(onChanged).not.toHaveBeenCalled();
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	});
+});
+
+describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）", () => {
+	const openForm = () => {
+		fireEvent.click(screen.getByText("+ 许个愿"));
+	};
+	const fillAndSubmit = () => {
+		fireEvent.change(screen.getByPlaceholderText(/你想参加什么/), { target: { value: "办一场重聚" } });
+		fireEvent.click(screen.getByRole("button", { name: "许下这个愿" }));
+	};
+
+	it("默认公开档：加粗明示文案在 <strong> 内（R6 结构断言 pin），公开 radio 默认选中", () => {
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+
+		const strong = document.querySelector(".fb-wish-visibility strong");
+		expect(strong).not.toBeNull();
+		expect(strong).toHaveTextContent("公开 = 挂上许愿树，任何人可见");
+		const radios = screen.getAllByRole("radio", { name: /公开 = 挂上许愿树/ }) as HTMLInputElement[];
+		expect(radios[0].checked).toBe(true);
+	});
+
+	it("提交公开档：variables 带 publicListingConsent=true + 署名 + 期望地原样（归一在服务端）", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-new", endorsementCount: 0, endorsedByMe: false, status: "listed" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fireEvent.change(screen.getByPlaceholderText(/想在哪座城市/), { target: { value: "成都市" } });
+		fireEvent.click(screen.getByRole("radio", { name: /实名展示/ }));
+		fillAndSubmit();
+
+		expect(createWish).toHaveBeenCalledTimes(1);
+		expect(createWish.mock.calls[0][0].variables).toMatchObject({
+			visibility: "public",
+			publicListingConsent: true,
+			signatureChoice: "display_name",
+			expectedCity: "成都市",
+		});
+	});
+
+	it("listed 反馈：挂树文案 + 去树上看看 + 撤回入口；撤回后 withdrawn 文案", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-new", endorsementCount: 0, endorsedByMe: false, status: "listed" } },
+		});
+		const deleteWish = vi.fn().mockResolvedValue({ data: { flashbackDeleteWish: true } });
+		useMutationMock.mockImplementation(() => {
+			const calls = useMutationMock.mock.calls as unknown as Array<[unknown]>;
+			const last = calls[calls.length - 1];
+			return last?.[0] === FLASHBACK_DELETE_WISH
+				? [deleteWish, { loading: false }]
+				: [createWish, { loading: false }];
+		});
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByText("挂上树了 🎉")).toBeInTheDocument();
+		const viewLink = screen.getByText("去树上看看它").closest("a");
+		expect(viewLink).toHaveAttribute("href", "/flashback/wishes?item=w-new");
+
+		fireEvent.click(screen.getByRole("button", { name: "撤回这条愿望" }));
+		expect(await screen.findByText("已撤回——公开面上不再可见")).toBeInTheDocument();
+		expect(deleteWish).toHaveBeenCalledWith({ variables: { token: "tok", wishId: "w-new" } });
+	});
+
+	it("pending_review 反馈：审核通过后挂上树（不假装纸签已公开出现）", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-pr", endorsementCount: 0, endorsedByMe: false, status: "pending_review" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByText("已提交")).toBeInTheDocument();
+		expect(screen.getByText("审核通过后挂上树。")).toBeInTheDocument();
+		// 未挂树 → 无「去树上看看」
+		expect(screen.queryByText("去树上看看它")).not.toBeInTheDocument();
+	});
+
+	it("说给主办方听档：指定文案反馈 + consent=false", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-pv", endorsementCount: 0, endorsedByMe: false, status: "private" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fireEvent.click(screen.getByRole("radio", { name: /说给主办方听/ }));
+		fillAndSubmit();
+
+		expect(createWish.mock.calls[0][0].variables).toMatchObject({
+			visibility: "private",
+			publicListingConsent: false,
+		});
+		expect(await screen.findByText("收到。")).toBeInTheDocument();
+		expect(
+			screen.getByText("这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。"),
+		).toBeInTheDocument();
+	});
+
+	it("机审拒绝：flashback_content_rejected 映射换种说法文案", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "rejected", extensions: { code: "flashback_content_rejected" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("这句话没能挂上树，换种说法试试。");
 	});
 });

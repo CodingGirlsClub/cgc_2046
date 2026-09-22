@@ -43,7 +43,10 @@ const WECHAT_SCENARIOS = [
   'volunteer_application_training',
   'volunteer_application_assigned',
   'volunteer_application_rejected',
-  'volunteer_application_canceled'
+  'volunteer_application_canceled',
+  // wish2 U3/U9（KTD3）：附议 Echo 回响（2026-09-22 模板已配置；env 名机械推导
+  // CGC_WECHAT_TEMPLATE_FLASHBACK_WISH_ECHO——.env.prod 已写真值）
+  'flashback_wish_echo'
 ] as const
 
 // 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）

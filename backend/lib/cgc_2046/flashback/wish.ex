@@ -30,6 +30,17 @@ defmodule Cgc2046.Flashback.Wish do
     attribute(:city, :string, public?: true, writable?: true)
     attribute(:deleted_at, :utc_datetime, public?: true, writable?: true)
 
+    # U1（KTD1）：署名快照——创建时按作者选择定型，之后不回溯改名
+    attribute(:signature, :string, allow_nil?: false, default: "", public?: true, writable?: true)
+
+    # U1（KTD1）：公开树授权标记——`visibility=public AND publicListingConsent=true`
+    # 才写入；nil 即未授权公开（成员面仍可见）
+    attribute(:listed_at, :utc_datetime_usec, public?: true, writable?: true)
+
+    # U1（KTD1/KTD5）：admin 下架标记——与作者撤回 `deleted_at` 区分；hidden 后
+    # 公开树移除但成员面保留（admin 编辑权走 U5 的专用 action）
+    attribute(:hidden_at, :utc_datetime_usec, public?: true, writable?: true)
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -44,11 +55,15 @@ defmodule Cgc2046.Flashback.Wish do
     defaults([:read, :destroy])
 
     create :create do
-      accept([:person_id, :content, :visibility, :city])
+      # signature/listed_at/hidden_at 在 server 层（Wishes.create_wish/4）赋值，不进
+      # GraphQL 写面（U6 公开 schema 不暴露）；「仅 server 写」由 domain 边界保证。
+      accept([:person_id, :content, :visibility, :city, :signature, :listed_at, :hidden_at])
     end
 
     update :update do
-      accept([:deleted_at])
+      # 软删 / U5 admin set_hidden 共用（admin 走 domain 层 authorize 而非 GraphQL
+      # 公开面——U6 GraphQL whitelist 不暴露任何 update 入口）。
+      accept([:deleted_at, :hidden_at])
     end
   end
 

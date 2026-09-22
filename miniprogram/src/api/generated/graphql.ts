@@ -1195,18 +1195,65 @@ export type FlashbackCreateWishMutationVariables = Exact<{
   token?: string | null | undefined;
   content: string;
   visibility: string;
+  signatureChoice?: string | null | undefined;
+  expectedCity?: string | null | undefined;
+  publicListingConsent?: boolean | null | undefined;
 }>;
 
 
-export type FlashbackCreateWishMutation = { flashbackCreateWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+export type FlashbackCreateWishMutation = { flashbackCreateWish: { id: string | null, endorsementCount: number, endorsedByMe: boolean, status: string } | null };
+
+export type FlashbackCitiesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackCitiesQuery = { flashbackCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };
 
 export type FlashbackEndorseWishMutationVariables = Exact<{
-  token?: string | null | undefined;
   wishId: string | number;
+  contributionTypes?: Array<string> | string | null | undefined;
+  message?: string | null | undefined;
+  notify?: boolean | null | undefined;
 }>;
 
 
 export type FlashbackEndorseWishMutation = { flashbackEndorseWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+
+export type FlashbackCancelEndorseWishMutationVariables = Exact<{
+  wishId: string | number;
+}>;
+
+
+export type FlashbackCancelEndorseWishMutation = { flashbackCancelEndorseWish: { endorsementCount: number, endorsedByMe: boolean } | null };
+
+export type FlashbackExpectWishMutationVariables = Exact<{
+  wishId: string | number;
+  expected: boolean;
+  anonVoterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackExpectWishMutation = { flashbackExpectWish: { expectationCount: number, expectedByMe: boolean } | null };
+
+export type FlashbackReportWishMutationVariables = Exact<{
+  wishId: string | number;
+  reasonType: string;
+  reasonFree?: string | null | undefined;
+  anonVoterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackReportWishMutation = { flashbackReportWish: { reportId: string, status: string } | null };
+
+export type FlashbackPublicWishesQueryVariables = Exact<{
+  city?: string | null | undefined;
+  seed?: string | null | undefined;
+  offset?: number | null | undefined;
+  limit?: number | null | undefined;
+  voterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackPublicWishesQuery = { flashbackPublicWishes: Array<{ id: string, content: string, city: string | null, signature: string, expectationCount: number, endorsementCount: number, contributionDistribution: string, expectedByViewer: boolean, endorsedByViewer: boolean, listedAt: string, insertedAt: string }> };
 
 export type FlashbackAddWishCommentMutationVariables = Exact<{
   token?: string | null | undefined;

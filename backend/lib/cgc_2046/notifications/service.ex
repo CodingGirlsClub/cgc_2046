@@ -300,6 +300,17 @@ defmodule Cgc2046.Notifications.Service do
   # 招募六段：槽位编号为各模板实际字段（2026-09-18 微信后台实抄，与
   # miniprogram_templates 的 template_id 一一对应）；数据语义不变，仅键名对齐。
 
+  # wish2 U3（KTD3）：附议 Echo 回响卡。槽位为最小集（thing 标题 + thing 摘要）——
+  # 模板实抄槽位表见 #811；Echo 批定稿字段前以「愿望预览 + 固定引导语」渲染，
+  # thing 顶 20 字防超限（同招募六段先例）。
+  defp render(:wechat, "flashback_wish_echo", %{} = data) do
+    %{
+      "thing1" => thing(data["content_preview"]),
+      "thing2" => "主办方收到你的提议，来看看回应"
+    }
+    |> drop_nils()
+  end
+
   defp render(:wechat, "volunteer_application_submitted", %{} = data) do
     %{
       "thing7" => thing(data["cohort_name"]),
