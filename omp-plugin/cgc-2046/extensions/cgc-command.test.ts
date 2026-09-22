@@ -105,3 +105,94 @@ describe("/cgc workspace guard", () => {
     expect(sendCalls.length).toBe(0);
   });
 });
+
+describe("/cgc version check", () => {
+  // fixture HOME：构造 ~/.omp/plugins/ 目录结构，process.env.HOME 指向它
+  function setupFixtureHome(installedVersion: string, catalogVersion: string): string {
+    const { mkdirSync, writeFileSync, rmSync } = require("fs");
+    const home = `/tmp/cgc-version-test-${Date.now()}`;
+    const pluginsDir = `${home}/.omp/plugins`;
+    const catalogDir = `${pluginsDir}/cache/marketplaces/cgc-omp-plugins/.omp-plugin`;
+    mkdirSync(catalogDir, { recursive: true });
+
+    // installed_plugins.json
+    writeFileSync(
+      `${pluginsDir}/installed_plugins.json`,
+      JSON.stringify({
+        version: 2,
+        plugins: [
+          { name: "cgc-2046", marketplace: "cgc-omp-plugins", version: installedVersion },
+        ],
+      }),
+    );
+
+    // catalog cache marketplace.json
+    writeFileSync(
+      `${catalogDir}/marketplace.json`,
+      JSON.stringify({
+        name: "cgc-omp-plugins",
+        plugins: [{ name: "cgc-2046", version: catalogVersion }],
+      }),
+    );
+
+    return home;
+  }
+
+  function cleanupFixtureHome(home: string): void {
+    const { rmSync } = require("fs");
+    rmSync(home, { recursive: true, force: true });
+  }
+
+  test("版本不一致：notify 含更新提示（有新版本可用）", async () => {
+    const home = setupFixtureHome("0.1.4", "0.1.5");
+    const origHome = process.env.HOME;
+    process.env.HOME = home;
+
+    try {
+      const notifyMessages: string[] = [];
+      const mod = await import(MODULE_PATH);
+      const pi = createStubPi();
+      // 拦截 notify 收集消息
+      const origPi = pi;
+      (mod as { default: (pi: StubPi) => void }).default(pi);
+      const ctx = createStubCtx(`${home}/cgc2046_workspace`, CGC_TOOLS);
+      // 临时替换 ctx.ui.notify 收集消息
+      (ctx as Record<string, unknown>).ui = {
+        notify: (msg: string) => { notifyMessages.push(msg); },
+      };
+      await runHandler(pi, ctx);
+
+      // checkVersion 依赖 os.homedir()——Bun 下 os.homedir() 读 $HOME on Unix
+      // 由于我们改了 process.env.HOME，os.homedir() 应返回 fixture home
+      const hasUpdateHint = notifyMessages.some(m => m.includes("有新版本可用"));
+      expect(hasUpdateHint).toBe(true);
+    } finally {
+      process.env.HOME = origHome;
+      cleanupFixtureHome(home);
+    }
+  });
+
+  test("版本一致：notify 无更新提示", async () => {
+    const home = setupFixtureHome("0.1.5", "0.1.5");
+    const origHome = process.env.HOME;
+    process.env.HOME = home;
+
+    try {
+      const notifyMessages: string[] = [];
+      const mod = await import(MODULE_PATH);
+      const pi = createStubPi();
+      (mod as { default: (pi: StubPi) => void }).default(pi);
+      const ctx = createStubCtx(`${home}/cgc2046_workspace`, CGC_TOOLS);
+      (ctx as Record<string, unknown>).ui = {
+        notify: (msg: string) => { notifyMessages.push(msg); },
+      };
+      await runHandler(pi, ctx);
+
+      const hasUpdateHint = notifyMessages.some(m => m.includes("有新版本可用"));
+      expect(hasUpdateHint).toBe(false);
+    } finally {
+      process.env.HOME = origHome;
+      cleanupFixtureHome(home);
+    }
+  });
+});
