@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
@@ -96,7 +97,7 @@ export default function WishesPage({
 				<h1 className="fb-stage-title">{t("goneTitle")}</h1>
 				<p className="fb-lead">{t("goneLead")}</p>
 				<p className="fb-hint">
-					<a href="/flashback/wishes">{t("goneBack")}</a>
+					<Link href="/flashback/wishes">{t("goneBack")}</Link>
 				</p>
 			</div>
 		);
