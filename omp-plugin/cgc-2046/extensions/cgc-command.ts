@@ -91,7 +91,13 @@ export default function cgcCommand(pi) {
       return;
     }
 
-    // 在工作目录：正常渲染汇总
+    // 在工作目录：正常渲染汇总 + 版本检查
+    const versionHint = (() => {
+      const v = checkVersion(ctx);
+      if (!v) return "";
+      return `\n\n有新版本可用：${v.catalogVersion}（当前 ${v.localVersion}）。跑 omp plugin upgrade cgc-2046@cgc-omp-plugins 更新`;
+    })();
+
     ctx.ui.notify(
       `CGC-2046 已连接（${toolCount} 个 MCP 工具可用）。\n\n` +
         "你现在可以：\n" +
@@ -101,7 +107,8 @@ export default function cgcCommand(pi) {
         "  · 说「断开连接」→ 我来指导你断开\n" +
         "  · 说「连接 CGC」→ 重新连接\n" +
         "  · 查看完整命令参考：/cgc help\n" +
-        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins",
+        "  · 查看文档：https://github.com/CodingGirlsClub/cgc-omp-plugins" +
+        versionHint,
       "info",
     );
 
@@ -114,6 +121,42 @@ export default function cgcCommand(pi) {
         "4. 末尾加引导：如需开始角色工作，说「开始 CGC 工作」（会以 cgc agent 身份处理）",
       { deliverAs: "nextTurn", triggerTurn: true },
     );
+  };
+
+  // 版本检查：读本地安装版本与 catalog 缓存版本，不一致时 notify 提示更新
+  // 本地：~/.omp/plugins/installed_plugins.json（user scope）
+  // catalog：~/.omp/plugins/cache/marketplaces/cgc-omp-plugins/.omp-plugin/marketplace.json
+  const checkVersion = (ctx) => {
+    try {
+      const { readFileSync, existsSync } = require("fs");
+      const { join } = require("path");
+      const os = require("os");
+      const pluginsRoot = join(os.homedir(), ".omp", "plugins");
+
+      // 读本地安装版本
+      const installedPath = join(pluginsRoot, "installed_plugins.json");
+      if (!existsSync(installedPath)) return null;
+      const installed = JSON.parse(readFileSync(installedPath, "utf8"));
+      const localVersion = installed?.plugins?.find(
+        (p) => p?.name === "cgc-2046" && p?.marketplace === "cgc-omp-plugins",
+      )?.version;
+
+      // 读 catalog 缓存版本
+      const catalogPath = join(
+        pluginsRoot, "cache", "marketplaces", "cgc-omp-plugins",
+        ".omp-plugin", "marketplace.json",
+      );
+      if (!existsSync(catalogPath)) return null;
+      const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+      const catalogVersion = catalog?.plugins?.find((p) => p?.name === "cgc-2046")?.version;
+
+      if (localVersion && catalogVersion && localVersion !== catalogVersion) {
+        return { localVersion, catalogVersion };
+      }
+      return null;
+    } catch {
+      return null; // 任何读取失败都静默跳过（不阻塞主流程）
+    }
   };
 
   pi.registerCommand("cgc", {
