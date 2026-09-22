@@ -209,7 +209,9 @@ if config_env() == :prod do
         System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 通知（2026-09-22 用户拍板模板已配置）
+      "flashback_wish_echo" => System.get_env("WECHAT_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
