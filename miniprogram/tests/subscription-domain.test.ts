@@ -28,11 +28,13 @@ import {
   volunteerApplyTouchpoint,
   volunteerFollowUpTouchpoint,
   workspaceOpsTouchpoint,
-  workspaceTouchpoint
+  workspaceTouchpoint,
+  wishEchoTouchpoint
 } from '../src/domain/subscription.ts'
 
 /** 全量触点的「正常态」取样（M0–M8）；payment_pending 与终态另有专门断言。 */
 const allTouchpoints = () => [
+  wishEchoTouchpoint(),
   preSubmitTouchpoint('event'),
   preSubmitTouchpoint('course'),
   enrollmentResultTouchpoint('pending'),
@@ -64,8 +66,8 @@ const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
   test('恰好 26 个场景，无重复', () => {
-    assert.equal(ALL_SCENARIOS.length, 26)
-    assert.equal(new Set(ALL_SCENARIOS).size, 26)
+    assert.equal(ALL_SCENARIOS.length, 27)  // wish2 U9：+flashback_wish_echo
+    assert.equal(new Set(ALL_SCENARIOS).size, 27)
   })
 
   test('每个场景至少一个触点（缺口键走显式表，改表 = 有意识的决定）', () => {

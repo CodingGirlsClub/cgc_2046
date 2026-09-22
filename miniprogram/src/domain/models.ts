@@ -67,6 +67,7 @@ export type SubscriptionScenario =
   | 'volunteer_application_assigned'
   | 'volunteer_application_rejected'
   | 'volunteer_application_canceled'
+  | 'flashback_wish_echo'
 
 export interface CatalogItem {
   id: string

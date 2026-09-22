@@ -21,6 +21,16 @@ export const COPY: Record<string, string> = {
   flashback_quote_span_fogged: '选中的句子还带着雾面，先解雾再选。',
   // 许愿年度额度（R20：每年 3 条，含私有与已软删，删除不退还；与 web zh-CN errors 同文案互指）
   flashback_wish_quota_exceeded: '今年许愿名额已用完（每年最多 3 条，删除不退还名额）。',
+  // wish2 U6/U9：机审拒绝（fail-closed）——不评判内容，引导换说法
+  flashback_content_rejected: '这句话没能挂上树，换种说法试试。',
+  // 期望地名单外（fail-closed，带 ≤3 候选城市）
+  flashback_wish_city_unknown: '没认出这是哪个城市，换个写法试试（如：上海、成都）。',
+  // 期待限频（30/min voter + 60/h IP）
+  flashback_expectation_rate_limited: '操作太频繁了，歇一会儿再试。',
+  // 附议：未认领档案（先完成成员档案认领）
+  flashback_wish_endorsement_requires_claim: '请先完成成员档案认领，再附议出力。',
+  // 附议留言超长
+  flashback_wish_endorsement_message_too_long: '附议留言最多 500 字。',
   // 核销码生成失败（同场并发撞码，可重试；U4/KTD5）
   enrollment_check_in_code_exhausted: '核销码生成失败，请重新提交报名。',
   // 报名已离开 payment_pending（已支付/已取消/已过期）
