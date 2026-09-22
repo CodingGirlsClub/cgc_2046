@@ -311,7 +311,7 @@ defmodule Cgc2046.Flashback.WishExpectationsTest do
       {:ok, %{expectation_count: 1}} =
         WishExpectations.set_expectation(wish.id, true, actor_user_id: user.id)
 
-      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+      {:ok, %{endorsement_count: 1}} = Wishes.endorse_by_user(user.id, wish.id)
 
       assert WishExpectations.count_for_wish(wish.id) == 1
     end

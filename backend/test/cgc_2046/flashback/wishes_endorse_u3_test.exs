@@ -107,6 +107,21 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
         })
       end)
 
+
+  # simplify：旧 endorse/2（token person 腿）已删——p: 行种子改 SQL 直插
+  #（存量语义 = 批1 时代由旧路径写入的历史数据形态：user_id NULL）
+  defp insert_p_endorsement(wish_id, person_id) do
+    Repo.query!(
+      """
+      INSERT INTO flashback_wish_endorsements
+        (id, wish_id, person_id, contribution_types, notify, inserted_at)
+      VALUES (gen_random_uuid(), $1, $2, '{}', false, now())
+      """,
+      [Repo.uuid!(wish_id), Repo.uuid!(person_id)]
+    )
+    :ok
+  end
+
   describe "endorse_by_user / cancel_endorse_by_user 基本路径" do
     test "登录 user 附议 listed 愿望 → +1, 取消则 -1" do
       archive = create_archive()
@@ -297,8 +312,8 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       %{person: person, user: user} = create_claimed_wechat_person(archive)
       wish = create_listed_wish(person, "归并")
 
-      # 先用旧 person-only 路径造 p: 行（未填 user_id）
-      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+      # 造存量 p: 行（user_id NULL——批1 历史数据形态）
+      :ok = insert_p_endorsement(wish.id, person.id)
 
       wish_id = wish.id
 
@@ -343,8 +358,8 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       %{person: person, user: user} = create_claimed_wechat_person(archive)
       wish = create_listed_wish(person, "存量 p:")
 
-      # person 自己造 p:，user 未 endorse
-      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+      # person 自己造 p:，user 未 endorse（user_id NULL 存量形态）
+      :ok = insert_p_endorsement(wish.id, person.id)
 
       # user 视角 endorsement_count 也应该 = 1（同一物理行；KTD2 user 已认领 person）
       result = Wishes.count_with_mine_by_user(wish.id, Repo.uuid!(user.id))
@@ -358,7 +373,7 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       %{person: person, user: user} = create_claimed_wechat_person(archive)
       wish = create_listed_wish(person, "归并后 endorsed")
 
-      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+      :ok = insert_p_endorsement(wish.id, person.id)
 
       {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
         Wishes.endorse_by_user(user.id, wish.id)

@@ -12,7 +12,7 @@ defmodule Cgc2046.Flashback.Reports do
   - `set_wish_hidden(wish_id, admin_user_id, true|false)`：置位/清除 hidden_at。
     置位时**同步**给 wish 作者的 user 置 `wishes_review_required_at`（G1 信用字段）；
   - `dismiss_report(report_id, admin_user_id)`：status=dismissed
-  - ` approve_report(report_id, admin_user_id)`：status=actioned + 置 hidden_at（联动）
+  - `approve_report(report_id, admin_user_id)`：status=actioned + 置 hidden_at（联动）
   - `list_pending_reports/0`：admin 队列
   - `list_inbox_private_wishes/0`：visibility=private 作者联络信息（**仅 admin**）
   """

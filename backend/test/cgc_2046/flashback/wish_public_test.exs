@@ -152,7 +152,14 @@ defmodule Cgc2046.Flashback.WishPublicTest do
       # 附议：插入 10 个 p: 行（不同 person）
       for i <- 1..10 do
         endorser = create_person(archive, %{full_name: "附议人#{i}", surname: "附"})
-        {:ok, _} = Wishes.endorse(endorser.id, hot.id)
+        Repo.query!(
+          """
+          INSERT INTO flashback_wish_endorsements
+            (id, wish_id, person_id, contribution_types, notify, inserted_at)
+          VALUES (gen_random_uuid(), $1, $2, '{}', false, now())
+          """,
+          [Repo.uuid!(hot.id), Repo.uuid!(endorser.id)]
+        )
       end
 
       {:ok, rows} = WishPublic.wishes(seed: "weight-test", limit: 50)
