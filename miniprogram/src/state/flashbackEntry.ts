@@ -26,3 +26,21 @@ export function consumeFlashbackEntry(): FlashbackEntryIntent | null {
   Taro.removeStorageSync(KEY)
   return value === 'welcome' || value === 'future' ? value : null
 }
+
+/**
+ * wish2 U9（KTD7）：wishId 深链定位——长廊是 tabBar 页，`switchTab` 不带
+ * query，由 `entry.applyEntry` 落盘、长廊 `useDidShow` 消费（读后即清，
+ * 与 intent 同款一次性语义）。
+ */
+export const FLASHBACK_WISH_TARGET_KEY = 'cgc.flashback_wish_target'
+
+export function setFlashbackWishTarget(wishId: string): void {
+  Taro.setStorageSync(FLASHBACK_WISH_TARGET_KEY, wishId)
+}
+
+/** 读后即清（一次性）；无目标或值非法（storage 被外部污染）返回 null */
+export function consumeFlashbackWishTarget(): string | null {
+  const value = Taro.getStorageSync<string>(FLASHBACK_WISH_TARGET_KEY)
+  Taro.removeStorageSync(FLASHBACK_WISH_TARGET_KEY)
+  return typeof value === 'string' && value ? value : null
+}

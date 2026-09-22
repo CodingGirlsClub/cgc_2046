@@ -15,22 +15,29 @@ const PENDING_SCENE_KEY = 'cgc.pending_scene'
 
 function fakeTaro(pages: EntryPage[] = []) {
   const navigated: string[] = []
+  const switched: string[] = []
   const stored: Array<[string, string]> = []
   return {
     navigated,
+    switched,
     stored,
     taro: {
       getCurrentPages: () => pages,
       navigateTo: ({ url }: { url: string }) => navigated.push(url),
+      switchTab: ({ url }: { url: string }) => switched.push(url),
       setStorageSync: (key: string, value: string) => stored.push([key, value])
     }
   }
 }
 
-function entry(options: Parameters<typeof applyEntry>[1], pages: EntryPage[] = []) {
-  const { taro, navigated, stored } = fakeTaro(pages)
-  applyEntry(taro, options, PENDING_SCENE_KEY)
-  return { navigated, stored }
+function entry(
+  options: Parameters<typeof applyEntry>[1],
+  pages: EntryPage[] = [],
+  pendingWishKey = 'cgc.flashback_wish_target'
+) {
+  const { taro, navigated, switched, stored } = fakeTaro(pages)
+  applyEntry(taro, options, PENDING_SCENE_KEY, pendingWishKey)
+  return { navigated, switched, stored }
 }
 
 test('冷启动 id 深链（scheme / 卡片）→ navigateTo 详情页', () => {
@@ -100,4 +107,32 @@ test('热启动已在同一 event-detail（同 id）→ 不导航；换场次 �
     ]).navigated,
     ['/pages/event-detail/index?id=evt-2&kind=event']
   )
+})
+
+// ── wish2 U9（KTD7）：wishId 深链——长廊是 tabBar 页，navigateTo 会被微信
+// 拒绝；wishId 落 pendingWish、switchTab 进长廊（长廊 useDidShow 读后即清）。
+test('热启动别页带 wishId → switchTab 长廊 + 落盘 pendingWish（不 navigateTo）', () => {
+  const result = entry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
+  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.stored, [['cgc.flashback_wish_target', 'w-9']])
+})
+
+test('热启动已在长廊看同一条愿望（同 wishId）→ 不导航不落盘', () => {
+  const result = entry(
+    { query: { wishId: 'w-9' } },
+    [{ route: 'pages/flashback-corridor/index', options: { wishId: 'w-9' } }]
+  )
+  assert.deepEqual(result.switched, [])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.stored, [])
+})
+
+test('换一条 wishId（已在长廊）→ switchTab + 新 wishId 落盘', () => {
+  const result = entry(
+    { query: { wishId: 'w-10' } },
+    [{ route: 'pages/flashback-corridor/index', options: { wishId: 'w-9' } }]
+  )
+  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
+  assert.deepEqual(result.stored, [['cgc.flashback_wish_target', 'w-10']])
 })

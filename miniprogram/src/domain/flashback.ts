@@ -609,3 +609,29 @@ export function wishQuotaCopy(quota: number | null): string | null {
   if (quota === 0) return '今年许愿名额已用完（每年最多 3 条，删除不退还名额）'
   return `今年还可许 ${quota} 条`
 }
+
+// ── wish2 U9：viewer listed 公开树 + 附议表单（KTD3/KTD5/KTD7） ────────────
+
+/** viewer 面公开愿望（flashbackPublicWishes 投影；listed 四条件由服务端保证） */
+export interface ViewerWish {
+  id: string
+  content: string
+  city: string | null
+  signature: string
+  expectationCount: number
+  endorsementCount: number
+  expectedByViewer: boolean
+  endorsedByViewer: boolean
+}
+
+/** 附议出力类型（后端 contribution_types 枚举面，KTD3；顺序即表单展示序） */
+export const WISH_CONTRIBUTION_OPTIONS = [
+  { type: 'venue', label: '提供场地' },
+  { type: 'organize', label: '帮忙组织' },
+  { type: 'speak', label: '来分享' },
+  { type: 'sponsor', label: '赞助支持' },
+  { type: 'other', label: '其他方式' }
+] as const
+
+/** 附议留言上限（后端 flashback_wish_endorsement_message_too_long 同值） */
+export const WISH_ENDORSE_MESSAGE_MAX = 500
