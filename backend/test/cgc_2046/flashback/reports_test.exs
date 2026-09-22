@@ -150,6 +150,84 @@ defmodule Cgc2046.Flashback.ReportsTest do
     end
   end
 
+  describe "FIX-4 举报幂等 + 目标资格收口" do
+    test "同人同目标重复举报幂等：返回既有行，不重复入队" do
+      archive = create_archive()
+      owner = create_person(archive)
+      wish = create_listed_wish(owner, "被举报愿")
+      reporter = register_user("u5-idem")
+
+      {:ok, first} =
+        Reports.report("wish", wish.id, "spam", actor_user_id: reporter.id, remote_ip: "10.9.0.1")
+
+      {:ok, second} =
+        Reports.report("wish", wish.id, "spam", actor_user_id: reporter.id,
+          reason_free: "第二次补充", remote_ip: "10.9.0.1")
+
+      assert first.id == second.id
+      assert second.reason_free == first.reason_free  # 幂等返回既有行（不覆盖）
+
+      cnt =
+        Repo.query!("SELECT COUNT(*) FROM flashback_reports WHERE target_id = $1", [
+          Repo.uuid!(wish.id)
+        ])
+      assert cnt.rows == [[1]]
+    end
+
+    test "匿名 a: 键同人同目标也幂等" do
+      archive = create_archive()
+      owner = create_person(archive)
+      wish = create_listed_wish(owner, "被匿名举报")
+
+      {:ok, first} = Reports.report("wish", wish.id, "spam", anon_voter_key: "a:idem-dev", remote_ip: "10.9.0.2")
+      {:ok, second} = Reports.report("wish", wish.id, "scam", anon_voter_key: "a:idem-dev", remote_ip: "10.9.0.2")
+
+      assert first.id == second.id
+    end
+
+    test "private 愿望举报 → target_not_found（不泄露存在性）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      {:ok, private_wish} =
+        Wishes.create_wish(owner.id, "悄悄话", "private", public_listing_consent: false)
+
+      assert {:error, %{code: "flashback_report_target_not_found"}} =
+               Reports.report("wish", private_wish.id, "spam", anon_voter_key: "a:px", remote_ip: "10.9.0.3")
+    end
+
+    test "未 listed 愿望举报 → target_not_found" do
+      archive = create_archive()
+      owner = create_person(archive)
+      {:ok, member_only} =
+        Wishes.create_wish(owner.id, "成员面愿", "public", public_listing_consent: false)
+
+      assert {:error, %{code: "flashback_report_target_not_found"}} =
+               Reports.report("wish", member_only.id, "spam", anon_voter_key: "a:px2", remote_ip: "10.9.0.4")
+    end
+
+    test "hidden 愿望举报 → target_not_found" do
+      archive = create_archive()
+      owner = create_person(archive)
+      wish = create_listed_wish(owner, "将被隐藏")
+      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [
+        Repo.uuid!(wish.id)
+      ])
+
+      assert {:error, %{code: "flashback_report_target_not_found"}} =
+               Reports.report("wish", wish.id, "spam", anon_voter_key: "a:px3", remote_ip: "10.9.0.5")
+    end
+
+    test "listed 公开愿望举报仍成功（正路径不回归）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      wish = create_listed_wish(owner, "正常可举报")
+
+      assert {:ok, %{} = report} =
+               Reports.report("wish", wish.id, "spam", anon_voter_key: "a:ok", remote_ip: "10.9.0.6")
+      assert report.status == "pending"
+    end
+  end
+
   describe "Admin set_wish_hidden + 信用字段联动" do
     test "admin set_hidden=true → wish.hidden_at 置位 + user.wishes_review_required_at 置位" do
       archive = create_archive()
