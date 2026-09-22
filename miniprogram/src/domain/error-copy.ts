@@ -27,8 +27,8 @@ export const COPY: Record<string, string> = {
   flashback_wish_city_unknown: '没认出这是哪个城市，换个写法试试（如：上海、成都）。',
   // 期待限频（30/min voter + 60/h IP）
   flashback_expectation_rate_limited: '操作太频繁了，歇一会儿再试。',
-  // 附议：未认领档案（先完成成员档案认领）
-  flashback_wish_endorsement_requires_claim: '请先完成成员档案认领，再附议出力。',
+  // （flashback_wish_endorsement_requires_claim 已删——FIX-2 KTD9 后后端不再发出；
+  // requires_claim 会泄露「可附议但需认领」信号，统一 not_found 不泄露存在性）
   // 附议留言超长
   flashback_wish_endorsement_message_too_long: '附议留言最多 500 字。',
   // 核销码生成失败（同场并发撞码，可重试；U4/KTD5）

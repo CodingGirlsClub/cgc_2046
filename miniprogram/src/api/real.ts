@@ -859,17 +859,37 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
   // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
 
-  // U4 愿望写操作:双入口 token,失效抛 FlashbackNotBoundError 由页面处理
-  async flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void> {
-    await graphqlRequest<FlashbackCreateWishMutation, FlashbackCreateWishMutationVariables>(
+  // U4 愿望写操作:双入口 token,失效抛 FlashbackTokenInvalidError 由页面处理。
+  // wish2 U8/U10 扩参:署名/期望地/公开授权;返回三态结果(页面按 status 分文案)
+  async flashbackCreateWish(
+    content: string,
+    visibility: 'private' | 'public',
+    token?: string | null,
+    options?: {
+      signatureChoice?: 'anonymous' | 'display_name'
+      expectedCity?: string | null
+      publicListingConsent?: boolean
+    }
+  ): Promise<{ id: string; status: string }> {
+    const data = await graphqlRequest<FlashbackCreateWishMutation, FlashbackCreateWishMutationVariables>(
       FlashbackCreateWishMutationDocument,
-      { content, visibility, token: token ?? null }
+      {
+        content,
+        visibility,
+        token: token ?? null,
+        signatureChoice: options?.signatureChoice ?? null,
+        expectedCity: options?.expectedCity ?? null,
+        publicListingConsent: options?.publicListingConsent ?? false
+      }
     ).catch((error: unknown) => {
       throwIfFlashbackTokenInvalid(error)
-      // R20 年度额度等业务错误:code 命中 errorCopy 抛中文(如 flashback_wish_quota_exceeded)
+      // R20 年度额度/机审拒绝/城市名单外:code 命中 errorCopy 抛中文
       if (error instanceof GraphQLRequestError) mutationError(error.errors)
       throw error
     })
+    const result = data.flashbackCreateWish
+    if (!result?.id || !result.status) throw new Error('许愿结果异常，请稍后在「我的愿望」查看')
+    return { id: result.id, status: result.status }
   }
 
   // wish2 U6/KTD3：附议登录版（旧 token 匿名腿下线——未登录由页面引登录页）

@@ -1310,7 +1310,24 @@ function responseFor(document: string, variables: object): unknown {
       deleted: false
     }
     updateFlashbackState((s) => ({ ...s, wishes: [wish, ...state.wishes] }))
-    return { flashbackCreateWish: { endorsementCount: 0, endorsedByMe: false } }
+    // wish2 U10：三态返回——公开+consent=listed（mock 无信用门），private=private
+    const status = visibility === 'public' && values.publicListingConsent === true ? 'listed' : 'private'
+    return { flashbackCreateWish: { id, endorsementCount: 0, endorsedByMe: false, status } }
+  }
+  if (document.includes('query FlashbackCities')) {
+    // wish2 U10（KTD11）：期望地候选名单——名单样例子集（真源 flashbackCities）
+    return {
+      flashbackCities: [
+        { name: '北京', fullName: '北京市', pinyin: 'beijing', lngLat: [116.407, 39.904] },
+        { name: '上海', fullName: '上海市', pinyin: 'shanghai', lngLat: [121.474, 31.23] },
+        { name: '成都', fullName: '成都市', pinyin: 'chengdu', lngLat: [104.066, 30.572] },
+        { name: '广州', fullName: '广州市', pinyin: 'guangzhou', lngLat: [113.264, 23.129] },
+        { name: '深圳', fullName: '深圳市', pinyin: 'shenzhen', lngLat: [114.058, 22.543] },
+        { name: '杭州', fullName: '杭州市', pinyin: 'hangzhou', lngLat: [120.155, 30.274] },
+        { name: '武汉', fullName: '武汉市', pinyin: 'wuhan', lngLat: [114.306, 30.593] },
+        { name: '西安', fullName: '西安市', pinyin: 'xian', lngLat: [108.94, 34.341] }
+      ]
+    }
   }
   if (document.includes('mutation FlashbackEndorseWish')) {
     const state = flashbackState()

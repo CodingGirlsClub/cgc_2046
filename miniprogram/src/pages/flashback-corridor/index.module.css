@@ -669,6 +669,56 @@
   color: #222326;
 }
 
+/* ── wish2 U10：许愿 sheet 署名/期望地/两档 hint（R6/R17/KTD11） ─────────── */
+.signatureBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 20rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 0;
+}
+.wishCityInput {
+  width: 100%;
+  background: #f6f6f4;
+  border-radius: 16rpx;
+  padding: 18rpx 20rpx;
+  font-size: 26rpx;
+  margin-top: 20rpx;
+  box-sizing: border-box;
+}
+.wishCityCandidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  align-items: center;
+  margin: 12rpx 0 4rpx;
+}
+.wishCityCandidatesHint {
+  font-size: 20rpx;
+  color: #8a8f98;
+}
+.wishCityCandidate {
+  font-size: 22rpx;
+  color: #ea5504;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx;
+  padding: 4rpx 16rpx;
+  background: #fff;
+}
+/* 公开档恒加粗（R6 结构断言 pin——与选中态无关，明示挂树授权） */
+.visibilityPublicLabel {
+  font-weight: 700;
+}
+/* 两档说明行（公开/说给主办方听各自 hint） */
+.visibilityHintText {
+  display: block;
+  font-size: 20rpx;
+  color: #6b7076;
+  margin: -12rpx 0 28rpx;
+}
+
 /* U6 路人态 1024 活动横幅(R9)：已撤——活动推广归「发现」Tab，
    长廊里重复推同一活动。原样式（.banner1024 一族）随之删除。 */
 
