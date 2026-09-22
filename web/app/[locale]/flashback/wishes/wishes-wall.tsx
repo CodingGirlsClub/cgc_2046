@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
+import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { useAuthed } from "@/lib/auth-provider";
 import { ensureVoterKey } from "@/lib/flashback-voter";
-import { WishFormModal, type WishSubmitOutcome } from "@/components/flashback/wish-frames";
+import { WishFormModal } from "@/components/flashback/wish-frames";
 import {
 	FLASHBACK_CITIES,
 	FLASHBACK_EXPECT_WISH,
@@ -71,6 +72,7 @@ export default function WishesWall({
 
 	// wish2 U8：提交后重拉公开树（listed → 新纸签出现）；city 变化触发镜头定位
 	const reloadWishes = useCallback(() => {
+		setLoadState("loading");
 		setLoadGeneration((n) => n + 1);
 	}, []);
 
@@ -114,9 +116,10 @@ export default function WishesWall({
 			.catch(() => setCityCoords({}));
 	}, []);
 
-	// 公开树加载（失败可重试）：city/seed/voterKey 变化或重试时重拉
+	// 公开树加载（失败可重试）：city/seed/voterKey 变化或重试时重拉。
+	// 不同步置 loading（react-hooks/set-state-in-effect）：初始态即 "loading"；
+	// 变化重拉沿用旧数据平滑替换；显式重试在 handler 置 loading。
 	useEffect(() => {
-		setLoadState("loading");
 		client
 			.query({
 				query: FLASHBACK_PUBLIC_WISHES,
@@ -240,7 +243,7 @@ export default function WishesWall({
 		return (
 			<div className="fb-root fb-public">
 				<p className="fb-lead">{t("loadFailed")}</p>
-				<button type="button" className="fb-action" onClick={() => setLoadGeneration((n) => n + 1)}>
+				<button type="button" className="fb-action" onClick={reloadWishes}>
 					{t("retry")}
 				</button>
 			</div>
@@ -278,9 +281,9 @@ export default function WishesWall({
 						{t("shuffle")}
 					</button>
 					{/* R21/wish2 U7：双页互跳带城市 */}
-					<a className="fb-action" href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
+					<Link className="fb-action" href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
 						{t("voicesEntry")}
-					</a>
+					</Link>
 					{city && (
 						<button
 							type="button"
@@ -298,9 +301,9 @@ export default function WishesWall({
 							{t("writeWish")}
 						</button>
 					) : (
-						<a className="fb-action" href="/flashback/enter">
+						<Link className="fb-action" href="/flashback/enter">
 							{t("writeWish")}
-						</a>
+						</Link>
 					)}
 				</div>
 

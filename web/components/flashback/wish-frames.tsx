@@ -154,7 +154,6 @@ export function WishFrames({
 				resolveWish(modal.wishId) && (
 					<WishModal
 						wish={resolveWish(modal.wishId) as FlashbackWish}
-						token={token}
 						busy={busy}
 						onClose={() => setModal({ kind: "closed" })}
 						onEndorse={(wishId) => run(() => endorse({ variables: { token, wishId } }))}
@@ -427,7 +426,6 @@ export function WishFormModal({
 
 function WishModal({
 	wish,
-	token,
 	busy,
 	onClose,
 	onEndorse,
@@ -435,7 +433,6 @@ function WishModal({
 	onDelete,
 }: {
 	wish: FlashbackWish;
-	token: string | null;
 	busy: boolean;
 	onClose: () => void;
 	onEndorse: (wishId: string) => void;
