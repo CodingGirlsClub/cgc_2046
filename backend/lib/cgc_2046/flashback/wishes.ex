@@ -196,10 +196,8 @@ defmodule Cgc2046.Flashback.Wishes do
   # ── 附议（R7 / KTD3 U3，幂等） ───────────────────────────────────────
 
   @doc """
-  附议 +1（幂等，重复无副作用）。**KTD3 U3**：
-  - 旧 person-only（token 链，KTD2 兼容）：`endorse(person_id, wish_id)`——保留
-    副线：未登录 viewer 由前端引导登录后走 `endorse_by_user/3`。
-  - 新登录：`endorse_by_user(user_id, wish_id, opts)`。opts:
+  附议（幂等，重复无副作用）。**KTD3 U3**：唯一入口 `endorse_by_user/3`
+  （旧 token/person 匿名腿已 cutover 下线——simplify 清理）。opts:
     - `:contribution_types :list(String.t())`（venue/organize/speak/sponsor/other）
     - `:message :String.t() | nil`（≤500 字；非空经机审；仅运营可见）
     - `:notify :boolean`（默认 false——Echo 意愿仅持久化，**不**调 Consent.grant）
@@ -207,21 +205,6 @@ defmodule Cgc2046.Flashback.Wishes do
     与表单字段），不新增不双计。否则新插 `u:` 行。
   - 返回 `%{endorsement_count, endorsed_by_me}` 实时状态。
   """
-  @spec endorse(String.t(), String.t()) ::
-          {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
-          | {:error, term()}
-  def endorse(person_id, wish_id) do
-    with {:ok, wish} <- fetch_public_wish(wish_id) do
-      WishEndorsement
-      |> Ash.Changeset.for_create(:create, %{wish_id: wish.id, person_id: person_id})
-      |> Ash.create(authorize?: false, upsert?: true, upsert_identity: :unique_wish_person)
-      |> case do
-        {:ok, _} -> {:ok, count_with_mine(wish.id, person_id)}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
   @spec endorse_by_user(String.t(), String.t(), keyword()) ::
           {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
           | {:error, term()}
@@ -230,16 +213,17 @@ defmodule Cgc2046.Flashback.Wishes do
     message = Keyword.get(opts, :message, nil)
     notify? = Keyword.get(opts, :notify, false)
 
+    user_uuid = Repo.uuid!(user_id)
+    person_id = find_user_person_id(user_uuid)
+
     with {:ok, wish} <- fetch_public_wish(wish_id),
          # FIX-2（KTD9 资格矩阵）：listed → 任何登录用户；未 listed → 需可解析
          # person（成员语义）；viewer（无 person）对未 listed 统一 not_found
          # （不泄露存在性）。hidden/deleted 已被 fetch_public_wish 滤除。
-         :ok <- authorize_endorse_target(wish, user_id),
+         :ok <- authorize_endorse_target(wish, person_id),
          :ok <- validate_contribution_types(contribution_types),
          :ok <- validate_endorsement_message(message),
          :ok <- check_content_by_user(user_id, message) do
-      user_uuid = Repo.uuid!(user_id)
-      person_id = find_user_person_id(user_uuid)
 
       cond do
         # p:→u: 归并：user 认领的 person 已有存量 p: 行 → 升级不新增
@@ -292,10 +276,11 @@ defmodule Cgc2046.Flashback.Wishes do
        when not is_nil(listed_at),
        do: :ok
 
-  defp authorize_endorse_target(%Wish{listed_at: nil}, user_id) do
-    case find_user_person_id(Repo.uuid!(user_id)) do
-      nil -> {:error, %{code: "flashback_wish_not_found"}}
-      _person_id -> :ok
+  defp authorize_endorse_target(%Wish{listed_at: nil}, person_id) do
+    if is_nil(person_id) do
+      {:error, %{code: "flashback_wish_not_found"}}
+    else
+      :ok
     end
   end
 
@@ -324,29 +309,6 @@ defmodule Cgc2046.Flashback.Wishes do
     |> case do
       {:ok, _} -> {:ok, count_with_mine_by_user(wish_id, user_uuid)}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc "取消附议（KTD3）：person token 链删 p: 行；user 登录链删 u: 行。"
-  @spec cancel_endorse(String.t(), String.t()) ::
-          {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
-          | {:error, term()}
-  def cancel_endorse(person_id, wish_id) do
-    with {:ok, wish} <- fetch_public_wish(wish_id) do
-      WishEndorsement
-      |> Ash.Query.filter(wish_id == ^wish.id and person_id == ^person_id)
-      |> Ash.read_one(authorize?: false)
-      |> case do
-        {:ok, nil} -> {:ok, count_with_mine(wish.id, person_id)}
-
-        {:ok, row} ->
-          case Ash.destroy(row, authorize?: false) do
-            :ok -> {:ok, count_with_mine(wish.id, person_id)}
-            {:error, reason} -> {:error, reason}
-          end
-
-        {:error, reason} -> {:error, reason}
-      end
     end
   end
 
@@ -911,20 +873,6 @@ defmodule Cgc2046.Flashback.Wishes do
       {:ok, wish} -> {:ok, wish}
       error -> error
     end
-  end
-
-  defp count_with_mine(wish_id, person_id) do
-    count =
-      WishEndorsement
-      |> Ash.Query.filter(wish_id == ^wish_id)
-      |> Ash.count!(authorize?: false)
-
-    mine? =
-      WishEndorsement
-      |> Ash.Query.filter(wish_id == ^wish_id and person_id == ^person_id)
-      |> Ash.exists?(authorize?: false)
-
-    %{endorsement_count: count, endorsed_by_me: mine?}
   end
 
   # MCP 治理删除走 admin?: true，actor 传 nil（平台侧身份由 ToolCallLog 审计承担）

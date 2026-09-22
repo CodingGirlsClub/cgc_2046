@@ -138,6 +138,8 @@ defmodule Cgc2046.Flashback.WishPublic do
   @spec wish(String.t(), String.t() | nil) :: {:ok, map() | nil}
   def wish(wish_id, voter_key \\ nil) when is_binary(wish_id) do
     voter_key = voter_key || ""
+    # 与 wishes/1 同构：仅 u: 键可命中附议 actor_key（a:/空串恒 false）
+    endorser_key = if String.starts_with?(voter_key, "u:"), do: voter_key, else: ""
 
     with {:ok, _uuid} <- Ecto.UUID.cast(wish_id) do
       row =
@@ -172,6 +174,19 @@ defmodule Cgc2046.Flashback.WishPublic do
                   "EXISTS (SELECT 1 FROM flashback_wish_expectations e WHERE e.wish_id = ? AND e.voter_key = ?)",
                   w.id,
                   ^voter_key
+                ),
+              # simplify（审计 U6-2）：单条直达补 endorsed_by_viewer——与 wishes/1
+              # 同构 EXISTS（actor_key = u: 键），payload 不再恒 false
+              endorsed_by_viewer:
+                fragment(
+                  """
+                  EXISTS (
+                    SELECT 1 FROM flashback_wish_endorsements en
+                    WHERE en.wish_id = ? AND en.actor_key = ?
+                  )
+                  """,
+                  w.id,
+                  ^endorser_key
                 )
             }
           )

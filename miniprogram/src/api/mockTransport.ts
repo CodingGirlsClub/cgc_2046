@@ -1330,16 +1330,16 @@ function responseFor(document: string, variables: object): unknown {
     }
   }
   if (document.includes('mutation FlashbackEndorseWish')) {
+    // 幂等 add-only（与后端 endorse_by_user 同义：重复附议 UPDATE 不双计）；
+    // 取消只走独立 FlashbackCancelEndorseWish（下方已有 handler）
     const state = flashbackState()
     const wishId = String(values.wishId ?? '')
     const has = state.endorsedWishIds.includes(wishId)
     updateFlashbackState((s) => ({
       ...s,
-      endorsedWishIds: has
-        ? state.endorsedWishIds.filter((id) => id !== wishId)
-        : [...state.endorsedWishIds, wishId]
+      endorsedWishIds: has ? s.endorsedWishIds : [...s.endorsedWishIds, wishId]
     }))
-    return { flashbackEndorseWish: { endorsementCount: 2, endorsedByMe: !has } }
+    return { flashbackEndorseWish: { endorsementCount: 2, endorsedByMe: true } }
   }
   if (document.includes('mutation FlashbackCancelEndorseWish')) {
     const state = flashbackState()
@@ -1381,7 +1381,10 @@ function responseFor(document: string, variables: object): unknown {
         : [...state.expectedWishIds, wishId]
       : state.expectedWishIds.filter((id) => id !== wishId)
     updateFlashbackState((s) => ({ ...s, expectedWishIds: next }))
-    return { flashbackExpectWish: { expectationCount: next.length, expectedByMe: next.includes(wishId) } }
+    // per-wish 计数（mock 基础 2 条样例期待 + 本人对该 wish 的 0/1）
+    const base = 2
+    const mine = next.includes(wishId)
+    return { flashbackExpectWish: { expectationCount: base + (mine ? 1 : 0), expectedByMe: mine } }
   }
   if (document.includes('mutation FlashbackReportWish')) {
     return { flashbackReportWish: { reportId: `rep-${Date.now()}`, status: 'pending' } }

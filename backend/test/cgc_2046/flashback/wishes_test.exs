@@ -121,11 +121,15 @@ defmodule Cgc2046.Flashback.WishesTest do
 
       {:ok, wish} = Wishes.create_wish(wisher.id, "一起出一本书", "public")
 
-      assert {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
-               Wishes.endorse(endorser.id, wish.id)
+      endorser_user = register_user("wish-idem")
+      :ok = bind_person_to_user(endorser.id, endorser_user.id)
 
       assert {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
-               Wishes.endorse(endorser.id, wish.id)
+               Wishes.endorse_by_user(endorser_user.id, wish.id)
+
+      # 幂等：重复附议 UPDATE 不双计
+      assert {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
+               Wishes.endorse_by_user(endorser_user.id, wish.id)
 
       [%{endorsement_count: 1}] = Wishes.list_public()
     end
@@ -135,11 +139,10 @@ defmodule Cgc2046.Flashback.WishesTest do
       wisher = create_person(archive)
       {:ok, private} = Wishes.create_wish(wisher.id, "私愿", "private")
 
+      # viewer（无 person）对不可附议目标统一 not_found（KTD9）
+      viewer = register_user("wish-nf")
       assert {:error, %{code: "flashback_wish_not_found"}} =
-               Wishes.endorse(
-                 create_person(archive, %{full_name: "李雷", surname: "李"}).id,
-                 private.id
-               )
+               Wishes.endorse_by_user(viewer.id, private.id)
     end
   end
 
