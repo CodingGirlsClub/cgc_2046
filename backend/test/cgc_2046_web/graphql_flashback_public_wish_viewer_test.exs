@@ -145,6 +145,74 @@ defmodule Cgc2046Web.GraphqlFlashbackPublicWishViewerTest do
     IO.inspect(result, label: "DBG")
   end
 
+  test "公开树完整字段矩阵经 HTTP 序列化不 500（E2E P1：naive datetime 装箱）" do
+    arch = archive()
+    author = person(arch)
+    wish = listed_wish(author, "时间字段愿望")
+
+    result =
+      post_graphql(
+        build_conn(),
+        """
+        query {
+          flashbackPublicWishes {
+            id
+            content
+            city
+            signature
+            expectationCount
+            endorsementCount
+            contributionDistribution
+            expectedByViewer
+            endorsedByViewer
+            listedAt
+            insertedAt
+          }
+          flashbackPublicWish(wishId: "#{wish.id}") {
+            id
+            listedAt
+            insertedAt
+          }
+        }
+        """
+      )
+
+    # 500 / Absinthe datetime MatchError 会落 errors 且无 data——此处必须
+    # 两字段真实序列化为 ISO 字符串
+    assert result["errors"] == nil
+    rows = result["data"]["flashbackPublicWishes"]
+    row = Enum.find(rows, &(&1["id"] == wish.id))
+    assert row["listedAt"] =~ ~r/^\d{4}-\d{2}-\d{2}T/
+    assert row["insertedAt"] =~ ~r/^\d{4}-\d{2}-\d{2}T/
+    assert result["data"]["flashbackPublicWish"]["listedAt"] =~ ~r/^\d{4}-\d{2}-\d{2}T/
+  end
+
+  test "未登录附议/取消附议 → flashback_auth_required（plan U3 契约）" do
+    arch = archive()
+    author = person(arch)
+    wish = listed_wish(author, "登录门槛愿望")
+
+    endorse =
+      post_graphql(
+        build_conn(),
+        """
+        mutation { flashbackEndorseWish(wishId: "#{wish.id}") { endorsementCount } }
+        """
+      )
+
+    assert [%{"code" => "flashback_auth_required"}] = endorse["errors"]
+
+    cancel =
+      post_graphql(
+        build_conn(),
+        """
+        mutation { flashbackCancelEndorseWish(wishId: "#{wish.id}") { endorsementCount } }
+        """
+      )
+
+    assert [%{"code" => "flashback_auth_required"}] = cancel["errors"]
+  end
+
   defp recycle_cookie(conn, resp_conn) do
     case resp_conn.resp_cookies["cgc_token"] do
       %{value: value} ->

@@ -265,10 +265,17 @@ defmodule Cgc2046.Flashback.WishPublic do
       contribution_distribution: contribution_distribution(id),
       expected_by_viewer: row.expected_by_viewer || false,
       endorsed_by_viewer: row[:endorsed_by_viewer] || false,
-      listed_at: row.listed_at,
-      inserted_at: row.inserted_at
+      # E2E P1：schemaless select 返回 naive datetime（timestamp 无时区）——
+      # Absinthe :datetime 标量要求 DateTime struct，裸 NaiveDateTime 序列化
+      # 即 500。schemaless 读面统一按 UTC 语义装箱。
+      listed_at: to_utc_datetime(row.listed_at),
+      inserted_at: to_utc_datetime(row.inserted_at)
     }
   end
+
+  defp to_utc_datetime(%DateTime{} = dt), do: dt
+  defp to_utc_datetime(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
+  defp to_utc_datetime(nil), do: nil
 
   defp contribution_distribution(wish_id) when is_binary(wish_id) and byte_size(wish_id) == 16 do
     rows =
