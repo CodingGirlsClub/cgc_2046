@@ -407,7 +407,7 @@ export default function FlashbackCorridorPage() {
           notify: () => {}
         })
       }
-      await api.flashbackEndorseWish(endorseSheet.wishId, null, {
+      await api.flashbackEndorseWish(endorseSheet.wishId, {
         contributionTypes: endorseTypes,
         message: endorseMessage.trim() || null,
         notify: endorseNotify

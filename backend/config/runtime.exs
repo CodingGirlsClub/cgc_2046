@@ -252,7 +252,10 @@ if config_env() == :prod do
         System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 回响——抖音端模板未申请（键保留、值 nil →
+      # template_not_configured 终态 discard；键集三平台一致不变量）
+      "flashback_wish_echo" => System.get_env("DOUYIN_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -293,7 +296,9 @@ if config_env() == :prod do
         System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 回响——小红书端模板未申请（键保留、值 nil）
+      "flashback_wish_echo" => System.get_env("XHS_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     }
   }
 

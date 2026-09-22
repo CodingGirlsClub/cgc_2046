@@ -107,9 +107,8 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
         })
       end)
 
-
   # simplify：旧 endorse/2（token person 腿）已删——p: 行种子改 SQL 直插
-  #（存量语义 = 批1 时代由旧路径写入的历史数据形态：user_id NULL）
+  # （存量语义 = 批1 时代由旧路径写入的历史数据形态：user_id NULL）
   defp insert_p_endorsement(wish_id, person_id) do
     Repo.query!(
       """
@@ -119,6 +118,7 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       """,
       [Repo.uuid!(wish_id), Repo.uuid!(person_id)]
     )
+
     :ok
   end
 
@@ -146,11 +146,13 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
 
       # person_id 落 NULL（身份由 user_id/actor_key 承载）
       wish_id = wish.id
+
       %{rows: [[pid]]} =
         Repo.query!(
           "SELECT person_id FROM flashback_wish_endorsements WHERE wish_id = $1",
           [Repo.uuid!(wish_id)]
         )
+
       assert is_nil(pid)
 
       # 幂等：重复附议 UPDATE 不双计
@@ -161,14 +163,17 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
         WishEndorsement
         |> Ash.Query.filter(wish_id == ^wish_id)
         |> Ash.count!(authorize?: false)
+
       assert cnt == 1
     end
 
     test "viewer 附议未 listed 愿望 → flashback_wish_not_found（不泄露存在性）" do
       archive = create_archive()
       owner = create_person(archive)
+
       {:ok, member_only} =
         Wishes.create_wish(owner.id, "成员面愿望", "public", public_listing_consent: false)
+
       viewer = register_user("u3-viewer2")
 
       assert {:error, %{code: "flashback_wish_not_found"}} =
@@ -179,9 +184,13 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       archive = create_archive()
       owner = create_person(archive)
       wish = create_listed_wish(owner, "将被下架")
-      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [Repo.uuid!(wish.id)])
+
+      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [
+        Repo.uuid!(wish.id)
+      ])
 
       member = register_user("u3-member")
+
       assert {:error, %{code: "flashback_wish_not_found"}} =
                Wishes.endorse_by_user(member.id, wish.id)
     end
@@ -189,11 +198,17 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
     test "已认领 member 附议未 listed 愿望成功（成员语义保留）" do
       archive = create_archive()
       owner = create_person(archive)
+
       {:ok, member_only} =
         Wishes.create_wish(owner.id, "成员面愿望2", "public", public_listing_consent: false)
 
       member = register_user("u3-member2")
-      :ok = bind_person_to_user(create_person(archive, %{full_name: "成员甲", surname: "甲"}).id, member.id)
+
+      :ok =
+        bind_person_to_user(
+          create_person(archive, %{full_name: "成员甲", surname: "甲"}).id,
+          member.id
+        )
 
       assert {:ok, %{endorsement_count: 1}} =
                Wishes.endorse_by_user(member.id, member_only.id)
@@ -225,6 +240,7 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
       wish = create_listed_wish(person, "notify 持久化")
 
       {:ok, _} = Wishes.endorse_by_user(user.id, wish.id, notify: false)
+
       %{rows: [[notify]]} =
         Repo.query!(
           "SELECT notify FROM flashback_wish_endorsements WHERE wish_id = $1",

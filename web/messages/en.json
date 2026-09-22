@@ -2632,7 +2632,9 @@
       "copyFallback": "Select the link above to copy.",
       "close": "Close",
       "random": "Surprise me",
-      "randomEmpty": "No more voices for now."
+      "randomEmpty": "No more voices for now.",
+      "wishesNav": "Wish Tree",
+      "wishesNavEn": "WISHES"
     },
     "recover": {
       "title": "Recover your piece of memory",
@@ -2977,7 +2979,8 @@
       "goneTitle": "This wish can't be viewed right now",
       "goneLead": "It may have been withdrawn or is not publicly listed.",
       "goneBack": "See the whole tree",
-      "close": "Close"
+      "close": "Close",
+      "voicesEntry": "Voices wall"
     }
   },
   "initiatives": {

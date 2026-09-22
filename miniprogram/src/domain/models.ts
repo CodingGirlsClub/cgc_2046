@@ -791,7 +791,6 @@ export interface MiniProgramApi {
    *  回响通知意愿（真实授权由微信 accept 上报 grant，本意愿不冒充授权） */
   flashbackEndorseWish(
     wishId: string,
-    token?: string | null,
     options?: { contributionTypes?: string[]; message?: string | null; notify?: boolean }
   ): Promise<number>
   /** wish2 U6/U9（KTD2）：期待/取消期待（登录强制 u: 键，匿名 a: 设备键） */

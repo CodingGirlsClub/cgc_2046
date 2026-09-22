@@ -75,6 +75,7 @@ defmodule Cgc2046.Flashback.Wishes do
       # 进公开树；listed/hidden 互斥，三态反馈由 status 承载。
       consents_listing = visibility == "public" and public_listing_consent
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
       {listed_at, hidden_at} =
         cond do
           consents_listing and review_required -> {nil, now}
@@ -224,7 +225,6 @@ defmodule Cgc2046.Flashback.Wishes do
          :ok <- validate_contribution_types(contribution_types),
          :ok <- validate_endorsement_message(message),
          :ok <- check_content_by_user(user_id, message) do
-
       cond do
         # p:→u: 归并：user 认领的 person 已有存量 p: 行 → 升级不新增
         existing_p = find_claimed_p_endorsement(user_uuid, wish.id) ->
@@ -323,7 +323,8 @@ defmodule Cgc2046.Flashback.Wishes do
       |> Ash.Query.filter(wish_id == ^wish.id and user_id == ^user_uuid)
       |> Ash.read_one(authorize?: false)
       |> case do
-        {:ok, nil} -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
+        {:ok, nil} ->
+          {:ok, count_with_mine_by_user(wish.id, user_uuid)}
 
         {:ok, row} ->
           case Ash.destroy(row, authorize?: false) do
@@ -331,7 +332,8 @@ defmodule Cgc2046.Flashback.Wishes do
             {:error, reason} -> {:error, reason}
           end
 
-        {:error, reason} -> {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -366,7 +368,9 @@ defmodule Cgc2046.Flashback.Wishes do
     trimmed = String.trim(msg)
 
     cond do
-      trimmed == "" -> :ok
+      trimmed == "" ->
+        :ok
+
       String.length(trimmed) > 500 ->
         {:error,
          %{
@@ -374,7 +378,8 @@ defmodule Cgc2046.Flashback.Wishes do
            message: "附议留言 ≤500 字。"
          }}
 
-      true -> :ok
+      true ->
+        :ok
     end
   end
 

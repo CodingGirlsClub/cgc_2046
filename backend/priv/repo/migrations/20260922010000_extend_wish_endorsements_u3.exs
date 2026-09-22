@@ -31,7 +31,7 @@ defmodule Cgc2046.Repo.Migrations.ExtendWishEndorsementsU3 do
     """)
 
     # 保留 person_id unique（Ash upsert identity 兼容层）+ 另加 actor_key unique
-    #（KTD3 语义唯一：同人不能既以 p: 又以 u: 附议同一愿望——归并规则在 domain
+    # （KTD3 语义唯一：同人不能既以 p: 又以 u: 附议同一愿望——归并规则在 domain
     # 确保 actor_key 不双计）。
     execute("""
     CREATE UNIQUE INDEX flashback_wish_endorsements_unique_wish_actor_index

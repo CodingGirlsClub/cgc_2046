@@ -210,6 +210,7 @@ defmodule Cgc2046.Flashback.WishExpectationsTest do
     test "viewer（登录无 person）对未 listed 愿望 → flashback_wish_not_found（FIX-2 KTD9）" do
       archive = create_archive()
       owner = create_person(archive)
+
       {:ok, member_only} =
         Wishes.create_wish(owner.id, "成员面期待愿", "public", public_listing_consent: false)
 
@@ -298,6 +299,28 @@ defmodule Cgc2046.Flashback.WishExpectationsTest do
       assert {:error, %{code: "flashback_expectation_rate_limited"}} =
                WishExpectations.set_expectation(wish.id, false, anon_voter_key: key)
     end
+  end
+
+  test "IP 窗 60 次/小时：第 61 个不同 voter 同 IP 被拦（review P3：窗口参数钉住）" do
+    archive = create_archive()
+    person = create_person(archive)
+    wish = create_listed_wish(person, "IP 窗")
+
+    # 60 个不同 voter 同 IP 全部成功（voter 窗各自独立）
+    for i <- 1..60 do
+      {:ok, _} =
+        WishExpectations.set_expectation(wish.id, true,
+          anon_voter_key: "a:ip-#{i}-#{System.unique_integer([:positive])}",
+          remote_ip: "203.0.113.7"
+        )
+    end
+
+    # 第 61 个同 IP → flashback_expectation_rate_limited
+    assert {:error, %{code: "flashback_expectation_rate_limited"}} =
+             WishExpectations.set_expectation(wish.id, true,
+               anon_voter_key: "a:ip-61",
+               remote_ip: "203.0.113.7"
+             )
   end
 
   describe "双指标分离" do

@@ -31,6 +31,7 @@ defmodule Cgc2046.Flashback.CitiesTest do
 
     test "含主要地级市" do
       shorts = MapSet.new(Enum.map(Cities.list(), & &1.short_name))
+
       for c <- ["成都", "上海", "北京", "广州", "深圳", "湘西", "阿坝", "拉萨", "乌鲁木齐"] do
         assert MapSet.member?(shorts, c)
       end

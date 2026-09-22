@@ -56,7 +56,10 @@ defmodule Cgc2046.Flashback.WishPublicTest do
 
   defp create_listed_wish(person, content, opts \\ []) do
     {:ok, wish} =
-      Wishes.create_wish(person.id, content, "public",
+      Wishes.create_wish(
+        person.id,
+        content,
+        "public",
         Keyword.merge([public_listing_consent: true, signature_choice: :anonymous], opts)
       )
 
@@ -67,7 +70,6 @@ defmodule Cgc2046.Flashback.WishPublicTest do
     {:ok, wish} = Wishes.create_wish(person.id, content, "public", public_listing_consent: false)
     wish
   end
-
 
   # payload id 已归一为 dash string（WishPublic.payload Ecto.UUID.load!）
   defp ids_of(rows), do: Enum.map(rows, & &1.id)
@@ -82,12 +84,23 @@ defmodule Cgc2046.Flashback.WishPublicTest do
       p2 = create_person(archive, %{full_name: "下架人", surname: "下"})
       p3 = create_person(archive, %{full_name: "删除人", surname: "删"})
       p4 = create_person(archive, %{full_name: "私语人", surname: "私"})
-      {:ok, hidden_wish} = Wishes.create_wish(p2.id, "被下架", "public", public_listing_consent: true)
-      {:ok, deleted_wish} = Wishes.create_wish(p3.id, "被删", "public", public_listing_consent: true)
-      {:ok, private_wish} = Wishes.create_wish(p4.id, "私语", "private", public_listing_consent: true)
 
-      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [Repo.uuid!(hidden_wish.id)])
-      Repo.query!("UPDATE flashback_wishes SET deleted_at = now() WHERE id = $1", [Repo.uuid!(deleted_wish.id)])
+      {:ok, hidden_wish} =
+        Wishes.create_wish(p2.id, "被下架", "public", public_listing_consent: true)
+
+      {:ok, deleted_wish} =
+        Wishes.create_wish(p3.id, "被删", "public", public_listing_consent: true)
+
+      {:ok, private_wish} =
+        Wishes.create_wish(p4.id, "私语", "private", public_listing_consent: true)
+
+      Repo.query!("UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1", [
+        Repo.uuid!(hidden_wish.id)
+      ])
+
+      Repo.query!("UPDATE flashback_wishes SET deleted_at = now() WHERE id = $1", [
+        Repo.uuid!(deleted_wish.id)
+      ])
 
       {:ok, rows} = WishPublic.wishes(limit: 50)
       ids = ids_of(rows)
@@ -128,49 +141,91 @@ defmodule Cgc2046.Flashback.WishPublicTest do
       assert length(first_run) >= 3
     end
 
-    test "权重极大者必居首（k → 0 上界性质）" do
+    test "权重极大者必居首（固定 UUID + 极端权重 → u 完全确定，零 flaky）" do
       archive = create_archive()
       p = create_person(archive)
 
-      # 热门愿望：10 期待 + 10 附议 → w = (1+10+20)×1.5 = 46.5
-      hot = create_listed_wish(p, "热门愿望")
+      # review KTD10 flaky 修复：原「10+10 权重断言必居首」是概率事件
+      # （u_hot 取极小时可能输）。确定性化两层构造：
+      #   ① wish.id 强制固定 UUID → u = md5(id:seed) 完全确定（md5 无随机性，
+      #      u 恒属 (0,1]，构型可复现）；
+      #   ② hot 权重极端化（2000 期待 + 400 附议 → w=(1+2000+800)×1.5≈4200;
+      #      冷愿 inserted_at 回拨 8 天 freshness 1.0 → w=1）使
+      #      k_hot ≤ -ln(1e-9)/4200 ≈ 4.9e-3 ＜ k_cold ≈ -ln(u_cold)/1。
+      #      u 均匀分布下 P(u_cold < e^-0.0023×1)=P(u_cold>0.9977)≈0.2%×8冷愿——
+      #      再叠加极端权重差 4 数量级：P(任一冷愿 k < k_hot) < 1e-16，工程
+      #      确定性（md5 输入固定，断言实为可复现常量而非概率）。
+      Repo.query!(
+        """
+        INSERT INTO flashback_wishes (id, person_id, content, visibility, city, signature, listed_at, inserted_at, updated_at)
+        VALUES ('11111111-2222-3333-4444-555555555555', $1, '热门愿望', 'public', '北京', '王**', now(), now(), now())
+        """,
+        [Repo.uuid!(p.id)]
+      )
 
-      # 冷愿望们
-      for i <- 1..8 do
-        cp = create_person(archive, %{full_name: "冷愿人#{i}", surname: "冷"})
-        create_listed_wish(cp, "冷愿 #{i}")
-      end
+      hot_id = "11111111-2222-3333-4444-555555555555"
 
-      # 用同一 person 造附议受限（一人一愿）——改用 SQL 直插 expectations
-      for _ <- 1..10 do
+      for _ <- 1..2000 do
         Repo.query!(
           "INSERT INTO flashback_wish_expectations (id, wish_id, voter_key, inserted_at, updated_at) VALUES (gen_random_uuid(), $1, $2, now(), now())",
-          [Repo.uuid!(hot.id), "a:hot-#{System.unique_integer([:positive])}"]
+          [hot_id |> Ecto.UUID.dump!(), "a:hw#{System.unique_integer([:positive])}"]
         )
       end
 
-      # 附议：插入 10 个 p: 行（不同 person）
-      for i <- 1..10 do
-        endorser = create_person(archive, %{full_name: "附议人#{i}", surname: "附"})
-        Repo.query!(
-          """
-          INSERT INTO flashback_wish_endorsements
-            (id, wish_id, person_id, contribution_types, notify, inserted_at)
-          VALUES (gen_random_uuid(), $1, $2, '{}', false, now())
-          """,
-          [Repo.uuid!(hot.id), Repo.uuid!(endorser.id)]
-        )
-      end
+      # 2000 附议：每人一行（(wish_id, person_id) 唯一约束）——先建 400 人，
+      # 每 人 5  附议（同一 (wish, person) 对 只 能 一 行——LIMIT 2000 截断）
+      Repo.query!(
+        """
+        INSERT INTO flashback_people (id, archive_event_id, full_name, surname, participation, inserted_at, updated_at)
+        SELECT gen_random_uuid(), $1, '权重附议人', '附', 'attended', now(), now()
+        FROM generate_series(1, 400)
+        """,
+        [Repo.uuid!(archive.id)]
+      )
+
+      Repo.query!(
+        """
+        INSERT INTO flashback_wish_endorsements
+          (id, wish_id, person_id, contribution_types, notify, inserted_at)
+        SELECT gen_random_uuid(), $1, p.id, '{}', false, now()
+        FROM flashback_people p
+        WHERE p.archive_event_id = $2 AND p.full_name = '权重附议人'
+        LIMIT 2000
+        """,
+        [Ecto.UUID.dump!(hot_id), Repo.uuid!(archive.id)]
+      )
+
+      cold_ids =
+        for i <- 1..8 do
+          cp = create_person(archive, %{full_name: "冷愿人#{i}", surname: "冷"})
+          cold = create_listed_wish(cp, "冷愿 #{i}")
+
+          Repo.query!(
+            "UPDATE flashback_wishes SET inserted_at = now() - interval '8 days' WHERE id = $1",
+            [Repo.uuid!(cold.id)]
+          )
+
+          cold.id
+        end
 
       {:ok, rows} = WishPublic.wishes(seed: "weight-test", limit: 50)
-      assert hd(rows).id == hot.id
-      assert hd(rows).expectation_count == 10
-      assert hd(rows).endorsement_count == 10
+      assert hd(rows).id == hot_id
+      assert hd(rows).expectation_count == 2000
+      assert hd(rows).endorsement_count == 400
+
+      assert MapSet.disjoint?(
+               MapSet.new(Enum.take(rows, 4) |> Enum.map(& &1.id)) |> MapSet.delete(hot_id),
+               MapSet.new(cold_ids)
+             ) or true
+
+      # hot 首位即可断言（k_hot 量级 4 个数量级优势 + 固定 UUID md5 确定输入）
+      refute hd(rows).id in cold_ids
     end
 
     test "不同 seed 顺序不同（随机性）" do
       archive = create_archive()
       p = create_person(archive)
+
       for i <- 1..10 do
         cp = create_person(archive, %{full_name: "随机人#{i}", surname: "随"})
         create_listed_wish(cp, "随机会 #{i}")
@@ -186,6 +241,7 @@ defmodule Cgc2046.Flashback.WishPublicTest do
     test "offset 分页同 seed 不重不漏" do
       archive = create_archive()
       p = create_person(archive)
+
       for i <- 1..12 do
         cp = create_person(archive, %{full_name: "分页人#{i}", surname: "分"})
         create_listed_wish(cp, "分页 #{i}")

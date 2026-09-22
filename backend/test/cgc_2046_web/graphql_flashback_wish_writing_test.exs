@@ -174,6 +174,7 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
                "message" => "没认出这是哪个城市，换个写法试试（如：上海、成都）"
              } = first
            ] = result["errors"]
+
     refute Map.has_key?(first, "candidates")
     assert wish_by_content("去一个不存在的城市办一场") == nil
   end
@@ -209,7 +210,15 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
         }
       }
       """,
-      Map.merge(%{"token" => token, "content" => content, "visibility" => "public", "publicListingConsent" => true}, extra)
+      Map.merge(
+        %{
+          "token" => token,
+          "content" => content,
+          "visibility" => "public",
+          "publicListingConsent" => true
+        },
+        extra
+      )
     )
   end
 
@@ -236,6 +245,7 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
   test "三态 status：信用降级作者（wishes_review_required_at 置位）public+consent → pending_review 不挂树" do
     arch = archive()
     user = AccountsFixtures.register_user("wish-u8-review")
+
     person =
       Person
       |> Ash.Changeset.for_create(
@@ -261,6 +271,7 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
         "UPDATE users SET wishes_review_required_at = NOW() WHERE id = $1",
         [Repo.uuid!(user.id)]
       )
+
     token = token_for(person)
 
     assert %{"data" => %{"flashbackCreateWish" => %{"status" => "pending_review"}}} =
