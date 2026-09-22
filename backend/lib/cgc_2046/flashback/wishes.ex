@@ -167,9 +167,20 @@ defmodule Cgc2046.Flashback.Wishes do
     Cities.normalize(provided)
   end
 
-  # ── 附议（R7，幂等） ─────────────────────────────────────────────────
+  # ── 附议（R7 / KTD3 U3，幂等） ───────────────────────────────────────
 
-  @doc "附议 +1（幂等，重复无副作用）；返回实时计数与本人态。"
+  @doc """
+  附议 +1（幂等，重复无副作用）。**KTD3 U3**：
+  - 旧 person-only（token 链，KTD2 兼容）：`endorse(person_id, wish_id)`——保留
+    副线：未登录 viewer 由前端引导登录后走 `endorse_by_user/3`。
+  - 新登录：`endorse_by_user(user_id, wish_id, opts)`。opts:
+    - `:contribution_types :list(String.t())`（venue/organize/speak/sponsor/other）
+    - `:message :String.t() | nil`（≤500 字；非空经机审；仅运营可见）
+    - `:notify :boolean`（默认 false——Echo 意愿仅持久化，**不**调 Consent.grant）
+  - 归并：同 user 认领的 person 在同 wish 已有 `p:` 行 → p: 升级 u:（填 user_id
+    与表单字段），不新增不双计。否则新插 `u:` 行。
+  - 返回 `%{endorsement_count, endorsed_by_me}` 实时状态。
+  """
   @spec endorse(String.t(), String.t()) ::
           {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
           | {:error, term()}
@@ -182,6 +193,261 @@ defmodule Cgc2046.Flashback.Wishes do
         {:ok, _} -> {:ok, count_with_mine(wish.id, person_id)}
         {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  @spec endorse_by_user(String.t(), String.t(), keyword()) ::
+          {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
+          | {:error, term()}
+  def endorse_by_user(user_id, wish_id, opts \\ []) do
+    contribution_types = Keyword.get(opts, :contribution_types, [])
+    message = Keyword.get(opts, :message, nil)
+    notify? = Keyword.get(opts, :notify, false)
+
+    with {:ok, wish} <- fetch_public_wish(wish_id),
+         :ok <- validate_contribution_types(contribution_types),
+         :ok <- validate_endorsement_message(message),
+         :ok <- check_content_by_user(user_id, message) do
+      user_uuid = Repo.uuid!(user_id)
+
+      case find_claimed_p_endorsement(user_uuid, wish.id) do
+        nil ->
+          # 新附议：person_id 来自 user 已认领的 person（1-to-1 KTD2）
+          case find_user_person_id(user_uuid) do
+            nil ->
+              {:error,
+               %{
+                 code: "flashback_wish_endorsement_requires_claim",
+                 message: "请先完成成员档案认领再附议。"
+               }}
+
+            person_id ->
+              do_upsert_endorsement(
+                wish.id,
+                person_id,
+                user_uuid,
+                contribution_types,
+                message,
+                notify?
+              )
+          end
+
+        existing_p ->
+          # p: → u: 归并：update 既有行
+          existing_p
+          |> Ash.Changeset.for_update(:update, %{
+            user_id: user_uuid,
+            contribution_types: contribution_types,
+            message: message,
+            notify: notify?
+          })
+          |> Ash.update(authorize?: false)
+          |> case do
+            {:ok, _} -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
+            {:error, reason} -> {:error, reason}
+          end
+      end
+    end
+  end
+
+  @doc "取消附议（KTD3）：person token 链删 p: 行；user 登录链删 u: 行。"
+  @spec cancel_endorse(String.t(), String.t()) ::
+          {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
+          | {:error, term()}
+  def cancel_endorse(person_id, wish_id) do
+    with {:ok, wish} <- fetch_public_wish(wish_id) do
+      WishEndorsement
+      |> Ash.Query.filter(wish_id == ^wish.id and person_id == ^person_id)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} -> {:ok, count_with_mine(wish.id, person_id)}
+
+        {:ok, row} ->
+          case Ash.destroy(row, authorize?: false) do
+            :ok -> {:ok, count_with_mine(wish.id, person_id)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @spec cancel_endorse_by_user(String.t(), String.t()) ::
+          {:ok, %{endorsement_count: non_neg_integer(), endorsed_by_me: boolean()}}
+          | {:error, term()}
+  def cancel_endorse_by_user(user_id, wish_id) do
+    with {:ok, wish} <- fetch_public_wish(wish_id) do
+      user_uuid = Repo.uuid!(user_id)
+
+      WishEndorsement
+      |> Ash.Query.filter(wish_id == ^wish.id and user_id == ^user_uuid)
+      |> Ash.read_one(authorize?: false)
+      |> case do
+        {:ok, nil} -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
+
+        {:ok, row} ->
+          case Ash.destroy(row, authorize?: false) do
+            :ok -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # ── U3 内部：contribution_types / message / openid 机审 ──────────────
+
+  @valid_contribution_types ~w(venue organize speak sponsor other)
+
+  defp validate_contribution_types(list) when is_list(list) do
+    if Enum.all?(list, &(&1 in @valid_contribution_types)) do
+      :ok
+    else
+      {:error,
+       %{
+         code: "flashback_wish_endorsement_invalid_contribution_types",
+         message: "出力类型不合法，可选：venue / organize / speak / sponsor / other。"
+       }}
+    end
+  end
+
+  defp validate_contribution_types(_) do
+    {:error,
+     %{
+       code: "flashback_wish_endorsement_invalid_contribution_types",
+       message: "出力类型不合法，可选：venue / organize / speak / sponsor / other。"
+     }}
+  end
+
+  defp validate_endorsement_message(nil), do: :ok
+
+  defp validate_endorsement_message(msg) when is_binary(msg) do
+    trimmed = String.trim(msg)
+
+    cond do
+      trimmed == "" -> :ok
+      String.length(trimmed) > 500 ->
+        {:error,
+         %{
+           code: "flashback_wish_endorsement_message_too_long",
+           message: "附议留言 ≤500 字。"
+         }}
+
+      true -> :ok
+    end
+  end
+
+  defp do_upsert_endorsement(wish_id, person_id, user_id, contribution_types, message, notify?) do
+    WishEndorsement
+    |> Ash.Changeset.for_create(:create, %{
+      wish_id: wish_id,
+      person_id: person_id,
+      user_id: user_id,
+      contribution_types: contribution_types,
+      message: message,
+      notify: notify?
+    })
+    |> Ash.create(authorize?: false, upsert?: true, upsert_identity: :unique_wish_person)
+    |> case do
+      {:ok, _} -> {:ok, count_with_mine_by_user(wish_id, user_id)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # KTD3 归并：找 user 已认领 person 在同 wish 下的 p: 行（user_id IS NULL）
+  defp find_claimed_p_endorsement(user_uuid, wish_id) do
+    query = """
+    SELECT e.id
+    FROM flashback_wish_endorsements e
+    JOIN flashback_people p ON p.id = e.person_id
+    WHERE e.wish_id = $1
+      AND p.user_id = $2
+      AND e.user_id IS NULL
+    LIMIT 1
+    """
+
+    case Repo.query(query, [Repo.uuid!(wish_id), user_uuid]) do
+      {:ok, %{rows: [[id]]}} ->
+        WishEndorsement
+        |> Ash.Query.filter(id == ^id)
+        |> Ash.read_one!(authorize?: false)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp find_user_person_id(user_uuid) do
+    case Repo.query(
+           "SELECT id FROM flashback_people WHERE user_id = $1 LIMIT 1",
+           [user_uuid]
+         ) do
+      {:ok, %{rows: [[id]]}} -> id
+      _ -> nil
+    end
+  end
+
+  @doc false
+  def count_with_mine_by_user(wish_id, user_uuid) do
+    count =
+      WishEndorsement
+      |> Ash.Query.filter(wish_id == ^wish_id)
+      |> Ash.count!(authorize?: false)
+
+    mine? =
+      WishEndorsement
+      |> Ash.Query.filter(wish_id == ^wish_id and user_id == ^user_uuid)
+      |> Ash.exists?(authorize?: false)
+
+    %{endorsement_count: count, endorsed_by_me: mine?}
+  end
+
+  # U3 KTD4 登录路径 message 机审：user_identities → wechat uid ①②；③ 长尾
+  # （tt/xhs 单平台/web-only/查询异常）→ skipped telemetry + fail-open（与
+  # wishes.check_content ③ 收口同语义）。**但注意**：传入 nil/"" message 直接放行
+  # （无需检测）。
+  defp check_content_by_user(_user_id, nil), do: :ok
+  defp check_content_by_user(_user_id, ""), do: :ok
+
+  defp check_content_by_user(user_id, message) when is_binary(message) do
+    trimmed = String.trim(message)
+
+    if trimmed == "" do
+      :ok
+    else
+      case fetch_wechat_openid_by_user(Repo.uuid!(user_id)) do
+        {:ok, openid} -> run_wechat_check(trimmed, openid)
+        :no_wechat_identity -> :ok
+      end
+    end
+  end
+
+  defp fetch_wechat_openid_by_user(user_uuid) do
+    case Repo.query(
+           "SELECT provider, uid FROM user_identities WHERE user_id = $1",
+           [user_uuid]
+         ) do
+      {:ok, %{rows: rows}} ->
+        identities =
+          rows
+          |> Enum.map(fn [provider, uid] -> {@content_check_platforms[provider], uid} end)
+          |> Enum.reject(fn {provider, _uid} -> is_nil(provider) end)
+          |> Map.new()
+
+        case Map.get(identities, :wechat) do
+          nil ->
+            emit_openid_unresolved(:no_wechat_identity)
+            :no_wechat_identity
+
+          openid ->
+            {:ok, openid}
+        end
+
+      {:error, _} ->
+        emit_openid_unresolved(:identity_query_error)
+        :no_wechat_identity
     end
   end
 

@@ -280,6 +280,16 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       job_meta_keys: ["event_id"],
       unique: :default,
       stale: nil
+    },
+    # 愿望 Echo（wish2 U3 KTD3）：附议贡献者收到「主办方收到你的提议」回响；
+    # 发送时校验 endorse.notify AND Consent.take（授权单源，U3 后端零 grant 红旗）。
+    %{
+      template_key: "flashback_wish_echo",
+      id_key: nil,
+      data_keys: ["wish_id", "content_preview", "endorsement_id"],
+      job_meta_keys: ["wish_id", "endorsement_id"],
+      unique: :default,
+      stale: nil
     }
   ]
 
