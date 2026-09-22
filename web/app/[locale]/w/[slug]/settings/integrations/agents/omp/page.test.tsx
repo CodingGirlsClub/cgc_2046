@@ -68,7 +68,14 @@ describe("/w/[slug]/settings/integrations/agents/omp 集成 OMP 页", () => {
 		render(<AgentsOmpPage />);
 
 		expect(
-			screen.getByRole("heading", { name: "2. 写入 .mcp.json" }),
+			screen.getByRole("heading", { name: "5. 写入 .mcp.json" }),
+		).toBeInTheDocument();
+		// 环境准备卡组（终端 + Herdr）前置为第 1-3 步（与首公里向导同一内容源）
+		expect(
+			screen.getByRole("heading", { name: "1. 准备终端" }),
+		).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: "2. 安装 Herdr" }),
 		).toBeInTheDocument();
 		const pre = screen.getByText(
 			(_, el) => el?.tagName === "CODE" && el.textContent?.includes('"mcpServers"'),
