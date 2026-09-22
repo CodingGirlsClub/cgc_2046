@@ -5,6 +5,12 @@ All notable changes to the CGC-2046 OMP plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-09-22
+
+### Added
+
+- `/cgc` 版本检查：读本地安装版本与 catalog 缓存版本，不一致时 notify 提示「有新版本可用：X（当前 Y）。跑 omp plugin upgrade 更新」
+
 ## [0.1.4] - 2026-09-21
 
 ### Changed
