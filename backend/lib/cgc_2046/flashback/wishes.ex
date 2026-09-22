@@ -68,13 +68,18 @@ defmodule Cgc2046.Flashback.Wishes do
     with :ok <- validate_content(content),
          :ok <- validate_visibility(visibility),
          :ok <- check_content(person_id, content),
-         {:ok, %{city: city, signature: signature}} <-
+         {:ok, %{city: city, signature: signature, review_required: review_required}} <-
            build_writer_snapshots(person_id, expected_city, signature_choice) do
-      listed_at =
-        if visibility == "public" and public_listing_consent do
-          DateTime.utc_now() |> DateTime.truncate(:microsecond)
-        else
-          nil
+      # wish2 U8（KTD5 信用门补全，plan :180）：wishes_review_required_at 置位的
+      # 作者，公开愿望不直接挂树——hidden_at 待审、admin 放行（clear hidden）才
+      # 进公开树；listed/hidden 互斥，三态反馈由 status 承载。
+      consents_listing = visibility == "public" and public_listing_consent
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      {listed_at, hidden_at} =
+        cond do
+          consents_listing and review_required -> {nil, now}
+          consents_listing -> {now, nil}
+          true -> {nil, nil}
         end
 
       # 锁 + COUNT + INSERT 同事务：Repo.rollback 透传 {:error, %{code: ...}}
@@ -92,7 +97,7 @@ defmodule Cgc2046.Flashback.Wishes do
             city: city,
             signature: signature,
             listed_at: listed_at,
-            hidden_at: nil
+            hidden_at: hidden_at
           })
           |> Ash.create(authorize?: false)
           |> case do
@@ -103,6 +108,22 @@ defmodule Cgc2046.Flashback.Wishes do
           {:error, reason} -> Repo.rollback(reason)
         end
       end)
+      |> case do
+        {:ok, wish} -> {:ok, Map.put(wish, :listing_status, listing_status(visibility, wish))}
+        other -> other
+      end
+    end
+  end
+
+  # 三态反馈（R18）：listed（挂树）/ pending_review（信用待审——admin 放行后挂树）/
+  # private（说给主办方听）；public 无 consent 的旧客户端形状归 private 档反馈
+  # （未挂树语义一致，旧客户端不读该字段）。
+  defp listing_status(visibility, wish) do
+    cond do
+      visibility == "private" -> "private"
+      not is_nil(wish.listed_at) -> "listed"
+      not is_nil(wish.hidden_at) -> "pending_review"
+      true -> "private"
     end
   end
 
@@ -114,7 +135,7 @@ defmodule Cgc2046.Flashback.Wishes do
     # 未认领 person（user_id 为空）→ display_name 为 NULL，回退 masked_name。
     case Repo.query(
            """
-           SELECT p.city, p.full_name, p.surname, u.display_name
+           SELECT p.city, p.full_name, p.surname, u.display_name, u.wishes_review_required_at
            FROM flashback_people p
            LEFT JOIN users u ON u.id = p.user_id
            WHERE p.id = $1
@@ -127,7 +148,7 @@ defmodule Cgc2046.Flashback.Wishes do
       {:error, _} ->
         {:error, %{code: "flashback_person_not_found"}}
 
-      {:ok, %{rows: [[person_city, full_name, surname, display_name]]}} ->
+      {:ok, %{rows: [[person_city, full_name, surname, display_name, review_required_at]]}} ->
         case normalize_writing_city(expected_city, person_city) do
           {:error, err} ->
             {:error, err}
@@ -151,7 +172,12 @@ defmodule Cgc2046.Flashback.Wishes do
                   AlumniProjection.masked_name(full_name, surname)
               end
 
-            {:ok, %{city: city, signature: signature || ""}}
+            {:ok,
+             %{
+               city: city,
+               signature: signature || "",
+               review_required: not is_nil(review_required_at)
+             }}
         end
     end
   end
