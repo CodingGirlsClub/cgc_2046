@@ -55,11 +55,15 @@ defmodule Cgc2046.Flashback.Wish do
     defaults([:read, :destroy])
 
     create :create do
+      # signature/listed_at/hidden_at 在 server 层（Wishes.create_wish/4）赋值，不进
+      # GraphQL 写面（U6 公开 schema 不暴露）；「仅 server 写」由 domain 边界保证。
       accept([:person_id, :content, :visibility, :city, :signature, :listed_at, :hidden_at])
     end
 
     update :update do
-      accept([:deleted_at, :listed_at, :hidden_at])
+      # 软删 / U5 admin set_hidden/set_listed 走专用 action（quote_license.set_hidden
+      # 模式），本 update action 仅删 deleted_at。
+      accept([:deleted_at])
     end
   end
 
