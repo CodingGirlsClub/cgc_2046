@@ -3036,17 +3036,25 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:notify, :boolean)
 
       resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          flashback_call(fn ->
-            Cgc2046.Flashback.Wishes.endorse_by_user(
-              actor.id,
-              args.wish_id,
-              contribution_types: args[:contribution_types] || [],
-              message: args[:message],
-              notify: args[:notify] || false
-            )
-          end)
-        end)
+        # plan U3 契约：未登录附议 → flashback_auth_required（非通用 unauthorized；
+        # 小程序/前端按该 code 引导手机号一键登录）
+        with_actor(
+          context,
+          fn actor ->
+            flashback_call(fn ->
+              Cgc2046.Flashback.Wishes.endorse_by_user(
+                actor.id,
+                args.wish_id,
+                contribution_types: args[:contribution_types] || [],
+                message: args[:message],
+                notify: args[:notify] || false
+              )
+            end)
+          end,
+          on_nil: fn _ ->
+            {:error, [message: "请先登录后再附议。", code: "flashback_auth_required"]}
+          end
+        )
       end)
     end
 
@@ -3290,11 +3298,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:wish_id, non_null(:id))
 
       resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          flashback_call(fn ->
-            Cgc2046.Flashback.Wishes.cancel_endorse_by_user(actor.id, args.wish_id)
-          end)
-        end)
+        with_actor(
+          context,
+          fn actor ->
+            flashback_call(fn ->
+              Cgc2046.Flashback.Wishes.cancel_endorse_by_user(actor.id, args.wish_id)
+            end)
+          end,
+          on_nil: fn _ ->
+            {:error, [message: "请先登录后再操作。", code: "flashback_auth_required"]}
+          end
+        )
       end)
     end
 
