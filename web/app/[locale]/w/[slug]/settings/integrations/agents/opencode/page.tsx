@@ -23,6 +23,7 @@ import {
 	ConfigureTokenStepCard,
 	ConfigNotesStepCard,
 } from "@/components/agent-connect-sections";
+import { RuntimeSetupCards } from "@/components/runtime-setup-sections";
 
 export default function AgentsOpencodePage() {
 	const params = useParams<{ slug: string }>();
@@ -56,9 +57,10 @@ export default function AgentsOpencodePage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-opencode" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<TokenLinkStepCard slug={slug} stepNo="1." />
-					<WriteConfigStepCard variant="opencode" stepNo="2." />
-					<ConfigureTokenStepCard variant="opencode" stepNo="3." />
+					<RuntimeSetupCards stepNos={["1.", "2.", "3."]} />
+					<TokenLinkStepCard slug={slug} stepNo="4." />
+					<WriteConfigStepCard variant="opencode" stepNo="5." />
+					<ConfigureTokenStepCard variant="opencode" stepNo="6." />
 					<ConfigNotesStepCard />
 				</div>
 			</div>

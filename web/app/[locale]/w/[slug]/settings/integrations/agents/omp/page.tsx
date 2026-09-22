@@ -23,6 +23,7 @@ import {
 	ConfigureTokenStepCard,
 	ConfigNotesStepCard,
 } from "@/components/agent-connect-sections";
+import { RuntimeSetupCards } from "@/components/runtime-setup-sections";
 
 export default function AgentsOmpPage() {
 	const params = useParams<{ slug: string }>();
@@ -56,9 +57,10 @@ export default function AgentsOmpPage() {
 				<IntegrationsAgentsTabs slug={slug} current="agents-omp" abilities={[]} />
 
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-					<TokenLinkStepCard slug={slug} stepNo="1." />
-					<WriteConfigStepCard variant="omp" stepNo="2." />
-					<ConfigureTokenStepCard variant="omp" stepNo="3." />
+					<RuntimeSetupCards stepNos={["1.", "2.", "3."]} />
+					<TokenLinkStepCard slug={slug} stepNo="4." />
+					<WriteConfigStepCard variant="omp" stepNo="5." />
+					<ConfigureTokenStepCard variant="omp" stepNo="6." />
 					<ConfigNotesStepCard />
 				</div>
 			</div>

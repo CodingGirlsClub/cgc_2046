@@ -26,6 +26,8 @@ const STATIC_PATHS: ReadonlyArray<{
 	{ path: "/initiatives", changeFrequency: "daily", priority: 0.8 },
 	// Hacker Start 1024 宣传页（U6）：静态 campaign 入口页，随 campaign 进展更新
 	{ path: "/hackerstart-1024", changeFrequency: "weekly", priority: 0.7 },
+	// /setup 环境准备落地页：常青文档页，供站内外教程引用（终端 + Herdr 单一内容源）
+	{ path: "/setup", changeFrequency: "monthly", priority: 0.6 },
 	{ path: "/login", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/register", changeFrequency: "monthly", priority: 0.3 },
 	{ path: "/privacy", changeFrequency: "yearly", priority: 0.2 },
