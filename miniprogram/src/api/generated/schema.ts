@@ -3024,6 +3024,10 @@ export type FlashbackWishResult = {
   endorsedByMe: Scalars['Boolean']['output'];
   /** 附议后实时计数与本人态 */
   endorsementCount: Scalars['Int']['output'];
+  /** 新建愿望 id（本人查看/撤回入口用） */
+  id?: Maybe<Scalars['ID']['output']>;
+  /** wish2 U8 三态反馈：listed（挂上许愿树）/ pending_review（信用待审——审核通过后挂树）/ private（说给主办方听） */
+  status: Scalars['String']['output'];
 };
 
 export type FulfillDeliveryInput = {
@@ -4990,7 +4994,7 @@ export type RootMutationType = {
   flashbackCancelEndorseWish?: Maybe<FlashbackWishEndorseResult>;
   /** 微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案 */
   flashbackClaim?: Maybe<FlashbackClaimResult>;
-  /** 许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded */
+  /** 许愿（R5/R6 + wish2 U8/KTD1/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded */
   flashbackCreateWish?: Maybe<FlashbackWishResult>;
   /** 删除我的档案（U10/R30/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案/回信/附议/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 "DELETE"。双入口（token 或登录账号） */
   flashbackDelete?: Maybe<FlashbackDeleteResult>;
@@ -5504,6 +5508,9 @@ export type RootMutationTypeFlashbackClaimArgs = {
 
 export type RootMutationTypeFlashbackCreateWishArgs = {
   content: Scalars['String']['input'];
+  expectedCity?: InputMaybe<Scalars['String']['input']>;
+  publicListingConsent?: InputMaybe<Scalars['Boolean']['input']>;
+  signatureChoice?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
   visibility: Scalars['String']['input'];
 };

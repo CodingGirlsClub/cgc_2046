@@ -1153,11 +1153,45 @@ export const FLASHBACK_CITIES: TypedDocumentNode<
 		}
 	}
 `;
-export const FLASHBACK_CREATE_WISH = gql`
-	mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
-		flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+export interface FlashbackCreateWishResult {
+	id: string | null;
+	endorsementCount: number;
+	endorsedByMe: boolean;
+	/** wish2 U8 三态：listed / pending_review / private */
+	status: string;
+}
+
+export const FLASHBACK_CREATE_WISH: TypedDocumentNode<
+	{ flashbackCreateWish: FlashbackCreateWishResult | null },
+	{
+		token?: string | null;
+		content: string;
+		visibility: string;
+		signatureChoice?: string | null;
+		expectedCity?: string | null;
+		publicListingConsent?: boolean | null;
+	}
+> = gql`
+	mutation FlashbackCreateWish(
+		$token: String
+		$content: String!
+		$visibility: String!
+		$signatureChoice: String
+		$expectedCity: String
+		$publicListingConsent: Boolean
+	) {
+		flashbackCreateWish(
+			token: $token
+			content: $content
+			visibility: $visibility
+			signatureChoice: $signatureChoice
+			expectedCity: $expectedCity
+			publicListingConsent: $publicListingConsent
+		) {
+			id
 			endorsementCount
 			endorsedByMe
+			status
 		}
 	}
 `;
