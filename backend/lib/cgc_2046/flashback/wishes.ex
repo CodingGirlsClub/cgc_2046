@@ -47,8 +47,10 @@ defmodule Cgc2046.Flashback.Wishes do
   **U1 KTD1**：opts 接受下列键（全可选，宽容向下兼容旧调用方）：
     - `:signature_choice` ∈ `:anonymous | :display_name`（默认 `:anonymous`）——
       决定 `signature` 快照：匿名走 `AlumniProjection.masked_name/1`；
-      `:display_name` 用 `person.full_name`（flashback_people 无 display_name 列；
-      KTD1 「display_name」在本批即名册实名全名）。若 person 缺名也回退匿名。
+      `:display_name` 按 KTD4 ①→② 链经 `person.user_id` LEFT JOIN users 取
+      `u.display_name`（`users.display_name` 是真实列）；已认领 token-only
+      person（user_id 非空但 display_name 为空）或未认领 person 回退 masked
+      实名 `AlumniProjection.masked_name(person)`。
     - `:expected_city` ∈ `nil | binary`——nil 时按名册城市经
       `Cities.normalize/1` 归一（失败留空）；非 nil 强制归一，失败返回
       `flashback_wish_city_unknown` + ≤3 候选。
@@ -80,6 +82,8 @@ defmodule Cgc2046.Flashback.Wishes do
       Repo.transaction(fn ->
         with {:ok, _city} <- lock_person_city(person_id),
              :ok <- check_quota(person_id) do
+          # signature/listed_at/hidden_at 由 domain 赋值 + accept（「仅 server 写」
+          # 由 GraphQL 不入参保证——U6 公开 schema 不暴露这三字段）。
           Wish
           |> Ash.Changeset.for_create(:create, %{
             person_id: person_id,
@@ -106,8 +110,15 @@ defmodule Cgc2046.Flashback.Wishes do
   # 取回，KTD11 归一逻辑（Cities.normalize）做墙体。
   @doc false
   def build_writer_snapshots(person_id, expected_city, signature_choice) do
+    # KTD4 ① → ② 一次 SQL 取复：person 行 + LEFT JOIN users 取 display_name。
+    # 未认领 person（user_id 为空）→ display_name 为 NULL，回退 masked_name。
     case Repo.query(
-           "SELECT city, full_name, surname FROM flashback_people WHERE id = $1",
+           """
+           SELECT p.city, p.full_name, p.surname, u.display_name
+           FROM flashback_people p
+           LEFT JOIN users u ON u.id = p.user_id
+           WHERE p.id = $1
+           """,
            [Repo.uuid!(person_id)]
          ) do
       {:ok, %{num_rows: 0}} ->
@@ -116,7 +127,7 @@ defmodule Cgc2046.Flashback.Wishes do
       {:error, _} ->
         {:error, %{code: "flashback_person_not_found"}}
 
-      {:ok, %{rows: [[person_city, full_name, surname]]}} ->
+      {:ok, %{rows: [[person_city, full_name, surname, display_name]]}} ->
         case normalize_writing_city(expected_city, person_city) do
           {:error, err} ->
             {:error, err}
@@ -125,10 +136,15 @@ defmodule Cgc2046.Flashback.Wishes do
             signature =
               case signature_choice do
                 :display_name ->
-                  if is_binary(full_name) and full_name != "" do
-                    full_name
-                  else
-                    AlumniProjection.masked_name(full_name, surname)
+                  cond do
+                    is_binary(display_name) and display_name != "" ->
+                      display_name
+
+                    is_binary(full_name) and full_name != "" ->
+                      full_name
+
+                    true ->
+                      AlumniProjection.masked_name(full_name, surname)
                   end
 
                 _anonymous ->

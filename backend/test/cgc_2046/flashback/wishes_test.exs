@@ -672,6 +672,105 @@ defmodule Cgc2046.Flashback.WishesTest do
       assert sig == "王小明"
     end
 
+    test "存量行 masked_name 回填 SQL 4 分支全矩阵（KTD1 快照语义对齐 masked_name/2）" do
+      archive = create_archive()
+
+      # Branch A: surname 匹配 full_name 前缀，length>0
+      p_a = create_person(archive, %{full_name: "王小明", surname: "王"})
+      # Branch B: surname 不匹配前缀 → 首字符 + '*'
+      p_b = create_person(archive, %{full_name: "李晓芒", surname: "王"})
+      # Branch C: 单字 full_name （含字 = 1）→ '字*'
+      p_c = create_person(archive, %{full_name: "明", surname: nil})
+      # Branch D: full_name NULL → ''
+      p_d = create_person(archive, %{full_name: "王小明", surname: "王"})
+
+      # 插入「存量行」（signature='' 模拟迁移前）— 走 SQL 直插绕 changeset
+      # 因为 wish.ex default "" 是 changeset-time。此处刻意模拟存量 signature=''。
+      wishes =
+        for p <- [p_a, p_b, p_c, p_d] do
+          id = Ecto.UUID.generate()
+
+          Repo.query!(
+            """
+            INSERT INTO flashback_wishes (id, person_id, content, visibility, signature, inserted_at, updated_at)
+            VALUES ($1, $2, $3, 'public', '', now(), now())
+            """,
+            [Ecto.UUID.dump!(id), Ecto.UUID.dump!(p.id), "存量 #{p.full_name}"]
+          )
+
+          {id, p.id}
+        end
+
+      # 迁移的 UPDATE 语句（与 20260922001343 migration 1:1）
+      Repo.query!("""
+      UPDATE flashback_wishes w
+      SET signature = (
+        CASE
+          WHEN p.full_name IS NULL OR p.full_name = '' THEN ''
+          WHEN p.surname IS NOT NULL
+               AND p.surname <> ''
+               AND substring(p.full_name from 1 for char_length(p.surname)) = p.surname
+          THEN p.surname || repeat('*', greatest(char_length(p.full_name) - char_length(p.surname), 1))
+          ELSE substring(p.full_name from 1 for 1) || repeat('*', greatest(char_length(p.full_name) - 1, 1))
+        END
+      )
+      FROM flashback_people p
+      WHERE w.person_id = p.id AND w.signature = ''
+      """)
+
+      # Branch A: 王**
+      %{rows: [[sig_a]]} =
+        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
+                    [Ecto.UUID.dump!(p_a.id)])
+      assert sig_a == "王**"
+
+      # Branch B: 李**（首字符 + 长度-1 个 *）
+      %{rows: [[sig_b]]} =
+        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
+                    [Ecto.UUID.dump!(p_b.id)])
+      assert sig_b == "李**"
+
+      # Branch C: '明*'（单字 full_name 走 ELSE 首字符分支）
+      %{rows: [[sig_c]]} =
+        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
+                    [Ecto.UUID.dump!(p_c.id)])
+      assert sig_c == "明*"
+
+      # Branch D: 清 D 的 person.full_name 为空串（full_name allow_nil?: false 不能 NULL）→ '' 分支
+      Repo.query!(
+        "UPDATE flashback_people SET full_name = '' WHERE id = $1",
+        [Ecto.UUID.dump!(p_d.id)]
+      )
+      # 再跑一次回填 only D（之前的 update 已经写入了 signature，需要重置
+      Repo.query!(
+        "UPDATE flashback_wishes SET signature = '' WHERE person_id = $1",
+        [Ecto.UUID.dump!(p_d.id)]
+      )
+      Repo.query!("""
+      UPDATE flashback_wishes w
+      SET signature = (
+        CASE
+          WHEN p.full_name IS NULL OR p.full_name = '' THEN ''
+          WHEN p.surname IS NOT NULL
+               AND p.surname <> ''
+               AND substring(p.full_name from 1 for char_length(p.surname)) = p.surname
+          THEN p.surname || repeat('*', greatest(char_length(p.full_name) - char_length(p.surname), 1))
+          ELSE substring(p.full_name from 1 for 1) || repeat('*', greatest(char_length(p.full_name) - 1, 1))
+        END
+      )
+      FROM flashback_people p
+      WHERE w.person_id = p.id AND w.signature = '' AND w.person_id = '#{p_d.id}'
+      """)
+
+      %{rows: [[sig_d]]} =
+        Repo.query!("SELECT signature FROM flashback_wishes WHERE person_id = $1",
+                    [Ecto.UUID.dump!(p_d.id)])
+      assert sig_d == ""
+
+      # 至少证明 wishes 全部 4 个都被迁移进程触及
+      assert length(wishes) == 4
+    end
+
     test "list_public_listed 城市过滤仍按 is_nil or 相等" do
       archive = create_archive()
       person = create_person(archive, %{city: "北京市"})
