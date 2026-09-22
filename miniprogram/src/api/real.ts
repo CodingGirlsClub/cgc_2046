@@ -863,12 +863,22 @@ export class RealMiniProgramApi implements MiniProgramApi {
     })
   }
 
-  async flashbackEndorseWish(wishId: string, token?: string | null): Promise<number> {
+  // wish2 U6/KTD3：附议登录版（旧 token 匿名腿下线——未登录由页面引登录页）
+  async flashbackEndorseWish(
+    wishId: string,
+    _token?: string | null,
+    options?: { contributionTypes?: string[]; message?: string | null; notify?: boolean }
+  ): Promise<number> {
     const data = await graphqlRequest<FlashbackEndorseWishMutation, FlashbackEndorseWishMutationVariables>(
       FlashbackEndorseWishMutationDocument,
-      { wishId, token: token ?? null }
+      {
+        wishId,
+        contributionTypes: options?.contributionTypes ?? [],
+        message: options?.message ?? null,
+        notify: options?.notify ?? false
+      }
     ).catch((error: unknown) => {
-      throwIfFlashbackTokenInvalid(error)
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
       throw error
     })
     return data.flashbackEndorseWish?.endorsementCount ?? 0
