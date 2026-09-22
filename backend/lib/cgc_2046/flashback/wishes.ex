@@ -205,35 +205,19 @@ defmodule Cgc2046.Flashback.Wishes do
     notify? = Keyword.get(opts, :notify, false)
 
     with {:ok, wish} <- fetch_public_wish(wish_id),
+         # FIX-2（KTD9 资格矩阵）：listed → 任何登录用户；未 listed → 需可解析
+         # person（成员语义）；viewer（无 person）对未 listed 统一 not_found
+         # （不泄露存在性）。hidden/deleted 已被 fetch_public_wish 滤除。
+         :ok <- authorize_endorse_target(wish, user_id),
          :ok <- validate_contribution_types(contribution_types),
          :ok <- validate_endorsement_message(message),
          :ok <- check_content_by_user(user_id, message) do
       user_uuid = Repo.uuid!(user_id)
+      person_id = find_user_person_id(user_uuid)
 
-      case find_claimed_p_endorsement(user_uuid, wish.id) do
-        nil ->
-          # 新附议：person_id 来自 user 已认领的 person（1-to-1 KTD2）
-          case find_user_person_id(user_uuid) do
-            nil ->
-              {:error,
-               %{
-                 code: "flashback_wish_endorsement_requires_claim",
-                 message: "请先完成成员档案认领再附议。"
-               }}
-
-            person_id ->
-              do_upsert_endorsement(
-                wish.id,
-                person_id,
-                user_uuid,
-                contribution_types,
-                message,
-                notify?
-              )
-          end
-
-        existing_p ->
-          # p: → u: 归并：update 既有行
+      cond do
+        # p:→u: 归并：user 认领的 person 已有存量 p: 行 → 升级不新增
+        existing_p = find_claimed_p_endorsement(user_uuid, wish.id) ->
           existing_p
           |> Ash.Changeset.for_update(:update, %{
             user_id: user_uuid,
@@ -246,7 +230,74 @@ defmodule Cgc2046.Flashback.Wishes do
             {:ok, _} -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
             {:error, reason} -> {:error, reason}
           end
+
+        # u: 行幂等（含 viewer person_id=nil 行）：重复附议 UPDATE 不双计
+        existing_u = find_endorsement_by_user(wish.id, user_uuid) ->
+          existing_u
+          |> Ash.Changeset.for_update(:update, %{
+            contribution_types: contribution_types,
+            message: message,
+            notify: notify?
+          })
+          |> Ash.update(authorize?: false)
+          |> case do
+            {:ok, _} -> {:ok, count_with_mine_by_user(wish.id, user_uuid)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        # 新附议：member（有 person）或 viewer（listed 目标，person_id=nil）
+        true ->
+          do_insert_endorsement(
+            wish.id,
+            person_id,
+            user_uuid,
+            contribution_types,
+            message,
+            notify?
+          )
       end
+    end
+  end
+
+  # FIX-2（KTD9）：listed 目标任何登录用户可附议；未 listed 目标仅「可解析
+  # person」的成员（成员语义）。viewer 对未 listed 统一 not_found——目标存在
+  # 本身不可泄露（requires_claim 会泄露「可附议但需认领」信号，弃用）。
+  defp authorize_endorse_target(%Wish{listed_at: listed_at}, _user_id)
+       when not is_nil(listed_at),
+       do: :ok
+
+  defp authorize_endorse_target(%Wish{listed_at: nil}, user_id) do
+    case find_user_person_id(Repo.uuid!(user_id)) do
+      nil -> {:error, %{code: "flashback_wish_not_found"}}
+      _person_id -> :ok
+    end
+  end
+
+  defp find_endorsement_by_user(wish_id, user_uuid) do
+    WishEndorsement
+    |> Ash.Query.filter(wish_id == ^wish_id and user_id == ^user_uuid)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> nil
+      {:ok, row} -> row
+      _ -> nil
+    end
+  end
+
+  defp do_insert_endorsement(wish_id, person_id, user_uuid, contribution_types, message, notify?) do
+    WishEndorsement
+    |> Ash.Changeset.for_create(:create, %{
+      wish_id: wish_id,
+      person_id: person_id,
+      user_id: user_uuid,
+      contribution_types: contribution_types,
+      message: message,
+      notify: notify?
+    })
+    |> Ash.create(authorize?: false)
+    |> case do
+      {:ok, _} -> {:ok, count_with_mine_by_user(wish_id, user_uuid)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -336,23 +387,6 @@ defmodule Cgc2046.Flashback.Wishes do
          }}
 
       true -> :ok
-    end
-  end
-
-  defp do_upsert_endorsement(wish_id, person_id, user_id, contribution_types, message, notify?) do
-    WishEndorsement
-    |> Ash.Changeset.for_create(:create, %{
-      wish_id: wish_id,
-      person_id: person_id,
-      user_id: user_id,
-      contribution_types: contribution_types,
-      message: message,
-      notify: notify?
-    })
-    |> Ash.create(authorize?: false, upsert?: true, upsert_identity: :unique_wish_person)
-    |> case do
-      {:ok, _} -> {:ok, count_with_mine_by_user(wish_id, user_id)}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -837,9 +871,14 @@ defmodule Cgc2046.Flashback.Wishes do
     end
   end
 
+  # FIX-2（审计 U3 缺口 2 / KTD9）：附议/留言目标资格——public + 未 hidden + 未删。
+  # hidden 后愿望不可再 endorse/cancel/comment（成员面 list_public 读不受影响）。
   defp fetch_public_wish(wish_id) do
     Wish
-    |> Ash.Query.filter(id == ^wish_id and visibility == "public" and is_nil(deleted_at))
+    |> Ash.Query.filter(
+      id == ^wish_id and visibility == "public" and is_nil(deleted_at) and
+        is_nil(hidden_at)
+    )
     |> Ash.read_one(authorize?: false)
     |> case do
       {:ok, nil} -> {:error, %{code: "flashback_wish_not_found"}}

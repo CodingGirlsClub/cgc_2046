@@ -131,9 +131,6 @@ defmodule Cgc2046.Flashback.WishPublic do
     {:ok, Enum.map(rows, &payload/1)}
   end
 
-  # nil city → 恒真（不过滤）；非 nil → is_nil(city) or city == ^city（G12 同口径）
-  defp city_match(nil, _w), do: dynamic([w], true)
-  defp city_match(city, _w), do: dynamic([w], is_nil(w.city) or w.city == ^city)
 
   @doc """
   单条直达（?item=<wish_id>）：四条件可见才返回 payload；否则 nil（不泄露存在性）。
@@ -142,7 +139,7 @@ defmodule Cgc2046.Flashback.WishPublic do
   def wish(wish_id, voter_key \\ nil) when is_binary(wish_id) do
     voter_key = voter_key || ""
 
-    with {:ok, uuid} <- Ecto.UUID.cast(wish_id) do
+    with {:ok, _uuid} <- Ecto.UUID.cast(wish_id) do
       row =
         Repo.one(
           from(w in "flashback_wishes",
