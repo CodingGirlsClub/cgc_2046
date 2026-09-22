@@ -508,6 +508,191 @@ defmodule Cgc2046.Flashback.WishesTest do
     end
   end
 
+  describe "U1 KTD1 署名快照 / listed_at 授权契约 / KTD11 期望地归一" do
+    test "默认 opts（旧客户端）：listed_at 为 NULL，signature = masked_name，city = 名册城市归一" do
+      archive = create_archive()
+      person = create_person(archive, %{full_name: "王小明", surname: "王", city: "北京市"})
+
+      {:ok, wish} = Wishes.create_wish(person.id, "大家一起来", "public")
+
+      assert wish.listed_at == nil
+      assert wish.signature == "王**"
+      assert wish.hidden_at == nil
+      assert wish.city == "北京"
+    end
+
+    test "publicListingConsent=true + visibility=public → listed_at 非空" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "公开打卡的心愿", "public",
+          public_listing_consent: true
+        )
+
+      assert %DateTime{} = wish.listed_at
+      assert wish.hidden_at == nil
+    end
+
+    test "publicListingConsent=false → listed_at 仍 NULL（public 但仅成员面）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "private-by-default", "public",
+          public_listing_consent: false
+        )
+
+      assert wish.listed_at == nil
+    end
+
+    test "visibility=private → listed_at 永远 NULL 即使 consent=true" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "私下话", "private",
+          public_listing_consent: true
+        )
+
+      assert wish.listed_at == nil
+      assert wish.visibility == "private"
+    end
+
+    test "signature_choice=:display_name → signature 用实名" do
+      archive = create_archive()
+      person = create_person(archive, %{full_name: "王小明", surname: "王"})
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "挂真名的心愿", "public", signature_choice: :display_name)
+
+      assert wish.signature == "王小明"
+    end
+
+    test "expected_city 提供时强制归一：成都 / 成都市 同归 成都" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish1} =
+        Wishes.create_wish(person.id, "成都见", "public", expected_city: "成都")
+      {:ok, wish2} =
+        Wishes.create_wish(person.id, "成都市也行", "public", expected_city: "成都市")
+
+      assert wish1.city == "成都"
+      assert wish2.city == "成都"
+    end
+
+    test "expected_city 名单外 → flashback_wish_city_unknown + ≤3 候选" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert {:error, %{code: "flashback_wish_city_unknown", candidates: cands}} =
+               Wishes.create_wish(person.id, "想去某地", "public", expected_city: "某某某地")
+
+      assert is_list(cands) and length(cands) <= 3
+    end
+
+    test "expected_city=nil 时按名册城市归一，失败留空" do
+      archive = create_archive()
+      person = create_person(archive, %{city: "某某外邦"})
+      {:ok, wish} = Wishes.create_wish(person.id, "外邦心愿", "public")
+      assert wish.city == nil
+
+      person2 = create_person(archive, %{full_name: "张三", surname: "张", city: "成都市"})
+      {:ok, wish2} = Wishes.create_wish(person2.id, "成都人", "public")
+      assert wish2.city == "成都"
+    end
+
+    test "hidden_at 置位 → list_public_listed 看不见，list_public（成员面）行为不变" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "要 hidden 的心愿", "public",
+          public_listing_consent: true
+        )
+
+      assert Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+
+      # admin 下架（直接 SQL 演化模拟 U5 后续 admin action）
+      %{num_rows: 1} =
+        Repo.query!(
+          "UPDATE flashback_wishes SET hidden_at = now() WHERE id = $1",
+          [Repo.uuid!(wish.id)]
+        )
+
+      # hidden 后公开树不再可见
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+
+      # 成员面仍然可见（计 hidden 不过滤）
+      assert Enum.any?(Wishes.list_public(), &(&1.id == wish.id))
+    end
+
+    test "存量 listed_at = NULL 不出现于 list_public_listed" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      # 默认（旧客户端）授权位 = NULL
+      {:ok, wish} = Wishes.create_wish(person.id, "存量气氛组", "public")
+      assert wish.listed_at == nil
+
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+      # 成员面可见
+      assert Enum.any?(Wishes.list_public(), &(&1.id == wish.id))
+    end
+
+    test "signature 快照不随改名回溯（KTD1 快照语义）" do
+      archive = create_archive()
+      person = create_person(archive, %{full_name: "王小明", surname: "王"})
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "快速心愿", "public",
+          signature_choice: :display_name,
+          public_listing_consent: true
+        )
+
+      assert wish.signature == "王小明"
+
+      # 改名后 wish.signature 不更新（快照语义）
+      %{num_rows: 1} =
+        Repo.query!(
+          "UPDATE flashback_people SET full_name = '王大名' WHERE id = $1",
+          [Repo.uuid!(person.id)]
+        )
+
+      # 改变名后 wish.signature 不更新（KTD1 快照语义）
+      refreshed = Wishes.list_public() |> Enum.find(&(&1.id == wish.id))
+      assert refreshed.content == "快速心愿"
+      # list_public 投影内无 signature，但 DB 行仍存旧值
+      %{rows: [[sig]]} =
+        Repo.query!("SELECT signature FROM flashback_wishes WHERE id = $1", [
+          Repo.uuid!(wish.id)
+        ])
+
+      assert sig == "王小明"
+    end
+
+    test "list_public_listed 城市过滤仍按 is_nil or 相等" do
+      archive = create_archive()
+      person = create_person(archive, %{city: "北京市"})
+
+      {:ok, w1} =
+        Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true)
+      {:ok, w2} =
+        Wishes.create_wish(person.id, "外邦场", "public",
+          expected_city: nil,
+          public_listing_consent: true
+        )
+
+      # 全部
+      beijing = Wishes.list_public_listed("北京")
+      assert Enum.any?(beijing, &(&1.id == w1.id))
+      # 北京 filter 不该看到 w2（w2 用的是 person.city="北京市" 归一 → 北京）——两人都
+      # 在北京但其实 w1/w2 同城，只是看 filter 与原 list_public 一致
+      assert Enum.any?(beijing, &(&1.id == w2.id))
+    end
+  end
+
   # KTD4 同步 (非 unboxed) 流程下统计：查询走 sandbox 共享连接，能看到本事务内
   # 已 insert 但尚未 rollback 的愿望（与 unboxed_run 另开连接的 wishes_count/1
   # 对 R20 并发用例的语义不同）。

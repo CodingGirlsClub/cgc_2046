@@ -19,7 +19,7 @@ defmodule Cgc2046.Flashback.Wishes do
 
   require Ash.Query
 
-  alias Cgc2046.Flashback.{AlumniProjection, Wish, WishComment, WishEndorsement}
+  alias Cgc2046.Flashback.{AlumniProjection, Cities, Wish, WishComment, WishEndorsement}
   alias Cgc2046.Integrations.Wechat.Client, as: WechatClient
   alias Cgc2046.Repo
 
@@ -38,28 +38,57 @@ defmodule Cgc2046.Flashback.Wishes do
   # ── 创建（R5/R6） ────────────────────────────────────────────────────
 
   @doc """
-  许愿：visibility 二选一；city 快照许愿人名册城市；年度额度 R20。
+  许愿：visibility 二选一；city 快照许愿人名册城市（U1 KTD11 改用「期望地」，
+  默认名册城市归一值）；年度额度 R20。
   KTD4：内容过微信 msgSecCheck v2（enrollment.ex:777-833 同链）——违规/待审
   fail-closed 返回 `flashback_content_rejected`；「说给主办方听」(private) 同样
   过机审但不进人工队列（KTD5 收件箱是 admin 读面，本批零队列写入）。
+
+  **U1 KTD1**：opts 接受下列键（全可选，宽容向下兼容旧调用方）：
+    - `:signature_choice` ∈ `:anonymous | :display_name`（默认 `:anonymous`）——
+      决定 `signature` 快照：匿名走 `AlumniProjection.masked_name/1`；
+      `:display_name` 用 `person.full_name`（flashback_people 无 display_name 列；
+      KTD1 「display_name」在本批即名册实名全名）。若 person 缺名也回退匿名。
+    - `:expected_city` ∈ `nil | binary`——nil 时按名册城市经
+      `Cities.normalize/1` 归一（失败留空）；非 nil 强制归一，失败返回
+      `flashback_wish_city_unknown` + ≤3 候选。
+    - `:public_listing_consent` ∈ `boolean`（默认 false）——`visibility=public
+      AND consent=true` 时写入 `listed_at`，否则 nil；旧客户端默认值
+      false 自然宽容（listed_at=null，仅成员可见，不硬拒）。
   """
-  @spec create_wish(String.t(), String.t(), String.t()) ::
+  @spec create_wish(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def create_wish(person_id, content, visibility) do
+  def create_wish(person_id, content, visibility, opts \\ []) do
+    signature_choice = Keyword.get(opts, :signature_choice, :anonymous)
+    expected_city = Keyword.get(opts, :expected_city, nil)
+    public_listing_consent = Keyword.get(opts, :public_listing_consent, false)
+
     with :ok <- validate_content(content),
          :ok <- validate_visibility(visibility),
-         :ok <- check_content(person_id, content) do
+         :ok <- check_content(person_id, content),
+         {:ok, %{city: city, signature: signature}} <-
+           build_writer_snapshots(person_id, expected_city, signature_choice) do
+      listed_at =
+        if visibility == "public" and public_listing_consent do
+          DateTime.utc_now() |> DateTime.truncate(:microsecond)
+        else
+          nil
+        end
+
       # 锁 + COUNT + INSERT 同事务：Repo.rollback 透传 {:error, %{code: ...}}
       # 形状（Ecto 语义：error tuple 回滚不 raise），返回契约不变。
       Repo.transaction(fn ->
-        with {:ok, city} <- lock_person_city(person_id),
+        with {:ok, _city} <- lock_person_city(person_id),
              :ok <- check_quota(person_id) do
           Wish
           |> Ash.Changeset.for_create(:create, %{
             person_id: person_id,
             content: String.trim(content),
             visibility: visibility,
-            city: city
+            city: city,
+            signature: signature,
+            listed_at: listed_at,
+            hidden_at: nil
           })
           |> Ash.create(authorize?: false)
           |> case do
@@ -71,6 +100,55 @@ defmodule Cgc2046.Flashback.Wishes do
         end
       end)
     end
+  end
+
+  # U1 KTD1 / KTD11：name-place 与 city 快照。名册城市与 display_name 一次 SQL
+  # 取回，KTD11 归一逻辑（Cities.normalize）做墙体。
+  @doc false
+  def build_writer_snapshots(person_id, expected_city, signature_choice) do
+    case Repo.query(
+           "SELECT city, full_name, surname FROM flashback_people WHERE id = $1",
+           [Repo.uuid!(person_id)]
+         ) do
+      {:ok, %{num_rows: 0}} ->
+        {:error, %{code: "flashback_person_not_found"}}
+
+      {:error, _} ->
+        {:error, %{code: "flashback_person_not_found"}}
+
+      {:ok, %{rows: [[person_city, full_name, surname]]}} ->
+        case normalize_writing_city(expected_city, person_city) do
+          {:error, err} ->
+            {:error, err}
+
+          {:ok, city} ->
+            signature =
+              case signature_choice do
+                :display_name ->
+                  if is_binary(full_name) and full_name != "" do
+                    full_name
+                  else
+                    AlumniProjection.masked_name(full_name, surname)
+                  end
+
+                _anonymous ->
+                  AlumniProjection.masked_name(full_name, surname)
+              end
+
+            {:ok, %{city: city, signature: signature || ""}}
+        end
+    end
+  end
+
+  defp normalize_writing_city(nil, person_city) do
+    case Cities.normalize(person_city || "") do
+      {:ok, normalized} -> {:ok, normalized}
+      {:error, _} -> {:ok, nil}
+    end
+  end
+
+  defp normalize_writing_city(provided, _person_city) do
+    Cities.normalize(provided)
   end
 
   # ── 附议（R7，幂等） ─────────────────────────────────────────────────
@@ -174,8 +252,57 @@ defmodule Cgc2046.Flashback.Wishes do
 
   # ── 读面（投影用） ───────────────────────────────────────────────────
 
-  @doc "公开愿望（附议数降序、时间稳定序）；city 过滤 nil = 不过滤；
-  viewer_id 供 `mine` 标记（本人愿望显示删除入口，R14）。"
+  @doc """
+  公开树愿望（U1 KTD1/KTD10）：仅 listed+public+未隐藏+未删除。
+  这是 viewer 公开树的查询函数，与成员面 `list_public/2` 分离（G12 pin）。
+  本批仅做「四条件过滤」；KTD10 direct 排序/分页在 U6 落。
+  """
+  @spec list_public_listed(String.t() | nil, String.t() | nil) :: list(map())
+  def list_public_listed(city \\ nil, viewer_id \\ nil) do
+    base =
+      Wish
+      |> Ash.Query.filter(
+        visibility == "public" and
+          is_nil(deleted_at) and
+          is_nil(hidden_at) and
+          not is_nil(listed_at)
+      )
+      |> Ash.Query.load([:endorsements, :person, comments: [:person]])
+
+    base =
+      if city do
+        Ash.Query.filter(base, is_nil(city) or city == ^city)
+      else
+        base
+      end
+
+    wishes = Ash.read!(base, authorize?: false, page: false)
+
+    wishes
+    |> Enum.map(fn wish ->
+      %{
+        id: wish.id,
+        content: wish.content,
+        city: wish.city,
+        signature: wish.signature,
+        listed_at: wish.listed_at,
+        inserted_at: wish.inserted_at,
+        wisher_masked: AlumniProjection.masked_name(wish.person),
+        endorsement_count: length(wish.endorsements),
+        comments: project_comments(wish.comments),
+        mine: viewer_id != nil and wish.person_id == viewer_id
+      }
+    end)
+    |> Enum.sort_by(&{-&1.endorsement_count, &1.inserted_at})
+  end
+
+  @doc """
+  公开愿望（成员面，附议数降序、时间稳定序）；city 过滤 nil = 不过滤；
+  viewer_id 供 `mine` 标记（本人愿望显示删除入口，R14）。
+
+  对 `listed_at/hidden_at` 无过滤——成员面语义是所有 public 未删愿望对登录
+  成员可见（包括未授权 listed 的存量愿望）。公开树请用 `list_public_listed/2`。
+  """
   @spec list_public(String.t() | nil, String.t() | nil) :: list(map())
   def list_public(city \\ nil, viewer_id \\ nil) do
     base =
