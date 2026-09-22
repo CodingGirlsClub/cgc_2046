@@ -166,11 +166,14 @@ function ShareDialog({
 export default function VoicesWall({
 	initialItem,
 	showIntro,
+	initialCity,
 }: {
 	/** 分享直达的目标句（已在服务端确认有效）；undefined = 非直达 */
 	initialItem?: FlashbackPublicQuote;
 	/** 是否播开场（page.tsx 已按 item/回访记忆/reduced-motion 排除） */
 	showIntro: boolean;
+	/** wish2 U7/G10：?city= 入 URL 的初始城市（item 直达的城市优先） */
+	initialCity?: string;
 }) {
 	const t = useTranslations("flashback.voices");
 	const reducedMotion = usePrefersReducedMotion();
@@ -178,7 +181,7 @@ export default function VoicesWall({
 	const [quotes, setQuotes] = useState<FlashbackPublicQuote[]>(initialItem ? [initialItem] : []);
 	const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
 	const [currentId, setCurrentId] = useState<string | null>(initialItem?.quoteId ?? null);
-	const [city, setCity] = useState<string>(initialItem?.city ?? "");
+	const [city, setCity] = useState<string>(initialItem?.city ?? initialCity ?? "");
 	const [progress, setProgress] = useState(showIntro ? 0 : 1);
 	const [playing, setPlaying] = useState(showIntro);
 	const [playback, setPlayback] = useState(0);
@@ -317,7 +320,21 @@ export default function VoicesWall({
 		[finishIntro],
 	);
 
+	// R21：城市入 URL（?city= 写回）——voices↔wishes 互跳与刷新保留当前城市；
+	// replaceState 不触发导航（软更新，与既有 useState 单源不冲突）
+	const syncCityToUrl = useCallback((next: string) => {
+		try {
+			const url = new URL(window.location.href);
+			if (next) url.searchParams.set("city", next);
+			else url.searchParams.delete("city");
+			window.history.replaceState(null, "", url.toString());
+		} catch {
+			// storage/URL 不可用：不阻断选城
+		}
+	}, []);
+
 	const selectCity = (next: string) => {
+		syncCityToUrl(next);
 		const entry = quotes.find((q) => q.city === next);
 		if (entry) {
 			select(entry);
@@ -332,11 +349,12 @@ export default function VoicesWall({
 		select(next);
 	};
 
-	// 点赞（R11/R29）：乐观 ±1 → 服务端校正 → 失败回滚；不就地重排
+	// 点赞（R11/R29）：乐观 ±1 → 服务端校正 → 失败按 quoteId 函数式回滚（#806 F2：
+	// 不用整组快照——并发期间其他句的成功更新不被覆盖）；不就地重排
 	const toggleLike = (quote: FlashbackPublicQuote) => {
 		if (!voter || pending.has(quote.quoteId)) return;
 		const liked = !quote.likedByViewer;
-		const before = quotes;
+		const prevLike = { liked: quote.likedByViewer, count: quote.likeCount };
 		setQuotes(
 			quotes.map((item) =>
 				item.quoteId === quote.quoteId
@@ -368,7 +386,16 @@ export default function VoicesWall({
 					current.map((item) => (item.quoteId === quote.quoteId ? { ...item, likeCount: count } : item)),
 				);
 			})
-			.catch(() => setQuotes(before))
+			.catch(() =>
+				// #806 F2：失败回滚只恢复该条（函数式——保留并发期间其他条的更新）
+				setQuotes((current) =>
+					current.map((item) =>
+						item.quoteId === quote.quoteId
+							? { ...item, likedByViewer: prevLike.liked, likeCount: prevLike.count }
+							: item,
+					),
+				),
+			)
 			.finally(() =>
 				setPending((prev) => {
 					const next = new Set(prev);
@@ -488,6 +515,10 @@ export default function VoicesWall({
 						<nav className={styles.nav} aria-label={t("navLabel")}>
 							<Link href="/flashback/voices" className={styles.activeNav} aria-current="page">
 								{t("voicesNav")} <span>{t("voicesNavEn")}</span>
+							</Link>
+							{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
+							<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>
+								{t("wishesNav")} <span>{t("wishesNavEn")}</span>
 							</Link>
 						</nav>
 						<div className={styles.headerActions}>

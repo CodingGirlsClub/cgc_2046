@@ -776,21 +776,126 @@ export const FlashbackAdjustTodayFogMutationDocument = /* GraphQL */ `
   }
 `
 
-// U4 愿望写操作(双入口 token:独立 token 或登录会话)
+// U4 愿望写操作(双入口 token:独立 token 或登录会话)；
+// wish2 U8/U10 扩参：署名快照/期望地归一/公开树授权；返回 id+status 三态
 export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
-  mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
-    flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+  mutation FlashbackCreateWish(
+    $token: String
+    $content: String!
+    $visibility: String!
+    $signatureChoice: String
+    $expectedCity: String
+    $publicListingConsent: Boolean
+  ) {
+    flashbackCreateWish(
+      token: $token
+      content: $content
+      visibility: $visibility
+      signatureChoice: $signatureChoice
+      expectedCity: $expectedCity
+      publicListingConsent: $publicListingConsent
+    ) {
+      id
+      endorsementCount
+      endorsedByMe
+      status
+    }
+  }
+`
+
+// wish2 U10（KTD11）：期望地候选名单真源（与 web FLASHBACK_CITIES 同一服务端读面）
+export const FlashbackCitiesQueryDocument = /* GraphQL */ `
+  query FlashbackCities {
+    flashbackCities {
+      name
+      fullName
+      pinyin
+      lngLat
+    }
+  }
+`
+
+// wish2 U6/KTD3：附议改登录版（旧 token 匿名腿下线——未登录由登录页承接）
+export const FlashbackEndorseWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackEndorseWish(
+    $wishId: ID!
+    $contributionTypes: [String!]
+    $message: String
+    $notify: Boolean
+  ) {
+    flashbackEndorseWish(
+      wishId: $wishId
+      contributionTypes: $contributionTypes
+      message: $message
+      notify: $notify
+    ) {
       endorsementCount
       endorsedByMe
     }
   }
 `
 
-export const FlashbackEndorseWishMutationDocument = /* GraphQL */ `
-  mutation FlashbackEndorseWish($token: String, $wishId: ID!) {
-    flashbackEndorseWish(token: $token, wishId: $wishId) {
+// wish2 U6/KTD3：取消附议（登录）
+export const FlashbackCancelEndorseWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackCancelEndorseWish($wishId: ID!) {
+    flashbackCancelEndorseWish(wishId: $wishId) {
       endorsementCount
       endorsedByMe
+    }
+  }
+`
+
+// wish2 U6/KTD2：期待/取消期待（expected 双向；登录强制 u: 键，匿名 a: 设备键）
+export const FlashbackExpectWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackExpectWish($wishId: ID!, $expected: Boolean!, $anonVoterKey: String) {
+    flashbackExpectWish(wishId: $wishId, expected: $expected, anonVoterKey: $anonVoterKey) {
+      expectationCount
+      expectedByMe
+    }
+  }
+`
+
+// wish2 U6/KTD5：举报（匿名可报；预设理由 + 补充 ≤200）
+export const FlashbackReportWishMutationDocument = /* GraphQL */ `
+  mutation FlashbackReportWish(
+    $wishId: ID!
+    $reasonType: String!
+    $reasonFree: String
+    $anonVoterKey: String
+  ) {
+    flashbackReportWish(
+      wishId: $wishId
+      reasonType: $reasonType
+      reasonFree: $reasonFree
+      anonVoterKey: $anonVoterKey
+    ) {
+      reportId
+      status
+    }
+  }
+`
+
+// wish2 U6/KTD10：viewer 公开树读面（listed 四条件 + 加权随机排序）
+export const FlashbackPublicWishesQueryDocument = /* GraphQL */ `
+  query FlashbackPublicWishes($city: String, $seed: String, $offset: Int, $limit: Int, $voterKey: String) {
+    flashbackPublicWishes(
+      city: $city
+      seed: $seed
+      offset: $offset
+      limit: $limit
+      voterKey: $voterKey
+    ) {
+      id
+      content
+      city
+      signature
+      expectationCount
+      endorsementCount
+      contributionDistribution
+      expectedByViewer
+      endorsedByViewer
+      listedAt
+      insertedAt
     }
   }
 `

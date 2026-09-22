@@ -63,7 +63,9 @@ export const ALL_SCENARIOS = [
   'volunteer_application_training',
   'volunteer_application_assigned',
   'volunteer_application_rejected',
-  'volunteer_application_canceled'
+  'volunteer_application_canceled',
+  // wish2 U9（KTD3）：附议 Echo 回响
+  'flashback_wish_echo'
 ] as const satisfies readonly SubscriptionScenario[]
 
 /** 微信单次 `tmplIds` 上限（官方文档：一次调用最多可订阅 3 条消息）。 */
@@ -100,6 +102,25 @@ export interface SubscriptionTouchpoint {
  * - 活动：报名成功 + 核销码（Event 报名有 6 位码，两条同刻下发）；
  * - 课程：仅报名成功（course 恒无码，后端不发核销码通知）。
  */
+/**
+ * wish2 U9（KTD3）：附议表单 · **提交前**——「回响通知」勾选触点。
+ *
+ * 一次性订阅换一条 Echo 回响（附议被主办方看到时的回应）；授权是用户手势
+ * 硬约束下唯一能拿授权的时刻。显式勾选（默认勾选、可取消）：只有微信真实
+ * accept 的一次上报才加一次余额（后端 Consent.grant +1），notify 意愿不冒充
+ * 实际授权（KTD3 授权单源——表单勾选只存意愿，后端零 grant）。
+ */
+export function wishEchoTouchpoint(): SubscriptionTouchpoint {
+  return {
+    page: 'pages/flashback-corridor/index（附议表单提交前）',
+    trigger: '用户点按「提交附议」，先请求订阅授权再提交附议',
+    label: '订阅回响通知',
+    scenarios: ['flashback_wish_echo'],
+    acceptedCopy: '已订阅回响——愿望有回应时会通知你',
+    deniedCopy: '没订阅也能附议；想接收回应可再次点击订阅'
+  }
+}
+
 export function preSubmitTouchpoint(kind: ContentKind): SubscriptionTouchpoint {
   const isEvent = kind === 'event'
 
