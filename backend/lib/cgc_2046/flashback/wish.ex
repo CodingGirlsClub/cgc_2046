@@ -30,6 +30,17 @@ defmodule Cgc2046.Flashback.Wish do
     attribute(:city, :string, public?: true, writable?: true)
     attribute(:deleted_at, :utc_datetime, public?: true, writable?: true)
 
+    # U1（KTD1）：署名快照——创建时按作者选择定型，之后不回溯改名
+    attribute(:signature, :string, allow_nil?: false, default: "", public?: true, writable?: true)
+
+    # U1（KTD1）：公开树授权标记——`visibility=public AND publicListingConsent=true`
+    # 才写入；nil 即未授权公开（成员面仍可见）
+    attribute(:listed_at, :utc_datetime_usec, public?: true, writable?: true)
+
+    # U1（KTD1/KTD5）：admin 下架标记——与作者撤回 `deleted_at` 区分；hidden 后
+    # 公开树移除但成员面保留（admin 编辑权走 U5 的专用 action）
+    attribute(:hidden_at, :utc_datetime_usec, public?: true, writable?: true)
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -44,11 +55,11 @@ defmodule Cgc2046.Flashback.Wish do
     defaults([:read, :destroy])
 
     create :create do
-      accept([:person_id, :content, :visibility, :city])
+      accept([:person_id, :content, :visibility, :city, :signature, :listed_at, :hidden_at])
     end
 
     update :update do
-      accept([:deleted_at])
+      accept([:deleted_at, :listed_at, :hidden_at])
     end
   end
 
