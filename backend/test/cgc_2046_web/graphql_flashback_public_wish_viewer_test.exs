@@ -130,7 +130,6 @@ defmodule Cgc2046Web.GraphqlFlashbackPublicWishViewerTest do
     {:ok, _} = WishExpectations.set_expectation(wish.id, true, anon_voter_key: anon_key)
 
     result = post_graphql(build_conn(), wishes_query(), %{"voterKey" => anon_key})
-    IO.inspect(result, label: "DBG anon result")
     row = Enum.find(result["data"]["flashbackPublicWishes"], &(&1["id"] == wish.id))
     assert row["expectedByViewer"] == true
 
@@ -138,11 +137,6 @@ defmodule Cgc2046Web.GraphqlFlashbackPublicWishViewerTest do
     other = post_graphql(build_conn(), wishes_query(), %{"voterKey" => "a:other"})
     row_other = Enum.find(other["data"]["flashbackPublicWishes"], &(&1["id"] == wish.id))
     assert row_other["expectedByViewer"] == false
-  end
-
-  test "DBG anonymous direct" do
-    result = post_graphql(build_conn(), wishes_query(), %{"voterKey" => "a:x"})
-    IO.inspect(result, label: "DBG")
   end
 
   test "公开树完整字段矩阵经 HTTP 序列化不 500（E2E P1：naive datetime 装箱）" do
