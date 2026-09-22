@@ -61,9 +61,9 @@ defmodule Cgc2046.Flashback.Wish do
     end
 
     update :update do
-      # 软删 / U5 admin set_hidden/set_listed 走专用 action（quote_license.set_hidden
-      # 模式），本 update action 仅删 deleted_at。
-      accept([:deleted_at])
+      # 软删 / U5 admin set_hidden 共用（admin 走 domain 层 authorize 而非 GraphQL
+      # 公开面——U6 GraphQL whitelist 不暴露任何 update 入口）。
+      accept([:deleted_at, :hidden_at])
     end
   end
 

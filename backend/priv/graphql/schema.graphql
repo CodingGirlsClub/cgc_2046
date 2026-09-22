@@ -3910,6 +3910,9 @@ type User {
   "首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致）"
   onboardingInvitationDismissedAt: DateTime
 
+  "信用降级时间戳（wish 审核必走 admin 后置）；admin 放行单 wish 不清本字段"
+  wishesReviewRequiredAt: DateTime
+
   "平台级成员编号（P1 由用户 id 确定性生成，格式 CGC-XXXXXX，稳定唯一）"
   memberNumber: String
 

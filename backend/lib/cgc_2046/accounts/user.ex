@@ -103,6 +103,15 @@ defmodule Cgc2046.Accounts.User do
       description: "首公里接入邀请的拒绝时间（R2：拒绝后模态不再自动弹出；null = 未拒绝，跨设备一致）"
     )
 
+    # KTD5 U5：作者被下架后 credit reduction 置位：其新公开 wish 默认 hidden_at 待审。
+    # admin 放行 wish 时清 wish.hidden_at 不清本字段；本字段 reset 走独立 admin action。
+    attribute(:wishes_review_required_at, :utc_datetime_usec,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "信用降级时间戳（wish 审核必走 admin 后置）；admin 放行单 wish 不清本字段"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
