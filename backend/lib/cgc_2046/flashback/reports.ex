@@ -42,18 +42,71 @@ defmodule Cgc2046.Flashback.Reports do
          {:ok, reporter_voter_key} <- resolve_reporter_key(actor_user_id, anon_voter_key),
          :ok <- check_rate_limit(remote_ip),
          :ok <- validate_target_exists(target_type, target_id) do
-      Report
-      |> Ash.Changeset.for_create(:create, %{
-        target_type: target_type,
-        target_id: target_id,
-        reporter_user_id: actor_user_id && Repo.uuid!(actor_user_id),
-        reporter_voter_key: reporter_voter_key,
-        reason_type: reason_type,
-        reason_free: reason_free,
-        status: "pending"
-      })
-      |> Ash.create(authorize?: false)
+      target_uuid = Repo.uuid!(target_id)
+
+      # FIX-4（plan U5）：同人同目标幂等——命中既有行直接返回（不报错、不重复
+      # 入队）；唯一索引兜底并发窗口（撞唯一冲突 → 重查返回既有行）。
+      case find_existing_report(target_type, target_uuid, reporter_voter_key) do
+        %Report{} = existing ->
+          {:ok, existing}
+
+        nil ->
+          Report
+          |> Ash.Changeset.for_create(:create, %{
+            target_type: target_type,
+            target_id: target_uuid,
+            reporter_user_id: actor_user_id && Repo.uuid!(actor_user_id),
+            reporter_voter_key: reporter_voter_key,
+            reason_type: reason_type,
+            reason_free: reason_free,
+            status: "pending"
+          })
+          |> Ash.create(authorize?: false)
+          |> case do
+            {:ok, report} ->
+              {:ok, report}
+
+            # 并发双击：唯一索引冲突 → 落到既有行（幂等语义）
+            {:error, %Ash.Error.Invalid{} = error} ->
+              if unique_report_conflict?(error) do
+                case find_existing_report(target_type, target_uuid, reporter_voter_key) do
+                  %Report{} = existing -> {:ok, existing}
+                  nil -> {:error, error}
+                end
+              else
+                {:error, error}
+              end
+
+            {:error, other} ->
+              {:error, other}
+          end
+      end
     end
+  end
+
+  defp find_existing_report(target_type, target_uuid, reporter_voter_key) do
+    Report
+    |> Ash.Query.filter(
+      target_type == ^target_type and target_id == ^target_uuid and
+        reporter_voter_key == ^reporter_voter_key
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> nil
+      {:ok, report} -> report
+      _ -> nil
+    end
+  end
+
+  defp unique_report_conflict?(%Ash.Error.Invalid{errors: errors}) do
+    errors
+    |> List.wrap()
+    |> Enum.any?(fn
+      %Ash.Error.Changes.InvalidAttribute{field: :reporter_voter_key} -> true
+      %{code: :unique_violation} -> true
+      _ -> false
+    end)
   end
 
   # ── Admin ────────────────────────────────────────────────────────────
@@ -194,8 +247,35 @@ defmodule Cgc2046.Flashback.Reports do
       }
     end)
   end
+  # FIX-4（KTD9 收口）：公开举报面目标资格 = listed + public + 未 hidden + 未删
+  # （plan 允许收口 listed-only——成员面举报入口本批无 UI 消费方）。统一
+  # target_not_found：private/未 listed/hidden/不存在同形，不泄露存在性。
+  defp validate_target_exists(target_type, target_id) do
+    uuid = case Ecto.UUID.cast(target_id) do
+      {:ok, u} -> u
+      _ -> nil
+    end
 
-  # ── 内部 ─────────────────────────────────────────────────────────────
+    found =
+      case {target_type, uuid} do
+        {"wish", id} when is_binary(id) ->
+          Wish
+          |> Ash.Query.filter(
+            id == ^id and visibility == "public" and
+              not is_nil(listed_at) and is_nil(hidden_at) and is_nil(deleted_at)
+          )
+          |> Ash.exists?(authorize?: false)
+
+        _ ->
+          false
+      end
+
+    if found do
+      :ok
+    else
+      {:error, %{code: "flashback_report_target_not_found", message: "举报目标不存在"}}
+    end
+  end
 
   defp validate_reason_type(reason_type) when is_binary(reason_type) do
     if reason_type in Report.reason_types() do
@@ -244,30 +324,6 @@ defmodule Cgc2046.Flashback.Reports do
            message: "Too many reports, try later",
            reason: :rate_limited
          }}
-    end
-  end
-
-  defp validate_target_exists(target_type, target_id) do
-    uuid = case Ecto.UUID.cast(target_id) do
-      {:ok, u} -> u
-      _ -> nil
-    end
-
-    found =
-      case {target_type, uuid} do
-        {"wish", id} when is_binary(id) ->
-          Wish
-          |> Ash.Query.filter(id == ^id and is_nil(deleted_at))
-          |> Ash.exists?(authorize?: false)
-
-        _ ->
-          false
-      end
-
-    if found do
-      :ok
-    else
-      {:error, %{code: "flashback_report_target_not_found", message: "举报目标不存在"}}
     end
   end
 
