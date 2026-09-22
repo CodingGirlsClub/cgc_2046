@@ -238,17 +238,91 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
                Wishes.endorse_by_user(user.id, wish.id, message: "tt 用户留言")
     end
 
-    test "endore 全流程不调 Consent.grant——失败注入" do
+    test "p: → u: 归并：已认领 person 的 p: 行升级，不新增不双计" do
+      archive = create_archive()
+      %{person: person, user: user} = create_claimed_wechat_person(archive)
+      wish = create_listed_wish(person, "归并")
+
+      # 先用旧 person-only 路径造 p: 行（未填 user_id）
+      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+
+      wish_id = wish.id
+
+      %{rows: [[uid_before]]} =
+        Repo.query!(
+          "SELECT user_id FROM flashback_wish_endorsements WHERE wish_id = $1 LIMIT 1",
+          [Repo.uuid!(wish_id)]
+        )
+
+      assert is_nil(uid_before)
+
+      # p: → u: 归并：同 user 的 person 有既有 p: 行 → 应 UPDATE 而非 INSERT
+      {:ok, %{endorsement_count: 1}} =
+        Wishes.endorse_by_user(user.id, wish.id,
+          contribution_types: ["venue"],
+          message: "升级",
+          notify: true
+        )
+
+      %{rows: [[uid_after, contrib, msg, notify]]} =
+        Repo.query!(
+          "SELECT user_id, contribution_types, message, notify FROM flashback_wish_endorsements WHERE wish_id = $1",
+          [Repo.uuid!(wish_id)]
+        )
+
+      assert uid_after == Repo.uuid!(user.id)
+      assert contrib == ["venue"]
+      assert msg == "升级"
+      assert notify == true
+
+      # 未双计：仍只一行
+      cnt =
+        WishEndorsement
+        |> Ash.Query.filter(wish_id == ^wish_id)
+        |> Ash.count!(authorize?: false)
+
+      assert cnt == 1
+    end
+
+    test "存量 p: 行计入 endorsement_count（KTD2 兼容）" do
+      archive = create_archive()
+      %{person: person, user: user} = create_claimed_wechat_person(archive)
+      wish = create_listed_wish(person, "存量 p:")
+
+      # person 自己造 p:，user 未 endorse
+      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+
+      # user 视角 endorsement_count 也应该 = 1（同一物理行；KTD2 user 已认领 person）
+      result = Wishes.count_with_mine_by_user(wish.id, Repo.uuid!(user.id))
+      assert result.endorsement_count == 1
+      # 但 endorsed_by_me=false（user 没有 u: 行）
+      assert result.endorsed_by_me == false
+    end
+
+    test "归并后 endorsed_by_me=true" do
+      archive = create_archive()
+      %{person: person, user: user} = create_claimed_wechat_person(archive)
+      wish = create_listed_wish(person, "归并后 endorsed")
+
+      {:ok, %{endorsement_count: 1}} = Wishes.endorse(person.id, wish.id)
+
+      {:ok, %{endorsement_count: 1, endorsed_by_me: true}} =
+        Wishes.endorse_by_user(user.id, wish.id)
+    end
+
+    test "endor 全流程不调 Consent.grant——失败注入" do
       archive = create_archive()
       %{person: person, user: user} = create_claimed_wechat_person(archive)
       wish = create_listed_wish(person, "single_source")
 
-      # 模拟 Consent.grant 调用会 raise——endorse 应正常工作
+      # 如果 endorsement 调用 Consent.grant，应触发 granted telemetry；我们在
+      # 测试端监听，观察到就是违规（KTD3 后端零 grant pin）。
       test_pid = self()
+      handler_id = "u3-consent-firewall-#{System.unique_integer([:positive])}"
 
       :ok =
         :telemetry.attach(
-          "u3-consent-firewall-#{System.unique_integer([:positive])}",
+          handler_id,
           [:cgc_2046, :consent, :granted],
           fn event, measurements, metadata, _config ->
             send(test_pid, {:consent_granted_unexpectedly, event, measurements, metadata})
@@ -265,7 +339,7 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
 
       refute_received {:consent_granted_unexpectedly, _, _, _}
 
-      :telemetry.detach("u3-consent-firewall-#{System.unique_integer([:positive])}")
+      :telemetry.detach(handler_id)
     end
   end
 end
