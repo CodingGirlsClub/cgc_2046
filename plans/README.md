@@ -42,8 +42,10 @@ cd backend && mix test test/cgc_2046_web/graphql_flashback_public_wish_viewer_te
 # 001 专属（SSR 红绿闸门）:
 curl -sS -o /dev/null -w '%{http_code}' http://localhost:3996/flashback/wishes   # expect 200 (dev server 必须开)
 curl -s http://localhost:3996/flashback/wishes | grep -c '换一批'                # ≥1
-curl -s http://localhost:3996/flashback/wishes | grep -Eo '<(header|aside)\b' | wc -l   # ≥2
-curl -s http://localhost:3996/flashback/wishes | grep -c '正在挂愿望'            # ≥1
+python3 -c "import re,sys;print(re.sub(r'<script[^>]*>.*?</script>','',open('/tmp/wishes-ssr.html').read(),flags=re.S),end='')" > /tmp/wishes-body.html  # 先 curl 落盘再剥 script（见 001 Step 3）
+grep -c '换一批' /tmp/wishes-body.html          # ≥1
+grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2
+grep -c '正在挂愿望' /tmp/wishes-body.html      # ≥1
 ```
 
 All green = batch complete.
