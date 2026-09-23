@@ -187,7 +187,7 @@ export function tierAmountText(
   tier: Pick<PriceTier, 'amountCents'>,
   pendingText: string
 ): string {
-  return tier.amountCents === null ? pendingText : `¥${formatAmount(tier.amountCents)}`
+  return tier.amountCents === null ? pendingText : `¥ ${formatAmount(tier.amountCents)}`
 }
 
 /** 订单状态词表（my-enrollments 缴费态 + order-pay 页共用） */
@@ -326,7 +326,7 @@ export function positiveAmountOrNull(cents: number | null | undefined): number |
  */
 function depositAmountLine(amountCents: number | null): string {
   const cents = positiveAmountOrNull(amountCents)
-  return cents === null ? '押金（金额待定）' : `押金 ¥${formatAmount(cents)}（到场退）`
+  return cents === null ? '押金（金额待定）' : `押金 ¥ ${formatAmount(cents)}（到场退）`
 }
 
 /** 押金场支付前同意块文案（与 web checkout.depositForfeit / depositAckLabel 同口径） */
