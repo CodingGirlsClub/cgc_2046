@@ -153,16 +153,22 @@ curl -sS -o /dev/null -w '%{http_code}' http://localhost:3996/flashback/wishes
 断言（一抓一剥三 grep——先抓一份 HTML 落临时文件，剥 `<script>` 后三次 grep；`<script>` 剥除是必须的，见 Step 2 告警）：
 
 ```
-HTML=/tmp/wishes-ssr.html
-curl -s http://localhost:3996/flashback/wishes > "$HTML"
-# 剥 script：`</script>` 可能跨行（payload 里的 \n），用 tr 压行后剥
-tr '\n' '\0' < "$HTML" | sed -E 's|<script[^>]*>.*</script>||g' | tr '\0' '\n' > /tmp/wishes-body.html
+curl -s http://localhost:3996/flashback/wishes > /tmp/wishes-ssr.html
+# 剥 script 用 python（re.S 跨行安全）——shell 的 tr '\0' 压行 + sed 组合在 BSD
+# 下会吃内容，实测假阴性，弃用
+python3 -c "
+import re
+html = open('/tmp/wishes-ssr.html').read()
+print(re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.S), end='')
+" > /tmp/wishes-body.html
 
-# 修复前期望全 0（正文 <div hidden=""></div><div></div>）；修复后：
+# 修复前期望全 0（正文 <div hidden=\"\"></div><div></div>）；修复后：
 grep -c '换一批'     /tmp/wishes-body.html    # ≥1
-grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2（-o 逐标签计数；\b 在 BSD grep -E 下不可靠，用 [ >] 菱形边界）
-grep -c '正在挂愿望' /tmp/wishes-body.html    # ≥1（面板加载壳 SSR 输出——「正在挂愿望…」才是 flashback.wishes.loading 的实际值；「加载中…」属于 initiatives 等 12 个其它 namespace，wishes SSR HTML 里没有）
+grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2
+grep -c '正在挂愿望' /tmp/wishes-body.html    # ≥1（面板加载壳——「正在挂愿望…」才是 flashback.wishes.loading 的实际值）
 ```
+
+**实测绿值（2026-09-23，commit 7e4cef04）**：换一批=1、header/aside 标签=2、正在挂愿望=1。
 
 **Verify**: 三条命令各自返回期望值；把三条输出原样粘贴进完成报告作为证据。若第二条输出 0 → 正文里没有结构化 shell，说明删守卫没生效，回 Step 1。
 
