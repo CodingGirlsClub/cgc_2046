@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import { FLASHBACK_DELETE_WISH } from "@/lib/graphql/flashback";
 import type { FlashbackCapsule, FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
@@ -359,6 +359,28 @@ describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）",
 		expect(
 			screen.getByText("这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。"),
 		).toBeInTheDocument();
+	});
+
+	it("附议失败可见化：flashback_auth_required 透出服务端文案（KTD3 token 腿下线）", async () => {
+		// token-only 用户点附议 → 后端 with_actor(on_nil:) 统一拒绝 → 失笔静默=按钮假死；
+		// 现在应当 role=alert 显示 errors.flashback_auth_required 的全串
+		const rejectEndorse = vi.fn().mockRejectedValue({
+			errors: [{ message: "请先登录后再附议。", extensions: { code: "flashback_auth_required" } }],
+		});
+		useMutationMock.mockReturnValue([rejectEndorse, { loading: false }]);
+
+		render(<Corridor capsule={capsule({ publicWishes: [wish()] })} token="tok" />);
+
+		// 卡片定位三段式（同 Corridor 内还有 WishModal 的同名按钮，需先锁卡片）
+		const card = (await screen.findByText("一起出一本书")).closest("article")!;
+		const endorseBtn = within(card).getByRole("button", { name: /附议/ });
+		fireEvent.click(endorseBtn);
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"进入时间长廊需要你的专属链接，或登录已绑定的账号。",
+		);
+		// busy 落定后按钮恢复可用（不卡死）
+		await waitFor(() => expect(endorseBtn).not.toBeDisabled());
 	});
 
 	it("机审拒绝：flashback_content_rejected 映射换种说法文案", async () => {

@@ -39,8 +39,11 @@ export function WishFrames({
 	onChanged: () => void;
 }) {
 	const t = useTranslations("flashback.wish");
+	const tErrors = useTranslations("errors");
+	const errorT = usePaymentErrorTranslator();
 	const [modal, setModal] = useState<WishFormKind>({ kind: "closed" });
 	const [busy, setBusy] = useState(false);
+	const [actionError, setActionError] = useState<string | null>(null);
 
 	const [endorse] = useMutation(FLASHBACK_ENDORSE_WISH);
 	const [comment] = useMutation(FLASHBACK_ADD_WISH_COMMENT);
@@ -51,9 +54,13 @@ export function WishFrames({
 		setBusy(true);
 		try {
 			await fn();
+			setActionError(null);
 			onChanged();
-		} catch {
-			// 失败静默：下一帧 reload 校正
+		} catch (e) {
+			// 失败可见化（KTD3：token 腿下线后 auth_required 是常态路径，静默=按钮假死）；
+			// 已知业务码取 errors 文案，未知码兜底 database_error
+			const code = graphqlErrorDetails(e)?.code;
+			setActionError(errorT(code, tErrors("database_error")));
 		} finally {
 			setBusy(false);
 		}
@@ -111,6 +118,11 @@ export function WishFrames({
 						</li>
 					))}
 				</ul>
+				{actionError && (
+					<p role="alert" className="fb-hint">
+						{actionError}
+					</p>
+				)}
 				<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
 					+ {t("makeWish")}
 				</button>
