@@ -154,6 +154,8 @@ export default function WishesWall({
 	// 不同步置 loading（react-hooks/set-state-in-effect）：初始态即 "loading"；
 	// 变化重拉沿用旧数据平滑替换；显式重试在 handler 置 loading。
 	useEffect(() => {
+		// 乱序守卫：city/seed 快速连点时，后发先至的新响应生效，晚到的旧响应丢弃
+		let cancelled = false;
 		client
 			.query({
 				query: FLASHBACK_PUBLIC_WISHES,
@@ -166,10 +168,17 @@ export default function WishesWall({
 				fetchPolicy: "network-only",
 			})
 			.then(({ data }) => {
+				if (cancelled) return;
 				setWishes((data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[]);
 				setLoadState("ready");
 			})
-			.catch(() => setLoadState("failed"));
+			.catch(() => {
+				if (cancelled) return;
+				setLoadState("failed");
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [city, seed, voter, loadGeneration]);
 
 	// toast 自动消失
