@@ -1,18 +1,8 @@
 import Config
 
-# Paseo worktree 并行隔离：测试库按分支派生，多个 worktree 的 mix test 互不干扰。
-# 缺省时与原行为一致（cgc_2046_test + MIX_TEST_PARTITION）。
-branch_suffix =
-  case System.get_env("PASEO_BRANCH_NAME") || "" do
-    "" ->
-      ""
-
-    branch ->
-      slug =
-        branch |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_") |> String.slice(0, 45)
-
-      "_#{slug}"
-  end
+# worktree 并行隔离：附属 git worktree 的 mix test 各用各的库（规则见 worktree_suffix.exs），
+# 互不干扰；主 checkout 与 CI 为 cgc_2046_test + MIX_TEST_PARTITION。
+{branch_suffix, _} = Code.eval_file("worktree_suffix.exs", __DIR__)
 
 # Configure your database
 #
