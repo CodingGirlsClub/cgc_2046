@@ -124,3 +124,42 @@
 .mapPlot .pinPulse{inset:auto;left:calc(50% + var(--anchor-x) - 14px);top:calc(50% + var(--anchor-y) - 14px);width:28px;height:28px;pointer-events:none}
 .mapPlot .nightPin .pinLabel{color:#fff2d3;background:#21352deb;border-color:#d6b36c66}
 .app .mapPin:active{transform:translate(-50%,-50%)}
+
+/* Daytime composition follows the approved map / reading spread. */
+.app{--ink:#153d32;--paper:#f8f6ef}
+.header{min-height:88px;padding-top:14px;padding-bottom:14px}
+.nav .activeNav:after{bottom:-15px}
+.workspace{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);min-height:calc(100svh - 88px)}
+.mapSection{padding-top:0}
+.mapHeading{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.mapFoot{padding:8px 24px;font-size:12px;gap:24px}
+.mapFoot i{width:28px;height:5px}.mapFoot>span:nth-child(2) i{height:2px}
+.mapToolbar{display:flex;align-items:center;gap:12px;padding:10px 22px;border-top:1px solid var(--line);background:#fcfbf6;min-height:68px}
+.cityBar{min-width:0;display:flex;flex:1;flex-wrap:wrap;gap:8px;padding:0;border:0;margin:0}
+.cityBar>span{font:600 13px/1.5 "Songti SC",serif;color:var(--ink);margin-right:2px}
+.app .cityBar button{min-height:44px;padding:8px 18px;border:1px solid #dfe1d7;border-radius:999px;font:14px/1.4 "Songti SC",serif;background:transparent}
+.app .cityBar button[aria-pressed=true]{background:#173e31;border-color:#173e31;color:#fffaf0}
+.app .replayButton{flex-shrink:0;font:13px/1.5 "Songti SC",serif;padding:0;gap:8px}
+.replayButton svg{width:34px;height:34px;padding:7px;border:1px solid #dfe1d7;border-radius:50%}
+.reader{padding:clamp(54px,8vh,100px) 9% 24px;background:#fcfbf7}
+.readerTop{margin-bottom:20px}.readerTop .eyebrow{font:17px/1.6 "Songti SC",serif;color:var(--ink)}
+.location{display:none}
+.quote{font-size:clamp(30px,3vw,45px);font-weight:600;line-height:1.58;margin:0 0 32px}
+.attribution{font:17px/1.7 "Songti SC",serif;color:var(--ink);margin-bottom:32px}
+.reactions{gap:14px;margin-bottom:24px}
+.reactions .primary{min-height:54px;border-radius:999px;background:#173e31;border-color:#173e31;font-size:17px}
+.app .likeButton{min-height:54px;min-width:108px;border-radius:999px;border-color:#416256;font-size:17px}
+.pagination{padding:18px 0;margin-top:0}.pagination button{font-size:15px}.pagination>span{font:16px/1.5 Georgia,serif;letter-spacing:0}.pagination i{padding:0 10px}
+.disclosure{font-size:12px;color:#758074;margin:16px 0 28px}
+.app .randomLink{font-size:12px;min-height:32px;color:#647568;padding:0}
+.readerFooter{gap:0;justify-content:space-between;padding-top:20px}
+.readerFooter a{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;font:14px/1.5 "Songti SC",serif;color:var(--ink)}
+.readerFooter a+a{border-left:1px solid var(--line);padding-left:20px;margin-left:16px}.readerFooter svg{width:15px;height:15px}
+.inIntro .mapToolbar{display:none}
+@container(max-width:1100px){.mapToolbar{padding:10px 14px;gap:8px;flex-wrap:wrap}.cityBar>span{flex-basis:100%}.app .cityBar button{padding:8px 14px}.readerFooter{flex-wrap:wrap}.readerFooter a+a{padding-left:0;margin-left:0;border:0}}
+@container(max-width:760px){
+ .header{min-height:96px;padding:14px 22px 0}.nav .activeNav:after{bottom:0}
+ .workspace{display:flex;min-height:auto}.mapSection{padding:0}.mapPlot{max-width:440px;margin:0 auto}
+ .mapToolbar{padding:8px 14px;gap:6px}.cityBar{flex-wrap:nowrap;overflow-x:auto;gap:6px;flex-basis:100%}.cityBar>span{display:none}.app .cityBar button{flex:0 0 auto;padding:8px 18px;font-size:13px}.app .replayButton{margin-left:auto;font-size:12px;min-height:44px}.replayButton svg{width:30px;height:30px;padding:6px}
+ .reader{padding:24px 22px 16px}.readerTop{margin-bottom:12px}.readerTop .eyebrow{font-size:13px}.quote{font-size:27px;line-height:1.6;margin:0 0 18px}.attribution{font-size:13px;margin-bottom:22px}.reactions{gap:12px;margin-bottom:16px}.reactions .primary{min-height:48px;font-size:14px;padding:10px 16px}.app .likeButton{min-height:48px;min-width:90px;font-size:15px}.pagination{padding:10px 0}.pagination button{font-size:13px}.pagination>span{font-size:14px}.disclosure{font-size:11px;margin:12px 0 18px}.readerFooter{flex-wrap:nowrap;padding-top:10px}.readerFooter a{font-size:12px;gap:6px}.readerFooter a+a{border-left:1px solid var(--line);padding-left:12px;margin-left:10px}.readerFooter svg{width:12px;height:12px}
+}
