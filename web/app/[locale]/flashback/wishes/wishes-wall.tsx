@@ -412,9 +412,10 @@ export default function WishesWall({
 											<Icon name="heart" filled={currentInFilter.expectedByViewer} />
 											{t("expectCta")}
 										</button>
-										<button type="button" className={styles.secondaryBtn} onClick={() => copyShareLink(currentInFilter.id)}>
-											<Icon name="share" />
-											{t("shareWish")}
+										{/* KTD7：Web 不开放附议表单，「附议 · 我能出力」引导去小程序深链；权重高于分享（KTD10 2×期待） */}
+										<button type="button" className={styles.secondaryBtn} onClick={() => setEndorseGuideFor(currentInFilter)}>
+											<span aria-label={t("endorseCountLabel")}>🙌 {currentInFilter.endorsementCount}</span>
+											{t("endorseCta")}
 										</button>
 									</div>
 									<p className={styles.remindHint}>
@@ -422,10 +423,10 @@ export default function WishesWall({
 										{t("remindHint")}
 									</p>
 									<div className={styles.selectedMeta}>
-										<button type="button" onClick={() => setEndorseGuideFor(currentInFilter)}>
-											{t("endorseEntry")}
+										<button type="button" onClick={() => copyShareLink(currentInFilter.id)}>
+											<Icon name="share" />
+											{t("shareWish")}
 										</button>
-										<span aria-label={t("endorseCountLabel")}>🙌 {currentInFilter.endorsementCount}</span>
 										<button type="button" onClick={() => setReportFor(currentInFilter)}>
 											{t("reportEntry")}
 										</button>
