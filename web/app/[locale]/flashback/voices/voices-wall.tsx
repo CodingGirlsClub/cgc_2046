@@ -200,9 +200,10 @@ export default function VoicesWall({
 	const [randomQueue, setRandomQueue] = useState<FlashbackPublicQuote[]>([]);
 
 	const progressRef = useRef(progress);
-	// intro 塌缩页面（workspace 变 block、reader 隐藏）会把 scrollY 钳到 0：
+	const quoteAreaRef = useRef<HTMLDivElement>(null);
+	// intro 塌缩页面（workspace 变 block、reader 隐藏）会把 scrollY/quoteArea.scrollTop 钳到 0：
 	// replay 前保存，finishIntro 恢复（首次进入 intro 无保存值，跳过）
-	const scrollRestoreRef = useRef<number | null>(null);
+	const scrollRestoreRef = useRef<{ y: number; quote: number } | null>(null);
 	const [runLike] = useMutation(FLASHBACK_LIKE_QUOTE);
 
 	// 去重键（R36）：SSR/首帧 null（不渲染按钮），客户端纠正（同 public-home 手法）
@@ -240,12 +241,17 @@ export default function VoicesWall({
 		setProgress(1);
 		progressRef.current = 1;
 		markIntroSeen();
-		const y = scrollRestoreRef.current;
+		const restore = scrollRestoreRef.current;
 		scrollRestoreRef.current = null;
-		if (y != null) {
+		if (restore) {
 			// setProgress(1) 的白天布局尚未 commit：此刻滚动会被塌缩态高度钳回 0，
 			// 双 rAF 等布局还原后再恢复
-			requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => {
+					window.scrollTo(0, restore.y);
+					quoteAreaRef.current?.scrollTo({ top: restore.quote });
+				}),
+			);
 		}
 	}, [markIntroSeen]);
 
@@ -456,7 +462,7 @@ export default function VoicesWall({
 			setToast(t("replayReduced"));
 			return;
 		}
-		scrollRestoreRef.current = window.scrollY;
+		scrollRestoreRef.current = { y: window.scrollY, quote: quoteAreaRef.current?.scrollTop ?? 0 };
 		progressRef.current = 0;
 		setProgress(0);
 		setPlaying(true);
@@ -615,7 +621,7 @@ export default function VoicesWall({
 										</p>
 										<span className={styles.location}>{current.city ?? city}</span>
 									</div>
-									<div className={styles.quoteArea}>
+									<div className={styles.quoteArea} ref={quoteAreaRef}>
 										<blockquote className={styles.quote} data-testid="selected-text">
 											<span className={styles.quoteMark} aria-hidden="true">
 												“
@@ -662,20 +668,22 @@ export default function VoicesWall({
 											<Icon name="back" />
 											<span>{t("prev")}</span>
 										</button>
-										<span>
-											{String(Math.max(0, currentIndex) + 1).padStart(2, "0")}
-											<i>/</i>
-											{String(quotes.length).padStart(2, "0")}
-										</span>
+										<div className={styles.randomWrap}>
+											<button type="button" className={styles.randomLink} onClick={randomListen} data-testid="random-listen">
+												<Icon name="shuffle" />
+												{t("random")}
+											</button>
+											<span className={styles.randomCount}>
+												{String(Math.max(0, currentIndex) + 1).padStart(2, "0")}
+												<i>/</i>
+												{String(quotes.length).padStart(2, "0")}
+											</span>
+										</div>
 										<button type="button" onClick={() => navigate(1)} aria-label={t("next")}>
 											<span>{t("next")}</span>
 											<Icon name="arrow" />
 										</button>
 									</div>
-									<button type="button" className={styles.randomLink} onClick={randomListen} data-testid="random-listen">
-										<Icon name="shuffle" />
-										{t("random")}
-									</button>
 									<p className={styles.disclosure}>{t("disclosureOrigin")}<br />{t("disclosureEcho")}</p>
 									<footer className={styles.readerFooter}>
 										<Link href="/flashback">{t("recover")}<Icon name="arrow" /></Link>
