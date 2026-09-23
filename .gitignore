@@ -35,3 +35,8 @@ __pycache__/
 /tmp/
 docs/tmp/
 miniprogram/e2e/artifacts/
+
+# LoopX 长程 agent 运行态（goal/todo/quota 本地状态，不入库）
+.loopx/
+.codex/goals/
+.local/
