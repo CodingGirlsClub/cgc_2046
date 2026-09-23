@@ -14,6 +14,10 @@ import {
 	fetchFlashbackAdminStats,
 	updateFlashbackRedemption,
 	fetchFlashbackAdminArchives,
+	fetchFlashbackAdminWishInbox,
+	fetchFlashbackAdminWishReports,
+	approveFlashbackWishReport,
+	dismissFlashbackWishReport,
 	fetchFlashbackOutreachPreview,
 	fetchFlashbackOutreachBatches,
 	fetchFlashbackOutreachRoster,
@@ -28,6 +32,8 @@ import type {
 	FlashbackOutreachPreview,
 	FlashbackOutreachBatch,
 	FlashbackOutreachRosterEntry,
+	FlashbackAdminWishInboxEntry,
+	FlashbackAdminReportEntry,
 } from "@/lib/graphql/admin";
 
 const EVENTS = [
@@ -103,6 +109,25 @@ export default function AdminFlashbackPage() {
 	const [archivesError, setArchivesError] = useState(false);
 	const [previewError, setPreviewError] = useState(false);
 
+	// ── wish2 愿望管理（U5/KTD5）：收件箱 + 举报队列 ──
+	const [wishInbox, setWishInbox] = useState<FlashbackAdminWishInboxEntry[] | null>(null);
+	const [wishReports, setWishReports] = useState<FlashbackAdminReportEntry[] | null>(null);
+	const [wishError, setWishError] = useState(false);
+
+	const loadWishes = useCallback(() => {
+		return Promise.all([fetchFlashbackAdminWishInbox(), fetchFlashbackAdminWishReports()])
+			.then(([inbox, reports]) => {
+				setWishInbox(inbox);
+				setWishReports(reports);
+				setWishError(false);
+			})
+			.catch(() => {
+				setWishError(true);
+				setWishInbox([]);
+				setWishReports([]);
+			});
+	}, []);
+
 	// .then/.catch 链（reconciliation 页模式）：effect 内调用不触发 set-state-in-effect
 	const loadOutreachBase = useCallback(() => {
 		return fetchFlashbackAdminArchives()
@@ -115,6 +140,7 @@ export default function AdminFlashbackPage() {
 
 	const load = useCallback(() => {
 		void loadOutreachBase();
+		void loadWishes();
 		return Promise.all([
 			fetchFlashbackAdminStats(),
 			fetchFlashbackAdminRedemptions(),
@@ -651,6 +677,106 @@ export default function AdminFlashbackPage() {
 							))}
 						</tbody>
 					</table>
+				</div>
+			)}
+
+			{!loading && !error && (
+				<div className="admin-page__head">
+					<div>
+						<h2>{t("fbWishTitle")}</h2>
+						<p className="admin-page__desc">{t("fbWishNote")}</p>
+					</div>
+				</div>
+			)}
+
+			{wishError && <p className="admin-alert admin-alert--error">{t("fbWishLoadFailed")}</p>}
+
+			{!loading && !error && wishInbox && (
+				<div className="admin-card admin-table-wrap" data-testid="fb-wish-inbox">
+					<h3>{t("fbWishInboxTitle")}</h3>
+					{wishInbox.length === 0 ? (
+						<p className="admin-empty">{t("fbWishInboxEmpty")}</p>
+					) : (
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>{t("fbWishColContent")}</th>
+									<th>{t("fbWishColSigner")}</th>
+									<th>{t("fbWishColContact")}</th>
+									<th>{t("fbWishColTime")}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{wishInbox.map((entry) => (
+									<tr key={entry.wishId}>
+										<td>{entry.content}</td>
+										<td>
+											{entry.wisherMasked ?? entry.signature}
+										</td>
+										<td>
+											{entry.wisherPhone ?? "—"} / {entry.wisherEmail ?? "—"}
+										</td>
+										<td>{formatDateTime(entry.insertedAt)}</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+			)}
+
+			{!loading && !error && wishReports && (
+				<div className="admin-card admin-table-wrap" data-testid="fb-wish-reports">
+					<h3>{t("fbWishReportsTitle")}</h3>
+					{wishReports.length === 0 ? (
+						<p className="admin-empty">{t("fbWishReportsEmpty")}</p>
+					) : (
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>{t("fbWishColReason")}</th>
+									<th>{t("fbWishColDetail")}</th>
+									<th>{t("fbWishColTime")}</th>
+									<th>{t("fbWishColActions")}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{wishReports.map((report) => (
+									<tr key={report.reportId}>
+										<td>{t(`fbWishReason_${report.reasonType}`)}</td>
+										<td>{report.reasonFree ?? "—"}</td>
+										<td>{formatDateTime(report.insertedAt)}</td>
+										<td>
+											<div className="admin-table__actions">
+												<button
+													type="button"
+													className="l-btn-outline"
+													onClick={() => {
+														approveFlashbackWishReport(report.reportId)
+															.then(() => loadWishes())
+															.catch(() => setWishError(true));
+													}}
+												>
+													{t("fbWishReportApprove")}
+												</button>
+												<button
+													type="button"
+													className="l-btn-outline"
+													onClick={() => {
+														dismissFlashbackWishReport(report.reportId)
+															.then(() => loadWishes())
+															.catch(() => setWishError(true));
+													}}
+												>
+													{t("fbWishReportDismiss")}
+												</button>
+											</div>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
 				</div>
 			)}
 		</section>

@@ -347,6 +347,49 @@ export interface FlashbackPublicQuote {
 	likedByViewer: boolean;
 }
 
+/* ---------------- wish2 U6 公开许愿树契约 ---------------- */
+
+/** 公开树愿望（KTD10 白名单 12 字段；无 phone/email/message） */
+export interface FlashbackPublicWish {
+	id: string;
+	content: string;
+	/** 期望地短名（Cities.normalize 归一；null = 未填） */
+	city: string | null;
+	/** 署名快照（匿名遮罩姓 王** 或实名；创建时定型不回溯） */
+	signature: string;
+	expectationCount: number;
+	endorsementCount: number;
+	/** 出力分布 venue/organize/speak/sponsor/other → count */
+	contributionDistribution: Record<string, number>;
+	expectedByViewer: boolean;
+	endorsedByViewer: boolean;
+	listedAt: string;
+	insertedAt: string;
+}
+
+/** 全国城市名单条目（~370 条，KTD11） */
+export interface FlashbackCity {
+	/** 短名（成都） */
+	name: string;
+	/** 全称（成都市） */
+	fullName: string;
+	pinyin: string;
+	/** [lng, lat]（GeoJSON 形状，地图钉点用） */
+	lngLat: [number, number];
+}
+
+/** flashbackExpectWish 返回：期待后实时计数 + 本人态 */
+export interface FlashbackWishExpectResult {
+	expectationCount: number;
+	expectedByMe: boolean;
+}
+
+/** flashbackEndorseWish / flashbackCancelEndorseWish 返回 */
+export interface FlashbackWishEndorseResult {
+	endorsementCount: number;
+	endorsedByMe: boolean;
+}
+
 export interface FlashbackPublicProfile {
 	fullName: string;
 	city?: string | null;
@@ -962,22 +1005,193 @@ export const FLASHBACK_RECOVER_VERIFY: TypedDocumentNode<
 	}
 `;
 
-/* ---------------- 许愿（U4/R5-R14） ---------------- */
-
-export const FLASHBACK_CREATE_WISH = gql`
-	mutation FlashbackCreateWish($token: String, $content: String!, $visibility: String!) {
-		flashbackCreateWish(token: $token, content: $content, visibility: $visibility) {
+export const FLASHBACK_ENDORSE_WISH = gql`
+	mutation FlashbackEndorseWish(
+		$wishId: ID!
+		$contributionTypes: [String!]
+		$message: String
+		$notify: Boolean
+	) {
+		flashbackEndorseWish(
+			wishId: $wishId
+			contributionTypes: $contributionTypes
+			message: $message
+			notify: $notify
+		) {
 			endorsementCount
 			endorsedByMe
 		}
 	}
 `;
 
-export const FLASHBACK_ENDORSE_WISH = gql`
-	mutation FlashbackEndorseWish($token: String, $wishId: ID!) {
-		flashbackEndorseWish(token: $token, wishId: $wishId) {
+export const FLASHBACK_CANCEL_ENDORSE_WISH = gql`
+	mutation FlashbackCancelEndorseWish($wishId: ID!) {
+		flashbackCancelEndorseWish(wishId: $wishId) {
 			endorsementCount
 			endorsedByMe
+		}
+	}
+`;
+
+export const FLASHBACK_EXPECT_WISH: TypedDocumentNode<
+	{ flashbackExpectWish: FlashbackWishExpectResult | null },
+	{ wishId: string; expected: boolean; anonVoterKey?: string | null }
+> = gql`
+	mutation FlashbackExpectWish(
+		$wishId: ID!
+		$expected: Boolean!
+		$anonVoterKey: String
+	) {
+		flashbackExpectWish(
+			wishId: $wishId
+			expected: $expected
+			anonVoterKey: $anonVoterKey
+		) {
+			expectationCount
+			expectedByMe
+		}
+	}
+`;
+
+export const FLASHBACK_REPORT_WISH: TypedDocumentNode<
+	{ flashbackReportWish: { reportId: string; status: string } | null },
+	{
+		wishId: string;
+		reasonType: string;
+		reasonFree?: string | null;
+		anonVoterKey?: string | null;
+	}
+> = gql`
+	mutation FlashbackReportWish(
+		$wishId: ID!
+		$reasonType: String!
+		$reasonFree: String
+		$anonVoterKey: String
+	) {
+		flashbackReportWish(
+			wishId: $wishId
+			reasonType: $reasonType
+			reasonFree: $reasonFree
+			anonVoterKey: $anonVoterKey
+		) {
+			reportId
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
+	{ flashbackPublicWishes: FlashbackPublicWish[] },
+	{
+		city?: string | null;
+		seed?: string | null;
+		offset?: number | null;
+		limit?: number | null;
+		voterKey?: string | null;
+	}
+> = gql`
+	query FlashbackPublicWishes(
+		$city: String
+		$seed: String
+		$offset: Int
+		$limit: Int
+		$voterKey: String
+	) {
+		flashbackPublicWishes(
+			city: $city
+			seed: $seed
+			offset: $offset
+			limit: $limit
+			voterKey: $voterKey
+		) {
+			id
+			content
+			city
+			signature
+			expectationCount
+			endorsementCount
+			contributionDistribution
+			expectedByViewer
+			endorsedByViewer
+			listedAt
+			insertedAt
+		}
+	}
+`;
+
+export const FLASHBACK_PUBLIC_WISH: TypedDocumentNode<
+	{ flashbackPublicWish: FlashbackPublicWish | null },
+	{ wishId: string; voterKey?: string | null }
+> = gql`
+	query FlashbackPublicWish($wishId: ID!, $voterKey: String) {
+		flashbackPublicWish(wishId: $wishId, voterKey: $voterKey) {
+			id
+			content
+			city
+			signature
+			expectationCount
+			endorsementCount
+			contributionDistribution
+			expectedByViewer
+			endorsedByViewer
+			listedAt
+			insertedAt
+		}
+	}
+`;
+
+export const FLASHBACK_CITIES: TypedDocumentNode<
+	{ flashbackCities: FlashbackCity[] },
+	Record<string, never>
+> = gql`
+	query FlashbackCities {
+		flashbackCities {
+			name
+			fullName
+			pinyin
+			lngLat
+		}
+	}
+`;
+export interface FlashbackCreateWishResult {
+	id: string | null;
+	endorsementCount: number;
+	endorsedByMe: boolean;
+	/** wish2 U8 三态：listed / pending_review / private */
+	status: string;
+}
+
+export const FLASHBACK_CREATE_WISH: TypedDocumentNode<
+	{ flashbackCreateWish: FlashbackCreateWishResult | null },
+	{
+		token?: string | null;
+		content: string;
+		visibility: string;
+		signatureChoice?: string | null;
+		expectedCity?: string | null;
+		publicListingConsent?: boolean | null;
+	}
+> = gql`
+	mutation FlashbackCreateWish(
+		$token: String
+		$content: String!
+		$visibility: String!
+		$signatureChoice: String
+		$expectedCity: String
+		$publicListingConsent: Boolean
+	) {
+		flashbackCreateWish(
+			token: $token
+			content: $content
+			visibility: $visibility
+			signatureChoice: $signatureChoice
+			expectedCity: $expectedCity
+			publicListingConsent: $publicListingConsent
+		) {
+			id
+			endorsementCount
+			endorsedByMe
+			status
 		}
 	}
 `;

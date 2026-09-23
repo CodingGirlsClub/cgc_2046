@@ -5530,6 +5530,41 @@ type RootQueryType {
   "卡片分享链接（#771）：匿名可读（无 token \/ 无 slug \/ 无授权依赖）；null = 未命中 \/ 已关闭 \/ 已删除（不区分原因，不做存在性预言机）"
   flashbackSharedCard(shareId: String!): FlashbackSharedCard
 
+  "公开许愿树（wish2 U6\/KTD10）：listed+public+未 hidden+未删 四条件；带种子加权随机排序（-ln(u)\/w，w=(1+期待+2×附议)×freshness）；seed 缺省=当日+voterKey；字段白名单（无 phone\/email\/message）"
+  flashbackPublicWishes(
+    "城市过滤（Cities.normalize 短名；null = 不过滤）"
+    city: String
+
+    "排序种子（null = 当日+voterKey；「换一批」传随机值）"
+    seed: String
+
+    "分页偏移（同 seed 稳定不重不漏）"
+    offset: Int
+
+    "页大小（默认 60，上限 120）"
+    limit: Int
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 expected\/endorsedByViewer 回显"
+    voterKey: String
+  ): [FlashbackPublicWish!]!
+
+  "许愿单条直达（?item=<wish_id>）：四条件可见才返回；不可见\/不存在统一 null（不泄露存在性）"
+  flashbackPublicWish(
+    wishId: ID!
+
+    "客户端去重键：只影响 expected\/endorsedByViewer 回显"
+    voterKey: String
+  ): FlashbackPublicWish
+
+  "全国城市名单（wish2 U6\/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"
+  flashbackCities: [FlashbackCity!]!
+
+  "「说给主办方听」收件箱（wish2 U5\/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone\/email 仅 admin；公开响应禁出）"
+  flashbackAdminWishInbox: [FlashbackAdminWishInboxEntry!]!
+
+  "举报队列（wish2 U5\/KTD5 PlatformAdmin）：status=pending 按时间正序"
+  flashbackAdminWishReports: [FlashbackAdminReportEntry!]!
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6720,10 +6755,16 @@ type FlashbackWishComment {
 }
 
 type FlashbackWishResult {
+  "新建愿望 id（本人查看\/撤回入口用）"
+  id: ID
+
   "附议后实时计数与本人态"
   endorsementCount: Int!
 
   endorsedByMe: Boolean!
+
+  "wish2 U8 三态反馈：listed（挂上许愿树）\/ pending_review（信用待审——审核通过后挂树）\/ private（说给主办方听）"
+  status: String!
 }
 
 type FlashbackRates {
@@ -7102,6 +7143,100 @@ type FlashbackQuoteHiddenResult {
 type FlashbackQuoteLikeResult {
   "点赞后的实时计数——前端就地更新，免二次拉取"
   likeCount: Int!
+}
+
+type FlashbackPublicWish {
+  id: ID!
+
+  content: String!
+
+  "期望地短名（Cities.normalize 归一；null = 未填）"
+  city: String
+
+  "署名快照（匿名遮罩姓 王** 或实名 display_name；创建时定型）"
+  signature: String!
+
+  expectationCount: Int!
+
+  endorsementCount: Int!
+
+  "出力分布（venue\/organize\/speak\/sponsor\/other → count）——从 endorsements 聚合"
+  contributionDistribution: Json!
+
+  expectedByViewer: Boolean!
+
+  endorsedByViewer: Boolean!
+
+  listedAt: DateTime!
+
+  insertedAt: DateTime!
+}
+
+type FlashbackCity {
+  "短名（成都）"
+  name: String!
+
+  "全称（成都市）"
+  fullName: String!
+
+  pinyin: String!
+
+  "中心坐标 [lng, lat]（GeoJSON 形状，G9）"
+  lngLat: [Float!]!
+}
+
+type FlashbackWishExpectResult {
+  "期待后的实时计数 + 本人态"
+  expectationCount: Int!
+
+  expectedByMe: Boolean!
+}
+
+type FlashbackWishEndorseResult {
+  endorsementCount: Int!
+  endorsedByMe: Boolean!
+}
+
+type FlashbackReportResult {
+  reportId: ID!
+  status: String!
+}
+
+type FlashbackWishHiddenResult {
+  wishId: ID!
+
+  "操作后的下架态（true=已下架）"
+  hidden: Boolean!
+}
+
+type FlashbackAdminWishInboxEntry {
+  wishId: ID!
+
+  content: String!
+
+  city: String
+
+  signature: String!
+
+  insertedAt: DateTime!
+
+  "作者遮罩姓（王**）"
+  wisherMasked: String
+
+  "作者登录账号联系方式（仅 platform admin；公开 GraphQL 永不返回）"
+  wisherPhone: String
+
+  wisherEmail: String
+}
+
+type FlashbackAdminReportEntry {
+  reportId: ID!
+  targetType: String!
+  targetId: ID!
+  reasonType: String!
+  reasonFree: String
+  status: String!
+  insertedAt: DateTime!
 }
 
 input FlashbackQuoteSpanInput {
@@ -8176,11 +8311,37 @@ type RootMutationType {
   "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
   flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
 
-  "许愿（R5\/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
-  flashbackCreateWish(token: String, content: String!, visibility: String!): FlashbackWishResult
+  "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+  flashbackCreateWish(
+    token: String
 
-  "附议愿望（R7 幂等）：返回实时计数与本人态"
-  flashbackEndorseWish(token: String, wishId: ID!): FlashbackWishResult
+    content: String!
+
+    visibility: String!
+
+    "署名快照：anonymous（默认，姓氏遮罩）\/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+    signatureChoice: String
+
+    "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+    expectedCity: String
+
+    "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+    publicListingConsent: Boolean
+  ): FlashbackWishResult
+
+  "附议愿望（wish2 U6\/KTD3 改造）：**要求登录**（旧 token\/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
+  flashbackEndorseWish(
+    wishId: ID!
+
+    "出力类型（可多选）：venue \/ organize \/ speak \/ sponsor \/ other"
+    contributionTypes: [String]
+
+    "给平台的留言（≤500；非空过机审；仅运营可见）"
+    message: String
+
+    "回响通知意愿（默认 false；真实授权由微信订阅消息 accept 上报，后端零 grant）"
+    notify: Boolean
+  ): FlashbackWishEndorseResult
 
   "愿望留言（R8）：公开愿望可留言讨论"
   flashbackAddWishComment(token: String, wishId: ID!, content: String!): FlashbackWishResult
@@ -8225,6 +8386,51 @@ type RootMutationType {
     "true=下线；false=恢复"
     hidden: Boolean!
   ): FlashbackQuoteHiddenResult
+
+  "期待\/取消期待（wish2 U6\/KTD2）：公开无登录——voterKey（u:\/a:）去重；登录 actor 传 anonVoterKey 时服务端合并匿名行；双窗限频（30\/min voter + 60\/h IP）"
+  flashbackExpectWish(
+    wishId: ID!
+
+    "true=期待（幂等）；false=取消（幂等）"
+    expected: Boolean!
+
+    "匿名设备键 a:<device_uuid>（登录 actor 可不传——服务端强制 u:）"
+    anonVoterKey: String
+
+    "登录态设备键（登录 actor 期待时传，服务端用它替代 anon 键做合并）"
+    voterKey: String
+  ): FlashbackWishExpectResult
+
+  "取消附议（wish2 U6\/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离）"
+  flashbackCancelEndorseWish(wishId: ID!): FlashbackWishEndorseResult
+
+  "举报愿望（wish2 U6\/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10\/15min\/IP 限频；举报是治理信号不进排序（举报≠踩）"
+  flashbackReportWish(
+    wishId: ID!
+
+    "预设理由：spam \/ irrelevant \/ scam \/ inappropriate \/ other"
+    reasonType: String!
+
+    "补充说明（≤200 字，可选）"
+    reasonFree: String
+
+    "匿名设备键（登录 actor 不用传）"
+    anonVoterKey: String
+  ): FlashbackReportResult
+
+  "下架\/恢复愿望（wish2 U5\/KTD5 PlatformAdmin）：hidden=true 联动置位作者信用字段 wishes_review_required_at；false 只清 hidden_at 不动信用"
+  flashbackAdminSetWishHidden(
+    wishId: ID!
+
+    "true=下架；false=恢复"
+    hidden: Boolean!
+  ): FlashbackWishHiddenResult
+
+  "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
+  flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
+
+  "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
+  flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
 
   "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
   createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload

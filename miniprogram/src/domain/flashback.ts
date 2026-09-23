@@ -563,6 +563,41 @@ export function futureEventCards(
 
 /** 提交判据:草稿去空白非空 且 额度未尽(quota===0 禁用;null 不拦,后端会以
  * flashback_wish_quota_exceeded 兜底拒绝)。 */
+/**
+ * wish2 U9（KTD2）：期待/举报的匿名去重键——`a:<device_uuid>`，口径与 web 的
+ * lib/flashback-voter.ts 完全一致（格式 u:/a: + ≤64；首访落盘恒同键）。
+ * 登录态服务端强制 `u:<user_id>`（客户端照常传设备键，服务端覆盖）。
+ */
+const VOTER_KEY_STORAGE = 'flashback.voterKey'
+const VOTER_KEY_PATTERN = /^[ua]:[A-Za-z0-9_-]{1,60}$/
+
+function wxLikeStorage(): { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } | null {
+  const scope = globalThis as { wx?: { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } }
+  return scope.wx ?? null
+}
+
+export function readWishVoterKey(): string | null {
+  try {
+    const raw = wxLikeStorage()?.getStorageSync(VOTER_KEY_STORAGE)
+    const value = typeof raw === 'string' ? raw : null
+    return value && VOTER_KEY_PATTERN.test(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function ensureWishVoterKey(): string | null {
+  const existing = readWishVoterKey()
+  if (existing) return existing
+  const created = `a:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  try {
+    wxLikeStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
+  } catch {
+    // 存储不可用：仅本次会话有效（期待按钮仍可用，跨会话可能重票——服务端幂等兜底）
+  }
+  return created
+}
+
 export function canSubmitWish(quota: number | null, draft: string): boolean {
   return draft.trim().length > 0 && quota !== 0
 }
@@ -573,4 +608,51 @@ export function wishQuotaCopy(quota: number | null): string | null {
   if (quota === null) return null
   if (quota === 0) return '今年许愿名额已用完（每年最多 3 条，删除不退还名额）'
   return `今年还可许 ${quota} 条`
+}
+
+// ── wish2 U9：viewer listed 公开树 + 附议表单（KTD3/KTD5/KTD7） ────────────
+
+/** viewer 面公开愿望（flashbackPublicWishes 投影；listed 四条件由服务端保证） */
+export interface ViewerWish {
+  id: string
+  content: string
+  city: string | null
+  signature: string
+  expectationCount: number
+  endorsementCount: number
+  expectedByViewer: boolean
+  endorsedByViewer: boolean
+}
+
+/** 附议出力类型（后端 contribution_types 枚举面，KTD3；顺序即表单展示序） */
+export const WISH_CONTRIBUTION_OPTIONS = [
+  { type: 'venue', label: '提供场地' },
+  { type: 'organize', label: '帮忙组织' },
+  { type: 'speak', label: '来分享' },
+  { type: 'sponsor', label: '赞助支持' },
+  { type: 'other', label: '其他方式' }
+] as const
+
+/** 附议留言上限（后端 flashback_wish_endorsement_message_too_long 同值） */
+export const WISH_ENDORSE_MESSAGE_MAX = 500
+
+/** 期望地候选名单条目（flashbackCities 读面投影） */
+export interface CityOption {
+  name: string
+  pinyin: string
+}
+
+/**
+ * 期望地实时候选（KTD11）：输入非空时，中文名含输入或拼音前缀命中且不等于
+ * 输入的城市，≤6 个。归一判定在服务端（名单外提交报错带候选）——这里只做
+ * 输入辅助，不阻止提交。
+ */
+export function cityCandidates(input: string, cities: readonly CityOption[]): string[] {
+  const query = input.trim()
+  if (!query) return []
+  const lower = query.toLowerCase()
+  return cities
+    .filter((city) => city.name !== query && (city.name.includes(query) || city.pinyin.startsWith(lower)))
+    .map((city) => city.name)
+    .slice(0, 6)
 }

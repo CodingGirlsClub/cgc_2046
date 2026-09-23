@@ -60,6 +60,13 @@ import {
   REJECT_WORKSPACE_APPLICATION,
   FLASHBACK_ADMIN_STATS,
   FLASHBACK_ADMIN_REDEMPTIONS,
+  FLASHBACK_ADMIN_WISH_INBOX,
+  FLASHBACK_ADMIN_WISH_REPORTS,
+  FLASHBACK_ADMIN_DISMISS_REPORT,
+  FLASHBACK_ADMIN_APPROVE_REPORT,
+  FLASHBACK_ADMIN_SET_WISH_HIDDEN,
+  type FlashbackAdminWishInboxEntry,
+  type FlashbackAdminReportEntry,
   FLASHBACK_ADMIN_UPDATE_REDEMPTION,
   FLASHBACK_OUTREACH_PREVIEW,
   FLASHBACK_OUTREACH_BATCHES,
@@ -761,4 +768,58 @@ export async function resendFlashbackOutreach(
 		variables: { personId, template, channel: channel ?? null },
 	});
 	return data?.flashbackAdminResendOutreach ?? null;
+}
+
+// ── wish2 愿望管理（U5/KTD5）─────────────────────────────────────────────
+
+/** 「说给主办方听」收件箱：private 愿望 + 作者登录账号联系方式（platform admin） */
+export async function fetchFlashbackAdminWishInbox(): Promise<FlashbackAdminWishInboxEntry[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_WISH_INBOX,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminWishInbox ?? [];
+}
+
+/** 举报队列（status=pending 按时间正序） */
+export async function fetchFlashbackAdminWishReports(): Promise<FlashbackAdminReportEntry[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_WISH_REPORTS,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminWishReports ?? [];
+}
+
+/** 驳回举报 */
+export async function dismissFlashbackWishReport(
+  reportId: string,
+): Promise<{ reportId: string; status: string } | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_DISMISS_REPORT,
+    variables: { reportId },
+  });
+  return data?.flashbackAdminDismissReport ?? null;
+}
+
+/** 批准举报（联动下架目标愿望 + 作者信用置位） */
+export async function approveFlashbackWishReport(
+  reportId: string,
+): Promise<{ reportId: string; status: string } | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_APPROVE_REPORT,
+    variables: { reportId },
+  });
+  return data?.flashbackAdminApproveReport ?? null;
+}
+
+/** 下架/恢复愿望（hidden=true 联动作者信用置位；false 只清 hidden_at） */
+export async function setFlashbackWishHidden(
+  wishId: string,
+  hidden: boolean,
+): Promise<{ wishId: string; hidden: boolean } | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_SET_WISH_HIDDEN,
+    variables: { wishId, hidden },
+  });
+  return data?.flashbackAdminSetWishHidden ?? null;
 }

@@ -783,6 +783,22 @@ defmodule Cgc2046.Notifications.ServiceTest do
            }
   end
 
+  # #811 wish2 U3：实抄槽位 thing1（活动名称）/ thing4（备注）——模板
+  # 「活动反馈推送提醒」无 thing2，错槽位被微信 47003 拒。
+  test "flashback_wish_echo 渲染：thing1 愿望预览 + thing4 固定引导语（#811 实抄槽位）" do
+    data =
+      send_and_capture("flashback_wish_echo", %{
+        "wish_id" => Ecto.UUID.generate(),
+        "endorsement_id" => Ecto.UUID.generate(),
+        "content_preview" => "AI 入门"
+      })
+
+    assert data == %{
+             "thing1" => %{"value" => "AI 入门"},
+             "thing4" => %{"value" => "主办方收到你的提议，来看看回应"}
+           }
+  end
+
   # #606 边界算术：thing ≤20 字。{min} 位数 1/2/3 → underfilled 16/17/18 字、
   # confirmed 10/11/12 字；title（thing/1 顶 20）与动态串是**两个独立字段**，
   # 不存在 title 截断挤占动态串预算的问题。
@@ -845,8 +861,9 @@ defmodule Cgc2046.Notifications.ServiceTest do
       |> Enum.map(& &1.template_key)
       |> Enum.uniq()
 
-    # 守卫自身有效：key 数须等于 config/runtime.exs 的 26 键集合（防表被改空）
-    assert length(registry_keys) == 26
+    # 守卫自身有效：key 数须等于 config/runtime.exs 的 27 键集合（防表被改空；
+    # wish2 U3：26 → 27 附议 Echo）
+    assert length(registry_keys) == 27
 
     for template_key <- registry_keys do
       data = send_and_capture(template_key, sample_data(template_key))

@@ -217,6 +217,26 @@ interface FlashbackMockState {
    * 时生成、此后永不变更（关闭只清公开态，重开复用同一 id）。
    */
   cardSharing: { enabled: boolean; shareId: string | null }
+  /**
+   * wish2 U9（#790）：愿望写面 mock 存量——capsule/publicWishes 投影与四个
+   * 写 mutation（Create/Endorse/Comment/Delete）+ Expect/Report 共用。
+   * seed 两条公开 + 一条私愿对齐旧硬编码样例（w-1/w-2/pw-1）。
+   */
+  wishes: Array<{
+    id: string
+    content: string
+    visibility: 'public' | 'private'
+    city: string | null
+    signature: string
+    insertedAt: string
+    deleted: boolean
+  }>
+  /** 本人已附议的愿望 id（mock 单设备单账号语义） */
+  endorsedWishIds: string[]
+  /** 本人已期待的愿望 id */
+  expectedWishIds: string[]
+  /** 愿望留言（wishId → 列表；commenter 恒本人——mock 会话语义） */
+  wishComments: Record<string, Array<{ id: string; content: string; insertedAt: string }>>
 }
 
 const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
@@ -227,7 +247,15 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   today: { nowStatus: null, want: null, need: null, say: null, sentToWallAt: null },
   todayFogSpans: {},
   endorsedCardIds: [],
-  cardSharing: { enabled: false, shareId: null }
+  cardSharing: { enabled: false, shareId: null },
+  wishes: [
+    { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', visibility: 'public', city: '北京', signature: '李**', insertedAt: '2026-09-17T00:00:00Z', deleted: false },
+    { id: 'w-2', content: '开一门 Rust 系统课', visibility: 'public', city: '上海', signature: '陈*', insertedAt: '2026-09-18T00:00:00Z', deleted: false },
+    { id: 'pw-1', content: '想学 Rust(私人)', visibility: 'private', city: '北京', signature: '我', insertedAt: '2026-09-18T00:00:00Z', deleted: false }
+  ],
+  endorsedWishIds: ['w-2'],
+  expectedWishIds: [],
+  wishComments: { 'w-1': [{ id: 'c-1', content: '算我一个', insertedAt: '2026-09-17T00:00:00Z' }] }
 }
 
 interface WxLikeStorage {
@@ -270,7 +298,13 @@ function loadFlashbackState(): FlashbackMockState {
       typeof parsed.cardSharing === 'object' &&
       parsed.cardSharing !== null &&
       typeof parsed.cardSharing.enabled === 'boolean' &&
-      (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string')
+      (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string') &&
+      // wish2 U9：旧快照（wishes 出现前）缺字段 → 整体回落（等价于该设备从没写过愿望）
+      Array.isArray(parsed.wishes) &&
+      Array.isArray(parsed.endorsedWishIds) &&
+      Array.isArray(parsed.expectedWishIds) &&
+      typeof parsed.wishComments === 'object' &&
+      parsed.wishComments !== null
     return valid ? parsed : FLASHBACK_INITIAL_STATE
   } catch {
     return FLASHBACK_INITIAL_STATE
@@ -1258,6 +1292,122 @@ function responseFor(document: string, variables: object): unknown {
         field,
         fogSpans: JSON.stringify(next.todayFogSpans ?? {})
       }
+    }
+  }
+  // ── wish2 U9（#790 补齐）：愿望写面四 mutation + 期待/举报 + viewer 读面 ──
+
+  if (document.includes('mutation FlashbackCreateWish')) {
+    const state = flashbackState()
+    const visibility: 'public' | 'private' = values.visibility === 'private' ? 'private' : 'public'
+    const id = `mw-${state.wishes.length + 1}`
+    const wish = {
+      id,
+      content: String(values.content ?? ''),
+      visibility,
+      city: typeof values.expectedCity === 'string' && values.expectedCity ? values.expectedCity : '北京',
+      signature: values.signatureChoice === 'display_name' ? '王小明' : '王**',
+      insertedAt: new Date().toISOString(),
+      deleted: false
+    }
+    updateFlashbackState((s) => ({ ...s, wishes: [wish, ...state.wishes] }))
+    // wish2 U10：三态返回——公开+consent=listed（mock 无信用门），private=private
+    const status = visibility === 'public' && values.publicListingConsent === true ? 'listed' : 'private'
+    return { flashbackCreateWish: { id, endorsementCount: 0, endorsedByMe: false, status } }
+  }
+  if (document.includes('query FlashbackCities')) {
+    // wish2 U10（KTD11）：期望地候选名单——名单样例子集（真源 flashbackCities）
+    return {
+      flashbackCities: [
+        { name: '北京', fullName: '北京市', pinyin: 'beijing', lngLat: [116.407, 39.904] },
+        { name: '上海', fullName: '上海市', pinyin: 'shanghai', lngLat: [121.474, 31.23] },
+        { name: '成都', fullName: '成都市', pinyin: 'chengdu', lngLat: [104.066, 30.572] },
+        { name: '广州', fullName: '广州市', pinyin: 'guangzhou', lngLat: [113.264, 23.129] },
+        { name: '深圳', fullName: '深圳市', pinyin: 'shenzhen', lngLat: [114.058, 22.543] },
+        { name: '杭州', fullName: '杭州市', pinyin: 'hangzhou', lngLat: [120.155, 30.274] },
+        { name: '武汉', fullName: '武汉市', pinyin: 'wuhan', lngLat: [114.306, 30.593] },
+        { name: '西安', fullName: '西安市', pinyin: 'xian', lngLat: [108.94, 34.341] }
+      ]
+    }
+  }
+  if (document.includes('mutation FlashbackEndorseWish')) {
+    // 幂等 add-only（与后端 endorse_by_user 同义：重复附议 UPDATE 不双计）；
+    // 取消只走独立 FlashbackCancelEndorseWish（下方已有 handler）
+    const state = flashbackState()
+    const wishId = String(values.wishId ?? '')
+    const has = state.endorsedWishIds.includes(wishId)
+    updateFlashbackState((s) => ({
+      ...s,
+      endorsedWishIds: has ? s.endorsedWishIds : [...s.endorsedWishIds, wishId]
+    }))
+    return { flashbackEndorseWish: { endorsementCount: 2, endorsedByMe: true } }
+  }
+  if (document.includes('mutation FlashbackCancelEndorseWish')) {
+    const state = flashbackState()
+    updateFlashbackState((s) => ({
+      ...s,
+      endorsedWishIds: state.endorsedWishIds.filter((id) => id !== String(values.wishId ?? ''))
+    }))
+    return { flashbackCancelEndorseWish: { endorsementCount: 1, endorsedByMe: false } }
+  }
+  if (document.includes('mutation FlashbackAddWishComment')) {
+    const state = flashbackState()
+    const wishId = String(values.wishId ?? '')
+    const comments = state.wishComments[wishId] ?? []
+    updateFlashbackState((s) => ({
+      ...s,
+      wishComments: {
+        ...s.wishComments,
+        [wishId]: [...comments, { id: `mc-${comments.length + 1}`, content: String(values.content ?? ''), insertedAt: new Date().toISOString() }]
+      }
+    }))
+    return { flashbackAddWishComment: { endorsementCount: 5, endorsedByMe: true } }
+  }
+  if (document.includes('mutation FlashbackDeleteWish')) {
+    const state = flashbackState()
+    updateFlashbackState((s) => ({
+      ...s,
+      wishes: state.wishes.map((w) => (w.id === String(values.wishId ?? '') ? { ...w, deleted: true } : w))
+    }))
+    return { flashbackDeleteWish: true }
+  }
+  if (document.includes('mutation FlashbackExpectWish')) {
+    const state = flashbackState()
+    const wishId = String(values.wishId ?? '')
+    const expected = values.expected === true
+    const has = state.expectedWishIds.includes(wishId)
+    const next = expected
+      ? has
+        ? state.expectedWishIds
+        : [...state.expectedWishIds, wishId]
+      : state.expectedWishIds.filter((id) => id !== wishId)
+    updateFlashbackState((s) => ({ ...s, expectedWishIds: next }))
+    // per-wish 计数（mock 基础 2 条样例期待 + 本人对该 wish 的 0/1）
+    const base = 2
+    const mine = next.includes(wishId)
+    return { flashbackExpectWish: { expectationCount: base + (mine ? 1 : 0), expectedByMe: mine } }
+  }
+  if (document.includes('mutation FlashbackReportWish')) {
+    return { flashbackReportWish: { reportId: `rep-${Date.now()}`, status: 'pending' } }
+  }
+  if (document.includes('query FlashbackPublicWishes')) {
+    const state = flashbackState()
+    const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
+    return {
+      flashbackPublicWishes: state.wishes
+        .filter((w) => w.visibility === 'public' && !w.deleted && (!cityFilter || w.city === cityFilter))
+        .map((w) => ({
+          id: w.id,
+          content: w.content,
+          city: w.city,
+          signature: w.signature,
+          expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
+          endorsementCount: state.endorsedWishIds.includes(w.id) ? 1 : 0,
+          contributionDistribution: {},
+          expectedByViewer: state.expectedWishIds.includes(w.id),
+          endorsedByViewer: state.endorsedWishIds.includes(w.id),
+          listedAt: w.insertedAt,
+          insertedAt: w.insertedAt
+        }))
     }
   }
   if (document.includes('mutation FlashbackSetCardSharing')) {

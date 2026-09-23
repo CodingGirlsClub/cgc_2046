@@ -1,6 +1,7 @@
 import { PropsWithChildren, useEffect } from 'react'
 import Taro, { useLaunch } from '@tarojs/taro'
 import { STORAGE_KEYS } from '@/state/storage'
+import { FLASHBACK_WISH_TARGET_KEY } from '@/state/flashbackEntry'
 import { applyEntry, type EntryTaro } from '@/domain/entry'
 import './app.css'
 
@@ -10,14 +11,17 @@ function App({ children }: PropsWithChildren) {
   // 决策与落地在 domain/entry（可测；页面栈每次现取，冷启动的重复导航抑制
   // 见 EntryDecision.navigate）。
   useLaunch((options) => {
-    setTimeout(() => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene), 0)
+    setTimeout(
+      () => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene, FLASHBACK_WISH_TARGET_KEY),
+      0
+    )
   })
 
   // 热启动（F05 复发面闭合，plan 011 D-2）：小程序已打开再点 scheme/分享链接
   // → onAppShow query 路由，与冷启动同一判定。
   useEffect(() => {
     const handler = (options: Taro.onAppShow.CallbackResult) => {
-      applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene)
+      applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene, FLASHBACK_WISH_TARGET_KEY)
     }
     Taro.onAppShow(handler)
     return () => Taro.offAppShow(handler)
