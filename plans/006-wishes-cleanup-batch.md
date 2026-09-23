@@ -34,7 +34,7 @@
 
 ### 前端：`web/app/[locale]/flashback/wishes/wishes-wall.tsx`
 
-死变量（`:193`，eslint warning `@typescript-eslint/no-unused-vars`）：
+死变量（基线 :193；实施时因 418655f8 重构漂移至 :202，已删除——commit 974460b1）：
 
 ```tsx
 	const current = wishes.find((w) => w.id === currentWishId) ?? wishes[0] ?? null;
@@ -45,7 +45,7 @@
 举报弹层（搜索 `setReportFor` 与 `reportFree`）现状要点：
 
 - `textarea` 有 `maxLength={200}`；
-- 提交按钮带死条件：
+- 提交按钮带死条件（基线 :549；实施时漂移至 :556，已删——commit 974460b1）：
 
 ```tsx
 					<button
@@ -56,7 +56,7 @@
 					>
 ```
 
-- 关闭按钮（弹层底部 ghostBtn）：`onClick={() => setReportFor(null)}` —— 不清 `reportFree`；`submitReport` 成功路径则 `setReportFor(null); setReportFree("");`。
+- 关闭按钮（弹层底部 ghostBtn）：`onClick={() => setReportFor(null)}` —— 不清 `reportFree`；`submitReport` 成功路径则 `setReportFor(null); setReportFree("");`（基线 :310-311；取消按钮实施时漂移至 :560-568，已改为取消即清草稿——commit 974460b1）。
 
 面板底部导航（`panelOps` 内，R21 注释旁）：
 
@@ -66,7 +66,7 @@
 					</Link>
 ```
 
-而顶部 `header` nav 里当前页链接是裸的（`:333`）：
+而顶部 `header` nav 里当前页链接是裸的（基线 :333；实施时漂移至 :340-346，已带 city——commit 974460b1）：
 
 ```tsx
 					<Link href="/flashback/wishes" className={styles.activeNav} aria-current="page">

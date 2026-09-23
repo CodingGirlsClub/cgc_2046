@@ -8,7 +8,7 @@
 > maintain the index.
 >
 > **Drift check (run first)**:
-> `git diff --stat 6cd74306..HEAD -- web/components/flashback/wish-frames.tsx web/components/flashback/corridor.test.tsx`
+> `git diff --stat 6cd74306..HEAD -- web/components/flashback/wish-frames.tsx web/components/flashback/future-frames.test.tsx`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
@@ -39,7 +39,7 @@ wish2 生产批（KTD3）把附议改造为**登录承诺动作**：后端 `flas
 ## Current state
 
 - `web/components/flashback/wish-frames.tsx` — corridor 愿望卡/模态/表单组件族；`WishFrames` 是长廊公开愿望段的容器。
-- `web/components/flashback/corridor.test.tsx` — WishFrames 的既有测试宿主（capsule fixture、mock 手法都在这里）。
+- `web/components/flashback/future-frames.test.tsx` — WishFrames/WishFormModal 的既有测试宿主（import Corridor、useMutationMock、capsule fixture、「机审拒绝」code 拒绝先例都在这里；corridor.test.tsx 只测 pile 聚合——原计划写它是笔误，执行期纠正）。
 - `web/lib/graphql/auth.ts:280` — `graphqlErrorDetails(e)`：从 GraphQL 错误提取 `{ code, ... }`，`wish-frames.tsx` 已 import（`WishFormModal` 在用）。
 - `web/lib/payment-errors.ts:28` — `usePaymentErrorTranslator()`：`(code, fallback) => 文案`，已知 code 查 `messages/*.json` 的 `errors` 命名空间。
 
@@ -88,7 +88,7 @@ wish2 生产批（KTD3）把附议改造为**登录承诺动作**：后端 `flas
 
 **In scope**:
 - `web/components/flashback/wish-frames.tsx`（仅 `WishFrames` 组件；`WishFormModal`/`WishModal` 的表单错误处理是 004/005 的地盘，本计划不碰）
-- `web/components/flashback/corridor.test.tsx`（追加用例）
+- `web/components/flashback/future-frames.test.tsx`（追加用例）
 
 **Out of scope**:
 - 后端任何文件——`flashback_auth_required` 契约已存在。
@@ -154,7 +154,7 @@ import 状态：仓库 `web/components/flashback/wish-frames.tsx:8-9` **已 impo
 
 ### Step 2: 追加回归测试
 
-`corridor.test.tsx` 只 import `{ cleanup, screen }`，**自行补 `fireEvent`**；`useMutationMock` 默认返回成功 resolve 的 `vi.fn()`，用 `useMutationMock.mockReturnValue([rejectingFn, { loading: false }])` 让 endorse 那一枝 reject（`mock.calls` 最后一击判别 doc 的手法照抄 `future-frames.test.tsx` 的「listed 反馈」用例 `:295-306`）。
+`future-frames.test.tsx` 已有 `useMutationMock` + capsule fixture + fireEvent 全套基础设施（「机审拒绝」`:277-290` 是 code 拒绝直接先例；「listed 反馈」`:295-306` 是 mock.calls 末击判别 doc 手法）。用 `useMutationMock.mockReturnValue`（或按 doc 判别 `FLASHBACK_ENDORSE_WISH`）让 endorse reject。
 
 愿望卡定位照抄 `wishes-wall.test.tsx:75-78` 的「`screen.findByText(内容)` → `closest("article")` → `within(card)`」三段式（corridor 愿望段内同文按钮不止一个，裸 `getAllByRole` 会撞 WishModal 的同名按钮）：
 
