@@ -294,7 +294,7 @@ ck "第一帧=2012.02.26（升序，顶上是更早的）" "$(RES automation_ele
 ck "统计堆 2（每帧一城市堆）" "$(COUNT "$PINPOL")" '^2$'
 ck "首堆计数=走进教室 12 位（无名册人数口径）" "$(RES automation_element_action --action text --selector "$PINCOUNT")" '^12 位$'
 ck "路人无卡 dock（member 才渲染）" "$(COUNT "$CARDDOCK")" '^0$'
-ck "路人无城市钉/愿望/未来场次卡" "$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0$'
+ck "路人仅见公开愿望段（U9 viewer listed），无城市钉/场次卡" "$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/2/0$'
 ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
 ck "路人无快门仪式（member 专属）" "$(COUNT "$SHUTTER_MASK")" '^0$'
 shot 01-corridor-viewer.png
@@ -524,7 +524,7 @@ ck "模态全文" "$(RES automation_element_action --action text --selector "$WI
 ck "留言区标题=留言(1)" "$(RES automation_element_action --action text --selector "$WISH_COMMENTS_TITLE")" '^留言\(1\)$'
 ck "留言 1 条" "$(COUNT "$WISH_COMMENT_ROW")" '^1$'
 ck "留言内容" "$(RES automation_element_action --action text --selector "$WISH_COMMENT_TEXT")" '^算我一个$'
-ck "模态附议行=👍 附议 · 5（未附议态；mock 无 wish 写面，不点按）" "$(RES automation_element_action --action text --selector "$WISH_MODAL $WISH_ENDORSE")" '^👍 附议 · 5$'
+ck "模态附议行=🙌 我能出力 · 5（U9 文案，未附议态；mock 无 wish 写面，不点按）" "$(RES automation_element_action --action text --selector "$WISH_MODAL $WISH_ENDORSE")" '^🙌 我能出力 · 5$'
 shot 09-wish-modal.png
 TRIGGER tap '{}' "$WISH_MODAL_MASK"
 sleep 1
@@ -666,7 +666,7 @@ ck "路人 CTA=登录找回" "$(RES automation_element_action --action text --se
 ck "路人帧=公开统计 2（无名册内容）" "$(COUNT "$CAPWHEN")" '^2$'
 ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
 ck "统计堆 2（走进教室计数口径）" "$(COUNT "$PINPOL")" '^2$'
-ck "路人无卡 dock/城市钉/愿望/场次卡（R32 无未授权内容）" "$(COUNT "$CARDDOCK")/$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0/0$'
+ck "路人无卡 dock/城市钉/场次卡，仅见公开愿望段（U9 viewer listed）" "$(COUNT "$CARDDOCK")/$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/2/0$'
 ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
 shot 14-corridor-viewer.png
 
