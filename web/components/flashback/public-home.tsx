@@ -63,12 +63,12 @@ export default function PublicHome() {
 			.catch(() => setQuotes([]));
 	}, []);
 
-	/** 点赞开关（R36/R37）：乐观 ±1 → 服务端计数校正 → 失败回滚 */
+	/** 点赞开关（R36/R37）：乐观 ±1 → 服务端计数校正 → 失败按 quoteId 函数式回滚（#806 F2） */
 	const toggleLike = useCallback(
 		(quote: FlashbackPublicQuote) => {
 			if (!voter || pending.has(quote.quoteId)) return;
 			const liked = !quote.likedByViewer;
-			const before = quotes;
+			const prevLike = { liked: quote.likedByViewer, count: quote.likeCount };
 			setQuotes(
 				quotes.map((item) =>
 					item.quoteId === quote.quoteId
@@ -88,7 +88,16 @@ export default function PublicHome() {
 						),
 					);
 				})
-				.catch(() => setQuotes(before))
+				.catch(() =>
+					// #806 F2：失败回滚只恢复该条（函数式——保留并发期间其他条的更新）
+					setQuotes((current) =>
+						current.map((item) =>
+							item.quoteId === quote.quoteId
+								? { ...item, likedByViewer: prevLike.liked, likeCount: prevLike.count }
+								: item,
+						),
+					),
+				)
 				.finally(() =>
 					setPending((prev) => {
 						const next = new Set(prev);

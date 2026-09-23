@@ -56,7 +56,8 @@ function Icon({ name, filled = false }: { name: string; filled?: boolean }) {
 		back: <path d="M21 12H3m6-6-6 6 6 6" />,
 		replay: (
 			<>
-				<path d="M4 8a9 9 0 1 1-1 8M4 3v5h5M12 7v5l3 2" />
+				<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+				<path d="M3 3v5h5" />
 			</>
 		),
 		close: <path d="m5 5 14 14M19 5 5 19" />,
@@ -166,11 +167,14 @@ function ShareDialog({
 export default function VoicesWall({
 	initialItem,
 	showIntro,
+	initialCity,
 }: {
 	/** 分享直达的目标句（已在服务端确认有效）；undefined = 非直达 */
 	initialItem?: FlashbackPublicQuote;
 	/** 是否播开场（page.tsx 已按 item/回访记忆/reduced-motion 排除） */
 	showIntro: boolean;
+	/** wish2 U7/G10：?city= 入 URL 的初始城市（item 直达的城市优先） */
+	initialCity?: string;
 }) {
 	const t = useTranslations("flashback.voices");
 	const reducedMotion = usePrefersReducedMotion();
@@ -178,7 +182,7 @@ export default function VoicesWall({
 	const [quotes, setQuotes] = useState<FlashbackPublicQuote[]>(initialItem ? [initialItem] : []);
 	const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
 	const [currentId, setCurrentId] = useState<string | null>(initialItem?.quoteId ?? null);
-	const [city, setCity] = useState<string>(initialItem?.city ?? "");
+	const [city, setCity] = useState<string>(initialItem?.city ?? initialCity ?? "");
 	const [progress, setProgress] = useState(showIntro ? 0 : 1);
 	const [playing, setPlaying] = useState(showIntro);
 	const [playback, setPlayback] = useState(0);
@@ -187,13 +191,19 @@ export default function VoicesWall({
 	const [shareDialog, setShareDialog] = useState<"quote" | "wall" | null>(null);
 	const [likeHint, setLikeHint] = useState(false);
 	const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
-	// 「随便听听」会话内不重复（R35）：已出过的 quoteId 集合
+	// 「随便听听」会话内不重复（R35）：已**由随机入口**出过的 quoteId 集合。
+	// 不预置墙上列表——后端 randomQuotes 与 publicQuotes 同池（public.ex 仅排序不同），
+	// 公开句总量 ≤ 60 时墙即全量，预置会让随机池恒空、首次点击即报 randomEmpty（#822）。
 	const [randomSeen, setRandomSeen] = useState<ReadonlySet<string>>(
 		() => new Set(initialItem ? [initialItem.quoteId] : []),
 	);
 	const [randomQueue, setRandomQueue] = useState<FlashbackPublicQuote[]>([]);
 
 	const progressRef = useRef(progress);
+	const quoteAreaRef = useRef<HTMLDivElement>(null);
+	// intro 塌缩页面（workspace 变 block、reader 隐藏）会把 scrollY/quoteArea.scrollTop 钳到 0：
+	// replay 前保存，finishIntro 恢复（首次进入 intro 无保存值，跳过）
+	const scrollRestoreRef = useRef<{ y: number; quote: number } | null>(null);
 	const [runLike] = useMutation(FLASHBACK_LIKE_QUOTE);
 
 	// 去重键（R36）：SSR/首帧 null（不渲染按钮），客户端纠正（同 public-home 手法）
@@ -231,6 +241,18 @@ export default function VoicesWall({
 		setProgress(1);
 		progressRef.current = 1;
 		markIntroSeen();
+		const restore = scrollRestoreRef.current;
+		scrollRestoreRef.current = null;
+		if (restore) {
+			// setProgress(1) 的白天布局尚未 commit：此刻滚动会被塌缩态高度钳回 0，
+			// 双 rAF 等布局还原后再恢复
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() => {
+					window.scrollTo(0, restore.y);
+					quoteAreaRef.current?.scrollTo({ top: restore.quote });
+				}),
+			);
+		}
 	}, [markIntroSeen]);
 
 	// 减少动态效果（R24）：displayProgress 派生恒 1（白昼），无 setState——
@@ -285,7 +307,6 @@ export default function VoicesWall({
 					const first = initialItem ?? list[0];
 					return first?.city ?? "";
 				});
-				setRandomSeen((seen) => new Set([...seen, ...list.map((q) => q.quoteId)]));
 			})
 			.catch(() => {
 				if (!cancelled) setLoadState("failed");
@@ -317,7 +338,21 @@ export default function VoicesWall({
 		[finishIntro],
 	);
 
+	// R21：城市入 URL（?city= 写回）——voices↔wishes 互跳与刷新保留当前城市；
+	// replaceState 不触发导航（软更新，与既有 useState 单源不冲突）
+	const syncCityToUrl = useCallback((next: string) => {
+		try {
+			const url = new URL(window.location.href);
+			if (next) url.searchParams.set("city", next);
+			else url.searchParams.delete("city");
+			window.history.replaceState(null, "", url.toString());
+		} catch {
+			// storage/URL 不可用：不阻断选城
+		}
+	}, []);
+
 	const selectCity = (next: string) => {
+		syncCityToUrl(next);
 		const entry = quotes.find((q) => q.city === next);
 		if (entry) {
 			select(entry);
@@ -332,11 +367,12 @@ export default function VoicesWall({
 		select(next);
 	};
 
-	// 点赞（R11/R29）：乐观 ±1 → 服务端校正 → 失败回滚；不就地重排
+	// 点赞（R11/R29）：乐观 ±1 → 服务端校正 → 失败按 quoteId 函数式回滚（#806 F2：
+	// 不用整组快照——并发期间其他句的成功更新不被覆盖）；不就地重排
 	const toggleLike = (quote: FlashbackPublicQuote) => {
 		if (!voter || pending.has(quote.quoteId)) return;
 		const liked = !quote.likedByViewer;
-		const before = quotes;
+		const prevLike = { liked: quote.likedByViewer, count: quote.likeCount };
 		setQuotes(
 			quotes.map((item) =>
 				item.quoteId === quote.quoteId
@@ -368,7 +404,16 @@ export default function VoicesWall({
 					current.map((item) => (item.quoteId === quote.quoteId ? { ...item, likeCount: count } : item)),
 				);
 			})
-			.catch(() => setQuotes(before))
+			.catch(() =>
+				// #806 F2：失败回滚只恢复该条（函数式——保留并发期间其他条的更新）
+				setQuotes((current) =>
+					current.map((item) =>
+						item.quoteId === quote.quoteId
+							? { ...item, likedByViewer: prevLike.liked, likeCount: prevLike.count }
+							: item,
+					),
+				),
+			)
 			.finally(() =>
 				setPending((prev) => {
 					const next = new Set(prev);
@@ -417,6 +462,7 @@ export default function VoicesWall({
 			setToast(t("replayReduced"));
 			return;
 		}
+		scrollRestoreRef.current = { y: window.scrollY, quote: quoteAreaRef.current?.scrollTop ?? 0 };
 		progressRef.current = 0;
 		setProgress(0);
 		setPlaying(true);
@@ -489,6 +535,10 @@ export default function VoicesWall({
 							<Link href="/flashback/voices" className={styles.activeNav} aria-current="page">
 								{t("voicesNav")} <span>{t("voicesNavEn")}</span>
 							</Link>
+							{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
+							<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>
+								{t("wishesNav")} <span>{t("wishesNavEn")}</span>
+							</Link>
 						</nav>
 						<div className={styles.headerActions}>
 							{isIntro ? (
@@ -533,12 +583,10 @@ export default function VoicesWall({
 									<i />
 									{t("legendConnection")}
 								</span>
-								<button type="button" onClick={replay}>
-									<Icon name="replay" />
-									{t("replay")}
-								</button>
+
 							</div>
 							{cityNames.length > 0 && (
+								<div className={styles.mapToolbar}>
 								<div className={styles.cityBar} aria-label={t("cityBarLabel")}>
 									<span>{t("cityBarLabel")}</span>
 									{cityNames.map((name) => (
@@ -551,6 +599,10 @@ export default function VoicesWall({
 											{name}
 										</button>
 									))}
+								</div>
+								<button type="button" className={styles.replayButton} onClick={replay}>
+									<Icon name="replay" /><span>{t("replay")}</span>
+								</button>
 								</div>
 							)}
 						</section>
@@ -569,12 +621,14 @@ export default function VoicesWall({
 										</p>
 										<span className={styles.location}>{current.city ?? city}</span>
 									</div>
-									<blockquote className={styles.quote} data-testid="selected-text">
-										<span className={styles.quoteMark} aria-hidden="true">
-											“
-										</span>
-										{current.text}
-									</blockquote>
+									<div className={styles.quoteArea} ref={quoteAreaRef}>
+										<blockquote className={styles.quote} data-testid="selected-text">
+											<span className={styles.quoteMark} aria-hidden="true">
+												“
+											</span>
+											{current.text}
+										</blockquote>
+									</div>
 									<p className={styles.attribution}>
 										{current.publicSlug ? (
 											<Link href={`/flashback/${current.publicSlug}`} data-testid="quote-attribution-link">
@@ -614,23 +668,26 @@ export default function VoicesWall({
 											<Icon name="back" />
 											<span>{t("prev")}</span>
 										</button>
-										<span>
-											{String(Math.max(0, currentIndex) + 1).padStart(2, "0")}
-											<i>/</i>
-											{String(quotes.length).padStart(2, "0")}
-										</span>
+										<div className={styles.randomWrap}>
+											<button type="button" className={styles.randomLink} onClick={randomListen} data-testid="random-listen">
+												<Icon name="shuffle" />
+												{t("random")}
+											</button>
+											<span className={styles.randomCount}>
+												{String(Math.max(0, currentIndex) + 1).padStart(2, "0")}
+												<i>/</i>
+												{String(quotes.length).padStart(2, "0")}
+											</span>
+										</div>
 										<button type="button" onClick={() => navigate(1)} aria-label={t("next")}>
 											<span>{t("next")}</span>
 											<Icon name="arrow" />
 										</button>
 									</div>
-									<button type="button" className={styles.randomLink} onClick={randomListen} data-testid="random-listen">
-										<Icon name="shuffle" />
-										{t("random")}
-									</button>
-									<p className={styles.disclosure}>{t("disclosure")}</p>
+									<p className={styles.disclosure}>{t("disclosureOrigin")}<br />{t("disclosureEcho")}</p>
 									<footer className={styles.readerFooter}>
-										<Link href="/flashback">{t("recover")}</Link>
+										<Link href="/flashback">{t("recover")}<Icon name="arrow" /></Link>
+										<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>{t("wishesFooter")}<Icon name="arrow" /></Link>
 									</footer>
 								</>
 							)}

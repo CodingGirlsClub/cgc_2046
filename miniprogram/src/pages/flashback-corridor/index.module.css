@@ -603,6 +603,122 @@
   border-radius: 44rpx;
 }
 
+/* ── wish2 U9：viewer 期待 ❤️ + 附议表单（KTD3/KTD5） ─────────────────── */
+.wishExpectOn,
+.wishExpectOff {
+  font-size: 24rpx;
+  color: #6b7076;
+}
+.wishExpectOn {
+  color: #d0442c;
+}
+.wishExpectToggle {
+  font-size: 28rpx;
+  padding: 4rpx 12rpx;
+}
+.endorseWishPreview {
+  display: block;
+  font-size: 24rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 18rpx;
+  margin-bottom: 20rpx;
+}
+.endorseTypeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-bottom: 20rpx;
+}
+.endorseTypeChip {
+  font-size: 24rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 999rpx;
+  padding: 12rpx 28rpx;
+}
+.endorseTypeChipOn {
+  color: #ea5504;
+  background: #fdf0e6;
+  border: 1rpx solid #ea5504;
+  font-weight: 600;
+}
+/* KTD5 联系方式告知：明示、不可关闭 */
+.endorseContactNote {
+  display: block;
+  font-size: 22rpx;
+  color: #8a6d3b;
+  background: #faf5ea;
+  border-radius: 12rpx;
+  padding: 12rpx 16rpx;
+  margin: 20rpx 0 8rpx;
+}
+.endorseNotifyRow {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 8rpx 0 20rpx;
+}
+.endorseNotifyBox {
+  font-size: 30rpx;
+  color: #ea5504;
+}
+.endorseNotifyLabel {
+  font-size: 24rpx;
+  color: #222326;
+}
+
+/* ── wish2 U10：许愿 sheet 署名/期望地/两档 hint（R6/R17/KTD11） ─────────── */
+.signatureBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 20rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 0;
+}
+.wishCityInput {
+  width: 100%;
+  background: #f6f6f4;
+  border-radius: 16rpx;
+  padding: 18rpx 20rpx;
+  font-size: 26rpx;
+  margin-top: 20rpx;
+  box-sizing: border-box;
+}
+.wishCityCandidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  align-items: center;
+  margin: 12rpx 0 4rpx;
+}
+.wishCityCandidatesHint {
+  font-size: 20rpx;
+  color: #8a8f98;
+}
+.wishCityCandidate {
+  font-size: 22rpx;
+  color: #ea5504;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx;
+  padding: 4rpx 16rpx;
+  background: #fff;
+}
+/* 公开档恒加粗（R6 结构断言 pin——与选中态无关，明示挂树授权） */
+.visibilityPublicLabel {
+  font-weight: 700;
+}
+/* 两档说明行（公开/说给主办方听各自 hint） */
+.visibilityHintText {
+  display: block;
+  font-size: 20rpx;
+  color: #6b7076;
+  margin: -12rpx 0 28rpx;
+}
+
 /* U6 路人态 1024 活动横幅(R9)：已撤——活动推广归「发现」Tab，
    长廊里重复推同一活动。原样式（.banner1024 一族）随之删除。 */
 

@@ -30,5 +30,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function Page({ searchParams }: PageProps) {
 	const params = await searchParams;
 	const item = typeof params.item === "string" ? params.item : undefined;
-	return <VoicesPage item={item} />;
+	// wish2 U7/G10：?city= 入 URL（voices↔wishes 互跳带城市；item 直达优先）
+	const city = typeof params.city === "string" ? params.city : undefined;
+	return <VoicesPage item={item} initialCity={city} />;
 }

@@ -491,6 +491,118 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "公开许愿树（wish2 U6/KTD10）：listed+public+未 hidden+未删 四条件；带种子加权随机排序（-ln(u)/w，w=(1+期待+2×附议)×freshness）；seed 缺省=当日+voterKey；字段白名单（无 phone/email/message）"
+    field :flashback_public_wishes, non_null(list_of(non_null(:flashback_public_wish))) do
+      @desc "城市过滤（Cities.normalize 短名；null = 不过滤）"
+      arg(:city, :string)
+      @desc "排序种子（null = 当日+voterKey；「换一批」传随机值）"
+      arg(:seed, :string)
+      @desc "分页偏移（同 seed 稳定不重不漏）"
+      arg(:offset, :integer)
+      @desc "页大小（默认 60，上限 120）"
+      arg(:limit, :integer)
+      @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 expected/endorsedByViewer 回显"
+      arg(:voter_key, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        # HS-3 双键读面：登录 actor 强制 u: 键 + 入参 a: 设备键合并（期待态
+        # 刷新不漂移——mutation 登录态按 u: 记账）；未登录维持入参单键。
+        # 城市过滤与表单同源归一（KTD11）：「成都市」→「成都」；未识别值原样
+        # 直传——读面宽容，查询结果为空而非报错。
+        city =
+          case args[:city] do
+            nil ->
+              nil
+
+            raw when is_binary(raw) ->
+              case Cgc2046.Flashback.Cities.normalize(raw) do
+                {:ok, short} -> short
+                {:error, _} -> raw
+              end
+
+            # 防御分支：:string 入参实际只会是 binary|nil；兜底防运行时 CaseClauseError
+            other ->
+              other
+          end
+
+        Cgc2046.Flashback.WishPublic.wishes(
+          city: city,
+          seed: args[:seed],
+          offset: args[:offset],
+          limit: args[:limit],
+          voter_keys: viewer_voter_keys(context, args[:voter_key])
+        )
+      end)
+    end
+
+    @desc "许愿单条直达（?item=<wish_id>）：四条件可见才返回；不可见/不存在统一 null（不泄露存在性）"
+    field :flashback_public_wish, :flashback_public_wish do
+      arg(:wish_id, non_null(:id))
+      @desc "客户端去重键：只影响 expected/endorsedByViewer 回显"
+      arg(:voter_key, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        Cgc2046.Flashback.WishPublic.wish(
+          args.wish_id,
+          voter_keys: viewer_voter_keys(context, args[:voter_key])
+        )
+      end)
+    end
+
+    @desc "全国城市名单（wish2 U6/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"
+    field :flashback_cities, non_null(list_of(non_null(:flashback_city))) do
+      resolve(fn _, _, _ -> {:ok, Cgc2046.Flashback.WishPublic.cities()} end)
+    end
+
+    @desc "「说给主办方听」收件箱（wish2 U5/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone/email 仅 admin；公开响应禁出）"
+    field :flashback_admin_wish_inbox,
+          non_null(list_of(non_null(:flashback_admin_wish_inbox_entry))) do
+      resolve(fn _, _, %{context: context} ->
+        with_admin(context, fn _actor ->
+          entries =
+            Cgc2046.Flashback.Reports.list_inbox_private_wishes()
+            |> Enum.map(fn entry ->
+              %{
+                wish_id: entry.wish.id,
+                content: entry.wish.content,
+                city: entry.wish.city,
+                signature: entry.wish.signature,
+                inserted_at: entry.wish.inserted_at,
+                wisher_masked: entry.wisher_masked,
+                wisher_phone: entry.wisher_user_contact && entry.wisher_user_contact.phone,
+                wisher_email: entry.wisher_user_contact && entry.wisher_user_contact.email
+              }
+            end)
+
+          {:ok, entries}
+        end)
+      end)
+    end
+
+    @desc "举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序"
+    field :flashback_admin_wish_reports,
+          non_null(list_of(non_null(:flashback_admin_report_entry))) do
+      resolve(fn _, _, %{context: context} ->
+        with_admin(context, fn _actor ->
+          entries =
+            Cgc2046.Flashback.Reports.list_pending_reports()
+            |> Enum.map(fn r ->
+              %{
+                report_id: r.id,
+                target_type: r.target_type,
+                target_id: r.target_id,
+                reason_type: r.reason_type,
+                reason_free: r.reason_free,
+                status: r.status,
+                inserted_at: r.inserted_at
+              }
+            end)
+
+          {:ok, entries}
+        end)
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -2892,11 +3004,17 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "许愿（R5/R6）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。city 快照名册城市（无入参）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+    @desc "许愿（R5/R6 + wish2 U8/KTD1/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
     field :flashback_create_wish, :flashback_wish_result do
       arg(:token, :string)
       arg(:content, non_null(:string))
       arg(:visibility, non_null(:string))
+      @desc "署名快照：anonymous（默认，姓氏遮罩）/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+      arg(:signature_choice, :string)
+      @desc "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+      arg(:expected_city, :string)
+      @desc "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+      arg(:public_listing_consent, :boolean)
 
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
@@ -2904,28 +3022,57 @@ defmodule Cgc2046Web.GraphqlSchema do
         flashback_call(fn ->
           with {:ok, identity} <- flashback_identity(args[:token], context),
                {:ok, person_id} <- identity_person_id(identity),
-               {:ok, _wish} <-
-                 Cgc2046.Flashback.Wishes.create_wish(person_id, args.content, args.visibility) do
-            {:ok, %{endorsement_count: 0, endorsed_by_me: false}}
+               {:ok, wish} <-
+                 Cgc2046.Flashback.Wishes.create_wish(
+                   person_id,
+                   args.content,
+                   args.visibility,
+                   signature_choice: wish_signature_choice(args[:signature_choice]),
+                   expected_city: args[:expected_city],
+                   public_listing_consent: args[:public_listing_consent] || false
+                 ) do
+            {:ok,
+             %{
+               id: wish.id,
+               endorsement_count: 0,
+               endorsed_by_me: false,
+               status: wish.listing_status
+             }}
           end
         end)
       end)
     end
 
-    @desc "附议愿望（R7 幂等）：返回实时计数与本人态"
-    field :flashback_endorse_wish, :flashback_wish_result do
-      arg(:token, :string)
+    @desc "附议愿望（wish2 U6/KTD3 改造）：**要求登录**（旧 token/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
+    field :flashback_endorse_wish, :flashback_wish_endorse_result do
       arg(:wish_id, non_null(:id))
-
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 60)
+      @desc "出力类型（可多选）：venue / organize / speak / sponsor / other"
+      arg(:contribution_types, list_of(:string))
+      @desc "给平台的留言（≤500；非空过机审；仅运营可见）"
+      arg(:message, :string)
+      @desc "回响通知意愿（默认 false；真实授权由微信订阅消息 accept 上报，后端零 grant）"
+      arg(:notify, :boolean)
 
       resolve(fn _, args, %{context: context} ->
-        flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity) do
-            Cgc2046.Flashback.Wishes.endorse(person_id, args.wish_id)
+        # plan U3 契约：未登录附议 → flashback_auth_required（非通用 unauthorized；
+        # 小程序/前端按该 code 引导手机号一键登录）
+        with_actor(
+          context,
+          fn actor ->
+            flashback_call(fn ->
+              Cgc2046.Flashback.Wishes.endorse_by_user(
+                actor.id,
+                args.wish_id,
+                contribution_types: args[:contribution_types] || [],
+                message: args[:message],
+                notify: args[:notify] || false
+              )
+            end)
+          end,
+          on_nil: fn _ ->
+            {:error, [message: "请先登录后再附议。", code: "flashback_auth_required"]}
           end
-        end)
+        )
       end)
     end
 
@@ -3131,6 +3278,132 @@ defmodule Cgc2046Web.GraphqlSchema do
           flashback_call(fn ->
             with {:ok, person_id} <- validate_like_person_id(args.person_id) do
               Cgc2046.Flashback.QuoteLicenses.set_hidden(actor, person_id, args.hidden)
+            end
+          end)
+        end)
+      end)
+    end
+
+    # ── wish2 公开 mutations（U6 KTD2/KTD3/KTD9）──────────────────────
+
+    @desc "期待/取消期待（wish2 U6/KTD2）：公开无登录——voterKey（u:/a:）去重；登录 actor 传 anonVoterKey 时服务端合并匿名行；双窗限频（30/min voter + 60/h IP）"
+    field :flashback_expect_wish, :flashback_wish_expect_result do
+      arg(:wish_id, non_null(:id))
+      @desc "true=期待（幂等）；false=取消（幂等）"
+      arg(:expected, non_null(:boolean))
+      @desc "匿名设备键 a:<device_uuid>（登录 actor 可不传——服务端强制 u:）"
+      arg(:anon_voter_key, :string)
+      @desc "登录态设备键（登录 actor 期待时传，服务端用它替代 anon 键做合并）"
+      arg(:voter_key, :string)
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:wish_id])
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          Cgc2046.Flashback.WishExpectations.set_expectation(
+            args.wish_id,
+            args.expected,
+            actor_user_id: actor_user_id(context),
+            anon_voter_key: args[:anon_voter_key] || anon_key_from(args[:voter_key]),
+            remote_ip: context_ip(context)
+          )
+        end)
+      end)
+    end
+
+    @desc "取消附议（wish2 U6/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离）"
+    field :flashback_cancel_endorse_wish, :flashback_wish_endorse_result do
+      arg(:wish_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_actor(
+          context,
+          fn actor ->
+            flashback_call(fn ->
+              Cgc2046.Flashback.Wishes.cancel_endorse_by_user(actor.id, args.wish_id)
+            end)
+          end,
+          on_nil: fn _ ->
+            {:error, [message: "请先登录后再操作。", code: "flashback_auth_required"]}
+          end
+        )
+      end)
+    end
+
+    @desc "举报愿望（wish2 U6/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10/15min/IP 限频；举报是治理信号不进排序（举报≠踩）"
+    field :flashback_report_wish, :flashback_report_result do
+      arg(:wish_id, non_null(:id))
+      @desc "预设理由：spam / irrelevant / scam / inappropriate / other"
+      arg(:reason_type, non_null(:string))
+      @desc "补充说明（≤200 字，可选）"
+      arg(:reason_free, :string)
+      @desc "匿名设备键（登录 actor 不用传）"
+      arg(:anon_voter_key, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, report} <-
+                 Cgc2046.Flashback.Reports.report(
+                   "wish",
+                   args.wish_id,
+                   args.reason_type,
+                   actor_user_id: actor_user_id(context),
+                   anon_voter_key: args[:anon_voter_key],
+                   reason_free: args[:reason_free],
+                   remote_ip: context_ip(context)
+                 ) do
+            {:ok, %{report_id: report.id, status: report.status}}
+          end
+        end)
+      end)
+    end
+
+    # ── wish2 admin mutations（U5 scope 补挂——platform admin only）────
+
+    @desc "下架/恢复愿望（wish2 U5/KTD5 PlatformAdmin）：hidden=true 联动置位作者信用字段 wishes_review_required_at；false 只清 hidden_at 不动信用"
+    field :flashback_admin_set_wish_hidden, :flashback_wish_hidden_result do
+      arg(:wish_id, non_null(:id))
+      @desc "true=下架；false=恢复"
+      arg(:hidden, non_null(:boolean))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            with {:ok, wish} <-
+                   Cgc2046.Flashback.Reports.set_wish_hidden(args.wish_id, actor.id, args.hidden) do
+              {:ok, %{wish_id: wish.id, hidden: not is_nil(wish.hidden_at)}}
+            end
+          end)
+        end)
+      end)
+    end
+
+    @desc "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
+    field :flashback_admin_dismiss_report, :flashback_report_result do
+      arg(:report_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            with {:ok, report} <-
+                   Cgc2046.Flashback.Reports.dismiss_report(args.report_id, actor.id) do
+              {:ok, %{report_id: report.id, status: report.status}}
+            end
+          end)
+        end)
+      end)
+    end
+
+    @desc "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
+    field :flashback_admin_approve_report, :flashback_report_result do
+      arg(:report_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            with {:ok, report} <-
+                   Cgc2046.Flashback.Reports.approve_report(args.report_id, actor.id) do
+              {:ok, %{report_id: report.id, status: report.status}}
             end
           end)
         end)
@@ -4037,9 +4310,13 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   object :flashback_wish_result do
+    @desc "新建愿望 id（本人查看/撤回入口用）"
+    field(:id, :id)
     @desc "附议后实时计数与本人态"
     field(:endorsement_count, non_null(:integer))
     field(:endorsed_by_me, non_null(:boolean))
+    @desc "wish2 U8 三态反馈：listed（挂上许愿树）/ pending_review（信用待审——审核通过后挂树）/ private（说给主办方听）"
+    field(:status, non_null(:string))
   end
 
   # ── 看板与兑换（U11/R24/R25）────────────────────────────────────────
@@ -4360,6 +4637,80 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:like_count, non_null(:integer))
   end
 
+  # ── wish2 U6 公开许愿树契约（KTD10 白名单字段）──────────────────────
+
+  object :flashback_public_wish do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    @desc "期望地短名（Cities.normalize 归一；null = 未填）"
+    field(:city, :string)
+    @desc "署名快照（匿名遮罩姓 王** 或实名 display_name；创建时定型）"
+    field(:signature, non_null(:string))
+    field(:expectation_count, non_null(:integer))
+    field(:endorsement_count, non_null(:integer))
+    @desc "出力分布（venue/organize/speak/sponsor/other → count）——从 endorsements 聚合"
+    field(:contribution_distribution, non_null(:json))
+    field(:expected_by_viewer, non_null(:boolean))
+    field(:endorsed_by_viewer, non_null(:boolean))
+    field(:listed_at, non_null(:datetime))
+    field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_city do
+    @desc "短名（成都）"
+    field(:name, non_null(:string))
+    @desc "全称（成都市）"
+    field(:full_name, non_null(:string))
+    field(:pinyin, non_null(:string))
+    @desc "中心坐标 [lng, lat]（GeoJSON 形状，G9）"
+    field(:lng_lat, non_null(list_of(non_null(:float))))
+  end
+
+  object :flashback_wish_expect_result do
+    @desc "期待后的实时计数 + 本人态"
+    field(:expectation_count, non_null(:integer))
+    field(:expected_by_me, non_null(:boolean))
+  end
+
+  object :flashback_wish_endorse_result do
+    field(:endorsement_count, non_null(:integer))
+    field(:endorsed_by_me, non_null(:boolean))
+  end
+
+  object :flashback_report_result do
+    field(:report_id, non_null(:id))
+    field(:status, non_null(:string))
+  end
+
+  object :flashback_wish_hidden_result do
+    field(:wish_id, non_null(:id))
+    @desc "操作后的下架态（true=已下架）"
+    field(:hidden, non_null(:boolean))
+  end
+
+  object :flashback_admin_wish_inbox_entry do
+    field(:wish_id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:city, :string)
+    field(:signature, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+    @desc "作者遮罩姓（王**）"
+    field(:wisher_masked, :string)
+    @desc "作者登录账号联系方式（仅 platform admin；公开 GraphQL 永不返回）"
+    field(:wisher_phone, :string)
+    field(:wisher_email, :string)
+  end
+
+  object :flashback_admin_report_entry do
+    field(:report_id, non_null(:id))
+    field(:target_type, non_null(:string))
+    field(:target_id, non_null(:id))
+    field(:reason_type, non_null(:string))
+    field(:reason_free, :string)
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
   # 多句金句:每句自带宿主与区间(grapheme 偏移,结构同 fog span)
   input_object :flashback_quote_span_input do
     field(:question_key, non_null(:string))
@@ -4426,6 +4777,29 @@ defmodule Cgc2046Web.GraphqlSchema do
   defp context_ip(%{conn: %{remote_ip: ip}}), do: ip |> :inet.ntoa() |> to_string()
   defp context_ip(_context), do: "unknown"
 
+  # wish2 U6：登录 actor 的 user_id（未登录 nil——匿名 voter 走 a: 键）
+  defp actor_user_id(%{actor: %{id: id}}) when is_binary(id), do: id
+  defp actor_user_id(_context), do: nil
+
+  # wish2 review HS-3：读面 viewer 双键集——登录 = 强制 u:<uid> + 入参 a: 键
+  # （a: 入参与期待 mutation 的 anonVoterKey merge 语义对称，刷新不漂移）；
+  # 未登录 = 入参单键（a: 设备键原样）。入参 u: 键仅未登录时透传（低危回显，
+  # 登录时被 actor 键取代——不可借此窥探他人）。
+  defp viewer_voter_keys(context, arg_key) do
+    case actor_user_id(context) do
+      nil ->
+        [arg_key]
+
+      uid ->
+        ["u:#{uid}" | [arg_key]]
+    end
+  end
+
+  # voter_key 只在 a: 前缀时当 anon 键用（u: 由 actor_user_id 强制）
+  defp anon_key_from(nil), do: nil
+  defp anon_key_from("a:" <> _ = key), do: key
+  defp anon_key_from(_), do: nil
+
   # 闪念间写面双入口（U9/R28）：token 优先（首程/链接回访）；省略时按登录
   # actor 解析绑定的档案（person.user_id）。返回 {:token, t} | {:person, id}，
   # 与 capsule 读面的 resolve_person 同语义；两者皆无 → auth_required。
@@ -4463,6 +4837,11 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   defp identity_person_id({:person, person_id}), do: {:ok, person_id}
 
+  # wish2 U8/KTD1：signature_choice 字符串→atom（context opts 契约）；
+  # 非法/缺省宽容降级 anonymous——旧客户端与拼写错误不因此拒绝整单
+  defp wish_signature_choice("display_name"), do: :display_name
+  defp wish_signature_choice(_), do: :anonymous
+
   # 闪念间手写 field 的统一错误映射：domain 信封原样透传（code 进 #241 契约）；
   # Ash 校验错误经 domain 的 invalid_input_error/1 包装；其余按 DB 故障兜底。
   defp flashback_call(fun) do
@@ -4470,8 +4849,11 @@ defmodule Cgc2046Web.GraphqlSchema do
       {:ok, value} ->
         {:ok, value}
 
-      {:error, %{code: code, message: message}} when is_binary(code) ->
-        {:error, message: message, code: code}
+      # wish2 U8/KTD11：city_unknown 信封带 candidates（≤3 候选城市）——
+      # map 模式匹配需余字段容忍，candidates 保留在 extensions 供前端提示
+      {:error, %{code: code, message: message} = envelope}
+      when is_binary(code) and is_map(envelope) ->
+        {:error, [message: message, code: code] ++ envelope_extra(envelope)}
 
       {:error, %Ash.Error.Invalid{errors: [first | _]}} ->
         envelope = Cgc2046.Flashback.Tokens.invalid_input_error(Exception.message(first))
@@ -4479,6 +4861,15 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       {:error, _other} ->
         {:error, message: "服务暂时不可用，请稍后重试。", code: "database_error"}
+    end
+  end
+
+  # 信封余字段（如 city_unknown 的 candidates）→ keyword 附加项；
+  # code/message 已显式消费，只透传非空名单类补充信息
+  defp envelope_extra(envelope) do
+    case envelope[:candidates] || Map.get(envelope, :candidates) do
+      candidates when is_list(candidates) and candidates != [] -> [candidates: candidates]
+      _ -> []
     end
   end
 

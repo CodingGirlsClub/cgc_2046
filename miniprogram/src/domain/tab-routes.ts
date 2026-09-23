@@ -77,7 +77,10 @@ function normalize(path: string): string {
   return path.replace(/^\/+/, '').split('?')[0]
 }
 
-/** 目标是否 tabBar 页面——决定用 switchTab（Tab 页唯一合法入口）还是普通导航 */
+/** 目标是否 tabBar 页面——决定用 switchTab（Tab 页唯一合法入口）还是普通导航。
+ *  两侧都规范化（调用方 path 可能带/不带前导斜杠，tabPaths 恒带）——只规范
+ *  一侧会让带斜杠的调用方永远 false（login returnUrl 回跳 tab 页即此坑）。 */
 export function isTabPath(path: string, tabPaths: readonly string[]): boolean {
-  return tabPaths.includes(normalize(path))
+  const target = normalize(path)
+  return tabPaths.some((tab) => normalize(tab) === target)
 }

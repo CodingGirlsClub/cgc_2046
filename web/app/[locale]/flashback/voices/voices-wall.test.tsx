@@ -248,7 +248,7 @@ describe("VoicesWall · 城市与导航（R13/R35）", () => {
 
 		// 地图坐标钉住（R2 真实地理位置）：城市栏按钮与地图光点同名，
 		// 取城市栏（aria-label 容器内）的按钮
-		const cityBar = document.querySelector("[aria-label='选择城市']")!;
+		const cityBar = document.querySelector("[aria-label='按城市浏览']")!;
 		fireEvent.click(within(cityBar as HTMLElement).getByRole("button", { name: "上海" }));
 		expect(await screen.findByTestId("selected-text")).toHaveTextContent("原来我也可以，是改变的开始。");
 		expect(screen.getByTestId("map")).toHaveAttribute("data-city", "上海");
@@ -267,6 +267,18 @@ describe("VoicesWall · 城市与导航（R13/R35）", () => {
 		expect(await screen.findByTestId("selected-text")).toHaveTextContent(
 			"写下第一行代码时，我听见了一扇门打开。",
 		);
+	});
+
+	// #822 根因回归：后端 randomQuotes 与 publicQuotes 同池（public.ex 仅排序不同），
+	// 公开句 ≤ 60 时随机结果必然 ⊆ 墙。若把墙预置进 randomSeen，此处必报 randomEmpty。
+	it("随便听听：随机句已在墙上列表里，仍定位该句而非报空（R35）", async () => {
+		randomQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [quotesList[1]] } });
+		render(<VoicesWall showIntro={false} />);
+		await screen.findByTestId("selected-text");
+
+		fireEvent.click(screen.getByTestId("random-listen"));
+		expect(await screen.findByTestId("selected-text")).toHaveTextContent("原来我也可以，是改变的开始。");
+		expect(screen.queryByText("暂时没有更多声音了。")).not.toBeInTheDocument();
 	});
 });
 

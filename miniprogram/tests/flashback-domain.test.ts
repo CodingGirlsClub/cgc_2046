@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '../src/domain/models.ts'
 import {
   canSubmitWish,
+  cityCandidates,
   myCardView,
   parseQuoteLevel,
   sentencesWithFog,
@@ -437,5 +438,31 @@ describe('许愿年度额度（R20：每年 3 条，含私有与已软删，删�
     assert.equal(wishQuotaCopy(3), '今年还可许 3 条')
     assert.equal(wishQuotaCopy(1), '今年还可许 1 条')
     assert.equal(wishQuotaCopy(0), '今年许愿名额已用完（每年最多 3 条，删除不退还名额）')
+  })
+
+  // wish2 U10（KTD11）：期望地实时候选——中文含输入 / 拼音前缀 / ≤6 截断，
+  // 等于输入不重复提示；归一判定在服务端（不阻止名单外提交）
+  test('cityCandidates：中文名包含匹配 + 拼音前缀 + 等值排除 + ≤6 截断', () => {
+    const cities = [
+      { name: '成都', pinyin: 'chengdu' },
+      { name: '北京', pinyin: 'beijing' },
+      { name: '上海', pinyin: 'shanghai' },
+      { name: '广州', pinyin: 'guangzhou' },
+      { name: '深圳', pinyin: 'shenzhen' },
+      { name: '杭州', pinyin: 'hangzhou' },
+      { name: '武汉', pinyin: 'wuhan' },
+      { name: '西安', pinyin: 'xian' }
+    ]
+    assert.deepEqual(cityCandidates('', cities), [])
+    assert.deepEqual(cityCandidates('  ', cities), [])
+    // 拼音前缀
+    assert.deepEqual(cityCandidates('chen', cities), ['成都'])
+    assert.deepEqual(cityCandidates('Cheng', cities), ['成都'])
+    // 等值不重复提示（已经是完整短名）
+    assert.deepEqual(cityCandidates('成都', cities), [])
+    // 中文包含
+    assert.deepEqual(cityCandidates('京', cities), ['北京'])
+    // 无命中
+    assert.deepEqual(cityCandidates('亚特兰蒂斯', cities), [])
   })
 })

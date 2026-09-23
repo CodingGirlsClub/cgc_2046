@@ -67,6 +67,7 @@ export type SubscriptionScenario =
   | 'volunteer_application_assigned'
   | 'volunteer_application_rejected'
   | 'volunteer_application_canceled'
+  | 'flashback_wish_echo'
 
 export interface CatalogItem {
   id: string
@@ -754,8 +755,7 @@ export interface MiniProgramApi {
   flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */
   getFlashbackPublicStats(): Promise<FlashbackPublicStats>
-  /** U9：附议 Action 卡（先订阅授权后提交的顺序契约在页面/subscription 层） */
-  /** U9/R8：编辑「今天的你」（会话面不重计意图率）；旅程 token 面传 token（KTD2） */
+  /** wish2 U9/R8：编辑「今天的你」（会话面不重计意图率）；旅程 token 面传 token（KTD2） */
   flashbackSubmitToday(
     input: {
       nowStatus?: string | null
@@ -765,20 +765,45 @@ export interface MiniProgramApi {
     },
     token?: string | null
   ): Promise<void>
-  /** U9/R31：金句授权三档（off/anonymous/credited） */
+  /** wish2 U9/R31：金句授权三档（off/anonymous/credited） */
   /** R35：档位与圈选区间一起提交（questionKey/span 缺省 = 不动既有区间） */
   flashbackSetQuoteLicense(
     level: 'off' | 'anonymous' | 'credited',
     chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
   ): Promise<void>
-  /** U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界）；
+  /** wish2 U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界）；
    *  token 可选=会话腿（跳过注册的回访者），与 today 版同规则 */
   flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
-  /** U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
+  /** wish2 U10:今天的你句级雾面(field ∈ now/want/need/say;整份 spans,服务端校验重叠/越界) */
   flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void>
-  // U4 愿望写操作(双入口 token)
-  flashbackCreateWish(content: string, visibility: 'private' | 'public', token?: string | null): Promise<void>
-  flashbackEndorseWish(wishId: string, token?: string | null): Promise<number>
+  // U4 愿望写操作(双入口 token)；wish2 U8/U10 扩参返回三态（listed/pending_review/private）
+  flashbackCreateWish(
+    content: string,
+    visibility: 'private' | 'public',
+    token?: string | null,
+    options?: {
+      signatureChoice?: 'anonymous' | 'display_name'
+      expectedCity?: string | null
+      publicListingConsent?: boolean
+    }
+  ): Promise<{ id: string; status: string }>
+  /** wish2 U6/KTD3：附议（登录版，旧 token 匿名腿下线）；出力多选 + 留言 ≤500 +
+   *  回响通知意愿（真实授权由微信 accept 上报 grant，本意愿不冒充授权） */
+  flashbackEndorseWish(
+    wishId: string,
+    options?: { contributionTypes?: string[]; message?: string | null; notify?: boolean }
+  ): Promise<number>
+  /** wish2 U6/U9（KTD2）：期待/取消期待（登录强制 u: 键，匿名 a: 设备键） */
+  flashbackExpectWish(wishId: string, expected: boolean, anonVoterKey?: string | null): Promise<number>
+  /** wish2 U6/U9（KTD3）：取消附议（登录） */
+  flashbackCancelEndorseWish(wishId: string): Promise<void>
+  /** wish2 U6/U9（KTD5）：举报（预设理由 + ≤200 补充；匿名带设备键） */
+  flashbackReportWish(
+    wishId: string,
+    reasonType: string,
+    reasonFree?: string | null,
+    anonVoterKey?: string | null
+  ): Promise<void>
   flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void>
   flashbackDeleteWish(wishId: string, token?: string | null): Promise<void>
   /**

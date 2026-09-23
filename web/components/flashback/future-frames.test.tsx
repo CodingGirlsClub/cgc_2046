@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
+import { FLASHBACK_DELETE_WISH } from "@/lib/graphql/flashback";
 import type { FlashbackCapsule, FlashbackFutureFrame, FlashbackWish } from "@/lib/graphql/flashback";
 import Corridor from "./corridor";
-
 /**
  * 未来帧群（U7/版 D）：initiative 场次帧（帧头直链 + 满员/截止不出 CTA）、
  * 公开愿望帧（三色语义 + 已附议态 + 空态）、私人许愿帧仅本人可见且空则隐藏。
@@ -212,7 +212,7 @@ describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => 
 		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeEnabled();
 	});
 
-	it("mutation 抛 flashback_wish_quota_exceeded：内联文案 + 触发 refetch 刷新额度（F2）", async () => {
+	it("capsule 额度被拒：错误文案保留，refetch 刷新 prop 接管（F2 原路径 + plans/005 适用域）", async () => {
 		const createWish = vi.fn().mockRejectedValue({
 			errors: [{ message: "quota exceeded", extensions: { code: "flashback_wish_quota_exceeded" } }],
 		});
@@ -227,6 +227,7 @@ describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => 
 		fireEvent.click(screen.getByRole("button", { name: "许下这个愿" }));
 
 		expect(createWish).toHaveBeenCalledTimes(1);
+		// capsule（prop 可知）：错误文案保留等 refetch——quotaBlocked 不抢 prop 语义
 		expect(await screen.findByRole("alert")).toHaveTextContent(
 			"今年许愿名额已用完（每年最多 3 条，删除不退还名额）。",
 		);
@@ -235,10 +236,13 @@ describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => 
 		expect(onChanged).toHaveBeenCalledTimes(1);
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-		// refetch 完成：新 capsule 额度 0 → 额度行变用完文案 + 提交禁用
+		// refetch 完成：新 capsule 额度 0 → prop 接管，额度行变用完文案 + 提交禁用
 		rerender(<Corridor capsule={capsule({ myWishQuotaRemaining: 0 })} token="tok" onChanged={onChanged} />);
 		expect(await screen.findByText("今年许愿名额已用完（每年最多 3 条，删除不退还名额）")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeDisabled();
+		// prop 恢复 >0（假想数据源修正）→ 解锁：锁定只对「prop 不可知」生效
+		rerender(<Corridor capsule={capsule({ myWishQuotaRemaining: 2 })} token="tok" onChanged={onChanged} />);
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeEnabled();
 	});
 
 	it("无 code 的失败：兜底 database_error 文案，不触发 refetch（只有 quota_exceeded 才刷）", async () => {
@@ -254,5 +258,189 @@ describe("WishFormModal · 年度许愿额度（myWishQuotaRemaining）", () => 
 		expect(await screen.findByRole("alert")).toHaveTextContent("服务暂时不可用，请稍后重试。");
 		expect(onChanged).not.toHaveBeenCalled();
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
+	});
+});
+
+describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）", () => {
+	const openForm = () => {
+		fireEvent.click(screen.getByText("+ 许个愿"));
+	};
+	const fillAndSubmit = () => {
+		fireEvent.change(screen.getByPlaceholderText(/你想参加什么/), { target: { value: "办一场重聚" } });
+		fireEvent.click(screen.getByRole("button", { name: "许下这个愿" }));
+	};
+
+	it("默认公开档：加粗明示文案在 <strong> 内（R6 结构断言 pin），公开 radio 默认选中", () => {
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+
+		const strong = document.querySelector(".fb-wish-visibility strong");
+		expect(strong).not.toBeNull();
+		expect(strong).toHaveTextContent("公开 = 挂上许愿树，任何人可见");
+		const radios = screen.getAllByRole("radio", { name: /公开 = 挂上许愿树/ }) as HTMLInputElement[];
+		expect(radios[0].checked).toBe(true);
+	});
+
+	it("提交公开档：variables 带 publicListingConsent=true + 署名 + 期望地原样（归一在服务端）", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-new", endorsementCount: 0, endorsedByMe: false, status: "listed" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fireEvent.change(screen.getByPlaceholderText(/想在哪座城市/), { target: { value: "成都市" } });
+		fireEvent.click(screen.getByRole("radio", { name: /实名展示/ }));
+		fillAndSubmit();
+
+		expect(createWish).toHaveBeenCalledTimes(1);
+		expect(createWish.mock.calls[0][0].variables).toMatchObject({
+			visibility: "public",
+			publicListingConsent: true,
+			signatureChoice: "display_name",
+			expectedCity: "成都市",
+		});
+	});
+
+	it("listed 反馈：挂树文案 + 去树上看看 + 撤回入口；撤回后 withdrawn 文案", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-new", endorsementCount: 0, endorsedByMe: false, status: "listed" } },
+		});
+		const deleteWish = vi.fn().mockResolvedValue({ data: { flashbackDeleteWish: true } });
+		useMutationMock.mockImplementation(() => {
+			const calls = useMutationMock.mock.calls as unknown as Array<[unknown]>;
+			const last = calls[calls.length - 1];
+			return last?.[0] === FLASHBACK_DELETE_WISH
+				? [deleteWish, { loading: false }]
+				: [createWish, { loading: false }];
+		});
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByText("挂上树了 🎉")).toBeInTheDocument();
+		const viewLink = screen.getByText("去树上看看它").closest("a");
+		expect(viewLink).toHaveAttribute("href", "/flashback/wishes?item=w-new");
+
+		fireEvent.click(screen.getByRole("button", { name: "撤回这条愿望" }));
+		expect(await screen.findByText("已撤回——公开面上不再可见")).toBeInTheDocument();
+		expect(deleteWish).toHaveBeenCalledWith({ variables: { token: "tok", wishId: "w-new" } });
+	});
+
+	it("pending_review 反馈：审核通过后挂上树（不假装纸签已公开出现）", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-pr", endorsementCount: 0, endorsedByMe: false, status: "pending_review" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByText("已提交")).toBeInTheDocument();
+		expect(screen.getByText("审核通过后挂上树。")).toBeInTheDocument();
+		// 未挂树 → 无「去树上看看」
+		expect(screen.queryByText("去树上看看它")).not.toBeInTheDocument();
+	});
+
+	it("说给主办方听档：指定文案反馈 + consent=false", async () => {
+		const createWish = vi.fn().mockResolvedValue({
+			data: { flashbackCreateWish: { id: "w-pv", endorsementCount: 0, endorsedByMe: false, status: "private" } },
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fireEvent.click(screen.getByRole("radio", { name: /说给主办方听/ }));
+		fillAndSubmit();
+
+		expect(createWish.mock.calls[0][0].variables).toMatchObject({
+			visibility: "private",
+			publicListingConsent: false,
+		});
+		expect(await screen.findByText("收到。")).toBeInTheDocument();
+		expect(
+			screen.getByText("这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。"),
+		).toBeInTheDocument();
+	});
+
+	it("附议失败可见化：flashback_auth_required 透出服务端文案（KTD3 token 腿下线）", async () => {
+		// token-only 用户点附议 → 后端 with_actor(on_nil:) 统一拒绝 → 失笔静默=按钮假死；
+		// 现在应当 role=alert 显示 errors.flashback_auth_required 的全串
+		const rejectEndorse = vi.fn().mockRejectedValue({
+			errors: [{ message: "请先登录后再附议。", extensions: { code: "flashback_auth_required" } }],
+		});
+		useMutationMock.mockReturnValue([rejectEndorse, { loading: false }]);
+
+		render(<Corridor capsule={capsule({ publicWishes: [wish()] })} token="tok" />);
+
+		// 卡片定位三段式（同 Corridor 内还有 WishModal 的同名按钮，需先锁卡片）
+		const card = (await screen.findByText("一起出一本书")).closest("article")!;
+		const endorseBtn = within(card).getByRole("button", { name: /附议/ });
+		fireEvent.click(endorseBtn);
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"进入时间长廊需要你的专属链接，或登录已绑定的账号。",
+		);
+		// busy 落定后按钮恢复可用（不卡死）
+		await waitFor(() => expect(endorseBtn).not.toBeDisabled());
+	});
+
+	it("机审拒绝：flashback_content_rejected 映射换种说法文案", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "rejected", extensions: { code: "flashback_content_rejected" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("这句话没能挂上树，换种说法试试。");
+	});
+
+	it("档案未绑定：flashback_person_not_bound 透出文案 + 「去绑定」链接（KTD7/U8 最小收口）", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "no archive bound", extensions: { code: "flashback_person_not_bound" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		const alert = await screen.findByRole("alert");
+		expect(alert).toHaveTextContent("当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。");
+		// 同一 alert 内的链接指向 /flashback/enter（zh 无前缀、en 前缀 /en）
+		const link = within(alert).getByRole("link");
+		expect(link.getAttribute("href")).toMatch(/^\/(en\/)?flashback\/enter($|[?#])/);
+	});
+
+	it("额度被拒后本地锁定终态（树页 myWishQuotaRemaining=null 场景）", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "quota", extensions: { code: "flashback_wish_quota_exceeded" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		// 树页形态：额度 prop 为 null（胶囊 refetch 路径在树页不存在）
+		const { rerender } = render(<Corridor capsule={capsule({ myWishQuotaRemaining: null })} token={null} />);
+		openForm();
+		fillAndSubmit();
+
+		// quota-row 现身（selector 定位——alert 文案与额度行同串，findByText 会双命中）
+		const quotaRow = await waitFor(() => {
+			const row = document.querySelector(".fb-wish-modal-quota");
+			expect(row).not.toBeNull();
+			return row as HTMLElement;
+		});
+		expect(quotaRow.textContent).toContain("今年许愿名额已用完");
+		// 提交禁用：quotaExhausted || quotaBlocked 汇合
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeDisabled();
+		// 错误 alert 让位终态（setError(null) 与 setQuotaBlocked(true) 同刻）
+		expect(screen.queryByRole("alert")).toBeNull();
+		// prop 接管语义：锁定只对「prop 不可知」生效——同 mount 内 prop 恢复可知
+		rerender(<Corridor capsule={capsule({ myWishQuotaRemaining: 2 })} token={null} />);
+		expect(screen.getByRole("button", { name: "许下这个愿" })).toBeEnabled();
 	});
 });

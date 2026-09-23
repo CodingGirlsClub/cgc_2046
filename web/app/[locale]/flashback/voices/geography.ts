@@ -8,7 +8,7 @@ import riverData from "./rivers.json";
  * 合规（KTD6）：china-geo.json 为 DataV GeoAtlas 100000_full（35 feature，
  * 含 `100000_JD` 南海诸岛插图——**必须保留**，删除即地图合规事故）；
  * rivers.json 为 Natural Earth 长江/黄河节选（青绿河道层，与金色连接分层——
- * 金线是「声音与愿望的连接」示意，不是真实河道，R4）。
+ * 金线是「句长成树」的示意——金句流向许愿树，不是真实河道，R4）。
  */
 
 export type CityPoint = [number, number];
@@ -73,5 +73,6 @@ function curve(a: CityPoint, b: CityPoint, bend = 24) {
  * 城市集合动态（数据驱动），连接在渲染时按城市点位生成——见 map-scene。
  */
 export function connectionPath(a: CityPoint, b: CityPoint, index: number) {
-	return { d: curve(a, b, index % 2 ? -70 : 60), start: index * 0.055 };
+	const bend = Math.min(70, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.2);
+	return { d: curve(a, b, index % 2 ? -bend : bend), start: index * 0.055 };
 }

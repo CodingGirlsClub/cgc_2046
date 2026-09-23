@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
 import terrain from "./terrain.png";
 import { ISLANDS, LAND, RIVERS, cityPoint, connectionPath } from "./geography";
@@ -31,6 +31,13 @@ export default function MapScene({
 }) {
 	const t = useTranslations("flashback.voices");
 	const uid = useId().replace(/:/g, "");
+	const plot = useRef<HTMLDivElement>(null);
+	const [width, setWidth] = useState(1000);
+	useEffect(() => {
+		const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+		if (plot.current) observer.observe(plot.current);
+		return () => observer.disconnect();
+	}, []);
 	const complete = progress >= 1;
 	const points = cities.map((c) => ({ ...c, point: cityPoint(c.lng, c.lat) }));
 	// 起点示意：第一座城（数据序）作为光路源头（R4：传播起点与顺序为示意）
@@ -39,10 +46,38 @@ export default function MapScene({
 		...connectionPath(origin, c.point, i),
 		to: c.name,
 	}));
+	// Layout labels in screen pixels; geographic anchors never move.
+	const labels: { x: number; y: number; width: number }[] = [];
+	const placed = new Map<string, { dx: number; dy: number; width: number }>();
+	[...points].sort((a, b) => a.point[1] - b.point[1]).forEach((c) => {
+		const x = c.point[0] * width / 1000;
+		const y = c.point[1] * width / 1000;
+		const labelWidth = Math.max(44, c.name.length * 14 + 16);
+		const candidates = [
+			[14 + labelWidth / 2, 0], [-14 - labelWidth / 2, 0],
+			[14 + labelWidth / 2, -44], [14 + labelWidth / 2, 44],
+			[-14 - labelWidth / 2, -44], [-14 - labelWidth / 2, 44],
+		];
+		let position = { x, y, width: labelWidth };
+		for (let row = 0; row < points.length + 1; row++) {
+			let found = false;
+			for (const [dx, dy] of candidates) {
+				const next = { x: Math.max(labelWidth / 2, Math.min(width - labelWidth / 2, x + dx)), y: y + dy + row * 48, width: labelWidth };
+				if (labels.every(l => Math.abs(l.x - next.x) >= (l.width + labelWidth) / 2 + 4 || Math.abs(l.y - next.y) >= 44)) {
+					position = next;
+					found = true;
+					break;
+				}
+			}
+			if (found) break;
+		}
+		labels.push(position);
+		placed.set(c.name, { dx: position.x - x, dy: position.y - y, width: labelWidth });
+	});
 	const daylight = Math.max(0, (progress - 0.36) / 0.64);
 
 	return (
-		<div className={styles.mapPlot} data-testid="map" data-city={city} data-progress={progress.toFixed(2)}>
+		<div ref={plot} className={styles.mapPlot} data-testid="map" data-city={city} data-progress={progress.toFixed(2)}>
 			<svg viewBox="0 0 1000 720" className={styles.mapSvg} aria-label={t("mapAria")} role="img">
 				<defs>
 					<clipPath id={`${uid}-land`}>
@@ -115,9 +150,9 @@ export default function MapScene({
 							<g key={i}>
 								<path
 									d={c.d}
-									stroke="#e3b65b"
-									strokeWidth="10"
-									opacity={complete ? 0.25 : 0.55}
+									stroke="#efb83f"
+									strokeWidth="13"
+									opacity={complete ? 0.68 : 0.75}
 									filter={`url(#${uid}-glow)`}
 									pathLength="1"
 									strokeDasharray="1"
@@ -125,17 +160,17 @@ export default function MapScene({
 								/>
 								<path
 									d={c.d}
-									stroke={complete ? "#b98b3f" : "#e9c16e"}
-									strokeWidth="2.1"
+									stroke="#d7a23e"
+									strokeWidth="4"
 									pathLength="1"
 									strokeDasharray="1"
 									strokeDashoffset={1 - amount}
 								/>
 								<path
 									d={c.d}
-									stroke="#fff2c9"
-									strokeWidth="0.65"
-									opacity="0.9"
+									stroke="#fff6cf"
+									strokeWidth="1.6"
+									opacity="1"
 									pathLength="1"
 									strokeDasharray="1"
 									strokeDashoffset={1 - amount}
@@ -156,18 +191,20 @@ export default function MapScene({
 			</svg>
 			{points.map((c, i) => {
 				const active = c.name === city;
+				const label = placed.get(c.name)!;
 				const visible = complete || progress > 0.12 + i * 0.07;
 				return (
 					<button
 						key={c.name}
 						type="button"
 						className={`${styles.mapPin} ${active ? styles.selectedPin : ""} ${!complete ? styles.nightPin : ""}`}
-						style={{ left: `${c.point[0] / 10}%`, top: `${c.point[1] / 7.2}%`, opacity: visible ? 1 : 0.25 }}
+						style={{ left: `calc(${c.point[0] / 10}% + ${label.dx}px)`, top: `calc(${c.point[1] / 7.2}% + ${label.dy}px)`, opacity: visible ? 1 : 0.25, width: label.width, "--anchor-x": `${-label.dx}px`, "--anchor-y": `${-label.dy}px`, "--leader-length": `${Math.hypot(label.dx, label.dy)}px`, "--leader-angle": `${Math.atan2(label.dy, label.dx)}rad` } as CSSProperties}
 						onClick={() => onCity(c.name)}
 						aria-label={c.name}
 						aria-pressed={active}
 					>
-						<span className={styles.pinDot} />
+						<span className={styles.pinLeader} aria-hidden="true" />
+						<span className={styles.pinDot} aria-hidden="true" />
 						{active && pulse > 0 && <span key={pulse} className={styles.pinPulse} />}
 						<span className={styles.pinLabel}>{c.name}</span>
 					</button>
