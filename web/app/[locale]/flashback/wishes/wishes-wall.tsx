@@ -87,8 +87,8 @@ export default function WishesWall({
 	const [endorseGuideFor, setEndorseGuideFor] = useState<FlashbackPublicWish | null>(null);
 	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录走 enter 引导）
 	const [writeOpen, setWriteOpen] = useState(false);
-	// 概念图右栏筛选 chips：「全部」/「我也在期待」（expectedByViewer 客户端过滤）
-	const [filter, setFilter] = useState<"all" | "mine">("all");
+	// 概念图右栏筛选 chips：「全部」/「已有回响」（附议数 > 0 = 有人出力过）
+	const [filter, setFilter] = useState<"all" | "echo">("all");
 	// 分享 = 复制链接（树 / 单条愿望 ?item=）+ toast
 	const [shareToast, setShareToast] = useState("");
 	const { authed } = useAuthed();
@@ -193,7 +193,7 @@ export default function WishesWall({
 
 	// 概念图 chips 过滤；选中项从过滤集取，失效回落首条
 	const filtered = useMemo(
-		() => (filter === "mine" ? wishes.filter((w) => w.expectedByViewer) : wishes),
+		() => (filter === "echo" ? wishes.filter((w) => w.endorsementCount > 0) : wishes),
 		[filter, wishes],
 	);
 	const currentInFilter = filtered.find((w) => w.id === currentWishId) ?? filtered[0] ?? null;
@@ -378,8 +378,8 @@ export default function WishesWall({
 						<button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
 							{t("filterAll")}
 						</button>
-						<button type="button" aria-pressed={filter === "mine"} onClick={() => setFilter("mine")}>
-							{t("filterMine")}
+						<button type="button" aria-pressed={filter === "echo"} onClick={() => setFilter("echo")}>
+							{t("filterEcho")}
 						</button>
 					</div>
 
@@ -388,7 +388,7 @@ export default function WishesWall({
 							{t("loading")}
 						</p>
 					) : filtered.length === 0 ? (
-						<p className={styles.panelNote}>{filter === "mine" ? t("mineEmpty") : t("empty")}</p>
+						<p className={styles.panelNote}>{filter === "echo" ? t("echoEmpty") : t("empty")}</p>
 					) : (
 						currentInFilter && (
 							<>
