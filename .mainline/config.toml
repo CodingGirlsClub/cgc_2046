@@ -10,7 +10,7 @@
     baseline_commit = "a062c293ea2c080b99d070d426606f23e96ce2d7"
 
 [agent]
-  autonomy = "handoff"
+  autonomy = "review"
 
 [sync]
   auto_sync = true
