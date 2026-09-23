@@ -17,8 +17,8 @@
 
 ## 3. 每条改动的闭环
 
-1. **准备 worktree**：`git worktree add --no-track -b <branch> <worktree-root>/<slug> origin/develop`（所有 worktree 放同一个根目录，别散落），进去后跑 `bash scripts/worktree/setup-worktree.sh`；需要数据库时再 `cd backend && PASEO_BRANCH_NAME=$(git branch --show-current) mix setup`。
-2. **实施与测试**：按根 `AGENTS.md` 的 Testing principles；后端测试必须带 `PASEO_BRANCH_NAME`（见 §6）。
+1. **准备 worktree**：`git worktree add --no-track -b <branch> <worktree-root>/<slug> origin/develop`（所有 worktree 放同一个根目录，别散落），进去后跑 `bash scripts/worktree/setup-worktree.sh`：它会链接项目 skill、复制 `backend/.env`、装三端依赖，并用 `mix setup` 建好这个 worktree 自己的 dev 库（Postgres 需已启动）。
+2. **实施与测试**：按根 `AGENTS.md` 的 Testing principles；worktree 自动使用自己的数据库，不用设环境变量（见 §6）。并行起服务时用 `PORT`（后端）与 `BACKEND_URL`（web）指向各自端口。
 3. **端到端验收（按端）**：改动涉及哪一端，就在该端做真实验收——组件/集成测试不算，要跑真实运行面：
    - **web（改了 `web/` 的 UI/交互）**：Dev 服务（`pnpm dev`）+ ego-browser 分层验收（见根 `AGENTS.md`「E2E validation」）：L1 结构/样式数值断言（`getComputedStyle` / `getBoundingClientRect`）、L2 交互走通（成功与错误分支都要走）、L3 截图只兜底主观项；登录态复用 ego-browser 既有 profile，确需重置密码的验完**必须恢复原哈希**。
    - **miniprogram（改了 `src/` 或投影契约）**：构建 + 微信开发者工具模拟器实测（wechatide-skill / miniprogram-automator / `pnpm e2e`），console 与 network 取证；涉及订阅触点的要真实授权弹层验证。
@@ -74,8 +74,8 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 - **版本化资产改内容必须 bump 版本**：agent 会缓存的 playbook / 版本串，改了内容不 bump 版本，消费端永远看不到新口径——只在服务端兜底等于没修。
 - **改 resource 的 graphql DSL（含 destroy action）→ SDL 与 codegen 产物一起提交**：backend 编译即写 `backend/priv/graphql/schema.graphql`（AshGraphql 编译钩子）；CI 有 SDL 新鲜度门禁（显式 `mix absinthe.schema.sdl` + `git diff --exit-code`，不受编译缓存影响）。SDL 是 `miniprogram/src/api/generated/*` 的 codegen 输入，两者随 DSL 改动一起提交，否则门禁红（2026-09-17 #684 落地）。
 - **时区双向自证**：日期/时间断言的期望值用被测格式化函数现场算；改动后在 `TZ=UTC` 与 `TZ=Asia/Shanghai` 下各跑一次（CI 是 UTC）。
-- **后端测试带 `PASEO_BRANCH_NAME=<分支名>`**：否则测试库回落共享的 `cgc_2046_test`，与其他 worktree 并发时互相污染（见 `backend/AGENTS.md`）。
-- **验证命令**：后端 `cd backend && PASEO_BRANCH_NAME=$(git branch --show-current) mix precommit`；前端 `cd web && pnpm test`。
+- **测试在自己的 worktree 里跑**：附属 worktree 自动用 `cgc_2046_test_<slug>`；在主 checkout 跑会用共享的 `cgc_2046_test`，与并发的其他测试互相污染（见 `backend/AGENTS.md`）。
+- **验证命令**：后端 `cd backend && mix precommit`；前端 `cd web && pnpm test`。
 - **迁移在克隆库上实跑**（`createdb -T <源库> <克隆库>` 后在新库上跑），不动共享/开发库。
 - **生产只读普查**：一律用专用只读角色 `cgc_ro`（不是应用账号 `cgc_2046`）——表级零写权限才是硬保证（实测：即使 `SET default_transaction_read_only = off` 绕过 GUC，`UPDATE events` 仍 `permission denied`）。连接：容器 `cgc2046-backend-postgres` 内 `psql -U cgc_ro -d cgc_2046_prod`（容器内 trust），或 TCP 5432 + scram；**凭据在用户凭据库，不进仓、不进 issue/聊天**。
 - 普查会话仍要 `BEGIN READ ONLY` + `SET LOCAL statement_timeout = '30s'`：GUC 是软防线、权限是硬防线，两条都要；只允许 SELECT/EXPLAIN，结果脱敏（uuid/邮箱占位）后再贴 issue；生产单机、无只读副本 → 低峰执行。

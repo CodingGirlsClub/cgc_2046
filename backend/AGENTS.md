@@ -3,7 +3,7 @@ This is a web application written using the Phoenix web framework.
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
-- **跑测试必须带 `PASEO_BRANCH_NAME=<本 worktree 的分支名>`**：`config/test.exs` 只认这个环境变量把测试库派生为 `cgc_2046_test_<slug>`，缺省时回落共享库 `cgc_2046_test`——同机多个 worktree 并发跑测会互相看到对方的写入与行锁，表现为随机 `DBConnection` 超时/死锁/`StaleRecord`。做法：`PASEO_BRANCH_NAME=$(git branch --show-current) mix test`（派生库由 `mix test` 别名的 `ecto.create`/`ecto.migrate` 自动建好）
+- **worktree 自动隔离数据库，不用设环境变量**：在附属 git worktree 里运行时，`config/worktree_suffix.exs` 按分支名（detached HEAD 用 worktree 目录名）给库名加后缀，dev 库 `cgc_2046_dev_<slug>`、测试库 `cgc_2046_test_<slug>`；主 checkout 与 CI 不加后缀。共用一个库时，同机多个 worktree 并发跑测会互相看到对方的写入与行锁，表现为随机 `DBConnection` 超时/死锁/`StaleRecord`——所以测试要在自己的 worktree 里跑。测试库由 `mix test` 别名的 `ecto.create`/`ecto.migrate` 自动建好；dev 库由 `scripts/worktree/setup-worktree.sh`（或 `mix setup`）建好
 - **新增守卫/断言必须做变异验证**：把被守卫的实现（或守卫本身）临时改坏，对应断言必须变红——只"绿"不算钉住（假绿常见于断言落在空集合/被跳过的分支上）。做法：改坏 → 确认红 → 还原 → 确认绿，两步输出都留在同一会话里
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 - **License gate:** any new Hex dependency must be AGPL-3.0-compatible (permissive or MPL-2.0/LGPL-3.0+/EPL-2.0); **forbidden**: GPL-2.0, SSPL, BUSL, Elastic, proprietary, unlicensed. CI runs `mix cgc2046.check_licenses`; when unsure, open an issue first (see `docs/开源合规/依赖引入规则.md`)
