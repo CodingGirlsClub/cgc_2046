@@ -31,6 +31,7 @@ const ICONS: Record<string, ReactNode> = {
 	shuffle: <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />,
 	arrow: <path d="M3 12h18m-6-6 6 6-6 6" />,
 	bell: <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M10.3 21a2 2 0 0 0 3.4 0" />,
+	flag: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
 };
 
 function Icon({ name, filled = false }: { name: string; filled?: boolean }) {
@@ -420,19 +421,22 @@ export default function WishesWall({
 											{t("endorseCta")}
 										</button>
 									</div>
-									<p className={styles.remindHint}>
-										<Icon name="bell" />
-										{t("remindHint")}
-									</p>
-									<div className={styles.selectedMeta}>
-										<button type="button" onClick={() => copyShareLink(currentInFilter.id)}>
-											<Icon name="share" />
-											{t("shareWish")}
-										</button>
-										<button type="button" onClick={() => setReportFor(currentInFilter)}>
-											{t("reportEntry")}
-										</button>
-									</div>
+									<footer className={styles.selectedFoot}>
+										<p className={styles.remindHint}>
+											<Icon name="bell" />
+											{t("remindHint")}
+										</p>
+										<div className={styles.selectedMeta}>
+											<button type="button" onClick={() => copyShareLink(currentInFilter.id)}>
+												<Icon name="share" />
+												{t("shareWish")}
+											</button>
+											<button type="button" onClick={() => setReportFor(currentInFilter)}>
+												<Icon name="flag" />
+												{t("reportEntry")}
+											</button>
+										</div>
+									</footer>
 								</article>
 
 								{others.length > 0 && (

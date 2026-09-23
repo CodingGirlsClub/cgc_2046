@@ -266,49 +266,71 @@ a:focus-visible {
 	margin: 0;
 }
 .expectCount {
-	font: 16px/1.5 Georgia, serif;
+	font: 14px/1.5 Georgia, serif;
+	color: #416256;
 	font-variant-numeric: tabular-nums;
-	margin: 4px 0 0;
+	margin: -4px 0 0;
 }
 .selectedActions {
 	display: flex;
 	gap: 14px;
-	margin-top: 4px;
+	margin-top: 2px;
 }
 .selectedActions .primaryBtn,
 .selectedActions .secondaryBtn {
 	min-height: 54px;
 	flex: 1;
 }
+/* 卡片脚注：左辅助提示，右低优先级操作（分享/举报），细线与主行动区分层 */
+.selectedFoot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 6px 12px;
+	margin-top: 4px;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+}
 .remindHint {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
 	font: 12px/1.6 "PingFang SC", sans-serif;
 	color: #647568;
-	margin: 2px 0 0;
+	margin: 0;
 }
 .remindHint svg {
-	width: 15px;
-	height: 15px;
+	width: 14px;
+	height: 14px;
 	flex-shrink: 0;
 }
 .selectedMeta {
 	display: flex;
 	align-items: center;
-	gap: 14px;
-	font: 12px/1.6 "PingFang SC", sans-serif;
-	color: #647568;
+	gap: 4px;
 }
 .selectedMeta button {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
 	background: none;
 	border: 0;
-	padding: 4px 0;
-	font: inherit;
-	color: inherit;
+	border-radius: 999px;
+	padding: 3px 8px;
+	font: 12px/1.4 "PingFang SC", sans-serif;
+	color: #647568;
 	cursor: pointer;
+}
+.selectedMeta button:hover {
+	color: var(--ink);
 	text-decoration: underline;
 	text-underline-offset: 3px;
+}
+.selectedMeta button svg {
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
 }
 
 /* 其余愿望紧凑列表 */
