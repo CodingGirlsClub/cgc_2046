@@ -412,7 +412,7 @@ export default function WishesWall({
 											onClick={() => toggleExpect(currentInFilter)}
 										>
 											<Icon name="heart" filled={currentInFilter.expectedByViewer} />
-											{t("expectCta")}
+											{currentInFilter.expectedByViewer ? t("expectDone") : t("expectCta")}
 										</button>
 										{/* KTD7：Web 不开放附议表单，「附议 · 我能出力」引导去小程序深链；权重高于分享（KTD10 2×期待） */}
 										<button type="button" className={styles.secondaryBtn} onClick={() => setEndorseGuideFor(currentInFilter)}>
@@ -458,7 +458,7 @@ export default function WishesWall({
 														aria-pressed={wish.expectedByViewer}
 														onClick={() => toggleExpect(wish)}
 													>
-														❤️+
+														{wish.expectedByViewer ? "❤️" : "❤️+"}
 													</button>
 												</li>
 											))}
