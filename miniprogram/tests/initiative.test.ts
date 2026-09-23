@@ -103,7 +103,7 @@ describe('Initiative 与留档详情展示', () => {
   it('场次卡渲染参与条件：押金三态 / 年龄门槛 / 成班进度各就各位（#627）', () => {
     const html = renderToStaticMarkup(createElement(InitiativeContent, { data: initiative }))
     // 押金态场次（event-2）：金额 + 到场退 + 年龄门槛存在性
-    for (const text of ['押金 ¥69（到场退） · 限 18+']) expect(html).toContain(text)
+    for (const text of ['押金 ¥ 69（到场退） · 限 18+']) expect(html).toContain(text)
     // 免费态场次（event-1）：单槽只出「免费」，不并列押金
     expect(html).toContain('>免费<')
     expect(html).not.toContain('免费 · 押金')
@@ -239,7 +239,7 @@ describe('参与条件文案（#627）', () => {
 
   it('押金态：金额 + 到场退 + 年龄门槛存在性', () => {
     expect(participationConditionText({ ...base, paymentMode: 'deposit', deposit: { enabled: true, amountCents: 6900, refundableOnCheckIn: true }, minAge: 18 }))
-      .toBe('押金 ¥69（到场退） · 限 18+')
+      .toBe('押金 ¥ 69（到场退） · 限 18+')
   })
 
   it('押金金额缺失/非正：不表态形态，绝不 ¥0（两个脏分支）', () => {
@@ -252,7 +252,7 @@ describe('参与条件文案（#627）', () => {
   })
 
   it('收费态：金额锚出「起」；无金额锚走降级文案', () => {
-    expect(participationConditionText({ ...base, paymentMode: 'pricing', priceRangeMinCents: 9900 })).toBe('收费 ¥99 起')
+    expect(participationConditionText({ ...base, paymentMode: 'pricing', priceRangeMinCents: 9900 })).toBe('收费 ¥ 99 起')
     expect(participationConditionText({ ...base, paymentMode: 'pricing', priceRangeMinCents: null })).toBe('收费（档位以活动页为准）')
   })
 

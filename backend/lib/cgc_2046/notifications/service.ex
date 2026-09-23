@@ -301,12 +301,13 @@ defmodule Cgc2046.Notifications.Service do
   # miniprogram_templates 的 template_id 一一对应）；数据语义不变，仅键名对齐。
 
   # wish2 U3（KTD3）：附议 Echo 回响卡。槽位为最小集（thing 标题 + thing 摘要）——
-  # 模板实抄槽位表见 #811；Echo 批定稿字段前以「愿望预览 + 固定引导语」渲染，
-  # thing 顶 20 字防超限（同招募六段先例）。
+  # 实抄槽位表见 #811（公共库「活动反馈推送提醒」thing1 活动名称 / thing4 备注，
+  # 无 thing2——错槽位被微信 47003 拒）；Echo 批定稿字段前以「愿望预览 + 固定
+  # 引导语」渲染，thing 顶 20 字防超限（同招募六段先例）。
   defp render(:wechat, "flashback_wish_echo", %{} = data) do
     %{
       "thing1" => thing(data["content_preview"]),
-      "thing2" => "主办方收到你的提议，来看看回应"
+      "thing4" => "主办方收到你的提议，来看看回应"
     }
     |> drop_nils()
   end

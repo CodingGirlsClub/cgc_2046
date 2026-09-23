@@ -153,7 +153,7 @@ export default function WorkspacePage() {
                   // #355 P0-1：盲批 → 申请人 + 目标 + 档位/金额（amount 单位元，仅 sponsorship 行携带）
                   const meta = [
                     approval.tierName,
-                    approval.amount != null ? `¥${approval.amount}` : null
+                    approval.amount != null ? `¥ ${approval.amount}` : null
                   ].filter(Boolean).join(' · ')
                   return (
                     <View key={approval.id} className={`${styles.approvalCard} ${urgent ? styles.urgentCard : ''}`}>
