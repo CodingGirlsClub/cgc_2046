@@ -603,12 +603,14 @@ export default function VoicesWall({
 										</p>
 										<span className={styles.location}>{current.city ?? city}</span>
 									</div>
-									<blockquote className={styles.quote} data-testid="selected-text">
-										<span className={styles.quoteMark} aria-hidden="true">
-											“
-										</span>
-										{current.text}
-									</blockquote>
+									<div className={styles.quoteArea}>
+										<blockquote className={styles.quote} data-testid="selected-text">
+											<span className={styles.quoteMark} aria-hidden="true">
+												“
+											</span>
+											{current.text}
+										</blockquote>
+									</div>
 									<p className={styles.attribution}>
 										{current.publicSlug ? (
 											<Link href={`/flashback/${current.publicSlug}`} data-testid="quote-attribution-link">

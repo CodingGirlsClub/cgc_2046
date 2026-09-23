@@ -42,7 +42,7 @@
 @keyframes pinRipple{from{transform:scale(.55);opacity:1}to{transform:scale(2.6);opacity:0}}
 .mapFoot{display:flex;align-items:center;gap:18px;font-size:10px;color:#748271;padding:0 5.5%;min-height:40px}
 .mapFoot>span{display:flex;align-items:center;gap:7px;white-space:nowrap}
-.mapFoot i{width:17px;height:3px;background:#729b8b;border-radius:2px;display:block}.mapFoot>span:nth-child(2) i{background:#bf984a}
+.mapFoot i{width:17px;height:3px;background:#729b8b;border-radius:2px;display:block}.mapFoot>span:nth-child(2) i{background:#d7a23e}
 .mapFoot button{margin-left:auto;font-size:10px;padding:4px 0}.mapFoot svg{width:15px;height:15px}
 .cityBar{display:flex;gap:5px;align-items:center;padding:14px 4.5%;border-top:1px solid #d8dccd;margin-top:12px;flex-wrap:wrap}
 .cityBar>span{font-size:10px;margin-right:8px;color:#798475}.cityBar button{font-size:12px;min-height:40px;padding:6px 13px;border-radius:4px}
@@ -61,7 +61,7 @@
 .pagination{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:17px 0;margin-top:8px;font-size:12px}
 .pagination>span{font-family:Georgia,serif;font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:2px}.pagination i{font-style:normal;color:#93a38f;padding:0 14px}.pagination button{padding:4px 0;font-size:12px;gap:9px}.pagination svg{width:17px;height:17px}
 .disclosure{font-size:11px;line-height:2;color:#879181;margin:22px 0 30px}
-.readerFooter{display:flex;align-items:center;justify-content:flex-start;gap:10px;border-top:1px solid var(--line);padding-top:18px;margin-top:auto}
+.readerFooter{display:flex;align-items:center;justify-content:flex-start;gap:10px;border-top:1px solid var(--line);padding-top:18px}
 .readerFooter a{font-size:11px;line-height:1.7;color:#355749;text-decoration:none}.readerFooter a:hover{text-decoration:underline}
 .randomLink{align-self:flex-start;padding:0;font-size:11px;color:#5c7165;gap:8px}.randomLink svg{width:15px;height:15px}
 .loading{font-size:14px;color:#5c7165;line-height:2}
@@ -139,7 +139,7 @@
 .cityBar>span{font:600 13px/1.5 "Songti SC",serif;color:var(--ink);margin-right:2px}
 .app .cityBar button{min-height:44px;padding:8px 18px;border:1px solid #dfe1d7;border-radius:999px;font:14px/1.4 "Songti SC",serif;background:transparent}
 .app .cityBar button[aria-pressed=true]{background:#173e31;border-color:#173e31;color:#fffaf0}
-.app .replayButton{flex-shrink:0;font:13px/1.5 "Songti SC",serif;padding:0;gap:8px}
+.app .replayButton{flex-shrink:0;font:600 14px/1.5 "Songti SC",serif;padding:0;gap:8px}
 .replayButton svg{width:34px;height:34px;padding:7px;border:1px solid #dfe1d7;border-radius:50%}
 .reader{padding:clamp(54px,8vh,100px) 9% 24px;background:#fcfbf7}
 .readerTop{margin-bottom:20px}.readerTop .eyebrow{font:17px/1.6 "Songti SC",serif;color:var(--ink)}
@@ -156,8 +156,15 @@
 .readerFooter{gap:0;padding-top:20px}
 .readerFooter a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:10px;min-height:44px;font:600 15px/1.5 "Songti SC",serif;color:var(--ink)}
 .readerFooter a+a{border-left:1px solid var(--line)}.readerFooter svg{width:15px;height:15px}
+/* 金句区伸缩（弹性全给金句，下方操作区固定）：短句垂直居中、长句区内滚动；
+   伪元素 margin:auto 即 safe-center（富余居中、溢出贴顶可滚），不用各断点改 quote 间距 */
+.quoteArea{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow-y:auto}
+.quoteArea::before,.quoteArea::after{content:"";display:block;margin:auto 0;pointer-events:none}
 .inIntro .mapToolbar{display:none}
 @container(max-width:1100px){.mapToolbar{padding:10px 14px;gap:8px;flex-wrap:wrap}.cityBar>span{flex-basis:100%}.app .cityBar button{padding:8px 14px}
+/* 竖屏：双链接等宽两列并排（同 ≤760 结构，长文案列内折行），分享/点赞单行不折 */
+.reactions .primary{font-size:15px;padding:12px 16px;white-space:nowrap}
+.app .likeButton{min-width:90px}
 .readerFooter{flex-wrap:nowrap;padding-top:14px}
 .readerFooter a{font-size:13px;line-height:1.4;white-space:normal}
 .readerFooter a+a{border-left:1px solid var(--line)}}
