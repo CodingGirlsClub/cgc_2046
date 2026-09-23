@@ -125,20 +125,23 @@
 	const [quotaBlocked, setQuotaBlocked] = useState(false);
 ```
 
-2. 统一判定（替换现有 `const quotaExhausted = myWishQuotaRemaining === 0;`）：
+2. 统一判定（替换现有 `const quotaExhausted = myWishQuotaRemaining === 0;`）——适用域收窄见下文第 3 点：
 
 ```tsx
-	const quotaExhausted = myWishQuotaRemaining === 0 || quotaBlocked;
+	const quotaExhausted = myWishQuotaRemaining === 0 || (myWishQuotaRemaining === null && quotaBlocked);
 ```
 
-3. `submit` 的 catch 分支，在现有 `if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);` 处追加一行：
+3. `submit` 的 catch 分支，在现有 `if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);` 处改为（**双场景合成**——Advisor 方案①+②：树页 prop=null 才清 alert 走终态；capsule prop 可知时保留错误文案等 refetch，quotaBlocked 只作兜底不抢 prop 语义）：
 
 ```tsx
 			if (detail?.code === "flashback_wish_quota_exceeded") {
+				if (myWishQuotaRemaining === null) setError(null);
 				setQuotaBlocked(true);
 				onDone(null);
 			}
 ```
+
+（统一判定的适用域收窄已在第 2 点完成——两处改动合力实现「prop 接管，锁定只兜底 prop 不可知」。）
 
 4. 额度行渲染放宽为「prop 可知或本地已锁定」时显示（否则树页被拒后看不到用完文案行，只有提交按钮被禁）：
 
