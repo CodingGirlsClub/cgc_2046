@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
-import PublicHome from "./public-home";
+import PublicHome, { isOnlyFogPlaceholder } from "./public-home";
 import ProfileView from "./profile-view";
 import {
 	FLASHBACK_LIKE_QUOTE,
@@ -118,6 +118,17 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
+describe("isOnlyFogPlaceholder", () => {
+	it("只识别雾占位符与空白，不误判普通文本", () => {
+		expect(isOnlyFogPlaceholder(" \n▓▓\t▓▓\r\n")).toBe(true);
+		expect(isOnlyFogPlaceholder("")).toBe(false);
+		expect(isOnlyFogPlaceholder("   ")).toBe(false);
+		expect(isOnlyFogPlaceholder("▓")).toBe(false);
+		expect(isOnlyFogPlaceholder("▓▓还有可见原文")).toBe(false);
+		expect(isOnlyFogPlaceholder("可见原文▓▓")).toBe(false);
+	});
+});
+
 describe("PublicHome · 统计层与金句墙（R32）", () => {
 	it("统计与金句渲染；credited 金句链实名页、匿名金句无链接", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
@@ -131,6 +142,39 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(anonymous).toBeInTheDocument();
 		const creditedLink = screen.getByRole("link", { name: "李** · 2015 · 广州" });
 		expect(creditedLink).toHaveAttribute("href", "/flashback/li-yinuo");
+	});
+
+	it("全雾化金句显示本地化遮蔽说明；部分雾化金句保持原样", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({
+			data: {
+				flashbackRandomQuotes: [
+					{ ...quoteList[0], text: " \n▓▓\t " },
+					{ ...quoteList[1], text: "可见的前半句▓▓可见的后半句" },
+				],
+			},
+		});
+
+		const zh = render(<PublicHome />);
+		const zhFogged = await screen.findByRole("blockquote", {
+			name: "这一段被呵了气——内容被本人雾面保护",
+		});
+		expect(zhFogged).toHaveClass("fb-quote-text--fogged");
+		expect(zhFogged).toHaveTextContent("这一段被呵了气——内容被本人雾面保护");
+		expect(zhFogged).toHaveAttribute("title", "这一段被呵了气——内容被本人雾面保护");
+		expect(zhFogged).not.toHaveTextContent("▓▓");
+		expect(screen.getByText("“可见的前半句▓▓可见的后半句”")).toBeInTheDocument();
+		zh.unmount();
+
+		render(<PublicHome />, { locale: "en" });
+		const enFogged = await screen.findByRole("blockquote", {
+			name: "This passage is fogged — protected by her choice",
+		});
+		expect(enFogged).toHaveClass("fb-quote-text--fogged");
+		expect(enFogged).toHaveTextContent("This passage is fogged — protected by her choice");
+		expect(enFogged).toHaveAttribute("title", "This passage is fogged — protected by her choice");
+		expect(enFogged).not.toHaveTextContent("▓▓");
+		expect(screen.getByText("“可见的前半句▓▓可见的后半句”")).toBeInTheDocument();
 	});
 
 	it("U5/R26：金句段带「看全墙 →」导流（链接直 /flashback/voices）", async () => {
