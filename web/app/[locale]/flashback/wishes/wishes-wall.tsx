@@ -388,7 +388,9 @@ export default function WishesWall({
 							{t("loading")}
 						</p>
 					) : filtered.length === 0 ? (
-						<p className={styles.panelNote}>{filter === "echo" ? t("echoEmpty") : t("empty")}</p>
+						<p className={styles.panelNote}>
+							{filter === "echo" ? t("echoEmpty") : city ? t("cityEmpty", { city }) : t("empty")}
+						</p>
 					) : (
 						currentInFilter && (
 							<>
