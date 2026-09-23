@@ -87,6 +87,24 @@ describe("WishesWall · 公开许愿树（U7）", () => {
 		await waitFor(() => {
 			expect(within(card).getByText("3 人也在期待")).toBeTruthy();
 		});
+		expect(within(card).getByRole("button", { name: "已加入期待" })).toBeTruthy();
+	});
+
+	it("再点取消：计数回落、文案回「我也期待」", async () => {
+		expectRunner
+			.mockResolvedValueOnce({ data: { flashbackExpectWish: { expectationCount: 3, expectedByMe: true } } })
+			.mockResolvedValueOnce({ data: { flashbackExpectWish: { expectationCount: 2, expectedByMe: false } } });
+		render(<WishesWall showIntro={false} />);
+		const card = (await screen.findByText("愿望 w1")).closest("article")!;
+		fireEvent.click(within(card).getByRole("button", { name: "我也期待" }));
+		await waitFor(() => {
+			expect(within(card).getByRole("button", { name: "已加入期待" })).toBeTruthy();
+		});
+		fireEvent.click(within(card).getByRole("button", { name: "已加入期待" }));
+		await waitFor(() => {
+			expect(within(card).getByText("2 人也在期待")).toBeTruthy();
+		});
+		expect(within(card).getByRole("button", { name: "我也期待" })).toBeTruthy();
 	});
 
 	it("期待失败按 wishId 函数式回滚——另一条愿望的乐观态不受影响", async () => {

@@ -2996,6 +2996,7 @@
       "cityEmpty": "No public wishes in {city} yet — try all cities.",
       "expectCount": "people are waiting too",
       "expectCta": "I'm waiting too",
+      "expectDone": "You're waiting too",
       "endorseCta": "Endorse — I can help",
       "shareWish": "Share wish",
       "shareTree": "Share the tree",

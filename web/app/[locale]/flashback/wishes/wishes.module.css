@@ -157,6 +157,11 @@
 .secondaryBtn:hover {
 	opacity: 0.85;
 }
+/* 已期待(aria-pressed)反转主钮:实心↔描边,与 chips 同语言——toggle 状态肉眼可见 */
+.primaryBtn[aria-pressed="true"] {
+	background: transparent;
+	color: #173e31;
+}
 button:active {
 	scale: 0.98;
 }
