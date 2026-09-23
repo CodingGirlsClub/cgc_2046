@@ -507,8 +507,26 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, args, %{context: context} ->
         # HS-3 双键读面：登录 actor 强制 u: 键 + 入参 a: 设备键合并（期待态
         # 刷新不漂移——mutation 登录态按 u: 记账）；未登录维持入参单键。
+        # 城市过滤与表单同源归一（KTD11）：「成都市」→「成都」；未识别值原样
+        # 直传——读面宽容，查询结果为空而非报错。
+        city =
+          case args[:city] do
+            nil ->
+              nil
+
+            raw when is_binary(raw) ->
+              case Cgc2046.Flashback.Cities.normalize(raw) do
+                {:ok, short} -> short
+                {:error, _} -> raw
+              end
+
+            # 防御分支：:string 入参实际只会是 binary|nil；兜底防运行时 CaseClauseError
+            other ->
+              other
+          end
+
         Cgc2046.Flashback.WishPublic.wishes(
-          city: args[:city],
+          city: city,
           seed: args[:seed],
           offset: args[:offset],
           limit: args[:limit],

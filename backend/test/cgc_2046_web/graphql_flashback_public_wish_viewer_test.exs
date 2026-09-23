@@ -207,6 +207,38 @@ defmodule Cgc2046Web.GraphqlFlashbackPublicWishViewerTest do
     assert [%{"code" => "flashback_auth_required"}] = cancel["errors"]
   end
 
+  test "城市过滤归一（plans/006）：全称「成都市」命中「成都」愿望；未知城市宽容空" do
+    arch = archive()
+    # listed_wish 不传 expected_city → wish.city 取 person 名册城市归一值
+    cd_author = person(arch, %{city: "成都", full_name: "李小红", surname: "李"})
+    cd_wish = listed_wish(cd_author, "成都归一愿望")
+    bj_author = person(arch, %{full_name: "张小明", surname: "张"})
+    _bj_wish = listed_wish(bj_author, "北京对照愿望")
+
+    # wishes_query/0 不带 city 参数——本用例内联带 $city 变量的查询
+    query = """
+    query CityFilter($city: String) {
+      flashbackPublicWishes(city: $city) {
+        id
+      }
+    }
+    """
+
+    # 全称「成都市」→ resolver 归一为「成都」命中（schema 与表单同源 KTD11）
+    %{"data" => %{"flashbackPublicWishes" => wishes}} =
+      post_graphql(build_conn(), query, %{"city" => "成都市"})
+
+    ids = Enum.map(wishes, & &1["id"])
+    assert cd_wish.id in ids
+    assert length(wishes) == 1
+
+    # 未识别城市原样直传 → 宽容空（读面不报错）
+    %{"data" => %{"flashbackPublicWishes" => none}} =
+      post_graphql(build_conn(), query, %{"city" => "不存在的城市"})
+
+    assert none == []
+  end
+
   defp recycle_cookie(conn, resp_conn) do
     case resp_conn.resp_cookies["cgc_token"] do
       %{value: value} ->

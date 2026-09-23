@@ -21,7 +21,7 @@ your row when done. Local commits only — **push / PR belong to the orchestrato
 | 003 | corridor 附议失败可见化 | P1 | S-M | —（004/005 同文件，本计划先行） | DONE (2026-09-23) |
 | 004 | 写愿望「档案未绑定」指引链接 | P2 | S | 003 之后（同文件防冲突） | DONE (2026-09-23) |
 | 005 | 额度被拒后本地锁定提交 | P2 | S | 004 之后（同文件防冲突） | DONE (2026-09-23) |
-| 006 | 小清理包（前端 4 处 + 后端 city 归一） | P3 | S | 002 之后（同文件防冲突） | TODO |
+| 006 | 小清理包（前端 4 处 + 后端 city 归一） | P3 | S | 002 之后（同文件防冲突） | DONE (2026-09-23) |
 
 Suggested serialization if one executor does all: **001 → 002 → 003 → 004 → 005 → 006**.
 001/002/003 touch disjoint files and may run in parallel; everything that
