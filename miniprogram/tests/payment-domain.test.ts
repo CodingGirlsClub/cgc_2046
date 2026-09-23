@@ -188,7 +188,7 @@ test('缴费块三态：免费/收费/押金各一态，押金态含「未到场
     depositAmountCents: 6900,
     priceTiers: tiers
   })
-  assert.equal(deposit.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(deposit.amountText, '押金 ¥ 69.00（到场退）')
   assert.equal(deposit.amountText.includes('免费'), false)
   assert.deepEqual(deposit.tiers, [])
   assert.equal(deposit.notes.some((note) => note.includes('未到场不退')), true)
@@ -317,7 +317,7 @@ test('押金退改规则常驻行：仅押金场出行（与 web depositRefundRu
 
 test('押金支付前文案：金额行与详情页缴费块单源，必含不退明示与勾选文案', () => {
   const notice = depositPayNotice(6900)
-  assert.equal(notice.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(notice.amountText, '押金 ¥ 69.00（到场退）')
   assert.equal(notice.forfeitText, '未到场不退。')
   assert.equal(
     notice.ackLabel,
@@ -371,7 +371,7 @@ test('创单前门判据：押金场 required + 报名快照金额；非押金/�
     paymentMode: 'deposit',
     depositAmountCents: 6900
   })
-  assert.equal(depositGate?.amountText, '押金 ¥69.00（到场退）')
+  assert.equal(depositGate?.amountText, '押金 ¥ 69.00（到场退）')
   assert.equal(depositGate?.forfeitText, '未到场不退。')
 
   // 押金场 + 脏快照（缺失/0/负/非整数分）：门照常，金额待定，绝不 ¥0
