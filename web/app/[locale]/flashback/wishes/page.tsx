@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
 import WishesPage from "./wishes-page";
+import "../flashback.css";
+import styles from "./wishes.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +34,5 @@ export default async function Page({ searchParams }: PageProps) {
 	const params = await searchParams;
 	const item = typeof params.item === "string" ? params.item : undefined;
 	const city = typeof params.city === "string" ? params.city : undefined;
-	return <WishesPage item={item} initialCity={city} />;
+	return <div className={styles.surface}><WishesPage item={item} initialCity={city} /></div>;
 }
