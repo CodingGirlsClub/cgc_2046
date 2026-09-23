@@ -10,6 +10,14 @@
 - **Study how established products solve the problem** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
 - **License compliance is a hard gate for new dependencies.** Any Hex/npm/native dependency you introduce must be AGPL-3.0-compatible: permissive licenses (MIT/Apache-2.0/BSD/ISC/0BSD/CC0) or AGPL-compatible weak copyleft (MPL-2.0/LGPL-3.0+/EPL-2.0). **Forbidden:** GPL-2.0-only, SSPL, BUSL, Elastic, proprietary, unlicensed. Multi-license declarations are OK only if at least one allowed option exists. When unsure, open an issue instead of adding the dependency. Rules: `docs/开源合规/依赖引入规则.md`; CI enforces via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
 
+## 编排主权（LoopX / Mainline / sop-omp）
+
+- **LoopX** 管何时派工/quota/续跑；**Mainline** 定 git 写边界上限（`.mainline/config.toml` 的 `[agent] autonomy`，当前 `review`：允许 push 非 main 分支 + 开 PR）；**sop-omp** 定质量前置（reviewer PASS + e2e PASS 才许 push）与任务状态 truth（`pipeline-status.md` / Sign-off）。
+- 两类约束**取更严者**；`Mainline > sop-omp > LoopX` 仅裁指令冲突，不裁质量门。
+- LoopX 拉起的会话：commit→seal→publish 按配置自治放行，不停机；push 仅在双 PASS 后；preflight block、语义冲突、未答 question、merge/deploy/公开动作仍是硬门，停机上报。
+- 任务状态唯一 truth 是 sop-omp 状态文件；LoopX goal state 只留指针与 heartbeat，不重建任务条目。
+- 各 worktree 的 `.mainline/config.toml` 必须与根仓一致：改动提交入库经 git 传播，不手改单副本；编排类 chore commit 带 `Mainline-Skip:` trailer 或命中 skip pattern，避免 uncovered 噪音。
+
 ## 安全红线（Security red lines）
 
 - **敏感文件不读内容**：`.env`、密钥文件、证书、token 文件——用存在性检查（`grep -q "KEY_NAME" .env && echo "present"`），不输出值到对话/日志/截图。
