@@ -212,8 +212,10 @@ export function WishFormModal({
 	const [cities, setCities] = useState<string[]>([]);
 	const [createWish, { loading }] = useMutation(FLASHBACK_CREATE_WISH);
 	const [deleteWish] = useMutation(FLASHBACK_DELETE_WISH);
-
-	const quotaExhausted = myWishQuotaRemaining === 0;
+	// 服务端额度拒绝后的本地锁定——只对「prop 不可知」（树页 myWishQuotaRemaining=null）
+	// 生效；prop 任何可知值（含 refetch 刷新）一律以 prop 为准，杜绝影子状态滞留
+	const [quotaBlocked, setQuotaBlocked] = useState(false);
+	const quotaExhausted = myWishQuotaRemaining === 0 || (myWishQuotaRemaining === null && quotaBlocked);
 
 	// 期望地候选名单（KTD11 真源 flashbackCities；modal 打开拉一次）
 	useEffect(() => {
@@ -266,9 +268,14 @@ export function WishFormModal({
 			setError(errorT(detail?.code, tErrors("database_error")));
 			// 档案未绑定（KTD7/U8）：错误文案旁补「去绑定」链接，给登录未认领用户行动出口
 			setBindGuide(detail?.code === "flashback_person_not_bound");
-			// 额度被拒即触发胶囊 refetch（F2）：refetch 完成后 prop 变 0 → 额度行变
-			// 用完文案 + 提交禁用；模态保持打开
-			if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);
+			// 额度被拒（plans/005 双场景）：树页（prop 不可知 null）→ 终态接管——
+			// alert 让位 quotaBlocked 锁定；capsule（prop 可知）→ 保留错误文案等
+			// refetch 刷新 prop（F2 原路径），quotaBlocked 只作兜底不抢 prop 语义
+			if (detail?.code === "flashback_wish_quota_exceeded") {
+				if (myWishQuotaRemaining === null) setError(null);
+				setQuotaBlocked(true);
+				onDone(null);
+			}
 		}
 	};
 
@@ -340,9 +347,13 @@ export function WishFormModal({
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
 			<div className="fb-wish-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t("makeWish")}>
 				<h4 className="fb-wish-modal-title">{t("makeWish")}</h4>
-				{myWishQuotaRemaining !== null && (
+				{(myWishQuotaRemaining !== null || quotaBlocked) && (
 					<p className="fb-wish-modal-quota">
-						{quotaExhausted ? t("quotaExhausted") : t("quotaRemaining", { count: myWishQuotaRemaining })}
+						{quotaExhausted
+							? t("quotaExhausted")
+							: // else 支逻辑上 prop 恒非 null（prop=null 且未 blocked 时整块不渲染），
+								// TS 推不出这层关系，?? 0 仅安抚类型
+								t("quotaRemaining", { count: myWishQuotaRemaining ?? 0 })}
 					</p>
 				)}
 				<textarea
