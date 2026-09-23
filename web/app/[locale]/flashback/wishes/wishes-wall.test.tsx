@@ -71,31 +71,31 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("WishesWall · 公开许愿树（U7）", () => {
-	it("渲染愿望卡：署名快照 + 双指标", async () => {
+	it("渲染选中愿望大卡：署名快照 + 期待计数 + 附议数", async () => {
 		render(<WishesWall showIntro={false} />);
-		const card = (await screen.findByText("愿望 w1")).closest("li")!;
+		const card = (await screen.findByText("愿望 w1")).closest("article")!;
 		expect(within(card).getByText("王** · 北京")).toBeTruthy();
-		expect(within(card).getByText("❤️ 2")).toBeTruthy();
+		expect(within(card).getByText("2 人也在期待")).toBeTruthy();
 		expect(within(card).getByText("🙌 1")).toBeTruthy();
 	});
 
 	it("期待乐观 +1，服务端计数校正", async () => {
 		expectRunner.mockResolvedValue({ data: { flashbackExpectWish: { expectationCount: 3, expectedByMe: true } } });
 		render(<WishesWall showIntro={false} />);
-		const card = (await screen.findByText("愿望 w1")).closest("li")!;
-		fireEvent.click(card.querySelector("button")!);
+		const card = (await screen.findByText("愿望 w1")).closest("article")!;
+		fireEvent.click(within(card).getByRole("button", { name: "我也期待" }));
 		await waitFor(() => {
-			expect(within(card).getByText("❤️ 3")).toBeTruthy();
+			expect(within(card).getByText("3 人也在期待")).toBeTruthy();
 		});
 	});
 
 	it("期待失败按 wishId 函数式回滚——另一条愿望的乐观态不受影响", async () => {
 		expectRunner.mockRejectedValue(new Error("network down"));
 		render(<WishesWall showIntro={false} />);
-		const card = (await screen.findByText("愿望 w1")).closest("li")!;
-		fireEvent.click(card.querySelector("button")!);
+		const card = (await screen.findByText("愿望 w1")).closest("article")!;
+		fireEvent.click(within(card).getByRole("button", { name: "我也期待" }));
 		await waitFor(() => {
-			expect(within(card).getByText("❤️ 2")).toBeTruthy();
+			expect(within(card).getByText("2 人也在期待")).toBeTruthy();
 		});
 	});
 
