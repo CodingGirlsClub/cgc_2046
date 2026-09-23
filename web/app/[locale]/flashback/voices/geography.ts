@@ -8,7 +8,7 @@ import riverData from "./rivers.json";
  * 合规（KTD6）：china-geo.json 为 DataV GeoAtlas 100000_full（35 feature，
  * 含 `100000_JD` 南海诸岛插图——**必须保留**，删除即地图合规事故）；
  * rivers.json 为 Natural Earth 长江/黄河节选（青绿河道层，与金色连接分层——
- * 金线是「声音与愿望的连接」示意，不是真实河道，R4）。
+ * 金线是「句长成树」的示意——金句流向许愿树，不是真实河道，R4）。
  */
 
 export type CityPoint = [number, number];
