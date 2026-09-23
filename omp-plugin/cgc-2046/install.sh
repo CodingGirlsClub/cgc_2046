@@ -214,6 +214,7 @@ remove_pack() {
   local files=(
     "$OMP_AGENT_DIR/agents/cgc.md"
     "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
+    "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
     "$OMP_AGENT_DIR/extensions/cgc-command.ts"
   )
   for f in "${files[@]}"; do
@@ -227,13 +228,15 @@ remove_pack() {
     fi
   done
   # 删 skill 空目录
-  if [[ -d "$OMP_AGENT_DIR/skills/cgc2046-onboarding" ]]; then
-    if $DRY_RUN; then
-      log "[dry-run] 删除空目录 $OMP_AGENT_DIR/skills/cgc2046-onboarding"
-    else
-      rmdir "$OMP_AGENT_DIR/skills/cgc2046-onboarding" 2>/dev/null || true
+  for skill_dir in cgc2046-onboarding cgc-quality-eval; do
+    if [[ -d "$OMP_AGENT_DIR/skills/$skill_dir" ]]; then
+      if $DRY_RUN; then
+        log "[dry-run] 删除空目录 $OMP_AGENT_DIR/skills/$skill_dir"
+      else
+        rmdir "$OMP_AGENT_DIR/skills/$skill_dir" 2>/dev/null || true
+      fi
     fi
-  fi
+  done
   # mcp.json 与 config.yml 的条目删除：保留备份，只删本包条目
   if $DRY_RUN; then
     log "[dry-run] 从 $MCP_JSON 删除 cgc-2046 条目，从 $CONFIG_YML 删除守门配置"
@@ -290,6 +293,7 @@ case "$ACTION" in
     log "安装接入包到 $OMP_AGENT_DIR（MCP URL: $MCP_URL）"
     install_file "$PACK_DIR/agents/cgc.md" "$OMP_AGENT_DIR/agents/cgc.md"
     install_file "$PACK_DIR/skills/cgc2046-onboarding/SKILL.md" "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
+    install_file "$PACK_DIR/skills/cgc-quality-eval/SKILL.md" "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
     install_file "$PACK_DIR/extensions/cgc-command.ts" "$OMP_AGENT_DIR/extensions/cgc-command.ts"
     merge_mcp_json
     merge_config_yml

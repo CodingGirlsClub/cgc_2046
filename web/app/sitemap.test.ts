@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "./sitemap";
 
 /** 静态公开路由数（sitemap.ts STATIC_PATHS）——新增公开页时同步 */
-const STATIC_COUNT = 9;
+const STATIC_COUNT = 10;
 
 /**
  * sitemap 现在分两条独立查询（供给物一条、Initiative 一条，见 sitemap.ts 注释：

@@ -8,7 +8,9 @@
  *    （DSH 自 plan 2026-09-08 DSH parity U10 / R17 起正式开放，手动流：
  *    装插件家族 → ③ 签发 token → 面板粘贴，无自动连接等价物）；
  * ② 安装与配置：内容按宿主映射共享内容卡（@/components/agent-connect-sections，
- *    与原子页同一内容源，per R4）；
+ *    与原子页同一内容源，per R4）；OMP / opencode / DSH 三宿主在宿主卡前
+ *    追加环境准备卡组（@/components/runtime-setup-sections：终端 + Herdr，
+ *    PREP_HOSTS 一处可改——OpenClacky 桌面应用自带环境，不渲染）；
  * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
  *    「我已保存」确认即完成判定（两段式第一段，per Key Decision），进完成态
  *    （种子话术卡 + 出口：去概览 / 看活动）。完成态仅当次会话（组件 state）。
@@ -43,9 +45,13 @@ import {
 	ConfigNotesStepCard,
 	DshInstallCard,
 } from "@/components/agent-connect-sections";
+import { RuntimeSetupCards } from "@/components/runtime-setup-sections";
 import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
 
 type WizardHost = "openclacky" | "omp" | "opencode" | "dsh";
+
+/** 需要环境准备（终端 + Herdr）的宿主；OpenClacky 桌面应用自带环境，不在此列 */
+const PREP_HOSTS: readonly WizardHost[] = ["omp", "opencode", "dsh"];
 
 export default function OnboardingWizard({
 	slug,
@@ -221,6 +227,7 @@ export default function OnboardingWizard({
 				>
 					<h2>{t("stepInstall")}</h2>
 					<div style={{ display: "grid", gap: 16, marginTop: 8 }}>
+						{PREP_HOSTS.includes(host) && <RuntimeSetupCards />}
 						{host === "openclacky" && (
 							<>
 								<OpenclackyInstallCard />

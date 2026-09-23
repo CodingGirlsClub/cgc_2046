@@ -58,6 +58,7 @@ omp
 | --- | --- | --- |
 | `agents/cgc.md` | `~/.omp/agent/agents/cgc.md` | 主 agent（入口协议 + 纪律，角色方法论来自网站 playbook 动态拉取） |
 | `skills/cgc2046-onboarding/SKILL.md` | `~/.omp/agent/skills/cgc2046-onboarding/SKILL.md` | 连接引导（自动/手工） |
+| `skills/cgc-quality-eval/SKILL.md` | `~/.omp/agent/skills/cgc-quality-eval/SKILL.md` | 质检报告判据化评审（三层：grep 终判 / judge triage / 教材配对终判） |
 | `extensions/cgc-command.ts` | `~/.omp/agent/extensions/cgc-command.ts` | `/cgc` 斜杠命令（状态/待办/角色/快捷操作） |
 | — | `~/.omp/agent/mcp.json` | merge 写入 `cgc-2046` MCP server 条目（0600） |
 | — | `~/.omp/agent/config.yml` | merge 写入守门配置（`confirm_operation` 弹原生审批框） |
