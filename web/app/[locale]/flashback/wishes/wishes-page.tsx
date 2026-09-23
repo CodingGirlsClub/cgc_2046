@@ -103,8 +103,8 @@ export default function WishesPage({
 		);
 	}
 
-	if (introSeen === null) return null;
-
+	// introSeen === null（SSR/水合前）不拦渲染：墙无开场动画，showIntro 仅写
+	// 「已看」标记（KTD8），提前渲染只赚 SSR 与首屏（voices 有开场才需要拦）。
 	return (
 		<WishesWall
 			initialItem={direct ?? undefined}

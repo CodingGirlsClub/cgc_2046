@@ -16,7 +16,7 @@ your row when done. Local commits only — **push / PR belong to the orchestrato
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | 许愿树公开页参与 SSR | P1 | S | — | TODO |
+| 001 | 许愿树公开页参与 SSR | P1 | S | — | DONE (2026-09-23) |
 | 002 | 公开树加载乱序守卫 | P1 | S | —（与 001/003 不同文件可并行） | TODO |
 | 003 | corridor 附议失败可见化 | P1 | S-M | —（004/005 同文件，本计划先行） | TODO |
 | 004 | 写愿望「档案未绑定」指引链接 | P2 | S | 003 之后（同文件防冲突） | TODO |
