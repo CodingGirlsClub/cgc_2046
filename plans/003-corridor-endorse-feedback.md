@@ -8,7 +8,7 @@
 > maintain the index.
 >
 > **Drift check (run first)**:
-> `git diff --stat 6cd74306..HEAD -- web/components/flashback/wish-frames.tsx web/components/flashback/corridor.test.tsx`
+> `git diff --stat 6cd74306..HEAD -- web/components/flashback/wish-frames.tsx web/components/flashback/future-frames.test.tsx`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
