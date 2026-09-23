@@ -442,6 +442,38 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
     end
   end
 
+  describe "flashbackRandomQuotes（KTD3 雾化隐私）" do
+    test "全雾化授权金句的 GraphQL 响应只含占位符，不含原文" do
+      archive = create_archive()
+      person = create_person(archive)
+      raw_quote = "这句雾化金句的原文不应出现在公开响应"
+      length = String.length(raw_quote)
+      create_answer(person, "self_intro", raw_quote, [%{"start" => 0, "len" => length}])
+
+      license =
+        Flashback.QuoteLicense
+        |> Ash.Changeset.for_create(:create, %{
+          person_id: person.id,
+          level: :anonymous,
+          chosen_quote_spans: [
+            %{question_key: "self_intro", start: 0, len: length}
+          ]
+        })
+        |> Ash.create!(authorize?: false)
+
+      {:ok, _quotes} = Flashback.Quotes.sync_for_license(license)
+
+      response =
+        post_graphql("""
+        query { flashbackRandomQuotes(limit: 20) { text } }
+        """)
+
+      refute Map.has_key?(response, "errors")
+      assert [%{"text" => "▓▓"}] = response["data"]["flashbackRandomQuotes"]
+      refute inspect(response) =~ raw_quote
+    end
+  end
+
   describe "flashbackRegisterBind（注册绑定）" do
     test "错码拒绝；对码绑定档案 + token 作废 + 会话 cookie 下发" do
       archive = create_archive()

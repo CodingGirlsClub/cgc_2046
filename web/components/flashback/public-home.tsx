@@ -16,6 +16,10 @@ import {
 import RecoverForm from "./recover-form";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
+export function isOnlyFogPlaceholder(text: string): boolean {
+	return /^\s*(?:▓▓\s*)+$/u.test(text);
+}
+
 /**
  * 闪念间公开首页（U6/R10/R32）：这件事是什么、我们是谁、统计层、匿名金句墙、
  * 自助找回入口。游客可读；无个人内容（路人看到故事与授权的名字，不是名单）。
@@ -31,6 +35,7 @@ import { useStageTitleFocus } from "./use-reduced-motion";
  */
 export default function PublicHome() {
 	const t = useTranslations("flashback.home");
+	const fogT = useTranslations("flashback.roster");
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
 	const [stats, setStats] = useState<FlashbackPublicStats | null>(null);
@@ -158,34 +163,45 @@ export default function PublicHome() {
 				{/* U5/R26：随机几句（非精选、非全量）+ 看全墙导流 */}
 				{quotes.length > 0 ? (
 					<ul className="fb-quote-wall">
-						{quotes.map((quote) => (
-							<li key={quote.quoteId} className="fb-quote-item">
-								<blockquote className="fb-quote-text">“{quote.text}”</blockquote>
-								<cite className="fb-quote-cite">
-									{quote.publicSlug ? (
-										<Link href={`/flashback/${quote.publicSlug}`}>{quote.attribution}</Link>
-									) : (
-										quote.attribution
-									)}
-								</cite>
-								{/* 点赞（R36）：♡/♥ + 实时计数；未拿到去重键（禁用存储）不渲染 */}
-								{voter && (
-									<button
-										type="button"
-										className={`fb-quote-like${quote.likedByViewer ? " fb-quote-like--on" : ""}`}
-										data-testid="fb-quote-like"
-										data-liked={quote.likedByViewer ? "true" : "false"}
-										aria-pressed={quote.likedByViewer}
-										aria-label={t("likeAria", { count: quote.likeCount })}
-										disabled={pending.has(quote.quoteId)}
-										onClick={() => toggleLike(quote)}
+						{quotes.map((quote) => {
+							const fogged = isOnlyFogPlaceholder(quote.text);
+							const fogLabel = fogged ? fogT("fogAria") : undefined;
+
+							return (
+								<li key={quote.quoteId} className="fb-quote-item">
+									<blockquote
+										className={`fb-quote-text${fogged ? " fb-quote-text--fogged" : ""}`}
+										aria-label={fogLabel}
+										title={fogLabel}
 									>
-										<span aria-hidden="true">{quote.likedByViewer ? "♥" : "♡"}</span>
-										<span className="fb-quote-like-count">{quote.likeCount}</span>
-									</button>
-								)}
-							</li>
-						))}
+										{fogLabel ?? `“${quote.text}”`}
+									</blockquote>
+									<cite className="fb-quote-cite">
+										{quote.publicSlug ? (
+											<Link href={`/flashback/${quote.publicSlug}`}>{quote.attribution}</Link>
+										) : (
+											quote.attribution
+										)}
+									</cite>
+									{/* 点赞（R36）：♡/♥ + 实时计数；未拿到去重键（禁用存储）不渲染 */}
+									{voter && (
+										<button
+											type="button"
+											className={`fb-quote-like${quote.likedByViewer ? " fb-quote-like--on" : ""}`}
+											data-testid="fb-quote-like"
+											data-liked={quote.likedByViewer ? "true" : "false"}
+											aria-pressed={quote.likedByViewer}
+											aria-label={t("likeAria", { count: quote.likeCount })}
+											disabled={pending.has(quote.quoteId)}
+											onClick={() => toggleLike(quote)}
+										>
+											<span aria-hidden="true">{quote.likedByViewer ? "♥" : "♡"}</span>
+											<span className="fb-quote-like-count">{quote.likeCount}</span>
+										</button>
+									)}
+								</li>
+							);
+						})}
 					</ul>
 				) : (
 					<p className="fb-public-empty" data-testid="fb-quotes-empty">
