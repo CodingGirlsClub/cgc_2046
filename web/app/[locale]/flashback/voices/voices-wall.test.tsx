@@ -248,7 +248,7 @@ describe("VoicesWall · 城市与导航（R13/R35）", () => {
 
 		// 地图坐标钉住（R2 真实地理位置）：城市栏按钮与地图光点同名，
 		// 取城市栏（aria-label 容器内）的按钮
-		const cityBar = document.querySelector("[aria-label='选择城市']")!;
+		const cityBar = document.querySelector("[aria-label='按城市浏览']")!;
 		fireEvent.click(within(cityBar as HTMLElement).getByRole("button", { name: "上海" }));
 		expect(await screen.findByTestId("selected-text")).toHaveTextContent("原来我也可以，是改变的开始。");
 		expect(screen.getByTestId("map")).toHaveAttribute("data-city", "上海");

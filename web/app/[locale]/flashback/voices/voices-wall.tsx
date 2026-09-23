@@ -564,12 +564,10 @@ export default function VoicesWall({
 									<i />
 									{t("legendConnection")}
 								</span>
-								<button type="button" onClick={replay}>
-									<Icon name="replay" />
-									{t("replay")}
-								</button>
+
 							</div>
 							{cityNames.length > 0 && (
+								<div className={styles.mapToolbar}>
 								<div className={styles.cityBar} aria-label={t("cityBarLabel")}>
 									<span>{t("cityBarLabel")}</span>
 									{cityNames.map((name) => (
@@ -582,6 +580,10 @@ export default function VoicesWall({
 											{name}
 										</button>
 									))}
+								</div>
+								<button type="button" className={styles.replayButton} onClick={replay}>
+									<Icon name="replay" /><span>{t("replay")}</span>
+								</button>
 								</div>
 							)}
 						</section>
@@ -661,7 +663,8 @@ export default function VoicesWall({
 									</button>
 									<p className={styles.disclosure}>{t("disclosure")}</p>
 									<footer className={styles.readerFooter}>
-										<Link href="/flashback">{t("recover")}</Link>
+										<Link href="/flashback">{t("recover")}<Icon name="arrow" /></Link>
+										<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>{t("wishesFooter")}<Icon name="arrow" /></Link>
 									</footer>
 								</>
 							)}
