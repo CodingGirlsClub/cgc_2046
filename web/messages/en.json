@@ -2549,7 +2549,7 @@
       "enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
       "homeTitle": "In a Flash",
       "homeDescription": "Turning 2012-2018 Rails Girls / Girls Coding Day signup answers into polaroid archives — reawakening the learners, coaches and volunteers of those years.",
-      "capsuleTitle": "Time Corridor · In a Flash",
+      "capsuleTitle": "In a Flash · Time Corridor",
       "capsuleDescription": "Companions from those years are developing here — send your photo and see the next card on the wall.",
       "profileTitle": "In a Flash · Credited Profile"
     },
@@ -2570,7 +2570,7 @@
       "footer": "The silent stay safe: until sent, only you can see your answers."
     },
     "voices": {
-      "metaTitle": "Voices · In a Flash",
+      "metaTitle": "In a Flash · Voices",
       "metaDescription": "Voices from the 2012-2018 Rails Girls / Girls Coding Day applications, shared with permission.",
       "brandSub": "by Coding Girls Club",
       "brandPrefix": "In a Flash",
@@ -2946,7 +2946,7 @@
       "deleteNo": "Cancel"
     },
     "wishes": {
-      "metaTitle": "Wish Tree · In a Flash",
+      "metaTitle": "In a Flash · Wish Tree",
       "metaDescription": "Alumni wishes for the future, hung on a tree — anonymous or signed.",
       "kicker": "Wish Tree",
       "title": "Hang a wish on the tree",
