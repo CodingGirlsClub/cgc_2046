@@ -10,6 +10,12 @@
 - **Study how established products solve the problem** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
 - **License compliance is a hard gate for new dependencies.** Any Hex/npm/native dependency you introduce must be AGPL-3.0-compatible: permissive licenses (MIT/Apache-2.0/BSD/ISC/0BSD/CC0) or AGPL-compatible weak copyleft (MPL-2.0/LGPL-3.0+/EPL-2.0). **Forbidden:** GPL-2.0-only, SSPL, BUSL, Elastic, proprietary, unlicensed. Multi-license declarations are OK only if at least one allowed option exists. When unsure, open an issue instead of adding the dependency. Rules: `docs/开源合规/依赖引入规则.md`; CI enforces via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
 
+## Testing principles
+
+- NEVER write unit tests after you write code.
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
+- If you must test a system in isolation, FIRST write all the ways it could fail, THEN write the code.
+
 ## 编排主权（LoopX / Mainline / sop-omp）
 
 - **LoopX** 管何时派工/quota/续跑；**Mainline** 定 git 写边界上限（`.mainline/config.toml` 的 `[agent] autonomy`，当前 `review`：允许 push 非 main 分支 + 开 PR）；**sop-omp** 定质量前置（reviewer PASS + e2e PASS 才许 push）与任务状态 truth（`pipeline-status.md` / Sign-off）。
