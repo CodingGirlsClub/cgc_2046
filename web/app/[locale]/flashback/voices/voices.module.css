@@ -59,11 +59,10 @@
 .app .likeButton{border:1px solid #9bae9c;border-radius:6px;min-width:99px;min-height:52px;gap:12px;font-size:16px;font-variant-numeric:tabular-nums}
 .likeButton[aria-pressed=true]{color:#a36442;border-color:#c79f73;background:#ead6b52b}
 .pagination{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:17px 0;margin-top:8px;font-size:12px}
-.pagination>span{font-family:Georgia,serif;font-size:13px;font-variant-numeric:tabular-nums;letter-spacing:2px}.pagination i{font-style:normal;color:#93a38f;padding:0 14px}.pagination button{padding:4px 0;font-size:12px;gap:9px}.pagination svg{width:17px;height:17px}
+.pagination button{padding:4px 0;font-size:12px;gap:9px}.pagination svg{width:17px;height:17px}
 .disclosure{font-size:11px;line-height:2;color:#879181;margin:22px 0 30px}
 .readerFooter{display:flex;align-items:center;justify-content:flex-start;gap:10px;padding-top:18px}
 .readerFooter a{font-size:11px;line-height:1.7;color:#355749;text-decoration:none}.readerFooter a:hover{text-decoration:underline}
-.randomLink{align-self:flex-start;padding:0;font-size:11px;color:#5c7165;gap:8px}.randomLink svg{width:15px;height:15px}
 .loading{font-size:14px;color:#5c7165;line-height:2}
 .inIntro .header{color:#e7dfc9;border-color:#8a9c851f}.inIntro .brand small,.inIntro .nav span{color:#a4b09f}.inIntro .nav .activeNav:after{background:#ceb477}
 .dayText .header,.dayText .introCaption,.dayText .introTrack{color:#284c3b;text-shadow:none}.dayText .introCaption small,.dayText .introCaption .eyebrow{color:#627a66}
@@ -149,9 +148,14 @@
 .reactions{gap:14px;margin-bottom:24px}
 .reactions .primary{min-height:54px;border-radius:999px;background:#173e31;border-color:#173e31;font-size:17px}
 .app .likeButton{min-height:54px;min-width:108px;border-radius:999px;border-color:#416256;font-size:17px}
-.pagination{padding:18px 0;margin-top:0}.pagination button{font-size:15px}.pagination>span{font:16px/1.5 Georgia,serif;letter-spacing:0}.pagination i{padding:0 10px}
+.pagination{padding:14px 0;margin-top:0}.pagination button{font-size:15px}
 .disclosure{font-size:12px;color:#758074;margin:16px 0 28px}
-.app .randomLink{font-size:12px;min-height:32px;color:#647568;padding:0}
+.randomWrap{display:flex;flex-direction:column;align-items:center;gap:5px}
+.randomCount{font:400 11px/1 Georgia,serif;letter-spacing:2px;color:#93a38f;font-variant-numeric:tabular-nums}
+.randomCount i{font-style:normal;padding:0 6px}
+.app .randomLink{gap:9px;min-height:36px;padding:0 22px;font:500 13px/1 "Songti SC","STSong",serif;color:#8a6d2f;border:1px solid #d8b45566;border-radius:999px;background:#f6efdb}
+.app .randomLink:hover{border-color:#d8b455}
+.app .randomLink svg{width:16px;height:16px}
 /* 概念图版式：等宽两列、内容各列居中，分隔线落在正中 */
 .readerFooter{gap:0;padding-top:20px}
 .readerFooter a{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:10px;min-height:44px;font:600 15px/1.5 "Songti SC",serif;color:var(--ink)}
@@ -171,5 +175,5 @@
  .header{min-height:96px;padding:14px 22px 0}.nav .activeNav:after{bottom:0}
  .workspace{display:flex;min-height:auto}.mapSection{padding:0}.mapPlot{max-width:440px;margin:0 auto}
  .mapToolbar{padding:8px 14px;gap:6px}.cityBar{flex-wrap:nowrap;overflow-x:auto;gap:6px;flex-basis:100%}.cityBar>span{display:none}.app .cityBar button{flex:0 0 auto;padding:8px 18px;font-size:13px}.app .replayButton{margin-left:auto;font-size:12px;min-height:44px}.replayButton svg{width:30px;height:30px;padding:6px}
- .reader{padding:24px 22px 16px}.readerTop{margin-bottom:12px}.readerTop .eyebrow{font-size:13px}.quote{font-size:27px;line-height:1.6;margin:0 0 18px}.attribution{font-size:13px;margin-bottom:22px}.reactions{gap:12px;margin-bottom:16px}.reactions .primary{min-height:48px;font-size:14px;padding:10px 16px}.app .likeButton{min-height:48px;min-width:90px;font-size:15px}.pagination{padding:10px 0}.pagination button{font-size:13px}.pagination>span{font-size:14px}.disclosure{font-size:11px;margin:12px 0 18px}.readerFooter{flex-wrap:nowrap;padding-top:10px}.readerFooter a{font-size:12px;gap:6px}.readerFooter svg{width:12px;height:12px}
+ .reader{padding:24px 22px 16px}.readerTop{margin-bottom:12px}.readerTop .eyebrow{font-size:13px}.quote{font-size:27px;line-height:1.6;margin:0 0 18px}.attribution{font-size:13px;margin-bottom:22px}.reactions{gap:12px;margin-bottom:16px}.reactions .primary{min-height:48px;font-size:14px;padding:10px 16px}.app .likeButton{min-height:48px;min-width:90px;font-size:15px}.pagination{padding:10px 0}.pagination button{font-size:13px}.disclosure{font-size:11px;margin:12px 0 18px}.readerFooter{flex-wrap:nowrap;padding-top:10px}.readerFooter a{font-size:12px;gap:6px}.readerFooter svg{width:12px;height:12px}
 }
