@@ -73,5 +73,6 @@ function curve(a: CityPoint, b: CityPoint, bend = 24) {
  * 城市集合动态（数据驱动），连接在渲染时按城市点位生成——见 map-scene。
  */
 export function connectionPath(a: CityPoint, b: CityPoint, index: number) {
-	return { d: curve(a, b, index % 2 ? -70 : 60), start: index * 0.055 };
+	const bend = Math.min(70, Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.2);
+	return { d: curve(a, b, index % 2 ? -bend : bend), start: index * 0.055 };
 }
