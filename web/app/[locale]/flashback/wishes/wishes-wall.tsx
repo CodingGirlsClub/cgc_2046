@@ -154,6 +154,8 @@ export default function WishesWall({
 	// 不同步置 loading（react-hooks/set-state-in-effect）：初始态即 "loading"；
 	// 变化重拉沿用旧数据平滑替换；显式重试在 handler 置 loading。
 	useEffect(() => {
+		// 乱序守卫：city/seed 快速连点时，后发先至的新响应生效，晚到的旧响应丢弃
+		let cancelled = false;
 		client
 			.query({
 				query: FLASHBACK_PUBLIC_WISHES,
@@ -166,10 +168,17 @@ export default function WishesWall({
 				fetchPolicy: "network-only",
 			})
 			.then(({ data }) => {
+				if (cancelled) return;
 				setWishes((data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[]);
 				setLoadState("ready");
 			})
-			.catch(() => setLoadState("failed"));
+			.catch(() => {
+				if (cancelled) return;
+				setLoadState("failed");
+			});
+		return () => {
+			cancelled = true;
+		};
 	}, [city, seed, voter, loadGeneration]);
 
 	// toast 自动消失
@@ -189,8 +198,6 @@ export default function WishesWall({
 		}
 		return [...seen.values()];
 	}, [wishes, cityCoords]);
-
-	const current = wishes.find((w) => w.id === currentWishId) ?? wishes[0] ?? null;
 
 	// 概念图 chips 过滤；选中项从过滤集取，失效回落首条
 	const filtered = useMemo(
@@ -330,7 +337,11 @@ export default function WishesWall({
 					<Link href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
 						{t("voicesNav")} <span>{t("voicesNavEn")}</span>
 					</Link>
-					<Link href="/flashback/wishes" className={styles.activeNav} aria-current="page">
+					<Link
+						href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}
+						className={styles.activeNav}
+						aria-current="page"
+					>
 						{t("wishesNav")} <span>{t("wishesNavEn")}</span>
 					</Link>
 				</nav>
@@ -543,15 +554,18 @@ export default function WishesWall({
 						placeholder={t("reportFreePlaceholder")}
 						onChange={(e) => setReportFree(e.target.value)}
 					/>
-					<button
-						type="button"
-						className={styles.primaryBtn}
-						disabled={reportFree.trim().length > 200}
-						onClick={submitReport}
-					>
+					<button type="button" className={styles.primaryBtn} onClick={submitReport}>
 						{t("reportSubmit")}
 					</button>
-					<button type="button" className={styles.ghostBtn} onClick={() => setReportFor(null)}>
+					<button
+						type="button"
+						className={styles.ghostBtn}
+						onClick={() => {
+							// 取消即清草稿（与提交成功路径对称——残留上次的补充说明是隐私噪声）
+							setReportFor(null);
+							setReportFree("");
+						}}
+					>
 						{t("close")}
 					</button>
 				</div>

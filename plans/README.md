@@ -16,12 +16,12 @@ your row when done. Local commits only — **push / PR belong to the orchestrato
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | 许愿树公开页参与 SSR | P1 | S | — | TODO |
-| 002 | 公开树加载乱序守卫 | P1 | S | —（与 001/003 不同文件可并行） | TODO |
-| 003 | corridor 附议失败可见化 | P1 | S-M | —（004/005 同文件，本计划先行） | TODO |
-| 004 | 写愿望「档案未绑定」指引链接 | P2 | S | 003 之后（同文件防冲突） | TODO |
-| 005 | 额度被拒后本地锁定提交 | P2 | S | 004 之后（同文件防冲突） | TODO |
-| 006 | 小清理包（前端 4 处 + 后端 city 归一） | P3 | S | 002 之后（同文件防冲突） | TODO |
+| 001 | 许愿树公开页参与 SSR | P1 | S | — | DONE (2026-09-23) |
+| 002 | 公开树加载乱序守卫 | P1 | S | —（与 001/003 不同文件可并行） | DONE (2026-09-23) |
+| 003 | corridor 附议失败可见化 | P1 | S-M | —（004/005 同文件，本计划先行） | DONE (2026-09-23) |
+| 004 | 写愿望「档案未绑定」指引链接 | P2 | S | 003 之后（同文件防冲突） | DONE (2026-09-23) |
+| 005 | 额度被拒后本地锁定提交 | P2 | S | 004 之后（同文件防冲突） | DONE (2026-09-23) |
+| 006 | 小清理包（前端 4 处 + 后端 city 归一） | P3 | S | 002 之后（同文件防冲突） | DONE (2026-09-23) |
 
 Suggested serialization if one executor does all: **001 → 002 → 003 → 004 → 005 → 006**.
 001/002/003 touch disjoint files and may run in parallel; everything that
@@ -42,8 +42,10 @@ cd backend && mix test test/cgc_2046_web/graphql_flashback_public_wish_viewer_te
 # 001 专属（SSR 红绿闸门）:
 curl -sS -o /dev/null -w '%{http_code}' http://localhost:3996/flashback/wishes   # expect 200 (dev server 必须开)
 curl -s http://localhost:3996/flashback/wishes | grep -c '换一批'                # ≥1
-curl -s http://localhost:3996/flashback/wishes | grep -Eo '<(header|aside)\b' | wc -l   # ≥2
-curl -s http://localhost:3996/flashback/wishes | grep -c '正在挂愿望'            # ≥1
+python3 -c "import re,sys;print(re.sub(r'<script[^>]*>.*?</script>','',open('/tmp/wishes-ssr.html').read(),flags=re.S),end='')" > /tmp/wishes-body.html  # 先 curl 落盘再剥 script（见 001 Step 3）
+grep -c '换一批' /tmp/wishes-body.html          # ≥1
+grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2
+grep -c '正在挂愿望' /tmp/wishes-body.html      # ≥1
 ```
 
 All green = batch complete.

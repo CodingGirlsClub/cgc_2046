@@ -39,8 +39,11 @@ export function WishFrames({
 	onChanged: () => void;
 }) {
 	const t = useTranslations("flashback.wish");
+	const tErrors = useTranslations("errors");
+	const errorT = usePaymentErrorTranslator();
 	const [modal, setModal] = useState<WishFormKind>({ kind: "closed" });
 	const [busy, setBusy] = useState(false);
+	const [actionError, setActionError] = useState<string | null>(null);
 
 	const [endorse] = useMutation(FLASHBACK_ENDORSE_WISH);
 	const [comment] = useMutation(FLASHBACK_ADD_WISH_COMMENT);
@@ -51,9 +54,13 @@ export function WishFrames({
 		setBusy(true);
 		try {
 			await fn();
+			setActionError(null);
 			onChanged();
-		} catch {
-			// 失败静默：下一帧 reload 校正
+		} catch (e) {
+			// 失败可见化（KTD3：token 腿下线后 auth_required 是常态路径，静默=按钮假死）；
+			// 已知业务码取 errors 文案，未知码兜底 database_error
+			const code = graphqlErrorDetails(e)?.code;
+			setActionError(errorT(code, tErrors("database_error")));
 		} finally {
 			setBusy(false);
 		}
@@ -111,6 +118,11 @@ export function WishFrames({
 						</li>
 					))}
 				</ul>
+				{actionError && (
+					<p role="alert" className="fb-hint">
+						{actionError}
+					</p>
+				)}
 				<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
 					+ {t("makeWish")}
 				</button>
@@ -194,13 +206,16 @@ export function WishFormModal({
 	const [signatureChoice, setSignatureChoice] = useState<"anonymous" | "display_name">("anonymous");
 	const [expectedCity, setExpectedCity] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [bindGuide, setBindGuide] = useState(false);
 	const [outcome, setOutcome] = useState<WishSubmitOutcome | null>(null);
 	const [withdrawn, setWithdrawn] = useState(false);
 	const [cities, setCities] = useState<string[]>([]);
 	const [createWish, { loading }] = useMutation(FLASHBACK_CREATE_WISH);
 	const [deleteWish] = useMutation(FLASHBACK_DELETE_WISH);
-
-	const quotaExhausted = myWishQuotaRemaining === 0;
+	// 服务端额度拒绝后的本地锁定——只对「prop 不可知」（树页 myWishQuotaRemaining=null）
+	// 生效；prop 任何可知值（含 refetch 刷新）一律以 prop 为准，杜绝影子状态滞留
+	const [quotaBlocked, setQuotaBlocked] = useState(false);
+	const quotaExhausted = myWishQuotaRemaining === 0 || (myWishQuotaRemaining === null && quotaBlocked);
 
 	// 期望地候选名单（KTD11 真源 flashbackCities；modal 打开拉一次）
 	useEffect(() => {
@@ -221,6 +236,7 @@ export function WishFormModal({
 		const trimmed = content.trim();
 		if (!trimmed || loading || busy || quotaExhausted) return;
 		setError(null);
+		setBindGuide(false);
 		try {
 			const { data } = await createWish({
 				variables: {
@@ -250,9 +266,16 @@ export function WishFormModal({
 			// errors 文案；无 code / 未知 code 兜底 database_error（错误文案纪律）
 			const detail = graphqlErrorDetails(e);
 			setError(errorT(detail?.code, tErrors("database_error")));
-			// 额度被拒即触发胶囊 refetch（F2）：refetch 完成后 prop 变 0 → 额度行变
-			// 用完文案 + 提交禁用；模态保持打开
-			if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);
+			// 档案未绑定（KTD7/U8）：错误文案旁补「去绑定」链接，给登录未认领用户行动出口
+			setBindGuide(detail?.code === "flashback_person_not_bound");
+			// 额度被拒（plans/005 双场景）：树页（prop 不可知 null）→ 终态接管——
+			// alert 让位 quotaBlocked 锁定；capsule（prop 可知）→ 保留错误文案等
+			// refetch 刷新 prop（F2 原路径），quotaBlocked 只作兜底不抢 prop 语义
+			if (detail?.code === "flashback_wish_quota_exceeded") {
+				if (myWishQuotaRemaining === null) setError(null);
+				setQuotaBlocked(true);
+				onDone(null);
+			}
 		}
 	};
 
@@ -324,9 +347,13 @@ export function WishFormModal({
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
 			<div className="fb-wish-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t("makeWish")}>
 				<h4 className="fb-wish-modal-title">{t("makeWish")}</h4>
-				{myWishQuotaRemaining !== null && (
+				{(myWishQuotaRemaining !== null || quotaBlocked) && (
 					<p className="fb-wish-modal-quota">
-						{quotaExhausted ? t("quotaExhausted") : t("quotaRemaining", { count: myWishQuotaRemaining })}
+						{quotaExhausted
+							? t("quotaExhausted")
+							: // else 支逻辑上 prop 恒非 null（prop=null 且未 blocked 时整块不渲染），
+								// TS 推不出这层关系，?? 0 仅安抚类型
+								t("quotaRemaining", { count: myWishQuotaRemaining ?? 0 })}
 					</p>
 				)}
 				<textarea
@@ -404,6 +431,12 @@ export function WishFormModal({
 				{error && (
 					<p role="alert" className="fb-hint">
 						{error}
+						{bindGuide && (
+							<>
+								{" "}
+								<Link href="/flashback/enter">{t("bindGuideCta")}</Link>
+							</>
+						)}
 					</p>
 				)}
 				<div className="fb-wish-modal-actions">

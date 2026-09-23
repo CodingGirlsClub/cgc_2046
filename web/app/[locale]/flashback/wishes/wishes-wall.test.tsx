@@ -29,10 +29,17 @@ const wish = (id: string, over: Partial<FlashbackPublicWish> = {}): FlashbackPub
 	...over,
 });
 
-const { wallQuery, citiesQuery, expectRunner } = vi.hoisted(() => ({
+const { wallQuery, citiesQuery, expectRunner, deferred } = vi.hoisted(() => ({
 	wallQuery: vi.fn(),
 	citiesQuery: vi.fn(),
 	expectRunner: vi.fn(),
+	// 手控 promise：push 一个存根，测试自行决定何时 resolve——乱序场景的
+	// 时间线由测试自己排，不依赖 once-mock 的消费顺序（脆弱，且本用例正是
+	// 要绕开「注册顺序=完成顺序」的巧合）
+	deferred: [] as Array<{
+		resolve: (v: { data: { flashbackPublicWishes: FlashbackPublicWish[] } }) => void;
+		reject: (e: unknown) => void;
+	}>,
 }));
 
 vi.mock("@/lib/apollo-client", () => ({
@@ -60,6 +67,7 @@ beforeEach(() => {
 	wallQuery.mockReset();
 	citiesQuery.mockReset();
 	expectRunner.mockReset();
+	deferred.length = 0;
 	wallQuery.mockResolvedValue({ data: { flashbackPublicWishes: [wish("w1"), wish("w2", { city: "成都" })] } });
 	citiesQuery.mockResolvedValue({
 		data: { flashbackCities: [{ name: "北京", fullName: "北京市", pinyin: "beijing", lngLat: [116.4, 39.9] }] },
@@ -130,5 +138,34 @@ describe("WishesWall · 公开许愿树（U7）", () => {
 		wallQuery.mockResolvedValue({ data: { flashbackPublicWishes: [] } });
 		render(<WishesWall showIntro={false} />);
 		await screen.findByText("树还空着——写下第一条愿望吧。");
+	});
+
+	it("乱序响应不覆盖新数据：晚到的旧 seed 响应被丢弃", async () => {
+		render(<WishesWall showIntro={false} />);
+		await screen.findByText("愿望 w1"); // 初始加载完成
+
+		// seed1：挂起
+		wallQuery.mockImplementationOnce(() => {
+			const { promise, resolve, reject } = Promise.withResolvers<{
+				data: { flashbackPublicWishes: FlashbackPublicWish[] };
+			}>();
+			deferred.push({ resolve, reject });
+			return promise;
+		});
+		// seed2：立即返回
+		wallQuery.mockResolvedValueOnce({
+			data: { flashbackPublicWishes: [wish("w-latest")] },
+		});
+
+		fireEvent.click(screen.getByText("换一批")); // → seed1 请求（挂起）
+		fireEvent.click(screen.getByText("换一批")); // → seed2 请求（立即落地）
+		await screen.findByText("愿望 w-latest");
+
+		// 此刻放行 seed1 的迟到响应——守卫应将其丢弃
+		deferred[0].resolve({ data: { flashbackPublicWishes: [wish("w-stale")] } });
+		await waitFor(() => {
+			expect(screen.queryByText("愿望 w-stale")).toBeNull();
+		});
+		expect(screen.getByText("愿望 w-latest")).toBeTruthy();
 	});
 });

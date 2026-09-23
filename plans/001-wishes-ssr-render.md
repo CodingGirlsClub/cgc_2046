@@ -128,14 +128,12 @@
 
 mock 方式照抄 `wishes-wall.test.tsx` 的既有结构（同目录，先读它）：`vi.mock("@/lib/apollo-client")` 里按 `FLASHBACK_PUBLIC_WISHES` / `FLASHBACK_CITIES` 分发（WishesWall 挂载后两个 query 都会发），默认返回空数组数据。`vi.mock("@apollo/client/react")` 照抄同文件的 useMutation mock。
 
-**核心测试是 Step 3 的 SSR 冒烟**（non-jsdom、走真实 dev server，一抓一剥三断言）：抓 HTML → `sed` 剥 `<script>` → 三 grep。这不是 vitest 能替代的（jsdom 无 SSR）。
+**核心测试是 Step 3 的 SSR 冒烟**（non-jsdom、走真实 dev server，一抓一剥三断言）：抓 HTML → 剥 `<script>`（跨行安全，命令见 Step 3）→ 三 grep。这不是 vitest 能替代的（jsdom 无 SSR）。
 
-vitest 这一侧只补两条**轻量客户端回归**（它们不是红绿闸门，只是防其他代码路径误伤）：
+vitest 这一侧只补两条**轻量客户端回归**（它们不是红绿闸门，只是防其他代码路径误伤；**`WishesPage` 签名是 `{ item?: string; initialCity?: string }`，没有 `initialItem` 也没有 `showIntro` prop——`showIntro` 是它内部算出来传给 `WishesWall` 的**)：
 
-1. **WishesPage mount 后展示墙（回归基线）**：`render(<WishesPage initialItem={undefined} initialCity={undefined} showIntro={false} />)` 后 `await screen.findByText("换一批")`。修复前后都会绿——它不是红绿点，只是「没打破 mount 链路」的护栏。
-2. **开场标记仍被写入（KTD8 行为不回退）**：`render(<WishesPage initialItem={undefined} initialCity={undefined} showIntro={true} />)` 后 `await waitFor(() => expect(window.localStorage.getItem("flashback.wishesIntroSeen")).toBe("1"))`。
-
-`wishes-wall.test.tsx` 既有用例照此改：`showIntro={false}` 显式传（它们当前隐式走默认 `false`,把默认值显式化不影响断言）。
+1. **WishesPage mount 后展示墙（回归基线）**：`render(<WishesPage />)` 后 `await screen.findByText("换一批")`。修复前后都会绿——它不是红绿点，只是「没打破 mount 链路」的护栏。
+2. **开场标记仍被写入（KTD8 行为不回退）**：test 环境 localStorage 已清空（mock 文件照抄后 `beforeEach { localStorage.clear() }`）→ 服务端快照 `introSeen=false` → 客户端 effect 把 `flashback.wishesIntroSeen` 写成 `"1"`（`wishes-wall.tsx:128` 的 markIntroSeen 行为）。`render(<WishesPage />)` 后 `await waitFor(() => expect(window.localStorage.getItem("flashback.wishesIntroSeen")).toBe("1"))`。
 
 文案值先在 `web/messages/zh-CN.json` 的 `flashback.wishes` 命名空间确认（`shuffle`、`writeWish` 等 key），测试里用 zh 值（test-utils 默认 locale）。
 
@@ -155,16 +153,22 @@ curl -sS -o /dev/null -w '%{http_code}' http://localhost:3996/flashback/wishes
 断言（一抓一剥三 grep——先抓一份 HTML 落临时文件，剥 `<script>` 后三次 grep；`<script>` 剥除是必须的，见 Step 2 告警）：
 
 ```
-HTML=/tmp/wishes-ssr.html
-curl -s http://localhost:3996/flashback/wishes > "$HTML"
-# 剥 script：`</script>` 可能跨行（payload 里的 \n），用 tr 压行后剥
-tr '\n' '\0' < "$HTML" | sed -E 's|<script[^>]*>.*</script>||g' | tr '\0' '\n' > /tmp/wishes-body.html
+curl -s http://localhost:3996/flashback/wishes > /tmp/wishes-ssr.html
+# 剥 script 用 python（re.S 跨行安全）——shell 的 tr '\0' 压行 + sed 组合在 BSD
+# 下会吃内容，实测假阴性，弃用
+python3 -c "
+import re
+html = open('/tmp/wishes-ssr.html').read()
+print(re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.S), end='')
+" > /tmp/wishes-body.html
 
-# 修复前期望全 0（正文 <div hidden=""></div><div></div>）；修复后：
+# 修复前期望全 0（正文 <div hidden=\"\"></div><div></div>）；修复后：
 grep -c '换一批'     /tmp/wishes-body.html    # ≥1
-grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2（-o 逐标签计数；\b 在 BSD grep -E 下不可靠，用 [ >] 菱形边界）
-grep -c '正在挂愿望' /tmp/wishes-body.html    # ≥1（面板加载壳 SSR 输出——「正在挂愿望…」才是 flashback.wishes.loading 的实际值；「加载中…」属于 initiatives 等 12 个其它 namespace，wishes SSR HTML 里没有）
+grep -Eo '<(header|aside)[ >]' /tmp/wishes-body.html | wc -l   # ≥2
+grep -c '正在挂愿望' /tmp/wishes-body.html    # ≥1（面板加载壳——「正在挂愿望…」才是 flashback.wishes.loading 的实际值）
 ```
+
+**实测绿值（2026-09-23，commit 7e4cef04）**：换一批=1、header/aside 标签=2、正在挂愿望=1。
 
 **Verify**: 三条命令各自返回期望值；把三条输出原样粘贴进完成报告作为证据。若第二条输出 0 → 正文里没有结构化 shell，说明删守卫没生效，回 Step 1。
 
