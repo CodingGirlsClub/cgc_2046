@@ -2549,7 +2549,7 @@
       "enterDescription": "十几年前你写下的答案，一直在等你。",
       "homeTitle": "闪念间 · In a Flash",
       "homeDescription": "把 2012-2018 年 Rails Girls / Girls Coding Day 的报名答案变成拍立得档案，唤醒当年的学员、教练与志愿者。",
-      "capsuleTitle": "时间长廊 · 闪念间",
+      "capsuleTitle": "闪念间 · 时间长廊",
       "capsuleDescription": "当年的同行者们正在这里显影——寄出你的照片，看看墙上的下一张卡。",
       "profileTitle": "闪念间 · 实名档案"
     },
@@ -2570,7 +2570,7 @@
       "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
     },
     "voices": {
-      "metaTitle": "金句墙 · 闪念间",
+      "metaTitle": "闪念间 · 金句墙",
       "metaDescription": "山河之间，听见彼此——2012-2018 年 Rails Girls / Girls Coding Day 报名答案里被授权公开的声音。",
       "brandSub": "by Coding Girls Club",
       "brandPrefix": "闪念",
@@ -2946,7 +2946,7 @@
       "deleteNo": "取消"
     },
     "wishes": {
-      "metaTitle": "许愿树 · 闪念间",
+      "metaTitle": "闪念间 · 许愿树",
       "metaDescription": " alumni 们对未来的心愿挂成一棵树——匿名或署名，期待与出力。",
       "kicker": "许愿树",
       "title": "把愿望挂上树",
