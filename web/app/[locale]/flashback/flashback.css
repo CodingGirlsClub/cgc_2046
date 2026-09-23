@@ -1036,6 +1036,15 @@
 	gap: 8px;
 }
 .fb-quote-text { color: #d9d4ca; font-size: 14px; line-height: 1.8; margin: 0; font-style: normal; }
+.fb-quote-text--fogged {
+	display: inline-block;
+	max-width: 100%;
+	padding: 2px 10px;
+	border-radius: 999px;
+	background: radial-gradient(ellipse at center, rgba(239, 233, 219, 0.14), rgba(239, 233, 219, 0.035) 72%, transparent);
+	box-shadow: 0 0 14px rgba(239, 233, 219, 0.1);
+	overflow-wrap: anywhere;
+}
 .fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
 /* 点赞（R36）：♡/♥ + 计数——未赞中性灰、已赞品牌金；点击即就地更新 */
 .fb-root .fb-quote-like {
