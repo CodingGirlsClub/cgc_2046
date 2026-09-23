@@ -199,8 +199,6 @@ export default function WishesWall({
 		return [...seen.values()];
 	}, [wishes, cityCoords]);
 
-	const current = wishes.find((w) => w.id === currentWishId) ?? wishes[0] ?? null;
-
 	// 概念图 chips 过滤；选中项从过滤集取，失效回落首条
 	const filtered = useMemo(
 		() => (filter === "echo" ? wishes.filter((w) => w.endorsementCount > 0) : wishes),
@@ -339,7 +337,11 @@ export default function WishesWall({
 					<Link href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
 						{t("voicesNav")} <span>{t("voicesNavEn")}</span>
 					</Link>
-					<Link href="/flashback/wishes" className={styles.activeNav} aria-current="page">
+					<Link
+						href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}
+						className={styles.activeNav}
+						aria-current="page"
+					>
 						{t("wishesNav")} <span>{t("wishesNavEn")}</span>
 					</Link>
 				</nav>
@@ -552,15 +554,18 @@ export default function WishesWall({
 						placeholder={t("reportFreePlaceholder")}
 						onChange={(e) => setReportFree(e.target.value)}
 					/>
-					<button
-						type="button"
-						className={styles.primaryBtn}
-						disabled={reportFree.trim().length > 200}
-						onClick={submitReport}
-					>
+					<button type="button" className={styles.primaryBtn} onClick={submitReport}>
 						{t("reportSubmit")}
 					</button>
-					<button type="button" className={styles.ghostBtn} onClick={() => setReportFor(null)}>
+					<button
+						type="button"
+						className={styles.ghostBtn}
+						onClick={() => {
+							// 取消即清草稿（与提交成功路径对称——残留上次的补充说明是隐私噪声）
+							setReportFor(null);
+							setReportFree("");
+						}}
+					>
 						{t("close")}
 					</button>
 				</div>
