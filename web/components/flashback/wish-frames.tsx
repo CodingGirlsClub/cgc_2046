@@ -206,6 +206,7 @@ export function WishFormModal({
 	const [signatureChoice, setSignatureChoice] = useState<"anonymous" | "display_name">("anonymous");
 	const [expectedCity, setExpectedCity] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [bindGuide, setBindGuide] = useState(false);
 	const [outcome, setOutcome] = useState<WishSubmitOutcome | null>(null);
 	const [withdrawn, setWithdrawn] = useState(false);
 	const [cities, setCities] = useState<string[]>([]);
@@ -233,6 +234,7 @@ export function WishFormModal({
 		const trimmed = content.trim();
 		if (!trimmed || loading || busy || quotaExhausted) return;
 		setError(null);
+		setBindGuide(false);
 		try {
 			const { data } = await createWish({
 				variables: {
@@ -262,6 +264,8 @@ export function WishFormModal({
 			// errors 文案；无 code / 未知 code 兜底 database_error（错误文案纪律）
 			const detail = graphqlErrorDetails(e);
 			setError(errorT(detail?.code, tErrors("database_error")));
+			// 档案未绑定（KTD7/U8）：错误文案旁补「去绑定」链接，给登录未认领用户行动出口
+			setBindGuide(detail?.code === "flashback_person_not_bound");
 			// 额度被拒即触发胶囊 refetch（F2）：refetch 完成后 prop 变 0 → 额度行变
 			// 用完文案 + 提交禁用；模态保持打开
 			if (detail?.code === "flashback_wish_quota_exceeded") onDone(null);
@@ -416,6 +420,12 @@ export function WishFormModal({
 				{error && (
 					<p role="alert" className="fb-hint">
 						{error}
+						{bindGuide && (
+							<>
+								{" "}
+								<Link href="/flashback/enter">{t("bindGuideCta")}</Link>
+							</>
+						)}
 					</p>
 				)}
 				<div className="fb-wish-modal-actions">

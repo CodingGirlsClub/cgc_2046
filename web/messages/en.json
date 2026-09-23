@@ -2935,6 +2935,7 @@
       "feedbackPrivateBody": "This wish is visible only to you and the platform — we'll read it carefully, and may come talk soon.",
       "myWishHint": "Find it anytime under \"My wishes\" in your time capsule.",
       "viewOnTree": "See it on the tree",
+      "bindGuideCta": "Bind your flashback archive",
       "withdraw": "Withdraw this wish",
       "withdrawnToast": "Withdrawn — no longer visible publicly",
       "comment": "Comment",

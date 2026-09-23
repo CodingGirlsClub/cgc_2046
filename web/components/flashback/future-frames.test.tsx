@@ -395,4 +395,21 @@ describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）",
 
 		expect(await screen.findByRole("alert")).toHaveTextContent("这句话没能挂上树，换种说法试试。");
 	});
+
+	it("档案未绑定：flashback_person_not_bound 透出文案 + 「去绑定」链接（KTD7/U8 最小收口）", async () => {
+		const createWish = vi.fn().mockRejectedValue({
+			errors: [{ message: "no archive bound", extensions: { code: "flashback_person_not_bound" } }],
+		});
+		useMutationMock.mockReturnValue([createWish, { loading: false }]);
+
+		render(<Corridor capsule={capsule()} token="tok" />);
+		openForm();
+		fillAndSubmit();
+
+		const alert = await screen.findByRole("alert");
+		expect(alert).toHaveTextContent("当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。");
+		// 同一 alert 内的链接指向 /flashback/enter（zh 无前缀、en 前缀 /en）
+		const link = within(alert).getByRole("link");
+		expect(link.getAttribute("href")).toMatch(/^\/(en\/)?flashback\/enter($|[?#])/);
+	});
 });
