@@ -128,14 +128,12 @@
 
 mock 方式照抄 `wishes-wall.test.tsx` 的既有结构（同目录，先读它）：`vi.mock("@/lib/apollo-client")` 里按 `FLASHBACK_PUBLIC_WISHES` / `FLASHBACK_CITIES` 分发（WishesWall 挂载后两个 query 都会发），默认返回空数组数据。`vi.mock("@apollo/client/react")` 照抄同文件的 useMutation mock。
 
-**核心测试是 Step 3 的 SSR 冒烟**（non-jsdom、走真实 dev server，一抓一剥三断言）：抓 HTML → `sed` 剥 `<script>` → 三 grep。这不是 vitest 能替代的（jsdom 无 SSR）。
+**核心测试是 Step 3 的 SSR 冒烟**（non-jsdom、走真实 dev server，一抓一剥三断言）：抓 HTML → 剥 `<script>`（跨行安全，命令见 Step 3）→ 三 grep。这不是 vitest 能替代的（jsdom 无 SSR）。
 
-vitest 这一侧只补两条**轻量客户端回归**（它们不是红绿闸门，只是防其他代码路径误伤）：
+vitest 这一侧只补两条**轻量客户端回归**（它们不是红绿闸门，只是防其他代码路径误伤；**`WishesPage` 签名是 `{ item?: string; initialCity?: string }`，没有 `initialItem` 也没有 `showIntro` prop——`showIntro` 是它内部算出来传给 `WishesWall` 的**)：
 
-1. **WishesPage mount 后展示墙（回归基线）**：`render(<WishesPage initialItem={undefined} initialCity={undefined} showIntro={false} />)` 后 `await screen.findByText("换一批")`。修复前后都会绿——它不是红绿点，只是「没打破 mount 链路」的护栏。
-2. **开场标记仍被写入（KTD8 行为不回退）**：`render(<WishesPage initialItem={undefined} initialCity={undefined} showIntro={true} />)` 后 `await waitFor(() => expect(window.localStorage.getItem("flashback.wishesIntroSeen")).toBe("1"))`。
-
-`wishes-wall.test.tsx` 既有用例照此改：`showIntro={false}` 显式传（它们当前隐式走默认 `false`,把默认值显式化不影响断言）。
+1. **WishesPage mount 后展示墙（回归基线）**：`render(<WishesPage />)` 后 `await screen.findByText("换一批")`。修复前后都会绿——它不是红绿点，只是「没打破 mount 链路」的护栏。
+2. **开场标记仍被写入（KTD8 行为不回退）**：test 环境 localStorage 已清空（mock 文件照抄后 `beforeEach { localStorage.clear() }`）→ 服务端快照 `introSeen=false` → 客户端 effect 把 `flashback.wishesIntroSeen` 写成 `"1"`（`wishes-wall.tsx:128` 的 markIntroSeen 行为）。`render(<WishesPage />)` 后 `await waitFor(() => expect(window.localStorage.getItem("flashback.wishesIntroSeen")).toBe("1"))`。
 
 文案值先在 `web/messages/zh-CN.json` 的 `flashback.wishes` 命名空间确认（`shuffle`、`writeWish` 等 key），测试里用 zh 值（test-utils 默认 locale）。
 
