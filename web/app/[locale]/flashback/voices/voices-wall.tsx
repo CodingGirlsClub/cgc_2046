@@ -191,7 +191,9 @@ export default function VoicesWall({
 	const [shareDialog, setShareDialog] = useState<"quote" | "wall" | null>(null);
 	const [likeHint, setLikeHint] = useState(false);
 	const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
-	// 「随便听听」会话内不重复（R35）：已出过的 quoteId 集合
+	// 「随便听听」会话内不重复（R35）：已**由随机入口**出过的 quoteId 集合。
+	// 不预置墙上列表——后端 randomQuotes 与 publicQuotes 同池（public.ex 仅排序不同），
+	// 公开句总量 ≤ 60 时墙即全量，预置会让随机池恒空、首次点击即报 randomEmpty（#822）。
 	const [randomSeen, setRandomSeen] = useState<ReadonlySet<string>>(
 		() => new Set(initialItem ? [initialItem.quoteId] : []),
 	);
@@ -289,7 +291,6 @@ export default function VoicesWall({
 					const first = initialItem ?? list[0];
 					return first?.city ?? "";
 				});
-				setRandomSeen((seen) => new Set([...seen, ...list.map((q) => q.quoteId)]));
 			})
 			.catch(() => {
 				if (!cancelled) setLoadState("failed");

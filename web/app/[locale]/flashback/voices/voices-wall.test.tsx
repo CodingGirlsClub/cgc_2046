@@ -268,6 +268,18 @@ describe("VoicesWall · 城市与导航（R13/R35）", () => {
 			"写下第一行代码时，我听见了一扇门打开。",
 		);
 	});
+
+	// #822 根因回归：后端 randomQuotes 与 publicQuotes 同池（public.ex 仅排序不同），
+	// 公开句 ≤ 60 时随机结果必然 ⊆ 墙。若把墙预置进 randomSeen，此处必报 randomEmpty。
+	it("随便听听：随机句已在墙上列表里，仍定位该句而非报空（R35）", async () => {
+		randomQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [quotesList[1]] } });
+		render(<VoicesWall showIntro={false} />);
+		await screen.findByTestId("selected-text");
+
+		fireEvent.click(screen.getByTestId("random-listen"));
+		expect(await screen.findByTestId("selected-text")).toHaveTextContent("原来我也可以，是改变的开始。");
+		expect(screen.queryByText("暂时没有更多声音了。")).not.toBeInTheDocument();
+	});
 });
 
 describe("VoicesPage · 分享直达与失效页（U4/KTD4）", () => {
