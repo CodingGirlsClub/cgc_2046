@@ -59,11 +59,11 @@ export function participationConditionText(
   const payment = (() => {
     if (event.paymentMode === 'deposit') {
       const amount = positiveAmountOrNull(event.deposit?.amountCents)
-      return amount === null ? '押金（金额待定）' : `押金 ¥${formatAmountShort(amount)}（到场退）`
+      return amount === null ? '押金（金额待定）' : `押金 ¥ ${formatAmountShort(amount)}（到场退）`
     }
     if (event.paymentMode === 'pricing') {
       const from = positiveAmountOrNull(event.priceRangeMinCents)
-      return from === null ? '收费（档位以活动页为准）' : `收费 ¥${formatAmountShort(from)} 起`
+      return from === null ? '收费（档位以活动页为准）' : `收费 ¥ ${formatAmountShort(from)} 起`
     }
     if (event.paymentMode === 'free') return '免费'
     // 未知/缺失态**不猜**：落「缴费信息待定」而非「免费」——用默认值冒充事实
