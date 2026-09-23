@@ -2993,6 +2993,7 @@
       "filterAll": "全部",
       "filterEcho": "已有回响",
       "echoEmpty": "还没有愿望收到回响——第一份出力，从「我能出力」开始。",
+      "cityEmpty": "{city}还没有公开愿望——看看全部城市吧。",
       "expectCount": "人也在期待",
       "expectCta": "我也期待",
       "endorseCta": "附议 · 我能出力",

@@ -2993,6 +2993,7 @@
       "filterAll": "All",
       "filterEcho": "With echoes",
       "echoEmpty": "No wishes have echoes yet — be the first to help via \"I can help\".",
+      "cityEmpty": "No public wishes in {city} yet — try all cities.",
       "expectCount": "people are waiting too",
       "expectCta": "I'm waiting too",
       "endorseCta": "Endorse — I can help",
