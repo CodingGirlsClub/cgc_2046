@@ -1,0 +1,22 @@
+.surface{background:#f7f6ee;color:#244e40;min-height:100svh}
+.surface :global(.fb-root){background:#f7f6ee;color:#244e40;--fb-sub:#687b6c;--fb-ink:#244e40;font-family:"Songti SC","STSong",serif}
+.surface :global(.fb-public-hero){padding:52px 24px 24px}
+.surface :global(.fb-kicker){color:#718473;letter-spacing:.18em;font:11px/1.6 sans-serif}
+.surface :global(.fb-stage-title){color:#244e40;font-size:36px;font-weight:400;margin:18px 0}
+.surface :global(.fb-lead){color:#627866;line-height:1.8}
+.surface [data-testid="map"]{max-width:900px;margin:0 auto 32px;flex-shrink:0}
+.surface section{width:min(100%,900px);padding:24px;margin:auto;box-sizing:border-box;border-top:1px solid #d9dece}
+.surface :global(.fb-action-title){font-size:22px;font-weight:400}
+.surface :global(.fb-actions-row){display:flex;flex-wrap:wrap;gap:12px;margin:16px 0 28px}
+.surface :global(.fb-action){color:#244e40;border-color:#9daF9e;min-height:44px;padding:10px 16px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px}
+.surface :global(.fb-wish-list){list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.surface :global(.fb-wish-card){padding:24px;background:#fcfaf3;border:1px solid #dedfcf}
+.surface :global(.fb-wish-content){color:#244e40;font-size:22px;line-height:1.8;margin:0 0 20px;overflow-wrap:anywhere}
+.surface :global(.fb-wish-signature){font:12px/1.8 sans-serif;color:#6a7c6c}
+.surface :global(.fb-wish-meta){display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px;font:12px/1.6 sans-serif}
+.surface :global(.fb-wish-meta) button{min-height:44px;padding:8px;cursor:pointer;border:1px solid #d9dece;border-radius:3px}
+.surface button:active{scale:.98}
+.surface button:focus-visible,.surface a:focus-visible{outline:2px solid #a37c39;outline-offset:3px}
+.surface [role="dialog"]{position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:30;background:#faf7ed;color:#244e40;padding:28px;width:min(440px,calc(100vw - 32px));max-height:85svh;overflow:auto;box-shadow:0 0 0 100vmax #14292088;box-sizing:border-box}
+.surface [role="dialog"] button{min-height:44px;padding:8px 12px}
+@media(max-width:600px){.surface :global(.fb-public-hero){padding:32px 20px 14px}.surface :global(.fb-stage-title){color:#244e40;font-size:28px}.surface :global(.fb-lead){font-size:14px}.surface :global(.fb-wish-list){grid-template-columns:1fr}.surface section{padding:20px}.surface [data-testid="map"]{margin-bottom:20px}}

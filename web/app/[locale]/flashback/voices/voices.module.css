@@ -111,3 +111,16 @@
 	.statePage{padding:8vh 7%}
 }
 @media(prefers-reduced-motion:reduce){.app *,.dialog *,.toast,.likeHint{animation:none!important;transition:none!important;scroll-behavior:auto!important}.pinPulse{display:none}}
+
+/* Shared map controls are self-contained, including on the Wishes surface. */
+.mapPlot .mapPin{border:0;background:none;color:#244e40;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;isolation:isolate}
+.mapPlot .mapPin:focus-visible{outline:2px solid #9d712c;outline-offset:2px!important;border-radius:4px}
+.mapPlot .pinLabel{position:relative;inset:auto;font-size:14px;line-height:24px;padding:1px 5px;background:#f7f4eadd;border-radius:3px;text-shadow:none;border:1px solid #6d82652e;transition:background .15s}
+.mapPlot .selectedPin .pinLabel{color:#73501c;border-color:#bd924c;background:#fff4d8}
+.mapPlot .mapPin:active .pinLabel{transform:scale(.96)}
+.mapPlot .pinDot{inset:auto;left:calc(50% + var(--anchor-x));top:calc(50% + var(--anchor-y));margin:0;transform:translate(-50%,-50%);pointer-events:none;width:9px;height:9px}
+.mapPlot .selectedPin .pinDot{width:12px;height:12px}
+.mapPlot .pinLeader{position:absolute;left:calc(50% + var(--anchor-x));top:calc(50% + var(--anchor-y));width:var(--leader-length);height:1px;background:#718473a6;transform-origin:left center;transform:rotate(var(--leader-angle));pointer-events:none;z-index:-1}
+.mapPlot .pinPulse{inset:auto;left:calc(50% + var(--anchor-x) - 14px);top:calc(50% + var(--anchor-y) - 14px);width:28px;height:28px;pointer-events:none}
+.mapPlot .nightPin .pinLabel{color:#fff2d3;background:#21352deb;border-color:#d6b36c66}
+.app .mapPin:active{transform:translate(-50%,-50%)}
