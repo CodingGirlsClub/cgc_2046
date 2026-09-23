@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
@@ -17,10 +17,39 @@ import {
 	type FlashbackPublicWish,
 } from "@/lib/graphql/flashback";
 import MapScene, { type CitySpec } from "../voices/map-scene";
+import styles from "./wishes.module.css";
 
 const WISHES_INTRO_SEEN_KEY = "flashback.wishesIntroSeen";
 const VOICES_INTRO_SEEN_KEY = "flashback.voicesIntroSeen";
 const REPORT_REASONS = ["spam", "irrelevant", "scam", "inappropriate", "other"] as const;
+
+/** 与 voices 同一几何语言（24 viewBox / stroke 1.5 / 圆角端点）的局部图标表 */
+const ICONS: Record<string, ReactNode> = {
+	share: <path d="M12 3v12M8 7l4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />,
+	heart: <path d="M19.5 12.6 12 20l-7.5-7.4a5 5 0 1 1 7.5-6.6 5 5 0 1 1 7.5 6.6Z" />,
+	pen: <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />,
+	shuffle: <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />,
+	arrow: <path d="M3 12h18m-6-6 6 6-6 6" />,
+	bell: <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M10.3 21a2 2 0 0 0 3.4 0" />,
+};
+
+function Icon({ name, filled = false }: { name: string; filled?: boolean }) {
+	return (
+		<svg
+			width="20"
+			height="20"
+			viewBox="0 0 24 24"
+			fill={filled ? "currentColor" : "none"}
+			stroke="currentColor"
+			strokeWidth="1.5"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			{ICONS[name]}
+		</svg>
+	);
+}
 
 /**
  * 许愿树墙（wish2 U7/KTD10）：公开树 = listed 四条件 + 加权随机排序。
@@ -58,6 +87,10 @@ export default function WishesWall({
 	const [endorseGuideFor, setEndorseGuideFor] = useState<FlashbackPublicWish | null>(null);
 	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录走 enter 引导）
 	const [writeOpen, setWriteOpen] = useState(false);
+	// 概念图右栏筛选 chips：「全部」/「我也在期待」（expectedByViewer 客户端过滤）
+	const [filter, setFilter] = useState<"all" | "mine">("all");
+	// 分享 = 复制链接（树 / 单条愿望 ?item=）+ toast
+	const [shareToast, setShareToast] = useState("");
 	const { authed } = useAuthed();
 
 	const [runExpect] = useMutation(FLASHBACK_EXPECT_WISH);
@@ -158,6 +191,37 @@ export default function WishesWall({
 
 	const current = wishes.find((w) => w.id === currentWishId) ?? wishes[0] ?? null;
 
+	// 概念图 chips 过滤；选中项从过滤集取，失效回落首条
+	const filtered = useMemo(
+		() => (filter === "mine" ? wishes.filter((w) => w.expectedByViewer) : wishes),
+		[filter, wishes],
+	);
+	const currentInFilter = filtered.find((w) => w.id === currentWishId) ?? filtered[0] ?? null;
+	const others = useMemo(
+		() => filtered.filter((w) => w.id !== currentInFilter?.id),
+		[filtered, currentInFilter],
+	);
+
+	const copyShareLink = useCallback(
+		(wishId?: string) => {
+			const url = new URL("/flashback/wishes", window.location.origin);
+			if (wishId) url.searchParams.set("item", wishId);
+			if (city) url.searchParams.set("city", city);
+			navigator.clipboard
+				.writeText(url.toString())
+				.then(() => setShareToast(t("shareCopied")))
+				.catch(() => setShareToast(t("shareFailed")));
+		},
+		[city, t],
+	);
+
+	// 分享 toast 复用同一展示位（自动消失与上方 toast effect 分开）
+	useEffect(() => {
+		if (!shareToast) return;
+		const timer = window.setTimeout(() => setShareToast(""), 3400);
+		return () => window.clearTimeout(timer);
+	}, [shareToast]);
+
 	const shuffle = () => {
 		// KTD10「换一批」：随机 seed 立即重洗
 		setSeed(crypto.randomUUID());
@@ -241,9 +305,9 @@ export default function WishesWall({
 
 	if (loadState === "failed") {
 		return (
-			<div className="fb-root fb-public">
-				<p className="fb-lead">{t("loadFailed")}</p>
-				<button type="button" className="fb-action" onClick={reloadWishes}>
+			<div className={`${styles.app} ${styles.statePage}`}>
+				<p className={styles.stateLead}>{t("loadFailed")}</p>
+				<button type="button" className={styles.ghostBtn} onClick={reloadWishes}>
 					{t("retry")}
 				</button>
 			</div>
@@ -251,121 +315,205 @@ export default function WishesWall({
 	}
 
 	return (
-		<div className="fb-root fb-public">
-			<header className="fb-public-hero">
-				<div className="fb-kicker">IN A FLASH · {t("kicker")}</div>
-				<h1 className="fb-stage-title">{t("title")}</h1>
-				<p className="fb-lead">{t("lead")}</p>
-			</header>
-
-			{cities.length > 0 && (
-				<MapScene
-					cities={cities}
-					city={city}
-					progress={1}
-					onCity={(next) => {
-						const picked = next === city ? "" : next;
-						setCity(picked);
-						syncCityToUrl(picked);
-					}}
-					pulse={0}
-				/>
-			)}
-
-			<section aria-labelledby="fb-wishes-title">
-				<h2 id="fb-wishes-title" className="fb-action-title">
-					{t("wallTitle")}
-				</h2>
-				<div className="fb-actions-row">
-					<button type="button" className="fb-action" onClick={shuffle}>
-						{t("shuffle")}
-					</button>
-					{/* R21/wish2 U7：双页互跳带城市 */}
-					<Link className="fb-action" href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
-						{t("voicesEntry")}
+		<div className={styles.app}>
+			<header className={styles.header}>
+				<Link className={styles.brand} href="/flashback" aria-label={t("metaTitle")}>
+					<strong>
+						{t("brandPrefix")}
+						<span className={styles.brandSeal}>{t("brandSealChar")}</span>
+					</strong>
+					<small>{t("brandSub")}</small>
+				</Link>
+				<nav className={styles.nav} aria-label={t("navLabel")}>
+					{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
+					<Link href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
+						{t("voicesNav")} <span>{t("voicesNavEn")}</span>
 					</Link>
-					{city && (
-						<button
-							type="button"
-							className="fb-action"
-							onClick={() => {
-								setCity("");
-								syncCityToUrl("");
-							}}
-						>
-							{t("allCities")}
-						</button>
-					)}
+					<Link href="/flashback/wishes" className={styles.activeNav} aria-current="page">
+						{t("wishesNav")} <span>{t("wishesNavEn")}</span>
+					</Link>
+				</nav>
+				<div className={styles.headerActions}>
 					{authed ? (
-						<button type="button" className="fb-action" onClick={() => setWriteOpen(true)}>
-							{t("writeWish")}
+						<button type="button" className={styles.primaryBtn} onClick={() => setWriteOpen(true)}>
+							<Icon name="pen" />
+							<span>{t("writeWish")}</span>
 						</button>
 					) : (
-						<Link className="fb-action" href="/flashback/enter">
-							{t("writeWish")}
+						<Link className={styles.primaryBtn} href="/flashback/enter">
+							<Icon name="pen" />
+							<span>{t("writeWish")}</span>
 						</Link>
 					)}
+					<button type="button" className={styles.secondaryBtn} onClick={() => copyShareLink()}>
+						<Icon name="share" />
+						<span>{t("shareTree")}</span>
+					</button>
 				</div>
+			</header>
 
-				{loadState === "loading" ? (
-					<p role="status">{t("loading")}</p>
-				) : wishes.length === 0 ? (
-					<p className="fb-hint">{t("empty")}</p>
-				) : (
-					<ul className="fb-wish-list">
-						{wishes.map((wish) => (
-							<li
-								key={wish.id}
-								className="fb-wish-card"
-								data-wish-id={wish.id}
-								data-current={wish.id === current?.id || undefined}
+			<main className={styles.workspace}>
+				<section className={styles.mapSection} aria-label={t("kicker")}>
+					<div className={styles.hero}>
+						<h1>{t("title")}</h1>
+						<p>{t("lead")}</p>
+					</div>
+					{cities.length > 0 && (
+						<MapScene
+							cities={cities}
+							city={city}
+							progress={1}
+							onCity={(next) => {
+								const picked = next === city ? "" : next;
+								setCity(picked);
+								syncCityToUrl(picked);
+							}}
+							pulse={0}
+						/>
+					)}
+				</section>
+
+				<aside className={styles.panel} aria-label={t("wallTitle")}>
+					<div className={styles.chips} role="group" aria-label={t("wallTitle")}>
+						<button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
+							{t("filterAll")}
+						</button>
+						<button type="button" aria-pressed={filter === "mine"} onClick={() => setFilter("mine")}>
+							{t("filterMine")}
+						</button>
+					</div>
+
+					{loadState === "loading" ? (
+						<p role="status" className={styles.panelNote}>
+							{t("loading")}
+						</p>
+					) : filtered.length === 0 ? (
+						<p className={styles.panelNote}>{filter === "mine" ? t("mineEmpty") : t("empty")}</p>
+					) : (
+						currentInFilter && (
+							<>
+								<article className={styles.selected} data-wish-id={currentInFilter.id}>
+									<p className={styles.selectedContent}>{currentInFilter.content}</p>
+									<p className={styles.selectedSignature}>
+										{currentInFilter.signature}
+										{currentInFilter.city ? ` · ${currentInFilter.city}` : ""}
+									</p>
+									<p className={styles.expectCount}>
+										{currentInFilter.expectationCount} {t("expectCount")}
+									</p>
+									<div className={styles.selectedActions}>
+										<button
+											type="button"
+											className={styles.primaryBtn}
+											disabled={!voter || pending.has(currentInFilter.id)}
+											aria-pressed={currentInFilter.expectedByViewer}
+											onClick={() => toggleExpect(currentInFilter)}
+										>
+											<Icon name="heart" filled={currentInFilter.expectedByViewer} />
+											{t("expectCta")}
+										</button>
+										<button type="button" className={styles.secondaryBtn} onClick={() => copyShareLink(currentInFilter.id)}>
+											<Icon name="share" />
+											{t("shareWish")}
+										</button>
+									</div>
+									<p className={styles.remindHint}>
+										<Icon name="bell" />
+										{t("remindHint")}
+									</p>
+									<div className={styles.selectedMeta}>
+										<button type="button" onClick={() => setEndorseGuideFor(currentInFilter)}>
+											{t("endorseEntry")}
+										</button>
+										<span aria-label={t("endorseCountLabel")}>🙌 {currentInFilter.endorsementCount}</span>
+										<button type="button" onClick={() => setReportFor(currentInFilter)}>
+											{t("reportEntry")}
+										</button>
+									</div>
+								</article>
+
+								{others.length > 0 && (
+									<>
+										<h2 className={styles.othersTitle}>{t("moreWishes")}</h2>
+										<ul className={styles.wishList}>
+											{others.map((wish) => (
+												<li key={wish.id} className={styles.wishRow} data-wish-id={wish.id}>
+													<button type="button" className={styles.wishRowOpen} onClick={() => setCurrentWishId(wish.id)}>
+														{wish.content}
+													</button>
+													<span className={styles.wishRowSignature}>
+														{wish.signature}
+														{wish.city ? ` · ${wish.city}` : ""}
+													</span>
+													<span className={styles.wishRowMeta}>
+														<span>❤️ {wish.expectationCount}</span>
+														<span aria-label={t("endorseCountLabel")}>🙌 {wish.endorsementCount}</span>
+													</span>
+													<button
+														type="button"
+														disabled={!voter || pending.has(wish.id)}
+														aria-pressed={wish.expectedByViewer}
+														onClick={() => toggleExpect(wish)}
+													>
+														❤️+
+													</button>
+												</li>
+											))}
+										</ul>
+									</>
+								)}
+							</>
+						)
+					)}
+
+					<div className={styles.panelOps}>
+						<button type="button" className={styles.ghostBtn} onClick={shuffle}>
+							<Icon name="shuffle" />
+							{t("shuffle")}
+						</button>
+						{city && (
+							<button
+								type="button"
+								className={styles.ghostBtn}
+								onClick={() => {
+									setCity("");
+									syncCityToUrl("");
+								}}
 							>
-								<p className="fb-wish-content">{wish.content}</p>
-								<p className="fb-wish-signature">
-									{wish.signature}
-									{wish.city ? ` · ${wish.city}` : ""}
-								</p>
-								<div className="fb-wish-meta">
-									<button
-										type="button"
-										disabled={!voter || pending.has(wish.id)}
-										aria-pressed={wish.expectedByViewer}
-										onClick={() => toggleExpect(wish)}
-									>
-										❤️ {wish.expectationCount}
-									</button>
-									<span aria-label={t("endorseCountLabel")}>🙌 {wish.endorsementCount}</span>
-									<button type="button" onClick={() => setEndorseGuideFor(wish)}>
-										{t("endorseEntry")}
-									</button>
-									<button type="button" onClick={() => setReportFor(wish)}>
-										{t("reportEntry")}
-									</button>
-								</div>
-							</li>
-						))}
-					</ul>
-				)}
-			</section>
+								{t("allCities")}
+							</button>
+						)}
+						{/* R21/wish2 U7：双页互跳带城市 */}
+						<Link className={styles.ghostBtn} href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
+							{t("voicesEntry")} <Icon name="arrow" />
+						</Link>
+					</div>
 
-			{toast && (
-				<p role="status" className="fb-toast">
-					{toast}
+					<footer className={styles.quote}>
+						<p>“ {t("wishQuote")} ”</p>
+						<small>—— {t("brandPrefix")}</small>
+					</footer>
+				</aside>
+			</main>
+
+			{(toast || shareToast) && (
+				<p role="status" className={styles.toast}>
+					{toast || shareToast}
 				</p>
 			)}
 
 			{endorseGuideFor && (
-				<div role="dialog" aria-modal="true" aria-label={t("endorseGuideTitle")}>
+				<div role="dialog" aria-modal="true" aria-label={t("endorseGuideTitle")} className={styles.dialog}>
 					<p>{t("endorseGuideLead")}</p>
 					<p>{t("endorseGuideSteps")}</p>
-					<button type="button" onClick={() => setEndorseGuideFor(null)}>
+					<button type="button" className={styles.ghostBtn} onClick={() => setEndorseGuideFor(null)}>
 						{t("close")}
 					</button>
 				</div>
 			)}
 
 			{reportFor && (
-				<div role="dialog" aria-modal="true" aria-label={t("reportTitle")}>
+				<div role="dialog" aria-modal="true" aria-label={t("reportTitle")} className={styles.dialog}>
 					<p>{t("reportLead")}</p>
 					<fieldset>
 						<legend>{t("reportReason")}</legend>
@@ -390,12 +538,13 @@ export default function WishesWall({
 					/>
 					<button
 						type="button"
+						className={styles.primaryBtn}
 						disabled={reportFree.trim().length > 200}
 						onClick={submitReport}
 					>
 						{t("reportSubmit")}
 					</button>
-					<button type="button" onClick={() => setReportFor(null)}>
+					<button type="button" className={styles.ghostBtn} onClick={() => setReportFor(null)}>
 						{t("close")}
 					</button>
 				</div>
