@@ -1,8 +1,10 @@
 # 小程序订阅消息模板申请：flashback_wish_echo（许愿树回响通知）
 
-> 状态：**模板已选用落地（2026-09-22）**——标题「活动反馈推送提醒」，槽位
-> `thing1`（活动名称=愿望标题）/ `thing4`（备注=回响摘要），模板 ID `<模板ID>`
-> 已配 GitHub secret 与 `miniprogram/.env.prod`。剩余工作 = §8 接入 checklist。
+> 状态：**模板已选用落地（2026-09-22），代码接入已完成（2026-09-23，02745ac6，
+> 槽位对齐实抄 thing1/thing4）**——标题「活动反馈推送提醒」，模板 ID `<模板ID>`
+> 已配 GitHub secret 与 `miniprogram/.env.prod`。§8 checklist 留作执行记录；
+> 注意实做 data_key 与 §2/§8 建议口径有偏差（现用 `content_preview` + 固定引导语，
+> `wish_title`/`echo_summary` 待 Echo 批字段定稿后切换），以 service.ex 为准。
 > 本文档保留为作业单存档：内容设计、平台规则、操作步骤、以及「拿到模板 ID 后」
 > 的代码接入 checklist。安全红线：真实模板 ID 只存在于公众平台后台与 GitHub
 > secret / gitignore 的 `.env.prod`，本文档与 issue 一律用 `<模板ID>` 占位
