@@ -173,4 +173,80 @@ defmodule Cgc2046.Reconciliation.FindingTest do
       assert created.detail == %{"cause" => "fresh"}
     end
   end
+
+  describe "apply_rule/3 sweep 模式（#848）" do
+    test ":partial（降级拍）——upsert 照常，未命中的旧记录保留" do
+      stale = create_finding(detail: %{cause: "stale"})
+      fresh_id = Ecto.UUID.generate()
+
+      :ok =
+        Finding.apply_rule(
+          :confirmed_enrollment_without_run,
+          [
+            %{
+              entity_type: :enrollment,
+              entity_id: fresh_id,
+              workspace_id: nil,
+              detail: %{cause: "degraded hit"}
+            }
+          ],
+          sweep: :partial
+        )
+
+      # 账单面残缺下「未命中即删」不成立：旧记录保留
+      assert Ash.get!(Finding, stale.id, authorize?: false).id == stale.id
+
+      # upsert 照常：新实体仍落新记录
+      created =
+        Finding
+        |> Ash.Query.filter(rule == :confirmed_enrollment_without_run and entity_id == ^fresh_id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert created.detail == %{"cause" => "degraded hit"}
+    end
+
+    test ":one_shot（单事件拍）——命中刷新 last_seen_at，旧记录保留" do
+      finding = create_finding(detail: %{cause: "original"})
+
+      # 回拨 last_seen_at：one_shot 命中后必被推回（Q2：不再冻结）
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE reconciliation_findings SET last_seen_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+          [Ecto.UUID.dump!(finding.id)]
+        )
+
+      stale = create_finding(detail: %{cause: "unrelated stale"})
+
+      original_first = finding.first_seen_at
+
+      :ok =
+        Finding.apply_rule(
+          :confirmed_enrollment_without_run,
+          [
+            %{
+              entity_type: :enrollment,
+              entity_id: finding.entity_id,
+              workspace_id: nil,
+              detail: %{cause: "hit again"}
+            }
+          ],
+          sweep: :one_shot
+        )
+
+      refreshed = Ash.get!(Finding, finding.id, authorize?: false)
+      assert refreshed.first_seen_at == original_first
+      assert DateTime.compare(refreshed.last_seen_at, original_first) == :gt
+
+      # 单事件拍无全量视图：未涉及的旧记录保留，本条也只刷新不删
+      assert Ash.get!(Finding, stale.id, authorize?: false).id == stale.id
+      assert refreshed.id == finding.id
+    end
+
+    test "非法 sweep 值被拒绝" do
+      assert_raise ArgumentError, ~r/unknown sweep mode/, fn ->
+        Finding.apply_rule(:confirmed_enrollment_without_run, [], sweep: :sometimes)
+      end
+    end
+  end
 end
