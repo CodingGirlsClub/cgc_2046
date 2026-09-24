@@ -4,7 +4,7 @@
 
 ## 1. 角色与模型
 
-- **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定自己做还是派子 agent、验收结论、change-quality 收据、push + 开 PR、写回 LoopX。
+- **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定自己做还是派子 agent、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
 - **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。手动会话也用自己的 worktree，别在主 checkout 上切分支。
 - **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限（每个 worktree 用自己的测试库，见 §6）。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。每个子 agent 一个独立 worktree，只改分配给它的文件，可在 worktree 内本地 commit，不 push、不开 PR。
 - 紧耦合的改动留在主控一条线里做；不为了"看起来在并行"而拆子 agent。
@@ -41,7 +41,15 @@
    - **safe-fix / 简化的禁区（pins）**：不得删除或放宽错误/界面文案（逐字）、守卫条件与不变量（白名单/豁免表/计数）、fail-closed 语义、testid、i18n key，以及为「单一真源」刻意保留的重复；不许放宽或删除任何断言（`refute` 尤其）。safe-fix 改了代码就重跑受影响的测试与变异验证（见 §6）。
 5. **push + 开 PR**：`git push -u origin <branch>`；PR 正文写 `Closes #N`、改了什么、为什么、用户可见影响、验收证据与收据结论。
 6. **pr-review**：跑 LoopX pr-review，评审发在 PR 上（自己的 PR 由 GitHub 限制，以 COMMENTED 形式发结论）。
-7. **合并归人**：建 user_action todo「合并 PR #N」，然后继续下一个 todo。
+7. **合并**：先对照根 `AGENTS.md` 的人工合并范围——PR 改动碰到任一项，就建 user_action todo「合并 PR #N」，然后继续下一个 todo。不碰的，按 `loopx-pr-merge` skill 自合并到 `develop`：
+
+   ```bash
+   loopx --format json pr-review --goal-id cgc-2046-goal --check-merge-readiness <PR>@<head-oid>   # 必须 ready=true
+   gh-axi pr merge <PR> --merge                                                                    # merge commit，不加 --auto
+   git pull --ff-only                                                                              # 在主 checkout 里：快进到最新 develop
+   ```
+
+   `ready=false` 时按 `blocking_reasons` 处理：`merge_state_requires_update` → 按 §5 对齐 develop（head 变了，收据与 pr-review 都要重做）；checks 未完成 → 等 CI；其他 → 回 §3 闭环。合并后更新 LoopX todo，下一个 issue 从最新 `develop` 建 worktree。
 
 - **发现必须有归宿**：每条发现要么修掉，要么写成 issue 评论，要么另开 issue（见 §7）；"报告里提过"不算处理。
 
@@ -59,10 +67,10 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 
 - **脚本存放约定**：可复用脚本放 `scripts/worktree/`，不留 `/tmp` 路径依赖；新增脚本参数化（PR 号等）、零第三方依赖、`set -uo pipefail`。
 
-## 5. 落地链（人合并，fail-closed）
+## 5. 落地链（一次合一条，fail-closed）
 
-- PR 由人合并，一律 merge commit（repo 已禁 squash/rebase，见根 `AGENTS.md`）。`scripts/worktree/ci-sentinel.sh` 会在 checks 全绿时**直接合并**，只给人用；LoopX 会话看 CI 用 `gh-axi pr checks <PR>`。
-- develop 前进后，还没合的 PR 先按 §4 重建，再用 GitHub 的 update branch（`gh pr update-branch`，经 `gh-axi`）对齐新 develop。**直接把"已合并内容"推分支没用**：GitHub 仍判 DIRTY。
+- 合并一律 merge commit（repo 已禁 squash/rebase，见根 `AGENTS.md`）。主控只按 §3 第 7 步自合并；碰到人工合并范围的 PR 由人合并。`scripts/worktree/ci-sentinel.sh` 会在 checks 全绿时**直接合并**、不做评审与就绪检查，只给人用；LoopX 会话看 CI 用 `gh-axi pr checks <PR>`。
+- 一次只合一条：合完一条，develop 前进，其余还没合的 PR 先按 §4 重建，再用 GitHub 的 update branch（`gh pr update-branch`，经 `gh-axi`）对齐新 develop——head 变了，收据与 pr-review 都要在新 head 上重做后才能合。**直接把"已合并内容"推分支没用**：GitHub 仍判 DIRTY。
 - **唯一容忍的失败：`ext` 单独红**（已知 flake）→ 重跑失败的 job，超过次数仍红按真实失败处理。
 - 任何**其他失败**：先判定是 flake / 内容问题 / 基础设施门禁（见 §8），再决定重跑、回炉还是记录；内容问题回 §3 闭环，改完重新生成 change-quality 收据。
 
