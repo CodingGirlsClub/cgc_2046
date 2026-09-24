@@ -685,29 +685,7 @@ defmodule Cgc2046.Events.Event do
 
       # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
       # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :draft ->
-              case status_transition(cs, :open) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :open)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "launch failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot launch from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :draft, to: :open})
 
       # event.launched 经 SignalEmitter 事务内 outbox 入队（plan 2026-08-14-003
       # Q6）：job 与 open 终态同事务提交，SignalPublishWorker 提交后异步投递——
@@ -742,29 +720,7 @@ defmodule Cgc2046.Events.Event do
       require_atomic?(false)
       accept([])
 
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :open ->
-              case status_transition(cs, :closed) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :closed)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "close failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot close from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :open, to: :closed})
 
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
@@ -789,29 +745,7 @@ defmodule Cgc2046.Events.Event do
       require_atomic?(false)
       accept([])
 
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :open ->
-              case status_transition(cs, :cancelled) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :cancelled)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "cancel failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot cancel from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :open, to: :cancelled})
 
       # event.ended 经 SignalEmitter 事务内 outbox 入队：job 与事件终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
@@ -1007,10 +941,6 @@ defmodule Cgc2046.Events.Event do
       "idempotency_key" => "event.schedule_changed:" <> event.id <> ":" <> Ecto.UUID.generate()
     }
   end
-
-  # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
-  defp status_transition(changeset, to_status),
-    do: StatusTransition.run(changeset, :events, to_status)
 
   # create/update error_handler（KTD3 / #597 / #608 / #623 / #619）：缴费模式 DB
   # CHECK 冲突转稳定业务错误。ash_postgres 把 check_constraint DSL 映射为 Ecto
