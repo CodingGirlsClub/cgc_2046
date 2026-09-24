@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import SiteFooter from "./site-footer";
