@@ -1,19 +1,8 @@
 import Config
 
-# Paseo worktree 并行隔离：同一台机多个 worktree 各用各的库与端口。
-# PASEO_BRANCH_NAME / PASEO_PORT 由 Paseo 注入 setup、scripts 与 services；
-# 缺省时库名 cgc_2046_dev、端口 4000，与无 Paseo 时的原行为完全一致。
-branch_suffix =
-  case System.get_env("PASEO_BRANCH_NAME") || "" do
-    "" ->
-      ""
-
-    branch ->
-      slug =
-        branch |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "_") |> String.slice(0, 45)
-
-      "_#{slug}"
-  end
+# worktree 并行隔离：附属 git worktree 各用各的库（规则见 worktree_suffix.exs）；
+# 主 checkout 库名 cgc_2046_dev。端口取 PORT（见 runtime.exs）。
+{branch_suffix, _} = Code.eval_file("worktree_suffix.exs", __DIR__)
 
 # Configure your database
 config :cgc_2046, Cgc2046.Repo,

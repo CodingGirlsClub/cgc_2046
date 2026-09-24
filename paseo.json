@@ -1,10 +1,9 @@
 {
   "worktree": {
-    "setup": "cp \"$PASEO_SOURCE_CHECKOUT_PATH/backend/.env\" backend/.env 2>/dev/null || true\nbash scripts/worktree/setup-worktree.sh || echo '[paseo] worktree bootstrap failed; continuing' >&2\ncd backend && mix setup\ncd ../miniprogram && pnpm install --frozen-lockfile",
-    "teardown": "cd backend && mix ecto.drop --force || true"
+    "setup": "bash scripts/worktree/setup-worktree.sh || echo '[paseo] worktree bootstrap failed; continuing' >&2"
   },
   "scripts": {
-    "api": { "type": "service", "command": "cd backend && mix phx.server" },
-    "web": { "type": "service", "command": "cd web && pnpm dev --port $PASEO_PORT" }
+    "api": { "type": "service", "command": "cd backend && PORT=$PASEO_PORT mix phx.server" },
+    "web": { "type": "service", "command": "cd web && BACKEND_URL=$PASEO_SERVICE_API_URL pnpm dev --port $PASEO_PORT" }
   }
 }

@@ -71,12 +71,12 @@ command -v wechatide >/dev/null || {
   exit 2
 }
 
-# 缺依赖时别让它以「mock 构建失败」的面目出现（看不出真实原因）：Paseo 建的 worktree
-# 由 setup 自动装（paseo.json），手工 `git worktree add` 或早于该 setup 的 worktree 需自己装
+# 缺依赖时别让它以「mock 构建失败」的面目出现（看不出真实原因）：新 worktree 跑过
+# scripts/worktree/setup-worktree.sh 就会装好，没跑过的需自己装
 [ -x "$MP_DIR/node_modules/.bin/taro" ] || {
   echo "✗ 缺小程序依赖（$MP_DIR/node_modules）。" >&2
   echo "  先执行：cd miniprogram && pnpm install --frozen-lockfile" >&2
-  echo "  注：Paseo 建的 worktree 由 paseo.json 的 setup 自动安装；手工创建的需自己装。" >&2
+  echo "  注：新 worktree 跑一次 scripts/worktree/setup-worktree.sh 即可装好。" >&2
   exit 2
 }
 
