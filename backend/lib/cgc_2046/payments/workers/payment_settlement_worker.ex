@@ -37,9 +37,9 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
+  alias Cgc2046.Payments.RefundCommencement
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
-  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"webhook_event_id" => event_id}}) do
@@ -272,31 +272,17 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
     end
   end
 
-  # 自动退款（KTD12 共用不变量）：start_refund（paid|expired → refunding）+ 入队
-  # 退款 job；渠道调用与收尾（refunded/报名/通知）由 U9 worker 消费。
+  # 自动退款（KTD12 共用不变量）：经 RefundCommencement 发起 start_refund
+  # （paid / expired / cancelled → refunding，#845 起入队由 Order action 的
+  # after_action 同事务恰好一次承担）；渠道调用与收尾（refunded/报名/通知）
+  # 由 U9 worker 消费。
   defp enqueue_auto_refund(order) do
-    case Cgc2046.Repo.transaction(fn ->
-           result =
-             order
-             |> Ash.Changeset.for_update(:start_refund, %{})
-             |> Ash.update(tenant: order.workspace_id, authorize?: false)
+    case RefundCommencement.commence(order, eligible: [:paid, :expired, :cancelled]) do
+      {:ok, _tag} ->
+        :ok
 
-           case result do
-             {:ok, refunding} ->
-               %{"order_id" => refunding.id} |> PaymentRefundWorker.new() |> Oban.insert!()
-
-             {:error, error} ->
-               fresh = Ash.get!(Order, order.id, authorize?: false)
-
-               if fresh.status in [:refunding, :refunded] do
-                 %{"order_id" => fresh.id} |> PaymentRefundWorker.new() |> Oban.insert!()
-               else
-                 Cgc2046.Repo.rollback(error)
-               end
-           end
-         end) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
