@@ -17,8 +17,6 @@
  * 按压反馈；prefers-reduced-motion 在 CSS 侧全降级。
  */
 
-import LanguageSwitcher from "@/components/language-switcher";
-import { BrandLockup } from "@/components/brand";
 import { Link } from "@/i18n/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslations } from "next-intl";
@@ -26,6 +24,7 @@ import { fetchPublicOfferings } from "@/lib/public-offerings";
 import type { OfferingKind, PublicOfferingItem } from "@/lib/graphql/events";
 import OfferingRow from "@/components/offering-row";
 import SiteHeader from "@/components/site-header";
+import SiteFooter from "@/components/site-footer";
 
 const FOUNDED_YEAR = 2016;
 const TARGET_YEAR = 2046;
@@ -350,26 +349,8 @@ export default function LandingPage() {
 				</div>
 			</section>
 
-			<footer className="ld-footer">
-				<div className="ld-container ld-footer__inner">
-					<BrandLockup className="ld-footer__brand" />
-					<p>{t("footer.tagline")}</p>
-					{/* 语言切换在顶导常驻；窄屏顶导收起后由页尾接管（仅 ≤640px 显示） */}
-					<span className="ld-footer__lang">
-						<LanguageSwitcher />
-					</span>
-					<p>
-						© CodingGirlsClub ｜{" "}
-						<a
-							href="https://beian.miit.gov.cn"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							{t("footer.icp")}
-						</a>
-					</p>
-				</div>
-			</footer>
+			{/* 页脚：全站统一 SiteFooter（与公开目录/站点页同源零跳变） */}
+			<SiteFooter />
 		</main>
 	);
 }
