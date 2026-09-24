@@ -196,73 +196,47 @@ defmodule Cgc2046.Admission.Attendance do
   #
   # | 押金单状态         | 动作                                          |
   # |--------------------|-----------------------------------------------|
-  # | paid               | `start_refund` + 入队退款 job                  |
-  # | refund_failed      | `retry_refund` + 入队退款 job                  |
+  # | paid               | 退款发起（start_refund）+ 入队退款 job         |
+  # | refund_failed      | 退款发起（retry_refund）+ 入队退款 job         |
   # | refunding/refunded | 良性 no-op（已在退还中 / 已退，核销照常成功）    |
   # | forfeited          | 业务错误 `deposit_already_forfeited`（不落库）  |
   # | 无单 / 其余态       | 只记到场（免费场、免缴后作废单、待支付单）       |
   #
-  # 入队走 `Oban.insert!`（raise 型）：Ash 3.33 的 after_action 返回 `{:error, _}`
-  # 会**提交**事务（`transaction_rollback_on_error?` 未设），入队失败必须靠 raise
-  # 才能让 Attendance / 审计 / 状态 CAS 与 job 一起回滚（KTD6；安全形状同
-  # `enqueue_auto_refund/1` 与 `offering_cancel_refund_worker`）。
-  # `Enrollment.enqueue_deposit_refund/2` 是非 raise 形状，不得复用其错误语义。
+  # #845：分类与竞态收敛在 `RefundCommencement.commence/2` 单一入口；入队由
+  # Order action 的 after_action 承担（同事务恰好一次），失败经 raise 上抛——
+  # Ash 3.33 的 after_action 返回 `{:error, _}` 会**提交**事务
+  # （`transaction_rollback_on_error?` 未设），raise 是 Attendance / 审计 /
+  # 状态 CAS 与 job 一起回滚的唯一形状（KTD6）。
   defp enqueue_deposit_refund(_changeset, attendance) do
     case active_deposit_order(attendance) do
       {:ok, nil} -> {:ok, attendance}
-      {:ok, order} -> apply_deposit_refund(order, attendance)
+      {:ok, order} -> commence_deposit_refund(order, attendance)
       {:error, reason} -> raise_refund_failure(reason)
     end
   end
 
-  defp apply_deposit_refund(%{status: :paid} = order, attendance),
-    do: transition_and_enqueue(order, attendance, :start_refund)
-
-  defp apply_deposit_refund(%{status: :refund_failed} = order, attendance),
-    do: transition_and_enqueue(order, attendance, :retry_refund)
-
-  # 已被他路退款（自助取消 / 批量退 / 迟到支付自动退）：不重复发起（KD3）
-  defp apply_deposit_refund(%{status: status}, attendance) when status in [:refunding, :refunded],
-    do: {:ok, attendance}
-
-  # no-show 结算终态：押金归平台收入，核销不得静默降级为「只记到场」（KTD6）
-  defp apply_deposit_refund(%{status: :forfeited}, _attendance) do
-    raise Cgc2046.Errors.BusinessError.exception(
-            message: domain_error_message(:already_forfeited),
-            code: domain_error_code(:already_forfeited)
-          )
-  end
-
-  # pending / cancelled / expired：无已收押金可退，与免费场同形
-  defp apply_deposit_refund(_no_collected_deposit, attendance), do: {:ok, attendance}
-
-  defp transition_and_enqueue(order, attendance, action) do
-    case order
-         |> Ash.Changeset.for_update(action, %{})
-         |> Ash.update(tenant: order.workspace_id, authorize?: false) do
-      {:ok, refunding} ->
-        enqueue_refund_job!(refunding)
-        log_attendance_refund!(attendance, refunding)
+  defp commence_deposit_refund(order, attendance) do
+    case Cgc2046.Payments.RefundCommencement.commence(order, eligible: [:paid, :refund_failed]) do
+      {:ok, tag} when tag in [:started, :retried] ->
+        log_attendance_refund!(attendance, order)
         {:ok, attendance}
 
-      {:error, transition_error} ->
-        # CAS 失败 = 他路已接管（KTD8：num_rows=0 即幂等 no-op）。以持久态重裁一次；
-        # 状态未变却失败 = 真故障（DB 层拒绝），上抛回滚整个核销。
-        reevaluate_transition(order, attendance, transition_error)
-    end
-  end
+      # 已被他路退款（自助取消 / 批量退 / 迟到支付自动退）：不重复发起（KD3）
+      {:ok, :already_in_progress} ->
+        {:ok, attendance}
 
-  defp reevaluate_transition(order, attendance, transition_error) do
-    case Ash.get(Cgc2046.Payments.Order, order.id,
-           tenant: order.workspace_id,
-           authorize?: false
-         ) do
-      {:ok, %{status: status} = fresh} when status != order.status ->
-        apply_deposit_refund(fresh, attendance)
+      # no-show 结算终态：押金归平台收入，核销不得静默降级为「只记到场」（KTD6）
+      {:error, {:ineligible, :forfeited}} ->
+        raise Cgc2046.Errors.BusinessError.exception(
+                message: domain_error_message(:already_forfeited),
+                code: domain_error_code(:already_forfeited)
+              )
 
-      {:ok, _unchanged} ->
-        raise_refund_failure(transition_error)
+      # pending / cancelled / expired：无已收押金可退，与免费场同形
+      {:error, {:ineligible, _status}} ->
+        {:ok, attendance}
 
+      # CAS 未命中且重读仍未收敛 = 真故障（DB 层拒绝），上抛回滚整个核销
       {:error, reason} ->
         raise_refund_failure(reason)
     end
@@ -286,25 +260,19 @@ defmodule Cgc2046.Admission.Attendance do
     end
   end
 
-  # Oban.insert! 直入 oban_jobs 表（同连接同事务）——与 start_refund CAS 原子提交
-  defp enqueue_refund_job!(refunding) do
-    Cgc2046.Payments.Workers.PaymentRefundWorker.new(%{"order_id" => refunding.id})
-    |> Oban.insert!()
-  end
-
   # 审计（KTD6）：actor = 核销人，target = 押金单。规 13 资金动作爆发白名单
   # **不**收录 :attendance_refund——核销是主理人现场的正常高频动作，收录即告警
   # 风暴（规 13 口径是 actor 维度「1 小时 > 5 笔」的滥用面）。
-  defp log_attendance_refund!(attendance, refunding) do
+  defp log_attendance_refund!(attendance, order) do
     Cgc2046.Accounts.AdminActionLog.log!(%{
       actor_id: attendance.operator_id,
       action: :attendance_refund,
       target_type: :order,
-      target_id: refunding.id,
+      target_id: order.id,
       metadata: %{
         "event_id" => attendance.event_id,
         "enrollment_id" => attendance.enrollment_id,
-        "amount_cents" => refunding.amount_cents
+        "amount_cents" => order.amount_cents
       }
     })
 
