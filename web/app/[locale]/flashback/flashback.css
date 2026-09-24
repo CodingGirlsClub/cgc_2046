@@ -494,7 +494,8 @@
 /* 拍立得答案区（R7）；卡面是 button（第 3 件翻面），内容用 span + 块级化 */
 .fb-answers { padding: 9%; display: grid; gap: 10px; text-align: left; }
 .fb-answer { display: block; }
-.fb-answer-q { font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
+/* 题面独占一行（视觉审计 2026-09：曾缺失 display:block，题面与答案 inline 连排成一行） */
+.fb-answer-q { display: block; margin-bottom: 2px; font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
 .fb-answer-a { font-size: 12px; line-height: 1.7; }
 .fb-card-caption {
 	padding: 9px 11px;
