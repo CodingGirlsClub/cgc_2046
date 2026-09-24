@@ -7,6 +7,8 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
 
   - sharedStrings（含 rich text 多 `<t>` run 拼接）、inlineStr、数字/文本 cell；
   - 稀疏 cell（如 `r="C5"` 前缺 A5/B5）按列字母展开补空；
+  - 包内 XML 挂 UTF-8 BOM 的导出形态（金数据 2019 批次：Python 工作坊 + 部分
+    GCD 2017）照常解析；
   - 只读值，不处理公式/样式/日期序列号（2014 场时间戳为 ISO8601 文本，
     R22 已核；其他形态由 dry-run 报告暴露）。
 
@@ -65,7 +67,9 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
 
   defp xml(path, files) do
     case Map.fetch(files, path) do
-      {:ok, bin} -> Saxy.SimpleForm.parse_string(bin)
+      # 部分导出工具（金数据 2019 批次）给包内 XML 挂了 UTF-8 BOM——Saxy 拒绝
+      # 以 BOM 开头的文档，先剥再解析。
+      {:ok, bin} -> Saxy.SimpleForm.parse_string(String.trim_leading(bin, "\uFEFF"))
       :error -> {:error, {:missing_entry, path}}
     end
   end
@@ -130,10 +134,8 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
   # sharedStrings.xml：<si><t>a</t></si> 与富文本 <si><r><t>a</t><t>b</t></r></si>
   # 全部 <t> 拼接。
   defp shared_strings(files) do
-    case Map.fetch(files, "xl/sharedStrings.xml") do
-      {:ok, bin} ->
-        {:ok, sst} = Saxy.SimpleForm.parse_string(bin)
-
+    case xml("xl/sharedStrings.xml", files) do
+      {:ok, sst} ->
         find_deep(sst, "sst")
         |> children_of("si")
         |> Enum.map(fn si ->
@@ -142,7 +144,7 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
           |> IO.iodata_to_binary()
         end)
 
-      :error ->
+      {:error, {:missing_entry, _path}} ->
         []
     end
   end

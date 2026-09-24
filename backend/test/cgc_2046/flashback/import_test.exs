@@ -52,6 +52,17 @@ defmodule Cgc2046.Flashback.ImportTest do
     binary
   end
 
+  # 部分导出工具（金数据 2019 批次）会给包内每个 XML 挂 UTF-8 BOM。
+  defp prepend_bom(xlsx_binary) do
+    {:ok, entries} = :zip.extract(xlsx_binary, [:memory])
+
+    entries =
+      Enum.map(entries, fn {path, content} -> {path, <<0xEF, 0xBB, 0xBF>> <> content} end)
+
+    {:ok, {_name, binary}} = :zip.create(~c"fixture-bom.xlsx", entries, [:memory])
+    binary
+  end
+
   defp encode_sheets(sheet_defs) do
     {shared_acc, parts, _idx} =
       Enum.reduce(sheet_defs, {[], [], 0}, fn {name, rows}, {shared, parts, idx} ->
@@ -388,6 +399,16 @@ defmodule Cgc2046.Flashback.ImportTest do
 
       assert sheets["Sheet1"] == [["姓名", "城市"], ["王小明", "北京"]]
       assert sheets["学生"] == [["姓名", "手机"], ["李雷", "13900000000"]]
+    end
+
+    test "包内 XML 挂 UTF-8 BOM（金数据 2019 批次形态）→ 正常解析" do
+      {:ok, sheets} =
+        [{"Sheet1", [["姓名", "城市"], ["李雷", "北京"]]}]
+        |> build_xlsx()
+        |> prepend_bom()
+        |> Xlsx.read()
+
+      assert sheets["Sheet1"] == [["姓名", "城市"], ["李雷", "北京"]]
     end
 
     test "BIFF8（OLE2 magic）→ 拦截 + 转换指引（R22 fail-closed）" do
