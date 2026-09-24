@@ -19,14 +19,12 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
   alias Cgc2046.Payments.Workers.PaymentRefundWorker
   alias Cgc2046.Repo
 
-  require Ash.Query
-
   @tier_id "88888888-8888-8888-8888-888888888888"
   @tier %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}
 
   describe "状态分派矩阵" do
     test "paid + eligible → {:ok, :started}，refundings + 恰一笔 job" do
-      %{workspace: workspace, order: order} = paid_order_setup()
+      %{order: order} = paid_order_setup()
 
       assert {:ok, :started} = RefundCommencement.commence(order, eligible: [:paid])
 
@@ -40,7 +38,7 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
     end
 
     test "refund_failed + eligible → {:ok, :retried}，重入退款链" do
-      %{workspace: workspace, order: order} = paid_order_setup()
+      %{order: order} = paid_order_setup()
       set_status!(order, "refund_failed")
 
       assert {:ok, :retried} =
@@ -156,21 +154,62 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
   end
 
   describe "真实并发（unboxed 双连接）" do
-    test "两进程同时 commence 同一 paid 单：恰一 :started、另一 :already_in_progress，恰一笔 job" do
-      %{workspace: workspace, order: order} = paid_order_setup()
-      cleanup_on_exit(workspace)
-
-      results =
+    # R1-#3：两个 task 各自 unboxed_run 拿独立非沙箱连接（shared sandbox 下
+    # 不切连接则共享同一条 pg_backend_pid，实为串行）；布置亦 unboxed 真提交，
+    # worker 连接才可见；数据由 on_exit 自行清理。
+    test "两进程独立连接同时 commence 同一 paid 单：恰一 :started、另一 :already_in_progress，恰一笔 job" do
+      order =
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          tasks =
-            Enum.map(1..2, fn _ ->
-              Task.async(fn -> RefundCommencement.commence(order, eligible: [:paid]) end)
-            end)
-
-          Enum.map(tasks, &Task.await(&1, 15_000))
+          %{order: order} = paid_order_setup()
+          reload_order(order)
         end)
 
-      assert Enum.sort(results) == [{:ok, :already_in_progress}, {:ok, :started}]
+      on_exit(fn ->
+        # unboxed 真提交的布置行清理：FK 链深（workflow_definitions /
+        # workspace_memberships 等）不穷举——删业务行（job/订单/报名），
+        # workspace 行残留由 uniq slug 保证无串扰，测试库重建时消化
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Repo.query!("DELETE FROM oban_jobs WHERE args->>'order_id' = $1", [order.id])
+
+          Repo.query!("DELETE FROM payments_orders WHERE enrollment_id = $1", [
+            Repo.uuid!(order.enrollment_id)
+          ])
+
+          Repo.query!("DELETE FROM enrollments WHERE id = $1", [Repo.uuid!(order.enrollment_id)])
+        end)
+      end)
+
+      test_pid = self()
+
+      tasks =
+        Enum.map(1..2, fn _ ->
+          Task.async(fn ->
+            Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+              {:ok, %{rows: [[backend_pid]]}} = Repo.query("SELECT pg_backend_pid()", [])
+
+              send(test_pid, {:backend_pid, backend_pid})
+              RefundCommencement.commence(order, eligible: [:paid])
+            end)
+          end)
+        end)
+
+      results = Enum.map(tasks, &Task.await(&1, 15_000))
+
+      pids =
+        for _ <- 1..2 do
+          receive do
+            {:backend_pid, pid} -> pid
+          after
+            5_000 -> flunk("task 未上报 pg_backend_pid（编排失败）")
+          end
+        end
+
+      # 独立连接：两 task 的 pg_backend_pid 必须不同（否则只是串行重放）
+      assert length(Enum.uniq(pids)) == 2
+
+      # 恰一 :started、恰一 :already_in_progress（不依赖原子排序的脆弱比较）
+      assert Enum.count(results, &(&1 == {:ok, :started})) == 1
+      assert Enum.count(results, &(&1 == {:ok, :already_in_progress})) == 1
 
       assert reload_order(order).status == :refunding
 
@@ -236,16 +275,6 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
   defp jobs_for(order) do
     all_enqueued(worker: PaymentRefundWorker)
     |> Enum.filter(&(&1.args["order_id"] == order.id))
-  end
-
-  # unboxed 真提交的数据清理：审计行无 FK 挡路先删，再级联删 workspace
-  defp cleanup_on_exit(workspace) do
-    on_exit(fn ->
-      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        Repo.query!("DELETE FROM admin_action_logs WHERE metadata->>'event_id' IS NOT NULL", [])
-        Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
-      end)
-    end)
   end
 
   defp reload_order(order),
