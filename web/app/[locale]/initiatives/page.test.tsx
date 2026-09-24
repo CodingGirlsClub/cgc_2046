@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import { formatDeadline } from "@/lib/events";
 import InitiativeIndexPage from "./page";
@@ -61,9 +61,11 @@ describe("/initiatives 公开列表页", () => {
 	it("AE3：open 与 closed 都列出、open 在前、卡片字段与链接正确", async () => {
 		render(<InitiativeIndexPage />);
 
-		// 顶导「倡导活动」高亮当前目录页（aria-current + active 类）
+		// 顶导「倡导活动」高亮当前目录页（aria-current + active 类）；
+		// 全站页脚同名入口不高亮（SiteFooter 落地后同名链接不止一个，限定主导航作用域）
+		const primaryNav = screen.getByRole("navigation", { name: "主导航" });
 		expect(
-			screen.getByRole("link", { name: "倡导活动" }),
+			within(primaryNav).getByRole("link", { name: "倡导活动" }),
 		).toHaveAttribute("aria-current", "page");
 
 		const openLink = await screen.findByRole("link", {
