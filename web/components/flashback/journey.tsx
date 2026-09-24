@@ -14,6 +14,7 @@ import {
 	FLASHBACK_SET_QUOTE_LICENSE,
 	FLASHBACK_REGISTER_BIND,
 	FLASHBACK_DREAM_TARGET,
+	FLASHBACK_ADJUST_FOG,
 	type FlashbackDreamTarget,
 	type FlashbackEnterResult,
 	type FlashbackTodayInput,
@@ -85,6 +86,7 @@ export default function Journey() {
 	const [runSendToWall] = useMutation(FLASHBACK_SEND_TO_WALL);
 	const [runSetQuoteLicense] = useMutation(FLASHBACK_SET_QUOTE_LICENSE);
 	const [runRegisterBind] = useMutation(FLASHBACK_REGISTER_BIND);
+	const [runAdjustFog] = useMutation(FLASHBACK_ADJUST_FOG);
 	const [runRequestPhoneCode] = useMutation(REQUEST_PHONE_CODE);
 
 	const goTo = useCallback(
@@ -248,8 +250,14 @@ export default function Journey() {
 				<div className="fb-send-overlay" role="dialog" aria-modal="true" aria-labelledby="fb-send-title">
 					<SendRegister
 					form={form}
+					answers={freeAnswers}
 					maskedPhone={entry.progress?.maskedPhone}
 					maskedEmail={entry.progress?.maskedEmail}
+					onAdjustFog={async (answerId, spans) => {
+						const { data } = await runAdjustFog({ variables: { token, answerId, spans } });
+						return Boolean(data?.flashbackAdjustFog);
+					}}
+					onBack={() => setSendOpen(false)}
 					onSubmitToday={async (input) => {
 						const { data } = await runSubmitToday({
 							variables: { token, input: toTodayInput(input) },

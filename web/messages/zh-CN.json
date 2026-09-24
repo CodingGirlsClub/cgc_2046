@@ -2793,6 +2793,12 @@
       "quoteCourage": "你的语言，会成为别人的勇气。"
     },
     "sendRegister": {
+      "reviewTitle": "寄出前，检查当年的你",
+      "reviewLead": "点一句即可切换雾或亮：带雾的句子寄出后对其他校友显示为雾块；你自己永远看到完整原文；寄出之后，还能在小程序里继续调整。",
+      "fogBadge": "雾",
+      "confirmSend": "确认寄出，贴上墙 →",
+      "thinkMore": "再想想",
+      "errorFog": "雾面没有调好，寄出已在此之前暂停——请再试一次。",
       "title": "照片正在贴上墙。",
       "lead": "正面是当年的你，背面是今天的你。寄出后，这张卡会出现在时间长廊。",
       "send": "寄出，回到时间长廊 →",
@@ -2868,7 +2874,20 @@
       "when": "⚡ 今天",
       "flabel": "此刻 · 一闪念间",
       "dashed": "你的照片还没寄出",
-      "goSend": "去寄出它 →"
+      "goSend": "去寄出它 →",
+      "editEntry": "编辑今天的你",
+      "editTitle": "改改「今天的你」",
+      "editSave": "保存",
+      "editSaving": "保存中……",
+      "editCancel": "先不改",
+      "editSaved": "已保存 ✓",
+      "editError": "保存没有成功——请再试一次。",
+      "retractEntry": "撤下",
+      "retractTitle": "撤下这张卡？",
+      "retractBody": "撤下后你的卡从校友墙撤下，其他校友看不到了；随时可重新寄出。",
+      "retractConfirm": "确认撤下",
+      "retractCancel": "再想想",
+      "retractError": "撤下没有成功——请再试一次。"
     },
     "cardExport": {
       "ariaLabel": "卡片导出",
