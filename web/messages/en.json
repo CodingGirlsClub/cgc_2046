@@ -2874,7 +2874,20 @@
       "when": "⚡ Today",
       "flabel": "this moment · in a flash",
       "dashed": "Your photo hasn't been sent yet",
-      "goSend": "Send it →"
+      "goSend": "Send it →",
+      "editEntry": "Edit today's you",
+      "editTitle": "Edit «the you of today»",
+      "editSave": "Save",
+      "editSaving": "Saving…",
+      "editCancel": "Not now",
+      "editSaved": "Saved ✓",
+      "editError": "Saving didn't go through — try again.",
+      "retractEntry": "Take it down",
+      "retractTitle": "Take this card down?",
+      "retractBody": "Taken down, your card leaves the alumni wall — others won't see it anymore. You can send it back anytime.",
+      "retractConfirm": "Yes, take it down",
+      "retractCancel": "Think again",
+      "retractError": "Taking it down didn't go through — try again."
     },
     "cardExport": {
       "ariaLabel": "Card export",

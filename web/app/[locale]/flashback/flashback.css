@@ -535,6 +535,41 @@
 	border: 1px solid rgba(203, 191, 143, 0.5);
 }
 
+/* ── 胶囊「我的卡」动作（编辑今天的你 / 撤下）与暗底弹层 ───────────────
+   弹层壳复用 fb-send-overlay / fb-send-step；编辑 textarea 用 fb-register-input
+   同款暗底配方（对比度门已钉：#ece8de 对暗底 ≥4.5） */
+.fb-today-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+.fb-today-dialog {
+	max-height: min(82vh, 760px);
+	overflow-y: auto;
+}
+.fb-today-dialog-fields {
+	display: grid;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+}
+.fb-root textarea.fb-today-dialog-textarea {
+	background: rgba(239, 233, 219, 0.12);
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	border-radius: 8px;
+	padding: 10px 12px;
+	color: #ece8de;
+	font-size: 14px;
+	width: 100%;
+	min-height: 3.4em;
+	resize: vertical;
+}
+.fb-root textarea.fb-today-dialog-textarea:focus-visible {
+	outline: none;
+	border-color: var(--fb-accent);
+}
 /* 拍立得答案区（R7）；卡面是 button（第 3 件翻面），内容用 span + 块级化 */
 .fb-answers { padding: 9%; display: grid; gap: 10px; text-align: left; }
 .fb-answer { display: block; }
