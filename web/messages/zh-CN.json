@@ -410,7 +410,10 @@
     },
     "footer": {
       "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046",
-      "icp": "京ICP备16008426号-2"
+      "icp": "京ICP备16008426号-2",
+      "ariaLabel": "站点页脚",
+      "privacy": "隐私政策",
+      "terms": "服务条款"
     },
     "mediaReports": [
       {
