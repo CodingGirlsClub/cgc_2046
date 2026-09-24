@@ -296,6 +296,12 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       # retry_refund（refund_failed → refunding，after_action 自带入队 refund job）
       assert reload_order(order).status == :refunding
       assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+
+      # #845 钉测：恰好一笔——after_action 入队是唯一来源
+      assert [%{}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+
       assert event_for(order).status == :processed
     end
   end
