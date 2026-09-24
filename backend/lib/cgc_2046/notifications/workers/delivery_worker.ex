@@ -3,10 +3,13 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
   NotificationDelivery 行的发送 worker。发送前经 `Staleness.stale?/1` 做过期
   重查（与 NotificationWorker 同一解释器，#847）；命中过期的行终态化
   `:failed`（`last_error` 为 `":stale"`）——复用既有状态值而非新增：status 是
-  public 字段，扩值域会外溢到对账与前端；mark_failed 的终态语义（attempts
-  计数、rule 15 Finding 24h 出报表）已满足「落终态可查」，且与 #556 末拍
-  终态化同款先例（identity_not_found 也非发送失败仍落 :failed）。幂等防重发
-  靠 Delivery.enqueue 的幂等键与 :sent 行 no-op。
+  public 字段，扩值域会外溢到对账与前端（且新值不被规15 捞到，过期抑制反而
+  失去对账面）；mark_failed 的终态语义（attempts 计数、rule 15 Finding 24h
+  出报表）已满足「落终态可查」，且与 #556 末拍终态化同款先例
+  （identity_not_found 也非发送失败仍落 :failed）。代价是规15 报表中过期抑制
+  以「失败」面目出现，与真实发送失败靠 `last_error` 区分（`":stale"` vs
+  inspect 出的结构化 reason）——过期与失败由此共用同一条既有对账通道，不为
+  过期单开对账面。幂等防重发靠 Delivery.enqueue 的幂等键与 :sent 行 no-op。
   """
 
   use Oban.Worker,
