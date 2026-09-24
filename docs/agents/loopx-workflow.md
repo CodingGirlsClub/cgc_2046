@@ -6,7 +6,7 @@
 
 - **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定自己做还是派子 agent、验收结论、change-quality 收据、push + 开 PR、写回 LoopX。
 - **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。手动会话也用自己的 worktree，别在主 checkout 上切分支。
-- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——共享测试库、端口 4001、ego-browser 登录态是实际上限。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。每个子 agent 一个独立 worktree，只改分配给它的文件，可在 worktree 内本地 commit，不 push、不开 PR。
+- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限（每个 worktree 用自己的测试库，见 §6）。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。每个子 agent 一个独立 worktree，只改分配给它的文件，可在 worktree 内本地 commit，不 push、不开 PR。
 - 紧耦合的改动留在主控一条线里做；不为了"看起来在并行"而拆子 agent。
 
 ## 2. 任务来源与 todo 约定
@@ -25,7 +25,7 @@
    - **backend（改了 GraphQL 面或 MCP 工具面）**：dev 服务起来后用真实 GraphQL 查询/变更实测（curl 或 ego-browser network 面取证），MCP 工具经对应 transport 实调一次——不能只靠测试套件自证。
    - **纯 docs / scripts / 生成物**：豁免，写明「无运行面」。
    - **降级口径**：验收环境确不可用（GUI/服务起不来）时，写明「未覆盖面 + 已做的替代自证」，建 user_gate todo 由人判断放行与否；**静默跳过 = 回炉**。
-   - **端口纪律**：`4001` 是 miniprogram dev 约定端口（`miniprogram/config/index.ts` 写死 `localhost:4001`）——验收/代理服务一律避开；「服务用完即关」只关自己起的进程（先记录 pid/端口），绝不杀端口上的陌生进程。曾有一次验收收尾关掉 4001，误伤用户在跑的小程序调试环境。
+   - **端口纪律**：`4001` 是 miniprogram dev 约定端口（`miniprogram/config/index.ts` 写死 `localhost:4001`）——验收/代理服务一律避开；「服务用完即关」只关自己起的进程（先记录 pid/端口），绝不杀端口上的陌生进程。
    - **登录态串行**：共享 profile 的 `localhost` cookie 跨端口共享，多个 agent 并行会互相顶会话——登录态验收同一时刻只允许一个 agent 持有。
 4. **change-quality 收据**：在主 checkout 里对 worktree 的最终 diff 生成，范围以 `origin/develop` 为基线：
 
@@ -52,7 +52,7 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 1. 用**临时 index**（`GIT_INDEX_FILE=<tmp>`）对 base/ours/theirs 逐文件跑 `git merge-file`，把合并结果写进临时 index；
 2. 用 `git commit-tree` 把重建后的 tree 挂到最新 develop 上生成新 commit（保留原 commit 的 message/作者），再把 worktree 分支指过去；
 3. 子 agent 已本地 commit 时**源 commit 直接用它的本地 commit**：`git diff --stat origin/develop <agent-commit>` 仍必须恰好等于本分支改动文件集、且不得携带生成物（build 产物等）；
-4. **重建后逐文件核对**：`git diff --stat origin/develop <NEW_COMMIT>` 必须恰好等于本分支自己的改动文件集；多出的文件说明源分支携带了 develop 侧内容 → 用排除清单剔除后重建（实例：2026-09-17 一次重建把 21 个 develop 文件带进 PR，CI 才变红）；
+4. **重建后逐文件核对**：`git diff --stat origin/develop <NEW_COMMIT>` 必须恰好等于本分支自己的改动文件集；多出的文件说明源分支携带了 develop 侧内容 → 用排除清单剔除后重建；
 5. 文件按三类分别处理：① develop 未动 → 取源分支版本；② 双方都改 → `git merge-file` 三方；③ develop 新增 → **绝不带进来**；
 6. ②且 diff3 报冲突时：源分支**已手工合并过**该文件 → 整份取 worktree 侧（`TAKE_THEIRS`）；**没手工合并过就不要整份取**——做「develop 版本 + 本分支那几处编辑」的确定性合成，并用两条自证收尾：`diff origin/develop <合成结果>` 只出现本分支的 hunk；被改的语义块与源分支逐字一致。不要凭 diff 猜意图做二次手工编辑；
 7. 非 ASCII 路径先 `git config core.quotePath false`，否则中文文件名在 `diff` / `ls-files` 输出里是八进制转义，脚本匹配不到。
@@ -72,7 +72,7 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 - **新断言要测接线，不只测 helper**：同一条守卫落在多个渲染点时，每个站点分别改坏一次、确认对应断言变红（实例：金额守卫在多个渲染点，逐点改坏验红）。
 - **白名单/豁免表必须显式**：列出 + 计数，并守三条不变量：全集 ⊆ 已覆盖 ∪ 表；表 ⊆ 全集；表 ∩ 已覆盖 = ∅。改计数 = 有意承认一个新缺口（实例：通知模板 registry ↔ 小程序场景集合守卫）。
 - **版本化资产改内容必须 bump 版本**：agent 会缓存的 playbook / 版本串，改了内容不 bump 版本，消费端永远看不到新口径——只在服务端兜底等于没修。
-- **改 resource 的 graphql DSL（含 destroy action）→ SDL 与 codegen 产物一起提交**：backend 编译即写 `backend/priv/graphql/schema.graphql`（AshGraphql 编译钩子）；CI 有 SDL 新鲜度门禁（显式 `mix absinthe.schema.sdl` + `git diff --exit-code`，不受编译缓存影响）。SDL 是 `miniprogram/src/api/generated/*` 的 codegen 输入，两者随 DSL 改动一起提交，否则门禁红（2026-09-17 #684 落地）。
+- **改 resource 的 graphql DSL（含 destroy action）→ SDL 与 codegen 产物一起提交**：backend 编译即写 `backend/priv/graphql/schema.graphql`（AshGraphql 编译钩子）；CI 有 SDL 新鲜度门禁（显式 `mix absinthe.schema.sdl` + `git diff --exit-code`，不受编译缓存影响）。SDL 是 `miniprogram/src/api/generated/*` 的 codegen 输入，两者随 DSL 改动一起提交，否则门禁红。
 - **时区双向自证**：日期/时间断言的期望值用被测格式化函数现场算；改动后在 `TZ=UTC` 与 `TZ=Asia/Shanghai` 下各跑一次（CI 是 UTC）。
 - **测试在自己的 worktree 里跑**：附属 worktree 自动用 `cgc_2046_test_<slug>`；在主 checkout 跑会用共享的 `cgc_2046_test`，与并发的其他测试互相污染（见 `backend/AGENTS.md`）。
 - **验证命令**：后端 `cd backend && mix precommit`；前端 `cd web && pnpm test`。

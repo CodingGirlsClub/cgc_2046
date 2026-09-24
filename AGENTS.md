@@ -3,18 +3,17 @@
 - **Don't preserve backward compatibility.** Delete obsolete code paths instead of adding compatibility layers, fallbacks, or migration code.
 - **Choose the simplest implementation** that fully meets current needs. Avoid speculative abstractions, configuration, and indirection.
 - **Build systems in layers.** Start with the smallest version that runs end-to-end, add new features on top of an already working product. Never trade a working product for unfinished complexity.
-- **Keep components modular** with clear separation of concerns.
 - **Prefer mature, well-maintained libraries** when they reduce overall complexity or improve reliability. Don't reimplement common functionality without good reason.
 - **Leverage existing dependencies** in the project before writing your own implementation or adding new packages. Don't assume a library lacks a capability without consulting its documentation and types.
 - **Make long-term architectural decisions.** Don't accept temporary solutions that only work now with the intention of replacing them later.
 - **Study how established products solve the problem** before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
-- **License compliance is a hard gate for new dependencies.** Any Hex/npm/native dependency you introduce must be AGPL-3.0-compatible: permissive licenses (MIT/Apache-2.0/BSD/ISC/0BSD/CC0) or AGPL-compatible weak copyleft (MPL-2.0/LGPL-3.0+/EPL-2.0). **Forbidden:** GPL-2.0-only, SSPL, BUSL, Elastic, proprietary, unlicensed. Multi-license declarations are OK only if at least one allowed option exists. When unsure, open an issue instead of adding the dependency. Rules: `docs/开源合规/依赖引入规则.md`; CI enforces via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
+- **License compliance is a hard gate for new dependencies.** Any Hex/npm/native dependency you introduce must be AGPL-3.0-compatible: permissive licenses (MIT/Apache-2.0/BSD/ISC/0BSD/CC0) or AGPL-compatible weak copyleft (MPL-2.0/LGPL-3.0+/EPL-2.0). **Forbidden:** GPL-2.0-only, GPL-2.0-or-later, SSPL, BUSL, Elastic, proprietary, unlicensed. Multi-license declarations are OK only if at least one allowed option exists. When unsure, open an issue instead of adding the dependency. Rules: `docs/开源合规/依赖引入规则.md`; CI enforces via `mix cgc2046.check_licenses` + `pnpm check:licenses`.
 
 ## Testing principles
 
-- NEVER write unit tests after you write code.
+- Write unit tests before the code they verify, never after — a test written afterwards tends to assert whatever the code already does.
 - Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
-- If you must test a system in isolation, FIRST write all the ways it could fail, THEN write the code.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
 
 ## 子目录规则
 
@@ -80,7 +79,7 @@ Rockxy 场景：
 - **错误注入**：Breakpoint 把响应改成 401/500/bad payload 测前端 fallback；Block host 模拟第三方 API 故障。不改后端代码。
 - **Mock / 环境切换**：Map Local 钉死本地 JSON（后端未完成先调前端）；Map Remote 把流量改写到 localhost，不动 `/etc/hosts`。
 - **Webhook 重放**：第三方回调失败时从捕获改参重发。
-- **AI 取证**：装了 Rockxy 的机器上，MCP（`~/.omp/agent/mcp.json` 用户级已配 `rockxy-mcp`）可直接列 flows / 读请求响应 / 导出 cURL，不要让用户手贴 curl。
+- **AI 取证**：当前会话的工具里有 `rockxy-mcp` 时，可直接列 flows / 读请求响应 / 导出 cURL，不要让用户手贴 curl。
 
 Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Server** 已开（监听 `127.0.0.1:9710`，握手文件 `~/Library/Application Support/com.amunx.rockxy.community/mcp-handshake.json`）；app 没跑时桥报 `handshake file not found`，属预期，先开 app。
 
@@ -103,13 +102,13 @@ Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Se
 
 - feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）。
 - 紧急修复可直接 hotfix→main PR：head 非 develop 时 4 checks 在 PR 上重新跑，绿了即可合并部署，不必绕道 develop。
-- **后端 API 收紧 × 客户端依赖的组合发布纪律（#752，2026-09-18）**：后端新增必填校验/收紧参数（如 #727 的押金 `depositConsent` 门）而客户端（小程序/APP）需过审才能带上新参数时——后端与客户端**同窗口发布**，或**客户端先行过审**后再合后端；窗口期存量客户端的对应请求会被硬拒。同时为新增拒绝错误码加监控曲线（观察窗口期拒绝量回落至基线）。
+- **后端 API 收紧 × 客户端依赖的组合发布纪律**：后端新增必填校验/收紧参数（如 #727 的押金 `depositConsent` 门）而客户端（小程序/APP）需过审才能带上新参数时——后端与客户端**同窗口发布**，或**客户端先行过审**后再合后端；窗口期存量客户端的对应请求会被硬拒。同时为新增拒绝错误码加监控曲线（观察窗口期拒绝量回落至基线）。
 
 ### Deploy deps 镜像节奏
 
 backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(mix.lock)` 前 16 位）。deploy 命中 TCR 即跳过全部依赖编译（部署 ~4min）；未命中在 2 核 runner 上重建可超 45min（deploy 端 fallback 兜底，90min timeout，别依赖它）。
 
-**mix.lock 变更后无需人工预推**：develop push 时 CI 的 `deps-image` job 检查 TCR，缺失或架构不符即构建推送——CI runner 恒 x86_64，天然 amd64，Apple Silicon 漏 `--platform` 推错架构的事故（run 32487795766 第二败）从源头消失。命中逻辑带架构校验，错架构按缺失处理自愈。
+**mix.lock 变更不用人工推镜像**：develop push 时 CI 的 `deps-image` job 检查 TCR，缺失或架构不符即构建推送（CI runner 恒 x86_64，产出即 amd64）。命中逻辑带架构校验，错架构按缺失处理自愈。
 
 唯一注意事项：**mix.lock 变更的 merge 别抢在 `deps-image` job 完成前合入 main**（job 绿了再合），否则 deploy 端 fallback 现场重建，白等 45min。
 
