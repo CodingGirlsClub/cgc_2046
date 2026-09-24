@@ -77,6 +77,8 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 			"我的报名",
 			"我的学习",
 			"倡导活动",
+			"闪念间",
+			"金句墙",
 		]);
 		expect(
 			screen.getByRole("link", { name: "Hacker Start 1024" }),

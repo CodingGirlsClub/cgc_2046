@@ -20,10 +20,10 @@ if System.get_env("PHX_SERVER") do
   config :cgc_2046, Cgc2046Web.Endpoint, server: true
 end
 
-# Paseo worktree 并行隔离：service 注入 PASEO_PORT（每 worktree 独立端口）；
-# 生产/Kamal 沿用 PORT，本地缺省 4000。runtime 每次启动求值，覆盖 dev/test 的静态值。
+# 端口取 PORT：生产/Kamal 与本地并行 worktree 共用，本地缺省 4000。
+# runtime 每次启动求值，覆盖 dev/test 的静态值。
 config :cgc_2046, Cgc2046Web.Endpoint,
-  http: [port: String.to_integer(System.get_env("PASEO_PORT") || System.get_env("PORT", "4000"))]
+  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 # 生产只读 release 内构建期复制的私有 tutor 增量；开发环境可显式指向私有仓库的
 # playbooks 子目录。test.exs 使用固定不存在目录，runtime 不得覆盖。
@@ -209,7 +209,9 @@ if config_env() == :prod do
         System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("WECHAT_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 通知（2026-09-22 用户拍板模板已配置）
+      "flashback_wish_echo" => System.get_env("WECHAT_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     },
     tt: %{
       "approval_result" => System.get_env("DOUYIN_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -250,7 +252,10 @@ if config_env() == :prod do
         System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("DOUYIN_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("DOUYIN_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 回响——抖音端模板未申请（键保留、值 nil →
+      # template_not_configured 终态 discard；键集三平台一致不变量）
+      "flashback_wish_echo" => System.get_env("DOUYIN_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     },
     xhs: %{
       "approval_result" => System.get_env("XHS_MP_TEMPLATE_APPROVAL_RESULT"),
@@ -291,7 +296,9 @@ if config_env() == :prod do
         System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_REJECTED"),
       "volunteer_application_canceled" =>
         System.get_env("XHS_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED"),
-      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED")
+      "event_moderator_removed" => System.get_env("XHS_MP_TEMPLATE_EVENT_MODERATOR_REMOVED"),
+      # wish2 U3（KTD3）：附议 Echo 回响——小红书端模板未申请（键保留、值 nil）
+      "flashback_wish_echo" => System.get_env("XHS_MP_TEMPLATE_FLASHBACK_WISH_ECHO")
     }
   }
 
@@ -371,6 +378,13 @@ if config_env() == :prod do
       appid: System.get_env("WECHAT_WEB_APPID"),
       secret: System.get_env("WECHAT_WEB_SECRET")
     ]
+
+  # 闪念间唤醒短信模板（U8/KTD6）：**可选** env——SendCloud 后台申请通过前不注入，
+  # `Cgc2046.Flashback.Outreach.Sms.configured?/0` fail-closed（短信腿不外呼，
+  # 邮件腿不受影响）；申请通过后注入即生效，无需改代码（SENDCLOUD_* 惯例）。
+  config :cgc_2046,
+         :flashback_sms,
+         template_id: System.get_env("SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID")
 
   # ## SSL Support
   #
@@ -497,6 +511,11 @@ if config_env() == :dev do
         sms_key: System.get_env("SENDCLOUD_SMS_KEY"),
         template_id: System.get_env("SENDCLOUD_SMS_TEMPLATE_ID")
       ]
+  end
+
+  # 闪念间唤醒短信模板（U8）：dev 同款可选注入（与验证码模板独立，可只配其一）。
+  if flashback_sms_template = System.get_env("SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID") do
+    config :cgc_2046, :flashback_sms, template_id: flashback_sms_template
   end
 
   if wechat_appid = System.get_env("WECHAT_WEB_APPID") do

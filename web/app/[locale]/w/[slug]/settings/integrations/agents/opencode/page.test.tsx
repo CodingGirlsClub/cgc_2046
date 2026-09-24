@@ -71,7 +71,11 @@ describe("/w/[slug]/settings/integrations/agents/opencode 集成 opencode 页", 
 		render(<AgentsOpencodePage />);
 
 		expect(
-			screen.getByRole("heading", { name: "2. 写入 opencode.json" }),
+			screen.getByRole("heading", { name: "5. 写入 opencode.json" }),
+		).toBeInTheDocument();
+		// 环境准备卡组（终端 + Herdr）前置为第 1-3 步（与首公里向导同一内容源）
+		expect(
+			screen.getByRole("heading", { name: "1. 准备终端" }),
 		).toBeInTheDocument();
 		// 配置片段含 remote / oauth / env 插值
 		const pre = screen.getByText(

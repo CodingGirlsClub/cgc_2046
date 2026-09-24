@@ -1,0 +1,20 @@
+{
+  "_comment": "公开期 interim：cgc_2046 公开时本 catalog 可直接进 marketplace（/marketplace add CodingGirlsClub/cgc_2046）。闭源时废弃，正式分发走独立公开 repo cgc-omp-plugins（见 #793）。注意：本 interim catalog 用名 cgc-dev 避免与未来分发仓的 cgc-omp-plugins 碰撞。",
+  "name": "cgc-dev",
+  "plugins": [
+    {
+      "name": "cgc-2046",
+      "version": "0.1.0",
+      "description": "CGC-2046 平台的 OMP 接入包：一个 cgc 主 agent + 连接 onboarding skill + /cgc 斜杠命令 extension",
+      "source": "./omp-plugin/cgc-2046"
+    }
+  ],
+  "owner": {
+    "name": "CodingGirlsClub",
+    "email": "contact@codingirlsclub.com"
+  },
+  "metadata": {
+    "description": "CGC-2046 平台的 OMP 插件市场",
+    "version": "0.1.0"
+  }
+}

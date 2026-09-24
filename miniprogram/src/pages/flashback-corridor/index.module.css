@@ -1,0 +1,1017 @@
+/* 长廊（mp 版原型 F corridor）：浅灰页底上一块深色照片墙（暗场相纸语言），
+ * 城市堆 = 纸白小拍立得（确定性转角 + 错峰显影），今天格金色微光。 */
+.page {
+  min-height: 100vh;
+  background: #f7f7f7;
+}
+
+.wall {
+  padding-bottom: 40rpx;
+  box-sizing: border-box;
+}
+
+.header {
+  padding: 44rpx 44rpx 20rpx;
+}
+
+.title {
+  display: block;
+  color: #222326;
+  font-size: 30rpx;
+  letter-spacing: 3rpx;
+  font-weight: 600;
+}
+
+.hint {
+  display: block;
+  margin-top: 10rpx;
+  color: #8a8f98;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+/* 城市钉（R34，与我的页同款） */
+.cityPins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  padding: 12rpx 0 20rpx;
+}
+.cityPin, .cityPinAll {
+  padding: 8rpx 28rpx;
+  background: rgba(255, 255, 255, 0.06);
+  color: #b9b4aa;
+  border: 2rpx solid rgba(255, 255, 255, 0.12);
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0,0,0,.03);
+}
+.cityPinActive {
+  background: #ea5504;
+  border-color: #ea5504;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 深色时间墙（原型 ia-mj-wall 渐变） */
+.frame {
+  margin: 0 24rpx;
+  padding: 30rpx 20rpx 26rpx;
+  background: linear-gradient(180deg, #17161a 0%, #1d1c22 55%, #131217 100%);
+  border-radius: 24rpx;
+  border-bottom: 2rpx solid rgba(255, 255, 255, 0.07);
+}
+
+.frameHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.frameWhen {
+  color: #b9b4aa;
+  font-size: 25rpx;
+  letter-spacing: 2rpx;
+}
+
+.frameLabel {
+  margin-left: 12rpx;
+  color: #77726a;
+  font-size: 20rpx;
+  letter-spacing: 1rpx;
+}
+
+.frameOpen {
+  color: #cbbf8f;
+  font-size: 21rpx;
+}
+
+.frameReturned {
+  display: block;
+  margin-top: 16rpx;
+  color: #cbbf8f;
+  font-size: 20rpx;
+}
+
+/* 城市堆：纸白小拍立得（原型 84px → 168rpx）+ 确定性转角 + 错峰显影 */
+.piles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22rpx;
+  margin-top: 24rpx;
+}
+
+.pile {
+  display: grid;
+  justify-items: center;
+  gap: 10rpx;
+}
+
+.pileCard {
+  width: 168rpx;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  box-shadow: 0 24rpx 60rpx rgba(0, 0, 0, 0.5), 0 4rpx 12rpx rgba(0, 0, 0, 0.4);
+  animation: fbCorridorDevelopSoft 2.8s ease-out both;
+}
+@keyframes fbCorridorDevelopSoft {
+  0% { filter: blur(18px) brightness(1.6); opacity: 0.1; }
+  100% { filter: blur(1px) brightness(1.08); opacity: 0.94; }
+}
+/* 错峰显影（原型 --d 0.3s 递进；reduced-motion 直达终态） */
+.pile:nth-child(2) .pileCard { animation-delay: 0.3s; }
+.pile:nth-child(3) .pileCard { animation-delay: 0.6s; }
+.pile:nth-child(4) .pileCard { animation-delay: 0.9s; }
+@media (prefers-reduced-motion: reduce) {
+  .pileCard { animation: none; }
+}
+
+.pileCity {
+  color: #4a463f;
+  font-size: 20rpx;
+}
+
+/* 确定性转角五档（按堆序取模，不依赖 Math.random——e2e/单测可精确断言；±5° 错落） */
+.tilt0 { transform: rotate(-5deg); }
+.tilt1 { transform: rotate(-2deg); }
+.pilePressed { transform: scale(0.96); opacity: 0.85; }
+.tilt2 { transform: rotate(1deg); }
+.tilt3 { transform: rotate(3deg); }
+.tilt4 { transform: rotate(5deg); }
+
+.pileCount {
+  color: #77726a;
+  font-size: 18rpx;
+}
+
+/* ⚡今天格：金色微光（原型 ia-mj-now radial） */
+.todayFrame {
+  border-bottom: none;
+  background: radial-gradient(70% 60% at 30% 20%, rgba(203, 191, 143, 0.09), transparent),
+    linear-gradient(180deg, #1d1c22 0%, #131217 100%);
+}
+
+.frameWhenNow {
+  color: #cbbf8f;
+  font-weight: 600;
+}
+
+.todayCard {
+  width: 208rpx;
+  padding: 14rpx 14rpx 16rpx;
+  background: #f6f2e8;
+  border-radius: 8rpx;
+  transform: rotate(2deg);
+  box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.45), 0 24rpx 60rpx rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.todayName {
+  display: block;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #e8e2d5, #c9c3b4);
+  color: #4a463f;
+  font-size: 20rpx;
+  border-radius: 4rpx;
+}
+
+.todaySub {
+  display: block;
+  padding: 8rpx 4rpx 0;
+  color: rgba(43, 39, 35, 0.6);
+  font-size: 16rpx;
+  text-align: center;
+}
+
+.todayEmpty {
+  width: 208rpx;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2rpx dashed rgba(239, 233, 219, 0.3);
+  border-radius: 8rpx;
+}
+
+.todayEmptyText {
+  color: #8d887e;
+  font-size: 20rpx;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* 未来行动卡 */
+.futureFrame {
+  border-bottom: none;
+}
+
+.futureEmpty {
+  color: #8d887e;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+.futureCard {
+  margin-top: 18rpx;
+  padding: 22rpx 24rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2rpx solid transparent;
+  border-radius: 16rpx;
+}
+
+.futureCard.proposed {
+  border-style: dashed;
+  border-color: rgba(239, 233, 219, 0.26);
+  background: transparent;
+}
+
+.futureCard.scheduled {
+  border-color: rgba(203, 191, 143, 0.55);
+  box-shadow: 0 0 36rpx rgba(203, 191, 143, 0.32);
+}
+
+.futureHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.futureTitle {
+  color: #efe9db;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.futureStatus {
+  padding: 4rpx 14rpx;
+  border-radius: 16rpx;
+  font-size: 19rpx;
+}
+
+.futureStatus.proposed { color: #b9b4aa; background: rgba(185, 180, 170, 0.14); }
+.futureStatus.forming { color: #ff8a3d; background: rgba(234, 85, 4, 0.18); }
+.futureStatus.scheduled { color: #cbbf8f; background: rgba(203, 191, 143, 0.16); }
+.futureStatus.done { color: #8d887e; background: rgba(141, 136, 126, 0.16); }
+
+.futureMeta {
+  display: block;
+  margin-top: 10rpx;
+  color: #77726a;
+  font-size: 21rpx;
+}
+
+.futureAction {
+  display: block;
+  margin-top: 12rpx;
+  color: #cbbf8f;
+  font-size: 21rpx;
+}
+
+/* 序列终点 */
+.footer {
+  padding: 36rpx 44rpx 60rpx;
+  text-align: center;
+}
+
+.cta {
+  color: #fff;
+  background: #ea5504;
+  border-radius: 999rpx;
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 2.2;
+}
+
+.guideBlock {
+  display: grid;
+  gap: 20rpx;
+}
+
+.guideText {
+  color: #4b4d54;
+  font-size: 23rpx;
+  line-height: 1.8;
+}
+
+.viewerHint {
+  color: #8a8f98;
+  font-size: 21rpx;
+  line-height: 1.7;
+}
+
+/* U2 页内 Tab(时间廊|我的卡,修断裂 4):胶囊双钮,选中橙 */
+.mpTabBar {
+  display: flex;
+  gap: 8px;
+  padding: 0 22px;
+  margin-bottom: 12px;
+}
+.mpTab {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  font-size: 26rpx;
+  color: #8a8f98;
+  background: #f7f7f7;
+  border-radius: 24rpx;
+}
+.mpTabActive {
+  color: #fff;
+  background: #ea5504;
+  font-weight: 600;
+}
+
+/* U3 未来·场次段:三行简卡——亮金可报名/灰卡状态标签 */
+.futureSection {
+  padding: 24rpx 22rpx 12rpx;
+}
+.futureTitle {
+  display: block;
+  font-size: 28rpx;
+  color: #222326;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+.eventCard {
+  border-radius: 16rpx;
+  padding: 22rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+.eventCardLit {
+  background: linear-gradient(135deg, #fdf3dd, #f5e8c4);
+  border: 1rpx solid rgba(203, 191, 143, 0.45);
+  box-shadow: 0 2rpx 12rpx rgba(203, 191, 143, 0.2);
+}
+.eventCardMuted {
+  background: #f2f2f0;
+  border: 1rpx solid rgba(0, 0, 0, 0.05);
+  opacity: 0.75;
+}
+.eventTitle {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222326;
+}
+.eventMeta {
+  display: block;
+  font-size: 22rpx;
+  color: #6b7076;
+  margin-top: 8rpx;
+}
+.eventCta {
+  display: inline-block;
+  margin-top: 14rpx;
+  font-size: 24rpx;
+  color: #fff;
+  background: #ea5504;
+  border-radius: 24rpx;
+  padding: 8rpx 28rpx;
+}
+.eventBadge {
+  display: inline-block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: #8a8f98;
+}
+
+/* U4 愿望段:纸白卡/折叠行/模态 */
+.wishCard {
+  background: #fffdf7;
+  border: 1rpx solid rgba(203, 191, 143, 0.35);
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin-bottom: 14rpx;
+}
+.wishCardPrivate {
+  background: #f6f6f4;
+  border-style: dashed;
+}
+.wishContent {
+  display: block;
+  font-size: 26rpx;
+  color: #222326;
+  line-height: 1.6;
+}
+.wishFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12rpx;
+  gap: 12rpx;
+}
+.wishWho {
+  font-size: 22rpx;
+  color: #8a8f98;
+  flex: 1;
+}
+.wishEndorse {
+  font-size: 22rpx;
+  color: #ea5504;
+}
+.wishEndorsed {
+  font-size: 22rpx;
+  color: #4b4d54;
+}
+.wishDelete {
+  font-size: 22rpx;
+  color: #b0432f;
+}
+.privateFold {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18rpx 24rpx;
+  background: #f2f2f0;
+  border-radius: 12rpx;
+  margin-bottom: 14rpx;
+}
+.privateFoldLabel {
+  font-size: 24rpx;
+  color: #4b4d54;
+}
+.privateFoldArrow {
+  font-size: 22rpx;
+  color: #8a8f98;
+}
+.wishModalMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wishModal {
+  width: 82%;
+  max-height: 70vh;
+  overflow-y: scroll;
+  background: #fffdf7;
+  border-radius: 20rpx;
+  padding: 30rpx 28rpx;
+}
+.wishModalContent {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222326;
+  line-height: 1.7;
+}
+.wishComments {
+  margin-top: 24rpx;
+  border-top: 1rpx solid rgba(0, 0, 0, 0.06);
+  padding-top: 16rpx;
+}
+.wishCommentsTitle {
+  display: block;
+  font-size: 24rpx;
+  color: #4b4d54;
+  margin-bottom: 12rpx;
+}
+.wishCommentRow {
+  display: flex;
+  gap: 8rpx;
+  margin-bottom: 10rpx;
+}
+.wishCommentWho {
+  font-size: 22rpx;
+  color: #8a8f98;
+  flex-shrink: 0;
+}
+.wishCommentText {
+  font-size: 22rpx;
+  color: #222326;
+}
+.wishCommentInput {
+  display: flex;
+  gap: 12rpx;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.wishInput {
+  flex: 1;
+  background: #f2f2f0;
+  border-radius: 12rpx;
+  padding: 12rpx 18rpx;
+  font-size: 24rpx;
+}
+
+/* U5 许愿半屏弹层(KTD5 CSS transform 自实现):微信任务手势,提交后落位反馈 */
+.wishSectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.wishSectionHead .futureTitle {
+  margin-bottom: 0;
+}
+.wishAddBtn {
+  font-size: 24rpx;
+  color: #ea5504;
+  border: 1rpx solid #ea5504;
+  border-radius: 24rpx;
+  padding: 6rpx 20rpx;
+}
+.wishSheetMask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 400;
+}
+.wishSheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  border-radius: 32rpx;
+  padding: 20rpx 32rpx calc(env(safe-area-inset-bottom) + 28rpx);
+  animation: wishSheetUp 0.24s ease-out;
+}
+@keyframes wishSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.wishSheetBar {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 8rpx;
+  background: #e2e3e5;
+  margin: 0 auto 20rpx;
+}
+.wishSheetTitle {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #222326;
+  margin-bottom: 20rpx;
+}
+/* R20 年度额度行:紧跟标题,剩余/用完同位(用完时提交钮同时禁用) */
+.wishSheetQuota {
+  display: block;
+  font-size: 22rpx;
+  color: #6b7076;
+  margin: -8rpx 0 16rpx;
+}
+.wishSheetInput {
+  width: 100%;
+  min-height: 160rpx;
+  background: #f6f6f4;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  font-size: 26rpx;
+  box-sizing: border-box;
+}
+.wishSheetVisibility {
+  display: flex;
+  gap: 14rpx;
+  margin: 20rpx 0 28rpx;
+}
+.visibilityBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 22rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 0;
+}
+.visibilityActive {
+  color: #ea5504;
+  background: #fdf0e6;
+  border: 1rpx solid #ea5504;
+  font-weight: 600;
+}
+.wishSheetSubmit {
+  background: #ea5504;
+  color: #fff;
+  font-size: 28rpx;
+  border-radius: 44rpx;
+}
+
+/* ── wish2 U9：viewer 期待 ❤️ + 附议表单（KTD3/KTD5） ─────────────────── */
+.wishExpectOn,
+.wishExpectOff {
+  font-size: 24rpx;
+  color: #6b7076;
+}
+.wishExpectOn {
+  color: #d0442c;
+}
+.wishExpectToggle {
+  font-size: 28rpx;
+  padding: 4rpx 12rpx;
+}
+.endorseWishPreview {
+  display: block;
+  font-size: 24rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 18rpx;
+  margin-bottom: 20rpx;
+}
+.endorseTypeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-bottom: 20rpx;
+}
+.endorseTypeChip {
+  font-size: 24rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 999rpx;
+  padding: 12rpx 28rpx;
+}
+.endorseTypeChipOn {
+  color: #ea5504;
+  background: #fdf0e6;
+  border: 1rpx solid #ea5504;
+  font-weight: 600;
+}
+/* KTD5 联系方式告知：明示、不可关闭 */
+.endorseContactNote {
+  display: block;
+  font-size: 22rpx;
+  color: #8a6d3b;
+  background: #faf5ea;
+  border-radius: 12rpx;
+  padding: 12rpx 16rpx;
+  margin: 20rpx 0 8rpx;
+}
+.endorseNotifyRow {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 8rpx 0 20rpx;
+}
+.endorseNotifyBox {
+  font-size: 30rpx;
+  color: #ea5504;
+}
+.endorseNotifyLabel {
+  font-size: 24rpx;
+  color: #222326;
+}
+
+/* ── wish2 U10：许愿 sheet 署名/期望地/两档 hint（R6/R17/KTD11） ─────────── */
+.signatureBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 20rpx;
+  color: #6b7076;
+  background: #f6f6f4;
+  border-radius: 14rpx;
+  padding: 14rpx 0;
+}
+.wishCityInput {
+  width: 100%;
+  background: #f6f6f4;
+  border-radius: 16rpx;
+  padding: 18rpx 20rpx;
+  font-size: 26rpx;
+  margin-top: 20rpx;
+  box-sizing: border-box;
+}
+.wishCityCandidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  align-items: center;
+  margin: 12rpx 0 4rpx;
+}
+.wishCityCandidatesHint {
+  font-size: 20rpx;
+  color: #8a8f98;
+}
+.wishCityCandidate {
+  font-size: 22rpx;
+  color: #ea5504;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx;
+  padding: 4rpx 16rpx;
+  background: #fff;
+}
+/* 公开档恒加粗（R6 结构断言 pin——与选中态无关，明示挂树授权） */
+.visibilityPublicLabel {
+  font-weight: 700;
+}
+/* 两档说明行（公开/说给主办方听各自 hint） */
+.visibilityHintText {
+  display: block;
+  font-size: 20rpx;
+  color: #6b7076;
+  margin: -12rpx 0 28rpx;
+}
+
+/* U6 路人态 1024 活动横幅(R9)：已撤——活动推广归「发现」Tab，
+   长廊里重复推同一活动。原样式（.banner1024 一族）随之删除。 */
+
+/* U3 G 布局:楷体栈 + 固定卡区 + 胶囊 + 底部条 */
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f7f7f7;
+  color: #222326;
+  font-family: "Kaiti SC", "STKaiti", KaiTi, "Noto Serif SC", serif;
+}
+.cardDock {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32rpx;
+  padding: 30rpx 36rpx 24rpx;
+}
+.miniCard {
+  background: #f6f2e8;
+  border-radius: 10rpx;
+  width: 192rpx;
+  padding: 24rpx 16rpx 20rpx;
+  text-align: center;
+  box-shadow: 0 10rpx 30rpx rgba(34, 35, 38, 0.14);
+  transform: rotate(-2deg);
+}
+.miniCardName { display: block; font-size: 30rpx; font-weight: 700; color: #2b2723; }
+.miniCardFacts { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 6rpx; }
+.miniCardHint { display: block; font-size: 18rpx; color: #b0aca4; margin-top: 12rpx; }
+.dockActions { display: flex; flex-direction: column; gap: 14rpx; }
+.dockSend {
+  font-size: 20rpx; color: #ea5504; border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx; padding: 8rpx 22rpx; background: #fff;
+}
+.dockLicense {
+  font-size: 20rpx; color: #6b7076; border: 1rpx solid rgba(0, 0, 0, 0.14);
+  border-radius: 999rpx; padding: 8rpx 22rpx; background: #fff;
+}
+.capsuleShell {
+  flex: 1;
+  min-height: 0;
+  margin-bottom: 20rpx;
+  border-radius: 32rpx;
+  overflow: hidden;
+  background: linear-gradient(180deg, #1d1c22 0%, #242329 55%, #17161a 100%);
+}
+.capsule {
+  height: 100%;
+}
+.capsuleInner {
+  padding: 12rpx 44rpx 40rpx;
+}
+.footerBar {
+  flex-shrink: 0;
+  /* 底部让位固定 TabBar（min-height 108rpx，见 AppTabBar）：本条的 padding 空白
+     正好落在 TabBar 底下，CTA 按钮视觉上悬在 TabBar 上方，无重叠。 */
+  padding: 26rpx 32rpx calc(env(safe-area-inset-bottom) + 30rpx + 108rpx);
+  background: #f7f7f7;
+}
+.layerMask {
+  position: fixed; inset: 0; background: rgba(12, 11, 14, 0.92); z-index: 300;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+/* 卡是唯一主角:容器透明,chrome(badge 行/分享)正常流排于卡上下 */
+.layerCard {
+  position: relative; width: 86vw; max-height: 64vh;
+  background: transparent; padding: 0;
+}
+.maskBadge {
+  width: 86vw;
+  display: flex; justify-content: space-between; align-items: center; gap: 12rpx;
+  margin-bottom: 24rpx;
+}
+.maskBadgeLeft { display: flex; align-items: center; gap: 12rpx; }
+.wallOn { font-size: 22rpx; color: #cbbf8f; letter-spacing: 0.08em; }
+.wallOff { font-size: 22rpx; color: #8d887e; letter-spacing: 0.08em; }
+.maskLike { font-size: 22rpx; color: #e8666a; letter-spacing: 0.04em; }
+.layerClose {
+  width: 56rpx; height: 56rpx; line-height: 52rpx; text-align: center;
+  border-radius: 999rpx; background: rgba(239, 233, 219, 0.22); color: #efe9db; font-size: 26rpx;
+}
+.layerStub {
+  margin: 30% auto 0; width: 60%; background: #fff; border-radius: 16rpx; padding: 40rpx;
+  display: flex; flex-direction: column; gap: 20rpx; align-items: center;
+}
+
+/* U3 胶囊内容:深色帧/拍立得堆/今天格状态机/未显影 */
+.capFrame { padding: 32rpx 0 12rpx; border-bottom: 1rpx solid rgba(255, 255, 255, 0.07); }
+/* ⚡今天帧:左上淡黄光晕泛出(F ia-mj-now 同源) */
+.capFrameNow {
+  background: radial-gradient(70% 60% at 30% 20%, rgba(203, 191, 143, 0.09), transparent);
+}
+.capFrameHead { display: flex; align-items: baseline; gap: 8rpx; }
+.capWhen { font-size: 26rpx; color: #b9b4aa; font-weight: 700; }
+.capLabel { font-size: 20rpx; color: #7a756c; }
+.capReturned { font-size: 18rpx; color: #cbbf8f; margin-top: 8rpx; text-align: center; }
+.pileItem { display: flex; flex-direction: column; align-items: center; }
+.pinPolaroid {
+  width: 150rpx; border-radius: 10rpx; padding: 0;
+  box-shadow: 0 0 26rpx rgba(203, 191, 143, 0.18), 0 8rpx 24rpx rgba(0, 0, 0, 0.4);
+}
+.tiltA { transform: rotate(6deg); }
+.tiltB { transform: rotate(-5deg); }
+.tiltC { transform: rotate(5deg); }
+.tiltD { transform: rotate(-4deg); }
+.pinPhoto { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4rpx; background: linear-gradient(160deg, #d8d2c4, #b9b2a2); }
+.pinCity { font-size: 24rpx; color: #4a463f; font-weight: 700; }
+.pinCount { font-size: 18rpx; color: #4a463f; opacity: 0.65; }
+.todayTitle { font-size: 26rpx; color: #cbbf8f; font-weight: 600; }
+.todaySlot { margin-top: 16rpx; }
+.todayVacant {
+  width: 220rpx; height: 244rpx; border: 3rpx dashed rgba(239, 233, 219, 0.3); border-radius: 12rpx;
+  display: flex; align-items: center; justify-content: center; padding: 0 16rpx;
+}
+.todayVacantText { font-size: 20rpx; color: #8d887e; text-align: center; }
+/* 瘦长拍立得(3:4,F 渲染):黑相纸+居中正方照片+厚底区,整卡水平居中 */
+.todayLit {
+  width: 208rpx; background: #2b2925; border-radius: 8rpx;
+  padding: 30rpx 0 28rpx; margin: 0 auto;
+  transform: rotate(2deg);
+  box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.4), 0 10rpx 30rpx rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center;
+}
+/* 照片小方块:卡宽 55%,水平居中,偏上(F 渲染比例);下方厚深色区 */
+.todayLitPhoto {
+  width: 116rpx; height: 116rpx; background: #efe9db;
+  display: flex; align-items: center; justify-content: center;
+}
+.todayLitName { font-size: 20rpx; color: #4a463f; font-weight: 500; }
+.todayLitCap {
+  display: block; width: 100%; font-size: 16rpx;
+  color: rgba(239, 233, 219, 0.6); text-align: center; padding-top: 20rpx;
+}
+/* 可点暗示：寄出落定后轻浮动（静态卡无任何可点信号，用户不会想到去点——
+   而它背后是整条旅程的终点：摘要卡 → 保存/分享）。
+   注意：必须带上 rotate(2deg)，否则动画会覆盖 .todayLit 的确定性转角。 */
+@keyframes todayLitFloat {
+  0%, 100% { transform: rotate(2deg) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-6rpx); }
+}
+.todayLit { animation: todayLitFloat 2.6s ease-in-out infinite; }
+/* 落定脉冲：寄出后滚到本格的一次性强调（复用显影语言的亮度起伏）。
+   animation 是简写属性——必须把 float 一并写上，否则会覆盖掉持续浮动。 */
+@keyframes todayLitPulse {
+  0% { box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.4), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+  40% { box-shadow: 0 0 72rpx rgba(203, 191, 143, 0.9), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+  100% { box-shadow: 0 0 48rpx rgba(203, 191, 143, 0.4), 0 10rpx 30rpx rgba(0, 0, 0, 0.5); }
+}
+.todayLitLanded {
+  animation: todayLitPulse 1.5s ease-out 1, todayLitFloat 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .todayLit, .todayLitLanded { animation: none; }
+}
+
+/* U7 报名 sheet */
+.enrollDeposit { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 12rpx; }
+
+/* U7 授权弹层:半屏滚动,badge/三档行/圈选/预览 */
+.licenseSheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 78vh;
+  overflow-y: scroll;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 20rpx 32rpx calc(env(safe-area-inset-bottom) + 24rpx);
+}
+.courageBadge {
+  display: flex;
+  justify-content: center;
+  margin: 14rpx 0 18rpx;
+}
+.courageBadgeText {
+  font-size: 24rpx;
+  color: #b34700;
+  background: #fdf6e9;
+  border: 1rpx solid rgba(203, 191, 143, 0.55);
+  border-radius: 999rpx;
+  padding: 10rpx 28rpx;
+}
+.licenseRow {
+  display: flex;
+  gap: 20rpx;
+  align-items: flex-start;
+  padding: 20rpx 22rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid transparent;
+  margin-bottom: 12rpx;
+}
+.licenseRowActive { background: #fdf0e6; border-color: #ea5504; }
+.licenseDot {
+  width: 30rpx; height: 30rpx; border-radius: 50%;
+  border: 3rpx solid #b0aca4; margin-top: 4rpx; flex-shrink: 0;
+}
+.licenseRowActive .licenseDot { border-color: #ea5504; background: radial-gradient(circle, #ea5504 45%, transparent 50%); }
+.licenseLabel { display: block; font-size: 26rpx; font-weight: 700; color: #222326; }
+.licenseDesc { display: block; font-size: 20rpx; color: #8a8f98; margin-top: 4rpx; line-height: 1.6; }
+.quotePickerSheet { margin-top: 20rpx; }
+.quotePickHint { display: block; font-size: 22rpx; color: #4b4d54; margin-bottom: 12rpx; }
+.quoteCandidate {
+  display: block; font-size: 24rpx; color: #2b2723; line-height: 1.7;
+  border-left: 4rpx solid rgba(0, 0, 0, 0.1); padding: 8rpx 20rpx; margin-top: 12rpx;
+}
+.quoteCandidateActive { border-left-color: #ea5504; background: #fdf0e6; color: #b34700; font-weight: 700; }
+.quotePreview { margin-top: 24rpx; border-top: 1rpx dashed rgba(0, 0, 0, 0.12); padding-top: 16rpx; }
+.quotePreviewHint { display: block; font-size: 22rpx; color: #4b4d54; }
+.quotePreviewCard { background: #fffdf7; border: 1rpx solid rgba(203, 191, 143, 0.35); border-radius: 18rpx; padding: 20rpx 24rpx; margin-top: 14rpx; }
+.quotePreviewQ { display: block; font-size: 24rpx; color: #2b2723; line-height: 1.7; }
+.quotePreviewBy { display: flex; justify-content: space-between; margin-top: 10rpx; }
+.quotePreviewName { font-size: 20rpx; color: #8a8f98; }
+.quotePreviewLink { font-size: 20rpx; color: #ea5504; }
+.quotePreviewDim { font-size: 20rpx; color: #b0aca4; }
+.licenseFoot { display: block; font-size: 20rpx; color: #b0aca4; text-align: center; margin-top: 18rpx; }
+.dockLicenseOn { color: #b34700; border-color: rgba(203, 191, 143, 0.55); background: #fdf6e9; }
+
+/* U8 快门仪式层:呼吸快门(原型 G intro 同语言) */
+.shutterMask {
+  position: fixed; inset: 0; background: #f7f7f7; z-index: 400;
+  display: flex; align-items: center; justify-content: center;
+}
+.shutterCenter { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.shutterEyebrow { font-size: 26rpx; letter-spacing: 0.35em; color: #ea5504; font-weight: 700; }
+.shutterLead { font-size: 32rpx; line-height: 2.1; color: #8a8f98; margin-top: 40rpx; }
+.shutterBtn {
+  width: 144rpx; height: 144rpx; border-radius: 50%;
+  border: 4rpx solid #ea5504;
+  background: radial-gradient(circle at 38% 34%, #ff8a3d, #ea5504);
+  margin-top: 88rpx;
+  animation: shutterBreathe 2.4s ease-in-out infinite;
+}
+@keyframes shutterBreathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.06); opacity: 0.85; }
+}
+.shutterHint { font-size: 24rpx; color: #8a8f98; margin-top: 28rpx; }
+
+/* G gap 一:错峰显影/三钮态/未显影帧 */
+@keyframes pinDevelop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.pinPolaroid { animation: pinDevelop 0.6s ease-out both; }
+.tiltA { transform: rotate(6deg); }
+.tiltB { transform: rotate(-5deg); }
+.dockWrite {
+  font-size: 20rpx; color: #fff; background: #ea5504;
+  border-radius: 999rpx; padding: 8rpx 22rpx;
+}
+.dockSendDim { opacity: 0.45; }
+.dockSendDone { color: #b0aca4; border-color: rgba(176, 172, 164, 0.4); }
+.capReturnedInline { font-size: 18rpx; color: #cbbf8f; margin-left: auto; }
+.capFuture { font-size: 26rpx; color: #8d887e; font-weight: 700; }
+.capFutureDim { font-size: 20rpx; color: #5a564d; }
+.privateFoldDark { background: rgba(255, 255, 255, 0.06); }
+.privateFoldDark .privateFoldLabel { color: #b9b4aa; }
+.privateFoldDark .privateFoldArrow { color: #7a756c; }
+.privateCardDark { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.18); }
+.privateCardDark .wishContent { color: #d9d4ca; }
+.privateCardDark .wishWho { color: #7a756c; }
+
+/* G gap 视觉修:未来段深色适配/城市钉深色/主钮轻量 */
+.futureTitleDark { display: block; font-size: 26rpx; color: #b9b4aa; font-weight: 700; margin: 22rpx 0 2rpx; }
+.dockWritePrimary {
+  font-size: 20rpx; color: #ea5504; background: #fff;
+  border: 1rpx solid rgba(234, 85, 4, 0.45);
+  border-radius: 999rpx; padding: 8rpx 22rpx;
+}
+
+/* 金句授权引导(一次性轻推) */
+.nudgeMask { position: fixed; inset: 0; background: rgba(12, 11, 14, 0.72); z-index: 340; display: flex; align-items: center; justify-content: center; }
+.nudgeCard {
+  width: 80vw; background: #f6f2e8; border-radius: 20rpx; padding: 48rpx 40rpx 36rpx;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.nudgeLead { font-size: 32rpx; color: #2d2a26; font-weight: 700; line-height: 1.6; }
+.nudgeSub { font-size: 24rpx; color: #6b6156; margin-top: 16rpx; line-height: 1.7; }
+.nudgePrimary {
+  margin-top: 36rpx; width: 100%; background: #ea5504; color: #fff; border: none;
+  border-radius: 999rpx; font-size: 28rpx; font-weight: 600; padding: 18rpx 0; line-height: 1.5;
+}
+.nudgePrimary::after { border: none; }
+.nudgeSkip { margin-top: 8rpx; width: 100%; background: none; border: none; color: #b0aca4; font-size: 24rpx; padding: 12rpx 0; line-height: 1.5; }
+.nudgeSkip::after { border: none; }
+/* 候选句题干小字 */
+.quoteCandidateQ { display: block; font-size: 18rpx; color: #8a8f98; margin-top: 6rpx; letter-spacing: 0.04em; }
+
+
+/* U10:雾句候选灰显锁定(不可选,点按提示先解雾) */
+.quoteCandidateFogged { opacity: 0.45; }

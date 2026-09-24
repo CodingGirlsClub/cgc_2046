@@ -87,7 +87,11 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :admin_course_update,
           :admin_course_launch,
           :admin_course_close,
-          :admin_course_cancel
+          :admin_course_cancel,
+          # 闪念间触达运营（R1/R2，PlatformAdmin 确认流工具）：批量发送与
+          # 单人重发各一行（metadata 带场次/模板/通道/入队计数，非每人一行）
+          :flashback_outreach_send,
+          :flashback_outreach_resend
         ]
       ],
       description: "治理动作类型"
@@ -105,7 +109,10 @@ defmodule Cgc2046.Accounts.AdminActionLog do
           :order,
           :event,
           :course,
-          :initiative
+          :initiative,
+          # 闪念间触达运营（R1/R2）：批量发送 target = 场次，重发 target = 校友
+          :flashback_event_archive,
+          :flashback_person
         ]
       ],
       description: "目标资源类型"

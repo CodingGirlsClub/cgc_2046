@@ -89,6 +89,10 @@ defmodule Cgc2046.Integrations.Wechat.Client do
                           volunteer_application_training volunteer_application_assigned
                           volunteer_application_rejected volunteer_application_canceled)
 
+  # wish2 U3（KTD3）：附议 Echo 回响——落闪念间长廊（愿望卡的权威对照面：
+  # 该愿望的期待/附议双指标就在长廊卡片上，点开即见「回响」对应的内容）。
+  @wish_templates ~w(flashback_wish_echo)
+
   defp notification_page(platform, template_key, data) do
     cond do
       # 裁剪端（tt/xhs）仅注册「发现/我的报名」两 tab（app.config.ts cutPages）
@@ -107,6 +111,9 @@ defmodule Cgc2046.Integrations.Wechat.Client do
 
       template_key in @applicant_templates ->
         "pages/volunteer-apply/index"
+
+      template_key in @wish_templates ->
+        "pages/flashback-corridor/index"
 
       template_key in @manager_templates ->
         "pages/workspace/index"

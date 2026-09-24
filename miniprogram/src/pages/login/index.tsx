@@ -3,6 +3,7 @@ import { Button, Image, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
+import { CUT_TAB_PATHS, FULL_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
 import { preparePlatformLogin } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
@@ -10,6 +11,9 @@ import flameLogo from '@/assets/brand/cgc-flame.png'
 // 裁剪端（抖音/小红书）不注册 privacy 页（政策原文含「微信」等词，
 // 过不了 CI check:diversion 词表）——协议文案在裁剪端保持纯文本
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+
+/** Tab 页清单（单源 domain/tab-routes）：回跳目标若是 Tab 页须 switchTab */
+const TAB_PATHS = isCut ? CUT_TAB_PATHS : FULL_TAB_PATHS
 
 export default function LoginPage() {
   const router = useRouter()
@@ -25,14 +29,16 @@ export default function LoginPage() {
       const prepared = await preparePlatformLogin(payload)
       await api.signIn(prepared)
       const returnUrl = router.params.returnUrl
-      if (returnUrl) await Taro.redirectTo({ url: decodeURIComponent(returnUrl) })
-      else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
+      if (returnUrl) {
+        const target = decodeURIComponent(returnUrl)
+        // 回跳目标可能是 tabBar 页面（如长廊）：redirectTo 跳 Tab 页会失败，
+        // 必须 switchTab——清单单源在 domain/tab-routes
+        if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
+        else await Taro.redirectTo({ url: target })
+      } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
       // 裁剪端（抖音/小红书）未注册「我的」页，fallback 落回已注册的「我的报名」
       else {
-        const fallbackTab = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
-          ? '/pages/my-enrollments/index'
-          : '/pages/profile/index'
-        await Taro.switchTab({ url: fallbackTab })
+        await Taro.switchTab({ url: isCut ? '/pages/my-enrollments/index' : '/pages/profile/index' })
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')

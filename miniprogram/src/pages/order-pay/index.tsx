@@ -287,7 +287,7 @@ export default function OrderPayPage() {
             <Button
               className={styles.primaryButton}
               data-testid='go-enrollments'
-              onClick={() => Taro.reLaunch({ url: '/pages/my-enrollments/index' })}
+              onClick={() => Taro.navigateTo({ url: '/pages/my-enrollments/index' })}
             >
               查看我的报名
             </Button>

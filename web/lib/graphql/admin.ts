@@ -854,6 +854,362 @@ export const INITIATIVE_STATUS_CLASS: Record<string, string> = {
 	cancelled: "l-badge l-badge-danger",
 };
 
+/* ---------------- 闪念间看板（U11/R24/R25） ---------------- */
+
+/** 四率（KTD10）：分子=touch distinct person；分母=成功送达（硬退信与退订剔除） */
+export interface FlashbackRates {
+	delivered: number;
+	linkOpened: number;
+	revealed: number;
+	sentToWall: number;
+	intentSubmitted: number;
+}
+
+export interface FlashbackAdminStats {
+	memory: FlashbackRates;
+	dream: FlashbackRates;
+	overall: FlashbackRates;
+}
+
+export interface FlashbackRedemption {
+	id: string;
+	status: string;
+	/** 用户提交的收款渠道（admin-only，KTD3——不进任何导出） */
+	channelNote: string;
+	handledNote?: string | null;
+	insertedAt?: string | null;
+	maskedName?: string | null;
+	city?: string | null;
+}
+
+export const FLASHBACK_ADMIN_STATS: TypedDocumentNode<
+	{ flashbackAdminStats: FlashbackAdminStats },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminStats {
+		flashbackAdminStats {
+			memory {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+			dream {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+			overall {
+				delivered
+				linkOpened
+				revealed
+				sentToWall
+				intentSubmitted
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_REDEMPTIONS: TypedDocumentNode<
+	{ flashbackAdminRedemptions: FlashbackRedemption[] },
+	{ limit?: number | null }
+> = gql`
+	query FlashbackAdminRedemptions($limit: Int) {
+		flashbackAdminRedemptions(limit: $limit) {
+			id
+			status
+			channelNote
+			handledNote
+			insertedAt
+			maskedName
+			city
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_UPDATE_REDEMPTION: TypedDocumentNode<
+	{ flashbackAdminUpdateRedemption: { id: string; status: string } },
+	{ id: string; status: string; handledNote?: string | null }
+> = gql`
+	mutation FlashbackAdminUpdateRedemption($id: ID!, $status: String!, $handledNote: String) {
+		flashbackAdminUpdateRedemption(id: $id, status: $status, handledNote: $handledNote) {
+			id
+			status
+		}
+	}
+`;
+
+// ── 闪念间触达运营台（R4/R7-R10）──────────────────────────────────────────
+
+export interface FlashbackOutreachPreview {
+	archiveKey: string;
+	archiveName: string;
+	channel: string;
+	queued: number;
+	emailOnly: number;
+	smsOnly: number;
+	both: number;
+	unsubscribed: number;
+	unreachable: number;
+	smsReady: boolean;
+}
+
+// ── wish2 愿望管理（U5/KTD5）────────────────────────────────────────────────
+
+export interface FlashbackAdminWishInboxEntry {
+	wishId: string;
+	content: string;
+	city?: string | null;
+	signature: string;
+	insertedAt: string;
+	wisherMasked?: string | null;
+	/** 仅 platform admin；联系方式仅用于主办方对接出力事宜，不对外公开 */
+	wisherPhone?: string | null;
+	wisherEmail?: string | null;
+}
+
+export interface FlashbackAdminReportEntry {
+	reportId: string;
+	targetType: string;
+	targetId: string;
+	reasonType: string;
+	reasonFree?: string | null;
+	status: string;
+	insertedAt: string;
+}
+
+export const FLASHBACK_ADMIN_WISH_INBOX: TypedDocumentNode<
+	{ flashbackAdminWishInbox: FlashbackAdminWishInboxEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminWishInbox {
+		flashbackAdminWishInbox {
+			wishId
+			content
+			city
+			signature
+			insertedAt
+			wisherMasked
+			wisherPhone
+			wisherEmail
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_WISH_REPORTS: TypedDocumentNode<
+	{ flashbackAdminWishReports: FlashbackAdminReportEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminWishReports {
+		flashbackAdminWishReports {
+			reportId
+			targetType
+			targetId
+			reasonType
+			reasonFree
+			status
+			insertedAt
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_DISMISS_REPORT: TypedDocumentNode<
+	{ flashbackAdminDismissReport: { reportId: string; status: string } | null },
+	{ reportId: string }
+> = gql`
+	mutation FlashbackAdminDismissReport($reportId: ID!) {
+		flashbackAdminDismissReport(reportId: $reportId) {
+			reportId
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_APPROVE_REPORT: TypedDocumentNode<
+	{ flashbackAdminApproveReport: { reportId: string; status: string } | null },
+	{ reportId: string }
+> = gql`
+	mutation FlashbackAdminApproveReport($reportId: ID!) {
+		flashbackAdminApproveReport(reportId: $reportId) {
+			reportId
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_SET_WISH_HIDDEN: TypedDocumentNode<
+	{ flashbackAdminSetWishHidden: { wishId: string; hidden: boolean } | null },
+	{ wishId: string; hidden: boolean }
+> = gql`
+	mutation FlashbackAdminSetWishHidden($wishId: ID!, $hidden: Boolean!) {
+		flashbackAdminSetWishHidden(wishId: $wishId, hidden: $hidden) {
+			wishId
+			hidden
+		}
+	}
+`;
+
+export interface FlashbackOutreachBatchChannel {
+	queued: number;
+	sent: number;
+	failed: number;
+}
+
+export interface FlashbackOutreachBatch {
+	batch: string;
+	template: string;
+	firstAt?: string | null;
+	email: FlashbackOutreachBatchChannel;
+	sms: FlashbackOutreachBatchChannel;
+}
+
+export interface FlashbackOutreachLast {
+	channel: string;
+	status: string;
+	batch: string;
+	at?: string | null;
+}
+
+export interface FlashbackOutreachRosterEntry {
+	personId: string;
+	fullName: string;
+	email?: string | null;
+	phone?: string | null;
+	claimed: boolean;
+	participation: string;
+	unsubscribed: boolean;
+	deleted: boolean;
+	emailReachable: boolean;
+	smsReachable: boolean;
+	lastOutreach?: FlashbackOutreachLast | null;
+}
+
+export interface FlashbackAdminArchive {
+	key: string;
+	name: string;
+	city: string;
+	occurredOn: string;
+}
+
+export const FLASHBACK_OUTREACH_PREVIEW: TypedDocumentNode<
+	{ flashbackOutreachPreview: FlashbackOutreachPreview },
+	{ archiveKey: string; channel?: string | null }
+> = gql`
+	query FlashbackOutreachPreview($archiveKey: String!, $channel: String) {
+		flashbackOutreachPreview(archiveKey: $archiveKey, channel: $channel) {
+			archiveKey
+			archiveName
+			channel
+			queued
+			emailOnly
+			smsOnly
+			both
+			unsubscribed
+			unreachable
+			smsReady
+		}
+	}
+`;
+
+export const FLASHBACK_OUTREACH_BATCHES: TypedDocumentNode<
+	{ flashbackOutreachBatches: FlashbackOutreachBatch[] },
+	{ archiveKey: string }
+> = gql`
+	query FlashbackOutreachBatches($archiveKey: String!) {
+		flashbackOutreachBatches(archiveKey: $archiveKey) {
+			batch
+			template
+			firstAt
+			email {
+				queued
+				sent
+				failed
+			}
+			sms {
+				queued
+				sent
+				failed
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_OUTREACH_ROSTER: TypedDocumentNode<
+	{ flashbackOutreachRoster: FlashbackOutreachRosterEntry[] },
+	{ archiveKey: string; filter?: string | null; search?: string | null }
+> = gql`
+	query FlashbackOutreachRoster($archiveKey: String!, $filter: String, $search: String) {
+		flashbackOutreachRoster(archiveKey: $archiveKey, filter: $filter, search: $search) {
+			personId
+			fullName
+			email
+			phone
+			claimed
+			participation
+			unsubscribed
+			deleted
+			emailReachable
+			smsReachable
+			lastOutreach {
+				channel
+				status
+				batch
+				at
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_ARCHIVES: TypedDocumentNode<
+	{ flashbackAdminArchives: FlashbackAdminArchive[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminArchives {
+		flashbackAdminArchives {
+			key
+			name
+			city
+			occurredOn
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_SEND_OUTREACH: TypedDocumentNode<
+	{ flashbackAdminSendOutreach: { queued: number; skipped: number } },
+	{ archiveKey: string; template: string; channel?: string | null }
+> = gql`
+	mutation FlashbackAdminSendOutreach($archiveKey: String!, $template: String!, $channel: String) {
+		flashbackAdminSendOutreach(
+			archiveKey: $archiveKey
+			template: $template
+			channel: $channel
+		) {
+			queued
+			skipped
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
+	{ flashbackAdminResendOutreach: { queued: number; skipped: number; batch: string } },
+	{ personId: string; template: string; channel?: string | null }
+> = gql`
+	mutation FlashbackAdminResendOutreach($personId: ID!, $template: String!, $channel: String) {
+		flashbackAdminResendOutreach(
+			personId: $personId
+			template: $template
+			channel: $channel
+		) {
+			queued
+			skipped
+			batch
+		}
+	}
+`;
+
 /** Offering（Event/Course）状态徽章：与 `INITIATIVE_STATUS_CLASS` 同映射，未知状态同样由调用侧兜底。 */
 export const OFFERING_STATUS_CLASS: Record<string, string> = {
 	draft: "l-badge l-badge-muted",

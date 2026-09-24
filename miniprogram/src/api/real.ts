@@ -31,6 +31,44 @@ import type {
   EventModerationScopeQueryVariables,
   EventModeratorsQuery,
   EventModeratorsQueryVariables,
+  FlashbackAdjustFogMutation,
+  FlashbackAdjustFogMutationVariables,
+  FlashbackAdjustTodayFogMutation,
+  FlashbackAdjustTodayFogMutationVariables,
+  FlashbackCapsuleQuery,
+  FlashbackCapsuleQueryVariables,
+  FlashbackClaimMutation,
+  FlashbackCreateWishMutation,
+  FlashbackCreateWishMutationVariables,
+  FlashbackEndorseWishMutation,
+  FlashbackEndorseWishMutationVariables,
+  FlashbackExpectWishMutation,
+  FlashbackExpectWishMutationVariables,
+  FlashbackCancelEndorseWishMutation,
+  FlashbackCancelEndorseWishMutationVariables,
+  FlashbackReportWishMutation,
+  FlashbackReportWishMutationVariables,
+  FlashbackAddWishCommentMutation,
+  FlashbackAddWishCommentMutationVariables,
+  FlashbackDeleteWishMutation,
+  FlashbackDeleteWishMutationVariables,
+  FlashbackClaimMutationVariables,
+  FlashbackEnterMutation,
+  FlashbackEnterMutationVariables,
+  FlashbackMarkRevealedMutation,
+  FlashbackMarkRevealedMutationVariables,
+  FlashbackPublicStatsQuery,
+  FlashbackPublicStatsQueryVariables,
+  FlashbackSendToWallMutation,
+  FlashbackSendToWallMutationVariables,
+  FlashbackSetCardSharingMutation,
+  FlashbackSetCardSharingMutationVariables,
+  FlashbackSetQuoteLicenseMutation,
+  FlashbackSetQuoteLicenseMutationVariables,
+  FlashbackSharedCardQuery,
+  FlashbackSharedCardQueryVariables,
+  FlashbackSubmitTodayMutation,
+  FlashbackSubmitTodayMutationVariables,
   GenerateMiniProgramCodeMutation,
   GenerateMiniProgramCodeMutationVariables,
   GrantConsentMutation,
@@ -64,6 +102,7 @@ import type {
 } from './generated/graphql'
 import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
+import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -83,6 +122,25 @@ import {
   EventDetailQueryDocument,
   EventModerationScopeQueryDocument,
   EventModeratorsQueryDocument,
+  FlashbackAdjustFogMutationDocument,
+  FlashbackAdjustTodayFogMutationDocument,
+  FlashbackAddWishCommentMutationDocument,
+  FlashbackCapsuleQueryDocument,
+  FlashbackClaimMutationDocument,
+  FlashbackCreateWishMutationDocument,
+  FlashbackDeleteWishMutationDocument,
+  FlashbackEndorseWishMutationDocument,
+  FlashbackCancelEndorseWishMutationDocument,
+  FlashbackExpectWishMutationDocument,
+  FlashbackReportWishMutationDocument,
+  FlashbackEnterMutationDocument,
+  FlashbackMarkRevealedMutationDocument,
+  FlashbackPublicStatsQueryDocument,
+  FlashbackSendToWallMutationDocument,
+  FlashbackSetCardSharingMutationDocument,
+  FlashbackSetQuoteLicenseMutationDocument,
+  FlashbackSharedCardQueryDocument,
+  FlashbackSubmitTodayMutationDocument,
   GenerateMiniProgramCodeMutationDocument,
   GrantConsentMutationDocument,
   MyEnrollmentsQueryDocument,
@@ -111,6 +169,16 @@ import type {
   ContentKind,
   EnrollmentForm,
   EnrollmentSummary,
+  FlashbackCapsule,
+  FlashbackCardSharing,
+  FlashbackSharedCard,
+  FlashbackRosterAnswer,
+  FlashbackRosterSegment,
+  FlashbackWish,
+  FlashbackClaimResult,
+  FlashbackEnterResult,
+  FlashbackFogSpan,
+  FlashbackPublicStats,
   MyEnrollmentState,
   MiniProgramApi,
   MiniProgramCode,
@@ -155,6 +223,7 @@ type ContentRecord = (EventRecord | CourseRecord) &
     initiativeId: string | null
     minAge: number | null
     publicModerators: string[] | null
+    description: string | null
   }>
 
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
@@ -197,6 +266,8 @@ function mapContent(record: ContentRecord, kind: ContentKind, myEnrollment: MyEn
     minAge: 'minAge' in record && typeof record.minAge === 'number' ? record.minAge : null,
     startsAt: record.startsAt,
     endsAt: record.endsAt,
+    // 活动介绍：仅详情查询携带（列表记录 → null，不渲染介绍块）
+    description: record.description ?? null,
     venue: 'venue' in record ? record.venue : null,
     initiativeId: record.initiativeId ?? null,
     publicModerators: record.publicModerators ?? null,
@@ -237,12 +308,16 @@ function parseOrderStatus(value: string): OrderStatus {
   throw new Error(`服务端返回未知订单状态：${value}`)
 }
 
+// Action 卡四态 fail-closed：未知态落 done（终态只读，无写面风险）。
+// BusinessError 单源在 ./business-error（#751 独立成文件：domain 纯函数与
+// node --test 都要加载它）；code 与文案精确配对（抛出产出文案的那个 code）。
 function mutationError(errors: Array<{ message?: string | null; code?: string | null }>): never {
   // code 命中 → 中文文案 + BusinessError（保留 code 供页面分派自愈，#751）；
   // 未命中 join message（通用兜底，拿不到 code 的场景用）
-  const firstCode = errors.find(({ code }) => code)?.code ?? null
-  const copy = errors.map(({ code }) => errorCopy(code)).find(Boolean)
-  if (copy) throw new BusinessError(copy, firstCode)
+  for (const { code } of errors) {
+    const copy = errorCopy(code)
+    if (code && copy) throw new BusinessError(copy, code)
+  }
   throw new Error(errors.map(({ message }) => message).filter(Boolean).join('；') || '操作失败')
 }
 
@@ -296,6 +371,83 @@ function mapVolunteerApplication(record: VolunteerApplicationRecord): VolunteerA
   }
 }
 
+
+/** 首程链接失效 code → 类型化错误（不存在/已注册/已删除三分支，KTD2/ADR-0015）；
+ * capsule 与 enter 共用（token 面一切读写的失效语义同源）。 */
+function throwIfFlashbackTokenInvalid(error: unknown): void {
+  if (!(error instanceof GraphQLRequestError)) return
+  const codes = error.errors.map((entry) => entry.code ?? entry.extensions?.code)
+  const invalid = codes.find(
+    (code): code is FlashbackTokenInvalidCode =>
+      code === 'flashback_token_not_found' || code === 'flashback_token_claimed' || code === 'flashback_token_revoked'
+  )
+  if (invalid) throw new FlashbackTokenInvalidError(invalid)
+}
+/** today fogSpans 解析:真实后端经 :json 标量(字符串),mock 直传对象——两者兼容 */
+function parseTodayFog(
+  raw: unknown
+): Record<string, Array<{ start: number; len: number }>> | null {
+  if (!raw) return null
+  if (typeof raw === 'object') return raw as Record<string, Array<{ start: number; len: number }>>
+  if (typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Array<{ start: number; len: number }>>
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** 公开卡段结构（#771）：与名册段（capsule.archives[].roster[].answers[].segments）
+ *  同口径——fog=true 时 text 恒空（后端已置空；这里再兜一层：fog 段只要带了
+ *  原文就丢弃，宁多雾一块也不放原文字符过去）。 */
+function mapSharedCardSegments(
+  segments: Array<{ text: string; fog: boolean; len: number } | null> | null | undefined
+): FlashbackRosterSegment[] {
+  return (segments ?? [])
+    .filter((segment): segment is NonNullable<typeof segment> => segment != null)
+    .map((segment) => ({
+      text: segment.fog ? '' : segment.text,
+      fog: segment.fog === true,
+      len: segment.len
+    }))
+}
+
+/** 公开卡题段列表（#771）：answers 与 today 同形（questionKey + 段列表），
+ *  后者键为 today.now/want/need/say；两处共用本映射。 */
+function mapSharedCardSections(
+  sections:
+    | Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null>
+    | null
+    | undefined
+): FlashbackRosterAnswer[] {
+  return (sections ?? [])
+    .filter((section): section is NonNullable<typeof section> => section != null)
+    .map((section) => ({
+      questionKey: section.questionKey,
+      segments: mapSharedCardSegments(section.segments)
+    }))
+}
+
+/** 公开卡（#771）——**入参形状里根本没有原文**（后端投影只出段结构），
+ *  所以不存在「回退到本人卡原文」的代码路径：这是防线的第一层。 */
+function mapSharedCard(card: {
+  displayName: string
+  city?: string | null
+  appliedAt?: string | null
+  occurredOn?: string | null
+  answers?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
+  today?: Array<{ questionKey: string; segments: Array<{ text: string; fog: boolean; len: number } | null> | null } | null> | null
+}): FlashbackSharedCard {
+  return {
+    displayName: card.displayName,
+    city: card.city ?? null,
+    appliedAt: card.appliedAt ?? null,
+    occurredOn: card.occurredOn ?? null,
+    answers: mapSharedCardSections(card.answers),
+    today: mapSharedCardSections(card.today)
+  }
+}
 
 export class RealMiniProgramApi implements MiniProgramApi {
   /**
@@ -705,6 +857,467 @@ export class RealMiniProgramApi implements MiniProgramApi {
     return readLocalNotifications()
   }
 
+  // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────
+
+  // U4 愿望写操作:双入口 token,失效抛 FlashbackTokenInvalidError 由页面处理。
+  // wish2 U8/U10 扩参:署名/期望地/公开授权;返回三态结果(页面按 status 分文案)
+  async flashbackCreateWish(
+    content: string,
+    visibility: 'private' | 'public',
+    token?: string | null,
+    options?: {
+      signatureChoice?: 'anonymous' | 'display_name'
+      expectedCity?: string | null
+      publicListingConsent?: boolean
+    }
+  ): Promise<{ id: string; status: string }> {
+    const data = await graphqlRequest<FlashbackCreateWishMutation, FlashbackCreateWishMutationVariables>(
+      FlashbackCreateWishMutationDocument,
+      {
+        content,
+        visibility,
+        token: token ?? null,
+        signatureChoice: options?.signatureChoice ?? null,
+        expectedCity: options?.expectedCity ?? null,
+        publicListingConsent: options?.publicListingConsent ?? false
+      }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      // R20 年度额度/机审拒绝/城市名单外:code 命中 errorCopy 抛中文
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    const result = data.flashbackCreateWish
+    if (!result?.id || !result.status) throw new Error('许愿结果异常，请稍后在「我的愿望」查看')
+    return { id: result.id, status: result.status }
+  }
+
+  // wish2 U6/KTD3：附议登录版（旧 token 匿名腿下线——未登录由页面引登录页）
+  async flashbackEndorseWish(
+    wishId: string,
+    options?: { contributionTypes?: string[]; message?: string | null; notify?: boolean }
+  ): Promise<number> {
+    const data = await graphqlRequest<FlashbackEndorseWishMutation, FlashbackEndorseWishMutationVariables>(
+      FlashbackEndorseWishMutationDocument,
+      {
+        wishId,
+        contributionTypes: options?.contributionTypes ?? [],
+        message: options?.message ?? null,
+        notify: options?.notify ?? false
+      }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    return data.flashbackEndorseWish?.endorsementCount ?? 0
+  }
+
+  // wish2 U6/U9（KTD2）：期待/取消期待（服务端按登录态强制 u: 键；匿名传设备键）
+  async flashbackExpectWish(wishId: string, expected: boolean, anonVoterKey?: string | null): Promise<number> {
+    const data = await graphqlRequest<FlashbackExpectWishMutation, FlashbackExpectWishMutationVariables>(
+      FlashbackExpectWishMutationDocument,
+      { wishId, expected, anonVoterKey: anonVoterKey ?? null }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    return data.flashbackExpectWish?.expectationCount ?? 0
+  }
+
+  // wish2 U6/U9（KTD3）：取消附议（登录）
+  async flashbackCancelEndorseWish(wishId: string): Promise<void> {
+    await graphqlRequest<FlashbackCancelEndorseWishMutation, FlashbackCancelEndorseWishMutationVariables>(
+      FlashbackCancelEndorseWishMutationDocument,
+      { wishId }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+  }
+
+  // wish2 U6/U9（KTD5）：举报（预设理由 + ≤200 补充；匿名带设备键）
+  async flashbackReportWish(
+    wishId: string,
+    reasonType: string,
+    reasonFree?: string | null,
+    anonVoterKey?: string | null
+  ): Promise<void> {
+    await graphqlRequest<FlashbackReportWishMutation, FlashbackReportWishMutationVariables>(
+      FlashbackReportWishMutationDocument,
+      {
+        wishId,
+        reasonType,
+        reasonFree: reasonFree?.trim() || null,
+        anonVoterKey: anonVoterKey ?? null
+      }
+    ).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+  }
+
+  async flashbackAddWishComment(wishId: string, content: string, token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackAddWishCommentMutation, FlashbackAddWishCommentMutationVariables>(
+      FlashbackAddWishCommentMutationDocument,
+      { wishId, content, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
+
+  async flashbackDeleteWish(wishId: string, token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackDeleteWishMutation, FlashbackDeleteWishMutationVariables>(
+      FlashbackDeleteWishMutationDocument,
+      { wishId, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
+
+  async getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule> {
+    const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
+      FlashbackCapsuleQueryDocument,
+      { city: city ?? null, token: token ?? null }
+    ).catch((error: unknown) => {
+      // 首程链接失效（token 面）：类型化抛出，页面按三态渲染失效落地（KTD2）
+      throwIfFlashbackTokenInvalid(error)
+      if (error instanceof GraphQLRequestError) {
+        // 登录账号没绑定档案（会话腿 miss）→ 引导态
+        if (error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_person_not_bound')) {
+          throw new FlashbackNotBoundError()
+        }
+        // 未登录/会话失效（会话腿 code = flashback_auth_required，与后端
+        // alumni_projection 同源）→ 登录引导而非错误面——对齐 getMyEnrollments/
+        // getMyOrders 的 SessionExpiredError 先例（P1）
+        if (
+          isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required')
+        ) {
+          throw new SessionExpiredError()
+        }
+      }
+      throw error
+    })
+
+    const capsule = data.flashbackCapsule
+    if (!capsule) throw new Error('闪念间档案加载失败')
+
+    return {
+      me: {
+        id: capsule.me.id,
+        fullName: capsule.me.fullName,
+        surname: capsule.me.surname ?? null,
+        city: capsule.me.city ?? null,
+        occupationThen: capsule.me.occupationThen ?? null,
+        participation: capsule.me.participation === 'not_selected' ? 'not_selected' : 'attended',
+        appliedAt: capsule.me.appliedAt ?? null,
+        quoteLevel: capsule.me.quoteLevel,
+        quote: capsule.me.quote ?? null,
+        quoteSpans: (capsule.me.quoteSpans ?? [])
+          .filter((s): s is NonNullable<typeof s> => s != null)
+          .map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
+        quoteStats: capsule.me.quoteStats ? { likeCount: capsule.me.quoteStats.likeCount } : null,
+        today: capsule.me.today
+          ? {
+              nowStatus: capsule.me.today.nowStatus ?? null,
+              want: capsule.me.today.want ?? null,
+              need: capsule.me.today.need ?? null,
+              say: capsule.me.today.say ?? null,
+              // 本人管理面雾区间(field → spans;:json 标量→解析容错)
+              fogSpans: parseTodayFog(capsule.me.today.fogSpans),
+              sentToWallAt: capsule.me.today.sentToWallAt ?? null
+            }
+          : null,
+        answers: (capsule.me.answers ?? []).map((answer) => ({
+          id: answer.id,
+          questionKey: answer.questionKey,
+          rawText: answer.rawText,
+          fogSpans: (answer.fogSpans ?? []).map((span) => ({ start: span.start, len: span.len })),
+          text: answer.text
+        })),
+        // #771：公开开关与本人预览。**没有 rawText 兜底**——预览段与公开读面
+        // 同源（后端同一投影），页面不得拿 me.answers 的原文字符去补段。
+        cardSharing: capsule.me.cardSharing
+          ? {
+              enabled: capsule.me.cardSharing.enabled === true,
+              shareId: capsule.me.cardSharing.shareId ?? null,
+              preview: capsule.me.cardSharing.preview
+                ? mapSharedCard(capsule.me.cardSharing.preview)
+                : { displayName: '', city: null, appliedAt: null, occurredOn: null, answers: [], today: [] }
+            }
+          : undefined
+      },
+      archives: (capsule.archives ?? []).map((archive) => ({
+        key: archive.key,
+        name: archive.name ?? null,
+        city: archive.city ?? null,
+        occurredOn: archive.occurredOn ?? null,
+        appliedCount: archive.appliedCount ?? null,
+        attendedCount: archive.attendedCount ?? null,
+        label: archive.label ?? null,
+        isMine: archive.isMine,
+        roster: (archive.roster ?? []).map((entry) => ({
+          id: entry.id,
+          surnameMasked: entry.surnameMasked,
+          fullName: entry.fullName ?? null,
+          appliedAt: entry.appliedAt ?? null,
+          city: entry.city ?? null,
+          occupationThen: entry.occupationThen ?? null,
+          sentToWallAt: entry.sentToWallAt ?? null,
+          today: entry.today
+            ? {
+                nowStatus: entry.today.nowStatus ?? null,
+                want: entry.today.want ?? null,
+                say: entry.today.say ?? null
+              }
+            : null,
+          answers: (entry.answers ?? []).map((answer) => ({
+            questionKey: answer.questionKey,
+            segments: (answer.segments ?? []).map((segment) => ({
+              text: segment.text,
+              fog: segment.fog,
+              len: segment.len
+            }))
+          }))
+        }))
+      })),
+      futureEvents: (capsule.futureEvents ?? []).map((frame) => ({
+        initiativeSlug: frame.initiativeSlug,
+        initiativeName: frame.initiativeName,
+        initiativeStartsAt: frame.initiativeStartsAt ?? null,
+        events: (frame.events ?? []).map((event) => ({
+          id: event.id,
+          slug: event.slug,
+          title: event.title,
+          city: event.city ?? null,
+          startsAt: event.startsAt ?? null,
+          capacity: event.capacity ?? null,
+          confirmedCount: event.confirmedCount ?? 0,
+          registrationDeadline: event.registrationDeadline ?? null
+        }))
+      })),
+      publicWishes: (capsule.publicWishes ?? []).map(mapWish),
+      myPrivateWishes: (capsule.myPrivateWishes ?? []).map(mapWish),
+      myWishQuotaRemaining: capsule.myWishQuotaRemaining ?? null,
+      cities: capsule.cities ?? []
+    }
+  }
+
+
+  async flashbackSubmitToday(
+    input: {
+      nowStatus?: string | null
+      want?: string | null
+      need?: string | null
+      say?: string | null
+    },
+    token?: string | null
+  ): Promise<void> {
+    await graphqlRequest<FlashbackSubmitTodayMutation, FlashbackSubmitTodayMutationVariables>(
+      FlashbackSubmitTodayMutationDocument,
+      { input, token: token ?? null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+  }
+
+    async flashbackSetQuoteLicense(
+    level: 'off' | 'anonymous' | 'credited',
+    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
+  ): Promise<void> {
+    const data = await graphqlRequest<FlashbackSetQuoteLicenseMutation, FlashbackSetQuoteLicenseMutationVariables>(
+      FlashbackSetQuoteLicenseMutationDocument,
+      { level, chosenQuoteSpans: chosenQuoteSpans ?? null }
+    )
+    if (!data.flashbackSetQuoteLicense) throw new Error('授权设置失败，请重试')
+  }
+
+  async flashbackAdjustFog(answerId: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackAdjustFogMutation, FlashbackAdjustFogMutationVariables>(
+      FlashbackAdjustFogMutationDocument,
+      {
+        token: token ?? undefined,
+        answerId,
+        spans: spans.map((span) => ({ start: span.start, len: span.len, reason: span.reason ?? 'owner' }))
+      }
+    )
+  }
+  // 今天的你句级雾面(field ∈ now/want/need/say;token 可选=会话面)
+  async flashbackAdjustTodayFog(field: string, spans: FlashbackFogSpan[], token?: string | null): Promise<void> {
+    await graphqlRequest<FlashbackAdjustTodayFogMutation, FlashbackAdjustTodayFogMutationVariables>(
+      FlashbackAdjustTodayFogMutationDocument,
+      {
+        token: token ?? undefined,
+        field,
+        spans: spans.map((span) => ({ start: span.start, len: span.len }))
+      }
+    )
+  }
+
+  // ── 首程 token 面（mp 版原型 F：旅程 → 长廊 → 场次；R1/R4-R11/R27） ──
+
+  async flashbackEnter(token: string): Promise<FlashbackEnterResult> {
+    const data = await graphqlRequest<FlashbackEnterMutation, FlashbackEnterMutationVariables>(
+      FlashbackEnterMutationDocument,
+      { token }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const result = data.flashbackEnter
+    if (!result) throw new Error('进入闪念间失败，请重试')
+    return {
+      line: result.line === 'dream' ? 'dream' : 'memory',
+      profile: result.profile
+        ? {
+            fullName: result.profile.fullName,
+            surname: result.profile.surname ?? null,
+            city: result.profile.city ?? null,
+            occupationThen: result.profile.occupationThen ?? null,
+            participation: result.profile.participation === 'not_selected' ? 'not_selected' : 'attended',
+            role: result.profile.role,
+            appliedAt: result.profile.appliedAt ?? null,
+            archive: result.profile.archive
+              ? {
+                  key: result.profile.archive.key,
+                  name: result.profile.archive.name ?? null,
+                  city: result.profile.archive.city ?? null,
+                  occurredOn: result.profile.archive.occurredOn ?? null
+                }
+              : null,
+            // codegen 列表元素可空（SDL 列表未加 !）：先滤再映射
+            answers: (result.profile.answers ?? [])
+              .filter((answer): answer is NonNullable<typeof answer> => answer != null)
+              .map((answer) => ({
+                id: answer.id,
+                questionKey: answer.questionKey,
+                rawText: answer.rawText,
+                fogSpans: (answer.fogSpans ?? [])
+                  .filter((span): span is NonNullable<typeof span> => span != null)
+                  .map((span) => ({ start: span.start, len: span.len }))
+              }))
+          }
+        : null,
+      progress: result.progress
+        ? {
+            quoteLevel: result.progress.quoteLevel,
+            maskedPhone: result.progress.maskedPhone ?? null,
+            maskedEmail: result.progress.maskedEmail ?? null,
+            today: result.progress.today
+              ? {
+                  nowStatus: result.progress.today.nowStatus ?? null,
+                  want: result.progress.today.want ?? null,
+                  need: null,
+                  say: result.progress.today.say ?? null,
+                  fogSpans: null,
+                  sentToWallAt: result.progress.today.sentToWallAt ?? null
+                }
+              : null
+          }
+        : null
+    }
+  }
+
+  async flashbackMarkRevealed(token: string): Promise<void> {
+    await graphqlRequest<FlashbackMarkRevealedMutation, FlashbackMarkRevealedMutationVariables>(
+      FlashbackMarkRevealedMutationDocument,
+      { token }
+    )
+  }
+
+  async flashbackSendToWall(token: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackSendToWallMutation, FlashbackSendToWallMutationVariables>(
+      FlashbackSendToWallMutationDocument,
+      { token }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackSendToWall?.sentToWallAt) throw new Error('寄出失败，请重试')
+  }
+
+  async flashbackClaim(token?: string | null): Promise<FlashbackClaimResult> {
+    const data = await graphqlRequest<FlashbackClaimMutation, FlashbackClaimMutationVariables>(
+      FlashbackClaimMutationDocument,
+      { token: token ?? null }
+    ).catch((error: unknown) => {
+      // 带 token 但链接已失效 → 类型化（页面提示链接已被账号接管）
+      throwIfFlashbackTokenInvalid(error)
+      if (error instanceof GraphQLRequestError) {
+        if (
+          isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required')
+        ) {
+          throw new SessionExpiredError()
+        }
+      }
+      throw error
+    })
+    const result = data.flashbackClaim
+    if (!result) throw new Error('收好失败，请重试')
+    return {
+      bound: result.bound,
+      boundCount: result.boundCount,
+      maskedPhone: result.maskedPhone ?? null
+    }
+  }
+
+  async getFlashbackPublicStats(): Promise<FlashbackPublicStats> {
+    const data = await graphqlRequest<FlashbackPublicStatsQuery, FlashbackPublicStatsQueryVariables>(
+      FlashbackPublicStatsQueryDocument,
+      {}
+    )
+    return {
+      archives: (data.flashbackPublicStats?.archives ?? []).map((archive) => ({
+        key: archive.key,
+        name: archive.name ?? null,
+        city: archive.city ?? null,
+        occurredOn: archive.occurredOn ?? null,
+        appliedCount: archive.appliedCount ?? null,
+        attendedCount: archive.attendedCount ?? null,
+        label: archive.label ?? null
+      })),
+      returnedCount: data.flashbackPublicStats?.returnedCount ?? 0,
+      sentCount: data.flashbackPublicStats?.sentCount ?? 0
+    }
+  }
+
+  // ── 卡片站外公开（#771/R14）────────────────────────────────────────────
+
+  async flashbackSetCardSharing(enabled: boolean, token?: string | null): Promise<FlashbackCardSharing> {
+    const data = await graphqlRequest<FlashbackSetCardSharingMutation, FlashbackSetCardSharingMutationVariables>(
+      FlashbackSetCardSharingMutationDocument,
+      { enabled, token: token ?? null }
+    ).catch((error: unknown) => {
+      // 首程链接失效（token 面）→ 类型化抛出（与其余 token 面写操作同规则）
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const result = data.flashbackSetCardSharing
+    if (!result) throw new Error('公开设置失败，请重试')
+    return {
+      enabled: result.enabled === true,
+      shareId: result.shareId ?? null,
+      preview: result.preview
+        ? mapSharedCard(result.preview)
+        : { displayName: '', city: null, appliedAt: null, occurredOn: null, answers: [], today: [] }
+    }
+  }
+
+  async getFlashbackSharedCard(shareId: string): Promise<FlashbackSharedCard | null> {
+    const data = await graphqlRequest<FlashbackSharedCardQuery, FlashbackSharedCardQueryVariables>(
+      FlashbackSharedCardQueryDocument,
+      { shareId }
+    )
+    // null 是**合法**空态（未开启/不存在/已删档），不是错误——页面据此渲染
+    // 「这张卡已经收回」而不是错误面。网络/服务端故障仍由 graphqlRequest 抛出。
+    if (!data.flashbackSharedCard) return null
+    return mapSharedCard(data.flashbackSharedCard)
+  }
+
   async createOrder(enrollmentId: string, depositConsent?: boolean): Promise<CreatedOrder> {
     const data = await graphqlRequest<CreateOrderMutation, CreateOrderMutationVariables>(
       CreateOrderMutationDocument,
@@ -915,5 +1528,36 @@ export class RealMiniProgramApi implements MiniProgramApi {
     const result = data.createVolunteerApplication?.result
     if (!result) mutationError(data.createVolunteerApplication?.errors ?? [])
     return mapVolunteerApplication(result)
+  }
+}
+
+
+// 愿望映射（U1）：comments 遮罩姓与计数直传
+function mapWish(wish: {
+  id: string
+  content: string
+  city?: string | null
+  wisherMasked?: string | null
+  endorsementCount: number
+  endorsedByMe: boolean
+  mine: boolean
+  comments?: Array<{ id: string; content: string; commenterMasked?: string | null; insertedAt: string }>
+  insertedAt: string
+}): FlashbackWish {
+  return {
+    id: wish.id,
+    content: wish.content,
+    city: wish.city ?? null,
+    wisherMasked: wish.wisherMasked ?? null,
+    endorsementCount: wish.endorsementCount ?? 0,
+    endorsedByMe: wish.endorsedByMe ?? false,
+    mine: wish.mine ?? false,
+    comments: (wish.comments ?? []).map((c) => ({
+      id: c.id,
+      content: c.content,
+      commenterMasked: c.commenterMasked ?? null,
+      insertedAt: c.insertedAt
+    })),
+    insertedAt: wish.insertedAt
   }
 }

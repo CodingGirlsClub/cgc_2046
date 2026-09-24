@@ -5463,6 +5463,108 @@ type RootQueryType {
   "公开 Initiative 列表；匿名可读"
   publicInitiatives: [PublicInitiativeCard!]!
 
+  "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
+  flashbackDreamTarget(city: String): FlashbackDreamTarget
+
+  "闪念间时间胶囊（U5\/R12\/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter"
+  flashbackCapsule(
+    token: String
+
+    "城市钉筛选（R34）：非空时名册与行动板按城市过滤；cities 始终全量"
+    city: String
+  ): FlashbackCapsule
+
+  "看板四率（U11\/R24\/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线\/圆梦线"
+  flashbackAdminStats: FlashbackAdminStats
+
+  "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
+  flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
+
+  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
+  flashbackOutreachPreview(archiveKey: String!, channel: String): FlashbackOutreachPreview
+
+  "场次列表（R7 发送入口数据源，PlatformAdmin）"
+  flashbackAdminArchives: [FlashbackAdminArchive!]!
+
+  "闪念间·单人重发（R2\/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+  flashbackAdminResendOutreach(personId: ID!, template: String!, channel: String): FlashbackOutreachDispatchResult
+
+  "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
+  flashbackOutreachBatches(archiveKey: String!): [FlashbackOutreachBatch!]!
+
+  "场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6\/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed"
+  flashbackOutreachRoster(archiveKey: String!, filter: String, search: String): [FlashbackOutreachRosterEntry!]!
+
+  "删除摘要（U10\/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
+  flashbackDeletePreview(token: String): FlashbackDeletePreviewResult
+
+  "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
+  flashbackPublicStats: FlashbackPublicStats
+
+  "闪念间匿名金句墙（U6\/R31\/R32\/R36\/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权\/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
+  flashbackPublicQuotes(
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
+    voterKey: String
+  ): [FlashbackPublicQuote!]!
+
+  "随便听听（R35 随机入口）：全量未隐藏金句中随机取 limit 句（默认 3）；过滤口径同金句墙"
+  flashbackRandomQuotes(
+    "句数（默认 3，上限 20）"
+    limit: Int
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
+    voterKey: String
+  ): [FlashbackPublicQuote!]!
+
+  "单句直达（R37 分享链接 ?item=）：按 quoteId 取一句；已撤回\/未授权\/不存在统一 null（不泄露存在性，前端渲染失效页）"
+  flashbackPublicQuote(
+    quoteId: ID!
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
+    voterKey: String
+  ): FlashbackPublicQuote
+
+  "闪念间实名档案页（U6\/R31 credited 档）：仅已发布 public_slug 者可解析；null = 未授权（前端 404 态）"
+  flashbackPublicProfile(slug: String!): FlashbackPublicProfile
+
+  "卡片分享链接（#771）：匿名可读（无 token \/ 无 slug \/ 无授权依赖）；null = 未命中 \/ 已关闭 \/ 已删除（不区分原因，不做存在性预言机）"
+  flashbackSharedCard(shareId: String!): FlashbackSharedCard
+
+  "公开许愿树（wish2 U6\/KTD10）：listed+public+未 hidden+未删 四条件；带种子加权随机排序（-ln(u)\/w，w=(1+期待+2×附议)×freshness）；seed 缺省=当日+voterKey；字段白名单（无 phone\/email\/message）"
+  flashbackPublicWishes(
+    "城市过滤（Cities.normalize 短名；null = 不过滤）"
+    city: String
+
+    "排序种子（null = 当日+voterKey；「换一批」传随机值）"
+    seed: String
+
+    "分页偏移（同 seed 稳定不重不漏）"
+    offset: Int
+
+    "页大小（默认 60，上限 120）"
+    limit: Int
+
+    "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 expected\/endorsedByViewer 回显"
+    voterKey: String
+  ): [FlashbackPublicWish!]!
+
+  "许愿单条直达（?item=<wish_id>）：四条件可见才返回；不可见\/不存在统一 null（不泄露存在性）"
+  flashbackPublicWish(
+    wishId: ID!
+
+    "客户端去重键：只影响 expected\/endorsedByViewer 回显"
+    voterKey: String
+  ): FlashbackPublicWish
+
+  "全国城市名单（wish2 U6\/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"
+  flashbackCities: [FlashbackCity!]!
+
+  "「说给主办方听」收件箱（wish2 U5\/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone\/email 仅 admin；公开响应禁出）"
+  flashbackAdminWishInbox: [FlashbackAdminWishInboxEntry!]!
+
+  "举报队列（wish2 U5\/KTD5 PlatformAdmin）：status=pending 按时间正序"
+  flashbackAdminWishReports: [FlashbackAdminReportEntry!]!
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6378,6 +6480,835 @@ type AcceptInvitationResult {
   result: Invitation
 
   errors: [MutationError!]!
+}
+
+type FlashbackDreamTarget {
+  eventSlug: String!
+  eventTitle: String!
+  startsAt: DateTime
+  initiativeSlug: String!
+}
+
+type FlashbackCapsuleToday {
+  nowStatus: String
+
+  want: String
+
+  need: String
+
+  say: String
+
+  "句级雾面：field(now\/want\/need\/say) → spans；本人管理面专用"
+  fogSpans: Json
+
+  sentToWallAt: String
+}
+
+type FlashbackCapsuleMe {
+  id: ID!
+
+  fullName: String!
+
+  surname: String
+
+  city: String
+
+  occupationThen: String
+
+  participation: String!
+
+  appliedAt: String
+
+  today: FlashbackCapsuleToday
+
+  "金句授权档（R31：off\/anonymous\/credited；无授权行为 off）——回访端恢复选中态"
+  quoteLevel: String!
+
+  "选定金句（R14 摘要卡；off\/未选为 null）"
+  quote: String
+
+  "句子白名单区间列表（首句 = 消费面展示句;圈选器回显全量）"
+  quoteSpans: [FlashbackQuoteSpan]
+
+  "本人金句的点赞数（R36；仅匿名\/实名授权档返回，未授权为 null）"
+  quoteStats: FlashbackQuoteStats
+
+  "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"
+  answers: [FlashbackMeAnswer!]!
+
+  "卡片分享（#771）：开关态 + 标识 + 本人预览；预览独立于公开门（关着也有）"
+  cardSharing: FlashbackCardSharing!
+}
+
+type FlashbackCardSharing {
+  "分享链接是否可被访客解析（关 = 链接 404，标识仍保留）"
+  enabled: Boolean!
+
+  "分享标识：首开铸出后**永不变**（关闭不清、重开复用）；从未开启为 null"
+  shareId: String
+
+  "本人预览（与公开面同一投影，不受 enabled 门限制）；档案已删除为 null"
+  preview: FlashbackSharedCard
+}
+
+type FlashbackSharedCard {
+  "隐名（姓氏 + 星号，如 王**）；分享卡无亮名路径"
+  displayName: String!
+
+  city: String
+
+  "报名时间戳（ISO8601，精确到秒）；落款用——她写下这张卡的那一刻"
+  appliedAt: String
+
+  "活动举办日（ISO8601 日期，如 2014-01-11）；头部场景定位用——记忆真正发生的那天"
+  occurredOn: String
+
+  "当年答案（实时保存数据，无「已寄出」前置）：键 self_intro \/ funny_thing \/ os；空节剔除"
+  answers: [FlashbackSharedCardSection!]!
+
+  "今天四格（实时保存数据）：键 today.now \/ today.want \/ today.need \/ today.say；空节剔除"
+  today: [FlashbackSharedCardSection!]!
+}
+
+type FlashbackSharedCardSection {
+  questionKey: String!
+
+  "段结构（原文顺序）：明文段 text 有字、雾面段 text 恒空串（原文零泄露），len 供视觉档位"
+  segments: [FlashbackSharedCardSegment!]!
+}
+
+type FlashbackSharedCardSegment {
+  text: String!
+  fog: Boolean!
+  len: Int!
+}
+
+type FlashbackMeAnswer {
+  id: ID!
+
+  questionKey: String!
+
+  "原文（KTD4：本人在任何视图永远完整）"
+  rawText: String!
+
+  "既有雾面区间（本人调整的起点）"
+  fogSpans: [FlashbackFogSpan!]!
+
+  "雾化版（与墙上呈现同规则，R15 全文卡）"
+  text: String!
+}
+
+type FlashbackRosterSegment {
+  "雾面段（对外版）：fog=true 时 text 恒为空——原文字符不出 DOM，len 供视觉档位"
+  text: String!
+
+  fog: Boolean!
+
+  len: Int!
+}
+
+type FlashbackRosterAnswer {
+  "当年答案（对外版）：段结构——明文段与雾面段交替，雾面段零字符泄露"
+  questionKey: String!
+
+  segments: [FlashbackRosterSegment!]!
+}
+
+type FlashbackRosterEntryToday {
+  nowStatus: String
+  want: String
+  say: String
+}
+
+type FlashbackRosterEntry {
+  id: ID!
+
+  "姓氏隐名（R12）：王**；名册结构化卡的核心标识"
+  surnameMasked: String!
+
+  "寄出者全名（用户定稿：她回来了即亮名）；未寄出者 null（隐名）"
+  fullName: String
+
+  "寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null"
+  appliedAt: String
+
+  city: String
+
+  occupationThen: String
+
+  sentToWallAt: String
+
+  "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
+  today: FlashbackRosterEntryToday
+
+  "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
+  answers: [FlashbackRosterAnswer!]!
+}
+
+type FlashbackCapsuleArchive {
+  key: String!
+
+  name: String
+
+  city: String
+
+  occurredOn: String
+
+  appliedCount: Int
+
+  attendedCount: Int
+
+  "长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名"
+  label: String
+
+  "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
+  isMine: Boolean!
+
+  roster: [FlashbackRosterEntry!]!
+}
+
+type FlashbackCapsule {
+  me: FlashbackCapsuleMe!
+
+  archives: [FlashbackCapsuleArchive!]!
+
+  "未来场次帧：按 initiative 分组、组内按场次时间升序（KTD1）；报名直链 \/events\/{slug}"
+  futureEvents: [FlashbackFutureFrame!]!
+
+  "公开愿望（附议数降序）；城市钉筛选时无城市许愿恒显示"
+  publicWishes: [FlashbackWish!]!
+
+  "本人私有许愿（私人许愿帧，仅自己可见）"
+  myPrivateWishes: [FlashbackWish!]!
+
+  "本人今年剩余许愿额度（每年 3 条，R20）；capsule 可解析时恒有值，nullable 仅为 schema 演进安全"
+  myWishQuotaRemaining: Int
+
+  "城市钉数据源（R34）：有名册成员的城市，去重排序；不随 city 过滤收缩"
+  cities: [String!]!
+}
+
+type FlashbackFutureFrame {
+  "帧头跳转目标：\/initiatives\/{initiative_slug}（R1）"
+  initiativeSlug: String!
+
+  initiativeName: String!
+
+  "未显影帧时间：initiative 窗口开始时间（未来=还没冲洗的底片,报名\/附议即显影）"
+  initiativeStartsAt: DateTime
+
+  events: [FlashbackFutureEvent!]!
+}
+
+type FlashbackFutureEvent {
+  id: ID!
+
+  "报名直链：\/events\/{slug}（R2\/R3，不在走廊内闭环）"
+  slug: String!
+
+  title: String!
+
+  city: String
+
+  startsAt: DateTime
+
+  "名额进度（U7 与 web enrollmentBadge 口径对齐）"
+  capacity: Int
+
+  confirmedCount: Int!
+
+  registrationDeadline: DateTime
+}
+
+type FlashbackWish {
+  id: ID!
+
+  content: String!
+
+  city: String
+
+  "许愿人遮罩姓（王**）"
+  wisherMasked: String
+
+  endorsementCount: Int!
+
+  "本人已附议（已附议态渲染依据，R7）"
+  endorsedByMe: Boolean!
+
+  "本人许愿（删除入口只对本人显示，R14）"
+  mine: Boolean!
+
+  comments: [FlashbackWishComment!]!
+
+  insertedAt: DateTime!
+}
+
+type FlashbackWishComment {
+  id: ID!
+
+  content: String!
+
+  "留言人遮罩姓"
+  commenterMasked: String
+
+  insertedAt: DateTime!
+}
+
+type FlashbackWishResult {
+  "新建愿望 id（本人查看\/撤回入口用）"
+  id: ID
+
+  "附议后实时计数与本人态"
+  endorsementCount: Int!
+
+  endorsedByMe: Boolean!
+
+  "wish2 U8 三态反馈：listed（挂上许愿树）\/ pending_review（信用待审——审核通过后挂树）\/ private（说给主办方听）"
+  status: String!
+}
+
+type FlashbackRates {
+  "分母：成功送达人数（sent 的 distinct person，硬退信与退订剔除）"
+  delivered: Int!
+
+  linkOpened: Int!
+
+  revealed: Int!
+
+  sentToWall: Int!
+
+  intentSubmitted: Int!
+}
+
+type FlashbackAdminStats {
+  "记忆线（participation=attended）四率"
+  memory: FlashbackRates!
+
+  "圆梦线（participation=not_selected）四率"
+  dream: FlashbackRates!
+
+  overall: FlashbackRates!
+}
+
+type FlashbackRedemption {
+  id: ID!
+
+  status: String!
+
+  "用户提交的收款渠道信息（admin-only，KTD3）"
+  channelNote: String!
+
+  handledNote: String
+
+  insertedAt: String
+
+  "掩码署名（姓** · 城市）——运营定位用"
+  maskedName: String
+
+  city: String
+}
+
+type FlashbackRedemptionUpdateResult {
+  id: ID!
+  status: String!
+}
+
+type FlashbackAdminArchive {
+  key: String!
+  name: String!
+  city: String!
+  occurredOn: String!
+}
+
+type FlashbackOutreachPreview {
+  archiveKey: String!
+
+  archiveName: String!
+
+  "所选通道档的预估入队数"
+  channel: String!
+
+  queued: Int!
+
+  "三档分布：仅邮件可达 \/ 仅短信可达 \/ 双通道"
+  emailOnly: Int!
+
+  smsOnly: Int!
+
+  both: Int!
+
+  unsubscribed: Int!
+
+  unreachable: Int!
+
+  "短信腿就绪位（SendCloud 触达模板已配置）"
+  smsReady: Boolean!
+}
+
+type FlashbackOutreachBatchChannel {
+  queued: Int!
+  sent: Int!
+  failed: Int!
+}
+
+type FlashbackOutreachBatch {
+  batch: String!
+
+  template: String!
+
+  email: FlashbackOutreachBatchChannel!
+
+  sms: FlashbackOutreachBatchChannel!
+
+  "批次最早建行时刻（触发时间近似）"
+  firstAt: String
+}
+
+type FlashbackOutreachLast {
+  channel: String!
+  status: String!
+  batch: String!
+  at: String
+}
+
+type FlashbackOutreachRosterEntry {
+  personId: ID!
+
+  fullName: String!
+
+  "完整联系方式（KD6\/R13：platform_admin 门控，排查核对用）"
+  email: String
+
+  phone: String
+
+  claimed: Boolean!
+
+  participation: String!
+
+  unsubscribed: Boolean!
+
+  deleted: Boolean!
+
+  emailReachable: Boolean!
+
+  smsReachable: Boolean!
+
+  lastOutreach: FlashbackOutreachLast
+}
+
+type FlashbackRedeemResult {
+  status: String!
+  updated: Boolean!
+}
+
+type FlashbackDeleteResult {
+  deleted: Boolean!
+  deletedAt: String!
+}
+
+type FlashbackDeletePreviewResult {
+  personId: ID!
+
+  fullName: String!
+
+  "寄出态（撤下提示依据）；未寄出为 null"
+  sentToWallAt: String
+
+  "将一并删除的附议数"
+  endorsementCount: Int!
+
+  alreadyDeleted: Boolean!
+}
+
+type FlashbackPublicStatsArchive {
+  key: String!
+  name: String
+  city: String
+  occurredOn: String
+  appliedCount: Int
+  attendedCount: Int
+  label: String
+}
+
+type FlashbackPublicStats {
+  archives: [FlashbackPublicStatsArchive!]!
+
+  "已回来人数（distinct link_opened touch）"
+  returnedCount: Int!
+
+  sentCount: Int!
+}
+
+type FlashbackPublicQuote {
+  "授权金句文本（区间切片；雾面句本就不进候选）"
+  text: String!
+
+  "署名：王** · 年 · 城"
+  attribution: String!
+
+  level: String!
+
+  "credited 档才有：链实名档案页"
+  publicSlug: String
+
+  "单句定位键（R37）：flashbackLikeQuote 的 quoteId 入参 \/ 分享链接 ?item="
+  quoteId: ID!
+
+  "城市快照（选城浏览用）"
+  city: String
+
+  "年份快照（选城浏览用）"
+  year: Int
+
+  "实时点赞数（R36，无冗余计数列）"
+  likeCount: Int!
+
+  "本访客是否已赞（按 voterKey 去重；未传 voterKey 恒 false）"
+  likedByViewer: Boolean!
+}
+
+type FlashbackPublicProfile {
+  fullName: String!
+
+  city: String
+
+  eventName: String
+
+  year: Int
+
+  "实名补充：现在在做什么、想法（R31 credited 档）"
+  creditedNote: String
+
+  quote: String!
+}
+
+type FlashbackRecoverResult {
+  "恒 true 形态：命中与未命中同形返回（不泄露存在性）"
+  dispatched: Boolean!
+}
+
+type FlashbackRecoverCard {
+  personId: ID!
+  surnameMasked: String!
+  eventName: String
+  city: String
+}
+
+type FlashbackRecoverVerifyResult {
+  bound: Boolean!
+
+  "绑定档案的脱敏卡列表——多档案=「你的 N 张卡」由本人选择先看哪张"
+  cards: [FlashbackRecoverCard!]!
+}
+
+type FlashbackFogSpan {
+  "雾面区间：grapheme 偏移（start 起、len 长），reason 可选"
+  start: Int!
+
+  len: Int!
+
+  reason: String
+}
+
+type FlashbackAnswer {
+  "当年答案（本人视图：raw_text 永远完整，KTD4）"
+  id: ID!
+
+  questionKey: String!
+
+  rawText: String!
+
+  fogSpans: [FlashbackFogSpan]
+}
+
+type FlashbackArchiveRef {
+  key: String!
+  name: String
+  city: String
+  occurredOn: String
+}
+
+type FlashbackProfile {
+  fullName: String!
+  surname: String
+  city: String
+  occupationThen: String
+  gender: String
+  role: String!
+  participation: String!
+  appliedAt: String
+  archive: FlashbackArchiveRef
+  answers: [FlashbackAnswer]
+}
+
+type FlashbackToday {
+  nowStatus: String
+  want: String
+  need: String
+  say: String
+  wantGiveTags: [String]
+  mobilization: JsonString
+  newsletterOptIn: Boolean
+  reconnectTags: [String]
+  sentToWallAt: String
+}
+
+type FlashbackProgress {
+  today: FlashbackToday
+  quoteLevel: String!
+  maskedPhone: String
+  maskedEmail: String
+}
+
+type FlashbackEnterResult {
+  "进入结果：line = memory（记忆线）| dream（圆梦线）；失效走顶层错误 code（flashback_token_not_found\/claimed\/revoked）"
+  line: String!
+
+  profile: FlashbackProfile
+
+  progress: FlashbackProgress
+
+  "桌面散照候选（R5 数据驱动）：本人那张 + 其他场次各一人；空库时仅本人一张"
+  scatter: FlashbackScatter
+}
+
+type FlashbackScatter {
+  entries: [FlashbackScatterPhoto!]!
+}
+
+type FlashbackScatterPhoto {
+  "照片定位键（本人 = 本人档案 id；他人 = 他人档案 id）"
+  photoKey: ID!
+
+  "场次全名标签「年份 · 城市」——问答选项与读屏线索用（散照卡只显日期戳）"
+  label: String!
+
+  "拍立得日期戳「2016 10 15」——放大时渐显，只给日期不给城市（谜不泄底）"
+  dateStamp: String!
+
+  "是否本人那张"
+  isMine: Boolean!
+
+  "照片主人姓氏（前端渲染姓氏级脱敏 王**，R12）"
+  surname: String
+}
+
+type FlashbackTouchResult {
+  recorded: Boolean!
+}
+
+type FlashbackTodayResult {
+  today: FlashbackToday
+}
+
+type FlashbackSendToWallResult {
+  sentToWallAt: String
+  maskedPhone: String
+  maskedEmail: String
+}
+
+type FlashbackAdjustTodayFogResult {
+  field: String!
+  fogSpans: Json
+}
+
+type FlashbackAdjustFogResult {
+  answerId: ID!
+  fogSpans: [FlashbackFogSpan]
+}
+
+type FlashbackQuoteStats {
+  "点赞数（R36：作者侧回访面，实时 COUNT）"
+  likeCount: Int!
+}
+
+type FlashbackClaimResult {
+  "是否已绑定（false = 库里没有匹配的未认领档案）"
+  bound: Boolean!
+
+  "本次绑定\/已绑定的档案数"
+  boundCount: Int!
+
+  "掩码回显（完整号码不出接口）"
+  maskedPhone: String
+}
+
+type FlashbackQuoteHiddenResult {
+  personId: ID!
+
+  "操作后的下线态（true=已下线）"
+  hidden: Boolean!
+}
+
+type FlashbackQuoteLikeResult {
+  "点赞后的实时计数——前端就地更新，免二次拉取"
+  likeCount: Int!
+}
+
+type FlashbackPublicWish {
+  id: ID!
+
+  content: String!
+
+  "期望地短名（Cities.normalize 归一；null = 未填）"
+  city: String
+
+  "署名快照（匿名遮罩姓 王** 或实名 display_name；创建时定型）"
+  signature: String!
+
+  expectationCount: Int!
+
+  endorsementCount: Int!
+
+  "出力分布（venue\/organize\/speak\/sponsor\/other → count）——从 endorsements 聚合"
+  contributionDistribution: Json!
+
+  expectedByViewer: Boolean!
+
+  endorsedByViewer: Boolean!
+
+  listedAt: DateTime!
+
+  insertedAt: DateTime!
+}
+
+type FlashbackCity {
+  "短名（成都）"
+  name: String!
+
+  "全称（成都市）"
+  fullName: String!
+
+  pinyin: String!
+
+  "中心坐标 [lng, lat]（GeoJSON 形状，G9）"
+  lngLat: [Float!]!
+}
+
+type FlashbackWishExpectResult {
+  "期待后的实时计数 + 本人态"
+  expectationCount: Int!
+
+  expectedByMe: Boolean!
+}
+
+type FlashbackWishEndorseResult {
+  endorsementCount: Int!
+  endorsedByMe: Boolean!
+}
+
+type FlashbackReportResult {
+  reportId: ID!
+  status: String!
+}
+
+type FlashbackWishHiddenResult {
+  wishId: ID!
+
+  "操作后的下架态（true=已下架）"
+  hidden: Boolean!
+}
+
+type FlashbackAdminWishInboxEntry {
+  wishId: ID!
+
+  content: String!
+
+  city: String
+
+  signature: String!
+
+  insertedAt: DateTime!
+
+  "作者遮罩姓（王**）"
+  wisherMasked: String
+
+  "作者登录账号联系方式（仅 platform admin；公开 GraphQL 永不返回）"
+  wisherPhone: String
+
+  wisherEmail: String
+}
+
+type FlashbackAdminReportEntry {
+  reportId: ID!
+  targetType: String!
+  targetId: ID!
+  reasonType: String!
+  reasonFree: String
+  status: String!
+  insertedAt: DateTime!
+}
+
+input FlashbackQuoteSpanInput {
+  questionKey: String!
+  start: Int!
+  len: Int!
+}
+
+type FlashbackQuoteSpan {
+  questionKey: String!
+  start: Int!
+  len: Int!
+}
+
+type FlashbackQuoteLicenseResult {
+  level: String!
+  chosenQuoteSpans: [FlashbackQuoteSpan]
+  creditedNote: String
+}
+
+type FlashbackRetractResult {
+  retracted: Boolean!
+  sentToWallAt: String
+}
+
+type FlashbackRegisterBindResult {
+  bound: Boolean!
+  maskedPhone: String
+}
+
+type FlashbackUpdateContactResult {
+  maskedPhone: String
+  updated: Boolean!
+}
+
+type FlashbackOutreachDispatchResult {
+  "入队件数（错峰 scheduled_at 限速后由 worker 续发）"
+  queued: Int!
+
+  "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
+  skipped: Int!
+}
+
+input FlashbackTodayInput {
+  "「今天的你」问卷（R8）：四个自由文本 + Want\/Give 标签 + 动员勾选（R20）+ Newsletter（R18）+ Reconnect（R19）"
+  nowStatus: String
+
+  want: String
+
+  need: String
+
+  say: String
+
+  wantGiveTags: [String]
+
+  mobilizationJoin1024: Boolean
+
+  mobilizationHelpPromote: Boolean
+
+  mobilizationDonateIntent: Boolean
+
+  mobilizationVolunteerLead: Boolean
+
+  newsletterOptIn: Boolean
+
+  reconnectTags: [String]
+}
+
+input FlashbackFogSpanInput {
+  start: Int!
+  len: Int!
+  reason: String
 }
 
 type PendingOperationConfirmation {
@@ -7342,6 +8273,164 @@ type RootMutationType {
     "核销方式：scan | manual"
     method: String!
   ): CheckInEnrollmentPayload
+
+  "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
+  flashbackEnter(token: String!): FlashbackEnterResult
+
+  "认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入）"
+  flashbackMarkRevealed(token: String!): FlashbackTouchResult
+
+  "提交「今天的你」（R8\/R18\/R19\/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率）"
+  flashbackSubmitToday(token: String, input: FlashbackTodayInput!): FlashbackTodayResult
+
+  "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+  flashbackSendToWall(token: String!): FlashbackSendToWallResult
+
+  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+  flashbackRetract(token: String!): FlashbackRetractResult
+
+  "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
+  flashbackAdjustFog(token: String, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
+
+  flashbackAdjustTodayFog(token: String, field: String!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustTodayFogResult
+
+  "金句授权（R31 两档 + 关）：level ∈ off\/anonymous\/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
+  flashbackSetQuoteLicense(
+    token: String, level: String!, chosenQuoteSpans: [FlashbackQuoteSpanInput], creditedNote: String
+  ): FlashbackQuoteLicenseResult
+
+  "卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档\/公开 slug 无依赖。双入口（token 或登录账号）"
+  flashbackSetCardSharing(enabled: Boolean!, token: String): FlashbackCardSharing
+
+  "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
+  flashbackRegisterBind(token: String!, phone: String!, code: String!): FlashbackRegisterBindResult
+
+  "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
+  flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
+
+  "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
+  flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
+
+  "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+  flashbackCreateWish(
+    token: String
+
+    content: String!
+
+    visibility: String!
+
+    "署名快照：anonymous（默认，姓氏遮罩）\/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+    signatureChoice: String
+
+    "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+    expectedCity: String
+
+    "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+    publicListingConsent: Boolean
+  ): FlashbackWishResult
+
+  "附议愿望（wish2 U6\/KTD3 改造）：**要求登录**（旧 token\/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
+  flashbackEndorseWish(
+    wishId: ID!
+
+    "出力类型（可多选）：venue \/ organize \/ speak \/ sponsor \/ other"
+    contributionTypes: [String]
+
+    "给平台的留言（≤500；非空过机审；仅运营可见）"
+    message: String
+
+    "回响通知意愿（默认 false；真实授权由微信订阅消息 accept 上报，后端零 grant）"
+    notify: Boolean
+  ): FlashbackWishEndorseResult
+
+  "愿望留言（R8）：公开愿望可留言讨论"
+  flashbackAddWishComment(token: String, wishId: ID!, content: String!): FlashbackWishResult
+
+  "删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除"
+  flashbackDeleteWish(token: String, wishId: ID!): Boolean
+
+  "删除自己的留言（R14 软删）"
+  flashbackDeleteWishComment(token: String, commentId: ID!): Boolean
+
+  flashbackRedeem(token: String, channelNote: String!): FlashbackRedeemResult
+
+  "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+  flashbackRecover(identifier: String!): FlashbackRecoverResult
+
+  "自助找回·验证（U6\/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+  flashbackRecoverVerify(identifier: String!, code: String!): FlashbackRecoverVerifyResult
+
+  "兑换状态流转（U11\/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
+  flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
+
+  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
+  flashbackAdminSendOutreach(archiveKey: String!, template: String!, channel: String): FlashbackOutreachDispatchResult
+
+  "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
+  flashbackClaim(token: String): FlashbackClaimResult
+
+  "金句点赞\/取消（R36\/R37）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数"
+  flashbackLikeQuote(
+    quoteId: ID!
+
+    voterKey: String!
+
+    "true=点赞（幂等）；false=取消（幂等）"
+    liked: Boolean!
+  ): FlashbackQuoteLikeResult
+
+  "金句下线开关（R38，PlatformAdmin）：hidden_at 置位\/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线）"
+  flashbackAdminSetQuoteHidden(
+    personId: ID!
+
+    "true=下线；false=恢复"
+    hidden: Boolean!
+  ): FlashbackQuoteHiddenResult
+
+  "期待\/取消期待（wish2 U6\/KTD2）：公开无登录——voterKey（u:\/a:）去重；登录 actor 传 anonVoterKey 时服务端合并匿名行；双窗限频（30\/min voter + 60\/h IP）"
+  flashbackExpectWish(
+    wishId: ID!
+
+    "true=期待（幂等）；false=取消（幂等）"
+    expected: Boolean!
+
+    "匿名设备键 a:<device_uuid>（登录 actor 可不传——服务端强制 u:）"
+    anonVoterKey: String
+
+    "登录态设备键（登录 actor 期待时传，服务端用它替代 anon 键做合并）"
+    voterKey: String
+  ): FlashbackWishExpectResult
+
+  "取消附议（wish2 U6\/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离）"
+  flashbackCancelEndorseWish(wishId: ID!): FlashbackWishEndorseResult
+
+  "举报愿望（wish2 U6\/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10\/15min\/IP 限频；举报是治理信号不进排序（举报≠踩）"
+  flashbackReportWish(
+    wishId: ID!
+
+    "预设理由：spam \/ irrelevant \/ scam \/ inappropriate \/ other"
+    reasonType: String!
+
+    "补充说明（≤200 字，可选）"
+    reasonFree: String
+
+    "匿名设备键（登录 actor 不用传）"
+    anonVoterKey: String
+  ): FlashbackReportResult
+
+  "下架\/恢复愿望（wish2 U5\/KTD5 PlatformAdmin）：hidden=true 联动置位作者信用字段 wishes_review_required_at；false 只清 hidden_at 不动信用"
+  flashbackAdminSetWishHidden(
+    wishId: ID!
+
+    "true=下架；false=恢复"
+    hidden: Boolean!
+  ): FlashbackWishHiddenResult
+
+  "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
+  flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
+
+  "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
+  flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
 
   "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
   createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
