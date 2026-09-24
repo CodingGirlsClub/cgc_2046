@@ -1137,7 +1137,7 @@ defmodule Cgc2046.Admission.Enrollment do
     case orders do
       [order] ->
         if self_cancel_refund_eligible?(changeset, order) do
-          enqueue_order_refund(order, enrollment)
+          commence_order_refund(order, enrollment)
         else
           {:ok, enrollment}
         end
@@ -1152,59 +1152,25 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp enqueue_order_refund(order, enrollment) do
-    # 入队必须 raise 型：Ash 3.33 的 after_action 返回 {:error, _} 会**提交**事务
+  defp commence_order_refund(order, enrollment) do
+    # 退款发起单一入口（#845）：分类与竞态收敛在 RefundCommencement；入队由
+    # Order action 的 after_action 承担（同事务恰好一次）。失败必须 raise 型：
+    # Ash 3.33 的 after_action 返回 `{:error, _}` 会**提交**事务
     # （`transaction_rollback_on_error?` 未设），那样会留下「报名已取消、押金单
-    # 仍 paid/refunding 且无退款 job」的静默吞钱（U6/KTD6 同款纪律：Attendance
-    # 侧已按此改，自助取消侧此前漏改）。raise 用 BusinessError 是为了 #241 契约
-    # 单源（code 经 AST 提取进 error_codes_contract.json）。
-    case claim_refund_start(order, enrollment) do
-      {:ok, refunding} ->
-        Cgc2046.Payments.Workers.PaymentRefundWorker.new(%{"order_id" => refunding.id})
-        |> Oban.insert!()
-
+    # 仍 paid/refunding 且无退款 job」的静默吞钱（U6/KTD6 纪律）。
+    case Cgc2046.Payments.RefundCommencement.commence(order, eligible: [:paid, :refund_failed]) do
+      {:ok, _tag} ->
         {:ok, enrollment}
 
-      {:error, :already_processed} ->
-        # CAS 落空 = 并发路径已把订单推进：refunding/refunded 已有他路入队，良性；
-        # 仍停在 paid 或已被 no-show 结算（forfeited）则与「截止前取消应全退」冲突，
-        # 上抛回滚取消，绝不静默留钱。
-        case reload_order_status(order) do
-          status when status in [:refunding, :refunded] ->
-            {:ok, enrollment}
+      # 不可达防御：上方查询仅取 paid/refunding/refund_failed，三者皆有归宿。
+      # fail-closed 上抛回滚取消，绝不静默留钱。
+      {:error, {:ineligible, status}} ->
+        raise "refund commencement ineligible (#{status}) for order #{order.id}"
 
-          _other ->
-            raise Cgc2046.Errors.BusinessError.exception(
-                    message: domain_error_message(:deposit_settlement_race),
-                    code: domain_error_code(:deposit_settlement_race)
-                  )
-        end
-    end
-  end
-
-  defp claim_refund_start(order, enrollment) do
-    case order.status do
-      :paid ->
-        order
-        |> Ash.Changeset.for_update(:start_refund, %{})
-        |> Ash.update(authorize?: false, tenant: enrollment.workspace_id)
-
-      :refund_failed ->
-        order
-        |> Ash.Changeset.for_update(:retry_refund, %{})
-        |> Ash.update(authorize?: false, tenant: enrollment.workspace_id)
-
-      :refunding ->
-        {:ok, order}
-    end
-  end
-
-  defp reload_order_status(order) do
-    case Cgc2046.Repo.query("SELECT status FROM payments_orders WHERE id = $1", [
-           Cgc2046.Repo.uuid!(order.id)
-         ]) do
-      {:ok, %{rows: [[status]]}} -> String.to_existing_atom(status)
-      _ -> :unknown
+      # 竞态重读仍未收敛 / DB 故障：上抛回滚取消。错误原样透传（含 CAS 的
+      # order_already_processed），与迁移前 cancel 的对外错误形状一致。
+      {:error, reason} ->
+        raise reason
     end
   end
 
