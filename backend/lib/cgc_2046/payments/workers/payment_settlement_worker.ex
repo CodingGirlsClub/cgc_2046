@@ -169,36 +169,31 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
     end
   end
 
-  # refund_failed 重入退款链（015 审计修复 + 复审 F1）。错误语义精确二分：
-  # - CAS 未命中（BusinessError code "order_already_processed"——人工 retry_refund
-  #   / 渠道回调链并发先落）= 良性，消费事件；
-  # - 其余（DB 瞬断、留痕失败等）绝不能吞——吞了会把「渠道已收款、本地无有效
-  #   占位」的单永久滞留 refund_failed 无人跟进，上抛走 Oban 重试。
-  # 分类形状与 PaymentExpiryWorker.expected_race?/1 同源（Ash.update 经
-  # Ash.Error.to_error_class/1 归一，BusinessError 原样保留在 Invalid 栈内）。
+  # refund_failed 重入退款链（015 审计修复 + 复审 F1）。#845：经
+  # RefundCommencement 发起——refund_failed 走 retry_refund；竞态（人工
+  # retry_refund / 渠道回调链并发先落）由 seam 统一收敛为
+  # already_in_progress，与本来的「CAS 未命中」同口径良性消费投递。
+  # 真故障（DB 瞬断、留痕失败等）绝不能吞——吞了会把「渠道已收款、本地无有效
+  # 占位」的单永久滞留 refund_failed 无人跟进，上抛走 Oban 重试。
   defp retry_channel_refund(order) do
-    case order
-         |> Ash.Changeset.for_update(:retry_refund, %{})
-         |> Ash.update(tenant: order.workspace_id, authorize?: false) do
-      {:ok, _refunding} ->
+    case RefundCommencement.commence(order, eligible: [:refund_failed]) do
+      {:ok, _tag} ->
         :ok
 
-      {:error, %Ash.Error.Invalid{errors: errors}} = result ->
-        if Enum.any?(errors, fn
-             %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
-             _ -> false
-           end) do
-          Logger.info(
-            "settlement: order #{order.id} refund retry lost CAS race, delivery consumed"
-          )
+      {:error, {:ineligible, status}} ->
+        Logger.info(
+          "settlement: order #{order.id} refund retry skipped (#{status}), delivery consumed"
+        )
 
-          :ok
-        else
-          result
-        end
+        :ok
 
-      {:error, _reason} = result ->
-        result
+      {:error, :already_in_progress} ->
+        Logger.info("settlement: order #{order.id} refund retry lost CAS race, delivery consumed")
+
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
