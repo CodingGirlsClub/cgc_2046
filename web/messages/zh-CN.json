@@ -294,11 +294,13 @@
       "initiatives": "倡导活动",
       "flashback": "闪念间",
       "voices": "金句墙",
+      "wishes": "许愿树",
       "login": "登录",
       "join": "加入我们",
       "myLearning": "我的学习",
       "myParticipations": "我的报名",
-      "workspace": "工作台"
+      "workspace": "工作台",
+      "menu": "菜单"
     },
     "hero": {
       "tagline": "从 2016 到 2046，程序媛汇，在女性与编程之间架起一座桥梁。",
