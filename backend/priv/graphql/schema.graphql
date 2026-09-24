@@ -7358,24 +7358,6 @@ input FlashbackFogSpanInput {
   reason: String
 }
 
-type PendingOperationConfirmation {
-  "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
-  pendingId: ID
-
-  summary: String
-
-  errors: [MutationError!]!
-}
-
-type OperationResolution {
-  "confirmOperation\/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
-  pendingId: ID
-
-  status: String
-
-  errors: [MutationError!]!
-}
-
 type AdminUser {
   id: ID!
   email: String
@@ -7974,6 +7956,21 @@ type AdminUserPayload {
 }
 
 type RootMutationType {
+  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
+  refundOrder(id: ID!): PendingOperationConfirmation
+
+  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
+  retryRefund(id: ID!): PendingOperationConfirmation
+
+  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
+  waivePayment(id: ID!): PendingOperationConfirmation
+
+  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
+  confirmOperation(pendingId: ID!): OperationResolution
+
+  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
+  cancelOperation(pendingId: ID!): OperationResolution
+
   "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
   createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
 
@@ -8132,21 +8129,6 @@ type RootMutationType {
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
-
-  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
-  refundOrder(id: ID!): PendingOperationConfirmation
-
-  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
-  retryRefund(id: ID!): PendingOperationConfirmation
-
-  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
-  waivePayment(id: ID!): PendingOperationConfirmation
-
-  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
-  confirmOperation(pendingId: ID!): OperationResolution
-
-  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
-  cancelOperation(pendingId: ID!): OperationResolution
 
   "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
   promoteUser(id: ID!): AdminUserPayload
@@ -8524,6 +8506,24 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type PendingOperationConfirmation {
+  "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
+  pendingId: ID
+
+  summary: String
+
+  errors: [MutationError!]!
+}
+
+type OperationResolution {
+  "confirmOperation\/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
+  pendingId: ID
+
+  status: String
+
+  errors: [MutationError!]!
+}
 
 type SpeakerInvitationCard {
   "token 公开卡片：邀请主题\/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
