@@ -294,11 +294,13 @@
       "initiatives": "Initiatives",
       "flashback": "In a Flash",
       "voices": "Voices",
+      "wishes": "Wish Tree",
       "login": "Sign in",
       "join": "Join us",
       "myLearning": "My learning",
       "myParticipations": "My enrollments",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "menu": "Menu"
     },
     "hero": {
       "tagline": "From 2016 to 2046, Coding Girls Club builds a bridge between women and programming.",
@@ -408,7 +410,10 @@
     },
     "footer": {
       "tagline": "Coding Girls Club · 程序媛汇 — 2016 → 2046",
-      "icp": "京ICP备16008426号-2"
+      "icp": "京ICP备16008426号-2",
+      "ariaLabel": "Site footer",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service"
     },
     "mediaReports": [
       {
