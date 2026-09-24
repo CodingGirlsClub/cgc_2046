@@ -110,10 +110,12 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
 
   defp enqueue_key(user_id, uid, template_key, data) do
     key = "delivery-worker-test-#{System.unique_integer([:positive])}"
+    # uid nil = 零身份入队（落哨兵行，Q5）
+    identities = if is_nil(uid), do: [], else: [%{provider: :wechat, uid: uid}]
 
     :ok =
       Delivery.enqueue(
-        {user_id, [%{provider: :wechat, uid: uid}]},
+        {user_id, identities},
         template_key,
         data,
         %{"idempotency_key" => key}
@@ -283,6 +285,51 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
       assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row2.id}, attempt: 1)
       assert %{status: :sent} = Ash.get!(NotificationDelivery, row2.id, authorize?: false)
       assert_receive {:notification, :wechat, _}
+    end
+  end
+
+  describe "#847 零身份语义（Q5：哨兵行可观测、可对账）" do
+    test "哨兵行 + 用户其后绑定身份 → 重解析 assign 后投递，终态 sent" do
+      user = Fixtures.register_user("dws-zero-late")
+      {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
+
+      # 入队时零身份：落哨兵行（platform/identity_uid 均为 nil）
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+      assert is_nil(row.identity_uid)
+      assert is_nil(row.platform)
+
+      # 其后用户绑定了平台身份——worker 发送前重解析并 assign
+      insert_identity(user.id, "dws-zero-late-openid")
+
+      assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :sent
+      assert reloaded.platform == "wechat"
+      assert reloaded.identity_uid == "dws-zero-late-openid"
+      assert_receive {:notification, :wechat, _}
+      assert {:ok, 0} = Consent.remaining(user.id, :wechat, "approval_result")
+    end
+
+    test "哨兵行 + 始终无身份 → identity_not_found 重试至末拍终态化 :failed（rule 15 可查）" do
+      user = Fixtures.register_user("dws-zero-none")
+
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+
+      # 非末拍：pending_reason 类失败只重试，行保持 pending（可观测未丢失）
+      assert {:error, :identity_not_found} =
+               perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      assert %{status: :pending} = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+
+      # 末拍：终态化 :failed 带 last_error——对账面（rule 15 Finding）可见
+      assert {:error, :identity_not_found} =
+               perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 5)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :failed
+      assert reloaded.last_error =~ "identity_not_found"
+      refute_receive {:notification, :wechat, _}
     end
   end
 end
