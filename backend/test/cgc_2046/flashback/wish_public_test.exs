@@ -5,7 +5,7 @@ defmodule Cgc2046.Flashback.WishPublicTest do
   """
   use Cgc2046.DataCase, async: false
 
-  alias Cgc2046.Flashback.{WishExpectations, WishPublic, Wishes}
+  alias Cgc2046.Flashback.{WishEchoes, WishExpectations, WishPublic, Wishes}
 
   defp create_archive do
     Cgc2046.Flashback.EventArchive
@@ -123,6 +123,76 @@ defmodule Cgc2046.Flashback.WishPublicTest do
       ids = ids_of(rows)
       assert beijing.id in ids
       refute chengdu.id in ids
+    end
+  end
+
+  describe "Echo 公开投影" do
+    test "列表与单条直达返回已发布白名单，draft/revoked 不可见" do
+      archive = create_archive()
+      person = create_person(archive)
+      wish = create_listed_wish(person, "有回响的愿望")
+
+      {:ok, published_draft} = WishEchoes.create_draft(wish.id, "  主办方回应  ")
+      {:ok, published_echo} = WishEchoes.publish(published_draft.id, Ecto.UUID.generate())
+      {:ok, _corrected_echo} = WishEchoes.correct(published_echo.id, "主办方回应已更正")
+
+      {:ok, later_draft} = WishEchoes.create_draft(wish.id, "后来发布的回应")
+      {:ok, later_echo} = WishEchoes.publish(later_draft.id, Ecto.UUID.generate())
+
+      Repo.query!(
+        "UPDATE flashback_wish_echoes SET published_at = now() - interval '2 minutes' WHERE id = $1",
+        [Repo.uuid!(published_echo.id)]
+      )
+
+      Repo.query!(
+        "UPDATE flashback_wish_echoes SET published_at = now() - interval '1 minute' WHERE id = $1",
+        [Repo.uuid!(later_echo.id)]
+      )
+
+      {:ok, revoked_draft} = WishEchoes.create_draft(wish.id, "已撤回的内容")
+      {:ok, revoked_echo} = WishEchoes.publish(revoked_draft.id, Ecto.UUID.generate())
+      {:ok, _revoked_echo} = WishEchoes.revoke(revoked_echo.id)
+
+      {:ok, _unpublished_draft} = WishEchoes.create_draft(wish.id, "仍是草稿")
+
+      {:ok, rows} = WishPublic.wishes(seed: "echo-projection", limit: 120)
+      listed = Enum.find(rows, &(&1.id == wish.id))
+
+      assert %{
+               echo_count: 2,
+               latest_echo: %{
+                 id: latest_echo_id,
+                 content: "后来发布的回应",
+                 status: "published",
+                 published_at: published_at,
+                 corrected_at: nil
+               },
+               echoes: [first_projection, latest_projection]
+             } = listed
+
+      assert is_struct(published_at, DateTime)
+      assert first_projection.id == published_echo.id
+      assert first_projection.content == "主办方回应已更正"
+      assert first_projection.status == "corrected"
+      assert %DateTime{} = first_projection.published_at
+      assert %DateTime{} = first_projection.corrected_at
+      assert latest_projection.id == latest_echo_id
+      assert latest_projection.content == "后来发布的回应"
+      assert latest_projection.status == "published"
+      assert latest_projection.published_at == published_at
+      assert latest_projection.corrected_at == nil
+
+      assert Map.keys(listed.latest_echo) |> Enum.sort() ==
+               [:content, :corrected_at, :id, :published_at, :status]
+
+      assert {:ok,
+              %{
+                echo_count: 2,
+                latest_echo: %{id: ^latest_echo_id},
+                echoes: [%{id: first_id}, %{id: ^latest_echo_id}]
+              }} = WishPublic.wish(wish.id)
+
+      assert first_id == published_echo.id
     end
   end
 
