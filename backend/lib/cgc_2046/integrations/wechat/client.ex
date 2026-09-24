@@ -202,7 +202,16 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
-  defp request_notification(:tt, _config, token, openid, template_id, data, template_key, page_context) do
+  defp request_notification(
+         :tt,
+         _config,
+         token,
+         openid,
+         template_id,
+         data,
+         template_key,
+         page_context
+       ) do
     "https://open.douyin.com"
     |> req()
     |> Req.post(
