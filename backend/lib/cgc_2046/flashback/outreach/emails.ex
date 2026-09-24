@@ -77,16 +77,14 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   defp period(%Date{} = d), do: "#{d.year} 年 #{d.month} 月"
 
   # 页脚自我介绍句按本人场次派生（写死「2012-2018」对新场次不成立）；日期
-  # 或场次名缺失 → 历史区间兜底句。场次名以中文结尾（如「…北京」）时名前
-  # 不加空格（「参加过 Rails Girls / Girls Coding Day 北京 的活动」会多出
-  # 一个空格）。
-  defp footer_line(%Date{} = d, name) when is_binary(name) and name != "" do
-    spacing = if String.last(name) =~ ~r/^[\x{4e00}-\x{9fff}]$/u, do: "", else: " "
-    "你在 #{d.year} 年参加过 #{escape(name)}#{spacing}的活动。"
-  end
+  # 缺失 → 历史区间兜底句。事实锚点用「报名」——记忆线（当年到场）、圆梦线
+  # （报名未去成）、教练（报名执教）全员成立，不随参与形态分叉；不带城市——
+  # 一次发送可能覆盖多城，城市进页脚会误导收信人。
+  defp footer_line(%Date{} = d, _name),
+    do: "你曾在 #{d.year} 年报名过 Rails Girls / Girls Coding Day。"
 
   defp footer_line(_occurred_on, _archive_name),
-    do: "你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动。"
+    do: "你曾在 2012-2018 年间报名过 Rails Girls / Girls Coding Day。"
 
   defp reconnect_text(display_name, occurred_on, enter_url, unsub_url) do
     """
@@ -99,11 +97,11 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     “#{@quote_text}”
     #{@quote_sign}
 
-    一扇窗，开了一个人的十年。你也在 #{period(occurred_on)}推开过这扇窗——那天的报名表，每个字都还在。
+    一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。
 
     打开我的闪念间：#{enter_url}
 
-    打开后，你可以把那份报名表做成卡片保存，也可以找找当年一起学习的同伴和教练。
+    打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。
     #{@mini_program_line}
 
     不想再收到此类邮件？取消订阅：#{unsub_url}
@@ -135,9 +133,9 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <img src="#{screenshot_url}" alt="“#{@quote_text}”#{@quote_sign}" style="display:block;width:100%;height:auto;border:0;" />
     </div>
     <p style="font-size:12px;color:#918c82;line-height:1.9;margin:0 0 32px;text-align:center;">“#{@quote_text}”<br>#{@quote_sign}</p>
-    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。你也在 #{period(occurred_on)}推开过这扇窗——那天的报名表，每个字都还在。</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。</p>
     <div style="text-align:center;margin:0 0 22px;"><a href="#{enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
-    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年一起学习的同伴和教练。<br>#{@mini_program_line}</p>
+    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
     <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
     </div>
     </div>
