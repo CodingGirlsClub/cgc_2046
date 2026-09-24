@@ -103,3 +103,13 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 - **把 issue 正文里的计数 / 挂载点当最新事实**：issue 是快照不是真相源；先在仓库取证，允许用证据否掉 issue 的建议。
 - **issue 已落地仍照做**：PR 未写 `Closes #N` 时 issue 会滞留；动手前必须按 §2 triage 自证，别对着已修好的代码再写一遍。
 - **只测 helper / 只跑一次绿灯就宣称钉住**：缺变异验证（见 §6），没改坏过就不算守卫。
+
+## 9. 发布收口（develop→main 前置，口头触发）
+
+合并到 `main` 由人执行（授权表），但**发布准备**是主控的活。人说「发版」时，主控 claim 常驻 todo「发布收口」，依次：
+
+1. **跑 `ruby scripts/changelog-draft.rb`**：拿到上次 develop→main 边界、本批用户可见提交清单、门禁提示（mix.lock 变更 → 先确认 develop CI 的 `deps-image` job 已绿；人工合并范围文件 → 提醒人后面哪些要自己留意）。
+2. **刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：按清单写分类草稿（Added/Changed/Fixed/Security，同类浓缩、每条一行、保留 issue 引用、过滤 chore/docs/test 噪音），从最新 develop 建 worktree、按 §3 闭环提 PR（质量门照常）。段内已有内容时增量补新条目，不整段重写。
+3. **汇报**：给人一份本批发布摘要（条目数、门禁提示、Unreleased diff 链接）。人审过文案后合 develop→main PR，PR 正文**只带本次变更的 Unreleased 段**作发布说明；合并后把 `[Unreleased]` 段改名为 `## [发布日期]`、顶部重新立空段——这一步随下一条收口 todo 一起做，不拖延。
+
+- 本 todo 长期 open，触发频率与发版同步；忘了跑 → 主控在下次心跳检查 `origin/main..origin/develop` 非空且 `[Unreleased]` 为空时主动提醒。
