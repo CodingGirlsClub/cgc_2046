@@ -11,7 +11,16 @@
 develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一个空的 Unreleased 段。
 草稿素材由 `scripts/changelog-draft.rb` 生成，工序见 `docs/agents/loopx-workflow.md`。
 
+端标签：日期段只代表 server 面（web + backend 同一 deploy）。客户端/扩展按各自发布动作
+另立节点 `## [微信 vX.Y.Z]` / `## [小红书 vX.Y.Z]` / `## [抖音 vX.Y.Z]` / `## [扩展 vX.Y.Z]`，
+与日期段平行混排；后端收紧 × 客户端需过审的组合在节点下写 `> ⚠️` 灰注。
+commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
+
 ## [Unreleased]
+
+（暂无）
+
+## [2026-09-24]
 
 ### Added
 

@@ -102,7 +102,7 @@ Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Se
 
 LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合并与所有发布由人执行，下面的命令是人工操作口径。
 
-- **发布前必须刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：主控跑 `ruby scripts/changelog-draft.rb` 拿清单与门禁提示，按 `docs/agents/loopx-workflow.md` §9 出草稿 PR；发布 PR（develop→main）正文只带本次 Unreleased 段，合并后把该段改名为发布日期。
+- **发布前必须刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：主控跑 `ruby scripts/changelog-draft.rb` 拿清单与门禁提示，按 `docs/agents/loopx-workflow.md` §9 出草稿 PR；发布 PR（develop→main）正文只带本次 Unreleased 段，合并后把该段改名为发布日期。**端标签词汇**：日期段只记 server 面；客户端/扩展按各自过审/版本另立节点（`[微信 vX]`/`[小红书 vX]`/`[抖音 vX]`/`[扩展 vX]`），commit scope 平台化用 `mp-wechat`/`mp-xhs`/`mp-dy`。
 
 - **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
 - **发布 = develop→main PR**。repo 已开 auto-merge，checks 全绿自动合并，merge 落 main 即触发 Deploy：
