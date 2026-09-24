@@ -1,3 +1,9 @@
+overrides:
+  # 2026-09-24：Dependabot #68/#2（js-yaml 4.x CVE-2026-59870 CPU 消耗，
+  # high）——eslint → @eslint/eslintrc 传递链锁 4.3.0，4.3.2 为补丁版本
+  # （range ^4 兼容）。同 miniprogram/pnpm-workspace.yaml 的 fast-uri/svgo
+  # 先例：update 不触碰传递条目，overrides 强制收敛。纯开发期工具链。
+  "js-yaml@>=4.0.0 <4.3.2": 4.3.2
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
