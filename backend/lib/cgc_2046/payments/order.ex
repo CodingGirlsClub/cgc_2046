@@ -400,6 +400,15 @@ defmodule Cgc2046.Payments.Order do
       change(fn changeset, _context ->
         Ash.Changeset.before_action(changeset, &prepare_start_refund/1)
       end)
+
+      # #845 D1：入队归 Order——与 retry_refund/refund/unforfeit 一致，任何进入
+      # refunding 的迁移都在本 action 事务内恰好入队一次；CAS 失败无 after_action
+      # 不产生孤儿 job。调用方手动 Oban.insert! 就此删除。
+      change(fn changeset, _context ->
+        Ash.Changeset.after_action(changeset, fn cs, refunding ->
+          enqueue_refund_job(cs, refunding)
+        end)
+      end)
     end
 
     # no-show 结算（R9/KTD7）：paid → forfeited，终态且不退（押金留作平台收入）。
