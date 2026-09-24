@@ -506,6 +506,12 @@
 - **定义**：一笔报名的缴费单，归属 **Payments domain**（`payments_orders` 表），资金事实源。持渠道关联键（`out_trade_no` 我方单号 / `transaction_id` 渠道单号）、tier 快照与金额（**分**）、provider（wechat_jsapi / wechat_native / alipay_page / alipay_wap）、状态机 `pending → paid → refunding → refunded`（`refunding → refund_failed` 渠道拒绝，`refund_failed → refunding` 经 retry_refund 重入；cancelled / expired / refunded 为终态；押金单另有 `paid → forfeited` 一次性 CAS 迁入的终态——no-show 结算、**不退**、留作平台收入，ADR-0007 补记）。不变量：一个 Enrollment **至多一个非终态 Order**（部分唯一索引）；回调金额必须等于订单金额。**退款即取消报名**（一般路径）：全额退款同时取消 Enrollment 并释放名额（ADR-0007）；到场事实（Attendance 行）或免缴留痕在场时退款**保留** confirmed 报名、不释放名额（押金核销即退 / 免缴，ADR-0007 补记）；订单过期后渠道侧迟到扣款自动原路退回。
 - **组织者查询面（organizer-payment U4/U7）**：Order 计算字段 `event_id` / `course_id`（expr(enrollment.event_id)，Enrollment 无 GraphQL 对象类型的惯用替代）使 `workspaceOrders` 可按活动筛选；`workspacePaymentStats` 收可选 `eventId`/`courseId`（JOIN enrollments 收敛，四数口径同源）；`retryRefund` mutation 暴露给客户端（此前只有后端 action）。活动经营面（详情页 OfferingPaymentsPanel，manage_events 门控）与工作区财务面（收款管理页 + 活动筛选）两层结构：定价与订单随活动走，工作区级只留汇总。孤儿定价配置页（/settings/pricing）已删除，TierEditor 共享组件嵌入创建/编辑表单。
 
+### 退款发起（RefundCommencement）
+
+- **定义**：把订单推进到 `refunding` 并入队 `PaymentRefundWorker` 的**单一入口**（`Cgc2046.Payments.RefundCommencement.commence/2`，#845；ADR-0007 §3 六类发起方——自助取消 / 活动取消批量退 / 迟到支付退 / 管理员退款 / 核销即退 / no-show 结算——的唯一 seam）。按状态分派：`paid` / `expired` / `cancelled` → `start_refund`、`refund_failed` → `retry_refund`（eligible 白名单由调用方传入）；CAS 竞态只用一种办法收敛——重读一次、重新分类。返回封闭结果集：`{:ok, :started | :retried | :already_in_progress} | {:error, {:ineligible, status} | reason}`；`refunding` / `refunded` 恒为 `already_in_progress`（race 契约在 seam 上定义一次，与 eligible 正交）。
+- **入队归 Order（#845 D1）**：`start_refund` / `retry_refund` / `refund` / `unforfeit` 的 `after_action` 同事务入队，恰好一次，不依赖 Oban unique 兜底；CAS 失败无 after_action、不产生孤儿 job。调用方不再手动 `Oban.insert!`。
+- **职责边界**：seam 只做分类与推进——哪些订单合格（eligible）、结果抛错 / 跳过 / 回滚都留在调用方（核销面把 `forfeited` 转 `deposit_already_forfeited`、批量退对跳过笔留 warning、自助取消失败即上抛回滚取消）。
+
 ### 管理员免缴（Fee Waiver）
 
 - **定义**：Owner/Admin 将 `payment_pending` 报名直接置 `confirmed` 的特权操作，跳过支付、不建订单；个案级免费入口（志愿者/组织者参会），审计照走。区别于 `pricing_enabled: false`（整场免费）与 0 元档（不存在，PriceTier 金额下限 1 分）。
