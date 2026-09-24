@@ -97,6 +97,19 @@ defmodule Cgc2046.Notifications.Fanout do
     |> Ash.read!(authorize?: false)
   end
 
+  @doc "批量解析多用户的平台身份；无身份用户不会出现在结果中。"
+  @spec identities_for_users([String.t()]) :: %{optional(String.t()) => [UserIdentity.t()]}
+  def identities_for_users([]), do: %{}
+
+  def identities_for_users(user_ids) when is_list(user_ids) do
+    user_ids = Enum.uniq(user_ids)
+
+    UserIdentity
+    |> Ash.Query.filter(user_id in ^user_ids)
+    |> Ash.read!(authorize?: false)
+    |> Enum.group_by(& &1.user_id)
+  end
+
   @doc """
   逐（user_id × identity）入队 NotificationWorker 通知任务。
 
@@ -119,6 +132,26 @@ defmodule Cgc2046.Notifications.Fanout do
           :default | :reminder_7d | nil
         ) :: :ok
   def deliver(recipients, template_key, data, job_meta, unique \\ nil) do
+    _ = deliver_with_receipt(recipients, template_key, data, job_meta, unique)
+    :ok
+  end
+
+  @doc """
+  与 `deliver/5` 具有相同 recipients/job 形状，但明确返回入队回执。
+  `{:ok, count}` 中的 count 是 Oban 接受的任务数；无身份为 `{:ok, 0}`；
+  任一任务拒绝或解析/入队异常返回 `{:error, :enqueue_failed}`。
+
+  调用方若把业务标记与任务入队放在同一 Repo transaction，可据此决定是否
+  提交标记；传统调用方继续使用返回 `:ok` 的 `deliver/5`。
+  """
+  @spec deliver_with_receipt(
+          %{String.t() => [UserIdentity.t()]} | {String.t(), [UserIdentity.t()]},
+          String.t(),
+          map(),
+          map(),
+          :default | :reminder_7d | nil
+        ) :: {:ok, non_neg_integer()} | {:error, :enqueue_failed}
+  def deliver_with_receipt(recipients, template_key, data, job_meta, unique \\ nil) do
     unique = unique || unique_for(template_key)
     recipients = normalize_recipients(recipients)
 
@@ -138,25 +171,25 @@ defmodule Cgc2046.Notifications.Fanout do
       )
 
       emit(:skipped, template_key, nil, 0)
-      :ok
+      {:ok, 0}
     else
-      count =
-        Enum.reduce(recipients, 0, fn {user_id, identities}, acc ->
-          Enum.reduce(identities, acc, fn identity, acc2 ->
-            insert_notification(identity, user_id, template_key, data, job_meta, unique)
-            acc2 + 1
-          end)
-        end)
+      case enqueue_notifications(recipients, template_key, data, job_meta, unique) do
+        {:ok, count} ->
+          emit(:ok, template_key, nil, count)
+          {:ok, count}
 
-      emit(:ok, template_key, nil, count)
-      :ok
+        {:error, _reason} ->
+          Logger.warning("notification deliver failed (#{template_key}): queue rejected a job")
+          emit(:error, template_key, "enqueue_failed", 0)
+          {:error, :enqueue_failed}
+      end
     end
   rescue
     error ->
       Logger.warning("notification deliver failed (#{template_key}): #{Exception.message(error)}")
 
       emit(:error, template_key, Exception.message(error), 0)
-      :ok
+      {:error, :enqueue_failed}
   end
 
   defp normalize_recipients(recipients) when is_map(recipients), do: recipients
@@ -194,6 +227,21 @@ defmodule Cgc2046.Notifications.Fanout do
   defp manage_roles(:manage), do: Role.manage_roles()
   defp manage_roles({:roles, roles}), do: roles
 
+  defp enqueue_notifications(recipients, template_key, data, job_meta, unique) do
+    Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
+      Enum.reduce_while(identities, {:ok, count}, fn identity, {:ok, identity_count} ->
+        case insert_notification(identity, user_id, template_key, data, job_meta, unique) do
+          {:ok, _job} -> {:cont, {:ok, identity_count + 1}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:ok, updated_count} -> {:cont, {:ok, updated_count}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   # args 携带 identity_uid：同用户同平台多身份不被 args-unique 折叠，
   # 发送侧按该身份精确投递（#3）。
   defp insert_notification(identity, user_id, template_key, data, job_meta, unique) do
@@ -211,7 +259,7 @@ defmodule Cgc2046.Notifications.Fanout do
       :default -> NotificationWorker.new(args)
       :reminder_7d -> NotificationWorker.new(args, unique: @reminder_unique)
     end
-    |> Oban.insert!()
+    |> Oban.insert()
   end
 
   # status 取值：:ok / :skipped（零身份，#406）/ :error；metadata 原样透传。

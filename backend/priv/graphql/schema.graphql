@@ -5603,6 +5603,9 @@ type RootQueryType {
   "举报队列（wish2 U5\/KTD5 PlatformAdmin）：status=pending 按时间正序"
   flashbackAdminWishReports: [FlashbackAdminReportEntry!]!
 
+  "许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数"
+  flashbackAdminWishEchoes(wishId: ID!): FlashbackAdminWishEchoesResult
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6740,7 +6743,37 @@ type FlashbackWish {
 
   comments: [FlashbackWishComment!]!
 
+  latestEcho: FlashbackPublicWishEcho
+
+  echoCount: Int!
+
+  echoes: [FlashbackPublicWishEcho!]!
+
   insertedAt: DateTime!
+}
+
+type FlashbackAdminWishEcho {
+  id: ID!
+
+  content: String!
+
+  status: String!
+
+  insertedAt: DateTime!
+
+  publishedAt: DateTime
+
+  correctedAt: DateTime
+
+  revokedAt: DateTime
+
+  "发布时的 PlatformAdmin UUID，仅 admin 读面"
+  publishedByUserId: ID
+}
+
+type FlashbackAdminWishEchoesResult {
+  echoes: [FlashbackAdminWishEcho!]!
+  currentNotifiableEndorsementCount: Int!
 }
 
 type FlashbackWishComment {
@@ -7167,9 +7200,23 @@ type FlashbackPublicWish {
 
   endorsedByViewer: Boolean!
 
+  latestEcho: FlashbackPublicWishEcho
+
+  echoCount: Int!
+
+  echoes: [FlashbackPublicWishEcho!]!
+
   listedAt: DateTime!
 
   insertedAt: DateTime!
+}
+
+type FlashbackPublicWishEcho {
+  id: ID!
+  content: String!
+  status: String!
+  publishedAt: DateTime!
+  correctedAt: DateTime
 }
 
 type FlashbackCity {
@@ -8321,6 +8368,21 @@ type RootMutationType {
     "true=下架；false=恢复"
     hidden: Boolean!
   ): FlashbackWishHiddenResult
+
+  "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
+  flashbackAdminCreateWishEcho(wishId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
+  flashbackAdminUpdateWishEchoDraft(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
+  flashbackAdminPublishWishEcho(echoId: ID!): FlashbackAdminWishEcho
+
+  "原地更正已发布回响（#834，不触发首次通知）"
+  flashbackAdminCorrectWishEcho(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "撤回已发布回响（#834，终态）"
+  flashbackAdminRevokeWishEcho(echoId: ID!): FlashbackAdminWishEcho
 
   "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
   flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
