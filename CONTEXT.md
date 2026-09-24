@@ -508,7 +508,7 @@
 
 ### 退款发起（RefundCommencement）
 
-- **定义**：把订单推进到 `refunding` 并入队 `PaymentRefundWorker` 的**单一入口**（`Cgc2046.Payments.RefundCommencement.commence/2`，#845；ADR-0007 §3 六类发起方——自助取消 / 活动取消批量退 / 迟到支付退 / 管理员退款 / 核销即退 / no-show 结算——的唯一 seam）。按状态分派：`paid` / `expired` / `cancelled` → `start_refund`、`refund_failed` → `retry_refund`（eligible 白名单由调用方传入）；CAS 竞态只用一种办法收敛——重读一次、重新分类。返回封闭结果集：`{:ok, :started | :retried | :already_in_progress} | {:error, {:ineligible, status} | reason}`；`refunding` / `refunded` 恒为 `already_in_progress`（race 契约在 seam 上定义一次，与 eligible 正交）。
+- **定义**：把订单推进到 `refunding` 并入队 `PaymentRefundWorker` 的**单一入口**（`Cgc2046.Payments.RefundCommencement.commence/2`，#845；ADR-0007 更正补记第 3 点：自动 / 用户侧退款发起（`start_refund` / `retry_refund` 路径）的唯一入口，不含管理员 `refund` / `retry_refund`、`unforfeit`、no-show `forfeit`）。按状态分派：`paid` / `expired` / `cancelled` → `start_refund`、`refund_failed` → `retry_refund`（eligible 白名单由调用方传入）；CAS 竞态只用一种办法收敛——重读一次、重新分类。返回封闭结果集：`{:ok, :started | :retried | :already_in_progress} | {:error, {:ineligible, status} | reason}`；`refunding` / `refunded` 恒为 `already_in_progress`（race 契约在 seam 上定义一次，与 eligible 正交）。
 - **入队归 Order（#845 D1）**：`start_refund` / `retry_refund` / `refund` / `unforfeit` 的 `after_action` 同事务入队，恰好一次，不依赖 Oban unique 兜底；CAS 失败无 after_action、不产生孤儿 job。调用方不再手动 `Oban.insert!`。
 - **职责边界**：seam 只做分类与推进——哪些订单合格（eligible）、结果抛错 / 跳过 / 回滚都留在调用方（核销面把 `forfeited` 转 `deposit_already_forfeited`、批量退对跳过笔留 warning、自助取消失败即上抛回滚取消）。
 

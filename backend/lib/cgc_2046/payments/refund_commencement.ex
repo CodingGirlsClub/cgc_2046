@@ -1,6 +1,6 @@
 defmodule Cgc2046.Payments.RefundCommencement do
   @moduledoc """
-  退款发起单一入口（#845；ADR-0007 §3 六类发起方的唯一 seam）。
+  退款发起单一入口（#845；ADR-0007 更正补记第 3 点：自动 / 用户侧退款发起——`start_refund` / `retry_refund` 路径——的唯一入口，不含管理员 `refund` / `retry_refund`、`unforfeit`、no-show `forfeit`）。
 
   按订单状态分派 `start_refund` / `retry_refund`，CAS 竞态只用一种办法收敛：
   重读一次，重新分类。入队由 Order action 的 `after_action` 承担（#845 D1，

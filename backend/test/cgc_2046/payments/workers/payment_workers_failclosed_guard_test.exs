@@ -92,7 +92,8 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # 事件未被消费（Oban 会重试），订单仍 pending，未误触自动退款
       assert event_for(order).status != :processed
 
-      refute_enqueued(worker: PaymentRefundWorker)
+      # 本单未误触自动退款（args 过滤：不受 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
 
       # 解除注入 → Oban 重试 → 完整落账收敛
       drop_trigger("block_mark_paid", "payments_orders")
@@ -121,7 +122,8 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       assert {:error, _db_error} = perform_settlement(order)
 
       # 占位完好的正常收款不得被 DB 瞬断误判为「报名已流转」而触发自动退款
-      refute_enqueued(worker: PaymentRefundWorker)
+      # （args 过滤：不受 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :payment_pending
 
@@ -422,7 +424,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
         |> Ash.update(tenant: workspace.id, actor: admin)
 
       # 只拦 failing 订单的 start_refund claim UPDATE：num_rows=0 →
-      # already_processed → with 短路 → 该笔 transaction 返回 error → log_skip。
+      # already_processed → commence 返回 {:error, reason} → log_skip。
       # RETURN NULL 而非 RAISE（RAISE 会断共享连接炸整批，attendance 入队失败
       # 用例同款教训）；PaymentExpiryWorker CAS 用例同款手法。
       inject_trigger(
@@ -565,8 +567,6 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
   # table 参数化：block_mark_paid/block_expire/swallow_expire 在 payments_orders，
   # block_settle（F-I 报名 CAS 守卫）在 enrollments——两张都是热表，同一纪律。
   defp inject_trigger(name, table, when_clause, opts) do
-    timing = Keyword.get(opts, :timing, :update)
-
     body =
       if Keyword.get(opts, :raise?, true) do
         "BEGIN RAISE EXCEPTION 'test injected db failure'; END;"
@@ -580,7 +580,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
     )
 
     Cgc2046.Repo.query!(
-      ~s{CREATE TRIGGER #{name} BEFORE #{timing} ON #{table} FOR EACH ROW } <>
+      ~s{CREATE TRIGGER #{name} BEFORE UPDATE ON #{table} FOR EACH ROW } <>
         ~s{#{when_clause} EXECUTE FUNCTION cgc_test_#{name}();}
     )
   end
