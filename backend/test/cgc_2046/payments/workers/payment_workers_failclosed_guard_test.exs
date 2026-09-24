@@ -186,12 +186,12 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
   # claim 未命中（PaymentExpiryWorker CAS 用例同款手法），重读仍未收敛（paid）→
   # 取消必须整体回滚，绝不静默留「已取消但钱未退」半态。
   #
-  # 实测现状（2026-09-24 probe）：enqueue_order_refund/2 的 `{:error,
-  # :already_processed}` 子句匹配不上 Ash.update 返回的 %Ash.Error.Invalid{}
-  # struct——CaseClauseError 被 Ash 引擎吞掉后，cancel 透出的是 changeset 上
-  # claim 写入的 BusinessError code "order_already_processed"。deposit_
-  # settlement_race 分支现状不可达；本钉测钉住的是行为事实（回滚 + 该 code），
-  # #845 D2 落地后语义由 RefundCommencement 承接。
+  # R1-#1 机制更正：迁移初期注释称透出 order_already_processed 的原因是
+  # 「CaseClauseError 被 Ash 引擎吞掉」——错误。真正原因是 Ash 默认
+  # rollback_on_error?: true：commence 内嵌套 action 失败即回滚外层事务，
+  # reread_and_reclassify 根本执行不到，cancel 收到的是回滚携带的 claim 错误。
+  # R1-#1 修复（rollback_on_error?: false）后重读真正执行：已收敛 → 取消成功
+  # （有意行为修复，产品拍板 A），未收敛 → raise 上抛回滚（code 不变）。
   describe "Enrollment 自助取消退款竞态守卫（#845）" do
     test "CAS 未命中且重读未收敛 → 取消回滚：报名 confirmed、订单留 paid、无退款 job" do
       admin = Fixtures.platform_admin("cancel-race-guard-admin-" <> uniq())
@@ -246,13 +246,17 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
         raise?: false
       )
 
-      assert {:error,
-              %Ash.Error.Invalid{
-                errors: [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}]
-              }} =
-               enrollment
-               |> Ash.Changeset.for_update(:cancel, %{})
-               |> Ash.update(tenant: workspace.id, actor: learner)
+      # 未收敛 = 真故障：raise 上抛回滚（after_action 返回 {:error, _} 会提交，
+      # raise 是唯一回滚形状）；rollback_on_error?: false（R1-#1）后 reread 真正
+      # 执行、未收敛时透传原始错误，错误 code 与迁移前一致
+      raised =
+        assert_raise Ash.Error.Invalid, fn ->
+          enrollment
+          |> Ash.Changeset.for_update(:cancel, %{})
+          |> Ash.update(tenant: workspace.id, actor: learner)
+        end
+
+      assert [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}] = raised.errors
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
       assert reload_order(order).status == :paid
@@ -260,6 +264,102 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       assert [] =
                all_enqueued(worker: PaymentRefundWorker)
                |> Enum.filter(&(&1.args["order_id"] == order.id))
+    end
+
+    # 审查 R1-#1（产品拍板 A）：cancel 事务内 commence 的 claim 未命中时，
+    # rollback_on_error?: false 让重读真正执行——DB 已被推进到 refunding（他路
+    # 已发起）→ 收敛为 already_in_progress → 取消成功，且不重复入队（恰他路
+    # 那 1 笔 job）。修复前该场景整体回滚（cancel 失败），本用例为红。
+    test "事务内过期 struct + DB 已推进 refunding → 取消成功、恰 1 笔 job（R1-#1）" do
+      admin = Fixtures.platform_admin("cancel-race-settled-admin-" <> uniq())
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          pricing_enabled: true,
+          price_tiers: [@tier],
+          starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
+        })
+
+      learner = Fixtures.register_user("cancel-race-settled-learner-" <> uniq())
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          event_id: event.id,
+          user_id: learner.id,
+          tier_id: @tier_id
+        })
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      {:ok, order} =
+        Order
+        |> Ash.Changeset.for_create(:create, %{
+          enrollment_id: enrollment.id,
+          provider: :wechat_native,
+          out_trade_no: "oto-" <> Ecto.UUID.generate(),
+          amount_cents: 19_900,
+          tier_snapshot: @tier,
+          expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+        })
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      {:ok, _} =
+        order
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-race-settled"})
+        |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      {:ok, _} =
+        enrollment
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      # 模拟「他路已提交推进」：BEFORE ROW（depth=1）吞掉本侧 claim UPDATE →
+      # num_rows=0；AFTER STATEMENT 随即把该行真改为 refunding（内层 UPDATE 经
+      # depth>1 分支放行）——重读见 refunding → already_in_progress
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_race_swallow_fn() RETURNS trigger AS } <>
+          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER race_swallow BEFORE UPDATE ON payments_orders FOR EACH ROW } <>
+          ~s{WHEN (OLD.id = '#{order.id}' AND OLD.status = 'paid' AND NEW.status = 'refunding') } <>
+          ~s{EXECUTE FUNCTION cgc_race_swallow_fn();}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_race_settle_fn() RETURNS trigger AS } <>
+          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER race_settle AFTER UPDATE ON payments_orders FOR EACH STATEMENT } <>
+          ~s{EXECUTE FUNCTION cgc_race_settle_fn();}
+      )
+
+      # 他路已入队 1 笔（竞态收敛的前提语义）
+      Cgc2046.Repo.query!(
+        ~s{INSERT INTO oban_jobs (state, queue, worker, args, priority, max_attempts, inserted_at, scheduled_at) } <>
+          ~s{VALUES ('available', 'payments', 'Cgc2046.Payments.Workers.PaymentRefundWorker', } <>
+          ~s{jsonb_build_object('order_id', '#{order.id}'), 0, 5, NOW(), NOW())}
+      )
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :cancelled
+      assert reload_order(order).status == :refunding
+
+      # 恰他路那 1 笔：本侧收敛为 already_in_progress，不重复入队
+      assert [%{id: he_path_job_id}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+
+      assert is_integer(he_path_job_id)
     end
   end
 
