@@ -695,6 +695,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       # 日期个性化 + 逐字引文（与截图并排可对照）+ 页脚按本人场次派生
       assert email.html_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
       assert email.html_body =~ "你曾在 2014 年报名过 Rails Girls / Girls Coding Day。"
+
       # 页脚事实句：锚点「报名」（两线/教练全员成立）；不带城市（一次发送可覆盖多城）
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
     end
