@@ -87,6 +87,9 @@ env:
     - SENDCLOUD_SMS_USER
     - SENDCLOUD_SMS_KEY
     - SENDCLOUD_SMS_TEMPLATE_ID
+    # 闪念间唤醒短信模板 ID（闪念间 U8）：workflow 断言名单已含；本名单漏登记
+    # 则容器拿不到变量 → 生产 `sms_configured?` 恒 false，短信腿静默抑制
+    - SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID
     - WEB_BASE_URL
     - CORS_ORIGIN
     # 支付渠道（可选门禁：缺凭证时 provider_not_configured，boot 不崩）
