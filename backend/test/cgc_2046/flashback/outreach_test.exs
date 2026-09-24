@@ -355,9 +355,13 @@ defmodule Cgc2046.Flashback.OutreachTest do
       refute email.text_body =~ "小红书"
       assert email.html_body =~ "/zh-CN/flashback/enter?token="
       assert email.text_body =~ "/zh-CN/flashback/enter?token="
-      # R30：页脚退订链接（HTML 与纯文本都带）
-      assert email.html_body =~ "/api/flashback/unsubscribe?t="
-      assert email.text_body =~ "/api/flashback/unsubscribe?t="
+      # R30：页脚退订链接（HTML 与纯文本都带）——必须指向 api 域（退订端点在
+      # backend；web 域 /api 无后端反代会 404），用 Endpoint.url() 断言整串
+      assert email.html_body =~
+               "#{Cgc2046Web.Endpoint.url()}/api/flashback/unsubscribe?t="
+
+      assert email.text_body =~
+               "#{Cgc2046Web.Endpoint.url()}/api/flashback/unsubscribe?t="
     end
 
     test "email 腿：场次日期缺失 → 文案降级「那年」，不因 nil 崩发送" do
