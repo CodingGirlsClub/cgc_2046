@@ -112,6 +112,9 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       template_key in @applicant_templates ->
         "pages/volunteer-apply/index"
 
+      template_key in @wish_templates and is_binary(data["wish_id"]) ->
+        "pages/flashback-corridor/index?" <> URI.encode_query(%{wishId: data["wish_id"]})
+
       template_key in @wish_templates ->
         "pages/flashback-corridor/index"
 
@@ -160,15 +163,15 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   end
 
   @doc "发送一次订阅消息；三平台成功信封统一为 `:ok`。落页按 template_key 路由（#232）。"
-  @spec send_notification(platform, String.t(), String.t(), map(), String.t()) ::
+  @spec send_notification(platform, String.t(), String.t(), map(), String.t(), map()) ::
           :ok | {:error, term()}
-  def send_notification(platform, openid, template_id, data, template_key)
+  def send_notification(platform, openid, template_id, data, template_key, page_context \\ %{})
       when platform in @platforms and is_binary(openid) and is_binary(template_id) and
              is_map(data) and is_binary(template_key) do
     case platform do
       # wechat 走 SDK client：token 由 SDK 内部缓存/刷新，不现取现用
       :wechat ->
-        request_notification(:wechat, openid, template_id, data, template_key)
+        request_notification(:wechat, openid, template_id, data, template_key, page_context)
 
       _ ->
         with {:ok, config} <- platform_config(platform),
@@ -180,23 +183,26 @@ defmodule Cgc2046.Integrations.Wechat.Client do
             openid,
             template_id,
             data,
-            template_key
+            template_key,
+            page_context
           )
         end
     end
   end
 
-  defp request_notification(:wechat, openid, template_id, data, template_key) do
+  defp request_notification(:wechat, openid, template_id, data, template_key, page_context) do
     with {:ok, client} <- SdkClient.fetch() do
       client
       |> WeChat.MiniProgram.SubscribeMessage.send(openid, template_id, data, %{
-        page: notification_page(:wechat, template_key, data)
+        # data 是渲染后的槽位字段；深链判定读的是逻辑键（wish_id/event_id），
+        # 逻辑键在 page_context 里（merge 后同键逻辑值优先——槽位不带这些键名）。
+        page: notification_page(:wechat, template_key, Map.merge(data, page_context))
       })
       |> parse_wechat_envelope()
     end
   end
 
-  defp request_notification(:tt, _config, token, openid, template_id, data, template_key) do
+  defp request_notification(:tt, _config, token, openid, template_id, data, template_key, page_context) do
     "https://open.douyin.com"
     |> req()
     |> Req.post(
@@ -205,7 +211,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       json: %{
         open_id: openid,
         msg_id: template_id,
-        page: notification_page(:tt, template_key, data),
+        page: notification_page(:tt, template_key, Map.merge(data, page_context)),
         data: data
       }
     )
@@ -222,7 +228,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
          openid,
          template_id,
          data,
-         template_key
+         template_key,
+         page_context
        ) do
     "https://miniapp.xiaohongshu.com"
     |> req()
@@ -232,7 +239,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       json: %{
         open_id: openid,
         template_id: template_id,
-        page: notification_page(:xhs, template_key, data),
+        page: notification_page(:xhs, template_key, Map.merge(data, page_context)),
         data: data
       }
     )
