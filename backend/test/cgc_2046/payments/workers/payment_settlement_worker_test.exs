@@ -91,7 +91,7 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert event_for(order).status == :processed
     end
 
-    test "金额不符重复命中（#848 钉现状）：不新增记录、last_seen_at 不刷新", ctx do
+    test "金额不符重复命中（#848 one_shot）：不新增记录、last_seen_at 前移、first_seen_at 不变", ctx do
       order = pending_order(ctx)
       require Ash.Query
 
@@ -117,11 +117,12 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
         |> Ash.Query.filter(rule == :payment_amount_mismatch and entity_id == ^order.id)
         |> Ash.read!(authorize?: false)
 
-      # 现状（单次 create + 吞重复）：不新增、不刷新——回拨后 last 仍早于 first
+      # one_shot（#848 设计行为，区别于旧「create + 吞重复」）：不新增，
+      # 命中走 refresh——回拨一天的 last_seen_at 被推回到 first 之后
       assert length(findings) == 1
       reloaded = hd(findings)
       assert reloaded.first_seen_at == first.first_seen_at
-      assert DateTime.compare(reloaded.last_seen_at, reloaded.first_seen_at) == :lt
+      assert DateTime.compare(reloaded.last_seen_at, reloaded.first_seen_at) == :gt
     end
 
     test "回查未支付：无状态变化，等待下个回调/对账", ctx do
