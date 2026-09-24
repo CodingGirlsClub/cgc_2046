@@ -233,8 +233,8 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
         args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
       )
 
-      # 半落账窗口不得误触自动退款
-      refute_enqueued(worker: PaymentRefundWorker)
+      # 半落账窗口不得误触自动退款（args 过滤：抗 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
     end
 
     test "U5/R12/AE5：落账成功 → 组织者收到 payment_received（含活动名/档位/金额）", ctx do
