@@ -158,16 +158,19 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
     # 不切连接则共享同一条 pg_backend_pid，实为串行）；布置亦 unboxed 真提交，
     # worker 连接才可见；数据由 on_exit 自行清理。
     test "两进程独立连接同时 commence 同一 paid 单：恰一 :started、另一 :already_in_progress，恰一笔 job" do
-      order =
+      {workspace, order} =
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          %{order: order} = paid_order_setup()
-          reload_order(order)
+          %{workspace: workspace, order: order} = paid_order_setup()
+          {workspace, reload_order(order)}
         end)
 
       on_exit(fn ->
-        # unboxed 真提交的布置行清理：FK 链深（workflow_definitions /
-        # workspace_memberships 等）不穷举——删业务行（job/订单/报名），
-        # workspace 行残留由 uniq slug 保证无串扰，测试库重建时消化
+        # unboxed 真提交的布置清理（OrderEnrollmentLockTest / attendance 并发
+        # 用例同款：先释放 sandbox 事务再按子→父删）——workflow_definitions
+        # 与 workspace_memberships 的 FK 无级联，必须先于 workspace 删除；
+        # webhook_events 为多态事件表（无 FK），按本布置的 event_id 删
+        Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
+
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
           Repo.query!("DELETE FROM oban_jobs WHERE args->>'order_id' = $1", [order.id])
 
@@ -176,6 +179,26 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
           ])
 
           Repo.query!("DELETE FROM enrollments WHERE id = $1", [Repo.uuid!(order.enrollment_id)])
+
+          Repo.query!("DELETE FROM payments_webhook_events WHERE event_id = $1", [
+            "evt-" <> order.out_trade_no
+          ])
+
+          Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+            Repo.uuid!(workspace.id)
+          ])
+
+          Repo.query!(
+            "DELETE FROM membership_roles WHERE membership_id IN (SELECT id FROM workspace_memberships WHERE workspace_id = $1)",
+            [Repo.uuid!(workspace.id)]
+          )
+
+          Repo.query!("DELETE FROM workspace_memberships WHERE workspace_id = $1", [
+            Repo.uuid!(workspace.id)
+          ])
+
+          Repo.query!("DELETE FROM events WHERE workspace_id = $1", [Repo.uuid!(workspace.id)])
+          Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
         end)
       end)
 
