@@ -11,6 +11,7 @@ import {
 	FLASHBACK_SEND_TO_WALL,
 	FLASHBACK_SET_QUOTE_LICENSE,
 	FLASHBACK_REGISTER_BIND,
+	FLASHBACK_ADJUST_FOG,
 	type FlashbackEnterResult,
 } from "@/lib/graphql/flashback";
 
@@ -136,8 +137,9 @@ async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	if (stage === "write") return;
 
 	fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
-	// 浮层化（E/F）：不换页，浮层打开即自动寄出
-	await screen.findByText("照片正在贴上墙。");
+	// 浮层化（E/F）：不换页；浮层打开先停检查步（本人自选雾面），确认才寄出
+	await screen.findByText("寄出前，检查当年的你");
+	fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
 	await screen.findByRole("button", { name: "跳过，直接上墙" });
 }
 
@@ -391,7 +393,7 @@ describe("Journey · 记忆线", () => {
 			data: { flashbackSendToWall: { sentToWallAt: "2026-09-18T00:00:00Z" } },
 		});
 		mockEnterResolve(memoryEntry);
-		// 浮层打开即自动寄出（原型 E/F：照片正在贴上墙）
+		// 浮层打开先停检查步，确认后才寄出（照片正在贴上墙 = 过程陈述）
 		await walkTo("send");
 
 		// R29 期望管理文案在寄出成功后出现（与注册引导同屏）
@@ -403,8 +405,9 @@ describe("Journey · 记忆线", () => {
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
 
-	it("寄出浮层（原型 E/F）：自动寄出、不跳页；浮层盖在显影场景上", async () => {
-		mutations.get(FLASHBACK_SUBMIT_TODAY)!.mockResolvedValue({
+	it("寄出浮层（原型 E/F）：打开先停检查步、确认才寄出、不跳页；浮层盖在显影场景上", async () => {
+		const submit = mutations.get(FLASHBACK_SUBMIT_TODAY)!;
+		submit.mockResolvedValue({
 			data: { flashbackSubmitToday: { today: {} } },
 		});
 		const wall = mutations.get(FLASHBACK_SEND_TO_WALL)!;
@@ -420,7 +423,12 @@ describe("Journey · 记忆线", () => {
 		expect(document.querySelector('form[data-face="back"]')).toBeTruthy();
 		expect(pushMock).not.toHaveBeenCalled();
 
-		// 自动寄出（无需再点一次「寄出」）
+		// 旧「打开即寄出」语义的反向钉住：确认前 submitToday/sendToWall 都不发出
+		expect(submit).not.toHaveBeenCalled();
+		expect(wall).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+
 		await waitFor(() => expect(wall).toHaveBeenCalledTimes(1));
 		expect(await screen.findByRole("button", { name: "跳过，直接上墙" })).toBeInTheDocument();
 		expect(screen.getByText(/愿望不会消失/)).toBeInTheDocument();
@@ -477,13 +485,47 @@ describe("Journey · 记忆线", () => {
 		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
 		fireEvent.click(await screen.findByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }));
 		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
-		// 浮层自动寄出：等注册引导出现即说明 submitToday/quote/sendToWall 已顺序发出
+		// 检查步确认后才寄出：等注册引导出现即说明 submitToday/quote/sendToWall 已顺序发出
+		await screen.findByText("寄出前，检查当年的你");
+		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
 		await screen.findByRole("button", { name: "跳过，直接上墙" });
 
 		await waitFor(() => expect(quote).toHaveBeenCalled());
 		const variables = quote.mock.calls[0][0].variables;
 		expect(variables.level).toBe("anonymous");
 		expect(variables.chosenQuoteSpans).toEqual([{ questionKey: "self_intro", start: 0, len: 18 }]);
+	});
+
+	it("检查步调雾上链：确认寄出后 flashbackAdjustFog 带 token/answerId/spans 且先于上墙（R16/KTD4）", async () => {
+		pendingResults.set(
+			FLASHBACK_SUBMIT_TODAY,
+			() => Promise.resolve({ data: { flashbackSubmitToday: { today: {} } } }),
+		);
+		pendingResults.set(
+			FLASHBACK_SEND_TO_WALL,
+			() => Promise.resolve({ data: { flashbackSendToWall: { sentToWallAt: "2026-09-18T00:00:00Z" } } }),
+		);
+		mockEnterResolve(memoryEntry);
+		await walkTo("write");
+		const adjust = mutations.get(FLASHBACK_ADJUST_FOG)!;
+		adjust.mockResolvedValue({
+			data: { flashbackAdjustFog: { answerId: "a1", fogSpans: [{ start: 0, len: 18 }] } },
+		});
+		const wall = mutations.get(FLASHBACK_SEND_TO_WALL)!;
+
+		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
+		await screen.findByText("寄出前，检查当年的你");
+		// 确认前零 mutation（调雾也在其列）
+		expect(adjust).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }));
+		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+
+		await waitFor(() => expect(wall).toHaveBeenCalledTimes(1));
+		expect(adjust).toHaveBeenCalledWith({
+			variables: { token: "tok-123", answerId: "a1", spans: [{ start: 0, len: 18 }] },
+		});
+		expect(adjust.mock.invocationCallOrder[0]).toBeLessThan(wall.mock.invocationCallOrder[0]);
 	});
 });
 
