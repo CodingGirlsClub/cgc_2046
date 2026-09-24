@@ -34,7 +34,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 | 脚本 | 依赖 | 状态 |
 | --- | --- | --- |
-| `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | 可用（#579 已修）：全链旅程回归（13 断言·分组计数）；锚点表 `e2e/anchors.mjs`，CI 侧 `node scripts/check-anchors.mjs` 构建后静态自检 |
+| `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | 可用：全链旅程回归（13 断言·分组计数）；锚点表 `e2e/anchors.mjs`，CI 侧 `node scripts/check-anchors.mjs` 构建后静态自检 |
 | `e2e/order-pay-deposit-consent.e2e.sh`（`pnpm e2e:order-pay-consent`） | wechatide CLI + 已登录的 DevTools | 可用；押金同意门回归（16 断言 + 截图，含 #727 创单前门：勾选 → 创单（带 consent）→ 支付） |
 | `e2e/initiative-journey.e2e.sh`（`pnpm e2e:initiative`） | wechatide CLI + 已登录的 DevTools | 可用；倡导活动旅程 + 详情页回链/成班徽章回归（16 断言 + 截图） |
 | `e2e/flashback-journey.e2e.sh`（`pnpm e2e:flashback`） | wechatide CLI + 已登录的 DevTools | 可用；「我的闪念间」旅程：路人引导 / 快门仪式 / 开卡层雾化与寄出 / 金句授权 nudge 圈选 / 卡片页分享链接（#771）/ 城市钉与愿望段 / 首程与长廊 / 三级视角（220 断言 + 截图） |
@@ -48,12 +48,12 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 ## 资金动作门（押金同意）不变量
 
-押金单必须明示「押金 ¥xx（到场退）+ 未到场不退」并取得显式勾选同意（与 web 收银框 U1 / /orders/new 同源）。**两道门，判据不得混用**（#727 重排后）：
+押金单必须明示「押金 ¥xx（到场退）+ 未到场不退」并取得显式勾选同意（与 web 收银框 U1 / /orders/new 同源）。**两道门，判据不得混用**：
 
-1. **创单前门**（`preCreateDepositGate`，`src/pages/order-pay/index.tsx`）：押金场先「勾选」→ `createOrder(enrollmentId, true)`（带 `depositConsent`）→ 支付。判据 = **报名快照** `Enrollment.paymentMode === 'deposit'` + `depositAmountCents`（#749 起两者都以**活动现值**为权威——后端计算字段与创单金额同源同值，预检走 `api.getEnrollment`）。后端按 `order_kind` 权威复核：押金单缺 `depositConsent: true` → `order_deposit_consent_required` 拒单，页面经 `createOrderSelfHealsToConsent`（#751）识别后转「披露 + 勾选」流程自愈，不落同构重试死循环。
+1. **创单前门**（`preCreateDepositGate`，`src/pages/order-pay/index.tsx`）：押金场先「勾选」→ `createOrder(enrollmentId, true)`（带 `depositConsent`）→ 支付。判据 = **报名快照** `Enrollment.paymentMode === 'deposit'` + `depositAmountCents`（两者都以**活动现值**为权威——后端计算字段与创单金额同源同值，预检走 `api.getEnrollment`）。后端按 `order_kind` 权威复核：押金单缺 `depositConsent: true` → `order_deposit_consent_required` 拒单，页面经 `createOrderSelfHealsToConsent`（#751）识别后转「披露 + 勾选」流程自愈，不落同构重试死循环。
 2. **支付前门**（`canRequestPayment`）：押金单未勾选不放行 `Taro.requestPayment`（纵深防御）。判据 = **订单自己的口径快照** `Order.orderKind === 'deposit'` + `order.amountCents`（订单创建后不随活动配置漂移）。
 
-- **不要**用活动的实时缴费配置（`offering.depositEnabled` / `CatalogItem.depositAmountCents`）当钱动前的判据——活动随时可改配置，订单创建后用户同意的是这一笔。创单前那一格是唯一例外（订单还不存在），判据取 `Enrollment.paymentMode`/`depositAmountCents`（#749 起与创单实付同源）；创单后一律切到订单快照。
+- **不要**用活动的实时缴费配置（`offering.depositEnabled` / `CatalogItem.depositAmountCents`）当钱动前的判据——活动随时可改配置，订单创建后用户同意的是这一笔。创单前那一格是唯一例外（订单还不存在），判据取 `Enrollment.paymentMode`/`depositAmountCents`（与创单实付同源）；创单后一律切到订单快照。
 - **金额语义（#749）**：创单实付与披露金额都以活动现值为权威，`submission_payload` 不参与金额（历史预埋脏键天然免疫）。组织者改押金额后，未支付报名的披露与创单同步跟随新价；只有**已创建订单**的金额钉死在 `tier_snapshot`。旧口径「报名时物化快照、改价不追溯」已废弃，不要再按它写断言或文案。
 - 新增任何资金动作入口都要挂同一道门，并扫查 `Taro.requestPayment` 与 `api.createOrder` 的调用点（当前各一处，均在 `src/pages/order-pay/index.tsx`）。
 - `src/api/mockTransport.ts` 必须镜像后端门（押金场缺 `depositConsent` → 同 code 业务错误），否则 e2e 会在 mock 上「绿着漏门」。
