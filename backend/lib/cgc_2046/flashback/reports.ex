@@ -250,6 +250,51 @@ defmodule Cgc2046.Flashback.Reports do
     end)
   end
 
+  @doc """
+  回响管理队列（#835）：公开树可见愿望（listed + public + 未 hidden + 未删）
+  按挂树时间倒序，附每个愿望的回响计数（published_ed = published+corrected 公开
+  可见数；draft = 仅 admin 可见）。
+  """
+  @spec list_listed_wishes() :: list(map())
+  def list_listed_wishes do
+    Wish
+    |> Ash.Query.filter(
+      visibility == "public" and not is_nil(listed_at) and is_nil(hidden_at) and
+        is_nil(deleted_at)
+    )
+    |> Ash.Query.sort(listed_at: :desc)
+    |> Ash.read!(authorize?: false, page: false)
+    |> Enum.map(fn wish ->
+      %{rows: rows} =
+        Repo.query!(
+          """
+          SELECT
+            COUNT(*) FILTER (WHERE status IN ('published', 'corrected')),
+            COUNT(*) FILTER (WHERE status = 'draft')
+          FROM flashback_wish_echoes
+          WHERE wish_id = $1
+          """,
+          [Repo.uuid!(wish.id)]
+        )
+
+      {published_echo_count, draft_echo_count} =
+        case rows do
+          [[published_count, draft_count]] -> {published_count, draft_count}
+          _ -> {0, 0}
+        end
+
+      %{
+        wish_id: wish.id,
+        content: wish.content,
+        signature: wish.signature,
+        city: wish.city,
+        listed_at: wish.listed_at,
+        published_echo_count: published_echo_count,
+        draft_echo_count: draft_echo_count
+      }
+    end)
+  end
+
   # FIX-4（KTD9 收口）：公开举报面目标资格 = listed + public + 未 hidden + 未删
   # （plan 允许收口 listed-only——成员面举报入口本批无 UI 消费方）。统一
   # target_not_found：private/未 listed/hidden/不存在同形，不泄露存在性。
