@@ -336,24 +336,34 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert_receive {:email, email}, 1_000
       {_name, address} = List.first(email.to)
       assert address == @email
-      # 称呼用全名；主题逐字引学员原话「刚刚一闪念间」
-      assert email.subject =~ "程序媛汇：闪念回当年，系愿于今朝"
+      # 称呼用全名；2026-09-25 中秋档主题；开场含中秋问候
+      assert email.subject =~ "程序媛汇：中秋快乐——闪念回当年，系愿于今朝"
       assert email.text_body =~ "你好，王小明："
       assert email.html_body =~ "你好，王小明："
+      assert email.text_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
+      assert email.html_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
       # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
       assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
       assert email.text_body =~ "你也在 2014 年 1 月推开过这扇窗"
-      # 逐字引文（与截图并排可对照）+ 原图 + 小程序搜索引导
+
+      # 逐字引文（与截图并排可对照）+ 原图 + 小程序搜索引导（仅微信小程序）
       assert email.html_body =~ "weibo-screenshot.png"
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
       assert email.text_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
-      assert email.html_body =~ "搜索「程序媛汇」或「程序媛汇2046」"
-      assert email.text_body =~ "搜索「程序媛汇」或「程序媛汇2046」"
+      assert email.html_body =~ "在微信里搜索小程序「程序媛汇」"
+      assert email.text_body =~ "在微信里搜索小程序「程序媛汇」"
+      refute email.html_body =~ "小红书"
+      refute email.text_body =~ "小红书"
       assert email.html_body =~ "/zh-CN/flashback/enter?token="
       assert email.text_body =~ "/zh-CN/flashback/enter?token="
-      # R30：页脚退订链接（HTML 与纯文本都带）
-      assert email.html_body =~ "/api/flashback/unsubscribe?t="
-      assert email.text_body =~ "/api/flashback/unsubscribe?t="
+
+      # R30：页脚退订链接（HTML 与纯文本都带）——必须指向 api 域（退订端点在
+      # backend；web 域 /api 无后端反代会 404），用 Endpoint.url() 断言整串
+      assert email.html_body =~
+               "#{Cgc2046Web.Endpoint.url()}/api/flashback/unsubscribe?t="
+
+      assert email.text_body =~
+               "#{Cgc2046Web.Endpoint.url()}/api/flashback/unsubscribe?t="
     end
 
     test "email 腿：场次日期缺失 → 文案降级「那年」，不因 nil 崩发送" do
