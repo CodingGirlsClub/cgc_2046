@@ -87,7 +87,7 @@ Conventions:
 ### Tests
 
 - All tests **must pass** before a PR can be merged.
-- **Coverage must not drop.** New code needs new tests — backend resource/action tests and frontend mapping-function tests are mandatory for new behavior.
+- **Tests follow the Testing principles in [AGENTS.md](./AGENTS.md):** prefer E2E tests that end with a verifiable, repeatable artifact; when a unit must be tested in isolation, list the ways it can fail first, then write the code; never add unit tests after the code is written.
 
 ## 5. Commits & PRs
 

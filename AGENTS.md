@@ -16,13 +16,30 @@
 - Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
 - If you must test a system in isolation, FIRST write all the ways it could fail, THEN write the code.
 
-## 编排主权（LoopX / Mainline / sop-omp）
+## 子目录规则
 
-- **LoopX** 管何时派工/quota/续跑；**Mainline** 定 git 写边界上限（`.mainline/config.toml` 的 `[agent] autonomy`，当前 `review`：允许 push 非 main 分支 + 开 PR）；**sop-omp** 定质量前置（reviewer PASS + e2e PASS 才许 push）与任务状态 truth（`pipeline-status.md` / Sign-off）。
-- 两类约束**取更严者**；`Mainline > sop-omp > LoopX` 仅裁指令冲突，不裁质量门。
-- LoopX 拉起的会话：commit→seal→publish 按配置自治放行，不停机；push 仅在双 PASS 后；preflight block、语义冲突、未答 question、merge/deploy/公开动作仍是硬门，停机上报。
-- 任务状态唯一 truth 是 sop-omp 状态文件；LoopX goal state 只留指针与 heartbeat，不重建任务条目。
-- 各 worktree 的 `.mainline/config.toml` 必须与根仓一致：改动提交入库经 git 传播，不手改单副本；编排类 chore commit 带 `Mainline-Skip:` trailer 或命中 skip pattern，避免 uncovered 噪音。
+改 `backend/`、`web/`、`miniprogram/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
+
+## LoopX 工作流（Codex CLI）
+
+- **宿主**：Codex CLI 的 `/goal` 可见循环，LoopX agent id `codex-cli-cgc-2046`。
+- **运行位置**：主控会话在主 checkout 运行（`.loopx/` 与 LoopX 管理的项目 skill 只在这里），主 checkout 保持在 `develop`；所有改动都在 worktree 里做。手动会话同样用自己的 worktree，别在主 checkout 上切分支。
+- **任务来源**：只接带 `ready-for-agent` 标签的 issue，一个 issue 对应一个 LoopX todo（记 issue 号、分支、PR 链接）。任务状态只记在 LoopX，不另建状态文件。
+- **模型**：主控用 Codex 默认模型；子 agent 统一用 LoopX goal 配置的子任务模型（`loopx configure-goal --subagent-model`），不在别处另设。
+- **质量门**：push 前 LoopX change-quality 收据通过（`--base-ref origin/develop`；收据生成后再改代码即作废，需重跑）；开 PR 后跑 LoopX pr-review。涉及哪一端就先做哪一端的真实验收。
+- **不调用 `sop-omp`**：它只用于非 LoopX 的手动流程。
+- 流程细节（闭环、索引层 3-way 重建不 rebase、验证纪律、发现分流）见 `docs/agents/loopx-workflow.md`。
+
+授权表（唯一依据；LoopX goal 的 boundary 配置与它保持一致）：
+
+| 动作 | LoopX 会话 | 前提 |
+|---|---|---|
+| 读代码；在自己的 feature 分支 / worktree 改代码并本地 commit | 允许 | 不直接改 `develop` / `main` |
+| push feature 分支、开 PR（正文写 `Closes #N`） | 允许 | 质量门通过 |
+| 在自己的 PR 上发布 LoopX pr-review 评审 | 允许 | — |
+| 开 issue、评论 issue | 允许 | 新 issue 打 `needs-triage` |
+| 合并 PR（含开启 auto-merge） | 禁止 | 人工执行；LoopX 记一条 user_action todo 后继续下一个任务 |
+| develop→main 发布、deploy、生产数据、凭证、仓库设置 | 禁止 | 人工执行 |
 
 ## 安全红线（Security red lines）
 
@@ -43,10 +60,6 @@ Five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
-
-### Worktree 编排 SOP
-
-worktree agent 改文件与自证、可在 worktree 内本地 commit；push / PR / merge / 分支引用归编排者（沙箱能力以当场实测为准，被拒即回落只改文件）；重建走索引层 3-way（不 rebase）、落地链 fail-closed。见 `docs/agents/worktree-orchestration.md`。
 
 ### E2E validation
 
@@ -78,6 +91,8 @@ Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Se
 - HTTPS 解密依赖信任 Rockxy 根 CA；只对调试需要的 host 开解密，其余 passthrough。
 
 ### PR 合并与发布
+
+以下合并与发布操作由人执行（LoopX 会话不合并，见上方授权表）。
 
 - **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
 - **发布 = develop→main PR**。repo 已开 auto-merge，checks 全绿自动合并，merge 落 main 即触发 Deploy：

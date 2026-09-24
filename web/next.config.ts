@@ -12,10 +12,8 @@ if (process.env.NODE_ENV === "production" && !rawBackendUrl) {
 		"BACKEND_URL must be set and non-empty when building for production (rewrites destination)",
 	);
 }
-// Paseo worktree：service 进程注入 PASEO_SERVICE_API_URL（指向本 worktree 的 api 反代），
-// 使并行的每个 worktree 的 web 连各自的 api；普通环境两变量均缺省，回退 localhost:4000。
-const BACKEND_URL =
-	rawBackendUrl || process.env.PASEO_SERVICE_API_URL?.trim() || "http://localhost:4000";
+// 并行 worktree 的 web 用 BACKEND_URL 连各自的 api；缺省回退 localhost:4000。
+const BACKEND_URL = rawBackendUrl || "http://localhost:4000";
 
 // #251：真机经 LAN IP 访问 dev server 时，Next 16 默认 block 非 localhost origin 的
 // /_next/* 资源与 HMR，整页 JS 失效（表单退化浏览器原生 GET 提交，密码明文进 URL）。
