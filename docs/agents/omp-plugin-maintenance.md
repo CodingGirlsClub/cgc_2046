@@ -8,8 +8,8 @@
 
 ## Sync workflow 打回陷阱
 
-- **monorepo 源是唯一真理**：`omp-plugin/cgc-2046/` 的内容必须改在 monorepo，不能只改分发 repo（`/tmp/cgc-omp-plugins`）
-- 只改分发 repo 的修复，下次 sync 触发时会被 `rsync --delete` 打回原形（README trigger 垃圾、/cgc help 修复都踩过）
+- **monorepo 源是唯一真理**：`omp-plugin/cgc-2046/` 的内容必须改在 monorepo，不能只改分发 repo（`CodingGirlsClub/cgc-omp-plugins`）
+- 只改分发 repo 的修复，下次 sync 触发时会被 `rsync --delete` 打回原形
 - 正确路径：monorepo 改 → PR 合并 → sync workflow 自动带到分发 repo
 
 ## 工作目录引导的设计意图
