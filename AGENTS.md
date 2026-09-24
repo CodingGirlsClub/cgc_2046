@@ -26,6 +26,7 @@
 - **任务来源**：只接带 `ready-for-agent` 标签的 issue，一个 issue 对应一个 LoopX todo（记 issue 号、分支、PR 链接）。任务状态只记在 LoopX，不另建状态文件。
 - **模型**：主控用 Codex 默认模型；子 agent 统一用 LoopX goal 配置的子任务模型（`loopx configure-goal --subagent-model`），不在别处另设。
 - **质量门**：push 前 LoopX change-quality 收据通过（`--base-ref origin/develop`；收据生成后再改代码即作废，需重跑）；开 PR 后跑 LoopX pr-review。涉及哪一端就先做哪一端的真实验收。
+- **合并**：符合授权表的 PR 由主控自合并到 `develop`，随后主 checkout 快进到最新 `develop`，下一个 issue 从它开工。
 - **不调用 `sop-omp`**：它只用于非 LoopX 的手动流程。
 - 流程细节（闭环、索引层 3-way 重建不 rebase、验证纪律、发现分流）见 `docs/agents/loopx-workflow.md`。
 
@@ -37,8 +38,16 @@
 | push feature 分支、开 PR（正文写 `Closes #N`） | 允许 | 质量门通过 |
 | 在自己的 PR 上发布 LoopX pr-review 评审 | 允许 | — |
 | 开 issue、评论 issue | 允许 | 新 issue 打 `needs-triage` |
-| 合并 PR（含开启 auto-merge） | 禁止 | 人工执行；LoopX 记一条 user_action todo 后继续下一个任务 |
+| 把自己的 PR 合并到 `develop` | 允许 | 同时满足：CI 必过检查全绿；change-quality 收据覆盖当前 head 且 `verify` 通过；LoopX pr-review 结论 APPROVE 已发在 PR 上；合并前 `loopx pr-review --check-merge-readiness <PR>@<head>` 返回 `ready=true`。直接用 merge commit 合并，不开 auto-merge（它可能合入未经评审的新 head）；改动碰到下方人工合并范围时不适用 |
+| 合并碰到人工合并范围的 PR；合并到 `main` | 禁止 | 人工执行；LoopX 记一条 user_action todo 后继续下一个任务 |
 | develop→main 发布、deploy、生产数据、凭证、仓库设置 | 禁止 | 人工执行 |
+
+人工合并范围（PR 改动碰到任一项，就由人合并）：
+
+- `AGENTS.md`、`docs/agents/**`：agent 规则本身——防止 agent 先放宽自己的规则、再自己合并
+- `.github/**`：CI 与部署流程
+- `backend/priv/repo/migrations/**`：数据库迁移
+- `backend/mix.lock`、`web/pnpm-lock.yaml`、`miniprogram/pnpm-lock.yaml`：依赖变更
 
 ## 安全红线（Security red lines）
 
@@ -91,7 +100,7 @@ Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Se
 
 ### PR 合并与发布
 
-以下合并与发布操作由人执行（LoopX 会话不合并，见上方授权表）。
+LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合并与所有发布由人执行，下面的命令是人工操作口径。
 
 - **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
 - **发布 = develop→main PR**。repo 已开 auto-merge，checks 全绿自动合并，merge 落 main 即触发 Deploy：
