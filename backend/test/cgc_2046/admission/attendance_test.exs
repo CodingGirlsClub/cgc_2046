@@ -481,6 +481,54 @@ defmodule Cgc2046.Admission.AttendanceTest do
       assert length(refund_audit_logs(order.id)) == 1
     end
 
+    # 审查 R1-#1（产品拍板 A）：check_in 事务内 commence 的 claim 未命中时，
+    # rollback_on_error?: false 让重读真正执行——DB 已被推进到 refunding →
+    # 收敛 already_in_progress → 核销照常成功、审计不落（非 started/retried）、
+    # 不重复入队（恰他路那 1 笔）。修复前该场景整体回滚（核销失败），本用例为红。
+    test "事务内过期 struct + DB 已推进 refunding → 核销成功、恰 1 笔 job（R1-#1）" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      event = deposit_event(workspace, owner, capacity: 1)
+      moderator = assign_moderator(event, workspace, owner, "u6-race-settled-moderator")
+      {_learner, enrollment, order} = confirmed_deposit_enrollment(event, workspace)
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_race_swallow_fn() RETURNS trigger AS } <>
+          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER race_swallow BEFORE UPDATE ON payments_orders FOR EACH ROW } <>
+          ~s{WHEN (OLD.id = '#{order.id}' AND OLD.status = 'paid' AND NEW.status = 'refunding') } <>
+          ~s{EXECUTE FUNCTION cgc_race_swallow_fn();}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_race_settle_fn() RETURNS trigger AS } <>
+          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER race_settle AFTER UPDATE ON payments_orders FOR EACH STATEMENT } <>
+          ~s{EXECUTE FUNCTION cgc_race_settle_fn();}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{INSERT INTO oban_jobs (state, queue, worker, args, priority, max_attempts, inserted_at, scheduled_at) } <>
+          ~s{VALUES ('available', 'payments', 'Cgc2046.Payments.Workers.PaymentRefundWorker', } <>
+          ~s{jsonb_build_object('order_id', '#{order.id}'), 0, 5, NOW(), NOW())}
+      )
+
+      assert {:ok, _attendance} = check_in(event, enrollment.check_in_code, :manual, moderator)
+
+      assert attendance_count(enrollment.id) == 1
+      assert reload_order(order).status == :refunding
+      assert refund_audit_logs(order.id) == []
+
+      assert [%{}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+    end
+
     test "免费场核销：只记到场，不入退款链" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
       event = EventFixtures.create_event(workspace, owner, %{capacity: 1})

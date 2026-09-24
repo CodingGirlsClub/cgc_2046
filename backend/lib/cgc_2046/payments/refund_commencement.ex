@@ -64,7 +64,11 @@ defmodule Cgc2046.Payments.RefundCommencement do
   defp settle({:run, action, ok_tag}, order, eligible, retriable?) do
     case order
          |> Ash.Changeset.for_update(action, %{})
-         |> Ash.update(authorize?: false, tenant: order.workspace_id) do
+         |> Ash.update(
+           rollback_on_error?: false,
+           authorize?: false,
+           tenant: order.workspace_id
+         ) do
       {:ok, _refunding} ->
         {:ok, ok_tag}
 
