@@ -2406,6 +2406,8 @@ button:focus-visible,
   }
 
   .site-nav__inner {
+    position: relative;
+    z-index: 30;
     display: flex;
     align-items: center;
     gap: 28px;
@@ -2442,6 +2444,7 @@ button:focus-visible,
     font-size: 14px;
     font-weight: 510;
     text-decoration: none;
+    white-space: nowrap;
     transition: color 120ms ease, box-shadow 120ms ease;
   }
 
@@ -2484,6 +2487,115 @@ button:focus-visible,
     min-height: 36px;
     padding: 0 14px;
     font-size: 13px;
+  }
+
+  /* ---------- 窄屏菜单：≤1280px 横排收起为「菜单」按钮 + 抽屉（视觉审计 2026-09，
+     en 长标签在中档视口断词换行/裁掉右侧按钮；移动端主导航整体缺失） ---------- */
+
+  .site-nav__menu-button {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .site-nav__menu-icon {
+    position: relative;
+    width: 18px;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: background-color 120ms ease;
+  }
+
+  .site-nav__menu-icon::before,
+  .site-nav__menu-icon::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: transform 160ms ease;
+  }
+
+  .site-nav__menu-icon::before {
+    transform: translateY(-6px);
+  }
+
+  .site-nav__menu-icon::after {
+    transform: translateY(6px);
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon {
+    background: transparent;
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon::before {
+    transform: rotate(45deg);
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon::after {
+    transform: rotate(-45deg);
+  }
+
+  /* 抽屉外点击兜底层：铺满视口，收起抽屉 */
+  .site-nav__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+  }
+
+  .site-nav__drawer {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    z-index: 30;
+    max-height: calc(100svh - 64px);
+    overflow-y: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  }
+
+  .site-nav__drawer-inner {
+    display: grid;
+    gap: 18px;
+    width: min(100% - 32px, 1080px);
+    margin-inline: auto;
+    padding: 14px 0 24px;
+  }
+
+  .site-nav__drawer-links {
+    display: grid;
+  }
+
+  .site-nav__drawer-links .site-nav__link {
+    min-height: 46px;
+    padding: 0 4px;
+    font-size: 16px;
+  }
+
+  .site-nav__drawer-auth {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .site-nav__drawer-lang {
+    margin-left: auto;
   }
 
   .site-page {
@@ -3239,6 +3351,26 @@ button:focus-visible,
     }
   }
 
+  /* 顶导桌面恒收（视觉审计 2026-09）：≥1281px 一律收紧间距——en 长标签
+     一行放下、右侧登录/注册按钮不被裁出屏外；第 7 项「许愿树」(Wish Tree)
+     入列后链接内边距再收 2px。不随宽度跳档（原 1281–1400 收、>1400 松
+     会在 1401–1408 反弹出裁切角）。≤1280px 抽屉切换见 @layer 外。 */
+  @media (min-width: 1281px) {
+    .site-nav__inner {
+      gap: 16px;
+      width: min(100% - 32px, 1080px);
+    }
+
+    .site-nav__right {
+      gap: 10px;
+    }
+
+    .site-nav__link {
+      min-width: 40px;
+      padding: 0 6px;
+    }
+  }
+
   @media (max-width: 640px) {
     .public-catalog-container {
       width: min(100% - 32px, 1080px);
@@ -3247,10 +3379,6 @@ button:focus-visible,
     .site-nav__inner {
       gap: 16px;
       min-height: 60px;
-    }
-
-    .site-nav__links {
-      display: none;
     }
 
     .public-catalog-main {
@@ -3322,21 +3450,29 @@ button:focus-visible,
     .public-catalog-heading__switch,
     .public-catalog-retry,
     .public-detail-back,
-    .public-detail__browse {
+    .public-detail__browse,
+    .site-nav__menu-icon,
+    .site-nav__menu-icon::before,
+    .site-nav__menu-icon::after {
       transition: none;
     }
 
   }
 }
 
-/* Tailwind 的 flex utility 位于 utilities layer；极窄屏覆盖需留在 layer 外。 */
-@media (max-width: 480px) {
-  .site-nav__lang {
+/* 顶导窄屏抽屉切换（视觉审计 2026-09）：≤1280px 横排导航/语言/登录收起，
+   由「菜单」按钮 + 抽屉接管（en 长标签在中档视口断词换行、裁掉右侧按钮；
+   移动端此前无主导航入口）。zh/en 共用断点；第 7 项「许愿树」入列后
+   en 桌面全行实测需 ~1239px，断点抬到 1280 保桌面一行不裁。
+   留在 @layer 外：Tailwind flex utility 在 utilities layer，layer 内规则压不过。 */
+@media (max-width: 1280px) {
+  .site-nav__links,
+  .site-nav__lang,
+  .site-nav__login {
     display: none;
   }
 
-  /* 顶导语言收起后由 landing 页尾接管（仅 ≤480px 显示） */
-  .ld-footer__lang {
+  .site-nav__menu-button {
     display: inline-flex;
   }
 }
