@@ -12,9 +12,13 @@ defmodule Cgc2046.Payments.RefundCommencement do
   其余不可发起的状态返回 `{:error, {:ineligible, status}}`，由调用方按自身
   语义分派（如核销面把 `:forfeited` 转业务错误、把 `:pending` 当良性）。
 
+  eligible 白名单与分派（对齐 `start_refund` 的 CAS 源状态守卫）：
+  `paid` / `expired` / `cancelled` → `:start_refund`（`{:ok, :started}`）；
+  `refund_failed` → `:retry_refund`（`{:ok, :retried}`）。
+
   返回封闭结果集：
 
-    {:ok, :started}                 paid → refunding
+    {:ok, :started}                 paid / expired / cancelled → refunding
     {:ok, :retried}                 refund_failed → refunding
     {:ok, :already_in_progress}     refunding / refunded（含竞态重读后收敛）
     {:error, {:ineligible, status}} 不可发起且非在途 / 已退
@@ -37,10 +41,17 @@ defmodule Cgc2046.Payments.RefundCommencement do
 
   defp classify(status, eligible) do
     cond do
-      status == :paid and :paid in eligible -> {:run, :start_refund, :started}
-      status == :refund_failed and :refund_failed in eligible -> {:run, :retry_refund, :retried}
-      status in @refund_in_flight -> {:in_flight}
-      true -> {:ineligible, status}
+      status in [:paid, :expired, :cancelled] and status in eligible ->
+        {:run, :start_refund, :started}
+
+      status == :refund_failed and :refund_failed in eligible ->
+        {:run, :retry_refund, :retried}
+
+      status in @refund_in_flight ->
+        {:in_flight}
+
+      true ->
+        {:ineligible, status}
     end
   end
 

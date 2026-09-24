@@ -61,6 +61,33 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
       assert reload_order(order).status == :refund_failed
     end
 
+    # 迟到支付自动退款路径（U7/D(a)）：expired / cancelled 单同走 start_refund
+    test "expired + eligible → {:ok, :started}，refunding + 恰一笔 job" do
+      %{order: order} = paid_order_setup()
+      set_status!(order, "expired")
+
+      assert {:ok, :started} =
+               RefundCommencement.commence(reload_order(order),
+                 eligible: [:paid, :expired, :cancelled]
+               )
+
+      assert reload_order(order).status == :refunding
+
+      assert [%{}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+    end
+
+    test "expired 不在 eligible → {:error, {:ineligible, :expired}}" do
+      %{order: order} = paid_order_setup()
+      set_status!(order, "expired")
+
+      assert {:error, {:ineligible, :expired}} =
+               RefundCommencement.commence(reload_order(order), eligible: [:paid])
+
+      assert reload_order(order).status == :expired
+    end
+
     test "refunding / refunded → {:ok, :already_in_progress}，不加新 job" do
       %{order: order} = paid_order_setup()
 
