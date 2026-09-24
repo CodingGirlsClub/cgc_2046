@@ -2868,7 +2868,20 @@
       "when": "⚡ 今天",
       "flabel": "此刻 · 一闪念间",
       "dashed": "你的照片还没寄出",
-      "goSend": "去寄出它 →"
+      "goSend": "去寄出它 →",
+      "editEntry": "编辑今天的你",
+      "editTitle": "改改「今天的你」",
+      "editSave": "保存",
+      "editSaving": "保存中……",
+      "editCancel": "先不改",
+      "editSaved": "已保存 ✓",
+      "editError": "保存没有成功——请再试一次。",
+      "retractEntry": "撤下",
+      "retractTitle": "撤下这张卡？",
+      "retractBody": "撤下后你的卡从校友墙撤下，其他校友看不到了；随时可重新寄出。",
+      "retractConfirm": "确认撤下",
+      "retractCancel": "再想想",
+      "retractError": "撤下没有成功——请再试一次。"
     },
     "cardExport": {
       "ariaLabel": "卡片导出",

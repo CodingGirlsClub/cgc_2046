@@ -73,7 +73,7 @@ export default function Corridor({
 					<CityPiles archive={archive} />
 				</article>
 			))}
-			<TodaySlot me={capsule.me} />
+			<TodaySlot me={capsule.me} token={token} onChanged={onChanged} />
 			<FutureEventFrames frames={capsule.futureEvents} hiddenWhenFiltered={cityFiltered} />
 			<WishFrames
 				publicWishes={capsule.publicWishes}
