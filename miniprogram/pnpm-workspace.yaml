@@ -11,6 +11,22 @@ overrides:
   # svgo 传递链，lockfile 锁 3.3.4，3.3.5 为补丁版本（postcss-svgo range ^3
   # 兼容）。同 fast-uri 先例：overrides 强制收敛，构建期工具无运行时面。
   "svgo@>=3.0.0 <3.3.5": 3.3.5
+  # 2026-09-24：Dependabot critical/high 传递链收敛（js-yaml 3 条 high、
+  # minimist 1 条 critical、glob 1 条 high、postcss 2 条 high）。
+  # - js-yaml CVE-2026-59870 CPU 消耗（eslint/@eslint/eslintrc 等工具链，
+  #   lock 锁 4.3.0/4.3.1，4.3.2 为补丁版本，range ^4 兼容）。
+  # - minimist 原型污染：mkdirp@0.5.1 精确锁 0.0.8，无 range 可解析——
+  #   overrides 强制替换；argv 解析 API 1.x 向下兼容。
+  # - glob 命令注入（GHSA 面在 glob CLI 的 -c 参数，本项目仅库用法）：
+  #   @tarojs/plugin-doctor 锁 10.2.6，10.5.0 为补丁版本；glob@7 老链
+  #   （rimraf 3）不受本 range 命中，不误伤。
+  # - postcss@7（miniprogram-simulate 测试工具链）7 线无修复版：强制升
+  #   8.5.26（lock 内已有版本）。若单测暴露 postcss 8 插件 API 不兼容，
+  #   回退本条并在 auditConfig 记豁免。均构建/测试期依赖，无运行时面。
+  "js-yaml@>=4.0.0 <4.3.2": 4.3.2
+  "minimist@<0.2.4": 1.2.8
+  "glob@>=10.2.0 <10.5.0": 10.5.0
+  "postcss@7": 8.5.26
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
