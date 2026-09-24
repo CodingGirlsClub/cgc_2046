@@ -2163,8 +2163,6 @@ body {
 .brand-lockup__year { margin-left: 0.4em; color: var(--ink-3); font-weight: 480; }
 .auth-brand-lockup .brand-lockup__mark { width: 30px; height: 30px; }
 .ws-shell-cgc-brand .brand-lockup__mark { width: 16px; height: 16px; }
-.ld-footer__brand { color: var(--ink); font-size: 14px; font-weight: 590; }
-.ld-footer__brand .brand-lockup__mark { width: 18px; height: 18px; }
 
 /* ---------- Hero ---------- */
 .ld-hero { position: relative; overflow: clip; padding: 96px 0 72px; }
@@ -2294,12 +2292,18 @@ body {
 .ld-manifesto--spaced { margin-top: 40px; }
 .ld-about .ld-journey { margin-top: 56px; }
 
-/* ---------- Footer ---------- */
-.ld-footer { padding: 28px 0 40px; border-top: 1px solid var(--line-soft); color: var(--ink-3); font-size: 13px; }
-.ld-footer__inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
-.ld-footer p { margin: 0; }
-.ld-footer a { color: var(--ink-3); text-decoration: none; transition: color 120ms ease; }
-.ld-footer__lang { display: none; white-space: nowrap; }
+/* ---------- Footer：全站统一 .site-footer（视觉审计 2026-09；landing 不再自持） ----------
+   一行式布局（user review 二轮）：左 品牌＋行标，右 法务＋©＋ICP，基线对齐；
+   窄屏 flex-wrap 自然折行成两行，不引入第三行。 */
+.site-footer { padding: 24px 0 28px; border-top: 1px solid var(--line-soft); color: var(--ink-3); font-size: 13px; }
+.site-footer__inner { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px 48px; width: min(100% - 40px, 1080px); margin-inline: auto; }
+.site-footer__brandrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.site-footer__tagline { margin: 0; }
+.site-footer__links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; }
+.site-footer__links a { color: var(--ink-3); text-decoration: none; transition: color 120ms ease; }
+.site-footer__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; }
+.site-footer__meta p { margin: 0; }
+.site-footer__meta a { color: var(--ink-3); text-decoration: none; transition: color 120ms ease; }
 
 /* ---------- 入场 staggered reveal（一次性，低频，值得动） ---------- */
 .ld-rise { opacity: 0; animation: ld-rise 640ms cubic-bezier(0.16, 1, 0.3, 1) forwards; animation-delay: var(--d, 0ms); }
@@ -2316,7 +2320,7 @@ body {
   .ld-offer-row:hover .ld-offer-row__arrow { color: var(--accent-strong); transform: translateX(3px); }
   .ld-paper:hover { border-color: var(--line-strong); }
   .ld-press__row:hover { background: var(--soft-2); }
-  .ld-footer a:hover { color: var(--ink-2); }
+  .site-footer a:hover { color: var(--ink-2); }
 }
 
 /* ---------- 键盘焦点环（F6）：公开页统一 :focus-visible，暗面以 accent-strong 描边可见。
@@ -2364,6 +2368,14 @@ button:focus-visible,
   .ld-press__row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .ld-press__arrow { display: none; }
   .ld-final { padding: 80px 0; }
+
+  /* offer-row 窄屏两行化（视觉审计 2026-09）：桌面单行 meta 把行宽顶出
+     视口（移动端整页横向滚动、标题被挤到只剩首字符），改为
+     第一行 = 标题 + 徽标 + 箭头，meta 独占第二行。 */
+  .ld-offer-row { flex-wrap: wrap; row-gap: 2px; }
+  .ld-offer-row__main { order: 1; flex: 1; min-width: 0; }
+  .ld-offer-row__arrow { order: 2; }
+  .ld-offer-row__meta { order: 3; flex: 0 0 100%; min-width: 0; }
 }
 
 /* ============================================================
@@ -2398,6 +2410,8 @@ button:focus-visible,
   }
 
   .site-nav__inner {
+    position: relative;
+    z-index: 30;
     display: flex;
     align-items: center;
     gap: 28px;
@@ -2434,6 +2448,7 @@ button:focus-visible,
     font-size: 14px;
     font-weight: 510;
     text-decoration: none;
+    white-space: nowrap;
     transition: color 120ms ease, box-shadow 120ms ease;
   }
 
@@ -2476,6 +2491,115 @@ button:focus-visible,
     min-height: 36px;
     padding: 0 14px;
     font-size: 13px;
+  }
+
+  /* ---------- 窄屏菜单：≤1280px 横排收起为「菜单」按钮 + 抽屉（视觉审计 2026-09，
+     en 长标签在中档视口断词换行/裁掉右侧按钮；移动端主导航整体缺失） ---------- */
+
+  .site-nav__menu-button {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .site-nav__menu-icon {
+    position: relative;
+    width: 18px;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: background-color 120ms ease;
+  }
+
+  .site-nav__menu-icon::before,
+  .site-nav__menu-icon::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: transform 160ms ease;
+  }
+
+  .site-nav__menu-icon::before {
+    transform: translateY(-6px);
+  }
+
+  .site-nav__menu-icon::after {
+    transform: translateY(6px);
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon {
+    background: transparent;
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon::before {
+    transform: rotate(45deg);
+  }
+
+  .site-nav__menu-button[aria-expanded="true"] .site-nav__menu-icon::after {
+    transform: rotate(-45deg);
+  }
+
+  /* 抽屉外点击兜底层：铺满视口，收起抽屉 */
+  .site-nav__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+  }
+
+  .site-nav__drawer {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    z-index: 30;
+    max-height: calc(100svh - 64px);
+    overflow-y: auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  }
+
+  .site-nav__drawer-inner {
+    display: grid;
+    gap: 18px;
+    width: min(100% - 32px, 1080px);
+    margin-inline: auto;
+    padding: 14px 0 24px;
+  }
+
+  .site-nav__drawer-links {
+    display: grid;
+  }
+
+  .site-nav__drawer-links .site-nav__link {
+    min-height: 46px;
+    padding: 0 4px;
+    font-size: 16px;
+  }
+
+  .site-nav__drawer-auth {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .site-nav__drawer-lang {
+    margin-left: auto;
   }
 
   .site-page {
@@ -2684,11 +2808,18 @@ button:focus-visible,
   .public-detail__after {
     display: grid;
     grid-area: after;
+    grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
 
   .public-detail__after:empty {
     display: none;
+  }
+
+  /* 内容区横向溢出防御（视觉审计 2026-09）：auto 轨道按 max-content 尺寸，
+     长列表（course-map 等）会把整页顶出视口——轨道及子项强制封顶 */
+  .public-detail__after > * {
+    min-width: 0;
   }
 
   .public-detail__after > .join-card {
@@ -3224,6 +3355,26 @@ button:focus-visible,
     }
   }
 
+  /* 顶导桌面恒收（视觉审计 2026-09）：≥1281px 一律收紧间距——en 长标签
+     一行放下、右侧登录/注册按钮不被裁出屏外；第 7 项「许愿树」(Wish Tree)
+     入列后链接内边距再收 2px。不随宽度跳档（原 1281–1400 收、>1400 松
+     会在 1401–1408 反弹出裁切角）。≤1280px 抽屉切换见 @layer 外。 */
+  @media (min-width: 1281px) {
+    .site-nav__inner {
+      gap: 16px;
+      width: min(100% - 32px, 1080px);
+    }
+
+    .site-nav__right {
+      gap: 10px;
+    }
+
+    .site-nav__link {
+      min-width: 40px;
+      padding: 0 6px;
+    }
+  }
+
   @media (max-width: 640px) {
     .public-catalog-container {
       width: min(100% - 32px, 1080px);
@@ -3232,10 +3383,6 @@ button:focus-visible,
     .site-nav__inner {
       gap: 16px;
       min-height: 60px;
-    }
-
-    .site-nav__links {
-      display: none;
     }
 
     .public-catalog-main {
@@ -3307,21 +3454,29 @@ button:focus-visible,
     .public-catalog-heading__switch,
     .public-catalog-retry,
     .public-detail-back,
-    .public-detail__browse {
+    .public-detail__browse,
+    .site-nav__menu-icon,
+    .site-nav__menu-icon::before,
+    .site-nav__menu-icon::after {
       transition: none;
     }
 
   }
 }
 
-/* Tailwind 的 flex utility 位于 utilities layer；极窄屏覆盖需留在 layer 外。 */
-@media (max-width: 480px) {
-  .site-nav__lang {
+/* 顶导窄屏抽屉切换（视觉审计 2026-09）：≤1280px 横排导航/语言/登录收起，
+   由「菜单」按钮 + 抽屉接管（en 长标签在中档视口断词换行、裁掉右侧按钮；
+   移动端此前无主导航入口）。zh/en 共用断点；第 7 项「许愿树」入列后
+   en 桌面全行实测需 ~1239px，断点抬到 1280 保桌面一行不裁。
+   留在 @layer 外：Tailwind flex utility 在 utilities layer，layer 内规则压不过。 */
+@media (max-width: 1280px) {
+  .site-nav__links,
+  .site-nav__lang,
+  .site-nav__login {
     display: none;
   }
 
-  /* 顶导语言收起后由 landing 页尾接管（仅 ≤480px 显示） */
-  .ld-footer__lang {
+  .site-nav__menu-button {
     display: inline-flex;
   }
 }
