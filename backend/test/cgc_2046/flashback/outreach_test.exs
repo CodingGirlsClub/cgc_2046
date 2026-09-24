@@ -345,6 +345,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
       assert email.html_body =~ "你也在 2014 年 1 月推开过这扇窗"
       assert email.text_body =~ "你也在 2014 年 1 月推开过这扇窗"
+
       # 逐字引文（与截图并排可对照）+ 原图 + 小程序搜索引导（仅微信小程序）
       assert email.html_body =~ "weibo-screenshot.png"
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
@@ -355,6 +356,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       refute email.text_body =~ "小红书"
       assert email.html_body =~ "/zh-CN/flashback/enter?token="
       assert email.text_body =~ "/zh-CN/flashback/enter?token="
+
       # R30：页脚退订链接（HTML 与纯文本都带）——必须指向 api 域（退订端点在
       # backend；web 域 /api 无后端反代会 404），用 Endpoint.url() 断言整串
       assert email.html_body =~
