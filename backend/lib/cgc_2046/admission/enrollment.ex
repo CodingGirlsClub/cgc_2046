@@ -1162,8 +1162,9 @@ defmodule Cgc2046.Admission.Enrollment do
       {:ok, _tag} ->
         {:ok, enrollment}
 
-      # 不可达防御：上方查询仅取 paid/refunding/refund_failed，三者皆有归宿。
-      # fail-closed 上抛回滚取消，绝不静默留钱。
+      # R1-#1 修复后本分支可达：重读可能读到 forfeited（no-show 结算抢先）等
+      # 不可发起状态——与「截止前/开始前取消应全退」冲突，fail-closed 上抛
+      # 回滚取消，绝不静默留钱。
       {:error, {:ineligible, status}} ->
         raise "refund commencement ineligible (#{status}) for order #{order.id}"
 
