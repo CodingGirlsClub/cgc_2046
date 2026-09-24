@@ -483,10 +483,10 @@ export const FLASHBACK_MARK_REVEALED: TypedDocumentNode<
 	}
 `;
 
-/** 提交「今天的你」（覆盖式；期望管理文案在提交成功后展示，R29） */
+/** 提交「今天的你」（覆盖式双入口：token 或省略走登录会话；期望管理文案在提交成功后展示，R29） */
 export const FLASHBACK_SUBMIT_TODAY: TypedDocumentNode<
 	{ flashbackSubmitToday: { today: FlashbackToday } },
-	{ token: string; input: FlashbackTodayInput }
+	{ token?: string | null; input: FlashbackTodayInput }
 > = gql`
 	mutation FlashbackSubmitToday($token: String!, $input: FlashbackTodayInput!) {
 		flashbackSubmitToday(token: $token, input: $input) {
