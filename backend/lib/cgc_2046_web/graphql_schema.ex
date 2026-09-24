@@ -606,6 +606,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数"
+    field :flashback_admin_wish_echoes, :flashback_admin_wish_echoes_result do
+      arg(:wish_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.list_for_admin(args.wish_id)
+          end)
+        end)
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -3037,6 +3050,74 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
+    field :flashback_admin_create_wish_echo, :flashback_admin_wish_echo do
+      arg(:wish_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.create_draft(args.wish_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
+    field :flashback_admin_update_wish_echo_draft, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.update_draft(args.echo_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
+    field :flashback_admin_publish_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.publish(args.echo_id, actor.id)
+          end)
+        end)
+      end)
+    end
+
+    @desc "原地更正已发布回响（#834，不触发首次通知）"
+    field :flashback_admin_correct_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.correct(args.echo_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "撤回已发布回响（#834，终态）"
+    field :flashback_admin_revoke_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.revoke(args.echo_id)
+          end)
+        end)
+      end)
+    end
+
     @desc "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
     field :flashback_admin_dismiss_report, :flashback_report_result do
       arg(:report_id, non_null(:id))
@@ -3793,7 +3874,27 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "本人许愿（删除入口只对本人显示，R14）"
     field(:mine, non_null(:boolean))
     field(:comments, non_null(list_of(non_null(:flashback_wish_comment))))
+    field(:latest_echo, :flashback_public_wish_echo)
+    field(:echo_count, non_null(:integer))
+    field(:echoes, non_null(list_of(non_null(:flashback_public_wish_echo))))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_admin_wish_echo do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+    field(:published_at, :datetime)
+    field(:corrected_at, :datetime)
+    field(:revoked_at, :datetime)
+    @desc "发布时的 PlatformAdmin UUID，仅 admin 读面"
+    field(:published_by_user_id, :id)
+  end
+
+  object :flashback_admin_wish_echoes_result do
+    field(:echoes, non_null(list_of(non_null(:flashback_admin_wish_echo))))
+    field(:current_notifiable_endorsement_count, non_null(:integer))
   end
 
   object :flashback_wish_comment do
@@ -4147,8 +4248,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:contribution_distribution, non_null(:json))
     field(:expected_by_viewer, non_null(:boolean))
     field(:endorsed_by_viewer, non_null(:boolean))
+    field(:latest_echo, :flashback_public_wish_echo)
+    field(:echo_count, non_null(:integer))
+    field(:echoes, non_null(list_of(non_null(:flashback_public_wish_echo))))
     field(:listed_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_public_wish_echo do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:status, non_null(:string))
+    field(:published_at, non_null(:datetime))
+    field(:corrected_at, :datetime)
   end
 
   object :flashback_city do
