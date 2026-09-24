@@ -187,15 +187,33 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
 
         :ok
 
-      {:error, :already_in_progress} ->
-        Logger.info("settlement: order #{order.id} refund retry lost CAS race, delivery consumed")
-
-        :ok
-
+      # CAS 未命中（人工 retry_refund / 渠道回调链并发先落，且重读仍未收敛）
+      # 与迁移前同口径：良性，消费投递
       {:error, reason} ->
-        {:error, reason}
+        if refund_race_lost?(reason) do
+          Logger.info(
+            "settlement: order #{order.id} refund retry lost CAS race, delivery consumed"
+          )
+
+          :ok
+        else
+          {:error, reason}
+        end
     end
   end
+
+  # 与迁移前的字符串匹配同形：BusinessError code "order_already_processed"
+  # （claim/5 的 num_rows=0）= 预期竞态；分类形状与
+  # PaymentExpiryWorker.expected_race?/1 同源（Ash.update 经
+  # Ash.Error.to_error_class/1 归一，BusinessError 原样保留在 Invalid 栈内）。
+  defp refund_race_lost?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
+      _ -> false
+    end)
+  end
+
+  defp refund_race_lost?(_), do: false
 
   # F-A/F-I 报名真状态裁决（唯一真理 = reload 后的 enrollments 行）：
   # - payment_pending：settle_paid 未执行（半落账/DB 回包丢失）→ 补落账收敛；
