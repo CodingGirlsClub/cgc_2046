@@ -2364,6 +2364,14 @@ button:focus-visible,
   .ld-press__row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .ld-press__arrow { display: none; }
   .ld-final { padding: 80px 0; }
+
+  /* offer-row 窄屏两行化（视觉审计 2026-09）：桌面单行 meta 把行宽顶出
+     视口（移动端整页横向滚动、标题被挤到只剩首字符），改为
+     第一行 = 标题 + 徽标 + 箭头，meta 独占第二行。 */
+  .ld-offer-row { flex-wrap: wrap; row-gap: 2px; }
+  .ld-offer-row__main { order: 1; flex: 1; min-width: 0; }
+  .ld-offer-row__arrow { order: 2; }
+  .ld-offer-row__meta { order: 3; flex: 0 0 100%; min-width: 0; }
 }
 
 /* ============================================================
@@ -2684,11 +2692,18 @@ button:focus-visible,
   .public-detail__after {
     display: grid;
     grid-area: after;
+    grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
 
   .public-detail__after:empty {
     display: none;
+  }
+
+  /* 内容区横向溢出防御（视觉审计 2026-09）：auto 轨道按 max-content 尺寸，
+     长列表（course-map 等）会把整页顶出视口——轨道及子项强制封顶 */
+  .public-detail__after > * {
+    min-width: 0;
   }
 
   .public-detail__after > .join-card {
