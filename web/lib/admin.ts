@@ -65,6 +65,16 @@ import {
   FLASHBACK_ADMIN_DISMISS_REPORT,
   FLASHBACK_ADMIN_APPROVE_REPORT,
   FLASHBACK_ADMIN_SET_WISH_HIDDEN,
+  FLASHBACK_ADMIN_LISTED_WISHES,
+  FLASHBACK_ADMIN_WISH_ECHOES,
+  FLASHBACK_ADMIN_CREATE_WISH_ECHO,
+  FLASHBACK_ADMIN_UPDATE_WISH_ECHO_DRAFT,
+  FLASHBACK_ADMIN_PUBLISH_WISH_ECHO,
+  FLASHBACK_ADMIN_CORRECT_WISH_ECHO,
+  FLASHBACK_ADMIN_REVOKE_WISH_ECHO,
+  type FlashbackAdminListedWishEntry,
+  type FlashbackAdminWishEcho,
+  type FlashbackAdminWishEchoesResult,
   type FlashbackAdminWishInboxEntry,
   type FlashbackAdminReportEntry,
   FLASHBACK_ADMIN_UPDATE_REDEMPTION,
@@ -822,4 +832,85 @@ export async function setFlashbackWishHidden(
     variables: { wishId, hidden },
   });
   return data?.flashbackAdminSetWishHidden ?? null;
+}
+
+// ── 愿望回响（#834/#835，platform_admin）─────────────────────────────────────
+
+/** 某愿望的全部回响 + 当前可通知附议数 */
+export async function fetchFlashbackAdminWishEchoes(
+  wishId: string,
+): Promise<FlashbackAdminWishEchoesResult | null> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_WISH_ECHOES,
+    variables: { wishId },
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminWishEchoes ?? null;
+}
+
+/** 创建回响草稿 */
+export async function createFlashbackWishEcho(
+  wishId: string,
+  content: string,
+): Promise<FlashbackAdminWishEcho | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_CREATE_WISH_ECHO,
+    variables: { wishId, content },
+  });
+  return data?.flashbackAdminCreateWishEcho ?? null;
+}
+
+/** 修改回响草稿（仅 draft） */
+export async function updateFlashbackWishEchoDraft(
+  echoId: string,
+  content: string,
+): Promise<FlashbackAdminWishEcho | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_UPDATE_WISH_ECHO_DRAFT,
+    variables: { echoId, content },
+  });
+  return data?.flashbackAdminUpdateWishEchoDraft ?? null;
+}
+
+/** 首次发布回响（会触发附议者通知） */
+export async function publishFlashbackWishEcho(
+  echoId: string,
+): Promise<FlashbackAdminWishEcho | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_PUBLISH_WISH_ECHO,
+    variables: { echoId },
+  });
+  return data?.flashbackAdminPublishWishEcho ?? null;
+}
+
+/** 原地更正已发布回响（不重新通知） */
+export async function correctFlashbackWishEcho(
+  echoId: string,
+  content: string,
+): Promise<FlashbackAdminWishEcho | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_CORRECT_WISH_ECHO,
+    variables: { echoId, content },
+  });
+  return data?.flashbackAdminCorrectWishEcho ?? null;
+}
+
+/** 撤回已发布回响（终态） */
+export async function revokeFlashbackWishEcho(
+  echoId: string,
+): Promise<FlashbackAdminWishEcho | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_REVOKE_WISH_ECHO,
+    variables: { echoId },
+  });
+  return data?.flashbackAdminRevokeWishEcho ?? null;
+}
+
+/** 回响管理队列：公开树可见愿望 + 回响计数 */
+export async function fetchFlashbackAdminListedWishes(): Promise<FlashbackAdminListedWishEntry[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_LISTED_WISHES,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminListedWishes ?? [];
 }

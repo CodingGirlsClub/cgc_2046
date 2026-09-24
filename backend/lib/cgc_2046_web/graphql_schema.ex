@@ -620,6 +620,16 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed/public/unhidden/未删），按挂树时间倒序，附回响计数"
+    field :flashback_admin_listed_wishes,
+          non_null(list_of(non_null(:flashback_admin_listed_wish_entry))) do
+      resolve(fn _, _, %{context: context} ->
+        with_admin(context, fn _actor ->
+          {:ok, Cgc2046.Flashback.Reports.list_listed_wishes()}
+        end)
+      end)
+    end
+
     @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
     field :course_learning_detail, :course_learning_detail do
       arg(:course_id, non_null(:id))
@@ -3800,6 +3810,18 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_admin_wish_echoes_result do
     field(:echoes, non_null(list_of(non_null(:flashback_admin_wish_echo))))
     field(:current_notifiable_endorsement_count, non_null(:integer))
+  end
+
+  object :flashback_admin_listed_wish_entry do
+    field(:wish_id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:signature, :string)
+    field(:city, :string)
+    field(:listed_at, non_null(:datetime))
+    @desc "已发布/已更正回响数（公开可见）"
+    field(:published_echo_count, non_null(:integer))
+    @desc "草稿回响数（仅 admin）"
+    field(:draft_echo_count, non_null(:integer))
   end
 
   object :flashback_wish_comment do

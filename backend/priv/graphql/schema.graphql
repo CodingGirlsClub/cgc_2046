@@ -5606,6 +5606,9 @@ type RootQueryType {
   "许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数"
   flashbackAdminWishEchoes(wishId: ID!): FlashbackAdminWishEchoesResult
 
+  "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
+  flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
+
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
 
@@ -6774,6 +6777,24 @@ type FlashbackAdminWishEcho {
 type FlashbackAdminWishEchoesResult {
   echoes: [FlashbackAdminWishEcho!]!
   currentNotifiableEndorsementCount: Int!
+}
+
+type FlashbackAdminListedWishEntry {
+  wishId: ID!
+
+  content: String!
+
+  signature: String
+
+  city: String
+
+  listedAt: DateTime!
+
+  "已发布\/已更正回响数（公开可见）"
+  publishedEchoCount: Int!
+
+  "草稿回响数（仅 admin）"
+  draftEchoCount: Int!
 }
 
 type FlashbackWishComment {
