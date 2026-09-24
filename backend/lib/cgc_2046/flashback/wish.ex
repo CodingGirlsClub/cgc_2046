@@ -48,6 +48,7 @@ defmodule Cgc2046.Flashback.Wish do
   relationships do
     belongs_to(:person, Cgc2046.Flashback.Person, attribute_writable?: true)
     has_many(:endorsements, Cgc2046.Flashback.WishEndorsement, destination_attribute: :wish_id)
+    has_many(:echoes, Cgc2046.Flashback.WishEcho, destination_attribute: :wish_id)
     has_many(:comments, Cgc2046.Flashback.WishComment, destination_attribute: :wish_id)
   end
 

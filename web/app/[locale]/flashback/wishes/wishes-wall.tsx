@@ -86,7 +86,7 @@ export default function WishesWall({
 	const [reportReason, setReportReason] = useState<string>("spam");
 	const [reportFree, setReportFree] = useState("");
 	const [endorseGuideFor, setEndorseGuideFor] = useState<FlashbackPublicWish | null>(null);
-	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录走 enter 引导）
+	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录复用站内登录入口）
 	const [writeOpen, setWriteOpen] = useState(false);
 	// 概念图右栏筛选 chips：「全部」/「已有回响」（附议数 > 0 = 有人出力过）
 	const [filter, setFilter] = useState<"all" | "echo">("all");
@@ -352,7 +352,10 @@ export default function WishesWall({
 							<span>{t("writeWish")}</span>
 						</button>
 					) : (
-						<Link className={styles.primaryBtn} href="/flashback/enter">
+						<Link
+							className={styles.primaryBtn}
+							href={`/login?next=${encodeURIComponent("/flashback/wishes")}`}
+						>
 							<Icon name="pen" />
 							<span>{t("writeWish")}</span>
 						</Link>

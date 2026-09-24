@@ -2,6 +2,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   use Absinthe.Schema
   import_types(Cgc2046Web.GraphqlSchema.Recruitment)
   import_types(Cgc2046Web.GraphqlSchema.SpeakerInvitation)
+  import_types(Cgc2046Web.GraphqlSchema.PaymentOperations)
 
   require Logger
   require Ash.Query
@@ -602,6 +603,19 @@ defmodule Cgc2046Web.GraphqlSchema do
             end)
 
           {:ok, entries}
+        end)
+      end)
+    end
+
+    @desc "许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数"
+    field :flashback_admin_wish_echoes, :flashback_admin_wish_echoes_result do
+      arg(:wish_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.list_for_admin(args.wish_id)
+          end)
         end)
       end)
     end
@@ -1910,103 +1924,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    # ── 高风险支付操作两段确认（web 面 R15/R17/R18；编排在
-    #    Cgc2046Web.PaymentConfirmation，复用 Mcp.PendingOperation/Confirmation，
-    #    confirm 段分派到同名 MCP 工具的 execute_confirmed/2，domain 的
-    #    CAS/审计/worker 路径不变）──
-
-    @desc "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
-    field :refund_order, :pending_operation_confirmation do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          actor
-          |> Cgc2046Web.PaymentConfirmation.request_refund(id)
-          |> pending_confirmation_payload()
-        end)
-      end)
-    end
-
-    @desc "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
-    field :retry_refund, :pending_operation_confirmation do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          actor
-          |> Cgc2046Web.PaymentConfirmation.request_retry_refund(id)
-          |> pending_confirmation_payload()
-        end)
-      end)
-    end
-
-    @desc "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
-    field :waive_payment, :pending_operation_confirmation do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          actor
-          |> Cgc2046Web.PaymentConfirmation.request_waive(id)
-          |> pending_confirmation_payload()
-        end)
-      end)
-    end
-
-    @desc "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
-    field :confirm_operation, :operation_resolution do
-      arg(:pending_id, non_null(:id))
-
-      resolve(fn _, %{pending_id: pending_id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Mcp.Confirmation.confirm(actor, pending_id) do
-            {:ok, %{pending_id: id, status: status}} ->
-              {:ok, %{pending_id: id, status: status, errors: []}}
-
-            {:error, message} ->
-              {:ok,
-               %{
-                 pending_id: nil,
-                 status: nil,
-                 errors: [
-                   mutation_error_payload(
-                     message,
-                     Cgc2046.Mcp.Confirmation.confirm_failed_code()
-                   )
-                 ]
-               }}
-          end
-        end)
-      end)
-    end
-
-    @desc "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
-    field :cancel_operation, :operation_resolution do
-      arg(:pending_id, non_null(:id))
-
-      resolve(fn _, %{pending_id: pending_id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Mcp.Confirmation.cancel(actor, pending_id) do
-            {:ok, %{pending_id: id, status: status}} ->
-              {:ok, %{pending_id: id, status: status, errors: []}}
-
-            {:error, message} ->
-              {:ok,
-               %{
-                 pending_id: nil,
-                 status: nil,
-                 errors: [
-                   mutation_error_payload(
-                     message,
-                     Cgc2046.Mcp.Confirmation.cancel_failed_code()
-                   )
-                 ]
-               }}
-          end
-        end)
-      end)
-    end
+    import_fields(:payment_operation_mutations)
 
     import_fields(:speaker_invitation_mutations)
 
@@ -3037,6 +2955,74 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
+    field :flashback_admin_create_wish_echo, :flashback_admin_wish_echo do
+      arg(:wish_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.create_draft(args.wish_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
+    field :flashback_admin_update_wish_echo_draft, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.update_draft(args.echo_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
+    field :flashback_admin_publish_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.publish(args.echo_id, actor.id)
+          end)
+        end)
+      end)
+    end
+
+    @desc "原地更正已发布回响（#834，不触发首次通知）"
+    field :flashback_admin_correct_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+      arg(:content, non_null(:string))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.correct(args.echo_id, args.content)
+          end)
+        end)
+      end)
+    end
+
+    @desc "撤回已发布回响（#834，终态）"
+    field :flashback_admin_revoke_wish_echo, :flashback_admin_wish_echo do
+      arg(:echo_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.WishEchoes.revoke(args.echo_id)
+          end)
+        end)
+      end)
+    end
+
     @desc "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
     field :flashback_admin_dismiss_report, :flashback_report_result do
       arg(:report_id, non_null(:id))
@@ -3793,7 +3779,27 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "本人许愿（删除入口只对本人显示，R14）"
     field(:mine, non_null(:boolean))
     field(:comments, non_null(list_of(non_null(:flashback_wish_comment))))
+    field(:latest_echo, :flashback_public_wish_echo)
+    field(:echo_count, non_null(:integer))
+    field(:echoes, non_null(list_of(non_null(:flashback_public_wish_echo))))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_admin_wish_echo do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+    field(:published_at, :datetime)
+    field(:corrected_at, :datetime)
+    field(:revoked_at, :datetime)
+    @desc "发布时的 PlatformAdmin UUID，仅 admin 读面"
+    field(:published_by_user_id, :id)
+  end
+
+  object :flashback_admin_wish_echoes_result do
+    field(:echoes, non_null(list_of(non_null(:flashback_admin_wish_echo))))
+    field(:current_notifiable_endorsement_count, non_null(:integer))
   end
 
   object :flashback_wish_comment do
@@ -4147,8 +4153,19 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:contribution_distribution, non_null(:json))
     field(:expected_by_viewer, non_null(:boolean))
     field(:endorsed_by_viewer, non_null(:boolean))
+    field(:latest_echo, :flashback_public_wish_echo)
+    field(:echo_count, non_null(:integer))
+    field(:echoes, non_null(list_of(non_null(:flashback_public_wish_echo))))
     field(:listed_at, non_null(:datetime))
     field(:inserted_at, non_null(:datetime))
+  end
+
+  object :flashback_public_wish_echo do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:status, non_null(:string))
+    field(:published_at, non_null(:datetime))
+    field(:corrected_at, :datetime)
   end
 
   object :flashback_city do
@@ -4387,22 +4404,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     }
   end
 
-  # ── 高风险支付操作两段确认（web 面；payload 式错误同 accept_invitation_result 先例）──
-
-  object :pending_operation_confirmation do
-    @desc "refundOrder/retryRefund/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
-    field(:pending_id, :id)
-    field(:summary, :string)
-    field(:errors, non_null(list_of(non_null(:mutation_error))))
-  end
-
-  object :operation_resolution do
-    @desc "confirmOperation/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
-    field(:pending_id, :id)
-    field(:status, :string)
-    field(:errors, non_null(list_of(non_null(:mutation_error))))
-  end
-
   defp sign_in_with_phone_code(phone, code, context) do
     case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
       {:ok, user} ->
@@ -4422,17 +4423,6 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
     end
   end
-
-  # 两段确认第一段结果 → pending_operation_confirmation payload：业务错误进
-  # payload errors（与自动 mutation 同通道，前端按 code 查文案），不抛顶层 error
-  defp pending_confirmation_payload({:ok, %{pending_id: pending_id, summary: summary}}),
-    do: {:ok, %{pending_id: pending_id, summary: summary, errors: []}}
-
-  defp pending_confirmation_payload({:error, %{message: message, code: code}}),
-    do: {:ok, %{pending_id: nil, summary: nil, errors: [mutation_error_payload(message, code)]}}
-
-  # 手写 payload 的最小 mutation_error 形状（decide_speaker_invitation 同款先例）
-  defp mutation_error_payload(message, code), do: %{message: message, code: code}
 
   # acceptInvitation 的 not_found：id+token 双因子不匹配时返回，与 AshGraphql 自动 mutation
   # 的 NotFound 映射一致（message "could not be found" / code "not_found"），复用同一序列化路径。
