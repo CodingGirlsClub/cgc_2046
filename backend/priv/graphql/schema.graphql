@@ -5414,6 +5414,38 @@ type Sponsorship {
 }
 
 type RootQueryType {
+  "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
+  currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
+
+  "本人简历档案（R11 第 1 步；仅本人 ∪ Owner\/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
+  myResumeProfile(workspaceId: ID!): ResumeProfile
+
+  "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
+  myVolunteerApplications(workspaceId: ID!): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft\/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
+  listRecruitmentCohorts(workspaceId: ID!): [RecruitmentCohort!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 \/ 职位 \/ 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
+  listVolunteerApplications(
+    workspaceId: ID!
+
+    cohortId: ID
+
+    "event_moderator | tutor | coach（非枚举值忽略过滤）"
+    position: String
+
+    "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
+    status: String
+
+    first: Int
+
+    after: String
+  ): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
+  volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -5645,38 +5677,6 @@ type RootQueryType {
 
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
-
-  "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
-  currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
-
-  "本人简历档案（R11 第 1 步；仅本人 ∪ Owner\/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
-  myResumeProfile(workspaceId: ID!): ResumeProfile
-
-  "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
-  myVolunteerApplications(workspaceId: ID!): [VolunteerApplication!]!
-
-  "Owner\/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft\/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
-  listRecruitmentCohorts(workspaceId: ID!): [RecruitmentCohort!]!
-
-  "Owner\/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 \/ 职位 \/ 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
-  listVolunteerApplications(
-    workspaceId: ID!
-
-    cohortId: ID
-
-    "event_moderator | tutor | coach（非枚举值忽略过滤）"
-    position: String
-
-    "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
-    status: String
-
-    first: Int
-
-    after: String
-  ): [VolunteerApplication!]!
-
-  "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
-  volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
   sponsorships(
     "How to sort the records in the response"
@@ -7992,105 +7992,67 @@ type AdminUserPayload {
   errors: [MutationError]
 }
 
-type VolunteerApplicationPayload {
-  "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
-  result: VolunteerApplication
-
-  errors: [MutationError!]!
-}
-
-type ResumeProfilePayload {
-  "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
-  result: ResumeProfile
-
-  errors: [MutationError!]!
-}
-
-type RecruitmentCohortPayload {
-  "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
-  result: RecruitmentCohort
-
-  errors: [MutationError!]!
-}
-
-type VolunteerApplicationDetail {
-  "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
-  application: VolunteerApplication!
-
-  resumeProfile: ResumeProfile
-}
-
-input CreateVolunteerApplicationInput {
-  "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
-  cohortId: ID!
-
-  "职位：event_moderator | tutor | coach"
-  position: String!
-
-  "申请城市（Tutor 可远程）"
-  city: String
-
-  "如何得知我们"
-  heardAboutUs: String
-
-  "是否有内部推荐人（缺省 false）"
-  hasInternalReferrer: Boolean
-
-  "留言（选填）"
-  message: String
-}
-
-input UpsertResumeProfileInput {
-  "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
-  fullName: String!
-
-  "联系邮箱（R14 邮件保底通道收件地址）"
-  contactEmail: String!
-
-  "每周可投入小时数（选填）"
-  weeklyHours: Int
-
-  "技能多选（字符串列表；缺省不改动）"
-  skills: [String!]
-}
-
-input UploadResumeFileInput {
-  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
-  fileName: String!
-
-  "声明的 MIME（须与扩展名同族）"
-  contentType: String!
-
-  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
-  contentBase64: String!
-}
-
-input CreateRecruitmentCohortInput {
-  "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
-  name: String!
-
-  "申请截止时间（UTC）"
-  applyDeadlineAt: DateTime!
-
-  "执行周期开始（可空）"
-  startsAt: DateTime
-
-  "执行周期结束（可空）"
-  endsAt: DateTime
-}
-
-input UpdateRecruitmentCohortInput {
-  "updateRecruitmentCohort 输入（只传要改的字段）"
-  name: String
-
-  applyDeadlineAt: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-}
-
 type RootMutationType {
+  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
+  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
+
+  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
+  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
+
+  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
+
+  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
+  assignVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "分配的目标场次 ID（可空：Tutor 可无场次）"
+    assignedEventId: ID
+
+    "分配备注（可空，如 Tutor 的课程任务）"
+    assignmentNote: String
+  ): VolunteerApplicationPayload
+
+  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
+  rejectVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "拒绝原因（必填；进入申请人通知）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
+  cancelVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "取消备注（选填）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
+  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
+  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
+  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
+  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
+  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
 
@@ -8432,66 +8394,6 @@ type RootMutationType {
   "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
   flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
 
-  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
-  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
-
-  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
-  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
-
-  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
-  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
-
-  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
-  assignVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "分配的目标场次 ID（可空：Tutor 可无场次）"
-    assignedEventId: ID
-
-    "分配备注（可空，如 Tutor 的课程任务）"
-    assignmentNote: String
-  ): VolunteerApplicationPayload
-
-  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
-  rejectVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "拒绝原因（必填；进入申请人通知）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
-  cancelVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "取消备注（选填）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
-  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
-  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
-  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
-
-  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
-  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
-
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
 
@@ -8626,3 +8528,101 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type VolunteerApplicationPayload {
+  "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
+  result: VolunteerApplication
+
+  errors: [MutationError!]!
+}
+
+type ResumeProfilePayload {
+  "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
+  result: ResumeProfile
+
+  errors: [MutationError!]!
+}
+
+type RecruitmentCohortPayload {
+  "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
+  result: RecruitmentCohort
+
+  errors: [MutationError!]!
+}
+
+type VolunteerApplicationDetail {
+  "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
+  application: VolunteerApplication!
+
+  resumeProfile: ResumeProfile
+}
+
+input CreateVolunteerApplicationInput {
+  "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
+  cohortId: ID!
+
+  "职位：event_moderator | tutor | coach"
+  position: String!
+
+  "申请城市（Tutor 可远程）"
+  city: String
+
+  "如何得知我们"
+  heardAboutUs: String
+
+  "是否有内部推荐人（缺省 false）"
+  hasInternalReferrer: Boolean
+
+  "留言（选填）"
+  message: String
+}
+
+input UpsertResumeProfileInput {
+  "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
+  fullName: String!
+
+  "联系邮箱（R14 邮件保底通道收件地址）"
+  contactEmail: String!
+
+  "每周可投入小时数（选填）"
+  weeklyHours: Int
+
+  "技能多选（字符串列表；缺省不改动）"
+  skills: [String!]
+}
+
+input UploadResumeFileInput {
+  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
+  fileName: String!
+
+  "声明的 MIME（须与扩展名同族）"
+  contentType: String!
+
+  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+  contentBase64: String!
+}
+
+input CreateRecruitmentCohortInput {
+  "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
+  name: String!
+
+  "申请截止时间（UTC）"
+  applyDeadlineAt: DateTime!
+
+  "执行周期开始（可空）"
+  startsAt: DateTime
+
+  "执行周期结束（可空）"
+  endsAt: DateTime
+}
+
+input UpdateRecruitmentCohortInput {
+  "updateRecruitmentCohort 输入（只传要改的字段）"
+  name: String
+
+  applyDeadlineAt: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+}
