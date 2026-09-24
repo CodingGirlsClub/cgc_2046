@@ -109,7 +109,8 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 合并到 `main` 由人执行（授权表），但**发布准备**是主控的活。人说「发版」时，主控 claim 常驻 todo「发布收口」，依次：
 
 1. **跑 `ruby scripts/changelog-draft.rb`**：拿到上次 develop→main 边界、本批用户可见提交清单、门禁提示（mix.lock 变更 → 先确认 develop CI 的 `deps-image` job 已绿；人工合并范围文件 → 提醒人后面哪些要自己留意）。
-2. **刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：按清单写分类草稿（Added/Changed/Fixed/Security，同类浓缩、每条一行、保留 issue 引用、过滤 chore/docs/test 噪音），从最新 develop 建 worktree、按 §3 闭环提 PR（质量门照常）。段内已有内容时增量补新条目，不整段重写。
-3. **汇报**：给人一份本批发布摘要（条目数、门禁提示、Unreleased diff 链接）。人审过文案后合 develop→main PR，PR 正文**只带本次变更的 Unreleased 段**作发布说明；合并后把 `[Unreleased]` 段改名为 `## [发布日期]`、顶部重新立空段——这一步随下一条收口 todo 一起做，不拖延。
+2. **刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：按清单写分类草稿（Added/Changed/Fixed/Security，同类浓缩、每条一行、保留 issue 引用、过滤 chore/docs/test 噪音），从最新 develop 建 worktree、按 §3 闭环提 PR（质量门照常）。段内已有内容时增量补新条目，不整段重写。**条目带端标签**：scope 平台化（`mp-wechat`/`mp-xhs`/`mp-dy`）的直接转成行内 `[微信]`/`[小红书]`/`[抖音]` 前缀；落到客户端/扩展（过审或版本推出版）的条目不进日期段，进 CHANGELOG 头版约定的端节点。
+3. **汇报**：给人一份本批发布摘要（条目数、门禁提示、版本文件警告、Unreleased diff 链接）。人审过文案后合 develop→main PR，PR 正文**只带本次变更的 Unreleased 段**作发布说明；合并后把 `[Unreleased]` 段改名为 `## [发布日期]`、顶部重新立空段——这一步随下一条收口 todo 一起做，不拖延。
+4. **客户端发布登记**：微信/小红书/抖音过审或扩展 zip 上线时，主控用同一条收口 todo 做「端节点登记」——把该端版本对应条目从日期段/积压挪进 `## [平台 vX.Y.Z]` 节点；后端收紧 × 客户端过审窗口的组合在节点下写 `> ⚠️` 灰注（模板见 CHANGELOG.md 头版约定）。
 
 - 本 todo 长期 open，触发频率与发版同步；忘了跑 → 主控在下次心跳检查 `origin/main..origin/develop` 非空且 `[Unreleased]` 为空时主动提醒。
