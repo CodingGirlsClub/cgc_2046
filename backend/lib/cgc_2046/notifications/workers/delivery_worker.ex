@@ -63,6 +63,10 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
     |> Ash.update!()
   end
 
+  # 哨兵行（Q5，语义见 Delivery moduledoc）：入队时零身份的行在此重解析——
+  # 用户身份可能在其后已绑定；解析到首身份 assign 后投递，否则以
+  # :identity_not_found 走重试→末拍终态化（pending_reason 类）。
+
   defp deliver(row) do
     if is_nil(row.identity_uid) or is_nil(row.platform) do
       case Cgc2046.Notifications.Fanout.identities(row.user_id) do
