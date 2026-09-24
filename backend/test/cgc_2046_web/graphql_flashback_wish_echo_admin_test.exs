@@ -321,4 +321,74 @@ defmodule Cgc2046Web.GraphqlFlashbackWishEchoAdminTest do
                )["errors"]
     end
   end
+
+  test "flashbackAdminListedWishes returns only visible listed wishes with echo counts (admin only)" do
+    admin = AccountsFixtures.platform_admin("listed-wishes-admin")
+    regular_user = AccountsFixtures.register_user("listed-wishes-viewer")
+
+    wish = create_listed_wish()
+
+    query = """
+    query ListedWishes {
+      flashbackAdminListedWishes {
+        wishId
+        content
+        listedAt
+        publishedEchoCount
+        draftEchoCount
+      }
+    }
+    """
+
+    assert [%{"code" => "unauthorized"}] = post_graphql(query, %{})["errors"]
+
+    assert [%{"code" => "forbidden"}] = post_graphql(query, %{}, regular_user)["errors"]
+
+    assert %{
+             "data" => %{
+               "flashbackAdminListedWishes" => entries
+             }
+           } = post_graphql(query, %{}, admin)
+
+    entry = Enum.find(entries, &(&1["wishId"] == wish.id))
+    assert entry
+    assert entry["content"] == "公开树愿望"
+    assert entry["publishedEchoCount"] == 0
+    assert entry["draftEchoCount"] == 0
+    assert is_binary(entry["listedAt"])
+
+    # 建草稿+发布后计数联动
+    assert %{
+             "data" => %{
+               "flashbackAdminCreateWishEcho" => %{"status" => "draft"}
+             }
+           } =
+             post_graphql(
+               create_draft_mutation(),
+               %{"wishId" => wish.id, "content" => "计数验证草稿"},
+               admin
+             )
+
+    assert %{
+             "data" => %{
+               "flashbackAdminListedWishes" => entries2
+             }
+           } = post_graphql(query, %{}, admin)
+
+    entry2 = Enum.find(entries2, &(&1["wishId"] == wish.id))
+    assert entry2["draftEchoCount"] == 1
+    assert entry2["publishedEchoCount"] == 0
+
+    # 愿望下架后不再出现在队列（隐藏 = 无回响入口的前置条件）
+    {:ok, _} =
+      Cgc2046.Flashback.Reports.set_wish_hidden(wish.id, admin.id, true)
+
+    assert %{
+             "data" => %{
+               "flashbackAdminListedWishes" => entries3
+             }
+           } = post_graphql(query, %{}, admin)
+
+    refute Enum.find(entries3, &(&1["wishId"] == wish.id))
+  end
 end
