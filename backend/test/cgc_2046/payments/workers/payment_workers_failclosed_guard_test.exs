@@ -182,6 +182,186 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
     end
   end
 
+  # #845 钉测：自助取消退款竞态 fail-closed。RETURN NULL 确定性模拟 start_refund
+  # claim 未命中（PaymentExpiryWorker CAS 用例同款手法），重读仍未收敛（paid）→
+  # 取消必须整体回滚，绝不静默留「已取消但钱未退」半态。
+  #
+  # 实测现状（2026-09-24 probe）：enqueue_order_refund/2 的 `{:error,
+  # :already_processed}` 子句匹配不上 Ash.update 返回的 %Ash.Error.Invalid{}
+  # struct——CaseClauseError 被 Ash 引擎吞掉后，cancel 透出的是 changeset 上
+  # claim 写入的 BusinessError code "order_already_processed"。deposit_
+  # settlement_race 分支现状不可达；本钉测钉住的是行为事实（回滚 + 该 code），
+  # #845 D2 落地后语义由 RefundCommencement 承接。
+  describe "Enrollment 自助取消退款竞态守卫（#845）" do
+    test "CAS 未命中且重读未收敛 → 取消回滚：报名 confirmed、订单留 paid、无退款 job" do
+      admin = Fixtures.platform_admin("cancel-race-guard-admin-" <> uniq())
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          pricing_enabled: true,
+          price_tiers: [@tier],
+          starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
+        })
+
+      learner = Fixtures.register_user("cancel-race-guard-learner-" <> uniq())
+
+      {:ok, enrollment} =
+        Enrollment
+        |> Ash.Changeset.for_create(:create_enrollment, %{
+          event_id: event.id,
+          user_id: learner.id,
+          tier_id: @tier_id
+        })
+        |> Ash.create(tenant: workspace.id, actor: learner)
+
+      {:ok, order} =
+        Order
+        |> Ash.Changeset.for_create(:create, %{
+          enrollment_id: enrollment.id,
+          provider: :wechat_native,
+          out_trade_no: "oto-" <> Ecto.UUID.generate(),
+          amount_cents: 19_900,
+          tier_snapshot: @tier,
+          expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+        })
+        |> Ash.create(tenant: workspace.id, authorize?: false)
+
+      {:ok, _} =
+        order
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-race-guard"})
+        |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      {:ok, _} =
+        enrollment
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(tenant: workspace.id, authorize?: false)
+
+      # 只拦该订单 paid→refunding 的 claim UPDATE：num_rows=0 → 已处理竞态；
+      # 重读 status 仍 paid（非 refunding/refunded）→ 收敛失败分支
+      inject_trigger(
+        "block_self_cancel_claim",
+        "payments_orders",
+        ~s{WHEN (OLD.id = '#{order.id}' AND OLD.status = 'paid' AND NEW.status = 'refunding')},
+        raise?: false
+      )
+
+      assert {:error,
+              %Ash.Error.Invalid{
+                errors: [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}]
+              }} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: workspace.id, actor: learner)
+
+      assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
+      assert reload_order(order).status == :paid
+
+      assert [] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+    end
+  end
+
+  # #845 钉测：批量退款的逐笔隔离。单笔入队失败（渠道窗口的 DB 故障形状）只
+  # 跳过该笔，批次其余照退——refund_paid_order 的 reduce 不得中断。
+  describe "OfferingCancelRefundWorker 逐笔隔离守卫（#845）" do
+    test "单笔入队失败：该笔回滚留 paid 无 job，批次其余照常 refunding + 入队" do
+      admin = Fixtures.platform_admin("batch-skip-guard-admin-" <> uniq())
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      paid_enrollments =
+        Enum.map(["batch-skip-a", "batch-skip-b"], fn suffix ->
+          learner = Fixtures.register_user(suffix <> "-" <> uniq())
+
+          {:ok, enrollment} =
+            Enrollment
+            |> Ash.Changeset.for_create(:create_enrollment, %{
+              event_id: event.id,
+              user_id: learner.id,
+              tier_id: @tier_id
+            })
+            |> Ash.create(tenant: workspace.id, actor: learner)
+
+          {:ok, order} =
+            Order
+            |> Ash.Changeset.for_create(:create, %{
+              enrollment_id: enrollment.id,
+              provider: :wechat_native,
+              out_trade_no: "oto-" <> Ecto.UUID.generate(),
+              amount_cents: 19_900,
+              tier_snapshot: @tier,
+              expire_at: DateTime.add(DateTime.utc_now(), 2, :hour)
+            })
+            |> Ash.create(tenant: workspace.id, authorize?: false)
+
+          {:ok, _} =
+            order
+            |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "txn-" <> suffix})
+            |> Ash.update(tenant: workspace.id, authorize?: false)
+
+          {:ok, _} =
+            enrollment
+            |> Ash.Changeset.for_update(:settle_paid, %{})
+            |> Ash.update(tenant: workspace.id, authorize?: false)
+
+          %{enrollment: enrollment, order: reload_order(order)}
+        end)
+
+      [%{order: failing}, %{order: surviving}] = paid_enrollments
+
+      {:ok, _} =
+        event
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: workspace.id, actor: admin)
+
+      # 只拦 failing 订单的 start_refund claim UPDATE：num_rows=0 →
+      # already_processed → with 短路 → 该笔 transaction 返回 error → log_skip。
+      # RETURN NULL 而非 RAISE（RAISE 会断共享连接炸整批，attendance 入队失败
+      # 用例同款教训）；PaymentExpiryWorker CAS 用例同款手法。
+      inject_trigger(
+        "block_one_refund_claim",
+        "payments_orders",
+        ~s{WHEN (OLD.id = '#{failing.id}' AND OLD.status = 'paid' AND NEW.status = 'refunding')},
+        raise?: false
+      )
+
+      assert :ok =
+               Cgc2046.Workflows.SignalSubscriber.deliver(
+                 Cgc2046.Admission.Workers.OfferingCancelRefundWorker,
+                 %{
+                   type: "event.ended",
+                   data: %{
+                     "event_id" => event.id,
+                     "idempotency_key" => "event.ended:" <> event.id
+                   }
+                 }
+               )
+
+      # 存活笔照常进入退款链
+      assert reload_order(surviving).status == :refunding
+
+      assert [%{args: %{"order_id" => surviving_id}}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] in [failing.id, surviving.id]))
+
+      assert surviving_id == surviving.id
+
+      # 失败笔：整体回滚（订单留 paid）、无 job、不阻塞批次
+      assert reload_order(failing).status == :paid
+
+      assert [] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == failing.id))
+    end
+  end
+
   # ── 布置 ──
 
   # paid 落账完成态：order=paid + enrollment=confirmed（免缴/落账守卫共用的
@@ -285,6 +465,8 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
   # table 参数化：block_mark_paid/block_expire/swallow_expire 在 payments_orders，
   # block_settle（F-I 报名 CAS 守卫）在 enrollments——两张都是热表，同一纪律。
   defp inject_trigger(name, table, when_clause, opts) do
+    timing = Keyword.get(opts, :timing, :update)
+
     body =
       if Keyword.get(opts, :raise?, true) do
         "BEGIN RAISE EXCEPTION 'test injected db failure'; END;"
@@ -298,7 +480,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
     )
 
     Cgc2046.Repo.query!(
-      ~s{CREATE TRIGGER #{name} BEFORE UPDATE ON #{table} FOR EACH ROW } <>
+      ~s{CREATE TRIGGER #{name} BEFORE #{timing} ON #{table} FOR EACH ROW } <>
         ~s{#{when_clause} EXECUTE FUNCTION cgc_test_#{name}();}
     )
   end
