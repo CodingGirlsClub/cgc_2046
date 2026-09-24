@@ -12,6 +12,9 @@ const fetchFlashbackOutreachBatches = vi.hoisted(() => vi.fn());
 const fetchFlashbackOutreachRoster = vi.hoisted(() => vi.fn());
 const sendFlashbackOutreach = vi.hoisted(() => vi.fn());
 const resendFlashbackOutreach = vi.hoisted(() => vi.fn());
+const fetchFlashbackAdminListedWishes = vi.hoisted(() =>
+	vi.fn().mockResolvedValue([]),
+);
 
 vi.mock("@/lib/admin", () => ({
 	fetchFlashbackAdminStats,
@@ -20,6 +23,11 @@ vi.mock("@/lib/admin", () => ({
 	fetchFlashbackAdminArchives,
 	fetchFlashbackAdminWishInbox: vi.fn().mockResolvedValue([]),
 	fetchFlashbackAdminWishReports: vi.fn().mockResolvedValue([]),
+	fetchFlashbackAdminListedWishes,
+	fetchFlashbackAdminWishEchoes: vi.fn().mockResolvedValue({
+		echoes: [],
+		currentNotifiableEndorsementCount: 0,
+	}),
 	approveFlashbackWishReport: vi.fn(),
 	dismissFlashbackWishReport: vi.fn(),
 	fetchFlashbackOutreachPreview,
@@ -185,6 +193,69 @@ describe("/admin/flashback 闪念间看板", () => {
 			URL.revokeObjectURL = originalRevoke;
 			clickSpy.mockRestore();
 		}
+	});
+
+	it("愿望回响分区：列出已挂树愿望的回响计数，点击「回响」打开管理弹窗", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminListedWishes.mockResolvedValue([
+			{
+				wishId: "w-listed-1",
+				content: "想回到 2014 年的北京",
+				signature: "阿黎",
+				city: "北京",
+				listedAt: "2026-09-20T08:00:00Z",
+				publishedEchoCount: 2,
+				draftEchoCount: 1,
+			},
+			{
+				wishId: "w-listed-2",
+				content: "想和 Rails Girls 社群再聚一次",
+				signature: null,
+				city: null,
+				listedAt: "2026-09-21T09:00:00Z",
+				publishedEchoCount: 0,
+				draftEchoCount: 0,
+			},
+		]);
+
+		render(<AdminFlashbackPage />);
+
+		const listedCard = (await screen.findByTestId("fb-wish-listed")).closest(
+			".admin-card",
+		);
+		expect(listedCard).toHaveTextContent("已挂树愿望（回响管理）");
+		expect(listedCard).toHaveTextContent("想回到 2014 年的北京");
+		expect(listedCard).toHaveTextContent("可见 2 · 草稿 1");
+
+		fireEvent.click(screen.getByTestId("fb-echo-open-w-listed-1"));
+		expect(
+			await screen.findByRole("dialog", { name: "愿望回响管理" }),
+		).toBeInTheDocument();
+	});
+
+	it("愿望回响分区：listed 为空时显示空态，保留分区标题", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminListedWishes.mockResolvedValue([]);
+
+		render(<AdminFlashbackPage />);
+
+		expect(await screen.findByText("已挂树愿望（回响管理）")).toBeInTheDocument();
+		expect(screen.getByText("暂无已挂树的公开愿望。")).toBeInTheDocument();
+	});
+
+	it("愿望分区加载失败：三个子分区整体隐藏，显示统一错误条", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminListedWishes.mockRejectedValue(new Error("boom"));
+
+		render(<AdminFlashbackPage />);
+
+		expect(await screen.findByText("愿望管理面加载失败。")).toBeInTheDocument();
+		expect(screen.queryByTestId("fb-wish-inbox")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("fb-wish-listed")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("fb-wish-reports")).not.toBeInTheDocument();
 	});
 
 	it("空库：零值矩阵 + 兑换空态（pilot 前看板可用）", async () => {

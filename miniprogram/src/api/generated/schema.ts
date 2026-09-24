@@ -2400,6 +2400,18 @@ export type FlashbackAdminArchive = {
   occurredOn: Scalars['String']['output'];
 };
 
+export type FlashbackAdminListedWishEntry = {
+  city?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  /** 草稿回响数（仅 admin） */
+  draftEchoCount: Scalars['Int']['output'];
+  listedAt: Scalars['DateTime']['output'];
+  /** 已发布/已更正回响数（公开可见） */
+  publishedEchoCount: Scalars['Int']['output'];
+  signature?: Maybe<Scalars['String']['output']>;
+  wishId: Scalars['ID']['output'];
+};
+
 export type FlashbackAdminReportEntry = {
   insertedAt: Scalars['DateTime']['output'];
   reasonFree?: Maybe<Scalars['String']['output']>;
@@ -5996,6 +6008,8 @@ export type RootQueryType = {
   eventModerators: Array<EventModerator>;
   /** 场次列表（R7 发送入口数据源，PlatformAdmin） */
   flashbackAdminArchives: Array<FlashbackAdminArchive>;
+  /** 回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed/public/unhidden/未删），按挂树时间倒序，附回响计数 */
+  flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
   /** 闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
