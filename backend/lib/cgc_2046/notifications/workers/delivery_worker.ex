@@ -1,10 +1,20 @@
 defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
+  @moduledoc """
+  NotificationDelivery 行的发送 worker。发送前经 `Staleness.stale?/1` 做过期
+  重查（与 NotificationWorker 同一解释器，#847）；命中过期的行终态化
+  `:failed`（`last_error` 为 `":stale"`）——复用既有状态值而非新增：status 是
+  public 字段，扩值域会外溢到对账与前端；mark_failed 的终态语义（attempts
+  计数、rule 15 Finding 24h 出报表）已满足「落终态可查」，且与 #556 末拍
+  终态化同款先例（identity_not_found 也非发送失败仍落 :failed）。幂等防重发
+  靠 Delivery.enqueue 的幂等键与 :sent 行 no-op。
+  """
+
   use Oban.Worker,
     queue: :notifications,
     max_attempts: 5,
     unique: [period: :infinity, states: :incomplete]
 
-  alias Cgc2046.Notifications.{NotificationDelivery, Service}
+  alias Cgc2046.Notifications.{NotificationDelivery, Service, Staleness}
 
   @impl true
   def perform(%Oban.Job{args: %{"delivery_id" => id}} = job) do
@@ -13,20 +23,32 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
         :ok
 
       {:ok, row} ->
-        case deliver(row) do
-          :ok ->
-            :ok
+        if Staleness.stale?(%{"template_key" => row.template_key, "data" => row.data}) do
+          # 过期是确定性结论：终态化后 job 正常完成（不重试，NotificationWorker
+          # 的 stale 分支同款 :ok）；对账信号在行的 last_error ":stale"。
+          row
+          |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(:stale)},
+            authorize?: false
+          )
+          |> Ash.update!()
 
-          {:error, reason} ->
-            # 末拍终态化（#556）：pending_reason 类失败此前只重试不落终态，
-            # job 被 Oban 丢弃后行永留 pending、只能手工查表发现——末拍把
-            # 仍 pending 的行落 :failed（带原因），由规15 Finding 出报表。
-            # 已 :failed 行（非 pending 类失败首拍即落）不重复计数 attempts。
-            if job.attempt >= job.max_attempts and row.status == :pending do
-              terminalize(row, reason)
-            end
+          :ok
+        else
+          case deliver(row) do
+            :ok ->
+              :ok
 
-            {:error, reason}
+            {:error, reason} ->
+              # 末拍终态化（#556）：pending_reason 类失败此前只重试不落终态，
+              # job 被 Oban 丢弃后行永留 pending、只能手工查表发现——末拍把
+              # 仍 pending 的行落 :failed（带原因），由规15 Finding 出报表。
+              # 已 :failed 行（非 pending 类失败首拍即落）不重复计数 attempts。
+              if job.attempt >= job.max_attempts and row.status == :pending do
+                terminalize(row, reason)
+              end
+
+              {:error, reason}
+          end
         end
 
       {:error, error} ->
