@@ -17,6 +17,27 @@ import { useStageTitleFocus } from "./use-reduced-motion";
 
 /** token 会话内持有（与 enter 页同 key；URL 读入后即刻清除，KTD2） */
 const TOKEN_STORAGE_KEY = "flashback.token";
+/** 相册开放告知已读（#933 一次性，与小程序长廊同规则；跨会话记住，放 localStorage） */
+const ALBUM_NOTICE_KEY = "flashback.album_notice_done";
+
+/**
+ * #933 相册开放告知：开放前就寄出的人第一次回来时看到可见范围变了；进来时还没寄出的人寄出前
+ * 会读到新的可见范围文案——直接置位，寄出后不再打扰。sent = null 表示胶囊还没到。
+ */
+function useAlbumNotice(sent: boolean | null): [boolean, () => void] {
+	const [show, setShow] = useState(false);
+	useEffect(() => {
+		if (sent === null || window.localStorage.getItem(ALBUM_NOTICE_KEY)) return;
+		// microtask 包裹：同本文件既有写法，避开 effect 内同步 setState（react-hooks/set-state-in-effect）
+		if (sent) Promise.resolve().then(() => setShow(true));
+		else window.localStorage.setItem(ALBUM_NOTICE_KEY, "1");
+	}, [sent]);
+	const dismiss = useCallback(() => {
+		window.localStorage.setItem(ALBUM_NOTICE_KEY, "1");
+		setShow(false);
+	}, []);
+	return [show, dismiss];
+}
 
 type CapsuleState =
 	| { phase: "loading" }
@@ -38,6 +59,9 @@ export default function CapsuleView() {
 	const [city, setCity] = useState<string | null>(null);
 	const wide = useWideCorridor();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([state.phase]);
+	const [albumNotice, dismissAlbumNotice] = useAlbumNotice(
+		state.phase === "ok" && state.capsule ? Boolean(state.capsule.me.today?.sentToWallAt) : null,
+	);
 
 	const reload = useCallback(() => {
 		setReloadKey((key) => key + 1);
@@ -139,6 +163,14 @@ export default function CapsuleView() {
 					{t("title")}
 				</h2>
 			</header>
+			{albumNotice && (
+				<aside className="fb-album-notice" data-testid="fb-album-notice">
+					<p>{t("albumNotice")}</p>
+					<button type="button" onClick={dismissAlbumNotice}>
+						{t("albumNoticeOk")}
+					</button>
+				</aside>
+			)}
 			{capsule.cities.length > 1 && (
 				<div className="fb-city-pins" role="group" aria-label={t("cityAria")}>
 					<button

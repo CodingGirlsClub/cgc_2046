@@ -2889,6 +2889,8 @@
       "authRequiredBody": "Enter via the personal link from your email, or sign in with a bound account — the mini program works too; if the link is lost, you can recover it yourself.",
       "authRequiredAction": "Self-service recovery",
       "footerHint": "The silent stay safe: until you send, only you can see your answers.",
+      "albumNotice": "Albums are now open to everyone signed in: anyone signed in can see the card you sent in that gathering’s album. To take it back, use “Take it down” in the Today slot.",
+      "albumNoticeOk": "Got it",
       "cityAria": "Filter by city",
       "cityAll": "All",
       "scrollHint": "Scroll down = moving forward in time: developed past on top, the future waiting below",

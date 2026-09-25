@@ -226,6 +226,32 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 	});
 });
 
+// #933 相册开放告知（一次性，与小程序长廊同规则）
+describe("CapsuleView · 相册开放告知（#933）", () => {
+	beforeEach(() => window.localStorage.clear());
+
+	it("开放前就寄出的人：第一次回来看到告知；知道了 → 不再出现", async () => {
+		await renderCapsule();
+
+		const notice = screen.getByTestId("fb-album-notice");
+		expect(notice).toHaveTextContent("登录的人都能在这一场的相册里看到");
+		fireEvent.click(within(notice).getByRole("button", { name: "知道了" }));
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		expect(window.localStorage.getItem("flashback.album_notice_done")).toBe("1");
+
+		cleanup();
+		await renderCapsule();
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+	});
+
+	it("进来时还没寄出：不告知且直接置位（寄出前会读到新的可见范围文案）", async () => {
+		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, today: { ...baseCapsule.me.today, sentToWallAt: null } } });
+
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done")).toBe("1"));
+	});
+});
+
 describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => {
 	it("窄屏（<768px）：走廊为纵向形态（无 --wide 类）；提示只有钉排下一处", async () => {
 		await renderCapsule();
