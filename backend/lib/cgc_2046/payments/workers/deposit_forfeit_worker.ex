@@ -77,11 +77,12 @@ defmodule Cgc2046.Payments.Workers.DepositForfeitWorker do
   # no-show 结算锚点（KTD7）：ends_at + 48h
   @settle_after_seconds 48 * 60 * 60
 
-  # 无锚场 Finding 的规则名（Finding @rule_values 同值；本 worker 单点产出）
+  # 无锚场 Finding 的规则名（规则语义单源见 Reconciliation.RulesRegistry；
+  # Finding @rule_values 同值；本 worker 单点产出）
   @rule :deposit_settlement_unanchored
   # 批量没收告警（#545）：单场 forfeited 押金单计数阈值——一场没收过半即异常
   # 信号（错配置 / ends_at 误操作 / 现场执行失败）。101 场规模固定，硬编码
-  # 不配置化；改值需同步 Finding moduledoc 规16 的口径描述。
+  # 不配置化；改值需同步 RulesRegistry 对应 desc 的口径描述。
   @batch_alert_rule :deposit_forfeit_batch_alert
   @batch_alert_threshold 5
 
