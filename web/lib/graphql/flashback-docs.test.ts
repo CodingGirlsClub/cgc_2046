@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
 	FLASHBACK_SUBMIT_TODAY,
 	FLASHBACK_ADJUST_FOG,
+	FLASHBACK_ADJUST_TODAY_FOG,
 	FLASHBACK_SET_QUOTE_LICENSE,
 	FLASHBACK_SEND_TO_WALL,
 	FLASHBACK_MARK_REVEALED,
@@ -45,6 +46,9 @@ describe("flashback 文档 token 声明与 schema U9 双入口对齐", () => {
 	it("编辑/回访类操作允许 token 可空（登录会话腿）", () => {
 		expect(tokenVarIsRequired(FLASHBACK_SUBMIT_TODAY, "FlashbackSubmitToday")).toBe(false);
 		expect(tokenVarIsRequired(FLASHBACK_ADJUST_FOG, "FlashbackAdjustFog")).toBe(false);
+		expect(
+			tokenVarIsRequired(FLASHBACK_ADJUST_TODAY_FOG, "FlashbackAdjustTodayFog"),
+		).toBe(false);
 		expect(tokenVarIsRequired(FLASHBACK_SET_QUOTE_LICENSE, "FlashbackSetQuoteLicense")).toBe(false);
 	});
 

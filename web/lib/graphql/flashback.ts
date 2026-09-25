@@ -541,6 +541,19 @@ export const FLASHBACK_SEND_TO_WALL: TypedDocumentNode<
 	}
 `;
 
+/** 今天句级雾面：按字段（now/want/need/say）改雾区间，原文不可达（覆盖式双入口：token 或省略走登录会话） */
+export const FLASHBACK_ADJUST_TODAY_FOG: TypedDocumentNode<
+	{ flashbackAdjustTodayFog: { field: string; fogSpans: FlashbackFogSpan[] } },
+	{ token?: string | null; field: string; spans: FlashbackFogSpan[] }
+> = gql`
+	mutation FlashbackAdjustTodayFog($token: String, $field: String!, $spans: [FlashbackFogSpanInput!]!) {
+		flashbackAdjustTodayFog(token: $token, field: $field, spans: $spans) {
+			field
+			fogSpans
+		}
+	}
+`;
+
 /** 调整雾面区间（R16/KTD4）：只改 spans，原文不可达（覆盖式双入口：token 或省略走登录会话） */
 export const FLASHBACK_ADJUST_FOG: TypedDocumentNode<
 	{ flashbackAdjustFog: { answerId: string; fogSpans: FlashbackFogSpan[] } },
