@@ -27,10 +27,9 @@ defmodule Cgc2046.Notifications.NotificationWorker do
 
   require Logger
 
-  alias Cgc2046.ApprovalDeadline
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Sponsorship.Sponsorship
-  alias Cgc2046.Notifications.Service
+  alias Cgc2046.Notifications.{Service, Staleness}
   alias Cgc2046.Workflows.WorkflowRun
 
   # 通知类型契约表（AEW @expiry_specs 同款声明式规格先例，D1）。
@@ -297,7 +296,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
   def perform(%Oban.Job{args: args}) do
     platform = String.to_existing_atom(args["platform"])
 
-    if stale_reminder?(args) do
+    if Staleness.stale?(args) do
       :ok
     else
       case deliver(args, platform) do
@@ -391,58 +390,5 @@ defmodule Cgc2046.Notifications.NotificationWorker do
        fn rows -> rows |> Enum.map(& &1.unique) |> Enum.uniq() |> length() > 1 end
      ) do
     raise "notification_types registry: 同 template_key 行 unique 不一致（type/1 首行语义会静默取错窗口）"
-  end
-
-  # --- stale 重查（表驱动单解释器，D2） ---------------------------------------
-
-  # 提醒发送时重查（扫描到执行之间，过期/审批可能已改变状态）：@notification_types
-  # 表驱动——定位 template_key 的 stale 规格（approval_reminder 同键两行由 data
-  # 携带的 id_key 分派），nil = 不重查直接投递。deadline 类放行谓词统一走
-  # ApprovalDeadline.not_expired?/2（nil 永不过期=投递；==now 不放行=跳过；与
-  # overdue?/2 不对称对偶，不可代用）；running 类 status==:running 即投递。
-  # 非 required_status / 读失败 → stale=true（跳过）；未知类型 → false（不重查，
-  # 现兜底保持）。
-  defp stale_reminder?(%{"template_key" => template_key, "data" => data})
-       when is_map(data) do
-    case stale_entry(template_key, data) do
-      nil ->
-        false
-
-      %{id_key: id_key, stale: {resource, required_status, kind}} ->
-        case Map.get(data, id_key) do
-          id when is_binary(id) -> stale_check(resource, id, required_status, kind)
-          # id 缺失/非 binary → 原子句不匹配落 catch-all 返回 false（投递）
-          _ -> false
-        end
-    end
-  end
-
-  defp stale_reminder?(_args), do: false
-
-  # stale 规格定位：template_key 匹配且带 stale 的条目，按 data 实际携带的 id_key
-  # 分派（原三子句同款）；无 stale 条目/未知类型/键缺失 → nil。
-  defp stale_entry(template_key, data) do
-    @notification_types
-    |> Enum.filter(&(&1.template_key == template_key and not is_nil(&1.stale)))
-    |> Enum.find(&Map.has_key?(data, &1.id_key))
-  end
-
-  # 命中 required_status 后的重查判定：deadline 类走放行谓词（未过 → 投递）；
-  # running 类 status 命中即投递（无 deadline 概念）。
-  defp stale_check(resource, id, required_status, :not_expired) do
-    case Ash.get(resource, id, authorize?: false) do
-      {:ok, %{status: ^required_status} = record} ->
-        not ApprovalDeadline.not_expired?(record, DateTime.utc_now())
-
-      _ ->
-        true
-    end
-  end
-
-  defp stale_check(resource, id, required_status, :running) do
-    case Ash.get(resource, id, authorize?: false) do
-      {:ok, %{status: ^required_status}} -> false
-      _ -> true
-    end
   end
 end
