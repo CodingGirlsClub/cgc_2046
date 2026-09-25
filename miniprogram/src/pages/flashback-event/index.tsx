@@ -215,7 +215,7 @@ export default function FlashbackEventPage() {
                         <Text className={styles.viewSegments}>
                           {answer.segments.map((seg, i) =>
                             seg.fog ? (
-                              <Text key={i} className={styles.viewFog}>{seg.text}</Text>
+                              <Text key={i} className={`${styles.viewFog} ${seg.len <= 6 ? styles.viewFogS : seg.len <= 14 ? styles.viewFogM : styles.viewFogL}`}>{seg.text}</Text>
                             ) : (
                               <Text key={i}>{seg.text}</Text>
                             ),
