@@ -69,8 +69,19 @@ describe('journeyQuiz（R6 场次确认）', () => {
     assert.equal(quiz.correct, 'mine')
     assert.equal(quiz.options[0].label, '2016 · 成都')
     assert.equal(quiz.options[0].hint, 'Rails Girls Chengdu')
-    // 池内四个历史场次全部成为干扰项（2016 不在池内，全部保留）
-    assert.deepEqual(quiz.options.slice(1, -1).map((option) => option.id), ['sh2012', 'bj2012', 'six2014', 'gz2015'])
+    // 池内三个历史场次全部成为干扰项（2016 不在池内，全部保留）
+    assert.deepEqual(quiz.options.slice(1, -1).map((option) => option.id), ['bj2012', 'six2014', 'gz2015'])
+  })
+
+  // 史实（维护者 2026-09-26 确认）：中国首场是 2012 年 12 月的北京；2012 年上海那场
+  // 不是 CGC 办的，不得作为选项出现，更不能标「中国首场」。
+  test('中国首场 = 2012.12 北京；2012 上海不在候选池', () => {
+    const quiz = journeyQuiz({ name: 'Rails Girls Chengdu', city: '成都', occurredOn: '2016-05-14' })
+    const first = quiz.options.find((option) => option.id === 'bj2012')
+    assert.equal(first?.label, '2012.12 · 北京')
+    assert.equal(first?.hint, '中国首场')
+    assert.ok(!quiz.options.some((option) => option.label.includes('上海') && option.label.startsWith('2012')))
+    assert.ok(!quiz.options.some((option) => option.id !== 'bj2012' && option.hint === '中国首场'))
   })
 
   test('无档案 → 兜底「当年那一场」', () => {
@@ -83,7 +94,7 @@ describe('journeyQuiz（R6 场次确认）', () => {
     const quiz = journeyQuiz({ city: '北京', occurredOn: '2014-01-11' })
     assert.match(quizResultText('six2014', quiz), /答对了/)
     assert.match(quizResultText('dunno', quiz), /我们替你记得/)
-    assert.match(quizResultText('sh2012', quiz), /六城同日/)
+    assert.match(quizResultText('bj2012', quiz), /六城同日/)
     assert.equal(quizResultText(null, quiz), '')
   })
 })

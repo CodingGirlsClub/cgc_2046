@@ -43,8 +43,8 @@ const QUIZ_POOL: {
   date?: string
   city?: string
 }[] = [
-  { id: 'sh2012', label: '2012 · 上海', hint: '中国首场', year: '2012', city: '上海' },
-  { id: 'bj2012', label: '2012.12 · 北京', hint: '', year: '2012', city: '北京' },
+  // 中国首场是 2012 年 12 月的北京（维护者 2026-09-26 确认）；2012 年上海那场不是 CGC 办的，不进池
+  { id: 'bj2012', label: '2012.12 · 北京', hint: '中国首场', year: '2012', city: '北京' },
   { id: 'six2014', label: '2014.1.11 · 六城同日', hint: '北京/成都/上海/深圳/西安/广州', year: '2014', date: '01-11' },
   { id: 'gz2015', label: '2015.8 · 广州', hint: '', year: '2015', city: '广州' }
 ]
