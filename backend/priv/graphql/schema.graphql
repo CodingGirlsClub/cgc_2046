@@ -4904,6 +4904,42 @@ type RootQueryType {
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
   speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
 
+  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
+  listUsers(search: String, first: Int, after: String): [AdminUser!]!
+
+  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
+  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
+
+  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
+  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
+
+  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listToolCallLogs(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminToolCallLog!]!
+
+  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listPendingOperations(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminPendingOperation!]!
+
+  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
+  listSignalLogs(
+    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminSignalLog!]!
+
+  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
+  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
+
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
+  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "平台管理员：倡导活动列表"
+  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
+
+  "平台管理员：倡导活动详情及四项规则"
+  getInitiative(id: ID!): AdminInitiative
+
   "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
   listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
 
@@ -5142,44 +5178,8 @@ type RootQueryType {
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
-  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
-  listUsers(search: String, first: Int, after: String): [AdminUser!]!
-
-  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
-  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
-
-  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
-  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
-
   "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
   myWorkspaceApplications: [AdminWorkspaceApplication!]!
-
-  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listToolCallLogs(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminToolCallLog!]!
-
-  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listPendingOperations(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminPendingOperation!]!
-
-  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
-  listSignalLogs(
-    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminSignalLog!]!
-
-  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
-  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
-
-  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
-  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
-
-  "平台管理员：倡导活动列表"
-  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
-
-  "平台管理员：倡导活动详情及四项规则"
-  getInitiative(id: ID!): AdminInitiative
 
   sponsorships(
     "How to sort the records in the response"
@@ -6711,25 +6711,6 @@ input FlashbackFogSpanInput {
   reason: String
 }
 
-type AdminUser {
-  id: ID!
-  email: String
-  displayName: String
-  isPlatformAdmin: Boolean!
-  insertedAt: DateTime!
-  workspaceMembershipCount: Int
-}
-
-type AdminWorkspace {
-  id: ID!
-  slug: String!
-  name: String!
-  joinPolicy: String!
-  sponsorshipEnabled: Boolean!
-  insertedAt: DateTime!
-  memberCount: Int!
-}
-
 type AdminWorkspaceApplication {
   id: ID!
   applicantId: ID!
@@ -6743,223 +6724,6 @@ type AdminWorkspaceApplication {
   rejectedBy: ID
   rejectedAt: DateTime
   insertedAt: DateTime!
-}
-
-type AdminToolCallLog {
-  id: ID!
-  userId: ID!
-  tool: String!
-  resultStatus: String!
-  errorMessage: String
-  latencyMs: Int
-  insertedAt: DateTime!
-}
-
-type AdminPendingOperation {
-  id: ID!
-  userId: ID!
-  tool: String!
-  summary: String!
-  status: String!
-  insertedAt: DateTime!
-}
-
-type AdminSignalLog {
-  id: ID!
-  workspaceId: ID!
-  signalType: String!
-  insertedAt: DateTime!
-}
-
-type AdminActionLog {
-  id: ID!
-
-  actorId: ID
-
-  action: String!
-
-  targetType: String!
-
-  targetId: ID!
-
-  result: String!
-
-  insertedAt: DateTime!
-
-  "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
-  metadata: AdminActionMetadata
-
-  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
-  offeringChange: AdminOfferingChangeMetadata
-}
-
-type AdminActionMetadata {
-  "规则键：deposit | age_gate | min_participants | deadline_rule"
-  ruleKey: String!
-
-  "变更后锁定态"
-  locked: Boolean!
-
-  "变更前锁定态；:create（新建规则）无前值 → null"
-  lockedBefore: Boolean
-
-  "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
-  valueBeforeJson: JsonString
-
-  "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
-  valueAfterJson: JsonString!
-
-  "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
-  valueBeforeOmitted: Boolean!
-
-  "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
-  valueAfterOmitted: Boolean!
-}
-
-"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
-type AdminOfferingChangeMetadata {
-  "变更前标题；该属性未变更 → null"
-  titleBefore: String
-
-  "变更后标题；该属性未变更 → null"
-  titleAfter: String
-
-  "变更前可见性（public | workspace）"
-  visibilityBefore: String
-
-  "变更后可见性（public | workspace）"
-  visibilityAfter: String
-
-  "变更前报名名额上限；nil 表示不限"
-  capacityBefore: Int
-
-  "变更后报名名额上限；nil 表示不限"
-  capacityAfter: Int
-
-  "变更前定价槽位"
-  pricingEnabledBefore: Boolean
-
-  "变更后定价槽位"
-  pricingEnabledAfter: Boolean
-
-  "变更前押金槽位（Event-only；Course 恒 null）"
-  depositEnabledBefore: Boolean
-
-  "变更后押金槽位（Event-only；Course 恒 null）"
-  depositEnabledAfter: Boolean
-}
-
-type AdminReconciliationFinding {
-  id: ID!
-  rule: String!
-  entityType: String!
-  entityId: String!
-  workspaceId: ID
-  firstSeenAt: DateTime!
-  lastSeenAt: DateTime!
-  insertedAt: DateTime!
-}
-
-type AdminInitiative {
-  id: ID!
-
-  name: String!
-
-  slug: String!
-
-  hashtag: String
-
-  description: String
-
-  windowStartsAt: DateTime
-
-  windowEndsAt: DateTime
-
-  status: String!
-
-  createdBy: ID!
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-
-  publicStats: PublicInitiative
-
-  rules: [AdminInitiativeRule!]!
-
-  """
-  平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
-
-  门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
-  不加独立 gate；不分页、不过滤 visibility，理由见
-  Cgc2046.Initiatives.Mounts 的 moduledoc。
-
-  附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
-  同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
-  「清单加载失败」两种状态，不把失败伪装成 0 场。
-  """
-  mountedEvents: [AdminInitiativeMountedEvent!]
-}
-
-type AdminInitiativeMountedEvent {
-  "Event \/ Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
-  id: ID!
-
-  initiativeId: ID!
-
-  slug: String!
-
-  title: String!
-
-  status: String!
-
-  startsAt: DateTime
-
-  registrationDeadline: DateTime
-
-  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
-  venue: JsonString
-
-  workspaceId: ID!
-
-  workspaceName: String!
-
-  "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
-  confirmedCount: Int!
-
-  pricingEnabled: Boolean!
-
-  depositEnabled: Boolean!
-
-  depositAmountCents: Int
-
-  minAge: Int
-
-  minParticipants: Int
-}
-
-type AdminInitiativeRule {
-  id: ID!
-  initiativeId: ID!
-  key: String!
-  valueJson: String!
-  locked: Boolean!
-  insertedAt: DateTime!
-  updatedAt: DateTime!
-}
-
-input AdminInitiativeInput {
-  name: String
-  slug: String
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-}
-
-type AdminInitiativePayload {
-  result: AdminInitiative
-  errors: [MutationError]
 }
 
 type PublicInitiative {
@@ -7023,13 +6787,6 @@ type PublicInitiativeDeposit {
   refundableOnCheckIn: Boolean
 }
 
-type AdminUserPayload {
-  id: ID
-  email: String
-  isPlatformAdmin: Boolean
-  errors: [MutationError]
-}
-
 type RootMutationType {
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -7063,6 +6820,27 @@ type RootMutationType {
 
   "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
   completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+
+  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
+  promoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
+  demoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：创建倡导活动草稿"
+  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：更新倡导活动元数据"
+  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：设置倡导活动状态为进行中"
+  openInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：结束倡导活动"
+  closeInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+  cancelInitiative(id: ID!): AdminInitiativePayload
 
   "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
   adminLaunchEvent(id: ID!): AdminEventPayload
@@ -7252,27 +7030,6 @@ type RootMutationType {
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
-
-  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
-  promoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
-  demoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：创建倡导活动草稿"
-  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：更新倡导活动元数据"
-  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：设置倡导活动状态为进行中"
-  openInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：结束倡导活动"
-  closeInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
-  cancelInitiative(id: ID!): AdminInitiativePayload
 
   "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
   flashbackEnter(token: String!): FlashbackEnterResult
@@ -7590,6 +7347,249 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type AdminUser {
+  id: ID!
+  email: String
+  displayName: String
+  isPlatformAdmin: Boolean!
+  insertedAt: DateTime!
+  workspaceMembershipCount: Int
+}
+
+type AdminWorkspace {
+  id: ID!
+  slug: String!
+  name: String!
+  joinPolicy: String!
+  sponsorshipEnabled: Boolean!
+  insertedAt: DateTime!
+  memberCount: Int!
+}
+
+type AdminToolCallLog {
+  id: ID!
+  userId: ID!
+  tool: String!
+  resultStatus: String!
+  errorMessage: String
+  latencyMs: Int
+  insertedAt: DateTime!
+}
+
+type AdminPendingOperation {
+  id: ID!
+  userId: ID!
+  tool: String!
+  summary: String!
+  status: String!
+  insertedAt: DateTime!
+}
+
+type AdminSignalLog {
+  id: ID!
+  workspaceId: ID!
+  signalType: String!
+  insertedAt: DateTime!
+}
+
+type AdminActionLog {
+  id: ID!
+
+  actorId: ID
+
+  action: String!
+
+  targetType: String!
+
+  targetId: ID!
+
+  result: String!
+
+  insertedAt: DateTime!
+
+  "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
+  metadata: AdminActionMetadata
+
+  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
+  offeringChange: AdminOfferingChangeMetadata
+}
+
+type AdminActionMetadata {
+  "规则键：deposit | age_gate | min_participants | deadline_rule"
+  ruleKey: String!
+
+  "变更后锁定态"
+  locked: Boolean!
+
+  "变更前锁定态；:create（新建规则）无前值 → null"
+  lockedBefore: Boolean
+
+  "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
+  valueBeforeJson: JsonString
+
+  "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
+  valueAfterJson: JsonString!
+
+  "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueBeforeOmitted: Boolean!
+
+  "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueAfterOmitted: Boolean!
+}
+
+"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
+type AdminOfferingChangeMetadata {
+  "变更前标题；该属性未变更 → null"
+  titleBefore: String
+
+  "变更后标题；该属性未变更 → null"
+  titleAfter: String
+
+  "变更前可见性（public | workspace）"
+  visibilityBefore: String
+
+  "变更后可见性（public | workspace）"
+  visibilityAfter: String
+
+  "变更前报名名额上限；nil 表示不限"
+  capacityBefore: Int
+
+  "变更后报名名额上限；nil 表示不限"
+  capacityAfter: Int
+
+  "变更前定价槽位"
+  pricingEnabledBefore: Boolean
+
+  "变更后定价槽位"
+  pricingEnabledAfter: Boolean
+
+  "变更前押金槽位（Event-only；Course 恒 null）"
+  depositEnabledBefore: Boolean
+
+  "变更后押金槽位（Event-only；Course 恒 null）"
+  depositEnabledAfter: Boolean
+}
+
+type AdminReconciliationFinding {
+  id: ID!
+  rule: String!
+  entityType: String!
+  entityId: String!
+  workspaceId: ID
+  firstSeenAt: DateTime!
+  lastSeenAt: DateTime!
+  insertedAt: DateTime!
+}
+
+type AdminInitiative {
+  id: ID!
+
+  name: String!
+
+  slug: String!
+
+  hashtag: String
+
+  description: String
+
+  windowStartsAt: DateTime
+
+  windowEndsAt: DateTime
+
+  status: String!
+
+  createdBy: ID!
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+
+  publicStats: PublicInitiative
+
+  rules: [AdminInitiativeRule!]!
+
+  """
+  平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+
+  门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+  不加独立 gate；不分页、不过滤 visibility，理由见
+  Cgc2046.Initiatives.Mounts 的 moduledoc。
+
+  附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+  同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+  「清单加载失败」两种状态，不把失败伪装成 0 场。
+  """
+  mountedEvents: [AdminInitiativeMountedEvent!]
+}
+
+type AdminInitiativeMountedEvent {
+  "Event \/ Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
+  id: ID!
+
+  initiativeId: ID!
+
+  slug: String!
+
+  title: String!
+
+  status: String!
+
+  startsAt: DateTime
+
+  registrationDeadline: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  workspaceId: ID!
+
+  workspaceName: String!
+
+  "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
+  confirmedCount: Int!
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  minAge: Int
+
+  minParticipants: Int
+}
+
+type AdminInitiativeRule {
+  id: ID!
+  initiativeId: ID!
+  key: String!
+  valueJson: String!
+  locked: Boolean!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input AdminInitiativeInput {
+  name: String
+  slug: String
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+}
+
+type AdminInitiativePayload {
+  result: AdminInitiative
+  errors: [MutationError]
+}
+
+type AdminUserPayload {
+  id: ID
+  email: String
+  isPlatformAdmin: Boolean
+  errors: [MutationError]
+}
 
 type Enrollment {
   id: ID!
