@@ -390,6 +390,53 @@ defmodule Cgc2046.Flashback.ImportTest do
       assert sheets["学生"] == [["姓名", "手机"], ["李雷", "13900000000"]]
     end
 
+    # 真实来源：整合产线（pandas/et_xmlfile）产物全部标签带 x: 前缀，且部分
+    # XML entry（如 workbook rels）带 UTF-8 BOM。未处理时：前缀 → 静默零 sheet；
+    # BOM → rels 解析失败 → 目标 sheet 静默零行。两条都比报错恶劣。
+    test "x: 命名空间前缀 + entry 带 UTF-8 BOM（整合产线真实形态）→ 正常解析" do
+      wb =
+        ~s(<?xml version="1.0" encoding="utf-8"?>) <>
+          ~s(<x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">) <>
+          ~s(<x:sheets>) <>
+          ~s(<x:sheet name="学员" sheetId="1" r:id="Rabc123" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>) <>
+          ~s(</x:sheets></x:workbook>)
+
+      # BOM 与真实产物同位：rels entry 文件头
+      rels =
+        <<0xEF, 0xBB, 0xBF>> <>
+          ~s(<?xml version="1.0" encoding="utf-8"?>) <>
+          ~s(<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">) <>
+          ~s(<Relationship Id="Rabc123" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>) <>
+          ~s(</Relationships>)
+
+      sst =
+        ~s(<?xml version="1.0" encoding="UTF-8"?>) <>
+          ~s(<x:sst xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">) <>
+          ~s(<x:si><x:t>姓名</x:t></x:si><x:si><x:t>王小明</x:t></x:si>) <>
+          ~s(</x:sst>)
+
+      sheet =
+        ~s(<?xml version="1.0" encoding="UTF-8"?>) <>
+          ~s(<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">) <>
+          ~s(<x:sheetData>) <>
+          ~s(<x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c></x:row>) <>
+          ~s(<x:row r="2"><x:c r="A2" t="s"><x:v>1</x:v></x:c></x:row>) <>
+          ~s(</x:sheetData></x:worksheet>)
+
+      entries =
+        [
+          {"xl/workbook.xml", wb},
+          {"xl/_rels/workbook.xml.rels", rels},
+          {"xl/sharedStrings.xml", sst},
+          {"xl/worksheets/sheet1.xml", sheet}
+        ]
+        |> Enum.map(fn {path, content} -> {String.to_charlist(path), content} end)
+
+      {:ok, {_name, binary}} = :zip.create(~c"prefixed.xlsx", entries, [:memory])
+
+      assert {:ok, %{"学员" => [["姓名"], ["王小明"]]}} = Xlsx.read(binary)
+    end
+
     test "BIFF8（OLE2 magic）→ 拦截 + 转换指引（R22 fail-closed）" do
       assert {:error, {:biff8, hint}} = Xlsx.read(@biff8_magic <> "garbage")
       assert hint =~ "另存为 .xlsx"
