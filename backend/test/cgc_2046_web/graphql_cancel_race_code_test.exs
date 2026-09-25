@@ -17,7 +17,7 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
   @tier %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}
 
   test "cancel 竞态未收敛：errors.code == order_already_processed（非 something_went_wrong）" do
-    {workspace, event, enrollment, order} =
+    {workspace, event, enrollment, order, users} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         admin = Fixtures.platform_admin("cancel-race-graphql-admin-" <> uniq())
         workspace = Fixtures.create_workspace(admin)
@@ -62,7 +62,7 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
           |> Ash.Changeset.for_update(:settle_paid, %{})
           |> Ash.update(tenant: workspace.id, authorize?: false)
 
-        {workspace, event, enrollment, order}
+        {workspace, event, enrollment, order, [admin.id, learner.id]}
       end)
 
     on_exit(fn ->
@@ -104,6 +104,13 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
 
         Repo.query!("DELETE FROM events WHERE workspace_id = $1", [Repo.uuid!(workspace.id)])
         Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
+
+        # R3 建议：users / user_identities 与并发用例清理纪律对齐，清零断言
+        user_ids = Enum.map(users, &Repo.uuid!/1)
+        Repo.query!("DELETE FROM user_identities WHERE user_id = ANY($1)", [user_ids])
+        Repo.query!("DELETE FROM users WHERE id = ANY($1)", [user_ids])
+
+        assert_count_zero!("SELECT count(*) FROM users WHERE id = ANY($1)", [user_ids])
       end)
     end)
 
@@ -174,6 +181,12 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
       |> post("/api/graphql", %{"query" => query})
 
     json_response(conn, 200)
+  end
+
+  # on_exit 清零断言：清不干净直接 raise，让本用例红（防「绿」掩盖清理失败）
+  defp assert_count_zero!(sql, params) do
+    %{rows: [[count]]} = Repo.query!(sql, params)
+    if count != 0, do: raise("expected zero rows, got #{count} for #{sql}")
   end
 
   defp uniq, do: String.slice(Ecto.UUID.generate(), 0, 8)
