@@ -2381,10 +2381,17 @@
       "nonterminal_research_run_for_closed_entity": "已结束实体仍有进行中教研",
       "dead_letter_job": "信号族死信",
       "learning_run_stalled": "学习 run 停滞",
+      "payment_amount_mismatch": "收款金额与订单不符",
+      "payment_recon": "缴费渠道对账差异",
       "open_offering_without_ledger": "开放供给物无名额账本行",
       "ledger_occupancy_mismatch": "账本占位计数与报名不符",
       "capacity_projection_drift": "名额展示投影漂移",
-      "occupancy_exceeds_capacity": "账本占位超容量上限"
+      "occupancy_exceeds_capacity": "账本占位超容量上限",
+      "ledger_cache_drift": "账本缓存偏离供给真值",
+      "fund_action_burst": "资金操作频次异常",
+      "deposit_settlement_unanchored": "押金结算无结束锚点",
+      "notification_delivery_failed": "通知投递终态失败",
+      "deposit_forfeit_batch_alert": "单场押金没收批量告警"
     },
     "reconEntity": {
       "enrollment": "报名",
