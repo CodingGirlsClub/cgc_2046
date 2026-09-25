@@ -5518,8 +5518,15 @@ type RootQueryType {
   "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
   flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
 
-  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
-  flashbackOutreachPreview(archiveKey: String!, channel: String): FlashbackOutreachPreview
+  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判"
+  flashbackOutreachPreview(
+    archiveKey: String!
+
+    channel: String
+
+    "campaign 批次号（预判同人跨 archive 去重数；与入队同源）"
+    batch: String
+  ): FlashbackOutreachPreview
 
   "场次列表（R7 发送入口数据源，PlatformAdmin）"
   flashbackAdminArchives: [FlashbackAdminArchive!]!
@@ -6904,6 +6911,9 @@ type FlashbackOutreachPreview {
 
   unreachable: Int!
 
+  "campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0）"
+  dedupedWithinCampaign: Int!
+
   "短信腿就绪位（SendCloud 触达模板已配置）"
   smsReady: Boolean!
 }
@@ -7366,6 +7376,9 @@ type FlashbackOutreachDispatchResult {
 
   "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
   skipped: Int!
+
+  "campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封）"
+  dedupedWithinCampaign: Int!
 }
 
 input FlashbackTodayInput {
@@ -8330,7 +8343,16 @@ type RootMutationType {
   flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
 
   "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
-  flashbackAdminSendOutreach(archiveKey: String!, template: String!, channel: String): FlashbackOutreachDispatchResult
+  flashbackAdminSendOutreach(
+    archiveKey: String!
+
+    template: String!
+
+    channel: String
+
+    "campaign 批次号（跨 archive 全量发时显式共用——同人只收一封；默认 archive-<key> 批次互不感知）"
+    batch: String
+  ): FlashbackOutreachDispatchResult
 
   "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
   flashbackClaim(token: String): FlashbackClaimResult
