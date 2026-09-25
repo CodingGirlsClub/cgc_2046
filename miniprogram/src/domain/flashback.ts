@@ -587,7 +587,7 @@ export function readWishVoterKey(): string | null {
   }
 }
 
-export function ensureWishVoterKey(): string | null {
+export function ensureWishVoterKey(): string {
   const existing = readWishVoterKey()
   if (existing) return existing
   const created = `a:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
