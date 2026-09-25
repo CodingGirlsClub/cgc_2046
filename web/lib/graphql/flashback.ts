@@ -470,6 +470,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 					want
 					need
 					say
+					fogSpans
 					wantGiveTags
 					mobilization
 					newsletterOptIn

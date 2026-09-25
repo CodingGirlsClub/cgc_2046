@@ -28,6 +28,7 @@ import type { TodayFormState } from "./write";
 export default function SendRegister({
 	form,
 	answers,
+	initialTodayFogSpans,
 	maskedPhone,
 	maskedEmail,
 	onSubmitToday,
@@ -43,6 +44,8 @@ export default function SendRegister({
 	form: TodayFormState;
 	/** 当年答案（enter 载荷；检查步逐句列出的数据源） */
 	answers: FlashbackAnswer[];
+	/** 服务端既有 today 雾区间（enter 载荷；预填 review 的初始雾态——盲初值闭环；null/缺省从空起步） */
+	initialTodayFogSpans?: Record<string, FlashbackFogSpan[]> | null;
 	maskedPhone?: string | null;
 	maskedEmail?: string | null;
 	onSubmitToday: (input: TodayFormState) => Promise<boolean>;
@@ -73,10 +76,14 @@ export default function SendRegister({
 		Object.fromEntries(answers.map((answer) => [answer.id, [...(answer.fogSpans ?? [])]])),
 	);
 
-	/** today 字段逐句雾选（fog 字段名 → spans；初始 = 空——首程寄出时服务端雾面尚未存在） */
+	/** today 字段逐句雾选（fog 字段名 → spans；初始 = 服务端既有雾（盲初值闭环）——
+	 * 不预填会让「用户在小程序已设的雾」在 Web 走查里隐形，且脏检查无可比基线 */
 	const [spansByField, setSpansByField] = useState<Record<string, FlashbackFogSpan[]>>(() =>
-		Object.fromEntries(TODAY_FIELDS.map((host) => [host.fog, []])),
+		Object.fromEntries(
+			TODAY_FIELDS.map((host) => [host.fog, [...(initialTodayFogSpans?.[host.fog] ?? [])]]),
+		),
 	);
+	// 脏比对直接以 initialTodayFogSpans prop 为基线：闪层期间服务端基线不变
 
 	/** 句与区间交界即视为雾（与 sentencesWithFogMark 的命中口径一致） */
 	const toggleSpanIn = (
@@ -133,10 +140,10 @@ export default function SendRegister({
 			return;
 		}
 		// today 雾面必须落在新文本之后（adjustTodayFog 按服务端当前文本校验区间）；
-		// 未圈字段一律跳过——首程初始即空，不发无谓 mutation。
+		// 脏检查与服务端基线比对：未变化不发无谓 mutation，全部切回亮必须显式发出（清雾）
 		for (const host of TODAY_FIELDS) {
 			const next = normalizeSpans(spansByField[host.fog]);
-			if (next.length === 0) continue;
+			if (sameSpans(next, normalizeSpans(initialTodayFogSpans?.[host.fog]))) continue;
 			const fogOk = await onAdjustTodayFog(host.fog, next);
 			if (!fogOk) {
 				setError(t("errorTodayFog"));
@@ -160,7 +167,7 @@ export default function SendRegister({
 			return;
 		}
 		setPhase("sent");
-	}, [answers, spansByAnswer, spansByField, onAdjustFog, onAdjustTodayFog, errorT, form, onSubmitToday, onSendToWall, onSetQuoteLicense, t]);
+	}, [answers, initialTodayFogSpans, spansByAnswer, spansByField, onAdjustFog, onAdjustTodayFog, errorT, form, onSubmitToday, onSendToWall, onSetQuoteLicense, t]);
 
 	const handleConfirm = () => {
 		setError(null);

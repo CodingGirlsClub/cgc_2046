@@ -78,10 +78,12 @@ function makeHandlers(
 function renderStep(
 	handlers: ReturnType<typeof makeHandlers>,
 	formOverrides: Partial<TodayFormState> = {},
+	initialTodayFogSpans: Record<string, { start: number; len: number }[]> | null = null,
 ) {
 	return render(
 		<SendRegister
 			form={{ ...FORM, ...formOverrides }}
+			initialTodayFogSpans={initialTodayFogSpans}
 			answers={ANSWERS}
 			onSubmitToday={handlers.onSubmitToday}
 			onSendToWall={handlers.onSendToWall}
@@ -188,5 +190,37 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 			expect(handlers.onSendToWall).not.toHaveBeenCalled();
 		});
 		expect(screen.getByRole("button", { name: /再试一次/ })).toBeInTheDocument();
+	});
+
+	it("服务端既有 today 雾区间预填（盲初值闭环）：命中句渲染为雾态（aria-pressed=true）", () => {
+		renderStep(makeHandlers([]), {}, { now: [{ start: 0, len: 2 }] });
+		const fogged = [...document.querySelectorAll(".fb-review-sentence--fog")];
+		expect(fogged.length).toBeGreaterThan(0);
+		// 按同一相交判定，span 覆盖到句子即整句标雾（本用例 span 落在 nowStatus 文本上）
+		expect(fogged.some((b) => (b.textContent || "").includes("我在写代码"))).toBe(true);
+	});
+
+	it("相对服务端基线无变化：不发任何 adjustTodayFog（不打扰不产影变）", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, { now: [{ start: 0, len: 2 }] });
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(handlers.onSendToWall).toHaveBeenCalled();
+		});
+		expect(handlers.onAdjustTodayFog).not.toHaveBeenCalled();
+	});
+
+	it("把预填的雾全部切回亮也显式同步（清雾落库）：adjustTodayFog(field, [])", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, { now: [{ start: 0, len: 2 }] });
+		// 把预填的那句切回亮
+		fireEvent.click(screen.getByText(/我在写代码/).closest("button")!);
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(handlers.onAdjustTodayFog).toHaveBeenCalled();
+		});
+		const args = handlers.onAdjustTodayFog.mock.calls[0] as unknown[];
+		expect(args[0]).toBe("now");
+		expect(args[1]).toEqual([]);
 	});
 });
