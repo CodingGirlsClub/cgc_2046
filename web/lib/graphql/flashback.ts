@@ -510,7 +510,7 @@ export const FLASHBACK_SUBMIT_TODAY: TypedDocumentNode<
 	{ flashbackSubmitToday: { today: FlashbackToday } },
 	{ token?: string | null; input: FlashbackTodayInput }
 > = gql`
-	mutation FlashbackSubmitToday($token: String!, $input: FlashbackTodayInput!) {
+	mutation FlashbackSubmitToday($token: String, $input: FlashbackTodayInput!) {
 		flashbackSubmitToday(token: $token, input: $input) {
 			today {
 				nowStatus
@@ -541,12 +541,12 @@ export const FLASHBACK_SEND_TO_WALL: TypedDocumentNode<
 	}
 `;
 
-/** 调整雾面区间（R16/KTD4）：只改 spans，原文不可达 */
+/** 调整雾面区间（R16/KTD4）：只改 spans，原文不可达（覆盖式双入口：token 或省略走登录会话） */
 export const FLASHBACK_ADJUST_FOG: TypedDocumentNode<
 	{ flashbackAdjustFog: { answerId: string; fogSpans: FlashbackFogSpan[] } },
-	{ token: string; answerId: string; spans: FlashbackFogSpan[] }
+	{ token?: string | null; answerId: string; spans: FlashbackFogSpan[] }
 > = gql`
-	mutation FlashbackAdjustFog($token: String!, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
+	mutation FlashbackAdjustFog($token: String, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
 		flashbackAdjustFog(token: $token, answerId: $answerId, spans: $spans) {
 			answerId
 			fogSpans {
@@ -558,18 +558,18 @@ export const FLASHBACK_ADJUST_FOG: TypedDocumentNode<
 	}
 `;
 
-/** 金句授权（R31 两档 + 关） */
+/** 金句授权（R31 两档 + 关；覆盖式双入口：token 或省略走登录会话） */
 export const FLASHBACK_SET_QUOTE_LICENSE: TypedDocumentNode<
 	{ flashbackSetQuoteLicense: FlashbackQuoteLicenseResult },
 	{
-		token: string;
+		token?: string | null;
 		level: string;
 		chosenQuoteSpans?: { questionKey: string; start: number; len: number }[];
 		creditedNote?: string;
 	}
 > = gql`
 	mutation FlashbackSetQuoteLicense(
-		$token: String!
+		$token: String
 		$level: String!
 		$chosenQuoteSpans: [FlashbackQuoteSpanInput!]
 		$creditedNote: String

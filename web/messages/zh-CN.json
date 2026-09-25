@@ -2922,6 +2922,7 @@
       "flabel": "此刻 · 一闪念间",
       "dashed": "你的照片还没寄出",
       "goSend": "去寄出它 →",
+      "goSendRecoverHint": "找回你的档案链接后可寄出",
       "editEntry": "编辑今天的你",
       "editTitle": "改改「今天的你」",
       "editSave": "保存",

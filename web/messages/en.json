@@ -2922,6 +2922,7 @@
       "flabel": "this moment · in a flash",
       "dashed": "Your photo hasn't been sent yet",
       "goSend": "Send it →",
+      "goSendRecoverHint": "Recover your archive link to send it",
       "editEntry": "Edit today's you",
       "editTitle": "Edit «the you of today»",
       "editSave": "Save",
