@@ -435,7 +435,8 @@ export function WishFormModal({
 						{bindGuide && (
 							<>
 								{" "}
-								<Link href="/flashback/enter">{t("bindGuideCta")}</Link>
+								{/* D7 止血（视觉审计 2026-09）：未绑定即无 token，裸链 enter 必落假失效页——改为落 hub 找回区 */}
+								<Link href="/flashback#recover">{t("bindGuideCta")}</Link>
 							</>
 						)}
 					</p>

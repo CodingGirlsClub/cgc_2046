@@ -4079,6 +4079,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:want, :string)
     field(:need, :string)
     field(:say, :string)
+    @desc "句级雾面区间（字段名 → spans；U9/R16，空 map = 无雾）"
+    field(:fog_spans, :json)
     field(:want_give_tags, list_of(:string))
     field(:mobilization, :json_string)
     field(:newsletter_opt_in, :boolean)

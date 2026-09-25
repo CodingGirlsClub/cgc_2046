@@ -2983,6 +2983,8 @@ export type FlashbackSharedCardSegment = {
 };
 
 export type FlashbackToday = {
+  /** 句级雾面区间（字段名 → spans；U9/R16，空 map = 无雾） */
+  fogSpans?: Maybe<Scalars['Json']['output']>;
   mobilization?: Maybe<Scalars['JsonString']['output']>;
   need?: Maybe<Scalars['String']['output']>;
   newsletterOptIn?: Maybe<Scalars['Boolean']['output']>;
