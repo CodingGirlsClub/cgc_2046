@@ -2381,10 +2381,17 @@
       "nonterminal_research_run_for_closed_entity": "Closed entity with active research run",
       "dead_letter_job": "Dead letter job",
       "learning_run_stalled": "Learning run stalled",
+      "payment_amount_mismatch": "Payment amount mismatch",
+      "payment_recon": "Payment channel statement recon diff",
       "open_offering_without_ledger": "Open offering without capacity ledger row",
       "ledger_occupancy_mismatch": "Ledger occupancy mismatches enrollments",
       "capacity_projection_drift": "Capacity display projection drift",
-      "occupancy_exceeds_capacity": "Ledger occupancy exceeds capacity"
+      "occupancy_exceeds_capacity": "Ledger occupancy exceeds capacity",
+      "ledger_cache_drift": "Ledger cache drift",
+      "fund_action_burst": "Fund action burst",
+      "deposit_settlement_unanchored": "Deposit settlement without anchor",
+      "notification_delivery_failed": "Notification delivery failed",
+      "deposit_forfeit_batch_alert": "Deposit forfeiture batch alert"
     },
     "reconEntity": {
       "enrollment": "Enrollment",
