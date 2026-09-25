@@ -2,7 +2,7 @@ defmodule Cgc2046.Reconciliation.ScanDetections do
   # 对账扫描检测函数库（#852 C9 拆分，E-10 实体/信号/停滞域，规1-7）。
   # ReconciliationScanWorker 每拍经 rules/0 分发表逐规则调用 detect_*/0，
   # 返回 candidates 交 Finding.apply_rule/3（D2 刷新语义单源）。
-  # 规则语义清单见 ReconciliationScanWorker.rules/0 与 Finding moduledoc。
+  # 规则语义清单见 RulesRegistry（单源）。
 
   require Ash.Query
 

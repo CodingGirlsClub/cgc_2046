@@ -84,6 +84,9 @@ defmodule Cgc2046.Reconciliation.Finding do
   全量拍（`:full`）删除本次未命中，其余 sweep 模式见 `opts`。
 
   `candidates` 为 map 列表（`entity_type` / `entity_id` / `workspace_id` / `detail`）。
+  `opts`：
+
+  - `:log_prefix` — 警告日志前缀（默认 `"reconciliation"`）
   - `:on_create` — `(rule, candidate, result) -> any`，create 尝试后的回调
     （扫描侧与押金侧各自发「首次发现」warning）
   - `:sweep` — `:full | :partial | :one_shot`（默认 `:full`）。`:full` 为全量

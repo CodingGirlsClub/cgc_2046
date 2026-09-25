@@ -3,7 +3,7 @@ defmodule Cgc2046.Reconciliation.ScanDetectionsOps do
   # 与 ScanDetections 同为 ReconciliationScanWorker 的检测库：全部经 Repo
   # 裸 SQL 直查业务表（账本写路径同口径先例），candidates 交
   # Finding.apply_rule/3（D2 刷新语义单源）。
-  # 规则语义清单见 ReconciliationScanWorker.rules/0 与 Finding moduledoc。
+  # 规则语义清单见 RulesRegistry（单源）。
 
   alias Cgc2046.Repo
 
