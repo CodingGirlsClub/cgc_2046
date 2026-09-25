@@ -1,0 +1,50 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { initialTree, treeReducer, wishTreeShare, wishTreePath } from '../src/domain/wish-tree.ts'
+const row = (id: string) => ({ id, content: '一起写作品', city: '成都', signature: '匿名', expectationCount: 0, expectedByViewer: false, endorsementCount: 0, endorsedByViewer: false, latestEcho: null, echoCount: 0, echoes: [] })
+test('筛选刷新清空旧公开内容，晚到请求不能覆盖新城市', () => {
+  let state = initialTree()
+  state = treeReducer(state, { type: 'load', generation: 1, append: false })
+  state = treeReducer(state, { type: 'load', generation: 2, append: false })
+  assert.equal(treeReducer(state, { type: 'ready', generation: 1, rows: [row('old')], selectedId: null, offset: 1, more: false }), state)
+  state = treeReducer(state, { type: 'ready', generation: 2, rows: [row('new')], selectedId: null, offset: 1, more: false })
+  assert.equal(state.id, 'new')
+  assert.deepEqual(treeReducer(state, { type: 'load', generation: 3, append: false }).rows, [])
+})
+test('追加分页去重，失效分享清空正文；翻页失败保留已读内容供重试', () => {
+  let state = treeReducer(initialTree(), { type: 'load', generation: 1, append: false })
+  state = treeReducer(state, { type: 'ready', generation: 1, rows: [row('a')], selectedId: 'a', offset: 1, more: true })
+  state = treeReducer(state, { type: 'load', generation: 2, append: true })
+  state = treeReducer(state, { type: 'ready', generation: 2, rows: [row('a'), row('b')], selectedId: 'b', offset: 3, more: false })
+  assert.deepEqual(state.rows.map(r => r.id), ['a', 'b'])
+  assert.equal(state.id, 'b')
+  assert.equal(state.offset, 3)
+  state = treeReducer(state, { type: 'load', generation: 3, append: true })
+  state = treeReducer(state, { type: 'error', generation: 3, error: '离线' })
+  assert.equal(state.status, 'ready')
+  assert.equal(state.rows.length, 2)
+  state = treeReducer(state, { type: 'gone', generation: 3 })
+  assert.deepEqual(state.rows, [])
+  assert.equal(state.id, null)
+})
+test('期待回显只更新目标愿望，不换排序、不换当前愿望', () => {
+  let state = treeReducer(initialTree(), { type: 'ready', generation: 0, rows: [row('a'), row('b')], selectedId: 'b', offset: 2, more: false })
+  state = treeReducer(state, { type: 'expect', generation: 0, id: 'b', expected: true, count: 4 })
+  assert.equal(state.id, 'b')
+  assert.deepEqual(state.rows.map(r => r.id), ['a', 'b'])
+  assert.equal(state.rows[1].expectationCount, 4)
+  assert.equal(state.rows[0].expectedByViewer, false)
+})
+test('整树不带单条、城市和私密字段；单愿分享只带公开 id', () => {
+  assert.equal(wishTreeShare(null).path, '/pages/flashback-wishes/index')
+  assert.equal(wishTreeShare(row('public/id')).path, '/pages/flashback-wishes/index?wishId=public%2Fid')
+  assert.equal(wishTreePath('成都'), '/pages/flashback-wishes/index?city=%E6%88%90%E9%83%BD')
+})
+
+test('原生页面参数仅解码一次，中文城市互跳不会被当作百分号字符串', async () => {
+  const { parseCityParam } = await import('../src/domain/wish-tree.ts')
+  assert.equal(parseCityParam('%E5%8C%97%E4%BA%AC'), '北京')
+  assert.equal(parseCityParam('北京'), '北京')
+  assert.equal(parseCityParam('%E5%8C'), null)
+  assert.equal(parseCityParam('  '), null)
+})

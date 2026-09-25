@@ -52,6 +52,7 @@ const fullPages = [
   // 无闪念间深度场景，且页内「卡片站外公开」文案含跨端词（check:diversion）
   'pages/flashback-shared-card/index',
   'pages/flashback-voices/index',
+  'pages/flashback-wishes/index',
   'pages/flashback-wish-write/index',
   'pages/flashback-my-wishes/index'
 ]

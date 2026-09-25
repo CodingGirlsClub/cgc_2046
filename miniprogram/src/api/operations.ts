@@ -894,9 +894,10 @@ export const FlashbackReportWishMutationDocument = /* GraphQL */ `
 
 // wish2 U6/KTD10：viewer 公开树读面（listed 四条件 + 加权随机排序）
 export const FlashbackPublicWishesQueryDocument = /* GraphQL */ `
-  query FlashbackPublicWishes($city: String, $seed: String, $offset: Int, $limit: Int, $voterKey: String) {
+  query FlashbackPublicWishes($city: String, $withEchoes: Boolean, $seed: String, $offset: Int, $limit: Int, $voterKey: String) {
     flashbackPublicWishes(
       city: $city
+      withEchoes: $withEchoes
       seed: $seed
       offset: $offset
       limit: $limit
@@ -1192,6 +1193,42 @@ export const FlashbackMyWishesQueryDocument = /* GraphQL */ `
     flashbackMyWishes {
       quotaRemaining
       wishes { id content city signature visibility status insertedAt }
+    }
+  }
+`
+
+export const FlashbackWishCitiesQueryDocument = /* GraphQL */ `
+  query FlashbackWishCities { flashbackWishCities { name lngLat } }
+`
+export const FlashbackPublicWishQueryDocument = /* GraphQL */ `
+  query FlashbackPublicWish($wishId: ID!, $voterKey: String) {
+    flashbackPublicWish(wishId: $wishId, voterKey: $voterKey) {
+      id
+      content
+      city
+      signature
+      expectationCount
+      endorsementCount
+      contributionDistribution
+      expectedByViewer
+      endorsedByViewer
+      latestEcho {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
+      echoCount
+      echoes {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
+      listedAt
+      insertedAt
     }
   }
 `

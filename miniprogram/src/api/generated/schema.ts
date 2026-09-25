@@ -6076,6 +6076,8 @@ export type RootQueryType = {
   flashbackSharedCard?: Maybe<FlashbackSharedCard>;
   /** 公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响 */
   flashbackVoiceCities: Array<FlashbackCity>;
+  /** 公开许愿树城市全集，按拼音排列，不受愿望分页限制 */
+  flashbackWishCities: Array<FlashbackCity>;
   /** 平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null） */
   getAdminCourse?: Maybe<AdminCourseDetail>;
   /** 平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null） */
@@ -6325,6 +6327,7 @@ export type RootQueryTypeFlashbackPublicWishesArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
   seed?: InputMaybe<Scalars['String']['input']>;
   voterKey?: InputMaybe<Scalars['String']['input']>;
+  withEchoes?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 

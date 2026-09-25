@@ -5,7 +5,6 @@ import { api } from '@/api'
 import { getAuthToken } from '@/api/client'
 import { getMyWishes } from '@/api/wishes'
 import { wishStatusCopy, wishWriteReturnUrl, type MyWishes, type OwnedWish } from '@/domain/wish-writing'
-import { setFlashbackEntry } from '@/state/flashbackEntry'
 import { getActiveAccountId } from '@/state/accountState'
 import styles from './index.module.css'
 
@@ -62,11 +61,12 @@ export default function MyWishesPage() {
         {data.wishes.map(wish => <View className={`${styles.wishCard} ${router.params.created === wish.id ? styles.created : ''}`} key={wish.id}>
           <Text className={styles.status}>{router.params.created === wish.id ? '已保存 · ' : ''}{wishStatusCopy(wish.status)}</Text>
           <Text className={styles.content}>{wish.content}</Text>
+          {wish.status === 'listed' && <Button className={styles.publicWish} onClick={() => Taro.navigateTo({ url: `/pages/flashback-wishes/index?wishId=${encodeURIComponent(wish.id)}` })}>在许愿树查看 →</Button>}
           <View className={styles.meta}><Text>{wish.signature || '匿名'}{wish.city ? ` · ${wish.city}` : ''}</Text><Button className={styles.deleteWish} disabled={!!deleting} loading={deleting === wish.id} onClick={() => void remove(wish)}>删除</Button></View>
         </View>)}
       </>}
     </>}
     <Button className={styles.primary} onClick={() => Taro.navigateTo({ url: wishWriteReturnUrl() })}>写下我的愿望</Button>
-    <Button className={styles.backLink} onClick={() => { setFlashbackEntry('future'); void Taro.switchTab({ url: '/pages/flashback-corridor/index' }) }}>回闪念间，看看大家的愿望 →</Button>
+    <Button className={styles.backLink} onClick={() => Taro.navigateTo({ url: '/pages/flashback-wishes/index' })}>去许愿树，看看大家的愿望 →</Button>
   </View>
 }

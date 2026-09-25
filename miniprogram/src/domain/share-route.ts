@@ -59,6 +59,7 @@ export const FLASHBACK_CARD_SHARE_IMAGE = '/assets/brand/cgc-flame.png'
  * 这些页无 id/slug 定位参数，「已在目标页」判定退化为 path 相等（entryIsTarget）。 */
 export const FLASHBACK_ENTRY_ROUTES = [
   FLASHBACK_VOICES_ROUTE,
+  'pages/flashback-wishes/index',
   'pages/flashback-journey/index',
   'pages/flashback-corridor/index',
   'pages/flashback-event/index'
@@ -124,17 +125,11 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
     return buildInitiativeSharePath(slug)
   }
 
-  // wish2 U9（KTD7）：许愿深链（Web 附议引导浮层携 wishId）——长廊页定位该愿。
-  // 同 wishId 不打断（按值比较同款）；目标页读 wishId 参数滚动定位 + 弹附议表单。
+  // Single-wish shares resolve independently of list pagination and archive access.
   const wishId = query.wishId?.trim()
   if (wishId) {
-    if (
-      normalizePath(currentRoute).includes('pages/flashback-corridor') &&
-      currentQuery.wishId?.trim() === wishId
-    ) {
-      return null
-    }
-    return `/pages/flashback-corridor/index?wishId=${encodeURIComponent(wishId)}`
+    if (normalizePath(currentRoute) === 'pages/flashback-wishes/index' && currentQuery.wishId?.trim() === wishId) return null
+    return `/pages/flashback-wishes/index?wishId=${encodeURIComponent(wishId)}`
   }
   // 首程专属深链（管理员定向发的链接/卡片带 token；R1）：token 只用于路由，
   // 不做值比较的「已在目标页」判定（KTD2：token 不是路由键）

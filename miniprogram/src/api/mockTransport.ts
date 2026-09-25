@@ -575,6 +575,19 @@ function wishEndorsementCount(state: FlashbackMockState, wishId: string): number
   return otherPeople + Number(state.endorsedWishIds.includes(wishId))
 }
 
+function publicWishRows(state: FlashbackMockState) {
+  return state.wishes.filter(w => w.visibility === 'public' && !!w.listedAt && !w.deleted && !w.pendingReview)
+    .map(w => {
+      const echoes = (w.echoes ?? []).filter(e => e.status === 'published' || e.status === 'corrected')
+      return { id: w.id, content: w.content, city: w.city, signature: w.signature,
+        expectationCount: 2 + Number(state.expectedWishIds.includes(w.id)),
+        endorsementCount: wishEndorsementCount(state, w.id), contributionDistribution: {},
+        expectedByViewer: state.expectedWishIds.includes(w.id), endorsedByViewer: state.endorsedWishIds.includes(w.id),
+        latestEcho: echoes[echoes.length - 1] ?? null, echoCount: echoes.length, echoes,
+        listedAt: w.listedAt, insertedAt: w.insertedAt }
+    })
+}
+
 function wishQuotaRemaining(state: FlashbackMockState): number {
   const shanghaiYear = new Date(Date.now() + 8 * 3_600_000).getUTCFullYear()
   const yearStartUtc = Date.UTC(shanghaiYear, 0, 1) - 8 * 3_600_000
@@ -1566,33 +1579,23 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('mutation FlashbackReportWish')) {
     return { flashbackReportWish: { reportId: `rep-${Date.now()}`, status: 'pending' } }
   }
+  if (document.includes('query FlashbackWishCities')) {
+    const names = new Set(publicWishRows(flashbackState()).map(w => w.city))
+    const data = responseFor('query FlashbackCities', {}) as { flashbackCities: Array<{ name: string; pinyin: string; lngLat: number[] }> }
+    return { flashbackWishCities: data.flashbackCities.filter(c => names.has(c.name)).sort((a,b) => a.pinyin.localeCompare(b.pinyin)) }
+  }
+  if (document.includes('query FlashbackPublicWish(')) {
+    return { flashbackPublicWish: publicWishRows(flashbackState()).find(w => w.id === values.wishId) ?? null }
+  }
   if (document.includes('query FlashbackPublicWishes')) {
-    const state = flashbackState()
-    const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
-    return {
-      flashbackPublicWishes: state.wishes
-        .filter((w) => w.visibility === 'public' && w.listedAt !== null && !w.deleted && (!cityFilter || w.city === cityFilter))
-        .map((w) => {
-          // #837 回响投影对齐 real 读面:latestEcho/echoCount/echoes
-          const echoes = w.echoes ?? []
-          return {
-            id: w.id,
-            content: w.content,
-            city: w.city,
-            signature: w.signature,
-            expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
-            endorsementCount: wishEndorsementCount(state, w.id),
-            contributionDistribution: {},
-            expectedByViewer: state.expectedWishIds.includes(w.id),
-            endorsedByViewer: state.endorsedWishIds.includes(w.id),
-            latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
-            echoCount: echoes.length,
-            echoes,
-            listedAt: w.insertedAt,
-            insertedAt: w.insertedAt
-          }
-        })
+    let rows = publicWishRows(flashbackState()).filter(w => (!values.city || !w.city || w.city === values.city) && (!values.withEchoes || w.echoCount > 0))
+    if (values.seed && rows.length) {
+      const shift = Array.from(String(values.seed)).reduce((n, c) => n + c.charCodeAt(0), 0) % rows.length
+      rows = [...rows.slice(shift), ...rows.slice(0, shift)]
     }
+    const offset = Math.max(0, Number(values.offset) || 0)
+    const limit = Math.max(1, Math.min(120, Number(values.limit) || 60))
+    return { flashbackPublicWishes: rows.slice(offset, offset + limit) }
   }
   if (document.includes('mutation FlashbackSetCardSharing')) {
     // #771：本人可调开关。要求登录（会话腿）或有效 token（链接腿）——匿名不给
