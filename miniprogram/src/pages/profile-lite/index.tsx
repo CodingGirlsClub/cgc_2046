@@ -5,8 +5,8 @@
  * 退出登录、我的报名入口、手输邀请码加入（X-5：scene 扫码进入的传参方式
  * 平台未文档化，P0 只做手输）、闪念间入口（薄壳页）、隐私政策（D7 变体正文）。
  *
- * 备案号：小红书小程序的 ICP 备案号为 D8 待定人工输入——到位前本页不渲染
- * 页脚备案号（宁可缺位，不写占位符文案招审核）。
+ * 备案号：小红书小程序 ICP 备案号（D8，2026-09-22 通过）——与微信端
+ * `pages/profile` 的 -6X 分属不同小程序主体记录，不要互抄。
  */
 import { useCallback, useState } from 'react'
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
@@ -144,6 +144,10 @@ export default function ProfileLitePage() {
                 <Text className={styles.entryText}>我们收集哪些信息、如何使用与保护、你的权利。</Text>
               </View>
               <Text className={styles.entryArrow}>→</Text>
+            </View>
+
+            <View className={styles.footer}>
+              <Text className={styles.footerText}>京ICP备16008426号-7X</Text>
             </View>
           </View>
         )}
