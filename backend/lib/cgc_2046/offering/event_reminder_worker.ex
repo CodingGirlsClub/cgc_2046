@@ -75,7 +75,8 @@ defmodule Cgc2046.Offering.EventReminderWorker do
         {user_id, Fanout.identities(user_id)},
         "event_reminder",
         reminder_data(entity),
-        %{}
+        # event_id 为 #847 已批例外：纯增量元数据，供耐久幂等键派生（不改业务逻辑）
+        %{"event_id" => entity.id}
       )
 
       acc + 1
