@@ -269,3 +269,43 @@
 .rvFog { color: transparent; background: rgba(43, 39, 35, 0.2); border-radius: 8rpx; padding: 0 10rpx; }
 /* 已授权金句=浅金高亮 */
 .rvQuote { background: rgba(232, 198, 106, 0.22); border-radius: 8rpx; padding: 0 10rpx; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   拍立得 = 纸上的显影相纸；雾句 = 带颗粒的「显影不足」（与看别人的卡同一质感）；
+   火只给「写完寄出」；金 = 已寄出、已授权的句子、作者收到的赞、回到当年的金线。 */
+.sentence { color: var(--ink); }
+.fogHint { color: var(--ink-3); }
+.paperFace { background: var(--paper-hi); border-radius: 6rpx; }
+.paperPhotoA { background: linear-gradient(165deg, #d9cfb8, #bfb298 60%, #a89c80); }
+.paperQ { color: rgba(30, 58, 47, 0.6); opacity: 1; }
+.paperA, .rvSentence, .rvTodayText { color: var(--ink); font-family: var(--serif); }
+.signRow { color: var(--ink-2); opacity: 1; }
+.signName { color: var(--ink); font-family: var(--serif); }
+.paperPhotoB { background: var(--paper-deep); }
+.paperTodayTitle, .writeLabel { color: var(--ink-2); opacity: 1; }
+.writeInput { color: var(--ink); border-bottom-color: var(--rule); font-family: var(--serif); }
+.writePlaceholder { color: var(--ink-3); }
+.sendBtn, .stateAction { background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.sendNote { color: var(--ink-2); }
+.backLink { color: var(--gold-ink); text-underline-offset: 6rpx; }
+.foldBackButton { color: var(--gold); }
+.wallBadge { font-family: sans-serif; }
+.onWall { color: var(--gold-ink); background: var(--gold-soft); }
+.offWall { color: var(--ink-3); background: var(--paper-deep); }
+.likeBadge { color: var(--gold-ink); background: var(--gold-soft); }
+.rvQuote { background: var(--gold-soft); }
+.stateText { color: var(--ink-2); }
+/* 分享是次要动作（墨）；opt-in 与城市钉是「选择」（墨） */
+.shareButton { color: var(--ink); background: transparent; border-color: var(--ink-3); }
+.shareMask { background: rgba(21, 19, 15, 0.62); }
+.shareSheet { background: var(--paper-hi); }
+.shareSheetTitle, .shareEntryLabel { color: var(--ink-2); }
+.shareOptIn { background: var(--paper); }
+.shareOptInBox, .shareOptInPlain .shareOptInBox { color: var(--ink); }
+.shareOptInLabel, .shareOptInPlain .shareOptInLabel { color: var(--ink-2); }
+.shareEntryIcon, .shareCancel { background: var(--paper); color: var(--ink); box-shadow: none; }
+.cityPin, .cityPinAll { background: var(--paper-hi); color: var(--ink-2); border-color: var(--rule); box-shadow: none; }
+.cityPinActive { background: var(--ink); border-color: var(--ink); color: var(--paper-hi); }
+/* 雾块放在最后：本块给 .sentence / .rvSentence 设了墨色，雾句的透明字色必须压在它之后
+   （同为单类选择器，后写者胜——否则雾住的句子会重新露出原文） */
+.sentenceFogged, .rvFog { color: transparent; background: linear-gradient(90deg, rgba(152, 160, 146, 0.55), rgba(152, 160, 146, 0.35)); }
