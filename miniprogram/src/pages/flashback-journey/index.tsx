@@ -13,6 +13,7 @@ import {
   revealStamp,
   SEND_OVERLAY } from '@/domain/flashback-journey'
 import { questionLabel } from '@/domain/flashback'
+import { buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
 import styles from './index.module.css'
 
@@ -169,7 +170,7 @@ export default function FlashbackJourneyPage() {
   }
 
   // R14 分享：卡片落旅程入口（朋友从这里进入闪念间）；不带本人 token（R32 边界）
-  useShareAppMessage(() => ({ title: '闪念间 · 找回当年的自己', path: '/pages/flashback-journey/index' }))
+  useShareAppMessage(() => ({ title: '闪念间 · 找回当年的自己', path: buildFlashbackEntryPath() }))
 
   if (phase.kind === 'boot') {
     return <PageState kind="loading" title="正在打开…" />

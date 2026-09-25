@@ -38,7 +38,7 @@ import SharedFlashbackCard from '@/components/SharedFlashbackCard'
 import { FlashbackDeleteSheet } from '@/components/FlashbackDelete'
 import { DELETE_COPY, RETRACT_COPY, canRetract } from '@/domain/flashback-retract'
 import { CARD_MODES, parseQuoteLevel, shareMessage, summaryCardModel, type FlashbackCardMode } from '@/domain/flashback'
-import { buildFlashbackCardSharePath, buildFlashbackJourneyPath } from '@/domain/share-route'
+import { buildFlashbackCardSharePath, buildFlashbackEntryPath } from '@/domain/share-route'
 import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
 import { STORAGE_KEYS } from '@/state/storage'
 import { FlashbackTokenInvalidError } from '@/domain/models'
@@ -145,7 +145,7 @@ export default function FlashbackTodayPage() {
     }
     // 链接没开时不转发本人卡片页（那是原文面）：退回旅程入口，与旧行为一致。
     // 菜单此时已隐藏，这条只是 hideShareMenu 落地前的时间差兜底。
-    return { title, path: buildFlashbackJourneyPath(), imageUrl: shareCardImage }
+    return { title, path: buildFlashbackEntryPath(), imageUrl: shareCardImage }
   })
 
   const saveCard = async () => {
