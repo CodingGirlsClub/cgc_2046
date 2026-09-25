@@ -7064,11 +7064,11 @@ type RootMutationType {
   "提交「今天的你」（R8\/R18\/R19\/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率）"
   flashbackSubmitToday(token: String, input: FlashbackTodayInput!): FlashbackTodayResult
 
-  "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
-  flashbackSendToWall(token: String!): FlashbackSendToWallResult
+  "寄出上墙（R11，幂等；token 旅程写 sent_to_wall touch）：返回注册引导掩码回显（R27）。#931 起 token 省略时按登录账号绑定档案"
+  flashbackSendToWall(token: String): FlashbackSendToWallResult
 
-  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
-  flashbackRetract(token: String!): FlashbackRetractResult
+  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。#931 起 token 省略时按登录账号绑定档案"
+  flashbackRetract(token: String): FlashbackRetractResult
 
   "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
   flashbackAdjustFog(token: String, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
