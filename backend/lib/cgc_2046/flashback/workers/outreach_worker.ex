@@ -282,8 +282,15 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     "#{base_url()}/zh-CN/flashback/enter?token=#{plaintext}"
   end
 
+  # 退订端点在 backend（api 域）：web 域（codingirlsclub.com）由 Next.js 接管，
+  # /api 路径不做后端反代会 404——收件人点开即废链（R30 从第一封起生效的
+  # 合规线）。与支付回调按域分离同例（PAYMENTS_WEBHOOK_BASE_URL 指 api 域）。
   defp unsub_url(person_id) do
-    "#{base_url()}/api/flashback/unsubscribe?t=#{Dispatch.unsubscribe_token(person_id)}"
+    "#{api_url()}/api/flashback/unsubscribe?t=#{Dispatch.unsubscribe_token(person_id)}"
+  end
+
+  defp api_url do
+    Cgc2046Web.Endpoint.url() |> String.trim_trailing("/")
   end
 
   defp base_url do

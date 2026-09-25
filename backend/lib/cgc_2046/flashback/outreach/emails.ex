@@ -20,9 +20,9 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   # 逐字引自原图私信（「虽然」起连续到句尾，零删改）——引文与截图上下
   # 并排，任何改写都会被读出对不上。
   @quote_text "虽然我后来一直没有进入 IT 界，还在原岗位上，但刚刚一闪念间想起来曾经参加的这个活动，很想感谢你，感谢你的热情和付出，曾经那么早让我有一小扇窗得以窥见编程世界。"
-  @subject "程序媛汇：闪念回当年，系愿于今朝"
+  @subject "程序媛汇：中秋快乐——闪念回当年，系愿于今朝"
   @quote_sign "—— 一位 2013 年 5 月参加 Rails Girls 的学员"
-  @mini_program_line "手机上也可以在微信 / 小红书 / 抖音小程序搜索「程序媛汇」或「程序媛汇2046」，体验更顺手。"
+  @mini_program_line "手机上也可以在微信里搜索小程序「程序媛汇」，体验更顺手。"
 
   @doc "唤醒首封（R23）：称呼 + 本人场次日期/场次名（均可空）+ 专属链接。"
   @spec reconnect(
@@ -77,31 +77,31 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   defp period(%Date{} = d), do: "#{d.year} 年 #{d.month} 月"
 
   # 页脚自我介绍句按本人场次派生（写死「2012-2018」对新场次不成立）；日期
-  # 或场次名缺失 → 历史区间兜底句。场次名以中文结尾（如「…北京」）时名前
-  # 不加空格（「参加过 Rails Girls / Girls Coding Day 北京 的活动」会多出
-  # 一个空格）。
-  defp footer_line(%Date{} = d, name) when is_binary(name) and name != "" do
-    spacing = if String.last(name) =~ ~r/^[\x{4e00}-\x{9fff}]$/u, do: "", else: " "
-    "你在 #{d.year} 年参加过 #{escape(name)}#{spacing}的活动。"
-  end
+  # 缺失 → 历史区间兜底句。事实锚点用「报名」——记忆线（当年到场）、圆梦线
+  # （报名未去成）、教练（报名执教）全员成立，不随参与形态分叉；不带城市——
+  # 一次发送可能覆盖多城，城市进页脚会误导收信人。
+  defp footer_line(%Date{} = d, _name),
+    do: "你曾在 #{d.year} 年报名过 Rails Girls / Girls Coding Day。"
 
   defp footer_line(_occurred_on, _archive_name),
-    do: "你在 2012-2018 年间参加过 Rails Girls / Girls Coding Day 的活动。"
+    do: "你曾在 2012-2018 年间报名过 Rails Girls / Girls Coding Day。"
 
   defp reconnect_text(display_name, occurred_on, enter_url, unsub_url) do
     """
     你好，#{display_name || "同学"}：
+
+    中秋快乐。月亮最圆的日子，宜想念，宜重逢——
 
     2023 年 4 月，一位 2013 年参加 Rails Girls 的学员，在微博上给我们发来一段话：
 
     “#{@quote_text}”
     #{@quote_sign}
 
-    一扇窗，开了一个人的十年。你也在 #{period(occurred_on)}推开过这扇窗——那天的报名表，每个字都还在。
+    一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。
 
     打开我的闪念间：#{enter_url}
 
-    打开后，你可以把那份报名表做成卡片保存，也可以找找当年一起学习的同伴和教练。
+    打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。
     #{@mini_program_line}
 
     不想再收到此类邮件？取消订阅：#{unsub_url}
@@ -127,14 +127,15 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <div style="max-width:640px;margin:0 auto;padding:40px 20px 48px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
     <div style="font-size:12px;letter-spacing:6px;color:#cbbf8f;text-align:center;margin-bottom:36px;">IN A FLASH · 闪念间</div>
     <p style="font-size:16px;color:#d9d4ca;line-height:1.8;margin:0 0 18px;">你好，#{name}：</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">中秋快乐。月亮最圆的日子，宜想念，宜重逢——</p>
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">2023 年 4 月，一位 2013 年参加 Rails Girls 的学员，在微博上给我们发来一段话：</p>
     <div style="background:#ffffff;padding:14px 14px 44px;border-radius:2px;margin:0 0 16px;">
     <img src="#{screenshot_url}" alt="“#{@quote_text}”#{@quote_sign}" style="display:block;width:100%;height:auto;border:0;" />
     </div>
     <p style="font-size:12px;color:#918c82;line-height:1.9;margin:0 0 32px;text-align:center;">“#{@quote_text}”<br>#{@quote_sign}</p>
-    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。你也在 #{period(occurred_on)}推开过这扇窗——那天的报名表，每个字都还在。</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。</p>
     <div style="text-align:center;margin:0 0 22px;"><a href="#{enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
-    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年一起学习的同伴和教练。<br>#{@mini_program_line}</p>
+    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
     <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
     </div>
     </div>

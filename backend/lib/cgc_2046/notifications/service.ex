@@ -22,7 +22,8 @@ defmodule Cgc2046.Notifications.Service do
              uid,
              template_id,
              render(platform, template_key, data),
-             template_key
+             template_key,
+             data
            ) do
         :ok ->
           :ok

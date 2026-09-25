@@ -512,29 +512,7 @@ defmodule Cgc2046.Courses.Course do
 
       # DB 级 compare-and-set（复审：并发双 launch 会双信号）——before_action
       # 内条件 UPDATE 抢占 draft→open，后到者 num_rows=0 拒绝。
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :draft ->
-              case status_transition(cs, :open) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :open)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "launch failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot launch from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :draft, to: :open})
 
       change(
         {Cgc2046.Workflows.SignalEmitter,
@@ -566,29 +544,7 @@ defmodule Cgc2046.Courses.Course do
       require_atomic?(false)
       accept([])
 
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :open ->
-              case status_transition(cs, :closed) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :closed)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "close failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot close from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :open, to: :closed})
 
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
@@ -626,29 +582,7 @@ defmodule Cgc2046.Courses.Course do
       require_atomic?(false)
       accept([])
 
-      change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, fn cs ->
-          case Ash.Changeset.get_data(cs, :status) do
-            :open ->
-              case status_transition(cs, :cancelled) do
-                :ok ->
-                  Ash.Changeset.force_change_attribute(cs, :status, :cancelled)
-
-                {:error, :status_race} ->
-                  Ash.Changeset.add_error(
-                    cs,
-                    "cancel failed: status changed concurrently, retry on fresh read"
-                  )
-
-                {:error, {:database, _} = reason} ->
-                  Ash.Changeset.add_error(cs, reason)
-              end
-
-            status ->
-              Ash.Changeset.add_error(cs, "cannot cancel from status=#{status}")
-          end
-        end)
-      end)
+      change({StatusTransition.Change, from: :open, to: :cancelled})
 
       # course.ended 经 SignalEmitter 事务内 outbox 入队：job 与课程终态同事务提交，
       # 入队失败回滚可安全重试；CAS 失败路径不到 after_action，不产生孤儿 job。
@@ -946,10 +880,6 @@ defmodule Cgc2046.Courses.Course do
   end
 
   def published_content(%__MODULE__{}, _workspace_id), do: nil
-
-  # 状态机 CAS 委托根部共享写原语（ADR-0009 D5 迁出 offering/，KTD2）。
-  defp status_transition(changeset, to_status),
-    do: StatusTransition.run(changeset, :courses, to_status)
 
   # create/update error_handler（#619）：撞 slug 的唯一索引冲突转稳定业务错误
   # course_slug_taken（Initiative #604 / Event #619 同款）。按索引名分派
