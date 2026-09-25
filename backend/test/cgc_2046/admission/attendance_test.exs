@@ -531,6 +531,40 @@ defmodule Cgc2046.Admission.AttendanceTest do
                |> Enum.filter(&(&1.args["order_id"] == order.id))
     end
 
+    # 审查 R2 阻断 2 同款断言（A 侧）：竞态未收敛时核销以 {:error, …} 收场
+    # （code 不丢失），Attendance 不落库、无 job——与 B 侧 rollback 形状一致
+    test "竞态未收敛 → 核销 {:error, order_already_processed} 回滚：不落库、订单留 paid、无 job" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      event = deposit_event(workspace, owner, capacity: 1)
+      moderator = assign_moderator(event, workspace, owner, "u6-race-stuck-moderator")
+      {_learner, enrollment, order} = confirmed_deposit_enrollment(event, workspace)
+
+      # 只吞 claim、不推进（重读仍 paid = 未收敛）
+      Cgc2046.Repo.query!(
+        ~s{CREATE OR REPLACE FUNCTION cgc_race_stuck_fn() RETURNS trigger AS } <>
+          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
+      )
+
+      Cgc2046.Repo.query!(
+        ~s{CREATE TRIGGER race_stuck BEFORE UPDATE ON payments_orders FOR EACH ROW } <>
+          ~s{WHEN (OLD.id = '#{order.id}' AND OLD.status = 'paid' AND NEW.status = 'refunding') } <>
+          ~s{EXECUTE FUNCTION cgc_race_stuck_fn();}
+      )
+
+      assert {:error,
+              %Ash.Error.Invalid{
+                errors: [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}]
+              }} = check_in(event, enrollment.check_in_code, :manual, moderator)
+
+      assert attendance_count(enrollment.id) == 0
+      assert reload_order(order).status == :paid
+      assert refund_audit_logs(order.id) == []
+
+      assert [] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+    end
+
     test "免费场核销：只记到场，不入退款链" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
       event = EventFixtures.create_event(workspace, owner, %{capacity: 1})

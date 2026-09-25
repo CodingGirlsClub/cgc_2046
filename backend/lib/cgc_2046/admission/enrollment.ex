@@ -1154,24 +1154,26 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp commence_order_refund(order, enrollment) do
     # 退款发起单一入口（#845）：分类与竞态收敛在 RefundCommencement；入队由
-    # Order action 的 after_action 承担（同事务恰好一次）。失败必须 raise 型：
-    # Ash 3.33 的 after_action 返回 `{:error, _}` 会**提交**事务
-    # （`transaction_rollback_on_error?` 未设），那样会留下「报名已取消、押金单
-    # 仍 paid/refunding 且无退款 job」的静默吞钱（U6/KTD6 纪律）。
+    # Order action 的 after_action 承担（同事务恰好一次）。失败必须回滚事务：
+    # after_action 返回 `{:error, _}` 会**提交**（`transaction_rollback_on_error?`
+    # 未设），那样会留下「报名已取消、押金单仍 paid/refunding 且无退款 job」
+    # 的静默吞钱（U6/KTD6 纪律）——用 Ash.DataLayer.rollback 回滚且保持对外
+    # `{:error, …}` 形状（raise 会被 AshGraphql 降级成 something_went_wrong，
+    # code 丢失，R2 阻断 2）。
     case Cgc2046.Payments.RefundCommencement.commence(order, eligible: [:paid, :refund_failed]) do
       {:ok, _tag} ->
         {:ok, enrollment}
 
       # R1-#1 修复后本分支可达：重读可能读到 forfeited（no-show 结算抢先）等
-      # 不可发起状态——与「截止前/开始前取消应全退」冲突，fail-closed 上抛
-      # 回滚取消，绝不静默留钱。
+      # 不可发起状态——与「截止前/开始前取消应全退」冲突，fail-closed 回滚
+      # 取消，绝不静默留钱。
       {:error, {:ineligible, status}} ->
-        raise "refund commencement ineligible (#{status}) for order #{order.id}"
+        Ash.DataLayer.rollback(enrollment, {:ineligible, status})
 
-      # 竞态重读仍未收敛 / DB 故障：上抛回滚取消。错误原样透传（含 CAS 的
+      # 竞态重读仍未收敛 / DB 故障：回滚取消。错误原样透传（含 CAS 的
       # order_already_processed），与迁移前 cancel 的对外错误形状一致。
       {:error, reason} ->
-        raise reason
+        Ash.DataLayer.rollback(enrollment, reason)
     end
   end
 
