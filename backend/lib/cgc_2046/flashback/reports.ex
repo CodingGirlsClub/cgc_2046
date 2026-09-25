@@ -149,28 +149,16 @@ defmodule Cgc2046.Flashback.Reports do
   @spec set_author_credit_required(Wish.t(), DateTime.t()) ::
           {:ok, User.t()} | {:error, term()} | :noop
   def set_author_credit_required(wish, timestamp) do
-    case Repo.query(
-           "SELECT user_id FROM flashback_people WHERE id = $1",
-           [Repo.uuid!(wish.person_id)]
-         ) do
-      {:ok, %{rows: [[nil]]}} ->
+    case Cgc2046.Flashback.WishAuthors.user_id(wish) do
+      nil ->
         :noop
 
-      {:ok, %{rows: [[user_id]]}} ->
-        # User resource 无 :update action（ash_authentication 控制）——直接 SQL
-        # UPDATE；already-set 不动（credit chronology 保持）。
-        {:ok, _} =
-          Repo.query(
-            """
-            UPDATE users SET wishes_review_required_at = $1
-            WHERE id = $2 AND wishes_review_required_at IS NULL
-            """,
-            [timestamp, user_id]
-          )
+      user_id ->
+        Repo.query!(
+          "UPDATE users SET wishes_review_required_at=$1 WHERE id=$2 AND wishes_review_required_at IS NULL",
+          [timestamp, Repo.uuid!(user_id)]
+        )
 
-        :noop
-
-      _ ->
         :noop
     end
   end
@@ -227,7 +215,7 @@ defmodule Cgc2046.Flashback.Reports do
     |> Ash.read!(authorize?: false, page: false, load: [:person])
     |> Enum.map(fn wish ->
       user_contact =
-        case wish.person.user_id do
+        case Cgc2046.Flashback.WishAuthors.user_id(wish) do
           nil ->
             nil
 
@@ -243,7 +231,7 @@ defmodule Cgc2046.Flashback.Reports do
 
       %{
         wish: wish,
-        wisher_masked: AlumniProjection.masked_name(wish.person),
+        wisher_masked: if(wish.person, do: AlumniProjection.masked_name(wish.person), else: "匿名"),
         # **仅 admin**，GraphQL 公开禁出
         wisher_user_contact: user_contact
       }

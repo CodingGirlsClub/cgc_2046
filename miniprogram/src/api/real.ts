@@ -870,6 +870,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       signatureChoice?: 'anonymous' | 'display_name'
       expectedCity?: string | null
       publicListingConsent?: boolean
+      requestId?: string
     }
   ): Promise<{ id: string; status: string }> {
     const data = await graphqlRequest<FlashbackCreateWishMutation, FlashbackCreateWishMutationVariables>(
@@ -880,7 +881,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         token: token ?? null,
         signatureChoice: options?.signatureChoice ?? null,
         expectedCity: options?.expectedCity ?? null,
-        publicListingConsent: options?.publicListingConsent ?? false
+        publicListingConsent: options?.publicListingConsent ?? false,
+        requestId: options?.requestId ?? null
       }
     ).catch((error: unknown) => {
       throwIfFlashbackTokenInvalid(error)

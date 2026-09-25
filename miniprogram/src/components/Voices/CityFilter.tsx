@@ -5,6 +5,7 @@ import type { VoiceCity } from '@/domain/flashback-voices'
 import styles from './city-filter.module.css'
 
 type Props = {
+  contentKind?: '金句' | '愿望'
   cities: VoiceCity[]
   selected: string | null
   loading: boolean
@@ -13,7 +14,7 @@ type Props = {
   onChange: (city: string | null) => void
 }
 
-export function VoiceCityFilter({ cities, selected, loading, error, retry, onChange }: Props) {
+export function VoiceCityFilter({ contentKind = '金句', cities, selected, loading, error, retry, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const [scrollLeft, setScrollLeft] = useState(0)
   const position = useRef(0)
@@ -56,13 +57,13 @@ export function VoiceCityFilter({ cities, selected, loading, error, retry, onCha
     {open && <View className={styles.cityMask} catchMove onClick={() => setOpen(false)}>
       <View className={styles.citySheet} onClick={event => event.stopPropagation()}>
         <View className={styles.sheetHeading}>
-          <View><Text className={styles.sheetTitle}>选择城市</Text><Text className={styles.sheetHint}>有公开金句的城市 · 按拼音排列</Text></View>
+          <View><Text className={styles.sheetTitle}>选择城市</Text><Text className={styles.sheetHint}>有公开{contentKind}的城市 · 按拼音排列</Text></View>
           <Button className={styles.closeCities} ariaLabel='关闭城市选择' onClick={() => setOpen(false)}>关闭</Button>
         </View>
         {loading ? <Text className={styles.cityState}>正在加载城市…</Text> : error ? <View className={styles.cityState}>
           <Text>城市暂时未能加载</Text><Button className={styles.retryCities} onClick={retry}>重新加载</Button>
         </View> : <>
-          {cities.length === 0 && <Text className={styles.cityState}>还没有公开金句的城市</Text>}
+          {cities.length === 0 && <Text className={styles.cityState}>还没有公开{contentKind}的城市</Text>}
           <ScrollView className={styles.cityGridScroll} scrollY showScrollbar={false} scrollIntoView={`voice-grid-${index}`}
             style={{ height: `${Math.ceil(names.length / 4) * 104}rpx` }}>
             <View className={styles.cityGrid}>

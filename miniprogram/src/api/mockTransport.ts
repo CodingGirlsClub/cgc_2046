@@ -231,6 +231,9 @@ interface FlashbackMockState {
     signature: string
     insertedAt: string
     listedAt: string | null
+    requestId?: string
+    requestFingerprint?: string
+    pendingReview?: boolean
     deleted: boolean
     mine: boolean
     /** #837 回响 mock 样例;空数组 = 无回响。按首次发布时间正序 */
@@ -570,6 +573,19 @@ function updateFlashbackState(patch: (state: FlashbackMockState) => FlashbackMoc
 function wishEndorsementCount(state: FlashbackMockState, wishId: string): number {
   const otherPeople = wishId === 'w-1' ? 5 : wishId === 'w-2' ? 1 : 0
   return otherPeople + Number(state.endorsedWishIds.includes(wishId))
+}
+
+function publicWishRows(state: FlashbackMockState) {
+  return state.wishes.filter(w => w.visibility === 'public' && !!w.listedAt && !w.deleted && !w.pendingReview)
+    .map(w => {
+      const echoes = (w.echoes ?? []).filter(e => e.status === 'published' || e.status === 'corrected')
+      return { id: w.id, content: w.content, city: w.city, signature: w.signature,
+        expectationCount: 2 + Number(state.expectedWishIds.includes(w.id)),
+        endorsementCount: wishEndorsementCount(state, w.id), contributionDistribution: {},
+        expectedByViewer: state.expectedWishIds.includes(w.id), endorsedByViewer: state.endorsedWishIds.includes(w.id),
+        latestEcho: echoes[echoes.length - 1] ?? null, echoCount: echoes.length, echoes,
+        listedAt: w.listedAt, insertedAt: w.insertedAt }
+    })
 }
 
 function wishQuotaRemaining(state: FlashbackMockState): number {
@@ -1434,17 +1450,38 @@ function responseFor(document: string, variables: object): unknown {
   }
   // ── wish2 U9（#790 补齐）：愿望写面四 mutation + 期待/举报 + viewer 读面 ──
 
-  if (document.includes('mutation FlashbackCreateWish')) {
+  if (document.includes('query FlashbackMyWishes')) {
+    if (!loggedIn) return { errors: [{ message: '请先登录', code: 'flashback_auth_required' }] }
     const state = flashbackState()
+    return { flashbackMyWishes: { quotaRemaining: wishQuotaRemaining(state),
+      wishes: state.wishes.filter(w => w.mine && !w.deleted).map(w => ({ ...w,
+        status: w.pendingReview ? 'pending_review' : w.listedAt ? 'listed' : 'private'
+      })) } }
+  }
+  if (document.includes('mutation FlashbackCreateWish')) {
+    if (!loggedIn && !values.token) return { errors: [{ message: '请先登录', code: 'flashback_auth_required' }] }
+    const state = flashbackState()
+    const requestId = typeof values.requestId === 'string' ? values.requestId : undefined
+    const requestFingerprint = JSON.stringify([values.content, values.visibility, values.expectedCity, values.signatureChoice, values.publicListingConsent])
+    const replay = requestId ? state.wishes.find(w => w.requestId === requestId) : null
+    if (replay) {
+      if (replay.requestFingerprint !== requestFingerprint) return { errors: [{ message: '提交内容已改变', code: 'flashback_wish_request_conflict' }] }
+      return { flashbackCreateWish: { id: replay.id, endorsementCount: 0, endorsedByMe: false, status: replay.pendingReview ? 'pending_review' : replay.listedAt ? 'listed' : 'private' } }
+    }
+    if (!String(values.content ?? '').trim() || Array.from(String(values.content).trim()).length > 500) return { errors: [{ message: '请填写 1 至 500 字的愿望', code: 'flashback_wish_invalid_content' }] }
     if (wishQuotaRemaining(state) === 0) {
       return { errors: [{ message: '今年的许愿名额已用完（每年最多 3 条）。', code: 'flashback_wish_quota_exceeded' }] }
     }
     const visibility: 'public' | 'private' = values.visibility === 'private' ? 'private' : 'public'
     const insertedAt = new Date().toISOString()
-    const listedAt = visibility === 'public' && values.publicListingConsent === true ? insertedAt : null
+    const pendingReview = visibility === 'public' && values.publicListingConsent === true && e2eFlag('cgc.e2e.wish_review_required')
+    const listedAt = !pendingReview && visibility === 'public' && values.publicListingConsent === true ? insertedAt : null
     const id = `mw-${state.wishes.length + 1}`
     const wish = {
       id,
+      requestId,
+      requestFingerprint,
+      pendingReview,
       content: String(values.content ?? ''),
       visibility,
       city: typeof values.expectedCity === 'string' && values.expectedCity ? values.expectedCity : '北京',
@@ -1458,7 +1495,7 @@ function responseFor(document: string, variables: object): unknown {
     }
     updateFlashbackState((s) => ({ ...s, wishes: [wish, ...state.wishes] }))
     // wish2 U10：三态返回——公开+consent=listed（mock 无信用门），private=private
-    const status = listedAt ? 'listed' : 'private'
+    const status = pendingReview ? 'pending_review' : listedAt ? 'listed' : 'private'
     return { flashbackCreateWish: { id, endorsementCount: 0, endorsedByMe: false, status } }
   }
   if (document.includes('query FlashbackCities')) {
@@ -1511,6 +1548,7 @@ function responseFor(document: string, variables: object): unknown {
     return { flashbackAddWishComment: { endorsementCount: wishEndorsementCount(flashbackState(), wishId), endorsedByMe: flashbackState().endorsedWishIds.includes(wishId) } }
   }
   if (document.includes('mutation FlashbackDeleteWish')) {
+    if (!loggedIn && !values.token) return { errors: [{ message: '请先登录', code: 'flashback_auth_required' }] }
     const state = flashbackState()
     const wishId = String(values.wishId ?? '')
     const wish = state.wishes.find((item) => item.id === wishId)
@@ -1541,33 +1579,23 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('mutation FlashbackReportWish')) {
     return { flashbackReportWish: { reportId: `rep-${Date.now()}`, status: 'pending' } }
   }
+  if (document.includes('query FlashbackWishCities')) {
+    const names = new Set(publicWishRows(flashbackState()).map(w => w.city))
+    const data = responseFor('query FlashbackCities', {}) as { flashbackCities: Array<{ name: string; pinyin: string; lngLat: number[] }> }
+    return { flashbackWishCities: data.flashbackCities.filter(c => names.has(c.name)).sort((a,b) => a.pinyin.localeCompare(b.pinyin)) }
+  }
+  if (document.includes('query FlashbackPublicWish(')) {
+    return { flashbackPublicWish: publicWishRows(flashbackState()).find(w => w.id === values.wishId) ?? null }
+  }
   if (document.includes('query FlashbackPublicWishes')) {
-    const state = flashbackState()
-    const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
-    return {
-      flashbackPublicWishes: state.wishes
-        .filter((w) => w.visibility === 'public' && w.listedAt !== null && !w.deleted && (!cityFilter || w.city === cityFilter))
-        .map((w) => {
-          // #837 回响投影对齐 real 读面:latestEcho/echoCount/echoes
-          const echoes = w.echoes ?? []
-          return {
-            id: w.id,
-            content: w.content,
-            city: w.city,
-            signature: w.signature,
-            expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
-            endorsementCount: wishEndorsementCount(state, w.id),
-            contributionDistribution: {},
-            expectedByViewer: state.expectedWishIds.includes(w.id),
-            endorsedByViewer: state.endorsedWishIds.includes(w.id),
-            latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
-            echoCount: echoes.length,
-            echoes,
-            listedAt: w.insertedAt,
-            insertedAt: w.insertedAt
-          }
-        })
+    let rows = publicWishRows(flashbackState()).filter(w => (!values.city || !w.city || w.city === values.city) && (!values.withEchoes || w.echoCount > 0))
+    if (values.seed && rows.length) {
+      const shift = Array.from(String(values.seed)).reduce((n, c) => n + c.charCodeAt(0), 0) % rows.length
+      rows = [...rows.slice(shift), ...rows.slice(0, shift)]
     }
+    const offset = Math.max(0, Number(values.offset) || 0)
+    const limit = Math.max(1, Math.min(120, Number(values.limit) || 60))
+    return { flashbackPublicWishes: rows.slice(offset, offset + limit) }
   }
   if (document.includes('mutation FlashbackSetCardSharing')) {
     // #771：本人可调开关。要求登录（会话腿）或有效 token（链接腿）——匿名不给
