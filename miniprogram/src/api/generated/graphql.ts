@@ -1338,3 +1338,41 @@ export type CreateVolunteerApplicationMutationVariables = Exact<{
 
 
 export type CreateVolunteerApplicationMutation = { createVolunteerApplication: { result: { id: string, cohortId: string, position: string, city: string | null, heardAboutUs: string | null, hasInternalReferrer: boolean, message: string | null, status: string, rejectionReason: string | null, assignedEventId: string | null, assignmentNote: string | null, assignedAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } | null };
+
+export type FlashbackVoicesQueryVariables = Exact<{
+  voterKey?: string | null | undefined;
+  city?: string | null | undefined;
+}>;
+
+
+export type FlashbackVoicesQuery = { flashbackPublicQuotes: Array<{ quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null }> };
+
+export type FlashbackVoiceQueryVariables = Exact<{
+  quoteId: string | number;
+  voterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackVoiceQuery = { flashbackPublicQuote: { quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null } | null };
+
+export type FlashbackRandomVoicesQueryVariables = Exact<{
+  voterKey?: string | null | undefined;
+  limit?: number | null | undefined;
+}>;
+
+
+export type FlashbackRandomVoicesQuery = { flashbackRandomQuotes: Array<{ quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null }> };
+
+export type FlashbackLikeVoiceMutationVariables = Exact<{
+  quoteId: string | number;
+  voterKey: string;
+  liked: boolean;
+}>;
+
+
+export type FlashbackLikeVoiceMutation = { flashbackLikeQuote: { likeCount: number } | null };
+
+export type FlashbackVoiceCitiesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackVoiceCitiesQuery = { flashbackVoiceCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };

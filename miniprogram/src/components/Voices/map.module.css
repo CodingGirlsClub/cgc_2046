@@ -1,0 +1,10 @@
+.map { position: relative; width: 100%; padding-bottom: 0; background: #efefe2; }
+.scene { position: relative; height: 540rpx; }
+.terrain { display: block; width: 100%; height: 540rpx; }
+.islands { position: absolute; top: 506rpx; left: 83%; font-size: 16rpx; color: #5b7065; }
+.pin { position: absolute; width: 16rpx; height: 16rpx; transform: translate(-50%, -50%); pointer-events: none; }
+.dot { width: 14rpx; height: 14rpx; border-radius: 50%; background: #31574c; border: 3rpx solid #fff9da; box-sizing: border-box; }
+.selected .dot { background: #c18b2e; box-shadow: 0 0 20rpx 8rpx rgba(237,190,103,.6); }
+.label { position: absolute; left: 19rpx; top: -6rpx; font: 23rpx 'Songti SC', 'STSong', serif; white-space: nowrap; color: #173f33; text-shadow: 0 0 8rpx #fffefa; }
+.hangzhou { top: 22rpx; }
+.shanghai { top: -28rpx; }

@@ -1,3 +1,4 @@
+import { mockVoicesRequest } from './mockVoices.ts'
 import type { RequestDocument } from 'graphql-request'
 // 相对 + 显式 .ts：mockTransport 同时被 node --experimental-strip-types 直接加载
 // （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
@@ -229,6 +230,7 @@ interface FlashbackMockState {
     city: string | null
     signature: string
     insertedAt: string
+    listedAt: string | null
     deleted: boolean
     mine: boolean
     /** #837 回响 mock 样例;空数组 = 无回响。按首次发布时间正序 */
@@ -265,6 +267,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       city: '北京',
       signature: '李**',
       insertedAt: '2026-09-17T00:00:00Z',
+      listedAt: '2026-09-17T00:00:00Z',
       deleted: false,
       mine: false,
       // #837 多条回响+l+ 一场 corrected —— 验证「全部 N 条回响」展开态与已更正徽标
@@ -280,6 +283,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       city: '上海',
       signature: '陈*',
       insertedAt: '2026-09-18T00:00:00Z',
+      listedAt: '2026-09-18T00:00:00Z',
       deleted: false,
       mine: false,
       // #837 单条回响 —— 默认渲染,无需展开
@@ -294,6 +298,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       city: '北京',
       signature: '我',
       insertedAt: '2026-09-18T00:00:00Z',
+      listedAt: null,
       deleted: false,
       mine: true,
       // #837 无回响 —— 不渲染回响卡,不显示「有回响」徽章
@@ -348,7 +353,8 @@ function loadFlashbackState(): FlashbackMockState {
       (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string') &&
       // wish2 U9：旧快照（wishes 出现前）缺字段 → 整体回落（等价于该设备从没写过愿望）
       Array.isArray(parsed.wishes) &&
-      parsed.wishes.every((wish) => typeof wish.mine === 'boolean') &&
+      parsed.wishes.every((wish) => typeof wish.mine === 'boolean' &&
+        (wish.listedAt === null || typeof wish.listedAt === 'string')) &&
       Array.isArray(parsed.endorsedWishIds) &&
       Array.isArray(parsed.expectedWishIds) &&
       typeof parsed.wishComments === 'object' &&
@@ -1434,6 +1440,8 @@ function responseFor(document: string, variables: object): unknown {
       return { errors: [{ message: '今年的许愿名额已用完（每年最多 3 条）。', code: 'flashback_wish_quota_exceeded' }] }
     }
     const visibility: 'public' | 'private' = values.visibility === 'private' ? 'private' : 'public'
+    const insertedAt = new Date().toISOString()
+    const listedAt = visibility === 'public' && values.publicListingConsent === true ? insertedAt : null
     const id = `mw-${state.wishes.length + 1}`
     const wish = {
       id,
@@ -1441,7 +1449,8 @@ function responseFor(document: string, variables: object): unknown {
       visibility,
       city: typeof values.expectedCity === 'string' && values.expectedCity ? values.expectedCity : '北京',
       signature: values.signatureChoice === 'display_name' ? '王小明' : '王**',
-      insertedAt: new Date().toISOString(),
+      insertedAt,
+      listedAt,
       deleted: false,
       mine: true,
       // #837 新许愿无回响;由后续 admin 流程再加
@@ -1449,7 +1458,7 @@ function responseFor(document: string, variables: object): unknown {
     }
     updateFlashbackState((s) => ({ ...s, wishes: [wish, ...state.wishes] }))
     // wish2 U10：三态返回——公开+consent=listed（mock 无信用门），private=private
-    const status = visibility === 'public' && values.publicListingConsent === true ? 'listed' : 'private'
+    const status = listedAt ? 'listed' : 'private'
     return { flashbackCreateWish: { id, endorsementCount: 0, endorsedByMe: false, status } }
   }
   if (document.includes('query FlashbackCities')) {
@@ -1504,9 +1513,9 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('mutation FlashbackDeleteWish')) {
     const state = flashbackState()
     const wishId = String(values.wishId ?? '')
-    if (!state.wishes.some((wish) => wish.id === wishId && wish.mine && !wish.deleted)) {
-      return { errors: [{ message: '只有本人可以删除自己的愿望', code: 'flashback_wish_not_owned' }] }
-    }
+    const wish = state.wishes.find((item) => item.id === wishId)
+    if (!wish) return { errors: [{ message: '愿望不存在', code: 'flashback_wish_not_found' }] }
+    if (!wish.mine) return { errors: [{ message: '只有本人可以删除自己的愿望', code: 'flashback_forbidden_wish' }] }
     updateFlashbackState((s) => ({
       ...s,
       wishes: state.wishes.map((w) => (w.id === wishId ? { ...w, deleted: true } : w))
@@ -1537,7 +1546,7 @@ function responseFor(document: string, variables: object): unknown {
     const cityFilter = typeof values.city === 'string' && values.city ? values.city : null
     return {
       flashbackPublicWishes: state.wishes
-        .filter((w) => w.visibility === 'public' && !w.deleted && (!cityFilter || w.city === cityFilter))
+        .filter((w) => w.visibility === 'public' && w.listedAt !== null && !w.deleted && (!cityFilter || w.city === cityFilter))
         .map((w) => {
           // #837 回响投影对齐 real 读面:latestEcho/echoCount/echoes
           const echoes = w.echoes ?? []
@@ -1547,7 +1556,7 @@ function responseFor(document: string, variables: object): unknown {
             city: w.city,
             signature: w.signature,
             expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
-            endorsementCount: state.endorsedWishIds.includes(w.id) ? 1 : 0,
+            endorsementCount: wishEndorsementCount(state, w.id),
             contributionDistribution: {},
             expectedByViewer: state.expectedWishIds.includes(w.id),
             endorsedByViewer: state.endorsedWishIds.includes(w.id),
@@ -1654,5 +1663,5 @@ function responseFor(document: string, variables: object): unknown {
 }
 
 export function mockGraphQLRequest<TData>(document: RequestDocument, variables: object): TData {
-  return responseFor(String(document), variables) as TData
+  return (mockVoicesRequest(String(document), variables) ?? responseFor(String(document), variables)) as TData
 }
