@@ -230,6 +230,14 @@ interface FlashbackMockState {
     signature: string
     insertedAt: string
     deleted: boolean
+    /** #837 回响 mock 样例;空数组 = 无回响。按首次发布时间正序 */
+    echoes: Array<{
+      id: string
+      content: string
+      status: 'published' | 'corrected'
+      publishedAt: string
+      correctedAt: string | null
+    }>
   }>
   /** 本人已附议的愿望 id（mock 单设备单账号语义） */
   endorsedWishIds: string[]
@@ -249,9 +257,44 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   endorsedCardIds: [],
   cardSharing: { enabled: false, shareId: null },
   wishes: [
-    { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', visibility: 'public', city: '北京', signature: '李**', insertedAt: '2026-09-17T00:00:00Z', deleted: false },
-    { id: 'w-2', content: '开一门 Rust 系统课', visibility: 'public', city: '上海', signature: '陈*', insertedAt: '2026-09-18T00:00:00Z', deleted: false },
-    { id: 'pw-1', content: '想学 Rust(私人)', visibility: 'private', city: '北京', signature: '我', insertedAt: '2026-09-18T00:00:00Z', deleted: false }
+    {
+      id: 'w-1',
+      content: '一起出一本书:《她们的第一行代码》',
+      visibility: 'public',
+      city: '北京',
+      signature: '李**',
+      insertedAt: '2026-09-17T00:00:00Z',
+      deleted: false,
+      // #837 多条回响+l+ 一场 corrected —— 验证「全部 N 条回响」展开态与已更正徽标
+      echoes: [
+        { id: 'e-1a', content: '书名想好了,叫《她的编译器》。第一章已写完,发给三位老学员看过。', status: 'published', publishedAt: '2026-09-20T08:30:00Z', correctedAt: null },
+        { id: 'e-1b', content: '签约了!明年 3 月出版,稿费 10% 捐给 CGC 奖学金。', status: 'corrected', publishedAt: '2026-09-22T10:00:00Z', correctedAt: '2026-09-22T14:00:00Z' }
+      ]
+    },
+    {
+      id: 'w-2',
+      content: '开一门 Rust 系统课',
+      visibility: 'public',
+      city: '上海',
+      signature: '陈*',
+      insertedAt: '2026-09-18T00:00:00Z',
+      deleted: false,
+      // #837 单条回响 —— 默认渲染,无需展开
+      echoes: [
+        { id: 'e-2a', content: '已经开始备课了,先做 4 期免费直播试试水。', status: 'published', publishedAt: '2026-09-21T09:00:00Z', correctedAt: null }
+      ]
+    },
+    {
+      id: 'pw-1',
+      content: '想学 Rust(私人)',
+      visibility: 'private',
+      city: '北京',
+      signature: '我',
+      insertedAt: '2026-09-18T00:00:00Z',
+      deleted: false,
+      // #837 无回响 —— 不渲染回响卡,不显示「有回响」徽章
+      echoes: []
+    }
   ],
   endorsedWishIds: ['w-2'],
   expectedWishIds: [],
@@ -577,6 +620,7 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('query PublicInitiative(')) {
     // 1024 横幅(R9)指向 hackerstart1024(dev/prod 真实 slug);mock 归一到样例卡
     const knownSlugs = [initiativeCard.slug, 'hackerstart1024']
+    const state = flashbackState()
     if (typeof values.slug !== 'string' || !knownSlugs.includes(values.slug)) return { publicInitiative: null }
     return {
       publicInitiative: {
@@ -599,13 +643,44 @@ function responseFor(document: string, variables: object): unknown {
             ]
           }
         ],
-        publicWishes: [
-          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
-          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
-        ],
-        myPrivateWishes: [
-          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
-        ],
+        // #837 从 state.wishes 投影,回响样例与 FlashbackPublicWishes 一致流通
+        publicWishes: state.wishes
+          .filter((w) => w.visibility === 'public' && !w.deleted)
+          .map((w) => {
+            const echoes = w.echoes ?? []
+            return {
+              id: w.id,
+              content: w.content,
+              city: w.city,
+              wisherMasked: w.signature,
+              endorsementCount: w.id === 'w-1' ? 5 : w.id === 'w-2' ? 2 : 0,
+              endorsedByMe: state.endorsedWishIds.includes(w.id),
+              mine: false,
+              comments: w.id === 'w-1' ? [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }] : [],
+              latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
+              echoCount: echoes.length,
+              echoes,
+              insertedAt: w.insertedAt
+            }
+          }),
+        myPrivateWishes: state.wishes
+          .filter((w) => w.visibility === 'private' && !w.deleted)
+          .map((w) => {
+            return {
+              id: w.id,
+              content: w.content,
+              city: w.city,
+              wisherMasked: null,
+              endorsementCount: 0,
+              endorsedByMe: false,
+              mine: true,
+              comments: [],
+              latestEcho: null,
+              echoCount: 0,
+              echoes: [],
+              insertedAt: w.insertedAt
+            }
+          }),
         cities: [{ city: '北京', events: [initiativeEvent] }]
       }
     }
@@ -1091,13 +1166,44 @@ function responseFor(document: string, variables: object): unknown {
             ]
           }
         ],
-        publicWishes: [
-          { id: 'w-1', content: '一起出一本书:《她们的第一行代码》', city: '北京', wisherMasked: '李**', endorsementCount: 5, endorsedByMe: false, mine: false, comments: [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }], insertedAt: '2026-09-17T00:00:00Z' },
-          { id: 'w-2', content: '开一门 Rust 系统课', city: '上海', wisherMasked: '陈*', endorsementCount: 2, endorsedByMe: true, mine: false, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
-        ],
-        myPrivateWishes: [
-          { id: 'pw-1', content: '想学 Rust(私人)', city: '北京', wisherMasked: null, endorsementCount: 0, endorsedByMe: false, mine: true, comments: [], insertedAt: '2026-09-18T00:00:00Z' }
-        ],
+        // #837 从 state.wishes 投影,回响样例与 FlashbackPublicWishes 一致流通
+        publicWishes: state.wishes
+          .filter((w) => w.visibility === 'public' && !w.deleted)
+          .map((w) => {
+            const echoes = w.echoes ?? []
+            return {
+              id: w.id,
+              content: w.content,
+              city: w.city,
+              wisherMasked: w.signature,
+              endorsementCount: w.id === 'w-1' ? 5 : w.id === 'w-2' ? 2 : 0,
+              endorsedByMe: state.endorsedWishIds.includes(w.id),
+              mine: false,
+              comments: w.id === 'w-1' ? [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }] : [],
+              latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
+              echoCount: echoes.length,
+              echoes,
+              insertedAt: w.insertedAt
+            }
+          }),
+        myPrivateWishes: state.wishes
+          .filter((w) => w.visibility === 'private' && !w.deleted)
+          .map((w) => {
+            return {
+              id: w.id,
+              content: w.content,
+              city: w.city,
+              wisherMasked: null,
+              endorsementCount: 0,
+              endorsedByMe: false,
+              mine: true,
+              comments: [],
+              latestEcho: null,
+              echoCount: 0,
+              echoes: [],
+              insertedAt: w.insertedAt
+            }
+          }),
         // R20 年度额度:mock 恒满额(许愿写面不入 mock,额度递减无 mock 投影)
         myWishQuotaRemaining: 3,
         cities: [
@@ -1307,7 +1413,9 @@ function responseFor(document: string, variables: object): unknown {
       city: typeof values.expectedCity === 'string' && values.expectedCity ? values.expectedCity : '北京',
       signature: values.signatureChoice === 'display_name' ? '王小明' : '王**',
       insertedAt: new Date().toISOString(),
-      deleted: false
+      deleted: false,
+      // #837 新许愿无回响;由后续 admin 流程再加
+      echoes: []
     }
     updateFlashbackState((s) => ({ ...s, wishes: [wish, ...state.wishes] }))
     // wish2 U10：三态返回——公开+consent=listed（mock 无信用门），private=private
@@ -1395,19 +1503,26 @@ function responseFor(document: string, variables: object): unknown {
     return {
       flashbackPublicWishes: state.wishes
         .filter((w) => w.visibility === 'public' && !w.deleted && (!cityFilter || w.city === cityFilter))
-        .map((w) => ({
-          id: w.id,
-          content: w.content,
-          city: w.city,
-          signature: w.signature,
-          expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
-          endorsementCount: state.endorsedWishIds.includes(w.id) ? 1 : 0,
-          contributionDistribution: {},
-          expectedByViewer: state.expectedWishIds.includes(w.id),
-          endorsedByViewer: state.endorsedWishIds.includes(w.id),
-          listedAt: w.insertedAt,
-          insertedAt: w.insertedAt
-        }))
+        .map((w) => {
+          // #837 回响投影对齐 real 读面:latestEcho/echoCount/echoes
+          const echoes = w.echoes ?? []
+          return {
+            id: w.id,
+            content: w.content,
+            city: w.city,
+            signature: w.signature,
+            expectationCount: state.expectedWishIds.includes(w.id) ? 1 : 0,
+            endorsementCount: state.endorsedWishIds.includes(w.id) ? 1 : 0,
+            contributionDistribution: {},
+            expectedByViewer: state.expectedWishIds.includes(w.id),
+            endorsedByViewer: state.endorsedWishIds.includes(w.id),
+            latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
+            echoCount: echoes.length,
+            echoes,
+            listedAt: w.insertedAt,
+            insertedAt: w.insertedAt
+          }
+        })
     }
   }
   if (document.includes('mutation FlashbackSetCardSharing')) {
