@@ -97,15 +97,23 @@ defmodule Cgc2046.Flashback.OutreachTest do
   # ── 通道选择（R11：全部/仅邮件/仅短信三档） ─────────────────────────
 
   describe "通道选择（R11 三档）" do
-    # 名册：2 email-only + 1 phone-only + 1 双通道
+    # 名册：2 email-only + 1 phone-only + 1 双通道（联系方式互不相同——
+    # campaign 去重语义下同联系方式者同批只收一封，共享默认值的合成数据会误中去重）。
     defp mixed_roster(archive) do
-      email_only_a = create_person(archive, full_name: "邮甲", phone: nil)
+      email_only_a =
+        create_person(archive, full_name: "邮甲", email: "youjia@example.com", phone: nil)
 
       email_only_b =
         create_person(archive, full_name: "邮乙", email: "youyi@example.com", phone: nil)
 
-      phone_only = create_person(archive, full_name: "短丙", email: nil)
-      both = create_person(archive, full_name: "双丁")
+      phone_only = create_person(archive, full_name: "短丙", email: nil, phone: "13900000002")
+
+      both =
+        create_person(archive,
+          full_name: "双丁",
+          email: "liangtong@example.com",
+          phone: "13900000003"
+        )
 
       {email_only_a, email_only_b, phone_only, both}
     end
@@ -313,6 +321,212 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert {:error, %{code: "flashback_invalid_input"}} =
                Dispatch.resend_for_person(person.id, "bogus_template")
+    end
+  end
+
+  # ── 联系方式 campaign 去重（批次边界 = batch 字符串全等） ──────────────
+
+  describe "联系方式 campaign 去重（同人跨 archive 只收一封）" do
+    test "同 email 已入队（queued）/已发出（sent）→ 同批次后入队跳过并计 deduped" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      sent_first = create_person(archive_a, full_name: "先发人")
+
+      dup_queued =
+        create_person(archive_b, full_name: "同箱人甲", email: @email, phone: "13900000055")
+
+      dup_sent = create_person(archive_b, full_name: "同箱人乙", email: @email, phone: "13900000066")
+
+      assert {1, 0, 0} = Dispatch.enqueue_persons([sent_first.id], "reconnect", batch)
+
+      # queued（已排定未发）即算命中——共享 batch 分段入队时不等发送完成就拦截
+      assert {0, 0, 1} = Dispatch.enqueue_persons([dup_queued.id], "reconnect", batch)
+      assert outreach_count(%{batch: batch}) == 1
+
+      # sent（成功触达）同样拦截
+      outreach_row!(sent_first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      assert {0, 0, 1} = Dispatch.enqueue_persons([dup_sent.id], "reconnect", batch)
+      assert outreach_count(%{batch: batch}) == 1
+    end
+
+    test "同 phone 命中同样去重（email 不同也拦）；phone 按归一口径比对" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      sent_first = create_person(archive_a, full_name: "先发人", email: "unrelated@example.com")
+      dup_phone = create_person(archive_b, full_name: "同机人", email: nil, phone: @phone)
+
+      assert {1, 0, 0} = Dispatch.enqueue_persons([sent_first.id], "reconnect", batch)
+
+      outreach_row!(sent_first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      # email 不同也无所谓——phone 命中已触达联系方式（另档仅有 phone 可走 sms）
+      assert {0, 0, 1} =
+               Dispatch.enqueue_persons([dup_phone.id], "reconnect", batch, :sms)
+
+      assert outreach_count(%{batch: batch}) == 1
+    end
+
+    test "failed（硬退信等）与退订人的历史行不算命中；独立批次互不影响" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      failed_person = create_person(archive_a, full_name: "退信人")
+
+      dup_after_failed =
+        create_person(archive_a, full_name: "同箱丙", email: @email, phone: "13900000077")
+
+      assert {1, 0, 0} = Dispatch.enqueue_persons([failed_person.id], "reconnect", batch)
+
+      outreach_row!(failed_person.id, :email)
+      |> Ash.Changeset.for_update(:mark_failed, %{detail: "hard bounce"})
+      |> Ash.update!(authorize?: false)
+
+      # failed 不算触达成功——同联系方式仍可入队
+      assert {1, 0, 0} = Dispatch.enqueue_persons([dup_after_failed.id], "reconnect", batch)
+
+      unsubbed = create_person(archive_b, full_name: "退订人", email: "unsub@example.com")
+      assert {1, 0, 0} = Dispatch.enqueue_persons([unsubbed.id], "reconnect", batch)
+      :ok = Dispatch.unsubscribe_person(unsubbed.id)
+
+      after_unsub =
+        create_person(archive_b,
+          full_name: "同箱丁",
+          email: "unsub@example.com",
+          phone: "13900000088"
+        )
+
+      # 退订人的行不承载「成功触达」语义——同邮箱新档可入队（未触及她的退订抑制）
+      assert {1, 0, 0} = Dispatch.enqueue_persons([after_unsub.id], "reconnect", batch)
+
+      # 独立批次互不去重：resend-* 任何时候都能补发
+      assert {:ok, %{queued: 1, batch: resend_batch}} =
+               Dispatch.resend_for_person(dup_after_failed.id, "reconnect")
+
+      refute resend_batch == batch
+    end
+
+    test "默认批次（archive-<key>）保持现状语义：跨 archive 批次互不感知" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+
+      first = create_person(archive_a, full_name: "先发档")
+
+      same_email_other_archive =
+        create_person(archive_b, full_name: "同箱档", email: @email, phone: "13900000099")
+
+      assert {:ok, %{queued: 1, deduped_within_campaign: 0}} =
+               Dispatch.enqueue_for_archive(archive_a.key, "reconnect")
+
+      outreach_row!(first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      # 默认批次互不相同 → 跨 archive 不去重（今晚全量发须显式共用 campaign batch）
+      assert {:ok, %{queued: 1, deduped_within_campaign: 0}} =
+               Dispatch.enqueue_for_archive(archive_b.key, "reconnect")
+
+      assert outreach_count(%{person_id: same_email_other_archive.id}) == 1
+    end
+
+    test "enqueue_for_archive 的 batch 覆盖：预设触达行 → 跳过并计 deduped_within_campaign" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      first = create_person(archive_a, full_name: "共批先发")
+      dup = create_person(archive_b, full_name: "共批同箱", email: @email, phone: "13900000033")
+
+      assert {:ok, %{queued: 1, skipped: 0, deduped_within_campaign: 0}} =
+               Dispatch.enqueue_for_archive(archive_a.key, "reconnect", :all, batch: batch)
+
+      outreach_row!(first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      assert {:ok, %{queued: 0, deduped_within_campaign: 1}} =
+               Dispatch.enqueue_for_archive(archive_b.key, "reconnect", :all, batch: batch)
+
+      assert outreach_count(%{person_id: dup.id}) == 0
+    end
+
+    test "preview 暴露 deduped_within_campaign 且与入队同源（batch 参数直达）" do
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      first = create_person(archive_a, full_name: "预览先发")
+      _dup = create_person(archive_b, full_name: "预览同箱", email: @email, phone: "13900000022")
+
+      assert {1, 0, 0} = Dispatch.enqueue_persons([first.id], "reconnect", batch)
+
+      outreach_row!(first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      assert {:ok, preview} = Cgc2046.Flashback.OutreachAdmin.preview(archive_b.key, :all, batch)
+      assert preview.deduped_within_campaign == 1
+
+      # 同名不同批次 → 零命中（批次边界钉死）
+      assert {:ok, default} = Cgc2046.Flashback.OutreachAdmin.preview(archive_b.key, :all)
+      assert default.deduped_within_campaign == 0
+    end
+
+    test "GraphQL：preview 暴露 dedupedWithinCampaign；send mutation 的 batch 直通并回传计数" do
+      %{token: token} = register_and_sign_in("campaign-graphql", :admin)
+
+      archive_a = create_archive()
+      archive_b = create_archive()
+      batch = "campaign-dedup-#{System.unique_integer([:positive])}"
+
+      first = create_person(archive_a, full_name: "面页先发")
+      _dup = create_person(archive_b, full_name: "面页同箱", email: @email, phone: "13900000011")
+
+      assert {1, 0, 0} = Dispatch.enqueue_persons([first.id], "reconnect", batch)
+
+      outreach_row!(first.id, :email)
+      |> Ash.Changeset.for_update(:mark_sent, %{})
+      |> Ash.update!(authorize?: false)
+
+      preview_query = """
+      {
+        flashbackOutreachPreview(archiveKey: "#{archive_b.key}", channel: "all", batch: "#{batch}") {
+          queued
+          dedupedWithinCampaign
+        }
+      }
+      """
+
+      assert %{"data" => %{"flashbackOutreachPreview" => preview}} =
+               post_graphql(preview_query, token)
+
+      assert preview["dedupedWithinCampaign"] == 1
+      assert preview["queued"] == 1
+
+      mutation = """
+      mutation {
+        flashbackAdminSendOutreach(archiveKey: "#{archive_b.key}", template: "reconnect", batch: "#{batch}") {
+          queued
+          skipped
+          dedupedWithinCampaign
+        }
+      }
+      """
+
+      assert %{"data" => %{"flashbackAdminSendOutreach" => result}} =
+               post_graphql(mutation, token)
+
+      assert result["queued"] == 0
+      assert result["dedupedWithinCampaign"] == 1
     end
   end
 
@@ -786,7 +1000,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
   end
 
   defp enqueue_one(person, template, extra \\ %{}) do
-    {1, _} = Dispatch.enqueue_persons([person.id], template, "test-batch")
+    {1, _, 0} = Dispatch.enqueue_persons([person.id], template, "test-batch")
     job = Enum.find(enqueued_outreach_jobs("test-batch"), &(&1.args["person_id"] == person.id))
     Map.merge(job.args, extra)
   end

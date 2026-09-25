@@ -11,6 +11,8 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
   """
 
   use Cgc2046.DataCase, async: false
+
+  require Ash.Query
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
@@ -47,9 +49,7 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
 
       assert reload_order(order).status == :expired
 
-      expired_notifs =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.filter(&(&1.args["template_key"] == "payment_expired"))
+      expired_notifs = delivery_jobs("payment_expired")
 
       assert Enum.any?(expired_notifs, &(&1.args["user_id"] == base.learner.id))
       assert Enum.any?(expired_notifs, &(&1.args["user_id"] == base.admin.id))
@@ -75,8 +75,7 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       assert :ok = perform_job(PaymentExpiryWorker, %{})
 
       assert [notif] =
-               all_enqueued(worker: NotificationWorker)
-               |> Enum.filter(&(&1.args["template_key"] == "payment_expired"))
+               delivery_jobs("payment_expired")
                |> Enum.filter(&(&1.args["user_id"] == base.learner.id))
 
       assert notif.args["data"]["re_enrollable"] == "false"
@@ -98,10 +97,8 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       assert reload_order(order).status == :expired
 
       notif =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.find(
-          &(&1.args["template_key"] == "payment_expired" and &1.args["user_id"] == base.learner.id)
-        )
+        delivery_jobs("payment_expired")
+        |> Enum.find(&(&1.args["user_id"] == base.learner.id))
 
       refute is_nil(notif)
       assert notif.args["data"]["re_enrollable"] == "true"
@@ -121,11 +118,8 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       assert reload_order(order2).status == :expired
 
       notif2 =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.find(
-          &(&1.args["template_key"] == "payment_expired" and
-              &1.args["user_id"] == base2.learner.id)
-        )
+        delivery_jobs("payment_expired")
+        |> Enum.find(&(&1.args["user_id"] == base2.learner.id))
 
       assert notif2.args["data"]["re_enrollable"] == "false"
     end
@@ -215,6 +209,22 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       |> Ash.update(tenant: order.workspace_id, authorize?: false)
 
     paid
+  end
+
+  # #847 批 2：资金类已迁耐久路径，行为面 = Delivery 行（伪 job 投影保持断言形状）
+  defp delivery_jobs(template_key) do
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "data" => &1.data
+        }
+      }
+    )
   end
 
   defp insert_identity(user_id, provider, uid) do

@@ -12,12 +12,12 @@ import {
 } from '@/domain/tab-routes'
 import styles from './index.module.css'
 
-interface Props { selected: TabKey }
+interface Props { selected: TabKey; tone?: 'ink' }
 
 // 裁剪端（抖音/小红书）：固定 2 Tab 漏斗，无工作台/我的
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
-export function AppTabBar({ selected }: Props) {
+export function AppTabBar({ selected, tone }: Props) {
   const [showWorkspace, setShowWorkspace] = useState(hasWorkspaceTab)
 
   // 藏原生 TabBar：本组件是自绘实现，原生那层必须藏掉，否则两层叠加。
@@ -45,7 +45,7 @@ export function AppTabBar({ selected }: Props) {
     : [...FULL_HEAD_TABS, ...(showWorkspace ? [WORKSPACE_TAB] : []), ...FULL_TAIL_TABS]
 
   return (
-    <View className={styles.bar}>
+    <View className={`${styles.bar} ${tone === 'ink' ? styles.ink : ''}`} >
       {tabs.map((tab) => (
         <View
           key={tab.key}
@@ -53,7 +53,7 @@ export function AppTabBar({ selected }: Props) {
           data-testid={`tab-${tab.key}`}
           onClick={() => Taro.switchTab({ url: tab.path })}
         >
-          <Text className={styles.icon}>{tab.icon}</Text>
+          <Text className={styles.icon}>{tone === 'ink' && tab.key === 'flashback' ? '✧' : tab.icon}</Text>
           <Text className={styles.text}>{tab.text}</Text>
         </View>
       ))}

@@ -13,6 +13,8 @@ defmodule Cgc2046.Payments.RefundTest do
   """
 
   use Cgc2046.DataCase, async: true
+
+  require Ash.Query
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
@@ -54,8 +56,7 @@ defmodule Cgc2046.Payments.RefundTest do
 
       # 双方通知：报名人 + workspace 管理者（R22）
       refund_notifs =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.filter(&(&1.args["template_key"] == "refund_succeeded"))
+        delivery_jobs("refund_succeeded")
 
       assert Enum.any?(refund_notifs, &(&1.args["user_id"] == setup.learner.id))
       assert Enum.any?(refund_notifs, &(&1.args["user_id"] == admin.id))
@@ -76,7 +77,7 @@ defmodule Cgc2046.Payments.RefundTest do
       assert reload_order(setup.order).status == :refund_failed
 
       assert Enum.any?(
-               all_enqueued(worker: NotificationWorker),
+               delivery_jobs("refund_failed"),
                &(&1.args["template_key"] == "refund_failed" and
                    &1.args["user_id"] == setup.learner.id)
              )
@@ -161,8 +162,7 @@ defmodule Cgc2046.Payments.RefundTest do
 
       # 通知恰好一轮（报名人 + 管理者各一条，重放不重复）
       assert [_one, _two] =
-               all_enqueued(worker: NotificationWorker)
-               |> Enum.filter(&(&1.args["template_key"] == "refund_succeeded"))
+               delivery_jobs("refund_succeeded")
                |> Enum.uniq_by(&{&1.args["user_id"], &1.args["identity_uid"]})
     end
 
@@ -315,6 +315,26 @@ defmodule Cgc2046.Payments.RefundTest do
       assert :ok = perform_job(PaymentRefundWorker, %{"order_id" => setup.order.id})
       assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :cancelled
       assert event_count(setup.event) == 0
+    end
+
+    # #845 D1：入队归 Order——start_refund 自带 after_action 入队（此前调用方
+    # 手动 Oban.insert!，B4 迁移后删除），CAS 失败无 after_action 不产生孤儿 job
+    test "start_refund 同事务入队退款 job 恰好一笔", ctx do
+      admin = Fixtures.platform_admin()
+      setup = paid_setup(ctx, admin, capacity: 1)
+
+      {:ok, refunding} =
+        setup.order
+        |> Ash.Changeset.for_update(:start_refund, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      assert refunding.status == :refunding
+
+      assert [%{args: %{"order_id" => order_id}}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == setup.order.id))
+
+      assert order_id == setup.order.id
     end
   end
 
@@ -555,6 +575,23 @@ defmodule Cgc2046.Payments.RefundTest do
   end
 
   # ── 布置 ──
+
+  # #847 批 2：资金类已迁耐久路径，行为面 = Delivery 行（伪 job 投影保持断言形状）
+  defp delivery_jobs(template_key) do
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "identity_uid" => &1.identity_uid,
+          "data" => &1.data
+        }
+      }
+    )
+  end
 
   defp refund_txn(paid: true),
     do: %{status: :refunded, amount_cents: 19_900, transaction_id: "txn-refunded"}
