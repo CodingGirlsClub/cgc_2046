@@ -308,16 +308,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
+    @desc "触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判"
     field :flashback_outreach_preview, :flashback_outreach_preview do
       arg(:archive_key, non_null(:string))
       arg(:channel, :string)
+
+      @desc "campaign 批次号（预判同人跨 archive 去重数；与入队同源）"
+      arg(:batch, :string)
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
           with {:ok, channel} <-
                  Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
-            Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel)
+            Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel, args[:batch])
           else
             {:error, :invalid_channel} ->
               {:error,
@@ -2391,6 +2394,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:template, non_null(:string))
       arg(:channel, :string)
 
+      @desc "campaign 批次号（跨 archive 全量发时显式共用——同人只收一封；默认 archive-<key> 批次互不感知）"
+      arg(:batch, :string)
+
       resolve(fn _, %{archive_key: archive_key, template: template} = args, %{context: context} ->
         with_admin(context, fn _actor ->
           flashback_call(fn ->
@@ -2401,7 +2407,8 @@ defmodule Cgc2046Web.GraphqlSchema do
               Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(
                 archive_key,
                 template,
-                channel
+                channel,
+                if(args[:batch], do: [batch: args[:batch]], else: [])
               )
             else
               {:error, :invalid_channel} ->
@@ -3492,6 +3499,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:both, non_null(:integer))
     field(:unsubscribed, non_null(:integer))
     field(:unreachable, non_null(:integer))
+    @desc "campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0）"
+    field(:deduped_within_campaign, non_null(:integer))
     @desc "短信腿就绪位（SendCloud 触达模板已配置）"
     field(:sms_ready, non_null(:boolean))
   end
@@ -3880,6 +3889,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:queued, non_null(:integer))
     @desc "跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处）"
     field(:skipped, non_null(:integer))
+    @desc "campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封）"
+    field(:deduped_within_campaign, non_null(:integer))
   end
 
   input_object :flashback_today_input do

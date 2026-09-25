@@ -594,9 +594,6 @@ export type CourseFilterCapacity = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type CourseFilterConfirmedCount = {
@@ -610,9 +607,6 @@ export type CourseFilterConfirmedCount = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type CourseFilterCurriculumRequirements = {
@@ -626,9 +620,6 @@ export type CourseFilterCurriculumRequirements = {
   lessThan?: InputMaybe<Scalars['JsonString']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type CourseFilterDescription = {
@@ -645,9 +636,6 @@ export type CourseFilterDescription = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -663,9 +651,6 @@ export type CourseFilterEndsAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type CourseFilterEnrollmentPolicy = {
@@ -679,9 +664,6 @@ export type CourseFilterEnrollmentPolicy = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CourseFilterId = {
@@ -695,9 +677,6 @@ export type CourseFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type CourseFilterInput = {
@@ -750,9 +729,6 @@ export type CourseFilterPricingEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type CourseFilterProvisionalTitle = {
@@ -766,9 +742,6 @@ export type CourseFilterProvisionalTitle = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type CourseFilterRegistrationDeadline = {
@@ -782,9 +755,6 @@ export type CourseFilterRegistrationDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type CourseFilterSlug = {
@@ -801,9 +771,6 @@ export type CourseFilterSlug = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -819,9 +786,6 @@ export type CourseFilterStartsAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type CourseFilterStatus = {
@@ -835,9 +799,6 @@ export type CourseFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CourseFilterTitle = {
@@ -854,9 +815,6 @@ export type CourseFilterTitle = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -872,9 +830,6 @@ export type CourseFilterVisibility = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type CourseFilterWorkflowRunId = {
@@ -888,9 +843,6 @@ export type CourseFilterWorkflowRunId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type CourseFilterWorkspaceId = {
@@ -904,9 +856,6 @@ export type CourseFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type CourseLearningAnalytics = {
@@ -1405,9 +1354,6 @@ export type EnrollmentFilterAgeConfirmedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterApprovalDeadline = {
@@ -1421,9 +1367,6 @@ export type EnrollmentFilterApprovalDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterApprovedAt = {
@@ -1437,9 +1380,6 @@ export type EnrollmentFilterApprovedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterApprovedBy = {
@@ -1453,9 +1393,6 @@ export type EnrollmentFilterApprovedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterCancelledAt = {
@@ -1469,9 +1406,6 @@ export type EnrollmentFilterCancelledAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterCapacitySeq = {
@@ -1485,9 +1419,6 @@ export type EnrollmentFilterCapacitySeq = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EnrollmentFilterCourseId = {
@@ -1501,9 +1432,6 @@ export type EnrollmentFilterCourseId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterEventId = {
@@ -1517,9 +1445,6 @@ export type EnrollmentFilterEventId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterExpiredAt = {
@@ -1533,9 +1458,6 @@ export type EnrollmentFilterExpiredAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterId = {
@@ -1549,9 +1471,6 @@ export type EnrollmentFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterInput = {
@@ -1590,9 +1509,6 @@ export type EnrollmentFilterInsertedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EnrollmentFilterInviteBatchId = {
@@ -1606,9 +1522,6 @@ export type EnrollmentFilterInviteBatchId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterRejectionReason = {
@@ -1625,9 +1538,6 @@ export type EnrollmentFilterRejectionReason = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -1643,9 +1553,6 @@ export type EnrollmentFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EnrollmentFilterSubmissionPayload = {
@@ -1659,9 +1566,6 @@ export type EnrollmentFilterSubmissionPayload = {
   lessThan?: InputMaybe<Scalars['JsonString']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EnrollmentFilterTermsVersion = {
@@ -1678,9 +1582,6 @@ export type EnrollmentFilterTermsVersion = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -1696,9 +1597,6 @@ export type EnrollmentFilterUserId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterWorkflowRunId = {
@@ -1712,9 +1610,6 @@ export type EnrollmentFilterWorkflowRunId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentFilterWorkspaceId = {
@@ -1728,9 +1623,6 @@ export type EnrollmentFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EnrollmentSortField =
@@ -1837,9 +1729,6 @@ export type EventFilterCapacity = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EventFilterConfirmedCount = {
@@ -1853,9 +1742,6 @@ export type EventFilterConfirmedCount = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EventFilterCreatedBy = {
@@ -1869,9 +1755,6 @@ export type EventFilterCreatedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EventFilterCurriculumEnabled = {
@@ -1885,9 +1768,6 @@ export type EventFilterCurriculumEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type EventFilterCurriculumRequirements = {
@@ -1901,9 +1781,6 @@ export type EventFilterCurriculumRequirements = {
   lessThan?: InputMaybe<Scalars['JsonString']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EventFilterDepositAmountCents = {
@@ -1917,9 +1794,6 @@ export type EventFilterDepositAmountCents = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EventFilterDepositEnabled = {
@@ -1933,9 +1807,6 @@ export type EventFilterDepositEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type EventFilterDescription = {
@@ -1952,9 +1823,6 @@ export type EventFilterDescription = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -1970,9 +1838,6 @@ export type EventFilterEndsAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EventFilterEnrollmentPolicy = {
@@ -1986,9 +1851,6 @@ export type EventFilterEnrollmentPolicy = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EventFilterId = {
@@ -2002,9 +1864,6 @@ export type EventFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EventFilterInitiativeId = {
@@ -2018,9 +1877,6 @@ export type EventFilterInitiativeId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EventFilterInput = {
@@ -2092,9 +1948,6 @@ export type EventFilterMinAge = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EventFilterMinParticipants = {
@@ -2108,9 +1961,6 @@ export type EventFilterMinParticipants = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type EventFilterPricingEnabled = {
@@ -2124,9 +1974,6 @@ export type EventFilterPricingEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type EventFilterQualificationStatus = {
@@ -2140,9 +1987,6 @@ export type EventFilterQualificationStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EventFilterRegistrationDeadline = {
@@ -2156,9 +2000,6 @@ export type EventFilterRegistrationDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EventFilterSlug = {
@@ -2175,9 +2016,6 @@ export type EventFilterSlug = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -2193,9 +2031,6 @@ export type EventFilterSponsorshipDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EventFilterSponsorshipEnabled = {
@@ -2209,9 +2044,6 @@ export type EventFilterSponsorshipEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type EventFilterStartsAt = {
@@ -2225,9 +2057,6 @@ export type EventFilterStartsAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type EventFilterStatus = {
@@ -2241,9 +2070,6 @@ export type EventFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EventFilterTitle = {
@@ -2260,9 +2086,6 @@ export type EventFilterTitle = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -2278,9 +2101,6 @@ export type EventFilterVenue = {
   lessThan?: InputMaybe<Scalars['JsonString']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type EventFilterVisibility = {
@@ -2294,9 +2114,6 @@ export type EventFilterVisibility = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type EventFilterWorkflowRunId = {
@@ -2310,9 +2127,6 @@ export type EventFilterWorkflowRunId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EventFilterWorkspaceId = {
@@ -2326,9 +2140,6 @@ export type EventFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type EventModerator = {
@@ -2658,6 +2469,8 @@ export type FlashbackOutreachBatchChannel = {
 };
 
 export type FlashbackOutreachDispatchResult = {
+  /** campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封） */
+  dedupedWithinCampaign: Scalars['Int']['output'];
   /** 入队件数（错峰 scheduled_at 限速后由 worker 续发） */
   queued: Scalars['Int']['output'];
   /** 跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处） */
@@ -2677,6 +2490,8 @@ export type FlashbackOutreachPreview = {
   both: Scalars['Int']['output'];
   /** 所选通道档的预估入队数 */
   channel: Scalars['String']['output'];
+  /** campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0） */
+  dedupedWithinCampaign: Scalars['Int']['output'];
   /** 三档分布：仅邮件可达 / 仅短信可达 / 双通道 */
   emailOnly: Scalars['Int']['output'];
   queued: Scalars['Int']['output'];
@@ -3143,9 +2958,6 @@ export type InvitationFilterAcceptedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InvitationFilterAcceptedBy = {
@@ -3159,9 +2971,6 @@ export type InvitationFilterAcceptedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InvitationFilterExpiresAt = {
@@ -3175,9 +2984,6 @@ export type InvitationFilterExpiresAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InvitationFilterId = {
@@ -3191,9 +2997,6 @@ export type InvitationFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InvitationFilterInput = {
@@ -3230,9 +3033,6 @@ export type InvitationFilterInviterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InvitationFilterStatus = {
@@ -3246,9 +3046,6 @@ export type InvitationFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type InvitationFilterTargetEmail = {
@@ -3265,9 +3062,6 @@ export type InvitationFilterTargetEmail = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3286,9 +3080,6 @@ export type InvitationFilterTokenHash = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3304,9 +3095,6 @@ export type InvitationFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InvitationSortField =
@@ -3350,9 +3138,6 @@ export type InviteBatchFilterCourseId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InviteBatchFilterEventId = {
@@ -3366,9 +3151,6 @@ export type InviteBatchFilterEventId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InviteBatchFilterExpiresAt = {
@@ -3382,9 +3164,6 @@ export type InviteBatchFilterExpiresAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InviteBatchFilterId = {
@@ -3398,9 +3177,6 @@ export type InviteBatchFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InviteBatchFilterInput = {
@@ -3431,9 +3207,6 @@ export type InviteBatchFilterInsertedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type InviteBatchFilterInviteCode = {
@@ -3450,9 +3223,6 @@ export type InviteBatchFilterInviteCode = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3468,9 +3238,6 @@ export type InviteBatchFilterQuota = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type InviteBatchFilterRemainingQuota = {
@@ -3484,9 +3251,6 @@ export type InviteBatchFilterRemainingQuota = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type InviteBatchFilterRemark = {
@@ -3503,9 +3267,6 @@ export type InviteBatchFilterRemark = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3521,9 +3282,6 @@ export type InviteBatchFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type InviteBatchFilterWorkspaceId = {
@@ -3537,9 +3295,6 @@ export type InviteBatchFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type InviteBatchSortField =
@@ -3593,9 +3348,6 @@ export type JoinRequestFilterApprovalDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type JoinRequestFilterApprovedAt = {
@@ -3609,9 +3361,6 @@ export type JoinRequestFilterApprovedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type JoinRequestFilterApprovedBy = {
@@ -3625,9 +3374,6 @@ export type JoinRequestFilterApprovedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type JoinRequestFilterExpiredAt = {
@@ -3641,9 +3387,6 @@ export type JoinRequestFilterExpiredAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type JoinRequestFilterId = {
@@ -3657,9 +3400,6 @@ export type JoinRequestFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type JoinRequestFilterInput = {
@@ -3701,9 +3441,6 @@ export type JoinRequestFilterMessage = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3722,9 +3459,6 @@ export type JoinRequestFilterRejectionReason = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -3740,9 +3474,6 @@ export type JoinRequestFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type JoinRequestFilterUserId = {
@@ -3756,9 +3487,6 @@ export type JoinRequestFilterUserId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type JoinRequestFilterWorkspaceId = {
@@ -3772,9 +3500,6 @@ export type JoinRequestFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type JoinRequestSortField =
@@ -4083,9 +3808,6 @@ export type OrderFilterAmountCents = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type OrderFilterCancelReason = {
@@ -4102,9 +3824,6 @@ export type OrderFilterCancelReason = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4120,9 +3839,6 @@ export type OrderFilterCourseId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderFilterDepositConsentAt = {
@@ -4136,9 +3852,6 @@ export type OrderFilterDepositConsentAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type OrderFilterDepositTermsVersion = {
@@ -4155,9 +3868,6 @@ export type OrderFilterDepositTermsVersion = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4173,9 +3883,6 @@ export type OrderFilterEnrollmentId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderFilterEnrollmentStatus = {
@@ -4189,9 +3896,6 @@ export type OrderFilterEnrollmentStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterEventId = {
@@ -4205,9 +3909,6 @@ export type OrderFilterEventId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderFilterExpireAt = {
@@ -4221,9 +3922,6 @@ export type OrderFilterExpireAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type OrderFilterId = {
@@ -4237,9 +3935,6 @@ export type OrderFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderFilterInput = {
@@ -4289,9 +3984,6 @@ export type OrderFilterLearnerEmail = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4307,9 +3999,6 @@ export type OrderFilterOrderKind = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterOutTradeNo = {
@@ -4326,9 +4015,6 @@ export type OrderFilterOutTradeNo = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4344,9 +4030,6 @@ export type OrderFilterProvider = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterRefundedAt = {
@@ -4360,9 +4043,6 @@ export type OrderFilterRefundedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type OrderFilterStatus = {
@@ -4376,9 +4056,6 @@ export type OrderFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type OrderFilterTierId = {
@@ -4395,9 +4072,6 @@ export type OrderFilterTierId = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4416,9 +4090,6 @@ export type OrderFilterTierName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4434,9 +4105,6 @@ export type OrderFilterTierSnapshot = {
   lessThan?: InputMaybe<Scalars['JsonString']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['JsonString']['input']>;
   notEq?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['JsonString']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['JsonString']['input']>;
 };
 
 export type OrderFilterTransactionId = {
@@ -4453,9 +4121,6 @@ export type OrderFilterTransactionId = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4471,9 +4136,6 @@ export type OrderFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type OrderSortField =
@@ -4828,9 +4490,6 @@ export type RoleFilterDescription = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -4846,9 +4505,6 @@ export type RoleFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RoleFilterInput = {
@@ -4875,9 +4531,6 @@ export type RoleFilterName = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type RoleFilterWorkspaceId = {
@@ -4891,9 +4544,6 @@ export type RoleFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RoleSortField =
@@ -5551,6 +5201,7 @@ export type RootMutationTypeFlashbackAdminRevokeWishEchoArgs = {
 
 export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
   archiveKey: Scalars['String']['input'];
+  batch?: InputMaybe<Scalars['String']['input']>;
   channel?: InputMaybe<Scalars['String']['input']>;
   template: Scalars['String']['input'];
 };
@@ -6036,7 +5687,7 @@ export type RootQueryType = {
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
   /** 触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次 */
   flashbackOutreachBatches: Array<FlashbackOutreachBatch>;
-  /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2） */
+  /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判 */
   flashbackOutreachPreview?: Maybe<FlashbackOutreachPreview>;
   /** 场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed */
   flashbackOutreachRoster: Array<FlashbackOutreachRosterEntry>;
@@ -6267,6 +5918,7 @@ export type RootQueryTypeFlashbackOutreachBatchesArgs = {
 
 export type RootQueryTypeFlashbackOutreachPreviewArgs = {
   archiveKey: Scalars['String']['input'];
+  batch?: InputMaybe<Scalars['String']['input']>;
   channel?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -6892,9 +6544,6 @@ export type SponsorshipDeliveryFilterBenefit = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -6910,9 +6559,6 @@ export type SponsorshipDeliveryFilterDueDate = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipDeliveryFilterExclusive = {
@@ -6926,9 +6572,6 @@ export type SponsorshipDeliveryFilterExclusive = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type SponsorshipDeliveryFilterFulfilledAt = {
@@ -6942,9 +6585,6 @@ export type SponsorshipDeliveryFilterFulfilledAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipDeliveryFilterId = {
@@ -6958,9 +6598,6 @@ export type SponsorshipDeliveryFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipDeliveryFilterInput = {
@@ -6994,9 +6631,6 @@ export type SponsorshipDeliveryFilterProofNote = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7012,9 +6646,6 @@ export type SponsorshipDeliveryFilterSponsorshipId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipDeliveryFilterWorkspaceId = {
@@ -7028,9 +6659,6 @@ export type SponsorshipDeliveryFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipDeliverySortField =
@@ -7059,9 +6687,6 @@ export type SponsorshipFilterAmount = {
   lessThan?: InputMaybe<Scalars['Int']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Int']['input']>;
   notEq?: InputMaybe<Scalars['Int']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Int']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type SponsorshipFilterApprovalDeadline = {
@@ -7075,9 +6700,6 @@ export type SponsorshipFilterApprovalDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipFilterApprovedAt = {
@@ -7091,9 +6713,6 @@ export type SponsorshipFilterApprovedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipFilterApprovedBy = {
@@ -7107,9 +6726,6 @@ export type SponsorshipFilterApprovedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterCompanyName = {
@@ -7126,9 +6742,6 @@ export type SponsorshipFilterCompanyName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7147,9 +6760,6 @@ export type SponsorshipFilterContactEmail = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7168,9 +6778,6 @@ export type SponsorshipFilterContactPhone = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7186,9 +6793,6 @@ export type SponsorshipFilterEndedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipFilterEventId = {
@@ -7202,9 +6806,6 @@ export type SponsorshipFilterEventId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterExpiredAt = {
@@ -7218,9 +6819,6 @@ export type SponsorshipFilterExpiredAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipFilterId = {
@@ -7234,9 +6832,6 @@ export type SponsorshipFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterInput = {
@@ -7287,9 +6882,6 @@ export type SponsorshipFilterLevel = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SponsorshipFilterMessage = {
@@ -7306,9 +6898,6 @@ export type SponsorshipFilterMessage = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7327,9 +6916,6 @@ export type SponsorshipFilterRejectionReason = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7345,9 +6931,6 @@ export type SponsorshipFilterSponsorUserId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterStartedAt = {
@@ -7361,9 +6944,6 @@ export type SponsorshipFilterStartedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type SponsorshipFilterStatus = {
@@ -7377,9 +6957,6 @@ export type SponsorshipFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SponsorshipFilterTierId = {
@@ -7393,9 +6970,6 @@ export type SponsorshipFilterTierId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterTierName = {
@@ -7412,9 +6986,6 @@ export type SponsorshipFilterTierName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7430,9 +7001,6 @@ export type SponsorshipFilterWorkflowRunId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipFilterWorkspaceId = {
@@ -7446,9 +7014,6 @@ export type SponsorshipFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type SponsorshipSortField =
@@ -7774,9 +7339,6 @@ export type WorkspaceApplicationFilterApplicantId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceApplicationFilterApprovalDeadline = {
@@ -7790,9 +7352,6 @@ export type WorkspaceApplicationFilterApprovalDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceApplicationFilterApprovedAt = {
@@ -7806,9 +7365,6 @@ export type WorkspaceApplicationFilterApprovedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceApplicationFilterApprovedBy = {
@@ -7822,9 +7378,6 @@ export type WorkspaceApplicationFilterApprovedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceApplicationFilterExpiredAt = {
@@ -7838,9 +7391,6 @@ export type WorkspaceApplicationFilterExpiredAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceApplicationFilterId = {
@@ -7854,9 +7404,6 @@ export type WorkspaceApplicationFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceApplicationFilterInput = {
@@ -7904,9 +7451,6 @@ export type WorkspaceApplicationFilterName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7925,9 +7469,6 @@ export type WorkspaceApplicationFilterPurpose = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7943,9 +7484,6 @@ export type WorkspaceApplicationFilterRejectedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceApplicationFilterRejectedBy = {
@@ -7959,9 +7497,6 @@ export type WorkspaceApplicationFilterRejectedBy = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceApplicationFilterRejectionReason = {
@@ -7978,9 +7513,6 @@ export type WorkspaceApplicationFilterRejectionReason = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -7999,9 +7531,6 @@ export type WorkspaceApplicationFilterSlug = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -8017,9 +7546,6 @@ export type WorkspaceApplicationFilterStatus = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type WorkspaceApplicationSortField =
@@ -8053,9 +7579,6 @@ export type WorkspaceFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceFilterInput = {
@@ -8086,9 +7609,6 @@ export type WorkspaceFilterJoinPolicy = {
   lessThan?: InputMaybe<Scalars['String']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type WorkspaceFilterName = {
@@ -8105,9 +7625,6 @@ export type WorkspaceFilterName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -8126,9 +7643,6 @@ export type WorkspaceFilterSlug = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -8144,9 +7658,6 @@ export type WorkspaceFilterSponsorshipDeadline = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceFilterSponsorshipEnabled = {
@@ -8160,9 +7671,6 @@ export type WorkspaceFilterSponsorshipEnabled = {
   lessThan?: InputMaybe<Scalars['Boolean']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['Boolean']['input']>;
   notEq?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['Boolean']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
 export type WorkspaceMembership = {
@@ -8199,9 +7707,6 @@ export type WorkspaceMembershipFilterId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceMembershipFilterInput = {
@@ -8233,9 +7738,6 @@ export type WorkspaceMembershipFilterJoinedAt = {
   lessThan?: InputMaybe<Scalars['DateTime']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
   notEq?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['DateTime']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type WorkspaceMembershipFilterUserDisplayName = {
@@ -8252,9 +7754,6 @@ export type WorkspaceMembershipFilterUserDisplayName = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -8273,9 +7772,6 @@ export type WorkspaceMembershipFilterUserEmail = {
   lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
   like?: InputMaybe<Scalars['String']['input']>;
   notEq?: InputMaybe<Scalars['String']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['String']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['String']['input']>;
   stringEndsWith?: InputMaybe<Scalars['String']['input']>;
   stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
@@ -8291,9 +7787,6 @@ export type WorkspaceMembershipFilterUserId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceMembershipFilterWorkspaceId = {
@@ -8307,9 +7800,6 @@ export type WorkspaceMembershipFilterWorkspaceId = {
   lessThan?: InputMaybe<Scalars['ID']['input']>;
   lessThanOrEqual?: InputMaybe<Scalars['ID']['input']>;
   notEq?: InputMaybe<Scalars['ID']['input']>;
-  rangeAdjacent?: InputMaybe<Scalars['ID']['input']>;
-  rangeContains?: InputMaybe<Scalars['String']['input']>;
-  rangeOverlaps?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WorkspaceMembershipSortField =
