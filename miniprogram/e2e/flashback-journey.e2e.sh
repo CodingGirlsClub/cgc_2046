@@ -108,11 +108,12 @@ cls() {
 }
 
 # 组件类名（MyCard/AppTabBar/SharedFlashbackCard 等非页面组件，样式打进 common.wxss）：
-# clsCommon <className>。多哈希 = 跨组件同名类（如 signName/icon），无法唯一定位，
+# clsCommon <className> [模块名，默认 index]。多哈希 = 跨组件同名类（如 signName/icon），无法唯一定位，
 # 直接报错换锚——与 e2e/anchors.mjs 的锚点纪律一致。
 clsCommon() {
   local hits n
-  hits="$(grep -o "index-module__$1___[A-Za-z0-9_]*" "$DIST/common.wxss" 2>/dev/null | sort -u)"
+  # 第二参 = 样式模块名（默认 index）：组件样式不一定叫 index.module.css（如 endorse-sheet）
+  hits="$(grep -o "${2:-index}-module__$1___[A-Za-z0-9_]*" "$DIST/common.wxss" 2>/dev/null | sort -u)"
   [ -n "$hits" ] || { echo "✗ common.wxss 里找不到类名 $1——样式改动后请重跑 mock 构建" >&2; exit 2; }
   n="$(printf '%s\n' "$hits" | wc -l | tr -d ' ')"
   [ "$n" = "1" ] || { echo "✗ common.wxss 里类名 $1 有 $n 个哈希（跨组件同名），无法唯一定位——换锚点" >&2; exit 2; }
@@ -196,11 +197,11 @@ WISH_COMMENT_ROW=$(cls "$COR" wishCommentRow)
 WISH_COMMENT_TEXT=$(cls "$COR" wishCommentText)
 WISH_COMMENT_INPUT=$(cls "$COR" wishCommentInput)
 WISH_INPUT=$(cls "$COR" wishInput)
-WISH_SHEET_MASK=$(clsCommon endorseMask)
-WISH_SHEET_SUBMIT=$(clsCommon endorseSubmit)
-WISH_RECEIPT_DONE=$(clsCommon receiptDone)
-ENDORSE_CHIP=$(clsCommon endorseChip)
-ENDORSE_NOTIFY=$(clsCommon endorseNotify)
+WISH_SHEET_MASK=$(clsCommon endorseMask endorse-sheet)
+WISH_SHEET_SUBMIT=$(clsCommon endorseSubmit endorse-sheet)
+WISH_RECEIPT_DONE=$(clsCommon receiptDone endorse-sheet)
+ENDORSE_CHIP=$(clsCommon endorseChip endorse-sheet)
+ENDORSE_NOTIFY=$(clsCommon endorseNotify endorse-sheet)
 PRIVATE_FOLD=$(cls "$COR" privateFold)
 PRIVATE_FOLD_LABEL=$(cls "$COR" privateFoldLabel)
 PRIVATE_FOLD_ARROW=$(cls "$COR" privateFoldArrow)
@@ -307,8 +308,10 @@ ck "访客首页无城市钉/愿望列表/场次卡" "$(COUNT "$CITY_PIN")/$(COU
 ck "访客不渲染个人今天空位" "$(COUNT "$TODAY_VACANT_TEXT")" '^0$'
 ck "路人无快门仪式（member 专属）" "$(COUNT "$SHUTTER_MASK")" '^0$'
 shot 01-corridor-viewer.png
-TAP "$GUEST_RECOVER"
-sleep 2
+# 直发元素 tap（不做命中测试）：一次整跑中 TAP 命中过上方金句卡（落金句墙），
+# 单独复测 10/10 未复现；本断言验的是按钮接线，不依赖命中测试时的布局
+TRIGGER tap '{}' "$GUEST_RECOVER"
+wait_route '/pages/login/index' || true
 ck "CTA 落登录页（带 returnUrl 回跳长廊）" "$(ROUTE)" 'pages/login/index\?returnUrl='
 
 echo "### 2) mock 登录链（手机号授权 passthrough，不碰真实凭据）"
@@ -348,7 +351,7 @@ ck "dock 授权（默认关无后缀）" "$(RES automation_element_action --acti
 ck "城市钉 3（名册城市：上海/北京/广州）" "$(COUNT "$CITY_PIN")" '^3$'
 ck "初始选中=全部（全部钉带选中态）" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
 ck "时间帧 2（升序）" "$(COUNT "$CAPWHEN")" '^2$'
-ck "访客有金句墙入口" "$(COUNT "$GUEST_VOICES")" '^1$'
+ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
 ck "首帧叙事标签=一切的开始" "$(RES automation_element_action --action text --selector "$CAPLABEL")" '一切的开始$'
 ck "城市堆 4（上海场 1 堆 + 北京场 北京/上海/广州 3 堆）" "$(COUNT "$PINPOL")" '^4$'
 ck "首堆=上海 · 3 位" "$(RES automation_element_action --action text --selector "$PINCITY")/$(RES automation_element_action --action text --selector "$PINCOUNT")" '^上海/3 位$'
@@ -770,19 +773,22 @@ CON_PAGE=$(RAW get_simulator_console --command 'grep -i -e error -e fail' | node
   const raw = require("node:fs").readFileSync(0, "utf8")
   try {
     const result = JSON.parse(raw.slice(raw.indexOf("{"))).result
-    const rows = Array.isArray(result) ? result : [String(result ?? "")]
-    const kept = []
-    for (let i = 0; i < rows.length; i++) {
-      const message = rows[i + 1] ?? ""
-      if (rows[i] === "[error]" && (
+    // 命中 1 行 → 工具已解析成数组；多行 → 每行一条 JSON 数组文本（grep 分隔符 -- 跳过）
+    const events = Array.isArray(result) ? [result] : String(result ?? "").split("\n")
+      .map((line) => line.replace(/^[0-9]+:/, "").trim())
+      .filter((line) => line && line !== "--")
+      .map((line) => { try { return JSON.parse(line) } catch { return [line] } })
+    const noise = ([level, ...rest]) => {
+      const message = rest.join(" ")
+      return level === "[error]" && (
         message.includes("appLaunch with non-empty page stack") ||
         (message.includes("SystemError (appServiceSDKScriptError)") &&
           /routeDone with a webviewId [0-9]+ is not found/.test(message) &&
-          message.includes("WAServiceMainContext.js"))
-      )) { i++; continue }
-      kept.push(rows[i])
+          message.includes("WAServiceMainContext.js")))
     }
-    process.stdout.write(kept.filter((line) => /\[error\]|\[warn\]|fail/i.test(line)).join("\n"))
+    process.stdout.write(events.filter((event) => !noise(event))
+      .map((event) => JSON.stringify(event))
+      .filter((line) => /\[error\]|\[warn\]|fail/i.test(line)).join("\n"))
   } catch { process.stdout.write("console parse failure") }
 ')
 ck "console 无页面运行时 error（已剔 devtools 导航噪音）" "${CON_PAGE:-（空）}" '^（空）$'
