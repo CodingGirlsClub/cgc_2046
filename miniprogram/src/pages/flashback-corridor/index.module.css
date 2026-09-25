@@ -301,11 +301,7 @@
   line-height: 1.8;
 }
 
-.viewerHint {
-  color: #8a8f98;
-  font-size: 21rpx;
-  line-height: 1.7;
-}
+
 
 /* U2 页内 Tab(时间廊|我的卡,修断裂 4):胶囊双钮,选中橙 */
 .mpTabBar {
@@ -567,47 +563,6 @@
   border-radius: 44rpx;
 }
 
-/* ── wish2 U9：viewer 期待 ❤️ + 附议表单（KTD3/KTD5） ─────────────────── */
-/* #837 「有回响」徽章:回响数 + 最新一条回响预览(单行截断) */
-.wishEchoRow {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-  margin-top: 12rpx;
-  padding: 8rpx 12rpx;
-  background: rgba(203, 191, 143, 0.18);
-  border-left: 4rpx solid #cbbf8f;
-  border-radius: 6rpx;
-}
-.wishEchoBadge {
-  flex-shrink: 0;
-  font-size: 20rpx;
-  color: #6b5a2c;
-  font-weight: 600;
-  letter-spacing: 1rpx;
-}
-.wishEchoPreview {
-  flex: 1;
-  font-size: 22rpx;
-  color: #4b4d54;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.wishExpectOn,
-.wishExpectOff {
-  font-size: 24rpx;
-  color: #6b7076;
-}
-.wishExpectOn {
-  color: #d0442c;
-}
-.wishExpectToggle {
-  font-size: 28rpx;
-  padding: 4rpx 12rpx;
-}
-/* KTD5 联系方式告知：明示、不可关闭 */
 /* U6 路人态 1024 活动横幅(R9)：已撤——活动推广归「发现」Tab，
    长廊里重复推同一活动。原样式（.banner1024 一族）随之删除。 */
 
