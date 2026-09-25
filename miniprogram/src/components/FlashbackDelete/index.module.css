@@ -17,3 +17,12 @@
 .deleteCancel { background: transparent; color: #6b6f78; font-size: 26rpx; }
 .deleteBack { background: #222326; color: #fff; }
 .deleteSubmit::after, .deleteCancel::after, .deleteBack::after { border: none; }
+
+/* 换肤（盘点 §7）：纸面板 + 墨字、遮罩暗房色；提交钮仍是警示红（不可逆动作不用火，也不用品牌色） */
+.deleteMask { background: rgba(21, 19, 15, 0.62); }
+.deleteSheet { background: var(--paper-hi); }
+.deleteTitle, .deleteFact { color: var(--ink); }
+.deleteBody, .deleteLabel { color: var(--ink-2); }
+.deleteInput { background: var(--paper); border-color: var(--rule); }
+.deleteCancel { color: var(--ink-3); }
+.deleteBack { background: var(--ink); }
