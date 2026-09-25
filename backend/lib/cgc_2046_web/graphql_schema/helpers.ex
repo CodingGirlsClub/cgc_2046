@@ -6,6 +6,8 @@ defmodule Cgc2046Web.GraphqlSchema.Helpers do
 
   require Logger
 
+  alias Cgc2046.AdminList
+
   # 未登录统一错误形状（message + code），供 me / update_profile / set_ui_theme
   # 的 actor nil 分支复用——与 sign_in 的 keyword list 错误走同一序列化路径。
   def unauthorized_error, do: [message: "unauthorized", code: "unauthorized"]
@@ -117,5 +119,60 @@ defmodule Cgc2046Web.GraphqlSchema.Helpers do
       {:ok, records} -> {:ok, records}
       {:error, error} -> {:error, to_ash_graphql_errors(error, context, action, resource, domain)}
     end
+  end
+
+  # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
+  # 未登录 → unauthorized。通过后执行 fun(actor)。
+  def with_admin(context, fun) do
+    actor = context[:actor]
+
+    cond do
+      Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) ->
+        fun.(actor)
+
+      is_nil(actor) ->
+        {:error, unauthorized_error()}
+
+      true ->
+        {:error, [message: "forbidden", code: "forbidden"]}
+    end
+  end
+
+  # admin 列表 resolver 工厂：with_admin 门控 → args 校验 → for_read → filter →
+  # pre_read → paginate → read → post_read。一处接线顺序，N 个 query 声明式复用
+  # （leverage）；gate/validate/filter/paginate 顺序只在此验证（locality）。
+  # my_workspace_applications 不用此构造器：gate 是 applicant 非 platform_admin，形状不同。
+  def admin_list(resource, filter_fn, post_fn, opts \\ []) do
+    pre_read = Keyword.get(opts, :pre_read, fn q -> q end)
+
+    # 成对/互斥类 args 约束（如 KTD5 entity_id 必须与 entity_type 成对）：门控之后、
+    # 触库之前校验，返回 :ok | {:error, absinthe_error}；默认无约束。
+    validate = Keyword.get(opts, :validate, fn _args -> :ok end)
+
+    fn _, args, %{context: context} ->
+      with_admin(context, fn actor ->
+        with :ok <- validate.(args) do
+          resource
+          |> Ash.Query.for_read(:read)
+          |> filter_fn.(args)
+          |> pre_read.()
+          |> AdminList.paginate(args[:first], args[:after])
+          |> Ash.read(actor: actor)
+          |> post_fn.(context)
+        end
+      end)
+    end
+  end
+
+  def admin_rule_row(rule) do
+    %{
+      id: rule.id,
+      initiative_id: rule.initiative_id,
+      key: to_string(rule.key),
+      value_json: Jason.encode!(rule.value),
+      locked: rule.locked,
+      inserted_at: rule.inserted_at,
+      updated_at: rule.updated_at
+    }
   end
 end
