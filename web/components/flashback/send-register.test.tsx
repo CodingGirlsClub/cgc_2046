@@ -223,4 +223,16 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 		expect(args[0]).toBe("now");
 		expect(args[1]).toEqual([]);
 	});
+
+	it("寄出完成态标题说已经完成（sentTitle 活过来）：不再用「照片正在贴上墙。」", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers);
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(screen.getByRole("heading", { name: "已经寄出了" })).toBeInTheDocument();
+		});
+		// «照片正在贴上墙» 只存在于发送中（sending），寄出成功后不再谎报状态
+		expect(screen.queryByText("照片正在贴上墙。")).not.toBeInTheDocument();
+		expect(screen.getByText(/愿望不会消失/)).toBeInTheDocument();
+	});
 });
