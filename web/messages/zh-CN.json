@@ -2861,6 +2861,13 @@
       "boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
       "enterCapsule": "进入时间长廊 →"
     },
+    "echoCard": {
+      "regionLabel": "回响",
+      "byline": "主办方",
+      "correctedBadge": "已更正",
+      "expandLabel": "全部 {count} 条回响",
+      "collapse": "收起回响"
+    },
     "capsule": {
       "loading": "正在显影时间长廊……",
       "error": "时间长廊暂时打不开，请稍后重试。",
@@ -3077,6 +3084,8 @@
       "wishesNavEn": "WISHES",
       "filterAll": "全部",
       "filterEcho": "已有回响",
+      "hasEchoLabel": "这条愿望已有回响",
+      "hasEchoBadge": "回响",
       "echoEmpty": "还没有愿望收到回响——第一份出力，从「我能出力」开始。",
       "cityEmpty": "{city}还没有公开愿望——看看全部城市吧。",
       "expectCount": "人也在期待",
