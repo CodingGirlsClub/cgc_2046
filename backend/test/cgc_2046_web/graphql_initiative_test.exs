@@ -161,6 +161,91 @@ defmodule Cgc2046Web.GraphqlInitiativeTest do
              post_graphql(mutation, token(admin))
   end
 
+  # #844 D4 补测：createInitiative / openInitiative / closeInitiative 此前零 GraphQL
+  # 覆盖。冒烟口径同 removeEventModerator 先例：真实 GraphQL 入口，断言返回数据
+  # 之外重读库确认状态落库（副作用），不只看 payload 回显。
+  test "admin createInitiative 落 draft：回显与库内 slug/status/created_by 一致" do
+    admin = Fixtures.platform_admin("gql-initiative-create-admin")
+
+    mutation = """
+    mutation {
+      createInitiative(
+        input: {
+          name: "冒烟创建"
+          slug: "gql-initiative-create-smoke"
+          hashtag: "#smoke"
+          description: "#844 补测"
+        }
+      ) {
+        result { id slug status }
+        errors { code message }
+      }
+    }
+    """
+
+    assert %{"data" => %{"createInitiative" => %{"errors" => [], "result" => result}}} =
+             post_graphql(mutation, token(admin))
+
+    assert result["slug"] == "gql-initiative-create-smoke"
+    assert result["status"] == "draft"
+
+    # 副作用：直读库（不经 policy），字段确实落库
+    row = Ash.get!(Initiative, result["id"], authorize?: false)
+    assert row.status == :draft
+    assert row.slug == "gql-initiative-create-smoke"
+    assert row.created_by == admin.id
+  end
+
+  test "admin openInitiative → closeInitiative 状态迁移逐段落库" do
+    admin = Fixtures.platform_admin("gql-initiative-lifecycle-admin")
+
+    create_m =
+      "mutation { createInitiative(input: { name: \"生命周期\", slug: \"gql-initiative-lifecycle-smoke\" }) " <>
+        "{ result { id status } errors { code } } }"
+
+    assert %{"data" => %{"createInitiative" => %{"errors" => [], "result" => created}}} =
+             post_graphql(create_m, token(admin))
+
+    id = created["id"]
+
+    open_m =
+      "mutation { openInitiative(id: \"#{id}\") { result { id status } errors { code message } } }"
+
+    # open 的域守卫要求四条规则齐备（transition + rules 完整性双重门），
+    # 同文件 open_initiative/2 fixture 的规则口径
+    for {key, value} <- [
+          {:deposit, %{enabled: true, amount_cents: 6900}},
+          {:age_gate, %{min_age: 18}},
+          {:min_participants, %{count: 8}},
+          {:deadline_rule, %{hours_before_start: 72}}
+        ] do
+      assert {:ok, _} =
+               InitiativeRule
+               |> Ash.Changeset.for_create(:create, %{
+                 initiative_id: id,
+                 key: key,
+                 value: value,
+                 locked: false
+               })
+               |> Ash.create(actor: admin)
+    end
+
+    assert %{"data" => %{"openInitiative" => %{"errors" => [], "result" => opened}}} =
+             post_graphql(open_m, token(admin))
+
+    assert opened["status"] == "open"
+    assert Ash.get!(Initiative, id, authorize?: false).status == :open
+
+    close_m =
+      "mutation { closeInitiative(id: \"#{id}\") { result { id status } errors { code message } } }"
+
+    assert %{"data" => %{"closeInitiative" => %{"errors" => [], "result" => closed}}} =
+             post_graphql(close_m, token(admin))
+
+    assert closed["status"] == "closed"
+    assert Ash.get!(Initiative, id, authorize?: false).status == :closed
+  end
+
   test "platform admin listInitiatives is protected and returns rows" do
     admin = Fixtures.platform_admin("gql-initiative-list-admin")
     initiative = open_initiative(admin)
