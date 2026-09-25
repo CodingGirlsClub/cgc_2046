@@ -45,7 +45,9 @@ defmodule Cgc2046.Notifications.DeliveryTest do
     assert row.template_key == "approval_result"
     assert row.data == %{"status" => "confirmed"}
 
-    assert [%{args: %{"delivery_id" => delivery_id}}] = all_enqueued(worker: DeliveryWorker)
+    assert [%{args: %{"delivery_id" => delivery_id}}] =
+             all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
+
     assert delivery_id == row.id
   end
 
@@ -60,8 +62,12 @@ defmodule Cgc2046.Notifications.DeliveryTest do
     rows = deliveries_for(user.id)
     assert length(rows) == 2
     assert rows |> Enum.map(& &1.identity_uid) |> Enum.sort() == ["dt-multi-a", "dt-multi-b"]
+
+    [hd1, hd2] = Enum.sort_by(rows, & &1.identity_uid)
     assert rows |> Enum.map(& &1.idempotency_key) |> Enum.uniq() |> length() == 2
-    assert length(all_enqueued(worker: DeliveryWorker)) == 2
+
+    assert length(all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => hd1.id})) +
+             length(all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => hd2.id})) == 2
   end
 
   test "同一幂等键重复入队 → 只一行、只一个 job" do
@@ -77,8 +83,8 @@ defmodule Cgc2046.Notifications.DeliveryTest do
         %{"idempotency_key" => key}
       )
 
-    assert length(deliveries_for(user.id)) == 1
-    assert length(all_enqueued(worker: DeliveryWorker)) == 1
+    [only] = deliveries_for(user.id)
+    assert length(all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => only.id})) == 1
   end
 
   test "已 sent 的行重复入队 → 不再插 job（upsert 不覆盖终态）" do
@@ -105,7 +111,7 @@ defmodule Cgc2046.Notifications.DeliveryTest do
       )
 
     assert [%{status: :sent}] = deliveries_for(user.id)
-    assert [] = all_enqueued(worker: DeliveryWorker)
+    assert [] = all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
   end
 
   test "零身份 → 哨兵行（platform/identity_uid 均为 nil、pending）+ 一个 job（Q5：可观测记录）" do
@@ -117,7 +123,9 @@ defmodule Cgc2046.Notifications.DeliveryTest do
     assert is_nil(row.identity_uid)
     assert row.status == :pending
 
-    assert [%{args: %{"delivery_id" => id}}] = all_enqueued(worker: DeliveryWorker)
+    assert [%{args: %{"delivery_id" => id}}] =
+             all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
+
     assert id == row.id
   end
 

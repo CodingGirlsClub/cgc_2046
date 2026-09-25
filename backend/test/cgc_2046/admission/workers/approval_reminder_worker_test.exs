@@ -320,10 +320,12 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert [_still_one] = reminder_jobs(owner.id)
 
+      # 全表计数会看到并发 async 模块插入的同 worker job，按 owner 的行关联过滤
       {:ok, %{rows: [[count]]}} =
         Ecto.Adapters.SQL.query(
           Cgc2046.Repo,
-          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Notifications.Workers.DeliveryWorker'"
+          "SELECT COUNT(*) FROM oban_jobs j JOIN notification_deliveries d ON j.args->>'delivery_id' = d.id::text WHERE j.worker = 'Cgc2046.Notifications.Workers.DeliveryWorker' AND d.user_id = $1",
+          [Ecto.UUID.dump!(owner.id)]
         )
 
       # 行复用 + 新 job 重建（丢弃的 job 不阻塞）

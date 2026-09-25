@@ -340,7 +340,15 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert :ok = Fanout.deliver({user.id, identities}, "enrollment_submitted", %{}, meta)
 
       assert length(deliveries_for(user.id)) == 1
-      assert length(all_enqueued(worker: Cgc2046.Notifications.Workers.DeliveryWorker)) == 1
+
+      assert [only] = deliveries_for(user.id)
+
+      assert length(
+               all_enqueued(
+                 worker: Cgc2046.Notifications.Workers.DeliveryWorker,
+                 args: %{"delivery_id" => only.id}
+               )
+             ) == 1
 
       other = %{"enrollment_id" => "e2", "idempotency_key" => "enrollment.submitted:e2"}
 

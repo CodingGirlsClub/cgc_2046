@@ -331,11 +331,12 @@ defmodule Cgc2046.Admission.AttendanceTest do
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
       assert EventFixtures.ledger_occupancy(event) == 1
 
-      assert Enum.any?(
-               all_enqueued(worker: NotificationWorker),
-               &(&1.args["template_key"] == "refund_succeeded" and
-                   &1.args["user_id"] == enrollment.user_id)
+      # #847 批 2：refund_succeeded 已迁耐久路径，行为面 = Delivery 行
+      assert Cgc2046.Notifications.NotificationDelivery
+             |> Ash.Query.filter(
+               template_key == "refund_succeeded" and user_id == ^enrollment.user_id
              )
+             |> Ash.read!(authorize?: false) != []
     after
       Fake.reset!()
     end
