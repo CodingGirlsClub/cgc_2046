@@ -386,7 +386,7 @@ function corridor(state){
   const dock=`<div class="dock"><div class="mini ${done?'lit':''}"><b>王小明</b><span>2014 · 北京</span><small>点卡片翻开</small></div>
     <div class="acts">${done?'<div class="a-ink">✎ 写今天的你 ✓</div><div class="a-gold" data-gold>已寄出 ✓</div><div class="a-gold" data-gold>← 金句授权 · 匿名 ✓</div>'
       :'<div class="fire" data-fire>✎ 写今天的你</div><div class="a-dim">写完寄出 →</div><div class="a-ink">← 金句授权</div>'}</div></div>`;
-  const top=`<div class="frame-h"><b>2014.01.11</b> 一切的开始</div>
+  const top=`<div class="frame-h"><b>2014.01.11</b></div>
     <div class="piles"><div class="pile"><div class="print"><b>北京</b><span>3 位</span></div><div class="ret" data-gold>1 位已回来</div></div>
     <div class="pile"><div class="print"><b>上海</b><span>2 位</span></div><div class="ret" data-gold>1 位已回来</div></div>
     <div class="pile"><div class="print"><b>广州</b><span>1 位</span></div></div></div>
@@ -422,10 +422,10 @@ add({id:'journey-intro',group:'首程',title:'快门',who:'持专属链接的校
   kept:['文案、快门位置、点按即进入问答']});
 add({id:'journey-quiz',group:'首程',title:'问答',who:'同上',cur:null,tone:'dark',nav:{title:'闪念间',home:true},
   page:`<div class="page dark"><div class="dr-glow"></div><div class="j-quiz"><div class="j-q">还记得……是哪一场吗？</div>
-    <div class="j-opt"><b>2014 · 北京</b><small>Rails Girls Beijing</small></div><div class="j-opt"><b>2012 · 上海</b><small>中国首场</small></div>
-    <div class="j-opt"><b>2012.12 · 北京</b><small></small></div><div class="j-opt"><b>我不记得了</b><small>没关系，我们记得</small></div></div></div>`,
+    <div class="j-opt"><b>2014.1.11 · 六城同日</b><small>北京/成都/上海/深圳/西安/广州</small></div><div class="j-opt"><b>2012.12 · 北京</b><small>中国首场</small></div>
+    <div class="j-opt"><b>2015.8 · 广州</b><small></small></div><div class="j-opt"><b>我不记得了</b><small>没关系，我们记得</small></div></div></div>`,
   changed:['问答仍在暗房里，选项是暗底上的细线框'],kept:['题目、选项顺序（正确项固定首位）、「我不记得了」出口'],
-  flag:'现状截图缺（mock 首程链接已被认领）；圆梦线也会看到这道题，见盘点 P2-11'});
+  flag:'现状截图缺（mock 首程链接已被认领）；选项按修正后的候选池：中国首场是 2012.12 北京，2012 上海那场已从池中删除；圆梦线也会看到这道题，见盘点 P2-11'});
 add({id:'journey-reveal',group:'首程',title:'显影',who:'同上',cur:'journey-reveal.png',tone:'paper',nav:{title:'闪念间',home:true},
   page:`<div class="page paper"><div class="j-reveal"><div class="j-feedback">答对了。这张照片一直在等你。</div>
     <div class="polaroid" style="text-align:left"><div class="photo">${PAST_RAW}</div><div class="sign"><b>王小明</b><span>2014.01.11 13:06</span></div></div>
