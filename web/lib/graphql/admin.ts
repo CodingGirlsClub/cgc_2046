@@ -1228,8 +1228,9 @@ export interface FlashbackOutreachRosterEntry {
 export interface FlashbackAdminArchive {
 	key: string;
 	name: string;
-	city: string;
-	occurredOn: string;
+	// 教练场等档案无具体日期/城市（backend schema 为 nullable）
+	city: string | null;
+	occurredOn: string | null;
 }
 
 export const FLASHBACK_OUTREACH_PREVIEW: TypedDocumentNode<
