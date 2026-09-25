@@ -415,9 +415,10 @@ describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）",
 
 		const alert = await screen.findByRole("alert");
 		expect(alert).toHaveTextContent("当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。");
-		// 同一 alert 内的链接指向 /flashback/enter（zh 无前缀、en 前缀 /en）
+		// D7 修复后：绑定引导指向 hub 找回区（#recover）——无 token 的既有逻辑
+		// /flashback/enter 必落假失效页（视觉审计 2026-09 实证，曾以此断言钉住）
 		const link = within(alert).getByRole("link");
-		expect(link.getAttribute("href")).toMatch(/^\/(en\/)?flashback\/enter($|[?#])/);
+		expect(link.getAttribute("href")).toMatch(/^\/(en\/)?flashback#recover$/);
 	});
 
 	it("额度被拒后本地锁定终态（树页 myWishQuotaRemaining=null 场景）", async () => {

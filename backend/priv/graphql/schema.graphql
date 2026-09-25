@@ -7106,13 +7106,24 @@ type FlashbackProfile {
 
 type FlashbackToday {
   nowStatus: String
+
   want: String
+
   need: String
+
   say: String
+
+  "句级雾面区间（字段名 → spans；U9\/R16，空 map = 无雾）"
+  fogSpans: Json
+
   wantGiveTags: [String]
+
   mobilization: JsonString
+
   newsletterOptIn: Boolean
+
   reconnectTags: [String]
+
   sentToWallAt: String
 }
 
