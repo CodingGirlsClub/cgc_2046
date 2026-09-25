@@ -519,7 +519,7 @@ ck "筛上海后堆只剩 2（两场的上海堆）" "$(COUNT "$PINPOL")" '^2$'
 ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
 ck "钉条不随过滤收缩（仍 3 城钉）" "$(COUNT "$CITY_PIN")" '^3$'
 shot 08.5-corridor-city-filtered.png
-TAP "$CITY_PIN_ALL"
+TRIGGER tap '{}' "$CITY_PIN_ALL"
 sleep 2.5
 ck "回全部恢复 4 堆" "$(COUNT "$PINPOL")" '^4$'
 ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
