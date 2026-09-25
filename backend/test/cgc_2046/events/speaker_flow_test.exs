@@ -17,6 +17,9 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
   """
 
   use Cgc2046.DataCase, async: true
+
+  require Ash.Query
+  alias Cgc2046.Notifications.NotificationDelivery
   use Oban.Testing, repo: Cgc2046.Repo
 
   require Ash.Query
@@ -654,7 +657,11 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
       assert :ok =
                SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
-      assert_enqueued(worker: NotificationWorker, args: %{"template_key" => "speaker_accepted"})
+      # #847 批 4：speaker_accepted 已迁耐久路径
+      assert NotificationDelivery
+             |> Ash.Query.filter(template_key == "speaker_accepted")
+             |> Ash.read!(authorize?: false) != []
+
       assert claim_rows("speaker.accepted") == 1
 
       # 同信号重复投递 → 幂等跳过（不再新增通知与 claim）
@@ -662,8 +669,9 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
                SignalSubscriber.deliver(SpeakerSubscriber, %{type: "speaker.accepted", data: data})
 
       accepted_jobs =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.filter(&(&1.args["template_key"] == "speaker_accepted"))
+        NotificationDelivery
+        |> Ash.Query.filter(template_key == "speaker_accepted")
+        |> Ash.read!(authorize?: false)
 
       assert length(accepted_jobs) == 1
       assert claim_rows("speaker.accepted") == 1
@@ -704,12 +712,13 @@ defmodule Cgc2046.Events.SpeakerFlowTest do
                })
 
       completed_jobs =
-        all_enqueued(worker: NotificationWorker)
-        |> Enum.filter(&(&1.args["template_key"] == "speaker_completed"))
+        NotificationDelivery
+        |> Ash.Query.filter(template_key == "speaker_completed")
+        |> Ash.read!(authorize?: false)
 
       # Owner/Admin（admin 一人）+ Speaker 本人 → 2 条（同模板，user_id 不同）
       assert length(completed_jobs) == 2
-      user_ids = Enum.map(completed_jobs, & &1.args["user_id"]) |> Enum.sort()
+      user_ids = Enum.map(completed_jobs, & &1.user_id) |> Enum.sort()
       assert user_ids == Enum.sort([admin.id, speaker.id])
       assert claim_rows("speaker.completed") == 1
     end
