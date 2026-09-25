@@ -15,6 +15,7 @@ defmodule Cgc2046.Notifications.DeliveryKey do
     "enrollment_submitted",
     "enrollment_completed",
     "enrollment_check_in_code",
+    "speaker_accepted",
     "payment_succeeded",
     "payment_received",
     "payment_expired",
