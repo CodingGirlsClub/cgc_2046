@@ -123,3 +123,25 @@
 .accountLinks { margin-top: 28rpx; display: flex; gap: 40rpx; justify-content: center; }
 .retractLink, .deleteLink { font-size: 22rpx; color: #6b6f78; padding: 16rpx 8rpx; text-decoration: underline; text-underline-offset: 6rpx; }
 .deleteLink { color: #b42318; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   四态 chip 的选中是「选择」（墨，不是火）；火只给「保存图片」，「分享给朋友」墨色描边；
+   分享面板：链接已开启是金（被点亮的状态），开启 / 发送是这一层唯一的火。 */
+.page { background: var(--paper); }
+.modeChip { color: var(--ink-2); background: var(--paper-deep); border-color: transparent; }
+.modeChipActive { color: var(--paper-hi); background: var(--ink); border-color: var(--ink); }
+.summaryCard { background: var(--paper-hi); border-color: var(--rule); border-radius: 6rpx; box-shadow: 0 40rpx 80rpx -44rpx rgba(28, 40, 30, 0.5); }
+.summaryKicker, .summaryQuote { color: var(--ink); font-family: var(--serif); }
+.summaryStamp, .summaryToday { color: var(--ink-2); }
+.summaryToday { border-top-color: var(--rule); }
+.summaryFooter, .tip { color: var(--ink-3); }
+.actionPrimary, .sharePrimary { background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.actionSecondary { background: transparent; color: var(--ink); border: 1rpx solid var(--ink-3); font-weight: 400; }
+.shareMask { background: rgba(21, 19, 15, 0.62); }
+.sharePanel { background: var(--paper-hi); }
+.shareTitle { color: var(--ink); }
+.shareMissingText { color: var(--ink-2); }
+.shareNoticeLine, .shareConsent, .shareStatusHint, .shareCancel { color: var(--ink-3); }
+.shareStatusOn { color: var(--gold-ink); }
+.shareQuiet { background: var(--paper); color: var(--ink-2); border-color: var(--rule); }
+.retractLink { color: var(--ink-2); }
