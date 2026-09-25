@@ -2,6 +2,7 @@ import { PropsWithChildren } from 'react'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { STORAGE_KEYS } from '@/state/storage'
 import { applyEntry, type EntryTaro } from '@/domain/entry'
+import { currentPlatform } from '@/platform'
 import './app.css'
 
 function App({ children }: PropsWithChildren) {
@@ -9,7 +10,7 @@ function App({ children }: PropsWithChildren) {
   // routing the same launch twice through useLaunch and a separate wx listener.
   useDidShow((options: Taro.onAppShow.CallbackResult) => {
     setTimeout(
-      () => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene),
+      () => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene, currentPlatform()),
       0
     )
   })

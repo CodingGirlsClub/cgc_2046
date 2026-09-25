@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { applyEntry } from '../src/domain/entry.ts'
 import type { EntryPage } from '../src/domain/share-route.ts'
+import { CUT_TAB_PATHS, FULL_TAB_PATHS, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
 
 const PENDING_SCENE_KEY = 'cgc.pending_scene'
 
@@ -140,4 +141,36 @@ test('同一愿望不重复导航；切换分享愿望正常定位', () => {
   const page = [{ route: 'pages/flashback-wishes/index', options: { wishId: 'w-9' } }]
   assert.deepEqual(entry({ query: { wishId: 'w-9' } }, page).navigated, [])
   assert.deepEqual(entry({ query: { wishId: 'w-10' } }, page).navigated, ['/pages/flashback-wishes/index?wishId=w-10'])
+})
+
+// ── P0-4：applyEntry 按本端平台过滤 URL 与 Tab 集合 ─────────────────────
+
+function entryPlatform(
+  platform: 'wechat' | 'tt' | 'xhs',
+  options: Parameters<typeof applyEntry>[1],
+  pages: EntryPage[] = []
+) {
+  const { taro, navigated, switched, stored } = fakeTaro(pages)
+  applyEntry(taro, options, PENDING_SCENE_KEY, platform)
+  return { navigated, switched, stored }
+}
+
+test('P0-4 xhs：wishId（本端未注册页）回落薄壳页且 navigateTo（薄壳非 Tab）', () => {
+  const result = entryPlatform('xhs', { query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
+  assert.deepEqual(result.navigated, ['/pages/flashback/index'])
+  assert.deepEqual(result.switched, [])
+})
+
+test('P0-4 xhs：event id 深链照常 navigateTo（已注册目标不过滤）', () => {
+  const result = entryPlatform('xhs', { query: { id: 'evt-1', kind: 'event' } }, [{ route: 'pages/discover/index' }])
+  assert.deepEqual(result.navigated, ['/pages/event-detail/index?id=evt-1&kind=event'])
+})
+
+test('P0-4 tabPathsForPlatform：Tab 集合按平台分派（不再永远按微信 tabs）', () => {
+  // 深链落 Tab 页时 switchTab 与否取决于本端 Tab 集合：profile 是微信 Tab；
+  // 抖音裁剪端 = 发现/我的报名；小红书（D2a）= 发现/我的
+  assert.deepEqual(tabPathsForPlatform('wechat'), FULL_TAB_PATHS)
+  assert.deepEqual(tabPathsForPlatform('tt'), CUT_TAB_PATHS)
+  assert.equal(tabPathsForPlatform('xhs').includes('/pages/profile-lite/index'), true)
+  assert.equal(tabPathsForPlatform('xhs').includes('/pages/discover/index'), true)
 })

@@ -453,19 +453,29 @@ export function paymentBlockCopy(input: {
 
 // 收费报名提交后的落地页：weapp 进支付页（weapp 用户不经此函数到结果页）；
 // 裁剪端（tt/xhs）无小程序内支付，回结果页——结果页渲染 payment_pending 待支付
-// 分支（裁剪端附网页端支付引导）；weapp 落到结果页时该分支亦作兜底。
+// 分支（引导文案按平台分派，见 enrollmentResultCopy）；weapp 落到结果页时该分支亦作兜底。
 export function paymentLandingUrl(enrollmentId: string, isWeapp: boolean): string {
   if (isWeapp) return `/pages/order-pay/index?enrollmentId=${enrollmentId}`
   return `/pages/enrollment-result/index?id=${enrollmentId}`
 }
 
-/** 报名结果页文案（enrollment-result 状态→文案映射；payment_pending 含裁剪端网页端支付引导） */
+/** 报名结果页文案（enrollment-result 状态→文案映射；payment_pending 按平台分派支付引导） */
 export interface EnrollmentResultCopy {
   title: string
   subtitle: string
 }
 
-export function enrollmentResultCopy(status: EnrollmentStatus, isWeapp: boolean): EnrollmentResultCopy {
+/**
+ * 缴费引导按平台分派（P0 小红书止血，D1a）：
+ * - wechat：「名额已保留」兜底；
+ * - tt：维持既有「请在网页端完成支付」（本次不动抖音端）；
+ * - xhs：零导流中性文案——不出现去网页端的引导（平台巡检红线，见
+ *   docs/plans/2026-09-25-2004 迁移规划）。
+ */
+export function enrollmentResultCopy(
+  status: EnrollmentStatus,
+  platform: 'wechat' | 'tt' | 'xhs'
+): EnrollmentResultCopy {
   if (status === 'pending') {
     return {
       title: '等待审批',
@@ -475,9 +485,12 @@ export function enrollmentResultCopy(status: EnrollmentStatus, isWeapp: boolean)
   if (status === 'payment_pending') {
     return {
       title: `${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`,
-      subtitle: isWeapp
-        ? '名额已保留，请尽快完成支付。'
-        : '请在网页端完成支付（本端暂不支持支付调起）。'
+      subtitle:
+        platform === 'xhs'
+          ? '名额已为你保留；缴费报名暂未在本端开放。'
+          : platform === 'wechat'
+            ? '名额已保留，请尽快完成支付。'
+            : '请在网页端完成支付（本端暂不支持支付调起）。'
     }
   }
   return { title: '报名成功', subtitle: '名额已经确认，记得按时参加。' }

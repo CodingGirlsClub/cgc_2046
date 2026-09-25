@@ -203,6 +203,30 @@ test('报名门双门（#574）：open 场按 badge 阻断，归档场按 status
   assert.equal(enrollmentBlockedNotice(notEnded), '报名已截止，仅供查看。')
 })
 
+test('报名门缴费门（P0 小红书止血，D1a）：xhs 收费/押金场置灰为中性说明，其余端不拦', () => {
+  const paid = { status: 'open', endsAt: null, enrollmentBadge: 'enrolling', pricingEnabled: true, depositEnabled: false } as CatalogItem
+  const deposit = { status: 'open', endsAt: null, enrollmentBadge: 'enrolling', pricingEnabled: false, depositEnabled: true, depositAmountCents: 6900 } as CatalogItem
+  const free = { status: 'open', endsAt: null, enrollmentBadge: 'enrolling', pricingEnabled: false, depositEnabled: false } as CatalogItem
+
+  // xhs：收费/押金场阻断为中性文案（详情可看，不出现去网页端的引导）；
+  // 免费场不受影响
+  assert.equal(enrollmentBlockedNotice(paid, 'xhs'), '本端暂未开放缴费报名')
+  assert.equal(enrollmentBlockedNotice(deposit, 'xhs'), '本端暂未开放缴费报名')
+  assert.equal(enrollmentBlockedNotice(free, 'xhs'), null)
+
+  // wechat/tt 维持现状（缴费门只在小红书生效；tt 的既有文案/路径不变）
+  assert.equal(enrollmentBlockedNotice(paid, 'wechat'), null)
+  assert.equal(enrollmentBlockedNotice(paid, 'tt'), null)
+  assert.equal(enrollmentBlockedNotice(deposit, 'tt'), null)
+
+  // 状态门优先于缴费门：已截止的收费场仍是截止文案（xhs 也不例外）
+  const closedPaid = { status: 'open', endsAt: null, enrollmentBadge: 'closed', pricingEnabled: true, depositEnabled: false } as CatalogItem
+  assert.equal(enrollmentBlockedNotice(closedPaid, 'xhs'), '报名已截止，不再接受新的报名。')
+
+  // 不传平台（调用方缺省）= 全量端口径，不拦缴费
+  assert.equal(enrollmentBlockedNotice(paid), null)
+})
+
 test('详情页报名状态槽：open 用 badge，归档场用状态词（不再显示「报名中」）', () => {
   assert.equal(enrollmentMetricText({ status: 'open', enrollmentBadge: 'enrolling' } as CatalogItem), '报名中')
   assert.equal(enrollmentMetricText({ status: 'open', enrollmentBadge: 'full' } as CatalogItem), '已满')

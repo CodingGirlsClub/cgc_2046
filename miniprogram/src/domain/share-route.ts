@@ -11,7 +11,13 @@
  * 已在看的详情；不同 id 是换了一张分享卡片，必须打开目标）；否则 slug 跳
  * initiative-detail。kind 缺省/非法值回落 event——与 event-detail 页面的三态
  * 回落一致。
+ *
+ * P0-4：目标按平台过滤（`platformFallbackRoute`）——未注册页面一律稳态回落，
+ * 名单单源 `domain/platform-pages.ts`。
  */
+import { pageRegistered, type RoutePlatform } from './platform-pages.ts'
+
+export type { RoutePlatform }
 
 export interface AppShowQuery {
   quoteId?: string
@@ -80,8 +86,32 @@ export function buildInitiativeSharePath(slug: string): string {
   return `/pages/initiative-detail/index?slug=${encodeURIComponent(slug)}`
 }
 
+/**
+ * 深链按平台过滤（P0-4）：目标 url 必须是本端已注册页面（名单单源
+ * `domain/platform-pages.ts`），否则稳态回落——闪念间族 → 薄壳页
+ * `pages/flashback/index`；其余 → 发现页。回落目标即当前页时返回 null
+ * （防重复叠壳）。weapp（缺省）直通不过滤。
+ */
+export function platformFallbackRoute(url: string | null, platform: RoutePlatform, currentRoute: string): string | null {
+  if (!url || platform === 'wechat') return url
+  const path = normalizePath(url.split('?')[0])
+  if (pageRegistered(path, platform)) return url
+  const fallback = path.startsWith('pages/flashback') ? 'pages/flashback/index' : 'pages/discover/index'
+  if (fallback === normalizePath(currentRoute)) return null
+  return `/${fallback}`
+}
+
 /** query + 当前栈顶页面 route → 跳转 url；null = 不跳 */
-export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, currentQuery: AppShowQuery = {}): string | null {
+export function resolveAppShowRoute(
+  query: AppShowQuery,
+  currentRoute: string,
+  currentQuery: AppShowQuery = {},
+  platform: RoutePlatform = 'wechat'
+): string | null {
+  return platformFallbackRoute(innerAppShowRoute(query, currentRoute, currentQuery), platform, currentRoute)
+}
+
+function innerAppShowRoute(query: AppShowQuery, currentRoute: string, currentQuery: AppShowQuery = {}): string | null {
   // 公开卡（#771）**最先判**，先于 scene/id/slug/token：shareId 只出现在公开卡
   // 分享链接里，出现即意图唯一。反过来（让 scene/id/slug 先判）会把一条夹带了
   // 本人面参数的转发链接劫持成旅程页/详情页——「朋友点开看到我的卡」当场失效。
@@ -195,10 +225,12 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
   // 否则「从 A 的卡跳到 B 的卡」在冷启动入口被误判成「已在目标页」而静默不跳。
   const shareId = params.get('shareId')
   if (shareId !== null) return shareId === (query.shareId?.trim() ?? '')
-  // 无定位参数：闪念间入口页（旅程/长廊/场次）path 相同即目标——token 等参数
-  // 属链接身份，不做值比较（KTD2）。join（scene 链路）保持不抑制：pendingScene
-  // 必须落盘且 join 页消费语义未变。
-  return (FLASHBACK_ENTRY_ROUTES as readonly string[]).includes(normalizePath(path))
+  // 无定位参数：闪念间入口页（旅程/长廊/场次）与裁剪端薄壳页（P0-4 回落目标，
+  // 同样是无定位参数的入口面）path 相同即目标——token 等参数属链接身份，不做值
+  // 比较（KTD2）。join（scene 链路）保持不抑制：pendingScene 必须落盘且 join 页
+  // 消费语义未变。
+  const noIdEntryRoutes: readonly string[] = [...FLASHBACK_ENTRY_ROUTES, 'pages/flashback/index']
+  return noIdEntryRoutes.includes(normalizePath(path))
 }
 
 /**
@@ -210,7 +242,11 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
  *    守卫因而不会误拦首次导航；
  * 3. 冷启动 `navigate` 抑制（见 `EntryDecision.navigate`）。
  */
-export function resolveEntry(options: AppEntryOptions, pages: EntryPage[] = []): EntryDecision {
+export function resolveEntry(
+  options: AppEntryOptions,
+  pages: EntryPage[] = [],
+  platform: RoutePlatform = 'wechat'
+): EntryDecision {
   const query = options?.query ?? {}
   const top = pages[pages.length - 1]
   const path = normalizePath(options.path ?? '')
@@ -220,9 +256,10 @@ export function resolveEntry(options: AppEntryOptions, pages: EntryPage[] = []):
   const resetCollection = collectionKey !== null && normalizePath(top?.route ?? '') === path &&
     !query[collectionKey]?.trim() && !query.city?.trim() &&
     !!(top?.options?.[collectionKey]?.trim() || top?.options?.city?.trim())
-  const url = resetCollection ? `/${path}` :
-    resolveAppShowRoute(query, top?.route ?? '', top?.options ?? {}) ??
+  const rawUrl = resetCollection ? `/${path}` :
+    innerAppShowRoute(query, top?.route ?? '', top?.options ?? {}) ??
     flashbackEntryUrl(options, top?.route ?? '')
+  const url = platformFallbackRoute(rawUrl, platform, top?.route ?? '')
   return {
     scene: query.scene?.trim() || null,
     url,
