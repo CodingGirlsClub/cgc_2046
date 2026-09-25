@@ -59,6 +59,9 @@ type Stubs = {
 		typeof vi.fn<(phone: string, purpose: "REGISTER" | "CHANGE_PHONE") => Promise<boolean>>
 	>;
 	onAdjustFog: ReturnType<typeof vi.fn<(answerId: string, spans: FlashbackFogSpan[]) => Promise<boolean>>>;
+	onAdjustTodayFog: ReturnType<
+		typeof vi.fn<(field: string, spans: FlashbackFogSpan[]) => Promise<boolean>>
+	>;
 	onDone: ReturnType<typeof vi.fn<() => void>>;
 	onBack: ReturnType<typeof vi.fn<() => void>>;
 };
@@ -73,6 +76,8 @@ function makeStubs(): Stubs {
 			vi.fn<(phone: string, purpose: "REGISTER" | "CHANGE_PHONE") => Promise<boolean>>().mockResolvedValue(true),
 		onAdjustFog:
 			vi.fn<(answerId: string, spans: FlashbackFogSpan[]) => Promise<boolean>>().mockResolvedValue(true),
+		onAdjustTodayFog:
+			vi.fn<(field: string, spans: FlashbackFogSpan[]) => Promise<boolean>>().mockResolvedValue(true),
 		onDone: vi.fn<() => void>(),
 		onBack: vi.fn<() => void>(),
 	};
