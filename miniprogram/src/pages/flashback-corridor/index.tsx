@@ -38,6 +38,12 @@ export default function FlashbackCorridorPage() {
   const [cardScrollTo, setCardScrollTo] = useState('')
   // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
   const [shutter, setShutter] = useState(false)
+  // 换肤：快门仪式是暗房——导航栏随之切暗，散场回到纸色（页面配置同为纸色）
+  useEffect(() => {
+    void Taro.setNavigationBarColor(
+      shutter ? { frontColor: '#ffffff', backgroundColor: '#15130f' } : { frontColor: '#000000', backgroundColor: '#f7f2e7' }
+    ).catch(() => undefined)
+  }, [shutter])
   const cardOpenedAt = useRef(0)
   const openCardLayer = (mode: 'view' | 'write') => {
     setCardLayer(mode)
@@ -318,7 +324,7 @@ export default function FlashbackCorridorPage() {
       {mode.kind === 'member' && me && myView && (
         <View className={styles.cardDock}>
           <View
-          className={styles.miniCard}
+          className={`${styles.miniCard} ${me.today?.sentToWallAt ? styles.miniCardLit : ''}`}
           onClick={() => openCardLayer('view')}
         >
             <Text className={styles.miniCardName}>{me.fullName}</Text>
@@ -329,7 +335,7 @@ export default function FlashbackCorridorPage() {
           </View>
           <View className={styles.dockActions}>
             <Text
-              className={styles.dockWritePrimary}
+              className={`${styles.dockWritePrimary} ${todayWritten ? styles.dockWriteDone : ''}`}
               onClick={() => openCardLayer('write')}
             >
               ✎ 写今天的你{todayWritten ? ' ✓' : ''}
@@ -741,7 +747,7 @@ export default function FlashbackCorridorPage() {
 
       {/* 先进入卡片页查看，再决定保存或分享。 */}
       <View className={styles.footerBar}>
-        <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
+        <Button className={`${styles.cta} ${me?.today?.sentToWallAt ? '' : styles.ctaQuiet}`} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
           把这一刻做成卡片 →
         </Button>
       </View>

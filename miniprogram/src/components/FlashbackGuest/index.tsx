@@ -47,14 +47,13 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
     }
   }, [])
   const show = () => {
-    void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#f7f2e7' })
     void load()
   }
   useDidShow(show)
   useDidHide(() => { generation.current++ })
   useEffect(() => {
     show()
-    return () => { generation.current++; void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#ffffff' }) }
+    return () => { generation.current++ }
   }, [load])
   const recoveryCopy = recoveryView(recovery)
   const preview = guestVoicePreview(quote.voice)
