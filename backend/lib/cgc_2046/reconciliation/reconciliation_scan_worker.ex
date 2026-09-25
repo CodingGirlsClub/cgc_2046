@@ -52,7 +52,11 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
   # desc/sweep 单源注入自 RulesRegistry（C9 Q4 描述单源，防多处漂移）。
   # driver（perform/apply_rule）只消费声明不感知具体规则——新规则 =
   # 注册表一条声明 + 一个 detect 函数 + 一条绑定。
-  defp rules do
+  # @doc false public 只读访问器（先例 dead_letter_workers/0）：反射测试
+  # 断言「声明表 id 集 == 注册表 by_producer 子集」消费。
+  @doc false
+  @spec rules() :: [map()]
+  def rules do
     [
       %{
         id: :confirmed_enrollment_without_run,
