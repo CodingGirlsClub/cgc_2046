@@ -2676,8 +2676,19 @@ defmodule Cgc2046Web.GraphqlSchema do
           with {:ok, identity} <- flashback_identity(args[:token], context),
                {:ok, person_id} <- identity_person_id(identity),
                {:ok, _comments} <-
-                 Cgc2046.Flashback.Wishes.add_comment(person_id, args.wish_id, args.content) do
-            {:ok, %{endorsement_count: 0, endorsed_by_me: false}}
+                 Cgc2046.Flashback.Wishes.add_comment(person_id, args.wish_id, args.content),
+               %Cgc2046.Flashback.Wish{} = wish <-
+                 Cgc2046.Repo.get(Cgc2046.Flashback.Wish, args.wish_id) do
+            # add_comment 必经 fetch_public_wish(visibility=public、未删、未 hidden)。
+            # listed_at/hidden_at 仍有三种合法形态(挂树/无 consent/曾 hidden 被解除——
+            # 后者按现行过滤进不来),三态仍可能为 listed 或 private;走 listing_status/2
+            # 与 create_wish resolver 对齐,避免把三态字符串散落在 resolver 硬编码。
+            {:ok,
+             %{
+               endorsement_count: 0,
+               endorsed_by_me: false,
+               status: Cgc2046.Flashback.Wishes.listing_status(wish.visibility, wish)
+             }}
           end
         end)
       end)

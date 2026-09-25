@@ -349,19 +349,18 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
       %{order_id: order.id, expected: order.amount_cents, channel: channel_amount}
     )
 
-    Finding
-    |> Ash.Changeset.for_create(:create, %{
-      rule: :payment_amount_mismatch,
+    # 单事件拍（#848）：重复命中刷新 last_seen_at；无全量视图不做 stale 删除
+    candidate = %{
       entity_type: :payment_order,
       entity_id: order.id,
       workspace_id: order.workspace_id,
       detail: %{"expected_cents" => order.amount_cents, "channel_cents" => channel_amount}
-    })
-    |> Ash.create(authorize?: false)
-    |> case do
-      {:ok, _} -> :ok
-      {:error, _duplicate} -> :ok
-    end
+    }
+
+    Finding.apply_rule(:payment_amount_mismatch, [candidate],
+      log_prefix: "settlement",
+      sweep: :one_shot
+    )
   end
 
   # ── 工具 ───────────────────────────────────────────────────────────────────
