@@ -13,9 +13,6 @@ export type CourseFilterCapacity = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type CourseFilterConfirmedCount = {
@@ -29,9 +26,6 @@ export type CourseFilterConfirmedCount = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type CourseFilterCurriculumRequirements = {
@@ -45,9 +39,6 @@ export type CourseFilterCurriculumRequirements = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterDescription = {
@@ -64,9 +55,6 @@ export type CourseFilterDescription = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -82,9 +70,6 @@ export type CourseFilterEndsAt = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterEnrollmentPolicy = {
@@ -98,9 +83,6 @@ export type CourseFilterEnrollmentPolicy = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterId = {
@@ -114,9 +96,6 @@ export type CourseFilterId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type CourseFilterInput = {
@@ -169,9 +148,6 @@ export type CourseFilterPricingEnabled = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type CourseFilterProvisionalTitle = {
@@ -185,9 +161,6 @@ export type CourseFilterProvisionalTitle = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type CourseFilterRegistrationDeadline = {
@@ -201,9 +174,6 @@ export type CourseFilterRegistrationDeadline = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterSlug = {
@@ -220,9 +190,6 @@ export type CourseFilterSlug = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -238,9 +205,6 @@ export type CourseFilterStartsAt = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterStatus = {
@@ -254,9 +218,6 @@ export type CourseFilterStatus = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterTitle = {
@@ -273,9 +234,6 @@ export type CourseFilterTitle = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -291,9 +249,6 @@ export type CourseFilterVisibility = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type CourseFilterWorkflowRunId = {
@@ -307,9 +262,6 @@ export type CourseFilterWorkflowRunId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type CourseFilterWorkspaceId = {
@@ -323,9 +275,6 @@ export type CourseFilterWorkspaceId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type CreateEnrollmentInput = {
@@ -377,9 +326,6 @@ export type EventFilterCapacity = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type EventFilterConfirmedCount = {
@@ -393,9 +339,6 @@ export type EventFilterConfirmedCount = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type EventFilterCreatedBy = {
@@ -409,9 +352,6 @@ export type EventFilterCreatedBy = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type EventFilterCurriculumEnabled = {
@@ -425,9 +365,6 @@ export type EventFilterCurriculumEnabled = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type EventFilterCurriculumRequirements = {
@@ -441,9 +378,6 @@ export type EventFilterCurriculumRequirements = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterDepositAmountCents = {
@@ -457,9 +391,6 @@ export type EventFilterDepositAmountCents = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type EventFilterDepositEnabled = {
@@ -473,9 +404,6 @@ export type EventFilterDepositEnabled = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type EventFilterDescription = {
@@ -492,9 +420,6 @@ export type EventFilterDescription = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -510,9 +435,6 @@ export type EventFilterEndsAt = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterEnrollmentPolicy = {
@@ -526,9 +448,6 @@ export type EventFilterEnrollmentPolicy = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterId = {
@@ -542,9 +461,6 @@ export type EventFilterId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type EventFilterInitiativeId = {
@@ -558,9 +474,6 @@ export type EventFilterInitiativeId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type EventFilterInput = {
@@ -632,9 +545,6 @@ export type EventFilterMinAge = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type EventFilterMinParticipants = {
@@ -648,9 +558,6 @@ export type EventFilterMinParticipants = {
   lessThan?: number | null | undefined;
   lessThanOrEqual?: number | null | undefined;
   notEq?: number | null | undefined;
-  rangeAdjacent?: number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: number | null | undefined;
 };
 
 export type EventFilterPricingEnabled = {
@@ -664,9 +571,6 @@ export type EventFilterPricingEnabled = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type EventFilterQualificationStatus = {
@@ -680,9 +584,6 @@ export type EventFilterQualificationStatus = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterRegistrationDeadline = {
@@ -696,9 +597,6 @@ export type EventFilterRegistrationDeadline = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterSlug = {
@@ -715,9 +613,6 @@ export type EventFilterSlug = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -733,9 +628,6 @@ export type EventFilterSponsorshipDeadline = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterSponsorshipEnabled = {
@@ -749,9 +641,6 @@ export type EventFilterSponsorshipEnabled = {
   lessThan?: boolean | null | undefined;
   lessThanOrEqual?: boolean | null | undefined;
   notEq?: boolean | null | undefined;
-  rangeAdjacent?: boolean | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: boolean | null | undefined;
 };
 
 export type EventFilterStartsAt = {
@@ -765,9 +654,6 @@ export type EventFilterStartsAt = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterStatus = {
@@ -781,9 +667,6 @@ export type EventFilterStatus = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterTitle = {
@@ -800,9 +683,6 @@ export type EventFilterTitle = {
   lessThanOrEqual?: string | null | undefined;
   like?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
   stringEndsWith?: string | null | undefined;
   stringStartsWith?: string | null | undefined;
 };
@@ -818,9 +698,6 @@ export type EventFilterVenue = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterVisibility = {
@@ -834,9 +711,6 @@ export type EventFilterVisibility = {
   lessThan?: string | null | undefined;
   lessThanOrEqual?: string | null | undefined;
   notEq?: string | null | undefined;
-  rangeAdjacent?: string | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | null | undefined;
 };
 
 export type EventFilterWorkflowRunId = {
@@ -850,9 +724,6 @@ export type EventFilterWorkflowRunId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type EventFilterWorkspaceId = {
@@ -866,9 +737,6 @@ export type EventFilterWorkspaceId = {
   lessThan?: string | number | null | undefined;
   lessThanOrEqual?: string | number | null | undefined;
   notEq?: string | number | null | undefined;
-  rangeAdjacent?: string | number | null | undefined;
-  rangeContains?: string | null | undefined;
-  rangeOverlaps?: string | number | null | undefined;
 };
 
 export type FlashbackFogSpanInput = {

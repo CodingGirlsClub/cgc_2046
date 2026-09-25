@@ -359,10 +359,15 @@ defmodule Cgc2046.Payments.OrderTest do
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
 
-      assert_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
-      )
+      # #847 批 2：payment_succeeded 已迁耐久路径（Delivery 行）
+      require Ash.Query
+
+      assert [_row] =
+               Cgc2046.Notifications.NotificationDelivery
+               |> Ash.Query.filter(
+                 template_key == "payment_succeeded" and user_id == ^enrollment.user_id
+               )
+               |> Ash.read!(authorize?: false)
     after
       Fake.reset!()
     end

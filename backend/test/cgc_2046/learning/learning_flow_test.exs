@@ -535,20 +535,20 @@ defmodule Cgc2046.Learning.LearningFlowTest do
 
       assert :ok = perform_job(LearningProgressWorker, %{})
 
-      assert_enqueued(
-        worker: NotificationWorker,
-        args: %{
-          "user_id" => stale_learner.id,
-          "platform" => "wechat",
-          "template_key" => "learning_stagnation",
-          "data" => %{"run_id" => stale_run.id, "enrollment_id" => stale_enrollment.id}
-        }
-      )
+      # #847 批 3：learning_stagnation 已迁耐久路径，行为面 = Delivery 行
+      require Ash.Query
 
-      refute_enqueued(
-        worker: NotificationWorker,
-        args: %{"template_key" => "learning_stagnation", "data" => %{"run_id" => fresh_run.id}}
-      )
+      stagnation_rows =
+        Cgc2046.Notifications.NotificationDelivery
+        |> Ash.Query.filter(template_key == "learning_stagnation")
+        |> Ash.read!(authorize?: false)
+
+      assert Enum.any?(
+               stagnation_rows,
+               &(&1.user_id == stale_learner.id and &1.data["run_id"] == stale_run.id)
+             )
+
+      assert stagnation_rows |> Enum.all?(&(&1.data["run_id"] != fresh_run.id))
 
       # 不自动 cancel：停滞 run 仍 running
       assert fetch_run(stale_run.id, workspace.id).status == :running

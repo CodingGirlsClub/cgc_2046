@@ -75,27 +75,37 @@ defmodule Cgc2046.Flashback.Import do
 
   - `dry_run: true`（默认）——只产报告不写库；
   - `dry_run: false`——真跑（EventArchive get-or-create + Person + Answer）；
-  - `config: %{…}`——覆盖默认列映射（深层 merge，见 `merge_config/2`）。
+  - `config: %{…}`——覆盖列映射（深层 merge，见 `merge_config/2`）；
+  - `preset: :learner | :coach`——大表模式 preset（`Import.MasterConfig`），
+    整体替换默认 config 再叠加 `config:` 覆盖。
 
   返回 `{:ok, report}` 或 `{:ok, report, counts}`（真跑时 counts 为落库计数）；
   格式/结构错误返回 `{:error, reason}`（BIFF8 附转换指引）。
   """
   @spec run(binary(), keyword()) :: {:ok, map()} | {:ok, map(), map()} | {:error, term()}
   def run(xlsx_binary, opts \\ []) do
-    config = merge_config(@default_config, Keyword.get(opts, :config, %{}))
+    base =
+      case Keyword.get(opts, :preset) do
+        nil -> @default_config
+        preset -> Cgc2046.Flashback.Import.MasterConfig.config!(preset)
+      end
+
+    config = merge_config(base, Keyword.get(opts, :config, %{}))
     dry_run = Keyword.get(opts, :dry_run, true)
 
     with {:ok, sheets} <- Xlsx.read(xlsx_binary),
          {:ok, rows} <- fetch_body_rows(sheets, config),
-         {:ok, admitted_keys} <- admission_keys(sheets, config),
-         alt_keys = alt_admission_keys(sheets, config),
-         {:ok, people} <- build_people(rows, config) do
-      report = build_report(xlsx_binary, rows, people, admitted_keys, alt_keys, config)
+         {:ok, people} <- build_people(rows, config),
+         {:ok, groups} <- build_archive_groups(people, config),
+         {:ok, admitted_keys} <- admitted_keys(sheets, people, config),
+         alt_keys = alt_admission_keys(sheets, config) do
+      report =
+        build_report(xlsx_binary, rows, people, groups, admitted_keys, alt_keys, config)
 
       if dry_run do
         {:ok, report}
       else
-        counts = persist(people, admitted_keys, config)
+        counts = persist_groups(groups, admitted_keys)
         {:ok, report, counts}
       end
     end
@@ -143,6 +153,9 @@ defmodule Cgc2046.Flashback.Import do
     end
   end
 
+  # 列映射：config[:columns]（Person 字段 / Answer / PII Answer）之外，
+  # 大表模式的归档列（group key + archive 三元组）按表头名单独取值进
+  # 内部键——不参与 Person/Answer 写入。
   defp map_columns(row, header, config) do
     header
     |> Enum.with_index()
@@ -152,6 +165,21 @@ defmodule Cgc2046.Flashback.Import do
         :error -> acc
       end
     end)
+    |> put_named_column(row, header, config[:group_by], :__group__)
+    |> put_named_column(row, header, archive_column(config, :name), :__archive_name__)
+    |> put_named_column(row, header, archive_column(config, :city), :__archive_city__)
+    |> put_named_column(row, header, archive_column(config, :date), :__archive_date__)
+  end
+
+  defp archive_column(config, field), do: get_in(config || %{}, [:archive_columns, field])
+
+  defp put_named_column(cols, _row, _header, nil, _key), do: cols
+
+  defp put_named_column(cols, row, header, title, key) do
+    case Enum.find_index(header, &(&1 == title)) do
+      nil -> cols
+      idx -> Map.put(cols, key, Enum.at(row, idx) || "")
+    end
   end
 
   # ── 录取名单 key 集（手机号优先，姓名+城市兜底） ─────────────────────
@@ -187,7 +215,8 @@ defmodule Cgc2046.Flashback.Import do
   defp alt_admission_keys(sheets, config) do
     sheet_name = config[:admission_sheet_alt]
 
-    with {:ok, alt_rows} <- Map.fetch(sheets, sheet_name),
+    with true <- not is_nil(sheet_name) and config[:participation] != :column,
+         {:ok, alt_rows} <- Map.fetch(sheets, sheet_name),
          false <- alt_rows == [],
          {:ok, [header | _]} <- Map.fetch(sheets, config[:admission_sheet]) do
       header = Enum.map(header, &String.trim/1)
@@ -207,6 +236,26 @@ defmodule Cgc2046.Flashback.Import do
     do: String.trim(Enum.at(row, index) || "")
 
   defp cell_at(_row, _), do: ""
+
+  # 参与状态 key 集（attended 集合）双源：
+  # - 名单模式：录取名单 sheet 归属（R22 既现逻辑）；
+  # - 列模式（participation: :column）：从已构造行的列读状态合成——
+  #   下游 dedup/upgrade/report 以同一 admitted_keys 形态消费，零分叉。
+  defp admitted_keys(sheets, people, config) do
+    case config[:participation] do
+      :column ->
+        keys =
+          people
+          |> Enum.filter(&is_map_key(&1, :full_name))
+          |> Enum.filter(&(&1.participation == :attended))
+          |> MapSet.new(&person_key(&1))
+
+        {:ok, keys}
+
+      _ ->
+        admission_keys(sheets, config)
+    end
+  end
 
   # 匹配 key 两侧（报名行 vs 名单行）同一归一口径：仅 11 位大陆手机做
   # {:phone, digits} key；否则 {:name_city, name, city}。口径不一致会把
@@ -265,6 +314,13 @@ defmodule Cgc2046.Flashback.Import do
            applied_at_format: applied_at_format,
            applied_at_raw: blank_to_nil(get(cols, :applied_at)),
            role: config[:role],
+           # 大表模式：列直读的参与状态（名单模式恒 nil，状态由 admitted_keys 判）。
+           participation: column_participation(cols, config),
+           # 大表模式：归档分组键与 archive 三元组（非大表模式恒空串/nil）。
+           group: String.trim(get(cols, :__group__)),
+           archive_name: blank_to_nil(get(cols, :__archive_name__)),
+           archive_city: blank_to_nil(get(cols, :__archive_city__)),
+           archive_date: blank_to_nil(get(cols, :__archive_date__)),
            # 姓名 PII Answer 由 Person 字段派生（R16a：结构化 PII 直接标雾）。
            answers: [
              %{question_key: "full_name", raw_text: full_name, fog_spans: [full_span(full_name)]}
@@ -272,6 +328,20 @@ defmodule Cgc2046.Flashback.Import do
            ]
          }}
       end
+    end
+  end
+
+  # 参与状态按列判定（大表模式 config participation: :column）：列值
+  # attended 直读，其余（not_selected/空）一律 not_selected。
+  defp column_participation(cols, config) do
+    case config[:participation] do
+      :column ->
+        if String.trim(get(cols, :participation)) == "attended",
+          do: :attended,
+          else: :not_selected
+
+      _ ->
+        nil
     end
   end
 
@@ -319,8 +389,9 @@ defmodule Cgc2046.Flashback.Import do
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(v) when is_binary(v), do: String.trim(v)
 
-  # 提交时间兼容两种形态（2014 pilot LibreOffice 转换副本实测）：
-  # - ISO8601 文本（原始表单导出形态，2014 场已核到秒带时区，R22）；
+  # 提交时间兼容三种形态（2014 pilot LibreOffice 转换副本 + 大表总表实测）：
+  # - ISO8601 datetime 文本（原始表单导出形态，2014 场已核到秒带时区，R22）；
+  # - ISO date 文本（大表总表统一形态，如 "2013-12-06"）——按当天 00:00 UTC；
   # - Excel 1900 日期序号（数字 cell 文本化，如 "41651.74702546"）——
   #   序号语义含 1900 假闰日惯例偏移（1900-02-29 不存在但占序号 60），
   #   墙钟按东八区解释（原始数据全部 +08:00）后转 UTC。
@@ -332,8 +403,14 @@ defmodule Cgc2046.Flashback.Import do
       {:empty, nil}
     else
       case DateTime.from_iso8601(raw) do
-        {:ok, dt, _offset} -> {:iso, dt}
-        _ -> parse_excel_serial(raw)
+        {:ok, dt, _offset} ->
+          {:iso, dt}
+
+        _ ->
+          case Date.from_iso8601(raw) do
+            {:ok, date} -> {:iso, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
+            _ -> parse_excel_serial(raw)
+          end
       end
     end
   end
@@ -427,9 +504,115 @@ defmodule Cgc2046.Flashback.Import do
     end
   end
 
+  # ── 归档分组（大表模式 group_by；名单模式单组直通） ──────────────────
+
+  # 返回 [{archive_attrs, people_in_group}]——archive 三元组在 build_person
+  # 已随行取回，此处按 key 分组并派生最终属性：
+  # - name：override > 行内首个非空场次名 > 库内已有 archive（教练表后跑
+  #   复用学员表建的档）——全部落空则 fail-closed {:archive_name_missing, key}；
+  # - city：行内首个非空 > override > 库内已有（可空，city 列允许 nil）；
+  # - occurred_on:override > 行内首个非空 ISO 日期 > 库内已有 > nil——
+  #   非空但非 ISO 日期 fail-closed {:archive_date_invalid, key, raw}。
+  defp build_archive_groups(people, config) do
+    importable = Enum.filter(people, &is_map_key(&1, :full_name))
+
+    if is_nil(config[:group_by]) do
+      {:ok, [{config[:archive], importable}]}
+    else
+      groups = Enum.group_by(importable, & &1.group)
+
+      if Map.has_key?(groups, "") do
+        # 场次key 缺失的行不可归组（档案锚点缺失）——fail-closed 报行号。
+        rows = groups |> Map.fetch!("") |> Enum.map(& &1.row)
+        {:error, {:missing_group_key, rows}}
+      else
+        groups
+        |> Enum.reduce_while({:ok, []}, fn {key, group_people}, {:ok, acc} ->
+          case archive_attrs_for(key, group_people, config) do
+            {:ok, attrs} -> {:cont, {:ok, [{attrs, group_people} | acc]}}
+            {:error, _} = err -> {:halt, err}
+          end
+        end)
+        |> case do
+          {:ok, list} ->
+            {:ok, Enum.reverse(list) |> Enum.sort_by(fn {attrs, _} -> attrs[:key] end)}
+
+          err ->
+            err
+        end
+      end
+    end
+  end
+
+  defp archive_attrs_for(key, group_people, config) do
+    override = Map.get(config[:archive_overrides] || %{}, key, %{})
+
+    case nonempty(override[:name]) || first_non_empty(group_people, :archive_name) ||
+           existing_archive_attr(key, :name) do
+      nil ->
+        {:error, {:archive_name_missing, key}}
+
+      name ->
+        with {:ok, occurred_on} <- derive_occurred_on(key, group_people, override) do
+          {:ok,
+           %{
+             key: key,
+             name: name,
+             city:
+               nonempty(override[:city]) || first_non_empty(group_people, :archive_city) ||
+                 existing_archive_attr(key, :city),
+             occurred_on: occurred_on
+           }}
+        end
+    end
+  end
+
+  defp derive_occurred_on(key, group_people, override) do
+    cond do
+      raw = Map.get(override, :occurred_on) ->
+        parse_archive_date(key, raw)
+
+      raw = first_non_empty(group_people, :archive_date) ->
+        parse_archive_date(key, raw)
+
+      archive = get_archive_by_key(key) ->
+        {:ok, archive.occurred_on}
+
+      true ->
+        {:ok, nil}
+    end
+  end
+
+  defp parse_archive_date(_key, %Date{} = date), do: {:ok, date}
+
+  defp parse_archive_date(key, raw) when is_binary(raw) do
+    case Date.from_iso8601(raw) do
+      {:ok, date} -> {:ok, date}
+      {:error, _} -> {:error, {:archive_date_invalid, key, raw}}
+    end
+  end
+
+  defp nonempty(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp nonempty(_), do: nil
+
+  defp first_non_empty(people, field) do
+    Enum.find_value(people, &nonempty(Map.get(&1, field)))
+  end
+
+  defp existing_archive_attr(key, field) do
+    case get_archive_by_key(key) do
+      nil -> nil
+      archive -> nonempty(Map.get(archive, field))
+    end
+  end
+
   # ── dry-run 报告 ─────────────────────────────────────────────────────
 
-  defp build_report(xlsx_binary, rows, people, admitted_keys, alt_keys, config) do
+  defp build_report(xlsx_binary, rows, people, groups, admitted_keys, alt_keys, config) do
     importable = Enum.filter(people, &is_map_key(&1, :full_name))
     skipped = Enum.filter(people, &(&1[:skipped] == :missing_name))
 
@@ -441,9 +624,12 @@ defmodule Cgc2046.Flashback.Import do
 
     answers_all = Enum.flat_map(importable, & &1.answers)
 
+    column_mode = config[:participation] == :column
+
     %{
       # R22：dry-run 报告头记录源格式与转换来源（BIFF8 在入口已被拦）。
       source_format: source_format(xlsx_binary),
+      role: config[:role],
       archive: config[:archive],
       city_filter: config[:city_filter],
       sheet: config[:sheet],
@@ -455,12 +641,21 @@ defmodule Cgc2046.Flashback.Import do
         attended: count_status(participation, :attended),
         not_selected: count_status(participation, :not_selected)
       },
-      attendance_source: config[:admission_sheet],
+      attendance_source: if(column_mode, do: "column:参与状态", else: config[:admission_sheet]),
       # 真源裁决（R22）：主名单 vs 备用名单的 key 级 diff，人工签收。
+      # 列模式无备用名单参与状态判定，恒零。
       roster_reconciliation: %{
         alt_sheet: config[:admission_sheet_alt],
-        only_in_primary: admitted_keys |> MapSet.difference(alt_keys) |> MapSet.size(),
-        only_in_alt: alt_keys |> MapSet.difference(admitted_keys) |> MapSet.size()
+        only_in_primary:
+          if(column_mode,
+            do: 0,
+            else: admitted_keys |> MapSet.difference(alt_keys) |> MapSet.size()
+          ),
+        only_in_alt:
+          if(column_mode,
+            do: 0,
+            else: alt_keys |> MapSet.difference(admitted_keys) |> MapSet.size()
+          )
       },
       # R22：约 50 行空手机号——邮箱兜底的触达覆盖面。
       contact_coverage: %{
@@ -497,20 +692,47 @@ defmodule Cgc2046.Flashback.Import do
         rows_fogged: Enum.count(answers_all, &(&1.fog_spans != [])),
         pii_answers_auto_fogged:
           Enum.count(answers_all, fn a ->
-            a.question_key in ["full_name", "phone", "email"] and a.fog_spans != []
+            a.question_key in ["full_name", "phone", "email", "wechat"] and a.fog_spans != []
           end)
       },
-      existing_people_in_archive: count_existing(config[:archive][:key]),
-      duplicates_in_excel: count_duplicates_in_excel(people),
-      duplicates_vs_existing: count_duplicates_vs_existing(people, config[:archive][:key]),
+      # 大表模式（group_by）：逐个 archive 的派生快照；名单模式无此键。
+      archives:
+        if(config[:group_by],
+          do:
+            Enum.map(groups, fn {attrs, group_people} ->
+              %{
+                key: attrs[:key],
+                name: attrs[:name],
+                city: attrs[:city],
+                occurred_on: attrs[:occurred_on],
+                rows: length(group_people),
+                existing_people: count_existing(attrs[:key])
+              }
+            end)
+        ),
+      # 库内已有此批次覆盖场次的人数（名单模式 = 单场次）。
+      existing_people_in_archive:
+        groups |> Enum.map(fn {attrs, _} -> count_existing(attrs[:key]) end) |> Enum.sum(),
+      duplicates_in_excel: count_duplicates_in_excel(importable),
+      duplicates_vs_existing:
+        groups
+        |> Enum.map(fn {attrs, group_people} ->
+          count_duplicates_vs_existing(group_people, attrs[:key])
+        end)
+        |> Enum.sum(),
       duplicates_to_upgrade:
-        count_duplicates_to_upgrade(people, admitted_keys, config[:archive][:key])
+        groups
+        |> Enum.map(fn {attrs, group_people} ->
+          count_duplicates_to_upgrade(group_people, admitted_keys, attrs[:key])
+        end)
+        |> Enum.sum()
     }
   end
 
-  # Excel 内重复：同 key 多行（取第一行，其余计入重复）。
+  # Excel 内重复：同 archive 内同 key 多行（取第一行，其余计入重复）——
+  # 大表模式下真人跨场合法，去重边界钉在 {group, person_key}。
   defp count_duplicates_in_excel(people) do
-    keys = Enum.map(people, &person_key/1)
+    keys = Enum.map(people, &{&1.group, person_key(&1)})
     length(keys) - length(Enum.uniq(keys))
   end
 
@@ -619,8 +841,21 @@ defmodule Cgc2046.Flashback.Import do
 
   # ── 入库（--commit） ─────────────────────────────────────────────────
 
-  defp persist(people, admitted_keys, config) do
-    archive = ensure_archive(config[:archive])
+  # 逐归档分组落库并汇总计数（名单模式恒单组）。
+  defp persist_groups(groups, admitted_keys) do
+    Enum.reduce(groups, %{people: 0, answers: 0, upgraded: 0}, fn {attrs, people}, acc ->
+      counts = persist_group(people, admitted_keys, attrs)
+
+      %{
+        people: acc.people + counts.people,
+        answers: acc.answers + counts.answers,
+        upgraded: acc.upgraded + counts.upgraded
+      }
+    end)
+  end
+
+  defp persist_group(people, admitted_keys, archive_attrs) do
+    archive = ensure_archive(archive_attrs)
 
     importable = Enum.filter(people, &is_map_key(&1, :full_name))
     {to_insert, to_upgrade, _skipped} = deduplicate(importable, admitted_keys, archive)

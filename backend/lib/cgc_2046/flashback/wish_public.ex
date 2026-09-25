@@ -22,6 +22,7 @@ defmodule Cgc2046.Flashback.WishPublic do
 
   @default_limit 60
   @max_limit 120
+  @max_public_input_length 255
   # freshness 参数硬编码进 SQL fragment（7 天窗 ×1.5）——单源，避免 attribute 与 SQL 漂移
 
   @doc """
@@ -37,10 +38,16 @@ defmodule Cgc2046.Flashback.WishPublic do
   @spec wishes(keyword()) :: {:ok, list(map())}
   def wishes(opts \\ []) do
     city = Keyword.get(opts, :city)
-    voter_keys = normalize_voter_keys(opts)
+    voter_keys = opts |> normalize_voter_keys() |> Enum.map(&bound_public_input/1)
     # endorsed_by_viewer 只匹配 u: 键（附议要求登录，actor_key 恒 u: 形态）
     endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
-    seed = Keyword.get(opts, :seed) || default_seed(List.first(voter_keys))
+
+    seed =
+      case Keyword.get(opts, :seed) do
+        nil -> default_seed(List.first(voter_keys))
+        value -> bound_public_input(value)
+      end
+
     offset = max(Keyword.get(opts, :offset, 0), 0)
     limit = opts |> Keyword.get(:limit, @default_limit) |> max(1) |> min(@max_limit)
 
@@ -189,6 +196,7 @@ defmodule Cgc2046.Flashback.WishPublic do
         opts when is_list(opts) -> normalize_voter_keys(opts)
         key -> normalize_voter_keys(voter_key: key)
       end
+      |> Enum.map(&bound_public_input/1)
 
     # 与 wishes/1 同构：仅 u: 键可命中附议 actor_key
     endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
@@ -297,6 +305,14 @@ defmodule Cgc2046.Flashback.WishPublic do
 
     keys |> Enum.uniq() |> then(&if &1 == [], do: [""], else: &1)
   end
+
+  # #818：限制读面排序/回显键长度，避免超长输入进入 md5 与 ANY 查询参数。
+  defp bound_public_input(nil), do: nil
+
+  defp bound_public_input(value) when is_binary(value),
+    do: String.slice(value, 0, @max_public_input_length)
+
+  defp bound_public_input(value), do: value
 
   defp default_seed(voter_key) do
     today = Date.to_string(Date.utc_today())

@@ -328,6 +328,48 @@ defmodule Cgc2046.Flashback.WishPublicTest do
   end
 
   describe "viewer 回显" do
+    test "seed 与 voter_key 超过 255 字符时只使用前 255 个字符" do
+      archive = create_archive()
+      people = for i <- 1..8, do: create_person(archive, %{full_name: "边界人#{i}"})
+
+      Enum.each(people, fn person ->
+        create_listed_wish(person, "边界愿望")
+      end)
+
+      bounded_voter_key = "a:" <> String.duplicate("v", 253)
+      long_voter_key = bounded_voter_key <> String.duplicate("x", 32)
+      [first_wish | _] = WishPublic.wishes(limit: 1) |> elem(1)
+
+      Repo.query!(
+        """
+        INSERT INTO flashback_wish_expectations
+          (id, wish_id, voter_key, inserted_at, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, now(), now())
+        """,
+        [Repo.uuid!(first_wish.id), bounded_voter_key]
+      )
+
+      long_seed = "seed-" <> String.duplicate("s", 300)
+      bounded_seed = String.slice(long_seed, 0, 255)
+
+      {:ok, long_rows} =
+        WishPublic.wishes(
+          seed: long_seed,
+          voter_key: long_voter_key,
+          limit: 50
+        )
+
+      {:ok, bounded_rows} =
+        WishPublic.wishes(
+          seed: bounded_seed,
+          voter_key: bounded_voter_key,
+          limit: 50
+        )
+
+      assert ids_of(long_rows) == ids_of(bounded_rows)
+      assert Enum.find(long_rows, &(&1.id == first_wish.id)).expected_by_viewer
+    end
+
     test "expected_by_viewer 按 voter_key 回显" do
       archive = create_archive()
       p = create_person(archive)
