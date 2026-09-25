@@ -73,7 +73,7 @@ defmodule Cgc2046.Flashback.Wishes do
   @doc false
   def build_writer_snapshots(person_id, expected_city, signature_choice) do
     # KTD4 ① → ② 一次 SQL 取复：person 行 + LEFT JOIN users 取 display_name。
-    # 未认领 person（user_id 为空）→ display_name 为 NULL，回退 masked_name。
+    # 无账号展示名时回退 masked_name；名册全名不进入愿望公开署名。
     case Repo.query(
            """
            SELECT p.city, p.full_name, p.surname, u.display_name, u.wishes_review_required_at
@@ -101,9 +101,6 @@ defmodule Cgc2046.Flashback.Wishes do
                   cond do
                     is_binary(display_name) and display_name != "" ->
                       display_name
-
-                    is_binary(full_name) and full_name != "" ->
-                      full_name
 
                     true ->
                       AlumniProjection.masked_name(full_name, surname)
