@@ -1,3 +1,4 @@
+import { mockVoicesRequest } from './mockVoices.ts'
 import type { RequestDocument } from 'graphql-request'
 // 相对 + 显式 .ts：mockTransport 同时被 node --experimental-strip-types 直接加载
 // （tests/mock-transport.test.ts），该 runner 不认 `@/` 别名；Taro 侧同款先例
@@ -1662,5 +1663,5 @@ function responseFor(document: string, variables: object): unknown {
 }
 
 export function mockGraphQLRequest<TData>(document: RequestDocument, variables: object): TData {
-  return responseFor(String(document), variables) as TData
+  return (mockVoicesRequest(String(document), variables) ?? responseFor(String(document), variables)) as TData
 }

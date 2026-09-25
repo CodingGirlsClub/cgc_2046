@@ -3,7 +3,7 @@
  *
  * 三条硬约束：
  * 1. **只读**。访客面没有编辑、没有雾面开关、没有隐私设置——那些是本人的面。
- *    本页唯一的动作是「找回我的闪念间」与重试。
+ *    本页提供「找回我的闪念间」、公开金句墙与重试入口。
  * 2. **只走匿名读**。`getFlashbackSharedCard(shareId)` 不带任何 token：shareId
  *    是公开标识，转发链里不该夹本人面参数，页面也不该拿它去换写权限。
  * 3. **两种空态分开**。`null` = 这张卡已经收回（终局，不给重试——重试一个已被
@@ -100,6 +100,8 @@ export default function FlashbackSharedCardPage() {
     imageUrl: shareCardImage
   }))
 
+  const voicesLink = <Button className={styles.voicesLink} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>看更多声音 · 去金句墙 →</Button>
+
   const goJourney = () => {
     void Taro.navigateTo({ url: buildFlashbackJourneyPath() })
   }
@@ -112,6 +114,7 @@ export default function FlashbackSharedCardPage() {
     return (
       <View className={styles.page}>
         <View className={styles.terminalBlock}>
+          {voicesLink}
           <Text className={styles.terminalEyebrow}>IN A FLASH · 闪念间</Text>
           <Text className={styles.terminalTitle}>这张卡已经收回</Text>
           <Text className={styles.terminalBody}>
@@ -144,7 +147,8 @@ export default function FlashbackSharedCardPage() {
         <SharedFlashbackCard card={mode.card} />
       </View>
 
-      {/* 访客唯一出口：她也有一张。不提供任何本人面动作（编辑/雾面/隐私设置） */}
+      {voicesLink}
+      {/* 访客出口：她也有一张。不提供任何本人面动作（编辑/雾面/隐私设置） */}
       <Button className={styles.journeyAction} data-testid='fb-shared-journey' hoverClass={styles.pressed} onClick={goJourney}>
         找回我的闪念间 →
       </Button>

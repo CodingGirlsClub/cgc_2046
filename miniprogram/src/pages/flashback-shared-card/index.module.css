@@ -105,3 +105,6 @@
   .journeyAction, .terminalAction, .quietAction { transition: none; }
   .pressed { transform: none; }
 }
+
+.voicesLink { margin: 30rpx 0; background: #244936; color: #fffcef; font-size: 28rpx; padding: 14rpx 20rpx; border-radius: 8rpx; }
+.voicesLink::after { border: 0; }

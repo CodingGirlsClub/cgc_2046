@@ -14,6 +14,7 @@
  */
 
 export interface AppShowQuery {
+  quoteId?: string
   scene?: string
   id?: string
   kind?: string
@@ -28,6 +29,9 @@ export interface AppShowQuery {
   /** wish2 U9（KTD7）：许愿深链——长廊定位该愿（Web 附议引导携出） */
   wishId?: string
 }
+
+/** 公开金句墙：可选 quoteId 定位到单句。 */
+export const FLASHBACK_VOICES_ROUTE = 'pages/flashback-voices/index'
 
 /** 公开卡页 path（分享卡片 path 单源；#771）——无前导斜杠形态供路由比较 */
 export const FLASHBACK_SHARED_CARD_ROUTE = 'pages/flashback-shared-card/index'
@@ -54,6 +58,7 @@ export const FLASHBACK_CARD_SHARE_IMAGE = '/assets/brand/cgc-flame.png'
 /** 闪念间入口页（批次二：旅程/长廊/场次）——分享卡片 path 与专属深链的落地面。
  * 这些页无 id/slug 定位参数，「已在目标页」判定退化为 path 相等（entryIsTarget）。 */
 export const FLASHBACK_ENTRY_ROUTES = [
+  FLASHBACK_VOICES_ROUTE,
   'pages/flashback-journey/index',
   'pages/flashback-corridor/index',
   'pages/flashback-event/index'
@@ -90,6 +95,12 @@ export function resolveAppShowRoute(query: AppShowQuery, currentRoute: string, c
       return null
     }
     return buildFlashbackCardSharePath(shareId)
+  }
+
+  const quoteId = query.quoteId?.trim()
+  if (quoteId) {
+    if (normalizePath(currentRoute) === FLASHBACK_VOICES_ROUTE && currentQuery.quoteId?.trim() === quoteId) return null
+    return `/${FLASHBACK_VOICES_ROUTE}?quoteId=${encodeURIComponent(quoteId)}`
   }
 
   const scene = query.scene?.trim()
@@ -178,6 +189,8 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
 
   const params = new URLSearchParams(search)
   const query = options.query ?? {}
+  const quoteId = params.get('quoteId')
+  if (quoteId !== null) return quoteId === (query.quoteId?.trim() ?? '')
   const id = params.get('id')
   if (id !== null) return id === (query.id?.trim() ?? '')
   const slug = params.get('slug')
@@ -207,13 +220,18 @@ export function resolveEntry(options: AppEntryOptions, pages: EntryPage[] = []):
   // 闪念间入口页兜底：分享卡片 path 本身就是目标（无 query 解）——热启动停在
   // 别页时按入口 path 原样导航（query 序列化带上）；冷启动已落在该页，
   // entryIsTarget 抑制导航
-  const url =
+  // 整墙分享重新进入时不能停在已有的单句上。
+  const resetWall = normalizePath(options.path ?? '') === FLASHBACK_VOICES_ROUTE &&
+    !query.quoteId && !!top?.options?.quoteId
+  const voicesEntry = normalizePath(options.path ?? '') === FLASHBACK_VOICES_ROUTE || !!query.quoteId
+  const url = resetWall ? `/${FLASHBACK_VOICES_ROUTE}` :
     resolveAppShowRoute(query, top?.route ?? '', top?.options ?? {}) ??
     flashbackEntryUrl(options, top?.route ?? '')
   return {
     scene: query.scene?.trim() || null,
     url,
-    navigate: url !== null && !entryIsTarget(options, url)
+    // 已有页栈的金句/整墙入口是热启动，不套冷启动的同 path 抑制。
+    navigate: url !== null && !(entryIsTarget(options, url) && (!voicesEntry || pages.length === 0) && !resetWall)
   }
 }
 
