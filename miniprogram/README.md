@@ -1,6 +1,6 @@
 # 程序媛汇 · 微信小程序
 
-CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，4 Tab）+ **tt / xhs 裁剪端**（抖音 / 小红书，2 Tab 漏斗，页面表见 `src/app.config.ts`）。
+CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，全量页 + Tab 发现/闪念间/工作台（条件）/我的）+ **tt 裁剪端**（抖音，2 Tab 漏斗：发现/我的报名）+ **xhs 裁剪端**（小红书，2 Tab：发现/我的，P0 止血版——无订阅消息、无端内缴费）。页面注册名单单源 `src/domain/platform-pages.ts`（`src/app.config.ts` 与各深链过滤同源）。
 
 工程约定、验证命令、e2e 纪律见 [AGENTS.md](./AGENTS.md)；面向用户的更新记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -21,7 +21,20 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 | `privacy` | 隐私政策与个人信息处理规则（微信审核硬要求） |
 | `openclacky` | OpenClacky 安装与连接指引（纯指引，无执行能力） |
 
-裁剪端（tt / xhs）只保留漏斗页：发现、详情、登录、报名、我的报名、加入。
+裁剪端页面面：**tt** 只保留漏斗页（发现、详情、登录、报名、我的报名、加入、闪念间薄壳）；**xhs** 在其上增「我的」精简页（退出登录、报名/闪念间/隐私/邀请码入口，P0-5）与隐私页（D7 变体正文），我的报名降级为普通页。
+
+## 发版流程（小红书端）
+
+审核 3–5 个工作日（节假日预留缓冲）。发的是**止血版内容**也要先做真机冒烟——小红书没有可用的 automator e2e，验收全部走真机清单。
+
+1. **人工前置**（缺一不可，详见 `e2e/DOUYIN_REDNOTE_CHECKLIST.md` 待定项）：
+   - D7：隐私政策小红书版正文法务定稿（候选文本在 `src/domain/privacy-content-xhs.ts`，确认后即定稿）；
+   - D8：本次过审版本号 + 小红书小程序 ICP 备案号（备案号到位后「我的」页脚补渲染，CHANGELOG 按 ADR-0016 立 `## [小红书 vX.Y.Z]` 节点）。
+2. **门禁**：`pnpm check:ci` 全绿；再跑 `node scripts/check-no-diversion.mjs`（dist/xhs 零导流，依赖 `pnpm build:xhs` 先行）与 `grep -r 网页端 dist/xhs/`（须无命中）。
+3. **构建**：`pnpm build:xhs`，产物 `dist/xhs/`（不入库）。
+4. **上传/提审**：小红书开发者工具导入 `dist/xhs/` 上传，开放平台后台提交审核。
+5. **真机冒烟（提审前必做）**：N1 登录全流程（xhs.login → 建号/挂 Identity → legacy `encryptedData/iv` 解密拿号）、退出并重新登录；N3 页面无订阅触点；F2/F3 缴费门置灰；N4 分享面板仅「转发」。
+6. **发布后验证**：`e2e/DOUYIN_REDNOTE_CHECKLIST.md` 真机清单全项过一遍并落档。
 
 ## 发版流程（微信端）
 
