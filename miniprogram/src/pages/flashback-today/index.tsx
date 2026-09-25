@@ -93,6 +93,8 @@ export default function FlashbackTodayPage() {
 
   useEffect(() => {
     void Taro.setNavigationBarTitle({ title: '卡片' }).catch(() => {})
+    // 换肤：导航栏与纸色页底一致
+    void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#f7f2e7' }).catch(() => {})
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性加载
   }, [])
