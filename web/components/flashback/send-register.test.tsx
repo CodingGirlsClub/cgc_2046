@@ -42,7 +42,10 @@ const FORM: TodayFormState = { quoteLevel: "off", ...TODAY_TEXTS };
 
 const ANSWERS: FlashbackAnswer[] = [];
 
-function makeHandlers(log: string[], overrides: { adjustTodayFogOk?: boolean } = {}) {
+function makeHandlers(
+	log: string[],
+	overrides: { adjustTodayFogOk?: boolean; setQuoteLicenseOk?: boolean } = {},
+) {
 	return {
 		log,
 		onSubmitToday: vi.fn(async () => {
@@ -55,7 +58,7 @@ function makeHandlers(log: string[], overrides: { adjustTodayFogOk?: boolean } =
 		}),
 		onSetQuoteLicense: vi.fn(async () => {
 			log.push("setQuoteLicense");
-			return true;
+			return overrides.setQuoteLicenseOk !== false;
 		}),
 		onAdjustFog: vi.fn(async (answerId: string) => {
 			log.push(`adjustFog(${answerId})`);
@@ -72,10 +75,15 @@ function makeHandlers(log: string[], overrides: { adjustTodayFogOk?: boolean } =
 	};
 }
 
-function renderStep(handlers: ReturnType<typeof makeHandlers>) {
+function renderStep(
+	handlers: ReturnType<typeof makeHandlers>,
+	formOverrides: Partial<TodayFormState> = {},
+	initialTodayFogSpans: Record<string, { start: number; len: number }[]> | null = null,
+) {
 	return render(
 		<SendRegister
-			form={FORM}
+			form={{ ...FORM, ...formOverrides }}
+			initialTodayFogSpans={initialTodayFogSpans}
 			answers={ANSWERS}
 			onSubmitToday={handlers.onSubmitToday}
 			onSendToWall={handlers.onSendToWall}
@@ -159,5 +167,60 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 			expect(handlers.onSendToWall).toHaveBeenCalled();
 		});
 		expect(handlers.onAdjustTodayFog).not.toHaveBeenCalled();
+	});
+
+	it("非 off 档：setQuoteLicense 必须先于 sendToWall 并放行", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, { quoteLevel: "anonymous" });
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		const seq = handlers.log;
+		await waitFor(() => {
+			expect(seq[seq.length - 1]).toBe("sendToWall");
+		});
+		expect(seq.indexOf("setQuoteLicense")).toBeGreaterThan(-1);
+		expect(seq.indexOf("setQuoteLicense")).toBeLessThan(seq.indexOf("sendToWall"));
+	});
+
+	it("金句授权失败：寄出在此暂停（不调 sendToWall），进失败态可重试", async () => {
+		const handlers = makeHandlers([], { setQuoteLicenseOk: false });
+		renderStep(handlers, { quoteLevel: "anonymous" });
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(handlers.onSetQuoteLicense).toHaveBeenCalled();
+			expect(handlers.onSendToWall).not.toHaveBeenCalled();
+		});
+		expect(screen.getByRole("button", { name: /再试一次/ })).toBeInTheDocument();
+	});
+
+	it("服务端既有 today 雾区间预填（盲初值闭环）：命中句渲染为雾态（aria-pressed=true）", () => {
+		renderStep(makeHandlers([]), {}, { now: [{ start: 0, len: 2 }] });
+		const fogged = [...document.querySelectorAll(".fb-review-sentence--fog")];
+		expect(fogged.length).toBeGreaterThan(0);
+		// 按同一相交判定，span 覆盖到句子即整句标雾（本用例 span 落在 nowStatus 文本上）
+		expect(fogged.some((b) => (b.textContent || "").includes("我在写代码"))).toBe(true);
+	});
+
+	it("相对服务端基线无变化：不发任何 adjustTodayFog（不打扰不产影变）", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, { now: [{ start: 0, len: 2 }] });
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(handlers.onSendToWall).toHaveBeenCalled();
+		});
+		expect(handlers.onAdjustTodayFog).not.toHaveBeenCalled();
+	});
+
+	it("把预填的雾全部切回亮也显式同步（清雾落库）：adjustTodayFog(field, [])", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, { now: [{ start: 0, len: 2 }] });
+		// 把预填的那句切回亮
+		fireEvent.click(screen.getByText(/我在写代码/).closest("button")!);
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		await waitFor(() => {
+			expect(handlers.onAdjustTodayFog).toHaveBeenCalled();
+		});
+		const args = handlers.onAdjustTodayFog.mock.calls[0] as unknown[];
+		expect(args[0]).toBe("now");
+		expect(args[1]).toEqual([]);
 	});
 });

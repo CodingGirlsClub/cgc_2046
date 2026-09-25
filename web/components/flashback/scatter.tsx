@@ -2,7 +2,6 @@
 
 import { useTranslations } from "next-intl";
 import type { FlashbackScatterPhoto } from "@/lib/graphql/flashback";
-import { surnameMasked } from "@/lib/graphql/flashback";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
 /**
@@ -64,7 +63,9 @@ export default function Scatter({
 						<span className="fb-card-caption">
 							<span className="fb-caption-tilt">
 								{picked === index && photo.surname
-									? t("owned", { name: surnameMasked(photo.surname, photo.surname) })
+									// payload 的 surname 即姓本体（名字不下信道）：直接渲染，
+									// 复姓（欧阳等）不再被 masked 兜底第一字符折成单字（D14）
+									? t("owned", { name: photo.surname })
 									: t("mystery")}
 							</span>
 						</span>
