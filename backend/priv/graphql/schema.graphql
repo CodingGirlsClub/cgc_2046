@@ -71,9 +71,6 @@ input InviteBatchFilterInsertedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InviteBatchFilterRemark {
@@ -88,9 +85,6 @@ input InviteBatchFilterRemark {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -108,9 +102,6 @@ input InviteBatchFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input InviteBatchFilterExpiresAt {
@@ -124,9 +115,6 @@ input InviteBatchFilterExpiresAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InviteBatchFilterRemainingQuota {
@@ -140,9 +128,6 @@ input InviteBatchFilterRemainingQuota {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input InviteBatchFilterQuota {
@@ -156,9 +141,6 @@ input InviteBatchFilterQuota {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input InviteBatchFilterInviteCode {
@@ -173,9 +155,6 @@ input InviteBatchFilterInviteCode {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -193,9 +172,6 @@ input InviteBatchFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterEventId {
@@ -209,9 +185,6 @@ input InviteBatchFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterWorkspaceId {
@@ -225,9 +198,6 @@ input InviteBatchFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterId {
@@ -241,9 +211,6 @@ input InviteBatchFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterInput {
@@ -390,9 +357,6 @@ input EnrollmentFilterInsertedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterCancelledAt {
@@ -406,9 +370,6 @@ input EnrollmentFilterCancelledAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterTermsVersion {
@@ -423,9 +384,6 @@ input EnrollmentFilterTermsVersion {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -443,9 +401,6 @@ input EnrollmentFilterAgeConfirmedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterExpiredAt {
@@ -459,9 +414,6 @@ input EnrollmentFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterApprovalDeadline {
@@ -475,9 +427,6 @@ input EnrollmentFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterRejectionReason {
@@ -492,9 +441,6 @@ input EnrollmentFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -512,9 +458,6 @@ input EnrollmentFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterApprovedBy {
@@ -528,9 +471,6 @@ input EnrollmentFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterCapacitySeq {
@@ -544,9 +484,6 @@ input EnrollmentFilterCapacitySeq {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EnrollmentFilterSubmissionPayload {
@@ -560,9 +497,6 @@ input EnrollmentFilterSubmissionPayload {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EnrollmentFilterStatus {
@@ -576,9 +510,6 @@ input EnrollmentFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EnrollmentFilterInviteBatchId {
@@ -592,9 +523,6 @@ input EnrollmentFilterInviteBatchId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterWorkflowRunId {
@@ -608,9 +536,6 @@ input EnrollmentFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterUserId {
@@ -624,9 +549,6 @@ input EnrollmentFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterCourseId {
@@ -640,9 +562,6 @@ input EnrollmentFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterEventId {
@@ -656,9 +575,6 @@ input EnrollmentFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterWorkspaceId {
@@ -672,9 +588,6 @@ input EnrollmentFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterId {
@@ -688,9 +601,6 @@ input EnrollmentFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterInput {
@@ -932,9 +842,6 @@ input CourseFilterPricingEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input CourseFilterEndsAt {
@@ -948,9 +855,6 @@ input CourseFilterEndsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterStartsAt {
@@ -964,9 +868,6 @@ input CourseFilterStartsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterRegistrationDeadline {
@@ -980,9 +881,6 @@ input CourseFilterRegistrationDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterConfirmedCount {
@@ -996,9 +894,6 @@ input CourseFilterConfirmedCount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input CourseFilterCapacity {
@@ -1012,9 +907,6 @@ input CourseFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input CourseFilterVisibility {
@@ -1028,9 +920,6 @@ input CourseFilterVisibility {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterEnrollmentPolicy {
@@ -1044,9 +933,6 @@ input CourseFilterEnrollmentPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterWorkflowRunId {
@@ -1060,9 +946,6 @@ input CourseFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterStatus {
@@ -1076,9 +959,6 @@ input CourseFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterCurriculumRequirements {
@@ -1092,9 +972,6 @@ input CourseFilterCurriculumRequirements {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input CourseFilterDescription {
@@ -1109,9 +986,6 @@ input CourseFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1130,9 +1004,6 @@ input CourseFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1150,9 +1021,6 @@ input CourseFilterProvisionalTitle {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input CourseFilterTitle {
@@ -1167,9 +1035,6 @@ input CourseFilterTitle {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1187,9 +1052,6 @@ input CourseFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterId {
@@ -1203,9 +1065,6 @@ input CourseFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterInput {
@@ -1633,9 +1492,6 @@ input EventFilterPricingEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterSponsorshipDeadline {
@@ -1649,9 +1505,6 @@ input EventFilterSponsorshipDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterSponsorshipEnabled {
@@ -1665,9 +1518,6 @@ input EventFilterSponsorshipEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterQualificationStatus {
@@ -1681,9 +1531,6 @@ input EventFilterQualificationStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterMinParticipants {
@@ -1697,9 +1544,6 @@ input EventFilterMinParticipants {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterMinAge {
@@ -1713,9 +1557,6 @@ input EventFilterMinAge {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterDepositAmountCents {
@@ -1729,9 +1570,6 @@ input EventFilterDepositAmountCents {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterDepositEnabled {
@@ -1745,9 +1583,6 @@ input EventFilterDepositEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterCreatedBy {
@@ -1761,9 +1596,6 @@ input EventFilterCreatedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterInitiativeId {
@@ -1777,9 +1609,6 @@ input EventFilterInitiativeId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterVenue {
@@ -1793,9 +1622,6 @@ input EventFilterVenue {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EventFilterEndsAt {
@@ -1809,9 +1635,6 @@ input EventFilterEndsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterStartsAt {
@@ -1825,9 +1648,6 @@ input EventFilterStartsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterRegistrationDeadline {
@@ -1841,9 +1661,6 @@ input EventFilterRegistrationDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterConfirmedCount {
@@ -1857,9 +1674,6 @@ input EventFilterConfirmedCount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterCapacity {
@@ -1873,9 +1687,6 @@ input EventFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterVisibility {
@@ -1889,9 +1700,6 @@ input EventFilterVisibility {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterEnrollmentPolicy {
@@ -1905,9 +1713,6 @@ input EventFilterEnrollmentPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterWorkflowRunId {
@@ -1921,9 +1726,6 @@ input EventFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterStatus {
@@ -1937,9 +1739,6 @@ input EventFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterCurriculumRequirements {
@@ -1953,9 +1752,6 @@ input EventFilterCurriculumRequirements {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EventFilterCurriculumEnabled {
@@ -1969,9 +1765,6 @@ input EventFilterCurriculumEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterDescription {
@@ -1986,9 +1779,6 @@ input EventFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2007,9 +1797,6 @@ input EventFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2028,9 +1815,6 @@ input EventFilterTitle {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2048,9 +1832,6 @@ input EventFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterId {
@@ -2064,9 +1845,6 @@ input EventFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterInput {
@@ -2353,9 +2131,6 @@ input WorkspaceApplicationFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterApprovalDeadline {
@@ -2369,9 +2144,6 @@ input WorkspaceApplicationFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterRejectedAt {
@@ -2385,9 +2157,6 @@ input WorkspaceApplicationFilterRejectedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterRejectedBy {
@@ -2401,9 +2170,6 @@ input WorkspaceApplicationFilterRejectedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterApprovedAt {
@@ -2417,9 +2183,6 @@ input WorkspaceApplicationFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterApprovedBy {
@@ -2433,9 +2196,6 @@ input WorkspaceApplicationFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterRejectionReason {
@@ -2450,9 +2210,6 @@ input WorkspaceApplicationFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2470,9 +2227,6 @@ input WorkspaceApplicationFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input WorkspaceApplicationFilterPurpose {
@@ -2487,9 +2241,6 @@ input WorkspaceApplicationFilterPurpose {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2508,9 +2259,6 @@ input WorkspaceApplicationFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2529,9 +2277,6 @@ input WorkspaceApplicationFilterName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2549,9 +2294,6 @@ input WorkspaceApplicationFilterApplicantId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterId {
@@ -2565,9 +2307,6 @@ input WorkspaceApplicationFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterInput {
@@ -2745,9 +2484,6 @@ input InvitationFilterAcceptedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InvitationFilterAcceptedBy {
@@ -2761,9 +2497,6 @@ input InvitationFilterAcceptedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterStatus {
@@ -2777,9 +2510,6 @@ input InvitationFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input InvitationFilterExpiresAt {
@@ -2793,9 +2523,6 @@ input InvitationFilterExpiresAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InvitationFilterTargetEmail {
@@ -2810,9 +2537,6 @@ input InvitationFilterTargetEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2830,9 +2554,6 @@ input InvitationFilterInviterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterTokenHash {
@@ -2847,9 +2568,6 @@ input InvitationFilterTokenHash {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2867,9 +2585,6 @@ input InvitationFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterId {
@@ -2883,9 +2598,6 @@ input InvitationFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterInput {
@@ -3055,9 +2767,6 @@ input JoinRequestFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterApprovalDeadline {
@@ -3071,9 +2780,6 @@ input JoinRequestFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterRejectionReason {
@@ -3088,9 +2794,6 @@ input JoinRequestFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3108,9 +2811,6 @@ input JoinRequestFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterApprovedBy {
@@ -3124,9 +2824,6 @@ input JoinRequestFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterMessage {
@@ -3141,9 +2838,6 @@ input JoinRequestFilterMessage {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3161,9 +2855,6 @@ input JoinRequestFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input JoinRequestFilterUserId {
@@ -3177,9 +2868,6 @@ input JoinRequestFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterWorkspaceId {
@@ -3193,9 +2881,6 @@ input JoinRequestFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterId {
@@ -3209,9 +2894,6 @@ input JoinRequestFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterInput {
@@ -3306,9 +2988,6 @@ input RoleFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3326,9 +3005,6 @@ input RoleFilterName {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input RoleFilterWorkspaceId {
@@ -3342,9 +3018,6 @@ input RoleFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input RoleFilterId {
@@ -3358,9 +3031,6 @@ input RoleFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input RoleFilterInput {
@@ -3448,9 +3118,6 @@ input WorkspaceMembershipFilterJoinedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceMembershipFilterUserDisplayName {
@@ -3465,9 +3132,6 @@ input WorkspaceMembershipFilterUserDisplayName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3486,9 +3150,6 @@ input WorkspaceMembershipFilterUserEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3506,9 +3167,6 @@ input WorkspaceMembershipFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterWorkspaceId {
@@ -3522,9 +3180,6 @@ input WorkspaceMembershipFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterId {
@@ -3538,9 +3193,6 @@ input WorkspaceMembershipFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterInput {
@@ -3730,9 +3382,6 @@ input WorkspaceFilterSponsorshipDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceFilterSponsorshipEnabled {
@@ -3746,9 +3395,6 @@ input WorkspaceFilterSponsorshipEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input WorkspaceFilterJoinPolicy {
@@ -3762,9 +3408,6 @@ input WorkspaceFilterJoinPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input WorkspaceFilterName {
@@ -3779,9 +3422,6 @@ input WorkspaceFilterName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3800,9 +3440,6 @@ input WorkspaceFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3820,9 +3457,6 @@ input WorkspaceFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceFilterInput {
@@ -4029,9 +3663,6 @@ input OrderFilterTierId {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4049,9 +3680,6 @@ input OrderFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterEventId {
@@ -4065,9 +3693,6 @@ input OrderFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterLearnerEmail {
@@ -4082,9 +3707,6 @@ input OrderFilterLearnerEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4102,9 +3724,6 @@ input OrderFilterEnrollmentStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterTierName {
@@ -4119,9 +3738,6 @@ input OrderFilterTierName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4140,9 +3756,6 @@ input OrderFilterCancelReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4160,9 +3773,6 @@ input OrderFilterRefundedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterExpireAt {
@@ -4176,9 +3786,6 @@ input OrderFilterExpireAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterDepositTermsVersion {
@@ -4193,9 +3800,6 @@ input OrderFilterDepositTermsVersion {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4213,9 +3817,6 @@ input OrderFilterDepositConsentAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterStatus {
@@ -4229,9 +3830,6 @@ input OrderFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterTierSnapshot {
@@ -4245,9 +3843,6 @@ input OrderFilterTierSnapshot {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input OrderFilterAmountCents {
@@ -4261,9 +3856,6 @@ input OrderFilterAmountCents {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input OrderFilterTransactionId {
@@ -4278,9 +3870,6 @@ input OrderFilterTransactionId {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4299,9 +3888,6 @@ input OrderFilterOutTradeNo {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4319,9 +3905,6 @@ input OrderFilterProvider {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterOrderKind {
@@ -4335,9 +3918,6 @@ input OrderFilterOrderKind {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterEnrollmentId {
@@ -4351,9 +3931,6 @@ input OrderFilterEnrollmentId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterWorkspaceId {
@@ -4367,9 +3944,6 @@ input OrderFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterId {
@@ -4383,9 +3957,6 @@ input OrderFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterInput {
@@ -4633,9 +4204,6 @@ input SponsorshipDeliveryFilterExclusive {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input SponsorshipDeliveryFilterProofNote {
@@ -4650,9 +4218,6 @@ input SponsorshipDeliveryFilterProofNote {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4670,9 +4235,6 @@ input SponsorshipDeliveryFilterFulfilledAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipDeliveryFilterDueDate {
@@ -4686,9 +4248,6 @@ input SponsorshipDeliveryFilterDueDate {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipDeliveryFilterBenefit {
@@ -4703,9 +4262,6 @@ input SponsorshipDeliveryFilterBenefit {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4723,9 +4279,6 @@ input SponsorshipDeliveryFilterSponsorshipId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterWorkspaceId {
@@ -4739,9 +4292,6 @@ input SponsorshipDeliveryFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterId {
@@ -4755,9 +4305,6 @@ input SponsorshipDeliveryFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterInput {
@@ -4923,9 +4470,6 @@ input SponsorshipFilterEndedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterStartedAt {
@@ -4939,9 +4483,6 @@ input SponsorshipFilterStartedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterExpiredAt {
@@ -4955,9 +4496,6 @@ input SponsorshipFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterApprovalDeadline {
@@ -4971,9 +4509,6 @@ input SponsorshipFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterRejectionReason {
@@ -4988,9 +4523,6 @@ input SponsorshipFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5008,9 +4540,6 @@ input SponsorshipFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterApprovedBy {
@@ -5024,9 +4553,6 @@ input SponsorshipFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterMessage {
@@ -5041,9 +4567,6 @@ input SponsorshipFilterMessage {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5062,9 +4585,6 @@ input SponsorshipFilterContactPhone {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5083,9 +4603,6 @@ input SponsorshipFilterContactEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5104,9 +4621,6 @@ input SponsorshipFilterCompanyName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5124,9 +4638,6 @@ input SponsorshipFilterAmount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input SponsorshipFilterStatus {
@@ -5140,9 +4651,6 @@ input SponsorshipFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input SponsorshipFilterTierName {
@@ -5157,9 +4665,6 @@ input SponsorshipFilterTierName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5177,9 +4682,6 @@ input SponsorshipFilterTierId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterWorkflowRunId {
@@ -5193,9 +4695,6 @@ input SponsorshipFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterSponsorUserId {
@@ -5209,9 +4708,6 @@ input SponsorshipFilterSponsorUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterEventId {
@@ -5225,9 +4721,6 @@ input SponsorshipFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterWorkspaceId {
@@ -5241,9 +4734,6 @@ input SponsorshipFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterLevel {
@@ -5257,9 +4747,6 @@ input SponsorshipFilterLevel {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input SponsorshipFilterId {
@@ -5273,9 +4760,6 @@ input SponsorshipFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterInput {
@@ -5536,8 +5020,15 @@ type RootQueryType {
   "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
   flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
 
-  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
-  flashbackOutreachPreview(archiveKey: String!, channel: String): FlashbackOutreachPreview
+  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判"
+  flashbackOutreachPreview(
+    archiveKey: String!
+
+    channel: String
+
+    "campaign 批次号（预判同人跨 archive 去重数；与入队同源）"
+    batch: String
+  ): FlashbackOutreachPreview
 
   "场次列表（R7 发送入口数据源，PlatformAdmin）"
   flashbackAdminArchives: [FlashbackAdminArchive!]!
@@ -6904,6 +6395,9 @@ type FlashbackOutreachPreview {
 
   unreachable: Int!
 
+  "campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0）"
+  dedupedWithinCampaign: Int!
+
   "短信腿就绪位（SendCloud 触达模板已配置）"
   smsReady: Boolean!
 }
@@ -7366,6 +6860,9 @@ type FlashbackOutreachDispatchResult {
 
   "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
   skipped: Int!
+
+  "campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封）"
+  dedupedWithinCampaign: Int!
 }
 
 input FlashbackTodayInput {
@@ -8052,7 +7549,16 @@ type RootMutationType {
   flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
 
   "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
-  flashbackAdminSendOutreach(archiveKey: String!, template: String!, channel: String): FlashbackOutreachDispatchResult
+  flashbackAdminSendOutreach(
+    archiveKey: String!
+
+    template: String!
+
+    channel: String
+
+    "campaign 批次号（跨 archive 全量发时显式共用——同人只收一封；默认 archive-<key> 批次互不感知）"
+    batch: String
+  ): FlashbackOutreachDispatchResult
 
   "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
   flashbackClaim(token: String): FlashbackClaimResult
