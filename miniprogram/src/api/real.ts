@@ -650,7 +650,14 @@ export class RealMiniProgramApi implements MiniProgramApi {
         iv: payload.iv ?? null
       },
       { captureAuthCookie: true }
-    )
+    ).catch((error: unknown) => {
+      // #930：登录限流（IP 天花板 / openid 桶）转中文——登录页原样显示 message，否则是英文
+      // 「Too many requests」。rate_limited 是 infra 码，不进 error-copy 契约表（只收 domain 码）
+      if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'rate_limited')) {
+        throw new Error('登录太频繁了，请稍后再试。')
+      }
+      throw error
+    })
     if (!getAuthToken()) throw new Error('登录成功但未收到 Bearer token，请检查响应 cookie 契约')
     try {
       return await this.fetchSession()

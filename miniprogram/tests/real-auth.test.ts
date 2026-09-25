@@ -129,6 +129,21 @@ describe('sign-in 两阶段事务', () => {
     // 事务开始清旧账号状态一次，成功后不触发回滚路径
     expect(mocks.clearAccountState).toHaveBeenCalledTimes(1)
   })
+
+  it('#930 登录被限流 → 中文文案（不再原样透出英文「Too many requests」），不发 session 查询', async () => {
+    mocks.graphqlRequest.mockImplementation((doc: string) =>
+      doc === 'SIGN_IN_MUTATION'
+        ? Promise.reject(
+            new mocks.GraphQLRequestError('Too many requests. Try again later.', 200, [
+              { message: 'Too many requests. Try again later.', code: 'rate_limited' }
+            ])
+          )
+        : Promise.resolve(sessionData())
+    )
+    const api = new RealMiniProgramApi()
+    await expect(api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })).rejects.toThrow('登录太频繁了，请稍后再试。')
+    expect(mocks.graphqlRequest.mock.calls.some((call: unknown[]) => call[0] === 'SESSION_QUERY')).toBe(false)
+  })
 })
 
 describe('signIn phoneCode 新契约变量形状', () => {

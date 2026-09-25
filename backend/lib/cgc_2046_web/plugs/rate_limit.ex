@@ -11,6 +11,13 @@ defmodule Cgc2046Web.Plugs.RateLimit do
         middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:email])
         resolve(...)
       end
+
+  ## 具名上限（#930）
+
+  `limit: name` 取 `limit/1` 的具名上限（缺省值集中在 `@limits`，可经
+  `config :cgc_2046, :rate_limits` 覆盖）。与显式 `max_attempts: n` 的区别：测试环境
+  在 test.exs 统一调高、专项测试用 put_env 调低——「IP + 平台」这类测试间共享的键
+  不会因写死的上限在全量测试里互相挤占额度。
   """
 
   use GenServer
@@ -25,8 +32,22 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   @prune_interval_ms 600_000
   @prune_horizon_seconds 86_400
 
+  # #930 具名上限（15 分钟窗口）：
+  # - platform_sign_in_ip：小程序登录的 IP 维度只留宽松天花板——线下活动同一 WiFi、
+  #   运营商 CGNAT 下多人共享 IP，一场活动签到高峰按 100 人计；
+  # - platform_sign_in_openid：计费防刷按 openid 计（SignInPreparation，code2session
+  #   之后、换手机号之前），正常用户 15 分钟内登录 10 次已是上限；
+  # - notification_consent_actor：订阅授权按账号计（一次最多 3 个模板）。
+  @limits %{platform_sign_in_ip: 100, platform_sign_in_openid: 10, notification_consent_actor: 30}
+
   @doc false
   def table, do: @table
+
+  @doc "具名上限（#930）：`config :cgc_2046, :rate_limits` 覆盖，缺省取 `@limits`。"
+  def limit(name) when is_map_key(@limits, name) do
+    Application.get_env(:cgc_2046, :rate_limits, [])
+    |> Keyword.get(name, Map.fetch!(@limits, name))
+  end
 
   @doc false
   def check(key, opts \\ []), do: check_rate(key, opts)
@@ -118,7 +139,12 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   defp check_rate(key, opts) do
     now = System.system_time(:second)
     window_seconds = Keyword.get(opts, :window_seconds, @window_seconds)
-    max_attempts = Keyword.get(opts, :max_attempts, max_attempts())
+
+    max_attempts =
+      case Keyword.fetch(opts, :limit) do
+        {:ok, name} -> limit(name)
+        :error -> Keyword.get(opts, :max_attempts, max_attempts())
+      end
 
     case :ets.lookup(@table, key) do
       [{^key, count, window_start}] when now - window_start < window_seconds ->
