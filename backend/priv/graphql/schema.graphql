@@ -4954,6 +4954,32 @@ type RootQueryType {
   "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
   volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
+  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
+  myLearningRuns: [MyLearningRun!]!
+
+  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
+  myEnrollment(
+    "event | course"
+    kind: String!
+
+    offeringId: ID!
+  ): Enrollment
+
+  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
+  courseMap(slug: String!): CourseMap
+
+  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
+  courseLearningDetail(courseId: ID!): CourseLearningDetail
+
+  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
+  courseContent(courseId: ID!): CourseContent
+
+  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
+  courseDraft(courseId: ID!): CourseDraft
+
+  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
+  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -4982,20 +5008,6 @@ type RootQueryType {
 
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
   pendingApprovalsCount: Int!
-
-  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
-  myLearningRuns: [MyLearningRun!]!
-
-  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
-  myEnrollment(
-    "event | course"
-    kind: String!
-
-    offeringId: ID!
-  ): Enrollment
-
-  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
-  courseMap(slug: String!): CourseMap
 
   "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
   publicInitiative(slug: String!): PublicInitiative
@@ -5124,20 +5136,8 @@ type RootQueryType {
   "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
   flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
 
-  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
-  courseLearningDetail(courseId: ID!): CourseLearningDetail
-
-  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
-  courseContent(courseId: ID!): CourseContent
-
-  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
-  courseDraft(courseId: ID!): CourseDraft
-
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
   platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
-
-  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
-  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
 
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
@@ -5590,120 +5590,6 @@ type PendingApproval {
   amount: Int
 }
 
-type Enrollment {
-  id: ID!
-
-  workspaceId: ID!
-
-  eventId: ID
-
-  courseId: ID
-
-  userId: ID!
-
-  workflowRunId: ID
-
-  inviteBatchId: ID
-
-  status: String!
-
-  capacitySeq: Int
-
-  approvedBy: ID
-
-  approvedAt: DateTime
-
-  rejectionReason: String
-
-  approvalDeadline: DateTime
-
-  expiredAt: DateTime
-
-  cancelledAt: DateTime
-
-  insertedAt: DateTime!
-
-  targetTitle: String
-
-  startsAt: DateTime
-
-  venue: String
-
-  registrationDeadline: DateTime
-
-  paymentMode: String
-
-  depositAmountCents: Int
-
-  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
-  checkInCode: String
-}
-
-type MyLearningRun {
-  runId: ID!
-  enrollmentId: ID!
-  targetTitle: String
-  status: String!
-  staleRevision: Boolean!
-  progress: LearningProgress!
-  nextAction: LearningNextAction
-  courseId: ID!
-}
-
-type CourseLearningDetail {
-  courseId: ID!
-  title: String!
-  slug: String
-  run: LearningRunSummary
-  revisionNumber: Int
-  staleRevision: Boolean!
-  reviewQueue: [LearningReviewQueueEntry!]!
-  objectives: [LearningObjectiveState!]!
-  nextAction: LearningNextAction
-  progress: LearningProgress
-}
-
-type LearningReviewQueueEntry {
-  objectiveId: String!
-  dueAt: DateTime!
-  milestoneDays: Int
-  needsReview: Boolean!
-}
-
-type CourseMap {
-  courseId: ID!
-  title: String!
-  slug: String!
-  goals: [String!]!
-  issues: [CourseMapIssue!]!
-}
-
-type CourseMapIssue {
-  key: String!
-  id: String!
-  title: String!
-  kind: String!
-  goal: String
-}
-
-type CourseContent {
-  courseId: ID!
-  title: String!
-  description: String
-  revisionNumber: Int
-  publishedAt: DateTime
-  content: JsonString!
-}
-
-type CourseDraft {
-  courseId: ID!
-  title: String!
-  version: Int
-  prepState: String
-  updatedAt: DateTime
-  content: JsonString
-}
-
 type PlatformWorkflowAudit {
   id: ID!
   workspaceId: ID!
@@ -5713,77 +5599,6 @@ type PlatformWorkflowAudit {
   finishedAt: DateTime
   insertedAt: DateTime!
   errorSummary: String
-}
-
-type CourseLearningAnalytics {
-  runStats: CourseLearningRunStats!
-  objectives: [CourseLearningObjectiveStats!]!
-  dropOff: CourseLearningDropOff!
-  generatedAt: DateTime!
-}
-
-type CourseLearningRunStats {
-  totalRuns: Int!
-  activeRuns: Int!
-  completedRuns: Int!
-  completionRate: Float
-}
-
-type CourseLearningObjectiveStats {
-  objectiveId: String!
-  title: String!
-  required: Boolean!
-  mastered: Int!
-  developing: Int!
-  needsReview: Int!
-  unassessed: Int!
-  totalAttempts: Int!
-  qualifyingPasses: Int!
-  lowConfidenceAttempts: Int!
-  passRate: Float
-  lastActivityAt: DateTime
-}
-
-type CourseLearningDropOff {
-  staleRunCount: Int!
-}
-
-type LearningRunSummary {
-  id: ID!
-  status: String!
-  revisionId: ID
-  revisionNumber: Int
-}
-
-type LearningObjectiveState {
-  id: String!
-  title: String!
-  required: Boolean!
-  issueId: String
-  prereqIds: [String!]!
-  mastery: String!
-  everMastered: Boolean!
-  locked: Boolean!
-  missingPrereqIds: [LearningPrereqRef!]!
-  attemptCount: Int!
-  lastAttemptAt: DateTime
-}
-
-type LearningPrereqRef {
-  id: String!
-  title: String
-}
-
-type LearningNextAction {
-  kind: String!
-  objectiveId: String!
-  reason: String!
-}
-
-type LearningProgress {
-  masteredRequired: Int!
-  totalRequired: Int!
-  complete: Boolean!
 }
 
 type WorkspaceToolCall {
@@ -7775,6 +7590,191 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type Enrollment {
+  id: ID!
+
+  workspaceId: ID!
+
+  eventId: ID
+
+  courseId: ID
+
+  userId: ID!
+
+  workflowRunId: ID
+
+  inviteBatchId: ID
+
+  status: String!
+
+  capacitySeq: Int
+
+  approvedBy: ID
+
+  approvedAt: DateTime
+
+  rejectionReason: String
+
+  approvalDeadline: DateTime
+
+  expiredAt: DateTime
+
+  cancelledAt: DateTime
+
+  insertedAt: DateTime!
+
+  targetTitle: String
+
+  startsAt: DateTime
+
+  venue: String
+
+  registrationDeadline: DateTime
+
+  paymentMode: String
+
+  depositAmountCents: Int
+
+  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
+  checkInCode: String
+}
+
+type MyLearningRun {
+  runId: ID!
+  enrollmentId: ID!
+  targetTitle: String
+  status: String!
+  staleRevision: Boolean!
+  progress: LearningProgress!
+  nextAction: LearningNextAction
+  courseId: ID!
+}
+
+type CourseLearningDetail {
+  courseId: ID!
+  title: String!
+  slug: String
+  run: LearningRunSummary
+  revisionNumber: Int
+  staleRevision: Boolean!
+  reviewQueue: [LearningReviewQueueEntry!]!
+  objectives: [LearningObjectiveState!]!
+  nextAction: LearningNextAction
+  progress: LearningProgress
+}
+
+type LearningReviewQueueEntry {
+  objectiveId: String!
+  dueAt: DateTime!
+  milestoneDays: Int
+  needsReview: Boolean!
+}
+
+type CourseMap {
+  courseId: ID!
+  title: String!
+  slug: String!
+  goals: [String!]!
+  issues: [CourseMapIssue!]!
+}
+
+type CourseMapIssue {
+  key: String!
+  id: String!
+  title: String!
+  kind: String!
+  goal: String
+}
+
+type CourseContent {
+  courseId: ID!
+  title: String!
+  description: String
+  revisionNumber: Int
+  publishedAt: DateTime
+  content: JsonString!
+}
+
+type CourseDraft {
+  courseId: ID!
+  title: String!
+  version: Int
+  prepState: String
+  updatedAt: DateTime
+  content: JsonString
+}
+
+type CourseLearningAnalytics {
+  runStats: CourseLearningRunStats!
+  objectives: [CourseLearningObjectiveStats!]!
+  dropOff: CourseLearningDropOff!
+  generatedAt: DateTime!
+}
+
+type CourseLearningRunStats {
+  totalRuns: Int!
+  activeRuns: Int!
+  completedRuns: Int!
+  completionRate: Float
+}
+
+type CourseLearningObjectiveStats {
+  objectiveId: String!
+  title: String!
+  required: Boolean!
+  mastered: Int!
+  developing: Int!
+  needsReview: Int!
+  unassessed: Int!
+  totalAttempts: Int!
+  qualifyingPasses: Int!
+  lowConfidenceAttempts: Int!
+  passRate: Float
+  lastActivityAt: DateTime
+}
+
+type CourseLearningDropOff {
+  staleRunCount: Int!
+}
+
+type LearningRunSummary {
+  id: ID!
+  status: String!
+  revisionId: ID
+  revisionNumber: Int
+}
+
+type LearningObjectiveState {
+  id: String!
+  title: String!
+  required: Boolean!
+  issueId: String
+  prereqIds: [String!]!
+  mastery: String!
+  everMastered: Boolean!
+  locked: Boolean!
+  missingPrereqIds: [LearningPrereqRef!]!
+  attemptCount: Int!
+  lastAttemptAt: DateTime
+}
+
+type LearningPrereqRef {
+  id: String!
+  title: String
+}
+
+type LearningNextAction {
+  kind: String!
+  objectiveId: String!
+  reason: String!
+}
+
+type LearningProgress {
+  masteredRequired: Int!
+  totalRequired: Int!
+  complete: Boolean!
+}
 
 type AdminEvent {
   id: ID!
