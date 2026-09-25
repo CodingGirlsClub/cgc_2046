@@ -5,7 +5,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
   F7 方案 A「deadline 前 48h 提醒审批人」的两条独立扫描：
   1. Enrollment 扫描（run-less 报名的单属主提醒路径）：status=pending 且
      approval_deadline 落在 (now, now+48h] 的报名，为工作台 Owner/Admin 逐人
-     入队 approval_reminder 提醒（NotificationWorker 7 天 args-unique 去重）；
+     入队 approval_reminder 提醒（#847 起走 Delivery 永久幂等键去重）；
   2. WorkflowRun 扫描：waiting 且 deadline 落在 48h 窗口内的 run，每 run 落一条
      SignalLog（signal_type="workflow.approval_reminder"）作为提醒事实记录。
   """
@@ -31,6 +31,16 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
     StepHandlerRegistry.register(TestActions.Uppercase)
     StepHandlerRegistry.register(TestActions.AppendExclamation)
     :ok
+  end
+
+  # #847 批 3：approval_reminder 已迁耐久路径，行为面 = Delivery 行（伪 job 投影）
+  defp reminder_jobs(user_id) do
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == "approval_reminder" and user_id == ^user_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{args: %{"user_id" => &1.user_id, "data" => &1.data, "identity_uid" => &1.identity_uid}}
+    )
   end
 
   defp gated_node_def do
@@ -157,24 +167,10 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      refute_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{
-          "user_id" => learner.id,
-          "platform" => "wechat",
-          "template_key" => "approval_reminder"
-        }
-      )
+      assert reminder_jobs(learner.id) == []
 
       for approver <- [owner, admin] do
-        assert_enqueued(
-          worker: Cgc2046.Notifications.NotificationWorker,
-          args: %{
-            "user_id" => approver.id,
-            "platform" => "wechat",
-            "template_key" => "approval_reminder"
-          }
-        )
+        assert reminder_jobs(approver.id) != []
       end
     end
 
@@ -232,15 +228,8 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      assert_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{
-          "user_id" => owner.id,
-          "platform" => "wechat",
-          "template_key" => "approval_reminder",
-          "data" => %{"enrollment_id" => enrollment.id}
-        }
-      )
+      assert [%{args: %{"data" => %{"enrollment_id" => eid}}}] = reminder_jobs(owner.id)
+      assert eid == enrollment.id
     end
 
     test "deadline 超 48h 或已过期 → 不提醒" do
@@ -267,14 +256,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      refute_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{
-          "user_id" => owner.id,
-          "platform" => "wechat",
-          "template_key" => "approval_reminder"
-        }
-      )
+      assert reminder_jobs(owner.id) == []
     end
 
     test "连续两次 perform_job → 同一报名同一收件人不重复入队" do
@@ -295,14 +277,7 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
       assert :ok = perform_job(ApprovalReminderWorker, %{})
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      assert [_one] =
-               all_enqueued(
-                 worker: Cgc2046.Notifications.NotificationWorker,
-                 args: %{
-                   "user_id" => owner.id,
-                   "template_key" => "approval_reminder"
-                 }
-               )
+      assert [_one] = reminder_jobs(owner.id)
     end
 
     test "被丢弃的提醒任务释放去重名额，下一拍可重建（#7）" do
@@ -322,13 +297,18 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      assert [job] =
-               all_enqueued(
-                 worker: Cgc2046.Notifications.NotificationWorker,
-                 args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
-               )
+      # #847 批 3 耐久路径的等价语义：job 被丢弃（异常终局）后下一拍重扫，
+      # 幂等键 upsert 复用同一行（不新建行），并因行非 :sent 重新插 job——
+      # at-least-once 不因 job 丢失而中断
+      assert [_row] = reminder_jobs(owner.id)
 
-      # 模拟三次尝试耗尽的 discarded 终态
+      assert :ok = perform_job(ApprovalReminderWorker, %{})
+
+      assert [_same] = reminder_jobs(owner.id)
+
+      assert [job | _] =
+               all_enqueued(worker: Cgc2046.Notifications.Workers.DeliveryWorker)
+
       {:ok, _} =
         Ecto.Adapters.SQL.query(
           Cgc2046.Repo,
@@ -338,22 +318,16 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      # discarded 释放名额 → 重拍插入新行（all_enqueued 只见 available/scheduled/suspended，
-      # 故用全表计数证明新插入发生）
+      assert [_still_one] = reminder_jobs(owner.id)
+
       {:ok, %{rows: [[count]]}} =
         Ecto.Adapters.SQL.query(
           Cgc2046.Repo,
-          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Notifications.NotificationWorker' AND args->>'user_id' = $1 AND args->>'template_key' = 'approval_reminder'",
-          [owner.id]
+          "SELECT COUNT(*) FROM oban_jobs WHERE worker = 'Cgc2046.Notifications.Workers.DeliveryWorker'"
         )
 
+      # 行复用 + 新 job 重建（丢弃的 job 不阻塞）
       assert count == 2
-
-      assert [_new] =
-               all_enqueued(
-                 worker: Cgc2046.Notifications.NotificationWorker,
-                 args: %{"user_id" => owner.id, "template_key" => "approval_reminder"}
-               )
     end
 
     test "提醒发送时重查：报名已过期 → 不投递不消耗授权（#4）" do
@@ -420,15 +394,8 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      assert [_one] =
-               all_enqueued(
-                 worker: Cgc2046.Notifications.NotificationWorker,
-                 args: %{
-                   "user_id" => owner.id,
-                   "template_key" => "approval_reminder",
-                   "data" => %{"enrollment_id" => enrollment.id}
-                 }
-               )
+      assert [%{args: %{"data" => %{"enrollment_id" => eid}}}] = reminder_jobs(owner.id)
+      assert eid == enrollment.id
     end
 
     test "同一报名在两条扫描窗口内也只由 Enrollment 路径提醒一次（单属主）" do
@@ -453,15 +420,8 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      assert [_one] =
-               all_enqueued(
-                 worker: Cgc2046.Notifications.NotificationWorker,
-                 args: %{
-                   "user_id" => owner.id,
-                   "template_key" => "approval_reminder",
-                   "data" => %{"enrollment_id" => enrollment.id}
-                 }
-               )
+      assert [%{args: %{"data" => %{"enrollment_id" => eid}}}] = reminder_jobs(owner.id)
+      assert eid == enrollment.id
     end
   end
 
@@ -527,39 +487,25 @@ defmodule Cgc2046.Admission.Workers.ApprovalReminderWorkerTest do
 
       assert :ok = perform_job(ApprovalReminderWorker, %{})
 
-      # Event 级：Owner 与 Admin 各一条，data 带 sponsorship_id
+      # Event 级：Owner 与 Admin 各一条，data 带 sponsorship_id（#847 批 3：Delivery 行）
       for approver <- [owner, admin] do
-        assert_enqueued(
-          worker: Cgc2046.Notifications.NotificationWorker,
-          args: %{
-            "user_id" => approver.id,
-            "platform" => "wechat",
-            "template_key" => "approval_reminder",
-            "data" => %{"sponsorship_id" => event_pending.id}
-          }
-        )
+        assert Enum.any?(
+                 reminder_jobs(approver.id),
+                 &(&1.args["data"]["sponsorship_id"] == event_pending.id)
+               )
       end
 
       # Workspace 级：仅 Owner（Admin 不提醒，拍板 #4）
-      assert_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{
-          "user_id" => owner.id,
-          "platform" => "wechat",
-          "template_key" => "approval_reminder",
-          "data" => %{"sponsorship_id" => ws_pending.id}
-        }
-      )
+      assert Enum.any?(
+               reminder_jobs(owner.id),
+               &(&1.args["data"]["sponsorship_id"] == ws_pending.id)
+             )
 
-      refute_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{
-          "user_id" => admin.id,
-          "platform" => "wechat",
-          "template_key" => "approval_reminder",
-          "data" => %{"sponsorship_id" => ws_pending.id}
-        }
-      )
+      admin_ws_count =
+        reminder_jobs(admin.id)
+        |> Enum.count(&(&1.args["data"]["sponsorship_id"] == ws_pending.id))
+
+      assert admin_ws_count == 0
     end
 
     test "deadline 超 48h 的 pending 赞助 → 不提醒" do

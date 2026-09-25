@@ -153,17 +153,14 @@ defmodule Cgc2046.Notifications.FanoutTest do
       user = Fixtures.register_user("fanout-deliver-args")
       insert_identity(user.id, :wechat, "fanout-deliver-args-openid")
       enrollment_id = Ecto.UUID.generate()
-      deadline = "2026-08-15T00:00:00Z"
 
+      # 过渡期钉未迁键的直插 args 合并（收尾批次随直插路径删除）
       assert :ok =
                Fanout.deliver(
                  {user.id, Fanout.identities(user.id)},
-                 "approval_reminder",
-                 %{"enrollment_id" => enrollment_id, "approval_deadline" => deadline},
-                 %{
-                   "enrollment_id" => enrollment_id,
-                   "idempotency_key" => "enrollment.submitted:abc"
-                 }
+                 "event_moderator_removed",
+                 %{"event_id" => enrollment_id},
+                 %{"event_id" => enrollment_id}
                )
 
       assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
@@ -171,10 +168,9 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert args["user_id"] == user.id
       assert args["identity_uid"] == "fanout-deliver-args-openid"
       assert args["platform"] == "wechat"
-      assert args["template_key"] == "approval_reminder"
-      assert args["enrollment_id"] == enrollment_id
-      assert args["idempotency_key"] == "enrollment.submitted:abc"
-      assert args["data"] == %{"enrollment_id" => enrollment_id, "approval_deadline" => deadline}
+      assert args["template_key"] == "event_moderator_removed"
+      assert args["event_id"] == enrollment_id
+      assert args["data"] == %{"event_id" => enrollment_id}
     end
 
     # 过渡期钉未迁键的 #406 语义；已迁键零身份改落哨兵行（见批 1 钉测 describe）。
@@ -279,41 +275,8 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
       assert count_rows("event_moderator_assigned", user.id) == 1
 
-      # :reminder_7d（approval_reminder，未迁）—— discarded 释放名额，重拍插入新行
-      reminder_data = %{"enrollment_id" => Ecto.UUID.generate()}
-
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, identities},
-                 "approval_reminder",
-                 reminder_data,
-                 %{},
-                 :reminder_7d
-               )
-
-      assert [reminder_job] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"template_key" => "approval_reminder"}
-               )
-
-      {:ok, _} =
-        Ecto.Adapters.SQL.query(
-          Cgc2046.Repo,
-          "UPDATE oban_jobs SET state = 'discarded' WHERE id = $1",
-          [reminder_job.id]
-        )
-
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, identities},
-                 "approval_reminder",
-                 reminder_data,
-                 %{},
-                 :reminder_7d
-               )
-
-      assert count_rows("approval_reminder", user.id) == 2
+      # #847 批 3：approval_reminder 迁耐久路径后 @reminder_unique 无 Fanout 使用方，
+      # :reminder_7d 段随迁删除（收尾批次本测试整体移除）
     end
   end
 
@@ -539,6 +502,79 @@ defmodule Cgc2046.Notifications.FanoutTest do
                "refund_failed",
                "refund_succeeded"
              ]
+    end
+  end
+
+  describe "#847 PR-B 批 3（提醒类迁耐久投递）" do
+    defp deliveries_for_3(user_id) do
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user_id)
+      |> Ash.read!(authorize?: false)
+    end
+
+    test "approval_reminder（enrollment 面）：重复扫描同键去重（一行一 job），跨报名各达" do
+      user = Fixtures.register_user("prb3-arw")
+      insert_identity(user.id, :wechat, "prb3-arw-wx")
+      identities = Fanout.identities(user.id)
+
+      deliver = fn eid ->
+        Fanout.deliver(
+          {user.id, identities},
+          "approval_reminder",
+          %{"enrollment_id" => eid, "approval_deadline" => "2026-10-01T00:00:00Z"},
+          %{"enrollment_id" => eid}
+        )
+      end
+
+      assert :ok = deliver.("en-1")
+      assert :ok = deliver.("en-1")
+      assert length(deliveries_for_3(user.id)) == 1
+
+      assert :ok = deliver.("en-2")
+      assert length(deliveries_for_3(user.id)) == 2
+    end
+
+    test "approval_reminder（sponsorship 面）：job_meta 携带 sponsorship_id 时按赞助维度派生" do
+      user = Fixtures.register_user("prb3-sponsor")
+      insert_identity(user.id, :wechat, "prb3-sponsor-wx")
+
+      assert :ok =
+               Fanout.deliver(
+                 {user.id, Fanout.identities(user.id)},
+                 "approval_reminder",
+                 %{"sponsorship_id" => "sp-1", "approval_deadline" => "2026-10-01T00:00:00Z"},
+                 %{"sponsorship_id" => "sp-1"}
+               )
+
+      [row] = deliveries_for_3(user.id)
+      assert row.job_meta["idempotency_key"] == "approval_reminder:approval.reminder:sp-1"
+    end
+
+    test "learning_stagnation：同 run 同桶去重，幂等键含周期桶成分（跨桶重发的公式保证）" do
+      user = Fixtures.register_user("prb3-lpw")
+      insert_identity(user.id, :wechat, "prb3-lpw-wx")
+      identities = Fanout.identities(user.id)
+
+      deliver = fn run_id ->
+        Fanout.deliver(
+          {user.id, identities},
+          "learning_stagnation",
+          %{"run_id" => run_id, "enrollment_id" => "e1", "title" => "t"},
+          %{"run_id" => run_id}
+        )
+      end
+
+      assert :ok = deliver.("run-1")
+      assert :ok = deliver.("run-1")
+      assert length(deliveries_for_3(user.id)) == 1
+
+      assert :ok = deliver.("run-2")
+      assert length(deliveries_for_3(user.id)) == 2
+
+      [row1, _row2] = deliveries_for_3(user.id) |> Enum.sort_by(& &1.inserted_at)
+
+      assert row1.job_meta["idempotency_key"] =~
+               ~r/learning_stagnation:learning\.stagnation:run-\d+:w\d+$/
     end
   end
 
