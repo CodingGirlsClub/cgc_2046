@@ -747,6 +747,60 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert touch_count(person.id, :intent_submitted) == 0
     end
 
+    # #931：寄出 / 撤下曾是 token 单入口——认领后 token 作废，经「找回」路径绑定、
+    # 没走过首程的账号寄不出、任何绑定账号都撤不下。补登录账号入口，与写今天同款。
+    test "绑定账号：sendToWall / retract 不带 token（#931）" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = Cgc2046.AccountsFixtures.register_user("fb-session-send")
+      bind_person(person, user.id)
+
+      send_query = """
+      mutation { flashbackSendToWall { sentToWallAt: sent_to_wall_at } }
+      """
+
+      res = post_as_user(send_query, user)
+      assert is_binary(res["data"]["flashbackSendToWall"]["sentToWallAt"]), inspect(res)
+      # 首程漏斗（sent_to_wall touch）只记 token 旅程；账号入口不重计
+      assert touch_count(person.id, :sent_to_wall) == 0
+
+      # 幂等：再寄一次不改寄出时间
+      first_sent = res["data"]["flashbackSendToWall"]["sentToWallAt"]
+      res = post_as_user(send_query, user)
+      assert res["data"]["flashbackSendToWall"]["sentToWallAt"] == first_sent
+
+      retract_query = """
+      mutation { flashbackRetract { retracted sentToWallAt: sent_to_wall_at } }
+      """
+
+      res = post_as_user(retract_query, user)
+      assert res["data"]["flashbackRetract"]["retracted"] == true, inspect(res)
+      assert res["data"]["flashbackRetract"]["sentToWallAt"] == nil
+    end
+
+    test "寄出 / 撤下：未登录无 token → auth_required；登录未绑定 → person_not_bound（#931）" do
+      for query <- [
+            "mutation { flashbackSendToWall { sentToWallAt: sent_to_wall_at } }",
+            "mutation { flashbackRetract { retracted } }"
+          ] do
+        res =
+          build_conn()
+          |> put_req_header("content-type", "application/json")
+          |> post("/api/graphql", %{"query" => query})
+          |> json_response(200)
+
+        assert [%{"code" => "flashback_auth_required"} | _] = res["errors"], inspect(res)
+
+        stranger =
+          Cgc2046.AccountsFixtures.register_user(
+            "fb-send-stranger-#{System.unique_integer([:positive])}"
+          )
+
+        res = post_as_user(query, stranger)
+        assert [%{"code" => "flashback_person_not_bound"} | _] = res["errors"], inspect(res)
+      end
+    end
+
     test "未登录且无 token → auth_required（不泄露存在性）" do
       endorse_query = """
       query { flashbackDeletePreview { personId: person_id } }

@@ -1498,29 +1498,45 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+    @desc "寄出上墙（R11，幂等；token 旅程写 sent_to_wall touch）：返回注册引导掩码回显（R27）。#931 起 token 省略时按登录账号绑定档案"
     field :flashback_send_to_wall, :flashback_send_to_wall_result do
-      arg(:token, non_null(:string))
+      # #931 起双入口：token 省略时按登录账号绑定档案（认领作废 token 后的唯一入口）
+      arg(:token, :string)
 
       # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
       # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
-      resolve(fn _, %{token: token}, _ ->
-        flashback_call(fn -> Cgc2046.Flashback.Tokens.send_to_wall(token) end)
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} -> Cgc2046.Flashback.Tokens.send_to_wall(token)
+              {:person, person_id} -> Cgc2046.Flashback.Tokens.send_to_wall_as_person(person_id)
+            end
+          end
+        end)
       end)
     end
 
-    @desc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+    @desc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。#931 起 token 省略时按登录账号绑定档案"
     field :flashback_retract, :flashback_retract_result do
-      arg(:token, non_null(:string))
+      # #931 起双入口：token 省略时按登录账号绑定档案
+      arg(:token, :string)
 
       # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
       # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
-      resolve(fn _, %{token: token}, _ ->
-        flashback_call(fn -> Cgc2046.Flashback.Tokens.retract(token) end)
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} -> Cgc2046.Flashback.Tokens.retract(token)
+              {:person, person_id} -> Cgc2046.Flashback.Tokens.retract_as_person(person_id)
+            end
+          end
+        end)
       end)
     end
 

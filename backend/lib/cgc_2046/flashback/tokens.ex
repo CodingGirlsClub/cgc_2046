@@ -183,19 +183,33 @@ defmodule Cgc2046.Flashback.Tokens do
   @spec send_to_wall(term()) :: {:ok, map()} | {:error, term()}
   def send_to_wall(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext) do
-      today = ensure_today(token.person_id)
+      do_send_to_wall(token.person, token)
+    end
+  end
 
-      if today.sent_to_wall_at do
-        {:ok, wall_result(token.person, today)}
-      else
-        {:ok, today} =
-          today
-          |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
-          |> Ash.update(authorize?: false)
+  @doc """
+  登录账号入口（#931）：按已绑定档案寄出，与 token 入口同语义（幂等）。
+  认领会作废 token，经「找回」绑定、没走过首程的账号只能走这里。
+  首程漏斗的 `sent_to_wall` touch 只记 token 旅程，账号入口不写。
+  """
+  @spec send_to_wall_as_person(String.t()) :: {:ok, map()} | {:error, term()}
+  def send_to_wall_as_person(person_id) do
+    do_send_to_wall(reload_person(person_id), nil)
+  end
 
-        record_touch(token, :sent_to_wall)
-        {:ok, wall_result(token.person, today)}
-      end
+  defp do_send_to_wall(person, token) do
+    today = ensure_today(person.id)
+
+    if today.sent_to_wall_at do
+      {:ok, wall_result(person, today)}
+    else
+      {:ok, today} =
+        today
+        |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
+        |> Ash.update(authorize?: false)
+
+      if token, do: record_touch(token, :sent_to_wall)
+      {:ok, wall_result(person, today)}
     end
   end
 
@@ -203,24 +217,30 @@ defmodule Cgc2046.Flashback.Tokens do
   @spec retract(term()) :: {:ok, map()} | {:error, term()}
   def retract(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext) do
-      case Today
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^token.person_id)
-           |> Ash.read_one(authorize?: false) do
-        {:ok, nil} ->
-          {:ok, %{retracted: true, sent_to_wall_at: nil}}
+      retract_as_person(token.person_id)
+    end
+  end
 
-        {:ok, today} ->
-          {:ok, today} =
-            today
-            |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: nil})
-            |> Ash.update(authorize?: false)
+  @doc "登录账号入口（#931）：按已绑定档案撤下，与 token 入口同语义。"
+  @spec retract_as_person(String.t()) :: {:ok, map()} | {:error, term()}
+  def retract_as_person(person_id) do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        {:ok, %{retracted: true, sent_to_wall_at: nil}}
 
-          {:ok, %{retracted: true, sent_to_wall_at: today.sent_to_wall_at}}
+      {:ok, today} ->
+        {:ok, today} =
+          today
+          |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: nil})
+          |> Ash.update(authorize?: false)
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+        {:ok, %{retracted: true, sent_to_wall_at: today.sent_to_wall_at}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
