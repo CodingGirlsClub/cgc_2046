@@ -114,6 +114,8 @@
     "flashback_person_not_bound": "当前账号还没有绑定闪念间档案——先从专属链接进入一次吧。",
     "flashback_recover_rate_limited": "找回尝试过于频繁，请一小时后再试。",
     "flashback_like_rate_limited": "点赞操作过于频繁，请稍后再试。",
+    "flashback_wish_invalid_request_id": "提交标识无效，请重新打开页面。",
+    "flashback_wish_request_conflict": "这次提交的内容已改变，请重新提交。",
     "flashback_wish_quota_exceeded": "今年许愿名额已用完（每年最多 3 条，删除不退还名额）。",
     "flashback_content_rejected": "这句话没能挂上树，换种说法试试。",
     "flashback_wish_city_unknown": "没认出这是哪个城市，换个写法试试（如：上海、成都）。",

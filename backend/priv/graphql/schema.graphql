@@ -5536,6 +5536,9 @@ type RootQueryType {
   "删除摘要（U10\/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
   flashbackDeletePreview(token: String): FlashbackDeletePreviewResult
 
+  "登录账号的全部未删除愿望，含公开、私密和待审；无历史档案也可使用。"
+  flashbackMyWishes: FlashbackMyWishes
+
   "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
   flashbackPublicStats: FlashbackPublicStats
 
@@ -6814,6 +6817,21 @@ type FlashbackWishComment {
   "留言人遮罩姓"
   commenterMasked: String
 
+  insertedAt: DateTime!
+}
+
+type FlashbackMyWishes {
+  quotaRemaining: Int!
+  wishes: [FlashbackOwnedWish!]!
+}
+
+type FlashbackOwnedWish {
+  id: ID!
+  content: String!
+  city: String
+  signature: String!
+  visibility: String!
+  status: String!
   insertedAt: DateTime!
 }
 
@@ -8280,6 +8298,8 @@ type RootMutationType {
   "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
   flashbackCreateWish(
     token: String
+
+    requestId: ID
 
     content: String!
 

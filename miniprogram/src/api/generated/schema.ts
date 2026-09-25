@@ -2642,6 +2642,11 @@ export type FlashbackMeAnswer = {
   text: Scalars['String']['output'];
 };
 
+export type FlashbackMyWishes = {
+  quotaRemaining: Scalars['Int']['output'];
+  wishes: Array<FlashbackOwnedWish>;
+};
+
 export type FlashbackOutreachBatch = {
   batch: Scalars['String']['output'];
   email: FlashbackOutreachBatchChannel;
@@ -2700,6 +2705,16 @@ export type FlashbackOutreachRosterEntry = {
   phone?: Maybe<Scalars['String']['output']>;
   smsReachable: Scalars['Boolean']['output'];
   unsubscribed: Scalars['Boolean']['output'];
+};
+
+export type FlashbackOwnedWish = {
+  city?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  signature: Scalars['String']['output'];
+  status: Scalars['String']['output'];
+  visibility: Scalars['String']['output'];
 };
 
 export type FlashbackProfile = {
@@ -5595,6 +5610,7 @@ export type RootMutationTypeFlashbackCreateWishArgs = {
   content: Scalars['String']['input'];
   expectedCity?: InputMaybe<Scalars['String']['input']>;
   publicListingConsent?: InputMaybe<Scalars['Boolean']['input']>;
+  requestId?: InputMaybe<Scalars['ID']['input']>;
   signatureChoice?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
   visibility: Scalars['String']['input'];
@@ -6034,6 +6050,8 @@ export type RootQueryType = {
   flashbackDeletePreview?: Maybe<FlashbackDeletePreviewResult>;
   /** 闪念间圆梦线 CTA 两态（U4/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段 */
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
+  /** 登录账号的全部未删除愿望，含公开、私密和待审；无历史档案也可使用。 */
+  flashbackMyWishes?: Maybe<FlashbackMyWishes>;
   /** 触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次 */
   flashbackOutreachBatches: Array<FlashbackOutreachBatch>;
   /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2） */

@@ -6,7 +6,6 @@ import { VoiceCityFilter } from '@/components/Voices/CityFilter'
 import { VoicesMap } from '@/components/Voices/Map'
 import { useVoices } from '@/components/Voices/useVoices'
 import { voiceShare } from '@/domain/flashback-voices'
-import { setFlashbackEntry } from '@/state/flashbackEntry'
 import shareImage from '@/assets/flashback/voices-map.png'
 import styles from './index.module.css'
 
@@ -23,8 +22,7 @@ export default function FlashbackVoicesPage() {
     // Menu shares the wall; a withdrawn sentence never remains a share payload.
     void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] })
   }, [])
-  const corridor = (future = false) => {
-    if (future) setFlashbackEntry('future')
+  const corridor = () => {
     void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
   }
   return <View className={styles.page}>
@@ -72,7 +70,7 @@ export default function FlashbackVoicesPage() {
       </>}
       <View className={styles.footer}>
         <Button className={styles.recover} onClick={() => corridor()}>找回你的那一张 ↗</Button>
-        <Button className={styles.future} onClick={() => corridor(true)}>去许愿，写下未来 →</Button>
+        <Button className={styles.future} onClick={() => Taro.navigateTo({ url: "/pages/flashback-wish-write/index" })}>去许愿，写下未来 →</Button>
       </View>
     </View>
   </View>
