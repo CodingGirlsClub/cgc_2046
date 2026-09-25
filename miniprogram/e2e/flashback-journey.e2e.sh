@@ -630,7 +630,7 @@ shot 11-journey-intro.png
 TAP "$JSHUTTER"
 sleep 1
 ck "确认问句（R6）" "$(RES automation_element_action --action text --selector "$JQUESTION")" '^还记得……是哪一场吗？$'
-ck "选项=正确项(池内)+3 干扰+我不记得了" "$(COUNT "$JOPTION")" '^5$'
+ck "选项=正确项(池内)+2 干扰+我不记得了（2012 上海不在池内）" "$(COUNT "$JOPTION")" '^4$'
 ck "正确项首位=2014.1.11 六城同日（mock 档案命中池）" "$(RES automation_element_action --action text --selector "$JOPTION $JLABEL")" '^2014\.1\.11 · 六城同日$'
 TAP "$JOPTION"
 sleep 1
