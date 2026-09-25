@@ -316,12 +316,14 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
         |> Ash.Changeset.for_update(:settle_paid, %{})
         |> Ash.update(tenant: workspace.id, authorize?: false)
 
-      # 模拟「他路已提交推进」：BEFORE ROW（depth=1）吞掉本侧 claim UPDATE →
-      # num_rows=0；AFTER STATEMENT 随即把该行真改为 refunding（内层 UPDATE 经
-      # depth>1 分支放行）——重读见 refunding → already_in_progress
+      # 模拟「他路已提交推进」，且只对真正的 claim 生效：BEFORE ROW（depth=1）
+      # 吞掉本侧 claim UPDATE 并置事务级标记；AFTER STATEMENT 仅在标记存在时
+      # 推进——cancel 链前段的 void pending（0 行合法）同样会触发语句级
+      # trigger，若无标记会把订单提前推成 refunding、令用例误走 in_flight
+      # 分支（R2 阻断 1）
       Cgc2046.Repo.query!(
         ~s{CREATE OR REPLACE FUNCTION cgc_race_swallow_fn() RETURNS trigger AS } <>
-          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
+          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN PERFORM set_config('cgc.race', '1', true); RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
       )
 
       Cgc2046.Repo.query!(
@@ -332,7 +334,7 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
 
       Cgc2046.Repo.query!(
         ~s{CREATE OR REPLACE FUNCTION cgc_race_settle_fn() RETURNS trigger AS } <>
-          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
+          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; IF coalesce(current_setting('cgc.race', true), '') <> '1' THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
       )
 
       Cgc2046.Repo.query!(

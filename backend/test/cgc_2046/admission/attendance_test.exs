@@ -491,9 +491,11 @@ defmodule Cgc2046.Admission.AttendanceTest do
       moderator = assign_moderator(event, workspace, owner, "u6-race-settled-moderator")
       {_learner, enrollment, order} = confirmed_deposit_enrollment(event, workspace)
 
+      # 标记协同同 B 侧（R2 阻断 1）：仅真正被吞的 claim 才触发推进，防
+      # cancel/check_in 链前段 0 行语句把订单提前推成 refunding
       Cgc2046.Repo.query!(
         ~s{CREATE OR REPLACE FUNCTION cgc_race_swallow_fn() RETURNS trigger AS } <>
-          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
+          ~s{$$ BEGIN IF pg_trigger_depth() = 1 THEN PERFORM set_config('cgc.race', '1', true); RETURN NULL; ELSE RETURN NEW; END IF; END; $$ LANGUAGE plpgsql;}
       )
 
       Cgc2046.Repo.query!(
@@ -504,7 +506,7 @@ defmodule Cgc2046.Admission.AttendanceTest do
 
       Cgc2046.Repo.query!(
         ~s{CREATE OR REPLACE FUNCTION cgc_race_settle_fn() RETURNS trigger AS } <>
-          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
+          ~s{$$ BEGIN IF pg_trigger_depth() > 1 THEN RETURN NULL; END IF; IF coalesce(current_setting('cgc.race', true), '') <> '1' THEN RETURN NULL; END IF; UPDATE payments_orders SET status = 'refunding' WHERE id = '#{order.id}' AND status = 'paid'; RETURN NULL; END; $$ LANGUAGE plpgsql;}
       )
 
       Cgc2046.Repo.query!(
