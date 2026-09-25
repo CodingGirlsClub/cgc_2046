@@ -755,6 +755,10 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       person = create_person(archive)
       other = create_person(archive, %{full_name: "李雷", surname: "李"})
 
+      # 圆梦线（当年报了名未入选）进名册——participation 经 SDL 透出（名册徽标用）
+      dreamer =
+        create_person(archive, %{full_name: "赵未选", surname: "赵", participation: :not_selected})
+
       # 李雷寄出（带雾面答案），本人不寄出（虚线位分支同场覆盖）
       create_answer(other, "self_intro", "在盛大做测试。喜欢周末骑行。", [%{"start" => 0, "len" => 6}])
 
@@ -773,7 +777,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       query { flashbackCapsule(token: "#{plain}") {
         me { id fullName quoteLevel: quote_level quote answers { questionKey: question_key text } today { sentToWallAt: sent_to_wall_at } }
         archives { key isMine appliedCount: applied_count attendedCount: attended_count
-          roster { id surnameMasked: surname_masked sentToWallAt: sent_to_wall_at
+          roster { id surnameMasked: surname_masked participation sentToWallAt: sent_to_wall_at
             today { nowStatus: now_status } answers { questionKey: question_key segments { text fog len } } } }
       } }
       """
@@ -793,11 +797,18 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert capsule["me"]["quoteLevel"] == "off"
 
       [archive_payload] = capsule["archives"]
-      assert length(archive_payload["roster"]) == 2
+      assert length(archive_payload["roster"]) == 3
 
       for entry <- archive_payload["roster"] do
         assert entry["id"] =~ ~r/^[0-9a-f-]{36}$/
+        assert entry["participation"] in ["attended", "not_selected"]
       end
+
+      # 圆梦线身份经 SDL 透出（名册徽标数据源）
+      dreamer_entry = Enum.find(archive_payload["roster"], &(&1["id"] == dreamer.id))
+      assert dreamer_entry["participation"] == "not_selected"
+      assert dreamer_entry["today"] == nil
+      assert dreamer_entry["answers"] == []
 
       quiet = Enum.find(archive_payload["roster"], &(&1["surnameMasked"] == "王**"))
       assert quiet["today"] == nil

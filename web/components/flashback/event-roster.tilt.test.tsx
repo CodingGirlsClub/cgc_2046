@@ -14,6 +14,7 @@ import type { FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 const entry = (i: number, over: Partial<FlashbackCapsuleArchive["roster"][number]> = {}) => ({
 	id: `p-${i}`,
 	surnameMasked: `姓${i}**`,
+	participation: "attended",
 	city: "北京",
 	occupationThen: null,
 	sentToWallAt: null,
