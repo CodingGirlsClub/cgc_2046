@@ -246,7 +246,13 @@ defmodule Cgc2046.Notifications.Fanout do
                   "approval_result",
                   "enrollment_submitted",
                   "enrollment_completed",
-                  "enrollment_check_in_code"
+                  "enrollment_check_in_code",
+                  # 批 2（资金类）
+                  "payment_succeeded",
+                  "payment_received",
+                  "payment_expired",
+                  "refund_succeeded",
+                  "refund_failed"
                 ])
 
   defp durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
@@ -273,6 +279,22 @@ defmodule Cgc2046.Notifications.Fanout do
     do: Map.fetch!(job_meta, "idempotency_key")
 
   defp event_key("enrollment_check_in_code", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  # 批 2（资金类）：现 job_meta 幂等键直用（支付侧已带 "<template>:<order_id>"）
+  defp event_key("payment_succeeded", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("payment_received", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("payment_expired", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("refund_succeeded", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("refund_failed", _data, job_meta),
     do: Map.fetch!(job_meta, "idempotency_key")
 
   # 未迁键的既有直插路径（收尾批次整体删除）：逐身份插 NotificationWorker
