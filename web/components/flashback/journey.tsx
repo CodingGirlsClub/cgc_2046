@@ -15,6 +15,7 @@ import {
 	FLASHBACK_REGISTER_BIND,
 	FLASHBACK_DREAM_TARGET,
 	FLASHBACK_ADJUST_FOG,
+	FLASHBACK_ADJUST_TODAY_FOG,
 	type FlashbackDreamTarget,
 	type FlashbackEnterResult,
 	type FlashbackTodayInput,
@@ -87,6 +88,7 @@ export default function Journey() {
 	const [runSetQuoteLicense] = useMutation(FLASHBACK_SET_QUOTE_LICENSE);
 	const [runRegisterBind] = useMutation(FLASHBACK_REGISTER_BIND);
 	const [runAdjustFog] = useMutation(FLASHBACK_ADJUST_FOG);
+	const [runAdjustTodayFog] = useMutation(FLASHBACK_ADJUST_TODAY_FOG);
 	const [runRequestPhoneCode] = useMutation(REQUEST_PHONE_CODE);
 
 	const goTo = useCallback(
@@ -256,6 +258,10 @@ export default function Journey() {
 					onAdjustFog={async (answerId, spans) => {
 						const { data } = await runAdjustFog({ variables: { token, answerId, spans } });
 						return Boolean(data?.flashbackAdjustFog);
+					}}
+					onAdjustTodayFog={async (field, spans) => {
+						const { data } = await runAdjustTodayFog({ variables: { token, field, spans } });
+						return Boolean(data?.flashbackAdjustTodayFog);
 					}}
 					onBack={() => setSendOpen(false)}
 					onSubmitToday={async (input) => {
