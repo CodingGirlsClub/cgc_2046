@@ -113,8 +113,8 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
 
     wish = wish_by_content("一起办一场十周年重聚")
     assert %DateTime{} = wish.listed_at
-    # KTD1：display_name = 实名展示快照（person.full_name）
-    assert wish.signature == "王小明"
+    # KTD1：未绑定账号没有展示名，GraphQL 写面不得公开名册全名。
+    assert wish.signature == "王**"
     # KTD11：显式入参强制归一（成都市 → 成都）
     assert wish.city == "成都"
   end

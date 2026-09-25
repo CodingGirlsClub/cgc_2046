@@ -559,14 +559,44 @@ defmodule Cgc2046.Flashback.WishesTest do
       assert wish.visibility == "private"
     end
 
-    test "signature_choice=:display_name → signature 用实名" do
+    test "未绑定账号选展示名 → 署名回退遮罩姓，不公开名册全名" do
       archive = create_archive()
       person = create_person(archive, %{full_name: "王小明", surname: "王"})
 
       {:ok, wish} =
-        Wishes.create_wish(person.id, "挂真名的心愿", "public", signature_choice: :display_name)
+        Wishes.create_wish(person.id, "未设展示名的心愿", "public", signature_choice: :display_name)
 
-      assert wish.signature == "王小明"
+      assert wish.signature == "王**"
+      refute wish.signature == person.full_name
+    end
+
+    test "绑定账号但展示名为空时选展示名 → 署名回退遮罩姓" do
+      archive = create_archive()
+      person = create_person(archive, %{full_name: "王小明", surname: "王"})
+      user = register_user("wish-signature-empty")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!("UPDATE users SET display_name = '' WHERE id = $1", [Repo.uuid!(user.id)])
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "展示名为空的心愿", "public", signature_choice: :display_name)
+
+      assert wish.signature == "王**"
+      refute wish.signature == person.full_name
+    end
+
+    test "绑定账号且展示名非空时选展示名 → 署名使用账号展示名" do
+      archive = create_archive()
+      person = create_person(archive, %{full_name: "王小明", surname: "王"})
+      user = register_user("wish-signature-set")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!("UPDATE users SET display_name = '小明同学' WHERE id = $1", [Repo.uuid!(user.id)])
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "展示名已设置的心愿", "public", signature_choice: :display_name)
+
+      assert wish.signature == "小明同学"
     end
 
     test "expected_city 提供时强制归一：成都 / 成都市 同归 成都" do
@@ -643,6 +673,10 @@ defmodule Cgc2046.Flashback.WishesTest do
     test "signature 快照不随改名回溯（KTD1 快照语义）" do
       archive = create_archive()
       person = create_person(archive, %{full_name: "王小明", surname: "王"})
+      user = register_user("wish-signature-snapshot")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!("UPDATE users SET display_name = '小明同学' WHERE id = $1", [Repo.uuid!(user.id)])
 
       {:ok, wish} =
         Wishes.create_wish(person.id, "快速心愿", "public",
@@ -650,16 +684,16 @@ defmodule Cgc2046.Flashback.WishesTest do
           public_listing_consent: true
         )
 
-      assert wish.signature == "王小明"
+      assert wish.signature == "小明同学"
 
-      # 改名后 wish.signature 不更新（快照语义）
+      # 修改账号展示名后 wish.signature 不更新（快照语义）
       %{num_rows: 1} =
         Repo.query!(
-          "UPDATE flashback_people SET full_name = '王大名' WHERE id = $1",
-          [Repo.uuid!(person.id)]
+          "UPDATE users SET display_name = '新的展示名' WHERE id = $1",
+          [Repo.uuid!(user.id)]
         )
 
-      # 改变名后 wish.signature 不更新（KTD1 快照语义）
+      # 改展示名后 wish.signature 不更新（KTD1 快照语义）
       refreshed = Wishes.list_public() |> Enum.find(&(&1.id == wish.id))
       assert refreshed.content == "快速心愿"
       # list_public 投影内无 signature，但 DB 行仍存旧值
@@ -668,7 +702,7 @@ defmodule Cgc2046.Flashback.WishesTest do
           Repo.uuid!(wish.id)
         ])
 
-      assert sig == "王小明"
+      assert sig == "小明同学"
     end
 
     test "存量行 masked_name 回填 SQL 4 分支全矩阵（KTD1 快照语义对齐 masked_name/2）" do
