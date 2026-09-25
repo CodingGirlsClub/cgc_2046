@@ -4752,6 +4752,8 @@ export type RootMutationType = {
   flashbackRecover?: Maybe<FlashbackRecoverResult>;
   /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
   flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
+  /** 自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover */
+  flashbackRecoverVerifyForAccount?: Maybe<FlashbackRecoverVerifyResult>;
   flashbackRedeem?: Maybe<FlashbackRedeemResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
@@ -5339,6 +5341,12 @@ export type RootMutationTypeFlashbackRecoverArgs = {
 
 
 export type RootMutationTypeFlashbackRecoverVerifyArgs = {
+  code: Scalars['String']['input'];
+  identifier: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRecoverVerifyForAccountArgs = {
   code: Scalars['String']['input'];
   identifier: Scalars['String']['input'];
 };

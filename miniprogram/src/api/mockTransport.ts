@@ -1423,6 +1423,33 @@ function responseFor(document: string, variables: object): unknown {
     }
   }
   // 注意 `(`：'mutation FlashbackDelete' 会误吞 FlashbackDeleteWish
+  // #932 小程序内找回（镜像 Recover.initiate / verify_for_user）。发起恒同形（防枚举）；
+  // 验证要求登录：码 123456 通过并绑到当前账号，号码 13900000099 = 已属于另一个账号，其余码 = 错码
+  if (document.includes('mutation FlashbackRecoverVerifyForAccount')) {
+    if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
+    if (values.code !== '123456') {
+      return { errors: [{ message: 'Invalid or expired code', code: 'invalid_or_expired_code' }] }
+    }
+    if (String(values.identifier ?? '').replace(/\D/g, '') === '13900000099') {
+      return { errors: [{ message: 'This phone or archive already belongs to another account', code: 'flashback_recover_account_conflict' }] }
+    }
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return {
+      flashbackRecoverVerifyForAccount: {
+        bound: true,
+        cards: [{ surnameMasked: '王**', eventName: FLASHBACK_E2E_ARCHIVE.name, city: FLASHBACK_E2E_ARCHIVE.city }]
+      }
+    }
+  }
+  if (document.includes('mutation FlashbackRecover(')) {
+    return { flashbackRecover: { dispatched: true } }
+  }
   if (document.includes('mutation FlashbackDelete(')) {
     const denied = flashbackIdentityGate(values)
     if (denied) return denied

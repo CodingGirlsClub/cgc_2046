@@ -9,6 +9,8 @@ import { ensureWishVoterKey } from '@/domain/flashback'
 import { guestVoicePreview, selectGuestVoice, type PublicVoice } from '@/domain/flashback-voices'
 import { STORAGE_KEYS } from '@/state/storage'
 import { recoveryView, type PublicRecovery } from '@/domain/flashback-recovery'
+import { RECOVER_COPY } from '@/domain/flashback-recover'
+import { FlashbackRecoverSheet } from '@/components/FlashbackRecover'
 import landscape from '@/assets/flashback/mountain-map.png'
 import styles from './index.module.css'
 
@@ -17,6 +19,8 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
   const [quote, setQuote] = useState<QuoteState>({ status: 'loading', voice: null })
   // #933 那些年的相册：未登录读公开统计层，已登录无档案读相册（多城市堆）；失败整段隐藏（非关键路径）
   const [albums, setAlbums] = useState<AlbumRow[]>([])
+  // #932 小程序内找回：已登录没匹配到（当年用别的号码报名）→ 凭当年的号码找回、绑到当前账号
+  const [recoverOpen, setRecoverOpen] = useState(false)
   useEffect(() => {
     if (recovery === 'checking') return
     let live = true
@@ -92,6 +96,9 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
           if (recoveryCopy.action === 'retry') onRetry()
           if (recoveryCopy.action === 'write') open('/pages/flashback-wish-write/index')
         }}>{recoveryCopy.button}</Button>
+        {recovery === 'unmatched' && (
+          <Text className={styles.recoverOther} onClick={() => setRecoverOpen(true)}>{RECOVER_COPY.entry}</Text>
+        )}
       </View>
       {albums.length > 0 && (
         <View className={styles.albums}>
@@ -125,5 +132,8 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
       </Button>
     </View>
     <AppTabBar selected='flashback' tone='ink' />
+    {recoverOpen && (
+      <FlashbackRecoverSheet onClose={() => setRecoverOpen(false)} onRecovered={() => { setRecoverOpen(false); onRetry() }} />
+    )}
   </View>
 }

@@ -24,6 +24,8 @@ import {
   FlashbackRetractMutationDocument,
   FlashbackDeletePreviewQueryDocument,
   FlashbackDeleteMutationDocument,
+  FlashbackRecoverMutationDocument,
+  FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
   FlashbackSubmitTodayMutationDocument,
@@ -276,6 +278,33 @@ test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序', () => 
 
   const beijing = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, { city: '北京' })
   assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '广州'])
+})
+
+test('mock 小程序内找回（#932）：发起同形；验证要求登录、错码与号码属于别人各有其码、通过即绑到当前账号', () => {
+  type Errors = { errors?: Array<{ code: string }> }
+  const verify = (code: string, identifier = '13900000011') =>
+    mockGraphQLRequest<Errors & { flashbackRecoverVerifyForAccount?: { bound: boolean; cards: unknown[] } }>(
+      FlashbackRecoverVerifyForAccountMutationDocument,
+      { identifier, code }
+    )
+
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(verify('123456').errors?.[0]?.code, 'unauthorized')
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  const dispatched = mockGraphQLRequest<{ flashbackRecover: { dispatched: boolean } }>(FlashbackRecoverMutationDocument, { identifier: 'nobody@example.com' })
+  assert.equal(dispatched.flashbackRecover.dispatched, true)
+
+  assert.equal(verify('000000').errors?.[0]?.code, 'invalid_or_expired_code')
+  assert.equal(verify('123456', '13900000099').errors?.[0]?.code, 'flashback_recover_account_conflict')
+  // 失败两次都没有绑定
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+
+  assert.equal(verify('123456').flashbackRecoverVerifyForAccount?.bound, true)
+  // 绑定后会话腿读胶囊即参与态
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
+  __setFlashbackUnclaimed(false)
 })
 
 type AlbumRoster = { surnameMasked: string; fullName: string | null; city: string | null; occupationThen: string | null; sentToWallAt: string | null }

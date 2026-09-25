@@ -69,6 +69,10 @@ import type {
   FlashbackDeletePreviewQueryVariables,
   FlashbackDeleteMutation,
   FlashbackDeleteMutationVariables,
+  FlashbackRecoverMutation,
+  FlashbackRecoverMutationVariables,
+  FlashbackRecoverVerifyForAccountMutation,
+  FlashbackRecoverVerifyForAccountMutationVariables,
   FlashbackSetCardSharingMutation,
   FlashbackSetCardSharingMutationVariables,
   FlashbackSetQuoteLicenseMutation,
@@ -112,6 +116,7 @@ import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import { DELETE_COPY, RETRACT_COPY, type FlashbackDeletePreview } from '@/domain/flashback-retract'
+import { RECOVER_COPY } from '@/domain/flashback-recover'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -150,6 +155,8 @@ import {
   FlashbackRetractMutationDocument,
   FlashbackDeletePreviewQueryDocument,
   FlashbackDeleteMutationDocument,
+  FlashbackRecoverMutationDocument,
+  FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
@@ -1325,6 +1332,32 @@ export class RealMiniProgramApi implements MiniProgramApi {
       throw error
     })
     if (!data.flashbackDelete?.deleted) throw new Error(DELETE_COPY.error)
+  }
+
+  async flashbackRecover(identifier: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackRecoverMutation, FlashbackRecoverMutationVariables>(
+      FlashbackRecoverMutationDocument,
+      { identifier }
+    ).catch((error: unknown) => {
+      // 限流等 code 命中 errorCopy 抛中文
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    if (!data.flashbackRecover?.dispatched) throw new Error(RECOVER_COPY.errorRetry)
+  }
+
+  async flashbackRecoverVerifyForAccount(identifier: string, code: string): Promise<{ count: number }> {
+    const data = await graphqlRequest<
+      FlashbackRecoverVerifyForAccountMutation,
+      FlashbackRecoverVerifyForAccountMutationVariables
+    >(FlashbackRecoverVerifyForAccountMutationDocument, { identifier, code }).catch((error: unknown) => {
+      // 错码 / 号码或卡属于另一个账号 / 限流：code 命中 errorCopy 抛中文
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    const result = data.flashbackRecoverVerifyForAccount
+    if (!result?.bound) throw new Error(RECOVER_COPY.errorRetry)
+    return { count: result.cards.length }
   }
 
   async flashbackClaim(token?: string | null): Promise<FlashbackClaimResult> {

@@ -1941,6 +1941,22 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover"
+    field :flashback_recover_verify_for_account, :flashback_recover_verify_result do
+      arg(:identifier, non_null(:string))
+      arg(:code, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:identifier])
+
+      resolve(fn _, %{identifier: identifier, code: code}, %{context: context} ->
+        with_actor(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.Recover.verify_for_user(identifier, code, actor)
+          end)
+        end)
+      end)
+    end
+
     # ── 闪念间管理面（U7/U8/U11，KTD5：PlatformAdmin gate——非管理员被拒，变异验证钉住）──
 
     @desc "兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"

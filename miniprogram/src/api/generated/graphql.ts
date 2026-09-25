@@ -1055,6 +1055,21 @@ export type FlashbackDeletePreviewQueryVariables = Exact<{
 
 export type FlashbackDeletePreviewQuery = { flashbackDeletePreview: { personId: string, fullName: string, sentToWallAt: string | null, endorsementCount: number, alreadyDeleted: boolean } | null };
 
+export type FlashbackRecoverMutationVariables = Exact<{
+  identifier: string;
+}>;
+
+
+export type FlashbackRecoverMutation = { flashbackRecover: { dispatched: boolean } | null };
+
+export type FlashbackRecoverVerifyForAccountMutationVariables = Exact<{
+  identifier: string;
+  code: string;
+}>;
+
+
+export type FlashbackRecoverVerifyForAccountMutation = { flashbackRecoverVerifyForAccount: { bound: boolean, cards: Array<{ surnameMasked: string, eventName: string | null, city: string | null }> } | null };
+
 export type FlashbackDeleteMutationVariables = Exact<{
   token?: string | null | undefined;
   confirm: string;
