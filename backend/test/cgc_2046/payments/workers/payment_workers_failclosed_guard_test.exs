@@ -248,17 +248,16 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
         raise?: false
       )
 
-      # 未收敛 = 真故障：raise 上抛回滚（after_action 返回 {:error, _} 会提交，
-      # raise 是唯一回滚形状）；rollback_on_error?: false（R1-#1）后 reread 真正
-      # 执行、未收敛时透传原始错误，错误 code 与迁移前一致
-      raised =
-        assert_raise Ash.Error.Invalid, fn ->
-          enrollment
-          |> Ash.Changeset.for_update(:cancel, %{})
-          |> Ash.update(tenant: workspace.id, actor: learner)
-        end
-
-      assert [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}] = raised.errors
+      # 未收敛 = 真故障：rollback 回滚（after_action 返回 {:error, _} 会提交，
+      # Ash.DataLayer.rollback 是「回滚 + 保持对外 {:error, …} 形状」的唯一
+      # 手段——R2 阻断 2）；reread 未收敛时透传原始错误，code 与迁移前一致
+      assert {:error,
+              %Ash.Error.Invalid{
+                errors: [%Cgc2046.Errors.BusinessError{code: "order_already_processed"}]
+              }} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: workspace.id, actor: learner)
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
       assert reload_order(order).status == :paid

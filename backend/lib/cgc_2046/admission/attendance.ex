@@ -211,7 +211,7 @@ defmodule Cgc2046.Admission.Attendance do
     case active_deposit_order(attendance) do
       {:ok, nil} -> {:ok, attendance}
       {:ok, order} -> commence_deposit_refund(order, attendance)
-      {:error, reason} -> raise_refund_failure(reason)
+      {:error, reason} -> Ash.DataLayer.rollback(attendance, reason)
     end
   end
 
@@ -227,18 +227,23 @@ defmodule Cgc2046.Admission.Attendance do
 
       # no-show 结算终态：押金归平台收入，核销不得静默降级为「只记到场」（KTD6）
       {:error, {:ineligible, :forfeited}} ->
-        raise Cgc2046.Errors.BusinessError.exception(
-                message: domain_error_message(:already_forfeited),
-                code: domain_error_code(:already_forfeited)
-              )
+        Ash.DataLayer.rollback(
+          attendance,
+          Cgc2046.Errors.BusinessError.exception(
+            message: domain_error_message(:already_forfeited),
+            code: domain_error_code(:already_forfeited)
+          )
+        )
 
       # pending / cancelled / expired：无已收押金可退，与免费场同形
       {:error, {:ineligible, _status}} ->
         {:ok, attendance}
 
-      # CAS 未命中且重读仍未收敛 = 真故障（DB 层拒绝），上抛回滚整个核销
+      # CAS 未命中且重读仍未收敛 = 真故障（DB 层拒绝），回滚整个核销。
+      # rollback 而非 raise：保持对外 {:error, …} 形状（raise 会被 AshGraphql
+      # 降级成 something_went_wrong，code 丢失，R2 阻断 2）。
       {:error, reason} ->
-        raise_refund_failure(reason)
+        Ash.DataLayer.rollback(attendance, reason)
     end
   end
 
@@ -277,14 +282,6 @@ defmodule Cgc2046.Admission.Attendance do
     })
 
     :ok
-  end
-
-  # 非业务故障（读失败 / CAS 真失败）一律上抛：after_action 没有「返回错误即回滚」
-  # 语义（见上），上抛是唯一能整事务回滚的形状。
-  defp raise_refund_failure(%{__exception__: true} = error), do: raise(error)
-
-  defp raise_refund_failure(reason) do
-    raise "attendance deposit refund failed: #{inspect(reason)}"
   end
 
   # ── 核销入口（手写 mutation 的域编排：event → tenant 解析 + create）─────────
