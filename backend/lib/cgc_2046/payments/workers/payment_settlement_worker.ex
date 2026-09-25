@@ -127,7 +127,9 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
       :paid ->
         # F-A：订单已 paid 但报名侧可能未推进（两事务间崩溃的半落账）——与
         # confirm_enrollment 失败分支共用报名真状态裁决。
-        reconcile_enrollment(event, order)
+        # 与 R1-#2 同理传 fresh：旧 struct.status 落后于渠道 HTTP 窗口内的
+        # DB 变化，reconcile 内部的 enqueue_auto_refund 会按过期状态误分类
+        reconcile_enrollment(event, fresh)
 
       status when status in [:expired, :cancelled] ->
         # R1-#2：传 reload 出来的 fresh order——旧 struct 的 status 落后于
