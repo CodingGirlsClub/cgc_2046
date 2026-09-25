@@ -2788,8 +2788,9 @@ defmodule Cgc2046Web.GraphqlSchema do
   object :flashback_admin_archive do
     field(:key, non_null(:string))
     field(:name, non_null(:string))
-    field(:city, non_null(:string))
-    field(:occurred_on, non_null(:string))
+    # 教练场等档案无具体日期/城市（occurred_on/city 可空，运营后台直建）
+    field(:city, :string)
+    field(:occurred_on, :string)
   end
 
   object :flashback_outreach_preview do
