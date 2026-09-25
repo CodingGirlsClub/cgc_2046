@@ -7,8 +7,13 @@ import {
 	FLASHBACK_RETRACT,
 	FLASHBACK_SEND_TO_WALL,
 	FLASHBACK_SUBMIT_TODAY,
+	FLASHBACK_ADJUST_TODAY_FOG,
+	sentencesWithFogMark,
+	TODAY_FIELDS,
 	type FlashbackCapsuleMe,
+	type FlashbackFogSpan,
 } from "@/lib/graphql/flashback";
+import { normalizeSpans, sameSpans, toggleSpanIn } from "./fog-toggle";
 import { useDialogA11y } from "../modal-a11y";
 
 /** 保存成功轻反馈后自动关弹层的停留时长（回到胶囊视图，刷新走 onChanged） */
@@ -103,7 +108,12 @@ function EditTodayDialog({
 }) {
 	const t = useTranslations("flashback.todaySlot");
 	const writeT = useTranslations("flashback.write");
+	const sendT = useTranslations("flashback.sendRegister");
 	const { dialogRef, handleKeyDown } = useDialogA11y(onClose);
+
+	/** form 字段名（nowStatus/want/need/say）→ 雾区间键（now/want/need/say），只说一次 */
+	const fogOf = (formField: keyof typeof fields) =>
+		TODAY_FIELDS.find((host) => host.field === formField)!.fog;
 
 	const [fields, setFields] = useState({
 		nowStatus: me.today?.nowStatus ?? "",
@@ -111,6 +121,12 @@ function EditTodayDialog({
 		need: me.today?.need ?? "",
 		say: me.today?.say ?? "",
 	});
+	/** today 雾区间（fog 字段名 → spans；初始 = 服务端既有雾（胶囊侧最终闭环最后一块） */
+	const [spansByField, setSpansByField] = useState<Record<string, FlashbackFogSpan[]>>(() =>
+		Object.fromEntries(
+			TODAY_FIELDS.map((host) => [host.fog, [...(me.today?.fogSpans?.[host.fog] ?? [])]]),
+		),
+	);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState(false);
 	const [saved, setSaved] = useState(false);
@@ -134,6 +150,22 @@ function EditTodayDialog({
 			if (!data?.flashbackSubmitToday?.today) {
 				setError(true);
 				return;
+			}
+			// today 雾面必须落在新文本之后（adjustTodayFog 按服务端当前文本校验区间）；
+			// 脏检查与服务端基线（me.today.fogSpans）比对：未变化零 mutation，
+			// 全部切回亮也显式同步清雾；雾调整失败直接暂停在上墙前——已寄出的墙
+			// 保持原状，不会把用户要求遮蔽的字裸露给校友
+			for (const host of TODAY_FIELDS) {
+				const next = normalizeSpans(spansByField[host.fog]);
+				if (sameSpans(next, normalizeSpans(me.today?.fogSpans?.[host.fog]))) continue;
+				const { data: fogData } = await client.mutate({
+					mutation: FLASHBACK_ADJUST_TODAY_FOG,
+					variables: { token, field: host.fog, spans: next },
+				});
+				if (!fogData?.flashbackAdjustTodayFog) {
+					setError(true);
+					return;
+				}
 			}
 			// 已寄出且 token 在场：幂等补寄，墙卡即新内容（小程序 MyCard 同款语义）；
 			// 无 token 时 sendToWall 不可达（token non_null 单入口），跳过补寄（见文件头）
@@ -197,9 +229,32 @@ function EditTodayDialog({
 										value={fields[field]}
 										onChange={(event) => set(field, event.target.value)}
 									/>
+									{fields[field] ? (
+										<div className="fb-review-sentences" data-testid={`fb-edit-fog-${fogOf(field)}`}>
+											{sentencesWithFogMark(fields[field], spansByField[fogOf(field)]).map((sentence) => (
+												<button
+													key={sentence.start}
+													type="button"
+													className={`fb-review-sentence${sentence.fogged ? " fb-review-sentence--fog" : ""}`}
+													aria-pressed={sentence.fogged}
+													onClick={() =>
+														setSpansByField((prev) => toggleSpanIn(prev, fogOf(field), sentence))
+													}
+												>
+													<span className="fb-review-sentence-text">{sentence.text}</span>
+													{sentence.fogged && (
+														<span className="fb-review-fog-badge" aria-hidden="true">
+															{sendT("fogBadge")}
+														</span>
+													)}
+												</button>
+											))}
+										</div>
+									) : null}
 								</div>
 							))}
 						</div>
+						<p className="fb-hint">{t("editFogHint")}</p>
 						{error && (
 							<p role="alert" className="fb-hint">
 								{t("editError")}
