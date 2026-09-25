@@ -1,6 +1,6 @@
 # 小程序（Taro 4 + React 18）
 
-微信小程序全量端 + 裁剪端（tt / xhs，页面表见 `src/app.config.ts`）。
+微信小程序全量端 + 裁剪端（tt / xhs，页面注册名单单源 `src/domain/platform-pages.ts`，`src/app.config.ts` 与深链过滤同源）。
 
 ## 验证命令
 
