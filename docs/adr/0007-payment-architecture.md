@@ -44,3 +44,17 @@
 2. **决策 4「退款即取消报名」射程收窄为一般路径。** 到场事实（Attendance 行存在 ⇔ 该报名被核销过）或免缴留痕在场时，退款**保留** confirmed 报名、不释放名额，`PaymentRefundWorker.cancel_enrollment/1` 以持久事实判定（读失败 fail-closed 上抛，绝不折叠为「未到场」）。到场即占位——退款不得撤销已发生的到场；此例外为核销即退（Attendance 落行同事务发起全额退款）与免缴路径的前提。no-show 结算只推进 Order 终态、不编排 Enrollment，报名保持 `confirmed`。
 
 3. **押金不改变决策 1–3 的骨架。** 平台统一商户号、占位 → 限时支付原样复用（押金单 `order_kind = :deposit`，金额源为报名提交时物化的押金快照）；`forfeit` 仅接受 `paid` 源态，过期单的迟到扣款仍走 `start_refund` 全退（钱账一致硬约束不变）；退款路径互斥仍由决策 4 的 CAS 纪律承担——六条发起方（自助取消 / 活动取消批量退 / 迟到支付退 / 管理员退款 / 核销即退 / no-show 结算）共经 `start_refund`、`forfeit` 条件 UPDATE 单一仲裁点，`num_rows = 0` 即他路接管；「取消 / 未达成班无条件全退优先」由源态与 Event 状态机保证，不建独立优先级分派器（KD3、KTD8）。
+
+---
+
+## 补记（2026-09-24 #845）——退款发起单一入口 `RefundCommencement`
+
+> 正文与前两条补记不改。架构评审 2026-09-24 候选 C2（Strong）落地：自动或用户侧发起的退款（自助取消 / 活动取消批量退 / 迟到支付退 / 核销即退——`start_refund` / `retry_refund` 路径）统一走 `RefundCommencement.commence/2` 这一个入口；此前的「推进到 `refunding` + 同事务入队 `PaymentRefundWorker` + 竞态收敛」在五处调用方各写一遍、错误形状刻意不同（missed fix 事故注释与指向已删函数的注释为就地证据）。管理员退款 / `unforfeit` / no-show 结算走各自治理 action，不经本入口。
+
+1. **入队归 Order（恰好一次由设计保证）。** `:start_refund` 补上 `after_action` 入队（`enqueue_refund_job/2`），与 `:retry_refund`、`:refund`、`:unforfeit` 一致——任何进入 `refunding` 的迁移都在同一 action 事务内恰好入队一次；CAS 失败无 `after_action`，不产生孤儿 job。调用方手动 `Oban.insert!` 全部删除，此前「恰好一个任务靠 Oban unique 兜底」不再是设计依赖。
+
+2. **`Cgc2046.Payments.RefundCommencement.commence/2` 是自动 / 用户侧退款发起（`start_refund` / `retry_refund` 路径）的唯一入口**——管理员单笔 `refund` / `retry_refund`、`unforfeit`、no-show `forfeit` 走各自的治理 action，不经本入口。 按状态分派 `start_refund`（`paid`/`expired`/`cancelled`，对齐 CAS 源态守卫）与 `retry_refund`（`refund_failed`），eligible 白名单由调用方传入；CAS 输了只用一种办法——重读一次、重新分类（状态未变透传原始错误）。`refunding`/`refunded` 恒为 `{:ok, :already_in_progress}`（race 契约在 seam 上定义一次）；seam 不替调用方决定结果处理（抛错/跳过/回滚留在调用方），各调用方的对外错误 code 与结果形状逐项不变。
+
+3. **`deposit_settlement_race` 错误码保留但当前无抛出点。** 迁移前实测：自助取消侧该 raise 分支不可达，竞态实际透出 `order_already_processed`。R1 审查更正机制认知：不可达的根因不是「case 子句匹配不上 Ash 错误类 struct」（那只是伴随症状 `CaseClauseError`），而是 Ash 默认 `rollback_on_error?: true`——嵌套 action 失败即回滚外层事务，重读收敛逻辑根本执行不到。R1-#1 修复（`rollback_on_error?: false`，产品拍板 A）后重读真正执行：已收敛 → 自助取消/核销由失败改为成功（有意行为修复），未收敛 → 上抛回滚、code 不变。码与文案留在 #241 契约单源（#861 清理），供未来显式竞态语义使用。
+
+4. **变化：旧 D(a)（结算自动退款）竞态路径的补插删除（#862 对账检测）。** 旧 D(a) 的 `enqueue_auto_refund/1` 在 CAS 未命中且 reload 见 `refunding`/`refunded` 时会手动补插退款 job——发起方 action 自带 `after_action` 入队后，他路的 job 必然已存在，该补插为冗余防御，随 D1 删除（旧 C 流程只扫 `paid` 订单，从来不会补插；自助取消侧读时已 `refunding` 的补插同批删除）。代价：`refunding` 单若因运维原因丢失 in-flight job，不再有调用方补插自愈——由 #862 的对账检测承接。

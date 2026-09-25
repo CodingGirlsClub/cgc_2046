@@ -319,7 +319,8 @@ export default function SendRegister({
 	return (
 		<div className="fb-send-step">
 			<h2 className="fb-send-title" id="fb-send-title" ref={titleRef} tabIndex={-1}>
-				{t("title")}
+				{/* sent 态标题就是完成时——不再用「照片正在贴上墙。」谎报状态（sentTitle 原是孤儿文案） */}
+				{phase === "sent" ? t("sentTitle") : t("title")}
 			</h2>
 
 			{phase === "sending" ? (

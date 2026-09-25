@@ -37,9 +37,9 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Payments.NotificationTemplates, as: Templates
+  alias Cgc2046.Payments.RefundCommencement
   alias Cgc2046.Payments.{Order, Provider, WebhookEvent}
   alias Cgc2046.Reconciliation.Finding
-  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"webhook_event_id" => event_id}}) do
@@ -119,14 +119,23 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
   # 不关渠道单，QR 仍可被支付，收款无有效占位必须原路退回（KTD12 不变量）；
   # 其余终态不应发生——记告警由对账兜底。
   defp handle_late_settlement(event, order) do
-    case reload_order(order).status do
+    # R1-#2：reload 的 fresh order 是分支判定与退款发起的唯一依据；旧 struct
+    # 只携带 fetch_order 时刻的状态（与 reload 之间隔着渠道 HTTP 调用）
+    fresh = reload_order(order)
+
+    case fresh.status do
       :paid ->
         # F-A：订单已 paid 但报名侧可能未推进（两事务间崩溃的半落账）——与
         # confirm_enrollment 失败分支共用报名真状态裁决。
-        reconcile_enrollment(event, order)
+        # 与 R1-#2 同理传 fresh：旧 struct.status 落后于渠道 HTTP 窗口内的
+        # DB 变化，reconcile 内部的 enqueue_auto_refund 会按过期状态误分类
+        reconcile_enrollment(event, fresh)
 
       status when status in [:expired, :cancelled] ->
-        with :ok <- enqueue_auto_refund(order), do: mark_processed(event)
+        # R1-#2：传 reload 出来的 fresh order——旧 struct 的 status 落后于
+        # fetch_order 之后的 DB 真实状态（渠道 HTTP 窗口），会让 commence
+        # 误判 ineligible 良性跳过
+        with :ok <- enqueue_auto_refund(fresh), do: mark_processed(event)
 
       # F-C:重复投递到已进退款链的订单是预期路径(迟到回调撞上已发起的退款/
       # 已完成退款),降 info;真 unexpected(如 refund_failed 单又有款)保持 error。
@@ -158,7 +167,7 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
       # refund_failed，正确入口是 :retry_refund（refund_failed → refunding，
       # after_action 自带入队 refund job；治理留痕 actor=nil 系统语义）。
       :refund_failed ->
-        case retry_channel_refund(order) do
+        case retry_channel_refund(fresh) do
           :ok -> mark_processed(event)
           {:error, _reason} = retry_error -> retry_error
         end
@@ -169,38 +178,51 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
     end
   end
 
-  # refund_failed 重入退款链（015 审计修复 + 复审 F1）。错误语义精确二分：
-  # - CAS 未命中（BusinessError code "order_already_processed"——人工 retry_refund
-  #   / 渠道回调链并发先落）= 良性，消费事件；
-  # - 其余（DB 瞬断、留痕失败等）绝不能吞——吞了会把「渠道已收款、本地无有效
-  #   占位」的单永久滞留 refund_failed 无人跟进，上抛走 Oban 重试。
-  # 分类形状与 PaymentExpiryWorker.expected_race?/1 同源（Ash.update 经
-  # Ash.Error.to_error_class/1 归一，BusinessError 原样保留在 Invalid 栈内）。
+  # refund_failed 重入退款链（015 审计修复 + 复审 F1）。#845：经
+  # RefundCommencement 发起——refund_failed 走 retry_refund；竞态（人工
+  # retry_refund / 渠道回调链并发先落）由 seam 统一收敛为
+  # already_in_progress，与本来的「CAS 未命中」同口径良性消费投递。
+  # 真故障（DB 瞬断、留痕失败等）绝不能吞——吞了会把「渠道已收款、本地无有效
+  # 占位」的单永久滞留 refund_failed 无人跟进，上抛走 Oban 重试。
   defp retry_channel_refund(order) do
-    case order
-         |> Ash.Changeset.for_update(:retry_refund, %{})
-         |> Ash.update(tenant: order.workspace_id, authorize?: false) do
-      {:ok, _refunding} ->
+    case RefundCommencement.commence(order, eligible: [:refund_failed]) do
+      {:ok, _tag} ->
         :ok
 
-      {:error, %Ash.Error.Invalid{errors: errors}} = result ->
-        if Enum.any?(errors, fn
-             %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
-             _ -> false
-           end) do
+      {:error, {:ineligible, status}} ->
+        Logger.info(
+          "settlement: order #{order.id} refund retry skipped (#{status}), delivery consumed"
+        )
+
+        :ok
+
+      # CAS 未命中（人工 retry_refund / 渠道回调链并发先落，且重读仍未收敛）
+      # 与迁移前同口径：良性，消费投递
+      {:error, reason} ->
+        if refund_race_lost?(reason) do
           Logger.info(
             "settlement: order #{order.id} refund retry lost CAS race, delivery consumed"
           )
 
           :ok
         else
-          result
+          {:error, reason}
         end
-
-      {:error, _reason} = result ->
-        result
     end
   end
+
+  # 与迁移前的字符串匹配同形：BusinessError code "order_already_processed"
+  # （claim/5 的 num_rows=0）= 预期竞态；分类形状与
+  # PaymentExpiryWorker.expected_race?/1 同源（Ash.update 经
+  # Ash.Error.to_error_class/1 归一，BusinessError 原样保留在 Invalid 栈内）。
+  defp refund_race_lost?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, fn
+      %Cgc2046.Errors.BusinessError{code: "order_already_processed"} -> true
+      _ -> false
+    end)
+  end
+
+  defp refund_race_lost?(_), do: false
 
   # F-A/F-I 报名真状态裁决（唯一真理 = reload 后的 enrollments 行）：
   # - payment_pending：settle_paid 未执行（半落账/DB 回包丢失）→ 补落账收敛；
@@ -272,31 +294,17 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorker do
     end
   end
 
-  # 自动退款（KTD12 共用不变量）：start_refund（paid|expired → refunding）+ 入队
-  # 退款 job；渠道调用与收尾（refunded/报名/通知）由 U9 worker 消费。
+  # 自动退款（KTD12 共用不变量）：经 RefundCommencement 发起 start_refund
+  # （paid / expired / cancelled → refunding，#845 起入队由 Order action 的
+  # after_action 同事务恰好一次承担）；渠道调用与收尾（refunded/报名/通知）
+  # 由 U9 worker 消费。
   defp enqueue_auto_refund(order) do
-    case Cgc2046.Repo.transaction(fn ->
-           result =
-             order
-             |> Ash.Changeset.for_update(:start_refund, %{})
-             |> Ash.update(tenant: order.workspace_id, authorize?: false)
+    case RefundCommencement.commence(order, eligible: [:paid, :expired, :cancelled]) do
+      {:ok, _tag} ->
+        :ok
 
-           case result do
-             {:ok, refunding} ->
-               %{"order_id" => refunding.id} |> PaymentRefundWorker.new() |> Oban.insert!()
-
-             {:error, error} ->
-               fresh = Ash.get!(Order, order.id, authorize?: false)
-
-               if fresh.status in [:refunding, :refunded] do
-                 %{"order_id" => fresh.id} |> PaymentRefundWorker.new() |> Oban.insert!()
-               else
-                 Cgc2046.Repo.rollback(error)
-               end
-           end
-         end) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
