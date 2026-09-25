@@ -61,3 +61,19 @@ test('场次页视角：只有未登录才引导登录，已登录未匹配给�
   assert.deepEqual(eventView({ kind: 'member', generation: 1, capsule: bound, token: null }, archive.key), { kind: 'member', archive, futureEvents: [] })
   assert.deepEqual(eventView({ kind: 'member', generation: 1, capsule: bound, token: null }, 'other-key'), { kind: 'viewer', guide: null })
 })
+
+// #933：相册对所有已登录用户开放。失败方式：已登录无档案仍只给统计；未登录停在页面上
+// 给登录按钮（应直接去登录页）；登录回跳丢掉场次 key。
+test('场次页相册来源：有档案 → 胶囊；已登录无档案 → 相册读面；未登录 → 跳登录', async () => {
+  const { eventAlbumSource, eventLoginUrl } = await import('../src/domain/flashback-recovery.ts')
+  assert.equal(eventAlbumSource({ kind: 'member', archive: {} as never, futureEvents: [] }), 'capsule')
+  assert.equal(eventAlbumSource({ kind: 'viewer', guide: 'recover' }), 'archives')
+  assert.equal(eventAlbumSource({ kind: 'viewer', guide: 'login' }), 'login')
+  assert.equal(eventAlbumSource({ kind: 'viewer', guide: null }), 'none')
+  assert.equal(eventAlbumSource({ kind: 'loading' }), 'none')
+  assert.equal(eventAlbumSource({ kind: 'error' }), 'none')
+  assert.equal(
+    eventLoginUrl('2014-01-11-bj'),
+    '/pages/login/index?returnUrl=' + encodeURIComponent('/pages/flashback-event/index?key=2014-01-11-bj')
+  )
+})

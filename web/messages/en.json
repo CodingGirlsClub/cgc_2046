@@ -2838,12 +2838,12 @@
       "creditedNoteLabel": "What you're doing now, in your words (public, credited)",
       "creditedNotePlaceholder": "e.g. accessibility development",
       "submit": "Done writing — send it →",
-      "sendPublicNote": "Sending makes it public · including old answers · fog adjustable anytime",
+      "sendPublicNote": "Once sent, anyone signed in can see it in the album · fogged sentences stay hidden · adjust or take it down anytime",
       "quoteCourage": "Your words can become someone else’s courage."
     },
     "sendRegister": {
       "reviewTitle": "Before sending, check the you from back then",
-      "reviewLead": "Tap a sentence to switch it between fog and clear: fogged sentences show as fog blocks to other alumni once sent; you always see the full original; after sending, you can keep adjusting in the mini program.",
+      "reviewLead": "Tap a sentence to switch it between fog and clear: once sent, anyone signed in can see your card in the album, with fogged sentences shown as fog blocks; you always see the full original; after sending, you can keep adjusting in the mini program.",
       "fogBadge": "fog",
       "confirmSend": "Confirm — onto the wall →",
       "thinkMore": "Think it over",
@@ -2946,7 +2946,7 @@
       "editError": "Saving didn't go through — try again.",
       "retractEntry": "Take it down",
       "retractTitle": "Take this card down?",
-      "retractBody": "Taken down, your card leaves the alumni wall — others won't see it anymore. You can send it back anytime.",
+      "retractBody": "Taken down, the album keeps only your surname — no one else can see your card. You can send it back anytime.",
       "retractConfirm": "Yes, take it down",
       "retractCancel": "Think again",
       "retractError": "Taking it down didn't go through — try again."

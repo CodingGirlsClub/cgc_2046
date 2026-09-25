@@ -486,6 +486,52 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
 // archives（长廊/场次页读面，R12/R28 批次二）：
 // city（R34 城市钉）：非空时名册/行动板按城市过滤；cities 供钉条渲染（全量）。
 
+// #933 相册：已登录即可读（未登录 → flashback_auth_required）；场次选择集与胶囊逐字一致
+export const FlashbackArchivesQueryDocument = /* GraphQL */ `
+  query FlashbackArchives($city: String) {
+    flashbackArchives(city: $city) {
+      cities
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+        label
+        isMine
+        piles {
+          city
+          count
+          returned
+        }
+        roster {
+          id
+          surnameMasked
+          fullName
+          appliedAt
+          city
+          occupationThen
+          sentToWallAt
+          today {
+            nowStatus
+            want
+            say
+          }
+          answers {
+            questionKey
+            segments {
+              text
+              fog
+              len
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
 export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
   query FlashbackCapsule($city: String, $token: String) {
     flashbackCapsule(city: $city, token: $token) {
@@ -561,6 +607,11 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         attendedCount
         label
         isMine
+        piles {
+          city
+          count
+          returned
+        }
         roster {
           id
           surnameMasked

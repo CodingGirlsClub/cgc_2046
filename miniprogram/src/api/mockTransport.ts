@@ -516,10 +516,10 @@ function flashbackSharedCard(state: FlashbackMockState) {
   }
 }
 
-// 场次名册 fixture（R12：仅 attended；未寄出者只有结构化字段，无内容层）。
-// 城市分布（北京3/上海2/广州1 + 上海场3）= 长廊城市堆计数与场次页雾卡的
-// e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
-function flashbackArchives(mySentAt: string | null) {
+// 场次名册 fixture（R12：仅 attended）——原始行，城市对所有人都在，只供聚合；
+// 对外一律经 flashbackArchives 投影。城市分布（北京3/上海2/广州1 + 上海场3）= 长廊
+// 城市堆计数与场次页雾卡的 e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
+function flashbackRawArchives(mySentAt: string | null) {
   const rosterEntry = (
     id: string,
     surnameMasked: string,
@@ -572,6 +572,44 @@ function flashbackArchives(mySentAt: string | null) {
       ]
     }
   ]
+}
+
+type RawRosterEntry = ReturnType<typeof flashbackRawArchives>[number]['roster'][number]
+
+// 镜像后端 piles/1（#933）：按人的城市计数、计入未寄出者，只数已寄出为「已回来」；人数降序 + 城市字节序
+function rosterPiles(rows: RawRosterEntry[]) {
+  const piles = new Map<string, { city: string; count: number; returned: number }>()
+  for (const entry of rows) {
+    const city = entry.city.trim()
+    if (!city) continue
+    const pile = piles.get(city) ?? { city, count: 0, returned: 0 }
+    pile.count += 1
+    if (entry.sentToWallAt) pile.returned += 1
+    piles.set(city, pile)
+  }
+  return [...piles.values()].sort((a, b) => b.count - a.count || (a.city < b.city ? -1 : 1))
+}
+
+// 镜像后端 list_archives（#933）：未寄出者只下发姓氏遮罩（全名 / 城市 / 当年职业置空）；筛城市时
+// 名册只列该城已寄出者，城市堆仍按该城全员聚合，整场无人才撤下
+function flashbackArchives(mySentAt: string | null, city: string | null = null) {
+  return flashbackRawArchives(mySentAt)
+    .map((archive) => {
+      const rows = city ? archive.roster.filter((entry) => entry.city === city) : archive.roster
+      return {
+        ...archive,
+        piles: rosterPiles(rows),
+        roster: rows
+          .filter((entry) => !city || entry.sentToWallAt)
+          .map((entry) => (entry.sentToWallAt ? entry : { ...entry, fullName: null, city: null, occupationThen: null }))
+      }
+    })
+    .filter((archive) => !city || archive.piles.length > 0)
+}
+
+// 字节序去重排序（与后端 capsule_cities 同口径）：名册全员的城市，不随寄出态与筛选变化
+function flashbackRosterCities(mySentAt: string | null): string[] {
+  return [...new Set(flashbackRawArchives(mySentAt).flatMap((archive) => archive.roster.map((entry) => entry.city)))].sort()
 }
 
 // wx storage 是闪念间 mock 态的唯一真源：模块态跨 e2e 脚本运行存活（同 loggedIn），
@@ -1148,6 +1186,18 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
+  if (document.includes('query FlashbackArchives')) {
+    // #933 相册开放：已登录即可翻全部场次（isMine 恒 false）；未登录 → auth_required
+    if (!loggedIn) return { errors: [{ message: 'sign-in required', code: 'flashback_auth_required' }] }
+    const state = flashbackState()
+    const city = typeof values.city === 'string' && values.city ? values.city : null
+    return {
+      flashbackArchives: {
+        archives: flashbackArchives(state.today.sentToWallAt, city).map((archive) => ({ ...archive, isMine: false })),
+        cities: flashbackRosterCities(state.today.sentToWallAt)
+      }
+    }
+  }
   if (document.includes('query FlashbackCapsule')) {
     if (e2eFlag('cgc.e2e.flashback_capsule_fail_next')) {
       wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '0')
@@ -1216,14 +1266,7 @@ function responseFor(document: string, variables: object): unknown {
           ]
         },
         // R34 城市钉同款语义：名册按人城市过滤，筛空场次整架撤下
-        archives: flashbackArchives(state.today.sentToWallAt)
-          .map((archive) => ({
-            ...archive,
-            roster: cityFilter
-              ? archive.roster.filter((entry) => entry.city === cityFilter)
-              : archive.roster
-          }))
-          .filter((archive) => archive.roster.length > 0),
+        archives: flashbackArchives(state.today.sentToWallAt, cityFilter),
 
         futureEvents: [
           {
@@ -1276,13 +1319,7 @@ function responseFor(document: string, variables: object): unknown {
             }
           }),
         myWishQuotaRemaining: wishQuotaRemaining(state),
-        cities: [
-          ...new Set([
-            ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>
-              archive.roster.map((entry) => entry.city)
-            )
-          ])
-        ].sort()
+        cities: flashbackRosterCities(state.today.sentToWallAt)
       }
     }
   }

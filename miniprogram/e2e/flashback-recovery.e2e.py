@@ -2,7 +2,7 @@
 """3A recovery acceptance in a fresh signed-out CGC_E2E_MOCK=true simulator.
 Uses synthetic accounts and fault flags only. No screenshots or notifications.
 """
-import importlib.util, json, re
+import importlib.util, json, re, time
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('native',Path(__file__).with_name('wish-writing.e2e.py'))
 a=importlib.util.module_from_spec(spec);spec.loader.exec_module(a)
@@ -21,11 +21,23 @@ def return_to_corridor():
  a.call('automation_navigate',action='switchTab',url='/pages/'+C+'/index')
 def login():
  tap('recoverButton');a.tap('login','loginButton');a.tap('login','dialogPrimary')
+def route(): return a.evaluate('return getCurrentPages().slice(-1)[0].route')
+def wait(check,timeout=6):
+ end=time.time()+timeout
+ while time.time()<end and not check(): time.sleep(0.3)
+ return check()
 def dismiss_shutter():
  if count('shutterBtn'): tap('shutterBtn')
 if __name__=='__main__':
  a.call('automation_navigate',action='reLaunch',url='/pages/'+C+'/index')
  a.check('未登录保留找回入口',text('recoverButton')=='找回你的那一张 →')
+ # #933 那些年的相册：访客读公开统计层（无城市堆）；点任意一场 → 场次页转登录页，取消回首页
+ a.check('访客首页列出那些年的相册（时间升序）',wait(lambda:count('albumRow')==2) and text('albumTitle')=='2012.02.26 · Rails Girls Shanghai')
+ a.check('访客的相册行没有城市堆（公开统计层不含名册聚合）',count('albumPile')==0)
+ tap('albumRow')
+ a.check('访客点一场相册 → 登录页',wait(lambda:route()=='pages/login/index'))
+ a.call('automation_navigate',action='navigateBack')
+ a.check('取消登录回到访客首页',wait(lambda:route()=='pages/'+C+'/index') and text('recoveryTitle')=='你也在那些年里吗？')
  tap('recoverButton');a.call('automation_navigate',action='navigateBack')
  a.check('取消登录回公开首页',text('recoveryTitle')=='你也在那些年里吗？')
  flag({'flashback_unclaimed':'1','flashback_claim_miss':'1','flashback_claim_fail':'0','flashback_recovery_fail_after_claim':'0','flashback_capsule_fail_next':'0'})
@@ -33,6 +45,7 @@ if __name__=='__main__':
  a.check('登录未匹配给出准确说明',text('recoveryTitle')=='暂时还没找到你的那一张')
  a.check('未匹配提供写愿望而非重复登录',text('recoverButton')=='写下我的愿望 →')
  a.check('无档案仍能浏览公开金句',count('quoteOpen')==1 and count('cardDock')==0)
+ a.check('已登录无档案的相册带城市堆（人数 + 已回来）',wait(lambda:count('albumPile')==4) and count('albumReturned')==3)
  tap('recoverButton')
  a.check('无档案账号可直接写愿望',a.element('flashback-wish-write','title')=='写下我的愿望')
  a.call('automation_navigate',action='navigateBack')

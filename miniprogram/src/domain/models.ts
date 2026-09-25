@@ -548,6 +548,13 @@ export interface FlashbackRosterEntry {
   answers: FlashbackRosterAnswer[]
 }
 
+/** 城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数 */
+export interface FlashbackArchivePile {
+  city: string
+  count: number
+  returned: number
+}
+
 export interface FlashbackCapsuleArchive {
   key: string
   name: string | null
@@ -558,6 +565,7 @@ export interface FlashbackCapsuleArchive {
   /** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
   label: string | null
   isMine: boolean
+  piles: FlashbackArchivePile[]
   roster: FlashbackRosterEntry[]
 }
 
@@ -768,6 +776,8 @@ export interface MiniProgramApi {
   /** 寄出上墙（R11，幂等） */
   /** #931：token 为 null 时按登录账号绑定档案 */
   flashbackSendToWall(token: string | null): Promise<void>
+  /** #933 相册：已登录即可读每一场的名册（未寄出者只有姓氏遮罩） */
+  getFlashbackArchives(city?: string | null): Promise<{ archives: FlashbackCapsuleArchive[]; cities: string[] }>
   /** #931 撤下（双入口） */
   flashbackRetract(token: string | null): Promise<void>
   /** #931 删除档案：先取摘要，再以 DELETE 确认 */
