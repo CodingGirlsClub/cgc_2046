@@ -49,7 +49,6 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
     max_attempts: 3,
     unique: [period: 300, states: :incomplete]
 
-  require Ash.Query
   require Logger
 
   alias Cgc2046.Payments.{Order, Provider}
@@ -128,10 +127,11 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
         {dedupe(pending_overdue(orders, now) ++ refunding_stuck(orders, now)), false}
       end
 
-    upsert_all(candidates)
+    # 共享驱动（#848）：完整拍 :full（含未命中删除）；降级拍（账单面残缺）
+    # :partial 只 upsert——「未命中即删」只对完整比对成立
+    sweep = if statement_complete?, do: :full, else: :partial
 
-    # 降级拍（账单面残缺）不删旧 Finding——「未命中即删」只对完整比对成立
-    if statement_complete?, do: delete_stale(candidates)
+    :ok = Finding.apply_rule(@rule, candidates, log_prefix: "payment recon", sweep: sweep)
 
     :ok
   end
@@ -327,82 +327,5 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
     |> Enum.reverse()
     |> Enum.uniq_by(&{&1.entity_type, &1.entity_id})
     |> Enum.reverse()
-  end
-
-  # ── 刷新语义（ReconciliationScanWorker 同款）──────────────────────────────
-
-  defp upsert_all(candidates) do
-    Enum.each(candidates, &upsert_finding/1)
-  end
-
-  defp upsert_finding(candidate) do
-    case existing_finding(candidate.entity_type, candidate.entity_id) do
-      nil ->
-        Finding
-        |> Ash.Changeset.for_create(
-          :create,
-          Map.merge(
-            %{rule: @rule},
-            Map.take(candidate, [:entity_type, :entity_id, :workspace_id, :detail])
-          )
-        )
-        |> Ash.create(authorize?: false)
-        |> handle_write(candidate)
-
-      finding ->
-        finding
-        |> Ash.Changeset.for_update(:refresh, %{
-          workspace_id: candidate.workspace_id,
-          detail: candidate.detail
-        })
-        |> Ash.update(authorize?: false)
-        |> handle_write(candidate)
-    end
-  end
-
-  defp handle_write(result, candidate) do
-    case result do
-      {:ok, _} ->
-        :ok
-
-      {:error, error} ->
-        Logger.warning(
-          "payment recon: #{@rule} upsert failed for #{candidate.entity_id}: #{inspect(error)}"
-        )
-
-        :ok
-    end
-  end
-
-  defp existing_finding(entity_type, entity_id) do
-    case Finding
-         |> Ash.Query.filter(
-           rule == ^@rule and entity_type == ^entity_type and entity_id == ^entity_id
-         )
-         |> Ash.read_one(authorize?: false) do
-      {:ok, finding} -> finding
-      {:error, _} -> nil
-    end
-  end
-
-  defp delete_stale(candidates) do
-    current = MapSet.new(candidates, fn c -> {c.entity_type, c.entity_id} end)
-
-    Finding
-    |> Ash.Query.filter(rule == ^@rule)
-    |> Ash.read!(authorize?: false)
-    |> Enum.each(fn finding ->
-      unless MapSet.member?(current, {finding.entity_type, finding.entity_id}) do
-        case Ash.destroy(finding, authorize?: false) do
-          :ok ->
-            :ok
-
-          {:error, error} ->
-            Logger.warning(
-              "payment recon: stale delete failed for #{finding.entity_id}: #{inspect(error)}"
-            )
-        end
-      end
-    end)
   end
 end
