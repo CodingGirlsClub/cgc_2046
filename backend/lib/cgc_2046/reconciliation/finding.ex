@@ -2,68 +2,23 @@ defmodule Cgc2046.Reconciliation.Finding do
   @moduledoc """
   对账扫描发现（E-10 #125）。
 
-  平台级孤儿报告：`Cgc2046.Reconciliation.ReconciliationScanWorker` 每 10 分钟扫描规则
-  （E-10 七条 + ADR-0009 U7 名额账本四条），命中落本表。**刷新语义**（D2）：
-  命中 upsert（保 first_seen_at、刷新 last_seen_at），本次未命中删除——
-  「无孤儿 → 空报告」由结构保证。
+  平台级孤儿报告：四个生产方 worker 命中规则落本表——
+  `ReconciliationScanWorker`（Oban cron 每 10 分钟扫描）、
+  `Cgc2046.Payments.Workers.DepositForfeitWorker`（押金结算链回调）、
+  `Cgc2046.Payments.Workers.PaymentSettlementWorker`（落账单事件）、
+  `Cgc2046.Payments.Workers.PaymentReconciliationWorker`（夜间 T+1 账单对账）。
 
-  ## 规则枚举（1-7 = E-10 原七条；8-11 = ADR-0009 U7 名额账本四条；12 = Fable 5 HIGH-1 缓存漂移；
-  13 = R3 资金写频次；14 = 押金 no-show 结算无锚）
+  **规则清单与语义单源见 `Cgc2046.Reconciliation.RulesRegistry`**——
+  注册表 id 与本资源 rule 枚举（@rule_values）一一对应（反射测试锁全集），
+  desc 为规则语义权威描述，不在本 moduledoc 重复维护编号清单（#852 C9）。
 
-  1. `:confirmed_enrollment_without_run` — confirmed 报名无 learning run
-     （`workflow_runs.input_snapshot` join `workflow_definitions.type=learning`，
-     BYO 协议下平台不编排，存在即非孤儿，不看 run 终态）
-  2. `:pending_without_deadline` — pending 无 approval_deadline
-     （enrollment/sponsorship/join_request/workspace_application 四资源 UNION；
-     创建路径必写 deadline，nil 即异常）
-  3. `:active_sponsorship_signal_dead` — active 赞助的 `sponsorship.active` 发布 job
-     处于 discarded（PR-A 后同事务必入队，死信 = 信号从未发布 = 信号链断连；
-     SignalLog 只记入向，ADR-0003，原「无 signal_log」不可实现）
-  4. `:open_entity_without_research_definition` — draft/open 实体其工作台无 published
-     教研定义（course 侧扩 draft：prep run 始于 course.created，draft 期断流即
-     该看见；event 保留 curriculum_enabled=false 合法不命中——其教研 run
-     始于 launched，draft 期无断流，不扩）
-  5. `:nonterminal_research_run_for_closed_entity` — closed/cancelled Event/Course
-     仍有非终态教研 run（instance key `event_<id>`/`course_<id>`，reaper 同约定）
-  6. `:dead_letter_job` — 死信 job（SignalPublishWorker / NotificationWorker /
-     DeliveryWorker / DepositForfeitWorker，Pruner 7 天窗口内判定，moduledoc 见 worker）
-  7. `:learning_run_stalled` — learning run 停滞（`status=running` 且最后活动时间
-     （S8：最新 attempt created_at，零 attempt 回退 inserted_at）严格早于
-     `Cgc2046.Learning.Runs.stagnant_cutoff/1`；与 LearningProgressWorker
-     停滞提醒（D6-③）同源判定，阈值只在一处定义）
-  8. `:open_offering_without_ledger` — open offering 无名额账本行
-     （ADR-0009 U7 R17；launched 信号建行 / 报名懒建双路均未到达）
-  9. `:ledger_occupancy_mismatch` — 账本 occupancy ≠ 占位报名计数
-     （confirmed + payment_pending 报名行数；R17）
-  10. `:capacity_projection_drift` — offering 展示投影滞后账本超一拍
-     （confirmed_count / confirmed_count_sync_version 与账本不一致且账本
-     最近变更早于一个扫描周期；R17 的「超 N 拍」= 10 分钟 cron 周期对齐）
-  11. `:occupancy_exceeds_capacity` — 账本 occupancy > capacity
-     （capacity 调小后的合法超员窗口由此规则看护直至自然释放收敛，AE4）
-  12. `:ledger_cache_drift` — 账本三列缓存（status / capacity /
-     registration_deadline）漂移于 offering 真值（ADR-0009 Fable 5 HIGH-1：
-     缓存经异步信号覆盖写，丢投不重试窗口的上游漂移由本规则看护；
-     宽限一拍对齐 cron，与规10 同形）
-  13. `:fund_action_burst` — 资金写动作频次告警（R3）：窗口内同一 actor 同类
-      资金写治理动作（:order_refund / :order_refund_retry / :waive_payment）
-      超阈值（默认 1h / 5 笔，app env 可调）；entity = 操作人（:user），
-      detail 带 per-action 计数；纯查询告警面，不含处置语义
-  14. `:deposit_settlement_unanchored` — 押金 no-show 结算无锚（KTD7）：`closed`
-     场 `ends_at` 为空而名下仍有 paid 押金单——结算锚点缺失、订单会静默滞留。
-     由 `Cgc2046.Payments.Workers.DepositForfeitWorker` 产出（非本扫描 worker
-     的规则表），刷新语义同 D2（命中 upsert / 未命中删除），entity = 场（:event）
-  15. `:notification_delivery_failed` — 通知 outbox 终态失败面（#556）：24h 内
-     落 `:failed` 的 notification_deliveries 行逐行出 Finding（entity =
-     :notification_delivery），窗口语义自清；终态化本体在 DeliveryWorker 末拍
-  16. `:deposit_forfeit_batch_alert` — 单场押金没收批量告警（#545）：该 event
-      名下 forfeited 押金单计数 ≥5（阈值 5，101 场规模硬编码）——一场没收过半
-      即异常信号（错配置 / ends_at 误操作 / 现场执行失败），需运营核查。状态性
-      口径：unforfeit 救济降到阈值下自动消解（刷新语义删除）。由
-      `DepositForfeitWorker` 产出（同规14 宿主）；entity = 场（:event）
+  **刷新语义**（D2，单源 `apply_rule/3`）：命中 upsert（保 first_seen_at、
+  刷新 last_seen_at），本次未命中删除——「无孤儿 → 空报告」由结构保证；
+  残缺视图 / 单事件拍经 sweep 跳过删除（:partial / :one_shot，#848）。
 
-  规3/规6 的有效窗口均受 Oban Pruner（max_age 7 天）约束：discarded job 被
-  Pruner 删除后，未消解的孤儿会从报告静默消失（刷新语义按未命中删除，视为
-  已消解）——窗口语义，非 bug。
+  :active_sponsorship_signal_dead 与 :dead_letter_job 的有效窗口均受
+  Oban Pruner（max_age 7 天）约束：discarded job 被 Pruner 删除后，未消解的
+  孤儿会从报告静默消失（刷新语义按未命中删除，视为已消解）——窗口语义，非 bug。
 
   ## 平台管理面
 
@@ -86,7 +41,7 @@ defmodule Cgc2046.Reconciliation.Finding do
     :active_sponsorship_signal_dead,
     # 冻结（ADR-0009 PR③ research→curriculum 改名不溯及）：规④/⑤ 原子是
     # reconciliation_findings.rule 列的 DB 落库枚举值，改名会使存量 finding 孤儿化，
-    # 原子名保留 research_* 原样（语义见上 moduledoc 规④/⑤）
+    # 原子名保留 research_* 原样（语义见 RulesRegistry 对应 desc）
     :open_entity_without_research_definition,
     :nonterminal_research_run_for_closed_entity,
     :dead_letter_job,

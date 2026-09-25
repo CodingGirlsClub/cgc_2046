@@ -531,10 +531,17 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	nonterminal_research_run_for_closed_entity: "labels.reconRule.nonterminal_research_run_for_closed_entity",
 	dead_letter_job: "labels.reconRule.dead_letter_job",
 	learning_run_stalled: "labels.reconRule.learning_run_stalled",
+	payment_amount_mismatch: "labels.reconRule.payment_amount_mismatch",
+	payment_recon: "labels.reconRule.payment_recon",
 	open_offering_without_ledger: "labels.reconRule.open_offering_without_ledger",
 	ledger_occupancy_mismatch: "labels.reconRule.ledger_occupancy_mismatch",
 	capacity_projection_drift: "labels.reconRule.capacity_projection_drift",
 	occupancy_exceeds_capacity: "labels.reconRule.occupancy_exceeds_capacity",
+	ledger_cache_drift: "labels.reconRule.ledger_cache_drift",
+	fund_action_burst: "labels.reconRule.fund_action_burst",
+	deposit_settlement_unanchored: "labels.reconRule.deposit_settlement_unanchored",
+	notification_delivery_failed: "labels.reconRule.notification_delivery_failed",
+	deposit_forfeit_batch_alert: "labels.reconRule.deposit_forfeit_batch_alert",
 };
 
 /** 对账实体类型 → 中文标签 */
