@@ -91,6 +91,29 @@ defmodule Cgc2046.Notifications.FanoutTest do
     end
   end
 
+  describe "identities_for_users/1" do
+    test "批量解析多用户平台身份且忽略无身份用户" do
+      first = Fixtures.register_user("fanout-batch-first")
+      second = Fixtures.register_user("fanout-batch-second")
+      without_identity = Fixtures.register_user("fanout-batch-empty")
+      insert_identity(first.id, :wechat, "fanout-batch-first-wx")
+      insert_identity(first.id, :tt, "fanout-batch-first-tt")
+      insert_identity(second.id, :wechat, "fanout-batch-second-wx")
+
+      identities =
+        Fanout.identities_for_users([first.id, second.id, without_identity.id])
+
+      first_identities = Map.fetch!(identities, first.id)
+      second_identities = Map.fetch!(identities, second.id)
+      assert map_size(identities) == 2
+
+      assert Enum.map(first_identities, & &1.uid) |> Enum.sort() ==
+               ["fanout-batch-first-tt", "fanout-batch-first-wx"]
+
+      assert Enum.map(second_identities, & &1.uid) == ["fanout-batch-second-wx"]
+    end
+  end
+
   describe "deliver/5" do
     test "map 与 {user_id, [identity]} 两种 recipients 形状归一，逐身份入队" do
       user = Fixtures.register_user("fanout-deliver-shape")
@@ -282,6 +305,43 @@ defmodule Cgc2046.Notifications.FanoutTest do
                )
 
       assert count_rows("approval_reminder", user.id) == 2
+    end
+  end
+
+  describe "deliver_with_receipt/5" do
+    test "返回实际接受入队的通知任务数" do
+      user = Fixtures.register_user("fanout-receipt")
+      insert_identity(user.id, :wechat, "fanout-receipt-wx")
+      insert_identity(user.id, :tt, "fanout-receipt-tt")
+
+      assert {:ok, 2} =
+               Fanout.deliver_with_receipt(
+                 {user.id, Fanout.identities(user.id)},
+                 "approval_result",
+                 %{"status" => "confirmed"},
+                 %{}
+               )
+
+      assert length(all_enqueued(worker: NotificationWorker)) == 2
+    end
+
+    test "零身份明确返回零入队，不伪称已接受任务" do
+      user = Fixtures.register_user("fanout-receipt-empty")
+
+      assert {:ok, 0} =
+               Fanout.deliver_with_receipt(
+                 {user.id, []},
+                 "approval_result",
+                 %{},
+                 %{}
+               )
+
+      assert all_enqueued(worker: NotificationWorker) == []
+    end
+
+    test "异常入队返回失败凭证" do
+      assert {:error, :enqueue_failed} =
+               Fanout.deliver_with_receipt(:invalid_recipients, "approval_result", %{}, %{})
     end
   end
 

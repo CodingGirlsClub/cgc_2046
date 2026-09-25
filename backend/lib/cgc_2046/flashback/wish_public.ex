@@ -17,6 +17,7 @@ defmodule Cgc2046.Flashback.WishPublic do
 
   import Ecto.Query
 
+  alias Cgc2046.Flashback.WishEchoes
   alias Cgc2046.Repo
 
   @default_limit 60
@@ -128,7 +129,12 @@ defmodule Cgc2046.Flashback.WishPublic do
         )
       )
 
-    {:ok, Enum.map(rows, &payload/1)}
+    echoes_by_wish_id =
+      rows
+      |> Enum.map(&Ecto.UUID.load!(&1.id))
+      |> WishEchoes.public_by_wish_ids()
+
+    {:ok, Enum.map(rows, &payload(&1, echoes_by_wish_id))}
   end
 
   @doc """
@@ -200,7 +206,14 @@ defmodule Cgc2046.Flashback.WishPublic do
           )
         )
 
-      {:ok, row && payload(row)}
+      echoes_by_wish_id =
+        if row do
+          [Ecto.UUID.load!(row.id)] |> WishEchoes.public_by_wish_ids()
+        else
+          %{}
+        end
+
+      {:ok, row && payload(row, echoes_by_wish_id)}
     else
       _ -> {:ok, nil}
     end
@@ -252,8 +265,11 @@ defmodule Cgc2046.Flashback.WishPublic do
     "#{today}:#{voter_key || "anon"}"
   end
 
-  defp payload(row) do
+  defp payload(row, echoes_by_wish_id) do
     id = Ecto.UUID.load!(row.id)
+
+    echo_projection =
+      Map.get(echoes_by_wish_id, id, %{latest_echo: nil, echo_count: 0, echoes: []})
 
     %{
       id: id,
@@ -265,6 +281,9 @@ defmodule Cgc2046.Flashback.WishPublic do
       contribution_distribution: contribution_distribution(id),
       expected_by_viewer: row.expected_by_viewer || false,
       endorsed_by_viewer: row[:endorsed_by_viewer] || false,
+      latest_echo: echo_projection.latest_echo,
+      echo_count: echo_projection.echo_count,
+      echoes: echo_projection.echoes,
       # E2E P1：schemaless select 返回 naive datetime（timestamp 无时区）——
       # Absinthe :datetime 标量要求 DateTime struct，裸 NaiveDateTime 序列化
       # 即 500。schemaless 读面统一按 UTC 语义装箱。

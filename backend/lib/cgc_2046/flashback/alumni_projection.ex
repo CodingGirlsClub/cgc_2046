@@ -18,6 +18,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   alias Cgc2046.Flashback.FogSpans
   alias Cgc2046.Flashback.Tokens
+  alias Cgc2046.Flashback.WishEchoes
   alias Cgc2046.Repo
 
   @fog_placeholder "▓▓"
@@ -94,22 +95,39 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
     with {:ok, archives} <- list_archives(person, city) do
       endorsed = Cgc2046.Flashback.Wishes.endorsed_wish_ids(person.id)
+      public_wishes = Cgc2046.Flashback.Wishes.list_public(clean_city(city), person.id)
+      my_private_wishes = Cgc2046.Flashback.Wishes.list_private(person.id)
+
+      echo_projections =
+        (public_wishes ++ my_private_wishes)
+        |> Enum.map(& &1.id)
+        |> WishEchoes.public_by_wish_ids()
 
       {:ok,
        %{
          me: me_payload(person),
          archives: archives,
          public_wishes:
-           Cgc2046.Flashback.Wishes.list_public(clean_city(city), person.id)
+           public_wishes
            |> Enum.map(fn wish ->
-             Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, wish.id))
+             wish
+             |> Map.put(:endorsed_by_me, MapSet.member?(endorsed, wish.id))
+             |> add_echo_projection(echo_projections)
            end),
-         my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
+         my_private_wishes:
+           Enum.map(my_private_wishes, &add_echo_projection(&1, echo_projections)),
          my_wish_quota_remaining: Cgc2046.Flashback.Wishes.quota_remaining(person.id),
          future_events: future_frames,
          cities: capsule_cities()
        }}
     end
+  end
+
+  defp add_echo_projection(wish, projections) do
+    Map.merge(
+      wish,
+      Map.get(projections, wish.id, %{latest_echo: nil, echo_count: 0, echoes: []})
+    )
   end
 
   # ── 未来场次帧（KTD1：dream_target 形状 + starts_at > now + initiative 分组）──
