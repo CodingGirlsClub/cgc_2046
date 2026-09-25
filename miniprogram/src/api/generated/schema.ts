@@ -2911,6 +2911,8 @@ export type FlashbackRosterEntry = {
   fullName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   occupationThen?: Maybe<Scalars['String']['output']>;
+  /** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示） */
+  participation: Scalars['String']['output'];
   sentToWallAt?: Maybe<Scalars['String']['output']>;
   /** 姓氏隐名（R12）：王**；名册结构化卡的核心标识 */
   surnameMasked: Scalars['String']['output'];

@@ -45,6 +45,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p1",
 			surnameMasked: "王**",
+			participation: "attended",
 			fullName: null,
 			city: "北京",
 			occupationThen: "学生",
@@ -56,6 +57,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p2",
 			surnameMasked: "李*",
+			participation: "attended",
 			fullName: "李雷",
 			city: "北京",
 			occupationThen: "学生",
@@ -67,6 +69,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p3",
 			surnameMasked: "周**",
+			participation: "attended",
 			fullName: null,
 			city: "上海",
 			occupationThen: "研究生",

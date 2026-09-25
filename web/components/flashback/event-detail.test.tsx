@@ -40,6 +40,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p1",
 			surnameMasked: "王**",
+			participation: "attended",
 			fullName: null,
 			city: "北京",
 			occupationThen: "学生",
@@ -51,6 +52,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p2",
 			surnameMasked: "李*",
+			participation: "attended",
 			fullName: "李雷",
 			city: "北京",
 			occupationThen: "学生",
@@ -62,6 +64,7 @@ const archive: FlashbackCapsuleArchive = {
 		{
 			id: "p3",
 			surnameMasked: "周**",
+			participation: "attended",
 			fullName: null,
 			city: "上海",
 			occupationThen: "研究生",
@@ -69,6 +72,32 @@ const archive: FlashbackCapsuleArchive = {
 			sentToWallAt: null,
 			answers: [],
 			today: null,
+		},
+		{
+			// 圆梦线·未寄出（雾卡）：当年报了名未入选——徽标两态之一
+			id: "p4",
+			surnameMasked: "赵**",
+			participation: "not_selected",
+			fullName: null,
+			city: "北京",
+			occupationThen: "学生",
+			appliedAt: "2013-12-05T05:06:00Z",
+			sentToWallAt: null,
+			answers: [],
+			today: null,
+		},
+		{
+			// 圆梦线·已寄出（点亮卡）：徽标两态之二
+			id: "p5",
+			surnameMasked: "钱*",
+			participation: "not_selected",
+			fullName: "钱进",
+			city: "北京",
+			occupationThen: "学生",
+			appliedAt: "2013-12-09T05:06:00Z",
+			sentToWallAt: "2026-09-11T00:00:00Z",
+			answers: [{ questionKey: "self_intro", segments: [{ text: "一句当年答案。", fog: false, len: 0 }] }],
+			today: { nowStatus: "还在写东西", want: null, say: null },
 		},
 	],
 };
@@ -95,14 +124,16 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		render(<EventDetail eventKey="2014-01-11-bj" />);
 
 		// 统计行：报名 / 走进教室 / 已回来（教练数本场缺失，不编造）
+		// 名册扩员（attended + not_selected 混合 = 5 人）不变形：
+		// 走进教室取后端 attendedCount 字段，已回来按寄出人数（含圆梦线寄出者）
 		expect(await screen.findByText("报名 344 位")).toBeInTheDocument();
 		expect(screen.getByText("走进教室 3 位")).toBeInTheDocument();
-		expect(screen.getByText("1 位已回来")).toBeInTheDocument();
+		expect(screen.getByText("2 位已回来")).toBeInTheDocument();
 
 		// 名册 = 单形态 3 列网格（长廊只留城市堆，名册不再有错落 masonry 形态）
 		const grid = screen.getByTestId("fb-roster-grid");
 		expect(grid.className).toBe("fb-roster-grid");
-		expect(grid.dataset.total).toBe("3");
+		expect(grid.dataset.total).toBe("5");
 
 		// 找回 CTA → 公开首页的自助找回入口
 		const cta = screen.getByRole("link", { name: /找回你的那一张/ });
@@ -125,6 +156,39 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		expect(quiet.textContent).toContain("她的答案，还在等她");
 		// 未寄出者不泄露全名（R12：姓氏隐名，内容待点亮）
 		expect(quiet.textContent).not.toContain("李雷");
+	});
+
+	it("圆梦线徽标两态：未寄出雾卡与已寄出点亮卡都显示「当年报了名」；attended 卡无徽标", async () => {
+		withCapsule([archive]);
+		render(<EventDetail eventKey="2014-01-11-bj" />);
+		await screen.findByText("报名 344 位");
+
+		// 雾卡态（p4 未寄出 not_selected）
+		const fogCard = document.querySelector("[data-card-id='p4']") as HTMLElement;
+		expect(fogCard.getAttribute("data-sent")).toBe("false");
+		expect(fogCard.textContent).toContain("当年报了名");
+		expect(fogCard.textContent).toContain("她的答案，还在等她");
+
+		// 点亮卡态（p5 已寄出 not_selected，走 PolaroidFlip 卡面）
+		const litCard = document.querySelector("[data-card-id='p5']") as HTMLElement;
+		expect(litCard.getAttribute("data-sent")).toBe("true");
+		expect(litCard.textContent).toContain("当年报了名");
+		expect(litCard.textContent).toContain("钱进");
+
+		// attended 两张卡（p1 未寄出 / p2 已寄出）均无徽标
+		expect((document.querySelector("[data-card-id='p1']") as HTMLElement).textContent).not.toContain("当年报了名");
+		expect((document.querySelector("[data-card-id='p2']") as HTMLElement).textContent).not.toContain("当年报了名");
+
+		// 徽标计数钉死 = not_selected 数（2）
+		expect(screen.getAllByText("当年报了名")).toHaveLength(2);
+	});
+
+	it("attendedCount 缺失（导入未带该列）→ fallback 只数 attended 名册成员，不把圆梦线算进教室", async () => {
+		withCapsule([{ ...archive, attendedCount: null }]);
+		render(<EventDetail eventKey="2014-01-11-bj" />);
+
+		// 名册 5 人中 attended 3 人（p1/p2/p3）；not_selected 不计入
+		expect(await screen.findByText("走进教室 3 位")).toBeInTheDocument();
 	});
 
 	it("报名数缺失（导入未带该列）→ 不显示该格，不编造 0", async () => {

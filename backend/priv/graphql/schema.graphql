@@ -6642,6 +6642,9 @@ type FlashbackRosterEntry {
 
   occupationThen: String
 
+  "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
+  participation: String!
+
   sentToWallAt: String
 
   "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"

@@ -12,7 +12,9 @@ import { tiltClass } from "./tilt";
  *   点击 3D 翻转看内容（正面当年雾面段 + 背面今天的你）——PolaroidFlip；
  * - 未寄出者保持结构化卡（姓氏隐名 + 虚线内容位「她的答案，还在等她」，
  *   R12：不寄出不亮名、无内容可翻）；
- * 名册仅含当年实际参与者（后端已滤 not_selected，R12）。
+ * 名册混排 attended 与 not_selected（圆梦线进名册、与学员同规则不按身份
+ * 分区，applied_at asc 后端排序）；not_selected 带「当年报了名」小徽标
+ * （事实纪律：报名未入选，不是「没去」）。
  *
  * 显影（第 7a 件，对齐原型 D 的 develop-soft 节奏）：卡片进入视口才从模糊到清晰
  * （--pending 前置态 → --develop 动画，只播一次），滚动进视口的新卡同样显影；
@@ -55,6 +57,9 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 								<span className="fb-roster-facts">
 									{[entry.city, entry.occupationThen].filter(Boolean).join(" · ")}
 								</span>
+								{entry.participation === "not_selected" && (
+									<span className="fb-roster-badge">{t("dreamBadge")}</span>
+								)}
 								<p className="fb-roster-dashed" aria-label={t("dashedAria")}>
 									{t("dashed")}
 								</p>

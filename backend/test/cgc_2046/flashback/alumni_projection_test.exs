@@ -2,7 +2,8 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   @moduledoc """
   U5 校友层投影测试（KTD3/R12/R13/R30）：
 
-  - 结构化层满员：attended 全量在名册、姓氏隐名「王\*\*」；未入选者不在名册；
+  - 结构化层满员：名册含 attended 与 not_selected（圆梦线混合展示，applied_at
+    asc 混排、null 排最后）、姓氏隐名「王\*\*」、participation 随 DTO 透出；
   - 内容层待点亮：未寄出者 today=nil + answers=[]（零文本泄露）；
   - 寄出者内容显影（雾化版：▓▓ 遮蔽、原文字符不出现）；
   - 撤回后呈现：名册回到结构化卡 + 虚线内容位、「今天」格回虚线；
@@ -109,12 +110,12 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
   end
 
   describe "分层墙（R12）" do
-    test "结构化层满员：attended 全量在名册、姓氏隐名；未入选者不在名册；PII 零出现" do
+    test "结构化层满员：名册含 attended 与 not_selected（圆梦线混合展示）、姓氏隐名；PII 零出现" do
       archive = create_archive()
       sent = create_person(archive, %{full_name: "王寄出", surname: "王"})
       quiet = create_person(archive, %{full_name: "李安静", surname: "李"})
 
-      _dreamer =
+      dreamer =
         create_person(archive, %{full_name: "赵未选", surname: "赵", participation: :not_selected})
 
       upsert_today(sent, %{sent_to_wall_at: DateTime.utc_now()})
@@ -122,19 +123,71 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       capsule = capsule_for(issue_token(sent))
 
       [archive_payload] = capsule.archives
-      assert length(archive_payload.roster) == 2
+      assert length(archive_payload.roster) == 3
       assert archive_payload.attended_count == 102
       assert archive_payload.is_mine
 
       masked = Enum.map(archive_payload.roster, & &1.surname_masked)
       assert "王**" in masked
       assert "李**" in masked
-      refute "赵**" in masked
+      # 圆梦线（当年报了名未入选）进名册——事实纪律：不是「没去」
+      assert "赵**" in masked
+
+      # participation 透传到名册 DTO（名册徽标数据源）
+      by_name = Map.new(archive_payload.roster, &{&1.surname_masked, &1.participation})
+      assert by_name["王**"] == "attended"
+      assert by_name["李**"] == "attended"
+      assert by_name["赵**"] == "not_selected"
+
+      # 圆梦线 DTO 结构与学员同规则：未寄出 today=nil + answers=[]（结构化卡）
+      dreamer_entry = Enum.find(archive_payload.roster, &(&1.id == dreamer.id))
+      assert is_nil(dreamer_entry.today)
+      assert dreamer_entry.answers == []
 
       # 手机/邮箱零出现（KTD3 白名单）
       payload = inspect(capsule)
       refute payload =~ "13900000001"
       refute payload =~ "@example.com"
+    end
+
+    test "名册按 applied_at asc 混排（null 排最后）：身份不分区、不按姓名" do
+      archive = create_archive()
+
+      # 布点：中间报名（选修）、最早报名（圆梦）、最晚报名（选修）、null（选修）
+      mid =
+        create_person(archive, %{
+          full_name: "孙中",
+          surname: "孙",
+          applied_at: ~U[2013-12-01 05:06:00Z]
+        })
+
+      earliest =
+        create_person(archive, %{
+          full_name: "赵未选",
+          surname: "赵",
+          participation: :not_selected,
+          applied_at: ~U[2013-11-01 05:06:00Z]
+        })
+
+      latest =
+        create_person(archive, %{
+          full_name: "钱晚",
+          surname: "钱",
+          participation: :not_selected,
+          applied_at: ~U[2014-01-01 05:06:00Z]
+        })
+
+      no_stamp = create_person(archive, %{full_name: "周无戳", surname: "周", applied_at: nil})
+
+      capsule = capsule_for(issue_token(mid))
+      [archive_payload] = capsule.archives
+
+      assert Enum.map(archive_payload.roster, & &1.id) == [
+               earliest.id,
+               mid.id,
+               latest.id,
+               no_stamp.id
+             ]
     end
 
     test "内容层：未寄出者 today=nil + answers=[]；寄出者雾化显影（原文不出现）" do

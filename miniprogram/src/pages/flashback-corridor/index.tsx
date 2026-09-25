@@ -438,9 +438,10 @@ export default function FlashbackCorridorPage() {
     }
   }
   const reloadMember = async () => {
-    if (mode.kind !== 'member') return
+    if (mode.kind !== 'member') return null
     const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
     if (capsule) setMode({ ...mode, capsule })
+    return capsule
   }
 
   const submitWish = async () => {
@@ -485,8 +486,8 @@ export default function FlashbackCorridorPage() {
     try {
       await api.flashbackAddWishComment(wish.id, wishComment.trim(), mode.token)
       setWishComment('')
-      await reloadMember()
-      const fresh = (mode.capsule.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
+      const capsule = await reloadMember()
+      const fresh = (capsule?.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
       if (fresh) setWishModal(fresh)
       Taro.showToast({ title: '留言已上墙', icon: 'none' })
     } catch (error) {

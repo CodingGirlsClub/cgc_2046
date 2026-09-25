@@ -267,8 +267,12 @@ defmodule Cgc2046.Flashback.DeletionTest do
       # R30：本人卡从墙上撤下（结构性卡也不剩——她已不在名单里）；
       # 许愿 fixture 的第三人在册 → 删除后剩 other 与 wish_owner 两人
       assert length(roster_after) == 2
+
+      # roster 现按 applied_at 混排（圆梦线进名册定稿）——断成员关系不断行序。
       # 裸 SQL 的 uuid 是 16 字节 binary（同 alumni_projection 的 uuid_param 反向）
-      assert Ecto.UUID.cast!(hd(roster_after).id) == other.id
+      remaining_ids = Enum.map(roster_after, &Ecto.UUID.cast!(&1.id))
+      assert other.id in remaining_ids
+      refute fx.person.id in remaining_ids
 
       {:ok, stats} = Public.stats()
       # 删除者的 link_opened 与寄出不计入公开统计

@@ -18,6 +18,7 @@ import { appliedStamp, type FlashbackRosterEntry } from "@/lib/graphql/flashback
  */
 export default function PolaroidFlip({ entry }: { entry: FlashbackRosterEntry }) {
 	const t = useTranslations("flashback.roster.flip");
+	const rosterT = useTranslations("flashback.roster");
 	const questionT = useTranslations("flashback.questionLabels");
 	const [flipped, setFlipped] = useState(false);
 
@@ -46,6 +47,10 @@ export default function PolaroidFlip({ entry }: { entry: FlashbackRosterEntry })
 					<span className="fb-flip-cover-facts">
 						{[stamp?.slice(0, 4) ?? "", entry.city].filter(Boolean).join(" · ")}
 					</span>
+					{/* 圆梦线徽标（当年报了名未入选——不是「没去」），雾卡同款小徽标 */}
+					{entry.participation === "not_selected" && (
+						<span className="fb-roster-badge">{rosterT("dreamBadge")}</span>
+					)}
 				</span>
 			)}
 
