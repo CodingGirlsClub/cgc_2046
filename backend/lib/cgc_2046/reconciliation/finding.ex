@@ -120,10 +120,13 @@ defmodule Cgc2046.Reconciliation.Finding do
   @doc false
   @spec rule_values() :: [atom()]
   def rule_values, do: @rule_values
+  # sweep 模式（#848）：full = 全量拍（upsert + 未命中删除，默认）；partial /
+  # one_shot = 跳过删除（前者扫描面残缺，后者单事件触发无全量视图）
+  @sweep_values [:full, :partial, :one_shot]
 
   @doc """
-  D2 刷新语义的共享驱动：命中 upsert（保 `first_seen_at`、刷 `last_seen_at`）、
-  本次未命中删除。
+  D2 刷新语义的共享驱动：命中 upsert（保 `first_seen_at`、刷 `last_seen_at`）；
+  全量拍（`:full`）删除本次未命中，其余 sweep 模式见 `opts`。
 
   `candidates` 为 map 列表（`entity_type` / `entity_id` / `workspace_id` / `detail`）。
   `opts`：
@@ -131,6 +134,10 @@ defmodule Cgc2046.Reconciliation.Finding do
   - `:log_prefix` — 警告日志前缀（默认 `"reconciliation"`）
   - `:on_create` — `(rule, candidate, result) -> any`，create 尝试后的回调
     （扫描侧与押金侧各自发「首次发现」warning）
+  - `:sweep` — `:full | :partial | :one_shot`（默认 `:full`）。`:full` 为全量
+    拍：upsert + 未命中删除。`:partial`（降级拍，账单面残缺）与 `:one_shot`
+    （单事件拍，如回调金额不符）只 upsert、不删——「未命中即删」仅对完整
+    命中视图成立；非法值 raise `ArgumentError`
 
   一拍只读一次同规则 findings，既用于 upsert 判定也用于 stale 清理：同规则只有
   一个写入者（各 worker 规则互斥），拍内无并发同规则写者，与逐候选读等价。
@@ -140,12 +147,26 @@ defmodule Cgc2046.Reconciliation.Finding do
   def apply_rule(rule, candidates, opts \\ []) do
     prefix = Keyword.get(opts, :log_prefix, "reconciliation")
     on_create = Keyword.get(opts, :on_create)
+    sweep = fetch_sweep!(opts)
     findings = findings_by_entity(rule)
 
     Enum.each(candidates, &upsert_finding(rule, &1, findings, prefix, on_create))
-    delete_stale(rule, candidates, findings, prefix)
+
+    # 降级拍 / 单事件拍无完整命中视图：跳过 stale 删除
+    if sweep == :full, do: delete_stale(rule, candidates, findings, prefix)
 
     :ok
+  end
+
+  defp fetch_sweep!(opts) do
+    case Keyword.get(opts, :sweep, :full) do
+      sweep when sweep in @sweep_values ->
+        sweep
+
+      other ->
+        raise ArgumentError,
+              "unknown sweep mode: #{inspect(other)} (expected one of #{inspect(@sweep_values)})"
+    end
   end
 
   defp findings_by_entity(rule) do

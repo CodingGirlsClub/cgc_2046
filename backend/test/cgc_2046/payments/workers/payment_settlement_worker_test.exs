@@ -91,6 +91,40 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert event_for(order).status == :processed
     end
 
+    test "金额不符重复命中（#848 one_shot）：不新增记录、last_seen_at 前移、first_seen_at 不变", ctx do
+      order = pending_order(ctx)
+      require Ash.Query
+
+      assert :ok = perform_settlement(order)
+
+      {:ok, first} =
+        Finding
+        |> Ash.Query.filter(rule == :payment_amount_mismatch and entity_id == ^order.id)
+        |> Ash.read_one(authorize?: false)
+
+      # 回拨 last_seen_at 一天：若重复命中会刷新，此处必被观测
+      {:ok, _} =
+        Cgc2046.Repo.query(
+          "UPDATE reconciliation_findings SET last_seen_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+          [Cgc2046.Repo.uuid!(first.id)]
+        )
+
+      # 渠道二次投递（Oban 重入同一事件）再次金额不符
+      assert :ok = perform_settlement(order)
+
+      findings =
+        Finding
+        |> Ash.Query.filter(rule == :payment_amount_mismatch and entity_id == ^order.id)
+        |> Ash.read!(authorize?: false)
+
+      # one_shot（#848 设计行为，区别于旧「create + 吞重复」）：不新增，
+      # 命中走 refresh——回拨一天的 last_seen_at 被推回到 first 之后
+      assert length(findings) == 1
+      reloaded = hd(findings)
+      assert reloaded.first_seen_at == first.first_seen_at
+      assert DateTime.compare(reloaded.last_seen_at, reloaded.first_seen_at) == :gt
+    end
+
     test "回查未支付：无状态变化，等待下个回调/对账", ctx do
       order = pending_order(ctx)
 
