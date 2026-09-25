@@ -1,5 +1,8 @@
 defmodule Cgc2046.Events.EventModeratorsTest do
   use Cgc2046Web.ConnCase, async: true
+
+  require Ash.Query
+  alias Cgc2046.Notifications.NotificationDelivery
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
@@ -106,10 +109,10 @@ defmodule Cgc2046.Events.EventModeratorsTest do
 
     # #538：级联撤销（裸 SQL DELETE）不经 Moderators.remove——不发
     # event_moderator_removed（「成员移除」另有语境，不逐行轰炸）
-    refute Enum.any?(
-             all_enqueued(worker: Cgc2046.Notifications.NotificationWorker),
-             &(&1.args["template_key"] == "event_moderator_removed")
-           )
+    # #847 批 4：event_moderator_removed 已迁耐久路径，行为面 = Delivery 行
+    assert NotificationDelivery
+           |> Ash.Query.filter(template_key == "event_moderator_removed")
+           |> Ash.read!(authorize?: false) == []
   end
 
   test "主动撤销主理人落审计（无 cascade 标记，与离台级联区分）" do
@@ -395,8 +398,10 @@ defmodule Cgc2046.Events.EventModeratorsTest do
     :ok = Moderators.remove(assigned.id, workspace.id, owner)
 
     removed_jobs =
-      all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-      |> Enum.filter(&(&1.args["template_key"] == "event_moderator_removed"))
+      NotificationDelivery
+      |> Ash.Query.filter(template_key == "event_moderator_removed")
+      |> Ash.read!(authorize?: false)
+      |> Enum.map(&%{args: %{"user_id" => &1.user_id, "data" => &1.data}})
 
     # 两平台身份各一条（同用户多身份不折叠，#3 口径）
     assert length(removed_jobs) == 2

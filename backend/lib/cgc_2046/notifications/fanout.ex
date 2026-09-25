@@ -255,7 +255,19 @@ defmodule Cgc2046.Notifications.Fanout do
                   "refund_failed",
                   # 批 3（提醒类）
                   "approval_reminder",
-                  "learning_stagnation"
+                  "learning_stagnation",
+                  # 批 4（其余键；flashback_wish_echo 显式排除，见 issue #847）
+                  "event_reminder",
+                  "speaker_accepted",
+                  "speaker_completed",
+                  "event_moderator_assigned",
+                  "event_moderator_removed",
+                  "volunteer_application_submitted",
+                  "volunteer_application_interview",
+                  "volunteer_application_training",
+                  "volunteer_application_assigned",
+                  "volunteer_application_rejected",
+                  "volunteer_application_canceled"
                 ])
 
   defp durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
@@ -317,6 +329,31 @@ defmodule Cgc2046.Notifications.Fanout do
     week_bucket = div(System.system_time(:second), 604_800)
     "learning.stagnation:#{run_id}:w#{week_bucket}"
   end
+
+  # 批 4。event_reminder：改期 → starts_at 变 → 新键重发（同现状语义）；
+  # event_id 由 event_reminder_worker 的 Fanout 调用处补入 job_meta（已批例外，
+  # 纯增量元数据）。moderator 两键按活动维度（user 成分由 Delivery 侧叠加）。
+  defp event_key("event_reminder", data, %{"event_id" => event_id}),
+    do: "event.reminder:#{event_id}:#{data["starts_at"]}"
+
+  defp event_key("event_moderator_assigned", _data, %{"event_id" => event_id}),
+    do: "event.moderator.assigned:#{event_id}"
+
+  defp event_key("event_moderator_removed", _data, %{"event_id" => event_id}),
+    do: "event.moderator.removed:#{event_id}"
+
+  # speaker_completed 双腿（P3）：manager 腿 data 带 title、speaker 本人腿不带
+  # ——同 template 同信号键靠腿成分防撞（speaker 兼任 manager 的场景）。
+  defp event_key("speaker_completed", data, job_meta) do
+    leg = if Map.has_key?(data, "title"), do: "managers", else: "speaker"
+    "#{Map.fetch!(job_meta, "idempotency_key")}:#{leg}"
+  end
+
+  defp event_key("speaker_accepted", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("volunteer_application_" <> _, _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
 
   # 未迁键的既有直插路径（收尾批次整体删除）：逐身份插 NotificationWorker
   # job，去重靠 Oban unique 时间窗。
