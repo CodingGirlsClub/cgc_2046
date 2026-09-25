@@ -971,6 +971,51 @@ defmodule Cgc2046.Flashback.ImportTest do
       assert report.attendance_source == "学生"
       assert report.participation == %{attended: 2, not_selected: 1}
     end
+
+    test "出席按场隔离：A 场 attended 与 B 场 not_selected 同联系方式 → B 场仍圆梦线（不跨场传染）" do
+      key_a = uniq_key("att-iso-a")
+      key_b = uniq_key("att-iso-b")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key_a, "重复报名的人", %{
+            "手机号" => "13900000009",
+            "参与状态" => "attended"
+          }),
+          master_learner_row(key_b, "重复报名的人", %{
+            "手机号" => "13900000009",
+            "参与状态" => "not_selected",
+            "场次名" => "Girls Coding Day 另一场",
+            "活动日期" => "2015-01-17"
+          })
+        ])
+
+      {:ok, _report, _counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert [%{participation: :attended}] = people_of_archive_key(key_a)
+      assert [%{participation: :not_selected}] = people_of_archive_key(key_b)
+    end
+
+    test "同场内同名同手机双 strand：一 attended 一 not_selected → attended 不降级、只留一人" do
+      key = uniq_key("att-same-arch")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "双行同一人", %{
+            "手机号" => "13900000010",
+            "参与状态" => "not_selected"
+          }),
+          master_learner_row(key, "双行同一人", %{
+            "手机号" => "13900000010",
+            "参与状态" => "attended"
+          })
+        ])
+
+      {:ok, _report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert counts.people == 1
+      assert [%{participation: :attended}] = people_of_archive_key(key)
+    end
   end
 
   describe "大表模式：按场次列分 archive（group_by）" do
