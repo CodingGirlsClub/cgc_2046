@@ -751,10 +751,43 @@ export const FlashbackMarkRevealedMutationDocument = /* GraphQL */ `
   }
 `
 
+// #931 起双入口：token 省略时按登录账号绑定档案（认领作废 token 后的唯一入口）
 export const FlashbackSendToWallMutationDocument = /* GraphQL */ `
-  mutation FlashbackSendToWall($token: String!) {
+  mutation FlashbackSendToWall($token: String) {
     flashbackSendToWall(token: $token) {
       sentToWallAt
+    }
+  }
+`
+
+// 撤下（#931，双入口）：sent_to_wall_at 清回 nil，名册回到结构化卡
+export const FlashbackRetractMutationDocument = /* GraphQL */ `
+  mutation FlashbackRetract($token: String) {
+    flashbackRetract(token: $token) {
+      retracted
+      sentToWallAt
+    }
+  }
+`
+
+// 删除档案（#931，与 web delete-account 同两步）：先取摘要，再以 DELETE 确认
+export const FlashbackDeletePreviewQueryDocument = /* GraphQL */ `
+  query FlashbackDeletePreview($token: String) {
+    flashbackDeletePreview(token: $token) {
+      personId
+      fullName
+      sentToWallAt
+      endorsementCount
+      alreadyDeleted
+    }
+  }
+`
+
+export const FlashbackDeleteMutationDocument = /* GraphQL */ `
+  mutation FlashbackDelete($token: String, $confirm: String!) {
+    flashbackDelete(token: $token, confirm: $confirm) {
+      deleted
+      deletedAt
     }
   }
 `

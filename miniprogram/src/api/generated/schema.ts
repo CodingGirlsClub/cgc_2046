@@ -4743,9 +4743,9 @@ export type RootMutationType = {
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
   /** 举报愿望（wish2 U6/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10/15min/IP 限频；举报是治理信号不进排序（举报≠踩） */
   flashbackReportWish?: Maybe<FlashbackReportResult>;
-  /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡 */
+  /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。#931 起 token 省略时按登录账号绑定档案 */
   flashbackRetract?: Maybe<FlashbackRetractResult>;
-  /** 寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27） */
+  /** 寄出上墙（R11，幂等；token 旅程写 sent_to_wall touch）：返回注册引导掩码回显（R27）。#931 起 token 省略时按登录账号绑定档案 */
   flashbackSendToWall?: Maybe<FlashbackSendToWallResult>;
   /** 卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档/公开 slug 无依赖。双入口（token 或登录账号） */
   flashbackSetCardSharing?: Maybe<FlashbackCardSharing>;
@@ -5352,12 +5352,12 @@ export type RootMutationTypeFlashbackReportWishArgs = {
 
 
 export type RootMutationTypeFlashbackRetractArgs = {
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
 export type RootMutationTypeFlashbackSendToWallArgs = {
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 

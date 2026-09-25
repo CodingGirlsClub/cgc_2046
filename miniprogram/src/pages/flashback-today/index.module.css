@@ -118,3 +118,8 @@
   .pressed { transform: none; }
 }
 
+
+/* #931 撤下 / 删除：文字链，视觉最轻但点按面积过 40px（padding 撑高） */
+.accountLinks { margin-top: 28rpx; display: flex; gap: 40rpx; justify-content: center; }
+.retractLink, .deleteLink { font-size: 22rpx; color: #6b6f78; padding: 16rpx 8rpx; text-decoration: underline; text-underline-offset: 6rpx; }
+.deleteLink { color: #b42318; }

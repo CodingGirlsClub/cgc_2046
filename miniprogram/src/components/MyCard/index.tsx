@@ -96,7 +96,7 @@ export default function MyCard({
     setSaving(true)
     try {
       await persistToday(draft)
-      await api.flashbackSendToWall(token ?? '')
+      await api.flashbackSendToWall(token ?? null)
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       onWrite()
       onSent?.()

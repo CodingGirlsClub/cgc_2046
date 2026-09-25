@@ -1028,11 +1028,33 @@ export type FlashbackMarkRevealedMutationVariables = Exact<{
 export type FlashbackMarkRevealedMutation = { flashbackMarkRevealed: { recorded: boolean } | null };
 
 export type FlashbackSendToWallMutationVariables = Exact<{
-  token: string;
+  token?: string | null | undefined;
 }>;
 
 
 export type FlashbackSendToWallMutation = { flashbackSendToWall: { sentToWallAt: string | null } | null };
+
+export type FlashbackRetractMutationVariables = Exact<{
+  token?: string | null | undefined;
+}>;
+
+
+export type FlashbackRetractMutation = { flashbackRetract: { retracted: boolean, sentToWallAt: string | null } | null };
+
+export type FlashbackDeletePreviewQueryVariables = Exact<{
+  token?: string | null | undefined;
+}>;
+
+
+export type FlashbackDeletePreviewQuery = { flashbackDeletePreview: { personId: string, fullName: string, sentToWallAt: string | null, endorsementCount: number, alreadyDeleted: boolean } | null };
+
+export type FlashbackDeleteMutationVariables = Exact<{
+  token?: string | null | undefined;
+  confirm: string;
+}>;
+
+
+export type FlashbackDeleteMutation = { flashbackDelete: { deleted: boolean, deletedAt: string } | null };
 
 export type FlashbackClaimMutationVariables = Exact<{
   token?: string | null | undefined;
