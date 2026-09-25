@@ -18,6 +18,7 @@ import {
 	fetchFlashbackAdminWishReports,
 	approveFlashbackWishReport,
 	dismissFlashbackWishReport,
+	fetchFlashbackAdminListedWishes,
 	fetchFlashbackOutreachPreview,
 	fetchFlashbackOutreachBatches,
 	fetchFlashbackOutreachRoster,
@@ -25,6 +26,7 @@ import {
 	resendFlashbackOutreach,
 } from "@/lib/admin";
 import { formatDateTime } from "@/lib/format";
+import { WishEchoModal } from "@/components/admin/wish-echo-modal";
 import type {
 	FlashbackAdminStats,
 	FlashbackRedemption,
@@ -34,6 +36,7 @@ import type {
 	FlashbackOutreachRosterEntry,
 	FlashbackAdminWishInboxEntry,
 	FlashbackAdminReportEntry,
+	FlashbackAdminListedWishEntry,
 } from "@/lib/graphql/admin";
 
 const EVENTS = [
@@ -112,19 +115,27 @@ export default function AdminFlashbackPage() {
 	// ── wish2 愿望管理（U5/KTD5）：收件箱 + 举报队列 ──
 	const [wishInbox, setWishInbox] = useState<FlashbackAdminWishInboxEntry[] | null>(null);
 	const [wishReports, setWishReports] = useState<FlashbackAdminReportEntry[] | null>(null);
+	const [listedWishes, setListedWishes] = useState<FlashbackAdminListedWishEntry[] | null>(null);
+	const [echoTarget, setEchoTarget] = useState<FlashbackAdminListedWishEntry | null>(null);
 	const [wishError, setWishError] = useState(false);
 
 	const loadWishes = useCallback(() => {
-		return Promise.all([fetchFlashbackAdminWishInbox(), fetchFlashbackAdminWishReports()])
-			.then(([inbox, reports]) => {
+		return Promise.all([
+			fetchFlashbackAdminWishInbox(),
+			fetchFlashbackAdminWishReports(),
+			fetchFlashbackAdminListedWishes(),
+		])
+			.then(([inbox, reports, listed]) => {
 				setWishInbox(inbox);
 				setWishReports(reports);
+				setListedWishes(listed);
 				setWishError(false);
 			})
 			.catch(() => {
 				setWishError(true);
-				setWishInbox([]);
-				setWishReports([]);
+				setWishInbox(null);
+				setWishReports(null);
+				setListedWishes(null);
 			});
 	}, []);
 
@@ -725,6 +736,56 @@ export default function AdminFlashbackPage() {
 				</div>
 			)}
 
+			{!loading && !error && listedWishes && (
+				<div className="admin-card admin-table-wrap" data-testid="fb-wish-listed">
+					<h3>{t("fbWishListedTitle")}</h3>
+					{listedWishes.length === 0 ? (
+						<p className="admin-empty">{t("fbWishListedEmpty")}</p>
+					) : (
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>{t("fbWishColContent")}</th>
+									<th>{t("fbWishColSigner")}</th>
+									<th>{t("fbWishColCity")}</th>
+									<th>{t("fbWishColListedAt")}</th>
+									<th>{t("fbWishColEchoes")}</th>
+									<th>{t("fbWishColActions")}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{listedWishes.map((entry) => (
+									<tr key={entry.wishId}>
+										<td>{entry.content}</td>
+										<td>{entry.signature ?? "—"}</td>
+										<td>{entry.city ?? "—"}</td>
+										<td>{formatDateTime(entry.listedAt)}</td>
+										<td data-testid="fb-echo-count">
+											{t("fbWishEchoCount", {
+												published: entry.publishedEchoCount,
+												draft: entry.draftEchoCount,
+											})}
+										</td>
+										<td>
+											<div className="admin-table__actions">
+												<button
+													type="button"
+													className="l-btn-outline"
+													data-testid={`fb-echo-open-${entry.wishId}`}
+													onClick={() => setEchoTarget(entry)}
+												>
+													{t("fbEchoOpen")}
+												</button>
+											</div>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+			)}
+
 			{!loading && !error && wishReports && (
 				<div className="admin-card admin-table-wrap" data-testid="fb-wish-reports">
 					<h3>{t("fbWishReportsTitle")}</h3>
@@ -778,6 +839,14 @@ export default function AdminFlashbackPage() {
 						</table>
 					)}
 				</div>
+			)}
+			{echoTarget && (
+				<WishEchoModal
+					wishId={echoTarget.wishId}
+					wishPreview={echoTarget.content}
+					onClose={() => setEchoTarget(null)}
+					onChanged={() => void loadWishes()}
+				/>
 			)}
 		</section>
 	);

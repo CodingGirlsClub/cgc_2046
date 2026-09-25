@@ -18,6 +18,7 @@ import {
 } from "@/lib/graphql/flashback";
 import MapScene, { type CitySpec } from "../voices/map-scene";
 import styles from "./wishes.module.css";
+import { WishEchoCard } from "@/components/flashback/wish-echo-card";
 
 const WISHES_INTRO_SEEN_KEY = "flashback.wishesIntroSeen";
 const VOICES_INTRO_SEEN_KEY = "flashback.voicesIntroSeen";
@@ -86,8 +87,10 @@ export default function WishesWall({
 	const [reportReason, setReportReason] = useState<string>("spam");
 	const [reportFree, setReportFree] = useState("");
 	const [endorseGuideFor, setEndorseGuideFor] = useState<FlashbackPublicWish | null>(null);
-	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录走 enter 引导）
+	// wish2 U8：写愿望 modal（登录态挂 WishFormModal；未登录复用站内登录入口）
 	const [writeOpen, setWriteOpen] = useState(false);
+	// #836 回响卡展开态（按愿望 id 记）
+	const [echoExpanded, setEchoExpanded] = useState<Record<string, boolean>>({});
 	// 概念图右栏筛选 chips：「全部」/「已有回响」（附议数 > 0 = 有人出力过）
 	const [filter, setFilter] = useState<"all" | "echo">("all");
 	// 分享 = 复制链接（树 / 单条愿望 ?item=）+ toast
@@ -352,7 +355,10 @@ export default function WishesWall({
 							<span>{t("writeWish")}</span>
 						</button>
 					) : (
-						<Link className={styles.primaryBtn} href="/flashback/enter">
+						<Link
+							className={styles.primaryBtn}
+							href={`/login?next=${encodeURIComponent("/flashback/wishes")}`}
+						>
 							<Icon name="pen" />
 							<span>{t("writeWish")}</span>
 						</Link>
@@ -411,10 +417,32 @@ export default function WishesWall({
 									<p className={styles.selectedSignature}>
 										{currentInFilter.signature}
 										{currentInFilter.city ? ` · ${currentInFilter.city}` : ""}
+										{currentInFilter.echoCount > 0 && (
+											<span
+												className={styles.echoMark}
+												data-testid="fb-selected-echo-badge"
+												aria-label={t("hasEchoLabel")}
+											>
+												{t("hasEchoBadge")}
+											</span>
+										)}
 									</p>
 									<p className={styles.expectCount}>
 										{currentInFilter.expectationCount} {t("expectCount")}
 									</p>
+									{currentInFilter.latestEcho && currentInFilter.echoCount > 0 && (
+										<WishEchoCard
+											latest={currentInFilter.latestEcho}
+											echoes={currentInFilter.echoes}
+											expanded={!!echoExpanded[currentInFilter.id]}
+											onToggleExpanded={() =>
+												setEchoExpanded((prev) => ({
+													...prev,
+													[currentInFilter.id]: !prev[currentInFilter.id],
+												}))
+											}
+										/>
+									)}
 									<div className={styles.selectedActions}>
 										<button
 											type="button"
@@ -466,6 +494,15 @@ export default function WishesWall({
 													<span className={styles.wishRowMeta}>
 														<span>❤️ {wish.expectationCount}</span>
 														<span aria-label={t("endorseCountLabel")}>🙌 {wish.endorsementCount}</span>
+														{wish.echoCount > 0 && (
+															<span
+																className={styles.echoMark}
+																data-testid="fb-wish-row-echo"
+																aria-label={t("hasEchoLabel")}
+															>
+																{t("hasEchoBadge")}
+															</span>
+														)}
 													</span>
 													<button
 														type="button"
