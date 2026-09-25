@@ -1,6 +1,6 @@
 {
   "name": "cgc-miniprogram",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "CGC 微信小程序全量端（Taro 4 + React 18 + TypeScript）",
   "scripts": {
