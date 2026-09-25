@@ -578,7 +578,23 @@ export interface FlashbackWish {
   /** 本人许愿（删除入口只对本人显示，R14） */
   mine: boolean
   comments: FlashbackWishComment[]
+  /** 最新一条可见回响（#834；无则 null） */
+  latestEcho: FlashbackPublicWishEcho | null
+  /** 可见回响条数（#834） */
+  echoCount: number
+  /** 全部可见回响，按首次发布时间正序（#834） */
+  echoes: FlashbackPublicWishEcho[]
   insertedAt: string
+}
+
+/** #834 回响（非 admin 公开读面，与 Web 同形） */
+export interface FlashbackPublicWishEcho {
+  id: string
+  content: string
+  /** published（首次发布）或 corrected（更正过）；draft/revoked 不出现在公开读面 */
+  status: 'published' | 'corrected'
+  publishedAt: string
+  correctedAt: string | null
 }
 
 export interface FlashbackFutureEvent {

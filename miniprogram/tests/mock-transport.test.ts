@@ -582,3 +582,59 @@ test('mock 公开开关与金句授权档互不牵连（关公开不动 quoteLev
   assert.equal(readMe().cardSharing.enabled, true)
   assert.equal(readMe().cardSharing.shareId, shareId)
 })
+
+// ── #837:wish 回响投影(capsule / 公开树)把 echoes 透出到读面 ──
+test('#837 mock FlashbackPublicWishes 投影 latestEcho/echoCount/echoes(0/1/多条含 corrected)', async () => {
+  const { FlashbackPublicWishesQueryDocument } = await import('../src/api/operations.ts')
+  type Row = {
+    id: string
+    latestEcho: { id: string; status: string } | null
+    echoCount: number
+    echoes: Array<{ id: string; status: string }>
+  }
+  const data = mockGraphQLRequest<{ flashbackPublicWishes: Row[] }>(FlashbackPublicWishesQueryDocument, {
+    voterKey: 'test-voter',
+    limit: 60
+  })
+  const rows = data.flashbackPublicWishes
+  const w1 = rows.find((r) => r.id === 'w-1')
+  const w2 = rows.find((r) => r.id === 'w-2')
+  assert.ok(w1 && w2, 'w-1 / w-2 应在公开读面')
+
+  // w-1: 多条回响,最新是 e-1b(corrected)
+  assert.equal(w1.echoCount, 2)
+  assert.equal(w1.latestEcho?.id, 'e-1b')
+  assert.equal(w1.latestEcho?.status, 'corrected')
+  assert.deepEqual(w1.echoes.map((e) => e.id), ['e-1a', 'e-1b'])
+
+  // w-2: 单条回响,已发布未更正
+  assert.equal(w2.echoCount, 1)
+  assert.equal(w2.latestEcho?.id, 'e-2a')
+  assert.equal(w2.latestEcho?.status, 'published')
+})
+
+test('#837 mock flashbackCapsule.publicWishes 同形状投影 echo 字段(member 面)', async () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  type Row = {
+    id: string
+    latestEcho: { id: string; status: string } | null
+    echoCount: number
+    echoes: Array<{ id: string; status: string }>
+  }
+  type Capsule = { flashbackCapsule: { publicWishes: Row[]; myPrivateWishes: Row[] } }
+  const data = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {})
+  const pub = data.flashbackCapsule.publicWishes
+  const w1 = pub.find((r) => r.id === 'w-1')
+  assert.ok(w1)
+  assert.equal(w1.echoCount, 2)
+  assert.equal(w1.latestEcho?.id, 'e-1b')
+  assert.equal(w1.latestEcho?.status, 'corrected')
+
+  // 私愿无回响 (mock seed pw-1 echoes: []) —— 不渲染回响卡,不显示徽章
+  const priv = data.flashbackCapsule.myPrivateWishes
+  const pw1 = priv.find((r) => r.id === 'pw-1')
+  assert.ok(pw1)
+  assert.equal(pw1.echoCount, 0)
+  assert.equal(pw1.latestEcho, null)
+  assert.deepEqual(pw1.echoes, [])
+})
