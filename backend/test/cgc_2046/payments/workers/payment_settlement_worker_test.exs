@@ -233,8 +233,8 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
         args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
       )
 
-      # 半落账窗口不得误触自动退款
-      refute_enqueued(worker: PaymentRefundWorker)
+      # 半落账窗口不得误触自动退款（args 过滤：抗 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
     end
 
     test "U5/R12/AE5：落账成功 → 组织者收到 payment_received（含活动名/档位/金额）", ctx do
@@ -296,6 +296,12 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       # retry_refund（refund_failed → refunding，after_action 自带入队 refund job）
       assert reload_order(order).status == :refunding
       assert_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
+
+      # #845 钉测：恰好一笔——after_action 入队是唯一来源
+      assert [%{}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == order.id))
+
       assert event_for(order).status == :processed
     end
   end

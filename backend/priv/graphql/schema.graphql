@@ -5420,6 +5420,24 @@ type RootQueryType {
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
   speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
 
+  "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
+
+  "平台管理员：跨租户课程列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
+  listAdminCourses(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminCourse!]!
+
+  "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
+  getAdminEvent(id: ID!): AdminEventDetail
+
+  "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
+  getAdminCourse(id: ID!): AdminCourseDetail
+
+  "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
+  initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
+
+  "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
+  eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
+
   "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
   currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
 
@@ -5674,24 +5692,6 @@ type RootQueryType {
 
   "平台管理员：倡导活动详情及四项规则"
   getInitiative(id: ID!): AdminInitiative
-
-  "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
-  listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
-
-  "平台管理员：跨租户课程列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
-  listAdminCourses(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminCourse!]!
-
-  "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
-  getAdminEvent(id: ID!): AdminEventDetail
-
-  "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
-  getAdminCourse(id: ID!): AdminCourseDetail
-
-  "Owner\/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner\/Admin 一律 forbidden"
-  initiativeMountPreview(workspaceId: ID!, initiativeId: ID!): InitiativeMountPreview
-
-  "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
-  eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
 
   sponsorships(
     "How to sort the records in the response"
@@ -7555,185 +7555,6 @@ type AdminOfferingChangeMetadata {
   depositEnabledAfter: Boolean
 }
 
-type AdminEvent {
-  id: ID!
-
-  workspaceId: ID!
-
-  title: String!
-
-  slug: String
-
-  "draft | open | closed | cancelled"
-  status: String!
-
-  "public | workspace"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  registrationDeadline: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-
-  pricingEnabled: Boolean!
-
-  depositEnabled: Boolean!
-
-  depositAmountCents: Int
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-}
-
-type AdminEventDetail {
-  id: ID!
-
-  workspaceId: ID!
-
-  title: String!
-
-  slug: String
-
-  description: String
-
-  "draft | open | closed | cancelled"
-  status: String!
-
-  "public | workspace"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  registrationDeadline: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-
-  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
-  venue: JsonString
-
-  pricingEnabled: Boolean!
-
-  depositEnabled: Boolean!
-
-  depositAmountCents: Int
-
-  """
-  权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
-  不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
-  nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
-  不得当 0。0 表示真实无已确认报名（免费场零计数）。
-  """
-  confirmedCount: Int
-
-  """
-  权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
-  关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
-  同 confirmedCount（不可用，非 0）。
-  """
-  paymentPendingCount: Int
-
-  "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
-  moderators: [EventModerator!]
-
-  "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
-  detachedRuleProvenance: JsonString
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-}
-
-type AdminCourse {
-  id: ID!
-
-  workspaceId: ID!
-
-  title: String!
-
-  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
-  provisionalTitle: Boolean!
-
-  slug: String
-
-  "draft | open | closed | cancelled"
-  status: String!
-
-  "public | workspace"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  registrationDeadline: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-
-  pricingEnabled: Boolean!
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-}
-
-type AdminCourseDetail {
-  id: ID!
-
-  workspaceId: ID!
-
-  title: String!
-
-  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
-  provisionalTitle: Boolean!
-
-  slug: String
-
-  description: String
-
-  "draft | open | closed | cancelled"
-  status: String!
-
-  "public | workspace"
-  visibility: String!
-
-  "报名名额上限；nil 表示不限"
-  capacity: Int
-
-  registrationDeadline: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-
-  pricingEnabled: Boolean!
-
-  "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
-  currentRevisionNumber: Int
-
-  """
-  权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
-  不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
-  不得当 0；0 表示真实无已确认报名。
-  """
-  confirmedCount: Int
-
-  "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
-  paymentPendingCount: Int
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-}
-
 type AdminReconciliationFinding {
   id: ID!
   rule: String!
@@ -7833,21 +7654,6 @@ type AdminInitiativeRule {
   updatedAt: DateTime!
 }
 
-type InitiativeMountPreview {
-  initiativeId: ID!
-  name: String!
-  slug: String!
-  status: String!
-  rules: [InitiativeRulePreview!]!
-  missingRules: [String!]!
-}
-
-type InitiativeRulePreview {
-  key: String!
-  valueJson: String!
-  locked: Boolean!
-}
-
 input AdminInitiativeInput {
   name: String
   slug: String
@@ -7857,92 +7663,8 @@ input AdminInitiativeInput {
   windowEndsAt: DateTime
 }
 
-input AdminEventUpdateInput {
-  title: String
-  slug: String
-  description: String
-  visibility: String
-  capacity: Int
-  registrationDeadline: DateTime
-  startsAt: DateTime
-  endsAt: DateTime
-  venue: JsonString
-  pricingEnabled: Boolean
-  depositEnabled: Boolean
-}
-
-input AdminCourseUpdateInput {
-  title: String
-  slug: String
-  description: String
-  visibility: String
-  capacity: Int
-  registrationDeadline: DateTime
-  startsAt: DateTime
-  endsAt: DateTime
-  pricingEnabled: Boolean
-}
-
 type AdminInitiativePayload {
   result: AdminInitiative
-  errors: [MutationError]
-}
-
-"治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload"
-type AdminEventPayload {
-  result: Event
-  errors: [MutationError]
-}
-
-"治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload"
-type AdminCoursePayload {
-  result: Course
-  errors: [MutationError]
-}
-
-type AdminInitiativeRulePayload {
-  result: AdminInitiativeRule
-  errors: [MutationError]
-}
-
-type EventModerator {
-  id: ID!
-  workspaceId: ID!
-  eventId: ID!
-  userId: ID!
-  assignedBy: ID
-  assignedAt: DateTime!
-  userDisplayName: String
-  userMemberNumber: String
-  assignedByDisplayName: String
-  assignedByMemberNumber: String
-}
-
-type EventModeratorPayload {
-  result: EventModerator
-  errors: [MutationError]
-}
-
-type CheckInEnrollmentPayload {
-  "被核销的报名（失败为 null）"
-  enrollmentId: ID
-
-  "核销时间（失败为 null）"
-  checkedInAt: DateTime
-
-  "核销方式：scan \/ manual（失败为 null）"
-  method: String
-
-  """
-  本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
-  - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
-  - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
-  - refunded：押金已退。
-  forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
-  前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
-  """
-  depositRefund: String
-
   errors: [MutationError]
 }
 
@@ -8047,6 +7769,54 @@ type RootMutationType {
 
   "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
   completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+
+  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
+  adminLaunchEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
+  adminCloseEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
+
+  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
+  adminLaunchCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
+  adminCloseCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
+
+  "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
+  upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
+
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
+
+  removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
+
+  checkInEnrollment(
+    eventId: ID!
+
+    "6 位核销码（扫码 URL 预填或手输）"
+    code: String!
+
+    "核销方式：scan | manual"
+    method: String!
+  ): CheckInEnrollmentPayload
 
   "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
   createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
@@ -8209,54 +7979,6 @@ type RootMutationType {
 
   "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
   cancelInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
-  adminLaunchEvent(id: ID!): AdminEventPayload
-
-  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
-  adminCloseEvent(id: ID!): AdminEventPayload
-
-  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
-  adminCancelEvent(id: ID!): AdminEventPayload
-
-  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
-
-  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
-  adminLaunchCourse(id: ID!): AdminCoursePayload
-
-  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
-  adminCloseCourse(id: ID!): AdminCoursePayload
-
-  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
-  adminCancelCourse(id: ID!): AdminCoursePayload
-
-  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
-
-  "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
-  upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
-
-  assignEventModerator(
-    workspaceId: ID!
-
-    eventId: ID!
-
-    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
-    userId: ID!
-  ): EventModeratorPayload
-
-  removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
-
-  checkInEnrollment(
-    eventId: ID!
-
-    "6 位核销码（扫码 URL 预填或手输）"
-    code: String!
-
-    "核销方式：scan | manual"
-    method: String!
-  ): CheckInEnrollmentPayload
 
   "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
   flashbackEnter(token: String!): FlashbackEnterResult
@@ -8567,6 +8289,284 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type AdminEvent {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminEventDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
+  不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
+  nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
+  不得当 0。0 表示真实无已确认报名（免费场零计数）。
+  """
+  confirmedCount: Int
+
+  """
+  权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
+  关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
+  同 confirmedCount（不可用，非 0）。
+  """
+  paymentPendingCount: Int
+
+  "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
+  moderators: [EventModerator!]
+
+  "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
+  detachedRuleProvenance: JsonString
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourse {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type AdminCourseDetail {
+  id: ID!
+
+  workspaceId: ID!
+
+  title: String!
+
+  "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
+  provisionalTitle: Boolean!
+
+  slug: String
+
+  description: String
+
+  "draft | open | closed | cancelled"
+  status: String!
+
+  "public | workspace"
+  visibility: String!
+
+  "报名名额上限；nil 表示不限"
+  capacity: Int
+
+  registrationDeadline: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+
+  pricingEnabled: Boolean!
+
+  "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
+  currentRevisionNumber: Int
+
+  """
+  权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
+  不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
+  不得当 0；0 表示真实无已确认报名。
+  """
+  confirmedCount: Int
+
+  "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
+  paymentPendingCount: Int
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+}
+
+type InitiativeMountPreview {
+  initiativeId: ID!
+  name: String!
+  slug: String!
+  status: String!
+  rules: [InitiativeRulePreview!]!
+  missingRules: [String!]!
+}
+
+type InitiativeRulePreview {
+  key: String!
+  valueJson: String!
+  locked: Boolean!
+}
+
+input AdminEventUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  venue: JsonString
+  pricingEnabled: Boolean
+  depositEnabled: Boolean
+}
+
+input AdminCourseUpdateInput {
+  title: String
+  slug: String
+  description: String
+  visibility: String
+  capacity: Int
+  registrationDeadline: DateTime
+  startsAt: DateTime
+  endsAt: DateTime
+  pricingEnabled: Boolean
+}
+
+"治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminEventPayload {
+  result: Event
+  errors: [MutationError]
+}
+
+"治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload"
+type AdminCoursePayload {
+  result: Course
+  errors: [MutationError]
+}
+
+type AdminInitiativeRulePayload {
+  result: AdminInitiativeRule
+  errors: [MutationError]
+}
+
+type EventModerator {
+  id: ID!
+  workspaceId: ID!
+  eventId: ID!
+  userId: ID!
+  assignedBy: ID
+  assignedAt: DateTime!
+  userDisplayName: String
+  userMemberNumber: String
+  assignedByDisplayName: String
+  assignedByMemberNumber: String
+}
+
+type EventModeratorPayload {
+  result: EventModerator
+  errors: [MutationError]
+}
+
+type CheckInEnrollmentPayload {
+  "被核销的报名（失败为 null）"
+  enrollmentId: ID
+
+  "核销时间（失败为 null）"
+  checkedInAt: DateTime
+
+  "核销方式：scan \/ manual（失败为 null）"
+  method: String
+
+  """
+  本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
+  - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
+  - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
+  - refunded：押金已退。
+  forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
+  前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
+  """
+  depositRefund: String
+
+  errors: [MutationError]
+}
 
 type PendingOperationConfirmation {
   "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
