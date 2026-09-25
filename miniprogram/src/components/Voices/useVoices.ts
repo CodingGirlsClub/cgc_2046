@@ -5,20 +5,20 @@ import { ensureWishVoterKey } from '@/domain/flashback'
 import { mergeVoices, moveVoice, selectVoice, type PublicVoice, type VoiceCity } from '@/domain/flashback-voices'
 
 type Wall = { status: 'loading' | 'ready' | 'error' | 'gone'; rows: PublicVoice[]; id: string | null; error?: string }
-export function useVoices(initialId: string | null) {
+export function useVoices(initialId: string | null, initialCity: string | null = null) {
   const voter = useRef(ensureWishVoterKey())
   const sequence = useRef(0)
   const alive = useRef(true)
   const actionLock = useRef(false)
   const [wall, setWall] = useState<Wall>({ status: 'loading', rows: [], id: null })
-  const [city, setCity] = useState<string | null>(null)
+  const [city, setCity] = useState<string | null>(initialCity)
   const [cities, setCities] = useState<VoiceCity[]>([])
   const [busy, setBusy] = useState(false)
   const citySequence = useRef(0)
   const [citiesLoading, setCitiesLoading] = useState(true)
   const [citiesError, setCitiesError] = useState(false)
   const target = useRef(initialId)
-  const cityRef = useRef<string | null>(null)
+  const cityRef = useRef<string | null>(initialCity)
 
   const load = useCallback(async (nextCity: string | null, quoteId: string | null) => {
     const seq = ++sequence.current

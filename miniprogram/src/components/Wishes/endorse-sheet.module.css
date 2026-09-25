@@ -1,0 +1,20 @@
+/* Shared form keeps the corridor's orange action; the public tree uses its paper palette. */
+.endorseMask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: flex-end; background: rgba(0,0,0,.42); }
+.sheet { width: 100%; box-sizing: border-box; padding: 28rpx 32rpx calc(32rpx + env(safe-area-inset-bottom)); background: #fff; border-radius: 28rpx 28rpx 0 0; max-height: 90vh; overflow-y: auto; }
+.heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
+.title { font-size: 34rpx; font-weight: 600; color: #252e27; }
+.close { margin: 0; padding: 8rpx 16rpx; background: transparent; color: #697765; font-size: 25rpx; }
+.preview { display: block; font-size: 25rpx; color: #6b7076; line-height: 1.6; max-height: 110rpx; overflow-y: auto; }
+.types { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 24rpx 0; }
+.endorseChip { margin: 0; background: #f6f6f4; font-size: 26rpx; color: #53634d; padding: 8rpx 22rpx; border-radius: 36rpx; }
+.selected { background: #fdf0e6; color: #ea5504; }
+.message { box-sizing: border-box; width: 100%; height: 160rpx; padding: 20rpx; background: #f6f6f4; border-radius: 12rpx; font-size: 26rpx; }
+.contact { display: block; margin: 20rpx 0; font-size: 24rpx; line-height: 1.6; color: #75816d; }
+.endorseNotify { margin: 16rpx 0; padding: 12rpx 0; text-align: left; font-size: 26rpx; background: transparent; color: #53634d; }
+.error { display: block; margin: 20rpx 0; color: #963e31; font-size: 26rpx; }
+.endorseSubmit { background: #ea5504; color: #fff; border-radius: 12rpx; font-size: 30rpx; }
+.endorseSubmit[disabled] { opacity: .5; }
+.paper .sheet { background: #faf8f0; }
+.paper .endorseSubmit { background: #204b3b; }
+.paper .selected { color: #173c32; background: #dfe7d4; }
+.endorseMask button::after { border: 0; }

@@ -12,6 +12,7 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
   """
 
   use Cgc2046.DataCase, async: true
+  require Ash.Query
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
@@ -50,10 +51,11 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       )
 
       # 支付成功通知（报名者，R22；模板接线 U10 定稿）
-      assert_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
-      )
+      # #847 批 2：payment_succeeded 已迁耐久路径
+      assert Enum.any?(
+               delivery_jobs("payment_succeeded"),
+               &(&1.args["user_id"] == enrollment.user_id)
+             )
 
       assert event_for(order).status == :processed
     end
@@ -228,10 +230,11 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert enrollment.status == :confirmed
 
       # 补发支付成功通知（R22；NotificationWorker unique 幂等，重放不重复）
-      assert_enqueued(
-        worker: Cgc2046.Notifications.NotificationWorker,
-        args: %{"user_id" => enrollment.user_id, "template_key" => "payment_succeeded"}
-      )
+      # #847 批 2：payment_succeeded 已迁耐久路径
+      assert Enum.any?(
+               delivery_jobs("payment_succeeded"),
+               &(&1.args["user_id"] == enrollment.user_id)
+             )
 
       # 半落账窗口不得误触自动退款（args 过滤：抗 unboxed 残留 job 干扰）
       refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
@@ -256,9 +259,7 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
       assert :ok = perform_settlement(order)
 
       # 组织者逐笔收款通知（data 含 title/tier_name/amount）
-      receipts =
-        all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-        |> Enum.filter(&(&1.args["template_key"] == "payment_received"))
+      receipts = delivery_jobs("payment_received")
 
       assert Enum.any?(receipts, &(&1.args["user_id"] == owner_id))
 
@@ -269,9 +270,8 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
 
       # 学员 payment_succeeded 不受影响（R22 既有语义零回归）
       assert Enum.any?(
-               all_enqueued(worker: Cgc2046.Notifications.NotificationWorker),
-               &(&1.args["template_key"] == "payment_succeeded" and
-                   &1.args["user_id"] != owner_id)
+               delivery_jobs("payment_succeeded"),
+               &(&1.args["user_id"] != owner_id)
              )
     end
 
@@ -307,6 +307,22 @@ defmodule Cgc2046.Payments.Workers.PaymentSettlementWorkerTest do
   end
 
   # ── 布置 ──
+
+  # #847 批 2：资金类已迁耐久路径，行为面 = Delivery 行（伪 job 投影保持断言形状）
+  defp delivery_jobs(template_key) do
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "data" => &1.data
+        }
+      }
+    )
+  end
 
   defp pending_order(_ctx) do
     admin = Fixtures.platform_admin()

@@ -38,3 +38,23 @@ test('从其他页面热启动整墙分享会进入金句墙', () => {
   assert.equal(result.navigate, true)
   assert.equal(result.url, '/pages/flashback-voices/index')
 })
+
+test('访客金句保留完整原文，缺失年份城市不编造来源；空态不伪造金句', async () => {
+  const { guestVoicePreview } = await import('../src/domain/flashback-voices.ts')
+  assert.equal(guestVoicePreview(null), null)
+  const long = '想做出自己的第一个作品。'.repeat(12)
+  assert.deepEqual(guestVoicePreview({ ...a, text: long, year: null, city: null }), {
+    text: long, source: '公开金句', path: '/pages/flashback-voices/index?quoteId=a'
+  })
+  assert.equal(guestVoicePreview(a)?.source, '2014 / 北京')
+})
+
+test('访客每次进入使用新随机候选，多句避开上次；只有一句仍显示，撤回后不保留旧句', async () => {
+  const { selectGuestVoice } = await import('../src/domain/flashback-voices.ts')
+  const c = { ...a, quoteId: 'c', text: '第三句' }
+  assert.equal(selectGuestVoice([a,b,c], 'a')?.quoteId, 'b')
+  assert.equal(selectGuestVoice([c,b,a], 'a')?.quoteId, 'c')
+  assert.equal(selectGuestVoice([a,b,c], null)?.quoteId, 'a')
+  assert.equal(selectGuestVoice([a], 'a')?.quoteId, 'a')
+  assert.equal(selectGuestVoice([], 'a'), null)
+})

@@ -38,3 +38,18 @@ export function voiceMapPoint(city: VoiceCity) {
   const top = (42 + (54 - lat) * 17) / 7.2
   return left >= 0 && left <= 100 && top >= 0 && top <= 100 ? { left, top } : null
 }
+
+/** Guest previews only use the public DTO; missing provenance stays unspecified. */
+export function guestVoicePreview(voice: PublicVoice | null) {
+  if (!voice) return null
+  return {
+    text: voice.text,
+    source: [voice.year, voice.city].filter(Boolean).join(' / ') || '公开金句',
+    path: voiceShare(voice).path
+  }
+}
+
+/** The server randomizes candidates; avoid repeating the last public preview. */
+export function selectGuestVoice(voices: PublicVoice[], previousId: string | null): PublicVoice | null {
+  return voices.find(voice => voice.quoteId !== previousId) ?? voices[0] ?? null
+}

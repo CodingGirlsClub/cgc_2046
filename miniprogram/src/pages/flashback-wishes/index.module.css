@@ -1,0 +1,40 @@
+.page { min-height: 100vh; background: #faf8f0; color: #173f33; padding-bottom: env(safe-area-inset-bottom); }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 20rpx 28rpx; }
+.tabs { flex: 1; justify-content: space-around; display: flex; align-items: center; gap: 26rpx; }
+.voicesTab { margin: 0; padding: 14rpx 0; background: transparent; color: #76856d; font: 30rpx 'Songti SC', 'STSong', serif; }
+.selectedTab { display: flex; flex-direction: column; text-align: center; padding: 10rpx 6rpx; border-bottom: 4rpx solid #214b3a; font: 32rpx 'Songti SC', 'STSong', serif; }
+.english { display: block; margin-top: 8rpx; font: 18rpx sans-serif; letter-spacing: 2rpx; }
+.shareTree { display: flex; align-items: center; min-height: 80rpx; box-sizing: border-box; position: absolute; top: 20rpx; right: 24rpx; z-index: 2; margin: 0; padding: 14rpx 24rpx; color: #315645; font-size: 24rpx; line-height: 1.5; background: rgba(250,248,240,.96); border: 1rpx solid #cbd2c1; border-radius: 999rpx; }
+.legend { display: block; padding: 10rpx 28rpx; font-size: 20rpx; color: #77856b; background: #efefe2; }
+.reader { padding: 28rpx 36rpx 40rpx; }
+.filters { display: flex; width: fit-content; gap: 8rpx; padding: 6rpx; margin-bottom: 36rpx; border-radius: 48rpx; background: #eeeee3; }
+.allFilter, .echoFilter { margin: 0; padding: 12rpx 28rpx; border-radius: 40rpx; background: transparent; font-size: 25rpx; line-height: 1.8; color: #61745d; }
+.activeFilter { background: #214b3a; color: #fffdf1; }
+.content { display: block; font: 36rpx/1.8 'Songti SC', 'STSong', serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.meta { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-top: 26rpx; color: #718067; font-size: 24rpx; }
+.shareWish { margin: 0; padding: 12rpx 0 12rpx 18rpx; background: transparent; color: #718067; font-size: 24rpx; flex-shrink: 0; }
+.count { display: block; margin-top: 24rpx; color: #718067; font-size: 26rpx; }
+.countNumber { color: #173f33; font-size: 38rpx; font-variant-numeric: tabular-nums; }
+.actions { display: flex; gap: 18rpx; margin: 22rpx 0 12rpx; }
+.expect, .contribute { flex: 1; margin: 0; font-size: 28rpx; padding: 14rpx; line-height: 1.7; border-radius: 10rpx; }
+.expect { background: #214b3a; color: #fffdf1; }
+.expected { background: #e4eadb; color: #365b43; }
+.contribute { background: transparent; color: #31513b; border: 1rpx solid #9baa8d; }
+.notice { display: block; margin: 20rpx 0 30rpx; color: #7b8771; font-size: 24rpx; line-height: 1.6; }
+.pager { display: flex; align-items: center; justify-content: space-between; margin-top: 28rpx; padding-top: 14rpx; border-top: 1rpx solid #d9ddce; color: #849078; font-size: 23rpx; font-variant-numeric: tabular-nums; }
+.previous, .next { margin: 0; padding: 14rpx 0; background: transparent; color: #31513b; font-size: 25rpx; }
+.previous[disabled], .next[disabled] { color: #a8af9f; background: transparent; }
+.shuffle { margin: 12rpx auto 0; background: transparent; color: #6c7e60; font-size: 25rpx; }
+.footer { margin-top: 30rpx; padding-top: 30rpx; border-top: 1rpx solid #d9ddce; }
+.writeWish { background: #214b3a; color: #fffdf1; font-size: 30rpx; border-radius: 10rpx; }
+.myWishes { margin-top: 14rpx; background: transparent; color: #526d4f; font-size: 26rpx; }
+.state { padding: 30rpx 0; }
+.stateTitle { display: block; font: 34rpx/1.8 'Songti SC', 'STSong', serif; }
+.stateCopy { display: block; margin-top: 18rpx; color: #7b8771; font-size: 26rpx; line-height: 1.7; }
+.allTree { margin: 30rpx 0 0; background: #e9eddf; color: #31513b; font-size: 27rpx; }
+.appendError { color: #963e31; font-size: 25rpx; }
+.page button::after { border: 0; }
+
+.author { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+.mapWrap { position: relative; }

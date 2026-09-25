@@ -24,24 +24,18 @@ export interface EntryTaro {
  * 页面栈由调用方现取：冷启动时为空（`resolveEntry` 的 `navigate` 抑制
  * 见 `EntryDecision.navigate`），热启动时为栈顶页。
  *
- * wish2 U9（KTD7）：目标是 tabBar 页（如长廊 wishId 深链）时 `navigateTo`
- * 会被微信拒绝（tab 页只能 `switchTab` 且不带 query）——定位参数先落
- * `pendingWishKey`，目标页 `useDidShow` 读后即清（flashbackEntry 同款
- * 一次性语义）。
+ * Tab 页面使用 switchTab，其余分享页直接 navigateTo。
  */
 export function applyEntry(
   taro: EntryTaro,
   options: AppEntryOptions,
-  pendingSceneKey: string,
-  pendingWishKey?: string
+  pendingSceneKey: string
 ): void {
   const { scene, url, navigate } = resolveEntry(options, taro.getCurrentPages())
   if (scene) taro.setStorageSync(pendingSceneKey, scene)
   if (!(url && navigate)) return
-  const [path, search = ''] = url.split('?')
+  const [path] = url.split('?')
   if (isTabPath(path, FULL_TAB_PATHS)) {
-    const wishId = new URLSearchParams(search).get('wishId')
-    if (wishId && pendingWishKey) taro.setStorageSync(pendingWishKey, wishId)
     taro.switchTab({ url: path })
   } else {
     taro.navigateTo({ url })

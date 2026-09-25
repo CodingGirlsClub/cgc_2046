@@ -4904,6 +4904,42 @@ type RootQueryType {
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
   speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
 
+  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
+  listUsers(search: String, first: Int, after: String): [AdminUser!]!
+
+  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
+  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
+
+  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
+  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
+
+  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listToolCallLogs(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminToolCallLog!]!
+
+  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listPendingOperations(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminPendingOperation!]!
+
+  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
+  listSignalLogs(
+    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminSignalLog!]!
+
+  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
+  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
+
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
+  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "平台管理员：倡导活动列表"
+  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
+
+  "平台管理员：倡导活动详情及四项规则"
+  getInitiative(id: ID!): AdminInitiative
+
   "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
   listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
 
@@ -4954,6 +4990,32 @@ type RootQueryType {
   "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
   volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
+  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
+  myLearningRuns: [MyLearningRun!]!
+
+  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
+  myEnrollment(
+    "event | course"
+    kind: String!
+
+    offeringId: ID!
+  ): Enrollment
+
+  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
+  courseMap(slug: String!): CourseMap
+
+  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
+  courseLearningDetail(courseId: ID!): CourseLearningDetail
+
+  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
+  courseContent(courseId: ID!): CourseContent
+
+  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
+  courseDraft(courseId: ID!): CourseDraft
+
+  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
+  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -4982,20 +5044,6 @@ type RootQueryType {
 
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
   pendingApprovalsCount: Int!
-
-  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
-  myLearningRuns: [MyLearningRun!]!
-
-  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
-  myEnrollment(
-    "event | course"
-    kind: String!
-
-    offeringId: ID!
-  ): Enrollment
-
-  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
-  courseMap(slug: String!): CourseMap
 
   "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
   publicInitiative(slug: String!): PublicInitiative
@@ -5045,6 +5093,9 @@ type RootQueryType {
   "删除摘要（U10\/R30 二次确认页数据源）：将失去什么——强提示依据；双入口（token 或登录账号）"
   flashbackDeletePreview(token: String): FlashbackDeletePreviewResult
 
+  "登录账号的全部未删除愿望，含公开、私密和待审；无历史档案也可使用。"
+  flashbackMyWishes: FlashbackMyWishes
+
   "闪念间公开统计层（U6\/R32）：场次档案聚合 + 已回来\/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
   flashbackPublicStats: FlashbackPublicStats
 
@@ -5085,6 +5136,9 @@ type RootQueryType {
     "城市过滤（Cities.normalize 短名；null = 不过滤）"
     city: String
 
+    "仅含已公开回响的愿望；在分页前筛选，不把草稿或撤销回响算入"
+    withEchoes: Boolean
+
     "排序种子（null = 当日+voterKey；「换一批」传随机值）"
     seed: String
 
@@ -5106,6 +5160,9 @@ type RootQueryType {
     voterKey: String
   ): FlashbackPublicWish
 
+  "公开许愿树城市全集，按拼音排列，不受愿望分页限制"
+  flashbackWishCities: [FlashbackCity!]!
+
   "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
   flashbackVoiceCities: [FlashbackCity!]!
 
@@ -5124,62 +5181,14 @@ type RootQueryType {
   "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
   flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
 
-  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
-  courseLearningDetail(courseId: ID!): CourseLearningDetail
-
-  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
-  courseContent(courseId: ID!): CourseContent
-
-  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
-  courseDraft(courseId: ID!): CourseDraft
-
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
   platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
-
-  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
-  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
 
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
-  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
-  listUsers(search: String, first: Int, after: String): [AdminUser!]!
-
-  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
-  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
-
-  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
-  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
-
   "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
   myWorkspaceApplications: [AdminWorkspaceApplication!]!
-
-  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listToolCallLogs(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminToolCallLog!]!
-
-  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listPendingOperations(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminPendingOperation!]!
-
-  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
-  listSignalLogs(
-    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminSignalLog!]!
-
-  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
-  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
-
-  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
-  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
-
-  "平台管理员：倡导活动列表"
-  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
-
-  "平台管理员：倡导活动详情及四项规则"
-  getInitiative(id: ID!): AdminInitiative
 
   sponsorships(
     "How to sort the records in the response"
@@ -5590,120 +5599,6 @@ type PendingApproval {
   amount: Int
 }
 
-type Enrollment {
-  id: ID!
-
-  workspaceId: ID!
-
-  eventId: ID
-
-  courseId: ID
-
-  userId: ID!
-
-  workflowRunId: ID
-
-  inviteBatchId: ID
-
-  status: String!
-
-  capacitySeq: Int
-
-  approvedBy: ID
-
-  approvedAt: DateTime
-
-  rejectionReason: String
-
-  approvalDeadline: DateTime
-
-  expiredAt: DateTime
-
-  cancelledAt: DateTime
-
-  insertedAt: DateTime!
-
-  targetTitle: String
-
-  startsAt: DateTime
-
-  venue: String
-
-  registrationDeadline: DateTime
-
-  paymentMode: String
-
-  depositAmountCents: Int
-
-  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
-  checkInCode: String
-}
-
-type MyLearningRun {
-  runId: ID!
-  enrollmentId: ID!
-  targetTitle: String
-  status: String!
-  staleRevision: Boolean!
-  progress: LearningProgress!
-  nextAction: LearningNextAction
-  courseId: ID!
-}
-
-type CourseLearningDetail {
-  courseId: ID!
-  title: String!
-  slug: String
-  run: LearningRunSummary
-  revisionNumber: Int
-  staleRevision: Boolean!
-  reviewQueue: [LearningReviewQueueEntry!]!
-  objectives: [LearningObjectiveState!]!
-  nextAction: LearningNextAction
-  progress: LearningProgress
-}
-
-type LearningReviewQueueEntry {
-  objectiveId: String!
-  dueAt: DateTime!
-  milestoneDays: Int
-  needsReview: Boolean!
-}
-
-type CourseMap {
-  courseId: ID!
-  title: String!
-  slug: String!
-  goals: [String!]!
-  issues: [CourseMapIssue!]!
-}
-
-type CourseMapIssue {
-  key: String!
-  id: String!
-  title: String!
-  kind: String!
-  goal: String
-}
-
-type CourseContent {
-  courseId: ID!
-  title: String!
-  description: String
-  revisionNumber: Int
-  publishedAt: DateTime
-  content: JsonString!
-}
-
-type CourseDraft {
-  courseId: ID!
-  title: String!
-  version: Int
-  prepState: String
-  updatedAt: DateTime
-  content: JsonString
-}
-
 type PlatformWorkflowAudit {
   id: ID!
   workspaceId: ID!
@@ -5713,77 +5608,6 @@ type PlatformWorkflowAudit {
   finishedAt: DateTime
   insertedAt: DateTime!
   errorSummary: String
-}
-
-type CourseLearningAnalytics {
-  runStats: CourseLearningRunStats!
-  objectives: [CourseLearningObjectiveStats!]!
-  dropOff: CourseLearningDropOff!
-  generatedAt: DateTime!
-}
-
-type CourseLearningRunStats {
-  totalRuns: Int!
-  activeRuns: Int!
-  completedRuns: Int!
-  completionRate: Float
-}
-
-type CourseLearningObjectiveStats {
-  objectiveId: String!
-  title: String!
-  required: Boolean!
-  mastered: Int!
-  developing: Int!
-  needsReview: Int!
-  unassessed: Int!
-  totalAttempts: Int!
-  qualifyingPasses: Int!
-  lowConfidenceAttempts: Int!
-  passRate: Float
-  lastActivityAt: DateTime
-}
-
-type CourseLearningDropOff {
-  staleRunCount: Int!
-}
-
-type LearningRunSummary {
-  id: ID!
-  status: String!
-  revisionId: ID
-  revisionNumber: Int
-}
-
-type LearningObjectiveState {
-  id: String!
-  title: String!
-  required: Boolean!
-  issueId: String
-  prereqIds: [String!]!
-  mastery: String!
-  everMastered: Boolean!
-  locked: Boolean!
-  missingPrereqIds: [LearningPrereqRef!]!
-  attemptCount: Int!
-  lastAttemptAt: DateTime
-}
-
-type LearningPrereqRef {
-  id: String!
-  title: String
-}
-
-type LearningNextAction {
-  kind: String!
-  objectiveId: String!
-  reason: String!
-}
-
-type LearningProgress {
-  masteredRequired: Int!
-  totalRequired: Int!
-  complete: Boolean!
 }
 
 type WorkspaceToolCall {
@@ -6305,6 +6129,21 @@ type FlashbackWishComment {
   "留言人遮罩姓"
   commenterMasked: String
 
+  insertedAt: DateTime!
+}
+
+type FlashbackMyWishes {
+  quotaRemaining: Int!
+  wishes: [FlashbackOwnedWish!]!
+}
+
+type FlashbackOwnedWish {
+  id: ID!
+  content: String!
+  city: String
+  signature: String!
+  visibility: String!
+  status: String!
   insertedAt: DateTime!
 }
 
@@ -6896,25 +6735,6 @@ input FlashbackFogSpanInput {
   reason: String
 }
 
-type AdminUser {
-  id: ID!
-  email: String
-  displayName: String
-  isPlatformAdmin: Boolean!
-  insertedAt: DateTime!
-  workspaceMembershipCount: Int
-}
-
-type AdminWorkspace {
-  id: ID!
-  slug: String!
-  name: String!
-  joinPolicy: String!
-  sponsorshipEnabled: Boolean!
-  insertedAt: DateTime!
-  memberCount: Int!
-}
-
 type AdminWorkspaceApplication {
   id: ID!
   applicantId: ID!
@@ -6928,223 +6748,6 @@ type AdminWorkspaceApplication {
   rejectedBy: ID
   rejectedAt: DateTime
   insertedAt: DateTime!
-}
-
-type AdminToolCallLog {
-  id: ID!
-  userId: ID!
-  tool: String!
-  resultStatus: String!
-  errorMessage: String
-  latencyMs: Int
-  insertedAt: DateTime!
-}
-
-type AdminPendingOperation {
-  id: ID!
-  userId: ID!
-  tool: String!
-  summary: String!
-  status: String!
-  insertedAt: DateTime!
-}
-
-type AdminSignalLog {
-  id: ID!
-  workspaceId: ID!
-  signalType: String!
-  insertedAt: DateTime!
-}
-
-type AdminActionLog {
-  id: ID!
-
-  actorId: ID
-
-  action: String!
-
-  targetType: String!
-
-  targetId: ID!
-
-  result: String!
-
-  insertedAt: DateTime!
-
-  "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
-  metadata: AdminActionMetadata
-
-  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
-  offeringChange: AdminOfferingChangeMetadata
-}
-
-type AdminActionMetadata {
-  "规则键：deposit | age_gate | min_participants | deadline_rule"
-  ruleKey: String!
-
-  "变更后锁定态"
-  locked: Boolean!
-
-  "变更前锁定态；:create（新建规则）无前值 → null"
-  lockedBefore: Boolean
-
-  "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
-  valueBeforeJson: JsonString
-
-  "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
-  valueAfterJson: JsonString!
-
-  "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
-  valueBeforeOmitted: Boolean!
-
-  "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
-  valueAfterOmitted: Boolean!
-}
-
-"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
-type AdminOfferingChangeMetadata {
-  "变更前标题；该属性未变更 → null"
-  titleBefore: String
-
-  "变更后标题；该属性未变更 → null"
-  titleAfter: String
-
-  "变更前可见性（public | workspace）"
-  visibilityBefore: String
-
-  "变更后可见性（public | workspace）"
-  visibilityAfter: String
-
-  "变更前报名名额上限；nil 表示不限"
-  capacityBefore: Int
-
-  "变更后报名名额上限；nil 表示不限"
-  capacityAfter: Int
-
-  "变更前定价槽位"
-  pricingEnabledBefore: Boolean
-
-  "变更后定价槽位"
-  pricingEnabledAfter: Boolean
-
-  "变更前押金槽位（Event-only；Course 恒 null）"
-  depositEnabledBefore: Boolean
-
-  "变更后押金槽位（Event-only；Course 恒 null）"
-  depositEnabledAfter: Boolean
-}
-
-type AdminReconciliationFinding {
-  id: ID!
-  rule: String!
-  entityType: String!
-  entityId: String!
-  workspaceId: ID
-  firstSeenAt: DateTime!
-  lastSeenAt: DateTime!
-  insertedAt: DateTime!
-}
-
-type AdminInitiative {
-  id: ID!
-
-  name: String!
-
-  slug: String!
-
-  hashtag: String
-
-  description: String
-
-  windowStartsAt: DateTime
-
-  windowEndsAt: DateTime
-
-  status: String!
-
-  createdBy: ID!
-
-  insertedAt: DateTime!
-
-  updatedAt: DateTime!
-
-  publicStats: PublicInitiative
-
-  rules: [AdminInitiativeRule!]!
-
-  """
-  平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
-
-  门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
-  不加独立 gate；不分页、不过滤 visibility，理由见
-  Cgc2046.Initiatives.Mounts 的 moduledoc。
-
-  附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
-  同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
-  「清单加载失败」两种状态，不把失败伪装成 0 场。
-  """
-  mountedEvents: [AdminInitiativeMountedEvent!]
-}
-
-type AdminInitiativeMountedEvent {
-  "Event \/ Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
-  id: ID!
-
-  initiativeId: ID!
-
-  slug: String!
-
-  title: String!
-
-  status: String!
-
-  startsAt: DateTime
-
-  registrationDeadline: DateTime
-
-  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
-  venue: JsonString
-
-  workspaceId: ID!
-
-  workspaceName: String!
-
-  "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
-  confirmedCount: Int!
-
-  pricingEnabled: Boolean!
-
-  depositEnabled: Boolean!
-
-  depositAmountCents: Int
-
-  minAge: Int
-
-  minParticipants: Int
-}
-
-type AdminInitiativeRule {
-  id: ID!
-  initiativeId: ID!
-  key: String!
-  valueJson: String!
-  locked: Boolean!
-  insertedAt: DateTime!
-  updatedAt: DateTime!
-}
-
-input AdminInitiativeInput {
-  name: String
-  slug: String
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-}
-
-type AdminInitiativePayload {
-  result: AdminInitiative
-  errors: [MutationError]
 }
 
 type PublicInitiative {
@@ -7208,13 +6811,6 @@ type PublicInitiativeDeposit {
   refundableOnCheckIn: Boolean
 }
 
-type AdminUserPayload {
-  id: ID
-  email: String
-  isPlatformAdmin: Boolean
-  errors: [MutationError]
-}
-
 type RootMutationType {
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -7248,6 +6844,27 @@ type RootMutationType {
 
   "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
   completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+
+  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
+  promoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
+  demoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：创建倡导活动草稿"
+  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：更新倡导活动元数据"
+  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：设置倡导活动状态为进行中"
+  openInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：结束倡导活动"
+  closeInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+  cancelInitiative(id: ID!): AdminInitiativePayload
 
   "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
   adminLaunchEvent(id: ID!): AdminEventPayload
@@ -7438,27 +7055,6 @@ type RootMutationType {
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
 
-  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
-  promoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
-  demoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：创建倡导活动草稿"
-  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：更新倡导活动元数据"
-  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：设置倡导活动状态为进行中"
-  openInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：结束倡导活动"
-  closeInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
-  cancelInitiative(id: ID!): AdminInitiativePayload
-
   "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
   flashbackEnter(token: String!): FlashbackEnterResult
 
@@ -7499,6 +7095,8 @@ type RootMutationType {
   "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
   flashbackCreateWish(
     token: String
+
+    requestId: ID
 
     content: String!
 
@@ -7775,6 +7373,434 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type AdminUser {
+  id: ID!
+  email: String
+  displayName: String
+  isPlatformAdmin: Boolean!
+  insertedAt: DateTime!
+  workspaceMembershipCount: Int
+}
+
+type AdminWorkspace {
+  id: ID!
+  slug: String!
+  name: String!
+  joinPolicy: String!
+  sponsorshipEnabled: Boolean!
+  insertedAt: DateTime!
+  memberCount: Int!
+}
+
+type AdminToolCallLog {
+  id: ID!
+  userId: ID!
+  tool: String!
+  resultStatus: String!
+  errorMessage: String
+  latencyMs: Int
+  insertedAt: DateTime!
+}
+
+type AdminPendingOperation {
+  id: ID!
+  userId: ID!
+  tool: String!
+  summary: String!
+  status: String!
+  insertedAt: DateTime!
+}
+
+type AdminSignalLog {
+  id: ID!
+  workspaceId: ID!
+  signalType: String!
+  insertedAt: DateTime!
+}
+
+type AdminActionLog {
+  id: ID!
+
+  actorId: ID
+
+  action: String!
+
+  targetType: String!
+
+  targetId: ID!
+
+  result: String!
+
+  insertedAt: DateTime!
+
+  "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 \/ops\/admin（AshAdmin）可见"
+  metadata: AdminActionMetadata
+
+  "offering 治理写的变更投影（U1）：admin_event_update \/ admin_course_update 落表的行才有值，其余 action（含 launch\/close\/cancel）为 null。闭集标量的前后值分列，不收自由文本"
+  offeringChange: AdminOfferingChangeMetadata
+}
+
+type AdminActionMetadata {
+  "规则键：deposit | age_gate | min_participants | deadline_rule"
+  ruleKey: String!
+
+  "变更后锁定态"
+  locked: Boolean!
+
+  "变更前锁定态；:create（新建规则）无前值 → null"
+  lockedBefore: Boolean
+
+  "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
+  valueBeforeJson: JsonString
+
+  "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
+  valueAfterJson: JsonString!
+
+  "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueBeforeOmitted: Boolean!
+
+  "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
+  valueAfterOmitted: Boolean!
+}
+
+"offering 治理写（admin_event_update \/ admin_course_update）的变更前后值投影"
+type AdminOfferingChangeMetadata {
+  "变更前标题；该属性未变更 → null"
+  titleBefore: String
+
+  "变更后标题；该属性未变更 → null"
+  titleAfter: String
+
+  "变更前可见性（public | workspace）"
+  visibilityBefore: String
+
+  "变更后可见性（public | workspace）"
+  visibilityAfter: String
+
+  "变更前报名名额上限；nil 表示不限"
+  capacityBefore: Int
+
+  "变更后报名名额上限；nil 表示不限"
+  capacityAfter: Int
+
+  "变更前定价槽位"
+  pricingEnabledBefore: Boolean
+
+  "变更后定价槽位"
+  pricingEnabledAfter: Boolean
+
+  "变更前押金槽位（Event-only；Course 恒 null）"
+  depositEnabledBefore: Boolean
+
+  "变更后押金槽位（Event-only；Course 恒 null）"
+  depositEnabledAfter: Boolean
+}
+
+type AdminReconciliationFinding {
+  id: ID!
+  rule: String!
+  entityType: String!
+  entityId: String!
+  workspaceId: ID
+  firstSeenAt: DateTime!
+  lastSeenAt: DateTime!
+  insertedAt: DateTime!
+}
+
+type AdminInitiative {
+  id: ID!
+
+  name: String!
+
+  slug: String!
+
+  hashtag: String
+
+  description: String
+
+  windowStartsAt: DateTime
+
+  windowEndsAt: DateTime
+
+  status: String!
+
+  createdBy: ID!
+
+  insertedAt: DateTime!
+
+  updatedAt: DateTime!
+
+  publicStats: PublicInitiative
+
+  rules: [AdminInitiativeRule!]!
+
+  """
+  平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
+
+  门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
+  不加独立 gate；不分页、不过滤 visibility，理由见
+  Cgc2046.Initiatives.Mounts 的 moduledoc。
+
+  附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
+  同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
+  「清单加载失败」两种状态，不把失败伪装成 0 场。
+  """
+  mountedEvents: [AdminInitiativeMountedEvent!]
+}
+
+type AdminInitiativeMountedEvent {
+  "Event \/ Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
+  id: ID!
+
+  initiativeId: ID!
+
+  slug: String!
+
+  title: String!
+
+  status: String!
+
+  startsAt: DateTime
+
+  registrationDeadline: DateTime
+
+  "结构化场地 JSON 串（country\/province\/city\/district；nil = 线上或未定）"
+  venue: JsonString
+
+  workspaceId: ID!
+
+  workspaceName: String!
+
+  "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
+  confirmedCount: Int!
+
+  pricingEnabled: Boolean!
+
+  depositEnabled: Boolean!
+
+  depositAmountCents: Int
+
+  minAge: Int
+
+  minParticipants: Int
+}
+
+type AdminInitiativeRule {
+  id: ID!
+  initiativeId: ID!
+  key: String!
+  valueJson: String!
+  locked: Boolean!
+  insertedAt: DateTime!
+  updatedAt: DateTime!
+}
+
+input AdminInitiativeInput {
+  name: String
+  slug: String
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+}
+
+type AdminInitiativePayload {
+  result: AdminInitiative
+  errors: [MutationError]
+}
+
+type AdminUserPayload {
+  id: ID
+  email: String
+  isPlatformAdmin: Boolean
+  errors: [MutationError]
+}
+
+type Enrollment {
+  id: ID!
+
+  workspaceId: ID!
+
+  eventId: ID
+
+  courseId: ID
+
+  userId: ID!
+
+  workflowRunId: ID
+
+  inviteBatchId: ID
+
+  status: String!
+
+  capacitySeq: Int
+
+  approvedBy: ID
+
+  approvedAt: DateTime
+
+  rejectionReason: String
+
+  approvalDeadline: DateTime
+
+  expiredAt: DateTime
+
+  cancelledAt: DateTime
+
+  insertedAt: DateTime!
+
+  targetTitle: String
+
+  startsAt: DateTime
+
+  venue: String
+
+  registrationDeadline: DateTime
+
+  paymentMode: String
+
+  depositAmountCents: Int
+
+  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
+  checkInCode: String
+}
+
+type MyLearningRun {
+  runId: ID!
+  enrollmentId: ID!
+  targetTitle: String
+  status: String!
+  staleRevision: Boolean!
+  progress: LearningProgress!
+  nextAction: LearningNextAction
+  courseId: ID!
+}
+
+type CourseLearningDetail {
+  courseId: ID!
+  title: String!
+  slug: String
+  run: LearningRunSummary
+  revisionNumber: Int
+  staleRevision: Boolean!
+  reviewQueue: [LearningReviewQueueEntry!]!
+  objectives: [LearningObjectiveState!]!
+  nextAction: LearningNextAction
+  progress: LearningProgress
+}
+
+type LearningReviewQueueEntry {
+  objectiveId: String!
+  dueAt: DateTime!
+  milestoneDays: Int
+  needsReview: Boolean!
+}
+
+type CourseMap {
+  courseId: ID!
+  title: String!
+  slug: String!
+  goals: [String!]!
+  issues: [CourseMapIssue!]!
+}
+
+type CourseMapIssue {
+  key: String!
+  id: String!
+  title: String!
+  kind: String!
+  goal: String
+}
+
+type CourseContent {
+  courseId: ID!
+  title: String!
+  description: String
+  revisionNumber: Int
+  publishedAt: DateTime
+  content: JsonString!
+}
+
+type CourseDraft {
+  courseId: ID!
+  title: String!
+  version: Int
+  prepState: String
+  updatedAt: DateTime
+  content: JsonString
+}
+
+type CourseLearningAnalytics {
+  runStats: CourseLearningRunStats!
+  objectives: [CourseLearningObjectiveStats!]!
+  dropOff: CourseLearningDropOff!
+  generatedAt: DateTime!
+}
+
+type CourseLearningRunStats {
+  totalRuns: Int!
+  activeRuns: Int!
+  completedRuns: Int!
+  completionRate: Float
+}
+
+type CourseLearningObjectiveStats {
+  objectiveId: String!
+  title: String!
+  required: Boolean!
+  mastered: Int!
+  developing: Int!
+  needsReview: Int!
+  unassessed: Int!
+  totalAttempts: Int!
+  qualifyingPasses: Int!
+  lowConfidenceAttempts: Int!
+  passRate: Float
+  lastActivityAt: DateTime
+}
+
+type CourseLearningDropOff {
+  staleRunCount: Int!
+}
+
+type LearningRunSummary {
+  id: ID!
+  status: String!
+  revisionId: ID
+  revisionNumber: Int
+}
+
+type LearningObjectiveState {
+  id: String!
+  title: String!
+  required: Boolean!
+  issueId: String
+  prereqIds: [String!]!
+  mastery: String!
+  everMastered: Boolean!
+  locked: Boolean!
+  missingPrereqIds: [LearningPrereqRef!]!
+  attemptCount: Int!
+  lastAttemptAt: DateTime
+}
+
+type LearningPrereqRef {
+  id: String!
+  title: String
+}
+
+type LearningNextAction {
+  kind: String!
+  objectiveId: String!
+  reason: String!
+}
+
+type LearningProgress {
+  masteredRequired: Int!
+  totalRequired: Int!
+  complete: Boolean!
+}
 
 type AdminEvent {
   id: ID!
