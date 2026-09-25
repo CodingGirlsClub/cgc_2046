@@ -60,6 +60,9 @@ const wish = (overrides: Partial<FlashbackWish> = {}): FlashbackWish => ({
 	endorsedByMe: false,
 	mine: false,
 	comments: [],
+	latestEcho: null,
+	echoCount: 0,
+	echoes: [],
 	insertedAt: "2026-09-18T00:00:00Z",
 	...overrides,
 });

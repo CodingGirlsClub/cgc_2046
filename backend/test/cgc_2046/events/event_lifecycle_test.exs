@@ -91,7 +91,9 @@ defmodule Cgc2046.Events.EventLifecycleTest do
 
       # 陈旧 struct（内存仍 draft）再次 launch → CAS num_rows=0 拒绝
       assert {:error, race} = launch(event, workspace, admin)
-      assert Exception.message(race) =~ "concurrently"
+
+      assert Exception.message(race) =~
+               "launch failed: status changed concurrently, retry on fresh read"
     end
 
     test "DB 级 compare-and-set：陈旧 struct（内存 open、DB 已 closed）被 CAS 拒绝" do
@@ -105,7 +107,9 @@ defmodule Cgc2046.Events.EventLifecycleTest do
 
       # 后到者持旧 struct（内存 status 仍 :open）——前置守卫放行，DB CAS num_rows=0 拒绝
       assert {:error, race} = close(event, workspace, admin)
-      assert Exception.message(race) =~ "concurrently"
+
+      assert Exception.message(race) =~
+               "close failed: status changed concurrently, retry on fresh read"
 
       # CAS 拒绝后不重复发布：仅第一次 close 入队一个 ended job（精确计数；
       # 锚定本事件 id——套件内并发类测试真实提交的残留 job 不影响断言）
@@ -151,7 +155,10 @@ defmodule Cgc2046.Events.EventLifecycleTest do
 
       # 陈旧 struct 上的 close（内存仍 open）被 CAS 拒绝
       assert {:error, race} = close(event, workspace, admin)
-      assert Exception.message(race) =~ "concurrently"
+
+      assert Exception.message(race) =~
+               "close failed: status changed concurrently, retry on fresh read"
+
       assert reload(Event, event.id).status == :cancelled
     end
   end

@@ -24,15 +24,19 @@ const wish = (id: string, over: Partial<FlashbackPublicWish> = {}): FlashbackPub
 	contributionDistribution: { venue: 1 },
 	expectedByViewer: false,
 	endorsedByViewer: false,
+	latestEcho: null,
+	echoCount: 0,
+	echoes: [],
 	listedAt: "2026-09-22T00:00:00Z",
 	insertedAt: "2026-09-22T00:00:00Z",
 	...over,
 });
 
-const { wallQuery, citiesQuery, expectRunner, deferred } = vi.hoisted(() => ({
+const { wallQuery, citiesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
 	wallQuery: vi.fn(),
 	citiesQuery: vi.fn(),
 	expectRunner: vi.fn(),
+	useAuthed: vi.fn(),
 	// 手控 promise：push 一个存根，测试自行决定何时 resolve——乱序场景的
 	// 时间线由测试自己排，不依赖 once-mock 的消费顺序（脆弱，且本用例正是
 	// 要绕开「注册顺序=完成顺序」的巧合）
@@ -52,6 +56,8 @@ vi.mock("@/lib/apollo-client", () => ({
 	},
 }));
 
+vi.mock("@/lib/auth-provider", () => ({ useAuthed }));
+
 vi.mock("@apollo/client/react", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@apollo/client/react")>();
 	return {
@@ -67,6 +73,8 @@ beforeEach(() => {
 	wallQuery.mockReset();
 	citiesQuery.mockReset();
 	expectRunner.mockReset();
+	useAuthed.mockReset();
+	useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
 	deferred.length = 0;
 	wallQuery.mockResolvedValue({ data: { flashbackPublicWishes: [wish("w1"), wish("w2", { city: "成都" })] } });
 	citiesQuery.mockResolvedValue({
@@ -167,5 +175,25 @@ describe("WishesWall · 公开许愿树（U7）", () => {
 			expect(screen.queryByText("愿望 w-stale")).toBeNull();
 		});
 		expect(screen.getByText("愿望 w-latest")).toBeTruthy();
+	});
+});
+
+describe("WishesWall · 写愿望入口（#824/U8）", () => {
+	it("未登录访客去站内登录并回跳许愿树，不进入档案 token 旅程", async () => {
+		render(<WishesWall showIntro={false} />);
+		await screen.findByText("愿望 w1");
+
+		const writeLink = screen.getByRole("link", { name: "写下我的愿望" });
+		expect(writeLink).toHaveAttribute("href", `/login?next=${encodeURIComponent("/flashback/wishes")}`);
+		expect(screen.queryByText("链接不存在或已过期")).not.toBeInTheDocument();
+	});
+
+	it("登录用户仍由主 CTA 直接打开写愿望表单", async () => {
+		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "user-1" });
+		render(<WishesWall showIntro={false} />);
+		await screen.findByText("愿望 w1");
+
+		fireEvent.click(screen.getByRole("button", { name: "写下我的愿望" }));
+		expect(await screen.findByRole("dialog", { name: "许个愿" })).toBeInTheDocument();
 	});
 });
