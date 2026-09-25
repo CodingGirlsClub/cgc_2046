@@ -3,6 +3,8 @@ import { Button, Image, Text, View } from '@tarojs/components'
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro'
 import { AppTabBar } from '@/components/AppTabBar'
 import { getRandomVoices } from '@/api/flashback-voices'
+import { api } from '@/api'
+import { albumRows, type AlbumRow } from '@/domain/flashback-journey'
 import { ensureWishVoterKey } from '@/domain/flashback'
 import { guestVoicePreview, selectGuestVoice, type PublicVoice } from '@/domain/flashback-voices'
 import { STORAGE_KEYS } from '@/state/storage'
@@ -13,6 +15,17 @@ import styles from './index.module.css'
 type QuoteState = { status: 'loading' | 'ready' | 'error'; voice: PublicVoice | null }
 export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: PublicRecovery; onRecover: () => void; onRetry: () => void }) {
   const [quote, setQuote] = useState<QuoteState>({ status: 'loading', voice: null })
+  // #933 那些年的相册：未登录读公开统计层，已登录无档案读相册（多城市堆）；失败整段隐藏（非关键路径）
+  const [albums, setAlbums] = useState<AlbumRow[]>([])
+  useEffect(() => {
+    if (recovery === 'checking') return
+    let live = true
+    const rows = recovery === 'unmatched'
+      ? api.getFlashbackArchives().then(({ archives }) => albumRows(archives))
+      : api.getFlashbackPublicStats().then((stats) => albumRows(stats.archives))
+    rows.then((next) => { if (live) setAlbums(next) }).catch(() => { if (live) setAlbums([]) })
+    return () => { live = false }
+  }, [recovery])
   const generation = useRef(0)
   const load = useCallback(async () => {
     const seq = ++generation.current
@@ -80,6 +93,32 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
           if (recoveryCopy.action === 'write') open('/pages/flashback-wish-write/index')
         }}>{recoveryCopy.button}</Button>
       </View>
+      {albums.length > 0 && (
+        <View className={styles.albums}>
+          <Text className={styles.albumsTitle}>那些年的相册</Text>
+          <Text className={styles.albumsHint}>
+            {recovery === 'guest' ? '登录后翻看每一场的名册。' : '回来的人亮着，还没回来的只留下一个姓。'}
+          </Text>
+          {albums.map((row) => (
+            <View key={row.key} className={styles.albumRow} onClick={() => open(`/pages/flashback-event/index?key=${encodeURIComponent(row.key)}`)}>
+              <View className={styles.albumMain}>
+                <Text className={styles.albumTitle}>{row.when ? `${row.when} · ` : ''}{row.title}</Text>
+                {row.meta ? <Text className={styles.albumMeta}>{row.meta}</Text> : null}
+                {row.piles.length > 0 && (
+                  <View className={styles.albumPiles}>
+                    {row.piles.map((pile) => (
+                      <Text key={pile.city} className={styles.albumPile}>
+                        {pile.city} {pile.count} 位{pile.returned > 0 ? <Text className={styles.albumReturned}> · {pile.returned} 位已回来</Text> : null}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+              </View>
+              <Text className={styles.albumArrow}>→</Text>
+            </View>
+          ))}
+        </View>
+      )}
       <Button className={styles.gathering} onClick={() => void Taro.switchTab({ url: '/pages/discover/index' })}>
         <Text className={styles.gatheringKicker}>下一次相聚</Text>
         <View className={styles.gatheringRow}><Text>发现下一场，一起做点什么</Text><Text>→</Text></View>

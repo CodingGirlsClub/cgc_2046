@@ -65,6 +65,19 @@ export default function FlashbackCorridorPage() {
     setLicenseNudge(true)
   }
 
+  // #933 相册开放告知（一次性）：开放前就寄出的人第一次回来时看到；进来时还没寄出的人
+  // 寄出前会读到新的可见范围文案——直接置位，寄出后不再打扰
+  const [albumNotice, setAlbumNotice] = useState(false)
+  useEffect(() => {
+    if (mode.kind !== 'member' || Taro.getStorageSync<boolean>(STORAGE_KEYS.flashbackAlbumNotice)) return
+    if (mode.capsule.me?.today?.sentToWallAt) setAlbumNotice(true)
+    else Taro.setStorageSync(STORAGE_KEYS.flashbackAlbumNotice, true)
+  }, [mode])
+  const dismissAlbumNotice = () => {
+    Taro.setStorageSync(STORAGE_KEYS.flashbackAlbumNotice, true)
+    setAlbumNotice(false)
+  }
+
   // 寄出落定后今天格一次性强调(脉冲 1.5s;静态卡无可点信号,用户不会想到去点)
   const [todayLanded, setTodayLanded] = useState(false)
 
@@ -290,6 +303,15 @@ export default function FlashbackCorridorPage() {
           <Text className={styles.entrySubtitle}>写下未来的愿望</Text>
         </Button>
       </View>
+      {albumNotice && (
+        <View className={styles.albumNotice}>
+          <Text className={styles.albumNoticeText}>相册现在对所有登录的人开放：你寄出的卡，登录的人都能在这一场的相册里看到。想收回，可以在卡片页撤下。</Text>
+          <View className={styles.albumNoticeActions}>
+            <Text className={styles.albumNoticeGo} onClick={() => { dismissAlbumNotice(); void Taro.navigateTo({ url: '/pages/flashback-today/index' }) }}>去卡片页 →</Text>
+            <Text className={styles.albumNoticeOk} onClick={dismissAlbumNotice}>知道了</Text>
+          </View>
+        </View>
+      )}
       {/* member 卡区（U4 覆盖层入口）；路人态直接是长廊（原 1024 横幅已撤——
           活动推广归「发现」，双 Tab 重复推送同一活动） */}
       {mode.kind === 'member' && me && myView && (
@@ -590,7 +612,7 @@ export default function FlashbackCorridorPage() {
                 const today = mode.capsule.me.today
                 const hasToday = todayWritten
                 const text = today?.sentToWallAt && hasToday
-                  ? '已寄出到校友墙'
+                  ? '已寄出到相册'
                   : hasToday
                     ? '写好了 · 寄出贴上墙'
                     : '点击照片翻面写字 · 再点寄出'

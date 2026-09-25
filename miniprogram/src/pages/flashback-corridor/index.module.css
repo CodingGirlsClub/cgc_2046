@@ -874,3 +874,9 @@
 
 
 .wishTreeLink { display: block; color: #eadba8; font-size: 28rpx; padding: 20rpx 0; }
+/* #933 相册开放告知（一次性，内嵌不遮挡）：纸底 + 金色细边 = 「已被点亮的」提示 */
+.albumNotice { flex-shrink: 0; margin: 0 28rpx 18rpx; padding: 22rpx 26rpx; border-radius: 16rpx; background: #fffdf7; border: 1rpx solid #e3cf9c; }
+.albumNoticeText { display: block; font-size: 23rpx; line-height: 1.75; color: #1e3a2f; }
+.albumNoticeActions { display: flex; justify-content: flex-end; gap: 36rpx; margin-top: 12rpx; }
+.albumNoticeGo { font-size: 23rpx; color: #8a6418; }
+.albumNoticeOk { font-size: 23rpx; color: #56665a; }

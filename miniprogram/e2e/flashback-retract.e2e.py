@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""#931 撤下与删除档案（CGC_E2E_MOCK=true 构建 + 已登录的 WeChatIDE 模拟器）。
+"""#931 撤下与删除档案 + #933 相册开放告知（CGC_E2E_MOCK=true 构建 + 已登录的 WeChatIDE 模拟器）。
 
 登录账号（会话腿，无 token）：长廊寄出 → 卡片页撤下（系统确认框 mock 为确认）→
-撤下入口消失 → 删除档案两步确认（错词不提交、DELETE 才提交）→ 终态 → 回长廊落「没找到」。
+撤下入口消失 → 相册开放告知只对「开放前就寄出」的人出现一次 →
+删除档案两步确认（错词不提交、DELETE 才提交）→ 终态 → 回长廊落「没找到」。
 合成数据，不导出 storage / 凭证。报告写 /tmp。
 """
 import importlib.util, json, re, time
@@ -20,6 +21,11 @@ def count(sel): return a.evaluate('return new Promise(r=>wx.createSelectorQuery(
 def text(sel): return a.call('automation_element_action', selector=sel, action='text')
 def tap(sel): return a.call('automation_element_action', selector=sel, action='tap')
 def route(): return a.evaluate('return getCurrentPages().slice(-1)[0].route')
+def corridor():
+    a.call('automation_navigate', action='reLaunch', url='/pages/' + COR + '/index'); time.sleep(2)
+    shutter = page_cls(COR, 'shutterBtn')
+    if count(shutter): tap(shutter)
+def forget_notice(): a.evaluate('wx.removeStorageSync("cgc.flashback_album_notice_done"); return true')
 def flag(values): a.evaluate(''.join('wx.setStorageSync(' + json.dumps('cgc.e2e.' + k) + ',' + json.dumps(v) + ');' for k, v in values.items()) + 'return true')
 
 if __name__ == '__main__':
@@ -42,6 +48,20 @@ if __name__ == '__main__':
     try: tap(retract); time.sleep(1.5)
     finally: a.call('automation_wx_api', action='restore', method='showModal')
     a.check('确认撤下后撤下入口消失（回到未寄出态）', count(retract) == 0)
+
+    # #933 一次性告知：此时已撤下 = 未寄出
+    notice = page_cls(COR, 'albumNotice')
+    forget_notice(); corridor()
+    a.check('未寄出进长廊 → 没有相册开放告知', count(notice) == 0)
+    tap(page_cls(COR, 'dockSend')); time.sleep(1.5)
+    a.check('本次寄出后也不告知（寄出前已读到新的可见范围文案）', count(notice) == 0)
+    forget_notice(); corridor()
+    a.check('开放前就寄出（已寄出且未告知）→ 长廊出现告知', count(notice) == 1 and '登录的人' in text(page_cls(COR, 'albumNoticeText')))
+    tap(page_cls(COR, 'albumNoticeOk')); time.sleep(0.5)
+    a.check('点「知道了」告知消失', count(notice) == 0)
+    corridor()
+    a.check('再回长廊不再出现（一次性）', count(notice) == 0)
+    a.call('automation_navigate', action='reLaunch', url='/pages/' + TODAY + '/index'); time.sleep(1.5)
 
     tap(delete); time.sleep(1.2)
     sheet, submit, box = comp_cls('deleteSheet'), comp_cls('deleteSubmit'), comp_cls('deleteInput')

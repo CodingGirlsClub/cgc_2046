@@ -2838,12 +2838,12 @@
       "creditedNoteLabel": "现在在做什么、想说的话（实名公开）",
       "creditedNotePlaceholder": "例：在做无障碍开发",
       "submit": "写好了，去寄出 →",
-      "sendPublicNote": "寄出即公开 · 包括当年的答案 · 随时可调",
+      "sendPublicNote": "寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下",
       "quoteCourage": "你的语言，会成为别人的勇气。"
     },
     "sendRegister": {
       "reviewTitle": "寄出前，检查当年的你",
-      "reviewLead": "点一句即可切换雾或亮：带雾的句子寄出后对其他校友显示为雾块；你自己永远看到完整原文；寄出之后，还能在小程序里继续调整。",
+      "reviewLead": "点一句即可切换雾或亮：寄出后，登录的人都能在相册里看到你的卡，带雾的句子显示为雾块；你自己永远看到完整原文；寄出之后，还能在小程序里继续调整。",
       "fogBadge": "雾",
       "confirmSend": "确认寄出，贴上墙 →",
       "thinkMore": "再想想",
@@ -2946,7 +2946,7 @@
       "editError": "保存没有成功——请再试一次。",
       "retractEntry": "撤下",
       "retractTitle": "撤下这张卡？",
-      "retractBody": "撤下后你的卡从校友墙撤下，其他校友看不到了；随时可重新寄出。",
+      "retractBody": "撤下后，相册里只留下你的姓氏，其他人看不到你的卡了；随时可重新寄出。",
       "retractConfirm": "确认撤下",
       "retractCancel": "再想想",
       "retractError": "撤下没有成功——请再试一次。"

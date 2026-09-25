@@ -61,6 +61,8 @@ import type {
   FlashbackPublicStatsQueryVariables,
   FlashbackSendToWallMutation,
   FlashbackSendToWallMutationVariables,
+  FlashbackArchivesQuery,
+  FlashbackArchivesQueryVariables,
   FlashbackRetractMutation,
   FlashbackRetractMutationVariables,
   FlashbackDeletePreviewQuery,
@@ -144,6 +146,7 @@ import {
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
   FlashbackSendToWallMutationDocument,
+  FlashbackArchivesQueryDocument,
   FlashbackRetractMutationDocument,
   FlashbackDeletePreviewQueryDocument,
   FlashbackDeleteMutationDocument,
@@ -180,6 +183,7 @@ import type {
   EnrollmentForm,
   EnrollmentSummary,
   FlashbackCapsule,
+  FlashbackCapsuleArchive,
   FlashbackCardSharing,
   FlashbackSharedCard,
   FlashbackRosterAnswer,
@@ -334,6 +338,47 @@ function mutationError(errors: Array<{ message?: string | null; code?: string | 
 
 /** 登录已失效：曾有 token 但会话降级（#355 P0-2）。getEnrollments/getMyOrders
  * 以此拒绝代替静默 []，页面据「从未报名」与「掉线」两种空态分叉渲染。 */
+type CapsuleArchiveNode = NonNullable<FlashbackCapsuleQuery['flashbackCapsule']>['archives'][number]
+
+/** 场次 + 名册映射：胶囊与相册（#933 flashbackArchives）共用——两处选择集逐字一致 */
+function mapCapsuleArchive(archive: CapsuleArchiveNode): FlashbackCapsuleArchive {
+  return {
+    key: archive.key,
+    name: archive.name ?? null,
+    city: archive.city ?? null,
+    occurredOn: archive.occurredOn ?? null,
+    appliedCount: archive.appliedCount ?? null,
+    attendedCount: archive.attendedCount ?? null,
+    label: archive.label ?? null,
+    isMine: archive.isMine,
+    piles: (archive.piles ?? []).map((pile) => ({ city: pile.city, count: pile.count, returned: pile.returned })),
+    roster: (archive.roster ?? []).map((entry) => ({
+      id: entry.id,
+      surnameMasked: entry.surnameMasked,
+      fullName: entry.fullName ?? null,
+      appliedAt: entry.appliedAt ?? null,
+      city: entry.city ?? null,
+      occupationThen: entry.occupationThen ?? null,
+      sentToWallAt: entry.sentToWallAt ?? null,
+      today: entry.today
+        ? {
+            nowStatus: entry.today.nowStatus ?? null,
+            want: entry.today.want ?? null,
+            say: entry.today.say ?? null
+          }
+        : null,
+      answers: (entry.answers ?? []).map((answer) => ({
+        questionKey: answer.questionKey,
+        segments: (answer.segments ?? []).map((segment) => ({
+          text: segment.text,
+          fog: segment.fog,
+          len: segment.len
+        }))
+      }))
+    }))
+  }
+}
+
 export class SessionExpiredError extends Error {
   constructor(message = '登录已过期，请重新登录') {
     super(message)
@@ -989,6 +1034,26 @@ export class RealMiniProgramApi implements MiniProgramApi {
     })
   }
 
+  /** #933 相册：已登录即可读；未登录 → SessionExpiredError（页面据此跳登录） */
+  async getFlashbackArchives(city?: string | null): Promise<{ archives: FlashbackCapsuleArchive[]; cities: string[] }> {
+    const data = await graphqlRequest<FlashbackArchivesQuery, FlashbackArchivesQueryVariables>(
+      FlashbackArchivesQueryDocument,
+      { city: city ?? null }
+    ).catch((error: unknown) => {
+      if (
+        error instanceof GraphQLRequestError &&
+        (isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required'))
+      ) {
+        throw new SessionExpiredError()
+      }
+      throw error
+    })
+    const result = data.flashbackArchives
+    if (!result) throw new Error('相册加载失败')
+    return { archives: (result.archives ?? []).map(mapCapsuleArchive), cities: result.cities ?? [] }
+  }
+
   async getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule> {
     const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
       FlashbackCapsuleQueryDocument,
@@ -1062,40 +1127,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
             }
           : undefined
       },
-      archives: (capsule.archives ?? []).map((archive) => ({
-        key: archive.key,
-        name: archive.name ?? null,
-        city: archive.city ?? null,
-        occurredOn: archive.occurredOn ?? null,
-        appliedCount: archive.appliedCount ?? null,
-        attendedCount: archive.attendedCount ?? null,
-        label: archive.label ?? null,
-        isMine: archive.isMine,
-        roster: (archive.roster ?? []).map((entry) => ({
-          id: entry.id,
-          surnameMasked: entry.surnameMasked,
-          fullName: entry.fullName ?? null,
-          appliedAt: entry.appliedAt ?? null,
-          city: entry.city ?? null,
-          occupationThen: entry.occupationThen ?? null,
-          sentToWallAt: entry.sentToWallAt ?? null,
-          today: entry.today
-            ? {
-                nowStatus: entry.today.nowStatus ?? null,
-                want: entry.today.want ?? null,
-                say: entry.today.say ?? null
-              }
-            : null,
-          answers: (entry.answers ?? []).map((answer) => ({
-            questionKey: answer.questionKey,
-            segments: (answer.segments ?? []).map((segment) => ({
-              text: segment.text,
-              fog: segment.fog,
-              len: segment.len
-            }))
-          }))
-        }))
-      })),
+      archives: (capsule.archives ?? []).map(mapCapsuleArchive),
       futureEvents: (capsule.futureEvents ?? []).map((frame) => ({
         initiativeSlug: frame.initiativeSlug,
         initiativeName: frame.initiativeName,

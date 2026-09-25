@@ -217,7 +217,7 @@ describe("TodayActions · G3 撤下", () => {
 		fireEvent.click(screen.getByRole("button", { name: "撤下" }));
 
 		expect(await screen.findByTestId("fb-retract-dialog")).toBeInTheDocument();
-		expect(screen.getByText(/其他校友看不到了/)).toBeInTheDocument();
+		expect(screen.getByText(/相册里只留下你的姓氏/)).toBeInTheDocument();
 		expect(screen.getByText(/随时可重新寄出/)).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "再想想" }));

@@ -28,3 +28,14 @@
 .content .gathering { width: 100%; padding: 34rpx 0 30rpx; }
 .gatheringKicker { display: block; font-size: 18rpx; color: #78826e; }
 .gatheringRow { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-top: 20rpx; font-size: 28rpx; }
+.albums { padding: 36rpx 0 26rpx; border-bottom: 1rpx solid #d5d7cb; }
+.albumsTitle { display: block; font-size: 32rpx; line-height: 1.7; }
+.albumsHint { display: block; font-size: 21rpx; line-height: 1.8; color: #78826e; margin: 6rpx 0 10rpx; }
+.albumRow { display: flex; align-items: center; gap: 20rpx; min-height: 88rpx; padding: 14rpx 0; border-top: 1rpx solid rgba(213, 215, 203, 0.6); }
+.albumMain { flex: 1; min-width: 0; }
+.albumTitle { display: block; font-size: 26rpx; line-height: 1.6; }
+.albumMeta { display: block; font-size: 20rpx; color: #78826e; margin-top: 4rpx; }
+.albumArrow { font-size: 26rpx; color: #78826e; }
+.albumPiles { display: flex; flex-wrap: wrap; gap: 8rpx 20rpx; margin-top: 8rpx; }
+.albumPile { font-size: 20rpx; color: #56665a; }
+.albumReturned { color: #8a6418; }

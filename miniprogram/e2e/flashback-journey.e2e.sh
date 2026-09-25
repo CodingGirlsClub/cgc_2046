@@ -393,7 +393,7 @@ ck "写入面 4 行输入（现在/想学/帮助/想说）" "$(COUNT "$WRITE_INP
 ck "首行标签=现在在做什么" "$(RES automation_element_action --action text --selector "$WRITE_LABEL")" '^现在在做什么$'
 ck "写入面标题（动态日期）" "$(RES automation_element_action --action text --selector "$PAPER_TODAY_TITLE")" '^今天的你 · [0-9]+\.[0-9]+\.[0-9]+$'
 ck "寄出钮=写完寄出" "$(RES automation_element_action --action text --selector "$SEND_BTN")" '^写完寄出 →$'
-ck "寄出公开性提示" "$(RES automation_element_action --action text --selector "$SEND_NOTE")" '^寄出即公开 · 包括当年的答案 · 随时可调$'
+ck "寄出公开性提示（#933 可见范围 = 登录的人）" "$(RES automation_element_action --action text --selector "$SEND_NOTE")" '^寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下$'
 ck "回当年面链接" "$(RES automation_element_action --action text --selector "$BACK_LINK")" '^← 回到当年答案$'
 shot 035-card-write-face.png
 TAP "$BACK_LINK"
@@ -477,7 +477,7 @@ sleep 1
 ck "授权层关闭" "$(COUNT "$SHEET_MASK")" '^0$'
 TAP "$MINICARD"
 sleep 2
-ck "寄出后层 chrome=已寄出到校友墙" "$(RES automation_element_action --action text --selector "$WALL_ON")" '^已寄出到校友墙$'
+ck "寄出后层 chrome=已寄出到相册" "$(RES automation_element_action --action text --selector "$WALL_ON")" '^已寄出到相册$'
 ck "点赞徽章出现（R36 正例：寄出+授权+有赞）" "$(RES automation_element_action --action text --selector "$MASK_LIKE")" '^❤ 3$'
 TAP "$LAYER_CLOSE"
 sleep 1

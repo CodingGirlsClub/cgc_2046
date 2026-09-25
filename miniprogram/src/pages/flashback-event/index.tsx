@@ -6,9 +6,9 @@ import { PageState } from '@/components/PageState'
 import { eventFogLine, eventStats } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
 import { setFlashbackEntry } from '@/state/flashbackEntry'
-import type { FlashbackPublicStats, FlashbackRosterEntry } from '@/domain/models'
+import type { FlashbackCapsuleArchive, FlashbackPublicStats, FlashbackRosterEntry } from '@/domain/models'
 import { useRecovery } from '@/components/FlashbackGuest/useRecovery'
-import { eventView } from '@/domain/flashback-recovery'
+import { eventAlbumSource, eventLoginUrl, eventView } from '@/domain/flashback-recovery'
 import styles from './index.module.css'
 
 
@@ -35,7 +35,12 @@ export default function FlashbackEventPage() {
   // 未登录/未匹配/失败三分，均不在本页另写一套
   const { mode: recovery, load } = useRecovery()
   const mode = eventView(recovery, eventKey)
-  // 路人态（R32）只有统计行（缺数不显示），无任何名册内容
+  // #933 相册来源：有档案 → 胶囊；已登录无档案 → 相册读面；未登录 → 直接去登录页
+  const source = eventAlbumSource(mode)
+  // 相册读面的这一场（undefined = 未取；null = 取不到或本场不存在）
+  const [viewerArchive, setViewerArchive] = useState<FlashbackCapsuleArchive | null | undefined>(undefined)
+  const redirected = useRef(false)
+  // 统计行兜底（相册取不到时仍给统计；缺数不显示）
   const [publicStats, setPublicStats] = useState<FlashbackPublicStats | null>(null)
   // U6 看别人的卡:点已寄出名册卡 → 覆盖层迎面翻开(雾面版当年+她的今天只读)
   const [viewPerson, setViewPerson] = useState<FlashbackRosterEntry | null>(null)
@@ -46,15 +51,24 @@ export default function FlashbackEventPage() {
     if (mode.kind === 'viewer' && !publicStats) void api.getFlashbackPublicStats().then(setPublicStats).catch(() => {})
   }, [mode.kind, publicStats])
 
+  useEffect(() => {
+    // 未登录想看 → 登录页（redirectTo 替换本页：取消登录回到上一页，不会反复弹登录；
+    // 登录成功按 returnUrl 回到这一场）
+    if (source === 'login' && !redirected.current) {
+      redirected.current = true
+      void Taro.redirectTo({ url: eventLoginUrl(eventKey) })
+    }
+    if (source === 'archives' && viewerArchive === undefined) {
+      void api
+        .getFlashbackArchives()
+        .then(({ archives }) => setViewerArchive(archives.find((item) => item.key === eventKey) ?? null))
+        .catch(() => setViewerArchive(null))
+    }
+  }, [source, eventKey, viewerArchive])
+
   useDidShow(() => {
     if (eventKey) void load()
   })
-
-  const goLogin = () => {
-    void Taro.navigateTo({
-      url: `/pages/login/index?returnUrl=${encodeURIComponent(`/pages/flashback-event/index?key=${encodeURIComponent(eventKey)}`)}`
-    })
-  }
 
   const back = () => {
     // 长廊是唯一上游（深链直达时栈可能只有本页）——栈底退长廊；
@@ -63,22 +77,23 @@ export default function FlashbackEventPage() {
     else enterCorridor()
   }
 
-  if (mode.kind === 'loading') {
-    return <PageState kind="loading" title="正在显影…" />
+  if (mode.kind === 'loading' || source === 'login') {
+    return <PageState kind="loading" title={source === 'login' ? '登录后看这一场的相册…' : '正在显影…'} />
   }
 
   if (mode.kind === 'error') {
     return <PageState kind="error" message="暂时没能完成查找，请再试一次。" onRetry={() => void load()} />
   }
 
+  // 相册：有档案取胶囊里的这一场；已登录无档案取相册读面（#933）
+  const album = mode.kind === 'member' ? mode.archive : source === 'archives' ? viewerArchive ?? null : null
   const viewerStats =
     mode.kind === 'viewer' ? publicStats?.archives.find((item) => item.key === eventKey) ?? null : null
-  const when =
-    mode.kind === 'member'
-      ? mode.archive.occurredOn?.slice(0, 10).replace(/-/g, '.') ?? mode.archive.key
-      : viewerStats?.occurredOn?.slice(0, 10).replace(/-/g, '.') ?? eventKey
-  const name = mode.kind === 'member' ? mode.archive.name ?? '' : viewerStats?.name ?? ''
-  const stats = mode.kind === 'member' ? eventStats(mode.archive) : null
+  const when = album
+    ? album.occurredOn?.slice(0, 10).replace(/-/g, '.') ?? album.key
+    : viewerStats?.occurredOn?.slice(0, 10).replace(/-/g, '.') ?? eventKey
+  const name = album ? album.name ?? '' : viewerStats?.name ?? ''
+  const stats = album ? eventStats(album) : null
 
   return (
     <View className={styles.page}>
@@ -102,12 +117,12 @@ export default function FlashbackEventPage() {
           </View>
         </View>
 
-        {mode.kind === 'member' && (
+        {album && (
           <View className={styles.section}>
             <Text className={styles.peopleHint}>这一场的人 · 显影的是寄出了的，雾着的是还没回来的</Text>
             <View className={styles.grid}>
-              {mode.archive.roster.map((entry) => (
-                <View key={entry.id} className={styles.rosterCellWrap} style={{ animationDelay: `${mode.archive.roster.indexOf(entry) * 0.12}s` }} onClick={() => {
+              {album.roster.map((entry, index) => (
+                <View key={entry.id} className={styles.rosterCellWrap} style={{ animationDelay: `${index * 0.12}s` }} onClick={() => {
                   if (!entry.sentToWallAt) {
                     Taro.showToast({ title: 'ta 还没回来——点击下方找回你的那一张', icon: 'none' })
                     return
@@ -124,18 +139,12 @@ export default function FlashbackEventPage() {
           </View>
         )}
 
+        {/* 已登录但没档案：相册照看，底部只给找回说明（绝不再索要登录） */}
         {mode.kind === 'viewer' && (
           <View className={styles.guideBlock}>
             <Text className={styles.guideText}>
-              {mode.guide === 'login'
-                ? '你也在这一场吗？登录后我们帮你找你的那一张。'
-                : '我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。'}
+              我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。
             </Text>
-            {mode.guide === 'login' && (
-              <Button className={styles.cta} onClick={goLogin}>
-                微信一键登录，找回你的那一张 →
-              </Button>
-            )}
           </View>
         )}
 
@@ -250,7 +259,7 @@ function RosterCell({ entry }: { entry: FlashbackRosterEntry }) {
           <View className={styles.cardWindowFog}>
             <Text className={styles.cardNameFog}>{entry.surnameMasked}</Text>
           </View>
-          <Text className={styles.cardFootFog}>{eventFogLine(entry)}</Text>
+          <Text className={styles.cardFootFog}>{eventFogLine()}</Text>
         </View>
       )}
     </View>

@@ -2279,11 +2279,23 @@ export type FlashbackAnswer = {
   rawText: Scalars['String']['output'];
 };
 
+export type FlashbackArchivePile = {
+  city: Scalars['String']['output'];
+  count: Scalars['Int']['output'];
+  returned: Scalars['Int']['output'];
+};
+
 export type FlashbackArchiveRef = {
   city?: Maybe<Scalars['String']['output']>;
   key: Scalars['String']['output'];
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
+};
+
+/** 相册读面（#933）：已登录即可读的场次时间轴与名册 */
+export type FlashbackArchivesResult = {
+  archives: Array<FlashbackCapsuleArchive>;
+  cities: Array<Scalars['String']['output']>;
 };
 
 export type FlashbackCapsule = {
@@ -2312,6 +2324,8 @@ export type FlashbackCapsuleArchive = {
   label?: Maybe<Scalars['String']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
+  /** 城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数；人数降序 + 城市序 */
+  piles: Array<FlashbackArchivePile>;
   roster: Array<FlashbackRosterEntry>;
 };
 
@@ -2741,8 +2755,8 @@ export type FlashbackRosterEntry = {
   fullName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   occupationThen?: Maybe<Scalars['String']['output']>;
-  /** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示） */
-  participation: Scalars['String']['output'];
+  /** attended | not_selected（圆梦线名册徽标用）。#933 起仅已寄出者下发；未寄出者 null（只剩姓氏遮罩） */
+  participation?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;
   /** 姓氏隐名（R12）：王**；名册结构化卡的核心标识 */
   surnameMasked: Scalars['String']['output'];
@@ -5693,6 +5707,8 @@ export type RootQueryType = {
   flashbackAdminWishInbox: Array<FlashbackAdminWishInboxEntry>;
   /** 举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序 */
   flashbackAdminWishReports: Array<FlashbackAdminReportEntry>;
+  /** 相册（#933）：所有已登录用户可读每一场的名册（未寄出者只有姓氏遮罩）；未登录 → flashback_auth_required */
+  flashbackArchives?: Maybe<FlashbackArchivesResult>;
   /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
   flashbackCapsule?: Maybe<FlashbackCapsule>;
   /** 全国城市名单（wish2 U6/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源 */
@@ -5912,6 +5928,11 @@ export type RootQueryTypeFlashbackAdminResendOutreachArgs = {
 
 export type RootQueryTypeFlashbackAdminWishEchoesArgs = {
   wishId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeFlashbackArchivesArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
 };
 
 

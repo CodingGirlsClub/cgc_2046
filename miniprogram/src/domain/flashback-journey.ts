@@ -1,8 +1,8 @@
 import type {
+  FlashbackArchivePile,
   FlashbackCapsuleArchive,
   FlashbackMeAnswer,
-  FlashbackPublicStatsArchive,
-  FlashbackRosterEntry
+  FlashbackPublicStatsArchive
 } from './models'
 import { yearsAgoText } from './flashback.ts'
 
@@ -146,22 +146,14 @@ export const CORRIDOR_PILE_LIMIT = 4
 
 /** 名册 → 城市堆：按城市聚合计数（空城名过滤），计数降序、同数城市字典序——
  * 确定性排序（不依赖服务端顺序，e2e 与单测可精确断言）。 */
-export function corridorPiles(
-  roster: Pick<FlashbackRosterEntry, 'city' | 'sentToWallAt'>[],
-  limit = CORRIDOR_PILE_LIMIT
-): CorridorPile[] {
-  const counts = new Map<string, { count: number; returned: number }>()
-  for (const entry of roster) {
-    const city = (entry.city ?? '').trim()
-    if (!city) continue
-    const prev = counts.get(city) ?? { count: 0, returned: 0 }
-    counts.set(city, {
-      count: prev.count + 1,
-      returned: prev.returned + (entry.sentToWallAt ? 1 : 0)
-    })
-  }
-  return [...counts.entries()]
-    .map(([city, { count, returned }]) => ({ city, count, returned }))
+/**
+ * 城市堆（R12/R34）：#933 起聚合在服务端（`archive.piles`）——未寄出者不再下发城市，
+ * 前端无法也不该再按名册分组。这里只做排序与截断（规则不变）；空城名防御性过滤。
+ */
+export function corridorPiles(piles: FlashbackArchivePile[], limit = CORRIDOR_PILE_LIMIT): CorridorPile[] {
+  return piles
+    .map((pile) => ({ city: pile.city.trim(), count: pile.count, returned: pile.returned }))
+    .filter((pile) => pile.city)
     .sort((a, b) => b.count - a.count || a.city.localeCompare(b.city, 'zh-Hans-CN'))
     .slice(0, limit)
 }
@@ -178,22 +170,25 @@ export interface CorridorFrame {
 }
 
 /** 参与态长廊帧：按场次时间升序（顶上是 2012，底部是未来），无日期者排最后 */
+/** 场次时间升序（顶上是 2012，底部是未来）；无日期者排最后；同日按 key 稳定排序 */
+function byOccurredOn(a: { key: string; occurredOn: string | null }, b: { key: string; occurredOn: string | null }): number {
+  const left = a.occurredOn ?? ''
+  const right = b.occurredOn ?? ''
+  if (left === right) return a.key.localeCompare(b.key)
+  if (!left) return 1
+  if (!right) return -1
+  return left < right ? -1 : 1
+}
+
 export function corridorFrames(archives: FlashbackCapsuleArchive[]): CorridorFrame[] {
   return [...archives]
-    .sort((a, b) => {
-      const left = a.occurredOn ?? ''
-      const right = b.occurredOn ?? ''
-      if (left === right) return a.key.localeCompare(b.key)
-      if (!left) return 1
-      if (!right) return -1
-      return left < right ? -1 : 1
-    })
+    .sort(byOccurredOn)
     .map((archive) => ({
       key: archive.key,
       when: archive.occurredOn ? archive.occurredOn.slice(0, 10).replace(/-/g, '.') : archive.key,
       // 叙事短标签（原型 D ia-frame-label）优先；导入未带时回落场次名
       label: archive.label ?? archive.name ?? '',
-      piles: corridorPiles(archive.roster),
+      piles: corridorPiles(archive.piles),
       returned: archive.roster.filter((entry) => entry.sentToWallAt).length
     }))
 }
@@ -201,14 +196,7 @@ export function corridorFrames(archives: FlashbackCapsuleArchive[]): CorridorFra
 /** 路人态长廊帧（R32 统计层）：只有场次 + 城市 + 走进教室人数，无名单 */
 export function statsFrames(archives: FlashbackPublicStatsArchive[]): CorridorFrame[] {
   return [...archives]
-    .sort((a, b) => {
-      const left = a.occurredOn ?? ''
-      const right = b.occurredOn ?? ''
-      if (left === right) return a.key.localeCompare(b.key)
-      if (!left) return 1
-      if (!right) return -1
-      return left < right ? -1 : 1
-    })
+    .sort(byOccurredOn)
     .map((archive) => {
       const city = (archive.city ?? '').trim()
       const count = archive.attendedCount ?? archive.appliedCount ?? 0
@@ -244,8 +232,37 @@ export function eventStats(archive: FlashbackCapsuleArchive): CorridorEventStats
   }
 }
 
-/** 未回来者的雾卡小字：城市 · 职业 · 答案还在等她（缺项过滤，全缺只剩尾句） */
-export function eventFogLine(entry: Pick<FlashbackRosterEntry, 'city' | 'occupationThen'>): string {
-  return [[entry.city, entry.occupationThen].filter(Boolean).join(' · '), '答案还在等她'].filter(Boolean).join(' · ')
+/** 雾卡状态语（#933）：相册对所有登录用户开放，未寄出者只显示「王**」——不含任何个人信息。 */
+export function eventFogLine(): string {
+  return '答案还在等她'
 }
 
+
+export interface AlbumRow {
+  key: string
+  /** 2014.01.11 形态；无日期为空串 */
+  when: string
+  title: string
+  /** 人数行：走进教室优先、否则报名数；缺数为空串（不编造 0） */
+  meta: string
+  /** 城市堆（人数 + 已回来）：已登录的相册读面才有，公开统计层恒空 */
+  piles: CorridorPile[]
+}
+
+/**
+ * 访客首页「那些年的相册」（#933）：未登录用公开统计层（R32），已登录无档案用相册读面
+ * （多出服务端聚合的城市堆）。点进场次页；未登录由场次页负责跳登录（登录判断只在一处）。
+ */
+export function albumRows(archives: Array<FlashbackPublicStatsArchive & { piles?: FlashbackArchivePile[] }>): AlbumRow[] {
+  return [...archives].sort(byOccurredOn).map((archive) => ({
+    key: archive.key,
+    when: archive.occurredOn ? archive.occurredOn.slice(0, 10).replace(/-/g, '.') : '',
+    title: archive.name ?? archive.city ?? archive.key,
+    meta: archive.attendedCount
+      ? `${archive.attendedCount} 位走进教室`
+      : archive.appliedCount
+        ? `${archive.appliedCount} 位报名`
+        : '',
+    piles: corridorPiles(archive.piles ?? [])
+  }))
+}

@@ -10,6 +10,7 @@ import {
   EventDetailQueryDocument,
   EnrollmentQueryDocument,
   FlashbackAdjustFogMutationDocument,
+  FlashbackArchivesQueryDocument,
   FlashbackAdjustTodayFogMutationDocument,
   FlashbackAddWishCommentMutationDocument,
   FlashbackCapsuleQueryDocument,
@@ -275,6 +276,40 @@ test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序', () => 
 
   const beijing = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, { city: '北京' })
   assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '广州'])
+})
+
+type AlbumRoster = { surnameMasked: string; fullName: string | null; city: string | null; occupationThen: string | null; sentToWallAt: string | null }
+type Album = { key: string; isMine: boolean; piles: Array<{ city: string; count: number; returned: number }>; roster: AlbumRoster[] }
+
+test('mock FlashbackArchives（#933）：相册只对已登录开放', () => {
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const body = mockGraphQLRequest<{ errors?: Array<{ code: string }> }>(FlashbackArchivesQueryDocument, {})
+  assert.equal(body.errors?.[0]?.code, 'flashback_auth_required')
+})
+
+test('mock 相册（#933）：未寄出者只剩姓氏遮罩；城市堆计入未寄出者；isMine 恒 false', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const { flashbackArchives } = mockGraphQLRequest<{ flashbackArchives: { archives: Album[]; cities: string[] } }>(FlashbackArchivesQueryDocument, {})
+  assert.deepEqual(flashbackArchives.cities, ['上海', '北京', '广州'])
+  assert.ok(flashbackArchives.archives.every((archive) => !archive.isMine))
+  const bj = flashbackArchives.archives.find((archive) => archive.key === '2014-01-11-bj')
+  assert.ok(bj)
+  const unsent = bj.roster.filter((entry) => !entry.sentToWallAt)
+  assert.ok(unsent.length > 0)
+  for (const entry of unsent) assert.deepEqual([entry.fullName, entry.city, entry.occupationThen], [null, null, null])
+  assert.ok(bj.roster.filter((entry) => entry.sentToWallAt).every((entry) => entry.city))
+  assert.deepEqual(bj.piles.map(({ city, count }) => [city, count]), [['北京', 3], ['上海', 2], ['广州', 1]])
+})
+
+test('mock 相册筛城市（#933）：名册只列该城已寄出者，城市堆仍按全员聚合，整场无人才撤下', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const { flashbackArchives } = mockGraphQLRequest<{ flashbackArchives: { archives: Album[] } }>(FlashbackArchivesQueryDocument, { city: '广州' })
+  // 广州只有一位且未寄出：名册为空（不然「周**」就被公开了城市），但这一场不从长廊消失
+  assert.deepEqual(flashbackArchives.archives.map((archive) => [archive.key, archive.roster.length, archive.piles]), [
+    ['2014-01-11-bj', 0, [{ city: '广州', count: 1, returned: 0 }]]
+  ])
+  const capsule = mockGraphQLRequest<{ flashbackCapsule: { archives: Album[] } }>(FlashbackCapsuleQueryDocument, { city: '广州' })
+  assert.deepEqual(capsule.flashbackCapsule.archives.map((archive) => archive.roster.length), [0])
 })
 
 test('mock 闪念间写面落 state：adjustFog / setQuoteLicense 后 capsule 回读', () => {
