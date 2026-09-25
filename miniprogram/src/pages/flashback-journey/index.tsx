@@ -172,6 +172,14 @@ export default function FlashbackJourneyPage() {
   // R14 分享：卡片落旅程入口（朋友从这里进入闪念间）；不带本人 token（R32 边界）
   useShareAppMessage(() => ({ title: '闪念间 · 找回当年的自己', path: buildFlashbackEntryPath() }))
 
+  // 换肤：快门与问答在暗房里，显影落到纸上（暗 → 纸 = 开灯）；导航栏随之切换
+  const darkroom = phase.kind === 'intro' || phase.kind === 'quiz'
+  useEffect(() => {
+    void Taro.setNavigationBarColor(
+      darkroom ? { frontColor: '#ffffff', backgroundColor: '#15130f' } : { frontColor: '#000000', backgroundColor: '#f7f2e7' }
+    ).catch(() => undefined)
+  }, [darkroom])
+
   if (phase.kind === 'boot') {
     return <PageState kind="loading" title="正在打开…" />
   }
@@ -201,7 +209,7 @@ export default function FlashbackJourneyPage() {
   const faceAnswers = profile ? cardFaceAnswers(profile.answers) : []
 
   return (
-    <View className={styles.page}>
+    <View className={`${styles.page} ${darkroom ? styles.pageDark : ''}`}>
       {phase.kind === 'intro' && profile && (
         <View className={styles.center}>
           <Text className={styles.brand}>IN A FLASH · 闪念间</Text>
