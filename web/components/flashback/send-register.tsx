@@ -7,6 +7,7 @@ import {
 	type FlashbackAnswer,
 	type FlashbackFogSpan,
 } from "@/lib/graphql/flashback";
+import { normalizeSpans, sameSpans, toggleSpanIn } from "./fog-toggle";
 import { useStageTitleFocus } from "./use-reduced-motion";
 import type { TodayFormState } from "./write";
 
@@ -84,23 +85,6 @@ export default function SendRegister({
 		),
 	);
 	// 脏比对直接以 initialTodayFogSpans prop 为基线：闪层期间服务端基线不变
-
-	/** 句与区间交界即视为雾（与 sentencesWithFogMark 的命中口径一致） */
-	const toggleSpanIn = (
-		prev: Record<string, FlashbackFogSpan[]>,
-		key: string,
-		sentence: { start: number; len: number },
-	) => {
-		const current = prev[key] ?? [];
-		const intersects = (span: { start: number; len: number }) =>
-			span.start < sentence.start + sentence.len && sentence.start < span.start + span.len;
-		const fogged = current.some(intersects);
-		const rest = current.filter((span) => !intersects(span));
-		return {
-			...prev,
-			[key]: fogged ? rest : [...rest, { start: sentence.start, len: sentence.len }],
-		};
-	};
 
 	const toggleSentence = (answerId: string, sentence: { start: number; len: number }) =>
 		setSpansByAnswer((prev) => toggleSpanIn(prev, answerId, sentence));
@@ -379,15 +363,3 @@ export default function SendRegister({
 		</div>
 	);
 }
-
-/** 雾区间归一（比较/落库前）：丢非法、按 start/len 排序；reason 是导入元数据，不参与比较 */
-function normalizeSpans(spans: FlashbackFogSpan[] | null | undefined): FlashbackFogSpan[] {
-	return [...(spans ?? [])]
-		.filter((s) => Number.isInteger(s.start) && Number.isInteger(s.len) && s.start >= 0 && s.len > 0)
-		.sort((a, b) => a.start - b.start || a.len - b.len);
-}
-
-function sameSpans(a: FlashbackFogSpan[], b: FlashbackFogSpan[]): boolean {
-	return a.length === b.length && a.every((s, i) => s.start === b[i].start && s.len === b[i].len);
-}
-
