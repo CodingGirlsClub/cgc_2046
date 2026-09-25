@@ -30,6 +30,27 @@ function fakeTaro(pages: EntryPage[] = []) {
   }
 }
 
+// Real onAppShow carries path too: query-only tests miss warm-entry regressions.
+for (const [path, key] of [
+  ['pages/flashback-voices/index', 'quoteId'],
+  ['pages/flashback-wishes/index', 'wishId']
+] as const) {
+  test(`${key}: cold entry does not duplicate; warm entry opens the requested item`, () => {
+    const options = { path, query: { [key]: 'target' } }
+    assert.deepEqual(entry(options).navigated, [])
+    assert.deepEqual(entry(options, [{ route: 'pages/discover/index' }]).navigated, [`/${path}?${key}=target`])
+    assert.deepEqual(entry(options, [{ route: path, options: { [key]: 'old' } }]).navigated, [`/${path}?${key}=target`])
+    assert.deepEqual(entry(options, [{ route: path, options: { [key]: 'target' } }]).navigated, [])
+  })
+  test(`${key}: whole collection clears item and city landing parameters`, () => {
+    assert.deepEqual(entry({ path, query: {} }, [{ route: path, options: { [key]: 'old' } }]).navigated, [`/${path}`])
+    assert.deepEqual(entry({ path, query: {} }, [{ route: path, options: { city: '成都' } }]).navigated, [`/${path}`])
+    assert.deepEqual(entry({ path, query: {} }, [{ route: 'pages/discover/index' }]).navigated, [`/${path}`])
+    assert.deepEqual(entry({ path, query: {} }).navigated, [])
+    assert.deepEqual(entry({ path, query: {} }, [{ route: path }]).navigated, [])
+  })
+}
+
 function entry(
   options: Parameters<typeof applyEntry>[1],
   pages: EntryPage[] = []

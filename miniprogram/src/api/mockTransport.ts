@@ -941,6 +941,7 @@ function responseFor(document: string, variables: object): unknown {
     return { rejectJoinRequest: { result: { id: values.id, status: 'rejected', rejectionReason: null }, errors: [] } }
   }
   if (document.includes('mutation GrantConsent')) {
+    if (e2eFlag('cgc.e2e.wish_reminder_grant_fail')) return { errors: [{ message: '授权保存失败（合成验收）' }] }
     return { grantMiniProgramNotificationConsent: 1 }
   }
   if (document.includes('mutation GenerateMiniProgramCode')) {
@@ -1131,6 +1132,10 @@ function responseFor(document: string, variables: object): unknown {
     }
   }
   if (document.includes('query FlashbackCapsule')) {
+    if (e2eFlag('cgc.e2e.flashback_capsule_fail_next')) {
+      wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '0')
+      return { errors: [{ message: '合成档案读取失败', code: 'internal_error' }] }
+    }
     const state = flashbackState()
     const token = typeof values.token === 'string' && values.token ? values.token : null
     // token 面优先（claim 后链接作废 → 可区分错误）；会话腿：未登录 → auth_required
@@ -1361,6 +1366,13 @@ function responseFor(document: string, variables: object): unknown {
   if (document.includes('mutation FlashbackClaim')) {
     if (!loggedIn) {
       return { errors: [{ message: 'authentication required', code: 'flashback_auth_required' }] }
+    }
+    if (e2eFlag('cgc.e2e.flashback_claim_fail')) {
+      return { errors: [{ message: '合成匹配请求失败', code: 'internal_error' }] }
+    }
+    if (e2eFlag('cgc.e2e.flashback_recovery_fail_after_claim')) {
+      wxStorage()?.setStorageSync('cgc.e2e.flashback_recovery_fail_after_claim', '0')
+      wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '1')
     }
     // claim_miss 开关：模拟库里没有匹配（bound:false → 前端给找回引导）
     if (e2eFlag(FLASHBACK_CLAIM_MISS_KEY)) {

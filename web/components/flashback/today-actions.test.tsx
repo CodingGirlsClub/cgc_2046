@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import TodayActions from "./today-actions";
 import {
 	FLASHBACK_SUBMIT_TODAY,
 	FLASHBACK_SEND_TO_WALL,
+	FLASHBACK_ADJUST_TODAY_FOG,
 	FLASHBACK_RETRACT,
 	type FlashbackCapsuleMe,
 } from "@/lib/graphql/flashback";
@@ -63,6 +64,10 @@ function mockMutateOk() {
 		}
 		if (opts.mutation === FLASHBACK_RETRACT) {
 			return { data: { flashbackRetract: { retracted: true } } };
+		}
+		if (opts.mutation === FLASHBACK_ADJUST_TODAY_FOG) {
+			const variables = (opts as unknown as { variables: { field: string; spans: unknown[] } }).variables;
+			return { data: { flashbackAdjustTodayFog: { field: variables.field, fogSpans: variables.spans } } };
 		}
 		return { data: {} };
 	});
@@ -252,5 +257,91 @@ describe("TodayActions · G3 撤下", () => {
 		fireEvent.click(screen.getByRole("button", { name: "确认撤下" }));
 		await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
 		expect(screen.queryByTestId("fb-retract-dialog")).not.toBeInTheDocument();
+	});
+});
+
+/** 服务端既有 today 雾版的 me（nowStatus 前 2 字）——盲初值闭环对照组 */
+const meFog: FlashbackCapsuleMe = {
+	...meSent,
+	today: {
+		...(meSent.today ?? {}),
+		fogSpans: { now: [{ start: 0, len: 2 }] },
+	},
+};
+
+describe("TodayActions · 编辑弹层的 today 雾编辑（本批闭环）", () => {
+	it("服务端既有雾区间预填为雾态（命中句标 fb-review-sentence--fog）", async () => {
+		render(<TodayActions me={meFog} token="tok-1" onChanged={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑今天的你" }));
+		expect(await screen.findByRole("dialog")).toBeInTheDocument();
+		const fogged = [...document.querySelectorAll(".fb-review-sentence--fog")];
+		expect(fogged.length).toBeGreaterThan(0);
+		// nowStatus=「还在写东西」被 span 覆盖到 → 整句为雾态
+		expect(
+			fogged.some((b) => (b.textContent || "").includes("还在写东西")),
+		).toBe(true);
+	});
+
+	it("保存顺序钉死：submitToday → adjustTodayFog(现在的新雾) → sendToWall（不发无序）", async () => {
+		render(<TodayActions me={meFog} token="tok-1" onChanged={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑今天的你" }));
+		// 再在 want 句把它切成雾（服务端 want 原本无雾；定位只切雾句避开 textarea 同名）
+		const wantZone = document.querySelector('[data-testid="fb-edit-fog-want"]') as HTMLElement;
+		fireEvent.click(within(wantZone).getByText("想学 AI").closest("button")!);
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		await waitFor(() => expect(mutateMock).toHaveBeenCalledTimes(3));
+		const calls = mutateMock.mock.calls.map(([opts]) => opts) as Array<{
+			mutation: unknown;
+			variables: { token?: string | null; field?: string; spans?: { start: number; len: number }[] };
+		}>;
+		expect(calls[0].mutation).toBe(FLASHBACK_SUBMIT_TODAY);
+		expect(calls[1].mutation).toBe(FLASHBACK_ADJUST_TODAY_FOG);
+		expect(calls[2].mutation).toBe(FLASHBACK_SEND_TO_WALL);
+		// want 句被切成雾 → adjustTodayFog('want', [该句坐标])
+		expect(calls[1].variables?.field).toBe("want");
+		const spans = calls[1].variables?.spans ?? [];
+		expect(spans).toHaveLength(1);
+		expect("想学 AI".slice(spans[0].start, spans[0].start + spans[0].len)).toBe("想学 AI");
+	});
+
+	it("没碰雾：不发任何 adjustTodayFog（不打扰不产影变）", async () => {
+		render(<TodayActions me={meFog} token="tok-1" onChanged={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑今天的你" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		await waitFor(() => expect(mutateMock).toHaveBeenCalledTimes(2));
+		const calls = mutateMock.mock.calls.map(([opts]) => opts) as Array<{ mutation: unknown }>;
+		expect(calls.map((c) => c.mutation)).toEqual([
+			FLASHBACK_SUBMIT_TODAY,
+			FLASHBACK_SEND_TO_WALL,
+		]);
+	});
+
+	it("adjustTodayFog 失败：不发 sendToWall（避免把用户要求遮蔽的字裸露给校友）+ 错误在场可重试", async () => {
+		mutateMock.mockImplementation(async (opts: { mutation: unknown }) => {
+			if (opts.mutation === FLASHBACK_SUBMIT_TODAY) {
+				return { data: { flashbackSubmitToday: { today: {} } } };
+			}
+			if (opts.mutation === FLASHBACK_ADJUST_TODAY_FOG) {
+				throw new Error("net fail");
+			}
+			return { data: {} };
+		});
+		render(<TodayActions me={meFog} token="tok-1" onChanged={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑今天的你" }));
+		const failZone = document.querySelector('[data-testid="fb-edit-fog-want"]') as HTMLElement;
+		fireEvent.click(within(failZone).getByText("想学 AI").closest("button")!);
+		fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+		const wallCall = mutateMock.mock.calls
+			.map(([opts]) => opts)
+			.find((opts) => opts.mutation === FLASHBACK_SEND_TO_WALL);
+		await screen.findByRole("alert");
+		expect(wallCall).toBeUndefined();
 	});
 });

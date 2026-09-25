@@ -44,7 +44,7 @@ if __name__=='__main__':
     a.check('出力先登录',a.evaluate('return getCurrentPages().slice(-1)[0].route')=='pages/login/index')
     a.tap('login','loginButton');a.tap('login','dialogPrimary')
     a.check('登录回到同一愿望',a.element(P,'content')=='一起出一本书:《她们的第一行代码》')
-    a.tap(P,'contribute');tap_common('endorseChip');tap_common('endorseNotify');tap_common('endorseSubmit')
+    a.tap(P,'contribute');tap_common('endorseChip');tap_common('endorseNotify');tap_common('endorseSubmit');tap_common('receiptDone')
     a.check('现有出力流程在独立树中可用',a.element(P,'contribute')=='已出力 · 取消')
     a.tap(P,'writeWish')
     a.check('写愿望入口接入 2A',a.element('flashback-wish-write','title')=='写下我的愿望')
