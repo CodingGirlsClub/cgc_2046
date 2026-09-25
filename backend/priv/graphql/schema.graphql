@@ -5414,6 +5414,44 @@ type Sponsorship {
 }
 
 type RootQueryType {
+  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息 + viewerIsInviter；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
+  speakerInvitationCard(token: String!): SpeakerInvitationCard
+
+  "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
+  speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
+
+  "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
+  currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
+
+  "本人简历档案（R11 第 1 步；仅本人 ∪ Owner\/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
+  myResumeProfile(workspaceId: ID!): ResumeProfile
+
+  "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
+  myVolunteerApplications(workspaceId: ID!): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft\/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
+  listRecruitmentCohorts(workspaceId: ID!): [RecruitmentCohort!]!
+
+  "Owner\/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 \/ 职位 \/ 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
+  listVolunteerApplications(
+    workspaceId: ID!
+
+    cohortId: ID
+
+    "event_moderator | tutor | coach（非枚举值忽略过滤）"
+    position: String
+
+    "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
+    status: String
+
+    first: Int
+
+    after: String
+  ): [VolunteerApplication!]!
+
+  "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
+  volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -5503,6 +5541,9 @@ type RootQueryType {
 
   "闪念间匿名金句墙（U6\/R31\/R32\/R36\/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权\/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
   flashbackPublicQuotes(
+    "城市短名；筛选先于热门 60 条限量"
+    city: String
+
     "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
     voterKey: String
   ): [FlashbackPublicQuote!]!
@@ -5556,6 +5597,9 @@ type RootQueryType {
     voterKey: String
   ): FlashbackPublicWish
 
+  "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
+  flashbackVoiceCities: [FlashbackCity!]!
+
   "全国城市名单（wish2 U6\/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"
   flashbackCities: [FlashbackCity!]!
 
@@ -5564,6 +5608,12 @@ type RootQueryType {
 
   "举报队列（wish2 U5\/KTD5 PlatformAdmin）：status=pending 按时间正序"
   flashbackAdminWishReports: [FlashbackAdminReportEntry!]!
+
+  "许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数"
+  flashbackAdminWishEchoes(wishId: ID!): FlashbackAdminWishEchoesResult
+
+  "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
+  flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
 
   "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
   courseLearningDetail(courseId: ID!): CourseLearningDetail
@@ -5582,12 +5632,6 @@ type RootQueryType {
 
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
-
-  "邀请卡片（Speaker 着陆页，无需登录）：token 公开校验，返回邀请主题\/时间 + Event 公开信息 + viewerIsInviter；无效\/过期\/已用 token 统一错误，不泄露其它邀请"
-  speakerInvitationCard(token: String!): SpeakerInvitationCard
-
-  "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
-  speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
 
   "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
   listUsers(search: String, first: Int, after: String): [AdminUser!]!
@@ -5645,38 +5689,6 @@ type RootQueryType {
 
   "活动主理人列表；主理人或所属 Workspace Owner\/Admin 可读"
   eventModerators(workspaceId: ID!, eventId: ID!): [EventModerator!]!
-
-  "当前 open 招募批次（公开申请页数据面，匿名可读；R10\/AE12）：批次区三态中的「有批次」与「无批次」由本字段 null 区分；draft\/closed 不因本字段露面"
-  currentRecruitmentCohort(workspaceId: ID!): RecruitmentCohort
-
-  "本人简历档案（R11 第 1 步；仅本人 ∪ Owner\/Admin ∪ platform_admin 可读，未建档返回 null）；不含文件内容"
-  myResumeProfile(workspaceId: ID!): ResumeProfile
-
-  "本人的志愿者申请列表（申请人视角：跨批次、新→旧；含当前段位与拒绝原因）"
-  myVolunteerApplications(workspaceId: ID!): [VolunteerApplication!]!
-
-  "Owner\/Admin（platform_admin 穿透）招募批次全量列表（R13 批次管理：draft\/closed 只在管理面可见，公开面仅 open）；无分页（批次数有限）"
-  listRecruitmentCohorts(workspaceId: ID!): [RecruitmentCohort!]!
-
-  "Owner\/Admin（platform_admin 穿透）招募申请列表（R13）：按批次 \/ 职位 \/ 段位过滤，分页沿用 AdminList.paginate（first 默认 50 封顶 200，after 为偏移）；非本台管理角色 forbidden"
-  listVolunteerApplications(
-    workspaceId: ID!
-
-    cohortId: ID
-
-    "event_moderator | tutor | coach（非枚举值忽略过滤）"
-    position: String
-
-    "submitted | interview | training | assigned | rejected | canceled（非枚举值忽略过滤）"
-    status: String
-
-    first: Int
-
-    after: String
-  ): [VolunteerApplication!]!
-
-  "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
-  volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
   sponsorships(
     "How to sort the records in the response"
@@ -6636,6 +6648,9 @@ type FlashbackRosterEntry {
 
   occupationThen: String
 
+  "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
+  participation: String!
+
   sentToWallAt: String
 
   "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
@@ -6740,7 +6755,55 @@ type FlashbackWish {
 
   comments: [FlashbackWishComment!]!
 
+  latestEcho: FlashbackPublicWishEcho
+
+  echoCount: Int!
+
+  echoes: [FlashbackPublicWishEcho!]!
+
   insertedAt: DateTime!
+}
+
+type FlashbackAdminWishEcho {
+  id: ID!
+
+  content: String!
+
+  status: String!
+
+  insertedAt: DateTime!
+
+  publishedAt: DateTime
+
+  correctedAt: DateTime
+
+  revokedAt: DateTime
+
+  "发布时的 PlatformAdmin UUID，仅 admin 读面"
+  publishedByUserId: ID
+}
+
+type FlashbackAdminWishEchoesResult {
+  echoes: [FlashbackAdminWishEcho!]!
+  currentNotifiableEndorsementCount: Int!
+}
+
+type FlashbackAdminListedWishEntry {
+  wishId: ID!
+
+  content: String!
+
+  signature: String
+
+  city: String
+
+  listedAt: DateTime!
+
+  "已发布\/已更正回响数（公开可见）"
+  publishedEchoCount: Int!
+
+  "草稿回响数（仅 admin）"
+  draftEchoCount: Int!
 }
 
 type FlashbackWishComment {
@@ -7043,13 +7106,24 @@ type FlashbackProfile {
 
 type FlashbackToday {
   nowStatus: String
+
   want: String
+
   need: String
+
   say: String
+
+  "句级雾面区间（字段名 → spans；U9\/R16，空 map = 无雾）"
+  fogSpans: Json
+
   wantGiveTags: [String]
+
   mobilization: JsonString
+
   newsletterOptIn: Boolean
+
   reconnectTags: [String]
+
   sentToWallAt: String
 }
 
@@ -7167,9 +7241,23 @@ type FlashbackPublicWish {
 
   endorsedByViewer: Boolean!
 
+  latestEcho: FlashbackPublicWishEcho
+
+  echoCount: Int!
+
+  echoes: [FlashbackPublicWishEcho!]!
+
   listedAt: DateTime!
 
   insertedAt: DateTime!
+}
+
+type FlashbackPublicWishEcho {
+  id: ID!
+  content: String!
+  status: String!
+  publishedAt: DateTime!
+  correctedAt: DateTime
 }
 
 type FlashbackCity {
@@ -7309,90 +7397,6 @@ input FlashbackFogSpanInput {
   start: Int!
   len: Int!
   reason: String
-}
-
-type PendingOperationConfirmation {
-  "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
-  pendingId: ID
-
-  summary: String
-
-  errors: [MutationError!]!
-}
-
-type OperationResolution {
-  "confirmOperation\/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
-  pendingId: ID
-
-  status: String
-
-  errors: [MutationError!]!
-}
-
-type SpeakerInvitationCard {
-  "token 公开卡片：邀请主题\/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
-  status: String!
-
-  topic: String
-
-  scheduledAt: DateTime
-
-  "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
-  viewerIsInviter: Boolean!
-
-  event: SpeakerInvitationCardEvent!
-}
-
-type SpeakerInvitationCardEvent {
-  id: ID!
-  slug: String
-  title: String!
-  description: String
-  status: String!
-}
-
-input CreateSpeakerInvitationInput {
-  "createSpeakerInvitation 输入：workspaceId + eventId + speakerName 必填，其余可选"
-  workspaceId: ID!
-
-  eventId: ID!
-
-  speakerName: String!
-
-  speakerEmail: String
-
-  topic: String
-
-  scheduledAt: DateTime
-
-  note: String
-
-  expiresAt: DateTime
-}
-
-type CreateSpeakerInvitationPayload {
-  "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
-  result: SpeakerInvitation
-
-  plainToken: String
-
-  errors: [MutationError!]!
-}
-
-type ResendSpeakerInvitationPayload {
-  "resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次"
-  result: SpeakerInvitation
-
-  plainToken: String
-
-  errors: [MutationError!]!
-}
-
-type SpeakerInvitationActionPayload {
-  "accept\/decline\/saveSpeakerMaterials\/completeSpeakerInvitation 返回：result + errors 两段式"
-  result: SpeakerInvitation
-
-  errors: [MutationError!]!
 }
 
 type AdminUser {
@@ -7992,105 +7996,100 @@ type AdminUserPayload {
   errors: [MutationError]
 }
 
-type VolunteerApplicationPayload {
-  "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
-  result: VolunteerApplication
-
-  errors: [MutationError!]!
-}
-
-type ResumeProfilePayload {
-  "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
-  result: ResumeProfile
-
-  errors: [MutationError!]!
-}
-
-type RecruitmentCohortPayload {
-  "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
-  result: RecruitmentCohort
-
-  errors: [MutationError!]!
-}
-
-type VolunteerApplicationDetail {
-  "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
-  application: VolunteerApplication!
-
-  resumeProfile: ResumeProfile
-}
-
-input CreateVolunteerApplicationInput {
-  "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
-  cohortId: ID!
-
-  "职位：event_moderator | tutor | coach"
-  position: String!
-
-  "申请城市（Tutor 可远程）"
-  city: String
-
-  "如何得知我们"
-  heardAboutUs: String
-
-  "是否有内部推荐人（缺省 false）"
-  hasInternalReferrer: Boolean
-
-  "留言（选填）"
-  message: String
-}
-
-input UpsertResumeProfileInput {
-  "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
-  fullName: String!
-
-  "联系邮箱（R14 邮件保底通道收件地址）"
-  contactEmail: String!
-
-  "每周可投入小时数（选填）"
-  weeklyHours: Int
-
-  "技能多选（字符串列表；缺省不改动）"
-  skills: [String!]
-}
-
-input UploadResumeFileInput {
-  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
-  fileName: String!
-
-  "声明的 MIME（须与扩展名同族）"
-  contentType: String!
-
-  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
-  contentBase64: String!
-}
-
-input CreateRecruitmentCohortInput {
-  "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
-  name: String!
-
-  "申请截止时间（UTC）"
-  applyDeadlineAt: DateTime!
-
-  "执行周期开始（可空）"
-  startsAt: DateTime
-
-  "执行周期结束（可空）"
-  endsAt: DateTime
-}
-
-input UpdateRecruitmentCohortInput {
-  "updateRecruitmentCohort 输入（只传要改的字段）"
-  name: String
-
-  applyDeadlineAt: DateTime
-
-  startsAt: DateTime
-
-  endsAt: DateTime
-}
-
 type RootMutationType {
+  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
+  refundOrder(id: ID!): PendingOperationConfirmation
+
+  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
+  retryRefund(id: ID!): PendingOperationConfirmation
+
+  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
+  waivePayment(id: ID!): PendingOperationConfirmation
+
+  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
+  confirmOperation(pendingId: ID!): OperationResolution
+
+  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
+  cancelOperation(pendingId: ID!): OperationResolution
+
+  "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
+  createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
+
+  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
+  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
+
+  "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
+  acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
+  declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
+  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
+
+  "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
+  completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+
+  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
+  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
+
+  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
+  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
+
+  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
+
+  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
+  assignVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "分配的目标场次 ID（可空：Tutor 可无场次）"
+    assignedEventId: ID
+
+    "分配备注（可空，如 Tutor 的课程任务）"
+    assignmentNote: String
+  ): VolunteerApplicationPayload
+
+  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
+  rejectVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "拒绝原因（必填；进入申请人通知）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
+  cancelVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "取消备注（选填）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
+  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
+  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
+  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
+  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
+  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
 
@@ -8171,39 +8170,6 @@ type RootMutationType {
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken
-
-  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
-  refundOrder(id: ID!): PendingOperationConfirmation
-
-  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
-  retryRefund(id: ID!): PendingOperationConfirmation
-
-  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
-  waivePayment(id: ID!): PendingOperationConfirmation
-
-  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
-  confirmOperation(pendingId: ID!): OperationResolution
-
-  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
-  cancelOperation(pendingId: ID!): OperationResolution
-
-  "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
-  createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
-
-  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
-  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
-
-  "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
-  acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
-
-  "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
-  declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
-
-  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
-  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
-
-  "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
-  completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
 
   "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
   promoteUser(id: ID!): AdminUserPayload
@@ -8426,71 +8392,26 @@ type RootMutationType {
     hidden: Boolean!
   ): FlashbackWishHiddenResult
 
+  "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
+  flashbackAdminCreateWishEcho(wishId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
+  flashbackAdminUpdateWishEchoDraft(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
+  flashbackAdminPublishWishEcho(echoId: ID!): FlashbackAdminWishEcho
+
+  "原地更正已发布回响（#834，不触发首次通知）"
+  flashbackAdminCorrectWishEcho(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "撤回已发布回响（#834，终态）"
+  flashbackAdminRevokeWishEcho(echoId: ID!): FlashbackAdminWishEcho
+
   "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
   flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
 
   "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
   flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
-
-  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
-  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
-
-  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
-  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
-
-  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
-  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
-
-  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
-  assignVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "分配的目标场次 ID（可空：Tutor 可无场次）"
-    assignedEventId: ID
-
-    "分配备注（可空，如 Tutor 的课程任务）"
-    assignmentNote: String
-  ): VolunteerApplicationPayload
-
-  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
-  rejectVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "拒绝原因（必填；进入申请人通知）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
-  cancelVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "取消备注（选填）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
-  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
-  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
-  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
-
-  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
-  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
 
   "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
   createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
@@ -8626,3 +8547,185 @@ string, including UTC timezone ("Z"). The parsed date and time string will
 be converted to UTC if there is an offset.
 """
 scalar DateTime
+
+type PendingOperationConfirmation {
+  "refundOrder\/retryRefund\/waivePayment 第一段返回：pendingId + 后端生成的确认摘要；errors 为业务错误（未建 pending）"
+  pendingId: ID
+
+  summary: String
+
+  errors: [MutationError!]!
+}
+
+type OperationResolution {
+  "confirmOperation\/cancelOperation 返回：status = confirmed | cancelled；errors 为业务错误"
+  pendingId: ID
+
+  status: String
+
+  errors: [MutationError!]!
+}
+
+type SpeakerInvitationCard {
+  "token 公开卡片：邀请主题\/时间 + Event 公开信息（D2 白名单，不泄露其它邀请）"
+  status: String!
+
+  topic: String
+
+  scheduledAt: DateTime
+
+  "当前登录用户是否为发出人（匿名为 false；不泄露 invitedBy）"
+  viewerIsInviter: Boolean!
+
+  event: SpeakerInvitationCardEvent!
+}
+
+type SpeakerInvitationCardEvent {
+  id: ID!
+  slug: String
+  title: String!
+  description: String
+  status: String!
+}
+
+input CreateSpeakerInvitationInput {
+  "createSpeakerInvitation 输入：workspaceId + eventId + speakerName 必填，其余可选"
+  workspaceId: ID!
+
+  eventId: ID!
+
+  speakerName: String!
+
+  speakerEmail: String
+
+  topic: String
+
+  scheduledAt: DateTime
+
+  note: String
+
+  expiresAt: DateTime
+}
+
+type CreateSpeakerInvitationPayload {
+  "createSpeakerInvitation 返回：result 为邀请记录；plainToken 明文仅此一次"
+  result: SpeakerInvitation
+
+  plainToken: String
+
+  errors: [MutationError!]!
+}
+
+type ResendSpeakerInvitationPayload {
+  "resendSpeakerInvitation 返回：result 为邀请记录；plainToken 新明文仅此一次"
+  result: SpeakerInvitation
+
+  plainToken: String
+
+  errors: [MutationError!]!
+}
+
+type SpeakerInvitationActionPayload {
+  "accept\/decline\/saveSpeakerMaterials\/completeSpeakerInvitation 返回：result + errors 两段式"
+  result: SpeakerInvitation
+
+  errors: [MutationError!]!
+}
+
+type VolunteerApplicationPayload {
+  "招募申请 mutation 返回：result 为申请记录（失败为 null）；errors 为业务错误（code 稳定，前端按 code 查文案）"
+  result: VolunteerApplication
+
+  errors: [MutationError!]!
+}
+
+type ResumeProfilePayload {
+  "简历档案 mutation 返回：result 为档案记录（失败为 null）；errors 为业务错误"
+  result: ResumeProfile
+
+  errors: [MutationError!]!
+}
+
+type RecruitmentCohortPayload {
+  "批次 mutation 返回：result 为批次记录（失败为 null）；errors 为业务错误（唯一 open 冲突为 recruitment_cohort_open_conflict）"
+  result: RecruitmentCohort
+
+  errors: [MutationError!]!
+}
+
+type VolunteerApplicationDetail {
+  "审核面申请详情：申请记录 + 申请人简历档案元数据（未建档为 null）"
+  application: VolunteerApplication!
+
+  resumeProfile: ResumeProfile
+}
+
+input CreateVolunteerApplicationInput {
+  "createVolunteerApplication 输入（R11 第 2 步；user_id 由 actor 强制填充，不接受客户端传入）"
+  cohortId: ID!
+
+  "职位：event_moderator | tutor | coach"
+  position: String!
+
+  "申请城市（Tutor 可远程）"
+  city: String
+
+  "如何得知我们"
+  heardAboutUs: String
+
+  "是否有内部推荐人（缺省 false）"
+  hasInternalReferrer: Boolean
+
+  "留言（选填）"
+  message: String
+}
+
+input UpsertResumeProfileInput {
+  "upsertResumeProfile 输入（R11 第 1 步；user_id 由 actor 强制填充）"
+  fullName: String!
+
+  "联系邮箱（R14 邮件保底通道收件地址）"
+  contactEmail: String!
+
+  "每周可投入小时数（选填）"
+  weeklyHours: Int
+
+  "技能多选（字符串列表；缺省不改动）"
+  skills: [String!]
+}
+
+input UploadResumeFileInput {
+  "uploadResumeFile 输入（KTD3：base64-over-JSON；扩展名\/声明 MIME\/魔数三者一致才收）"
+  fileName: String!
+
+  "声明的 MIME（须与扩展名同族）"
+  contentType: String!
+
+  "文件内容（标准 base64；原始文件 ≤5MB，即请求体约 6.7MB，在 endpoint 8MB 闸门内）"
+  contentBase64: String!
+}
+
+input CreateRecruitmentCohortInput {
+  "createRecruitmentCohort 输入（初始状态 draft，开放走 openRecruitmentCohort）"
+  name: String!
+
+  "申请截止时间（UTC）"
+  applyDeadlineAt: DateTime!
+
+  "执行周期开始（可空）"
+  startsAt: DateTime
+
+  "执行周期结束（可空）"
+  endsAt: DateTime
+}
+
+input UpdateRecruitmentCohortInput {
+  "updateRecruitmentCohort 输入（只传要改的字段）"
+  name: String
+
+  applyDeadlineAt: DateTime
+
+  startsAt: DateTime
+
+  endsAt: DateTime
+}

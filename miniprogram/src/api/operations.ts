@@ -613,6 +613,21 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           commenterMasked
           insertedAt
         }
+        latestEcho {
+          id
+          content
+          status
+          publishedAt
+          correctedAt
+        }
+        echoCount
+        echoes {
+          id
+          content
+          status
+          publishedAt
+          correctedAt
+        }
         insertedAt
       }
       myPrivateWishes {
@@ -894,6 +909,21 @@ export const FlashbackPublicWishesQueryDocument = /* GraphQL */ `
       contributionDistribution
       expectedByViewer
       endorsedByViewer
+      latestEcho {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
+      echoCount
+      echoes {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
       listedAt
       insertedAt
     }
@@ -1118,5 +1148,39 @@ export const CreateVolunteerApplicationMutationDocument = /* GraphQL */ `
         code
       }
     }
+  }
+`
+
+// 第一批：公开金句面。单句查询独立于热门列表，旧分享链接不受热度排序影响。
+export const FlashbackVoicesQueryDocument = /* GraphQL */ `
+  query FlashbackVoices($voterKey: String, $city: String) {
+    flashbackPublicQuotes(voterKey: $voterKey, city: $city) {
+      quoteId text attribution city year likeCount likedByViewer level publicSlug
+    }
+  }
+`
+export const FlashbackVoiceQueryDocument = /* GraphQL */ `
+  query FlashbackVoice($quoteId: ID!, $voterKey: String) {
+    flashbackPublicQuote(quoteId: $quoteId, voterKey: $voterKey) {
+      quoteId text attribution city year likeCount likedByViewer level publicSlug
+    }
+  }
+`
+export const FlashbackRandomVoicesQueryDocument = /* GraphQL */ `
+  query FlashbackRandomVoices($voterKey: String, $limit: Int) {
+    flashbackRandomQuotes(voterKey: $voterKey, limit: $limit) {
+      quoteId text attribution city year likeCount likedByViewer level publicSlug
+    }
+  }
+`
+export const FlashbackLikeVoiceMutationDocument = /* GraphQL */ `
+  mutation FlashbackLikeVoice($quoteId: ID!, $voterKey: String!, $liked: Boolean!) {
+    flashbackLikeQuote(quoteId: $quoteId, voterKey: $voterKey, liked: $liked) { likeCount }
+  }
+`
+
+export const FlashbackVoiceCitiesQueryDocument = /* GraphQL */ `
+  query FlashbackVoiceCities {
+    flashbackVoiceCities { name fullName pinyin lngLat }
   }
 `

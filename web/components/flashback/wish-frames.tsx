@@ -15,6 +15,7 @@ import {
 	FLASHBACK_ADD_WISH_COMMENT,
 	FLASHBACK_DELETE_WISH,
 } from "@/lib/graphql/flashback";
+import { WishEchoCard } from "./wish-echo-card";
 /**
  * 许愿卡与模态（U7/版 D 定稿）：纸白卡（附议 +1 / 留言 / 已附议态）；
  * 点卡开模态——许愿全文 + 留言流 + 附议按钮 + 本人删除（R14）；「+ 许个愿」
@@ -434,7 +435,8 @@ export function WishFormModal({
 						{bindGuide && (
 							<>
 								{" "}
-								<Link href="/flashback/enter">{t("bindGuideCta")}</Link>
+								{/* D7 止血（视觉审计 2026-09）：未绑定即无 token，裸链 enter 必落假失效页——改为落 hub 找回区 */}
+								<Link href="/flashback#recover">{t("bindGuideCta")}</Link>
 							</>
 						)}
 					</p>
@@ -475,6 +477,7 @@ function WishModal({
 	const t = useTranslations("flashback.wish");
 	const [draft, setDraft] = useState("");
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
+	const [echoExpanded, setEchoExpanded] = useState(false);
 
 	return (
 		<div className="fb-wish-modal-layer" onClick={onClose} role="presentation">
@@ -491,6 +494,14 @@ function WishModal({
 				<p className="fb-wish-modal-meta">
 					{wish.wisherMasked} · {t("endorsed", { count: wish.endorsementCount })}
 				</p>
+				{wish.latestEcho && wish.echoCount > 0 && (
+					<WishEchoCard
+						latest={wish.latestEcho}
+						echoes={wish.echoes}
+						expanded={echoExpanded}
+						onToggleExpanded={() => setEchoExpanded((v) => !v)}
+					/>
+				)}
 				<ul className="fb-wish-modal-comments">
 					{wish.comments.map((c) => (
 						<li key={c.id}>

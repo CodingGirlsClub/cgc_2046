@@ -6,7 +6,9 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   ## 可见性铁律（R12）
 
-  - 名册仅含 `participation = 'attended'`（未入选者不进场次名册）；
+  - 名册含 `attended` 与 `not_selected`（圆梦线进名册、与学员同规则混合
+    展示、不按身份分区；`participation` 随 DTO 透出供名册徽标）。事实纪律：
+    `not_selected` = 当年报了名未入选，不是「没去/没到场/缺席」；
   - 结构化卡（姓氏隐名「王\*\*」+ 城市 + 年份 + 当年职业）对**全部名册成员**
     满员默认；
   - 内容层（当年答案雾化版 + 今天摘要）**只投 `sent_to_wall_at` 非空者**——
@@ -18,6 +20,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   alias Cgc2046.Flashback.FogSpans
   alias Cgc2046.Flashback.Tokens
+  alias Cgc2046.Flashback.WishEchoes
   alias Cgc2046.Repo
 
   @fog_placeholder "▓▓"
@@ -94,22 +97,39 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
     with {:ok, archives} <- list_archives(person, city) do
       endorsed = Cgc2046.Flashback.Wishes.endorsed_wish_ids(person.id)
+      public_wishes = Cgc2046.Flashback.Wishes.list_public(clean_city(city), person.id)
+      my_private_wishes = Cgc2046.Flashback.Wishes.list_private(person.id)
+
+      echo_projections =
+        (public_wishes ++ my_private_wishes)
+        |> Enum.map(& &1.id)
+        |> WishEchoes.public_by_wish_ids()
 
       {:ok,
        %{
          me: me_payload(person),
          archives: archives,
          public_wishes:
-           Cgc2046.Flashback.Wishes.list_public(clean_city(city), person.id)
+           public_wishes
            |> Enum.map(fn wish ->
-             Map.put(wish, :endorsed_by_me, MapSet.member?(endorsed, wish.id))
+             wish
+             |> Map.put(:endorsed_by_me, MapSet.member?(endorsed, wish.id))
+             |> add_echo_projection(echo_projections)
            end),
-         my_private_wishes: Cgc2046.Flashback.Wishes.list_private(person.id),
+         my_private_wishes:
+           Enum.map(my_private_wishes, &add_echo_projection(&1, echo_projections)),
          my_wish_quota_remaining: Cgc2046.Flashback.Wishes.quota_remaining(person.id),
          future_events: future_frames,
          cities: capsule_cities()
        }}
     end
+  end
+
+  defp add_echo_projection(wish, projections) do
+    Map.merge(
+      wish,
+      Map.get(projections, wish.id, %{latest_echo: nil, echo_count: 0, echoes: []})
+    )
   end
 
   # ── 未来场次帧（KTD1：dream_target 形状 + starts_at > now + initiative 分组）──
@@ -201,7 +221,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
 
   # 城市钉数据源（KTD6）：名册城市 ∪ 未来场次城市（events.venue->>'city'，公开 open
   # 且未开始）∪ 公开许愿城市（未删 wishes.city）。私有许愿城市不进钉条（R9 不可
-  # 由钉条推断存在）；与 roster 同口径 attended + 未删除。
+  # 由钉条推断存在）。pins 口径未随名册扩员变化：名册已含 not_selected，钉条仍按
+  # attended 存在性 + 未删除（圆梦线报名不产城钉，本次不扩范围）。
   defp capsule_cities do
     roster_cities =
       Repo.all(
@@ -463,16 +484,18 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     {:ok, enriched}
   end
 
-  # 结构化层：attended 全量满员（姓氏隐名）；内容层由 attach_content/2 决定。
-  # 已删除档案（U10/R30）整卡撤下——deleted_at 置位即从名册消失。
+  # 结构化层：名册全量满员（attended + not_selected 混合展示，姓氏隐名）；
+  # 内容层由 attach_content/2 决定。已删除档案（U10/R30）整卡撤下——
+  # deleted_at 置位即从名册消失。
+  # 排序：applied_at asc 混排（null 排最后）——按报名先后不按姓名与身份。
   # city（R34）：按**人**的城市筛（照片堆语义，非场次城市）。
   defp roster_by_archive(city) do
     base =
       from(p in "flashback_people",
         left_join: t in "flashback_todays",
         on: t.person_id == p.id,
-        where: p.participation == "attended" and is_nil(p.deleted_at),
-        order_by: [asc: p.full_name],
+        where: is_nil(p.deleted_at),
+        order_by: [asc_nulls_last: p.applied_at],
         select: %{
           archive_event_id: p.archive_event_id,
           # uuid 文本化：裸查询默认返回 16 字节 binary，:id 标量序列化会炸
@@ -482,6 +505,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           full_name: p.full_name,
           city: p.city,
           occupation_then: p.occupation_then,
+          # 名册徽标数据源：attended | not_selected（attach_content 透传到 DTO）
+          participation: p.participation,
           sent_to_wall_at: t.sent_to_wall_at,
           now_status: t.now_status,
           want: t.want,
@@ -577,6 +602,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       applied_at: sent && iso8601(row.applied_at),
       city: row.city,
       occupation_then: row.occupation_then,
+      # 名册徽标数据源：attended | not_selected（圆梦线「当年报了名」）
+      participation: row.participation,
       sent_to_wall_at: iso8601(row.sent_to_wall_at),
       today: today,
       answers: answers

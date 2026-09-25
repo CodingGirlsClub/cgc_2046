@@ -221,6 +221,22 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
       refute_receive {:notification, :wechat, _}
       assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
+
+    test "报名仍 pending 但 deadline 已过 → 跳过（:not_expired 放行谓词面，status 未变）" do
+      %{owner: owner, enrollment: enrollment} = enrollment_setup()
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE enrollments SET approval_deadline = $1 WHERE id = $2",
+          [DateTime.add(DateTime.utc_now(), -1, :hour), Ecto.UUID.dump!(enrollment.id)]
+        )
+
+      assert :ok = perform_job(NotificationWorker, reminder_args(owner, enrollment))
+
+      refute_receive {:notification, :wechat, _}
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
+    end
   end
 
   describe "stale 重查：approval_reminder × sponsorship_id（表条目 {Sponsorship, :pending, :not_expired}）" do
@@ -340,6 +356,32 @@ defmodule Cgc2046.Notifications.NotificationWorkerTest do
       assert page == "pages/my-enrollments/index", "报名成功通知必须落我的报名（报名结果权威面）"
       assert data["thing1"] == %{"value" => "AI 入门工作坊"}
       assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "enrollment_completed")
+    end
+
+    test "flashback_wish_echo：落到带 wishId 的长廊愿望深链" do
+      owner = Fixtures.platform_admin("nw-wish-echo")
+      wish_id = Ecto.UUID.generate()
+      endorsement_id = Ecto.UUID.generate()
+
+      insert_identity(owner.id, "nw-wish-echo-openid")
+      {:ok, _} = Consent.grant(owner.id, :wechat, "flashback_wish_echo")
+
+      assert :ok =
+               perform_job(NotificationWorker, %{
+                 "user_id" => owner.id,
+                 "identity_uid" => "nw-wish-echo-openid",
+                 "platform" => "wechat",
+                 "template_key" => "flashback_wish_echo",
+                 "data" => %{
+                   "wish_id" => wish_id,
+                   "endorsement_id" => endorsement_id,
+                   "content_preview" => "主办方收到你的提议"
+                 }
+               })
+
+      assert_receive {:notification, :wechat, %{"page" => page}}
+      assert page == "pages/flashback-corridor/index?wishId=#{wish_id}"
+      assert {:ok, 0} = Consent.remaining(owner.id, :wechat, "flashback_wish_echo")
     end
   end
 

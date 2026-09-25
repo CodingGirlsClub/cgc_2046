@@ -2400,6 +2400,18 @@ export type FlashbackAdminArchive = {
   occurredOn: Scalars['String']['output'];
 };
 
+export type FlashbackAdminListedWishEntry = {
+  city?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  /** 草稿回响数（仅 admin） */
+  draftEchoCount: Scalars['Int']['output'];
+  listedAt: Scalars['DateTime']['output'];
+  /** 已发布/已更正回响数（公开可见） */
+  publishedEchoCount: Scalars['Int']['output'];
+  signature?: Maybe<Scalars['String']['output']>;
+  wishId: Scalars['ID']['output'];
+};
+
 export type FlashbackAdminReportEntry = {
   insertedAt: Scalars['DateTime']['output'];
   reasonFree?: Maybe<Scalars['String']['output']>;
@@ -2416,6 +2428,23 @@ export type FlashbackAdminStats = {
   /** 记忆线（participation=attended）四率 */
   memory: FlashbackRates;
   overall: FlashbackRates;
+};
+
+export type FlashbackAdminWishEcho = {
+  content: Scalars['String']['output'];
+  correctedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  publishedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 发布时的 PlatformAdmin UUID，仅 admin 读面 */
+  publishedByUserId?: Maybe<Scalars['ID']['output']>;
+  revokedAt?: Maybe<Scalars['DateTime']['output']>;
+  status: Scalars['String']['output'];
+};
+
+export type FlashbackAdminWishEchoesResult = {
+  currentNotifiableEndorsementCount: Scalars['Int']['output'];
+  echoes: Array<FlashbackAdminWishEcho>;
 };
 
 export type FlashbackAdminWishInboxEntry = {
@@ -2746,15 +2775,26 @@ export type FlashbackPublicWish = {
   content: Scalars['String']['output'];
   /** 出力分布（venue/organize/speak/sponsor/other → count）——从 endorsements 聚合 */
   contributionDistribution: Scalars['Json']['output'];
+  echoCount: Scalars['Int']['output'];
+  echoes: Array<FlashbackPublicWishEcho>;
   endorsedByViewer: Scalars['Boolean']['output'];
   endorsementCount: Scalars['Int']['output'];
   expectationCount: Scalars['Int']['output'];
   expectedByViewer: Scalars['Boolean']['output'];
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  latestEcho?: Maybe<FlashbackPublicWishEcho>;
   listedAt: Scalars['DateTime']['output'];
   /** 署名快照（匿名遮罩姓 王** 或实名 display_name；创建时定型） */
   signature: Scalars['String']['output'];
+};
+
+export type FlashbackPublicWishEcho = {
+  content: Scalars['String']['output'];
+  correctedAt?: Maybe<Scalars['DateTime']['output']>;
+  id: Scalars['ID']['output'];
+  publishedAt: Scalars['DateTime']['output'];
+  status: Scalars['String']['output'];
 };
 
 export type FlashbackQuoteHiddenResult = {
@@ -2871,6 +2911,8 @@ export type FlashbackRosterEntry = {
   fullName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   occupationThen?: Maybe<Scalars['String']['output']>;
+  /** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示） */
+  participation: Scalars['String']['output'];
   sentToWallAt?: Maybe<Scalars['String']['output']>;
   /** 姓氏隐名（R12）：王**；名册结构化卡的核心标识 */
   surnameMasked: Scalars['String']['output'];
@@ -2941,6 +2983,8 @@ export type FlashbackSharedCardSegment = {
 };
 
 export type FlashbackToday = {
+  /** 句级雾面区间（字段名 → spans；U9/R16，空 map = 无雾） */
+  fogSpans?: Maybe<Scalars['Json']['output']>;
   mobilization?: Maybe<Scalars['JsonString']['output']>;
   need?: Maybe<Scalars['String']['output']>;
   newsletterOptIn?: Maybe<Scalars['Boolean']['output']>;
@@ -2984,11 +3028,14 @@ export type FlashbackWish = {
   city?: Maybe<Scalars['String']['output']>;
   comments: Array<FlashbackWishComment>;
   content: Scalars['String']['output'];
+  echoCount: Scalars['Int']['output'];
+  echoes: Array<FlashbackPublicWishEcho>;
   /** 本人已附议（已附议态渲染依据，R7） */
   endorsedByMe: Scalars['Boolean']['output'];
   endorsementCount: Scalars['Int']['output'];
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  latestEcho?: Maybe<FlashbackPublicWishEcho>;
   /** 本人许愿（删除入口只对本人显示，R14） */
   mine: Scalars['Boolean']['output'];
   /** 许愿人遮罩姓（王**） */
@@ -4980,8 +5027,16 @@ export type RootMutationType = {
   flashbackAdjustTodayFog?: Maybe<FlashbackAdjustTodayFogResult>;
   /** 批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位 */
   flashbackAdminApproveReport?: Maybe<FlashbackReportResult>;
+  /** 原地更正已发布回响（#834，不触发首次通知） */
+  flashbackAdminCorrectWishEcho?: Maybe<FlashbackAdminWishEcho>;
+  /** 创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望） */
+  flashbackAdminCreateWishEcho?: Maybe<FlashbackAdminWishEcho>;
   /** 驳回举报（wish2 U5 PlatformAdmin）：status=dismissed */
   flashbackAdminDismissReport?: Maybe<FlashbackReportResult>;
+  /** 首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见） */
+  flashbackAdminPublishWishEcho?: Maybe<FlashbackAdminWishEcho>;
+  /** 撤回已发布回响（#834，终态） */
+  flashbackAdminRevokeWishEcho?: Maybe<FlashbackAdminWishEcho>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成 */
   flashbackAdminSendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 金句下线开关（R38，PlatformAdmin）：hidden_at 置位/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线） */
@@ -4990,6 +5045,8 @@ export type RootMutationType = {
   flashbackAdminSetWishHidden?: Maybe<FlashbackWishHiddenResult>;
   /** 兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed */
   flashbackAdminUpdateRedemption?: Maybe<FlashbackRedemptionUpdateResult>;
+  /** 修改回响草稿（#834，PlatformAdmin；仅 draft 可修改） */
+  flashbackAdminUpdateWishEchoDraft?: Maybe<FlashbackAdminWishEcho>;
   /** 取消附议（wish2 U6/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离） */
   flashbackCancelEndorseWish?: Maybe<FlashbackWishEndorseResult>;
   /** 微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机/邮箱自动匹配未认领档案 */
@@ -5465,8 +5522,30 @@ export type RootMutationTypeFlashbackAdminApproveReportArgs = {
 };
 
 
+export type RootMutationTypeFlashbackAdminCorrectWishEchoArgs = {
+  content: Scalars['String']['input'];
+  echoId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminCreateWishEchoArgs = {
+  content: Scalars['String']['input'];
+  wishId: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeFlashbackAdminDismissReportArgs = {
   reportId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminPublishWishEchoArgs = {
+  echoId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminRevokeWishEchoArgs = {
+  echoId: Scalars['ID']['input'];
 };
 
 
@@ -5493,6 +5572,12 @@ export type RootMutationTypeFlashbackAdminUpdateRedemptionArgs = {
   handledNote?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['ID']['input'];
   status: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminUpdateWishEchoDraftArgs = {
+  content: Scalars['String']['input'];
+  echoId: Scalars['ID']['input'];
 };
 
 
@@ -5927,12 +6012,16 @@ export type RootQueryType = {
   eventModerators: Array<EventModerator>;
   /** 场次列表（R7 发送入口数据源，PlatformAdmin） */
   flashbackAdminArchives: Array<FlashbackAdminArchive>;
+  /** 回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed/public/unhidden/未删），按挂树时间倒序，附回响计数 */
+  flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
   /** 闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
   flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
+  /** 许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数 */
+  flashbackAdminWishEchoes?: Maybe<FlashbackAdminWishEchoesResult>;
   /** 「说给主办方听」收件箱（wish2 U5/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone/email 仅 admin；公开响应禁出） */
   flashbackAdminWishInbox: Array<FlashbackAdminWishInboxEntry>;
   /** 举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序 */
@@ -5967,6 +6056,8 @@ export type RootQueryType = {
   flashbackRandomQuotes: Array<FlashbackPublicQuote>;
   /** 卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机） */
   flashbackSharedCard?: Maybe<FlashbackSharedCard>;
+  /** 公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响 */
+  flashbackVoiceCities: Array<FlashbackCity>;
   /** 平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null） */
   getAdminCourse?: Maybe<AdminCourseDetail>;
   /** 平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null） */
@@ -6148,6 +6239,11 @@ export type RootQueryTypeFlashbackAdminResendOutreachArgs = {
 };
 
 
+export type RootQueryTypeFlashbackAdminWishEchoesArgs = {
+  wishId: Scalars['ID']['input'];
+};
+
+
 export type RootQueryTypeFlashbackCapsuleArgs = {
   city?: InputMaybe<Scalars['String']['input']>;
   token?: InputMaybe<Scalars['String']['input']>;
@@ -6194,6 +6290,7 @@ export type RootQueryTypeFlashbackPublicQuoteArgs = {
 
 
 export type RootQueryTypeFlashbackPublicQuotesArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
   voterKey?: InputMaybe<Scalars['String']['input']>;
 };
 

@@ -46,6 +46,12 @@ defmodule Cgc2046.Flashback.WishEndorsement do
       writable?: true
     )
 
+    # 首次接受 Echo 通知任务后置位；这是一次性业务机会，不使用 Oban 的短期 unique 窗口。
+    attribute(:echo_notification_used_at, :utc_datetime_usec,
+      public?: false,
+      writable?: false
+    )
+
     create_timestamp(:inserted_at)
   end
 

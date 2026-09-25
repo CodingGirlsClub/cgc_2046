@@ -37,7 +37,9 @@ function enterCorridor(): void {
  * （已寄出 = 显影卡带名字 / 未回来 = 雾卡「王** · 城市 · 职业 · 答案还在等她」）
  * + 找回 CTA（三级视角②：没回来的人从这里认领自己那张）。
  *
- * 名册仅当年实际参与者（后端已滤 not_selected，R12）；路人只有统计层（R32）。
+ * 名册混排 attended 与 not_selected（圆梦线进名册，同规则不按身份分区）；
+ * 路人只有统计层（R32）。名册徽标本端落在 #878 批次（codegen 已带
+ * participation 字段——本端暂不消费）。
  */
 export default function FlashbackEventPage() {
   const router = useRouter()

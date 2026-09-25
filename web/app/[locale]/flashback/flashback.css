@@ -491,10 +491,90 @@
 }
 .fb-send-title { margin: 0; font-size: 18px; line-height: 1.6; color: #d9d4ca; }
 
+/* 寄出前检查步（本人自选雾面，R16/KTD4）：句子整句成钮、雾态 = 雾徽章 + 金描边
+   磨砂底——本人视图文字保持完整可读（不 blur，fb-fog-span 的模糊只给对外视图） */
+.fb-review {
+	display: grid;
+	gap: 14px;
+	width: 100%;
+	max-height: 46vh;
+	overflow-y: auto;
+	text-align: left;
+}
+.fb-review-answer { display: grid; gap: 6px; }
+.fb-review-question { margin: 0; font-size: 12px; letter-spacing: 0.08em; color: var(--fb-sub); }
+.fb-review-sentences { display: grid; gap: 8px; }
+.fb-root .fb-review-sentence {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	justify-content: space-between;
+	width: 100%;
+	text-align: left;
+	background: rgba(255, 255, 255, 0.06);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 10px;
+	color: #d9d4ca;
+	font-size: 14px;
+	line-height: 1.7;
+	padding: 10px 12px;
+	cursor: pointer;
+}
+.fb-root .fb-review-sentence--fog {
+	border-color: rgba(203, 191, 143, 0.5);
+	background: rgba(203, 191, 143, 0.12);
+}
+.fb-review-sentence-text { flex: 1; }
+.fb-root .fb-review-fog-badge {
+	flex: none;
+	font-size: 11px;
+	line-height: 1.7;
+	padding: 1px 8px;
+	border-radius: 999px;
+	color: var(--fb-accent);
+	border: 1px solid rgba(203, 191, 143, 0.5);
+}
+
+/* ── 胶囊「我的卡」动作（编辑今天的你 / 撤下）与暗底弹层 ───────────────
+   弹层壳复用 fb-send-overlay / fb-send-step；编辑 textarea 用 fb-register-input
+   同款暗底配方（对比度门已钉：#ece8de 对暗底 ≥4.5） */
+.fb-today-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 12px;
+	justify-content: center;
+	flex-wrap: wrap;
+}
+.fb-today-dialog {
+	max-height: min(82vh, 760px);
+	overflow-y: auto;
+}
+.fb-today-dialog-fields {
+	display: grid;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+}
+.fb-root textarea.fb-today-dialog-textarea {
+	background: rgba(239, 233, 219, 0.12);
+	border: 1px solid rgba(239, 233, 219, 0.45);
+	border-radius: 8px;
+	padding: 10px 12px;
+	color: #ece8de;
+	font-size: 14px;
+	width: 100%;
+	min-height: 3.4em;
+	resize: vertical;
+}
+.fb-root textarea.fb-today-dialog-textarea:focus-visible {
+	outline: none;
+	border-color: var(--fb-accent);
+}
 /* 拍立得答案区（R7）；卡面是 button（第 3 件翻面），内容用 span + 块级化 */
 .fb-answers { padding: 9%; display: grid; gap: 10px; text-align: left; }
 .fb-answer { display: block; }
-.fb-answer-q { font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
+/* 题面独占一行（视觉审计 2026-09：曾缺失 display:block，题面与答案 inline 连排成一行） */
+.fb-answer-q { display: block; margin-bottom: 2px; font-size: 9px; opacity: 0.55; letter-spacing: 0.1em; }
 .fb-answer-a { font-size: 12px; line-height: 1.7; }
 .fb-card-caption {
 	padding: 9px 11px;
@@ -798,6 +878,19 @@
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
 .fb-roster-facts { font-size: 10px; opacity: 0.65; }
+/* 圆梦线小徽标「当年报了名」：雾卡（暗底亮字）与点亮卡（纸底墨字）两态
+   通用——currentColor 继承各自文本色 + 低透明 + 发丝描边（低调不抢戏） */
+.fb-roster-badge {
+	display: inline-block;
+	align-self: flex-start;
+	font-size: 10px;
+	line-height: 1.8;
+	padding: 0 7px;
+	border-radius: 999px;
+	border: 1px solid currentColor;
+	color: inherit;
+	opacity: 0.68;
+}
 /* ── 名册显影（第 7a 件：对齐原型 D 的 develop-soft 节奏） ──────────────
    进入视口才显影，只播一次；终态**不归零**（blur(1px)/brightness(1.08)/0.94，
    对齐原型 ia-develop-soft「墙上别人照片的持续感」——整面墙保持将显未定的

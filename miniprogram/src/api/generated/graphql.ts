@@ -1121,7 +1121,7 @@ export type FlashbackCapsuleQueryVariables = Exact<{
 }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { myWishQuotaRemaining: number | null, cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, need: string | null, say: string | null, fogSpans: string | null, sentToWallAt: string | null } | null, cardSharing: { enabled: boolean, shareId: string | null, preview: { displayName: string, city: string | null, appliedAt: string | null, occurredOn: string | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }>, today: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> } | null }, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, initiativeStartsAt: string | null, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { myWishQuotaRemaining: number | null, cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, need: string | null, say: string | null, fogSpans: string | null, sentToWallAt: string | null } | null, cardSharing: { enabled: boolean, shareId: string | null, preview: { displayName: string, city: string | null, appliedAt: string | null, occurredOn: string | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }>, today: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> } | null }, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, initiativeStartsAt: string | null, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, echoCount: number, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }>, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
 
 export type FlashbackPublicStatsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1253,7 +1253,7 @@ export type FlashbackPublicWishesQueryVariables = Exact<{
 }>;
 
 
-export type FlashbackPublicWishesQuery = { flashbackPublicWishes: Array<{ id: string, content: string, city: string | null, signature: string, expectationCount: number, endorsementCount: number, contributionDistribution: string, expectedByViewer: boolean, endorsedByViewer: boolean, listedAt: string, insertedAt: string }> };
+export type FlashbackPublicWishesQuery = { flashbackPublicWishes: Array<{ id: string, content: string, city: string | null, signature: string, expectationCount: number, endorsementCount: number, contributionDistribution: string, expectedByViewer: boolean, endorsedByViewer: boolean, echoCount: number, listedAt: string, insertedAt: string, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> }> };
 
 export type FlashbackAddWishCommentMutationVariables = Exact<{
   token?: string | null | undefined;
@@ -1338,3 +1338,41 @@ export type CreateVolunteerApplicationMutationVariables = Exact<{
 
 
 export type CreateVolunteerApplicationMutation = { createVolunteerApplication: { result: { id: string, cohortId: string, position: string, city: string | null, heardAboutUs: string | null, hasInternalReferrer: boolean, message: string | null, status: string, rejectionReason: string | null, assignedEventId: string | null, assignmentNote: string | null, assignedAt: string | null } | null, errors: Array<{ message: string | null, code: string | null }> } | null };
+
+export type FlashbackVoicesQueryVariables = Exact<{
+  voterKey?: string | null | undefined;
+  city?: string | null | undefined;
+}>;
+
+
+export type FlashbackVoicesQuery = { flashbackPublicQuotes: Array<{ quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null }> };
+
+export type FlashbackVoiceQueryVariables = Exact<{
+  quoteId: string | number;
+  voterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackVoiceQuery = { flashbackPublicQuote: { quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null } | null };
+
+export type FlashbackRandomVoicesQueryVariables = Exact<{
+  voterKey?: string | null | undefined;
+  limit?: number | null | undefined;
+}>;
+
+
+export type FlashbackRandomVoicesQuery = { flashbackRandomQuotes: Array<{ quoteId: string, text: string, attribution: string, city: string | null, year: number | null, likeCount: number, likedByViewer: boolean, level: string, publicSlug: string | null }> };
+
+export type FlashbackLikeVoiceMutationVariables = Exact<{
+  quoteId: string | number;
+  voterKey: string;
+  liked: boolean;
+}>;
+
+
+export type FlashbackLikeVoiceMutation = { flashbackLikeQuote: { likeCount: number } | null };
+
+export type FlashbackVoiceCitiesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackVoiceCitiesQuery = { flashbackVoiceCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };

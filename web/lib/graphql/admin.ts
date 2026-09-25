@@ -1052,6 +1052,137 @@ export const FLASHBACK_ADMIN_SET_WISH_HIDDEN: TypedDocumentNode<
 	}
 `;
 
+export type FlashbackAdminWishEchoStatus = "draft" | "published" | "corrected" | "revoked";
+
+export interface FlashbackAdminWishEcho {
+	id: string;
+	content: string;
+	status: FlashbackAdminWishEchoStatus;
+	insertedAt: string;
+	publishedAt?: string | null;
+	correctedAt?: string | null;
+	revokedAt?: string | null;
+}
+
+export interface FlashbackAdminWishEchoesResult {
+	echoes: FlashbackAdminWishEcho[];
+	currentNotifiableEndorsementCount: number;
+}
+
+export interface FlashbackAdminListedWishEntry {
+	wishId: string;
+	content: string;
+	signature?: string | null;
+	city?: string | null;
+	listedAt: string;
+	publishedEchoCount: number;
+	draftEchoCount: number;
+}
+
+export const FLASHBACK_ADMIN_LISTED_WISHES: TypedDocumentNode<
+	{ flashbackAdminListedWishes: FlashbackAdminListedWishEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminListedWishes {
+		flashbackAdminListedWishes {
+			wishId
+			content
+			signature
+			city
+			listedAt
+			publishedEchoCount
+			draftEchoCount
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_WISH_ECHOES: TypedDocumentNode<
+	{ flashbackAdminWishEchoes: FlashbackAdminWishEchoesResult | null },
+	{ wishId: string }
+> = gql`
+	query FlashbackAdminWishEchoes($wishId: ID!) {
+		flashbackAdminWishEchoes(wishId: $wishId) {
+			echoes {
+				id
+				content
+				status
+				insertedAt
+				publishedAt
+				correctedAt
+				revokedAt
+			}
+			currentNotifiableEndorsementCount
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_CREATE_WISH_ECHO: TypedDocumentNode<
+	{ flashbackAdminCreateWishEcho: FlashbackAdminWishEcho | null },
+	{ wishId: string; content: string }
+> = gql`
+	mutation FlashbackAdminCreateWishEcho($wishId: ID!, $content: String!) {
+		flashbackAdminCreateWishEcho(wishId: $wishId, content: $content) {
+			id
+			content
+			status
+			insertedAt
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_UPDATE_WISH_ECHO_DRAFT: TypedDocumentNode<
+	{ flashbackAdminUpdateWishEchoDraft: FlashbackAdminWishEcho | null },
+	{ echoId: string; content: string }
+> = gql`
+	mutation FlashbackAdminUpdateWishEchoDraft($echoId: ID!, $content: String!) {
+		flashbackAdminUpdateWishEchoDraft(echoId: $echoId, content: $content) {
+			id
+			content
+			status
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_PUBLISH_WISH_ECHO: TypedDocumentNode<
+	{ flashbackAdminPublishWishEcho: FlashbackAdminWishEcho | null },
+	{ echoId: string }
+> = gql`
+	mutation FlashbackAdminPublishWishEcho($echoId: ID!) {
+		flashbackAdminPublishWishEcho(echoId: $echoId) {
+			id
+			status
+			publishedAt
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_CORRECT_WISH_ECHO: TypedDocumentNode<
+	{ flashbackAdminCorrectWishEcho: FlashbackAdminWishEcho | null },
+	{ echoId: string; content: string }
+> = gql`
+	mutation FlashbackAdminCorrectWishEcho($echoId: ID!, $content: String!) {
+		flashbackAdminCorrectWishEcho(echoId: $echoId, content: $content) {
+			id
+			status
+			content
+			correctedAt
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_REVOKE_WISH_ECHO: TypedDocumentNode<
+	{ flashbackAdminRevokeWishEcho: FlashbackAdminWishEcho | null },
+	{ echoId: string }
+> = gql`
+	mutation FlashbackAdminRevokeWishEcho($echoId: ID!) {
+		flashbackAdminRevokeWishEcho(echoId: $echoId) {
+			id
+			status
+			revokedAt
+		}
+	}
+`;
+
 export interface FlashbackOutreachBatchChannel {
 	queued: number;
 	sent: number;

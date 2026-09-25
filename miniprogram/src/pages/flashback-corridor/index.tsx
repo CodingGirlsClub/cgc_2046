@@ -5,7 +5,8 @@ import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, canSubmitWish, wishQuotaCopy, ensureWishVoterKey, cityCandidates, ViewerWish, WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type CityOption, type QuoteLevel } from '@/domain/flashback'
+import WishEchoCard from '@/components/WishEchoCard'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, canSubmitWish, wishQuotaCopy, ensureWishVoterKey, cityCandidates, ViewerWish, WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, mapPublicWishEcho, type CityOption, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import { wishEchoTouchpoint, requestAndGrant } from '@/domain/subscription'
@@ -305,16 +306,27 @@ export default function FlashbackCorridorPage() {
       )
       const rows = data.flashbackPublicWishes ?? []
       setViewerWishes(
-        rows.map((wish) => ({
-          id: wish.id,
-          content: wish.content,
-          city: wish.city ?? null,
-          signature: wish.signature,
-          expectationCount: wish.expectationCount,
-          endorsementCount: wish.endorsementCount,
-          expectedByViewer: wish.expectedByViewer,
-          endorsedByViewer: wish.endorsedByViewer
-        }))
+        rows.map((wish) => {
+          // #837 GraphQL status 宽 string 用 domain helper fail-closed 收敛;
+          // 非法状态整条丢弃(等同服务端本就不该把 draft/revoked 返给公开读面)
+          const mappedEchoes = (wish.echoes ?? [])
+            .map(mapPublicWishEcho)
+            .filter((e): e is NonNullable<typeof e> => e !== null)
+          const mappedLatest = wish.latestEcho ? mapPublicWishEcho(wish.latestEcho) : null
+          return {
+            id: wish.id,
+            content: wish.content,
+            city: wish.city ?? null,
+            signature: wish.signature,
+            expectationCount: wish.expectationCount,
+            endorsementCount: wish.endorsementCount,
+            expectedByViewer: wish.expectedByViewer,
+            endorsedByViewer: wish.endorsedByViewer,
+            latestEcho: mappedLatest,
+            echoCount: wish.echoCount ?? 0,
+            echoes: mappedEchoes
+          }
+        })
       )
     } catch {
       setViewerWishes([])
@@ -426,9 +438,10 @@ export default function FlashbackCorridorPage() {
     }
   }
   const reloadMember = async () => {
-    if (mode.kind !== 'member') return
+    if (mode.kind !== 'member') return null
     const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
     if (capsule) setMode({ ...mode, capsule })
+    return capsule
   }
 
   const submitWish = async () => {
@@ -473,8 +486,8 @@ export default function FlashbackCorridorPage() {
     try {
       await api.flashbackAddWishComment(wish.id, wishComment.trim(), mode.token)
       setWishComment('')
-      await reloadMember()
-      const fresh = (mode.capsule.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
+      const capsule = await reloadMember()
+      const fresh = (capsule?.publicWishes.find((w) => w.id === wish.id) ?? null) as FlashbackWish | null
       if (fresh) setWishModal(fresh)
       Taro.showToast({ title: '留言已上墙', icon: 'none' })
     } catch (error) {
@@ -577,6 +590,10 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
+      <View className={styles.voicesEntry} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+        <View><Text className={styles.voicesTitle}>金句墙</Text><Text className={styles.voicesSubtitle}>听听那些年，大家愿意公开的声音</Text></View>
+        <Text className={styles.voicesArrow}>去看看 →</Text>
+      </View>
       <View className={styles.capsuleShell}>
       <ScrollView
         id='fbCapsule'
@@ -766,6 +783,17 @@ export default function FlashbackCorridorPage() {
               viewerWishes.map((wish) => (
                 <View key={wish.id} className={styles.wishCard} onClick={() => setViewerWishModal(wish)}>
                   <Text className={styles.wishContent}>{wish.content}</Text>
+                  {/* #837 「有回响」徽章:echoCount>0 时显示,提示此愿已有主办回信 */}
+                  {wish.echoCount > 0 && (
+                    <View className={styles.wishEchoRow}>
+                      <Text className={styles.wishEchoBadge}>回响 · {wish.echoCount}</Text>
+                      {wish.latestEcho && (
+                        <Text className={styles.wishEchoPreview} numberOfLines={1}>
+                          {wish.latestEcho.content}
+                        </Text>
+                      )}
+                    </View>
+                  )}
                   <View className={styles.wishFoot}>
                     <Text className={styles.wishWho}>
                       {wish.signature}
@@ -1024,6 +1052,8 @@ export default function FlashbackCorridorPage() {
                 </Text>
               )}
             </View>
+            {/* #837 回响卡:仅 echoCount>0 渲染;member 面与 viewer 面共用同形状 */}
+            {wishModal.echoCount > 0 && <WishEchoCard echoes={wishModal.echoes} />}
             <View className={styles.wishComments}>
               <Text className={styles.wishCommentsTitle}>留言({wishModal.comments.length})</Text>
               {wishModal.comments.map((comment) => (
@@ -1076,6 +1106,8 @@ export default function FlashbackCorridorPage() {
                 </Text>
               )}
             </View>
+            {/* #837 回响卡:viewer 面与 member 面共用同形状 */}
+            {viewerWishModal.echoCount > 0 && <WishEchoCard echoes={viewerWishModal.echoes} />}
           </View>
         </View>
       )}

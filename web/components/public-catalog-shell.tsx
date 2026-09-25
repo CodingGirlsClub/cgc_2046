@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import SiteHeader, { type SiteNavLink } from "@/components/site-header";
+import SiteFooter from "@/components/site-footer";
 import type { OfferingKind } from "@/lib/graphql/events";
 
 /** 目录页 kind → 顶导高亮项（倡导活动与活动/课程同列公开入口） */
@@ -30,6 +31,7 @@ export default function PublicCatalogShell({
 			>
 				{children}
 			</main>
+			<SiteFooter />
 		</div>
 	);
 }

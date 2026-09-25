@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import CapsuleView from "./capsule-view";
-import type { FlashbackCapsule } from "@/lib/graphql/flashback";
+import { FLASHBACK_RETRACT, type FlashbackCapsule } from "@/lib/graphql/flashback";
 
 /**
  * U5 时间胶囊测试：分层墙（结构化满员/虚线内容位/雾化显影）、两形态布局
@@ -22,9 +22,13 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 const capsuleQuery = vi.fn();
+const capsuleMutate = vi.fn();
 
 vi.mock("@/lib/apollo-client", () => ({
-	client: { query: (...args: unknown[]) => capsuleQuery(...(args as [{ variables: { token?: string } }])) },
+	client: {
+		query: (...args: unknown[]) => capsuleQuery(...(args as [{ variables: { token?: string } }])),
+		mutate: (...args: unknown[]) => capsuleMutate(...args),
+	},
 }));
 
 const { useMutationMock } = vi.hoisted(() => ({
@@ -40,6 +44,7 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 const rosterEntry = (overrides: Partial<FlashbackCapsule["archives"][number]["roster"][number]>) => ({
 	id: "entry-1",
 	surnameMasked: "王**",
+	participation: "attended",
 	city: "北京",
 	occupationThen: "学生",
 	sentToWallAt: null,
@@ -154,6 +159,66 @@ describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
 
 		const today = screen.getByTestId("fb-today-slot");
 		expect(today.dataset.sent).toBe("false");
+		expect(today).toHaveTextContent("你的照片还没寄出");
+		expect(screen.getByRole("link", { name: "去寄出它 →" })).toHaveAttribute("href", "/flashback/enter");
+	});
+});
+
+describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
+	it("已寄出 + token 在场：「今天」格动作行渲染编辑与撤下", async () => {
+		await renderCapsule();
+
+		const today = screen.getByTestId("fb-today-slot");
+		expect(within(today).getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
+		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
+	});
+
+	it("已寄出 + 登录态无 token：撤下不渲染（retract 现为 token 面），编辑恒在", async () => {
+		window.history.replaceState({}, "", "/flashback/capsule");
+		window.sessionStorage.clear();
+		capsuleQuery.mockReset();
+		capsuleQuery.mockResolvedValue({ data: { flashbackCapsule: baseCapsule } });
+		render(<CapsuleView />);
+		await screen.findByText("闪念间 · 时间长廊");
+
+		const today = screen.getByTestId("fb-today-slot");
+		expect(within(today).queryByRole("button", { name: "撤下" })).not.toBeInTheDocument();
+		expect(within(today).getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
+	});
+
+	it("撤下完整流：确认后 retract 带 token → 重拉数据 → 今天格回虚线位 + 去寄出引导", async () => {
+		window.history.replaceState({}, "", "/flashback/capsule?token=tok-1");
+		window.sessionStorage.clear();
+		capsuleQuery.mockReset();
+		capsuleQuery
+			.mockResolvedValueOnce({ data: { flashbackCapsule: baseCapsule } })
+			.mockResolvedValue({
+				data: {
+					flashbackCapsule: {
+						...baseCapsule,
+						me: { ...baseCapsule.me, today: { ...baseCapsule.me.today!, sentToWallAt: null } },
+					},
+				},
+			});
+		capsuleMutate.mockReset();
+		capsuleMutate.mockResolvedValue({ data: { flashbackRetract: { retracted: true } } });
+		render(<CapsuleView />);
+		await screen.findByText("闪念间 · 时间长廊");
+
+		fireEvent.click(screen.getByRole("button", { name: "撤下" }));
+		fireEvent.click(await screen.findByRole("button", { name: "确认撤下" }));
+
+		await waitFor(() => expect(capsuleMutate).toHaveBeenCalledTimes(1));
+		const [opts] = capsuleMutate.mock.calls.map(([call]) => call) as [
+			{ mutation: unknown; variables: unknown },
+		];
+		expect(opts.mutation).toBe(FLASHBACK_RETRACT);
+		expect(opts.variables).toEqual({ token: "tok-1" });
+
+		// 刷新后回未寄出态（U5 就位呈现：虚线位 + 去寄出）
+		await waitFor(() => expect(capsuleQuery).toHaveBeenCalledTimes(2));
+		const today = screen.getByTestId("fb-today-slot");
+		await waitFor(() => expect(today.dataset.sent).toBe("false"));
 		expect(today).toHaveTextContent("你的照片还没寄出");
 		expect(screen.getByRole("link", { name: "去寄出它 →" })).toHaveAttribute("href", "/flashback/enter");
 	});

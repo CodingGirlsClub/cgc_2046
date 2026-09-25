@@ -208,6 +208,8 @@ export interface FlashbackRosterEntry {
 	fullName?: string | null;
 	/** 寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null */
 	appliedAt?: string | null;
+	/** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，非「没去」） */
+	participation: string;
 	city?: string | null;
 	occupationThen?: string | null;
 	sentToWallAt?: string | null;
@@ -265,6 +267,16 @@ export interface FlashbackWishComment {
 	insertedAt: string;
 }
 
+/** #834 回响（Echo;非 admin 公开读面):仅 id/content/status/publishedAt/correctedAt,不含 admin 身份 */
+export interface FlashbackPublicWishEcho {
+	id: string;
+	content: string;
+	/** published(首次发布)或 corrected(更正过);draft/revoked 不出现在公开读面 */
+	status: "published" | "corrected";
+	publishedAt: string;
+	correctedAt: string | null;
+}
+
 export interface FlashbackWish {
 	id: string;
 	content: string;
@@ -275,6 +287,12 @@ export interface FlashbackWish {
 	/** 本人许愿（删除入口只对本人显示，R14） */
 	mine: boolean;
 	comments: FlashbackWishComment[];
+	/** 最新一条可见回响(#834;无则 null) */
+	latestEcho: FlashbackPublicWishEcho | null;
+	/** 可见回响条数(#834) */
+	echoCount: number;
+	/** 全部可见回响,按首次发布时间正序(#834) */
+	echoes: FlashbackPublicWishEcho[];
 	insertedAt: string;
 }
 
@@ -363,6 +381,12 @@ export interface FlashbackPublicWish {
 	contributionDistribution: Record<string, number>;
 	expectedByViewer: boolean;
 	endorsedByViewer: boolean;
+	/** 最新一条可见回响(#834;无则 null) */
+	latestEcho: FlashbackPublicWishEcho | null;
+	/** 可见回响条数(#834) */
+	echoCount: number;
+	/** 全部可见回响,按首次发布时间正序(#834) */
+	echoes: FlashbackPublicWishEcho[];
 	listedAt: string;
 	insertedAt: string;
 }
@@ -448,6 +472,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 					want
 					need
 					say
+					fogSpans
 					wantGiveTags
 					mobilization
 					newsletterOptIn
@@ -483,12 +508,12 @@ export const FLASHBACK_MARK_REVEALED: TypedDocumentNode<
 	}
 `;
 
-/** 提交「今天的你」（覆盖式；期望管理文案在提交成功后展示，R29） */
+/** 提交「今天的你」（覆盖式双入口：token 或省略走登录会话；期望管理文案在提交成功后展示，R29） */
 export const FLASHBACK_SUBMIT_TODAY: TypedDocumentNode<
 	{ flashbackSubmitToday: { today: FlashbackToday } },
-	{ token: string; input: FlashbackTodayInput }
+	{ token?: string | null; input: FlashbackTodayInput }
 > = gql`
-	mutation FlashbackSubmitToday($token: String!, $input: FlashbackTodayInput!) {
+	mutation FlashbackSubmitToday($token: String, $input: FlashbackTodayInput!) {
 		flashbackSubmitToday(token: $token, input: $input) {
 			today {
 				nowStatus
@@ -519,12 +544,25 @@ export const FLASHBACK_SEND_TO_WALL: TypedDocumentNode<
 	}
 `;
 
-/** 调整雾面区间（R16/KTD4）：只改 spans，原文不可达 */
+/** 今天句级雾面：按字段（now/want/need/say）改雾区间，原文不可达（覆盖式双入口：token 或省略走登录会话） */
+export const FLASHBACK_ADJUST_TODAY_FOG: TypedDocumentNode<
+	{ flashbackAdjustTodayFog: { field: string; fogSpans: FlashbackFogSpan[] } },
+	{ token?: string | null; field: string; spans: FlashbackFogSpan[] }
+> = gql`
+	mutation FlashbackAdjustTodayFog($token: String, $field: String!, $spans: [FlashbackFogSpanInput!]!) {
+		flashbackAdjustTodayFog(token: $token, field: $field, spans: $spans) {
+			field
+			fogSpans
+		}
+	}
+`;
+
+/** 调整雾面区间（R16/KTD4）：只改 spans，原文不可达（覆盖式双入口：token 或省略走登录会话） */
 export const FLASHBACK_ADJUST_FOG: TypedDocumentNode<
 	{ flashbackAdjustFog: { answerId: string; fogSpans: FlashbackFogSpan[] } },
-	{ token: string; answerId: string; spans: FlashbackFogSpan[] }
+	{ token?: string | null; answerId: string; spans: FlashbackFogSpan[] }
 > = gql`
-	mutation FlashbackAdjustFog($token: String!, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
+	mutation FlashbackAdjustFog($token: String, $answerId: ID!, $spans: [FlashbackFogSpanInput!]!) {
 		flashbackAdjustFog(token: $token, answerId: $answerId, spans: $spans) {
 			answerId
 			fogSpans {
@@ -536,18 +574,18 @@ export const FLASHBACK_ADJUST_FOG: TypedDocumentNode<
 	}
 `;
 
-/** 金句授权（R31 两档 + 关） */
+/** 金句授权（R31 两档 + 关；覆盖式双入口：token 或省略走登录会话） */
 export const FLASHBACK_SET_QUOTE_LICENSE: TypedDocumentNode<
 	{ flashbackSetQuoteLicense: FlashbackQuoteLicenseResult },
 	{
-		token: string;
+		token?: string | null;
 		level: string;
 		chosenQuoteSpans?: { questionKey: string; start: number; len: number }[];
 		creditedNote?: string;
 	}
 > = gql`
 	mutation FlashbackSetQuoteLicense(
-		$token: String!
+		$token: String
 		$level: String!
 		$chosenQuoteSpans: [FlashbackQuoteSpanInput!]
 		$creditedNote: String
@@ -674,6 +712,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					id
 					surnameMasked
 					fullName
+					participation
 					appliedAt
 					city
 					occupationThen
@@ -720,6 +759,21 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					content
 					commenterMasked
 					insertedAt
+				}
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
 				}
 				insertedAt
 			}
@@ -1113,6 +1167,21 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 			contributionDistribution
 			expectedByViewer
 			endorsedByViewer
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
 			listedAt
 			insertedAt
 		}
@@ -1134,6 +1203,21 @@ export const FLASHBACK_PUBLIC_WISH: TypedDocumentNode<
 			contributionDistribution
 			expectedByViewer
 			endorsedByViewer
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
 			listedAt
 			insertedAt
 		}

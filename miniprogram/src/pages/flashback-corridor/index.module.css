@@ -604,6 +604,33 @@
 }
 
 /* ── wish2 U9：viewer 期待 ❤️ + 附议表单（KTD3/KTD5） ─────────────────── */
+/* #837 「有回响」徽章:回响数 + 最新一条回响预览(单行截断) */
+.wishEchoRow {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 12rpx;
+  padding: 8rpx 12rpx;
+  background: rgba(203, 191, 143, 0.18);
+  border-left: 4rpx solid #cbbf8f;
+  border-radius: 6rpx;
+}
+.wishEchoBadge {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #6b5a2c;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+.wishEchoPreview {
+  flex: 1;
+  font-size: 22rpx;
+  color: #4b4d54;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .wishExpectOn,
 .wishExpectOff {
   font-size: 24rpx;
@@ -1015,3 +1042,9 @@
 
 /* U10:雾句候选灰显锁定(不可选,点按提示先解雾) */
 .quoteCandidateFogged { opacity: 0.45; }
+
+/* 独立公开墙入口，不改长廊滚动容器或个人卡行为。 */
+.voicesEntry { display: flex; align-items: center; justify-content: space-between; margin: 12rpx 28rpx 18rpx; padding: 16rpx 20rpx; border: 1rpx solid #d9ddce; border-radius: 8rpx; background: #f5f3e9; }
+.voicesTitle { display: block; color: #244936; font-size: 28rpx; }
+.voicesSubtitle { display: block; margin-top: 4rpx; color: #697b60; font-size: 21rpx; }
+.voicesArrow { color: #536e47; font-size: 23rpx; }
