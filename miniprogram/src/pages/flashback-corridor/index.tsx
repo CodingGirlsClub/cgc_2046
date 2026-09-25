@@ -10,6 +10,7 @@ import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import { buildFlashbackEntryPath } from '@/domain/share-route'
 import { shouldRevealRecoveredCard } from '@/domain/flashback-recovery'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
@@ -193,7 +194,7 @@ export default function FlashbackCorridorPage() {
 
   // R14 分享：卡片落旅程入口（朋友从闪念间入口进入）；不带本人 token（R32 边界）
   const shareTitle = mode.kind === 'member' ? shareMessage(mode.capsule.me).title : '闪念间 · 找回当年的自己'
-  useShareAppMessage(() => ({ title: shareTitle, path: '/pages/flashback-journey/index' }))
+  useShareAppMessage(() => ({ title: shareTitle, path: buildFlashbackEntryPath() }))
   useShareTimeline(() => ({ title: shareTitle }))
 
 
