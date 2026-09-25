@@ -466,3 +466,53 @@ describe('许愿年度额度（R20：每年 3 条，含私有与已软删，删�
     assert.deepEqual(cityCandidates('亚特兰蒂斯', cities), [])
   })
 })
+
+// ── wish2 #837：回响读面 fail-closed(GraphQL status 宽 string → 收敛) ──
+describe('parsePublicWishEchoStatus / mapPublicWishEcho(#837)', () => {
+  test('parsePublicWishEchoStatus:合法两档透传', async () => {
+    const { parsePublicWishEchoStatus } = await import('../src/domain/flashback.ts')
+    assert.equal(parsePublicWishEchoStatus('published'), 'published')
+    assert.equal(parsePublicWishEchoStatus('corrected'), 'corrected')
+  })
+
+  test('parsePublicWishEchoStatus:draft/revoked/未知/null/undefined → null(F-closed)', async () => {
+    const { parsePublicWishEchoStatus } = await import('../src/domain/flashback.ts')
+    assert.equal(parsePublicWishEchoStatus('draft'), null)
+    assert.equal(parsePublicWishEchoStatus('revoked'), null)
+    assert.equal(parsePublicWishEchoStatus('anything-else'), null)
+    assert.equal(parsePublicWishEchoStatus(null), null)
+    assert.equal(parsePublicWishEchoStatus(undefined), null)
+    assert.equal(parsePublicWishEchoStatus(''), null)
+  })
+
+  test('mapPublicWishEcho:合法行收敛,correctedAt 缺省补 null', async () => {
+    const { mapPublicWishEcho } = await import('../src/domain/flashback.ts')
+    assert.deepEqual(
+      mapPublicWishEcho({ id: 'e1', content: '加油', status: 'published', publishedAt: '2026-09-20T08:30:00Z' }),
+      { id: 'e1', content: '加油', status: 'published', publishedAt: '2026-09-20T08:30:00Z', correctedAt: null }
+    )
+    assert.deepEqual(
+      mapPublicWishEcho({
+        id: 'e2',
+        content: '签约了!',
+        status: 'corrected',
+        publishedAt: '2026-09-22T10:00:00Z',
+        correctedAt: '2026-09-22T14:00:00Z'
+      }),
+      { id: 'e2', content: '签约了!', status: 'corrected', publishedAt: '2026-09-22T10:00:00Z', correctedAt: '2026-09-22T14:00:00Z' }
+    )
+  })
+
+  test('mapPublicWishEcho:status 非法 → null(调用方过滤)', async () => {
+    const { mapPublicWishEcho } = await import('../src/domain/flashback.ts')
+    // draft/revoked 本不该出现在公开读面;万一服务端漏了,前端 fail-closed 不透出
+    assert.equal(
+      mapPublicWishEcho({ id: 'e3', content: 'x', status: 'revoked', publishedAt: '2026-09-20T00:00:00Z' }),
+      null
+    )
+    assert.equal(
+      mapPublicWishEcho({ id: 'e4', content: 'x', status: '', publishedAt: '2026-09-20T00:00:00Z' }),
+      null
+    )
+  })
+})
