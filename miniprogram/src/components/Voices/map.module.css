@@ -8,3 +8,28 @@
 .label { position: absolute; left: 19rpx; top: -6rpx; font: 23rpx 'Songti SC', 'STSong', serif; white-space: nowrap; color: #173f33; text-shadow: 0 0 8rpx #fffefa; }
 .hangzhou { top: 22rpx; }
 .shanghai { top: -28rpx; }
+
+.wishTag { position: absolute; left: 24rpx; bottom: 30rpx; width: 222rpx; padding: 18rpx 20rpx; background: #fff9e9; border: 1rpx solid #d7b877; color: #4c523c; font: 25rpx/1.6 'Songti SC', 'STSong', serif; border-radius: 4rpx; box-shadow: 0 4rpx 14rpx rgba(107,83,40,.12); }
+
+/* The replay control sits inside the map's lower-right margin, clear of the
+   South China Sea inset and the wish note. No map content is cropped or covered. */
+.replayRow { display: flex; justify-content: flex-end; padding: 8rpx 24rpx 16rpx; }
+.replayRow .replayButton { display: flex; align-items: center; justify-content: center; gap: 12rpx; min-height: 80rpx; margin: 0; padding: 12rpx 24rpx 12rpx 16rpx; border: 1rpx solid #cda75d; border-radius: 999rpx; background: #f5e3b2; color: #34523c; font-size: 25rpx; font-weight: 600; line-height: 1.5; box-shadow: 0 3rpx 8rpx rgba(121,90,35,.1); }
+.replayButton::after { border: 0; }
+.replayButton:active { background: #efdaa0; }
+.replayIcon { display: flex; align-items: center; justify-content: center; width: 42rpx; height: 42rpx; border-radius: 50%; background: #fff6d9; color: #8f682b; font-size: 34rpx; font-weight: 400; }
+.connectionLayer { position: absolute; inset: 0; pointer-events: none; }
+.connection { position: absolute; height: 2rpx; margin-top: -1rpx; border-radius: 3rpx; background: #f3cb72; box-shadow: 0 0 5rpx 1rpx rgba(218,161,49,.48); transform-origin: left center; }
+.tracing { animation-name: goldTrace; animation-timing-function: linear; animation-fill-mode: both; }
+.night { position: absolute; inset: 0; background: #142f2c; animation-name: mapDawn; animation-timing-function: ease-out; animation-fill-mode: both; pointer-events: none; }
+.cityGlow { position: absolute; left: -9rpx; top: -9rpx; width: 32rpx; height: 32rpx; border-radius: 50%; border: 2rpx solid #ffdf81; box-shadow: 0 0 18rpx 8rpx rgba(245,191,77,.6); animation: cityWake 600ms ease-out both; }
+.waking { animation: cityDot 20ms linear both; }
+@keyframes mapDawn { 0% { opacity: .82; } 18% { opacity: .72; } 65% { opacity: .25; } 100% { opacity: 0; } }
+@keyframes goldTrace { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cityDot { from { opacity: .15; } to { opacity: 1; } }
+@keyframes cityWake { 0% { opacity: 0; transform: scale(.7); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(1.9); } }
+@media (prefers-reduced-motion: reduce) {
+  .night { animation-duration: 1ms !important; }
+  .connection, .dot { animation: none; }
+  .cityGlow { display: none; }
+}

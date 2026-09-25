@@ -13,3 +13,5 @@
 .backLink, .retry { margin-top: 20rpx; background: transparent; color: #4b6851; font-size: 26rpx; }
 .error { color: #963e31; }
 .page button::after { border: 0; }
+
+.publicWish { margin: 0 0 10rpx; padding: 12rpx 0; text-align: left; background: transparent; color: #536f4e; font-size: 25rpx; }

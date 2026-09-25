@@ -5597,6 +5597,9 @@ type RootQueryType {
     "城市过滤（Cities.normalize 短名；null = 不过滤）"
     city: String
 
+    "仅含已公开回响的愿望；在分页前筛选，不把草稿或撤销回响算入"
+    withEchoes: Boolean
+
     "排序种子（null = 当日+voterKey；「换一批」传随机值）"
     seed: String
 
@@ -5617,6 +5620,9 @@ type RootQueryType {
     "客户端去重键：只影响 expected\/endorsedByViewer 回显"
     voterKey: String
   ): FlashbackPublicWish
+
+  "公开许愿树城市全集，按拼音排列，不受愿望分页限制"
+  flashbackWishCities: [FlashbackCity!]!
 
   "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
   flashbackVoiceCities: [FlashbackCity!]!

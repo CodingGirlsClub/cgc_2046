@@ -483,6 +483,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_public_wishes, non_null(list_of(non_null(:flashback_public_wish))) do
       @desc "城市过滤（Cities.normalize 短名；null = 不过滤）"
       arg(:city, :string)
+      @desc "仅含已公开回响的愿望；在分页前筛选，不把草稿或撤销回响算入"
+      arg(:with_echoes, :boolean)
       @desc "排序种子（null = 当日+voterKey；「换一批」传随机值）"
       arg(:seed, :string)
       @desc "分页偏移（同 seed 稳定不重不漏）"
@@ -515,6 +517,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
         Cgc2046.Flashback.WishPublic.wishes(
           city: city,
+          with_echoes: args[:with_echoes] || false,
           seed: args[:seed],
           offset: args[:offset],
           limit: args[:limit],
@@ -535,6 +538,11 @@ defmodule Cgc2046Web.GraphqlSchema do
           voter_keys: viewer_voter_keys(context, args[:voter_key])
         )
       end)
+    end
+
+    @desc "公开许愿树城市全集，按拼音排列，不受愿望分页限制"
+    field :flashback_wish_cities, non_null(list_of(non_null(:flashback_city))) do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.WishPublic.published_cities() end)
     end
 
     @desc "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"

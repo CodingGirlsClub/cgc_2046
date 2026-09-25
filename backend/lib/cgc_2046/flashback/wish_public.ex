@@ -44,14 +44,21 @@ defmodule Cgc2046.Flashback.WishPublic do
     offset = max(Keyword.get(opts, :offset, 0), 0)
     limit = opts |> Keyword.get(:limit, @default_limit) |> max(1) |> min(@max_limit)
 
+    base_where = visible_wishes()
+
     base_where =
-      dynamic(
-        [w],
-        w.visibility == "public" and
-          not is_nil(w.listed_at) and
-          is_nil(w.hidden_at) and
-          is_nil(w.deleted_at)
-      )
+      if Keyword.get(opts, :with_echoes, false) do
+        dynamic(
+          [w],
+          ^base_where and
+            fragment(
+              "EXISTS (SELECT 1 FROM flashback_wish_echoes e WHERE e.wish_id = ? AND e.status IN ('published', 'corrected'))",
+              w.id
+            )
+        )
+      else
+        base_where
+      end
 
     where_dyn =
       if city do
@@ -135,6 +142,37 @@ defmodule Cgc2046.Flashback.WishPublic do
       |> WishEchoes.public_by_wish_ids()
 
     {:ok, Enum.map(rows, &payload(&1, echoes_by_wish_id))}
+  end
+
+  @doc "城市选择器查询整个公开树，独立于当前分页和回响筛选。"
+  def published_cities do
+    names =
+      from(w in "flashback_wishes",
+        where: ^visible_wishes(),
+        where: not is_nil(w.city),
+        distinct: true,
+        select: w.city
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    cities =
+      Cgc2046.Flashback.Cities.list()
+      |> Enum.filter(&MapSet.member?(names, &1.short_name))
+      |> Enum.sort_by(& &1.pinyin)
+      |> Enum.map(
+        &%{name: &1.short_name, full_name: &1.full_name, pinyin: &1.pinyin, lng_lat: &1.lng_lat}
+      )
+
+    {:ok, cities}
+  end
+
+  defp visible_wishes do
+    dynamic(
+      [w],
+      w.visibility == "public" and not is_nil(w.listed_at) and is_nil(w.hidden_at) and
+        is_nil(w.deleted_at)
+    )
   end
 
   @doc """

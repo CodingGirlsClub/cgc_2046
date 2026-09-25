@@ -1,7 +1,6 @@
 import { PropsWithChildren, useEffect } from 'react'
 import Taro, { useLaunch } from '@tarojs/taro'
 import { STORAGE_KEYS } from '@/state/storage'
-import { FLASHBACK_WISH_TARGET_KEY } from '@/state/flashbackEntry'
 import { applyEntry, type EntryTaro } from '@/domain/entry'
 import './app.css'
 
@@ -12,7 +11,7 @@ function App({ children }: PropsWithChildren) {
   // 见 EntryDecision.navigate）。
   useLaunch((options) => {
     setTimeout(
-      () => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene, FLASHBACK_WISH_TARGET_KEY),
+      () => applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene),
       0
     )
   })
@@ -21,7 +20,7 @@ function App({ children }: PropsWithChildren) {
   // → onAppShow query 路由，与冷启动同一判定。
   useEffect(() => {
     const handler = (options: Taro.onAppShow.CallbackResult) => {
-      applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene, FLASHBACK_WISH_TARGET_KEY)
+      applyEntry(Taro as unknown as EntryTaro, options, STORAGE_KEYS.pendingScene)
     }
     Taro.onAppShow(handler)
     return () => Taro.offAppShow(handler)
