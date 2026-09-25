@@ -231,6 +231,7 @@ interface FlashbackMockState {
     signature: string
     insertedAt: string
     deleted: boolean
+    mine: boolean
     /** #837 回响 mock 样例;空数组 = 无回响。按首次发布时间正序 */
     echoes: Array<{
       id: string
@@ -266,6 +267,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       signature: '李**',
       insertedAt: '2026-09-17T00:00:00Z',
       deleted: false,
+      mine: false,
       // #837 多条回响+l+ 一场 corrected —— 验证「全部 N 条回响」展开态与已更正徽标
       echoes: [
         { id: 'e-1a', content: '书名想好了,叫《她的编译器》。第一章已写完,发给三位老学员看过。', status: 'published', publishedAt: '2026-09-20T08:30:00Z', correctedAt: null },
@@ -280,6 +282,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       signature: '陈*',
       insertedAt: '2026-09-18T00:00:00Z',
       deleted: false,
+      mine: false,
       // #837 单条回响 —— 默认渲染,无需展开
       echoes: [
         { id: 'e-2a', content: '已经开始备课了,先做 4 期免费直播试试水。', status: 'published', publishedAt: '2026-09-21T09:00:00Z', correctedAt: null }
@@ -293,6 +296,7 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
       signature: '我',
       insertedAt: '2026-09-18T00:00:00Z',
       deleted: false,
+      mine: true,
       // #837 无回响 —— 不渲染回响卡,不显示「有回响」徽章
       echoes: []
     }
@@ -345,6 +349,7 @@ function loadFlashbackState(): FlashbackMockState {
       (parsed.cardSharing.shareId === null || typeof parsed.cardSharing.shareId === 'string') &&
       // wish2 U9：旧快照（wishes 出现前）缺字段 → 整体回落（等价于该设备从没写过愿望）
       Array.isArray(parsed.wishes) &&
+      parsed.wishes.every((wish) => typeof wish.mine === 'boolean') &&
       Array.isArray(parsed.endorsedWishIds) &&
       Array.isArray(parsed.expectedWishIds) &&
       typeof parsed.wishComments === 'object' &&
@@ -375,15 +380,25 @@ let flashback: FlashbackMockState = loadFlashbackState()
 //     「找回你的那一张」会话引导）。
 const FLASHBACK_UNCLAIMED_KEY = 'cgc.e2e.flashback_unclaimed'
 const FLASHBACK_CLAIM_MISS_KEY = 'cgc.e2e.flashback_claim_miss'
+const WORKSPACE_ACCESS_DENIED_KEY = 'cgc.e2e.workspace_access_denied'
 const flashbackClaimedTokens = new Set<string>()
 let flashbackUnclaimed = false
 
 function e2eFlag(key: string): boolean {
+  // module-level override(node --test 优先,storage 兜底——e2e weapp 流程未起 wx 模块)
+  if (e2eModuleFlags[key] !== undefined) return e2eModuleFlags[key] === true
   try {
     return wxStorage()?.getStorageSync(key) === '1'
   } catch {
     return false
   }
+}
+const e2eModuleFlags: Record<string, boolean> = {}
+
+/** e2e 钩子(node --test):workspace_access_denied 开后,Session.meWorkspaces 恒空 */
+export function __setWorkspaceAccessDenied(value: boolean): void {
+  if (value) e2eModuleFlags['cgc.e2e.workspace_access_denied'] = true
+  else delete e2eModuleFlags['cgc.e2e.workspace_access_denied']
 }
 
 /** e2e 钩子（node --test 用）：模拟登录账号暂无匹配档案 */
@@ -547,6 +562,18 @@ function updateFlashbackState(patch: (state: FlashbackMockState) => FlashbackMoc
   return flashback
 }
 
+function wishEndorsementCount(state: FlashbackMockState, wishId: string): number {
+  const otherPeople = wishId === 'w-1' ? 5 : wishId === 'w-2' ? 1 : 0
+  return otherPeople + Number(state.endorsedWishIds.includes(wishId))
+}
+
+function wishQuotaRemaining(state: FlashbackMockState): number {
+  const shanghaiYear = new Date(Date.now() + 8 * 3_600_000).getUTCFullYear()
+  const yearStartUtc = Date.UTC(shanghaiYear, 0, 1) - 8 * 3_600_000
+  // 删除只改 deleted，不移除原行；年度额度仍统计已软删的本人愿望。
+  return Math.max(0, 3 - state.wishes.filter((wish) => wish.mine && Date.parse(wish.insertedAt) >= yearStartUtc).length)
+}
+
 // 与后端 FogSpans.mask 同规则（mock 文本 BMP 字符，len 即字符数）：区间替换 ▓
 function fogMaskedText(raw: string, spans: Array<{ start: number; len: number }>): string {
   let out = ''
@@ -654,10 +681,10 @@ function responseFor(document: string, variables: object): unknown {
               content: w.content,
               city: w.city,
               wisherMasked: w.signature,
-              endorsementCount: w.id === 'w-1' ? 5 : w.id === 'w-2' ? 2 : 0,
+              endorsementCount: wishEndorsementCount(state, w.id),
               endorsedByMe: state.endorsedWishIds.includes(w.id),
-              mine: false,
-              comments: w.id === 'w-1' ? [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }] : [],
+              mine: w.mine,
+              comments: (state.wishComments[w.id] ?? []).map((comment) => ({ ...comment, commenterMasked: '王**' })),
               latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
               echoCount: echoes.length,
               echoes,
@@ -749,7 +776,7 @@ function responseFor(document: string, variables: object): unknown {
             isPlatformAdmin: false
           }
         : null,
-      meWorkspaces: loggedIn ? [workspace] : [],
+      meWorkspaces: loggedIn && !e2eFlag(WORKSPACE_ACCESS_DENIED_KEY) ? [workspace] : [],
       myPendingApprovals: loggedIn && enrollment?.status === 'pending'
         ? [{
             id: enrollment.id,
@@ -1177,10 +1204,10 @@ function responseFor(document: string, variables: object): unknown {
               content: w.content,
               city: w.city,
               wisherMasked: w.signature,
-              endorsementCount: w.id === 'w-1' ? 5 : w.id === 'w-2' ? 2 : 0,
+              endorsementCount: wishEndorsementCount(state, w.id),
               endorsedByMe: state.endorsedWishIds.includes(w.id),
-              mine: false,
-              comments: w.id === 'w-1' ? [{ id: 'c-1', content: '算我一个', commenterMasked: '王**', insertedAt: '2026-09-17T00:00:00Z' }] : [],
+              mine: w.mine,
+              comments: (state.wishComments[w.id] ?? []).map((comment) => ({ ...comment, commenterMasked: '王**' })),
               latestEcho: echoes.length > 0 ? echoes[echoes.length - 1] : null,
               echoCount: echoes.length,
               echoes,
@@ -1205,8 +1232,7 @@ function responseFor(document: string, variables: object): unknown {
               insertedAt: w.insertedAt
             }
           }),
-        // R20 年度额度:mock 恒满额(许愿写面不入 mock,额度递减无 mock 投影)
-        myWishQuotaRemaining: 3,
+        myWishQuotaRemaining: wishQuotaRemaining(state),
         cities: [
           ...new Set([
             ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>
@@ -1405,6 +1431,9 @@ function responseFor(document: string, variables: object): unknown {
 
   if (document.includes('mutation FlashbackCreateWish')) {
     const state = flashbackState()
+    if (wishQuotaRemaining(state) === 0) {
+      return { errors: [{ message: '今年的许愿名额已用完（每年最多 3 条）。', code: 'flashback_wish_quota_exceeded' }] }
+    }
     const visibility: 'public' | 'private' = values.visibility === 'private' ? 'private' : 'public'
     const id = `mw-${state.wishes.length + 1}`
     const wish = {
@@ -1415,6 +1444,7 @@ function responseFor(document: string, variables: object): unknown {
       signature: values.signatureChoice === 'display_name' ? '王小明' : '王**',
       insertedAt: new Date().toISOString(),
       deleted: false,
+      mine: true,
       // #837 新许愿无回响;由后续 admin 流程再加
       echoes: []
     }
@@ -1444,19 +1474,20 @@ function responseFor(document: string, variables: object): unknown {
     const state = flashbackState()
     const wishId = String(values.wishId ?? '')
     const has = state.endorsedWishIds.includes(wishId)
-    updateFlashbackState((s) => ({
+    const next = updateFlashbackState((s) => ({
       ...s,
       endorsedWishIds: has ? s.endorsedWishIds : [...s.endorsedWishIds, wishId]
     }))
-    return { flashbackEndorseWish: { endorsementCount: 2, endorsedByMe: true } }
+    return { flashbackEndorseWish: { endorsementCount: wishEndorsementCount(next, wishId), endorsedByMe: true } }
   }
   if (document.includes('mutation FlashbackCancelEndorseWish')) {
     const state = flashbackState()
-    updateFlashbackState((s) => ({
+    const wishId = String(values.wishId ?? '')
+    const next = updateFlashbackState((s) => ({
       ...s,
-      endorsedWishIds: state.endorsedWishIds.filter((id) => id !== String(values.wishId ?? ''))
+      endorsedWishIds: state.endorsedWishIds.filter((id) => id !== wishId)
     }))
-    return { flashbackCancelEndorseWish: { endorsementCount: 1, endorsedByMe: false } }
+    return { flashbackCancelEndorseWish: { endorsementCount: wishEndorsementCount(next, wishId), endorsedByMe: false } }
   }
   if (document.includes('mutation FlashbackAddWishComment')) {
     const state = flashbackState()
@@ -1469,13 +1500,17 @@ function responseFor(document: string, variables: object): unknown {
         [wishId]: [...comments, { id: `mc-${comments.length + 1}`, content: String(values.content ?? ''), insertedAt: new Date().toISOString() }]
       }
     }))
-    return { flashbackAddWishComment: { endorsementCount: 5, endorsedByMe: true } }
+    return { flashbackAddWishComment: { endorsementCount: wishEndorsementCount(flashbackState(), wishId), endorsedByMe: flashbackState().endorsedWishIds.includes(wishId) } }
   }
   if (document.includes('mutation FlashbackDeleteWish')) {
     const state = flashbackState()
+    const wishId = String(values.wishId ?? '')
+    if (!state.wishes.some((wish) => wish.id === wishId && wish.mine && !wish.deleted)) {
+      return { errors: [{ message: '只有本人可以删除自己的愿望', code: 'flashback_wish_not_owned' }] }
+    }
     updateFlashbackState((s) => ({
       ...s,
-      wishes: state.wishes.map((w) => (w.id === String(values.wishId ?? '') ? { ...w, deleted: true } : w))
+      wishes: state.wishes.map((w) => (w.id === wishId ? { ...w, deleted: true } : w))
     }))
     return { flashbackDeleteWish: true }
   }

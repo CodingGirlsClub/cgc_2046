@@ -16,7 +16,7 @@
 #   8. 卡片页（pages/flashback-today）：四态 chip（默认合起来）+ 金句高亮（rvQuote）
 #      + 分享面板（#771：朋友将看到的全文卡 → 允许生成分享链接 → 链接已开启 → 先不分享）
 #   8.5 城市钉筛选（R34 重映射到长廊城市堆：点上海 → 堆 4→2 → 回全部恢复）
-#   9. 愿望段（附议闭环重映射，只读）：公开愿模态（全文/留言/附议行）+ 私愿折叠展开
+#   9. 愿望段：公开愿留言/附议/许愿/两步删除闭环 + 私愿折叠展开
 #  批次二：
 #   11. 首程旅程（token 面免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
 #   13. 长廊首程落地：welcome 金句引导（先不）+ 今天格已寄出 + 点堆进场次页
@@ -28,9 +28,7 @@
 #
 # 已知边界（2026-09-21 重写时实测）：
 #   - 行动板（四态行动卡）已随 refactor 移除（e0e0c0ed/41de6b0b/f14bc734），旧段
-#     8/8.5/9/9.5 整段删除；城市钉筛选重映射到长廊城市堆，附议闭环只保留愿望模态
-#     只读断言——mock 未实现 wish 写面（flashbackEndorseWish/CreateWish/AddWishComment/
-#     DeleteWish 在 mockTransport 抛「未处理」），点附议无法自动化闭环。
+#     8/8.5/9/9.5 整段删除；城市钉筛选重映射到长廊城市堆。
 #   - 金句授权档位行（licenseRow ×3 同类名）无法按文案点第 2 行：wechatide 选择器
 #     实测不支持 :nth-child/:not/elementId/x-y 偏移（静默退化为首匹配）。匿名档切换
 #     改走 nudge「选一句试试」（唯一锚点，且是产品既定的寄出后引导路径）。同理卡片页
@@ -192,6 +190,13 @@ WISH_MODAL_CONTENT=$(cls "$COR" wishModalContent)
 WISH_COMMENTS_TITLE=$(cls "$COR" wishCommentsTitle)
 WISH_COMMENT_ROW=$(cls "$COR" wishCommentRow)
 WISH_COMMENT_TEXT=$(cls "$COR" wishCommentText)
+WISH_COMMENT_INPUT=$(cls "$COR" wishCommentInput)
+WISH_INPUT=$(cls "$COR" wishInput)
+WISH_SHEET_MASK=$(cls "$COR" wishSheetMask)
+WISH_SHEET_INPUT=$(cls "$COR" wishSheetInput)
+WISH_SHEET_SUBMIT=$(cls "$COR" wishSheetSubmit)
+ENDORSE_CHIP=$(cls "$COR" endorseTypeChip)
+ENDORSE_NOTIFY=$(cls "$COR" endorseNotifyRow)
 PRIVATE_FOLD=$(cls "$COR" privateFold)
 PRIVATE_FOLD_LABEL=$(cls "$COR" privateFoldLabel)
 PRIVATE_FOLD_ARROW=$(cls "$COR" privateFoldArrow)
@@ -273,7 +278,7 @@ sleep 2
 # 清 storage 放 reLaunch 后（runtime 已就绪）；刚开窗口时 evaluate 可能还没就绪，重试一次
 cleared=0
 for _ in 1 2; do
-  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.workspace_tab_visible"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' \
+  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.workspace_tab_visible"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss"); wx.removeStorageSync("cgc.e2e.workspace_access_denied") }' \
     | grep -q '"success": true'; then cleared=1; break; fi
   sleep 1.5
 done
@@ -303,6 +308,7 @@ sleep 2
 ck "CTA 落登录页（带 returnUrl 回跳长廊）" "$(ROUTE)" 'pages/login/index\?returnUrl='
 
 echo "### 2) mock 登录链（手机号授权 passthrough，不碰真实凭据）"
+RAW automation_evaluate --fn-source 'function(){ wx.setStorageSync("cgc.e2e.workspace_access_denied", "1") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
 sleep 2
 TAP "$LOGIN_BUTTON"
@@ -313,7 +319,7 @@ ck "登录成功落「我的」tab" "$(ROUTE)" '/pages/profile/index'
 shot 02-after-login-profile.png
 
 echo "### 3) tabBar 入口 + 快门仪式（U8）+ 参与态长廊结构"
-ck "自绘 tabBar 四项（发现/闪念间/工作台/我的；mock 会话带一个工作台 → 能力段下发）" "$(COUNT "$TAB_ITEM")" '^4$'
+ck "无工作台权限的 tabBar 三项（发现/闪念间/我的）" "$(COUNT "$TAB_ITEM")" '^3$'
 ck "tabBar 含「闪念间」项" "$(RES automation_element_action --action text --selector "$TAB_BAR")" '闪念间'
 ck "当前选中=我的" "$(RES automation_element_action --action text --selector "$TAB_SELECTED")" '我的$'
 RAW automation_navigate --action switchTab --url '/pages/flashback-corridor/index' >/dev/null
@@ -351,8 +357,10 @@ ck "未来段标题" "$(RES automation_element_action --action text --selector "
 ck "未来场次卡 3" "$(COUNT "$EVENT_CARD")" '^3$'
 ck "亮金可报名 1 / 灰卡 2" "$(COUNT "$EVENT_CARD_LIT")/$(COUNT "$EVENT_CARD_MUTED")" '^1/2$'
 ck "首张场卡=Agent 入门工作坊" "$(RES automation_element_action --action text --selector "$EVENT_TITLE")" '^Agent 入门工作坊$'
+RAW automation_viewport_action --action pageScrollTo --scroll-top 850 >/dev/null
 ck "可报名卡 CTA=报名 →" "$(RES automation_element_action --action text --selector "$EVENT_CTA")" '^报名 →$'
 ck "满员卡徽章=名额已满" "$(RES automation_element_action --action text --selector "$EVENT_BADGE")" '^名额已满$'
+RAW automation_viewport_action --action pageScrollTo --scroll-top 0 >/dev/null
 ck "公开愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
 ck "首愿内容" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^一起出一本书:《她们的第一行代码》$'
 ck "首愿附议行（未附议态）" "$(RES automation_element_action --action text --selector "$WISH_ENDORSE")" '^👍 5$'
@@ -516,7 +524,7 @@ sleep 2.5
 ck "回全部恢复 4 堆" "$(COUNT "$PINPOL")" '^4$'
 ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
 
-echo "### 9) 愿望段（附议闭环重映射，只读）：公开愿模态 + 私愿折叠"
+echo "### 9) 愿望段：留言、附议、许愿、两步删除 + 私愿折叠"
 TAP "$WISH_CARD"
 sleep 1.5
 ck "愿望模态弹出" "$(COUNT "$WISH_MODAL")" '^1$'
@@ -524,11 +532,48 @@ ck "模态全文" "$(RES automation_element_action --action text --selector "$WI
 ck "留言区标题=留言(1)" "$(RES automation_element_action --action text --selector "$WISH_COMMENTS_TITLE")" '^留言\(1\)$'
 ck "留言 1 条" "$(COUNT "$WISH_COMMENT_ROW")" '^1$'
 ck "留言内容" "$(RES automation_element_action --action text --selector "$WISH_COMMENT_TEXT")" '^算我一个$'
-ck "模态附议行=🙌 我能出力 · 5（U9 文案，未附议态；mock 无 wish 写面，不点按）" "$(RES automation_element_action --action text --selector "$WISH_MODAL $WISH_ENDORSE")" '^🙌 我能出力 · 5$'
+ck "模态附议行=🙌 我能出力 · 5" "$(RES automation_element_action --action text --selector "$WISH_MODAL $WISH_ENDORSE")" '^🙌 我能出力 · 5$'
+RAW automation_element_action --action input --selector "$WISH_INPUT" --value 'E2E 留言' >/dev/null
+TAP "$WISH_COMMENT_INPUT button"
+sleep 1.5
+ck "留言后标题=留言(2)" "$(RES automation_element_action --action text --selector "$WISH_COMMENTS_TITLE")" '^留言\(2\)$'
+ck "留言后两条可读" "$(COUNT "$WISH_COMMENT_ROW")" '^2$'
 shot 09-wish-modal.png
 TRIGGER tap '{}' "$WISH_MODAL_MASK"
 sleep 1
 ck "模态关闭" "$(COUNT "$WISH_MODAL")" '^0$'
+TAP "$WISH_CARD"
+sleep 0.8
+TAP "$WISH_MODAL $WISH_ENDORSE"
+sleep 0.8
+ck "附议表单打开" "$(COUNT "$WISH_SHEET_MASK")" '^1$'
+TAP "$ENDORSE_CHIP"
+TAP "$ENDORSE_NOTIFY"
+TAP "$WISH_SHEET_SUBMIT"
+sleep 1.5
+ck "附议后表单关闭" "$(COUNT "$WISH_SHEET_MASK")" '^0$'
+ck "首愿附议数 +1 且本人已附议" "$(RES automation_element_action --action text --selector "$WISH_CARD $WISH_ENDORSED")" '^👍 6 · 已附议$'
+
+TAP "$WISH_ADD"
+sleep 0.8
+ck "许愿表单打开" "$(COUNT "$WISH_SHEET_MASK")" '^1$'
+RAW automation_element_action --action input --selector "$WISH_SHEET_INPUT" --value 'E2E 年度愿望' >/dev/null
+TAP "$WISH_SHEET_SUBMIT"
+sleep 1.5
+ck "许愿后公开卡由 2 增至 3" "$(COUNT "$WISH_CARD")" '^3$'
+ck "新愿挂树可读" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^E2E 年度愿望$'
+TAP "$WISH_CARD"
+sleep 0.8
+ck "本人新愿模态带删除入口" "$(COUNT "$WISH_MODAL $WISH_DELETE")" '^1$'
+RAW automation_wx_api --action mock --method showModal --result '{"confirm":false,"cancel":true}' >/dev/null
+TAP "$WISH_MODAL $WISH_DELETE"
+sleep 0.8
+ck "取消删除保留新愿" "$(COUNT "$WISH_CARD")" '^3$'
+RAW automation_wx_api --action mock --method showModal --result '{"confirm":true,"cancel":false}' >/dev/null
+TAP "$WISH_MODAL $WISH_DELETE"
+sleep 1.5
+RAW automation_wx_api --action restore --method showModal >/dev/null
+ck "确认删除后公开卡恢复 2" "$(COUNT "$WISH_CARD")" '^2$'
 TAP "$PRIVATE_FOLD"
 sleep 1
 ck "私愿展开箭头=收起 ▲" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_ARROW")" '^收起 ▲$'
@@ -702,7 +747,7 @@ ck "参与态恢复愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
 ck "参与态恢复城市钉 3" "$(COUNT "$CITY_PIN")" '^3$'
 ck "收尾 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CTA")" '^把这一刻做成卡片 →$'
 shot 15-corridor-claimed.png
-RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_unclaimed") }' >/dev/null
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.workspace_access_denied") }' >/dev/null
 
 
 echo "### 10) 隔离取证：mock 不走网络 + 无运行时报错"
