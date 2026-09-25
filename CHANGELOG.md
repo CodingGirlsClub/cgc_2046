@@ -19,6 +19,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+（暂无）
+
+## [2026-09-25]（第三发）
+
 ### Added
 
 - 胶囊「编辑今天的你」开雾编辑：today 雾「可见 + 可改」双闭环。
