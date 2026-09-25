@@ -937,6 +937,47 @@ defmodule Cgc2046.Admission.EnrollmentTest do
                  &(&1.args["order_id"] == order.id)
                )
     end
+
+    # #845 钉测：refund_failed 定价单自助取消走 :retry_refund 重入退款链。恰好
+    # 一笔 job——现状靠 PaymentRefundWorker unique 兜底；#845 D1 落地后按设计
+    # 即一笔，断言不变。
+    test "已付定价单 refund_failed + 开始前取消：retry_refund 重入且恰好一笔 job", ctx do
+      event =
+        EventFixtures.create_event(
+          ctx.workspace,
+          ctx.admin,
+          %{
+            capacity: 1,
+            starts_at: DateTime.add(DateTime.utc_now(), 9, :day)
+          }
+          |> Map.merge(paid_attrs())
+        )
+
+      learner = Fixtures.register_user("pricing-cancel-refund-failed")
+      {:ok, enrollment} = create_enrollment(event, learner, %{tier_id: @paid_tier_id})
+      order = create_pending_order(enrollment) |> mark_paid()
+
+      Cgc2046.Repo.query!(
+        "UPDATE payments_orders SET status = 'refund_failed' WHERE id = $1",
+        [Cgc2046.Repo.uuid!(order.id)]
+      )
+
+      assert {:ok, cancelled} =
+               enrollment
+               |> Ash.Changeset.for_update(:cancel, %{})
+               |> Ash.update(tenant: ctx.workspace.id, actor: learner)
+
+      assert cancelled.status == :cancelled
+
+      assert Ash.get!(Order, order.id, tenant: ctx.workspace.id, authorize?: false).status ==
+               :refunding
+
+      assert [%{}] =
+               Enum.filter(
+                 all_enqueued(worker: Cgc2046.Payments.Workers.PaymentRefundWorker),
+                 &(&1.args["order_id"] == order.id)
+               )
+    end
   end
 
   describe "押金场报名：payment_pending（U1，KTD2，AE3）" do

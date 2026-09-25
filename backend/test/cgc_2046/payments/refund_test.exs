@@ -316,6 +316,26 @@ defmodule Cgc2046.Payments.RefundTest do
       assert Ash.get!(Enrollment, setup.enrollment.id, authorize?: false).status == :cancelled
       assert event_count(setup.event) == 0
     end
+
+    # #845 D1：入队归 Order——start_refund 自带 after_action 入队（此前调用方
+    # 手动 Oban.insert!，B4 迁移后删除），CAS 失败无 after_action 不产生孤儿 job
+    test "start_refund 同事务入队退款 job 恰好一笔", ctx do
+      admin = Fixtures.platform_admin()
+      setup = paid_setup(ctx, admin, capacity: 1)
+
+      {:ok, refunding} =
+        setup.order
+        |> Ash.Changeset.for_update(:start_refund, %{})
+        |> Ash.update(tenant: setup.workspace.id, authorize?: false)
+
+      assert refunding.status == :refunding
+
+      assert [%{args: %{"order_id" => order_id}}] =
+               all_enqueued(worker: PaymentRefundWorker)
+               |> Enum.filter(&(&1.args["order_id"] == setup.order.id))
+
+      assert order_id == setup.order.id
+    end
   end
 
   describe "Event cancelled 批量（OfferingCancelRefundWorker）" do
