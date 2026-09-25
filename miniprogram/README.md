@@ -29,7 +29,7 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 
 1. **人工前置**（缺一不可，详见 `e2e/DOUYIN_REDNOTE_CHECKLIST.md` 待定项）：
    - D7：隐私政策小红书版正文法务定稿（候选文本在 `src/domain/privacy-content-xhs.ts`，确认后即定稿）；
-   - D8：本次过审版本号 + 小红书小程序 ICP 备案号（备案号到位后「我的」页脚补渲染，CHANGELOG 按 ADR-0016 立 `## [小红书 vX.Y.Z]` 节点）。
+   - D8：本次过审版本号（ICP 备案号已到位：京ICP备16008426号-7X，已渲染在「我的」页脚；过审后 CHANGELOG 按 ADR-0016 立 `## [小红书 vX.Y.Z]` 节点）。
 2. **门禁**：`pnpm check:ci` 全绿；再跑 `node scripts/check-no-diversion.mjs`（dist/xhs 零导流，依赖 `pnpm build:xhs` 先行）与 `grep -r 网页端 dist/xhs/`（须无命中）。
 3. **构建**：`pnpm build:xhs`，产物 `dist/xhs/`（不入库）。
 4. **上传/提审**：小红书开发者工具导入 `dist/xhs/` 上传，开放平台后台提交审核。
