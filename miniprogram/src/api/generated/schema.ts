@@ -2205,10 +2205,10 @@ export type FlashbackAdjustTodayFogResult = {
 };
 
 export type FlashbackAdminArchive = {
-  city: Scalars['String']['output'];
+  city?: Maybe<Scalars['String']['output']>;
   key: Scalars['String']['output'];
   name: Scalars['String']['output'];
-  occurredOn: Scalars['String']['output'];
+  occurredOn?: Maybe<Scalars['String']['output']>;
 };
 
 export type FlashbackAdminListedWishEntry = {
