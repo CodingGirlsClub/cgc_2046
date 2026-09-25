@@ -45,3 +45,19 @@ test('同一人的页面返回和城市刷新不重复播放快门，新身份�
   assert.equal(shouldRevealRecoveredCard('a', 'b', false), true)
   assert.equal(shouldRevealRecoveredCard(null, 'a', true), false)
 })
+
+// 场次页视角（死循环回归）：场次页曾自带一套判定，把「已登录未匹配」当成未登录，
+// 给已登录用户显示「登录后我们帮你找」+ 登录按钮 → 登录 → 回跳仍未匹配 → 再登录，
+// 每圈都消耗登录限流额度。失败方式：未匹配给 login 引导；未登录落错误页；
+// 查找失败被当成未匹配；已绑定但不在本场被当成未匹配。
+test('场次页视角：只有未登录才引导登录，已登录未匹配给找回说明', async () => {
+  const { eventView } = await import('../src/domain/flashback-recovery.ts')
+  const archive = { key: '2014-01-11-bj' } as FlashbackCapsule['archives'][number]
+  const bound = { ...capsule, archives: [archive], futureEvents: [] } as FlashbackCapsule
+  assert.deepEqual(eventView({ kind: 'checking', generation: 1 }, archive.key), { kind: 'loading' })
+  assert.deepEqual(eventView({ kind: 'guest', generation: 1 }, archive.key), { kind: 'viewer', guide: 'login' })
+  assert.deepEqual(eventView({ kind: 'unmatched', generation: 1 }, archive.key), { kind: 'viewer', guide: 'recover' })
+  assert.deepEqual(eventView({ kind: 'error', generation: 1 }, archive.key), { kind: 'error' })
+  assert.deepEqual(eventView({ kind: 'member', generation: 1, capsule: bound, token: null }, archive.key), { kind: 'member', archive, futureEvents: [] })
+  assert.deepEqual(eventView({ kind: 'member', generation: 1, capsule: bound, token: null }, 'other-key'), { kind: 'viewer', guide: null })
+})

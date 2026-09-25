@@ -1,29 +1,16 @@
-import { useCallback, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import { eventFogLine, eventStats } from '@/domain/flashback-journey'
 import { futureEventCards } from '@/domain/flashback'
-import { STORAGE_KEYS } from '@/state/storage'
 import { setFlashbackEntry } from '@/state/flashbackEntry'
-import type { FlashbackFutureFrame } from '@/domain/models'
-import type {
-  FlashbackCapsuleArchive,
-  FlashbackClaimResult,
-  FlashbackPublicStats,
-  FlashbackRosterEntry
-} from '@/domain/models'
-import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
+import type { FlashbackPublicStats, FlashbackRosterEntry } from '@/domain/models'
+import { useRecovery } from '@/components/FlashbackGuest/useRecovery'
+import { eventView } from '@/domain/flashback-recovery'
 import styles from './index.module.css'
 
-
-type Mode =
-  | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'member'; archive: FlashbackCapsuleArchive }
-  /** 路人态（R32）：只有统计行（缺数不显示），无任何名册内容 */
-  | { kind: 'viewer'; stats: FlashbackPublicStats | null; guide: 'login' | 'recover' | null }
 
 /** 回长廊（现为 tabBar 页面）：switchTab 是 Tab 页唯一合法入口。
  *  「看看未来」的 future 语义走一次性 intent（switchTab 不接受 query）。 */
@@ -44,65 +31,20 @@ function enterCorridor(): void {
 export default function FlashbackEventPage() {
   const router = useRouter()
   const eventKey = typeof router.params.key === 'string' ? router.params.key : ''
-  const [mode, setMode] = useState<Mode>({ kind: 'loading' })
-  // U6 回环数据:capsule 邻近未来场次(「下一场」出口)
-  const [futureFrames, setFutureFrames] = useState<FlashbackFutureFrame[]>([])
+  // 身份与档案判定与长廊同源（useRecovery）：token 失效清理、自动认领、
+  // 未登录/未匹配/失败三分，均不在本页另写一套
+  const { mode: recovery, load } = useRecovery()
+  const mode = eventView(recovery, eventKey)
+  // 路人态（R32）只有统计行（缺数不显示），无任何名册内容
+  const [publicStats, setPublicStats] = useState<FlashbackPublicStats | null>(null)
   // U6 看别人的卡:点已寄出名册卡 → 覆盖层迎面翻开(雾面版当年+她的今天只读)
   const [viewPerson, setViewPerson] = useState<FlashbackRosterEntry | null>(null)
   const [viewOpen, setViewOpen] = useState(false)
   const viewOpenedAt = useRef(0)
 
-  const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
-    try {
-      return await api.getFlashbackPublicStats()
-    } catch {
-      return null
-    }
-  }, [])
-
-  const load = useCallback(async () => {
-    const token = Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null
-    try {
-      const capsule = await api.getFlashbackCapsule(null, token)
-      const archive = capsule.archives.find((item) => item.key === eventKey)
-      if (archive) {
-        setMode({ kind: 'member', archive })
-        setFutureFrames(capsule.futureEvents)
-        return
-      }
-      setMode({ kind: 'viewer', stats: await loadStats(), guide: null })
-    } catch (error) {
-      if (error instanceof FlashbackTokenInvalidError) {
-        Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
-        void load()
-        return
-      }
-      if (error instanceof FlashbackNotBoundError) {
-        let claimed: FlashbackClaimResult | null = null
-        try {
-          claimed = await api.flashbackClaim(null)
-        } catch {
-          claimed = null
-        }
-        if (claimed?.bound) {
-          // 认领成功即重拉；服务端仍报未绑定（数据不一致）时落找回引导，
-          // 绝不再递归认领（防死循环）
-          const capsule = await api.getFlashbackCapsule(null, null).catch(() => null)
-          const archive = capsule?.archives.find((item) => item.key === eventKey)
-          setMode(
-            archive
-              ? { kind: 'member', archive }
-              : { kind: 'viewer', stats: await loadStats(), guide: 'recover' }
-          )
-          return
-        }
-        setMode({ kind: 'viewer', stats: await loadStats(), guide: 'login' })
-        return
-      }
-      setMode({ kind: 'error', message: error instanceof Error ? error.message : '加载失败' })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- eventKey 是路由参数，进页即定
-  }, [eventKey, loadStats])
+  useEffect(() => {
+    if (mode.kind === 'viewer' && !publicStats) void api.getFlashbackPublicStats().then(setPublicStats).catch(() => {})
+  }, [mode.kind, publicStats])
 
   useDidShow(() => {
     if (eventKey) void load()
@@ -126,11 +68,11 @@ export default function FlashbackEventPage() {
   }
 
   if (mode.kind === 'error') {
-    return <PageState kind="error" message={mode.message} onRetry={() => void load()} />
+    return <PageState kind="error" message="暂时没能完成查找，请再试一次。" onRetry={() => void load()} />
   }
 
   const viewerStats =
-    mode.kind === 'viewer' ? mode.stats?.archives.find((item) => item.key === eventKey) ?? null : null
+    mode.kind === 'viewer' ? publicStats?.archives.find((item) => item.key === eventKey) ?? null : null
   const when =
     mode.kind === 'member'
       ? mode.archive.occurredOn?.slice(0, 10).replace(/-/g, '.') ?? mode.archive.key
@@ -210,7 +152,7 @@ export default function FlashbackEventPage() {
         {mode.kind === 'member' && (
           <View className={styles.loopBlock}>
             {(() => {
-              const cards = futureEventCards(futureFrames)
+              const cards = futureEventCards(mode.futureEvents)
               const next = cards.find((card) => card.status === 'open')
               return (
                 <>

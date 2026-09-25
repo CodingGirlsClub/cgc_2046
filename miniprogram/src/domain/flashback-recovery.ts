@@ -1,4 +1,4 @@
-import type { FlashbackCapsule } from './models.ts'
+import type { FlashbackCapsule, FlashbackCapsuleArchive, FlashbackFutureFrame } from './models.ts'
 
 export type PublicRecovery = 'checking' | 'guest' | 'unmatched' | 'error'
 export type RecoveryState = { generation: number } & (
@@ -27,4 +27,20 @@ export function recoveryView(kind: PublicRecovery) {
 
 export function shouldRevealRecoveredCard(previousPerson: string | null, person: string, welcome: boolean): boolean {
   return previousPerson !== person && !welcome
+}
+
+/** 场次页视角：与长廊同一个找回状态机派生。登录引导只给未登录（guest）——
+ * 已登录未匹配若再给登录按钮，登录回跳仍未匹配，形成死循环并耗尽登录限流额度。 */
+export type EventView =
+  | { kind: 'loading' | 'error' }
+  | { kind: 'member'; archive: FlashbackCapsuleArchive; futureEvents: FlashbackFutureFrame[] }
+  | { kind: 'viewer'; guide: 'login' | 'recover' | null }
+export function eventView(state: RecoveryState, key: string): EventView {
+  if (state.kind !== 'member') {
+    if (state.kind === 'checking') return { kind: 'loading' }
+    if (state.kind === 'error') return { kind: 'error' }
+    return { kind: 'viewer', guide: state.kind === 'guest' ? 'login' : 'recover' }
+  }
+  const archive = state.capsule.archives.find((item) => item.key === key)
+  return archive ? { kind: 'member', archive, futureEvents: state.capsule.futureEvents } : { kind: 'viewer', guide: null }
 }
