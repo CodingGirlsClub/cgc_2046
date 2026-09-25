@@ -14,7 +14,7 @@ import WishesWall from "./wishes-wall";
 const VOICES_INTRO_SEEN_KEY = "flashback.voicesIntroSeen";
 const WISHES_INTRO_SEEN_KEY = "flashback.wishesIntroSeen";
 
-type Direct = FlashbackPublicWish | "gone" | null;
+type Direct = FlashbackPublicWish | "gone" | "loadError" | null;
 
 /**
  * 入口编排（wish2 U7/KTD8，与 voices-page 同型）：
@@ -72,7 +72,9 @@ export default function WishesPage({
 				setDirect(data?.flashbackPublicWish ?? "gone");
 			})
 			.catch(() => {
-				if (!cancelled) setDirect("gone");
+				// 网络失败≠愿望收回（D10 视觉审计 2026-09）：之前所有 catch 都打 gone，
+				// 用户看「已收回」其实是网络抖动——独立 loadError 口径
+				if (!cancelled) setDirect("loadError");
 			});
 		return () => {
 			cancelled = true;
@@ -85,6 +87,19 @@ export default function WishesPage({
 			<div className="fb-root fb-public">
 				<p className="fb-hint" role="status">
 					{t("loading")}
+				</p>
+			</div>
+		);
+	}
+
+	// 加载失败（网络层）：「只是网络问题」口径（D10）≠ 愿望收回（gone）
+	if (direct === "loadError") {
+		return (
+			<div className="fb-root fb-public">
+				<h1 className="fb-stage-title">{t("loadErrorTitle")}</h1>
+				<p className="fb-lead">{t("loadErrorLead")}</p>
+				<p className="fb-hint">
+					<Link href="/flashback/wishes">{t("goneBack")}</Link>
 				</p>
 			</div>
 		);
