@@ -990,8 +990,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:encrypted_data, :string)
       arg(:iv, :string)
 
-      # getPhoneNumber 计费防刷：复用既有 RateLimit（按 IP+platform 计，5 次/15 分钟）
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+      # #930：IP 维度只留宽松天花板（线下活动同一 WiFi / CGNAT 多人共享 IP）；
+      # getPhoneNumber 计费防刷改按 openid 计（SignInPreparation，code2session 之后、换手机号之前）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform], limit: :platform_sign_in_ip)
 
       resolve(fn _, %{platform: platform, code: code} = args, _ ->
         # phone_code/encrypted_data/iv 可空（phone_code 或 encrypted_data+iv 二选一，
@@ -1018,8 +1019,11 @@ defmodule Cgc2046Web.GraphqlSchema do
                  __token__: user.__metadata__[:token]
                }}
 
-            {:error, _error} ->
-              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+            {:error, error} ->
+              if platform_sign_in_rate_limited?(error),
+                do:
+                  {:error, message: "Too many requests. Try again later.", code: "rate_limited"},
+                else: {:error, message: "Platform sign in failed", code: "authentication_failed"}
           end
         rescue
           _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
@@ -1183,13 +1187,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:platform, non_null(:string))
       arg(:template_key, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
-
+      # #930：与登录拆桶——grant 本来就要求登录，按账号计（原「IP + 平台」桶与登录共用，
+      # 1 次登录 + 1 次三模板订阅就吃掉 4/5，再登录即 Too many requests）
       resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
-            {:ok, remaining} ->
-              {:ok, remaining}
+          key = Cgc2046Web.Plugs.RateLimit.build_key("rate:notification-consent:actor", actor.id)
+
+          with :ok <- Cgc2046Web.Plugs.RateLimit.check(key, limit: :notification_consent_actor),
+               {:ok, remaining} <-
+                 Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
+            {:ok, remaining}
+          else
+            :error ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
 
             {:error, :invalid_platform} ->
               {:error, message: "Invalid platform", code: "invalid_platform"}
@@ -3474,6 +3484,18 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:error, to_ash_graphql_errors(error, context, action, resource)}
     end
   end
+
+  # #930：SignInPreparation 把 openid 限流标成 caused_by.reason = :rate_limited；其余失败
+  # 一律统一为 authentication_failed（防枚举）。限流如实告知：openid 来自请求者自己的 code，不泄露他人信息。
+  defp platform_sign_in_rate_limited?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &platform_sign_in_rate_limited?/1)
+
+  defp platform_sign_in_rate_limited?(%AshAuthentication.Errors.AuthenticationFailed{
+         caused_by: %{reason: :rate_limited}
+       }),
+       do: true
+
+  defp platform_sign_in_rate_limited?(_), do: false
 
   # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
   # 覆盖成 "revocation"，下次 load_from_bearer 的 get_token 查不到 user 记录即认证失败。

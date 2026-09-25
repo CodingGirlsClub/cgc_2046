@@ -80,6 +80,13 @@ config :ash, :missed_notifications, :ignore
 # Disable rate limiting in test (ETS table is shared across async tests)
 config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
 
+# #930 具名上限同样调高：「IP + 平台」键在全量测试间共享（同为 127.0.0.1），
+# 限流专项测试（graphql_sign_in_with_platform_rate_limit_test）用 put_env 调低
+config :cgc_2046, :rate_limits,
+  platform_sign_in_ip: 999_999,
+  platform_sign_in_openid: 999_999,
+  notification_consent_actor: 999_999
+
 # MCP 失败认证节流同款关闭（共享 ETS 表，async 401 测试会互相累计计数）
 config :cgc_2046, Cgc2046Web.Plugs.McpAuthPlug, max_attempts: 999_999
 
