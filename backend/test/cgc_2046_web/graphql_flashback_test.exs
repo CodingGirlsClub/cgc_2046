@@ -44,7 +44,7 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
         answers { id questionKey: question_key rawText: raw_text
           fogSpans { start len reason } } }
       progress { quoteLevel: quote_level maskedPhone: masked_phone maskedEmail: masked_email
-        today { nowStatus: now_status want need say sentToWallAt: sent_to_wall_at
+        today { nowStatus: now_status want need say fogSpans sentToWallAt: sent_to_wall_at
           wantGiveTags: want_give_tags reconnectTags: reconnect_tags
           newsletterOptIn: newsletter_opt_in mobilization } }
       scatter { entries { photoKey: photo_key label dateStamp: date_stamp isMine: is_mine surname } }
@@ -204,6 +204,30 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       res = post_graphql(enter_query(plain))
       assert res["data"]["flashbackEnter"]["line"] == "dream"
+    end
+
+    test "progress.today.fogSpans 透出服务端当前 today 雾区间（U9 起类型加读面）" do
+      archive = create_archive()
+      person = create_person(archive)
+      {plain, _} = issue_token(person)
+
+      # 先写 today 文本，再按服务端语义/校验规则上雾（想要前十字符遮半）
+      {:ok, _} =
+        Today
+        |> Ash.Changeset.for_create(:create, %{
+          person_id: person.id,
+          want: "想学好 AI 应用，一年后做出能跑的东西"
+        })
+        |> Ash.create(authorize?: false)
+
+      assert {:ok, _} =
+               Cgc2046.Flashback.Tokens.adjust_today_fog_as_person(person.id, "want", [
+                 %{start: 0, len: 4}
+               ])
+
+      res = post_graphql(enter_query(plain))
+      %{"want" => [span]} = res["data"]["flashbackEnter"]["progress"]["today"]["fogSpans"]
+      assert span["len"] == 4 and span["start"] == 0
     end
 
     test "失效三态可区分：不存在 / 已注册 / 已删除" do
