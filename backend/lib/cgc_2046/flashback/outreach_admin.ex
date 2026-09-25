@@ -21,8 +21,9 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
   @doc """
   批量触达预览（R4 摘要口径）：给定场次与通道档，返回预估入队数、三档分布、
   退订剔除数与短信腿就绪位。不入队、零副作用——MCP 确认摘要与页面预览共用。
+  `batch` 非空时附 campaign 去重预判（`deduped_within_campaign`，与入队同源）。
   """
-  @spec preview(String.t(), atom()) ::
+  @spec preview(String.t(), atom(), String.t() | nil) ::
           {:ok,
            %{
              archive_key: String.t(),
@@ -34,10 +35,11 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
              both: non_neg_integer(),
              unsubscribed: non_neg_integer(),
              unreachable: non_neg_integer(),
+             deduped_within_campaign: non_neg_integer(),
              sms_ready?: boolean()
            }}
           | {:error, term()}
-  def preview(archive_key, channel) when channel in [:all, :email, :sms] do
+  def preview(archive_key, channel, batch \\ nil) when channel in [:all, :email, :sms] do
     with {:ok, archive} <- fetch_archive(archive_key),
          {:ok, breakdown} <- Dispatch.archive_channel_breakdown(archive.id) do
       queued =
@@ -58,6 +60,7 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
          both: breakdown.both,
          unsubscribed: breakdown.unsubscribed,
          unreachable: breakdown.unreachable,
+         deduped_within_campaign: Dispatch.campaign_dedup_count(archive.id, channel, batch),
          sms_ready: Dispatch.sms_configured?()
        }}
     end
