@@ -1,42 +1,47 @@
-.guestPage { min-height: 100vh; background: #faf8f1; color: #214b3a; font-family: 'Songti SC', 'STSong', serif; padding-bottom: calc(126rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
-.content { padding: 58rpx 44rpx 30rpx; }
+/* 闪念间首页（访客态）换肤：纸底墨字；金句卡与两个入口压缩高度，找回区完整进首屏；
+   「找回你的那一张」是这一屏唯一的火（纸卡里的主按钮）；青只留给山河纹理。 */
+.guestPage { min-height: 100vh; background: var(--paper); color: var(--ink); font-family: var(--serif); padding-bottom: calc(126rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
+.content { padding: 52rpx 44rpx 30rpx; }
 .guestPage button { margin: 0; background: transparent; color: inherit; padding: 0; text-align: left; font-family: inherit; font-weight: 400; line-height: 1.6; border-radius: 0; }
 .guestPage button::after { border: 0; }
 .guestPage button:active { opacity: .78; transform: translateY(1rpx); }
-.brand, .portalEnglish { display: block; font: 17rpx/1.5 sans-serif; letter-spacing: 4rpx; color: #78826e; }
-.headline { display: block; font-size: 49rpx; line-height: 1.65; margin-top: 32rpx; white-space: pre-wrap; }
-.intro { display: block; color: #74806d; font-size: 23rpx; margin: 22rpx 0 48rpx; line-height: 1.7; }
-.quoteCard { position: relative; overflow: hidden; border-radius: 8rpx; background: #4b6956; }
-.landscape { position: absolute; width: 240%; height: 260%; left: -90%; top: -76%; opacity: .65; }
-.tint { position: absolute; inset: 0; background: rgba(35,66,48,.65); }
-.paperOutline { position: absolute; right: 38rpx; top: 58rpx; width: 86rpx; height: 190rpx; border: 1rpx solid rgba(225,221,174,.35); transform: rotate(24deg); }
-.quoteCard .quoteOpen, .quoteState { position: relative; display: flex; flex-direction: column; min-height: 362rpx; padding: 48rpx 40rpx 40rpx; box-sizing: border-box; color: #f8f1cc; }
-.source { display: block; font: 17rpx/1.6 sans-serif; letter-spacing: 3rpx; color: #e0e2bb; }
-.quoteText { display: block; margin: 44rpx 0 34rpx; font-size: 43rpx; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.quoteCaption { display: block; margin-top: auto; font-size: 18rpx; line-height: 1.8; color: #e1e3c6; }
-.stateText { display: block; font-size: 34rpx; line-height: 1.7; margin: 40rpx 0 30rpx; }
+.brand, .portalEnglish { display: block; font: 19rpx/1.5 sans-serif; letter-spacing: 5rpx; color: var(--ink-3); }
+.headline { display: block; font-size: 49rpx; line-height: 1.6; margin-top: 24rpx; white-space: pre-wrap; }
+.intro { display: block; color: var(--ink-2); font-size: 24rpx; margin: 16rpx 0 34rpx; line-height: 1.7; }
+.quoteCard { position: relative; overflow: hidden; border-radius: 14rpx; background: #4b6956; }
+.landscape { position: absolute; width: 240%; height: 260%; left: -90%; top: -76%; opacity: .55; }
+.tint { position: absolute; inset: 0; background: rgba(35,66,48,.6); }
+.paperOutline { position: absolute; right: 38rpx; top: 48rpx; width: 86rpx; height: 170rpx; border: 1rpx solid rgba(225,221,174,.35); transform: rotate(24deg); }
+.quoteCard .quoteOpen, .quoteState { position: relative; display: flex; flex-direction: column; min-height: 280rpx; padding: 40rpx 38rpx 32rpx; box-sizing: border-box; color: #f8f1cc; }
+.source { display: block; font: 19rpx/1.6 sans-serif; letter-spacing: 4rpx; color: #e0e2bb; }
+.quoteText { display: block; margin: 26rpx 0 18rpx; font-size: 38rpx; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.quoteCaption { display: block; margin-top: auto; font-size: 20rpx; line-height: 1.8; color: #e1e3c6; }
+.stateText { display: block; font-size: 32rpx; line-height: 1.7; margin: 26rpx 0 18rpx; }
 .quoteCard .retry { color: #f8f1cc; font-size: 25rpx; min-height: 80rpx; }
-.portals { display: flex; padding: 44rpx 0 38rpx; border-bottom: 1rpx solid #d5d7cb; }
+.portals { display: flex; padding: 30rpx 0 26rpx; border-bottom: 1rpx solid var(--rule); }
 .portals .voicesPortal, .portals .wishesPortal { flex: 0 0 50%; box-sizing: border-box; min-width: 0; }
-.portals .wishesPortal { border-left: 1rpx solid #d5d7cb; padding-left: 28rpx; }
-.portalTitle { display: block; font-size: 42rpx; margin: 16rpx 0 18rpx; }
-.portalHint { display: block; font-size: 20rpx; color: #6e7c65; }
-.recovery { padding: 40rpx 0 42rpx; border-bottom: 1rpx solid #d5d7cb; }
-.recoveryTitle { display: block; font-size: 32rpx; line-height: 1.7; }
-.recoveryCopy { white-space: pre-wrap; display: block; font-size: 21rpx; line-height: 1.8; color: #78826e; margin-top: 12rpx; }
-.recovery .recoverButton { min-height: 80rpx; padding-top: 16rpx; font-size: 22rpx; }
-.content .gathering { width: 100%; padding: 34rpx 0 30rpx; }
-.gatheringKicker { display: block; font-size: 18rpx; color: #78826e; }
-.gatheringRow { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-top: 20rpx; font-size: 28rpx; }
-.albums { padding: 36rpx 0 26rpx; border-bottom: 1rpx solid #d5d7cb; }
+.portals .wishesPortal { border-left: 1rpx solid var(--rule); padding-left: 30rpx; }
+.portalTitle { display: block; font-size: 38rpx; margin: 10rpx 0 8rpx; }
+.portalHint { display: block; font-size: 23rpx; color: var(--ink-2); }
+/* 找回区：纸卡浮起一层（位置不变，只加它在层级里的分量） */
+.recovery { margin-top: 26rpx; padding: 30rpx 30rpx 28rpx; background: var(--paper-hi); border-radius: 20rpx; box-shadow: 0 20rpx 48rpx -40rpx rgba(30, 40, 30, 0.6); }
+.recoveryTitle { display: block; font-size: 34rpx; line-height: 1.6; }
+.recoveryCopy { white-space: pre-wrap; display: block; font-size: 23rpx; line-height: 1.75; color: var(--ink-2); margin: 10rpx 0 22rpx; }
+.recovery .recoverButton { display: flex; align-items: center; justify-content: center; min-height: 88rpx; border-radius: 44rpx; background: linear-gradient(180deg, var(--fire-2), var(--fire)); color: #fff; font: 600 29rpx/1.4 sans-serif; letter-spacing: 1rpx; text-align: center; box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.recovery .recoverButton[disabled] { opacity: .55; }
+.recoverOther { display: block; margin-top: 18rpx; font-size: 23rpx; line-height: 1.7; color: var(--ink-2); text-align: center; text-decoration: underline; }
+.content .gathering { width: 100%; padding: 30rpx 4rpx 28rpx; }
+.gatheringKicker { display: block; font: 21rpx/1.5 sans-serif; color: var(--ink-3); }
+.gatheringRow { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-top: 8rpx; font-size: 27rpx; color: var(--ink-2); }
+/* 那些年的相册（#933）：纸上的目录；已回来的人数是金（被点亮的结果） */
+.albums { margin-top: 10rpx; padding: 30rpx 0 22rpx; border-bottom: 1rpx solid var(--rule); }
 .albumsTitle { display: block; font-size: 32rpx; line-height: 1.7; }
-.albumsHint { display: block; font-size: 21rpx; line-height: 1.8; color: #78826e; margin: 6rpx 0 10rpx; }
-.albumRow { display: flex; align-items: center; gap: 20rpx; min-height: 88rpx; padding: 14rpx 0; border-top: 1rpx solid rgba(213, 215, 203, 0.6); }
+.albumsHint { display: block; font-size: 22rpx; line-height: 1.8; color: var(--ink-3); margin: 4rpx 0 10rpx; }
+.albumRow { display: flex; align-items: center; gap: 20rpx; min-height: 88rpx; padding: 14rpx 0; border-top: 1rpx solid var(--rule); }
 .albumMain { flex: 1; min-width: 0; }
-.albumTitle { display: block; font-size: 26rpx; line-height: 1.6; }
-.albumMeta { display: block; font-size: 20rpx; color: #78826e; margin-top: 4rpx; }
-.albumArrow { font-size: 26rpx; color: #78826e; }
+.albumTitle { display: block; font-size: 27rpx; line-height: 1.6; }
+.albumMeta { display: block; font: 21rpx/1.6 sans-serif; color: var(--ink-3); margin-top: 2rpx; }
+.albumArrow { font-size: 26rpx; color: var(--ink-3); }
 .albumPiles { display: flex; flex-wrap: wrap; gap: 8rpx 20rpx; margin-top: 8rpx; }
-.albumPile { font-size: 20rpx; color: #56665a; }
-.albumReturned { color: #8a6418; }
-.recoverOther { display: block; margin-top: 18rpx; font-size: 23rpx; line-height: 1.7; color: #557a66; text-align: center; }
+.albumPile { font: 21rpx/1.6 sans-serif; color: var(--ink-2); }
+.albumReturned { color: var(--gold-ink); }
