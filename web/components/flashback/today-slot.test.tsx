@@ -55,11 +55,12 @@ describe("TodaySlot 未寄出引导（D2 分流）", () => {
 		expect(screen.queryByText("找回你的档案链接后可寄出")).not.toBeInTheDocument();
 	});
 
-	it("无 token（已绑定被作废是常态）：链到 hub 自助找回区并明示找回后可寄出", () => {
+	it("无 token（已绑定被作废是常态）：带锚点落 hub 找回区并明示找回后可寄出", () => {
 		renderSlot(null);
+		// 锚点来自 recover-form.tsx id=recover——点直达找回表单，不再让用户二次滚动
 		expect(
 			screen.getByRole("link", { name: "去寄出它 →" }),
-		).toHaveAttribute("href", "/flashback");
+		).toHaveAttribute("href", "/flashback#recover");
 		expect(screen.getByText("找回你的档案链接后可寄出")).toBeInTheDocument();
 	});
 });
