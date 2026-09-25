@@ -533,9 +533,9 @@ export const FLASHBACK_SUBMIT_TODAY: TypedDocumentNode<
 /** 寄出上墙（R11，幂等）；返回注册引导掩码回显（R27） */
 export const FLASHBACK_SEND_TO_WALL: TypedDocumentNode<
 	{ flashbackSendToWall: FlashbackSendToWallResult },
-	{ token: string }
+	{ token?: string | null }
 > = gql`
-	mutation FlashbackSendToWall($token: String!) {
+	mutation FlashbackSendToWall($token: String) {
 		flashbackSendToWall(token: $token) {
 			sentToWallAt
 			maskedPhone
@@ -636,9 +636,9 @@ export const FLASHBACK_UPDATE_CONTACT: TypedDocumentNode<
 /** 撤下（R30 免注册一键）：名册回到结构化卡 */
 export const FLASHBACK_RETRACT: TypedDocumentNode<
 	{ flashbackRetract: { retracted: boolean; sentToWallAt?: string | null } },
-	{ token: string }
+	{ token?: string | null }
 > = gql`
-	mutation FlashbackRetract($token: String!) {
+	mutation FlashbackRetract($token: String) {
 		flashbackRetract(token: $token) {
 			retracted
 			sentToWallAt

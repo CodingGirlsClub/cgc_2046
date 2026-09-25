@@ -17,7 +17,7 @@ import {
  * - G2 编辑：预填 me.today 四字段；保存 = 覆盖式 submitToday；已寄出者紧接幂等
  *   sendToWall（墙卡即新内容），未寄出者只存草稿（不发 wall）；失败错误 + 可重试；
  *   成功后轻反馈（已保存）+ 关弹层回胶囊 + onChanged 触发数据刷新；
- * - G3 撤下：已寄出且 token 在场才渲染（登录态无 token 不渲染）；确认弹层取消
+ * - G3 撤下：已寄出即渲染（#931 起 token 或登录态双入口）；确认弹层取消
  *   零 mutation；确认 → flashbackRetract → 关弹层 + onChanged；失败错误 + 重试；
  * - 无障碍：弹层 dialog 语义 + 焦点（modal-a11y 先例）+ Esc 关闭。
  */
@@ -195,14 +195,14 @@ describe("TodayActions · G2 编辑今天的你", () => {
 });
 
 describe("TodayActions · G3 撤下", () => {
-	it("渲染门槛：已寄出 + token 在场才渲染撤下；登录态无 token / 未寄出都不渲染，编辑恒在", () => {
+	it("渲染门槛：已寄出即渲染撤下（token 或登录态，#931）；未寄出不渲染，编辑恒在", () => {
 		const { unmount } = render(<TodayActions me={meSent} token="tok-1" onChanged={vi.fn()} />);
 		expect(screen.getByRole("button", { name: "撤下" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
 		unmount();
 
 		const second = render(<TodayActions me={meSent} token={null} onChanged={vi.fn()} />);
-		expect(screen.queryByRole("button", { name: "撤下" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "撤下" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
 		second.unmount();
 
@@ -240,6 +240,36 @@ describe("TodayActions · G3 撤下", () => {
 		expect(opts.mutation).toBe(FLASHBACK_RETRACT);
 		expect(opts.variables).toEqual({ token: "tok-1" });
 		expect(screen.queryByTestId("fb-retract-dialog")).not.toBeInTheDocument();
+	});
+
+	it("登录态无 token 撤下：flashbackRetract 以 token null 发出（#931 双入口）", async () => {
+		const onChanged = vi.fn();
+		render(<TodayActions me={meSent} token={null} onChanged={onChanged} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "撤下" }));
+		fireEvent.click(await screen.findByRole("button", { name: "确认撤下" }));
+
+		await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+		const [opts] = mutateMock.mock.calls.map(([call]) => call) as [
+			{ mutation: unknown; variables: unknown },
+		];
+		expect(opts.mutation).toBe(FLASHBACK_RETRACT);
+		expect(opts.variables).toEqual({ token: null });
+	});
+
+	it("登录态无 token 的已寄出编辑：保存后补寄 sendToWall（token null，墙卡即新内容，#931）", async () => {
+		render(<TodayActions me={meSent} token={null} onChanged={vi.fn()} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "编辑今天的你" }));
+		fireEvent.click(await screen.findByRole("button", { name: "保存" }));
+
+		await waitFor(() =>
+			expect(mutateMock.mock.calls.some(([opts]) => (opts as { mutation: unknown }).mutation === FLASHBACK_SEND_TO_WALL)).toBe(true),
+		);
+		const wall = mutateMock.mock.calls
+			.map(([opts]) => opts as { mutation: unknown; variables: unknown })
+			.find((opts) => opts.mutation === FLASHBACK_SEND_TO_WALL);
+		expect(wall?.variables).toEqual({ token: null });
 	});
 
 	it("撤下失败呈现错误 + 重试走通", async () => {

@@ -173,7 +173,7 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 	});
 
-	it("已寄出 + 登录态无 token：撤下不渲染（retract 现为 token 面），编辑恒在", async () => {
+	it("已寄出 + 登录态无 token：撤下照常渲染（#931 起 retract 双入口），编辑恒在", async () => {
 		window.history.replaceState({}, "", "/flashback/capsule");
 		window.sessionStorage.clear();
 		capsuleQuery.mockReset();
@@ -182,7 +182,7 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		await screen.findByText("闪念间 · 时间长廊");
 
 		const today = screen.getByTestId("fb-today-slot");
-		expect(within(today).queryByRole("button", { name: "撤下" })).not.toBeInTheDocument();
+		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 		expect(within(today).getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
 	});
 
