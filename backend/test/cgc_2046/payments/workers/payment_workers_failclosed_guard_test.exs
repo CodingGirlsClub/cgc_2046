@@ -92,7 +92,8 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       # 事件未被消费（Oban 会重试），订单仍 pending，未误触自动退款
       assert event_for(order).status != :processed
 
-      refute_enqueued(worker: PaymentRefundWorker)
+      # 本单未误触自动退款（args 过滤：不受 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
 
       # 解除注入 → Oban 重试 → 完整落账收敛
       drop_trigger("block_mark_paid", "payments_orders")
@@ -121,7 +122,8 @@ defmodule Cgc2046.Payments.Workers.PaymentWorkersFailclosedGuardTest do
       assert {:error, _db_error} = perform_settlement(order)
 
       # 占位完好的正常收款不得被 DB 瞬断误判为「报名已流转」而触发自动退款
-      refute_enqueued(worker: PaymentRefundWorker)
+      # （args 过滤：不受 unboxed 残留 job 干扰）
+      refute_enqueued(worker: PaymentRefundWorker, args: %{"order_id" => order.id})
 
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :payment_pending
 
