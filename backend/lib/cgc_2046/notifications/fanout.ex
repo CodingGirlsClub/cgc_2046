@@ -28,44 +28,18 @@ defmodule Cgc2046.Notifications.Fanout do
 
   ## unique 命名预设（Q9）
 
-  - `:default`：不覆盖，走 NotificationWorker 自身 7 天全 args unique；
-  - `:reminder_7d`：提醒任务的去重窗口（自 Notifications.Subscriber `@reminder_unique`
-    收编，唯一真源）——discarded/cancelled 释放名额（失败后下拍可重建），
-    completed/在途仍阻塞重复（#7）。
-
-  未显式传 unique（缺省）时按 `template_key` 查 `NotificationWorker.type/1` 的
-  unique 预设（2026-08-18 架构深化候选 D，D3）：approval_reminder /
-  learning_stagnation 由通知类型 registry 声明 `:reminder_7d`，其余类型
-  `:default`；type nil（未知键）→ `:default`。显式传参（`:default` |
-  `:reminder_7d`）仍兼容。
-
-  ## 错误内化（Q6）
-
-  入队失败 rescue 不崩、必 Logger.warning + telemetry（`status: :error`）后返回
-  `:ok`——静默跳过语义与收敛前各调用方一致（纯收敛，不改行为）。
-
-  ## telemetry（Q10）
-
-  事件 `[:cgc2046, :notification_fanout, :deliver]`：measurements `%{count: n}`
-  （本次入队条数），metadata `%{status: :ok | :skipped | :error, template_key, error}`。
-  `:skipped` 表示收件人零身份、未入队（#406，告警可见）。
+  - `:default`：NotificationWorker 7 天全 args unique——直插面只剩
+    flashback_wish_echo（#847 PR-B：其余 22 键已迁 Delivery.enqueue，幂等键
+    派生见 Notifications.DeliveryKey）；`unique` 显式传参仅为签名兼容。
   """
 
   require Ash.Query
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
-  alias Cgc2046.Notifications.{Delivery, NotificationWorker}
+  alias Cgc2046.Notifications.{Delivery, DeliveryKey, NotificationWorker}
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
-
-  # 提醒任务的去重窗口（唯一真源）：discarded/cancelled 释放名额（失败后下拍可
-  # 重建），completed/在途仍阻塞重复（#7）。
-  @reminder_unique [
-    period: 604_800,
-    fields: [:worker, :args],
-    states: [:scheduled, :available, :executing, :retryable, :completed]
-  ]
 
   @doc """
   解析 workspace 内目标角色成员（selector 见 moduledoc）的平台身份，
@@ -152,7 +126,7 @@ defmodule Cgc2046.Notifications.Fanout do
           :default | :reminder_7d | nil
         ) :: {:ok, non_neg_integer()} | {:error, :enqueue_failed}
   def deliver_with_receipt(recipients, template_key, data, job_meta, unique \\ nil) do
-    unique = unique || unique_for(template_key)
+    unique = unique || :default
     recipients = normalize_recipients(recipients)
 
     total =
@@ -164,7 +138,7 @@ defmodule Cgc2046.Notifications.Fanout do
     # identities=[] 永久丢失且无人知）。未迁键保持「warning + telemetry :skipped
     # + 不入队」；已迁耐久路径的键不再早退——零身份逐 user 落哨兵行（#847
     # Q5，观测由行承担，比 telemetry 更强）。
-    if total == 0 and not durable?(template_key) do
+    if total == 0 and not DeliveryKey.durable?(template_key) do
       Logger.warning(
         "notification deliver skipped: no identities " <>
           "(template_key=#{template_key}, user_ids=#{inspect(Map.keys(recipients))}, " <>
@@ -199,15 +173,6 @@ defmodule Cgc2046.Notifications.Fanout do
        when is_binary(user_id) and is_list(identities),
        do: %{user_id => identities}
 
-  # unique 缺省查表（D3）：按 template_key 读 NotificationWorker.type/1 的 unique
-  # 预设；type nil 或无 unique 字段 → :default。显式传参不走此分支（签名兼容）。
-  defp unique_for(template_key) do
-    case NotificationWorker.type(template_key) do
-      %{unique: preset} when preset in [:default, :reminder_7d] -> preset
-      _ -> :default
-    end
-  end
-
   # role_filter 收窄收件人：`:manage` 走 Role.manage_roles/0 唯一真源，
   # `{:roles, roles}` 显式窄集（赞助 Workspace 级 = 仅 Owner，拍板 #4）。
   defp managed_member_ids(workspace_id, selector) do
@@ -229,51 +194,19 @@ defmodule Cgc2046.Notifications.Fanout do
   defp manage_roles({:roles, roles}), do: roles
 
   defp enqueue_notifications(recipients, template_key, data, job_meta, unique) do
-    if durable?(template_key) do
+    if DeliveryKey.durable?(template_key) do
       durable_enqueue(recipients, template_key, data, job_meta)
     else
       oban_enqueue(recipients, template_key, data, job_meta, unique)
     end
   end
 
-  # ── 耐久投递迁移（#847 PR-B，分批推进的过渡态） ----------------------------
-  # 已迁键：解析身份后委托 Delivery.enqueue；未迁键仍走 NotificationWorker
-  # 直插（收尾批次删除直插路径）。事件键派生公式与 issue #847 映射表逐条对应；
-  # P2：最终幂等键 = template_key 前缀 + 事件键（Delivery 侧再叠加 user×身份）。
-
-  @durable_keys MapSet.new([
-                  # 批 1（报名/审批类）
-                  "approval_result",
-                  "enrollment_submitted",
-                  "enrollment_completed",
-                  "enrollment_check_in_code",
-                  # 批 2（资金类）
-                  "payment_succeeded",
-                  "payment_received",
-                  "payment_expired",
-                  "refund_succeeded",
-                  "refund_failed",
-                  # 批 3（提醒类）
-                  "approval_reminder",
-                  "learning_stagnation",
-                  # 批 4（其余键；flashback_wish_echo 显式排除，见 issue #847）
-                  "event_reminder",
-                  "speaker_accepted",
-                  "speaker_completed",
-                  "event_moderator_assigned",
-                  "event_moderator_removed",
-                  "volunteer_application_submitted",
-                  "volunteer_application_interview",
-                  "volunteer_application_training",
-                  "volunteer_application_assigned",
-                  "volunteer_application_rejected",
-                  "volunteer_application_canceled"
-                ])
-
-  defp durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
+  # ── 耐久投递委托（#847 PR-B）----------------------------------------------
+  # 已迁键（22 个）：解析身份后委托 Delivery.enqueue，幂等键派生单点在
+  # Notifications.DeliveryKey（issue #847 映射表的代码面真源）。
 
   defp durable_enqueue(recipients, template_key, data, job_meta) do
-    event_key = event_key(template_key, data, job_meta)
+    event_key = DeliveryKey.event_key(template_key, data, job_meta)
     meta = Map.put(job_meta, "idempotency_key", template_key <> ":" <> event_key)
 
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
@@ -282,81 +215,9 @@ defmodule Cgc2046.Notifications.Fanout do
     end)
   end
 
-  # 事件键派生（映射表逐条对应）。:from_meta 类 = 生产方信号幂等键直用
-  # （emitter 规范 "<type>:<record_id>" 或支付侧 "<template>:<order_id>"）。
-  defp event_key("approval_result", data, _job_meta),
-    do: "approval.result:#{data["enrollment_id"]}:#{data["status"]}"
-
-  defp event_key("enrollment_submitted", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("enrollment_completed", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("enrollment_check_in_code", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  # 批 2（资金类）：现 job_meta 幂等键直用（支付侧已带 "<template>:<order_id>"）
-  defp event_key("payment_succeeded", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("payment_received", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("payment_expired", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("refund_succeeded", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("refund_failed", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  # 批 3（提醒类）。approval_reminder 两面（enrollment/sponsorship）共用一个
-  # 事件键前缀：deadline ≤48h < 7 天窗 ⇒ 生命周期内至多一次，重复扫描被
-  # 永久幂等键直接去重（连行都不建），Staleness 只兜发送时点已过期。
-  defp event_key("approval_reminder", _data, %{"enrollment_id" => id}),
-    do: "approval.reminder:" <> id
-
-  # learning_stagnation：周期成分 = epoch 对齐的 7 天桶（issue #847 裁定选项 a
-  # ——静态幂等键无法表达 7 天滚动窗，周级桶窗的周级节奏业务可接受；桶边界
-  # 为周四 00:00 UTC，与 ISO 日历周等价的周级去重）。LPW 每 5 分钟扫，同桶内
-  # 多拍同键去重、跨桶新键重发。
-  defp event_key("approval_reminder", _data, %{"sponsorship_id" => id}),
-    do: "approval.reminder:" <> id
-
-  defp event_key("learning_stagnation", _data, %{"run_id" => run_id}) do
-    week_bucket = div(System.system_time(:second), 604_800)
-    "learning.stagnation:#{run_id}:w#{week_bucket}"
-  end
-
-  # 批 4。event_reminder：改期 → starts_at 变 → 新键重发（同现状语义）；
-  # event_id 由 event_reminder_worker 的 Fanout 调用处补入 job_meta（已批例外，
-  # 纯增量元数据）。moderator 两键按活动维度（user 成分由 Delivery 侧叠加）。
-  defp event_key("event_reminder", data, %{"event_id" => event_id}),
-    do: "event.reminder:#{event_id}:#{data["starts_at"]}"
-
-  defp event_key("event_moderator_assigned", _data, %{"event_id" => event_id}),
-    do: "event.moderator.assigned:#{event_id}"
-
-  defp event_key("event_moderator_removed", _data, %{"event_id" => event_id}),
-    do: "event.moderator.removed:#{event_id}"
-
-  # speaker_completed 双腿（P3）：manager 腿 data 带 title、speaker 本人腿不带
-  # ——同 template 同信号键靠腿成分防撞（speaker 兼任 manager 的场景）。
-  defp event_key("speaker_completed", data, job_meta) do
-    leg = if Map.has_key?(data, "title"), do: "managers", else: "speaker"
-    "#{Map.fetch!(job_meta, "idempotency_key")}:#{leg}"
-  end
-
-  defp event_key("speaker_accepted", _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  defp event_key("volunteer_application_" <> _, _data, job_meta),
-    do: Map.fetch!(job_meta, "idempotency_key")
-
-  # 未迁键的既有直插路径（收尾批次整体删除）：逐身份插 NotificationWorker
-  # job，去重靠 Oban unique 时间窗。
+  # flashback_wish_echo 专属直插路径（其余 22 键已迁耐久投递）：逐身份插
+  # NotificationWorker job；deliver_with_receipt 的 count 回执依赖此路径的
+  # 「本次新接受任务数」语义，见 #834。
   defp oban_enqueue(recipients, template_key, data, job_meta, unique) do
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
       Enum.reduce_while(identities, {:ok, count}, fn identity, {:ok, identity_count} ->
@@ -374,7 +235,7 @@ defmodule Cgc2046.Notifications.Fanout do
 
   # args 携带 identity_uid：同用户同平台多身份不被 args-unique 折叠，
   # 发送侧按该身份精确投递（#3）。
-  defp insert_notification(identity, user_id, template_key, data, job_meta, unique) do
+  defp insert_notification(identity, user_id, template_key, data, job_meta, _unique) do
     args =
       job_meta
       |> Map.merge(%{
@@ -385,11 +246,7 @@ defmodule Cgc2046.Notifications.Fanout do
         "data" => data
       })
 
-    case unique do
-      :default -> NotificationWorker.new(args)
-      :reminder_7d -> NotificationWorker.new(args, unique: @reminder_unique)
-    end
-    |> Oban.insert()
+    NotificationWorker.new(args) |> Oban.insert()
   end
 
   # status 取值：:ok / :skipped（零身份，#406）/ :error；metadata 原样透传。
