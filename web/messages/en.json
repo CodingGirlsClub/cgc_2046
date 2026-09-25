@@ -2841,6 +2841,7 @@
       "errorFog": "The fog settings didn't save — sending paused before the wall. Try again.",
       "reviewTodayTitle": "And today's you, sentence by sentence:",
       "errorTodayFog": "The fog for today's you didn't save — sending paused. Try again.",
+      "errorLicense": "Your quote permission didn't save — sending paused. Try again.",
       "title": "Your photo is going up on the wall.",
       "lead": "The front is you back then; the back is you today. Once sent, this card joins the time corridor.",
       "send": "Send — back to the time corridor →",

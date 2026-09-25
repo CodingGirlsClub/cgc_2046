@@ -145,7 +145,13 @@ export default function SendRegister({
 			}
 		}
 		if (form.quoteLevel !== "off") {
-			await onSetQuoteLicense(form);
+			// 授权失败同样暂停寄出（D3 历史静默吞：用户以为已授权、卡照样上墙）
+			const licenseOk = await onSetQuoteLicense(form);
+			if (!licenseOk) {
+				setError(t("errorLicense"));
+				setPhase("failed");
+				return;
+			}
 		}
 		const wallOk = await onSendToWall();
 		if (!wallOk) {
