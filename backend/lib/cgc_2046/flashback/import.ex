@@ -628,7 +628,8 @@ defmodule Cgc2046.Flashback.Import do
         {person,
          if(MapSet.member?(group_keys(admitted_keys, person.group), person_key(person)),
            do: :attended,
-           else: :not_selected)}
+           else: :not_selected
+         )}
       end)
 
     answers_all = Enum.flat_map(importable, & &1.answers)
@@ -732,7 +733,11 @@ defmodule Cgc2046.Flashback.Import do
       duplicates_to_upgrade:
         groups
         |> Enum.map(fn {attrs, group_people} ->
-          count_duplicates_to_upgrade(group_people, group_keys(admitted_keys, attrs[:key]), attrs[:key])
+          count_duplicates_to_upgrade(
+            group_people,
+            group_keys(admitted_keys, attrs[:key]),
+            attrs[:key]
+          )
         end)
         |> Enum.sum()
     }
