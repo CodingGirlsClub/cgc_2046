@@ -274,13 +274,15 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:channel, :string)
 
       resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn _actor ->
+        with_admin(context, fn actor ->
           with {:ok, channel} <-
                  Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
+            # 治理留痕单源在 Dispatch（R2）。
             Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
               args[:person_id],
               args[:template],
-              channel
+              channel,
+              actor
             )
           else
             {:error, :invalid_channel} ->
@@ -1923,17 +1925,18 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:batch, :string)
 
       resolve(fn _, %{archive_key: archive_key, template: template} = args, %{context: context} ->
-        with_admin(context, fn _actor ->
+        with_admin(context, fn actor ->
           flashback_call(fn ->
             with {:ok, channel} <-
                    Cgc2046.Flashback.Outreach.Dispatch.parse_channel(
                      Map.get(args, :channel, "all")
                    ) do
+              # 治理留痕单源在 Dispatch（R1）。
               Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(
                 archive_key,
                 template,
                 channel,
-                if(args[:batch], do: [batch: args[:batch]], else: [])
+                Keyword.merge(if(args[:batch], do: [batch: args[:batch]], else: []), actor: actor)
               )
             else
               {:error, :invalid_channel} ->

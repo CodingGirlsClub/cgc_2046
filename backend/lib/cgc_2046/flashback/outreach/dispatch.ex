@@ -42,7 +42,9 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   """
 
   require Ash.Query
+  require Logger
 
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback.{EventArchive, Outreach, Person, Workers.OutreachWorker}
 
   # 触达模板白名单（邮件渲染子句与短信模板各自对应；新模板须同步
@@ -80,6 +82,23 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       batch = Keyword.get(opts, :batch) || "archive-" <> archive.key
 
       {queued, skipped, deduped} = enqueue_persons(person_ids, template, batch, channel)
+
+      # 治理留痕单源（R1）：MCP 确认流工具与 /admin/flashback GraphQL 面两
+      # 入口共用；审计失败不阻塞已入队的发送。
+      log_dispatch_action(
+        :flashback_outreach_send,
+        Keyword.get(opts, :actor),
+        :flashback_event_archive,
+        archive.id,
+        %{
+          archive_key: archive_key,
+          template: template,
+          channel: to_string(channel),
+          batch: batch,
+          queued: queued,
+          skipped: skipped + filtered_out
+        }
+      )
 
       # skipped 三路合计：退订/无通道（解析层）+ 本批次已入队（幂等层）——运营面
       # 从计数即可读出「多少人有通道、多少人被抑制、多少人重复」。
@@ -168,7 +187,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   unique_send）。不可重发者返回带原因的业务错误，零新增行；不做频控
   （KD8——每次重发都经确认流把关）。通道选择同 `enqueue_for_archive/3`。
   """
-  @spec resend_for_person(String.t(), String.t(), atom()) ::
+  @spec resend_for_person(String.t(), String.t(), atom(), term()) ::
           {:ok,
            %{
              queued: non_neg_integer(),
@@ -177,12 +196,21 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
              batch: String.t()
            }}
           | {:error, term()}
-  def resend_for_person(person_id, template, channel \\ :all) do
+  def resend_for_person(person_id, template, channel \\ :all, actor \\ nil) do
     with {:ok, _person} <- validate_resend_for_person(person_id),
          :ok <- validate_template(template),
          :ok <- validate_channel(channel) do
       batch = "resend-" <> binary_part(Ecto.UUID.generate(), 0, 8)
       {queued, skipped, deduped} = enqueue_persons([person_id], template, batch, channel)
+
+      # 治理留痕单源（R2）：两入口共用，形状同上。
+      log_dispatch_action(:flashback_outreach_resend, actor, :flashback_person, person_id, %{
+        template: template,
+        channel: to_string(channel),
+        batch: batch,
+        queued: queued,
+        skipped: skipped
+      })
 
       {:ok, %{queued: queued, skipped: skipped, deduped_within_campaign: deduped, batch: batch}}
     end
@@ -539,6 +567,28 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
 
   defp validate_channel(_),
     do: {:error, invalid_input_error("channel must be one of all|email|sms")}
+
+  # 触达治理留痕单源（R1/R2）：send/resend 成功各一行，metadata 带场次/模板/
+  # 通道/批次/入队计数（非每人一行）。审计失败不阻塞已入队的发送（wrapper
+  # 审计哲学同款），error 日志留痕。
+  defp log_dispatch_action(action, actor, target_type, target_id, metadata) do
+    AdminActionLog.log(%{
+      actor_id: actor && Map.get(actor, :id),
+      action: action,
+      target_type: target_type,
+      target_id: target_id,
+      result: :success,
+      metadata: metadata
+    })
+    |> case do
+      {:ok, _} ->
+        :ok
+
+      error ->
+        Logger.error("[flashback_outreach] admin action log failed: #{inspect(error)}")
+        :ok
+    end
+  end
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
 
