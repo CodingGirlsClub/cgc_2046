@@ -10,6 +10,9 @@ defmodule Cgc2046.Offering.EventReminderWorkerTest do
   use Cgc2046Web.ConnCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
+  require Ash.Query
+  alias Cgc2046.Notifications.NotificationDelivery
+
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Offering.EventReminderWorker
@@ -58,9 +61,22 @@ defmodule Cgc2046.Offering.EventReminderWorkerTest do
       )
   end
 
+  # #847 批 4：event_reminder 已迁耐久路径，行为面 = Delivery 行（伪 job 投影）
   defp event_reminder_jobs do
-    all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-    |> Enum.filter(&(&1.args["template_key"] == "event_reminder"))
+    NotificationDelivery
+    |> Ash.Query.filter(template_key == "event_reminder")
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "identity_uid" => &1.identity_uid,
+          "platform" => &1.platform,
+          "data" => &1.data
+        }
+      }
+    )
   end
 
   test "starts_at 24h 内 open Event 的 confirmed 报名入队（含 venue 拼接）" do

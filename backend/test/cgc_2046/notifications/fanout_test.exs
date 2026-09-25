@@ -154,13 +154,13 @@ defmodule Cgc2046.Notifications.FanoutTest do
       insert_identity(user.id, :wechat, "fanout-deliver-args-openid")
       enrollment_id = Ecto.UUID.generate()
 
-      # 过渡期钉未迁键的直插 args 合并（收尾批次随直插路径删除）
+      # flashback_wish_echo（唯一保留直插）的 args 合并形状
       assert :ok =
                Fanout.deliver(
                  {user.id, Fanout.identities(user.id)},
-                 "event_moderator_removed",
-                 %{"event_id" => enrollment_id},
-                 %{"event_id" => enrollment_id}
+                 "flashback_wish_echo",
+                 %{"wish_id" => enrollment_id, "content_preview" => "p"},
+                 %{"wish_id" => enrollment_id}
                )
 
       assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
@@ -168,12 +168,12 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert args["user_id"] == user.id
       assert args["identity_uid"] == "fanout-deliver-args-openid"
       assert args["platform"] == "wechat"
-      assert args["template_key"] == "event_moderator_removed"
-      assert args["event_id"] == enrollment_id
-      assert args["data"] == %{"event_id" => enrollment_id}
+      assert args["template_key"] == "flashback_wish_echo"
+      assert args["wish_id"] == enrollment_id
+      assert args["data"] == %{"wish_id" => enrollment_id, "content_preview" => "p"}
     end
 
-    # 过渡期钉未迁键的 #406 语义；已迁键零身份改落哨兵行（见批 1 钉测 describe）。
+    # flashback_wish_echo 是唯一保留直插的键（#834 回执契约，见 issue #847 PR-B 映射表）；已迁键零身份改落哨兵行（见批 1 钉测 describe）。
     # 收尾批次删除直插路径后本测试随之删除。
     test "空 recipients（无身份）未迁键 → 不入队，warning 日志 + telemetry status :skipped（#406）" do
       attach_telemetry()
@@ -184,22 +184,22 @@ defmodule Cgc2046.Notifications.FanoutTest do
           assert :ok =
                    Fanout.deliver(
                      {user.id, []},
-                     "event_moderator_assigned",
+                     "flashback_wish_echo",
                      %{},
-                     %{"event_id" => "ev-empty"}
+                     %{"wish_id" => "w-empty", "endorsement_id" => "e-empty"}
                    )
 
-          assert :ok = Fanout.deliver(%{}, "event_moderator_assigned", %{}, %{})
+          assert :ok = Fanout.deliver(%{}, "flashback_wish_echo", %{}, %{})
         end)
 
       assert all_enqueued(worker: NotificationWorker) == []
 
       assert log =~ "notification deliver skipped: no identities"
-      assert log =~ "template_key=event_moderator_assigned"
+      assert log =~ "template_key=flashback_wish_echo"
       assert log =~ inspect([user.id])
 
       assert_receive {:fanout_telemetry, _, %{count: 0},
-                      %{status: :skipped, template_key: "event_moderator_assigned", error: nil}}
+                      %{status: :skipped, template_key: "flashback_wish_echo", error: nil}}
     end
 
     test "成功入队发 telemetry count = 入队条数" do
@@ -237,29 +237,35 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert is_binary(error)
     end
 
-    # 过渡期钉未迁键的 Oban unique 语义（#7）；两键迁走或收尾删除直插路径后本测试随之移除。
+    # flashback_wish_echo（唯一保留直插）的 Oban unique 语义（#7）。
     test "unique 预设：:default 含 discarded 阻塞重拍；:reminder_7d 释放 discarded 名额（#7）" do
       user = Fixtures.register_user("fanout-unique")
       insert_identity(user.id, :wechat, "fanout-unique-openid")
       identities = Fanout.identities(user.id)
-      data = %{"event_id" => Ecto.UUID.generate()}
-      meta = %{"event_id" => data["event_id"]}
+
+      data = %{
+        "wish_id" => Ecto.UUID.generate(),
+        "content_preview" => "p",
+        "endorsement_id" => "e1"
+      }
+
+      meta = %{"wish_id" => data["wish_id"], "endorsement_id" => "e1"}
 
       # :default（payment_succeeded，未迁）—— 同 args 重入队折叠为既有 job
-      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
+      assert :ok = Fanout.deliver({user.id, identities}, "flashback_wish_echo", data, meta)
 
       assert [job] =
                all_enqueued(
                  worker: NotificationWorker,
-                 args: %{"template_key" => "event_moderator_assigned"}
+                 args: %{"template_key" => "flashback_wish_echo"}
                )
 
-      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
+      assert :ok = Fanout.deliver({user.id, identities}, "flashback_wish_echo", data, meta)
 
       assert [same] =
                all_enqueued(
                  worker: NotificationWorker,
-                 args: %{"template_key" => "event_moderator_assigned"}
+                 args: %{"template_key" => "flashback_wish_echo"}
                )
 
       assert same.id == job.id
@@ -272,8 +278,8 @@ defmodule Cgc2046.Notifications.FanoutTest do
           [job.id]
         )
 
-      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
-      assert count_rows("event_moderator_assigned", user.id) == 1
+      assert :ok = Fanout.deliver({user.id, identities}, "flashback_wish_echo", data, meta)
+      assert count_rows("flashback_wish_echo", user.id) == 1
 
       # #847 批 3：approval_reminder 迁耐久路径后 @reminder_unique 无 Fanout 使用方，
       # :reminder_7d 段随迁删除（收尾批次本测试整体移除）
@@ -303,9 +309,9 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert {:ok, 0} =
                Fanout.deliver_with_receipt(
                  {user.id, []},
-                 "event_moderator_assigned",
+                 "flashback_wish_echo",
                  %{},
-                 %{"event_id" => "ev-zero"}
+                 %{"wish_id" => "w-zero", "endorsement_id" => "e-zero"}
                )
 
       assert all_enqueued(worker: NotificationWorker) == []
@@ -432,13 +438,13 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert :ok =
                Fanout.deliver(
                  {user.id, Fanout.identities(user.id)},
-                 "event_moderator_assigned",
-                 %{"event_id" => "ev1"},
-                 %{"event_id" => "ev1"}
+                 "flashback_wish_echo",
+                 %{"wish_id" => "w1"},
+                 %{"wish_id" => "w1"}
                )
 
       assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
-      assert args["template_key"] == "event_moderator_assigned"
+      assert args["template_key"] == "flashback_wish_echo"
       assert deliveries_for(user.id) == []
     end
   end
@@ -575,6 +581,87 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
       assert row1.job_meta["idempotency_key"] =~
                ~r/learning_stagnation:learning\.stagnation:run-\d+:w\d+$/
+    end
+  end
+
+  describe "#847 PR-B 批 4（其余键迁耐久投递）" do
+    defp deliveries_for_4(user_id) do
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user_id)
+      |> Ash.read!(authorize?: false)
+    end
+
+    test "event_reminder：同场活动重复扫描去重；改期（starts_at 变）新键重发" do
+      user = Fixtures.register_user("prb4-evrem")
+      insert_identity(user.id, :wechat, "prb4-evrem-wx")
+      identities = Fanout.identities(user.id)
+      eid = Ecto.UUID.generate()
+
+      deliver = fn starts_at ->
+        Fanout.deliver(
+          {user.id, identities},
+          "event_reminder",
+          %{"event_id" => eid, "title" => "t", "starts_at" => starts_at, "venue" => "v"},
+          %{"event_id" => eid}
+        )
+      end
+
+      assert :ok = deliver.("2026-10-01T10:00:00Z")
+      assert :ok = deliver.("2026-10-01T10:00:00Z")
+      assert length(deliveries_for_4(user.id)) == 1
+
+      assert :ok = deliver.("2026-10-02T10:00:00Z")
+      assert length(deliveries_for_4(user.id)) == 2
+    end
+
+    test "speaker_completed 双腿：同 user 同信号键靠腿成分防撞（speaker 兼任 manager）" do
+      user = Fixtures.register_user("prb4-spk")
+      insert_identity(user.id, :wechat, "prb4-spk-wx")
+      identities = Fanout.identities(user.id)
+      meta = %{"speaker_invitation_id" => "inv-1", "idempotency_key" => "speaker.completed:inv-1"}
+
+      assert :ok =
+               Fanout.deliver(
+                 {user.id, identities},
+                 "speaker_completed",
+                 %{"speaker_invitation_id" => "inv-1", "title" => "t"},
+                 meta
+               )
+
+      assert :ok =
+               Fanout.deliver(
+                 {user.id, identities},
+                 "speaker_completed",
+                 %{"speaker_invitation_id" => "inv-1"},
+                 meta
+               )
+
+      assert length(deliveries_for_4(user.id)) == 2
+      assert Enum.count(deliveries_for_4(user.id), &(&1.data["title"] == "t")) == 1
+    end
+
+    test "event_moderator 两键同活动：P2 前缀区分，指派/移除各达一次" do
+      user = Fixtures.register_user("prb4-mod")
+      insert_identity(user.id, :wechat, "prb4-mod-wx")
+      identities = Fanout.identities(user.id)
+
+      for key <- ["event_moderator_assigned", "event_moderator_removed"] do
+        assert :ok =
+                 Fanout.deliver(
+                   {user.id, identities},
+                   key,
+                   %{"event_id" => "ev-1", "title" => "t"},
+                   %{"event_id" => "ev-1"}
+                 )
+      end
+
+      rows = deliveries_for_4(user.id)
+      assert length(rows) == 2
+
+      assert rows |> Enum.map(& &1.template_key) |> Enum.sort() == [
+               "event_moderator_assigned",
+               "event_moderator_removed"
+             ]
     end
   end
 
