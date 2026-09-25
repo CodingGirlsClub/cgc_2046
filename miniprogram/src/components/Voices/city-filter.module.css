@@ -1,0 +1,20 @@
+.cityBar { display: flex; align-items: center; width: 100%; background: #efefe2; border-top: 1rpx solid #d8ddcf; }
+.cityStrip { flex: 1; width: 0; min-width: 0; white-space: nowrap; }
+.cityItem { display: inline-flex; vertical-align: middle; margin: 10rpx 4rpx; }
+.cityItem:first-child { margin-left: 20rpx; }
+.cityItem:last-child { margin-right: 20rpx; }
+.cityChip { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 112rpx; min-height: 80rpx; padding: 12rpx 22rpx; border-radius: 44rpx; color: #46634c; background: transparent; font-size: 25rpx; }
+.activeChip { color: #fffdf1; background: #214b3a; }
+.allCitiesButton { flex-shrink: 0; min-height: 88rpx; padding: 20rpx 22rpx; color: #31513b; background: #efefe2; border-left: 1rpx solid #c9d1bf; border-radius: 0; font-size: 24rpx; }
+.cityMask { position: fixed; inset: 0; z-index: 100; background: rgba(20,35,28,.35); display: flex; align-items: flex-end; }
+.citySheet { width: 100%; box-sizing: border-box; padding: 32rpx 28rpx calc(24rpx + env(safe-area-inset-bottom)); border-radius: 28rpx 28rpx 0 0; background: #faf8f1; }
+.sheetHeading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28rpx; }
+.sheetTitle { display: block; color: #173f33; font: 34rpx 'Songti SC', 'STSong', serif; }
+.sheetHint { display: block; margin-top: 12rpx; font-size: 23rpx; color: #64765e; }
+.closeCities { font-size: 25rpx; padding: 20rpx 10rpx 20rpx 26rpx; color: #46634c; background: transparent; }
+.cityGridScroll { max-height: 55vh; }
+.cityGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16rpx 12rpx; padding-bottom: 16rpx; }
+.gridCity { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 88rpx; width: 100%; padding: 12rpx 6rpx; border-radius: 8rpx; font-size: 26rpx; color: #31513b; background: #efefe2; word-break: break-all; }
+.activeGridCity { color: #fffdf1; background: #214b3a; }
+.cityState { display: block; padding: 36rpx 0; font-size: 26rpx; color: #64765e; }
+.retryCities { margin-top: 24rpx; font-size: 26rpx; color: #fffdf1; background: #214b3a; }

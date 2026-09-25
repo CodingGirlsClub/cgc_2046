@@ -1042,3 +1042,9 @@
 
 /* U10:雾句候选灰显锁定(不可选,点按提示先解雾) */
 .quoteCandidateFogged { opacity: 0.45; }
+
+/* 独立公开墙入口，不改长廊滚动容器或个人卡行为。 */
+.voicesEntry { display: flex; align-items: center; justify-content: space-between; margin: 12rpx 28rpx 18rpx; padding: 16rpx 20rpx; border: 1rpx solid #d9ddce; border-radius: 8rpx; background: #f5f3e9; }
+.voicesTitle { display: block; color: #244936; font-size: 28rpx; }
+.voicesSubtitle { display: block; margin-top: 4rpx; color: #697b60; font-size: 21rpx; }
+.voicesArrow { color: #536e47; font-size: 23rpx; }

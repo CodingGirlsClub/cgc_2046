@@ -519,13 +519,15 @@ ck "筛上海后堆只剩 2（两场的上海堆）" "$(COUNT "$PINPOL")" '^2$'
 ck "选中钉切到上海" "$(RES automation_element_action --action text --selector "$CITY_PIN_ACTIVE")" '^上海$'
 ck "钉条不随过滤收缩（仍 3 城钉）" "$(COUNT "$CITY_PIN")" '^3$'
 shot 08.5-corridor-city-filtered.png
-TAP "$CITY_PIN_ALL"
+TRIGGER tap '{}' "$CITY_PIN_ALL"
 sleep 2.5
 ck "回全部恢复 4 堆" "$(COUNT "$PINPOL")" '^4$'
 ck "选中钉回全部" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
 
 echo "### 9) 愿望段：留言、附议、许愿、两步删除 + 私愿折叠"
-TAP "$WISH_CARD"
+# 长廊愿望段在首屏下方；wechatide 的可视坐标 tap 对离屏卡不稳定，
+# 直接向唯一目标类的首元素派发 tap，仍走页面 onClick 与后续真实写面。
+TRIGGER tap '{}' "$WISH_CARD"
 sleep 1.5
 ck "愿望模态弹出" "$(COUNT "$WISH_MODAL")" '^1$'
 ck "模态全文" "$(RES automation_element_action --action text --selector "$WISH_MODAL_CONTENT")" '^一起出一本书:《她们的第一行代码》$'
@@ -542,7 +544,7 @@ shot 09-wish-modal.png
 TRIGGER tap '{}' "$WISH_MODAL_MASK"
 sleep 1
 ck "模态关闭" "$(COUNT "$WISH_MODAL")" '^0$'
-TAP "$WISH_CARD"
+TRIGGER tap '{}' "$WISH_CARD"
 sleep 0.8
 TAP "$WISH_MODAL $WISH_ENDORSE"
 sleep 0.8
@@ -554,7 +556,7 @@ sleep 1.5
 ck "附议后表单关闭" "$(COUNT "$WISH_SHEET_MASK")" '^0$'
 ck "首愿附议数 +1 且本人已附议" "$(RES automation_element_action --action text --selector "$WISH_CARD $WISH_ENDORSED")" '^👍 6 · 已附议$'
 
-TAP "$WISH_ADD"
+TRIGGER tap '{}' "$WISH_ADD"
 sleep 0.8
 ck "许愿表单打开" "$(COUNT "$WISH_SHEET_MASK")" '^1$'
 RAW automation_element_action --action input --selector "$WISH_SHEET_INPUT" --value 'E2E 年度愿望' >/dev/null
@@ -562,7 +564,7 @@ TAP "$WISH_SHEET_SUBMIT"
 sleep 1.5
 ck "许愿后公开卡由 2 增至 3" "$(COUNT "$WISH_CARD")" '^3$'
 ck "新愿挂树可读" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^E2E 年度愿望$'
-TAP "$WISH_CARD"
+TRIGGER tap '{}' "$WISH_CARD"
 sleep 0.8
 ck "本人新愿模态带删除入口" "$(COUNT "$WISH_MODAL $WISH_DELETE")" '^1$'
 RAW automation_wx_api --action mock --method showModal --result '{"confirm":false,"cancel":true}' >/dev/null
@@ -574,12 +576,12 @@ TAP "$WISH_MODAL $WISH_DELETE"
 sleep 1.5
 RAW automation_wx_api --action restore --method showModal >/dev/null
 ck "确认删除后公开卡恢复 2" "$(COUNT "$WISH_CARD")" '^2$'
-TAP "$PRIVATE_FOLD"
+TRIGGER tap '{}' "$PRIVATE_FOLD"
 sleep 1
 ck "私愿展开箭头=收起 ▲" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_ARROW")" '^收起 ▲$'
 ck "私愿卡 1（仅自己可见）" "$(COUNT "$WISH_CARD_PRIVATE")" '^1$'
 ck "本人私愿带删除" "$(COUNT "$WISH_DELETE")" '^1$'
-TAP "$PRIVATE_FOLD"
+TRIGGER tap '{}' "$PRIVATE_FOLD"
 sleep 1
 ck "私愿收起" "$(COUNT "$WISH_CARD_PRIVATE")" '^0$'
 
@@ -753,10 +755,27 @@ RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.f
 echo "### 10) 隔离取证：mock 不走网络 + 无运行时报错"
 NET=$(RAW get_simulator_network --command 'grep -i graphql' | sed -n 's/.*"result": "\(.*\)"/\1/p' | tail -1)
 ck "network 无 graphql 请求（mock 在 JS 层拦截）" "${NET:-（空）}" '^（空）$'
-# 「appLaunch with non-empty page stack」是 devtools 自动化导航的已知系统噪音
-# （WAService errorReport），与页面运行时无关，剔除后再断言
-CON=$(RAW get_simulator_console --command 'grep -i -e error -e fail' | sed -n 's/.*"result": "\(.*\)"/\1/p' | tail -1)
-CON_PAGE=$(printf '%s' "${CON:-}" | sed 's/\\n/\n/g' | grep -Ev 'appLaunch with non-empty page stack' | grep -Ei '\[error\]|\[warn\]|fail' || true)
+# DevTools 自动化导航的系统错误与页面错误分开；按完整错误事件过滤，
+# 避免同批次出现真实页面错误时连带吞掉。
+CON_PAGE=$(RAW get_simulator_console --command 'grep -i -e error -e fail' | node -e '
+  const raw = require("node:fs").readFileSync(0, "utf8")
+  try {
+    const result = JSON.parse(raw.slice(raw.indexOf("{"))).result
+    const rows = Array.isArray(result) ? result : [String(result ?? "")]
+    const kept = []
+    for (let i = 0; i < rows.length; i++) {
+      const message = rows[i + 1] ?? ""
+      if (rows[i] === "[error]" && (
+        message.includes("appLaunch with non-empty page stack") ||
+        (message.includes("SystemError (appServiceSDKScriptError)") &&
+          /routeDone with a webviewId [0-9]+ is not found/.test(message) &&
+          message.includes("WAServiceMainContext.js"))
+      )) { i++; continue }
+      kept.push(rows[i])
+    }
+    process.stdout.write(kept.filter((line) => /\[error\]|\[warn\]|fail/i.test(line)).join("\n"))
+  } catch { process.stdout.write("console parse failure") }
+')
 ck "console 无页面运行时 error（已剔 devtools 导航噪音）" "${CON_PAGE:-（空）}" '^（空）$'
 
 echo
