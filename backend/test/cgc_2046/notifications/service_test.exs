@@ -14,6 +14,9 @@ defmodule Cgc2046.Notifications.ServiceTest do
   setup do
     test_pid = self()
 
+    # xhs token 进程缓存是全局 :persistent_term——每个用例起清一次，防跨用例串扰
+    Client.invalidate_xhs_token_cache()
+
     Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
       conn = Plug.Conn.fetch_query_params(conn)
 
@@ -25,8 +28,14 @@ defmodule Cgc2046.Notifications.ServiceTest do
           send(test_pid, {:notification, :tt, body!(conn)})
           Req.Test.json(conn, %{"err_no" => 0, "err_msg" => "", "log_id" => "test"})
 
-        {"GET", "miniapp.xiaohongshu.com", "/api/rmp/token"} ->
-          Req.Test.json(conn, %{"code" => 0, "data" => %{"access_token" => "xhs-token"}})
+        # 官方《获取应用调用凭证》（doc/DC010382）：POST + JSON 体，data.expire_in（秒）
+        {"POST", "miniapp.xiaohongshu.com", "/api/rmp/token"} ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "success" => true,
+            "msg" => "success",
+            "data" => %{"access_token" => "xhs-token", "expire_in" => 7200}
+          })
 
         {"POST", "miniapp.xiaohongshu.com", "/api/rmp/subscribe/send"} ->
           send(test_pid, {:notification, :xhs, body!(conn)})

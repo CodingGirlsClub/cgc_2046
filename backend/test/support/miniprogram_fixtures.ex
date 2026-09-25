@@ -13,6 +13,7 @@ defmodule Cgc2046.MiniprogramFixtures do
 
   import ExUnit.Assertions
 
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.MiniprogramFixtures.Barrier
 
   @stub_name Cgc2046.MiniprogramClientStub
@@ -21,14 +22,24 @@ defmodule Cgc2046.MiniprogramFixtures do
 
   # ── session_key / 加密负载 ─────────────────────────────────────────────
 
-  @doc "生成平台风格的 session_key（Base64 编码的 16 字节随机数）。"
+  @doc "生成微信/抖音风格的 session_key（Base64 编码的 16 字节随机数）。"
   def new_session_key, do: Base.encode64(:crypto.strong_rand_bytes(16))
+
+  @doc """
+  生成小红书风格的 session_key（Base64 编码的 24 字节随机数）。
+
+  官方《开放数据校验与解密》（miniapp.xiaohongshu.com/doc/DC591932，2026-09-25 快照）：
+  AESKey = Base64_Decode(session_key)，**AESKey 是 24 字节**——页面算法字段又写
+  AES-128-CBC，自相矛盾；以官方 Java 示例为准（按密钥实际长度解密）。
+  """
+  def new_xhs_session_key, do: Base.encode64(:crypto.strong_rand_bytes(24))
 
   @doc """
   按平台规范加密手机号负载，返回 `{encrypted_data, iv}`（均 Base64）。
 
-  与微信/抖音/小红书 getPhoneNumber 加密数据格式一致：
-  AES-128-CBC，密钥为 Base64 解码的 session_key，PKCS7 填充。
+  cipher 由 session_key 解码后的实际长度派生（16/24/32 → AES-128/192/256-CBC），
+  与客户端真实解密路径同口径——微信/抖音 fixture 用 16 字节密钥（AES-128），
+  小红书 fixture 用 24 字节（AES-192，见 new_xhs_session_key/0）。
   """
   def encrypt_phone(session_key_b64, payload) when is_map(payload) do
     key = Base.decode64!(session_key_b64)
@@ -36,12 +47,21 @@ defmodule Cgc2046.MiniprogramFixtures do
 
     # 显式 padding 选项（boolean 形式对非块对齐输入会静默截断）
     encrypted =
-      :crypto.crypto_one_time(:aes_128_cbc, key, iv, Jason.encode!(payload),
+      :crypto.crypto_one_time(cipher_for_key!(key), key, iv, Jason.encode!(payload),
         encrypt: true,
         padding: :pkcs_padding
       )
 
     {Base.encode64(encrypted), Base.encode64(iv)}
+  end
+
+  defp cipher_for_key!(key) do
+    case byte_size(key) do
+      16 -> :aes_128_cbc
+      24 -> :aes_192_cbc
+      32 -> :aes_256_cbc
+      other -> raise "unsupported session_key size: #{other} bytes"
+    end
   end
 
   @doc """
@@ -93,13 +113,17 @@ defmodule Cgc2046.MiniprogramFixtures do
     }
   end
 
-  @doc "xhs /api/rmp/token 响应体（两步流程第一步；access_token 值固定便于跨调用断言）。"
+  @doc """
+  xhs /api/rmp/token 响应体（两步流程第一步；access_token 值固定便于跨调用断言）。
+
+  官方《获取应用调用凭证》（doc/DC010382，已核对原文）：字段名 `expire_in`（秒，7200）。
+  """
   def xhs_token_body do
     %{
       "code" => 0,
       "success" => true,
       "msg" => "success",
-      "data" => %{"access_token" => xhs_access_token(), "expires_in" => 10_800}
+      "data" => %{"access_token" => xhs_access_token(), "expire_in" => 7200}
     }
   end
 
@@ -122,8 +146,13 @@ defmodule Cgc2046.MiniprogramFixtures do
   可只给部分平台（未覆盖的平台请求会 KeyError 失败——测试应只触发已 stub 的平台）。
 
   每个命中请求都会断言：host/path 正确且参数携带 config 注入的 appid/secret/code。
+
+  注册 stub 时清空 xhs token 缓存——缓存是全局 :persistent_term，不清会跨用例
+  串扰（上一用例的 token 被命中，token 步不再发请求，断言/计数失真）。
   """
   def stub_code2session(responses) when is_map(responses) do
+    Client.invalidate_xhs_token_cache()
+
     Req.Test.stub(@stub_name, fn conn ->
       conn = Plug.Conn.fetch_query_params(conn)
       platform = detect_platform!(conn)
@@ -181,13 +210,22 @@ defmodule Cgc2046.MiniprogramFixtures do
     conn
   end
 
-  # xhs 两步流程：token 调用验 config 注入的 app_id/app_secret；
-  # session 调用验 app_id/code 且 access_token 必须是 token 步签发的那个（跨调用接线证明）。
+  # xhs 两步流程第一步：token 调用按官方《获取应用调用凭证》（doc/DC010382）
+  # 形状断言——POST 加 JSON 体 {appid, secret}（config 注入）；session 调用验
+  # app_id/code 且 access_token 必须是 token 步签发的那个（跨调用接线证明）。
   defp assert_session_request!(:xhs_token, conn) do
     config = platform_config!(:xhs)
-    assert conn.query_params["app_id"] == config.appid
-    assert conn.query_params["app_secret"] == config.secret
-    assert conn.query_params["grant_type"] == "client_credential"
+
+    assert conn.method == "POST",
+           "xhs token 调用应为 POST（官方 DC010382），实际 #{conn.method}"
+
+    {:ok, raw, conn} = Plug.Conn.read_body(conn)
+    params = Jason.decode!(raw)
+
+    assert params["appid"] == config.appid,
+           "xhs appid 应来自 runtime config，实际 #{inspect(params["appid"])}"
+
+    assert params["secret"] == config.secret
     conn
   end
 
