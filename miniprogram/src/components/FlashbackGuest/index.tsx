@@ -131,7 +131,7 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
         <View className={styles.gatheringRow}><Text>发现下一场，一起做点什么</Text><Text>→</Text></View>
       </Button>
     </View>
-    <AppTabBar selected='flashback' tone='ink' />
+    <AppTabBar selected='flashback' />
     {recoverOpen && (
       <FlashbackRecoverSheet onClose={() => setRecoverOpen(false)} onRecovered={() => { setRecoverOpen(false); onRetry() }} />
     )}
