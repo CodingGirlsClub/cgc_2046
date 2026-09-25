@@ -173,3 +173,26 @@
 - phrase 类型（≤5 汉字枚举）不可承载长文案（`审核结果提醒` 的 phrase1 教训）；
 - date 与 time 类型格式不同（`event_schedule_changed` date3 vs `报名成功通知`
   time47）——本文档 §2 已建议不选时间槽位规避。
+
+## 回响队列升级：固定发布事件与通知落点
+
+3C 的新任务在 `data` 中增加必填 `echo_id`，与 `wish_id`、`endorsement_id`、
+收件用户一起校验。发送前只读取这个回响的当前正文；更正更新摘要，撤回跳过，
+不会改发同愿望的其他回响。附议取消、愿望下架或删除也跳过且不消耗平台授权。
+通知落点改为 `pages/flashback-wishes/index?wishId=<愿望ID>`。
+
+**生产切换需人工确认，不能直接滚动升级：**
+
+1. 先确认包含独立许愿树页面的小程序版本已上线。
+2. 暂停运营发布新回响，让旧版本 worker 排空本场景的待执行任务。
+3. 只读确认 `oban_jobs` 中 `template_key = flashback_wish_echo`，且
+   `args.data` 缺少 `echo_id` 的 `suspended / available / scheduled / executing / retryable`
+   任务计数为零。失败任务由维护者检查，不自动删除或重发。
+4. 再发布后端并恢复运营发布。若第 3 步未达成，停在旧版本，不能上线此修改。
+
+缺少身份的新 worker 任务会以 `echo_identity_missing` 明确 discard，不发送、
+不扣配额；这是异常告警，不能用来替代切换前的排空检查。回滚到旧后端前同样
+暂停发布并排空新任务，避免旧 worker 绕过发送前有效性检查。
+
+补订阅只记录新的平台授权，**不补发已经发布的回响**，也不重置既定的
+`echo_notification_used_at`。每个附议的通知机会仍在成功入队时消耗。
