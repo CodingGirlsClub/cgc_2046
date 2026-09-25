@@ -19,7 +19,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
-（暂无）
+### Changed
+
+- AGENTS.md 体系重构（agent 工档，无用户可见变更）：根文件去除与全局 `~/.agents/AGENTS.md` 重复的通用原则并按语义分节；`omp-plugin/`、`openclacky-ext/` 新增子目录 AGENTS.md（源与分发纪律、版本纪律、安全红线）。
 
 ## [2026-09-25]（第三发）
 
