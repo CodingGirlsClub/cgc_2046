@@ -2898,6 +2898,7 @@
     "event": {
       "loading": "正在显影这一场……",
       "back": "‹ 时间长廊",
+      "backHome": "‹ 闪念间",
       "applied": "报名 {count} 位",
       "attended": "走进教室 {count} 位",
       "returned": "{count} 位已回来",

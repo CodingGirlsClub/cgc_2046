@@ -877,9 +877,8 @@
 }
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
-.fb-roster-facts { font-size: 10px; opacity: 0.65; }
-/* 圆梦线小徽标「当年报了名」：雾卡（暗底亮字）与点亮卡（纸底墨字）两态
-   通用——currentColor 继承各自文本色 + 低透明 + 发丝描边（低调不抢戏） */
+/* 圆梦线小徽标「当年报了名」：只在点亮卡（纸底墨字）上——#933 起雾卡不显示
+   参与类型；currentColor 继承文本色 + 低透明 + 发丝描边（低调不抢戏） */
 .fb-roster-badge {
 	display: inline-block;
 	align-self: flex-start;

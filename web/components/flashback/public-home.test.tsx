@@ -144,6 +144,15 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(creditedLink).toHaveAttribute("href", "/flashback/li-yinuo");
 	});
 
+	it("#933 那些年的相册：每一场都能点进场次页（登录判断只在场次页一处）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+		render(<PublicHome />);
+
+		const album = await screen.findByRole("link", { name: /2014\.01\.11 · Rails Girls 北京/ });
+		expect(album).toHaveAttribute("href", "/flashback/event/2014-01-11-bj");
+	});
+
 	it("全雾化金句显示本地化遮蔽说明；部分雾化金句保持原样", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
 		quotesQuery.mockResolvedValue({

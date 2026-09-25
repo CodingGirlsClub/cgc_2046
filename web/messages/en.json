@@ -2898,6 +2898,7 @@
     "event": {
       "loading": "Developing this gathering…",
       "back": "‹ Time capsule",
+      "backHome": "‹ In a Flash",
       "applied": "{count} applied",
       "attended": "{count} walked in",
       "returned": "{count} came back",

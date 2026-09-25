@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
-import type { FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
+import type { FlashbackArchivePile, FlashbackCapsule, FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import Corridor, { cityPiles } from "./corridor";
 
 /**
  * 长廊收口（定稿 D + 收尾）：一帧只留城市照片堆（堆可点）；叙事标签 flabel。
- * 堆 = 名册聚合的 {city,count}（city 空值不计；count 降序 → 城市码位序；最多 8 堆）；
+ * 堆 = 服务端聚合的 piles（#933：未寄出者的城市不再下发，名册里数不出来；
+ * 空白城市不成堆；count 降序 → 城市码位序；最多 8 堆）；
  * 显影照原型 --d 手法：加载即播、全局时间线（摞间 +0.3s、摞内 +0.2s），forwards 停雾态。
  */
 
@@ -29,54 +30,45 @@ vi.mock("@/i18n/navigation", () => ({
 	useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
-const entry = (id: string, city: string | null): FlashbackCapsuleArchive["roster"][number] => ({
-	id,
-	surnameMasked: "姓**",
-	participation: "attended",
-	city,
-	occupationThen: null,
-	sentToWallAt: null,
-	today: null,
-	answers: [],
-});
+const pile = (city: string, count: number, returned = 0): FlashbackArchivePile => ({ city, count, returned });
 
 const archive = (
 	key: string,
-	roster: FlashbackCapsuleArchive["roster"],
+	piles: FlashbackArchivePile[],
 	label?: string | null,
+	roster: FlashbackCapsuleArchive["roster"] = [],
 ): FlashbackCapsuleArchive => ({
 	key,
 	name: `场次 ${key}`,
 	city: "北京",
 	occurredOn: "2014-01-11",
 	appliedCount: 344,
-	attendedCount: roster.length,
+	attendedCount: null,
 	label: label ?? null,
 	isMine: false,
+	piles,
 	roster,
 });
 
-/** 帧一：9 城（第 9 城「西安」按码位序被 8 堆上限截断）+ 3 条空城市名不计，带叙事标签；帧二：单城无 label（回落场次名） */
+/** 帧一：9 城乱序（第 9 城「西安」按码位序被 8 堆上限截断）+ 空白城市不成堆，带叙事标签；帧二：单城无 label（回落场次名） */
 const multiCity = archive(
 	"2014-01-11-bj",
 	[
-	entry("1", "北京"),
-	entry("2", "北京"),
-	entry("3", "北京"),
-	entry("4", "上海"),
-	entry("5", "上海"),
-	entry("6", "广州"),
-	entry("7", "杭州"),
-	entry("8", "深圳"),
-	entry("9", "南京"),
-	entry("9a", "武汉"),
-	entry("9b", "西安"),
-	entry("9c", "成都"),
-	entry("10", null),
-	entry("11", ""),
-	entry("12", "   "),
-], "六城同日");
-const singleCity = archive("2016-05-21-sh", [entry("12", "上海")]);
+		pile("广州", 1),
+		pile("北京", 3),
+		pile("西安", 1),
+		pile("上海", 2),
+		pile("杭州", 1),
+		pile("深圳", 1),
+		pile("南京", 1),
+		pile("武汉", 1),
+		pile("成都", 1),
+		pile("", 4),
+		pile("   ", 2),
+	],
+	"六城同日",
+);
+const singleCity = archive("2016-05-21-sh", [pile("上海", 1)]);
 
 const capsule: FlashbackCapsule = {
 	me: {
@@ -119,8 +111,13 @@ describe("cityPiles（城市堆聚合判据）", () => {
 		expect(cityPiles(multiCity)).toEqual(cityPiles(multiCity));
 	});
 
-	it("无名册 → 无堆", () => {
+	it("无堆 → 无堆", () => {
 		expect(cityPiles(archive("empty", []))).toEqual([]);
+	});
+
+	it("#933：名册里未寄出者不带城市，堆仍按服务端聚合计数（不从名册数）", () => {
+		const unsent = { id: "u1", surnameMasked: "王**", city: null, occupationThen: null, sentToWallAt: null, today: null, answers: [] };
+		expect(cityPiles(archive("k", [pile("北京", 2, 1)], null, [unsent]))).toEqual([{ city: "北京", count: 2 }]);
 	});
 });
 
