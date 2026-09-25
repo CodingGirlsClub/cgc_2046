@@ -1,0 +1,81 @@
+/* 回响卡(#837)——纸白卡片延续长廊 wishCard 语言;
+   已更正徽标琥珀色,与回响头「回响」标签同色系。data-testid=wish-echo-card */
+.echoCard {
+  margin-top: 20rpx;
+  padding: 20rpx 24rpx;
+  background: #fdf6e3; /* 比 wishCard 的 #fffdf7 略暖一档,作为「回信」区分 */
+  border: 1rpx solid rgba(203, 191, 143, 0.4);
+  border-radius: 14rpx;
+}
+.echoHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14rpx;
+  padding-bottom: 10rpx;
+  border-bottom: 1rpx dashed rgba(203, 191, 143, 0.4);
+}
+.echoHeaderLabel {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #6b5a2c;
+  letter-spacing: 2rpx;
+}
+.echoHeaderCount {
+  font-size: 20rpx;
+  color: #8a8f98;
+}
+.echoRow {
+  padding: 10rpx 0;
+}
+.echoRow + .echoRow {
+  border-top: 1rpx dashed rgba(203, 191, 143, 0.3);
+  padding-top: 16rpx;
+  margin-top: 6rpx;
+}
+.echoMeta {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+.orgBadge {
+  display: inline-block;
+  padding: 2rpx 10rpx;
+  font-size: 20rpx;
+  color: #6b5a2c;
+  background: rgba(203, 191, 143, 0.28);
+  border-radius: 6rpx;
+  letter-spacing: 1rpx;
+}
+.metaDate {
+  font-size: 20rpx;
+  color: #8a8f98;
+}
+.correctedBadge {
+  display: inline-block;
+  padding: 2rpx 10rpx;
+  font-size: 20rpx;
+  color: #ea5504;
+  background: rgba(234, 85, 4, 0.12);
+  border-radius: 6rpx;
+}
+.echoBody {
+  display: block;
+  font-size: 26rpx;
+  line-height: 1.7;
+  color: #222326;
+  white-space: pre-line;
+  word-break: break-word;
+}
+.toggleRow {
+  margin-top: 12rpx;
+  padding: 6rpx 0;
+  align-items: center;
+  justify-content: center;
+}
+.toggleText {
+  font-size: 22rpx;
+  color: #ea5504;
+  text-align: center;
+}

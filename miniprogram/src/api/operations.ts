@@ -613,6 +613,21 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           commenterMasked
           insertedAt
         }
+        latestEcho {
+          id
+          content
+          status
+          publishedAt
+          correctedAt
+        }
+        echoCount
+        echoes {
+          id
+          content
+          status
+          publishedAt
+          correctedAt
+        }
         insertedAt
       }
       myPrivateWishes {
@@ -894,6 +909,21 @@ export const FlashbackPublicWishesQueryDocument = /* GraphQL */ `
       contributionDistribution
       expectedByViewer
       endorsedByViewer
+      latestEcho {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
+      echoCount
+      echoes {
+        id
+        content
+        status
+        publishedAt
+        correctedAt
+      }
       listedAt
       insertedAt
     }
