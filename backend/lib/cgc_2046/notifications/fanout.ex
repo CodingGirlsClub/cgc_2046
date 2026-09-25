@@ -55,7 +55,7 @@ defmodule Cgc2046.Notifications.Fanout do
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
-  alias Cgc2046.Notifications.NotificationWorker
+  alias Cgc2046.Notifications.{Delivery, NotificationWorker}
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
 
@@ -161,9 +161,10 @@ defmodule Cgc2046.Notifications.Fanout do
       end)
 
     # #406 B-1 修复：零身份不再静默丢弃（生产实证 enrollment.approved 因
-    # identities=[] 永久丢失且无人知）。不入队的行为不变，但打 warning 并以
-    # telemetry status :skipped 显式暴露，供告警侧消费。
-    if total == 0 do
+    # identities=[] 永久丢失且无人知）。未迁键保持「warning + telemetry :skipped
+    # + 不入队」；已迁耐久路径的键不再早退——零身份逐 user 落哨兵行（#847
+    # Q5，观测由行承担，比 telemetry 更强）。
+    if total == 0 and not durable?(template_key) do
       Logger.warning(
         "notification deliver skipped: no identities " <>
           "(template_key=#{template_key}, user_ids=#{inspect(Map.keys(recipients))}, " <>
@@ -228,6 +229,55 @@ defmodule Cgc2046.Notifications.Fanout do
   defp manage_roles({:roles, roles}), do: roles
 
   defp enqueue_notifications(recipients, template_key, data, job_meta, unique) do
+    if durable?(template_key) do
+      durable_enqueue(recipients, template_key, data, job_meta)
+    else
+      oban_enqueue(recipients, template_key, data, job_meta, unique)
+    end
+  end
+
+  # ── 耐久投递迁移（#847 PR-B，分批推进的过渡态） ----------------------------
+  # 已迁键：解析身份后委托 Delivery.enqueue；未迁键仍走 NotificationWorker
+  # 直插（收尾批次删除直插路径）。事件键派生公式与 issue #847 映射表逐条对应；
+  # P2：最终幂等键 = template_key 前缀 + 事件键（Delivery 侧再叠加 user×身份）。
+
+  @durable_keys MapSet.new([
+                  # 批 1（报名/审批类）
+                  "approval_result",
+                  "enrollment_submitted",
+                  "enrollment_completed",
+                  "enrollment_check_in_code"
+                ])
+
+  defp durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
+
+  defp durable_enqueue(recipients, template_key, data, job_meta) do
+    event_key = event_key(template_key, data, job_meta)
+    meta = Map.put(job_meta, "idempotency_key", template_key <> ":" <> event_key)
+
+    Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
+      :ok = Delivery.enqueue({user_id, identities}, template_key, data, meta)
+      {:cont, {:ok, count + length(identities)}}
+    end)
+  end
+
+  # 事件键派生（映射表逐条对应）。:from_meta 类 = 生产方信号幂等键直用
+  # （emitter 规范 "<type>:<record_id>" 或支付侧 "<template>:<order_id>"）。
+  defp event_key("approval_result", data, _job_meta),
+    do: "approval.result:#{data["enrollment_id"]}:#{data["status"]}"
+
+  defp event_key("enrollment_submitted", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("enrollment_completed", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  defp event_key("enrollment_check_in_code", _data, job_meta),
+    do: Map.fetch!(job_meta, "idempotency_key")
+
+  # 未迁键的既有直插路径（收尾批次整体删除）：逐身份插 NotificationWorker
+  # job，去重靠 Oban unique 时间窗。
+  defp oban_enqueue(recipients, template_key, data, job_meta, unique) do
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
       Enum.reduce_while(identities, {:ok, count}, fn identity, {:ok, identity_count} ->
         case insert_notification(identity, user_id, template_key, data, job_meta, unique) do
