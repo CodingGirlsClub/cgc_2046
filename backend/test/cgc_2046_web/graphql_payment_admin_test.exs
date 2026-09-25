@@ -868,9 +868,10 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
 
   defp refund_failed_enrollment(workspace, creator, suffix) do
     learner = paid_enrollment(workspace, creator, suffix)
+    order = order_of(learner)
 
     {:ok, refunding} =
-      order_of(learner)
+      order
       |> Ash.Changeset.for_update(:start_refund, %{})
       |> Ash.update(tenant: workspace.id, authorize?: false)
 
@@ -878,6 +879,10 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
       refunding
       |> Ash.Changeset.for_update(:mark_refund_failed, %{})
       |> Ash.update(tenant: workspace.id, authorize?: false)
+
+    # #845 D1：start_refund 自带 after_action 入队；本布置只关心 refund_failed
+    # 状态本身，按单清掉布置产生的 job，把「无 job」断言留给被测 mutation
+    Cgc2046.Repo.query!("DELETE FROM oban_jobs WHERE args->>'order_id' = $1", [order.id])
 
     learner
   end
