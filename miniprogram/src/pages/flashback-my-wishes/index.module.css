@@ -1,0 +1,15 @@
+.page { min-height: 100vh; box-sizing: border-box; padding: 40rpx 36rpx 72rpx; background: #faf8f0; color: #173c32; }
+.eyebrow { display: block; color: #77856b; font-size: 24rpx; letter-spacing: 3rpx; }
+.title { display: block; margin: 18rpx 0 24rpx; font-size: 46rpx; font-family: serif; }
+.quota { display: block; font-size: 25rpx; color: #718067; margin-bottom: 28rpx; }
+.state { display: block; padding: 42rpx 0; color: #75836b; line-height: 1.8; font-size: 28rpx; }
+.wishCard { padding: 28rpx; margin: 20rpx 0; border: 1rpx solid #d6dbc9; border-radius: 12rpx; background: #fffdf7; }
+.created { border-color: #6f9275; }
+.status { display: block; font-size: 23rpx; color: #74836b; }
+.content { display: block; margin: 22rpx 0; font-family: serif; font-size: 34rpx; line-height: 1.7; overflow-wrap: anywhere; white-space: pre-wrap; }
+.meta { display: flex; justify-content: space-between; align-items: center; color: #75836b; font-size: 25rpx; }
+.deleteWish { margin: 0; background: transparent; color: #8b5d49; font-size: 25rpx; }
+.primary { margin-top: 32rpx; background: #204b3b; color: #fffdf7; border-radius: 10rpx; font-size: 30rpx; }
+.backLink, .retry { margin-top: 20rpx; background: transparent; color: #4b6851; font-size: 26rpx; }
+.error { color: #963e31; }
+.page button::after { border: 0; }

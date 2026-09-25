@@ -796,6 +796,7 @@ export const FlashbackAdjustTodayFogMutationDocument = /* GraphQL */ `
 export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
   mutation FlashbackCreateWish(
     $token: String
+    $requestId: ID
     $content: String!
     $visibility: String!
     $signatureChoice: String
@@ -804,6 +805,7 @@ export const FlashbackCreateWishMutationDocument = /* GraphQL */ `
   ) {
     flashbackCreateWish(
       token: $token
+      requestId: $requestId
       content: $content
       visibility: $visibility
       signatureChoice: $signatureChoice
@@ -1182,5 +1184,14 @@ export const FlashbackLikeVoiceMutationDocument = /* GraphQL */ `
 export const FlashbackVoiceCitiesQueryDocument = /* GraphQL */ `
   query FlashbackVoiceCities {
     flashbackVoiceCities { name fullName pinyin lngLat }
+  }
+`
+
+export const FlashbackMyWishesQueryDocument = /* GraphQL */ `
+  query FlashbackMyWishes {
+    flashbackMyWishes {
+      quotaRemaining
+      wishes { id content city signature visibility status insertedAt }
+    }
   }
 `

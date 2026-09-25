@@ -365,7 +365,7 @@ ck "公开愿望卡 2" "$(COUNT "$WISH_CARD")" '^2$'
 ck "首愿内容" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^一起出一本书:《她们的第一行代码》$'
 ck "首愿附议行（未附议态）" "$(RES automation_element_action --action text --selector "$WISH_ENDORSE")" '^👍 5$'
 ck "次愿已附议态" "$(RES automation_element_action --action text --selector "$WISH_ENDORSED")" '^👍 2 · 已附议$'
-ck "许愿入口" "$(RES automation_element_action --action text --selector "$WISH_ADD")" '^\+ 许个愿$'
+ck "许愿入口" "$(RES automation_element_action --action text --selector "$WISH_ADD")" '^写下我的愿望 ＋$'
 ck "私愿折叠行" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_LABEL")" '^🔒 私人许愿\(1 条\)$'
 ck "私愿折叠箭头" "$(RES automation_element_action --action text --selector "$PRIVATE_FOLD_ARROW")" '^展开 ▼$'
 ck "底部 CTA=把这一刻做成卡片" "$(RES automation_element_action --action text --selector "$CTA")" '^把这一刻做成卡片 →$'
@@ -558,9 +558,14 @@ ck "首愿附议数 +1 且本人已附议" "$(RES automation_element_action --ac
 
 TRIGGER tap '{}' "$WISH_ADD"
 sleep 0.8
-ck "许愿表单打开" "$(COUNT "$WISH_SHEET_MASK")" '^1$'
-RAW automation_element_action --action input --selector "$WISH_SHEET_INPUT" --value 'E2E 年度愿望' >/dev/null
-TAP "$WISH_SHEET_SUBMIT"
+WRITE='pages/flashback-wish-write'
+ck "许愿页打开" "$(RES automation_element_action --action text --selector "$(cls "$WRITE" title)")" '^写下我的愿望$'
+RAW automation_element_action --action input --selector "$(cls "$WRITE" contentInput)" --value 'E2E 年度愿望' >/dev/null
+RAW automation_element_action --action input --selector "$(cls "$WRITE" cityInput)" --value '北京' >/dev/null
+TAP "$(cls "$WRITE" submit)"
+sleep 1.5
+ck "许愿后进入我的愿望" "$(RES automation_element_action --action text --selector "$(cls 'pages/flashback-my-wishes' title)")" '^我的愿望$'
+RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
 sleep 1.5
 ck "许愿后公开卡由 2 增至 3" "$(COUNT "$WISH_CARD")" '^3$'
 ck "新愿挂树可读" "$(RES automation_element_action --action text --selector "$WISH_CONTENT")" '^E2E 年度愿望$'

@@ -1193,6 +1193,7 @@ export type FlashbackAdjustTodayFogMutation = { flashbackAdjustTodayFog: { field
 
 export type FlashbackCreateWishMutationVariables = Exact<{
   token?: string | null | undefined;
+  requestId?: string | number | null | undefined;
   content: string;
   visibility: string;
   signatureChoice?: string | null | undefined;
@@ -1376,3 +1377,8 @@ export type FlashbackVoiceCitiesQueryVariables = Exact<{ [key: string]: never; }
 
 
 export type FlashbackVoiceCitiesQuery = { flashbackVoiceCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };
+
+export type FlashbackMyWishesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackMyWishesQuery = { flashbackMyWishes: { quotaRemaining: number, wishes: Array<{ id: string, content: string, city: string | null, signature: string, visibility: string, status: string, insertedAt: string }> } | null };
