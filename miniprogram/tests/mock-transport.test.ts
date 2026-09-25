@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
+import { __setFlashbackUnclaimed, __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
 import {
   CatalogQueryDocument,
   CatalogSearchQueryDocument,
@@ -19,6 +19,10 @@ import {
   FlashbackEndorseWishMutationDocument,
   FlashbackPublicWishesQueryDocument,
   FlashbackSetCardSharingMutationDocument,
+  FlashbackSendToWallMutationDocument,
+  FlashbackRetractMutationDocument,
+  FlashbackDeletePreviewQueryDocument,
+  FlashbackDeleteMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
   FlashbackSubmitTodayMutationDocument,
@@ -729,4 +733,37 @@ test('#790 愿望写面经 capsule 读回，年度额度含软删且不退还', 
     FlashbackCreateWishMutationDocument, { content: '超额', visibility: 'private' }
   )
   assert.equal(overQuota.errors[0]?.code, 'flashback_wish_quota_exceeded')
+})
+
+// #931：mock 必须镜像后端身份门——「无 token 且未登录」报 auth_required、登录未绑定报
+// person_not_bound；否则寄出 / 撤下在 mock 上恒成功，e2e 绿着漏掉真后端的失败。
+test('mock #931：寄出 / 撤下 / 删除镜像后端身份门', () => {
+  type Errors = { errors?: Array<{ code?: string | null }> }
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  for (const doc of [FlashbackSendToWallMutationDocument, FlashbackRetractMutationDocument, FlashbackDeletePreviewQueryDocument]) {
+    assert.equal(mockGraphQLRequest<Errors>(doc, { token: null }).errors?.[0]?.code, 'flashback_auth_required')
+  }
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackSendToWallMutationDocument, { token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+  __setFlashbackUnclaimed(false)
+
+  const sent = mockGraphQLRequest<{ flashbackSendToWall: { sentToWallAt: string | null } }>(FlashbackSendToWallMutationDocument, { token: null })
+  assert.ok(sent.flashbackSendToWall.sentToWallAt)
+  const retracted = mockGraphQLRequest<{ flashbackRetract: { retracted: boolean; sentToWallAt: string | null } }>(FlashbackRetractMutationDocument, { token: null })
+  assert.equal(retracted.flashbackRetract.retracted, true)
+  assert.equal(retracted.flashbackRetract.sentToWallAt, null)
+
+  const preview = mockGraphQLRequest<{ flashbackDeletePreview: { fullName: string; sentToWallAt: string | null; endorsementCount: number } }>(FlashbackDeletePreviewQueryDocument, { token: null })
+  assert.equal(preview.flashbackDeletePreview.fullName, '王小明')
+  assert.equal(preview.flashbackDeletePreview.sentToWallAt, null)
+
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackDeleteMutationDocument, { token: null, confirm: 'delete' }).errors?.[0]?.code, 'flashback_delete_confirm_required')
+  const deleted = mockGraphQLRequest<{ flashbackDelete: { deleted: boolean } }>(FlashbackDeleteMutationDocument, { token: null, confirm: 'DELETE' })
+  assert.equal(deleted.flashbackDelete.deleted, true)
+  // 删除后按登录账号读胶囊 → 档案已不存在（与后端同形：person_not_bound）
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+  __setFlashbackUnclaimed(false)
+  mockGraphQLRequest(SignOutMutationDocument, {})
 })

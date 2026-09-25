@@ -83,7 +83,7 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member' || sendingCard) return
     setSendingCard(true)
     try {
-      await api.flashbackSendToWall(mode.token ?? "")
+      await api.flashbackSendToWall(mode.token ?? null)
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       await reloadMember()
       sentLanding()

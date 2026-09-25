@@ -766,7 +766,13 @@ export interface MiniProgramApi {
   /** 显影完成打点（四率之 revealed） */
   flashbackMarkRevealed(token: string): Promise<void>
   /** 寄出上墙（R11，幂等） */
-  flashbackSendToWall(token: string): Promise<void>
+  /** #931：token 为 null 时按登录账号绑定档案 */
+  flashbackSendToWall(token: string | null): Promise<void>
+  /** #931 撤下（双入口） */
+  flashbackRetract(token: string | null): Promise<void>
+  /** #931 删除档案：先取摘要，再以 DELETE 确认 */
+  flashbackDeletePreview(token: string | null): Promise<import('./flashback-retract').FlashbackDeletePreview>
+  flashbackDelete(token: string | null, confirm: string): Promise<void>
   /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
   flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */

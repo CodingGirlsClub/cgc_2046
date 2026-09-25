@@ -414,6 +414,23 @@ export function __setFlashbackUnclaimed(value: boolean): void {
   flashbackUnclaimed = value
 }
 
+/**
+ * #931：镜像后端 `flashback_identity`——token 在场按 token 校验（已认领 → token_claimed）；
+ * 无 token 走登录账号：未登录 → auth_required，登录未绑定 → person_not_bound。
+ * 缺这道门时寄出 / 撤下在 mock 上恒成功，e2e 绿着漏掉真后端的失败（#931 的来由）。
+ */
+function flashbackIdentityGate(values: Record<string, unknown>): { errors: Array<{ message: string; code: string }> } | null {
+  const token = typeof values.token === 'string' && values.token ? values.token : null
+  if (token) {
+    return flashbackClaimedTokens.has(token) ? { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] } : null
+  }
+  if (!loggedIn) return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+  if (flashbackUnclaimed || e2eFlag(FLASHBACK_UNCLAIMED_KEY)) {
+    return { errors: [{ message: 'person not bound', code: 'flashback_person_not_bound' }] }
+  }
+  return null
+}
+
 // 首程档案（2014-01-11 六城同日 · 北京）：与既有 capsule 的「我」同一个人——
 // 旅程（token 面）与回访（会话面）在 e2e 里可交叉断言同一档案。
 const FLASHBACK_E2E_ARCHIVE = {
@@ -1348,7 +1365,46 @@ function responseFor(document: string, variables: object): unknown {
     return { flashbackMarkRevealed: { recorded: true } }
   }
 
+  if (document.includes('mutation FlashbackRetract')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    updateFlashbackState((state) => ({ ...state, today: { ...state.today, sentToWallAt: null } }))
+    return { flashbackRetract: { retracted: true, sentToWallAt: null } }
+  }
+  if (document.includes('query FlashbackDeletePreview')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    const state = flashbackState()
+    return {
+      flashbackDeletePreview: {
+        personId: 'fb-person-1',
+        fullName: '王小明',
+        sentToWallAt: state.today.sentToWallAt ?? null,
+        endorsementCount: 1,
+        alreadyDeleted: false
+      }
+    }
+  }
+  // 注意 `(`：'mutation FlashbackDelete' 会误吞 FlashbackDeleteWish
+  if (document.includes('mutation FlashbackDelete(')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    if (values.confirm !== 'DELETE') {
+      return { errors: [{ message: 'confirmation word is required to delete (type DELETE)', code: 'flashback_delete_confirm_required' }] }
+    }
+    // 删除后该账号再无档案：会话腿读胶囊报 not_bound、认领不命中（与后端同形）
+    flashbackUnclaimed = true
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '1')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '1')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return { flashbackDelete: { deleted: true, deletedAt: new Date().toISOString() } }
+  }
   if (document.includes('mutation FlashbackSendToWall')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
     // 幂等（R11）：已有寄出时间原样返回，不覆盖
     const next = updateFlashbackState((state) => ({
       ...state,

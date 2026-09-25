@@ -61,6 +61,12 @@ import type {
   FlashbackPublicStatsQueryVariables,
   FlashbackSendToWallMutation,
   FlashbackSendToWallMutationVariables,
+  FlashbackRetractMutation,
+  FlashbackRetractMutationVariables,
+  FlashbackDeletePreviewQuery,
+  FlashbackDeletePreviewQueryVariables,
+  FlashbackDeleteMutation,
+  FlashbackDeleteMutationVariables,
   FlashbackSetCardSharingMutation,
   FlashbackSetCardSharingMutationVariables,
   FlashbackSetQuoteLicenseMutation,
@@ -103,6 +109,7 @@ import type {
 import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
+import { DELETE_COPY, RETRACT_COPY, type FlashbackDeletePreview } from '@/domain/flashback-retract'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -137,6 +144,9 @@ import {
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
   FlashbackSendToWallMutationDocument,
+  FlashbackRetractMutationDocument,
+  FlashbackDeletePreviewQueryDocument,
+  FlashbackDeleteMutationDocument,
   FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
@@ -1231,15 +1241,51 @@ export class RealMiniProgramApi implements MiniProgramApi {
     )
   }
 
-  async flashbackSendToWall(token: string): Promise<void> {
+  // #931：token 省略（null）时后端按登录账号绑定档案——绝不传空串（空串会被当作 token 校验而失败）
+  async flashbackSendToWall(token: string | null): Promise<void> {
     const data = await graphqlRequest<FlashbackSendToWallMutation, FlashbackSendToWallMutationVariables>(
       FlashbackSendToWallMutationDocument,
-      { token }
+      { token: token || null }
     ).catch((error: unknown) => {
       throwIfFlashbackTokenInvalid(error)
       throw error
     })
     if (!data.flashbackSendToWall?.sentToWallAt) throw new Error('寄出失败，请重试')
+  }
+
+  async flashbackRetract(token: string | null): Promise<void> {
+    const data = await graphqlRequest<FlashbackRetractMutation, FlashbackRetractMutationVariables>(
+      FlashbackRetractMutationDocument,
+      { token: token || null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackRetract?.retracted) throw new Error(RETRACT_COPY.error)
+  }
+
+  async flashbackDeletePreview(token: string | null): Promise<FlashbackDeletePreview> {
+    const data = await graphqlRequest<FlashbackDeletePreviewQuery, FlashbackDeletePreviewQueryVariables>(
+      FlashbackDeletePreviewQueryDocument,
+      { token: token || null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const row = data.flashbackDeletePreview
+    if (!row) throw new Error(DELETE_COPY.error)
+    return { fullName: row.fullName, sentToWallAt: row.sentToWallAt ?? null, endorsementCount: row.endorsementCount }
+  }
+
+  async flashbackDelete(token: string | null, confirm: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackDeleteMutation, FlashbackDeleteMutationVariables>(
+      FlashbackDeleteMutationDocument,
+      { token: token || null, confirm }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackDelete?.deleted) throw new Error(DELETE_COPY.error)
   }
 
   async flashbackClaim(token?: string | null): Promise<FlashbackClaimResult> {
