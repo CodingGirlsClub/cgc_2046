@@ -5,10 +5,14 @@ import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import type { EnrollmentSummary } from '@/domain/models'
 import { enrollmentResultCopy } from '@/domain/payment'
-import { enrollmentResultTouchpoint, requestAndGrant } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
+import { enrollmentResultTouchpoint, requestAndGrant, subscriptionTouchpointsVisible } from '@/domain/subscription'
+import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
 import { STORAGE_KEYS } from '@/state/storage'
 import styles from './index.module.css'
+
+// 小红书平台无订阅消息能力：订阅触点一律不渲染
+// （单源判据见 domain/subscription.ts subscriptionTouchpointsVisible）
+const subscriptionVisible = subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())
 
 // #355 P1-4：结果页承担结果查询职责，不再只是提交瞬时回执。数据源优先级：
 // 路由 ?id=（register-form 提交后必带）→ 服务端回查（换设备/清缓存仍可得）；
@@ -47,10 +51,10 @@ export default function EnrollmentResultPage() {
 
   const pending = enrollment.status === 'pending'
   const paymentPending = enrollment.status === 'payment_pending'
-  const copy = enrollmentResultCopy(enrollment.status, process.env.TARO_ENV === 'weapp')
+  const copy = enrollmentResultCopy(enrollment.status, currentPlatform())
   // M1：刚提交完报名，用户最想知道「我进了吗 / 开得成吗 / 会不会取消」——
   // 三问恰好用满微信单次 tmplIds 上限 3（判据与文案见 domain/subscription.ts）。
-  const touchpoint = enrollmentResultTouchpoint(enrollment.status)
+  const touchpoint = subscriptionVisible ? enrollmentResultTouchpoint(enrollment.status) : null
 
   const subscribe = async () => {
     if (!touchpoint) return

@@ -13,11 +13,16 @@ import {
   enrollmentCardTouchpoint,
   refundCardTouchpoint,
   requestAndGrant,
+  subscriptionTouchpointsVisible,
   type SubscriptionFeedback
 } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
+import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
 import { cancelConfirmCopy, cancelRefundRuleText, enrollmentPaymentText, paidEnrollmentIds } from '@/domain/payment'
 import styles from './index.module.css'
+
+// 小红书平台无订阅消息能力：订阅按钮与「订阅消息通知你」提示一律不渲染
+// （单源判据见 domain/subscription.ts subscriptionTouchpointsVisible）
+const subscriptionVisible = subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())
 
 // 本页两个订阅触点（M2/M3 卡 + M7 付费卡）共用的注入式 deps——
 // 反馈通道 = toast（accepted → success，其余 none），语义见 domain/subscription.ts。
@@ -192,8 +197,9 @@ export default function MyEnrollmentsPage() {
                 <Text className={styles.paymentHint} data-testid={`payment-hint-${item.id}`}>
                   {paymentText}
                 </Text>
-                {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端(tt/xhs)隐藏去支付
-                    按钮,引导网页端完成(零导流文案合规,渠道事实说明)。 */}
+                {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端隐藏去支付按钮。
+                    抖音端维持网页端引导(渠道事实说明)；小红书端零导流（P0 止血
+                    D1a：不出现去网页端的引导，缴费引导见 enrollmentResultCopy）。 */}
                 {process.env.TARO_ENV === 'weapp' ? (
                   <Button
                     className={styles.payButton}
@@ -203,7 +209,7 @@ export default function MyEnrollmentsPage() {
                   >
                     去支付
                   </Button>
-                ) : (
+                ) : process.env.TARO_ENV === 'xhs' ? null : (
                   <Text className={styles.paymentHint}>
                     请在网页端完成支付（本端暂不支持支付调起）。
                   </Text>
@@ -232,14 +238,12 @@ export default function MyEnrollmentsPage() {
                 {cancellingId === item.id ? '取消中…' : '取消报名'}
               </Button>
             )}
-            {item.status === 'confirmed' && (
-              <>
-                <Button className={styles.textButton} size='mini' onClick={() => void subscribeReminder(item)}>
-                  {enrollmentCardTouchpoint(item.kind).label}
-                </Button>
-              </>
+            {item.status === 'confirmed' && subscriptionVisible && (
+              <Button className={styles.textButton} size='mini' onClick={() => void subscribeReminder(item)}>
+                {enrollmentCardTouchpoint(item.kind).label}
+              </Button>
             )}
-            {paidIds.has(item.id) && (
+            {paidIds.has(item.id) && subscriptionVisible && (
               <Button className={styles.textButton} size='mini' onClick={() => void subscribeRefund()}>
                 {refundCardTouchpoint().label}
               </Button>
@@ -278,13 +282,17 @@ export default function MyEnrollmentsPage() {
           )
         })}
       </ScrollView>
-      {/* 裁剪端（tt/xhs）仍是 tabBar 页，保留底部 TabBar；微信端已降为
-          「我的」页内入口（见 profile），普通页不挂 TabBar */}
-      {process.env.TARO_ENV !== 'weapp' && (
+      {/* 抖音端：仍是 tabBar 页（发现/我的报名），保留底部 TabBar；
+          小红书端（D2a）：我的报名降级为普通页（入口收进「我的」），
+          只留真机事实提示，不挂 TabBar；微信端同上（普通页） */}
+      {process.env.TARO_ENV === 'tt' && (
         <>
           <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>
           <AppTabBar selected='enrollments' />
         </>
+      )}
+      {process.env.TARO_ENV === 'xhs' && (
+        <Text className={styles.platformTip}>审批结果会更新在本页，可以随时回来查看</Text>
       )}
     </View>
   )

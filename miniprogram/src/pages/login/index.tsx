@@ -3,17 +3,20 @@ import { Button, Image, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
-import { CUT_TAB_PATHS, FULL_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
+import { CUT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
 import { preparePlatformLogin } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
-// 裁剪端（抖音/小红书）不注册 privacy 页（政策原文含「微信」等词，
-// 过不了 CI check:diversion 词表）——协议文案在裁剪端保持纯文本
-const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+// 《隐私授权说明》可点开 = 本端注册了 privacy 页：微信全量端（原文）与小红书
+// （P0-5 起注册，正文为 D7 变体）；抖音端政策原文含「微信」等词过不了
+// check:diversion 词表，保持纯文本。
+const env = process.env.TARO_ENV
+const isCut = env === 'tt' || env === 'xhs'
+const privacyLinkable = env === 'weapp' || env === 'xhs'
 
 /** Tab 页清单（单源 domain/tab-routes）：回跳目标若是 Tab 页须 switchTab */
-const TAB_PATHS = isCut ? CUT_TAB_PATHS : FULL_TAB_PATHS
+const TAB_PATHS = env === 'xhs' ? XHS_TAB_PATHS : isCut ? CUT_TAB_PATHS : FULL_TAB_PATHS
 
 export default function LoginPage() {
   const router = useRouter()
@@ -36,9 +39,16 @@ export default function LoginPage() {
         if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
         else await Taro.redirectTo({ url: target })
       } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
-      // 裁剪端（抖音/小红书）未注册「我的」页，fallback 落回已注册的「我的报名」
+      // 登录成功后落「我的」Tab：抖音未注册「我的」页，落「我的报名」Tab；
+      // 小红书（D2a）落精简「我的」（pages/profile-lite）；微信落全量「我的」
       else {
-        await Taro.switchTab({ url: isCut ? '/pages/my-enrollments/index' : '/pages/profile/index' })
+        const home =
+          env === 'xhs'
+            ? '/pages/profile-lite/index'
+            : isCut
+              ? '/pages/my-enrollments/index'
+              : '/pages/profile/index'
+        await Taro.switchTab({ url: home })
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')
@@ -73,10 +83,10 @@ export default function LoginPage() {
             <Text className={styles.dialogTitle}>隐私授权说明</Text>
             <Text className={styles.dialogBody}>
               请阅读并同意
-              {isCut ? (
-                '《隐私授权说明》'
-              ) : (
+              {privacyLinkable ? (
                 <Text className={styles.agreementLink} onClick={() => Taro.navigateTo({ url: '/pages/privacy/index' })}>《隐私授权说明》</Text>
+              ) : (
+                '《隐私授权说明》'
               )}
               。同意后我们将通过手机号创建或绑定你的程序媛汇账号。
             </Text>

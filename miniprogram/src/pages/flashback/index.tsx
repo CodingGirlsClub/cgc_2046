@@ -93,7 +93,10 @@ export default function FlashbackPage() {
       <View className={styles.page}>
         <View className={styles.stateBlock}>
           <Text className={styles.stateText}>
-            你的账号还没有绑定闪念间档案。{'\n'}打开我们发给你的专属链接完成首程，或在网页端「闪念间」凭手机号找回。
+            {/* 小红书端零导流（P0 止血）：找回引导只留专属链接，不提网页端 */}
+            {process.env.TARO_ENV === 'xhs'
+              ? '你的账号还没有绑定闪念间档案。\n打开我们发给你的专属链接完成首程。'
+              : '你的账号还没有绑定闪念间档案。\n打开我们发给你的专属链接完成首程，或在网页端「闪念间」凭手机号找回。'}
           </Text>
         </View>
       </View>

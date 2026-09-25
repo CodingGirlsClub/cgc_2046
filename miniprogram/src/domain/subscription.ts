@@ -451,9 +451,13 @@ export type SubscriptionPlatform = 'wechat' | 'tt' | 'xhs'
 /**
  * 请求路径选择。
  *
- * - `passthrough`：**不经过微信 tmplIds**——E2E mock 构建（不触达微信 API）与
- *   小红书（服务通知由平台后台规则下发，无前端授权弹窗）都属此类，请求的
- *   场景全部视为已授权；
+ * - `unsupported`：**平台没有订阅消息能力**——小红书（无订阅消息/服务通知，
+ *   模板 0/27，假象中的「服务通知由平台后台下发」经核证不存在，详见
+ *   docs/plans/2026-09-25-2004 迁移规划 P0-2）。整条触点链必须切断：request
+ *   零 grant（`platform/index.ts`），页面零按钮（`subscriptionTouchpointsVisible`）。
+ *   mock 构建也不豁免——开发者工具的多端模拟不改变平台事实；
+ * - `passthrough`：**不经过微信 tmplIds**——仅 E2E mock 构建（不触达微信 API），
+ *   请求的场景全部视为已授权；
  * - `tmplIds`：微信/抖音真机路径，需按模板 ID 过滤后调起 `requestSubscribeMessage`。
  *
  * ⚠ 这条优先级必须**先于**「模板 ID 是否配置」的判断：mock 构建与 CI 都没有
@@ -464,8 +468,20 @@ export type SubscriptionPlatform = 'wechat' | 'tt' | 'xhs'
 export function subscriptionTransport(
   isE2eMock: boolean,
   platform: SubscriptionPlatform
-): 'passthrough' | 'tmplIds' {
-  return isE2eMock || platform === 'xhs' ? 'passthrough' : 'tmplIds'
+): 'passthrough' | 'tmplIds' | 'unsupported' {
+  if (platform === 'xhs') return 'unsupported'
+  return isE2eMock ? 'passthrough' : 'tmplIds'
+}
+
+/**
+ * 订阅触点（按钮/勾选/提示文案）是否渲染——页面门控唯一判据，与
+ * `subscriptionTransport` 单源共鸣（unsupported ⇒ 一律不渲染）。
+ */
+export function subscriptionTouchpointsVisible(
+  isE2eMock: boolean,
+  platform: SubscriptionPlatform
+): boolean {
+  return subscriptionTransport(isE2eMock, platform) !== 'unsupported'
 }
 
 /**

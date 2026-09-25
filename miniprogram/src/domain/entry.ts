@@ -8,8 +8,8 @@
  *
  * 冷启动与热启动共用：`useLaunch` 与 `Taro.onAppShow` 拿到的 options 同构。
  */
-import { resolveEntry, type AppEntryOptions, type EntryPage } from './share-route.ts'
-import { FULL_TAB_PATHS, isTabPath } from './tab-routes.ts'
+import { resolveEntry, type AppEntryOptions, type EntryPage, type RoutePlatform } from './share-route.ts'
+import { isTabPath, tabPathsForPlatform } from './tab-routes.ts'
 /** 本模块用到的最小 Taro 面（真实 Taro 是其超集，可结构传入） */
 export interface EntryTaro {
   getCurrentPages(): EntryPage[]
@@ -29,13 +29,16 @@ export interface EntryTaro {
 export function applyEntry(
   taro: EntryTaro,
   options: AppEntryOptions,
-  pendingSceneKey: string
+  pendingSceneKey: string,
+  platform: RoutePlatform = 'wechat'
 ): void {
-  const { scene, url, navigate } = resolveEntry(options, taro.getCurrentPages())
+  const { scene, url, navigate } = resolveEntry(options, taro.getCurrentPages(), platform)
   if (scene) taro.setStorageSync(pendingSceneKey, scene)
   if (!(url && navigate)) return
   const [path] = url.split('?')
-  if (isTabPath(path, FULL_TAB_PATHS)) {
+  // Tab 判定必须取本端 Tab 集合（裁剪端：发现/我的报名）——固定按微信 tabs
+  // 会把裁剪端 tab 页误判成普通页（switchTab 唯一合法入口，I6）
+  if (isTabPath(path, tabPathsForPlatform(platform))) {
     taro.switchTab({ url: path })
   } else {
     taro.navigateTo({ url })

@@ -52,10 +52,19 @@ export const FULL_TAIL_TABS: readonly TabDef[] = [
   { key: 'profile', text: '我的', icon: '○', path: '/pages/profile/index' }
 ]
 
-/** 裁剪端（抖音/小红书）：2 Tab 漏斗 */
+/** 抖音裁剪端：2 Tab 漏斗（发现 / 我的报名） */
 export const CUT_TABS: readonly TabDef[] = [
   { key: 'discover', text: '发现', icon: '⌕', path: '/pages/discover/index' },
   { key: 'enrollments', text: '我的报名', icon: '✓', path: '/pages/my-enrollments/index' }
+]
+
+/**
+ * 小红书端（P0-5，D2a）：发现 / 我的——「我的报名」收进「我的」页
+ * （pages/profile-lite），与微信端同构；我的报名页降级为普通页。
+ */
+export const XHS_TABS: readonly TabDef[] = [
+  { key: 'discover', text: '发现', icon: '⌕', path: '/pages/discover/index' },
+  { key: 'profile', text: '我的', icon: '○', path: '/pages/profile-lite/index' }
 ]
 
 /** 微信全量端清单（含条件段——app.config 必须声明全部可能出现的 Tab） */
@@ -69,8 +78,22 @@ export function toTabBarEntry(tab: TabDef): { pagePath: string; text: string } {
 /** 路由分流用：微信端 Tab 路径集合 */
 export const FULL_TAB_PATHS: readonly string[] = FULL_TABS.map((tab) => tab.path)
 
-/** 路由分流用：裁剪端 Tab 路径集合 */
+/** 路由分流用：抖音裁剪端 Tab 路径集合 */
 export const CUT_TAB_PATHS: readonly string[] = CUT_TABS.map((tab) => tab.path)
+
+/** 路由分流用：小红书端 Tab 路径集合（D2a：发现 / 我的） */
+export const XHS_TAB_PATHS: readonly string[] = XHS_TABS.map((tab) => tab.path)
+
+/**
+ * 按平台分派 Tab 集合（P0-4）。`(url)` 深链落 Tab 页时用 `switchTab`，
+ * 判定必须用**本端** Tab 集合——固定按微信 tabs 会把裁剪端 tab 页
+ * （发现/我的报名）误判成普通页 navigateTo（I6）。
+ * 返回引用不复制（只读消费）。
+ */
+export function tabPathsForPlatform(platform: 'wechat' | 'tt' | 'xhs'): readonly string[] {
+  if (platform === 'xhs') return XHS_TAB_PATHS
+  return platform === 'wechat' ? FULL_TAB_PATHS : CUT_TAB_PATHS
+}
 
 /** 规范化：去前导斜杠与 query（Taro 的 options.path 无前导斜杠，navigateTo 的 url 带） */
 function normalize(path: string): string {

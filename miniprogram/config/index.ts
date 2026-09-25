@@ -77,7 +77,16 @@ export default {
   },
   sourceRoot: 'src',
   alias: {
-    '@': resolve(__dirname, '..', 'src')
+    '@': resolve(__dirname, '..', 'src'),
+    // 隐私政策平台名枚举处（P0-5）：weapp/wechat 原文、xhs/D7 变体——构建期
+    // 只注入一份，xhs 产物物理不含「微信」字样，零导流扫描确定性通过。
+    // tt 不注册 privacy 页（本解析树不会进包），指向 wechat 无影响。
+    'privacy-content$': resolve(
+      __dirname,
+      '..',
+      'src',
+      process.env.TARO_ENV === 'xhs' ? 'domain/privacy-content-xhs' : 'domain/privacy-content-wechat'
+    )
   },
   // 按平台分目录输出，便于三端产物并存比对
   outputRoot: `dist/${process.env.TARO_ENV || 'weapp'}`,
