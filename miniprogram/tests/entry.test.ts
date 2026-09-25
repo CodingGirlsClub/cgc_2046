@@ -32,11 +32,10 @@ function fakeTaro(pages: EntryPage[] = []) {
 
 function entry(
   options: Parameters<typeof applyEntry>[1],
-  pages: EntryPage[] = [],
-  pendingWishKey = 'cgc.flashback_wish_target'
+  pages: EntryPage[] = []
 ) {
   const { taro, navigated, switched, stored } = fakeTaro(pages)
-  applyEntry(taro, options, PENDING_SCENE_KEY, pendingWishKey)
+  applyEntry(taro, options, PENDING_SCENE_KEY)
   return { navigated, switched, stored }
 }
 
@@ -109,30 +108,15 @@ test('热启动已在同一 event-detail（同 id）→ 不导航；换场次 �
   )
 })
 
-// ── wish2 U9（KTD7）：wishId 深链——长廊是 tabBar 页，navigateTo 会被微信
-// 拒绝；wishId 落 pendingWish、switchTab 进长廊（长廊 useDidShow 读后即清）。
-test('热启动别页带 wishId → switchTab 长廊 + 落盘 pendingWish（不 navigateTo）', () => {
+// Public wishes now have a standalone, non-tab landing page.
+test('热启动 wishId 直接进入许愿树，不依赖长廊的分页', () => {
   const result = entry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
-  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
-  assert.deepEqual(result.navigated, [])
-  assert.deepEqual(result.stored, [['cgc.flashback_wish_target', 'w-9']])
-})
-
-test('热启动已在长廊看同一条愿望（同 wishId）→ 不导航不落盘', () => {
-  const result = entry(
-    { query: { wishId: 'w-9' } },
-    [{ route: 'pages/flashback-corridor/index', options: { wishId: 'w-9' } }]
-  )
   assert.deepEqual(result.switched, [])
-  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.navigated, ['/pages/flashback-wishes/index?wishId=w-9'])
   assert.deepEqual(result.stored, [])
 })
-
-test('换一条 wishId（已在长廊）→ switchTab + 新 wishId 落盘', () => {
-  const result = entry(
-    { query: { wishId: 'w-10' } },
-    [{ route: 'pages/flashback-corridor/index', options: { wishId: 'w-9' } }]
-  )
-  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
-  assert.deepEqual(result.stored, [['cgc.flashback_wish_target', 'w-10']])
+test('同一愿望不重复导航；切换分享愿望正常定位', () => {
+  const page = [{ route: 'pages/flashback-wishes/index', options: { wishId: 'w-9' } }]
+  assert.deepEqual(entry({ query: { wishId: 'w-9' } }, page).navigated, [])
+  assert.deepEqual(entry({ query: { wishId: 'w-10' } }, page).navigated, ['/pages/flashback-wishes/index?wishId=w-10'])
 })

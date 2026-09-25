@@ -1,4 +1,5 @@
 export const STORAGE_KEYS = {
+  flashbackLastGuestQuote: 'cgc.flashback_last_guest_quote',
   lastEnrollment: 'cgc.last_enrollment',
   pendingScene: 'cgc.pending_scene',
   // 首程链接身份（KTD2）：深链读入后落 storage 会话持有，链接作废/失效即清——

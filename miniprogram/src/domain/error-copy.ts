@@ -20,6 +20,8 @@ export const COPY: Record<string, string> = {
   flashback_quote_not_found: '这句话已经不在墙上了，刷新看看别的。',
   flashback_quote_span_fogged: '选中的句子还带着雾面，先解雾再选。',
   // 许愿年度额度（R20：每年 3 条，含私有与已软删，删除不退还；与 web zh-CN errors 同文案互指）
+  flashback_wish_invalid_request_id: '提交标识无效，请重新打开页面。',
+  flashback_wish_request_conflict: '这次提交的内容已改变，请重新提交。',
   flashback_wish_quota_exceeded: '今年许愿名额已用完（每年最多 3 条，删除不退还名额）。',
   // wish2 U6/U9：机审拒绝（fail-closed）——不评判内容，引导换说法
   flashback_content_rejected: '这句话没能挂上树，换种说法试试。',

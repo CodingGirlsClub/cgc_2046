@@ -5,15 +5,15 @@ import { PageState } from '@/components/PageState'
 import { VoiceCityFilter } from '@/components/Voices/CityFilter'
 import { VoicesMap } from '@/components/Voices/Map'
 import { useVoices } from '@/components/Voices/useVoices'
+import { parseCityParam, wishTreePath } from '@/domain/wish-tree'
 import { voiceShare } from '@/domain/flashback-voices'
-import { setFlashbackEntry } from '@/state/flashbackEntry'
 import shareImage from '@/assets/flashback/voices-map.png'
 import styles from './index.module.css'
 
 export default function FlashbackVoicesPage() {
   const router = useRouter()
   const initialId = typeof router.params.quoteId === 'string' ? router.params.quoteId.trim() || null : null
-  const { wall, current, city, cities, citiesLoading, citiesError, retryCities, busy, step, toggleLike, random, chooseCity, retry } = useVoices(initialId)
+  const { wall, current, city, cities, citiesLoading, citiesError, retryCities, busy, step, toggleLike, random, chooseCity, retry } = useVoices(initialId, parseCityParam(router.params.city))
   useShareAppMessage(event => ({
     ...voiceShare(event.from === 'button' && (event.target as { dataset?: { scope?: string } } | undefined)?.dataset?.scope === 'quote' ? current : null),
     imageUrl: shareImage
@@ -23,16 +23,17 @@ export default function FlashbackVoicesPage() {
     // Menu shares the wall; a withdrawn sentence never remains a share payload.
     void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] })
   }, [])
-  const corridor = (future = false) => {
-    if (future) setFlashbackEntry('future')
+  const corridor = () => {
     void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
   }
   return <View className={styles.page}>
     <View className={styles.header}>
-      <View><Text className={styles.title}>金句墙</Text><Text className={styles.english}>VOICES</Text></View>
-      <Button className={styles.shareWall} openType='share' data-scope='wall'>分享整墙 ↗</Button>
+      <View className={styles.tabs}><View><Text className={styles.title}>金句墙</Text><Text className={styles.english}>VOICES</Text></View><Button className={styles.wishesTab} onClick={() => Taro.redirectTo({ url: wishTreePath(city) })}><Text>许愿树</Text><Text className={styles.english}>WISHES</Text></Button></View>
     </View>
+    <View className={styles.mapWrap}>
     <VoicesMap cities={cities} selected={current?.city ?? city} />
+      <Button className={styles.shareWall} openType='share' data-scope='wall'>↗ 分享整墙</Button>
+    </View>
     <View className={styles.filters}>
       <Text className={styles.legend}>青绿 · 山河来处　　金线 · 句长成树</Text>
     </View>
@@ -72,7 +73,7 @@ export default function FlashbackVoicesPage() {
       </>}
       <View className={styles.footer}>
         <Button className={styles.recover} onClick={() => corridor()}>找回你的那一张 ↗</Button>
-        <Button className={styles.future} onClick={() => corridor(true)}>去许愿，写下未来 →</Button>
+        <Button className={styles.future} onClick={() => Taro.redirectTo({ url: wishTreePath(city) })}>去许愿，写下未来 →</Button>
       </View>
     </View>
   </View>
