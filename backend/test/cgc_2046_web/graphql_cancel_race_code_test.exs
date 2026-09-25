@@ -17,7 +17,7 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
   @tier %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}
 
   test "cancel 竞态未收敛：errors.code == order_already_processed（非 something_went_wrong）" do
-    {workspace, enrollment, order} =
+    {workspace, event, enrollment, order} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         admin = Fixtures.platform_admin("cancel-race-graphql-admin-" <> uniq())
         workspace = Fixtures.create_workspace(admin)
@@ -62,10 +62,12 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
           |> Ash.Changeset.for_update(:settle_paid, %{})
           |> Ash.update(tenant: workspace.id, authorize?: false)
 
-        {workspace, enrollment, order}
+        {workspace, event, enrollment, order}
       end)
 
     on_exit(fn ->
+      # unboxed 真提交的布置清理（依赖序全删，race 文件同款）——Event /
+      # workspace 残留会被全表断言的用例（discover_offerings 等）撞上
       Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -76,6 +78,32 @@ defmodule Cgc2046Web.GraphqlCancelRaceCodeTest do
         ])
 
         Repo.query!("DELETE FROM enrollments WHERE id = $1", [Repo.uuid!(order.enrollment_id)])
+
+        Repo.query!(
+          "DELETE FROM oban_jobs WHERE worker = $1 AND args::text LIKE $2",
+          ["Cgc2046.Workflows.SignalPublishWorker", "%" <> event.id <> "%"]
+        )
+
+        Repo.query!(
+          "DELETE FROM admin_action_logs WHERE metadata::text LIKE $1 OR target_id::text = $1",
+          ["%" <> event.id <> "%"]
+        )
+
+        Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
+          Repo.uuid!(workspace.id)
+        ])
+
+        Repo.query!(
+          "DELETE FROM membership_roles WHERE membership_id IN (SELECT id FROM workspace_memberships WHERE workspace_id = $1)",
+          [Repo.uuid!(workspace.id)]
+        )
+
+        Repo.query!("DELETE FROM workspace_memberships WHERE workspace_id = $1", [
+          Repo.uuid!(workspace.id)
+        ])
+
+        Repo.query!("DELETE FROM events WHERE workspace_id = $1", [Repo.uuid!(workspace.id)])
+        Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
       end)
     end)
 
