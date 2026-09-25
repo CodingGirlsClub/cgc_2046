@@ -773,6 +773,8 @@ defmodule Cgc2046.InitiativeBoundaryTest do
           })
 
     assert length(Ash.read!(NotificationDelivery, authorize?: false)) == 1
-    assert length(all_enqueued(worker: DeliveryWorker)) == 1
+
+    assert [only] = Ash.read!(NotificationDelivery, authorize?: false)
+    assert length(all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => only.id})) == 1
   end
 end

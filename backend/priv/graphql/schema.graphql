@@ -71,9 +71,6 @@ input InviteBatchFilterInsertedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InviteBatchFilterRemark {
@@ -88,9 +85,6 @@ input InviteBatchFilterRemark {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -108,9 +102,6 @@ input InviteBatchFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input InviteBatchFilterExpiresAt {
@@ -124,9 +115,6 @@ input InviteBatchFilterExpiresAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InviteBatchFilterRemainingQuota {
@@ -140,9 +128,6 @@ input InviteBatchFilterRemainingQuota {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input InviteBatchFilterQuota {
@@ -156,9 +141,6 @@ input InviteBatchFilterQuota {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input InviteBatchFilterInviteCode {
@@ -173,9 +155,6 @@ input InviteBatchFilterInviteCode {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -193,9 +172,6 @@ input InviteBatchFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterEventId {
@@ -209,9 +185,6 @@ input InviteBatchFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterWorkspaceId {
@@ -225,9 +198,6 @@ input InviteBatchFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterId {
@@ -241,9 +211,6 @@ input InviteBatchFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InviteBatchFilterInput {
@@ -390,9 +357,6 @@ input EnrollmentFilterInsertedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterCancelledAt {
@@ -406,9 +370,6 @@ input EnrollmentFilterCancelledAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterTermsVersion {
@@ -423,9 +384,6 @@ input EnrollmentFilterTermsVersion {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -443,9 +401,6 @@ input EnrollmentFilterAgeConfirmedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterExpiredAt {
@@ -459,9 +414,6 @@ input EnrollmentFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterApprovalDeadline {
@@ -475,9 +427,6 @@ input EnrollmentFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterRejectionReason {
@@ -492,9 +441,6 @@ input EnrollmentFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -512,9 +458,6 @@ input EnrollmentFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EnrollmentFilterApprovedBy {
@@ -528,9 +471,6 @@ input EnrollmentFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterCapacitySeq {
@@ -544,9 +484,6 @@ input EnrollmentFilterCapacitySeq {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EnrollmentFilterSubmissionPayload {
@@ -560,9 +497,6 @@ input EnrollmentFilterSubmissionPayload {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EnrollmentFilterStatus {
@@ -576,9 +510,6 @@ input EnrollmentFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EnrollmentFilterInviteBatchId {
@@ -592,9 +523,6 @@ input EnrollmentFilterInviteBatchId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterWorkflowRunId {
@@ -608,9 +536,6 @@ input EnrollmentFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterUserId {
@@ -624,9 +549,6 @@ input EnrollmentFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterCourseId {
@@ -640,9 +562,6 @@ input EnrollmentFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterEventId {
@@ -656,9 +575,6 @@ input EnrollmentFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterWorkspaceId {
@@ -672,9 +588,6 @@ input EnrollmentFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterId {
@@ -688,9 +601,6 @@ input EnrollmentFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EnrollmentFilterInput {
@@ -932,9 +842,6 @@ input CourseFilterPricingEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input CourseFilterEndsAt {
@@ -948,9 +855,6 @@ input CourseFilterEndsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterStartsAt {
@@ -964,9 +868,6 @@ input CourseFilterStartsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterRegistrationDeadline {
@@ -980,9 +881,6 @@ input CourseFilterRegistrationDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input CourseFilterConfirmedCount {
@@ -996,9 +894,6 @@ input CourseFilterConfirmedCount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input CourseFilterCapacity {
@@ -1012,9 +907,6 @@ input CourseFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input CourseFilterVisibility {
@@ -1028,9 +920,6 @@ input CourseFilterVisibility {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterEnrollmentPolicy {
@@ -1044,9 +933,6 @@ input CourseFilterEnrollmentPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterWorkflowRunId {
@@ -1060,9 +946,6 @@ input CourseFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterStatus {
@@ -1076,9 +959,6 @@ input CourseFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input CourseFilterCurriculumRequirements {
@@ -1092,9 +972,6 @@ input CourseFilterCurriculumRequirements {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input CourseFilterDescription {
@@ -1109,9 +986,6 @@ input CourseFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1130,9 +1004,6 @@ input CourseFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1150,9 +1021,6 @@ input CourseFilterProvisionalTitle {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input CourseFilterTitle {
@@ -1167,9 +1035,6 @@ input CourseFilterTitle {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -1187,9 +1052,6 @@ input CourseFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterId {
@@ -1203,9 +1065,6 @@ input CourseFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input CourseFilterInput {
@@ -1633,9 +1492,6 @@ input EventFilterPricingEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterSponsorshipDeadline {
@@ -1649,9 +1505,6 @@ input EventFilterSponsorshipDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterSponsorshipEnabled {
@@ -1665,9 +1518,6 @@ input EventFilterSponsorshipEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterQualificationStatus {
@@ -1681,9 +1531,6 @@ input EventFilterQualificationStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterMinParticipants {
@@ -1697,9 +1544,6 @@ input EventFilterMinParticipants {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterMinAge {
@@ -1713,9 +1557,6 @@ input EventFilterMinAge {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterDepositAmountCents {
@@ -1729,9 +1570,6 @@ input EventFilterDepositAmountCents {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterDepositEnabled {
@@ -1745,9 +1583,6 @@ input EventFilterDepositEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterCreatedBy {
@@ -1761,9 +1596,6 @@ input EventFilterCreatedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterInitiativeId {
@@ -1777,9 +1609,6 @@ input EventFilterInitiativeId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterVenue {
@@ -1793,9 +1622,6 @@ input EventFilterVenue {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EventFilterEndsAt {
@@ -1809,9 +1635,6 @@ input EventFilterEndsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterStartsAt {
@@ -1825,9 +1648,6 @@ input EventFilterStartsAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterRegistrationDeadline {
@@ -1841,9 +1661,6 @@ input EventFilterRegistrationDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input EventFilterConfirmedCount {
@@ -1857,9 +1674,6 @@ input EventFilterConfirmedCount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterCapacity {
@@ -1873,9 +1687,6 @@ input EventFilterCapacity {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input EventFilterVisibility {
@@ -1889,9 +1700,6 @@ input EventFilterVisibility {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterEnrollmentPolicy {
@@ -1905,9 +1713,6 @@ input EventFilterEnrollmentPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterWorkflowRunId {
@@ -1921,9 +1726,6 @@ input EventFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterStatus {
@@ -1937,9 +1739,6 @@ input EventFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input EventFilterCurriculumRequirements {
@@ -1953,9 +1752,6 @@ input EventFilterCurriculumRequirements {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input EventFilterCurriculumEnabled {
@@ -1969,9 +1765,6 @@ input EventFilterCurriculumEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input EventFilterDescription {
@@ -1986,9 +1779,6 @@ input EventFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2007,9 +1797,6 @@ input EventFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2028,9 +1815,6 @@ input EventFilterTitle {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2048,9 +1832,6 @@ input EventFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterId {
@@ -2064,9 +1845,6 @@ input EventFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input EventFilterInput {
@@ -2353,9 +2131,6 @@ input WorkspaceApplicationFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterApprovalDeadline {
@@ -2369,9 +2144,6 @@ input WorkspaceApplicationFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterRejectedAt {
@@ -2385,9 +2157,6 @@ input WorkspaceApplicationFilterRejectedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterRejectedBy {
@@ -2401,9 +2170,6 @@ input WorkspaceApplicationFilterRejectedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterApprovedAt {
@@ -2417,9 +2183,6 @@ input WorkspaceApplicationFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceApplicationFilterApprovedBy {
@@ -2433,9 +2196,6 @@ input WorkspaceApplicationFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterRejectionReason {
@@ -2450,9 +2210,6 @@ input WorkspaceApplicationFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2470,9 +2227,6 @@ input WorkspaceApplicationFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input WorkspaceApplicationFilterPurpose {
@@ -2487,9 +2241,6 @@ input WorkspaceApplicationFilterPurpose {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2508,9 +2259,6 @@ input WorkspaceApplicationFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2529,9 +2277,6 @@ input WorkspaceApplicationFilterName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2549,9 +2294,6 @@ input WorkspaceApplicationFilterApplicantId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterId {
@@ -2565,9 +2307,6 @@ input WorkspaceApplicationFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceApplicationFilterInput {
@@ -2745,9 +2484,6 @@ input InvitationFilterAcceptedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InvitationFilterAcceptedBy {
@@ -2761,9 +2497,6 @@ input InvitationFilterAcceptedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterStatus {
@@ -2777,9 +2510,6 @@ input InvitationFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input InvitationFilterExpiresAt {
@@ -2793,9 +2523,6 @@ input InvitationFilterExpiresAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input InvitationFilterTargetEmail {
@@ -2810,9 +2537,6 @@ input InvitationFilterTargetEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2830,9 +2554,6 @@ input InvitationFilterInviterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterTokenHash {
@@ -2847,9 +2568,6 @@ input InvitationFilterTokenHash {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -2867,9 +2585,6 @@ input InvitationFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterId {
@@ -2883,9 +2598,6 @@ input InvitationFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input InvitationFilterInput {
@@ -3055,9 +2767,6 @@ input JoinRequestFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterApprovalDeadline {
@@ -3071,9 +2780,6 @@ input JoinRequestFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterRejectionReason {
@@ -3088,9 +2794,6 @@ input JoinRequestFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3108,9 +2811,6 @@ input JoinRequestFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input JoinRequestFilterApprovedBy {
@@ -3124,9 +2824,6 @@ input JoinRequestFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterMessage {
@@ -3141,9 +2838,6 @@ input JoinRequestFilterMessage {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3161,9 +2855,6 @@ input JoinRequestFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input JoinRequestFilterUserId {
@@ -3177,9 +2868,6 @@ input JoinRequestFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterWorkspaceId {
@@ -3193,9 +2881,6 @@ input JoinRequestFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterId {
@@ -3209,9 +2894,6 @@ input JoinRequestFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input JoinRequestFilterInput {
@@ -3306,9 +2988,6 @@ input RoleFilterDescription {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3326,9 +3005,6 @@ input RoleFilterName {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input RoleFilterWorkspaceId {
@@ -3342,9 +3018,6 @@ input RoleFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input RoleFilterId {
@@ -3358,9 +3031,6 @@ input RoleFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input RoleFilterInput {
@@ -3448,9 +3118,6 @@ input WorkspaceMembershipFilterJoinedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceMembershipFilterUserDisplayName {
@@ -3465,9 +3132,6 @@ input WorkspaceMembershipFilterUserDisplayName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3486,9 +3150,6 @@ input WorkspaceMembershipFilterUserEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3506,9 +3167,6 @@ input WorkspaceMembershipFilterUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterWorkspaceId {
@@ -3522,9 +3180,6 @@ input WorkspaceMembershipFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterId {
@@ -3538,9 +3193,6 @@ input WorkspaceMembershipFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceMembershipFilterInput {
@@ -3730,9 +3382,6 @@ input WorkspaceFilterSponsorshipDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input WorkspaceFilterSponsorshipEnabled {
@@ -3746,9 +3395,6 @@ input WorkspaceFilterSponsorshipEnabled {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input WorkspaceFilterJoinPolicy {
@@ -3762,9 +3408,6 @@ input WorkspaceFilterJoinPolicy {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input WorkspaceFilterName {
@@ -3779,9 +3422,6 @@ input WorkspaceFilterName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3800,9 +3440,6 @@ input WorkspaceFilterSlug {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -3820,9 +3457,6 @@ input WorkspaceFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input WorkspaceFilterInput {
@@ -4029,9 +3663,6 @@ input OrderFilterTierId {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4049,9 +3680,6 @@ input OrderFilterCourseId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterEventId {
@@ -4065,9 +3693,6 @@ input OrderFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterLearnerEmail {
@@ -4082,9 +3707,6 @@ input OrderFilterLearnerEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4102,9 +3724,6 @@ input OrderFilterEnrollmentStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterTierName {
@@ -4119,9 +3738,6 @@ input OrderFilterTierName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4140,9 +3756,6 @@ input OrderFilterCancelReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4160,9 +3773,6 @@ input OrderFilterRefundedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterExpireAt {
@@ -4176,9 +3786,6 @@ input OrderFilterExpireAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterDepositTermsVersion {
@@ -4193,9 +3800,6 @@ input OrderFilterDepositTermsVersion {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4213,9 +3817,6 @@ input OrderFilterDepositConsentAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input OrderFilterStatus {
@@ -4229,9 +3830,6 @@ input OrderFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterTierSnapshot {
@@ -4245,9 +3843,6 @@ input OrderFilterTierSnapshot {
   greaterThanOrEqual: JsonString
   isDistinctFrom: JsonString
   isNotDistinctFrom: JsonString
-  rangeAdjacent: JsonString
-  rangeContains: String
-  rangeOverlaps: JsonString
 }
 
 input OrderFilterAmountCents {
@@ -4261,9 +3856,6 @@ input OrderFilterAmountCents {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input OrderFilterTransactionId {
@@ -4278,9 +3870,6 @@ input OrderFilterTransactionId {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4299,9 +3888,6 @@ input OrderFilterOutTradeNo {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4319,9 +3905,6 @@ input OrderFilterProvider {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterOrderKind {
@@ -4335,9 +3918,6 @@ input OrderFilterOrderKind {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input OrderFilterEnrollmentId {
@@ -4351,9 +3931,6 @@ input OrderFilterEnrollmentId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterWorkspaceId {
@@ -4367,9 +3944,6 @@ input OrderFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterId {
@@ -4383,9 +3957,6 @@ input OrderFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input OrderFilterInput {
@@ -4633,9 +4204,6 @@ input SponsorshipDeliveryFilterExclusive {
   greaterThanOrEqual: Boolean
   isDistinctFrom: Boolean
   isNotDistinctFrom: Boolean
-  rangeAdjacent: Boolean
-  rangeContains: String
-  rangeOverlaps: Boolean
 }
 
 input SponsorshipDeliveryFilterProofNote {
@@ -4650,9 +4218,6 @@ input SponsorshipDeliveryFilterProofNote {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4670,9 +4235,6 @@ input SponsorshipDeliveryFilterFulfilledAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipDeliveryFilterDueDate {
@@ -4686,9 +4248,6 @@ input SponsorshipDeliveryFilterDueDate {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipDeliveryFilterBenefit {
@@ -4703,9 +4262,6 @@ input SponsorshipDeliveryFilterBenefit {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -4723,9 +4279,6 @@ input SponsorshipDeliveryFilterSponsorshipId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterWorkspaceId {
@@ -4739,9 +4292,6 @@ input SponsorshipDeliveryFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterId {
@@ -4755,9 +4305,6 @@ input SponsorshipDeliveryFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipDeliveryFilterInput {
@@ -4923,9 +4470,6 @@ input SponsorshipFilterEndedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterStartedAt {
@@ -4939,9 +4483,6 @@ input SponsorshipFilterStartedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterExpiredAt {
@@ -4955,9 +4496,6 @@ input SponsorshipFilterExpiredAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterApprovalDeadline {
@@ -4971,9 +4509,6 @@ input SponsorshipFilterApprovalDeadline {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterRejectionReason {
@@ -4988,9 +4523,6 @@ input SponsorshipFilterRejectionReason {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5008,9 +4540,6 @@ input SponsorshipFilterApprovedAt {
   greaterThanOrEqual: DateTime
   isDistinctFrom: DateTime
   isNotDistinctFrom: DateTime
-  rangeAdjacent: DateTime
-  rangeContains: String
-  rangeOverlaps: DateTime
 }
 
 input SponsorshipFilterApprovedBy {
@@ -5024,9 +4553,6 @@ input SponsorshipFilterApprovedBy {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterMessage {
@@ -5041,9 +4567,6 @@ input SponsorshipFilterMessage {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5062,9 +4585,6 @@ input SponsorshipFilterContactPhone {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5083,9 +4603,6 @@ input SponsorshipFilterContactEmail {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5104,9 +4621,6 @@ input SponsorshipFilterCompanyName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5124,9 +4638,6 @@ input SponsorshipFilterAmount {
   greaterThanOrEqual: Int
   isDistinctFrom: Int
   isNotDistinctFrom: Int
-  rangeAdjacent: Int
-  rangeContains: String
-  rangeOverlaps: Int
 }
 
 input SponsorshipFilterStatus {
@@ -5140,9 +4651,6 @@ input SponsorshipFilterStatus {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input SponsorshipFilterTierName {
@@ -5157,9 +4665,6 @@ input SponsorshipFilterTierName {
   contains: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
   stringEndsWith: String
   stringStartsWith: String
   like: String
@@ -5177,9 +4682,6 @@ input SponsorshipFilterTierId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterWorkflowRunId {
@@ -5193,9 +4695,6 @@ input SponsorshipFilterWorkflowRunId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterSponsorUserId {
@@ -5209,9 +4708,6 @@ input SponsorshipFilterSponsorUserId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterEventId {
@@ -5225,9 +4721,6 @@ input SponsorshipFilterEventId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterWorkspaceId {
@@ -5241,9 +4734,6 @@ input SponsorshipFilterWorkspaceId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterLevel {
@@ -5257,9 +4747,6 @@ input SponsorshipFilterLevel {
   greaterThanOrEqual: String
   isDistinctFrom: String
   isNotDistinctFrom: String
-  rangeAdjacent: String
-  rangeContains: String
-  rangeOverlaps: String
 }
 
 input SponsorshipFilterId {
@@ -5273,9 +4760,6 @@ input SponsorshipFilterId {
   greaterThanOrEqual: ID
   isDistinctFrom: ID
   isNotDistinctFrom: ID
-  rangeAdjacent: ID
-  rangeContains: String
-  rangeOverlaps: ID
 }
 
 input SponsorshipFilterInput {
@@ -5420,6 +4904,42 @@ type RootQueryType {
   "某 Event 的 Speaker 邀请列表（仅 Owner\/Admin 或平台管理员，read policy 兜底）"
   speakerInvitations(eventId: ID!): [SpeakerInvitation!]!
 
+  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
+  listUsers(search: String, first: Int, after: String): [AdminUser!]!
+
+  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
+  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
+
+  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
+  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
+
+  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listToolCallLogs(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminToolCallLog!]!
+
+  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
+  listPendingOperations(
+    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminPendingOperation!]!
+
+  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
+  listSignalLogs(
+    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
+  ): [AdminSignalLog!]!
+
+  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
+  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
+
+  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
+  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
+
+  "平台管理员：倡导活动列表"
+  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
+
+  "平台管理员：倡导活动详情及四项规则"
+  getInitiative(id: ID!): AdminInitiative
+
   "平台管理员：跨租户活动列表（R1；status\/search 过滤 + 工作台过滤 + first\/after 分页，含 draft\/cancelled）"
   listAdminEvents(status: String, search: String, workspaceId: ID, first: Int, after: String): [AdminEvent!]!
 
@@ -5470,6 +4990,32 @@ type RootQueryType {
   "Owner\/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden"
   volunteerApplicationDetail(workspaceId: ID!, id: ID!): VolunteerApplicationDetail
 
+  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
+  myLearningRuns: [MyLearningRun!]!
+
+  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
+  myEnrollment(
+    "event | course"
+    kind: String!
+
+    offeringId: ID!
+  ): Enrollment
+
+  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
+  courseMap(slug: String!): CourseMap
+
+  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
+  courseLearningDetail(courseId: ID!): CourseLearningDetail
+
+  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
+  courseContent(courseId: ID!): CourseContent
+
+  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
+  courseDraft(courseId: ID!): CourseDraft
+
+  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
+  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
+
   "Placeholder query until the first resource is added"
   ping: String
 
@@ -5499,20 +5045,6 @@ type RootQueryType {
   "当前用户作为 Owner\/Admin 的跨工作台可操作待办总数（Enrollment + JoinRequest + Sponsorship 的 pending 且未过审批截止）；已过期不计（KTD8 口径，与 \/approvals 展示含过期行存在有意差异）"
   pendingApprovalsCount: Int!
 
-  "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
-  myLearningRuns: [MyLearningRun!]!
-
-  "当前用户在目标活动\/课程上的活跃报名（pending\/payment_pending\/confirmed；无报名或未登录为 null）"
-  myEnrollment(
-    "event | course"
-    kind: String!
-
-    offeringId: ID!
-  ): Enrollment
-
-  "公开课程地图(U7\/R10):issue key\/标题\/kind\/goal 一行;匿名可读,不露 checklist"
-  courseMap(slug: String!): CourseMap
-
   "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
   publicInitiative(slug: String!): PublicInitiative
 
@@ -5536,8 +5068,15 @@ type RootQueryType {
   "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
   flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
 
-  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
-  flashbackOutreachPreview(archiveKey: String!, channel: String): FlashbackOutreachPreview
+  "触达预览（R4\/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判"
+  flashbackOutreachPreview(
+    archiveKey: String!
+
+    channel: String
+
+    "campaign 批次号（预判同人跨 archive 去重数；与入队同源）"
+    batch: String
+  ): FlashbackOutreachPreview
 
   "场次列表（R7 发送入口数据源，PlatformAdmin）"
   flashbackAdminArchives: [FlashbackAdminArchive!]!
@@ -5642,62 +5181,14 @@ type RootQueryType {
   "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
   flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
 
-  "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
-  courseLearningDetail(courseId: ID!): CourseLearningDetail
-
-  "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
-  courseContent(courseId: ID!): CourseContent
-
-  "Tutor\/Owner\/Admin 课程草稿（不向 learner 暴露；无权\/课程不存在统一 null，不泄露存在性）"
-  courseDraft(courseId: ID!): CourseDraft
-
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
   platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
-
-  "Tutor\/Owner\/Admin 课程学习聚合（不含 learner evidence）"
-  courseLearningAnalytics(courseId: ID!): CourseLearningAnalytics
 
   "当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回）"
   myWorkspaceToolCalls(workspaceId: ID!, first: Int): [WorkspaceToolCall!]!
 
-  "平台管理员：用户列表（R8；search 匹配 email\/display_name，分页 first\/after）"
-  listUsers(search: String, first: Int, after: String): [AdminUser!]!
-
-  "平台管理员：工作台列表（R13；search 匹配 name\/slug，分页 first\/after）"
-  listWorkspaces(search: String, first: Int, after: String): [AdminWorkspace!]!
-
-  "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first\/after）"
-  listWorkspaceApplications(status: String, first: Int, after: String): [AdminWorkspaceApplication!]!
-
   "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
   myWorkspaceApplications: [AdminWorkspaceApplication!]!
-
-  "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listToolCallLogs(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminToolCallLog!]!
-
-  "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-  listPendingOperations(
-    workspaceId: ID, status: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminPendingOperation!]!
-
-  "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first\/after）"
-  listSignalLogs(
-    workspaceId: ID, signalType: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String
-  ): [AdminSignalLog!]!
-
-  "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first\/after）"
-  listAdminActionLogs(action: String, insertedAfter: DateTime, insertedBefore: DateTime, first: Int, after: String): [AdminActionLog!]!
-
-  "平台管理员：对账扫描发现（E-10 #125；rule\/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first\/after；entityId 必须与 entityType 成对——KTD5）"
-  reconciliationFindings(rule: String, entityType: String, entityId: String, workspaceId: ID, first: Int, after: String): [AdminReconciliationFinding!]!
-
-  "平台管理员：倡导活动列表"
-  listInitiatives(status: String, search: String, first: Int, after: String): [AdminInitiative!]!
-
-  "平台管理员：倡导活动详情及四项规则"
-  getInitiative(id: ID!): AdminInitiative
 
   sponsorships(
     "How to sort the records in the response"
@@ -6108,120 +5599,6 @@ type PendingApproval {
   amount: Int
 }
 
-type Enrollment {
-  id: ID!
-
-  workspaceId: ID!
-
-  eventId: ID
-
-  courseId: ID
-
-  userId: ID!
-
-  workflowRunId: ID
-
-  inviteBatchId: ID
-
-  status: String!
-
-  capacitySeq: Int
-
-  approvedBy: ID
-
-  approvedAt: DateTime
-
-  rejectionReason: String
-
-  approvalDeadline: DateTime
-
-  expiredAt: DateTime
-
-  cancelledAt: DateTime
-
-  insertedAt: DateTime!
-
-  targetTitle: String
-
-  startsAt: DateTime
-
-  venue: String
-
-  registrationDeadline: DateTime
-
-  paymentMode: String
-
-  depositAmountCents: Int
-
-  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
-  checkInCode: String
-}
-
-type MyLearningRun {
-  runId: ID!
-  enrollmentId: ID!
-  targetTitle: String
-  status: String!
-  staleRevision: Boolean!
-  progress: LearningProgress!
-  nextAction: LearningNextAction
-  courseId: ID!
-}
-
-type CourseLearningDetail {
-  courseId: ID!
-  title: String!
-  slug: String
-  run: LearningRunSummary
-  revisionNumber: Int
-  staleRevision: Boolean!
-  reviewQueue: [LearningReviewQueueEntry!]!
-  objectives: [LearningObjectiveState!]!
-  nextAction: LearningNextAction
-  progress: LearningProgress
-}
-
-type LearningReviewQueueEntry {
-  objectiveId: String!
-  dueAt: DateTime!
-  milestoneDays: Int
-  needsReview: Boolean!
-}
-
-type CourseMap {
-  courseId: ID!
-  title: String!
-  slug: String!
-  goals: [String!]!
-  issues: [CourseMapIssue!]!
-}
-
-type CourseMapIssue {
-  key: String!
-  id: String!
-  title: String!
-  kind: String!
-  goal: String
-}
-
-type CourseContent {
-  courseId: ID!
-  title: String!
-  description: String
-  revisionNumber: Int
-  publishedAt: DateTime
-  content: JsonString!
-}
-
-type CourseDraft {
-  courseId: ID!
-  title: String!
-  version: Int
-  prepState: String
-  updatedAt: DateTime
-  content: JsonString
-}
-
 type PlatformWorkflowAudit {
   id: ID!
   workspaceId: ID!
@@ -6231,77 +5608,6 @@ type PlatformWorkflowAudit {
   finishedAt: DateTime
   insertedAt: DateTime!
   errorSummary: String
-}
-
-type CourseLearningAnalytics {
-  runStats: CourseLearningRunStats!
-  objectives: [CourseLearningObjectiveStats!]!
-  dropOff: CourseLearningDropOff!
-  generatedAt: DateTime!
-}
-
-type CourseLearningRunStats {
-  totalRuns: Int!
-  activeRuns: Int!
-  completedRuns: Int!
-  completionRate: Float
-}
-
-type CourseLearningObjectiveStats {
-  objectiveId: String!
-  title: String!
-  required: Boolean!
-  mastered: Int!
-  developing: Int!
-  needsReview: Int!
-  unassessed: Int!
-  totalAttempts: Int!
-  qualifyingPasses: Int!
-  lowConfidenceAttempts: Int!
-  passRate: Float
-  lastActivityAt: DateTime
-}
-
-type CourseLearningDropOff {
-  staleRunCount: Int!
-}
-
-type LearningRunSummary {
-  id: ID!
-  status: String!
-  revisionId: ID
-  revisionNumber: Int
-}
-
-type LearningObjectiveState {
-  id: String!
-  title: String!
-  required: Boolean!
-  issueId: String
-  prereqIds: [String!]!
-  mastery: String!
-  everMastered: Boolean!
-  locked: Boolean!
-  missingPrereqIds: [LearningPrereqRef!]!
-  attemptCount: Int!
-  lastAttemptAt: DateTime
-}
-
-type LearningPrereqRef {
-  id: String!
-  title: String
-}
-
-type LearningNextAction {
-  kind: String!
-  objectiveId: String!
-  reason: String!
-}
-
-type LearningProgress {
-  masteredRequired: Int!
-  totalRequired: Int!
-  complete: Boolean!
 }
 
 type WorkspaceToolCall {
@@ -6928,6 +6234,9 @@ type FlashbackOutreachPreview {
 
   unreachable: Int!
 
+  "campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0）"
+  dedupedWithinCampaign: Int!
+
   "短信腿就绪位（SendCloud 触达模板已配置）"
   smsReady: Boolean!
 }
@@ -7390,6 +6699,9 @@ type FlashbackOutreachDispatchResult {
 
   "跳过件数（已退订 \/ 无可用通道 \/ 本批次已入队——幂等重跑计入此处）"
   skipped: Int!
+
+  "campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封）"
+  dedupedWithinCampaign: Int!
 }
 
 input FlashbackTodayInput {
@@ -7423,6 +6735,645 @@ input FlashbackFogSpanInput {
   reason: String
 }
 
+type AdminWorkspaceApplication {
+  id: ID!
+  applicantId: ID!
+  name: String!
+  slug: String!
+  purpose: String!
+  status: String!
+  rejectionReason: String
+  approvedBy: ID
+  approvedAt: DateTime
+  rejectedBy: ID
+  rejectedAt: DateTime
+  insertedAt: DateTime!
+}
+
+type PublicInitiative {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+  cityCount: Int!
+  eventCount: Int!
+  confirmedCount: Int!
+  qualifiedEventCount: Int!
+  cities: [PublicInitiativeCity!]!
+}
+
+type PublicInitiativeCard {
+  id: ID!
+  name: String!
+  slug: String!
+  hashtag: String
+  description: String
+  windowStartsAt: DateTime
+  windowEndsAt: DateTime
+  status: String!
+}
+
+type PublicInitiativeCity {
+  city: String!
+  events: [PublicInitiativeEvent!]!
+}
+
+type PublicInitiativeEvent {
+  id: ID!
+  slug: String!
+  title: String!
+  status: String!
+  visibility: String!
+  startsAt: DateTime
+  endsAt: DateTime
+  registrationDeadline: DateTime
+  venue: JsonString
+  confirmedCount: Int!
+  minParticipants: Int
+  qualificationStatus: String
+  archived: Boolean!
+  qualificationBadge: String!
+  shortBy: Int
+  paymentMode: String!
+  deposit: PublicInitiativeDeposit!
+  minAge: Int
+  priceRangeMinCents: Int
+}
+
+"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
+type PublicInitiativeDeposit {
+  enabled: Boolean!
+  amountCents: Int
+  refundableOnCheckIn: Boolean
+}
+
+type RootMutationType {
+  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
+  refundOrder(id: ID!): PendingOperationConfirmation
+
+  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
+  retryRefund(id: ID!): PendingOperationConfirmation
+
+  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
+  waivePayment(id: ID!): PendingOperationConfirmation
+
+  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
+  confirmOperation(pendingId: ID!): OperationResolution
+
+  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
+  cancelOperation(pendingId: ID!): OperationResolution
+
+  "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
+  createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
+
+  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
+  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
+
+  "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
+  acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
+  declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+
+  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
+  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
+
+  "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
+  completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+
+  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
+  promoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
+  demoteUser(id: ID!): AdminUserPayload
+
+  "平台管理员：创建倡导活动草稿"
+  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：更新倡导活动元数据"
+  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
+
+  "平台管理员：设置倡导活动状态为进行中"
+  openInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：结束倡导活动"
+  closeInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
+  cancelInitiative(id: ID!): AdminInitiativePayload
+
+  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
+  adminLaunchEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
+  adminCloseEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelEvent(id: ID!): AdminEventPayload
+
+  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
+
+  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
+  adminLaunchCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
+  adminCloseCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
+  adminCancelCourse(id: ID!): AdminCoursePayload
+
+  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
+  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
+
+  "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
+  upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
+
+  assignEventModerator(
+    workspaceId: ID!
+
+    eventId: ID!
+
+    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
+    userId: ID!
+  ): EventModeratorPayload
+
+  removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
+
+  checkInEnrollment(
+    eventId: ID!
+
+    "6 位核销码（扫码 URL 预填或手输）"
+    code: String!
+
+    "核销方式：scan | manual"
+    method: String!
+  ): CheckInEnrollmentPayload
+
+  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
+  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
+
+  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
+  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
+
+  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
+  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
+
+  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
+  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
+
+  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
+  assignVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "分配的目标场次 ID（可空：Tutor 可无场次）"
+    assignedEventId: ID
+
+    "分配备注（可空，如 Tutor 的课程任务）"
+    assignmentNote: String
+  ): VolunteerApplicationPayload
+
+  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
+  rejectVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "拒绝原因（必填；进入申请人通知）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
+  cancelVolunteerApplication(
+    workspaceId: ID!
+
+    id: ID!
+
+    "取消备注（选填）"
+    reason: String
+  ): VolunteerApplicationPayload
+
+  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
+  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
+  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
+
+  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
+  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
+  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
+  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
+
+  "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
+  signIn(login: String!, password: String!): SignInResult
+
+  "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
+  requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
+
+  "手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付）"
+  signInWithPhoneCode(phone: String!, code: String!): SignInWithPhoneCodeResult
+
+  "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20\/15min 限流）"
+  wechatLoginStart(
+    "发起微信扫码登录(plan 002 U4);next 透传进 redirect_uri(callback 页同源校验后跳转)"
+    next: String
+  ): WechatLoginStartResult
+
+  "微信扫码回调（plan 002 U4；IP 20\/15min 限流）：已绑定直登，未绑定返回绑定票据"
+  signInWithWechat(code: String!, state: String!): SignInWithWechatResult
+
+  "微信扫码绑定手机号完成登录（plan 002 U4；phone 5\/15min 限流）"
+  bindWechatWithPhone(bindTicket: String!, phone: String!, code: String!): SignInWithPhoneCodeResult
+
+  "手机号注册（验证码 + 密码；httpOnly cookie 交付 token，自动登录）"
+  signUpWithPhone(input: SignUpWithPhoneInput!): SignUpWithPhonePayload
+
+  "请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果）"
+  requestPasswordReset(email: String!): RequestPasswordResetResult
+
+  "使用一次性密码重置 token 设置新密码"
+  resetPassword(resetToken: String!, password: String!): ResetPasswordResult
+
+  "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
+  signInWithPlatform(platform: String!, code: String!, phoneCode: String, encryptedData: String, iv: String): SignInWithPlatformResult
+
+  "Owner\/Admin 创建一次性工作台邀请小程序码"
+  generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
+
+  "使用一次性小程序 scene 接受工作台邀请"
+  admitMemberByToken(scene: String!): Invitation
+
+  "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
+  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult
+
+  "记录一次小程序订阅消息授权并增加一个可用次数"
+  grantMiniProgramNotificationConsent(platform: String!, templateKey: String!): Int
+
+  "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
+  signOut: String
+
+  "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
+  updateDisplayName(displayName: String!): User
+
+  "绑定\/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
+  updateMyPhone(phone: String!, code: String!): User
+
+  "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
+  updateMyLocale(locale: String!): User
+
+  "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
+  dismissOnboardingInvitation: User
+
+  "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
+  updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
+
+  "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
+  setWorkspaceTheme(workspaceId: ID!, input: SetWorkspaceThemeInput!): WorkspaceProfile
+
+  "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
+  createPortfolioItem(workspaceId: ID!, input: CreatePortfolioItemInput!): PortfolioItem
+
+  "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  updatePortfolioItem(id: ID!, workspaceId: ID!, input: UpdatePortfolioItemInput!): PortfolioItem
+
+  "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
+  deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
+
+  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
+  createMcpToken(name: String!): CreateMcpTokenPayload
+
+  "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
+  revokeMcpToken(id: ID!): McpToken
+
+  "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
+  flashbackEnter(token: String!): FlashbackEnterResult
+
+  "认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入）"
+  flashbackMarkRevealed(token: String!): FlashbackTouchResult
+
+  "提交「今天的你」（R8\/R18\/R19\/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率）"
+  flashbackSubmitToday(token: String, input: FlashbackTodayInput!): FlashbackTodayResult
+
+  "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+  flashbackSendToWall(token: String!): FlashbackSendToWallResult
+
+  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+  flashbackRetract(token: String!): FlashbackRetractResult
+
+  "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
+  flashbackAdjustFog(token: String, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
+
+  flashbackAdjustTodayFog(token: String, field: String!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustTodayFogResult
+
+  "金句授权（R31 两档 + 关）：level ∈ off\/anonymous\/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
+  flashbackSetQuoteLicense(
+    token: String, level: String!, chosenQuoteSpans: [FlashbackQuoteSpanInput], creditedNote: String
+  ): FlashbackQuoteLicenseResult
+
+  "卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档\/公开 slug 无依赖。双入口（token 或登录账号）"
+  flashbackSetCardSharing(enabled: Boolean!, token: String): FlashbackCardSharing
+
+  "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
+  flashbackRegisterBind(token: String!, phone: String!, code: String!): FlashbackRegisterBindResult
+
+  "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
+  flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
+
+  "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
+  flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
+
+  "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
+  flashbackCreateWish(
+    token: String
+
+    requestId: ID
+
+    content: String!
+
+    visibility: String!
+
+    "署名快照：anonymous（默认，姓氏遮罩）\/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
+    signatureChoice: String
+
+    "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
+    expectedCity: String
+
+    "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
+    publicListingConsent: Boolean
+  ): FlashbackWishResult
+
+  "附议愿望（wish2 U6\/KTD3 改造）：**要求登录**（旧 token\/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
+  flashbackEndorseWish(
+    wishId: ID!
+
+    "出力类型（可多选）：venue \/ organize \/ speak \/ sponsor \/ other"
+    contributionTypes: [String]
+
+    "给平台的留言（≤500；非空过机审；仅运营可见）"
+    message: String
+
+    "回响通知意愿（默认 false；真实授权由微信订阅消息 accept 上报，后端零 grant）"
+    notify: Boolean
+  ): FlashbackWishEndorseResult
+
+  "愿望留言（R8）：公开愿望可留言讨论"
+  flashbackAddWishComment(token: String, wishId: ID!, content: String!): FlashbackWishResult
+
+  "删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除"
+  flashbackDeleteWish(token: String, wishId: ID!): Boolean
+
+  "删除自己的留言（R14 软删）"
+  flashbackDeleteWishComment(token: String, commentId: ID!): Boolean
+
+  flashbackRedeem(token: String, channelNote: String!): FlashbackRedeemResult
+
+  "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+  flashbackRecover(identifier: String!): FlashbackRecoverResult
+
+  "自助找回·验证（U6\/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+  flashbackRecoverVerify(identifier: String!, code: String!): FlashbackRecoverVerifyResult
+
+  "兑换状态流转（U11\/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
+  flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
+
+  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
+  flashbackAdminSendOutreach(
+    archiveKey: String!
+
+    template: String!
+
+    channel: String
+
+    "campaign 批次号（跨 archive 全量发时显式共用——同人只收一封；默认 archive-<key> 批次互不感知）"
+    batch: String
+  ): FlashbackOutreachDispatchResult
+
+  "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
+  flashbackClaim(token: String): FlashbackClaimResult
+
+  "金句点赞\/取消（R36\/R37）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数"
+  flashbackLikeQuote(
+    quoteId: ID!
+
+    voterKey: String!
+
+    "true=点赞（幂等）；false=取消（幂等）"
+    liked: Boolean!
+  ): FlashbackQuoteLikeResult
+
+  "金句下线开关（R38，PlatformAdmin）：hidden_at 置位\/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线）"
+  flashbackAdminSetQuoteHidden(
+    personId: ID!
+
+    "true=下线；false=恢复"
+    hidden: Boolean!
+  ): FlashbackQuoteHiddenResult
+
+  "期待\/取消期待（wish2 U6\/KTD2）：公开无登录——voterKey（u:\/a:）去重；登录 actor 传 anonVoterKey 时服务端合并匿名行；双窗限频（30\/min voter + 60\/h IP）"
+  flashbackExpectWish(
+    wishId: ID!
+
+    "true=期待（幂等）；false=取消（幂等）"
+    expected: Boolean!
+
+    "匿名设备键 a:<device_uuid>（登录 actor 可不传——服务端强制 u:）"
+    anonVoterKey: String
+
+    "登录态设备键（登录 actor 期待时传，服务端用它替代 anon 键做合并）"
+    voterKey: String
+  ): FlashbackWishExpectResult
+
+  "取消附议（wish2 U6\/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离）"
+  flashbackCancelEndorseWish(wishId: ID!): FlashbackWishEndorseResult
+
+  "举报愿望（wish2 U6\/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10\/15min\/IP 限频；举报是治理信号不进排序（举报≠踩）"
+  flashbackReportWish(
+    wishId: ID!
+
+    "预设理由：spam \/ irrelevant \/ scam \/ inappropriate \/ other"
+    reasonType: String!
+
+    "补充说明（≤200 字，可选）"
+    reasonFree: String
+
+    "匿名设备键（登录 actor 不用传）"
+    anonVoterKey: String
+  ): FlashbackReportResult
+
+  "下架\/恢复愿望（wish2 U5\/KTD5 PlatformAdmin）：hidden=true 联动置位作者信用字段 wishes_review_required_at；false 只清 hidden_at 不动信用"
+  flashbackAdminSetWishHidden(
+    wishId: ID!
+
+    "true=下架；false=恢复"
+    hidden: Boolean!
+  ): FlashbackWishHiddenResult
+
+  "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
+  flashbackAdminCreateWishEcho(wishId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
+  flashbackAdminUpdateWishEchoDraft(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
+  flashbackAdminPublishWishEcho(echoId: ID!): FlashbackAdminWishEcho
+
+  "原地更正已发布回响（#834，不触发首次通知）"
+  flashbackAdminCorrectWishEcho(echoId: ID!, content: String!): FlashbackAdminWishEcho
+
+  "撤回已发布回响（#834，终态）"
+  flashbackAdminRevokeWishEcho(echoId: ID!): FlashbackAdminWishEcho
+
+  "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
+  flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
+
+  "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
+  flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
+
+  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
+  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
+
+  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
+  approveSponsorship(id: ID!): ApproveSponsorshipResult!
+
+  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
+  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
+
+  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
+  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
+
+  "报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5\/R6\/R13）"
+  createOrder(input: CreateOrderInput!): CreateOrderResult!
+
+  "换渠道：旧 pending 单 cancelled + 新单（新 out_trade_no），R11"
+  replaceProvider(input: ReplaceProviderInput!): ReplaceProviderResult!
+
+  "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
+  cancelOrder(id: ID!): CancelOrderResult!
+
+  "创建工作台（仅平台管理员）"
+  createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
+
+  "更新工作台（Owner\/Admin 或平台管理员）"
+  updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
+
+  "重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请"
+  reassignWorkspaceOwner(id: ID!, input: ReassignWorkspaceOwnerInput): ReassignWorkspaceOwnerResult!
+
+  "直接加入公开工作台（join_policy==:open）→ 建无标签 Membership"
+  joinWorkspace(input: JoinWorkspaceInput!): Workspace!
+
+  "分配成员角色（多角色并集，仅 Owner\/Admin）"
+  assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
+
+  "提交加入申请"
+  createJoinRequest(input: CreateJoinRequestInput!): CreateJoinRequestResult!
+
+  "审批通过加入申请（Owner\/Admin，自动建 Membership（默认无标签角色））"
+  approveJoinRequest(id: ID!, input: ApproveJoinRequestInput): ApproveJoinRequestResult!
+
+  "拒绝加入申请（Owner\/Admin）"
+  rejectJoinRequest(id: ID!, input: RejectJoinRequestInput): RejectJoinRequestResult!
+
+  "创建邀请（Owner\/Admin\/Volunteer）"
+  createInvitation(input: CreateInvitationInput!): CreateInvitationResult!
+
+  "撤销邀请（邀请人本人或 Owner\/Admin 或平台管理员）"
+  revokeInvitation(id: ID!): RevokeInvitationResult!
+
+  "提交创建工作台申请"
+  createWorkspaceApplication(input: CreateWorkspaceApplicationInput!): CreateWorkspaceApplicationResult!
+
+  "审批通过创建工作台申请（platform_admin，自动创建 workspace + applicant 为 Owner）"
+  approveWorkspaceApplication(id: ID!): ApproveWorkspaceApplicationResult!
+
+  "拒绝创建工作台申请（platform_admin）"
+  rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
+
+  "创建活动（默认 status=draft）"
+  createEvent(input: CreateEventInput!): CreateEventResult!
+
+  "编辑活动元数据（Owner\/Admin）"
+  updateEvent(id: ID!, input: UpdateEventInput): UpdateEventResult!
+
+  "发布活动：draft → open，发 event.launched 信号"
+  launchEvent(id: ID!): LaunchEventResult!
+
+  "结束活动：open → closed，发 event.ended 信号"
+  closeEvent(id: ID!): CloseEventResult!
+
+  "取消活动：open → cancelled，发 event.ended 信号"
+  cancelEvent(id: ID!): CancelEventResult!
+
+  "删除草稿活动：仅 draft；不可恢复；slug 释放（#676）"
+  deleteEvent(id: ID!): DeleteEventResult!
+
+  "创建课程（默认 status=draft）"
+  createCourse(input: CreateCourseInput!): CreateCourseResult!
+
+  "编辑课程元数据（Owner\/Admin）"
+  updateCourse(id: ID!, input: UpdateCourseInput): UpdateCourseResult!
+
+  "发布课程：draft → open，发 course.launched 信号"
+  launchCourse(id: ID!): LaunchCourseResult!
+
+  "结束课程：open → closed，发 course.ended 信号"
+  closeCourse(id: ID!): CloseCourseResult!
+
+  "取消课程：open → cancelled，发 course.ended 信号"
+  cancelCourse(id: ID!): CancelCourseResult!
+
+  "删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676）"
+  deleteCourse(id: ID!): DeleteCourseResult!
+
+  "创建报名；open\/invite_only 立即占位，request 等待审批"
+  createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
+
+  "Owner\/Admin 确认 pending 报名并原子占用名额"
+  confirmEnrollment(id: ID!): ConfirmEnrollmentResult!
+
+  "Owner\/Admin 拒绝 pending 报名"
+  rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
+
+  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
+  cancelEnrollment(id: ID!): CancelEnrollmentResult!
+
+  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
+
+  disableInviteBatch(id: ID!): DisableInviteBatchResult!
+}
+
+"""
+The `Json` scalar type represents arbitrary json string data, represented as UTF-8
+character sequences. The Json type is most often used to represent a free-form
+human-readable json string.
+"""
+scalar JsonString
+
+"""
+The `Json` scalar type represents arbitrary json string data, represented as UTF-8
+character sequences. The Json type is most often used to represent a free-form
+human-readable json string.
+"""
+scalar Json
+
+"""
+The `DateTime` scalar type represents a date and time in the UTC
+timezone. The DateTime appears in a JSON response as an ISO8601 formatted
+string, including UTC timezone ("Z"). The parsed date and time string will
+be converted to UTC if there is an offset.
+"""
+scalar DateTime
+
 type AdminUser {
   id: ID!
   email: String
@@ -7440,21 +7391,6 @@ type AdminWorkspace {
   sponsorshipEnabled: Boolean!
   insertedAt: DateTime!
   memberCount: Int!
-}
-
-type AdminWorkspaceApplication {
-  id: ID!
-  applicantId: ID!
-  name: String!
-  slug: String!
-  purpose: String!
-  status: String!
-  rejectionReason: String
-  approvedBy: ID
-  approvedAt: DateTime
-  rejectedBy: ID
-  rejectedAt: DateTime
-  insertedAt: DateTime!
 }
 
 type AdminToolCallLog {
@@ -7674,67 +7610,6 @@ type AdminInitiativePayload {
   errors: [MutationError]
 }
 
-type PublicInitiative {
-  id: ID!
-  name: String!
-  slug: String!
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-  status: String!
-  cityCount: Int!
-  eventCount: Int!
-  confirmedCount: Int!
-  qualifiedEventCount: Int!
-  cities: [PublicInitiativeCity!]!
-}
-
-type PublicInitiativeCard {
-  id: ID!
-  name: String!
-  slug: String!
-  hashtag: String
-  description: String
-  windowStartsAt: DateTime
-  windowEndsAt: DateTime
-  status: String!
-}
-
-type PublicInitiativeCity {
-  city: String!
-  events: [PublicInitiativeEvent!]!
-}
-
-type PublicInitiativeEvent {
-  id: ID!
-  slug: String!
-  title: String!
-  status: String!
-  visibility: String!
-  startsAt: DateTime
-  endsAt: DateTime
-  registrationDeadline: DateTime
-  venue: JsonString
-  confirmedCount: Int!
-  minParticipants: Int
-  qualificationStatus: String
-  archived: Boolean!
-  qualificationBadge: String!
-  shortBy: Int
-  paymentMode: String!
-  deposit: PublicInitiativeDeposit!
-  minAge: Int
-  priceRangeMinCents: Int
-}
-
-"公开页押金明细（#627）：金额缺失\/非正时 amountCents 为 null，enabled 仍 true——绝不显示 ¥0"
-type PublicInitiativeDeposit {
-  enabled: Boolean!
-  amountCents: Int
-  refundableOnCheckIn: Boolean
-}
-
 type AdminUserPayload {
   id: ID
   email: String
@@ -7742,559 +7617,190 @@ type AdminUserPayload {
   errors: [MutationError]
 }
 
-type RootMutationType {
-  "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
-  refundOrder(id: ID!): PendingOperationConfirmation
+type Enrollment {
+  id: ID!
 
-  "退款失败重试（R17）：第一段——refund_failed 单建 pending（不落业务库）；confirmOperation 确认后重入退款链"
-  retryRefund(id: ID!): PendingOperationConfirmation
+  workspaceId: ID!
 
-  "免缴（R18）：第一段——payment_pending 报名建 pending（不落业务库）；confirmOperation 确认后跳过支付直接确认"
-  waivePayment(id: ID!): PendingOperationConfirmation
+  eventId: ID
 
-  "确认并执行 pending 操作（仅本人、pending 且未过期；effect 失败 pending 回滚可重试）"
-  confirmOperation(pendingId: ID!): OperationResolution
+  courseId: ID
 
-  "取消 pending 操作（仅本人、pending；取消后不执行，过期自动失效）"
-  cancelOperation(pendingId: ID!): OperationResolution
+  userId: ID!
 
-  "Owner\/Admin 创建 Speaker 邀请；明文 token 仅经 plainToken 返回一次（库中只存 SHA256 哈希）"
-  createSpeakerInvitation(input: CreateSpeakerInvitationInput!): CreateSpeakerInvitationPayload
+  workflowRunId: ID
 
-  "Owner\/Admin 重发邀请\/重新生成链接：旧链接即刻作废，新明文 token 仅经 plainToken 返回一次；有邮箱的同时异步发出新邮件（尽力而为，不承诺送达）"
-  resendSpeakerInvitation(id: ID!): ResendSpeakerInvitationPayload
+  inviteBatchId: ID
 
-  "Speaker 用邀请 token 接受邀请（着陆页；token 一次性，接受后失效）"
-  acceptSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+  status: String!
 
-  "Speaker 用邀请 token 婉拒邀请（着陆页；token 一次性，婉拒后失效）"
-  declineSpeakerInvitation(token: String!): SpeakerInvitationActionPayload
+  capacitySeq: Int
 
-  "Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner\/Admin 兜底；materials 为 JSON 字符串）"
-  saveSpeakerMaterials(invitationId: ID!, materials: JsonString!): SpeakerInvitationActionPayload
+  approvedBy: ID
 
-  "材料产出后完成邀请（Speaker 本人自助或 Owner\/Admin 兜底；accepted → completed）"
-  completeSpeakerInvitation(id: ID!): SpeakerInvitationActionPayload
+  approvedAt: DateTime
 
-  "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
-  adminLaunchEvent(id: ID!): AdminEventPayload
+  rejectionReason: String
 
-  "平台管理员：结束活动（open → closed；发 event.ended 信号）"
-  adminCloseEvent(id: ID!): AdminEventPayload
+  approvalDeadline: DateTime
 
-  "平台管理员：取消活动（open → cancelled；报名\/退款按既有取消链路异步处理）"
-  adminCancelEvent(id: ID!): AdminEventPayload
+  expiredAt: DateTime
 
-  "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-  adminUpdateEvent(id: ID!, input: AdminEventUpdateInput!): AdminEventPayload
+  cancelledAt: DateTime
 
-  "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
-  adminLaunchCourse(id: ID!): AdminCoursePayload
+  insertedAt: DateTime!
 
-  "平台管理员：结束课程（open → closed；发 course.ended 信号）"
-  adminCloseCourse(id: ID!): AdminCoursePayload
+  targetTitle: String
 
-  "平台管理员：取消课程（open → cancelled；报名\/退款按既有取消链路异步处理）"
-  adminCancelCourse(id: ID!): AdminCoursePayload
+  startsAt: DateTime
 
-  "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-  adminUpdateCourse(id: ID!, input: AdminCourseUpdateInput!): AdminCoursePayload
+  venue: String
 
-  "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
-  upsertInitiativeRule(initiativeId: ID!, key: String!, valueJson: String!, locked: Boolean!): AdminInitiativeRulePayload
+  registrationDeadline: DateTime
 
-  assignEventModerator(
-    workspaceId: ID!
+  paymentMode: String
 
-    eventId: ID!
+  depositAmountCents: Int
 
-    "被指派用户锚：邮箱 \/ CGC 编号 \/ 用户 ID 任一精确匹配"
-    userId: ID!
-  ): EventModeratorPayload
-
-  removeEventModerator(workspaceId: ID!, moderatorId: ID!): EventModeratorPayload
-
-  checkInEnrollment(
-    eventId: ID!
-
-    "6 位核销码（扫码 URL 预填或手输）"
-    code: String!
-
-    "核销方式：scan | manual"
-    method: String!
-  ): CheckInEnrollmentPayload
-
-  "提交志愿者申请（R11 第 2 步；登录限本人，user_id 由 actor 强制填充、不可代提交）：同批重复申请 → volunteer_application_already_submitted；批次已关闭 → volunteer_application_cohort_closed"
-  createVolunteerApplication(workspaceId: ID!, input: CreateVolunteerApplicationInput!): VolunteerApplicationPayload
-
-  "完善 \/ 更新本人简历档案（R11 第 1 步；一人一档，重复提交更新同一行；仅本人可写）；含姓名 \/ 联系邮箱 \/ 每周可投入 \/ 技能；文件内容经 U2 上传专线，不走本 mutation"
-  upsertResumeProfile(workspaceId: ID!, input: UpsertResumeProfileInput!): ResumeProfilePayload
-
-  "上传本人简历文件（R9；KTD3 最小上传管道单入口，base64-over-JSON，不接 multipart）：PDF\/Word，原始文件 ≤5MB，扩展名\/声明 MIME\/文件头魔数三者一致才收。二次上传覆盖旧文件（一人一档）。需先 upsertResumeProfile 建档——未建档 → resume_profile_not_found；类型不一致\/伪装 → resume_profile_file_type_invalid；超限 → resume_profile_file_too_large；内容非 base64 或空 → resume_profile_file_content_invalid"
-  uploadResumeFile(workspaceId: ID!, input: UploadResumeFileInput!): ResumeProfilePayload
-
-  "初审通过：submitted → interview（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToInterview(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "群面通过：interview → training（Owner\/Admin ∪ platform_admin；非法段位 → volunteer_application_invalid_transition）"
-  advanceVolunteerApplicationToTraining(workspaceId: ID!, id: ID!): VolunteerApplicationPayload
-
-  "训练营完成·项目分配：training → assigned（Owner\/Admin ∪ platform_admin；可带场次与备注，assignedAt 由域层落）"
-  assignVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "分配的目标场次 ID（可空：Tutor 可无场次）"
-    assignedEventId: ID
-
-    "分配备注（可空，如 Tutor 的课程任务）"
-    assignmentNote: String
-  ): VolunteerApplicationPayload
-
-  "拒绝申请：submitted | interview | training → rejected（Owner\/Admin ∪ platform_admin）。reason 空白或缺失 → volunteer_application_rejection_reason_required（必填规则单源在域层，此处不做 schema 级拦截）"
-  rejectVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "拒绝原因（必填；进入申请人通知）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "取消申请：submitted | interview | training → canceled（Owner\/Admin ∪ platform_admin；备注选填，与拒绝原因不同：canceled 无必填约束）"
-  cancelVolunteerApplication(
-    workspaceId: ID!
-
-    id: ID!
-
-    "取消备注（选填）"
-    reason: String
-  ): VolunteerApplicationPayload
-
-  "创建招募批次（Owner\/Admin ∪ platform_admin；初始 draft，开放走 openRecruitmentCohort）"
-  createRecruitmentCohort(workspaceId: ID!, input: CreateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "编辑招募批次元数据（Owner\/Admin ∪ platform_admin；状态迁移不经本 mutation）"
-  updateRecruitmentCohort(workspaceId: ID!, id: ID!, input: UpdateRecruitmentCohortInput!): RecruitmentCohortPayload
-
-  "开放批次：draft | closed → open（Owner\/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底）"
-  openRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
-
-  "关闭批次：open → closed（Owner\/Admin ∪ platform_admin；关闭后不放行新申请，在途申请照常走完）"
-  closeRecruitmentCohort(workspaceId: ID!, id: ID!): RecruitmentCohortPayload
-
-  "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
-  signIn(login: String!, password: String!): SignInResult
-
-  "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
-  requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
-
-  "手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付）"
-  signInWithPhoneCode(phone: String!, code: String!): SignInWithPhoneCodeResult
-
-  "发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20\/15min 限流）"
-  wechatLoginStart(
-    "发起微信扫码登录(plan 002 U4);next 透传进 redirect_uri(callback 页同源校验后跳转)"
-    next: String
-  ): WechatLoginStartResult
-
-  "微信扫码回调（plan 002 U4；IP 20\/15min 限流）：已绑定直登，未绑定返回绑定票据"
-  signInWithWechat(code: String!, state: String!): SignInWithWechatResult
-
-  "微信扫码绑定手机号完成登录（plan 002 U4；phone 5\/15min 限流）"
-  bindWechatWithPhone(bindTicket: String!, phone: String!, code: String!): SignInWithPhoneCodeResult
-
-  "手机号注册（验证码 + 密码；httpOnly cookie 交付 token，自动登录）"
-  signUpWithPhone(input: SignUpWithPhoneInput!): SignUpWithPhonePayload
-
-  "请求发送密码重置邮件（无论邮箱是否存在都返回统一成功结果）"
-  requestPasswordReset(email: String!): RequestPasswordResetResult
-
-  "使用一次性密码重置 token 设置新密码"
-  resetPassword(resetToken: String!, password: String!): ResetPasswordResult
-
-  "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
-  signInWithPlatform(platform: String!, code: String!, phoneCode: String, encryptedData: String, iv: String): SignInWithPlatformResult
-
-  "Owner\/Admin 创建一次性工作台邀请小程序码"
-  generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
-
-  "使用一次性小程序 scene 接受工作台邀请"
-  admitMemberByToken(scene: String!): Invitation
-
-  "接受邀请→建 Membership + 预授权角色入座（#96：手写 resolver 绕过 read policy 记录加载）"
-  acceptInvitation(id: ID!, input: AcceptInvitationInput!): AcceptInvitationResult
-
-  "记录一次小程序订阅消息授权并增加一个可用次数"
-  grantMiniProgramNotificationConsent(platform: String!, templateKey: String!): Int
-
-  "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
-  signOut: String
-
-  "更新当前用户全局显示名（ADR-0004：displayName 保留全局身份字段）"
-  updateDisplayName(displayName: String!): User
-
-  "绑定\/换绑当前用户手机号（验证码 purpose=CHANGE_PHONE 验新号；仅本人；目标号已被他人占用即拒绝，不做自助合并）"
-  updateMyPhone(phone: String!, code: String!): User
-
-  "更新当前用户界面语言偏好（i18n Phase 1；zh-CN | en，仅本人）"
-  updateMyLocale(locale: String!): User
-
-  "拒绝首公里接入邀请（每次登录弹直到明确拒绝；幂等保留首次拒绝时间戳，仅本人）"
-  dismissOnboardingInvitation: User
-
-  "更新当前用户在某工作台的资料（ADR-0004 per-workspace）"
-  updateWorkspaceProfile(workspaceId: ID!, input: UpdateWorkspaceProfileInput!): WorkspaceProfile
-
-  "设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace）"
-  setWorkspaceTheme(workspaceId: ID!, input: SetWorkspaceThemeInput!): WorkspaceProfile
-
-  "在某工作台创建作品集条目（ADR-0004；workspace_id 与 user_id 自动填充，防跨租户伪造）"
-  createPortfolioItem(workspaceId: ID!, input: CreatePortfolioItemInput!): PortfolioItem
-
-  "更新某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
-  updatePortfolioItem(id: ID!, workspaceId: ID!, input: UpdatePortfolioItemInput!): PortfolioItem
-
-  "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
-  deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
-
-  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
-  createMcpToken(name: String!): CreateMcpTokenPayload
-
-  "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
-  revokeMcpToken(id: ID!): McpToken
-
-  "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
-  promoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
-  demoteUser(id: ID!): AdminUserPayload
-
-  "平台管理员：创建倡导活动草稿"
-  createInitiative(input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：更新倡导活动元数据"
-  updateInitiative(id: ID!, input: AdminInitiativeInput!): AdminInitiativePayload
-
-  "平台管理员：设置倡导活动状态为进行中"
-  openInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：结束倡导活动"
-  closeInitiative(id: ID!): AdminInitiativePayload
-
-  "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
-  cancelInitiative(id: ID!): AdminInitiativePayload
-
-  "闪念间首程进入（R1\/R2）：token 分流记忆线\/圆梦线；失效原因可区分（not_found\/claimed\/revoked），写 link_opened 行为事件"
-  flashbackEnter(token: String!): FlashbackEnterResult
-
-  "认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入）"
-  flashbackMarkRevealed(token: String!): FlashbackTouchResult
-
-  "提交「今天的你」（R8\/R18\/R19\/R20，覆盖式；token 面写 intent_submitted）；联系方式更新走独立验证通道 flashbackUpdateContact。U9 起双入口：token 省略时按登录账号绑定档案（回访编辑不重计意图率）"
-  flashbackSubmitToday(token: String, input: FlashbackTodayInput!): FlashbackTodayResult
-
-  "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
-  flashbackSendToWall(token: String!): FlashbackSendToWallResult
-
-  "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
-  flashbackRetract(token: String!): FlashbackRetractResult
-
-  "调整雾面区间（R16\/KTD4）：只改 fog_spans，原文不可达。U9 起双入口：token 省略时按登录账号绑定档案"
-  flashbackAdjustFog(token: String, answerId: ID!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustFogResult
-
-  flashbackAdjustTodayFog(token: String, field: String!, spans: [FlashbackFogSpanInput!]!): FlashbackAdjustTodayFogResult
-
-  "金句授权（R31 两档 + 关）：level ∈ off\/anonymous\/credited，默认关。U9 起双入口：token 省略时按登录账号绑定档案"
-  flashbackSetQuoteLicense(
-    token: String, level: String!, chosenQuoteSpans: [FlashbackQuoteSpanInput], creditedNote: String
-  ): FlashbackQuoteLicenseResult
-
-  "卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档\/公开 slug 无依赖。双入口（token 或登录账号）"
-  flashbackSetCardSharing(enabled: Boolean!, token: String): FlashbackCardSharing
-
-  "注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付"
-  flashbackRegisterBind(token: String!, phone: String!, code: String!): FlashbackRegisterBindResult
-
-  "更新手机号（R17\/KTD7 防劫持）：新通道须先验证码验证；原通道收变更通知；回显仅掩码"
-  flashbackUpdateContact(token: String!, phone: String!, code: String!): FlashbackUpdateContactResult
-
-  "删除我的档案（U10\/R30\/ADR-0015）：不可逆——卡从墙上撤下、链接作废、答案\/回信\/附议\/金句授权清除、公开页下线；触达记录去个人字段。二次确认 confirm 必须为 \"DELETE\"。双入口（token 或登录账号）"
-  flashbackDelete(token: String, confirm: String!): FlashbackDeleteResult
-
-  "许愿（R5\/R6 + wish2 U8\/KTD1\/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
-  flashbackCreateWish(
-    token: String
-
-    requestId: ID
-
-    content: String!
-
-    visibility: String!
-
-    "署名快照：anonymous（默认，姓氏遮罩）\/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
-    signatureChoice: String
-
-    "期望地（Cities 名单短名；缺省取名册城市宽容归一）"
-    expectedCity: String
-
-    "公开树授权：仅 visibility=public 且 true 时愿望挂上许愿树（任何人可见）"
-    publicListingConsent: Boolean
-  ): FlashbackWishResult
-
-  "附议愿望（wish2 U6\/KTD3 改造）：**要求登录**（旧 token\/person 匿名腿下线——未登录 flashback_auth_required）；出力类型 + 留言(≤500 机审) + 回响通知意愿；返回实时计数与本人态"
-  flashbackEndorseWish(
-    wishId: ID!
-
-    "出力类型（可多选）：venue \/ organize \/ speak \/ sponsor \/ other"
-    contributionTypes: [String]
-
-    "给平台的留言（≤500；非空过机审；仅运营可见）"
-    message: String
-
-    "回响通知意愿（默认 false；真实授权由微信订阅消息 accept 上报，后端零 grant）"
-    notify: Boolean
-  ): FlashbackWishEndorseResult
-
-  "愿望留言（R8）：公开愿望可留言讨论"
-  flashbackAddWishComment(token: String, wishId: ID!, content: String!): FlashbackWishResult
-
-  "删除自己的许愿（R14 软删）：公开愿望删除后从走廊移除"
-  flashbackDeleteWish(token: String, wishId: ID!): Boolean
-
-  "删除自己的留言（R14 软删）"
-  flashbackDeleteWishComment(token: String, commentId: ID!): Boolean
-
-  flashbackRedeem(token: String, channelNote: String!): FlashbackRedeemResult
-
-  "自助找回·发起（U6\/R21\/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
-  flashbackRecover(identifier: String!): FlashbackRecoverResult
-
-  "自助找回·验证（U6\/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
-  flashbackRecoverVerify(identifier: String!, code: String!): FlashbackRecoverVerifyResult
-
-  "兑换状态流转（U11\/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
-  flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
-
-  "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
-  flashbackAdminSendOutreach(archiveKey: String!, template: String!, channel: String): FlashbackOutreachDispatchResult
-
-  "微信一键收好（R27 小程序路径）：已登录用户绑定档案——带 token 收该链接的档案（并作废链接）；不带 token 按登录手机\/邮箱自动匹配未认领档案"
-  flashbackClaim(token: String): FlashbackClaimResult
-
-  "金句点赞\/取消（R36\/R37）：公开无登录——voterKey（u:<user_id> \/ a:<device_uuid>）客户端生成去重，IP 窗口 + voterKey 窗口双层限频；返回该句实时计数"
-  flashbackLikeQuote(
-    quoteId: ID!
-
-    voterKey: String!
-
-    "true=点赞（幂等）；false=取消（幂等）"
-    liked: Boolean!
-  ): FlashbackQuoteLikeResult
-
-  "金句下线开关（R38，PlatformAdmin）：hidden_at 置位\/清空——置位后立即从金句墙与实名档案页消失（人工红线处理，无审核流水线）"
-  flashbackAdminSetQuoteHidden(
-    personId: ID!
-
-    "true=下线；false=恢复"
-    hidden: Boolean!
-  ): FlashbackQuoteHiddenResult
-
-  "期待\/取消期待（wish2 U6\/KTD2）：公开无登录——voterKey（u:\/a:）去重；登录 actor 传 anonVoterKey 时服务端合并匿名行；双窗限频（30\/min voter + 60\/h IP）"
-  flashbackExpectWish(
-    wishId: ID!
-
-    "true=期待（幂等）；false=取消（幂等）"
-    expected: Boolean!
-
-    "匿名设备键 a:<device_uuid>（登录 actor 可不传——服务端强制 u:）"
-    anonVoterKey: String
-
-    "登录态设备键（登录 actor 期待时传，服务端用它替代 anon 键做合并）"
-    voterKey: String
-  ): FlashbackWishExpectResult
-
-  "取消附议（wish2 U6\/KTD3）：要求登录；删 u: 行；期待数不动（双指标分离）"
-  flashbackCancelEndorseWish(wishId: ID!): FlashbackWishEndorseResult
-
-  "举报愿望（wish2 U6\/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10\/15min\/IP 限频；举报是治理信号不进排序（举报≠踩）"
-  flashbackReportWish(
-    wishId: ID!
-
-    "预设理由：spam \/ irrelevant \/ scam \/ inappropriate \/ other"
-    reasonType: String!
-
-    "补充说明（≤200 字，可选）"
-    reasonFree: String
-
-    "匿名设备键（登录 actor 不用传）"
-    anonVoterKey: String
-  ): FlashbackReportResult
-
-  "下架\/恢复愿望（wish2 U5\/KTD5 PlatformAdmin）：hidden=true 联动置位作者信用字段 wishes_review_required_at；false 只清 hidden_at 不动信用"
-  flashbackAdminSetWishHidden(
-    wishId: ID!
-
-    "true=下架；false=恢复"
-    hidden: Boolean!
-  ): FlashbackWishHiddenResult
-
-  "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
-  flashbackAdminCreateWishEcho(wishId: ID!, content: String!): FlashbackAdminWishEcho
-
-  "修改回响草稿（#834，PlatformAdmin；仅 draft 可修改）"
-  flashbackAdminUpdateWishEchoDraft(echoId: ID!, content: String!): FlashbackAdminWishEcho
-
-  "首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见）"
-  flashbackAdminPublishWishEcho(echoId: ID!): FlashbackAdminWishEcho
-
-  "原地更正已发布回响（#834，不触发首次通知）"
-  flashbackAdminCorrectWishEcho(echoId: ID!, content: String!): FlashbackAdminWishEcho
-
-  "撤回已发布回响（#834，终态）"
-  flashbackAdminRevokeWishEcho(echoId: ID!): FlashbackAdminWishEcho
-
-  "驳回举报（wish2 U5 PlatformAdmin）：status=dismissed"
-  flashbackAdminDismissReport(reportId: ID!): FlashbackReportResult
-
-  "批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位"
-  flashbackAdminApproveReport(reportId: ID!): FlashbackReportResult
-
-  "提交赞助意向：校验后创建 pending（不生效权益，等审批）"
-  createSponsorship(input: CreateSponsorshipInput!): CreateSponsorshipResult!
-
-  "审批通过：pending → active，同事务物化履约账本（SponsorshipDelivery）"
-  approveSponsorship(id: ID!): ApproveSponsorshipResult!
-
-  "审批拒绝：pending → rejected，rejection_reason 落审计字段"
-  rejectSponsorship(id: ID!, input: RejectSponsorshipInput): RejectSponsorshipResult!
-
-  "后台核销交付行（fulfilled_at + proof_note；Owner\/Admin）"
-  fulfillDelivery(id: ID!, input: FulfillDeliveryInput!): FulfillDeliveryResult!
-
-  "报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5\/R6\/R13）"
-  createOrder(input: CreateOrderInput!): CreateOrderResult!
-
-  "换渠道：旧 pending 单 cancelled + 新单（新 out_trade_no），R11"
-  replaceProvider(input: ReplaceProviderInput!): ReplaceProviderResult!
-
-  "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
-  cancelOrder(id: ID!): CancelOrderResult!
-
-  "创建工作台（仅平台管理员）"
-  createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!
-
-  "更新工作台（Owner\/Admin 或平台管理员）"
-  updateWorkspace(id: ID!, input: UpdateWorkspaceInput): UpdateWorkspaceResult!
-
-  "重指派 Owner（仅平台管理员，pending-owner 期间）：撤销 active Owner 邀请 + 改指现有用户或发新邀请"
-  reassignWorkspaceOwner(id: ID!, input: ReassignWorkspaceOwnerInput): ReassignWorkspaceOwnerResult!
-
-  "直接加入公开工作台（join_policy==:open）→ 建无标签 Membership"
-  joinWorkspace(input: JoinWorkspaceInput!): Workspace!
-
-  "分配成员角色（多角色并集，仅 Owner\/Admin）"
-  assignRoles(id: ID!, input: AssignRolesInput!): AssignRolesResult!
-
-  "提交加入申请"
-  createJoinRequest(input: CreateJoinRequestInput!): CreateJoinRequestResult!
-
-  "审批通过加入申请（Owner\/Admin，自动建 Membership（默认无标签角色））"
-  approveJoinRequest(id: ID!, input: ApproveJoinRequestInput): ApproveJoinRequestResult!
-
-  "拒绝加入申请（Owner\/Admin）"
-  rejectJoinRequest(id: ID!, input: RejectJoinRequestInput): RejectJoinRequestResult!
-
-  "创建邀请（Owner\/Admin\/Volunteer）"
-  createInvitation(input: CreateInvitationInput!): CreateInvitationResult!
-
-  "撤销邀请（邀请人本人或 Owner\/Admin 或平台管理员）"
-  revokeInvitation(id: ID!): RevokeInvitationResult!
-
-  "提交创建工作台申请"
-  createWorkspaceApplication(input: CreateWorkspaceApplicationInput!): CreateWorkspaceApplicationResult!
-
-  "审批通过创建工作台申请（platform_admin，自动创建 workspace + applicant 为 Owner）"
-  approveWorkspaceApplication(id: ID!): ApproveWorkspaceApplicationResult!
-
-  "拒绝创建工作台申请（platform_admin）"
-  rejectWorkspaceApplication(id: ID!, input: RejectWorkspaceApplicationInput): RejectWorkspaceApplicationResult!
-
-  "创建活动（默认 status=draft）"
-  createEvent(input: CreateEventInput!): CreateEventResult!
-
-  "编辑活动元数据（Owner\/Admin）"
-  updateEvent(id: ID!, input: UpdateEventInput): UpdateEventResult!
-
-  "发布活动：draft → open，发 event.launched 信号"
-  launchEvent(id: ID!): LaunchEventResult!
-
-  "结束活动：open → closed，发 event.ended 信号"
-  closeEvent(id: ID!): CloseEventResult!
-
-  "取消活动：open → cancelled，发 event.ended 信号"
-  cancelEvent(id: ID!): CancelEventResult!
-
-  "删除草稿活动：仅 draft；不可恢复；slug 释放（#676）"
-  deleteEvent(id: ID!): DeleteEventResult!
-
-  "创建课程（默认 status=draft）"
-  createCourse(input: CreateCourseInput!): CreateCourseResult!
-
-  "编辑课程元数据（Owner\/Admin）"
-  updateCourse(id: ID!, input: UpdateCourseInput): UpdateCourseResult!
-
-  "发布课程：draft → open，发 course.launched 信号"
-  launchCourse(id: ID!): LaunchCourseResult!
-
-  "结束课程：open → closed，发 course.ended 信号"
-  closeCourse(id: ID!): CloseCourseResult!
-
-  "取消课程：open → cancelled，发 course.ended 信号"
-  cancelCourse(id: ID!): CancelCourseResult!
-
-  "删除草稿课程：仅 draft；教研草稿一并删除、不可恢复；slug 释放（#676）"
-  deleteCourse(id: ID!): DeleteCourseResult!
-
-  "创建报名；open\/invite_only 立即占位，request 等待审批"
-  createEnrollment(input: CreateEnrollmentInput!): CreateEnrollmentResult!
-
-  "Owner\/Admin 确认 pending 报名并原子占用名额"
-  confirmEnrollment(id: ID!): ConfirmEnrollmentResult!
-
-  "Owner\/Admin 拒绝 pending 报名"
-  rejectEnrollment(id: ID!, input: RejectEnrollmentInput): RejectEnrollmentResult!
-
-  "报名人取消报名；confirmed\/payment_pending 报名释放名额"
-  cancelEnrollment(id: ID!): CancelEnrollmentResult!
-
-  createInviteBatch(input: CreateInviteBatchInput!): CreateInviteBatchResult!
-
-  disableInviteBatch(id: ID!): DisableInviteBatchResult!
+  "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）"
+  checkInCode: String
 }
 
-"""
-The `Json` scalar type represents arbitrary json string data, represented as UTF-8
-character sequences. The Json type is most often used to represent a free-form
-human-readable json string.
-"""
-scalar JsonString
+type MyLearningRun {
+  runId: ID!
+  enrollmentId: ID!
+  targetTitle: String
+  status: String!
+  staleRevision: Boolean!
+  progress: LearningProgress!
+  nextAction: LearningNextAction
+  courseId: ID!
+}
 
-"""
-The `Json` scalar type represents arbitrary json string data, represented as UTF-8
-character sequences. The Json type is most often used to represent a free-form
-human-readable json string.
-"""
-scalar Json
+type CourseLearningDetail {
+  courseId: ID!
+  title: String!
+  slug: String
+  run: LearningRunSummary
+  revisionNumber: Int
+  staleRevision: Boolean!
+  reviewQueue: [LearningReviewQueueEntry!]!
+  objectives: [LearningObjectiveState!]!
+  nextAction: LearningNextAction
+  progress: LearningProgress
+}
 
-"""
-The `DateTime` scalar type represents a date and time in the UTC
-timezone. The DateTime appears in a JSON response as an ISO8601 formatted
-string, including UTC timezone ("Z"). The parsed date and time string will
-be converted to UTC if there is an offset.
-"""
-scalar DateTime
+type LearningReviewQueueEntry {
+  objectiveId: String!
+  dueAt: DateTime!
+  milestoneDays: Int
+  needsReview: Boolean!
+}
+
+type CourseMap {
+  courseId: ID!
+  title: String!
+  slug: String!
+  goals: [String!]!
+  issues: [CourseMapIssue!]!
+}
+
+type CourseMapIssue {
+  key: String!
+  id: String!
+  title: String!
+  kind: String!
+  goal: String
+}
+
+type CourseContent {
+  courseId: ID!
+  title: String!
+  description: String
+  revisionNumber: Int
+  publishedAt: DateTime
+  content: JsonString!
+}
+
+type CourseDraft {
+  courseId: ID!
+  title: String!
+  version: Int
+  prepState: String
+  updatedAt: DateTime
+  content: JsonString
+}
+
+type CourseLearningAnalytics {
+  runStats: CourseLearningRunStats!
+  objectives: [CourseLearningObjectiveStats!]!
+  dropOff: CourseLearningDropOff!
+  generatedAt: DateTime!
+}
+
+type CourseLearningRunStats {
+  totalRuns: Int!
+  activeRuns: Int!
+  completedRuns: Int!
+  completionRate: Float
+}
+
+type CourseLearningObjectiveStats {
+  objectiveId: String!
+  title: String!
+  required: Boolean!
+  mastered: Int!
+  developing: Int!
+  needsReview: Int!
+  unassessed: Int!
+  totalAttempts: Int!
+  qualifyingPasses: Int!
+  lowConfidenceAttempts: Int!
+  passRate: Float
+  lastActivityAt: DateTime
+}
+
+type CourseLearningDropOff {
+  staleRunCount: Int!
+}
+
+type LearningRunSummary {
+  id: ID!
+  status: String!
+  revisionId: ID
+  revisionNumber: Int
+}
+
+type LearningObjectiveState {
+  id: String!
+  title: String!
+  required: Boolean!
+  issueId: String
+  prereqIds: [String!]!
+  mastery: String!
+  everMastered: Boolean!
+  locked: Boolean!
+  missingPrereqIds: [LearningPrereqRef!]!
+  attemptCount: Int!
+  lastAttemptAt: DateTime
+}
+
+type LearningPrereqRef {
+  id: String!
+  title: String
+}
+
+type LearningNextAction {
+  kind: String!
+  objectiveId: String!
+  reason: String!
+}
+
+type LearningProgress {
+  masteredRequired: Int!
+  totalRequired: Int!
+  complete: Boolean!
+}
 
 type AdminEvent {
   id: ID!

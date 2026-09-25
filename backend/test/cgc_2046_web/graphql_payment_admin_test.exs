@@ -717,9 +717,16 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     })
   end
 
+  # #847 批 2：资金类已迁耐久路径，行为面 = Delivery 行（伪 job 投影）
   defp notifications_for(template_key) do
-    all_enqueued(worker: NotificationWorker)
-    |> Enum.filter(&(&1.args["template_key"] == template_key))
+    require Ash.Query
+
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{args: %{"template_key" => &1.template_key, "user_id" => &1.user_id, "data" => &1.data}}
+    )
   end
 
   defp insert_identity(user_id, provider, uid) do
