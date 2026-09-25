@@ -68,7 +68,7 @@ call('automation_navigate',['--action','switchTab','--url','/pages/flashback-cor
 // Guests have no shutter; returning mock members may have one.
 const shutter=cls('flashback-corridor','shutterBtn')
 if(call('automation_page_action',['--action','querySelectorAll','--selector',shutter]).elements.length)tap(shutter)
-tap(cls('flashback-corridor','voicesEntry'));check('existing corridor links to wall',text(voice('quote')).includes('我不会'))
+tap(call('automation_page_action',['--action','querySelectorAll','--selector',cls('flashback-corridor','guestPage')]).elements.length ? cls('flashback-corridor','voicesPortal') : cls('flashback-corridor','voicesEntry'));check('existing corridor links to wall',text(voice('quote')).includes('我不会'))
 call('simulator_screenshot',['--path',resolve(evidence,'final-wall.png')])
 }
 writeFileSync(resolve(evidence,process.argv.includes('--live') ? 'live-result.txt' : 'result.txt'),log.join('\n')+'\n')
@@ -120,7 +120,7 @@ async function verifyLive() {
   tap(voice('primary'))
   tap(voice('recover'))
   call('simulator_screenshot',['--path',resolve(evidence,'live-corridor.png')])
-  tap(cls('flashback-corridor','voicesEntry'))
+  tap(call('automation_page_action',['--action','querySelectorAll','--selector',cls('flashback-corridor','guestPage')]).elements.length ? cls('flashback-corridor','voicesPortal') : cls('flashback-corridor','voicesEntry'))
   check('live original corridor entry remains usable', text(voice('quote')).length > 0)
   navigate(path)
   call('simulator_screenshot',['--path',resolve(evidence,'live-wall.png')])

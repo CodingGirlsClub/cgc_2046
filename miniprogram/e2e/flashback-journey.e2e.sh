@@ -2,7 +2,7 @@
 # 「我的闪念间」旅程 E2E（小程序 / weapp 模拟器，本地回归用，**不进 CI**）
 #
 # 覆盖（闪念间主容器 = tabBar 页 pages/flashback-corridor；卡面单源 = components/MyCard）：
-#   1. 未登录路人态：switchTab 长廊 → 公开统计帧（无名册内容）+ 登录引导 CTA → 登录页（R32）
+#   1. 未登录路人态：switchTab 长廊 → 公开金句首页（无名册内容）+ 找回入口 → 登录页（R32）
 #   2. mock 登录链（手机号授权 passthrough）→ profile「我的」tab
 #   3. tabBar 入口（自绘 AppTabBar 含「闪念间」项）+ 快门仪式层（U8：出现 → 点按 → 解散）
 #      + 参与态长廊结构（卡 dock / 城市钉 / 时间帧 / 今天格 / 未来场次 / 愿望段 / 底部 CTA）
@@ -146,6 +146,10 @@ LOGOUT=$(cls "$PROFILE" logout)
 
 # 长廊页类名
 CTA=$(cls "$COR" cta)
+GUEST_RECOVER=$(cls "$COR" recoverButton)
+GUEST_QUOTE=$(cls "$COR" quoteOpen)
+GUEST_VOICES=$(cls "$COR" voicesPortal)
+GUEST_WISHES=$(cls "$COR" wishesPortal)
 CAPWHEN=$(cls "$COR" capWhen)
 CAPLABEL=$(cls "$COR" capLabel)
 PINPOL=$(cls "$COR" pinPolaroid)
@@ -288,21 +292,21 @@ if [ "$(COUNT "$LOGOUT")" != "0" ]; then
 fi
 ck "清态后未登录（无退出按钮）" "$(COUNT "$LOGOUT")" '^0$'
 
-echo "### 1) 未登录路人态（R32）：switchTab 长廊 → 公开统计帧（无名册内容）+ 登录引导 CTA → 登录页"
+echo "### 1) 未登录路人态（R32）：switchTab 长廊 → 公开金句首页（无名册内容）+ 找回入口 → 登录页"
 RAW automation_navigate --action switchTab --url '/pages/flashback-corridor/index' >/dev/null
 sleep 3
 ck "落在长廊 tab" "$(ROUTE)" '/pages/flashback-corridor/index'
-ck "路人 CTA=登录找回" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
-ck "公开统计帧 2（2012 上海场 + 2014 北京场）" "$(COUNT "$CAPWHEN")" '^2$'
-ck "第一帧=2012.02.26（升序，顶上是更早的）" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
-ck "统计堆 2（每帧一城市堆）" "$(COUNT "$PINPOL")" '^2$'
-ck "首堆计数=走进教室 12 位（无名册人数口径）" "$(RES automation_element_action --action text --selector "$PINCOUNT")" '^12 位$'
+ck "访客找回入口" "$(RES automation_element_action --action text --selector "$GUEST_RECOVER")" '^找回你的那一张 →$'
+ck "访客显示一张公开金句卡" "$(COUNT "$GUEST_QUOTE")" '^1$'
+ck "金句墙入口可见" "$(COUNT "$GUEST_VOICES")" '^1$'
+ck "许愿树入口可见" "$(COUNT "$GUEST_WISHES")" '^1$'
+ck "访客首页不渲染历史统计堆" "$(COUNT "$PINPOL")" '^0$'
 ck "路人无卡 dock（member 才渲染）" "$(COUNT "$CARDDOCK")" '^0$'
-ck "路人仅见公开愿望段（U9 viewer listed），无城市钉/场次卡" "$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/2/0$'
-ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
+ck "访客首页无城市钉/愿望列表/场次卡" "$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0$'
+ck "访客不渲染个人今天空位" "$(COUNT "$TODAY_VACANT_TEXT")" '^0$'
 ck "路人无快门仪式（member 专属）" "$(COUNT "$SHUTTER_MASK")" '^0$'
 shot 01-corridor-viewer.png
-TAP "$CTA"
+TAP "$GUEST_RECOVER"
 sleep 2
 ck "CTA 落登录页（带 returnUrl 回跳长廊）" "$(ROUTE)" 'pages/login/index\?returnUrl='
 
@@ -343,7 +347,7 @@ ck "dock 授权（默认关无后缀）" "$(RES automation_element_action --acti
 ck "城市钉 3（名册城市：上海/北京/广州）" "$(COUNT "$CITY_PIN")" '^3$'
 ck "初始选中=全部（全部钉带选中态）" "$(RES automation_element_action --action text --selector "$CITY_PIN_ALL$CITY_PIN_ACTIVE")" '^全部$'
 ck "时间帧 2（升序）" "$(COUNT "$CAPWHEN")" '^2$'
-ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
+ck "访客有金句墙入口" "$(COUNT "$GUEST_VOICES")" '^1$'
 ck "首帧叙事标签=一切的开始" "$(RES automation_element_action --action text --selector "$CAPLABEL")" '一切的开始$'
 ck "城市堆 4（上海场 1 堆 + 北京场 北京/上海/广州 3 堆）" "$(COUNT "$PINPOL")" '^4$'
 ck "首堆=上海 · 3 位" "$(RES automation_element_action --action text --selector "$PINCITY")/$(RES automation_element_action --action text --selector "$PINCOUNT")" '^上海/3 位$'
@@ -706,24 +710,23 @@ ck "下一场=最近可报名场" "$(RES automation_element_action --action text
 shot 13.5-event-grid.png
 
 echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配仍路人 → 自动认领闭环"
-# 14a 路人态：清 token/登录 → 公开统计长廊（无名单），登录引导
+# 14a 路人态：清 token/登录 → 公开金句首页，登录找回
 RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.flashback_token"); wx.setStorageSync("cgc.e2e.flashback_unclaimed", "1"); wx.setStorageSync("cgc.e2e.flashback_claim_miss", "1") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
 sleep 2
 if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
 RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
 sleep 3
-ck "路人 CTA=登录找回" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
-ck "路人帧=公开统计 2（无名册内容）" "$(COUNT "$CAPWHEN")" '^2$'
-ck "第一帧=2012.02.26" "$(RES automation_element_action --action text --selector "$CAPWHEN")" '^2012\.02\.26'
-ck "统计堆 2（走进教室计数口径）" "$(COUNT "$PINPOL")" '^2$'
-ck "路人无卡 dock/城市钉/场次卡，仅见公开愿望段（U9 viewer listed）" "$(COUNT "$CARDDOCK")/$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/2/0$'
-ck "路人今天格=空位文案" "$(RES automation_element_action --action text --selector "$TODAY_VACANT_TEXT")" '^这一刻，还没有你的照片$'
+ck "访客找回入口" "$(RES automation_element_action --action text --selector "$GUEST_RECOVER")" '^找回你的那一张 →$'
+ck "访客有公开金句卡" "$(COUNT "$GUEST_QUOTE")" '^1$'
+ck "访客有金句墙入口" "$(COUNT "$GUEST_VOICES")" '^1$'
+ck "访客有许愿树入口" "$(COUNT "$GUEST_WISHES")" '^1$'
+ck "访客无个人卡/城市钉/愿望列表/场次卡" "$(COUNT "$CARDDOCK")/$(COUNT "$CITY_PIN")/$(COUNT "$WISH_CARD")/$(COUNT "$EVENT_CARD")" '^0/0/0/0$'
+ck "访客不渲染个人今天空位" "$(COUNT "$TODAY_VACANT_TEXT")" '^0$'
 shot 14-corridor-viewer.png
 
 # 14b 登录但库内未匹配（claim miss）→ 仍路人态（找回引导出口=同一 CTA；
-# 注：guide=login/recover 在长廊无差异化渲染——recover 文案只在场次页出，
-# 产品问题已记录）
+# 已登录无档案仍保留统计长廊；未登录展示公开金句首页）
 RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
 sleep 2
 TAP "$LOGIN_BUTTON"
