@@ -590,6 +590,10 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
+      <View className={styles.voicesEntry} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+        <View><Text className={styles.voicesTitle}>金句墙</Text><Text className={styles.voicesSubtitle}>听听那些年，大家愿意公开的声音</Text></View>
+        <Text className={styles.voicesArrow}>去看看 →</Text>
+      </View>
       <View className={styles.capsuleShell}>
       <ScrollView
         id='fbCapsule'

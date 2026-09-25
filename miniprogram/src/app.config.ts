@@ -50,7 +50,8 @@ const fullPages = [
   'pages/flashback-today/index',
   // #771：公开卡页（朋友视角）——微信端专属：它只由分享链接进入，裁剪端
   // 无闪念间深度场景，且页内「卡片站外公开」文案含跨端词（check:diversion）
-  'pages/flashback-shared-card/index'
+  'pages/flashback-shared-card/index',
+  'pages/flashback-voices/index'
 ]
 
 const cutTabList = CUT_TABS.map(toTabBarEntry)

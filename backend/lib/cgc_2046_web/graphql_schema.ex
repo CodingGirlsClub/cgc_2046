@@ -447,11 +447,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     @desc "闪念间匿名金句墙（U6/R31/R32/R36/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
     field :flashback_public_quotes, non_null(list_of(non_null(:flashback_public_quote))) do
+      @desc "城市短名；筛选先于热门 60 条限量"
+      arg(:city, :string)
       @desc "客户端去重键（u:<user_id> / a:<device_uuid>）：只影响 likedByViewer 回显"
       arg(:voter_key, :string)
 
       resolve(fn _, args, _ ->
-        Cgc2046.Flashback.Public.quotes(Map.get(args, :voter_key))
+        Cgc2046.Flashback.Public.quotes(Map.get(args, :voter_key), Map.get(args, :city))
       end)
     end
 
@@ -551,6 +553,11 @@ defmodule Cgc2046Web.GraphqlSchema do
           voter_keys: viewer_voter_keys(context, args[:voter_key])
         )
       end)
+    end
+
+    @desc "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
+    field :flashback_voice_cities, non_null(list_of(non_null(:flashback_city))) do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.Public.voice_cities() end)
     end
 
     @desc "全国城市名单（wish2 U6/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"

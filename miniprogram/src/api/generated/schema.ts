@@ -6056,6 +6056,8 @@ export type RootQueryType = {
   flashbackRandomQuotes: Array<FlashbackPublicQuote>;
   /** 卡片分享链接（#771）：匿名可读（无 token / 无 slug / 无授权依赖）；null = 未命中 / 已关闭 / 已删除（不区分原因，不做存在性预言机） */
   flashbackSharedCard?: Maybe<FlashbackSharedCard>;
+  /** 公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响 */
+  flashbackVoiceCities: Array<FlashbackCity>;
   /** 平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null） */
   getAdminCourse?: Maybe<AdminCourseDetail>;
   /** 平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null） */
@@ -6288,6 +6290,7 @@ export type RootQueryTypeFlashbackPublicQuoteArgs = {
 
 
 export type RootQueryTypeFlashbackPublicQuotesArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
   voterKey?: InputMaybe<Scalars['String']['input']>;
 };
 

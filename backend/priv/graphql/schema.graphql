@@ -5541,6 +5541,9 @@ type RootQueryType {
 
   "闪念间匿名金句墙（U6\/R31\/R32\/R36\/R37）：授权者的脱敏金句（姓** · 年 · 城），按句输出；未授权\/已撤回内容零出现。排序=点赞数优先、更新时间次之；voterKey 用于 likedByViewer（不传恒 false）"
   flashbackPublicQuotes(
+    "城市短名；筛选先于热门 60 条限量"
+    city: String
+
     "客户端去重键（u:<user_id> \/ a:<device_uuid>）：只影响 likedByViewer 回显"
     voterKey: String
   ): [FlashbackPublicQuote!]!
@@ -5593,6 +5596,9 @@ type RootQueryType {
     "客户端去重键：只影响 expected\/endorsedByViewer 回显"
     voterKey: String
   ): FlashbackPublicWish
+
+  "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
+  flashbackVoiceCities: [FlashbackCity!]!
 
   "全国城市名单（wish2 U6\/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源"
   flashbackCities: [FlashbackCity!]!
