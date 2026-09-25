@@ -6209,8 +6209,8 @@ type FlashbackRedemptionUpdateResult {
 type FlashbackAdminArchive {
   key: String!
   name: String!
-  city: String!
-  occurredOn: String!
+  city: String
+  occurredOn: String
 }
 
 type FlashbackOutreachPreview {

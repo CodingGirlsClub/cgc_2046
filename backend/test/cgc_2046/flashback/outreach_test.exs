@@ -918,6 +918,28 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert String.starts_with?(log.metadata["batch"], "resend-")
       assert log.metadata["queued"] == 1
     end
+
+    test "occurred_on/city 为空的场次档案不炸列表（教练场档案场景）" do
+      archive = create_archive()
+
+      # 今天运营建的「教练」场档案无具体日期/城市——曾让 Date.to_iso8601(nil)
+      # 崩掉整个 flashbackAdminArchives 查询（场次加载失败）。
+      Cgc2046.Flashback.EventArchive
+      |> Ash.Changeset.for_create(:create, %{key: "coaches-rails-girls", name: "Rails Girls 教练"})
+      |> Ash.create!(authorize?: false)
+
+      %{token: token} = register_and_sign_in("outreach-audit-nil", :admin)
+
+      assert %{"data" => %{"flashbackAdminArchives" => rows}} =
+               post_graphql("{ flashbackAdminArchives { key name city occurredOn } }", token)
+
+      assert length(rows) == 2
+
+      assert %{"key" => "coaches-rails-girls", "city" => nil, "occurredOn" => nil} =
+               Enum.find(rows, &(&1["key"] == "coaches-rails-girls"))
+
+      assert Enum.find(rows, &(&1["key"] == archive.key))
+    end
   end
 
   # ── 场次列表（R7 发送入口数据源） ───────────────────────────────────
