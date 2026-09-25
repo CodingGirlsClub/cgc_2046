@@ -208,6 +208,8 @@ export interface FlashbackRosterEntry {
 	fullName?: string | null;
 	/** 寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null */
 	appliedAt?: string | null;
+	/** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，非「没去」） */
+	participation: string;
 	city?: string | null;
 	occupationThen?: string | null;
 	sentToWallAt?: string | null;
@@ -710,6 +712,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					id
 					surnameMasked
 					fullName
+					participation
 					appliedAt
 					city
 					occupationThen

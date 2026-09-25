@@ -878,6 +878,19 @@
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
 .fb-roster-facts { font-size: 10px; opacity: 0.65; }
+/* 圆梦线小徽标「当年报了名」：雾卡（暗底亮字）与点亮卡（纸底墨字）两态
+   通用——currentColor 继承各自文本色 + 低透明 + 发丝描边（低调不抢戏） */
+.fb-roster-badge {
+	display: inline-block;
+	align-self: flex-start;
+	font-size: 10px;
+	line-height: 1.8;
+	padding: 0 7px;
+	border-radius: 999px;
+	border: 1px solid currentColor;
+	color: inherit;
+	opacity: 0.68;
+}
 /* ── 名册显影（第 7a 件：对齐原型 D 的 develop-soft 节奏） ──────────────
    进入视口才显影，只播一次；终态**不归零**（blur(1px)/brightness(1.08)/0.94，
    对齐原型 ia-develop-soft「墙上别人照片的持续感」——整面墙保持将显未定的

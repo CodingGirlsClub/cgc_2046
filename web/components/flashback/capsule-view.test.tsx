@@ -44,6 +44,7 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 const rosterEntry = (overrides: Partial<FlashbackCapsule["archives"][number]["roster"][number]>) => ({
 	id: "entry-1",
 	surnameMasked: "王**",
+	participation: "attended",
 	city: "北京",
 	occupationThen: "学生",
 	sentToWallAt: null,
