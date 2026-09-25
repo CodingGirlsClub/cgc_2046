@@ -86,6 +86,7 @@ defmodule Cgc2046.Flashback.WishEchoesTest do
     assert [%{args: first_args}] = all_enqueued(worker: NotificationWorker)
     assert first_args["template_key"] == "flashback_wish_echo"
     assert first_args["data"]["wish_id"] == wish.id
+    assert first_args["data"]["echo_id"] == first.id
     assert first_args["data"]["endorsement_id"] == endorsement.id
 
     second = create_echo(wish, "第二条主办方回响")
@@ -185,6 +186,118 @@ defmodule Cgc2046.Flashback.WishEchoesTest do
                  [endorsement_id]
                )
     end)
+  end
+
+  # Real publish -> queued worker -> captured provider request; no external messages.
+  defp queued_delivery(prior_echo \\ false) do
+    receiver = self()
+
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} = env ->
+        send(receiver, {:echo_delivery, Jason.decode!(env.body)})
+        Tesla.Mock.json(%{"errcode" => 0})
+    end)
+
+    user = AccountsFixtures.register_user("echo-delivery-#{System.unique_integer([:positive])}")
+    insert_identity(user.id, :wechat, "echo-delivery-openid")
+    {:ok, _} = Cgc2046.Notifications.Consent.grant(user.id, :wechat, "flashback_wish_echo")
+    {wish, person} = create_listed_wish()
+
+    if prior_echo do
+      old = create_echo(wish, "附议前已经公开的旧回响")
+      {:ok, _} = WishEchoes.publish(old.id, Ecto.UUID.generate())
+    end
+
+    {:ok, _} = Wishes.endorse_by_user(user.id, wish.id, notify: true)
+    echo = create_echo(wish, "第一版回响")
+    {:ok, _} = WishEchoes.publish(echo.id, Ecto.UUID.generate())
+    [job] = all_enqueued(worker: NotificationWorker)
+    %{user: user, wish: wish, person: person, echo: echo, args: job.args, job: job}
+  end
+
+  test "真实发布的通知直达独立许愿树，发送前刷新更正内容并消费一次授权" do
+    %{user: user, wish: wish, echo: echo, args: args} = queued_delivery()
+    {:ok, _} = WishEchoes.correct(echo.id, "发送前更正的回响")
+    assert :ok = perform_job(NotificationWorker, args)
+    assert_receive {:echo_delivery, body}
+    assert body["page"] == "pages/flashback-wishes/index?wishId=#{wish.id}"
+    assert body["data"]["thing1"] == %{"value" => "发送前更正的回响"}
+
+    assert {:ok, 0} =
+             Cgc2046.Notifications.Consent.remaining(user.id, :wechat, "flashback_wish_echo")
+
+    assert {:discard, "consent_exhausted"} = perform_job(NotificationWorker, args)
+    refute_receive {:echo_delivery, _}
+  end
+
+  test "触发通知的回响撤回后，不回退到附议前的旧回响" do
+    %{user: user, echo: echo, job: job} = queued_delivery(true)
+    {:ok, _} = WishEchoes.revoke(echo.id)
+    assert :ok = perform_job(NotificationWorker, job.args)
+    refute_receive {:echo_delivery, _}
+
+    assert {:ok, 1} =
+             Cgc2046.Notifications.Consent.remaining(user.id, :wechat, "flashback_wish_echo")
+  end
+
+  test "入队后发布另一条回响，不替换本次通知的回响" do
+    %{wish: wish, job: job} = queued_delivery()
+    newer = create_echo(wish, "后来发布的新回响")
+    {:ok, _} = WishEchoes.publish(newer.id, Ecto.UUID.generate())
+    assert :ok = perform_job(NotificationWorker, job.args)
+    assert_receive {:echo_delivery, body}
+    assert body["data"]["thing1"] == %{"value" => "第一版回响"}
+  end
+
+  test "缺少事件身份的任务明确拒绝，不猜回响、不消耗授权" do
+    %{user: user, args: args} = queued_delivery()
+    args = put_in(args, ["data"], Map.delete(args["data"], "echo_id"))
+    assert {:discard, "echo_identity_missing"} = perform_job(NotificationWorker, args)
+    refute_receive {:echo_delivery, _}
+
+    assert {:ok, 1} =
+             Cgc2046.Notifications.Consent.remaining(user.id, :wechat, "flashback_wish_echo")
+  end
+
+  for state <- [:canceled, :notify_off, :hidden, :deleted, :revoked, :wrong_user] do
+    test "队列等待后 #{state} 不再外发且保留授权" do
+      %{user: user, wish: wish, person: person, echo: echo, args: args} = queued_delivery()
+
+      args =
+        case unquote(state) do
+          :canceled ->
+            {:ok, _} = Wishes.cancel_endorse_by_user(user.id, wish.id)
+            args
+
+          :notify_off ->
+            {:ok, _} = Wishes.endorse_by_user(user.id, wish.id, notify: false)
+            args
+
+          :hidden ->
+            Repo.query!("UPDATE flashback_wishes SET hidden_at = NOW() WHERE id = $1", [
+              Repo.uuid!(wish.id)
+            ])
+
+            args
+
+          :deleted ->
+            {:ok, _} = Wishes.soft_delete_wish(wish.id, person.id)
+            args
+
+          :revoked ->
+            {:ok, _} = WishEchoes.revoke(echo.id)
+            args
+
+          :wrong_user ->
+            Map.put(args, "user_id", Ecto.UUID.generate())
+        end
+
+      assert :ok = perform_job(NotificationWorker, args)
+      refute_receive {:echo_delivery, _}
+
+      assert {:ok, 1} =
+               Cgc2046.Notifications.Consent.remaining(user.id, :wechat, "flashback_wish_echo")
+    end
   end
 
   defp fail_echo_enqueue do

@@ -281,11 +281,11 @@ defmodule Cgc2046.Notifications.NotificationWorker do
       stale: nil
     },
     # 愿望 Echo（wish2 U3 KTD3）：附议贡献者收到「主办方收到你的提议」回响；
-    # 发送时校验 endorse.notify AND Consent.take（授权单源，U3 后端零 grant 红旗）。
+    # 出队由 WishEchoDelivery 复核有效出力和公开内容，再由 Service 消耗授权。
     %{
       template_key: "flashback_wish_echo",
       id_key: nil,
-      data_keys: ["wish_id", "content_preview", "endorsement_id"],
+      data_keys: ["wish_id", "content_preview", "endorsement_id", "echo_id"],
       job_meta_keys: ["wish_id", "endorsement_id"],
       unique: :default,
       stale: nil
@@ -293,7 +293,26 @@ defmodule Cgc2046.Notifications.NotificationWorker do
   ]
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def perform(%Oban.Job{args: %{"template_key" => "flashback_wish_echo"} = args}) do
+    case Cgc2046.Flashback.WishEchoDelivery.prepare(args) do
+      :skip ->
+        :ok
+
+      {:ok, data} ->
+        perform_notification(Map.put(args, "data", data))
+
+      {:error, :echo_identity_missing} ->
+        Logger.warning(
+          "flashback wish echo not delivered: missing echo identity; check queue cutover"
+        )
+
+        {:discard, "echo_identity_missing"}
+    end
+  end
+
+  def perform(%Oban.Job{args: args}), do: perform_notification(args)
+
+  defp perform_notification(args) do
     platform = String.to_existing_atom(args["platform"])
 
     if Staleness.stale?(args) do
