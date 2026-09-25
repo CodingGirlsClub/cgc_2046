@@ -40,6 +40,16 @@ const findings = [
 		lastSeenAt: "2026-08-03T00:10:00Z",
 		insertedAt: "2026-08-03T00:00:00Z",
 	},
+	{
+		id: "f4",
+		rule: "payment_recon",
+		entityType: "payment_order",
+		entityId: "ord-abcdef123456",
+		workspaceId: "ws4",
+		firstSeenAt: "2026-08-04T00:00:00Z",
+		lastSeenAt: "2026-08-04T00:10:00Z",
+		insertedAt: "2026-08-04T00:00:00Z",
+	},
 ];
 
 beforeEach(() => {
@@ -64,6 +74,11 @@ describe("/admin/reconciliation 对账页", () => {
 		// 时间列渲染为真实日期，非 Invalid Date
 		expect(row).toHaveTextContent("2026");
 		expect(screen.queryByText("Invalid Date")).not.toBeInTheDocument();
+		// #852 补齐的 7 条之一：payment_recon 渲染新中文标签（非 map 键则回退原串）
+		expect(await screen.findByText("ord-abcdef123456")).toBeInTheDocument();
+		expect(screen.getByText("ord-abcdef123456").closest("tr")).toHaveTextContent(
+			"缴费渠道对账差异",
+		);
 	});
 
 	it("空报告 → 渲染空态", async () => {
