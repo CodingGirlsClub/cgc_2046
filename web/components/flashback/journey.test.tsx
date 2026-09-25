@@ -453,7 +453,7 @@ describe("Journey · 记忆线", () => {
 		expect(await screen.findByText(/想收好这张卡/)).toBeInTheDocument();
 
 		fireEvent.change(screen.getByLabelText("手机号"), { target: { value: "13800000000" } });
-		fireEvent.click(screen.getByRole("button", { name: "手机号验证收好" }));
+		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
 		expect(await screen.findByLabelText("验证码")).toBeInTheDocument();
 
 		fireEvent.change(screen.getByLabelText("验证码"), { target: { value: "123456" } });
