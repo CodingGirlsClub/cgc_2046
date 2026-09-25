@@ -11,9 +11,13 @@ import {
   LIST_WORKSPACE_APPLICATIONS,
   LIST_WORKSPACES,
   MY_WORKSPACE_APPLICATIONS,
+  RECONCILIATION_RULE_LABEL,
   PROMOTE_USER,
   REJECT_WORKSPACE_APPLICATION,
 } from "./admin";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 describe("admin GraphQL 契约（Phase 5 后端 schema 对齐）", () => {
   it("listUsers 查询含 admin 字段与分页参数", () => {
@@ -110,6 +114,35 @@ describe("admin GraphQL 契约（Phase 5 后端 schema 对齐）", () => {
       "valueAfterOmitted",
     ]) {
       expect(doc).toContain(field);
+    }
+  });
+});
+
+describe("对账规则标签契约（对齐 backend finding.ex @rule_values；#852）", () => {
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  const FINDING_EX = resolve(HERE, "../../../backend/lib/cgc_2046/reconciliation/finding.ex");
+  const MESSAGES = resolve(HERE, "../../messages");
+
+  function backendRuleAtoms(): string[] {
+    const block = readFileSync(FINDING_EX, "utf8").match(/@rule_values \[([^\]]+)\]/)?.[1] ?? "";
+    return [...block.matchAll(/^\s*:([a-z_]+),?\s*$/gm)].map((m) => m[1]);
+  }
+
+  it("RECONCILIATION_RULE_LABEL 键集与后端 @rule_values 完全一致（双向，防任一侧静默漂移）", () => {
+    const backend = backendRuleAtoms();
+    // 空集假绿防线：后端实有 18 条，提取器失效（返回 0/少量）必须红
+    expect(backend.length).toBeGreaterThanOrEqual(18);
+    expect(Object.keys(RECONCILIATION_RULE_LABEL).sort()).toEqual([...backend].sort());
+  });
+
+  it("每个标签 i18n key 在 zh-CN / en 的 labels.reconRule 下都有文案", () => {
+    const zh = JSON.parse(readFileSync(resolve(MESSAGES, "zh-CN.json"), "utf8"));
+    const en = JSON.parse(readFileSync(resolve(MESSAGES, "en.json"), "utf8"));
+
+    for (const [atom, key] of Object.entries(RECONCILIATION_RULE_LABEL)) {
+      expect(key).toBe(`labels.reconRule.${atom}`);
+      expect(zh.labels.reconRule[atom], `zh-CN 缺 ${atom} 文案`).toBeTruthy();
+      expect(en.labels.reconRule[atom], `en 缺 ${atom} 文案`).toBeTruthy();
     }
   });
 });
