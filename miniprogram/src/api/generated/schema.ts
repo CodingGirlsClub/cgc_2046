@@ -2658,6 +2658,8 @@ export type FlashbackOutreachBatchChannel = {
 };
 
 export type FlashbackOutreachDispatchResult = {
+  /** campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封） */
+  dedupedWithinCampaign: Scalars['Int']['output'];
   /** 入队件数（错峰 scheduled_at 限速后由 worker 续发） */
   queued: Scalars['Int']['output'];
   /** 跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处） */
@@ -2677,6 +2679,8 @@ export type FlashbackOutreachPreview = {
   both: Scalars['Int']['output'];
   /** 所选通道档的预估入队数 */
   channel: Scalars['String']['output'];
+  /** campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0） */
+  dedupedWithinCampaign: Scalars['Int']['output'];
   /** 三档分布：仅邮件可达 / 仅短信可达 / 双通道 */
   emailOnly: Scalars['Int']['output'];
   queued: Scalars['Int']['output'];
@@ -5551,6 +5555,7 @@ export type RootMutationTypeFlashbackAdminRevokeWishEchoArgs = {
 
 export type RootMutationTypeFlashbackAdminSendOutreachArgs = {
   archiveKey: Scalars['String']['input'];
+  batch?: InputMaybe<Scalars['String']['input']>;
   channel?: InputMaybe<Scalars['String']['input']>;
   template: Scalars['String']['input'];
 };
@@ -6036,7 +6041,7 @@ export type RootQueryType = {
   flashbackDreamTarget?: Maybe<FlashbackDreamTarget>;
   /** 触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次 */
   flashbackOutreachBatches: Array<FlashbackOutreachBatch>;
-  /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2） */
+  /** 触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判 */
   flashbackOutreachPreview?: Maybe<FlashbackOutreachPreview>;
   /** 场次名册（R9，PlatformAdmin）：档案 + 最近触达结果 + 完整联系方式（KD6/R13）；filter = unclaimed|unsubscribed|sms_only|send_failed */
   flashbackOutreachRoster: Array<FlashbackOutreachRosterEntry>;
@@ -6267,6 +6272,7 @@ export type RootQueryTypeFlashbackOutreachBatchesArgs = {
 
 export type RootQueryTypeFlashbackOutreachPreviewArgs = {
   archiveKey: Scalars['String']['input'];
+  batch?: InputMaybe<Scalars['String']['input']>;
   channel?: InputMaybe<Scalars['String']['input']>;
 };
 
