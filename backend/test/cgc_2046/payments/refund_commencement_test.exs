@@ -158,17 +158,17 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
     # 不切连接则共享同一条 pg_backend_pid，实为串行）；布置亦 unboxed 真提交，
     # worker 连接才可见；数据由 on_exit 自行清理。
     test "两进程独立连接同时 commence 同一 paid 单：恰一 :started、另一 :already_in_progress，恰一笔 job" do
-      {workspace, order} =
+      {workspace, event, order, users} =
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          %{workspace: workspace, order: order} = paid_order_setup()
-          {workspace, reload_order(order)}
+          %{workspace: workspace, event: event, order: order, users: users} = paid_order_setup()
+          {workspace, event, reload_order(order), users}
         end)
 
       on_exit(fn ->
         # unboxed 真提交的布置清理（OrderEnrollmentLockTest / attendance 并发
-        # 用例同款：先释放 sandbox 事务再按子→父删）——workflow_definitions
-        # 与 workspace_memberships 的 FK 无级联，必须先于 workspace 删除；
-        # webhook_events 为多态事件表（无 FK），按本布置的 event_id 删
+        # 用例同款：先释放 sandbox 事务再按子→父删）。三类高频残留（users /
+        # SignalPublishWorker job / admin_action_logs）一并清理，结尾断言清零
+        # （R2 非阻断：清不干净会在别的全表断言上爆出来）。
         Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -183,6 +183,18 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
           Repo.query!("DELETE FROM payments_webhook_events WHERE event_id = $1", [
             "evt-" <> order.out_trade_no
           ])
+
+          Repo.query!(
+            "DELETE FROM oban_jobs WHERE worker = $1 AND args::text LIKE $2",
+            ["Cgc2046.Workflows.SignalPublishWorker", "%" <> event.id <> "%"]
+          )
+
+          Repo.query!(
+            "DELETE FROM admin_action_logs WHERE metadata::text LIKE $1 OR target_id::text = $1",
+            ["%" <> event.id <> "%"]
+          )
+
+          user_ids = Enum.map(users, &Repo.uuid!/1)
 
           Repo.query!("DELETE FROM workflow_definitions WHERE workspace_id = $1", [
             Repo.uuid!(workspace.id)
@@ -199,6 +211,24 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
 
           Repo.query!("DELETE FROM events WHERE workspace_id = $1", [Repo.uuid!(workspace.id)])
           Repo.query!("DELETE FROM workspaces WHERE id = $1", [Repo.uuid!(workspace.id)])
+
+          Repo.query!("DELETE FROM user_identities WHERE user_id = ANY($1)", [user_ids])
+          Repo.query!("DELETE FROM users WHERE id = ANY($1)", [user_ids])
+
+          # 三类清零断言（users / SignalPublishWorker job / admin_action_logs）
+          assert_count_zero!("SELECT count(*) FROM users WHERE id = ANY($1)", [user_ids])
+
+          assert_count_zero!(
+            "SELECT count(*) FROM oban_jobs WHERE worker = $1 AND args::text LIKE $2",
+            ["Cgc2046.Workflows.SignalPublishWorker", "%" <> event.id <> "%"]
+          )
+
+          assert_count_zero!(
+            "SELECT count(*) FROM admin_action_logs WHERE metadata::text LIKE $1",
+            [
+              "%" <> event.id <> "%"
+            ]
+          )
         end)
       end)
 
@@ -244,6 +274,12 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
 
   # ── 布置 ──
 
+  # on_exit 清零断言：清不干净直接 raise，让本用例红（防「绿」掩盖清理失败）
+  defp assert_count_zero!(sql, params) do
+    %{rows: [[count]]} = Repo.query!(sql, params)
+    if count != 0, do: raise("expected zero rows, got #{count} for #{sql}")
+  end
+
   defp paid_order_setup do
     admin = Fixtures.platform_admin("rc-admin-" <> uniq())
     workspace = Fixtures.create_workspace(admin)
@@ -284,7 +320,13 @@ defmodule Cgc2046.Payments.RefundCommencementTest do
       |> Ash.Changeset.for_update(:settle_paid, %{})
       |> Ash.update(tenant: workspace.id, authorize?: false)
 
-    %{workspace: workspace, event: event, enrollment: enrollment, order: reload_order(order)}
+    %{
+      workspace: workspace,
+      event: event,
+      enrollment: enrollment,
+      order: reload_order(order),
+      users: [admin.id, learner.id]
+    }
   end
 
   # 非本用例主链的状态布置（终态 / 滞留态）：同一订单行直改 status，不建第二笔
