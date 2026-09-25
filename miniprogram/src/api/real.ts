@@ -196,6 +196,7 @@ import type {
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
 import { parseQualificationBadge } from '@/domain/initiative'
+import { mapPublicWishEcho } from '@/domain/flashback'
 import {
   RECRUITMENT_WORKSPACE_SLUG,
   parseCohortStatus,
@@ -1542,8 +1543,29 @@ function mapWish(wish: {
   endorsedByMe: boolean
   mine: boolean
   comments?: Array<{ id: string; content: string; commenterMasked?: string | null; insertedAt: string }>
+  // #837 GraphQL 生成类型 status 为宽 string;domain 用 mapPublicWishEcho fail-closed 收敛
+  latestEcho?: {
+    id: string
+    content: string
+    status: string
+    publishedAt: string
+    correctedAt?: string | null
+  } | null
+  echoCount?: number
+  echoes?: Array<{
+    id: string
+    content: string
+    status: string
+    publishedAt: string
+    correctedAt?: string | null
+  }>
   insertedAt: string
 }): FlashbackWish {
+  // #837 status 非法的回响整条丢弃(等同服务端本就不该返回),latestEcho / echoes 同规则
+  const mappedEchoes = (wish.echoes ?? [])
+    .map(mapPublicWishEcho)
+    .filter((e): e is NonNullable<typeof e> => e !== null)
+  const mappedLatest = wish.latestEcho ? mapPublicWishEcho(wish.latestEcho) : null
   return {
     id: wish.id,
     content: wish.content,
@@ -1558,6 +1580,9 @@ function mapWish(wish: {
       commenterMasked: c.commenterMasked ?? null,
       insertedAt: c.insertedAt
     })),
+    latestEcho: mappedLatest,
+    echoCount: wish.echoCount ?? 0,
+    echoes: mappedEchoes,
     insertedAt: wish.insertedAt
   }
 }
