@@ -5,6 +5,7 @@ import WishesPage from "./wishes-page";
 import {
 	FLASHBACK_CITIES,
 	FLASHBACK_EXPECT_WISH,
+	FLASHBACK_PUBLIC_WISH,
 	FLASHBACK_PUBLIC_WISHES,
 	type FlashbackPublicWish,
 } from "@/lib/graphql/flashback";
@@ -40,9 +41,15 @@ const { wallQuery, citiesQuery, expectRunner } = vi.hoisted(() => ({
 
 vi.mock("@/lib/apollo-client", () => ({
 	client: {
-		query: (options: { query: unknown }) => {
+		query: (options: { query: unknown; variables?: { wishId?: string } }) => {
 			if (options.query === FLASHBACK_PUBLIC_WISHES) return wallQuery(options);
 			if (options.query === FLASHBACK_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_PUBLIC_WISH) {
+				if (options.variables?.wishId === "wb-net-fail") {
+					return Promise.reject(new Error("network down"));
+				}
+				return Promise.resolve({ data: { flashbackPublicWish: null } });
+			}
 			throw new Error("unexpected query");
 		},
 	},
@@ -84,5 +91,21 @@ describe("WishesPage · SSR 参与后的客户端回归（001）", () => {
 		await waitFor(() => {
 			expect(window.localStorage.getItem("flashback.wishesIntroSeen")).toBe("1");
 		});
+	});
+});
+
+describe("WishesPage · ?item= 直达失败口径", () => {
+	it("网络失败按「只是网络问题」呈现（loadError），不谎报「这个愿望目前无法查看」", async () => {
+		render(<WishesPage item="wb-net-fail" />);
+		// 隐藏的
+		await screen.findByText("这条心愿暂时没加载出来");
+		expect(screen.getByText(/多半只是网络问题/)).toBeInTheDocument();
+		expect(screen.queryByText("这个愿望目前无法查看")).not.toBeInTheDocument();
+	});
+
+	it("查无此愿：仍走「这个愿望目前无法查看」（gone 口径独立分开）", async () => {
+		render(<WishesPage item="wb-absent" />);
+		await screen.findByText("这个愿望目前无法查看");
+		expect(screen.queryByText("这条心愿暂时没加载出来")).not.toBeInTheDocument();
 	});
 });
