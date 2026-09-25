@@ -62,11 +62,54 @@ defmodule Cgc2046Web.GraphqlEventModeratorsTest do
     assert [%{"code" => "user_not_found"}] = payload["errors"]
   end
 
+  test "removeEventModerator 先指派再移除：errors 空且库内记录确实消失" do
+    owner = Fixtures.platform_admin()
+    workspace = Fixtures.create_workspace(owner)
+    moderator = Fixtures.register_user_with_email("gql-remove-mod@example.com")
+    Fixtures.add_member(workspace, moderator, [:learner])
+    event = EventsFixtures.create_event(workspace, owner)
+
+    assert %{"data" => %{"assignEventModerator" => %{"errors" => [], "result" => result}}} =
+             graphql(
+               assign_mutation(workspace.id, event.id, "gql-remove-mod@example.com"),
+               sign_in_token(owner)
+             )
+
+    moderator_row_id = result["id"]
+
+    # 前置：记录已在库——防「断言落在空集合上」的假绿（列表含 fixture 自带的
+    # owner 主理人，故用存在性断言而非单元素匹配）
+    assert {:ok, rows} = Moderators.list(event.id, workspace.id, owner)
+    assert Enum.find(rows, &(&1.id == moderator_row_id))
+
+    assert %{"data" => %{"removeEventModerator" => %{"errors" => []}}} =
+             graphql(remove_mutation(workspace.id, moderator_row_id), sign_in_token(owner))
+
+    # 副作用断言：直读库（不经 policy），记录确实不在了
+    assert {:ok, nil} =
+             Ash.get(Cgc2046.Events.EventModerator, moderator_row_id,
+               authorize?: false,
+               tenant: workspace.id,
+               not_found_error?: false
+             )
+  end
+
   defp assign_mutation(workspace_id, event_id, anchor) do
     """
     mutation {
       assignEventModerator(workspaceId: "#{workspace_id}", eventId: "#{event_id}", userId: "#{anchor}") {
         result { id userId userDisplayName userMemberNumber }
+        errors { message code }
+      }
+    }
+    """
+  end
+
+  defp remove_mutation(workspace_id, moderator_id) do
+    """
+    mutation {
+      removeEventModerator(workspaceId: "#{workspace_id}", moderatorId: "#{moderator_id}") {
+        result { id }
         errors { message code }
       }
     }

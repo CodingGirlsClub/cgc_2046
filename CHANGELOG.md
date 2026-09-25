@@ -18,6 +18,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+（暂无）
+
+## [2026-09-25]
+
 ### Added
 
 - [微信] 闪念间原生公开树：voices wall 与城市目录浏览（#790）。
