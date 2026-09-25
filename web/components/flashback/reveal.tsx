@@ -110,7 +110,8 @@ export default function Reveal({
 	const freeAnswers = (profile.answers ?? []).filter(
 		(answer) => (FREE_TEXT_KEYS as readonly string[]).includes(answer.questionKey),
 	);
-	const identityChips = [profile.city, profile.occupationThen, profile.gender].filter(
+	// 身份 chip 只落城市与职业；性别不在卡面展示（owner review 2026-09）
+	const identityChips = [profile.city, profile.occupationThen].filter(
 		(value): value is string => Boolean(value),
 	);
 

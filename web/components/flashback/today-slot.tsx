@@ -50,9 +50,12 @@ export default function TodaySlot({
 					) : (
 						<div className="fb-today-placeholder">
 							<p className="fb-roster-dashed">{t("dashed")}</p>
-							<Link href="/flashback/enter" className="fb-cta">
+							{/* D2 止血（视觉审计 2026-09）：找回绑定后 token 一律作废是常态，
+							   无 token 裸链 enter 必落假失效页——改为落 hub 自助找回区 */}
+							<Link href={token ? "/flashback/enter" : "/flashback#recover"} className="fb-cta">
 								{t("goSend")}
 							</Link>
+							{!token && <p className="fb-hint">{t("goSendRecoverHint")}</p>}
 						</div>
 					)}
 				</div>

@@ -105,4 +105,14 @@ describe("Reveal 显影卡正面答案区（视觉审计 2026-09）", () => {
 		renderFront();
 		expect(screen.queryByText("13800000000")).not.toBeInTheDocument();
 	});
+
+	it("身份 chip：只落城市与职业，不显示性别（owner review 2026-09）", () => {
+		renderFront();
+		const chips = [...document.querySelectorAll(".fb-identity > span")].map((n) =>
+			n.textContent.trim(),
+		);
+		expect(chips).toContain("杭州");
+		expect(chips).toContain("美术老师");
+		expect(chips).not.toContain("女");
+	});
 });
