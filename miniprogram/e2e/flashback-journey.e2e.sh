@@ -21,7 +21,7 @@
 #   11. 首程旅程（token 面免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
 #   13. 长廊首程落地：welcome 金句引导（先不）+ 今天格已寄出 + 点堆进场次页
 #   13.5 场次页：统计行 + 3 列网格（显影/雾卡）+ 找回 CTA + 回环三出口
-#   14. 三级视角（R32）：路人围观 → 登录未匹配仍路人 → 自动认领闭环（含快门）
+#   14. 三级视角（R32）：路人围观 → 登录未匹配给出下一步 → 自动认领闭环（含快门）
 #
 # 为什么不在 CI：需要微信开发者工具 GUI（已登录）+ wechatide CLI，见
 # miniprogram/AGENTS.md「E2E」一节。web 端 E2E 走 ego-browser，与本脚本无关。
@@ -198,6 +198,7 @@ WISH_COMMENT_INPUT=$(cls "$COR" wishCommentInput)
 WISH_INPUT=$(cls "$COR" wishInput)
 WISH_SHEET_MASK=$(clsCommon endorseMask)
 WISH_SHEET_SUBMIT=$(clsCommon endorseSubmit)
+WISH_RECEIPT_DONE=$(clsCommon receiptDone)
 ENDORSE_CHIP=$(clsCommon endorseChip)
 ENDORSE_NOTIFY=$(clsCommon endorseNotify)
 PRIVATE_FOLD=$(cls "$COR" privateFold)
@@ -556,6 +557,8 @@ TAP "$ENDORSE_CHIP"
 TAP "$ENDORSE_NOTIFY"
 TAP "$WISH_SHEET_SUBMIT"
 sleep 1.5
+TAP "$WISH_RECEIPT_DONE"
+sleep 1.5
 ck "附议后表单关闭" "$(COUNT "$WISH_SHEET_MASK")" '^0$'
 ck "首愿附议数 +1 且本人已附议" "$(RES automation_element_action --action text --selector "$WISH_CARD $WISH_ENDORSED")" '^👍 6 · 已附议$'
 
@@ -709,7 +712,7 @@ ck "回环三出口（下一场/回到今天/看看未来）" "$(COUNT "$ELOOP")
 ck "下一场=最近可报名场" "$(RES automation_element_action --action text --selector "$ELOOP")" '^下一场:Agent 入门工作坊 →$'
 shot 13.5-event-grid.png
 
-echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配仍路人 → 自动认领闭环"
+echo "### 14) 三级视角（R32）：路人围观 → 登录未匹配给出下一步 → 自动认领闭环"
 # 14a 路人态：清 token/登录 → 公开金句首页，登录找回
 RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.flashback_token"); wx.setStorageSync("cgc.e2e.flashback_unclaimed", "1"); wx.setStorageSync("cgc.e2e.flashback_claim_miss", "1") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
@@ -725,8 +728,7 @@ ck "访客无个人卡/城市钉/愿望列表/场次卡" "$(COUNT "$CARDDOCK")/$
 ck "访客不渲染个人今天空位" "$(COUNT "$TODAY_VACANT_TEXT")" '^0$'
 shot 14-corridor-viewer.png
 
-# 14b 登录但库内未匹配（claim miss）→ 仍路人态（找回引导出口=同一 CTA；
-# 已登录无档案仍保留统计长廊；未登录展示公开金句首页）
+# 14b 登录但库内未匹配（claim miss）→ 公开首页保留，找回区提供写愿望出口。
 RAW automation_navigate --action reLaunch --url '/pages/login/index' >/dev/null
 sleep 2
 TAP "$LOGIN_BUTTON"
@@ -735,9 +737,9 @@ TAP "$DIALOG_PRIMARY"
 wait_route '/pages/profile/index' || true
 RAW automation_navigate --action reLaunch --url '/pages/flashback-corridor/index' >/dev/null
 sleep 3.5
-ck "未匹配仍路人态 CTA" "$(RES automation_element_action --action text --selector "$CTA")" '^你也在这些照片里吗？登录找回 →$'
+ck "未匹配可直接写愿望" "$(RES automation_element_action --action text --selector "$GUEST_RECOVER")" '^写下我的愿望 →$'
 ck "未匹配无卡 dock（不伪造参与态）" "$(COUNT "$CARDDOCK")" '^0$'
-ck "未匹配帧仍=公开统计 2" "$(COUNT "$CAPWHEN")" '^2$'
+ck "未匹配显示公开首页而非统计长廊" "$(COUNT "$GUEST_QUOTE")/$(COUNT "$CAPWHEN")" '^1/0$'
 shot 14.5-corridor-claim-miss.png
 
 # 14c 自动认领（claim 命中）→ 直接进参与态（member 转变 → 快门仪式层）
