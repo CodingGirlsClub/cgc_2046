@@ -783,6 +783,10 @@ export interface MiniProgramApi {
   /** #931 删除档案：先取摘要，再以 DELETE 确认 */
   flashbackDeletePreview(token: string | null): Promise<import('./flashback-retract').FlashbackDeletePreview>
   flashbackDelete(token: string | null, confirm: string): Promise<void>
+  /** #932 小程序内找回·发起（同 web：命中与未命中同形返回，不泄露存在性） */
+  flashbackRecover(identifier: string): Promise<void>
+  /** #932 小程序内找回·验证：档案绑定到当前登录账号（不另建账号）；返回找到的张数 */
+  flashbackRecoverVerifyForAccount(identifier: string, code: string): Promise<{ count: number }>
   /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
   flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */

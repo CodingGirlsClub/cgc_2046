@@ -18,12 +18,17 @@ defmodule Cgc2046.Flashback.Recover do
   - 邮箱命中：每个匹配档案铸一个一次性 token，恢复邮件列出全部入口
     链接（明文 token 只进邮件正文，不落任何持久化载体——生成→渲染→
     发送→只落 hash，KTD2）。
+
+  ## 已登录找回（#932）
+
+  小程序里已登录但没匹配到档案的人（当年用别的号码报名）走 `verify_for_user/3`：发起同
+  `initiate/2`（限流与防枚举不变），验证后绑定到**当前账号**——不 find-or-create、不换会话。
   """
 
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
+  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential, User}
   alias Cgc2046.Flashback.{Person, Token}
   alias Cgc2046.Mailer
 
@@ -124,6 +129,49 @@ defmodule Cgc2046.Flashback.Recover do
       {:error, _reason} ->
         {:error, invalid_code_error()}
     end
+  end
+
+  @doc """
+  已登录找回（#932）：码通过 → 匹配档案绑定到**当前账号**（并作废其链接 token，R1）。
+  与 `verify/3` 的区别：不 find-or-create、不签新会话——已登录用户换号找回若按验证的号码
+  find-or-create，会多造出一个账号。号码已属于另一个账号、或档案已被别的账号认领 →
+  `flashback_recover_account_conflict`，不静默合并（此时号码所有权已由验证码证明，告知冲突
+  不构成枚举）。错码 / 无档案 / 非手机形态与 `verify/3` 同文案。
+  """
+  @spec verify_for_user(String.t(), String.t(), map()) ::
+          {:ok, %{bound: boolean(), cards: [map()]}} | {:error, map()}
+  def verify_for_user(identifier, code, %{id: user_id} = user) do
+    with {:phone, phone} when is_binary(phone) <- classify(identifier),
+         :ok <- consume_code(phone, code),
+         people when people != [] <- match_people(:phone, identifier, phone),
+         :ok <- ensure_no_other_account(phone, people, user_id),
+         :ok <- bind_all(people, user) do
+      {:ok, %{bound: true, cards: Enum.map(people, &card_payload/1)}}
+    else
+      {:error, %{code: error_code} = error} when is_binary(error_code) -> {:error, error}
+      _ -> {:error, invalid_code_error()}
+    end
+  end
+
+  defp ensure_no_other_account(phone, people, user_id) do
+    phone_owner =
+      User
+      |> Ash.Query.filter(phone == ^phone)
+      |> Ash.read_one!(authorize?: false)
+
+    taken? =
+      (phone_owner && phone_owner.id != user_id) ||
+        Enum.any?(people, &(&1.user_id && &1.user_id != user_id))
+
+    if taken?,
+      do:
+        {:error,
+         %{
+           code: "flashback_recover_account_conflict",
+           message: "This phone or archive already belongs to another account",
+           reason: :account_conflict
+         }},
+      else: :ok
   end
 
   defp consume_code(phone, code) do

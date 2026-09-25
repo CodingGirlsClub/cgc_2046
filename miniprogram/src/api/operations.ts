@@ -834,6 +834,28 @@ export const FlashbackDeletePreviewQueryDocument = /* GraphQL */ `
   }
 `
 
+// #932 小程序内找回：发起同 web（命中与未命中同形）；验证绑定到当前登录账号（不另建账号）
+export const FlashbackRecoverMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecover($identifier: String!) {
+    flashbackRecover(identifier: $identifier) {
+      dispatched
+    }
+  }
+`
+
+export const FlashbackRecoverVerifyForAccountMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecoverVerifyForAccount($identifier: String!, $code: String!) {
+    flashbackRecoverVerifyForAccount(identifier: $identifier, code: $code) {
+      bound
+      cards {
+        surnameMasked
+        eventName
+        city
+      }
+    }
+  }
+`
+
 export const FlashbackDeleteMutationDocument = /* GraphQL */ `
   mutation FlashbackDelete($token: String, $confirm: String!) {
     flashbackDelete(token: $token, confirm: $confirm) {

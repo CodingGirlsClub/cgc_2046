@@ -143,7 +143,7 @@ export default function FlashbackEventPage() {
         {mode.kind === 'viewer' && (
           <View className={styles.guideBlock}>
             <Text className={styles.guideText}>
-              我们还没找到你的档案——收到过我们的链接就从链接打开完成首程，或用网页端「闪念间」凭手机号找回。
+              我们还没找到你的档案——收到过我们的链接就从链接打开完成首程；当年用的是别的手机号或邮箱，回闪念间首页就能找回。
             </Text>
           </View>
         )}
