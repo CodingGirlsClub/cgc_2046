@@ -19,6 +19,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
   import Ecto.Query
 
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback
   alias Cgc2046.Flashback.{Outreach, Person, Token}
   alias Cgc2046.Flashback.Outreach.{Dispatch, Emails}
@@ -859,6 +860,63 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert %{"queued" => 2, "skipped" => 0} = res["data"]["flashbackAdminSendOutreach"]
       assert outreach_count(%{batch: "archive-" <> archive.key}) == 2
+    end
+  end
+
+  describe "触达治理留痕（GraphQL 面与 MCP 面单源 AdminActionLog）" do
+    test "send mutation 成功 → :flashback_outreach_send 留痕带 actor/channel/batch/queued" do
+      archive = create_archive()
+      insert_people(archive, 1)
+
+      %{token: token, user: admin} = register_and_sign_in("outreach-audit-send", :admin)
+
+      assert %{"data" => %{"flashbackAdminSendOutreach" => %{"queued" => 1}}} =
+               post_graphql(send_outreach_mutation(archive.key), token)
+
+      log =
+        AdminActionLog
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(action == :flashback_outreach_send)
+        |> Ash.read_one!(authorize?: false)
+
+      assert log.actor_id == admin.id
+      assert log.result == :success
+      assert log.metadata["channel"] == "all"
+      assert log.metadata["template"] == "reconnect"
+      assert log.metadata["batch"] == "archive-" <> archive.key
+      assert log.metadata["queued"] == 1
+    end
+
+    test "resend mutation 成功 → :flashback_outreach_resend 留痕带 actor/batch" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      %{token: token, user: admin} = register_and_sign_in("outreach-audit-resend", :admin)
+
+      # 注：resend 字段在 schema 的 query root（355 行区域 query block），
+      # 前端 admin.ts 亦以 query document 调用——与生产路径一致。
+      mutation = """
+      query {
+        flashbackAdminResendOutreach(personId: "#{person.id}", template: "reconnect") {
+          queued skipped
+        }
+      }
+      """
+
+      assert %{"data" => %{"flashbackAdminResendOutreach" => %{"queued" => 1}}} =
+               post_graphql(mutation, token)
+
+      log =
+        AdminActionLog
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(action == :flashback_outreach_resend)
+        |> Ash.read_one!(authorize?: false)
+
+      assert log.actor_id == admin.id
+      assert log.result == :success
+      assert log.metadata["channel"] == "all"
+      assert String.starts_with?(log.metadata["batch"], "resend-")
+      assert log.metadata["queued"] == 1
     end
   end
 
