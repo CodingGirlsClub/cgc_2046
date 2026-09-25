@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import {
 	sentencesWithFogMark,
+	TODAY_FIELDS,
 	type FlashbackAnswer,
 	type FlashbackFogSpan,
 } from "@/lib/graphql/flashback";
@@ -33,6 +34,7 @@ export default function SendRegister({
 	onSendToWall,
 	onSetQuoteLicense,
 	onAdjustFog,
+	onAdjustTodayFog,
 	onRegisterBind,
 	onRequestPhoneCode,
 	onBack,
@@ -47,6 +49,8 @@ export default function SendRegister({
 	onSendToWall: () => Promise<boolean>;
 	onSetQuoteLicense: (form: TodayFormState) => Promise<boolean>;
 	onAdjustFog: (answerId: string, spans: FlashbackFogSpan[]) => Promise<boolean>;
+	/** today 字段（now/want/need/say）句级雾面落库（U9 双入口：末段寄出必须按服务端最新文本校验） */
+	onAdjustTodayFog: (field: string, spans: FlashbackFogSpan[]) => Promise<boolean>;
 	onRegisterBind: (phone: string, code: string) => Promise<boolean>;
 	onRequestPhoneCode: (phone: string, purpose: "REGISTER" | "CHANGE_PHONE") => Promise<boolean>;
 	/** 「再想想」出口：返回写字面（关浮层），不触发任何 mutation */
@@ -55,6 +59,7 @@ export default function SendRegister({
 }) {
 	const t = useTranslations("flashback.sendRegister");
 	const questionT = useTranslations("flashback.questionLabels");
+	const writeT = useTranslations("flashback.write");
 	const errorT = usePaymentErrorTranslator();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
@@ -68,19 +73,45 @@ export default function SendRegister({
 		Object.fromEntries(answers.map((answer) => [answer.id, [...(answer.fogSpans ?? [])]])),
 	);
 
-	const toggleSentence = (answerId: string, sentence: { start: number; len: number }) => {
-		setSpansByAnswer((prev) => {
-			const current = prev[answerId] ?? [];
-			// 句与区间交界即视为雾（与 sentencesWithFogMark 的命中口径一致）
-			const intersects = (span: { start: number; len: number }) =>
-				span.start < sentence.start + sentence.len && sentence.start < span.start + span.len;
-			const fogged = current.some(intersects);
-			const rest = current.filter((span) => !intersects(span));
-			return {
-				...prev,
-				[answerId]: fogged ? rest : [...rest, { start: sentence.start, len: sentence.len }],
-			};
-		});
+	/** today 字段逐句雾选（fog 字段名 → spans；初始 = 空——首程寄出时服务端雾面尚未存在） */
+	const [spansByField, setSpansByField] = useState<Record<string, FlashbackFogSpan[]>>(() =>
+		Object.fromEntries(TODAY_FIELDS.map((host) => [host.fog, []])),
+	);
+
+	/** 句与区间交界即视为雾（与 sentencesWithFogMark 的命中口径一致） */
+	const toggleSpanIn = (
+		prev: Record<string, FlashbackFogSpan[]>,
+		key: string,
+		sentence: { start: number; len: number },
+	) => {
+		const current = prev[key] ?? [];
+		const intersects = (span: { start: number; len: number }) =>
+			span.start < sentence.start + sentence.len && sentence.start < span.start + span.len;
+		const fogged = current.some(intersects);
+		const rest = current.filter((span) => !intersects(span));
+		return {
+			...prev,
+			[key]: fogged ? rest : [...rest, { start: sentence.start, len: sentence.len }],
+		};
+	};
+
+	const toggleSentence = (answerId: string, sentence: { start: number; len: number }) =>
+		setSpansByAnswer((prev) => toggleSpanIn(prev, answerId, sentence));
+
+	const toggleTodaySentence = (fog: string, sentence: { start: number; len: number }) =>
+		setSpansByField((prev) => toggleSpanIn(prev, fog, sentence));
+
+	const todayLabelOf = (field: (typeof TODAY_FIELDS)[number]["field"]): string => {
+		switch (field) {
+			case "nowStatus":
+				return writeT("nowLabel");
+			case "want":
+				return writeT("wantLabel");
+			case "need":
+				return writeT("needLabel");
+			case "say":
+				return writeT("sayLabel");
+		}
 	};
 
 	/** 寄出（「确认寄出」与失败重试共用）：先把变化的雾区间落库再上墙 */
@@ -101,6 +132,18 @@ export default function SendRegister({
 			setPhase("failed");
 			return;
 		}
+		// today 雾面必须落在新文本之后（adjustTodayFog 按服务端当前文本校验区间）；
+		// 未圈字段一律跳过——首程初始即空，不发无谓 mutation。
+		for (const host of TODAY_FIELDS) {
+			const next = normalizeSpans(spansByField[host.fog]);
+			if (next.length === 0) continue;
+			const fogOk = await onAdjustTodayFog(host.fog, next);
+			if (!fogOk) {
+				setError(t("errorTodayFog"));
+				setPhase("failed");
+				return;
+			}
+		}
 		if (form.quoteLevel !== "off") {
 			await onSetQuoteLicense(form);
 		}
@@ -111,7 +154,7 @@ export default function SendRegister({
 			return;
 		}
 		setPhase("sent");
-	}, [answers, spansByAnswer, onAdjustFog, errorT, form, onSubmitToday, onSendToWall, onSetQuoteLicense, t]);
+	}, [answers, spansByAnswer, spansByField, onAdjustFog, onAdjustTodayFog, errorT, form, onSubmitToday, onSendToWall, onSetQuoteLicense, t]);
 
 	const handleConfirm = () => {
 		setError(null);
@@ -179,6 +222,41 @@ export default function SendRegister({
 						</div>
 					))}
 				</div>
+				{TODAY_FIELDS.some((host) => form[host.field]) && (
+					<>
+						<p className="fb-lead">{t("reviewTodayTitle")}</p>
+						<div className="fb-review">
+							{TODAY_FIELDS.map((host) =>
+								form[host.field] ? (
+									<div key={host.fog} className="fb-review-answer">
+										<p className="fb-review-question">{todayLabelOf(host.field)}</p>
+										<div className="fb-review-sentences">
+											{sentencesWithFogMark(
+												form[host.field] ?? "",
+												spansByField[host.fog],
+											).map((sentence) => (
+												<button
+													key={sentence.start}
+													type="button"
+													className={`fb-review-sentence${sentence.fogged ? " fb-review-sentence--fog" : ""}`}
+													aria-pressed={sentence.fogged}
+													onClick={() => toggleTodaySentence(host.fog, sentence)}
+												>
+													<span className="fb-review-sentence-text">{sentence.text}</span>
+													{sentence.fogged && (
+														<span className="fb-review-fog-badge" aria-hidden="true">
+															{t("fogBadge")}
+														</span>
+													)}
+												</button>
+											))}
+										</div>
+									</div>
+								) : null,
+							)}
+						</div>
+					</>
+				)}
 				<button type="button" className="fb-cta fb-cta-primary" onClick={handleConfirm}>
 					{t("confirmSend")}
 				</button>
