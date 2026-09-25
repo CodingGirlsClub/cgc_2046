@@ -38,3 +38,23 @@
 .author { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .mapWrap { position: relative; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   「我也期待」是这一页的火（全 App 只有一种主按钮颜色）；已期待是金（被点亮）；
+   「我能出力 / 已出力 · 取消」墨色描边；筛选选中是墨。 */
+.page { background: var(--paper); color: var(--ink); }
+.voicesTab, .english, .legend, .notice, .pager { color: var(--ink-3); }
+.selectedTab { border-bottom-color: var(--ink); color: var(--ink); }
+.shareTree { color: var(--ink); background: rgba(255, 253, 247, 0.92); border-color: var(--rule); }
+.legend, .filters { background: var(--paper-deep); }
+.allFilter, .echoFilter { color: var(--ink-2); }
+.activeFilter { color: var(--paper-hi); background: var(--ink); }
+.content, .countNumber, .stateTitle { color: var(--ink); }
+.meta, .shareWish, .count, .previous, .next, .shuffle, .myWishes, .stateCopy { color: var(--ink-2); }
+.previous[disabled], .next[disabled] { color: var(--ink-3); }
+.expect { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); border-radius: 999rpx; box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.expected { color: var(--gold-ink); background: var(--gold-soft); box-shadow: none; }
+.contribute { color: var(--ink); border-color: var(--ink-3); border-radius: 999rpx; }
+.pager, .footer { border-top-color: var(--rule); }
+.writeWish { color: var(--ink); background: transparent; border: 1rpx solid var(--ink-3); border-radius: 999rpx; }
+.allTree { color: var(--ink); background: var(--paper-deep); }

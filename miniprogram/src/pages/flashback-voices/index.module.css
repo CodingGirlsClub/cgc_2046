@@ -31,3 +31,21 @@
 .wishesTab { background: transparent; color: #76856d; padding: 14rpx 0; font: 30rpx 'Songti SC', 'STSong', serif; }
 
 .mapWrap { position: relative; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   「随便听一听」是这一页的火（继续听下去——新人获得力量的主路径）；点赞墨色描边、点过变金；
+   山河地图与青绿图例原样（青只画山河）。 */
+.page { background: var(--paper); color: var(--ink); }
+.header { border-bottom-color: var(--rule); }
+.title { color: var(--ink); }
+.english, .legend, .eyebrow, .position, .consent { color: var(--ink-3); }
+.shareWall { color: var(--ink); background: rgba(255, 253, 247, 0.92); border-color: var(--rule); }
+.filters { background: var(--paper-deep); }
+.quote, .stateTitle { color: var(--ink); }
+.attribution, .shareQuote, .stateCopy, .previous, .next { color: var(--ink-2); }
+.likeButton { color: var(--ink); border-color: var(--ink-3); border-radius: 999rpx; }
+.liked { color: var(--gold-ink); background: var(--gold-soft); border-color: var(--gold-line); }
+.random, .primary { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); border-radius: 999rpx; box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.pager, .footer { border-color: var(--rule); }
+.recover, .future { color: var(--ink); border: 1rpx solid var(--ink-3); border-radius: 999rpx; padding: 16rpx 26rpx; }
+.wishesTab { color: var(--ink-3); }
