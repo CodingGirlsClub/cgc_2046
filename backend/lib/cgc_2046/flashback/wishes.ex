@@ -119,7 +119,12 @@ defmodule Cgc2046.Flashback.Wishes do
   # 三态反馈（R18）：listed（挂树）/ pending_review（信用待审——admin 放行后挂树）/
   # private（说给主办方听）；public 无 consent 的旧客户端形状归 private 档反馈
   # （未挂树语义一致，旧客户端不读该字段）。
-  defp listing_status(visibility, wish) do
+  @doc """
+  wish 的三态列表状态投影（listed/pending_review/private）。返回字符串字面量，
+  供 flashback_wish_result.status 对外暴露。
+  """
+  @spec listing_status(String.t(), map()) :: String.t()
+  def listing_status(visibility, wish) do
     cond do
       visibility == "private" -> "private"
       not is_nil(wish.listed_at) -> "listed"

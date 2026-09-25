@@ -151,6 +151,43 @@ defmodule Cgc2046Web.GraphqlFlashbackMemberSmokeTest do
     assert comment.content == "算我一个"
   end
 
+  test "flashbackAddWishComment：返回三态 status(schema non_null 投影;listed wish 上留言恒为 listed)" do
+    arch = archive()
+    owner = person(arch)
+    owner_token = token_for(owner)
+    wish = listed_wish(owner_token, "Rust 读书会招募")
+
+    commenter =
+      person(arch, %{email: "commenter-#{System.unique_integer([:positive])}@example.com"})
+
+    commenter_token = token_for(commenter)
+
+    res =
+      post_graphql(
+        """
+        mutation AddComment($token: String, $wishId: ID!, $content: String!) {
+          flashbackAddWishComment(token: $token, wishId: $wishId, content: $content) {
+            endorsementCount
+            endorsedByMe
+            status
+          }
+        }
+        """,
+        %{
+          "token" => commenter_token,
+          "wishId" => wish.id,
+          "content" => "我也加入"
+        }
+      )
+
+    assert res["errors"] == nil
+
+    # add_comment 对 public+listed wish 恒 listed——这正是与 create_wish 一致的三态口径
+    assert res["data"]["flashbackAddWishComment"]["status"] == "listed"
+    assert res["data"]["flashbackAddWishComment"]["endorsementCount"] == 0
+    assert res["data"]["flashbackAddWishComment"]["endorsedByMe"] == false
+  end
+
   @adjust_today_fog_mutation """
   mutation AdjustTodayFog($token: String, $field: String!, $spans: [FlashbackFogSpanInput!]!) {
     flashbackAdjustTodayFog(token: $token, field: $field, spans: $spans) {
