@@ -11,8 +11,12 @@ import {
   EnrollmentQueryDocument,
   FlashbackAdjustFogMutationDocument,
   FlashbackAdjustTodayFogMutationDocument,
+  FlashbackAddWishCommentMutationDocument,
   FlashbackCapsuleQueryDocument,
   FlashbackClaimMutationDocument,
+  FlashbackCreateWishMutationDocument,
+  FlashbackDeleteWishMutationDocument,
+  FlashbackEndorseWishMutationDocument,
   FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
@@ -329,8 +333,9 @@ test('mock capsule 未来段（U1）：场次含满员/截止、公开愿含已�
   assert.equal(data.flashbackCapsule.publicWishes[0].comments.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes.length, 1)
   assert.equal(data.flashbackCapsule.myPrivateWishes[0].mine, true)
-  // R20 年度额度:mock 恒满额 3(fail-closed 解析缺字段会红,此处钉住形状)
-  assert.equal(data.flashbackCapsule.myWishQuotaRemaining, 3)
+  // 种子私愿由本人在 2026 年创建，R20 年度额度包含私愿。
+  const shanghaiYear = new Date(Date.now() + 8 * 3_600_000).getUTCFullYear()
+  assert.equal(data.flashbackCapsule.myWishQuotaRemaining, shanghaiYear === 2026 ? 2 : 3)
 })
 
 // ── #771 卡片站外公开：mock 写面 → capsule 回读 + 匿名公开读面 ────────────
@@ -637,4 +642,74 @@ test('#837 mock flashbackCapsule.publicWishes 同形状投影 echo 字段(member
   assert.equal(pw1.echoCount, 0)
   assert.equal(pw1.latestEcho, null)
   assert.deepEqual(pw1.echoes, [])
+})
+
+// ── #790: workspace_access_denied → meWorkspaces=[] ──
+test('#790 session query 默认带工作台(meWorkspaces 非空)', async () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  type Session = { me: { id: string } | null; meWorkspaces: Array<{ id: string }> }
+  const { SessionQueryDocument } = await import('../src/api/operations.ts')
+  const data = mockGraphQLRequest<Session>(SessionQueryDocument, {})
+  assert.ok(data.me, '登录后 me 非空')
+  assert.equal(data.meWorkspaces.length, 1)
+})
+
+test('#790 __setWorkspaceAccessDenied(true) 后 meWorkspaces=[]', async () => {
+  const { __setWorkspaceAccessDenied } = await import('../src/api/mockTransport.ts')
+  __setWorkspaceAccessDenied(true)
+  try {
+    type Session = { me: { id: string } | null; meWorkspaces: Array<{ id: string }> }
+    const { SessionQueryDocument } = await import('../src/api/operations.ts')
+    const data = mockGraphQLRequest<Session>(SessionQueryDocument, {})
+    assert.ok(data.me, '登录后 me 非空')
+    assert.deepEqual(data.meWorkspaces, [])
+  } finally {
+    __setWorkspaceAccessDenied(false)
+  }
+})
+
+test('#790 愿望写面经 capsule 读回，年度额度含软删且不退还', () => {
+  type Wish = { id: string; content: string; endorsementCount: number; endorsedByMe: boolean; mine: boolean; comments: Array<{ content: string }> }
+  type Capsule = { flashbackCapsule: { publicWishes: Wish[]; myWishQuotaRemaining: number } }
+  const read = () => mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, {}).flashbackCapsule
+  const before = read()
+  const create = mockGraphQLRequest<{ flashbackCreateWish: { id: string; status: string } }>(
+    FlashbackCreateWishMutationDocument,
+    { content: 'E2E 年度愿望', visibility: 'public', publicListingConsent: true }
+  ).flashbackCreateWish
+  assert.equal(create.status, 'listed')
+  assert.equal(read().publicWishes.find((w) => w.id === create.id)?.mine, true)
+  assert.equal(read().myWishQuotaRemaining, before.myWishQuotaRemaining - 1)
+
+  const first = mockGraphQLRequest<{ flashbackEndorseWish: { endorsementCount: number } }>(
+    FlashbackEndorseWishMutationDocument, { wishId: 'w-1', contributionTypes: ['writing'], notify: false }
+  )
+  const repeat = mockGraphQLRequest<{ flashbackEndorseWish: { endorsementCount: number } }>(
+    FlashbackEndorseWishMutationDocument, { wishId: 'w-1', contributionTypes: ['writing'], notify: false }
+  )
+  assert.equal(first.flashbackEndorseWish.endorsementCount, 6)
+  assert.equal(repeat.flashbackEndorseWish.endorsementCount, 6)
+  assert.equal(read().publicWishes.find((w) => w.id === 'w-1')?.endorsementCount, 6)
+
+  mockGraphQLRequest(FlashbackAddWishCommentMutationDocument, { wishId: 'w-1', content: 'E2E 留言' })
+  assert.deepEqual(read().publicWishes.find((w) => w.id === 'w-1')?.comments.map((c) => c.content), ['算我一个', 'E2E 留言'])
+
+  mockGraphQLRequest(FlashbackDeleteWishMutationDocument, { wishId: create.id })
+  assert.equal(read().publicWishes.some((w) => w.id === create.id), false)
+  assert.equal(read().myWishQuotaRemaining, before.myWishQuotaRemaining - 1)
+
+  const foreignDelete = mockGraphQLRequest<{ errors: Array<{ code: string }> }>(
+    FlashbackDeleteWishMutationDocument, { wishId: 'w-1' }
+  )
+  assert.equal(foreignDelete.errors[0]?.code, 'flashback_wish_not_owned')
+  for (let i = 1; i < before.myWishQuotaRemaining; i++) {
+    mockGraphQLRequest(FlashbackCreateWishMutationDocument, {
+      content: `额度测试 ${i}`, visibility: 'private', publicListingConsent: false
+    })
+  }
+  assert.equal(read().myWishQuotaRemaining, 0)
+  const overQuota = mockGraphQLRequest<{ errors: Array<{ code: string }> }>(
+    FlashbackCreateWishMutationDocument, { content: '超额', visibility: 'private' }
+  )
+  assert.equal(overQuota.errors[0]?.code, 'flashback_wish_quota_exceeded')
 })
