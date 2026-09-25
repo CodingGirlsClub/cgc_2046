@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { Button, Text, Textarea, View } from '@tarojs/components'
-import Taro from '@tarojs/taro'
 import { api } from '@/api'
 import { WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX } from '@/domain/flashback'
-import { wishEchoTouchpoint, requestAndGrant } from '@/domain/subscription'
+import { wishEchoTouchpoint } from '@/domain/subscription'
+import { endorseWithReminder, requestWishReminder, reminderReceipt, type WishReminderResult } from '@/domain/wish-reminder'
 import { requestPlatformSubscriptions } from '@/platform'
 import styles from './endorse-sheet.module.css'
 
@@ -15,25 +15,38 @@ export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Prop
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const lock = useRef(false)
+  const [saved, setSaved] = useState<WishReminderResult | null>(null)
+  const receipt = saved ? reminderReceipt(saved) : null
+  const close = () => { if (!busy) { if (saved) onSaved(); else onClose() } }
+  const reminderDeps = { request: requestPlatformSubscriptions, grant: (scenario: Parameters<typeof api.grantConsent>[0]) => api.grantConsent(scenario) }
+  const retryReminder = async () => {
+    if (lock.current) return
+    lock.current = true; setBusy(true)
+    try { setSaved(await requestWishReminder(reminderDeps)) }
+    finally { lock.current = false; setBusy(false) }
+  }
   const submit = async () => {
-    if (lock.current || !types.length) return
+    if (lock.current || saved || !types.length) return
     lock.current = true; setBusy(true); setError('')
     try {
-      if (notify) await requestAndGrant(wishEchoTouchpoint(), {
-        request: requestPlatformSubscriptions,
-        grant: scenario => api.grantConsent(scenario),
-        notify: () => {}
+      const result = await endorseWithReminder(notify, {
+        ...reminderDeps,
+        save: () => api.flashbackEndorseWish(wish.id, { contributionTypes: types, message: message.trim() || null, notify })
       })
-      await api.flashbackEndorseWish(wish.id, { contributionTypes: types, message: message.trim() || null, notify })
-      void Taro.showToast({ title: '已附议 · 感谢出力', icon: 'none' })
-      onSaved()
+      setSaved(result)
     } catch (reason) { setError(reason instanceof Error ? reason.message : '附议失败，请重试。') }
     finally { lock.current = false; setBusy(false) }
   }
-  return <View className={`${styles.endorseMask} ${paper ? styles.paper : ''}`} catchMove onClick={() => { if (!busy) onClose() }}>
+  return <View className={`${styles.endorseMask} ${paper ? styles.paper : ''}`} catchMove onClick={close}>
     <View className={styles.sheet} onClick={event => event.stopPropagation()}>
-      <View className={styles.heading}><Text className={styles.title}>我能出力</Text><Button className={styles.close} disabled={busy} onClick={onClose}>关闭</Button></View>
+      <View className={styles.heading}><Text className={styles.title}>我能出力</Text><Button className={styles.close} disabled={busy} onClick={close}>关闭</Button></View>
       <Text className={styles.preview}>{wish.content}</Text>
+      {receipt ? <View className={styles.endorseReceipt}>
+        <Text className={styles.receiptTitle}>感谢出力</Text>
+        <Text className={styles.receiptCopy}>{receipt.copy}</Text>
+        {receipt.canRetry && <Button className={styles.reminderRetry} disabled={busy} loading={busy} onClick={() => void retryReminder()}>重新订阅回响提醒</Button>}
+        <Button className={styles.receiptDone} disabled={busy} onClick={close}>完成</Button>
+      </View> : <>
       <View className={styles.types}>{WISH_CONTRIBUTION_OPTIONS.map(option => <Button key={option.type}
         className={`${styles.endorseChip} ${types.includes(option.type) ? styles.selected : ''}`} disabled={busy}
         onClick={() => setTypes(old => old.includes(option.type) ? old.filter(type => type !== option.type) : [...old, option.type])}>{option.label}</Button>)}</View>
@@ -42,6 +55,7 @@ export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Prop
       <Button className={styles.endorseNotify} disabled={busy} onClick={() => setNotify(!notify)}>{notify ? '☑' : '☐'} {wishEchoTouchpoint().label}</Button>
       {error && <Text className={styles.error}>{error}</Text>}
       <Button className={styles.endorseSubmit} disabled={busy || !types.length} loading={busy} onClick={() => void submit()}>{busy ? '提交中…' : '提交附议'}</Button>
+      </>}
     </View>
   </View>
 }

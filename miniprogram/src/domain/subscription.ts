@@ -112,11 +112,11 @@ export interface SubscriptionTouchpoint {
  */
 export function wishEchoTouchpoint(): SubscriptionTouchpoint {
   return {
-    page: 'pages/flashback-corridor/index（附议表单提交前）',
+    page: '许愿树／闪念间（出力表单提交前）',
     trigger: '用户点按「提交附议」，先请求订阅授权再提交附议',
     label: '订阅回响通知',
     scenarios: ['flashback_wish_echo'],
-    acceptedCopy: '已订阅回响——愿望有回应时会通知你',
+    acceptedCopy: '本次回响订阅授权已记录，已发布的回响不补发',
     deniedCopy: '没订阅也能附议；想接收回应可再次点击订阅'
   }
 }

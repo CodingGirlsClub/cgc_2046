@@ -61,6 +61,11 @@ export async function requestPlatformSubscriptions(
   // 路径优先级**先于**缺配检查：mock 构建与 CI 都没有真实模板 ID，若先查缺配，
   // mock 下点订阅会抛「缺少模板 ID」而不是成功（e2e 走 mock transport）。
   // 小红书服务通知由平台后台规则下发，无前端授权弹窗——前端仅上报配额（grant）。
+  if (__E2E_MOCK__ && scenarios.includes('flashback_wish_echo')) {
+    const result = Taro.getStorageSync('cgc.e2e.wish-reminder-result')
+    if (result === 'denied') return []
+    if (result === 'error') throw new Error('订阅暂不可用（合成验收）')
+  }
   if (subscriptionTransport(__E2E_MOCK__, currentPlatform()) === 'passthrough') return scenarios
 
   const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
