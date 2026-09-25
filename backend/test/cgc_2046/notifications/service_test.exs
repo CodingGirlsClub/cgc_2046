@@ -1,10 +1,13 @@
 defmodule Cgc2046.Notifications.ServiceTest do
   use Cgc2046.DataCase, async: false
+
+  require Ash.Query
   use Oban.Testing, repo: Cgc2046.Repo
 
   alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.Notifications.Consent
   alias Cgc2046.Notifications.Fanout
+  alias Cgc2046.Notifications.NotificationDelivery
   alias Cgc2046.Notifications.Service
   alias Cgc2046.AccountsFixtures, as: Fixtures
 
@@ -270,10 +273,15 @@ defmodule Cgc2046.Notifications.ServiceTest do
                %{"enrollment_id" => second_enrollment_id}
              )
 
-    jobs = all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-    assert length(jobs) == 2
+    # #847 批 1：approval_result 已迁耐久路径，行为面 = Delivery 行
+    rows =
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user.id and template_key == "approval_result")
+      |> Ash.read!(authorize?: false)
 
-    assert Enum.map(jobs, & &1.args["enrollment_id"]) |> Enum.sort() ==
+    assert length(rows) == 2
+
+    assert Enum.map(rows, & &1.data["enrollment_id"]) |> Enum.sort() ==
              Enum.sort([first_enrollment_id, second_enrollment_id])
 
     refute_receive {:notification, _, _}
@@ -298,11 +306,15 @@ defmodule Cgc2046.Notifications.ServiceTest do
                :reminder_7d
              )
 
-    jobs = all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-    assert length(jobs) == 2
+    # #847 批 3：approval_reminder 已迁耐久路径，行为面 = Delivery 行
+    rows =
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user.id and template_key == "approval_reminder")
+      |> Ash.read!(authorize?: false)
 
-    assert Enum.map(jobs, & &1.args["identity_uid"]) |> Enum.sort() ==
-             ["wx-openid-1", "wx-openid-2"]
+    assert length(rows) == 2
+
+    assert Enum.map(rows, & &1.identity_uid) |> Enum.sort() == ["wx-openid-1", "wx-openid-2"]
   end
 
   test "send_to_identity 按指定身份精确投递（#3）" do
