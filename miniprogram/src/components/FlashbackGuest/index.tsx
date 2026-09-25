@@ -47,7 +47,7 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
     }
   }, [])
   const show = () => {
-    void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#faf8f1' })
+    void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#f7f2e7' })
     void load()
   }
   useDidShow(show)
