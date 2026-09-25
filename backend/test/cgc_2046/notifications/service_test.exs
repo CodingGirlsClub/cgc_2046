@@ -306,11 +306,15 @@ defmodule Cgc2046.Notifications.ServiceTest do
                :reminder_7d
              )
 
-    jobs = all_enqueued(worker: Cgc2046.Notifications.NotificationWorker)
-    assert length(jobs) == 2
+    # #847 批 3：approval_reminder 已迁耐久路径，行为面 = Delivery 行
+    rows =
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user.id and template_key == "approval_reminder")
+      |> Ash.read!(authorize?: false)
 
-    assert Enum.map(jobs, & &1.args["identity_uid"]) |> Enum.sort() ==
-             ["wx-openid-1", "wx-openid-2"]
+    assert length(rows) == 2
+
+    assert Enum.map(rows, & &1.identity_uid) |> Enum.sort() == ["wx-openid-1", "wx-openid-2"]
   end
 
   test "send_to_identity 按指定身份精确投递（#3）" do

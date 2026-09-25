@@ -252,7 +252,10 @@ defmodule Cgc2046.Notifications.Fanout do
                   "payment_received",
                   "payment_expired",
                   "refund_succeeded",
-                  "refund_failed"
+                  "refund_failed",
+                  # 批 3（提醒类）
+                  "approval_reminder",
+                  "learning_stagnation"
                 ])
 
   defp durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
@@ -296,6 +299,24 @@ defmodule Cgc2046.Notifications.Fanout do
 
   defp event_key("refund_failed", _data, job_meta),
     do: Map.fetch!(job_meta, "idempotency_key")
+
+  # 批 3（提醒类）。approval_reminder 两面（enrollment/sponsorship）共用一个
+  # 事件键前缀：deadline ≤48h < 7 天窗 ⇒ 生命周期内至多一次，重复扫描被
+  # 永久幂等键直接去重（连行都不建），Staleness 只兜发送时点已过期。
+  defp event_key("approval_reminder", _data, %{"enrollment_id" => id}),
+    do: "approval.reminder:" <> id
+
+  # learning_stagnation：周期成分 = epoch 对齐的 7 天桶（issue #847 裁定选项 a
+  # ——静态幂等键无法表达 7 天滚动窗，周级桶窗的周级节奏业务可接受；桶边界
+  # 为周四 00:00 UTC，与 ISO 日历周等价的周级去重）。LPW 每 5 分钟扫，同桶内
+  # 多拍同键去重、跨桶新键重发。
+  defp event_key("approval_reminder", _data, %{"sponsorship_id" => id}),
+    do: "approval.reminder:" <> id
+
+  defp event_key("learning_stagnation", _data, %{"run_id" => run_id}) do
+    week_bucket = div(System.system_time(:second), 604_800)
+    "learning.stagnation:#{run_id}:w#{week_bucket}"
+  end
 
   # 未迁键的既有直插路径（收尾批次整体删除）：逐身份插 NotificationWorker
   # job，去重靠 Oban unique 时间窗。
