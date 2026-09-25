@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PROTOTYPE · 闪念间逐页换肤</title>
+<!--
+  PROTOTYPE · 一次性原型，只在 prototype/flashback-light 分支，不进 develop。
+  问题：现有页面结构、交互、文案一律不动，只换视觉语言，能否消除割裂感？
+  规则：纸是底 · 墨是字 · 青只画山河 · 暗是暗房（时间胶囊、开卡层、首程）
+        火 = 可以按的（每屏最多一处）· 金 = 已经被点亮的（回来的人、授权的句子、回响、选中）
+  范围：闪念间角色与旅程盘点 §7 清单；场次页雾卡按 #933 只显示「王**」。
+  运行：双击打开；?s=<页面 id> 定位；←/→ 切换页面。
+  左图：模拟器 mock 构建的现状截图（合成数据）。右图：换肤后。
+-->
+<style>
+:root{
+  --paper:#f7f2e7; --paper-hi:#fffdf7; --paper-deep:#ece4d2; --paper-shade:#e2d9c6;
+  --ink:#1e3a2f; --ink-2:#56665a; --ink-3:#98a092; --rule:#ddd4c1;
+  --qing:#557a66; --qing-2:#86a291; --qing-3:#c5d1c1; --qing-deep:#2f4a3c;
+  --fire:#ea5504; --fire-2:#ff7c30; --fire-soft:rgba(234,85,4,.08); --fire-glow:rgba(234,85,4,.32);
+  --gold:#ecc976; --gold-ink:#8a6418; --gold-soft:#f5ead0; --gold-line:#e3cf9c; --gold-glow:rgba(236,201,118,.55);
+  --dark:#15130f; --dark-2:#221d17; --dark-3:#2e2820; --dark-ink:#efe5d2; --dark-ink-2:#a0947f; --dark-rule:rgba(239,229,210,.14);
+  --serif:"Songti SC","STSong","Noto Serif SC","Source Han Serif SC",serif;
+  --sans:-apple-system,"PingFang SC","Helvetica Neue","Noto Sans SC",sans-serif;
+  --grain:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .32 0 0 0 0 .27 0 0 0 0 .18 0 0 0 .06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+*{box-sizing:border-box;margin:0;padding:0}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+body{background:#d8d3c7;font-family:var(--sans);color:#262626;height:100vh;overflow:hidden;display:grid;grid-template-columns:232px 1fr 300px}
+
+/* ── 左栏：页面清单 ─────────────────────── */
+.side{overflow-y:auto;padding:22px 14px 40px;border-right:1px solid rgba(0,0,0,.08);background:#e9e5dc}
+.side h1{font:600 14px var(--sans);padding:0 8px;letter-spacing:.02em}
+.side .sub{font-size:11.5px;color:#777;padding:4px 8px 14px;line-height:1.5}
+.side h6{font:600 10.5px var(--sans);letter-spacing:.16em;color:#8a8a8a;padding:14px 8px 6px}
+.side button{display:block;width:100%;text-align:left;padding:6px 8px;border-radius:7px;font-size:12.5px;color:#333}
+.side button.on{background:#1e3a2f;color:#fff}
+.side button small{color:#999;margin-left:4px}
+.side button.on small{color:#b9c6bd}
+
+/* ── 中间：并排对照 ─────────────────────── */
+.stage{display:flex;align-items:flex-start;justify-content:center;gap:34px;padding:18px 20px;overflow:hidden}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px}
+.col .tag{font:600 12px var(--sans);letter-spacing:.14em;color:#555}
+.col .tag b{color:var(--fire)}
+.frame{transform-origin:top center}
+.phone{position:relative;width:390px;height:844px;border-radius:50px;overflow:hidden;background:var(--paper);box-shadow:0 0 0 10px #0d0d0d,0 0 0 11px #3a3a3a,0 30px 60px -28px rgba(0,0,0,.5)}
+.phone img.shot{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.phone .none{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#999;font-size:13px;background:#efece5}
+
+/* ── 右栏：说明 ─────────────────────────── */
+.notes{overflow-y:auto;padding:22px 18px 40px;border-left:1px solid rgba(0,0,0,.08);background:#f1eee7;font-size:12.5px;line-height:1.65}
+.notes h2{font:600 15px var(--sans);margin-bottom:2px}
+.notes .who{color:#777;font-size:11.5px;margin-bottom:12px}
+.notes h5{font:600 10.5px var(--sans);letter-spacing:.16em;color:#8a8a8a;margin:14px 0 6px}
+.notes ul{padding-left:16px}.notes li{margin:3px 0}
+.meter{display:flex;gap:8px}.meter div{flex:1;background:#fff;border-radius:9px;padding:8px 10px;font-size:11.5px;color:#666}
+.meter b{display:block;font:600 20px var(--sans)}.meter .f b{color:var(--fire)}.meter .g b{color:var(--gold-ink)}
+.verdict{margin-top:6px;font-size:12px}
+.keys{margin-top:18px;font-size:11px;color:#999}
+
+/* ── 手机里的原生外壳 ─────────────────────── */
+.status{position:absolute;top:0;left:0;right:0;height:47px;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;font:600 15px var(--sans);z-index:40}
+.island{position:absolute;left:50%;top:11px;width:122px;height:34px;margin-left:-61px;background:#000;border-radius:20px}
+.nav{position:absolute;top:47px;left:0;right:0;height:44px;display:flex;align-items:center;justify-content:center;font:500 16px var(--sans);z-index:40}
+.nav .home{position:absolute;left:12px;top:6px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;font-size:15px}
+.capsule{position:absolute;right:10px;top:6px;width:87px;height:32px;border-radius:16px;border:1px solid rgba(0,0,0,.12);background:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-evenly}
+.capsule i{width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:7px 0 currentColor,-7px 0 currentColor}
+.capsule b{width:16px;height:16px;border-radius:50%;border:2px solid currentColor}
+.capsule span{width:1px;height:18px;background:rgba(0,0,0,.12)}
+.t-paper .nav{background:var(--paper)} .t-white .nav{background:#fff}
+.t-dark .nav{background:var(--dark);color:var(--dark-ink)} .t-dark .status{color:var(--dark-ink)}
+.t-dark .capsule{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)} .t-dark .nav .home{background:rgba(255,255,255,.1)}
+.t-dark{background:var(--dark)} .t-white{background:#fff}
+.vp{position:absolute;top:91px;left:0;right:0;bottom:0;overflow:hidden}
+.page{position:absolute;inset:0;overflow:hidden}
+.page.paper{background:var(--paper) var(--grain)}
+.page.white{background:#fff}
+.page.dark{background:var(--dark);color:var(--dark-ink)}
+.pad-tab{padding-bottom:88px}
+.home-bar{position:absolute;bottom:8px;left:50%;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:#111;z-index:60}
+.t-dark .home-bar{background:#e9e1d0}
+
+/* Tab 栏：全 App 一套外观；选中 = 墨色图标 + 上方一个金点（那里亮着） */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:84px;padding-bottom:26px;display:flex;background:rgba(255,253,247,.96);border-top:1px solid var(--rule);z-index:30}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink-3);font-size:11px;position:relative}
+.tab svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tab.on{color:var(--ink);font-weight:600}.tab.on svg{stroke-width:2}
+.tab.on::before{content:"";position:absolute;top:6px;width:5px;height:5px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold-glow)}
+
+/* ── 通用物件 ─────────────────────────── */
+.serif{font-family:var(--serif)}
+.eyebrow{font:500 10.5px/1 var(--sans);letter-spacing:.3em;color:var(--ink-3);text-transform:uppercase}
+.fire{display:flex;align-items:center;justify-content:center;height:46px;border-radius:23px;background:linear-gradient(180deg,var(--fire-2),var(--fire));color:#fff;font:600 15px var(--sans);letter-spacing:.04em;box-shadow:0 10px 22px -12px var(--fire-glow)}
+.fire.dim{opacity:.45}
+.ink-btn{display:flex;align-items:center;justify-content:center;height:40px;border-radius:20px;border:1px solid var(--ink-3);color:var(--ink);font-size:13.5px}
+.dark .ink-btn,.on-dark .ink-btn{border-color:var(--dark-rule);color:var(--dark-ink)}
+.link{color:var(--ink-2);font-size:13px}
+.gold-txt{color:var(--gold-ink)} .dark .gold-txt,.on-dark .gold-txt{color:var(--gold)}
+.chip{display:inline-flex;align-items:center;height:30px;padding:0 13px;border-radius:15px;background:var(--paper-deep);color:var(--ink-2);font-size:12.5px}
+.chip.on{background:var(--ink);color:var(--paper-hi)}
+.fogb{display:inline-block;height:1.05em;vertical-align:-2px;border-radius:3px;background:linear-gradient(90deg,rgba(152,160,146,.55),rgba(152,160,146,.35));filter:blur(.4px)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--paper-hi);border-radius:18px 18px 0 0;padding:14px 20px 30px;box-shadow:0 -14px 30px -18px rgba(0,0,0,.4)}
+.sheet .bar{width:36px;height:4px;border-radius:2px;background:var(--rule);margin:0 auto 12px}
+.mask{position:absolute;inset:0;background:rgba(21,19,15,.62);z-index:35}
+.mask.darkroom{background:rgba(21,19,15,.9)}
+.modal{position:absolute;left:22px;right:22px;background:var(--paper-hi);border-radius:14px;padding:22px 20px;box-shadow:0 20px 40px -20px rgba(0,0,0,.6)}
+</style>
+<style>
+/* ── 首程 ─────────────────────────────── */
+.dr-glow{position:absolute;left:-30%;right:-30%;top:-140px;height:380px;background:radial-gradient(ellipse at 50% 40%,rgba(234,85,4,.26),rgba(234,85,4,.06) 45%,transparent 70%);pointer-events:none}
+.j-intro{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 30px}
+.j-brand{font:500 11px var(--sans);letter-spacing:.36em;color:rgba(255,170,120,.8)}
+.j-lead{font:400 22px/1.8 var(--serif);margin:22px 0 40px;color:var(--dark-ink);white-space:pre-line}
+.shutter{width:88px;height:88px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#ff9a57,var(--fire) 58%,#c94600);box-shadow:0 0 0 7px var(--ring,var(--dark)),0 0 0 8px rgba(234,85,4,.35),0 14px 36px -8px var(--fire-glow);position:relative}
+.shutter::after{content:"";position:absolute;inset:14px;border-radius:50%;border:1.5px solid rgba(255,255,255,.45)}
+.j-hint{margin-top:22px;font:14px var(--serif);color:var(--dark-ink-2);letter-spacing:.08em}
+.j-quiz{padding:60px 26px 0}
+.j-q{font:400 21px/1.6 var(--serif);text-align:center;color:var(--dark-ink);margin-bottom:26px}
+.j-opt{display:block;width:100%;text-align:left;padding:14px 16px;border-radius:10px;border:1px solid var(--dark-rule);margin-bottom:10px;color:var(--dark-ink)}
+.j-opt b{display:block;font:400 16px var(--serif)} .j-opt small{font-size:11.5px;color:var(--dark-ink-2)}
+.j-reveal{padding:44px 26px 0;text-align:center}
+.j-feedback{font:15px var(--serif);color:var(--gold-ink);margin-bottom:14px}
+.polaroid{background:var(--paper-hi);padding:12px 12px 12px;border-radius:3px;box-shadow:0 1px 0 rgba(0,0,0,.04),0 20px 40px -20px rgba(28,40,30,.45)}
+.photo{background:linear-gradient(165deg,#d9cfb8,#bfb298 60%,#a89c80);padding:18px 16px;border-radius:1px}
+.qa{margin:10px 0 16px}.qa .q{font:11px var(--sans);letter-spacing:.14em;color:rgba(30,58,47,.6);margin-bottom:6px}
+.qa .a{font:16px/1.75 var(--serif);color:var(--ink)}
+.sign{display:flex;justify-content:space-between;align-items:baseline;padding:10px 4px 2px;font-size:13px;color:var(--ink-2)}
+.sign b{font:500 15px var(--serif);color:var(--ink)}
+.j-tip{font-size:12.5px;color:var(--ink-3);margin:12px 0 16px}
+
+/* ── 长廊 · 访客态 ─────────────────────── */
+.g{padding:30px 24px 0}
+.g h1{font:400 26px/1.6 var(--serif);color:var(--ink);margin-top:14px;white-space:pre-line}
+.g .intro{font:13px var(--serif);color:var(--ink-2);margin:10px 0 18px}
+.qcard{position:relative;border-radius:8px;overflow:hidden;background:#4b6956;color:#f8f1cc;padding:22px 20px 18px}
+.qcard img{position:absolute;width:240%;left:-90%;top:-70%;opacity:.55}
+.qcard .tint{position:absolute;inset:0;background:rgba(35,66,48,.6)}
+.qcard .in{position:relative}
+.qcard .src{font:10px var(--sans);letter-spacing:.2em;color:#e0e2bb}
+.qcard .qt{font:20px/1.6 var(--serif);margin:14px 0 10px}
+.qcard .cap{font-size:11px;color:#e1e3c6}
+.portals{display:flex;padding:16px 0 14px;border-bottom:1px solid var(--rule)}
+.portals>div{flex:1}.portals>div+div{border-left:1px solid var(--rule);padding-left:16px}
+.portals .en{font:10px var(--sans);letter-spacing:.24em;color:var(--ink-3)}
+.portals .t{font:400 20px var(--serif);color:var(--ink);margin:6px 0 4px}
+.portals .h{font-size:12px;color:var(--ink-2)}
+.recov{margin-top:14px;padding:16px 16px 14px;background:var(--paper-hi);border-radius:10px;box-shadow:0 10px 24px -20px rgba(30,40,30,.6)}
+.recov .rt{font:400 18px var(--serif);color:var(--ink)}
+.recov .rd{font-size:12px;line-height:1.7;color:var(--ink-2);margin:6px 0 12px;white-space:pre-line}
+.gather{display:flex;justify-content:space-between;padding:14px 2px;font:14px var(--serif);color:var(--ink-2)}
+.gather small{display:block;font:11px var(--sans);color:var(--ink-3);margin-bottom:4px}
+
+/* ── 长廊 · 参与态 ─────────────────────── */
+.c-portals{display:flex;margin:10px 16px 0;padding:14px 16px;border-radius:10px;background:var(--paper-hi);box-shadow:0 8px 20px -18px rgba(30,40,30,.6)}
+.c-portals>div{flex:1}.c-portals>div+div{border-left:1px solid var(--rule);padding-left:14px}
+.c-portals .en{font:10px var(--sans);letter-spacing:.22em;color:var(--qing)}
+.c-portals .t{display:flex;justify-content:space-between;font:400 19px var(--serif);color:var(--ink);margin:4px 0 2px}
+.c-portals .t i{font-style:normal;color:var(--ink-3);font-size:14px}
+.c-portals .h{font-size:11.5px;color:var(--ink-2)}
+.dock{display:flex;align-items:center;justify-content:center;gap:18px;padding:18px 16px 16px}
+.mini{width:118px;padding:14px 10px 10px;background:var(--paper-hi);border-radius:3px;text-align:center;transform:rotate(-2.5deg);box-shadow:0 12px 24px -16px rgba(30,40,30,.55)}
+.mini b{display:block;font:500 17px var(--serif);color:var(--ink)} .mini span{display:block;font-size:11.5px;color:var(--ink-2);margin:4px 0 6px}
+.mini small{font-size:10.5px;color:var(--ink-3)}
+.mini.lit{border-top:2px solid var(--gold)}
+.acts{display:flex;flex-direction:column;gap:8px;width:132px}
+.acts>*{height:34px;border-radius:17px;font-size:12.5px;display:flex;align-items:center;justify-content:center}
+.acts .a-ink{border:1px solid var(--ink-3);color:var(--ink)} .acts .a-dim{border:1px solid var(--rule);color:var(--ink-3)}
+.acts .a-gold{border:1px solid var(--gold-line);background:var(--gold-soft);color:var(--gold-ink)}
+.acts .fire{height:34px;font-size:12.5px;box-shadow:none}
+.win{position:absolute;left:0;right:0;top:238px;bottom:148px;background:var(--dark);border-radius:18px;overflow:hidden;color:var(--dark-ink)}
+.win .inner{padding:4px 18px 20px}
+.win .glow{position:absolute;left:-20%;right:-20%;top:-120px;height:260px;background:radial-gradient(ellipse at 50% 40%,rgba(234,85,4,.14),transparent 70%)}
+.frame-h{display:flex;gap:6px;align-items:baseline;padding:14px 2px 8px;font:14px var(--serif);color:var(--dark-ink-2)}
+.frame-h b{font-weight:400;color:var(--dark-ink)}
+.piles{display:flex;gap:12px}
+.pile{width:96px;text-align:center}
+.print{height:96px;background:linear-gradient(170deg,#e9e0cb,#cfc4ab);border-radius:2px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#3a3a32;box-shadow:0 10px 18px -12px rgba(0,0,0,.8)}
+.print b{font:500 16px var(--serif)} .print span{font-size:11px;color:#6d6a5e;margin-top:2px}
+.pile:nth-child(1) .print{transform:rotate(-3deg)}.pile:nth-child(2) .print{transform:rotate(2deg)}.pile:nth-child(3) .print{transform:rotate(-1.5deg)}
+.pile .ret{margin-top:8px;font-size:11px;color:var(--gold)}
+.sep{height:1px;background:var(--dark-rule);margin:14px 0 4px}
+.today-h{font:14px var(--serif);color:var(--gold);padding:10px 2px 10px}
+.slot{width:150px;height:150px;border:1px dashed rgba(239,229,210,.35);border-radius:6px;display:flex;align-items:center;justify-content:center;font:13px var(--serif);color:var(--dark-ink-2)}
+.wlink{font:15px var(--serif);color:var(--dark-ink);padding:14px 2px}
+.fut{font:13px var(--serif);color:var(--dark-ink-2);padding:6px 2px}.fut i{font-style:normal;font-size:11px;margin-left:6px;opacity:.7}
+.ecard{margin:8px 0;padding:12px 14px;border-radius:8px;background:var(--dark-3)}
+.ecard b{display:block;font:400 15px var(--serif);color:var(--dark-ink)} .ecard span{font-size:11.5px;color:var(--dark-ink-2)}
+.ecard .badge{display:inline-block;margin-top:6px;font-size:12px;color:var(--dark-ink-2)}
+.wbtns{display:flex;justify-content:space-between;padding:14px 0 6px}
+.wbtns span{height:32px;padding:0 14px;border-radius:16px;border:1px solid var(--dark-rule);display:flex;align-items:center;font-size:13px;color:var(--dark-ink)}
+.wsec{font:14px var(--serif);color:var(--dark-ink-2);padding:12px 2px 8px}
+.wcard{background:var(--paper-hi);border-radius:8px;padding:12px 14px;margin-bottom:10px;color:var(--ink)}
+.wcard b{display:block;font:400 15px var(--serif)}
+.wcard .wf{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--ink-2)}
+.fold{display:flex;justify-content:space-between;padding:12px 14px;border-radius:8px;background:var(--dark-3);font-size:13px;color:var(--dark-ink-2)}
+.foot-cta{position:absolute;left:16px;right:16px;bottom:98px}
+.foot-cta .ink-btn{height:44px;border-radius:22px;background:var(--paper-hi)}
+
+/* 快门仪式、开卡层 */
+.ritual{position:absolute;inset:0;z-index:36;background:var(--dark);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.layer-badge{position:absolute;left:22px;right:22px;top:218px;display:flex;justify-content:space-between;align-items:center;z-index:37;color:var(--dark-ink);font-size:13px}
+.layer-badge .x{width:36px;height:36px;border-radius:50%;background:rgba(239,229,210,.14);display:flex;align-items:center;justify-content:center;font-size:18px}
+.layer-card{position:absolute;left:30px;right:30px;top:268px;z-index:37}
+.fog-hint{font-size:11.5px;color:var(--ink-3);padding:10px 2px 0}
+.write-row{padding:8px 0 10px;border-bottom:1px dashed var(--rule)}
+.write-row .l{font-size:12px;color:var(--ink-2)} .write-row .p{font:14px var(--serif);color:var(--ink-3);margin-top:6px}
+.send-note{font-size:11.5px;color:var(--ink-2);text-align:center;margin-top:8px}
+.back-link{font-size:12px;color:var(--gold-ink);text-align:center;margin-top:4px;text-decoration:underline;text-underline-offset:3px}
+</style>
+<style>
+/* ── 授权引导 / 金句授权 / 愿望模态 ─────────── */
+.nudge{top:300px;text-align:center;z-index:37}
+.nudge h3{font:400 19px var(--serif);color:var(--ink)} .nudge p{font-size:12.5px;color:var(--ink-2);margin:8px 0 18px}
+.nudge .skip{margin-top:10px;font-size:13px;color:var(--ink-3)}
+.lic{z-index:37;top:150px;overflow:hidden}
+.lic h3{font:500 18px var(--serif);color:var(--ink)}
+.courage{margin:10px auto 12px;width:fit-content;padding:5px 14px;border-radius:14px;background:var(--gold-soft);color:var(--gold-ink);font:13px var(--serif)}
+.lv{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid transparent;margin-bottom:6px}
+.lv i{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--ink-3);margin-top:2px;flex:none}
+.lv b{display:block;font:500 14.5px var(--sans);color:var(--ink)} .lv small{font-size:11.5px;color:var(--ink-3)}
+.lv.on{border-color:var(--ink);background:var(--paper)} .lv.on i{border:5px solid var(--ink)}
+.pick-h{font-size:12px;color:var(--ink-2);margin:10px 0 6px}
+.cand{padding:8px 10px;border-left:2px solid var(--rule);margin-bottom:6px;font:14px var(--serif);color:var(--ink)}
+.cand small{display:block;font:11px var(--sans);color:var(--ink-3);margin-top:2px}
+.cand.on{border-left-color:var(--gold);background:var(--gold-soft)} .cand.on em{font-style:normal;color:var(--gold-ink);margin-right:4px}
+.wm{top:150px;z-index:37}
+.wm h3{font:500 17px/1.5 var(--serif);color:var(--ink)}
+.wm .wf{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--ink-2);margin:6px 0 12px}
+.fire-txt{color:var(--fire);font-weight:600}
+.echo{border:1px solid var(--gold-line);background:var(--gold-soft);border-radius:10px;padding:12px 14px}
+.echo .eh{display:flex;justify-content:space-between;font:14px var(--serif);color:var(--ink);padding-bottom:8px;border-bottom:1px dashed var(--gold-line)}
+.echo .em{display:flex;gap:8px;align-items:center;margin:10px 0 6px;font-size:11.5px;color:var(--ink-2)}
+.echo .em span{padding:1px 7px;border-radius:4px;background:var(--paper-hi)}
+.echo p{font:14.5px/1.6 var(--serif);color:var(--ink)} .echo .all{font-size:12.5px;color:var(--gold-ink);margin-top:8px}
+.cm{margin-top:12px;font-size:13px;color:var(--ink)} .cm div{margin-top:4px;color:var(--ink-2)}
+.cm-in{display:flex;gap:8px;margin-top:10px}.cm-in div{flex:1;height:38px;border-radius:8px;background:var(--paper-deep);display:flex;align-items:center;padding:0 10px;font-size:13px;color:var(--ink-3)}
+.cm-in span{width:56px;height:38px;border-radius:8px;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-3)}
+
+/* ── 相册（场次页）/ 看别人的卡 ─────────── */
+.ev{padding:14px 20px 0}
+.ev .back{font:15px var(--serif);color:var(--ink-3)}
+.ev h2{font:400 21px var(--serif);color:var(--ink);margin:10px 0 6px}
+.ev .stats{display:flex;gap:12px;font-size:12.5px;color:var(--ink-2)}
+.ev .hint{font-size:12px;color:var(--ink-3);margin:14px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.cell{height:132px;border-radius:4px;display:flex;flex-direction:column;padding:6px 6px 6px}
+.cell.lit{background:var(--paper-hi);border-top:2px solid var(--gold);box-shadow:0 10px 20px -16px rgba(30,40,30,.6)}
+.cell.lit .win2{flex:1;background:linear-gradient(170deg,#e6dcc4,#cdbf9f);display:flex;align-items:center;justify-content:center;font:500 14px var(--serif);color:#3a3a32}
+.cell.lit small{font-size:10.5px;color:var(--gold-ink);padding:5px 2px 0}
+.cell.fog{border:1px dashed rgba(152,160,146,.7);background:rgba(236,228,210,.5);align-items:center;justify-content:center;gap:10px}
+.cell.fog b{font:400 16px var(--serif);color:var(--ink-2)} .cell.fog small{font-size:10.5px;color:var(--ink-3)}
+.loops{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:22px}
+.loops .ink-btn{width:220px;height:38px}
+.vperson{position:absolute;left:34px;right:34px;top:190px;z-index:37}
+.vfoot{font-size:11.5px;color:var(--ink-3);text-align:center;margin-top:10px}
+
+/* ── 卡片页 / 分享 ──────────────────────── */
+.td{padding:26px 22px 0}
+.td .chips{display:flex;gap:8px;justify-content:center;margin-bottom:16px}
+.tcard{background:var(--paper-hi);padding:14px 14px 10px;border-radius:3px;box-shadow:0 20px 40px -22px rgba(28,40,30,.5)}
+.tsec{background:var(--paper-deep);padding:14px 16px}.tsec .h{font-size:11.5px;letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px}
+.tsec .l{font-size:11.5px;color:var(--ink-3)}.tsec .v{font:15px/1.7 var(--serif);color:var(--ink);margin:2px 0 6px}
+.tsec.past{background:linear-gradient(165deg,#d9cfb8,#bfb298 60%,#a89c80);text-align:center}
+.tsec.past .a{font:14.5px/1.8 var(--serif);color:var(--ink)}
+.td .row{display:flex;gap:12px;margin-top:16px}.td .row>*{flex:1}
+.td .tip{font-size:11.5px;color:var(--ink-3);text-align:center;margin-top:10px}
+.sp{z-index:37;top:120px;padding-top:18px}
+.sp h3{font:500 16px var(--sans);color:var(--ink);text-align:center;margin-bottom:12px}
+.scard{background:var(--paper);border-radius:6px;padding:14px}
+.scard .brand{font:600 12px var(--sans);letter-spacing:.24em;color:var(--ink-2);text-align:center}
+.scard .meta{font-size:12px;color:var(--ink-3);text-align:center;margin:4px 0 10px}
+.sp .quiet{text-align:center;font-size:13px;color:var(--ink-3);margin-top:10px}
+.foot-note{font-size:11.5px;color:var(--ink-3);text-align:center;margin:12px 0}
+
+/* ── 金句墙 / 许愿树（山河页）──────────────── */
+.mt{display:flex;justify-content:space-around;align-items:flex-end;padding:10px 0 0;border-bottom:1px solid var(--rule)}
+.mt div{text-align:center;padding-bottom:8px;font:400 18px var(--serif);color:var(--ink-3)}
+.mt div small{display:block;font:10px var(--sans);letter-spacing:.2em;margin-top:2px}
+.mt div.on{color:var(--ink);border-bottom:2px solid var(--ink)}
+.mapbox{position:relative;height:360px;overflow:hidden;background:#ecefe4}
+.replay{position:absolute;right:12px;bottom:14px;height:36px;padding:0 14px;border-radius:18px;background:var(--paper-hi);border:1px solid var(--ink-3);display:flex;align-items:center;font:13px var(--serif);color:var(--ink)}
+.callout{position:absolute;left:12px;bottom:72px;max-width:200px;padding:10px 12px;background:var(--paper-hi);border:1px solid var(--gold-line);font:14px var(--serif);color:var(--ink)}
+.mapbox img{width:100%;height:100%;object-fit:contain;object-position:50% 45%}
+.mapbox .share{position:absolute;right:12px;top:12px;height:32px;padding:0 12px;border-radius:16px;background:rgba(255,253,247,.9);border:1px solid var(--rule);display:flex;align-items:center;font-size:12.5px;color:var(--ink)}
+.legend{font-size:11px;color:var(--ink-3);padding:8px 16px}
+.cities{display:flex;gap:6px;padding:8px 14px;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--paper-deep)}
+.cities .chip{background:transparent}.cities .chip.on{background:var(--ink)}
+.cities .more{margin-left:auto;font-size:12.5px;color:var(--ink-2);display:flex;align-items:center}
+.reader{padding:14px 18px 0}
+.reader .ey{font:12px var(--serif);color:var(--ink-3)}
+.reader .qt{font:19px/1.7 var(--serif);color:var(--ink);margin:10px 0}
+.reader .meta{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-2)}
+.reader .acts2{display:flex;gap:10px;margin:14px 0 10px}.reader .acts2>*{flex:1}
+.like{height:40px;border-radius:20px;border:1px solid var(--gold-line);background:var(--gold-soft);color:var(--gold-ink);display:flex;align-items:center;justify-content:center;font-size:14px}
+.pager{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--ink-2);padding:6px 0}
+.consent{font-size:11px;color:var(--ink-3);margin-top:4px}
+.mfoot{display:flex;gap:10px;padding:12px 18px}.mfoot>*{flex:1}
+.count{font-size:13px;color:var(--ink-2);margin-top:8px}.count b{font:500 20px var(--serif);color:var(--ink);margin-right:4px}
+.notice{font-size:11.5px;color:var(--ink-3)}
+.filters{display:inline-flex;background:var(--paper-deep);border-radius:16px;padding:3px;margin:10px 18px 0}
+.filters .chip{background:transparent}.filters .chip.on{background:var(--ink)}
+
+/* ── 附议表单 / 写愿望 / 我的愿望 ───────────── */
+.es{z-index:37;top:300px}
+.es .hd{display:flex;justify-content:space-between;align-items:center}
+.es h3{font:500 18px var(--serif);color:var(--ink)} .es .close{font-size:13px;color:var(--ink-2)}
+.es .pv{font-size:13px;color:var(--ink-2);margin:8px 0 12px}
+.es .types{display:flex;flex-wrap:wrap;gap:8px}
+.es .ta{height:80px;border-radius:8px;background:var(--paper-deep);margin:12px 0 8px;padding:10px;font-size:13px;color:var(--ink-3)}
+.es .ct{font-size:11.5px;color:var(--ink-2);line-height:1.6}
+.es .ntf{font-size:13px;color:var(--ink);margin:10px 0 12px}
+.ww{padding:14px 20px 0}
+.ww h2{font:400 24px var(--serif);color:var(--ink);margin:8px 0 4px}
+.ww .lead{font-size:13px;color:var(--ink-2);margin-bottom:14px}
+.ww .lbl{font:500 13.5px var(--sans);color:var(--ink);margin:12px 0 6px}
+.ww .box{border:1px solid var(--rule);background:var(--paper-hi);border-radius:8px;padding:10px 12px;font-size:13.5px;color:var(--ink-3)}
+.ww .cnt{text-align:right;font-size:11px;color:var(--ink-3);margin-top:4px}
+.ww .two{display:flex;gap:10px}.ww .two>div{flex:1;text-align:center;padding:10px;border-radius:8px;border:1px solid var(--rule);font-size:13.5px;color:var(--ink-2);background:var(--paper-hi)}
+.ww .opt{padding:11px 12px;border-radius:8px;border:1px solid var(--rule);margin-bottom:8px;font-size:13.5px;color:var(--ink-2);background:var(--paper-hi)}
+.ww .on{border-color:var(--ink)!important;color:var(--ink)!important;background:var(--paper)!important;font-weight:500}
+.ww .small{font-size:11.5px;color:var(--ink-2);margin:6px 0}
+.mw .item{background:var(--paper-hi);border-radius:8px;padding:12px 14px;margin-bottom:10px}
+.mw .item b{display:block;font:400 15px var(--serif);color:var(--ink)}
+.mw .st{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--ink-2)}
+.mw .st .ok{color:var(--gold-ink)}
+
+/* ── 登录 / 品牌页（白底，同一套墨、火、Tab）── */
+.lg{padding:34px 26px 0}
+.lg .mark{width:58px;height:58px;border-radius:50%;background:var(--fire);display:flex;align-items:center;justify-content:center}
+.lg .bn{font:600 17px var(--sans);color:var(--ink);margin:14px 0 18px}.lg .bn span{font-size:12px;color:var(--ink-2);margin-left:4px}
+.lg h2{font:700 24px var(--sans);color:var(--ink);margin-bottom:16px}
+.lg .perm{background:var(--paper);border-radius:10px;padding:12px 14px;font-size:13.5px;line-height:2;color:var(--ink)}
+.lg .tag2{text-align:center;font-size:11.5px;color:var(--ink-3);margin-top:18px}
+.br{padding:18px 20px 0}
+.br .logo{display:flex;align-items:center;gap:6px;font:600 13px var(--sans);color:var(--ink)}
+.br h2{font:700 28px var(--sans);color:var(--ink);margin:10px 0 4px}
+.br .lead{font-size:13px;color:var(--ink-2)}
+.br .search{margin-top:14px;height:40px;border-radius:10px;background:#f4f2ec;display:flex;align-items:center;padding:0 12px;color:var(--ink-3);font-size:13px}
+.br .camp{margin-top:12px;padding:16px;border-radius:14px;background:linear-gradient(135deg,var(--fire-2),var(--fire));color:#fff}
+.br .camp small{font-size:10.5px;letter-spacing:.2em;opacity:.85}.br .camp b{display:block;font:700 20px var(--sans);margin:4px 0}.br .camp p{font-size:12px;opacity:.92}
+.br .login-card{margin-top:10px;padding:14px 16px;border-radius:14px;border:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center}
+.br .login-card b{display:block;font:600 14px var(--sans);color:var(--ink)} .br .login-card small{font-size:11.5px;color:var(--ink-2)}
+.br .login-card span{height:32px;padding:0 14px;border-radius:16px;border:1px solid var(--ink-3);display:flex;align-items:center;font-size:13px;color:var(--ink)}
+.br .sec{display:flex;justify-content:space-between;font:600 16px var(--sans);color:var(--ink);margin:18px 0 8px}.br .sec span{font:400 12px var(--sans);color:var(--ink-3)}
+.br .item{border:1px solid #eee9de;border-radius:12px;padding:12px 14px;margin-bottom:8px}.br .item b{display:block;font:600 14px var(--sans);color:var(--ink)}.br .item small{font-size:11.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<aside class="side" id="side">
+  <h1>闪念间 · 逐页换肤</h1>
+  <div class="sub">结构、交互、文案不动，只换视觉语言。左现状，右换肤。</div>
+</aside>
+<main class="stage" id="stage">
+  <div class="col"><div class="tag">现状</div><div class="frame" id="fL"><div class="phone" id="pL"></div></div></div>
+  <div class="col"><div class="tag"><b>换肤后</b></div><div class="frame" id="fR"><div class="phone" id="pR"></div></div></div>
+</main>
+<aside class="notes" id="notes"></aside>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const MAP='../src/assets/flashback/voices-map.png', MOUNTAIN='../src/assets/flashback/mountain-map.png';
+const ICON={
+  discover:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/></svg>',
+  flashback:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l2-3.46h4L16 12l-2 3.46h-4z"/><path d="M14 8.54L16.8 4.4M16 12h5M14 15.46l2.8 4.14M10 15.46L7.2 19.6M8 12H3M10 8.54L7.2 4.4"/></svg>',
+  workspace:'<svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>',
+  profile:'<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 20c.8-3.8 3.6-5.8 7-5.8s6.2 2 7 5.8"/></svg>'
+};
+function tabbar(sel,ws){
+  const tabs=[['discover','发现'],['flashback','闪念间'],...(ws?[['workspace','工作台']]:[]),['profile','我的']];
+  return `<nav class="tabbar">${tabs.map(([k,t])=>`<div class="tab ${k===sel?'on':''}">${ICON[k]}${t}</div>`).join('')}</nav>`;
+}
+function chrome(s){
+  const nav=s.nav||{title:'闪念间'};
+  return `<div class="status"><span>9:41</span><div class="island"></div><span>5G ▮</span></div>
+    <div class="nav">${nav.home?'<span class="home">⌂</span>':''}<span>${nav.title}</span><div class="capsule"><i></i><span></span><b></b></div></div>`;
+}
+/* 复用片段：当年的答案（带雾块）与今天四栏 */
+const PAST=`<div class="qa"><div class="q">请简单的介绍一下自己</div><div class="a"><span class="fogb" style="width:7.5em"></span>想亲眼看看是不是真的！后来我成了程序员。</div></div>
+  <div class="qa"><div class="q">你做过的有意思的事情</div><div class="a">我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。</div></div>`;
+const PAST_RAW=`<div class="qa"><div class="q">请简单的介绍一下自己</div><div class="a">我在盛大做测试。想亲眼看看是不是真的！后来我成了程序员。</div></div>
+  <div class="qa"><div class="q">你做过的有意思的事情</div><div class="a">我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。</div></div>`;
+/* 长廊参与态底图：top = 今天未写未寄（火在「写今天的你」）；lower = 已写已寄、滚到下半（火在「做成卡片」） */
+function corridor(state){
+  const done=state==='lower';
+  const dock=`<div class="dock"><div class="mini ${done?'lit':''}"><b>王小明</b><span>2014 · 北京</span><small>点卡片翻开</small></div>
+    <div class="acts">${done?'<div class="a-ink">✎ 写今天的你 ✓</div><div class="a-gold" data-gold>已寄出 ✓</div><div class="a-gold" data-gold>← 金句授权 · 匿名 ✓</div>'
+      :'<div class="fire" data-fire>✎ 写今天的你</div><div class="a-dim">写完寄出 →</div><div class="a-ink">← 金句授权</div>'}</div></div>`;
+  const top=`<div class="frame-h"><b>2014.01.11</b> 一切的开始</div>
+    <div class="piles"><div class="pile"><div class="print"><b>北京</b><span>3 位</span></div><div class="ret" data-gold>1 位已回来</div></div>
+    <div class="pile"><div class="print"><b>上海</b><span>2 位</span></div><div class="ret" data-gold>1 位已回来</div></div>
+    <div class="pile"><div class="print"><b>广州</b><span>1 位</span></div></div></div>
+    <div class="sep"></div><div class="today-h">⚡ 今天 2026.9.26 · 此刻 · 一闪念间</div><div class="slot">你的位置</div>
+    <div class="sep"></div><div class="wlink">许愿树 · 看看大家的愿望 →</div><div class="fut">10.24 · Hacker Start 1024<i>未显影</i></div>`;
+  const lower=`<div class="ecard" style="opacity:.6"><b>开源共学周</b><span>广州 · 12/1 · 5 人已报名</span><div class="badge">报名已截止</div></div>
+    <div class="wbtns"><span>写下我的愿望 ＋</span><span>我的愿望 →</span></div>
+    <div class="wsec">未来 · 大家许的愿</div>
+    <div class="wcard"><b>一起出一本书:《她们的第一行代码》</b><div class="wf"><span>李** · 北京</span><span>👍 5</span></div></div>
+    <div class="wcard"><b>开一门 Rust 系统课</b><div class="wf"><span>陈* · 上海</span><span class="gold-txt" data-gold>👍 2 · 已附议</span></div></div>
+    <div class="fold"><span>🔒 私人许愿(1 条)</span><span>展开 ▼</span></div>`;
+  return `<div class="page paper">
+    <div class="c-portals"><div><div class="en">VOICES</div><div class="t">金句墙<i>↗</i></div><div class="h">听见过去的回响</div></div>
+      <div><div class="en">WISHES</div><div class="t">许愿树<i>↗</i></div><div class="h">写下未来的愿望</div></div></div>
+    ${dock}
+    <div class="win"><div class="glow"></div><div class="inner">${done?lower:top}</div></div>
+    <div class="foot-cta">${done?'<div class="fire" data-fire>把这一刻做成卡片 →</div>':'<div class="ink-btn">把这一刻做成卡片 →</div>'}</div>
+  </div>`;
+}
+const TODAY_CARD=`<div class="tcard"><div class="tsec"><div class="h">今天的你 · 2026.9.26</div><div class="l">现在在做什么</div><div class="v">E2E 首程寄出</div></div>
+  <div class="tsec past"><div class="h">当年的你 · 2014</div>${PAST}</div>
+  <div class="sign"><b>王小明</b><span>2014.01.11</span></div></div>`;
+const SHARE_CARD=`<div class="scard"><div class="brand">IN A FLASH · 闪念间</div><div class="meta">北京 · 2014.01.11</div>
+  <div class="tsec past" style="border-radius:4px">${PAST}<div class="qa"><div class="q">当时的操作系统</div><div class="a">当年我用的是 Windows XP，装了个假的 Mac 主题。</div></div></div>
+  <div class="tsec" style="margin-top:8px;border-radius:4px"><div class="h">今天的你</div><div class="l">现在在做什么</div><div class="v">E2E 首程寄出</div></div>
+  <div class="sign"><span>王**</span><span>2014.01.11 13:06</span></div></div>`;
+const S=[];
+const add=(o)=>S.push(o);
+/* ════ 首程 ════ */
+add({id:'journey-intro',group:'首程',title:'快门',who:'持专属链接的校友（I1/I2/I3）',cur:'journey-intro.png',tone:'dark',nav:{title:'闪念间',home:true},
+  page:`<div class="page dark"><div class="dr-glow"></div><div class="j-intro"><div class="j-brand">IN A FLASH · 闪念间</div><div class="j-lead">12 年前，你写过一些答案。</div><div class="shutter" data-fire></div><div class="j-hint">按下快门，回到那天</div></div></div>`,
+  changed:['底色从浅灰换成暗房，顶部一圈安全灯光晕（设计文档 R4 的「暗场」）','快门仍是火色，全屏唯一可按'],
+  kept:['文案、快门位置、点按即进入问答']});
+add({id:'journey-quiz',group:'首程',title:'问答',who:'同上',cur:null,tone:'dark',nav:{title:'闪念间',home:true},
+  page:`<div class="page dark"><div class="dr-glow"></div><div class="j-quiz"><div class="j-q">还记得……是哪一场吗？</div>
+    <div class="j-opt"><b>2014 · 北京</b><small>Rails Girls Beijing</small></div><div class="j-opt"><b>2012 · 上海</b><small>中国首场</small></div>
+    <div class="j-opt"><b>2012.12 · 北京</b><small></small></div><div class="j-opt"><b>我不记得了</b><small>没关系，我们记得</small></div></div></div>`,
+  changed:['问答仍在暗房里，选项是暗底上的细线框'],kept:['题目、选项顺序（正确项固定首位）、「我不记得了」出口'],
+  flag:'现状截图缺（mock 首程链接已被认领）；圆梦线也会看到这道题，见盘点 P2-11'});
+add({id:'journey-reveal',group:'首程',title:'显影',who:'同上',cur:'journey-reveal.png',tone:'paper',nav:{title:'闪念间',home:true},
+  page:`<div class="page paper"><div class="j-reveal"><div class="j-feedback">答对了。这张照片一直在等你。</div>
+    <div class="polaroid" style="text-align:left"><div class="photo">${PAST_RAW}</div><div class="sign"><b>王小明</b><span>2014.01.11 13:06</span></div></div>
+    <div class="j-tip">点击照片翻面写字</div><div class="fire dim" data-fire style="margin:0 40px">寄出，回到时间长廊 →</div></div></div>`,
+  changed:['显影后从暗房落到纸上：暗 → 纸就是「开灯」','答对的反馈用金色（被点亮的结果）','寄出按钮在翻面前是半透明的火'],
+  kept:['原文全量展示（本人面不雾化）、署名与报名时间戳、翻面写字的交互']});
+add({id:'journey-overlay',group:'首程',title:'寄出浮层',who:'同上',cur:'journey-overlay.png',tone:'paper',nav:{title:'闪念间',home:true},
+  page:`<div class="page paper"><div class="j-reveal"><div class="j-feedback">答对了。这张照片一直在等你。</div>
+    <div class="polaroid" style="text-align:left"><div class="photo" style="background:var(--paper-deep)"><div class="qa"><div class="q">今天的你 · 写完寄出</div><div class="a">现在在做什么：E2E 首程寄出</div></div></div></div></div></div>`,
+  layer:`<div class="mask"></div><div class="modal nudge" style="top:230px"><h3>照片正在贴上墙。</h3><p>想收好这张卡、并在你附议的场成真时收到通知吗？</p>
+    <div class="fire" data-fire>微信一键收好</div><div class="skip" style="text-decoration:underline">跳过，直接上墙</div>
+    <div style="border-top:1px solid var(--rule);margin-top:14px;padding-top:12px;font-size:11.5px;color:var(--ink-3)">你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。</div></div>`,
+  changed:['浮层从纯白换成纸色卡片，遮罩换成暗房色'],kept:['两个选项与全部文案'],
+  flag:'文案里的「在你附议的场成真时收到通知」后端没有实现（盘点 P2-15），本轮不改文案'});
+/* ════ 长廊 · 访客态 ════ */
+const GUEST=(t,d,btn)=>`<div class="page paper"><div class="g"><div class="eyebrow">IN A FLASH</div><h1>有些话，\n过了很久还会发光。</h1><div class="intro">过去的声音，未来的相聚。</div>
+  <div class="qcard"><img src="${MOUNTAIN}" alt=""><div class="tint"></div><div class="in"><div class="src">2017 / 广州</div><div class="qt">「我想把脑海里的小点子，变成别人也能用的东西。」</div><div class="cap">当年留下的答案，今天仍有回声。</div></div></div>
+  <div class="portals"><div><div class="en">VOICES</div><div class="t">金句墙</div><div class="h">听听当年的声音 ↗</div></div><div><div class="en">WISHES</div><div class="t">许愿树</div><div class="h">把期待留在这里 ↗</div></div></div>
+  <div class="recov"><div class="rt">${t}</div><div class="rd">${d}</div><div class="fire" data-fire>${btn}</div></div>
+  <div class="gather"><div><small>下一次相聚</small>发现下一场，一起做点什么</div><span>→</span></div></div></div>`;
+add({id:'guest',group:'长廊 · 访客态',title:'未登录',who:'路人 / 新人 / 换号校友（I4/I5/I6）',cur:'guest.png',tone:'paper',tab:'flashback',
+  page:GUEST('你也在那些年里吗？','找回当年写下的答案，也看看今天的自己。','找回你的那一张 →'),
+  changed:['「找回你的那一张」从 22rpx 的文字链接升为火色主按钮，放进一张纸卡','金句卡与两个入口压缩了高度，找回区完整进入首屏（Tab 栏之上）','Tab 栏不再切成墨绿「ink」变体，闪念间图标不再换成 ✧'],
+  kept:['区块顺序：标语 → 金句卡 → 两个入口 → 找回 → 下一次相聚','全部文案','金句卡点开去金句墙']});
+add({id:'guest-unmatched',group:'长廊 · 访客态',title:'已登录 · 未匹配',who:'真新人 I4 / 换号校友 I5',cur:'guest-unmatched.png',tone:'paper',tab:'flashback',
+  page:GUEST('暂时还没找到你的那一张','当前账号尚未匹配到历史档案。如果当年使用了其他手机号或邮箱，也可能暂时找不到。\n没有历史档案，也可以从今天开始。','写下我的愿望 →'),
+  changed:['同上：出口升为火色主按钮'],kept:['文案不动'],
+  flag:'「安慰失败者」的语气、新人与换号校友不分，属于流程改动（盘点 P2-6，#932），本轮不改；#933 上线后此页会多一个「那些年的相册」入口'});
+/* ════ 长廊 · 参与态 ════ */
+add({id:'corridor-top',group:'长廊 · 参与态',title:'今天未写',who:'已绑定 / 持链接（I1/I2/I3）',cur:'corridor-top.png',tone:'paper',tab:'flashback',
+  page:corridor('top'),
+  changed:['页面底从灰换成纸','顶部两个入口从黑卡换成纸卡，英文小标用青（通往山河）','时间胶囊保留暗窗，统一成暗房质感','「N 位已回来」「今天」用金','火只给「✎ 写今天的你」；底部「做成卡片」降为墨色描边'],
+  kept:['全部区块与顺序：入口 → 卡 dock → 城市堆 → 今天格 → 许愿树 → 未来场次 → 愿望段 → 做成卡片','全部文案与点击行为']});
+add({id:'corridor-lower',group:'长廊 · 参与态',title:'已寄出 · 下半屏',who:'同上',cur:'corridor-lower.png',tone:'paper',tab:'flashback',ws:true,
+  page:corridor('lower'),
+  changed:['寄出后火自动移到「把这一刻做成卡片」（同一时刻只有一个主动作）','「已寄出 ✓」「金句授权 · 匿名 ✓」「已附议」是结果，用金','愿望卡是暗窗里的纸片'],
+  kept:['截止场次的灰卡、两个许愿按钮、公开愿望、私人许愿折叠','有工作台权限时 Tab 仍是四项']});
+add({id:'shutter',group:'长廊 · 参与态',title:'快门仪式',who:'新身份首次进入',cur:'shutter.png',tone:'dark',tab:null,
+  page:corridor('top'),
+  layer:`<div class="ritual"><div class="dr-glow"></div><div class="j-brand">IN A FLASH · 闪念间</div><div class="j-lead">多年前，\n你写过一些答案。</div><div class="shutter" data-fire></div><div class="j-hint">按下快门，回到那天</div></div>`,
+  changed:['浅灰底换成暗房，与首程快门同一质感'],kept:['文案、点按任意处即入']});
+add({id:'card-front',group:'长廊 · 参与态',title:'开卡层 · 当年',who:'I1/I2/I3',cur:'card-front.png',tone:'paper',tab:'flashback',
+  page:corridor('top'),
+  layer:`<div class="mask darkroom"></div><div class="layer-badge"><span>点击照片翻面写字 · 再点寄出</span><span class="x">×</span></div>
+    <div class="layer-card"><div class="polaroid"><div class="photo" style="min-height:320px;display:flex;flex-direction:column;justify-content:center;text-align:center">${PAST}</div>
+    <div class="fog-hint">点句子可切换雾面 · 雾面句对外不可见</div><div class="sign"><b>王小明</b><span>2014.01.11</span></div></div></div>`,
+  changed:['遮罩从半透明黑换成暗房色','雾块从灰条换成带颗粒的「显影不足」质感'],kept:['点句切雾、点卡翻面、状态小字、关闭钮']});
+add({id:'card-write',group:'长廊 · 参与态',title:'开卡层 · 今天',who:'I1/I2/I3',cur:'card-write.png',tone:'paper',tab:'flashback',
+  page:corridor('top'),
+  layer:`<div class="mask darkroom"></div><div class="layer-badge"><span>点击照片翻面写字 · 再点寄出</span><span class="x">×</span></div>
+    <div class="layer-card"><div class="polaroid"><div class="photo" style="background:var(--paper-deep)"><div class="q" style="font-size:11.5px;color:var(--ink-3);margin-bottom:6px">今天的你 · 2026.9.26</div>
+    <div class="write-row"><div class="l">现在在做什么</div><div class="p">比如:还在写代码,下班带娃</div></div><div class="write-row"><div class="l">想做的事 / 想学的东西</div><div class="p">比如:学 Rust,做一个小工具</div></div>
+    <div class="write-row"><div class="l">需要什么帮助</div><div class="p">比如:想找人一起组队学习</div></div><div class="write-row"><div class="l">想对 CGC 说</div><div class="p">比如:十周年快乐!</div></div></div>
+    <div class="fire" data-fire style="margin:12px 6px 0">写完寄出 →</div><div class="send-note">寄出即公开 · 包括当年的答案 · 随时可调</div><div class="back-link">← 回到当年答案</div></div></div>`,
+  changed:['同上；「← 回到当年答案」用金色下划线'],kept:['四栏、占位示例、失焦自动保存、寄出一步到位'],
+  flag:'「随时可调」在小程序里撤不下（#931）；#933 上线前需改成新的可见范围'});
+add({id:'nudge',group:'长廊 · 参与态',title:'授权引导',who:'首程落地 / 寄出后，一次性',cur:'nudge.png',tone:'paper',tab:'flashback',ws:false,
+  page:corridor('lower'),
+  layer:`<div class="mask"></div><div class="modal nudge"><h3>你说的话，会成为别人的勇气。</h3><p>从当年的答案里选一句，匿名或实名地传下去。</p><div class="fire" data-fire>选一句试试 →</div><div class="skip">先不</div></div>`,
+  changed:['卡片换纸色，遮罩换暗房色'],kept:['文案、触发时机、一次性'],
+  flag:'「找回」路径不会触发这个引导（盘点 P2-7），属流程改动，本轮不改'});
+add({id:'license',group:'长廊 · 参与态',title:'金句授权',who:'I1/I2/I3',cur:'license.png',tone:'paper',tab:null,
+  page:corridor('top'),
+  layer:`<div class="mask"></div><div class="sheet lic"><div class="bar"></div><h3>金句授权</h3><div class="courage">你说的话会成为别人的勇气！</div>
+    <div class="lv"><i></i><div><b>关闭</b><small>（默认）你的答案只对自己可见</small></div></div>
+    <div class="lv on"><i></i><div><b>匿名金句</b><small>平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）</small></div></div>
+    <div class="lv"><i></i><div><b>实名支持</b><small>用你的名字公开这句话</small></div></div>
+    <div class="pick-h">选出可以展示的句子（可多选，平台从中挑选）：已选 1 句</div>
+    <div class="cand on" data-gold><em>✓1</em>我在盛大做测试。<small>请简单的介绍一下自己</small></div>
+    <div class="cand">想亲眼看看是不是真的！<small>请简单的介绍一下自己</small></div><div class="cand">后来我成了程序员。<small>请简单的介绍一下自己</small></div>
+    <div class="cand">我做过的有意思的事情：给机器人写了一个会讲笑话的按钮。<small>你做过的有意思的事情</small></div><div class="cand">E2E 闪念间回访<small>现在在做什么</small></div>
+    <div style="border-top:1px dashed var(--rule);margin-top:10px;padding-top:10px;font-size:12px;color:var(--ink-2)">这句话将这样出现：</div>
+    <div style="margin-top:8px;padding:12px 14px;border-radius:8px;background:var(--paper);border:1px solid var(--gold-line)"><div style="font:15px var(--serif);color:var(--ink)">「我在盛大做测试。」</div><div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);margin-top:6px"><span>王** · 2014 · 北京</span><span>匿名 · 不可点</span></div></div>
+    <div style="font-size:11.5px;color:var(--ink-3);text-align:center;margin-top:10px">你的授权随时可调，默认全部关闭</div></div>`,
+  changed:['选中的档位用墨色描边（选择不是动作）','圈中的句子从橙换成金：它们是「将被点亮」的内容','勇气语从橙色胶囊换成金色纸条'],
+  kept:['三档、多选圈选、雾句不可选、所见即所得预览、切档即保存']});
+add({id:'wish-modal',group:'长廊 · 参与态',title:'愿望模态',who:'I1/I2/I3',cur:'wish-modal.png',tone:'paper',tab:'flashback',
+  page:corridor('lower'),
+  layer:`<div class="mask"></div><div class="modal wm"><h3>一起出一本书:《她们的第一行代码》</h3><div class="wf"><span>李** · 北京</span><span class="fire-txt" data-fire>🙌 我能出力 · 5</span></div>
+    <div class="echo" data-gold><div class="eh"><span>回响</span><span style="color:var(--ink-3);font-size:12px">2 条</span></div><div class="em"><span>主办</span>2026.9.22<span style="color:var(--gold-ink)">已更正</span></div>
+    <p>签约了!明年 3 月出版,稿费 10% 捐给 CGC 奖学金。</p><div class="all">全部 2 条回响</div></div>
+    <div class="cm">留言(2)<div>王**: 算我一个</div><div>王**: E2E 留言</div></div><div class="cm-in"><div>留一句支持…</div><span>发送</span></div></div>`,
+  changed:['回响卡是金：愿望被回应了','「我能出力」是这一屏唯一的火'],kept:['全文、附议/取消、回响、公开留言流、本人删除'],
+  flag:'这里的留言是公开的，附议表单里的留言只有主办方可见（盘点 P2-10），本轮不改'});
+/* ════ 相册（场次页）════ */
+const EVENT=`<div class="page paper"><div class="ev"><div class="back">‹ 时间长廊</div><h2>2014.01.11 · Rails Girls Beijing</h2>
+  <div class="stats"><span>344 位报名</span><span>102 位走进教室</span><span class="gold-txt" data-gold>3 位已回来</span></div>
+  <div class="hint">这一场的人 · 显影的是寄出了的，雾着的是还没回来的</div>
+  <div class="grid"><div class="cell lit" data-gold><div class="win2">王小明</div><small>已寄出</small></div><div class="cell lit" data-gold><div class="win2">李一诺</div><small>已寄出</small></div><div class="cell lit" data-gold><div class="win2">陈静怡</div><small>已寄出</small></div>
+  <div class="cell fog"><b>杨**</b><small>答案还在等她</small></div><div class="cell fog"><b>周**</b><small>答案还在等她</small></div><div class="cell fog"><b>吴**</b><small>答案还在等她</small></div></div>
+  <div class="fire" data-fire style="margin:20px 30px 0">你也在这一场？找回你的那一张 →</div>
+  <div class="loops"><div class="ink-btn">下一场:Agent 入门工作坊 →</div><div class="ink-btn">回到今天</div><div class="ink-btn">看看未来</div></div></div></div>`;
+add({id:'event',group:'相册（场次页）',title:'这一场的人',who:'#933 后：所有已登录用户',cur:'event.png',tone:'paper',nav:{title:'闪念间 · 这一场',home:true},
+  page:EVENT,
+  changed:['底从灰换成纸；显影卡顶边一道金（她回来了）','「3 位已回来」用金','回环三出口从灰块换成墨色描边','按 #933：雾卡只剩「杨**」，城市、职业不再出现'],
+  kept:['统计行、网格、点显影卡翻开、点雾卡提示「ta 还没回来」、回环三出口']});
+add({id:'view-person',group:'相册（场次页）',title:'看别人的卡',who:'同上',cur:'view-person.png',tone:'paper',nav:{title:'闪念间 · 这一场',home:true},
+  page:EVENT,
+  layer:`<div class="mask darkroom"></div><div class="vperson"><div class="polaroid"><div class="photo"><div class="qa"><div class="q">请简单的介绍一下自己</div><div class="a">我在一家创业公司写前端，<span class="fogb" style="width:6em"></span>。</div></div>
+    <div style="border-top:1px dashed rgba(30,58,47,.25);padding-top:10px;font:14px var(--serif);color:var(--ink)">现在在做什么：还在写代码</div></div></div>
+    <div class="vfoot" style="color:var(--dark-ink-2)">她雾住的句子，只有她自己能看到 · 点任意处合上</div></div>`,
+  changed:['遮罩换暗房色；她的卡是一张拍立得','雾块与自己的卡同一质感'],kept:['只读、雾句不下发原文、点任意处合上'],
+  flag:'答案一行为示意（mock 里他人答案为空）'});
+/* ════ 我的卡与分享 ════ */
+add({id:'today',group:'卡片与分享',title:'卡片页',who:'I1/I2/I3',cur:'today.png',tone:'paper',nav:{title:'卡片',home:true},
+  page:`<div class="page paper"><div class="td"><div class="chips"><span class="chip on">合起来</span><span class="chip">当年的你</span><span class="chip">今天的你</span><span class="chip">摘要卡</span></div>${TODAY_CARD}
+    <div class="row"><div class="fire" data-fire>保存图片</div><div class="ink-btn" style="height:46px;border-radius:23px">分享给朋友</div></div><div class="tip">点句子可切换雾面 · 雾面句对外不可见</div></div></div>`,
+  changed:['四态 chip 的选中从橙换成墨（选择不是动作）','「分享给朋友」从橙描边换成墨描边，火只给「保存图片」'],kept:['四态、逐句雾化、保存物即预览物']});
+add({id:'share-panel',group:'卡片与分享',title:'分享面板',who:'I1/I2/I3',cur:'share-panel.png',tone:'paper',nav:{title:'卡片',home:true},
+  page:`<div class="page paper"><div class="td"><div class="chips"><span class="chip on">合起来</span><span class="chip">当年的你</span><span class="chip">今天的你</span><span class="chip">摘要卡</span></div>${TODAY_CARD}</div></div>`,
+  layer:`<div class="mask"></div><div class="sheet sp"><h3>朋友将看到的全文卡</h3>${SHARE_CARD}<div class="fire" data-fire style="margin-top:14px">允许生成分享链接</div><div class="quiet">先不分享</div></div>`,
+  changed:['主按钮不再压在卡片署名行上（现状的重叠是布局瑕疵，顺手修）'],kept:['先看朋友会看到什么、再决定开不开；与金句授权互相独立']});
+add({id:'shared-card',group:'卡片与分享',title:'分享卡页（接收者）',who:'任何人',cur:'share-panel.png',tone:'paper',nav:{title:'闪念间 · 一张卡',home:true},
+  page:`<div class="page paper"><div class="td" style="padding-top:20px">${SHARE_CARD}<div class="foot-note">这是她在闪念间写下的一张卡 · 雾住的句子只有她自己能看到</div>
+    <div class="fire" data-fire>找回我的闪念间 →</div><div class="link" style="text-align:center;margin-top:12px">看更多声音 · 去金句墙 →</div></div></div>`,
+  changed:['与分享面板同一张纸卡'],kept:['只读、两种空态、两个出口'],
+  flag:'左图是分享面板里的同一张卡（mock 未开公开链接）；「找回」落死页见 #929'});
+/* ════ 金句墙 / 许愿树 ════ */
+const MAPHEAD=(on,share,cities,callout)=>`<div class="mt"><div class="${on==='v'?'on':''}">金句墙<small>VOICES</small></div><div class="${on==='w'?'on':''}">许愿树<small>WISHES</small></div></div>
+  <div class="mapbox"><img src="${MAP}" alt=""><span class="share">↗ ${share}</span>${callout?`<div class="callout" data-gold>${callout}</div>`:''}<span class="replay">↻ 重看山河亮起</span></div><div class="legend">青绿 · 山河来处　　金线 · 句长成树</div>
+  <div class="cities"><span class="chip on">全部</span>${cities.map(c=>`<span class="chip">${c}</span>`).join('')}<span class="more">全部城市 ▾</span></div>`;
+add({id:'voices',group:'金句墙 / 许愿树',title:'金句墙',who:'任何人（免登录）',cur:'voices.png',tone:'paper',nav:{title:'闪念间 · 金句墙',home:true},
+  page:`<div class="page paper">${MAPHEAD('v','分享整墙',['北京','成都','广州','杭州'])}<div class="reader"><div class="ey">那年，她这样写　—</div><div class="qt">我想成为一个，敢说「我不会，但我可以学」的人。</div>
+    <div class="meta"><span>王** · 2014 · 北京</span><span>分享 ↗</span></div><div class="acts2"><div class="ink-btn" style="flex:0 0 84px;height:46px;border-radius:23px">♡　32</div><div class="fire" data-fire>随便听一听 ↝</div></div>
+    <div class="pager"><span>← 上一句</span><span>01 / 12</span><span>下一句 →</span></div><div class="consent">经本人选择并授权公开，赞是一份共鸣，无需登录。</div></div>
+    <div class="mfoot"><div class="ink-btn" style="height:44px;border-radius:22px">找回你的那一张 ↗</div><div class="ink-btn" style="height:44px;border-radius:22px">去许愿 →</div></div></div>`,
+  changed:['「随便听一听」从深绿实心换成火：它是这一页的主动作（继续听下去，新人获得力量的主路径）','点赞是墨色描边，点过变金（已被点亮）','「重看山河亮起」从金色胶囊换成墨框纸钮：金只表达结果，不做按钮','山河地图、青绿图例原样保留（青只画山河）'],kept:['一次读一句、翻页、随便听一听、分享、城市筛选、两种空态'],
+  flag:'城市标点、光路与「山河亮起」动画沿用现有地图组件，只改配色，原型里只放底图；「去许愿，写下未来 →」为适配宽度缩写，文案实际不改'});
+add({id:'wishes',group:'金句墙 / 许愿树',title:'许愿树',who:'任何人（出力要登录）',cur:'wishes.png',tone:'paper',nav:{title:'闪念间 · 许愿树',home:true},
+  page:`<div class="page paper">${MAPHEAD('w','分享整树',['北京','上海'],'开一门 Rust 系统课')}<div class="filters"><span class="chip on">全部</span><span class="chip">已有回响</span></div>
+    <div class="reader"><div class="qt" style="margin-top:6px">开一门 Rust 系统课</div><div class="meta"><span>陈* · 上海</span><span>分享愿望 ↗</span></div>
+    <div class="count"><b>2</b>人也在期待</div><div class="acts2"><div class="fire" data-fire>我也期待</div><div class="ink-btn" style="height:46px;border-radius:23px">已出力 · 取消</div></div>
+    <div class="notice">出力时，可选择接收新回响的提醒。</div></div></div>`,
+  changed:['「我也期待」从深绿换成火：全 App 只有一种主按钮颜色','「我能出力 / 已出力 · 取消」墨色描边'],kept:['一次读一条、期待免登录、出力要登录、回响、翻页、换一批、分享']});
+add({id:'endorse',group:'金句墙 / 许愿树',title:'附议表单',who:'已登录',cur:'endorse.png',tone:'paper',nav:{title:'闪念间 · 许愿树',home:true},
+  page:`<div class="page paper">${MAPHEAD('w','分享整树',['北京','上海'],'一起出一本书:《她们的第一行代码》')}</div>`,
+  layer:`<div class="mask"></div><div class="sheet es"><div class="hd"><h3>我能出力</h3><span class="close">关闭</span></div><div class="pv">一起出一本书:《她们的第一行代码》</div>
+    <div class="types"><span class="chip">提供场地</span><span class="chip">帮忙组织</span><span class="chip">来分享</span><span class="chip">赞助支持</span><span class="chip">其他方式</span></div>
+    <div class="ta">想对主办方说的（可选，500 字内）</div><div class="ct">提交即同意主办方通过你账号绑定的手机号／邮箱与你联系对接，留言仅主办方可见。</div>
+    <div class="ntf">☑ 订阅回响通知</div><div class="fire dim" data-fire>提交附议</div></div>`,
+  changed:['提交按钮从灰绿换成火（未选出力类型时半透明）','选中的出力类型用墨'],kept:['出力类型、给主办方的留言、同意联系、订阅回响提醒、回执']});
+/* ════ 愿望 ════ */
+add({id:'wish-write',group:'愿望',title:'写愿望',who:'任何人（提交时登录）',cur:'wish-write.png',tone:'paper',nav:{title:'写下我的愿望',home:true},
+  page:`<div class="page paper"><div class="ww"><div class="eyebrow" style="letter-spacing:.12em">闪念间 · 写给未来</div><h2>写下我的愿望</h2><div class="lead">想学什么、想遇见谁、想一起做些什么？</div>
+    <div class="lbl">我的愿望</div><div class="box" style="height:110px">写下你想和 CGC 一起实现的事…</div><div class="cnt">0 / 500</div>
+    <div class="lbl">期待相聚的城市</div><div class="box">例如：成都</div>
+    <div class="lbl">怎样署名</div><div class="two"><div class="on">匿名</div><div>使用展示名</div></div>
+    <div class="lbl">谁能看到</div><div class="opt on">公开愿望 · 任何人可见</div><div class="opt">说给主办方听 · 仅自己和平台可见</div>
+    <div class="small">提交即同意公开展示，大家可以期待它发生，也可以出力。</div><div class="small">今年还可以许 2 个愿望；删除不退还额度。</div>
+    <div class="fire" data-fire style="margin-top:8px">许下这个愿</div></div></div>`,
+  changed:['提交从深绿换成火','选中项从浅绿底换成墨描边 + 纸底'],kept:['全部字段、默认值、草稿、额度提示']});
+add({id:'my-wishes',group:'愿望',title:'我的愿望',who:'已登录（无需档案）',cur:'my-wishes.png',tone:'paper',nav:{title:'我的愿望',home:true},
+  page:`<div class="page paper"><div class="ww mw"><div class="eyebrow" style="letter-spacing:.12em">闪念间 · 写给未来</div><h2>我的愿望</h2><div class="lead">今年还可以许 2 个愿望 · 删除不退还额度</div>
+    <div class="item"><b>合成验收：和新朋友一起做一个小作品。</b><div class="st"><span class="ok" data-gold>已保存 · 已公开</span><span>在许愿树查看 → · 删除</span></div></div>
+    <div class="fire" data-fire style="margin-top:14px">写下我的愿望</div><div class="link" style="text-align:center;margin-top:12px">去许愿树，看看大家的愿望 →</div></div></div>`,
+  changed:['「已公开」用金'],kept:['列表、三种状态、删除两步确认、额度']});
+/* ════ 登录与品牌页 ════ */
+const FLAME='<svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 2.5c1.2 3.8 5.2 5.6 5.2 10.8a5.2 5.2 0 0 1-10.4 0c0-2.4 1.1-3.8 2-5 .3 1.5 1 2.5 2 3-.1-3.2-.5-5.7 1.2-8.8z" fill="#fff"/></svg>';
+add({id:'login',group:'登录与品牌页',title:'登录页',who:'所有需要登录的入口',cur:'login.png',tone:'white',nav:{title:'手机号快捷登录',home:true},
+  page:`<div class="page white"><div class="lg"><div class="mark">${FLAME}</div><div class="bn">程序媛汇<span>2046</span></div><h2>手机号快捷登录</h2>
+    <div class="perm">✓ 创建或绑定你的程序媛汇账号<br>✓ 保存 7 天登录状态<br>✓ 后续通知仍需你逐次授权</div><div class="fire" data-fire style="margin-top:18px">手机号快捷登录</div>
+    <div class="tag2">Coding Girls Club · 程序媛汇 — 2016 → 2046</div></div></div>`,
+  changed:['品牌页保持白底；字色换成墨，权限列表底换成纸色','「2046」从橙换成墨：它不可按'],kept:['流程、文案、协议弹窗']});
+add({id:'discover',group:'登录与品牌页',title:'发现（Tab 一致性）',who:'任何人',cur:'discover.png',tone:'white',tab:'discover',nav:{title:'发现'},
+  page:`<div class="page white"><div class="br"><div class="logo"><span style="width:22px;height:22px;border-radius:50%;background:var(--fire);display:inline-flex;align-items:center;justify-content:center">${FLAME.replace('width="30" height="30"','width="14" height="14"')}</span>程序媛汇 <span style="color:var(--ink-2)">2046</span></div>
+    <h2>发现</h2><div class="lead">找到下一场活动，认识一起成长的人。</div><div class="search">搜索活动、课程</div>
+    <div class="camp" data-fire><small>十周年 CAMPAIGN</small><b>Hacker Start 1024</b><p>让普通人第一次亲手用 Agent 做出能跑的作品</p><p style="margin-top:8px;display:flex;justify-content:space-between"><span>全国 1,024 场 · 2026.10.24 启动</span><span>›</span></p></div>
+    <div class="login-card"><div><b>先逛逛，登录后可报名</b><small>手机号快捷登录，不需要设置密码。</small></div><span>去登录</span></div>
+    <div class="sec">倡导活动<span>1 个</span></div><div class="item" style="border-left:3px solid var(--ink-3)"><small style="letter-spacing:.14em;color:var(--ink-2)">INITIATIVE</small> <small style="padding:1px 6px;border-radius:4px;background:var(--gold-soft);color:var(--gold-ink)" data-gold>进行中</small><b style="margin-top:4px">1024 程序员节</b><small>#1024 · 10/2/2026 – 10/16/2026</small><br><small>跨城市的开源共学周，把同一套课程带到十个城市。</small></div>
+    <div class="sec">即将开始的活动<span>3 场</span></div></div></div>`,
+  changed:['Tab 栏与闪念间同一套：纸白底、墨色选中 + 金点、自绘线性图标','登录提示卡从第二块橙色换成纸框墨钮（首屏火只留给 1024）','倡导活动卡的「INITIATIVE」标签与左边框从橙换成墨，「进行中」换成金：它们不可按'],kept:['发现页全部结构、文案、Campaign 卡'],
+  flag:'「登录卡降级」是这一屏唯一的取舍，需要你确认'});
+add({id:'profile',group:'登录与品牌页',title:'我的（Tab 一致性）',who:'已登录',cur:'profile.png',tone:'white',tab:'profile',nav:{title:'我的'},
+  page:`<div class="page white"><div class="br"><div class="eyebrow" style="letter-spacing:.24em">PROFILE</div><h2>我的</h2>
+    <div class="login-card" style="background:var(--paper)"><div><b>王小明</b><small>138****0001</small></div><span>退出</span></div>
+    <div class="sec">本机通知记录</div><div class="item"><small>暂无通知</small></div>
+    <div class="sec">我的报名</div><div class="item"><b>查看报名与核销</b><small>报名的活动与课程、现场核销码、缴费状态。</small></div>
+    <div class="sec">继续学习</div><div class="item"><b>去 OpenClacky</b><small>完整学习协作在你自己的 Agent 环境中继续。</small></div></div></div>`,
+  changed:['Tab 栏一致；无主动作时不放火'],kept:['结构与文案（无闪念间入口，保持现状）']});
+
+/* ════ 渲染与计数 ════ */
+let cur=Math.max(0,S.findIndex(s=>s.id===new URLSearchParams(location.search).get('s')));
+function side(){
+  let html=$('#side').innerHTML.split('<h6')[0], g='';
+  S.forEach((s,i)=>{ if(s.group!==g){g=s.group; html+=`<h6>${g}</h6>`} html+=`<button data-i="${i}" class="${i===cur?'on':''}">${s.title}${s.cur?'':'<small>无现状图</small>'}</button>`; });
+  $('#side').innerHTML=html;
+}
+function measure(){
+  const root=$('#pR .layer')||$('#pR .vp'); if(!root) return;
+  const v=$('#pR').getBoundingClientRect(), tab=$('#pR .tabbar')&&!$('#pR .layer')?84*scale:0;
+  const vis=el=>{const r=el.getBoundingClientRect(); if(!r.width) return false; const h=Math.min(r.bottom,v.bottom-tab)-Math.max(r.top,v.top+91*scale); return h>=r.height/2};
+  const f=$$('[data-fire]',root).filter(vis).length, g=$$('[data-gold]',root).filter(vis).length;
+  $('#mf').textContent=f; $('#mg').textContent=g;
+  $('#mv').textContent=f>1?`✗ 火出现 ${f} 处`:f===1?'✓ 火只有一处':'· 这一屏没有主动作';
+}
+let scale=1;
+function fit(){ scale=Math.min(1,(innerHeight-60)/866); $$('.frame').forEach(f=>{f.style.transform=`scale(${scale})`;f.style.height=(866*scale)+'px';f.style.width=(412*scale)+'px'}); }
+function render(){
+  const s=S[cur];
+  $('#pL').innerHTML=s.cur?`<img class="shot" src="current/${s.cur}" alt="现状截图">`:'<div class="none"><b>现状截图缺</b><span>见右侧说明</span></div>';
+  $('#pR').className='phone t-'+s.tone;
+  $('#pR').innerHTML=chrome(s)+`<div class="vp">${s.page}${s.layer?`<div class="layer" style="position:absolute;inset:0;z-index:35">${s.layer}</div>`:''}</div>`+(s.tab&&!s.layer?tabbar(s.tab,s.ws):s.tab?tabbar(s.tab,s.ws):'')+'<div class="home-bar"></div>';
+  $('#notes').innerHTML=`<h2>${s.group} · ${s.title}</h2><div class="who">${s.who}</div>
+    <div class="meter"><div class="f"><b id="mf">0</b>火 · 可以按的</div><div class="g"><b id="mg">0</b>金 · 已被点亮的</div></div><div class="verdict" id="mv"></div>
+    <h5>换肤改了什么</h5><ul>${s.changed.map(x=>`<li>${x}</li>`).join('')}</ul>
+    <h5>没改什么</h5><ul>${s.kept.map(x=>`<li>${x}</li>`).join('')}</ul>
+    ${s.flag?`<h5>注意</h5><ul><li>${s.flag}</li></ul>`:''}
+    <div class="keys">← / → 切换页面 · 第 ${cur+1} / ${S.length} 页 · 计数只看最上层（有弹层时只数弹层）</div>`;
+  history.replaceState(null,'','?s='+s.id); side(); setTimeout(measure,60);
+}
+document.addEventListener('click',e=>{const b=e.target.closest('.side button'); if(b){cur=+b.dataset.i; render();}});
+document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight'||e.key==='ArrowDown'){cur=(cur+1)%S.length;render();e.preventDefault()} if(e.key==='ArrowLeft'||e.key==='ArrowUp'){cur=(cur-1+S.length)%S.length;render();e.preventDefault()} });
+addEventListener('resize',()=>{fit();measure()});
+fit(); render();
+</script>
+</body>
+</html>
