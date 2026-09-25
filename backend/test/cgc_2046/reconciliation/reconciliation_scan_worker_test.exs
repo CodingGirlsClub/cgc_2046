@@ -23,6 +23,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   alias Cgc2046.Repo
   alias Cgc2046.Notifications.NotificationWorker
   alias Cgc2046.Reconciliation.ReconciliationScanWorker
+  alias Cgc2046.Reconciliation.ScanDetections
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Workflows.SignalPublishWorker
   alias Cgc2046.Learning.Runs
@@ -32,7 +33,7 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   # ── 规6 白名单完整性(ADR-0010 W1:防字符串漂移→规则失明)──────────────────
 
   test "规6 死信白名单的每个模块名字符串必须对应真实存在的模块" do
-    for name <- ReconciliationScanWorker.dead_letter_workers() do
+    for name <- ScanDetections.dead_letter_workers() do
       assert Code.ensure_loaded?(String.to_atom("Elixir." <> name)),
              "死信白名单模块不存在(改名后字符串未随迁): #{name}"
     end

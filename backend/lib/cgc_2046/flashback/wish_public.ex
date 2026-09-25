@@ -22,6 +22,7 @@ defmodule Cgc2046.Flashback.WishPublic do
 
   @default_limit 60
   @max_limit 120
+  @max_public_input_length 255
   # freshness 参数硬编码进 SQL fragment（7 天窗 ×1.5）——单源，避免 attribute 与 SQL 漂移
 
   @doc """
@@ -37,21 +38,34 @@ defmodule Cgc2046.Flashback.WishPublic do
   @spec wishes(keyword()) :: {:ok, list(map())}
   def wishes(opts \\ []) do
     city = Keyword.get(opts, :city)
-    voter_keys = normalize_voter_keys(opts)
+    voter_keys = opts |> normalize_voter_keys() |> Enum.map(&bound_public_input/1)
     # endorsed_by_viewer 只匹配 u: 键（附议要求登录，actor_key 恒 u: 形态）
     endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
-    seed = Keyword.get(opts, :seed) || default_seed(List.first(voter_keys))
+
+    seed =
+      case Keyword.get(opts, :seed) do
+        nil -> default_seed(List.first(voter_keys))
+        value -> bound_public_input(value)
+      end
+
     offset = max(Keyword.get(opts, :offset, 0), 0)
     limit = opts |> Keyword.get(:limit, @default_limit) |> max(1) |> min(@max_limit)
 
+    base_where = visible_wishes()
+
     base_where =
-      dynamic(
-        [w],
-        w.visibility == "public" and
-          not is_nil(w.listed_at) and
-          is_nil(w.hidden_at) and
-          is_nil(w.deleted_at)
-      )
+      if Keyword.get(opts, :with_echoes, false) do
+        dynamic(
+          [w],
+          ^base_where and
+            fragment(
+              "EXISTS (SELECT 1 FROM flashback_wish_echoes e WHERE e.wish_id = ? AND e.status IN ('published', 'corrected'))",
+              w.id
+            )
+        )
+      else
+        base_where
+      end
 
     where_dyn =
       if city do
@@ -137,6 +151,37 @@ defmodule Cgc2046.Flashback.WishPublic do
     {:ok, Enum.map(rows, &payload(&1, echoes_by_wish_id))}
   end
 
+  @doc "城市选择器查询整个公开树，独立于当前分页和回响筛选。"
+  def published_cities do
+    names =
+      from(w in "flashback_wishes",
+        where: ^visible_wishes(),
+        where: not is_nil(w.city),
+        distinct: true,
+        select: w.city
+      )
+      |> Repo.all()
+      |> MapSet.new()
+
+    cities =
+      Cgc2046.Flashback.Cities.list()
+      |> Enum.filter(&MapSet.member?(names, &1.short_name))
+      |> Enum.sort_by(& &1.pinyin)
+      |> Enum.map(
+        &%{name: &1.short_name, full_name: &1.full_name, pinyin: &1.pinyin, lng_lat: &1.lng_lat}
+      )
+
+    {:ok, cities}
+  end
+
+  defp visible_wishes do
+    dynamic(
+      [w],
+      w.visibility == "public" and not is_nil(w.listed_at) and is_nil(w.hidden_at) and
+        is_nil(w.deleted_at)
+    )
+  end
+
   @doc """
   单条直达（?item=<wish_id>）：四条件可见才返回 payload；否则 nil（不泄露存在性）。
   """
@@ -151,6 +196,7 @@ defmodule Cgc2046.Flashback.WishPublic do
         opts when is_list(opts) -> normalize_voter_keys(opts)
         key -> normalize_voter_keys(voter_key: key)
       end
+      |> Enum.map(&bound_public_input/1)
 
     # 与 wishes/1 同构：仅 u: 键可命中附议 actor_key
     endorser_keys = Enum.filter(voter_keys, &String.starts_with?(&1, "u:"))
@@ -259,6 +305,14 @@ defmodule Cgc2046.Flashback.WishPublic do
 
     keys |> Enum.uniq() |> then(&if &1 == [], do: [""], else: &1)
   end
+
+  # #818：限制读面排序/回显键长度，避免超长输入进入 md5 与 ANY 查询参数。
+  defp bound_public_input(nil), do: nil
+
+  defp bound_public_input(value) when is_binary(value),
+    do: String.slice(value, 0, @max_public_input_length)
+
+  defp bound_public_input(value), do: value
 
   defp default_seed(voter_key) do
     today = Date.to_string(Date.utc_today())

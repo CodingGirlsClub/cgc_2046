@@ -801,6 +801,7 @@ export interface MiniProgramApi {
       signatureChoice?: 'anonymous' | 'display_name'
       expectedCity?: string | null
       publicListingConsent?: boolean
+      requestId?: string
     }
   ): Promise<{ id: string; status: string }>
   /** wish2 U6/KTD3：附议（登录版，旧 token 匿名腿下线）；出力多选 + 留言 ≤500 +

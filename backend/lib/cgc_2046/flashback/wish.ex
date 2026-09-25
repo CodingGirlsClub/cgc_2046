@@ -1,6 +1,8 @@
 defmodule Cgc2046.Flashback.Wish do
   @moduledoc """
-  许愿卡（走廊未来帧）：学员对未来活动的愿望——课程、一本书、任何事。
+  许愿卡（走廊未来帧）：任何登录用户对未来活动的愿望。
+  user_id 是账号归属；person_id 是可选的历史档案关联，不为新用户伪造档案。
+  存量 token 作者仍可只关联 person，认领后按同一账号合并额度。
 
   `visibility` 二态（R6 提交时定终，KD9 不做转换）：
 
@@ -24,7 +26,10 @@ defmodule Cgc2046.Flashback.Wish do
   attributes do
     uuid_primary_key(:id)
 
-    attribute(:person_id, :uuid, allow_nil?: false, public?: true, writable?: true)
+    attribute(:person_id, :uuid, allow_nil?: true, public?: true, writable?: true)
+    attribute(:user_id, :uuid, public?: false, writable?: true)
+    attribute(:request_id, :string, public?: false, writable?: true)
+    attribute(:request_fingerprint, :string, public?: false, writable?: true)
     attribute(:content, :string, allow_nil?: false, public?: true, writable?: true)
     attribute(:visibility, :string, allow_nil?: false, public?: true, writable?: true)
     attribute(:city, :string, public?: true, writable?: true)
@@ -46,10 +51,15 @@ defmodule Cgc2046.Flashback.Wish do
   end
 
   relationships do
+    belongs_to(:user, Cgc2046.Accounts.User, attribute_writable?: true)
     belongs_to(:person, Cgc2046.Flashback.Person, attribute_writable?: true)
     has_many(:endorsements, Cgc2046.Flashback.WishEndorsement, destination_attribute: :wish_id)
     has_many(:echoes, Cgc2046.Flashback.WishEcho, destination_attribute: :wish_id)
     has_many(:comments, Cgc2046.Flashback.WishComment, destination_attribute: :wish_id)
+  end
+
+  identities do
+    identity(:unique_user_request, [:user_id, :request_id])
   end
 
   actions do
@@ -59,6 +69,13 @@ defmodule Cgc2046.Flashback.Wish do
       # signature/listed_at/hidden_at 在 server 层（Wishes.create_wish/4）赋值，不进
       # GraphQL 写面（U6 公开 schema 不暴露）；「仅 server 写」由 domain 边界保证。
       accept([:person_id, :content, :visibility, :city, :signature, :listed_at, :hidden_at])
+      # Ownership and publication snapshots are assigned only by WishWriting.
+      change(fn changeset, _ ->
+        Ash.Changeset.force_change_attributes(
+          changeset,
+          changeset.context[:wish_author_attributes] || %{}
+        )
+      end)
     end
 
     update :update do
@@ -74,6 +91,7 @@ defmodule Cgc2046.Flashback.Wish do
 
     references do
       reference(:person, on_delete: :nothing)
+      reference(:user, on_delete: :delete)
     end
   end
 end

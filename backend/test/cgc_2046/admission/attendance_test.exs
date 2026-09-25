@@ -331,11 +331,12 @@ defmodule Cgc2046.Admission.AttendanceTest do
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
       assert EventFixtures.ledger_occupancy(event) == 1
 
-      assert Enum.any?(
-               all_enqueued(worker: NotificationWorker),
-               &(&1.args["template_key"] == "refund_succeeded" and
-                   &1.args["user_id"] == enrollment.user_id)
+      # #847 批 2：refund_succeeded 已迁耐久路径，行为面 = Delivery 行
+      assert Cgc2046.Notifications.NotificationDelivery
+             |> Ash.Query.filter(
+               template_key == "refund_succeeded" and user_id == ^enrollment.user_id
              )
+             |> Ash.read!(authorize?: false) != []
     after
       Fake.reset!()
     end
@@ -458,6 +459,27 @@ defmodule Cgc2046.Admission.AttendanceTest do
       assert audit_count(enrollment.id) == 0
       assert refund_job_order_ids([order.id]) == []
       assert Ash.get!(Enrollment, enrollment.id, authorize?: false).status == :confirmed
+    end
+
+    # #845 钉测：refund_failed 存量单核销走 :retry_refund 重入退款链。恰好一笔
+    # job——现状靠 PaymentRefundWorker unique 兜底（retry_refund after_action
+    # 入队 + 调用方手动入队各一次）；#845 D1 落地后按设计即一笔，断言不变。
+    test "refund_failed 押金单核销：retry_refund 重入退款链，恰好一笔 job" do
+      %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
+      event = deposit_event(workspace, owner, capacity: 1)
+      moderator = assign_moderator(event, workspace, owner, "u6-retry-refund-moderator")
+      {_learner, enrollment, order} = confirmed_deposit_enrollment(event, workspace)
+
+      # 渠道拒绝后未重试的存量单（015 布置同款）
+      Repo.query!("UPDATE payments_orders SET status = 'refund_failed' WHERE id = $1", [
+        Repo.uuid!(order.id)
+      ])
+
+      assert {:ok, _} = check_in(event, enrollment.check_in_code, :manual, moderator)
+
+      assert reload_order(order).status == :refunding
+      assert refund_job_order_ids([order.id]) == [order.id]
+      assert length(refund_audit_logs(order.id)) == 1
     end
 
     test "免费场核销：只记到场，不入退款链" do

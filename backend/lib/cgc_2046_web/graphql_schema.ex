@@ -3,6 +3,9 @@ defmodule Cgc2046Web.GraphqlSchema do
   import_types(Cgc2046Web.GraphqlSchema.Recruitment)
   import_types(Cgc2046Web.GraphqlSchema.SpeakerInvitation)
   import_types(Cgc2046Web.GraphqlSchema.PaymentOperations)
+  import_types(Cgc2046Web.GraphqlSchema.Offering)
+  import_types(Cgc2046Web.GraphqlSchema.Learning)
+  import_types(Cgc2046Web.GraphqlSchema.AdminDashboard)
 
   require Logger
   require Ash.Query
@@ -10,78 +13,6 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   alias Cgc2046.AdminList
   import Cgc2046Web.GraphqlSchema.Helpers
-
-  # ── #607 治理操作 metadata 读面白名单（唯一真源；加键只改本表）──────────────
-  #
-  # `admin_action_logs.metadata` 是自由 map 且**含 PII**（admin_promote / owner_reassign /
-  # owner_invitation_cancel 的 email；application_reject 的 rejection_reason 自由文本），
-  # 故 `/admin/audit` 读面按 action 分组投影，**不整列透传**：
-  #
-  #   - 只收录显式点名的 action；未收录（含未来新 action）一律 nil——没有默认透传兜底；
-  #   - 表内不得出现 PII 键（email 类 / rejection_reason / 任意自由文本）；
-  #   - `value_before` / `value_after` 自身也是自由 map（`InitiativeRule.value` 无约束、
-  #     `upsertInitiativeRule` 收任意 JSON 对象）→ 同一条标准下沉一层，见
-  #     `@rule_value_whitelist`；被省略的键由 `value_*_omitted` 显式标出，不静默截断。
-  #
-  # 新增可展示 action：键名落在 `admin_action_metadata` 既有字段（rule_key / locked /
-  # locked_before / value_before / value_after）内 → 只加表项即可，投影逻辑与前端键序
-  # 都不用动；形状不同的 action 需另立 GraphQL object（本表是可见性清单，不是形状引擎）。
-  @admin_action_metadata_whitelist %{
-    initiative_rule_update: ~w(rule_key locked locked_before value_before value_after)
-  }
-
-  # U1 治理写变更投影（offering）：闭集标量 → 每列 value_before / value_after 分列。
-  # **不收自由文本**（description / venue / price_tiers 等不进 metadata），不复用
-  # rule 族的 JSON 槽——形状不同另立 object（`admin_offering_change_metadata`）。
-  # 表是行级可见性清单：只有 admin_event_update / admin_course_update 落表的行才
-  # 投影；其余 action（含 launch/close/cancel）投影 nil（默认拒不破）。
-  # Course 无 deposit_enabled（Event-only 槽位）→ 该 action 少两列。
-  @offering_change_scalars ~w(title visibility capacity pricing_enabled deposit_enabled)
-  @admin_offering_change_metadata_whitelist %{
-    admin_event_update: @offering_change_scalars,
-    admin_course_update: @offering_change_scalars -- ["deposit_enabled"]
-  }
-
-  # U1 治理 update mutation 的输入闭集（R5 标准元数据全集里治理面的可编辑子集：
-  # 标题/时间/容量/截止/定价与押金槽位/visibility/venue）。
-  # slug 在内——R7 的「已发布锁死」必须经同一 action 守卫落稳定 code
-  # （event_slug_locked / course_slug_locked）；教研内容（curriculum_enabled /
-  # curriculum_requirements / price_tiers / workflow_run_id 一类）不在治理面输入，
-  # 仍只能走各自既有路径。字段名须与 input_object 的键一致（map_input/2 取键）。
-  @admin_event_update_fields [
-    :title,
-    :slug,
-    :description,
-    :visibility,
-    :capacity,
-    :registration_deadline,
-    :starts_at,
-    :ends_at,
-    :venue,
-    :pricing_enabled,
-    :deposit_enabled
-  ]
-  @admin_course_update_fields [
-    :title,
-    :slug,
-    :description,
-    :visibility,
-    :capacity,
-    :registration_deadline,
-    :starts_at,
-    :ends_at,
-    :pricing_enabled
-  ]
-
-  # 二级白名单：rule_key → 该规则 value map 可出面的键（次序 = 界面渲染次序）。
-  # 四项规则值都是治理设置（押金开关与金额分 / 年龄门槛 / 成班阈值 / 截止小时数），
-  # 本身非敏感；未收录的 rule_key 投影为空 + omitted=true。
-  @rule_value_whitelist %{
-    "deposit" => ~w(enabled amount_cents refundable_on_check_in),
-    "age_gate" => ~w(min_age),
-    "min_participants" => ~w(count),
-    "deadline_rule" => ~w(hours_before_start)
-  }
 
   use AshGraphql,
     domains: [
@@ -234,39 +165,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户 confirmed 课程报名的学习 run 进度（非成员可读；event 报名不走 objective 学习不返回，已取消课程除外）"
-    field :my_learning_runs, non_null(list_of(non_null(:my_learning_run))) do
-      resolve(fn _, _, %{context: context} ->
-        with_actor(context, &Cgc2046.Learning.Runs.my_learning_runs/1)
-      end)
-    end
-
-    # #355 P1-3：详情页「已报名」态数据源——actor 在目标活动/课程上的活跃报名
-    # （pending/payment_pending/confirmed，语义同 MCP discover_offerings.
-    # my_enrollment；读取真源 Enrollment.active_enrollments_by_offering，带
-    # actor 走 read policy 本人锚定）。匿名 → null（公开详情页可匿名访问，
-    # 不落 unauthorized——否则整文档 errors 拖死匿名 getEvent/getCourse）。
-    @desc "当前用户在目标活动/课程上的活跃报名（pending/payment_pending/confirmed；无报名或未登录为 null）"
-    field :my_enrollment, :enrollment do
-      arg(:kind, non_null(:string), description: "event | course")
-      arg(:offering_id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor -> resolve_my_enrollment(actor, args) end,
-          on_nil: fn _context -> {:ok, nil} end
-        )
-      end)
-    end
-
-    @desc "公开课程地图(U7/R10):issue key/标题/kind/goal 一行;匿名可读,不露 checklist"
-    field :course_map, :course_map do
-      arg(:slug, non_null(:string))
-
-      resolve(fn _, args, _ ->
-        Cgc2046.Courses.CourseProjection.map_by_slug(args[:slug])
-      end)
-    end
-
     @desc "公开 Initiative 活动页投影；匿名可读，统一跨租户计数口径"
     field :public_initiative, :public_initiative do
       arg(:slug, non_null(:string))
@@ -338,16 +236,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）"
+    @desc "触达预览（R4/R7，PlatformAdmin）：批量发送前的影响面——三档分布、退订剔除、短信腿就绪位；与确认摘要同源（KTD2）；batch 非空时附 campaign 去重预判"
     field :flashback_outreach_preview, :flashback_outreach_preview do
       arg(:archive_key, non_null(:string))
       arg(:channel, :string)
+
+      @desc "campaign 批次号（预判同人跨 archive 去重数；与入队同源）"
+      arg(:batch, :string)
 
       resolve(fn _, args, %{context: context} ->
         with_admin(context, fn _actor ->
           with {:ok, channel} <-
                  Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
-            Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel)
+            Cgc2046.Flashback.OutreachAdmin.preview(args[:archive_key], channel, args[:batch])
           else
             {:error, :invalid_channel} ->
               {:error,
@@ -440,6 +341,18 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "登录账号的全部未删除愿望，含公开、私密和待审；无历史档案也可使用。"
+    field :flashback_my_wishes, :flashback_my_wishes do
+      resolve(fn _, _, %{context: context} ->
+        flashback_call(fn ->
+          case context[:actor] do
+            %{id: id} -> Cgc2046.Flashback.WishAuthors.mine(id)
+            _ -> {:error, %{code: "flashback_auth_required", message: "请先登录，再查看或保存愿望。"}}
+          end
+        end)
+      end)
+    end
+
     @desc "闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
     field :flashback_public_stats, :flashback_public_stats do
       resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
@@ -501,6 +414,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_public_wishes, non_null(list_of(non_null(:flashback_public_wish))) do
       @desc "城市过滤（Cities.normalize 短名；null = 不过滤）"
       arg(:city, :string)
+      @desc "仅含已公开回响的愿望；在分页前筛选，不把草稿或撤销回响算入"
+      arg(:with_echoes, :boolean)
       @desc "排序种子（null = 当日+voterKey；「换一批」传随机值）"
       arg(:seed, :string)
       @desc "分页偏移（同 seed 稳定不重不漏）"
@@ -533,6 +448,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
         Cgc2046.Flashback.WishPublic.wishes(
           city: city,
+          with_echoes: args[:with_echoes] || false,
           seed: args[:seed],
           offset: args[:offset],
           limit: args[:limit],
@@ -553,6 +469,11 @@ defmodule Cgc2046Web.GraphqlSchema do
           voter_keys: viewer_voter_keys(context, args[:voter_key])
         )
       end)
+    end
+
+    @desc "公开许愿树城市全集，按拼音排列，不受愿望分页限制"
+    field :flashback_wish_cities, non_null(list_of(non_null(:flashback_city))) do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.WishPublic.published_cities() end)
     end
 
     @desc "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
@@ -637,39 +558,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "当前用户的课程学习详情（U7 抽屉数据：课程地图 + 本人记录合成；恒 actor 视角无他人面）"
-    field :course_learning_detail, :course_learning_detail do
-      arg(:course_id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          Cgc2046.Courses.CourseProjection.learning_detail(actor, args[:course_id])
-        end)
-      end)
-    end
-
-    @desc "当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun）"
-    field :course_content, :course_content do
-      arg(:course_id, non_null(:id))
-
-      resolve(fn _, %{course_id: course_id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          Cgc2046.Courses.CourseProjection.content(actor, course_id)
-        end)
-      end)
-    end
-
-    @desc "Tutor/Owner/Admin 课程草稿（不向 learner 暴露；无权/课程不存在统一 null，不泄露存在性）"
-    field :course_draft, :course_draft do
-      arg(:course_id, non_null(:id))
-
-      resolve(fn _, %{course_id: course_id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          Cgc2046.Courses.CourseProjection.draft(actor, course_id)
-        end)
-      end)
-    end
-
     @desc "平台管理员：脱敏 workflow 运行元数据（不含 facts/input snapshot）"
     field :platform_workflow_audit, non_null(list_of(non_null(:platform_workflow_audit))) do
       arg(:workspace_id, :id)
@@ -686,29 +574,6 @@ defmodule Cgc2046Web.GraphqlSchema do
              started_after: args[:started_after],
              started_before: args[:started_before]
            )}
-        end)
-      end)
-    end
-
-    @desc "Tutor/Owner/Admin 课程学习聚合（不含 learner evidence）"
-    field :course_learning_analytics, :course_learning_analytics do
-      arg(:course_id, non_null(:id))
-
-      resolve(fn _, %{course_id: course_id}, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Courses.Course
-               |> Ash.Query.for_read(:get_by_id, %{id: course_id})
-               |> Ash.read_one(authorize?: false) do
-            {:ok, %{} = course} ->
-              if Cgc2046.Accounts.Rbac.staff?(actor, course.workspace_id) do
-                {:ok, Cgc2046.Learning.Analytics.for_course(course)}
-              else
-                {:ok, nil}
-              end
-
-            _ ->
-              {:ok, nil}
-          end
         end)
       end)
     end
@@ -733,55 +598,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     import_fields(:speaker_invitation_queries)
 
-    # ── Platform Admin Dashboard Phase 5：admin queries（R3-R13 数据层）──
-
-    @desc "平台管理员：用户列表（R8；search 匹配 email/display_name，分页 first/after）"
-    field :list_users, non_null(list_of(non_null(:admin_user))) do
-      arg(:search, :string)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Accounts.User,
-          fn q, args -> AdminList.maybe_user_search(q, args[:search]) end,
-          &load_membership_counts/2
-        )
-      )
-    end
-
-    @desc "平台管理员：工作台列表（R13；search 匹配 name/slug，分页 first/after）"
-    field :list_workspaces, non_null(list_of(non_null(:admin_workspace))) do
-      arg(:search, :string)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Accounts.Workspace,
-          fn q, args -> AdminList.maybe_workspace_search(q, args[:search]) end,
-          admin_result(Cgc2046.Accounts.Workspace, Cgc2046.Accounts),
-          pre_read: fn q -> Ash.Query.load(q, :member_count) end
-        )
-      )
-    end
-
-    @desc "平台管理员：工作台创建申请列表（R7；status 过滤，分页 first/after）"
-    field :list_workspace_applications,
-          non_null(list_of(non_null(:admin_workspace_application))) do
-      arg(:status, :string)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Accounts.WorkspaceApplication,
-          fn q, args -> AdminList.maybe_status_filter(q, args[:status]) end,
-          admin_result(Cgc2046.Accounts.WorkspaceApplication, Cgc2046.Accounts)
-        )
-      )
-    end
-
+    import_fields(:admin_dashboard_queries)
     @desc "当前用户（申请人）的工作台创建申请列表（R7a；任何人可见自己的申请）"
     field :my_workspace_applications, non_null(list_of(non_null(:admin_workspace_application))) do
       resolve(fn _, _, %{context: context} ->
@@ -795,338 +612,10 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "平台管理员：MCP 工具调用审计日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-    field :list_tool_call_logs, non_null(list_of(non_null(:admin_tool_call_log))) do
-      arg(:workspace_id, :id)
-      arg(:status, :string)
-      arg(:inserted_after, :datetime)
-      arg(:inserted_before, :datetime)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Mcp.ToolCallLog,
-          fn q, args ->
-            q
-            |> AdminList.maybe_workspace_filter(args[:workspace_id])
-            |> AdminList.maybe_status_filter(args[:status], :result_status)
-            |> AdminList.maybe_time_range_filter(args)
-          end,
-          admin_result(Cgc2046.Mcp.ToolCallLog, Cgc2046.Mcp)
-        )
-      )
-    end
-
-    @desc "平台管理员：MCP 待确认操作日志（R10；workspaceId 按 params JSONB 过滤，D5）"
-    field :list_pending_operations, non_null(list_of(non_null(:admin_pending_operation))) do
-      arg(:workspace_id, :id)
-      arg(:status, :string)
-      arg(:inserted_after, :datetime)
-      arg(:inserted_before, :datetime)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Mcp.PendingOperation,
-          fn q, args ->
-            q
-            |> AdminList.maybe_workspace_filter(args[:workspace_id])
-            |> AdminList.maybe_pending_status_filter(args[:status])
-            |> AdminList.maybe_time_range_filter(args)
-          end,
-          admin_result(Cgc2046.Mcp.PendingOperation, Cgc2046.Mcp)
-        )
-      )
-    end
-
-    @desc "平台管理员：workflow 信号日志（R10；workspaceId 按真实列过滤，分页 first/after）"
-    field :list_signal_logs, non_null(list_of(non_null(:admin_signal_log))) do
-      arg(:workspace_id, :id)
-      arg(:signal_type, :string)
-      arg(:inserted_after, :datetime)
-      arg(:inserted_before, :datetime)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Workflows.SignalLog,
-          fn q, args ->
-            q
-            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
-            |> AdminList.maybe_signal_type_filter(args[:signal_type])
-            |> AdminList.maybe_time_range_filter(args)
-          end,
-          admin_result(Cgc2046.Workflows.SignalLog, Cgc2046.Workflows)
-        )
-      )
-    end
-
-    @desc "平台管理员：治理操作留痕（#116 R10a；action 过滤，分页 first/after）"
-    field :list_admin_action_logs, non_null(list_of(non_null(:admin_action_log))) do
-      arg(:action, :string)
-      arg(:inserted_after, :datetime)
-      arg(:inserted_before, :datetime)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Accounts.AdminActionLog,
-          fn q, args ->
-            q
-            |> AdminList.maybe_action_filter(args[:action])
-            |> AdminList.maybe_time_range_filter(args)
-          end,
-          admin_result(Cgc2046.Accounts.AdminActionLog, Cgc2046.Accounts)
-        )
-      )
-    end
-
-    @desc "平台管理员：对账扫描发现（E-10 #125；rule/entity_type 枚举过滤、workspaceId 真实列过滤，分页 first/after；entityId 必须与 entityType 成对——KTD5）"
-    field :reconciliation_findings, non_null(list_of(non_null(:admin_reconciliation_finding))) do
-      arg(:rule, :string)
-      arg(:entity_type, :string)
-      arg(:entity_id, :string)
-      arg(:workspace_id, :id)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Reconciliation.Finding,
-          fn q, args ->
-            q
-            # atom 约束字段精确过滤（非枚举值静默忽略，同 AdminList.maybe_status_filter 语义）
-            |> AdminList.maybe_status_filter(args[:rule], :rule)
-            |> AdminList.maybe_status_filter(args[:entity_type], :entity_type)
-            |> maybe_finding_entity_id(args[:entity_id])
-            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
-          end,
-          admin_result(Cgc2046.Reconciliation.Finding, Cgc2046.Reconciliation),
-          validate: &validate_finding_entity_pair/1
-        )
-      )
-    end
-
-    @desc "平台管理员：倡导活动列表"
-    field :list_initiatives, non_null(list_of(non_null(:admin_initiative))) do
-      arg(:status, :string)
-      arg(:search, :string)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          query =
-            Cgc2046.Initiatives.Initiative
-            |> Ash.Query.for_read(:read)
-            |> AdminList.maybe_status_filter(args[:status])
-            |> maybe_initiative_search(args[:search])
-            |> AdminList.paginate(args[:first], args[:after])
-
-          case Ash.read(query, actor: actor) do
-            {:ok, initiatives} ->
-              case Ash.load(initiatives, :rules, actor: actor) do
-                {:ok, loaded} ->
-                  {:ok, Enum.map(loaded, &admin_initiative_row/1)}
-
-                {:error, error} ->
-                  {:error,
-                   to_ash_graphql_errors(
-                     error,
-                     context,
-                     :read,
-                     Cgc2046.Initiatives.Initiative,
-                     Cgc2046.Initiatives
-                   )}
-              end
-
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :read,
-                 Cgc2046.Initiatives.Initiative,
-                 Cgc2046.Initiatives
-               )}
-          end
-        end)
-      end)
-    end
-
-    @desc "平台管理员：倡导活动详情及四项规则"
-    field :get_initiative, :admin_initiative do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_admin(context, fn actor ->
-          case Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
-            {:ok, nil} ->
-              {:ok, nil}
-
-            {:ok, initiative} ->
-              load_initiative_admin(initiative, actor, context)
-
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :read,
-                 Cgc2046.Initiatives.Initiative,
-                 Cgc2046.Initiatives
-               )}
-          end
-        end)
-      end)
-    end
-
-    # ── U2 平台治理：offering（Event / Course）治理读面 ──────────────────────
-    # 门控 = with_admin（非平台管理员 forbidden / 未登录 unauthorized）；读走
-    # `Ash.Query.for_read(:read)` + actor 直传的标准授权——Event/Course 均
-    # `global?(true)` multitenant，无 tenant 即跨租户全表读，read policy 对
-    # PlatformAdmin 已放行（KTD3）。列表行不带报名计数（计数只在详情，KTD4）。
-
-    @desc "平台管理员：跨租户活动列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled）"
-    field :list_admin_events, non_null(list_of(non_null(:admin_event))) do
-      arg(:status, :string)
-      arg(:search, :string)
-      arg(:workspace_id, :id)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Events.Event,
-          fn q, args ->
-            q
-            |> AdminList.maybe_status_filter(args[:status])
-            |> AdminList.maybe_offering_search(args[:search])
-            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
-          end,
-          admin_rows(Cgc2046.Events.Event, Cgc2046.Events, &admin_event_row/1)
-        )
-      )
-    end
-
-    @desc "平台管理员：跨租户课程列表（R1；status/search 过滤 + 工作台过滤 + first/after 分页，含 draft/cancelled）"
-    field :list_admin_courses, non_null(list_of(non_null(:admin_course))) do
-      arg(:status, :string)
-      arg(:search, :string)
-      arg(:workspace_id, :id)
-      arg(:first, :integer)
-      arg(:after, :string)
-
-      resolve(
-        admin_list(
-          Cgc2046.Courses.Course,
-          fn q, args ->
-            q
-            |> AdminList.maybe_status_filter(args[:status])
-            |> AdminList.maybe_offering_search(args[:search])
-            |> AdminList.maybe_real_workspace_filter(args[:workspace_id])
-          end,
-          admin_rows(Cgc2046.Courses.Course, Cgc2046.Courses, &admin_course_row/1)
-        )
-      )
-    end
-
-    @desc "平台管理员：活动治理详情（R3；权威报名计数 + 主理人清单 + 解除挂载来源标记；id 不存在返回 null）"
-    field :get_admin_event, :admin_event_detail do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_admin(context, fn actor ->
-          case Ash.get(Cgc2046.Events.Event, id, actor: actor, not_found_error?: false) do
-            {:ok, nil} ->
-              {:ok, nil}
-
-            {:ok, event} ->
-              {:ok, admin_event_detail_row(event, actor)}
-
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :read,
-                 Cgc2046.Events.Event,
-                 Cgc2046.Events
-               )}
-          end
-        end)
-      end)
-    end
-
-    @desc "平台管理员：课程治理详情（R3；权威报名计数 + 当前版本指针 + 占位标题标记；id 不存在返回 null）"
-    field :get_admin_course, :admin_course_detail do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_admin(context, fn actor ->
-          case Ash.get(Cgc2046.Courses.Course, id, actor: actor, not_found_error?: false) do
-            {:ok, nil} ->
-              {:ok, nil}
-
-            {:ok, course} ->
-              {:ok, admin_course_detail_row(course)}
-
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :read,
-                 Cgc2046.Courses.Course,
-                 Cgc2046.Courses
-               )}
-          end
-        end)
-      end)
-    end
-
-    @desc "Owner/Admin：挂载前预览 Initiative 四项规则的值与锁态（#596）；非本台 Owner/Admin 一律 forbidden"
-    field :initiative_mount_preview, :initiative_mount_preview do
-      arg(:workspace_id, non_null(:id))
-      arg(:initiative_id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Initiatives.RulePreview.get(
-                 args[:initiative_id],
-                 actor,
-                 args[:workspace_id]
-               ) do
-            {:ok, preview} -> {:ok, initiative_mount_preview_row(preview)}
-            {:error, :forbidden} -> {:error, [message: "forbidden", code: "forbidden"]}
-            {:error, :not_found} -> {:error, [message: "initiative not found", code: "not_found"]}
-            {:error, _} -> {:error, [message: "failed to load initiative rules", code: "invalid"]}
-          end
-        end)
-      end)
-    end
-
-    @desc "活动主理人列表；主理人或所属 Workspace Owner/Admin 可读"
-    field :event_moderators, non_null(list_of(non_null(:event_moderator))) do
-      arg(:workspace_id, non_null(:id))
-      arg(:event_id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Events.Moderators.list(args[:event_id], args[:workspace_id], actor) do
-            {:ok, rows} -> {:ok, rows}
-            {:error, :forbidden} -> {:error, [message: "forbidden", code: "forbidden"]}
-            {:error, _} -> {:error, [message: "event not found", code: "not_found"]}
-          end
-        end)
-      end)
-    end
+    import_fields(:offering_queries)
 
     import_fields(:recruitment_queries)
+    import_fields(:learning_queries)
   end
 
   mutation do
@@ -1945,396 +1434,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
     import_fields(:speaker_invitation_mutations)
 
-    # ── Platform Admin Dashboard Phase 5：admin mutations（R9 promote/demote）──
+    import_fields(:admin_dashboard_mutations)
 
-    @desc "平台管理员：提升用户为 platform_admin（R9；仅 platform_admin 可调）"
-    field :promote_user, :admin_user_payload do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, %{id: id}, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, id, actor: actor) do
-            user
-            |> Ash.Changeset.for_update(:set_platform_admin, %{is_platform_admin: true})
-            |> Ash.update(actor: actor)
-            |> map_update_result(context, :set_platform_admin)
-          else
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(error, context, :set_platform_admin, Cgc2046.Accounts.User)}
-          end
-        end)
-      end)
-    end
-
-    @desc "平台管理员：降级用户 platform_admin（R9；≥1 admin 不变量由 User :demote_platform_admin action 守卫）"
-    field :demote_user, :admin_user_payload do
-      arg(:id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, user} <- Ash.get(Cgc2046.Accounts.User, args[:id], actor: actor) do
-            # ≥1 admin 原子判定与错误契约（last_admin_denied / not_platform_admin）
-            # 全在 action 内：不变量唯一入口，resolver 仅透传为 payload errors。
-            # demote_platform_admin 非 primary update action，须经 for_update
-            # 构造 changeset（同 promote 调 set_platform_admin 的范式）。
-            user
-            |> Ash.Changeset.for_update(:demote_platform_admin, %{})
-            |> Ash.update(actor: actor)
-            |> map_update_result(context, :demote_platform_admin)
-          else
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :demote_platform_admin,
-                 Cgc2046.Accounts.User
-               )}
-          end
-        end)
-      end)
-    end
-
-    @desc "平台管理员：创建倡导活动草稿"
-    field :create_initiative, :admin_initiative_payload do
-      arg(:input, non_null(:admin_initiative_input))
-
-      resolve(fn _, %{input: input}, %{context: context} ->
-        with_admin(context, fn actor ->
-          attrs =
-            input
-            |> map_input([
-              :name,
-              :slug,
-              :hashtag,
-              :description,
-              :window_starts_at,
-              :window_ends_at
-            ])
-            |> Map.put(:created_by, actor.id)
-
-          Cgc2046.Initiatives.Initiative
-          |> Ash.Changeset.for_create(:create, attrs)
-          |> Ash.create(actor: actor)
-          |> initiative_mutation_result(context)
-        end)
-      end)
-    end
-
-    @desc "平台管理员：更新倡导活动元数据"
-    field :update_initiative, :admin_initiative_payload do
-      arg(:id, non_null(:id))
-      arg(:input, non_null(:admin_initiative_input))
-
-      resolve(fn _, %{id: id, input: input}, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, initiative} <- Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
-            initiative
-            |> Ash.Changeset.for_update(
-              :update,
-              map_input(input, [
-                :name,
-                :slug,
-                :hashtag,
-                :description,
-                :window_starts_at,
-                :window_ends_at
-              ])
-            )
-            |> Ash.update(actor: actor)
-            |> initiative_mutation_result(context)
-          else
-            {:error, error} ->
-              {:error,
-               to_ash_graphql_errors(
-                 error,
-                 context,
-                 :update,
-                 Cgc2046.Initiatives.Initiative,
-                 Cgc2046.Initiatives
-               )}
-          end
-        end)
-      end)
-    end
-
-    @desc "平台管理员：设置倡导活动状态为进行中"
-    field :open_initiative, :admin_initiative_payload do
-      arg(:id, non_null(:id))
-      resolve(initiative_status_mutation(:open))
-    end
-
-    @desc "平台管理员：结束倡导活动"
-    field :close_initiative, :admin_initiative_payload do
-      arg(:id, non_null(:id))
-      resolve(initiative_status_mutation(:close))
-    end
-
-    @desc "平台管理员：中止倡导活动（级联取消挂载中仍开放的场次，已付报名全额退款）"
-    field :cancel_initiative, :admin_initiative_payload do
-      arg(:id, non_null(:id))
-      resolve(initiative_status_mutation(:cancel))
-    end
-
-    # ── U1 平台治理：offering（Event / Course）治理写 ────────────────────────
-    # 门控 = with_admin（非平台管理员 forbidden / 未登录 unauthorized）+ 治理
-    # mutation 内 actor 直传的标准授权——复用同一资源 action，slug 锁、命名门、
-    # prep 门、状态机 CAS、信号链与留痕挂接全部零复刻（R4/R5/R7/R9）。
-
-    @desc "平台管理员：发布活动（draft → open；同工作台 launch action 语义）"
-    field :admin_launch_event, :admin_event_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Events.Event, :launch, Cgc2046.Events))
-    end
-
-    @desc "平台管理员：结束活动（open → closed；发 event.ended 信号）"
-    field :admin_close_event, :admin_event_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Events.Event, :close, Cgc2046.Events))
-    end
-
-    @desc "平台管理员：取消活动（open → cancelled；报名/退款按既有取消链路异步处理）"
-    field :admin_cancel_event, :admin_event_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Events.Event, :cancel, Cgc2046.Events))
-    end
-
-    @desc "平台管理员：编辑活动元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-    field :admin_update_event, :admin_event_payload do
-      arg(:id, non_null(:id))
-      arg(:input, non_null(:admin_event_update_input))
-
-      resolve(
-        offering_update_mutation(
-          Cgc2046.Events.Event,
-          @admin_event_update_fields,
-          Cgc2046.Events
-        )
-      )
-    end
-
-    @desc "平台管理员：发布课程（draft → open；同工作台 launch action 语义）"
-    field :admin_launch_course, :admin_course_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Courses.Course, :launch, Cgc2046.Courses))
-    end
-
-    @desc "平台管理员：结束课程（open → closed；发 course.ended 信号）"
-    field :admin_close_course, :admin_course_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Courses.Course, :close, Cgc2046.Courses))
-    end
-
-    @desc "平台管理员：取消课程（open → cancelled；报名/退款按既有取消链路异步处理）"
-    field :admin_cancel_course, :admin_course_payload do
-      arg(:id, non_null(:id))
-      resolve(offering_status_mutation(Cgc2046.Courses.Course, :cancel, Cgc2046.Courses))
-    end
-
-    @desc "平台管理员：编辑课程元数据（R5 标准元数据全集；slug 锁与教研内容不放行）"
-    field :admin_update_course, :admin_course_payload do
-      arg(:id, non_null(:id))
-      arg(:input, non_null(:admin_course_update_input))
-
-      resolve(
-        offering_update_mutation(
-          Cgc2046.Courses.Course,
-          @admin_course_update_fields,
-          Cgc2046.Courses
-        )
-      )
-    end
-
-    @desc "平台管理员：创建或更新倡导活动规则；value_json 为 JSON 对象字符串"
-    field :upsert_initiative_rule, :admin_initiative_rule_payload do
-      arg(:initiative_id, non_null(:id))
-      arg(:key, non_null(:string))
-      arg(:value_json, non_null(:string))
-      arg(:locked, non_null(:boolean))
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, key} <- rule_key(args[:key]),
-               {:ok, value} <- decode_rule_json(args[:value_json]),
-               {:ok, _initiative} <-
-                 Ash.get(Cgc2046.Initiatives.Initiative, args[:initiative_id], actor: actor),
-               {:ok, existing} <- get_initiative_rule(args[:initiative_id], key, actor) do
-            result =
-              if existing do
-                existing
-                |> Ash.Changeset.for_update(:update, %{value: value, locked: args[:locked]})
-                |> Ash.update(actor: actor)
-              else
-                Cgc2046.Initiatives.InitiativeRule
-                |> Ash.Changeset.for_create(:create, %{
-                  initiative_id: args[:initiative_id],
-                  key: key,
-                  value: value,
-                  locked: args[:locked]
-                })
-                |> Ash.create(actor: actor)
-              end
-
-            case result do
-              {:ok, rule} ->
-                {:ok, %{result: admin_rule_row(rule), errors: []}}
-
-              {:error, error} ->
-                {:ok,
-                 %{
-                   result: nil,
-                   errors:
-                     mutation_errors(
-                       error,
-                       context,
-                       :update,
-                       Cgc2046.Initiatives.InitiativeRule,
-                       Cgc2046.Initiatives
-                     )
-                 }}
-            end
-          else
-            {:error, error} when is_exception(error) ->
-              {:ok,
-               %{
-                 result: nil,
-                 errors:
-                   mutation_errors(
-                     error,
-                     context,
-                     :read,
-                     Cgc2046.Initiatives.InitiativeRule,
-                     Cgc2046.Initiatives
-                   )
-               }}
-
-            {:error, message} when is_binary(message) ->
-              {:ok, %{result: nil, errors: [%{message: message, code: "invalid_input"}]}}
-          end
-        end)
-      end)
-    end
-
-    field :assign_event_moderator, :event_moderator_payload do
-      arg(:workspace_id, non_null(:id))
-      arg(:event_id, non_null(:id))
-
-      # #537：锚语义放宽（域层 resolve 后落 UUID，存储不变）。ID 标量对
-      # email / CGC 编号原样放行（string 标量，无格式校验）。
-      arg(:user_id, non_null(:id), description: "被指派用户锚：邮箱 / CGC 编号 / 用户 ID 任一精确匹配")
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Events.Moderators.assign(
-                 args[:event_id],
-                 args[:workspace_id],
-                 args[:user_id],
-                 actor
-               ) do
-            {:ok, record} ->
-              {:ok, %{result: record, errors: []}}
-
-            {:error, :forbidden} ->
-              {:ok, %{result: nil, errors: [%{message: "forbidden", code: "forbidden"}]}}
-
-            {:error, %Ash.Error.Invalid{} = error} ->
-              {:ok,
-               %{
-                 result: nil,
-                 errors:
-                   mutation_errors(
-                     error,
-                     context,
-                     :create,
-                     Cgc2046.Events.EventModerator,
-                     Cgc2046.Events
-                   )
-               }}
-
-            # #537 三锚点解析错误（user_not_found / user_anchor_ambiguous）：
-            # 域函数直返的 BusinessError 不在 Ash.Error.Invalid 容器里，单独
-            # 映射进 payload errors——code 直达前端 i18n（graphql_schema.ex
-            # 顶层 {:error, message:, code:} 同款先例）。
-            {:error, %Cgc2046.Errors.BusinessError{code: code, message: message}} ->
-              {:ok, %{result: nil, errors: [%{message: message, code: code}]}}
-
-            {:error, _} ->
-              {:ok,
-               %{result: nil, errors: [%{message: "failed to assign moderator", code: "invalid"}]}}
-          end
-        end)
-      end)
-    end
-
-    field :remove_event_moderator, :event_moderator_payload do
-      arg(:workspace_id, non_null(:id))
-      arg(:moderator_id, non_null(:id))
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Events.Moderators.remove(args[:moderator_id], args[:workspace_id], actor) do
-            :ok ->
-              {:ok, %{result: nil, errors: []}}
-
-            {:error, :forbidden} ->
-              {:ok, %{result: nil, errors: [%{message: "forbidden", code: "forbidden"}]}}
-
-            {:error, _} ->
-              {:ok,
-               %{result: nil, errors: [%{message: "moderator not found", code: "not_found"}]}}
-          end
-        end)
-      end)
-    end
-
-    # 押金核销（U5/KTD4；R6、R11）：主理人 / Owner·Admin / 平台管理员按 6 位核销码
-    # 核销 confirmed 报名的到场。授权与「码无效 / 已核销」判定全在域层
-    # （Admission.Attendance policy + before_action），本 resolver 只做
-    # actor 门控与 payload 形状映射（同 assign_event_moderator 先例）。
-    field :check_in_enrollment, :check_in_enrollment_payload do
-      arg(:event_id, non_null(:id))
-      arg(:code, non_null(:string), description: "6 位核销码（扫码 URL 预填或手输）")
-      arg(:method, non_null(:string), description: "核销方式：scan | manual")
-
-      resolve(fn _, args, %{context: context} ->
-        with_actor(context, fn actor ->
-          case Cgc2046.Admission.Attendance.check_in(
-                 args[:event_id],
-                 args[:code],
-                 args[:method],
-                 actor
-               ) do
-            {:ok, attendance} ->
-              {:ok,
-               %{
-                 enrollment_id: attendance.enrollment_id,
-                 checked_in_at: attendance.checked_in_at,
-                 method: to_string(attendance.method),
-                 deposit_refund: deposit_refund_state(attendance.enrollment_id),
-                 errors: []
-               }}
-
-            {:error, error} ->
-              {:ok,
-               %{
-                 enrollment_id: nil,
-                 checked_in_at: nil,
-                 method: nil,
-                 deposit_refund: nil,
-                 errors:
-                   to_ash_graphql_errors(
-                     error,
-                     context,
-                     :check_in,
-                     Cgc2046.Admission.Attendance,
-                     Cgc2046.Admission
-                   )
-               }}
-          end
-        end)
-      end)
-    end
+    import_fields(:offering_mutations)
 
     # ── 闪念间（In a Flash）首程 token 面（U2，KTD2：链接即身份，免登录）────
     # 全部手写 field + 显式 RateLimit（手写 field 不经 middleware/3 回调，同
@@ -2601,6 +1703,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "许愿（R5/R6 + wish2 U8/KTD1/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
     field :flashback_create_wish, :flashback_wish_result do
       arg(:token, :string)
+      arg(:request_id, :id)
       arg(:content, non_null(:string))
       arg(:visibility, non_null(:string))
       @desc "署名快照：anonymous（默认，姓氏遮罩）/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
@@ -2614,13 +1717,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity),
+          with {:ok, identity} <- wish_identity(args[:token], context),
                {:ok, wish} <-
-                 Cgc2046.Flashback.Wishes.create_wish(
-                   person_id,
+                 Cgc2046.Flashback.WishWriting.create(
+                   identity,
                    args.content,
                    args.visibility,
+                   request_id: args[:request_id],
                    signature_choice: wish_signature_choice(args[:signature_choice]),
                    expected_city: args[:expected_city],
                    public_listing_consent: args[:public_listing_consent] || false
@@ -2708,10 +1811,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity),
+          with {:ok, identity} <- wish_identity(args[:token], context),
                {:ok, _wish} <-
-                 Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, person_id) do
+                 Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, identity) do
             {:ok, true}
           end
         end)
@@ -2817,6 +1919,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:template, non_null(:string))
       arg(:channel, :string)
 
+      @desc "campaign 批次号（跨 archive 全量发时显式共用——同人只收一封；默认 archive-<key> 批次互不感知）"
+      arg(:batch, :string)
+
       resolve(fn _, %{archive_key: archive_key, template: template} = args, %{context: context} ->
         with_admin(context, fn _actor ->
           flashback_call(fn ->
@@ -2827,7 +1932,8 @@ defmodule Cgc2046Web.GraphqlSchema do
               Cgc2046.Flashback.Outreach.Dispatch.enqueue_for_archive(
                 archive_key,
                 template,
-                channel
+                channel,
+                if(args[:batch], do: [batch: args[:batch]], else: [])
               )
             else
               {:error, :invalid_channel} ->
@@ -3169,169 +2275,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:amount, :integer)
   end
 
-  object :enrollment do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:event_id, :id)
-    field(:course_id, :id)
-    field(:user_id, non_null(:id))
-    field(:workflow_run_id, :id)
-    field(:invite_batch_id, :id)
-    field(:status, non_null(:string))
-    field(:capacity_seq, :integer)
-    field(:approved_by, :id)
-    field(:approved_at, :datetime)
-    field(:rejection_reason, :string)
-    field(:approval_deadline, :datetime)
-    field(:expired_at, :datetime)
-    field(:cancelled_at, :datetime)
-    field(:inserted_at, non_null(:datetime))
-    # calculation 字段（target_title/starts_at/venue）：手写 object
-    # （generate_object? false）不挂 AshGraphql 的 resolve_calculation，默认
-    # MapGet 只读原字段——alias 查询时值落在
-    # calculations[{:__ash_graphql_calculation__, alias}] 而原字段保持
-    # NotLoaded，DateTime 序列化直接崩溃（review F5，存量 target_title
-    # 同类一并修）。alias 感知 resolve：alias 时读 AshGraphql 的加载槽，
-    # 无 alias 时 calculations map 优先、原字段兜底（Ash 双写）。
-    field(:target_title, :string) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :target_title)}
-      end)
-    end
-
-    # 日程化旅程 P2a：目标供给物的开始时间与场地文本（无则 null）
-    field(:starts_at, :datetime) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :starts_at)}
-      end)
-    end
-
-    field(:venue, :string) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :venue)}
-      end)
-    end
-
-    # U2：目标报名截止（同 starts_at/venue 的 alias 感知 calculation resolve）
-    field(:registration_deadline, :datetime) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :registration_deadline)}
-      end)
-    end
-
-    # U3：目标缴费模式 free/pricing/deposit（码卡与取消规则的模式感知文案用）
-    field(:payment_mode, :string) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :payment_mode)}
-      end)
-    end
-
-    # 押金快照金额（#696）：报名提交时物化的 submission_payload 键，与 createOrder
-    # 押金单实付金额同源——/orders/new 披露行的金额源；定价/免费报名 nil（展示面
-    # 走「金额待定」，绝不 ¥0）。
-    field(:deposit_amount_cents, :integer) do
-      resolve(fn parent, _args, %{definition: definition} ->
-        {:ok, enrollment_calc_value(parent, definition, :deposit_amount_cents)}
-      end)
-    end
-
-    # KTD5 出示门控：仅 actor 即报名人且报名 confirmed 才返回核销码，其余
-    # （pending/payment_pending/终态/Owner/Admin/PlatformAdmin/匿名）一律 null。
-    # Enrollment read policy 允许 Owner/Admin/PlatformAdmin 读列表，policy 层
-    # 不能承担字段可见性——字段级 resolve 门控是唯一闸。parent 双形态：
-    # myEnrollment 白名单 payload map / Ash record。
-    field(:check_in_code, :string, description: "6 位核销码（仅本人 confirmed 报名可见；course 报名恒 null）") do
-      resolve(fn parent, _args, %{context: context} ->
-        with_actor(
-          context,
-          fn actor ->
-            {:ok,
-             if check_in_code_visible?(parent, actor) do
-               enrollment_value(parent, :check_in_code)
-             end}
-          end,
-          on_nil: fn _context -> {:ok, nil} end
-        )
-      end)
-    end
-  end
-
-  # U7(#180/KD8):issue 级进度,旧 manual-steps 字段(completedManualSteps/
-  # totalManualSteps/currentStepTitle)与 manual_steps_compat 派生已删——
-  # 直接替换不留兼容层(AGENTS.md);currentIssueId 供抽屉/扩展联动。
-  # S8（ADR-0011）：objective 口径（RunProjection 薄壳 Runs.learning_state）
-  object :my_learning_run do
-    field(:run_id, non_null(:id))
-    field(:enrollment_id, non_null(:id))
-    field(:target_title, :string)
-    field(:status, non_null(:string))
-    field(:stale_revision, non_null(:boolean))
-    field(:progress, non_null(:learning_progress))
-    field(:next_action, :learning_next_action)
-    field(:course_id, non_null(:id))
-  end
-
-  # U7(#180/R11)→S8（ADR-0011）：学员视角课程学习详情（objective 口径，
-  # Runs.learning_state 薄壳）。与公开地图（issue_map, goal-only）不同面，
-  # 本查询仅登录 actor 本人可见（恒 actor,无他人视角）。
-  # S8（ADR-0011）：objective 口径学习详情（Runs.learning_state 薄壳投影）。
-  # 破坏性变更有意（登录面一次性切换）：issue/checklist/story 学习语义删除。
-  object :course_learning_detail do
-    field(:course_id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:slug, :string)
-    field(:run, :learning_run_summary)
-    field(:revision_number, :integer)
-    field(:stale_revision, non_null(:boolean))
-    field(:review_queue, non_null(list_of(non_null(:learning_review_queue_entry))))
-    field(:objectives, non_null(list_of(non_null(:learning_objective_state))))
-    field(:next_action, :learning_next_action)
-    field(:progress, :learning_progress)
-  end
-
-  # S9（R45）：复习到期队列（needs_review 恒立即到期 / 里程碑按序消费）
-  object :learning_review_queue_entry do
-    field(:objective_id, non_null(:string))
-    field(:due_at, non_null(:datetime))
-    field(:milestone_days, :integer)
-    field(:needs_review, non_null(:boolean))
-  end
-
-  object :course_map do
-    field(:course_id, non_null(:id))
-
-    field(:title, non_null(:string))
-    field(:slug, non_null(:string))
-    field(:goals, non_null(list_of(non_null(:string))))
-    field(:issues, non_null(list_of(non_null(:course_map_issue))))
-  end
-
-  object :course_map_issue do
-    field(:key, non_null(:string))
-    field(:id, non_null(:string))
-    field(:title, non_null(:string))
-    field(:kind, non_null(:string))
-    field(:goal, :string)
-  end
-
-  object :course_content do
-    field(:course_id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:description, :string)
-    field(:revision_number, :integer)
-    field(:published_at, :datetime)
-    field(:content, non_null(:json_string))
-  end
-
-  object :course_draft do
-    field(:course_id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:version, :integer)
-    field(:prep_state, :string)
-    field(:updated_at, :datetime)
-    field(:content, :json_string)
-  end
-
   object :platform_workflow_audit do
     field(:id, non_null(:id))
     field(:workspace_id, non_null(:id))
@@ -3341,81 +2284,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:finished_at, :datetime)
     field(:inserted_at, non_null(:datetime))
     field(:error_summary, :string)
-  end
-
-  object :course_learning_analytics do
-    field(:run_stats, non_null(:course_learning_run_stats))
-    field(:objectives, non_null(list_of(non_null(:course_learning_objective_stats))))
-    field(:drop_off, non_null(:course_learning_drop_off))
-    field(:generated_at, non_null(:datetime))
-  end
-
-  object :course_learning_run_stats do
-    field(:total_runs, non_null(:integer))
-    field(:active_runs, non_null(:integer))
-    field(:completed_runs, non_null(:integer))
-    field(:completion_rate, :float)
-  end
-
-  object :course_learning_objective_stats do
-    field(:objective_id, non_null(:string))
-    field(:title, non_null(:string))
-    field(:required, non_null(:boolean))
-    field(:mastered, non_null(:integer))
-    field(:developing, non_null(:integer))
-    field(:needs_review, non_null(:integer))
-    field(:unassessed, non_null(:integer))
-    field(:total_attempts, non_null(:integer))
-    field(:qualifying_passes, non_null(:integer))
-    field(:low_confidence_attempts, non_null(:integer))
-    field(:pass_rate, :float)
-    field(:last_activity_at, :datetime)
-  end
-
-  object :course_learning_drop_off do
-    field(:stale_run_count, non_null(:integer))
-  end
-
-  object :learning_run_summary do
-    field(:id, non_null(:id))
-    field(:status, non_null(:string))
-    field(:revision_id, :id)
-    field(:revision_number, :integer)
-  end
-
-  # objective id/title 非全局唯一（课程内容内字符串 id）——Apollo 缓存必须
-  # keyFields: false（§B#22，跨课程/跨 run 串掌握态事故先例）
-  object :learning_objective_state do
-    field(:id, non_null(:string))
-    field(:title, non_null(:string))
-    field(:required, non_null(:boolean))
-    field(:issue_id, :string)
-    field(:prereq_ids, non_null(list_of(non_null(:string))))
-    field(:mastery, non_null(:string))
-    field(:ever_mastered, non_null(:boolean))
-    field(:locked, non_null(:boolean))
-    field(:missing_prereq_ids, non_null(list_of(non_null(:learning_prereq_ref))))
-    field(:attempt_count, non_null(:integer))
-    field(:last_attempt_at, :datetime)
-  end
-
-  object :learning_prereq_ref do
-    field(:id, non_null(:string))
-    field(:title, :string)
-  end
-
-  object :learning_next_action do
-    field(:kind, non_null(:string))
-    field(:objective_id, non_null(:string))
-    field(:reason, non_null(:string))
-  end
-
-  # S8：objective 口径（mastered_required/total_required/complete；R39 完成
-  # = 必修全 ever_mastered，needs_review 不倒退）
-  object :learning_progress do
-    field(:mastered_required, non_null(:integer))
-    field(:total_required, non_null(:integer))
-    field(:complete, non_null(:boolean))
   end
 
   object :workspace_tool_call do
@@ -3852,6 +2720,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
+  object :flashback_my_wishes do
+    field(:quota_remaining, non_null(:integer))
+    field(:wishes, non_null(list_of(non_null(:flashback_owned_wish))))
+  end
+
+  object :flashback_owned_wish do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:city, :string)
+    field(:signature, non_null(:string))
+    field(:visibility, non_null(:string))
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
   object :flashback_wish_result do
     @desc "新建愿望 id（本人查看/撤回入口用）"
     field(:id, :id)
@@ -3918,6 +2801,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:both, non_null(:integer))
     field(:unsubscribed, non_null(:integer))
     field(:unreachable, non_null(:integer))
+    @desc "campaign 去重预判（batch 参数非空时：可达人中联系方式命中该批次已有成功触达的人数；未传 batch 恒 0）"
+    field(:deduped_within_campaign, non_null(:integer))
     @desc "短信腿就绪位（SendCloud 触达模板已配置）"
     field(:sms_ready, non_null(:boolean))
   end
@@ -4306,6 +3191,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:queued, non_null(:integer))
     @desc "跳过件数（已退订 / 无可用通道 / 本批次已入队——幂等重跑计入此处）"
     field(:skipped, non_null(:integer))
+    @desc "campaign 去重件数（同批次内联系方式命中他人已有成功触达——同人跨 archive 只收一封）"
+    field(:deduped_within_campaign, non_null(:integer))
   end
 
   input_object :flashback_today_input do
@@ -4359,6 +3246,16 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 闪念间写面双入口（U9/R28）：token 优先（首程/链接回访）；省略时按登录
   # actor 解析绑定的档案（person.user_id）。返回 {:token, t} | {:person, id}，
   # 与 capsule 读面的 resolve_person 同语义；两者皆无 → auth_required。
+  # Wish authorship needs an account, not an archive. Other archive operations
+  # deliberately keep flashback_identity's existing eligibility boundary.
+  defp wish_identity(token, %{actor: %{id: id}}) when token in [nil, ""], do: {:ok, {:user, id}}
+
+  defp wish_identity(token, context) do
+    with {:ok, identity} <- flashback_identity(token, context),
+         {:ok, id} <- identity_person_id(identity),
+         do: {:ok, {:person, id}}
+  end
+
   defp flashback_identity(token, context) do
     cond do
       is_binary(token) and token != "" ->
@@ -4543,28 +3440,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # ── Platform Admin Dashboard Phase 5：类型（前缀 admin_ 避免与自动类型冲突）──
-
-  object :admin_user do
-    field(:id, non_null(:id))
-    field(:email, :string)
-    field(:display_name, :string)
-    field(:is_platform_admin, non_null(:boolean))
-    field(:inserted_at, non_null(:datetime))
-    # membership 概要（R8）：用户参与的工作台数
-    field(:workspace_membership_count, :integer)
-  end
-
-  object :admin_workspace do
-    field(:id, non_null(:id))
-    field(:slug, non_null(:string))
-    field(:name, non_null(:string))
-    field(:join_policy, non_null(:string))
-    field(:sponsorship_enabled, non_null(:boolean))
-    field(:inserted_at, non_null(:datetime))
-    field(:member_count, non_null(:integer))
-  end
-
   object :admin_workspace_application do
     field(:id, non_null(:id))
     field(:applicant_id, non_null(:id))
@@ -4579,446 +3454,6 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:rejected_by, :id)
     field(:rejected_at, :datetime)
     field(:inserted_at, non_null(:datetime))
-  end
-
-  object :admin_tool_call_log do
-    field(:id, non_null(:id))
-    field(:user_id, non_null(:id))
-    field(:tool, non_null(:string))
-    field(:result_status, non_null(:string))
-    field(:error_message, :string)
-    field(:latency_ms, :integer)
-    field(:inserted_at, non_null(:datetime))
-  end
-
-  object :admin_pending_operation do
-    field(:id, non_null(:id))
-    field(:user_id, non_null(:id))
-    field(:tool, non_null(:string))
-    field(:summary, non_null(:string))
-    field(:status, non_null(:string))
-    field(:inserted_at, non_null(:datetime))
-  end
-
-  object :admin_signal_log do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:signal_type, non_null(:string))
-    field(:inserted_at, non_null(:datetime))
-  end
-
-  # #116 R10a：治理操作留痕（actor_id 可空 = 系统/CLI）
-  object :admin_action_log do
-    field(:id, non_null(:id))
-    field(:actor_id, :id)
-    field(:action, non_null(:string))
-    field(:target_type, non_null(:string))
-    field(:target_id, non_null(:id))
-    field(:result, non_null(:string))
-    field(:inserted_at, non_null(:datetime))
-
-    field(:metadata, :admin_action_metadata,
-      description:
-        "治理 metadata 白名单投影（#607）；未收录的 action 或形状不完整的历史行（#587 之前）" <>
-          "为 null（不整列透传，且行级降级不打挂列表）。raw metadata 仅 /ops/admin（AshAdmin）可见"
-    ) do
-      # 显式 resolver：默认 resolver 会直接读 `log.metadata` 原始列（透传），必须挡掉
-      resolve(fn log, _, _ -> {:ok, admin_action_metadata(log)} end)
-    end
-
-    field(:offering_change, :admin_offering_change_metadata,
-      description:
-        "offering 治理写的变更投影（U1）：admin_event_update / admin_course_update 落表的行才有值，" <>
-          "其余 action（含 launch/close/cancel）为 null。闭集标量的前后值分列，不收自由文本"
-    ) do
-      resolve(fn log, _, _ -> {:ok, admin_offering_change_metadata(log)} end)
-    end
-  end
-
-  # #607：metadata 白名单投影（非原始 metadata 列）。白名单表见模块顶部
-  # `@admin_action_metadata_whitelist` / `@rule_value_whitelist`。
-  # `value_*_json` 是 JSON 对象字符串，键序 = 二级白名单次序（前端直接按序渲染）。
-  object :admin_action_metadata do
-    field(:rule_key, non_null(:string),
-      description: "规则键：deposit | age_gate | min_participants | deadline_rule"
-    )
-
-    field(:locked, non_null(:boolean), description: "变更后锁定态")
-
-    field(:locked_before, :boolean, description: "变更前锁定态；:create（新建规则）无前值 → null")
-
-    field(:value_before_json, :json_string,
-      description: "变更前规则值 JSON 对象字符串；:create 无前值 → null（null ⇔ 新建）"
-    )
-
-    field(:value_after_json, non_null(:json_string),
-      description: "变更后规则值 JSON 对象字符串（有投影 ⇒ 该侧必在；形状不全的行整行不投影）"
-    )
-
-    field(:value_before_omitted, non_null(:boolean),
-      description: "true = 变更前 value 含白名单外键，已被省略（界面以 … 标出）"
-    )
-
-    field(:value_after_omitted, non_null(:boolean),
-      description: "true = 变更后 value 含白名单外键，已被省略（界面以 … 标出）"
-    )
-  end
-
-  # U1：offering 治理写的变更投影（闭集标量前后值分列，非 rule 族 JSON 槽）。
-  # 白名单表见模块顶部 `@admin_offering_change_metadata_whitelist`；Course 行无
-  # deposit 两列（该资源无此属性）。全列可空——读者从「哪些列有值」看变更面。
-  object :admin_offering_change_metadata do
-    description("offering 治理写（admin_event_update / admin_course_update）的变更前后值投影")
-
-    field(:title_before, :string, description: "变更前标题；该属性未变更 → null")
-    field(:title_after, :string, description: "变更后标题；该属性未变更 → null")
-    field(:visibility_before, :string, description: "变更前可见性（public | workspace）")
-    field(:visibility_after, :string, description: "变更后可见性（public | workspace）")
-    field(:capacity_before, :integer, description: "变更前报名名额上限；nil 表示不限")
-    field(:capacity_after, :integer, description: "变更后报名名额上限；nil 表示不限")
-    field(:pricing_enabled_before, :boolean, description: "变更前定价槽位")
-    field(:pricing_enabled_after, :boolean, description: "变更后定价槽位")
-    field(:deposit_enabled_before, :boolean, description: "变更前押金槽位（Event-only；Course 恒 null）")
-    field(:deposit_enabled_after, :boolean, description: "变更后押金槽位（Event-only；Course 恒 null）")
-  end
-
-  # U2 治理读面：offering（Event / Course）行与详情两组投影（KTD3/KTD4）——
-  #   行（admin_event / admin_course）：listAdminEvents / listAdminCourses 用。
-  #     跨租户定位与生命周期按钮所需的最小集（带 workspace_id，前端用既有
-  #     workspaces 数据映射名称）；**不带报名计数**——计数需要按场现取，属于
-  #     开弹窗/展开详情那一次取数（KTD4）。
-  #   详情（admin_event_detail / admin_course_detail）：get 查询用 = 行字段 +
-  #     处置与排查字段（权威报名计数、主理人、挂载来源标记 / 版本指针）。
-  object :admin_event do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:slug, :string)
-    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
-    field(:visibility, non_null(:string), description: "public | workspace")
-    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    field(:pricing_enabled, non_null(:boolean))
-    field(:deposit_enabled, non_null(:boolean))
-    field(:deposit_amount_cents, :integer)
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-  end
-
-  object :admin_event_detail do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:title, non_null(:string))
-    field(:slug, :string)
-    field(:description, :string)
-    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
-    field(:visibility, non_null(:string), description: "public | workspace")
-    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    @desc "结构化场地 JSON 串（country/province/city/district；nil = 线上或未定）"
-    field(:venue, :json_string)
-    field(:pricing_enabled, non_null(:boolean))
-    field(:deposit_enabled, non_null(:boolean))
-    field(:deposit_amount_cents, :integer)
-
-    @desc """
-    权威已确认报名笔数（KTD4：按本场现取 `Enrollment.status == confirmed` 行数，
-    不读 events.confirmed_count 展示投影——该列自述可能滞后一拍）。
-    nil = 计数不可用（现取失败）；界面必须按不可用态呈现并禁用依赖它的入口，
-    不得当 0。0 表示真实无已确认报名（免费场零计数）。
-    """
-    field(:confirmed_count, :integer)
-
-    @desc """
-    权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）。
-    关定价/关押金槽位的后果披露与 200 笔批量免缴上限判定都以此数为准；nil 语义
-    同 confirmedCount（不可用，非 0）。
-    """
-    field(:payment_pending_count, :integer)
-
-    @desc "主理人清单（平台管理员读面不要求本台成员身份）；nil = 清单加载失败（不阻断详情主读）"
-    field(:moderators, list_of(non_null(:event_moderator)))
-
-    @desc "解除挂载来源标记 JSON（事件被 detach 后仍留在场上的锁死值来自哪个 Initiative）；nil = 无标记。公开面不暴露（治理详情专属）"
-    field(:detached_rule_provenance, :json_string)
-
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-  end
-
-  object :admin_course do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:title, non_null(:string))
-    @desc "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
-    field(:provisional_title, non_null(:boolean))
-    field(:slug, :string)
-    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
-    field(:visibility, non_null(:string), description: "public | workspace")
-    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    field(:pricing_enabled, non_null(:boolean))
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-  end
-
-  object :admin_course_detail do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:title, non_null(:string))
-    @desc "标题是否为系统生成的临时占位（未命名课程）；发布前置门，治理列表据此标黄"
-    field(:provisional_title, non_null(:boolean))
-    field(:slug, :string)
-    field(:description, :string)
-    field(:status, non_null(:string), description: "draft | open | closed | cancelled")
-    field(:visibility, non_null(:string), description: "public | workspace")
-    field(:capacity, :integer, description: "报名名额上限；nil 表示不限")
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    field(:pricing_enabled, non_null(:boolean))
-
-    @desc "当前绑定修订号（计划 R3：按 current_revision_id 现取 CourseRevision.number）。nil = 未绑定（draft 未发布常态）或现取失败，不得伪造"
-    field(:current_revision_number, :integer)
-
-    @desc """
-    权威已确认报名笔数（KTD4：按本课现取 `Enrollment.status == confirmed` 行数，
-    不读 courses.confirmed_count 展示投影）。nil = 计数不可用（现取失败），
-    不得当 0；0 表示真实无已确认报名。
-    """
-    field(:confirmed_count, :integer)
-
-    @desc "权威待付报名笔数（KTD4：`Enrollment.status == payment_pending` 行数）；nil 语义同 confirmedCount"
-    field(:payment_pending_count, :integer)
-
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-  end
-
-  # E-10 #125：对账扫描发现（rule/entity_type 为 atom 枚举的字符串形态；detail
-  # v1 不暴露——对账页列只到 规则/实体/ID/workspace/首次/最近发现）
-  object :admin_reconciliation_finding do
-    field(:id, non_null(:id))
-    field(:rule, non_null(:string))
-    field(:entity_type, non_null(:string))
-    field(:entity_id, non_null(:string))
-    field(:workspace_id, :id)
-    field(:first_seen_at, non_null(:datetime))
-    field(:last_seen_at, non_null(:datetime))
-    field(:inserted_at, non_null(:datetime))
-  end
-
-  object :admin_initiative do
-    field(:id, non_null(:id))
-    field(:name, non_null(:string))
-    field(:slug, non_null(:string))
-    field(:hashtag, :string)
-    field(:description, :string)
-    field(:window_starts_at, :datetime)
-    field(:window_ends_at, :datetime)
-    field(:status, non_null(:string))
-    field(:created_by, non_null(:id))
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-
-    field :public_stats, :public_initiative do
-      resolve(fn initiative, _, _ ->
-        case Cgc2046.Initiatives.Public.get_by_slug(initiative.slug) do
-          {:ok, stats} -> {:ok, stats}
-          _ -> {:ok, nil}
-        end
-      end)
-    end
-
-    field(:rules, non_null(list_of(non_null(:admin_initiative_rule))))
-
-    @desc """
-    平台管理员：该 Initiative 的挂载场全量清单（#595 影响预览 / 事后核对）。
-
-    门控继承父 query（listInitiatives / getInitiative 均经 with_admin），
-    不加独立 gate；不分页、不过滤 visibility，理由见
-    Cgc2046.Initiatives.Mounts 的 moduledoc。
-
-    附挂读面：可空。加载失败返回 nil（并落日志），不阻断规则的详情主读——
-    同 public_stats 先例（附挂信息不阻断主读）；前端据此区分「空清单」与
-    「清单加载失败」两种状态，不把失败伪装成 0 场。
-    """
-    field :mounted_events, list_of(non_null(:admin_initiative_mounted_event)) do
-      resolve(fn initiative, _, _ ->
-        case Cgc2046.Initiatives.Mounts.list(initiative.id) do
-          {:ok, rows} ->
-            {:ok, rows}
-
-          {:error, reason} ->
-            Logger.error("[admin_initiative.mountedEvents] load failed: #{inspect(reason)}")
-            {:ok, nil}
-        end
-      end)
-    end
-  end
-
-  object :admin_initiative_mounted_event do
-    @desc "Event / Workspace id 与 Initiative 真值一致；status ∈ draft | open | closed | cancelled"
-    field(:id, non_null(:id))
-    field(:initiative_id, non_null(:id))
-    field(:slug, non_null(:string))
-    field(:title, non_null(:string))
-    field(:status, non_null(:string))
-    field(:starts_at, :datetime)
-    field(:registration_deadline, :datetime)
-    @desc "结构化场地 JSON 串（country/province/city/district；nil = 线上或未定）"
-    field(:venue, :json_string)
-    field(:workspace_id, non_null(:id))
-    field(:workspace_name, non_null(:string))
-    @desc "展示投影 events.confirmed_count（权威计数在名额账本，可能滞后一拍）"
-    field(:confirmed_count, non_null(:integer))
-    field(:pricing_enabled, non_null(:boolean))
-    field(:deposit_enabled, non_null(:boolean))
-    field(:deposit_amount_cents, :integer)
-    field(:min_age, :integer)
-    field(:min_participants, :integer)
-  end
-
-  object :admin_initiative_rule do
-    field(:id, non_null(:id))
-    field(:initiative_id, non_null(:id))
-    field(:key, non_null(:string))
-    field(:value_json, non_null(:string))
-    field(:locked, non_null(:boolean))
-    field(:inserted_at, non_null(:datetime))
-    field(:updated_at, non_null(:datetime))
-  end
-
-  object :initiative_mount_preview do
-    field(:initiative_id, non_null(:id))
-    field(:name, non_null(:string))
-    field(:slug, non_null(:string))
-    field(:status, non_null(:string))
-    field(:rules, non_null(list_of(non_null(:initiative_rule_preview))))
-    field(:missing_rules, non_null(list_of(non_null(:string))))
-  end
-
-  # value_json 与 AdminInitiativeRule 同口径（JSON 字符串 + locked 布尔）：
-  # 手写客户端复用既有 JSON.parse(rule.valueJson) 解析模式
-  object :initiative_rule_preview do
-    field(:key, non_null(:string))
-    field(:value_json, non_null(:string))
-    field(:locked, non_null(:boolean))
-  end
-
-  input_object :admin_initiative_input do
-    field(:name, :string)
-    field(:slug, :string)
-    field(:hashtag, :string)
-    field(:description, :string)
-    field(:window_starts_at, :datetime)
-    field(:window_ends_at, :datetime)
-  end
-
-  # U1 治理 update 输入（键集 = `@admin_event_update_fields` / `@admin_course_update_fields`；
-  # 未提供的字段不落 changeset——map_input/2 只取存在的键）
-  input_object :admin_event_update_input do
-    field(:title, :string)
-    field(:slug, :string)
-    field(:description, :string)
-    field(:visibility, :string)
-    field(:capacity, :integer)
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    field(:venue, :json_string)
-    field(:pricing_enabled, :boolean)
-    field(:deposit_enabled, :boolean)
-  end
-
-  input_object :admin_course_update_input do
-    field(:title, :string)
-    field(:slug, :string)
-    field(:description, :string)
-    field(:visibility, :string)
-    field(:capacity, :integer)
-    field(:registration_deadline, :datetime)
-    field(:starts_at, :datetime)
-    field(:ends_at, :datetime)
-    field(:pricing_enabled, :boolean)
-  end
-
-  object :admin_initiative_payload do
-    field(:result, :admin_initiative)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  # U1：治理写 payload 回**资源本体**（Event/Course 既有 GraphQL 类型）——前端
-  # 写成功后即可就地更新行，亦可按 KTD4 单一取数契约重取治理投影。
-  object :admin_event_payload do
-    description("治理写（Event）结果信封：result + errors，形状同 adminInitiativePayload")
-
-    field(:result, :event)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  object :admin_course_payload do
-    description("治理写（Course）结果信封：result + errors，形状同 adminInitiativePayload")
-
-    field(:result, :course)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  object :admin_initiative_rule_payload do
-    field(:result, :admin_initiative_rule)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  # #537 回显平铺：displayName → memberNumber fallback 链的数据面（nullable；
-  # member_number 由 uuid 确定性现算恒非空，display_name 可空）
-  object :event_moderator do
-    field(:id, non_null(:id))
-    field(:workspace_id, non_null(:id))
-    field(:event_id, non_null(:id))
-    field(:user_id, non_null(:id))
-    field(:assigned_by, :id)
-    field(:assigned_at, non_null(:datetime))
-    field(:user_display_name, :string)
-    field(:user_member_number, :string)
-    field(:assigned_by_display_name, :string)
-    field(:assigned_by_member_number, :string)
-  end
-
-  object :event_moderator_payload do
-    field(:result, :event_moderator)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  # U5/KTD4 核销 payload：成功返回到场事实（enrollment_id / checked_in_at / method），
-  # 失败（码无效 / 已核销）三者皆为 null 且 errors 携带领域 code（前端按 code 查文案）。
-  # 退款侧状态（押金已发起 / 已在退还中 / 已退，KTD6 分派）随 U6 落地后在此扩展。
-  object :check_in_enrollment_payload do
-    @desc "被核销的报名（失败为 null）"
-    field(:enrollment_id, :id)
-
-    @desc "核销时间（失败为 null）"
-    field(:checked_in_at, :datetime)
-
-    @desc "核销方式：scan / manual（失败为 null）"
-    field(:method, :string)
-
-    @desc """
-    本次核销的押金退款侧事实（KTD6），成功路径只可能返回：
-    - null：该报名没有押金单（免费/定价场报名，或押金制之前建的存量报名）→ 本次核销不产生退款；
-    - refunding：本次核销已发起全额退款，或押金已在退还中（幂等重入不重复退；refund_failed 归一为 refunding）；
-    - refunded：押金已退。
-    forfeited 不会出现在成功路径——押金已没收时核销本身失败，走 errors 的 deposit_already_forfeited。
-    前端据此决定是否显示「押金退款已发起」，不再只看事件是不是押金场。
-    """
-    field(:deposit_refund, :string)
-
-    field(:errors, list_of(:mutation_error))
   end
 
   object :public_initiative do
@@ -5124,674 +3559,11 @@ defmodule Cgc2046Web.GraphqlSchema do
     end
   end
 
-  # #355 P1-3：myEnrollment 解析。kind 白名单解析（event | course）后委托
-  # Enrollment 活跃报名共享读取面；读取失败按无报名降级（附挂信息不阻断详情
-  # 主读，与 MCP discover_offerings 同纪律）。status 原子显式 to_string——
-  # 手写 :enrollment object 无 ash_graphql 生成查询的枚举转换层。
-  defp resolve_my_enrollment(actor, %{kind: kind, offering_id: offering_id}) do
-    case parse_offering_kind(kind) do
-      {:ok, kind_atom} ->
-        {event_ids, course_ids} =
-          if kind_atom == :event, do: {[offering_id], []}, else: {[], [offering_id]}
-
-        enrollment =
-          actor
-          |> Cgc2046.Admission.Enrollment.active_enrollments_by_offering(event_ids, course_ids)
-          |> Map.get({kind_atom, offering_id})
-
-        {:ok, enrollment && my_enrollment_payload(enrollment)}
-
-      :error ->
-        {:error, [message: "invalid kind (expected event | course)", code: "invalid_input"]}
-    end
-  end
-
-  defp parse_offering_kind("event"), do: {:ok, :event}
-  defp parse_offering_kind("course"), do: {:ok, :course}
-  defp parse_offering_kind(_other), do: :error
-
-  defp my_enrollment_payload(enrollment) do
-    %{
-      id: enrollment.id,
-      workspace_id: enrollment.workspace_id,
-      event_id: enrollment.event_id,
-      course_id: enrollment.course_id,
-      user_id: enrollment.user_id,
-      status: to_string(enrollment.status),
-      approval_deadline: enrollment.approval_deadline,
-      rejection_reason: enrollment.rejection_reason,
-      check_in_code: enrollment.check_in_code,
-      inserted_at: enrollment.inserted_at
-    }
-  end
-
-  # id / is_platform_admin 可空：update 失败时承载错误 payload（errors 非空、业务字段为 nil），
-  # 与 admin 面其它 mutation 的 payload 式错误通道一致。
-  object :admin_user_payload do
-    field(:id, :id)
-    field(:email, :string)
-    field(:is_platform_admin, :boolean)
-    field(:errors, list_of(:mutation_error))
-  end
-
-  # ── Platform Admin Dashboard Phase 5：resolver helpers ─────────────────
-
-  defp maybe_initiative_search(query, nil), do: query
-  defp maybe_initiative_search(query, ""), do: query
-
-  defp maybe_initiative_search(query, search) do
-    Ash.Query.filter(query, contains(name, ^search) or contains(slug, ^search))
-  end
-
-  defp load_initiative_admin(initiative, actor, context) do
-    case Ash.load(initiative, :rules, actor: actor) do
-      {:ok, loaded} ->
-        {:ok, admin_initiative_row(loaded)}
-
-      {:error, error} ->
-        {:error,
-         to_ash_graphql_errors(
-           error,
-           context,
-           :read,
-           Cgc2046.Initiatives.Initiative,
-           Cgc2046.Initiatives
-         )}
-    end
-  end
-
-  defp admin_initiative_row(initiative) do
-    %{
-      id: initiative.id,
-      name: initiative.name,
-      slug: initiative.slug,
-      hashtag: initiative.hashtag,
-      description: initiative.description,
-      window_starts_at: initiative.window_starts_at,
-      window_ends_at: initiative.window_ends_at,
-      status: to_string(initiative.status),
-      created_by: initiative.created_by,
-      inserted_at: initiative.inserted_at,
-      updated_at: initiative.updated_at,
-      rules:
-        if(is_list(initiative.rules), do: Enum.map(initiative.rules, &admin_rule_row/1), else: [])
-    }
-  end
-
-  defp admin_rule_row(rule) do
-    %{
-      id: rule.id,
-      initiative_id: rule.initiative_id,
-      key: to_string(rule.key),
-      value_json: Jason.encode!(rule.value),
-      locked: rule.locked,
-      inserted_at: rule.inserted_at,
-      updated_at: rule.updated_at
-    }
-  end
-
-  # ── U2 治理读面：offering（Event / Course）行与详情投影 ────────────────────
-  # 行 = 列表用最小集（`admin_event` / `admin_course` 的字段全集，SDL 与投影
-  # 一一对应）；详情 = 行 ⊕ 处置/排查字段。计数按场现取（KTD4），不入行投影。
-
-  defp admin_event_row(event) do
-    %{
-      id: event.id,
-      workspace_id: event.workspace_id,
-      title: event.title,
-      slug: event.slug,
-      status: to_string(event.status),
-      visibility: to_string(event.visibility),
-      capacity: event.capacity,
-      registration_deadline: event.registration_deadline,
-      starts_at: event.starts_at,
-      ends_at: event.ends_at,
-      pricing_enabled: event.pricing_enabled,
-      deposit_enabled: event.deposit_enabled,
-      deposit_amount_cents: event.deposit_amount_cents,
-      inserted_at: event.inserted_at,
-      updated_at: event.updated_at
-    }
-  end
-
-  defp admin_event_detail_row(event, actor) do
-    Map.merge(admin_event_row(event), %{
-      description: event.description,
-      venue: event.venue,
-      confirmed_count:
-        offering_enrollment_count(:event_id, event.id, event.workspace_id, :confirmed),
-      payment_pending_count:
-        offering_enrollment_count(:event_id, event.id, event.workspace_id, :payment_pending),
-      moderators: admin_event_moderators(event, actor),
-      detached_rule_provenance: event.detached_rule_provenance
-    })
-  end
-
-  # 主理人清单（U2）：走 `Moderators.list/3` 的读面（平台管理员分支已放行），
-  # 不另起直读 EventModerator 的第二条读序；失败返回 nil（Logger 留痕）——
-  # 附挂信息不阻断详情主读，且「空清单」与「清单加载失败」在 SDL 上可区分
-  # （同 admin_initiative.mountedEvents 先例）。
-  defp admin_event_moderators(event, actor) do
-    case Cgc2046.Events.Moderators.list(event.id, event.workspace_id, actor) do
-      {:ok, rows} ->
-        rows
-
-      {:error, reason} ->
-        Logger.error("[get_admin_event.moderators] load failed: #{inspect(reason)}")
-        nil
-    end
-  end
-
-  defp admin_course_row(course) do
-    %{
-      id: course.id,
-      workspace_id: course.workspace_id,
-      title: course.title,
-      provisional_title: course.provisional_title,
-      slug: course.slug,
-      status: to_string(course.status),
-      visibility: to_string(course.visibility),
-      capacity: course.capacity,
-      registration_deadline: course.registration_deadline,
-      starts_at: course.starts_at,
-      ends_at: course.ends_at,
-      pricing_enabled: course.pricing_enabled,
-      inserted_at: course.inserted_at,
-      updated_at: course.updated_at
-    }
-  end
-
-  defp admin_course_detail_row(course) do
-    Map.merge(admin_course_row(course), %{
-      description: course.description,
-      current_revision_number: current_revision_number(course),
-      confirmed_count:
-        offering_enrollment_count(:course_id, course.id, course.workspace_id, :confirmed),
-      payment_pending_count:
-        offering_enrollment_count(:course_id, course.id, course.workspace_id, :payment_pending)
-    })
-  end
-
-  # 当前修订号（计划 R3「Course 详情加当前 revision」）：按 current_revision_id
-  # 现取 `CourseRevision.number`（不是 number 最大的行——可能存在已生成未绑定的
-  # 更高号修订）。nil = 未绑定（draft 未发布常态）或现取失败；与 KTD4 同纪律，
-  # 不伪造值。
-  defp current_revision_number(course) do
-    with id when not is_nil(id) <- course.current_revision_id,
-         {:ok, revision} <-
-           Ash.get(Cgc2046.Curriculum.CourseRevision, id,
-             authorize?: false,
-             tenant: course.workspace_id
-           ) do
-      revision.number
-    else
-      _ -> nil
-    end
-  end
-
-  # KTD4 权威报名计数：按 offering 现取 `Enrollment` 行数（`status` 分列），
-  # **不读** `events.confirmed_count` / `courses.confirmed_count` 展示投影
-  # （自述可能滞后一拍）。filter 形状与工作台侧批量免缴披露（update_event /
-  # update_course 的 payment_pending_count）逐字同源——治理面披露的数字与
-  # 写面 200 笔上限判定的数字必须来自同一口径。
-  #
-  # 查询失败返回 nil（= SDL 的 nil「计数不可用」），**不回退 0**：0 是「确实
-  # 没有」的事实，不可用与 0 混同会让界面骗人（KTD4 不落假值）。
-  defp offering_enrollment_count(offering_field, offering_id, workspace_id, status) do
-    Cgc2046.Admission.Enrollment
-    |> Ash.Query.filter(^[{offering_field, offering_id}])
-    |> Ash.Query.filter(status == ^status)
-    |> Ash.count(authorize?: false, tenant: workspace_id)
-    |> case do
-      {:ok, count} ->
-        count
-
-      {:error, error} ->
-        Logger.error(
-          "[admin_offering_detail.enrollment_count] #{offering_field}/#{status} failed: " <>
-            inspect(error)
-        )
-
-        nil
-    end
-  end
-
-  # KTD5：`entity_id` 必须与 `entity_type` 成对。Finding.entity_id 混装 uuid
-  # （event/course/enrollment…）与 oban_job 数字串，单用 entity_id 不是自解释的
-  # 维数，还会跨实体类型误命中同号行——缺配对直接拒绝（不静默全表扫）。
-  # 空串按未提供处理（同各 maybe_* 组合子的 "" 分支）。
-  defp validate_finding_entity_pair(args) do
-    if is_binary(args[:entity_id]) and args[:entity_id] != "" and
-         args[:entity_type] in [nil, ""] do
-      {:error, [message: "entity_id requires entity_type", code: "invalid_input"]}
-    else
-      :ok
-    end
-  end
-
-  defp maybe_finding_entity_id(query, nil), do: query
-  defp maybe_finding_entity_id(query, ""), do: query
-
-  defp maybe_finding_entity_id(query, entity_id) do
-    Ash.Query.filter(query, entity_id == ^entity_id)
-  end
-
-  # #607：治理 metadata → 白名单投影（`admin_action_log.metadata` 字段的唯一出口）。
-  # 白名单表在模块顶部（`@admin_action_metadata_whitelist` / `@rule_value_whitelist`）。
-  #
-  # 返回 nil = 该 action 未收录（**没有默认透传兜底**：未来新 action 不加表即不可见），
-  # 或该行形状不完整（见 `projectable_metadata?/1`：行级降级，不打挂整条查询）。
-  # 键名取 jsonb 读回的字符串形态（写侧是 atom 键，落库/读回后一律字符串，
-  # 实证见 test/cgc_2046/initiatives/rule_propagation_test.exs 的「规则变更审计含值前后」）。
-  defp admin_action_metadata(%{action: action, metadata: metadata}) when is_map(metadata) do
-    case Map.get(@admin_action_metadata_whitelist, action) do
-      nil ->
-        nil
-
-      keys ->
-        # 表即清单：顶层键一律经白名单 Map.take，未收录的键结构上进不来
-        projected = Map.take(metadata, keys)
-
-        if projectable_metadata?(projected) do
-          rule_key = projected["rule_key"]
-
-          {value_before, before_omitted?} =
-            project_rule_value(rule_key, projected["value_before"])
-
-          {value_after, after_omitted?} = project_rule_value(rule_key, projected["value_after"])
-
-          %{
-            rule_key: rule_key,
-            locked: projected["locked"],
-            locked_before: projected["locked_before"],
-            # JsonString scalar 出参自行 JSON 编码（`serialize(&Jason.encode!/1)`），故这里
-            # 交**原始投影**（OrderedObject | nil）；预先 encode 成字符串会被 scalar 二次
-            # 编码，客户端 JSON.parse 一次只能拿到字符串而不是对象。
-            value_before_json: value_before,
-            value_after_json: value_after,
-            value_before_omitted: before_omitted?,
-            value_after_omitted: after_omitted?
-          }
-        else
-          nil
-        end
-    end
-  end
-
-  defp admin_action_metadata(_log), do: nil
-
-  # U1：offering 治理写 → 闭集标量前后值投影（`adminActionLog.offeringChange` 的唯一出口）。
-  # 白名单表在模块顶部 `@admin_offering_change_metadata_whitelist`；键名同样取 jsonb
-  # 读回的字符串形态。
-  #
-  # 返回 nil = 该 action 未收录（launch/close/cancel 等：行本身仍可见，只是没有变更
-  # 投影），或该行一条 `*_after` 键都没有（如只改了自由文本属性——写面只为真变更的属性
-  # 落键，全空对象会假装「有一条变更」）。
-  defp admin_offering_change_metadata(%{action: action, metadata: metadata})
-       when is_map(metadata) do
-    case Map.get(@admin_offering_change_metadata_whitelist, action) do
-      nil ->
-        nil
-
-      scalars ->
-        projected =
-          Map.take(metadata, Enum.flat_map(scalars, &["#{&1}_before", "#{&1}_after"]))
-
-        if Enum.any?(scalars, &Map.has_key?(projected, "#{&1}_after")) do
-          # 键名 → Absinthe 字段名（atom 在 object 声明处编译期存在；值侧标量门：
-          # 非标量一律 nil——闭集字段类型固定，嵌套结构只可能是写面 bug，不透传）
-          Map.new(projected, fn {key, value} ->
-            {String.to_existing_atom(key), offering_change_scalar(value)}
-          end)
-        end
-    end
-  end
-
-  defp admin_offering_change_metadata(_log), do: nil
-
-  defp offering_change_scalar(value)
-       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
-       do: value
-
-  defp offering_change_scalar(_value), do: nil
-
-  # #607 形状门：只有带**完整** #607 元数据形状的行才投影，否则整行落 nil（界面显示「—」）。
-  # 两条理由：
-  #   1. `value_after_json` 是 non_null。历史行没有 value_after——#587 之前的写面只落
-  #      `%{initiative_id, rule_key, locked}`（见 origin/main 的 initiative_rule_metadata/2），
-  #      线上存量行仍是这个形状。照常投影会让 Absinthe 非空违例把**整条列表查询**打挂
-  #      （/admin/audit 整页 loadFailed，一行坏数据毁一页）；审计面要的是行级降级。
-  #   2. 「前值 null ⇔ 新建」只有在完整形状下才成立；否则会把「这条没记前值」误报成「新建」，
-  #      而审计面**不许撒谎**。
-  defp projectable_metadata?(m) do
-    is_map(m["value_after"]) and
-      (is_nil(m["value_before"]) or is_map(m["value_before"])) and
-      (is_nil(m["locked_before"]) or is_boolean(m["locked_before"])) and
-      is_boolean(m["locked"]) and
-      is_binary(m["rule_key"])
-  end
-
-  # 规则值 map → 二级白名单子集。返回 {投影, 是否发生省略}：
-  #   - 键序 = `@rule_value_whitelist` 次序（Jason.OrderedObject 保序），前端直接按序渲染，
-  #     故 web 层不需要再抄一份键名清单；
-  #   - **标量门**：键名命中但值是嵌套结构（自由 map / list）也不出面——否则「按白名单投影」
-  #     只到键名一层，嵌套内容会原样带出（键名白名单约束不了内容）；
-  #   - 第二个返回值让「省略」可见（界面标 …），取证面不静默截断。
-  defp project_rule_value(rule_key, value) when is_map(value) do
-    allowed = Map.get(@rule_value_whitelist, rule_key, [])
-
-    {scalars, nested?} =
-      for(key <- allowed, Map.has_key?(value, key), do: {key, Map.get(value, key)})
-      |> Enum.split_with(fn {_key, v} ->
-        is_boolean(v) or is_number(v) or is_binary(v) or is_nil(v)
-      end)
-
-    omitted? = nested? != [] or Enum.any?(value, fn {key, _} -> key not in allowed end)
-
-    {Jason.OrderedObject.new(scalars), omitted?}
-  end
-
-  # nil = 该侧无值（:create 的新建侧）；无白名单 rule_key 时也走这里（投影为空）。
-  defp project_rule_value(_rule_key, _value), do: {nil, false}
-
-  # #596 挂载前预览：RulePreview 返回规则原始值（MCP 面直接用 map），GraphQL 面
-  # 按既有 AdminInitiativeRule 口径转 value_json 字符串
-  defp initiative_mount_preview_row(preview) do
-    %{
-      initiative_id: preview.initiative_id,
-      name: preview.name,
-      slug: preview.slug,
-      status: preview.status,
-      rules:
-        Enum.map(preview.rules, fn rule ->
-          %{key: rule.key, value_json: Jason.encode!(rule.value), locked: rule.locked}
-        end),
-      missing_rules: preview.missing_rules
-    }
-  end
-
-  defp initiative_mutation_result({:ok, initiative}, _context),
-    do: {:ok, %{result: admin_initiative_row(initiative), errors: []}}
-
-  defp initiative_mutation_result({:error, error}, context) do
-    {:ok,
-     %{
-       result: nil,
-       errors:
-         mutation_errors(
-           error,
-           context,
-           :update,
-           Cgc2046.Initiatives.Initiative,
-           Cgc2046.Initiatives
-         )
-     }}
-  end
-
-  defp initiative_status_mutation(action) do
-    fn _, %{id: id}, %{context: context} ->
-      with_admin(context, fn actor ->
-        with {:ok, initiative} <- Ash.get(Cgc2046.Initiatives.Initiative, id, actor: actor) do
-          initiative
-          |> Ash.Changeset.for_update(action, %{})
-          |> Ash.update(actor: actor)
-          |> initiative_mutation_result(context)
-        else
-          {:error, error} ->
-            {:ok,
-             %{
-               result: nil,
-               errors:
-                 mutation_errors(
-                   error,
-                   context,
-                   action,
-                   Cgc2046.Initiatives.Initiative,
-                   Cgc2046.Initiatives
-                 )
-             }}
-        end
-      end)
-    end
-  end
-
-  # ── U1 治理写 resolver（Event / Course 共用同一对工厂）─────────────────────
-  # with_admin 门控 → Ash.get（multitenant global 资源，无 tenant 跨租户定位）→
-  # for_update + Ash.update（actor 直传、标准授权，无 authorize?: false 旁路）——
-  # 与 initiative_status_mutation/1 同形：守卫/信号链/留痕全部由 action 本体承担。
-  defp offering_status_mutation(resource, action, domain) do
-    fn _, %{id: id}, %{context: context} ->
-      with_admin(context, fn actor ->
-        with {:ok, offering} <- Ash.get(resource, id, actor: actor) do
-          offering
-          |> Ash.Changeset.for_update(action, %{})
-          |> Ash.update(actor: actor)
-          |> offering_mutation_result(resource, action, domain, context)
-        else
-          {:error, error} ->
-            {:ok,
-             %{result: nil, errors: mutation_errors(error, context, action, resource, domain)}}
-        end
-      end)
-    end
-  end
-
-  defp offering_update_mutation(resource, fields, domain) do
-    fn _, %{id: id, input: input}, %{context: context} ->
-      with_admin(context, fn actor ->
-        with {:ok, offering} <- Ash.get(resource, id, actor: actor) do
-          offering
-          |> Ash.Changeset.for_update(:update, map_input(input, fields))
-          |> Ash.update(actor: actor)
-          |> offering_mutation_result(resource, :update, domain, context)
-        else
-          {:error, error} ->
-            {:ok,
-             %{result: nil, errors: mutation_errors(error, context, :update, resource, domain)}}
-        end
-      end)
-    end
-  end
-
-  defp offering_mutation_result({:ok, offering}, _resource, _action, _domain, _context),
-    do: {:ok, %{result: offering, errors: []}}
-
-  defp offering_mutation_result({:error, error}, resource, action, domain, context) do
-    {:ok, %{result: nil, errors: mutation_errors(error, context, action, resource, domain)}}
-  end
-
-  defp decode_rule_json(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
-      {:ok, _} -> {:error, "rule value must be a JSON object"}
-      {:error, _} -> {:error, "rule value_json must be valid JSON"}
-    end
-  end
-
-  defp get_initiative_rule(initiative_id, key, actor) do
-    Cgc2046.Initiatives.InitiativeRule
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(initiative_id == ^initiative_id and key == ^key)
-    |> Ash.read_one(actor: actor)
-  end
-
-  # key 白名单单源 = InitiativeRule.rule_keys()；未知 key → {:error, "invalid rule key"}
-  # （else 分支映射为 code invalid_input 的 payload error），不做 String.to_existing_atom。
-  defp rule_key(key) when is_binary(key) do
-    case Enum.find(Cgc2046.Initiatives.InitiativeRule.rule_keys(), &(Atom.to_string(&1) == key)) do
-      nil -> {:error, "invalid rule key"}
-      key_atom -> {:ok, key_atom}
-    end
-  end
-
-  # admin 门控：非 platform_admin → forbidden（与 Phase 1 PlatformAdminPlug 同语义）。
-  # 未登录 → unauthorized。通过后执行 fun(actor)。
-  defp with_admin(context, fun) do
-    actor = context[:actor]
-
-    cond do
-      Cgc2046.Accounts.Policies.PlatformAdmin.platform_admin?(actor) ->
-        fun.(actor)
-
-      is_nil(actor) ->
-        {:error, unauthorized_error()}
-
-      true ->
-        {:error, [message: "forbidden", code: "forbidden"]}
-    end
-  end
-
-  # admin 列表 resolver 工厂：with_admin 门控 → args 校验 → for_read → filter →
-  # pre_read → paginate → read → post_read。一处接线顺序，N 个 query 声明式复用
-  # （leverage）；gate/validate/filter/paginate 顺序只在此验证（locality）。
-  # my_workspace_applications 不用此构造器：gate 是 applicant 非 platform_admin，形状不同。
-  defp admin_list(resource, filter_fn, post_fn, opts \\ []) do
-    pre_read = Keyword.get(opts, :pre_read, fn q -> q end)
-
-    # 成对/互斥类 args 约束（如 KTD5 entity_id 必须与 entity_type 成对）：门控之后、
-    # 触库之前校验，返回 :ok | {:error, absinthe_error}；默认无约束。
-    validate = Keyword.get(opts, :validate, fn _args -> :ok end)
-
-    fn _, args, %{context: context} ->
-      with_admin(context, fn actor ->
-        with :ok <- validate.(args) do
-          resource
-          |> Ash.Query.for_read(:read)
-          |> filter_fn.(args)
-          |> pre_read.()
-          |> AdminList.paginate(args[:first], args[:after])
-          |> Ash.read(actor: actor)
-          |> post_fn.(context)
-        end
-      end)
-    end
-  end
-
-  # admin 列表 read 结果 → map_error（统一 :read action；resource/domain 按 query 闭包）
-  defp admin_result(resource, domain) do
-    fn result, context -> map_error(result, context, :read, resource, domain) end
-  end
-
-  # admin 列表 read 结果 → map_error 后逐行过投影（治理读面的行投影出口）
-  defp admin_rows(resource, domain, row_fun) do
-    fn result, context ->
-      case map_error(result, context, :read, resource, domain) do
-        {:ok, records} -> {:ok, Enum.map(records, row_fun)}
-        {:error, _} = error -> error
-      end
-    end
-  end
-
-  # listUsers 的 membership 概要（R8）：count aggregate 子查询会被
-  # WorkspaceMembership read policy 过滤（BypassReads 已知问题），
-  # 故对结果集批量 load 关系后计数（admin 列表量小，可接受）。
-  defp load_membership_counts({:ok, users}, _context) do
-    case Ash.load(users, :workspace_memberships, authorize?: false) do
-      {:ok, loaded} ->
-        result =
-          Enum.map(loaded, fn user ->
-            %{
-              id: user.id,
-              email: user.email,
-              display_name: user.display_name,
-              is_platform_admin: user.is_platform_admin,
-              inserted_at: user.inserted_at,
-              workspace_membership_count: length(user.workspace_memberships || [])
-            }
-          end)
-
-        {:ok, result}
-
-      {:error, error} ->
-        {:error, to_ash_graphql_errors(error, nil, :read, Cgc2046.Accounts.User)}
-    end
-  end
-
-  defp load_membership_counts({:error, error}, context) do
-    {:error, to_ash_graphql_errors(error, context, :read, Cgc2046.Accounts.User)}
-  end
-
-  # 更新 user 的 result → payload（result + errors）
-  defp map_update_result({:ok, user}, _context, _action) do
-    {:ok,
-     %{
-       id: user.id,
-       email: user.email,
-       is_platform_admin: user.is_platform_admin,
-       errors: []
-     }}
-  end
-
-  defp map_update_result({:error, error}, context, action) do
-    {:ok,
-     %{
-       id: nil,
-       email: nil,
-       is_platform_admin: nil,
-       errors: to_ash_graphql_errors(error, context, action, Cgc2046.Accounts.User)
-     }}
-  end
-
   defp resolve_readiness(id, actor) do
     with {:ok, entity} <- fetch_offering_by_id(id, actor) do
       {:ok, Cgc2046.Offering.Readiness.evaluate(entity)}
     end
   end
-
-  # enrollment calculation 字段的 alias 感知取值（手写 object 无 AshGraphql
-  # resolve_calculation）：alias 查询读 AshGraphql 加载槽；无 alias 读
-  # calculations map（Ash 加载后写入），原字段兜底。
-  #
-  # parent 双形态（#727 健壮化）：Ash record（calculations 键存在，未加载为 nil）
-  # 与 my_enrollment 的白名单 payload map（**没有** :calculations 键）——
-  # `parent.calculations` 对后者抛 KeyError（不是 nil），必须走 Map.get/3 兜底；
-  # 裸 map 上计算字段取不到值即 nil（该投影不携带计算值，不是崩溃）。
-  defp enrollment_calc_value(parent, %{alias: nil}, field) do
-    Map.get(calculations(parent), field) || Map.get(parent, field)
-  end
-
-  defp enrollment_calc_value(parent, %{alias: field_alias}, _field) do
-    Map.get(calculations(parent), {:__ash_graphql_calculation__, field_alias})
-  end
-
-  defp calculations(parent), do: Map.get(parent, :calculations) || %{}
-
-  # checkInCode 出示门控（KTD5）：仅 actor 即报名人且报名 confirmed。
-  # status 双形态：my_enrollment_payload 白名单 map 已 to_string；Ash record
-  # 为 :atom（手写 object 无 ash_graphql 生成查询的枚举转换层——同
-  # resolve_my_enrollment 的显式 to_string 纪律）。
-  # 核销结果里的押金退款侧事实（KTD6 分派表）：读该报名**唯一活跃押金单**的
-  # 状态；无押金单 → nil（本次核销不产生退款）。单次点查（核销是低频人工动作）。
-  defp deposit_refund_state(enrollment_id) do
-    case Cgc2046.Repo.query(
-           """
-           SELECT status FROM payments_orders
-           WHERE enrollment_id = $1 AND order_kind = 'deposit'
-             AND status IN ('paid', 'refunding', 'refunded', 'refund_failed', 'forfeited')
-           ORDER BY inserted_at DESC LIMIT 1
-           """,
-           [Cgc2046.Repo.uuid!(enrollment_id)]
-         ) do
-      {:ok, %{rows: [[status]]}} ->
-        case status do
-          # 核销后仍是 paid 只可能是异常残留：不宣称已发起退款
-          "paid" -> nil
-          "refund_failed" -> "refunding"
-          other -> other
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp check_in_code_visible?(parent, actor) do
-    enrollment_value(parent, :user_id) == actor.id and
-      enrollment_value(parent, :status) in ["confirmed", :confirmed]
-  end
-
-  defp enrollment_value(parent, field) when is_map(parent),
-    do: Map.get(parent, field) || Map.get(parent, to_string(field))
 
   # offeringReadiness 目标可能是 Event 或 Course（原 event 优先、失败回退 course）。
   # 读取唯一真源 = Offering；**必须显式 authorize?: true**（D2 风险：Offering 默认

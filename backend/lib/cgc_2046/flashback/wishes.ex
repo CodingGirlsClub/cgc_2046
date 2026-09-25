@@ -1,20 +1,8 @@
 defmodule Cgc2046.Flashback.Wishes do
   @moduledoc """
-  许愿写面（走廊未来帧，KTD2/KTD3/KTD4）。
-
-  - **创建**（R5/R6）：`visibility` ∈ public|private（提交时定终，KD9 无转换）；
-    `city` 快照许愿人的名册城市（无城市入参，nil 允许——无城市许愿在任何
-    城市钉下都显示）；`content` 去空白非空且 ≤500 字（服务端长度防线）。
-  - **附议**（R7）：一人一愿幂等（`unique_wish_person` 唯一索引 + upsert
-    承接并发双击）；返回实时计数与 `endorsed_by_me`。
-  - **留言**（R8）：公开愿望可留言，正文约束同 content；按时间正序展示。
-  - **软删单源**（KTD4）：`soft_delete_wish/2`、`soft_delete_comment/2`
-    ——学员自助删除（R14）与平台 MCP 删除（R18）共用同一实现，只置
-    `deleted_at`（审计由 ToolCallLog 承担），不写第二条删除路径。
-  - **年度额度**（R20）：每 person 每自然年（Asia/Shanghai）最多创建
-    3 条愿望，按创建行为计数——含私有、含已软删，删除不退还额度；
-    并发经 person 行 FOR UPDATE 锁串行化（同 card_sharing lock_row 协议）；
-    `quota_remaining/1` 供走廊读面透出本人剩余额度。
+  愿望与互动的领域入口。创建统一交给 WishWriting，账号/历史档案归属与年度额度
+  由 WishAuthors 处理（每自然年 3 条，含私密和已软删，绑定档案后合并计数）。
+  公开投影保持授权边界；软删除是用户和平台共用的写入口。
   """
 
   require Ash.Query
@@ -24,7 +12,6 @@ defmodule Cgc2046.Flashback.Wishes do
   alias Cgc2046.Repo
 
   @content_max_length 500
-  @visibilities ~w(public private)
   @annual_wish_quota 3
 
   # KTD4 机审：user_identities.provider → content_check 平台参数。
@@ -61,59 +48,7 @@ defmodule Cgc2046.Flashback.Wishes do
   @spec create_wish(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def create_wish(person_id, content, visibility, opts \\ []) do
-    signature_choice = Keyword.get(opts, :signature_choice, :anonymous)
-    expected_city = Keyword.get(opts, :expected_city, nil)
-    public_listing_consent = Keyword.get(opts, :public_listing_consent, false)
-
-    with :ok <- validate_content(content),
-         :ok <- validate_visibility(visibility),
-         :ok <- check_content(person_id, content),
-         {:ok, %{city: city, signature: signature, review_required: review_required}} <-
-           build_writer_snapshots(person_id, expected_city, signature_choice) do
-      # wish2 U8（KTD5 信用门补全，plan :180）：wishes_review_required_at 置位的
-      # 作者，公开愿望不直接挂树——hidden_at 待审、admin 放行（clear hidden）才
-      # 进公开树；listed/hidden 互斥，三态反馈由 status 承载。
-      consents_listing = visibility == "public" and public_listing_consent
-      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-      {listed_at, hidden_at} =
-        cond do
-          consents_listing and review_required -> {nil, now}
-          consents_listing -> {now, nil}
-          true -> {nil, nil}
-        end
-
-      # 锁 + COUNT + INSERT 同事务：Repo.rollback 透传 {:error, %{code: ...}}
-      # 形状（Ecto 语义：error tuple 回滚不 raise），返回契约不变。
-      Repo.transaction(fn ->
-        with {:ok, _city} <- lock_person_city(person_id),
-             :ok <- check_quota(person_id) do
-          # signature/listed_at/hidden_at 由 domain 赋值 + accept（「仅 server 写」
-          # 由 GraphQL 不入参保证——U6 公开 schema 不暴露这三字段）。
-          Wish
-          |> Ash.Changeset.for_create(:create, %{
-            person_id: person_id,
-            content: String.trim(content),
-            visibility: visibility,
-            city: city,
-            signature: signature,
-            listed_at: listed_at,
-            hidden_at: hidden_at
-          })
-          |> Ash.create(authorize?: false)
-          |> case do
-            {:ok, wish} -> wish
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-      |> case do
-        {:ok, wish} -> {:ok, Map.put(wish, :listing_status, listing_status(visibility, wish))}
-        other -> other
-      end
-    end
+    Cgc2046.Flashback.WishWriting.create({:person, person_id}, content, visibility, opts)
   end
 
   # 三态反馈（R18）：listed（挂树）/ pending_review（信用待审——admin 放行后挂树）/
@@ -138,7 +73,7 @@ defmodule Cgc2046.Flashback.Wishes do
   @doc false
   def build_writer_snapshots(person_id, expected_city, signature_choice) do
     # KTD4 ① → ② 一次 SQL 取复：person 行 + LEFT JOIN users 取 display_name。
-    # 未认领 person（user_id 为空）→ display_name 为 NULL，回退 masked_name。
+    # 无账号展示名时回退 masked_name；名册全名不进入愿望公开署名。
     case Repo.query(
            """
            SELECT p.city, p.full_name, p.surname, u.display_name, u.wishes_review_required_at
@@ -149,10 +84,10 @@ defmodule Cgc2046.Flashback.Wishes do
            [Repo.uuid!(person_id)]
          ) do
       {:ok, %{num_rows: 0}} ->
-        {:error, %{code: "flashback_person_not_found"}}
+        {:error, %{code: "flashback_person_not_found", message: "没有找到这份档案。"}}
 
       {:error, _} ->
-        {:error, %{code: "flashback_person_not_found"}}
+        {:error, %{code: "flashback_person_not_found", message: "没有找到这份档案。"}}
 
       {:ok, %{rows: [[person_city, full_name, surname, display_name, review_required_at]]}} ->
         case normalize_writing_city(expected_city, person_city) do
@@ -166,9 +101,6 @@ defmodule Cgc2046.Flashback.Wishes do
                   cond do
                     is_binary(display_name) and display_name != "" ->
                       display_name
-
-                    is_binary(full_name) and full_name != "" ->
-                      full_name
 
                     true ->
                       AlumniProjection.masked_name(full_name, surname)
@@ -283,7 +215,7 @@ defmodule Cgc2046.Flashback.Wishes do
 
   defp authorize_endorse_target(%Wish{listed_at: nil}, person_id) do
     if is_nil(person_id) do
-      {:error, %{code: "flashback_wish_not_found"}}
+      {:error, %{code: "flashback_wish_not_found", message: "这条愿望已不存在。"}}
     else
       :ok
     end
@@ -440,10 +372,10 @@ defmodule Cgc2046.Flashback.Wishes do
   # （tt/xhs 单平台/web-only/查询异常）→ skipped telemetry + fail-open（与
   # wishes.check_content ③ 收口同语义）。**但注意**：传入 nil/"" message 直接放行
   # （无需检测）。
-  defp check_content_by_user(_user_id, nil), do: :ok
-  defp check_content_by_user(_user_id, ""), do: :ok
+  def check_content_by_user(_user_id, nil), do: :ok
+  def check_content_by_user(_user_id, ""), do: :ok
 
-  defp check_content_by_user(user_id, message) when is_binary(message) do
+  def check_content_by_user(user_id, message) when is_binary(message) do
     trimmed = String.trim(message)
 
     if trimmed == "" do
@@ -543,7 +475,7 @@ defmodule Cgc2046.Flashback.Wishes do
     |> Ash.Query.filter(id == ^wish_id)
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, nil} -> {:error, %{code: "flashback_wish_not_found"}}
+      {:ok, nil} -> {:error, %{code: "flashback_wish_not_found", message: "这条愿望已不存在。"}}
       {:ok, %Wish{} = wish} -> do_soft_delete_wish(wish, actor_person_id, admin?)
       {:error, reason} -> {:error, reason}
     end
@@ -592,6 +524,9 @@ defmodule Cgc2046.Flashback.Wishes do
 
     wishes = Ash.read!(base, authorize?: false, page: false)
 
+    viewer_user =
+      if viewer_id, do: Cgc2046.Flashback.WishAuthors.resolve({:person, viewer_id}).user_id
+
     wishes
     |> Enum.map(fn wish ->
       %{
@@ -601,10 +536,12 @@ defmodule Cgc2046.Flashback.Wishes do
         signature: wish.signature,
         listed_at: wish.listed_at,
         inserted_at: wish.inserted_at,
-        wisher_masked: AlumniProjection.masked_name(wish.person),
+        wisher_masked: if(wish.person, do: AlumniProjection.masked_name(wish.person), else: "匿名"),
         endorsement_count: length(wish.endorsements),
         comments: project_comments(wish.comments),
-        mine: viewer_id != nil and wish.person_id == viewer_id
+        mine:
+          viewer_id != nil and
+            (wish.person_id == viewer_id or (viewer_user != nil and wish.user_id == viewer_user))
       }
     end)
     |> Enum.sort_by(&{-&1.endorsement_count, &1.inserted_at})
@@ -634,6 +571,9 @@ defmodule Cgc2046.Flashback.Wishes do
 
     wishes = Ash.read!(base, authorize?: false, page: false)
 
+    viewer_user =
+      if viewer_id, do: Cgc2046.Flashback.WishAuthors.resolve({:person, viewer_id}).user_id
+
     wishes
     |> Enum.map(fn wish ->
       %{
@@ -641,10 +581,12 @@ defmodule Cgc2046.Flashback.Wishes do
         content: wish.content,
         city: wish.city,
         inserted_at: wish.inserted_at,
-        wisher_masked: AlumniProjection.masked_name(wish.person),
+        wisher_masked: if(wish.person, do: AlumniProjection.masked_name(wish.person), else: "匿名"),
         endorsement_count: length(wish.endorsements),
         comments: project_comments(wish.comments),
-        mine: viewer_id != nil and wish.person_id == viewer_id
+        mine:
+          viewer_id != nil and
+            (wish.person_id == viewer_id or (viewer_user != nil and wish.user_id == viewer_user))
       }
     end)
     |> Enum.sort_by(&{-&1.endorsement_count, &1.inserted_at})
@@ -653,10 +595,9 @@ defmodule Cgc2046.Flashback.Wishes do
   @doc "本人私有许愿（私人许愿帧，R9 仅自己可见）。"
   @spec list_private(String.t()) :: list(map())
   def list_private(person_id) do
-    Wish
-    |> Ash.Query.filter(
-      person_id == ^person_id and visibility == "private" and is_nil(deleted_at)
-    )
+    Cgc2046.Flashback.WishAuthors.resolve({:person, person_id})
+    |> Cgc2046.Flashback.WishAuthors.owned_query()
+    |> Ash.Query.filter(visibility == "private" and is_nil(deleted_at))
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.map(fn wish ->
@@ -687,7 +628,7 @@ defmodule Cgc2046.Flashback.Wishes do
   @doc "本人今年剩余许愿额度（R20：每年 #{@annual_wish_quota} 条，含私有与已软删）。"
   @spec quota_remaining(String.t()) :: non_neg_integer()
   def quota_remaining(person_id) do
-    max(0, @annual_wish_quota - wishes_created_this_year(person_id))
+    Cgc2046.Flashback.WishAuthors.quota_remaining({:person, person_id})
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────
@@ -698,7 +639,7 @@ defmodule Cgc2046.Flashback.Wishes do
   #
   # 与 admission/enrollment.ex:777-833 的 check_content/check_content_with_identity
   # 同语义，差别仅错误码（enrollment_content_rejected → flashback_content_rejected）。
-  defp check_content(person_id, content) do
+  def check_content(person_id, content) do
     trimmed = String.trim(content)
 
     if trimmed == "" do
@@ -801,73 +742,23 @@ defmodule Cgc2046.Flashback.Wishes do
     :telemetry.execute(@openid_unresolved_event, %{count: 1}, %{reason: reason})
   end
 
-  defp validate_content(content) when is_binary(content) do
+  def validate_content(content) when is_binary(content) do
     trimmed = String.trim(content)
 
     cond do
       trimmed == "" ->
-        {:error, %{code: "flashback_wish_invalid_content"}}
+        {:error, %{code: "flashback_wish_invalid_content", message: "请填写 1 至 500 字的愿望。"}}
 
       String.length(trimmed) > @content_max_length ->
-        {:error, %{code: "flashback_wish_invalid_content"}}
+        {:error, %{code: "flashback_wish_invalid_content", message: "请填写 1 至 500 字的愿望。"}}
 
       true ->
         :ok
     end
   end
 
-  defp validate_content(_), do: {:error, %{code: "flashback_wish_invalid_content"}}
-
-  defp validate_visibility(visibility) when visibility in @visibilities, do: :ok
-  defp validate_visibility(_), do: {:error, %{code: "flashback_wish_invalid_visibility"}}
-
-  # R20：年度额度按创建行为计数——不过滤 deleted_at/visibility（软删不退还、
-  # 私有也计），防删除重许刷热度信号使额度失效。
-  defp check_quota(person_id) do
-    if wishes_created_this_year(person_id) >= @annual_wish_quota do
-      {:error,
-       %{
-         code: "flashback_wish_quota_exceeded",
-         message: "今年的许愿名额已用完（每年最多 #{@annual_wish_quota} 条）。"
-       }}
-    else
-      :ok
-    end
-  end
-
-  defp wishes_created_this_year(person_id) do
-    Wish
-    |> Ash.Query.filter(person_id == ^person_id and inserted_at >= ^shanghai_year_start_utc())
-    |> Ash.count!(authorize?: false)
-  end
-
-  # Asia/Shanghai 固定 UTC+8 无夏令时；项目无 tzdata 依赖（Calendar 默认
-  # UTCOnly，shift_zone 不可用），算术偏移行为在 dev/test/prod 一致。
-  defp shanghai_year_start_utc do
-    shanghai_now = DateTime.add(DateTime.utc_now(), 8 * 3600, :second)
-
-    DateTime.new!(Date.new!(shanghai_now.year, 1, 1), ~T[00:00:00], "Etc/UTC")
-    |> DateTime.add(-8 * 3600, :second)
-  end
-
-  # R20 并发串行点（同 card_sharing lock_row 协议）：事务内对 person 行
-  # FOR UPDATE——后到者锁内重数会看到先到者已提交的愿望，check_quota 的
-  # COUNT 与 Ash.create 的 INSERT 不再分离成两条独立语句。锁读顺带返回
-  # city（创建快照入参）；num_rows=0 即 person 不存在。
-  defp lock_person_city(person_id) do
-    case Repo.query("SELECT city FROM flashback_people WHERE id = $1 FOR UPDATE", [
-           Repo.uuid!(person_id)
-         ]) do
-      {:ok, %{num_rows: 1, rows: [[city]]}} ->
-        {:ok, city}
-
-      {:ok, %{num_rows: 0}} ->
-        {:error, %{code: "flashback_person_not_found"}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+  def validate_content(_),
+    do: {:error, %{code: "flashback_wish_invalid_content", message: "请填写 1 至 500 字的愿望。"}}
 
   # FIX-2（审计 U3 缺口 2 / KTD9）：附议/留言目标资格——public + 未 hidden + 未删。
   # hidden 后愿望不可再 endorse/cancel/comment（成员面 list_public 读不受影响）。
@@ -879,20 +770,22 @@ defmodule Cgc2046.Flashback.Wishes do
     )
     |> Ash.read_one(authorize?: false)
     |> case do
-      {:ok, nil} -> {:error, %{code: "flashback_wish_not_found"}}
+      {:ok, nil} -> {:error, %{code: "flashback_wish_not_found", message: "这条愿望已不存在。"}}
       {:ok, wish} -> {:ok, wish}
       error -> error
     end
   end
 
   # MCP 治理删除走 admin?: true，actor 传 nil（平台侧身份由 ToolCallLog 审计承担）
-  defp do_soft_delete_wish(%Wish{person_id: person_id} = wish, actor_person_id, admin?) do
-    if admin? or person_id == actor_person_id do
+  defp do_soft_delete_wish(%Wish{} = wish, actor_person_id, admin?) do
+    identity = if is_tuple(actor_person_id), do: actor_person_id, else: {:person, actor_person_id}
+
+    if admin? or Cgc2046.Flashback.WishAuthors.owns?(wish, identity) do
       wish
       |> Ash.Changeset.for_update(:update, %{deleted_at: DateTime.utc_now()})
       |> Ash.update(authorize?: false)
     else
-      {:error, %{code: "flashback_forbidden_wish"}}
+      {:error, %{code: "flashback_forbidden_wish", message: "只能删除自己的愿望。"}}
     end
   end
 
@@ -902,7 +795,7 @@ defmodule Cgc2046.Flashback.Wishes do
       |> Ash.Changeset.for_update(:update, %{deleted_at: DateTime.utc_now()})
       |> Ash.update(authorize?: false)
     else
-      {:error, %{code: "flashback_forbidden_wish"}}
+      {:error, %{code: "flashback_forbidden_wish", message: "只能删除自己的愿望。"}}
     end
   end
 end

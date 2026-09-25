@@ -29,6 +29,7 @@ defmodule Cgc2046.Payments.DepositForfeitWorkerTest do
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Workers.{DepositForfeitWorker, PaymentRefundWorker}
   alias Cgc2046.Reconciliation.{Finding, ReconciliationScanWorker}
+  alias Cgc2046.Reconciliation.ScanDetections
   alias Cgc2046.Repo
 
   @deposit_cents 6900
@@ -404,7 +405,7 @@ defmodule Cgc2046.Payments.DepositForfeitWorkerTest do
 
       # 规 6 白名单三处字面量（@dead_letter_workers + 两处规则描述）同源：钉住
       # 「新 worker 名进白名单」与「白名单模块真实存在」（后者由对账测试遍历断言）
-      assert "Cgc2046.Payments.Workers.DepositForfeitWorker" in ReconciliationScanWorker.dead_letter_workers()
+      assert "Cgc2046.Payments.Workers.DepositForfeitWorker" in ScanDetections.dead_letter_workers()
 
       assert Code.ensure_loaded?(DepositForfeitWorker)
     end

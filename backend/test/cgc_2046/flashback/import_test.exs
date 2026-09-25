@@ -834,10 +834,543 @@ defmodule Cgc2046.Flashback.ImportTest do
     end
   end
 
+  # ── 大表模式（master-table：group_by + participation :column） ────────
+
+  # 学员簿表头（44 列终稿，与 rails-girls/girls-coding-day 学员总表一致；
+  # 合成 fixture——真实 PII 不进仓）。row 构造走 master_row/1 只填关键列。
+  @master_learner_header [
+    "场次key",
+    "场次名",
+    "活动日期",
+    "城市",
+    "姓名",
+    "性别",
+    "手机号",
+    "邮箱",
+    "职业/行业+公司",
+    "操作系统",
+    "自我介绍",
+    "有意思的事",
+    "好点子",
+    "社交媒体/微信",
+    "GitHub",
+    "报名时间",
+    "参与状态",
+    "出席依据",
+    "来源文件",
+    "当前身份/报名角色",
+    "在校/在职状态",
+    "学校/机构",
+    "年级",
+    "专业",
+    "工作年限",
+    "日常工作内容",
+    "参加动机",
+    "编程语言/技能",
+    "编程水平自评",
+    "Rails/Ruby 技能自评",
+    "可携带电脑",
+    "志愿者贡献",
+    "志愿活动兴趣",
+    "年龄",
+    "特长",
+    "学习圈意愿",
+    "聚会意愿",
+    "签到时间",
+    "会员身份",
+    "按时参加意愿",
+    "常用称呼",
+    "所在机构及角色（原文）",
+    "其他社交账号",
+    "记录备注"
+  ]
+
+  # 教练簿表头（23 列：无 城市/场次名/活动日期，archive 属性靠 override 或库内已有）
+  @master_coach_header [
+    "场次key",
+    "姓名",
+    "性别",
+    "手机号",
+    "邮箱",
+    "微信",
+    "GitHub",
+    "所在公司/学校",
+    "编程语言/技能",
+    "希望如何介绍",
+    "可做城市（原文）",
+    "报名时间",
+    "参与状态",
+    "出席依据",
+    "来源文件",
+    "教练自我介绍",
+    "教练报名动机",
+    "口语/其他语言",
+    "来源表所在地",
+    "Rails 使用时长",
+    "Ruby-China ID",
+    "教练意向（原文）",
+    "教练期望"
+  ]
+
+  defp master_row(header, map), do: Enum.map(header, &Map.get(map, &1, ""))
+
+  defp master_learner_row(key, name \\ "张学员", extra \\ %{}) do
+    master_row(
+      @master_learner_header,
+      Map.merge(
+        %{
+          "场次key" => key,
+          "场次名" => "Rails Girls 北京 · 2014-01",
+          "活动日期" => "2014-01-11",
+          "城市" => "北京",
+          "姓名" => name
+        },
+        extra
+      )
+    )
+  end
+
+  defp master_coach_row(key, name, extra) do
+    master_row(
+      @master_coach_header,
+      Map.merge(
+        %{"场次key" => key, "姓名" => name, "参与状态" => "attended"},
+        extra
+      )
+    )
+  end
+
+  defp uniq_key(tag), do: "#{tag}-#{System.unique_integer([:positive])}"
+
+  defp master_xlsx(sheet_name, header, rows),
+    do: build_xlsx([{sheet_name, [header | rows]}])
+
+  describe "大表模式：参与状态按列判定（participation: :column）" do
+    test "列值 attended/not_selected 直读；空值按 not_selected" do
+      key = uniq_key("column-mode")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "出席者", %{"参与状态" => "attended", "手机号" => "13900000001"}),
+          master_learner_row(key, "未入选", %{"参与状态" => "not_selected", "手机号" => "13900000002"}),
+          master_learner_row(key, "空状态", %{"参与状态" => "", "手机号" => "13900000003"})
+        ])
+
+      {:ok, report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert report.participation == %{attended: 1, not_selected: 2}
+      assert report.attendance_source == "column:参与状态"
+      assert counts.people == 3
+
+      people = people_of_archive_key(key) |> Enum.sort_by(& &1.full_name)
+      assert Enum.map(people, & &1.participation) == [:attended, :not_selected, :not_selected]
+    end
+
+    test "既有 sheet 归属模式不受 preset 无关配置影响（默认 config 不变）" do
+      {:ok, report} = Import.run(fixture_xlsx())
+      assert report.attendance_source == "学生"
+      assert report.participation == %{attended: 2, not_selected: 1}
+    end
+
+    test "出席按场隔离：A 场 attended 与 B 场 not_selected 同联系方式 → B 场仍圆梦线（不跨场传染）" do
+      key_a = uniq_key("att-iso-a")
+      key_b = uniq_key("att-iso-b")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key_a, "重复报名的人", %{
+            "手机号" => "13900000009",
+            "参与状态" => "attended"
+          }),
+          master_learner_row(key_b, "重复报名的人", %{
+            "手机号" => "13900000009",
+            "参与状态" => "not_selected",
+            "场次名" => "Girls Coding Day 另一场",
+            "活动日期" => "2015-01-17"
+          })
+        ])
+
+      {:ok, _report, _counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert [%{participation: :attended}] = people_of_archive_key(key_a)
+      assert [%{participation: :not_selected}] = people_of_archive_key(key_b)
+    end
+
+    test "同场内同名同手机双 strand：一 attended 一 not_selected → attended 不降级、只留一人" do
+      key = uniq_key("att-same-arch")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "双行同一人", %{
+            "手机号" => "13900000010",
+            "参与状态" => "not_selected"
+          }),
+          master_learner_row(key, "双行同一人", %{
+            "手机号" => "13900000010",
+            "参与状态" => "attended"
+          })
+        ])
+
+      {:ok, _report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert counts.people == 1
+      assert [%{participation: :attended}] = people_of_archive_key(key)
+    end
+  end
+
+  describe "大表模式：按场次列分 archive（group_by）" do
+    test "多个 key 各建一个 archive：name/city/occurred_on 落库；日期空 → nil 也允许" do
+      key_a = uniq_key("group-a")
+      key_b = uniq_key("group-b")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key_a, "甲场人", %{"手机号" => "13900000001"}),
+          master_learner_row(key_b, "乙场人", %{
+            "场次名" => "Girls Coding Day 西安 · 2017",
+            "活动日期" => "",
+            "城市" => "西安",
+            "手机号" => "13900000002"
+          })
+        ])
+
+      {:ok, report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert counts.people == 2
+      assert length(report.archives) == 2
+
+      archive_a = get_archive!(key_a)
+      assert archive_a.name == "Rails Girls 北京 · 2014-01"
+      assert archive_a.city == "北京"
+      assert archive_a.occurred_on == ~D[2014-01-11]
+
+      archive_b = get_archive!(key_b)
+      assert archive_b.name == "Girls Coding Day 西安 · 2017"
+      assert archive_b.city == "西安"
+      assert archive_b.occurred_on == nil
+
+      refute archive_a.id == archive_b.id
+    end
+
+    test "archive 幂等：重跑不建重复场次、同一 archive 内同人不重复建人" do
+      key = uniq_key("group-idem")
+      xlsx = master_xlsx("学员", @master_learner_header, [master_learner_row(key)])
+
+      {:ok, _r1, c1} = Import.run(xlsx, dry_run: false, preset: :learner)
+      {:ok, report2, c2} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert c1.people == 1
+      assert c2.people == 0
+      assert count_archives(key) == 1
+      assert length(report2.archives) == 1
+      assert hd(report2.archives).existing_people == 1
+    end
+
+    test "key 无场次名、库内无档且无 override → fail-closed（archive_name_missing）" do
+      key = uniq_key("group-noname")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "无名场人", %{"场次名" => ""})
+        ])
+
+      assert {:error, {:archive_name_missing, missing}} = Import.run(xlsx, preset: :learner)
+      assert missing == key
+    end
+
+    test "活动日期非 ISO 日期 → fail-closed（archive_date_invalid）" do
+      key = uniq_key("group-baddate")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "脏日期人", %{"活动日期" => "2014年1月11日"})
+        ])
+
+      assert {:error, {:archive_date_invalid, ^key, "2014年1月11日"}} =
+               Import.run(xlsx, preset: :learner)
+    end
+
+    test "archive_overrides 兜底：行内无场次名时按 override 建档" do
+      key = uniq_key("group-override")
+
+      xlsx =
+        master_xlsx("教练", @master_coach_header, [
+          master_coach_row(key, "独场教练", %{"手机号" => "13900000001"})
+        ])
+
+      {:ok, _report, counts} =
+        Import.run(xlsx,
+          dry_run: false,
+          preset: :coach,
+          config: %{
+            archive_overrides: %{
+              key => %{
+                name: "Girls Coding Day 深圳 · 2017-11",
+                city: "深圳",
+                occurred_on: "2017-11-27"
+              }
+            }
+          }
+        )
+
+      assert counts.people == 1
+
+      archive = get_archive!(key)
+      assert archive.name == "Girls Coding Day 深圳 · 2017-11"
+      assert archive.city == "深圳"
+      assert archive.occurred_on == ~D[2017-11-27]
+    end
+  end
+
+  describe "大表模式：学员簿列映射终稿" do
+    test "全部映射列落对 question_key / Person 字段；显式跳过列零落库" do
+      key = uniq_key("learner-cols")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "全填学员", %{
+            "性别" => "女",
+            "城市" => "北京",
+            "手机号" => "13900000001",
+            "邮箱" => "qt@example.com",
+            "职业/行业+公司" => "产品/示例公司",
+            "操作系统" => "Mac",
+            "自我介绍" => "我是⟦示例公司⟧的产品。",
+            "有意思的事" => "做过开源。",
+            "好点子" => "女生编程社区。",
+            "社交媒体/微信" => "微博 @qt",
+            "GitHub" => "qingting",
+            "报名时间" => "2013-12-06",
+            "参与状态" => "attended",
+            "在校/在职状态" => "在职",
+            "学校/机构" => "示例大学",
+            "年级" => "大三",
+            "专业" => "软件工程",
+            "工作年限" => "3",
+            "日常工作内容" => "写代码",
+            "参加动机" => "想学 Rails",
+            "编程语言/技能" => "该列学员簿显式跳过",
+            "编程水平自评" => "入门",
+            "Rails/Ruby 技能自评" => "零基础",
+            "常用称呼" => "小晴",
+            "所在机构及角色（原文）" => "示例公司·产品",
+            # 显式跳过的列（即便有值也零落库）
+            "出席依据" => "报名表",
+            "来源文件" => "报名 2.xlsx",
+            "年龄" => "26",
+            "特长" => "画画",
+            "记录备注" => "内部备注"
+          })
+        ])
+
+      {:ok, _report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+      assert counts.people == 1
+
+      person = hd(people_of_archive_key(key))
+      assert person.full_name == "全填学员"
+      assert person.gender == "女"
+      assert person.city == "北京"
+      assert person.occupation_then == "产品/示例公司"
+      assert person.phone == "13900000001"
+      assert person.email == "qt@example.com"
+      assert person.role == :learner
+      assert person.participation == :attended
+      # ISO date（非 datetime）按当天 00:00 UTC 落 applied_at
+      assert person.applied_at == ~U[2013-12-06 00:00:00.000000Z]
+
+      keys = answers_of(person.id) |> Enum.map(& &1.question_key) |> Enum.sort()
+
+      assert keys == [
+               "email",
+               "full_name",
+               "funny_thing",
+               "github",
+               "good_idea",
+               "grade",
+               "major",
+               "motivation",
+               "nickname",
+               "org_role",
+               "os",
+               "phone",
+               "rails_self_rating",
+               "school",
+               "self_intro",
+               "skill_self_rating",
+               "social_media",
+               "student_status",
+               "work_content",
+               "work_years"
+             ]
+
+      answers = answers_of(person.id)
+
+      # 展示候选答案走 FogMarkup（reason/区间语义不变）
+      self_intro = Enum.find(answers, &(&1.question_key == "self_intro"))
+      assert self_intro.raw_text == "我是示例公司的产品。"
+      assert self_intro.fog_spans == [%{"start" => 2, "len" => 4}]
+
+      # 结构化 PII 整段雾化
+      email_answer = Enum.find(answers, &(&1.question_key == "email"))
+      assert email_answer.fog_spans == [%{"start" => 0, "len" => String.length("qt@example.com")}]
+      phone_answer = Enum.find(answers, &(&1.question_key == "phone"))
+      assert phone_answer.raw_text == "13900000001"
+      assert phone_answer.fog_spans == [%{"start" => 0, "len" => 11}]
+
+      # 存档答案存原文（不展示，raw 落库）
+      assert Enum.find(answers, &(&1.question_key == "github")).raw_text == "qingting"
+      assert Enum.find(answers, &(&1.question_key == "student_status")).raw_text == "在职"
+      assert Enum.find(answers, &(&1.question_key == "org_role")).raw_text == "示例公司·产品"
+    end
+
+    test "空答案列不落行：只填的列才有 Answer" do
+      key = uniq_key("learner-empty")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "半填学员", %{
+            "手机号" => "13900000001",
+            "自我介绍" => "只有自我介绍。",
+            # 显式空白（空格）
+            "年级" => "   ",
+            "专业" => ""
+          })
+        ])
+
+      {:ok, _report, _counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      person = hd(people_of_archive_key(key))
+      keys = answers_of(person.id) |> Enum.map(& &1.question_key) |> Enum.sort()
+
+      # 只有：full_name（派生） + phone（PII） + self_intro；grade/major 空不落行
+      assert keys == ["full_name", "phone", "self_intro"]
+    end
+
+    test "同人重复（预报名+开票两渠道同人）：同手机同 archive 只建一行，dry-run 报 Excel 内重复" do
+      key = uniq_key("learner-dup")
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key, "同一人", %{
+            "手机号" => "13900000001",
+            "邮箱" => "pre@example.com",
+            "参与状态" => "attended"
+          }),
+          # 开票渠道又报一次：同手机不同邮箱——person_key 语义命中，不建新行
+          master_learner_row(key, "同一人", %{
+            "手机号" => "13900000001",
+            "邮箱" => "gate@example.com",
+            "参与状态" => "not_selected"
+          })
+        ])
+
+      {:ok, report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert report.duplicates_in_excel == 1
+      assert counts.people == 1
+      assert length(people_of_archive_key(key)) == 1
+    end
+
+    test "同人分布不同 archive（真人跨场）合法——去重边界在 archive 内" do
+      key_a = uniq_key("cross-a")
+      key_b = uniq_key("cross-b")
+
+      base = %{"手机号" => "13900000001", "参与状态" => "attended"}
+
+      xlsx =
+        master_xlsx("学员", @master_learner_header, [
+          master_learner_row(key_a, "跨场学员", base),
+          master_learner_row(key_b, "跨场学员", Map.put(base, "场次名", "Girls Coding Day 西安 · 2017"))
+        ])
+
+      {:ok, _report, counts} = Import.run(xlsx, dry_run: false, preset: :learner)
+
+      assert counts.people == 2
+      assert length(people_of_archive_key(key_a)) == 1
+      assert length(people_of_archive_key(key_b)) == 1
+    end
+  end
+
+  describe "大表模式：教练簿列映射终稿" do
+    test "coach 落档：role/职业列（所在公司/学校）/微信 PII/教练答案键；其余列跳过" do
+      key = uniq_key("coach-cols")
+
+      xlsx =
+        master_xlsx("教练", @master_coach_header, [
+          master_coach_row(key, "李教练", %{
+            "性别" => "女",
+            "手机号" => "13900000099",
+            "邮箱" => "coach@example.com",
+            "微信" => "coach-wechat-id",
+            "GitHub" => "licoach",
+            "所在公司/学校" => "示例学院",
+            "编程语言/技能" => "Ruby, Rails",
+            "希望如何介绍" => "讲师",
+            "可做城市（原文）" => "北京/远程",
+            "报名时间" => "2015-07-23",
+            "教练自我介绍" => "十年 Rails。",
+            "教练报名动机" => "回馈社区。",
+            # 显式跳过
+            "Rails 使用时长" => "8 年",
+            "Ruby-China ID" => "licoach",
+            "教练期望" => "希望有课件",
+            "教练意向（原文）" => "主讲"
+          })
+        ])
+
+      {:ok, _report, counts} =
+        Import.run(xlsx,
+          dry_run: false,
+          preset: :coach,
+          config: %{
+            archive_overrides: %{key => %{name: "Rails Girls 深圳 · 2015-08", city: "深圳"}}
+          }
+        )
+
+      assert counts.people == 1
+
+      person = hd(people_of_archive_key(key))
+      assert person.role == :coach
+      assert person.participation == :attended
+      assert person.occupation_then == "示例学院"
+      assert person.applied_at == ~U[2015-07-23 00:00:00.000000Z]
+
+      answers = answers_of(person.id)
+      keys = answers |> Enum.map(& &1.question_key) |> Enum.sort()
+
+      assert keys == [
+               "coach_cities",
+               "coach_intro",
+               "coach_intro_pref",
+               "coach_motivation",
+               "email",
+               "full_name",
+               "github",
+               "phone",
+               "skills",
+               "wechat"
+             ]
+
+      # 教练无行内 场次名/城市/日期——archive 属性全来自 override（name 必需，city 可空）
+      archive = get_archive!(key)
+      assert archive.name == "Rails Girls 深圳 · 2015-08"
+      assert archive.city == "深圳"
+      assert archive.occurred_on == nil
+
+      wechat = Enum.find(answers, &(&1.question_key == "wechat"))
+      assert wechat.raw_text == "coach-wechat-id"
+      assert wechat.fog_spans == [%{"start" => 0, "len" => String.length("coach-wechat-id")}]
+    end
+  end
+
   # ── 内部 ─────────────────────────────────────────────────────────────
 
   defp people_of_archive do
-    archive = get_archive!("2014-01-11-bj")
+    people_of_archive_key("2014-01-11-bj")
+  end
+
+  defp people_of_archive_key(key) do
+    archive = get_archive!(key)
 
     Flashback.Person
     |> Ash.Query.for_read(:read)

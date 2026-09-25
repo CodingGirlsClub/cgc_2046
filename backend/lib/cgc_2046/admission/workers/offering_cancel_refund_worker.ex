@@ -8,8 +8,9 @@ defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
   触发退款批量（closed = 正常结束，不退）；逐笔隔离，部分失败只记 warning 不
   阻塞其余（下一波信号重投/管理员单笔 retry 兜底）：
 
-  - paid 订单 → 内部 `:start_refund` CAS + 入队 `PaymentRefundWorker`
-    （渠道调用与收尾同单笔链；系统驱动无 actor，不走管理员 :refund action）；
+  - paid 订单 → `RefundCommencement.commence/2` 退款发起单一入口（#845；
+    `:start_refund` + Order action 同事务入队 `PaymentRefundWorker`，渠道调用
+    与收尾同单笔链；系统驱动无 actor，不走管理员 :refund action）；
   - payment_pending 报名 → `Enrollment :cancel`（cancelled + 名额释放 +
     作废 pending 订单，内置 CAS）；
   - expired / cancelled / refunding / refund_failed / refunded / confirmed 无
@@ -40,7 +41,6 @@ defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Events.Event
   alias Cgc2046.Payments.Order
-  alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
   # 分批步长（plan U9-3 批大小常量）：控制单波对 payments 队列的瞬时入队量
   @batch_size 50
@@ -128,7 +128,7 @@ defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
   defp process_batch(batch, workspace_id) do
     Enum.reduce(batch, %{cancelled: 0, refunded: 0, skipped: 0}, fn enrollment, acc ->
       # paid 单不问报名状态（已付必退，ADR-0007 取消即批量退）
-      n = refund_paid_order(enrollment, workspace_id)
+      n = refund_paid_order(enrollment)
       acc = Map.update!(acc, :refunded, &(&1 + n))
 
       case enrollment.status do
@@ -183,27 +183,21 @@ defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
   end
 
   # confirmed 报名的 paid 单逐笔退款；无 paid 单（免缴 confirmed）自然跳过。
-  # 返回成功入队数（F-J 审计计数）。review F3：transition + 入队同事务——
+  # 返回成功入队数（F-J 审计计数）。#845：transition + 入队的同事务原子性由
+  # Order :start_refund 的 action 事务承担（after_action 入队，恰好一次），
   # 崩溃窗口不留「refunding 无 job」悬挂态；事务回滚后重投信号从 paid 重扫。
-  defp refund_paid_order(enrollment, workspace_id) do
+  defp refund_paid_order(enrollment) do
     Order
     |> Ash.Query.filter(enrollment_id == ^enrollment.id and status == :paid)
     |> Ash.read!(authorize?: false)
     |> Enum.reduce(0, fn order, acc ->
-      case Cgc2046.Repo.transaction(fn ->
-             with {:ok, refunding} <-
-                    order
-                    |> Ash.Changeset.for_update(:start_refund, %{})
-                    |> Ash.update(tenant: workspace_id, authorize?: false),
-                  {:ok, _job} <- enqueue_refund_job(refunding) do
-               {:ok, refunding.id}
-             end
-           end) do
-        {:ok, {:ok, _order_id}} ->
+      case Cgc2046.Payments.RefundCommencement.commence(order, eligible: [:paid]) do
+        {:ok, :started} ->
           acc + 1
 
-        {:ok, {:error, reason}} ->
-          log_skip("order", order.id, reason)
+        # 他路已接管（竞态重读见 refunding/refunded）：跳过不计数，同笔日志留痕
+        {:ok, :already_in_progress} ->
+          log_skip("order", order.id, :already_in_progress)
           acc
 
         {:error, reason} ->
@@ -211,11 +205,6 @@ defmodule Cgc2046.Admission.Workers.OfferingCancelRefundWorker do
           acc
       end
     end)
-  end
-
-  # Oban.insert! 直入 oban_jobs 表（同连接同事务）——与 start_refund CAS 原子提交
-  defp enqueue_refund_job(refunding) do
-    {:ok, Oban.insert!(PaymentRefundWorker.new(%{"order_id" => refunding.id}))}
   end
 
   defp log_skip(kind, id, reason) do
