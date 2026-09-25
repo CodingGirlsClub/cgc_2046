@@ -76,6 +76,10 @@ env:
     PHX_HOST: api.codingirlsclub.com
     PORT: "4000"
     POOL_SIZE: "10"
+    # 容器默认 locale 为 C（latin1 native name encoding）：非 ASCII 字符串在部分
+    # VM 操作面（如发送链路动态字段）会被二次编码成乱码。统一 UTF-8。
+    LANG: en_US.UTF-8
+    LC_ALL: en_US.UTF-8
   secret:
     - DATABASE_URL
     - SECRET_KEY_BASE
