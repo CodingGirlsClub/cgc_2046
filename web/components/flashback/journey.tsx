@@ -253,6 +253,7 @@ export default function Journey() {
 					<SendRegister
 					form={form}
 					answers={freeAnswers}
+					initialTodayFogSpans={entry.progress?.today?.fogSpans}
 					maskedPhone={entry.progress?.maskedPhone}
 					maskedEmail={entry.progress?.maskedEmail}
 					onAdjustFog={async (answerId, spans) => {
