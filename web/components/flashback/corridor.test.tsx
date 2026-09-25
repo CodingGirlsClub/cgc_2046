@@ -32,6 +32,7 @@ vi.mock("@/i18n/navigation", () => ({
 const entry = (id: string, city: string | null): FlashbackCapsuleArchive["roster"][number] => ({
 	id,
 	surnameMasked: "姓**",
+	participation: "attended",
 	city,
 	occupationThen: null,
 	sentToWallAt: null,

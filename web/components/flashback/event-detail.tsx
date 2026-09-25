@@ -25,10 +25,13 @@ type State =
  * （已寄出=显影卡带名字 / 未回来=雾卡「王** · 城市 · 职业 · 答案还在等她」）
  * + 找回 CTA（三级视角②：参加过没回来的人从这里认领自己那张）。
  *
- * 数据复用 capsule 投影（白名单 DTO 同一份：roster 已按 R12 只含 attended、
- * 未寄出者仅姓氏隐名）——不新增后端读面，也就不新增泄露面。
+ * 数据复用 capsule 投影（白名单 DTO 同一份：roster 混排 attended 与
+ * not_selected（圆梦线进名册，applied_at asc）、未寄出者仅姓氏隐名）——
+ * 不新增后端读面，也就不新增泄露面。
  * 统计行不编造：报名数缺失（导入未带该列）与教练数（R22：教练表属其他场次）
- * 都直接不显示，而不是填 0。
+ * 都直接不显示，而不是填 0。「走进教室」取后端 attendedCount 权威字段；
+ * 缺失时 fallback 只数 attended 名册成员——名册扩员后绝不把圆梦线
+ * （报名未入选）算进教室（事实纪律）。
  */
 export default function EventDetail({ eventKey }: { eventKey: string }) {
 	const t = useTranslations("flashback.event");
@@ -97,7 +100,10 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	const { archive } = state;
 	const returned = archive.roster.filter((entry) => entry.sentToWallAt).length;
-	const attended = archive.attendedCount ?? archive.roster.length;
+	// fallback 只数 attended：名册已含 not_selected，roster.length 会把圆梦线错算进教室
+	const attended =
+		archive.attendedCount ??
+		archive.roster.filter((entry) => entry.participation === "attended").length;
 
 	return (
 		<div className="fb-root fb-event">
