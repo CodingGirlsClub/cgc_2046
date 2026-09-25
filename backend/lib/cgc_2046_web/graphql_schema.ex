@@ -3718,6 +3718,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:applied_at, :string)
     field(:city, :string)
     field(:occupation_then, :string)
+    @desc "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
+    field(:participation, non_null(:string))
     field(:sent_to_wall_at, :string)
     @desc "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
     field(:today, :flashback_roster_entry_today)
