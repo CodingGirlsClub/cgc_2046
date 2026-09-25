@@ -18,7 +18,11 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
-（暂无）
+### Added
+
+- [微信] 小程序端公开愿望树与游客闪念间体验（guest 路径）。
+
+> ⚠️ [微信] 端发布由独立 agent 并行执行；本日期段仅记 server 面部署，小程序可见时按 ADR-0016 立端节点。
 
 ## [2026-09-25]
 
