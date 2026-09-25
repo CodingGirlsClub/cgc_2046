@@ -188,22 +188,22 @@ defmodule Cgc2046.Notifications.FanoutTest do
           assert :ok =
                    Fanout.deliver(
                      {user.id, []},
-                     "payment_succeeded",
+                     "event_moderator_assigned",
                      %{},
-                     %{"idempotency_key" => "payment.succeeded:o-empty"}
+                     %{"event_id" => "ev-empty"}
                    )
 
-          assert :ok = Fanout.deliver(%{}, "payment_succeeded", %{}, %{})
+          assert :ok = Fanout.deliver(%{}, "event_moderator_assigned", %{}, %{})
         end)
 
       assert all_enqueued(worker: NotificationWorker) == []
 
       assert log =~ "notification deliver skipped: no identities"
-      assert log =~ "template_key=payment_succeeded"
+      assert log =~ "template_key=event_moderator_assigned"
       assert log =~ inspect([user.id])
 
       assert_receive {:fanout_telemetry, _, %{count: 0},
-                      %{status: :skipped, template_key: "payment_succeeded", error: nil}}
+                      %{status: :skipped, template_key: "event_moderator_assigned", error: nil}}
     end
 
     test "成功入队发 telemetry count = 入队条数" do
@@ -246,24 +246,24 @@ defmodule Cgc2046.Notifications.FanoutTest do
       user = Fixtures.register_user("fanout-unique")
       insert_identity(user.id, :wechat, "fanout-unique-openid")
       identities = Fanout.identities(user.id)
-      data = %{"order_id" => Ecto.UUID.generate()}
-      meta = %{"idempotency_key" => "payment.succeeded:#{data["order_id"]}"}
+      data = %{"event_id" => Ecto.UUID.generate()}
+      meta = %{"event_id" => data["event_id"]}
 
       # :default（payment_succeeded，未迁）—— 同 args 重入队折叠为既有 job
-      assert :ok = Fanout.deliver({user.id, identities}, "payment_succeeded", data, meta)
+      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
 
       assert [job] =
                all_enqueued(
                  worker: NotificationWorker,
-                 args: %{"template_key" => "payment_succeeded"}
+                 args: %{"template_key" => "event_moderator_assigned"}
                )
 
-      assert :ok = Fanout.deliver({user.id, identities}, "payment_succeeded", data, meta)
+      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
 
       assert [same] =
                all_enqueued(
                  worker: NotificationWorker,
-                 args: %{"template_key" => "payment_succeeded"}
+                 args: %{"template_key" => "event_moderator_assigned"}
                )
 
       assert same.id == job.id
@@ -276,8 +276,8 @@ defmodule Cgc2046.Notifications.FanoutTest do
           [job.id]
         )
 
-      assert :ok = Fanout.deliver({user.id, identities}, "payment_succeeded", data, meta)
-      assert count_rows("payment_succeeded", user.id) == 1
+      assert :ok = Fanout.deliver({user.id, identities}, "event_moderator_assigned", data, meta)
+      assert count_rows("event_moderator_assigned", user.id) == 1
 
       # :reminder_7d（approval_reminder，未迁）—— discarded 释放名额，重拍插入新行
       reminder_data = %{"enrollment_id" => Ecto.UUID.generate()}
@@ -340,9 +340,9 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert {:ok, 0} =
                Fanout.deliver_with_receipt(
                  {user.id, []},
-                 "payment_succeeded",
+                 "event_moderator_assigned",
                  %{},
-                 %{"idempotency_key" => "payment.succeeded:o-zero"}
+                 %{"event_id" => "ev-zero"}
                )
 
       assert all_enqueued(worker: NotificationWorker) == []
@@ -469,14 +469,76 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert :ok =
                Fanout.deliver(
                  {user.id, Fanout.identities(user.id)},
-                 "payment_succeeded",
-                 %{"order_id" => "o1"},
-                 %{"idempotency_key" => "payment.succeeded:o1"}
+                 "event_moderator_assigned",
+                 %{"event_id" => "ev1"},
+                 %{"event_id" => "ev1"}
                )
 
       assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
-      assert args["template_key"] == "payment_succeeded"
+      assert args["template_key"] == "event_moderator_assigned"
       assert deliveries_for(user.id) == []
+    end
+  end
+
+  describe "#847 PR-B 批 2（资金类迁耐久投递）" do
+    defp deliveries_for_2(user_id) do
+      NotificationDelivery
+      |> Ash.Query.filter(user_id == ^user_id)
+      |> Ash.read!(authorize?: false)
+    end
+
+    test "payment_succeeded：同订单重复结算重放只发一次，跨订单正常重发" do
+      user = Fixtures.register_user("prb2-paid")
+      insert_identity(user.id, :wechat, "prb2-paid-wx")
+      identities = Fanout.identities(user.id)
+      data = %{"order_id" => "o1", "amount" => "1.00"}
+
+      deliver = fn order_id ->
+        Fanout.deliver(
+          {user.id, identities},
+          "payment_succeeded",
+          Map.put(data, "order_id", order_id),
+          %{"idempotency_key" => "payment_succeeded:" <> order_id}
+        )
+      end
+
+      assert :ok = deliver.("o1")
+      assert :ok = deliver.("o1")
+      assert length(deliveries_for_2(user.id)) == 1
+
+      assert :ok = deliver.("o2")
+      assert length(deliveries_for_2(user.id)) == 2
+    end
+
+    test "refund_failed 与 refund_succeeded 同订单：P2 前缀防撞，失败→重试→成功两通知各达一次" do
+      user = Fixtures.register_user("prb2-refund")
+      insert_identity(user.id, :wechat, "prb2-refund-wx")
+      identities = Fanout.identities(user.id)
+      key = "refund_failed:o1"
+
+      assert :ok =
+               Fanout.deliver(
+                 {user.id, identities},
+                 "refund_failed",
+                 %{"order_id" => "o1"},
+                 %{"idempotency_key" => key}
+               )
+
+      assert :ok =
+               Fanout.deliver(
+                 {user.id, identities},
+                 "refund_succeeded",
+                 %{"order_id" => "o1"},
+                 %{"idempotency_key" => "refund_succeeded:o1"}
+               )
+
+      rows = deliveries_for_2(user.id)
+      assert length(rows) == 2
+
+      assert rows |> Enum.map(& &1.template_key) |> Enum.sort() == [
+               "refund_failed",
+               "refund_succeeded"
+             ]
     end
   end
 
