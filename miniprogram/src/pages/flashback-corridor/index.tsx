@@ -1,36 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
 import { FlashbackGuest } from '@/components/FlashbackGuest'
 import { AppTabBar } from '@/components/AppTabBar'
-import { PageState } from '@/components/PageState'
+import { useRecovery } from '@/components/FlashbackGuest/useRecovery'
 import MyCard from '@/components/MyCard'
 import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, ensureWishVoterKey, ViewerWish, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, mapPublicWishEcho, type QuoteLevel } from '@/domain/flashback'
-import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
+import { corridorFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import { shouldRevealRecoveredCard } from '@/domain/flashback-recovery'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
-import { graphqlRequest } from '@/api/client'
-import { FlashbackPublicWishesQueryDocument } from '@/api/operations'
-import type {
-  FlashbackPublicWishesQuery,
-  FlashbackPublicWishesQueryVariables
-} from '@/api/generated/graphql'
-import type { FlashbackWish, FlashbackCapsule, FlashbackClaimResult, FlashbackPublicStats } from '@/domain/models'
-import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
+import type { FlashbackWish } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { consumeFlashbackEntry, type FlashbackEntryIntent } from '@/state/flashbackEntry'
 import styles from './index.module.css'
-
-type Mode =
-  | { kind: 'loading' }
-  | { kind: 'error'; message: string }
-  | { kind: 'member'; capsule: FlashbackCapsule; token: string | null }
-  /** 路人围观态（R32）：长廊 + 统计，无任何未授权内容；guide = 回头找到自己档案的出口 */
-  | { kind: 'viewer'; stats: FlashbackPublicStats | null; guide: 'login' | 'recover' | null }
-
-
 
 /**
  * 长廊（mp 版原型 F corridor；R12/R32/R34）：垂直时间墙「↓ 下滑 = 时间前进」+
@@ -38,12 +23,11 @@ type Mode =
  *
  * 三级视角（R32）：
  * ① token/登录档案可读 → 参与态（完整长廊）；
- * ② 登录但库里没有档案 → 先自动匹配认领（flashbackClaim），bound=false →
- *    「找回你的那一张」会话引导；
+ * ② 登录但尚未绑定 → 自动匹配认领；未匹配、失败在公开首页分别给出下一步；
  * ③ 未登录 → 公开金句访客首页 + 登录找回入口。
  */
 export default function FlashbackCorridorPage() {
-  const [mode, setMode] = useState<Mode>({ kind: 'loading' })
+  const { mode, load, reloadMember: refreshMember } = useRecovery()
   const [city, setCity] = useState<string | null>(null)
   // U6「看看未来」滚底:scrollIntoView 定位未来段;消费一次即清(回页不再滚)
   const [scrollAnchor, setScrollAnchor] = useState('')
@@ -110,60 +94,6 @@ export default function FlashbackCorridorPage() {
     }
   }
 
-  const loadStats = useCallback(async (): Promise<FlashbackPublicStats | null> => {
-    try {
-      return await api.getFlashbackPublicStats()
-    } catch {
-      return null
-    }
-  }, [])
-
-  const load = useCallback(
-    async (cityFilter?: string | null) => {
-      const token = Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null
-      try {
-        const capsule = await api.getFlashbackCapsule(cityFilter ?? null, token)
-        setMode({ kind: 'member', capsule, token })
-      } catch (error) {
-        if (error instanceof FlashbackTokenInvalidError) {
-          // 链接已失效/被接管：清掉后按无 token 重载（已登录走会话腿，否则路人态）
-          Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
-          void load(cityFilter)
-          return
-        }
-        if (error instanceof FlashbackNotBoundError) {
-          // 三级视角②：登录自动匹配 → 直接认领（R27 claim 无 token 面）
-          let claimed: FlashbackClaimResult | null = null
-          try {
-            claimed = await api.flashbackClaim(null)
-          } catch {
-            claimed = null
-          }
-          if (claimed?.bound) {
-            Taro.showToast({ title: `已为你收好 ${claimed.boundCount} 张卡`, icon: 'none' })
-            // 认领成功即重拉；若服务端仍报未绑定（数据不一致）落找回引导，
-            // 绝不再递归认领（防死循环）
-            const capsule = await api.getFlashbackCapsule(cityFilter ?? null, null).catch(() => null)
-            if (capsule) {
-              setMode({ kind: 'member', capsule, token: null })
-              return
-            }
-            setMode({ kind: 'viewer', stats: await loadStats(), guide: 'recover' })
-            return
-          }
-          setMode({ kind: 'viewer', stats: await loadStats(), guide: 'recover' })
-          return
-        }
-        if ((error as { name?: string }).name === 'SessionExpiredError') {
-          setMode({ kind: 'viewer', stats: null, guide: 'login' })
-          return
-        }
-        setMode({ kind: 'error', message: error instanceof Error ? error.message : '加载失败' })
-      }
-    },
-    [loadStats]
-  )
-
   // 闪念间入口 intent（长廊成为 tabBar 页面后 switchTab 不带 query）：useDidShow
   // 一次性消费，供 future（滚未来段）与 welcome（推金句引导）两处共用——两处
   // 各自消费的话，先跑的那处会把 intent 清掉，后一处永远读不到。
@@ -179,14 +109,16 @@ export default function FlashbackCorridorPage() {
     }
   })
 
-  // U8:member 就绪(非 welcome 首程)→ 快门仪式层。intent 在 useDidShow 里已同步
-  // 消费，本 effect 待 load 完成（mode 转 member）才触发，时序上读得到。
+  // Returning to the same person's corridor must not replay the shutter after
+  // a background identity check. A new identity gets its own introduction.
+  const revealedPerson = useRef<string | null>(null)
   useEffect(() => {
+    if (mode.kind === 'guest' || mode.kind === 'unmatched') revealedPerson.current = null
     if (mode.kind !== 'member') return
-    if (entryIntent.current === 'welcome') return
-    setShutter(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性仪式
-  }, [mode.kind])
+    const person = mode.capsule.me.id
+    if (shouldRevealRecoveredCard(revealedPerson.current, person, entryIntent.current === 'welcome')) setShutter(true)
+    revealedPerson.current = person
+  }, [mode])
 
   // 首程落地（welcome intent）：member 就绪后一次性推金句授权引导
   const welcomeNudged = useRef(false)
@@ -262,82 +194,19 @@ export default function FlashbackCorridorPage() {
   const [wishComment, setWishComment] = useState('')
   const [wishBusy, setWishBusy] = useState(false)
 
-  // ── wish2 U9：viewer listed 公开愿望段 + 附议表单（KTD3/KTD5/KTD7） ──
-  const [viewerWishes, setViewerWishes] = useState<ViewerWish[] | null>(null)
-  const [viewerWishModal, setViewerWishModal] = useState<ViewerWish | null>(null)
   const [endorseSheet, setEndorseSheet] = useState<{ wishId: string; content: string } | null>(null)
-
-
-  // viewer 态拉 listed 公开愿望（member 走 capsule.publicWishes 不动，KTD12）。
-  // 直连 graphqlRequest（mock/real 由 transport 分派——real.ts 暂无该读面包装，
-  // FlashbackPublicWishesQueryDocument 两端 transport 都已认领）。
-  const loadViewerWishes = useCallback(async () => {
-    try {
-      const data = await graphqlRequest<FlashbackPublicWishesQuery, FlashbackPublicWishesQueryVariables>(
-        FlashbackPublicWishesQueryDocument,
-        { voterKey: ensureWishVoterKey(), limit: 60 }
-      )
-      const rows = data.flashbackPublicWishes ?? []
-      setViewerWishes(
-        rows.map((wish) => {
-          // #837 GraphQL status 宽 string 用 domain helper fail-closed 收敛;
-          // 非法状态整条丢弃(等同服务端本就不该把 draft/revoked 返给公开读面)
-          const mappedEchoes = (wish.echoes ?? [])
-            .map(mapPublicWishEcho)
-            .filter((e): e is NonNullable<typeof e> => e !== null)
-          const mappedLatest = wish.latestEcho ? mapPublicWishEcho(wish.latestEcho) : null
-          return {
-            id: wish.id,
-            content: wish.content,
-            city: wish.city ?? null,
-            signature: wish.signature,
-            expectationCount: wish.expectationCount,
-            endorsementCount: wish.endorsementCount,
-            expectedByViewer: wish.expectedByViewer,
-            endorsedByViewer: wish.endorsedByViewer,
-            latestEcho: mappedLatest,
-            echoCount: wish.echoCount ?? 0,
-            echoes: mappedEchoes
-          }
-        })
-      )
-    } catch {
-      setViewerWishes([])
-    }
-  }, [])
-
-  // viewer 态即拉（guide 只是找回引导层，公开树匿名可读——未登录/已登录无档案都看）
-  useEffect(() => {
-    if (mode.kind === 'viewer' && mode.guide !== 'login' && viewerWishes === null) void loadViewerWishes()
-  }, [mode, viewerWishes, loadViewerWishes])
-
-  // wish2 U9（KTD2）：期待/取消——服务端按登录态强制 u: 键，匿名传 a: 设备键；
-  // 模态用服务端返回计数校正，列表 reload 承接
-  const toggleExpect = async (wish: ViewerWish) => {
-    if (wishBusy) return
-    setWishBusy(true)
-    try {
-      const expected = !wish.expectedByViewer
-      const count = await api.flashbackExpectWish(wish.id, expected, ensureWishVoterKey())
-      setViewerWishModal((prev) =>
-        prev && prev.id === wish.id ? { ...prev, expectedByViewer: expected, expectationCount: count } : prev
-      )
-      await loadViewerWishes()
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
-    } finally {
-      setWishBusy(false)
-    }
-  }
-
-  // KTD3 登录门：未登录点附议 → 登录页（returnUrl 回跳长廊）；已登录开表单
   const openEndorse = (wish: { id: string; content: string }) => {
-    if (mode.kind === 'viewer' && mode.guide === 'login') {
-      goLogin()
-      return
-    }
     setEndorseSheet({ wishId: wish.id, content: wish.content })
   }
+
+  // Reset private overlays while the identity is checked again. Late responses
+  // are rejected by useRecovery, so switching accounts cannot restore old cards.
+  useEffect(() => {
+    if (mode.kind !== 'checking') return
+    setCardLayer(null); setWishModal(null); setWishComment(''); setPrivateOpen(false)
+    setEndorseSheet(null); setEventSheet(null); setLicenseOpen(false); setLicensePicks([])
+    setLicenseInited(false); setLicenseNudge(false); setShutter(false)
+  }, [mode.kind])
 
   const cancelEndorse = async (wishId: string) => {
     if (wishBusy) return
@@ -345,9 +214,8 @@ export default function FlashbackCorridorPage() {
     try {
       await api.flashbackCancelEndorseWish(wishId)
       Taro.showToast({ title: '已取消附议', icon: 'none' })
-      setViewerWishModal(null)
-      if (mode.kind === 'viewer') await loadViewerWishes()
-      else await reloadMember()
+      setWishModal(null)
+      await reloadMember()
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : '操作失败', icon: 'none' })
     } finally {
@@ -355,12 +223,7 @@ export default function FlashbackCorridorPage() {
     }
   }
 
-  const reloadMember = async () => {
-    if (mode.kind !== 'member') return null
-    const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
-    if (capsule) setMode({ ...mode, capsule })
-    return capsule
-  }
+  const reloadMember = () => refreshMember(city)
 
   const addComment = async (wish: FlashbackWish) => {
     if (mode.kind !== 'member' || wishBusy || !wishComment.trim()) return
@@ -402,20 +265,12 @@ export default function FlashbackCorridorPage() {
     })
   }
 
-  if (mode.kind === 'loading') {
-    return <PageState kind="loading" title="正在显影…" />
-  }
+  if (mode.kind !== 'member') return <FlashbackGuest recovery={mode.kind} onRecover={goLogin} onRetry={() => void load(city)} />
 
-  if (mode.kind === 'error') {
-    return <PageState kind="error" message={mode.message} onRetry={() => void load(city)} />
-  }
-
-  if (mode.kind === 'viewer' && mode.guide === 'login') return <FlashbackGuest onRecover={goLogin} />
-
-  const frames = mode.kind === 'member' ? corridorFrames(mode.capsule.archives) : statsFrames(mode.stats?.archives ?? [])
-  const cities = mode.kind === 'member' ? mode.capsule.cities : []
-  const me = mode.kind === 'member' ? mode.capsule.me : null
-  const myView = me && mode.kind === 'member' ? myCardView(mode.capsule) : null
+  const frames = corridorFrames(mode.capsule.archives)
+  const cities = mode.capsule.cities
+  const me = mode.capsule.me
+  const myView = myCardView(mode.capsule)
   // 「今天写过没」：三处 dock 状态共用判定。遍历 TODAY_FIELDS 单表——原实现
   // 手写 nowStatus/want/say 三项，**漏了 need**（只填「需要什么帮助」的用户
   // 被判成没写）；单表遍历随字段增减自动跟随。
@@ -663,51 +518,6 @@ export default function FlashbackCorridorPage() {
           </View>
         )}
 
-        {/* wish2 U9：viewer listed 公开愿望段（KTD12——viewer 只见 listed；
-            样式与 member 段一致；公开树匿名可读） */}
-        {mode.kind === 'viewer' && (
-          <View className={styles.futureSection}>
-            <View className={styles.wishSectionHead}>
-              <Text className={styles.futureTitleDark}>未来 · 许愿树</Text>
-            </View>
-            {viewerWishes === null ? (
-              <Text className={styles.wishWho}>正在挂愿望…</Text>
-            ) : viewerWishes.length === 0 ? (
-              <Text className={styles.wishWho}>树还空着——写下第一条愿望吧</Text>
-            ) : (
-              viewerWishes.map((wish) => (
-                <View key={wish.id} className={styles.wishCard} onClick={() => setViewerWishModal(wish)}>
-                  <Text className={styles.wishContent}>{wish.content}</Text>
-                  {/* #837 「有回响」徽章:echoCount>0 时显示,提示此愿已有主办回信 */}
-                  {wish.echoCount > 0 && (
-                    <View className={styles.wishEchoRow}>
-                      <Text className={styles.wishEchoBadge}>回响 · {wish.echoCount}</Text>
-                      {wish.latestEcho && (
-                        <Text className={styles.wishEchoPreview} numberOfLines={1}>
-                          {wish.latestEcho.content}
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                  <View className={styles.wishFoot}>
-                    <Text className={styles.wishWho}>
-                      {wish.signature}
-                      {wish.city ? ` · ${wish.city}` : ''}
-                    </Text>
-                    <Text className={wish.expectedByViewer ? styles.wishExpectOn : styles.wishExpectOff}>
-                      {wish.expectedByViewer ? '❤️' : '🤍'} {wish.expectationCount}
-                    </Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
-        )}
-
-        {/* 序列终点：分享（参与态）/ 找回引导（路人态） */}
-          {mode.kind === 'viewer' && mode.guide === null && (
-            <Text className={styles.viewerHint}>名册只对同场的人可见——这里是每一年发生过的事。</Text>
-          )}
         </View>
       </ScrollView>
       </View>
@@ -906,19 +716,11 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* 底部固定 CTA 条(胶囊外,白底):member=进卡片页;viewer=登录找回。
-          member 侧进卡片页而非直接开分享面板——先看到"要保存的卡"再决定
-          存哪张/分享，与今天格入口同一落点（所见即所得）。 */}
+      {/* 先进入卡片页查看，再决定保存或分享。 */}
       <View className={styles.footerBar}>
-        {mode.kind === 'member' ? (
-          <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
-            把这一刻做成卡片 →
-          </Button>
-        ) : (
-          <Button className={styles.cta} onClick={goLogin}>
-            你也在这些照片里吗？登录找回 →
-          </Button>
-        )}
+        <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
+          把这一刻做成卡片 →
+        </Button>
       </View>
 
       {/* U4 公开愿望模态(R6):全文+留言流+附议/已附议+本人删除两步确认 */}
@@ -975,42 +777,9 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* wish2 U9：viewer 愿望模态——期待 ❤️（匿名设备键）+ 附议入口（KTD3 登录门） */}
-      {viewerWishModal && (
-        <View className={styles.wishModalMask} catchMove onClick={() => setViewerWishModal(null)}>
-          <View className={styles.wishModal} onClick={(e) => e.stopPropagation()}>
-            <Text className={styles.wishModalContent}>{viewerWishModal.content}</Text>
-            <View className={styles.wishFoot}>
-              <Text className={styles.wishWho}>
-                {viewerWishModal.signature}
-                {viewerWishModal.city ? ` · ${viewerWishModal.city}` : ''}
-              </Text>
-              <Text
-                className={styles.wishExpectToggle}
-                onClick={() => void toggleExpect(viewerWishModal)}
-              >
-                {viewerWishModal.expectedByViewer ? '❤️' : '🤍'} {viewerWishModal.expectationCount}
-              </Text>
-              {viewerWishModal.endorsedByViewer ? (
-                <Text className={styles.wishEndorsed} onClick={() => void cancelEndorse(viewerWishModal.id)}>
-                  ✓ 已附议 · {viewerWishModal.endorsementCount}（点击取消）
-                </Text>
-              ) : (
-                <Text className={styles.wishEndorse} onClick={() => openEndorse(viewerWishModal)}>
-                  🙌 我能出力 · {viewerWishModal.endorsementCount}
-                </Text>
-              )}
-            </View>
-            {/* #837 回响卡:viewer 面与 member 面共用同形状 */}
-            {viewerWishModal.echoCount > 0 && <WishEchoCard echoes={viewerWishModal.echoes} />}
-          </View>
-        </View>
-      )}
-
       {endorseSheet && <EndorseWishSheet key={endorseSheet.wishId} wish={{ id: endorseSheet.wishId, content: endorseSheet.content }} onClose={() => setEndorseSheet(null)} onSaved={() => {
-        setEndorseSheet(null); setViewerWishModal(null)
-        if (mode.kind === 'viewer') void loadViewerWishes()
-        else void reloadMember()
+        setEndorseSheet(null)
+        void reloadMember()
       }} />}
       {/* U7 报名 sheet:详情+押金;报名→event-detail 端内闭环(押金支付在那里) */}
       {eventSheet && (

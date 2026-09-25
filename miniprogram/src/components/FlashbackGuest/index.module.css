@@ -23,7 +23,7 @@
 .portalHint { display: block; font-size: 20rpx; color: #6e7c65; }
 .recovery { padding: 40rpx 0 42rpx; border-bottom: 1rpx solid #d5d7cb; }
 .recoveryTitle { display: block; font-size: 32rpx; line-height: 1.7; }
-.recoveryCopy { display: block; font-size: 21rpx; line-height: 1.8; color: #78826e; margin-top: 12rpx; }
+.recoveryCopy { white-space: pre-wrap; display: block; font-size: 21rpx; line-height: 1.8; color: #78826e; margin-top: 12rpx; }
 .recovery .recoverButton { min-height: 80rpx; padding-top: 16rpx; font-size: 22rpx; }
 .content .gathering { width: 100%; padding: 34rpx 0 30rpx; }
 .gatheringKicker { display: block; font-size: 18rpx; color: #78826e; }

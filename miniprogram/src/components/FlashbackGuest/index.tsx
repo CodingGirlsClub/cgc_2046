@@ -6,11 +6,12 @@ import { getRandomVoices } from '@/api/flashback-voices'
 import { ensureWishVoterKey } from '@/domain/flashback'
 import { guestVoicePreview, selectGuestVoice, type PublicVoice } from '@/domain/flashback-voices'
 import { STORAGE_KEYS } from '@/state/storage'
+import { recoveryView, type PublicRecovery } from '@/domain/flashback-recovery'
 import landscape from '@/assets/flashback/mountain-map.png'
 import styles from './index.module.css'
 
 type QuoteState = { status: 'loading' | 'ready' | 'error'; voice: PublicVoice | null }
-export function FlashbackGuest({ onRecover }: { onRecover: () => void }) {
+export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: PublicRecovery; onRecover: () => void; onRetry: () => void }) {
   const [quote, setQuote] = useState<QuoteState>({ status: 'loading', voice: null })
   const generation = useRef(0)
   const load = useCallback(async () => {
@@ -38,6 +39,7 @@ export function FlashbackGuest({ onRecover }: { onRecover: () => void }) {
     show()
     return () => { generation.current++; void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#ffffff' }) }
   }, [load])
+  const recoveryCopy = recoveryView(recovery)
   const preview = guestVoicePreview(quote.voice)
   const open = (url: string) => void Taro.navigateTo({ url })
   return <View className={styles.guestPage}>
@@ -70,9 +72,13 @@ export function FlashbackGuest({ onRecover }: { onRecover: () => void }) {
         </Button>
       </View>
       <View className={styles.recovery}>
-        <Text className={styles.recoveryTitle}>你也在那些年里吗？</Text>
-        <Text className={styles.recoveryCopy}>找回当年写下的答案，也看看今天的自己。</Text>
-        <Button className={styles.recoverButton} onClick={onRecover}>找回你的那一张 →</Button>
+        <Text className={styles.recoveryTitle}>{recoveryCopy.title}</Text>
+        <Text className={styles.recoveryCopy}>{recoveryCopy.description}</Text>
+        <Button className={styles.recoverButton} disabled={!recoveryCopy.action} loading={recovery === 'checking'} onClick={() => {
+          if (recoveryCopy.action === 'login') onRecover()
+          if (recoveryCopy.action === 'retry') onRetry()
+          if (recoveryCopy.action === 'write') open('/pages/flashback-wish-write/index')
+        }}>{recoveryCopy.button}</Button>
       </View>
       <Button className={styles.gathering} onClick={() => void Taro.switchTab({ url: '/pages/discover/index' })}>
         <Text className={styles.gatheringKicker}>下一次相聚</Text>

@@ -18,3 +18,9 @@
 .paper .endorseSubmit { background: #204b3b; }
 .paper .selected { color: #173c32; background: #dfe7d4; }
 .endorseMask button::after { border: 0; }
+
+.endorseReceipt { padding-top: 28rpx; }
+.receiptTitle { display: block; color: #204b3b; font-size: 32rpx; font-weight: 600; }
+.receiptCopy { display: block; color: #53634d; font-size: 27rpx; line-height: 1.7; margin: 16rpx 0 28rpx; }
+.reminderRetry { margin: 0 0 16rpx; border-radius: 12rpx; background: #dfe7d4; color: #173c32; font-size: 28rpx; }
+.receiptDone { background: #204b3b; color: white; border-radius: 12rpx; font-size: 30rpx; }

@@ -284,6 +284,7 @@ defmodule Cgc2046.Flashback.WishEchoes do
         endorsement_id = Ecto.UUID.load!(endorsement_id)
 
         data = %{
+          "echo_id" => echo.id,
           "wish_id" => echo.wish_id,
           "endorsement_id" => endorsement_id,
           "content_preview" => String.slice(echo.content, 0, 20)

@@ -15,6 +15,7 @@
 
 export interface AppShowQuery {
   quoteId?: string
+  city?: string
   scene?: string
   id?: string
   kind?: string
@@ -26,7 +27,7 @@ export interface AppShowQuery {
    * **公开面唯一合法参数**——分享路径不带 token/slug（参数会留在转发链里）。
    */
   shareId?: string
-  /** wish2 U9（KTD7）：许愿深链——长廊定位该愿（Web 附议引导携出） */
+  /** 公开许愿树深链：直接读取该愿望，不依赖长廊或分页。 */
   wishId?: string
 }
 
@@ -212,21 +213,22 @@ function entryIsTarget(options: AppEntryOptions, url: string | null): boolean {
 export function resolveEntry(options: AppEntryOptions, pages: EntryPage[] = []): EntryDecision {
   const query = options?.query ?? {}
   const top = pages[pages.length - 1]
-  // 闪念间入口页兜底：分享卡片 path 本身就是目标（无 query 解）——热启动停在
-  // 别页时按入口 path 原样导航（query 序列化带上）；冷启动已落在该页，
-  // entryIsTarget 抑制导航
-  // 整墙分享重新进入时不能停在已有的单句上。
-  const resetWall = normalizePath(options.path ?? '') === FLASHBACK_VOICES_ROUTE &&
-    !query.quoteId && !!top?.options?.quoteId
-  const voicesEntry = normalizePath(options.path ?? '') === FLASHBACK_VOICES_ROUTE || !!query.quoteId
-  const url = resetWall ? `/${FLASHBACK_VOICES_ROUTE}` :
+  const path = normalizePath(options.path ?? '')
+  const collectionKey = path === FLASHBACK_VOICES_ROUTE ? 'quoteId' :
+    path === 'pages/flashback-wishes/index' ? 'wishId' : null
+  // Whole-collection shares must not inherit a previous item or city landing.
+  const resetCollection = collectionKey !== null && normalizePath(top?.route ?? '') === path &&
+    !query[collectionKey]?.trim() && !query.city?.trim() &&
+    !!(top?.options?.[collectionKey]?.trim() || top?.options?.city?.trim())
+  const url = resetCollection ? `/${path}` :
     resolveAppShowRoute(query, top?.route ?? '', top?.options ?? {}) ??
     flashbackEntryUrl(options, top?.route ?? '')
   return {
     scene: query.scene?.trim() || null,
     url,
-    // 已有页栈的金句/整墙入口是热启动，不套冷启动的同 path 抑制。
-    navigate: url !== null && !(entryIsTarget(options, url) && (!voicesEntry || pages.length === 0) && !resetWall)
+    // Only an empty stack uses the launch path as evidence of the current page.
+    // Warm entries carry path too; the actual stack above decides whether to open.
+    navigate: url !== null && !(pages.length === 0 && entryIsTarget(options, url))
   }
 }
 
