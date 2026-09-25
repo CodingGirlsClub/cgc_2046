@@ -49,7 +49,7 @@
 
 ## 补记（2026-09-24 #845）——退款发起单一入口 `RefundCommencement`
 
-> 正文与前两条补记不改。架构评审 2026-09-24 候选 C2（Strong）落地：更正补记第 3 点所述六条发起方（自助取消 / 活动取消批量退 / 迟到支付退 / 管理员退款 / 核销即退 / no-show 结算）的「推进到 `refunding` + 同事务入队 `PaymentRefundWorker` + 竞态收敛」此前在五处调用方各写一遍、错误形状刻意不同（missed fix 事故注释与指向已删函数的注释为就地证据），本补记收拢为单一 seam。
+> 正文与前两条补记不改。架构评审 2026-09-24 候选 C2（Strong）落地：自动或用户侧发起的退款（自助取消 / 活动取消批量退 / 迟到支付退 / 核销即退——`start_refund` / `retry_refund` 路径）统一走 `RefundCommencement.commence/2` 这一个入口；此前的「推进到 `refunding` + 同事务入队 `PaymentRefundWorker` + 竞态收敛」在五处调用方各写一遍、错误形状刻意不同（missed fix 事故注释与指向已删函数的注释为就地证据）。管理员退款 / `unforfeit` / no-show 结算走各自治理 action，不经本入口。
 
 1. **入队归 Order（恰好一次由设计保证）。** `:start_refund` 补上 `after_action` 入队（`enqueue_refund_job/2`），与 `:retry_refund`、`:refund`、`:unforfeit` 一致——任何进入 `refunding` 的迁移都在同一 action 事务内恰好入队一次；CAS 失败无 `after_action`，不产生孤儿 job。调用方手动 `Oban.insert!` 全部删除，此前「恰好一个任务靠 Oban unique 兜底」不再是设计依赖。
 
