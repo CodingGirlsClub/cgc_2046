@@ -9,6 +9,18 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   - `flashback_outreaches.unique_send`（person + channel + batch）DB 级挡重跑
     批次的重复行——重跑 `enqueue_for_archive/2` 对已入队者零新增。
 
+  ## campaign 去重（联系方式级，批次边界 = batch 字符串全等）
+
+  同一 batch 内所有「成功触达」行（状态 `:queued`/`:sent`——即已排定或已发；
+  `:failed` 硬退信不算触达、所属人退订的行不算触达）的联系方式构成 campaign
+  触达面：候选人的 email（trim+downcase）或 phone（归一至 11 位大陆手机
+  口径）命中他人的触达面 → 跳过并计 `deduped_within_campaign`（不计 skipped）。
+  候选人本人的历史行不算命中（幂等重跑仍走 unique_send → skipped 语义）。
+
+  批次边界：跨 archive 全量发显式共用同一 campaign batch（如
+  `campaign-<date>-all`，38 个 archive 全量发、一个真人只收一封）；默认
+  `archive-<key>` 批次互相独立不感知；`resend-*` 单人补救批次恒独立。
+
   ## 速率（可配）
 
   入队时按 `config :cgc_2046, :flashback_outreach, per_minute:` 错峰
@@ -45,60 +57,78 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
 
   @doc """
   按场次批量入队（R23）：该场次全部**可触达**校友（email 或 phone 非空、未退订）
-  逐人入 outreach 队列，批次号 `archive-<key>`。返回入队/跳过计数。
+  逐人入 outreach 队列，批次号 `archive-<key>`（`batch:` 覆盖，campaign 去重
+  见 moduledoc）。返回入队/跳过/campaign 去重计数。
 
   通道选择（R11）：`:all` = email 优先、phone 需短信就绪（现行为）；`:email` =
   仅 email 可达者走 email；`:sms` = 仅 phone 可达者走 sms（含也有 email 者）。
   """
-  @spec enqueue_for_archive(String.t(), String.t(), atom()) ::
-          {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer()}} | {:error, term()}
-  def enqueue_for_archive(archive_key, template, channel \\ :all) do
+  @spec enqueue_for_archive(String.t(), String.t(), atom(), keyword()) ::
+          {:ok,
+           %{
+             queued: non_neg_integer(),
+             skipped: non_neg_integer(),
+             deduped_within_campaign: non_neg_integer()
+           }}
+          | {:error, term()}
+  def enqueue_for_archive(archive_key, template, channel \\ :all, opts \\ []) do
     with {:ok, archive} <- fetch_archive(archive_key),
          :ok <- validate_template(template),
          :ok <- validate_channel(channel) do
       {person_ids, filtered_out} = reachable_person_ids(archive.id, channel)
 
-      {queued, skipped} =
-        enqueue_persons(person_ids, template, "archive-" <> archive.key, channel)
+      batch = Keyword.get(opts, :batch) || "archive-" <> archive.key
+
+      {queued, skipped, deduped} = enqueue_persons(person_ids, template, batch, channel)
 
       # skipped 三路合计：退订/无通道（解析层）+ 本批次已入队（幂等层）——运营面
       # 从计数即可读出「多少人有通道、多少人被抑制、多少人重复」。
-      {:ok, %{queued: queued, skipped: skipped + filtered_out}}
+      {:ok, %{queued: queued, skipped: skipped + filtered_out, deduped_within_campaign: deduped}}
     end
   end
 
   @doc """
   定向入队（U7 成场通知）：给定 person 列表入队，批次号由调用方给定
   （成场用 `card-<card_id>`）。退订者在入队面即被抑制。通道选择同
-  `enqueue_for_archive/3`（R11）。
+  `enqueue_for_archive/4`（R11）。返回 `{queued, skipped, deduped}`——
+  同 batch 内联系方式命中他人已有成功触达者计 deduped（不计 skipped）。
   """
   @spec enqueue_persons([String.t()], String.t(), String.t(), atom()) ::
-          {non_neg_integer(), non_neg_integer()}
+          {non_neg_integer(), non_neg_integer(), non_neg_integer()}
   def enqueue_persons(person_ids, template, batch, channel \\ :all) when is_list(person_ids) do
     suppressed = suppressed_person_ids()
     persons = persons_by_id(person_ids)
     now = DateTime.utc_now()
 
-    {entries, skipped} =
+    {entries, skipped, deduped, _contacts} =
       Enum.uniq(person_ids)
-      |> Enum.reduce({[], 0}, fn person_id, {acc, skipped} ->
+      |> Enum.reduce({[], 0, 0, campaign_contacts(batch)}, fn person_id,
+                                                              {acc, skipped, deduped, contacts} ->
+        person = Map.get(persons, person_id)
+
         cond do
           MapSet.member?(suppressed, person_id) ->
-            {acc, skipped + 1}
+            {acc, skipped + 1, deduped, contacts}
+
+          contact_hit?(contacts, person) ->
+            # campaign 去重：同联系方式已有他人成功触达（moduledoc 批次边界）。
+            {acc, skipped, deduped + 1, contacts}
 
           true ->
-            case persons |> Map.get(person_id) |> channel_for(channel) do
+            case channel_for(person, channel) do
               nil ->
-                {acc, skipped + 1}
+                {acc, skipped + 1, deduped, contacts}
 
               channel ->
                 case insert_outreach_row(person_id, channel, template, batch) do
                   {:ok, _row} ->
-                    {[{person_id, channel} | acc], skipped}
+                    # 本调用内新入队者即刻进入触达面——同批后段同联系方式者去重。
+                    {[{person_id, channel} | acc], skipped, deduped,
+                     register_contact(contacts, person)}
 
                   {:error, _unique} ->
                     # unique_send 冲突 = 该人该通道该批次已入队（断点续发重跑）。
-                    {acc, skipped + 1}
+                    {acc, skipped + 1, deduped, contacts}
                 end
             end
         end
@@ -121,10 +151,10 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       end)
 
     if jobs == [] do
-      {0, skipped}
+      {0, skipped, deduped}
     else
       Oban.insert_all(jobs)
-      {length(jobs), skipped}
+      {length(jobs), skipped, deduped}
     end
   end
 
@@ -139,16 +169,22 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   （KD8——每次重发都经确认流把关）。通道选择同 `enqueue_for_archive/3`。
   """
   @spec resend_for_person(String.t(), String.t(), atom()) ::
-          {:ok, %{queued: non_neg_integer(), skipped: non_neg_integer(), batch: String.t()}}
+          {:ok,
+           %{
+             queued: non_neg_integer(),
+             skipped: non_neg_integer(),
+             deduped_within_campaign: non_neg_integer(),
+             batch: String.t()
+           }}
           | {:error, term()}
   def resend_for_person(person_id, template, channel \\ :all) do
     with {:ok, _person} <- validate_resend_for_person(person_id),
          :ok <- validate_template(template),
          :ok <- validate_channel(channel) do
       batch = "resend-" <> binary_part(Ecto.UUID.generate(), 0, 8)
-      {queued, skipped} = enqueue_persons([person_id], template, batch, channel)
+      {queued, skipped, deduped} = enqueue_persons([person_id], template, batch, channel)
 
-      {:ok, %{queued: queued, skipped: skipped, batch: batch}}
+      {:ok, %{queued: queued, skipped: skipped, deduped_within_campaign: deduped, batch: batch}}
     end
   end
 
@@ -196,6 +232,24 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       end)
 
     {:ok, counts}
+  end
+
+  @doc """
+  campaign 去重预判（预览与入队同源，KTD2）：该场次按所选通道档的可达人中，
+  联系方式命中 campaign 批次已有成功触达（他人行）的人数；`batch` 为 nil
+  恒 0（默认 archive 批次跨场次互不感知，无预判意义）。
+  """
+  @spec campaign_dedup_count(String.t(), atom(), String.t() | nil) :: non_neg_integer()
+  def campaign_dedup_count(_archive_id, _channel, nil), do: 0
+
+  def campaign_dedup_count(archive_id, channel, batch) do
+    {person_ids, _filtered_out} = reachable_person_ids(archive_id, channel)
+    contacts = campaign_contacts(batch)
+
+    person_ids
+    |> persons_by_id()
+    |> Map.values()
+    |> Enum.count(&contact_hit?(contacts, &1))
   end
 
   @doc """
@@ -497,6 +551,83 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
     |> Ash.read!(authorize?: false, page: false)
     |> MapSet.new(& &1.id)
   end
+
+  # ── campaign 触达面（联系方式级去重；批次边界见 moduledoc） ──────────
+
+  # 已建行（queued/sent——已排定或已发；failed 硬退信不算触达）且所属人未退订
+  # 的联系方式集合。结构 %{emails: %{contact => MapSet<person_id>}, phones: 同}
+  # ——归属人 id 随键携带：候选人本人的历史行不算命中（幂等重跑落 unique_send
+  # skipped 语义），命中的判据是「他人已触达」。
+  defp campaign_contacts(batch) do
+    Outreach
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(batch == ^batch and status in [:queued, :sent])
+    |> Ash.read!(authorize?: false, page: false)
+    |> Ash.load!([:person], authorize?: false)
+    |> Enum.reject(fn row ->
+      is_nil(row.person) or not is_nil(row.person.outreach_unsubscribed_at)
+    end)
+    |> Enum.reduce(%{emails: %{}, phones: %{}}, fn row, contacts ->
+      register_contact(contacts, row.person)
+    end)
+  end
+
+  defp register_contact(contacts, nil), do: contacts
+
+  defp register_contact(contacts, person) do
+    contacts
+    |> put_contact(:emails, normalize_email(person.email), person.id)
+    |> put_contact(:phones, normalize_contact_phone(person.phone), person.id)
+  end
+
+  defp put_contact(contacts, _field, nil, _person_id), do: contacts
+
+  defp put_contact(contacts, field, contact, person_id) do
+    update_in(contacts, [field, contact], fn owners ->
+      MapSet.put(owners || MapSet.new(), person_id)
+    end)
+  end
+
+  defp contact_hit?(_contacts, nil), do: false
+
+  defp contact_hit?(contacts, person) do
+    owners_hit?(contacts.emails, normalize_email(person.email), person.id) or
+      owners_hit?(contacts.phones, normalize_contact_phone(person.phone), person.id)
+  end
+
+  defp owners_hit?(_keyed_owners, nil, _person_id), do: false
+
+  defp owners_hit?(keyed_owners, contact, person_id) do
+    case Map.get(keyed_owners, contact) do
+      nil -> false
+      owners -> Enum.any?(owners, &(&1 != person_id))
+    end
+  end
+
+  defp normalize_email(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> String.downcase(trimmed)
+    end
+  end
+
+  defp normalize_email(_), do: nil
+
+  # phone 归一与导入侧 person_key 同口径：仅 11 位大陆手机做数字 key（+86 前缀
+  # 剥壳）；不可归一的非空值保留原文比对（触达数据不丢），空 → nil。
+  defp normalize_contact_phone(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    digits = String.replace(trimmed, ~r/\D/, "")
+
+    cond do
+      trimmed == "" -> nil
+      digits =~ ~r/^1\d{10}$/ -> digits
+      String.starts_with?(digits, "86") and byte_size(digits) == 13 -> binary_part(digits, 2, 11)
+      true -> trimmed
+    end
+  end
+
+  defp normalize_contact_phone(_), do: nil
 
   defp insert_outreach_row(person_id, channel, template, batch) do
     Outreach

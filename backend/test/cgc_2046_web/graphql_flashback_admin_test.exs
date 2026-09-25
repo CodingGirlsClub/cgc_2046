@@ -185,7 +185,9 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminTest do
     archive = create_archive()
     create_person(archive, %{full_name: "邮甲", phone: nil, email: "a@example.com"})
     phone_only = create_person(archive, %{full_name: "短丙", email: nil})
-    failed_person = create_person(archive, %{full_name: "败丁"})
+
+    # 手机号与「短丙」错开——campaign 去重按联系方式判同批只收一封，共享默认值会被去重。
+    failed_person = create_person(archive, %{full_name: "败丁", phone: "13900000009"})
 
     # 入队制造批次与触达结果；败丁的行推到 failed（模拟硬退信）
     assert {:ok, %{queued: 3}} = Dispatch.enqueue_for_archive(archive.key, "reconnect")
