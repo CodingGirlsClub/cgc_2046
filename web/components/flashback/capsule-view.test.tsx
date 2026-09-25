@@ -81,6 +81,8 @@ cities: ["北京"],
 			appliedCount: 344,
 			attendedCount: 102,
 			isMine: false,
+			// #933 城市堆由服务端聚合（计入未寄出者）
+			piles: [{ city: "北京", count: 2, returned: 1 }],
 			roster: [
 				rosterEntry({ id: "sent-1", surnameMasked: "李*", fullName: "李雷", appliedAt: "2014-01-05T05:06:00Z", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", segments: [{ text: "", fog: true, len: 3 }, { text: "。喜欢周末骑行。", fog: false, len: 0 }] }] }),
 				rosterEntry({ id: "quiet-1", surnameMasked: "王**" }),
@@ -122,7 +124,7 @@ describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
 	it("每帧渲染城市堆：聚合计数 + 城市名 + 叙事标签（长廊不再有 .fb-roster-*，入口为堆链接）", async () => {
 		await renderCapsule();
 
-		// baseCapsule 名册 2 人同城 → 1 堆「北京 · 2 位」
+		// baseCapsule 服务端聚合 1 堆（2 人同城）→「北京 · 2 位」
 		const piles = screen.getAllByTestId("fb-corridor-pile");
 		expect(piles).toHaveLength(1);
 		expect(piles[0].dataset.city).toBe("北京");
