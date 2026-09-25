@@ -341,6 +341,18 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "登录账号的全部未删除愿望，含公开、私密和待审；无历史档案也可使用。"
+    field :flashback_my_wishes, :flashback_my_wishes do
+      resolve(fn _, _, %{context: context} ->
+        flashback_call(fn ->
+          case context[:actor] do
+            %{id: id} -> Cgc2046.Flashback.WishAuthors.mine(id)
+            _ -> {:error, %{code: "flashback_auth_required", message: "请先登录，再查看或保存愿望。"}}
+          end
+        end)
+      end)
+    end
+
     @desc "闪念间公开统计层（U6/R32）：场次档案聚合 + 已回来/已寄出计数；匿名可读，空库为零值（前端空态叙事承接）"
     field :flashback_public_stats, :flashback_public_stats do
       resolve(fn _, _, _ -> Cgc2046.Flashback.Public.stats() end)
@@ -402,6 +414,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     field :flashback_public_wishes, non_null(list_of(non_null(:flashback_public_wish))) do
       @desc "城市过滤（Cities.normalize 短名；null = 不过滤）"
       arg(:city, :string)
+      @desc "仅含已公开回响的愿望；在分页前筛选，不把草稿或撤销回响算入"
+      arg(:with_echoes, :boolean)
       @desc "排序种子（null = 当日+voterKey；「换一批」传随机值）"
       arg(:seed, :string)
       @desc "分页偏移（同 seed 稳定不重不漏）"
@@ -434,6 +448,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
         Cgc2046.Flashback.WishPublic.wishes(
           city: city,
+          with_echoes: args[:with_echoes] || false,
           seed: args[:seed],
           offset: args[:offset],
           limit: args[:limit],
@@ -454,6 +469,11 @@ defmodule Cgc2046Web.GraphqlSchema do
           voter_keys: viewer_voter_keys(context, args[:voter_key])
         )
       end)
+    end
+
+    @desc "公开许愿树城市全集，按拼音排列，不受愿望分页限制"
+    field :flashback_wish_cities, non_null(list_of(non_null(:flashback_city))) do
+      resolve(fn _, _, _ -> Cgc2046.Flashback.WishPublic.published_cities() end)
     end
 
     @desc "公开金句所在城市，按拼音排序；只计仍获授权、未撤下、未删除的金句，不受热门限量影响"
@@ -1683,6 +1703,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "许愿（R5/R6 + wish2 U8/KTD1/KTD11）：visibility 二选一——public 进走廊可附议留言；private 仅平台与自己可见。signatureChoice 署名快照、expectedCity 期望地归一（名单外 flashback_wish_city_unknown 带 ≤3 候选）、publicListingConsent 公开树授权（public 且 true 才写 listed_at 挂树）。每年最多 3 条（R20 年度额度，含私有与已软删，删除不退还），超限返回 flashback_wish_quota_exceeded"
     field :flashback_create_wish, :flashback_wish_result do
       arg(:token, :string)
+      arg(:request_id, :id)
       arg(:content, non_null(:string))
       arg(:visibility, non_null(:string))
       @desc "署名快照：anonymous（默认，姓氏遮罩）/ display_name（实名展示——展示名语义，不暗示法定名，R17）"
@@ -1696,13 +1717,13 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity),
+          with {:ok, identity} <- wish_identity(args[:token], context),
                {:ok, wish} <-
-                 Cgc2046.Flashback.Wishes.create_wish(
-                   person_id,
+                 Cgc2046.Flashback.WishWriting.create(
+                   identity,
                    args.content,
                    args.visibility,
+                   request_id: args[:request_id],
                    signature_choice: wish_signature_choice(args[:signature_choice]),
                    expected_city: args[:expected_city],
                    public_listing_consent: args[:public_listing_consent] || false
@@ -1790,10 +1811,9 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, args, %{context: context} ->
         flashback_call(fn ->
-          with {:ok, identity} <- flashback_identity(args[:token], context),
-               {:ok, person_id} <- identity_person_id(identity),
+          with {:ok, identity} <- wish_identity(args[:token], context),
                {:ok, _wish} <-
-                 Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, person_id) do
+                 Cgc2046.Flashback.Wishes.soft_delete_wish(args.wish_id, identity) do
             {:ok, true}
           end
         end)
@@ -2700,6 +2720,21 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:inserted_at, non_null(:datetime))
   end
 
+  object :flashback_my_wishes do
+    field(:quota_remaining, non_null(:integer))
+    field(:wishes, non_null(list_of(non_null(:flashback_owned_wish))))
+  end
+
+  object :flashback_owned_wish do
+    field(:id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:city, :string)
+    field(:signature, non_null(:string))
+    field(:visibility, non_null(:string))
+    field(:status, non_null(:string))
+    field(:inserted_at, non_null(:datetime))
+  end
+
   object :flashback_wish_result do
     @desc "新建愿望 id（本人查看/撤回入口用）"
     field(:id, :id)
@@ -3211,6 +3246,16 @@ defmodule Cgc2046Web.GraphqlSchema do
   # 闪念间写面双入口（U9/R28）：token 优先（首程/链接回访）；省略时按登录
   # actor 解析绑定的档案（person.user_id）。返回 {:token, t} | {:person, id}，
   # 与 capsule 读面的 resolve_person 同语义；两者皆无 → auth_required。
+  # Wish authorship needs an account, not an archive. Other archive operations
+  # deliberately keep flashback_identity's existing eligibility boundary.
+  defp wish_identity(token, %{actor: %{id: id}}) when token in [nil, ""], do: {:ok, {:user, id}}
+
+  defp wish_identity(token, context) do
+    with {:ok, identity} <- flashback_identity(token, context),
+         {:ok, id} <- identity_person_id(identity),
+         do: {:ok, {:person, id}}
+  end
+
   defp flashback_identity(token, context) do
     cond do
       is_binary(token) and token != "" ->

@@ -1061,6 +1061,7 @@ export type FlashbackAdjustTodayFogMutation = { flashbackAdjustTodayFog: { field
 
 export type FlashbackCreateWishMutationVariables = Exact<{
   token?: string | null | undefined;
+  requestId?: string | number | null | undefined;
   content: string;
   visibility: string;
   signatureChoice?: string | null | undefined;
@@ -1114,6 +1115,7 @@ export type FlashbackReportWishMutation = { flashbackReportWish: { reportId: str
 
 export type FlashbackPublicWishesQueryVariables = Exact<{
   city?: string | null | undefined;
+  withEchoes?: boolean | null | undefined;
   seed?: string | null | undefined;
   offset?: number | null | undefined;
   limit?: number | null | undefined;
@@ -1244,3 +1246,21 @@ export type FlashbackVoiceCitiesQueryVariables = Exact<{ [key: string]: never; }
 
 
 export type FlashbackVoiceCitiesQuery = { flashbackVoiceCities: Array<{ name: string, fullName: string, pinyin: string, lngLat: Array<number> }> };
+
+export type FlashbackMyWishesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackMyWishesQuery = { flashbackMyWishes: { quotaRemaining: number, wishes: Array<{ id: string, content: string, city: string | null, signature: string, visibility: string, status: string, insertedAt: string }> } | null };
+
+export type FlashbackWishCitiesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type FlashbackWishCitiesQuery = { flashbackWishCities: Array<{ name: string, lngLat: Array<number> }> };
+
+export type FlashbackPublicWishQueryVariables = Exact<{
+  wishId: string | number;
+  voterKey?: string | null | undefined;
+}>;
+
+
+export type FlashbackPublicWishQuery = { flashbackPublicWish: { id: string, content: string, city: string | null, signature: string, expectationCount: number, endorsementCount: number, contributionDistribution: string, expectedByViewer: boolean, endorsedByViewer: boolean, echoCount: number, listedAt: string, insertedAt: string, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> } | null };

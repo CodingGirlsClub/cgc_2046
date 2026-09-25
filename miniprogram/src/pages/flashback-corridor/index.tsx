@@ -1,28 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Input, ScrollView, Text, Textarea, View } from '@tarojs/components'
+import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api } from '@/api'
+import { FlashbackGuest } from '@/components/FlashbackGuest'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import MyCard from '@/components/MyCard'
+import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
-import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, canSubmitWish, wishQuotaCopy, ensureWishVoterKey, cityCandidates, ViewerWish, WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, mapPublicWishEcho, type CityOption, type QuoteLevel } from '@/domain/flashback'
+import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, ensureWishVoterKey, ViewerWish, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, mapPublicWishEcho, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, statsFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
-import { wishEchoTouchpoint, requestAndGrant } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
 import { graphqlRequest } from '@/api/client'
-import { FlashbackCitiesQueryDocument, FlashbackPublicWishesQueryDocument } from '@/api/operations'
+import { FlashbackPublicWishesQueryDocument } from '@/api/operations'
 import type {
-  FlashbackCitiesQuery,
-  FlashbackCitiesQueryVariables,
   FlashbackPublicWishesQuery,
   FlashbackPublicWishesQueryVariables
 } from '@/api/generated/graphql'
 import type { FlashbackWish, FlashbackCapsule, FlashbackClaimResult, FlashbackPublicStats } from '@/domain/models'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
-import { consumeFlashbackEntry, consumeFlashbackWishTarget, type FlashbackEntryIntent } from '@/state/flashbackEntry'
+import { consumeFlashbackEntry, type FlashbackEntryIntent } from '@/state/flashbackEntry'
 import styles from './index.module.css'
 
 type Mode =
@@ -42,7 +40,7 @@ type Mode =
  * ① token/登录档案可读 → 参与态（完整长廊）；
  * ② 登录但库里没有档案 → 先自动匹配认领（flashbackClaim），bound=false →
  *    「找回你的那一张」会话引导；
- * ③ 未登录 → 路人态（公开统计长廊 + 登录引导）。
+ * ③ 未登录 → 公开金句访客首页 + 登录找回入口。
  */
 export default function FlashbackCorridorPage() {
   const [mode, setMode] = useState<Mode>({ kind: 'loading' })
@@ -157,7 +155,7 @@ export default function FlashbackCorridorPage() {
           return
         }
         if ((error as { name?: string }).name === 'SessionExpiredError') {
-          setMode({ kind: 'viewer', stats: await loadStats(), guide: 'login' })
+          setMode({ kind: 'viewer', stats: null, guide: 'login' })
           return
         }
         setMode({ kind: 'error', message: error instanceof Error ? error.message : '加载失败' })
@@ -170,15 +168,10 @@ export default function FlashbackCorridorPage() {
   // 一次性消费，供 future（滚未来段）与 welcome（推金句引导）两处共用——两处
   // 各自消费的话，先跑的那处会把 intent 清掉，后一处永远读不到。
   const entryIntent = useRef<FlashbackEntryIntent | null>(null)
-  // wish2 U9（KTD7）：wishId 深链目标——applyEntry 落盘、此处读后即清；定位
-  // 在数据就绪的 effect 里做（viewer 列表 / member 胶囊均可命中）
-  const wishTarget = useRef<string | null>(null)
-
   // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点；
   // 切 Tab 回本页同样触发（数据刷新）。intent 已消费时本段无副作用。
   useDidShow(() => {
     entryIntent.current = consumeFlashbackEntry()
-    wishTarget.current = consumeFlashbackWishTarget()
     void load(city)
     if (entryIntent.current === 'future') {
       setScrollAnchor('')
@@ -266,34 +259,14 @@ export default function FlashbackCorridorPage() {
   // U4 愿望段:私愿折叠(KD2 防瞥屏)/公开愿模态(R6)
   const [privateOpen, setPrivateOpen] = useState(false)
   const [wishModal, setWishModal] = useState<FlashbackWish | null>(null)
-  // U5 许愿半屏弹层(KD3):文本+可见性+提交,落位反馈；
-  // wish2 U10：默认公开档 + 署名/期望地（R6/R17/KTD11）
-  const [wishSheet, setWishSheet] = useState(false)
-  const [wishDraft, setWishDraft] = useState('')
-  const [wishVisibility, setWishVisibility] = useState<'private' | 'public'>('public')
-  const [wishSignature, setWishSignature] = useState<'anonymous' | 'display_name'>('anonymous')
-  const [wishCity, setWishCity] = useState('')
-  const [wishCities, setWishCities] = useState<CityOption[]>([])
   const [wishComment, setWishComment] = useState('')
   const [wishBusy, setWishBusy] = useState(false)
-
-  // 期望地候选名单（KTD11 真源；打开 sheet 拉一次）
-  useEffect(() => {
-    if (!wishSheet || wishCities.length > 0) return
-    graphqlRequest<FlashbackCitiesQuery, FlashbackCitiesQueryVariables>(FlashbackCitiesQueryDocument, {})
-      .then((data) => {
-        setWishCities((data.flashbackCities ?? []).map((city) => ({ name: city.name, pinyin: city.pinyin })))
-      })
-      .catch(() => setWishCities([]))
-  }, [wishSheet, wishCities.length])
 
   // ── wish2 U9：viewer listed 公开愿望段 + 附议表单（KTD3/KTD5/KTD7） ──
   const [viewerWishes, setViewerWishes] = useState<ViewerWish[] | null>(null)
   const [viewerWishModal, setViewerWishModal] = useState<ViewerWish | null>(null)
   const [endorseSheet, setEndorseSheet] = useState<{ wishId: string; content: string } | null>(null)
-  const [endorseTypes, setEndorseTypes] = useState<string[]>([])
-  const [endorseMessage, setEndorseMessage] = useState('')
-  const [endorseNotify, setEndorseNotify] = useState(true)
+
 
   // viewer 态拉 listed 公开愿望（member 走 capsule.publicWishes 不动，KTD12）。
   // 直连 graphqlRequest（mock/real 由 transport 分派——real.ts 暂无该读面包装，
@@ -335,27 +308,8 @@ export default function FlashbackCorridorPage() {
 
   // viewer 态即拉（guide 只是找回引导层，公开树匿名可读——未登录/已登录无档案都看）
   useEffect(() => {
-    if (mode.kind === 'viewer' && viewerWishes === null) void loadViewerWishes()
+    if (mode.kind === 'viewer' && mode.guide !== 'login' && viewerWishes === null) void loadViewerWishes()
   }, [mode, viewerWishes, loadViewerWishes])
-
-  // wish2 U9（KTD7）：wishId 深链定位——数据就绪后一次性消费；invalid（不在
-  // 当前读面）得体提示，不泄露存在性
-  useEffect(() => {
-    const target = wishTarget.current
-    if (!target) return
-    if (mode.kind === 'viewer') {
-      if (viewerWishes === null) return
-      const found = viewerWishes.find((wish) => wish.id === target)
-      wishTarget.current = null
-      if (found) setViewerWishModal(found)
-      else Taro.showToast({ title: '这条愿望暂时看不到', icon: 'none' })
-    } else if (mode.kind === 'member') {
-      const found = mode.capsule.publicWishes.find((wish) => wish.id === target)
-      wishTarget.current = null
-      if (found) setWishModal(found)
-      else Taro.showToast({ title: '这条愿望暂时看不到', icon: 'none' })
-    }
-  }, [mode, viewerWishes])
 
   // wish2 U9（KTD2）：期待/取消——服务端按登录态强制 u: 键，匿名传 a: 设备键；
   // 模态用服务端返回计数校正，列表 reload 承接
@@ -382,9 +336,6 @@ export default function FlashbackCorridorPage() {
       goLogin()
       return
     }
-    setEndorseTypes([])
-    setEndorseMessage('')
-    setEndorseNotify(true)
     setEndorseSheet({ wishId: wish.id, content: wish.content })
   }
 
@@ -404,39 +355,6 @@ export default function FlashbackCorridorPage() {
     }
   }
 
-  // wish2 U9（KTD3/KTD5）：附议提交——订阅授权（用户手势内，真实 accept 才
-  // 逐场景 grant 上报）→ endorse；联系方式告知文案在 sheet 里明示（提交即同意
-  // 主办方通过账号绑定手机号/邮箱与你联系对接）。授权拒绝/失败不阻断附议。
-  const submitEndorse = async () => {
-    if (!endorseSheet || wishBusy || endorseTypes.length === 0) return
-    setWishBusy(true)
-    try {
-      if (endorseNotify) {
-        await requestAndGrant(wishEchoTouchpoint(), {
-          request: requestPlatformSubscriptions,
-          grant: (scenario) => api.grantConsent(scenario),
-          // 微信授权弹窗结果用户当场可见，不与「已附议」toast 抢位
-          notify: () => {}
-        })
-      }
-      await api.flashbackEndorseWish(endorseSheet.wishId, {
-        contributionTypes: endorseTypes,
-        message: endorseMessage.trim() || null,
-        notify: endorseNotify
-      })
-      setEndorseSheet(null)
-      setEndorseTypes([])
-      setEndorseMessage('')
-      setViewerWishModal(null)
-      Taro.showToast({ title: '已附议 · 感谢出力', icon: 'none' })
-      if (mode.kind === 'viewer') await loadViewerWishes()
-      else await reloadMember()
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '附议失败', icon: 'none' })
-    } finally {
-      setWishBusy(false)
-    }
-  }
   const reloadMember = async () => {
     if (mode.kind !== 'member') return null
     const capsule = await api.getFlashbackCapsule(city, mode.token).catch(() => null)
@@ -444,42 +362,6 @@ export default function FlashbackCorridorPage() {
     return capsule
   }
 
-  const submitWish = async () => {
-    if (mode.kind !== 'member' || wishBusy || !canSubmitWish(mode.capsule.myWishQuotaRemaining, wishDraft)) return
-    setWishBusy(true)
-    try {
-      // wish2 U10（R6/KTD1/KTD11）：公开档选中即授权挂树；期望地归一在服务端
-      const { status } = await api.flashbackCreateWish(wishDraft.trim(), wishVisibility, mode.token, {
-        signatureChoice: wishSignature,
-        expectedCity: wishCity.trim() || null,
-        publicListingConsent: wishVisibility === 'public'
-      })
-      setWishSheet(false)
-      setWishDraft('')
-      setWishVisibility('public')
-      setWishSignature('anonymous')
-      setWishCity('')
-      await reloadMember()
-      // R18 三态分反馈：listed / pending_review（不假装纸签已公开）/ private
-      if (status === 'listed') Taro.showToast({ title: '愿望已挂上树', icon: 'none' })
-      else if (status === 'pending_review') Taro.showToast({ title: '已提交，审核通过后挂上树', icon: 'none' })
-      else {
-        Taro.showToast({
-          title: '收到。这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。',
-          icon: 'none',
-          duration: 4000
-        })
-      }
-    } catch (error) {
-      // R20 额度被拒（F2）：先刷新胶囊——额度归 0 后 wishQuotaCopy/canSubmitWish
-      // 自动纠正文案与禁用态；不刷新则旧额度残留，用户会被无限拒绝。
-      // 机审拒绝/城市名单外的 errorCopy 文案由 real.ts mutationError 抛出
-      if ((error as { code?: string }).code === 'flashback_wish_quota_exceeded') await reloadMember()
-      Taro.showToast({ title: error instanceof Error ? error.message : '许愿失败', icon: 'none', duration: 3500 })
-    } finally {
-      setWishBusy(false)
-    }
-  }
   const addComment = async (wish: FlashbackWish) => {
     if (mode.kind !== 'member' || wishBusy || !wishComment.trim()) return
     setWishBusy(true)
@@ -528,14 +410,12 @@ export default function FlashbackCorridorPage() {
     return <PageState kind="error" message={mode.message} onRetry={() => void load(city)} />
   }
 
+  if (mode.kind === 'viewer' && mode.guide === 'login') return <FlashbackGuest onRecover={goLogin} />
+
   const frames = mode.kind === 'member' ? corridorFrames(mode.capsule.archives) : statsFrames(mode.stats?.archives ?? [])
   const cities = mode.kind === 'member' ? mode.capsule.cities : []
   const me = mode.kind === 'member' ? mode.capsule.me : null
   const myView = me && mode.kind === 'member' ? myCardView(mode.capsule) : null
-  // U5 许愿年度额度(R20):member 态取 capsule 投影;其余态 null(弹层不渲染额度行)
-  const wishQuota = mode.kind === 'member' ? mode.capsule.myWishQuotaRemaining : null
-  const wishQuotaText = wishQuotaCopy(wishQuota)
-
   // 「今天写过没」：三处 dock 状态共用判定。遍历 TODAY_FIELDS 单表——原实现
   // 手写 nowStatus/want/say 三项，**漏了 need**（只填「需要什么帮助」的用户
   // 被判成没写）；单表遍历随字段增减自动跟随。
@@ -543,6 +423,18 @@ export default function FlashbackCorridorPage() {
 
   return (
     <View className={styles.page}>
+      <View className={styles.publicEntries}>
+        <Button className={styles.voicesEntry} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+          <Text className={styles.entryEnglish}>VOICES</Text>
+          <View className={styles.entryHeading}><Text>金句墙</Text><Text className={styles.entryArrow}>↗</Text></View>
+          <Text className={styles.entrySubtitle}>听见过去的回响</Text>
+        </Button>
+        <Button className={styles.wishesEntry} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-wishes/index' })}>
+          <Text className={styles.entryEnglish}>WISHES</Text>
+          <View className={styles.entryHeading}><Text>许愿树</Text><Text className={styles.entryArrow}>↗</Text></View>
+          <Text className={styles.entrySubtitle}>写下未来的愿望</Text>
+        </Button>
+      </View>
       {/* member 卡区（U4 覆盖层入口）；路人态直接是长廊（原 1024 横幅已撤——
           活动推广归「发现」，双 Tab 重复推送同一活动） */}
       {mode.kind === 'member' && me && myView && (
@@ -590,10 +482,6 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      <View className={styles.voicesEntry} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
-        <View><Text className={styles.voicesTitle}>金句墙</Text><Text className={styles.voicesSubtitle}>听听那些年，大家愿意公开的声音</Text></View>
-        <Text className={styles.voicesArrow}>去看看 →</Text>
-      </View>
       <View className={styles.capsuleShell}>
       <ScrollView
         id='fbCapsule'
@@ -672,13 +560,15 @@ export default function FlashbackCorridorPage() {
         </View>
 
         {/* U3 未来·场次段(修断裂 1):三行简卡,亮金可报名/灰卡状态标签,CTA 端内闭环 */}
+        <View id='futureAnchor' />
+        <View className={styles.futureSection}><Text className={styles.wishTreeLink} onClick={() => Taro.navigateTo({ url: '/pages/flashback-wishes/index' })}>许愿树 · 看看大家的愿望 →</Text></View>
         {mode.kind === 'member' &&
           mode.capsule.futureEvents.length > 0 &&
           (() => {
             const cards = futureEventCards(mode.capsule.futureEvents)
             if (cards.length === 0) return null
             return (
-              <View id="futureAnchor" className={styles.futureSection}>
+              <View className={styles.futureSection}>
                 {mode.capsule.futureEvents.map((frame) => {
                   const when = frame.initiativeStartsAt
                     ? new Date(frame.initiativeStartsAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }).replace('/', '.')
@@ -719,14 +609,19 @@ export default function FlashbackCorridorPage() {
             )
           })()}
 
+        <View className={styles.futureSection}>
+          <View className={styles.wishSectionHead}>
+            <Text className={styles.wishAddBtn} onClick={() => Taro.navigateTo({ url: '/pages/flashback-wish-write/index' })}>写下我的愿望 ＋</Text>
+            <Text className={styles.wishAddBtn} onClick={() => Taro.navigateTo({ url: '/pages/flashback-my-wishes/index' })}>我的愿望 →</Text>
+          </View>
+        </View>
+
         {/* U4 愿望段(R6):公开愿望纸白卡——愿望/遮罩姓/附议数,点卡开模态 */}
         {mode.kind === 'member' && (
           <View className={styles.futureSection}>
             <View className={styles.wishSectionHead}>
               <Text className={styles.futureTitleDark}>未来 · 大家许的愿</Text>
-              <Text className={styles.wishAddBtn} onClick={() => setWishSheet(true)}>
-                + 许个愿
-              </Text>
+
             </View>
             {mode.capsule.publicWishes.map((wish) => (
               <View key={wish.id} className={styles.wishCard} onClick={() => setWishModal(wish)}>
@@ -1112,59 +1007,11 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* wish2 U9（KTD3/KTD5）：附议表单——出力多选 + 留言 ≤500 + 回响通知勾选
-          （默认勾、可取消；真实授权由微信 accept 上报 grant）+ 联系方式告知 */}
-      {endorseSheet && (
-        <View className={styles.wishSheetMask} catchMove onClick={() => setEndorseSheet(null)}>
-          <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
-            <View className={styles.wishSheetBar} />
-            <Text className={styles.wishSheetTitle}>我能出力</Text>
-            <Text className={styles.endorseWishPreview}>{endorseSheet.content}</Text>
-            <View className={styles.endorseTypeRow}>
-              {WISH_CONTRIBUTION_OPTIONS.map((option) => (
-                <Text
-                  key={option.type}
-                  className={`${styles.endorseTypeChip} ${
-                    endorseTypes.includes(option.type) ? styles.endorseTypeChipOn : ''
-                  }`}
-                  onClick={() =>
-                    setEndorseTypes((prev) =>
-                      prev.includes(option.type)
-                        ? prev.filter((type) => type !== option.type)
-                        : [...prev, option.type]
-                    )
-                  }
-                >
-                  {option.label}
-                </Text>
-              ))}
-            </View>
-            <Textarea
-              className={styles.wishSheetInput}
-              value={endorseMessage}
-              onInput={(e) => setEndorseMessage(e.detail.value)}
-              maxlength={WISH_ENDORSE_MESSAGE_MAX}
-              placeholder="想对主办方说的（可选，500 字内）"
-              autoHeight
-            />
-            {/* KTD5 联系方式告知：提交即同意——明示、不可关闭 */}
-            <Text className={styles.endorseContactNote}>
-              提交即同意主办方通过你账号绑定的手机号/邮箱与你联系对接
-            </Text>
-            <View className={styles.endorseNotifyRow} onClick={() => setEndorseNotify(!endorseNotify)}>
-              <Text className={styles.endorseNotifyBox}>{endorseNotify ? '☑' : '☐'}</Text>
-              <Text className={styles.endorseNotifyLabel}>{wishEchoTouchpoint().label}</Text>
-            </View>
-            <Button
-              className={styles.wishSheetSubmit}
-              disabled={wishBusy || endorseTypes.length === 0}
-              onClick={() => void submitEndorse()}
-            >
-              {wishBusy ? '提交中…' : '提交附议'}
-            </Button>
-          </View>
-        </View>
-      )}
+      {endorseSheet && <EndorseWishSheet key={endorseSheet.wishId} wish={{ id: endorseSheet.wishId, content: endorseSheet.content }} onClose={() => setEndorseSheet(null)} onSaved={() => {
+        setEndorseSheet(null); setViewerWishModal(null)
+        if (mode.kind === 'viewer') void loadViewerWishes()
+        else void reloadMember()
+      }} />}
       {/* U7 报名 sheet:详情+押金;报名→event-detail 端内闭环(押金支付在那里) */}
       {eventSheet && (
         <View className={styles.wishSheetMask} catchMove onClick={() => setEventSheet(null)}>
@@ -1188,82 +1035,7 @@ export default function FlashbackCorridorPage() {
         </View>
       )}
 
-      {/* U5 许愿半屏弹层(KD3/R8):文本+可见性+提交；
-          wish2 U10：署名/期望地（实时候选）+ 两档默认公开（加粗明示） */}
-      {wishSheet && (
-        <View className={styles.wishSheetMask} catchMove onClick={() => setWishSheet(false)}>
-          <View className={styles.wishSheet} onClick={(e) => e.stopPropagation()}>
-            <View className={styles.wishSheetBar} />
-            <Text className={styles.wishSheetTitle}>许个愿</Text>
-            {wishQuotaText && <Text className={styles.wishSheetQuota}>{wishQuotaText}</Text>}
-            <Textarea
-              className={styles.wishSheetInput}
-              value={wishDraft}
-              onInput={(e) => setWishDraft(e.detail.value)}
-              maxlength={500}
-              placeholder="写下你想和 CGC 一起实现的…(500 字内)"
-              autoHeight
-            />
-            <View className={styles.wishSheetVisibility}>
-              <Text
-                className={`${styles.signatureBtn} ${wishSignature === 'anonymous' ? styles.visibilityActive : ''}`}
-                onClick={() => setWishSignature('anonymous')}
-              >
-                匿名（姓氏遮罩）
-              </Text>
-              <Text
-                className={`${styles.signatureBtn} ${wishSignature === 'display_name' ? styles.visibilityActive : ''}`}
-                onClick={() => setWishSignature('display_name')}
-              >
-                实名展示（展示名，不涉法定姓名）
-              </Text>
-            </View>
-            <Input
-              className={styles.wishCityInput}
-              value={wishCity}
-              onInput={(e) => setWishCity(e.detail.value)}
-              maxlength={16}
-              placeholder="想在哪座城市实现它（如 成都）"
-            />
-            {cityCandidates(wishCity, wishCities).length > 0 && (
-              <View className={styles.wishCityCandidates}>
-                <Text className={styles.wishCityCandidatesHint}>是想这些城市吗？</Text>
-                {cityCandidates(wishCity, wishCities).map((name) => (
-                  <Text key={name} className={styles.wishCityCandidate} onClick={() => setWishCity(name)}>
-                    {name}
-                  </Text>
-                ))}
-              </View>
-            )}
-            <View className={styles.wishSheetVisibility}>
-              <Text
-                className={`${styles.visibilityBtn} ${styles.visibilityPublicLabel} ${wishVisibility === 'public' ? styles.visibilityActive : ''}`}
-                onClick={() => setWishVisibility('public')}
-              >
-                公开 = 挂上许愿树，任何人可见
-              </Text>
-              <Text
-                className={`${styles.visibilityBtn} ${wishVisibility === 'private' ? styles.visibilityActive : ''}`}
-                onClick={() => setWishVisibility('private')}
-              >
-                说给主办方听
-              </Text>
-            </View>
-            <Text className={styles.visibilityHintText}>
-              {wishVisibility === 'public'
-                ? '大家能看到它、期待它发生、也可以出力一起实现。'
-                : '只有你和平台能看到。我们会认真看，可能会来找你聊聊怎么一起实现它。'}
-            </Text>
-            <Button
-              className={styles.wishSheetSubmit}
-              disabled={wishBusy || !canSubmitWish(wishQuota, wishDraft)}
-              onClick={() => void submitWish()}
-            >
-              {wishBusy ? '许愿中…' : '许下这个愿'}
-            </Button>
-          </View>
-        </View>
-      )}
+
     </View>
   )
 }

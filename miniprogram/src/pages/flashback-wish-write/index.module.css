@@ -1,0 +1,22 @@
+.page { min-height: 100vh; box-sizing: border-box; padding: 40rpx 36rpx 72rpx; background: #faf8f0; color: #173c32; }
+.eyebrow { display: block; color: #77856b; font-size: 24rpx; letter-spacing: 3rpx; }
+.title { display: block; margin-top: 18rpx; font-size: 46rpx; font-family: serif; }
+.intro { display: block; margin: 20rpx 0 40rpx; color: #73806c; font-size: 27rpx; line-height: 1.7; }
+.label { display: block; margin: 30rpx 0 14rpx; font-size: 28rpx; }
+.contentInput { box-sizing: border-box; width: 100%; height: 260rpx; padding: 24rpx; background: #fffdf7; border: 1rpx solid #cfd4c2; border-radius: 12rpx; font-size: 32rpx; line-height: 1.7; }
+.count { display: block; text-align: right; margin-top: 8rpx; font-size: 23rpx; color: #7f8b78; }
+.cityInput { height: 88rpx; padding: 0 24rpx; background: #fffdf7; border: 1rpx solid #cfd4c2; border-radius: 12rpx; font-size: 28rpx; }
+.candidates, .choices { display: flex; gap: 16rpx; flex-wrap: wrap; }
+.candidate { margin: 10rpx 0 0; padding: 0 24rpx; background: #eef0e3; color: #315241; font-size: 26rpx; }
+.option { flex: 1; margin: 0; font-size: 27rpx; background: transparent; border: 1rpx solid #cbd1c0; color: #61745d; border-radius: 12rpx; }
+.publicChoice, .privateChoice { margin: 14rpx 0; padding: 20rpx; line-height: 1.6; text-align: left; font-size: 27rpx; background: transparent; color: #61745d; border: 1rpx solid #cbd1c0; border-radius: 12rpx; }
+.publicChoice { font-weight: 600; }
+.selected { background: #e7ebdd; border-color: #406b51; color: #173c32; font-weight: 600; }
+.hint, .quota, .saved { display: block; font-size: 24rpx; line-height: 1.65; color: #76836b; }
+.quota { margin: 30rpx 0 18rpx; }
+.error { display: block; color: #963e31; font-size: 27rpx; margin: 18rpx 0; line-height: 1.6; }
+.submit { background: #204b3b; color: #fffdf7; border-radius: 10rpx; font-size: 30rpx; }
+.submit[disabled] { background: #d4d9ca; color: #75836c; }
+.saved { text-align: center; margin-top: 16rpx; }
+.myWishesLink { margin-top: 18rpx; background: transparent; color: #4b6851; font-size: 27rpx; }
+.page button::after { border: 0; }
