@@ -127,6 +127,40 @@ defmodule Cgc2046.Flashback.Public do
 
   # ── 金句墙（R31/R32/R37：授权者的脱敏金句，按句输出） ─────────────────
 
+  @doc "公开金句所在城市；不受热门 60 条限量影响，按拼音稳定排序。"
+  def voice_cities do
+    names =
+      Repo.all(
+        from(q in "flashback_quotes",
+          join: ql in "flashback_quote_licenses",
+          on: ql.id == q.quote_license_id,
+          join: p in "flashback_people",
+          on: p.id == ql.person_id,
+          where:
+            ql.level in ["anonymous", "credited"] and is_nil(ql.hidden_at) and
+              is_nil(q.hidden_at) and is_nil(p.deleted_at),
+          distinct: true,
+          select: q.city
+        )
+      )
+      |> MapSet.new()
+
+    cities =
+      Cgc2046.Flashback.Cities.list()
+      |> Enum.filter(&MapSet.member?(names, &1.short_name))
+      |> Enum.sort_by(&{&1.pinyin, &1.short_name})
+      |> Enum.map(fn city ->
+        %{
+          name: city.short_name,
+          full_name: city.full_name,
+          pinyin: city.pinyin,
+          lng_lat: city.lng_lat
+        }
+      end)
+
+    {:ok, cities}
+  end
+
   @doc """
   匿名金句墙（R31/R32/R36/R37/R38）：`quote_license.level in (anonymous, credited)`
   且**未被管理端下线**（license 与单句 `hidden_at` 均为空）者的每一句——金句
@@ -146,7 +180,7 @@ defmodule Cgc2046.Flashback.Public do
   `/flashback/voices?item=<quote_id>`）；投影里它是唯一进公开面的内部标识，
   除定位外不承载任何可读信息。
   """
-  def quotes(voter_key \\ nil) do
+  def quotes(voter_key \\ nil, city \\ nil) do
     rows =
       Repo.all(
         from(q in "flashback_quotes",
@@ -157,6 +191,8 @@ defmodule Cgc2046.Flashback.Public do
           where:
             ql.level in ["anonymous", "credited"] and
               is_nil(ql.hidden_at) and is_nil(q.hidden_at) and is_nil(p.deleted_at),
+          # 城市必须在热门限量之前筛选，否则低热度城市会被全局 60 条截掉。
+          where: ^is_nil(city) or q.city == ^(city || ""),
           # 涌现排序：点赞数优先、更新时间次之（同一子查询在 select 里复用）
           order_by: [
             desc:

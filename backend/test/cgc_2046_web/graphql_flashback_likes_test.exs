@@ -122,6 +122,72 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     plain
   end
 
+  describe "金句墙城市过滤" do
+    test "城市在热门 60 条截断之前过滤；撤回内容不出现" do
+      arch = archive()
+      {_person, chengdu} = wall_person(arch, %{city: "成都", email: "city-cd@example.com"})
+
+      for index <- 1..61 do
+        wall_person(arch, %{city: "北京", email: "city-bj-#{index}@example.com"})
+      end
+
+      query = """
+      query($city: String) { flashbackPublicQuotes(city: $city) { quoteId city text } }
+      """
+
+      assert %{"data" => %{"flashbackPublicQuotes" => all}} = post_graphql(query)
+      assert length(all) == 60
+      refute Enum.any?(all, &(&1["quoteId"] == chengdu.id))
+
+      assert %{"data" => %{"flashbackPublicQuotes" => [only]}} =
+               post_graphql(query, %{"city" => "成都"})
+
+      assert only["quoteId"] == chengdu.id
+
+      cities_query = "{ flashbackVoiceCities { name pinyin lngLat } }"
+      assert %{"data" => %{"flashbackVoiceCities" => cities}} = post_graphql(cities_query)
+      assert Enum.map(cities, & &1["name"]) == ["北京", "成都"]
+      assert Enum.all?(cities, &(length(&1["lngLat"]) == 2))
+
+      assert %{"data" => %{"flashbackPublicQuotes" => []}} =
+               post_graphql(query, %{"city" => "没有内容的城市"})
+
+      Cgc2046.Repo.query!("UPDATE flashback_quotes SET hidden_at = NOW() WHERE id = $1", [
+        Ecto.UUID.dump!(chengdu.id)
+      ])
+
+      assert %{"data" => %{"flashbackPublicQuotes" => []}} =
+               post_graphql(query, %{"city" => "成都"})
+
+      assert %{"data" => %{"flashbackVoiceCities" => [%{"name" => "北京"}]}} =
+               post_graphql(cities_query)
+    end
+
+    test "城市目录排除未公开授权和已删除档案" do
+      arch = archive()
+      {private_person, _} = wall_person(arch, %{city: "杭州"})
+      {deleted_person, _} = wall_person(arch, %{city: "上海"})
+      {hidden_person, _} = wall_person(arch, %{city: "广州"})
+
+      Cgc2046.Repo.query!(
+        "UPDATE flashback_quote_licenses SET level = 'off' WHERE person_id = $1",
+        [Ecto.UUID.dump!(private_person.id)]
+      )
+
+      Cgc2046.Repo.query!("UPDATE flashback_people SET deleted_at = NOW() WHERE id = $1", [
+        Ecto.UUID.dump!(deleted_person.id)
+      ])
+
+      Cgc2046.Repo.query!(
+        "UPDATE flashback_quote_licenses SET hidden_at = NOW() WHERE person_id = $1",
+        [Ecto.UUID.dump!(hidden_person.id)]
+      )
+
+      assert %{"data" => %{"flashbackVoiceCities" => []}} =
+               post_graphql("{ flashbackVoiceCities { name } }")
+    end
+  end
+
   describe "flashbackLikeQuote（R36/R37 公开面）" do
     test "点赞幂等 + 返回实时计数 + 取消；voterKey 非法 fail-closed" do
       {_person, quote} = wall_person(archive(), %{email: "like-mutation@example.com"})
