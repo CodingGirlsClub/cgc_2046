@@ -18,6 +18,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+（暂无）
+
+## [2026-09-25]（第二发）
+
 ### Added
 
 - [微信] 小程序端公开愿望树与游客闪念间体验（guest 路径）。
