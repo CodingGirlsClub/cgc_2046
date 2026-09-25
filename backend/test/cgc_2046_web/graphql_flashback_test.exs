@@ -801,6 +801,62 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       end
     end
 
+    # #933：相册对所有已登录用户开放；未寄出者只下发姓氏遮罩；城市堆服务端聚合
+    test "flashbackArchives：未登录 → auth_required；登录无档案可读相册（未寄出者只剩王**）" do
+      archive = create_archive()
+
+      create_person(archive, %{
+        full_name: "李安静",
+        surname: "李",
+        city: "广州",
+        occupation_then: "设计",
+        participation: :not_selected
+      })
+
+      back = create_person(archive, %{full_name: "周回来", surname: "周", city: "上海"})
+      {:ok, _} = Cgc2046.Flashback.Tokens.send_to_wall_as_person(back.id)
+
+      query = """
+      query { flashbackArchives { cities archives { key isMine
+        piles { city count returned }
+        roster { surnameMasked fullName city occupationThen participation sentToWallAt } } } }
+      """
+
+      res =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+        |> json_response(200)
+
+      assert [%{"code" => "flashback_auth_required"} | _] = res["errors"], inspect(res)
+
+      viewer = Cgc2046.AccountsFixtures.register_user("fb-album-viewer")
+      res = post_as_user(query, viewer)
+      assert is_nil(res["errors"]), inspect(res)
+      [payload] = res["data"]["flashbackArchives"]["archives"]
+      refute payload["isMine"]
+
+      assert payload["piles"] == [
+               %{"city" => "上海", "count" => 1, "returned" => 1},
+               %{"city" => "广州", "count" => 1, "returned" => 0}
+             ]
+
+      quiet = Enum.find(payload["roster"], &(&1["surnameMasked"] == "李**"))
+
+      assert quiet == %{
+               "surnameMasked" => "李**",
+               "fullName" => nil,
+               "city" => nil,
+               "occupationThen" => nil,
+               "participation" => nil,
+               "sentToWallAt" => nil
+             }
+
+      shown = Enum.find(payload["roster"], &(&1["surnameMasked"] == "周**"))
+      assert shown["fullName"] == "周回来"
+      assert shown["city"] == "上海"
+    end
+
     test "未登录且无 token → auth_required（不泄露存在性）" do
       endorse_query = """
       query { flashbackDeletePreview { personId: person_id } }
@@ -879,12 +935,16 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       for entry <- archive_payload["roster"] do
         assert entry["id"] =~ ~r/^[0-9a-f-]{36}$/
-        assert entry["participation"] in ["attended", "not_selected"]
+
+        # #933：参与类型只随已寄出者下发；未寄出者 null（只剩姓氏遮罩）
+        if entry["sentToWallAt"],
+          do: assert(entry["participation"] in ["attended", "not_selected"]),
+          else: assert(is_nil(entry["participation"]))
       end
 
-      # 圆梦线身份经 SDL 透出（名册徽标数据源）
+      # 未寄出的圆梦线同样只剩姓氏遮罩：参与类型不下发（#933）
       dreamer_entry = Enum.find(archive_payload["roster"], &(&1["id"] == dreamer.id))
-      assert dreamer_entry["participation"] == "not_selected"
+      assert is_nil(dreamer_entry["participation"])
       assert dreamer_entry["today"] == nil
       assert dreamer_entry["answers"] == []
 
@@ -903,17 +963,19 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       refute inspect(answer["segments"]) =~ "在盛大做测试"
     end
 
-    test "city 参数（R34 城市钉）：roster 按人城市过滤；cities 全量不缩" do
+    test "city 参数（R34 城市钉）：城市堆按人城市聚合、名册只列已寄出者（#933）；cities 全量不缩" do
       archive = create_archive()
       person = create_person(archive, %{city: "北京"})
       create_person(archive, %{full_name: "李雷", surname: "李", city: "上海"})
+      back = create_person(archive, %{full_name: "韩梅", surname: "韩", city: "上海"})
+      {:ok, _} = Cgc2046.Flashback.Tokens.send_to_wall_as_person(back.id)
 
       {plain, _token} = issue_token(person)
 
       query = """
       query { flashbackCapsule(token: "#{plain}", city: "上海") {
         cities
-        archives { key roster { surnameMasked: surname_masked city } }
+        archives { key piles { city count returned } roster { surnameMasked: surname_masked city } }
       } }
       """
 
@@ -930,7 +992,10 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert capsule["cities"] == ["上海", "北京"]
 
       [archive_payload] = capsule["archives"]
-      assert [%{"surnameMasked" => "李*", "city" => "上海"}] = archive_payload["roster"]
+
+      # #933：城市筛选只作用于已寄出者（未寄出的「李*」不因筛选暴露城市）；城市堆计入全部人数
+      assert [%{"surnameMasked" => "韩*", "city" => "上海"}] = archive_payload["roster"]
+      assert archive_payload["piles"] == [%{"city" => "上海", "count" => 2, "returned" => 1}]
     end
   end
 end

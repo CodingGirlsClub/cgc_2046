@@ -5062,6 +5062,12 @@ type RootQueryType {
     city: String
   ): FlashbackCapsule
 
+  "相册（#933）：所有已登录用户可读每一场的名册（未寄出者只有姓氏遮罩）；未登录 → flashback_auth_required"
+  flashbackArchives(
+    "城市钉筛选：非空时城市堆按城市聚合、名册只列该城市的已寄出者"
+    city: String
+  ): FlashbackArchivesResult
+
   "看板四率（U11\/R24\/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线\/圆梦线"
   flashbackAdminStats: FlashbackAdminStats
 
@@ -5963,8 +5969,8 @@ type FlashbackRosterEntry {
 
   occupationThen: String
 
-  "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
-  participation: String!
+  "attended | not_selected（圆梦线名册徽标用）。#933 起仅已寄出者下发；未寄出者 null（只剩姓氏遮罩）"
+  participation: String
 
   sentToWallAt: String
 
@@ -5973,6 +5979,18 @@ type FlashbackRosterEntry {
 
   "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
   answers: [FlashbackRosterAnswer!]!
+}
+
+type FlashbackArchivePile {
+  city: String!
+  count: Int!
+  returned: Int!
+}
+
+"相册读面（#933）：已登录即可读的场次时间轴与名册"
+type FlashbackArchivesResult {
+  archives: [FlashbackCapsuleArchive!]!
+  cities: [String!]!
 }
 
 type FlashbackCapsuleArchive {
@@ -5995,6 +6013,9 @@ type FlashbackCapsuleArchive {
   isMine: Boolean!
 
   roster: [FlashbackRosterEntry!]!
+
+  "城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数；人数降序 + 城市序"
+  piles: [FlashbackArchivePile!]!
 }
 
 type FlashbackCapsule {

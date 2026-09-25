@@ -218,6 +218,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "相册（#933）：所有已登录用户可读每一场的名册（未寄出者只有姓氏遮罩）；未登录 → flashback_auth_required"
+    field :flashback_archives, :flashback_archives_result do
+      @desc "城市钉筛选：非空时城市堆按城市聚合、名册只列该城市的已寄出者"
+      arg(:city, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          if is_nil(context[:actor]) do
+            {:error,
+             %{
+               code: "flashback_auth_required",
+               message: "sign-in required",
+               reason: :auth_required
+             }}
+          else
+            Cgc2046.Flashback.AlumniProjection.viewer_archives(Map.get(args, :city))
+          end
+        end)
+      end)
+    end
+
     @desc "看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线"
     field :flashback_admin_stats, :flashback_admin_stats do
       resolve(fn _, _, %{context: context} ->
@@ -2623,13 +2644,25 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:applied_at, :string)
     field(:city, :string)
     field(:occupation_then, :string)
-    @desc "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
-    field(:participation, non_null(:string))
+    @desc "attended | not_selected（圆梦线名册徽标用）。#933 起仅已寄出者下发；未寄出者 null（只剩姓氏遮罩）"
+    field(:participation, :string)
     field(:sent_to_wall_at, :string)
     @desc "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
     field(:today, :flashback_roster_entry_today)
     @desc "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
     field(:answers, non_null(list_of(non_null(:flashback_roster_answer))))
+  end
+
+  object :flashback_archive_pile do
+    field(:city, non_null(:string))
+    field(:count, non_null(:integer))
+    field(:returned, non_null(:integer))
+  end
+
+  @desc "相册读面（#933）：已登录即可读的场次时间轴与名册"
+  object :flashback_archives_result do
+    field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
+    field(:cities, non_null(list_of(non_null(:string))))
   end
 
   object :flashback_capsule_archive do
@@ -2645,6 +2678,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
     field(:is_mine, non_null(:boolean))
     field(:roster, non_null(list_of(non_null(:flashback_roster_entry))))
+    @desc "城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数；人数降序 + 城市序"
+    field(:piles, non_null(list_of(non_null(:flashback_archive_pile))))
   end
 
   object :flashback_capsule do
