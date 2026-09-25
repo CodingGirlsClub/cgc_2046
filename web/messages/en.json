@@ -2861,6 +2861,13 @@
       "boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
       "enterCapsule": "Enter the time corridor →"
     },
+    "echoCard": {
+      "regionLabel": "Echo",
+      "byline": "Organizers",
+      "correctedBadge": "Corrected",
+      "expandLabel": "All {count} echoes",
+      "collapse": "Collapse echoes"
+    },
     "capsule": {
       "loading": "Developing the time corridor…",
       "error": "The capsule won't open right now — try again shortly.",
@@ -3077,6 +3084,8 @@
       "wishesNavEn": "WISHES",
       "filterAll": "All",
       "filterEcho": "With echoes",
+      "hasEchoLabel": "This wish has received an echo",
+      "hasEchoBadge": "Echo",
       "echoEmpty": "No wishes have echoes yet — be the first to help via \"I can help\".",
       "cityEmpty": "No public wishes in {city} yet — try all cities.",
       "expectCount": "people are waiting too",

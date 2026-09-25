@@ -265,6 +265,16 @@ export interface FlashbackWishComment {
 	insertedAt: string;
 }
 
+/** #834 回响（Echo;非 admin 公开读面):仅 id/content/status/publishedAt/correctedAt,不含 admin 身份 */
+export interface FlashbackPublicWishEcho {
+	id: string;
+	content: string;
+	/** published(首次发布)或 corrected(更正过);draft/revoked 不出现在公开读面 */
+	status: "published" | "corrected";
+	publishedAt: string;
+	correctedAt: string | null;
+}
+
 export interface FlashbackWish {
 	id: string;
 	content: string;
@@ -275,6 +285,12 @@ export interface FlashbackWish {
 	/** 本人许愿（删除入口只对本人显示，R14） */
 	mine: boolean;
 	comments: FlashbackWishComment[];
+	/** 最新一条可见回响(#834;无则 null) */
+	latestEcho: FlashbackPublicWishEcho | null;
+	/** 可见回响条数(#834) */
+	echoCount: number;
+	/** 全部可见回响,按首次发布时间正序(#834) */
+	echoes: FlashbackPublicWishEcho[];
 	insertedAt: string;
 }
 
@@ -363,6 +379,12 @@ export interface FlashbackPublicWish {
 	contributionDistribution: Record<string, number>;
 	expectedByViewer: boolean;
 	endorsedByViewer: boolean;
+	/** 最新一条可见回响(#834;无则 null) */
+	latestEcho: FlashbackPublicWishEcho | null;
+	/** 可见回响条数(#834) */
+	echoCount: number;
+	/** 全部可见回响,按首次发布时间正序(#834) */
+	echoes: FlashbackPublicWishEcho[];
 	listedAt: string;
 	insertedAt: string;
 }
@@ -720,6 +742,21 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					content
 					commenterMasked
 					insertedAt
+				}
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
 				}
 				insertedAt
 			}
@@ -1113,6 +1150,21 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 			contributionDistribution
 			expectedByViewer
 			endorsedByViewer
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
 			listedAt
 			insertedAt
 		}
@@ -1134,6 +1186,21 @@ export const FLASHBACK_PUBLIC_WISH: TypedDocumentNode<
 			contributionDistribution
 			expectedByViewer
 			endorsedByViewer
+				latestEcho {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
+				echoCount
+				echoes {
+					id
+					content
+					status
+					publishedAt
+					correctedAt
+				}
 			listedAt
 			insertedAt
 		}
