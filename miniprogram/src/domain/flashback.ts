@@ -1,4 +1,5 @@
 import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard, FlashbackMyToday } from './models'
+import type { FlashbackPublicWishEcho } from './models'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -622,6 +623,39 @@ export interface ViewerWish {
   endorsementCount: number
   expectedByViewer: boolean
   endorsedByViewer: boolean
+  /** 最新一条可见回响（#834；无则 null） */
+  latestEcho: FlashbackPublicWishEcho | null
+  /** 可见回响条数（#834） */
+  echoCount: number
+  /** 全部可见回响，按首次发布时间正序（#834） */
+  echoes: FlashbackPublicWishEcho[]
+}
+
+/** #837 GraphQL 生成类型把枚举投为宽 string——把服务端可能返回的状态
+ * fail-closed 收敛到公开读面允许的两个值；未知状态（draft/revoked 等）
+ * 返回 null，调用方丢弃该条回响。 */
+export function parsePublicWishEchoStatus(value: string | null | undefined): 'published' | 'corrected' | null {
+  return value === 'published' || value === 'corrected' ? value : null
+}
+
+/** #837 把 GraphQL 行的回响（status 为宽 string）收敛到 domain.FlashbackPublicWishEcho。
+ * status 非法时返回 null，调用方负责丢弃该条。 */
+export function mapPublicWishEcho(echo: {
+  id: string
+  content: string
+  status: string
+  publishedAt: string
+  correctedAt?: string | null
+}): FlashbackPublicWishEcho | null {
+  const status = parsePublicWishEchoStatus(echo.status)
+  if (!status) return null
+  return {
+    id: echo.id,
+    content: echo.content,
+    status,
+    publishedAt: echo.publishedAt,
+    correctedAt: echo.correctedAt ?? null
+  }
 }
 
 /** 附议出力类型（后端 contribution_types 枚举面，KTD3；顺序即表单展示序） */
