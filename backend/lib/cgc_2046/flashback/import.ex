@@ -244,11 +244,14 @@ defmodule Cgc2046.Flashback.Import do
   defp admitted_keys(sheets, people, config) do
     case config[:participation] do
       :column ->
+        # 大表模式：attended 集合按 group 作用域合成——出席按场归档，A 场
+        # attended 不得借联系方式命中把同人在 B 场标 attended（跨场传染）。
         keys =
           people
           |> Enum.filter(&is_map_key(&1, :full_name))
           |> Enum.filter(&(&1.participation == :attended))
-          |> MapSet.new(&person_key(&1))
+          |> Enum.group_by(& &1.group, &person_key/1)
+          |> Map.new(fn {group, ks} -> {group, MapSet.new(ks)} end)
 
         {:ok, keys}
 
@@ -256,6 +259,10 @@ defmodule Cgc2046.Flashback.Import do
         admission_keys(sheets, config)
     end
   end
+
+  # admitted_keys 两形态统一取组：列模式 = %{group => MapSet}，名单模式 = MapSet。
+  defp group_keys(keys, _group) when is_struct(keys, MapSet), do: keys
+  defp group_keys(keys, group), do: Map.get(keys, group, MapSet.new())
 
   # 匹配 key 两侧（报名行 vs 名单行）同一归一口径：仅 11 位大陆手机做
   # {:phone, digits} key；否则 {:name_city, name, city}。口径不一致会把
@@ -619,7 +626,9 @@ defmodule Cgc2046.Flashback.Import do
     participation =
       Enum.map(importable, fn person ->
         {person,
-         if(MapSet.member?(admitted_keys, person_key(person)), do: :attended, else: :not_selected)}
+         if(MapSet.member?(group_keys(admitted_keys, person.group), person_key(person)),
+           do: :attended,
+           else: :not_selected)}
       end)
 
     answers_all = Enum.flat_map(importable, & &1.answers)
@@ -723,7 +732,7 @@ defmodule Cgc2046.Flashback.Import do
       duplicates_to_upgrade:
         groups
         |> Enum.map(fn {attrs, group_people} ->
-          count_duplicates_to_upgrade(group_people, admitted_keys, attrs[:key])
+          count_duplicates_to_upgrade(group_people, group_keys(admitted_keys, attrs[:key]), attrs[:key])
         end)
         |> Enum.sum()
     }
@@ -844,7 +853,7 @@ defmodule Cgc2046.Flashback.Import do
   # 逐归档分组落库并汇总计数（名单模式恒单组）。
   defp persist_groups(groups, admitted_keys) do
     Enum.reduce(groups, %{people: 0, answers: 0, upgraded: 0}, fn {attrs, people}, acc ->
-      counts = persist_group(people, admitted_keys, attrs)
+      counts = persist_group(people, group_keys(admitted_keys, attrs[:key]), attrs)
 
       %{
         people: acc.people + counts.people,
