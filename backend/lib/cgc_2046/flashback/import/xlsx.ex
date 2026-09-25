@@ -65,8 +65,39 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
 
   defp xml(path, files) do
     case Map.fetch(files, path) do
-      {:ok, bin} -> Saxy.SimpleForm.parse_string(bin)
-      :error -> {:error, {:missing_entry, path}}
+      {:ok, bin} ->
+        # 部分整合产线（et_xmlfile 系）给 XML entry 写 UTF-8 BOM——Saxy 拒解析，
+        # rels 载有此 BOM 时 sheet 全部静默零行（比报错恶劣）。先剥再解析。
+        bin = strip_bom(bin)
+
+        case Saxy.SimpleForm.parse_string(bin) do
+          {:ok, form} -> {:ok, normalize_ns(form)}
+          other -> other
+        end
+
+      :error ->
+        {:error, {:missing_entry, path}}
+    end
+  end
+
+  defp strip_bom(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: rest
+  defp strip_bom(bin), do: bin
+
+  # 部分生成器（pandas/et_xmlfile 系整合产线）给全部标签加 `x:` 前缀；下方
+  # 全部结构匹配按本地名进行——未归一化时这类文件静默解析为零 sheet
+  # （{:ok, %{}}），比报错恶劣（操作者拿到一张「空表」无处归因）。
+  defp normalize_ns({tag, attrs, children}) do
+    {local_name(tag), attrs,
+     Enum.map(children, fn
+       child when is_tuple(child) -> normalize_ns(child)
+       child -> child
+     end)}
+  end
+
+  defp local_name(tag) when is_binary(tag) do
+    case String.split(tag, ":", parts: 2) do
+      [_prefix, local] -> local
+      _ -> tag
     end
   end
 
@@ -130,10 +161,11 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
   # sharedStrings.xml：<si><t>a</t></si> 与富文本 <si><r><t>a</t><t>b</t></r></si>
   # 全部 <t> 拼接。
   defp shared_strings(files) do
-    case Map.fetch(files, "xl/sharedStrings.xml") do
-      {:ok, bin} ->
-        {:ok, sst} = Saxy.SimpleForm.parse_string(bin)
-
+    # 必须走 xml/1（含命名空间归一化）——直调 Saxy 会让 x: 前缀产物的
+    # sharedStrings 解析成空表、t="s" cell 全部静默取空串（inlineStr 正常，
+    # 极易误诊）。
+    case xml("xl/sharedStrings.xml", files) do
+      {:ok, sst} ->
         find_deep(sst, "sst")
         |> children_of("si")
         |> Enum.map(fn si ->
@@ -142,8 +174,11 @@ defmodule Cgc2046.Flashback.Import.Xlsx do
           |> IO.iodata_to_binary()
         end)
 
-      :error ->
+      {:error, {:missing_entry, _}} ->
         []
+
+      {:error, reason} ->
+        raise "invalid xl/sharedStrings.xml: #{inspect(reason)}"
     end
   end
 
