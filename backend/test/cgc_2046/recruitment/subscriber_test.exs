@@ -24,6 +24,9 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
   """
 
   use Cgc2046.DataCase, async: false
+
+  require Ash.Query
+  alias Cgc2046.Notifications.NotificationDelivery
   use Oban.Testing, repo: Cgc2046.Repo
 
   require Ash.Query
@@ -114,10 +117,12 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
       assert email.html_body =~ "第 1 批"
       assert email.html_body =~ "教程研究员"
 
-      assert_enqueued(
-        worker: NotificationWorker,
-        args: %{"template_key" => "volunteer_application_submitted", "user_id" => applicant.id}
-      )
+      # #847 批 4：volunteer_* 已迁耐久路径，行为面 = Delivery 行
+      assert NotificationDelivery
+             |> Ash.Query.filter(
+               template_key == "volunteer_application_submitted" and user_id == ^applicant.id
+             )
+             |> Ash.read!(authorize?: false) != []
 
       assert [%{"data" => data}] = enqueued_data("volunteer_application_submitted")
       assert data["cohort_name"] == "第 1 批"
@@ -299,9 +304,18 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
 
       assert :ok = deliver(@submitted_signal, application)
 
-      assert [job] = enqueued_data("volunteer_application_submitted")
+      # #847 批 4：耐久路径经 DeliveryWorker 发送（幂等键见 job_meta）
+      [row] =
+        NotificationDelivery
+        |> Ash.Query.filter(
+          template_key == "volunteer_application_submitted" and user_id == ^applicant.id
+        )
+        |> Ash.read!(authorize?: false)
 
-      assert :ok = perform_job(NotificationWorker, job)
+      assert :ok =
+               perform_job(Cgc2046.Notifications.Workers.DeliveryWorker, %{
+                 "delivery_id" => row.id
+               })
 
       assert_receive {:notification, :wechat, %{"data" => data}}
       # 槽位对齐实际模板（2026-09-18 申请）：thing7=批次名 / thing5=申请职位
@@ -323,15 +337,21 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
       email = assert_email()
       assert {_, @contact_email} = List.first(email.to)
 
-      assert [job] = enqueued_data("volunteer_application_submitted")
+      # #847 批 4：耐久路径经 DeliveryWorker——未授权是 pending_reason 类，
+      # 返回 error 重试（非终态 discard），发送不发生
+      [row] =
+        NotificationDelivery
+        |> Ash.Query.filter(
+          template_key == "volunteer_application_submitted" and user_id == ^applicant.id
+        )
+        |> Ash.read!(authorize?: false)
 
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert {:discard, "consent_exhausted"} = perform_job(NotificationWorker, job)
-        end)
+      assert {:error, :consent_exhausted} =
+               perform_job(Cgc2046.Notifications.Workers.DeliveryWorker, %{
+                 "delivery_id" => row.id
+               })
 
-      assert log =~ "consent exhausted"
-      refute_received {:notification, :wechat, _}
+      refute_receive {:notification, :wechat, _}
     end
   end
 
@@ -382,10 +402,9 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
                authorize?: false
              ).status == :interview
 
-      assert_enqueued(
-        worker: NotificationWorker,
-        args: %{"template_key" => "volunteer_application_interview"}
-      )
+      assert NotificationDelivery
+             |> Ash.Query.filter(template_key == "volunteer_application_interview")
+             |> Ash.read!(authorize?: false) != []
     end
   end
 
@@ -424,7 +443,7 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
       assert {_, @contact_email} = List.first(email.to)
 
       assert [notification] = enqueued_data("volunteer_application_submitted")
-      assert notification["volunteer_application_id"] == application.id
+      assert notification["job_meta"]["volunteer_application_id"] == application.id
       assert notification["identity_uid"] == "recruit-sub-openid"
     end
   end
@@ -453,10 +472,20 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
     }
   end
 
+  # #847 批 4：已迁耐久路径，伪 args 投影保持断言形状
   defp enqueued_data(template_key) do
-    all_enqueued(worker: NotificationWorker)
-    |> Enum.filter(&(&1.args["template_key"] == template_key))
-    |> Enum.map(& &1.args)
+    NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key)
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        "template_key" => &1.template_key,
+        "user_id" => &1.user_id,
+        "identity_uid" => &1.identity_uid,
+        "data" => &1.data,
+        "job_meta" => &1.job_meta
+      }
+    )
   end
 
   defp claim_rows(signal_type) do

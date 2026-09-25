@@ -93,27 +93,19 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: submitted_args}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_submitted",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_submitted", enrollment.id)
 
       assert submitted_args["user_id"] == admin.id
       assert submitted_args["data"]["title"] == event.title
-      assert submitted_args["idempotency_key"] == "enrollment.submitted:" <> enrollment.id
+
+      assert String.ends_with?(
+               submitted_args["idempotency_key"],
+               "enrollment.submitted:" <> enrollment.id
+             )
 
       # request 提交尚无 completed 信号：报名学员没有报名成功任务
       assert [] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
       # 审批通过 → completed → 学员本人报名成功任务（含活动标题）
       {:ok, _} = confirm(enrollment, admin)
@@ -127,17 +119,15 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: completed_args}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
       assert completed_args["user_id"] == learner.id
       assert completed_args["data"]["title"] == event.title
-      assert completed_args["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+
+      assert String.ends_with?(
+               completed_args["idempotency_key"],
+               "enrollment.completed:" <> enrollment.id
+             )
 
       # #546：confirm（审批通过）路径同样下发核销码——恰 1 条，与 completed 共用
       # 同一 job_meta 幂等键值但 args 不同，两条 job 各自入队互不折叠
@@ -177,13 +167,7 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
       assert_code_notification(enrollment, "enrollment.completed:" <> enrollment.id)
     end
@@ -218,13 +202,7 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: args}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
       assert args["user_id"] == learner.id
       assert args["data"]["title"] == event.title
@@ -232,22 +210,20 @@ defmodule Cgc2046.AsyncSignalTest do
       # #546 核销码通知：同一 completed 信号的第二条任务，data 带报名 create 时
       # 生成的 6 位码（反查 Enrollment，未走信号 payload）
       assert [%{args: code_args}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_check_in_code",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
 
       assert enrollment.check_in_code =~ ~r/^\d{6}$/
       assert code_args["user_id"] == learner.id
       assert code_args["data"]["title"] == event.title
       assert code_args["data"]["check_in_code"] == enrollment.check_in_code
-      assert code_args["idempotency_key"] == "enrollment.completed:" <> enrollment.id
+
+      assert String.ends_with?(
+               code_args["idempotency_key"],
+               "enrollment.completed:" <> enrollment.id
+             )
 
       # submitted 信号确实发布过（生产者对全策略发布），但无待审批语义 → 不通知 Owner/Admin
-      assert [] = all_enqueued(args: %{"template_key" => "enrollment_submitted"})
+      assert [] = signal_jobs_by_enrollment("enrollment_submitted", enrollment.id)
     end
 
     # #546 确认路径枚举②（押金支付后）：create 落 payment_pending（码在 create
@@ -265,11 +241,8 @@ defmodule Cgc2046.AsyncSignalTest do
       assert pending.status == :payment_pending
       assert pending.check_in_code =~ ~r/^\d{6}$/
       # 未 confirmed：一条通知都没有（completed 信号尚未发出）
-      assert [] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"enrollment_id" => pending.id}
-               )
+      assert [] = signal_jobs_by_enrollment("enrollment_completed", pending.id)
+      assert [] = signal_jobs_by_enrollment("enrollment_submitted", pending.id)
 
       {:ok, confirmed} =
         pending
@@ -287,13 +260,7 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => pending.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", pending.id)
 
       assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
     end
@@ -326,13 +293,7 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => pending.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", pending.id)
 
       assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
     end
@@ -366,13 +327,7 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => pending.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", pending.id)
 
       assert_code_notification(confirmed, "enrollment.completed:" <> pending.id)
     end
@@ -400,16 +355,9 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"enrollment_id" => enrollment.id}
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
-      assert [] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"template_key" => "enrollment_check_in_code"}
-               )
+      assert [] = signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
     end
 
     # #546：同一条无码判据的第二条路径——event 报名但码为 NULL（回填漏网的历史行 /
@@ -442,16 +390,9 @@ defmodule Cgc2046.AsyncSignalTest do
       )
 
       assert [%{args: %{"template_key" => "enrollment_completed"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"enrollment_id" => enrollment.id}
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
-      assert [] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{"template_key" => "enrollment_check_in_code"}
-               )
+      assert [] = signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
     end
   end
 
@@ -487,27 +428,16 @@ defmodule Cgc2046.AsyncSignalTest do
 
       # 最终状态：两条重复投递只产生一条通知任务 + 一行幂等记录
       assert [%{args: %{"idempotency_key" => key}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
 
-      assert key == "enrollment.completed:" <> enrollment.id
+      assert String.ends_with?(key, "enrollment.completed:" <> enrollment.id)
       assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
 
       # #546：核销码通知同样只入队一条（同一 job_meta 幂等键、args 各自唯一）
-      assert [%{args: %{"idempotency_key" => ^key, "data" => %{"check_in_code" => code}}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_check_in_code",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+      assert [%{args: %{"idempotency_key" => code_key, "data" => %{"check_in_code" => code}}}] =
+               signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
 
+      assert String.ends_with?(code_key, "enrollment.completed:" <> enrollment.id)
       assert code == enrollment.check_in_code
     end
 
@@ -551,32 +481,66 @@ defmodule Cgc2046.AsyncSignalTest do
       assert :ok = SignalSubscriber.deliver(Subscriber, signal)
       assert :duplicate = SignalSubscriber.deliver(Subscriber, signal)
 
-      assert [%{args: %{"idempotency_key" => ^key}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_completed",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+      assert [%{args: %{"idempotency_key" => stored_key}}] =
+               signal_jobs_by_enrollment("enrollment_completed", enrollment.id)
+
+      assert String.ends_with?(stored_key, key)
 
       assert claim_rows("enrollment.completed", claim_key(enrollment.id)) == 1
 
       # #546：核销码通知同样只入队一条（第二次投喂 :duplicate → 不重复入队）
       assert [%{args: %{"template_key" => "enrollment_check_in_code"}}] =
-               all_enqueued(
-                 worker: NotificationWorker,
-                 args: %{
-                   "template_key" => "enrollment_check_in_code",
-                   "enrollment_id" => enrollment.id
-                 }
-               )
+               signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
     end
   end
 
   # 生产侧信号经 SignalPublishWorker 事务内 outbox 入队（plan 2026-08-14-003 Q6）；
   # manual 测试模式下同步执行该 job，驱动 worker → 真实总线投递全链路。
   # 锚定 enrollment_id——套件内并发类测试真实提交的残留 job 不影响匹配。
+
+  # #847 PR-B：通知已迁耐久路径，行为面 = Delivery 行（伪 job 投影保持断言形状；
+  # idempotency_key 为 Fanout 加过 template_key 前缀的完整键）
+  defp signal_jobs(template_key, enrollment_id) do
+    require Ash.Query
+
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(template_key == ^template_key and user_id in [^enrollment_id])
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "data" => &1.data,
+          "idempotency_key" => &1.job_meta["idempotency_key"],
+          "enrollment_id" => &1.job_meta["enrollment_id"]
+        }
+      }
+    )
+  end
+
+  defp signal_jobs_by_enrollment(template_key, enrollment_id) do
+    require Ash.Query
+
+    Cgc2046.Notifications.NotificationDelivery
+    |> Ash.Query.filter(
+      template_key == ^template_key and
+        fragment("?->>'enrollment_id' = ?", job_meta, ^enrollment_id)
+    )
+    |> Ash.read!(authorize?: false)
+    |> Enum.map(
+      &%{
+        args: %{
+          "template_key" => &1.template_key,
+          "user_id" => &1.user_id,
+          "data" => &1.data,
+          "idempotency_key" => &1.job_meta["idempotency_key"],
+          "enrollment_id" => &1.job_meta["enrollment_id"]
+        }
+      }
+    )
+  end
+
   defp perform_enqueued_signal(signal_type, enrollment_id) do
     [job] =
       [worker: SignalPublishWorker]
@@ -662,15 +626,9 @@ defmodule Cgc2046.AsyncSignalTest do
                }
              }
            ] =
-             all_enqueued(
-               worker: NotificationWorker,
-               args: %{
-                 "template_key" => "enrollment_check_in_code",
-                 "enrollment_id" => enrollment.id
-               }
-             )
+             signal_jobs_by_enrollment("enrollment_check_in_code", enrollment.id)
 
-    assert key == expected_key
+    assert String.ends_with?(key, expected_key)
     assert code == enrollment.check_in_code
   end
 
