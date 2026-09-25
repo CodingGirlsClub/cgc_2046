@@ -215,6 +215,33 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
       assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
     end
 
+    test "deadline 已过（status 仍 pending）→ 不投递：行终态 :failed \":stale\"（:not_expired 放行谓词面）" do
+      %{owner: owner, enrollment: enrollment} = enrollment_setup()
+
+      {:ok, _} =
+        Ecto.Adapters.SQL.query(
+          Cgc2046.Repo,
+          "UPDATE enrollments SET approval_deadline = $1 WHERE id = $2",
+          [DateTime.add(DateTime.utc_now(), -1, :hour), Ecto.UUID.dump!(enrollment.id)]
+        )
+
+      row =
+        enqueue_key(
+          owner.id,
+          "dws-enroll-owner-openid",
+          "approval_reminder",
+          data_for(enrollment)
+        )
+
+      assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      assert %{status: :failed, last_error: ":stale"} =
+               Ash.get!(NotificationDelivery, row.id, authorize?: false)
+
+      refute_receive {:notification, :wechat, _}
+      assert {:ok, 1} = Consent.remaining(owner.id, :wechat, "approval_reminder")
+    end
+
     test "非 stale 键（走 Delivery 的 4 键之一）不触发重查，照常投递 → 行 sent" do
       user = Fixtures.register_user("dws-schedule")
       insert_identity(user.id, "dws-schedule-openid")
