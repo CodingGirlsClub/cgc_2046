@@ -19,7 +19,12 @@ defmodule Cgc2046.FlashbackFixtures do
   """
   def listed_wish!(person_id, content, opts \\ []) do
     {:ok, wish} =
-      Wishes.create_wish(person_id, content, "public", Keyword.merge([public_listing_consent: true], opts))
+      Wishes.create_wish(
+        person_id,
+        content,
+        "public",
+        Keyword.merge([public_listing_consent: true], opts)
+      )
 
     Repo.query!(
       "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",

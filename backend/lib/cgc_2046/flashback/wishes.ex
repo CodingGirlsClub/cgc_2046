@@ -92,7 +92,12 @@ defmodule Cgc2046.Flashback.Wishes do
       {:error, _} ->
         {:error, %{code: "flashback_person_not_found", message: "没有找到这份档案。"}}
 
-      {:ok, %{rows: [[person_city, full_name, surname, display_name, review_required_at, wechat_checked]]}} ->
+      {:ok,
+       %{
+         rows: [
+           [person_city, full_name, surname, display_name, review_required_at, wechat_checked]
+         ]
+       }} ->
         case normalize_writing_city(expected_city, person_city) do
           {:error, err} ->
             {:error, err}
