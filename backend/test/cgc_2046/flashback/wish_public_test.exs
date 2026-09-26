@@ -63,7 +63,14 @@ defmodule Cgc2046.Flashback.WishPublicTest do
         Keyword.merge([public_listing_consent: true, signature_choice: :anonymous], opts)
       )
 
-    wish
+    # P2-1 机审通道门后公开愿默认待审；本套件焦点不在审核门，直挂树
+    # （等价 admin 放行 + re-list 的终态）
+    Repo.query!(
+      "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+      [Repo.uuid!(wish.id)]
+    )
+
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
   end
 
   defp create_member_wish(person, content) do

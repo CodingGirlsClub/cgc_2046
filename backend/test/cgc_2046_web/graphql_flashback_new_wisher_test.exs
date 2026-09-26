@@ -33,7 +33,8 @@ defmodule Cgc2046Web.GraphqlFlashbackNewWisherTest do
     user = AccountsFixtures.register_user("new-wisher")
     session = login(user)
 
-    assert %{"data" => %{"flashbackCreateWish" => %{"id" => id, "status" => "listed"}}} =
+    # P2-1 机审通道门：无微信身份的账号写公开愿 → pending_review（不自动挂树）
+    assert %{"data" => %{"flashbackCreateWish" => %{"id" => id, "status" => "pending_review"}}} =
              create(session, "一起做第一个作品")
 
     wish = Ash.get!(Wish, id, authorize?: false)
@@ -48,6 +49,11 @@ defmodule Cgc2046Web.GraphqlFlashbackNewWisherTest do
            } = request(session, @mine)
 
     public = "{flashbackPublicWish(wishId:\"#{id}\"){id}}"
+    # 待审不公开直达
+    assert %{"data" => %{"flashbackPublicWish" => nil}} = request(nil, public)
+
+    # admin 放行 + re-list 后公开直达
+    Cgc2046.FlashbackFixtures.list_wish!(id)
     assert %{"data" => %{"flashbackPublicWish" => %{"id" => ^id}}} = request(nil, public)
     other = login(AccountsFixtures.register_user("other-wisher"))
     delete = "mutation{flashbackDeleteWish(wishId:\"#{id}\")}"

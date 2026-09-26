@@ -86,6 +86,18 @@ export const XHS_PAGES: readonly string[] = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
+  // P2 闪念间全端：本人面（长廊/首程/场次/今天）+ 公开面（金句墙/许愿树/公开卡）+
+  // 写面（写愿望/我的愿望）。组织者与管理页仍不注册（原则①）。
+  'pages/flashback-corridor/index',
+  'pages/flashback-journey/index',
+  'pages/flashback-event/index',
+  'pages/flashback-today/index',
+  'pages/flashback-voices/index',
+  'pages/flashback-wishes/index',
+  'pages/flashback-shared-card/index',
+  'pages/flashback-wish-write/index',
+  'pages/flashback-my-wishes/index',
+  // 旧回访薄壳页保留：深链回落目标（platformFallbackRoute）与旧分享链落点
   'pages/flashback/index'
 ]
 

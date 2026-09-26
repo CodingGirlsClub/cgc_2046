@@ -72,11 +72,25 @@ defmodule Cgc2046.Flashback.WishesTest do
     Cgc2046.AccountsFixtures.register_user("#{prefix}-#{System.unique_integer([:positive])}")
   end
 
+  # P2-1 机审通道门后公开愿默认待审；需要「已挂树」前提的用例直挂
+  # （等价 admin 放行 + re-list 的终态），套件焦点不在审核门。
+  defp force_listed({:ok, wish}), do: force_listed(wish)
+
+  defp force_listed(wish) do
+    Repo.query!(
+      "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+      [Repo.uuid!(wish.id)]
+    )
+
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
+  end
+
   describe "创建（R5/R6）" do
     test "公开许愿 → list_public；私有 → 仅 list_private" do
       archive = create_archive()
       person = create_person(archive)
       {:ok, public} = Wishes.create_wish(person.id, "一起出一本书", "public")
+      force_listed(public)
       {:ok, private} = Wishes.create_wish(person.id, "想学 Rust", "private")
 
       assert [%{id: public_id}] = Wishes.list_public()
@@ -120,6 +134,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       endorser = create_person(archive, %{full_name: "李雷", surname: "李"})
 
       {:ok, wish} = Wishes.create_wish(wisher.id, "一起出一本书", "public")
+      force_listed(wish)
 
       endorser_user = register_user("wish-idem")
       :ok = bind_person_to_user(endorser.id, endorser_user.id)
@@ -532,6 +547,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       {:ok, wish} =
         Wishes.create_wish(person.id, "公开打卡的心愿", "public", public_listing_consent: true)
 
+      wish = force_listed(wish)
       assert %DateTime{} = wish.listed_at
       assert wish.hidden_at == nil
     end
@@ -641,6 +657,7 @@ defmodule Cgc2046.Flashback.WishesTest do
       {:ok, wish} =
         Wishes.create_wish(person.id, "要 hidden 的心愿", "public", public_listing_consent: true)
 
+      wish = force_listed(wish)
       assert Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
 
       # admin 下架（直接 SQL 演化模拟 U5 后续 admin action）
@@ -822,13 +839,14 @@ defmodule Cgc2046.Flashback.WishesTest do
       archive = create_archive()
       person = create_person(archive, %{city: "北京市"})
 
-      {:ok, w1} =
-        Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true)
+      w1 = force_listed(Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true))
 
-      {:ok, w2} =
-        Wishes.create_wish(person.id, "外邦场", "public",
-          expected_city: nil,
-          public_listing_consent: true
+      w2 =
+        force_listed(
+          Wishes.create_wish(person.id, "外邦场", "public",
+            expected_city: nil,
+            public_listing_consent: true
+          )
         )
 
       # 全部
@@ -881,15 +899,52 @@ defmodule Cgc2046.Flashback.WishesTest do
       assert wish.listed_at == nil
     end
 
-    test "credit 未置位作者照常挂树（正路径不回归）" do
+    test "credit 未置位但有机审通道（微信身份）的作者照常挂树（正路径不回归）" do
       archive = create_archive()
       person = create_person(archive)
+      user = register_user("fix3-d")
+      :ok = bind_person_to_user(person.id, user.id)
+      attach_identity(user.id, :wechat, "fix3-d-openid")
+
+      # 有机审通道 → 机审真实外呼，mock 通过
+      Tesla.Mock.mock(fn %{method: :post, url: "https://api.weixin.qq.com/wxa/msg_sec_check" <> _} ->
+        Tesla.Mock.json(%{"errcode" => 0, "result" => %{"suggest" => "pass"}})
+      end)
 
       {:ok, wish} =
         Wishes.create_wish(person.id, "正常公开愿", "public", public_listing_consent: true)
 
       assert wish.listed_at != nil
       assert wish.hidden_at == nil
+    end
+
+    # P2-1 机审通道门：机审（msgSecCheck）只对有微信身份的作者可用——
+    # 没有微信身份（web/小红书单平台、或首程 token 写面尚未绑定账号）的公开愿
+    # 一律进人工审核（hidden_at 待审），不再未经审核自动挂树（同堵 web 端既有缺口）。
+    test "无微信身份的绑定作者：公开愿进待审，不自动挂树" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = register_user("fix3-e")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "无机审通道的公开愿", "public", public_listing_consent: true)
+
+      assert is_nil(wish.listed_at)
+      assert wish.hidden_at != nil
+      assert Wishes.listing_status("public", wish) == "pending_review"
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+    end
+
+    test "首程 token 写面（person 未绑定账号）：公开愿进待审" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "首程写下的公开愿", "public", public_listing_consent: true)
+
+      assert is_nil(wish.listed_at)
+      assert wish.hidden_at != nil
     end
 
     test "admin 放行（set_wish_hidden false）清 hidden_at 且不清 credit 字段（G1 pin）" do

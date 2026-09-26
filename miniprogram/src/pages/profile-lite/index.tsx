@@ -115,7 +115,7 @@ export default function ProfileLitePage() {
             <View
               className={styles.entry}
               data-testid='entry-flashback'
-              onClick={() => void Taro.navigateTo({ url: '/pages/flashback/index' })}
+              onClick={() => void Taro.navigateTo({ url: '/pages/flashback-corridor/index' })}
             >
               <View>
                 <Text className={styles.entryTitle}>打开闪念间</Text>

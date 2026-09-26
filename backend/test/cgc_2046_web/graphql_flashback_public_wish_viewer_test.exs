@@ -56,7 +56,8 @@ defmodule Cgc2046Web.GraphqlFlashbackPublicWishViewerTest do
         signature_choice: :anonymous
       )
 
-    wish
+    Cgc2046.FlashbackFixtures.list_wish!(wish.id)
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
   end
 
   # 登录拿 httpOnly cookie（返回 conn 本身——resp_cookies 要给 recycle_cookie）

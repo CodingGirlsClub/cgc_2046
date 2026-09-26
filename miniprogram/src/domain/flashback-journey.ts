@@ -127,7 +127,7 @@ export function revealStamp(appliedAt: string | null): string {
 export const SEND_OVERLAY = {
   title: '照片正在贴上墙。',
   body: '想收好这张卡、并在你附议的场成真时收到通知吗？',
-  primary: '微信一键收好',
+  primary: '手机号一键收好',
   skip: '跳过，直接上墙',
   expectation: '你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。'
 } as const

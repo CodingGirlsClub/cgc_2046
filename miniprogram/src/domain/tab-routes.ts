@@ -61,6 +61,8 @@ export const CUT_TABS: readonly TabDef[] = [
  */
 export const XHS_TABS: readonly TabDef[] = [
   { key: 'discover', text: '发现', path: '/pages/discover/index' },
+  // P2：闪念间升 Tab（与微信端同构），落长廊
+  { key: 'flashback', text: '闪念间', path: '/pages/flashback-corridor/index' },
   { key: 'profile', text: '我的', path: '/pages/profile-lite/index' }
 ]
 

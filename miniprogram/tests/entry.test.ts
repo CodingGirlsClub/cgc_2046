@@ -155,10 +155,30 @@ function entryPlatform(
   return { navigated, switched, stored }
 }
 
-test('P0-4 xhs：wishId（本端未注册页）回落薄壳页且 navigateTo（薄壳非 Tab）', () => {
+test('P2 xhs：wishId 已注册 → navigateTo 直达许愿树（非 Tab 页）', () => {
   const result = entryPlatform('xhs', { query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
+  assert.deepEqual(result.navigated, ['/pages/flashback-wishes/index?wishId=w-9'])
+  assert.deepEqual(result.switched, [])
+})
+
+test('P0-4 tt：wishId 仍未注册 → 回落薄壳页且 navigateTo（薄壳非 Tab）', () => {
+  const result = entryPlatform('tt', { query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
   assert.deepEqual(result.navigated, ['/pages/flashback/index'])
   assert.deepEqual(result.switched, [])
+})
+
+test('P2 xhs：冷启动入口即长廊（无定位参数）→ 抑制导航', () => {
+  const result = entryPlatform('xhs', { path: 'pages/flashback-corridor/index', query: {} }, [])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.switched, [])
+})
+
+test('P2 xhs：热启动在别页、目标长廊（Tab）→ switchTab', () => {
+  const result = entryPlatform('xhs', { path: 'pages/flashback-corridor/index', query: {} }, [
+    { route: 'pages/discover/index' }
+  ])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
 })
 
 test('P0-4 xhs：event id 深链照常 navigateTo（已注册目标不过滤）', () => {

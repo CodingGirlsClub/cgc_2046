@@ -67,7 +67,8 @@ defmodule Cgc2046Web.GraphqlFlashbackWishEchoAdminTest do
     {:ok, wish} =
       Wishes.create_wish(person.id, "公开树愿望", "public", public_listing_consent: true)
 
-    wish
+    Cgc2046.FlashbackFixtures.list_wish!(wish.id)
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
   end
 
   defp create_unlisted_wish do

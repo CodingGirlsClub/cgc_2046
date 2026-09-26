@@ -129,9 +129,19 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminWishesSmokeTest do
   end
 
   defp wish_by_content(content) do
-    Wish
-    |> Ash.Query.filter(content == ^content)
-    |> Ash.read_one!(authorize?: false)
+    wish =
+      Wish
+      |> Ash.Query.filter(content == ^content)
+      |> Ash.read_one!(authorize?: false)
+
+    # P2-1 机审通道门：token 写面无机审通道 → 默认待审；本套件焦点不在审核门，
+    # 直挂树（等价 admin 放行 + re-list 的终态）
+    case wish do
+      %{id: id} -> Cgc2046.FlashbackFixtures.list_wish!(id)
+      _ -> :ok
+    end
+
+    wish
   end
 
   # 经真实 GraphQL create 建 wish（visibility 可选），返回 wish 记录

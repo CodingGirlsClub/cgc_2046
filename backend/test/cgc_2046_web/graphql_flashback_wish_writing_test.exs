@@ -112,6 +112,13 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
              })
 
     wish = wish_by_content("一起办一场十周年重聚")
+    # P2-1 机审通道门：无微信身份 → 待审（hidden_at 置位、listed_at NULL）；
+    # admin 放行 + re-list 后 listed_at 落库（挂树契约保持）
+    assert wish.hidden_at != nil
+    assert wish.listed_at == nil
+
+    Cgc2046.FlashbackFixtures.list_wish!(wish.id)
+    wish = wish_by_content("一起办一场十周年重聚")
     assert %DateTime{} = wish.listed_at
     # KTD1：未绑定账号没有展示名，GraphQL 写面不得公开名册全名。
     assert wish.signature == "王**"
@@ -222,15 +229,15 @@ defmodule Cgc2046Web.GraphqlFlashbackWishWritingTest do
     )
   end
 
-  test "三态 status：正常作者 public+consent → listed" do
+  test "三态 status：token 写面（无机审通道）public+consent → pending_review（P2-1）" do
     arch = archive()
     person = person(arch)
     token = token_for(person)
 
-    assert %{"data" => %{"flashbackCreateWish" => %{"status" => "listed"}}} =
+    assert %{"data" => %{"flashbackCreateWish" => %{"status" => "pending_review"}}} =
              create_wish_with_status(token, "正常挂树")
 
-    assert %DateTime{} = wish_by_content("正常挂树").listed_at
+    assert wish_by_content("正常挂树").listed_at == nil
   end
 
   test "三态 status：private → private" do
