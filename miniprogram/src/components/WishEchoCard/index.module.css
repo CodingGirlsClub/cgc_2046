@@ -79,3 +79,14 @@
   color: #ea5504;
   text-align: center;
 }
+
+/* 换肤（盘点 §7）：回响 = 愿望被回应了——整张卡是金（被点亮的）；火只留给「我能出力」 */
+.echoCard { background: var(--gold-soft); border-color: var(--gold-line); border-radius: 20rpx; }
+.echoHeader { border-bottom-color: var(--gold-line); }
+.echoHeaderLabel { color: var(--ink); font-weight: 400; font-family: var(--serif); }
+.echoHeaderCount, .metaDate { color: var(--ink-3); }
+.echoRow + .echoRow { border-top-color: var(--gold-line); }
+.orgBadge { color: var(--ink-2); background: var(--paper-hi); }
+.correctedBadge { color: var(--gold-ink); background: var(--paper-hi); }
+.echoBody { color: var(--ink); font-family: var(--serif); }
+.toggleText { color: var(--gold-ink); }

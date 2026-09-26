@@ -874,3 +874,133 @@
 
 
 .wishTreeLink { display: block; color: #eadba8; font-size: 28rpx; padding: 20rpx 0; }
+/* #933 相册开放告知（一次性，内嵌不遮挡）：纸底 + 金色细边 = 「已被点亮的」提示 */
+.albumNotice { flex-shrink: 0; margin: 0 28rpx 18rpx; padding: 22rpx 26rpx; border-radius: 16rpx; background: #fffdf7; border: 1rpx solid #e3cf9c; }
+.albumNoticeText { display: block; font-size: 23rpx; line-height: 1.75; color: #1e3a2f; }
+.albumNoticeActions { display: flex; justify-content: flex-end; gap: 36rpx; margin-top: 12rpx; }
+.albumNoticeGo { font-size: 23rpx; color: #8a6418; }
+.albumNoticeOk { font-size: 23rpx; color: #56665a; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则的颜色与质感 ──────────────
+   纸是页底 · 时间胶囊是暗房（安全灯光晕）· 火跟着「下一步」走（每屏最多一处）：
+   没写 → 写今天的你；写了没寄 → 写完寄出；寄出后 → 把这一刻做成卡片 ·
+   金 = 已经被点亮的（已寄出、已授权、已附议、N 位已回来、今天）。 */
+.page { background: var(--paper); color: var(--ink); font-family: var(--serif); }
+.publicEntries { background: var(--paper-hi); box-shadow: 0 16rpx 40rpx -36rpx rgba(30, 40, 30, 0.6); }
+.publicEntries .voicesEntry, .publicEntries .wishesEntry { color: var(--ink); }
+.publicEntries .wishesEntry { border-left-color: var(--rule); }
+.entryEnglish { color: var(--qing); letter-spacing: 4rpx; }
+.entryHeading { font-size: 36rpx; }
+.entryArrow { color: var(--ink-3); }
+.entrySubtitle { color: var(--ink-2); }
+.miniCard { background: var(--paper-hi); border-radius: 6rpx; transform: rotate(-2.5deg); box-shadow: 0 24rpx 48rpx -32rpx rgba(30, 40, 30, 0.55); }
+.miniCardLit { border-top: 4rpx solid var(--gold); }
+.miniCardName { font-weight: 500; color: var(--ink); }
+.miniCardFacts { color: var(--ink-2); }
+.miniCardHint { color: var(--ink-3); }
+.dockWritePrimary, .dockSend, .dockLicense {
+  font-size: 22rpx; line-height: 1.5; padding: 12rpx 26rpx; border-radius: 999rpx; text-align: center;
+  font-family: sans-serif; border: 1rpx solid transparent;
+}
+/* 火：下一步 */
+.dockWritePrimary, .dockSend { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); }
+/* 墨：写过了（仍可再改） */
+.dockWriteDone { color: var(--ink); background: transparent; border-color: var(--ink-3); }
+.dockSendDim { opacity: 1; color: var(--ink-3); background: transparent; border-color: var(--rule); }
+.dockSendBusy { opacity: 0.6; }
+/* 金：已寄出 / 已授权 */
+.dockSendDone { color: var(--gold-ink); background: var(--gold-soft); border-color: var(--gold-line); }
+.dockLicense { color: var(--ink); background: transparent; border-color: var(--ink-3); }
+.dockLicenseOn { color: var(--gold-ink); background: var(--gold-soft); border-color: var(--gold-line); }
+/* 时间胶囊 = 暗房：顶部一圈安全灯光晕 */
+.capsuleShell { background: radial-gradient(ellipse at 50% 0%, rgba(234, 85, 4, 0.14), transparent 60%), var(--dark); border-radius: 36rpx; }
+.capFrame { border-bottom-color: var(--dark-rule); }
+.capFrameNow { background: radial-gradient(70% 60% at 30% 20%, rgba(236, 201, 118, 0.08), transparent); }
+.capWhen { color: var(--dark-ink); font-weight: 400; }
+.capLabel { color: var(--dark-ink-2); }
+.capReturned { font-size: 21rpx; color: var(--gold); }
+.pinPolaroid { box-shadow: 0 20rpx 36rpx -24rpx rgba(0, 0, 0, 0.8); }
+.pinPhoto { background: linear-gradient(170deg, #e9e0cb, #cfc4ab); }
+.pinCity { color: #3a3a32; font-weight: 500; }
+.pinCount { color: #6d6a5e; opacity: 1; }
+.cityPin, .cityPinAll { color: var(--dark-ink-2); background: transparent; border-color: var(--dark-rule); box-shadow: none; }
+/* 城市钉选中是「选择」不是「动作」：反白，不用火 */
+.cityPinActive { color: var(--dark); background: var(--dark-ink); border-color: var(--dark-ink); }
+.todayTitle { color: var(--gold); font-weight: 400; }
+.todayVacant { border-color: rgba(239, 229, 210, 0.35); }
+.todayVacantText { color: var(--dark-ink-2); }
+.wishTreeLink { color: var(--dark-ink); }
+.capFuture { color: var(--dark-ink-2); font-weight: 400; }
+.capFutureDim { color: var(--dark-ink-2); opacity: 0.7; }
+.futureTitleDark { color: var(--dark-ink-2); font-weight: 400; }
+.eventCard { background: var(--dark-3); border-radius: 16rpx; }
+.eventCardLit { background: var(--dark-3); border: 1rpx solid var(--gold-line); box-shadow: none; }
+.eventCardMuted { background: var(--dark-3); border: 0; opacity: 0.6; }
+.eventTitle { color: var(--dark-ink); font-weight: 400; }
+.eventMeta { color: var(--dark-ink-2); }
+.eventCta { color: var(--dark-ink); background: transparent; border: 1rpx solid var(--dark-rule); }
+.eventBadge { color: var(--dark-ink-2); }
+.wishAddBtn { color: var(--dark-ink); border-color: var(--dark-rule); padding: 10rpx 26rpx; }
+.wishCard { background: var(--paper-hi); border-color: transparent; }
+.wishContent { color: var(--ink); }
+.wishWho { color: var(--ink-2); }
+.wishEndorse { color: var(--ink-2); }
+.wishEndorsed { color: var(--gold-ink); }
+.privateFoldDark { background: var(--dark-3); }
+.privateFoldDark .privateFoldLabel, .privateFoldDark .privateFoldArrow { color: var(--dark-ink-2); }
+.footerBar { background: var(--paper); }
+.cta { background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+/* 寄出前「做成卡片」不是下一步：降为墨色描边 */
+.ctaQuiet { color: var(--ink); background: var(--paper-hi); border: 1rpx solid var(--ink-3); box-shadow: none; font-weight: 400; }
+/* 开卡层 / 引导 / 模态：遮罩统一暗房色，卡片是纸 */
+.layerMask { background: rgba(21, 19, 15, 0.9); }
+.wallOn { color: var(--gold); }
+.wallOff { color: var(--dark-ink-2); }
+.layerClose { background: rgba(239, 229, 210, 0.14); color: var(--dark-ink); }
+.shutterMask { background: radial-gradient(ellipse at 50% 0%, rgba(234, 85, 4, 0.26), rgba(234, 85, 4, 0.06) 40%, transparent 65%), var(--dark); }
+.shutterEyebrow { font: 500 21rpx/1 sans-serif; letter-spacing: 0.36em; color: rgba(255, 170, 120, 0.8); }
+.shutterLead { font-size: 42rpx; line-height: 1.8; color: var(--dark-ink); white-space: pre-line; }
+.shutterBtn { border: 0; background: radial-gradient(circle at 34% 30%, #ff9a57, var(--fire) 58%, #c94600); box-shadow: 0 0 0 14rpx var(--dark), 0 0 0 16rpx rgba(234, 85, 4, 0.35), 0 28rpx 72rpx -16rpx var(--fire-glow); }
+.shutterHint { color: var(--dark-ink-2); letter-spacing: 0.08em; }
+.nudgeMask, .wishModalMask, .wishSheetMask { background: rgba(21, 19, 15, 0.62); }
+.nudgeCard { background: var(--paper-hi); border-radius: 28rpx; }
+.nudgeLead { color: var(--ink); font-weight: 400; font-size: 36rpx; }
+.nudgeSub { color: var(--ink-2); }
+.nudgePrimary, .wishSheetSubmit { background: linear-gradient(180deg, var(--fire-2), var(--fire)); color: #fff; }
+.nudgeSkip { color: var(--ink-3); }
+.wishModal { background: var(--paper-hi); border-radius: 28rpx; }
+.wishModalContent { color: var(--ink); font-weight: 500; }
+/* 模态里「我能出力」是这一屏唯一的火；已附议是金 */
+.wishModal .wishEndorse { color: var(--fire); font-weight: 600; }
+.wishModal .wishEndorsed { color: var(--gold-ink); }
+.wishComments { border-top-color: var(--rule); }
+.wishCommentsTitle, .wishCommentText { color: var(--ink); }
+.wishCommentWho { color: var(--ink-2); }
+.wishInput { background: var(--paper-deep); }
+.wishSheet { background: var(--paper-hi); border-radius: 32rpx 32rpx 0 0; }
+.wishSheetBar { background: var(--rule); }
+.wishSheetTitle { color: var(--ink); }
+.wishSheet .eventMeta { color: var(--ink-2); }
+.enrollDeposit { color: var(--ink-3); }
+/* 金句授权：选档是「选择」（墨），圈中的句子是「将被点亮的」（金） */
+.licenseSheet { background: var(--paper-hi); }
+.courageBadgeText { color: var(--gold-ink); background: var(--gold-soft); border-color: var(--gold-line); font-family: var(--serif); }
+.licenseRowActive { background: var(--paper); border-color: var(--ink); }
+.licenseDot { border-color: var(--ink-3); }
+.licenseRowActive .licenseDot { border: 10rpx solid var(--ink); background: transparent; }
+.licenseLabel { color: var(--ink); font-weight: 500; }
+.licenseDesc { color: var(--ink-3); }
+.quotePickHint { color: var(--ink-2); }
+.quoteCandidate { color: var(--ink); border-left-color: var(--rule); }
+.quoteCandidateActive { color: var(--ink); background: var(--gold-soft); border-left-color: var(--gold); font-weight: 400; }
+.quoteCandidateQ { color: var(--ink-3); }
+.quotePreview { border-top-color: var(--rule); }
+.quotePreviewHint { color: var(--ink-2); }
+.quotePreviewCard { background: var(--paper); border-color: var(--gold-line); }
+.quotePreviewQ { color: var(--ink); }
+.quotePreviewName, .quotePreviewDim, .licenseFoot { color: var(--ink-3); }
+.quotePreviewLink { color: var(--gold-ink); }
+.albumNotice { background: var(--paper-hi); border-color: var(--gold-line); }
+.albumNoticeText { color: var(--ink); }
+.albumNoticeGo { color: var(--gold-ink); }
+.albumNoticeOk { color: var(--ink-2); }

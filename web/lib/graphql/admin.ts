@@ -1228,8 +1228,9 @@ export interface FlashbackOutreachRosterEntry {
 export interface FlashbackAdminArchive {
 	key: string;
 	name: string;
-	city: string;
-	occurredOn: string;
+	// 教练场等档案无具体日期/城市（backend schema 为 nullable）
+	city: string | null;
+	occurredOn: string | null;
 }
 
 export const FLASHBACK_OUTREACH_PREVIEW: TypedDocumentNode<
@@ -1332,7 +1333,7 @@ export const FLASHBACK_ADMIN_SEND_OUTREACH: TypedDocumentNode<
 `;
 
 export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
-	{ flashbackAdminResendOutreach: { queued: number; skipped: number; batch: string } },
+	{ flashbackAdminResendOutreach: { queued: number; skipped: number } },
 	{ personId: string; template: string; channel?: string | null }
 > = gql`
 	mutation FlashbackAdminResendOutreach($personId: ID!, $template: String!, $channel: String) {
@@ -1343,7 +1344,6 @@ export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
 		) {
 			queued
 			skipped
-			batch
 		}
 	}
 `;

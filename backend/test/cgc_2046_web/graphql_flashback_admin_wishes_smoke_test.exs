@@ -176,7 +176,7 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminWishesSmokeTest do
   end
 
   @resend_query """
-  query Resend($personId: ID!, $template: String!, $channel: String) {
+  mutation Resend($personId: ID!, $template: String!, $channel: String) {
     flashbackAdminResendOutreach(personId: $personId, template: $template, channel: $channel) {
       queued skipped
     }

@@ -13,7 +13,7 @@ import { FlashbackTokenInvalidError } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { PageState } from '@/components/PageState'
 import { shareMessage } from '@/domain/flashback'
-import { buildFlashbackJourneyPath } from '@/domain/share-route'
+import { buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackCapsule } from '@/domain/models'
 import MyCard from '@/components/MyCard'
 import ShareSheet from '@/components/MyCard/ShareSheet'
@@ -60,12 +60,12 @@ export default function FlashbackPage() {
 
   useDidShow(() => { void load() })
 
-  // R14 分享(··· 胶囊菜单常驻):标题动态相对年数;卡片落旅程入口(裁剪端回落本页)
+  // R14 分享(··· 胶囊菜单常驻):标题动态相对年数;卡片落闪念间 Tab(#929;裁剪端回落本页)
   useShareAppMessage(() => {
     const me = state.kind === 'ready' ? state.capsule.me : null
     return {
       title: me ? shareMessage(me).title : '闪念间 · 找回当年的自己',
-      path: isCut ? '/pages/flashback/index' : buildFlashbackJourneyPath()
+      path: isCut ? '/pages/flashback/index' : buildFlashbackEntryPath()
     }
   })
   useShareTimeline(() => {

@@ -72,9 +72,14 @@ export const FLASHBACK_ENTRY_ROUTES = [
   'pages/flashback-event/index'
 ] as const
 
-/** 旅程入口 path（分享卡片 path 单源；token 是链接身份，分享卡片不带——R32） */
-export function buildFlashbackJourneyPath(): string {
-  return '/pages/flashback-journey/index'
+/**
+ * 闪念间入口 path（分享卡片 path 与公开卡「找回」单源，#929）：落闪念间 Tab（长廊）——
+ * 未登录看公开首页，有档案进自己的长廊。token 是链接身份，分享卡片不带（R32）；
+ * 不带 token 的首程页只留给真正失效的链接——转发落在那里，新人会先看到「没有找到这张邀请函」。
+ * Tab 页：页内跳转用 switchTab（applyEntry 冷热启动同理）。
+ */
+export function buildFlashbackEntryPath(): string {
+  return '/pages/flashback-corridor/index'
 }
 
 /** join 页邀请链接 path（#415 分享出口；scene 必须 encodeURIComponent） */

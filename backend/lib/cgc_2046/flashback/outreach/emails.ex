@@ -20,7 +20,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   # 逐字引自原图私信（「虽然」起连续到句尾，零删改）——引文与截图上下
   # 并排，任何改写都会被读出对不上。
   @quote_text "虽然我后来一直没有进入 IT 界，还在原岗位上，但刚刚一闪念间想起来曾经参加的这个活动，很想感谢你，感谢你的热情和付出，曾经那么早让我有一小扇窗得以窥见编程世界。"
-  @subject "程序媛汇：中秋快乐——闪念回当年，系愿于今朝"
+  @subject "程序媛汇：月亮刚圆过，宜重逢——闪念回当年，系愿于今朝"
   @quote_sign "—— 一位 2013 年 5 月参加 Rails Girls 的学员"
   @mini_program_line "手机上也可以在微信里搜索小程序「程序媛汇」，体验更顺手。"
 
@@ -90,7 +90,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     """
     你好，#{display_name || "同学"}：
 
-    中秋快乐。月亮最圆的日子，宜想念，宜重逢——
+    月亮刚圆过。宜想念，宜重逢——
 
     2023 年 4 月，一位 2013 年参加 Rails Girls 的学员，在微博上给我们发来一段话：
 
@@ -127,7 +127,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <div style="max-width:640px;margin:0 auto;padding:40px 20px 48px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;">
     <div style="font-size:12px;letter-spacing:6px;color:#cbbf8f;text-align:center;margin-bottom:36px;">IN A FLASH · 闪念间</div>
     <p style="font-size:16px;color:#d9d4ca;line-height:1.8;margin:0 0 18px;">你好，#{name}：</p>
-    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">中秋快乐。月亮最圆的日子，宜想念，宜重逢——</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">月亮刚圆过。宜想念，宜重逢——</p>
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">2023 年 4 月，一位 2013 年参加 Rails Girls 的学员，在微博上给我们发来一段话：</p>
     <div style="background:#ffffff;padding:14px 14px 44px;border-radius:2px;margin:0 0 16px;">
     <img src="#{screenshot_url}" alt="“#{@quote_text}”#{@quote_sign}" style="display:block;width:100%;height:auto;border:0;" />

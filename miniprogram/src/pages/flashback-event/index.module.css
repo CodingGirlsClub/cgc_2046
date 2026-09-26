@@ -207,3 +207,36 @@
   to { opacity: 1; transform: none; }
 }
 .rosterCellWrap { animation: rosterDevelop 0.5s ease-out both; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   纸底相册；显影卡顶边一道金（她回来了）、「N 位已回来」是金；雾卡只剩「王**」（#933）；
+   找回 CTA 是这一屏唯一的火；回环三出口是墨色描边；看别人的卡 = 暗房里的一张拍立得。 */
+.page { background: var(--paper); color: var(--ink); font-family: var(--serif); }
+.back { color: var(--ink-3); font-size: 28rpx; }
+.title { color: var(--ink); font-weight: 400; font-size: 40rpx; }
+.stat { color: var(--ink-2); font: 24rpx/1.6 sans-serif; }
+.statReturned { color: var(--gold-ink); }
+.peopleHint { color: var(--ink-3); font: 23rpx/1.6 sans-serif; }
+.cardLit { background: var(--paper-hi); border-top: 4rpx solid var(--gold); box-shadow: 0 20rpx 40rpx -32rpx rgba(30, 40, 30, 0.6); }
+.cardWindow { background: linear-gradient(170deg, #e6dcc4, #cdbf9f); }
+.cardName { color: #3a3a32; font-size: 26rpx; font-weight: 500; }
+.cardFoot { color: var(--gold-ink); font-size: 20rpx; }
+.cardFog { background: rgba(236, 228, 210, 0.5); border-color: rgba(152, 160, 146, 0.7); }
+.cardNameFog { color: var(--ink-2); font-size: 30rpx; }
+.cardFootFog { color: var(--ink-3); font-size: 20rpx; }
+.guideText { color: var(--ink-2); }
+.cta { background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.loopBlock { align-items: center; }
+.loopBtn { width: 440rpx; background: transparent; color: var(--ink); border: 1rpx solid var(--ink-3); border-radius: 999rpx; font-size: 26rpx; }
+.layerMask { background: rgba(21, 19, 15, 0.9); }
+.viewCover, .viewPolaroid { background: var(--paper-hi); border-radius: 6rpx; }
+.viewCoverName { color: var(--ink); font-weight: 500; }
+.viewCoverHint, .viewFoot { color: var(--ink-3); }
+.viewPhoto { padding: 30rpx; background: linear-gradient(165deg, #d9cfb8, #bfb298 60%, #a89c80); }
+.viewSegments, .viewToday { color: var(--ink); }
+/* 雾块：与自己的卡同一质感（带颗粒的「显影不足」）。宽度只分三档（与 web 名册 polaroid-flip
+   同阈值 ≤6 / ≤14 / 更长）——原句长短也是信息，不按精确长度画（公开分享卡则一律定宽） */
+.viewFog { display: inline-block; height: 1.05em; vertical-align: -4rpx; padding: 0; filter: none; border-radius: 6rpx; background: linear-gradient(90deg, rgba(152, 160, 146, 0.55), rgba(152, 160, 146, 0.35)); }
+.viewFogS { width: 3em; }
+.viewFogM { width: 6em; }
+.viewFogL { width: 9em; }
