@@ -38,7 +38,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 | `pnpm e2e:order-pay-consent` | wechatide CLI + 已登录的 DevTools | 押金同意门（创单前勾选 → 带 consent 创单 → 支付），带截图 |
 | `pnpm e2e:initiative` | 同上 | 倡导活动旅程、详情页回链 / 成班徽章，带截图 |
 | `pnpm e2e:flashback` | 同上 | 「我的闪念间」主旅程，带截图 |
-| `e2e/` 下其余 `*.e2e.py` / `*.e2e.mjs` | 同上 | 闪念间与许愿树的子旅程；未登记为 pnpm 脚本，直接 `python3` / `node` 跑，前置条件见各脚本头注释 |
+| `e2e/` 下其余 `*.e2e.py` / `*.e2e.mjs` | 同上 | 闪念间 / 许愿树 / 登录的子旅程（含 #929–#933 批次的找回 / 撤下 / 静默登录 / 场次登录死循环回归）；未登记为 pnpm 脚本，直接 `python3` / `node` 跑，前置条件见各脚本头注释 |
 
 跑 e2e 的四条纪律：
 
