@@ -2403,7 +2403,10 @@
       "join_request": "加入申请",
       "workspace_application": "工作台申请",
       "event": "活动",
-      "course": "课程"
+      "course": "课程",
+      "payment_order": "支付订单",
+      "user": "用户",
+      "notification_delivery": "通知投递"
     },
     "applicationStatus": {
       "pending": "待审批",

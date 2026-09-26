@@ -555,6 +555,9 @@ export const RECONCILIATION_ENTITY_LABEL: Record<string, string> = {
 	course: "labels.reconEntity.course",
 	oban_job: "Oban Job",
 	workflow_run: "Workflow Run",
+	payment_order: "labels.reconEntity.payment_order",
+	user: "labels.reconEntity.user",
+	notification_delivery: "labels.reconEntity.notification_delivery",
 };
 
 /** approveWorkspaceApplication 的 result 子集（审批后状态） */
