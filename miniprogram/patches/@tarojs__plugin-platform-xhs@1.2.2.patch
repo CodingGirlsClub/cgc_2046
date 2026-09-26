@@ -1,0 +1,36 @@
+diff --git a/dist/runtime-utils.js b/dist/runtime-utils.js
+index 8ead8d071dd22f088b2884fcce305b470929ad51..358a039b947622720c1e9917416231841a0e8692 100644
+--- a/dist/runtime-utils.js
++++ b/dist/runtime-utils.js
+@@ -111,6 +111,13 @@ const hostConfig = {
+          */
+         if (methods.indexOf('onShareChat') === -1) {
+             methods.push('onShareChat');
++            // cgc patch: xhs 基础库要求 onShareChat 必须与 onShareAppMessage 成对注册，
++            // 否则页面 mount 报 RUNTIME ERROR「onShareTimeline 或 onShareChat 必须与
++            // onShareAppMessage 配合使用」。成对注入后，无显式钩子的页面按平台默认
++            // 分享（当前页+标题），显式 useShareAppMessage 的页面不受影响。
++            if (methods.indexOf('onShareAppMessage') === -1) {
++                methods.push('onShareAppMessage');
++            }
+         }
+         if (methods.indexOf('onCopyUrl') === -1) {
+             methods.push('onCopyUrl');
+diff --git a/dist/runtime.js b/dist/runtime.js
+index c412a96ecc3439cede47ca98b8870fa45066d557..fe081ea0e0219a3971b972a36f8ad4e41672b0fc 100644
+--- a/dist/runtime.js
++++ b/dist/runtime.js
+@@ -111,6 +111,13 @@ const hostConfig = {
+          */
+         if (methods.indexOf('onShareChat') === -1) {
+             methods.push('onShareChat');
++            // cgc patch: xhs 基础库要求 onShareChat 必须与 onShareAppMessage 成对注册，
++            // 否则页面 mount 报 RUNTIME ERROR「onShareTimeline 或 onShareChat 必须与
++            // onShareAppMessage 配合使用」。成对注入后，无显式钩子的页面按平台默认
++            // 分享（当前页+标题），显式 useShareAppMessage 的页面不受影响。
++            if (methods.indexOf('onShareAppMessage') === -1) {
++                methods.push('onShareAppMessage');
++            }
+         }
+         if (methods.indexOf('onCopyUrl') === -1) {
+             methods.push('onCopyUrl');
