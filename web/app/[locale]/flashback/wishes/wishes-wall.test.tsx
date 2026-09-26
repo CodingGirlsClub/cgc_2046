@@ -6,6 +6,7 @@ import { render } from "@/test-utils";
 import WishesWall from "./wishes-wall";
 import {
 	FLASHBACK_CITIES,
+	FLASHBACK_WISH_CITIES,
 	FLASHBACK_EXPECT_WISH,
 	FLASHBACK_MY_WISHES,
 	FLASHBACK_PUBLIC_WISHES,
@@ -35,9 +36,10 @@ const wish = (id: string, over: Partial<FlashbackPublicWish> = {}): FlashbackPub
 	...over,
 });
 
-const { wallQuery, citiesQuery, myWishesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
+const { wallQuery, citiesQuery, nationalCitiesQuery, myWishesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
 	wallQuery: vi.fn(),
 	citiesQuery: vi.fn(),
+	nationalCitiesQuery: vi.fn(),
 	myWishesQuery: vi.fn(),
 	expectRunner: vi.fn(),
 	useAuthed: vi.fn(),
@@ -54,7 +56,8 @@ vi.mock("@/lib/apollo-client", () => ({
 	client: {
 		query: (options: { query: unknown }) => {
 			if (options.query === FLASHBACK_PUBLIC_WISHES) return wallQuery(options);
-			if (options.query === FLASHBACK_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_WISH_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_CITIES) return nationalCitiesQuery(options);
 			if (options.query === FLASHBACK_MY_WISHES) return myWishesQuery(options);
 			throw new Error("unexpected query");
 		},
@@ -77,6 +80,8 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 beforeEach(() => {
 	wallQuery.mockReset();
 	citiesQuery.mockReset();
+	nationalCitiesQuery.mockReset();
+	nationalCitiesQuery.mockResolvedValue({ data: { flashbackCities: [{ name: "北京" }, { name: "上海" }, { name: "广州" }] } });
 	myWishesQuery.mockReset();
 	myWishesQuery.mockResolvedValue({ data: { flashbackMyWishes: { quotaRemaining: 3, wishes: [] } } });
 	expectRunner.mockReset();
@@ -85,7 +90,13 @@ beforeEach(() => {
 	deferred.length = 0;
 	wallQuery.mockResolvedValue({ data: { flashbackPublicWishes: [wish("w1"), wish("w2", { city: "成都" })] } });
 	citiesQuery.mockResolvedValue({
-		data: { flashbackCities: [{ name: "北京", fullName: "北京市", pinyin: "beijing", lngLat: [116.4, 39.9] }] },
+		data: {
+			flashbackWishCities: [
+				{ name: "北京", fullName: "北京市", pinyin: "beijing", lngLat: [116.4, 39.9] },
+				{ name: "成都", fullName: "成都市", pinyin: "chengdu", lngLat: [104.07, 30.57] },
+				{ name: "宁波", fullName: "宁波市", pinyin: "ningbo", lngLat: [121.55, 29.87] },
+			],
+		},
 	});
 	window.localStorage.clear();
 	window.sessionStorage.clear();
@@ -241,6 +252,17 @@ describe("回响筛选与分页", () => {
 });
 
 // L1：未登录写愿望的登录回跳保留城市与单条直达上下文
+// PR #960 评审 3：城市钉数据源 = flashbackWishCities（全集），
+// 收成每页 24 条之后城市栏不随已加载页变残
+describe("城市钉真源", () => {
+ it("城市钉来自 flashbackWishCities，不在已加载页里的城市也在列", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  // MapScene 城市钉按钮：aria-label = 城市名
+  expect(screen.getByRole("button", { name: "宁波" })).toBeInTheDocument();
+ });
+});
+
 describe("写愿望登录回跳", () => {
  it("next 带当前城市与 ?item= 单条", async () => {
   render(<WishesWall showIntro={false} initialItem={wish("w-item")} initialCity="北京" />);

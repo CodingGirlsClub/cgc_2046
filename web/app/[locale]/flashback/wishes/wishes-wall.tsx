@@ -10,12 +10,11 @@ import { useAuthed } from "@/lib/auth-provider";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import { WishFormModal } from "@/components/flashback/wish-frames";
 import {
-	FLASHBACK_CITIES,
+	FLASHBACK_WISH_CITIES,
 	FLASHBACK_EXPECT_WISH,
 	FLASHBACK_MY_WISHES,
 	FLASHBACK_PUBLIC_WISHES,
 	FLASHBACK_REPORT_WISH,
-	type FlashbackCity,
 	type FlashbackPublicWish,
 } from "@/lib/graphql/flashback";
 import MapScene, { type CitySpec } from "../voices/map-scene";
@@ -87,7 +86,7 @@ export default function WishesWall({
 	const [myQuota, setMyQuota] = useState<number | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [city, setCity] = useState<string>(initialItem?.city ?? initialCity ?? "");
-	const [cityCoords, setCityCoords] = useState<Record<string, { lng: number; lat: number }>>({});
+	const [wishCities, setWishCities] = useState<CitySpec[]>([]);
 	const [seed, setSeed] = useState<string | null>(null);
 	const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
 	const [toast, setToast] = useState("");
@@ -148,42 +147,49 @@ export default function WishesWall({
 		if (showIntro) markIntroSeen();
 	}, [showIntro, markIntroSeen]);
 
-	// 城市名单真源（KTD11 钉点坐标）：一次拉取缓存
+	// PR #960 评审 3：城市钉真源 = flashbackWishCities（有愿望的城市全集，
+	// 坐标服务端下发）——收成每页 24 条后城市栏不随已加载页变残
 	useEffect(() => {
 		client
-			.query({ query: FLASHBACK_CITIES, fetchPolicy: "cache-first" })
+			.query({ query: FLASHBACK_WISH_CITIES, fetchPolicy: "network-only" })
 			.then(({ data }) => {
-				const table: Record<string, { lng: number; lat: number }> = {};
-				for (const c of (data?.flashbackCities ?? []) as FlashbackCity[]) {
-					table[c.name] = { lng: c.lngLat[0], lat: c.lngLat[1] };
-				}
-				setCityCoords(table);
+				setWishCities(
+					(data?.flashbackWishCities ?? []).map((c) => ({ name: c.name, lng: c.lngLat[0], lat: c.lngLat[1] })),
+				);
 			})
-			.catch(() => setCityCoords({}));
+			.catch(() => setWishCities([]));
 	}, []);
 
 	// 公开树加载（失败可重试）：city/seed/voterKey 变化或重试时重拉。
 	// 不同步置 loading（react-hooks/set-state-in-effect）：初始态即 "loading"；
 	// 变化重拉沿用旧数据平滑替换；显式重试在 handler 置 loading。
-	useEffect(() => {
-		// 乱序守卫：city/seed 快速连点时，后发先至的新响应生效，晚到的旧响应丢弃
-		let cancelled = false;
-		client
-			.query({
+	// PR #960 评审 3：首屏与「加载更多」共用同一取数函数（首屏 = offset 0）
+	const fetchWishPage = useCallback(
+		async (offset: number) => {
+			const { data } = await client.query({
 				query: FLASHBACK_PUBLIC_WISHES,
 				variables: {
 					city: city || null,
 					seed,
+					offset,
 					limit: PAGE_SIZE,
 					// M8：「已有回响」由服务端筛选（withEchoes），不再前端按附议数近似
 					withEchoes: filter === "echo" ? true : null,
 					voterKey: voter,
 				},
 				fetchPolicy: "network-only",
-			})
-			.then(({ data }) => {
+			});
+			return (data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[];
+		},
+		[city, seed, filter, voter],
+	);
+
+	useEffect(() => {
+		// 乱序守卫：city/seed 快速连点时，后发先至的新响应生效，晚到的旧响应丢弃
+		let cancelled = false;
+		fetchWishPage(0)
+			.then((page) => {
 				if (cancelled) return;
-				const page = (data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[];
 				setWishes(page);
 				setHasMore(page.length >= PAGE_SIZE);
 				setLoadState("ready");
@@ -195,7 +201,7 @@ export default function WishesWall({
 		return () => {
 			cancelled = true;
 		};
-	}, [city, seed, voter, filter, loadGeneration]);
+	}, [fetchWishPage, loadGeneration]);
 
 	// toast 自动消失
 	useEffect(() => {
@@ -221,24 +227,15 @@ export default function WishesWall({
 		};
 	}, [authed, loadGeneration]);
 
-	// 城市钉条：当前树上有愿望的城市（数据驱动），坐标真源查表；无坐标排尾
-	const cities: CitySpec[] = useMemo(() => {
-		const seen = new Map<string, CitySpec>();
-		for (const w of wishes) {
-			if (!w.city || seen.has(w.city)) continue;
-			const coords = cityCoords[w.city];
-			if (coords) seen.set(w.city, { name: w.city, lng: coords.lng, lat: coords.lat });
-		}
-		return [...seen.values()];
-	}, [wishes, cityCoords]);
+	// 城市钉：服务端全集（PR #960 评审 3），不随已加载页变残
+	const cities = wishCities;
 
 	// M8：「已有回响」 chips 由服务端 withEchoes 筛选，前端不再按附议数近似；
-	// 选中项从过滤集取，失效回落首条
-	const filtered = wishes;
-	const currentInFilter = filtered.find((w) => w.id === currentWishId) ?? filtered[0] ?? null;
+	// 选中项失效回落首条
+	const currentInFilter = wishes.find((w) => w.id === currentWishId) ?? wishes[0] ?? null;
 	const others = useMemo(
-		() => filtered.filter((w) => w.id !== currentInFilter?.id),
-		[filtered, currentInFilter],
+		() => wishes.filter((w) => w.id !== currentInFilter?.id),
+		[wishes, currentInFilter],
 	);
 
 	const copyShareLink = useCallback(
@@ -272,19 +269,7 @@ export default function WishesWall({
 		if (loadingMore || !hasMore) return;
 		setLoadingMore(true);
 		try {
-			const { data } = await client.query({
-				query: FLASHBACK_PUBLIC_WISHES,
-				variables: {
-					city: city || null,
-					seed,
-					offset: wishes.length,
-					limit: PAGE_SIZE,
-					withEchoes: filter === "echo" ? true : null,
-					voterKey: voter,
-				},
-				fetchPolicy: "network-only",
-			});
-			const page = (data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[];
+			const page = await fetchWishPage(wishes.length);
 			setWishes((prev) => {
 				const seen = new Set(prev.map((w) => w.id));
 				return [...prev, ...page.filter((w) => !seen.has(w.id))];
@@ -442,7 +427,7 @@ export default function WishesWall({
 						<p role="status" className={styles.panelNote}>
 							{t("loading")}
 						</p>
-					) : filtered.length === 0 ? (
+					) : wishes.length === 0 ? (
 						<p className={styles.panelNote}>
 							{filter === "echo" ? t("echoEmpty") : city ? t("cityEmpty", { city }) : t("empty")}
 						</p>
