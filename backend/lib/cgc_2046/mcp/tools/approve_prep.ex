@@ -27,7 +27,8 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
     """
     审核通过并发布课程，只在课程的教研流程处于 review 时可用。审核人是教研策略指定的 reviewer（未指定
     时任何工作台成员都可审，允许 tutor 自审），或 Owner/Admin。通过后生成一个不可变的新课程版本并发布：
-    课程还是 draft 时开放报名，已开放的课程切换到新版本；教研流程进入 published。确认与当前草稿版本
+    课程还是 draft 时变为 open（visibility=public 才会出现在公开面开放报名，仅 workspace 可见的只对成员
+    开放），已 open 的课程切换到新版本；教研流程进入 published。确认与当前草稿版本
     绑定：确认前草稿被改动，本次确认失效，需要对新草稿重新审核。
     走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
     用户确认后调 confirm_operation(pending_id) 才执行。

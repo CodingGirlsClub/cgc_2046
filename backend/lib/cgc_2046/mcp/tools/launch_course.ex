@@ -22,7 +22,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchCourse do
   @impl true
   def description do
     """
-    工作台 Owner/Admin 专用：发布一门草稿（draft）课程，状态变为 open，开始公开报名。标题还是系统生成的
+    工作台 Owner/Admin 专用：发布一门草稿（draft）课程，状态变为 open；visibility=public 的才会出现在公开面开放报名，仅 workspace 可见的只对成员开放。标题还是系统生成的
     临时标题（provisional_title）时不能发布，先用 update_course 设置正式标题。课程不是 draft 或未命名时
     直接返回错误。
     走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，

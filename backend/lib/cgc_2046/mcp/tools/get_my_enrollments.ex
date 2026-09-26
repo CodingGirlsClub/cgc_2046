@@ -54,8 +54,9 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
     不要混用：payment_mode 是活动或课程的现行缴费配置，读不到时为 null（不代表免费）；order_kind
     （enrollment | deposit）与 tier_snapshot 是该报名最新订单的事实。活动事后关闭押金后 payment_mode 会
     变成 free，但已付的押金单仍是押金单，到场仍会退还，所以讲某笔报名的资金或退改时以 order_kind 和
-    tier_snapshot 为准；tier_snapshot.name 只是展示名，不能据它判断是不是押金。押金金额用
-    get_enrollment_summary 查。
+    tier_snapshot 为准；tier_snapshot.name 只是展示名，不能据它判断是不是押金。押金金额看
+    本行 tier_snapshot（下单时快照）或 get_order_status 的订单金额；get_enrollment_summary 的押金明细是
+    活动或课程的现行配置，不是这笔报名的历史金额。
     """
   end
 
