@@ -21,6 +21,8 @@ const TAB_PATHS = env === 'xhs' ? XHS_TAB_PATHS : isCut ? CUT_TAB_PATHS : FULL_T
 export default function LoginPage() {
   const router = useRouter()
   const [dialogVisible, setDialogVisible] = useState(false)
+  // xhs：登录码预取就绪位（非 xhs 恒 true，不参与门控）
+  const [loginStaged, setLoginStaged] = useState(env !== 'xhs')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -66,9 +68,13 @@ export default function LoginPage() {
       setSubmitting(false)
     }
     if (!signedIn) {
-      // xhs：授权弹层打开即预取登录码（session_key 时序约束见 platform/index.ts）
-      void stagePlatformLoginCode()
+      // xhs：授权弹层打开即预取登录码（session_key 时序约束见 platform/index.ts）；
+      // 预取落定前「同意并登录」保持不可点——避免拿旧 code 配新 session_key（B2）
       setDialogVisible(true)
+      if (env === 'xhs') {
+        setLoginStaged(false)
+        void stagePlatformLoginCode().then(setLoginStaged)
+      }
     }
   }
 
@@ -137,7 +143,7 @@ export default function LoginPage() {
                 data-testid='agree-login'
                 openType={__E2E_MOCK__ ? undefined : 'getPhoneNumber'}
                 loading={submitting}
-                disabled={submitting}
+                disabled={submitting || (env === 'xhs' && !loginStaged)}
                 onClick={__E2E_MOCK__ ? () => { setDialogVisible(false); void login() } : undefined}
                 onGetPhoneNumber={(event) => { setDialogVisible(false); void login(event.detail) }}
               >
