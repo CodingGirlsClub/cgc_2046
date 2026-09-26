@@ -84,6 +84,11 @@ export function WishFrames({
 					{t("publicTitle")}
 					<span className="fb-corridor-flabel">{t("publicLabel")}</span>
 				</h3>
+				{actionError && (
+					<p role="alert" className="fb-hint">
+						{actionError}
+					</p>
+				)}
 				<ul className="fb-wish-list">
 					{publicWishes.length === 0 && (
 						<li className="fb-wish-empty">
@@ -126,12 +131,7 @@ export function WishFrames({
 						</li>
 					))}
 				</ul>
-				{actionError && (
-					<p role="alert" className="fb-hint">
-						{actionError}
-					</p>
-				)}
-				<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
+								<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
 					+ {t("makeWish")}
 				</button>
 			</article>
