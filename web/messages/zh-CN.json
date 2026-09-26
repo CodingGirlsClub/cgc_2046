@@ -2392,7 +2392,8 @@
 			"fund_action_burst": "资金操作频次异常",
 			"deposit_settlement_unanchored": "押金结算无结束锚点",
 			"notification_delivery_failed": "通知投递终态失败",
-			"deposit_forfeit_batch_alert": "单场押金没收批量告警"
+			"deposit_forfeit_batch_alert": "单场押金没收批量告警",
+			"refunding_without_refund_job": "退款在途任务丢失"
 		},
 		"reconEntity": {
 			"enrollment": "报名",
