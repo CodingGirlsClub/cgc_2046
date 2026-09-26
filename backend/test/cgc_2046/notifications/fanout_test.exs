@@ -622,27 +622,26 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert length(deliveries_for_4(user.id)) == 2
     end
 
-    test "speaker_completed 双腿：同 user 同信号键靠腿成分防撞（speaker 兼任 manager）" do
+    test "speaker_completed 双腿：同 user 同信号键靠显式 leg 标记防撞（speaker 兼任 manager）" do
       user = Fixtures.register_user("prb4-spk")
       insert_identity(user.id, :wechat, "prb4-spk-wx")
       identities = Fanout.identities(user.id)
-      meta = %{"speaker_invitation_id" => "inv-1", "idempotency_key" => "speaker.completed:inv-1"}
+      base = %{"speaker_invitation_id" => "inv-1", "idempotency_key" => "speaker.completed:inv-1"}
 
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, identities},
-                 "speaker_completed",
-                 %{"speaker_invitation_id" => "inv-1", "title" => "t"},
-                 meta
-               )
-
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, identities},
-                 "speaker_completed",
-                 %{"speaker_invitation_id" => "inv-1"},
-                 meta
-               )
+      # 显式标记与旧「data 含 title」启发式对同一输入派生相同腿：managers 腿
+      # 带 title、speaker 腿不带（#902 等价性钉测）。
+      for {leg, data} <- [
+            {"managers", %{"speaker_invitation_id" => "inv-1", "title" => "t"}},
+            {"speaker", %{"speaker_invitation_id" => "inv-1"}}
+          ] do
+        assert :ok =
+                 Fanout.deliver(
+                   {user.id, identities},
+                   "speaker_completed",
+                   data,
+                   Map.put(base, "leg", leg)
+                 )
+      end
 
       assert length(deliveries_for_4(user.id)) == 2
       assert Enum.count(deliveries_for_4(user.id), &(&1.data["title"] == "t")) == 1

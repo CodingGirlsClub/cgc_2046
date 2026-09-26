@@ -10,6 +10,7 @@ defmodule Cgc2046.Accounts.MiniprogramStrategyTest do
 
   alias AshAuthentication.{Errors.AuthenticationFailed, Info, Jwt, Strategy}
   alias Cgc2046.Accounts.{User, UserIdentity}
+  alias Cgc2046.Integrations.Wechat.Client
   alias Cgc2046.MiniprogramFixtures, as: Fixtures
 
   @internal_context [context: %{private: %{ash_authentication?: true}}]
@@ -25,9 +26,15 @@ defmodule Cgc2046.Accounts.MiniprogramStrategyTest do
     })
   end
 
-  # 构造一次成功登录的全部材料：{响应体, encrypted_data, iv}
+  # 构造一次成功登录的全部材料：{响应体, encrypted_data, iv}。
+  # 密钥按平台官方口径：wechat/tt 16 字节；xhs 24 字节（doc/DC591932，见
+  # Fixtures.new_xhs_session_key/0——解密路径按密钥实际长度选 cipher）。
   defp login_fixture(platform, openid, payload, unionid \\ nil) do
-    session_key = Fixtures.new_session_key()
+    session_key =
+      case platform do
+        :xhs -> Fixtures.new_xhs_session_key()
+        _ -> Fixtures.new_session_key()
+      end
 
     body =
       Fixtures.code2session_body(platform, %{
@@ -131,6 +138,36 @@ defmodule Cgc2046.Accounts.MiniprogramStrategyTest do
 
       {:ok, claims} = Jwt.peek(user.__metadata__.token)
       assert claims["platform"] == "xhs"
+    end
+
+    test "xhs access_token 缓存：有效期内两次 code2session 只发一次 token 请求（DC010382 7200s）" do
+      test_pid = self()
+      Client.invalidate_xhs_token_cache()
+
+      Req.Test.stub(Fixtures.stub_name(), fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case {conn.host, conn.request_path} do
+          {"miniapp.xiaohongshu.com", "/api/rmp/token"} ->
+            send(test_pid, :xhs_token_requested)
+            Req.Test.json(conn, Fixtures.xhs_token_body())
+
+          {"miniapp.xiaohongshu.com", "/api/rmp/session"} ->
+            Req.Test.json(
+              conn,
+              Fixtures.code2session_body(:xhs, %{openid: "x-cache-openid", session_key: "k"})
+            )
+
+          other ->
+            raise "unexpected xhs request: #{inspect(other)}"
+        end
+      end)
+
+      assert {:ok, %{openid: "x-cache-openid"}} = Client.code2session(:xhs, "cache-code-1")
+      assert {:ok, %{openid: "x-cache-openid"}} = Client.code2session(:xhs, "cache-code-2")
+
+      assert_received :xhs_token_requested
+      refute_received :xhs_token_requested
     end
   end
 

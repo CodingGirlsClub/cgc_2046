@@ -359,3 +359,14 @@ jobs:
             docker build -f Dockerfile.deps -t "$DEPS_IMAGE" ..
             docker push "$DEPS_IMAGE"
           fi
+
+  agent-docs:
+    name: agent-docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - run: node scripts/check-agent-docs.mjs
