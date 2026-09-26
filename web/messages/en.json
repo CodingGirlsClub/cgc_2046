@@ -2999,7 +2999,8 @@
         "body": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it."
       },
       "claimed": {
-        "action": "Go to sign in"
+        "action": "Go to sign in",
+        "capsule": "Enter my corridor"
       },
       "flashback_token_revoked": {
         "title": "This letter has been withdrawn",

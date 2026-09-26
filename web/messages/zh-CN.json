@@ -2999,7 +2999,8 @@
         "body": "这张卡已收进账号，链接已完成使命。请登录，从「我的闪念间」进入查看。"
       },
       "claimed": {
-        "action": "去登录"
+        "action": "去登录",
+        "capsule": "进入我的时间长廊"
       },
       "flashback_token_revoked": {
         "title": "这封信已被收回",
