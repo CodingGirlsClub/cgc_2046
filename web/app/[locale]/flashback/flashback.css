@@ -638,6 +638,21 @@
 	text-align: left;
 	background: #efe9db;
 	color: var(--fb-ink);
+	/* 全站 html 是 color-scheme: dark：纸面上不改回 light，原生单选/复选会按暗色渲染，
+	   未选中呈实心黑点/黑块，看起来像已选 */
+	color-scheme: light;
+	accent-color: var(--fb-ink);
+}
+/* 纸面上的选项（选句）：暗房的 .fb-option 是浅字半透明白底，放到纸上几乎看不见；
+   选中 = 金（小程序语义「金 = 选中结果」）。特异性须压过 .fb-root .fb-option */
+.fb-root .fb-write-form .fb-option {
+	background: transparent;
+	border-color: rgba(43, 39, 35, 0.22);
+	color: var(--fb-ink);
+}
+.fb-root .fb-write-form .fb-option-selected {
+	border-color: #e3cf9c;
+	background: #f5ead0;
 }
 .fb-field-label { font-size: 11px; opacity: 0.7; }
 .fb-field-input,
@@ -654,6 +669,8 @@
 .fb-field-textarea { min-height: 3.4em; }
 .fb-checks { display: grid; gap: 8px; font-size: 12px; }
 .fb-checks label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+/* 单项复选（Newsletter）：与分组里的每一项同一排布 */
+.fb-check { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 12px; }
 
 /* 读屏专用（视觉隐藏） */
 .fb-visually-hidden {
