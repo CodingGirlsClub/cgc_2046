@@ -3002,7 +3002,8 @@
     "invalid": {
       "flashback_token_claimed": {
         "title": "This archive already has an owner",
-        "body": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it."
+        "body": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it.",
+        "bodyAuthed": "This card is saved to an account and this link has retired. Open “My Flashback” to view it."
       },
       "claimed": {
         "action": "Go to sign in",
