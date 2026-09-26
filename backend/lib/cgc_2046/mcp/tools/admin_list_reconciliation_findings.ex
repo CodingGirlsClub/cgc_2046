@@ -38,6 +38,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListReconciliationFindings do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：列出对账扫描当前发现的问题（后台每 10 分钟扫描一次，问题消失后自动移除），用于
+    回答「工作台健康吗」一类问题并指出处理方向。rule、workspace_id 均为可选过滤。按最近发现时间倒序，
+    最多 50 条。detail 只含白名单字段；原始错误文本不返回，只给固定摘要，原文需在服务端后台查看。
+    """
+  end
+
   schema do
     field(:rule, :string, description: "按规则过滤（可选；如 open_entity_without_research_definition）")
 

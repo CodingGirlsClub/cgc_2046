@@ -6,7 +6,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   前置：存在待覆盖的低于阈值报告（最近一次门禁通过后提交，`below_threshold_pending`）。
   理由 `reason` 必填——覆盖决定连同理由落 facts `gate_override` 审计
   （overridden_by/reason/at）。按生效策略推进：review_required → `review`；
-  否则直接发布（课程 draft → open）。
+  否则直接发布（生成不可变新 CourseRevision：draft 课程 launch，已 open 换绑）。
 
   确认流依据：覆盖质量门槛是高风险治理决定（绕过阈值直达审核/发布）。
   """
@@ -15,6 +15,18 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
+
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    覆盖一份低于质量阈值的质检报告，让课程继续推进。审核人（教研策略指定的 reviewer，未指定时任何工作台
+    成员）或 Owner/Admin 可用；只有存在待覆盖的低分报告时可用。reason 必填，与覆盖决定一起记入审计。
+    教研策略要求审核时进入 review，否则直接发布（生成新版本并发布，规则同 approve_prep）。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")

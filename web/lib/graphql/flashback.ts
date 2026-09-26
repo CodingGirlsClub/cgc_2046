@@ -104,6 +104,7 @@ export function sentencesWithFogMark(
 }
 
 export interface FlashbackProgress {
+	bound: boolean;
 	today?: FlashbackToday | null;
 	quoteLevel: string;
 	maskedPhone?: string | null;
@@ -476,6 +477,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				}
 			}
 			progress {
+				bound
 				today {
 					nowStatus
 					want
@@ -760,8 +762,15 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					likeCount
 				}
 				answers {
+					id
 					questionKey
 					text
+					rawText
+					fogSpans {
+						start
+						len
+						reason
+					}
 				}
 			}
 			archives {
@@ -1011,10 +1020,10 @@ export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
 /** 匿名金句墙（U6/R31/R32/R37）：授权者的脱敏金句，按句输出 */
 export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
 	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
-	{ voterKey?: string | null }
+	{ voterKey?: string | null; city?: string | null }
 > = gql`
-	query FlashbackPublicQuotes($voterKey: String) {
-		flashbackPublicQuotes(voterKey: $voterKey) {
+	query FlashbackPublicQuotes($voterKey: String, $city: String) {
+		flashbackPublicQuotes(voterKey: $voterKey, city: $city) {
 			text
 			attribution
 			level
@@ -1210,6 +1219,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 		offset?: number | null;
 		limit?: number | null;
 		voterKey?: string | null;
+		withEchoes?: boolean | null;
 	}
 > = gql`
 	query FlashbackPublicWishes(
@@ -1218,6 +1228,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 		$offset: Int
 		$limit: Int
 		$voterKey: String
+		$withEchoes: Boolean
 	) {
 		flashbackPublicWishes(
 			city: $city
@@ -1225,6 +1236,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 			offset: $offset
 			limit: $limit
 			voterKey: $voterKey
+			withEchoes: $withEchoes
 		) {
 			id
 			content
@@ -1305,6 +1317,54 @@ export const FLASHBACK_CITIES: TypedDocumentNode<
 		}
 	}
 `;
+
+/** 我的愿望（M11）：登录账号全部未删除愿望 + 年度剩余名额；无档案可用 */
+export interface FlashbackOwnedWish {
+	id: string;
+	content: string;
+	city?: string | null;
+	signature: string;
+	/** public / private */
+	visibility: string;
+	/** listed / pending_review / private */
+	status: string;
+	insertedAt: string;
+}
+
+export interface FlashbackMyWishes {
+	quotaRemaining: number;
+	wishes: FlashbackOwnedWish[];
+}
+
+/** 公开许愿树城市全集（有愿望的城市，按拼音排序，不受分页限制）——许愿树城市钉真源 */
+export const FLASHBACK_WISH_CITIES: TypedDocumentNode<
+	{ flashbackWishCities: FlashbackCity[] },
+	Record<string, never>
+> = gql`
+	query FlashbackWishCities {
+		flashbackWishCities {
+			name
+			fullName
+			pinyin
+			lngLat
+		}
+	}
+`;
+
+/** M10：公开金句所在城市全集（有金句的城市，不受热门限量影响）——金句墙城市真源 */
+export const FLASHBACK_VOICE_CITIES: TypedDocumentNode<
+	{ flashbackVoiceCities: FlashbackCity[] },
+	Record<string, never>
+> = gql`
+	query FlashbackVoiceCities {
+		flashbackVoiceCities {
+			name
+			fullName
+			pinyin
+			lngLat
+		}
+	}
+`;
 export interface FlashbackCreateWishResult {
 	id: string | null;
 	endorsementCount: number;
@@ -1357,6 +1417,27 @@ export const FLASHBACK_ADD_WISH_COMMENT = gql`
 	}
 `;
 
+/** 我的愿望（M11）：登录即可，无档案也可用 */
+export const FLASHBACK_MY_WISHES: TypedDocumentNode<
+	{ flashbackMyWishes: FlashbackMyWishes },
+	Record<string, never>
+> = gql`
+	query FlashbackMyWishes {
+		flashbackMyWishes {
+			quotaRemaining
+			wishes {
+				id
+				content
+				city
+				signature
+				visibility
+				status
+				insertedAt
+			}
+		}
+	}
+`;
+
 export const FLASHBACK_DELETE_WISH = gql`
 	mutation FlashbackDeleteWish($token: String, $wishId: ID!) {
 		flashbackDeleteWish(token: $token, wishId: $wishId)
@@ -1366,5 +1447,15 @@ export const FLASHBACK_DELETE_WISH = gql`
 export const FLASHBACK_DELETE_WISH_COMMENT = gql`
 	mutation FlashbackDeleteWishComment($token: String, $commentId: ID!) {
 		flashbackDeleteWishComment(token: $token, commentId: $commentId)
+	}
+`;
+
+/** Web 只认持有的邀请链接，不调用 token=null 的自动认领。 */
+export const FLASHBACK_CLAIM: TypedDocumentNode<
+	{ flashbackClaim: { bound: boolean } },
+	{ token: string }
+> = gql`
+	mutation FlashbackClaim($token: String!) {
+		flashbackClaim(token: $token) { bound }
 	}
 `;

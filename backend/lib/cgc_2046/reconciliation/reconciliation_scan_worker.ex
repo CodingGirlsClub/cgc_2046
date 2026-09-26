@@ -98,6 +98,10 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorker do
       %{
         id: :notification_delivery_failed,
         detect: &ScanDetectionsOps.detect_notification_delivery_failed/0
+      },
+      %{
+        id: :refunding_without_refund_job,
+        detect: &ScanDetections.detect_refunding_without_refund_job/0
       }
     ]
     |> Enum.map(fn decl ->

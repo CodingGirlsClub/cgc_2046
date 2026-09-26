@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { render } from "@/test-utils";
 import CardExport from "./card-export";
 import RecoverForm from "./recover-form";
+import Write from "./write";
 import type { FlashbackCapsuleMe } from "@/lib/graphql/flashback";
 
 /**
@@ -65,7 +66,7 @@ const CARD_BG: [number, number, number] = [26, 26, 28]; // 暗卡片 ≈ 0.07 �
 const PAPER_BG: [number, number, number] = [0xef, 0xe9, 0xdb]; // 纸底 .fb-write-form #efe9db
 /** 次要文字变量取值（数值断言 + cascade 断言共用；定义见 .fb-root 块） */
 const SUB_DARK = "#918c82";
-const SUB_INK = "#6b6154";
+const SUB_INK = "#56665a"; /* = --ink-2（批次3 语义色） */
 
 // RecoverForm 走 useMutation：本文件主题是样式，mock 掉 Apollo hook
 const { useMutationMock } = vi.hoisted(() => ({ useMutationMock: vi.fn(() => [vi.fn(), { loading: false }]) }));
@@ -107,9 +108,9 @@ describe("防线 1：CSS 源对比度数值断言（WCAG ≥4.5:1）", () => {
 		expect(idle, "未选中态须有显式色").toBe("#b9b4aa");
 		expect(contrastRatio(idle!, CARD_BG)).toBeGreaterThanOrEqual(4.5);
 
-		expect(active, "选中态须为金色（与描边一致）").toBe("var(--fb-accent)");
-		// --fb-accent = #cbbf8f：数值断言其对比度
-		expect(contrastRatio("#cbbf8f", CARD_BG)).toBeGreaterThanOrEqual(4.5);
+		// 批次3：选中态 = 墨色反白（--ink 底 + --paper 字，11:1）
+		expect(active, "选中态须为纸色字（墨底反白）").toBe("var(--paper)");
+		expect(contrastRatio("#f7f2e7", [0x1e, 0x3a, 0x2f])).toBeGreaterThanOrEqual(4.5);
 	});
 
 	it("找回/注册输入框（用户一报）：文字与 placeholder 双 ≥4.5", () => {
@@ -253,5 +254,41 @@ describe("防线 3：组件行为不回归（card-export 交互冒烟）", () =>
 		const input = screen.getByLabelText(/当年报名用的邮箱/);
 		fireEvent.change(input, { target: { value: " `a@b.c` " } });
 		expect((input as HTMLInputElement).value).toContain("a@b.c");
+	});
+});
+
+describe("纸面卡片（写今天的你）：原生控件与选句在纸底上可辨", () => {
+	/** 取选择器块体（精确选择器，后跟 {） */
+	const block = (selector: string) => {
+		const re = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`);
+		return css.match(re)?.[1] ?? null;
+	};
+
+	it("纸面容器声明 color-scheme: light——全站 html 是 dark，原生单选/复选否则按暗色渲染成实心黑", () => {
+		expect(block(".fb-write-form")).toMatch(/color-scheme:\s*light/);
+	});
+
+	it("选句选项在纸底用墨色字（≥4.5），选中态单独成立（特异性压过 .fb-root .fb-option）", () => {
+		expect(block(".fb-root .fb-write-form .fb-option")).not.toBeNull();
+		expect(declaredColor(".fb-root .fb-write-form .fb-option")).toBe("var(--fb-ink)");
+		expect(contrastRatio("#2b2723", PAPER_BG)).toBeGreaterThanOrEqual(4.5);
+		const selected = block(".fb-root .fb-write-form .fb-option-selected");
+		expect(selected).toMatch(/border-color:/);
+		expect(selected).toMatch(/background:/);
+	});
+
+	it("Newsletter 单项复选与文字同一行：不复用分组容器类 fb-checks（grid 会把框和字拆成两行）", () => {
+		render(
+			<Write
+				role="learner"
+				answers={[]}
+				progress={{ today: null, quoteLevel: "off", maskedPhone: null, maskedEmail: null } as never}
+				onNext={() => {}}
+			/>,
+		);
+		const label = screen.getByText(/订阅 Newsletter/).closest("label");
+		expect(label).toHaveClass("fb-check");
+		expect(label).not.toHaveClass("fb-checks");
+		expect(block(".fb-check")).toMatch(/display:\s*flex/);
 	});
 });

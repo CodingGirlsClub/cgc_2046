@@ -1,6 +1,6 @@
 ---
 name: cgc-quality-eval
-description: CGC-2046 课程教研质量报告的判据化评审（submit_prep_quality_report 前置）。当 tutor 要求「提交质检/质量报告」「评分」「判据化评审」「按判据检查课程」，或流程到 quality_check 状态需要出 report 时使用。三层架构：确定性 grep 终判格式类判据 → judge_batch 两段式 triage 语义项 → 教材原文配对终判书外声明。产出结构化 report（score + 聚合 summary + 逐条 findings），summary 为聚合产物、禁止自由发挥。无 judge 模型时自动降级为 L1 + 嫌疑清单。
+description: CGC-2046 课程教研质量报告的判据化评审（submit_prep_quality_report 前置）。当 tutor 要求「提交质检/质量报告」「评分」「判据化评审」「按判据检查课程」，或流程到 quality_check 状态需要出 report 时使用。产出可提交的结构化 report（score + summary + 逐条 findings）。
 ---
 
 # CGC 质检报告判据化评审（cgc-quality-eval）
@@ -79,6 +79,9 @@ summary = 「判据化评审 N 条判据：通过 X，违规 Y（L1 格式 a / L
                                                             禁止引入判据结果之外的人名/数字
 findings = L3 实锤 + L1 违规（severity 按层映射）+ L2 嫌疑（severity=info，message 标「待裁决」）
 ```
+
+score 与 summary 是 findings 计数的确定性聚合：把 L1 违规数、L2 嫌疑数、L3 实锤数代入上面的公式得出
+score，summary 按给定句式拼装——让宿主执行一段一次性脚本完成代入与拼装，模型不心算、不自由发挥。
 
 report 形状 = `submit_prep_quality_report` 契约：`{score, summary, findings: [{severity, message}]}`。**呈 tutor 过目确认后才提交**；tutor 对 L2 嫌疑逐条裁决（确认/驳回），驳回的从 findings 与 score 中扣除。
 

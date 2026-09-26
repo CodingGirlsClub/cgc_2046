@@ -166,7 +166,7 @@ describe("Corridor · 城市堆与入口（定稿 D）", () => {
 	it("城市钉筛选且该城无名册：空态提示 + 「今天」格仍在", () => {
 		render(<Corridor capsule={{ ...capsule, archives: [] }} cityFiltered />);
 
-		expect(screen.getByText("这座城市还没有名册照片。")).toBeInTheDocument();
+		expect(screen.getByText("这座城市还没有相册照片。")).toBeInTheDocument();
 		expect(screen.getByTestId("fb-today-slot")).toBeInTheDocument();
 		expect(screen.queryAllByTestId("fb-corridor-pile")).toHaveLength(0);
 	});

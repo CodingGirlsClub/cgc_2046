@@ -100,7 +100,7 @@
     "flashback_slug_taken": "该链接地址已被另一位校友的公开档案占用，请换一个。",
     "flashback_slug_locked": "公开档案已发布，链接地址不可再修改（可继续编辑其他内容）。",
     "flashback_token_not_found": "这枚闪念间链接不存在或已失效——可以从自助找回入口重新拿到你的那份记忆。",
-    "flashback_token_claimed": "这个档案已绑定账号，链接已完成使命——请登录或从「我的」进入查看。",
+    "flashback_token_claimed": "这张卡已收进账号，链接已完成使命。请登录，从「我的闪念间」进入查看。",
     "flashback_recover_account_conflict": "这个号码或这张卡已经属于另一个账号——请用那个账号登录查看，或联系我们处理。",
     "flashback_token_revoked": "这个档案已被删除，链接随之失效。",
     "flashback_answer_not_found": "找不到这条当年答案，请刷新后重试。",
@@ -301,6 +301,7 @@
       "login": "登录",
       "join": "加入我们",
       "myLearning": "我的学习",
+      "myFlashback": "我的闪念间",
       "myParticipations": "我的报名",
       "workspace": "工作台",
       "menu": "菜单"
@@ -416,6 +417,7 @@
       "icp": "京ICP备16008426号-2",
       "ariaLabel": "站点页脚",
       "privacy": "隐私政策",
+      "contact": "联系我们",
       "terms": "服务条款"
     },
     "mediaReports": [
@@ -2392,7 +2394,8 @@
       "fund_action_burst": "资金操作频次异常",
       "deposit_settlement_unanchored": "押金结算无结束锚点",
       "notification_delivery_failed": "通知投递终态失败",
-      "deposit_forfeit_batch_alert": "单场押金没收批量告警"
+      "deposit_forfeit_batch_alert": "单场押金没收批量告警",
+      "refunding_without_refund_job": "退款在途任务丢失"
     },
     "reconEntity": {
       "enrollment": "报名",
@@ -2619,6 +2622,15 @@
     "myParticipations": "我的报名"
   },
   "flashback": {
+    "nav": {
+      "brand": "程序媛汇",
+      "label": "闪念间导航",
+      "home": "闪念间",
+      "voices": "金句墙",
+      "wishes": "许愿树",
+      "capsule": "我的时间长廊",
+      "login": "登录"
+    },
     "meta": {
       "enterTitle": "闪念间 · In a Flash",
       "enterDescription": "十几年前你写下的答案，一直在等你。",
@@ -2642,7 +2654,12 @@
       "quotesEmpty": "金句墙还空着——第一句会来自某位校友的授权。",
       "likeAria": "点赞（当前 {count} 人）",
       "quotesWallCta": "看全墙 →",
-      "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
+      "wishesTitle": "许愿树",
+      "wishesBlurb": "看看大家想在这片土壤里种下什么——附议、期待，或者也写下一颗。",
+      "wishesCta": "去许愿树 →",
+      "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
+      "myCapsule": "进入我的时间长廊",
+      "login": "登录，回到时间长廊"
     },
     "voices": {
       "metaTitle": "闪念间 · 金句墙",
@@ -2661,7 +2678,7 @@
       "mapTitle": "山河之间，听见彼此。",
       "voicesCount": "{count} 个声音",
       "introEyebrow": "一场相遇，很多种可能",
-      "introHint": "点击城市，随时开始阅读。传播起点与顺序为原型示意。",
+      "introHint": "点击城市，随时开始阅读。",
       "stage1Name": "源起",
       "stage1Text": "一束微光，从这里出发。",
       "stage2Name": "流向远方",
@@ -2724,7 +2741,7 @@
       "verify": "验证并进入",
       "cardsTitle": "找到了你的 {count} 张卡——它们都归你了",
       "enterCapsule": "进入时间长廊 →",
-      "bound": "档案已与你的账号绑定。从今往后从「我的」进入。",
+      "bound": "卡已收好。此后登录，从「我的闪念间」进入即可查看与编辑。",
       "errorCode": "验证码不对或已过期，请重试。",
       "emailRequired": "请填写当年报名用的邮箱。",
       "errorRetry": "刚才那步没有成功，请稍后重试。"
@@ -2734,6 +2751,8 @@
       "loading": "正在显影……",
       "notFoundTitle": "这一页还没有显影",
       "notFoundBody": "这个链接对应的实名档案不存在，或尚未授权公开。",
+      "errorBody": "页面加载失败了——检查一下网络，或者稍后再试。",
+      "retry": "重试",
       "backHome": "回到闪念间首页",
       "footer": "本页内容经本人实名授权公开展示（闪念间 · 金句授权第二档）。"
     },
@@ -2787,14 +2806,15 @@
       "wroteAt": "{years}前的 {date} {time}，你写下了这些话",
       "wroteAtUnknown": "当年的你，写下了这些话",
       "fogMark": "这一句带着雾面标记——对外人不可见，原文对你永远完整",
-      "btcNote": "当年那场活动，赞助方发放过少量比特币作为奖品，至今无人兑领。获奖名单早已不可考——如果你恰好是当年的获奖者，欢迎联系我们兑付。",
+      "btcNote": "2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过，获奖名单早已不可考。",
       "dreamCtaEvent": "圆梦这一场：报名「{title}」",
       "dreamCtaInitiatives": "看看正在发生的活动",
       "dreamFallback": "留下联系方式，你想参加的活动开始报名时，我们会第一个告诉你。",
       "writeBack": "翻过来，写今天的你",
       "writeBackHint": "点击卡面翻到背面，写下今天的你",
       "flipBack": "翻回正面",
-      "wrongFeedback": "差一点——但也显影给你看。你的照片其实在 {label}。"
+      "wrongFeedback": "差一点——但也显影给你看。你的照片其实在 {label}。",
+      "btcContact": "如果你恰好是当年的获奖者，联系我们兑付 →"
     },
     "tags": {
       "want_offline": "想参加线下聚会",
@@ -2842,7 +2862,7 @@
       "creditedNotePlaceholder": "例：在做无障碍开发",
       "submit": "写好了，去寄出 →",
       "sendPublicNote": "寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下",
-      "quoteCourage": "你的语言，会成为别人的勇气。"
+      "quoteCourage": "你说的话，会成为别人的勇气。"
     },
     "sendRegister": {
       "reviewTitle": "寄出前，检查当年的你",
@@ -2861,20 +2881,26 @@
       "errorCode": "刚才那步没有成功，请检查后重试。",
       "sentTitle": "已经寄出了",
       "promise": "你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。",
-      "registerPitch": "想收好这张卡、并在你附议的场成真时收到通知吗？",
+      "registerPitch": "想收好这张卡，随时回到你的时间长廊吗？",
       "registerCurrent": "我们记录的联系方式：{phone} · {email}",
       "contactNone": "（无）",
       "phonePlaceholder": "手机号",
       "codePlaceholder": "验证码",
       "sendCode": "发送验证码",
-      "bind": "绑定账号",
+      "bind": "收好这张卡",
       "skip": "跳过，直接上墙",
       "skipHint": "链接在注册前一直有效，随时可以再绑定。",
       "failedTitle": "这次没贴上",
       "retry": "再试一次",
-      "boundTitle": "账号已接管",
-      "boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
-      "enterCapsule": "进入时间长廊 →"
+      "boundTitle": "卡已收好",
+      "boundNote": "卡已收好。此后登录，从「我的闪念间」进入即可查看与编辑。",
+      "enterCapsule": "进入时间长廊 →",
+      "claim": "收进当前账号",
+      "claiming": "正在收好…",
+      "claimFailed": "暂时没能收好，请重试。",
+      "alreadyKept": "这张卡已经收进账号，登录即可查看。",
+      "checkingAccount": "正在确认登录状态…",
+      "login": "登录"
     },
     "echoCard": {
       "regionLabel": "回响",
@@ -2898,7 +2924,12 @@
       "cityAll": "全部",
       "scrollHint": "↓ 下滑 = 时间前进：顶上是那年，底部是等你的未来",
       "scrollHintWide": "向右滚动：左边是已显影的过去，右边是等你共创的未来 —— {city}",
-      "cityAllWide": "全部城市"
+      "cityAllWide": "全部城市",
+      "unboundTitle": "暂时还没找到你的那一张",
+      "unboundBody": "可以用当年报名的邮箱找回，也可以先去许愿树写下今天的愿望。",
+      "login": "登录",
+      "writeWish": "写愿望",
+      "myWishes": "我的愿望"
     },
     "event": {
       "loading": "正在显影这一场……",
@@ -2906,23 +2937,23 @@
       "backHome": "‹ 闪念间",
       "applied": "报名 {count} 位",
       "attended": "走进教室 {count} 位",
-      "returned": "{count} 位已回来",
+      "returned": "{count} 位已寄出",
       "peopleTitle": "这一场的人",
       "peopleHint": "显影的是寄出了的，雾着的是还没回来的",
-      "missing": "这一场不在你的名册里（或链接已失效）。",
+      "missing": "这一场不在你的相册里（或链接已失效）。",
       "findMine": "你也在这一场？找回你的那一张 →"
     },
     "corridor": {
       "openEvent": "进入这一场 →",
       "ariaLabel": "时间长廊走廊",
-      "emptyCity": "这座城市还没有名册照片。",
+      "emptyCity": "这座城市还没有相册照片。",
       "pilesAria": "{name} 的城市照片堆",
       "pileCount": "{city} · {count} 位",
       "pileCaption": "{count} 位 · 她们的档案",
       "frameLabelFallback": "那年那一场"
     },
     "roster": {
-      "groupAria": "{name} 场次名册",
+      "groupAria": "{name} 场次相册",
       "meta": "{total} 位当年的同行者 · 显影的是已经寄出的",
       "todayTag": "今天",
       "dashed": "她的答案，还在等她",
@@ -2971,18 +3002,59 @@
       "downloadMd": "下载 Markdown",
       "privacyNote": "你标记过雾面的句子不会出现在卡片里。",
       "shareTo": "分享到…",
-      "shareOptIn": "同时允许金句放进金句墙",
-      "shareOptInAlready": "已在授权中——档位可在回访处调整",
       "brand": "IN A FLASH · 闪念间",
       "canvasFooter": "闪念间 · In a Flash"
+    },
+    "answersFog": {
+      "entry": "当年答案的雾",
+      "title": "当年答案的雾",
+      "save": "保存",
+      "saving": "保存中……",
+      "saved": "已保存 ✓",
+      "error": "保存没有成功——请再试一次。",
+      "cancel": "先不改",
+      "hint": "点一句即可切换雾或亮：雾住的句子对外只显示雾块，你自己永远看到原文。",
+      "fogBadge": "雾",
+      "none": "（当年没有留下答案）"
+    },
+    "myWishes": {
+      "metaTitle": "我的愿望 · 闪念间",
+      "loading": "加载中……",
+      "retry": "重试",
+      "title": "我的愿望",
+      "quota": "今年还可以许 {count} 个愿望 · 删除不退还额度",
+      "statusListed": "已公开",
+      "statusPendingReview": "待审核",
+      "statusPrivate": "仅自己和主办方可见",
+      "viewOnTree": "在许愿树查看 →",
+      "delete": "删除",
+      "deleteTitle": "删除这条愿望？",
+      "deleteBody": "删除后这条愿望会从许愿树撤下，自己也不再可见；年度额度不退还。",
+      "confirmDelete": "确认删除",
+      "cancel": "先不删",
+      "deleted": "已删除 ✓",
+      "error": "操作没有成功——请再试一次。",
+      "empty": "还没有许过愿望——写下第一颗。",
+      "writeWish": "去许愿",
+      "login": "登录后查看我的愿望",
+      "backToWall": "← 回到许愿树"
+    },
+    "licensePanel": {
+      "title": "金句授权",
+      "save": "保存授权",
+      "saving": "保存中……",
+      "saved": "已保存 ✓",
+      "error": "保存没有成功——请再试一次。"
     },
     "invalid": {
       "flashback_token_claimed": {
         "title": "这个档案已有主人",
-        "body": "这个档案已绑定账号，链接已完成使命——请登录，或从「我的」进入查看。"
+        "body": "这张卡已收进账号，链接已完成使命。请登录，从「我的闪念间」进入查看。",
+        "bodyAuthed": "这张卡已收进账号，链接已完成使命。从「我的闪念间」进入即可查看。"
       },
       "claimed": {
-        "action": "去登录"
+        "action": "去登录",
+        "capsule": "进入我的时间长廊"
       },
       "flashback_token_revoked": {
         "title": "这封信已被收回",
@@ -3000,7 +3072,7 @@
       "warning": "删除不可恢复：你的卡会从墙上撤下、专属链接立即失效、当年答案与回信将被清除、附议与金句授权一并删除。",
       "error": "删除没有完成，请稍后重试。",
       "factsName": "档案：{name}",
-      "factsOnWall": "已寄出到校友墙；你的 {count} 条许愿附议与留言将一并删除",
+      "factsOnWall": "已寄出到相册；你的 {count} 条许愿附议与留言将一并删除",
       "factsOffWall": "尚未寄出；你的 {count} 条许愿附议与留言将一并删除",
       "confirmLabel": "输入 DELETE 确认删除",
       "submit": "确认删除",
@@ -3018,8 +3090,11 @@
       "makeWish": "许个愿",
       "quotaRemaining": "今年还可许 {count} 条",
       "quotaExhausted": "今年许愿名额已用完（每年最多 3 条，删除不退还名额）",
-      "endorse": "附议 +1",
+      "endorse": "我能出力",
       "endorsedByMe": "已附议",
+      "endorseGuideTitle": "去小程序出力",
+      "endorseGuideSteps": "微信搜索小程序「程序媛汇」→ 底部「闪念间」→ 许愿树，在这条愿望上点「我能出力」。",
+      "endorseGuideClose": "知道了",
       "endorsed": "{count} 人附议",
       "enrolled": "{count} 人已报名",
       "join": "报名 →",
@@ -3045,7 +3120,7 @@
       "feedbackPendingBody": "审核通过后挂上树。",
       "feedbackPrivateTitle": "收到。",
       "feedbackPrivateBody": "这条愿望只有你和平台能看到——我们会认真看，也许很快来聊聊。",
-      "myWishHint": "在时间胶囊的「我的愿望」里随时可以找到它。",
+      "myWishHint": "你的愿望随时可以在「我的愿望」页找到。",
       "viewOnTree": "去树上看看它",
       "bindGuideCta": "去绑定闪念间档案",
       "withdraw": "撤回这条愿望",
@@ -3079,7 +3154,7 @@
       "endorseEntry": "我能出力",
       "endorseGuideTitle": "去小程序出力",
       "endorseGuideLead": "附议与出力在小程序里完成——承诺动作需要能触达你的通道。",
-      "endorseGuideSteps": "打开小程序，从这条愿望的「我能出力」进入，选择你能出的力并留言。",
+      "endorseGuideSteps": "微信搜索小程序「程序媛汇」→ 底部「闪念间」→ 许愿树，在这条愿望上点「我能出力」，选择你能出的力并留言。",
       "reportEntry": "举报",
       "reportTitle": "举报这条愿望",
       "reportLead": "举报是给运营的治理信号，由人来判断处理。",
@@ -3107,6 +3182,7 @@
       "wishesNavEn": "WISHES",
       "filterAll": "全部",
       "filterEcho": "已有回响",
+      "loadMore": "加载更多",
       "hasEchoLabel": "这条愿望已有回响",
       "hasEchoBadge": "回响",
       "echoEmpty": "还没有愿望收到回响——第一份出力，从「我能出力」开始。",
@@ -3119,7 +3195,6 @@
       "shareTree": "分享许愿树",
       "shareCopied": "链接已复制",
       "shareFailed": "复制失败，稍后再试。",
-      "remindHint": "有新进展时，可选择接收提醒。",
       "moreWishes": "更多愿望",
       "wishQuote": "微小的愿望，也能汇成改变世界的河流。",
       "voicesEntry": "去金句墙"

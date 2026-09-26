@@ -6,14 +6,39 @@
  */
 
 .fb-root {
-	--fb-paper: #f6f2e8;
-	--fb-ink: #2b2723;
-	/* 次要文字：同一语义跨两种底色，单值无解（暗底 #0a0a0c 要亮色、
-	   纸底 #efe9db 要深色，任何单值总有一侧不过 AA）。故拆两个变量：
-	   --fb-sub 暗底用（5.91:1）、--fb-sub-ink 纸底用（5.01:1）。 */
+	/* 视觉语言 token（批次3：与小程序 app.css 同名同值——纸是底 · 墨是字 ·
+	   青只画山河 · 暗是暗房 · 火 = 可以按的（每屏最多一处）· 金 = 已经被点亮的） */
+	--paper: #f7f2e7;
+	--paper-hi: #fffdf7;
+	--paper-deep: #ece4d2;
+	--ink: #1e3a2f;
+	--ink-2: #56665a;
+	--ink-3: #98a092;
+	--rule: #ddd4c1;
+	--qing: #557a66;
+	--qing-2: #86a291;
+	--fire: #ea5504;
+	--fire-2: #ff7c30;
+	--fire-glow: rgba(234, 85, 4, 0.32);
+	--gold: #ecc976;
+	--gold-ink: #8a6418;
+	--gold-soft: #f5ead0;
+	--gold-line: #e3cf9c;
+	--gold-glow: rgba(236, 201, 118, 0.55);
+	--dark: #15130f;
+	--dark-2: #221d17;
+	--dark-3: #2e2820;
+	--dark-ink: #efe5d2;
+	--dark-ink-2: #a0947f;
+	--dark-rule: rgba(239, 229, 210, 0.14);
+	/* 既有组件级 token 映射到语义色（收敛两套色板的第一步） */
+	--fb-paper: var(--paper);
+	--fb-ink: var(--ink);
+	/* 次要文字：同一语义跨两种底色，单值无解（暗底要亮色、纸底要深色）。
+	   --fb-sub 暗底用、--fb-sub-ink 纸底用。 */
 	--fb-sub: #918c82;
-	--fb-sub-ink: #6b6154;
-	--fb-accent: #cbbf8f;
+	--fb-sub-ink: #56665a; /* = var(--ink-2)，字面 hex 供对比度数值守卫 */
+	--fb-accent: var(--gold);
 	--fb-develop-dur: 1.2s; /* 主照中速显影（R7：慢时刻留给认出自己） */
 	--fb-develop-scatter-dur: 0.6s; /* 散照快显影（R7） */
 	--fb-develop-wall-dur: 2.8s; /* 名册显影（第 7 件：原型 D develop-soft 的 2.8s 档） */
@@ -35,6 +60,21 @@
 .fb-root select {
 	font-family: inherit;
 	color: inherit;
+}
+
+/* ── 纸底页（批次3：首页/实名页/相册/无身份/失效页改纸底；长廊与首程保持暗房）── */
+.fb-paper-page {
+	background: var(--paper);
+	color: var(--ink);
+}
+.fb-paper-page .fb-kicker,
+.fb-paper-page .fb-hint,
+.fb-paper-page .fb-capsule-footer { color: var(--ink-2); }
+.fb-paper-page .fb-cta { border-color: var(--ink-3); color: var(--ink); background: transparent; }
+.fb-paper-page .fb-cta-primary {
+	background: var(--fire);
+	border: none;
+	color: #17161a;
 }
 
 /* ── 白光快门（R4） ─────────────────────────────────────────────── */
@@ -285,7 +325,8 @@
 	border: 1px solid rgba(255, 255, 255, 0.3);
 }
 .fb-root .fb-cta-primary {
-	background: var(--fb-accent);
+	background: var(--fire);
+	/* 火底 #ea5504 上深字 #17161a = 4.77:1（白字只有 3.55，不过 AA） */
 	color: #17161a;
 	border: none;
 	font-weight: 600;
@@ -366,6 +407,12 @@
 	z-index: 30;
 	box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
 }
+@media (max-width: 480px) {
+	.fb-scatter-photo:nth-child(1) { left: 6%; top: 2%; width: 50%; }
+	.fb-scatter-photo:nth-child(2) { left: 52%; top: 0; width: 44%; }
+	.fb-scatter-photo:nth-child(3) { left: 24%; top: 40%; width: 52%; }
+}
+
 .fb-scatter-photo:focus-visible {
 	outline: 2px solid var(--fb-accent);
 	outline-offset: 3px;
@@ -612,12 +659,17 @@
 .fb-quote-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
 .fb-quote-list .fb-option { font-size: 14px; padding: 10px 14px; }
 .fb-option-selected {
-	border-color: var(--fb-accent);
-	background: rgba(203, 191, 143, 0.12);
+	border-color: var(--ink);
+	background: var(--ink);
+	color: var(--paper);
 }
 .fb-contact { text-align: left; }
 
 /* 比特币提醒（R25：全场告知） */
+.fb-btc-note a.fb-btc-mail {
+	color: #cbbf8f;
+	text-decoration: underline;
+}
 .fb-btc-note {
 	margin-top: 18px;
 	max-width: 420px;
@@ -638,6 +690,22 @@
 	text-align: left;
 	background: #efe9db;
 	color: var(--fb-ink);
+	/* 全站 html 是 color-scheme: dark：纸面上不改回 light，原生单选/复选会按暗色渲染，
+	   未选中呈实心黑点/黑块，看起来像已选 */
+	color-scheme: light;
+	accent-color: var(--fb-ink);
+}
+/* 纸面上的选项（选句）：暗房的 .fb-option 是浅字半透明白底，放到纸上几乎看不见；
+   选中 = 金（小程序语义「金 = 选中结果」）。特异性须压过 .fb-root .fb-option */
+.fb-root .fb-write-form .fb-option {
+	background: transparent;
+	border-color: rgba(43, 39, 35, 0.22);
+	color: var(--fb-ink);
+}
+.fb-root .fb-write-form .fb-option-selected {
+	border-color: var(--ink);
+	background: var(--ink);
+	color: var(--paper);
 }
 .fb-field-label { font-size: 11px; opacity: 0.7; }
 .fb-field-input,
@@ -654,6 +722,8 @@
 .fb-field-textarea { min-height: 3.4em; }
 .fb-checks { display: grid; gap: 8px; font-size: 12px; }
 .fb-checks label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+/* 单项复选（Newsletter）：与分组里的每一项同一排布 */
+.fb-check { display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-size: 12px; }
 
 /* 读屏专用（视觉隐藏） */
 .fb-visually-hidden {
@@ -1049,7 +1119,16 @@
 	border: 2px dashed rgba(239, 233, 219, 0.26);
 	box-shadow: none;
 }
-.fb-today-photo { display: grid; align-content: start; gap: 6px; padding: 9%; background: transparent; }
+.fb-today-photo {
+	display: grid;
+	align-content: start;
+	gap: 6px;
+	padding: 9%;
+	background: transparent;
+	/* N8：「今天」卡承载多行文字，取消方形相纸的裁切（aspect-ratio+hidden） */
+	aspect-ratio: auto;
+	overflow: visible;
+}
 .fb-today-placeholder { display: grid; gap: 10px; }
 
 
@@ -1068,9 +1147,9 @@
 	cursor: pointer;
 }
 .fb-root .fb-export-tab--active {
-	border-color: var(--fb-accent);
-	background: rgba(203, 191, 143, 0.14);
-	color: var(--fb-accent);
+	color: var(--paper);
+	background: var(--ink);
+	border-color: var(--ink);
 }
 .fb-export-card { width: min(300px, 80vw); margin: 0 auto; }
 .fb-export-photo {
@@ -1089,7 +1168,8 @@
 .fb-export-quote { font-size: 15px; line-height: 1.8; margin: 0; }
 .fb-export-today { font-size: 11px; opacity: 0.85; border-top: 1px solid rgba(0, 0, 0, 0.12); padding-top: 8px; margin: 0; }
 .fb-export-full-line { font-size: 10px; line-height: 1.7; margin: 0; text-align: left; }
-.fb-export-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.fb-export-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; }
+.fb-export-actions .fb-cta { white-space: nowrap; }
 /* R37 分享 opt-in：默认不勾；已授权时勾选态 + 禁用（分享改不了档位） */
 .fb-export-optin {
 	display: flex;
@@ -1502,3 +1582,8 @@
 /* #933 相册开放告知（一次性，内嵌不遮挡）：纸卡 + 金边 = 「已被点亮的」提示（与小程序长廊同款） */
 .fb-album-notice { margin: 4px 22px 14px; padding: 12px 14px; border-radius: 10px; background: #fffdf7; border: 1px solid #e3cf9c; color: #1e3a2f; font-size: 13px; line-height: 1.7; }
 .fb-album-notice button { display: block; margin: 6px 0 0 auto; min-height: 40px; padding: 0 6px; background: none; border: 0; color: #56665a; font-size: 13px; cursor: pointer; }
+
+/* 收好：动作间距与错误反馈。 */
+.fb-register-card { display: flex; flex-direction: column; gap: 12px; }
+.fb-error { color: #ffb09c; border: 1px solid #bc6450; padding: 12px; }
+.fb-error a { color: inherit; text-decoration: underline; }

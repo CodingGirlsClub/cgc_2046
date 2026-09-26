@@ -30,7 +30,7 @@ test('删除确认词必须逐字等于 DELETE，提交中不可重复提交', (
 test('删除摘要：档案名 + 寄出态 + 附议数', () => {
   assert.deepEqual(deleteFacts({ fullName: '王小明', sentToWallAt: '2026-09-26T00:00:00Z', endorsementCount: 2 }), [
     '档案：王小明',
-    '已寄出到校友墙；你的 2 条许愿附议与留言将一并删除'
+    '已寄出到相册；你的 2 条许愿附议与留言将一并删除'
   ])
   assert.deepEqual(deleteFacts({ fullName: '王小明', sentToWallAt: null, endorsementCount: 0 }), [
     '档案：王小明',

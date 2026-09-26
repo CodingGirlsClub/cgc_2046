@@ -18,6 +18,18 @@ defmodule Cgc2046.Mcp.Tools.LaunchCourse do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：发布一门草稿（draft）课程，状态变为 open；visibility=public 的才会出现在公开面开放报名，仅 workspace 可见的只对成员开放。标题还是系统生成的
+    临时标题（provisional_title）时不能发布，先用 update_course 设置正式标题。课程不是 draft 或未命名时
+    直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "待发布课程 ID（UUID，须为 draft 且已命名）")

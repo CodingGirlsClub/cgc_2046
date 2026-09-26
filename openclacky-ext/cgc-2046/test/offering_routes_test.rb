@@ -339,29 +339,15 @@ end
 class AssistantPromptTest < Minitest::Test
   PROMPT = File.read(File.expand_path("../agents/cgc-assistant/system_prompt.md", __dir__))
 
-  # S1-extension:prompt 改写为 router 人设,静态清单只列 7 个跨角色工具;
-  # 角色专属工具由 get_role_playbook 动态携带,不再静态列出
-  # (旧版曾钉 server.ex 注册清单 17 项逐项一致;S1 起注册面 20 工具、
-  # 静态清单为跨角色公共子集,注册面精确名单由 backend wrapper_gate_test 钉死)。
-  CROSS_ROLE_TOOLS = %w[
-    list_my_workspaces get_role_playbook list_my_tasks
-    list_public_offerings get_public_offering
-    confirm_operation cancel_operation
-  ].freeze
+  # 工具的参数与返回以 MCP 工具自身描述为准，prompt 不静态复述工具清单（角色专属工具
+  # 由 get_role_playbook 携带）；只保留 workspace_id 范围规则，其中点名的豁免工具须是跨角色工具。
+  SCOPE_EXEMPT_TOOLS = %w[list_public_offerings get_public_offering confirm_operation cancel_operation].freeze
 
-  def test_tool_inventory_is_7_cross_role_tools
-    assert_includes PROMPT, "公共工具清单（7 个"
+  def test_no_static_tool_inventory
     listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
-    assert_equal CROSS_ROLE_TOOLS.sort, listed.sort,
-                 "静态清单应恰好为 7 个跨角色工具,实际 #{listed.inspect}"
-  end
-
-  def test_role_specific_tools_not_listed_statically
-    listed = PROMPT.scan(/^- `([a-z_0-9]+)`/).flatten
-    %w[get_workspace_context list_members assign_roles create_invitation
-       get_course_content get_learning_state].each do |tool|
-      refute_includes listed, tool, "角色专属工具 #{tool} 不应出现在静态清单(由 playbook 携带)"
-    end
+    assert_empty listed, "prompt 不应静态列出工具条目,实际 #{listed.inspect}"
+    assert_includes PROMPT, "工作台工具调用都必须带 `workspace_id`"
+    SCOPE_EXEMPT_TOOLS.each { |tool| assert_includes PROMPT, "`#{tool}`" }
   end
 
   def test_router_persona_discipline

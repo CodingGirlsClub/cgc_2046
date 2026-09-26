@@ -34,6 +34,18 @@ defmodule Cgc2046.Mcp.Tools.GetOrderStatus do
   # 结算终态，按终态读面返回）。
   @non_terminal_statuses [:pending, :paid, :refunding, :refund_failed]
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    读取当前用户一条报名的最新订单：id / order_kind / amount_cents / provider / status / expires_at /
+    paid_at，没有订单时 order 为 null；订单待支付时附 checkout_url（继续支付的入口）。order_kind
+    （enrollment | deposit）决定资金语义：押金单与报名单在缺席没收、免缴和退款上的规则不同；
+    tier_snapshot.name 只是展示名，不能据它判断是不是押金。不返回任何支付渠道凭据。他人的报名返回
+    forbidden；其他工作台的报名与不存在的报名返回同一个 not found。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID，须与报名所属工作台一致）")
     field(:enrollment_id, {:required, :string}, description: "报名 ID（UUID，须为本人报名）")

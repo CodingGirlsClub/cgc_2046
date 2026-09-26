@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { useAuthed } from "@/lib/auth-provider";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { graphqlErrorDetails } from "@/lib/graphql/auth";
@@ -33,6 +35,8 @@ export default function SendRegister({
 	initialTodayFogSpans,
 	maskedPhone,
 	maskedEmail,
+	bound = false,
+	onClaim,
 	onSubmitToday,
 	onSendToWall,
 	onSetQuoteLicense,
@@ -50,6 +54,8 @@ export default function SendRegister({
 	initialTodayFogSpans?: Record<string, FlashbackFogSpan[]> | null;
 	maskedPhone?: string | null;
 	maskedEmail?: string | null;
+	bound?: boolean;
+	onClaim: () => Promise<boolean>;
 	onSubmitToday: (input: TodayFormState) => Promise<boolean>;
 	onSendToWall: () => Promise<boolean>;
 	onSetQuoteLicense: (form: TodayFormState) => Promise<boolean>;
@@ -63,6 +69,8 @@ export default function SendRegister({
 	onDone: () => void;
 }) {
 	const t = useTranslations("flashback.sendRegister");
+	const { authed, confirmed } = useAuthed();
+	const [claiming, setClaiming] = useState(false);
 	const questionT = useTranslations("flashback.questionLabels");
 	const writeT = useTranslations("flashback.write");
 	const errorT = usePaymentErrorTranslator();
@@ -70,6 +78,8 @@ export default function SendRegister({
 
 	const [phase, setPhase] = useState<"review" | "sending" | "sent" | "failed" | "bound">("review");
 	const [error, setError] = useState<string | null>(null);
+	/** PR #960 评审 2：登录链接只属于「收好动作被拒（卡属于别的账号）」的分支 */
+	const [errorShowLogin, setErrorShowLogin] = useState(false);
 	const [phone, setPhone] = useState("");
 	const [code, setCode] = useState("");
 	const [codeSent, setCodeSent] = useState(false);
@@ -156,12 +166,14 @@ export default function SendRegister({
 
 	const handleConfirm = () => {
 		setError(null);
+		setErrorShowLogin(false);
 		setPhase("sending");
 		void handleSend();
 	};
 
 	const handleRequestCode = async () => {
 		setError(null);
+		setErrorShowLogin(false);
 		const ok = await onRequestPhoneCode(phone, "REGISTER");
 		if (ok) {
 			setCodeSent(true);
@@ -172,6 +184,7 @@ export default function SendRegister({
 
 	const handleBind = async () => {
 		setError(null);
+		setErrorShowLogin(false);
 		try {
 			const ok = await onRegisterBind(phone, code);
 			if (ok) {
@@ -181,14 +194,36 @@ export default function SendRegister({
 			}
 		} catch (err) {
 			// mutation 被拒会抛错：按服务端 code 提示（验证码错 / 这张卡已属于另一个账号 / 限流…）
-			setError(errorT(graphqlErrorDetails(err)?.code ?? "invalid_or_expired_code", t("errorCode")));
+			const code = graphqlErrorDetails(err)?.code ?? "invalid_or_expired_code";
+			setError(errorT(code, t("errorCode")));
+			// 卡属于别的账号：下一步是去登录那个账号；验证码错误只重试
+			setErrorShowLogin(code === "flashback_recover_account_conflict");
+		}
+	};
+
+	const handleClaim = async () => {
+		if (claiming) return;
+		setClaiming(true);
+		setError(null);
+		setErrorShowLogin(false);
+		try {
+			if (await onClaim()) setPhase("bound");
+			else setError(t("claimFailed"));
+		} catch (err) {
+			const code = graphqlErrorDetails(err)?.code ?? "flashback_invalid_input";
+			setError(errorT(code, t("claimFailed")));
+			// 卡属于别的账号：下一步是去登录那个账号
+			setErrorShowLogin(code === "flashback_recover_account_conflict");
+		} finally {
+			setClaiming(false);
 		}
 	};
 
 	const errorLine = error ? (
-		<p role="alert" className="fb-hint">
-			{error}
-		</p>
+		<div role="alert" className="fb-error">
+			<p>{error}</p>
+			{errorShowLogin && <Link href="/login?next=%2Fflashback%2Fcapsule">{t("login")}</Link>}
+		</div>
 	) : null;
 
 	if (phase === "review") {
@@ -296,6 +331,7 @@ export default function SendRegister({
 					className="fb-cta fb-cta-primary"
 					onClick={() => {
 						setError(null);
+		setErrorShowLogin(false);
 						setPhase("sending");
 						void handleSend();
 					}}
@@ -329,7 +365,16 @@ export default function SendRegister({
 								email: maskedEmail ?? t("contactNone"),
 							})}
 						</p>
-						{!codeSent ? (
+						{bound ? (
+							<>
+								<p>{t("alreadyKept")}</p>
+								<Link href={confirmed && authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>{t(confirmed && authed ? "enterCapsule" : "login")}</Link>
+							</>
+						) : !confirmed ? (
+							<p role="status">{t("checkingAccount")}</p>
+						) : authed ? (
+							<button type="button" className="fb-cta fb-cta-primary" disabled={claiming} onClick={handleClaim}>{t(claiming ? "claiming" : "claim")}</button>
+						) : !codeSent ? (
 							<>
 								<input
 									className="fb-field-input fb-register-input"

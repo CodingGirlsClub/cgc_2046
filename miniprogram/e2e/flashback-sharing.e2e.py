@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CGC_E2E_MOCK=true 构建（复用 wish-writing 的 mock transport）。
 """3B native share landing acceptance; synthetic mock build, no actual chat sends.
 Cold entry uses DevTools compilation. Warm entry invokes the real App onShow.
 """

@@ -1,4 +1,13 @@
 defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
+  @moduledoc """
+  平台管理员专用：修改倡导活动的元数据（name / slug / hashtag / description /
+  window_starts_at / window_ends_at）。只传要改的字段，未传的保持不变；一个字段都不传会报错。
+  状态用 admin_open_initiative / admin_close_initiative / admin_cancel_initiative 改，规则用
+  admin_upsert_initiative_rule 改，本工具都不涉及。
+
+  走确认流：第一次调用返回 needs_confirmation + pending_id + summary，用户确认后调
+  confirm_operation(pending_id) 才生效。返回更新后的活动行（字段同 admin_get_initiative）。
+  """
   use Anubis.Server.Component,
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
@@ -8,13 +17,13 @@ defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
 
   schema do
-    field(:initiative_id, {:required, :string})
-    field(:name, :string)
-    field(:slug, :string)
-    field(:hashtag, :string)
-    field(:description, :string)
-    field(:window_starts_at, :string)
-    field(:window_ends_at, :string)
+    field(:initiative_id, {:required, :string}, description: "倡导活动 ID（取自 admin_list_initiatives）")
+    field(:name, :string, description: "新名称")
+    field(:slug, :string, description: "新 slug（全局唯一）")
+    field(:hashtag, :string, description: "新话题标签")
+    field(:description, :string, description: "新简介")
+    field(:window_starts_at, :string, description: "新的窗口开始时间（ISO8601）")
+    field(:window_ends_at, :string, description: "新的窗口结束时间（ISO8601）")
   end
 
   @impl true

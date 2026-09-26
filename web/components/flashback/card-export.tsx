@@ -2,10 +2,8 @@
 
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
-import { useMutation } from "@apollo/client/react";
 import {
 	appliedStamp,
-	FLASHBACK_SET_QUOTE_LICENSE,
 	type FlashbackCapsuleMe,
 	TODAY_FIELDS,
 	sentencesWithFogMark,
@@ -30,42 +28,11 @@ const SUMMARY_H = 800;
  * - 已授权（anonymous/credited）→ 勾选态 + 禁用（分享永不改档，也不静默撤权）。
  * 授权永不预选：默认不勾。
  */
-export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; token?: string | null }) {
+export default function CardExport({ me }: { me: FlashbackCapsuleMe }) {
 	const t = useTranslations("flashback.cardExport");
 	const questionT = useTranslations("flashback.questionLabels");
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const [kind, setKind] = useState<"summary" | "full">("summary");
-	const [runSetQuoteLicense] = useMutation(FLASHBACK_SET_QUOTE_LICENSE);
-	/** 本地勾选覆盖（null = 跟随授权档；授权永不预选，已在授权中才显示勾选态） */
-	const [optInOverride, setOptInOverride] = useState<boolean | null>(null);
-	const [optInBusy, setOptInBusy] = useState(false);
-
-	const alreadyLicensed = (me.quoteLevel ?? "off") !== "off";
-	const shareOptIn = optInOverride ?? alreadyLicensed;
-	/** 可回填的区间三件套齐备才给选项（R37：span = 卡片上展示的金句） */
-	const optInAvailable = Boolean(token && me.quote && (me.quoteSpans?.length ?? 0) > 0);
-
-	/** 勾选 → 开匿名金句档（span 与卡片同源）；取消勾选 → 保持关闭（不撤销既有档位） */
-	const toggleShareOptIn = async (next: boolean) => {
-		if (!token || !optInAvailable || alreadyLicensed) return;
-		setOptInOverride(next);
-		if (!next) return;
-		setOptInBusy(true);
-		try {
-			await runSetQuoteLicense({
-				variables: {
-					token,
-					level: "anonymous",
-					chosenQuoteSpans: me.quoteSpans ?? undefined,
-				},
-			});
-		} catch {
-			setOptInOverride(false);
-		} finally {
-			setOptInBusy(false);
-		}
-	};
-
 	const stamp = appliedStamp(me.appliedAt);
 	const quote = me.quote?.trim() || null;
 	// 分享物只显未雾句(雾住的句子不进卡,也不画雾块)
@@ -270,18 +237,6 @@ export default function CardExport({ me, token }: { me: FlashbackCapsuleMe; toke
 					{t("downloadMd")}
 				</button>
 			</div>
-			{optInAvailable && (
-				<label className="fb-export-optin">
-					<input
-						type="checkbox"
-						data-testid="fb-export-optin"
-						checked={shareOptIn}
-						disabled={alreadyLicensed || optInBusy}
-						onChange={(event) => void toggleShareOptIn(event.target.checked)}
-					/>
-					<span>{alreadyLicensed ? t("shareOptInAlready") : t("shareOptIn")}</span>
-				</label>
-			)}
 			<p className="fb-hint">{t("privacyNote")}</p>
 			<canvas ref={canvasRef} className="fb-visually-hidden" aria-hidden="true" />
 		</section>
