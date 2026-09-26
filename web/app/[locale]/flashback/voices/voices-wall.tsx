@@ -10,12 +10,12 @@ import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
 	FLASHBACK_LIKE_QUOTE,
 	FLASHBACK_PUBLIC_QUOTES,
+	FLASHBACK_VOICE_CITIES,
 	FLASHBACK_RANDOM_QUOTES,
 	type FlashbackPublicQuote,
 } from "@/lib/graphql/flashback";
 import { usePrefersReducedMotion } from "@/components/flashback/use-reduced-motion";
 import MapScene from "./map-scene";
-import { CITY_COORDS } from "./cities";
 import styles from "./voices.module.css";
 
 /**
@@ -199,6 +199,9 @@ export default function VoicesWall({
 		() => new Set(initialItem ? [initialItem.quoteId] : []),
 	);
 	const [randomQueue, setRandomQueue] = useState<FlashbackPublicQuote[]>([]);
+	// M10：城市真源 = flashbackVoiceCities（有金句的城市全集，坐标服务端下发），
+	// 不再依赖前端 45 城静态表——冷门城市也能选、地图也有点
+	const [voiceCities, setVoiceCities] = useState<Array<{ name: string; lng: number; lat: number }>>([]);
 
 	const progressRef = useRef(progress);
 	const quoteAreaRef = useRef<HTMLDivElement>(null);
@@ -217,16 +220,8 @@ export default function VoicesWall({
 	const current = quotes.find((q) => q.quoteId === currentId) ?? quotes[0] ?? null;
 	const currentIndex = current ? quotes.findIndex((q) => q.quoteId === current.quoteId) : -1;
 
-	// 城市清单：数据驱动（有公开句的城市），坐标表外的城市排尾（地图无点）
-	const cities = (() => {
-		const seen = new Map<string, { name: string; lng: number; lat: number }>();
-		for (const q of quotes) {
-			if (!q.city || seen.has(q.city)) continue;
-			const coords = CITY_COORDS[q.city];
-			if (coords) seen.set(q.city, { name: q.city, ...coords });
-		}
-		return [...seen.values()];
-	})();
+	// 城市清单：服务端真源（M10），不再按已加载样本 ∩ 静态坐标表近似
+	const cities = voiceCities;
 	const cityNames = cities.map((c) => c.name);
 
 	const markIntroSeen = useCallback(() => {
@@ -291,7 +286,8 @@ export default function VoicesWall({
 		client
 			.query({
 				query: FLASHBACK_PUBLIC_QUOTES,
-				variables: { voterKey: ensureVoterKey(window.localStorage) },
+				// M10：城市筛选先于热门限量（服务端），选城即重拉
+				variables: { voterKey: ensureVoterKey(window.localStorage), city: city || null },
 				fetchPolicy: "network-only",
 			})
 			.then(({ data }) => {
@@ -302,12 +298,7 @@ export default function VoicesWall({
 					? [initialItem, ...list]
 					: list);
 				setLoadState("ready");
-				setCurrentId((id) => id ?? initialItem?.quoteId ?? list[0]?.quoteId ?? null);
-				setCity((c) => {
-					if (c) return c;
-					const first = initialItem ?? list[0];
-					return first?.city ?? "";
-				});
+				setCurrentId((id) => (id && list.some((q) => q.quoteId === id) ? id : initialItem?.quoteId ?? list[0]?.quoteId ?? null));
 			})
 			.catch(() => {
 				if (!cancelled) setLoadState("failed");
@@ -315,12 +306,31 @@ export default function VoicesWall({
 		return () => {
 			cancelled = true;
 		};
-	}, [loadGeneration, initialItem]);
+	}, [loadGeneration, initialItem, city]);
 
 	const retryLoad = () => {
 		setLoadState("loading");
 		setLoadGeneration((n) => n + 1);
 	};
+
+	// M10：城市栏 + 地图点位 = 服务端城市全集（挂载取一次；授权变化由刷新入口兜底）
+	useEffect(() => {
+		let cancelled = false;
+		client
+			.query({ query: FLASHBACK_VOICE_CITIES, fetchPolicy: "network-only" })
+			.then(({ data }) => {
+				if (cancelled) return;
+				setVoiceCities(
+					(data?.flashbackVoiceCities ?? []).map((c) => ({ name: c.name, lng: c.lngLat[0], lat: c.lngLat[1] })),
+				);
+			})
+			.catch(() => {
+				// 城市栏取不到不阻断阅读——地图/城市栏隐藏，列表仍可用
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	// toast 自动消失
 	useEffect(() => {
@@ -333,7 +343,8 @@ export default function VoicesWall({
 		(quote: FlashbackPublicQuote) => {
 			finishIntro();
 			setCurrentId(quote.quoteId);
-			if (quote.city) setCity(quote.city);
+			// M10：city 是服务端筛选（改动即重拉），阅读位置移动不再连带改筛选——
+			// 否则导航到邻城的句子会把列表收缩成单城，上一句/下一句卡死
 			setPulse(0);
 		},
 		[finishIntro],
@@ -352,14 +363,11 @@ export default function VoicesWall({
 		}
 	}, []);
 
+	// M10：选城 = 改服务端筛选（重拉），不再在已加载样本里就近挑句
 	const selectCity = (next: string) => {
 		syncCityToUrl(next);
-		const entry = quotes.find((q) => q.city === next);
-		if (entry) {
-			select(entry);
-		} else {
-			setToast(t("cityEmpty", { city: next }));
-		}
+		setCurrentId(null);
+		setCity((prev) => (prev === next ? prev : next));
 	};
 
 	const navigate = (step: number) => {
