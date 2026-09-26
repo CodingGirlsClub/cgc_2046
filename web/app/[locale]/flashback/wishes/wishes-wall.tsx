@@ -24,6 +24,8 @@ import { WishEchoCard } from "@/components/flashback/wish-echo-card";
 const WISHES_INTRO_SEEN_KEY = "flashback.wishesIntroSeen";
 const VOICES_INTRO_SEEN_KEY = "flashback.voicesIntroSeen";
 const REPORT_REASONS = ["spam", "irrelevant", "scam", "inappropriate", "other"] as const;
+/** L7：公开树每页条数（对齐小程序 flashbackPublicWishes 每页 24） */
+const PAGE_SIZE = 24;
 
 /** 与 voices 同一几何语言（24 viewBox / stroke 1.5 / 圆角端点）的局部图标表 */
 const ICONS: Record<string, ReactNode> = {
@@ -78,6 +80,9 @@ export default function WishesWall({
 	const [wishes, setWishes] = useState<FlashbackPublicWish[]>(initialItem ? [initialItem] : []);
 	const [loadState, setLoadState] = useState<"loading" | "ready" | "failed">("loading");
 	const [loadGeneration, setLoadGeneration] = useState(0);
+	// L7：每页 24 条可翻页；不足一页 = 到底，隐藏「加载更多」
+	const [hasMore, setHasMore] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const [city, setCity] = useState<string>(initialItem?.city ?? initialCity ?? "");
 	const [cityCoords, setCityCoords] = useState<Record<string, { lng: number; lat: number }>>({});
 	const [seed, setSeed] = useState<string | null>(null);
@@ -166,14 +171,18 @@ export default function WishesWall({
 				variables: {
 					city: city || null,
 					seed,
-					limit: 60,
+					limit: PAGE_SIZE,
+					// M8：「已有回响」由服务端筛选（withEchoes），不再前端按附议数近似
+					withEchoes: filter === "echo" ? true : null,
 					voterKey: voter,
 				},
 				fetchPolicy: "network-only",
 			})
 			.then(({ data }) => {
 				if (cancelled) return;
-				setWishes((data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[]);
+				const page = (data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[];
+				setWishes(page);
+				setHasMore(page.length >= PAGE_SIZE);
 				setLoadState("ready");
 			})
 			.catch(() => {
@@ -183,7 +192,7 @@ export default function WishesWall({
 		return () => {
 			cancelled = true;
 		};
-	}, [city, seed, voter, loadGeneration]);
+	}, [city, seed, voter, filter, loadGeneration]);
 
 	// toast 自动消失
 	useEffect(() => {
@@ -203,11 +212,9 @@ export default function WishesWall({
 		return [...seen.values()];
 	}, [wishes, cityCoords]);
 
-	// 概念图 chips 过滤；选中项从过滤集取，失效回落首条
-	const filtered = useMemo(
-		() => (filter === "echo" ? wishes.filter((w) => w.endorsementCount > 0) : wishes),
-		[filter, wishes],
-	);
+	// M8：「已有回响」 chips 由服务端 withEchoes 筛选，前端不再按附议数近似；
+	// 选中项从过滤集取，失效回落首条
+	const filtered = wishes;
 	const currentInFilter = filtered.find((w) => w.id === currentWishId) ?? filtered[0] ?? null;
 	const others = useMemo(
 		() => filtered.filter((w) => w.id !== currentInFilter?.id),
@@ -238,6 +245,36 @@ export default function WishesWall({
 		// KTD10「换一批」：随机 seed 立即重洗
 		setSeed(crypto.randomUUID());
 		setCurrentWishId(null);
+	};
+
+	// L7「加载更多」：同 city/seed/filter 取下一页追加（offset = 已加载条数）
+	const loadMore = async () => {
+		if (loadingMore || !hasMore) return;
+		setLoadingMore(true);
+		try {
+			const { data } = await client.query({
+				query: FLASHBACK_PUBLIC_WISHES,
+				variables: {
+					city: city || null,
+					seed,
+					offset: wishes.length,
+					limit: PAGE_SIZE,
+					withEchoes: filter === "echo" ? true : null,
+					voterKey: voter,
+				},
+				fetchPolicy: "network-only",
+			});
+			const page = (data?.flashbackPublicWishes ?? []) as FlashbackPublicWish[];
+			setWishes((prev) => {
+				const seen = new Set(prev.map((w) => w.id));
+				return [...prev, ...page.filter((w) => !seen.has(w.id))];
+			});
+			setHasMore(page.length >= PAGE_SIZE);
+		} catch {
+			// 追加失败静默保留当前页——按钮还在，可再点（首屏失败另有 failed 态）
+		} finally {
+			setLoadingMore(false);
+		}
 	};
 
 	// 期待 ❤️（KTD2/KTD9）：乐观 ±1 → 服务端校正 → 失败按 wishId 函数式回滚
@@ -501,6 +538,11 @@ export default function WishesWall({
 							<Icon name="shuffle" />
 							{t("shuffle")}
 						</button>
+						{loadState === "ready" && hasMore && (
+							<button type="button" className={styles.ghostBtn} disabled={loadingMore} onClick={() => void loadMore()}>
+								{loadingMore ? t("loading") : t("loadMore")}
+							</button>
+						)}
 						{city && (
 							<button
 								type="button"

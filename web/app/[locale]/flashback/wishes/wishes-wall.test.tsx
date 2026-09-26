@@ -200,6 +200,41 @@ describe("WishesWall · 写愿望入口（#824/U8）", () => {
 	});
 });
 
+// M8+L7：「已有回响」改服务端 withEchoes 筛选；每页 24 条 + 「加载更多」翻页。
+describe("回响筛选与分页", () => {
+ it("初始请求每页 24 条", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  expect(wallQuery.mock.calls[0][0].variables.limit).toBe(24);
+  expect(wallQuery.mock.calls[0][0].variables.withEchoes).toBeFalsy();
+ });
+
+ it("「已有回响」chips 改服务端筛选：withEchoes=true 重拉", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  fireEvent.click(screen.getByRole("button", { name: "已有回响" }));
+  await waitFor(() => expect(wallQuery).toHaveBeenCalledTimes(2));
+  const vars = wallQuery.mock.calls[1][0].variables;
+  expect(vars.withEchoes).toBe(true);
+  expect(vars.limit).toBe(24);
+  expect(screen.getByRole("button", { name: "已有回响" })).toHaveAttribute("aria-pressed", "true");
+ });
+
+ it("加载更多：按 offset 追加下一页；不足一页时按钮消失", async () => {
+  const page1 = Array.from({ length: 24 }, (_, i) => wish(`w-${i}`));
+  wallQuery.mockResolvedValueOnce({ data: { flashbackPublicWishes: page1 } });
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w-0");
+  expect(screen.getByRole("button", { name: "加载更多" })).toBeInTheDocument();
+
+  wallQuery.mockResolvedValueOnce({ data: { flashbackPublicWishes: [wish("w-24")] } });
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await screen.findByText("愿望 w-24");
+  expect(wallQuery.mock.calls[1][0].variables.offset).toBe(24);
+  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+ });
+});
+
 // N10/M2：承诺不存在的「新进展提醒」文案已删——组件不得再引用，文案不得回流。
 describe("文案守卫", () => {
  it("不再承诺可选择接收提醒", () => {
