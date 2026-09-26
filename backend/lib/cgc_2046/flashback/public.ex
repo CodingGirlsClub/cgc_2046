@@ -96,9 +96,9 @@ defmodule Cgc2046.Flashback.Public do
       Repo.one(
         from(p in "flashback_people",
           left_join: ot in "flashback_touches",
-            on: ot.person_id == p.id and ot.event == "link_opened",
+          on: ot.person_id == p.id and ot.event == "link_opened",
           left_join: td in "flashback_todays",
-            on: td.person_id == p.id and not is_nil(td.sent_to_wall_at),
+          on: td.person_id == p.id and not is_nil(td.sent_to_wall_at),
           where:
             is_nil(p.deleted_at) and
               (not is_nil(ot.id) or not is_nil(p.user_id) or not is_nil(td.id)),

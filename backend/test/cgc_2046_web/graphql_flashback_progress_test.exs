@@ -59,6 +59,7 @@ defmodule Cgc2046Web.GraphqlFlashbackProgressTest do
       assert get_in(response, ["data", "flashbackEnter", "progress", "bound"]) == bound
     end
   end
+
   test "capsule 的 me.answers.fogSpans 容忍字符串化 jsonb 形态（#941 遗留）" do
     alias Cgc2046.Flashback.Answer
 
@@ -100,6 +101,7 @@ defmodule Cgc2046Web.GraphqlFlashbackProgressTest do
 
     plain = "fb_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
     {:ok, hash} = TokenCredential.hash(plain)
+
     Token
     |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
     |> Ash.create!(authorize?: false)
@@ -125,5 +127,4 @@ defmodule Cgc2046Web.GraphqlFlashbackProgressTest do
     assert answer["questionKey"] == "self_intro"
     assert [%{"start" => 0, "len" => 6}] = answer["fogSpans"]
   end
-
 end
