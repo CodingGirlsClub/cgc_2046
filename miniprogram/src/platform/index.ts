@@ -27,8 +27,8 @@ export async function platformLoginCode(): Promise<string> {
 // xhs 官方约束（《获取手机号》）：在 getPhoneNumber 回调里再调 xhs.login 会刷新
 // session_key，回调加密数据（encryptedData/iv）将解密失败——登录码必须在用户点
 // 「同意并登录」**之前**预取。登录页打开授权弹层时调 stagePlatformLoginCode()；
-// preparePlatformLogin 消费暂存，缺失/过期才原地补取（兜底，可能解密失败，
-// 由错误文案引导重试——重试会先走静默登录重新预取）。
+// preparePlatformLogin 只消费暂存——缺失/过期不补取，改为重新预取并抛可恢复
+// 错误请用户重新点按（新 tap 的加密数据配新 code）。
 // ponytail: 4 分钟硬编码有效期（平台 code 5 分钟），留余量；真机若出现长停留
 // 场景再改成 checkSession 校验。
 const XHS_LOGIN_CODE_TTL_MS = 4 * 60 * 1000
