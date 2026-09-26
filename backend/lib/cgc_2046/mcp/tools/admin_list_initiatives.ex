@@ -53,7 +53,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListInitiatives do
        |> Ash.Query.filter(status == ^String.to_existing_atom(status))}
 
   defp status_filter(status),
-    do: {:error, "invalid status: #{inspect(status)} (draft | open | closed | cancelled)"}
+    do: {:error, "invalid status: \"#{status}\" (draft | open | closed | cancelled)"}
 
   defp maybe_search(query, nil), do: query
   defp maybe_search(query, ""), do: query
