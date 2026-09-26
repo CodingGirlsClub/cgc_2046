@@ -31,6 +31,9 @@ vi.mock("@/lib/apollo-client", () => ({
 	client: { mutate: vi.fn() },
 }));
 
+const { auth } = vi.hoisted(() => ({ auth: vi.fn() }));
+vi.mock("@/lib/auth-provider", () => ({ useAuthed: auth }));
+
 const TODAY_TEXTS = {
 	nowStatus: "我在写代码，忽然想起当年跳闸的夜。",
 	want: "想学好 AI 应用，做出能跑的东西。",
@@ -92,6 +95,7 @@ function renderStep(
 			onAdjustTodayFog={handlers.onAdjustTodayFog}
 			onRegisterBind={handlers.onRegisterBind}
 			onRequestPhoneCode={handlers.onRequestPhoneCode}
+			onClaim={vi.fn()}
 			onBack={handlers.onBack}
 			onDone={handlers.onDone}
 		/>,
@@ -104,6 +108,7 @@ afterEach(() => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	auth.mockReturnValue({ authed: false, confirmed: true });
 });
 
 describe("SendRegister 寄出检查步：today 逐句雾选", () => {
@@ -252,4 +257,38 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(copy);
 	});
+});
+
+
+describe("收好账号归属", () => {
+ it("已登录时只调用一键收好，成功后进入长廊，不出现手机号表单", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  const h = makeHandlers([]); const claim = vi.fn().mockResolvedValue(true);
+  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
+  expect(await screen.findByRole("button", { name: /^进入时间长廊/ })).toBeInTheDocument();
+  expect(claim).toHaveBeenCalledOnce();
+  expect(h.onRegisterBind).not.toHaveBeenCalled();
+  expect(h.onRequestPhoneCode).not.toHaveBeenCalled();
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+ });
+ it("已有主人时不出现手机号表单，给登录出口", async () => {
+  const h = makeHandlers([]);
+  render(<SendRegister form={FORM} answers={[]} {...h} bound onClaim={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  expect(await screen.findByText("这张卡已经收进账号，登录即可查看。")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+ });
+ it("一键收好被拒时保留重试与登录出口", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  const h = makeHandlers([]); const claim = vi.fn().mockRejectedValue({ errors: [{ code: "flashback_recover_account_conflict" }] });
+  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
+  expect(await screen.findByRole("alert")).toHaveClass("fb-error");
+  expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
+  expect(screen.getByRole("button", { name: "收进当前账号" })).toBeEnabled();
+ });
 });

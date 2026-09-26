@@ -104,6 +104,7 @@ export function sentencesWithFogMark(
 }
 
 export interface FlashbackProgress {
+	bound: boolean;
 	today?: FlashbackToday | null;
 	quoteLevel: string;
 	maskedPhone?: string | null;
@@ -476,6 +477,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				}
 			}
 			progress {
+				bound
 				today {
 					nowStatus
 					want
@@ -1366,5 +1368,15 @@ export const FLASHBACK_DELETE_WISH = gql`
 export const FLASHBACK_DELETE_WISH_COMMENT = gql`
 	mutation FlashbackDeleteWishComment($token: String, $commentId: ID!) {
 		flashbackDeleteWishComment(token: $token, commentId: $commentId)
+	}
+`;
+
+/** Web 只认持有的邀请链接，不调用 token=null 的自动认领。 */
+export const FLASHBACK_CLAIM: TypedDocumentNode<
+	{ flashbackClaim: { bound: boolean } },
+	{ token: string }
+> = gql`
+	mutation FlashbackClaim($token: String!) {
+		flashbackClaim(token: $token) { bound }
 	}
 `;

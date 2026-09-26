@@ -1519,3 +1519,8 @@
 /* #933 相册开放告知（一次性，内嵌不遮挡）：纸卡 + 金边 = 「已被点亮的」提示（与小程序长廊同款） */
 .fb-album-notice { margin: 4px 22px 14px; padding: 12px 14px; border-radius: 10px; background: #fffdf7; border: 1px solid #e3cf9c; color: #1e3a2f; font-size: 13px; line-height: 1.7; }
 .fb-album-notice button { display: block; margin: 6px 0 0 auto; min-height: 40px; padding: 0 6px; background: none; border: 0; color: #56665a; font-size: 13px; cursor: pointer; }
+
+/* 收好：动作间距与错误反馈。 */
+.fb-register-card { display: flex; flex-direction: column; gap: 12px; }
+.fb-error { color: #ffb09c; border: 1px solid #bc6450; padding: 12px; }
+.fb-error a { color: inherit; text-decoration: underline; }

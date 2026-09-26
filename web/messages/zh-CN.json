@@ -2886,7 +2886,13 @@
       "retry": "再试一次",
       "boundTitle": "账号已接管",
       "boundNote": "卡已收好。此后登录，从「我的闪念间」进入即可查看与编辑。",
-      "enterCapsule": "进入时间长廊 →"
+      "enterCapsule": "进入时间长廊 →",
+      "claim": "收进当前账号",
+      "claiming": "正在收好…",
+      "claimFailed": "暂时没能收好，请重试。",
+      "alreadyKept": "这张卡已经收进账号，登录即可查看。",
+      "checkingAccount": "正在确认登录状态…",
+      "login": "登录"
     },
     "echoCard": {
       "regionLabel": "回响",
