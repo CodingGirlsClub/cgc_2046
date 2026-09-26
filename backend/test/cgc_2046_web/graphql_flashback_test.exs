@@ -464,6 +464,34 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       res = post_graphql(set_quote_query(plain, "off"))
       assert res["data"]["flashbackSetQuoteLicense"]["level"] == "off"
     end
+
+    # 没传的字段保留原值、显式传 null 才清空：小程序改档位从不传 creditedNote，此前每次保存都把
+    # 实名补充清空
+    test "改档位不传 creditedNote / chosenQuoteSpans 时保留原值，显式传 null 才清空" do
+      person = create_person(create_archive())
+      create_answer(person, "funny_thing", "有意思的事：我想亲眼看看是不是。")
+      {plain, _} = issue_token(person)
+      spans = ~s(chosenQuoteSpans: [{questionKey: "funny_thing", start: 6, len: 8}])
+
+      post_graphql(set_quote_query(plain, "credited", ~s(, #{spans}, creditedNote: "现在做无障碍开发")))
+
+      res = post_graphql(set_quote_query(plain, "anonymous"))
+      assert res["data"]["flashbackSetQuoteLicense"]["creditedNote"] == "现在做无障碍开发"
+
+      res = post_graphql(set_quote_query(plain, "credited"))
+      assert res["data"]["flashbackSetQuoteLicense"]["creditedNote"] == "现在做无障碍开发"
+
+      license =
+        Cgc2046.Flashback.QuoteLicense
+        |> Ash.Query.filter(person_id == ^person.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert [span] = license.chosen_quote_spans
+      assert Map.get(span, :question_key, span["question_key"]) == "funny_thing"
+
+      res = post_graphql(set_quote_query(plain, "credited", ", creditedNote: null"))
+      assert is_nil(res["data"]["flashbackSetQuoteLicense"]["creditedNote"])
+    end
   end
 
   describe "flashbackRandomQuotes（KTD3 雾化隐私）" do
@@ -947,6 +975,27 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
   end
 
   describe "flashbackCapsule 全字段冒烟（实测 bug：uuid binary 炸 Jason 序列化）" do
+    # 实测 bug：私密愿望投影缺非空的 mine，小程序（及 web 与公开愿望同形取数后）查长廊时
+    # 错误冒泡到可空的 flashbackCapsule——写过私密愿望的人整条长廊打不开
+    test "写过私密愿望：私密愿望按公开愿望同形取数，长廊不因非空字段缺失变 null" do
+      person = create_person(create_archive())
+      {:ok, _} = Cgc2046.Flashback.Wishes.create_wish(person.id, "想学 Rust", "private")
+      {plain, _token} = issue_token(person)
+
+      res =
+        post_graphql("""
+        query { flashbackCapsule(token: "#{plain}") {
+          myPrivateWishes { id content mine endorsementCount endorsedByMe
+            comments { id } latestEcho { id } echoCount echoes { id } insertedAt }
+        } }
+        """)
+
+      refute Map.has_key?(res, "errors"), inspect(res["errors"])
+
+      assert [%{"content" => "想学 Rust", "mine" => true, "comments" => [], "echoCount" => 0}] =
+               res["data"]["flashbackCapsule"]["myPrivateWishes"]
+    end
+
     test "roster 的 id 经完整字段 query 可 JSON 序列化且为 uuid 文本" do
       archive = create_archive()
       person = create_person(archive)

@@ -160,6 +160,18 @@ defmodule Cgc2046.Flashback.BindingTest do
     assert {:error, %{code: "flashback_token_claimed"}} = Tokens.fetch_valid(invitation)
   end
 
+  # web 邮箱注册不验证邮箱（confirmation_required?(false)）：自动匹配只认已验证的手机号——
+  # 否则用别人的报名邮箱注册就能把对方档案收进自己名下（并作废对方手里的链接）
+  test "自动匹配不认账号邮箱：只有邮箱、没验证过的账号认领不到同邮箱的档案，对方链接照常可用" do
+    person = create_person(%{email: "victim@example.com"})
+    invitation = mint_token(person)
+    squatter = Cgc2046.AccountsFixtures.register_user_with_email("victim@example.com")
+
+    assert {:ok, %{bound: false, bound_count: 0}} = Tokens.claim_for_user(squatter, nil)
+    assert is_nil(owner_id(person))
+    assert {:ok, _} = Tokens.fetch_valid(invitation)
+  end
+
   test "并发：检查时档案还没主人、写入前被别人抢先绑定 → 条件更新拦下，返回冲突" do
     me = account("+8613800006009")
     other = account("+8613800006010")
