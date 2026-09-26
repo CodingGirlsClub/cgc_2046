@@ -18,6 +18,7 @@ describe("check-licenses", () => {
 
 			const r = spawnSync(process.execPath, [join(root, "scripts/check-licenses.mjs")], { encoding: "utf8" });
 			expect(r.status, r.stdout + r.stderr).toBe(2);
+			expect(r.stderr).toContain("--config.enable-global-virtual-store=false");
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

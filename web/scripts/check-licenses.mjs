@@ -119,7 +119,7 @@ function scan() {
 
 	// 空集 fail-closed：布局认不出来时（如 pnpm 全局 virtual store，包不在 .pnpm 里）一个包都没查，不能判通过
 	if (total === 0) {
-		console.error("✗ Scanned 0 packages in node_modules/.pnpm — unrecognized layout (pnpm global virtual store?), nothing verified. Reinstall: rm -rf node_modules && pnpm install --frozen-lockfile");
+		console.error("✗ Scanned 0 packages in node_modules/.pnpm — unrecognized layout (pnpm global virtual store?), nothing verified. Reinstall: rm -rf node_modules && pnpm install --frozen-lockfile --config.enable-global-virtual-store=false");
 		process.exit(2);
 	}
 
