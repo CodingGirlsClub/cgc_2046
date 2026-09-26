@@ -24,6 +24,16 @@ defmodule Cgc2046.Mcp.Tools.CreateRecruitmentCohort do
   # 与 RecruitmentCohort :create 的 accept 一一对应（不发明字段）
   @create_fields ~w(name apply_deadline_at starts_at ends_at)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：创建一个招募批次草稿（draft，公开申请页不可见，
+    可编辑）。name 和 apply_deadline_at 必填。开放用 open_recruitment_cohort（走确认流）；同一工作台
+    同时最多只能有一个开放中的批次。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

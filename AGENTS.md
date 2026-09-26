@@ -8,7 +8,7 @@
 
 ## 子目录规则
 
-改 `backend/`、`web/`、`miniprogram/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
+改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
 
 ## LoopX 工作流（Codex CLI）
 
@@ -30,6 +30,7 @@
 | 在自己的 PR 上发布 LoopX pr-review 评审 | 允许 | — |
 | 开 issue、评论 issue | 允许 | 新 issue 打 `needs-triage` |
 | 把自己的 PR 合并到 `develop` | 允许 | 同时满足：CI 必过检查全绿；change-quality 收据覆盖当前 head 且 `verify` 通过；LoopX pr-review 结论 APPROVE 已发在 PR 上；合并前 `loopx pr-review --check-merge-readiness <PR>@<head>` 返回 `ready=true`。直接用 merge commit 合并，不开 auto-merge（它可能合入未经评审的新 head）；改动碰到下方人工合并范围时不适用 |
+| 子 agent 改代码、commit、push、开 PR、写 LoopX 状态 | 禁止 | 子 agent 只做只读工作（取证、triage、复核评审、跑测试汇报），主控核实原件后才采用其结论（细则见 `docs/agents/loopx-workflow.md` §1） |
 | 合并碰到人工合并范围的 PR；合并到 `main` | 禁止 | 人工执行；LoopX 记一条 user_action todo 后继续下一个任务 |
 | develop→main 发布、deploy、生产数据、凭证、仓库设置 | 禁止 | 人工执行 |
 
@@ -43,14 +44,14 @@
 ## 安全红线（Security red lines）
 
 - **敏感文件不读内容**：`.env`、密钥文件、证书、token 文件——用存在性检查（`grep -q "KEY_NAME" .env && echo "present"`），不输出值到对话/日志/截图。
-- **内部标识符不进公开面**：模板 ID、批次号、person_id、内部 URL——公开 Issue/文档用占位符（`<模板ID>`）或「见 SendCloud 后台」。commit message 是例外（git 历史需要可追溯性），但代码注释避免写死 ID（用「当前模板」而非「942118」）。
+- **内部标识符不进公开面**：模板 ID、批次号、person_id、内部 URL——公开 Issue/文档用占位符（`<模板ID>`）或「见 SendCloud 后台」。commit message 是例外（git 历史需要可追溯性），但代码注释避免写死 ID（写「当前模板」，不写具体编号）。
 - **凭证泄露即轮换**：任何密钥/token 意外暴露在对话/日志/公开面，立即建议用户轮换（重新生成，旧的作废）——不假设「没人看到」。
 
 ## 协作与追踪
 
 ### Issue tracker
 
-Issues and PRDs live as GitHub issues in `CodingGirlsClub/cgc_2046`, driven via `gh-axi` (use `npx -y gh-axi` instead of raw `gh`). See `docs/agents/issue-tracker.md`.
+Issues and PRDs live as GitHub issues in `CodingGirlsClub/cgc_2046`, driven via `gh-axi` (`npx -y gh-axi` when it isn't on PATH), never raw `gh` — its flags differ from `gh`'s. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -60,40 +61,24 @@ Five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
 
-## E2E 验证（ego-browser）
+## 测试纪律（Testing principles）
 
-前端 UI 改动后用 ego-browser 做端到端验证（web/ 目录，Dev 服务跑起来后），按确定性分层，能数值断言的不问模型：
-
-1. **结构 / 样式断言（主，确定性最高）**：`page.evaluate()` 拿 computed style（`getComputedStyle`）与几何（`getBoundingClientRect`），断言具体数值 —— 宽度 / 背景色 / 圆角 / 边距 / 选中态类名与边框 / 对齐差（<1px）。页面有渲染差异、组件回归、多页一致性都用这一层判定，不需要视觉模型。
-2. **交互走通**：`page.snapshot()`（refs）→ `page.click("@N")` / `page.fill()` → `page.waitForURL()` / `page.waitForSelector()` / `page.waitForFunction()`，断言导航与状态变化（错误分支、成功分支都走）。
-3. **视觉复核（兜底，仅感知层）**：`page.screenshot()` 截图交给视觉模型只查「无法数值断言」的主观项 —— 层级 / 对比度观感 / 留白协调 / 整体美感；同时截图作为给人看的证据。不要为每个页面都截图问模型；截图前先确认结构断言已全部通过。
-4. **登录态**：ego-browser（ego-lite）即用户日常浏览器，默认复用其已登录 profile；确需独立登录态时，先备份 `users.hashed_password`（psql `cgc_2046_dev`），临时重置密码完成验证后**必须恢复原哈希**。
+- **新增守卫/断言必须做变异验证**：把被守卫的实现（或守卫本身）临时改坏，对应断言必须变红——只「绿」不算钉住（假绿常见于断言落在空集合/被跳过的分支上）。做法：改坏 → 确认红 → 还原 → 确认绿，两步输出留在同一会话里。
+- 各端的真实验收方式见子目录：web 走 ego-browser（`web/AGENTS.md`），小程序走微信开发者工具（`miniprogram/AGENTS.md`）。
 
 ## 网络层调试（Rockxy）
 
-按层选工具，不混用：页面层问题（DOM / 样式 / 控制台 / 性能）用 ego-browser / chrome-devtools；网络层问题（请求发了什么 / 收到了什么）用 Rockxy（macOS 本地抓包代理）。
+按层选工具，不混用：页面层问题（DOM / 样式 / 控制台 / 性能）用 ego-browser / chrome-devtools；网络层问题（请求实际发了什么 / 收到了什么）用 Rockxy（macOS 本地抓包代理）。
 
-Rockxy 场景：
-
-- **API 争议仲裁**：抓真实请求取证（实际发出的 header / body / 状态码），Compose 重放验证修复，Diff 对比修复前后——不靠猜。
-- **错误注入**：Breakpoint 把响应改成 401/500/bad payload 测前端 fallback；Block host 模拟第三方 API 故障。不改后端代码。
-- **Mock / 环境切换**：Map Local 钉死本地 JSON（后端未完成先调前端）；Map Remote 把流量改写到 localhost，不动 `/etc/hosts`。
-- **Webhook 重放**：第三方回调失败时从捕获改参重发。
-- **AI 取证**：当前会话的工具里有 `rockxy-mcp` 时，可直接列 flows / 读请求响应 / 导出 cURL，不要让用户手贴 curl。
-
-Rockxy MCP 前提：Rockxy app 在运行且 **Settings → MCP → Enable MCP Server** 已开（监听 `127.0.0.1:9710`，握手文件 `~/Library/Application Support/com.amunx.rockxy.community/mcp-handshake.json`）；app 没跑时桥报 `handshake file not found`，属预期，先开 app。
-
-红线：
-
-- 捕获含真实凭证。导出 / 分享捕获前必须过 redaction（authorization / cookie / bearer token）；保持 MCP 的 Redact Sensitive Data 开启。
-- 调试中的临时状态（重置的密码、注入的 token）验证完必须恢复，同 E2E 登录态规则。
-- HTTPS 解密依赖信任 Rockxy 根 CA；只对调试需要的 host 开解密，其余 passthrough。
+- **不改代码就能做**：抓包取证仲裁 API 争议；Breakpoint 把响应改成 401/500 测前端 fallback；Map Local 用本地 JSON 顶替未完成的后端；从捕获改参重放 Webhook。
+- **AI 取证**：会话里有 `rockxy-mcp` 工具时直接列 flows、读请求响应，别让用户手贴 curl。前提是 Rockxy app 在跑且开了 Settings → MCP → Enable MCP Server（`127.0.0.1:9710`）；报 `handshake file not found` 即 app 没跑，先开 app。
+- **红线**：捕获含真实凭证——导出 / 分享前必须过 redaction（authorization / cookie / bearer），保持 MCP 的 Redact Sensitive Data 开启；HTTPS 解密只对调试需要的 host 开，其余 passthrough；注入的临时状态（重置的密码、token）验证完必须恢复。
 
 ## PR 合并与发布
 
 LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合并与所有发布由人执行，下面的命令是人工操作口径。
 
-- **发布前必须刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：主控跑 `ruby scripts/changelog-draft.rb` 拿清单与门禁提示，按 `docs/agents/loopx-workflow.md` §9 出草稿 PR；发布 PR（develop→main）正文只带本次 Unreleased 段，合并后把该段改名为发布日期。**端标签词汇**：日期段只记 server 面；客户端/扩展按各自过审/版本另立节点（`[微信 vX]`/`[小红书 vX]`/`[抖音 vX]`/`[扩展 vX]`），commit scope 平台化用 `mp-wechat`/`mp-xhs`/`mp-dy`。
+- **发布前必须刷新 `CHANGELOG.md` 的 `[Unreleased]` 段**：工序见 `docs/agents/loopx-workflow.md` §9；端标签节点与 commit scope 平台化（`mp-wechat` / `mp-xhs` / `mp-dy`）见 `CHANGELOG.md` 头部约定。
 - **一律 merge commit**（repo 已禁 squash/rebase 合并，界面选不出别的）：CI gate 与 deploy 的去重判定依赖「双亲 merge commit + tree 等值」识别已验证代码——squash 会让每次合并都白跑一轮全量 CI。
 - **发布 = develop→main PR**。repo 已开 auto-merge，checks 全绿自动合并，merge 落 main 即触发 Deploy：
 
@@ -101,7 +86,7 @@ LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合
   gh pr create --base main --head develop --fill && gh pr merge --auto --merge
   ```
 
-- feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）。
+- 人工合并 feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）；LoopX 会话不开 auto-merge，见授权表。
 - 紧急修复可直接 hotfix→main PR：head 非 develop 时 4 checks 在 PR 上重新跑，绿了即可合并部署，不必绕道 develop。
 - **后端 API 收紧 × 客户端依赖的组合发布纪律**：后端新增必填校验/收紧参数（如 #727 的押金 `depositConsent` 门）而客户端（小程序/APP）需过审才能带上新参数时——后端与客户端**同窗口发布**，或**客户端先行过审**后再合后端；窗口期存量客户端的对应请求会被硬拒。同时为新增拒绝错误码加监控曲线（观察窗口期拒绝量回落至基线）。
 

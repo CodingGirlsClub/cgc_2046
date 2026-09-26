@@ -563,6 +563,11 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert email.html_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
       assert email.text_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
 
+      # R25 全场告知：唤醒邮件补比特币奖品兑付提醒（显影页提醒的同口径 P.S.）
+      assert email.text_body =~ "比特币作为奖品"
+      assert email.html_body =~ "比特币作为奖品"
+      assert email.html_body =~ "mailto:info@codingirlsclub.com"
+
       # 逐字引文（与截图并排可对照）+ 原图 + 小程序搜索引导（仅微信小程序）
       assert email.html_body =~ "weibo-screenshot.png"
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
@@ -601,7 +606,10 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert_receive {:email, email}, 1_000
       assert email.html_body =~ "那年，你也在一张报名表上写下过自己"
       assert email.text_body =~ "那年，你也在一张报名表上写下过自己"
-      refute email.html_body =~ "2014 年 1 月"
+
+      # 日期缺失 → 个性化段落降级「那年」。兑付提醒里的「2014 年 1 月北京现场」是
+      # 奖品发放地的固定事实，与收件人日期无关，不在本断言范围
+      refute email.html_body =~ "一扇窗，开了一个人的十年。2014 年"
     end
 
     test "sms 腿：phone-only 档案 → SendCloud 模板短信带 year + brand 变量" do

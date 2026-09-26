@@ -1,13 +1,13 @@
 # LoopX 工作流（Codex CLI）
 
-读者：LoopX 主控会话（Codex CLI）与它拉起的子 agent。只记录当前实际在用的做法；能做什么、不能做什么以根 `AGENTS.md` 的授权表为准；gh 命令经 `gh-axi` 透传（见 `docs/agents/issue-tracker.md`）。
+读者：LoopX 主控会话（Codex CLI）与它拉起的子 agent。只记录当前实际在用的做法；能做什么、不能做什么以根 `AGENTS.md` 的授权表为准；GitHub 操作一律用 `gh-axi`——它不是 `gh` 的透传，flag 与 `gh` 不同，照 `docs/agents/issue-tracker.md` 的实测写法用。
 
 ## 1. 角色与模型
 
-- **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定自己做还是派子 agent、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
+- **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定哪些只读工作派给子 agent、写代码、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
 - **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。手动会话也用自己的 worktree，别在主 checkout 上切分支。
-- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限（每个 worktree 用自己的测试库，见 §6）。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。每个子 agent 一个独立 worktree，只改分配给它的文件，可在 worktree 内本地 commit，不 push、不开 PR。
-- 紧耦合的改动留在主控一条线里做；不为了"看起来在并行"而拆子 agent。
+- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。**只做只读工作**：收集资料、按当前 develop 核实 issue（triage 取证）、读代码找证据、独立复核 / 评审、跑测试并汇报；不改代码、不 commit、不 push、不开 PR、不写 LoopX 状态、不 spend。要跑测试就用自己的 worktree（各用各的测试库，见 §6）。写代码、验收、change-quality 收据、PR、合并都由主控自己做；子 agent 的结论由主控核实原件后才采用。
+- 不为了"看起来在并行"而拆子 agent。
 
 ## 2. 任务来源与 todo 约定
 
@@ -20,7 +20,7 @@
 1. **准备 worktree**：`git worktree add --no-track -b <branch> <worktree-root>/<slug> origin/develop`（所有 worktree 放同一个根目录，别散落），进去后跑 `bash scripts/worktree/setup-worktree.sh`：它会链接项目 skill、复制 `backend/.env`、装三端依赖，并用 `mix setup` 建好这个 worktree 自己的 dev 库（Postgres 需已启动）。
 2. **实施与测试**：按根 `AGENTS.md` 的 Testing principles；worktree 自动使用自己的数据库，不用设环境变量（见 §6）。并行起服务时用 `PORT`（后端）与 `BACKEND_URL`（web）指向各自端口。
 3. **端到端验收（按端）**：改动涉及哪一端，就在该端做真实验收——组件/集成测试不算，要跑真实运行面：
-   - **web（改了 `web/` 的 UI/交互）**：Dev 服务（`pnpm dev`）+ ego-browser 分层验收（见根 `AGENTS.md`「E2E validation」）：L1 结构/样式数值断言（`getComputedStyle` / `getBoundingClientRect`）、L2 交互走通（成功与错误分支都要走）、L3 截图只兜底主观项；登录态复用 ego-browser 既有 profile，确需重置密码的验完**必须恢复原哈希**。
+   - **web（改了 `web/` 的 UI/交互）**：Dev 服务（`pnpm dev`）+ ego-browser 分层验收（见 `web/AGENTS.md`「E2E 验证（ego-browser）」）：L1 结构/样式数值断言（`getComputedStyle` / `getBoundingClientRect`）、L2 交互走通（成功与错误分支都要走）、L3 截图只兜底主观项；登录态复用 ego-browser 既有 profile，确需重置密码的验完**必须恢复原哈希**。
    - **miniprogram（改了 `src/` 或投影契约）**：构建 + 微信开发者工具模拟器实测（wechatide-skill / miniprogram-automator / `pnpm e2e`），console 与 network 取证；涉及订阅触点的要真实授权弹层验证。
    - **backend（改了 GraphQL 面或 MCP 工具面）**：dev 服务起来后用真实 GraphQL 查询/变更实测（curl 或 ego-browser network 面取证），MCP 工具经对应 transport 实调一次——不能只靠测试套件自证。
    - **纯 docs / scripts / 生成物**：豁免，写明「无运行面」。
@@ -59,24 +59,23 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 
 1. 用**临时 index**（`GIT_INDEX_FILE=<tmp>`）对 base/ours/theirs 逐文件跑 `git merge-file`，把合并结果写进临时 index；
 2. 用 `git commit-tree` 把重建后的 tree 挂到最新 develop 上生成新 commit（保留原 commit 的 message/作者），再把 worktree 分支指过去；
-3. 子 agent 已本地 commit 时**源 commit 直接用它的本地 commit**：`git diff --stat origin/develop <agent-commit>` 仍必须恰好等于本分支改动文件集、且不得携带生成物（build 产物等）；
-4. **重建后逐文件核对**：`git diff --stat origin/develop <NEW_COMMIT>` 必须恰好等于本分支自己的改动文件集；多出的文件说明源分支携带了 develop 侧内容 → 用排除清单剔除后重建；
-5. 文件按三类分别处理：① develop 未动 → 取源分支版本；② 双方都改 → `git merge-file` 三方；③ develop 新增 → **绝不带进来**；
-6. ②且 diff3 报冲突时：源分支**已手工合并过**该文件 → 整份取 worktree 侧（`TAKE_THEIRS`）；**没手工合并过就不要整份取**——做「develop 版本 + 本分支那几处编辑」的确定性合成，并用两条自证收尾：`diff origin/develop <合成结果>` 只出现本分支的 hunk；被改的语义块与源分支逐字一致。不要凭 diff 猜意图做二次手工编辑；
-7. 非 ASCII 路径先 `git config core.quotePath false`，否则中文文件名在 `diff` / `ls-files` 输出里是八进制转义，脚本匹配不到。
+3. **重建后逐文件核对**：`git diff --stat origin/develop <NEW_COMMIT>` 必须恰好等于本分支自己的改动文件集；多出的文件说明源分支携带了 develop 侧内容 → 用排除清单剔除后重建；
+4. 文件按三类分别处理：① develop 未动 → 取源分支版本；② 双方都改 → `git merge-file` 三方；③ develop 新增 → **绝不带进来**；
+5. ②且 diff3 报冲突时：源分支**已手工合并过**该文件 → 整份取 worktree 侧（`TAKE_THEIRS`）；**没手工合并过就不要整份取**——做「develop 版本 + 本分支那几处编辑」的确定性合成，并用两条自证收尾：`diff origin/develop <合成结果>` 只出现本分支的 hunk；被改的语义块与源分支逐字一致。不要凭 diff 猜意图做二次手工编辑；
+6. 非 ASCII 路径先 `git config core.quotePath false`，否则中文文件名在 `diff` / `ls-files` 输出里是八进制转义，脚本匹配不到。
 
 - **脚本存放约定**：可复用脚本放 `scripts/worktree/`，不留 `/tmp` 路径依赖；新增脚本参数化（PR 号等）、零第三方依赖、`set -uo pipefail`。
 
 ## 5. 落地链（一次合一条，fail-closed）
 
 - 合并一律 merge commit（repo 已禁 squash/rebase，见根 `AGENTS.md`）。主控只按 §3 第 7 步自合并；碰到人工合并范围的 PR 由人合并。`scripts/worktree/ci-sentinel.sh` 会在 checks 全绿时**直接合并**、不做评审与就绪检查，只给人用；LoopX 会话看 CI 用 `gh-axi pr checks <PR>`。
-- 一次只合一条：合完一条，develop 前进，其余还没合的 PR 先按 §4 重建，再用 GitHub 的 update branch（`gh pr update-branch`，经 `gh-axi`）对齐新 develop——head 变了，收据与 pr-review 都要在新 head 上重做后才能合。**直接把"已合并内容"推分支没用**：GitHub 仍判 DIRTY。
+- 一次只合一条：合完一条，develop 前进，其余还没合的 PR 先按 §4 重建，再用 `gh-axi pr update-branch <PR>` 对齐新 develop——head 变了，收据与 pr-review 都要在新 head 上重做后才能合。**直接把"已合并内容"推分支没用**：GitHub 仍判 DIRTY。
 - **唯一容忍的失败：`ext` 单独红**（已知 flake）→ 重跑失败的 job，超过次数仍红按真实失败处理。
 - 任何**其他失败**：先判定是 flake / 内容问题 / 基础设施门禁（见 §8），再决定重跑、回炉还是记录；内容问题回 §3 闭环，改完重新生成 change-quality 收据。
 
 ## 6. 验证纪律
 
-- **变异验证**：新增守卫/断言必须验证"去掉修复或守卫就变红"；只"绿"不算钉住（做法见 `backend/AGENTS.md`、`web/AGENTS.md`）。
+- **变异验证**：新增守卫/断言必须验证"去掉修复或守卫就变红"；只"绿"不算钉住（做法见根 `AGENTS.md`「测试纪律」）。
 - **新断言要测接线，不只测 helper**：同一条守卫落在多个渲染点时，每个站点分别改坏一次、确认对应断言变红（实例：金额守卫在多个渲染点，逐点改坏验红）。
 - **白名单/豁免表必须显式**：列出 + 计数，并守三条不变量：全集 ⊆ 已覆盖 ∪ 表；表 ⊆ 全集；表 ∩ 已覆盖 = ∅。改计数 = 有意承认一个新缺口（实例：通知模板 registry ↔ 小程序场景集合守卫）。
 - **版本化资产改内容必须 bump 版本**：agent 会缓存的 playbook / 版本串，改了内容不 bump 版本，消费端永远看不到新口径——只在服务端兜底等于没修。
@@ -96,7 +95,7 @@ worktree 基于旧 develop、而 develop 已经前进时：**不要 rebase**（�
 
 ## 8. 反模式（都实际踩过）
 
-- **只等子 agent 汇报、不主动查**：子 agent 完工 ≠ 被发现，它可能停在等待、或汇报里只有结论。主控按 §3 的节点主动查（`git status --short`、日志尾部、命令原始输出）。
+- **只等子 agent 汇报、不主动查**：子 agent 完工 ≠ 被发现，它可能停在等待、或汇报里只有结论。主控按 §3 的节点主动查原件（命令原始输出、日志尾部），并用 `git status --short` 确认子 agent 没动文件。
 - **把"已合并内容"直接推分支**：GitHub 仍判 DIRTY；§4 重建 + update branch 才是正解。
 - **把 `mix hex.audit` 这类新发布的安全公告当成自己的代码问题**：先看是不是全局门禁（公告与本次 diff 无关 → 基础设施门，别改自己的代码去迎合）。
 - **改了给 agent 消费的文案 / playbook 却不 bump 版本**：消费端读的是版本串，不 bump 就永远用旧口径。

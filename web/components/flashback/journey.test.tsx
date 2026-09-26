@@ -198,6 +198,9 @@ describe("Journey · 记忆线", () => {
 		expect(screen.getByText("王晓雨")).toBeInTheDocument();
 		// 比特币提醒全场展示（session-settled 决策②）
 		expect(screen.getByText(/比特币/)).toBeInTheDocument();
+		expect(
+			screen.getByRole("link", { name: /联系我们兑付/ }),
+		).toHaveAttribute("href", "mailto:info@codingirlsclub.com?subject=%E6%AF%94%E7%89%B9%E5%B8%81%E5%A5%96%E5%93%81%E5%85%91%E4%BB%98");
 	});
 
 	it("散照把玩（原型 B）：点一张放大到最前、可换一张；问答与散照同屏不换页", async () => {

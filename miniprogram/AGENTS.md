@@ -32,19 +32,20 @@
 
 E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关，也**不进 CI**（需要 GUI 与人工授权，`check:ci` 不含 e2e）。
 
-| 脚本 | 依赖 | 状态 |
+| 入口 | 依赖 | 覆盖 |
 | --- | --- | --- |
-| `e2e/journey.e2e.mjs`（`pnpm e2e`） | miniprogram-automator + DevTools CLI | 可用：全链旅程回归（13 断言·分组计数）；锚点表 `e2e/anchors.mjs`，CI 侧 `node scripts/check-anchors.mjs` 构建后静态自检 |
-| `e2e/order-pay-deposit-consent.e2e.sh`（`pnpm e2e:order-pay-consent`） | wechatide CLI + 已登录的 DevTools | 可用；押金同意门回归（16 断言 + 截图，含 #727 创单前门：勾选 → 创单（带 consent）→ 支付） |
-| `e2e/initiative-journey.e2e.sh`（`pnpm e2e:initiative`） | wechatide CLI + 已登录的 DevTools | 可用；倡导活动旅程 + 详情页回链/成班徽章回归（16 断言 + 截图） |
-| `e2e/flashback-journey.e2e.sh`（`pnpm e2e:flashback`） | wechatide CLI + 已登录的 DevTools | 可用；「我的闪念间」旅程：路人引导 / 快门仪式 / 开卡层雾化与寄出 / 金句授权 nudge 圈选 / 卡片页分享链接（#771）/ 城市钉与愿望段 / 首程与长廊 / 三级视角（220 断言 + 截图） |
+| `pnpm e2e`（`e2e/journey.e2e.mjs`） | miniprogram-automator + DevTools CLI | 全链旅程回归；锚点表 `e2e/anchors.mjs`，CI 侧 `node scripts/check-anchors.mjs` 构建后静态自检 |
+| `pnpm e2e:order-pay-consent` | wechatide CLI + 已登录的 DevTools | 押金同意门（创单前勾选 → 带 consent 创单 → 支付），带截图 |
+| `pnpm e2e:initiative` | 同上 | 倡导活动旅程、详情页回链 / 成班徽章，带截图 |
+| `pnpm e2e:flashback` | 同上 | 「我的闪念间」主旅程，带截图 |
+| `e2e/` 下其余 `*.e2e.py` / `*.e2e.mjs` | 同上 | 闪念间 / 许愿树 / 登录的子旅程（含 #929–#933 批次的找回 / 撤下 / 静默登录 / 场次登录死循环回归）；未登记为 pnpm 脚本，直接 `python3` / `node` 跑，前置条件见各脚本头注释 |
 
 跑 e2e 的四条纪律：
 
-1. **前置**：小程序依赖——**新 worktree 跑一次 `bash scripts/worktree/setup-worktree.sh` 即会装好**；没跑过该脚本的 worktree 需自己跑一次 `cd miniprogram && pnpm install --frozen-lockfile`（缺依赖时脚本会预检报错并直说，不会伪装成「mock 构建失败」）。另需 wechatide-skill 装在 `.agents/skills/wechatide-skill`；首次调用 `wechatide` 会在工具内弹授权窗，需人工点同意（client 名默认 `DSH`，用 `CGC_WECHATIDE_CLIENT` 覆盖）。工具没登录 → 先扫码。
+1. **前置**：小程序依赖——**新 worktree 跑一次 `bash scripts/worktree/setup-worktree.sh` 即会装好**；没跑过该脚本的 worktree 需自己跑一次 `cd miniprogram && pnpm install --frozen-lockfile`（缺依赖时脚本会预检报错并直说，不会伪装成「mock 构建失败」）。另需 wechatide-skill 装在 `.agents/skills/wechatide-skill`；首次调用 `wechatide` 会在工具内弹授权窗，需人工点同意（client 名用 `CGC_WECHATIDE_CLIENT` 覆盖；shell 脚本默认 `DSH`，py 脚本默认 `Codex`）。工具没登录 → 先扫码。
 2. **选择器只用 CSS-module 类名**（`data-testid` 是惰性属性，见 #579）。类名哈希随样式变，运行时解析、别写死：journey 走 `e2e/anchors.mjs`（锚点表单源，页面类从 `dist/weapp/<page>/index.wxss`、组件类从 `dist/weapp/common.wxss` 解析），shell 版参考 `e2e/order-pay-deposit-consent.e2e.sh` 的 `cls()`（页面类）与 `e2e/flashback-journey.e2e.sh` 的 `clsCommon()`（组件类，多哈希 = 跨组件同名 → 报错换锚）。
 3. **`--wait-for-selector` 是「执行前等待」**（`automation_navigate` / `automation_element_action` 都是）。用它等**本步要操作的元素**；当成「导航后等新页面」用会卡在等一个还不存在的元素上，页面根本不跳。
-4. **e2e 走 mock transport**（`CGC_E2E_MOCK=true` 构建）。样例与流转逻辑在 `src/api/mockTransport.ts`：加字段/加页面要同步改它，否则 `parseOrderKind` 这类 fail-closed 解析会直接把页面打成错误态，e2e 红得莫名其妙。
+4. **e2e 走 mock transport**（`CGC_E2E_MOCK=true` 构建；`pnpm e2e` 与 shell 脚本会自己构建）。打**真实后端**的例外：`flashback-guest.e2e.py`，以及 `flashback-voices.e2e.mjs` / `voices-cities.mjs` / `voices-layout.mjs`（三者打 `127.0.0.1:4107` 的 GraphQL，需先按各自头注释 seed `e2e/fixtures/voices-cities.exs` / `voices-layout.exs`）。样例与流转逻辑在 `src/api/mockTransport.ts`：加字段/加页面要同步改它，否则 `parseOrderKind` 这类 fail-closed 解析会直接把页面打成错误态，e2e 红得莫名其妙。
 
 ## 资金动作门（押金同意）不变量
 
@@ -58,11 +59,9 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 - 新增任何资金动作入口都要挂同一道门，并扫查 `Taro.requestPayment` 与 `api.createOrder` 的调用点（当前各一处，均在 `src/pages/order-pay/index.tsx`）。
 - `src/api/mockTransport.ts` 必须镜像后端门（押金场缺 `depositConsent` → 同 code 业务错误），否则 e2e 会在 mock 上「绿着漏门」。
 
-## 后端先收紧 × 旧版小程序（反向兼容口径，#751）
+## 后端先收紧 × 旧版小程序（#751）
 
-后端押金同意门（#727/#750）先于小程序审核发布上线时，**旧版小程序的押金创单会被后端拒**（缺 `depositConsent: true` → `order_deposit_consent_required`）。这不是故障，是 fail-closed 设计：后端门是权威，客户端版本差异只影响它自己是否被拒，绝不影响门的强弱。约定：
+后端门是权威、fail-closed：后端收紧先于小程序过审上线时，旧版小程序的对应请求会被硬拒（如押金创单缺 `depositConsent: true` → `order_deposit_consent_required`）。这是设计而非故障——客户端版本只决定它自己是否被拒，绝不削弱门，所以**不要为旧版在后端放宽门**。
 
-- **用户侧表现**：旧版进支付页点支付 → 落业务错误态，文案已含「若小程序为旧版本，请更新后重试」引导（`error-copy.ts`）；重新进入页面（新版本）即走完整披露+勾选流程。
-- **新版小程序自愈**（#751-②）：预检失败/旧缓存导致裸创单被拒时，页面按 code 转「披露 + 勾选」，勾选后重试自动带上同意——不会反复撞同一堵墙。
-- **发版顺序**：小程序先发（含同意流程）→ 后端后收紧是安全序；反过来（后端先上、小程序还躺在审核）靠错误码文案兜底。两端 code ↔ 文案映射不得漂移（`error-codes.contract.test.ts` 钉住 key ⊆ 契约）。
-- **新增押金面错误码时同步三处**：backend 契约工件、`web/messages/*.json` errors ns、`miniprogram/src/domain/error-copy.ts`（如 #750 的 `order_deposit_consent_missing`）。
+- 旧版被拒后落业务错误态，`src/domain/error-copy.ts` 的文案已含「若小程序为旧版本，请更新后重试」引导；新版的自愈见上节 `createOrderSelfHealsToConsent`。
+- 发版顺序（客户端先过审、后端再收紧）见根 `AGENTS.md`「PR 合并与发布」；code ↔ 文案的同步链见 `backend/AGENTS.md`「错误码契约」。

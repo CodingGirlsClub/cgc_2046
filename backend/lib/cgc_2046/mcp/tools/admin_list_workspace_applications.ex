@@ -22,6 +22,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
 
   @statuses ~w(pending approved rejected expired)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：列出工作台创建申请，status 过滤（pending | approved | rejected | expired，默认
+    pending）。按申请时间倒序，最多 50 条。返回 application_id / name / slug / purpose / status /
+    申请人（id / email / display_name）/ 审批信息 / 时间戳。
+    """
+  end
+
   schema do
     field(:status, :string, description: "按状态过滤（pending|approved|rejected|expired，默认 pending）")
   end

@@ -26,6 +26,17 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
     "invite_only" => "私密仅邀请"
   }
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：修改工作台的加入方式：open（任何人可直接加入）/ request（申请后审批）/
+    invite_only（仅凭邀请，不公开）。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 
