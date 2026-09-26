@@ -10,6 +10,7 @@ import {
 	sentencesWithFogMark,
 } from "@/lib/graphql/flashback";
 import { useStageTitleFocus } from "./use-reduced-motion";
+import QuoteLicenseFields from "./quote-license-fields";
 
 /** Want/Give 勾选候选（R8：数据层按 Want/Give 分类存储，KTD「回信即参与」） */
 const WANT_TAGS = ["want_offline", "want_online", "want_ai_course"] as const;
@@ -31,13 +32,16 @@ export interface QuoteCandidate {
 	questionKey: string;
 	sentence: string;
 	start: number;
+	len: number;
 }
 
 function quoteCandidatesOf(answers: FlashbackAnswer[], today?: Partial<FlashbackTodayInput>): QuoteCandidate[] {
 	const result: QuoteCandidate[] = [];
 	for (const answer of answers) {
 		for (const sentence of sentencesWithFogMark(answer.rawText, answer.fogSpans)) {
-			if (!sentence.fogged) result.push({ questionKey: answer.questionKey, sentence: sentence.text, start: sentence.start });
+			if (!sentence.fogged) {
+				result.push({ questionKey: answer.questionKey, sentence: sentence.text, start: sentence.start, len: sentence.len });
+			}
 		}
 	}
 	// 今天正在写的句子也是金句候选(首程表单值,此刻尚无雾面)
@@ -46,7 +50,7 @@ function quoteCandidatesOf(answers: FlashbackAnswer[], today?: Partial<Flashback
 			const raw = today[host.field];
 			if (!raw) continue;
 			for (const sentence of sentencesWithFogMark(raw, null)) {
-				result.push({ questionKey: host.questionKey, sentence: sentence.text, start: sentence.start });
+				result.push({ questionKey: host.questionKey, sentence: sentence.text, start: sentence.start, len: sentence.len });
 			}
 		}
 	}
@@ -97,13 +101,9 @@ export default function Write({
 			};
 		});
 
-	/** 圈选 toggle（多选）：再点取消；顺序 = 提交顺序（首句优先展示） */
-	const pickQuote = (candidate: QuoteCandidate) => {
-		const pick = {
-			questionKey: candidate.questionKey,
-			start: candidate.start,
-			len: Array.from(candidate.sentence).length,
-		};
+	/** 圈选 toggle（多选）：再点取消；顺序 = 提交顺序（首句优先展示）。
+	    三件套规则在共用字段组（QuoteLicenseFields）里，这里只接上抛 */
+	const pickQuote = (pick: { questionKey: string; start: number; len: number }) => {
 		setForm((prev) => {
 			const current = prev.quotePicks ?? [];
 			const exists = current.some(
@@ -244,52 +244,14 @@ export default function Write({
 					</p>
 				</div>
 
-				<fieldset className="fb-checks fb-quote">
-					<legend className="fb-field-label">{t("quoteLegend")}</legend>
-					<p className="fb-quote-courage">{t("quoteCourage")}</p>
-					{(["off", "anonymous", "credited"] as const).map((level) => (
-						<label key={level}>
-							<input
-								type="radio"
-								name="fb-quote-level"
-								checked={form.quoteLevel === level}
-								onChange={() => set("quoteLevel", level)}
-							/>
-							{t(`quote_${level}`)}
-						</label>
-					))}
-					{form.quoteLevel !== "off" && (
-						<div className="fb-quote-picker">
-							<p className="fb-field-label">{t("quotePick")}</p>
-							<ul className="fb-quote-list">
-								{quoteCandidates.map((candidate) => (
-									<li key={`${candidate.questionKey}:${candidate.start}`}>
-										<button
-											type="button"
-											className={`fb-option${
-												(form.quotePicks ?? []).some(
-													(item) =>
-														item.questionKey === candidate.questionKey &&
-														item.start === candidate.start,
-												)
-													? " fb-option-selected"
-													: ""
-											}`}
-											onClick={() => pickQuote(candidate)}
-											aria-pressed={(form.quotePicks ?? []).some(
-												(item) =>
-													item.questionKey === candidate.questionKey &&
-													item.start === candidate.start,
-											)}
-										>
-											{candidate.sentence.trim()}
-										</button>
-									</li>
-								))}
-							</ul>
-							{quoteCandidates.length === 0 && <p className="fb-hint">{t("quoteNoCandidate")}</p>}
-						</div>
-					)}
+				<QuoteLicenseFields
+					level={form.quoteLevel ?? "off"}
+					onLevelChange={(value) => set("quoteLevel", value)}
+					candidates={quoteCandidates}
+					picks={form.quotePicks ?? []}
+					onTogglePick={pickQuote}
+					legend={<legend className="fb-field-label">{t("quoteLegend")}</legend>}
+				>
 					{form.quoteLevel === "credited" && (
 						<div>
 							<label className="fb-field-label" htmlFor="fb-credited-note">
@@ -304,7 +266,7 @@ export default function Write({
 							/>
 						</div>
 					)}
-				</fieldset>
+				</QuoteLicenseFields>
 			</div>
 
 			<button type="submit" className="fb-cta fb-cta-primary">
