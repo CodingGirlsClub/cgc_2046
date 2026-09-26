@@ -7,6 +7,7 @@ import WishesWall from "./wishes-wall";
 import {
 	FLASHBACK_CITIES,
 	FLASHBACK_EXPECT_WISH,
+	FLASHBACK_MY_WISHES,
 	FLASHBACK_PUBLIC_WISHES,
 	type FlashbackPublicWish,
 } from "@/lib/graphql/flashback";
@@ -34,9 +35,10 @@ const wish = (id: string, over: Partial<FlashbackPublicWish> = {}): FlashbackPub
 	...over,
 });
 
-const { wallQuery, citiesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
+const { wallQuery, citiesQuery, myWishesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
 	wallQuery: vi.fn(),
 	citiesQuery: vi.fn(),
+	myWishesQuery: vi.fn(),
 	expectRunner: vi.fn(),
 	useAuthed: vi.fn(),
 	// 手控 promise：push 一个存根，测试自行决定何时 resolve——乱序场景的
@@ -53,6 +55,7 @@ vi.mock("@/lib/apollo-client", () => ({
 		query: (options: { query: unknown }) => {
 			if (options.query === FLASHBACK_PUBLIC_WISHES) return wallQuery(options);
 			if (options.query === FLASHBACK_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_MY_WISHES) return myWishesQuery(options);
 			throw new Error("unexpected query");
 		},
 	},
@@ -74,6 +77,8 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 beforeEach(() => {
 	wallQuery.mockReset();
 	citiesQuery.mockReset();
+	myWishesQuery.mockReset();
+	myWishesQuery.mockResolvedValue({ data: { flashbackMyWishes: { quotaRemaining: 3, wishes: [] } } });
 	expectRunner.mockReset();
 	useAuthed.mockReset();
 	useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });

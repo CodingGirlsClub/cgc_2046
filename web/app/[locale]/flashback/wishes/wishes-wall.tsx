@@ -12,6 +12,7 @@ import { WishFormModal } from "@/components/flashback/wish-frames";
 import {
 	FLASHBACK_CITIES,
 	FLASHBACK_EXPECT_WISH,
+	FLASHBACK_MY_WISHES,
 	FLASHBACK_PUBLIC_WISHES,
 	FLASHBACK_REPORT_WISH,
 	type FlashbackCity,
@@ -82,6 +83,8 @@ export default function WishesWall({
 	const [loadGeneration, setLoadGeneration] = useState(0);
 	// L7：每页 24 条可翻页；不足一页 = 到底，隐藏「加载更多」
 	const [hasMore, setHasMore] = useState(false);
+	// L2：写愿望弹窗的年度剩余名额（登录才取；null = 未知，弹层保持既有兜底）
+	const [myQuota, setMyQuota] = useState<number | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [city, setCity] = useState<string>(initialItem?.city ?? initialCity ?? "");
 	const [cityCoords, setCityCoords] = useState<Record<string, { lng: number; lat: number }>>({});
@@ -200,6 +203,23 @@ export default function WishesWall({
 		const timer = window.setTimeout(() => setToast(""), 3400);
 		return () => window.clearTimeout(timer);
 	}, [toast]);
+
+	// L2：登录后取真实剩余名额（写完回填——弹窗打开即见，不必撞上限才知道）
+	useEffect(() => {
+		if (!authed) return;
+		let cancelled = false;
+		client
+			.query({ query: FLASHBACK_MY_WISHES, fetchPolicy: "network-only" })
+			.then(({ data }) => {
+				if (!cancelled) setMyQuota(data?.flashbackMyWishes?.quotaRemaining ?? null);
+			})
+			.catch(() => {
+				// 取不到保持 null：弹层走 quota_exceeded 拒绝兜底，不阻断写愿望
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [authed, loadGeneration]);
 
 	// 城市钉条：当前树上有愿望的城市（数据驱动），坐标真源查表；无坐标排尾
 	const cities: CitySpec[] = useMemo(() => {
@@ -630,7 +650,7 @@ export default function WishesWall({
 				<WishFormModal
 					token={null}
 					busy={false}
-					myWishQuotaRemaining={null}
+					myWishQuotaRemaining={authed ? myQuota : null}
 					onClose={() => setWriteOpen(false)}
 					onDone={(outcome) => {
 						// R18 三态落墙：listed → 镜头定位所选城市 + 重拉出新纸签；
