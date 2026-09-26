@@ -26,7 +26,7 @@ const STATUS_KEYS: Record<string, string> = {
  */
 export default function MyWishesView() {
 	const t = useTranslations("flashback.myWishes");
-	const { authed, confirmed } = useAuthed();
+	const { authed } = useAuthed();
 
 	if (!authed) {
 		return (
@@ -65,8 +65,8 @@ function MyWishes() {
 	};
 
 	useEffect(() => {
-		void load();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		// microtask 包裹避开 effect 内同步 setState（react-hooks/set-state-in-effect），同 capsule-view 先例
+		Promise.resolve().then(() => void load());
 	}, []);
 
 	const onDeleted = () => {
