@@ -80,6 +80,13 @@ config :ash, :missed_notifications, :ignore
 # Disable rate limiting in test (ETS table is shared across async tests)
 config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
 
+# #930 具名上限同样调高：「IP + 平台」键在全量测试间共享（同为 127.0.0.1），
+# 限流专项测试（graphql_sign_in_with_platform_rate_limit_test）用 put_env 调低
+config :cgc_2046, :rate_limits,
+  platform_sign_in_ip: 999_999,
+  platform_sign_in_openid: 999_999,
+  notification_consent_actor: 999_999
+
 # MCP 失败认证节流同款关闭（共享 ETS 表，async 401 测试会互相累计计数）
 config :cgc_2046, Cgc2046Web.Plugs.McpAuthPlug, max_attempts: 999_999
 
@@ -118,6 +125,10 @@ config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}
 # 闪念间唤醒短信（U8）：测试给 stub 模板 ID 使 configured? 走真实 deliver 分支
 # （请求仍被上面的 Req.Test 拦截，绝不外呼）。
 config :cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template"
+
+# 闪念间手机号找回：生产关闭（config.exs），测试打开——既有用例继续覆盖保留的手机通道；
+# 关闭态由 recover_phone_disabled_test 钉住。
+config :cgc_2046, :flashback_recover_phone_enabled, true
 
 # 微信网站应用扫码登录（plan 002 U4）：测试经 Req.Test stub 拦截
 config :cgc_2046, :wechat_web_req_plug, {Req.Test, Cgc2046.WechatWebStub}

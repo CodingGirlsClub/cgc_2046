@@ -13,6 +13,7 @@ import {
   revealStamp,
   SEND_OVERLAY } from '@/domain/flashback-journey'
 import { questionLabel } from '@/domain/flashback'
+import { buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
 import styles from './index.module.css'
 
@@ -27,8 +28,8 @@ type Phase =
 
 const INVALID_COPY: Record<FlashbackTokenInvalidCode, string> = {
   flashback_token_claimed: '这张卡已经被收进一个账号了。登录那个账号，或用网页端「闪念间」找回你的那一张。',
-  flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，网页端「闪念间」凭手机号可以找回。',
-  flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭手机号找回。'
+  flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，网页端「闪念间」凭当年报名的邮箱可以找回。',
+  flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭当年报名的邮箱找回。'
 }
 
 /** 进长廊（现为 tabBar 页面）：switchTab 不接受 query，welcome 语义改走一次性
@@ -169,7 +170,15 @@ export default function FlashbackJourneyPage() {
   }
 
   // R14 分享：卡片落旅程入口（朋友从这里进入闪念间）；不带本人 token（R32 边界）
-  useShareAppMessage(() => ({ title: '闪念间 · 找回当年的自己', path: '/pages/flashback-journey/index' }))
+  useShareAppMessage(() => ({ title: '闪念间 · 找回当年的自己', path: buildFlashbackEntryPath() }))
+
+  // 换肤：快门与问答在暗房里，显影落到纸上（暗 → 纸 = 开灯）；导航栏随之切换
+  const darkroom = phase.kind === 'intro' || phase.kind === 'quiz'
+  useEffect(() => {
+    void Taro.setNavigationBarColor(
+      darkroom ? { frontColor: '#ffffff', backgroundColor: '#15130f' } : { frontColor: '#000000', backgroundColor: '#f7f2e7' }
+    ).catch(() => undefined)
+  }, [darkroom])
 
   if (phase.kind === 'boot') {
     return <PageState kind="loading" title="正在打开…" />
@@ -200,7 +209,7 @@ export default function FlashbackJourneyPage() {
   const faceAnswers = profile ? cardFaceAnswers(profile.answers) : []
 
   return (
-    <View className={styles.page}>
+    <View className={`${styles.page} ${darkroom ? styles.pageDark : ''}`}>
       {phase.kind === 'intro' && profile && (
         <View className={styles.center}>
           <Text className={styles.brand}>IN A FLASH · 闪念间</Text>

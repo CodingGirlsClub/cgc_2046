@@ -895,10 +895,9 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       %{token: token, user: admin} = register_and_sign_in("outreach-audit-resend", :admin)
 
-      # 注：resend 字段在 schema 的 query root（355 行区域 query block），
-      # 前端 admin.ts 亦以 query document 调用——与生产路径一致。
+      # 单人重发有副作用（入队发送 + 治理留痕），属 Mutation；web 后台 admin.ts 以 mutation 调用
       mutation = """
-      query {
+      mutation {
         flashbackAdminResendOutreach(personId: "#{person.id}", template: "reconnect") {
           queued skipped
         }

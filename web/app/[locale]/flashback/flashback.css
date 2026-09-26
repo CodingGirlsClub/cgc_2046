@@ -877,9 +877,8 @@
 }
 .fb-roster-name { font-size: 14px; font-weight: 600; }
 .fb-roster-card--lit .fb-roster-name { color: var(--fb-ink); }
-.fb-roster-facts { font-size: 10px; opacity: 0.65; }
-/* 圆梦线小徽标「当年报了名」：雾卡（暗底亮字）与点亮卡（纸底墨字）两态
-   通用——currentColor 继承各自文本色 + 低透明 + 发丝描边（低调不抢戏） */
+/* 圆梦线小徽标「当年报了名」：只在点亮卡（纸底墨字）上——#933 起雾卡不显示
+   参与类型；currentColor 继承文本色 + 低透明 + 发丝描边（低调不抢戏） */
 .fb-roster-badge {
 	display: inline-block;
 	align-self: flex-start;
@@ -1499,3 +1498,7 @@
 	text-decoration: underline;
 	padding: 0;
 }
+
+/* #933 相册开放告知（一次性，内嵌不遮挡）：纸卡 + 金边 = 「已被点亮的」提示（与小程序长廊同款） */
+.fb-album-notice { margin: 4px 22px 14px; padding: 12px 14px; border-radius: 10px; background: #fffdf7; border: 1px solid #e3cf9c; color: #1e3a2f; font-size: 13px; line-height: 1.7; }
+.fb-album-notice button { display: block; margin: 6px 0 0 auto; min-height: 40px; padding: 0 6px; background: none; border: 0; color: #56665a; font-size: 13px; cursor: pointer; }

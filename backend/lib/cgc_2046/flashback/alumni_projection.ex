@@ -13,7 +13,11 @@ defmodule Cgc2046.Flashback.AlumniProjection do
     满员默认；
   - 内容层（当年答案雾化版 + 今天摘要）**只投 `sent_to_wall_at` 非空者**——
     撤回（retract）后即刻回到结构化卡 + 虚线内容位（R30 三处呈现之一）；
-  - 他人答案一律 `FogSpans.mask/3` 遮蔽后才出投影（原文零泄露）。
+  - 他人答案一律 `FogSpans.mask/3` 遮蔽后才出投影（原文零泄露）；
+  - #933 相册开放：名册对**所有已登录用户**可读（`viewer_archives/1`）；未寄出者只下发
+    姓氏遮罩——城市 / 年份 / 当年职业 / 参与类型一律不出投影（数据最小化，不靠前端隐藏）；
+    城市堆由服务端聚合（`piles`，计入未寄出者的人数只是聚合数，不指向个人）；城市筛选
+    只作用于已寄出者，未寄出者不因筛选暴露城市。
   """
 
   import Ecto.Query
@@ -130,6 +134,17 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       wish,
       Map.get(projections, wish.id, %{latest_echo: nil, echo_count: 0, echoes: []})
     )
+  end
+
+  @doc """
+  相册读面（#933）：已登录但未绑定档案的用户也能看每一场的名册。与胶囊同一套
+  名册投影（`list_archives/2`），`is_mine` 恒 false；鉴权（必须已登录）在 GraphQL 层。
+  """
+  @spec viewer_archives(String.t() | nil) :: {:ok, %{archives: [map()], cities: [String.t()]}}
+  def viewer_archives(city \\ nil) do
+    with {:ok, archives} <- list_archives(nil, city) do
+      {:ok, %{archives: archives, cities: capsule_cities()}}
+    end
   end
 
   # ── 未来场次帧（KTD1：dream_target 形状 + starts_at > now + initiative 分组）──
@@ -438,6 +453,10 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   # ── 场次时间轴与名册（R12 分层） ─────────────────────────────────────
 
   defp list_archives(person, city) do
+    # 空串 city 视为未筛（与 roster_by_archive 的 clean_city 同口径）——否则
+    # visible_rows 会把空串当作筛选中而滤掉未寄出者
+    city = clean_city(city)
+
     archives =
       Repo.all(
         from(a in "flashback_event_archives",
@@ -455,14 +474,17 @@ defmodule Cgc2046.Flashback.AlumniProjection do
         )
       )
 
-    roster_by_archive = roster_by_archive(city)
+    rows_by_archive = roster_by_archive(city)
     answers_by_person = wall_answers_by_person()
+    mine_id = person && uuid_param(person.archive_event_id)
 
     enriched =
       Enum.map(archives, fn archive ->
+        rows = Map.get(rows_by_archive, archive.id, [])
+
         roster =
-          archive.id
-          |> then(&Map.get(roster_by_archive, &1, []))
+          rows
+          |> visible_rows(city)
           |> Enum.map(&attach_content(&1, answers_by_person))
 
         %{
@@ -473,13 +495,15 @@ defmodule Cgc2046.Flashback.AlumniProjection do
           applied_count: archive.applied_count,
           attended_count: archive.attended_count,
           label: archive.label,
-          is_mine: archive.id == uuid_param(person.archive_event_id),
+          is_mine: not is_nil(mine_id) and archive.id == mine_id,
+          piles: piles(rows),
           roster: roster
         }
       end)
 
-    # 筛选城市时整架无人即撤（原型 D：frame 只要有任一 pile 命中就保留）
-    enriched = if city, do: Enum.reject(enriched, &(&1.roster == [])), else: enriched
+    # 筛选城市时整架无人即撤（原型 D：frame 只要有任一 pile 命中就保留）——按聚合城市堆判，
+    # 名册只列已寄出者后「有这座城市的人、但还没人回来」的场次不该从长廊消失（#933）
+    enriched = if city, do: Enum.reject(enriched, &(&1.piles == [])), else: enriched
 
     {:ok, enriched}
   end
@@ -523,6 +547,23 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       |> Enum.map(&mask_roster_today/1)
 
     Enum.group_by(rows, & &1.archive_event_id)
+  end
+
+  # #933：城市筛选只作用于已寄出者——否则筛「广州」后剩下的「王**」就被公开了城市。
+  defp visible_rows(rows, nil), do: rows
+  defp visible_rows(rows, _city), do: Enum.reject(rows, &is_nil(&1.sent_to_wall_at))
+
+  # 城市堆（#933 服务端聚合）：按**人**的城市计数，计入未寄出者（聚合数不指向个人），
+  # 只数已寄出为「已回来」；空白城市不成堆。人数降序 + 城市序；排序截断仍由两端决定。
+  defp piles(rows) do
+    rows
+    |> Enum.map(&{String.trim(&1.city || ""), not is_nil(&1.sent_to_wall_at)})
+    |> Enum.reject(fn {city, _} -> city == "" end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.map(fn {city, sent} ->
+      %{city: city, count: length(sent), returned: Enum.count(sent, & &1)}
+    end)
+    |> Enum.sort_by(&{-&1.count, &1.city})
   end
 
   # 他人视角(名册):today 三行按本人 fogSpans mask——雾句对外不出现原字。
@@ -597,13 +638,15 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       id: row.id,
       surname: row.surname,
       surname_masked: masked_name(row.full_name, row.surname),
-      # 寄出者卡面显示全名（用户定稿：她回来了即亮名）；未寄出者 null（R12 隐名）
-      full_name: sent && row.full_name,
-      applied_at: sent && iso8601(row.applied_at),
-      city: row.city,
-      occupation_then: row.occupation_then,
-      # 名册徽标数据源：attended | not_selected（圆梦线「当年报了名」）
-      participation: row.participation,
+      # 寄出者卡面显示全名（用户定稿：她回来了即亮名）；未寄出者 null（R12 隐名）。
+      # 原写法 `sent && x` 在未寄出时得 false 而非 nil（#933 修正为真正的 null）
+      full_name: if(sent, do: row.full_name),
+      applied_at: if(sent, do: iso8601(row.applied_at)),
+      # #933 数据最小化：未寄出者只剩姓氏遮罩——城市 / 职业 / 参与类型不出投影
+      city: if(sent, do: row.city),
+      occupation_then: if(sent, do: row.occupation_then),
+      # 名册徽标数据源：attended | not_selected（圆梦线「当年报了名」）；仅已寄出者
+      participation: if(sent, do: row.participation),
       sent_to_wall_at: iso8601(row.sent_to_wall_at),
       today: today,
       answers: answers

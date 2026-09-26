@@ -16,6 +16,14 @@ export function currentPlatform(): 'wechat' | 'tt' | 'xhs' {
   return 'wechat'
 }
 
+/** 回访静默登录（#930）只要平台登录凭证：wx.login / tt.login / xhs.login 的 code（不碰手机号） */
+export async function platformLoginCode(): Promise<string> {
+  if (__E2E_MOCK__) return 'mock-login-code'
+  const login = await Taro.login()
+  if (!login.code) throw new Error('登录凭证获取失败，请重试')
+  return login.code
+}
+
 export async function preparePlatformLogin(
   phonePayload: PlatformPhonePayload
 ): Promise<PlatformPhonePayload> {

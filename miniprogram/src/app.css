@@ -1,4 +1,32 @@
+/* 视觉语言 token（换肤：《闪念间角色与旅程盘点》§7 与换肤原型，均在 prototype/flashback-light 分支）：
+   纸是底 · 墨是字 · 青只画山河 ·
+   暗是暗房（时间胶囊、开卡层、首程）· 火 = 可以按的（每屏最多一处）· 金 = 已经被点亮的
+   （回来的人、授权的句子、回响、选中结果）。全局底色不变——token 由用到的页面取用。 */
 page {
+  --paper: #f7f2e7;
+  --paper-hi: #fffdf7;
+  --paper-deep: #ece4d2;
+  --ink: #1e3a2f;
+  --ink-2: #56665a;
+  --ink-3: #98a092;
+  --rule: #ddd4c1;
+  --qing: #557a66;
+  --qing-2: #86a291;
+  --fire: #ea5504;
+  --fire-2: #ff7c30;
+  --fire-glow: rgba(234, 85, 4, 0.32);
+  --gold: #ecc976;
+  --gold-ink: #8a6418;
+  --gold-soft: #f5ead0;
+  --gold-line: #e3cf9c;
+  --gold-glow: rgba(236, 201, 118, 0.55);
+  --dark: #15130f;
+  --dark-2: #221d17;
+  --dark-3: #2e2820;
+  --dark-ink: #efe5d2;
+  --dark-ink-2: #a0947f;
+  --dark-rule: rgba(239, 229, 210, 0.14);
+  --serif: 'Songti SC', 'STSong', 'Noto Serif SC', serif;
   background-color: #f6f7f9;
   color: #222326;
   font-size: 28rpx;

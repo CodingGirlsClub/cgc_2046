@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react
 import { render } from "@/test-utils";
 import PublicHome, { isOnlyFogPlaceholder } from "./public-home";
 import ProfileView from "./profile-view";
+import RecoverForm from "./recover-form";
 import {
 	FLASHBACK_LIKE_QUOTE,
 	FLASHBACK_PUBLIC_PROFILE,
@@ -144,6 +145,15 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(creditedLink).toHaveAttribute("href", "/flashback/li-yinuo");
 	});
 
+	it("#933 那些年的相册：每一场都能点进场次页（登录判断只在场次页一处）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+		render(<PublicHome />);
+
+		const album = await screen.findByRole("link", { name: /2014\.01\.11 · Rails Girls 北京/ });
+		expect(album).toHaveAttribute("href", "/flashback/event/2014-01-11-bj");
+	});
+
 	it("全雾化金句显示本地化遮蔽说明；部分雾化金句保持原样", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
 		quotesQuery.mockResolvedValue({
@@ -220,7 +230,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		render(<PublicHome />);
 
-		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), {
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), {
 			target: { value: "  lipan2000girl@163.com\n" },
 		});
 		await act(async () => {
@@ -234,20 +244,35 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 		);
 	});
 
-	it("发起后进入验证码步，文案不区分命中与否（同形）", async () => {
+	it("邮箱发起后提示查收邮件、不出验证码框；文案不区分命中与否（同形）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
 		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		render(<PublicHome />);
 
-		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), { target: { value: "13900000001" } });
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), { target: { value: "old@example.com" } });
 		fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
 
-		expect(await screen.findByText(/验证码或入口链接已经发出/)).toBeInTheDocument();
-		expect(recoverRunner).toHaveBeenCalledWith({ variables: { identifier: "13900000001" } });
+		expect(await screen.findByText(/入口链接已经发出——请查收邮箱/)).toBeInTheDocument();
+		expect(screen.queryByLabelText("验证码")).not.toBeInTheDocument();
+		expect(recoverRunner).toHaveBeenCalledWith({ variables: { identifier: "old@example.com" } });
 	});
 
-	it("多档案命中：verify 后展示「你的 N 张卡」选择列表并进胶囊", async () => {
+	it("手机号找回暂停：输入手机号就地提示填邮箱，不发起找回（不发短信）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+		render(<PublicHome />);
+
+		expect(screen.queryByText(/手机/)).not.toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), { target: { value: "13900000001" } });
+		fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent("请填写当年报名用的邮箱。");
+		expect(recoverRunner).not.toHaveBeenCalled();
+	});
+
+	// 以下两例走保留的手机通道（phoneEnabled）：重新开放时这段 UI 仍有回归保护
+	it("手机通道（保留）·多档案命中：verify 后展示「你的 N 张卡」选择列表并进胶囊", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
 		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
@@ -262,10 +287,11 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 				},
 			},
 		});
-		render(<PublicHome />);
+		render(<RecoverForm phoneEnabled />);
 
-		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), { target: { value: "13900000001" } });
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), { target: { value: "13900000001" } });
 		fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
+		expect(await screen.findByText(/验证码已经发出/)).toBeInTheDocument();
 		fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "123456" } });
 		fireEvent.click(screen.getByRole("button", { name: "验证并进入" }));
 
@@ -276,16 +302,16 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
 
-	it("单档案命中：直接绑定成功进胶囊；错码映射 code 文案", async () => {
+	it("手机通道（保留）·错码映射 code 文案", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: { archives: [], returnedCount: 0, sentCount: 0 } } });
 		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 		recoverRunner.mockResolvedValue({ data: { flashbackRecover: { dispatched: true } } });
 		verifyRunner.mockRejectedValue({
 			errors: [{ message: "x", extensions: { code: "invalid_or_expired_code" } }],
 		});
-		render(<PublicHome />);
+		render(<RecoverForm phoneEnabled />);
 
-		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), { target: { value: "13900000001" } });
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), { target: { value: "13900000001" } });
 		fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
 		fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "000000" } });
 		fireEvent.click(screen.getByRole("button", { name: "验证并进入" }));
@@ -302,7 +328,7 @@ describe("PublicHome · 自助找回（R21/KTD7）", () => {
 		});
 		render(<PublicHome />);
 
-		fireEvent.change(screen.getByLabelText("当年的手机号或邮箱"), { target: { value: "13900000001" } });
+		fireEvent.change(screen.getByLabelText("当年报名用的邮箱"), { target: { value: "old@example.com" } });
 		await act(async () => {
 			fireEvent.click(screen.getByRole("button", { name: "找回我的档案" }));
 		});
