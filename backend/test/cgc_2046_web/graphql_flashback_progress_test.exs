@@ -106,6 +106,7 @@ defmodule Cgc2046Web.GraphqlFlashbackProgressTest do
 
     plain = "fb_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
     {:ok, hash} = TokenCredential.hash(plain)
+
     Token
     |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
     |> Ash.create!(authorize?: false)
