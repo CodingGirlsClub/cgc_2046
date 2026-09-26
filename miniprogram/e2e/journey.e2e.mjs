@@ -1,3 +1,4 @@
+// Mock transport: e2e/run.mjs 以 CGC_E2E_MOCK=true 构建后驱动本脚本（见 run.mjs）。
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# CGC_E2E_MOCK=true 构建（复用 wish-writing 的 mock transport）。
 """3C WeChatIDE acceptance. Mock consent outcomes, real UI lifecycle/navigation.
 No real authorization or outgoing notifications. Backend publish/provider leg is
 covered by WishEchoesTest against the isolated database and captured HTTP client.

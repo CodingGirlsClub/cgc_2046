@@ -35,7 +35,9 @@
 .gatheringRow { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-top: 8rpx; font-size: 27rpx; color: var(--ink-2); }
 /* 那些年的相册（#933）：纸上的目录；已回来的人数是金（被点亮的结果） */
 .albums { margin-top: 10rpx; padding: 30rpx 0 22rpx; border-bottom: 1rpx solid var(--rule); }
+.albumsHead { display: flex; align-items: baseline; justify-content: space-between; }
 .albumsTitle { display: block; font-size: 32rpx; line-height: 1.7; }
+.albumsCount { font: 21rpx/1.6 sans-serif; color: var(--ink-3); }
 .albumsHint { display: block; font-size: 22rpx; line-height: 1.8; color: var(--ink-3); margin: 4rpx 0 10rpx; }
 .albumRow { display: flex; align-items: center; gap: 20rpx; min-height: 88rpx; padding: 14rpx 0; border-top: 1rpx solid var(--rule); }
 .albumMain { flex: 1; min-width: 0; }
