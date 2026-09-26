@@ -25,6 +25,16 @@ defmodule Cgc2046.Mcp.Tools.StartLearningRun do
   alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    为当前用户开始学习一门课程的当前已发布版本；已有进行中的学习流程时直接续学（返回 created: false），
+    重复调用是安全的；学完后或发布了新版本时可重新开始。只有已确认报名的学员本人可以启动（课程报名，
+    或挂载了该课程版本的活动报名），成员不能代学员启动。课程还没有已发布版本时返回明确错误。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

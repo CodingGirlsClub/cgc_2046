@@ -7,6 +7,16 @@ defmodule Cgc2046.Mcp.Tools.GetStepOutput do
 
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：读取某个工作流（run_id）中某一步（step_key，如 outline_design）的产出，返回 run_id /
+    step_key / output（该步写入的键值对原样返回，缺失的字段不补）。没有读取权限时返回以 forbidden 开头的
+    错误。步骤名可先用 get_workflow 的 step_keys_with_facts 查到。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:run_id, {:required, :string}, description: "WorkflowRun ID（UUID）")

@@ -22,6 +22,17 @@ defmodule Cgc2046.Mcp.Tools.ConfirmEnrollment do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：确认一条待审批（pending）的报名。免费供给直接确认并占用名额；收费供给
+    进入 payment_pending，支付完成或免缴后才算确认。报名不是 pending 时直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:enrollment_id, {:required, :string}, description: "待确认报名 ID（UUID，须为 pending）")

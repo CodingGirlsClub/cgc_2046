@@ -27,6 +27,17 @@ defmodule Cgc2046.Mcp.Tools.ListAttendances do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：列出一场活动的签到核销记录，每人一行：enrollment_id、签到时间、方式（scan |
+    manual）、操作人；报名人（id / email / display_name）；报名状态；押金单状态（paid / refunding /
+    refunded / refund_failed / forfeited，免费场为 null），用于核对「谁来了、押金去向」。最多 100 行，
+    total_count 为截断前总数。全工作台的汇总用 workspace_payment_stats。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

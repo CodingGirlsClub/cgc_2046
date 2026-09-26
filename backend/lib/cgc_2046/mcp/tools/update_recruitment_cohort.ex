@@ -21,6 +21,18 @@ defmodule Cgc2046.Mcp.Tools.UpdateRecruitmentCohort do
   # 与 RecruitmentCohort :update 的 accept 一一对应（不发明字段）
   @updatable_fields ~w(name apply_deadline_at starts_at ends_at)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：修改招募批次的名称、申请截止时间、执行周期（只传要改的字段）。开放和关闭用
+    open_recruitment_cohort / close_recruitment_cohort。修改开放中批次的截止时间会改变申请人看到的截止
+    时间。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:cohort_id, {:required, :string}, description: "招募批次 ID（UUID）")

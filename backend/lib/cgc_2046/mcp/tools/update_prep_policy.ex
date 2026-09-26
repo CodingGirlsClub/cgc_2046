@@ -23,6 +23,19 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：调整一门课程的教研策略，只在教研流程处于 draft 或 authoring 时可用（提交质量
+    检查后策略冻结）。至少传一项：review_required（是否需要人工审核）、quality_threshold（质量报告通过
+    阈值，0–100）、reviewer_user_id（指定审核人，须为本工作台成员；传空字符串清除指定，回到任何成员可审、
+    允许自审）。关闭审核或降低阈值会让课程更快直达发布，确认前向用户说明。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

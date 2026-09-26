@@ -1,4 +1,10 @@
 defmodule Cgc2046.Mcp.Tools.AdminCancelInitiative do
+  @moduledoc """
+  平台管理员专用：中止倡导活动，状态改为 cancelled。这是终态，不可逆，恢复只能新建活动。
+  会级联取消全部仍开放的挂载场次，这些场次的已付报名无条件全额退款；已结束或已取消的场次
+  不改写。走确认流：第一次调用返回 needs_confirmation + pending_id + summary（含上述影响），
+  用户确认后调 confirm_operation(pending_id) 才执行。返回更新后的活动行。
+  """
   use Anubis.Server.Component,
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
@@ -8,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.AdminCancelInitiative do
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
 
   schema do
-    field(:initiative_id, {:required, :string})
+    field(:initiative_id, {:required, :string}, description: "倡导活动 ID（取自 admin_list_initiatives）")
   end
 
   @impl true

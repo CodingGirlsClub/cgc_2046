@@ -19,6 +19,17 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：读取课程教研流程的状态：prep_state（draft → authoring → quality_check → review →
+    published）、生效的教研策略、被指派的 tutor、最新质量报告、当前阻断发布的问题清单 gate_violations、
+    不阻断发布的提示 gate_warnings，以及流程版本号（用于并发修改时比对）。课程发布后再次编辑时，会自动
+    开启新一轮教研流程，指派的 tutor 沿用。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

@@ -14,6 +14,18 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
   alias Cgc2046.Flashback.OutreachAdmin
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：按场次（archive_key，如 2014-01-11-bj）批量给闪念间校友发触达，已退订的自动排除。
+    确认摘要包含预计发送人数、各通道分布、退订排除人数和短信是否可用，确认前据此核对影响面。template
+    目前只有 reconnect；channel 同 admin_resend_flashback_outreach。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:archive_key, :string, description: "场次 key（如 2014-01-11-bj）", required: true)
     field(:template, :string, description: "触达模板（当前白名单: reconnect）", required: true)

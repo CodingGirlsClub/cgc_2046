@@ -30,6 +30,19 @@ defmodule Cgc2046.Mcp.Tools.CreateEnrollment do
   alias Cgc2046.Mcp.Tools.LearnerJourney
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：为当前用户报名一场活动或一门课程（kind + offering_id，id 取自
+    discover_offerings）。workspace_id 必须是该供给所属的工作台。报名策略为 open 时立即占位，request
+    时进入 pending 等待审批；收费供给必须传 tier_id（取自 get_enrollment_summary），占位后进入
+    payment_pending，此时返回 checkout_url，需在外部浏览器完成支付。设了最低年龄的活动必须传
+    age_confirmed=true。reason 可选，会经过内容安全检查，违规直接拒绝。已有活跃报名时不报错，原样返回
+    该报名并带 idempotent_replay: true，重试是安全的。名额已满、截止已过、需要邀请码等拒绝原因原样返回。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID，须与供给所属工作台一致）")
     field(:kind, {:required, :string}, description: "event | course")

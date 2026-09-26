@@ -23,6 +23,18 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
 
   @non_terminal_statuses [:pending, :running, :waiting]
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 tutor 与 Owner/Admin 专用，直接写入，不走确认流：保存课程内容草稿（整份内容，不是局部更新）。
+    base_version 必传：首次保存传 0，之后传 get_course_content 刚读到的 version；草稿在此期间被别人改过
+    时返回 version_conflict 错误、草稿不变，此时重新读取并合并后再保存，不要带旧版本重试。content 的
+    形状见 content 参数说明（checklist 与 materials 嵌在 story 内，不在 issue 卡顶层），形状不合法时返回
+    具体违规。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")
