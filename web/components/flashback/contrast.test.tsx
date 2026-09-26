@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { render } from "@/test-utils";
 import CardExport from "./card-export";
 import RecoverForm from "./recover-form";
+import Write from "./write";
 import type { FlashbackCapsuleMe } from "@/lib/graphql/flashback";
 
 /**
@@ -253,5 +254,41 @@ describe("防线 3：组件行为不回归（card-export 交互冒烟）", () =>
 		const input = screen.getByLabelText(/当年报名用的邮箱/);
 		fireEvent.change(input, { target: { value: " `a@b.c` " } });
 		expect((input as HTMLInputElement).value).toContain("a@b.c");
+	});
+});
+
+describe("纸面卡片（写今天的你）：原生控件与选句在纸底上可辨", () => {
+	/** 取选择器块体（精确选择器，后跟 {） */
+	const block = (selector: string) => {
+		const re = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`);
+		return css.match(re)?.[1] ?? null;
+	};
+
+	it("纸面容器声明 color-scheme: light——全站 html 是 dark，原生单选/复选否则按暗色渲染成实心黑", () => {
+		expect(block(".fb-write-form")).toMatch(/color-scheme:\s*light/);
+	});
+
+	it("选句选项在纸底用墨色字（≥4.5），选中态单独成立（特异性压过 .fb-root .fb-option）", () => {
+		expect(block(".fb-root .fb-write-form .fb-option")).not.toBeNull();
+		expect(declaredColor(".fb-root .fb-write-form .fb-option")).toBe("var(--fb-ink)");
+		expect(contrastRatio("#2b2723", PAPER_BG)).toBeGreaterThanOrEqual(4.5);
+		const selected = block(".fb-root .fb-write-form .fb-option-selected");
+		expect(selected).toMatch(/border-color:/);
+		expect(selected).toMatch(/background:/);
+	});
+
+	it("Newsletter 单项复选与文字同一行：不复用分组容器类 fb-checks（grid 会把框和字拆成两行）", () => {
+		render(
+			<Write
+				role="learner"
+				answers={[]}
+				progress={{ today: null, quoteLevel: "off", maskedPhone: null, maskedEmail: null } as never}
+				onNext={() => {}}
+			/>,
+		);
+		const label = screen.getByText(/订阅 Newsletter/).closest("label");
+		expect(label).toHaveClass("fb-check");
+		expect(label).not.toHaveClass("fb-checks");
+		expect(block(".fb-check")).toMatch(/display:\s*flex/);
 	});
 });

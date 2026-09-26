@@ -221,7 +221,7 @@ export default function Write({
 					))}
 				</fieldset>
 
-				<label className="fb-checks">
+				<label className="fb-check">
 					<input
 						type="checkbox"
 						checked={form.newsletterOptIn ?? false}
