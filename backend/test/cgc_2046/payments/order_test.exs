@@ -854,7 +854,7 @@ defmodule Cgc2046.Payments.OrderTest do
       assert reload(order).status == :forfeited
     end
 
-    test "重复支付回调命中 forfeited 单 → 落账 worker 记 info、mark_processed、无 error 日志" do
+    test "重复支付回调命中 forfeited 单 → 静默消费、mark_processed，本单无 error 日志" do
       order = paid_deposit_order()
       assert {:ok, _} = transition(order, :forfeit)
 
@@ -877,13 +877,24 @@ defmodule Cgc2046.Payments.OrderTest do
         })
         |> Ash.create!(authorize?: false)
 
-      assert :ok =
-               perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
+      # info 降级无法在此环境验证：test logger 为 :warning 且 capture_log 抓不到更低级别
+      first =
+        capture_log(fn ->
+          assert :ok = perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
+        end)
 
-      # 迟到裁决降 info（forfeited 分支），全链无 error 日志
-      refute capture_log(fn ->
-               perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
-             end) =~ "[error]"
+      # 迟到裁决降 info（forfeited 分支）。只对本单断言：capture_log 会抓到其他并行
+      # async 测试打的 error（如退款渠道拒绝），全局 refute 在 async 下天然偶红
+      # 只对本单断言无 error：capture_log 会抓到其他并行 async 测试打的 error
+      # （如退款渠道拒绝），全局 refute "[error]" 在 async 下天然偶红
+      refute first =~ "[error] refund: order #{order.id}"
+
+      second =
+        capture_log(fn ->
+          assert :ok = perform_job(PaymentSettlementWorker, %{"webhook_event_id" => event.id})
+        end)
+
+      refute second =~ "[error] refund: order #{order.id}"
 
       assert Ash.get!(WebhookEvent, event.id, authorize?: false).status == :processed
       assert reload(order).status == :forfeited
