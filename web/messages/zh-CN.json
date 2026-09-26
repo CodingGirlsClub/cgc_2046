@@ -101,6 +101,7 @@
     "flashback_slug_locked": "公开档案已发布，链接地址不可再修改（可继续编辑其他内容）。",
     "flashback_token_not_found": "这枚闪念间链接不存在或已失效——可以从自助找回入口重新拿到你的那份记忆。",
     "flashback_token_claimed": "这个档案已绑定账号，链接已完成使命——请登录或从「我的」进入查看。",
+    "flashback_recover_account_conflict": "这个号码或这张卡已经属于另一个账号——请用那个账号登录查看，或联系我们处理。",
     "flashback_token_revoked": "这个档案已被删除，链接随之失效。",
     "flashback_answer_not_found": "找不到这条当年答案，请刷新后重试。",
     "flashback_archive_not_found": "找不到这个场次档案，请确认场次标识后重试。",

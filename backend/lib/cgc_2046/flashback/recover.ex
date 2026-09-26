@@ -38,7 +38,7 @@ defmodule Cgc2046.Flashback.Recover do
   require Logger
 
   alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential, User}
-  alias Cgc2046.Flashback.{Person, Token, Tokens}
+  alias Cgc2046.Flashback.{Binding, Person, Token, Tokens}
   alias Cgc2046.Mailer
 
   @recover_window_seconds 3_600
@@ -115,11 +115,12 @@ defmodule Cgc2046.Flashback.Recover do
   defp do_verify(identifier, phone, code, context) do
     with :ok <- consume_code(phone, code),
          people when people != [] <- match_people(:phone, identifier, phone),
+         :ok <- Binding.check_for_phone(people, phone),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         :ok <- Binding.bind(people, user),
          :ok <- SignInFlow.revoke_stored_tokens(user, :web),
-         {:ok, user} <- SignInFlow.generate_token(user, :web, context),
-         :ok <- bind_all(people, user) do
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       {:ok,
        %{
          __token__: user.__metadata__[:token],
@@ -153,8 +154,8 @@ defmodule Cgc2046.Flashback.Recover do
          {:phone, phone} when is_binary(phone) <- classify(identifier),
          :ok <- consume_code(phone, code),
          people when people != [] <- match_people(:phone, identifier, phone),
-         :ok <- ensure_no_other_account(phone, people, user_id),
-         :ok <- bind_all(people, user) do
+         :ok <- ensure_phone_free(phone, user_id),
+         :ok <- Binding.bind(people, user) do
       {:ok, %{bound: true, cards: Enum.map(people, &card_payload/1)}}
     else
       {:error, %{code: error_code} = error} when is_binary(error_code) -> {:error, error}
@@ -171,11 +172,10 @@ defmodule Cgc2046.Flashback.Recover do
   """
   @spec claim_link_for_user(String.t(), map()) ::
           {:ok, %{bound: boolean(), cards: [map()]}} | {:error, map()}
-  def claim_link_for_user(link, %{id: user_id} = user) when is_binary(link) do
+  def claim_link_for_user(link, %{id: _user_id} = user) when is_binary(link) do
     with {:ok, token} <- Tokens.fetch_valid(link_token(link)),
          people = people_sharing_email(token.person),
-         :ok <- ensure_people_free(people, user_id),
-         :ok <- bind_all(people, user) do
+         :ok <- Binding.bind(people, user) do
       {:ok, %{bound: true, cards: Enum.map(people, &card_payload/1)}}
     end
   end
@@ -196,29 +196,16 @@ defmodule Cgc2046.Flashback.Recover do
 
   defp people_sharing_email(person), do: [person]
 
-  defp ensure_no_other_account(phone, people, user_id) do
+  # 号码已属于另一个账号 → 冲突（档案归属由 Binding.bind 判断）
+  defp ensure_phone_free(phone, user_id) do
     phone_owner =
       User
       |> Ash.Query.filter(phone == ^phone)
       |> Ash.read_one!(authorize?: false)
 
     if phone_owner && phone_owner.id != user_id,
-      do: {:error, account_conflict_error()},
-      else: ensure_people_free(people, user_id)
-  end
-
-  defp ensure_people_free(people, user_id) do
-    if Enum.any?(people, &(&1.user_id && &1.user_id != user_id)),
-      do: {:error, account_conflict_error()},
+      do: {:error, Binding.conflict_error()},
       else: :ok
-  end
-
-  defp account_conflict_error do
-    %{
-      code: "flashback_recover_account_conflict",
-      message: "This phone or archive already belongs to another account",
-      reason: :account_conflict
-    }
   end
 
   defp consume_code(phone, code) do
@@ -230,30 +217,6 @@ defmodule Cgc2046.Flashback.Recover do
 
   defp invalid_code_error do
     %{code: "invalid_or_expired_code", message: "Invalid or expired code", reason: :invalid_code}
-  end
-
-  defp bind_all(people, user) do
-    Enum.each(people, fn person ->
-      person
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
-      |> Ash.update!(authorize?: false)
-
-      # R1 注册即链接作废：该档案全部有效 token 置 claimed（账号接管）
-      Token
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(person_id == ^person.id and is_nil(claimed_by_user_id))
-      |> Ash.read!(authorize?: false)
-      |> Enum.each(fn token ->
-        token
-        |> Ash.Changeset.for_update(:update, %{})
-        |> Ash.Changeset.force_change_attribute(:claimed_by_user_id, user.id)
-        |> Ash.Changeset.force_change_attribute(:claimed_at, DateTime.utc_now())
-        |> Ash.update!(authorize?: false)
-      end)
-    end)
-
-    :ok
   end
 
   # ── 内部 ─────────────────────────────────────────────────────────────

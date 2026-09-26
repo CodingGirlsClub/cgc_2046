@@ -101,6 +101,7 @@
     "flashback_slug_locked": "This public profile is live, so its link can no longer be changed (other content stays editable).",
     "flashback_token_not_found": "This In-a-Flash link doesn't exist or has expired — you can reclaim yours from the self-service recovery entrance.",
     "flashback_token_claimed": "This archive is already tied to an account and the link has retired — sign in or visit \"Mine\" to continue.",
+    "flashback_recover_account_conflict": "This number or card already belongs to another account — sign in with that account, or contact us.",
     "flashback_token_revoked": "This archive has been deleted and the link is no longer valid.",
     "flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
     "flashback_archive_not_found": "That event archive can't be found — check the archive key and retry.",
