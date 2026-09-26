@@ -548,6 +548,13 @@ export interface FlashbackRosterEntry {
   answers: FlashbackRosterAnswer[]
 }
 
+/** 城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数 */
+export interface FlashbackArchivePile {
+  city: string
+  count: number
+  returned: number
+}
+
 export interface FlashbackCapsuleArchive {
   key: string
   name: string | null
@@ -558,6 +565,7 @@ export interface FlashbackCapsuleArchive {
   /** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
   label: string | null
   isMine: boolean
+  piles: FlashbackArchivePile[]
   roster: FlashbackRosterEntry[]
 }
 
@@ -723,6 +731,8 @@ export interface MiniProgramApi {
   getContent(kind: ContentKind, id: string): Promise<CatalogItem>
   getSession(): Promise<SessionSnapshot>
   signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot>
+  /** #930 回访静默登录：已绑定本平台身份 → 会话；未绑定或已主动退出 → null（退回手机号登录） */
+  signInSilently(loginCode: string): Promise<SessionSnapshot | null>
   signOut(): Promise<void>
   getEnrollments(): Promise<EnrollmentSummary[]>
   /** #355 P1-4：按 id 回查单条本人报名（服务端过滤）；查无 → null */
@@ -766,7 +776,21 @@ export interface MiniProgramApi {
   /** 显影完成打点（四率之 revealed） */
   flashbackMarkRevealed(token: string): Promise<void>
   /** 寄出上墙（R11，幂等） */
-  flashbackSendToWall(token: string): Promise<void>
+  /** #931：token 为 null 时按登录账号绑定档案 */
+  flashbackSendToWall(token: string | null): Promise<void>
+  /** #933 相册：已登录即可读每一场的名册（未寄出者只有姓氏遮罩） */
+  getFlashbackArchives(city?: string | null): Promise<{ archives: FlashbackCapsuleArchive[]; cities: string[] }>
+  /** #931 撤下（双入口） */
+  flashbackRetract(token: string | null): Promise<void>
+  /** #931 删除档案：先取摘要，再以 DELETE 确认 */
+  flashbackDeletePreview(token: string | null): Promise<import('./flashback-retract').FlashbackDeletePreview>
+  flashbackDelete(token: string | null, confirm: string): Promise<void>
+  /** #932 小程序内找回·发起（同 web：命中与未命中同形返回，不泄露存在性） */
+  flashbackRecover(identifier: string): Promise<void>
+  /** #932 小程序内找回·验证：档案绑定到当前登录账号（不另建账号）；返回找到的张数 */
+  flashbackRecoverVerifyForAccount(identifier: string, code: string): Promise<{ count: number }>
+  /** 邮箱找回·贴链接：找回邮件里的链接原样上送，同邮箱的档案绑到当前登录账号；返回找到的张数 */
+  flashbackRecoverClaimForAccount(link: string): Promise<{ count: number }>
   /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
   flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */

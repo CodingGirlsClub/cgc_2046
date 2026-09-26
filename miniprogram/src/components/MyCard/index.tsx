@@ -96,7 +96,7 @@ export default function MyCard({
     setSaving(true)
     try {
       await persistToday(draft)
-      await api.flashbackSendToWall(token ?? '')
+      await api.flashbackSendToWall(token ?? null)
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       onWrite()
       onSent?.()
@@ -114,7 +114,7 @@ export default function MyCard({
           <Text
             className={`${styles.wallBadge} ${capsule.me.today?.sentToWallAt ? styles.onWall : styles.offWall}`}
           >
-            {capsule.me.today?.sentToWallAt ? '已寄出到校友墙' : '还没寄出 · 写完贴上面'}
+            {capsule.me.today?.sentToWallAt ? '已寄出到相册' : '还没寄出 · 写完贴上面'}
           </Text>
           {quoteLikeBadge(capsule.me) && (
             <Text className={styles.likeBadge} data-testid='fb-like-badge'>
@@ -192,7 +192,7 @@ export default function MyCard({
             >
               {saving ? '正在贴上墙…' : '写完寄出 →'}
             </Button>
-            <Text className={styles.sendNote}>寄出即公开 · 包括当年的答案 · 随时可调</Text>
+            <Text className={styles.sendNote}>寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下</Text>
             <Text className={styles.backLink} onClick={() => setFlipped(false)}>
               ← 回到当年答案
             </Text>

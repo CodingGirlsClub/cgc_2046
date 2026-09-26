@@ -41,3 +41,15 @@
 .arrow { position: absolute; right: 24rpx; top: 50%; transform: translateY(-50%); color: #8a8f98; font-size: 34rpx; }
 .courseCard { margin-bottom: 16rpx; padding: 24rpx 26rpx; display: flex; align-items: center; justify-content: space-between; background: #fff; box-shadow: 0 2rpx 12rpx rgba(0,0,0,.04); border-radius: 22rpx; }
 .courseArrow { color: #8a8f98; font-size: 48rpx; }
+
+/* 换肤（盘点 §7，Tab 一致性）：首屏的火只留给 1024 Campaign 卡——登录提示卡降为纸框墨钮
+   （维护者 2026-09-26 已确认）；倡导活动卡的类型标签与左边框从橙换成墨，「进行中」是金
+   （它们不可按）；「2046」墨色。 */
+.brandYear { color: var(--ink-2); }
+.visitor { background: #fff; border: 1rpx solid var(--rule); box-shadow: none; color: var(--ink); }
+.visitorText { color: var(--ink-2); }
+.loginButton { color: var(--ink); background: transparent; border: 1rpx solid var(--ink-3); }
+.initiativeCard { border-left-color: var(--ink-3); }
+.kind { color: var(--ink-2); }
+.policy { color: var(--ink-2); background: var(--paper); }
+.initiativeCard .policy { color: var(--gold-ink); background: var(--gold-soft); }

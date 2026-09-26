@@ -18,3 +18,16 @@
 .activeGridCity { color: #fffdf1; background: #214b3a; }
 .cityState { display: block; padding: 36rpx 0; font-size: 26rpx; color: #64765e; }
 .retryCities { margin-top: 24rpx; font-size: 26rpx; color: #fffdf1; background: #214b3a; }
+
+/* 换肤（盘点 §7）：城市选中是「选择」（墨），不是动作 */
+.cityBar { background: var(--paper-deep); border-top-color: var(--rule); }
+.cityChip { color: var(--ink-2); }
+.activeChip, .activeGridCity { color: var(--paper-hi); background: var(--ink); }
+.allCitiesButton { color: var(--ink-2); background: var(--paper-deep); border-left-color: var(--rule); }
+.cityMask { background: rgba(21, 19, 15, 0.62); }
+.citySheet { background: var(--paper-hi); }
+.sheetTitle { color: var(--ink); }
+.sheetHint, .cityState { color: var(--ink-3); }
+.closeCities { color: var(--ink-2); }
+.gridCity { color: var(--ink-2); background: var(--paper-deep); }
+.retryCities { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); }

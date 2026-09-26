@@ -13,6 +13,7 @@ import {
   quizResultText,
   revealStamp,
   statsFrames,
+  albumRows,
   todayFrameLabel
 } from '../src/domain/flashback-journey.ts'
 
@@ -49,6 +50,7 @@ const archive = (overrides: Partial<FlashbackCapsuleArchive> = {}): FlashbackCap
   appliedCount: 344,
   attendedCount: 102,
   isMine: true,
+  piles: [],
   roster: [],
   ...overrides
 })
@@ -69,8 +71,19 @@ describe('journeyQuiz（R6 场次确认）', () => {
     assert.equal(quiz.correct, 'mine')
     assert.equal(quiz.options[0].label, '2016 · 成都')
     assert.equal(quiz.options[0].hint, 'Rails Girls Chengdu')
-    // 池内四个历史场次全部成为干扰项（2016 不在池内，全部保留）
-    assert.deepEqual(quiz.options.slice(1, -1).map((option) => option.id), ['sh2012', 'bj2012', 'six2014', 'gz2015'])
+    // 池内三个历史场次全部成为干扰项（2016 不在池内，全部保留）
+    assert.deepEqual(quiz.options.slice(1, -1).map((option) => option.id), ['bj2012', 'six2014', 'gz2015'])
+  })
+
+  // 史实（维护者 2026-09-26 确认）：中国首场是 2012 年 12 月的北京；2012 年上海那场
+  // 不是 CGC 办的，不得作为选项出现，更不能标「中国首场」。
+  test('中国首场 = 2012.12 北京；2012 上海不在候选池', () => {
+    const quiz = journeyQuiz({ name: 'Rails Girls Chengdu', city: '成都', occurredOn: '2016-05-14' })
+    const first = quiz.options.find((option) => option.id === 'bj2012')
+    assert.equal(first?.label, '2012.12 · 北京')
+    assert.equal(first?.hint, '中国首场')
+    assert.ok(!quiz.options.some((option) => option.label.includes('上海') && option.label.startsWith('2012')))
+    assert.ok(!quiz.options.some((option) => option.id !== 'bj2012' && option.hint === '中国首场'))
   })
 
   test('无档案 → 兜底「当年那一场」', () => {
@@ -83,7 +96,7 @@ describe('journeyQuiz（R6 场次确认）', () => {
     const quiz = journeyQuiz({ city: '北京', occurredOn: '2014-01-11' })
     assert.match(quizResultText('six2014', quiz), /答对了/)
     assert.match(quizResultText('dunno', quiz), /我们替你记得/)
-    assert.match(quizResultText('sh2012', quiz), /六城同日/)
+    assert.match(quizResultText('bj2012', quiz), /六城同日/)
     assert.equal(quizResultText(null, quiz), '')
   })
 })
@@ -113,17 +126,15 @@ describe('旅程文案（R3/R7）', () => {
   })
 })
 
-describe('corridorPiles（R12/R34 城市堆）', () => {
-  test('按城市聚合计数：计数降序、同数城市字典序；空城名过滤', () => {
+// #933：城市堆改由服务端聚合（未寄出者不再带城市，前端无法再按名册分组）；
+// 前端只负责排序与截断，规则不变。
+describe('corridorPiles（R12/R34 城市堆，#933 起输入为服务端 piles）', () => {
+  test('计数降序、同数城市字典序；空城名防御性过滤', () => {
     const piles = corridorPiles([
-      roster({ city: '北京' }),
-      roster({ city: '上海' }),
-      roster({ city: '北京' }),
-      roster({ city: '广州' }),
-      roster({ city: '北京' }),
-      roster({ city: '上海' }),
-      roster({ city: null }),
-      roster({ city: '  ' })
+      { city: '上海', count: 2, returned: 0 },
+      { city: '北京', count: 3, returned: 0 },
+      { city: '广州', count: 1, returned: 0 },
+      { city: '  ', count: 9, returned: 0 }
     ])
     assert.deepEqual(piles, [
       { city: '北京', count: 3, returned: 0 },
@@ -132,13 +143,10 @@ describe('corridorPiles（R12/R34 城市堆）', () => {
     ])
   })
 
-  test('堆级已回来:per-city sentToWallAt 计数(G 原型:堆下「N 位已回来」)', () => {
+  test('堆级已回来原样透传(G 原型:堆下「N 位已回来」)', () => {
     const piles = corridorPiles([
-      roster({ city: '北京', sentToWallAt: '2026-01-01' }),
-      roster({ city: '北京' }),
-      roster({ city: '上海', sentToWallAt: '2026-01-02' }),
-      roster({ city: '上海', sentToWallAt: '2026-01-03' }),
-      roster({ city: '上海' })
+      { city: '北京', count: 2, returned: 1 },
+      { city: '上海', count: 3, returned: 2 }
     ])
     assert.deepEqual(piles, [
       { city: '上海', count: 3, returned: 2 },
@@ -147,7 +155,7 @@ describe('corridorPiles（R12/R34 城市堆）', () => {
   })
 
   test('上限 4 堆（原型 slice(0,4)）', () => {
-    const five = corridorPiles(['北京', '上海', '广州', '深圳', '成都'].map((city) => roster({ city })))
+    const five = corridorPiles(['北京', '上海', '广州', '深圳', '成都'].map((city) => ({ city, count: 1, returned: 0 })))
     assert.equal(five.length, 4)
   })
 })
@@ -162,6 +170,16 @@ describe('corridorFrames / statsFrames（R12/R32 长廊帧）', () => {
     assert.deepEqual(frames.map(({ key }) => key), ['a', 'b', 'c'])
     assert.equal(frames[0].when, '2012.02.26')
     assert.equal(frames[1].returned, 1)
+  })
+
+  test('城市堆取服务端 piles，不再按名册分组（#933：未寄出者城市为 null）', () => {
+    const [frame] = corridorFrames([
+      archive({
+        roster: [roster({ city: null }), roster({ city: null }), roster({ city: '上海', sentToWallAt: '2026-01-01' })],
+        piles: [{ city: '上海', count: 3, returned: 1 }]
+      })
+    ])
+    assert.deepEqual(frame.piles, [{ city: '上海', count: 3, returned: 1 }])
   })
 
   test('statsFrames：路人态只有统计堆（城市 + 走进教室人数），无名单无 returned', () => {
@@ -193,10 +211,10 @@ describe('todayFrameLabel / 场次页判据', () => {
     assert.deepEqual(stats, { applied: null, attended: 102, returned: 2 })
   })
 
-  test('eventFogLine：城市 · 职业 · 答案还在等她；全缺只剩尾句', () => {
-    assert.equal(eventFogLine({ city: '北京', occupationThen: '学生' }), '北京 · 学生 · 答案还在等她')
-    assert.equal(eventFogLine({ city: null, occupationThen: '学生' }), '学生 · 答案还在等她')
-    assert.equal(eventFogLine({ city: null, occupationThen: null }), '答案还在等她')
+  // #933：相册对所有登录用户开放，未寄出者只显示「王**」——雾卡上不再出现城市 / 职业，
+  // 即使数据里有（防御：旧缓存或未来字段回流）也不渲染
+  test('eventFogLine：只有不含个人信息的状态语（#933）', () => {
+    assert.equal(eventFogLine(), '答案还在等她')
   })
 })
 
@@ -239,4 +257,42 @@ test('futureEventCards:场次页回环「下一场」取首个 open(AE4/回环�
   // 全满/全截止 → 无「下一场」出口(渲染层隐藏该钮)
   const allFull = futureEventCards([{ initiativeSlug: 'x', initiativeName: 'x', events: frames[0].events.map((e) => ({ ...e, id: e.id + 'x', confirmedCount: e.capacity ?? 10 })) }])
   assert.equal(allFull.find((card) => card.status === 'open'), undefined)
+})
+
+// #933：访客首页「那些年的相册」——场次按时间升序；人数缺失不编造；点进场次页
+// （未登录由场次页负责跳登录，登录判断只在一处）。
+test('albumRows：时间升序、标题回落城市、人数缺失不编造', () => {
+  const rows = albumRows([
+    { key: 'b', name: 'Rails Girls Beijing', city: '北京', occurredOn: '2014-01-11', appliedCount: 344, attendedCount: 102, label: null },
+    { key: 'a', name: null, city: '北京', occurredOn: '2012-12-15', appliedCount: 60, attendedCount: null, label: null },
+    { key: 'c', name: '无日期场', city: null, occurredOn: null, appliedCount: null, attendedCount: null, label: null }
+  ])
+  assert.deepEqual(rows, [
+    { key: 'a', when: '2012.12.15', title: '北京', meta: '60 位报名', piles: [] },
+    { key: 'b', when: '2014.01.11', title: 'Rails Girls Beijing', meta: '102 位走进教室', piles: [] },
+    { key: 'c', when: '', title: '无日期场', meta: '', piles: [] }
+  ])
+})
+
+// #933：已登录无档案走相册读面——每一场带服务端聚合的城市堆（人数 + 已回来），与长廊同一截断
+test('albumRows：相册读面带城市堆（长廊同款排序截断）', () => {
+  const [row] = albumRows([
+    archive({
+      key: 'k',
+      piles: [
+        { city: '广州', count: 1, returned: 0 },
+        { city: ' ', count: 9, returned: 9 },
+        { city: '北京', count: 3, returned: 2 },
+        { city: '上海', count: 2, returned: 1 },
+        { city: '深圳', count: 1, returned: 0 },
+        { city: '杭州', count: 1, returned: 1 }
+      ]
+    })
+  ])
+  assert.deepEqual(row?.piles, [
+    { city: '北京', count: 3, returned: 2 },
+    { city: '上海', count: 2, returned: 1 },
+    { city: '广州', count: 1, returned: 0 },
+    { city: '杭州', count: 1, returned: 1 }
+  ])
 })

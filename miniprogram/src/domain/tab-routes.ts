@@ -5,7 +5,7 @@
  *
  * tabBar 有三处消费方，各自需要不同形状：
  * 1. `app.config.ts` 的 `tabBar.list`（微信要求 `{ pagePath, text }` 且路径无前导斜杠）；
- * 2. `components/AppTabBar` 的自绘渲染（需要 key/icon/绝对路径）；
+ * 2. `components/AppTabBar` 的自绘渲染（需要 key/绝对路径；图标按 key 取线性 SVG，见组件样式）；
  * 3. 路由分流（`isTabPath`——判断该用 `switchTab` 还是 `navigateTo`）。
  *
  * 手工维护三份必然漂移，而漂移的后果是**静默失败**：微信 tabBar 页面只能
@@ -27,35 +27,32 @@ export type TabKey = 'discover' | 'flashback' | 'enrollments' | 'workspace' | 'p
 export interface TabDef {
   key: TabKey
   text: string
-  /** 自绘 TabBar 的图标（文本符号，对齐项目既有风格） */
-  icon: string
   /** 绝对路径（Taro 导航 API 格式；app.config 侧用 `toTabBarEntry` 去前导斜杠） */
   path: string
 }
 
 /** 微信全量端 · 头部固定段 */
 export const FULL_HEAD_TABS: readonly TabDef[] = [
-  { key: 'discover', text: '发现', icon: '⌕', path: '/pages/discover/index' },
-  { key: 'flashback', text: '闪念间', icon: '⚡', path: '/pages/flashback-corridor/index' }
+  { key: 'discover', text: '发现', path: '/pages/discover/index' },
+  { key: 'flashback', text: '闪念间', path: '/pages/flashback-corridor/index' }
 ]
 
 /** 微信全量端 · 能力条件段（有工作台权限才渲染；在头部与尾部之间） */
 export const WORKSPACE_TAB: TabDef = {
   key: 'workspace',
   text: '工作台',
-  icon: '◇',
   path: '/pages/workspace/index'
 }
 
 /** 微信全量端 · 尾部固定段 */
 export const FULL_TAIL_TABS: readonly TabDef[] = [
-  { key: 'profile', text: '我的', icon: '○', path: '/pages/profile/index' }
+  { key: 'profile', text: '我的', path: '/pages/profile/index' }
 ]
 
 /** 抖音裁剪端：2 Tab 漏斗（发现 / 我的报名） */
 export const CUT_TABS: readonly TabDef[] = [
-  { key: 'discover', text: '发现', icon: '⌕', path: '/pages/discover/index' },
-  { key: 'enrollments', text: '我的报名', icon: '✓', path: '/pages/my-enrollments/index' }
+  { key: 'discover', text: '发现', path: '/pages/discover/index' },
+  { key: 'enrollments', text: '我的报名', path: '/pages/my-enrollments/index' }
 ]
 
 /**
@@ -63,8 +60,8 @@ export const CUT_TABS: readonly TabDef[] = [
  * （pages/profile-lite），与微信端同构；我的报名页降级为普通页。
  */
 export const XHS_TABS: readonly TabDef[] = [
-  { key: 'discover', text: '发现', icon: '⌕', path: '/pages/discover/index' },
-  { key: 'profile', text: '我的', icon: '○', path: '/pages/profile-lite/index' }
+  { key: 'discover', text: '发现', path: '/pages/discover/index' },
+  { key: 'profile', text: '我的', path: '/pages/profile-lite/index' }
 ]
 
 /** 微信全量端清单（含条件段——app.config 必须声明全部可能出现的 Tab） */

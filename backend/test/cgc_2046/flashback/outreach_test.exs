@@ -19,6 +19,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
   import Ecto.Query
 
+  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback
   alias Cgc2046.Flashback.{Outreach, Person, Token}
   alias Cgc2046.Flashback.Outreach.{Dispatch, Emails}
@@ -550,12 +551,14 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert_receive {:email, email}, 1_000
       {_name, address} = List.first(email.to)
       assert address == @email
-      # 称呼用全名；2026-09-25 中秋档主题；开场含中秋问候
-      assert email.subject =~ "程序媛汇：中秋快乐——闪念回当年，系愿于今朝"
+      # 称呼用全名；节后月亮主题（2026-09-26 拍板）；开场余韵问候
+      assert email.subject =~ "程序媛汇：月亮刚圆过，宜重逢——闪念回当年，系愿于今朝"
       assert email.text_body =~ "你好，王小明："
       assert email.html_body =~ "你好，王小明："
-      assert email.text_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
-      assert email.html_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
+      assert email.text_body =~ "月亮刚圆过。宜想念，宜重逢"
+      assert email.html_body =~ "月亮刚圆过。宜想念，宜重逢"
+      refute email.text_body =~ "中秋快乐"
+      refute email.html_body =~ "中秋快乐"
       # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
       assert email.html_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
       assert email.text_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
@@ -859,6 +862,84 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       assert %{"queued" => 2, "skipped" => 0} = res["data"]["flashbackAdminSendOutreach"]
       assert outreach_count(%{batch: "archive-" <> archive.key}) == 2
+    end
+  end
+
+  describe "触达治理留痕（GraphQL 面与 MCP 面单源 AdminActionLog）" do
+    test "send mutation 成功 → :flashback_outreach_send 留痕带 actor/channel/batch/queued" do
+      archive = create_archive()
+      insert_people(archive, 1)
+
+      %{token: token, user: admin} = register_and_sign_in("outreach-audit-send", :admin)
+
+      assert %{"data" => %{"flashbackAdminSendOutreach" => %{"queued" => 1}}} =
+               post_graphql(send_outreach_mutation(archive.key), token)
+
+      log =
+        AdminActionLog
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(action == :flashback_outreach_send)
+        |> Ash.read_one!(authorize?: false)
+
+      assert log.actor_id == admin.id
+      assert log.result == :success
+      assert log.metadata["channel"] == "all"
+      assert log.metadata["template"] == "reconnect"
+      assert log.metadata["batch"] == "archive-" <> archive.key
+      assert log.metadata["queued"] == 1
+    end
+
+    test "resend mutation 成功 → :flashback_outreach_resend 留痕带 actor/batch" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      %{token: token, user: admin} = register_and_sign_in("outreach-audit-resend", :admin)
+
+      # 单人重发有副作用（入队发送 + 治理留痕），属 Mutation；web 后台 admin.ts 以 mutation 调用
+      mutation = """
+      mutation {
+        flashbackAdminResendOutreach(personId: "#{person.id}", template: "reconnect") {
+          queued skipped
+        }
+      }
+      """
+
+      assert %{"data" => %{"flashbackAdminResendOutreach" => %{"queued" => 1}}} =
+               post_graphql(mutation, token)
+
+      log =
+        AdminActionLog
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(action == :flashback_outreach_resend)
+        |> Ash.read_one!(authorize?: false)
+
+      assert log.actor_id == admin.id
+      assert log.result == :success
+      assert log.metadata["channel"] == "all"
+      assert String.starts_with?(log.metadata["batch"], "resend-")
+      assert log.metadata["queued"] == 1
+    end
+
+    test "occurred_on/city 为空的场次档案不炸列表（教练场档案场景）" do
+      archive = create_archive()
+
+      # 今天运营建的「教练」场档案无具体日期/城市——曾让 Date.to_iso8601(nil)
+      # 崩掉整个 flashbackAdminArchives 查询（场次加载失败）。
+      Cgc2046.Flashback.EventArchive
+      |> Ash.Changeset.for_create(:create, %{key: "coaches-rails-girls", name: "Rails Girls 教练"})
+      |> Ash.create!(authorize?: false)
+
+      %{token: token} = register_and_sign_in("outreach-audit-nil", :admin)
+
+      assert %{"data" => %{"flashbackAdminArchives" => rows}} =
+               post_graphql("{ flashbackAdminArchives { key name city occurredOn } }", token)
+
+      assert length(rows) == 2
+
+      assert %{"key" => "coaches-rails-girls", "city" => nil, "occurredOn" => nil} =
+               Enum.find(rows, &(&1["key"] == "coaches-rails-girls"))
+
+      assert Enum.find(rows, &(&1["key"] == archive.key))
     end
   end
 

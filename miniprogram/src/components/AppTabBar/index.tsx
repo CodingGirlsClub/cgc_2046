@@ -13,14 +13,14 @@ import {
 } from '@/domain/tab-routes'
 import styles from './index.module.css'
 
-interface Props { selected: TabKey; tone?: 'ink' }
+interface Props { selected: TabKey }
 
 // Tab 清单按平台分派：抖音 = 发现/我的报名（2 Tab 漏斗）；小红书 = 发现/我的
 // （D2a，我的报名收进精简「我的」页）；微信 = 三段式（含条件段工作台）。
 const env = process.env.TARO_ENV
 const isCut = env === 'tt' || env === 'xhs'
 
-export function AppTabBar({ selected, tone }: Props) {
+export function AppTabBar({ selected }: Props) {
   const [showWorkspace, setShowWorkspace] = useState(hasWorkspaceTab)
 
   // 藏原生 TabBar：本组件是自绘实现，原生那层必须藏掉，否则两层叠加。
@@ -51,7 +51,7 @@ export function AppTabBar({ selected, tone }: Props) {
         : [...FULL_HEAD_TABS, ...(showWorkspace ? [WORKSPACE_TAB] : []), ...FULL_TAIL_TABS]
 
   return (
-    <View className={`${styles.bar} ${tone === 'ink' ? styles.ink : ''}`} >
+    <View className={styles.bar}>
       {tabs.map((tab) => (
         <View
           key={tab.key}
@@ -59,7 +59,7 @@ export function AppTabBar({ selected, tone }: Props) {
           data-testid={`tab-${tab.key}`}
           onClick={() => Taro.switchTab({ url: tab.path })}
         >
-          <Text className={styles.icon}>{tone === 'ink' && tab.key === 'flashback' ? '✧' : tab.icon}</Text>
+          <View className={`${styles.icon} ${styles[`icon_${tab.key}`]}`} />
           <Text className={styles.text}>{tab.text}</Text>
         </View>
       ))}

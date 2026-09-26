@@ -75,7 +75,14 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
       |> Ash.Query.sort(occurred_on: :desc)
       |> Ash.read!(authorize?: false, page: false)
       |> Enum.map(fn a ->
-        %{key: a.key, name: a.name, city: a.city, occurred_on: Date.to_iso8601(a.occurred_on)}
+        # occurred_on/city 可空（教练场等无具体日期档案，运营后台直建）；
+        # 曾因 Date.to_iso8601(nil) 崩掉整个场次列表（场次加载失败）。
+        %{
+          key: a.key,
+          name: a.name,
+          city: a.city,
+          occurred_on: a.occurred_on && Date.to_iso8601(a.occurred_on)
+        }
       end)
 
     {:ok, archives}

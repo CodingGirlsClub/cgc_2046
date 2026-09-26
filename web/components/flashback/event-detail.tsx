@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { graphqlErrorDetails } from "@/lib/graphql/auth";
-import { FLASHBACK_CAPSULE, type FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
+import { FLASHBACK_ARCHIVES, FLASHBACK_CAPSULE, type FlashbackCapsuleArchive } from "@/lib/graphql/flashback";
 import EventRoster from "./event-roster";
 import InvalidToken, { type InvalidTokenReason } from "./invalid-token";
 import { useStageTitleFocus } from "./use-reduced-motion";
@@ -17,7 +17,9 @@ type State =
 	| { phase: "loading" }
 	| { phase: "invalid"; reason: InvalidTokenReason }
 	| { phase: "missing" }
-	| { phase: "ok"; archive: FlashbackCapsuleArchive };
+	| { phase: "login" }
+	/** viewer = 已登录无档案（#933 相册读面）：返回闪念间首页而非胶囊 */
+	| { phase: "ok"; archive: FlashbackCapsuleArchive; viewer: boolean };
 
 /**
  * 场次页（E 的 event 步 / R12 场次名册）：长廊点某一格 → 这一场的完整名册——
@@ -25,17 +27,18 @@ type State =
  * （已寄出=显影卡带名字 / 未回来=雾卡「王** · 城市 · 职业 · 答案还在等她」）
  * + 找回 CTA（三级视角②：参加过没回来的人从这里认领自己那张）。
  *
- * 数据复用 capsule 投影（白名单 DTO 同一份：roster 混排 attended 与
- * not_selected（圆梦线进名册，applied_at asc）、未寄出者仅姓氏隐名）——
- * 不新增后端读面，也就不新增泄露面。
- * 统计行不编造：报名数缺失（导入未带该列）与教练数（R22：教练表属其他场次）
- * 都直接不显示，而不是填 0。「走进教室」取后端 attendedCount 权威字段；
- * 缺失时 fallback 只数 attended 名册成员——名册扩员后绝不把圆梦线
- * （报名未入选）算进教室（事实纪律）。
+ * 数据（#933 相册对所有已登录用户开放）：有档案读 capsule；已登录无档案读
+ * flashbackArchives（与胶囊名册同一套白名单投影：roster 混排 attended 与
+ * not_selected（圆梦线进名册，applied_at asc）、未寄出者只有姓氏隐名）；
+ * 未登录 → 登录页，登录后回到这一场。
+ * 统计行不编造：报名数、走进教室（后端 attendedCount 权威字段）缺失（导入未带该列）
+ * 与教练数（R22：教练表属其他场次）都直接不显示，而不是填 0——#933 起未寄出者
+ * 不下发参与类型，名册也数不出走进教室的人（事实纪律）。
  */
 export default function EventDetail({ eventKey }: { eventKey: string }) {
 	const t = useTranslations("flashback.event");
 	const [state, setState] = useState<State>({ phase: "loading" });
+	const router = useRouter();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([eventKey]);
 
 	useEffect(() => {
@@ -54,7 +57,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			.query({ query: FLASHBACK_CAPSULE, variables: { token: held }, fetchPolicy: "network-only" })
 			.then(({ data }) => {
 				const archive = data?.flashbackCapsule?.archives.find((item) => item.key === eventKey);
-				setState(archive ? { phase: "ok", archive } : { phase: "missing" });
+				setState(archive ? { phase: "ok", archive, viewer: false } : { phase: "missing" });
 			})
 			.catch((error) => {
 				const code = graphqlErrorDetails(error)?.code;
@@ -67,9 +70,34 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 					setState({ phase: "invalid", reason: code });
 					return;
 				}
+				if (code === "flashback_auth_required") {
+					setState({ phase: "login" });
+					return;
+				}
+				if (code === "flashback_person_not_bound") {
+					client
+						.query({ query: FLASHBACK_ARCHIVES, fetchPolicy: "network-only" })
+						.then(({ data }) => {
+							const archive = data?.flashbackArchives?.archives.find((item) => item.key === eventKey);
+							setState(archive ? { phase: "ok", archive, viewer: true } : { phase: "missing" });
+						})
+						.catch(() => setState({ phase: "missing" }));
+					return;
+				}
 				setState({ phase: "missing" });
 			});
 	}, [eventKey]);
+
+	// #933 未登录想看相册 → 登录页（replace：返回键不会回到这一页再跳一次），登录后回到这一场。
+	// 跳转放 effect：渲染期调用 router.replace 在严格模式 / 重渲染下会重复导航；router 引用
+	// 不保证稳定，用 ref 记住已跳过的场次，同一场只跳一次
+	const redirectedFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (state.phase === "login" && redirectedFor.current !== eventKey) {
+			redirectedFor.current = eventKey;
+			router.replace(`/login?next=${encodeURIComponent(`/flashback/event/${eventKey}`)}`);
+		}
+	}, [state.phase, eventKey, router]);
 
 	if (state.phase === "invalid") {
 		return (
@@ -78,6 +106,8 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			</div>
 		);
 	}
+
+	if (state.phase === "login") return null;
 
 	if (state.phase === "missing") {
 		return (
@@ -98,17 +128,13 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 		);
 	}
 
-	const { archive } = state;
+	const { archive, viewer } = state;
 	const returned = archive.roster.filter((entry) => entry.sentToWallAt).length;
-	// fallback 只数 attended：名册已含 not_selected，roster.length 会把圆梦线错算进教室
-	const attended =
-		archive.attendedCount ??
-		archive.roster.filter((entry) => entry.participation === "attended").length;
 
 	return (
 		<div className="fb-root fb-event">
-			<Link href="/flashback/capsule" className="fb-event-back">
-				{t("back")}
+			<Link href={viewer ? "/flashback" : "/flashback/capsule"} className="fb-event-back">
+				{viewer ? t("backHome") : t("back")}
 			</Link>
 			<h2 className="fb-event-title" ref={titleRef} tabIndex={-1}>
 				{archive.occurredOn?.replace(/-/g, ".") ?? archive.key}
@@ -117,7 +143,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			<p className="fb-event-stats">
 				{/* 报名数缺失（导入未带该列）时不显示——不编造 0（教练数同理：本场无数据） */}
 				{archive.appliedCount ? <span>{t("applied", { count: archive.appliedCount })}</span> : null}
-				<span>{t("attended", { count: attended })}</span>
+				{archive.attendedCount ? <span>{t("attended", { count: archive.attendedCount })}</span> : null}
 				<span className="fb-event-returned">{t("returned", { count: returned })}</span>
 			</p>
 			<p className="fb-event-section">

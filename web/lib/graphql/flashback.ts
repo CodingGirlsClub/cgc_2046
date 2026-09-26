@@ -208,13 +208,21 @@ export interface FlashbackRosterEntry {
 	fullName?: string | null;
 	/** 寄出者的报名时间戳（翻转卡正面白边）；未寄出者 null */
 	appliedAt?: string | null;
-	/** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，非「没去」） */
-	participation: string;
+	/** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，非「没去」）；
+	 *  #933：未寄出者不下发（null），城市 / 当年职业同理 */
+	participation?: string | null;
 	city?: string | null;
 	occupationThen?: string | null;
 	sentToWallAt?: string | null;
 	today?: { nowStatus?: string | null; want?: string | null; say?: string | null } | null;
 	answers: FlashbackRosterAnswer[];
+}
+
+/** 城市堆（#933 服务端聚合）：按人的城市计数、计入未寄出者；returned = 已寄出人数 */
+export interface FlashbackArchivePile {
+	city: string;
+	count: number;
+	returned: number;
 }
 
 export interface FlashbackCapsuleArchive {
@@ -227,6 +235,7 @@ export interface FlashbackCapsuleArchive {
 	/** 长廊场次格叙事短标签（原型 D ia-frame-label）：「六城同日」写故事不写地名 */
 	label?: string | null;
 	isMine: boolean;
+	piles: FlashbackArchivePile[];
 	roster: FlashbackRosterEntry[];
 }
 
@@ -533,9 +542,9 @@ export const FLASHBACK_SUBMIT_TODAY: TypedDocumentNode<
 /** 寄出上墙（R11，幂等）；返回注册引导掩码回显（R27） */
 export const FLASHBACK_SEND_TO_WALL: TypedDocumentNode<
 	{ flashbackSendToWall: FlashbackSendToWallResult },
-	{ token: string }
+	{ token?: string | null }
 > = gql`
-	mutation FlashbackSendToWall($token: String!) {
+	mutation FlashbackSendToWall($token: String) {
 		flashbackSendToWall(token: $token) {
 			sentToWallAt
 			maskedPhone
@@ -636,9 +645,9 @@ export const FLASHBACK_UPDATE_CONTACT: TypedDocumentNode<
 /** 撤下（R30 免注册一键）：名册回到结构化卡 */
 export const FLASHBACK_RETRACT: TypedDocumentNode<
 	{ flashbackRetract: { retracted: boolean; sentToWallAt?: string | null } },
-	{ token: string }
+	{ token?: string | null }
 > = gql`
-	mutation FlashbackRetract($token: String!) {
+	mutation FlashbackRetract($token: String) {
 		flashbackRetract(token: $token) {
 			retracted
 			sentToWallAt
@@ -661,7 +670,63 @@ export const FLASHBACK_DREAM_TARGET: TypedDocumentNode<
 	}
 `;
 
+/**
+ * 相册读面（#933）：任何已登录用户都能看全部场次（场次时间轴 + 名册），与胶囊名册同一套
+ * 投影——选择集与 FLASHBACK_CAPSULE.archives 逐字一致（同一 DTO，改一处必须改两处）。
+ * 未登录 → flashback_auth_required。
+ */
+export const FLASHBACK_ARCHIVES: TypedDocumentNode<
+	{ flashbackArchives: { archives: FlashbackCapsuleArchive[]; cities: string[] } | null },
+	{ city?: string | null }
+> = gql`
+	query FlashbackArchives($city: String) {
+		flashbackArchives(city: $city) {
+			cities
+			archives {
+				key
+				name
+				city
+				occurredOn
+				appliedCount
+				attendedCount
+				label
+				isMine
+				piles {
+					city
+					count
+					returned
+				}
+				roster {
+					id
+					surnameMasked
+					fullName
+					participation
+					appliedAt
+					city
+					occupationThen
+					sentToWallAt
+					today {
+						nowStatus
+						want
+						say
+					}
+					answers {
+						questionKey
+						segments {
+							text
+							fog
+							len
+						}
+					}
+				}
+			}
+		}
+	}
+`;
+
 /** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口；city（R34 城市钉）筛选 */
+// publicWishes 与 myPrivateWishes 进同一个弹窗（WishModal 读 comments / mine / echoes），
+// 两段共用 CapsuleWishFields 保证同形——私密段曾漏取这些字段，点开即崩（梳理文档 H0）
 export const FLASHBACK_CAPSULE: TypedDocumentNode<
 	{ flashbackCapsule: FlashbackCapsule | null },
 	{ token?: string | null; city?: string | null }
@@ -708,6 +773,11 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				attendedCount
 				label
 				isMine
+				piles {
+					city
+					count
+					returned
+				}
 				roster {
 					id
 					surnameMasked
@@ -747,48 +817,46 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				}
 			}
 			publicWishes {
-				id
-				content
-				city
-				wisherMasked
-				endorsementCount
-				endorsedByMe
-				mine
-				comments {
-					id
-					content
-					commenterMasked
-					insertedAt
-				}
-				latestEcho {
-					id
-					content
-					status
-					publishedAt
-					correctedAt
-				}
-				echoCount
-				echoes {
-					id
-					content
-					status
-					publishedAt
-					correctedAt
-				}
-				insertedAt
+				...CapsuleWishFields
 			}
 			myPrivateWishes {
-				id
-				content
-				city
-				wisherMasked
-				endorsementCount
-				endorsedByMe
-				insertedAt
+				...CapsuleWishFields
 			}
 			myWishQuotaRemaining
 			cities
 		}
+	}
+
+	fragment CapsuleWishFields on FlashbackWish {
+		id
+		content
+		city
+		wisherMasked
+		endorsementCount
+		endorsedByMe
+		mine
+		comments {
+			id
+			content
+			commenterMasked
+			insertedAt
+		}
+		latestEcho {
+			id
+			content
+			status
+			publishedAt
+			correctedAt
+		}
+		echoCount
+		echoes {
+			id
+			content
+			status
+			publishedAt
+			correctedAt
+		}
+		insertedAt
 	}
 `;
 

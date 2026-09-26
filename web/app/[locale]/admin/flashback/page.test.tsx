@@ -386,7 +386,7 @@ describe("/admin/flashback 闪念间看板", () => {
 
 		it("名册：完整联系方式 + 触达结果列 + 重发确认链路（AE8）", async () => {
 			fetchFlashbackOutreachRoster.mockResolvedValue([rosterEntry()]);
-			resendFlashbackOutreach.mockResolvedValue({ queued: 1, skipped: 0, batch: "resend-x" });
+			resendFlashbackOutreach.mockResolvedValue({ queued: 1, skipped: 0 });
 
 			render(<AdminFlashbackPage />);
 			fireEvent.change(await screen.findByLabelText("选择场次"), {
