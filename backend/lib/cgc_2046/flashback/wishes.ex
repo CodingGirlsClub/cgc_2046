@@ -602,7 +602,9 @@ defmodule Cgc2046.Flashback.Wishes do
     |> Ash.read!(authorize?: false, page: false)
     |> Enum.map(fn wish ->
       # 形状与公开愿望同构——GraphQL flashback_wish 的 comments/endorsement_count/
-      # endorsed_by_me 为 non_null，私有投影给空/零默认（私有愿望不可附议留言，R9）
+      # endorsed_by_me/mine 为 non_null，私有投影给空/零默认（私有愿望不可附议留言，R9）；
+      # 缺任一非空字段，错误会冒泡到可空的 flashbackCapsule，整条长廊打不开。回响字段由
+      # 长廊组装时合并（AlumniProjection.add_echo_projection）
       %{
         id: wish.id,
         content: wish.content,
@@ -611,6 +613,7 @@ defmodule Cgc2046.Flashback.Wishes do
         wisher_masked: nil,
         endorsement_count: 0,
         endorsed_by_me: false,
+        mine: true,
         comments: []
       }
     end)

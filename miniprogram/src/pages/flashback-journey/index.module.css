@@ -314,3 +314,38 @@
   line-height: 2.2;
 }
 .invalidAction::after { border: none; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   快门与问答在暗房里（顶部安全灯光晕）；显影落到纸上——暗 → 纸就是「开灯」；
+   答对的反馈是金（被点亮的结果）；火：快门、寄出（翻面前半透明）、收好。 */
+.page { background: var(--paper); color: var(--ink); font-family: var(--serif); }
+.pageDark { background: radial-gradient(ellipse at 50% 0%, rgba(234, 85, 4, 0.26), rgba(234, 85, 4, 0.06) 40%, transparent 65%), var(--dark); color: var(--dark-ink); }
+.brand { color: rgba(255, 170, 120, 0.8); font: 500 21rpx/1 sans-serif; letter-spacing: 0.36em; }
+.introLead { color: var(--dark-ink); font-size: 42rpx; line-height: 1.8; }
+.shutter { background: radial-gradient(circle at 34% 30%, #ff9a57, var(--fire) 58%, #c94600); }
+.shutterHint { color: var(--dark-ink-2); letter-spacing: 0.08em; font-size: 27rpx; }
+.quizQuestion { color: var(--dark-ink); font-size: 40rpx; line-height: 1.6; text-align: center; }
+.quizOption { display: block; background: transparent; border: 1rpx solid var(--dark-rule); border-radius: 20rpx; box-shadow: none; padding: 26rpx 30rpx; }
+.quizLabel { display: block; color: var(--dark-ink); font-size: 31rpx; }
+.quizHint { display: block; margin: 6rpx 0 0; color: var(--dark-ink-2); font: 22rpx/1.5 sans-serif; }
+.quizFeedback { color: var(--gold-ink); font-size: 29rpx; }
+.polaroid { background: var(--paper-hi); border-radius: 6rpx; box-shadow: 0 2rpx 0 rgba(0, 0, 0, 0.04), 0 40rpx 80rpx -40rpx rgba(28, 40, 30, 0.45); }
+.photo { background: linear-gradient(165deg, #d9cfb8, #bfb298 60%, #a89c80); }
+.answerQ { color: rgba(30, 58, 47, 0.6); font-family: sans-serif; }
+.answerA { color: var(--ink); font-size: 27rpx; }
+.polaroidName { color: var(--ink); font-size: 27rpx; }
+.polaroidStamp { color: var(--ink-2); }
+.backTitle { color: var(--ink); font-weight: 500; }
+.backLabel { color: var(--ink-2); }
+.textarea { background: var(--paper-hi); color: var(--ink); }
+.backHint, .revealHint { color: var(--ink-3); }
+.cta, .overlayPrimary, .invalidAction { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.cta[disabled], .overlayPrimary[disabled] { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); opacity: 0.45; box-shadow: none; }
+.overlay { background: rgba(21, 19, 15, 0.62); }
+.overlayCard { background: var(--paper-hi); border-radius: 28rpx; }
+.overlayTitle { color: var(--ink); font-size: 36rpx; }
+.overlayBody { color: var(--ink-2); }
+.overlaySkip, .overlayExpectation { color: var(--ink-3); }
+.overlayDivider { border-top-color: var(--rule); }
+.invalidEyebrow { color: var(--ink-3); font: 500 21rpx/1 sans-serif; letter-spacing: 0.3em; }
+.invalidText { color: var(--ink-2); }

@@ -15,18 +15,14 @@ const MAX_PILES = 8;
 export type CityPile = { city: string; count: number };
 
 /**
- * 城市照片堆（用户定稿 D）：从名册聚合 {city, count}——city 空值/空白不计，
+ * 城市照片堆（用户定稿 D）：取服务端聚合的 piles（#933：未寄出者的城市不再下发，
+ * 名册里数不出来——聚合数计入未寄出者、不指向个人）。city 空白不成堆，
  * 确定性排序：count 降序 → 城市字典序（码位序，不依赖运行时 ICU 排序规则）。
  */
 export function cityPiles(archive: FlashbackCapsuleArchive): CityPile[] {
-	const counts = new Map<string, number>();
-	for (const entry of archive.roster) {
-		const city = entry.city?.trim();
-		if (!city) continue;
-		counts.set(city, (counts.get(city) ?? 0) + 1);
-	}
-	return [...counts]
-		.map(([city, count]) => ({ city, count }))
+	return archive.piles
+		.map((pile) => ({ city: pile.city.trim(), count: pile.count }))
+		.filter((pile) => pile.city)
 		// count 降序 → 城市字典序（码位序：不依赖运行时 ICU 排序规则，测试可精确断言）
 		.sort((a, b) => b.count - a.count || (a.city < b.city ? -1 : a.city > b.city ? 1 : 0))
 		.slice(0, MAX_PILES);

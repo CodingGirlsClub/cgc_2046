@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { FULL_TAB_PATHS, isTabPath } from '../src/domain/tab-routes.ts'
 import {
   buildFlashbackCardSharePath,
+  buildFlashbackEntryPath,
   buildJoinSharePath,
   FLASHBACK_CARD_SHARE_IMAGE,
   resolveAppShowRoute,
@@ -14,6 +16,15 @@ import {
 // （与 event-detail 页面三态回落一致）；slug → initiative-detail。
 // resolveEntry 为冷启动（useLaunch，空页面栈）与热启动（onAppShow，栈顶页）
 // 的共用入口：冷启动的 id/slug 深链不再被丢弃（站外投放主要形态）。
+
+// #929：闪念间的分享与公开卡「找回」统一落闪念间 Tab——未登录看公开首页，有档案进自己的长廊；
+// 不带 token 的首程页只留给真正失效的链接（否则新人先被告知「没有找到这张邀请函」）
+test('闪念间入口 = 闪念间 Tab（长廊），不是不带 token 的首程页', () => {
+  const path = buildFlashbackEntryPath()
+  assert.equal(path, '/pages/flashback-corridor/index')
+  assert.ok(isTabPath(path, FULL_TAB_PATHS), '入口必须是 Tab 页（跳转用 switchTab，转发落地即 Tab）')
+  assert.ok(!path.includes('flashback-journey'))
+})
 
 test('query 含 id+kind 且当前不在 event-detail → 跳详情', () => {
   assert.equal(
