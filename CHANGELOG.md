@@ -19,6 +19,14 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+
+- 比特币奖品兑付提醒补全：邮件 P.S. 行 + 显影页可点联系入口。
+
+### Fixed
+
+- 自动匹配认得导入格式的手机号——档案裸 11 位 vs 账号 +86 归一形。
+
 ## [2026-09-26]
 
 ### Added
