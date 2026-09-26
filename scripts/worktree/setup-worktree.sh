@@ -61,6 +61,16 @@ if GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)"; then
   fi
 fi
 
+# --- 本地推送门禁：push 前自动跑 backend format 检查（scripts/githooks/pre-push）---
+# 安装到共享 hooks 目录：.git 对所有 worktree 共用，不随分支切换消失；
+# 源码版本化在 scripts/githooks/，.git/hooks 本身不入库不受全局 ignore 影响。
+if [ -f scripts/githooks/pre-push ]; then
+  common_dir="$(git rev-parse --git-common-dir)"
+  common_dir="$(cd "$common_dir" && pwd)"
+  install -m 0755 scripts/githooks/pre-push "$common_dir/hooks/pre-push"
+  log "Installed pre-push gate -> $common_dir/hooks/pre-push."
+fi
+
 # --- web (Next.js + pnpm workspace) ---
 if [ -f web/package.json ]; then
   log "Installing web dependencies (pnpm install --frozen-lockfile)..."
