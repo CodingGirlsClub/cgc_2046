@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-26
+
 ### Added
 
 - `cgc-quality-eval` skill：质检报告判据化评审（`submit_prep_quality_report` 前置）。三层架构——确定性 grep 终判格式类判据、judge_batch 两段式 triage 语义项（嫌疑清单待人裁）、教材原文配对终判书外声明（noul 逐声明）。score/summary 为判据聚合产物，summary 禁止自由发挥。无 judge 模型时降级为 L1 + 嫌疑清单。真机验证：某已发布 43 卡课程 ground truth 对照，教材配对终判 8/8 全中（两个已知书外实锤全部捞出，置信 0.98+），锚点格式 grep 判据 100% 精准（见 docs/quality-eval-validation-2026-09-22.md）
 - `docs/quality-criteria-proposal.md`：tutor playbook 质检章判据化提案（卡级 8 + 课程级 6 判据、评分权重、summary 聚合纪律），提 backend 侧 playbook 修订
+
+### Changed
+
+- 主 agent（`agents/cgc.md`）提示词精简：静态「公共工具清单」改为一条工作台 `workspace_id` 范围规则，各工具的参数与返回以工具自身描述为准（活动报名状态 badge 的判定规则已随平台写进工具描述）；质检 skill 触发描述只留触发条件与产出，score/summary 明确由本地脚本从判据结果确定性聚合。
 
 ## [0.1.5] - 2026-09-22
 
