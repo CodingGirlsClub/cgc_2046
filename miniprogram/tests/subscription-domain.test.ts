@@ -24,6 +24,7 @@ import {
   refundCardTouchpoint,
   requestAndGrant,
   submitAfterConsent,
+  subscriptionTouchpointsVisible,
   subscriptionTransport,
   volunteerApplyTouchpoint,
   volunteerFollowUpTouchpoint,
@@ -501,7 +502,7 @@ describe('M1–M8 订阅按钮（requestAndGrant，#693 收敛）', () => {
   })
 })
 
-describe('调起路径优先级（mock/xhs 必须先于缺配检查）', () => {
+describe('调起路径优先级（mock passthrough / xhs unsupported 必须先于缺配检查）', () => {
   test('E2E mock 走 passthrough —— 即使一个模板 ID 都没配也不该抛缺配', () => {
     // 这是真实回归点：mock 构建与 CI 都没有模板 ID，若把「缺配检查」排在
     // mock 短路之前，e2e 点订阅会抛「缺少模板 ID」而不是成功。
@@ -509,9 +510,21 @@ describe('调起路径优先级（mock/xhs 必须先于缺配检查）', () => {
     assert.equal(subscriptionTransport(true, 'tt'), 'passthrough')
   })
 
-  test('小红书走 passthrough（服务通知由平台后台下发，无 tmplIds）', () => {
-    assert.equal(subscriptionTransport(false, 'xhs'), 'passthrough')
-    assert.equal(subscriptionTransport(true, 'xhs'), 'passthrough')
+  test('小红书平台无订阅消息能力：恒 unsupported（P0 止血，优先于 mock passthrough）', () => {
+    // 平台事实：小红书无订阅消息/服务通知能力，模板 0/27；前端必须切断
+    // 整条触点链（request 零 grant，页面零按钮），mock 构建也不豁免。
+    // 触达替换（短信通道）的链路另见 P1-1。
+    assert.equal(subscriptionTransport(false, 'xhs'), 'unsupported')
+    assert.equal(subscriptionTransport(true, 'xhs'), 'unsupported')
+    assert.equal(subscriptionTouchpointsVisible(false, 'xhs'), false)
+    assert.equal(subscriptionTouchpointsVisible(true, 'xhs'), false)
+  })
+
+  test('订阅触点可见性单源：wechat/tt 可见（含 mock），xhs 不可见', () => {
+    assert.equal(subscriptionTouchpointsVisible(false, 'wechat'), true)
+    assert.equal(subscriptionTouchpointsVisible(true, 'wechat'), true)
+    assert.equal(subscriptionTouchpointsVisible(false, 'tt'), true)
+    assert.equal(subscriptionTouchpointsVisible(true, 'tt'), true)
   })
 
   test('微信/抖音真机走 tmplIds（此时缺配才抛可读错误）', () => {

@@ -135,3 +135,14 @@ test('命中结果不回显文件正文', () => {
   assert.deepEqual(r.hits[0], { file: 'a/x.ttml', term: '加我' })
   assert.ok(!JSON.stringify(r).includes('秘密内容不出现'))
 })
+
+test('「网页端」站外操作引导被拦截（含 \\u 转义形态——纯文本 grep 看不见）', () => {
+  // Taro 产物把中文写成 \uXXXX：「请在网页端完成支付」曾以此形态漏进 dist/xhs，
+  // 而 README 的纯文本 grep 门禁显示无命中（假绿）
+  const root = makeCase('ban-web-end', {
+    'common.js': 'var s="\\u8bf7\\u5728\\u7f51\\u9875\\u7aef\\u5b8c\\u6210\\u652f\\u4ed8";'
+  })
+  const result = scanArtifactTree(root)
+  assert.equal(result.error, null)
+  assert.deepEqual(result.hits, [{ file: 'common.js', term: '网页端' }])
+})
