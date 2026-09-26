@@ -22,7 +22,8 @@
     "typeRoots": ["node_modules/@types"],
     "lib": ["ES2020", "DOM"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "privacy-content": ["./src/domain/privacy-content-wechat.ts"]
     }
   },
   "include": ["./src", "./types", "./config"],

@@ -823,7 +823,7 @@ export default function FlashbackCorridorPage() {
               onClick={() => {
                 setEnrolled((prev) => (prev.includes(eventSheet.title) ? prev : [...prev, eventSheet.title]))
                 setEventSheet(null)
-                Taro.showToast({ title: '已报名 · 详情将发你微信', icon: 'none' })
+                Taro.showToast({ title: '已报名 · 详情见「我的报名」', icon: 'none' })
                 void Taro.navigateTo({ url: `/pages/event-detail/index?id=${eventSheet.id}&kind=event` })
               }}
             >

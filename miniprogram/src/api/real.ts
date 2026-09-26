@@ -670,6 +670,11 @@ export class RealMiniProgramApi implements MiniProgramApi {
       if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'rate_limited')) {
         throw new Error('登录太频繁了，请稍后再试。')
       }
+      // authentication_failed 是后端对平台侧失败的统一掩码（三端共用）——
+      // 裸英文「Platform sign in failed」不进 UI。infra 码不进 error-copy 契约表（同上）
+      if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'authentication_failed')) {
+        throw new Error('登录失败，请稍后重试。')
+      }
       throw error
     })
     const session = await this.hydrateSignedInSession()

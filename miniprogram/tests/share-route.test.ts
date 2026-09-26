@@ -6,6 +6,7 @@ import {
   buildFlashbackEntryPath,
   buildJoinSharePath,
   FLASHBACK_CARD_SHARE_IMAGE,
+  platformFallbackRoute,
   resolveAppShowRoute,
   resolveEntry
 } from '../src/domain/share-route.ts'
@@ -354,5 +355,111 @@ test('#771 分享链接里的 token 不构成本人身份：路由只落公开�
     scene: null,
     url: '/pages/flashback-shared-card/index?shareId=abc123'
   })
+  assert.equal(decision.navigate, true)
+})
+
+// ── P0-4 深链按平台过滤：目标必须是本端已注册页面，否则稳态回落 ──────────
+// 修复前：带 shareId/quoteId/wishId/token 的链接会被导向裁剪端没注册的页面，
+// navigateTo 静默失败（名单单源 = domain/platform-pages.ts）。
+
+test('P0-4 缺省平台 = weapp：不过滤，全量端页面照常', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index'),
+    '/pages/flashback-shared-card/index?shareId=abc123'
+  )
+})
+
+test('P2 xhs：flashback 族目标已注册 → 深链直达目标页', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-shared-card/index?shareId=abc123'
+  )
+  assert.equal(
+    resolveAppShowRoute({ quoteId: 'q-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-voices/index?quoteId=q-1'
+  )
+  assert.equal(
+    resolveAppShowRoute({ wishId: 'w-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-wishes/index?wishId=w-1'
+  )
+  assert.equal(
+    resolveAppShowRoute({ token: 'tk-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-journey/index?token=tk-1'
+  )
+})
+
+test('P2 xhs：回落仍兜底未注册页——workspace 未注册 → 发现页回落不变', () => {
+  assert.equal(platformFallbackRoute('/pages/workspace/index', 'xhs', 'pages/event-detail/index'), '/pages/discover/index')
+})
+
+test('P0-4 tt 同款回落（tt 未注册闪念间族 → 薄壳页）', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index', {}, 'tt'),
+    '/pages/flashback/index'
+  )
+})
+
+test('P0-4 xhs：已注册目标保持原样（id / slug / scene 三族深链不断）', () => {
+  assert.equal(
+    resolveAppShowRoute({ id: 'evt-1', kind: 'event' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/event-detail/index?id=evt-1&kind=event'
+  )
+  assert.equal(
+    resolveAppShowRoute({ slug: 'h1024' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/initiative-detail/index?slug=h1024'
+  )
+  assert.equal(
+    resolveAppShowRoute({ scene: 'SC_1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/join/index?scene=SC_1'
+  )
+})
+
+test('P0-4 过滤不制造新导航：query 全空在 xhs 仍是 null', () => {
+  assert.equal(resolveAppShowRoute({}, 'pages/discover/index', {}, 'xhs'), null)
+})
+
+test('P2 xhs：shareId 冷启动落在公开卡页本身 → 不跳（防重复叠壳）', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/flashback-shared-card/index', { shareId: 'abc123' }, 'xhs'),
+    null
+  )
+})
+
+test('P0-4 platformFallbackRoute：非 flashback 族未注册目标 → 发现页（纵深兜底）', () => {
+  assert.equal(platformFallbackRoute('/pages/profile/index', 'xhs', 'pages/event-detail/index'), '/pages/discover/index')
+  assert.equal(platformFallbackRoute('/pages/order-pay/index?x=1', 'tt', 'pages/event-detail/index'), '/pages/discover/index')
+  // 回落目标即当前页 → null（防重复叠壳；与 shareId 用例同源）
+  assert.equal(platformFallbackRoute('/pages/profile/index', 'xhs', 'pages/discover/index'), null)
+  // 已注册与 weapp 直通
+  assert.equal(platformFallbackRoute('/pages/event-detail/index?id=e1', 'xhs', 'pages/discover/index'), '/pages/event-detail/index?id=e1')
+  assert.equal(platformFallbackRoute('/pages/profile/index', 'wechat', 'pages/discover/index'), '/pages/profile/index')
+  // null 直通
+  assert.equal(platformFallbackRoute(null, 'xhs', 'pages/discover/index'), null)
+})
+
+test('P2 xhs：resolveEntry 冷启动 shareId → 公开卡页直达', () => {
+  const decision = resolveEntry({ query: { shareId: 'abc123' } }, [], 'xhs')
+  assert.deepEqual(sceneAndUrl(decision), { scene: null, url: '/pages/flashback-shared-card/index?shareId=abc123' })
+  assert.equal(decision.navigate, true)
+})
+
+test('P2 xhs：resolveEntry 冷启动入口即公开卡页（同 shareId）→ 抑制重复导航', () => {
+  const decision = resolveEntry(
+    { path: 'pages/flashback-shared-card/index', query: { shareId: 'abc123' } },
+    [],
+    'xhs'
+  )
+  assert.equal(decision.url, '/pages/flashback-shared-card/index?shareId=abc123')
+  assert.equal(decision.navigate, false)
+})
+
+test('P2 xhs：resolveEntry 入口 path 是已注册闪念间页（wishId）→ 直达许愿树', () => {
+  const decision = resolveEntry({ path: 'pages/flashback-wishes/index', query: { wishId: 'w-9' } }, [], 'xhs')
+  assert.equal(decision.url, '/pages/flashback-wishes/index?wishId=w-9')
+})
+
+test('P0-4 resolveEntry 热启动 link 目标未注册（tt）→ 回落薄壳（回落路径仍在）', () => {
+  const decision = resolveEntry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }], 'tt')
+  assert.equal(decision.url, '/pages/flashback/index')
   assert.equal(decision.navigate, true)
 })

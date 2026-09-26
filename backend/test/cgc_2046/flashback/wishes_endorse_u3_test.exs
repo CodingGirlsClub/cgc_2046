@@ -78,7 +78,14 @@ defmodule Cgc2046.Flashback.WishesEndorseU3Test do
         signature_choice: :anonymous
       )
 
-    wish
+    # P2-1 机审通道门后公开愿默认待审；本套件焦点不在审核门，直挂树
+    # （等价 admin 放行 + re-list 的终态）
+    Repo.query!(
+      "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+      [Repo.uuid!(wish.id)]
+    )
+
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
   end
 
   defp create_claimed_wechat_person(archive, openid \\ "wx-flashback-u3") do

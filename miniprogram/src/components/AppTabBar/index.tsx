@@ -7,6 +7,7 @@ import {
   FULL_HEAD_TABS,
   FULL_TAIL_TABS,
   WORKSPACE_TAB,
+  XHS_TABS,
   type TabDef,
   type TabKey
 } from '@/domain/tab-routes'
@@ -14,8 +15,10 @@ import styles from './index.module.css'
 
 interface Props { selected: TabKey }
 
-// 裁剪端（抖音/小红书）：固定 2 Tab 漏斗，无工作台/我的
-const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
+// Tab 清单按平台分派：抖音 = 发现/我的报名（2 Tab 漏斗）；小红书 = 发现/我的
+// （D2a，我的报名收进精简「我的」页）；微信 = 三段式（含条件段工作台）。
+const env = process.env.TARO_ENV
+const isCut = env === 'tt' || env === 'xhs'
 
 export function AppTabBar({ selected }: Props) {
   const [showWorkspace, setShowWorkspace] = useState(hasWorkspaceTab)
@@ -40,9 +43,12 @@ export function AppTabBar({ selected }: Props) {
   useEffect(() => (isCut ? undefined : subscribeWorkspaceTab(setShowWorkspace)), [])
 
   // Tab 清单单源在 domain/tab-routes；本组件只负责渲染与「能力条件段」的增减
-  const tabs: readonly TabDef[] = isCut
-    ? CUT_TABS
-    : [...FULL_HEAD_TABS, ...(showWorkspace ? [WORKSPACE_TAB] : []), ...FULL_TAIL_TABS]
+  const tabs: readonly TabDef[] =
+    env === 'xhs'
+      ? XHS_TABS
+      : env === 'tt'
+        ? CUT_TABS
+        : [...FULL_HEAD_TABS, ...(showWorkspace ? [WORKSPACE_TAB] : []), ...FULL_TAIL_TABS]
 
   return (
     <View className={styles.bar}>

@@ -21,16 +21,18 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   @type platform :: :wechat | :tt | :xhs
   @type session :: %{openid: String.t(), unionid: String.t() | nil, session_key: String.t()}
 
-  # 端点证据（2026-08-08 核实）：
+  # 端点证据（2026-08-08 核实；xhs 三项 2026-09-25 复核官方文档原文）：
   # - wechat: GET /sns/jscode2session —— 微信官方文档（developers.weixin.qq.com）确认形状。
   # - tt: POST /api/apps/v2/jscode2session —— 抖音开放平台文档 + 社区 SDK 公认形状
   #   （err_no/err_tips + data 信封）；Phase 4 真凭据联调时复核。
-  # - xhs: 两步——GET /api/rmp/token 换 access_token（3h），再 GET /api/rmp/session 换会话。
-  #   证据：官方《登录态管理》(miniapp.xiaohongshu.com/doc/DC473950) 确认 auth.code2Session
-  #   返回 open_id + session_key 且**小红书暂不提供 unionid**；redengineer/redmini#1237
-  #   （小红书官方团队答复）与实测在线端点确认 host=miniapp.xiaohongshu.com、/api/rmp/*
-  #   路径族、错误信封 {"success":false,"msg":"应用访问令牌不匹配","data":null,"code":410101}
-  #   （curl 2026-08-08 实测）；两步流程与"code 必须放 query"见开发者实践记录（tea521、掘金）。
+  # - xhs: 两步——POST /api/rmp/token（JSON 体 {appid, secret}）换 access_token
+  #   （data.expire_in 秒，当前 7200；同一时间最多最近两个有效，新签发把上一个
+  #   缩短至 5 分钟），再 GET /api/rmp/session?app_id&access_token&code 换会话。
+  #   证据：官方《获取应用调用凭证》(miniapp.xiaohongshu.com/doc/DC010382，已核对
+  #   原文）与《code2Session》(doc/DC414670，已核对原文：code 放 query、响应
+  #   data.openid/session_key、**小红书暂不提供 unionid**)；错误信封
+  #   {"success":false,"msg":"应用访问令牌不匹配","data":null,"code":410101}
+  #   （curl 2026-08-08 实测在线端点）。
   @endpoints %{
     wechat: %{base_url: "https://api.weixin.qq.com", session_path: "/sns/jscode2session"},
     tt: %{base_url: "https://developer.toutiao.com", session_path: "/api/apps/v2/jscode2session"},
@@ -43,6 +45,13 @@ defmodule Cgc2046.Integrations.Wechat.Client do
 
   @platforms Map.keys(@endpoints)
   def platforms, do: @platforms
+
+  # xhs access_token 进程级缓存（:persistent_term）。生产单节点部署
+  # （deploy.yml 单 SERVER_HOST），滚动发布双节点重叠期由平台「最近两个
+  # token 同时有效」规则兜底；10 分钟刷新提前量 > 平台「新签发把旧 token
+  # 缩短至 5 分钟」窗口，自发刷新不会顶掉自己在用的 token。
+  @xhs_token_cache_key {__MODULE__, :xhs_access_token}
+  @xhs_token_refresh_margin_ms 10 * 60 * 1000
 
   # 落页契约：页面必须存在于 miniprogram/src/app.config.ts。
   # #232 调研（2026-09-05）：学员通知点击落 profile 是断点——profile「本机
@@ -152,6 +161,13 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       :wechat ->
         request_code(:wechat, scene)
 
+      :xhs ->
+        with {:ok, config} <- platform_config(:xhs) do
+          with_xhs_token(@endpoints.xhs, config, fn access_token ->
+            request_code(:xhs, config, access_token, scene)
+          end)
+        end
+
       _ ->
         with {:ok, config} <- platform_config(platform),
              {:ok, access_token} <- fetch_api_access_token(platform, config),
@@ -171,6 +187,22 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       # wechat 走 SDK client：token 由 SDK 内部缓存/刷新，不现取现用
       :wechat ->
         request_notification(:wechat, openid, template_id, data, template_key, page_context)
+
+      :xhs ->
+        with {:ok, config} <- platform_config(:xhs) do
+          with_xhs_token(@endpoints.xhs, config, fn access_token ->
+            request_notification(
+              :xhs,
+              config,
+              access_token,
+              openid,
+              template_id,
+              data,
+              template_key,
+              page_context
+            )
+          end)
+        end
 
       _ ->
         with {:ok, config} <- platform_config(platform),
@@ -271,10 +303,6 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     |> parse_access_token(:tt)
   end
 
-  defp fetch_api_access_token(:xhs, config) do
-    fetch_xhs_access_token(@endpoints.xhs, config)
-  end
-
   defp parse_access_token(
          {:ok, %Req.Response{status: 200, body: %{"data" => %{"access_token" => token}}}},
          :tt
@@ -324,18 +352,22 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
-  defp request_code(:xhs, %{qrcode_path: path}, token, scene) do
+  # 官方《获取不限制的小程序二维码》（doc/DC164497，2026-09-25 已核对原文）：
+  # appid/access_token 为公共 query 参数；body 带 scene/page/width（width 必填，
+  # 280–1280px）；成功响应 Content-Type: image/png，body 即图片字节流；
+  # 错误响应为 JSON {success:false, code, msg}（Req 解码为 map 由
+  # parse_platform_failure 提错）。
+  defp request_code(:xhs, %{qrcode_path: path} = config, token, scene) do
     "https://miniapp.xiaohongshu.com"
     |> req()
     |> Req.post(
       url: path,
-      headers: [{"access-token", token}],
-      json: %{scene: scene, page: @code_page}
+      params: [appid: config.appid, access_token: token],
+      json: %{scene: scene, page: @code_page, width: 430}
     )
     |> case do
-      {:ok, %Req.Response{status: 200, body: %{"code" => 0, "data" => data}}}
-      when is_map(data) ->
-        decode_image_field(data["base64"] || data["qrcode"] || data["url"])
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
 
       response ->
         parse_platform_failure(response)
@@ -369,22 +401,6 @@ defmodule Cgc2046.Integrations.Wechat.Client do
        do: {:error, {:platform_rejected, code, msg}}
 
   defp parse_wechat_image(response), do: parse_wechat_envelope(response)
-
-  defp decode_image_field("data:image" <> _ = data_uri) do
-    case String.split(data_uri, ",", parts: 2) do
-      [_, encoded] -> decode_image_field(encoded)
-      _ -> {:error, :platform_bad_response}
-    end
-  end
-
-  defp decode_image_field(encoded) when is_binary(encoded) do
-    case Base.decode64(encoded) do
-      {:ok, image} -> {:ok, image}
-      :error -> {:error, :platform_bad_response}
-    end
-  end
-
-  defp decode_image_field(_), do: {:error, :platform_bad_response}
 
   # 200 + JSON 错误体（Req 已解码为 map）——先提 errcode/err_no/code，再谈 HTTP 状态。
   # 避免微信 43101（拒收）/抖音小红书同构错误被压平成 {:platform_http_status, 200}。
@@ -466,36 +482,86 @@ defmodule Cgc2046.Integrations.Wechat.Client do
     end
   end
 
-  # xhs 两步（证据见 @endpoints 注释）：先 app_id/app_secret 换 access_token，
-  # 再带 access_token + code 换会话。v1 不缓存 token（登录 QPS 极低；
-  # 3h 有效期的缓存/刷新是 Phase 4 联调期的优化项）。
+  # xhs 两步（官方文档证据见 @endpoints 注释）：先换 access_token（POST
+  # /api/rmp/token，进程级缓存，见 @xhs_token_cache_key），再带 access_token
+  # + code 换会话。
   defp xhs_code2session(config, code) do
     endpoint = @endpoints.xhs
 
-    with {:ok, access_token} <- fetch_xhs_access_token(endpoint, config),
-         {:ok, session} <- fetch_xhs_session(endpoint, config, access_token, code) do
-      {:ok, session}
+    with_xhs_token(endpoint, config, fn access_token ->
+      fetch_xhs_session(endpoint, config, access_token, code)
+    end)
+  end
+
+  # xhs API 调用公共入口：取缓存 token 执行；410101（应用访问令牌不匹配——
+  # 缓存 token 被外部签发/后台换发顶掉）作废缓存、取新 token 重试一次；
+  # 二次失败原样上抛（不重试风暴）。
+  defp with_xhs_token(endpoint, config, fun) do
+    case fetch_xhs_access_token(endpoint, config) do
+      {:ok, access_token} ->
+        case fun.(access_token) do
+          {:error, {:code2session_rejected, 410_101}} ->
+            retry_with_fresh_token(endpoint, config, fun)
+
+          {:error, {:platform_rejected, 410_101, _msg}} ->
+            retry_with_fresh_token(endpoint, config, fun)
+
+          other ->
+            other
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
+  defp retry_with_fresh_token(endpoint, config, fun) do
+    invalidate_xhs_token_cache()
+
+    with {:ok, fresh_token} <- fetch_xhs_access_token(endpoint, config) do
+      fun.(fresh_token)
+    end
+  end
+
+  @doc false
+  def invalidate_xhs_token_cache do
+    :persistent_term.erase(@xhs_token_cache_key)
+    :ok
+  end
+
   defp fetch_xhs_access_token(endpoint, config) do
-    # 假设（无官方可渲染文档，社区样本支持）：参数 app_id/app_secret/grant_type，
-    # 响应 data.access_token。真凭据联调时若形状不符只需改这一个函数。
+    now = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(@xhs_token_cache_key, nil) do
+      {access_token, expires_at}
+      when is_binary(access_token) and expires_at - now > @xhs_token_refresh_margin_ms ->
+        {:ok, access_token}
+
+      _ ->
+        refresh_xhs_access_token(endpoint, config, now)
+    end
+  end
+
+  # 官方《获取应用调用凭证》（doc/DC010382）：POST /api/rmp/token，JSON 体
+  # {appid, secret}；成功响应 data.access_token + data.expire_in（秒）。
+  defp refresh_xhs_access_token(endpoint, config, now) do
     endpoint.base_url
     |> req()
-    |> Req.request(
-      method: :get,
+    |> Req.post(
       url: endpoint.token_path,
-      params: [
-        app_id: config.appid,
-        app_secret: config.secret,
-        grant_type: "client_credential"
-      ]
+      json: %{appid: config.appid, secret: config.secret}
     )
     |> case do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case parse_xhs_envelope(body) do
-          {:ok, %{"access_token" => access_token}} when is_binary(access_token) ->
+          {:ok, %{"access_token" => access_token} = data} when is_binary(access_token) ->
+            expire_in =
+              case data["expire_in"] do
+                seconds when is_integer(seconds) and seconds > 0 -> seconds
+                _ -> 7_200
+              end
+
+            :persistent_term.put(@xhs_token_cache_key, {access_token, now + expire_in * 1000})
             {:ok, access_token}
 
           {:ok, _} ->
@@ -514,8 +580,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   end
 
   defp fetch_xhs_session(endpoint, config, access_token, code) do
-    # 证据：redmini#1237 的 tp 变体把 code 放 query；tea521 实测"code 必须放在 query"。
-    # 假设：自研应用参数名为 app_id/access_token（tp 变体为 appid/auth_access_token）。
+    # 官方《code2Session》（doc/DC414670，2026-09-25 已核对原文）：
+    # GET /api/rmp/session，app_id/access_token/code 全部放 query。
     endpoint.base_url
     |> req()
     |> Req.request(
@@ -527,8 +593,8 @@ defmodule Cgc2046.Integrations.Wechat.Client do
       {:ok, %Req.Response{status: 200, body: body}} ->
         case parse_xhs_envelope(body) do
           {:ok, data} when is_map(data) ->
-            # 字段名证据冲突：官方《登录态管理》写 open_id，社区样本写 openid——
-            # 两者同语义，任一命中即可（真凭据联调后收敛为单一字段）。
+            # 官方《code2Session》（doc/DC414670）：data.openid；open_id 是
+            # 早期社区样本写法，留作防御兜底（任一命中即可）。
             openid = data["openid"] || data["open_id"]
 
             if is_binary(openid) and is_binary(data["session_key"]) do
@@ -799,7 +865,11 @@ defmodule Cgc2046.Integrations.Wechat.Client do
   @doc """
   用 session_key 解密 getPhoneNumber 加密数据，返回归一化手机号（`+区号号码`）。
 
-  算法与三平台官方规范一致：Base64(session_key) 为密钥的 AES-128-CBC + PKCS7。
+  算法：Base64(session_key) 为密钥的 AES-CBC + PKCS7。wechat/tt 严格
+  AES-128（密钥恒 16 字节）；xhs 官方《开放数据校验与解密》（doc/DC591932）
+  算法字段写 AES-128-CBC、却注明 AESKey 为 24 字节（自相矛盾）——以官方
+  Java 示例为准：cipher 取密钥实际长度（16/24/32 → AES-128/192/256），
+  填充自行去除并允许 1–32 冗余。
   带 watermark 的负载校验 appid 与本应用一致（防跨应用数据注入）。
   解密失败统一 `{:error, :phone_decrypt_failed}`——不泄漏密文材料与内部细节；
   平台凭证缺失短路为 `{:error, :platform_not_configured}`（issue #264）。
@@ -813,7 +883,7 @@ defmodule Cgc2046.Integrations.Wechat.Client do
          {:ok, key} <- decode64(session_key),
          {:ok, iv_bytes} <- decode64(iv),
          {:ok, ciphertext} <- decode64(encrypted_data),
-         {:ok, plaintext} <- aes_128_cbc_decrypt(key, iv_bytes, ciphertext),
+         {:ok, plaintext} <- decrypt_ciphertext(platform, key, iv_bytes, ciphertext),
          {:ok, payload} <- Jason.decode(plaintext),
          :ok <- verify_watermark(config, payload),
          {:ok, phone} <- extract_phone(payload) do
@@ -833,10 +903,49 @@ defmodule Cgc2046.Integrations.Wechat.Client do
 
   defp decode64(_), do: :error
 
+  # wechat/tt：严格 AES-128-CBC + PKCS7（官方 session_key 恒 16 字节）
+  defp decrypt_ciphertext(platform, key, iv, ciphertext) when platform in [:wechat, :tt] do
+    aes_128_cbc_decrypt(key, iv, ciphertext)
+  end
+
+  # xhs：以官方 Java 示例为准（doc/DC591932 文档字段自相矛盾的取舍见
+  # decrypt_phone 注释）——cipher 按密钥实际长度选，填充自行去除
+  defp decrypt_ciphertext(:xhs, key, iv, ciphertext) when byte_size(iv) == 16 do
+    with {:ok, cipher} <- xhs_aes_cipher(byte_size(key)) do
+      plaintext =
+        :crypto.crypto_one_time(cipher, key, iv, ciphertext, encrypt: false, padding: :none)
+
+      xhs_unpad(plaintext)
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp decrypt_ciphertext(:xhs, _key, _iv, _ciphertext), do: :error
+
+  defp xhs_aes_cipher(16), do: {:ok, :aes_128_cbc}
+  defp xhs_aes_cipher(24), do: {:ok, :aes_192_cbc}
+  defp xhs_aes_cipher(32), do: {:ok, :aes_256_cbc}
+  defp xhs_aes_cipher(_), do: :error
+
+  # 官方 Java 示例口径：末位字节 n 为填充长度，1 ≤ n ≤ 32 即去除
+  # （非标准 PKCS7 边界的容差；非法 n 走 phone_decrypt_failed）
+  defp xhs_unpad(plaintext) when byte_size(plaintext) > 0 do
+    pad = :binary.last(plaintext)
+
+    if pad >= 1 and pad <= 32 and pad <= byte_size(plaintext) do
+      {:ok, binary_part(plaintext, 0, byte_size(plaintext) - pad)}
+    else
+      :error
+    end
+  end
+
+  defp xhs_unpad(_), do: :error
+
   defp aes_128_cbc_decrypt(key, iv, ciphertext)
        when byte_size(key) == 16 and byte_size(iv) == 16 do
-    # 显式 padding 选项：boolean 形式在 OTP 27+ 对非块对齐输入会静默截断，
-    # 微信/抖音/小红书规范均为 AES-128-CBC + PKCS7。
+    # 显式 padding 选项：boolean 形式在 OTP 27+ 对非块对齐输入会静默截断；
+    # 微信/抖音规范为 AES-128-CBC + PKCS7（xhs 走 decrypt_ciphertext(:xhs, …)）。
     {:ok,
      :crypto.crypto_one_time(:aes_128_cbc, key, iv, ciphertext,
        encrypt: false,

@@ -7,6 +7,7 @@ import {
   myCardView,
   parseQuoteLevel,
   sentencesWithFog,
+  shareSheetEntries,
   splitSentences,
   toggleSentenceFog,
   wishQuotaCopy,
@@ -514,5 +515,16 @@ describe('parsePublicWishEchoStatus / mapPublicWishEcho(#837)', () => {
       mapPublicWishEcho({ id: 'e4', content: 'x', status: '', publishedAt: '2026-09-20T00:00:00Z' }),
       null
     )
+  })
+})
+
+describe('分享面板入口（P0-6 小红书止血）', () => {
+  test('xhs：只保留转发——朋友圈是微信概念、保存卡片依赖 Canvas 2D（xhs 无）', () => {
+    assert.deepEqual(shareSheetEntries('xhs'), ['forward'])
+  })
+
+  test('wechat/tt：三入口齐全（现状不动）', () => {
+    assert.deepEqual(shareSheetEntries('wechat'), ['forward', 'timeline', 'saveCard'])
+    assert.deepEqual(shareSheetEntries('tt'), ['forward', 'timeline', 'saveCard'])
   })
 })

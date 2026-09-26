@@ -10,8 +10,11 @@ import { paymentBlockCopy, tierAmountText } from '@/domain/payment'
 import { detailQualificationBadgeText } from '@/domain/initiative'
 import { buildInitiativeSharePath } from '@/domain/share-route'
 import { moderatorTouchpoint, requestAndGrant } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
+import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
+
+// 构建期常量：本端平台（domain 门判据，P0 缴费门在小红书生效）
+const platform = currentPlatform()
 
 const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
   open: '提交后立即确认',
@@ -20,8 +23,8 @@ const policyText: Record<CatalogItem['enrollmentPolicy'], string> = {
 }
 
 export function EventRegistrationActions({ item, onRegister }: { item: CatalogItem; onRegister: () => void }) {
-  // 报名门双门（status 优先，badge 兜底）单源在 domain/format：非 open 恒有提示
-  const blockedNotice = enrollmentBlockedNotice(item)
+  // 报名门三门（status → badge → 缴费门）单源在 domain/format：非 open 恒有提示
+  const blockedNotice = enrollmentBlockedNotice(item, platform)
   const enrolled = item.myEnrollment ? <>
     <Text className={styles.enrolledNotice} data-testid='enrolled-notice'>已报名 · {enrollmentStatusText[item.myEnrollment.status]}</Text>
     <Button className={styles.primaryButton} data-testid='view-my-enrollment' onClick={() => Taro.navigateTo({ url: '/pages/my-enrollments/index' })}>查看我的报名</Button>

@@ -8,8 +8,11 @@ import { STORAGE_KEYS } from '@/state/storage'
 import { enrollmentBlockedNotice } from '@/domain/format'
 import { paymentLandingUrl, tierAmountText } from '@/domain/payment'
 import { preSubmitTouchpoint, submitAfterConsent } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
+import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
+
+// 构建期常量：本端平台（domain 门判据，P0 缴费门在小红书生效）
+const platform = currentPlatform()
 
 // 对齐 web 端一键报名：身份=登录账号（user_id），不再收集姓名/邮箱/理由
 // （web 无此表单；submission_payload 三键经三端确认无任何读者）。
@@ -38,9 +41,9 @@ export default function RegisterFormPage() {
       if (content.pricingEnabled && content.priceTiers.length > 0) {
         setTierId(content.priceTiers.find((t) => t.amountCents !== null)?.id ?? '')
       }
-      // 双门（status + badge）与详情页 CTA 同源：深链 / 登录期间被取消的场
-      // 也会在此被挡（此前只看 badge，#574）
-      if (enrollmentBlockedNotice(content)) return
+      // 三门（status + badge + 缴费门）与详情页 CTA 同源：深链 / 登录期间
+      // 被取消的场也会在此被挡（此前只看 badge，#574；缴费门 D1a 见 domain/format）
+      if (enrollmentBlockedNotice(content, platform)) return
       if (!session.user) {
         const returnUrl = `/pages/register-form/index?id=${id}&kind=${kind}`
         await Taro.redirectTo({ url: `/pages/login/index?returnUrl=${encodeURIComponent(returnUrl)}` })
@@ -117,7 +120,7 @@ export default function RegisterFormPage() {
   if (!target && error) return <PageState kind='error' message={error} onRetry={load} />
   if (!target) return <PageState kind='empty' message='报名项目不存在' />
 
-  const blockedNotice = enrollmentBlockedNotice(target)
+  const blockedNotice = enrollmentBlockedNotice(target, platform)
   if (blockedNotice) return <PageState kind='empty' message={blockedNotice} />
 
   return (

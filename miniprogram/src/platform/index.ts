@@ -24,6 +24,41 @@ export async function platformLoginCode(): Promise<string> {
   return login.code
 }
 
+// xhs 官方约束（《获取手机号》）：在 getPhoneNumber 回调里再调 xhs.login 会刷新
+// session_key，回调加密数据（encryptedData/iv）将解密失败——登录码必须在用户点
+// 「同意并登录」**之前**预取。登录页打开授权弹层时调 stagePlatformLoginCode()；
+// preparePlatformLogin 只消费暂存——缺失/过期不补取，改为重新预取并抛可恢复
+// 错误请用户重新点按（新 tap 的加密数据配新 code）。
+// ponytail: 4 分钟硬编码有效期（平台 code 5 分钟），留余量；真机若出现长停留
+// 场景再改成 checkSession 校验。
+const XHS_LOGIN_CODE_TTL_MS = 4 * 60 * 1000
+let xhsStagedLogin: { code: string; at: number } | null = null
+let xhsStageSeq = 0
+
+/** 预取登录码。返回 true = 暂存就绪（可点「同意并登录」）。
+ *  发起即作废旧暂存：新 login 会刷新 session_key，旧 code 必然失配；
+ *  迟到的旧结果按序号丢弃——两次预取重叠时，后返回的旧 code 不得盖住新 session（B2）。 */
+export async function stagePlatformLoginCode(): Promise<boolean> {
+  if (process.env.TARO_ENV !== 'xhs' || __E2E_MOCK__) return true
+  const seq = ++xhsStageSeq
+  xhsStagedLogin = null
+  try {
+    const code = await platformLoginCode()
+    if (seq !== xhsStageSeq) return false
+    xhsStagedLogin = { code, at: Date.now() }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function consumeStagedLoginCode(): string | null {
+  const staged = xhsStagedLogin
+  xhsStagedLogin = null
+  if (staged && Date.now() - staged.at < XHS_LOGIN_CODE_TTL_MS) return staged.code
+  return null
+}
+
 export async function preparePlatformLogin(
   phonePayload: PlatformPhonePayload
 ): Promise<PlatformPhonePayload> {
@@ -31,7 +66,19 @@ export async function preparePlatformLogin(
     return { loginCode: 'mock-login-code', encryptedData: 'mock-phone-data', iv: 'mock-iv' }
   }
 
-  // Taro.login 跨平台转发：weapp→wx.login / tt→tt.login / xhs→xhs.login（runtime 动态映射）
+  // xhs：只消费「授权弹层打开前」预取的登录码（session_key 时序约束见上方注释）。
+  // 预取缺失/过期时**不能**回调内原地补调 login——那会刷新 session_key，而加密数
+  // 据是旧 key 加密的，必然解密失败（评审 B2：重试/长停留场景）。正确做法：重新
+  // 预取（新 tap 的加密数据会用新 key），并请用户重新点按。weapp/tt 不受影响——
+  // phoneCode 契约不依赖 session_key，回调内 login 是既有已验证行为，一字不动。
+  if (process.env.TARO_ENV === 'xhs') {
+    const staged = consumeStagedLoginCode()
+    if (!staged) {
+      void stagePlatformLoginCode()
+      throw new Error('授权信息已过期，请重新点按「同意并登录」重试')
+    }
+    return finalizeXhsLogin(phonePayload, staged)
+  }
   const login = await Taro.login()
   // weapp/tt 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
   // 直取手机号（wechat getuserphonenumber / tt get_phone_number），不要求
@@ -53,6 +100,14 @@ export async function preparePlatformLogin(
   return { ...phonePayload, loginCode: login.code, encryptedData, iv }
 }
 
+/** xhs 专用：消费预取码组装 legacy 三件套（encryptedData/iv 由平台回调带给本函数） */
+function finalizeXhsLogin(phonePayload: PlatformPhonePayload, stagedCode: string): PlatformPhonePayload {
+  if (!phonePayload.encryptedData || !phonePayload.iv) {
+    throw new Error('手机号授权数据不完整，请重新授权后重试')
+  }
+  return { ...phonePayload, loginCode: stagedCode, encryptedData: phonePayload.encryptedData, iv: phonePayload.iv }
+}
+
 /**
  * 请求订阅授权，返回**被接受**的场景子集。
  *
@@ -68,13 +123,16 @@ export async function requestPlatformSubscriptions(
 
   // 路径优先级**先于**缺配检查：mock 构建与 CI 都没有真实模板 ID，若先查缺配，
   // mock 下点订阅会抛「缺少模板 ID」而不是成功（e2e 走 mock transport）。
-  // 小红书服务通知由平台后台规则下发，无前端授权弹窗——前端仅上报配额（grant）。
   if (__E2E_MOCK__ && scenarios.includes('flashback_wish_echo')) {
     const result = Taro.getStorageSync('cgc.e2e.wish-reminder-result')
     if (result === 'denied') return []
     if (result === 'error') throw new Error('订阅暂不可用（合成验收）')
   }
-  if (subscriptionTransport(__E2E_MOCK__, currentPlatform()) === 'passthrough') return scenarios
+  const transport = subscriptionTransport(__E2E_MOCK__, currentPlatform())
+  // 小红书平台无订阅消息能力（模板 0/27）：零 grant 短路——漏拦的触点退化为
+  // denied 反馈，而不是向后端骗配额（fail-closed 语义不变，见 domain 注释）
+  if (transport === 'unsupported') return []
+  if (transport === 'passthrough') return scenarios
 
   const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
   const requested = configuredScenarios(scenarios, table)

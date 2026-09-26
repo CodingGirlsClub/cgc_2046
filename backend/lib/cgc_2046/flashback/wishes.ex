@@ -76,7 +76,10 @@ defmodule Cgc2046.Flashback.Wishes do
     # 无账号展示名时回退 masked_name；名册全名不进入愿望公开署名。
     case Repo.query(
            """
-           SELECT p.city, p.full_name, p.surname, u.display_name, u.wishes_review_required_at
+           SELECT p.city, p.full_name, p.surname, u.display_name, u.wishes_review_required_at,
+                  (u.id IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM user_identities i WHERE i.user_id = u.id AND i.provider = 'wechat'
+                  )) AS wechat_checked
            FROM flashback_people p
            LEFT JOIN users u ON u.id = p.user_id
            WHERE p.id = $1
@@ -89,7 +92,12 @@ defmodule Cgc2046.Flashback.Wishes do
       {:error, _} ->
         {:error, %{code: "flashback_person_not_found", message: "没有找到这份档案。"}}
 
-      {:ok, %{rows: [[person_city, full_name, surname, display_name, review_required_at]]}} ->
+      {:ok,
+       %{
+         rows: [
+           [person_city, full_name, surname, display_name, review_required_at, wechat_checked]
+         ]
+       }} ->
         case normalize_writing_city(expected_city, person_city) do
           {:error, err} ->
             {:error, err}
@@ -114,7 +122,10 @@ defmodule Cgc2046.Flashback.Wishes do
              %{
                city: city,
                signature: signature || "",
-               review_required: not is_nil(review_required_at)
+               # P2-1 机审通道门：机审（msgSecCheck）只对有微信身份的作者可用。
+               # 无微信身份（首程 token 写面尚未绑号 / web / 小红书单平台作者）
+               # 机审不可达 → 一律人工审核（hidden_at 待审），不自动挂树。
+               review_required: not is_nil(review_required_at) or not wechat_checked
              }}
         end
     end
