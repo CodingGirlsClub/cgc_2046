@@ -1,7 +1,9 @@
 /**
- * 分享 sheet(R14 用户定稿 ③,从原独立页搬迁):遮罩+底部圆角面板+R37 opt-in+
- * 三入口(转发好友/朋友圈提示/保存卡片 canvas)。canvas 常驻渲染(保存时
- * createSelectorQuery 需节点已在),open 只控制遮罩显隐。
+ * 分享 sheet(R14 用户定稿 ③,从原独立页搬迁):遮罩+底部圆角面板+R37 opt-in
+ * + 入口三件套(转发好友/朋友圈提示/保存卡片 canvas)。入口与 canvas 均按平台
+ * 派生（P0-6：xhs 无朋友圈概念、无 Canvas 2D → 只保留转发，判据单源
+ * domain/flashback.ts shareSheetEntries）；有保存入口时 canvas 常驻渲染
+ * （保存时 createSelectorQuery 需节点已在）,open 只控制遮罩显隐。
  *
  * corridor(微信端)与裁剪端薄壳共用;标题与保存动作由页面传入(页面持有
  * useShareAppMessage hook 与 capsule)。
@@ -14,10 +16,15 @@ import { useState } from 'react'
 import { Button, Canvas, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackMyCard } from '@/domain/models'
-import type { FlashbackCardMode } from '@/domain/flashback'
+import { shareSheetEntries, type FlashbackCardMode } from '@/domain/flashback'
+import { currentPlatform } from '@/platform'
 import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
 import QuoteOptIn from './QuoteOptIn'
 import styles from './index.module.css'
+
+// 面板入口按平台派生（P0-6：xhs 无朋友圈概念、无 Canvas 2D——只保留转发；
+// 判据单源 domain/flashback.ts shareSheetEntries）
+const entries = shareSheetEntries(currentPlatform())
 
 export default function ShareSheet({
   open,
@@ -51,7 +58,11 @@ export default function ShareSheet({
 
   return (
     <>
-      <Canvas id={CARD_CANVAS_ID} canvasId={CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
+      {/* canvas 只服务于「保存卡片」入口；该入口被平台裁剪时（xhs 无 Canvas 2D）
+          一并省掉节点，杜绝「画了但永远没人读」静默浪费 */}
+      {entries.includes('saveCard') && (
+        <Canvas id={CARD_CANVAS_ID} canvasId={CARD_CANVAS_ID} type="2d" className={styles.shareCanvas} />
+      )}
 
       {open && (
         <View className={styles.shareMask} catchMove onClick={onClose}>
@@ -63,17 +74,21 @@ export default function ShareSheet({
                 <Text className={styles.shareEntryIcon}>💬</Text>
                 <Text className={styles.shareEntryLabel}>转发给好友</Text>
               </Button>
-              <View
-                className={styles.shareEntry}
-                onClick={() => Taro.showToast({ title: '朋友圈分享请点右上角「···」选择', icon: 'none' })}
-              >
-                <Text className={styles.shareEntryIcon}>📷</Text>
-                <Text className={styles.shareEntryLabel}>朋友圈</Text>
-              </View>
-              <View className={styles.shareEntry} onClick={() => void saveCard()}>
-                <Text className={styles.shareEntryIcon}>⬇️</Text>
-                <Text className={styles.shareEntryLabel}>{saving ? '保存中…' : '保存卡片'}</Text>
-              </View>
+              {entries.includes('timeline') && (
+                <View
+                  className={styles.shareEntry}
+                  onClick={() => Taro.showToast({ title: '朋友圈分享请点右上角「···」选择', icon: 'none' })}
+                >
+                  <Text className={styles.shareEntryIcon}>📷</Text>
+                  <Text className={styles.shareEntryLabel}>朋友圈</Text>
+                </View>
+              )}
+              {entries.includes('saveCard') && (
+                <View className={styles.shareEntry} onClick={() => void saveCard()}>
+                  <Text className={styles.shareEntryIcon}>⬇️</Text>
+                  <Text className={styles.shareEntryLabel}>{saving ? '保存中…' : '保存卡片'}</Text>
+                </View>
+              )}
             </View>
             <Button className={styles.shareCancel} onClick={onClose}>
               取消
