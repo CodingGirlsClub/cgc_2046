@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
@@ -88,6 +88,17 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			});
 	}, [eventKey]);
 
+	// #933 未登录想看相册 → 登录页（replace：返回键不会回到这一页再跳一次），登录后回到这一场。
+	// 跳转放 effect：渲染期调用 router.replace 在严格模式 / 重渲染下会重复导航；router 引用
+	// 不保证稳定，用 ref 记住已跳过的场次，同一场只跳一次
+	const redirectedFor = useRef<string | null>(null);
+	useEffect(() => {
+		if (state.phase === "login" && redirectedFor.current !== eventKey) {
+			redirectedFor.current = eventKey;
+			router.replace(`/login?next=${encodeURIComponent(`/flashback/event/${eventKey}`)}`);
+		}
+	}, [state.phase, eventKey, router]);
+
 	if (state.phase === "invalid") {
 		return (
 			<div className="fb-root">
@@ -96,11 +107,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 		);
 	}
 
-	if (state.phase === "login") {
-		// #933 未登录想看相册 → 登录页（replace：返回键不会回到这一页再跳一次），登录后回到这一场
-		router.replace(`/login?next=${encodeURIComponent(`/flashback/event/${eventKey}`)}`);
-		return null;
-	}
+	if (state.phase === "login") return null;
 
 	if (state.phase === "missing") {
 		return (

@@ -228,11 +228,14 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		capsuleQuery.mockRejectedValue({
 			graphQLErrors: [{ message: "sign in", extensions: { code: "flashback_auth_required" } }],
 		});
-		render(<EventDetail eventKey="2014-01-11-bj" />);
+		const view = render(<EventDetail eventKey="2014-01-11-bj" />);
 
 		await waitFor(() =>
 			expect(replaceMock).toHaveBeenCalledWith(`/login?next=${encodeURIComponent("/flashback/event/2014-01-11-bj")}`),
 		);
+		// 跳转在 effect 里只发一次：父组件重渲染不再重复导航（此前在渲染期调用 router.replace）
+		view.rerender(<EventDetail eventKey="2014-01-11-bj" />);
+		expect(replaceMock).toHaveBeenCalledTimes(1);
 		expect(screen.queryByTestId("fb-roster-grid")).not.toBeInTheDocument();
 	});
 
