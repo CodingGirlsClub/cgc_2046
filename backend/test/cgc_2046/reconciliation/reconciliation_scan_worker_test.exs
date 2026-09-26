@@ -29,6 +29,12 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
   alias Cgc2046.Learning.Runs
   alias Cgc2046.Workflows.WorkflowDefinition
   alias Cgc2046.Workflows.WorkflowRun
+  alias Cgc2046.Payments.Order
+  alias Cgc2046.Payments.Workers.PaymentRefundWorker
+
+  # 规17 布置用的收费档位（形态对齐 payment_reconciliation_worker_test）
+  @tier_id "88888888-8888-8888-8888-888888888888"
+  @tier %{"id" => @tier_id, "name" => "标准", "amount_cents" => 19_900}
 
   # ── 规6 白名单完整性(ADR-0010 W1:防字符串漂移→规则失明)──────────────────
 
@@ -1265,6 +1271,70 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
     end
   end
 
+  # ── 规17：refunding 订单无在途退款 job（#862）--------------------------------
+
+  describe "规17 refunding 订单无在途退款 job" do
+    test "卡单（超 15 分钟宽限、无在途 job）→ 命中；任务重新入队 → 下一拍删除" do
+      admin = Fixtures.platform_admin("rc17-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, admin, [:owner])
+      order = insert_order(workspace, admin, :refunding, updated_offset: -16 * 60)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert [finding] = findings(:refunding_without_refund_job)
+      assert finding.entity_type == :payment_order
+      assert finding.entity_id == order.id
+      assert finding.workspace_id == workspace.id
+      assert finding.detail["status"] == "refunding"
+
+      # 消解：管理员 retry_refund 语义 = 退款 job 重新入队（在途即非卡单）
+      {:ok, _job} = Oban.insert(PaymentRefundWorker.new(%{order_id: order.id}))
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:refunding_without_refund_job)
+    end
+
+    test "在途 job 全 state 形态（available/scheduled/executing/retryable）→ 不命中" do
+      admin = Fixtures.platform_admin("rc17-st-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, admin, [:owner])
+
+      for state <- ~w(available scheduled executing retryable) do
+        order = insert_order(workspace, admin, :refunding, updated_offset: -16 * 60)
+        {:ok, job} = Oban.insert(PaymentRefundWorker.new(%{order_id: order.id}))
+        set_job_state(job, state)
+      end
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:refunding_without_refund_job)
+    end
+
+    test "宽限期内（refunding 14 分钟、无 job）→ 不命中" do
+      admin = Fixtures.platform_admin("rc17-grace-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, admin, [:owner])
+      insert_order(workspace, admin, :refunding, updated_offset: -14 * 60)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:refunding_without_refund_job)
+    end
+
+    test "非 refunding（paid 超时、无 job）→ 不命中" do
+      admin = Fixtures.platform_admin("rc17-paid-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, admin, [:owner])
+      insert_order(workspace, admin, :paid, updated_offset: -16 * 60)
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+      assert [] = findings(:refunding_without_refund_job)
+    end
+
+    test "检测引用的退款 worker 名与真实模块一致（字符串漂移守卫，ADR-0010 W1 同款）" do
+      assert ScanDetections.refund_worker() == inspect(PaymentRefundWorker)
+    end
+  end
+
   defp insert_delivery(user_id, status) do
     {:ok, row} =
       NotificationDelivery
@@ -1309,5 +1379,62 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       "UPDATE admin_action_logs SET inserted_at = NOW() - ($1 || ' seconds')::interval",
       [Integer.to_string(seconds)]
     )
+  end
+
+  # 规17 布置：经域 action 建真订单，SQL 直写状态与 updated_at（对齐
+  # payment_reconciliation_worker_test 的 insert_order 口径——被测的是扫描
+  # 判定而非订单状态机迁移）
+  defp insert_order(workspace, creator, status, opts) do
+    event =
+      EventFixtures.create_event(workspace, creator, %{
+        pricing_enabled: true,
+        price_tiers: [@tier]
+      })
+
+    learner = Fixtures.register_user("rc17-learner")
+
+    {:ok, enrollment} =
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{
+        event_id: event.id,
+        user_id: learner.id,
+        tier_id: @tier_id
+      })
+      |> Ash.create(tenant: workspace.id, actor: learner)
+
+    {:ok, order} =
+      Order
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          enrollment_id: enrollment.id,
+          provider: :wechat_native,
+          out_trade_no:
+            "CGC" <> (Ecto.UUID.generate() |> String.replace("-", "") |> String.slice(0, 20)),
+          amount_cents: 19_900,
+          tier_snapshot: @tier,
+          expire_at: DateTime.add(DateTime.utc_now(), 2 * 3_600, :second)
+        }
+      )
+      |> Ash.create(tenant: workspace.id, authorize?: false)
+
+    updated_at =
+      case Keyword.get(opts, :updated_offset) do
+        nil -> DateTime.utc_now()
+        offset -> DateTime.add(DateTime.utc_now(), offset, :second)
+      end
+
+    Repo.query!(
+      "UPDATE payments_orders SET status = $1, updated_at = $2 WHERE id = $3",
+      [Atom.to_string(status), updated_at, Ecto.UUID.dump!(order.id)]
+    )
+
+    order
+  end
+
+  # 在途 job 的 state 形态直写（approval_reminder_worker_test 先例；
+  # Oban.insert 默认 available，其余 state 由 stage 置，测试直接 SQL）
+  defp set_job_state(job, state) do
+    Repo.query!("UPDATE oban_jobs SET state = $1 WHERE id = $2", [state, job.id])
   end
 end
