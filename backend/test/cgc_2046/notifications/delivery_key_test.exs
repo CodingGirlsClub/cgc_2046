@@ -39,4 +39,34 @@ defmodule Cgc2046.Notifications.DeliveryKeyTest do
       refute key_at.(~U[2026-09-29T23:59:59Z]) == key_at.(~U[2026-10-01T00:00:00Z])
     end
   end
+
+  describe "speaker_completed 显式腿标记（#902）" do
+    test "两腿同信号键靠 leg 成分防撞：managers/speaker 各派一键" do
+      meta = %{"speaker_invitation_id" => "inv-1", "idempotency_key" => "speaker.completed:inv-1"}
+
+      # 与旧「data 含 title」启发式对同一输入派生相同键（等价性钉测）：
+      # managers 腿 data 带 title，speaker 腿不带。
+      assert DeliveryKey.event_key(
+               "speaker_completed",
+               %{"speaker_invitation_id" => "inv-1", "title" => "t"},
+               Map.put(meta, "leg", "managers")
+             ) == "speaker.completed:inv-1:managers"
+
+      assert DeliveryKey.event_key(
+               "speaker_completed",
+               %{"speaker_invitation_id" => "inv-1"},
+               Map.put(meta, "leg", "speaker")
+             ) == "speaker.completed:inv-1:speaker"
+    end
+
+    test "job_meta 缺 leg → raise（fail loud，不静默并腿）" do
+      assert_raise KeyError, ~r/"leg"/, fn ->
+        DeliveryKey.event_key(
+          "speaker_completed",
+          %{"speaker_invitation_id" => "inv-1"},
+          %{"speaker_invitation_id" => "inv-1", "idempotency_key" => "speaker.completed:inv-1"}
+        )
+      end
+    end
+  end
 end
