@@ -112,8 +112,13 @@ defmodule Cgc2046.Notifications.Fanout do
 
   @doc """
   与 `deliver/5` 具有相同 recipients/job 形状，但明确返回入队回执。
-  `{:ok, count}` 中的 count 是 Oban 接受的任务数；无身份为 `{:ok, 0}`；
-  任一任务拒绝或解析/入队异常返回 `{:error, :enqueue_failed}`。
+
+  count 语义按路径分（#902 更正）：直插路径（flashback_wish_echo）count
+  是 Oban 本次新接受的任务数（args-unique 命中已存在任务不计，#834 回执
+  契约）；已迁耐久投递的键（`DeliveryKey.durable?/1`）在本函数内委托
+  `Delivery.enqueue`，count 是展开的身份数——幂等去重命中也计，不再是
+  「Oban 接受任务数」。无身份为 `{:ok, 0}`；任一任务拒绝或解析/入队
+  异常返回 `{:error, :enqueue_failed}`。
 
   调用方若把业务标记与任务入队放在同一 Repo transaction，可据此决定是否
   提交标记；传统调用方继续使用返回 `:ok` 的 `deliver/5`。
