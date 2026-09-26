@@ -83,12 +83,24 @@ export default function CapsuleView() {
 			setState((prev) => (prev.phase === "ok" ? prev : { phase: "loading" })),
 		)
 
-		client
-			.query({ query: FLASHBACK_CAPSULE, variables: { token: held, city }, fetchPolicy: "network-only" })
-			.then(({ data }) => {
-				const capsule = data?.flashbackCapsule;
+		const load = (token: string | null) =>
+			client
+				.query({ query: FLASHBACK_CAPSULE, variables: { token, city }, fetchPolicy: "network-only" })
+				.then(({ data }) => ({ token, capsule: data?.flashbackCapsule }));
+
+		load(held)
+			.catch((error) => {
+				// 收好（任一路径）会作废档案的全部链接，会话里那条随之失效：丢掉它、改用登录身份重拉。
+				// 不看 useAuthed——手机号收好刚换过会话，登录态上下文可能还是旧值；重拉失败再落失效页。
+				if (held && graphqlErrorDetails(error)?.code === "flashback_token_claimed") {
+					window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+					return load(null).catch(() => Promise.reject(error));
+				}
+				throw error;
+			})
+			.then(({ token, capsule }) => {
 				if (capsule) {
-					setState({ phase: "ok", token: held, capsule });
+					setState({ phase: "ok", token, capsule });
 					return;
 				}
 				// null 不该出现（手写 field 失败走顶层错误）——防御态

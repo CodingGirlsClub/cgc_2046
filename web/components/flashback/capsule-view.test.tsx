@@ -285,3 +285,38 @@ describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => 
 });
 
 
+
+describe("链接已作废（收好之后）", () => {
+	const claimed = { errors: [{ message: "claimed", code: "flashback_token_claimed" }] };
+
+	function stage() {
+		window.history.replaceState({}, "", "/flashback/capsule");
+		window.sessionStorage.clear();
+		window.sessionStorage.setItem("flashback.token", "tok-used");
+		capsuleQuery.mockReset();
+	}
+
+	it("丢掉作废的 token、改用登录身份重拉：已登录的主人直接看到自己的长廊", async () => {
+		stage();
+		capsuleQuery
+			.mockRejectedValueOnce(claimed)
+			.mockResolvedValueOnce({ data: { flashbackCapsule: baseCapsule } });
+		render(<CapsuleView />);
+
+		await screen.findByText("闪念间 · 时间长廊");
+		expect(capsuleQuery).toHaveBeenCalledTimes(2);
+		expect(capsuleQuery.mock.calls[1][0].variables.token).toBeNull();
+		expect(window.sessionStorage.getItem("flashback.token")).toBeNull();
+	});
+
+	it("没有登录身份可用时，照旧显示「已被收进账号」失效页", async () => {
+		stage();
+		capsuleQuery
+			.mockRejectedValueOnce(claimed)
+			.mockRejectedValueOnce({ errors: [{ message: "auth", code: "flashback_auth_required" }] });
+		render(<CapsuleView />);
+
+		await screen.findByText("这个档案已有主人");
+		expect(capsuleQuery).toHaveBeenCalledTimes(2);
+	});
+});
