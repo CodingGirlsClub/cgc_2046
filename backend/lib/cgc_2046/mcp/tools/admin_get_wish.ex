@@ -12,6 +12,15 @@ defmodule Cgc2046.Mcp.Tools.AdminGetWish do
   alias Cgc2046.Mcp.Wrapper
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：读取一条许愿的详情：全文、留言、附议名单，以及发起人的联系方式（只有本工具返回
+    联系方式，用于线下联系发起人）。已删除的许愿仍可读取，deleted_at 非空即已删除。
+    """
+  end
+
   schema do
     field(:wish_id, :string, description: "许愿 id（admin_list_wishes 返回）", required: true)
   end

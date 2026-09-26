@@ -27,6 +27,19 @@ defmodule Cgc2046.Mcp.Tools.UnforfeitOrder do
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Payments.Order
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用（工作台 Owner/Admin 不能用）：补救被错误没收的押金单，把已没收（forfeited）的押金重新
+    退款。适用于迟到但有正当理由、结束时间误改导致误没收、人工核实过的正当缺席等情况。reason 必填（1–500
+    字，写明错没收的事实与核实依据，记入审计）。确认摘要含订单种类、金额和理由。订单不是 forfeited 时直接
+    返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "押金单所属工作台 ID（UUID，须与订单归属一致）")
 

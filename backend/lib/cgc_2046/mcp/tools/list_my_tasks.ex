@@ -31,6 +31,16 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    列出当前用户在该工作台的待办：需要处理的报名、加入申请、赞助审批（仅 Owner/Admin 会有）；以及课程
+    教研任务：course_prep_claimable（尚未指派、可以认领）、course_prep_authoring（指派给你、待编写或
+    修订并提交）、course_prep_review（等你审核）。各行含审批截止时间等信息。工作台不存在时返回错误。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
   end

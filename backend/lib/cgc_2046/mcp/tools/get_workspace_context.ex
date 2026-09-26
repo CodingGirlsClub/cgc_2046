@@ -7,6 +7,15 @@ defmodule Cgc2046.Mcp.Tools.GetWorkspaceContext do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：读取工作台的基本信息与当前用户在其中的角色，返回 workspace_id / name / slug /
+    join_policy（open | request | invite_only）/ my_roles（当前用户的角色名列表）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
   end

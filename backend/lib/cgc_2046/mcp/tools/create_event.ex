@@ -43,6 +43,18 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   @spec create_fields() :: [String.t()]
   def create_fields, do: @create_fields
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：创建一场活动草稿（状态恒为 draft），title 必填，slug
+    缺省由平台生成。带 initiative_id 时挂载到该倡导活动，按规则强制写入押金 / 年龄 / 人数 / 报名截止；
+    响应里的 inherited 列出实际生效的继承值及来源（locked = 平台锁定、之后不可改；default = 挂载时快照、
+    之后可改），initiative 为挂载信息（未挂载为 null），另恒带 detached_rule_provenance（新建时为
+    null）。挂载前可用 preview_initiative_mount 预览规则。开放、结束、取消和信息修改由各自的工具完成。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:title, {:required, :string}, description: "活动标题")

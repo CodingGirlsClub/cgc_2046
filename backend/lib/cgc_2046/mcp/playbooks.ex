@@ -63,8 +63,8 @@ defmodule Cgc2046.Mcp.Playbooks do
     押金是**押金**不是报名费,不得说成报名费或收费档位;
   - 定价场(payment_mode=pricing):按 price_tiers 复述档位与金额,提交后限时支付;
   - 免费场(payment_mode=free):才可说「免费」。
-  - **payment_mode 是供给物现行配置,order_kind/tier_snapshot 是已发生订单的事实**
-    (#622):活动事后关押金后 payment_mode 会变 free,但存量已付押金单仍是押金单
+  - **payment_mode 是供给物现行配置,order_kind/tier_snapshot 是已发生订单的事实**:
+    活动事后关押金后 payment_mode 会变 free,但存量已付押金单仍是押金单
     (到场仍退)——复述某笔报名的资金/退改口径以订单的 order_kind(enrollment|deposit)
     与 tier_snapshot 为准,不得用 payment_mode 覆盖订单事实;报名列表
     get_my_enrollments 行同含现行 payment_mode 与 order_kind。
@@ -242,7 +242,7 @@ defmodule Cgc2046.Mcp.Playbooks do
      - list_workspace_events(workspace_id, status?) 列出本台全部活动(含 draft),返回报名状态徽章 enrollment_badge 与解除挂载来源标记 detached_rule_provenance(无标记为 null);
      - preview_initiative_mount(workspace_id, initiative_id) 挂载前预览:读该 Initiative 四项规则(押金/年龄/人数/报名截止)的原始值与锁态(locked=挂载后强制且不可改;locked=false=挂载时按当时取值快照,之后可改),missing_rules 非空或 status 非 open 即挂载必失败——先把这些如实复述给用户再决定挂不挂;
      - create_event(workspace_id, title, ...) 直接写,创建 draft 活动;title 必填;venue(结构化场地 country/province/city/district 四键)与 sponsorship_enabled / sponsorship_tiers / sponsorship_deadline(赞助入口与档位) 为活动独有概念,课程工具无对应字段;带 initiative_id 挂载时会按规则强制写入押金/年龄/人数/报名截止,响应 inherited 逐字段给出「本次生效的值与来源(locked/default)」、initiative 给出所挂 Initiative——必须据此复述被强制的字段,不要只说"已挂载";
-     - batch_create_events(workspace_id, rows) 批量创建 draft 活动(#511):一次建多场(每行一个活动,字段同 create_event 且多余字段丢弃,行数上限 1024),适合「同构模板 × 城市/场地/时间差异」的批量场次(如 1024 Build Festival);**每行 slug 必填**——确定性 slug 就是幂等键,重放同批次时已存在的行(同 slug 同工作台)返回 skipped(已存在,未改动,数据以首次为准),不重复创建;slug 被其他工作台占用则该行失败报 event_slug_taken;命名模板由你(调用侧)决定(如 1024-<城市拼音>-<三位序号>),不要省略 slug 让系统生成随机值——随机 slug 会毁掉幂等;失败行在响应 rows 里给 行号+字段+原因,修正后把失败行原样重喂即可(已成功行会 skipped);行级只回 row/status/slug/title/event_id(失败行另有 error:{code,fields,message}),initiative 挂载的继承结果不回传,需要时用 list_workspace_events 逐场查;大批量参数会让审计存证退化为元数据摘要(仅保留 workspace_id 等查询锚,不是审计丢失);
+     - batch_create_events(workspace_id, rows) 批量创建 draft 活动:一次建多场(每行一个活动,字段同 create_event 且多余字段丢弃,行数上限 1024),适合「同构模板 × 城市/场地/时间差异」的批量场次(如 1024 Build Festival);**每行 slug 必填**——确定性 slug 就是幂等键,重放同批次时已存在的行(同 slug 同工作台)返回 skipped(已存在,未改动,数据以首次为准),不重复创建;slug 被其他工作台占用则该行失败报 event_slug_taken;命名模板由你(调用侧)决定(如 1024-<城市拼音>-<三位序号>),不要省略 slug 让系统生成随机值——随机 slug 会毁掉幂等;失败行在响应 rows 里给 行号+字段+原因,修正后把失败行原样重喂即可(已成功行会 skipped);行级只回 row/status/slug/title/event_id(失败行另有 error:{code,fields,message}),initiative 挂载的继承结果不回传,需要时用 list_workspace_events 逐场查;大批量参数会让审计存证退化为元数据摘要(仅保留 workspace_id 等查询锚,不是审计丢失);
      - update_event(workspace_id, event_id, ...) 改标题/描述/场地/定价/报名策略/赞助配置等;pricing_enabled 改 false 会批量免缴该活动全部待支付报名(与课程同语义,摘要展示受影响笔数);改 initiative_id 会换挂载并按新规则重新快照,响应 inherited 同款回传(未改挂载时只回 locked 项),响应另恒带 detached_rule_provenance(解除挂载来源标记,无则 null);
      - 解除挂载(detach)语义:活动可能在网站侧被解除挂载(initiative_id → nil;本工具的 initiative_id 传 nil = 未提供,不能 detach)。detach 不回收平台锁死规则强制写入的值——值留在活动上、回归普通可编辑字段;响应与 list_workspace_events 行的 detached_rule_provenance 标记这些值来自哪个已解除的倡导活动(逐字段 value + source=locked),无标记为 null。看到标记先向用户复述「该字段的值来自已解除的倡导活动《name》,尚未被本地改写」再按用户决定编辑;编辑标记内字段即清除该字段标记(全部清空后整列 null),编辑未标记字段(标题/时间等)不动标记;重挂载会清空整列并按新规则覆盖旧值,响应 inherited 同款回传;
      - launch_event(workspace_id, event_id) 发布 draft → open;
@@ -292,9 +292,9 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   @playbooks %{
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-09-17.2", content: @workspace_admin_content},
+    workspace_admin: %{version: "2026-09-26.1", content: @workspace_admin_content},
     tutor: %{version: "2026-09-17.1", content: @tutor_content},
-    learner: %{version: "2026-09-17.1", content: @learner_content}
+    learner: %{version: "2026-09-26.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner

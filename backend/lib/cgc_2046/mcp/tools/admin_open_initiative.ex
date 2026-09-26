@@ -1,4 +1,10 @@
 defmodule Cgc2046.Mcp.Tools.AdminOpenInitiative do
+  @moduledoc """
+  平台管理员专用：把倡导活动状态改为 open。开放后它出现在 list_public_initiatives 和公开页，
+  工作台场次可以挂载。
+  走确认流：第一次调用返回 needs_confirmation + pending_id + summary，用户确认后调
+  confirm_operation(pending_id) 才生效。返回更新后的活动行。
+  """
   use Anubis.Server.Component,
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
@@ -8,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.AdminOpenInitiative do
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
 
   schema do
-    field(:initiative_id, {:required, :string})
+    field(:initiative_id, {:required, :string}, description: "倡导活动 ID（取自 admin_list_initiatives）")
   end
 
   @impl true
