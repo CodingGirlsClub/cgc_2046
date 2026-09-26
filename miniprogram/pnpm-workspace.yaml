@@ -1,5 +1,11 @@
 allowBuilds:
   '@tarojs/cli': true
+# P0-2/#2 修复：Taro 小红书插件 1.2.2 的 onShareChat 注入缺少 onShareAppMessage
+# 配对（全页 mount 平台 RUNTIME ERROR，审核风险）——patch 成对注入。
+# 注意：patchedDependencies 是 pnpm 的设置项，读自本文件（pnpm 10/11）；
+# 删掉会让 frozen install 报 ERR_PNPM_LOCKFILE_CONFIG_MISMATCH。
+patchedDependencies:
+  '@tarojs/plugin-platform-xhs@1.2.2': patches/@tarojs__plugin-platform-xhs@1.2.2.patch
 # 2026-09-03：pnpm audit --prod 4 个 high 全为 fast-uri <3.1.6 传递链
 # （@tarojs/taro>webpack>terser>schema-utils>ajv>fast-uri，BSD-3-Clause）。
 # 3.1.6 为补丁版本、上游 range ^3.0.1 本可解析但 lockfile 已锁 3.1.5，
