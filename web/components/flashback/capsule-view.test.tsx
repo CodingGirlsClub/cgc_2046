@@ -175,6 +175,12 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 	});
 
+	it("我的卡面渲染金句授权面板（M1：授权只在面板管理）", async () => {
+		await renderCapsule();
+		expect(screen.getByRole("region", { name: "金句授权" })).toBeInTheDocument();
+		expect(screen.getByRole("radio", { name: "关闭（默认）" })).toBeInTheDocument();
+	});
+
 	it("已寄出 + 登录态无 token：撤下照常渲染（#931 起 retract 双入口），编辑恒在", async () => {
 		window.history.replaceState({}, "", "/flashback/capsule");
 		window.sessionStorage.clear();

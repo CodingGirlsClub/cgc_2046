@@ -764,6 +764,12 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				answers {
 					questionKey
 					text
+					rawText
+					fogSpans {
+						start
+						len
+						reason
+					}
 				}
 			}
 			archives {
