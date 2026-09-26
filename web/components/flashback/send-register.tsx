@@ -1,4 +1,6 @@
 import { useCallback, useState } from "react";
+import { useAuthed } from "@/lib/auth-provider";
+import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 import { graphqlErrorDetails } from "@/lib/graphql/auth";
@@ -33,6 +35,8 @@ export default function SendRegister({
 	initialTodayFogSpans,
 	maskedPhone,
 	maskedEmail,
+	bound = false,
+	onClaim,
 	onSubmitToday,
 	onSendToWall,
 	onSetQuoteLicense,
@@ -50,6 +54,8 @@ export default function SendRegister({
 	initialTodayFogSpans?: Record<string, FlashbackFogSpan[]> | null;
 	maskedPhone?: string | null;
 	maskedEmail?: string | null;
+	bound?: boolean;
+	onClaim: () => Promise<boolean>;
 	onSubmitToday: (input: TodayFormState) => Promise<boolean>;
 	onSendToWall: () => Promise<boolean>;
 	onSetQuoteLicense: (form: TodayFormState) => Promise<boolean>;
@@ -63,6 +69,8 @@ export default function SendRegister({
 	onDone: () => void;
 }) {
 	const t = useTranslations("flashback.sendRegister");
+	const { authed, confirmed } = useAuthed();
+	const [claiming, setClaiming] = useState(false);
 	const questionT = useTranslations("flashback.questionLabels");
 	const writeT = useTranslations("flashback.write");
 	const errorT = usePaymentErrorTranslator();
@@ -185,10 +193,25 @@ export default function SendRegister({
 		}
 	};
 
+	const handleClaim = async () => {
+		if (claiming) return;
+		setClaiming(true);
+		setError(null);
+		try {
+			if (await onClaim()) setPhase("bound");
+			else setError(t("claimFailed"));
+		} catch (err) {
+			setError(errorT(graphqlErrorDetails(err)?.code ?? "flashback_invalid_input", t("claimFailed")));
+		} finally {
+			setClaiming(false);
+		}
+	};
+
 	const errorLine = error ? (
-		<p role="alert" className="fb-hint">
-			{error}
-		</p>
+		<div role="alert" className="fb-error">
+			<p>{error}</p>
+			<Link href="/login?next=%2Fflashback%2Fcapsule">{t("login")}</Link>
+		</div>
 	) : null;
 
 	if (phase === "review") {
@@ -329,7 +352,16 @@ export default function SendRegister({
 								email: maskedEmail ?? t("contactNone"),
 							})}
 						</p>
-						{!codeSent ? (
+						{bound ? (
+							<>
+								<p>{t("alreadyKept")}</p>
+								<Link href={confirmed && authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>{t(confirmed && authed ? "enterCapsule" : "login")}</Link>
+							</>
+						) : !confirmed ? (
+							<p role="status">{t("checkingAccount")}</p>
+						) : authed ? (
+							<button type="button" className="fb-cta fb-cta-primary" disabled={claiming} onClick={handleClaim}>{t(claiming ? "claiming" : "claim")}</button>
+						) : !codeSent ? (
 							<>
 								<input
 									className="fb-field-input fb-register-input"

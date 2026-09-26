@@ -2886,7 +2886,13 @@
       "retry": "Try again",
       "boundTitle": "Your account has taken over",
       "boundNote": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
-      "enterCapsule": "Enter the time corridor →"
+      "enterCapsule": "Enter the time corridor →",
+      "claim": "Save to this account",
+      "claiming": "Saving…",
+      "claimFailed": "Could not save your card. Please try again.",
+      "alreadyKept": "This card is already saved to an account. Sign in to view it.",
+      "checkingAccount": "Checking your account…",
+      "login": "Sign in"
     },
     "echoCard": {
       "regionLabel": "Echo",

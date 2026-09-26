@@ -6,6 +6,7 @@ import type { TypedDocumentNode } from "@apollo/client";
 import Journey from "./journey";
 import {
 	FLASHBACK_ENTER,
+	FLASHBACK_CLAIM,
 	FLASHBACK_MARK_REVEALED,
 	FLASHBACK_SUBMIT_TODAY,
 	FLASHBACK_SEND_TO_WALL,
@@ -21,6 +22,8 @@ import {
  */
 
 const pushMock = vi.fn();
+const { auth } = vi.hoisted(() => ({ auth: vi.fn() }));
+vi.mock("@/lib/auth-provider", () => ({ useAuthed: auth }));
 
 vi.mock("@/i18n/navigation", () => ({
 	Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
@@ -77,7 +80,7 @@ const memoryEntry: FlashbackEnterResult = {
 			{ id: "a1", questionKey: "self_intro", rawText: "一个刚毕业的文科生，在出版社做校对。", fogSpans: null },
 		],
 	},
-	progress: { quoteLevel: "off", maskedPhone: "138****5678", maskedEmail: "w***@x.com" },
+	progress: { bound: false, quoteLevel: "off", maskedPhone: "138****5678", maskedEmail: "w***@x.com" },
 	scatter: {
 		entries: [
 			{ photoKey: "p-self", label: "2012 · 上海", dateStamp: "2012 02 20", isMine: true, surname: "王" },
@@ -99,7 +102,7 @@ const dreamEntry: FlashbackEnterResult = {
 		archive: { key: "2014-01-11-bj", name: "Rails Girls 北京", city: "北京", occurredOn: "2014-01-11" },
 		answers: [{ id: "a2", questionKey: "self_intro", rawText: "我想亲眼看看是不是。", fogSpans: null }],
 	},
-	progress: { quoteLevel: "off", maskedPhone: null, maskedEmail: null },
+	progress: { bound: false, quoteLevel: "off", maskedPhone: null, maskedEmail: null },
 };
 
 function mockEnterResolve(result: FlashbackEnterResult) {
@@ -148,6 +151,7 @@ beforeEach(() => {
 	mutations.forEach((impl) => impl.mockClear());
 	pendingResults.clear();
 	pushMock.mockReset();
+	auth.mockReturnValue({ authed: false, confirmed: true });
 	vi.spyOn(window, "matchMedia").mockReturnValue({
 		matches: false,
 		media: "(prefers-reduced-motion: reduce)",
@@ -615,7 +619,7 @@ describe("Journey · 失效与回访", () => {
 		await renderJourney();
 
 		expect(await screen.findByText("这个档案已有主人")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "去登录" })).toHaveAttribute("href", "/login");
+		expect(screen.getByRole("link", { name: "去登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
 	});
 
 	it("已删除（revoked）：告知清除 + 回首页出口", async () => {
@@ -649,7 +653,7 @@ describe("Journey · 失效与回访", () => {
 		mockEnterResolve({
 			...memoryEntry,
 			progress: {
-				quoteLevel: "off",
+				bound: false,				quoteLevel: "off",
 				today: { nowStatus: "还在写东西", sentToWallAt: "2026-09-18T00:00:00Z" },
 			},
 		});
@@ -701,7 +705,7 @@ describe("Journey · 失效与回访", () => {
 	it("回访（已填今天但未寄出）：跳过仪式直达写字，不再被锁在胶囊外（e2e 实测死循环）", async () => {
 		mockEnterResolve({
 			...memoryEntry,
-			progress: { quoteLevel: "off", today: { nowStatus: "还在写东西" } },
+			progress: { bound: false, quoteLevel: "off", today: { nowStatus: "还在写东西" } },
 		});
 		window.history.replaceState({}, "", "/flashback/enter?token=tok-again");
 		window.sessionStorage.clear();
@@ -743,4 +747,20 @@ describe("Journey · 无障碍", () => {
 			"-1",
 		);
 	});
+});
+
+
+describe("一键收好链接契约", () => {
+ it("只认领当前 token，成功后移除失效链接", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  mockEnterResolve(memoryEntry);
+  pendingResults.set(FLASHBACK_SUBMIT_TODAY, () => Promise.resolve({ data: { flashbackSubmitToday: { today: {} } } }));
+  pendingResults.set(FLASHBACK_SEND_TO_WALL, () => Promise.resolve({ data: { flashbackSendToWall: { sentToWallAt: "2026-09-26T00:00:00Z" } } }));
+  pendingResults.set(FLASHBACK_CLAIM, () => Promise.resolve({ data: { flashbackClaim: { bound: true } } }));
+  await walkTo("send");
+  fireEvent.click(screen.getByRole("button", { name: "收进当前账号" }));
+  await screen.findByRole("button", { name: /^进入时间长廊/ });
+  expect(mutations.get(FLASHBACK_CLAIM)).toHaveBeenCalledWith({ variables: { token: "tok-123" } });
+  expect(window.sessionStorage.getItem("flashback.token")).toBeNull();
+ });
 });

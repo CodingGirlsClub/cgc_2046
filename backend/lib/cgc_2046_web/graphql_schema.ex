@@ -3132,6 +3132,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   end
 
   object :flashback_progress do
+    field(:bound, non_null(:boolean))
     field(:today, :flashback_today)
     field(:quote_level, non_null(:string))
     field(:masked_phone, :string)
