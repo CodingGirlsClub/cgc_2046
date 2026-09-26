@@ -21,7 +21,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
   alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback
-  alias Cgc2046.Flashback.{Outreach, Person, Token}
+  alias Cgc2046.Flashback.{Outreach, OutreachLink, Person, Token}
   alias Cgc2046.Flashback.Outreach.{Dispatch, Emails}
   alias Cgc2046.Flashback.Workers.OutreachWorker
   alias Cgc2046.Repo
@@ -34,6 +34,13 @@ defmodule Cgc2046.Flashback.OutreachTest do
   setup do
     Req.Test.stub(Cgc2046.SmsSendCloudStub, fn conn ->
       Req.Test.json(conn, %{"result" => true})
+    end)
+
+    # #770：email 腿现在走批次级微信 URL Link——默认 mock 成功；缓存/降级
+    # 契约在各 describe 内覆盖（Tesla.Mock 后设覆盖先设）。
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/wxa/generate_urllink" <> _} ->
+        Tesla.Mock.json(%{"url_link" => "https://wxaurl.cn/s/SETUP"})
     end)
 
     on_exit(fn ->
@@ -741,6 +748,110 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── #770：微信 URL Link 批次级缓存与 fail-open ───────────────────────
+
+  describe "outreach worker（URL Link 批次缓存 + fail-open）" do
+    test "同批次多次发送：仅一次 generate_urllink 外呼；各封邮件主 CTA=wxaurl 链接+本人 cq" do
+      archive = create_archive()
+
+      person_a =
+        create_person(archive, email: "a@example.com", full_name: "张大三", phone: "13900000002")
+
+      person_b =
+        create_person(archive, email: "b@example.com", full_name: "李小四", phone: "13900000003")
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: "https://api.weixin.qq.com/wxa/generate_urllink" <> _} ->
+          send(self(), :urllink_call)
+          Tesla.Mock.json(%{"url_link" => "https://wxaurl.cn/s/BATCH"})
+      end)
+
+      job_a = enqueue_one(person_a, "reconnect")
+      job_b = enqueue_one(person_b, "reconnect")
+
+      assert {:ok, :email} = perform_job(OutreachWorker, job_a)
+      assert {:ok, :email} = perform_job(OutreachWorker, job_b)
+
+      # 缓存命中（batch 同为 test-batch）：第二次发送零外呼
+      assert_received :urllink_call
+      refute_received :urllink_call
+
+      assert_receive {:email, email_a}, 1_000
+      assert_receive {:email, email_b}, 1_000
+
+      # 主 CTA 指向批次级链接；cq=本人明文 token（各不相同）
+      for email <- [email_a, email_b] do
+        assert email.html_body =~ ~s{href="https://wxaurl.cn/s/BATCH?cq=}
+        assert email.html_body =~ "电脑上打不开？复制此地址在手机浏览器打开："
+        assert email.html_body =~ "/zh-CN/flashback/enter?token="
+        assert email.text_body =~ "https://wxaurl.cn/s/BATCH?cq="
+        assert email.text_body =~ "电脑上打不开？复制此地址在手机浏览器打开："
+      end
+
+      cq_a = extract_cq(email_a)
+      cq_b = extract_cq(email_b)
+      assert cq_a != cq_b
+      assert String.length(cq_a) == 43 and String.length(cq_b) == 43
+
+      # 缓存行落库（batch → link + 30 天有效期）
+      link = outreach_link!("test-batch")
+      assert link.url_link == "https://wxaurl.cn/s/BATCH"
+
+      assert DateTime.compare(link.expires_at, DateTime.add(DateTime.utc_now(), 29, :day)) ==
+               :gt
+    end
+
+    test "链接临期（<now+1h 安全余量）→ 重新生成并 upsert 覆盖" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      # 预置临期行：尚未真正过期，但已落入 1h 余量窗——不复用
+      OutreachLink
+      |> Ash.Changeset.for_create(:create, %{
+        batch: "test-batch",
+        url_link: "https://wxaurl.cn/s/STALE",
+        expires_at: DateTime.add(DateTime.utc_now(), 30 * 60, :second)
+      })
+      |> Ash.create!(authorize?: false)
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: "https://api.weixin.qq.com/wxa/generate_urllink" <> _} ->
+          send(self(), :urllink_call)
+          Tesla.Mock.json(%{"url_link" => "https://wxaurl.cn/s/FRESH"})
+      end)
+
+      assert {:ok, :email} = perform_job(OutreachWorker, enqueue_one(person, "reconnect"))
+      assert_received :urllink_call
+
+      assert_receive {:email, email}, 1_000
+      assert email.html_body =~ ~s{href="https://wxaurl.cn/s/FRESH?cq=}
+
+      link = outreach_link!("test-batch")
+      assert link.url_link == "https://wxaurl.cn/s/FRESH"
+    end
+
+    test "微信生成失败（errcode）→ fail-open：邮件照发、主 CTA 回退 Web 链接、行照常 sent" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      Tesla.Mock.mock(fn
+        %{method: :post, url: "https://api.weixin.qq.com/wxa/generate_urllink" <> _} ->
+          Tesla.Mock.json(%{"errcode" => 40_029, "errmsg" => "invalid code"})
+      end)
+
+      assert {:ok, :email} = perform_job(OutreachWorker, enqueue_one(person, "reconnect"))
+      assert outreach_row!(person.id, :email).status == :sent
+
+      assert_receive {:email, email}, 1_000
+      # 单入口回退形态：主 CTA=Web enter_url，无 wxaurl、无兜底重复行
+      assert email.html_body =~ "/zh-CN/flashback/enter?token="
+      refute email.html_body =~ "wxaurl"
+      refute email.html_body =~ "电脑上打不开？"
+      assert email.text_body =~ "打开我的闪念间：http"
+      refute email.text_body =~ "wxaurl"
+    end
+  end
+
   # ── 短信 fail-closed（KTD6：模板未申请不外呼） ────────────────────────
 
   describe "短信模板 fail-closed" do
@@ -989,6 +1100,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
           ~D[2014-01-11],
           "Rails Girls Beijing",
           "https://x/enter?token=abc",
+          "https://wxaurl.cn/s/GEN?cq=abc",
           "https://x/unsub?t=d",
           "https://x/flashback/weibo-screenshot.png"
         )
@@ -1001,17 +1113,42 @@ defmodule Cgc2046.Flashback.OutreachTest do
 
       # 页脚事实句：锚点「报名」（两线/教练全员成立）；不带城市（一次发送可覆盖多城）
       assert email.html_body =~ "但刚刚一闪念间想起来曾经参加的这个活动"
+
+      # #770 双入口：主 CTA=URL Link（含 cq），PC 兜底行含 Web enter_url
+      assert email.html_body =~
+               ~s{<a href="https://wxaurl.cn/s/GEN?cq=abc" style="display:inline-block;}
+
+      assert email.html_body =~ "电脑上打不开？复制此地址在手机浏览器打开："
+      assert email.html_body =~ "https://x/enter?token=abc"
+      assert email.text_body =~ "https://wxaurl.cn/s/GEN?cq=abc"
+      assert email.text_body =~ "电脑上打不开？复制此地址在手机浏览器打开：https://x/enter?token=abc"
     end
 
-    test "reconnect 模板：occurred_on 为 nil → 「那年」降级，不崩" do
+    test "reconnect 模板：mp_url nil（fail-open）→ 主 CTA 回退 Web enter_url，无重复入口" do
       email =
-        Emails.reconnect(@email, nil, nil, nil, "https://x/e", "https://x/u", "https://x/s.png")
+        Emails.reconnect(
+          @email,
+          nil,
+          nil,
+          nil,
+          "https://x/e",
+          nil,
+          "https://x/u",
+          "https://x/s.png"
+        )
 
       assert email.html_body =~ "那年，你也在一张报名表上写下过自己"
       # 页脚无场次信息 → 历史区间兜底句
       assert email.html_body =~ "你曾在 2012-2018 年间报名过 Rails Girls / Girls Coding Day。"
       # 无名字 → 模板层兜底「同学」
       assert email.text_body =~ "你好，同学："
+
+      # 单入口形态：主 CTA 即 Web 链接，不出现兜底行、不出现 wxaurl
+      assert email.html_body =~ ~s{<a href="https://x/e" style="display:inline-block;}
+      refute email.html_body =~ "电脑上打不开？"
+      refute email.html_body =~ "wxaurl"
+      assert email.text_body =~ "打开我的闪念间：https://x/e"
+      refute email.text_body =~ "电脑上打不开？"
     end
   end
 
@@ -1170,5 +1307,20 @@ defmodule Cgc2046.Flashback.OutreachTest do
     assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
 
     %{user: user, token: conn.resp_cookies["cgc_token"].value}
+  end
+
+  defp outreach_link!(batch) do
+    OutreachLink
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(batch == ^batch)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  # 从邮件纯文本入口行提取 cq（明文 token）：…wxaurl.cn/s/xxx?cq={token}
+  defp extract_cq(email) do
+    case Regex.run(~r{wxaurl\.cn/s/\w+\?cq=([A-Za-z0-9_-]+)}, email.text_body) do
+      [_, cq] -> cq
+      nil -> flunk("no cq found in email text body")
+    end
   end
 end
