@@ -91,18 +91,27 @@ defmodule Cgc2046.Flashback.Public do
 
     # 已删除档案（U10/R30）不计入公开统计——「已回来的人」不含已行使删除权者。
     # N9：回来 = 打开过链接 ∪ 已绑定 ∪ 已寄出（任一即算，distinct person）；
-    # left_join 多路径可能放大行数，靠 count(distinct) 归一
+    # exists 子查询不乘行（PR #960 评审：不再靠 left_join 放大 + distinct 归一）
     returned =
       Repo.one(
         from(p in "flashback_people",
-          left_join: ot in "flashback_touches",
-          on: ot.person_id == p.id and ot.event == "link_opened",
-          left_join: td in "flashback_todays",
-          on: td.person_id == p.id and not is_nil(td.sent_to_wall_at),
+          as: :people,
+          where: is_nil(p.deleted_at),
           where:
-            is_nil(p.deleted_at) and
-              (not is_nil(ot.id) or not is_nil(p.user_id) or not is_nil(td.id)),
-          select: count(p.id, :distinct)
+            exists(
+              from(t in "flashback_touches",
+                where: t.person_id == parent_as(:people).id and t.event == "link_opened",
+                select: 1
+              )
+            ) or
+              not is_nil(p.user_id) or
+              exists(
+                from(td in "flashback_todays",
+                  where: td.person_id == parent_as(:people).id and not is_nil(td.sent_to_wall_at),
+                  select: 1
+                )
+              ),
+          select: count(p.id)
         )
       )
 
