@@ -565,6 +565,24 @@ defmodule Cgc2046.Reconciliation.ReconciliationScanWorkerTest do
       assert :ok = perform_job(ReconciliationScanWorker, %{})
       assert [] = findings(:dead_letter_job)
     end
+
+    # #862：重试耗尽被丢弃的退款任务此前不在白名单——资金链死信完全不可见；
+    # 其订单同时会被规17 以「refunding 无在途任务」报告（任务恢复路径 retry_refund）
+    test "discarded PaymentRefundWorker job（7 天内）→ 命中（#862 白名单补盲区）" do
+      admin = Fixtures.platform_admin("rc6-admin")
+      workspace = Fixtures.create_workspace(admin)
+      Fixtures.add_member(workspace, admin, [:owner])
+      order = insert_order(workspace, admin, :refunding, updated_offset: -16 * 60)
+      {:ok, job} = Oban.insert(PaymentRefundWorker.new(%{order_id: order.id}))
+      Repo.query!("UPDATE oban_jobs SET state = 'discarded' WHERE id = $1", [job.id])
+
+      assert :ok = perform_job(ReconciliationScanWorker, %{})
+
+      assert finding =
+               Enum.find(findings(:dead_letter_job), &(&1.entity_id == to_string(job.id)))
+
+      assert finding.detail["worker"] == "Cgc2046.Payments.Workers.PaymentRefundWorker"
+    end
   end
 
   # ── 规7：learning run 停滞（> 7d 无 facts 更新，与 LPW 提醒同源判定）---------

@@ -80,9 +80,10 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
     %{
       id: :dead_letter_job,
       desc:
-        "死信 job（SignalPublishWorker/NotificationWorker/DeliveryWorker/DepositForfeitWorker" <>
-          "——末位为押金 no-show 结算 KTD7）；Pruner 7 天窗口内判定：超出 max_age 的 " <>
-          "discarded 历史行不报告，交给 Pruner 清理（E-10）",
+        "死信 job（SignalPublishWorker/NotificationWorker/DeliveryWorker/DepositForfeitWorker/" <>
+          "PaymentRefundWorker——末位为押金结算与退款，资金链任务丢弃必须可见）；" <>
+          "Pruner 7 天窗口内判定：超出 max_age 的 discarded 历史行不报告，" <>
+          "交给 Pruner 清理（E-10；退款死信同规17 成因面，#862）",
       sweep: :full,
       producer: ReconciliationScanWorker
     },
