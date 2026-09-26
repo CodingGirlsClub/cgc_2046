@@ -1789,9 +1789,6 @@ defmodule Cgc2046.Admission.Enrollment do
   defp domain_error_message(:not_payment_pending),
     do: "enrollment is not awaiting payment"
 
-  defp domain_error_message(:deposit_settlement_race),
-    do: "the deposit order was settled by a concurrent path; enrollment cancel rolled back"
-
   defp domain_error_message(:capacity_counter_invalid), do: "capacity counter is invalid"
   defp domain_error_message({:database, _reason}), do: "database operation failed"
   defp domain_error_message(reason), do: inspect(reason)
@@ -1826,7 +1823,6 @@ defmodule Cgc2046.Admission.Enrollment do
 
   defp domain_error_code(:not_expired_pending), do: "enrollment_not_expired_pending"
   defp domain_error_code(:not_payment_pending), do: "enrollment_not_payment_pending"
-  defp domain_error_code(:deposit_settlement_race), do: "deposit_settlement_race"
   defp domain_error_code(:capacity_counter_invalid), do: "enrollment_capacity_counter_invalid"
 
   # 显式子句化（#241）：原走兜底动态拼接，不进契约工件但 miniprogram 已配文案
