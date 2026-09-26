@@ -433,12 +433,32 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       )
 
     Enum.map(rows, fn answer ->
+      # 裸 Repo 读绕过 Ash 的 :map 数组解码——jsonb 里每项是字符串化 map
+      # （Ash 写入形态），必须先解码，否则 Absinthe 对非空 start/len 解析出
+      # null，整条 flashbackCapsule 查询被拖垮（#941 遗留，N9 验收时实测）。
+      fog_spans =
+        (answer.fog_spans || [])
+        |> Enum.map(fn
+          span when is_map(span) -> span
+          raw when is_binary(raw) -> Jason.decode!(raw)
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(fn span ->
+          # Absinthe object 字段按原子键解析（与 tokens.ex span_payload 同规则）
+          %{
+            start: span["start"] || span[:start],
+            len: span["len"] || span[:len],
+            reason: span["reason"] || span[:reason]
+          }
+        end)
+
       %{
         id: answer.id,
         question_key: answer.question_key,
         raw_text: answer.raw_text,
-        fog_spans: answer.fog_spans || [],
-        text: FogSpans.mask(answer.raw_text, answer.fog_spans, @fog_placeholder)
+        fog_spans: fog_spans,
+        text: FogSpans.mask(answer.raw_text, fog_spans, @fog_placeholder)
       }
     end)
   end
