@@ -102,11 +102,14 @@ defmodule Cgc2046.Notifications.DeliveryKey do
   def event_key("event_moderator_removed", _data, %{"event_id" => event_id}),
     do: "event.moderator.removed:#{event_id}"
 
-  # speaker_completed 双腿（P3）：manager 腿 data 带 title、speaker 本人腿不带
-  # ——同 template 同信号键靠腿成分防撞（speaker 兼任 manager 的场景）。
-  def event_key("speaker_completed", data, job_meta) do
-    leg = if Map.has_key?(data, "title"), do: "managers", else: "speaker"
-    "#{Map.fetch!(job_meta, "idempotency_key")}:#{leg}"
+  # speaker_completed 双腿（P3）：managers/speaker 两腿由生产方
+  # （SpeakerSubscriber 两处 Fanout 调用点）在 job_meta 显式标记 leg（#902
+  # ——旧「data 含 title」启发式对生产方数据变动脆弱，会静默并腿漏发；
+  # 显式标记与启发式对同一输入派生相同键，钉测证明等价）。缺失即 raise
+  # （KeyError，对齐 event_id 的 Map.fetch! 先例：Fanout rescue 兜成
+  # {:error, :enqueue_failed} + telemetry :error，不静默并腿）。
+  def event_key("speaker_completed", _data, %{"idempotency_key" => key} = job_meta) do
+    "#{key}:#{Map.fetch!(job_meta, "leg")}"
   end
 
   def event_key(template_key, _data, job_meta) when template_key in @from_meta_keys,
