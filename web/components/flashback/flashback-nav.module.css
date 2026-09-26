@@ -1,0 +1,30 @@
+.header {
+	position: relative;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 12px 28px;
+	padding: 20px max(24px, 3.2%);
+	background: #f7f2e7;
+	color: #1e3a2f;
+	border-bottom: 1px solid #dcded1;
+	font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.header a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; min-height: 44px; }
+.header a:hover { text-decoration: underline; text-underline-offset: 6px; }
+.header a:focus-visible { outline: 2px solid #8a6418; outline-offset: 4px; }
+.header a:active { transform: translateY(1px); }
+.brand { font: 600 24px "Songti SC", "STSong", serif; letter-spacing: 2px; }
+.links { display: flex; align-items: center; gap: 24px; }
+.links a { white-space: nowrap; font-size: 16px; }
+.links a[aria-current="page"] { box-shadow: inset 0 -2px #8a6418; }
+.account { margin-left: auto; font-size: 13px; }
+.actions { display: flex; gap: 12px; align-items: center; }
+@media (max-width: 760px) {
+	.header { padding: 12px 20px 0; gap: 8px 12px; }
+	.brand { font-size: 22px; }
+	.links { order: 3; width: 100%; justify-content: space-between; gap: 12px; }
+	.links a { font-size: 15px; }
+	.actions { order: 4; width: 100%; justify-content: flex-end; padding-bottom: 12px; flex-wrap: wrap; }
+}

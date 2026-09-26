@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import WishesWall from "./wishes-wall";
 import {
 	FLASHBACK_CITIES,
+	FLASHBACK_WISH_CITIES,
 	FLASHBACK_EXPECT_WISH,
+	FLASHBACK_MY_WISHES,
 	FLASHBACK_PUBLIC_WISHES,
 	type FlashbackPublicWish,
 } from "@/lib/graphql/flashback";
@@ -32,9 +36,11 @@ const wish = (id: string, over: Partial<FlashbackPublicWish> = {}): FlashbackPub
 	...over,
 });
 
-const { wallQuery, citiesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
+const { wallQuery, citiesQuery, nationalCitiesQuery, myWishesQuery, expectRunner, deferred, useAuthed } = vi.hoisted(() => ({
 	wallQuery: vi.fn(),
 	citiesQuery: vi.fn(),
+	nationalCitiesQuery: vi.fn(),
+	myWishesQuery: vi.fn(),
 	expectRunner: vi.fn(),
 	useAuthed: vi.fn(),
 	// 手控 promise：push 一个存根，测试自行决定何时 resolve——乱序场景的
@@ -50,7 +56,9 @@ vi.mock("@/lib/apollo-client", () => ({
 	client: {
 		query: (options: { query: unknown }) => {
 			if (options.query === FLASHBACK_PUBLIC_WISHES) return wallQuery(options);
-			if (options.query === FLASHBACK_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_WISH_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_CITIES) return nationalCitiesQuery(options);
+			if (options.query === FLASHBACK_MY_WISHES) return myWishesQuery(options);
 			throw new Error("unexpected query");
 		},
 	},
@@ -72,13 +80,23 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 beforeEach(() => {
 	wallQuery.mockReset();
 	citiesQuery.mockReset();
+	nationalCitiesQuery.mockReset();
+	nationalCitiesQuery.mockResolvedValue({ data: { flashbackCities: [{ name: "北京" }, { name: "上海" }, { name: "广州" }] } });
+	myWishesQuery.mockReset();
+	myWishesQuery.mockResolvedValue({ data: { flashbackMyWishes: { quotaRemaining: 3, wishes: [] } } });
 	expectRunner.mockReset();
 	useAuthed.mockReset();
 	useAuthed.mockReturnValue({ authed: false, confirmed: true, userId: null });
 	deferred.length = 0;
 	wallQuery.mockResolvedValue({ data: { flashbackPublicWishes: [wish("w1"), wish("w2", { city: "成都" })] } });
 	citiesQuery.mockResolvedValue({
-		data: { flashbackCities: [{ name: "北京", fullName: "北京市", pinyin: "beijing", lngLat: [116.4, 39.9] }] },
+		data: {
+			flashbackWishCities: [
+				{ name: "北京", fullName: "北京市", pinyin: "beijing", lngLat: [116.4, 39.9] },
+				{ name: "成都", fullName: "成都市", pinyin: "chengdu", lngLat: [104.07, 30.57] },
+				{ name: "宁波", fullName: "宁波市", pinyin: "ningbo", lngLat: [121.55, 29.87] },
+			],
+		},
 	});
 	window.localStorage.clear();
 	window.sessionStorage.clear();
@@ -196,4 +214,70 @@ describe("WishesWall · 写愿望入口（#824/U8）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "写下我的愿望" }));
 		expect(await screen.findByRole("dialog", { name: "许个愿" })).toBeInTheDocument();
 	});
+});
+
+// M8+L7：「已有回响」改服务端 withEchoes 筛选；每页 24 条 + 「加载更多」翻页。
+describe("回响筛选与分页", () => {
+ it("初始请求每页 24 条", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  expect(wallQuery.mock.calls[0][0].variables.limit).toBe(24);
+  expect(wallQuery.mock.calls[0][0].variables.withEchoes).toBeFalsy();
+ });
+
+ it("「已有回响」chips 改服务端筛选：withEchoes=true 重拉", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  fireEvent.click(screen.getByRole("button", { name: "已有回响" }));
+  await waitFor(() => expect(wallQuery).toHaveBeenCalledTimes(2));
+  const vars = wallQuery.mock.calls[1][0].variables;
+  expect(vars.withEchoes).toBe(true);
+  expect(vars.limit).toBe(24);
+  expect(screen.getByRole("button", { name: "已有回响" })).toHaveAttribute("aria-pressed", "true");
+ });
+
+ it("加载更多：按 offset 追加下一页；不足一页时按钮消失", async () => {
+  const page1 = Array.from({ length: 24 }, (_, i) => wish(`w-${i}`));
+  wallQuery.mockResolvedValueOnce({ data: { flashbackPublicWishes: page1 } });
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w-0");
+  expect(screen.getByRole("button", { name: "加载更多" })).toBeInTheDocument();
+
+  wallQuery.mockResolvedValueOnce({ data: { flashbackPublicWishes: [wish("w-24")] } });
+  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+  await screen.findByText("愿望 w-24");
+  expect(wallQuery.mock.calls[1][0].variables.offset).toBe(24);
+  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+ });
+});
+
+// L1：未登录写愿望的登录回跳保留城市与单条直达上下文
+// PR #960 评审 3：城市钉数据源 = flashbackWishCities（全集），
+// 收成每页 24 条之后城市栏不随已加载页变残
+describe("城市钉真源", () => {
+ it("城市钉来自 flashbackWishCities，不在已加载页里的城市也在列", async () => {
+  render(<WishesWall showIntro={false} />);
+  await screen.findByText("愿望 w1");
+  // MapScene 城市钉按钮：aria-label = 城市名
+  expect(screen.getByRole("button", { name: "宁波" })).toBeInTheDocument();
+ });
+});
+
+describe("写愿望登录回跳", () => {
+ it("next 带当前城市与 ?item= 单条", async () => {
+  render(<WishesWall showIntro={false} initialItem={wish("w-item")} initialCity="北京" />);
+  const link = await screen.findByRole("link", { name: /写下我的愿望/ });
+  expect(link.getAttribute("href")).toContain("next=%2Fflashback%2Fwishes%3Fcity%3D");
+  expect(link.getAttribute("href")).toContain("item%3Dw-item");
+ });
+});
+
+// N10/M2：承诺不存在的「新进展提醒」文案已删——组件不得再引用，文案不得回流。
+describe("文案守卫", () => {
+ it("不再承诺可选择接收提醒", () => {
+  const source = readFileSync(fileURLToPath(new URL("./wishes-wall.tsx", import.meta.url.split("?")[0])), "utf8");
+  expect(source).not.toContain("remindHint");
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  expect(JSON.stringify(zh)).not.toContain("可选择接收提醒");
+ });
 });

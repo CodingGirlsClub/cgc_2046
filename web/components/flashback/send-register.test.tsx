@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
@@ -30,6 +32,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/apollo-client", () => ({
 	client: { mutate: vi.fn() },
 }));
+
+const { auth } = vi.hoisted(() => ({ auth: vi.fn() }));
+vi.mock("@/lib/auth-provider", () => ({ useAuthed: auth }));
 
 const TODAY_TEXTS = {
 	nowStatus: "我在写代码，忽然想起当年跳闸的夜。",
@@ -92,6 +97,7 @@ function renderStep(
 			onAdjustTodayFog={handlers.onAdjustTodayFog}
 			onRegisterBind={handlers.onRegisterBind}
 			onRequestPhoneCode={handlers.onRequestPhoneCode}
+			onClaim={vi.fn()}
 			onBack={handlers.onBack}
 			onDone={handlers.onDone}
 		/>,
@@ -104,6 +110,7 @@ afterEach(() => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	auth.mockReturnValue({ authed: false, confirmed: true });
 });
 
 describe("SendRegister 寄出检查步：today 逐句雾选", () => {
@@ -248,8 +255,91 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 		fireEvent.change(await screen.findByLabelText("手机号"), { target: { value: "13900000001" } });
 		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
 		fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "123456" } });
-		fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+		fireEvent.click(screen.getByRole("button", { name: "收好这张卡" }));
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(copy);
 	});
+});
+
+
+describe("收好账号归属", () => {
+ it("已登录时只调用一键收好，成功后进入长廊，不出现手机号表单", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  const h = makeHandlers([]); const claim = vi.fn().mockResolvedValue(true);
+  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
+  expect(await screen.findByRole("button", { name: /^进入时间长廊/ })).toBeInTheDocument();
+  expect(claim).toHaveBeenCalledOnce();
+  expect(h.onRegisterBind).not.toHaveBeenCalled();
+  expect(h.onRequestPhoneCode).not.toHaveBeenCalled();
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+ });
+ it("已有主人时不出现手机号表单，给登录出口", async () => {
+  const h = makeHandlers([]);
+  render(<SendRegister form={FORM} answers={[]} {...h} bound onClaim={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  expect(await screen.findByText("这张卡已经收进账号，登录即可查看。")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+ });
+ it("一键收好被拒时保留重试与登录出口", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  const h = makeHandlers([]); const claim = vi.fn().mockRejectedValue({ errors: [{ code: "flashback_recover_account_conflict" }] });
+  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
+  expect(await screen.findByRole("alert")).toHaveClass("fb-error");
+  expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
+  expect(screen.getByRole("button", { name: "收进当前账号" })).toBeEnabled();
+ });
+});
+
+// PR #960 评审 2：登录链接只属于「收好动作被拒（卡属于别的账号）」这一支；
+// 寄出失败页与验证码错误只显示错误 + 重试。
+describe("错误里的登录出口（PR #960 评审 2）", () => {
+ it("寄出失败页：只有错误和重试，无登录链接", async () => {
+  const handlers = makeHandlers([], { adjustTodayFogOk: false });
+  renderStep(handlers);
+  fireEvent.click(screen.getByText(/谢谢你们当年拉我进教室/).closest("button")!);
+  fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "登录" })).not.toBeInTheDocument();
+ });
+
+ it("验证码错误：只有错误和重试，无登录链接", async () => {
+  const handlers = makeHandlers([]);
+  handlers.onRegisterBind.mockRejectedValue({ errors: [{ message: "x", extensions: { code: "invalid_or_expired_code" } }] });
+  renderStep(handlers);
+  fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+  fireEvent.change(await screen.findByLabelText("手机号"), { target: { value: "13900000001" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
+  fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "000000" } });
+  fireEvent.click(screen.getByRole("button", { name: "收好这张卡" }));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "登录" })).not.toBeInTheDocument();
+ });
+
+ it("收好冲突（未登录）：错误下方给登录链接（回跳长廊）", async () => {
+  const handlers = makeHandlers([]);
+  handlers.onRegisterBind.mockRejectedValue({ errors: [{ message: "x", extensions: { code: "flashback_recover_account_conflict" } }] });
+  renderStep(handlers);
+  fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+  fireEvent.change(await screen.findByLabelText("手机号"), { target: { value: "13900000001" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
+  fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "收好这张卡" }));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
+ });
+});
+
+// N10：收好邀请语不得再承诺「附议的场成真时收到通知」——该通知能力不存在。
+describe("文案守卫", () => {
+ it("registerPitch 不再承诺附议成真通知", () => {
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  const pitch = zh.flashback.sendRegister.registerPitch;
+  expect(pitch).toContain("收好");
+  expect(pitch).not.toContain("成真时收到通知");
+ });
 });

@@ -11,6 +11,8 @@ import {
 } from "@/lib/graphql/flashback";
 import Corridor, { useWideCorridor } from "./corridor";
 import CardExport from "./card-export";
+import QuoteLicensePanel from "./quote-license-panel";
+import AnswersFog from "./answers-fog";
 import DeleteAccount from "./delete-account";
 import InvalidToken from "./invalid-token";
 import { useStageTitleFocus } from "./use-reduced-motion";
@@ -51,7 +53,7 @@ function useAlbumNotice(sent: boolean | null, scopeId: string | null): [boolean,
 type CapsuleState =
 	| { phase: "loading" }
 	| { phase: "invalid"; reason: "flashback_token_not_found" | "flashback_token_claimed" | "flashback_token_revoked" }
-	| { phase: "authRequired" }
+	| { phase: "authRequired"; signedIn: boolean }
 	| { phase: "error" }
 	| { phase: "ok"; token: string | null; capsule: FlashbackCapsule };
 
@@ -93,12 +95,24 @@ export default function CapsuleView() {
 			setState((prev) => (prev.phase === "ok" ? prev : { phase: "loading" })),
 		)
 
-		client
-			.query({ query: FLASHBACK_CAPSULE, variables: { token: held, city }, fetchPolicy: "network-only" })
-			.then(({ data }) => {
-				const capsule = data?.flashbackCapsule;
+		const load = (token: string | null) =>
+			client
+				.query({ query: FLASHBACK_CAPSULE, variables: { token, city }, fetchPolicy: "network-only" })
+				.then(({ data }) => ({ token, capsule: data?.flashbackCapsule }));
+
+		load(held)
+			.catch((error) => {
+				// 收好（任一路径）会作废档案的全部链接，会话里那条随之失效：丢掉它、改用登录身份重拉。
+				// 不看 useAuthed——手机号收好刚换过会话，登录态上下文可能还是旧值；重拉失败再落失效页。
+				if (held && graphqlErrorDetails(error)?.code === "flashback_token_claimed") {
+					window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+					return load(null).catch(() => Promise.reject(error));
+				}
+				throw error;
+			})
+			.then(({ token, capsule }) => {
 				if (capsule) {
-					setState({ phase: "ok", token: held, capsule });
+					setState({ phase: "ok", token, capsule });
 					return;
 				}
 				// null 不该出现（手写 field 失败走顶层错误）——防御态
@@ -114,7 +128,7 @@ export default function CapsuleView() {
 					window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
 					setState({ phase: "invalid", reason: code });
 				} else if (code === "flashback_auth_required" || code === "flashback_person_not_bound") {
-					setState({ phase: "authRequired" });
+					setState({ phase: "authRequired", signedIn: code === "flashback_person_not_bound" });
 				} else {
 					setState({ phase: "error" });
 				}
@@ -123,7 +137,7 @@ export default function CapsuleView() {
 
 	if (state.phase === "loading") {
 		return (
-			<div className="fb-root fb-stage" role="status">
+			<div className="fb-root fb-stage fb-paper-page" role="status">
 				{t("loading")}
 			</div>
 		);
@@ -131,7 +145,7 @@ export default function CapsuleView() {
 
 	if (state.phase === "invalid") {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={state.reason} />
 			</div>
 		);
@@ -139,13 +153,18 @@ export default function CapsuleView() {
 
 	if (state.phase === "authRequired") {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
-					{t("authRequiredTitle")}
+					{t(state.signedIn ? "unboundTitle" : "authRequiredTitle")}
 				</h2>
-				<p className="fb-lead">{t("authRequiredBody")}</p>
+				<p className="fb-lead">{t(state.signedIn ? "unboundBody" : "authRequiredBody")}</p>
 				<div className="fb-invalid-actions">
-					<Link href="/flashback">{t("authRequiredAction")}</Link>
+					{!state.signedIn && <Link href="/login?next=%2Fflashback%2Fcapsule">{t("login")}</Link>}
+					<Link href="/flashback#recover">{t("authRequiredAction")}</Link>
+					{state.signedIn && <>
+						<Link href="/flashback/wishes">{t("writeWish")}</Link>
+						<Link href="/flashback/wishes/mine">{t("myWishes")}</Link>
+					</>}
 				</div>
 			</div>
 		);
@@ -210,7 +229,11 @@ export default function CapsuleView() {
 				{wide ? t("scrollHintWide", { city: city ?? t("cityAllWide") }) : t("scrollHint")}
 			</p>
 			<Corridor capsule={capsule} cityFiltered={city !== null} token={token} onChanged={reload} />
-			<CardExport me={capsule.me} token={token} />
+			<CardExport me={capsule.me} />
+			<div className="fb-today-actions">
+				<AnswersFog me={capsule.me} token={token} onChanged={reload} />
+			</div>
+			<QuoteLicensePanel me={capsule.me} token={token} onChanged={reload} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>
 				<DeleteAccount token={token} />
