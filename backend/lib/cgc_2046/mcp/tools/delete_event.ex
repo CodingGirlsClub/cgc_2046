@@ -31,6 +31,18 @@ defmodule Cgc2046.Mcp.Tools.DeleteEvent do
   alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner 或平台管理员专用（Admin 不行）：永久删除一场草稿（draft）活动，不可恢复，slug 立即
+    释放。主理人、赞助、讲者邀请、邀请批次一并删除，进行中的讲者邀请流程终止，确认摘要会列出这些
+    影响。已开放过的活动不能删除，要用 close_event / cancel_event。活动不是 draft 时直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "待删除活动 ID（UUID，须为 draft）")

@@ -28,6 +28,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
 
   @sources ~w(tool_calls pending_operations admin_actions)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：读取审计日志。source 必选其一：tool_calls（MCP 工具调用：谁、哪个工具、结果、
+    耗时）、pending_operations（确认流待办：谁、哪个工具、确认状态）、admin_actions（治理操作：谁、
+    动作、目标、结果）。只返回操作元数据，不含调用参数、学员证据或回答正文。按时间倒序，最多 50 条。
+    """
+  end
+
   schema do
     field(:source, {:required, :string},
       description:

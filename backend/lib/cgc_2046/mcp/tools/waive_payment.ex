@@ -21,6 +21,17 @@ defmodule Cgc2046.Mcp.Tools.WaivePayment do
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：为一条待支付（payment_pending）的报名免缴，跳过支付直接确认，关联的待支付
+    订单同时作废。报名不是 payment_pending 时直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

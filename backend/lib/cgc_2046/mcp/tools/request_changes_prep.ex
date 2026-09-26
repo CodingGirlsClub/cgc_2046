@@ -15,6 +15,16 @@ defmodule Cgc2046.Mcp.Tools.RequestChangesPrep do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：审核时退回修改，只在课程教研流程处于 review 时可用。审核人（教研策略指定的
+    reviewer，未指定时任何工作台成员）或 Owner/Admin 可用。reason 必填，写明需要修改什么；流程回到
+    authoring，每次退回的理由都会累积保留。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

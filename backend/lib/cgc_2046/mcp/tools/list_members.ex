@@ -8,6 +8,15 @@ defmodule Cgc2046.Mcp.Tools.ListMembers do
 
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    列出工作台成员及其角色，每位成员返回 membership_id（assign_roles 使用）/ user_id / roles
+    （角色名列表）。Owner/Admin 看到全部成员，其他成员只看到自己。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
   end

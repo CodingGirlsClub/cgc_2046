@@ -10,6 +10,16 @@ defmodule Cgc2046.Mcp.Tools.ListEventModerators do
   alias Cgc2046.Events.Moderators
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：列出一场活动的主理人。每条含记录 id（移除时作为 remove_event_moderator 的
+    moderator_id）、user_id、user_display_name（未设置时为 null）和 user_member_number（CGC 编号，
+    恒有值），可据此告诉用户指派给了谁。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "目标活动 ID（UUID）")

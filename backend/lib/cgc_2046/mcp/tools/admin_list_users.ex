@@ -18,6 +18,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListUsers do
   alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：列出用户，search 按邮箱或显示名模糊匹配（可选）。按注册时间倒序，最多 50 条。
+    返回 id / email / display_name / is_platform_admin / inserted_at；小程序手机号注册的用户 email
+    可能为空。
+    """
+  end
+
   schema do
     field(:search, :string, description: "按邮箱 / 显示名模糊过滤（可选）")
   end

@@ -21,6 +21,19 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    审核通过并发布课程，只在课程的教研流程处于 review 时可用。审核人是教研策略指定的 reviewer（未指定
+    时任何工作台成员都可审，允许 tutor 自审），或 Owner/Admin。通过后生成一个不可变的新课程版本并发布：
+    课程还是 draft 时开放报名，已开放的课程切换到新版本；教研流程进入 published。确认与当前草稿版本
+    绑定：确认前草稿被改动，本次确认失效，需要对新草稿重新审核。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

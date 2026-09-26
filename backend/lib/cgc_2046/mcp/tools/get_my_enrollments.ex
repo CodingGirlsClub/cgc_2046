@@ -45,6 +45,20 @@ defmodule Cgc2046.Mcp.Tools.GetMyEnrollments do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    列出当前用户的全部报名（所有状态、所有工作台），无参数，不需要 workspace_id，最多 100 条。每行带
+    workspace_id（打开详情时使用）和宿主工作台信息（邀请制工作台对非成员显示为 null）。资金信息有两类，
+    不要混用：payment_mode 是活动或课程的现行缴费配置，读不到时为 null（不代表免费）；order_kind
+    （enrollment | deposit）与 tier_snapshot 是该报名最新订单的事实。活动事后关闭押金后 payment_mode 会
+    变成 free，但已付的押金单仍是押金单，到场仍会退还，所以讲某笔报名的资金或退改时以 order_kind 和
+    tier_snapshot 为准；tier_snapshot.name 只是展示名，不能据它判断是不是押金。押金金额用
+    get_enrollment_summary 查。
+    """
+  end
+
   schema do
     %{}
   end
