@@ -395,4 +395,56 @@ defmodule Cgc2046.Reconciliation.ScanDetections do
       }
     }
   end
+
+  # ── 规17：refunding 订单无在途退款 job（#862）--------------------------------
+
+  # C2（#845）把「进 refunding 即同事务恰好入队一次」收进 Order action 后，
+  # 「refunding 而队列无在途任务」只剩任务侧被人工删除 / 重试耗尽丢弃等极端
+  # 运维场景（丢弃行可见性由规 6 死信白名单补，本规则看在途缺失本身）。
+  # 在途 state 口径 = Oban :incomplete 的 Postgres 子集（job.ex
+  # unique_states(:incomplete) 还含 suspended，但那是隔离引擎语义，生产
+  # Postgres 引擎不产生）：available / scheduled / executing / retryable。
+  # 15 分钟宽限纯防御——同事务入队下理论零宽限即可。
+  @refund_grace_minutes 15
+  @refund_inflight_job_states ~w(available scheduled executing retryable)
+  @refund_worker "Cgc2046.Payments.Workers.PaymentRefundWorker"
+
+  # 白名单只读访问器（ADR-0010 W1 同 dead_letter_workers/0）：worker 改名后
+  # 字符串易漂移，测试经本函数断言与真实模块一致，杜绝「字符串漂移→规 17 失明」。
+  @doc false
+  def refund_worker, do: @refund_worker
+
+  def detect_refunding_without_refund_job do
+    cutoff = DateTime.add(DateTime.utc_now(), -@refund_grace_minutes * 60, :second)
+
+    {:ok, %{rows: rows}} =
+      Repo.query(
+        """
+        SELECT o.id::text, o.workspace_id::text
+        FROM payments_orders o
+        WHERE o.status = 'refunding'
+          AND o.updated_at < $3
+          AND NOT EXISTS (
+            SELECT 1
+            FROM oban_jobs j
+            WHERE j.worker = $1
+              AND j.args->>'order_id' = o.id::text
+              AND j.state = ANY($2)
+          )
+        """,
+        [@refund_worker, @refund_inflight_job_states, cutoff]
+      )
+
+    Enum.map(rows, fn [order_id, workspace_id] ->
+      %{
+        entity_type: :payment_order,
+        entity_id: order_id,
+        workspace_id: workspace_id,
+        detail: %{
+          status: "refunding",
+          hint: "订单停在 refunding 且队列无在途退款任务，可用 retry_refund 重入退款链"
+        }
+      }
+    end)
+  end
 end

@@ -68,7 +68,13 @@ defmodule Cgc2046.Reconciliation.Finding do
     # 规16（#545）：单场押金没收批量告警——forfeited 押金单计数 ≥5 的场
     # （状态性口径：命中条件持续到 unforfeit 救济降到阈值下，刷新语义自愈）。
     # 由 DepositForfeitWorker 产出（同规14 宿主，非本扫描 worker 的规则表）
-    :deposit_forfeit_batch_alert
+    :deposit_forfeit_batch_alert,
+    # 规17（#862）：refunding 订单无在途退款 job——C2（#845）把「进 refunding
+    # 即同事务入队」收进 Order action 后，任务被人工删除/重试耗尽丢弃等极端
+    # 运维场景的卡单看护（丢弃可见性另由规 6 死信白名单补）；15 分钟宽限
+    # 纯防御（同事务入队理论零宽限），处置 = retry_refund 重入或订单离开
+    # refunding 后下一拍自消
+    :refunding_without_refund_job
   ]
   # 合法规则枚举的对外读面（admin_list_reconciliation_findings 过滤校验消费；
   # @doc false public 先例同 Runs.fetch_learning_definition）

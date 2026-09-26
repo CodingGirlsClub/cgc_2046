@@ -5,7 +5,7 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
   收编四个生产方的全部规则（各 worker 仍是生产者，Finding 产出调用方式
   均不变）：
 
-  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍，14 条
+  - `ReconciliationScanWorker` — Oban cron 每 10 分钟全量拍，15 条
   - `DepositForfeitWorker` — 押金 no-show 结算链回调产出，2 条（KTD7/#545）
   - `PaymentSettlementWorker` — 支付回调落账时单事件拍，1 条（R20）
   - `PaymentReconciliationWorker` — Oban 夜间 T+1 渠道账单对账，1 条（U13）
@@ -152,6 +152,17 @@ defmodule Cgc2046.Reconciliation.RulesRegistry do
         "通知 outbox 终态失败面（#556）：24h 内落 :failed 的 notification_deliveries 行" <>
           "逐行出 Finding（entity = :notification_delivery）；窗口语义自清——超窗未命中删除；" <>
           "终态化本体在 DeliveryWorker 末拍",
+      sweep: :full,
+      producer: ReconciliationScanWorker
+    },
+    %{
+      id: :refunding_without_refund_job,
+      desc:
+        "refunding 订单无在途退款 job（#862）：进 refunding 即同事务入队 " <>
+          "PaymentRefundWorker（C2 #845），无在途任务 = 任务被人工删除或重试耗尽丢弃，" <>
+          "钱退不出去且无人发现；在途 state = available/scheduled/executing/retryable" <>
+          "（Oban :incomplete 的 Postgres 子集），15 分钟宽限纯防御；" <>
+          "处置：MCP retry_refund 重入退款链，或订单离开 refunding 后下一拍自消",
       sweep: :full,
       producer: ReconciliationScanWorker
     },
