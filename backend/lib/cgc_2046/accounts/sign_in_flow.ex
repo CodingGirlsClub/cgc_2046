@@ -10,6 +10,7 @@ defmodule Cgc2046.Accounts.SignInFlow do
   - `revoke_stored_tokens/1`：重登吊销 subject 全量已存 token（白名单能力）
   - `generate_token/3`：签 JWT（platform 可空——web 端登录无 platform claim）
   - `maybe_admit_to_default_workspace/2`：新用户默认工作台入座（降级语义）
+  - `check_openid_rate/2`：小程序登录按 openid 限流（#930；手机号登录与回访静默登录共用一个桶）
 
   内部数据操作统一走 ash_authentication 私有 context（与原实现一致）。
   """
@@ -21,8 +22,26 @@ defmodule Cgc2046.Accounts.SignInFlow do
   alias Ash.Query
   alias AshAuthentication.Jwt
   alias Cgc2046.Accounts.{MembershipContext, Token, User}
+  alias Cgc2046Web.Plugs.RateLimit
 
   @internal_opts [context: %{private: %{ash_authentication?: true}}]
+
+  # ── openid 限流（#930）──────────────────────────────────────────────
+
+  @doc """
+  计费防刷：同一 openid 15 分钟内的小程序登录次数（成败都计）。手机号登录（SignInPreparation，
+  code2session 之后、换手机号之前）与回访静默登录（PlatformIdentitySignIn）共用这一个桶——
+  IP 维度只剩宽松天花板（schema middleware），线下活动同一 WiFi 的多人各有各的 openid。
+  """
+  @spec check_openid_rate(atom(), String.t()) :: :ok | {:error, :rate_limited}
+  def check_openid_rate(platform, openid) do
+    key = RateLimit.build_key("rate:platform-sign-in:#{platform}:openid", openid)
+
+    case RateLimit.check(key, limit: :platform_sign_in_openid) do
+      :ok -> :ok
+      :error -> {:error, :rate_limited}
+    end
+  end
 
   # ── find-or-create（phone 锚定，抗并发）────────────────────────────────
 

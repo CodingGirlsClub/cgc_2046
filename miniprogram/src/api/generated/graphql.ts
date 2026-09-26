@@ -845,6 +845,14 @@ export type EnrollmentQueryVariables = Exact<{
 
 export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, depositAmountCents: number | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
+export type SignInWithPlatformIdentityMutationVariables = Exact<{
+  platform: string;
+  code: string;
+}>;
+
+
+export type SignInWithPlatformIdentityMutation = { signInWithPlatformIdentity: { id: string, email: string | null, isPlatformAdmin: boolean } | null };
+
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
   code: string;

@@ -21,7 +21,6 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
   alias AshAuthentication.Errors.AuthenticationFailed
   alias Cgc2046.Accounts.{SignInFlow, UserIdentity}
   alias Cgc2046.Integrations.Wechat.Client
-  alias Cgc2046Web.Plugs.RateLimit
 
   require Logger
 
@@ -65,7 +64,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
     iv = Query.get_argument(query, :iv)
 
     with {:ok, session} <- Client.code2session(platform, code),
-         :ok <- check_openid_rate(platform, session),
+         :ok <- SignInFlow.check_openid_rate(platform, session.openid),
          {:ok, phone} <- fetch_phone(platform, session, phone_code, encrypted_data, iv),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
@@ -73,17 +72,6 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
          :ok <- SignInFlow.revoke_stored_tokens(user, platform),
          {:ok, user} <- SignInFlow.generate_token(user, platform, context) do
       {:ok, user}
-    end
-  end
-
-  # #930 计费防刷：同一 openid 15 分钟内的登录次数（成败都计）。IP 维度只剩宽松天花板
-  # （schema middleware），真正的防刷在这里——线下活动同一 WiFi 的多人各有各的 openid。
-  defp check_openid_rate(platform, %{openid: openid}) do
-    key = RateLimit.build_key("rate:platform-sign-in:#{platform}:openid", openid)
-
-    case RateLimit.check(key, limit: :platform_sign_in_openid) do
-      :ok -> :ok
-      :error -> {:error, :rate_limited}
     end
   end
 

@@ -731,6 +731,8 @@ export interface MiniProgramApi {
   getContent(kind: ContentKind, id: string): Promise<CatalogItem>
   getSession(): Promise<SessionSnapshot>
   signIn(payload: PlatformPhonePayload): Promise<SessionSnapshot>
+  /** #930 回访静默登录：已绑定本平台身份 → 会话；未绑定或已主动退出 → null（退回手机号登录） */
+  signInSilently(loginCode: string): Promise<SessionSnapshot | null>
   signOut(): Promise<void>
   getEnrollments(): Promise<EnrollmentSummary[]>
   /** #355 P1-4：按 id 回查单条本人报名（服务端过滤）；查无 → null */

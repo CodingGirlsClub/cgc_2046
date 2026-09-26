@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { __setFlashbackUnclaimed, __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
+import { __setFlashbackUnclaimed, __setPlatformIdentityBound, __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
 import {
   CatalogQueryDocument,
   CatalogSearchQueryDocument,
@@ -34,6 +34,7 @@ import {
   PublicInitiativesQueryDocument,
   SessionQueryDocument,
   SignInWithPlatformMutationDocument,
+  SignInWithPlatformIdentityMutationDocument,
   SignOutMutationDocument
 } from '../src/api/operations.ts'
 
@@ -305,6 +306,20 @@ test('mock 小程序内找回（#932）：发起同形；验证要求登录、�
   // 绑定后会话腿读胶囊即参与态
   assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
   __setFlashbackUnclaimed(false)
+})
+
+test('mock 回访静默登录（#930）：默认本平台未绑定身份（不影响既有 e2e 的手机号登录流程）；绑定后一步登录', () => {
+  type Result = { errors?: Array<{ code: string }>; signInWithPlatformIdentity?: { id: string } }
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const unbound = mockGraphQLRequest<Result>(SignInWithPlatformIdentityMutationDocument, { platform: 'wechat', code: 'c' })
+  assert.equal(unbound.errors?.[0]?.code, 'platform_identity_not_found')
+  assert.equal(mockGraphQLRequest<{ errors?: unknown[] }>(FlashbackCapsuleQueryDocument, {}).errors?.length, 1, '未绑定时仍是未登录')
+
+  __setPlatformIdentityBound(true)
+  const bound = mockGraphQLRequest<Result>(SignInWithPlatformIdentityMutationDocument, { platform: 'wechat', code: 'c' })
+  assert.equal(bound.signInWithPlatformIdentity?.id, 'user-1')
+  assert.equal(mockGraphQLRequest<{ errors?: unknown[] }>(FlashbackCapsuleQueryDocument, {}).errors, undefined, '静默登录后即已登录')
+  __setPlatformIdentityBound(false)
 })
 
 type AlbumRoster = { surnameMasked: string; fullName: string | null; city: string | null; occupationThen: string | null; sentToWallAt: string | null }

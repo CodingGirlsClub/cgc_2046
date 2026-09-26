@@ -44,6 +44,12 @@ vi.mock('../src/state/workspaceTab', () => ({
   rememberWorkspaceTab: mocks.rememberWorkspaceTab
 }))
 
+// real.ts 引用的 state 模块都 import @tarojs/taro（vitest 里缺构建期全局量）：与 accountState 一样整块 mock
+vi.mock('../src/state/silentLogin', () => ({
+  silentLoginAllowed: () => true,
+  setSilentLoginAllowed: () => undefined
+}))
+
 vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
   clearAccountState: mocks.clearAccountState,

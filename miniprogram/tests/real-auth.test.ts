@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   appendLocalNotification: vi.fn(),
   readLocalNotifications: vi.fn(),
   currentPlatform: vi.fn(),
+  silentLoginAllowed: vi.fn(),
+  setSilentLoginAllowed: vi.fn(),
   // 与 src/api/client.ts 同构:real.ts instanceof 判定用(真模块有 Taro 副作用,不 importOriginal)
   GraphQLRequestError: class extends Error {
     statusCode: number
@@ -38,6 +40,7 @@ vi.mock('../src/api/client', () => ({
 vi.mock('../src/api/operations', () => ({
   SessionQueryDocument: 'SESSION_QUERY',
   SignInWithPlatformMutationDocument: 'SIGN_IN_MUTATION',
+  SignInWithPlatformIdentityMutationDocument: 'SIGN_IN_IDENTITY_MUTATION',
   SignOutMutationDocument: 'SIGN_OUT_MUTATION',
   CatalogQueryDocument: 'CATALOG',
   EventDetailQueryDocument: 'EVENT_DETAIL',
@@ -75,6 +78,11 @@ vi.mock('../src/platform', () => ({
   currentPlatform: mocks.currentPlatform
 }))
 
+vi.mock('../src/state/silentLogin', () => ({
+  silentLoginAllowed: mocks.silentLoginAllowed,
+  setSilentLoginAllowed: mocks.setSilentLoginAllowed
+}))
+
 import { RealMiniProgramApi, SessionExpiredError } from '../src/api/real'
 import { BusinessError } from '../src/api/business-error'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError } from '../src/domain/models'
@@ -94,6 +102,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.currentPlatform.mockReturnValue('weapp')
   mocks.isAuthenticationError.mockReturnValue(false)
+  mocks.silentLoginAllowed.mockReturnValue(true)
 })
 
 describe('sign-in 两阶段事务', () => {
@@ -143,6 +152,56 @@ describe('sign-in 两阶段事务', () => {
     const api = new RealMiniProgramApi()
     await expect(api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })).rejects.toThrow('登录太频繁了，请稍后再试。')
     expect(mocks.graphqlRequest.mock.calls.some((call: unknown[]) => call[0] === 'SESSION_QUERY')).toBe(false)
+  })
+})
+
+// #930 回访静默登录：已绑定本平台身份的账号只用 wx.login 的 code——不弹协议框、不走计费的手机号授权
+describe('signInSilently 回访静默登录', () => {
+  it('已绑定身份 → 签发会话并水合（不经手机号）', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) => {
+      if (doc === 'SIGN_IN_IDENTITY_MUTATION') return Promise.resolve({})
+      if (doc === 'SESSION_QUERY') return Promise.resolve(sessionData())
+      return Promise.resolve({})
+    })
+    const session = await new RealMiniProgramApi().signInSilently('login-code')
+    expect(session?.user?.id).toBe('u-42')
+    const [, variables] = mocks.graphqlRequest.mock.calls.find((call: unknown[]) => call[0] === 'SIGN_IN_IDENTITY_MUTATION') as [string, Record<string, unknown>]
+    expect(variables).toEqual({ platform: 'weapp', code: 'login-code' })
+    expect(mocks.graphqlRequest.mock.calls.some((call: unknown[]) => call[0] === 'SIGN_IN_MUTATION')).toBe(false)
+    expect(mocks.activateAccount).toHaveBeenCalledWith('u-42')
+  })
+
+  it('本平台还没绑定身份 → null（页面退回手机号登录），请求前的登录态原样还原', async () => {
+    mocks.getAuthToken.mockReturnValue('old-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) =>
+      doc === 'SIGN_IN_IDENTITY_MUTATION'
+        ? Promise.reject(new mocks.GraphQLRequestError('No platform identity bound yet', 200, [
+            { message: 'No platform identity bound yet', code: 'platform_identity_not_found' }
+          ]))
+        : Promise.resolve(sessionData())
+    )
+    expect(await new RealMiniProgramApi().signInSilently('login-code')).toBeNull()
+    expect(mocks.setAuthToken).toHaveBeenLastCalledWith('old-token')
+    expect(mocks.clearAccountState).not.toHaveBeenCalled()
+  })
+
+  it('主动退出后不静默：不发请求直接 null（下一次登录走手机号，方便换账号）', async () => {
+    mocks.silentLoginAllowed.mockReturnValue(false)
+    expect(await new RealMiniProgramApi().signInSilently('login-code')).toBeNull()
+    expect(mocks.graphqlRequest).not.toHaveBeenCalled()
+  })
+
+  it('主动退出关掉静默；手机号登录成功后恢复', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.graphqlRequest.mockImplementation((doc: string) =>
+      Promise.resolve(doc === 'SESSION_QUERY' ? sessionData() : {})
+    )
+    const api = new RealMiniProgramApi()
+    await api.signOut()
+    expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
+    await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
+    expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(true)
   })
 })
 
