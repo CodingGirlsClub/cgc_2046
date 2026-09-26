@@ -6,6 +6,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
 
   步骤：
   1. code2session → openid/unionid/session_key（`Cgc2046.Integrations.Wechat.Client`）
+  1a. 按 openid 限流（#930 计费防刷：换手机号之前拦下，被拦的请求不打计费的手机号接口）
   2. session_key 解密手机号（无手机号不建号——Q2：平台验证手机号为 User 锚）
   3. find-or-create User by phone（`Cgc2046.Accounts.SignInFlow`，plan 002 U3 抽取）
   4. upsert UserIdentity（provider/uid/unionid；换绑手机号时随新锚重指向）
@@ -63,6 +64,7 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
     iv = Query.get_argument(query, :iv)
 
     with {:ok, session} <- Client.code2session(platform, code),
+         :ok <- SignInFlow.check_openid_rate(platform, session.openid),
          {:ok, phone} <- fetch_phone(platform, session, phone_code, encrypted_data, iv),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
@@ -120,17 +122,20 @@ defmodule Cgc2046.Accounts.Strategies.Miniprogram.SignInPreparation do
 
   # ── 统一认证失败（防枚举；reason 为净化后的原子/错误码，不含敏感值）─────
 
+  # 限流（#930）单独带 reason，供 GraphQL 层如实回 rate_limited；其余原因只进日志。
   defp authentication_failed(query, reason) do
     Logger.warning("[miniprogram sign_in] failed: #{inspect(reason)}")
 
     AuthenticationFailed.exception(
       strategy: :miniprogram,
       query: query,
-      caused_by: %{
-        module: __MODULE__,
-        action: :sign_in,
-        message: "Platform sign in failed"
-      }
+      caused_by:
+        %{
+          module: __MODULE__,
+          action: :sign_in,
+          message: "Platform sign in failed"
+        }
+        |> then(&if(reason == :rate_limited, do: Map.put(&1, :reason, :rate_limited), else: &1))
     )
   end
 end

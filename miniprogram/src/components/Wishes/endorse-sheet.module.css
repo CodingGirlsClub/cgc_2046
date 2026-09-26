@@ -24,3 +24,17 @@
 .receiptCopy { display: block; color: #53634d; font-size: 27rpx; line-height: 1.7; margin: 16rpx 0 28rpx; }
 .reminderRetry { margin: 0 0 16rpx; border-radius: 12rpx; background: #dfe7d4; color: #173c32; font-size: 28rpx; }
 .receiptDone { background: #204b3b; color: white; border-radius: 12rpx; font-size: 30rpx; }
+
+/* ── 换肤（盘点 §7）：长廊与许愿树同一套——纸面板、选中的出力类型是墨（选择），
+   「提交附议」是唯一的火（未选出力类型时半透明）。覆盖前文两套配色（橙 / 深绿） ── */
+.endorseMask { background: rgba(21, 19, 15, 0.62); }
+.sheet, .paper .sheet { background: var(--paper-hi); }
+.title, .receiptTitle { color: var(--ink); font-family: var(--serif); font-weight: 500; }
+.close, .preview, .contact, .receiptCopy { color: var(--ink-2); }
+.endorseChip { color: var(--ink-2); background: var(--paper-deep); }
+.selected, .paper .selected { color: var(--paper-hi); background: var(--ink); }
+.message { background: var(--paper-deep); }
+.endorseNotify { color: var(--ink); }
+.endorseSubmit, .paper .endorseSubmit, .receiptDone { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); border-radius: 999rpx; }
+.endorseSubmit[disabled] { opacity: 0.45; }
+.reminderRetry { color: var(--ink); background: var(--paper-deep); }

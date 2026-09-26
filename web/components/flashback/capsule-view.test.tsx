@@ -81,6 +81,8 @@ cities: ["北京"],
 			appliedCount: 344,
 			attendedCount: 102,
 			isMine: false,
+			// #933 城市堆由服务端聚合（计入未寄出者）
+			piles: [{ city: "北京", count: 2, returned: 1 }],
 			roster: [
 				rosterEntry({ id: "sent-1", surnameMasked: "李*", fullName: "李雷", appliedAt: "2014-01-05T05:06:00Z", sentToWallAt: "2026-09-10T00:00:00Z", today: { nowStatus: null, want: "想参加骑行", say: null }, answers: [{ questionKey: "self_intro", segments: [{ text: "", fog: true, len: 3 }, { text: "。喜欢周末骑行。", fog: false, len: 0 }] }] }),
 				rosterEntry({ id: "quiet-1", surnameMasked: "王**" }),
@@ -122,7 +124,7 @@ describe("CapsuleView · 长廊城市堆（定稿 D）", () => {
 	it("每帧渲染城市堆：聚合计数 + 城市名 + 叙事标签（长廊不再有 .fb-roster-*，入口为堆链接）", async () => {
 		await renderCapsule();
 
-		// baseCapsule 名册 2 人同城 → 1 堆「北京 · 2 位」
+		// baseCapsule 服务端聚合 1 堆（2 人同城）→「北京 · 2 位」
 		const piles = screen.getAllByTestId("fb-corridor-pile");
 		expect(piles).toHaveLength(1);
 		expect(piles[0].dataset.city).toBe("北京");
@@ -173,7 +175,7 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 	});
 
-	it("已寄出 + 登录态无 token：撤下不渲染（retract 现为 token 面），编辑恒在", async () => {
+	it("已寄出 + 登录态无 token：撤下照常渲染（#931 起 retract 双入口），编辑恒在", async () => {
 		window.history.replaceState({}, "", "/flashback/capsule");
 		window.sessionStorage.clear();
 		capsuleQuery.mockReset();
@@ -182,7 +184,7 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		await screen.findByText("闪念间 · 时间长廊");
 
 		const today = screen.getByTestId("fb-today-slot");
-		expect(within(today).queryByRole("button", { name: "撤下" })).not.toBeInTheDocument();
+		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 		expect(within(today).getByRole("button", { name: "编辑今天的你" })).toBeInTheDocument();
 	});
 
@@ -221,6 +223,52 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		await waitFor(() => expect(today.dataset.sent).toBe("false"));
 		expect(today).toHaveTextContent("你的照片还没寄出");
 		expect(screen.getByRole("link", { name: "去寄出它 →" })).toHaveAttribute("href", "/flashback/enter");
+	});
+});
+
+// #933 相册开放告知（一次性，与小程序长廊同规则）
+describe("CapsuleView · 相册开放告知（#933）", () => {
+	beforeEach(() => window.localStorage.clear());
+
+	it("开放前就寄出的人：第一次回来看到告知；知道了 → 不再出现", async () => {
+		await renderCapsule();
+
+		const notice = screen.getByTestId("fb-album-notice");
+		expect(notice).toHaveTextContent("登录的人都能在这一场的相册里看到");
+		fireEvent.click(within(notice).getByRole("button", { name: "知道了" }));
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1");
+
+		cleanup();
+		await renderCapsule();
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+	});
+
+	it("进来时还没寄出：不告知且直接置位（寄出前会读到新的可见范围文案）", async () => {
+		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, today: { ...baseCapsule.me.today, sentToWallAt: null } } });
+
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1"));
+	});
+
+	// 告知按「人」一次性（Codex 评审）：同一浏览器换账号，另一个人该看到的还是要看到
+	it("换账号互不影响：me-1 知道后，me-2 第一次回来仍看到告知", async () => {
+		await renderCapsule();
+		fireEvent.click(within(screen.getByTestId("fb-album-notice")).getByRole("button", { name: "知道了" }));
+		cleanup();
+
+		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, id: "me-2" } });
+		expect(screen.getByTestId("fb-album-notice")).toBeInTheDocument();
+	});
+
+	// 旧版是设备级单键：已在该浏览器读过的人迁移到本人键，不重复打扰
+	it("旧设备级已读标记迁移到本人键：不再重复告知", async () => {
+		window.localStorage.setItem("flashback.album_notice_done", "1");
+
+		await renderCapsule();
+
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1"));
 	});
 });
 

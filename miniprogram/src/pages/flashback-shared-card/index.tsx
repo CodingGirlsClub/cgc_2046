@@ -21,7 +21,7 @@ import Taro, { useDidShow, useRouter, useShareAppMessage, useShareTimeline } fro
 import { api } from '@/api'
 import { PageState } from '@/components/PageState'
 import SharedFlashbackCard from '@/components/SharedFlashbackCard'
-import { buildFlashbackCardSharePath, buildFlashbackJourneyPath } from '@/domain/share-route'
+import { buildFlashbackCardSharePath, buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackSharedCard as SharedCard } from '@/domain/models'
 // 转发卡片图 = 品牌火苗（构建期保证资产存在），绝不截本人卡面
 import shareCardImage from '@/assets/brand/cgc-flame.png'
@@ -89,7 +89,7 @@ export default function FlashbackSharedCardPage() {
     // 标题刻意中性：转发文案里不带卡主身份（转发链会被继续转下去）。
     // 回调内零副作用：转发面板每次打开都会调用它。
     const title = '闪念间 · 一张卡'
-    if (!shareReady || !shareId) return { title, path: buildFlashbackJourneyPath(), imageUrl: shareCardImage }
+    if (!shareReady || !shareId) return { title, path: buildFlashbackEntryPath(), imageUrl: shareCardImage }
     return { title, path: buildFlashbackCardSharePath(shareId), imageUrl: shareCardImage }
   })
 
@@ -102,8 +102,9 @@ export default function FlashbackSharedCardPage() {
 
   const voicesLink = <Button className={styles.voicesLink} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>看更多声音 · 去金句墙 →</Button>
 
+  // #929：落闪念间 Tab（未登录看公开首页、有档案进自己的长廊）；Tab 页只能 switchTab
   const goJourney = () => {
-    void Taro.navigateTo({ url: buildFlashbackJourneyPath() })
+    void Taro.switchTab({ url: buildFlashbackEntryPath() })
   }
 
   if (mode.kind === 'loading') {

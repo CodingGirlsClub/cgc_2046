@@ -133,11 +133,11 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       # 圆梦线（当年报了名未入选）进名册——事实纪律：不是「没去」
       assert "赵**" in masked
 
-      # participation 透传到名册 DTO（名册徽标数据源）
+      # participation 只随已寄出者透出（名册徽标数据源）；未寄出者置空（#933 数据最小化）
       by_name = Map.new(archive_payload.roster, &{&1.surname_masked, &1.participation})
       assert by_name["王**"] == "attended"
-      assert by_name["李**"] == "attended"
-      assert by_name["赵**"] == "not_selected"
+      assert is_nil(by_name["李**"])
+      assert is_nil(by_name["赵**"])
 
       # 圆梦线 DTO 结构与学员同规则：未寄出 today=nil + answers=[]（结构化卡）
       dreamer_entry = Enum.find(archive_payload.roster, &(&1.id == dreamer.id))
@@ -288,6 +288,78 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
     end
   end
 
+  describe "相册开放（#933）" do
+    test "未寄出者只剩姓氏遮罩：城市 / 年份 / 当年职业 / 参与类型不下发；寄出者照常" do
+      archive = create_archive()
+      me = create_person(archive, %{city: "北京"})
+
+      quiet =
+        create_person(archive, %{
+          full_name: "李安静",
+          surname: "李",
+          city: "广州",
+          occupation_then: "设计",
+          participation: :not_selected
+        })
+
+      back =
+        create_person(archive, %{
+          full_name: "周回来",
+          surname: "周",
+          city: "上海",
+          occupation_then: "学生"
+        })
+
+      upsert_today(back, %{sent_to_wall_at: DateTime.utc_now()})
+
+      [payload] = capsule_for(issue_token(me)).archives
+      quiet_entry = Enum.find(payload.roster, &(&1.id == quiet.id))
+      assert quiet_entry.surname_masked == "李**"
+      assert is_nil(quiet_entry.city)
+      assert is_nil(quiet_entry.occupation_then)
+      assert is_nil(quiet_entry.participation)
+      assert is_nil(quiet_entry.full_name)
+      assert is_nil(quiet_entry.applied_at)
+      refute inspect(quiet_entry) =~ "广州"
+      refute inspect(quiet_entry) =~ "设计"
+
+      back_entry = Enum.find(payload.roster, &(&1.id == back.id))
+      assert back_entry.full_name == "周回来"
+      assert back_entry.city == "上海"
+      assert back_entry.occupation_then == "学生"
+      assert back_entry.participation == "attended"
+    end
+
+    test "城市堆服务端聚合：计入未寄出者、只数已寄出为已回来、空城市不成堆；人数降序 + 城市序" do
+      archive = create_archive()
+      me = create_person(archive, %{city: "北京"})
+      create_person(archive, %{full_name: "李一", surname: "李", city: "上海"})
+      two = create_person(archive, %{full_name: "李二", surname: "李", city: "上海"})
+      upsert_today(two, %{sent_to_wall_at: DateTime.utc_now()})
+      create_person(archive, %{full_name: "王空", surname: "王", city: "  "})
+
+      [payload] = capsule_for(issue_token(me)).archives
+
+      assert payload.piles == [
+               %{city: "上海", count: 2, returned: 1},
+               %{city: "北京", count: 1, returned: 0}
+             ]
+    end
+
+    test "viewer_archives：登录但无档案也能读相册（is_mine 恒 false、未寄出者同样遮罩）" do
+      archive = create_archive()
+      quiet = create_person(archive, %{full_name: "李安静", surname: "李", city: "广州"})
+
+      assert {:ok, %{archives: [payload], cities: cities}} = AlumniProjection.viewer_archives(nil)
+      refute payload.is_mine
+      entry = Enum.find(payload.roster, &(&1.id == quiet.id))
+      assert entry.surname_masked == "李**"
+      assert is_nil(entry.city)
+      assert payload.piles == [%{city: "广州", count: 1, returned: 0}]
+      assert "广州" in cities
+    end
+  end
+
   describe "身份双入口（R28 回访正门）" do
     test "无 token 未登录 → auth_required；登录未绑定 → not_bound" do
       assert {:error, %{code: "flashback_auth_required"}} =
@@ -412,7 +484,7 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
       refute "西安" in capsule2.cities
     end
 
-    test "city 过滤：roster 按人城市、筛空场次整架撤下；cities 不随过滤收缩" do
+    test "city 过滤：按人城市聚合城市堆、筛空场次整架撤下；名册只列已寄出者；cities 不随过滤收缩" do
       bj_archive =
         create_archive(%{key: "2014-01-11-bj", name: "Rails Girls Beijing", city: "北京"})
 
@@ -421,23 +493,28 @@ defmodule Cgc2046.Flashback.AlumniProjectionTest do
 
       me = create_person(bj_archive, %{city: "北京"})
       create_person(bj_archive, %{full_name: "李安静", surname: "李", city: "上海"})
+      back = create_person(bj_archive, %{full_name: "周回来", surname: "周", city: "上海"})
+      upsert_today(back, %{sent_to_wall_at: DateTime.utc_now()})
       create_person(sh_archive, %{full_name: "张广州", surname: "张", city: "广州"})
 
       capsule = capsule_for(issue_token(me), "上海")
 
-      # 名册按**人**的城市筛：北京场次里的上海人保留（场次城市是北京），
+      # 场次去留按**人**的城市聚合：北京场次里有上海人 → 保留（场次城市是北京）；
       # 上海场次无人命中（张广州是广州人）→ 整架撤下
       [only] = capsule.archives
       assert only.key == "2014-01-11-bj"
-      assert Enum.map(only.roster, & &1.surname_masked) == ["李**"]
+      assert only.piles == [%{city: "上海", count: 2, returned: 1}]
+
+      # #933：城市筛选只作用于已寄出者——未寄出的「李**」不因筛选暴露城市
+      assert Enum.map(only.roster, & &1.surname_masked) == ["周**"]
 
       # 钉条数据源不随过滤收缩（否则选定城市后其余钉消失，无法切回全部）
       assert capsule.cities == ["上海", "北京", "广州"]
 
-      # 未筛：全量名册（3 人 2 场）
+      # 未筛：全量名册（4 人 2 场，未寄出者以姓氏遮罩列入）
       all = capsule_for(issue_token(me))
       assert length(all.archives) == 2
-      assert Enum.map(all.archives, &length(&1.roster)) |> Enum.sum() == 3
+      assert Enum.map(all.archives, &length(&1.roster)) |> Enum.sum() == 4
     end
 
     test "空串 city 视为未筛（query 变量空串不筛）" do
