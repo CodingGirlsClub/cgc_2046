@@ -58,13 +58,20 @@ export async function preparePlatformLogin(
     return { loginCode: 'mock-login-code', encryptedData: 'mock-phone-data', iv: 'mock-iv' }
   }
 
-  // xhs：消费「授权弹层打开前」预取的登录码（session_key 时序约束见上方注释）；
-  // 缺失/过期才原地补取。weapp/tt 不受影响——phoneCode 契约不依赖 session_key，
-  // 回调内 login 是既有已验证行为，一字不动。
-  const login =
-    process.env.TARO_ENV === 'xhs'
-      ? { code: consumeStagedLoginCode() ?? (await Taro.login()).code }
-      : await Taro.login()
+  // xhs：只消费「授权弹层打开前」预取的登录码（session_key 时序约束见上方注释）。
+  // 预取缺失/过期时**不能**回调内原地补调 login——那会刷新 session_key，而加密数
+  // 据是旧 key 加密的，必然解密失败（评审 B2：重试/长停留场景）。正确做法：重新
+  // 预取（新 tap 的加密数据会用新 key），并请用户重新点按。weapp/tt 不受影响——
+  // phoneCode 契约不依赖 session_key，回调内 login 是既有已验证行为，一字不动。
+  if (process.env.TARO_ENV === 'xhs') {
+    const staged = consumeStagedLoginCode()
+    if (!staged) {
+      void stagePlatformLoginCode()
+      throw new Error('授权信息已过期，请重新点按「同意并登录」重试')
+    }
+    return finalizeXhsLogin(phonePayload, staged)
+  }
+  const login = await Taro.login()
   // weapp/tt 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
   // 直取手机号（wechat getuserphonenumber / tt get_phone_number），不要求
   // encryptedData/iv（也不该再触碰 session_key）。tt 新版基础库（3.51.0+）
@@ -83,6 +90,14 @@ export async function preparePlatformLogin(
     throw new Error('手机号授权数据不完整，请重新授权后重试')
   }
   return { ...phonePayload, loginCode: login.code, encryptedData, iv }
+}
+
+/** xhs 专用：消费预取码组装 legacy 三件套（encryptedData/iv 由平台回调带给本函数） */
+function finalizeXhsLogin(phonePayload: PlatformPhonePayload, stagedCode: string): PlatformPhonePayload {
+  if (!phonePayload.encryptedData || !phonePayload.iv) {
+    throw new Error('手机号授权数据不完整，请重新授权后重试')
+  }
+  return { ...phonePayload, loginCode: stagedCode, encryptedData: phonePayload.encryptedData, iv: phonePayload.iv }
 }
 
 /**

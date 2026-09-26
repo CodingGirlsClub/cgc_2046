@@ -70,3 +70,16 @@ describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
     assert.equal(cutJoinLanding('tt'), '/pages/my-enrollments/index')
   })
 })
+
+describe('profile-lite 闪念间入口导航方式（B1 回归守卫）', () => {
+  // 长廊在 xhs 是 Tab 页：navigateTo 静默失败——入口必须走 switchTab
+  test('profile-lite 用 switchTab 跳长廊', async () => {
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(new URL('../src/pages/profile-lite/index.tsx', import.meta.url), 'utf8')
+    assert.ok(
+      /switchTab\(\{ url: '\/pages\/flashback-corridor\/index'/.test(source),
+      'profile-lite 的闪念间入口应对 corridor 走 switchTab（navigateTo 对 Tab 页静默失败）'
+    )
+    assert.ok(!/navigateTo\(\{ url: '\/pages\/flashback-corridor\/index'/.test(source))
+  })
+})
