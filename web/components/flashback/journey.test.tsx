@@ -461,9 +461,9 @@ describe("Journey · 记忆线", () => {
 		expect(await screen.findByLabelText("验证码")).toBeInTheDocument();
 
 		fireEvent.change(screen.getByLabelText("验证码"), { target: { value: "123456" } });
-		fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+		fireEvent.click(screen.getByRole("button", { name: "收好这张卡" }));
 
-		expect(await screen.findByText("账号已接管")).toBeInTheDocument();
+		expect(await screen.findByText("卡已收好")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "进入时间长廊 →" }));
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
@@ -612,7 +612,7 @@ describe("Journey · 圆梦线", () => {
 });
 
 describe("Journey · 失效与回访", () => {
-	it("已注册（claimed）：引导登录并说明账号已接管", async () => {
+	it("已注册（claimed）：引导登录并说明卡已收好", async () => {
 		mockEnterReject({
 			errors: [{ message: "claimed", extensions: { code: "flashback_token_claimed" } }],
 		});
@@ -639,7 +639,7 @@ describe("Journey · 失效与回访", () => {
 		await renderJourney();
 
 		expect(await screen.findByText("这枚链接不存在或已失效")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "自助找回我的档案" })).toHaveAttribute("href", "/flashback");
+		expect(screen.getByRole("link", { name: "自助找回我的档案" })).toHaveAttribute("href", "/flashback#recover");
 	});
 
 	it("无 token 直达失效分支", async () => {
