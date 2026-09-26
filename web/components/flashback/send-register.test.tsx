@@ -255,7 +255,7 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 		fireEvent.change(await screen.findByLabelText("手机号"), { target: { value: "13900000001" } });
 		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
 		fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "123456" } });
-		fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+		fireEvent.click(screen.getByRole("button", { name: "收好这张卡" }));
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(copy);
 	});

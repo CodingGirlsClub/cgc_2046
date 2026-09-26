@@ -2444,7 +2444,7 @@
     },
     "credentialReason": {
       "invalid": "Invalid credential",
-      "missing": "Missing credential",
+      "missing": "That event is not in your album (or the link has expired).",
       "unknown": "Unknown credential type",
       "wechat_jsapi": "Pay in the WeChat mini program for a faster checkout"
     },
@@ -2784,7 +2784,7 @@
     "scatter": {
       "title": "A table of Polaroids, still undeveloped",
       "hint": "Open one and zoom in — the clue is in the photo.",
-      "groupAria": "A pile of blurry old photos from different years, pick one to zoom in",
+      "groupAria": "{name} event album",
       "cardAria": "Photo {index} ({label})",
       "photoHidden": "A blurred old photo",
       "mystery": "Whose photo?",
@@ -2860,7 +2860,7 @@
       "creditedNotePlaceholder": "e.g. accessibility development",
       "submit": "Done writing — send it →",
       "sendPublicNote": "Once sent, anyone signed in can see it in the album · fogged sentences stay hidden · adjust or take it down anytime",
-      "quoteCourage": "Your words can become someone else’s courage."
+      "quoteCourage": "What you say will become someone else's courage."
     },
     "sendRegister": {
       "reviewTitle": "Before sending, check the you from back then",
@@ -2885,12 +2885,12 @@
       "phonePlaceholder": "Phone number",
       "codePlaceholder": "Verification code",
       "sendCode": "Send verification code",
-      "bind": "Bind account",
+      "bind": "Keep this card",
       "skip": "Skip — straight to the wall",
       "skipHint": "The link stays valid until you register — bind anytime.",
       "failedTitle": "It didn't stick this time",
       "retry": "Try again",
-      "boundTitle": "Your account has taken over",
+      "boundTitle": "Card kept",
       "boundNote": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
       "enterCapsule": "Enter the time corridor →",
       "claim": "Save to this account",
@@ -2938,20 +2938,20 @@
       "returned": "{count} sent their photos",
       "peopleTitle": "People of this gathering",
       "peopleHint": "developed = sent their card; fogged = not back yet",
-      "missing": "This gathering isn’t in your roster (or the link expired).",
+      "missing": "This gathering isn’t in your album (or the link expired).",
       "findMine": "Were you there too? Claim your photo →"
     },
     "corridor": {
       "openEvent": "Open this gathering →",
       "ariaLabel": "Time capsule corridor",
-      "emptyCity": "No roster photos from this city yet.",
+      "emptyCity": "No album photos from this city yet.",
       "pilesAria": "{name} city photo piles",
       "pileCount": "{city} · {count} people",
       "pileCaption": "{count} · their stories",
       "frameLabelFallback": "that year, that event"
     },
     "roster": {
-      "groupAria": "{name} roster",
+      "groupAria": "{name} event album",
       "meta": "{total} companions from that year · developed ones have been sent",
       "todayTag": "Today",
       "dashed": "Her answers are still waiting for her",
@@ -3070,7 +3070,7 @@
       "warning": "This cannot be undone: your card leaves the wall, your personal link stops working, and your answers, reply, endorsements and quote licenses are erased.",
       "error": "Deletion did not complete. Please try again later.",
       "factsName": "Archive: {name}",
-      "factsOnWall": "Sent to the alumni wall; your {count} wish endorsements and comments will be deleted with it",
+      "factsOnWall": "Sent to the album; your {count} wish endorsements and comments will be deleted with it",
       "factsOffWall": "Not yet sent; your {count} wish endorsements and comments will be deleted with it",
       "confirmLabel": "Type DELETE to confirm",
       "submit": "Delete permanently",
@@ -3118,7 +3118,7 @@
       "feedbackPendingBody": "It will be hung on the tree once approved.",
       "feedbackPrivateTitle": "Received.",
       "feedbackPrivateBody": "This wish is visible only to you and the platform — we'll read it carefully, and may come talk soon.",
-      "myWishHint": "Find it anytime under \"My wishes\" in your time capsule.",
+      "myWishHint": "Your wishes can always be found on the “My wishes” page.",
       "viewOnTree": "See it on the tree",
       "bindGuideCta": "Bind your flashback archive",
       "withdraw": "Withdraw this wish",
