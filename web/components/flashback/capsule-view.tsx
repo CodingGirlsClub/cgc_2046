@@ -12,6 +12,7 @@ import {
 import Corridor, { useWideCorridor } from "./corridor";
 import CardExport from "./card-export";
 import QuoteLicensePanel from "./quote-license-panel";
+import AnswersFog from "./answers-fog";
 import DeleteAccount from "./delete-account";
 import InvalidToken from "./invalid-token";
 import { useStageTitleFocus } from "./use-reduced-motion";
@@ -219,6 +220,9 @@ export default function CapsuleView() {
 			</p>
 			<Corridor capsule={capsule} cityFiltered={city !== null} token={token} onChanged={reload} />
 			<CardExport me={capsule.me} />
+			<div className="fb-today-actions">
+				<AnswersFog me={capsule.me} token={token} onChanged={reload} />
+			</div>
 			<QuoteLicensePanel me={capsule.me} token={token} onChanged={reload} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>

@@ -2997,6 +2997,18 @@
       "brand": "IN A FLASH · 闪念间",
       "canvasFooter": "闪念间 · In a Flash"
     },
+    "answersFog": {
+      "entry": "当年答案的雾",
+      "title": "当年答案的雾",
+      "save": "保存",
+      "saving": "保存中……",
+      "saved": "已保存 ✓",
+      "error": "保存没有成功——请再试一次。",
+      "cancel": "先不改",
+      "hint": "点一句即可切换雾或亮：雾住的句子对外只显示雾块，你自己永远看到原文。",
+      "fogBadge": "雾",
+      "none": "（当年没有留下答案）"
+    },
     "licensePanel": {
       "title": "金句授权",
       "save": "保存授权",

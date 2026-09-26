@@ -2997,6 +2997,18 @@
       "brand": "IN A FLASH",
       "canvasFooter": "In a Flash"
     },
+    "answersFog": {
+      "entry": "Fog on answers from back then",
+      "title": "Fog on answers from back then",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved ✓",
+      "error": "Saving failed — please try again.",
+      "cancel": "Not now",
+      "hint": "Tap a sentence to switch fog or light: fogged sentences show as fog blocks to others; you always see the original.",
+      "fogBadge": "fog",
+      "none": "(No answers from back then)"
+    },
     "licensePanel": {
       "title": "Quote license",
       "save": "Save license",
