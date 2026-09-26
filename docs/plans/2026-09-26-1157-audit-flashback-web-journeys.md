@@ -130,7 +130,7 @@
 
 ### 高
 
-- **H0 点开自己的私密愿望，页面崩溃**
+- **H0 点开自己的私密愿望，页面崩溃**（已修复：11e3c141，胶囊查询两段愿望共用 fragment）
   - 证据：长廊的私密愿望卡点开后进 `WishModal`（`web/components/flashback/wish-frames.tsx:139-146`），弹窗直接 `wish.comments.map(...)`（`wish-frames.tsx:506`）；但胶囊查询的 `myPrivateWishes` 没取 `comments` 和 `mine`（`web/lib/graphql/flashback.ts:848-856`）→ `undefined.map` 报错（推断：代码路径直接，未实际运行）。即使不崩，缺 `mine` 也不会出删除按钮，私密愿望删不掉。测试的构造数据带了这两个字段，所以没测出来。
   - 建议：查询补上 `comments` 与 `mine`（或弹窗对缺字段兜底），并补一条用真实查询形状构造数据的测试。
 - **H1 绑定档案的人回不到自己的时间长廊**
@@ -151,7 +151,7 @@
 - **M4 寄出后不能再调「当年答案」的雾**：只有寄出前的确认步骤能调（`journey.tsx:259-262`）；长廊只能调「今天」的雾（`today-actions.tsx:159-166`）。文案承认要去小程序（`zh-CN.json:2848`「寄出之后，还能在小程序里继续调整」）。
 - **M5 失效链接「已被收进账号」→ 登录不带回跳**：`invalid-token.tsx:28` 是裸 `/login`；相册页同类跳转带了 `next`（`event-detail.tsx:101`）。叠加 H1，登录后用户彻底找不到自己的卡。
 - **M6 换手机号没有 web 入口**：`FLASHBACK_UPDATE_CONTACT` 已定义但全站没有调用（`web/lib/graphql/flashback.ts:633-643`）；文案直说「Web 端目前没有更新入口」（`zh-CN.json:2833`）。小程序也没有这个入口（5.3）。
-- **M7 许愿树留言只在长廊旧版有**：公开树页（`wishes-wall.tsx`）不引用留言接口，只逛树、不进长廊的人永远用不到留言。
+- **M7 许愿树留言只在长廊旧版有**：公开树页（`wishes-wall.tsx`）不引用留言接口，只逛树、不进长廊的人永远用不到留言。**与小程序一致**（两端公开树都不显示留言），不算两端差距；要不要在公开树开放留言属产品决定。
 - **M8 「已有回响」筛选名不副实**：实际按附议数过滤（`wishes-wall.tsx:207` `endorsementCount > 0`），后端专门的 `withEchoes` 参数（`graphql_schema.ex:441`）没用上。
 - **M9 首页没有许愿树板块**：`public-home.tsx` 有金句墙板块和「看全墙 →」，没有许愿树；只看首页的人发现不了许愿树（导航里有一级入口）。
 - **M10 金句墙按城市看不全**：地图城市来自前端写死的 45 城表（`web/app/[locale]/flashback/voices/cities.ts:8-53`），列表只取热门 60 条、在其中按城市筛（`voices-wall.tsx:288-295` 不传城市）。后端的 `flashbackVoiceCities`（全量，`graphql_schema.ex:502-505`）和列表的城市参数都没用上：不在表里的城市在地图上选不中，冷门城市的金句按城市看不到。
@@ -195,6 +195,6 @@
 
 ## 附录：范围外的顺带发现
 
-- **web 后台「单人重发」调不通**：后台闪念间页调用 `resendFlashbackOutreach`（`web/app/[locale]/admin/flashback/page.tsx:268`），以 mutation 发送 `flashbackAdminResendOutreach`（`web/lib/graphql/admin.ts:1336-1339`）；但后端把这个字段定义在 Query 块里（`backend/lib/cgc_2046_web/graphql_schema.ex:292`，Query 块起于第 35 行），按 GraphQL 规则会被拒绝。另外「重发」有副作用，本就应放在 Mutation 块——建议后端挪到 Mutation，前端不用改。
+- **web 后台「单人重发」调不通**（已修复：后端字段移入 Mutation，前端文档去掉后端没有的 `batch`；`schema-contract.test.ts` 新增全局 SDL 校验守卫）：后台闪念间页调用 `resendFlashbackOutreach`（`web/app/[locale]/admin/flashback/page.tsx:268`），以 mutation 发送 `flashbackAdminResendOutreach`（`web/lib/graphql/admin.ts:1336-1339`）；但后端把这个字段定义在 Query 块里（`backend/lib/cgc_2046_web/graphql_schema.ex:292`，Query 块起于第 35 行），按 GraphQL 规则会被拒绝。另外「重发」有副作用，本就应放在 Mutation 块——建议后端挪到 Mutation，前端不用改。
 - **兑换没有提交端**：`flashbackRedeem` 两端都没调用，后台兑换队列会一直是空的（5.3）。
 - **小程序抖音 / 小红书端的回访页 `pages/flashback` 端内没有入口**：只能从深链或分享进入，与其注释里写的「从『我的』进入」不一致（非 web 范围，仅记录）。
