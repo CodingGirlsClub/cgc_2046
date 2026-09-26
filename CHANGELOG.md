@@ -19,6 +19,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [2026-09-26]（第五发）
+
 ### Added
 
 - 比特币奖品兑付提醒补全：邮件 P.S. 行 + 显影页可点联系入口。
