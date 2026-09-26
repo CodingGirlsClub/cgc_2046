@@ -232,6 +232,17 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
   }
 `
 
+// #930 回访静默登录：只用平台登录凭证 code；本平台未绑定身份 → platform_identity_not_found
+export const SignInWithPlatformIdentityMutationDocument = /* GraphQL */ `
+  mutation SignInWithPlatformIdentity($platform: String!, $code: String!) {
+    signInWithPlatformIdentity(platform: $platform, code: $code) {
+      id
+      email
+      isPlatformAdmin
+    }
+  }
+`
+
 export const SignInWithPlatformMutationDocument = /* GraphQL */ `
   mutation SignInWithPlatform(
     $platform: String!

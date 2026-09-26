@@ -1046,6 +1046,60 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付"
+    field :sign_in_with_platform_identity, :sign_in_with_platform_result do
+      arg(:platform, non_null(:string))
+      arg(:code, non_null(:string))
+
+      # 与手机号登录共用 IP 天花板（同 key_path → 同一个桶）；openid 桶在 PlatformIdentitySignIn 内共用
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform], limit: :platform_sign_in_ip)
+
+      resolve(fn _, %{platform: platform, code: code}, %{context: context} ->
+        try do
+          case Cgc2046.Accounts.PlatformIdentitySignIn.sign_in(platform, code, context) do
+            {:ok, user} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: user.__metadata__[:token]
+               }}
+
+            # 本平台还没绑定身份：如实告知（openid 来自请求者自己的 code，不泄露他人信息）
+            {:error, :identity_not_found} ->
+              {:error,
+               message: "No platform identity bound yet", code: "platform_identity_not_found"}
+
+            {:error, :rate_limited} ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+
+            {:error, reason} ->
+              Logger.warning("[platform identity sign_in] failed: #{inspect(reason)}")
+              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+          end
+        rescue
+          _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        catch
+          # 同 signInWithPlatform：rescue 不抓 exit（依赖进程缺失 noproc），缺此分支会穿透成 500
+          :exit, _ ->
+            {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        end
+      end)
+
+      # 同 signInWithPlatform：token 经 context 交给 before_send 写 httpOnly cookie
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
     @desc "Owner/Admin 创建一次性工作台邀请小程序码"
     field :generate_mini_program_code, :miniprogram_code_result do
       arg(:workspace_id, non_null(:id))

@@ -107,6 +107,8 @@ import type {
   SignOutMutationVariables,
   SignInWithPlatformMutation,
   SignInWithPlatformMutationVariables,
+  SignInWithPlatformIdentityMutation,
+  SignInWithPlatformIdentityMutationVariables,
   UploadResumeFileMutation,
   UploadResumeFileMutationVariables,
   UpsertResumeProfileMutation,
@@ -172,6 +174,7 @@ import {
   SessionQueryDocument,
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument,
+  SignInWithPlatformIdentityMutationDocument,
   UploadResumeFileMutationDocument,
   UpsertResumeProfileMutationDocument
 } from './operations'
@@ -216,6 +219,7 @@ import type {
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
+import { setSilentLoginAllowed, silentLoginAllowed } from '@/state/silentLogin'
 import { parseQualificationBadge } from '@/domain/initiative'
 import { mapPublicWishEcho } from '@/domain/flashback'
 import {
@@ -665,11 +669,43 @@ export class RealMiniProgramApi implements MiniProgramApi {
       }
       throw error
     })
+    const session = await this.hydrateSignedInSession()
+    // 主动退出后关掉的回访静默登录，在任何一次登录成功后恢复（#930）
+    setSilentLoginAllowed(true)
+    return session
+  }
+
+  /**
+   * #930 回访静默登录：已绑定本平台身份（openid）的账号只用平台登录凭证 code——不弹协议框、
+   * 不走计费的手机号授权。本平台还没绑定（首次登录）或主动退出后 → null，页面退回手机号登录。
+   */
+  async signInSilently(loginCode: string): Promise<SessionSnapshot | null> {
+    if (!silentLoginAllowed()) return null
+    const previous = getAuthToken()
+    try {
+      await graphqlRequest<SignInWithPlatformIdentityMutation, SignInWithPlatformIdentityMutationVariables>(
+        SignInWithPlatformIdentityMutationDocument,
+        { platform: currentPlatform(), code: loginCode },
+        { captureAuthCookie: true }
+      )
+    } catch (error) {
+      // 失败不改变原登录态（mock 路径会在请求前先写入 token）
+      setAuthToken(previous)
+      if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'platform_identity_not_found')) return null
+      throw error
+    }
+    // 新会话：清旧 Workspace / 账号状态（token 已是新签发的），保留 pending scene
+    clearWorkspaceTab()
+    clearAccountState()
+    return this.hydrateSignedInSession()
+  }
+
+  // 登录（手机号 / 静默）签发之后的会话水合：失败全量回滚，UI 显示失败与设备状态一致
+  private async hydrateSignedInSession(): Promise<SessionSnapshot> {
     if (!getAuthToken()) throw new Error('登录成功但未收到 Bearer token，请检查响应 cookie 契约')
     try {
       return await this.fetchSession()
     } catch (error) {
-      // session hydration 失败：全量回滚，UI 显示失败与设备状态一致
       setAuthToken(null)
       clearWorkspaceTab()
       clearAccountState()
@@ -686,6 +722,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       setAuthToken(null)
       clearWorkspaceTab()
       clearAccountState({ clearPendingScene: true })
+      // 主动退出：下一次登录走手机号（方便换账号），不静默回到刚退出的账号（#930）
+      setSilentLoginAllowed(false)
     }
   }
 

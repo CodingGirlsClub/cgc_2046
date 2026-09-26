@@ -4830,6 +4830,8 @@ export type RootMutationType = {
   signInWithPhoneCode?: Maybe<SignInWithPhoneCodeResult>;
   /** 小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付 */
   signInWithPlatform?: Maybe<SignInWithPlatformResult>;
+  /** 小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付 */
+  signInWithPlatformIdentity?: Maybe<SignInWithPlatformResult>;
   /** 微信扫码回调（plan 002 U4；IP 20/15min 限流）：已绑定直登，未绑定返回绑定票据 */
   signInWithWechat?: Maybe<SignInWithWechatResult>;
   /** 登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放） */
@@ -5578,6 +5580,12 @@ export type RootMutationTypeSignInWithPlatformArgs = {
   encryptedData?: InputMaybe<Scalars['String']['input']>;
   iv?: InputMaybe<Scalars['String']['input']>;
   phoneCode?: InputMaybe<Scalars['String']['input']>;
+  platform: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeSignInWithPlatformIdentityArgs = {
+  code: Scalars['String']['input'];
   platform: Scalars['String']['input'];
 };
 

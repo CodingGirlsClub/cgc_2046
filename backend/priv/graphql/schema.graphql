@@ -7028,6 +7028,9 @@ type RootMutationType {
   "小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付"
   signInWithPlatform(platform: String!, code: String!, phoneCode: String, encryptedData: String, iv: String): SignInWithPlatformResult
 
+  "小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付"
+  signInWithPlatformIdentity(platform: String!, code: String!): SignInWithPlatformResult
+
   "Owner\/Admin 创建一次性工作台邀请小程序码"
   generateMiniProgramCode(workspaceId: ID!, platform: String!): MiniprogramCodeResult
 

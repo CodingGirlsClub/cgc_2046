@@ -387,6 +387,8 @@ let flashback: FlashbackMockState = loadFlashbackState()
 //   cgc.e2e.flashback_claim_miss = '1' → claim 不命中（bound:false，驱动
 //     「找回你的那一张」会话引导）。
 const FLASHBACK_UNCLAIMED_KEY = 'cgc.e2e.flashback_unclaimed'
+//   cgc.e2e.platform_identity = '1' → 本平台已绑定身份：回访静默登录一步成功（#930）
+const PLATFORM_IDENTITY_KEY = 'cgc.e2e.platform_identity'
 const FLASHBACK_CLAIM_MISS_KEY = 'cgc.e2e.flashback_claim_miss'
 const WORKSPACE_ACCESS_DENIED_KEY = 'cgc.e2e.workspace_access_denied'
 const flashbackClaimedTokens = new Set<string>()
@@ -412,6 +414,12 @@ export function __setWorkspaceAccessDenied(value: boolean): void {
 /** e2e 钩子（node --test 用）：模拟登录账号暂无匹配档案 */
 export function __setFlashbackUnclaimed(value: boolean): void {
   flashbackUnclaimed = value
+}
+
+// node --test 无 storage：静默登录的绑定态走模块态（e2e 用 storage 开关 cgc.e2e.platform_identity）
+let platformIdentityBound = false
+export function __setPlatformIdentityBound(bound: boolean): void {
+  platformIdentityBound = bound
 }
 
 /**
@@ -876,6 +884,16 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('query MyEnrollments')) {
     return { enrollments: { results: loggedIn && enrollment ? [enrollment] : [] } }
+  }
+  // #930 回访静默登录（镜像 PlatformIdentitySignIn）：默认本平台未绑定身份——既有 e2e 的「点登录 →
+  // 协议框 → 同意」流程不受影响；绑定态由 __setPlatformIdentityBound / storage 开关显式打开。
+  // 必须排在 SignInWithPlatform 之前：document.includes 前缀匹配会被它截走。
+  if (document.includes('mutation SignInWithPlatformIdentity')) {
+    if (!(platformIdentityBound || e2eFlag(PLATFORM_IDENTITY_KEY))) {
+      return { errors: [{ message: 'No platform identity bound yet', code: 'platform_identity_not_found' }] }
+    }
+    loggedIn = true
+    return { signInWithPlatformIdentity: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false } }
   }
   if (document.includes('mutation SignInWithPlatform')) {
     loggedIn = true
