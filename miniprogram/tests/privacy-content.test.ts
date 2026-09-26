@@ -75,3 +75,14 @@ describe('wechat 变体不回归（三方同步义务）', () => {
     assert.equal(PRIVACY_META.length, 3)
   })
 })
+
+test('附录「个人权利响应」含闪念间档案自助删除长段（P0-5 抽骨架时曾丢失，B3）', async () => {
+  // 用 xhs 变体断言（构建期 alias 实际进 xhs 产物的那份）；骨架级断言在下方源文件扫描里等价覆盖
+  const { PRIVACY_SECTIONS } = await import('../src/domain/privacy-content-xhs.ts')
+  const appendix = PRIVACY_SECTIONS.find((section) => section.title.startsWith('附录'))
+  const paragraphs = (appendix?.blocks ?? []).flatMap((block) => (block.kind === 'p' ? [block.text] : []))
+  assert.ok(
+    paragraphs.some((text) => text.includes('「闪念间」历史档案删除：在线自助、即时生效') && text.includes('触达退订')),
+    '附录缺「闪念间」历史档案删除长段——与源档/web 页三方同步义务被破坏'
+  )
+})

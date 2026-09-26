@@ -112,10 +112,11 @@ export default function ProfileLitePage() {
             </View>
 
             <Text className={styles.sectionTitle}>闪念间</Text>
+            {/* 长廊是本端 Tab 页：switchTab 是唯一合法入口（navigateTo 会静默失败） */}
             <View
               className={styles.entry}
               data-testid='entry-flashback'
-              onClick={() => void Taro.navigateTo({ url: '/pages/flashback-corridor/index' })}
+              onClick={() => void Taro.switchTab({ url: '/pages/flashback-corridor/index' })}
             >
               <View>
                 <Text className={styles.entryTitle}>打开闪念间</Text>
