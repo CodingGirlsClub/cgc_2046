@@ -208,25 +208,6 @@ export const ORDER_STATUS: TypedDocumentNode<
   }
 `;
 
-export const MY_ORDERS: TypedDocumentNode<
-  { myOrders: { results: Order[] } },
-  Record<string, never>
-> = gql`
-  query MyOrders {
-    myOrders {
-      results {
-        id
-        enrollmentId
-        provider
-        status
-        amountCents
-        expireAt
-        insertedAt
-      }
-    }
-  }
-`;
-
 /**
  * 某报名下是否已有进行中订单。两个消费方：
  * - /orders/new 进页守卫：payment_pending 且已有 pending 订单 → 直接跳已有

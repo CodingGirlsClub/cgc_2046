@@ -59,7 +59,7 @@ export default function MyWishesPage() {
         <Text className={styles.quota}>今年还可以许 {data.quotaRemaining} 个愿望 · 删除不退还额度</Text>
         {!data.wishes.length && <Text className={styles.state}>你还没有愿望。写下想和大家一起实现的事吧。</Text>}
         {data.wishes.map(wish => <View className={`${styles.wishCard} ${router.params.created === wish.id ? styles.created : ''}`} key={wish.id}>
-          <Text className={styles.status}>{router.params.created === wish.id ? '已保存 · ' : ''}{wishStatusCopy(wish.status)}</Text>
+          <Text className={`${styles.status} ${wish.status === 'listed' ? styles.statusListed : ''}`}>{router.params.created === wish.id ? '已保存 · ' : ''}{wishStatusCopy(wish.status)}</Text>
           <Text className={styles.content}>{wish.content}</Text>
           {wish.status === 'listed' && <Button className={styles.publicWish} onClick={() => Taro.navigateTo({ url: `/pages/flashback-wishes/index?wishId=${encodeURIComponent(wish.id)}` })}>在许愿树查看 →</Button>}
           <View className={styles.meta}><Text>{wish.signature || '匿名'}{wish.city ? ` · ${wish.city}` : ''}</Text><Button className={styles.deleteWish} disabled={!!deleting} loading={deleting === wish.id} onClick={() => void remove(wish)}>删除</Button></View>

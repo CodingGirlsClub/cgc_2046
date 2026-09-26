@@ -232,6 +232,17 @@ export const EnrollmentQueryDocument = /* GraphQL */ `
   }
 `
 
+// #930 回访静默登录：只用平台登录凭证 code；本平台未绑定身份 → platform_identity_not_found
+export const SignInWithPlatformIdentityMutationDocument = /* GraphQL */ `
+  mutation SignInWithPlatformIdentity($platform: String!, $code: String!) {
+    signInWithPlatformIdentity(platform: $platform, code: $code) {
+      id
+      email
+      isPlatformAdmin
+    }
+  }
+`
+
 export const SignInWithPlatformMutationDocument = /* GraphQL */ `
   mutation SignInWithPlatform(
     $platform: String!
@@ -486,6 +497,52 @@ export const PublicInitiativeQueryDocument = /* GraphQL */ `
 // archives（长廊/场次页读面，R12/R28 批次二）：
 // city（R34 城市钉）：非空时名册/行动板按城市过滤；cities 供钉条渲染（全量）。
 
+// #933 相册：已登录即可读（未登录 → flashback_auth_required）；场次选择集与胶囊逐字一致
+export const FlashbackArchivesQueryDocument = /* GraphQL */ `
+  query FlashbackArchives($city: String) {
+    flashbackArchives(city: $city) {
+      cities
+      archives {
+        key
+        name
+        city
+        occurredOn
+        appliedCount
+        attendedCount
+        label
+        isMine
+        piles {
+          city
+          count
+          returned
+        }
+        roster {
+          id
+          surnameMasked
+          fullName
+          appliedAt
+          city
+          occupationThen
+          sentToWallAt
+          today {
+            nowStatus
+            want
+            say
+          }
+          answers {
+            questionKey
+            segments {
+              text
+              fog
+              len
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
 export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
   query FlashbackCapsule($city: String, $token: String) {
     flashbackCapsule(city: $city, token: $token) {
@@ -561,6 +618,11 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
         attendedCount
         label
         isMine
+        piles {
+          city
+          count
+          returned
+        }
         roster {
           id
           surnameMasked
@@ -751,10 +813,77 @@ export const FlashbackMarkRevealedMutationDocument = /* GraphQL */ `
   }
 `
 
+// #931 起双入口：token 省略时按登录账号绑定档案（认领作废 token 后的唯一入口）
 export const FlashbackSendToWallMutationDocument = /* GraphQL */ `
-  mutation FlashbackSendToWall($token: String!) {
+  mutation FlashbackSendToWall($token: String) {
     flashbackSendToWall(token: $token) {
       sentToWallAt
+    }
+  }
+`
+
+// 撤下（#931，双入口）：sent_to_wall_at 清回 nil，名册回到结构化卡
+export const FlashbackRetractMutationDocument = /* GraphQL */ `
+  mutation FlashbackRetract($token: String) {
+    flashbackRetract(token: $token) {
+      retracted
+      sentToWallAt
+    }
+  }
+`
+
+// 删除档案（#931，与 web delete-account 同两步）：先取摘要，再以 DELETE 确认
+export const FlashbackDeletePreviewQueryDocument = /* GraphQL */ `
+  query FlashbackDeletePreview($token: String) {
+    flashbackDeletePreview(token: $token) {
+      personId
+      fullName
+      sentToWallAt
+      endorsementCount
+      alreadyDeleted
+    }
+  }
+`
+
+// #932 小程序内找回：发起同 web（命中与未命中同形）；验证绑定到当前登录账号（不另建账号）
+export const FlashbackRecoverMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecover($identifier: String!) {
+    flashbackRecover(identifier: $identifier) {
+      dispatched
+    }
+  }
+`
+
+export const FlashbackRecoverVerifyForAccountMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecoverVerifyForAccount($identifier: String!, $code: String!) {
+    flashbackRecoverVerifyForAccount(identifier: $identifier, code: $code) {
+      bound
+      cards {
+        surnameMasked
+        eventName
+        city
+      }
+    }
+  }
+`
+
+// 邮箱找回·贴链接：找回邮件里的入口链接原样上送（服务端取其中的 fb_ token），同邮箱档案绑到当前账号
+export const FlashbackRecoverClaimForAccountMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecoverClaimForAccount($link: String!) {
+    flashbackRecoverClaimForAccount(link: $link) {
+      bound
+      cards {
+        surnameMasked
+      }
+    }
+  }
+`
+
+export const FlashbackDeleteMutationDocument = /* GraphQL */ `
+  mutation FlashbackDelete($token: String, $confirm: String!) {
+    flashbackDelete(token: $token, confirm: $confirm) {
+      deleted
+      deletedAt
     }
   }
 `

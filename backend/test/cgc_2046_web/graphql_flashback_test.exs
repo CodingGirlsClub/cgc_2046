@@ -464,6 +464,34 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       res = post_graphql(set_quote_query(plain, "off"))
       assert res["data"]["flashbackSetQuoteLicense"]["level"] == "off"
     end
+
+    # 没传的字段保留原值、显式传 null 才清空：小程序改档位从不传 creditedNote，此前每次保存都把
+    # 实名补充清空
+    test "改档位不传 creditedNote / chosenQuoteSpans 时保留原值，显式传 null 才清空" do
+      person = create_person(create_archive())
+      create_answer(person, "funny_thing", "有意思的事：我想亲眼看看是不是。")
+      {plain, _} = issue_token(person)
+      spans = ~s(chosenQuoteSpans: [{questionKey: "funny_thing", start: 6, len: 8}])
+
+      post_graphql(set_quote_query(plain, "credited", ~s(, #{spans}, creditedNote: "现在做无障碍开发")))
+
+      res = post_graphql(set_quote_query(plain, "anonymous"))
+      assert res["data"]["flashbackSetQuoteLicense"]["creditedNote"] == "现在做无障碍开发"
+
+      res = post_graphql(set_quote_query(plain, "credited"))
+      assert res["data"]["flashbackSetQuoteLicense"]["creditedNote"] == "现在做无障碍开发"
+
+      license =
+        Cgc2046.Flashback.QuoteLicense
+        |> Ash.Query.filter(person_id == ^person.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert [span] = license.chosen_quote_spans
+      assert Map.get(span, :question_key, span["question_key"]) == "funny_thing"
+
+      res = post_graphql(set_quote_query(plain, "credited", ", creditedNote: null"))
+      assert is_nil(res["data"]["flashbackSetQuoteLicense"]["creditedNote"])
+    end
   end
 
   describe "flashbackRandomQuotes（KTD3 雾化隐私）" do
@@ -747,6 +775,179 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert touch_count(person.id, :intent_submitted) == 0
     end
 
+    # #931：寄出 / 撤下曾是 token 单入口——认领后 token 作废，经「找回」路径绑定、
+    # 没走过首程的账号寄不出、任何绑定账号都撤不下。补登录账号入口，与写今天同款。
+    test "绑定账号：sendToWall / retract 不带 token（#931）" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = Cgc2046.AccountsFixtures.register_user("fb-session-send")
+      bind_person(person, user.id)
+
+      send_query = """
+      mutation { flashbackSendToWall { sentToWallAt: sent_to_wall_at } }
+      """
+
+      res = post_as_user(send_query, user)
+      assert is_binary(res["data"]["flashbackSendToWall"]["sentToWallAt"]), inspect(res)
+      # 首程漏斗（sent_to_wall touch）只记 token 旅程；账号入口不重计
+      assert touch_count(person.id, :sent_to_wall) == 0
+
+      # 幂等：再寄一次不改寄出时间
+      first_sent = res["data"]["flashbackSendToWall"]["sentToWallAt"]
+      res = post_as_user(send_query, user)
+      assert res["data"]["flashbackSendToWall"]["sentToWallAt"] == first_sent
+
+      retract_query = """
+      mutation { flashbackRetract { retracted sentToWallAt: sent_to_wall_at } }
+      """
+
+      res = post_as_user(retract_query, user)
+      assert res["data"]["flashbackRetract"]["retracted"] == true, inspect(res)
+      assert res["data"]["flashbackRetract"]["sentToWallAt"] == nil
+    end
+
+    test "寄出 / 撤下：未登录无 token → auth_required；登录未绑定 → person_not_bound（#931）" do
+      for query <- [
+            "mutation { flashbackSendToWall { sentToWallAt: sent_to_wall_at } }",
+            "mutation { flashbackRetract { retracted } }"
+          ] do
+        res =
+          build_conn()
+          |> put_req_header("content-type", "application/json")
+          |> post("/api/graphql", %{"query" => query})
+          |> json_response(200)
+
+        assert [%{"code" => "flashback_auth_required"} | _] = res["errors"], inspect(res)
+
+        stranger =
+          Cgc2046.AccountsFixtures.register_user(
+            "fb-send-stranger-#{System.unique_integer([:positive])}"
+          )
+
+        res = post_as_user(query, stranger)
+        assert [%{"code" => "flashback_person_not_bound"} | _] = res["errors"], inspect(res)
+      end
+    end
+
+    # #932：已登录找回——验证后绑定到当前账号（不 find-or-create、不换会话）
+    test "flashbackRecoverVerifyForAccount：未登录 → unauthorized；已登录验证后档案绑定到当前账号" do
+      person = create_person(create_archive(), %{phone: "13900000021"})
+      {:ok, normalized} = Cgc2046.Accounts.PhoneNumber.normalize("13900000021")
+      {:ok, code, _} = Cgc2046.Accounts.PhoneVerificationCode.issue(normalized, :register)
+
+      mutation = """
+      mutation { flashbackRecoverVerifyForAccount(identifier: "13900000021", code: "#{code}") {
+        bound cards { surnameMasked } } }
+      """
+
+      anon =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => mutation})
+        |> json_response(200)
+
+      assert [%{"code" => "unauthorized"} | _] = anon["errors"], inspect(anon)
+
+      user = Cgc2046.AccountsFixtures.register_user("fb-recover-account")
+      res = post_as_user(mutation, user)
+
+      assert %{"bound" => true, "cards" => [%{"surnameMasked" => "王**"}]} =
+               res["data"]["flashbackRecoverVerifyForAccount"],
+             inspect(res)
+
+      bound =
+        Person |> Ash.Query.filter(id == ^person.id) |> Ash.read_one!(authorize?: false)
+
+      assert bound.user_id == user.id
+    end
+
+    # 邮箱找回·贴链接（小程序）：找回邮件里的入口链接贴回来，绑到当前账号
+    test "flashbackRecoverClaimForAccount：未登录 → unauthorized；已登录贴找回邮件链接 → 档案绑到当前账号" do
+      person = create_person(create_archive(), %{email: "paste@example.com"})
+      {plain, _token} = issue_token(person)
+
+      mutation = """
+      mutation { flashbackRecoverClaimForAccount(link: "https://example.com/flashback/enter?token=#{plain}") {
+        bound cards { surnameMasked } } }
+      """
+
+      anon =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => mutation})
+        |> json_response(200)
+
+      assert [%{"code" => "unauthorized"} | _] = anon["errors"], inspect(anon)
+
+      user = Cgc2046.AccountsFixtures.register_user("fb-recover-paste")
+      res = post_as_user(mutation, user)
+
+      assert %{"bound" => true, "cards" => [%{"surnameMasked" => _}]} =
+               res["data"]["flashbackRecoverClaimForAccount"],
+             inspect(res)
+
+      bound =
+        Person |> Ash.Query.filter(id == ^person.id) |> Ash.read_one!(authorize?: false)
+
+      assert bound.user_id == user.id
+    end
+
+    # #933：相册对所有已登录用户开放；未寄出者只下发姓氏遮罩；城市堆服务端聚合
+    test "flashbackArchives：未登录 → auth_required；登录无档案可读相册（未寄出者只剩王**）" do
+      archive = create_archive()
+
+      create_person(archive, %{
+        full_name: "李安静",
+        surname: "李",
+        city: "广州",
+        occupation_then: "设计",
+        participation: :not_selected
+      })
+
+      back = create_person(archive, %{full_name: "周回来", surname: "周", city: "上海"})
+      {:ok, _} = Cgc2046.Flashback.Tokens.send_to_wall_as_person(back.id)
+
+      query = """
+      query { flashbackArchives { cities archives { key isMine
+        piles { city count returned }
+        roster { surnameMasked fullName city occupationThen participation sentToWallAt } } } }
+      """
+
+      res =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => query})
+        |> json_response(200)
+
+      assert [%{"code" => "flashback_auth_required"} | _] = res["errors"], inspect(res)
+
+      viewer = Cgc2046.AccountsFixtures.register_user("fb-album-viewer")
+      res = post_as_user(query, viewer)
+      assert is_nil(res["errors"]), inspect(res)
+      [payload] = res["data"]["flashbackArchives"]["archives"]
+      refute payload["isMine"]
+
+      assert payload["piles"] == [
+               %{"city" => "上海", "count" => 1, "returned" => 1},
+               %{"city" => "广州", "count" => 1, "returned" => 0}
+             ]
+
+      quiet = Enum.find(payload["roster"], &(&1["surnameMasked"] == "李**"))
+
+      assert quiet == %{
+               "surnameMasked" => "李**",
+               "fullName" => nil,
+               "city" => nil,
+               "occupationThen" => nil,
+               "participation" => nil,
+               "sentToWallAt" => nil
+             }
+
+      shown = Enum.find(payload["roster"], &(&1["surnameMasked"] == "周**"))
+      assert shown["fullName"] == "周回来"
+      assert shown["city"] == "上海"
+    end
+
     test "未登录且无 token → auth_required（不泄露存在性）" do
       endorse_query = """
       query { flashbackDeletePreview { personId: person_id } }
@@ -774,6 +975,27 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
   end
 
   describe "flashbackCapsule 全字段冒烟（实测 bug：uuid binary 炸 Jason 序列化）" do
+    # 实测 bug：私密愿望投影缺非空的 mine，小程序（及 web 与公开愿望同形取数后）查长廊时
+    # 错误冒泡到可空的 flashbackCapsule——写过私密愿望的人整条长廊打不开
+    test "写过私密愿望：私密愿望按公开愿望同形取数，长廊不因非空字段缺失变 null" do
+      person = create_person(create_archive())
+      {:ok, _} = Cgc2046.Flashback.Wishes.create_wish(person.id, "想学 Rust", "private")
+      {plain, _token} = issue_token(person)
+
+      res =
+        post_graphql("""
+        query { flashbackCapsule(token: "#{plain}") {
+          myPrivateWishes { id content mine endorsementCount endorsedByMe
+            comments { id } latestEcho { id } echoCount echoes { id } insertedAt }
+        } }
+        """)
+
+      refute Map.has_key?(res, "errors"), inspect(res["errors"])
+
+      assert [%{"content" => "想学 Rust", "mine" => true, "comments" => [], "echoCount" => 0}] =
+               res["data"]["flashbackCapsule"]["myPrivateWishes"]
+    end
+
     test "roster 的 id 经完整字段 query 可 JSON 序列化且为 uuid 文本" do
       archive = create_archive()
       person = create_person(archive)
@@ -825,12 +1047,16 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
 
       for entry <- archive_payload["roster"] do
         assert entry["id"] =~ ~r/^[0-9a-f-]{36}$/
-        assert entry["participation"] in ["attended", "not_selected"]
+
+        # #933：参与类型只随已寄出者下发；未寄出者 null（只剩姓氏遮罩）
+        if entry["sentToWallAt"],
+          do: assert(entry["participation"] in ["attended", "not_selected"]),
+          else: assert(is_nil(entry["participation"]))
       end
 
-      # 圆梦线身份经 SDL 透出（名册徽标数据源）
+      # 未寄出的圆梦线同样只剩姓氏遮罩：参与类型不下发（#933）
       dreamer_entry = Enum.find(archive_payload["roster"], &(&1["id"] == dreamer.id))
-      assert dreamer_entry["participation"] == "not_selected"
+      assert is_nil(dreamer_entry["participation"])
       assert dreamer_entry["today"] == nil
       assert dreamer_entry["answers"] == []
 
@@ -849,17 +1075,19 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       refute inspect(answer["segments"]) =~ "在盛大做测试"
     end
 
-    test "city 参数（R34 城市钉）：roster 按人城市过滤；cities 全量不缩" do
+    test "city 参数（R34 城市钉）：城市堆按人城市聚合、名册只列已寄出者（#933）；cities 全量不缩" do
       archive = create_archive()
       person = create_person(archive, %{city: "北京"})
       create_person(archive, %{full_name: "李雷", surname: "李", city: "上海"})
+      back = create_person(archive, %{full_name: "韩梅", surname: "韩", city: "上海"})
+      {:ok, _} = Cgc2046.Flashback.Tokens.send_to_wall_as_person(back.id)
 
       {plain, _token} = issue_token(person)
 
       query = """
       query { flashbackCapsule(token: "#{plain}", city: "上海") {
         cities
-        archives { key roster { surnameMasked: surname_masked city } }
+        archives { key piles { city count returned } roster { surnameMasked: surname_masked city } }
       } }
       """
 
@@ -876,7 +1104,10 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert capsule["cities"] == ["上海", "北京"]
 
       [archive_payload] = capsule["archives"]
-      assert [%{"surnameMasked" => "李*", "city" => "上海"}] = archive_payload["roster"]
+
+      # #933：城市筛选只作用于已寄出者（未寄出的「李*」不因筛选暴露城市）；城市堆计入全部人数
+      assert [%{"surnameMasked" => "韩*", "city" => "上海"}] = archive_payload["roster"]
+      assert archive_payload["piles"] == [%{"city" => "上海", "count" => 2, "returned" => 1}]
     end
   end
 end
