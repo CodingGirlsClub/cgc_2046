@@ -9,7 +9,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const BANNED_TERMS = ["微信", "WeChat", "OpenClacky", "加我", "二维码", "口令"];
+// 「网页端」：引导用户去客户端之外完成操作（如「请在网页端完成支付」）同属导流——
+// 小红书规范明确禁止「引导用户去小红书客户端以外的地方操作」，抖音同理。
+export const BANNED_TERMS = ["微信", "WeChat", "OpenClacky", "加我", "二维码", "口令", "网页端"];
 
 export const TEXT_EXTENSIONS = [
   ".js",

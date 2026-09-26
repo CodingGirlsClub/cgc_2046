@@ -4,16 +4,17 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import { canManageMembers } from '@/domain/format'
 import { buildJoinSharePath } from '@/domain/share-route'
+import { cutJoinLanding } from '@/domain/tab-routes'
 import { takePendingScene } from '@/state/accountState'
 import styles from './index.module.css'
 
 // join 落地页（#355-8）：新入座 workspace 有 manage_members 能力者留工作台；
 // 普通学员工作台只有「当前角色无审批权限」死胡同，落我的报名。裁剪端
-// （tt/xhs）无工作台 Tab，一律我的报名。getSession 失败按学员处理（用户可自行切 Tab）。
+// （tt/xhs）无工作台 Tab，落点单源 domain/tab-routes cutJoinLanding（必须是本端
+// Tab 页——reLaunch 清栈）。getSession 失败按学员处理（用户可自行切 Tab）。
 const landingTabAfterJoin = async (workspaceId: string): Promise<string> => {
-  if (process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs') {
-    return '/pages/my-enrollments/index'
-  }
+  if (process.env.TARO_ENV === 'tt') return cutJoinLanding('tt')
+  if (process.env.TARO_ENV === 'xhs') return cutJoinLanding('xhs')
   try {
     const session = await api.getSession()
     const joined = session.workspaces.find((workspace) => workspace.id === workspaceId)
