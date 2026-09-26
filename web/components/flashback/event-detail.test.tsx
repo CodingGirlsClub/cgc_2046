@@ -139,12 +139,29 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		expect(grid.className).toBe("fb-roster-grid");
 		expect(grid.dataset.total).toBe("5");
 
-		// 找回 CTA → 公开首页的自助找回入口
-		const cta = screen.getByRole("link", { name: /找回你的那一张/ });
-		expect(cta).toHaveAttribute("href", "/flashback");
+		// N7：token 持有者 = 本场已回来的人，不再显示找回 CTA
+		expect(screen.queryByRole("link", { name: /找回你的那一张/ })).not.toBeInTheDocument();
 
 		// 返回长廊
 		expect(screen.getByRole("link", { name: /时间长廊/ })).toHaveAttribute("href", "/flashback/capsule");
+	});
+
+	it("N7：找回 CTA 只给已登录无档案的访客（带 #recover 锚点，L4）", async () => {
+		capsuleQuery.mockImplementation((options: { query: unknown }) => {
+			if (options.query === FLASHBACK_CAPSULE) {
+				return Promise.reject({ graphQLErrors: [{ extensions: { code: "flashback_person_not_bound" } }] });
+			}
+			if (options.query === FLASHBACK_ARCHIVES) {
+				return Promise.resolve({
+					data: { flashbackArchives: { archives: [archive] } },
+				});
+			}
+			return Promise.reject(new Error("unexpected query"));
+		});
+		render(<EventDetail eventKey="2014-01-11-bj" />);
+
+		const cta = await screen.findByRole("link", { name: /找回你的那一张/ });
+		expect(cta).toHaveAttribute("href", "/flashback#recover");
 	});
 
 	it("已寄出=显影卡带名字；未回来=雾卡（姓氏隐名 + 答案还在等她）", async () => {
@@ -249,7 +266,7 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 
 		expect(await screen.findByTestId("fb-roster-grid")).toHaveAttribute("data-total", "5");
 		expect(screen.getByText("2 位已回来")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: /找回你的那一张/ })).toHaveAttribute("href", "/flashback");
+		expect(screen.getByRole("link", { name: /找回你的那一张/ })).toHaveAttribute("href", "/flashback#recover");
 		expect(screen.getByRole("link", { name: "‹ 闪念间" })).toHaveAttribute("href", "/flashback");
 		expect(replaceMock).not.toHaveBeenCalled();
 	});

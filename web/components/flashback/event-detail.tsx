@@ -150,11 +150,15 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 				{t("peopleTitle")} · {t("peopleHint")}
 			</p>
 			<EventRoster archive={archive} />
-			<div className="fb-event-find">
-				<Link href="/flashback#recover" className="fb-cta fb-cta-primary fb-dream-cta">
-					{t("findMine")}
-				</Link>
-			</div>
+			{/* N7：找回出口只给还没回来的访客（viewer = 已登录无档案）；
+			    本场已回来的人（token 持有者）不需要被再次邀请找回 */}
+			{viewer && (
+				<div className="fb-event-find">
+					<Link href="/flashback#recover" className="fb-cta fb-cta-primary fb-dream-cta">
+						{t("findMine")}
+					</Link>
+				</div>
+			)}
 		</div>
 	);
 }
