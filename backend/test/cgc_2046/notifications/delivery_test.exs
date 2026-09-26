@@ -3,6 +3,18 @@ defmodule Cgc2046.Notifications.DeliveryTest do
   #847 钉测：Delivery.enqueue 的耐久语义——逐身份落行与入队（#3 同用户
   多身份不折叠）、幂等（同一幂等键重复入队只产生一行与一个 job）、零身份
   哨兵行（Q5：落一行可观测记录而非静默跳过）、事务失败 raise 且零残留。
+
+  ## Oban testing 跨模块可见性（#902 项 5 调查结论）
+
+  `:manual` 测试模式只禁 queues/plugins/stager/peer（Oban.Config），
+  engine 不换——job 仍真实插入 PG `oban_jobs` 表；`all_enqueued` 是无
+  归属过滤的全表 `Repo.all`（Oban.Testing 源码 filter_jobs），开源版没有
+  按测试隔离 job 的配置（进程内隔离是 Oban Pro 方案）。可见性完全由
+  Ecto Sandbox 事务边界决定，而 DataCase 对 sync 用例开 repo 级 shared
+  连接（`shared: not tags[:async]`）——大规模并发跑时其他域模块经 Fanout
+  插入的同 worker job 会出现在本模块查询里（#847 PR-B 实证，设计行为，
+  非回归）。**纪律：断言必须按 delivery_id（或 job args）精确过滤，不能
+  裸 `all_enqueued(worker:)` 或全表 COUNT。**
   """
 
   use Cgc2046.DataCase, async: false
