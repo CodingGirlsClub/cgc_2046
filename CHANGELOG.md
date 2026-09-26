@@ -18,6 +18,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [2026-09-26]（第六发）
+
 ### Added
 
 - [小红书] 闪念间全家桶上线（P2 提前）：长廊升为第二 Tab（发现/闪念间/我的），首程旅程、场次相册、今天的你、金句墙、许愿树、公开卡页、写愿望与我的愿望全部注册；站内深链（shareId/quoteId/wishId/token）直达对应页面。
