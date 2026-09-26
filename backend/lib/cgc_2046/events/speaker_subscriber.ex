@@ -61,7 +61,8 @@ defmodule Cgc2046.Events.SpeakerSubscriber do
 
     job_meta = %{
       "speaker_invitation_id" => invitation_id,
-      "idempotency_key" => producer_key(data)
+      "idempotency_key" => producer_key(data),
+      "leg" => "managers"
     }
 
     with {:ok, title} <- event_title(data) do
@@ -95,7 +96,11 @@ defmodule Cgc2046.Events.SpeakerSubscriber do
           {user_id, Cgc2046.Notifications.Fanout.identities(user_id)},
           "speaker_completed",
           %{"speaker_invitation_id" => invitation_id},
-          %{"speaker_invitation_id" => invitation_id, "idempotency_key" => producer_key(data)}
+          %{
+            "speaker_invitation_id" => invitation_id,
+            "idempotency_key" => producer_key(data),
+            "leg" => "speaker"
+          }
         )
 
       _ ->

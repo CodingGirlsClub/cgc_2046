@@ -129,7 +129,11 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
     identities = Cgc2046.Notifications.Fanout.identities(enrollment.user_id)
 
     if identities == [] do
-      # 无平台身份 → 无可入队（:no_identity 分类语义留在本 worker，PR-C）
+      # 无平台身份 → :skipped（:no_identity 分类语义留在本 worker，PR-C）。
+      # 记录在案的决策（issue #902 项 4，documented-wontfix）：零身份用户不落
+      # Delivery 哨兵行（Q5）——LPW 每 5 分钟扫全量停滞 run，落行会每周为无
+      # 投递渠道的用户注水 notification_deliveries；观测走既有 telemetry 与
+      # 本拍日志。不改调用方走 Fanout/Delivery 哨兵语义（C4 禁改调用方）。
       :skipped
     else
       Cgc2046.Notifications.Fanout.deliver(
