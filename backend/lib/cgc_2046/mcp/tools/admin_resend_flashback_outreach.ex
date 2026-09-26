@@ -12,6 +12,18 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
   alias Cgc2046.Flashback.{AlumniProjection, Outreach.Dispatch}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：给闪念间的一位校友重发触达（person_id + template，模板目前只有 reconnect）。只对
+    未认领、未退订、未删除且联系方式可达的校友生效，不满足时直接返回带原因的错误。channel：all（邮件
+    优先，没有邮箱时发短信）| email | sms，默认 all。没有频率限制，每次重发都要经确认。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:person_id, :string, description: "校友档案 id", required: true)
     field(:template, :string, description: "触达模板（当前白名单: reconnect）", required: true)

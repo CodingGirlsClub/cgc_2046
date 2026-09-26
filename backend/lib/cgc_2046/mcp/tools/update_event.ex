@@ -50,13 +50,31 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
                        curriculum_enabled curriculum_requirements course_revision_id initiative_id
                        deposit_enabled deposit_amount_cents min_age min_participants)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：修改活动信息（标题、描述、slug、可见性、报名策略、名额、报名截止、起止时间、
+    场地、赞助、定价、押金、年龄与成班人数、教研设置、配套课程、挂载）。只传要改的字段；传 null 视为不
+    修改，不能用来清空。状态由 launch / close / cancel 工具修改。pricing_enabled 从 true 改为 false 会
+    同时免缴全部待支付报名（摘要列出笔数）；改价只影响之后的新订单。重新开启押金（deposit_enabled 从
+    false 改为 true）必须同时传正整数 deposit_amount_cents。initiative_id 挂载或更换挂载，按规则强制写入
+    押金 / 年龄 / 人数 / 报名截止；解除挂载用 detach_initiative: true（不能与 initiative_id 同传，仅 draft
+    可用）。结果含 initiative、inherited（生效的继承值及来源：locked 每次写入都会强制保持、改成别的值会被
+    拒绝；default 只在改挂载时快照）与 detached_rule_provenance（解除挂载后保留的锁定值来源，修改对应字段
+    即清除该标记）。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "活动 ID（UUID）")
     field(:title, :string, description: "活动标题")
     field(:description, :string, description: "公开展示文案")
     field(:slug, :string, description: "公开 URL 段（小写 [a-z0-9-]）")
-    field(:visibility, :string, description: "可见性：public / workspace（可随时双向切换，D9）")
+    field(:visibility, :string, description: "可见性：public 公开 / workspace 仅工作台（可随时双向切换）")
     field(:enrollment_policy, :string, description: "报名策略：open / request / invite_only")
     field(:capacity, :integer, description: "报名名额上限（≥1）")
     field(:registration_deadline, :string, description: "报名截止时间（ISO8601）")

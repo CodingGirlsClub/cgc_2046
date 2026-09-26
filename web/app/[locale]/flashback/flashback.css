@@ -666,6 +666,10 @@
 .fb-contact { text-align: left; }
 
 /* 比特币提醒（R25：全场告知） */
+.fb-btc-note a.fb-btc-mail {
+	color: #cbbf8f;
+	text-decoration: underline;
+}
 .fb-btc-note {
 	margin-top: 18px;
 	max-width: 420px;

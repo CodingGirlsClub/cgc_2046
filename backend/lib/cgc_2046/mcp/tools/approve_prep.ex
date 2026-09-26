@@ -4,8 +4,8 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   或 Owner/Admin，确认流 two-tool 写，D-D3）。
 
   前置 prep_state == review。审核人 = 策略快照指定的 reviewer_user_id（未指定时
-  任何工作台成员可审，允许 tutor 自审）或 Owner/Admin。通过 → 发布（S5 切片语义
-  = course launch：draft → open；S6 将改为生成不可变 CourseRevision），
+  任何工作台成员可审，允许 tutor 自审）或 Owner/Admin。通过 → 发布：生成不可变的新
+  CourseRevision（draft 课程随之 launch 开放报名；已 open 的课程换绑新版本），
   prep_state → published，run 转 succeeded。
 
   确认流依据：发布是公开面副作用（课程公开报名开启）。
@@ -20,6 +20,20 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
+
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    审核通过并发布课程，只在课程的教研流程处于 review 时可用。审核人是教研策略指定的 reviewer（未指定
+    时任何工作台成员都可审，允许 tutor 自审），或 Owner/Admin。通过后生成一个不可变的新课程版本并发布：
+    课程还是 draft 时变为 open（visibility=public 才会出现在公开面开放报名，仅 workspace 可见的只对成员
+    开放），已 open 的课程切换到新版本；教研流程进入 published。确认与当前草稿版本
+    绑定：确认前草稿被改动，本次确认失效，需要对新草稿重新审核。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")

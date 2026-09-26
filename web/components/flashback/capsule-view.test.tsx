@@ -243,7 +243,7 @@ describe("CapsuleView · 相册开放告知（#933）", () => {
 		expect(notice).toHaveTextContent("登录的人都能在这一场的相册里看到");
 		fireEvent.click(within(notice).getByRole("button", { name: "知道了" }));
 		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
-		expect(window.localStorage.getItem("flashback.album_notice_done")).toBe("1");
+		expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1");
 
 		cleanup();
 		await renderCapsule();
@@ -254,7 +254,27 @@ describe("CapsuleView · 相册开放告知（#933）", () => {
 		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, today: { ...baseCapsule.me.today, sentToWallAt: null } } });
 
 		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
-		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done")).toBe("1"));
+		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1"));
+	});
+
+	// 告知按「人」一次性（Codex 评审）：同一浏览器换账号，另一个人该看到的还是要看到
+	it("换账号互不影响：me-1 知道后，me-2 第一次回来仍看到告知", async () => {
+		await renderCapsule();
+		fireEvent.click(within(screen.getByTestId("fb-album-notice")).getByRole("button", { name: "知道了" }));
+		cleanup();
+
+		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, id: "me-2" } });
+		expect(screen.getByTestId("fb-album-notice")).toBeInTheDocument();
+	});
+
+	// 旧版是设备级单键：已在该浏览器读过的人迁移到本人键，不重复打扰
+	it("旧设备级已读标记迁移到本人键：不再重复告知", async () => {
+		window.localStorage.setItem("flashback.album_notice_done", "1");
+
+		await renderCapsule();
+
+		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
+		await waitFor(() => expect(window.localStorage.getItem("flashback.album_notice_done:me-1")).toBe("1"));
 	});
 });
 

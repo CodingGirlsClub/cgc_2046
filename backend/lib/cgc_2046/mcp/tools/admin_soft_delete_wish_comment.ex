@@ -12,6 +12,17 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment do
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：删除一条许愿留言（软删除），reason 必填（1–500 字）。确认摘要会显示该留言所属许愿
+    的正文，用于确认前核对目标。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:comment_id, :string, description: "留言 id", required: true)
     field(:reason, :string, description: "删除理由（1–500 字）", required: true)

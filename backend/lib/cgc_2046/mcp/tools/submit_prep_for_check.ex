@@ -22,6 +22,18 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepForCheck do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：把课程教研内容提交结构检查，只在教研流程处于 authoring 时可用，被指派的 tutor
+    或 Owner/Admin 可提交。检查项：标题不是临时标题、内容存在、goals 与 issues 不为空、内容形状合法。
+    通过则进入 quality_check；未通过则保持 authoring，并返回 passed: false 与 violations（这是正常结果，
+    不是错误，逐条修复后重新提交）。warnings 是不阻断的提示（如 issue 未归属章节），教材类课程应按提示
+    补章节结构。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

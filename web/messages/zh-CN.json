@@ -417,7 +417,7 @@
       "icp": "京ICP备16008426号-2",
       "ariaLabel": "站点页脚",
       "privacy": "隐私政策",
-"contact": "联系我们",
+      "contact": "联系我们",
       "terms": "服务条款"
     },
     "mediaReports": [
@@ -2653,9 +2653,9 @@
       "quotesEmpty": "金句墙还空着——第一句会来自某位校友的授权。",
       "likeAria": "点赞（当前 {count} 人）",
       "quotesWallCta": "看全墙 →",
-"wishesTitle": "许愿树",
-"wishesBlurb": "看看大家想在这片土壤里种下什么——附议、期待，或者也写下一颗。",
-"wishesCta": "去许愿树 →",
+      "wishesTitle": "许愿树",
+      "wishesBlurb": "看看大家想在这片土壤里种下什么——附议、期待，或者也写下一颗。",
+      "wishesCta": "去许愿树 →",
       "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
       "myCapsule": "进入我的时间长廊",
       "login": "登录，回到时间长廊"
@@ -2750,8 +2750,8 @@
       "loading": "正在显影……",
       "notFoundTitle": "这一页还没有显影",
       "notFoundBody": "这个链接对应的实名档案不存在，或尚未授权公开。",
-"errorBody": "页面加载失败了——检查一下网络，或者稍后再试。",
-"retry": "重试",
+      "errorBody": "页面加载失败了——检查一下网络，或者稍后再试。",
+      "retry": "重试",
       "backHome": "回到闪念间首页",
       "footer": "本页内容经本人实名授权公开展示（闪念间 · 金句授权第二档）。"
     },
@@ -2805,14 +2805,15 @@
       "wroteAt": "{years}前的 {date} {time}，你写下了这些话",
       "wroteAtUnknown": "当年的你，写下了这些话",
       "fogMark": "这一句带着雾面标记——对外人不可见，原文对你永远完整",
-      "btcNote": "当年那场活动，赞助方发放过少量比特币作为奖品，至今无人兑领。获奖名单早已不可考——如果你恰好是当年的获奖者，欢迎联系我们兑付。",
+      "btcNote": "2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过，获奖名单早已不可考。",
       "dreamCtaEvent": "圆梦这一场：报名「{title}」",
       "dreamCtaInitiatives": "看看正在发生的活动",
       "dreamFallback": "留下联系方式，你想参加的活动开始报名时，我们会第一个告诉你。",
       "writeBack": "翻过来，写今天的你",
       "writeBackHint": "点击卡面翻到背面，写下今天的你",
       "flipBack": "翻回正面",
-      "wrongFeedback": "差一点——但也显影给你看。你的照片其实在 {label}。"
+      "wrongFeedback": "差一点——但也显影给你看。你的照片其实在 {label}。",
+      "btcContact": "如果你恰好是当年的获奖者，联系我们兑付 →"
     },
     "tags": {
       "want_offline": "想参加线下聚会",

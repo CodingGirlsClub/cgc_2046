@@ -16,6 +16,16 @@ defmodule Cgc2046.Mcp.Tools.AssignPrepTutor do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：为课程教研指派（或改派）tutor。被指派的用户必须在
+    本工作台持有 tutor 角色。教研流程处于 draft 时随之进入 authoring；已在其他阶段（如审核中）则保持
+    不变，不打断流程。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

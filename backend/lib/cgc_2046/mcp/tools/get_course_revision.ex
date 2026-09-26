@@ -25,6 +25,16 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    读取课程的已发布版本（发布时冻结、不可修改）：goals 与 issues（学习目标嵌在各 issue 内）。
+    revision_number 缺省为最新版本。工作台成员可读任意版本；已确认报名的学员只能读最新版本；其他人
+    返回 forbidden。课程从未发布时返回「无已发布版本」错误，不会退回读草稿（草稿用 get_course_content）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

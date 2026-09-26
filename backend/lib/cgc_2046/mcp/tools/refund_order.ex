@@ -23,6 +23,18 @@ defmodule Cgc2046.Mcp.Tools.RefundOrder do
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Payments.Order
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：对一笔已支付（paid）订单全额退款。退款会同时取消该报名并释放名额（渠道退款
+    成功后生效）；活动或课程已结束的订单也可以退。订单不是 paid 时直接返回错误；过期或已取消订单的迟到
+    支付由系统自动退款，不用本工具。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:order_id, {:required, :string}, description: "待退款订单 ID（UUID，须为 paid）")

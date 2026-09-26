@@ -1,3 +1,4 @@
+// 真实后端：127.0.0.1:4107 GraphQL（构建用 CGC_E2E_MOCK=true，验收打真实 API）。
 /** Deterministic WeChat simulator acceptance. Build CGC_E2E_MOCK=true first.
  * Uses synthetic public data; never reads or changes login credentials. */
 import { spawnSync } from 'node:child_process'

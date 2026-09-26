@@ -417,7 +417,7 @@
       "icp": "京ICP备16008426号-2",
       "ariaLabel": "Site footer",
       "privacy": "Privacy Policy",
-"contact": "Contact us",
+      "contact": "Contact us",
       "terms": "Terms of Service"
     },
     "mediaReports": [
@@ -2653,9 +2653,9 @@
       "quotesEmpty": "The quote wall is still empty — the first line will come from an alumna's license.",
       "likeAria": "Like ({count} so far)",
       "quotesWallCta": "See the whole wall →",
-"wishesTitle": "Wish tree",
-"wishesBlurb": "See what people hope to plant here — endorse, look forward, or plant one of your own.",
-"wishesCta": "Open the wish tree →",
+      "wishesTitle": "Wish tree",
+      "wishesBlurb": "See what people hope to plant here — endorse, look forward, or plant one of your own.",
+      "wishesCta": "Open the wish tree →",
       "footer": "The silent stay safe: until sent, only you can see your answers.",
       "myCapsule": "Enter my corridor",
       "login": "Sign in to your corridor"
@@ -2750,8 +2750,8 @@
       "loading": "Developing…",
       "notFoundTitle": "This page hasn't developed yet",
       "notFoundBody": "The credited profile for this link doesn't exist, or isn't licensed for the public.",
-"errorBody": "This page failed to load — check your connection and try again.",
-"retry": "Retry",
+      "errorBody": "This page failed to load — check your connection and try again.",
+      "retry": "Retry",
       "backHome": "Back to the In a Flash home",
       "footer": "This page is shown publicly under the person's credited license (In a Flash · quote license, tier two)."
     },
@@ -2805,14 +2805,15 @@
       "wroteAt": "{years} ago, on {date} at {time}, you wrote these words",
       "wroteAtUnknown": "Back then, you wrote these words",
       "fogMark": "This sentence carries a fog mark — invisible to others, always full for you",
-      "btcNote": "At that gathering, a sponsor gave out a small amount of bitcoin as prizes, still unclaimed. The winner list is long lost — if you happened to be one of them, reach out and we'll honor it.",
+      "btcNote": "At the January 2014 gathering in Beijing, a sponsor gave out a small amount of bitcoin as prizes — only one has ever been claimed, and the winner list is long lost.",
       "dreamCtaEvent": "Make that dream happen: sign up for \"{title}\"",
       "dreamCtaInitiatives": "See what's happening now",
       "dreamFallback": "Leave your contact info and we will be the first to tell you when the activities you want open for registration.",
       "writeBack": "Flip it over — write today's you",
       "writeBackHint": "Tap the card to flip it over and write today’s you",
       "flipBack": "Flip back to the front",
-      "wrongFeedback": "So close — but developing it anyway. Yours was actually at {label}."
+      "wrongFeedback": "So close — but developing it anyway. Yours was actually at {label}.",
+      "btcContact": "If you happened to be one of the winners — contact us to claim it →"
     },
     "tags": {
       "want_offline": "Want to join offline meetups",

@@ -1,4 +1,10 @@
 defmodule Cgc2046.Mcp.Tools.ListPublicInitiatives do
+  @moduledoc """
+  列出公开的倡导活动（open / closed / cancelled；draft 不公开），按 open → closed →
+  cancelled 排序，同状态内按窗口开始时间，最多 100 条。任何已连接用户可用，无参数，不需要
+  workspace_id。返回 count + initiatives（id / name / slug / url / hashtag / description /
+  window_starts_at / window_ends_at / status）。
+  """
   use Anubis.Server.Component, type: :tool, meta: %{workspace_id: :optional, membership: :public}
   alias Cgc2046.Mcp.Wrapper
 
