@@ -9,6 +9,7 @@ import {
 	sentencesWithFogMark,
 	type FlashbackCapsuleMe,
 } from "@/lib/graphql/flashback";
+import QuoteLicenseFields from "./quote-license-fields";
 
 type QuoteSpan = { questionKey: string; start: number; len: number };
 
@@ -30,7 +31,6 @@ export default function QuoteLicensePanel({
 	onChanged?: () => void;
 }) {
 	const t = useTranslations("flashback.licensePanel");
-	const writeT = useTranslations("flashback.write");
 	const [runSetQuoteLicense] = useMutation(FLASHBACK_SET_QUOTE_LICENSE);
 	const [level, setLevel] = useState(me.quoteLevel ?? "off");
 	const [picks, setPicks] = useState<QuoteSpan[]>(me.quoteSpans ?? []);
@@ -58,15 +58,11 @@ export default function QuoteLicensePanel({
 		}
 	}
 
-	const isPicked = (candidate: QuoteSpan) =>
-		picks.some((item) => item.questionKey === candidate.questionKey && item.start === candidate.start);
-
-	const togglePick = (candidate: QuoteSpan) =>
+	// 圈选身份 = questionKey+start（共用字段组负责选中态与上抛三件套）
+	const togglePick = (pick: QuoteSpan) =>
 		setPicks((current) => {
-			const exists = (item: QuoteSpan) => item.questionKey === candidate.questionKey && item.start === candidate.start;
-			// 只存区间三件套——candidate 还带渲染用 sentence 字段，input 类型不认
-			const span = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len };
-			return current.some(exists) ? current.filter((item) => !exists(item)) : [...current, span];
+			const exists = (item: QuoteSpan) => item.questionKey === pick.questionKey && item.start === pick.start;
+			return current.some(exists) ? current.filter((item) => !exists(item)) : [...current, pick];
 		});
 
 	const save = async () => {
@@ -94,40 +90,14 @@ export default function QuoteLicensePanel({
 	return (
 		<section className="fb-license-panel" aria-label={t("title")}>
 			<h3 className="fb-field-label">{t("title")}</h3>
-			<fieldset className="fb-checks fb-quote">
-				<legend className="fb-quote-courage">{writeT("quoteCourage")}</legend>
-				{(["off", "anonymous", "credited"] as const).map((value) => (
-					<label key={value}>
-						<input
-							type="radio"
-							name="fb-license-level"
-							checked={level === value}
-							onChange={() => setLevel(value)}
-						/>
-						{writeT(`quote_${value}`)}
-					</label>
-				))}
-				{level !== "off" && (
-					<div className="fb-quote-picker">
-						<p className="fb-field-label">{writeT("quotePick")}</p>
-						<ul className="fb-quote-list">
-							{candidates.map((candidate) => (
-								<li key={`${candidate.questionKey}:${candidate.start}`}>
-									<button
-										type="button"
-										className={`fb-option${isPicked(candidate) ? " fb-option-selected" : ""}`}
-										aria-pressed={isPicked(candidate)}
-										onClick={() => togglePick(candidate)}
-									>
-										{candidate.sentence.trim()}
-									</button>
-								</li>
-							))}
-						</ul>
-						{candidates.length === 0 && <p className="fb-hint">{writeT("quoteNoCandidate")}</p>}
-					</div>
-				)}
-			</fieldset>
+			<QuoteLicenseFields
+				level={level}
+				onLevelChange={setLevel}
+				candidates={candidates}
+				picks={picks}
+				onTogglePick={togglePick}
+				radioName="fb-license-level"
+			/>
 			<div className="fb-license-actions">
 				<button type="button" className="fb-cta" disabled={busy} onClick={() => void save()}>
 					{busy ? t("saving") : t("save")}
