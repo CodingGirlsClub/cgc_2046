@@ -79,6 +79,8 @@ describe("/admin/reconciliation 对账页", () => {
 		expect(screen.getByText("ord-abcdef123456").closest("tr")).toHaveTextContent(
 			"缴费渠道对账差异",
 		);
+		// #916 补齐的实体标签之一：payment_order 行渲染中文实体标签（缺键/缺文案则回退原串）
+		expect(screen.getByText("ord-abcdef123456").closest("tr")).toHaveTextContent("支付订单");
 	});
 
 	it("空报告 → 渲染空态", async () => {
