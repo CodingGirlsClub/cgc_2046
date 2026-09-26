@@ -94,10 +94,8 @@ defmodule Cgc2046.Flashback.WishWriting do
       # 作者可用，无微信身份（web/小红书单平台账号）→ 公开愿进人工审核。
       %{rows: [[name, review]]} =
         Repo.query!(
-          "SELECT display_name, (wishes_review_required_at IS NOT NULL OR NOT EXISTS ("
-          <>
-            "SELECT 1 FROM user_identities i WHERE i.user_id = users.id AND i.provider = 'wechat'"
-          <>
+          "SELECT display_name, (wishes_review_required_at IS NOT NULL OR NOT EXISTS (" <>
+            "SELECT 1 FROM user_identities i WHERE i.user_id = users.id AND i.provider = 'wechat'" <>
             ")) FROM users WHERE id=$1",
           [Repo.uuid!(id)]
         )

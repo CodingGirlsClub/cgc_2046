@@ -839,7 +839,8 @@ defmodule Cgc2046.Flashback.WishesTest do
       archive = create_archive()
       person = create_person(archive, %{city: "北京市"})
 
-      w1 = force_listed(Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true))
+      w1 =
+        force_listed(Wishes.create_wish(person.id, "北京场", "public", public_listing_consent: true))
 
       w2 =
         force_listed(

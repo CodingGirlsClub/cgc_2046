@@ -15,6 +15,7 @@ defmodule Cgc2046.Flashback.WishAccountAuthorTest do
       )
 
     {:ok, private} = WishWriting.create({:user, user.id}, "给主办方", "private", expected_city: "成都")
+
     # P2-1 机审通道门：account-only 作者无微信身份 → 公开愿待审（公开面可见但不挂树）
     assert [%{id: public_id, wisher_masked: "匿名"}] = Wishes.list_public()
     assert public_id == public.id
