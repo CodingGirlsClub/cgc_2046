@@ -35,8 +35,10 @@ import { PageState } from '@/components/PageState'
 import { TodayReview } from '@/components/MyCard'
 import QuoteOptIn from '@/components/MyCard/QuoteOptIn'
 import SharedFlashbackCard from '@/components/SharedFlashbackCard'
+import { FlashbackDeleteSheet } from '@/components/FlashbackDelete'
+import { DELETE_COPY, RETRACT_COPY, canRetract } from '@/domain/flashback-retract'
 import { CARD_MODES, parseQuoteLevel, shareMessage, summaryCardModel, type FlashbackCardMode } from '@/domain/flashback'
-import { buildFlashbackCardSharePath, buildFlashbackJourneyPath } from '@/domain/share-route'
+import { buildFlashbackCardSharePath, buildFlashbackEntryPath } from '@/domain/share-route'
 import { CARD_CANVAS_ID, saveFlashbackCard } from '@/platform/flashback-card'
 import { STORAGE_KEYS } from '@/state/storage'
 import { FlashbackTokenInvalidError } from '@/domain/models'
@@ -68,6 +70,7 @@ export default function FlashbackTodayPage() {
   const [mode, setMode] = useState<FlashbackCardMode>('both')
   const [saving, setSaving] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [shareBusy, setShareBusy] = useState(false)
   /**
    * 开启/关闭的返回 DTO 直接落 UI——它就是服务端答复，不必等一次重拉才显示。
@@ -90,6 +93,8 @@ export default function FlashbackTodayPage() {
 
   useEffect(() => {
     void Taro.setNavigationBarTitle({ title: '卡片' }).catch(() => {})
+    // 换肤：导航栏与纸色页底一致
+    void Taro.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#f7f2e7' }).catch(() => {})
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 进页一次性加载
   }, [])
@@ -142,7 +147,7 @@ export default function FlashbackTodayPage() {
     }
     // 链接没开时不转发本人卡片页（那是原文面）：退回旅程入口，与旧行为一致。
     // 菜单此时已隐藏，这条只是 hideShareMenu 落地前的时间差兜底。
-    return { title, path: buildFlashbackJourneyPath(), imageUrl: shareCardImage }
+    return { title, path: buildFlashbackEntryPath(), imageUrl: shareCardImage }
   })
 
   const saveCard = async () => {
@@ -176,6 +181,24 @@ export default function FlashbackTodayPage() {
     } finally {
       shareBusyRef.current = false
       if (mountedRef.current) setShareBusy(false)
+    }
+  }
+
+  // #931 撤下：二次确认讲清后果；token 省略时后端按登录账号绑定档案
+  const retract = async () => {
+    const { confirm } = await Taro.showModal({
+      title: RETRACT_COPY.title,
+      content: RETRACT_COPY.body,
+      confirmText: RETRACT_COPY.confirm,
+      cancelText: RETRACT_COPY.cancel
+    })
+    if (!confirm) return
+    try {
+      await api.flashbackRetract(Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null)
+      Taro.showToast({ title: '已撤下', icon: 'none' })
+      await load()
+    } catch (reason) {
+      Taro.showToast({ title: reason instanceof Error ? reason.message : RETRACT_COPY.error, icon: 'none' })
     }
   }
 
@@ -259,6 +282,23 @@ export default function FlashbackTodayPage() {
           ? '摘要卡只含未雾的句子 · 原文不会进卡片'
           : '点句子可切换雾面 · 雾面句对外不可见'}
       </Text>
+
+      {/* #931：撤下与删除——本人对自己寄出物的收回权，视觉最轻（文字链），但始终可达 */}
+      <View className={styles.accountLinks}>
+        {canRetract(capsule.me) ? (
+          <Text className={styles.retractLink} onClick={() => void retract()}>{RETRACT_COPY.entry}</Text>
+        ) : null}
+        <Text className={styles.deleteLink} onClick={() => setDeleteOpen(true)}>{DELETE_COPY.title}</Text>
+      </View>
+      {deleteOpen && (
+        <FlashbackDeleteSheet
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            setDeleteOpen(false)
+            void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
+          }}
+        />
+      )}
 
       {/* 离屏画布（保存时节点需已在）——四态共用，尺寸由 domain 版式算出 */}
       <Canvas id={CARD_CANVAS_ID} canvasId={CARD_CANVAS_ID} type='2d' className={styles.cardCanvas} />

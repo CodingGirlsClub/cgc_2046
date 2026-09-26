@@ -41,6 +41,7 @@ const archive: FlashbackCapsuleArchive = {
 	appliedCount: 344,
 	attendedCount: 3,
 	isMine: false,
+	piles: [],
 	roster: [
 		{
 			id: "p1",

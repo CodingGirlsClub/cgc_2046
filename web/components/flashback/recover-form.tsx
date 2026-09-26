@@ -13,18 +13,22 @@ import { graphqlErrorDetails } from "@/lib/graphql/auth";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
 
 /**
- * 自助找回（U6/R21/F5 承接）：凭当年预留的手机号/邮箱发起 → 同形文案
- * （不泄露命中与否）→ 手机通道输码验证 → 绑定成功进胶囊；多档案返回
- * 「你的 N 张卡」选择列表。邮箱通道提示查收恢复邮件（每张卡一个入口链接）。
+ * 自助找回（U6/R21/F5 承接）：凭当年预留的邮箱发起 → 同形文案（不泄露命中与否）
+ * → 提示查收恢复邮件（每张卡一个入口链接）。
+ *
+ * 手机通道暂停（2026-09-26：库里人人有邮箱、未必有手机号，短信按条计费）：`phoneEnabled`
+ * 默认关——手机号就地提示填邮箱、不发起；打开时手机号输码验证 → 绑定成功进胶囊，多档案
+ * 返回「你的 N 张卡」选择列表。重新开放须同时打开后端 `:flashback_recover_phone_enabled`
+ * 并先补短信投递（见 backend Flashback.Recover 模块文档）。
  */
-export default function RecoverForm() {
+export default function RecoverForm({ phoneEnabled = false }: { phoneEnabled?: boolean }) {
 	const t = useTranslations("flashback.recover");
 	const errorT = usePaymentErrorTranslator();
 	const router = useRouter();
 
 	const [identifier, setIdentifier] = useState("");
 	const [code, setCode] = useState("");
-	const [phase, setPhase] = useState<"input" | "code" | "cards" | "done">("input");
+	const [phase, setPhase] = useState<"input" | "sent" | "code" | "cards" | "done">("input");
 	const [error, setError] = useState<string | null>(null);
 	const [cards, setCards] = useState<FlashbackRecoverCard[]>([]);
 
@@ -37,10 +41,16 @@ export default function RecoverForm() {
 
 	const handleInitiate = async () => {
 		setError(null);
+		// 含 @ 即邮箱（同后端 classify）；其余按手机号——通道关闭时就地提示，不发起
+		const isEmail = trimmedIdentifier.includes("@");
+		if (!isEmail && !phoneEnabled) {
+			setError(t("emailRequired"));
+			return;
+		}
 		try {
 			const { data } = await runRecover({ variables: { identifier: trimmedIdentifier } });
 			if (data?.flashbackRecover) {
-				setPhase("code");
+				setPhase(isEmail ? "sent" : "code");
 			}
 		} catch (err) {
 			// code → messages.errors 文案（errorT 两参签名：code + fallback）
@@ -94,9 +104,11 @@ export default function RecoverForm() {
 				</div>
 			)}
 
+			{phase === "sent" && <p className="fb-hint">{t("sentHint")}</p>}
+
 			{phase === "code" && (
 				<div className="fb-recover-form">
-					<p className="fb-hint">{t("sentHint")}</p>
+					<p className="fb-hint">{t("codeHint")}</p>
 					<input
 						className="fb-field-input fb-recover-input"
 						placeholder={t("codePlaceholder")}

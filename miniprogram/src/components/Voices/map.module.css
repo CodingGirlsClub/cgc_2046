@@ -33,3 +33,10 @@
   .connection, .dot { animation: none; }
   .cityGlow { display: none; }
 }
+
+/* 换肤（盘点 §7）：地图、城市光点与金线原样（青只画山河、金 = 句长成树）；
+   「重看山河亮起」从金色胶囊换成墨框纸钮——金只表达结果，不做按钮；愿望便签是纸 + 金边 */
+.wishTag { background: var(--paper-hi); border-color: var(--gold-line); color: var(--ink); box-shadow: none; }
+.replayRow .replayButton { background: var(--paper-hi); border-color: var(--ink-3); color: var(--ink); font-weight: 400; box-shadow: none; }
+.replayButton:active { background: var(--paper-deep); }
+.replayIcon { background: transparent; color: var(--ink); }

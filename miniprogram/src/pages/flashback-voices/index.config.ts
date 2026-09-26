@@ -1,7 +1,7 @@
 export default definePageConfig({
   navigationBarTitleText: '闪念间 · 金句墙',
-  navigationBarBackgroundColor: '#faf8f1',
-  backgroundColor: '#faf8f1',
+  navigationBarBackgroundColor: '#f7f2e7',
+  backgroundColor: '#f7f2e7',
   enableShareAppMessage: true,
   enableShareTimeline: true
 })

@@ -1333,7 +1333,7 @@ export const FLASHBACK_ADMIN_SEND_OUTREACH: TypedDocumentNode<
 `;
 
 export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
-	{ flashbackAdminResendOutreach: { queued: number; skipped: number; batch: string } },
+	{ flashbackAdminResendOutreach: { queued: number; skipped: number } },
 	{ personId: string; template: string; channel?: string | null }
 > = gql`
 	mutation FlashbackAdminResendOutreach($personId: ID!, $template: String!, $channel: String) {
@@ -1344,7 +1344,6 @@ export const FLASHBACK_ADMIN_RESEND_OUTREACH: TypedDocumentNode<
 		) {
 			queued
 			skipped
-			batch
 		}
 	}
 `;

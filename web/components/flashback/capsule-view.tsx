@@ -17,6 +17,36 @@ import { useStageTitleFocus } from "./use-reduced-motion";
 
 /** token 会话内持有（与 enter 页同 key；URL 读入后即刻清除，KTD2） */
 const TOKEN_STORAGE_KEY = "flashback.token";
+/** 相册开放告知已读（#933 一次性，与小程序长廊同规则；跨会话记住，放 localStorage）。
+ * 按「人」记（长廊 me.id：token 访客与登录用户都有）——同一浏览器换账号互不影响；
+ * ALBUM_NOTICE_KEY 是旧版的设备级单键，已读过的人迁移到本人键，不重复打扰。 */
+const ALBUM_NOTICE_KEY = "flashback.album_notice_done";
+const albumNoticeKey = (scopeId: string) => `${ALBUM_NOTICE_KEY}:${scopeId}`;
+
+/**
+ * #933 相册开放告知：开放前就寄出的人第一次回来时看到可见范围变了；进来时还没寄出的人寄出前
+ * 会读到新的可见范围文案——直接置位，寄出后不再打扰。sent = null 表示胶囊还没到。
+ */
+function useAlbumNotice(sent: boolean | null, scopeId: string | null): [boolean, () => void] {
+	const [show, setShow] = useState(false);
+	useEffect(() => {
+		if (sent === null || !scopeId) return;
+		const key = albumNoticeKey(scopeId);
+		if (!window.localStorage.getItem(key) && window.localStorage.getItem(ALBUM_NOTICE_KEY)) {
+			window.localStorage.setItem(key, "1");
+			return;
+		}
+		if (window.localStorage.getItem(key)) return;
+		// microtask 包裹：同本文件既有写法，避开 effect 内同步 setState（react-hooks/set-state-in-effect）
+		if (sent) Promise.resolve().then(() => setShow(true));
+		else window.localStorage.setItem(key, "1");
+	}, [sent, scopeId]);
+	const dismiss = useCallback(() => {
+		if (scopeId) window.localStorage.setItem(albumNoticeKey(scopeId), "1");
+		setShow(false);
+	}, [scopeId]);
+	return [show, dismiss];
+}
 
 type CapsuleState =
 	| { phase: "loading" }
@@ -38,6 +68,10 @@ export default function CapsuleView() {
 	const [city, setCity] = useState<string | null>(null);
 	const wide = useWideCorridor();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([state.phase]);
+	const [albumNotice, dismissAlbumNotice] = useAlbumNotice(
+		state.phase === "ok" && state.capsule ? Boolean(state.capsule.me.today?.sentToWallAt) : null,
+		state.phase === "ok" && state.capsule ? state.capsule.me.id : null,
+	);
 
 	const reload = useCallback(() => {
 		setReloadKey((key) => key + 1);
@@ -139,6 +173,14 @@ export default function CapsuleView() {
 					{t("title")}
 				</h2>
 			</header>
+			{albumNotice && (
+				<aside className="fb-album-notice" data-testid="fb-album-notice">
+					<p>{t("albumNotice")}</p>
+					<button type="button" onClick={dismissAlbumNotice}>
+						{t("albumNoticeOk")}
+					</button>
+				</aside>
+			)}
 			{capsule.cities.length > 1 && (
 				<div className="fb-city-pins" role="group" aria-label={t("cityAria")}>
 					<button
