@@ -165,7 +165,17 @@ export default function Reveal({
 						</button>
 					</div>
 
-					{line === "memory" && <div className="fb-btc-note">{t("btcNote")}</div>}
+					{line === "memory" && (
+						<div className="fb-btc-note">
+							{t("btcNote")} 
+							<a
+								className="fb-btc-mail"
+								href="mailto:info@codingirlsclub.com?subject=%E6%AF%94%E7%89%B9%E5%B8%81%E5%A5%96%E5%93%81%E5%85%91%E4%BB%98"
+							>
+								{t("btcContact")}
+							</a>
+						</div>
+					)}
 
 					{line === "dream" &&
 						(dreamTarget ? (
