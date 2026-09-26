@@ -18,13 +18,14 @@ export default function InvalidToken({ reason }: { reason: InvalidTokenReason })
 	const t = useTranslations("flashback.invalid");
 	const { authed, confirmed } = useAuthed();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([reason]);
+	const authedBody = reason === "flashback_token_claimed" && confirmed && authed;
 
 	return (
 		<section className="fb-stage fb-stage-pad fb-invalid">
 			<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
 				{t(`${reason}.title`)}
 			</h2>
-			<p className="fb-lead">{t(`${reason}.body`)}</p>
+			<p className="fb-lead">{t(authedBody ? `${reason}.bodyAuthed` : `${reason}.body`)}</p>
 			<div className="fb-invalid-actions">
 				{reason === "flashback_token_claimed" && (
 					<Link href={confirmed && authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>{t(confirmed && authed ? "claimed.capsule" : "claimed.action")}</Link>

@@ -18,4 +18,9 @@ describe("已收好链接的下一步", () => {
   expect(screen.getByRole("link", { name: "进入我的时间长廊" })).toHaveAttribute("href", "/flashback/capsule");
   expect(screen.queryByRole("link", { name: "去登录" })).not.toBeInTheDocument();
  });
+ it("已登录时正文不再提示请登录", () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  render(<InvalidToken reason="flashback_token_claimed" />);
+  expect(screen.getByText(/链接已完成使命/).textContent).not.toContain("请登录");
+ });
 });
