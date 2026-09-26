@@ -37,7 +37,7 @@ export default function PrivacyPage() {
 			<h1 className="l-h1">CGC 平台隐私政策</h1>
 
 			<div className="mt-4 space-y-1 rounded-large border border-line bg-card px-5 py-4 text-[12px] leading-5 text-ink-3">
-				<p>生效日期 2026-09-01 ｜ 法律文本以中文版本为准（The Chinese version prevails）</p>
+				<p>生效日期 2026-09-26 ｜ 法律文本以中文版本为准（The Chinese version prevails）</p>
 				<p>版本 v1.2（2026-09-26）｜ 运营者：CodingGirlsClub（「我们」）</p>
 				<p>文本源档：docs/合规上架/隐私政策.md、docs/合规上架/个人信息处理规则.md</p>
 			</div>

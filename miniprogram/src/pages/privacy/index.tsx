@@ -16,7 +16,7 @@ import styles from './index.module.css'
  */
 
 const META = [
-  '生效日期 2026-09-01 ｜ 版本 v1.2（2026-09-26）',
+  '生效日期 2026-09-26 ｜ 版本 v1.2（2026-09-26）',
   '运营者：CodingGirlsClub（「我们」）',
   '法律文本以中文版本为准'
 ]
