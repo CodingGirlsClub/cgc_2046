@@ -108,3 +108,14 @@
 
 .voicesLink { margin: 30rpx 0; background: #244936; color: #fffcef; font-size: 28rpx; padding: 14rpx 20rpx; border-radius: 8rpx; }
 .voicesLink::after { border: 0; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   纸底；「找回我的闪念间」是唯一的火；去金句墙是墨色文字链接（不再是第二块深绿按钮）。 */
+.page { background: var(--paper); }
+.journeyAction, .terminalAction { background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.footNote { color: var(--ink-3); }
+.terminalEyebrow { color: var(--ink-3); font-weight: 500; letter-spacing: 0.3em; }
+.terminalTitle { color: var(--ink); font-weight: 400; font-family: var(--serif); }
+.terminalBody { color: var(--ink-2); }
+.quietAction { color: var(--ink); border-color: var(--ink-3); }
+.voicesLink { background: transparent; color: var(--ink-2); padding: 14rpx 20rpx; font-size: 25rpx; text-decoration: underline; text-underline-offset: 6rpx; }

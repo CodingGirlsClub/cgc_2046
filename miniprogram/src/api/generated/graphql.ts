@@ -845,6 +845,14 @@ export type EnrollmentQueryVariables = Exact<{
 
 export type EnrollmentQuery = { enrollments: { results: Array<{ id: string, workspaceId: string, eventId: string | null, courseId: string | null, userId: string, status: string, targetTitle: string | null, approvalDeadline: string | null, rejectionReason: string | null, approvedAt: string | null, expiredAt: string | null, cancelledAt: string | null, insertedAt: string, checkInCode: string | null, paymentMode: string | null, depositAmountCents: number | null, startsAt: string | null, venue: string | null, registrationDeadline: string | null }> | null } | null };
 
+export type SignInWithPlatformIdentityMutationVariables = Exact<{
+  platform: string;
+  code: string;
+}>;
+
+
+export type SignInWithPlatformIdentityMutation = { signInWithPlatformIdentity: { id: string, email: string | null, isPlatformAdmin: boolean } | null };
+
 export type SignInWithPlatformMutationVariables = Exact<{
   platform: string;
   code: string;
@@ -983,13 +991,20 @@ export type PublicInitiativeQueryVariables = Exact<{
 
 export type PublicInitiativeQuery = { publicInitiative: { id: string, name: string, slug: string, hashtag: string | null, description: string | null, status: string, windowStartsAt: string | null, windowEndsAt: string | null, cityCount: number, eventCount: number, confirmedCount: number, qualifiedEventCount: number, cities: Array<{ city: string, events: Array<{ id: string, slug: string, title: string, status: string, startsAt: string | null, endsAt: string | null, registrationDeadline: string | null, venue: string | null, archived: boolean, qualificationBadge: string, shortBy: number | null, paymentMode: string, minAge: number | null, priceRangeMinCents: number | null, deposit: { enabled: boolean, amountCents: number | null, refundableOnCheckIn: boolean | null } }> }> } | null };
 
+export type FlashbackArchivesQueryVariables = Exact<{
+  city?: string | null | undefined;
+}>;
+
+
+export type FlashbackArchivesQuery = { flashbackArchives: { cities: Array<string>, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, piles: Array<{ city: string, count: number, returned: number }>, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }> } | null };
+
 export type FlashbackCapsuleQueryVariables = Exact<{
   city?: string | null | undefined;
   token?: string | null | undefined;
 }>;
 
 
-export type FlashbackCapsuleQuery = { flashbackCapsule: { myWishQuotaRemaining: number | null, cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, need: string | null, say: string | null, fogSpans: string | null, sentToWallAt: string | null } | null, cardSharing: { enabled: boolean, shareId: string | null, preview: { displayName: string, city: string | null, appliedAt: string | null, occurredOn: string | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }>, today: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> } | null }, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, initiativeStartsAt: string | null, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, echoCount: number, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }>, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
+export type FlashbackCapsuleQuery = { flashbackCapsule: { myWishQuotaRemaining: number | null, cities: Array<string>, me: { id: string, fullName: string, surname: string | null, city: string | null, occupationThen: string | null, participation: string, appliedAt: string | null, quoteLevel: string, quote: string | null, quoteSpans: Array<{ questionKey: string, start: number, len: number } | null> | null, quoteStats: { likeCount: number } | null, today: { nowStatus: string | null, want: string | null, need: string | null, say: string | null, fogSpans: string | null, sentToWallAt: string | null } | null, cardSharing: { enabled: boolean, shareId: string | null, preview: { displayName: string, city: string | null, appliedAt: string | null, occurredOn: string | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }>, today: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> } | null }, answers: Array<{ id: string, questionKey: string, rawText: string, text: string, fogSpans: Array<{ start: number, len: number }> }> }, archives: Array<{ key: string, name: string | null, city: string | null, occurredOn: string | null, appliedCount: number | null, attendedCount: number | null, label: string | null, isMine: boolean, piles: Array<{ city: string, count: number, returned: number }>, roster: Array<{ id: string, surnameMasked: string, fullName: string | null, appliedAt: string | null, city: string | null, occupationThen: string | null, sentToWallAt: string | null, today: { nowStatus: string | null, want: string | null, say: string | null } | null, answers: Array<{ questionKey: string, segments: Array<{ text: string, fog: boolean, len: number }> }> }> }>, futureEvents: Array<{ initiativeSlug: string, initiativeName: string, initiativeStartsAt: string | null, events: Array<{ id: string, slug: string, title: string, city: string | null, startsAt: string | null, capacity: number | null, confirmedCount: number, registrationDeadline: string | null }> }>, publicWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, echoCount: number, insertedAt: string, comments: Array<{ id: string, content: string, commenterMasked: string | null, insertedAt: string }>, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> }>, myPrivateWishes: Array<{ id: string, content: string, city: string | null, wisherMasked: string | null, endorsementCount: number, endorsedByMe: boolean, mine: boolean, insertedAt: string }> } | null };
 
 export type FlashbackPublicStatsQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -1028,11 +1043,55 @@ export type FlashbackMarkRevealedMutationVariables = Exact<{
 export type FlashbackMarkRevealedMutation = { flashbackMarkRevealed: { recorded: boolean } | null };
 
 export type FlashbackSendToWallMutationVariables = Exact<{
-  token: string;
+  token?: string | null | undefined;
 }>;
 
 
 export type FlashbackSendToWallMutation = { flashbackSendToWall: { sentToWallAt: string | null } | null };
+
+export type FlashbackRetractMutationVariables = Exact<{
+  token?: string | null | undefined;
+}>;
+
+
+export type FlashbackRetractMutation = { flashbackRetract: { retracted: boolean, sentToWallAt: string | null } | null };
+
+export type FlashbackDeletePreviewQueryVariables = Exact<{
+  token?: string | null | undefined;
+}>;
+
+
+export type FlashbackDeletePreviewQuery = { flashbackDeletePreview: { personId: string, fullName: string, sentToWallAt: string | null, endorsementCount: number, alreadyDeleted: boolean } | null };
+
+export type FlashbackRecoverMutationVariables = Exact<{
+  identifier: string;
+}>;
+
+
+export type FlashbackRecoverMutation = { flashbackRecover: { dispatched: boolean } | null };
+
+export type FlashbackRecoverVerifyForAccountMutationVariables = Exact<{
+  identifier: string;
+  code: string;
+}>;
+
+
+export type FlashbackRecoverVerifyForAccountMutation = { flashbackRecoverVerifyForAccount: { bound: boolean, cards: Array<{ surnameMasked: string, eventName: string | null, city: string | null }> } | null };
+
+export type FlashbackRecoverClaimForAccountMutationVariables = Exact<{
+  link: string;
+}>;
+
+
+export type FlashbackRecoverClaimForAccountMutation = { flashbackRecoverClaimForAccount: { bound: boolean, cards: Array<{ surnameMasked: string }> } | null };
+
+export type FlashbackDeleteMutationVariables = Exact<{
+  token?: string | null | undefined;
+  confirm: string;
+}>;
+
+
+export type FlashbackDeleteMutation = { flashbackDelete: { deleted: boolean, deletedAt: string } | null };
 
 export type FlashbackClaimMutationVariables = Exact<{
   token?: string | null | undefined;

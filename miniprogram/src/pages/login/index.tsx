@@ -4,7 +4,7 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
 import { CUT_TAB_PATHS, FULL_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
-import { preparePlatformLogin } from '@/platform'
+import { platformLoginCode, preparePlatformLogin } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
@@ -21,6 +21,42 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  // 登录成功后的去向（手机号登录与回访静默登录共用）
+  const finish = async () => {
+    const returnUrl = router.params.returnUrl
+    if (returnUrl) {
+      const target = decodeURIComponent(returnUrl)
+      // 回跳目标可能是 tabBar 页面（如长廊）：redirectTo 跳 Tab 页会失败，
+      // 必须 switchTab——清单单源在 domain/tab-routes
+      if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
+      else await Taro.redirectTo({ url: target })
+    } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
+    // 裁剪端（抖音/小红书）未注册「我的」页，fallback 落回已注册的「我的报名」
+    else {
+      await Taro.switchTab({ url: isCut ? '/pages/my-enrollments/index' : '/pages/profile/index' })
+    }
+  }
+
+  // #930 点「手机号快捷登录」先试回访静默登录：本平台已绑定身份的账号一步到位（不弹协议框、
+  // 不走计费的手机号授权——协议在首次登录时已同意）；没绑定 / 主动退出后 / 任何失败 → 照旧弹协议框
+  const startLogin = async () => {
+    if (submitting) return
+    setSubmitting(true)
+    setError('')
+    let signedIn = false
+    try {
+      signedIn = (await api.signInSilently(await platformLoginCode())) !== null
+    } catch {
+      // 静默失败不挡登录：退回手机号登录
+    }
+    try {
+      if (signedIn) await finish()
+    } finally {
+      setSubmitting(false)
+    }
+    if (!signedIn) setDialogVisible(true)
+  }
+
   const login = async (payload: PlatformPhonePayload = {}) => {
     if (submitting) return
     setSubmitting(true)
@@ -28,18 +64,7 @@ export default function LoginPage() {
     try {
       const prepared = await preparePlatformLogin(payload)
       await api.signIn(prepared)
-      const returnUrl = router.params.returnUrl
-      if (returnUrl) {
-        const target = decodeURIComponent(returnUrl)
-        // 回跳目标可能是 tabBar 页面（如长廊）：redirectTo 跳 Tab 页会失败，
-        // 必须 switchTab——清单单源在 domain/tab-routes
-        if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
-        else await Taro.redirectTo({ url: target })
-      } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
-      // 裁剪端（抖音/小红书）未注册「我的」页，fallback 落回已注册的「我的报名」
-      else {
-        await Taro.switchTab({ url: isCut ? '/pages/my-enrollments/index' : '/pages/profile/index' })
-      }
+      await finish()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登录失败，请重试')
     } finally {
@@ -63,7 +88,8 @@ export default function LoginPage() {
       <Button
         className={styles.loginButton}
         data-testid='platform-login'
-        onClick={() => setDialogVisible(true)}
+        loading={submitting && !dialogVisible}
+        onClick={() => void startLogin()}
       >
         手机号快捷登录
       </Button>

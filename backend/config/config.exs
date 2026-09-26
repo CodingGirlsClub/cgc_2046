@@ -267,6 +267,11 @@ config :cgc_2046, :flashback_outreach, per_minute: 120
 # SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID 可选注入，test 在 test.exs 给 stub 值。
 config :cgc_2046, :flashback_sms, template_id: nil
 
+# 闪念间手机号找回（2026-09-26 暂停）：库里人人有邮箱、未必有手机号，短信按条计费——
+# 找回只开放邮箱。关闭时发起同形返回不发码、验证一律不认；代码保留，重新开放要同时打开
+# web / 小程序的 PHONE_RECOVERY_ENABLED，并先补短信投递（见 Flashback.Recover 模块文档）。
+config :cgc_2046, :flashback_recover_phone_enabled, false
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

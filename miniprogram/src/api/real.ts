@@ -61,6 +61,20 @@ import type {
   FlashbackPublicStatsQueryVariables,
   FlashbackSendToWallMutation,
   FlashbackSendToWallMutationVariables,
+  FlashbackArchivesQuery,
+  FlashbackArchivesQueryVariables,
+  FlashbackRetractMutation,
+  FlashbackRetractMutationVariables,
+  FlashbackDeletePreviewQuery,
+  FlashbackDeletePreviewQueryVariables,
+  FlashbackDeleteMutation,
+  FlashbackDeleteMutationVariables,
+  FlashbackRecoverMutation,
+  FlashbackRecoverMutationVariables,
+  FlashbackRecoverClaimForAccountMutation,
+  FlashbackRecoverClaimForAccountMutationVariables,
+  FlashbackRecoverVerifyForAccountMutation,
+  FlashbackRecoverVerifyForAccountMutationVariables,
   FlashbackSetCardSharingMutation,
   FlashbackSetCardSharingMutationVariables,
   FlashbackSetQuoteLicenseMutation,
@@ -95,6 +109,8 @@ import type {
   SignOutMutationVariables,
   SignInWithPlatformMutation,
   SignInWithPlatformMutationVariables,
+  SignInWithPlatformIdentityMutation,
+  SignInWithPlatformIdentityMutationVariables,
   UploadResumeFileMutation,
   UploadResumeFileMutationVariables,
   UpsertResumeProfileMutation,
@@ -103,6 +119,8 @@ import type {
 import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
+import { DELETE_COPY, RETRACT_COPY, type FlashbackDeletePreview } from '@/domain/flashback-retract'
+import { RECOVER_COPY, RECOVER_LINK_ERRORS } from '@/domain/flashback-recover'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -137,6 +155,13 @@ import {
   FlashbackMarkRevealedMutationDocument,
   FlashbackPublicStatsQueryDocument,
   FlashbackSendToWallMutationDocument,
+  FlashbackArchivesQueryDocument,
+  FlashbackRetractMutationDocument,
+  FlashbackDeletePreviewQueryDocument,
+  FlashbackDeleteMutationDocument,
+  FlashbackRecoverMutationDocument,
+  FlashbackRecoverClaimForAccountMutationDocument,
+  FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
@@ -152,6 +177,7 @@ import {
   SessionQueryDocument,
   SignOutMutationDocument,
   SignInWithPlatformMutationDocument,
+  SignInWithPlatformIdentityMutationDocument,
   UploadResumeFileMutationDocument,
   UpsertResumeProfileMutationDocument
 } from './operations'
@@ -170,6 +196,7 @@ import type {
   EnrollmentForm,
   EnrollmentSummary,
   FlashbackCapsule,
+  FlashbackCapsuleArchive,
   FlashbackCardSharing,
   FlashbackSharedCard,
   FlashbackRosterAnswer,
@@ -195,6 +222,7 @@ import type {
   WorkspaceSummary
 } from '@/domain/models'
 import { currentPlatform } from '@/platform'
+import { setSilentLoginAllowed, silentLoginAllowed } from '@/state/silentLogin'
 import { parseQualificationBadge } from '@/domain/initiative'
 import { mapPublicWishEcho } from '@/domain/flashback'
 import {
@@ -324,6 +352,47 @@ function mutationError(errors: Array<{ message?: string | null; code?: string | 
 
 /** 登录已失效：曾有 token 但会话降级（#355 P0-2）。getEnrollments/getMyOrders
  * 以此拒绝代替静默 []，页面据「从未报名」与「掉线」两种空态分叉渲染。 */
+type CapsuleArchiveNode = NonNullable<FlashbackCapsuleQuery['flashbackCapsule']>['archives'][number]
+
+/** 场次 + 名册映射：胶囊与相册（#933 flashbackArchives）共用——两处选择集逐字一致 */
+function mapCapsuleArchive(archive: CapsuleArchiveNode): FlashbackCapsuleArchive {
+  return {
+    key: archive.key,
+    name: archive.name ?? null,
+    city: archive.city ?? null,
+    occurredOn: archive.occurredOn ?? null,
+    appliedCount: archive.appliedCount ?? null,
+    attendedCount: archive.attendedCount ?? null,
+    label: archive.label ?? null,
+    isMine: archive.isMine,
+    piles: (archive.piles ?? []).map((pile) => ({ city: pile.city, count: pile.count, returned: pile.returned })),
+    roster: (archive.roster ?? []).map((entry) => ({
+      id: entry.id,
+      surnameMasked: entry.surnameMasked,
+      fullName: entry.fullName ?? null,
+      appliedAt: entry.appliedAt ?? null,
+      city: entry.city ?? null,
+      occupationThen: entry.occupationThen ?? null,
+      sentToWallAt: entry.sentToWallAt ?? null,
+      today: entry.today
+        ? {
+            nowStatus: entry.today.nowStatus ?? null,
+            want: entry.today.want ?? null,
+            say: entry.today.say ?? null
+          }
+        : null,
+      answers: (entry.answers ?? []).map((answer) => ({
+        questionKey: answer.questionKey,
+        segments: (answer.segments ?? []).map((segment) => ({
+          text: segment.text,
+          fog: segment.fog,
+          len: segment.len
+        }))
+      }))
+    }))
+  }
+}
+
 export class SessionExpiredError extends Error {
   constructor(message = '登录已过期，请重新登录') {
     super(message)
@@ -595,12 +664,51 @@ export class RealMiniProgramApi implements MiniProgramApi {
         iv: payload.iv ?? null
       },
       { captureAuthCookie: true }
-    )
+    ).catch((error: unknown) => {
+      // #930：登录限流（IP 天花板 / openid 桶）转中文——登录页原样显示 message，否则是英文
+      // 「Too many requests」。rate_limited 是 infra 码，不进 error-copy 契约表（只收 domain 码）
+      if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'rate_limited')) {
+        throw new Error('登录太频繁了，请稍后再试。')
+      }
+      throw error
+    })
+    const session = await this.hydrateSignedInSession()
+    // 主动退出后关掉的回访静默登录，在任何一次登录成功后恢复（#930）
+    setSilentLoginAllowed(true)
+    return session
+  }
+
+  /**
+   * #930 回访静默登录：已绑定本平台身份（openid）的账号只用平台登录凭证 code——不弹协议框、
+   * 不走计费的手机号授权。本平台还没绑定（首次登录）或主动退出后 → null，页面退回手机号登录。
+   */
+  async signInSilently(loginCode: string): Promise<SessionSnapshot | null> {
+    if (!silentLoginAllowed()) return null
+    const previous = getAuthToken()
+    try {
+      await graphqlRequest<SignInWithPlatformIdentityMutation, SignInWithPlatformIdentityMutationVariables>(
+        SignInWithPlatformIdentityMutationDocument,
+        { platform: currentPlatform(), code: loginCode },
+        { captureAuthCookie: true }
+      )
+    } catch (error) {
+      // 失败不改变原登录态（mock 路径会在请求前先写入 token）
+      setAuthToken(previous)
+      if (error instanceof GraphQLRequestError && error.errors.some(({ code }) => code === 'platform_identity_not_found')) return null
+      throw error
+    }
+    // 新会话：清旧 Workspace / 账号状态（token 已是新签发的），保留 pending scene
+    clearWorkspaceTab()
+    clearAccountState()
+    return this.hydrateSignedInSession()
+  }
+
+  // 登录（手机号 / 静默）签发之后的会话水合：失败全量回滚，UI 显示失败与设备状态一致
+  private async hydrateSignedInSession(): Promise<SessionSnapshot> {
     if (!getAuthToken()) throw new Error('登录成功但未收到 Bearer token，请检查响应 cookie 契约')
     try {
       return await this.fetchSession()
     } catch (error) {
-      // session hydration 失败：全量回滚，UI 显示失败与设备状态一致
       setAuthToken(null)
       clearWorkspaceTab()
       clearAccountState()
@@ -617,6 +725,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
       setAuthToken(null)
       clearWorkspaceTab()
       clearAccountState({ clearPendingScene: true })
+      // 主动退出：下一次登录走手机号（方便换账号），不静默回到刚退出的账号（#930）
+      setSilentLoginAllowed(false)
     }
   }
 
@@ -979,6 +1089,26 @@ export class RealMiniProgramApi implements MiniProgramApi {
     })
   }
 
+  /** #933 相册：已登录即可读；未登录 → SessionExpiredError（页面据此跳登录） */
+  async getFlashbackArchives(city?: string | null): Promise<{ archives: FlashbackCapsuleArchive[]; cities: string[] }> {
+    const data = await graphqlRequest<FlashbackArchivesQuery, FlashbackArchivesQueryVariables>(
+      FlashbackArchivesQueryDocument,
+      { city: city ?? null }
+    ).catch((error: unknown) => {
+      if (
+        error instanceof GraphQLRequestError &&
+        (isAuthenticationError(error) ||
+          error.errors.some((entry) => (entry.code ?? entry.extensions?.code) === 'flashback_auth_required'))
+      ) {
+        throw new SessionExpiredError()
+      }
+      throw error
+    })
+    const result = data.flashbackArchives
+    if (!result) throw new Error('相册加载失败')
+    return { archives: (result.archives ?? []).map(mapCapsuleArchive), cities: result.cities ?? [] }
+  }
+
   async getFlashbackCapsule(city?: string | null, token?: string | null): Promise<FlashbackCapsule> {
     const data = await graphqlRequest<FlashbackCapsuleQuery, FlashbackCapsuleQueryVariables>(
       FlashbackCapsuleQueryDocument,
@@ -1052,40 +1182,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
             }
           : undefined
       },
-      archives: (capsule.archives ?? []).map((archive) => ({
-        key: archive.key,
-        name: archive.name ?? null,
-        city: archive.city ?? null,
-        occurredOn: archive.occurredOn ?? null,
-        appliedCount: archive.appliedCount ?? null,
-        attendedCount: archive.attendedCount ?? null,
-        label: archive.label ?? null,
-        isMine: archive.isMine,
-        roster: (archive.roster ?? []).map((entry) => ({
-          id: entry.id,
-          surnameMasked: entry.surnameMasked,
-          fullName: entry.fullName ?? null,
-          appliedAt: entry.appliedAt ?? null,
-          city: entry.city ?? null,
-          occupationThen: entry.occupationThen ?? null,
-          sentToWallAt: entry.sentToWallAt ?? null,
-          today: entry.today
-            ? {
-                nowStatus: entry.today.nowStatus ?? null,
-                want: entry.today.want ?? null,
-                say: entry.today.say ?? null
-              }
-            : null,
-          answers: (entry.answers ?? []).map((answer) => ({
-            questionKey: answer.questionKey,
-            segments: (answer.segments ?? []).map((segment) => ({
-              text: segment.text,
-              fog: segment.fog,
-              len: segment.len
-            }))
-          }))
-        }))
-      })),
+      archives: (capsule.archives ?? []).map(mapCapsuleArchive),
       futureEvents: (capsule.futureEvents ?? []).map((frame) => ({
         initiativeSlug: frame.initiativeSlug,
         initiativeName: frame.initiativeName,
@@ -1231,15 +1328,95 @@ export class RealMiniProgramApi implements MiniProgramApi {
     )
   }
 
-  async flashbackSendToWall(token: string): Promise<void> {
+  // #931：token 省略（null）时后端按登录账号绑定档案——绝不传空串（空串会被当作 token 校验而失败）
+  async flashbackSendToWall(token: string | null): Promise<void> {
     const data = await graphqlRequest<FlashbackSendToWallMutation, FlashbackSendToWallMutationVariables>(
       FlashbackSendToWallMutationDocument,
-      { token }
+      { token: token || null }
     ).catch((error: unknown) => {
       throwIfFlashbackTokenInvalid(error)
       throw error
     })
     if (!data.flashbackSendToWall?.sentToWallAt) throw new Error('寄出失败，请重试')
+  }
+
+  async flashbackRetract(token: string | null): Promise<void> {
+    const data = await graphqlRequest<FlashbackRetractMutation, FlashbackRetractMutationVariables>(
+      FlashbackRetractMutationDocument,
+      { token: token || null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackRetract?.retracted) throw new Error(RETRACT_COPY.error)
+  }
+
+  async flashbackDeletePreview(token: string | null): Promise<FlashbackDeletePreview> {
+    const data = await graphqlRequest<FlashbackDeletePreviewQuery, FlashbackDeletePreviewQueryVariables>(
+      FlashbackDeletePreviewQueryDocument,
+      { token: token || null }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    const row = data.flashbackDeletePreview
+    if (!row) throw new Error(DELETE_COPY.error)
+    return { fullName: row.fullName, sentToWallAt: row.sentToWallAt ?? null, endorsementCount: row.endorsementCount }
+  }
+
+  async flashbackDelete(token: string | null, confirm: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackDeleteMutation, FlashbackDeleteMutationVariables>(
+      FlashbackDeleteMutationDocument,
+      { token: token || null, confirm }
+    ).catch((error: unknown) => {
+      throwIfFlashbackTokenInvalid(error)
+      throw error
+    })
+    if (!data.flashbackDelete?.deleted) throw new Error(DELETE_COPY.error)
+  }
+
+  async flashbackRecover(identifier: string): Promise<void> {
+    const data = await graphqlRequest<FlashbackRecoverMutation, FlashbackRecoverMutationVariables>(
+      FlashbackRecoverMutationDocument,
+      { identifier }
+    ).catch((error: unknown) => {
+      // 限流等 code 命中 errorCopy 抛中文
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    if (!data.flashbackRecover?.dispatched) throw new Error(RECOVER_COPY.errorRetry)
+  }
+
+  async flashbackRecoverVerifyForAccount(identifier: string, code: string): Promise<{ count: number }> {
+    const data = await graphqlRequest<
+      FlashbackRecoverVerifyForAccountMutation,
+      FlashbackRecoverVerifyForAccountMutationVariables
+    >(FlashbackRecoverVerifyForAccountMutationDocument, { identifier, code }).catch((error: unknown) => {
+      // 错码 / 号码或卡属于另一个账号 / 限流：code 命中 errorCopy 抛中文
+      if (error instanceof GraphQLRequestError) mutationError(error.errors)
+      throw error
+    })
+    const result = data.flashbackRecoverVerifyForAccount
+    if (!result?.bound) throw new Error(RECOVER_COPY.errorRetry)
+    return { count: result.cards.length }
+  }
+
+  async flashbackRecoverClaimForAccount(link: string): Promise<{ count: number }> {
+    const data = await graphqlRequest<
+      FlashbackRecoverClaimForAccountMutation,
+      FlashbackRecoverClaimForAccountMutationVariables
+    >(FlashbackRecoverClaimForAccountMutationDocument, { link }).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) {
+        // 链接失效三态走找回口径；卡属于另一个账号 / 限流命中 errorCopy
+        const code = error.errors.map((entry) => entry.code ?? entry.extensions?.code).find((c) => c && RECOVER_LINK_ERRORS[c])
+        if (code) throw new BusinessError(RECOVER_LINK_ERRORS[code], code)
+        mutationError(error.errors)
+      }
+      throw error
+    })
+    const result = data.flashbackRecoverClaimForAccount
+    if (!result?.bound) throw new Error(RECOVER_COPY.errorRetry)
+    return { count: result.cards.length }
   }
 
   async flashbackClaim(token?: string | null): Promise<FlashbackClaimResult> {
@@ -1256,6 +1433,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         ) {
           throw new SessionExpiredError()
         }
+        // 档案已属于另一个账号等业务码：errorCopy 抛中文（旅程页直接 toast error.message）
+        mutationError(error.errors)
       }
       throw error
     })

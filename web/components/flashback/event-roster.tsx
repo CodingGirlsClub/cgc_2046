@@ -10,11 +10,11 @@ import { tiltClass } from "./tilt";
  * 场次名册（U5/R12 分层墙 + 用户定稿两态卡；场次页 /flashback/event/[key] 3 列网格）：
  * - 名册 = 一叠**合着的拍立得**（默认卡面：寄出者全名+年份+城市+回来了微标）；
  *   点击 3D 翻转看内容（正面当年雾面段 + 背面今天的你）——PolaroidFlip；
- * - 未寄出者保持结构化卡（姓氏隐名 + 虚线内容位「她的答案，还在等她」，
- *   R12：不寄出不亮名、无内容可翻）；
+ * - 未寄出者只有姓氏隐名 + 虚线内容位「她的答案，还在等她」（R12：不寄出不亮名、
+ *   无内容可翻；#933 起城市 / 当年职业 / 参与类型也不显示）；
  * 名册混排 attended 与 not_selected（圆梦线进名册、与学员同规则不按身份
- * 分区，applied_at asc 后端排序）；not_selected 带「当年报了名」小徽标
- * （事实纪律：报名未入选，不是「没去」）。
+ * 分区，applied_at asc 后端排序）；已寄出的 not_selected 在卡面带「当年报了名」
+ * 小徽标（PolaroidFlip；事实纪律：报名未入选，不是「没去」）。
  *
  * 显影（第 7a 件，对齐原型 D 的 develop-soft 节奏）：卡片进入视口才从模糊到清晰
  * （--pending 前置态 → --develop 动画，只播一次），滚动进视口的新卡同样显影；
@@ -51,15 +51,11 @@ export default function EventRoster({ archive }: { archive: FlashbackCapsuleArch
 						) : (
 							<>
 								{/* 未寄出 = 雾卡（原型 F 场次页）：虚框 + 透明窗内姓氏隐名 + 窗下小字 */}
+								{/* #933：相册对所有登录用户开放——未寄出卡只有「王**」+ 状态语，
+								    城市 / 当年职业 / 参与类型一律不渲染（后端已不下发，前端双保险） */}
 								<span className="fb-roster-photo">
 									<span className="fb-roster-name">{entry.surnameMasked}</span>
 								</span>
-								<span className="fb-roster-facts">
-									{[entry.city, entry.occupationThen].filter(Boolean).join(" · ")}
-								</span>
-								{entry.participation === "not_selected" && (
-									<span className="fb-roster-badge">{t("dreamBadge")}</span>
-								)}
 								<p className="fb-roster-dashed" aria-label={t("dashedAria")}>
 									{t("dashed")}
 								</p>

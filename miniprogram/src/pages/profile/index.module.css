@@ -40,3 +40,19 @@
 .openclackyArrow { font-size: 38rpx; }
 .footer { padding: 30rpx 0 10rpx; text-align: center; }
 .footerText { color: #8a8f98; font-size: 20rpx; }
+
+/* 换肤（盘点 §7，Tab 一致性）：没有主动作的地方不放火——用户卡与入口卡从橙色块换成纸 / 白框墨字；
+   各分区里的功能按钮也换墨（见文末）：火只留给未登录时的「去登录」。 */
+.eyebrow { color: var(--ink-3); }
+.userCard { background: var(--paper); color: var(--ink); box-shadow: none; }
+.avatar { color: var(--paper-hi); background: var(--ink); }
+.userMeta { color: var(--ink-2); }
+.openclacky { color: var(--ink); background: #fff; border: 1rpx solid var(--rule); }
+.openclackyText { color: var(--ink-2); }
+.openclackyArrow { color: var(--ink-3); }
+.logout { color: var(--ink); background: transparent; border: 1rpx solid var(--ink-3); }
+/* 分区功能按钮：登录后这一屏没有非按不可的主动作——主按钮（确认加入 / 生成 / 转发给好友）实心墨，
+   次按钮（扫码加入 / 复制邀请码）墨色描边；通知圆点浅墨（金 / 火留给「被点亮」与「可以按」）。 */
+.inlineButton, .shareButton { color: var(--paper-hi); background: var(--ink); }
+.scanButton, .copyButton { color: var(--ink); background: transparent; border: 1rpx solid var(--ink-3); }
+.dot { background: var(--ink-3); }

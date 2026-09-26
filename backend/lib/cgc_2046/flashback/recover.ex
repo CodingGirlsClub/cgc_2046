@@ -18,13 +18,27 @@ defmodule Cgc2046.Flashback.Recover do
   - 邮箱命中：每个匹配档案铸一个一次性 token，恢复邮件列出全部入口
     链接（明文 token 只进邮件正文，不落任何持久化载体——生成→渲染→
     发送→只落 hash，KTD2）。
+
+  ## 已登录找回（#932）
+
+  小程序里已登录但没匹配到档案的人（当年用别的号码报名）走 `verify_for_user/3`：发起同
+  `initiate/2`（限流与防枚举不变），验证后绑定到**当前账号**——不 find-or-create、不换会话。
+  邮箱通道：找回邮件里的入口链接贴回小程序，走 `claim_link_for_user/2`，同样绑到当前账号。
+
+  ## 手机号找回暂停（2026-09-26）
+
+  库里人人有邮箱、未必有手机号，短信按条计费——找回只开放邮箱。手机通道代码保留，由
+  `:flashback_recover_phone_enabled` 关闭（生产默认关）：发起同形返回但不发码，验证一律
+  按错码处理（`:register` 码也能从登录入口拿到，验证侧不关等于留了后门）。
+  **重新开放前先补短信投递**：`issue_phone_code/1` 只落库不发送（对照
+  `WebAuthFlow.request_phone_code/2` 的 issue → deliver），这条通道上线至今没真发出过短信。
   """
 
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
-  alias Cgc2046.Flashback.{Person, Token}
+  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential, User}
+  alias Cgc2046.Flashback.{Binding, Person, Token, Tokens}
   alias Cgc2046.Mailer
 
   @recover_window_seconds 3_600
@@ -50,9 +64,9 @@ defmodule Cgc2046.Flashback.Recover do
   defp dispatch(identifier) do
     case classify(identifier) do
       {:phone, phone} ->
-        case match_people(:phone, identifier, phone) do
-          [] -> :ok
-          _people -> issue_phone_code(phone)
+        case phone_enabled?() && match_people(:phone, identifier, phone) do
+          people when is_list(people) and people != [] -> issue_phone_code(phone)
+          _ -> :ok
         end
 
       {:email, email} ->
@@ -89,24 +103,24 @@ defmodule Cgc2046.Flashback.Recover do
           {:ok, %{__token__: String.t(), bound: boolean(), cards: [map()]}}
           | {:error, term()}
   def verify(identifier, code, context) do
-    case classify(identifier) do
-      {:phone, phone} when is_binary(phone) ->
-        do_verify(identifier, phone, code, context)
-
-      _ ->
-        # 非手机形态（邮箱走邮件链路）：与码错同文案，不泄露通道差异
-        {:error, invalid_code_error()}
+    with true <- phone_enabled?(),
+         {:phone, phone} when is_binary(phone) <- classify(identifier) do
+      do_verify(identifier, phone, code, context)
+    else
+      # 通道关闭 / 非手机形态（邮箱走邮件链路）：与码错同文案，不泄露通道差异
+      _ -> {:error, invalid_code_error()}
     end
   end
 
   defp do_verify(identifier, phone, code, context) do
     with :ok <- consume_code(phone, code),
          people when people != [] <- match_people(:phone, identifier, phone),
+         :ok <- Binding.check_for_phone(people, phone),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         :ok <- Binding.bind(people, user),
          :ok <- SignInFlow.revoke_stored_tokens(user, :web),
-         {:ok, user} <- SignInFlow.generate_token(user, :web, context),
-         :ok <- bind_all(people, user) do
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       {:ok,
        %{
          __token__: user.__metadata__[:token],
@@ -126,6 +140,74 @@ defmodule Cgc2046.Flashback.Recover do
     end
   end
 
+  @doc """
+  已登录找回（#932）：码通过 → 匹配档案绑定到**当前账号**（并作废其链接 token，R1）。
+  与 `verify/3` 的区别：不 find-or-create、不签新会话——已登录用户换号找回若按验证的号码
+  find-or-create，会多造出一个账号。号码已属于另一个账号、或档案已被别的账号认领 →
+  `flashback_recover_account_conflict`，不静默合并（此时号码所有权已由验证码证明，告知冲突
+  不构成枚举）。错码 / 无档案 / 非手机形态与 `verify/3` 同文案。
+  """
+  @spec verify_for_user(String.t(), String.t(), map()) ::
+          {:ok, %{bound: boolean(), cards: [map()]}} | {:error, map()}
+  def verify_for_user(identifier, code, %{id: user_id} = user) do
+    with true <- phone_enabled?(),
+         {:phone, phone} when is_binary(phone) <- classify(identifier),
+         :ok <- consume_code(phone, code),
+         people when people != [] <- match_people(:phone, identifier, phone),
+         :ok <- ensure_phone_free(phone, user_id),
+         :ok <- Binding.bind(people, user) do
+      {:ok, %{bound: true, cards: Enum.map(people, &card_payload/1)}}
+    else
+      {:error, %{code: error_code} = error} when is_binary(error_code) -> {:error, error}
+      _ -> {:error, invalid_code_error()}
+    end
+  end
+
+  @doc """
+  已登录找回·邮箱通道（小程序）：找回邮件里的入口链接（整条链接、带前后文字或裸 token
+  均可）贴回来 → 绑定与该档案**同邮箱的全部档案**到当前账号（同手机通道一人多卡全绑——
+  绑定一张后小程序的找回入口就消失，只绑一张会让其余的卡再也找不回来），并作废其链接
+  token（R1）。档案已属于别的账号 → `flashback_recover_account_conflict`（同 #932，不静默
+  改绑）；链接无效 / 已用过 / 已撤销 → 与网页入口同一套 `flashback_token_*` 失效码。
+  """
+  @spec claim_link_for_user(String.t(), map()) ::
+          {:ok, %{bound: boolean(), cards: [map()]}} | {:error, map()}
+  def claim_link_for_user(link, %{id: _user_id} = user) when is_binary(link) do
+    with {:ok, token} <- Tokens.fetch_valid(link_token(link)),
+         people = people_sharing_email(token.person),
+         :ok <- Binding.bind(people, user) do
+      {:ok, %{bound: true, cards: Enum.map(people, &card_payload/1)}}
+    end
+  end
+
+  # 贴回来的文字里取 token：先认链接的 token= 参数（outreach 邀请的 token 不带 fb_ 前缀），
+  # 再认裸的 fb_ token（找回邮件），都没有就把整段当 token——认不出由 fetch_valid 判 not_found
+  defp link_token(text) do
+    case Regex.run(~r/[?&]token=([A-Za-z0-9_-]+)/, text, capture: :all_but_first) ||
+           Regex.run(~r/fb_[A-Za-z0-9_-]+/, text) do
+      [token] -> token
+      nil -> String.trim(text)
+    end
+  end
+
+  defp people_sharing_email(%{email: email} = person) when is_binary(email) and email != "" do
+    Enum.uniq_by([person | match_people(:email, email, nil)], & &1.id)
+  end
+
+  defp people_sharing_email(person), do: [person]
+
+  # 号码已属于另一个账号 → 冲突（档案归属由 Binding.bind 判断）
+  defp ensure_phone_free(phone, user_id) do
+    phone_owner =
+      User
+      |> Ash.Query.filter(phone == ^phone)
+      |> Ash.read_one!(authorize?: false)
+
+    if phone_owner && phone_owner.id != user_id,
+      do: {:error, Binding.conflict_error()},
+      else: :ok
+  end
+
   defp consume_code(phone, code) do
     case PhoneVerificationCode.consume_valid(phone, code, :register) do
       :ok -> :ok
@@ -137,31 +219,9 @@ defmodule Cgc2046.Flashback.Recover do
     %{code: "invalid_or_expired_code", message: "Invalid or expired code", reason: :invalid_code}
   end
 
-  defp bind_all(people, user) do
-    Enum.each(people, fn person ->
-      person
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
-      |> Ash.update!(authorize?: false)
-
-      # R1 注册即链接作废：该档案全部有效 token 置 claimed（账号接管）
-      Token
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(person_id == ^person.id and is_nil(claimed_by_user_id))
-      |> Ash.read!(authorize?: false)
-      |> Enum.each(fn token ->
-        token
-        |> Ash.Changeset.for_update(:update, %{})
-        |> Ash.Changeset.force_change_attribute(:claimed_by_user_id, user.id)
-        |> Ash.Changeset.force_change_attribute(:claimed_at, DateTime.utc_now())
-        |> Ash.update!(authorize?: false)
-      end)
-    end)
-
-    :ok
-  end
-
   # ── 内部 ─────────────────────────────────────────────────────────────
+
+  defp phone_enabled?, do: Application.get_env(:cgc_2046, :flashback_recover_phone_enabled, false)
 
   # identifier 规范化（实测 bug：从聊天复制带 Markdown 反引号/引号包裹、
   # 手机号带空格或横线）——trim + 剥成对包裹符 + 手机数字归一，剥完仍含
@@ -301,6 +361,8 @@ defmodule Cgc2046.Flashback.Recover do
     有人（希望是你）用这个邮箱发起了档案找回。你的档案入口：
 
     #{Enum.join(links, "\n")}
+
+    在小程序里找回的：复制上面的链接，回到小程序「找回」里粘贴，就会收进你现在登录的账号。
 
     如果这不是你本人的操作，请忽略本邮件——链接只发给预留邮箱，别人拿不到。
     """
