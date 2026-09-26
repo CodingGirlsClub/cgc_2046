@@ -151,7 +151,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 			</p>
 			<EventRoster archive={archive} />
 			<div className="fb-event-find">
-				<Link href="/flashback" className="fb-cta fb-cta-primary fb-dream-cta">
+				<Link href="/flashback#recover" className="fb-cta fb-cta-primary fb-dream-cta">
 					{t("findMine")}
 				</Link>
 			</div>

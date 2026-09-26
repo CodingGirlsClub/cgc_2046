@@ -236,7 +236,7 @@ describe("VoicesWall · 首赞轻提示（U6/R27）", () => {
 		// 结构断言：提示为 fixed 定位浮层（不推挤布局、不遮挡赞/分享按钮所在文档流）
 		expect(hint.className).toContain("likeHint");
 		// 找回链接指向落地页
-		expect(hint.querySelector("a")).toHaveAttribute("href", "/flashback");
+		expect(hint.querySelector("a")).toHaveAttribute("href", "/flashback#recover");
 
 		// 再赞：不重复出现（仍只有一个，不新增）
 		fireEvent.click(screen.getByRole("button", { name: /下一句/ }));
