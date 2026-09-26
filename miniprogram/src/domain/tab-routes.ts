@@ -95,6 +95,15 @@ export function tabPathsForPlatform(platform: 'wechat' | 'tt' | 'xhs'): readonly
   return platform === 'wechat' ? FULL_TAB_PATHS : CUT_TAB_PATHS
 }
 
+/**
+ * 裁剪端加入工作台后的落点（join 页 reLaunch 清栈，落点必须是本端 Tab 页，
+ * 否则用户既无 TabBar 也无返回）。裁剪端无工作台：抖音落「我的报名」Tab；
+ * 小红书（D2a）我的报名已降为普通页，落「我的」Tab（入口在其中）。
+ */
+export function cutJoinLanding(platform: 'tt' | 'xhs'): string {
+  return platform === 'xhs' ? '/pages/profile-lite/index' : '/pages/my-enrollments/index'
+}
+
 /** 规范化：去前导斜杠与 query（Taro 的 options.path 无前导斜杠，navigateTo 的 url 带） */
 function normalize(path: string): string {
   return path.replace(/^\/+/, '').split('?')[0]

@@ -30,7 +30,7 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 1. **人工前置**（缺一不可，详见 `e2e/DOUYIN_REDNOTE_CHECKLIST.md` 待定项）：
    - D7：隐私政策小红书版正文法务定稿（候选文本在 `src/domain/privacy-content-xhs.ts`，确认后即定稿）；
    - D8：本次过审版本号（ICP 备案号已到位：京ICP备16008426号-7X，已渲染在「我的」页脚；过审后 CHANGELOG 按 ADR-0016 立 `## [小红书 vX.Y.Z]` 节点）。
-2. **门禁**：`pnpm check:ci` 全绿；再跑 `node scripts/check-no-diversion.mjs`（dist/xhs 零导流，依赖 `pnpm build:xhs` 先行）与 `grep -r 网页端 dist/xhs/`（须无命中）。
+2. **门禁**：`pnpm check:ci` 全绿；`check:ci` 已含 `node scripts/check-no-diversion.mjs`（解码 `\uXXXX` 转义后扫 dist/tt、dist/xhs，禁用词含「网页端」）。**不要用纯文本 `grep` 自检**：Taro 产物把中文写成转义，grep 看不见（曾因此假绿）。
 3. **构建**：`pnpm build:xhs`，产物 `dist/xhs/`（不入库）。
 4. **上传/提审**：小红书开发者工具导入 `dist/xhs/` 上传，开放平台后台提交审核。
 5. **真机冒烟（提审前必做）**：N1 登录全流程（xhs.login → 建号/挂 Identity → legacy `encryptedData/iv` 解密拿号）、退出并重新登录；N3 页面无订阅触点；F2/F3 缴费门置灰；N4 分享面板仅「转发」。

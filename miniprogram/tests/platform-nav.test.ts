@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { CUT_TABS, XHS_TABS, XHS_TAB_PATHS, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
+import { CUT_TABS, XHS_TABS, XHS_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
 import { XHS_PAGES, TT_PAGES, pageRegistered } from '../src/domain/platform-pages.ts'
 
 describe('小红书 Tab 结构（D2a：发现 / 我的）', () => {
@@ -49,5 +49,21 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
     assert.ok(XHS_PAGES.includes('pages/privacy/index'))
     assert.ok(XHS_PAGES.includes('pages/my-enrollments/index'))
     assert.ok(XHS_PAGES.includes('pages/flashback/index'))
+  })
+})
+
+describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
+  // reLaunch 清空页面栈：落点若不是 Tab 页，用户既无 TabBar 也无返回——死胡同。
+  // D2a 把小红书的「我的报名」降为普通页后，落点必须改为「我的」Tab。
+  test('裁剪端落点必须是本端 Tab 页', () => {
+    for (const platform of ['tt', 'xhs'] as const) {
+      const landing = cutJoinLanding(platform)
+      assert.ok(tabPathsForPlatform(platform).includes(landing), `${platform} 落点 ${landing} 不是 Tab 页`)
+    }
+  })
+
+  test('xhs 落「我的」（我的报名入口在其中），tt 落「我的报名」', () => {
+    assert.equal(cutJoinLanding('xhs'), '/pages/profile-lite/index')
+    assert.equal(cutJoinLanding('tt'), '/pages/my-enrollments/index')
   })
 })

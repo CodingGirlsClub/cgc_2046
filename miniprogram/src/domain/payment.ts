@@ -251,10 +251,11 @@ export function paidEnrollmentIds(
  */
 export function enrollmentPaymentText(
   enrollment: Pick<EnrollmentSummary, 'id' | 'status'>,
-  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[] = []
+  orders: readonly Pick<OrderSummary, 'enrollmentId' | 'status'>[] = [],
+  platform: 'wechat' | 'tt' | 'xhs' = 'wechat'
 ): string | null {
   if (enrollment.status === 'payment_pending') {
-    return `缴费状态：${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`
+    return `缴费状态：${pendingPaymentTitle(platform)}`
   }
   if (enrollment.status !== 'confirmed') return null
 
@@ -453,7 +454,7 @@ export function paymentBlockCopy(input: {
 
 // 收费报名提交后的落地页：weapp 进支付页（weapp 用户不经此函数到结果页）；
 // 裁剪端（tt/xhs）无小程序内支付，回结果页——结果页渲染 payment_pending 待支付
-// 分支（引导文案按平台分派，见 enrollmentResultCopy）；weapp 落到结果页时该分支亦作兜底。
+// 分支（裁剪端中性文案，见 enrollmentResultCopy）；weapp 落到结果页时该分支亦作兜底。
 export function paymentLandingUrl(enrollmentId: string, isWeapp: boolean): string {
   if (isWeapp) return `/pages/order-pay/index?enrollmentId=${enrollmentId}`
   return `/pages/enrollment-result/index?id=${enrollmentId}`
@@ -466,12 +467,17 @@ export interface EnrollmentResultCopy {
 }
 
 /**
- * 缴费引导按平台分派（P0 小红书止血，D1a）：
- * - wechat：「名额已保留」兜底；
- * - tt：维持既有「请在网页端完成支付」（本次不动抖音端）；
- * - xhs：零导流中性文案——不出现去网页端的引导（平台巡检红线，见
- *   docs/plans/2026-09-25-2004 迁移规划）。
+ * payment_pending 标题（报名卡与结果页同源）：只有微信端能在端内支付，才催付；
+ * 裁剪端（tt/xhs）只陈述「名额已保留」——既不引导去其他端（零导流），也不催一件
+ * 本端做不到的事。存量待支付报名（P0 前在裁剪端创建、或同手机号在微信端创建）
+ * 同样会出现在裁剪端。
  */
+function pendingPaymentTitle(platform: 'wechat' | 'tt' | 'xhs'): string {
+  return platform === 'wechat'
+    ? `${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`
+    : `${PAYMENT_STATUS_LABEL.payment_pending} · 名额已为你保留`
+}
+
 export function enrollmentResultCopy(
   status: EnrollmentStatus,
   platform: 'wechat' | 'tt' | 'xhs'
@@ -484,13 +490,8 @@ export function enrollmentResultCopy(
   }
   if (status === 'payment_pending') {
     return {
-      title: `${PAYMENT_STATUS_LABEL.payment_pending} · 名额已保留，请尽快完成支付`,
-      subtitle:
-        platform === 'xhs'
-          ? '名额已为你保留；缴费报名暂未在本端开放。'
-          : platform === 'wechat'
-            ? '名额已保留，请尽快完成支付。'
-            : '请在网页端完成支付（本端暂不支持支付调起）。'
+      title: pendingPaymentTitle(platform),
+      subtitle: platform === 'wechat' ? '名额已保留，请尽快完成支付。' : '缴费报名暂未在本端开放。'
     }
   }
   return { title: '报名成功', subtitle: '名额已经确认，记得按时参加。' }

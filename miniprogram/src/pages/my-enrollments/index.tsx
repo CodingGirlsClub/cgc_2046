@@ -47,7 +47,7 @@ export default function MyEnrollmentsPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([])
   // 卡面缴费文案：按 orders/items 变化派生一次（纯函数仍是唯一口径）
   const paymentTexts = useMemo(
-    () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders)])),
+    () => new Map(items.map((item) => [item.id, enrollmentPaymentText(item, orders, currentPlatform())])),
     [items, orders],
   )
   // M7 付费卡触点门（#683）：缴费事实报名 id 集，同款派生
@@ -197,10 +197,9 @@ export default function MyEnrollmentsPage() {
                 <Text className={styles.paymentHint} data-testid={`payment-hint-${item.id}`}>
                   {paymentText}
                 </Text>
-                {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端隐藏去支付按钮。
-                    抖音端维持网页端引导(渠道事实说明)；小红书端零导流（P0 止血
-                    D1a：不出现去网页端的引导，缴费引导见 enrollmentResultCopy）。 */}
-                {process.env.TARO_ENV === 'weapp' ? (
+                {/* U3-R1:JSAPI 调起是 weapp 专属能力——裁剪端（tt/xhs）不出去支付
+                    按钮，也不引导去其他端（零导流；卡面中性文案见 enrollmentPaymentText） */}
+                {process.env.TARO_ENV === 'weapp' && (
                   <Button
                     className={styles.payButton}
                     size='mini'
@@ -209,10 +208,6 @@ export default function MyEnrollmentsPage() {
                   >
                     去支付
                   </Button>
-                ) : process.env.TARO_ENV === 'xhs' ? null : (
-                  <Text className={styles.paymentHint}>
-                    请在网页端完成支付（本端暂不支持支付调起）。
-                  </Text>
                 )}
               </>
             )}
