@@ -18,6 +18,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaces do
   alias Cgc2046.AdminList
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：列出工作台（含仅邀请加入的），search 按名称或 slug 模糊匹配（可选）。按创建时间
+    倒序，最多 50 条。返回 id / name / slug / join_policy / sponsorship_enabled / member_count /
+    inserted_at。
+    """
+  end
+
   schema do
     field(:search, :string, description: "按工作台名称 / slug 模糊过滤（可选）")
   end

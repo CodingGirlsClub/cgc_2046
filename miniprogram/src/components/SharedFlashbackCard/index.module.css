@@ -109,3 +109,17 @@
 }
 .signName { display: inline-block; transform: rotate(-1.2deg); }
 .signTime { font-size: 22rpx; }
+
+/* ── 换肤（盘点 §7）：只动视觉层，覆盖前文同名规则 ──────────────────────
+   纸卡 + 显影相纸；品牌小字是墨（它不可按，火只给可以按的）；雾块仍**定宽**（见上文 .fogSeg）。 */
+.card { background: var(--paper-hi); border-radius: 6rpx; box-shadow: 0 40rpx 80rpx -44rpx rgba(28, 40, 30, 0.5); }
+.kicker { color: var(--ink-2); font-weight: 600; letter-spacing: 0.24em; }
+.stamp { color: var(--ink-3); }
+.photoPast { background: linear-gradient(165deg, #d9cfb8, #bfb298 60%, #a89c80); border-radius: 4rpx; }
+.photoTitle, .question { color: var(--ink); }
+.photoToday { background: var(--paper-deep); border-radius: 4rpx; }
+.todayQuestion { color: var(--ink-2); }
+.answer, .seg { color: var(--ink); font-family: var(--serif); }
+.fogSeg { background: linear-gradient(90deg, rgba(152, 160, 146, 0.55), rgba(152, 160, 146, 0.35)); }
+.signRow { color: var(--ink-2); opacity: 1; }
+.signName { color: var(--ink); font-family: var(--serif); }

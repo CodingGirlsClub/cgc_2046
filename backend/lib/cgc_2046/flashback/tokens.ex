@@ -31,7 +31,7 @@ defmodule Cgc2046.Flashback.Tokens do
   require Logger
 
   alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
-  alias Cgc2046.Flashback.{Answer, Person, QuoteLicense, Today, Token, Touch}
+  alias Cgc2046.Flashback.{Answer, Binding, Person, QuoteLicense, Today, Token, Touch}
   alias Cgc2046.Mailer
 
   @touch_events [:link_opened, :revealed, :sent_to_wall, :intent_submitted]
@@ -183,19 +183,33 @@ defmodule Cgc2046.Flashback.Tokens do
   @spec send_to_wall(term()) :: {:ok, map()} | {:error, term()}
   def send_to_wall(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext) do
-      today = ensure_today(token.person_id)
+      do_send_to_wall(token.person, token)
+    end
+  end
 
-      if today.sent_to_wall_at do
-        {:ok, wall_result(token.person, today)}
-      else
-        {:ok, today} =
-          today
-          |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
-          |> Ash.update(authorize?: false)
+  @doc """
+  登录账号入口（#931）：按已绑定档案寄出，与 token 入口同语义（幂等）。
+  认领会作废 token，经「找回」绑定、没走过首程的账号只能走这里。
+  首程漏斗的 `sent_to_wall` touch 只记 token 旅程，账号入口不写。
+  """
+  @spec send_to_wall_as_person(String.t()) :: {:ok, map()} | {:error, term()}
+  def send_to_wall_as_person(person_id) do
+    do_send_to_wall(reload_person(person_id), nil)
+  end
 
-        record_touch(token, :sent_to_wall)
-        {:ok, wall_result(token.person, today)}
-      end
+  defp do_send_to_wall(person, token) do
+    today = ensure_today(person.id)
+
+    if today.sent_to_wall_at do
+      {:ok, wall_result(person, today)}
+    else
+      {:ok, today} =
+        today
+        |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
+        |> Ash.update(authorize?: false)
+
+      if token, do: record_touch(token, :sent_to_wall)
+      {:ok, wall_result(person, today)}
     end
   end
 
@@ -203,24 +217,30 @@ defmodule Cgc2046.Flashback.Tokens do
   @spec retract(term()) :: {:ok, map()} | {:error, term()}
   def retract(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext) do
-      case Today
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^token.person_id)
-           |> Ash.read_one(authorize?: false) do
-        {:ok, nil} ->
-          {:ok, %{retracted: true, sent_to_wall_at: nil}}
+      retract_as_person(token.person_id)
+    end
+  end
 
-        {:ok, today} ->
-          {:ok, today} =
-            today
-            |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: nil})
-            |> Ash.update(authorize?: false)
+  @doc "登录账号入口（#931）：按已绑定档案撤下，与 token 入口同语义。"
+  @spec retract_as_person(String.t()) :: {:ok, map()} | {:error, term()}
+  def retract_as_person(person_id) do
+    case Today
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(person_id == ^person_id)
+         |> Ash.read_one(authorize?: false) do
+      {:ok, nil} ->
+        {:ok, %{retracted: true, sent_to_wall_at: nil}}
 
-          {:ok, %{retracted: true, sent_to_wall_at: today.sent_to_wall_at}}
+      {:ok, today} ->
+        {:ok, today} =
+          today
+          |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: nil})
+          |> Ash.update(authorize?: false)
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+        {:ok, %{retracted: true, sent_to_wall_at: today.sent_to_wall_at}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -548,9 +568,11 @@ defmodule Cgc2046.Flashback.Tokens do
 
   @doc """
   寄出时刻的一步注册：手机验证码（purpose `:register`）→ find-or-create User
-  （`SignInFlow`，与验证码登录同款）→ `person.user_id` 绑定 + token 作废
-  （`claimed_by_user_id` 置位，R1 注册即链接作废）→ 签会话 token（httpOnly
-  cookie 由 web 层 middleware 交付）。
+  （`SignInFlow`，与验证码登录同款）→ 绑定档案（`Binding`：档案名下全部链接作废，R1）
+  → 签会话 token（httpOnly cookie 由 web 层 middleware 交付）。
+
+  档案已属于另一个账号 → `flashback_recover_account_conflict`，不建账号、不换会话。归属判断放在
+  验证码通过之后：先判断会让持链接的人换号码试探出档案主人的手机号。
 
   绑定成功向记录内原通道（email 有则发）送「档案已绑定」通知（best-effort）。
   """
@@ -561,11 +583,12 @@ defmodule Cgc2046.Flashback.Tokens do
     with {:ok, token} <- fetch_valid(token_plaintext),
          {:ok, phone} <- normalize_phone(raw_phone),
          :ok <- consume_code(phone, code, :register),
+         :ok <- Binding.check_for_phone([token.person], phone),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         :ok <- Binding.bind(token.person, user),
          :ok <- SignInFlow.revoke_stored_tokens(user, :web),
-         {:ok, user} <- SignInFlow.generate_token(user, :web, context),
-         :ok <- bind_person_and_claim(token, user) do
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       notify_bound(token.person)
 
       {:ok,
@@ -578,11 +601,12 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc """
   微信一键收好（R27 小程序侧）：已登录用户把档案收进账号。
 
-  - **带 token**：绑定该链接的档案并作废链接（同 `register_bind` 的 bind+claim，
-    只是身份来自会话而非验证码）；
-  - **不带 token**：按**库里已有且已验证的手机/邮箱**自动匹配未认领档案并全部
-    绑定（手机已由微信登录验证过，不再二次发码）——「登录后自动匹配 → 直接
-    认领」的落点；
+  - **带 token**：绑定该链接的档案并作废其全部链接（同 `register_bind` 的 `Binding`，
+    只是身份来自会话而非验证码）；档案已属于另一个账号 → `flashback_recover_account_conflict`；
+  - **不带 token**：按账号**已验证的手机号**自动匹配未认领档案并全部绑定（手机号只经
+    验证码或微信授权写入）——「登录后自动匹配 → 直接认领」的落点。**账号邮箱不参与**：
+    web 邮箱注册不验证邮箱（confirmation_required? false），按邮箱匹配等于用别人的报名
+    邮箱注册就能收走对方档案；邮箱对得上的人走找回邮件（证明邮箱所有权）；
   - 幂等：已绑定同一账号 → `bound: true` 且不重复写入；无匹配 → `bound: false`。
   """
   @spec claim_for_user(map() | nil, String.t() | nil) ::
@@ -593,30 +617,25 @@ defmodule Cgc2046.Flashback.Tokens do
 
   def claim_for_user(%{id: _user_id} = actor, token_plaintext) when is_binary(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext),
-         :ok <- bind_person_and_claim(token, actor) do
+         :ok <- Binding.bind(token.person, actor) do
       notify_bound(token.person)
 
       {:ok, %{bound: true, bound_count: 1, masked_phone: mask_phone(token.person.phone)}}
     end
   end
 
-  def claim_for_user(%{id: user_id} = actor, _no_token) do
-    persons = matched_persons(actor)
-
-    Enum.each(persons, fn %{id: person_id} ->
-      Cgc2046.Flashback.Person
-      |> Ash.get!(person_id, authorize?: false)
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user_id)
-      |> Ash.update!(authorize?: false)
-    end)
-
-    case persons do
+  def claim_for_user(%{id: _user_id} = actor, _no_token) do
+    case matched_persons(actor) do
       [] ->
         {:ok, %{bound: false, bound_count: 0, masked_phone: nil}}
 
-      [%{phone: phone} | _] ->
-        {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
+      [%{phone: phone} | _] = persons ->
+        ids = Enum.map(persons, & &1.id)
+        people = Person |> Ash.Query.filter(id in ^ids) |> Ash.read!(authorize?: false)
+
+        with :ok <- Binding.bind(people, actor) do
+          {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
+        end
     end
   end
 
@@ -629,32 +648,20 @@ defmodule Cgc2046.Flashback.Tokens do
      }}
   end
 
-  # 未认领（user_id 空）且手机/邮箱命中登录用户者——not_selected 也认领
-  # （圆梦线同样有档案，只是不进名册）。
+  # 未认领（user_id 空）且手机号命中登录用户者——not_selected 也认领
+  # （圆梦线同样有档案，只是不进名册）。只认已验证的手机号，账号邮箱不参与（见 claim_for_user/2）。
   defp matched_persons(%{id: _user_id} = actor) do
     import Ecto.Query
 
-    # 逐个字段按需拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）；
-    # email 在 Ash 里是 CiString，进裸 SQL 前转普通 binary
+    # 手机号为空时不拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）
     matches =
-      [
-        Map.get(actor, :phone) && to_string(Map.get(actor, :phone)),
-        Map.get(actor, :email) && to_string(Map.get(actor, :email))
-      ]
+      [Map.get(actor, :phone) && to_string(Map.get(actor, :phone))]
       |> Enum.reject(&is_nil/1)
-      |> Enum.map(fn value ->
-        dynamic([p], p.phone == ^value or p.email == ^value)
-      end)
+      |> Enum.map(fn phone -> dynamic([p], p.phone == ^phone) end)
 
     case matches do
-      [] ->
-        []
-
-      [single] ->
-        query_matched(single)
-
-      many ->
-        query_matched(Enum.reduce(many, &dynamic([p], ^&1 or ^&2)))
+      [] -> []
+      [by_phone] -> query_matched(by_phone)
     end
   end
 
@@ -911,23 +918,6 @@ defmodule Cgc2046.Flashback.Tokens do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp bind_person_and_claim(token, user) do
-    {:ok, _} =
-      token.person
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
-      |> Ash.update(authorize?: false)
-
-    {:ok, _} =
-      token
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:claimed_by_user_id, user.id)
-      |> Ash.Changeset.force_change_attribute(:claimed_at, DateTime.utc_now())
-      |> Ash.update(authorize?: false)
-
-    :ok
-  end
-
   defp normalize_phone(raw) do
     case PhoneNumber.normalize(raw) do
       {:ok, phone} ->
@@ -975,7 +965,11 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp notify_bound(person) do
     if is_binary(person.email) and person.email != "" do
-      send_notice_email(person.email, "你的闪念间档案已绑定账号", "你当年报名形成的闪念间档案已与你的账号绑定。此后请从「我的」进入查看与编辑。")
+      send_notice_email(
+        person.email,
+        "你的闪念间档案已绑定账号",
+        "你当年报名形成的闪念间档案已与你的账号绑定。此后登录即可在「闪念间」查看与编辑你的卡。"
+      )
     end
   end
 

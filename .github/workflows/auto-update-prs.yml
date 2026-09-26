@@ -1,0 +1,43 @@
+name: Auto-update PR branches on develop merge
+
+# develop 被合并后，自动把所有开放 PR 的 head 更新到 develop（merge commit 进
+# 来，符合仓库「一律 merge commit、不 rebase」纪律）；失败评论提醒作者处理。
+# cron 兜底防止 push 事件错过。
+
+on:
+  push:
+    branches: [develop]
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update all open non-draft PR branches to develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 无 checkout 步骤，gh 需要显式 repo 上下文，否则报
+          # "fatal: not a git repository" 且 job 静默假绿。
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr list --state open --json number,isDraft --jq '.[] | select(.isDraft==false) | .number' \
+          | while read -r num; do
+              echo "── PR #$num"
+              if gh pr update-branch "$num" 2>&1; then
+                echo "PR #$num updated"
+              else
+                # 失败评论去重：同一 PR 已发过 bot 失败评论就不再刷。
+                existing=$(gh pr comments "$num" --json author,body --jq '[.[] | select(.author.login=="github-actions[bot]" and (.body | contains("自动更新分支失败")))] | length' || echo 0)
+                if [ "$existing" = "0" ]; then
+                  gh pr comment "$num" --body "develop 合并后自动更新分支失败（可能有冲突或保护限制），请人工处理。" || true
+                fi
+                echo "PR #$num update FAILED"
+              fi
+            done

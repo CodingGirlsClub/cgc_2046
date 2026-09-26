@@ -17,6 +17,18 @@ defmodule Cgc2046.Mcp.Tools.ApproveJoinRequest do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：批准一条加入申请。role_names 是批准时授予的角色，只能从 tutor | volunteer
+    | learner 中选（可多个）；缺省为空，入座后不带角色，Owner 之后可用 assign_roles 补。管理角色不能
+    在这里授予，要用 assign_roles。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:join_request_id, {:required, :string}, description: "待批准的加入申请 ID（UUID）")

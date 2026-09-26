@@ -20,6 +20,18 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：整体替换一名成员的角色。role_names 是替换后的完整集合（owner | admin |
+    tutor | volunteer | learner，可多个），空数组 = 清空全部角色。只有 Owner 能授予或撤销 owner；工作台
+    的最后一名 Owner 不能被撤销。membership_id 取自 list_members。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

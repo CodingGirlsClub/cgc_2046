@@ -11,6 +11,15 @@ defmodule Cgc2046.Mcp.Tools.ConfirmOperation do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    确认并执行一个待确认的操作（pending_id 来自其他工具返回的 needs_confirmation）。只能确认本人发起、
+    仍处于待确认状态且未过期的操作。只在用户明确同意后调用；返回该操作执行后的结果。
+    """
+  end
+
   schema do
     field(:pending_id, {:required, :string}, description: "待确认操作 ID（needs_confirmation 返回）")
   end

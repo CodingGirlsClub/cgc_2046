@@ -1,4 +1,13 @@
 defmodule Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule do
+  @moduledoc """
+  平台管理员专用：为倡导活动新建或覆盖一条规则（同一 key 已有规则时覆盖）。规则决定挂载
+  场次的参与条件：deposit（押金）/ age_gate（年龄门槛）/ min_participants（成班人数）/
+  deadline_rule（报名截止）。locked=true：挂载的场次强制使用该值且不可修改；locked=false：
+  挂载时按当时的值快照，之后场次可自行修改。
+
+  走确认流：第一次调用返回 needs_confirmation + pending_id + summary，用户确认后调
+  confirm_operation(pending_id) 才写入。返回活动行，另带 updated_rule（id / key / value / locked）。
+  """
   use Anubis.Server.Component,
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
@@ -8,14 +17,14 @@ defmodule Cgc2046.Mcp.Tools.AdminUpsertInitiativeRule do
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
 
   schema do
-    field(:initiative_id, {:required, :string})
+    field(:initiative_id, {:required, :string}, description: "倡导活动 ID（取自 admin_list_initiatives）")
 
     field(:key, {:required, :string},
       description: "deposit | age_gate | min_participants | deadline_rule"
     )
 
-    field(:value_json, {:required, :string}, description: "规则值 JSON 对象")
-    field(:locked, {:required, :boolean})
+    field(:value_json, {:required, :string}, description: "规则值：JSON 对象的字符串形式（必须是对象）")
+    field(:locked, {:required, :boolean}, description: "true = 挂载场次强制使用且不可改；false = 挂载时快照，之后可改")
   end
 
   @impl true

@@ -43,6 +43,21 @@ defmodule Cgc2046.Mcp.Tools.GetEnrollmentSummary do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    报名前摘要：读取一个活动或课程的目标、时间、定价、报名策略，以及「现在报名会得到的状态」
+    would_create_status：open 且免费 → confirmed（立即占位）；open 且收费或押金 → payment_pending（占位
+    后限时支付）；request → pending（等 Owner/Admin 审批）；invite_only → null（需要邀请码，要在网站或
+    小程序报名）。payment_mode（free | pricing | deposit）是缴费方式的唯一依据：押金场的 pricing.enabled
+    为 false，但不是免费；押金金额缺失时 deposit.amount_cents 为 null，不能说成 ¥0；
+    refundable_on_check_in 为 true 表示到场核销后退还。名额和已确认人数只对工作台成员返回。截止已过、
+    名额已满等情况不在这里体现，create_enrollment 时会返回原因。看不到的条目与不存在的条目返回同一个
+    not found。workspace_id 必须是该条目所属的工作台。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:kind, {:required, :string}, description: "event | course")
