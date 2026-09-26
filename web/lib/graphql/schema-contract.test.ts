@@ -170,9 +170,6 @@ describe("手写 GraphQL 文档 ↔ SDL 契约", () => {
  * 请求层，上线后才会发现（2026-09-26）。
  */
 describe("全部手写文档 ↔ 后端 SDL 校验", () => {
-  // 已知失效的死文档（全站无调用方）：MY_ORDERS 选了 Order 上不存在的 insertedAt。删掉该常量时同步移出此表。
-  const KNOWN_INVALID = new Set(["orders.ts:MY_ORDERS"]);
-
   it("lib/graphql 下每个导出的 DocumentNode 都能通过后端 schema 校验", () => {
     const schema = buildSchema(readFileSync(SDL_PATH, "utf8"));
     const modules = import.meta.glob(["./*.ts", "!./*.test.ts"], { eager: true }) as Record<
@@ -188,7 +185,7 @@ describe("全部手写文档 ↔ 后端 SDL 校验", () => {
         checked += 1;
         const key = `${path.slice(2)}:${name}`;
         const errors = validate(schema, value as DocumentNode).map((error) => error.message);
-        if (errors.length > 0 && !KNOWN_INVALID.has(key)) failures.push(`${key}: ${errors.join(" | ")}`);
+        if (errors.length > 0) failures.push(`${key}: ${errors.join(" | ")}`);
       }
     }
 
