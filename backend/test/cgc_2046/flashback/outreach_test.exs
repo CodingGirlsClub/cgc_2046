@@ -552,7 +552,7 @@ defmodule Cgc2046.Flashback.OutreachTest do
       {_name, address} = List.first(email.to)
       assert address == @email
       # 称呼用全名；节后月亮主题（2026-09-26 拍板）；开场余韵问候
-      assert email.subject =~ "程序媛汇：月亮渐圆，宜重逢——闪念回当年，系愿于今朝"
+      assert email.subject =~ "程序媛汇：月亮刚圆过，宜重逢——闪念回当年，系愿于今朝"
       assert email.text_body =~ "你好，王小明："
       assert email.html_body =~ "你好，王小明："
       assert email.text_body =~ "月亮刚圆过。宜想念，宜重逢"
