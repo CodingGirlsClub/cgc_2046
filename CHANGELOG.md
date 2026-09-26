@@ -19,6 +19,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [2026-09-26]（第六发）
+
 ### Added
 
 - 「我的愿望」新页：集中查看自己许下的愿望（M11）；首页加许愿树板块（M9）。
