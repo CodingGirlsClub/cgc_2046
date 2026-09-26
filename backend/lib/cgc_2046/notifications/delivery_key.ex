@@ -83,12 +83,12 @@ defmodule Cgc2046.Notifications.DeliveryKey do
     do: "approval.reminder:" <> id
 
   # learning_stagnation：周期成分 = epoch 对齐的 7 天桶（issue #847 裁定选项 a
-  # ——静态幂等键无法表达 7 天滚动窗，周级桶窗业务可接受；桶边界周四 00:00
-  # UTC，与 ISO 日历周等价的周级去重）。LPW 每 5 分钟扫，同桶多拍同键去重、
-  # 跨桶新键重发。
+  # ——静态幂等键无法表达 7 天滚动窗，周级桶窗业务可接受）。桶边界周四
+  # 00:00 UTC：epoch 零点 1970-01-01 是周四，7 天桶由此对齐；与周一始的
+  # ISO 日历周不同（#902 更正：仅去重粒度同为周级，非「等价」）。LPW 每
+  # 5 分钟扫，同桶多拍同键去重、跨桶新键重发（边界钉测 delivery_key_test）。
   def event_key("learning_stagnation", _data, %{"run_id" => run_id}) do
-    week_bucket = div(System.system_time(:second), 604_800)
-    "learning.stagnation:#{run_id}:w#{week_bucket}"
+    "learning.stagnation:#{run_id}:w#{stagnation_bucket()}"
   end
 
   # event_reminder：改期 → starts_at 变 → 新键重发（同现状语义）；event_id 由
@@ -111,4 +111,12 @@ defmodule Cgc2046.Notifications.DeliveryKey do
 
   def event_key(template_key, _data, job_meta) when template_key in @from_meta_keys,
     do: Map.fetch!(job_meta, "idempotency_key")
+
+  @doc """
+  learning_stagnation 的周期桶号（#902 抽纯函数）：epoch 对齐的 7 天桶，
+  `div(unix_seconds, 604_800)`——桶边界周四 00:00 UTC；同桶同键、跨桶新键。
+  时间由调用方传入以便钉测跨桶边界，缺省当前时刻。
+  """
+  @spec stagnation_bucket(DateTime.t()) :: non_neg_integer()
+  def stagnation_bucket(now \\ DateTime.utc_now()), do: div(DateTime.to_unix(now), 604_800)
 end
