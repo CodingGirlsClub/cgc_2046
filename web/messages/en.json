@@ -3012,6 +3012,28 @@
       "fogBadge": "fog",
       "none": "(No answers from back then)"
     },
+    "myWishes": {
+      "metaTitle": "My wishes · In a Flash",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "title": "My wishes",
+      "quota": "You can still plant {count} wish(es) this year · deleting does not refund the quota",
+      "statusListed": "Public",
+      "statusPendingReview": "Pending review",
+      "statusPrivate": "Only you and the organizers",
+      "viewOnTree": "View on the wish tree →",
+      "delete": "Delete",
+      "deleteTitle": "Delete this wish?",
+      "deleteBody": "It will be removed from the tree and gone for you too; the yearly quota is not refunded.",
+      "confirmDelete": "Delete for good",
+      "cancel": "Keep it",
+      "deleted": "Deleted ✓",
+      "error": "That didn't work — please try again.",
+      "empty": "No wishes yet — plant the first one.",
+      "writeWish": "Plant a wish",
+      "login": "Sign in to see your wishes",
+      "backToWall": "← Back to the wish tree"
+    },
     "licensePanel": {
       "title": "Quote license",
       "save": "Save license",

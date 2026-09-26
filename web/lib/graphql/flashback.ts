@@ -1318,6 +1318,24 @@ export const FLASHBACK_CITIES: TypedDocumentNode<
 	}
 `;
 
+/** 我的愿望（M11）：登录账号全部未删除愿望 + 年度剩余名额；无档案可用 */
+export interface FlashbackOwnedWish {
+	id: string;
+	content: string;
+	city?: string | null;
+	signature: string;
+	/** public / private */
+	visibility: string;
+	/** listed / pending_review / private */
+	status: string;
+	insertedAt: string;
+}
+
+export interface FlashbackMyWishes {
+	quotaRemaining: number;
+	wishes: FlashbackOwnedWish[];
+}
+
 /** M10：公开金句所在城市全集（有金句的城市，不受热门限量影响）——金句墙城市真源 */
 export const FLASHBACK_VOICE_CITIES: TypedDocumentNode<
 	{ flashbackVoiceCities: FlashbackCity[] },
@@ -1380,6 +1398,27 @@ export const FLASHBACK_ADD_WISH_COMMENT = gql`
 		flashbackAddWishComment(token: $token, wishId: $wishId, content: $content) {
 			endorsementCount
 			endorsedByMe
+		}
+	}
+`;
+
+/** 我的愿望（M11）：登录即可，无档案也可用 */
+export const FLASHBACK_MY_WISHES: TypedDocumentNode<
+	{ flashbackMyWishes: FlashbackMyWishes },
+	Record<string, never>
+> = gql`
+	query FlashbackMyWishes {
+		flashbackMyWishes {
+			quotaRemaining
+			wishes {
+				id
+				content
+				city
+				signature
+				visibility
+				status
+				insertedAt
+			}
 		}
 	}
 `;

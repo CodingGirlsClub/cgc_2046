@@ -3012,6 +3012,28 @@
       "fogBadge": "雾",
       "none": "（当年没有留下答案）"
     },
+    "myWishes": {
+      "metaTitle": "我的愿望 · 闪念间",
+      "loading": "加载中……",
+      "retry": "重试",
+      "title": "我的愿望",
+      "quota": "今年还可以许 {count} 个愿望 · 删除不退还额度",
+      "statusListed": "已公开",
+      "statusPendingReview": "待审核",
+      "statusPrivate": "仅自己和主办方可见",
+      "viewOnTree": "在许愿树查看 →",
+      "delete": "删除",
+      "deleteTitle": "删除这条愿望？",
+      "deleteBody": "删除后这条愿望会从许愿树撤下，自己也不再可见；年度额度不退还。",
+      "confirmDelete": "确认删除",
+      "cancel": "先不删",
+      "deleted": "已删除 ✓",
+      "error": "操作没有成功——请再试一次。",
+      "empty": "还没有许过愿望——写下第一颗。",
+      "writeWish": "去许愿",
+      "login": "登录后查看我的愿望",
+      "backToWall": "← 回到许愿树"
+    },
     "licensePanel": {
       "title": "金句授权",
       "save": "保存授权",
