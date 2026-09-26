@@ -193,7 +193,7 @@ export default function Journey() {
 
 	if (invalidReason) {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={invalidReason} />
 			</div>
 		);
