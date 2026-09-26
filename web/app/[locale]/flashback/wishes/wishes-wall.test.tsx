@@ -235,6 +235,16 @@ describe("回响筛选与分页", () => {
  });
 });
 
+// L1：未登录写愿望的登录回跳保留城市与单条直达上下文
+describe("写愿望登录回跳", () => {
+ it("next 带当前城市与 ?item= 单条", async () => {
+  render(<WishesWall showIntro={false} initialItem={wish("w-item")} initialCity="北京" />);
+  const link = await screen.findByRole("link", { name: /写下我的愿望/ });
+  expect(link.getAttribute("href")).toContain("next=%2Fflashback%2Fwishes%3Fcity%3D");
+  expect(link.getAttribute("href")).toContain("item%3Dw-item");
+ });
+});
+
 // N10/M2：承诺不存在的「新进展提醒」文案已删——组件不得再引用，文案不得回流。
 describe("文案守卫", () => {
  it("不再承诺可选择接收提醒", () => {

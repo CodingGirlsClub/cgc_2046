@@ -374,7 +374,8 @@ export default function WishesWall({
 					) : (
 						<Link
 							className={styles.primaryBtn}
-							href={`/login?next=${encodeURIComponent("/flashback/wishes")}`}
+							/* L1：回跳保留当前城市与单条直达，登录后不丢上下文 */
+							href={`/login?next=${encodeURIComponent(`/flashback/wishes${city ? `?city=${encodeURIComponent(city)}` : ""}${currentWishId ? `${city ? "&" : "?"}item=${encodeURIComponent(currentWishId)}` : ""}`)}`}
 						>
 							<Icon name="pen" />
 							<span>{t("writeWish")}</span>
