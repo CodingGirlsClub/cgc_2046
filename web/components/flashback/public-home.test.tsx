@@ -22,6 +22,8 @@ import {
  */
 
 const pushMock = vi.fn();
+const { auth } = vi.hoisted(() => ({ auth: vi.fn(() => ({ authed: false, confirmed: true })) }));
+vi.mock("@/lib/auth-provider", () => ({ useAuthed: auth }));
 
 vi.mock("@/i18n/navigation", () => ({
 	Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
@@ -442,4 +444,17 @@ describe("PublicHome · 金句点赞（R36）", () => {
 		expect(screen.queryAllByTestId("fb-quote-like")).toHaveLength(0);
 		vi.restoreAllMocks();
 	});
+});
+
+
+describe("首页回访入口", () => {
+ it("登录用户可直接进入长廊", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+  quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+  render(<PublicHome />);
+  expect(screen.getByRole("link", { name: "进入我的时间长廊" })).toHaveAttribute("href", "/flashback/capsule");
+  await waitFor(() => expect(statsQuery).toHaveBeenCalled());
+  auth.mockReturnValue({ authed: false, confirmed: true });
+ });
 });

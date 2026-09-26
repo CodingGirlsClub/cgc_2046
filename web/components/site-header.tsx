@@ -59,6 +59,7 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 			? [
 					{ href: "/participations", label: t("myParticipations") },
 					{ href: "/learning", label: t("myLearning") },
+					{ href: "/flashback/capsule", label: t("myFlashback") },
 				]
 			: []),
 		{ href: "/initiatives", label: t("initiatives"), link: "initiatives" },

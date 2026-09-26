@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
+import FlashbackNav from "@/components/flashback/flashback-nav";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { useAuthed } from "@/lib/auth-provider";
@@ -327,28 +328,7 @@ export default function WishesWall({
 
 	return (
 		<div className={styles.app}>
-			<header className={styles.header}>
-				<Link className={styles.brand} href="/flashback" aria-label={t("metaTitle")}>
-					<strong>
-						{t("brandPrefix")}
-						<span className={styles.brandSeal}>{t("brandSealChar")}</span>
-					</strong>
-					<small>{t("brandSub")}</small>
-				</Link>
-				<nav className={styles.nav} aria-label={t("navLabel")}>
-					{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
-					<Link href={city ? `/flashback/voices?city=${encodeURIComponent(city)}` : "/flashback/voices"}>
-						{t("voicesNav")} <span>{t("voicesNavEn")}</span>
-					</Link>
-					<Link
-						href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}
-						className={styles.activeNav}
-						aria-current="page"
-					>
-						{t("wishesNav")} <span>{t("wishesNavEn")}</span>
-					</Link>
-				</nav>
-				<div className={styles.headerActions}>
+			<FlashbackNav active="wishes" city={city}>
 					{authed ? (
 						<button type="button" className={styles.primaryBtn} onClick={() => setWriteOpen(true)}>
 							<Icon name="pen" />
@@ -367,8 +347,7 @@ export default function WishesWall({
 						<Icon name="share" />
 						<span>{t("shareTree")}</span>
 					</button>
-				</div>
-			</header>
+				</FlashbackNav>
 
 			<main className={styles.workspace}>
 				<section className={styles.mapSection} aria-label={t("kicker")}>

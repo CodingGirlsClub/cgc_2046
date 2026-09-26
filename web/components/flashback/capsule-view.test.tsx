@@ -320,3 +320,21 @@ describe("链接已作废（收好之后）", () => {
 		expect(capsuleQuery).toHaveBeenCalledTimes(2);
 	});
 });
+
+
+describe("无身份长廊的可达出口", () => {
+ it.each([
+  ["flashback_auth_required", "登录", "/login?next=%2Fflashback%2Fcapsule"],
+  ["flashback_person_not_bound", "写愿望", "/flashback/wishes"],
+ ])("%s 显示对应出口", async (code, label, href) => {
+  window.history.replaceState({}, "", "/flashback/capsule");
+  capsuleQuery.mockRejectedValue({ errors: [{ code }] });
+  render(<CapsuleView />);
+  expect(await screen.findByRole("link", { name: label })).toHaveAttribute("href", href);
+  expect(screen.getByRole("link", { name: "去自助找回" })).toHaveAttribute("href", "/flashback#recover");
+  if (code === "flashback_person_not_bound") {
+   expect(screen.getByText("暂时还没找到你的那一张")).toBeInTheDocument();
+   expect(screen.getByRole("link", { name: "我的愿望" })).toHaveAttribute("href", "/flashback/wishes/mine");
+  }
+ });
+});

@@ -100,7 +100,7 @@
     "flashback_slug_taken": "That public profile link is already taken by another alumna — pick another one.",
     "flashback_slug_locked": "This public profile is live, so its link can no longer be changed (other content stays editable).",
     "flashback_token_not_found": "This In-a-Flash link doesn't exist or has expired — you can reclaim yours from the self-service recovery entrance.",
-    "flashback_token_claimed": "This archive is already tied to an account and the link has retired — sign in or visit \"Mine\" to continue.",
+    "flashback_token_claimed": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it.",
     "flashback_recover_account_conflict": "This number or card already belongs to another account — sign in with that account, or contact us.",
     "flashback_token_revoked": "This archive has been deleted and the link is no longer valid.",
     "flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
@@ -301,6 +301,7 @@
       "login": "Sign in",
       "join": "Join us",
       "myLearning": "My learning",
+      "myFlashback": "My Flashback",
       "myParticipations": "My enrollments",
       "workspace": "Workspace",
       "menu": "Menu"
@@ -2619,6 +2620,15 @@
     "myParticipations": "My enrollments"
   },
   "flashback": {
+    "nav": {
+      "brand": "CodingGirls",
+      "label": "Flashback navigation",
+      "home": "Flashback",
+      "voices": "Voices",
+      "wishes": "Wishes",
+      "capsule": "My corridor",
+      "login": "Sign in"
+    },
     "meta": {
       "enterTitle": "In a Flash",
       "enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
@@ -2642,7 +2652,9 @@
       "quotesEmpty": "The quote wall is still empty — the first line will come from an alumna's license.",
       "likeAria": "Like ({count} so far)",
       "quotesWallCta": "See the whole wall →",
-      "footer": "The silent stay safe: until sent, only you can see your answers."
+      "footer": "The silent stay safe: until sent, only you can see your answers.",
+      "myCapsule": "Enter my corridor",
+      "login": "Sign in to your corridor"
     },
     "voices": {
       "metaTitle": "In a Flash · Voices",
@@ -2724,7 +2736,7 @@
       "verify": "Verify and enter",
       "cardsTitle": "Found your {count} cards — they're all yours now",
       "enterCapsule": "Enter the time corridor →",
-      "bound": "Your archive is bound to your account. From now on, enter from \"Mine\".",
+      "bound": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
       "errorCode": "That code is wrong or has expired — try again.",
       "emailRequired": "Please enter the email you signed up with.",
       "errorRetry": "That step didn't succeed — try again shortly."
@@ -2873,7 +2885,7 @@
       "failedTitle": "It didn't stick this time",
       "retry": "Try again",
       "boundTitle": "Your account has taken over",
-      "boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
+      "boundNote": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
       "enterCapsule": "Enter the time corridor →"
     },
     "echoCard": {
@@ -2898,7 +2910,12 @@
       "cityAll": "All",
       "scrollHint": "Scroll down = moving forward in time: developed past on top, the future waiting below",
       "scrollHintWide": "Scroll right: developed past on the left, the future waiting to be co-created on the right — {city}",
-      "cityAllWide": "All cities"
+      "cityAllWide": "All cities",
+      "unboundTitle": "We have not found your card yet",
+      "unboundBody": "Recover your card with the email you registered with, or visit the wish tree to write a wish.",
+      "login": "Sign in",
+      "writeWish": "Write a wish",
+      "myWishes": "My wishes"
     },
     "event": {
       "loading": "Developing this gathering…",
@@ -2979,7 +2996,7 @@
     "invalid": {
       "flashback_token_claimed": {
         "title": "This archive already has an owner",
-        "body": "This archive is tied to an account and the link has retired — sign in, or continue from \"Mine\"."
+        "body": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it."
       },
       "claimed": {
         "action": "Go to sign in"
