@@ -2279,11 +2279,23 @@ export type FlashbackAnswer = {
   rawText: Scalars['String']['output'];
 };
 
+export type FlashbackArchivePile = {
+  city: Scalars['String']['output'];
+  count: Scalars['Int']['output'];
+  returned: Scalars['Int']['output'];
+};
+
 export type FlashbackArchiveRef = {
   city?: Maybe<Scalars['String']['output']>;
   key: Scalars['String']['output'];
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
+};
+
+/** 相册读面（#933）：已登录即可读的场次时间轴与名册 */
+export type FlashbackArchivesResult = {
+  archives: Array<FlashbackCapsuleArchive>;
+  cities: Array<Scalars['String']['output']>;
 };
 
 export type FlashbackCapsule = {
@@ -2312,6 +2324,8 @@ export type FlashbackCapsuleArchive = {
   label?: Maybe<Scalars['String']['output']>;
   name?: Maybe<Scalars['String']['output']>;
   occurredOn?: Maybe<Scalars['String']['output']>;
+  /** 城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数；人数降序 + 城市序 */
+  piles: Array<FlashbackArchivePile>;
   roster: Array<FlashbackRosterEntry>;
 };
 
@@ -2741,8 +2755,8 @@ export type FlashbackRosterEntry = {
   fullName?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   occupationThen?: Maybe<Scalars['String']['output']>;
-  /** attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示） */
-  participation: Scalars['String']['output'];
+  /** attended | not_selected（圆梦线名册徽标用）。#933 起仅已寄出者下发；未寄出者 null（只剩姓氏遮罩） */
+  participation?: Maybe<Scalars['String']['output']>;
   sentToWallAt?: Maybe<Scalars['String']['output']>;
   /** 姓氏隐名（R12）：王**；名册结构化卡的核心标识 */
   surnameMasked: Scalars['String']['output'];
@@ -4700,6 +4714,8 @@ export type RootMutationType = {
   flashbackAdminDismissReport?: Maybe<FlashbackReportResult>;
   /** 首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见） */
   flashbackAdminPublishWishEcho?: Maybe<FlashbackAdminWishEcho>;
+  /** 闪念间·单人重发（R2/R10，PlatformAdmin；有副作用，属 Mutation）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
+  flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 撤回已发布回响（#834，终态） */
   flashbackAdminRevokeWishEcho?: Maybe<FlashbackAdminWishEcho>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成 */
@@ -4734,18 +4750,22 @@ export type RootMutationType = {
   flashbackLikeQuote?: Maybe<FlashbackQuoteLikeResult>;
   /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
   flashbackMarkRevealed?: Maybe<FlashbackTouchResult>;
-  /** 自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流 */
+  /** 自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流。手机通道暂停时手机号同形返回、不发码 */
   flashbackRecover?: Maybe<FlashbackRecoverResult>;
-  /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
+  /** 自助找回·贴链接（已登录，小程序邮箱通道）：找回邮件里的入口链接（或其中的 fb_ token）贴回来 → 同邮箱的全部档案绑定到当前登录账号并作废链接；档案已属于另一个账号 → flashback_recover_account_conflict；链接无效 / 已用过 → flashback_token_* */
+  flashbackRecoverClaimForAccount?: Maybe<FlashbackRecoverVerifyResult>;
+  /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）。手机通道暂停时一律 invalid_or_expired_code */
   flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
+  /** 自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover。手机通道暂停时一律 invalid_or_expired_code */
+  flashbackRecoverVerifyForAccount?: Maybe<FlashbackRecoverVerifyResult>;
   flashbackRedeem?: Maybe<FlashbackRedeemResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
   flashbackRegisterBind?: Maybe<FlashbackRegisterBindResult>;
   /** 举报愿望（wish2 U6/KTD5）：匿名可报——reason 预设 + 补充 ≤200；10/15min/IP 限频；举报是治理信号不进排序（举报≠踩） */
   flashbackReportWish?: Maybe<FlashbackReportResult>;
-  /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡 */
+  /** 撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。#931 起 token 省略时按登录账号绑定档案 */
   flashbackRetract?: Maybe<FlashbackRetractResult>;
-  /** 寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27） */
+  /** 寄出上墙（R11，幂等；token 旅程写 sent_to_wall touch）：返回注册引导掩码回显（R27）。#931 起 token 省略时按登录账号绑定档案 */
   flashbackSendToWall?: Maybe<FlashbackSendToWallResult>;
   /** 卡片分享开关（#771）：开启 = 铸分享标识并放行公开链接，关闭 = 只清开关（标识保留，重开同号）。与金句授权档/公开 slug 无依赖。双入口（token 或登录账号） */
   flashbackSetCardSharing?: Maybe<FlashbackCardSharing>;
@@ -4814,6 +4834,8 @@ export type RootMutationType = {
   signInWithPhoneCode?: Maybe<SignInWithPhoneCodeResult>;
   /** 小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付 */
   signInWithPlatform?: Maybe<SignInWithPlatformResult>;
+  /** 小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付 */
+  signInWithPlatformIdentity?: Maybe<SignInWithPlatformResult>;
   /** 微信扫码回调（plan 002 U4；IP 20/15min 限流）：已绑定直登，未绑定返回绑定票据 */
   signInWithWechat?: Maybe<SignInWithWechatResult>;
   /** 登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放） */
@@ -5209,6 +5231,13 @@ export type RootMutationTypeFlashbackAdminPublishWishEchoArgs = {
 };
 
 
+export type RootMutationTypeFlashbackAdminResendOutreachArgs = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  personId: Scalars['ID']['input'];
+  template: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackAdminRevokeWishEchoArgs = {
   echoId: Scalars['ID']['input'];
 };
@@ -5324,7 +5353,18 @@ export type RootMutationTypeFlashbackRecoverArgs = {
 };
 
 
+export type RootMutationTypeFlashbackRecoverClaimForAccountArgs = {
+  link: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackRecoverVerifyArgs = {
+  code: Scalars['String']['input'];
+  identifier: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRecoverVerifyForAccountArgs = {
   code: Scalars['String']['input'];
   identifier: Scalars['String']['input'];
 };
@@ -5352,12 +5392,12 @@ export type RootMutationTypeFlashbackReportWishArgs = {
 
 
 export type RootMutationTypeFlashbackRetractArgs = {
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
 export type RootMutationTypeFlashbackSendToWallArgs = {
-  token: Scalars['String']['input'];
+  token?: InputMaybe<Scalars['String']['input']>;
 };
 
 
@@ -5560,6 +5600,12 @@ export type RootMutationTypeSignInWithPlatformArgs = {
 };
 
 
+export type RootMutationTypeSignInWithPlatformIdentityArgs = {
+  code: Scalars['String']['input'];
+  platform: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeSignInWithWechatArgs = {
   code: Scalars['String']['input'];
   state: Scalars['String']['input'];
@@ -5683,8 +5729,6 @@ export type RootQueryType = {
   flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
-  /** 闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
-  flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数 */
@@ -5693,6 +5737,8 @@ export type RootQueryType = {
   flashbackAdminWishInbox: Array<FlashbackAdminWishInboxEntry>;
   /** 举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序 */
   flashbackAdminWishReports: Array<FlashbackAdminReportEntry>;
+  /** 相册（#933）：所有已登录用户可读每一场的名册（未寄出者只有姓氏遮罩）；未登录 → flashback_auth_required */
+  flashbackArchives?: Maybe<FlashbackArchivesResult>;
   /** 闪念间时间胶囊（U5/R12/R13）：token 或登录态（绑定账号）双入口的校友层投影；失效三态同 enter */
   flashbackCapsule?: Maybe<FlashbackCapsule>;
   /** 全国城市名单（wish2 U6/KTD11，静态 ~370 条）：name + fullName + pinyin + lngLat——表单自动补全与树图钉点共源 */
@@ -5903,15 +5949,13 @@ export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
 };
 
 
-export type RootQueryTypeFlashbackAdminResendOutreachArgs = {
-  channel?: InputMaybe<Scalars['String']['input']>;
-  personId: Scalars['ID']['input'];
-  template: Scalars['String']['input'];
+export type RootQueryTypeFlashbackAdminWishEchoesArgs = {
+  wishId: Scalars['ID']['input'];
 };
 
 
-export type RootQueryTypeFlashbackAdminWishEchoesArgs = {
-  wishId: Scalars['ID']['input'];
+export type RootQueryTypeFlashbackArchivesArgs = {
+  city?: InputMaybe<Scalars['String']['input']>;
 };
 
 

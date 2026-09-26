@@ -19,6 +19,17 @@ defmodule Cgc2046.Mcp.Tools.CloseRecruitmentCohort do
   alias Cgc2046.Mcp.Tools.RecruitmentCohortHelpers, as: H
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：关闭一个开放中（open）的招募批次。关闭后不再接受新申请，已提交的申请
+    照常处理；之后可以重新开放。批次不是 open 时（draft 不需要关闭）直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:cohort_id, {:required, :string}, description: "待关闭招募批次 ID（UUID，须为 open）")

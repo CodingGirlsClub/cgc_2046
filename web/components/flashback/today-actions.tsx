@@ -24,14 +24,12 @@ const SAVED_LINGER_MS = 600;
  *
  * - G2「编辑今天的你」：token 持有者与登录态回访者都可用（submitToday 双入口，
  *   token 空值走登录会话）。弹层预填 me.today 四字段；保存 = 覆盖式 submitToday；
- *   **已寄出且 token 在场者**紧接幂等 flashbackSendToWall（与小程序 MyCard
- *   「写完寄出」同款语义，确保墙卡即新内容）——sendToWall 现为 token non_null
- *   单入口，登录态无 token 的已寄出编辑只落草稿，墙卡刷新依赖后端
- *   sendToWall 双入口（与撤下双入口同记为后端后续项）；未寄出者只存草稿。
+ *   **已寄出者**紧接幂等 flashbackSendToWall（与小程序 MyCard「写完寄出」同款语义，
+ *   确保墙卡即新内容）——#931 起 sendToWall 双入口，登录态无 token 以 null 发出；
+ *   未寄出者只存草稿。
  *   失败错误 + 原钮重试；成功后轻反馈并关弹层回到胶囊（父级 onChanged 重拉数据）。
- * - G3「撤下」：已寄出态且 **token 在场才渲染**——flashbackRetract 现为 token
- *   non_null 单入口；登录态无 token 访客如需撤下可先走「删除档案」（免注册
- *   双入口，U10），retract 登录态双入口记为后端后续项。二次确认弹层讲清后果，
+ * - G3「撤下」：已寄出即渲染——#931 起 flashbackRetract 双入口（token 或登录态）。
+ *   二次确认弹层讲清后果，
  *   确认即撤 + 关弹层 + onChanged 刷新（回到未寄出态由 U5 既有呈现兜底）。
  *
  * 弹层 a11y 照 modal-a11y 先例（开框聚焦 + Esc 关 + Tab trap）；样式全走
@@ -58,8 +56,8 @@ export default function TodayActions({
 				<button type="button" className="fb-cta" onClick={() => setEditing(true)}>
 					{t("editEntry")}
 				</button>
-				{/* 撤下仅 token 面（见文件头注释）；未寄出或登录态无 token 不渲染 */}
-				{sent && token && (
+				{/* 已寄出即可撤下（#931 双入口）；未寄出无可撤 */}
+				{sent && (
 					<button type="button" className="fb-cta" onClick={() => setConfirmRetract(true)}>
 						{t("retractEntry")}
 					</button>
@@ -77,7 +75,7 @@ export default function TodayActions({
 					}}
 				/>
 			)}
-			{confirmRetract && token && (
+			{confirmRetract && (
 				<RetractDialog
 					token={token}
 					onClose={() => setConfirmRetract(false)}
@@ -167,12 +165,12 @@ function EditTodayDialog({
 					return;
 				}
 			}
-			// 已寄出且 token 在场：幂等补寄，墙卡即新内容（小程序 MyCard 同款语义）；
-			// 无 token 时 sendToWall 不可达（token non_null 单入口），跳过补寄（见文件头）
-			if (sentAtStart && token) {
+			// 已寄出：幂等补寄，墙卡即新内容（小程序 MyCard 同款语义）；
+			// #931 起双入口，登录态无 token 以 null 发出
+			if (sentAtStart) {
 				const { data: wallData } = await client.mutate({
 					mutation: FLASHBACK_SEND_TO_WALL,
-					variables: { token },
+					variables: { token: token ?? null },
 				});
 				if (!wallData?.flashbackSendToWall?.sentToWallAt) {
 					setError(true);
@@ -284,7 +282,7 @@ function RetractDialog({
 	onClose,
 	onRetracted,
 }: {
-	token: string;
+	token: string | null;
 	onClose: () => void;
 	onRetracted: () => void;
 }) {
@@ -300,7 +298,7 @@ function RetractDialog({
 		try {
 			const { data } = await client.mutate({
 				mutation: FLASHBACK_RETRACT,
-				variables: { token },
+				variables: { token: token ?? null },
 			});
 			if (data?.flashbackRetract?.retracted) {
 				onRetracted();

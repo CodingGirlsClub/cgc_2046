@@ -235,4 +235,21 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 		expect(screen.queryByText("照片正在贴上墙。")).not.toBeInTheDocument();
 		expect(screen.getByText(/愿望不会消失/)).toBeInTheDocument();
 	});
+
+	// 收好被服务端拒绝时 mutation 抛错（未配置 errorPolicy）：按错误码提示，不能没反应或一律说验证码错
+	it.each([
+		["flashback_recover_account_conflict", "已经属于另一个账号"],
+		["invalid_or_expired_code", "验证码不对或已过期"],
+	])("收好被拒（%s）：按服务端错误码提示", async (code, copy) => {
+		const handlers = makeHandlers([]);
+		handlers.onRegisterBind.mockRejectedValue({ errors: [{ message: "x", extensions: { code } }] });
+		renderStep(handlers);
+		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
+		fireEvent.change(await screen.findByLabelText("手机号"), { target: { value: "13900000001" } });
+		fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
+		fireEvent.change(await screen.findByLabelText("验证码"), { target: { value: "123456" } });
+		fireEvent.click(screen.getByRole("button", { name: "绑定账号" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(copy);
+	});
 });

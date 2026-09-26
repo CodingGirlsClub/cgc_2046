@@ -21,6 +21,17 @@ defmodule Cgc2046.Mcp.Tools.AdminDemoteUser do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：取消一名用户的平台管理员身份。平台至少要保留一名管理员，降级最后一名会被拒绝，
+    拒绝原因原样返回，如实转述给用户。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:user_id, {:required, :string},
       description: "待降级的平台管理员用户 ID（UUID，可从 admin_list_users 获取）"

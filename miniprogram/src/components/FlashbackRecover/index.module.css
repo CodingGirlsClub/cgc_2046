@@ -1,0 +1,20 @@
+/* 小程序内找回面板（#932）：与删除档案面板同族（底部圆角 + 半透明遮罩）；
+   主按钮用品牌火色——找回是这一屏唯一「可以按的」。 */
+.recoverMask { position: fixed; inset: 0; z-index: 330; background: rgba(0, 0, 0, 0.5); display: flex; align-items: flex-end; }
+.recoverSheet {
+  width: 100%; box-sizing: border-box; background: #faf8f1; border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 36rpx calc(env(safe-area-inset-bottom) + 28rpx); display: flex; flex-direction: column;
+}
+.recoverTitle { font-size: 32rpx; font-weight: 600; color: #1e3a2f; margin-bottom: 16rpx; }
+.recoverBody { font-size: 24rpx; line-height: 1.8; color: #56665a; }
+.recoverError { margin-top: 12rpx; font-size: 24rpx; color: #b42318; }
+.recoverInput, .recoverCodeInput, .recoverLinkInput { margin-top: 20rpx; height: 80rpx; padding: 0 24rpx; border-radius: 16rpx; background: #fff; border: 1rpx solid rgba(0, 0, 0, 0.12); font-size: 28rpx; }
+/* 按钮规则带 .recoverSheet 前缀：面板挂在 FlashbackGuest 里，`.guestPage button` 重置（0,1,1）
+   会压过单类名（0,1,0），把主按钮刷成透明、左对齐的纯文字 */
+.recoverSheet .recoverSubmit, .recoverSheet .recoverCancel { margin-top: 20rpx; border: none; border-radius: 999rpx; font-size: 28rpx; line-height: 1.6; padding: 18rpx 0; text-align: center; }
+.recoverSheet .recoverSubmit { background: #ea5504; color: #fff; font-weight: 600; }
+.recoverSheet .recoverSubmit[disabled] { opacity: 0.4; }
+.recoverSheet .recoverCancel { background: transparent; color: #6b6f78; font-size: 26rpx; }
+.recoverSheet .recoverSubmit::after, .recoverSheet .recoverCancel::after { border: none; }
+/* 已收到邮件直接贴链接：次要出口，墨色下划线（火色只留给主按钮） */
+.recoverPasteEntry { margin-top: 20rpx; font-size: 24rpx; color: #56665a; text-align: center; text-decoration: underline; }

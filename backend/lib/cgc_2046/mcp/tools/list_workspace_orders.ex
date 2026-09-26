@@ -23,6 +23,17 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：列出工作台的支付订单，course_id 可选（按课程过滤，缺省为全部）。每行含金额、
+    状态、档位名、报名状态、报名人邮箱、所属活动或课程，以及 order_kind（enrollment | deposit）。押金单
+    与报名单在缺席没收、免缴和退款上的规则不同，判断是不是押金看 order_kind；押金单的 tier_name 只是
+    展示名「押金」，不能据它判断。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, :string, description: "按课程过滤（UUID，可选；缺省 = 全工作台订单）")
