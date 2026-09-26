@@ -2994,10 +2994,15 @@
       "downloadMd": "Download Markdown",
       "privacyNote": "Lines you fogged never appear on the card.",
       "shareTo": "Share…",
-      "shareOptIn": "Also add the quotes to the quote wall",
-      "shareOptInAlready": "Already authorized — adjust it in your revisit page",
       "brand": "IN A FLASH",
       "canvasFooter": "In a Flash"
+    },
+    "licensePanel": {
+      "title": "Quote license",
+      "save": "Save license",
+      "saving": "Saving…",
+      "saved": "Saved ✓",
+      "error": "Saving failed — please try again."
     },
     "invalid": {
       "flashback_token_claimed": {

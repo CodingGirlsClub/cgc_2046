@@ -11,6 +11,7 @@ import {
 } from "@/lib/graphql/flashback";
 import Corridor, { useWideCorridor } from "./corridor";
 import CardExport from "./card-export";
+import QuoteLicensePanel from "./quote-license-panel";
 import DeleteAccount from "./delete-account";
 import InvalidToken from "./invalid-token";
 import { useStageTitleFocus } from "./use-reduced-motion";
@@ -217,7 +218,8 @@ export default function CapsuleView() {
 				{wide ? t("scrollHintWide", { city: city ?? t("cityAllWide") }) : t("scrollHint")}
 			</p>
 			<Corridor capsule={capsule} cityFiltered={city !== null} token={token} onChanged={reload} />
-			<CardExport me={capsule.me} token={token} />
+			<CardExport me={capsule.me} />
+			<QuoteLicensePanel me={capsule.me} token={token} onChanged={reload} />
 			<footer className="fb-capsule-footer">
 				<p className="fb-hint">{t("footerHint")}</p>
 				<DeleteAccount token={token} />

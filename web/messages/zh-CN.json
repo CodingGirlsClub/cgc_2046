@@ -2994,10 +2994,15 @@
       "downloadMd": "下载 Markdown",
       "privacyNote": "你标记过雾面的句子不会出现在卡片里。",
       "shareTo": "分享到…",
-      "shareOptIn": "同时允许金句放进金句墙",
-      "shareOptInAlready": "已在授权中——档位可在回访处调整",
       "brand": "IN A FLASH · 闪念间",
       "canvasFooter": "闪念间 · In a Flash"
+    },
+    "licensePanel": {
+      "title": "金句授权",
+      "save": "保存授权",
+      "saving": "保存中……",
+      "saved": "已保存 ✓",
+      "error": "保存没有成功——请再试一次。"
     },
     "invalid": {
       "flashback_token_claimed": {
