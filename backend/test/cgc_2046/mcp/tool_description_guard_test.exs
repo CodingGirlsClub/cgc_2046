@@ -18,7 +18,8 @@ defmodule Cgc2046.Mcp.ToolDescriptionGuardTest do
            "以下工具没有 description（补 @moduledoc 或 description/0）：#{inspect(Enum.sort(missing))}"
   end
 
-  # 下发的 description 只写调用方需要的契约；需求编号、issue 号、内部模块名留在 @moduledoc
+  # 下发给 agent 的文本（工具 description + 输入 schema 各字段 description）只写调用方
+  # 需要的契约；需求编号、issue 号、内部模块名留在 @moduledoc
   @internal_ref ~r/ADR-\d|#\d{2,}|§|\bD-D\d|\b(?:KTD|KD|D)\d+\b|\b[RSUMQE]\d+\b|role-agent-journeys|Wrapper|PendingOperation|execute_confirmed|Policies\.|Cgc2046\.|\bAsh\./
 
   test "description 不含维护者内部编号与模块名" do
@@ -30,5 +31,36 @@ defmodule Cgc2046.Mcp.ToolDescriptionGuardTest do
 
     assert leaked == [],
            "以下工具的 description 含内部编号（移到 @moduledoc，description/0 只写契约）：#{inspect(Enum.sort(leaked))}"
+  end
+
+  # input schema 的字段 description 与工具 description 一样下发；递归收集全部 description 串
+  defp schema_descriptions(node, acc) when is_map(node) do
+    acc =
+      case node do
+        %{"description" => d} when is_binary(d) -> [d | acc]
+        _ -> acc
+      end
+
+    Enum.reduce(node, acc, fn
+      {"description", _}, acc -> acc
+      {_k, v}, acc -> schema_descriptions(v, acc)
+    end)
+  end
+
+  defp schema_descriptions(_node, acc), do: acc
+
+  test "输入 schema 的字段 description 不含维护者内部编号与模块名" do
+    leaked =
+      for %{name: name, handler: handler} <- Server.__components__(:tool),
+          Code.ensure_loaded!(handler),
+          desc =
+            Enum.find(
+              schema_descriptions(handler.input_schema, []),
+              &Regex.match?(@internal_ref, &1)
+            ),
+          do: {name, Regex.run(@internal_ref, desc) |> hd()}
+
+    assert leaked == [],
+           "以下工具的参数 description 含内部编号（只写契约，编号留在 @moduledoc）：#{inspect(Enum.sort(leaked))}"
   end
 end

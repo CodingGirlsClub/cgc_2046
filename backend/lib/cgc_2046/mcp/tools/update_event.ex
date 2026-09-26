@@ -74,7 +74,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateEvent do
     field(:title, :string, description: "活动标题")
     field(:description, :string, description: "公开展示文案")
     field(:slug, :string, description: "公开 URL 段（小写 [a-z0-9-]）")
-    field(:visibility, :string, description: "可见性：public / workspace（可随时双向切换，D9）")
+    field(:visibility, :string, description: "可见性：public 公开 / workspace 仅工作台（可随时双向切换）")
     field(:enrollment_policy, :string, description: "报名策略：open / request / invite_only")
     field(:capacity, :integer, description: "报名名额上限（≥1）")
     field(:registration_deadline, :string, description: "报名截止时间（ISO8601）")

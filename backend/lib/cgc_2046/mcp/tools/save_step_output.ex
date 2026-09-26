@@ -53,9 +53,7 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
     field(:step_key, {:required, :string}, description: "步骤标识")
     field(:output, {:required, :map}, description: "步骤产出（key-value，浅合并入 facts[step_key]）")
 
-    field(:reason, :string,
-      description: "可选：本次写入理由（variance，D6-①）；随 output 同次浅合并进 facts[step_key]"
-    )
+    field(:reason, :string, description: "可选：本次写入的理由；随 output 同次浅合并进 facts[step_key]")
   end
 
   # P1 安全修复（2026-09-09 外部安全评审）：facts 顶层治理/策略语义保留 key。

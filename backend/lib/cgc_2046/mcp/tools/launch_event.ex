@@ -21,7 +21,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
   @impl true
   def description do
     """
-    工作台 Owner/Admin 专用：发布一场草稿（draft）活动，状态变为 open，开始公开报名。活动不是 draft 时
+    工作台 Owner/Admin 专用：发布一场草稿（draft）活动，状态变为 open；visibility=public 的才会出现在公开面开放报名，仅 workspace 可见的只对成员开放。活动不是 draft 时
     直接返回错误。
     走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
     用户确认后调 confirm_operation(pending_id) 才执行。

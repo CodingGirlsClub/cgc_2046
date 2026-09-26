@@ -80,7 +80,8 @@ summary = 「判据化评审 N 条判据：通过 X，违规 Y（L1 格式 a / L
 findings = L3 实锤 + L1 违规（severity 按层映射）+ L2 嫌疑（severity=info，message 标「待裁决」）
 ```
 
-score 与 summary 由第 2 步的本地脚本从 findings 计数生成（确定性聚合），模型只负责逐条判据的判定。
+score 与 summary 是 findings 计数的确定性聚合：把 L1 违规数、L2 嫌疑数、L3 实锤数代入上面的公式得出
+score，summary 按给定句式拼装——让宿主执行一段一次性脚本完成代入与拼装，模型不心算、不自由发挥。
 
 report 形状 = `submit_prep_quality_report` 契约：`{score, summary, findings: [{severity, message}]}`。**呈 tutor 过目确认后才提交**；tutor 对 L2 嫌疑逐条裁决（确认/驳回），驳回的从 findings 与 score 中扣除。
 
