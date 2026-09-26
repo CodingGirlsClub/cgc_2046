@@ -127,7 +127,7 @@ export default function CapsuleView() {
 
 	if (state.phase === "loading") {
 		return (
-			<div className="fb-root fb-stage" role="status">
+			<div className="fb-root fb-stage fb-paper-page" role="status">
 				{t("loading")}
 			</div>
 		);
@@ -135,7 +135,7 @@ export default function CapsuleView() {
 
 	if (state.phase === "invalid") {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={state.reason} />
 			</div>
 		);
@@ -143,7 +143,7 @@ export default function CapsuleView() {
 
 	if (state.phase === "authRequired") {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
 					{t(state.signedIn ? "unboundTitle" : "authRequiredTitle")}
 				</h2>
