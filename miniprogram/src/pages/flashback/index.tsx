@@ -13,6 +13,8 @@ import { FlashbackTokenInvalidError } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { PageState } from '@/components/PageState'
 import { shareMessage } from '@/domain/flashback'
+import { RECOVER_COPY } from '@/domain/flashback-recover'
+import { FlashbackRecoverSheet } from '@/components/FlashbackRecover'
 import { buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackCapsule } from '@/domain/models'
 import MyCard from '@/components/MyCard'
@@ -32,6 +34,8 @@ type LoadState =
 export default function FlashbackPage() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [shareSheet, setShareSheet] = useState(false)
+  // #932 对应升级（微信端同款）：已登录没匹配到档案（当年用别的邮箱报名）→ 端内找回
+  const [recoverOpen, setRecoverOpen] = useState(false)
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' })
@@ -93,10 +97,21 @@ export default function FlashbackPage() {
       <View className={styles.page}>
         <View className={styles.stateBlock}>
           <Text className={styles.stateText}>
-            {/* 本页只在裁剪端（tt/xhs）注册：零导流，不引导去其他端找回 */}
             你的账号还没有绑定闪念间档案。{'\n'}打开我们发给你的专属链接完成首程。
           </Text>
+          <Button className={styles.stateAction} onClick={() => setRecoverOpen(true)}>
+            {RECOVER_COPY.entry}
+          </Button>
         </View>
+        {recoverOpen && (
+          <FlashbackRecoverSheet
+            onClose={() => setRecoverOpen(false)}
+            onRecovered={() => {
+              setRecoverOpen(false)
+              void load()
+            }}
+          />
+        )}
       </View>
     )
   }

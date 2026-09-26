@@ -27,3 +27,15 @@
 .entryArrow { font-size: 38rpx; }
 .footer { padding: 30rpx 0 10rpx; text-align: center; }
 .footerText { color: #8a8f98; font-size: 20rpx; }
+
+/* 换肤同步（与 pages/profile 批 7 同款，视觉语言：火 = 可以按的，每屏最多一处）：
+   用户卡与入口卡换纸 / 白框墨字，确认加入换实心墨，退出换墨色描边——火只留给未登录的「去登录」。 */
+.eyebrow { color: var(--ink-3); }
+.userCard { background: var(--paper); color: var(--ink); box-shadow: none; }
+.avatar { color: var(--paper-hi); background: var(--ink); }
+.userMeta { color: var(--ink-2); }
+.logout { color: var(--ink); background: transparent; border: 1rpx solid var(--ink-3); }
+.inlineButton { color: var(--paper-hi); background: var(--ink); }
+.entry { color: var(--ink); background: #fff; border: 1rpx solid var(--rule); }
+.entryText { color: var(--ink-2); }
+.entryArrow { color: var(--ink-3); }
