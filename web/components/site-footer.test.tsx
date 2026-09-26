@@ -61,6 +61,12 @@ describe("SiteFooter 全站页脚（瘦身收敛：与顶导零重复）", () =>
 		expect(screen.queryByRole("group", { name: "语言" })).not.toBeInTheDocument();
 	});
 
+	it("页脚「联系我们」mailto 单源（隐私政策第 9 节承诺）", () => {
+		render(<SiteFooter />);
+		const contact = screen.getByRole("link", { name: "联系我们" });
+		expect(contact).toHaveAttribute("href", "mailto:info@codingirlsclub.com");
+	});
+
 	it("en locale：法务链接走英文并带 /en 前缀", () => {
 		render(<SiteFooter />, { locale: "en" });
 		expect(

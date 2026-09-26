@@ -238,7 +238,10 @@ export default function Write({
 							email: progress.maskedEmail ?? t("contactNone"),
 						})}
 					</p>
-					<p className="fb-hint">{t("contactHint")}</p>
+					<p className="fb-hint">
+						{t("contactHint")}{" "}
+						<a href="mailto:info@codingirlsclub.com">info@codingirlsclub.com</a>
+					</p>
 				</div>
 
 				<fieldset className="fb-checks fb-quote">
