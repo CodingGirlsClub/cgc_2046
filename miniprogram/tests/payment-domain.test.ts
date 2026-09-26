@@ -10,6 +10,7 @@ import {
   createOrderSelfHealsToConsent,
   depositPayNotice,
   cancelRefundRuleText,
+  enrollmentPaymentText,
   enrollmentResultCopy,
   formatAmount,
   mapPaymentCredential,
@@ -247,17 +248,18 @@ test('收费报名落地页：weapp 进支付页，裁剪端回结果页（plan 
   )
 })
 
-test('报名结果页文案：payment_pending 按平台分派（xhs 中性、tt 既有网页端引导、wechat 兜底）', () => {
-  // 抖音端维持既有行为：网页端引导文案不变（本次只按 D1a 收紧小红书）
-  assert.deepEqual(enrollmentResultCopy('payment_pending', 'tt'), {
-    title: '待支付 · 名额已保留，请尽快完成支付',
-    subtitle: '请在网页端完成支付（本端暂不支持支付调起）。'
-  })
-  // 小红书（P0 止血，D1a）：只陈述事实，零导流——不出现去网页端的引导
-  assert.deepEqual(enrollmentResultCopy('payment_pending', 'xhs'), {
-    title: '待支付 · 名额已保留，请尽快完成支付',
-    subtitle: '名额已为你保留；缴费报名暂未在本端开放。'
-  })
+test('报名结果页文案：payment_pending 按平台分派（裁剪端中性、wechat 催付）', () => {
+  // 裁剪端（tt/xhs）无端内支付：只陈述事实——既不引导去网页端（零导流），
+  // 也不催「请尽快完成支付」（本端没有可完成支付的入口）
+  for (const platform of ['tt', 'xhs'] as const) {
+    const copy = enrollmentResultCopy('payment_pending', platform)
+    assert.deepEqual(copy, {
+      title: '待支付 · 名额已为你保留',
+      subtitle: '缴费报名暂未在本端开放。'
+    })
+    assert.ok(!`${copy.title}${copy.subtitle}`.includes('网页端'))
+    assert.ok(!`${copy.title}${copy.subtitle}`.includes('请尽快完成支付'))
+  }
   // wechat 兜底：无网页端引导文案
   assert.deepEqual(enrollmentResultCopy('payment_pending', 'wechat'), {
     title: '待支付 · 名额已保留，请尽快完成支付',
@@ -266,6 +268,23 @@ test('报名结果页文案：payment_pending 按平台分派（xhs 中性、tt 
   // 既有 pending/confirmed 文案不回归
   assert.equal(enrollmentResultCopy('pending', 'tt').title, '等待审批')
   assert.equal(enrollmentResultCopy('confirmed', 'tt').title, '报名成功')
+})
+
+test('报名卡缴费文案：payment_pending 在裁剪端不催付（与结果页同口径）', () => {
+  // 存量待支付报名（P0 前在裁剪端创建、或同手机号在微信端创建）会出现在裁剪端「我的报名」
+  assert.equal(
+    enrollmentPaymentText({ id: 'e1', status: 'payment_pending' }, [], 'xhs'),
+    '缴费状态：待支付 · 名额已为你保留'
+  )
+  assert.equal(
+    enrollmentPaymentText({ id: 'e1', status: 'payment_pending' }, [], 'tt'),
+    '缴费状态：待支付 · 名额已为你保留'
+  )
+  // 微信端（缺省）维持催付——端内有「去支付」
+  assert.equal(
+    enrollmentPaymentText({ id: 'e1', status: 'payment_pending' }),
+    '缴费状态：待支付 · 名额已保留，请尽快完成支付'
+  )
 })
 
 test('取消弹窗文案：payment_pending 作废待支付订单，不提退款', () => {

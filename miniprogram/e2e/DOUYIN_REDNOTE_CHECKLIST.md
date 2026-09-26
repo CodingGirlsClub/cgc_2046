@@ -56,7 +56,7 @@
 ## 零导流自检（合规红线）
 
 - [ ] 裁剪端产物 grep 无「微信/OpenClacky/二维码/口令」跨端引导（CI `node scripts/check-no-diversion.mjs` 构建后即跑，dist/tt、dist/xhs）
-- [ ] 小红书产物 grep `网页端` 无命中（P0-3 验收口径之一）
+- [ ] `node scripts/check-no-diversion.mjs` 通过（禁用词含「网页端」，先解码 `\uXXXX` 再扫；纯文本 grep 看不见转义字符串，不可作验收依据）
 - [ ] 人工抽查：登录/报名/结果页无任何「去微信」「加微信」「扫码添加」字样或机制
 - [ ] 深度功能认知由官网/公众号承担，裁剪端内零跨端引导
 
