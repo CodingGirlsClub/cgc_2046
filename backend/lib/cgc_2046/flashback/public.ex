@@ -64,9 +64,13 @@ defmodule Cgc2046.Flashback.Public do
   # ── 统计层（R32：只出聚合数字） ─────────────────────────────────────
 
   @doc """
-  公开统计：场次档案（城市/年份/报名/录取数）+ 已回来人数（distinct
-  person 的 link_opened touch）+ 已寄出数。空库各计数为 0——前端以
-  「正在发生」进度叙事承接（U6 空态设计）。
+  公开统计：场次档案（城市/年份/报名/录取数）+ 已回来人数 + 已寄出数。
+  空库各计数为 0——前端以「正在发生」进度叙事承接（U6 空态设计）。
+
+  N9 口径：「回来」= 打开过链接（link_opened touch）∪ 已绑定账号
+  （person.user_id）∪ 已寄出（sent_to_wall_at）三者任一，distinct person；
+  「寄出」是「回来」的子集——自动认领后直接寄出、绑定但未寄出的人
+  不再漏计，寄出数也不可能大于回来数。
   """
   def stats do
     archives =
@@ -86,13 +90,28 @@ defmodule Cgc2046.Flashback.Public do
       )
 
     # 已删除档案（U10/R30）不计入公开统计——「已回来的人」不含已行使删除权者。
+    # N9：回来 = 打开过链接 ∪ 已绑定 ∪ 已寄出（任一即算，distinct person）；
+    # exists 子查询不乘行（PR #960 评审：不再靠 left_join 放大 + distinct 归一）
     returned =
       Repo.one(
-        from(t in "flashback_touches",
-          join: p in "flashback_people",
-          on: p.id == t.person_id,
-          where: t.event == "link_opened" and is_nil(p.deleted_at),
-          select: count(t.person_id, :distinct)
+        from(p in "flashback_people",
+          as: :people,
+          where: is_nil(p.deleted_at),
+          where:
+            exists(
+              from(t in "flashback_touches",
+                where: t.person_id == parent_as(:people).id and t.event == "link_opened",
+                select: 1
+              )
+            ) or
+              not is_nil(p.user_id) or
+              exists(
+                from(td in "flashback_todays",
+                  where: td.person_id == parent_as(:people).id and not is_nil(td.sent_to_wall_at),
+                  select: 1
+                )
+              ),
+          select: count(p.id)
         )
       )
 
@@ -102,7 +121,7 @@ defmodule Cgc2046.Flashback.Public do
           join: p in "flashback_people",
           on: p.id == t.person_id,
           where: not is_nil(t.sent_to_wall_at) and is_nil(p.deleted_at),
-          select: count(t.person_id)
+          select: count(t.person_id, :distinct)
         )
       )
 

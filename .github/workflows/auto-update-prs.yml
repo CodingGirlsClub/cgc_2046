@@ -22,8 +22,11 @@ jobs:
       - name: Update all open non-draft PR branches to develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 无 checkout 步骤，gh 需要显式 repo 上下文，否则报
+          # "fatal: not a git repository" 且 job 静默假绿。
+          GH_REPO: ${{ github.repository }}
         run: |
-          set -u
+          set -euo pipefail
           gh pr list --state open --json number,isDraft --jq '.[] | select(.isDraft==false) | .number' \
           | while read -r num; do
               echo "── PR #$num"

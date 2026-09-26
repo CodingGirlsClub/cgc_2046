@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
+import { useAuthed } from "@/lib/auth-provider";
 import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
@@ -35,6 +36,7 @@ export function isOnlyFogPlaceholder(text: string): boolean {
  */
 export default function PublicHome() {
 	const t = useTranslations("flashback.home");
+	const { authed, confirmed } = useAuthed();
 	const fogT = useTranslations("flashback.roster");
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
@@ -117,7 +119,7 @@ export default function PublicHome() {
 	const started = (stats?.returnedCount ?? 0) > 0 || (stats?.archives.length ?? 0) > 0;
 
 	return (
-		<div className="fb-root fb-public">
+		<div className="fb-root fb-public fb-paper-page">
 			<header className="fb-public-hero">
 				<div className="fb-kicker">IN A FLASH · {t("kicker")}</div>
 				<h1 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
@@ -125,6 +127,9 @@ export default function PublicHome() {
 				</h1>
 				<p className="fb-lead">{t("lead")}</p>
 				<p className="fb-hint">{t("whoAreWe")}</p>
+				{confirmed && <Link className="fb-cta" href={authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>
+					{t(authed ? "myCapsule" : "login")}
+				</Link>}
 			</header>
 
 			<section className="fb-public-stats" aria-labelledby="fb-stats-title">
@@ -214,6 +219,19 @@ export default function PublicHome() {
 				<p className="fb-quotes-wall-cta">
 					<Link href="/flashback/voices" data-testid="fb-quotes-wall-cta">
 						{t("quotesWallCta")}
+					</Link>
+				</p>
+			</section>
+
+			{/* M9：许愿树板块——只看首页的人也能发现许愿树（与金句墙同级的公开入口） */}
+			<section className="fb-public-wishes" aria-labelledby="fb-wishes-title">
+				<h2 id="fb-wishes-title" className="fb-action-title">
+					{t("wishesTitle")}
+				</h2>
+				<p className="fb-hint">{t("wishesBlurb")}</p>
+				<p className="fb-quotes-wall-cta">
+					<Link href="/flashback/wishes" data-testid="fb-wishes-cta">
+						{t("wishesCta")}
 					</Link>
 				</p>
 			</section>

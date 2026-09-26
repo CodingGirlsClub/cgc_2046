@@ -22,6 +22,17 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    读取课程内容的当前草稿（可修改的教研草稿，不是已发布版本）：course_title、草稿 version、chapters、
+    issue 卡集（每张卡带展示用的 key）。只有该工作台的 tutor 与 Owner/Admin 可读；学员要读已发布内容用
+    get_course_revision。修改前先用本工具读 version，save_course_content 的 base_version 就取这里的值。
+    课程还没有任何教研内容时返回明确错误。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

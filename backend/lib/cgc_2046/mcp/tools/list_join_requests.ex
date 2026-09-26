@@ -21,6 +21,16 @@ defmodule Cgc2046.Mcp.Tools.ListJoinRequests do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：列出加入申请，status 过滤（pending | approved | rejected | expired，默认
+    pending）。每条含申请人 user_id、提交时间、状态、审批截止时间；顶层 grantable_roles 是批准时可在
+    approve_join_request 中授予的角色（不含管理角色）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

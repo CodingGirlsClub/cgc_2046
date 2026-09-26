@@ -22,6 +22,26 @@ defmodule Cgc2046.Flashback.FogSpans do
   @type span :: %{optional(String.t()) => term()}
 
   @doc """
+  投影形态（Absinthe object 字段按原子键解析）：字符串键 / 原子键宽容读取，
+  统一产出原子键 map。token 投影（enter/adjustFog/quoteLicense）与胶囊
+  me.answers 共用本函数——不要在调用方手写 span["start"] || span[:start]。
+  """
+  @spec span_payload(span() | map()) :: %{
+          optional(:question_key) => term(),
+          start: term(),
+          len: term(),
+          reason: term()
+        }
+  def span_payload(span) do
+    %{
+      question_key: Map.get(span, "question_key") || Map.get(span, :question_key),
+      start: Map.get(span, "start") || Map.get(span, :start),
+      len: Map.get(span, "len") || Map.get(span, :len),
+      reason: Map.get(span, "reason") || Map.get(span, :reason)
+    }
+  end
+
+  @doc """
   校验区间列表；合法返回 `{:ok, spans}`（规范化为字符串键 map 列表），
   非法返回 `{:error, reason}`（原子，供调用方拼 InvalidAttribute 文案）。
   """

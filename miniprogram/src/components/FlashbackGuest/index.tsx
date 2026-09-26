@@ -61,7 +61,7 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
   return <View className={styles.guestPage}>
     <View className={styles.content}>
       <Text className={styles.brand}>IN A FLASH</Text>
-      <Text className={styles.headline}>有些话，{'\n'}过了很久还会发光。</Text>
+      <Text className={styles.headline}>有些话，过了很久还会发光。</Text>
       <Text className={styles.intro}>过去的声音，未来的相聚。</Text>
       <View className={styles.quoteCard}>
         <Image className={styles.landscape} src={landscape} mode='aspectFill' ariaLabel='山河纹理' />
@@ -101,7 +101,10 @@ export function FlashbackGuest({ recovery, onRecover, onRetry }: { recovery: Pub
       </View>
       {albums.length > 0 && (
         <View className={styles.albums}>
-          <Text className={styles.albumsTitle}>那些年的相册</Text>
+          <View className={styles.albumsHead}>
+            <Text className={styles.albumsTitle}>那些年的相册</Text>
+            <Text className={styles.albumsCount}>{albums.length} 场 ↓</Text>
+          </View>
           <Text className={styles.albumsHint}>
             {recovery === 'guest' ? '登录后翻看每一场的名册。' : '回来的人亮着，还没回来的只留下一个姓。'}
           </Text>

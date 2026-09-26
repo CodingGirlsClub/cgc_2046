@@ -29,6 +29,17 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：列出工作台的全部课程（含 draft），status 可选过滤（draft | open | closed |
+    cancelled）。每条 course_id / title / status / visibility / current_revision_id / prep_state（没有教研
+    流程的课程为 null），按创建时间正序，最多 100 条。用于找到要编辑或管理的课程；学员找可报名的课程用
+    discover_offerings。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
 

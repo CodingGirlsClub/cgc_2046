@@ -18,6 +18,16 @@ defmodule Cgc2046.Mcp.Tools.ListFlashbackStats do
   alias Cgc2046.Flashback.AdminStats
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：闪念间运营看板。stats 按 memory（参加过）/ dream（未入选）/ overall 分线，给出成功
+    送达人数（排除硬退信和退订）与各类互动的去重人数；redemptions 是兑换申请队列（按时间倒序，
+    redemption_limit 默认 50、最多 200），其中 channel_note 是用户提交的收款渠道，仅供人工处理兑换。
+    """
+  end
+
   schema do
     field(:redemption_limit, :integer, description: "兑换申请队列的返回上限（默认 50，封顶 200）")
   end

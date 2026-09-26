@@ -100,7 +100,7 @@
     "flashback_slug_taken": "That public profile link is already taken by another alumna — pick another one.",
     "flashback_slug_locked": "This public profile is live, so its link can no longer be changed (other content stays editable).",
     "flashback_token_not_found": "This In-a-Flash link doesn't exist or has expired — you can reclaim yours from the self-service recovery entrance.",
-    "flashback_token_claimed": "This archive is already tied to an account and the link has retired — sign in or visit \"Mine\" to continue.",
+    "flashback_token_claimed": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it.",
     "flashback_recover_account_conflict": "This number or card already belongs to another account — sign in with that account, or contact us.",
     "flashback_token_revoked": "This archive has been deleted and the link is no longer valid.",
     "flashback_answer_not_found": "That answer from back then can't be found — refresh and try again.",
@@ -301,6 +301,7 @@
       "login": "Sign in",
       "join": "Join us",
       "myLearning": "My learning",
+      "myFlashback": "My Flashback",
       "myParticipations": "My enrollments",
       "workspace": "Workspace",
       "menu": "Menu"
@@ -416,6 +417,7 @@
       "icp": "京ICP备16008426号-2",
       "ariaLabel": "Site footer",
       "privacy": "Privacy Policy",
+      "contact": "Contact us",
       "terms": "Terms of Service"
     },
     "mediaReports": [
@@ -2392,7 +2394,8 @@
       "fund_action_burst": "Fund action burst",
       "deposit_settlement_unanchored": "Deposit settlement without anchor",
       "notification_delivery_failed": "Notification delivery failed",
-      "deposit_forfeit_batch_alert": "Deposit forfeiture batch alert"
+      "deposit_forfeit_batch_alert": "Deposit forfeiture batch alert",
+      "refunding_without_refund_job": "Refund job missing in flight"
     },
     "reconEntity": {
       "enrollment": "Enrollment",
@@ -2442,7 +2445,7 @@
     },
     "credentialReason": {
       "invalid": "Invalid credential",
-      "missing": "Missing credential",
+      "missing": "That event is not in your album (or the link has expired).",
       "unknown": "Unknown credential type",
       "wechat_jsapi": "Pay in the WeChat mini program for a faster checkout"
     },
@@ -2619,6 +2622,15 @@
     "myParticipations": "My enrollments"
   },
   "flashback": {
+    "nav": {
+      "brand": "CodingGirls",
+      "label": "Flashback navigation",
+      "home": "Flashback",
+      "voices": "Voices",
+      "wishes": "Wishes",
+      "capsule": "My corridor",
+      "login": "Sign in"
+    },
     "meta": {
       "enterTitle": "In a Flash",
       "enterDescription": "The answers you wrote over a decade ago have been waiting for you.",
@@ -2642,7 +2654,12 @@
       "quotesEmpty": "The quote wall is still empty — the first line will come from an alumna's license.",
       "likeAria": "Like ({count} so far)",
       "quotesWallCta": "See the whole wall →",
-      "footer": "The silent stay safe: until sent, only you can see your answers."
+      "wishesTitle": "Wish tree",
+      "wishesBlurb": "See what people hope to plant here — endorse, look forward, or plant one of your own.",
+      "wishesCta": "Open the wish tree →",
+      "footer": "The silent stay safe: until sent, only you can see your answers.",
+      "myCapsule": "Enter my corridor",
+      "login": "Sign in to your corridor"
     },
     "voices": {
       "metaTitle": "In a Flash · Voices",
@@ -2661,7 +2678,7 @@
       "mapTitle": "Across the mountains, we hear each other.",
       "voicesCount": "{count} voices",
       "introEyebrow": "One encounter, many possibilities",
-      "introHint": "Tap a city to start reading anytime. The origin and spread shown are illustrative.",
+      "introHint": "Tap a city to start reading anytime.",
       "stage1Name": "Origin",
       "stage1Text": "A spark of light sets out from here.",
       "stage2Name": "Flowing outward",
@@ -2724,7 +2741,7 @@
       "verify": "Verify and enter",
       "cardsTitle": "Found your {count} cards — they're all yours now",
       "enterCapsule": "Enter the time corridor →",
-      "bound": "Your archive is bound to your account. From now on, enter from \"Mine\".",
+      "bound": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
       "errorCode": "That code is wrong or has expired — try again.",
       "emailRequired": "Please enter the email you signed up with.",
       "errorRetry": "That step didn't succeed — try again shortly."
@@ -2734,6 +2751,8 @@
       "loading": "Developing…",
       "notFoundTitle": "This page hasn't developed yet",
       "notFoundBody": "The credited profile for this link doesn't exist, or isn't licensed for the public.",
+      "errorBody": "This page failed to load — check your connection and try again.",
+      "retry": "Retry",
       "backHome": "Back to the In a Flash home",
       "footer": "This page is shown publicly under the person's credited license (In a Flash · quote license, tier two)."
     },
@@ -2766,7 +2785,7 @@
     "scatter": {
       "title": "A table of Polaroids, still undeveloped",
       "hint": "Open one and zoom in — the clue is in the photo.",
-      "groupAria": "A pile of blurry old photos from different years, pick one to zoom in",
+      "groupAria": "{name} event album",
       "cardAria": "Photo {index} ({label})",
       "photoHidden": "A blurred old photo",
       "mystery": "Whose photo?",
@@ -2787,14 +2806,15 @@
       "wroteAt": "{years} ago, on {date} at {time}, you wrote these words",
       "wroteAtUnknown": "Back then, you wrote these words",
       "fogMark": "This sentence carries a fog mark — invisible to others, always full for you",
-      "btcNote": "At that gathering, a sponsor gave out a small amount of bitcoin as prizes, still unclaimed. The winner list is long lost — if you happened to be one of them, reach out and we'll honor it.",
+      "btcNote": "At the January 2014 gathering in Beijing, a sponsor gave out a small amount of bitcoin as prizes — only one has ever been claimed, and the winner list is long lost.",
       "dreamCtaEvent": "Make that dream happen: sign up for \"{title}\"",
       "dreamCtaInitiatives": "See what's happening now",
       "dreamFallback": "Leave your contact info and we will be the first to tell you when the activities you want open for registration.",
       "writeBack": "Flip it over — write today's you",
       "writeBackHint": "Tap the card to flip it over and write today’s you",
       "flipBack": "Flip back to the front",
-      "wrongFeedback": "So close — but developing it anyway. Yours was actually at {label}."
+      "wrongFeedback": "So close — but developing it anyway. Yours was actually at {label}.",
+      "btcContact": "If you happened to be one of the winners — contact us to claim it →"
     },
     "tags": {
       "want_offline": "Want to join offline meetups",
@@ -2842,7 +2862,7 @@
       "creditedNotePlaceholder": "e.g. accessibility development",
       "submit": "Done writing — send it →",
       "sendPublicNote": "Once sent, anyone signed in can see it in the album · fogged sentences stay hidden · adjust or take it down anytime",
-      "quoteCourage": "Your words can become someone else’s courage."
+      "quoteCourage": "What you say will become someone else's courage."
     },
     "sendRegister": {
       "reviewTitle": "Before sending, check the you from back then",
@@ -2861,20 +2881,26 @@
       "errorCode": "That step didn't succeed — check and retry.",
       "sentTitle": "Sent",
       "promise": "The wishes you wrote down won't disappear — we'll answer them one by one, through the Newsletter and through real people.",
-      "registerPitch": "Want to keep this card safe, and get notified when a gathering you endorsed becomes real?",
+      "registerPitch": "Want to keep this card safe and return to your corridor anytime?",
       "registerCurrent": "Contact on record: {phone} · {email}",
       "contactNone": "(none)",
       "phonePlaceholder": "Phone number",
       "codePlaceholder": "Verification code",
       "sendCode": "Send verification code",
-      "bind": "Bind account",
+      "bind": "Keep this card",
       "skip": "Skip — straight to the wall",
       "skipHint": "The link stays valid until you register — bind anytime.",
       "failedTitle": "It didn't stick this time",
       "retry": "Try again",
-      "boundTitle": "Your account has taken over",
-      "boundNote": "From now on, find this card under \"Mine\". This link has finished its mission.",
-      "enterCapsule": "Enter the time corridor →"
+      "boundTitle": "Card kept",
+      "boundNote": "Your card is saved. Sign in and open “My Flashback” to view and edit it.",
+      "enterCapsule": "Enter the time corridor →",
+      "claim": "Save to this account",
+      "claiming": "Saving…",
+      "claimFailed": "Could not save your card. Please try again.",
+      "alreadyKept": "This card is already saved to an account. Sign in to view it.",
+      "checkingAccount": "Checking your account…",
+      "login": "Sign in"
     },
     "echoCard": {
       "regionLabel": "Echo",
@@ -2898,7 +2924,12 @@
       "cityAll": "All",
       "scrollHint": "Scroll down = moving forward in time: developed past on top, the future waiting below",
       "scrollHintWide": "Scroll right: developed past on the left, the future waiting to be co-created on the right — {city}",
-      "cityAllWide": "All cities"
+      "cityAllWide": "All cities",
+      "unboundTitle": "We have not found your card yet",
+      "unboundBody": "Recover your card with the email you registered with, or visit the wish tree to write a wish.",
+      "login": "Sign in",
+      "writeWish": "Write a wish",
+      "myWishes": "My wishes"
     },
     "event": {
       "loading": "Developing this gathering…",
@@ -2906,23 +2937,23 @@
       "backHome": "‹ In a Flash",
       "applied": "{count} applied",
       "attended": "{count} walked in",
-      "returned": "{count} came back",
+      "returned": "{count} sent their photos",
       "peopleTitle": "People of this gathering",
       "peopleHint": "developed = sent their card; fogged = not back yet",
-      "missing": "This gathering isn’t in your roster (or the link expired).",
+      "missing": "This gathering isn’t in your album (or the link expired).",
       "findMine": "Were you there too? Claim your photo →"
     },
     "corridor": {
       "openEvent": "Open this gathering →",
       "ariaLabel": "Time capsule corridor",
-      "emptyCity": "No roster photos from this city yet.",
+      "emptyCity": "No album photos from this city yet.",
       "pilesAria": "{name} city photo piles",
       "pileCount": "{city} · {count} people",
       "pileCaption": "{count} · their stories",
       "frameLabelFallback": "that year, that event"
     },
     "roster": {
-      "groupAria": "{name} roster",
+      "groupAria": "{name} event album",
       "meta": "{total} companions from that year · developed ones have been sent",
       "todayTag": "Today",
       "dashed": "Her answers are still waiting for her",
@@ -2971,18 +3002,59 @@
       "downloadMd": "Download Markdown",
       "privacyNote": "Lines you fogged never appear on the card.",
       "shareTo": "Share…",
-      "shareOptIn": "Also add the quotes to the quote wall",
-      "shareOptInAlready": "Already authorized — adjust it in your revisit page",
       "brand": "IN A FLASH",
       "canvasFooter": "In a Flash"
+    },
+    "answersFog": {
+      "entry": "Fog on answers from back then",
+      "title": "Fog on answers from back then",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved ✓",
+      "error": "Saving failed — please try again.",
+      "cancel": "Not now",
+      "hint": "Tap a sentence to switch fog or light: fogged sentences show as fog blocks to others; you always see the original.",
+      "fogBadge": "fog",
+      "none": "(No answers from back then)"
+    },
+    "myWishes": {
+      "metaTitle": "My wishes · In a Flash",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "title": "My wishes",
+      "quota": "You can still plant {count} wish(es) this year · deleting does not refund the quota",
+      "statusListed": "Public",
+      "statusPendingReview": "Pending review",
+      "statusPrivate": "Only you and the organizers",
+      "viewOnTree": "View on the wish tree →",
+      "delete": "Delete",
+      "deleteTitle": "Delete this wish?",
+      "deleteBody": "It will be removed from the tree and gone for you too; the yearly quota is not refunded.",
+      "confirmDelete": "Delete for good",
+      "cancel": "Keep it",
+      "deleted": "Deleted ✓",
+      "error": "That didn't work — please try again.",
+      "empty": "No wishes yet — plant the first one.",
+      "writeWish": "Plant a wish",
+      "login": "Sign in to see your wishes",
+      "backToWall": "← Back to the wish tree"
+    },
+    "licensePanel": {
+      "title": "Quote license",
+      "save": "Save license",
+      "saving": "Saving…",
+      "saved": "Saved ✓",
+      "error": "Saving failed — please try again."
     },
     "invalid": {
       "flashback_token_claimed": {
         "title": "This archive already has an owner",
-        "body": "This archive is tied to an account and the link has retired — sign in, or continue from \"Mine\"."
+        "body": "This card is saved to an account and this link has retired. Sign in and open “My Flashback” to view it.",
+        "bodyAuthed": "This card is saved to an account and this link has retired. Open “My Flashback” to view it."
       },
       "claimed": {
-        "action": "Go to sign in"
+        "action": "Go to sign in",
+        "capsule": "Enter my corridor"
       },
       "flashback_token_revoked": {
         "title": "This letter has been withdrawn",
@@ -3000,7 +3072,7 @@
       "warning": "This cannot be undone: your card leaves the wall, your personal link stops working, and your answers, reply, endorsements and quote licenses are erased.",
       "error": "Deletion did not complete. Please try again later.",
       "factsName": "Archive: {name}",
-      "factsOnWall": "Sent to the alumni wall; your {count} wish endorsements and comments will be deleted with it",
+      "factsOnWall": "Sent to the album; your {count} wish endorsements and comments will be deleted with it",
       "factsOffWall": "Not yet sent; your {count} wish endorsements and comments will be deleted with it",
       "confirmLabel": "Type DELETE to confirm",
       "submit": "Delete permanently",
@@ -3018,8 +3090,11 @@
       "makeWish": "Make a wish",
       "quotaRemaining": "You can make {count} more wishes this year",
       "quotaExhausted": "This year's wish quota is used up (up to 3 wishes per year; deleting a wish does not free a slot)",
-      "endorse": "Endorse +1",
+      "endorse": "I can help",
       "endorsedByMe": "Endorsed",
+      "endorseGuideTitle": "Help via the mini program",
+      "endorseGuideSteps": "Open the WeChat mini program “程序媛汇” → “闪念间” at the bottom → Wish tree, then tap “I can help” on that wish and tell us what you can offer.",
+      "endorseGuideClose": "Got it",
       "endorsed": "{count} endorsements",
       "enrolled": "{count} enrolled",
       "join": "Join →",
@@ -3045,7 +3120,7 @@
       "feedbackPendingBody": "It will be hung on the tree once approved.",
       "feedbackPrivateTitle": "Received.",
       "feedbackPrivateBody": "This wish is visible only to you and the platform — we'll read it carefully, and may come talk soon.",
-      "myWishHint": "Find it anytime under \"My wishes\" in your time capsule.",
+      "myWishHint": "Your wishes can always be found on the “My wishes” page.",
       "viewOnTree": "See it on the tree",
       "bindGuideCta": "Bind your flashback archive",
       "withdraw": "Withdraw this wish",
@@ -3107,6 +3182,7 @@
       "wishesNavEn": "WISHES",
       "filterAll": "All",
       "filterEcho": "With echoes",
+      "loadMore": "Load more",
       "hasEchoLabel": "This wish has received an echo",
       "hasEchoBadge": "Echo",
       "echoEmpty": "No wishes have echoes yet — be the first to help via \"I can help\".",
@@ -3119,7 +3195,6 @@
       "shareTree": "Share the tree",
       "shareCopied": "Link copied",
       "shareFailed": "Copy failed — try again later.",
-      "remindHint": "Choose to get an update when there's news.",
       "moreWishes": "More wishes",
       "wishQuote": "Small wishes, together, can grow into rivers that change the world.",
       "voicesEntry": "Voices wall"
