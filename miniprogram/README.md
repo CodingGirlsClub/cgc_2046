@@ -1,6 +1,6 @@
 # 程序媛汇 · 微信小程序
 
-CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，全量页 + Tab 发现/闪念间/工作台（条件）/我的）+ **tt 裁剪端**（抖音，2 Tab 漏斗：发现/我的报名）+ **xhs 裁剪端**（小红书，2 Tab：发现/我的，P0 止血版——无订阅消息、无端内缴费）。页面注册名单单源 `src/domain/platform-pages.ts`（`src/app.config.ts` 与各深链过滤同源）。
+CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，全量页 + Tab 发现/闪念间/工作台（条件）/我的）+ **tt 裁剪端**（抖音，2 Tab 漏斗：发现/我的报名）+ **xhs 裁剪端**（小红书，3 Tab：发现/闪念间/我的——无订阅消息、无端内缴费）。页面注册名单单源 `src/domain/platform-pages.ts`（`src/app.config.ts` 与各深链过滤同源）。
 
 工程约定、验证命令、e2e 纪律见 [AGENTS.md](./AGENTS.md)；面向用户的更新记录见 [CHANGELOG.md](./CHANGELOG.md)。
 

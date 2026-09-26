@@ -33,14 +33,22 @@ export async function platformLoginCode(): Promise<string> {
 // 场景再改成 checkSession 校验。
 const XHS_LOGIN_CODE_TTL_MS = 4 * 60 * 1000
 let xhsStagedLogin: { code: string; at: number } | null = null
+let xhsStageSeq = 0
 
-export async function stagePlatformLoginCode(): Promise<void> {
-  if (process.env.TARO_ENV !== 'xhs' || __E2E_MOCK__) return
+/** 预取登录码。返回 true = 暂存就绪（可点「同意并登录」）。
+ *  发起即作废旧暂存：新 login 会刷新 session_key，旧 code 必然失配；
+ *  迟到的旧结果按序号丢弃——两次预取重叠时，后返回的旧 code 不得盖住新 session（B2）。 */
+export async function stagePlatformLoginCode(): Promise<boolean> {
+  if (process.env.TARO_ENV !== 'xhs' || __E2E_MOCK__) return true
+  const seq = ++xhsStageSeq
+  xhsStagedLogin = null
   try {
     const code = await platformLoginCode()
+    if (seq !== xhsStageSeq) return false
     xhsStagedLogin = { code, at: Date.now() }
+    return true
   } catch {
-    xhsStagedLogin = null
+    return false
   }
 }
 

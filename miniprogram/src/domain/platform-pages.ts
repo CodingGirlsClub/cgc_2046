@@ -71,9 +71,10 @@ export const TT_PAGES: readonly string[] = [
 ]
 
 /**
- * 小红书裁剪端（xhs）注册页面（P0-5，D2a 起与 tt 分叉）：
- * 「我的」精简页为第二 Tab（我的报名随之降级为普通页）；隐私页按
- * D7 变体正文注册（开发者协议 4.3 硬要求，登录页《隐私授权说明》可点开）。
+ * 小红书裁剪端（xhs）注册页面（P0-5 起与 tt 分叉；P2 注册闪念间全家桶）：
+ * Tab = 发现 / 闪念间（长廊）/ 我的（与 XHS_TABS 同源口径，「我的」为第三项，
+ * 我的报名随之降级为普通页）；隐私页按 D7 变体正文注册（开发者协议 4.3
+ * 硬要求，登录页《隐私授权说明》可点开）。
  */
 export const XHS_PAGES: readonly string[] = [
   'pages/discover/index',
