@@ -23,6 +23,7 @@ test('一个包都没扫到时 fail-closed：exit 2，而不是报「全部合�
 
     const r = spawnSync(process.execPath, [join(root, 'scripts/check-licenses.mjs')], { encoding: 'utf8' })
     assert.equal(r.status, 2, r.stdout + r.stderr)
+    assert.match(r.stderr, /--config\.enable-global-virtual-store=false/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
