@@ -224,11 +224,11 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		expect(screen.queryByText(/报名/)).not.toBeInTheDocument();
 	});
 
-	it("场次不在名册里 → 明确出口（不空转）", async () => {
+	it("场次不在相册里 → 明确出口（不空转）", async () => {
 		withCapsule([archive]);
 		render(<EventDetail eventKey="2099-01-01-xx" />);
 
-		expect(await screen.findByText(/不在你的名册里/)).toBeInTheDocument();
+		expect(await screen.findByText(/不在你的相册里/)).toBeInTheDocument();
 		await waitFor(() => expect(capsuleQuery).toHaveBeenCalled());
 	});
 
@@ -279,7 +279,7 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		);
 		render(<EventDetail eventKey="2099-01-01-xx" />);
 
-		expect(await screen.findByText(/不在你的名册里/)).toBeInTheDocument();
+		expect(await screen.findByText(/不在你的相册里/)).toBeInTheDocument();
 	});
 
 	it("复用 capsule 投影（不新增读面）：一次查询带 eventKey 过滤在客户端完成", async () => {

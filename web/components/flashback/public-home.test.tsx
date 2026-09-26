@@ -371,7 +371,7 @@ describe("ProfileView · 实名档案页（R31 credited 档）", () => {
 		render(<ProfileView slug="nobody" />);
 
 		expect(await screen.findByText("这一页还没有显影")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "回到闪念间首页" })).toHaveAttribute("href", "/flashback");
+		expect(screen.getByRole("link", { name: "回到闪念间首页" })).toHaveAttribute("href", "/flashback#recover");
 	});
 });
 

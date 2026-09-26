@@ -541,6 +541,7 @@ export default function WishesWall({
 														type="button"
 														disabled={!voter || pending.has(wish.id)}
 														aria-pressed={wish.expectedByViewer}
+														aria-label={wish.expectedByViewer ? t("expectDone") : t("expectCta")}
 														onClick={() => toggleExpect(wish)}
 													>
 														{wish.expectedByViewer ? "❤️" : "❤️+"}

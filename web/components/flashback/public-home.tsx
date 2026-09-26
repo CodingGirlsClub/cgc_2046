@@ -119,7 +119,7 @@ export default function PublicHome() {
 	const started = (stats?.returnedCount ?? 0) > 0 || (stats?.archives.length ?? 0) > 0;
 
 	return (
-		<div className="fb-root fb-public">
+		<div className="fb-root fb-public fb-paper-page">
 			<header className="fb-public-hero">
 				<div className="fb-kicker">IN A FLASH · {t("kicker")}</div>
 				<h1 className="fb-stage-title" ref={titleRef} tabIndex={-1}>

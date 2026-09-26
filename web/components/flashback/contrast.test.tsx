@@ -66,7 +66,7 @@ const CARD_BG: [number, number, number] = [26, 26, 28]; // 暗卡片 ≈ 0.07 �
 const PAPER_BG: [number, number, number] = [0xef, 0xe9, 0xdb]; // 纸底 .fb-write-form #efe9db
 /** 次要文字变量取值（数值断言 + cascade 断言共用；定义见 .fb-root 块） */
 const SUB_DARK = "#918c82";
-const SUB_INK = "#6b6154";
+const SUB_INK = "#56665a"; /* = --ink-2（批次3 语义色） */
 
 // RecoverForm 走 useMutation：本文件主题是样式，mock 掉 Apollo hook
 const { useMutationMock } = vi.hoisted(() => ({ useMutationMock: vi.fn(() => [vi.fn(), { loading: false }]) }));
@@ -108,9 +108,9 @@ describe("防线 1：CSS 源对比度数值断言（WCAG ≥4.5:1）", () => {
 		expect(idle, "未选中态须有显式色").toBe("#b9b4aa");
 		expect(contrastRatio(idle!, CARD_BG)).toBeGreaterThanOrEqual(4.5);
 
-		expect(active, "选中态须为金色（与描边一致）").toBe("var(--fb-accent)");
-		// --fb-accent = #cbbf8f：数值断言其对比度
-		expect(contrastRatio("#cbbf8f", CARD_BG)).toBeGreaterThanOrEqual(4.5);
+		// 批次3：选中态 = 墨色反白（--ink 底 + --paper 字，11:1）
+		expect(active, "选中态须为纸色字（墨底反白）").toBe("var(--paper)");
+		expect(contrastRatio("#f7f2e7", [0x1e, 0x3a, 0x2f])).toBeGreaterThanOrEqual(4.5);
 	});
 
 	it("找回/注册输入框（用户一报）：文字与 placeholder 双 ≥4.5", () => {

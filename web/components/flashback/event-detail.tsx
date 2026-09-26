@@ -101,7 +101,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase === "invalid") {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={state.reason} />
 			</div>
 		);
@@ -111,7 +111,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase === "missing") {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<p className="fb-lead">{t("missing")}</p>
 				<Link href="/flashback/capsule" className="fb-cta fb-cta-primary fb-dream-cta">
 					{t("back")}
@@ -122,7 +122,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase !== "ok") {
 		return (
-			<div className="fb-root fb-stage" role="status">
+			<div className="fb-root fb-stage fb-paper-page" role="status">
 				{t("loading")}
 			</div>
 		);
@@ -132,7 +132,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 	const returned = archive.roster.filter((entry) => entry.sentToWallAt).length;
 
 	return (
-		<div className="fb-root fb-event">
+		<div className="fb-root fb-event fb-paper-page">
 			<Link href={viewer ? "/flashback" : "/flashback/capsule"} className="fb-event-back">
 				{viewer ? t("backHome") : t("back")}
 			</Link>

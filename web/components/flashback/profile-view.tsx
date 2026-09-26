@@ -31,7 +31,7 @@ export default function ProfileView({ slug }: { slug: string }) {
 
 	if (profile === "loading") {
 		return (
-			<div className="fb-root fb-stage" role="status">
+			<div className="fb-root fb-stage fb-paper-page" role="status">
 				{t("loading")}
 			</div>
 		);
@@ -39,7 +39,7 @@ export default function ProfileView({ slug }: { slug: string }) {
 
 	if (profile === "error") {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<h1 className="fb-stage-title">{t("notFoundTitle")}</h1>
 				<p className="fb-lead" role="alert">
 					{t("errorBody")}
@@ -56,7 +56,7 @@ export default function ProfileView({ slug }: { slug: string }) {
 
 	if (!profile) {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<h1 className="fb-stage-title">{t("notFoundTitle")}</h1>
 				<p className="fb-lead">{t("notFoundBody")}</p>
 				<div className="fb-invalid-actions">
@@ -67,7 +67,7 @@ export default function ProfileView({ slug }: { slug: string }) {
 	}
 
 	return (
-		<div className="fb-root fb-public">
+		<div className="fb-root fb-public fb-paper-page">
 			<article className="fb-profile">
 				<div className="fb-kicker">IN A FLASH · {t("kicker")}</div>
 				<h1 className="fb-stage-title">{profile.fullName}</h1>
