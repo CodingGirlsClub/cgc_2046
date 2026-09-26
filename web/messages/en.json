@@ -2403,7 +2403,10 @@
       "join_request": "Join request",
       "workspace_application": "Workspace application",
       "event": "Event",
-      "course": "Course"
+      "course": "Course",
+      "payment_order": "Payment order",
+      "user": "User",
+      "notification_delivery": "Notification delivery"
     },
     "applicationStatus": {
       "pending": "Pending",
