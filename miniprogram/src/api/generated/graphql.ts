@@ -1078,6 +1078,13 @@ export type FlashbackRecoverVerifyForAccountMutationVariables = Exact<{
 
 export type FlashbackRecoverVerifyForAccountMutation = { flashbackRecoverVerifyForAccount: { bound: boolean, cards: Array<{ surnameMasked: string, eventName: string | null, city: string | null }> } | null };
 
+export type FlashbackRecoverClaimForAccountMutationVariables = Exact<{
+  link: string;
+}>;
+
+
+export type FlashbackRecoverClaimForAccountMutation = { flashbackRecoverClaimForAccount: { bound: boolean, cards: Array<{ surnameMasked: string }> } | null };
+
 export type FlashbackDeleteMutationVariables = Exact<{
   token?: string | null | undefined;
   confirm: string;

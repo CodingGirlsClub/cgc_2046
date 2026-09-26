@@ -1,15 +1,43 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canSendRecover, canVerifyRecover, recoverChannel, recoverDoneText } from '../src/domain/flashback-recover.ts'
+import {
+  RECOVER_COPY,
+  RECOVER_LINK_ERRORS,
+  canClaimRecover,
+  canSendRecover,
+  canVerifyRecover,
+  recoverChannel,
+  recoverDoneText
+} from '../src/domain/flashback-recover.ts'
 import { errorCopy } from '../src/domain/error-copy.ts'
 
-// #932 小程序内找回：已登录但没匹配到档案的人，凭当年报名用的手机号 / 邮箱找回，
-// 验证后绑定到当前账号。判据下沉 domain（页面无渲染测试）。
+// #932 小程序内找回：已登录但没匹配到档案的人，凭当年报名用的邮箱找回——找回邮件里的
+// 链接贴回来，绑定到当前账号。判据下沉 domain（页面无渲染测试）。
 
-test('通道：含 @ 走邮件（找回邮件里是入口链接）；其余按手机号发码；空白不可发', () => {
+test('通道：含 @ 走邮件；手机号找回暂停 → 不成通道（面板就地提示填邮箱）；空白不可发', () => {
   assert.equal(recoverChannel(' someone@example.com '), 'email')
-  assert.equal(recoverChannel('139 0000 0011'), 'phone')
+  assert.equal(recoverChannel('139 0000 0011'), null)
   assert.equal(recoverChannel('   '), null)
+})
+
+test('保留的手机通道：打开开关时手机号按发码走', () => {
+  assert.equal(recoverChannel('139 0000 0011', true), 'phone')
+  assert.equal(recoverChannel('someone@example.com', true), 'email')
+})
+
+test('面向用户的找回文案不出现手机号（暂停期间前端不显示）', () => {
+  for (const key of ['entry', 'lead', 'identifierPlaceholder', 'send', 'emailRequired', 'linkSentHint', 'linkHint', 'pasteEntry'] as const) {
+    assert.doesNotMatch(RECOVER_COPY[key], /手机/, key)
+  }
+})
+
+test('贴链接：有内容且不在提交中；链接失效三态各有找回口径的文案', () => {
+  assert.equal(canClaimRecover(' https://example.com/flashback/enter?token=fb_x ', false), true)
+  assert.equal(canClaimRecover('   ', false), false)
+  assert.equal(canClaimRecover('fb_x', true), false)
+  for (const code of ['flashback_token_not_found', 'flashback_token_claimed', 'flashback_token_revoked']) {
+    assert.match(RECOVER_LINK_ERRORS[code] ?? '', /链接/, code)
+  }
 })
 
 test('发送：有内容且不在提交中；验证：验证码至少 4 位（与 web 找回表单同口径）', () => {

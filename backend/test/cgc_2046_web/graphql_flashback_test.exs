@@ -833,6 +833,37 @@ defmodule Cgc2046Web.GraphqlFlashbackTest do
       assert bound.user_id == user.id
     end
 
+    # 邮箱找回·贴链接（小程序）：找回邮件里的入口链接贴回来，绑到当前账号
+    test "flashbackRecoverClaimForAccount：未登录 → unauthorized；已登录贴找回邮件链接 → 档案绑到当前账号" do
+      person = create_person(create_archive(), %{email: "paste@example.com"})
+      {plain, _token} = issue_token(person)
+
+      mutation = """
+      mutation { flashbackRecoverClaimForAccount(link: "https://example.com/flashback/enter?token=#{plain}") {
+        bound cards { surnameMasked } } }
+      """
+
+      anon =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/graphql", %{"query" => mutation})
+        |> json_response(200)
+
+      assert [%{"code" => "unauthorized"} | _] = anon["errors"], inspect(anon)
+
+      user = Cgc2046.AccountsFixtures.register_user("fb-recover-paste")
+      res = post_as_user(mutation, user)
+
+      assert %{"bound" => true, "cards" => [%{"surnameMasked" => _}]} =
+               res["data"]["flashbackRecoverClaimForAccount"],
+             inspect(res)
+
+      bound =
+        Person |> Ash.Query.filter(id == ^person.id) |> Ash.read_one!(authorize?: false)
+
+      assert bound.user_id == user.id
+    end
+
     # #933：相册对所有已登录用户开放；未寄出者只下发姓氏遮罩；城市堆服务端聚合
     test "flashbackArchives：未登录 → auth_required；登录无档案可读相册（未寄出者只剩王**）" do
       archive = create_archive()
