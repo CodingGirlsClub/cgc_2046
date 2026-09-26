@@ -551,12 +551,14 @@ defmodule Cgc2046.Flashback.OutreachTest do
       assert_receive {:email, email}, 1_000
       {_name, address} = List.first(email.to)
       assert address == @email
-      # 称呼用全名；2026-09-25 中秋档主题；开场含中秋问候
-      assert email.subject =~ "程序媛汇：中秋快乐——闪念回当年，系愿于今朝"
+      # 称呼用全名；节后月亮主题（2026-09-26 拍板）；开场余韵问候
+      assert email.subject =~ "程序媛汇：月亮渐圆，宜重逢——闪念回当年，系愿于今朝"
       assert email.text_body =~ "你好，王小明："
       assert email.html_body =~ "你好，王小明："
-      assert email.text_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
-      assert email.html_body =~ "中秋快乐。月亮最圆的日子，宜想念，宜重逢"
+      assert email.text_body =~ "月亮刚圆过。宜想念，宜重逢"
+      assert email.html_body =~ "月亮刚圆过。宜想念，宜重逢"
+      refute email.text_body =~ "中秋快乐"
+      refute email.html_body =~ "中秋快乐"
       # 本人场次日期个性化（create_archive occurred_on = 2014-01-11）
       assert email.html_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
       assert email.text_body =~ "2014 年 1 月，你也在一张报名表上写下过自己"
