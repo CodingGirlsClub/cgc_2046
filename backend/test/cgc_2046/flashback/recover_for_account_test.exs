@@ -54,8 +54,9 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
     code
   end
 
-  defp mint_token(person) do
-    plain = "fb_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
+  # 找回邮件的 token 带 fb_ 前缀；outreach 邀请的 token 不带（prefix: ""）
+  defp mint_token(person, prefix \\ "fb_") do
+    plain = prefix <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
     {:ok, hash} = TokenCredential.hash(plain)
 
     Token
@@ -169,6 +170,24 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
              Recover.claim_link_for_user(token, me)
 
     assert reload(person).user_id == other.id
+  end
+
+  test "贴链接：最初的邀请链接（token 无 fb_ 前缀）与裸 token 同样认得" do
+    me = account("+8613800007784")
+    invited = create_person(create_archive(), nil, %{email: "invited@example.com"})
+    bare = create_person(create_archive("2015-03-07-sh"), nil, %{email: "bare@example.com"})
+
+    link =
+      "https://example.com/zh-CN/flashback/enter?token=" <>
+        mint_token(invited, "") <> "&from=mail"
+
+    assert {:ok, %{bound: true}} = Recover.claim_link_for_user(link, me)
+
+    assert {:ok, %{bound: true}} =
+             Recover.claim_link_for_user(" " <> mint_token(bare, "") <> "\n", me)
+
+    assert reload(invited).user_id == me.id
+    assert reload(bare).user_id == me.id
   end
 
   test "贴链接：认不出链接 / 链接不存在 → flashback_token_not_found" do
