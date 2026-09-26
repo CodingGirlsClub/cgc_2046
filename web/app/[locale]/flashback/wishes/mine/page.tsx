@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
 import MyWishesView from "./mine-view";
-import "../flashback.css";
+import "../../flashback.css";
 import styles from "../wishes.module.css";
 
 export const dynamic = "force-dynamic";
