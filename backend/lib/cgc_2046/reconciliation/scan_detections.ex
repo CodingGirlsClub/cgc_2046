@@ -19,11 +19,14 @@ defmodule Cgc2046.Reconciliation.ScanDetections do
   # 规3/6 判定的 worker 白名单（NotificationWorker 含提醒/审批结果全部通知）。
   # 押金 no-show 结算（KTD7）同列：其死信 = 连续三拍结算硬失败，虽由下一拍 cron
   # 自愈，但资金终态滞留窗口必须在 /admin 对账页可见（不静默）。
+  # 退款（#862）同列：重试耗尽被丢弃的退款任务此前完全不可见——它同时是规17
+  # 「refunding 无在途任务」的成因面，死信行（Pruner 7 天窗口内）须可见。
   @dead_letter_workers [
     "Cgc2046.Workflows.SignalPublishWorker",
     "Cgc2046.Notifications.NotificationWorker",
     "Cgc2046.Notifications.Workers.DeliveryWorker",
-    "Cgc2046.Payments.Workers.DepositForfeitWorker"
+    "Cgc2046.Payments.Workers.DepositForfeitWorker",
+    "Cgc2046.Payments.Workers.PaymentRefundWorker"
   ]
 
   # 白名单只读访问器（ADR-0010 W1):worker 改名后字符串易漂移,测试经本函数
