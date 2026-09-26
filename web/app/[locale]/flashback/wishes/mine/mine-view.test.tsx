@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import MyWishesView from "./mine-view";
-import { FLASHBACK_DELETE_WISH, FLASHBACK_MY_WISHES } from "@/lib/graphql/flashback";
+import { FLASHBACK_MY_WISHES } from "@/lib/graphql/flashback";
 
 /**
  * M11 我的愿望页契约：
