@@ -65,3 +65,19 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 - 旧版被拒后落业务错误态，`src/domain/error-copy.ts` 的文案已含「若小程序为旧版本，请更新后重试」引导；新版的自愈见上节 `createOrderSelfHealsToConsent`。
 - 发版顺序（客户端先过审、后端再收紧）见根 `AGENTS.md`「PR 合并与发布」；code ↔ 文案的同步链见 `backend/AGENTS.md`「错误码契约」。
+
+## 小红书端 IDE 模拟器验收与发版
+
+### 模拟器观测（2.0 架构）
+
+- 逻辑层：CDP 连 `mp-service` target。`wx.switchTab`/`wx.navigateTo` 做导航与断言——合成点击进不了 2.0 原生渲染
+- 视觉：orca 截图。`mp-render` target 的 DOM 是 1.0 遗留面，不可作为画面证据
+- target id 每次编译都会变，且前缀会撞——每次从 `/json/list` 现取完整 id，按 url 过滤 `mp-render|mp-service`
+- 编译期 service webview 有死实例残留：探活判定 `getCurrentPages` 可用，连接带 5s 超时
+
+### 发版
+
+- IDE 项目的 dist 可能指向 worktree 而非主仓；外部 `taro build` 后先在 IDE 点「编译」确认同步，再上传
+- 版本号/备注在 IDE「上传」表单填，与 package.json 独立；后台「版本管理」设体验版/提审/发布
+- 提审硬前置：≥1 个生效服务类目（平台类目接口可能按主体返回不全，redmini#1559/#1617/#1696）
+- 发布后搜索收录有延迟：用后台「deeplink 生成工具」造链接验证
