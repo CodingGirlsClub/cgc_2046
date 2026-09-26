@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import ProfileView from "./profile-view";
-import { FLASHBACK_PUBLIC_PROFILE } from "@/lib/graphql/flashback";
 
 /**
  * 实名档案页（L5 前只有混态 404）：钉住「网络失败可重试」与
