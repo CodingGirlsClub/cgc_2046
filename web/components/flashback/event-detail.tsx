@@ -101,7 +101,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase === "invalid") {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={state.reason} />
 			</div>
 		);
@@ -111,7 +111,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase === "missing") {
 		return (
-			<div className="fb-root fb-stage fb-stage-pad">
+			<div className="fb-root fb-stage fb-stage-pad fb-paper-page">
 				<p className="fb-lead">{t("missing")}</p>
 				<Link href="/flashback/capsule" className="fb-cta fb-cta-primary fb-dream-cta">
 					{t("back")}
@@ -122,7 +122,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 
 	if (state.phase !== "ok") {
 		return (
-			<div className="fb-root fb-stage" role="status">
+			<div className="fb-root fb-stage fb-paper-page" role="status">
 				{t("loading")}
 			</div>
 		);
@@ -132,7 +132,7 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 	const returned = archive.roster.filter((entry) => entry.sentToWallAt).length;
 
 	return (
-		<div className="fb-root fb-event">
+		<div className="fb-root fb-event fb-paper-page">
 			<Link href={viewer ? "/flashback" : "/flashback/capsule"} className="fb-event-back">
 				{viewer ? t("backHome") : t("back")}
 			</Link>
@@ -150,11 +150,15 @@ export default function EventDetail({ eventKey }: { eventKey: string }) {
 				{t("peopleTitle")} · {t("peopleHint")}
 			</p>
 			<EventRoster archive={archive} />
-			<div className="fb-event-find">
-				<Link href="/flashback" className="fb-cta fb-cta-primary fb-dream-cta">
-					{t("findMine")}
-				</Link>
-			</div>
+			{/* N7：找回出口只给还没回来的访客（viewer = 已登录无档案）；
+			    本场已回来的人（token 持有者）不需要被再次邀请找回 */}
+			{viewer && (
+				<div className="fb-event-find">
+					<Link href="/flashback#recover" className="fb-cta fb-cta-primary fb-dream-cta">
+						{t("findMine")}
+					</Link>
+				</div>
+			)}
 		</div>
 	);
 }

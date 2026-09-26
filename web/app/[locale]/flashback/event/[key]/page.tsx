@@ -1,3 +1,4 @@
+import FlashbackNav from "@/components/flashback/flashback-nav";
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { pageAlternates } from "@/lib/seo";
@@ -25,5 +26,5 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function Page({ params }: PageProps) {
 	const { key } = await params;
-	return <EventDetail eventKey={key} />;
+	return <><FlashbackNav /><EventDetail eventKey={key} /></>;
 }

@@ -46,7 +46,7 @@ export function deleteFacts(preview: FlashbackDeletePreview): string[] {
   return [
     `档案：${preview.fullName}`,
     preview.sentToWallAt
-      ? `已寄出到校友墙；你的 ${count} 条许愿附议与留言将一并删除`
+      ? `已寄出到相册；你的 ${count} 条许愿附议与留言将一并删除`
       : `尚未寄出；你的 ${count} 条许愿附议与留言将一并删除`
   ]
 }

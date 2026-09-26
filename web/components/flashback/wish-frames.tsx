@@ -45,6 +45,9 @@ export function WishFrames({
 	const [modal, setModal] = useState<WishFormKind>({ kind: "closed" });
 	const [busy, setBusy] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
+	// H3：无链接通道（未登录且无 token）时「我能出力」不再调接口报
+	// 答非所问的错，改出小程序指引
+	const [guide, setGuide] = useState(false);
 
 	const [endorse] = useMutation(FLASHBACK_ENDORSE_WISH);
 	const [comment] = useMutation(FLASHBACK_ADD_WISH_COMMENT);
@@ -81,6 +84,11 @@ export function WishFrames({
 					{t("publicTitle")}
 					<span className="fb-corridor-flabel">{t("publicLabel")}</span>
 				</h3>
+				{actionError && (
+					<p role="alert" className="fb-hint">
+						{actionError}
+					</p>
+				)}
 				<ul className="fb-wish-list">
 					{publicWishes.length === 0 && (
 						<li className="fb-wish-empty">
@@ -109,6 +117,10 @@ export function WishFrames({
 										disabled={busy}
 										onClick={(e) => {
 											e.stopPropagation();
+											if (!token) {
+												setGuide(true);
+												return;
+											}
 											void run(() => endorse({ variables: { token, wishId: wish.id } }));
 										}}
 									>
@@ -119,15 +131,20 @@ export function WishFrames({
 						</li>
 					))}
 				</ul>
-				{actionError && (
-					<p role="alert" className="fb-hint">
-						{actionError}
-					</p>
-				)}
-				<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
+								<button type="button" className="fb-wish-add" onClick={() => setModal({ kind: "form" })}>
 					+ {t("makeWish")}
 				</button>
 			</article>
+
+			{guide && (
+				<div role="dialog" aria-modal="true" aria-label={t("endorseGuideTitle")} className="fb-wish-guide" data-testid="fb-wish-guide">
+					<p className="fb-wish-content">{t("endorseGuideTitle")}</p>
+					<p className="fb-hint">{t("endorseGuideSteps")}</p>
+					<button type="button" className="fb-cta" onClick={() => setGuide(false)}>
+						{t("endorseGuideClose")}
+					</button>
+				</div>
+			)}
 
 			{myPrivateWishes.length > 0 && (
 				<article className="fb-corridor-frame fb-future-frame fb-private-frame">
@@ -169,7 +186,13 @@ export function WishFrames({
 						wish={resolveWish(modal.wishId) as FlashbackWish}
 						busy={busy}
 						onClose={() => setModal({ kind: "closed" })}
-						onEndorse={(wishId) => run(() => endorse({ variables: { token, wishId } }))}
+						onEndorse={(wishId) => {
+							if (!token) {
+								setGuide(true);
+								return;
+							}
+							void run(() => endorse({ variables: { token, wishId } }));
+						}}
 						onComment={(wishId, content) => run(() => comment({ variables: { token, wishId, content } }))}
 						onDelete={(wishId) => run(() => deleteWish({ variables: { token, wishId } }))}
 					/>

@@ -1,4 +1,6 @@
-import { ApolloClient, InMemoryCache, createHttpLink } from "@apollo/client";
+import { ApolloClient, InMemoryCache, ApolloLink } from "@apollo/client";
+import { HttpLink } from "@apollo/client/link/http";
+import { RemoveTypenameFromVariablesLink } from "@apollo/client/link/remove-typename";
 
 /**
  * Apollo Client 实例。
@@ -13,10 +15,15 @@ export const httpLinkOptions = {
 	credentials: "same-origin" as const,
 };
 
-const httpLink = createHttpLink(httpLinkOptions);
+const httpLink = new HttpLink(httpLinkOptions);
+
+// 缓存对象直接作为 input 变量发出时（圈选区间、雾区间等），Apollo 会带上
+// __typename，后端 Absinthe 按 input 类型校验直接拒收（「Unknown field」，
+// M1 浏览器实测）。出站前统一剥掉，整类问题收口在这里。
+const link = ApolloLink.from([new RemoveTypenameFromVariablesLink(), httpLink]);
 
 export const client = new ApolloClient({
-	link: httpLink,
+	link,
 	cache: new InMemoryCache({
 		typePolicies: {
 			// U8(#180):issue 的 checklist item id 只在 issue 内唯一(R2 id 纪律,

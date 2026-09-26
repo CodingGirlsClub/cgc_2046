@@ -175,6 +175,12 @@ describe("CapsuleView · 我的卡动作（G2 编辑 + G3 撤下）", () => {
 		expect(within(today).getByRole("button", { name: "撤下" })).toBeInTheDocument();
 	});
 
+	it("我的卡面渲染金句授权面板（M1：授权只在面板管理）", async () => {
+		await renderCapsule();
+		expect(screen.getByRole("region", { name: "金句授权" })).toBeInTheDocument();
+		expect(screen.getByRole("radio", { name: "关闭（默认）" })).toBeInTheDocument();
+	});
+
 	it("已寄出 + 登录态无 token：撤下照常渲染（#931 起 retract 双入口），编辑恒在", async () => {
 		window.history.replaceState({}, "", "/flashback/capsule");
 		window.sessionStorage.clear();
@@ -305,3 +311,56 @@ describe("CapsuleView · 两形态布局（宽屏横向/窄屏纵向）", () => 
 });
 
 
+
+describe("链接已作废（收好之后）", () => {
+	const claimed = { errors: [{ message: "claimed", code: "flashback_token_claimed" }] };
+
+	function stage() {
+		window.history.replaceState({}, "", "/flashback/capsule");
+		window.sessionStorage.clear();
+		window.sessionStorage.setItem("flashback.token", "tok-used");
+		capsuleQuery.mockReset();
+	}
+
+	it("丢掉作废的 token、改用登录身份重拉：已登录的主人直接看到自己的长廊", async () => {
+		stage();
+		capsuleQuery
+			.mockRejectedValueOnce(claimed)
+			.mockResolvedValueOnce({ data: { flashbackCapsule: baseCapsule } });
+		render(<CapsuleView />);
+
+		await screen.findByText("闪念间 · 时间长廊");
+		expect(capsuleQuery).toHaveBeenCalledTimes(2);
+		expect(capsuleQuery.mock.calls[1][0].variables.token).toBeNull();
+		expect(window.sessionStorage.getItem("flashback.token")).toBeNull();
+	});
+
+	it("没有登录身份可用时，照旧显示「已被收进账号」失效页", async () => {
+		stage();
+		capsuleQuery
+			.mockRejectedValueOnce(claimed)
+			.mockRejectedValueOnce({ errors: [{ message: "auth", code: "flashback_auth_required" }] });
+		render(<CapsuleView />);
+
+		await screen.findByText("这个档案已有主人");
+		expect(capsuleQuery).toHaveBeenCalledTimes(2);
+	});
+});
+
+
+describe("无身份长廊的可达出口", () => {
+ it.each([
+  ["flashback_auth_required", "登录", "/login?next=%2Fflashback%2Fcapsule"],
+  ["flashback_person_not_bound", "写愿望", "/flashback/wishes"],
+ ])("%s 显示对应出口", async (code, label, href) => {
+  window.history.replaceState({}, "", "/flashback/capsule");
+  capsuleQuery.mockRejectedValue({ errors: [{ code }] });
+  render(<CapsuleView />);
+  expect(await screen.findByRole("link", { name: label })).toHaveAttribute("href", href);
+  expect(screen.getByRole("link", { name: "去自助找回" })).toHaveAttribute("href", "/flashback#recover");
+  if (code === "flashback_person_not_bound") {
+   expect(screen.getByText("暂时还没找到你的那一张")).toBeInTheDocument();
+   expect(screen.getByRole("link", { name: "我的愿望" })).toHaveAttribute("href", "/flashback/wishes/mine");
+  }
+ });
+});

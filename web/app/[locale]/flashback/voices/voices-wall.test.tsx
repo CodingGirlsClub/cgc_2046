@@ -11,6 +11,7 @@ import {
 	FLASHBACK_PUBLIC_QUOTE,
 	FLASHBACK_PUBLIC_QUOTES,
 	FLASHBACK_RANDOM_QUOTES,
+	FLASHBACK_VOICE_CITIES,
 	type FlashbackPublicQuote,
 } from "@/lib/graphql/flashback";
 
@@ -72,6 +73,7 @@ const quotesList: FlashbackPublicQuote[] = [
 const wallQuery = vi.fn();
 const randomQuery = vi.fn();
 const singleQuery = vi.fn();
+const voiceCitiesQuery = vi.fn();
 
 vi.mock("@/lib/apollo-client", () => ({
 	client: {
@@ -79,6 +81,7 @@ vi.mock("@/lib/apollo-client", () => ({
 			if (options.query === FLASHBACK_PUBLIC_QUOTES) return wallQuery(options);
 			if (options.query === FLASHBACK_RANDOM_QUOTES) return randomQuery(options);
 			if (options.query === FLASHBACK_PUBLIC_QUOTE) return singleQuery(options);
+			if (options.query === FLASHBACK_VOICE_CITIES) return voiceCitiesQuery(options);
 			throw new Error("unexpected query");
 		},
 	},
@@ -102,7 +105,25 @@ beforeEach(() => {
 	randomQuery.mockReset();
 	singleQuery.mockReset();
 	likeRunner.mockReset();
-	wallQuery.mockResolvedValue({ data: { flashbackPublicQuotes: quotesList } });
+	voiceCitiesQuery.mockReset();
+	// M10：城市真源 = flashbackVoiceCities（有金句的城市全集，不受热门限量）；
+	// 宁波不在旧 45 城静态表内
+	voiceCitiesQuery.mockResolvedValue({
+		data: {
+			flashbackVoiceCities: [
+				{ name: "北京", pinyin: "beijing", lngLat: [116.4, 39.9] },
+				{ name: "上海", pinyin: "shanghai", lngLat: [121.47, 31.23] },
+				{ name: "杭州", pinyin: "hangzhou", lngLat: [120.15, 30.27] },
+				{ name: "宁波", pinyin: "ningbo", lngLat: [121.55, 29.87] },
+			],
+		},
+	});
+	// 服务端语义：city 筛选先于热门限量
+	wallQuery.mockImplementation(({ variables } = {}) => {
+		const city = (variables as { city?: string } | undefined)?.city;
+		const list = city ? quotesList.filter((q) => q.city === city) : quotesList;
+		return Promise.resolve({ data: { flashbackPublicQuotes: list } });
+	});
 	randomQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
 	likeRunner.mockResolvedValue({ data: { flashbackLikeQuote: { likeCount: 33 } } });
 	window.localStorage.clear();
@@ -215,7 +236,7 @@ describe("VoicesWall · 首赞轻提示（U6/R27）", () => {
 		// 结构断言：提示为 fixed 定位浮层（不推挤布局、不遮挡赞/分享按钮所在文档流）
 		expect(hint.className).toContain("likeHint");
 		// 找回链接指向落地页
-		expect(hint.querySelector("a")).toHaveAttribute("href", "/flashback");
+		expect(hint.querySelector("a")).toHaveAttribute("href", "/flashback#recover");
 
 		// 再赞：不重复出现（仍只有一个，不新增）
 		fireEvent.click(screen.getByRole("button", { name: /下一句/ }));
@@ -252,6 +273,27 @@ describe("VoicesWall · 城市与导航（R13/R35）", () => {
 		fireEvent.click(within(cityBar as HTMLElement).getByRole("button", { name: "上海" }));
 		expect(await screen.findByTestId("selected-text")).toHaveTextContent("原来我也可以，是改变的开始。");
 		expect(screen.getByTestId("map")).toHaveAttribute("data-city", "上海");
+	});
+
+	it("M10：城市栏来自 flashbackVoiceCities，选城改服务端按城重拉", async () => {
+		render(<VoicesWall showIntro={false} />);
+		await screen.findByTestId("selected-text");
+
+		const cityBar = document.querySelector("[aria-label='按城市浏览']")!;
+		// 宁波不在旧 45 城静态表、也不在默认热样本里——真源来自服务端
+		expect(within(cityBar as HTMLElement).getByRole("button", { name: "宁波" })).toBeInTheDocument();
+		fireEvent.click(within(cityBar as HTMLElement).getByRole("button", { name: "宁波" }));
+		await waitFor(() => expect(wallQuery).toHaveBeenCalledTimes(2));
+		expect(wallQuery.mock.calls[1][0].variables.city).toBe("宁波");
+	});
+
+	it("M10：初始 ?city= 直接服务端筛选（先筛后限量）", async () => {
+		wallQuery.mockClear();
+		render(<VoicesWall showIntro={false} initialCity="上海" />);
+		await screen.findByTestId("selected-text");
+		expect(wallQuery.mock.calls[0][0].variables.city).toBe("上海");
+		// 直达城市里的句子（q-2 上海）
+		expect(screen.getByTestId("selected-text")).toHaveTextContent("原来我也可以");
 	});
 
 	it("随便听听：调随机查询并定位返回句（R35）", async () => {
@@ -309,4 +351,12 @@ describe("VoicesWall · 开场（R5/R8/R24）", () => {
 		expect(screen.getByTestId("map")).toHaveAttribute("data-progress", "1.00");
 		expect(screen.queryByText("跳过片头")).not.toBeInTheDocument();
 	});
+});
+
+// N10：金句墙不再把原型阶段的说明文案带上线。
+describe("文案守卫", () => {
+ it("introHint 不含原型示意", () => {
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  expect(zh.flashback.voices.introHint).not.toContain("原型示意");
+ });
 });

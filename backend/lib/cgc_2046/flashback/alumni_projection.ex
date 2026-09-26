@@ -1,4 +1,6 @@
 defmodule Cgc2046.Flashback.AlumniProjection do
+  require Logger
+
   @moduledoc """
   校友层投影（U5/KTD3）：时间胶囊读面——场次名册（结构化层满员 + 内容层
   待点亮）、「今天」格与行动板。照 `initiatives/public.ex` 的裸查询 +
@@ -433,14 +435,58 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       )
 
     Enum.map(rows, fn answer ->
+      # 裸 Repo 读绕过 Ash 的 :map 数组解码——jsonb 里每项可能是字符串化 map
+      # （Ash 写入形态）。单项脏数据只丢自己（告警一次），不得拖垮整条
+      # flashbackCapsule（#941 遗留，PR #960 评审加固）。
+      fog_spans = decode_fog_spans(answer.fog_spans, answer.question_key)
+
       %{
         id: answer.id,
         question_key: answer.question_key,
         raw_text: answer.raw_text,
-        fog_spans: answer.fog_spans || [],
-        text: FogSpans.mask(answer.raw_text, answer.fog_spans, @fog_placeholder)
+        fog_spans: fog_spans,
+        text: FogSpans.mask(answer.raw_text, fog_spans, @fog_placeholder)
       }
     end)
+  end
+
+  # 字符串化 jsonb 项 → 解码（失败/形状非法：丢弃该项 + 告警一次，不拖垮整条查询）；
+  # 合法项统一走 FogSpans.span_payload（原子键投影，与 token 面同源）。
+  defp decode_fog_spans(spans, question_key) do
+    (spans || [])
+    |> Enum.flat_map(fn
+      span when is_map(span) ->
+        [span]
+
+      raw when is_binary(raw) ->
+        case Jason.decode(raw) do
+          {:ok, %{} = span} ->
+            [span]
+
+          other ->
+            Logger.warning(
+              "[flashback] capsule me.answers 丢弃无法解析的 fogSpan（question_key=#{question_key}）：#{inspect(other)}"
+            )
+
+            []
+        end
+
+      other ->
+        Logger.warning(
+          "[flashback] capsule me.answers 丢弃非法 fogSpan（question_key=#{question_key}）：#{inspect(other)}"
+        )
+
+        []
+    end)
+    |> Enum.filter(&span_valid?/1)
+    |> Enum.map(&FogSpans.span_payload/1)
+  end
+
+  defp span_valid?(span) do
+    payload = FogSpans.span_payload(span)
+
+    is_integer(payload.start) and payload.start >= 0 and is_integer(payload.len) and
+      payload.len > 0
   end
 
   defp iso8601(nil), do: nil

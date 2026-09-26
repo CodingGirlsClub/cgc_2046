@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useAuthed } from "@/lib/auth-provider";
 import { Link } from "@/i18n/navigation";
 import { useStageTitleFocus } from "./use-reduced-motion";
 
@@ -15,20 +16,23 @@ export type InvalidTokenReason = "flashback_token_not_found" | "flashback_token_
  */
 export default function InvalidToken({ reason }: { reason: InvalidTokenReason }) {
 	const t = useTranslations("flashback.invalid");
+	const { authed, confirmed } = useAuthed();
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([reason]);
+	const authedBody = reason === "flashback_token_claimed" && confirmed && authed;
 
 	return (
 		<section className="fb-stage fb-stage-pad fb-invalid">
 			<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
 				{t(`${reason}.title`)}
 			</h2>
-			<p className="fb-lead">{t(`${reason}.body`)}</p>
+			<p className="fb-lead">{t(authedBody ? `${reason}.bodyAuthed` : `${reason}.body`)}</p>
 			<div className="fb-invalid-actions">
 				{reason === "flashback_token_claimed" && (
-					<Link href="/login">{t("claimed.action")}</Link>
+					<Link href={confirmed && authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>{t(confirmed && authed ? "claimed.capsule" : "claimed.action")}</Link>
 				)}
+				{/* L4：not_found = 去找回，直落首页找回锚点；revoked 是「回到首页」不带 */}
 				{reason !== "flashback_token_claimed" && (
-					<Link href="/flashback">{t(`${reason}.action`)}</Link>
+					<Link href={reason === "flashback_token_not_found" ? "/flashback#recover" : "/flashback"}>{t(`${reason}.action`)}</Link>
 				)}
 			</div>
 		</section>
