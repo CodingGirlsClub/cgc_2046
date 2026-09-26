@@ -31,6 +31,8 @@ export default function SiteFooter() {
 					<nav aria-label={t("ariaLabel")} className="site-footer__links">
 						<Link href="/privacy">{t("privacy")}</Link>
 						<Link href="/terms">{t("terms")}</Link>
+						{/* 隐私政策第 9 节承诺的页脚「联系我们」（Q3）：mailto 单源 */}
+						<a href="mailto:info@codingirlsclub.com">{t("contact")}</a>
 					</nav>
 					<p>© CodingGirlsClub</p>
 					<a
