@@ -60,6 +60,77 @@ defmodule Cgc2046Web.GraphqlFlashbackProgressTest do
     end
   end
 
+  test "单项 fogSpans 是坏 JSON：投影不抛异常，只丢该段（PR #960 评审）" do
+    alias Cgc2046.Flashback.Answer
+
+    archive =
+      EventArchive
+      |> Ash.Changeset.for_create(:create, %{
+        key: "capsule-bad-span-test",
+        name: "Capsule bad span fixture",
+        city: "上海",
+        occurred_on: ~D[2014-01-11]
+      })
+      |> Ash.create!(authorize?: false)
+
+    person =
+      Person
+      |> Ash.Changeset.for_create(:create, %{
+        full_name: "测试",
+        surname: "测",
+        role: :learner,
+        participation: :attended,
+        archive_event_id: archive.id
+      })
+      |> Ash.create!(authorize?: false)
+
+    Answer
+    |> Ash.Changeset.for_create(:create, %{
+      person_id: person.id,
+      question_key: "self_intro",
+      raw_text: "在浦东一家外贸公司跟单，每天和传真机打交道。"
+    })
+    |> Ash.create!(authorize?: false)
+
+    # 好的一段 + 坏的一段（非 JSON）：坏段只影响自己，不得拖垮整条查询
+    Repo.query!(
+      "update flashback_answers set fog_spans = $1::jsonb[] where person_id = $2::uuid",
+      [
+        [
+          ~s({"len": 6, "start": 0, "reason": "privacy"}),
+          "not-json{{{"
+        ],
+        Ecto.UUID.dump!(person.id)
+      ]
+    )
+
+    plain = "fb_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    {:ok, hash} = TokenCredential.hash(plain)
+    Token
+    |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
+    |> Ash.create!(authorize?: false)
+
+    response =
+      build_conn()
+      |> post("/api/graphql", %{
+        query: """
+        query FlashbackCapsule($token: String) {
+          flashbackCapsule(token: $token) {
+            me {
+              answers { questionKey rawText fogSpans { start len reason } text }
+            }
+          }
+        }
+        """,
+        variables: %{"token" => plain}
+      })
+      |> json_response(200)
+
+    assert response["errors"] == nil, inspect(response)
+    answer = get_in(response, ["data", "flashbackCapsule", "me", "answers"]) |> List.first()
+    assert [%{"start" => 0, "len" => 6}] = answer["fogSpans"]
+  end
+
   test "capsule 的 me.answers.fogSpans 容忍字符串化 jsonb 形态（#941 遗留）" do
     alias Cgc2046.Flashback.Answer
 
