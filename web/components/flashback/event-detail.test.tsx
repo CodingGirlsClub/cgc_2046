@@ -129,10 +129,10 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 
 		// 统计行：报名 / 走进教室 / 已回来（教练数本场缺失，不编造）
 		// 名册扩员（attended + not_selected 混合 = 5 人）不变形：
-		// 走进教室取后端 attendedCount 字段，已回来按寄出人数（含圆梦线寄出者）
+		// 走进教室取后端 attendedCount 字段，已寄出按寄出人数（含圆梦线寄出者）
 		expect(await screen.findByText("报名 344 位")).toBeInTheDocument();
 		expect(screen.getByText("走进教室 3 位")).toBeInTheDocument();
-		expect(screen.getByText("2 位已回来")).toBeInTheDocument();
+		expect(screen.getByText("2 位已寄出")).toBeInTheDocument();
 
 		// 名册 = 单形态 3 列网格（长廊只留城市堆，名册不再有错落 masonry 形态）
 		const grid = screen.getByTestId("fb-roster-grid");
@@ -265,7 +265,7 @@ describe("EventDetail · 场次页（E 的 event 步）", () => {
 		render(<EventDetail eventKey="2014-01-11-bj" />);
 
 		expect(await screen.findByTestId("fb-roster-grid")).toHaveAttribute("data-total", "5");
-		expect(screen.getByText("2 位已回来")).toBeInTheDocument();
+		expect(screen.getByText("2 位已寄出")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: /找回你的那一张/ })).toHaveAttribute("href", "/flashback#recover");
 		expect(screen.getByRole("link", { name: "‹ 闪念间" })).toHaveAttribute("href", "/flashback");
 		expect(replaceMock).not.toHaveBeenCalled();
