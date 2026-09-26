@@ -73,7 +73,10 @@ export default function LoginPage() {
       setDialogVisible(true)
       if (env === 'xhs') {
         setLoginStaged(false)
-        void stagePlatformLoginCode().then(setLoginStaged)
+        // 只在成功时开门：重叠预取里迟到的 false 不得把已就绪的按钮重新关掉
+        void stagePlatformLoginCode().then((ready) => {
+          if (ready) setLoginStaged(true)
+        })
       }
     }
   }
