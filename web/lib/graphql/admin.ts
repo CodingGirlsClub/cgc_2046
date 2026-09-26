@@ -542,6 +542,7 @@ export const RECONCILIATION_RULE_LABEL: Record<string, string> = {
 	deposit_settlement_unanchored: "labels.reconRule.deposit_settlement_unanchored",
 	notification_delivery_failed: "labels.reconRule.notification_delivery_failed",
 	deposit_forfeit_batch_alert: "labels.reconRule.deposit_forfeit_batch_alert",
+	refunding_without_refund_job: "labels.reconRule.refunding_without_refund_job",
 };
 
 /** 对账实体类型 → 中文标签 */
