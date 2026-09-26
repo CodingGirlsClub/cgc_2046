@@ -20,3 +20,16 @@
 .saved { text-align: center; margin-top: 16rpx; }
 .myWishesLink { margin-top: 18rpx; background: transparent; color: #4b6851; font-size: 27rpx; }
 .page button::after { border: 0; }
+
+/* ── 换肤（盘点 §7）：提交是火；选中项墨描边 + 纸底（选择不是动作） ── */
+.page { background: var(--paper); color: var(--ink); }
+.eyebrow, .count { color: var(--ink-3); }
+.title { color: var(--ink); font-family: var(--serif); }
+.intro, .hint, .quota, .saved, .myWishesLink { color: var(--ink-2); }
+.label { color: var(--ink); font-weight: 500; }
+.contentInput, .cityInput { background: var(--paper-hi); border-color: var(--rule); }
+.candidate { color: var(--ink-2); background: var(--paper-deep); }
+.option, .publicChoice, .privateChoice { color: var(--ink-2); background: var(--paper-hi); border-color: var(--rule); }
+.selected { color: var(--ink); background: var(--paper); border-color: var(--ink); }
+.submit { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); border-radius: 999rpx; box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.submit[disabled] { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); opacity: 0.45; box-shadow: none; }

@@ -15,3 +15,13 @@
 .page button::after { border: 0; }
 
 .publicWish { margin: 0 0 10rpx; padding: 12rpx 0; text-align: left; background: transparent; color: #536f4e; font-size: 25rpx; }
+
+/* ── 换肤（盘点 §7）：「已公开」是金（被点亮的结果）；写愿望是火 ── */
+.page { background: var(--paper); color: var(--ink); }
+.eyebrow { color: var(--ink-3); }
+.title, .content { color: var(--ink); font-family: var(--serif); }
+.quota, .state, .status, .meta, .backLink, .retry, .publicWish { color: var(--ink-2); }
+.statusListed { color: var(--gold-ink); }
+.wishCard { background: var(--paper-hi); border-color: transparent; }
+.created { border-color: var(--gold-line); }
+.primary { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); border-radius: 999rpx; box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }

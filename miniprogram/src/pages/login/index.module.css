@@ -19,3 +19,14 @@
 .dialogSecondary { color: #4b4d54; background: #f4f5f8; }
 .agreementLink { color: #ea5504; text-decoration: underline; }
 .tagline { display: block; margin-top: 64rpx; color: #8a8f98; text-align: center; font-size: 21rpx; }
+
+/* 换肤（盘点 §7）：品牌页保持白底；字色换成墨，权限列表底换成纸色；
+   「2046」从橙换成墨（它不可按）；火只给「手机号快捷登录」与协议弹窗的「同意并登录」。 */
+.brandName, .title, .dialogTitle { color: var(--ink); }
+.brandYear { color: var(--ink-2); }
+.description, .permission, .dialogBody { color: var(--ink-2); }
+.permissions { background: var(--paper); }
+.loginButton, .dialogPrimary { color: #fff; background: linear-gradient(180deg, var(--fire-2), var(--fire)); box-shadow: 0 20rpx 44rpx -24rpx var(--fire-glow); }
+.dialogSecondary { color: var(--ink-2); background: var(--paper); }
+.agreementLink { color: var(--ink); }
+.tagline { color: var(--ink-3); }

@@ -387,6 +387,8 @@ let flashback: FlashbackMockState = loadFlashbackState()
 //   cgc.e2e.flashback_claim_miss = '1' → claim 不命中（bound:false，驱动
 //     「找回你的那一张」会话引导）。
 const FLASHBACK_UNCLAIMED_KEY = 'cgc.e2e.flashback_unclaimed'
+//   cgc.e2e.platform_identity = '1' → 本平台已绑定身份：回访静默登录一步成功（#930）
+const PLATFORM_IDENTITY_KEY = 'cgc.e2e.platform_identity'
 const FLASHBACK_CLAIM_MISS_KEY = 'cgc.e2e.flashback_claim_miss'
 const WORKSPACE_ACCESS_DENIED_KEY = 'cgc.e2e.workspace_access_denied'
 const flashbackClaimedTokens = new Set<string>()
@@ -412,6 +414,29 @@ export function __setWorkspaceAccessDenied(value: boolean): void {
 /** e2e 钩子（node --test 用）：模拟登录账号暂无匹配档案 */
 export function __setFlashbackUnclaimed(value: boolean): void {
   flashbackUnclaimed = value
+}
+
+// node --test 无 storage：静默登录的绑定态走模块态（e2e 用 storage 开关 cgc.e2e.platform_identity）
+let platformIdentityBound = false
+export function __setPlatformIdentityBound(bound: boolean): void {
+  platformIdentityBound = bound
+}
+
+/**
+ * #931：镜像后端 `flashback_identity`——token 在场按 token 校验（已认领 → token_claimed）；
+ * 无 token 走登录账号：未登录 → auth_required，登录未绑定 → person_not_bound。
+ * 缺这道门时寄出 / 撤下在 mock 上恒成功，e2e 绿着漏掉真后端的失败（#931 的来由）。
+ */
+function flashbackIdentityGate(values: Record<string, unknown>): { errors: Array<{ message: string; code: string }> } | null {
+  const token = typeof values.token === 'string' && values.token ? values.token : null
+  if (token) {
+    return flashbackClaimedTokens.has(token) ? { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] } : null
+  }
+  if (!loggedIn) return { errors: [{ message: 'token or sign-in required', code: 'flashback_auth_required' }] }
+  if (flashbackUnclaimed || e2eFlag(FLASHBACK_UNCLAIMED_KEY)) {
+    return { errors: [{ message: 'person not bound', code: 'flashback_person_not_bound' }] }
+  }
+  return null
 }
 
 // 首程档案（2014-01-11 六城同日 · 北京）：与既有 capsule 的「我」同一个人——
@@ -499,10 +524,10 @@ function flashbackSharedCard(state: FlashbackMockState) {
   }
 }
 
-// 场次名册 fixture（R12：仅 attended；未寄出者只有结构化字段，无内容层）。
-// 城市分布（北京3/上海2/广州1 + 上海场3）= 长廊城市堆计数与场次页雾卡的
-// e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
-function flashbackArchives(mySentAt: string | null) {
+// 场次名册 fixture（R12：仅 attended）——原始行，城市对所有人都在，只供聚合；
+// 对外一律经 flashbackArchives 投影。城市分布（北京3/上海2/广州1 + 上海场3）= 长廊
+// 城市堆计数与场次页雾卡的 e2e 断言数据源；「我」的寄出态跟随 mock state（旅程寄出后回访同源可见）。
+function flashbackRawArchives(mySentAt: string | null) {
   const rosterEntry = (
     id: string,
     surnameMasked: string,
@@ -555,6 +580,44 @@ function flashbackArchives(mySentAt: string | null) {
       ]
     }
   ]
+}
+
+type RawRosterEntry = ReturnType<typeof flashbackRawArchives>[number]['roster'][number]
+
+// 镜像后端 piles/1（#933）：按人的城市计数、计入未寄出者，只数已寄出为「已回来」；人数降序 + 城市字节序
+function rosterPiles(rows: RawRosterEntry[]) {
+  const piles = new Map<string, { city: string; count: number; returned: number }>()
+  for (const entry of rows) {
+    const city = entry.city.trim()
+    if (!city) continue
+    const pile = piles.get(city) ?? { city, count: 0, returned: 0 }
+    pile.count += 1
+    if (entry.sentToWallAt) pile.returned += 1
+    piles.set(city, pile)
+  }
+  return [...piles.values()].sort((a, b) => b.count - a.count || (a.city < b.city ? -1 : 1))
+}
+
+// 镜像后端 list_archives（#933）：未寄出者只下发姓氏遮罩（全名 / 城市 / 当年职业置空）；筛城市时
+// 名册只列该城已寄出者，城市堆仍按该城全员聚合，整场无人才撤下
+function flashbackArchives(mySentAt: string | null, city: string | null = null) {
+  return flashbackRawArchives(mySentAt)
+    .map((archive) => {
+      const rows = city ? archive.roster.filter((entry) => entry.city === city) : archive.roster
+      return {
+        ...archive,
+        piles: rosterPiles(rows),
+        roster: rows
+          .filter((entry) => !city || entry.sentToWallAt)
+          .map((entry) => (entry.sentToWallAt ? entry : { ...entry, fullName: null, city: null, occupationThen: null }))
+      }
+    })
+    .filter((archive) => !city || archive.piles.length > 0)
+}
+
+// 字节序去重排序（与后端 capsule_cities 同口径）：名册全员的城市，不随寄出态与筛选变化
+function flashbackRosterCities(mySentAt: string | null): string[] {
+  return [...new Set(flashbackRawArchives(mySentAt).flatMap((archive) => archive.roster.map((entry) => entry.city)))].sort()
 }
 
 // wx storage 是闪念间 mock 态的唯一真源：模块态跨 e2e 脚本运行存活（同 loggedIn），
@@ -821,6 +884,16 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('query MyEnrollments')) {
     return { enrollments: { results: loggedIn && enrollment ? [enrollment] : [] } }
+  }
+  // #930 回访静默登录（镜像 PlatformIdentitySignIn）：默认本平台未绑定身份——既有 e2e 的「点登录 →
+  // 协议框 → 同意」流程不受影响；绑定态由 __setPlatformIdentityBound / storage 开关显式打开。
+  // 必须排在 SignInWithPlatform 之前：document.includes 前缀匹配会被它截走。
+  if (document.includes('mutation SignInWithPlatformIdentity')) {
+    if (!(platformIdentityBound || e2eFlag(PLATFORM_IDENTITY_KEY))) {
+      return { errors: [{ message: 'No platform identity bound yet', code: 'platform_identity_not_found' }] }
+    }
+    loggedIn = true
+    return { signInWithPlatformIdentity: { id: 'user-1', email: 'cheng@example.com', isPlatformAdmin: false } }
   }
   if (document.includes('mutation SignInWithPlatform')) {
     loggedIn = true
@@ -1131,6 +1204,18 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
+  if (document.includes('query FlashbackArchives')) {
+    // #933 相册开放：已登录即可翻全部场次（isMine 恒 false）；未登录 → auth_required
+    if (!loggedIn) return { errors: [{ message: 'sign-in required', code: 'flashback_auth_required' }] }
+    const state = flashbackState()
+    const city = typeof values.city === 'string' && values.city ? values.city : null
+    return {
+      flashbackArchives: {
+        archives: flashbackArchives(state.today.sentToWallAt, city).map((archive) => ({ ...archive, isMine: false })),
+        cities: flashbackRosterCities(state.today.sentToWallAt)
+      }
+    }
+  }
   if (document.includes('query FlashbackCapsule')) {
     if (e2eFlag('cgc.e2e.flashback_capsule_fail_next')) {
       wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '0')
@@ -1199,14 +1284,7 @@ function responseFor(document: string, variables: object): unknown {
           ]
         },
         // R34 城市钉同款语义：名册按人城市过滤，筛空场次整架撤下
-        archives: flashbackArchives(state.today.sentToWallAt)
-          .map((archive) => ({
-            ...archive,
-            roster: cityFilter
-              ? archive.roster.filter((entry) => entry.city === cityFilter)
-              : archive.roster
-          }))
-          .filter((archive) => archive.roster.length > 0),
+        archives: flashbackArchives(state.today.sentToWallAt, cityFilter),
 
         futureEvents: [
           {
@@ -1259,13 +1337,7 @@ function responseFor(document: string, variables: object): unknown {
             }
           }),
         myWishQuotaRemaining: wishQuotaRemaining(state),
-        cities: [
-          ...new Set([
-            ...flashbackArchives(state.today.sentToWallAt).flatMap((archive) =>
-              archive.roster.map((entry) => entry.city)
-            )
-          ])
-        ].sort()
+        cities: flashbackRosterCities(state.today.sentToWallAt)
       }
     }
   }
@@ -1348,7 +1420,94 @@ function responseFor(document: string, variables: object): unknown {
     return { flashbackMarkRevealed: { recorded: true } }
   }
 
+  if (document.includes('mutation FlashbackRetract')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    updateFlashbackState((state) => ({ ...state, today: { ...state.today, sentToWallAt: null } }))
+    return { flashbackRetract: { retracted: true, sentToWallAt: null } }
+  }
+  if (document.includes('query FlashbackDeletePreview')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    const state = flashbackState()
+    return {
+      flashbackDeletePreview: {
+        personId: 'fb-person-1',
+        fullName: '王小明',
+        sentToWallAt: state.today.sentToWallAt ?? null,
+        endorsementCount: 1,
+        alreadyDeleted: false
+      }
+    }
+  }
+  // 注意 `(`：'mutation FlashbackDelete' 会误吞 FlashbackDeleteWish
+  // #932 小程序内找回（镜像 Recover.initiate / verify_for_user）。发起恒同形（防枚举）；
+  // 验证要求登录：码 123456 通过并绑到当前账号，号码 13900000099 = 已属于另一个账号，其余码 = 错码
+  if (document.includes('mutation FlashbackRecoverVerifyForAccount')) {
+    if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
+    if (values.code !== '123456') {
+      return { errors: [{ message: 'Invalid or expired code', code: 'invalid_or_expired_code' }] }
+    }
+    if (String(values.identifier ?? '').replace(/\D/g, '') === '13900000099') {
+      return { errors: [{ message: 'This phone or archive already belongs to another account', code: 'flashback_recover_account_conflict' }] }
+    }
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return {
+      flashbackRecoverVerifyForAccount: {
+        bound: true,
+        cards: [{ surnameMasked: '王**', eventName: FLASHBACK_E2E_ARCHIVE.name, city: FLASHBACK_E2E_ARCHIVE.city }]
+      }
+    }
+  }
+  // 邮箱找回·贴链接（镜像 Recover.claim_link_for_user）：要求登录；取链接的 token= 参数或裸 fb_ token——
+  // 取不到 = token_not_found，fb_other… = 档案属于另一个账号，用过的 = token_claimed，其余绑到当前账号
+  if (document.includes('mutation FlashbackRecoverClaimForAccount')) {
+    if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
+    const link = String(values.link ?? '')
+    const token = /[?&]token=([A-Za-z0-9_-]+)/.exec(link)?.[1] ?? /fb_[A-Za-z0-9_-]+/.exec(link)?.[0]
+    if (!token) return { errors: [{ message: 'token not found', code: 'flashback_token_not_found' }] }
+    if (token.startsWith('fb_other')) {
+      return { errors: [{ message: 'This phone or archive already belongs to another account', code: 'flashback_recover_account_conflict' }] }
+    }
+    if (flashbackClaimedTokens.has(token)) return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    flashbackClaimedTokens.add(token)
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return { flashbackRecoverClaimForAccount: { bound: true, cards: [{ surnameMasked: '王**' }] } }
+  }
+  if (document.includes('mutation FlashbackRecover(')) {
+    return { flashbackRecover: { dispatched: true } }
+  }
+  if (document.includes('mutation FlashbackDelete(')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
+    if (values.confirm !== 'DELETE') {
+      return { errors: [{ message: 'confirmation word is required to delete (type DELETE)', code: 'flashback_delete_confirm_required' }] }
+    }
+    // 删除后该账号再无档案：会话腿读胶囊报 not_bound、认领不命中（与后端同形）
+    flashbackUnclaimed = true
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '1')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '1')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return { flashbackDelete: { deleted: true, deletedAt: new Date().toISOString() } }
+  }
   if (document.includes('mutation FlashbackSendToWall')) {
+    const denied = flashbackIdentityGate(values)
+    if (denied) return denied
     // 幂等（R11）：已有寄出时间原样返回，不覆盖
     const next = updateFlashbackState((state) => ({
       ...state,

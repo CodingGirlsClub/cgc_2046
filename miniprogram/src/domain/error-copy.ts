@@ -17,6 +17,10 @@ export const COPY: Record<string, string> = {
   enrollment_duplicate_active: '你已有待支付订单，请关闭后重新打开继续支付。',
   // 金句点赞（R36）：IP 窗口限频 / 目标已下墙（R38 下线或授权撤回）
   flashback_like_rate_limited: '点赞太频繁了，歇一会儿再试。',
+  // 小程序内找回（#932）：验证码与限流与 web messages errors 同文案
+  invalid_or_expired_code: '验证码不对或已过期，请重试。',
+  flashback_recover_rate_limited: '找回尝试过于频繁，请一小时后再试。',
+  flashback_recover_account_conflict: '这个号码或这张卡已经属于另一个账号——请用那个账号登录查看，或联系我们处理。',
   flashback_quote_not_found: '这句话已经不在墙上了，刷新看看别的。',
   flashback_quote_span_fogged: '选中的句子还带着雾面，先解雾再选。',
   // 许愿年度额度（R20：每年 3 条，含私有与已软删，删除不退还；与 web zh-CN errors 同文案互指）
