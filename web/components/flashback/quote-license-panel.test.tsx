@@ -94,6 +94,17 @@ describe("金句授权面板", () => {
 		expect(vars.token).toBeUndefined();
 	});
 
+	it("新增圈选只发区间三件套（不含渲染用 sentence 字段）", async () => {
+		render(<QuoteLicensePanel me={me({ quoteLevel: "anonymous", quoteSpans: [{ questionKey: "today.now", start: 0, len: 5, __typename: "FlashbackQuoteSpan" } as never] })} token={null} />);
+		fireEvent.click(screen.getByRole("button", { name: "一个刚毕业的文科生。" }));
+		fireEvent.click(screen.getByRole("button", { name: "保存授权" }));
+		await waitFor(() => expect(mutations.get(FLASHBACK_SET_QUOTE_LICENSE)).toHaveBeenCalled());
+		expect(mutations.get(FLASHBACK_SET_QUOTE_LICENSE)!.mock.calls[0][0].variables.chosenQuoteSpans).toEqual([
+			{ questionKey: "today.now", start: 0, len: 5 },
+			{ questionKey: "self_intro", start: 0, len: 10 },
+		]);
+	});
+
 	it("取消圈选后保存：[] 显式清空", async () => {
 		render(<QuoteLicensePanel me={me({ quoteLevel: "anonymous", quoteSpans: [{ questionKey: "today.now", start: 0, len: 5 }] })} token={null} />);
 		fireEvent.click(screen.getByRole("button", { name: "在做前端。" }));

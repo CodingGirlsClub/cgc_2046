@@ -1,10 +1,39 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { gql } from "@apollo/client";
 import { client, httpLinkOptions } from "./apollo-client";
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("Apollo Client", () => {
 	it("uses credentials: same-origin for httpOnly cookie auth", () => {
 		expect(httpLinkOptions.credentials).toBe("same-origin");
+	});
+
+	// M1 浏览器实测:缓存对象直接作为 input 变量（me.quoteSpans 圈选、fogSpans 调雾）
+	// 会带上 __typename,后端 Absinthe 按 input 类型校验拒收「Unknown field」。
+	// 出站链路必须剥干净。
+	it("strips __typename from outbound variables (input objects from cache)", async () => {
+		const bodies: Array<{ variables: Record<string, unknown> }> = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_uri: unknown, init?: { body?: string }) => {
+				bodies.push(JSON.parse(init!.body!));
+				return new Response(JSON.stringify({ data: { __typename: "Mutation" } }), {
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		await client.mutate({
+			mutation: gql`
+				mutation Pin($span: FlashbackQuoteSpanInput) {
+					pin(span: $span)
+				}
+			`,
+			variables: { span: { start: 0, len: 5, __typename: "FlashbackQuoteSpan" } },
+		});
+		expect(bodies[0].variables.span).toEqual({ start: 0, len: 5 });
 	});
 
 	it("has an InMemoryCache", () => {
