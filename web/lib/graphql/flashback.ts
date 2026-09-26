@@ -1020,10 +1020,10 @@ export const FLASHBACK_PUBLIC_STATS: TypedDocumentNode<
 /** 匿名金句墙（U6/R31/R32/R37）：授权者的脱敏金句，按句输出 */
 export const FLASHBACK_PUBLIC_QUOTES: TypedDocumentNode<
 	{ flashbackPublicQuotes: FlashbackPublicQuote[] },
-	{ voterKey?: string | null }
+	{ voterKey?: string | null; city?: string | null }
 > = gql`
-	query FlashbackPublicQuotes($voterKey: String) {
-		flashbackPublicQuotes(voterKey: $voterKey) {
+	query FlashbackPublicQuotes($voterKey: String, $city: String) {
+		flashbackPublicQuotes(voterKey: $voterKey, city: $city) {
 			text
 			attribution
 			level
@@ -1310,6 +1310,21 @@ export const FLASHBACK_CITIES: TypedDocumentNode<
 > = gql`
 	query FlashbackCities {
 		flashbackCities {
+			name
+			fullName
+			pinyin
+			lngLat
+		}
+	}
+`;
+
+/** M10：公开金句所在城市全集（有金句的城市，不受热门限量影响）——金句墙城市真源 */
+export const FLASHBACK_VOICE_CITIES: TypedDocumentNode<
+	{ flashbackVoiceCities: FlashbackCity[] },
+	Record<string, never>
+> = gql`
+	query FlashbackVoiceCities {
+		flashbackVoiceCities {
 			name
 			fullName
 			pinyin
