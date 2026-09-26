@@ -76,6 +76,7 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 			"课程",
 			"我的报名",
 			"我的学习",
+			"我的闪念间",
 			"倡导活动",
 			"闪念间",
 			"金句墙",
@@ -90,6 +91,7 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 		expect(
 			screen.getByRole("link", { name: "我的学习" }),
 		).toHaveAttribute("href", "/learning");
+		expect(screen.getByRole("link", { name: "我的闪念间" })).toHaveAttribute("href", "/flashback/capsule");
 		unmount();
 
 		useAuthed.mockReturnValue({ authed: false, confirmed: true });

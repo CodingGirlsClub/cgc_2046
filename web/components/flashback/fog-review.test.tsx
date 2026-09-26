@@ -84,7 +84,7 @@ function makeStubs(): Stubs {
 }
 
 function renderSend(stubs: Stubs, answers: FlashbackAnswer[], form: TodayFormState = emptyTodayForm) {
-	return render(<SendRegister answers={answers} form={form} {...stubs} />);
+	return render(<SendRegister onClaim={vi.fn()} answers={answers} form={form} {...stubs} />);
 }
 
 /** 确认寄出（检查步 CTA） */

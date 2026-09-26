@@ -133,72 +133,14 @@ describe("CardExport · 系统分享（第 4 件）", () => {
 	});
 });
 
-describe("CardExport · 分享 opt-in（R37）", () => {
-	const props = { me, token: "tok-share" };
-
-	it("默认不勾；勾选 → 用卡片同源 span 开匿名金句档", async () => {
-		licenseRunner.mockResolvedValue({ data: { flashbackSetQuoteLicense: { level: "anonymous" } } });
+describe("CardExport · 金句开关已删（M1）", () => {
+	it("导出卡不再有金句 opt-in 开关——授权只在授权面板管理", () => {
 		render(
 			<div className="fb-root">
-				<CardExport {...props} />
-			</div>,
-		);
-
-		const optIn = screen.getByTestId("fb-export-optin") as HTMLInputElement;
-		expect(optIn.checked).toBe(false);
-		expect(optIn.disabled).toBe(false);
-
-		fireEvent.click(optIn);
-
-		await waitFor(() => expect(licenseRunner).toHaveBeenCalledTimes(1));
-		expect(licenseRunner.mock.calls[0][0].variables).toEqual({
-			token: "tok-share",
-			level: "anonymous",
-			chosenQuoteSpans: [{ questionKey: "self_intro", start: 0, len: 10 }],
-		});
-		await waitFor(() => expect((screen.getByTestId("fb-export-optin") as HTMLInputElement).checked).toBe(true));
-	});
-
-	it("失败回滚为不勾", async () => {
-		licenseRunner.mockRejectedValue(new Error("nope"));
-		render(
-			<div className="fb-root">
-				<CardExport {...props} />
-			</div>,
-		);
-
-		fireEvent.click(screen.getByTestId("fb-export-optin"));
-
-		await waitFor(() => expect((screen.getByTestId("fb-export-optin") as HTMLInputElement).checked).toBe(false));
-	});
-
-	it("已授权：勾选态 + 禁用（分享改不了档位）", () => {
-		render(
-			<div className="fb-root">
-				<CardExport {...props} me={{ ...me, quoteLevel: "credited" }} />
-			</div>,
-		);
-
-		const optIn = screen.getByTestId("fb-export-optin") as HTMLInputElement;
-		expect(optIn.checked).toBe(true);
-		expect(optIn.disabled).toBe(true);
-		expect(screen.getByText(/已在授权中/)).toBeInTheDocument();
-	});
-
-	it("卡上没有真金句（未选/占位）或无 token → 不显示选项", () => {
-		const { unmount } = render(
-			<div className="fb-root">
-				<CardExport {...props} me={{ ...me, quote: null }} />
+				<CardExport me={me} />
 			</div>,
 		);
 		expect(screen.queryByTestId("fb-export-optin")).not.toBeInTheDocument();
-		unmount();
-
-		render(
-			<div className="fb-root">
-				<CardExport me={me} token={null} />
-			</div>,
-		);
-		expect(screen.queryByTestId("fb-export-optin")).not.toBeInTheDocument();
+		expect(screen.queryByText(/同时允许金句放进金句墙/)).not.toBeInTheDocument();
 	});
 });

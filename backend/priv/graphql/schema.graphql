@@ -6479,6 +6479,7 @@ type FlashbackToday {
 }
 
 type FlashbackProgress {
+  bound: Boolean!
   today: FlashbackToday
   quoteLevel: String!
   maskedPhone: String

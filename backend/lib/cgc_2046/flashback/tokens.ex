@@ -31,7 +31,7 @@ defmodule Cgc2046.Flashback.Tokens do
   require Logger
 
   alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
-  alias Cgc2046.Flashback.{Answer, Binding, Person, QuoteLicense, Today, Token, Touch}
+  alias Cgc2046.Flashback.{Answer, Binding, FogSpans, Person, QuoteLicense, Today, Token, Touch}
   alias Cgc2046.Mailer
 
   @touch_events [:link_opened, :revealed, :sent_to_wall, :intent_submitted]
@@ -268,7 +268,12 @@ defmodule Cgc2046.Flashback.Tokens do
       |> case do
         {:ok, updated} ->
           prune_license_after_fog(person_id, answer.question_key, updated.fog_spans || [])
-          {:ok, %{answer_id: updated.id, fog_spans: Enum.map(updated.fog_spans, &span_payload/1)}}
+
+          {:ok,
+           %{
+             answer_id: updated.id,
+             fog_spans: Enum.map(updated.fog_spans, &FogSpans.span_payload/1)
+           }}
 
         {:error, reason} ->
           {:error, reason}
@@ -823,7 +828,7 @@ defmodule Cgc2046.Flashback.Tokens do
             id: answer.id,
             question_key: answer.question_key,
             raw_text: answer.raw_text,
-            fog_spans: Enum.map(answer.fog_spans || [], &span_payload/1)
+            fog_spans: Enum.map(answer.fog_spans || [], &FogSpans.span_payload/1)
           }
         end)
     }
@@ -831,6 +836,7 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp progress_payload(person) do
     %{
+      bound: not is_nil(person.user_id),
       today: today_payload(person.today),
       quote_level:
         if(person.quote_license, do: Atom.to_string(person.quote_license.level), else: "off"),
@@ -861,19 +867,9 @@ defmodule Cgc2046.Flashback.Tokens do
     %{
       level: Atom.to_string(license.level),
       chosen_quote_spans:
-        license.chosen_quote_spans && Enum.map(license.chosen_quote_spans, &span_payload/1),
+        license.chosen_quote_spans &&
+          Enum.map(license.chosen_quote_spans, &FogSpans.span_payload/1),
       credited_note: license.credited_note
-    }
-  end
-
-  # FogSpans/资源层存储为字符串键 map（jsonb 形态）；Absinthe object 字段按
-  # 原子键解析，投影层统一转原子键（enter/adjustFog/quoteLicense 三处共用）。
-  defp span_payload(%{} = span) do
-    %{
-      question_key: Map.get(span, "question_key") || Map.get(span, :question_key),
-      start: Map.get(span, "start") || Map.get(span, :start),
-      len: Map.get(span, "len") || Map.get(span, :len),
-      reason: Map.get(span, "reason") || Map.get(span, :reason)
     }
   end
 

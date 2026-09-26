@@ -22,6 +22,8 @@ import {
  */
 
 const pushMock = vi.fn();
+const { auth } = vi.hoisted(() => ({ auth: vi.fn(() => ({ authed: false, confirmed: true })) }));
+vi.mock("@/lib/auth-provider", () => ({ useAuthed: auth }));
 
 vi.mock("@/i18n/navigation", () => ({
 	Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
@@ -185,6 +187,13 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(enFogged).toHaveAttribute("title", "This passage is fogged — protected by her choice");
 		expect(enFogged).not.toHaveTextContent("▓▓");
 		expect(screen.getByText("“可见的前半句▓▓可见的后半句”")).toBeInTheDocument();
+	});
+
+	it("M9：首页带许愿树板块（发现入口，链接直 /flashback/wishes）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+		render(<PublicHome />);
+		expect(await screen.findByTestId("fb-wishes-cta")).toHaveAttribute("href", "/flashback/wishes");
 	});
 
 	it("U5/R26：金句段带「看全墙 →」导流（链接直 /flashback/voices）", async () => {
@@ -362,7 +371,7 @@ describe("ProfileView · 实名档案页（R31 credited 档）", () => {
 		render(<ProfileView slug="nobody" />);
 
 		expect(await screen.findByText("这一页还没有显影")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "回到闪念间首页" })).toHaveAttribute("href", "/flashback");
+		expect(screen.getByRole("link", { name: "回到闪念间首页" })).toHaveAttribute("href", "/flashback#recover");
 	});
 });
 
@@ -442,4 +451,17 @@ describe("PublicHome · 金句点赞（R36）", () => {
 		expect(screen.queryAllByTestId("fb-quote-like")).toHaveLength(0);
 		vi.restoreAllMocks();
 	});
+});
+
+
+describe("首页回访入口", () => {
+ it("登录用户可直接进入长廊", async () => {
+  auth.mockReturnValue({ authed: true, confirmed: true });
+  statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+  quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+  render(<PublicHome />);
+  expect(screen.getByRole("link", { name: "进入我的时间长廊" })).toHaveAttribute("href", "/flashback/capsule");
+  await waitFor(() => expect(statsQuery).toHaveBeenCalled());
+  auth.mockReturnValue({ authed: false, confirmed: true });
+ });
 });

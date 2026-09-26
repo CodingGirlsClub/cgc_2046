@@ -8,6 +8,7 @@ import { client } from "@/lib/apollo-client";
 import { graphqlErrorDetails, REQUEST_PHONE_CODE } from "@/lib/graphql/auth";
 import {
 	FLASHBACK_ENTER,
+	FLASHBACK_CLAIM,
 	FLASHBACK_MARK_REVEALED,
 	FLASHBACK_SUBMIT_TODAY,
 	FLASHBACK_SEND_TO_WALL,
@@ -81,6 +82,7 @@ export default function Journey() {
 	const [sendOpen, setSendOpen] = useState(false);
 	const [dreamTarget, setDreamTarget] = useState<FlashbackDreamTarget | null>(null);
 
+	const [runClaim] = useMutation(FLASHBACK_CLAIM);
 	const [runEnter] = useMutation(FLASHBACK_ENTER);
 	const [runMarkRevealed] = useMutation(FLASHBACK_MARK_REVEALED);
 	const [runSubmitToday] = useMutation(FLASHBACK_SUBMIT_TODAY);
@@ -191,7 +193,7 @@ export default function Journey() {
 
 	if (invalidReason) {
 		return (
-			<div className="fb-root">
+			<div className="fb-root fb-paper-page">
 				<InvalidToken reason={invalidReason} />
 			</div>
 		);
@@ -235,7 +237,7 @@ export default function Journey() {
 					startOnBack={startOnBack}
 					role={profile.role}
 					answers={freeAnswers}
-					progress={entry.progress ?? { quoteLevel: "off" }}
+					progress={entry.progress ?? { bound: false, quoteLevel: "off" }}
 					scatter={entry.scatter?.entries ?? []}
 					onAnswer={(choice) => setQuizChoice(choice)}
 					onRevealed={() => {
@@ -252,6 +254,13 @@ export default function Journey() {
 				<div className="fb-send-overlay" role="dialog" aria-modal="true" aria-labelledby="fb-send-title">
 					<SendRegister
 					form={form}
+					bound={entry.progress?.bound ?? false}
+					onClaim={async () => {
+						const { data } = await runClaim({ variables: { token } });
+						if (!data?.flashbackClaim.bound) return false;
+						window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+						return true;
+					}}
 					answers={freeAnswers}
 					initialTodayFogSpans={entry.progress?.today?.fogSpans}
 					maskedPhone={entry.progress?.maskedPhone}

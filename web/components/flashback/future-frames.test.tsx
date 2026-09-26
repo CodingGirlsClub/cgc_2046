@@ -168,7 +168,7 @@ describe("WishModal 实时反馈（UAT 反馈 ②③）", () => {
 		// 打开模态
 		fireEvent.click(screen.getByText("一起出一本书"));
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
-		expect(screen.getAllByRole("button", { name: "附议 +1" }).length).toBeGreaterThan(0);
+		expect(screen.getAllByRole("button", { name: "我能出力" }).length).toBeGreaterThan(0);
 
 		// reload 语义：同组件换新 props（新留言 + 已附议）
 		const updated = wish({
@@ -180,7 +180,7 @@ describe("WishModal 实时反馈（UAT 反馈 ②③）", () => {
 
 		expect(screen.getByText("新的留言立刻上墙")).toBeInTheDocument();
 		expect(screen.getAllByText("已附议").length).toBeGreaterThan(0);
-		expect(screen.queryAllByRole("button", { name: "附议 +1" })).toHaveLength(0);
+		expect(screen.queryAllByRole("button", { name: "我能出力" })).toHaveLength(0);
 	});
 });
 
@@ -380,7 +380,7 @@ describe("WishFormModal · wish2 U8（署名/期望地/两档/三态/撤回）",
 
 		// 卡片定位三段式（同 Corridor 内还有 WishModal 的同名按钮，需先锁卡片）
 		const card = (await screen.findByText("一起出一本书")).closest("article")!;
-		const endorseBtn = within(card).getByRole("button", { name: /附议/ });
+		const endorseBtn = within(card).getByRole("button", { name: /我能出力/ });
 		fireEvent.click(endorseBtn);
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(

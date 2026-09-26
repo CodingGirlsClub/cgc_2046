@@ -4,6 +4,7 @@ import { render } from "@/test-utils";
 import WishesPage from "./wishes-page";
 import {
 	FLASHBACK_CITIES,
+	FLASHBACK_WISH_CITIES,
 	FLASHBACK_EXPECT_WISH,
 	FLASHBACK_PUBLIC_WISH,
 	FLASHBACK_PUBLIC_WISHES,
@@ -44,6 +45,7 @@ vi.mock("@/lib/apollo-client", () => ({
 		query: (options: { query: unknown; variables?: { wishId?: string } }) => {
 			if (options.query === FLASHBACK_PUBLIC_WISHES) return wallQuery(options);
 			if (options.query === FLASHBACK_CITIES) return citiesQuery(options);
+			if (options.query === FLASHBACK_WISH_CITIES) return citiesQuery(options);
 			if (options.query === FLASHBACK_PUBLIC_WISH) {
 				if (options.variables?.wishId === "wb-net-fail") {
 					return Promise.reject(new Error("network down"));
