@@ -24,6 +24,33 @@ export async function platformLoginCode(): Promise<string> {
   return login.code
 }
 
+// xhs 官方约束（《获取手机号》）：在 getPhoneNumber 回调里再调 xhs.login 会刷新
+// session_key，回调加密数据（encryptedData/iv）将解密失败——登录码必须在用户点
+// 「同意并登录」**之前**预取。登录页打开授权弹层时调 stagePlatformLoginCode()；
+// preparePlatformLogin 消费暂存，缺失/过期才原地补取（兜底，可能解密失败，
+// 由错误文案引导重试——重试会先走静默登录重新预取）。
+// ponytail: 4 分钟硬编码有效期（平台 code 5 分钟），留余量；真机若出现长停留
+// 场景再改成 checkSession 校验。
+const XHS_LOGIN_CODE_TTL_MS = 4 * 60 * 1000
+let xhsStagedLogin: { code: string; at: number } | null = null
+
+export async function stagePlatformLoginCode(): Promise<void> {
+  if (process.env.TARO_ENV !== 'xhs' || __E2E_MOCK__) return
+  try {
+    const code = await platformLoginCode()
+    xhsStagedLogin = { code, at: Date.now() }
+  } catch {
+    xhsStagedLogin = null
+  }
+}
+
+function consumeStagedLoginCode(): string | null {
+  const staged = xhsStagedLogin
+  xhsStagedLogin = null
+  if (staged && Date.now() - staged.at < XHS_LOGIN_CODE_TTL_MS) return staged.code
+  return null
+}
+
 export async function preparePlatformLogin(
   phonePayload: PlatformPhonePayload
 ): Promise<PlatformPhonePayload> {
@@ -31,8 +58,13 @@ export async function preparePlatformLogin(
     return { loginCode: 'mock-login-code', encryptedData: 'mock-phone-data', iv: 'mock-iv' }
   }
 
-  // Taro.login 跨平台转发：weapp→wx.login / tt→tt.login / xhs→xhs.login（runtime 动态映射）
-  const login = await Taro.login()
+  // xhs：消费「授权弹层打开前」预取的登录码（session_key 时序约束见上方注释）；
+  // 缺失/过期才原地补取。weapp/tt 不受影响——phoneCode 契约不依赖 session_key，
+  // 回调内 login 是既有已验证行为，一字不动。
+  const login =
+    process.env.TARO_ENV === 'xhs'
+      ? { code: consumeStagedLoginCode() ?? (await Taro.login()).code }
+      : await Taro.login()
   // weapp/tt 新契约优先：getPhoneNumber 回调给动态 code（phoneCode）→ 服务端
   // 直取手机号（wechat getuserphonenumber / tt get_phone_number），不要求
   // encryptedData/iv（也不该再触碰 session_key）。tt 新版基础库（3.51.0+）
