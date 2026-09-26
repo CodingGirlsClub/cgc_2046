@@ -31,6 +31,7 @@ const archive = (n: number): FlashbackCapsuleArchive => ({
 	appliedCount: 344,
 	attendedCount: n,
 	isMine: false,
+	piles: [],
 	roster: Array.from({ length: n }, (_, i) => entry(i)),
 });
 

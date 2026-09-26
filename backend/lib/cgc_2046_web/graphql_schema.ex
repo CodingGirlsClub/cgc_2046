@@ -218,6 +218,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "相册（#933）：所有已登录用户可读每一场的名册（未寄出者只有姓氏遮罩）；未登录 → flashback_auth_required"
+    field :flashback_archives, :flashback_archives_result do
+      @desc "城市钉筛选：非空时城市堆按城市聚合、名册只列该城市的已寄出者"
+      arg(:city, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          if is_nil(context[:actor]) do
+            {:error,
+             %{
+               code: "flashback_auth_required",
+               message: "sign-in required",
+               reason: :auth_required
+             }}
+          else
+            Cgc2046.Flashback.AlumniProjection.viewer_archives(Map.get(args, :city))
+          end
+        end)
+      end)
+    end
+
     @desc "看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线"
     field :flashback_admin_stats, :flashback_admin_stats do
       resolve(fn _, _, %{context: context} ->
@@ -263,32 +284,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       resolve(fn _, _, %{context: context} ->
         with_admin(context, fn _actor ->
           Cgc2046.Flashback.OutreachAdmin.archives()
-        end)
-      end)
-    end
-
-    @desc "闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
-    field :flashback_admin_resend_outreach, :flashback_outreach_dispatch_result do
-      arg(:person_id, non_null(:id))
-      arg(:template, non_null(:string))
-      arg(:channel, :string)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, channel} <-
-                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
-            # 治理留痕单源在 Dispatch（R2）。
-            Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
-              args[:person_id],
-              args[:template],
-              channel,
-              actor
-            )
-          else
-            {:error, :invalid_channel} ->
-              {:error,
-               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
-          end
         end)
       end)
     end
@@ -969,8 +964,9 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:encrypted_data, :string)
       arg(:iv, :string)
 
-      # getPhoneNumber 计费防刷：复用既有 RateLimit（按 IP+platform 计，5 次/15 分钟）
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
+      # #930：IP 维度只留宽松天花板（线下活动同一 WiFi / CGNAT 多人共享 IP）；
+      # getPhoneNumber 计费防刷改按 openid 计（SignInPreparation，code2session 之后、换手机号之前）
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform], limit: :platform_sign_in_ip)
 
       resolve(fn _, %{platform: platform, code: code} = args, _ ->
         # phone_code/encrypted_data/iv 可空（phone_code 或 encrypted_data+iv 二选一，
@@ -997,8 +993,11 @@ defmodule Cgc2046Web.GraphqlSchema do
                  __token__: user.__metadata__[:token]
                }}
 
-            {:error, _error} ->
-              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+            {:error, error} ->
+              if platform_sign_in_rate_limited?(error),
+                do:
+                  {:error, message: "Too many requests. Try again later.", code: "rate_limited"},
+                else: {:error, message: "Platform sign in failed", code: "authentication_failed"}
           end
         rescue
           _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
@@ -1010,6 +1009,60 @@ defmodule Cgc2046Web.GraphqlSchema do
         end
       end)
 
+      middleware(fn res, _ ->
+        case res.value do
+          %{__token__: token} when is_binary(token) ->
+            %{res | context: Map.put(res.context, :cgc_auth_token, token)}
+
+          _ ->
+            res
+        end
+      end)
+    end
+
+    @desc "小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付"
+    field :sign_in_with_platform_identity, :sign_in_with_platform_result do
+      arg(:platform, non_null(:string))
+      arg(:code, non_null(:string))
+
+      # 与手机号登录共用 IP 天花板（同 key_path → 同一个桶）；openid 桶在 PlatformIdentitySignIn 内共用
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform], limit: :platform_sign_in_ip)
+
+      resolve(fn _, %{platform: platform, code: code}, %{context: context} ->
+        try do
+          case Cgc2046.Accounts.PlatformIdentitySignIn.sign_in(platform, code, context) do
+            {:ok, user} ->
+              {:ok,
+               %{
+                 id: user.id,
+                 email: user.email,
+                 is_platform_admin: user.is_platform_admin,
+                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
+                 __token__: user.__metadata__[:token]
+               }}
+
+            # 本平台还没绑定身份：如实告知（openid 来自请求者自己的 code，不泄露他人信息）
+            {:error, :identity_not_found} ->
+              {:error,
+               message: "No platform identity bound yet", code: "platform_identity_not_found"}
+
+            {:error, :rate_limited} ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+
+            {:error, reason} ->
+              Logger.warning("[platform identity sign_in] failed: #{inspect(reason)}")
+              {:error, message: "Platform sign in failed", code: "authentication_failed"}
+          end
+        rescue
+          _ -> {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        catch
+          # 同 signInWithPlatform：rescue 不抓 exit（依赖进程缺失 noproc），缺此分支会穿透成 500
+          :exit, _ ->
+            {:error, message: "Platform sign in failed", code: "authentication_failed"}
+        end
+      end)
+
+      # 同 signInWithPlatform：token 经 context 交给 before_send 写 httpOnly cookie
       middleware(fn res, _ ->
         case res.value do
           %{__token__: token} when is_binary(token) ->
@@ -1162,13 +1215,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       arg(:platform, non_null(:string))
       arg(:template_key, non_null(:string))
 
-      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:platform])
-
+      # #930：与登录拆桶——grant 本来就要求登录，按账号计（原「IP + 平台」桶与登录共用，
+      # 1 次登录 + 1 次三模板订阅就吃掉 4/5，再登录即 Too many requests）
       resolve(fn _, %{platform: platform, template_key: template_key}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
-            {:ok, remaining} ->
-              {:ok, remaining}
+          key = Cgc2046Web.Plugs.RateLimit.build_key("rate:notification-consent:actor", actor.id)
+
+          with :ok <- Cgc2046Web.Plugs.RateLimit.check(key, limit: :notification_consent_actor),
+               {:ok, remaining} <-
+                 Cgc2046.Notifications.Consent.grant(actor.id, platform, template_key) do
+            {:ok, remaining}
+          else
+            :error ->
+              {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
 
             {:error, :invalid_platform} ->
               {:error, message: "Invalid platform", code: "invalid_platform"}
@@ -1498,29 +1557,45 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "寄出上墙（R11，幂等；写 sent_to_wall）：返回注册引导掩码回显（R27）"
+    @desc "寄出上墙（R11，幂等；token 旅程写 sent_to_wall touch）：返回注册引导掩码回显（R27）。#931 起 token 省略时按登录账号绑定档案"
     field :flashback_send_to_wall, :flashback_send_to_wall_result do
-      arg(:token, non_null(:string))
+      # #931 起双入口：token 省略时按登录账号绑定档案（认领作废 token 后的唯一入口）
+      arg(:token, :string)
 
       # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
       # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
-      resolve(fn _, %{token: token}, _ ->
-        flashback_call(fn -> Cgc2046.Flashback.Tokens.send_to_wall(token) end)
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} -> Cgc2046.Flashback.Tokens.send_to_wall(token)
+              {:person, person_id} -> Cgc2046.Flashback.Tokens.send_to_wall_as_person(person_id)
+            end
+          end
+        end)
       end)
     end
 
-    @desc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡"
+    @desc "撤下（R30 免注册一键）：sent_to_wall_at 清回 nil，名册回到结构化卡。#931 起 token 省略时按登录账号绑定档案"
     field :flashback_retract, :flashback_retract_result do
-      arg(:token, non_null(:string))
+      # #931 起双入口：token 省略时按登录账号绑定档案
+      arg(:token, :string)
 
       # 阈值 30/15min：完整首程（enter→revealed→submit→quote→send）5 次 +
       # 回访/重试/注册发码余量；默认 5 次会让合法旅程必然撞限（e2e 实测）
       middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:token], max_attempts: 30)
 
-      resolve(fn _, %{token: token}, _ ->
-        flashback_call(fn -> Cgc2046.Flashback.Tokens.retract(token) end)
+      resolve(fn _, args, %{context: context} ->
+        flashback_call(fn ->
+          with {:ok, identity} <- flashback_identity(args[:token], context) do
+            case identity do
+              {:token, token} -> Cgc2046.Flashback.Tokens.retract(token)
+              {:person, person_id} -> Cgc2046.Flashback.Tokens.retract_as_person(person_id)
+            end
+          end
+        end)
       end)
     end
 
@@ -1593,11 +1668,12 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{level: level} = args, %{context: context} ->
         if level in ["off", "anonymous", "credited"] do
-          params = %{
-            level: level,
-            chosen_quote_spans: Map.get(args, :chosen_quote_spans),
-            credited_note: Map.get(args, :credited_note)
-          }
+          # 只写客户端实际传了的字段：没传 = 保留原值，显式传 null = 清空。此前没传也按 nil 写入，
+          # 小程序改档位从不传 creditedNote，每次保存都把实名补充清空
+          params =
+            args
+            |> Map.take([:chosen_quote_spans, :credited_note])
+            |> Map.put(:level, level)
 
           flashback_call(fn ->
             with {:ok, identity} <- flashback_identity(args[:token], context) do
@@ -1857,7 +1933,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+    @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流。手机通道暂停时手机号同形返回、不发码"
     field :flashback_recover, :flashback_recover_result do
       arg(:identifier, non_null(:string))
 
@@ -1870,7 +1946,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+    @desc "自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）。手机通道暂停时一律 invalid_or_expired_code"
     field :flashback_recover_verify, :flashback_recover_verify_result do
       arg(:identifier, non_null(:string))
       arg(:code, non_null(:string))
@@ -1894,6 +1970,37 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover。手机通道暂停时一律 invalid_or_expired_code"
+    field :flashback_recover_verify_for_account, :flashback_recover_verify_result do
+      arg(:identifier, non_null(:string))
+      arg(:code, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:identifier])
+
+      resolve(fn _, %{identifier: identifier, code: code}, %{context: context} ->
+        with_actor(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.Recover.verify_for_user(identifier, code, actor)
+          end)
+        end)
+      end)
+    end
+
+    @desc "自助找回·贴链接（已登录，小程序邮箱通道）：找回邮件里的入口链接（或其中的 fb_ token）贴回来 → 同邮箱的全部档案绑定到当前登录账号并作废链接；档案已属于另一个账号 → flashback_recover_account_conflict；链接无效 / 已用过 → flashback_token_*"
+    field :flashback_recover_claim_for_account, :flashback_recover_verify_result do
+      arg(:link, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:link])
+
+      resolve(fn _, %{link: link}, %{context: context} ->
+        with_actor(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.Recover.claim_link_for_user(link, actor)
+          end)
+        end)
+      end)
+    end
+
     # ── 闪念间管理面（U7/U8/U11，KTD5：PlatformAdmin gate——非管理员被拒，变异验证钉住）──
 
     @desc "兑换状态流转（U11/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
@@ -1911,6 +2018,32 @@ defmodule Cgc2046Web.GraphqlSchema do
               Map.get(args, :handled_note)
             )
           end)
+        end)
+      end)
+    end
+
+    @desc "闪念间·单人重发（R2/R10，PlatformAdmin；有副作用，属 Mutation）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+    field :flashback_admin_resend_outreach, :flashback_outreach_dispatch_result do
+      arg(:person_id, non_null(:id))
+      arg(:template, non_null(:string))
+      arg(:channel, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, channel} <-
+                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
+            # 治理留痕单源在 Dispatch（R2）。
+            Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
+              args[:person_id],
+              args[:template],
+              channel,
+              actor
+            )
+          else
+            {:error, :invalid_channel} ->
+              {:error,
+               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
+          end
         end)
       end)
     end
@@ -2607,13 +2740,25 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:applied_at, :string)
     field(:city, :string)
     field(:occupation_then, :string)
-    @desc "attended | not_selected（圆梦线名册徽标用：当年报了名未入选，与学员同规则混合展示）"
-    field(:participation, non_null(:string))
+    @desc "attended | not_selected（圆梦线名册徽标用）。#933 起仅已寄出者下发；未寄出者 null（只剩姓氏遮罩）"
+    field(:participation, :string)
     field(:sent_to_wall_at, :string)
     @desc "nil = 未寄出（前端渲染虚线内容位「她的答案，还在等她」）"
     field(:today, :flashback_roster_entry_today)
     @desc "空数组 = 未寄出；寄出者才有内容层（雾化版当年答案）"
     field(:answers, non_null(list_of(non_null(:flashback_roster_answer))))
+  end
+
+  object :flashback_archive_pile do
+    field(:city, non_null(:string))
+    field(:count, non_null(:integer))
+    field(:returned, non_null(:integer))
+  end
+
+  @desc "相册读面（#933）：已登录即可读的场次时间轴与名册"
+  object :flashback_archives_result do
+    field(:archives, non_null(list_of(non_null(:flashback_capsule_archive))))
+    field(:cities, non_null(list_of(non_null(:string))))
   end
 
   object :flashback_capsule_archive do
@@ -2629,6 +2774,8 @@ defmodule Cgc2046Web.GraphqlSchema do
     @desc "本人的场次（胶囊「今天」格与本人名册卡的定位锚）"
     field(:is_mine, non_null(:boolean))
     field(:roster, non_null(list_of(non_null(:flashback_roster_entry))))
+    @desc "城市堆（#933 服务端聚合）：按人的城市计数（含未寄出者的聚合数）+ 已回来数；人数降序 + 城市序"
+    field(:piles, non_null(list_of(non_null(:flashback_archive_pile))))
   end
 
   object :flashback_capsule do
@@ -3423,6 +3570,18 @@ defmodule Cgc2046Web.GraphqlSchema do
         {:error, to_ash_graphql_errors(error, context, action, resource)}
     end
   end
+
+  # #930：SignInPreparation 把 openid 限流标成 caused_by.reason = :rate_limited；其余失败
+  # 一律统一为 authentication_failed（防枚举）。限流如实告知：openid 来自请求者自己的 code，不泄露他人信息。
+  defp platform_sign_in_rate_limited?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &platform_sign_in_rate_limited?/1)
+
+  defp platform_sign_in_rate_limited?(%AshAuthentication.Errors.AuthenticationFailed{
+         caused_by: %{reason: :rate_limited}
+       }),
+       do: true
+
+  defp platform_sign_in_rate_limited?(_), do: false
 
   # 服务端撤销当前 token：往 tokens 表对当前 jti 做 upsert，把 purpose 从 "user"
   # 覆盖成 "revocation"，下次 load_from_bearer 的 get_token 查不到 user 记录即认证失败。
