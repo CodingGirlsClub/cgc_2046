@@ -172,6 +172,19 @@ defmodule Cgc2046.Flashback.BindingTest do
     assert {:ok, _} = Tokens.fetch_valid(invitation)
   end
 
+  # 线上实测（2026-09-26）：账号手机号是微信取号归一的 +86 形，导入档案存的是裸 11 位
+  # （Import.phone_value），自动匹配精确等值永远不相等 → 有档案的人登录后仍显示
+  # 「暂时还没找到你的那一张」。找回面板当时已修（match_people 双形态），自动匹配漏了
+  test "自动匹配认得导入格式的手机号：档案裸 11 位、账号 +86 归一形" do
+    person = create_person(%{phone: "13900006014"})
+    invitation = mint_token(person)
+    me = account("+8613900006014")
+
+    assert {:ok, %{bound: true, bound_count: 1}} = Tokens.claim_for_user(me, nil)
+    assert owner_id(person) == me.id
+    assert {:error, %{code: "flashback_token_claimed"}} = Tokens.fetch_valid(invitation)
+  end
+
   test "并发：检查时档案还没主人、写入前被别人抢先绑定 → 条件更新拦下，返回冲突" do
     me = account("+8613800006009")
     other = account("+8613800006010")
