@@ -2392,7 +2392,8 @@
 			"fund_action_burst": "Fund action burst",
 			"deposit_settlement_unanchored": "Deposit settlement without anchor",
 			"notification_delivery_failed": "Notification delivery failed",
-			"deposit_forfeit_batch_alert": "Deposit forfeiture batch alert"
+			"deposit_forfeit_batch_alert": "Deposit forfeiture batch alert",
+			"refunding_without_refund_job": "Refund job missing in flight"
 		},
 		"reconEntity": {
 			"enrollment": "Enrollment",
