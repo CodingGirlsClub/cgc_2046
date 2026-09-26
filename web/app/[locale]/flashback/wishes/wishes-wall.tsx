@@ -440,10 +440,6 @@ export default function WishesWall({
 										</button>
 									</div>
 									<footer className={styles.selectedFoot}>
-										<p className={styles.remindHint}>
-											<Icon name="bell" />
-											{t("remindHint")}
-										</p>
 										<div className={styles.selectedMeta}>
 											<button type="button" onClick={() => copyShareLink(currentInFilter.id)}>
 												<Icon name="share" />

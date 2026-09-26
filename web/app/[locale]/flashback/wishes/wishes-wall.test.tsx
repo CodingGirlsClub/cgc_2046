@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
@@ -196,4 +198,14 @@ describe("WishesWall · 写愿望入口（#824/U8）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "写下我的愿望" }));
 		expect(await screen.findByRole("dialog", { name: "许个愿" })).toBeInTheDocument();
 	});
+});
+
+// N10/M2：承诺不存在的「新进展提醒」文案已删——组件不得再引用，文案不得回流。
+describe("文案守卫", () => {
+ it("不再承诺可选择接收提醒", () => {
+  const source = readFileSync(fileURLToPath(new URL("./wishes-wall.tsx", import.meta.url.split("?")[0])), "utf8");
+  expect(source).not.toContain("remindHint");
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  expect(JSON.stringify(zh)).not.toContain("可选择接收提醒");
+ });
 });

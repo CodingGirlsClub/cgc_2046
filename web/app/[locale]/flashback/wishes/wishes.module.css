@@ -206,19 +206,6 @@ a:focus-visible {
 	padding-top: 12px;
 	border-top: 1px solid var(--line);
 }
-.remindHint {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font: 12px/1.6 "PingFang SC", sans-serif;
-	color: #647568;
-	margin: 0;
-}
-.remindHint svg {
-	width: 14px;
-	height: 14px;
-	flex-shrink: 0;
-}
 .selectedMeta {
 	display: flex;
 	align-items: center;
