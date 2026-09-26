@@ -603,9 +603,10 @@ defmodule Cgc2046.Flashback.Tokens do
 
   - **带 token**：绑定该链接的档案并作废其全部链接（同 `register_bind` 的 `Binding`，
     只是身份来自会话而非验证码）；档案已属于另一个账号 → `flashback_recover_account_conflict`；
-  - **不带 token**：按**库里已有且已验证的手机/邮箱**自动匹配未认领档案并全部
-    绑定（手机已由微信登录验证过，不再二次发码）——「登录后自动匹配 → 直接
-    认领」的落点；
+  - **不带 token**：按账号**已验证的手机号**自动匹配未认领档案并全部绑定（手机号只经
+    验证码或微信授权写入）——「登录后自动匹配 → 直接认领」的落点。**账号邮箱不参与**：
+    web 邮箱注册不验证邮箱（confirmation_required? false），按邮箱匹配等于用别人的报名
+    邮箱注册就能收走对方档案；邮箱对得上的人走找回邮件（证明邮箱所有权）；
   - 幂等：已绑定同一账号 → `bound: true` 且不重复写入；无匹配 → `bound: false`。
   """
   @spec claim_for_user(map() | nil, String.t() | nil) ::
@@ -647,32 +648,20 @@ defmodule Cgc2046.Flashback.Tokens do
      }}
   end
 
-  # 未认领（user_id 空）且手机/邮箱命中登录用户者——not_selected 也认领
-  # （圆梦线同样有档案，只是不进名册）。
+  # 未认领（user_id 空）且手机号命中登录用户者——not_selected 也认领
+  # （圆梦线同样有档案，只是不进名册）。只认已验证的手机号，账号邮箱不参与（见 claim_for_user/2）。
   defp matched_persons(%{id: _user_id} = actor) do
     import Ecto.Query
 
-    # 逐个字段按需拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）；
-    # email 在 Ash 里是 CiString，进裸 SQL 前转普通 binary
+    # 手机号为空时不拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）
     matches =
-      [
-        Map.get(actor, :phone) && to_string(Map.get(actor, :phone)),
-        Map.get(actor, :email) && to_string(Map.get(actor, :email))
-      ]
+      [Map.get(actor, :phone) && to_string(Map.get(actor, :phone))]
       |> Enum.reject(&is_nil/1)
-      |> Enum.map(fn value ->
-        dynamic([p], p.phone == ^value or p.email == ^value)
-      end)
+      |> Enum.map(fn phone -> dynamic([p], p.phone == ^phone) end)
 
     case matches do
-      [] ->
-        []
-
-      [single] ->
-        query_matched(single)
-
-      many ->
-        query_matched(Enum.reduce(many, &dynamic([p], ^&1 or ^&2)))
+      [] -> []
+      [by_phone] -> query_matched(by_phone)
     end
   end
 
@@ -976,7 +965,11 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp notify_bound(person) do
     if is_binary(person.email) and person.email != "" do
-      send_notice_email(person.email, "你的闪念间档案已绑定账号", "你当年报名形成的闪念间档案已与你的账号绑定。此后请从「我的」进入查看与编辑。")
+      send_notice_email(
+        person.email,
+        "你的闪念间档案已绑定账号",
+        "你当年报名形成的闪念间档案已与你的账号绑定。此后登录即可在「闪念间」查看与编辑你的卡。"
+      )
     end
   end
 

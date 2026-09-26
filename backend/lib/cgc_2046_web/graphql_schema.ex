@@ -1668,11 +1668,12 @@ defmodule Cgc2046Web.GraphqlSchema do
 
       resolve(fn _, %{level: level} = args, %{context: context} ->
         if level in ["off", "anonymous", "credited"] do
-          params = %{
-            level: level,
-            chosen_quote_spans: Map.get(args, :chosen_quote_spans),
-            credited_note: Map.get(args, :credited_note)
-          }
+          # 只写客户端实际传了的字段：没传 = 保留原值，显式传 null = 清空。此前没传也按 nil 写入，
+          # 小程序改档位从不传 creditedNote，每次保存都把实名补充清空
+          params =
+            args
+            |> Map.take([:chosen_quote_spans, :credited_note])
+            |> Map.put(:level, level)
 
           flashback_call(fn ->
             with {:ok, identity} <- flashback_identity(args[:token], context) do
