@@ -4714,6 +4714,8 @@ export type RootMutationType = {
   flashbackAdminDismissReport?: Maybe<FlashbackReportResult>;
   /** 首次发布回响（#834，PlatformAdmin；再次校验愿望仍挂树可见） */
   flashbackAdminPublishWishEcho?: Maybe<FlashbackAdminWishEcho>;
+  /** 闪念间·单人重发（R2/R10，PlatformAdmin；有副作用，属 Mutation）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
+  flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 撤回已发布回响（#834，终态） */
   flashbackAdminRevokeWishEcho?: Maybe<FlashbackAdminWishEcho>;
   /** 闪念间·批量触达（U8/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成 */
@@ -5229,6 +5231,13 @@ export type RootMutationTypeFlashbackAdminPublishWishEchoArgs = {
 };
 
 
+export type RootMutationTypeFlashbackAdminResendOutreachArgs = {
+  channel?: InputMaybe<Scalars['String']['input']>;
+  personId: Scalars['ID']['input'];
+  template: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeFlashbackAdminRevokeWishEchoArgs = {
   echoId: Scalars['ID']['input'];
 };
@@ -5720,8 +5729,6 @@ export type RootQueryType = {
   flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
-  /** 闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次 */
-  flashbackAdminResendOutreach?: Maybe<FlashbackOutreachDispatchResult>;
   /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数 */
@@ -5939,13 +5946,6 @@ export type RootQueryTypeEventModeratorsArgs = {
 
 export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
-};
-
-
-export type RootQueryTypeFlashbackAdminResendOutreachArgs = {
-  channel?: InputMaybe<Scalars['String']['input']>;
-  personId: Scalars['ID']['input'];
-  template: Scalars['String']['input'];
 };
 
 

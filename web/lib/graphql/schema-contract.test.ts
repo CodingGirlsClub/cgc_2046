@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { print } from "graphql";
+import { buildSchema, Kind, print, validate, type DocumentNode } from "graphql";
 import { CHECK_IN_ENROLLMENT } from "@/lib/graphql/attendance";
 import { MY_ENROLLMENTS } from "@/lib/graphql/participations";
 import { GET_INITIATIVE, LIST_INITIATIVES } from "@/lib/graphql/admin";
@@ -161,5 +161,38 @@ describe("手写 GraphQL 文档 ↔ SDL 契约", () => {
     for (const field of selected) {
       expect(mountFields, `SDL AdminInitiativeMountedEvent 缺字段 ${field}`).toContain(field);
     }
+  });
+});
+
+/**
+ * 全部手写文档 ↔ 后端 schema 的整体校验（graphql-js validate）：字段不存在、操作类型放错（query / mutation）、
+ * 参数名不对都会在这里红。后台「单人重发」曾以 mutation 调用一个定义在 Query 上的字段，界面测试 mock 掉了
+ * 请求层，上线后才会发现（2026-09-26）。
+ */
+describe("全部手写文档 ↔ 后端 SDL 校验", () => {
+  // 已知失效的死文档（全站无调用方）：MY_ORDERS 选了 Order 上不存在的 insertedAt。删掉该常量时同步移出此表。
+  const KNOWN_INVALID = new Set(["orders.ts:MY_ORDERS"]);
+
+  it("lib/graphql 下每个导出的 DocumentNode 都能通过后端 schema 校验", () => {
+    const schema = buildSchema(readFileSync(SDL_PATH, "utf8"));
+    const modules = import.meta.glob(["./*.ts", "!./*.test.ts"], { eager: true }) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const failures: string[] = [];
+    let checked = 0;
+
+    for (const [path, exports] of Object.entries(modules)) {
+      for (const [name, value] of Object.entries(exports)) {
+        if ((value as { kind?: unknown } | null)?.kind !== Kind.DOCUMENT) continue;
+        checked += 1;
+        const key = `${path.slice(2)}:${name}`;
+        const errors = validate(schema, value as DocumentNode).map((error) => error.message);
+        if (errors.length > 0 && !KNOWN_INVALID.has(key)) failures.push(`${key}: ${errors.join(" | ")}`);
+      }
+    }
+
+    expect(checked).toBeGreaterThan(100);
+    expect(failures).toEqual([]);
   });
 });

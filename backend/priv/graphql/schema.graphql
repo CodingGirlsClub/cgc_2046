@@ -5087,9 +5087,6 @@ type RootQueryType {
   "场次列表（R7 发送入口数据源，PlatformAdmin）"
   flashbackAdminArchives: [FlashbackAdminArchive!]!
 
-  "闪念间·单人重发（R2\/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
-  flashbackAdminResendOutreach(personId: ID!, template: String!, channel: String): FlashbackOutreachDispatchResult
-
   "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
   flashbackOutreachBatches(archiveKey: String!): [FlashbackOutreachBatch!]!
 
@@ -7175,6 +7172,9 @@ type RootMutationType {
 
   "兑换状态流转（U11\/R25，PlatformAdmin）：pending→contacted→settled|rejected 人工处理；非法转移 fail-closed"
   flashbackAdminUpdateRedemption(id: ID!, status: String!, handledNote: String): FlashbackRedemptionUpdateResult
+
+  "闪念间·单人重发（R2\/R10，PlatformAdmin；有副作用，属 Mutation）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+  flashbackAdminResendOutreach(personId: ID!, template: String!, channel: String): FlashbackOutreachDispatchResult
 
   "闪念间·批量触达（U8\/R23，PlatformAdmin）：按场次解析可触达校友（未退订）逐人入 outreach 队列（错峰限速、幂等可重跑）；channel 三档 = all（email 优先\/phone 兜底）| email | sms（R11）；token 铸造在 worker 内完成"
   flashbackAdminSendOutreach(

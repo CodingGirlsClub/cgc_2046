@@ -288,32 +288,6 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "闪念间·单人重发（R2/R10，PlatformAdmin）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
-    field :flashback_admin_resend_outreach, :flashback_outreach_dispatch_result do
-      arg(:person_id, non_null(:id))
-      arg(:template, non_null(:string))
-      arg(:channel, :string)
-
-      resolve(fn _, args, %{context: context} ->
-        with_admin(context, fn actor ->
-          with {:ok, channel} <-
-                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
-            # 治理留痕单源在 Dispatch（R2）。
-            Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
-              args[:person_id],
-              args[:template],
-              channel,
-              actor
-            )
-          else
-            {:error, :invalid_channel} ->
-              {:error,
-               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
-          end
-        end)
-      end)
-    end
-
     @desc "触达批次历史（R8，PlatformAdmin）：按批次聚合发送计数（通道 × 状态），含 resend-* 补救批次"
     field :flashback_outreach_batches, non_null(list_of(non_null(:flashback_outreach_batch))) do
       arg(:archive_key, non_null(:string))
@@ -2043,6 +2017,32 @@ defmodule Cgc2046Web.GraphqlSchema do
               Map.get(args, :handled_note)
             )
           end)
+        end)
+      end)
+    end
+
+    @desc "闪念间·单人重发（R2/R10，PlatformAdmin；有副作用，属 Mutation）：不可重发者带原因业务错误（R5 拒绝表）；resend-* 独立批次"
+    field :flashback_admin_resend_outreach, :flashback_outreach_dispatch_result do
+      arg(:person_id, non_null(:id))
+      arg(:template, non_null(:string))
+      arg(:channel, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          with {:ok, channel} <-
+                 Cgc2046.Flashback.Outreach.Dispatch.parse_channel(Map.get(args, :channel, "all")) do
+            # 治理留痕单源在 Dispatch（R2）。
+            Cgc2046.Flashback.Outreach.Dispatch.resend_for_person(
+              args[:person_id],
+              args[:template],
+              channel,
+              actor
+            )
+          else
+            {:error, :invalid_channel} ->
+              {:error,
+               %{code: "flashback_invalid_input", message: "channel must be one of all|email|sms"}}
+          end
         end)
       end)
     end
