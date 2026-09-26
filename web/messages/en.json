@@ -2750,6 +2750,8 @@
       "loading": "Developing…",
       "notFoundTitle": "This page hasn't developed yet",
       "notFoundBody": "The credited profile for this link doesn't exist, or isn't licensed for the public.",
+"errorBody": "This page failed to load — check your connection and try again.",
+"retry": "Retry",
       "backHome": "Back to the In a Flash home",
       "footer": "This page is shown publicly under the person's credited license (In a Flash · quote license, tier two)."
     },
