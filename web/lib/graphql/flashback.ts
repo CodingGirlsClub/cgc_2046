@@ -1336,6 +1336,21 @@ export interface FlashbackMyWishes {
 	wishes: FlashbackOwnedWish[];
 }
 
+/** 公开许愿树城市全集（有愿望的城市，按拼音排序，不受分页限制）——许愿树城市钉真源 */
+export const FLASHBACK_WISH_CITIES: TypedDocumentNode<
+	{ flashbackWishCities: FlashbackCity[] },
+	Record<string, never>
+> = gql`
+	query FlashbackWishCities {
+		flashbackWishCities {
+			name
+			fullName
+			pinyin
+			lngLat
+		}
+	}
+`;
+
 /** M10：公开金句所在城市全集（有金句的城市，不受热门限量影响）——金句墙城市真源 */
 export const FLASHBACK_VOICE_CITIES: TypedDocumentNode<
 	{ flashbackVoiceCities: FlashbackCity[] },
