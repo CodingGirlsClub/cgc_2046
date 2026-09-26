@@ -42,6 +42,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Fixed
 
+- [小红书] 登录时序按官方约束修正：`xhs.login` 预取（打开授权弹层时），不再在 getPhoneNumber 回调内调用（平台文档明确该时序会刷新 session_key 导致解密失败）；登录失败（`authentication_failed`）映射为中文提示，不再裸出英文平台错误。
+- [小红书] Taro 小红书插件补丁（`patches/`，pnpm patch）：`onShareChat` 注入时成对注册 `onShareAppMessage`，消除全部页面 mount 的「必须与 onShareAppMessage 配合使用」平台运行时报错（原为审核风险）；仅影响 xhs 产物，微信/抖音产物经构建对照零变化。
+- [小红书] 登录页权限说明第三行按平台分派：无订阅消息能力端显示「报名与审批结果在『我的报名』查看」，不再出现语义悬空的「后续通知仍需你逐次授权」。
 - 小红书 access_token 换取按官方文档修正（P0-1）：改 `POST /api/rmp/token` + JSON 体 `{appid, secret}`，按 `expire_in` 进程级缓存（提前 10 分钟刷新，410101 作废自愈一次）；此前 GET 加 query 且每次登录现取，并发登录可能互相顶掉。
 - 小红书手机号解密按官方 Java 示例修正：cipher 取密钥实际长度（16/24/32 字节 → AES-128/192/256），填充允许 1–32；官方文档「AES-128-CBC」与「AESKey 24 字节」自相矛盾的取舍以示例为准。
 - 小红书不限量小程序码请求按官方形状修正：query 带 `appid`/`access_token`，body 补必填 `width`，成功响应按 `image/png` 字节流解析（此前按 JSON base64 解析，实测 HTTP 400）。
