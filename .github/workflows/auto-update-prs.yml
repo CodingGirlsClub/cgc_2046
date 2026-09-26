@@ -27,10 +27,14 @@ jobs:
           gh pr list --state open --json number,isDraft --jq '.[] | select(.isDraft==false) | .number' \
           | while read -r num; do
               echo "── PR #$num"
-              if gh pr update-branch "$num" --merge 2>&1; then
+              if gh pr update-branch "$num" 2>&1; then
                 echo "PR #$num updated"
               else
-                gh pr comment "$num" --body "develop 合并后自动更新分支失败（可能有冲突或保护限制），请人工处理。"
+                # 失败评论去重：同一 PR 已发过 bot 失败评论就不再刷。
+                existing=$(gh pr comments "$num" --json author,body --jq '[.[] | select(.author.login=="github-actions[bot]" and (.body | contains("自动更新分支失败")))] | length' || echo 0)
+                if [ "$existing" = "0" ]; then
+                  gh pr comment "$num" --body "develop 合并后自动更新分支失败（可能有冲突或保护限制），请人工处理。" || true
+                fi
                 echo "PR #$num update FAILED"
               fi
             done
