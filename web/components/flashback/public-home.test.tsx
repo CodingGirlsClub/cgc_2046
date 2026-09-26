@@ -189,6 +189,13 @@ describe("PublicHome · 统计层与金句墙（R32）", () => {
 		expect(screen.getByText("“可见的前半句▓▓可见的后半句”")).toBeInTheDocument();
 	});
 
+	it("M9：首页带许愿树板块（发现入口，链接直 /flashback/wishes）", async () => {
+		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
+		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: [] } });
+		render(<PublicHome />);
+		expect(await screen.findByTestId("fb-wishes-cta")).toHaveAttribute("href", "/flashback/wishes");
+	});
+
 	it("U5/R26：金句段带「看全墙 →」导流（链接直 /flashback/voices）", async () => {
 		statsQuery.mockResolvedValue({ data: { flashbackPublicStats: statsWith } });
 		quotesQuery.mockResolvedValue({ data: { flashbackRandomQuotes: quoteList } });
