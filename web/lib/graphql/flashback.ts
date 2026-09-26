@@ -725,6 +725,8 @@ export const FLASHBACK_ARCHIVES: TypedDocumentNode<
 `;
 
 /** 时间胶囊读面（U5/R12/R13）：token 或登录态双入口；city（R34 城市钉）筛选 */
+// publicWishes 与 myPrivateWishes 进同一个弹窗（WishModal 读 comments / mine / echoes），
+// 两段共用 CapsuleWishFields 保证同形——私密段曾漏取这些字段，点开即崩（梳理文档 H0）
 export const FLASHBACK_CAPSULE: TypedDocumentNode<
 	{ flashbackCapsule: FlashbackCapsule | null },
 	{ token?: string | null; city?: string | null }
@@ -815,48 +817,46 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 				}
 			}
 			publicWishes {
-				id
-				content
-				city
-				wisherMasked
-				endorsementCount
-				endorsedByMe
-				mine
-				comments {
-					id
-					content
-					commenterMasked
-					insertedAt
-				}
-				latestEcho {
-					id
-					content
-					status
-					publishedAt
-					correctedAt
-				}
-				echoCount
-				echoes {
-					id
-					content
-					status
-					publishedAt
-					correctedAt
-				}
-				insertedAt
+				...CapsuleWishFields
 			}
 			myPrivateWishes {
-				id
-				content
-				city
-				wisherMasked
-				endorsementCount
-				endorsedByMe
-				insertedAt
+				...CapsuleWishFields
 			}
 			myWishQuotaRemaining
 			cities
 		}
+	}
+
+	fragment CapsuleWishFields on FlashbackWish {
+		id
+		content
+		city
+		wisherMasked
+		endorsementCount
+		endorsedByMe
+		mine
+		comments {
+			id
+			content
+			commenterMasked
+			insertedAt
+		}
+		latestEcho {
+			id
+			content
+			status
+			publishedAt
+			correctedAt
+		}
+		echoCount
+		echoes {
+			id
+			content
+			status
+			publishedAt
+			correctedAt
+		}
+		insertedAt
 	}
 `;
 
