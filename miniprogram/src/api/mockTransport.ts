@@ -1465,11 +1465,12 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
-  // 邮箱找回·贴链接（镜像 Recover.claim_link_for_user）：要求登录；取链接里的 fb_ token——
+  // 邮箱找回·贴链接（镜像 Recover.claim_link_for_user）：要求登录；取链接的 token= 参数或裸 fb_ token——
   // 取不到 = token_not_found，fb_other… = 档案属于另一个账号，用过的 = token_claimed，其余绑到当前账号
   if (document.includes('mutation FlashbackRecoverClaimForAccount')) {
     if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
-    const token = /fb_[A-Za-z0-9_-]+/.exec(String(values.link ?? ''))?.[0]
+    const link = String(values.link ?? '')
+    const token = /[?&]token=([A-Za-z0-9_-]+)/.exec(link)?.[1] ?? /fb_[A-Za-z0-9_-]+/.exec(link)?.[0]
     if (!token) return { errors: [{ message: 'token not found', code: 'flashback_token_not_found' }] }
     if (token.startsWith('fb_other')) {
       return { errors: [{ message: 'This phone or archive already belongs to another account', code: 'flashback_recover_account_conflict' }] }

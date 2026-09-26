@@ -180,11 +180,13 @@ defmodule Cgc2046.Flashback.Recover do
     end
   end
 
-  # 贴回来的文字里取第一个 fb_ token（base64url 字符集）；取不到原样交给 fetch_valid 判 not_found
+  # 贴回来的文字里取 token：先认链接的 token= 参数（outreach 邀请的 token 不带 fb_ 前缀），
+  # 再认裸的 fb_ token（找回邮件），都没有就把整段当 token——认不出由 fetch_valid 判 not_found
   defp link_token(text) do
-    case Regex.run(~r/fb_[A-Za-z0-9_-]+/, text) do
+    case Regex.run(~r/[?&]token=([A-Za-z0-9_-]+)/, text, capture: :all_but_first) ||
+           Regex.run(~r/fb_[A-Za-z0-9_-]+/, text) do
       [token] -> token
-      nil -> text
+      nil -> String.trim(text)
     end
   end
 

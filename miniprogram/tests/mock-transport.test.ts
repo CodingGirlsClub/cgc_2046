@@ -331,6 +331,8 @@ test('mock 邮箱找回·贴链接：要求登录；认不出 / 别人的档案 
   assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
   // 同一条链接只能用一次（R1：绑定即作废）
   assert.equal(claim(link).errors?.[0]?.code, 'flashback_token_claimed')
+  // 最初的邀请链接（token 不带 fb_ 前缀）按 token= 参数认
+  assert.equal(claim('https://example.com/zh-CN/flashback/enter?token=InviteToken_1').flashbackRecoverClaimForAccount?.bound, true)
   __setFlashbackUnclaimed(false)
 })
 
