@@ -34,6 +34,18 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：列出工作台的全部活动（含 draft），status 可选过滤（draft | open | closed |
+    cancelled）。每条 event_id / title / slug / status / visibility / enrollment_badge（enrolling |
+    starting_soon | closed | full）/ starts_at / registration_deadline / payment_mode（free | pricing |
+    deposit）/ 押金明细 deposit / detached_rule_provenance（活动解除挂载后保留的原锁定规则来源，其余情况为
+    null）。缴费方式以 payment_mode 为准，押金场即使没有定价档也不是免费。按创建时间正序，最多 100 条。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
 

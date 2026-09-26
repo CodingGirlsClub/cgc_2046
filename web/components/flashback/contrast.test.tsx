@@ -250,7 +250,7 @@ describe("防线 3：组件行为不回归（card-export 交互冒烟）", () =>
 				<RecoverForm />
 			</div>,
 		);
-		const input = screen.getByLabelText(/当年的手机号或邮箱/);
+		const input = screen.getByLabelText(/当年报名用的邮箱/);
 		fireEvent.change(input, { target: { value: " `a@b.c` " } });
 		expect((input as HTMLInputElement).value).toContain("a@b.c");
 	});

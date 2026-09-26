@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
+import { __setFlashbackUnclaimed, __setPlatformIdentityBound, __setWorkspaceAccessDenied, mockGraphQLRequest } from '../src/api/mockTransport.ts'
 import {
   CatalogQueryDocument,
   CatalogSearchQueryDocument,
@@ -10,6 +10,7 @@ import {
   EventDetailQueryDocument,
   EnrollmentQueryDocument,
   FlashbackAdjustFogMutationDocument,
+  FlashbackArchivesQueryDocument,
   FlashbackAdjustTodayFogMutationDocument,
   FlashbackAddWishCommentMutationDocument,
   FlashbackCapsuleQueryDocument,
@@ -19,6 +20,13 @@ import {
   FlashbackEndorseWishMutationDocument,
   FlashbackPublicWishesQueryDocument,
   FlashbackSetCardSharingMutationDocument,
+  FlashbackSendToWallMutationDocument,
+  FlashbackRetractMutationDocument,
+  FlashbackDeletePreviewQueryDocument,
+  FlashbackDeleteMutationDocument,
+  FlashbackRecoverMutationDocument,
+  FlashbackRecoverClaimForAccountMutationDocument,
+  FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
   FlashbackSubmitTodayMutationDocument,
@@ -27,6 +35,7 @@ import {
   PublicInitiativesQueryDocument,
   SessionQueryDocument,
   SignInWithPlatformMutationDocument,
+  SignInWithPlatformIdentityMutationDocument,
   SignOutMutationDocument
 } from '../src/api/operations.ts'
 
@@ -271,6 +280,108 @@ test('mock FlashbackCapsule 城市钉（R34）：cities 恒全量排序', () => 
 
   const beijing = mockGraphQLRequest<Capsule>(FlashbackCapsuleQueryDocument, { city: '北京' })
   assert.deepEqual(beijing.flashbackCapsule.cities, ['上海', '北京', '广州'])
+})
+
+test('mock 小程序内找回（#932）：发起同形；验证要求登录、错码与号码属于别人各有其码、通过即绑到当前账号', () => {
+  type Errors = { errors?: Array<{ code: string }> }
+  const verify = (code: string, identifier = '13900000011') =>
+    mockGraphQLRequest<Errors & { flashbackRecoverVerifyForAccount?: { bound: boolean; cards: unknown[] } }>(
+      FlashbackRecoverVerifyForAccountMutationDocument,
+      { identifier, code }
+    )
+
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(verify('123456').errors?.[0]?.code, 'unauthorized')
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  const dispatched = mockGraphQLRequest<{ flashbackRecover: { dispatched: boolean } }>(FlashbackRecoverMutationDocument, { identifier: 'nobody@example.com' })
+  assert.equal(dispatched.flashbackRecover.dispatched, true)
+
+  assert.equal(verify('000000').errors?.[0]?.code, 'invalid_or_expired_code')
+  assert.equal(verify('123456', '13900000099').errors?.[0]?.code, 'flashback_recover_account_conflict')
+  // 失败两次都没有绑定
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+
+  assert.equal(verify('123456').flashbackRecoverVerifyForAccount?.bound, true)
+  // 绑定后会话腿读胶囊即参与态
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
+  __setFlashbackUnclaimed(false)
+})
+
+test('mock 邮箱找回·贴链接：要求登录；认不出 / 别人的档案 / 用过各有其码；通过即绑到当前账号', () => {
+  type Errors = { errors?: Array<{ code: string }> }
+  const claim = (link: string) =>
+    mockGraphQLRequest<Errors & { flashbackRecoverClaimForAccount?: { bound: boolean; cards: unknown[] } }>(
+      FlashbackRecoverClaimForAccountMutationDocument,
+      { link }
+    )
+  const link = 'https://example.com/zh-CN/flashback/enter?token=fb_mock_paste_1'
+
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(claim(link).errors?.[0]?.code, 'unauthorized')
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  assert.equal(claim('随便一段话').errors?.[0]?.code, 'flashback_token_not_found')
+  assert.equal(claim('fb_other_account').errors?.[0]?.code, 'flashback_recover_account_conflict')
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+
+  assert.equal(claim('邮件里的链接：' + link + ' 谢谢').flashbackRecoverClaimForAccount?.bound, true)
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
+  // 同一条链接只能用一次（R1：绑定即作废）
+  assert.equal(claim(link).errors?.[0]?.code, 'flashback_token_claimed')
+  // 最初的邀请链接（token 不带 fb_ 前缀）按 token= 参数认
+  assert.equal(claim('https://example.com/zh-CN/flashback/enter?token=InviteToken_1').flashbackRecoverClaimForAccount?.bound, true)
+  __setFlashbackUnclaimed(false)
+})
+
+test('mock 回访静默登录（#930）：默认本平台未绑定身份（不影响既有 e2e 的手机号登录流程）；绑定后一步登录', () => {
+  type Result = { errors?: Array<{ code: string }>; signInWithPlatformIdentity?: { id: string } }
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const unbound = mockGraphQLRequest<Result>(SignInWithPlatformIdentityMutationDocument, { platform: 'wechat', code: 'c' })
+  assert.equal(unbound.errors?.[0]?.code, 'platform_identity_not_found')
+  assert.equal(mockGraphQLRequest<{ errors?: unknown[] }>(FlashbackCapsuleQueryDocument, {}).errors?.length, 1, '未绑定时仍是未登录')
+
+  __setPlatformIdentityBound(true)
+  const bound = mockGraphQLRequest<Result>(SignInWithPlatformIdentityMutationDocument, { platform: 'wechat', code: 'c' })
+  assert.equal(bound.signInWithPlatformIdentity?.id, 'user-1')
+  assert.equal(mockGraphQLRequest<{ errors?: unknown[] }>(FlashbackCapsuleQueryDocument, {}).errors, undefined, '静默登录后即已登录')
+  __setPlatformIdentityBound(false)
+})
+
+type AlbumRoster = { surnameMasked: string; fullName: string | null; city: string | null; occupationThen: string | null; sentToWallAt: string | null }
+type Album = { key: string; isMine: boolean; piles: Array<{ city: string; count: number; returned: number }>; roster: AlbumRoster[] }
+
+test('mock FlashbackArchives（#933）：相册只对已登录开放', () => {
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  const body = mockGraphQLRequest<{ errors?: Array<{ code: string }> }>(FlashbackArchivesQueryDocument, {})
+  assert.equal(body.errors?.[0]?.code, 'flashback_auth_required')
+})
+
+test('mock 相册（#933）：未寄出者只剩姓氏遮罩；城市堆计入未寄出者；isMine 恒 false', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const { flashbackArchives } = mockGraphQLRequest<{ flashbackArchives: { archives: Album[]; cities: string[] } }>(FlashbackArchivesQueryDocument, {})
+  assert.deepEqual(flashbackArchives.cities, ['上海', '北京', '广州'])
+  assert.ok(flashbackArchives.archives.every((archive) => !archive.isMine))
+  const bj = flashbackArchives.archives.find((archive) => archive.key === '2014-01-11-bj')
+  assert.ok(bj)
+  const unsent = bj.roster.filter((entry) => !entry.sentToWallAt)
+  assert.ok(unsent.length > 0)
+  for (const entry of unsent) assert.deepEqual([entry.fullName, entry.city, entry.occupationThen], [null, null, null])
+  assert.ok(bj.roster.filter((entry) => entry.sentToWallAt).every((entry) => entry.city))
+  assert.deepEqual(bj.piles.map(({ city, count }) => [city, count]), [['北京', 3], ['上海', 2], ['广州', 1]])
+})
+
+test('mock 相册筛城市（#933）：名册只列该城已寄出者，城市堆仍按全员聚合，整场无人才撤下', () => {
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  const { flashbackArchives } = mockGraphQLRequest<{ flashbackArchives: { archives: Album[] } }>(FlashbackArchivesQueryDocument, { city: '广州' })
+  // 广州只有一位且未寄出：名册为空（不然「周**」就被公开了城市），但这一场不从长廊消失
+  assert.deepEqual(flashbackArchives.archives.map((archive) => [archive.key, archive.roster.length, archive.piles]), [
+    ['2014-01-11-bj', 0, [{ city: '广州', count: 1, returned: 0 }]]
+  ])
+  const capsule = mockGraphQLRequest<{ flashbackCapsule: { archives: Album[] } }>(FlashbackCapsuleQueryDocument, { city: '广州' })
+  assert.deepEqual(capsule.flashbackCapsule.archives.map((archive) => archive.roster.length), [0])
 })
 
 test('mock 闪念间写面落 state：adjustFog / setQuoteLicense 后 capsule 回读', () => {
@@ -729,4 +840,37 @@ test('#790 愿望写面经 capsule 读回，年度额度含软删且不退还', 
     FlashbackCreateWishMutationDocument, { content: '超额', visibility: 'private' }
   )
   assert.equal(overQuota.errors[0]?.code, 'flashback_wish_quota_exceeded')
+})
+
+// #931：mock 必须镜像后端身份门——「无 token 且未登录」报 auth_required、登录未绑定报
+// person_not_bound；否则寄出 / 撤下在 mock 上恒成功，e2e 绿着漏掉真后端的失败。
+test('mock #931：寄出 / 撤下 / 删除镜像后端身份门', () => {
+  type Errors = { errors?: Array<{ code?: string | null }> }
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  for (const doc of [FlashbackSendToWallMutationDocument, FlashbackRetractMutationDocument, FlashbackDeletePreviewQueryDocument]) {
+    assert.equal(mockGraphQLRequest<Errors>(doc, { token: null }).errors?.[0]?.code, 'flashback_auth_required')
+  }
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackSendToWallMutationDocument, { token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+  __setFlashbackUnclaimed(false)
+
+  const sent = mockGraphQLRequest<{ flashbackSendToWall: { sentToWallAt: string | null } }>(FlashbackSendToWallMutationDocument, { token: null })
+  assert.ok(sent.flashbackSendToWall.sentToWallAt)
+  const retracted = mockGraphQLRequest<{ flashbackRetract: { retracted: boolean; sentToWallAt: string | null } }>(FlashbackRetractMutationDocument, { token: null })
+  assert.equal(retracted.flashbackRetract.retracted, true)
+  assert.equal(retracted.flashbackRetract.sentToWallAt, null)
+
+  const preview = mockGraphQLRequest<{ flashbackDeletePreview: { fullName: string; sentToWallAt: string | null; endorsementCount: number } }>(FlashbackDeletePreviewQueryDocument, { token: null })
+  assert.equal(preview.flashbackDeletePreview.fullName, '王小明')
+  assert.equal(preview.flashbackDeletePreview.sentToWallAt, null)
+
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackDeleteMutationDocument, { token: null, confirm: 'delete' }).errors?.[0]?.code, 'flashback_delete_confirm_required')
+  const deleted = mockGraphQLRequest<{ flashbackDelete: { deleted: boolean } }>(FlashbackDeleteMutationDocument, { token: null, confirm: 'DELETE' })
+  assert.equal(deleted.flashbackDelete.deleted, true)
+  // 删除后按登录账号读胶囊 → 档案已不存在（与后端同形：person_not_bound）
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+  __setFlashbackUnclaimed(false)
+  mockGraphQLRequest(SignOutMutationDocument, {})
 })

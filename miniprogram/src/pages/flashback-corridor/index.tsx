@@ -10,6 +10,7 @@ import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
 import { corridorFrames, todayFrameLabel } from '@/domain/flashback-journey'
+import { buildFlashbackEntryPath } from '@/domain/share-route'
 import { shouldRevealRecoveredCard } from '@/domain/flashback-recovery'
 import { useQuoteLicense, type QuoteSpanPick } from '@/components/MyCard/useQuoteLicense'
 import type { FlashbackWish } from '@/domain/models'
@@ -37,6 +38,12 @@ export default function FlashbackCorridorPage() {
   const [cardScrollTo, setCardScrollTo] = useState('')
   // U8 快门仪式层:回访进门(原型 G intro)——呼吸快门+「多年前,你写过一些答案」
   const [shutter, setShutter] = useState(false)
+  // 换肤：快门仪式是暗房——导航栏随之切暗，散场回到纸色（页面配置同为纸色）
+  useEffect(() => {
+    void Taro.setNavigationBarColor(
+      shutter ? { frontColor: '#ffffff', backgroundColor: '#15130f' } : { frontColor: '#000000', backgroundColor: '#f7f2e7' }
+    ).catch(() => undefined)
+  }, [shutter])
   const cardOpenedAt = useRef(0)
   const openCardLayer = (mode: 'view' | 'write') => {
     setCardLayer(mode)
@@ -65,6 +72,19 @@ export default function FlashbackCorridorPage() {
     setLicenseNudge(true)
   }
 
+  // #933 相册开放告知（一次性）：开放前就寄出的人第一次回来时看到；进来时还没寄出的人
+  // 寄出前会读到新的可见范围文案——直接置位，寄出后不再打扰
+  const [albumNotice, setAlbumNotice] = useState(false)
+  useEffect(() => {
+    if (mode.kind !== 'member' || Taro.getStorageSync<boolean>(STORAGE_KEYS.flashbackAlbumNotice)) return
+    if (mode.capsule.me?.today?.sentToWallAt) setAlbumNotice(true)
+    else Taro.setStorageSync(STORAGE_KEYS.flashbackAlbumNotice, true)
+  }, [mode])
+  const dismissAlbumNotice = () => {
+    Taro.setStorageSync(STORAGE_KEYS.flashbackAlbumNotice, true)
+    setAlbumNotice(false)
+  }
+
   // 寄出落定后今天格一次性强调(脉冲 1.5s;静态卡无可点信号,用户不会想到去点)
   const [todayLanded, setTodayLanded] = useState(false)
 
@@ -83,7 +103,7 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'member' || sendingCard) return
     setSendingCard(true)
     try {
-      await api.flashbackSendToWall(mode.token ?? "")
+      await api.flashbackSendToWall(mode.token ?? null)
       Taro.showToast({ title: '已贴上墙', icon: 'none' })
       await reloadMember()
       sentLanding()
@@ -180,7 +200,7 @@ export default function FlashbackCorridorPage() {
 
   // R14 分享：卡片落旅程入口（朋友从闪念间入口进入）；不带本人 token（R32 边界）
   const shareTitle = mode.kind === 'member' ? shareMessage(mode.capsule.me).title : '闪念间 · 找回当年的自己'
-  useShareAppMessage(() => ({ title: shareTitle, path: '/pages/flashback-journey/index' }))
+  useShareAppMessage(() => ({ title: shareTitle, path: buildFlashbackEntryPath() }))
   useShareTimeline(() => ({ title: shareTitle }))
 
 
@@ -290,12 +310,21 @@ export default function FlashbackCorridorPage() {
           <Text className={styles.entrySubtitle}>写下未来的愿望</Text>
         </Button>
       </View>
+      {albumNotice && (
+        <View className={styles.albumNotice}>
+          <Text className={styles.albumNoticeText}>相册现在对所有登录的人开放：你寄出的卡，登录的人都能在这一场的相册里看到。想收回，可以在卡片页撤下。</Text>
+          <View className={styles.albumNoticeActions}>
+            <Text className={styles.albumNoticeGo} onClick={() => { dismissAlbumNotice(); void Taro.navigateTo({ url: '/pages/flashback-today/index' }) }}>去卡片页 →</Text>
+            <Text className={styles.albumNoticeOk} onClick={dismissAlbumNotice}>知道了</Text>
+          </View>
+        </View>
+      )}
       {/* member 卡区（U4 覆盖层入口）；路人态直接是长廊（原 1024 横幅已撤——
           活动推广归「发现」，双 Tab 重复推送同一活动） */}
       {mode.kind === 'member' && me && myView && (
         <View className={styles.cardDock}>
           <View
-          className={styles.miniCard}
+          className={`${styles.miniCard} ${me.today?.sentToWallAt ? styles.miniCardLit : ''}`}
           onClick={() => openCardLayer('view')}
         >
             <Text className={styles.miniCardName}>{me.fullName}</Text>
@@ -306,7 +335,7 @@ export default function FlashbackCorridorPage() {
           </View>
           <View className={styles.dockActions}>
             <Text
-              className={styles.dockWritePrimary}
+              className={`${styles.dockWritePrimary} ${todayWritten ? styles.dockWriteDone : ''}`}
               onClick={() => openCardLayer('write')}
             >
               ✎ 写今天的你{todayWritten ? ' ✓' : ''}
@@ -590,7 +619,7 @@ export default function FlashbackCorridorPage() {
                 const today = mode.capsule.me.today
                 const hasToday = todayWritten
                 const text = today?.sentToWallAt && hasToday
-                  ? '已寄出到校友墙'
+                  ? '已寄出到相册'
                   : hasToday
                     ? '写好了 · 寄出贴上墙'
                     : '点击照片翻面写字 · 再点寄出'
@@ -718,7 +747,7 @@ export default function FlashbackCorridorPage() {
 
       {/* 先进入卡片页查看，再决定保存或分享。 */}
       <View className={styles.footerBar}>
-        <Button className={styles.cta} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
+        <Button className={`${styles.cta} ${me?.today?.sentToWallAt ? '' : styles.ctaQuiet}`} onClick={() => void Taro.navigateTo({ url: '/pages/flashback-today/index' })}>
           把这一刻做成卡片 →
         </Button>
       </View>

@@ -136,12 +136,15 @@ export default function PublicHome() {
 						<ul className="fb-public-archives">
 							{stats.archives.map((archive) => (
 								<li key={archive.key}>
-									{archive.occurredOn?.replace(/-/g, ".") ?? archive.key} · {archive.name}
-									{archive.city ? ` · ${archive.city}` : ""} ·{" "}
-									{t("archiveCounts", {
-										applied: archive.appliedCount ?? 0,
-										attended: archive.attendedCount ?? 0,
-									})}
+									{/* #933 那些年的相册：每一场都能点进场次页——未登录由场次页跳登录（登录判断只在一处） */}
+									<Link href={`/flashback/event/${archive.key}`}>
+										{archive.occurredOn?.replace(/-/g, ".") ?? archive.key} · {archive.name}
+										{archive.city ? ` · ${archive.city}` : ""} ·{" "}
+										{t("archiveCounts", {
+											applied: archive.appliedCount ?? 0,
+											attended: archive.attendedCount ?? 0,
+										})}
+									</Link>
 								</li>
 							))}
 						</ul>

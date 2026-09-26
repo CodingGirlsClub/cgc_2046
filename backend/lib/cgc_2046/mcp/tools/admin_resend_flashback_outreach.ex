@@ -9,11 +9,20 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
-  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback.{AlumniProjection, Outreach.Dispatch}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
-  require Logger
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：给闪念间的一位校友重发触达（person_id + template，模板目前只有 reconnect）。只对
+    未认领、未退订、未删除且联系方式可达的校友生效，不满足时直接返回带原因的错误。channel：all（邮件
+    优先，没有邮箱时发短信）| email | sms，默认 all。没有频率限制，每次重发都要经确认。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
 
   schema do
     field(:person_id, :string, description: "校友档案 id", required: true)
@@ -47,7 +56,8 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
   end
 
   @doc """
-  确认后真正执行（Confirmation 分派）：入队 + 治理留痕。校验在第一段已过；
+  确认后真正执行（Confirmation 分派）：入队，治理留痕由 Dispatch 单源写入。
+  校验在第一段已过；
   竞态窗口内状态变化的兜底由 `resend_for_person/3` 内同款拒绝表承接。
   """
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
@@ -58,11 +68,10 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
         _ -> :all
       end
 
+    # 治理留痕单源在 Dispatch（R2）——与 /admin/flashback GraphQL 面共用。
     with :ok <- Dispatch.ensure_channel_ready(channel),
          {:ok, %{queued: queued, skipped: skipped, batch: batch}} <-
-           Dispatch.resend_for_person(params["person_id"], params["template"], channel) do
-      log_admin_action(actor, params, channel, batch, queued, skipped)
-
+           Dispatch.resend_for_person(params["person_id"], params["template"], channel, actor) do
       {:ok,
        %{
          person_id: params["person_id"],
@@ -97,32 +106,6 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
       end
 
     "闪念间单人重发 · #{AlumniProjection.masked_name(person)} · 模板 #{template} · 通道 #{channel_text}#{sms_note}。确认后独立批次错峰发送。"
-  end
-
-  defp log_admin_action(actor, params, channel, batch, queued, skipped) do
-    # 审计失败不阻塞已入队的发送（wrapper 审计哲学同款），error 日志留痕。
-    AdminActionLog.log(%{
-      actor_id: actor && Map.get(actor, :id),
-      action: :flashback_outreach_resend,
-      target_type: :flashback_person,
-      target_id: params["person_id"],
-      result: :success,
-      metadata: %{
-        template: params["template"],
-        channel: to_string(channel),
-        batch: batch,
-        queued: queued,
-        skipped: skipped
-      }
-    })
-    |> case do
-      {:ok, _} ->
-        :ok
-
-      error ->
-        Logger.error("[flashback_outreach_resend] admin action log failed: #{inspect(error)}")
-        :ok
-    end
   end
 
   defp dispatch_error_message(%{code: code, message: message}), do: "#{code}: #{message}"

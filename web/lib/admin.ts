@@ -772,7 +772,7 @@ export async function resendFlashbackOutreach(
 	personId: string,
 	template: string,
 	channel?: string,
-): Promise<{ queued: number; skipped: number; batch: string } | null> {
+): Promise<{ queued: number; skipped: number } | null> {
 	const { data } = await client.mutate({
 		mutation: FLASHBACK_ADMIN_RESEND_OUTREACH,
 		variables: { personId, template, channel: channel ?? null },

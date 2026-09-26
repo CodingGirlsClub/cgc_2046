@@ -1,0 +1,28 @@
+/* 删除档案面板（#931）：与卡片页分享面板同族（底部圆角 + 半透明遮罩）；
+   提交钮用警示色而非品牌主色——不可逆动作不该读起来像「推荐操作」。 */
+.deleteMask { position: fixed; inset: 0; z-index: 330; background: rgba(0, 0, 0, 0.5); display: flex; align-items: flex-end; }
+.deleteSheet {
+  width: 100%; box-sizing: border-box; background: #f7f7f7; border-radius: 32rpx 32rpx 0 0;
+  padding: 36rpx 36rpx calc(env(safe-area-inset-bottom) + 28rpx); display: flex; flex-direction: column;
+}
+.deleteTitle { font-size: 32rpx; font-weight: 600; color: #222326; margin-bottom: 16rpx; }
+.deleteBody { font-size: 24rpx; line-height: 1.8; color: #4b4d54; }
+.deleteError { margin-top: 12rpx; font-size: 24rpx; color: #b42318; }
+.deleteFact { margin-top: 10rpx; font-size: 24rpx; line-height: 1.7; color: #222326; }
+.deleteLabel { margin-top: 28rpx; font-size: 24rpx; color: #4b4d54; }
+.deleteInput { margin-top: 12rpx; height: 80rpx; padding: 0 24rpx; border-radius: 16rpx; background: #fff; border: 1rpx solid rgba(0, 0, 0, 0.12); font-size: 28rpx; }
+.deleteSubmit, .deleteCancel, .deleteBack { margin-top: 20rpx; border: none; border-radius: 999rpx; font-size: 28rpx; line-height: 1.6; padding: 18rpx 0; }
+.deleteSubmit { background: #b42318; color: #fff; font-weight: 600; }
+.deleteSubmit[disabled] { opacity: 0.4; }
+.deleteCancel { background: transparent; color: #6b6f78; font-size: 26rpx; }
+.deleteBack { background: #222326; color: #fff; }
+.deleteSubmit::after, .deleteCancel::after, .deleteBack::after { border: none; }
+
+/* 换肤（盘点 §7）：纸面板 + 墨字、遮罩暗房色；提交钮仍是警示红（不可逆动作不用火，也不用品牌色） */
+.deleteMask { background: rgba(21, 19, 15, 0.62); }
+.deleteSheet { background: var(--paper-hi); }
+.deleteTitle, .deleteFact { color: var(--ink); }
+.deleteBody, .deleteLabel { color: var(--ink-2); }
+.deleteInput { background: var(--paper); border-color: var(--rule); }
+.deleteCancel { color: var(--ink-3); }
+.deleteBack { background: var(--ink); }

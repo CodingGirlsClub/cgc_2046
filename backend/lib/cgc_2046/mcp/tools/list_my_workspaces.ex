@@ -25,6 +25,18 @@ defmodule Cgc2046.Mcp.Tools.ListMyWorkspaces do
 
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    列出当前用户加入的全部工作台，以及在每个工作台的角色。无参数。开始工作前先调用本工具，让用户
+    按名称选择工作台；后续工具需要的 workspace_id 一律取自这里的返回，不要向用户索要。
+
+    返回 workspaces（按名称排序；每项 workspace_id / name / slug / roles，roles 是该工作台内的
+    角色名列表）+ is_platform_admin（为 true 时用户可以进入平台管理模式）。
+    """
+  end
+
   schema do
     %{}
   end

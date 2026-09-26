@@ -27,6 +27,18 @@ defmodule Cgc2046.Mcp.Tools.GetRolePlaybook do
   alias Cgc2046.Mcp.Playbooks
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    读取某个角色的工作方法 playbook（含该角色可用的专属工具说明）。role：learner（任何已登录用户）；
+    tutor（需在 workspace_id 所指工作台持有 tutor、owner 或 admin 角色）；workspace_admin（需持有 owner
+    或 admin 角色）；platform_admin（需是平台管理员，不用传 workspace_id）。tutor 与 workspace_admin 必须
+    传 workspace_id。返回 role / version / content，把 version 展示给用户。playbook 只说明工作方式，不扩大
+    权限；没有权限时返回以 forbidden 开头的错误，未知 role 会列出合法值。
+    """
+  end
+
   schema do
     field(:role, {:required, :string},
       description: "目标角色：learner | tutor | workspace_admin | platform_admin"

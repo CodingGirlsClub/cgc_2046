@@ -126,15 +126,22 @@ defmodule Cgc2046Web.GraphqlMiniprogramCodeTest do
     assert Enum.any?(expired["errors"], &(&1["code"] == "invalid_or_expired_scene"))
   end
 
-  test "订阅消息授权 mutation 按平台限流" do
+  # #930：订阅授权与登录拆桶，按账号计（具名上限 notification_consent_actor）；
+  # 与登录互不影响的端到端断言见 graphql_sign_in_with_platform_rate_limit_test
+  test "订阅消息授权 mutation 按账号限流" do
     table = Cgc2046Web.Plugs.RateLimit.table()
-    previous_config = Application.get_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit)
+    previous_limits = Application.get_env(:cgc_2046, :rate_limits)
     :ets.delete_all_objects(table)
-    Application.put_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 3)
+
+    Application.put_env(
+      :cgc_2046,
+      :rate_limits,
+      Keyword.put(previous_limits || [], :notification_consent_actor, 3)
+    )
 
     on_exit(fn ->
       :ets.delete_all_objects(table)
-      Application.put_env(:cgc_2046, Cgc2046Web.Plugs.RateLimit, previous_config)
+      Application.put_env(:cgc_2046, :rate_limits, previous_limits)
     end)
 
     user = Fixtures.register_user("gql-consent-rate-limit")

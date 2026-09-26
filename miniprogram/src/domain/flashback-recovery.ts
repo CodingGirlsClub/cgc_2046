@@ -1,4 +1,4 @@
-import type { FlashbackCapsule } from './models.ts'
+import type { FlashbackCapsule, FlashbackCapsuleArchive, FlashbackFutureFrame } from './models.ts'
 
 export type PublicRecovery = 'checking' | 'guest' | 'unmatched' | 'error'
 export type RecoveryState = { generation: number } & (
@@ -27,4 +27,39 @@ export function recoveryView(kind: PublicRecovery) {
 
 export function shouldRevealRecoveredCard(previousPerson: string | null, person: string, welcome: boolean): boolean {
   return previousPerson !== person && !welcome
+}
+
+/** 场次页视角：与长廊同一个找回状态机派生。登录引导只给未登录（guest）——
+ * 已登录未匹配若再给登录按钮，登录回跳仍未匹配，形成死循环并耗尽登录限流额度。 */
+export type EventView =
+  | { kind: 'loading' | 'error' }
+  | { kind: 'member'; archive: FlashbackCapsuleArchive; futureEvents: FlashbackFutureFrame[] }
+  | { kind: 'viewer'; guide: 'login' | 'recover' | null }
+export function eventView(state: RecoveryState, key: string): EventView {
+  if (state.kind !== 'member') {
+    if (state.kind === 'checking') return { kind: 'loading' }
+    if (state.kind === 'error') return { kind: 'error' }
+    return { kind: 'viewer', guide: state.kind === 'guest' ? 'login' : 'recover' }
+  }
+  const archive = state.capsule.archives.find((item) => item.key === key)
+  return archive ? { kind: 'member', archive, futureEvents: state.capsule.futureEvents } : { kind: 'viewer', guide: null }
+}
+
+/**
+ * 场次页相册来源（#933 相册对所有已登录用户开放）：
+ * - 有档案 → 胶囊里的场次（capsule）；
+ * - 已登录但没档案 → 相册读面（archives，未寄出者只有姓氏遮罩）；
+ * - 未登录 → 直接去登录页（login），登录后回到这一场；
+ * - 其余（加载中 / 失败 / 有档案但不在本场）→ 无相册（none）。
+ */
+export function eventAlbumSource(view: EventView): 'capsule' | 'archives' | 'login' | 'none' {
+  if (view.kind === 'member') return 'capsule'
+  if (view.kind !== 'viewer') return 'none'
+  if (view.guide === 'recover') return 'archives'
+  return view.guide === 'login' ? 'login' : 'none'
+}
+
+/** 登录后回到这一场：场次 key 编码进 returnUrl，returnUrl 再整体编码一次。 */
+export function eventLoginUrl(key: string): string {
+  return `/pages/login/index?returnUrl=${encodeURIComponent(`/pages/flashback-event/index?key=${encodeURIComponent(key)}`)}`
 }

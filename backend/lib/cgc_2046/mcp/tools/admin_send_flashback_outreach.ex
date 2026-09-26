@@ -10,14 +10,21 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
-  alias Cgc2046.Accounts.AdminActionLog
   alias Cgc2046.Flashback.Outreach.Dispatch
   alias Cgc2046.Flashback.OutreachAdmin
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
-  require Logger
-
-  require Ash.Query
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：按场次（archive_key，如 2014-01-11-bj）批量给闪念间校友发触达，已退订的自动排除。
+    确认摘要包含预计发送人数、各通道分布、退订排除人数和短信是否可用，确认前据此核对影响面。template
+    目前只有 reconnect；channel 同 admin_resend_flashback_outreach。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
 
   schema do
     field(:archive_key, :string, description: "场次 key（如 2014-01-11-bj）", required: true)
@@ -51,7 +58,8 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
   end
 
   @doc """
-  确认后真正执行（Confirmation 分派）：入队 + 治理留痕（同事务 fail-closed）。
+  确认后真正执行（Confirmation 分派）：入队，治理留痕由 Dispatch 单源写入
+  （失败不阻塞已入队的发送）。
   返回入队/跳过计数——入队即动作结果（KTD6）；错峰发送进行中，送达结果见
   /admin/flashback 批次历史。
   """
@@ -65,12 +73,12 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
 
     # R6 fail-closed 第二道闸：入队面已抑制 sms 通道，配置竞态窗口内确认的
     # 仅短信发送在此显式拒绝（不静默零入队）。
+    # 治理留痕单源在 Dispatch（R1）——与 /admin/flashback GraphQL 面共用。
     with :ok <- Dispatch.ensure_channel_ready(channel),
          {:ok, %{queued: queued, skipped: skipped}} <-
-           Dispatch.enqueue_for_archive(params["archive_key"], params["template"], channel),
-         {:ok, archive_id} <- fetch_archive_id(params["archive_key"]) do
-      log_admin_action(actor, params, archive_id, channel, queued, skipped)
-
+           Dispatch.enqueue_for_archive(params["archive_key"], params["template"], channel,
+             actor: actor
+           ) do
       {:ok,
        %{
          archive_key: params["archive_key"],
@@ -82,18 +90,6 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
     else
       {:error, reason} ->
         {:error, dispatch_error_message(reason)}
-    end
-  end
-
-  defp fetch_archive_id(archive_key) do
-    Cgc2046.Flashback.EventArchive
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(key == ^archive_key)
-    |> Ash.read_one(authorize?: false)
-    |> case do
-      {:ok, nil} -> {:error, "archive not found"}
-      {:ok, archive} -> {:ok, archive.id}
-      {:error, reason} -> {:error, inspect(reason)}
     end
   end
 
@@ -116,32 +112,6 @@ defmodule Cgc2046.Mcp.Tools.AdminSendFlashbackOutreach do
       end
 
     "闪念间批量触达「#{preview.archive_name}」（#{preview.archive_key}）· 模板 #{template} · 通道 #{channel_text}#{sms_note}。预估入队 #{preview.queued} 人（仅邮件 #{preview.email_only} / 仅短信 #{preview.sms_only} / 双通道 #{preview.both}），退订剔除 #{preview.unsubscribed} 人。确认后错峰发送。"
-  end
-
-  defp log_admin_action(actor, params, archive_id, channel, queued, skipped) do
-    # 审计失败不阻塞已入队的发送（wrapper 审计哲学同款），但 error 日志留痕。
-    AdminActionLog.log(%{
-      actor_id: actor && Map.get(actor, :id),
-      action: :flashback_outreach_send,
-      target_type: :flashback_event_archive,
-      target_id: archive_id,
-      result: :success,
-      metadata: %{
-        archive_key: params["archive_key"],
-        template: params["template"],
-        channel: to_string(channel),
-        queued: queued,
-        skipped: skipped
-      }
-    })
-    |> case do
-      {:ok, _} ->
-        :ok
-
-      error ->
-        Logger.error("[flashback_outreach_send] admin action log failed: #{inspect(error)}")
-        :ok
-    end
   end
 
   defp dispatch_error_message(%{code: code, message: message}), do: "#{code}: #{message}"
