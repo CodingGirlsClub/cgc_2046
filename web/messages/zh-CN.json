@@ -100,7 +100,7 @@
     "flashback_slug_taken": "该链接地址已被另一位校友的公开档案占用，请换一个。",
     "flashback_slug_locked": "公开档案已发布，链接地址不可再修改（可继续编辑其他内容）。",
     "flashback_token_not_found": "这枚闪念间链接不存在或已失效——可以从自助找回入口重新拿到你的那份记忆。",
-    "flashback_token_claimed": "这个档案已绑定账号，链接已完成使命——请登录或从「我的」进入查看。",
+    "flashback_token_claimed": "这张卡已收进账号，链接已完成使命。请登录，从「我的闪念间」进入查看。",
     "flashback_recover_account_conflict": "这个号码或这张卡已经属于另一个账号——请用那个账号登录查看，或联系我们处理。",
     "flashback_token_revoked": "这个档案已被删除，链接随之失效。",
     "flashback_answer_not_found": "找不到这条当年答案，请刷新后重试。",
@@ -301,6 +301,7 @@
       "login": "登录",
       "join": "加入我们",
       "myLearning": "我的学习",
+      "myFlashback": "我的闪念间",
       "myParticipations": "我的报名",
       "workspace": "工作台",
       "menu": "菜单"
@@ -2619,6 +2620,15 @@
     "myParticipations": "我的报名"
   },
   "flashback": {
+    "nav": {
+      "brand": "程序媛汇",
+      "label": "闪念间导航",
+      "home": "闪念间",
+      "voices": "金句墙",
+      "wishes": "许愿树",
+      "capsule": "我的时间长廊",
+      "login": "登录"
+    },
     "meta": {
       "enterTitle": "闪念间 · In a Flash",
       "enterDescription": "十几年前你写下的答案，一直在等你。",
@@ -2642,7 +2652,9 @@
       "quotesEmpty": "金句墙还空着——第一句会来自某位校友的授权。",
       "likeAria": "点赞（当前 {count} 人）",
       "quotesWallCta": "看全墙 →",
-      "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。"
+      "footer": "沉默的人永远安全：不寄出，只有你自己能看到你的答案。",
+      "myCapsule": "进入我的时间长廊",
+      "login": "登录，回到时间长廊"
     },
     "voices": {
       "metaTitle": "闪念间 · 金句墙",
@@ -2724,7 +2736,7 @@
       "verify": "验证并进入",
       "cardsTitle": "找到了你的 {count} 张卡——它们都归你了",
       "enterCapsule": "进入时间长廊 →",
-      "bound": "档案已与你的账号绑定。从今往后从「我的」进入。",
+      "bound": "卡已收好。此后登录，从「我的闪念间」进入即可查看与编辑。",
       "errorCode": "验证码不对或已过期，请重试。",
       "emailRequired": "请填写当年报名用的邮箱。",
       "errorRetry": "刚才那步没有成功，请稍后重试。"
@@ -2873,7 +2885,7 @@
       "failedTitle": "这次没贴上",
       "retry": "再试一次",
       "boundTitle": "账号已接管",
-      "boundNote": "从今往后，从「我的」进入就能看到这张卡。这条链接完成了它的使命。",
+      "boundNote": "卡已收好。此后登录，从「我的闪念间」进入即可查看与编辑。",
       "enterCapsule": "进入时间长廊 →"
     },
     "echoCard": {
@@ -2898,7 +2910,12 @@
       "cityAll": "全部",
       "scrollHint": "↓ 下滑 = 时间前进：顶上是那年，底部是等你的未来",
       "scrollHintWide": "向右滚动：左边是已显影的过去，右边是等你共创的未来 —— {city}",
-      "cityAllWide": "全部城市"
+      "cityAllWide": "全部城市",
+      "unboundTitle": "暂时还没找到你的那一张",
+      "unboundBody": "可以用当年报名的邮箱找回，也可以先去许愿树写下今天的愿望。",
+      "login": "登录",
+      "writeWish": "写愿望",
+      "myWishes": "我的愿望"
     },
     "event": {
       "loading": "正在显影这一场……",
@@ -2979,7 +2996,7 @@
     "invalid": {
       "flashback_token_claimed": {
         "title": "这个档案已有主人",
-        "body": "这个档案已绑定账号，链接已完成使命——请登录，或从「我的」进入查看。"
+        "body": "这张卡已收进账号，链接已完成使命。请登录，从「我的闪念间」进入查看。"
       },
       "claimed": {
         "action": "去登录"

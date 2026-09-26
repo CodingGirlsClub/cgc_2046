@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
+import FlashbackNav from "@/components/flashback/flashback-nav";
 import { Link } from "@/i18n/navigation";
 import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
@@ -523,24 +524,7 @@ export default function VoicesWall({
 					<a className={styles.skipLink} href="#voices-reading">
 						{t("skipToReading")}
 					</a>
-					<header className={styles.header}>
-						<Link className={styles.brand} href="/flashback" aria-label={t("metaTitle")}>
-							<strong>
-								{t("brandPrefix")}
-								<span className={styles.brandSeal}>{t("brandSealChar")}</span>
-							</strong>
-							<small>{t("brandSub")}</small>
-						</Link>
-						<nav className={styles.nav} aria-label={t("navLabel")}>
-							<Link href="/flashback/voices" className={styles.activeNav} aria-current="page">
-								{t("voicesNav")} <span>{t("voicesNavEn")}</span>
-							</Link>
-							{/* R21/wish2 U7：双页互跳带城市——切换保留当前城市 */}
-							<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>
-								{t("wishesNav")} <span>{t("wishesNavEn")}</span>
-							</Link>
-						</nav>
-						<div className={styles.headerActions}>
+					<FlashbackNav active="voices" city={city}>
 							{isIntro ? (
 								<button type="button" onClick={finishIntro}>
 									{t("skipIntro")} <Icon name="arrow" />
@@ -551,8 +535,7 @@ export default function VoicesWall({
 									<span>{t("shareWall")}</span>
 								</button>
 							)}
-						</div>
-					</header>
+						</FlashbackNav>
 
 					<main className={styles.workspace}>
 						<section className={styles.mapSection} aria-label={t("mapAria")}>

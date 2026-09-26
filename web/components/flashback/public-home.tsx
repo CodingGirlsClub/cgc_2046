@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import { useMutation } from "@apollo/client/react";
 import { Link } from "@/i18n/navigation";
+import { useAuthed } from "@/lib/auth-provider";
 import { client } from "@/lib/apollo-client";
 import { ensureVoterKey } from "@/lib/flashback-voter";
 import {
@@ -35,6 +36,7 @@ export function isOnlyFogPlaceholder(text: string): boolean {
  */
 export default function PublicHome() {
 	const t = useTranslations("flashback.home");
+	const { authed, confirmed } = useAuthed();
 	const fogT = useTranslations("flashback.roster");
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
@@ -125,6 +127,9 @@ export default function PublicHome() {
 				</h1>
 				<p className="fb-lead">{t("lead")}</p>
 				<p className="fb-hint">{t("whoAreWe")}</p>
+				{confirmed && <Link className="fb-cta" href={authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>
+					{t(authed ? "myCapsule" : "login")}
+				</Link>}
 			</header>
 
 			<section className="fb-public-stats" aria-labelledby="fb-stats-title">

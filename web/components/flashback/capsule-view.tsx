@@ -42,7 +42,7 @@ function useAlbumNotice(sent: boolean | null): [boolean, () => void] {
 type CapsuleState =
 	| { phase: "loading" }
 	| { phase: "invalid"; reason: "flashback_token_not_found" | "flashback_token_claimed" | "flashback_token_revoked" }
-	| { phase: "authRequired" }
+	| { phase: "authRequired"; signedIn: boolean }
 	| { phase: "error" }
 	| { phase: "ok"; token: string | null; capsule: FlashbackCapsule };
 
@@ -116,7 +116,7 @@ export default function CapsuleView() {
 					window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
 					setState({ phase: "invalid", reason: code });
 				} else if (code === "flashback_auth_required" || code === "flashback_person_not_bound") {
-					setState({ phase: "authRequired" });
+					setState({ phase: "authRequired", signedIn: code === "flashback_person_not_bound" });
 				} else {
 					setState({ phase: "error" });
 				}
@@ -143,11 +143,16 @@ export default function CapsuleView() {
 		return (
 			<div className="fb-root fb-stage fb-stage-pad">
 				<h2 className="fb-stage-title" ref={titleRef} tabIndex={-1}>
-					{t("authRequiredTitle")}
+					{t(state.signedIn ? "unboundTitle" : "authRequiredTitle")}
 				</h2>
-				<p className="fb-lead">{t("authRequiredBody")}</p>
+				<p className="fb-lead">{t(state.signedIn ? "unboundBody" : "authRequiredBody")}</p>
 				<div className="fb-invalid-actions">
-					<Link href="/flashback">{t("authRequiredAction")}</Link>
+					{!state.signedIn && <Link href="/login?next=%2Fflashback%2Fcapsule">{t("login")}</Link>}
+					<Link href="/flashback#recover">{t("authRequiredAction")}</Link>
+					{state.signedIn && <>
+						<Link href="/flashback/wishes">{t("writeWish")}</Link>
+						<Link href="/flashback/wishes/mine">{t("myWishes")}</Link>
+					</>}
 				</div>
 			</div>
 		);
