@@ -4,7 +4,7 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
 import { CUT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
-import { platformLoginCode, preparePlatformLogin } from '@/platform'
+import { platformLoginCode, preparePlatformLogin, stagePlatformLoginCode } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
@@ -65,7 +65,11 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false)
     }
-    if (!signedIn) setDialogVisible(true)
+    if (!signedIn) {
+      // xhs：授权弹层打开即预取登录码（session_key 时序约束见 platform/index.ts）
+      void stagePlatformLoginCode()
+      setDialogVisible(true)
+    }
   }
 
   const login = async (payload: PlatformPhonePayload = {}) => {
@@ -92,7 +96,11 @@ export default function LoginPage() {
       <View className={styles.permissions}>
         <Text className={styles.permission}>✓ 创建或绑定你的程序媛汇账号</Text>
         <Text className={styles.permission}>✓ 保存 7 天登录状态</Text>
-        <Text className={styles.permission}>✓ 后续通知仍需你逐次授权</Text>
+        {env === 'xhs' ? (
+          <Text className={styles.permission}>✓ 报名与审批结果在「我的报名」查看</Text>
+        ) : (
+          <Text className={styles.permission}>✓ 后续通知仍需你逐次授权</Text>
+        )}
       </View>
 
       {error && <Text className={styles.error} data-testid='login-error'>{error}</Text>}
