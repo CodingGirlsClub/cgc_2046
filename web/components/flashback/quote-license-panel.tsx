@@ -62,11 +62,12 @@ export default function QuoteLicensePanel({
 		picks.some((item) => item.questionKey === candidate.questionKey && item.start === candidate.start);
 
 	const togglePick = (candidate: QuoteSpan) =>
-		setPicks((current) =>
-			current.some((item) => item.questionKey === candidate.questionKey && item.start === candidate.start)
-				? current.filter((item) => !(item.questionKey === candidate.questionKey && item.start === candidate.start))
-				: [...current, candidate],
-		);
+		setPicks((current) => {
+			const exists = (item: QuoteSpan) => item.questionKey === candidate.questionKey && item.start === candidate.start;
+			// 只存区间三件套——candidate 还带渲染用 sentence 字段，input 类型不认
+			const span = { questionKey: candidate.questionKey, start: candidate.start, len: candidate.len };
+			return current.some(exists) ? current.filter((item) => !exists(item)) : [...current, span];
+		});
 
 	const save = async () => {
 		if (busy) return;
@@ -74,7 +75,12 @@ export default function QuoteLicensePanel({
 		setFeedback(null);
 		try {
 			await runSetQuoteLicense({
-				variables: { token: token ?? undefined, level, chosenQuoteSpans: picks },
+				variables: {
+					token: token ?? undefined,
+					level,
+					// 发送边界再净化一次：picks 可能来自缓存对象（__typename）
+					chosenQuoteSpans: picks.map(({ questionKey, start, len }) => ({ questionKey, start, len })),
+				},
 			});
 			setFeedback("saved");
 			onChanged?.();
