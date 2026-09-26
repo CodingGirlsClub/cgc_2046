@@ -650,18 +650,19 @@ defmodule Cgc2046.Flashback.Tokens do
 
   # 未认领（user_id 空）且手机号命中登录用户者——not_selected 也认领
   # （圆梦线同样有档案，只是不进名册）。只认已验证的手机号，账号邮箱不参与（见 claim_for_user/2）。
+  # 双形态匹配（同 Recover.match_people 的实测坑）：账号手机号是 +86 归一形（微信取号 /
+  # 验证码都经 PhoneNumber.normalize），导入档案存的是裸 11 位（Import.phone_value）——
+  # 精确等值永远不相等，有档案的人会一直显示「暂时还没找到」
   defp matched_persons(%{id: _user_id} = actor) do
     import Ecto.Query
 
-    # 手机号为空时不拼条件（Ecto 禁止 `col == ^nil` 这种不安全比较）
-    matches =
-      [Map.get(actor, :phone) && to_string(Map.get(actor, :phone))]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(fn phone -> dynamic([p], p.phone == ^phone) end)
+    case Map.get(actor, :phone) && to_string(actor.phone) do
+      phone when is_binary(phone) and phone != "" ->
+        forms = Enum.uniq([phone, String.trim_leading(phone, "+86")])
+        query_matched(dynamic([p], p.phone in ^forms))
 
-    case matches do
-      [] -> []
-      [by_phone] -> query_matched(by_phone)
+      _ ->
+        []
     end
   end
 
