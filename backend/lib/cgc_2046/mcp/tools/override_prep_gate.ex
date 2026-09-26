@@ -6,7 +6,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   前置：存在待覆盖的低于阈值报告（最近一次门禁通过后提交，`below_threshold_pending`）。
   理由 `reason` 必填——覆盖决定连同理由落 facts `gate_override` 审计
   （overridden_by/reason/at）。按生效策略推进：review_required → `review`；
-  否则直接发布（课程 draft → open）。
+  否则直接发布（生成不可变新 CourseRevision：draft 课程 launch，已 open 换绑）。
 
   确认流依据：覆盖质量门槛是高风险治理决定（绕过阈值直达审核/发布）。
   """

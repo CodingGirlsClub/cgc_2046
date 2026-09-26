@@ -4,8 +4,8 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   或 Owner/Admin，确认流 two-tool 写，D-D3）。
 
   前置 prep_state == review。审核人 = 策略快照指定的 reviewer_user_id（未指定时
-  任何工作台成员可审，允许 tutor 自审）或 Owner/Admin。通过 → 发布（S5 切片语义
-  = course launch：draft → open；S6 将改为生成不可变 CourseRevision），
+  任何工作台成员可审，允许 tutor 自审）或 Owner/Admin。通过 → 发布：生成不可变的新
+  CourseRevision（draft 课程随之 launch 开放报名；已 open 的课程换绑新版本），
   prep_state → published，run 转 succeeded。
 
   确认流依据：发布是公开面副作用（课程公开报名开启）。

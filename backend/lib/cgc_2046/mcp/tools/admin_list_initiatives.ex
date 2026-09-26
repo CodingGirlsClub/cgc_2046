@@ -17,31 +17,43 @@ defmodule Cgc2046.Mcp.Tools.AdminListInitiatives do
     field(:search, :string, description: "按名称或 slug 模糊搜索")
   end
 
+  @valid_statuses ~w(draft open closed cancelled)
+
   @impl true
   def execute(params, frame) do
     result =
       Wrapper.run(frame, params, "admin_list_initiatives", fn actor, _ws, params ->
-        query =
-          Initiative
-          |> Ash.Query.for_read(:read)
-          |> maybe_status(params["status"])
-          |> maybe_search(params["search"])
-          |> Ash.Query.sort(inserted_at: :desc, id: :desc)
-          |> Ash.Query.limit(50)
+        with {:ok, query} <- status_filter(params["status"]) do
+          query =
+            query
+            |> maybe_search(params["search"])
+            |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+            |> Ash.Query.limit(50)
 
-        case Ash.read(query, actor: actor) do
-          {:ok, rows} -> {:ok, %{count: length(rows), initiatives: Enum.map(rows, &summary/1)}}
-          {:error, _} -> {:error, "failed to list initiatives"}
+          case Ash.read(query, actor: actor) do
+            {:ok, rows} -> {:ok, %{count: length(rows), initiatives: Enum.map(rows, &summary/1)}}
+            {:error, _} -> {:error, "failed to list initiatives"}
+          end
         end
       end)
 
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
 
-  defp maybe_status(query, nil), do: query
+  # 白名单校验在入口做：未知值报明确错误，而不是 String.to_existing_atom 抛
+  # ArgumentError 打崩调用
+  defp status_filter(nil),
+    do: {:ok, Initiative |> Ash.Query.for_read(:read)}
 
-  defp maybe_status(query, status),
-    do: Ash.Query.filter(query, status == ^String.to_existing_atom(status))
+  defp status_filter(status) when status in @valid_statuses,
+    do:
+      {:ok,
+       Initiative
+       |> Ash.Query.for_read(:read)
+       |> Ash.Query.filter(status == ^String.to_existing_atom(status))}
+
+  defp status_filter(status),
+    do: {:error, "invalid status: #{inspect(status)} (draft | open | closed | cancelled)"}
 
   defp maybe_search(query, nil), do: query
   defp maybe_search(query, ""), do: query

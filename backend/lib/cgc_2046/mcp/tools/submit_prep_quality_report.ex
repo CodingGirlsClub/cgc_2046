@@ -13,7 +13,8 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
   - score < 生效阈值 → 回 `authoring`（响应 outcome=below_threshold；reviewer 或
     Owner/Admin 可经 override_prep_gate 记理由覆盖）；
   - score ≥ 生效阈值 → review_required ? `review`（等待 approve_prep）:
-    直接发布（outcome=published，课程 draft → open）。
+    直接发布（outcome=published，生成不可变新 CourseRevision：draft 课程 launch，
+    已 open 换绑）。
 
   被指派的 tutor（其本地 agent）或 Owner/Admin 可提交。
   """
