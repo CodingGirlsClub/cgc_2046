@@ -19,6 +19,16 @@ defmodule Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：拒绝一条待处理（pending）的工作台创建申请。rejection_reason 可选，会展示给申请人。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:application_id, {:required, :string},
       description: "待拒绝的工作台创建申请 ID（UUID，可从 admin_list_workspace_applications 获取）"

@@ -20,6 +20,17 @@ defmodule Cgc2046.Mcp.Tools.RetryRefund do
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Payments.Order
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：对退款失败（refund_failed）的订单重新发起退款。订单不是 refund_failed 时直接
+    返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

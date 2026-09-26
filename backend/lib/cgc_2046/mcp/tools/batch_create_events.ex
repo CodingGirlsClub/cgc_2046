@@ -49,6 +49,19 @@ defmodule Cgc2046.Mcp.Tools.BatchCreateEvents do
   # playbook 口径。
   @max_rows 1024
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：一次批量创建多场活动草稿（draft），最多 1024 行。
+    每行字段同 create_event（多余字段丢弃），title 与 slug 必填：slug 全局唯一，同时是幂等键——重放
+    同一批时，已存在于本工作台的 slug 返回 skipped（不更新，数据以首次为准），被其他工作台占用则该行
+    失败。每行独立提交，部分失败不影响其他行；修正失败行后可以把整批原样重发。返回逐行结果
+    row / status / slug / title / event_id / error（错误含字段与原因），不含挂载继承明细（需要时用
+    list_workspace_events 查单场）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

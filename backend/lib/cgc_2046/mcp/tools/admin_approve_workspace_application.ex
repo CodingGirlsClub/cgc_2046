@@ -21,6 +21,17 @@ defmodule Cgc2046.Mcp.Tools.AdminApproveWorkspaceApplication do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：批准一条工作台创建申请。确认执行后创建该工作台，申请人成为它的 Owner。
+    申请已被处理（不是 pending）时直接返回错误；确认前管理员身份被撤销的，确认时拒绝。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:application_id, {:required, :string},
       description: "待批准的工作台创建申请 ID（UUID，可从 admin_list_workspace_applications 获取）"

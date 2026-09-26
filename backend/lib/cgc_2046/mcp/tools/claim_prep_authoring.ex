@@ -13,6 +13,16 @@ defmodule Cgc2046.Mcp.Tools.ClaimPrepAuthoring do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：认领一门尚未指派 tutor 的课程教研任务（教研流程为 draft 或 authoring）。
+    工作台 tutor 或 Owner/Admin 可认领；多人同时认领时只有一人成功，其余收到 already claimed 错误。
+    认领成功后教研流程进入 authoring。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

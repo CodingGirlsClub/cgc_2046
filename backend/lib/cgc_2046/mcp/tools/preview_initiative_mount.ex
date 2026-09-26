@@ -30,6 +30,19 @@ defmodule Cgc2046.Mcp.Tools.PreviewInitiativeMount do
   alias Cgc2046.Initiatives.RulePreview
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，只读：在 create_event / update_event 带 initiative_id 挂载之前，预览该倡导
+    活动的四项规则及其锁定状态，并如实告诉用户挂载后会发生什么。规则与活动字段一一对应：deposit →
+    deposit_enabled / deposit_amount_cents（开启押金时与定价互斥，已开定价的活动会被拒绝）；age_gate →
+    min_age；min_participants → min_participants；deadline_rule → registration_deadline（开始前
+    hours_before_start 小时截止）。locked=true 的规则挂载后强制写入且不可修改；locked=false 只在挂载时
+    按当时的值快照，之后可改。missing_rules 非空或倡导活动不是 open 时，挂载会失败。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID；仅用于权限判定）")
 

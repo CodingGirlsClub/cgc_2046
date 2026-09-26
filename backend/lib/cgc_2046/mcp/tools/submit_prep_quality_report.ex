@@ -13,7 +13,8 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
   - score < 生效阈值 → 回 `authoring`（响应 outcome=below_threshold；reviewer 或
     Owner/Admin 可经 override_prep_gate 记理由覆盖）；
   - score ≥ 生效阈值 → review_required ? `review`（等待 approve_prep）:
-    直接发布（outcome=published，课程 draft → open）。
+    直接发布（outcome=published，生成不可变新 CourseRevision：draft 课程 launch，
+    已 open 换绑）。
 
   被指派的 tutor（其本地 agent）或 Owner/Admin 可提交。
   """
@@ -22,6 +23,18 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
+
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：提交课程教研的质量报告，只在教研流程处于 quality_check 时可用，被指派的 tutor
+    或 Owner/Admin 可提交。report：score（0–100 整数，必填）、summary（必填）、findings（可选，每条
+    severity + message），评分必须如实反映内容质量。低于生效阈值时回到 authoring（outcome =
+    below_threshold，可由审核人或 Owner/Admin 用 override_prep_gate 覆盖）；达到阈值时，教研策略要求
+    审核则进入 review，否则直接发布（outcome = published，规则同 approve_prep）。
+    """
+  end
 
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")

@@ -11,6 +11,16 @@ defmodule Cgc2046.Mcp.Tools.AssignEventModerator do
   alias Cgc2046.Events.Moderators
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：为活动指派一名主理人。user_id 可以是邮箱、CGC 编号
+    （CGC-XXXXXX）或用户 ID，必须精确匹配；没匹配到返回 user_not_found，CGC 编号匹配到多人返回
+    user_anchor_ambiguous（此时改用用户 ID）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "目标活动 ID（UUID）")
