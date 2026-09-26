@@ -239,7 +239,7 @@ describe("CapsuleView · 相册开放告知（#933）", () => {
 	it("开放前就寄出的人：第一次回来看到告知；知道了 → 不再出现", async () => {
 		await renderCapsule();
 
-		const notice = screen.getByTestId("fb-album-notice");
+		const notice = await screen.findByTestId("fb-album-notice");
 		expect(notice).toHaveTextContent("登录的人都能在这一场的相册里看到");
 		fireEvent.click(within(notice).getByRole("button", { name: "知道了" }));
 		expect(screen.queryByTestId("fb-album-notice")).not.toBeInTheDocument();
@@ -260,11 +260,11 @@ describe("CapsuleView · 相册开放告知（#933）", () => {
 	// 告知按「人」一次性（Codex 评审）：同一浏览器换账号，另一个人该看到的还是要看到
 	it("换账号互不影响：me-1 知道后，me-2 第一次回来仍看到告知", async () => {
 		await renderCapsule();
-		fireEvent.click(within(screen.getByTestId("fb-album-notice")).getByRole("button", { name: "知道了" }));
+		fireEvent.click(within(await screen.findByTestId("fb-album-notice")).getByRole("button", { name: "知道了" }));
 		cleanup();
 
 		await renderCapsule({ ...baseCapsule, me: { ...baseCapsule.me, id: "me-2" } });
-		expect(screen.getByTestId("fb-album-notice")).toBeInTheDocument();
+		expect(await screen.findByTestId("fb-album-notice")).toBeInTheDocument();
 	});
 
 	// 旧版是设备级单键：已在该浏览器读过的人迁移到本人键，不重复打扰
