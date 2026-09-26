@@ -762,6 +762,7 @@ export const FLASHBACK_CAPSULE: TypedDocumentNode<
 					likeCount
 				}
 				answers {
+					id
 					questionKey
 					text
 					rawText
