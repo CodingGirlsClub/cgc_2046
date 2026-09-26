@@ -223,6 +223,19 @@ export default function PublicHome() {
 				</p>
 			</section>
 
+			{/* M9：许愿树板块——只看首页的人也能发现许愿树（与金句墙同级的公开入口） */}
+			<section className="fb-public-wishes" aria-labelledby="fb-wishes-title">
+				<h2 id="fb-wishes-title" className="fb-action-title">
+					{t("wishesTitle")}
+				</h2>
+				<p className="fb-hint">{t("wishesBlurb")}</p>
+				<p className="fb-quotes-wall-cta">
+					<Link href="/flashback/wishes" data-testid="fb-wishes-cta">
+						{t("wishesCta")}
+					</Link>
+				</p>
+			</section>
+
 			<RecoverForm />
 
 			<footer className="fb-capsule-footer">
