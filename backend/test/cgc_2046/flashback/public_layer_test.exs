@@ -131,6 +131,44 @@ defmodule Cgc2046.Flashback.PublicLayerTest do
     end
   end
 
+  describe "统计层 · N9 口径" do
+    test "回来 = 打开过链接 ∪ 已绑定 ∪ 已寄出；寄出 ⊆ 回来（-distinct person，含删除排除）" do
+      archive = create_archive()
+      opened = create_person(archive, %{email: "n9-open@example.com"})
+      bound = create_person(archive, %{email: "n9-bind@example.com"})
+      sent_only = create_person(archive, %{email: "n9-sent@example.com"})
+      both = create_person(archive, %{email: "n9-both@example.com"})
+
+      touch_opened(opened)
+      touch_opened(both)
+
+      # 只绑定：从未打开链接、未寄出（小程序自动认领路径——旧口径漏计的人）
+      Person
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^bound.id)
+      |> Ash.read_one!(authorize?: false)
+      |> Ash.Changeset.for_update(:update)
+      |> Ash.Changeset.force_change_attribute(:user_id, Ecto.UUID.generate())
+      |> Ash.update!(authorize?: false)
+
+      # 只寄出：从未打开链接、未绑定（token 直寄路径）
+      for person <- [sent_only, both] do
+        Today
+        |> Ash.Changeset.for_create(:create, %{person_id: person.id})
+        |> Ash.create!(authorize?: false)
+        |> Ash.Changeset.for_update(:update, %{sent_to_wall_at: DateTime.utc_now()})
+        |> Ash.update!(authorize?: false)
+      end
+
+      {:ok, stats} = Public.stats()
+      # opened + bound + sent_only + both = 4（both 双路径只算一次）
+      assert stats.returned_count == 4
+      # 寄出 2 人，且必须是「回来」的子集
+      assert stats.sent_count == 2
+      assert stats.sent_count <= stats.returned_count
+    end
+  end
+
   describe "金句墙（R31/R32）" do
     test "授权者脱敏金句 + 署名；未授权者的内容零出现" do
       archive = create_archive()

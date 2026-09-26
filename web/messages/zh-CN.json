@@ -2935,7 +2935,7 @@
       "backHome": "‹ 闪念间",
       "applied": "报名 {count} 位",
       "attended": "走进教室 {count} 位",
-      "returned": "{count} 位已回来",
+      "returned": "{count} 位已寄出",
       "peopleTitle": "这一场的人",
       "peopleHint": "显影的是寄出了的，雾着的是还没回来的",
       "missing": "这一场不在你的名册里（或链接已失效）。",

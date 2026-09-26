@@ -2935,7 +2935,7 @@
       "backHome": "‹ In a Flash",
       "applied": "{count} applied",
       "attended": "{count} walked in",
-      "returned": "{count} came back",
+      "returned": "{count} sent their photos",
       "peopleTitle": "People of this gathering",
       "peopleHint": "developed = sent their card; fogged = not back yet",
       "missing": "This gathering isn’t in your roster (or the link expired).",
