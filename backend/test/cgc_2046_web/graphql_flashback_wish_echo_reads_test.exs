@@ -56,6 +56,8 @@ defmodule Cgc2046Web.GraphqlFlashbackWishEchoReadsTest do
     {:ok, wish} =
       Wishes.create_wish(person.id, "公开回响愿望", "public", public_listing_consent: true)
 
+    Cgc2046.FlashbackFixtures.list_wish!(wish.id)
+
     {:ok, draft} = WishEchoes.create_draft(wish.id, "愿望回响正文")
     {:ok, echo} = WishEchoes.publish(draft.id, Ecto.UUID.generate())
 

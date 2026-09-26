@@ -9,6 +9,11 @@ defmodule Cgc2046.Accounts.MiniprogramCodeTest do
   setup do
     test_pid = self()
 
+    # xhs token 进程缓存是全局 :persistent_term——每个用例起清一次，防跨用例串扰
+    Client.invalidate_xhs_token_cache()
+
+    xhs_config = Application.get_env(:cgc_2046, :miniprogram_platforms)[:xhs]
+
     Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
       conn = Plug.Conn.fetch_query_params(conn)
 
@@ -22,14 +27,40 @@ defmodule Cgc2046.Accounts.MiniprogramCodeTest do
             "data" => %{"img" => Base.encode64("tt-code")}
           })
 
+        # 官方《获取应用调用凭证》（doc/DC010382）：POST + JSON 体 {appid, secret}，
+        # 响应 data.expire_in（秒）
         {"miniapp.xiaohongshu.com", "/api/rmp/token"} ->
-          Req.Test.json(conn, %{"code" => 0, "data" => %{"access_token" => "xhs-code-token"}})
+          assert conn.method == "POST"
+          {:ok, raw, conn} = Plug.Conn.read_body(conn)
+          params = Jason.decode!(raw)
+          assert params["appid"] == xhs_config.appid
+          assert params["secret"] == xhs_config.secret
 
-        {"miniapp.xiaohongshu.com", "/api/rmp/qrcode/unlimited"} ->
           Req.Test.json(conn, %{
             "code" => 0,
-            "data" => %{"base64" => Base.encode64("xhs-code")}
+            "success" => true,
+            "msg" => "success",
+            "data" => %{"access_token" => "xhs-code-token", "expire_in" => 7200}
           })
+
+        # 官方《获取不限制的小程序二维码》（doc/DC164497）：appid/access_token 在
+        # query；body 带 scene/page/width；成功返回 image/png 字节流
+        {"miniapp.xiaohongshu.com", "/api/rmp/qrcode/unlimited"} ->
+          assert conn.method == "POST"
+          assert conn.query_params["appid"] == xhs_config.appid
+
+          assert conn.query_params["access_token"] == "xhs-code-token",
+                 "qrcode 调用应携带 token 步签发的 access_token"
+
+          {:ok, raw, conn} = Plug.Conn.read_body(conn)
+          params = Jason.decode!(raw)
+          assert is_binary(params["scene"])
+          assert params["page"] == "pages/join/index"
+          assert is_integer(params["width"]) and params["width"] >= 280
+
+          conn
+          |> Plug.Conn.put_resp_content_type("image/png")
+          |> Plug.Conn.send_resp(200, "xhs-code")
 
         other ->
           raise "unexpected miniprogram code request: #{inspect(other)}"
