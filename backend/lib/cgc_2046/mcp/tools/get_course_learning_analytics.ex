@@ -26,6 +26,17 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
   alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 tutor 与 Owner/Admin 专用：读取课程的学习分析，只含聚合计数：学习流程完成统计；当前已发布版本
+    每个学习目标的掌握分布、重试次数、低置信度次数、首次掌握平均尝试次数、最近活动时间；没有归属的学习
+    目标汇总；停滞中的学习流程数。不包含任何学员的证据、评分明细或回答正文。其他工作台的课程与不存在的
+    课程返回同一个 not found。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

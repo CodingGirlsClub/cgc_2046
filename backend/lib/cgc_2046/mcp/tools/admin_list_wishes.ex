@@ -16,6 +16,16 @@ defmodule Cgc2046.Mcp.Tools.AdminListWishes do
   alias Cgc2046.Mcp.Wrapper
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：列出全部许愿（含私有，不含已删除）。过滤：visibility（all | public | private，
+    默认 all）、city（等值）；sort：newest | endorsements | comments（默认 newest）；分页 limit
+    （默认 20，最多 50）/ offset。列表不含联系方式，需要时用 admin_get_wish。
+    """
+  end
+
   schema do
     field(:visibility, :string, description: "all | public | private（默认 all）")
     field(:city, :string, description: "城市等值过滤")

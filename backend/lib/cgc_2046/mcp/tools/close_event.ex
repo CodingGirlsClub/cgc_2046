@@ -18,6 +18,17 @@ defmodule Cgc2046.Mcp.Tools.CloseEvent do
   alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：结束一场开放中（open）的活动，状态变为 closed。这是终态，不可恢复，只能
+    新建活动；结束后报名关闭、赞助随之结束、教研流程终止。活动不是 open 时直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "待结束活动 ID（UUID，须为 open）")

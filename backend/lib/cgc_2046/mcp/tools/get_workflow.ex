@@ -7,6 +7,16 @@ defmodule Cgc2046.Mcp.Tools.GetWorkflow do
 
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：读取一个工作流（run_id）的状态。返回 run_id /
+    status / definition_id / definition_version / step_keys_with_facts（已有产出的步骤名，排序）/
+    started_at / finished_at。只读，不能通过本工具推进或操作工作流；逐步产出用 get_step_output 读。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

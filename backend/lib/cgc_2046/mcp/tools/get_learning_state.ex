@@ -34,6 +34,19 @@ defmodule Cgc2046.Mcp.Tools.GetLearningState do
   alias Cgc2046.Mcp.Tools.Response
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    读取当前用户在一门课程的学习状态：run（最新学习流程摘要，没有则为 null）；revision_number（课程当前
+    已发布版本号）；stale_revision（为 true 表示用户学的是旧版本，状态按旧版本展示，发布新版后可用
+    start_learning_run 开始新版本）；objectives（每个学习目标的掌握情况、是否锁定、缺哪些前置、尝试次数）；
+    review_queue（到期复习，按到期时间排序）；next_action（推荐下一步，reason 里含目标标题，照 reason
+    向学员解释从哪里开始；课程已完成时为 null）；progress（必修目标掌握数 / 总数 / 是否完成）。工作台成员、
+    已确认报名的学员、以及学过这门课的人（课程结束后也可以）可读。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

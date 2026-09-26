@@ -13,6 +13,17 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   require Ash.Query
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：删除一条许愿（软删除，效果与学员自己删除相同），reason 必填（1–500 字，记入审计）。
+    确认摘要显示许愿正文前 80 字和作者（姓名遮罩），用于确认前核对目标无误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:wish_id, :string, description: "许愿 id", required: true)
     field(:reason, :string, description: "删除理由（1–500 字，审计留痕）", required: true)

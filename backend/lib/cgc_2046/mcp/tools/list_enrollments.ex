@@ -38,6 +38,18 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：列出一场活动或一门课程（kind + offering_id）的报名记录，status 可选过滤
+    （pending | payment_pending | confirmed | rejected | expired | cancelled，缺省为全部）。每行：
+    enrollment_id、报名人（id / email / display_name）、状态、所选档位（tier_id，可对照当前 price_tiers
+    得到名称和金额）、审批截止时间、报名时间。最多 100 行，total_count 为截断前总数，数量超过时说明结果
+    不完整。其他工作台的条目与不存在的条目返回同一个 not found。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:kind, {:required, :string}, description: "供给类型：event | course")

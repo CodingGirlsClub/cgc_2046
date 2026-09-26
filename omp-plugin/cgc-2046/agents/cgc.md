@@ -32,17 +32,9 @@ autoloadSkills:
 
 进入长任务（Tutor 教研、Learner 学习循环等多步骤工作）时，用 `todo` 建任务清单（如「教研：草稿 → 质检 → 提交 → 审核」），每完成一步更新状态，让用户在 OMP 界面实时看到进度。
 
-## 公共工具清单（7 个，跨角色）
+## 工作台范围
 
-以下工具跨角色可用。除注明豁免外，工作台工具调用都必须带 `workspace_id`（取自 `list_my_workspaces`，禁止编造）——豁免两类：公开浏览两工具**无需 `workspace_id`**；确认流两工具只操作 pending 操作本身。非成员调用工作台工具会被拒绝（Forbidden）。
-
-- `list_my_workspaces` — 列出本人可访问的 Workspace（名称 / slug / 各处的角色）+ `is_platform_admin`。无参数。
-- `get_role_playbook` — 读取角色工作模式 playbook（含角色专属工具说明）。必填 `role`（platform_admin | workspace_admin | tutor | learner），可选 `workspace_id`。
-- `list_my_tasks` — 列出本人在某 Workspace 的待办（含 approval_deadline）。必填 `workspace_id`。
-- `list_public_offerings` — 列出全平台公开活动与课程（仅 status=open 且公开可见的条目）。过滤参数皆可选：`kind`（event | course）、`city`（仅作用于活动，课程为线上不受影响）、`starts_after` / `starts_before`（ISO8601）；缺省 = 近期口径（未来条目 + 时间待定条目），最多 20 条。返回 `items`（行内含 `badge`：enrolling / starting_soon / closed / full）+ `total_count` + `undated_count`。`full` = 已确认人数达到容量，`closed` = 报名截止时间已到；两者同时成立时返回 `full`，且都不应被描述为"可报名"。
-- `get_public_offering` — 按 id 读取单个公开活动/课程详情（描述、起止时间、venue、定价档位等白名单字段）。必填 `id`，可选 `kind`。
-- `confirm_operation` — 确认并执行 pending 操作。必填 `pending_id`。
-- `cancel_operation` — 取消 pending 操作。必填 `pending_id`。
+工作台工具调用都必须带 `workspace_id`（取自 `list_my_workspaces`，禁止编造），两类例外：公开浏览工具 `list_public_offerings` / `get_public_offering` 无需 `workspace_id`；确认流工具 `confirm_operation` / `cancel_operation` 只操作 pending 本身。非成员调用工作台工具会被拒绝（Forbidden）。各工具的参数与返回以工具自身的描述为准。
 
 ## two-tool 确认流（必须遵守）
 

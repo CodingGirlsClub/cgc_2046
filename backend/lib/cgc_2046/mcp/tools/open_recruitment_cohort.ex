@@ -20,6 +20,18 @@ defmodule Cgc2046.Mcp.Tools.OpenRecruitmentCohort do
   alias Cgc2046.Mcp.Tools.RecruitmentCohortHelpers, as: H
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：开放一个招募批次（draft 或 closed → open），公开申请页随即显示并接受申请。
+    同一工作台同时只能有一个开放中的批次，冲突时返回 recruitment_cohort_open_conflict。批次不是 draft 或
+    closed 时直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:cohort_id, {:required, :string}, description: "待开放招募批次 ID（UUID，须为 draft 或 closed）")

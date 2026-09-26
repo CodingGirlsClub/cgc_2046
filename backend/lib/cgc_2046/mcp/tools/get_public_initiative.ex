@@ -10,6 +10,16 @@ defmodule Cgc2046.Mcp.Tools.GetPublicInitiative do
   alias Cgc2046.Initiatives.Public
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    按 slug 读取一个公开的倡导活动页（open / closed / cancelled 都可读；draft 返回 not found）。任何已
+    连接用户可用，不需要 workspace_id。只有 open 的倡导活动才列出挂载的场次；每个场次带参与条件：
+    payment_mode 与押金明细、是否有年龄门槛、收费起价、成班进度。不返回规则原始值与锁定标记。
+    """
+  end
+
   schema do
     field(:slug, {:required, :string}, description: "Initiative 公开 slug")
   end
