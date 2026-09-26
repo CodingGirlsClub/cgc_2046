@@ -36,6 +36,17 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Workflows.StepAuthorization
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    把一步的产出写入工作流（run_id + step_key）：output 与该步已有数据浅合并（同名键覆盖）；reason 可选，
+    随 output 一起写入。按该步配置的角色授权，Owner/Admin 不受限；学习流程中报名的学员本人可以写自己的
+    进度。未知的 step_key、治理用的保留字段，以及已结束（cancelled / failed / succeeded）的工作流都会被
+    拒绝写入。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:run_id, {:required, :string}, description: "WorkflowRun ID（UUID）")

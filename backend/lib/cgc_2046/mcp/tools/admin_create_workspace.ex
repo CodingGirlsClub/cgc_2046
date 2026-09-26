@@ -26,6 +26,18 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：创建工作台并指定 Owner，二选一：owner_user_id 让现有用户直接成为 Owner；
+    owner_email 向该邮箱发 Owner 邀请（7 天有效），明文邀请 token 只在确认结果里返回一次、不落库，
+    需要管理员自己交给对方。新工作台自动带齐默认角色；slug 缺省由名称派生。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:name, {:required, :string}, description: "工作台名称")
 

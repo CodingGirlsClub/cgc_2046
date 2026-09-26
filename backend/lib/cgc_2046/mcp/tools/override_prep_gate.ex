@@ -16,6 +16,18 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    覆盖一份低于质量阈值的质检报告，让课程继续推进。审核人（教研策略指定的 reviewer，未指定时任何工作台
+    成员）或 Owner/Admin 可用；只有存在待覆盖的低分报告时可用。reason 必填，与覆盖决定一起记入审计。
+    教研策略要求审核时进入 review，否则直接发布（生成新版本并发布，规则同 approve_prep）。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

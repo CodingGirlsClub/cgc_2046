@@ -45,6 +45,19 @@ defmodule Cgc2046.Mcp.Tools.SubmitLearningAttempt do
   alias Cgc2046.Mcp.Wrapper
   alias Cgc2046.Curriculum.Content
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    提交一次正式学习评价（记录不可修改，失败的评价也保留，重试会新增一条）。只有已确认报名的学员本人可以
+    提交，且需要有进行中的学习流程（没有时先 start_learning_run）。rubric_results 必须精确覆盖该学习目标
+    rubric 的全部 criterion id，不多不少；evidence 与 rationale 不能为空；confidence 取 0..1。学习目标
+    的前置目标未掌握时拒绝，并返回缺少的前置目标。掌握由系统根据评价记录判定（passed 且 confidence ≥ 0.8
+    且 rubric 全部达标），不能直接写；对已掌握的目标再评价即算作复习。返回该目标的最新掌握状态、课程是否
+    已完成，以及下一步建议。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID(UUID)")
     field(:course_id, {:required, :string}, description: "课程 ID(UUID)")

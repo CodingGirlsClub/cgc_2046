@@ -29,6 +29,19 @@ defmodule Cgc2046.Mcp.Tools.UpdateCourse do
                        registration_deadline starts_at ends_at pricing_enabled price_tiers
                        curriculum_requirements)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：修改课程信息（标题、描述、slug、可见性、报名策略、名额、报名截止、起止时间、
+    定价、教研需求）。只传要改的字段；传 null 视为不修改，不能用来清空。状态由 launch / close / cancel
+    工具修改，不在这里改。设置正式 title 会清除临时标题标记。把 pricing_enabled 从 true 改为 false 会
+    同时免缴该课程全部待支付报名，确认摘要会列出受影响笔数；改价只影响之后的新订单。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

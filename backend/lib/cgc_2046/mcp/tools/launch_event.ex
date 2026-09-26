@@ -17,6 +17,17 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
   alias Cgc2046.Events.Event
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：发布一场草稿（draft）活动，状态变为 open，开始公开报名。活动不是 draft 时
+    直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:event_id, {:required, :string}, description: "待发布活动 ID（UUID，须为 draft）")

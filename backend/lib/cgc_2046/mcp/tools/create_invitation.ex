@@ -14,6 +14,19 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用：创建加入邀请。target_email 为空时生成公开链接；preauthorized_role_names
+    是接受邀请时自动授予的角色（只能是 tutor | volunteer | learner，可多个）。prep_course_ids 可选，
+    要求预授权角色含 tutor：接受邀请后自动成为这些课程的教研 tutor，并会向目标邮箱发送含接受链接的
+    邮件。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。确认成功后返回的明文邀请凭证只出现一次，要立即交给用户。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:target_email, :string, description: "目标邮箱（空 = 公开链接）")

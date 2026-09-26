@@ -23,6 +23,18 @@ defmodule Cgc2046.Mcp.Tools.SubmitPrepQualityReport do
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    直接写入，不走确认流：提交课程教研的质量报告，只在教研流程处于 quality_check 时可用，被指派的 tutor
+    或 Owner/Admin 可提交。report：score（0–100 整数，必填）、summary（必填）、findings（可选，每条
+    severity + message），评分必须如实反映内容质量。低于生效阈值时回到 authoring（outcome =
+    below_threshold，可由审核人或 Owner/Admin 用 override_prep_gate 覆盖）；达到阈值时，教研策略要求
+    审核则进入 review，否则直接发布（outcome = published，规则同 approve_prep）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:course_id, {:required, :string}, description: "课程 ID（UUID）")

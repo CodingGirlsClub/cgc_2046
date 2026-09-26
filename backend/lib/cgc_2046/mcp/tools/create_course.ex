@@ -25,6 +25,16 @@ defmodule Cgc2046.Mcp.Tools.CreateCourse do
                     registration_deadline starts_at ends_at visibility slug pricing_enabled
                     price_tiers)
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台 Owner/Admin 专用，直接写入，不走确认流：创建一门课程草稿（状态恒为 draft，不公开）。title
+    可以先不填：系统会生成临时标题并标记 provisional_title，发布前必须用 update_course 设置正式标题。
+    slug 缺省由平台生成。开放、结束、取消和定价变更由各自的工具完成（走确认流）。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

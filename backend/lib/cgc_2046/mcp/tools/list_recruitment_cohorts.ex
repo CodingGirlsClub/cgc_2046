@@ -26,6 +26,16 @@ defmodule Cgc2046.Mcp.Tools.ListRecruitmentCohorts do
 
   @limit 100
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    工作台成员可读：列出工作台的全部招募批次（含 draft 与 closed），status 可选过滤（draft | open |
+    closed，非法值会报错并列出合法值）。每条 cohort_id / name / status / apply_deadline_at / starts_at /
+    ends_at，按创建时间倒序，最多 100 条。批次没有 slug，后续修改、开放、关闭都用这里的 cohort_id。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
     field(:status, :string, description: "按状态过滤：draft | open | closed（不提供 = 全部）")

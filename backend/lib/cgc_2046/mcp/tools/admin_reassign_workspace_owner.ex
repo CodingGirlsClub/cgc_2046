@@ -27,6 +27,19 @@ defmodule Cgc2046.Mcp.Tools.AdminReassignWorkspaceOwner do
   alias Cgc2046.Mcp.Confirmation
   alias Cgc2046.Mcp.Wrapper
 
+  # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
+  @impl true
+  def description do
+    """
+    平台管理员专用：在工作台还没有 Owner 入座（Owner 邀请尚未接受）期间更换 Owner，二选一：
+    new_owner_user_id 改为现有用户（已是成员则在原成员身份上加 Owner 角色）；new_owner_email 改发新的
+    Owner 邀请（7 天有效，明文 token 只在确认结果里返回一次）。原有的 Owner 邀请同时作废。已有 Owner
+    的工作台直接返回错误。
+    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
+    用户确认后调 confirm_operation(pending_id) 才执行。
+    """
+  end
+
   schema do
     field(:workspace_id, {:required, :string}, description: "目标工作台 ID（UUID）")
 

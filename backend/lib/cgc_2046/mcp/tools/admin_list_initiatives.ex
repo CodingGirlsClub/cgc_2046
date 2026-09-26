@@ -1,4 +1,9 @@
 defmodule Cgc2046.Mcp.Tools.AdminListInitiatives do
+  @moduledoc """
+  平台管理员专用：列出倡导活动（含 draft），按创建时间倒序，最多 50 条。status 精确过滤，
+  search 对 name 或 slug 做包含匹配，两者均可省略。返回 count + initiatives（id / name /
+  slug / status / inserted_at），不含规则，详情用 admin_get_initiative。
+  """
   use Anubis.Server.Component,
     type: :tool,
     meta: %{workspace_id: :optional, membership: :platform_admin}
@@ -8,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListInitiatives do
   require Ash.Query
 
   schema do
-    field(:status, :string, description: "draft / open / closed")
+    field(:status, :string, description: "draft | open | closed | cancelled")
     field(:search, :string, description: "按名称或 slug 模糊搜索")
   end
 
