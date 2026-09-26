@@ -24,6 +24,12 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   @quote_sign "—— 一位 2013 年 5 月参加 Rails Girls 的学员"
   @mini_program_line "手机上也可以在微信里搜索小程序「程序媛汇」，体验更顺手。"
 
+  # 比特币奖品兑付联系邮箱（R25 人工通道）：显影页提醒（R7 全场告知）在 web 有、
+  # 小程序/邮件此前没有；邮件是唯一主动触达「不记得这事的人」的通道，补一行 P.S.。
+  @redeem_email "info@codingirlsclub.com"
+  @redeem_mailto "mailto:info@codingirlsclub.com?subject=%E6%AF%94%E7%89%B9%E5%B8%81%E5%A5%96%E5%93%81%E5%85%91%E4%BB%98"
+  @redeem_text "对了——2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过。如果你恰好也是当年的获奖者，欢迎发邮件至 #{@redeem_email} 联系兑付。"
+
   @doc "唤醒首封（R23）：称呼 + 本人场次日期/场次名（均可空）+ 专属链接。"
   @spec reconnect(
           String.t(),
@@ -104,6 +110,8 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。
     #{@mini_program_line}
 
+    #{@redeem_text}
+
     不想再收到此类邮件？取消订阅：#{unsub_url}
 
     —— CGC 2046
@@ -135,7 +143,8 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <p style="font-size:12px;color:#918c82;line-height:1.9;margin:0 0 32px;text-align:center;">“#{@quote_text}”<br>#{@quote_sign}</p>
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。</p>
     <div style="text-align:center;margin:0 0 22px;"><a href="#{enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
-    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 40px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
+    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 26px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
+    <p style="font-size:13px;color:#918c82;line-height:1.9;margin:0 0 40px;">对了——2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过。如果你恰好也是当年的获奖者，欢迎<a href="#{@redeem_mailto}" style="color:#cbbf8f;text-decoration:underline;">联系我们</a>兑付。</p>
     <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
     </div>
     </div>
