@@ -71,7 +71,14 @@ defmodule Cgc2046.Flashback.ReportsTest do
         signature_choice: :anonymous
       )
 
-    wish
+    # P2-1 机审通道门后公开愿默认待审；举报目标资格 = listed——本套件聚焦举报，
+    # 直挂树（等价 admin 放行 + re-list 的终态）
+    Repo.query!(
+      "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+      [Repo.uuid!(wish.id)]
+    )
+
+    Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
   end
 
   describe "公开举报" do

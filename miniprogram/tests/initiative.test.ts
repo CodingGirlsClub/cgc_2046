@@ -205,10 +205,10 @@ describe('三平台页面注册', () => {
     }
   })
 
-  // #771：公开卡页只在微信全量端注册——它由分享链接进入，裁剪端没有闪念间
-  // 深度场景（页内「站外公开」文案也过不了 check:diversion 词表）。
+  // #771：公开卡页由分享链接进入。P2 起小红书注册闪念间全家桶（含公开卡），
+  // 抖音维持不挂（无闪念间深度场景）。
   // 平台清单在模块加载期读 process.env，故必须逐平台 resetModules + 动态 import。
-  it('公开卡页仅微信全量端注册（裁剪端不挂）', async () => {
+  it('公开卡页注册面：weapp/xhs 挂、tt 不挂', async () => {
     const original = process.env.TARO_ENV
     vi.stubGlobal('defineAppConfig', (config: unknown) => config)
     try {
@@ -216,10 +216,10 @@ describe('三平台页面注册', () => {
         process.env.TARO_ENV = platform
         vi.resetModules()
         const { default: config } = await import('../src/app.config')
-        if (platform === 'weapp') {
-          expect(config.pages).toContain('pages/flashback-shared-card/index')
-        } else {
+        if (platform === 'tt') {
           expect(config.pages).not.toContain('pages/flashback-shared-card/index')
+        } else {
+          expect(config.pages).toContain('pages/flashback-shared-card/index')
         }
       }
     } finally {
