@@ -25,7 +25,8 @@ export default function ProfileView({ slug }: { slug: string }) {
 	};
 
 	useEffect(() => {
-		load();
+		// microtask 包裹避开 effect 内同步 setState（react-hooks/set-state-in-effect），同 capsule-view 先例
+		Promise.resolve().then(() => load());
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [slug]);
 
