@@ -123,6 +123,12 @@ env:
     # 抖音端上架启用，命名与 WECHAT_MP_* 对称）
     - DOUYIN_MP_APPID
     - DOUYIN_MP_SECRET
+    # 小红书小程序凭证（可选门禁：缺值 platform_not_configured，boot 不崩；
+    # 命名与 DOUYIN_MP_* 对称。0.0.1 上线时漏登记本名单——workflow 注入了
+    # .kamal/secrets 但 kamal 只注入此处名单，容器 env 缺键导致真机登录
+    # authentication_failed（#974 部署后仍失败之根因）
+    - XHS_MP_APPID
+    - XHS_MP_SECRET
     # 订阅消息模板 ID（2026-08-26 平台申请 3 键；#406 2026-09-05 补 7 键：
     # 报名提交/报名成功/支付成功/收款到账/订单超时/退款成功/退款失败；
     # #606 2026-09-16 再补 7 键：开班成班/未达阈值/改期/主理人指派/
