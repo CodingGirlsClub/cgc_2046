@@ -511,7 +511,7 @@ export default function VoicesWall({
 							<p className={styles.eyebrow}>{t("mapEyebrow")}</p>
 							<h1>{t("mapTitle")}</h1>
 							<p data-testid="voices-empty">{t("emptyWall")}</p>
-							<Link href="/flashback" className={styles.primaryLink}>
+							<Link href="/flashback#recover" className={styles.primaryLink}>
 								{t("emptyWallCta")}
 							</Link>
 						</main>
@@ -677,7 +677,7 @@ export default function VoicesWall({
 									</div>
 									<p className={styles.disclosure}>{t("disclosureOrigin")}<br />{t("disclosureEcho")}</p>
 									<footer className={styles.readerFooter}>
-										<Link href="/flashback">{t("recover")}<Icon name="arrow" /></Link>
+										<Link href="/flashback#recover">{t("recover")}<Icon name="arrow" /></Link>
 										<Link href={city ? `/flashback/wishes?city=${encodeURIComponent(city)}` : "/flashback/wishes"}>{t("wishesFooter")}<Icon name="arrow" /></Link>
 									</footer>
 								</>
@@ -715,7 +715,7 @@ export default function VoicesWall({
 			{likeHint && (
 				<div className={styles.likeHint} role="status" data-testid="like-hint">
 					<p>{t("recoverHint")}</p>
-					<Link href="/flashback" onClick={() => setLikeHint(false)}>
+					<Link href="/flashback#recover" onClick={() => setLikeHint(false)}>
 						{t("recoverCta")}
 					</Link>
 					<button type="button" onClick={() => setLikeHint(false)} aria-label={t("dismiss")}>

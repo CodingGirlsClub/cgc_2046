@@ -18,6 +18,11 @@ describe("已收好链接的下一步", () => {
   expect(screen.getByRole("link", { name: "进入我的时间长廊" })).toHaveAttribute("href", "/flashback/capsule");
   expect(screen.queryByRole("link", { name: "去登录" })).not.toBeInTheDocument();
  });
+ it("not_found 的「去自助找回」带 #recover 锚点（L4）", () => {
+  auth.mockReturnValue({ authed: false, confirmed: false });
+  render(<InvalidToken reason="flashback_token_not_found" />);
+  expect(screen.getByRole("link", { name: "自助找回我的档案" })).toHaveAttribute("href", "/flashback#recover");
+ });
  it("已登录时正文不再提示请登录", () => {
   auth.mockReturnValue({ authed: true, confirmed: true });
   render(<InvalidToken reason="flashback_token_claimed" />);

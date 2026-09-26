@@ -30,8 +30,9 @@ export default function InvalidToken({ reason }: { reason: InvalidTokenReason })
 				{reason === "flashback_token_claimed" && (
 					<Link href={confirmed && authed ? "/flashback/capsule" : "/login?next=%2Fflashback%2Fcapsule"}>{t(confirmed && authed ? "claimed.capsule" : "claimed.action")}</Link>
 				)}
+				{/* L4：not_found = 去找回，直落首页找回锚点；revoked 是「回到首页」不带 */}
 				{reason !== "flashback_token_claimed" && (
-					<Link href="/flashback">{t(`${reason}.action`)}</Link>
+					<Link href={reason === "flashback_token_not_found" ? "/flashback#recover" : "/flashback"}>{t(`${reason}.action`)}</Link>
 				)}
 			</div>
 		</section>

@@ -36,7 +36,7 @@ export default function ProfileView({ slug }: { slug: string }) {
 				<h1 className="fb-stage-title">{t("notFoundTitle")}</h1>
 				<p className="fb-lead">{t("notFoundBody")}</p>
 				<div className="fb-invalid-actions">
-					<Link href="/flashback">{t("backHome")}</Link>
+					<Link href="/flashback#recover">{t("backHome")}</Link>
 				</div>
 			</div>
 		);
