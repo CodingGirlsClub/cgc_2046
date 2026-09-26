@@ -1219,6 +1219,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 		offset?: number | null;
 		limit?: number | null;
 		voterKey?: string | null;
+		withEchoes?: boolean | null;
 	}
 > = gql`
 	query FlashbackPublicWishes(
@@ -1227,6 +1228,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 		$offset: Int
 		$limit: Int
 		$voterKey: String
+		$withEchoes: Boolean
 	) {
 		flashbackPublicWishes(
 			city: $city
@@ -1234,6 +1236,7 @@ export const FLASHBACK_PUBLIC_WISHES: TypedDocumentNode<
 			offset: $offset
 			limit: $limit
 			voterKey: $voterKey
+			withEchoes: $withEchoes
 		) {
 			id
 			content
