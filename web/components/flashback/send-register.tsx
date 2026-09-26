@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useTranslations } from "next-intl";
 import { usePaymentErrorTranslator } from "@/lib/payment-errors";
+import { graphqlErrorDetails } from "@/lib/graphql/auth";
 import {
 	sentencesWithFogMark,
 	TODAY_FIELDS,
@@ -171,11 +172,16 @@ export default function SendRegister({
 
 	const handleBind = async () => {
 		setError(null);
-		const ok = await onRegisterBind(phone, code);
-		if (ok) {
-			setPhase("bound");
-		} else {
-			setError(errorT("invalid_or_expired_code", t("errorCode")));
+		try {
+			const ok = await onRegisterBind(phone, code);
+			if (ok) {
+				setPhase("bound");
+			} else {
+				setError(errorT("invalid_or_expired_code", t("errorCode")));
+			}
+		} catch (err) {
+			// mutation 被拒会抛错：按服务端 code 提示（验证码错 / 这张卡已属于另一个账号 / 限流…）
+			setError(errorT(graphqlErrorDetails(err)?.code ?? "invalid_or_expired_code", t("errorCode")));
 		}
 	};
 

@@ -1433,6 +1433,8 @@ export class RealMiniProgramApi implements MiniProgramApi {
         ) {
           throw new SessionExpiredError()
         }
+        // 档案已属于另一个账号等业务码：errorCopy 抛中文（旅程页直接 toast error.message）
+        mutationError(error.errors)
       }
       throw error
     })

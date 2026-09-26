@@ -31,7 +31,7 @@ defmodule Cgc2046.Flashback.Tokens do
   require Logger
 
   alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
-  alias Cgc2046.Flashback.{Answer, Person, QuoteLicense, Today, Token, Touch}
+  alias Cgc2046.Flashback.{Answer, Binding, Person, QuoteLicense, Today, Token, Touch}
   alias Cgc2046.Mailer
 
   @touch_events [:link_opened, :revealed, :sent_to_wall, :intent_submitted]
@@ -568,9 +568,11 @@ defmodule Cgc2046.Flashback.Tokens do
 
   @doc """
   寄出时刻的一步注册：手机验证码（purpose `:register`）→ find-or-create User
-  （`SignInFlow`，与验证码登录同款）→ `person.user_id` 绑定 + token 作废
-  （`claimed_by_user_id` 置位，R1 注册即链接作废）→ 签会话 token（httpOnly
-  cookie 由 web 层 middleware 交付）。
+  （`SignInFlow`，与验证码登录同款）→ 绑定档案（`Binding`：档案名下全部链接作废，R1）
+  → 签会话 token（httpOnly cookie 由 web 层 middleware 交付）。
+
+  档案已属于另一个账号 → `flashback_recover_account_conflict`，不建账号、不换会话。归属判断放在
+  验证码通过之后：先判断会让持链接的人换号码试探出档案主人的手机号。
 
   绑定成功向记录内原通道（email 有则发）送「档案已绑定」通知（best-effort）。
   """
@@ -581,11 +583,12 @@ defmodule Cgc2046.Flashback.Tokens do
     with {:ok, token} <- fetch_valid(token_plaintext),
          {:ok, phone} <- normalize_phone(raw_phone),
          :ok <- consume_code(phone, code, :register),
+         :ok <- Binding.check_for_phone([token.person], phone),
          {:ok, user, created?} <- SignInFlow.find_or_create_user(phone),
          :ok <- SignInFlow.maybe_admit_to_default_workspace(user, created?),
+         :ok <- Binding.bind(token.person, user),
          :ok <- SignInFlow.revoke_stored_tokens(user, :web),
-         {:ok, user} <- SignInFlow.generate_token(user, :web, context),
-         :ok <- bind_person_and_claim(token, user) do
+         {:ok, user} <- SignInFlow.generate_token(user, :web, context) do
       notify_bound(token.person)
 
       {:ok,
@@ -598,8 +601,8 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc """
   微信一键收好（R27 小程序侧）：已登录用户把档案收进账号。
 
-  - **带 token**：绑定该链接的档案并作废链接（同 `register_bind` 的 bind+claim，
-    只是身份来自会话而非验证码）；
+  - **带 token**：绑定该链接的档案并作废其全部链接（同 `register_bind` 的 `Binding`，
+    只是身份来自会话而非验证码）；档案已属于另一个账号 → `flashback_recover_account_conflict`；
   - **不带 token**：按**库里已有且已验证的手机/邮箱**自动匹配未认领档案并全部
     绑定（手机已由微信登录验证过，不再二次发码）——「登录后自动匹配 → 直接
     认领」的落点；
@@ -613,30 +616,25 @@ defmodule Cgc2046.Flashback.Tokens do
 
   def claim_for_user(%{id: _user_id} = actor, token_plaintext) when is_binary(token_plaintext) do
     with {:ok, token} <- fetch_valid(token_plaintext),
-         :ok <- bind_person_and_claim(token, actor) do
+         :ok <- Binding.bind(token.person, actor) do
       notify_bound(token.person)
 
       {:ok, %{bound: true, bound_count: 1, masked_phone: mask_phone(token.person.phone)}}
     end
   end
 
-  def claim_for_user(%{id: user_id} = actor, _no_token) do
-    persons = matched_persons(actor)
-
-    Enum.each(persons, fn %{id: person_id} ->
-      Cgc2046.Flashback.Person
-      |> Ash.get!(person_id, authorize?: false)
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user_id)
-      |> Ash.update!(authorize?: false)
-    end)
-
-    case persons do
+  def claim_for_user(%{id: _user_id} = actor, _no_token) do
+    case matched_persons(actor) do
       [] ->
         {:ok, %{bound: false, bound_count: 0, masked_phone: nil}}
 
-      [%{phone: phone} | _] ->
-        {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
+      [%{phone: phone} | _] = persons ->
+        ids = Enum.map(persons, & &1.id)
+        people = Person |> Ash.Query.filter(id in ^ids) |> Ash.read!(authorize?: false)
+
+        with :ok <- Binding.bind(people, actor) do
+          {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
+        end
     end
   end
 
@@ -929,23 +927,6 @@ defmodule Cgc2046.Flashback.Tokens do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^person_id)
     |> Ash.read_one!(authorize?: false)
-  end
-
-  defp bind_person_and_claim(token, user) do
-    {:ok, _} =
-      token.person
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
-      |> Ash.update(authorize?: false)
-
-    {:ok, _} =
-      token
-      |> Ash.Changeset.for_update(:update, %{})
-      |> Ash.Changeset.force_change_attribute(:claimed_by_user_id, user.id)
-      |> Ash.Changeset.force_change_attribute(:claimed_at, DateTime.utc_now())
-      |> Ash.update(authorize?: false)
-
-    :ok
   end
 
   defp normalize_phone(raw) do
