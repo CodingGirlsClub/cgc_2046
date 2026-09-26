@@ -126,6 +126,10 @@ config :cgc_2046, :sms_req_plug, {Req.Test, Cgc2046.SmsSendCloudStub}
 # （请求仍被上面的 Req.Test 拦截，绝不外呼）。
 config :cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template"
 
+# 闪念间手机号找回：生产关闭（config.exs），测试打开——既有用例继续覆盖保留的手机通道；
+# 关闭态由 recover_phone_disabled_test 钉住。
+config :cgc_2046, :flashback_recover_phone_enabled, true
+
 # 微信网站应用扫码登录（plan 002 U4）：测试经 Req.Test stub 拦截
 config :cgc_2046, :wechat_web_req_plug, {Req.Test, Cgc2046.WechatWebStub}
 

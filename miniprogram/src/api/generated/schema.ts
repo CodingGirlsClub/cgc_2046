@@ -4748,11 +4748,13 @@ export type RootMutationType = {
   flashbackLikeQuote?: Maybe<FlashbackQuoteLikeResult>;
   /** 认领显影完成（四率之 revealed；其余三事件由后端在对应 mutation 内写入） */
   flashbackMarkRevealed?: Maybe<FlashbackTouchResult>;
-  /** 自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流 */
+  /** 自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流。手机通道暂停时手机号同形返回、不发码 */
   flashbackRecover?: Maybe<FlashbackRecoverResult>;
-  /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡） */
+  /** 自助找回·贴链接（已登录，小程序邮箱通道）：找回邮件里的入口链接（或其中的 fb_ token）贴回来 → 同邮箱的全部档案绑定到当前登录账号并作废链接；档案已属于另一个账号 → flashback_recover_account_conflict；链接无效 / 已用过 → flashback_token_* */
+  flashbackRecoverClaimForAccount?: Maybe<FlashbackRecoverVerifyResult>;
+  /** 自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）。手机通道暂停时一律 invalid_or_expired_code */
   flashbackRecoverVerify?: Maybe<FlashbackRecoverVerifyResult>;
-  /** 自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover */
+  /** 自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover。手机通道暂停时一律 invalid_or_expired_code */
   flashbackRecoverVerifyForAccount?: Maybe<FlashbackRecoverVerifyResult>;
   flashbackRedeem?: Maybe<FlashbackRedeemResult>;
   /** 注册绑定（R27 寄出时刻一步注册）：手机验证码 → find-or-create User → 档案绑定 + 链接作废；会话 token 经 httpOnly cookie 交付 */
@@ -5339,6 +5341,11 @@ export type RootMutationTypeFlashbackMarkRevealedArgs = {
 
 export type RootMutationTypeFlashbackRecoverArgs = {
   identifier: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeFlashbackRecoverClaimForAccountArgs = {
+  link: Scalars['String']['input'];
 };
 
 

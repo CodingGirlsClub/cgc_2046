@@ -1465,6 +1465,26 @@ function responseFor(document: string, variables: object): unknown {
       }
     }
   }
+  // 邮箱找回·贴链接（镜像 Recover.claim_link_for_user）：要求登录；取链接里的 fb_ token——
+  // 取不到 = token_not_found，fb_other… = 档案属于另一个账号，用过的 = token_claimed，其余绑到当前账号
+  if (document.includes('mutation FlashbackRecoverClaimForAccount')) {
+    if (!loggedIn) return { errors: [{ message: 'unauthorized', code: 'unauthorized' }] }
+    const token = /fb_[A-Za-z0-9_-]+/.exec(String(values.link ?? ''))?.[0]
+    if (!token) return { errors: [{ message: 'token not found', code: 'flashback_token_not_found' }] }
+    if (token.startsWith('fb_other')) {
+      return { errors: [{ message: 'This phone or archive already belongs to another account', code: 'flashback_recover_account_conflict' }] }
+    }
+    if (flashbackClaimedTokens.has(token)) return { errors: [{ message: 'token claimed', code: 'flashback_token_claimed' }] }
+    flashbackClaimedTokens.add(token)
+    flashbackUnclaimed = false
+    try {
+      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+    } catch {
+      // node --test 无 storage：模块态已置位
+    }
+    return { flashbackRecoverClaimForAccount: { bound: true, cards: [{ surnameMasked: '王**' }] } }
+  }
   if (document.includes('mutation FlashbackRecover(')) {
     return { flashbackRecover: { dispatched: true } }
   }

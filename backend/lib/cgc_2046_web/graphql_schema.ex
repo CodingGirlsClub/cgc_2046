@@ -1958,7 +1958,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流"
+    @desc "自助找回·发起（U6/R21/KTD7）：手机精确匹配→邮箱兜底；命中与未命中同形返回（不泄露存在性）；双窗口限流。手机通道暂停时手机号同形返回、不发码"
     field :flashback_recover, :flashback_recover_result do
       arg(:identifier, non_null(:string))
 
@@ -1971,7 +1971,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）"
+    @desc "自助找回·验证（U6/R21）：手机验证码通过 → find-or-create User + 绑定全部匹配档案（token 全部作废，R1）；返回脱敏卡列表（你的 N 张卡）。手机通道暂停时一律 invalid_or_expired_code"
     field :flashback_recover_verify, :flashback_recover_verify_result do
       arg(:identifier, non_null(:string))
       arg(:code, non_null(:string))
@@ -1995,7 +1995,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover"
+    @desc "自助找回·验证（已登录，#932）：手机验证码通过 → 匹配档案绑定到当前登录账号（不 find-or-create、不换会话）；号码或档案已属于另一个账号 → flashback_recover_account_conflict（不静默合并）；发起沿用 flashbackRecover。手机通道暂停时一律 invalid_or_expired_code"
     field :flashback_recover_verify_for_account, :flashback_recover_verify_result do
       arg(:identifier, non_null(:string))
       arg(:code, non_null(:string))
@@ -2006,6 +2006,21 @@ defmodule Cgc2046Web.GraphqlSchema do
         with_actor(context, fn actor ->
           flashback_call(fn ->
             Cgc2046.Flashback.Recover.verify_for_user(identifier, code, actor)
+          end)
+        end)
+      end)
+    end
+
+    @desc "自助找回·贴链接（已登录，小程序邮箱通道）：找回邮件里的入口链接（或其中的 fb_ token）贴回来 → 同邮箱的全部档案绑定到当前登录账号并作废链接；档案已属于另一个账号 → flashback_recover_account_conflict；链接无效 / 已用过 → flashback_token_*"
+    field :flashback_recover_claim_for_account, :flashback_recover_verify_result do
+      arg(:link, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit, key_path: [:link])
+
+      resolve(fn _, %{link: link}, %{context: context} ->
+        with_actor(context, fn actor ->
+          flashback_call(fn ->
+            Cgc2046.Flashback.Recover.claim_link_for_user(link, actor)
           end)
         end)
       end)

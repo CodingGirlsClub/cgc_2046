@@ -25,6 +25,7 @@ import {
   FlashbackDeletePreviewQueryDocument,
   FlashbackDeleteMutationDocument,
   FlashbackRecoverMutationDocument,
+  FlashbackRecoverClaimForAccountMutationDocument,
   FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
   FlashbackSharedCardQueryDocument,
@@ -305,6 +306,31 @@ test('mock 小程序内找回（#932）：发起同形；验证要求登录、�
   assert.equal(verify('123456').flashbackRecoverVerifyForAccount?.bound, true)
   // 绑定后会话腿读胶囊即参与态
   assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
+  __setFlashbackUnclaimed(false)
+})
+
+test('mock 邮箱找回·贴链接：要求登录；认不出 / 别人的档案 / 用过各有其码；通过即绑到当前账号', () => {
+  type Errors = { errors?: Array<{ code: string }> }
+  const claim = (link: string) =>
+    mockGraphQLRequest<Errors & { flashbackRecoverClaimForAccount?: { bound: boolean; cards: unknown[] } }>(
+      FlashbackRecoverClaimForAccountMutationDocument,
+      { link }
+    )
+  const link = 'https://example.com/zh-CN/flashback/enter?token=fb_mock_paste_1'
+
+  mockGraphQLRequest(SignOutMutationDocument, {})
+  assert.equal(claim(link).errors?.[0]?.code, 'unauthorized')
+
+  mockGraphQLRequest(SignInWithPlatformMutationDocument, { platform: 'wechat', code: 'mock-login' })
+  __setFlashbackUnclaimed(true)
+  assert.equal(claim('随便一段话').errors?.[0]?.code, 'flashback_token_not_found')
+  assert.equal(claim('fb_other_account').errors?.[0]?.code, 'flashback_recover_account_conflict')
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors?.[0]?.code, 'flashback_person_not_bound')
+
+  assert.equal(claim('邮件里的链接：' + link + ' 谢谢').flashbackRecoverClaimForAccount?.bound, true)
+  assert.equal(mockGraphQLRequest<Errors>(FlashbackCapsuleQueryDocument, { city: null, token: null }).errors, undefined)
+  // 同一条链接只能用一次（R1：绑定即作废）
+  assert.equal(claim(link).errors?.[0]?.code, 'flashback_token_claimed')
   __setFlashbackUnclaimed(false)
 })
 

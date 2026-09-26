@@ -93,7 +93,7 @@ export default function FlashbackPage() {
       <View className={styles.page}>
         <View className={styles.stateBlock}>
           <Text className={styles.stateText}>
-            你的账号还没有绑定闪念间档案。{'\n'}打开我们发给你的专属链接完成首程，或在网页端「闪念间」凭手机号找回。
+            你的账号还没有绑定闪念间档案。{'\n'}打开我们发给你的专属链接完成首程，或在网页端「闪念间」凭当年报名的邮箱找回。
           </Text>
         </View>
       </View>

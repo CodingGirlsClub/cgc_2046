@@ -789,6 +789,8 @@ export interface MiniProgramApi {
   flashbackRecover(identifier: string): Promise<void>
   /** #932 小程序内找回·验证：档案绑定到当前登录账号（不另建账号）；返回找到的张数 */
   flashbackRecoverVerifyForAccount(identifier: string, code: string): Promise<{ count: number }>
+  /** 邮箱找回·贴链接：找回邮件里的链接原样上送，同邮箱的档案绑到当前登录账号；返回找到的张数 */
+  flashbackRecoverClaimForAccount(link: string): Promise<{ count: number }>
   /** 微信一键收好（R27）：带 token 收该链接档案并作废链接；不带按登录手机/邮箱自动匹配 */
   flashbackClaim(token?: string | null): Promise<FlashbackClaimResult>
   /** 公开统计层（R32 路人态长廊）：场次档案 + 已回来人数 */

@@ -13,7 +13,7 @@ a.REPORT = Path('/tmp/cgc-flashback-shared-card-report.json')
 S, C, J = 'flashback-shared-card', 'flashback-corridor', 'flashback-journey'
 ENTRY = '/pages/flashback-corridor/index'
 CLOSED_CARD = '/pages/' + S + '/index?shareId=closed'
-NOT_FOUND = '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭手机号找回。'
+NOT_FOUND = '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭当年报名的邮箱找回。'
 
 def route(): return a.evaluate('return getCurrentPages().slice(-1)[0].route')
 def wait_route(target, timeout=6):

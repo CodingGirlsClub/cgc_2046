@@ -71,6 +71,8 @@ import type {
   FlashbackDeleteMutationVariables,
   FlashbackRecoverMutation,
   FlashbackRecoverMutationVariables,
+  FlashbackRecoverClaimForAccountMutation,
+  FlashbackRecoverClaimForAccountMutationVariables,
   FlashbackRecoverVerifyForAccountMutation,
   FlashbackRecoverVerifyForAccountMutationVariables,
   FlashbackSetCardSharingMutation,
@@ -118,7 +120,7 @@ import { BusinessError } from './business-error'
 import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import { DELETE_COPY, RETRACT_COPY, type FlashbackDeletePreview } from '@/domain/flashback-retract'
-import { RECOVER_COPY } from '@/domain/flashback-recover'
+import { RECOVER_COPY, RECOVER_LINK_ERRORS } from '@/domain/flashback-recover'
 import {
   AdmitMemberByTokenMutationDocument,
   ApproveJoinRequestMutationDocument,
@@ -158,6 +160,7 @@ import {
   FlashbackDeletePreviewQueryDocument,
   FlashbackDeleteMutationDocument,
   FlashbackRecoverMutationDocument,
+  FlashbackRecoverClaimForAccountMutationDocument,
   FlashbackRecoverVerifyForAccountMutationDocument,
   FlashbackSetCardSharingMutationDocument,
   FlashbackSetQuoteLicenseMutationDocument,
@@ -1394,6 +1397,24 @@ export class RealMiniProgramApi implements MiniProgramApi {
       throw error
     })
     const result = data.flashbackRecoverVerifyForAccount
+    if (!result?.bound) throw new Error(RECOVER_COPY.errorRetry)
+    return { count: result.cards.length }
+  }
+
+  async flashbackRecoverClaimForAccount(link: string): Promise<{ count: number }> {
+    const data = await graphqlRequest<
+      FlashbackRecoverClaimForAccountMutation,
+      FlashbackRecoverClaimForAccountMutationVariables
+    >(FlashbackRecoverClaimForAccountMutationDocument, { link }).catch((error: unknown) => {
+      if (error instanceof GraphQLRequestError) {
+        // 链接失效三态走找回口径；卡属于另一个账号 / 限流命中 errorCopy
+        const code = error.errors.map((entry) => entry.code ?? entry.extensions?.code).find((c) => c && RECOVER_LINK_ERRORS[c])
+        if (code) throw new BusinessError(RECOVER_LINK_ERRORS[code], code)
+        mutationError(error.errors)
+      }
+      throw error
+    })
+    const result = data.flashbackRecoverClaimForAccount
     if (!result?.bound) throw new Error(RECOVER_COPY.errorRetry)
     return { count: result.cards.length }
   }

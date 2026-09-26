@@ -12,10 +12,10 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
   alias Cgc2046.Flashback
   alias Cgc2046.Flashback.{Person, Recover, Token}
 
-  defp create_archive do
+  defp create_archive(key \\ "2014-01-11-bj") do
     Flashback.EventArchive
     |> Ash.Changeset.for_create(:create, %{
-      key: "2014-01-11-bj",
+      key: key,
       name: "Rails Girls Beijing",
       city: "北京",
       occurred_on: ~D[2014-01-11]
@@ -54,6 +54,17 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
     code
   end
 
+  defp mint_token(person) do
+    plain = "fb_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
+    {:ok, hash} = TokenCredential.hash(plain)
+
+    Token
+    |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
+    |> Ash.create!(authorize?: false)
+
+    plain
+  end
+
   defp reload(person) do
     Person |> Ash.Query.filter(id == ^person.id) |> Ash.read_one!(authorize?: false)
   end
@@ -67,12 +78,7 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
     me = account("+8613800007777")
     person = create_person(create_archive(), "13900000011")
 
-    plain = "fb_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
-    {:ok, hash} = TokenCredential.hash(plain)
-
-    Token
-    |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
-    |> Ash.create!(authorize?: false)
+    mint_token(person)
 
     assert {:ok, %{bound: true, cards: [card]}} =
              Recover.verify_for_user("13900000011", issue_code("13900000011"), me)
@@ -125,5 +131,53 @@ defmodule Cgc2046.Flashback.RecoverForAccountTest do
 
     assert {:error, %{code: "invalid_or_expired_code"}} =
              Recover.verify_for_user("someone@example.com", "000000", me)
+  end
+
+  # ── 邮箱找回·贴链接（小程序）：找回邮件里的入口链接贴回小程序，绑到当前账号 ──
+
+  test "贴链接：同邮箱的档案全部绑到当前账号（同手机通道全绑）；链接作废；不新建账号" do
+    me = account("+8613800007781")
+    first = create_person(create_archive(), nil, %{email: "old@example.com"})
+    second = create_person(create_archive("2015-03-07-sh"), nil, %{email: "old@example.com"})
+    stranger = create_person(create_archive("2016-05-21-gz"), nil, %{email: "else@example.com"})
+    link = "https://example.com/flashback/enter?token=" <> mint_token(first)
+    sibling_token = mint_token(second)
+
+    assert {:ok, %{bound: true, cards: cards}} = Recover.claim_link_for_user(link, me)
+    assert length(cards) == 2
+    assert reload(first).user_id == me.id
+    assert reload(second).user_id == me.id
+    assert is_nil(reload(stranger).user_id)
+
+    # 同封邮件里的另一条链接随绑定一起作废（R1），与网页入口同一套失效码
+    assert {:error, %{code: "flashback_token_claimed"}} =
+             Recover.claim_link_for_user(sibling_token, me)
+  end
+
+  test "贴链接：档案已被别的账号认领 → flashback_recover_account_conflict，不静默改绑" do
+    me = account("+8613800007782")
+    other = account("+8613800008889")
+    person = create_person(create_archive(), nil, %{email: "taken@example.com"})
+    token = mint_token(person)
+
+    person
+    |> Ash.Changeset.for_update(:update, %{})
+    |> Ash.Changeset.force_change_attribute(:user_id, other.id)
+    |> Ash.update!(authorize?: false)
+
+    assert {:error, %{code: "flashback_recover_account_conflict"}} =
+             Recover.claim_link_for_user(token, me)
+
+    assert reload(person).user_id == other.id
+  end
+
+  test "贴链接：认不出链接 / 链接不存在 → flashback_token_not_found" do
+    me = account("+8613800007783")
+
+    assert {:error, %{code: "flashback_token_not_found"}} =
+             Recover.claim_link_for_user("随便一段话", me)
+
+    assert {:error, %{code: "flashback_token_not_found"}} =
+             Recover.claim_link_for_user("fb_" <> String.duplicate("A", 43), me)
   end
 end

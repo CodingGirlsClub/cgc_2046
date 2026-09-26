@@ -867,6 +867,18 @@ export const FlashbackRecoverVerifyForAccountMutationDocument = /* GraphQL */ `
   }
 `
 
+// 邮箱找回·贴链接：找回邮件里的入口链接原样上送（服务端取其中的 fb_ token），同邮箱档案绑到当前账号
+export const FlashbackRecoverClaimForAccountMutationDocument = /* GraphQL */ `
+  mutation FlashbackRecoverClaimForAccount($link: String!) {
+    flashbackRecoverClaimForAccount(link: $link) {
+      bound
+      cards {
+        surnameMasked
+      }
+    }
+  }
+`
+
 export const FlashbackDeleteMutationDocument = /* GraphQL */ `
   mutation FlashbackDelete($token: String, $confirm: String!) {
     flashbackDelete(token: $token, confirm: $confirm) {

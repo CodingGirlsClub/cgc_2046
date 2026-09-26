@@ -2714,16 +2714,18 @@
     },
     "recover": {
       "title": "Recover your piece of memory",
-      "lead": "Signed up back then but lost the link? Leave the phone number or email from that year — we'll send your entrance to you.",
-      "identifierPlaceholder": "Phone number or email from back then",
+      "lead": "Signed up back then but lost the link? Leave the email you signed up with — we'll send your entrance link to you.",
+      "identifierPlaceholder": "Email you signed up with",
       "initiate": "Recover my archive",
-      "sentHint": "If this number/email is in our old roster, a code or entrance link has been sent — check your phone and inbox.",
+      "sentHint": "If this email is in our old roster, an entrance link has been sent — check your inbox (and spam folder).",
+      "codeHint": "If this number is in our old roster, a verification code has been sent.",
       "codePlaceholder": "Verification code",
       "verify": "Verify and enter",
       "cardsTitle": "Found your {count} cards — they're all yours now",
       "enterCapsule": "Enter the time corridor →",
       "bound": "Your archive is bound to your account. From now on, enter from \"Mine\".",
       "errorCode": "That code is wrong or has expired — try again.",
+      "emailRequired": "Please enter the email you signed up with.",
       "errorRetry": "That step didn't succeed — try again shortly."
     },
     "profile": {
