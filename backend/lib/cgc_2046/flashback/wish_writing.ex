@@ -90,16 +90,23 @@ defmodule Cgc2046.Flashback.WishWriting do
 
   defp snapshots(%{user_id: id}, opts) do
     with {:ok, city} <- Cities.normalize(Keyword.get(opts, :expected_city) || "") do
+      # P2-1 机审通道门（同 wishes.build_writer_snapshots）：机审只对有微信身份的
+      # 作者可用，无微信身份（web/小红书单平台账号）→ 公开愿进人工审核。
       %{rows: [[name, review]]} =
-        Repo.query!("SELECT display_name, wishes_review_required_at FROM users WHERE id=$1", [
-          Repo.uuid!(id)
-        ])
+        Repo.query!(
+          "SELECT display_name, (wishes_review_required_at IS NOT NULL OR NOT EXISTS ("
+          <>
+            "SELECT 1 FROM user_identities i WHERE i.user_id = users.id AND i.provider = 'wechat'"
+          <>
+            ")) FROM users WHERE id=$1",
+          [Repo.uuid!(id)]
+        )
 
       signature =
         if Keyword.get(opts, :signature_choice) == :display_name and is_binary(name) and
              name != "", do: name, else: "匿名"
 
-      {:ok, %{city: city, signature: signature, review_required: not is_nil(review)}}
+      {:ok, %{city: city, signature: signature, review_required: review}}
     end
   end
 

@@ -369,17 +369,30 @@ test('P0-4 缺省平台 = weapp：不过滤，全量端页面照常', () => {
   )
 })
 
-test('P0-4 xhs：flashback 族目标（未注册）一律回落薄壳页 pages/flashback/index', () => {
-  for (const query of [{ shareId: 'abc123' }, { quoteId: 'q-1' }, { wishId: 'w-1' }, { token: 'tk-1' }]) {
-    assert.equal(
-      resolveAppShowRoute(query, 'pages/discover/index', {}, 'xhs'),
-      '/pages/flashback/index',
-      JSON.stringify(query)
-    )
-  }
+test('P2 xhs：flashback 族目标已注册 → 深链直达目标页', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-shared-card/index?shareId=abc123'
+  )
+  assert.equal(
+    resolveAppShowRoute({ quoteId: 'q-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-voices/index?quoteId=q-1'
+  )
+  assert.equal(
+    resolveAppShowRoute({ wishId: 'w-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-wishes/index?wishId=w-1'
+  )
+  assert.equal(
+    resolveAppShowRoute({ token: 'tk-1' }, 'pages/discover/index', {}, 'xhs'),
+    '/pages/flashback-journey/index?token=tk-1'
+  )
 })
 
-test('P0-4 tt 同款回落（与 xhs 当前同注册集）', () => {
+test('P2 xhs：回落仍兜底未注册页——workspace 未注册 → 发现页回落不变', () => {
+  assert.equal(platformFallbackRoute('/pages/workspace/index', 'xhs', 'pages/event-detail/index'), '/pages/discover/index')
+})
+
+test('P0-4 tt 同款回落（tt 未注册闪念间族 → 薄壳页）', () => {
   assert.equal(
     resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index', {}, 'tt'),
     '/pages/flashback/index'
@@ -405,8 +418,11 @@ test('P0-4 过滤不制造新导航：query 全空在 xhs 仍是 null', () => {
   assert.equal(resolveAppShowRoute({}, 'pages/discover/index', {}, 'xhs'), null)
 })
 
-test('P0-4 回落目标即当前页 → 不跳（防重复叠壳）', () => {
-  assert.equal(resolveAppShowRoute({ shareId: 'abc123' }, 'pages/flashback/index', {}, 'xhs'), null)
+test('P2 xhs：shareId 冷启动落在公开卡页本身 → 不跳（防重复叠壳）', () => {
+  assert.equal(
+    resolveAppShowRoute({ shareId: 'abc123' }, 'pages/flashback-shared-card/index', { shareId: 'abc123' }, 'xhs'),
+    null
+  )
 })
 
 test('P0-4 platformFallbackRoute：非 flashback 族未注册目标 → 发现页（纵深兜底）', () => {
@@ -421,25 +437,29 @@ test('P0-4 platformFallbackRoute：非 flashback 族未注册目标 → 发现�
   assert.equal(platformFallbackRoute(null, 'xhs', 'pages/discover/index'), null)
 })
 
-test('P0-4 resolveEntry 冷启动 shareId（xhs）→ 薄壳页导航', () => {
+test('P2 xhs：resolveEntry 冷启动 shareId → 公开卡页直达', () => {
   const decision = resolveEntry({ query: { shareId: 'abc123' } }, [], 'xhs')
-  assert.deepEqual(sceneAndUrl(decision), { scene: null, url: '/pages/flashback/index' })
+  assert.deepEqual(sceneAndUrl(decision), { scene: null, url: '/pages/flashback-shared-card/index?shareId=abc123' })
   assert.equal(decision.navigate, true)
 })
 
-test('P0-4 resolveEntry 冷启动入口即薄壳页（xhs 带 shareId）→ 抑制重复导航', () => {
-  const decision = resolveEntry({ path: 'pages/flashback/index', query: { shareId: 'abc123' } }, [], 'xhs')
-  assert.equal(decision.url, '/pages/flashback/index')
+test('P2 xhs：resolveEntry 冷启动入口即公开卡页（同 shareId）→ 抑制重复导航', () => {
+  const decision = resolveEntry(
+    { path: 'pages/flashback-shared-card/index', query: { shareId: 'abc123' } },
+    [],
+    'xhs'
+  )
+  assert.equal(decision.url, '/pages/flashback-shared-card/index?shareId=abc123')
   assert.equal(decision.navigate, false)
 })
 
-test('P0-4 resolveEntry 入口 path 是本端未注册的闪念间页（xhs）→ 回落薄壳', () => {
+test('P2 xhs：resolveEntry 入口 path 是已注册闪念间页（wishId）→ 直达许愿树', () => {
   const decision = resolveEntry({ path: 'pages/flashback-wishes/index', query: { wishId: 'w-9' } }, [], 'xhs')
-  assert.equal(decision.url, '/pages/flashback/index')
+  assert.equal(decision.url, '/pages/flashback-wishes/index?wishId=w-9')
 })
 
-test('P0-4 resolveEntry 热启动 link 目标未注册（xhs）→ 回落薄壳', () => {
-  const decision = resolveEntry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }], 'xhs')
+test('P0-4 resolveEntry 热启动 link 目标未注册（tt）→ 回落薄壳（回落路径仍在）', () => {
+  const decision = resolveEntry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }], 'tt')
   assert.equal(decision.url, '/pages/flashback/index')
   assert.equal(decision.navigate, true)
 })

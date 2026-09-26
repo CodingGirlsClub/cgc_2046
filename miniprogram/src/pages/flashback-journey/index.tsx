@@ -27,9 +27,10 @@ type Phase =
   | { kind: 'reveal' }
 
 const INVALID_COPY: Record<FlashbackTokenInvalidCode, string> = {
-  flashback_token_claimed: '这张卡已经被收进一个账号了。登录那个账号，或用网页端「闪念间」找回你的那一张。',
-  flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，网页端「闪念间」凭当年报名的邮箱可以找回。',
-  flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或用网页端「闪念间」凭当年报名的邮箱找回。'
+  // P2 全端注册：文案零导流（不引导去其他端），找回只指邮箱通道
+  flashback_token_claimed: '这张卡已经被收进一个账号了。登录那个账号，或凭当年报名的邮箱找回你的那一张。',
+  flashback_token_revoked: '这张邀请函已经失效了。别担心——你的愿望不会消失，凭当年报名的邮箱可以找回。',
+  flashback_token_not_found: '没有找到这张邀请函。检查一下链接，或凭当年报名的邮箱找回。'
 }
 
 /** 进长廊（现为 tabBar 页面）：switchTab 不接受 query，welcome 语义改走一次性
