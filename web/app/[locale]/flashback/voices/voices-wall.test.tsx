@@ -310,3 +310,11 @@ describe("VoicesWall · 开场（R5/R8/R24）", () => {
 		expect(screen.queryByText("跳过片头")).not.toBeInTheDocument();
 	});
 });
+
+// N10：金句墙不再把原型阶段的说明文案带上线。
+describe("文案守卫", () => {
+ it("introHint 不含原型示意", () => {
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  expect(zh.flashback.voices.introHint).not.toContain("原型示意");
+ });
+});

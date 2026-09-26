@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
@@ -290,5 +292,15 @@ describe("收好账号归属", () => {
   expect(await screen.findByRole("alert")).toHaveClass("fb-error");
   expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
   expect(screen.getByRole("button", { name: "收进当前账号" })).toBeEnabled();
+ });
+});
+
+// N10：收好邀请语不得再承诺「附议的场成真时收到通知」——该通知能力不存在。
+describe("文案守卫", () => {
+ it("registerPitch 不再承诺附议成真通知", () => {
+  const zh = JSON.parse(readFileSync(fileURLToPath(new URL("../../messages/zh-CN.json", import.meta.url.split("?")[0])), "utf8"));
+  const pitch = zh.flashback.sendRegister.registerPitch;
+  expect(pitch).toContain("收好");
+  expect(pitch).not.toContain("成真时收到通知");
  });
 });
