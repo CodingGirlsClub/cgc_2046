@@ -7,7 +7,9 @@ const KEY = {
   pendingScene: 'cgc.pending_scene',
   legacyNotifications: 'cgc.local_notifications',
   notifA: 'cgc.local_notifications.user-a',
-  notifB: 'cgc.local_notifications.user-b'
+  notifB: 'cgc.local_notifications.user-b',
+  flashbackToken: 'cgc.flashback_token',
+  authToken: 'cgc.auth_token'
 }
 
 const mocks = vi.hoisted(() => {
@@ -118,6 +120,20 @@ describe('clearAccountState 与 pendingScene 边界', () => {
     mocks.storage.set(KEY.pendingScene, 's2')
     accountState.clearAccountState({ clearPendingScene: true })
     expect(mocks.storage.has(KEY.pendingScene)).toBe(false)
+  })
+})
+
+describe('clearFlashbackLinkIdentity', () => {
+  it('删除 cgc.flashback_token，不碰 cgc.auth_token / pending scene', () => {
+    mocks.storage.set(KEY.flashbackToken, 'ft-1')
+    mocks.storage.set(KEY.authToken, 'at-1')
+    mocks.storage.set(KEY.pendingScene, 's1')
+
+    accountState.clearFlashbackLinkIdentity()
+
+    expect(mocks.storage.has(KEY.flashbackToken)).toBe(false)
+    expect(mocks.storage.get(KEY.authToken)).toBe('at-1')
+    expect(mocks.storage.get(KEY.pendingScene)).toBe('s1')
   })
 })
 
