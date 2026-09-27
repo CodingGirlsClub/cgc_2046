@@ -732,6 +732,22 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
       assert payload["enrollment"]["status"] == "pending"
       assert is_nil(payload["checkout_url"])
     end
+
+    # C12（#855）：kind 必填语义——nil 不是「不窄化」而是参数错误
+    # （PublicOffering.parse_kind(nil) 返回 {:ok, nil}，required 侧必须转回错误）。
+    test "缺省 kind（nil）→ 参数错误" do
+      admin = Fixtures.platform_admin("s7-cre-kind-nil")
+      workspace = Fixtures.create_workspace(admin)
+      event = EventFixtures.create_event(workspace, admin, %{})
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               CreateEnrollment.execute(
+                 enrollment_params(workspace, nil, event.id),
+                 frame_for(Fixtures.register_user("s7-cre-kind-nil-learner"))
+               )
+
+      assert msg =~ "invalid kind: nil"
+    end
   end
 
   describe "get_my_enrollments（R32/AE8）" do

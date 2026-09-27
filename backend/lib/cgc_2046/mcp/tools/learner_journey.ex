@@ -13,6 +13,8 @@ defmodule Cgc2046.Mcp.Tools.LearnerJourney do
     GraphQL Event/Course myEnrollment 计算共用同一语义）。
   """
 
+  alias Cgc2046.Mcp.Tools.PublicOffering
+
   @doc """
   web 下单页绝对链接（支付入口唯一落点）。enrollment_id 为 nil 时返回 nil。
   """
@@ -31,11 +33,13 @@ defmodule Cgc2046.Mcp.Tools.LearnerJourney do
   @doc """
   解析必填 kind 参数：`{:ok, :event | :course} | {:error, String.t()}`。
   缺省/未知值均为参数错误（学员旅程工具不允许 event → course 盲扫）。
+  词汇解析与错误串单源于 `PublicOffering.parse_kind/1`（C12 #855）；
+  此处只补 nil 必填分支——`parse_kind(nil)` 是 `{:ok, nil}`（不窄化），
+  必填语义下须转回与缺省同式的参数错误（消息为已发布契约，逐字节不变）。
   """
   @spec parse_required_kind(term()) :: {:ok, :event | :course} | {:error, String.t()}
-  def parse_required_kind("event"), do: {:ok, :event}
-  def parse_required_kind("course"), do: {:ok, :course}
+  def parse_required_kind(nil),
+    do: {:error, "invalid kind: nil (expected event | course)"}
 
-  def parse_required_kind(other),
-    do: {:error, "invalid kind: #{inspect(other)} (expected event | course)"}
+  def parse_required_kind(kind), do: PublicOffering.parse_kind(kind)
 end
