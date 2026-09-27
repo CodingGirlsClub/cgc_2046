@@ -197,7 +197,9 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       refute is_nil(enrollment.expired_at)
       assert target_count_for(base) == 0
 
-      {:ok, _re} = re_enroll(ctx, %{enrollment_id: base.enrollment.id, workspace_id: base.workspace.id})
+      {:ok, _re} =
+        re_enroll(ctx, %{enrollment_id: base.enrollment.id, workspace_id: base.workspace.id})
+
       assert target_count_for(base) == 1
     end
 
@@ -357,6 +359,7 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
       assert order.id == order_id
 
       assert reload_order(order).status == :pending
+
       assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status ==
                :payment_pending
     end
