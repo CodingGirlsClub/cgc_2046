@@ -1067,6 +1067,9 @@ defmodule Cgc2046.Payments.Order do
   # R6：订单截止 = min(下单 + 2h, registration_deadline)；deadline 已过 → 拒绝下单
   @order_window_seconds 2 * 3600
 
+  @doc "限时支付窗口（秒）：订单 expire_at 与孤儿占位释放（PaymentExpiryWorker）共用同一口径。"
+  def order_window_seconds, do: @order_window_seconds
+
   defp order_expire_at(%{registration_deadline: nil}) do
     {:ok, DateTime.add(DateTime.utc_now(), @order_window_seconds)}
   end
