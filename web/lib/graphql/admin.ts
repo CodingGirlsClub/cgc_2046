@@ -1073,6 +1073,118 @@ export const FLASHBACK_ADMIN_SET_WISH_HIDDEN: TypedDocumentNode<
 	}
 `;
 
+// ── #817 愿望巡检 + 附议聚合 + 放行挂树 ─────────────────────────────────────
+
+/** 巡检行：已授权挂树的公开愿望（三态 listed/pending_review/hidden） */
+export interface FlashbackAdminPublicWishEntry {
+	wishId: string;
+	content: string;
+	signature?: string | null;
+	city?: string | null;
+	insertedAt: string;
+	listedAt?: string | null;
+	hiddenAt?: string | null;
+	status: "listed" | "pending_review" | "hidden";
+	expectationCount: number;
+	endorsementCount: number;
+	authorCreditReduced: boolean;
+}
+
+export const FLASHBACK_ADMIN_PUBLIC_WISHES: TypedDocumentNode<
+	{ flashbackAdminPublicWishes: FlashbackAdminPublicWishEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminPublicWishes {
+		flashbackAdminPublicWishes {
+			wishId
+			content
+			signature
+			city
+			insertedAt
+			listedAt
+			hiddenAt
+			status
+			expectationCount
+			endorsementCount
+			authorCreditReduced
+		}
+	}
+`;
+
+/** 附议明细：留言与联系方式仅 platform admin 面（KTD5 公开响应禁出） */
+export interface FlashbackAdminWishEndorsementDetail {
+	id: string;
+	contributionTypes: string[];
+	message?: string | null;
+	insertedAt: string;
+	/** 仅 platform admin；token 存量附议为 null */
+	endorserPhone?: string | null;
+	endorserEmail?: string | null;
+}
+
+export interface FlashbackAdminContributionCount {
+	type: string;
+	count: number;
+}
+
+export interface FlashbackAdminWishEndorsementEntry {
+	wishId: string;
+	content: string;
+	signature?: string | null;
+	city?: string | null;
+	listedAt?: string | null;
+	endorsementCount: number;
+	contributionDistribution: FlashbackAdminContributionCount[];
+	endorsements: FlashbackAdminWishEndorsementDetail[];
+}
+
+export const FLASHBACK_ADMIN_WISH_ENDORSEMENTS: TypedDocumentNode<
+	{ flashbackAdminWishEndorsements: FlashbackAdminWishEndorsementEntry[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminWishEndorsements {
+		flashbackAdminWishEndorsements {
+			wishId
+			content
+			signature
+			city
+			listedAt
+			endorsementCount
+			contributionDistribution {
+				type
+				count
+			}
+			endorsements {
+				id
+				contributionTypes
+				message
+				insertedAt
+				endorserPhone
+				endorserEmail
+			}
+		}
+	}
+`;
+
+export const FLASHBACK_ADMIN_APPROVE_WISH_LISTING: TypedDocumentNode<
+	{
+		flashbackAdminApproveWishListing: {
+			wishId: string;
+			listedAt?: string | null;
+			status?: string | null;
+		} | null;
+	},
+	{ wishId: string }
+> = gql`
+	mutation FlashbackAdminApproveWishListing($wishId: ID!) {
+		flashbackAdminApproveWishListing(wishId: $wishId) {
+			wishId
+			listedAt
+			status
+		}
+	}
+`;
+
 export type FlashbackAdminWishEchoStatus = "draft" | "published" | "corrected" | "revoked";
 
 export interface FlashbackAdminWishEcho {

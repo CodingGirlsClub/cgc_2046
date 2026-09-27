@@ -425,4 +425,313 @@ defmodule Cgc2046.Flashback.ReportsTest do
       assert hd(pending).id == r1.id
     end
   end
+
+  describe "#817 admin 巡检投影 list_public_wishes_for_admin" do
+    test "三态标记 + 待审置前 + 未授权/软删不出现 + 信用标记与计数" do
+      archive = create_archive()
+      owner = create_person(archive)
+      admin = make_admin_user("817-admin")
+
+      # listed：consent 创建后 SQL 直挂（等价放行终态；新代码已写 listing_consent_at）
+      {:ok, listed} =
+        Wishes.create_wish(owner.id, "已挂树的愿望", "public", public_listing_consent: true)
+
+      Repo.query!(
+        "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+        [Repo.uuid!(listed.id)]
+      )
+
+      # pending：信用降级作者 + consent → 创建即待审（listing_consent_at 随写）
+      degraded = create_person(archive, %{full_name: "李小梅", surname: "李"})
+      degraded_user = register_user("817-degraded")
+      bind_person_to_user(degraded.id, degraded_user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(degraded_user.id)]
+      )
+
+      {:ok, pending} =
+        Wishes.create_wish(degraded.id, "待审的愿望", "public", public_listing_consent: true)
+
+      # hidden：listed 后 admin 下架（listed 保持 + hidden 置位）
+      {:ok, hidden} =
+        Wishes.create_wish(owner.id, "被下架的愿望", "public", public_listing_consent: true)
+
+      Repo.query!(
+        "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+        [Repo.uuid!(hidden.id)]
+      )
+
+      {:ok, _} = Reports.set_wish_hidden(hidden.id, admin.id, true)
+
+      # 未授权（consent=false）与软删：均不进巡检面——用第二作者，
+      # 避开 owner 年度 3 条配额（listed/hidden 已占 2）
+      extra = create_person(archive, %{full_name: "张小三", surname: "张"})
+
+      {:ok, _no_consent} =
+        Wishes.create_wish(extra.id, "未授权的公开愿", "public", public_listing_consent: false)
+
+      {:ok, deleted} =
+        Wishes.create_wish(extra.id, "已删的愿望", "public", public_listing_consent: true)
+
+      Repo.query!(
+        "UPDATE flashback_wishes SET listed_at = now(), deleted_at = now() WHERE id = $1",
+        [Repo.uuid!(deleted.id)]
+      )
+
+      rows = Reports.list_public_wishes_for_admin(50)
+      ids = Enum.map(rows, & &1.wish_id)
+
+      assert pending.id in ids and hidden.id in ids and listed.id in ids
+      refute deleted.id in ids
+      # 未授权愿望不在巡检面（授权不扩大红线：admin 放行不可达）
+      refute Enum.any?(rows, &(&1.content == "未授权的公开愿"))
+
+      by_id = Map.new(rows, &{&1.wish_id, &1})
+      assert by_id[pending.id].status == "pending_review"
+      assert by_id[hidden.id].status == "hidden"
+      assert by_id[listed.id].status == "listed"
+      assert by_id[pending.id].author_credit_reduced == true
+      assert by_id[listed.id].author_credit_reduced == false
+      assert %DateTime{} = by_id[listed.id].listed_at
+
+      # 排序：待审 → 已下架 → 已挂树
+      assert [pending.id, hidden.id, listed.id] ==
+               Enum.map(
+                 Enum.filter(rows, &(&1.wish_id in [pending.id, hidden.id, listed.id])),
+                 & &1.wish_id
+               )
+    end
+
+    test "计数：期待/附议随行（listed 愿望真实路径附议 + SQL 期待）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      endorser = register_user("817-endorser")
+
+      {:ok, wish} =
+        Wishes.create_wish(owner.id, "有附议的愿望", "public", public_listing_consent: true)
+
+      Repo.query!(
+        "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+        [Repo.uuid!(wish.id)]
+      )
+
+      {:ok, _} =
+        Wishes.endorse_by_user(endorser.id, wish.id,
+          contribution_types: ["venue"],
+          message: "可以提供场地"
+        )
+
+      Repo.query!(
+        """
+        INSERT INTO flashback_wish_expectations (id, wish_id, voter_key, inserted_at, updated_at)
+        VALUES (gen_random_uuid(), $1, 'u:817-patrol', now(), now())
+        """,
+        [Repo.uuid!(wish.id)]
+      )
+
+      [row] = Reports.list_public_wishes_for_admin(50)
+      assert row.wish_id == wish.id
+      assert row.endorsement_count == 1
+      assert row.expectation_count == 1
+    end
+  end
+
+  describe "#817 admin 附议留言聚合 list_wish_endorsements_for_admin" do
+    test "按愿望聚合分布与明细（phone/email 仅此处）、token 附议联系方式 nil、无附议不出现" do
+      archive = create_archive()
+      owner = create_person(archive)
+      endorser1 = register_user("817-e1")
+      endorser2 = register_user("817-e2")
+
+      Repo.query!(
+        "UPDATE users SET phone = '13812340101', email = 'e1@test.com' WHERE id = $1",
+        [Repo.uuid!(endorser1.id)]
+      )
+
+      {:ok, wish_a} =
+        Wishes.create_wish(owner.id, "愿望甲", "public", public_listing_consent: true)
+
+      {:ok, wish_b} =
+        Wishes.create_wish(owner.id, "愿望乙", "public", public_listing_consent: true)
+
+      Enum.each([wish_a, wish_b], fn w ->
+        Repo.query!(
+          "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+          [Repo.uuid!(w.id)]
+        )
+      end)
+
+      {:ok, _} =
+        Wishes.endorse_by_user(endorser1.id, wish_a.id,
+          contribution_types: ["venue", "sponsor"],
+          message: "场地我出"
+        )
+
+      {:ok, _} =
+        Wishes.endorse_by_user(endorser2.id, wish_a.id,
+          contribution_types: ["venue"],
+          message: nil
+        )
+
+      # token 附议（user_id nil）直插资源层；愿望乙只此一条 → 乙排甲前（乙更新）
+      Cgc2046.Flashback.WishEndorsement
+      |> Ash.Changeset.for_create(:create, %{
+        wish_id: wish_b.id,
+        person_id: owner.id,
+        contribution_types: ["organize"],
+        message: "老 token 附议"
+      })
+      |> Ash.create!(authorize?: false)
+
+      # 无附议愿望
+      {:ok, _lonely} =
+        Wishes.create_wish(owner.id, "没人附议", "public", public_listing_consent: true)
+
+      rows = Reports.list_wish_endorsements_for_admin(50)
+      assert length(rows) == 2
+      # 最新附议在前：乙（后插入）→ 甲
+      [row_b, row_a] = rows
+      assert row_a.wish_id == wish_a.id
+      assert row_b.wish_id == wish_b.id
+
+      assert row_a.endorsement_count == 2
+
+      assert row_a.contribution_distribution == [
+               %{type: "venue", count: 2},
+               %{type: "sponsor", count: 1}
+             ]
+
+      [d1, d2] = row_a.endorsements
+      assert d1.contribution_types == ["venue", "sponsor"]
+      assert d1.message == "场地我出"
+      assert d1.endorser_phone == "13812340101"
+      assert d1.endorser_email == "e1@test.com"
+      # d2 是正常登录附议者：无手机号、email 取登录账号值
+      assert d2.endorser_phone == nil and is_binary(d2.endorser_email)
+
+      # token 附议（user_id nil）联系方式 nil，不回退档案字段
+      [token_detail] = row_b.endorsements
+      assert token_detail.message == "老 token 附议"
+      assert token_detail.endorser_phone == nil and token_detail.endorser_email == nil
+    end
+
+    test "软删愿望的附议不进聚合" do
+      archive = create_archive()
+      owner = create_person(archive)
+      endorser = register_user("817-e-del")
+
+      {:ok, wish} =
+        Wishes.create_wish(owner.id, "将被删除", "public", public_listing_consent: true)
+
+      Repo.query!(
+        "UPDATE flashback_wishes SET listed_at = now(), hidden_at = NULL WHERE id = $1",
+        [Repo.uuid!(wish.id)]
+      )
+
+      {:ok, _} = Wishes.endorse_by_user(endorser.id, wish.id, contribution_types: ["other"])
+
+      Repo.query!("UPDATE flashback_wishes SET deleted_at = now() WHERE id = $1", [
+        Repo.uuid!(wish.id)
+      ])
+
+      assert Reports.list_wish_endorsements_for_admin(50) == []
+    end
+  end
+
+  describe "#817 admin 放行挂树 approve_wish_listing" do
+    test "待审愿望（有授权）→ 挂树 + 清 hidden + 不动信用 + 进公开树" do
+      archive = create_archive()
+      author = create_person(archive)
+      author_user = register_user("817-approve-author")
+      bind_person_to_user(author.id, author_user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(author_user.id)]
+      )
+
+      {:ok, wish} =
+        Wishes.create_wish(author.id, "待审放行", "public", public_listing_consent: true)
+
+      assert is_nil(wish.listed_at) and wish.hidden_at != nil
+      admin = make_admin_user("817-approve-admin")
+
+      {:ok, approved} = Reports.approve_wish_listing(wish.id, admin.id)
+      assert approved.listed_at != nil
+      assert approved.hidden_at == nil
+
+      # 放行后进公开树
+      assert Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+
+      # 信用字段不动（放行 ≠ 信用解除）
+      %{rows: [[credit]]} =
+        Repo.query!("SELECT wishes_review_required_at FROM users WHERE id = $1", [
+          Repo.uuid!(author_user.id)
+        ])
+
+      assert credit != nil
+    end
+
+    test "无授权证据（consent 从未给过）→ 拒绝且不挂树（授权不扩大红线）" do
+      archive = create_archive()
+      owner = create_person(archive)
+      admin = make_admin_user("817-noconsent-admin")
+
+      {:ok, wish} =
+        Wishes.create_wish(owner.id, "从未授权", "public", public_listing_consent: false)
+
+      # admin 曾直接 hide 未授权愿望（无 UI 入口的长尾形态：listed nil + hidden 置位）
+      {:ok, _} = Reports.set_wish_hidden(wish.id, admin.id, true)
+
+      assert {:error, %{code: "flashback_wish_listing_not_authorized"}} =
+               Reports.approve_wish_listing(wish.id, admin.id)
+
+      reloaded = Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
+
+      assert is_nil(reloaded.listed_at)
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+    end
+
+    test "已挂架愿望幂等返回（并发双击兜底）；private 愿望拒绝" do
+      archive = create_archive()
+      owner = create_person(archive)
+      admin = make_admin_user("817-idem-admin")
+
+      listed = create_listed_wish(owner, "已挂树")
+      {:ok, again} = Reports.approve_wish_listing(listed.id, admin.id)
+      assert again.listed_at == listed.listed_at
+
+      {:ok, private_wish} = Wishes.create_wish(owner.id, "悄悄话", "private")
+
+      assert {:error, %{code: "flashback_wish_listing_not_authorized"}} =
+               Reports.approve_wish_listing(private_wish.id, admin.id)
+    end
+
+    test "非 admin 调用被拒" do
+      archive = create_archive()
+      owner = create_person(archive)
+      author = create_person(archive, %{full_name: "赵小刚", surname: "赵"})
+      author_user = register_user("817-approve-degraded")
+      bind_person_to_user(author.id, author_user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(author_user.id)]
+      )
+
+      {:ok, wish} =
+        Wishes.create_wish(author.id, "待审但非 admin 放行", "public", public_listing_consent: true)
+
+      passerby = register_user("817-passerby")
+
+      assert {:error, %{code: "flashback_auth_required"}} =
+               Reports.approve_wish_listing(wish.id, passerby.id)
+
+      reloaded = Ash.get!(Cgc2046.Flashback.Wish, wish.id, authorize?: false)
+
+      assert is_nil(reloaded.listed_at)
+    end
+  end
 end

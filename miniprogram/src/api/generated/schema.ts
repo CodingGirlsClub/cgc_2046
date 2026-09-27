@@ -2211,6 +2211,12 @@ export type FlashbackAdminArchive = {
   occurredOn?: Maybe<Scalars['String']['output']>;
 };
 
+/** 出力类型计数（admin 附议聚合） */
+export type FlashbackAdminContributionCount = {
+  count: Scalars['Int']['output'];
+  type: Scalars['String']['output'];
+};
+
 export type FlashbackAdminListedWishEntry = {
   city?: Maybe<Scalars['String']['output']>;
   content: Scalars['String']['output'];
@@ -2220,6 +2226,25 @@ export type FlashbackAdminListedWishEntry = {
   /** 已发布/已更正回响数（公开可见） */
   publishedEchoCount: Scalars['Int']['output'];
   signature?: Maybe<Scalars['String']['output']>;
+  wishId: Scalars['ID']['output'];
+};
+
+/** #817 admin 巡检行：已授权挂树的公开愿望（三态 listed/pending_review/hidden） */
+export type FlashbackAdminPublicWishEntry = {
+  /** 作者处于信用降级（wishes_review_required_at 置位） */
+  authorCreditReduced: Scalars['Boolean']['output'];
+  city?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  /** 附议数 */
+  endorsementCount: Scalars['Int']['output'];
+  /** 期待数 */
+  expectationCount: Scalars['Int']['output'];
+  hiddenAt?: Maybe<Scalars['DateTime']['output']>;
+  insertedAt: Scalars['DateTime']['output'];
+  listedAt?: Maybe<Scalars['DateTime']['output']>;
+  signature?: Maybe<Scalars['String']['output']>;
+  /** listed=挂树可见 / pending_review=待审 / hidden=挂树后被下架 */
+  status: Scalars['String']['output'];
   wishId: Scalars['ID']['output'];
 };
 
@@ -2256,6 +2281,32 @@ export type FlashbackAdminWishEcho = {
 export type FlashbackAdminWishEchoesResult = {
   currentNotifiableEndorsementCount: Scalars['Int']['output'];
   echoes: Array<FlashbackAdminWishEcho>;
+};
+
+/** 附议明细（#817 admin）：留言与联系方式仅 admin 面，公开响应禁出（KTD5） */
+export type FlashbackAdminWishEndorsementDetail = {
+  /** 出力类型（venue/organize/speak/sponsor/other） */
+  contributionTypes: Array<Scalars['String']['output']>;
+  /** 附议者登录账号邮箱（仅 platform admin；token 存量附议为 null） */
+  endorserEmail?: Maybe<Scalars['String']['output']>;
+  /** 附议者登录账号手机号（仅 platform admin；token 存量附议为 null） */
+  endorserPhone?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  /** 给平台的留言（≤500 字） */
+  message?: Maybe<Scalars['String']['output']>;
+};
+
+/** 附议聚合行（#817 admin）：按愿望分组 */
+export type FlashbackAdminWishEndorsementEntry = {
+  city?: Maybe<Scalars['String']['output']>;
+  content: Scalars['String']['output'];
+  contributionDistribution: Array<FlashbackAdminContributionCount>;
+  endorsementCount: Scalars['Int']['output'];
+  endorsements: Array<FlashbackAdminWishEndorsementDetail>;
+  listedAt?: Maybe<Scalars['DateTime']['output']>;
+  signature?: Maybe<Scalars['String']['output']>;
+  wishId: Scalars['ID']['output'];
 };
 
 export type FlashbackAdminWishInboxEntry = {
@@ -2909,6 +2960,14 @@ export type FlashbackWishExpectResult = {
 export type FlashbackWishHiddenResult = {
   /** 操作后的下架态（true=已下架） */
   hidden: Scalars['Boolean']['output'];
+  wishId: Scalars['ID']['output'];
+};
+
+export type FlashbackWishListingApproveResult = {
+  /** 放行后的挂树时间（幂等时为原值） */
+  listedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** 放行后对客户端的三态反馈（listed/pending_review/private，同创建口径） */
+  status?: Maybe<Scalars['String']['output']>;
   wishId: Scalars['ID']['output'];
 };
 
@@ -4707,6 +4766,8 @@ export type RootMutationType = {
   flashbackAdjustTodayFog?: Maybe<FlashbackAdjustTodayFogResult>;
   /** 批准举报（wish2 U5 PlatformAdmin）：status=actioned + 联动下架目标愿望 + 作者信用置位 */
   flashbackAdminApproveReport?: Maybe<FlashbackReportResult>;
+  /** 放行待审愿望 = 挂树（#817 PlatformAdmin）：置 listed_at + 清 hidden_at；仅作者授权过挂树（listing_consent_at）的公开愿望可放行，无授权证据被拒（授权不扩大红线）；不动作者信用字段；已挂树幂等 */
+  flashbackAdminApproveWishListing?: Maybe<FlashbackWishListingApproveResult>;
   /** 原地更正已发布回响（#834，不触发首次通知） */
   flashbackAdminCorrectWishEcho?: Maybe<FlashbackAdminWishEcho>;
   /** 创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望） */
@@ -5207,6 +5268,11 @@ export type RootMutationTypeFlashbackAdjustTodayFogArgs = {
 
 export type RootMutationTypeFlashbackAdminApproveReportArgs = {
   reportId: Scalars['ID']['input'];
+};
+
+
+export type RootMutationTypeFlashbackAdminApproveWishListingArgs = {
+  wishId: Scalars['ID']['input'];
 };
 
 
@@ -5730,12 +5796,16 @@ export type RootQueryType = {
   flashbackAdminBatches: Array<Scalars['String']['output']>;
   /** 回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed/public/unhidden/未删），按挂树时间倒序，附回响计数 */
   flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
+  /** 公开愿望巡检（#817 PlatformAdmin）：作者已授权挂树（listing_consent_at）的公开愿望，待审置前 → 已下架 → 已挂树；三态标记 listed/pending_review/hidden；未授权与软删不出现 */
+  flashbackAdminPublicWishes: Array<FlashbackAdminPublicWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
   /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线。batch 可选——按波次筛（#984，拆批=放弃跨批去重） */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数 */
   flashbackAdminWishEchoes?: Maybe<FlashbackAdminWishEchoesResult>;
+  /** 附议留言聚合（#817 PlatformAdmin）：有附议的未删愿望按最新附议倒序；分布 + 明细（留言/出力类型/时间）；附议者登录账号 phone/email 仅 admin，公开响应禁出（KTD5 双层断言） */
+  flashbackAdminWishEndorsements: Array<FlashbackAdminWishEndorsementEntry>;
   /** 「说给主办方听」收件箱（wish2 U5/KTD5 PlatformAdmin）：private 未删愿望 + 作者登录账号联系方式（phone/email 仅 admin；公开响应禁出） */
   flashbackAdminWishInbox: Array<FlashbackAdminWishInboxEntry>;
   /** 举报队列（wish2 U5/KTD5 PlatformAdmin）：status=pending 按时间正序 */
@@ -5947,6 +6017,11 @@ export type RootQueryTypeEventModeratorsArgs = {
 };
 
 
+export type RootQueryTypeFlashbackAdminPublicWishesArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
 export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -5959,6 +6034,11 @@ export type RootQueryTypeFlashbackAdminStatsArgs = {
 
 export type RootQueryTypeFlashbackAdminWishEchoesArgs = {
   wishId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeFlashbackAdminWishEndorsementsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { render } from "@/test-utils";
 import AdminFlashbackPage from "./page";
 
@@ -16,6 +16,12 @@ const resendFlashbackOutreach = vi.hoisted(() => vi.fn());
 const fetchFlashbackAdminListedWishes = vi.hoisted(() =>
 	vi.fn().mockResolvedValue([]),
 );
+const fetchFlashbackAdminPublicWishes = vi.hoisted(() =>
+	vi.fn().mockResolvedValue([]),
+);
+const fetchFlashbackAdminWishEndorsements = vi.hoisted(() =>
+	vi.fn().mockResolvedValue([]),
+);
 
 vi.mock("@/lib/admin", () => ({
 	fetchFlashbackAdminStats,
@@ -30,8 +36,10 @@ vi.mock("@/lib/admin", () => ({
 		echoes: [],
 		currentNotifiableEndorsementCount: 0,
 	}),
-	approveFlashbackWishReport: vi.fn(),
-	dismissFlashbackWishReport: vi.fn(),
+	approveWishListing: vi.fn(),
+	setFlashbackWishHidden: vi.fn(),
+	fetchFlashbackAdminPublicWishes,
+	fetchFlashbackAdminWishEndorsements,
 	fetchFlashbackOutreachPreview,
 	fetchFlashbackOutreachBatches,
 	fetchFlashbackOutreachRoster,
@@ -246,6 +254,189 @@ describe("/admin/flashback 闪念间看板", () => {
 
 		expect(await screen.findByText("已挂树愿望（回响管理）")).toBeInTheDocument();
 		expect(screen.getByText("暂无已挂树的公开愿望。")).toBeInTheDocument();
+	});
+
+	it("公开愿望巡检分区：三态标记与操作按钮，放行后刷新列表", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminPublicWishes.mockResolvedValue([
+			{
+				wishId: "w-pending-1",
+				content: "信用降级作者的新愿望",
+				signature: "阿黎",
+				city: "北京",
+				insertedAt: "2026-09-26T08:00:00Z",
+				listedAt: null,
+				hiddenAt: "2026-09-26T08:00:00Z",
+				status: "pending_review",
+				expectationCount: 0,
+				endorsementCount: 1,
+				authorCreditReduced: true,
+			},
+			{
+				wishId: "w-listed-9",
+				content: "正常挂树的愿望",
+				signature: null,
+				city: null,
+				insertedAt: "2026-09-25T08:00:00Z",
+				listedAt: "2026-09-25T08:00:01Z",
+				hiddenAt: null,
+				status: "listed",
+				expectationCount: 3,
+				endorsementCount: 2,
+				authorCreditReduced: false,
+			},
+			{
+				wishId: "w-hidden-9",
+				content: "被下架的挂树愿望",
+				signature: "老王",
+				city: "上海",
+				insertedAt: "2026-09-24T08:00:00Z",
+				listedAt: "2026-09-24T08:00:01Z",
+				hiddenAt: "2026-09-26T10:00:00Z",
+				status: "hidden",
+				expectationCount: 0,
+				endorsementCount: 0,
+				authorCreditReduced: false,
+			},
+		]);
+
+		const { approveWishListing } = await import("@/lib/admin");
+		vi.mocked(approveWishListing).mockResolvedValue({
+			wishId: "w-pending-1",
+			listedAt: "2026-09-27T00:00:00Z",
+			status: "listed",
+		});
+
+		render(<AdminFlashbackPage />);
+
+		const patrolCard = (await screen.findByTestId("fb-wish-patrol")).closest(".admin-card");
+		expect(patrolCard).toHaveTextContent("公开愿望巡检");
+		expect(patrolCard).toHaveTextContent("待审");
+		expect(patrolCard).toHaveTextContent("已挂树");
+		expect(patrolCard).toHaveTextContent("已下架");
+		expect(patrolCard).toHaveTextContent("信用降级");
+		expect(patrolCard).toHaveTextContent("3 / 2");
+
+		fireEvent.click(screen.getByTestId("fb-patrol-approve-w-pending-1"));
+		await waitFor(() => {
+			expect(approveWishListing).toHaveBeenCalledWith("w-pending-1");
+			// 操作成功后重载巡检列表
+			expect(fetchFlashbackAdminPublicWishes).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	it("公开愿望巡检分区：listed 行出「下架」按钮、hidden 行出「恢复」按钮", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminPublicWishes.mockResolvedValue([
+			{
+				wishId: "w-listed-x",
+				content: "正常愿望",
+				signature: null,
+				city: null,
+				insertedAt: "2026-09-25T08:00:00Z",
+				listedAt: "2026-09-25T08:00:01Z",
+				hiddenAt: null,
+				status: "listed",
+				expectationCount: 0,
+				endorsementCount: 0,
+				authorCreditReduced: false,
+			},
+			{
+				wishId: "w-hidden-x",
+				content: "下架愿望",
+				signature: null,
+				city: null,
+				insertedAt: "2026-09-24T08:00:00Z",
+				listedAt: "2026-09-24T08:00:01Z",
+				hiddenAt: "2026-09-26T10:00:00Z",
+				status: "hidden",
+				expectationCount: 0,
+				endorsementCount: 0,
+				authorCreditReduced: false,
+			},
+		]);
+
+		const { setFlashbackWishHidden } = await import("@/lib/admin");
+		vi.mocked(setFlashbackWishHidden).mockResolvedValue({ wishId: "w-hidden-x", hidden: false });
+
+		render(<AdminFlashbackPage />);
+
+		const patrolCard = await screen.findByTestId("fb-wish-patrol");
+		const listedRow = patrolCard.querySelector('[data-testid="fb-patrol-row-listed"]');
+		const hiddenRow = patrolCard.querySelector('[data-testid="fb-patrol-row-hidden"]');
+
+		fireEvent.click(within(listedRow as HTMLElement).getByText("下架"));
+		await waitFor(() => {
+			expect(setFlashbackWishHidden).toHaveBeenCalledWith("w-listed-x", true);
+		});
+
+		fireEvent.click(within(hiddenRow as HTMLElement).getByText("恢复"));
+		await waitFor(() => {
+			expect(setFlashbackWishHidden).toHaveBeenCalledWith("w-hidden-x", false);
+		});
+	});
+
+	it("附议留言分区：分布汇总 + 展开明细含联系方式", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminWishEndorsements.mockResolvedValue([
+			{
+				wishId: "w-endorse-1",
+				content: "想办一场 Rails 聚会",
+				signature: "阿黎",
+				city: "北京",
+				listedAt: "2026-09-20T08:00:00Z",
+				endorsementCount: 2,
+				contributionDistribution: [
+					{ type: "venue", count: 2 },
+					{ type: "sponsor", count: 1 },
+				],
+				endorsements: [
+					{
+						id: "en-1",
+						contributionTypes: ["venue", "sponsor"],
+						message: "场地和物资我都能帮忙",
+						insertedAt: "2026-09-26T09:00:00Z",
+						endorserPhone: "13800001111",
+						endorserEmail: "helper@example.test",
+					},
+					{
+						id: "en-2",
+						contributionTypes: ["venue"],
+						message: null,
+						insertedAt: "2026-09-26T10:00:00Z",
+						endorserPhone: null,
+						endorserEmail: null,
+					},
+				],
+			},
+		]);
+
+		render(<AdminFlashbackPage />);
+
+		const card = (await screen.findByTestId("fb-wish-endorsements")).closest(".admin-card");
+		expect(card).toHaveTextContent("附议留言");
+		expect(card).toHaveTextContent("场地 2 · 物资赞助 1");
+
+		fireEvent.click(screen.getByText("展开明细"));
+
+		const detail = await screen.findByTestId("fb-endorse-detail-w-endorse-1");
+		expect(detail).toHaveTextContent("场地 / 物资赞助");
+		expect(detail).toHaveTextContent("场地和物资我都能帮忙");
+		expect(detail).toHaveTextContent("13800001111");
+		expect(detail).toHaveTextContent("helper@example.test");
+	});
+
+	it("附议留言分区：空态文案", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminWishEndorsements.mockResolvedValue([]);
+
+		render(<AdminFlashbackPage />);
+
+		expect(await screen.findByText("暂无附议留言。")).toBeInTheDocument();
 	});
 
 	it("愿望分区加载失败：三个子分区整体隐藏，显示统一错误条", async () => {

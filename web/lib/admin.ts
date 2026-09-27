@@ -73,6 +73,11 @@ import {
   FLASHBACK_ADMIN_PUBLISH_WISH_ECHO,
   FLASHBACK_ADMIN_CORRECT_WISH_ECHO,
   FLASHBACK_ADMIN_REVOKE_WISH_ECHO,
+  FLASHBACK_ADMIN_PUBLIC_WISHES,
+  FLASHBACK_ADMIN_WISH_ENDORSEMENTS,
+  FLASHBACK_ADMIN_APPROVE_WISH_LISTING,
+  type FlashbackAdminPublicWishEntry,
+  type FlashbackAdminWishEndorsementEntry,
   type FlashbackAdminListedWishEntry,
   type FlashbackAdminWishEcho,
   type FlashbackAdminWishEchoesResult,
@@ -845,6 +850,37 @@ export async function setFlashbackWishHidden(
     variables: { wishId, hidden },
   });
   return data?.flashbackAdminSetWishHidden ?? null;
+}
+
+// ── #817 愿望巡检 + 附议聚合 + 放行挂树 ─────────────────────────────────────
+
+/** 公开愿望巡检：已授权挂树的公开愿望三态列表（待审置前） */
+export async function fetchFlashbackAdminPublicWishes(): Promise<FlashbackAdminPublicWishEntry[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_PUBLIC_WISHES,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminPublicWishes ?? [];
+}
+
+/** 附议留言聚合：按愿望分组，明细含附议者登录账号联系方式（platform admin） */
+export async function fetchFlashbackAdminWishEndorsements(): Promise<FlashbackAdminWishEndorsementEntry[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_WISH_ENDORSEMENTS,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminWishEndorsements ?? [];
+}
+
+/** 放行待审愿望 = 挂树（置 listed_at + 清 hidden_at；无挂树授权被拒） */
+export async function approveWishListing(
+  wishId: string,
+): Promise<{ wishId: string; listedAt?: string | null; status?: string | null } | null> {
+  const { data } = await client.mutate({
+    mutation: FLASHBACK_ADMIN_APPROVE_WISH_LISTING,
+    variables: { wishId },
+  });
+  return data?.flashbackAdminApproveWishListing ?? null;
 }
 
 // ── 愿望回响（#834/#835，platform_admin）─────────────────────────────────────
