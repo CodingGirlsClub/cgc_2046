@@ -20,8 +20,8 @@ export default function FlashbackVoicesPage() {
   }))
   useShareTimeline(() => ({ ...voiceShare(current), imageUrl: shareImage }))
   useEffect(() => {
-    // Menu shares the wall; a withdrawn sentence never remains a share payload.
-    void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] })
+    // Menu shares the wall; a withdrawn sentence never remains a share payload. 拒绝不影响转发，吞掉避免未处理 rejection
+    void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] }).catch(() => {})
   }, [])
   const corridor = () => {
     void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
