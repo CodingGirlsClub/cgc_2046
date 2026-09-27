@@ -61,6 +61,15 @@ defmodule Cgc2046.Notifications.DeliveryKey do
   @doc "已迁耐久投递的 template_key。"
   @spec durable?(String.t()) :: boolean()
   def durable?(template_key), do: MapSet.member?(@durable_keys, template_key)
+  # 守卫读口（#853）：registry × DeliveryKey 双向断言需要枚举全集，
+  # 逐键 durable?/1 只能单向查。types/0 同款「契约公开读」先例。
+  @doc "已迁耐久投递的 template_key 全集（守卫读口，#853）。"
+  @spec durable_keys() :: [String.t()]
+  def durable_keys, do: Enum.sort(@durable_keys)
+
+  @doc "事件键直取 job_meta 幂等键的 template_key 全集（守卫读口，#853）。"
+  @spec from_meta_keys() :: [String.t()]
+  def from_meta_keys, do: @from_meta_keys
 
   @doc """
   按映射表派生事件键。无派生公式的键（不在 @durable_keys）调用是编程错误，
