@@ -185,9 +185,208 @@ defmodule Cgc2046.Payments.Workers.PaymentExpiryWorkerTest do
     end
   end
 
+  describe "perform/1 孤儿 payment_pending（无订单占座）" do
+    test "超窗无订单 → 释放，名额回池，可重新报名", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, hours(-3))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      enrollment = Ash.get!(Enrollment, base.enrollment.id, authorize?: false)
+      assert enrollment.status == :expired
+      refute is_nil(enrollment.expired_at)
+      assert target_count_for(base) == 0
+
+      {:ok, _re} = re_enroll(ctx, %{enrollment_id: base.enrollment.id, workspace_id: base.workspace.id})
+      assert target_count_for(base) == 1
+    end
+
+    test "未超窗 → 不动", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, hours(-1))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      enrollment = Ash.get!(Enrollment, base.enrollment.id, authorize?: false)
+      assert enrollment.status == :payment_pending
+      assert target_count_for(base) == 1
+    end
+
+    test "request 策略按 approved_at 计：approved_at 未超窗 → 不动，超窗 → 释放", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, days(-3))
+      set_approved_at(base.enrollment, minutes(-30))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status ==
+               :payment_pending
+
+      set_approved_at(base.enrollment, hours(-3))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status == :expired
+    end
+
+    test "有活跃订单 → 不动（交给订单过期链）", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, hours(-3))
+      order = create_order(base, expire_at: hours(1))
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status ==
+               :payment_pending
+
+      assert reload_order(order).status == :pending
+    end
+
+    test "paid 订单但报名尚未落账 → 不动（落账 worker 会把它转 confirmed）", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, hours(-3))
+      order = create_order(base, expire_at: hours(1))
+
+      {:ok, paid} =
+        order
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "orphan-paid-txn"})
+        |> Ash.update(tenant: order.workspace_id, authorize?: false)
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status ==
+               :payment_pending
+
+      assert reload_order(paid).status == :paid
+    end
+
+    test "已确认 / 已取消的报名不受影响，只有孤儿那条变化", ctx do
+      orphan = base_enrollment(ctx, 3)
+      set_inserted_at(orphan.enrollment, hours(-3))
+
+      confirmed_base = base_enrollment(ctx, 3)
+      order = create_order(confirmed_base, expire_at: hours(1))
+
+      {:ok, paid} =
+        order
+        |> Ash.Changeset.for_update(:mark_paid, %{transaction_id: "confirmed-txn"})
+        |> Ash.update(tenant: order.workspace_id, authorize?: false)
+
+      {:ok, _} =
+        Ash.get!(Enrollment, confirmed_base.enrollment.id, authorize?: false)
+        |> Ash.Changeset.for_update(:settle_paid, %{})
+        |> Ash.update(tenant: paid.workspace_id, authorize?: false)
+
+      cancelled_base = base_enrollment(ctx, 3)
+      set_inserted_at(cancelled_base.enrollment, hours(-3))
+
+      {:ok, _} =
+        Ash.get!(Enrollment, cancelled_base.enrollment.id, authorize?: false)
+        |> Ash.Changeset.for_update(:cancel, %{})
+        |> Ash.update(tenant: cancelled_base.workspace.id, actor: cancelled_base.learner)
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      assert Ash.get!(Enrollment, orphan.enrollment.id, authorize?: false).status == :expired
+
+      assert Ash.get!(Enrollment, confirmed_base.enrollment.id, authorize?: false).status ==
+               :confirmed
+
+      assert Ash.get!(Enrollment, cancelled_base.enrollment.id, authorize?: false).status ==
+               :cancelled
+    end
+
+    # DataCase async: false → Sandbox shared 模式：整个测试只有一条被 owner 检出
+    # 的物理连接，Task 内 Repo.transaction 持有它阻塞在 receive 时，主进程的
+    # perform_job 查询无连接可用只能排队超时——不是在验证锁语义，而是连接池
+    # 饥饿（实测 DBConnection.ConnectionError: could not checkout the connection
+    # owned by ...，非死锁/非断言失败）。按计划 Step 4 说明：这种编排在本仓
+    # DataCase sandbox 下不可行，跳过而非删除 Step 3 的锁，也不改用其他编排
+    # （改用其他编排前计划要求先 STOP）。
+    @tag :skip
+    test "并发：孤儿报名下单事务未提交时不被误释放", ctx do
+      base = base_enrollment(ctx, 1)
+      set_inserted_at(base.enrollment, hours(-3))
+
+      test_pid = self()
+
+      task =
+        Task.async(fn ->
+          Cgc2046.Repo.transaction(fn ->
+            {:ok, _locked} = Enrollment.lock_for_order(base.enrollment.id)
+
+            {:ok, order} =
+              Order
+              |> Ash.Changeset.for_create(:create, %{
+                enrollment_id: base.enrollment.id,
+                provider: :wechat_native,
+                out_trade_no: "oto-" <> Ecto.UUID.generate(),
+                amount_cents: 19_900,
+                tier_snapshot: %{
+                  "id" => @tier_id,
+                  "name" => "标准",
+                  "amount_cents" => 19_900
+                },
+                expire_at: hours(1)
+              })
+              |> Ash.create(tenant: base.workspace.id, authorize?: false)
+
+            send(test_pid, {:order_created, order.id})
+
+            receive do
+              :proceed -> :ok
+            after
+              5_000 -> :timeout
+            end
+
+            order
+          end)
+        end)
+
+      order_id =
+        receive do
+          {:order_created, id} -> id
+        after
+          5_000 -> flunk("order-create side did not signal in time")
+        end
+
+      assert :ok = perform_job(PaymentExpiryWorker, %{})
+
+      send(task.pid, :proceed)
+      {:ok, order} = Task.await(task, 5_000)
+      assert order.id == order_id
+
+      assert reload_order(order).status == :pending
+      assert Ash.get!(Enrollment, base.enrollment.id, authorize?: false).status ==
+               :payment_pending
+    end
+  end
+
   # ── 布置 ──
 
   defp hours(n), do: DateTime.add(DateTime.utc_now(), n, :hour)
+  defp minutes(n), do: DateTime.add(DateTime.utc_now(), n, :minute)
+  defp days(n), do: DateTime.add(DateTime.utc_now(), n, :day)
+
+  # 布置纪律同既有 registration_deadline 写法（:60-66）：裸 SQL 改列而非被测对象。
+  defp set_inserted_at(enrollment, at) do
+    Cgc2046.Repo.query!(
+      "UPDATE enrollments SET inserted_at = $1 WHERE id = $2",
+      [DateTime.to_naive(at), Ecto.UUID.dump!(enrollment.id)]
+    )
+  end
+
+  defp set_approved_at(enrollment, at) do
+    Cgc2046.Repo.query!(
+      "UPDATE enrollments SET approved_at = $1 WHERE id = $2",
+      [DateTime.to_naive(at), Ecto.UUID.dump!(enrollment.id)]
+    )
+  end
+
+  defp target_count_for(base) do
+    {:ok, ledger} = Cgc2046.Admission.CapacityLedger.fetch_by_offering(:event, base.event.id)
+    ledger.occupancy
+  end
 
   defp pending_order(ctx, overrides \\ []) do
     ctx
