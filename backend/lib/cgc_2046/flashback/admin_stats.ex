@@ -13,9 +13,10 @@ defmodule Cgc2046.Flashback.AdminStats do
   - **分线** = person.participation（attended = 记忆线 / not_selected =
     圆梦线），分子分母同维度切分；
   - **波次筛选（#984）** = 可选 batch：分母限定该批 outreaches，分子计入
-    「该批触达名单内的人产生的 touch」（touches 无批次列，join 该批
-    outreaches 判名单）；同一人多批触达则批批都计她——拆批 = 放弃
-    跨批去重（issue 已声明取舍）；
+    「该批**成功送达**名单内的人产生的 touch」（touches 无批次列，join
+    该批 outreaches 且 status = 'sent' 判名单——与分母同口径，跨批
+    failed 行不带入：批内率恒 ≤ 100%）；同一人多批触达则批批都计她
+    ——拆批 = 放弃跨批去重（issue 已声明取舍）；
   - 删除档案者不剔除（admin 漏斗是运营真实口径——她们确实经历了触达与
     行为；公开统计层才排除，见 `Public.stats/0`）。
 
@@ -136,9 +137,9 @@ defmodule Cgc2046.Flashback.AdminStats do
   defp maybe_batch_filter(query, batch),
     do: where(query, [o], o.batch == ^batch)
 
-  # 分子（batch 版）：touches 无批次列——join 该批 outreaches 判「触达
-  # 名单」，名单内的人的 touch 才计入；同批多通道行造成的 join 扇出被
-  # distinct person 计数抵消。
+  # 分子（batch 版）：touches 无批次列——join 该批 outreaches（且
+  # status = 'sent'，与分母同口径）判「成功送达名单」，名单内的人的
+  # touch 才计入；同批多通道行造成的 join 扇出被 distinct person 抵消。
   defp touches_query(nil) do
     from(t in "flashback_touches",
       join: p in "flashback_people",
@@ -154,7 +155,7 @@ defmodule Cgc2046.Flashback.AdminStats do
       join: p in "flashback_people",
       on: p.id == t.person_id,
       join: o in "flashback_outreaches",
-      on: o.person_id == t.person_id and o.batch == ^batch,
+      on: o.person_id == t.person_id and o.batch == ^batch and o.status == "sent",
       where: is_nil(p.outreach_unsubscribed_at),
       group_by: [p.participation, t.event],
       select: {p.participation, t.event, count(t.person_id, :distinct)}

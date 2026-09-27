@@ -153,7 +153,8 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
       bing = create_person(archive, :attended)
       # 双批人丁（w1a + w2 双 sent，一次显影）——两批漏斗都计她
       ding = create_person(archive, :attended)
-      # w2 硬退信（不进分母）
+      # 戊（圆梦线）：w1a 送达并打开、w2 硬退信——w1a 计她，w2 分子分母
+      # 都不计（failed 行不入 sent 名单，批内率 ≤ 100% 的守卫场景）
       wu = create_person(archive, :not_selected)
 
       outreach(jia, :sent, "w1a")
@@ -162,17 +163,19 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
       outreach(ding, :sent, "w1a")
       outreach(ding, :sent, "w2")
       outreach(wu, :failed, "w2")
+      outreach(wu, :sent, "w1a")
 
       touch(jia, [:link_opened, :revealed])
       touch(bing, [:link_opened])
       touch(ding, [:revealed])
+      touch(wu, [:link_opened])
 
       # 全局（nil）：与改造前口径逐项一致（回归）
       assert {:ok, stats} = AdminStats.stats()
 
       assert stats.overall == %{
-               delivered: 4,
-               link_opened: 2,
+               delivered: 5,
+               link_opened: 3,
                revealed: 2,
                sent_to_wall: 0,
                intent_submitted: 0
@@ -187,8 +190,8 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
              }
 
       assert stats.dream == %{
-               delivered: 1,
-               link_opened: 0,
+               delivered: 2,
+               link_opened: 1,
                revealed: 0,
                sent_to_wall: 0,
                intent_submitted: 0
@@ -206,22 +209,23 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
              }
 
       assert w1a.dream == %{
-               delivered: 1,
-               link_opened: 0,
+               delivered: 2,
+               link_opened: 1,
                revealed: 0,
                sent_to_wall: 0,
                intent_submitted: 0
              }
 
       assert w1a.overall == %{
-               delivered: 3,
-               link_opened: 1,
+               delivered: 4,
+               link_opened: 2,
                revealed: 2,
                sent_to_wall: 0,
                intent_submitted: 0
              }
 
-      # w2：分母=丙丁（戊硬退信剔除）；丁的显影在 w2 也计
+      # w2：分母=丙丁（戊 w2 硬退信剔除）；丁的显影在 w2 也计；戊的
+      # touch 只随 w1a 计——w2 分子无她（failed 行不入 sent 名单）
       assert {:ok, w2} = AdminStats.stats("w2")
 
       assert w2.memory == %{
