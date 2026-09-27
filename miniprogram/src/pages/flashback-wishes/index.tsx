@@ -11,7 +11,7 @@ import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { parseCityParam, wishTreeShare } from '@/domain/wish-tree'
 import type { ViewerWish } from '@/domain/flashback'
-import shareImage from '@/assets/flashback/voices-map.png'
+import shareImage from '@/assets/flashback/voices-map.jpg'
 import styles from './index.module.css'
 
 export default function WishesPage() {
