@@ -39,10 +39,12 @@ export const WEAPP_PAGES: readonly string[] = [
   // 审核面板不进小程序，管理面在 web）
   'pages/volunteer-apply/index',
   // U9/R28：闪念间主容器=长廊（页内 Tab：时间廊|我的卡，U2 完整化后卡面单源
-  // 在 components/MyCard）。旧独立页仅保留给裁剪端（tt/xhs 未注册长廊，diversion
-  // 词表限制），微信端不再注册。
+  // 在 components/MyCard）。旧独立页曾仅保留给裁剪端——#770 起微信端重新
+  // 注册：URL Link 直达落点（generate_urllink 的 path 不能是 tabBar 页，
+  // 长廊进不去；回访页有完整 token 双入口状态机），无导航入口、仅深链可达。
   'pages/flashback-journey/index',
   'pages/flashback-corridor/index',
+  'pages/flashback/index',
   'pages/flashback-event/index',
   'pages/flashback-today/index',
   // #771：公开卡页（朋友视角）——微信端专属：它只由分享链接进入，裁剪端

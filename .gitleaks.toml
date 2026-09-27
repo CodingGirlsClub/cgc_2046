@@ -8,5 +8,5 @@
 useDefault = true
 
 [[allowlists]]
-description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）；hooks_test.rb 的裸 JWT 为固定测试样本（标准示例 token，非真实密钥）；admin workspaces 测试的 tok-reassign-1 为 mock 的一次性邀请 token 字面量（非真实凭据）；handler_routes_test.rb 的 cgc_ 前缀假 token 为脱敏回归测试的 mock 字面量（非真实凭据，仅驱动先截后抹窗口边界断言）"
-paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''', '''openclacky-ext/cgc-2046/test/hooks_test\.rb''', '''web/app/admin/workspaces/\[id\]/page\.test\.tsx''', '''openclacky-ext/cgc-2046/test/handler_routes_test\.rb''']
+description = "Phoenix dev/test static secret_key_base（prod 走 env，见 config/runtime.exs）；hooks_test.rb 的裸 JWT 为固定测试样本（标准示例 token，非真实密钥）；admin workspaces 测试的 tok-reassign-1 为 mock 的一次性邀请 token 字面量（非真实凭据）；handler_routes_test.rb 的 cgc_ 前缀假 token 为脱敏回归测试的 mock 字面量（非真实凭据，仅驱动先截后抹窗口边界断言）；flashback-cq.test.ts 的 43 字符假 token 为 #770 cq 承接单测的字面量（形状模仿后端 mint 的 base64url，非真实凭据；历史 commit 版本为高熵手敲串，已低熵化但 --all 全历史扫描仍命中旧 commit，故路径放行）"
+paths = ['''backend/config/dev\.exs''', '''backend/config/test\.exs''', '''openclacky-ext/cgc-2046/test/hooks_test\.rb''', '''web/app/admin/workspaces/\[id\]/page\.test\.tsx''', '''openclacky-ext/cgc-2046/test/handler_routes_test\.rb''', '''miniprogram/tests/flashback-cq\.test\.ts''']
