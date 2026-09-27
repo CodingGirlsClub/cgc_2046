@@ -97,6 +97,8 @@ import {
   resumeContentTypeFor,
   resumeProfileError,
   resumeFileError,
+  volunteerJourneyFootnote,
+  volunteerLoginGateCopy,
   volunteerStageProgress,
   volunteerStatusText,
   weeklyHoursValue
@@ -169,8 +171,9 @@ function applySectionHtml(overrides: Partial<Parameters<typeof ApplySection>[0]>
 
 function fakeTaro(overrides: Partial<ResumePickerTaro> = {}): ResumePickerTaro {
   return {
-    chooseMessageFile: vi.fn().mockResolvedValue({ tempFiles: [{ name: 'resume.pdf', path: 'wxfile://tmp_1', size: 2048 }] }),
+    chooseFile: vi.fn().mockResolvedValue({ name: 'resume.pdf', path: 'wxfile://tmp_1', size: 2048 }),
     getFileSystemManager: () => ({ readFileSync: () => 'JVBERi0xLjQK' }),
+    arrayBufferToBase64: vi.fn(() => 'YXJyYXlidWZmZXItYmFzZTY0'),
     showToast: vi.fn(),
     ...overrides
   }
@@ -294,15 +297,15 @@ describe('简历文件选择上传（R9/U2）', () => {
     expect(resumeContentTypeFor('a.txt')).toBeNull()
   })
 
-  it('选择文件：用户取消 → null 且不提示', async () => {
-    const taro = fakeTaro({ chooseMessageFile: vi.fn().mockRejectedValue(new Error('chooseMessageFile:fail cancel')) })
+  it('选择文件：用户取消 / 不支持（chooseResumeTempFile 已归一为 null）→ 不提示', async () => {
+    const taro = fakeTaro({ chooseFile: vi.fn().mockResolvedValue(null) })
     expect(await chooseResumeFile(taro)).toBeNull()
     expect(taro.showToast).not.toHaveBeenCalled()
   })
 
   it('选择文件：不合法 → 提示 + null；合法 → 带同族 MIME 的选择结果', async () => {
     const invalid = fakeTaro({
-      chooseMessageFile: vi.fn().mockResolvedValue({ tempFiles: [{ name: 'resume.zip', path: 'wxfile://tmp_2', size: 1024 }] })
+      chooseFile: vi.fn().mockResolvedValue({ name: 'resume.zip', path: 'wxfile://tmp_2', size: 1024 })
     })
     expect(await chooseResumeFile(invalid)).toBeNull()
     expect(invalid.showToast).toHaveBeenCalledWith({ title: expect.stringContaining('PDF'), icon: 'none' })
@@ -340,7 +343,7 @@ describe('简历文件选择上传（R9/U2）', () => {
   it('上传编排：选择被取消 → 不建档、不上传（不留半成品档案）', async () => {
     const calls: string[] = []
     const uploaded = await pickAndUploadResume({
-      taro: fakeTaro({ chooseMessageFile: vi.fn().mockRejectedValue(new Error('cancel')) }),
+      taro: fakeTaro({ chooseFile: vi.fn().mockResolvedValue(null) }),
       ensureProfile: async () => { calls.push('ensureProfile') },
       upload: async () => { calls.push('upload'); return profile }
     })
@@ -351,6 +354,21 @@ describe('简历文件选择上传（R9/U2）', () => {
   it('读取失败（空内容）→ 抛可读错误，页面据此提示重试', () => {
     const taro = fakeTaro({ getFileSystemManager: () => ({ readFileSync: () => '' }) })
     expect(() => readResumeBase64(taro, 'wxfile://tmp_1')).toThrow('简历文件读取失败')
+  })
+
+  it('小红书兜底：base64 编码参数抛错 → 读 ArrayBuffer 后用 arrayBufferToBase64 转换（xhs 模拟器 3.133.1 实测 2026-09-27）', () => {
+    const buffer = new ArrayBuffer(8)
+    const taro = fakeTaro({
+      getFileSystemManager: () => ({
+        readFileSync: (_path: string, encoding?: 'base64') => {
+          if (encoding === 'base64') throw new Error('fsReadFileSync fail: Invalid argument')
+          return buffer
+        }
+      }),
+      arrayBufferToBase64: vi.fn(() => 'YXJyYXlidWZmZXItYmFzZTY0')
+    })
+    expect(readResumeBase64(taro, 'xhsfile://tmp_1')).toBe('YXJyYXlidWZmZXItYmFzZTY0')
+    expect(taro.arrayBufferToBase64).toHaveBeenCalledWith(buffer)
   })
 
   it('AE5：已有档案 + 有文件 → 跳过重传，直接进第 2 步', () => {
@@ -712,14 +730,14 @@ describe('页面注册与零导流', () => {
     }
   }
 
-  it('微信端页清单登记招募流（campaign 页「成为志愿者」的落点）', async () => {
-    const config = await loadAppConfig('weapp')
+  it.each(['weapp', 'xhs'])('%s 端页清单登记招募流（campaign 页「成为志愿者」的落点，advisor-plans/010 迁入小红书）', async (platform) => {
+    const config = await loadAppConfig(platform)
     expect(config.pages).toContain('pages/volunteer-apply/index')
     expect(config.pages).toContain('pages/campaign/index')
   })
 
-  it.each(['tt', 'xhs'])('%s 端页清单不挂招募流（微信端专属；裁剪端无 campaign 页，无入口可达）', async (platform) => {
-    const config = await loadAppConfig(platform)
+  it('tt 端页清单不挂招募流（tt 不注册；无 campaign 页，无入口可达）', async () => {
+    const config = await loadAppConfig('tt')
     expect(config.pages).not.toContain('pages/volunteer-apply/index')
     expect(config.pages).not.toContain('pages/campaign/index')
   })
@@ -734,5 +752,39 @@ describe('页面注册与零导流', () => {
       renderToStaticMarkup(createElement(MyApplicationsSection, { applications: [application], subscribeCopy: volunteerFollowUpTouchpoint().deniedCopy, onSubscribe: vi.fn() }))
     ].join('')
     for (const term of BANNED_TERMS) expect(html).not.toContain(term)
+  })
+})
+
+// ── 平台分派文案（advisor-plans/010：登录门 / 旅程脚注按平台分派） ───────────
+
+describe('平台分派文案（advisor-plans/010）', () => {
+  it('volunteerLoginGateCopy：小红书端不提「网页端」（规范 6.13.3 零导流禁用词）', () => {
+    expect(volunteerLoginGateCopy('wechat')).toBe('用手机号快捷登录（与网页端同一个账号），登录后即可看到当前批次并填写两步网申。')
+    expect(volunteerLoginGateCopy('xhs')).toBe('用手机号快捷登录，登录后即可看到当前批次并填写两步网申。')
+    expect(volunteerLoginGateCopy('tt')).toBe(volunteerLoginGateCopy('wechat'))
+    for (const term of BANNED_TERMS) expect(volunteerLoginGateCopy('xhs')).not.toContain(term)
+  })
+
+  it('volunteerJourneyFootnote：小红书无订阅消息，只承诺邮件通道', () => {
+    expect(volunteerJourneyFootnote('wechat')).toBe('每段结果都会发到你的联系邮箱；小程序通知需你在提交时逐次授权。')
+    expect(volunteerJourneyFootnote('xhs')).toBe('每段结果都会发到你的联系邮箱。')
+    expect(volunteerJourneyFootnote('tt')).toBe(volunteerJourneyFootnote('wechat'))
+    for (const term of BANNED_TERMS) expect(volunteerJourneyFootnote('xhs')).not.toContain(term)
+  })
+
+  it('页面实渲染（xhs 平台）：登录门与旅程脚注均不含禁用词', () => {
+    const original = process.env.TARO_ENV
+    process.env.TARO_ENV = 'xhs'
+    try {
+      const html = [
+        applySectionHtml({ user: null }),
+        renderToStaticMarkup(createElement(JourneySection))
+      ].join('')
+      for (const term of BANNED_TERMS) expect(html).not.toContain(term)
+      expect(html).toContain(volunteerLoginGateCopy('xhs'))
+      expect(html).toContain(volunteerJourneyFootnote('xhs'))
+    } finally {
+      process.env.TARO_ENV = original
+    }
   })
 })

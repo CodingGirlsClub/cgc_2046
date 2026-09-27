@@ -1,14 +1,18 @@
 import { Button, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { CAMPAIGN_BRAND_EMAIL, openCampaignEntry } from '@/domain/campaign'
+import { CAMPAIGN_BRAND_EMAIL, campaignBrandContactVisible, openCampaignEntry } from '@/domain/campaign'
+import { currentPlatform } from '@/platform'
 import styles from './index.module.css'
 
 /**
- * campaign 宣传页（R19，微信端专属——裁剪端页清单不登记，见 src/app.config.ts）。
- * 内容为 weapp-d 原型的浓缩版：hero（十周年 + 关键数字 + 幂标记）/ 三入口卡 /
+ * campaign 宣传页（R19，微信 + 小红书；tt 不注册，见 src/domain/platform-pages.ts）。
+ * 内容为 weapp-d 原型的浓缩版：hero（十周年 + 关键数字 + 幂标记）/ 入口卡 /
  * 时间线 / 可查证十年。口径与 web 宣传页（U6）对齐：无厂商名、无价格，
- * 历史累计（2016-2025）与本轮计划分开标注。
+ * 历史累计（2016-2025）与本轮计划分开标注。小红书端不渲染品牌合作邮箱出口
+ * （规范 2.5 禁止站外联系方式，advisor-plans/010 Owner 2026-09-27 拍板）。
  */
+
+const brandContactVisible = campaignBrandContactVisible(currentPlatform())
 
 /** 幂标记（R4 统一样式：等宽 + 缩小 + 橙色，与主数字视觉分离） */
 function Pow({ n }: { n: number }) {
@@ -46,7 +50,7 @@ export default function CampaignPage() {
       </View>
 
       <View className={styles.body}>
-        <Text className={styles.sectionTitle}>参与方式<Text className={styles.sectionEn}>THREE WAYS IN</Text></Text>
+        <Text className={styles.sectionTitle}>参与方式<Text className={styles.sectionEn}>{brandContactVisible ? 'THREE WAYS IN' : 'TWO WAYS IN'}</Text></Text>
 
         <View className={`${styles.card} ${styles.cardBorder}`} data-testid='campaign-entry-join' onClick={() => openCampaignEntry(Taro, 'join')}>
           <View className={styles.cardTop}>
@@ -66,19 +70,23 @@ export default function CampaignPage() {
           <Text className={styles.cardDesc}>三个职位：场次主理人 / 教程研究员 Tutor / 活动教练 Coach。零出资零抽成，四段流程每段都有结果通知。</Text>
         </View>
 
-        {/* 赞助合作无页面可跳：出口 = 复制邮箱（页内按钮），故卡片本身不接点击 */}
-        <View className={`${styles.card} ${styles.cardBorder}`} data-testid='campaign-entry-brand'>
-          <View className={styles.cardTop}>
-            <Text className={styles.kicker}>PARTNERSHIP</Text>
+        {/* 赞助合作无页面可跳：出口 = 复制邮箱（页内按钮），故卡片本身不接点击。
+            邮箱属小红书规范 2.5 禁止的站外联系方式——小红书端整卡不渲染（卡片
+            只有邮箱这一个出口，去掉邮箱后剩下的是无出口的招商文案，一并隐藏）。 */}
+        {brandContactVisible && (
+          <View className={`${styles.card} ${styles.cardBorder}`} data-testid='campaign-entry-brand'>
+            <View className={styles.cardTop}>
+              <Text className={styles.kicker}>PARTNERSHIP</Text>
+            </View>
+            <Text className={styles.cardTitle}>赞助合作</Text>
+            <Text className={styles.cardDesc}>一批 32 场（<Pow n={5} />），滚动开批。多品牌同批 · 课程由 CGC 统一研发 · 零抽成——你的品牌出现在普通人第一次做出作品的现场。</Text>
+            <View className={styles.brandRow}>
+              <Text className={styles.brandEmail} data-testid='campaign-brand-email'>{CAMPAIGN_BRAND_EMAIL}</Text>
+              <Button className={styles.copyButton} size='mini' data-testid='campaign-copy-email' onClick={() => openCampaignEntry(Taro, 'brand')}>复制邮箱</Button>
+            </View>
+            <Text className={styles.cardNote}>48 小时内回复 · Partnership 按批次开放</Text>
           </View>
-          <Text className={styles.cardTitle}>赞助合作</Text>
-          <Text className={styles.cardDesc}>一批 32 场（<Pow n={5} />），滚动开批。多品牌同批 · 课程由 CGC 统一研发 · 零抽成——你的品牌出现在普通人第一次做出作品的现场。</Text>
-          <View className={styles.brandRow}>
-            <Text className={styles.brandEmail} data-testid='campaign-brand-email'>{CAMPAIGN_BRAND_EMAIL}</Text>
-            <Button className={styles.copyButton} size='mini' data-testid='campaign-copy-email' onClick={() => openCampaignEntry(Taro, 'brand')}>复制邮箱</Button>
-          </View>
-          <Text className={styles.cardNote}>48 小时内回复 · Partnership 按批次开放</Text>
-        </View>
+        )}
 
         <Text className={styles.sectionTitle}>接下来会发生什么<Text className={styles.sectionEn}>TIMELINE</Text></Text>
         <View className={styles.card}>
