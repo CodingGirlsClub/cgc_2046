@@ -30,13 +30,19 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   @redeem_mailto "mailto:info@codingirlsclub.com?subject=%E6%AF%94%E7%89%B9%E5%B8%81%E5%A5%96%E5%93%81%E5%85%91%E4%BB%98"
   @redeem_text "对了——2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过。如果你恰好也是当年的获奖者，欢迎发邮件至 #{@redeem_email} 联系兑付。"
 
-  @doc "唤醒首封（R23）：称呼 + 本人场次日期/场次名（均可空）+ 专属链接。"
+  @doc """
+  唤醒首封（R23）：称呼 + 本人场次日期/场次名（均可空）+ 专属链接。
+
+  `mp_url`（#770）：微信 URL Link 直达小程序（带 cq），nil = fail-open 回退
+  Web enter_url 作主 CTA。
+  """
   @spec reconnect(
           String.t(),
           String.t() | nil,
           Date.t() | nil,
           String.t() | nil,
           String.t(),
+          String.t() | nil,
           String.t(),
           String.t()
         ) ::
@@ -47,17 +53,21 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
         occurred_on,
         archive_name,
         enter_url,
+        mp_url,
         unsub_url,
         screenshot_url
       ) do
     base(to_email, display_name, @subject)
-    |> Swoosh.Email.text_body(reconnect_text(display_name, occurred_on, enter_url, unsub_url))
+    |> Swoosh.Email.text_body(
+      reconnect_text(display_name, occurred_on, enter_url, mp_url, unsub_url)
+    )
     |> Swoosh.Email.html_body(
       reconnect_html(
         display_name,
         occurred_on,
         archive_name,
         enter_url,
+        mp_url,
         unsub_url,
         screenshot_url
       )
@@ -92,7 +102,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   defp footer_line(_occurred_on, _archive_name),
     do: "你曾在 2012-2018 年间报名过 Rails Girls / Girls Coding Day。"
 
-  defp reconnect_text(display_name, occurred_on, enter_url, unsub_url) do
+  defp reconnect_text(display_name, occurred_on, enter_url, mp_url, unsub_url) do
     """
     你好，#{display_name || "同学"}：
 
@@ -105,7 +115,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
 
     一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。
 
-    打开我的闪念间：#{enter_url}
+    #{entry_text(mp_url, enter_url)}
 
     打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。
     #{@mini_program_line}
@@ -118,6 +128,26 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     """
   end
 
+  # 入口双轨（#770）：微信 URL Link 为主（手机点开直达小程序）；PC 端点
+  # 不开 URL Link，Web 链接以「复制到手机浏览器」兜底。mp_url nil（微信
+  # 侧故障 fail-open）→ 恢复原单入口形态，不重复出现 enter_url。
+  defp entry_text(nil, enter_url), do: "打开我的闪念间：#{enter_url}"
+
+  defp entry_text(mp_url, enter_url) do
+    """
+    打开我的闪念间（在手机微信中点开，直达小程序）：#{mp_url}
+    电脑上打不开？复制此地址在手机浏览器打开：#{enter_url}
+    """
+  end
+
+  # PC 端点击 URL Link 无效（官方能力边界）——微信直达为主 CTA 时补一行
+  # Web 兜底小字；mp_url nil（fail-open 回退）时主 CTA 已是 enter_url，不重复。
+  defp fallback_html(nil, _enter_url), do: ""
+
+  defp fallback_html(_mp_url, enter_url) do
+    "<p style=\"font-size:12px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 22px;\">电脑上打不开？复制此地址在手机浏览器打开：<a href=\"#{enter_url}\" style=\"color:#918c82;text-decoration:underline;\">#{enter_url}</a></p>"
+  end
+
   # 视觉稿即实现（全内联）：暗房底 + 金 kicker + 拍立得白框原图 + 小字引文
   # 兜底（QQ/163 拦远程图时它就是完整引文）+ 相机式 CTA。
   defp reconnect_html(
@@ -125,6 +155,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
          occurred_on,
          archive_name,
          enter_url,
+         mp_url,
          unsub_url,
          screenshot_url
        ) do
@@ -142,7 +173,8 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     </div>
     <p style="font-size:12px;color:#918c82;line-height:1.9;margin:0 0 32px;text-align:center;">“#{@quote_text}”<br>#{@quote_sign}</p>
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。</p>
-    <div style="text-align:center;margin:0 0 22px;"><a href="#{enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
+    <div style="text-align:center;margin:0 0 22px;"><a href="#{mp_url || enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
+    #{fallback_html(mp_url, enter_url)}
     <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 26px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
     <p style="font-size:13px;color:#918c82;line-height:1.9;margin:0 0 40px;">对了——2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过。如果你恰好也是当年的获奖者，欢迎<a href="#{@redeem_mailto}" style="color:#cbbf8f;text-decoration:underline;">联系我们</a>兑付。</p>
     <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
