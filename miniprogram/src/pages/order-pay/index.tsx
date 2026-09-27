@@ -152,6 +152,13 @@ export default function OrderPayPage() {
     paying
   })
 
+  // 重开自动确认窗口：手动刷新与「支付调起成功」共用——用户可能在进页 30s 后才付款，
+  // 进页时开始计的窗口早已用完，付款后必须重新获得完整窗口（否则停在等待支付）
+  const restartPollWindow = () => {
+    setPollElapsed(0)
+    setManualMode(false)
+  }
+
   // 支付调起(R13)：requestPayment 完成(用户支付/取消)后轮询确认
   const requestPayment = async () => {
     if (!canPay || !paymentArgs) return
@@ -160,6 +167,7 @@ export default function OrderPayPage() {
       // signType 收敛为 Taro 联合字面量(RSA/MD5/HMAC-SHA256,后端 v3 固定 RSA)
       await Taro.requestPayment({ ...paymentArgs, signType: paymentArgs.signType as 'RSA' })
       Taro.showToast({ title: '支付完成，确认中…', icon: 'none' })
+      restartPollWindow()
     } catch (reason) {
       // 用户取消/失败：留在本页，可再次调起
       Taro.showToast({
@@ -211,8 +219,7 @@ export default function OrderPayPage() {
   const touchpoint = paymentResultTouchpoint(phase === 'paid')
 
   const refreshManually = () => {
-    setPollElapsed(0)
-    setManualMode(false)
+    restartPollWindow()
     void pollStatus()
   }
 

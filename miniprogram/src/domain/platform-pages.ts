@@ -33,16 +33,19 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/openclacky/index',
   // #508-A：主理人现场核销（管理面，裁剪端不挂）
   'pages/check-in/index',
-  // R19：campaign 宣传页（微信端专属——发现页入口卡同款分流，见 pages/discover/index）
+  // R19：campaign 宣传页（微信 + 小红书；tt 不注册——发现页入口卡同款分流，见
+  // pages/discover/index。advisor-plans/010，Owner 2026-09-27 拍板）
   'pages/campaign/index',
-  // R20/R21：志愿者招募流（微信端专属——campaign 页「成为志愿者」入口的落点；
-  // 审核面板不进小程序，管理面在 web）
+  // R20/R21：志愿者招募流（微信 + 小红书；tt 不注册——campaign 页「成为志愿者」
+  // 入口的落点；审核面板不进小程序，管理面在 web）
   'pages/volunteer-apply/index',
   // U9/R28：闪念间主容器=长廊（页内 Tab：时间廊|我的卡，U2 完整化后卡面单源
-  // 在 components/MyCard）。旧独立页仅保留给裁剪端（tt/xhs 未注册长廊，diversion
-  // 词表限制），微信端不再注册。
+  // 在 components/MyCard）。旧独立页曾仅保留给裁剪端——#770 起微信端重新
+  // 注册：URL Link 直达落点（generate_urllink 的 path 不能是 tabBar 页，
+  // 长廊进不去；回访页有完整 token 双入口状态机），无导航入口、仅深链可达。
   'pages/flashback-journey/index',
   'pages/flashback-corridor/index',
+  'pages/flashback/index',
   'pages/flashback-event/index',
   'pages/flashback-today/index',
   // #771：公开卡页（朋友视角）——微信端专属：它只由分享链接进入，裁剪端
@@ -87,6 +90,11 @@ export const XHS_PAGES: readonly string[] = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
+  // Hacker Start 1024（advisor-plans/010，Owner 2026-09-27 拍板）：campaign 宣传页 +
+  // 志愿者招募（完整两步网申）迁入小红书。押金场报名仍由 enrollmentBlockedNotice
+  // 置灰；campaign 页的邮箱出口在本端不渲染（小红书规范 2.5）。
+  'pages/campaign/index',
+  'pages/volunteer-apply/index',
   // P2 闪念间全端：本人面（长廊/首程/场次/今天）+ 公开面（金句墙/许愿树/公开卡）+
   // 写面（写愿望/我的愿望）。组织者与管理页仍不注册（原则①）。
   'pages/flashback-corridor/index',
@@ -112,4 +120,21 @@ export function pagesForPlatform(platform: RoutePlatform): readonly string[] {
 export function pageRegistered(path: string, platform: RoutePlatform): boolean {
   const normalized = path.replace(/^\/+/, '').split('?')[0]
   return pagesForPlatform(platform).includes(normalized)
+}
+
+/**
+ * 登录回跳目标校验：只放行本端已注册的站内页（`/pages/...`，可带 query）。
+ * 深链可以任意构造 returnUrl——不校验时未注册页（裁剪端）会让回跳静默失败、
+ * 用户卡在登录页。null = 调用方回落本端默认落点。
+ */
+export function safeReturnUrl(raw: string | undefined, platform: RoutePlatform): string | null {
+  if (!raw) return null
+  let target: string
+  try {
+    target = decodeURIComponent(raw)
+  } catch {
+    return null
+  }
+  if (!target.startsWith('/pages/')) return null
+  return pageRegistered(target, platform) ? target : null
 }

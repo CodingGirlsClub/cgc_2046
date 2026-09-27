@@ -363,4 +363,246 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminWishesSmokeTest do
     # 副作用：联动下架落库（批准举报 → 目标愿望 hidden_at 置位）
     assert %DateTime{} = Ash.get!(Wish, wish.id, authorize?: false).hidden_at
   end
+
+  # ── #817：公开愿望巡检 / 附议留言聚合 / 放行挂树 ──────────────────────
+
+  @public_wishes_query """
+  query { flashbackAdminPublicWishes {
+    wishId content signature city insertedAt listedAt hiddenAt
+    status expectationCount endorsementCount authorCreditReduced
+  } }
+  """
+
+  test "flashbackAdminPublicWishes：三态可见且待审置前（admin-only）" do
+    admin = AccountsFixtures.platform_admin("fb-smoke-adm-patrol")
+    arch = archive()
+    owner = person(arch)
+    token = token_for(owner)
+
+    # listed（create_wish fixture 挂树）
+    listed = create_wish(token, "巡检看到的挂树愿望", "public")
+    # 待审（token 作者无微信身份 → P2-1 进待审，不经挂树 fixture）
+    pending = create_pending_wish(token, "巡检看到的待审愿望")
+
+    res = post_graphql(@public_wishes_query, admin, %{})
+    assert res["errors"] == nil
+
+    by_id =
+      Map.new(res["data"]["flashbackAdminPublicWishes"], fn row ->
+        {row["wishId"], row}
+      end)
+
+    assert by_id[listed.id]["status"] == "listed"
+    assert by_id[pending.id]["status"] == "pending_review"
+    assert by_id[pending.id]["hiddenAt"] != nil
+    assert by_id[pending.id]["authorCreditReduced"] == false
+
+    # 待审置前
+    ids = Enum.map(res["data"]["flashbackAdminPublicWishes"], & &1["wishId"])
+    assert Enum.find_index(ids, &(&1 == pending.id)) < Enum.find_index(ids, &(&1 == listed.id))
+  end
+
+  @endorsements_query """
+  query { flashbackAdminWishEndorsements {
+    wishId content signature city listedAt endorsementCount
+    contributionDistribution { type count }
+    endorsements { id contributionTypes message insertedAt endorserPhone endorserEmail }
+  } }
+  """
+
+  test "flashbackAdminWishEndorsements：聚合明细含附议者联系方式（admin-only）" do
+    admin = AccountsFixtures.platform_admin("fb-smoke-adm-endorse")
+    arch = archive()
+    owner = person(arch)
+    token = token_for(owner)
+    wish = create_wish(token, "有人附议的愿望", "public")
+
+    endorser = AccountsFixtures.register_user("fb-smoke-endorser")
+
+    Cgc2046.Repo.query!(
+      "UPDATE users SET phone = '13812340999', email = 'no-leak@example.test' WHERE id = $1",
+      [Cgc2046.Repo.uuid!(endorser.id)]
+    )
+
+    {:ok, _} =
+      Flashback.Wishes.endorse_by_user(endorser.id, wish.id,
+        contribution_types: ["venue", "sponsor"],
+        message: "场地我能谈"
+      )
+
+    res = post_graphql(@endorsements_query, admin, %{})
+    assert res["errors"] == nil
+
+    [row] =
+      Enum.filter(res["data"]["flashbackAdminWishEndorsements"], &(&1["wishId"] == wish.id))
+
+    assert row["endorsementCount"] == 1
+
+    assert row["contributionDistribution"] == [
+             %{"type" => "venue", "count" => 1},
+             %{"type" => "sponsor", "count" => 1}
+           ]
+
+    assert [
+             %{
+               "message" => "场地我能谈",
+               "endorserPhone" => "13812340999",
+               "endorserEmail" => "no-leak@example.test"
+             }
+           ] =
+             row["endorsements"]
+  end
+
+  @approve_listing_mutation """
+  mutation ApproveListing($wishId: ID!) {
+    flashbackAdminApproveWishListing(wishId: $wishId) { wishId listedAt status }
+  }
+  """
+
+  @public_tree_query """
+  query { flashbackPublicWishes(limit: 100) { id content city signature } }
+  """
+  test "flashbackAdminApproveWishListing：放行待审愿望 → 挂树 + 公开树可见" do
+    admin = AccountsFixtures.platform_admin("fb-smoke-adm-approve-listing")
+    arch = archive()
+    owner = person(arch)
+    token = token_for(owner)
+    pending = create_pending_wish(token, "等待放行的愿望")
+
+    res = post_graphql(@approve_listing_mutation, admin, %{"wishId" => pending.id})
+    assert res["errors"] == nil
+
+    assert %{"wishId" => wish_id, "listedAt" => listed_at, "status" => "listed"} =
+             res["data"]["flashbackAdminApproveWishListing"]
+
+    assert wish_id == pending.id
+    assert is_binary(listed_at)
+
+    # 副作用：挂树落库 + 公开树可查（放行 = 挂树）
+    reloaded = Ash.get!(Wish, pending.id, authorize?: false)
+    assert %DateTime{} = reloaded.listed_at
+    assert is_nil(reloaded.hidden_at)
+
+    tree = post_graphql(@public_tree_query, nil, %{})
+    tree_ids = Enum.map(tree["data"]["flashbackPublicWishes"], & &1["id"])
+    assert pending.id in tree_ids
+  end
+
+  test "#817 非 admin 被拒：巡检 / 附议聚合 / 放行三个字段同口径 forbidden" do
+    arch = archive()
+    owner = person(arch)
+    token = token_for(owner)
+    pending = create_pending_wish(token, "拒绝路径的待审愿望")
+    passerby = AccountsFixtures.register_user("fb-smoke-passerby")
+
+    for query <- [@public_wishes_query, @endorsements_query] do
+      res = post_graphql(query, passerby, %{})
+      assert res["errors"] != nil
+
+      assert res["data"]["flashbackAdminPublicWishes"] == nil or
+               res["data"]["flashbackAdminWishEndorsements"] == nil
+    end
+
+    res = post_graphql(@approve_listing_mutation, passerby, %{"wishId" => pending.id})
+    assert res["errors"] != nil
+    assert res["data"] == nil or res["data"]["flashbackAdminApproveWishListing"] == nil
+
+    # 落库不变
+    assert is_nil(Ash.get!(Wish, pending.id, authorize?: false).listed_at)
+  end
+
+  test "#817 KTD5 双层断言：公开面 schema 类型与实际响应都不含 phone/email/message" do
+    admin = AccountsFixtures.platform_admin("fb-smoke-adm-ktd5")
+    arch = archive()
+    owner = person(arch)
+    token = token_for(owner)
+    wish = create_wish(token, "双层断言的愿望", "public")
+
+    endorser = AccountsFixtures.register_user("fb-smoke-ktd5-endorser")
+
+    Cgc2046.Repo.query!(
+      "UPDATE users SET phone = '13899990000', email = 'ktd5@example.test' WHERE id = $1",
+      [Cgc2046.Repo.uuid!(endorser.id)]
+    )
+
+    {:ok, _} =
+      Flashback.Wishes.endorse_by_user(endorser.id, wish.id,
+        contribution_types: ["venue"],
+        message: "这是只给运营的留言"
+      )
+
+    # 第一层：schema 类型（SDL 文本——运行时 introspection 已禁用，SDL 由 CI
+    # `absinthe.schema.sdl` diff 门保证与 schema 一致）——公开类型无
+    # phone/email/message 字段；对照组：admin 明细类型有（防 SDL 提取失灵的假绿）
+    sdl = File.read!("priv/graphql/schema.graphql")
+
+    for type <- ["FlashbackPublicWish", "FlashbackMyWishes", "FlashbackWishComment"] do
+      block = sdl_type_block(sdl, type)
+      assert is_binary(block), "SDL 中找不到 #{type}（SDL 漂移？）"
+      refute block =~ "phone", "#{type} 不应含 phone"
+      refute block =~ "email", "#{type} 不应含 email"
+      refute block =~ "message", "#{type} 不应含 message"
+    end
+
+    admin_block = sdl_type_block(sdl, "FlashbackAdminWishEndorsementDetail")
+    assert admin_block =~ "endorserPhone" and admin_block =~ "endorserEmail"
+
+    # 第二层：实际响应——公开树/单条直达的 JSON 不含 fixture 植入的真实联系方式值
+    tree = post_graphql(@public_tree_query, nil, %{})
+    assert Enum.any?(tree["data"]["flashbackPublicWishes"], &(&1["id"] == wish.id))
+
+    single =
+      post_graphql(
+        "query($wishId: ID!) { flashbackPublicWish(wishId: $wishId) { id content contributionDistribution } }",
+        nil,
+        %{"wishId" => wish.id}
+      )
+
+    assert single["data"]["flashbackPublicWish"]["id"] == wish.id
+
+    # 成员面长廊（capsule.publicWishes）：登入 token 后同样不含
+    capsule =
+      post_graphql(
+        "query($token: String) { flashbackCapsule(token: $token) { publicWishes { content wisherMasked endorsementCount } } }",
+        nil,
+        %{"token" => token}
+      )
+
+    assert Enum.any?(
+             capsule["data"]["flashbackCapsule"]["publicWishes"],
+             &(&1["content"] == wish.content)
+           )
+
+    for res <- [tree, single, capsule] do
+      json = Jason.encode!(res)
+      refute String.contains?(json, "13899990000")
+      refute String.contains?(json, "ktd5@example.test")
+      refute String.contains?(json, "这是只给运营的留言")
+    end
+  end
+
+  # 提取 SDL 中 `type <name> { ... }` 块正文（introspection 在 test/prod 已禁用，
+  # 类型层断言走 SDL 文本；SDL 新鲜度由 CI mix absinthe.schema.sdl diff 门钉住）
+  defp sdl_type_block(sdl, type) do
+    case Regex.run(~r/type #{type} \{(.*?)\n\}/s, sdl) do
+      [_, block] -> block
+      _ -> nil
+    end
+  end
+
+  # 经真实 GraphQL 建待审愿望（token 作者无微信身份 → P2-1 待审；不走挂树 fixture）
+  defp create_pending_wish(token, content) do
+    assert %{"data" => %{"flashbackCreateWish" => %{"endorsementCount" => 0}}} =
+             post_graphql(create_wish_mutation(), nil, %{
+               "token" => token,
+               "content" => content,
+               "visibility" => "public",
+               "signatureChoice" => "display_name",
+               "publicListingConsent" => true
+             })
+
+    Wish
+    |> Ash.Query.filter(content == ^content)
+    |> Ash.read_one!(authorize?: false)
+  end
 end

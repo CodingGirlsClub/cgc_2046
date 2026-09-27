@@ -11,7 +11,7 @@ import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { parseCityParam, wishTreeShare } from '@/domain/wish-tree'
 import type { ViewerWish } from '@/domain/flashback'
-import shareImage from '@/assets/flashback/voices-map.png'
+import shareImage from '@/assets/flashback/voices-map.jpg'
 import styles from './index.module.css'
 
 export default function WishesPage() {
@@ -21,7 +21,8 @@ export default function WishesPage() {
   const [endorse, setEndorse] = useState<ViewerWish | null>(null)
   const [canceling, setCanceling] = useState(false)
   useShareAppMessage(event => ({ ...wishTreeShare(event.from === 'button' && (event.target as { dataset?: { scope?: string } } | undefined)?.dataset?.scope === 'wish' ? current : null), imageUrl: shareImage }))
-  useEffect(() => { void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] }) }, [])
+  // 小红书无朋友圈，平台可能拒绝 shareTimeline——拒绝不影响转发，吞掉避免未处理 rejection（同 flashback-today）
+  useEffect(() => { void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] }).catch(() => {}) }, [])
   useShareTimeline(() => ({ ...wishTreeShare(current), imageUrl: shareImage }))
   const contribute = async () => {
     if (!current || canceling) return

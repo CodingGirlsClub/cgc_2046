@@ -41,6 +41,7 @@ if __name__=='__main__':
     a.tap('flashback-voices','wishesTab')
     a.check('切回许愿树保留城市',a.call('automation_element_action',selector=common('activeChip'),action='text')=='北京')
     a.tap(P,'contribute')
+    a.time.sleep(3)  # 跳转 1–3s；call() 自带的 1.2s 限速等待不够稳
     a.check('出力先登录',a.evaluate('return getCurrentPages().slice(-1)[0].route')=='pages/login/index')
     a.tap('login','loginButton');a.tap('login','dialogPrimary')
     a.check('登录回到同一愿望',a.element(P,'content')=='一起出一本书:《她们的第一行代码》')

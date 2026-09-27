@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   rememberWorkspaceTab: vi.fn(),
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
+  clearFlashbackLinkIdentity: vi.fn(),
   appendLocalNotification: vi.fn(),
   readLocalNotifications: vi.fn(),
   currentPlatform: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
   appendLocalNotification: mocks.appendLocalNotification,
   clearAccountState: mocks.clearAccountState,
+  clearFlashbackLinkIdentity: mocks.clearFlashbackLinkIdentity,
   readLocalNotifications: mocks.readLocalNotifications
 }))
 
@@ -315,6 +317,7 @@ describe('sign-out 事务', () => {
     expect(mocks.setAuthToken).toHaveBeenCalledWith(null)
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
     expect(mocks.clearAccountState).toHaveBeenCalledWith({ clearPendingScene: true })
+    expect(mocks.clearFlashbackLinkIdentity).toHaveBeenCalled()
   })
 
   it('无 token 时 sign-out 不调用 GraphQL，仍清全部状态', async () => {
@@ -323,6 +326,7 @@ describe('sign-out 事务', () => {
     await api.signOut()
     expect(mocks.graphqlRequest).not.toHaveBeenCalled()
     expect(mocks.clearAccountState).toHaveBeenCalledWith({ clearPendingScene: true })
+    expect(mocks.clearFlashbackLinkIdentity).toHaveBeenCalled()
   })
 })
 

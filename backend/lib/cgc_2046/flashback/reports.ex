@@ -145,6 +145,42 @@ defmodule Cgc2046.Flashback.Reports do
     end
   end
 
+  @doc """
+  admin 放行待审愿望 = 挂树（#817）：`listed_at` 置位 + `hidden_at` 清空。
+
+  授权不变量（红线）：仅 `listing_consent_at` 非空（作者创建时授权挂树）的
+  公开未删愿望可放行；无授权证据 → `flashback_wish_listing_not_authorized`
+  拒绝（同码不泄露具体原因）。已挂树（listed_at 非空）幂等返回当前行
+  （并发双击兜底）。**不动**作者信用字段（放行不清信用，与 set_wish_hidden
+  语义一致；信用解除走独立流程）。
+  """
+  @spec approve_wish_listing(String.t(), String.t()) ::
+          {:ok, Wish.t()} | {:error, term()}
+  def approve_wish_listing(wish_id, admin_user_id) do
+    with {:ok, _admin} <- validate_admin(admin_user_id),
+         {:ok, wish} <- fetch_wish(wish_id) do
+      cond do
+        not is_nil(wish.listed_at) ->
+          {:ok, wish}
+
+        is_nil(wish.listing_consent_at) or wish.visibility != "public" or
+            not is_nil(wish.deleted_at) ->
+          {:error,
+           %{
+             code: "flashback_wish_listing_not_authorized",
+             message: "该愿望无有效挂树授权，不能放行"
+           }}
+
+        true ->
+          now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+          wish
+          |> Ash.Changeset.for_update(:update, %{listed_at: now, hidden_at: nil})
+          |> Ash.update(authorize?: false)
+      end
+    end
+  end
+
   @doc "作者 user_id 的 wishes_review_required_at 置位（G1 信用字段）"
   @spec set_author_credit_required(Wish.t(), DateTime.t()) ::
           {:ok, User.t()} | {:error, term()} | :noop
@@ -282,6 +318,214 @@ defmodule Cgc2046.Flashback.Reports do
       }
     end)
   end
+
+  @doc """
+  #817 admin 巡检：作者已授权挂树（listing_consent_at 非空）的公开愿望。
+  待审置前（hidden_at 升序）→ 已下架（listed+hidden）→ 已挂树
+  （listed_at 倒序）。三态标记 listed / pending_review / hidden——admin 面
+  派生口径，与 `Wishes.listing_status/2` 公开三态区分（后者把「已挂树后
+  下架」归入 listed，且不含本投影的授权门槛）。`author_credit_reduced` =
+  作者 user 的 `wishes_review_required_at` 置位（person-only 作者恒 false）。
+  """
+  @spec list_public_wishes_for_admin(non_neg_integer() | nil) :: list(map())
+  def list_public_wishes_for_admin(limit \\ nil) do
+    limit = clamp_limit(limit, 50, 200)
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT w.id, w.content, w.signature, w.city, w.inserted_at, w.listed_at, w.hidden_at,
+               (u.wishes_review_required_at IS NOT NULL) AS author_credit_reduced,
+               (SELECT COUNT(*) FROM flashback_wish_expectations e WHERE e.wish_id = w.id),
+               (SELECT COUNT(*) FROM flashback_wish_endorsements en WHERE en.wish_id = w.id)
+        FROM flashback_wishes w
+        LEFT JOIN users u ON u.id = w.user_id
+        WHERE w.visibility = 'public'
+          AND w.deleted_at IS NULL
+          AND w.listing_consent_at IS NOT NULL
+        ORDER BY
+          CASE
+            WHEN w.listed_at IS NULL AND w.hidden_at IS NOT NULL THEN 0
+            WHEN w.listed_at IS NOT NULL AND w.hidden_at IS NOT NULL THEN 1
+            ELSE 2
+          END,
+          w.hidden_at ASC NULLS LAST,
+          w.listed_at DESC NULLS LAST,
+          w.inserted_at DESC
+        LIMIT $1
+        """,
+        [limit]
+      )
+
+    Enum.map(rows, fn [
+                        id,
+                        content,
+                        signature,
+                        city,
+                        inserted_at,
+                        listed_at,
+                        hidden_at,
+                        credit_reduced,
+                        expectation_count,
+                        endorsement_count
+                      ] ->
+      %{
+        wish_id: Ecto.UUID.load!(id),
+        content: content,
+        signature: signature,
+        city: city,
+        inserted_at: DateTime.from_naive!(inserted_at, "Etc/UTC"),
+        listed_at: naive_to_utc(listed_at),
+        hidden_at: naive_to_utc(hidden_at),
+        status: admin_listing_status(listed_at, hidden_at),
+        author_credit_reduced: credit_reduced || false,
+        expectation_count: expectation_count || 0,
+        endorsement_count: endorsement_count || 0
+      }
+    end)
+  end
+
+  @doc """
+  #817 admin 附议留言聚合：有附议的未删愿望，按最新附议时间倒序取前 `limit`
+  个；明细（类型/留言/时间/附议者登录账号 phone/email）按提交时间正序。
+  `user_id IS NULL`（存量 token 附议）联系方式为 nil，**不回退档案私有字段**
+  （KTD5：phone/email 仅 admin，公开响应禁出——双层断言钉住）。
+  """
+  @spec list_wish_endorsements_for_admin(non_neg_integer() | nil) :: list(map())
+  def list_wish_endorsements_for_admin(limit \\ nil) do
+    limit = clamp_limit(limit, 50, 100)
+
+    %{rows: wish_rows} =
+      Repo.query!(
+        """
+        SELECT w.id, w.content, w.signature, w.city, w.listed_at,
+               (SELECT MAX(en.inserted_at) FROM flashback_wish_endorsements en WHERE en.wish_id = w.id),
+               (SELECT COUNT(*) FROM flashback_wish_endorsements en WHERE en.wish_id = w.id)
+        FROM flashback_wishes w
+        WHERE w.deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM flashback_wish_endorsements en WHERE en.wish_id = w.id
+          )
+        ORDER BY 6 DESC
+        LIMIT $1
+        """,
+        [limit]
+      )
+
+    wishes =
+      Map.new(wish_rows, fn [id, content, signature, city, listed_at, _last, _count] ->
+        {id,
+         %{
+           wish_id: Ecto.UUID.load!(id),
+           content: content,
+           signature: signature,
+           city: city,
+           listed_at: naive_to_utc(listed_at),
+           endorsement_count: 0,
+           contribution_distribution: %{},
+           endorsements: []
+         }}
+      end)
+
+    ids = Enum.map(wish_rows, &hd/1)
+
+    grouped =
+      if ids == [] do
+        []
+      else
+        {:ok, %{rows: detail_rows}} =
+          Repo.query(
+            """
+            SELECT en.wish_id, en.id, en.contribution_types, en.message, en.inserted_at,
+                   u.phone, u.email
+            FROM flashback_wish_endorsements en
+            LEFT JOIN users u ON u.id = en.user_id
+            WHERE en.wish_id = ANY($1)
+            ORDER BY en.inserted_at ASC
+            """,
+            [ids]
+          )
+
+        detail_rows
+      end
+      |> Enum.reduce(wishes, fn [
+                                  wish_uuid,
+                                  id,
+                                  contribution_types,
+                                  message,
+                                  inserted_at,
+                                  phone,
+                                  email
+                                ],
+                                acc ->
+        entry = %{
+          id: Ecto.UUID.load!(id),
+          contribution_types: contribution_types || [],
+          message: message,
+          inserted_at: DateTime.from_naive!(inserted_at, "Etc/UTC"),
+          endorser_phone: phone,
+          endorser_email: email
+        }
+
+        Map.update!(acc, wish_uuid, fn wish ->
+          %{
+            wish
+            | endorsement_count: wish.endorsement_count + 1,
+              contribution_distribution:
+                Enum.reduce(entry.contribution_types, wish.contribution_distribution, fn type,
+                                                                                         dist ->
+                  Map.update(dist, type, 1, &(&1 + 1))
+                end),
+              endorsements: wish.endorsements ++ [entry]
+          }
+        end)
+      end)
+
+    # 按 SQL 返回顺序（最新附议倒序）输出；分布 map → 稳定序 list
+    Enum.map(ids, fn id ->
+      wish = Map.fetch!(grouped, id)
+      %{wish | contribution_distribution: distribution_list(wish.contribution_distribution)}
+    end)
+  end
+
+  # admin 巡检三态：listed（挂树可见）/ pending_review（未挂树待审）/
+  # hidden（挂树后被下架）。未授权（listing_consent_at nil）不进巡检面。
+  defp admin_listing_status(listed_at, hidden_at)
+       when is_nil(listed_at) and not is_nil(hidden_at),
+       do: "pending_review"
+
+  defp admin_listing_status(listed_at, hidden_at)
+       when not is_nil(listed_at) and not is_nil(hidden_at),
+       do: "hidden"
+
+  defp admin_listing_status(_listed_at, _hidden_at), do: "listed"
+
+  # 输出类型固定序（与表单/校验枚举一致），未知类型（历史数据）按字典序垫后
+  @contribution_type_order ~w(venue organize speak sponsor other)
+
+  defp distribution_list(dist) do
+    unknown = dist |> Map.keys() |> Enum.reject(&(&1 in @contribution_type_order)) |> Enum.sort()
+
+    Enum.map(@contribution_type_order ++ unknown, fn type ->
+      case dist do
+        %{^type => count} -> %{type: type, count: count}
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # limit clamp（先例：WishPublic.wishes/1）——nil 取默认，越界收拢
+  defp clamp_limit(nil, default, _max), do: default
+
+  defp clamp_limit(limit, _default, max) when is_integer(limit),
+    do: limit |> max(1) |> min(max)
+
+  defp clamp_limit(_other, default, _max), do: default
+
+  defp naive_to_utc(nil), do: nil
+
+  defp naive_to_utc(naive), do: DateTime.from_naive!(naive, "Etc/UTC")
 
   # FIX-4（KTD9 收口）：公开举报面目标资格 = listed + public + 未 hidden + 未删
   # （plan 允许收口 listed-only——成员面举报入口本批无 UI 消费方）。统一

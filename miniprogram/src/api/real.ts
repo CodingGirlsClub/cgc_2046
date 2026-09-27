@@ -236,6 +236,7 @@ import {
   activateAccount,
   appendLocalNotification,
   clearAccountState,
+  clearFlashbackLinkIdentity,
   readLocalNotifications
 } from '@/state/accountState'
 
@@ -730,6 +731,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
       setAuthToken(null)
       clearWorkspaceTab()
       clearAccountState({ clearPendingScene: true })
+      clearFlashbackLinkIdentity()
       // 主动退出：下一次登录走手机号（方便换账号），不静默回到刚退出的账号（#930）
       setSilentLoginAllowed(false)
     }

@@ -7,7 +7,7 @@ import { VoicesMap } from '@/components/Voices/Map'
 import { useVoices } from '@/components/Voices/useVoices'
 import { parseCityParam, wishTreePath } from '@/domain/wish-tree'
 import { voiceShare } from '@/domain/flashback-voices'
-import shareImage from '@/assets/flashback/voices-map.png'
+import shareImage from '@/assets/flashback/voices-map.jpg'
 import styles from './index.module.css'
 
 export default function FlashbackVoicesPage() {
@@ -20,8 +20,8 @@ export default function FlashbackVoicesPage() {
   }))
   useShareTimeline(() => ({ ...voiceShare(current), imageUrl: shareImage }))
   useEffect(() => {
-    // Menu shares the wall; a withdrawn sentence never remains a share payload.
-    void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] })
+    // Menu shares the wall; a withdrawn sentence never remains a share payload. 拒绝不影响转发，吞掉避免未处理 rejection
+    void Taro.showShareMenu({ showShareItems: ['shareAppMessage', 'shareTimeline'] }).catch(() => {})
   }, [])
   const corridor = () => {
     void Taro.switchTab({ url: '/pages/flashback-corridor/index' })

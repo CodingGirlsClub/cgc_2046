@@ -30,16 +30,8 @@ defmodule Cgc2046.Admission.Enrollment do
 
   alias Cgc2046.Admission.CapacityLedger
   alias Cgc2046.ApprovalClaim
-  alias Cgc2046.Integrations.Wechat.Client
-
-  # reason 内容安全平台判定白名单（替代 String.to_atom，杜绝未知字符串造原子）
-  @content_check_platforms %{"wechat" => :wechat, "tt" => :tt, "xhs" => :xhs}
 
   @submitted_signal "enrollment.submitted"
-  # #510 年龄门槛条款版本（单源）：min_age 非空的目标活动报名须显式确认，
-  # 确认事实（age_confirmed_at）与当时条款版本（terms_version）同事务留痕。
-  # 版本随代码部署演进——改条款语义时更新本值，存量留痕不回写。
-  @terms_version "2026-09-participation"
   # review A1 容量上限：单事务批量免缴的待付笔数上限（定级依据见
   # waive_pending_for_offering moduledoc「容量契约」）
   @batch_waive_limit 200
@@ -48,12 +40,18 @@ defmodule Cgc2046.Admission.Enrollment do
   @completed_signal "enrollment.completed"
 
   # 目标 enrollment_policy 白名单（替代 String.to_existing_atom，杜绝未知字符串
-  # 造原子 / 静默 raise；prepare_create/confirm 阶段解析后存入 changeset context）
+  # 造原子 / 静默 raise；CreateFlow.eligible_target 与 confirm 阶段解析后存入
+  # changeset context）
   @enrollment_policy_atoms %{
     "open" => :open,
     "request" => :request,
     "invite_only" => :invite_only
   }
+
+  # 模块属性无法跨模块读取：CreateFlow.eligible_target 经此访问器取同一白名单
+  # （单源，#851 C8 抽流）。
+  @doc false
+  def enrollment_policy_atoms, do: @enrollment_policy_atoms
 
   attributes do
     uuid_primary_key(:id)
@@ -345,7 +343,10 @@ defmodule Cgc2046.Admission.Enrollment do
       error_handler({__MODULE__, :handle_create_error, []})
 
       change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, &prepare_create/1)
+        Ash.Changeset.before_action(
+          changeset,
+          &Cgc2046.Admission.Enrollment.CreateFlow.prepare_create/1
+        )
       end)
 
       # 信号经 SignalEmitter 事务内 outbox 入队（plan 2026-08-14-003 Q6）：
@@ -422,7 +423,10 @@ defmodule Cgc2046.Admission.Enrollment do
       accept([])
 
       change(fn changeset, _context ->
-        Ash.Changeset.before_action(changeset, &prepare_cancel/1)
+        Ash.Changeset.before_action(
+          changeset,
+          &Cgc2046.Admission.Enrollment.CancelFlow.prepare_cancel/1
+        )
       end)
 
       # 退款窗口内的自助取消把已付单（押金/定价）送入既有退款队列；窗口外的
@@ -431,7 +435,7 @@ defmodule Cgc2046.Admission.Enrollment do
       # 退款任务的崩溃窗口。
       change(fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn cs, enrollment ->
-          enqueue_self_cancel_refunds(cs, enrollment)
+          Cgc2046.Admission.Enrollment.CancelFlow.enqueue_self_cancel_refunds(cs, enrollment)
         end)
       end)
     end
@@ -734,152 +738,6 @@ defmodule Cgc2046.Admission.Enrollment do
     end)
   end
 
-  defp prepare_create(changeset) do
-    event_id = Ash.Changeset.get_attribute(changeset, :event_id)
-    course_id = Ash.Changeset.get_attribute(changeset, :course_id)
-    actor = changeset.context[:private][:actor]
-
-    # 内容检查在 with 链首位（advisor09 F2）：msgSecCheck 外呼在
-    # eligible_target 的 FOR SHARE 行锁获取之前执行，外呼不持锁。
-    with :ok <- check_content(changeset, actor),
-         {:ok, target_kind, target_id} <- exactly_one_target(event_id, course_id),
-         :ok <- lock_qualification_target(event_id),
-         {:ok, target} <- eligible_target(target_kind, target_id, actor),
-         {:ok, tenant} <- resolve_tenant(changeset.tenant, target.workspace_id),
-         {:ok, attrs} <- prepare_policy(changeset, target_kind, target_id, target, tenant),
-         {:ok, attrs} <- put_tier_selection(changeset, target, attrs),
-         {:ok, attrs} <- put_age_confirmation(changeset, target, attrs),
-         {:ok, attrs} <- put_check_in_code(attrs, target_kind, target_id) do
-      changeset =
-        Enum.reduce(attrs, changeset, fn {key, value}, cs ->
-          Ash.Changeset.force_change_attribute(cs, key, value)
-        end)
-
-      # 目标 enrollment_policy 已由 eligible_target 加载（FOR SHARE），存入 context
-      # 供 SignalEmitter payload fn 组装信号使用，避免提交后再查一次（#5）
-      Ash.Changeset.put_context(changeset, :enrollment_policy, target.enrollment_policy)
-    else
-      {:error, reason} -> add_domain_error(changeset, reason)
-    end
-  end
-
-  # ── 内容安全（plan 2026-08-18-009 P2 + advisor09 F1-F3）────────────
-
-  # submission_payload.reason 自由文本过内容安全检查。外呼在 with 链首位执行
-  # （目标校验 / FOR SHARE 行锁获取之前，F2：外呼不持锁）。
-  # - reason 缺失 → 放行（无可查内容）
-  # - reason 存在但非 binary / 超 2500 字节 / 无效 UTF-8 → 拒绝（F3：检查产物 =
-  #   落库产物，服务端前置校验，禁止静默截断）
-  # - 违规（v2 result.suggest risky/review）→ {:error, :content_rejected}
-  #   （fail-closed，内容不落库）
-  # - infra 故障 → fail-open 放行（Client.content_check 内部已记 telemetry）
-  # - 无 wechat identity（tt/xhs 单平台 / web 无 identity）→ pass-through 零外呼
-  defp check_content(changeset, actor) do
-    payload = Ash.Changeset.get_attribute(changeset, :submission_payload) || %{}
-    reason = Map.get(payload, "reason") || Map.get(payload, :reason)
-
-    cond do
-      is_nil(reason) ->
-        :ok
-
-      not valid_reason?(reason) ->
-        {:error, :content_rejected}
-
-      true ->
-        check_content_with_identity(actor, reason)
-    end
-  end
-
-  defp valid_reason?(reason) when is_binary(reason),
-    do: byte_size(reason) <= 2500 and String.valid?(reason)
-
-  defp valid_reason?(_), do: false
-
-  # msgSecCheck v2 需要 openid——从 user_identities 取 wechat uid
-  # （order.ex:794 同款 SQL 先例；platform 判定查询复用，一次取 provider+uid）。
-  # 有 wechat openid → wechat 检查；无 wechat identity（tt/xhs 单平台 / web 无
-  # identity）/ 查询失败 → 放行（pass-through 语义，RISKS 记录——v2 无法在无
-  # openid 下执行检查，与 tt/xhs 零外呼语义等价）。
-  defp check_content_with_identity(actor, reason) do
-    case actor_identities(actor) do
-      {:ok, identities} ->
-        case Map.get(identities, :wechat) do
-          nil -> :ok
-          openid -> run_wechat_check(reason, openid)
-        end
-
-      :error ->
-        :ok
-    end
-  end
-
-  defp run_wechat_check(reason, openid) do
-    case Client.content_check(:wechat, reason, openid) do
-      {:ok, _} -> :ok
-      {:error, :content_rejected} -> {:error, :content_rejected}
-    end
-  end
-
-  defp actor_identities(nil), do: {:ok, %{}}
-
-  defp actor_identities(actor) do
-    case Cgc2046.Repo.query(
-           "SELECT DISTINCT provider, uid FROM user_identities WHERE user_id = $1",
-           [Cgc2046.Repo.uuid!(actor.id)]
-         ) do
-      {:ok, %{rows: rows}} ->
-        identities =
-          rows
-          |> Enum.map(fn [provider, uid] -> {@content_check_platforms[provider], uid} end)
-          |> Enum.reject(fn {provider, _uid} -> is_nil(provider) end)
-          |> Map.new()
-
-        {:ok, identities}
-
-      {:error, _} ->
-        :error
-    end
-  end
-
-  defp prepare_policy(changeset, _kind, _target_id, %{enrollment_policy: :request}, tenant) do
-    deadline =
-      Ash.Changeset.get_attribute(changeset, :approval_deadline) ||
-        DateTime.add(DateTime.utc_now(), Cgc2046.ApprovalDeadline.default_timeout_days(), :day)
-
-    {:ok, %{workspace_id: tenant, status: :pending, approval_deadline: deadline}}
-  end
-
-  # 收费目标：open/invite_only 占位后进 payment_pending（支付完成才 confirmed，
-  # ADR-0007 占位→限时支付）；免费目标直接 confirmed（R4 现状不变）。
-  # request 无论收费与否都先 pending（审批通过后 prepare_confirm 分叉）。
-  defp prepare_policy(_changeset, kind, target_id, %{enrollment_policy: :open} = target, tenant) do
-    with {:ok, sequence} <- reserve_capacity(kind, target_id) do
-      {:ok, %{workspace_id: tenant, status: auto_confirm_status(target), capacity_seq: sequence}}
-    end
-  end
-
-  defp prepare_policy(
-         changeset,
-         kind,
-         target_id,
-         %{enrollment_policy: :invite_only} = target,
-         tenant
-       ) do
-    invite_code = Ash.Changeset.get_argument(changeset, :invite_code)
-
-    with true <- (is_binary(invite_code) and invite_code != "") || {:error, :invite_code_required},
-         {:ok, sequence} <- reserve_capacity(kind, target_id),
-         {:ok, batch_id} <- consume_invite_quota(tenant, kind, target_id, invite_code) do
-      {:ok,
-       %{
-         workspace_id: tenant,
-         status: auto_confirm_status(target),
-         capacity_seq: sequence,
-         invite_batch_id: batch_id
-       }}
-    end
-  end
-
   # 落点判定（KTD2）：定价开启或押金开启 → payment_pending（支付完成才 confirmed）；
   # 免费目标直接 confirmed。
   @doc """
@@ -896,100 +754,6 @@ defmodule Cgc2046.Admission.Enrollment do
       :free -> :confirmed
       _ -> :payment_pending
     end
-  end
-
-  # 收费报名的档位选择（KTD9/R2）：tier_id 必填且当前可售，存 submission_payload
-  # 供下单链快照（U5 resolve_tier）；免费目标忽略 tier_id（R4）。
-  defp put_tier_selection(changeset, %{pricing_enabled: true, price_tiers: tiers}, attrs) do
-    tier_id = Ash.Changeset.get_argument(changeset, :tier_id)
-
-    with true <- (is_binary(tier_id) and tier_id != "") || {:error, :tier_id_required},
-         {:ok, tier} <- Cgc2046.Offering.PriceTier.find(tiers, tier_id),
-         true <-
-           Cgc2046.Offering.PriceTier.available?(tier, DateTime.utc_now()) ||
-             {:error, :tier_not_available} do
-      {:ok,
-       Map.put(
-         attrs,
-         :submission_payload,
-         merge_payload_key(changeset, Map.get(attrs, :submission_payload), "tier_id", tier_id)
-       )}
-    end
-  end
-
-  defp put_tier_selection(_changeset, _target, attrs), do: {:ok, attrs}
-
-  # ── 年龄门槛（#510）──────────────────────────────────────────────────────
-  # min_age 非空的目标活动（仅 events 有该列；course 恒 nil 走兜底）必须显式
-  # 确认：argument :age_confirmed 非 true 即拒（fail-closed，MCP 不传同拒）。
-  # 确认事实与条款版本同事务落列——审计可回答「何时同意的哪一版条款」。
-  # 判据是 is_integer（min_age 有 CHECK min:1，无 0/负值分支）。
-  defp put_age_confirmation(changeset, %{min_age: min_age}, attrs) when is_integer(min_age) do
-    if Ash.Changeset.get_argument(changeset, :age_confirmed) == true do
-      {:ok,
-       attrs
-       |> Map.put(:age_confirmed_at, DateTime.utc_now())
-       |> Map.put(:terms_version, @terms_version)}
-    else
-      {:error, :age_confirmation_required}
-    end
-  end
-
-  defp put_age_confirmation(_changeset, _target, attrs), do: {:ok, attrs}
-
-  # submission_payload 累加写点（tier_id，KTD9）：优先取链上已累积值、回落客户端
-  # 提交原值，只覆盖本键——后写者不吞前写者，也不丢报名表单自带字段
-  # （reason / targetTitle）。
-  defp merge_payload_key(changeset, payload, key, value) do
-    (payload || Ash.Changeset.get_attribute(changeset, :submission_payload) || %{})
-    |> Map.put(key, value)
-  end
-
-  # ── 核销码（U4/KTD5）────────────────────────────────────────────────────
-  # Event 报名在 create 单写点生成同场唯一 6 位码（迁入 confirmed 的 5 个写点
-  # 逐路径挂生成必漏——见计划 KTD5）；pending/payment_pending 行同占码，同场
-  # 量级下可忽略。course 报名不生成。生成器共享自 Cgc2046.RandomCode（无偏
-  # rejection sampling，保留前导零）；同场存在性查询避碰至多
-  # @check_in_code_max_attempts 次，(event_id, check_in_code) 唯一索引兜底，
-  # 兜底冲突由 handle_create_error 映射为可重试业务错误（unique_conflict?/1
-  # 判据复用，错误文案不匹配）。
-  @check_in_code_max_attempts 5
-  # 兜底判据只用约束名：AshPostgres 的 constraints_to_errors 由约束名反查
-  # identity，字段取身份首列（event_id，Ecto error_key），故 field 不能识别
-  # 是哪条 identity 冲突；约束名 = `#{table}_#{identity.name}_index` 默认规则
-  # （与 migration/快照一致）。
-  @check_in_code_constraint "enrollments_unique_check_in_code_index"
-
-  defp put_check_in_code(attrs, :event, event_id) do
-    case allocate_check_in_code(event_id, @check_in_code_max_attempts) do
-      {:ok, code} -> {:ok, Map.put(attrs, :check_in_code, code)}
-      :error -> {:error, :check_in_code_exhausted}
-    end
-  end
-
-  defp put_check_in_code(attrs, :course, _course_id), do: {:ok, attrs}
-
-  # 测试注入的 deterministic 码必须同样参与避碰（否则耗尽用例退化为撞索引）。
-  defp allocate_check_in_code(_event_id, 0), do: :error
-
-  defp allocate_check_in_code(event_id, attempts_left) do
-    code = Cgc2046.RandomCode.generate()
-
-    if check_in_code_taken?(event_id, code) do
-      allocate_check_in_code(event_id, attempts_left - 1)
-    else
-      {:ok, code}
-    end
-  end
-
-  defp check_in_code_taken?(event_id, code) do
-    %{rows: rows} =
-      Cgc2046.Repo.query!(
-        "SELECT 1 FROM enrollments WHERE event_id = $1 AND check_in_code = $2 LIMIT 1",
-        [Cgc2046.Repo.uuid!(event_id), code]
-      )
-
-    rows != []
   end
 
   defp prepare_confirm(changeset) do
@@ -1097,118 +861,24 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp prepare_cancel(changeset) do
-    with {:ok, event} <- lock_cancel_target(changeset.data.event_id, changeset.data.course_id),
-         now = DateTime.utc_now(),
-         {:ok, capacity_target} <- claim_cancellable(changeset.data.id, now),
-         :ok <- release_capacity(capacity_target),
-         {:ok, _voided} <-
-           Cgc2046.Payments.Order.void_pending_for_enrollment(
-             changeset.data.id,
-             "enrollment_cancelled"
-           ) do
-      changeset
-      |> Ash.Changeset.force_change_attribute(:status, :cancelled)
-      |> Ash.Changeset.force_change_attribute(:cancelled_at, now)
-      # 退款资格双锚（#543）：押金单 = 报名截止前（#587）；定价单 = 活动开始前
-      # （条款 5.2「活动开始前全额退」）。锚点在锁后读钟一次锁定，避免锁等待
-      # 期间跨线。starts_at 缺失（畸形数据）→ false（fail-closed 不退）。
-      |> Ash.Changeset.put_context(:self_cancel_before_deadline, before_deadline?(event, now))
-      |> Ash.Changeset.put_context(
-        :self_cancel_before_starts_at,
-        before_starts_at?(event, now)
-      )
-    else
-      {:error, reason} -> add_domain_error(changeset, reason)
-    end
-  end
+  # 退款双锚之押金锚（#587）：报名截止前 = 可退；nil 视为无限期（恒真）。
+  # create 路径的 lock_qualification_target 与 CancelFlow.prepare_cancel 共用
+  # （#851 C8 抽流：跨流共享谓词留 resource）。
+  @doc false
+  def before_deadline?(%{registration_deadline: nil}, _now), do: true
 
-  defp enqueue_self_cancel_refunds(changeset, enrollment) do
-    # #543：自助取消退款不再只认押金单——按订单口径分派锚点（押金单截止前 /
-    # 定价单开始前全额退）。免费/免缴报名无活跃单，查询自然落空。
-    orders =
-      Cgc2046.Payments.Order
-      |> Ash.Query.filter(
-        enrollment_id == ^enrollment.id and
-          status in [:paid, :refunding, :refund_failed]
-      )
-      |> Ash.read!(authorize?: false, tenant: enrollment.workspace_id)
-
-    case orders do
-      [order] ->
-        if self_cancel_refund_eligible?(changeset, order) do
-          commence_order_refund(order, enrollment)
-        else
-          {:ok, enrollment}
-        end
-
-      [] ->
-        {:ok, enrollment}
-
-      # 同一报名多条活跃单违反 unique_active_order 不变量（跨口径）：上抛回滚
-      # 取消，不留「已取消但钱未退」的半态（after_action 的 {:error, _} 会提交）。
-      _ ->
-        raise "multiple active orders for enrollment #{enrollment.id}"
-    end
-  end
-
-  defp commence_order_refund(order, enrollment) do
-    # 退款发起单一入口（#845）：分类与竞态收敛在 RefundCommencement；入队由
-    # Order action 的 after_action 承担（同事务恰好一次）。失败必须回滚事务：
-    # after_action 返回 `{:error, _}` 会**提交**（`transaction_rollback_on_error?`
-    # 未设），那样会留下「报名已取消、押金单仍 paid/refunding 且无退款 job」
-    # 的静默吞钱（U6/KTD6 纪律）——用 Ash.DataLayer.rollback 回滚且保持对外
-    # `{:error, …}` 形状（raise 会被 AshGraphql 降级成 something_went_wrong，
-    # code 丢失，R2 阻断 2）。
-    case Cgc2046.Payments.RefundCommencement.commence(order, eligible: [:paid, :refund_failed]) do
-      {:ok, _tag} ->
-        {:ok, enrollment}
-
-      # R1-#1 修复后本分支可达：重读可能读到 forfeited（no-show 结算抢先）等
-      # 不可发起状态——与「截止前/开始前取消应全退」冲突，fail-closed 回滚
-      # 取消，绝不静默留钱。
-      {:error, {:ineligible, status}} ->
-        Ash.DataLayer.rollback(enrollment, {:ineligible, status})
-
-      # 竞态重读仍未收敛 / DB 故障：回滚取消。错误原样透传（含 CAS 的
-      # order_already_processed），与迁移前 cancel 的对外错误形状一致。
-      {:error, reason} ->
-        Ash.DataLayer.rollback(enrollment, reason)
-    end
-  end
-
-  # #543：退款资格按订单口径选锚——押金单 = 报名截止前（#587 既定语义）；
-  # 定价单 = 活动开始前（条款 5.2）。锚点布尔在 prepare_cancel 锁后统一判定。
-  defp self_cancel_refund_eligible?(changeset, order) do
-    case order.order_kind do
-      :deposit -> Map.get(changeset.context, :self_cancel_before_deadline) == true
-      :enrollment -> Map.get(changeset.context, :self_cancel_before_starts_at) == true
-    end
-  end
-
-  defp before_deadline?(%{registration_deadline: nil}, _now), do: true
-
-  defp before_deadline?(%{registration_deadline: %NaiveDateTime{} = deadline}, now),
+  def before_deadline?(%{registration_deadline: %NaiveDateTime{} = deadline}, now),
     do: DateTime.compare(now, DateTime.from_naive!(deadline, "Etc/UTC")) == :lt
 
-  defp before_deadline?(%{registration_deadline: deadline}, now),
+  def before_deadline?(%{registration_deadline: deadline}, now),
     do: DateTime.compare(now, deadline) == :lt
-
-  # 定价单自助取消锚（#543）：活动开始前 = 可退。starts_at 缺失 → false
-  # fail-closed（定价场 ⇒ starts_at 非空由 DB CHECK 兜底，此处只兜残差）。
-  defp before_starts_at?(%{starts_at: nil}, _now), do: false
-
-  defp before_starts_at?(%{starts_at: %NaiveDateTime{} = starts_at}, now),
-    do: DateTime.compare(now, DateTime.from_naive!(starts_at, "Etc/UTC")) == :lt
-
-  defp before_starts_at?(%{starts_at: starts_at}, now),
-    do: DateTime.compare(now, starts_at) == :lt
 
   # All qualification-sensitive transitions acquire this lock before touching
   # Enrollment/ledger/order rows. Read the clock after a possible lock wait.
-  defp lock_qualification_target(nil), do: :ok
+  @doc false
+  def lock_qualification_target(nil), do: :ok
 
-  defp lock_qualification_target(event_id) do
+  def lock_qualification_target(event_id) do
     case Cgc2046.Repo.query(
            "SELECT status, registration_deadline, min_participants FROM events WHERE id = $1 FOR UPDATE",
            [Cgc2046.Repo.uuid!(event_id)]
@@ -1229,44 +899,6 @@ defmodule Cgc2046.Admission.Enrollment do
         {:error, {:database, reason}}
     end
   end
-
-  defp lock_cancel_target(event_id, nil) when not is_nil(event_id) do
-    case Cgc2046.Repo.query(
-           "SELECT registration_deadline, starts_at FROM events WHERE id = $1 FOR UPDATE",
-           [Cgc2046.Repo.uuid!(event_id)]
-         ) do
-      {:ok, %{rows: [[deadline, starts_at]]}} ->
-        {:ok, %{registration_deadline: deadline, starts_at: starts_at}}
-
-      {:ok, %{rows: []}} ->
-        {:error, :target_not_found}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
-
-  # course 无报名截止概念（恒 nil），但定价单退款锚 = 开课时间（#543）——与
-  # event 同构锁读 starts_at（锁行防并发改期跨线）。
-  defp lock_cancel_target(nil, course_id) when not is_nil(course_id) do
-    case Cgc2046.Repo.query(
-           "SELECT starts_at FROM courses WHERE id = $1 FOR UPDATE",
-           [Cgc2046.Repo.uuid!(course_id)]
-         ) do
-      {:ok, %{rows: [[starts_at]]}} ->
-        {:ok, %{registration_deadline: nil, starts_at: starts_at}}
-
-      {:ok, %{rows: []}} ->
-        {:error, :target_not_found}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
-
-  defp lock_cancel_target(nil, nil), do: {:error, :target_not_found}
-
-  defp lock_cancel_target(_event_id, _course_id), do: {:error, :target_not_found}
 
   # 作废语义已收编至 Payments 端口 Order.void_pending_for_enrollment/2
   # （ADR-0009 Fable 5 MEDIUM-2）：R12/e2e #1——取消/免缴在离开占位态的同一
@@ -1462,10 +1094,6 @@ defmodule Cgc2046.Admission.Enrollment do
     )
   end
 
-  defp exactly_one_target(event_id, nil) when is_binary(event_id), do: {:ok, :event, event_id}
-  defp exactly_one_target(nil, course_id) when is_binary(course_id), do: {:ok, :course, course_id}
-  defp exactly_one_target(_, _), do: {:error, :exactly_one_target_required}
-
   defp target_from_record(%{event_id: event_id, course_id: nil}) when is_binary(event_id),
     do: {:ok, :event, event_id}
 
@@ -1473,73 +1101,6 @@ defmodule Cgc2046.Admission.Enrollment do
     do: {:ok, :course, course_id}
 
   defp target_from_record(_), do: {:error, :exactly_one_target_required}
-
-  defp eligible_target(kind, id, actor) do
-    table = target_table(kind)
-    actor_id = if actor, do: Cgc2046.Repo.uuid!(actor.id), else: nil
-
-    # G1（E-5 #50 安全洞修复）：公开报名只对 `open + visibility=public` 活动；
-    # workspace-only 活动仅目标 workspace 成员可报（成员路径 D2，工作台详情页
-    # 入口走同一 createEnrollment）。非成员/匿名对 workspace-only 报名 → 本函数
-    # 返回 :target_not_open_or_registration_closed（not_found 语义，与匿名读一致，
-    # 不泄露存在性）。行为变化：此前非成员可经 API 报名 workspace-only，属漏洞。
-    # 押金开关（KTD2）：仅 events 表有，courses 分支补 false（Order.load_target_row/2
-    # 的 deposit_column 同款写法）。
-    # min_age 列（#510）：仅 events 表有，courses 补 NULL 保持列数一致（同
-    # deposit_columns 形状）。
-    sql = """
-    SELECT workspace_id, enrollment_policy, pricing_enabled, price_tiers#{deposit_columns(table)}#{min_age_columns(table)}
-    FROM #{table}
-    WHERE id = $1 AND status = 'open'
-      AND (registration_deadline IS NULL OR registration_deadline > clock_timestamp())
-      AND (
-        visibility = 'public'
-        OR EXISTS (
-          SELECT 1 FROM workspace_memberships wm
-          WHERE wm.workspace_id = #{table}.workspace_id
-            AND wm.user_id = $2
-        )
-      )
-    FOR SHARE
-    """
-
-    case Cgc2046.Repo.query(sql, [Cgc2046.Repo.uuid!(id), actor_id]) do
-      {:ok,
-       %{
-         rows: [
-           [
-             workspace_id,
-             policy,
-             pricing_enabled,
-             price_tiers,
-             deposit_enabled,
-             min_age
-           ]
-         ]
-       }} ->
-        case Map.get(@enrollment_policy_atoms, policy) do
-          nil ->
-            {:error, {:unknown_enrollment_policy, policy}}
-
-          enrollment_policy ->
-            {:ok,
-             %{
-               workspace_id: Ecto.UUID.load!(workspace_id),
-               enrollment_policy: enrollment_policy,
-               pricing_enabled: pricing_enabled,
-               price_tiers: price_tiers || [],
-               deposit_enabled: deposit_enabled,
-               min_age: min_age
-             }}
-        end
-
-      {:ok, %{rows: []}} ->
-        {:error, :target_not_open_or_registration_closed}
-
-      {:error, reason} ->
-        {:error, {:database, reason}}
-    end
-  end
 
   # confirm 路径的目标 enrollment_policy 单次查询（#5：事务内解析并存入 context，
   # 不再提交后再查）。失败只记日志、stash nil，不阻断确认动作本身。
@@ -1582,30 +1143,8 @@ defmodule Cgc2046.Admission.Enrollment do
 
   # R14：占位 CAS 收编账本行（守卫三条件原样复刻；懒建 upsert 兜底在账本侧，
   # KTD5）。返回值 = 账本 occupancy（capacity_seq 语义随之改指账本计数）。
-  defp reserve_capacity(kind, id), do: CapacityLedger.reserve(kind, id)
-
-  defp consume_invite_quota(workspace_id, kind, target_id, invite_code) do
-    target_column = if kind == :event, do: "event_id", else: "course_id"
-
-    sql = """
-    UPDATE invite_batches
-    SET remaining_quota = remaining_quota - 1, updated_at = NOW()
-    WHERE workspace_id = $1 AND #{target_column} = $2 AND invite_code = $3
-      AND status = 'active' AND remaining_quota > 0
-      AND (expires_at IS NULL OR expires_at > NOW())
-    RETURNING id
-    """
-
-    case Cgc2046.Repo.query(sql, [
-           Cgc2046.Repo.uuid!(workspace_id),
-           Cgc2046.Repo.uuid!(target_id),
-           invite_code
-         ]) do
-      {:ok, %{rows: [[id]]}} -> {:ok, Ecto.UUID.load!(id)}
-      {:ok, %{rows: []}} -> {:error, :invite_quota_unavailable}
-      {:error, reason} -> {:error, {:database, reason}}
-    end
-  end
+  @doc false
+  def reserve_capacity(kind, id), do: CapacityLedger.reserve(kind, id)
 
   defp claim_pending(id, status, actor_id, now, rejection_reason) do
     # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：confirm/reject
@@ -1655,61 +1194,23 @@ defmodule Cgc2046.Admission.Enrollment do
     end
   end
 
-  defp claim_cancellable(id, now) do
-    # payment_pending 与 confirmed 同为已占位窗口——取消必须释放名额（KTD6-4）。
-    # 原子抢占收编 Cgc2046.ApprovalClaim（plan 2026-08-17-001 D4）：多状态 IN +
-    # RETURNING 回读 capacity_seq/event_id/course_id（0 行 → :not_claimed →
-    # :already_processed；返回值的容量目标分派留调用方，D3）。
-    case ApprovalClaim.claim(%{id: id},
-           table: :enrollments,
-           from: [:pending, :payment_pending, :confirmed],
-           set: [status: "cancelled", cancelled_at: {:arg, :now}],
-           returning: [:capacity_seq, :event_id, :course_id],
-           now: now
-         ) do
-      {:ok, %{capacity_seq: nil, event_id: _event_id, course_id: _course_id}} ->
-        {:ok, nil}
-
-      {:ok, %{capacity_seq: _capacity_seq, event_id: event_id, course_id: nil}}
-      when not is_nil(event_id) ->
-        {:ok, {:event, Ecto.UUID.load!(event_id)}}
-
-      {:ok, %{capacity_seq: _capacity_seq, event_id: nil, course_id: course_id}}
-      when not is_nil(course_id) ->
-        {:ok, {:course, Ecto.UUID.load!(course_id)}}
-
-      {:ok, _unexpected} ->
-        {:error, :capacity_counter_invalid}
-
-      {:error, :not_claimed} ->
-        {:error, :already_processed}
-
-      {:error, {:database, _} = reason} ->
-        {:error, reason}
-    end
-  end
-
   # R14：释放 CAS 收编账本行（occupancy > 0 守卫语义不变）
-  defp release_capacity(capacity_target), do: CapacityLedger.release(capacity_target)
+  @doc false
+  def release_capacity(capacity_target), do: CapacityLedger.release(capacity_target)
 
-  # GraphQL 入口不注入 tenant（nil 时从目标派生）；显式传错 tenant 仍拒绝（防跨 workspace 越权）
-  defp resolve_tenant(nil, workspace_id), do: {:ok, workspace_id}
-  defp resolve_tenant(tenant, tenant), do: {:ok, tenant}
-  defp resolve_tenant(_, _), do: {:error, :target_tenant_mismatch}
-
-  defp target_table(:event), do: "events"
-  defp target_table(:course), do: "courses"
+  @doc false
+  def target_table(:event), do: "events"
+  def target_table(:course), do: "courses"
 
   # 押金开关一列（KTD2）：仅 events 表有；courses 补 false 保持 SELECT 列数一致。
-  defp deposit_columns("events"), do: ", COALESCE(deposit_enabled, false)"
-  defp deposit_columns(_table), do: ", false"
-  # 年龄一列（#510）：仅 events 表有；courses 补 NULL。
-  defp min_age_columns("events"), do: ", min_age"
-  defp min_age_columns(_table), do: ", NULL"
+  @doc false
+  def deposit_columns("events"), do: ", COALESCE(deposit_enabled, false)"
+  def deposit_columns(_table), do: ", false"
 
   # ── 错误构造（i18n Phase 0：BusinessError 携带稳定 code，前端按 code 查文案）──
 
-  defp add_domain_error(changeset, reason) do
+  @doc false
+  def add_domain_error(changeset, reason) do
     Ash.Changeset.add_error(
       changeset,
       Cgc2046.Errors.BusinessError.exception(
@@ -1744,6 +1245,12 @@ defmodule Cgc2046.Admission.Enrollment do
         error
     end
   end
+
+  # 兜底判据只用约束名：AshPostgres 的 constraints_to_errors 由约束名反查
+  # identity，字段取身份首列（event_id，Ecto error_key），故 field 不能识别
+  # 是哪条 identity 冲突；约束名 = `#{table}_#{identity.name}_index` 默认规则
+  # （与 migration/快照一致）。
+  @check_in_code_constraint "enrollments_unique_check_in_code_index"
 
   defp check_in_code_conflict?(error) do
     Cgc2046.Errors.ConstraintConflict.unique_conflict?(error) and

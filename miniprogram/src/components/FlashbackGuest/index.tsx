@@ -11,7 +11,7 @@ import { STORAGE_KEYS } from '@/state/storage'
 import { recoveryView, type PublicRecovery } from '@/domain/flashback-recovery'
 import { RECOVER_COPY } from '@/domain/flashback-recover'
 import { FlashbackRecoverSheet } from '@/components/FlashbackRecover'
-import landscape from '@/assets/flashback/mountain-map.png'
+import landscape from '@/assets/flashback/mountain-map.jpg'
 import styles from './index.module.css'
 
 type QuoteState = { status: 'loading' | 'ready' | 'error'; voice: PublicVoice | null }

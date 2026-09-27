@@ -71,14 +71,15 @@
 .likeHint button{margin-left:auto;padding:4px;min-height:32px;min-width:32px}
 .likeHint button svg{width:14px;height:14px}
 @keyframes hintIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.dialog{color:#294b3d;background:#f8f5ec;border:1px solid #d9dccb;border-radius:12px;padding:0;width:min(510px,calc(100vw - 30px));max-height:90svh;overflow:auto;box-shadow:0 20px 100px #0b251748;font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin:auto;overscroll-behavior:contain}
-.dialog::backdrop{background:#152e2966}
+.dialog{color:var(--ink,#153d32);background:var(--paper,#f8f6ef);border:1px solid var(--line,#dcded1);border-radius:12px;padding:0;width:min(510px,calc(100vw - 30px));max-height:90svh;overflow:auto;box-shadow:0 20px 100px #0b251748;font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin:auto;overscroll-behavior:contain;animation:dialogIn .15s ease-out}
+.dialog::backdrop{background:#152e2966;animation:dialogIn .15s ease-out}
 .dialogInner{padding:24px 30px 32px}
-.dialogHeader{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#7d8b75;margin-bottom:20px}.dialogHeader button{padding:0;width:44px;min-height:44px}
+.dialogHeader{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#5c7165;margin-bottom:20px}.dialogHeader button{padding:0;width:44px;min-height:44px}
 .dialog h2{font:400 24px/1.6 "Songti SC","STSong",serif;margin:12px 0 20px;text-wrap:pretty}
-.dialog p{font-size:13px;line-height:1.9;color:#75816e;margin:14px 0 22px}.dialog .eyebrow{font-size:10px;margin-bottom:4px}.dialog .primary{width:100%;margin-top:8px}
-.field{display:flex;flex-direction:column;gap:9px;font-size:12px;margin:18px 0;color:#59705f}.field input{background:#fdfbf5;color:#244b3e;border:1px solid #cbd2c0;border-radius:5px;padding:12px 13px;font-size:11px;line-height:1.7;font-family:inherit;width:100%;min-height:46px}
-.dialogNote{display:block;font-size:10px;line-height:1.9;margin-top:14px;color:#89937f}
+.dialog p{font-size:13px;line-height:1.9;color:#5c7165;margin:14px 0 22px}.dialog .eyebrow{font-size:10px;margin-bottom:4px;color:#5c7165}.dialog .primary{width:100%;margin-top:8px;background:#d8b455;border-color:#b8933f;color:#153d32}
+.field{display:flex;flex-direction:column;gap:9px;font-size:12px;margin:18px 0;color:#59705f}.field input{background:#fdfbf5;color:#153d32;border:1px solid #cbd2c0;border-radius:5px;padding:12px 13px;font-size:11px;line-height:1.7;font-family:inherit;width:100%;min-height:46px}
+.dialogNote{display:block;font-size:10px;line-height:1.9;margin-top:14px;color:#7a5f26}
+@keyframes dialogIn{from{opacity:0}}
 .statePage{min-height:100svh;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:16px;padding:10vh 8%;background:var(--paper)}
 .statePage h1{font:400 clamp(26px,3vw,40px)/1.5 "Songti SC","STSong",serif;margin:0;color:#234b3e}
 .statePage p{font-size:14px;line-height:2;color:#5c7165;margin:0}
@@ -95,7 +96,7 @@
 	.dialogInner{padding:18px 23px 26px}.dialog h2{font-size:22px}
 	.statePage{padding:8vh 7%}
 }
-@media(prefers-reduced-motion:reduce){.app *,.dialog *,.toast,.likeHint{animation:none!important;transition:none!important;scroll-behavior:auto!important}.pinPulse{display:none}}
+@media(prefers-reduced-motion:reduce){.app *,.dialog,.dialog *,.dialog::backdrop,.toast,.likeHint{animation:none!important;transition:none!important;scroll-behavior:auto!important}.pinPulse{display:none}}
 
 /* Shared map controls are self-contained, including on the Wishes surface. */
 .mapPlot .mapPin{border:0;background:none;color:#244e40;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;isolation:isolate}

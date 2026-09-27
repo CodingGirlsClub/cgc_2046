@@ -21,7 +21,12 @@ jobs:
     steps:
       - name: Update all open non-draft PR branches to develop
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT（secrets.AUTO_UPDATE_TOKEN，Fine-grained，仅本仓库 Contents+PR
+          # 两项）而非 GITHUB_TOKEN：GITHUB_TOKEN 的 push 无人类身份——
+          # update-branch 携带 workflow 变更时 CI 会挂 "awaiting approval"，
+          # 且其 push 不触发 PR 的 CI。PAT push 视同维护者本人，全链路自动。
+          # Token 过期（90 天）时本 job 会红：换新 token 更新同名 secret 即可。
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_TOKEN }}
           # 无 checkout 步骤，gh 需要显式 repo 上下文，否则报
           # "fatal: not a git repository" 且 job 静默假绿。
           GH_REPO: ${{ github.repository }}

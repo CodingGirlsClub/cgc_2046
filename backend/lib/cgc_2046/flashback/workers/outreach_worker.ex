@@ -30,9 +30,12 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     Outreach,
     Outreach.Dispatch,
     Outreach.Emails,
+    OutreachLink,
     Person,
     Token
   }
+
+  alias Cgc2046.Integrations.Wechat.UrlLink
 
   alias Cgc2046.Mailer
 
@@ -149,17 +152,18 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   # ── 渲染与发送（email / sms 双通道） ─────────────────────────────────
 
-  defp render_and_deliver("reconnect", :email, person, _args) do
+  defp render_and_deliver("reconnect", :email, person, args) do
     # token 只在 email 腿铸造（明文进链接）；sms 腿无链接不铸——身份凭证表
     # 不留永远用不上的 hash 行。
     with {:ok, plaintext} <- mint_token(person.id),
-         email <-
+         email =
            Emails.reconnect(
              person.email,
              display_name(person),
              occurred_on(person),
              archive_name(person),
              enter_url(plaintext),
+             mp_entry_url(args["batch"], plaintext),
              unsub_url(person.id),
              screenshot_url()
            ),
@@ -276,7 +280,77 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   # 失败原因只留类别摘要（Errors.ValueSummary 红线：不回显内容）。
   defp detail_text(reason), do: reason |> inspect() |> String.slice(0, 200)
 
-  # ── 链接构造 ─────────────────────────────────────────────────────────
+  # ── 微信直达链接（#770：批次级 URL Link 缓存 + fail-open） ───────────
+
+  # 微信主 CTA：{批次级 url_link}?cq={本人明文 token}。批次内一条链接复用
+  # （30 天窗口），过期/缺失重新生成 upsert；生成失败（微信故障/未配置/落库
+  # 失败）→ warning + telemetry + 返回 nil，邮件回退 Web enter_url——触达
+  # 邮件绝不能因微信侧故障断发（fail-open）。
+  defp mp_entry_url(batch, plaintext) when is_binary(batch) do
+    case fetch_or_generate_link(batch) do
+      {:ok, url_link} ->
+        "#{url_link}?cq=#{plaintext}"
+
+      {:error, reason} ->
+        Logger.warning(
+          "[flashback] urllink fallback to web enter_url batch=#{batch} reason=#{inspect(reason)}"
+        )
+
+        :telemetry.execute(
+          [:cgc2046, :flashback_outreach, :urllink_fallback],
+          %{count: 1},
+          %{batch: batch}
+        )
+
+        nil
+    end
+  end
+
+  # batch 缺失（异常入队）不做微信外呼：缓存键不稳，宁可走 Web 链接。
+  defp mp_entry_url(nil, _plaintext), do: nil
+
+  defp fetch_or_generate_link(batch) do
+    case cached_link(batch) do
+      {:ok, url_link} ->
+        {:ok, url_link}
+
+      :expired_or_missing ->
+        with {:ok, url_link} <- UrlLink.create_link("pages/flashback/index", 30),
+             {:ok, _} <- upsert_link(batch, url_link) do
+          {:ok, url_link}
+        end
+    end
+  end
+
+  # 复用判断带 1h 安全余量：临期链接（<now+1h）不再复用——邮件在队列里
+  # 排一会儿再投递，收件人几天后才点开，链接触链必须在发送时刻仍有余量。
+  defp cached_link(batch) do
+    OutreachLink
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(batch == ^batch)
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %OutreachLink{url_link: url_link, expires_at: expires_at}} ->
+        if DateTime.compare(expires_at, DateTime.add(DateTime.utc_now(), 1, :hour)) == :gt do
+          {:ok, url_link}
+        else
+          :expired_or_missing
+        end
+
+      _ ->
+        :expired_or_missing
+    end
+  end
+
+  defp upsert_link(batch, url_link) do
+    OutreachLink
+    |> Ash.Changeset.for_create(:create, %{
+      batch: batch,
+      url_link: url_link,
+      expires_at: DateTime.add(DateTime.utc_now(), 30, :day)
+    })
+    |> Ash.create(authorize?: false)
+  end
 
   defp enter_url(plaintext) do
     "#{base_url()}/zh-CN/flashback/enter?token=#{plaintext}"

@@ -7,11 +7,12 @@
  * 兑换申请（R25）：人工处理队列——收款渠道由本人提交，状态流转
  * pending → contacted → settled | rejected（非法转移由后端 fail-closed 拒绝）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
 	fetchFlashbackAdminRedemptions,
 	fetchFlashbackAdminStats,
+	fetchFlashbackAdminBatches,
 	updateFlashbackRedemption,
 	fetchFlashbackAdminArchives,
 	fetchFlashbackAdminWishInbox,
@@ -19,6 +20,10 @@ import {
 	approveFlashbackWishReport,
 	dismissFlashbackWishReport,
 	fetchFlashbackAdminListedWishes,
+	fetchFlashbackAdminPublicWishes,
+	fetchFlashbackAdminWishEndorsements,
+	approveWishListing,
+	setFlashbackWishHidden,
 	fetchFlashbackOutreachPreview,
 	fetchFlashbackOutreachBatches,
 	fetchFlashbackOutreachRoster,
@@ -27,6 +32,7 @@ import {
 } from "@/lib/admin";
 import { formatDateTime } from "@/lib/format";
 import { WishEchoModal } from "@/components/admin/wish-echo-modal";
+import { StatsCard, EVENTS, LINES, pct } from "./stats-card";
 import type {
 	FlashbackAdminStats,
 	FlashbackRedemption,
@@ -37,26 +43,15 @@ import type {
 	FlashbackAdminWishInboxEntry,
 	FlashbackAdminReportEntry,
 	FlashbackAdminListedWishEntry,
+	FlashbackAdminPublicWishEntry,
+	FlashbackAdminWishEndorsementEntry,
 } from "@/lib/graphql/admin";
-
-const EVENTS = [
-	{ key: "linkOpened", label: "fbLinkOpened" },
-	{ key: "revealed", label: "fbRevealed" },
-	{ key: "sentToWall", label: "fbSentToWall" },
-	{ key: "intentSubmitted", label: "fbIntentSubmitted" },
-] as const;
 
 /** 通道三档（R11）：select 选项与重发确认文案共用。 */
 const CHANNELS = [
 	{ value: "all", label: "fbChannelAll" },
 	{ value: "email", label: "fbChannelEmail" },
 	{ value: "sms", label: "fbChannelSms" },
-] as const;
-
-const LINES = [
-	{ key: "memory", label: "fbLineMemory" },
-	{ key: "dream", label: "fbLineDream" },
-	{ key: "overall", label: "fbLineOverall" },
 ] as const;
 
 /** 合法流转表（与后端 AdminStats.@status_transitions 同源；终态无操作）。 */
@@ -80,14 +75,14 @@ const ACTION_LABEL: Record<string, string> = {
 	rejected: "fbActionRejected",
 };
 
-function pct(count: number, delivered: number): string {
-	if (delivered <= 0) return "—";
-	return `${Math.round((count / delivered) * 100)}%`;
-}
-
 export default function AdminFlashbackPage() {
 	const t = useTranslations("admin");
 	const [stats, setStats] = useState<FlashbackAdminStats | null>(null);
+	// ── 波次筛选（#984）：空串 = 全局；选项来自 flashbackAdminBatches ──
+	const [batch, setBatch] = useState("");
+	const [batchOptions, setBatchOptions] = useState<string[]>([]);
+	// 波次切换的请求序号（竞态守卫：过期响应不覆盖新选择）
+	const statsReqSeq = useRef(0);
 	const [rows, setRows] = useState<FlashbackRedemption[] | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(false);
@@ -112,32 +107,53 @@ export default function AdminFlashbackPage() {
 	const [archivesError, setArchivesError] = useState(false);
 	const [previewError, setPreviewError] = useState(false);
 
-	// ── wish2 愿望管理（U5/KTD5）：收件箱 + 举报队列 ──
+	// ── wish2 愿望管理（U5/KTD5）：巡检 + 收件箱 + 附议聚合 + 举报队列 + 回响 ──
+	const [publicWishes, setPublicWishes] = useState<FlashbackAdminPublicWishEntry[] | null>(null);
 	const [wishInbox, setWishInbox] = useState<FlashbackAdminWishInboxEntry[] | null>(null);
 	const [wishReports, setWishReports] = useState<FlashbackAdminReportEntry[] | null>(null);
 	const [listedWishes, setListedWishes] = useState<FlashbackAdminListedWishEntry[] | null>(null);
+	const [wishEndorsements, setWishEndorsements] = useState<FlashbackAdminWishEndorsementEntry[] | null>(null);
+	const [expandedEndorsement, setExpandedEndorsement] = useState<string | null>(null);
 	const [echoTarget, setEchoTarget] = useState<FlashbackAdminListedWishEntry | null>(null);
 	const [wishError, setWishError] = useState(false);
 
 	const loadWishes = useCallback(() => {
 		return Promise.all([
+			fetchFlashbackAdminPublicWishes(),
 			fetchFlashbackAdminWishInbox(),
 			fetchFlashbackAdminWishReports(),
 			fetchFlashbackAdminListedWishes(),
+			fetchFlashbackAdminWishEndorsements(),
 		])
-			.then(([inbox, reports, listed]) => {
+			.then(([patrol, inbox, reports, listed, endorsements]) => {
+				setPublicWishes(patrol);
 				setWishInbox(inbox);
 				setWishReports(reports);
 				setListedWishes(listed);
+				setWishEndorsements(endorsements);
 				setWishError(false);
 			})
 			.catch(() => {
 				setWishError(true);
+				setPublicWishes(null);
 				setWishInbox(null);
 				setWishReports(null);
 				setListedWishes(null);
+				setWishEndorsements(null);
 			});
 	}, []);
+
+	/** 巡检操作（放行 / 下架 / 恢复）成功后统一重载愿望管理数据 */
+	const handlePatrolAction = (wishId: string, action: "approve" | "hide" | "restore") => {
+		const result =
+			action === "approve"
+				? approveWishListing(wishId)
+				: setFlashbackWishHidden(wishId, action === "hide");
+
+		result
+			.then(() => loadWishes())
+			.catch(() => setWishError(true));
+	};
 
 	// .then/.catch 链（reconciliation 页模式）：effect 内调用不触发 set-state-in-effect
 	const loadOutreachBase = useCallback(() => {
@@ -152,6 +168,10 @@ export default function AdminFlashbackPage() {
 	const load = useCallback(() => {
 		void loadOutreachBase();
 		void loadWishes();
+		// 波次下拉失败降级 []（只显示「全部波次」），不让统计卡整卡挂掉。
+		void fetchFlashbackAdminBatches()
+			.then((b) => setBatchOptions(b))
+			.catch(() => setBatchOptions([]));
 		return Promise.all([
 			fetchFlashbackAdminStats(),
 			fetchFlashbackAdminRedemptions(),
@@ -170,6 +190,20 @@ export default function AdminFlashbackPage() {
 				setLoading(false);
 			});
 	}, [loadOutreachBase]);
+
+	/** 波次切换：只重取统计（兑换队列与波次无关）；失败按整卡错误处理。 */
+	const handleBatchChange = (next: string) => {
+		setBatch(next);
+		// 序号守卫：快速切换时只采纳最新请求的响应，过期响应不覆盖新选择。
+		const seq = ++statsReqSeq.current;
+		fetchFlashbackAdminStats(next || undefined)
+			.then((s) => {
+				if (seq === statsReqSeq.current) setStats(s);
+			})
+			.catch(() => {
+				if (seq === statsReqSeq.current) setError(true);
+			});
+	};
 
 	useEffect(() => {
 		void load();
@@ -291,35 +325,12 @@ export default function AdminFlashbackPage() {
 			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && stats && (
-				<div className="admin-card admin-table-wrap">
-					<table className="admin-table">
-						<thead>
-							<tr>
-								<th>{t("fbLine")}</th>
-								<th>{t("fbDelivered")}</th>
-								{EVENTS.map((e) => (
-									<th key={e.key}>{t(e.label)}</th>
-								))}
-							</tr>
-						</thead>
-						<tbody>
-							{LINES.map(({ key, label }) => {
-								const r = stats[key];
-								return (
-									<tr key={key}>
-										<td>{t(label)}</td>
-										<td>{r.delivered}</td>
-										{EVENTS.map((e) => (
-											<td key={e.key}>
-												{r[e.key]} ({pct(r[e.key], r.delivered)})
-											</td>
-										))}
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				</div>
+				<StatsCard
+					stats={stats}
+					batches={batchOptions}
+					batch={batch}
+					onBatchChange={handleBatchChange}
+				/>
 			)}
 
 			{/* ── 触达发送（R7/R4/KTD1/KTD2） ── */}
@@ -702,6 +713,88 @@ export default function AdminFlashbackPage() {
 
 			{wishError && <p className="admin-alert admin-alert--error">{t("fbWishLoadFailed")}</p>}
 
+			{!loading && !error && publicWishes && (
+				<div className="admin-card admin-table-wrap" data-testid="fb-wish-patrol">
+					<h3>{t("fbPatrolTitle")}</h3>
+					{publicWishes.length === 0 ? (
+						<p className="admin-empty">{t("fbPatrolEmpty")}</p>
+					) : (
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>{t("fbWishColContent")}</th>
+									<th>{t("fbWishColSigner")}</th>
+									<th>{t("fbWishColCity")}</th>
+									<th>{t("fbPatrolColStatus")}</th>
+									<th>{t("fbPatrolColExpect")}</th>
+									<th>{t("fbWishColTime")}</th>
+									<th>{t("fbWishColActions")}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{publicWishes.map((wish) => (
+									<tr key={wish.wishId} data-testid={`fb-patrol-row-${wish.status}`}>
+										<td>{wish.content}</td>
+										<td>
+											{wish.signature ?? "—"}
+											{wish.authorCreditReduced && (
+												<span className="l-badge l-badge-muted" title={t("fbPatrolCredit")}>
+													{t("fbPatrolCredit")}
+												</span>
+											)}
+										</td>
+										<td>{wish.city ?? "—"}</td>
+										<td>
+											{wish.status === "pending_review"
+												? t("fbPatrolStatusPending")
+												: wish.status === "hidden"
+													? t("fbPatrolStatusHidden")
+													: t("fbPatrolStatusListed")}
+										</td>
+										<td>
+											{wish.expectationCount} / {wish.endorsementCount}
+										</td>
+										<td>{formatDateTime(wish.insertedAt)}</td>
+										<td>
+											<div className="admin-table__actions">
+												{wish.status === "pending_review" && (
+													<button
+														type="button"
+														className="l-btn-outline"
+														data-testid={`fb-patrol-approve-${wish.wishId}`}
+														onClick={() => handlePatrolAction(wish.wishId, "approve")}
+													>
+														{t("fbPatrolApprove")}
+													</button>
+												)}
+												{wish.status === "listed" && (
+													<button
+														type="button"
+														className="l-btn-outline"
+														onClick={() => handlePatrolAction(wish.wishId, "hide")}
+													>
+														{t("fbPatrolHide")}
+													</button>
+												)}
+												{wish.status === "hidden" && (
+													<button
+														type="button"
+														className="l-btn-outline"
+														onClick={() => handlePatrolAction(wish.wishId, "restore")}
+													>
+														{t("fbPatrolRestore")}
+													</button>
+												)}
+											</div>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+			)}
+
 			{!loading && !error && wishInbox && (
 				<div className="admin-card admin-table-wrap" data-testid="fb-wish-inbox">
 					<h3>{t("fbWishInboxTitle")}</h3>
@@ -780,6 +873,85 @@ export default function AdminFlashbackPage() {
 										</td>
 									</tr>
 								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+			)}
+
+			{!loading && !error && wishEndorsements && (
+				<div className="admin-card admin-table-wrap" data-testid="fb-wish-endorsements">
+					<h3>{t("fbEndorseTitle")}</h3>
+					{wishEndorsements.length === 0 ? (
+						<p className="admin-empty">{t("fbEndorseEmpty")}</p>
+					) : (
+						<table className="admin-table">
+							<thead>
+								<tr>
+									<th>{t("fbWishColContent")}</th>
+									<th>{t("fbWishColSigner")}</th>
+									<th>{t("fbWishColCity")}</th>
+									<th>{t("fbEndorseColCount")}</th>
+									<th>{t("fbEndorseColDistribution")}</th>
+									<th>{t("fbWishColActions")}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{wishEndorsements.map((entry) => {
+									const expanded = expandedEndorsement === entry.wishId;
+
+									return (
+										<Fragment key={entry.wishId}>
+											<tr>
+												<td>{entry.content}</td>
+												<td>{entry.signature ?? "—"}</td>
+												<td>{entry.city ?? "—"}</td>
+												<td data-testid={`fb-endorse-count-${entry.wishId}`}>{entry.endorsementCount}</td>
+												<td>
+													{entry.contributionDistribution
+														.map((d) => `${t(`fbEndorseType_${d.type}`)} ${d.count}`)
+														.join(" · ") || "—"}
+												</td>
+												<td>
+													<button
+														type="button"
+														className="l-btn-outline"
+														aria-expanded={expanded}
+														onClick={() => setExpandedEndorsement(expanded ? null : entry.wishId)}
+													>
+														{expanded ? t("fbEndorseCollapse") : t("fbEndorseExpand")}
+													</button>
+												</td>
+											</tr>
+											{expanded && (
+												<tr data-testid={`fb-endorse-detail-${entry.wishId}`}>
+													<td colSpan={6}>
+														<div style={{ display: "grid", gap: 8 }}>
+															{entry.endorsements.map((detail) => (
+																<div
+																	key={detail.id}
+																	className="admin-muted"
+																	style={{ display: "flex", flexWrap: "wrap", gap: 12 }}
+																>
+																	<span>
+																		{detail.contributionTypes
+																			.map((ct) => t(`fbEndorseType_${ct}`))
+																			.join(" / ")}
+																	</span>
+																	<span>{detail.message ?? "—"}</span>
+																	<span>{formatDateTime(detail.insertedAt)}</span>
+																	<span>
+																		{detail.endorserPhone ?? "—"} / {detail.endorserEmail ?? "—"}
+																	</span>
+																</div>
+															))}
+														</div>
+													</td>
+												</tr>
+											)}
+										</Fragment>
+									);
+								})}
 							</tbody>
 						</table>
 					)}

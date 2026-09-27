@@ -5,11 +5,12 @@
  * tt/xhs 未注册长廊(页面文案含微信专属词,过不了 diversion 词表)——
  * 裁剪端用户从「我的」入口与成场通知深链到这里。
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
-import Taro, { useDidShow, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
+import Taro, { useDidShow, useRouter, useShareAppMessage, useShareTimeline } from '@tarojs/taro'
 import { api, FlashbackNotBoundError, SessionExpiredError } from '@/api'
 import { FlashbackTokenInvalidError } from '@/domain/models'
+import { adoptableCqToken, NOT_BOUND_LEAD } from '@/domain/flashback-cq'
 import { STORAGE_KEYS } from '@/state/storage'
 import { PageState } from '@/components/PageState'
 import { shareMessage } from '@/domain/flashback'
@@ -32,13 +33,22 @@ type LoadState =
   | { kind: 'error'; message: string }
 
 export default function FlashbackPage() {
+  const router = useRouter()
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [shareSheet, setShareSheet] = useState(false)
   // #932 对应升级（微信端同款）：已登录没匹配到档案（当年用别的邮箱报名）→ 端内找回
   const [recoverOpen, setRecoverOpen] = useState(false)
+  // #770 URL Link 直达承接：cq 即本人明文 token，一次采纳——失效清理后
+  // 不再写回（重载走登录/公开腿，坏 token 不会循环复写 storage）。
+  const adoptedCqRef = useRef(false)
 
   const load = useCallback(async () => {
     setState({ kind: 'loading' })
+    if (!adoptedCqRef.current) {
+      adoptedCqRef.current = true
+      const cqToken = adoptableCqToken(router.params.cq)
+      if (cqToken) Taro.setStorageSync(STORAGE_KEYS.flashbackToken, cqToken)
+    }
     // 双入口 token:失效即清(claim 后链接作废),按会话腿/无 token 重载
     const token = Taro.getStorageSync<string>(STORAGE_KEYS.flashbackToken) || null
     try {
@@ -97,7 +107,7 @@ export default function FlashbackPage() {
       <View className={styles.page}>
         <View className={styles.stateBlock}>
           <Text className={styles.stateText}>
-            你的账号还没有绑定闪念间档案。{'\n'}打开我们发给你的专属链接完成首程。
+            你的账号还没有绑定闪念间档案。{'\n'}{NOT_BOUND_LEAD}
           </Text>
           <Button className={styles.stateAction} onClick={() => setRecoverOpen(true)}>
             {RECOVER_COPY.entry}

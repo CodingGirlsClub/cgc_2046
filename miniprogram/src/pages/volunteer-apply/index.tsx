@@ -27,6 +27,10 @@ import {
   positionTitle,
   recruitmentPageState,
   resumeProfileError,
+  VOLUNTEER_JOURNEY_FOOTNOTE_WECHAT,
+  VOLUNTEER_JOURNEY_FOOTNOTE_XHS,
+  VOLUNTEER_LOGIN_GATE_COPY_WECHAT,
+  VOLUNTEER_LOGIN_GATE_COPY_XHS,
   volunteerStageProgress,
   volunteerStatusText,
   weeklyHoursValue
@@ -34,11 +38,16 @@ import {
 import {
   submitAfterConsent,
   requestTouchpointConsent,
+  subscriptionTouchpointsVisible,
   volunteerApplyTouchpoint,
   volunteerFollowUpTouchpoint
 } from '@/domain/subscription'
-import { requestPlatformSubscriptions } from '@/platform'
+import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
 import styles from './index.module.css'
+
+// 小红书平台无订阅消息能力：补授权按钮与提示一律不渲染
+// （单源判据见 domain/subscription.ts subscriptionTouchpointsVisible，同 my-enrollments/index.tsx）
+const subscriptionVisible = subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())
 
 /**
  * 志愿者招募流（R20/R21，**微信端专属**——裁剪端页清单不登记，见 src/app.config.ts）。
@@ -163,8 +172,11 @@ export function JourneySection() {
           </View>
         ))}
       </View>
-      {/* R21/AE10 文案侧：邮件是保底通道——未授权时不承诺小程序通知必达 */}
-      <Text className={styles.footnote}>每段结果都会发到你的联系邮箱；小程序通知需你在提交时逐次授权。</Text>
+      {/* R21/AE10 文案侧：邮件是保底通道——未授权时不承诺小程序通知必达；
+          小红书无订阅消息能力，本端只承诺邮件（advisor-plans/010） */}
+      <Text className={styles.footnote}>
+        {process.env.TARO_ENV === 'xhs' ? VOLUNTEER_JOURNEY_FOOTNOTE_XHS : VOLUNTEER_JOURNEY_FOOTNOTE_WECHAT}
+      </Text>
     </View>
   )
 }
@@ -222,11 +234,16 @@ export function MyApplicationsSection({
         )
       })}
 
-      {/* M10（R21）：前进路径三键已用满 M9 的单次上限，分配 / 拒绝 / 取消在此补授权 */}
-      <Button className={styles.secondaryButton} size='mini' data-testid='subscribe-follow-up' onClick={onSubscribe}>
-        {touchpoint.label}
-      </Button>
-      {subscribeCopy !== '' && <Text className={styles.subscribeCopy} data-testid='subscribe-copy'>{subscribeCopy}</Text>}
+      {/* M10（R21）：前进路径三键已用满 M9 的单次上限，分配 / 拒绝 / 取消在此补授权；
+          小红书无订阅消息能力，补授权按钮与提示一律不渲染（advisor-plans/010） */}
+      {subscriptionVisible && (
+        <>
+          <Button className={styles.secondaryButton} size='mini' data-testid='subscribe-follow-up' onClick={onSubscribe}>
+            {touchpoint.label}
+          </Button>
+          {subscribeCopy !== '' && <Text className={styles.subscribeCopy} data-testid='subscribe-copy'>{subscribeCopy}</Text>}
+        </>
+      )}
     </View>
   )
 }
@@ -261,7 +278,14 @@ export function ApplySection(props: ApplySectionProps) {
         <Text className={styles.sectionTitle}>申请<Text className={styles.sectionEn}>APPLY</Text></Text>
         <View className={styles.card} data-testid='apply-login-gate'>
           <Text className={styles.cardTitle}>登录后申请</Text>
-          <Text className={styles.cardDesc}>用手机号快捷登录（与网页端同一个账号），登录后即可看到当前批次并填写两步网申。</Text>
+          {/* 登录门文案：小红书端不提其他端——「网页端」属零导流禁用词（规范 6.13.3，advisor-plans/010）。
+              取值走 process.env.TARO_ENV 字面量三元 + 两个常量（而非一个按参数分支的函数）：
+              DefinePlugin 编译期把 TARO_ENV 替换为字面量后，Terser 能把非本端分支的常量引用
+              连同该常量声明一起当死代码删掉；包进函数会让两条文案在任何端产物里都完整出现
+              （已用 xhs 产物实测验证：函数版本会漏 check:diversion，命中「网页端」）。 */}
+          <Text className={styles.cardDesc}>
+            {process.env.TARO_ENV === 'xhs' ? VOLUNTEER_LOGIN_GATE_COPY_XHS : VOLUNTEER_LOGIN_GATE_COPY_WECHAT}
+          </Text>
           <Button className={styles.primaryButton} data-testid='apply-login' onClick={props.onLogin}>
             登录并申请（10 分钟）
           </Button>

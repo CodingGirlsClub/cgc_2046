@@ -82,6 +82,7 @@
     "flashback_wish_invalid_content",
     "flashback_wish_invalid_request_id",
     "flashback_wish_invalid_visibility",
+    "flashback_wish_listing_not_authorized",
     "flashback_wish_not_found",
     "flashback_wish_quota_exceeded",
     "flashback_wish_request_conflict",

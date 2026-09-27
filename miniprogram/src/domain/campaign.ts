@@ -9,6 +9,7 @@
 
 import { buildInitiativeSharePath } from './share-route'
 import { VOLUNTEER_APPLY_PATH } from './recruitment'
+import { pageRegistered, type RoutePlatform } from './platform-pages'
 
 /**
  * campaign 落地 Initiative：slug 由上线检查单（plan R16）创建，发布后不可改
@@ -17,8 +18,18 @@ import { VOLUNTEER_APPLY_PATH } from './recruitment'
 export const CAMPAIGN_INITIATIVE_SLUG = 'hackerstart1024'
 
 
-/** campaign 页自身（发现页入口卡的落点；仅在微信端页清单登记，见 src/app.config.ts） */
+/** campaign 页自身（发现页入口卡的落点；页清单登记见 src/domain/platform-pages.ts） */
 export const CAMPAIGN_PAGE_PATH = '/pages/campaign/index'
+
+/** 发现页 campaign 入口卡：本端注册了 campaign 页才显示（tt 未注册，显示即死链） */
+export function campaignEntryVisible(platform: RoutePlatform): boolean {
+  return pageRegistered(CAMPAIGN_PAGE_PATH, platform)
+}
+
+/** 品牌合作邮箱出口：小红书规范 2.5 禁止站外联系方式（邮箱属之），小红书端整卡不渲染 */
+export function campaignBrandContactVisible(platform: RoutePlatform): boolean {
+  return platform !== 'xhs'
+}
 
 /** 品牌合作收件邮箱（与 web 端 R3 的 mailto 同址；小程序出口 = 复制而非 mailto） */
 export const CAMPAIGN_BRAND_EMAIL = 'partners@codingirlsclub.com'

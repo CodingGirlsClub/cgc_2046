@@ -1,7 +1,8 @@
 // Run with: node scripts/render-voices-map.mjs
 // Builds the code-native map render source. Capture it at 700x504 in a browser
-// to regenerate src/assets/flashback/mountain-map.png. Geography/terrain source:
-// web/app/[locale]/flashback/voices. Gold connections are rendered at runtime.
+// to regenerate src/assets/flashback/mountain-map.jpg (screenshot as PNG, then
+// convert to JPEG per the magick command in advisor-plans/007). Geography/terrain
+// source: web/app/[locale]/flashback/voices. Gold connections are rendered at runtime.
 import { readFileSync, writeFileSync } from 'node:fs'
 const source = new URL('../../web/app/[locale]/flashback/voices/', import.meta.url)
 const read = name => JSON.parse(readFileSync(new URL(name, source)))

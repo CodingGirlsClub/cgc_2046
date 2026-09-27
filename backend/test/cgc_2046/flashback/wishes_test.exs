@@ -948,7 +948,11 @@ defmodule Cgc2046.Flashback.WishesTest do
       assert wish.hidden_at != nil
     end
 
-    test "admin 放行（set_wish_hidden false）清 hidden_at 且不清 credit 字段（G1 pin）" do
+    # #817 行为变化：原「放行 = set_wish_hidden(false) 只清 hidden、listed_at
+    # 仍 nil（放行 ≠ 自动挂树）」的占位边界已按 triage 拍板改写——放行 = 挂树
+    # 由新动作 approve_wish_listing 承载（置 listed_at + 清 hidden_at）；
+    # set_wish_hidden(false) 语义不变（恢复下架/清除标记，不挂树）。
+    test "admin 放行挂树（approve_wish_listing）置 listed_at、清 hidden_at、不动 credit（#817）" do
       archive = create_archive()
       person = create_person(archive)
       user = register_user("fix3-c")
@@ -968,11 +972,46 @@ defmodule Cgc2046.Flashback.WishesTest do
         Repo.uuid!(admin.id)
       ])
 
+      {:ok, approved} = Cgc2046.Flashback.Reports.approve_wish_listing(wish.id, admin.id)
+      assert approved.hidden_at == nil
+      # 放行 = 挂树：listed_at 置位且进公开树（#817 新语义）
+      assert approved.listed_at != nil
+      assert Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
+
+      %{rows: [[credit]]} =
+        Repo.query!("SELECT wishes_review_required_at FROM users WHERE id = $1", [
+          Repo.uuid!(user.id)
+        ])
+
+      assert credit != nil
+    end
+
+    test "set_wish_hidden(false) 仍只清 hidden 不挂树（恢复 ≠ 放行，mutation 行为不变）" do
+      archive = create_archive()
+      person = create_person(archive)
+      user = register_user("fix3-c2")
+      :ok = bind_person_to_user(person.id, user.id)
+
+      Repo.query!(
+        "UPDATE users SET wishes_review_required_at = now() WHERE id = $1",
+        [Repo.uuid!(user.id)]
+      )
+
+      {:ok, wish} =
+        Wishes.create_wish(person.id, "另一条待审愿", "public", public_listing_consent: true)
+
+      admin = register_user("fix3-admin2")
+
+      Repo.query!("UPDATE users SET is_platform_admin = true WHERE id = $1", [
+        Repo.uuid!(admin.id)
+      ])
+
       {:ok, cleared} = Cgc2046.Flashback.Reports.set_wish_hidden(wish.id, admin.id, false)
       assert is_nil(cleared.hidden_at)
-      # 放行后可挂树？listed_at 仍 nil——放行只清 hidden，挂树由 admin 显式
-      # re-list（后续 admin action）；本断言钉「放行 ≠ 自动挂树」语义边界
+      # mutation 语义 pin：set_wish_hidden(false) 不挂树；挂树职责在
+      # approve_wish_listing（上一用例钉新语义）
       assert is_nil(cleared.listed_at)
+      refute Enum.any?(Wishes.list_public_listed(), &(&1.id == wish.id))
 
       %{rows: [[credit]]} =
         Repo.query!("SELECT wishes_review_required_at FROM users WHERE id = $1", [

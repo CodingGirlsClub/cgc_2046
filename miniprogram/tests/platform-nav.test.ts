@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { CUT_TABS, XHS_TABS, XHS_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
-import { XHS_PAGES, TT_PAGES, pageRegistered } from '../src/domain/platform-pages.ts'
+import { XHS_PAGES, TT_PAGES, pageRegistered, safeReturnUrl } from '../src/domain/platform-pages.ts'
 
 describe('小红书 Tab 结构（P2：发现 / 闪念间 / 我的）', () => {
   test('XHS_TABS = 发现 + 闪念间（长廊）+ 我的（我的报名收进「我的」）', () => {
@@ -55,6 +55,18 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
   })
 })
 
+describe('campaign + 志愿者招募页注册（advisor-plans/010：迁入小红书，tt 不注册）', () => {
+  test('xhs 已注册 campaign 与 volunteer-apply', () => {
+    assert.ok(pageRegistered('/pages/campaign/index', 'xhs'))
+    assert.ok(pageRegistered('/pages/volunteer-apply/index', 'xhs'))
+  })
+
+  test('tt 未注册 campaign 与 volunteer-apply（无 campaign 页，显示即死链）', () => {
+    assert.ok(!pageRegistered('/pages/campaign/index', 'tt'))
+    assert.ok(!pageRegistered('/pages/volunteer-apply/index', 'tt'))
+  })
+})
+
 describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
   // reLaunch 清空页面栈：落点若不是 Tab 页，用户既无 TabBar 也无返回——死胡同。
   // D2a 把小红书的「我的报名」降为普通页后，落点必须改为「我的」Tab。
@@ -68,6 +80,27 @@ describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
   test('xhs 落「我的」（我的报名入口在其中），tt 落「我的报名」', () => {
     assert.equal(cutJoinLanding('xhs'), '/pages/profile-lite/index')
     assert.equal(cutJoinLanding('tt'), '/pages/my-enrollments/index')
+  })
+})
+
+describe('safeReturnUrl', () => {
+  test('已注册页（编码过，含 query）→ wechat 和 xhs 都原样解码返回', () => {
+    const encoded = encodeURIComponent('/pages/flashback-journey/index?claim=1')
+    assert.equal(safeReturnUrl(encoded, 'wechat'), '/pages/flashback-journey/index?claim=1')
+    assert.equal(safeReturnUrl(encoded, 'xhs'), '/pages/flashback-journey/index?claim=1')
+  })
+
+  test('未注册页：xhs 下 → null；wechat 下 → 原样', () => {
+    assert.equal(safeReturnUrl('/pages/workspace/index', 'xhs'), null)
+    assert.equal(safeReturnUrl('/pages/workspace/index', 'wechat'), '/pages/workspace/index')
+  })
+
+  test('非站内 / 畸形 returnUrl 一律 null', () => {
+    assert.equal(safeReturnUrl(undefined, 'wechat'), null)
+    assert.equal(safeReturnUrl('', 'wechat'), null)
+    assert.equal(safeReturnUrl('https://example.com', 'wechat'), null)
+    assert.equal(safeReturnUrl('pages/discover/index', 'wechat'), null)
+    assert.equal(safeReturnUrl('%E0%A4%A', 'wechat'), null)
   })
 })
 

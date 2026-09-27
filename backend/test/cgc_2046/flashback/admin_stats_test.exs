@@ -58,13 +58,13 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
 
   # outreach 行：sent（送达）/ failed（硬退信）；退订由 person 字段承载。
   # status 是 writable?: false（只由 worker 推进）——测试 force 落列。
-  defp outreach(person, status) do
+  defp outreach(person, status, batch \\ "test-batch") do
     Flashback.Outreach
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       channel: :email,
       template: "reconnect",
-      batch: "test-batch"
+      batch: batch
     })
     |> Ash.Changeset.force_change_attribute(:status, status)
     |> Ash.create!(authorize?: false)
@@ -139,6 +139,143 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
                sent_to_wall: 0,
                intent_submitted: 0
              }
+    end
+  end
+
+  describe "波次筛选（#984：拆批 = 放弃跨批去重）" do
+    test "batch 过滤分子分母；双批人批批都计；nil 回归全局" do
+      archive = create_archive()
+
+      # w1a：甲（记忆线，打开+显影）、乙（圆梦线，零 touch）
+      jia = create_person(archive, :attended)
+      yi = create_person(archive, :not_selected)
+      # w2：丙（记忆线，仅打开）
+      bing = create_person(archive, :attended)
+      # 双批人丁（w1a + w2 双 sent，一次显影）——两批漏斗都计她
+      ding = create_person(archive, :attended)
+      # 戊（圆梦线）：w1a 送达并打开、w2 硬退信——w1a 计她，w2 分子分母
+      # 都不计（failed 行不入 sent 名单，批内率 ≤ 100% 的守卫场景）
+      wu = create_person(archive, :not_selected)
+
+      outreach(jia, :sent, "w1a")
+      outreach(yi, :sent, "w1a")
+      outreach(bing, :sent, "w2")
+      outreach(ding, :sent, "w1a")
+      outreach(ding, :sent, "w2")
+      outreach(wu, :failed, "w2")
+      outreach(wu, :sent, "w1a")
+
+      touch(jia, [:link_opened, :revealed])
+      touch(bing, [:link_opened])
+      touch(ding, [:revealed])
+      touch(wu, [:link_opened])
+
+      # 全局（nil）：与改造前口径逐项一致（回归）
+      assert {:ok, stats} = AdminStats.stats()
+
+      assert stats.overall == %{
+               delivered: 5,
+               link_opened: 3,
+               revealed: 2,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert stats.memory == %{
+               delivered: 3,
+               link_opened: 2,
+               revealed: 2,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert stats.dream == %{
+               delivered: 2,
+               link_opened: 1,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      # w1a：分母=甲乙丁；分子只计 w1a 名单内的人（丙的 touch 不算）
+      assert {:ok, w1a} = AdminStats.stats("w1a")
+
+      assert w1a.memory == %{
+               delivered: 2,
+               link_opened: 1,
+               revealed: 2,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert w1a.dream == %{
+               delivered: 2,
+               link_opened: 1,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert w1a.overall == %{
+               delivered: 4,
+               link_opened: 2,
+               revealed: 2,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      # w2：分母=丙丁（戊 w2 硬退信剔除）；丁的显影在 w2 也计；戊的
+      # touch 只随 w1a 计——w2 分子无她（failed 行不入 sent 名单）
+      assert {:ok, w2} = AdminStats.stats("w2")
+
+      assert w2.memory == %{
+               delivered: 2,
+               link_opened: 1,
+               revealed: 1,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert w2.dream == %{
+               delivered: 0,
+               link_opened: 0,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert w2.overall == %{
+               delivered: 2,
+               link_opened: 1,
+               revealed: 1,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+    end
+
+    test "不存在的 batch 全零；batches/0 倒序去重（含 resend-*）" do
+      archive = create_archive()
+      person = create_person(archive, :attended)
+
+      outreach(person, :sent, "campaign-20260925-midautumn")
+      outreach(person, :sent, "resend-20260926-1")
+
+      assert {:ok, stats} = AdminStats.stats("no-such-batch")
+
+      assert stats.overall == %{
+               delivered: 0,
+               link_opened: 0,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert {:ok, ["resend-20260926-1", "campaign-20260925-midautumn"]} =
+               AdminStats.batches()
+    end
+
+    test "空库 batches → []（下拉空态不报错）" do
+      assert {:ok, []} = AdminStats.batches()
     end
   end
 

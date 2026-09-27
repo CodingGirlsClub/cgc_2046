@@ -53,6 +53,9 @@ defmodule Cgc2046.Flashback.WishWriting do
     attributes =
       Map.merge(author, %{
         signature: snapshot.signature,
+        # #817：授权证据持久化（consent=true 即写，无论是否待审）——admin 放行
+        # 的授权不变量依据；listed_at 仍是「当前挂树事实」。
+        listing_consent_at: if(consent, do: now),
         listed_at: if(consent and not snapshot.review_required, do: now),
         hidden_at: if(consent and snapshot.review_required, do: now),
         request_id: if(author.user_id, do: key),
