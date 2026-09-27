@@ -124,6 +124,9 @@ defmodule Cgc2046.Mcp.Server do
   component(Cgc2046.Mcp.Tools.AdminListReconciliationFindings)
   # 闪念间看板（U11/R24/R25）：platform_admin 门 + AdminStats 单源四率与兑换队列
   component(Cgc2046.Mcp.Tools.ListFlashbackStats)
+
+  # 平台级获客归因（Plan 012）：platform_admin 门 + 首个登录身份平台代理口径
+  component(Cgc2046.Mcp.Tools.ListAcquisitionStats)
   component(Cgc2046.Mcp.Tools.AdminListWishes)
   component(Cgc2046.Mcp.Tools.AdminGetWish)
   component(Cgc2046.Mcp.Tools.AdminSoftDeleteWish)
