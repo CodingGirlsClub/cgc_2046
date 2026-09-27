@@ -7,7 +7,7 @@
  * 兑换申请（R25）：人工处理队列——收款渠道由本人提交，状态流转
  * pending → contacted → settled | rejected（非法转移由后端 fail-closed 拒绝）。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
 	fetchFlashbackAdminRedemptions,
@@ -75,6 +75,8 @@ export default function AdminFlashbackPage() {
 	// ── 波次筛选（#984）：空串 = 全局；选项来自 flashbackAdminBatches ──
 	const [batch, setBatch] = useState("");
 	const [batchOptions, setBatchOptions] = useState<string[]>([]);
+	// 波次切换的请求序号（竞态守卫：过期响应不覆盖新选择）
+	const statsReqSeq = useRef(0);
 	const [rows, setRows] = useState<FlashbackRedemption[] | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(false);
@@ -165,9 +167,15 @@ export default function AdminFlashbackPage() {
 	/** 波次切换：只重取统计（兑换队列与波次无关）；失败按整卡错误处理。 */
 	const handleBatchChange = (next: string) => {
 		setBatch(next);
+		// 序号守卫：快速切换时只采纳最新请求的响应，过期响应不覆盖新选择。
+		const seq = ++statsReqSeq.current;
 		fetchFlashbackAdminStats(next || undefined)
-			.then((s) => setStats(s))
-			.catch(() => setError(true));
+			.then((s) => {
+				if (seq === statsReqSeq.current) setStats(s);
+			})
+			.catch(() => {
+				if (seq === statsReqSeq.current) setError(true);
+			});
 	};
 
 	useEffect(() => {

@@ -318,6 +318,47 @@ describe("/admin/flashback 闪念间看板", () => {
 		);
 	});
 
+	it("波次切换竞态（#984）：过期响应不覆盖新选择", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminBatches.mockResolvedValue(["w2", "w1a"]);
+
+		render(<AdminFlashbackPage />);
+		const select = await screen.findByLabelText("波次");
+		await screen.findByText("记忆线");
+
+		// w1a 请求慢（挂起）、w2 请求快（先回）
+		const stale = {
+			memory: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			dream: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			overall: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+		};
+		const fresh = {
+			memory: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			dream: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			overall: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+		};
+		let resolveStale: (v: typeof stale) => void;
+		fetchFlashbackAdminStats.mockImplementationOnce(
+			() => new Promise<typeof stale>((r) => (resolveStale = r)),
+		);
+		fetchFlashbackAdminStats.mockResolvedValueOnce(fresh);
+
+		fireEvent.change(select, { target: { value: "w1a" } });
+		fireEvent.change(select, { target: { value: "w2" } });
+
+		// w2 先回 → 合计行显示 w2 数字
+		await waitFor(() =>
+			expect(screen.getByText("合计").closest("tr")).toHaveTextContent("2 (50%)"),
+		);
+
+		// w1a 后回（过期）→ 不覆盖 w2 的显示
+		resolveStale!(stale);
+		await waitFor(() => expect(fetchFlashbackAdminStats).toHaveBeenCalledTimes(3));
+		expect(screen.getByText("合计").closest("tr")).toHaveTextContent("2 (50%)");
+		expect(screen.getByText("合计").closest("tr")).not.toHaveTextContent("9 (100%)");
+	});
+
 	it("波次下拉空态（#984）：batches=[] 只显示「全部波次」，不报错", async () => {
 		fetchFlashbackAdminStats.mockResolvedValue(stats);
 		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
