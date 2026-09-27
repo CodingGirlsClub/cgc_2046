@@ -21,6 +21,7 @@ async function isLive(path: string): Promise<boolean> {
 
 export async function serve(session: Session, path = defaultSocketPath(), onHandled?: (line: string) => void) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  chmodSync(dirname(path), 0o700); // mode 只在新建时生效；已存在的目录也收紧
   if (existsSync(path)) {
     if (await isLive(path)) throw new Error(`已有一个 cgc-play 在运行（${path}）`);
     unlinkSync(path); // 上次异常退出留下的死 socket
@@ -36,6 +37,8 @@ export async function serve(session: Session, path = defaultSocketPath(), onHand
       open(s) {
         clients.add(s);
         buffers.set(s, "");
+        const pending = session.pendingMouthEvent();
+        if (pending) send(s, pending); // 重连或首关即口头关卡：补发，否则 agent 不知道要提问
       },
       close(s) {
         clients.delete(s);

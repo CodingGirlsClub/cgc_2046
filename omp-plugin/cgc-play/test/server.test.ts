@@ -1,6 +1,6 @@
 // server.test.ts — socket 分帧、事件广播、单实例与权限
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Session } from "../src/engine";
@@ -80,6 +80,38 @@ describe("serve", () => {
     s.pick("甲");
     const ev = await c.waitFor((m) => m.ev === "mouth_stage");
     expect(ev.checklist).toBe("x1-2");
+  });
+
+  test("新客户端连上时补发未完成的口头关卡事件（重连 / 首关即口头关卡不卡死）", async () => {
+    dir = mkdtempSync(join(tmpdir(), "cgc-play-"));
+    const path = join(dir, "play.sock");
+    const l = loc();
+    l.stages = [l.stages[1]]; // 首关即口头关卡：事件在任何客户端连上之前就已发出
+    const s = new Session(l);
+    s.start();
+    const srv = await serve(s, path);
+    stop = srv.stop;
+    const c = await client(path);
+    expect((await c.waitFor((m) => m.ev === "mouth_stage")).checklist).toBe("x1-2");
+  });
+
+  test("手关卡期间连上的客户端不收到补发事件", async () => {
+    const { path } = await setup();
+    const c = await client(path);
+    c.sock.write('{"id":1,"op":"state"}\n');
+    await c.waitFor((m) => m.id === 1);
+    expect(c.got.some((m) => m.ev)).toBe(false);
+  });
+
+  test("已存在的宽松目录被收紧为 0700", async () => {
+    dir = mkdtempSync(join(tmpdir(), "cgc-play-"));
+    const sub = join(dir, "loose");
+    mkdirSync(sub, { mode: 0o755 });
+    const s = new Session(loc());
+    s.start();
+    const srv = await serve(s, join(sub, "play.sock"));
+    stop = srv.stop;
+    expect(statSync(sub).mode & 0o777).toBe(0o700);
   });
 
   test("socket 权限 0600", async () => {

@@ -65,6 +65,12 @@ export class Session {
     };
   }
 
+  /** 当前还在等回答的口头关卡事件；给新连上的客户端补发，避免重连后无人提问而卡死。 */
+  pendingMouthEvent(): GameEvent | null {
+    const stage = this.stage();
+    return !this.completed && stage.mode === "mouth" ? this.mouthEvent() : null;
+  }
+
   pick(card: string): PickResult {
     const stage = this.stage();
     if (this.completed || stage.mode !== "hand") return { kind: "not_hand" };
@@ -124,13 +130,19 @@ export class Session {
       return;
     }
     this.pool = [];
-    this.emit({
+    this.emit(this.mouthEvent());
+  }
+
+  private mouthEvent(): GameEvent {
+    const stage = this.stage();
+    if (stage.mode !== "mouth") throw new Error(`${stage.checklist} 不是口头关卡`);
+    return {
       ev: "mouth_stage",
       location: this.loc.location,
       checklist: stage.checklist,
       prompt: stage.prompt,
       judge_questions: stage.judge_questions,
-    });
+    };
   }
 
   private emit(e: GameEvent) {
