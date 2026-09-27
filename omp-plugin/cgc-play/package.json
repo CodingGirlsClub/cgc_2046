@@ -1,0 +1,19 @@
+{
+  "name": "cgc-play",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CGC-2046 心流学习世界的终端游戏进程（Herdr 右窗格）：渲染地点插画与关卡，经本地 socket 与 cgc-2046 plugin 交接",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "test": "bun test",
+    "build": "bun build --compile src/main.ts --outfile dist/cgc-play"
+  },
+  "dependencies": {
+    "@opentui/core": "0.5.12"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  }
+}

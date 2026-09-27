@@ -216,6 +216,7 @@ remove_pack() {
     "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
     "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
     "$OMP_AGENT_DIR/extensions/cgc-command.ts"
+    "$OMP_AGENT_DIR/extensions/cgc-play.ts"
   )
   for f in "${files[@]}"; do
     if [[ -e "$f" ]]; then
@@ -295,6 +296,7 @@ case "$ACTION" in
     install_file "$PACK_DIR/skills/cgc2046-onboarding/SKILL.md" "$OMP_AGENT_DIR/skills/cgc2046-onboarding/SKILL.md"
     install_file "$PACK_DIR/skills/cgc-quality-eval/SKILL.md" "$OMP_AGENT_DIR/skills/cgc-quality-eval/SKILL.md"
     install_file "$PACK_DIR/extensions/cgc-command.ts" "$OMP_AGENT_DIR/extensions/cgc-command.ts"
+    install_file "$PACK_DIR/extensions/cgc-play.ts" "$OMP_AGENT_DIR/extensions/cgc-play.ts"
     merge_mcp_json
     merge_config_yml
     verify_guard
