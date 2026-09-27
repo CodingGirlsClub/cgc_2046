@@ -12,11 +12,15 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminTest do
   @moduletag :capture_log
 
   @stats_query """
-  query { flashbackAdminStats {
+  query($batch: String) { flashbackAdminStats(batch: $batch) {
     memory { delivered linkOpened: link_opened revealed sentToWall: sent_to_wall intentSubmitted: intent_submitted }
     dream { delivered linkOpened: link_opened revealed sentToWall: sent_to_wall intentSubmitted: intent_submitted }
-    overall { delivered }
+    overall { delivered linkOpened: link_opened }
   } }
+  """
+
+  @admin_batches_query """
+  query { flashbackAdminBatches }
   """
 
   @redemptions_query """
@@ -84,6 +88,64 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminTest do
 
     res = post_graphql(@redemptions_query, admin)
     assert res["data"]["flashbackAdminRedemptions"] == []
+  end
+
+  # ── 波次筛选（#984）──────────────────────────────────────────────
+
+  test "batches 门控：未登录/普通用户 → 拒；batch 参数透传过滤（#984）" do
+    user = AccountsFixtures.register_user("fb-admin-batch-plain")
+    admin = AccountsFixtures.platform_admin("fb-admin-batch-admin")
+
+    res = post_graphql(@admin_batches_query)
+    assert [%{"code" => "unauthorized"}] = res["errors"]
+
+    res = post_graphql(@admin_batches_query, user)
+    assert [%{"code" => "forbidden"}] = res["errors"]
+
+    # 空库：batches = []（下拉空态不报错）
+    res = post_graphql(@admin_batches_query, admin)
+    assert res["data"]["flashbackAdminBatches"] == []
+
+    # 不带 batch：全局（现有回归）
+    res = post_graphql(@stats_query, admin)
+    assert res["data"]["flashbackAdminStats"]["overall"]["delivered"] == 0
+
+    # 一人一批：过滤后分母分子正确；不存在的 batch 全零
+    archive = create_archive()
+    person = create_person(archive, %{participation: :attended})
+    outreach_row(person, :sent, "campaign-20260925-midautumn")
+    touch_row(person, :link_opened)
+
+    res =
+      post_graphql(@stats_query, admin, %{"batch" => "campaign-20260925-midautumn"})
+
+    stats = res["data"]["flashbackAdminStats"]
+    assert stats["overall"]["delivered"] == 1
+    assert stats["memory"]["linkOpened"] == 1
+
+    res = post_graphql(@stats_query, admin, %{"batch" => "no-such-batch"})
+    assert res["data"]["flashbackAdminStats"]["overall"]["delivered"] == 0
+
+    res = post_graphql(@admin_batches_query, admin)
+    assert res["data"]["flashbackAdminBatches"] == ["campaign-20260925-midautumn"]
+  end
+
+  defp outreach_row(person, status, batch) do
+    Cgc2046.Flashback.Outreach
+    |> Ash.Changeset.for_create(:create, %{
+      person_id: person.id,
+      channel: :email,
+      template: "reconnect",
+      batch: batch
+    })
+    |> Ash.Changeset.force_change_attribute(:status, status)
+    |> Ash.create!(authorize?: false)
+  end
+
+  defp touch_row(person, event) do
+    Cgc2046.Flashback.Touch
+    |> Ash.Changeset.for_create(:create, %{person_id: person.id, event: event})
+    |> Ash.create!(authorize?: false)
   end
 
   # ── 触达运营台查询（R4/R8/R9） ──────────────────────────────────────
