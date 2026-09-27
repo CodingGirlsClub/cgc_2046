@@ -7,7 +7,7 @@ import { VoicesMap } from '@/components/Voices/Map'
 import { useVoices } from '@/components/Voices/useVoices'
 import { parseCityParam, wishTreePath } from '@/domain/wish-tree'
 import { voiceShare } from '@/domain/flashback-voices'
-import shareImage from '@/assets/flashback/voices-map.png'
+import shareImage from '@/assets/flashback/voices-map.jpg'
 import styles from './index.module.css'
 
 export default function FlashbackVoicesPage() {

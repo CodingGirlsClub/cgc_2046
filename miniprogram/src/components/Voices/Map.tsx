@@ -3,7 +3,7 @@ import { useDidHide } from '@tarojs/taro'
 import { MAP_REPLAY_MS, buildMapReplay } from '@/domain/map-replay'
 import { Button, Image, Text, View } from '@tarojs/components'
 import type { VoiceCity } from '@/domain/flashback-voices'
-import mapImage from '@/assets/flashback/mountain-map.png'
+import mapImage from '@/assets/flashback/mountain-map.jpg'
 import styles from './map.module.css'
 
 const featured = ['北京', '上海', '杭州', '成都', '广州']
