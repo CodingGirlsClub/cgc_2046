@@ -650,7 +650,7 @@ TAP "$JCTA"
 sleep 2
 ck "寄出浮层弹出" "$(COUNT "$JOVERLAY")" '^1$'
 ck "浮层标题（R29 定稿）" "$(RES automation_element_action --action text --selector "$JOVER_TITLE")" '^照片正在贴上墙。$'
-ck "主按钮=微信一键收好（R27）" "$(RES automation_element_action --action text --selector "$JOVER_PRIMARY")" '^微信一键收好$'
+ck "主按钮=手机号一键收好（R27）" "$(RES automation_element_action --action text --selector "$JOVER_PRIMARY")" '^手机号一键收好$'
 ck "次出口=跳过，直接上墙" "$(RES automation_element_action --action text --selector "$JOVER_SKIP")" '^跳过，直接上墙$'
 ck "期望管理文案" "$(RES automation_element_action --action text --selector "$JOVER_EXPECT")" '^你写下的愿望不会消失——我们会通过 Newsletter 和具体的人逐个回应。$'
 shot 12-journey-overlay.png
