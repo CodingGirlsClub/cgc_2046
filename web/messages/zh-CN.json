@@ -1974,6 +1974,8 @@
     "fbLineMemory": "记忆线",
     "fbLineDream": "圆梦线",
     "fbLineOverall": "合计",
+    "fbBatchAll": "全部波次",
+    "fbBatchFilter": "波次",
     "fbExport": "导出 CSV",
     "fbRedeemTitle": "兑换申请（人工处理）",
     "fbRedeemNote": "当年比特币等未兑现奖品的兑换队列：收款渠道由本人提交，线下人工处理（无产品内支付）。",

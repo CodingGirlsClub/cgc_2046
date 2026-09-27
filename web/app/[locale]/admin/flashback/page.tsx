@@ -12,6 +12,7 @@ import { useTranslations } from "next-intl";
 import {
 	fetchFlashbackAdminRedemptions,
 	fetchFlashbackAdminStats,
+	fetchFlashbackAdminBatches,
 	updateFlashbackRedemption,
 	fetchFlashbackAdminArchives,
 	fetchFlashbackAdminWishInbox,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/admin";
 import { formatDateTime } from "@/lib/format";
 import { WishEchoModal } from "@/components/admin/wish-echo-modal";
+import { StatsCard, EVENTS, LINES, pct } from "./stats-card";
 import type {
 	FlashbackAdminStats,
 	FlashbackRedemption,
@@ -39,24 +41,11 @@ import type {
 	FlashbackAdminListedWishEntry,
 } from "@/lib/graphql/admin";
 
-const EVENTS = [
-	{ key: "linkOpened", label: "fbLinkOpened" },
-	{ key: "revealed", label: "fbRevealed" },
-	{ key: "sentToWall", label: "fbSentToWall" },
-	{ key: "intentSubmitted", label: "fbIntentSubmitted" },
-] as const;
-
 /** 通道三档（R11）：select 选项与重发确认文案共用。 */
 const CHANNELS = [
 	{ value: "all", label: "fbChannelAll" },
 	{ value: "email", label: "fbChannelEmail" },
 	{ value: "sms", label: "fbChannelSms" },
-] as const;
-
-const LINES = [
-	{ key: "memory", label: "fbLineMemory" },
-	{ key: "dream", label: "fbLineDream" },
-	{ key: "overall", label: "fbLineOverall" },
 ] as const;
 
 /** 合法流转表（与后端 AdminStats.@status_transitions 同源；终态无操作）。 */
@@ -80,14 +69,12 @@ const ACTION_LABEL: Record<string, string> = {
 	rejected: "fbActionRejected",
 };
 
-function pct(count: number, delivered: number): string {
-	if (delivered <= 0) return "—";
-	return `${Math.round((count / delivered) * 100)}%`;
-}
-
 export default function AdminFlashbackPage() {
 	const t = useTranslations("admin");
 	const [stats, setStats] = useState<FlashbackAdminStats | null>(null);
+	// ── 波次筛选（#984）：空串 = 全局；选项来自 flashbackAdminBatches ──
+	const [batch, setBatch] = useState("");
+	const [batchOptions, setBatchOptions] = useState<string[]>([]);
 	const [rows, setRows] = useState<FlashbackRedemption[] | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(false);
@@ -152,6 +139,10 @@ export default function AdminFlashbackPage() {
 	const load = useCallback(() => {
 		void loadOutreachBase();
 		void loadWishes();
+		// 波次下拉失败降级 []（只显示「全部波次」），不让统计卡整卡挂掉。
+		void fetchFlashbackAdminBatches()
+			.then((b) => setBatchOptions(b))
+			.catch(() => setBatchOptions([]));
 		return Promise.all([
 			fetchFlashbackAdminStats(),
 			fetchFlashbackAdminRedemptions(),
@@ -170,6 +161,14 @@ export default function AdminFlashbackPage() {
 				setLoading(false);
 			});
 	}, [loadOutreachBase]);
+
+	/** 波次切换：只重取统计（兑换队列与波次无关）；失败按整卡错误处理。 */
+	const handleBatchChange = (next: string) => {
+		setBatch(next);
+		fetchFlashbackAdminStats(next || undefined)
+			.then((s) => setStats(s))
+			.catch(() => setError(true));
+	};
 
 	useEffect(() => {
 		void load();
@@ -291,35 +290,12 @@ export default function AdminFlashbackPage() {
 			{loading && <p className="admin-muted">{t("loading")}</p>}
 
 			{!loading && !error && stats && (
-				<div className="admin-card admin-table-wrap">
-					<table className="admin-table">
-						<thead>
-							<tr>
-								<th>{t("fbLine")}</th>
-								<th>{t("fbDelivered")}</th>
-								{EVENTS.map((e) => (
-									<th key={e.key}>{t(e.label)}</th>
-								))}
-							</tr>
-						</thead>
-						<tbody>
-							{LINES.map(({ key, label }) => {
-								const r = stats[key];
-								return (
-									<tr key={key}>
-										<td>{t(label)}</td>
-										<td>{r.delivered}</td>
-										{EVENTS.map((e) => (
-											<td key={e.key}>
-												{r[e.key]} ({pct(r[e.key], r.delivered)})
-											</td>
-										))}
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				</div>
+				<StatsCard
+					stats={stats}
+					batches={batchOptions}
+					batch={batch}
+					onBatchChange={handleBatchChange}
+				/>
 			)}
 
 			{/* ── 触达发送（R7/R4/KTD1/KTD2） ── */}
