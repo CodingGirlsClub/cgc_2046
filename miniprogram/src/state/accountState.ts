@@ -33,6 +33,16 @@ export function clearAccountState(options?: { clearPendingScene?: boolean }): vo
   if (options?.clearPendingScene) Taro.removeStorageSync(STORAGE_KEYS.pendingScene)
 }
 
+/**
+ * 主动退出时作废本机持有的闪念间链接身份（STORAGE_KEYS.flashbackToken）。
+ * web 端同语义载体是 sessionStorage（关页即失）；小程序 storage 永久，不清的话
+ * 共用设备上下一个登录者可经 claim=1 认领上一位的卡。
+ * 只在主动退出时调用——会话过期不清：认领流程依赖「过期 → 登录 → claim=1 回跳续跑」。
+ */
+export function clearFlashbackLinkIdentity(): void {
+  Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
+}
+
 export function appendLocalNotification(title: string, body: string): void {
   const activeId = getActiveAccountId()
   if (!activeId) return

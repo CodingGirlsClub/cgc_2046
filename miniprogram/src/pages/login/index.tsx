@@ -4,7 +4,8 @@ import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
 import { CUT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
-import { platformLoginCode, preparePlatformLogin, stagePlatformLoginCode } from '@/platform'
+import { safeReturnUrl } from '@/domain/platform-pages'
+import { currentPlatform, platformLoginCode, preparePlatformLogin, stagePlatformLoginCode } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
@@ -18,6 +19,9 @@ const privacyLinkable = env === 'weapp' || env === 'xhs'
 /** Tab 页清单（单源 domain/tab-routes）：回跳目标若是 Tab 页须 switchTab */
 const TAB_PATHS = env === 'xhs' ? XHS_TAB_PATHS : isCut ? CUT_TAB_PATHS : FULL_TAB_PATHS
 
+// 登录成功默认落点（与原 finish() 分支一致）：xhs「我的」精简页 / 抖音「我的报名」/ 微信「我的」
+const DEFAULT_LANDING = env === 'xhs' ? '/pages/profile-lite/index' : isCut ? '/pages/my-enrollments/index' : '/pages/profile/index'
+
 export default function LoginPage() {
   const router = useRouter()
   const [dialogVisible, setDialogVisible] = useState(false)
@@ -28,25 +32,20 @@ export default function LoginPage() {
 
   // 登录成功后的去向（手机号登录与回访静默登录共用）
   const finish = async () => {
-    const returnUrl = router.params.returnUrl
-    if (returnUrl) {
-      const target = decodeURIComponent(returnUrl)
-      // 回跳目标可能是 tabBar 页面（如长廊）：redirectTo 跳 Tab 页会失败，
-      // 必须 switchTab——清单单源在 domain/tab-routes
-      if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
-      else await Taro.redirectTo({ url: target })
-    } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
-    // 登录成功后落「我的」Tab：抖音未注册「我的」页，落「我的报名」Tab；
-    // 小红书（D2a）落精简「我的」（pages/profile-lite）；微信落全量「我的」
-    else {
-      await Taro.switchTab({
-        url:
-          process.env.TARO_ENV === 'xhs'
-            ? '/pages/profile-lite/index'
-            : isCut
-              ? '/pages/my-enrollments/index'
-              : '/pages/profile/index'
-      })
+    const target = safeReturnUrl(router.params.returnUrl, currentPlatform())
+    try {
+      if (target) {
+        // 回跳目标可能是 tabBar 页面（如长廊）：redirectTo 跳 Tab 页会失败，
+        // 必须 switchTab——清单单源在 domain/tab-routes
+        if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
+        else await Taro.redirectTo({ url: target })
+      } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
+      // 登录成功后落「我的」Tab：抖音未注册「我的」页，落「我的报名」Tab；
+      // 小红书（D2a）落精简「我的」（pages/profile-lite）；微信落全量「我的」
+      else await Taro.switchTab({ url: DEFAULT_LANDING })
+    } catch {
+      // 已登录，跳转失败只影响落点，不得表现为登录失败：reLaunch 兜底默认 Tab（可打开 Tab 页，并清掉可能已满的页面栈）
+      await Taro.reLaunch({ url: DEFAULT_LANDING })
     }
   }
 
