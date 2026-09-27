@@ -7,12 +7,12 @@ import { adoptableCqToken } from '../src/domain/flashback-cq.ts'
 // 防 storage 污染（flashbackEntry 同款纪律）。
 
 test('合法明文 token（43 字符 base64url）原样采纳', () => {
-  const token = 'Ab3xYz9_-Km2Pq4RsTuVwXyZaBcDeFgHiJkLmNoPqRsT'
+  const token = 'TESTTESTTESTTESTTESTTESTTESTTESTTESTTESTTES'
   assert.equal(adoptableCqToken(token), token)
 })
 
 test('找回邮件形态（fb_ 前缀）同属允许集，原样采纳', () => {
-  const token = 'fb_QkRzZXdmc2FpbGtqZHpmaGprbG14bnBxcnN0dXZ3eHl6'
+  const token = 'fb_TESTTESTTESTTESTTESTTESTTESTTESTTESTTEST'
   assert.equal(adoptableCqToken(token), token)
 })
 
