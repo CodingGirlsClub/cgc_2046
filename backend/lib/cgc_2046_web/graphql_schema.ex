@@ -564,6 +564,32 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "公开愿望巡检（#817 PlatformAdmin）：作者已授权挂树（listing_consent_at）的公开愿望，待审置前 → 已下架 → 已挂树；三态标记 listed/pending_review/hidden；未授权与软删不出现"
+    field :flashback_admin_public_wishes,
+          non_null(list_of(non_null(:flashback_admin_public_wish_entry))) do
+      @desc "返回上限（默认 50，最大 200）"
+      arg(:limit, :integer)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          {:ok, Cgc2046.Flashback.Reports.list_public_wishes_for_admin(args[:limit])}
+        end)
+      end)
+    end
+
+    @desc "附议留言聚合（#817 PlatformAdmin）：有附议的未删愿望按最新附议倒序；分布 + 明细（留言/出力类型/时间）；附议者登录账号 phone/email 仅 admin，公开响应禁出（KTD5 双层断言）"
+    field :flashback_admin_wish_endorsements,
+          non_null(list_of(non_null(:flashback_admin_wish_endorsement_entry))) do
+      @desc "返回愿望数上限（默认 50，最大 100）"
+      arg(:limit, :integer)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor ->
+          {:ok, Cgc2046.Flashback.Reports.list_wish_endorsements_for_admin(args[:limit])}
+        end)
+      end)
+    end
+
     @desc "平台管理员：脱敏 workflow 运行元数据（不含 facts/input snapshot）"
     field :platform_workflow_audit, non_null(list_of(non_null(:platform_workflow_audit))) do
       arg(:workspace_id, :id)
@@ -2234,6 +2260,27 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
+    @desc "放行待审愿望 = 挂树（#817 PlatformAdmin）：置 listed_at + 清 hidden_at；仅作者授权过挂树（listing_consent_at）的公开愿望可放行，无授权证据被拒（授权不扩大红线）；不动作者信用字段；已挂树幂等"
+    field :flashback_admin_approve_wish_listing, :flashback_wish_listing_approve_result do
+      arg(:wish_id, non_null(:id))
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn actor ->
+          flashback_call(fn ->
+            with {:ok, wish} <-
+                   Cgc2046.Flashback.Reports.approve_wish_listing(args.wish_id, actor.id) do
+              {:ok,
+               %{
+                 wish_id: wish.id,
+                 listed_at: wish.listed_at,
+                 status: Cgc2046.Flashback.Wishes.listing_status(wish.visibility, wish)
+               }}
+            end
+          end)
+        end)
+      end)
+    end
+
     @desc "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
     field :flashback_admin_create_wish_echo, :flashback_admin_wish_echo do
       arg(:wish_id, non_null(:id))
@@ -2871,6 +2918,62 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:draft_echo_count, non_null(:integer))
   end
 
+  @desc "#817 admin 巡检行：已授权挂树的公开愿望（三态 listed/pending_review/hidden）"
+  object :flashback_admin_public_wish_entry do
+    field(:wish_id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:signature, :string)
+    field(:city, :string)
+    field(:inserted_at, non_null(:datetime))
+    field(:listed_at, :datetime)
+    field(:hidden_at, :datetime)
+    @desc "listed=挂树可见 / pending_review=待审 / hidden=挂树后被下架"
+    field(:status, non_null(:string))
+    @desc "期待数"
+    field(:expectation_count, non_null(:integer))
+    @desc "附议数"
+    field(:endorsement_count, non_null(:integer))
+    @desc "作者处于信用降级（wishes_review_required_at 置位）"
+    field(:author_credit_reduced, non_null(:boolean))
+  end
+
+  @desc "出力类型计数（admin 附议聚合）"
+  object :flashback_admin_contribution_count do
+    field(:type, non_null(:string))
+    field(:count, non_null(:integer))
+  end
+
+  @desc "附议明细（#817 admin）：留言与联系方式仅 admin 面，公开响应禁出（KTD5）"
+  object :flashback_admin_wish_endorsement_detail do
+    field(:id, non_null(:id))
+    @desc "出力类型（venue/organize/speak/sponsor/other）"
+    field(:contribution_types, non_null(list_of(non_null(:string))))
+    @desc "给平台的留言（≤500 字）"
+    field(:message, :string)
+    field(:inserted_at, non_null(:datetime))
+    @desc "附议者登录账号手机号（仅 platform admin；token 存量附议为 null）"
+    field(:endorser_phone, :string)
+    @desc "附议者登录账号邮箱（仅 platform admin；token 存量附议为 null）"
+    field(:endorser_email, :string)
+  end
+
+  @desc "附议聚合行（#817 admin）：按愿望分组"
+  object :flashback_admin_wish_endorsement_entry do
+    field(:wish_id, non_null(:id))
+    field(:content, non_null(:string))
+    field(:signature, :string)
+    field(:city, :string)
+    field(:listed_at, :datetime)
+    field(:endorsement_count, non_null(:integer))
+
+    field(
+      :contribution_distribution,
+      non_null(list_of(non_null(:flashback_admin_contribution_count)))
+    )
+
+    field(:endorsements, non_null(list_of(non_null(:flashback_admin_wish_endorsement_detail))))
+  end
+
   object :flashback_wish_comment do
     field(:id, non_null(:id))
     field(:content, non_null(:string))
@@ -3288,6 +3391,14 @@ defmodule Cgc2046Web.GraphqlSchema do
     field(:wish_id, non_null(:id))
     @desc "操作后的下架态（true=已下架）"
     field(:hidden, non_null(:boolean))
+  end
+
+  object :flashback_wish_listing_approve_result do
+    field(:wish_id, non_null(:id))
+    @desc "放行后的挂树时间（幂等时为原值）"
+    field(:listed_at, :datetime)
+    @desc "放行后对客户端的三态反馈（listed/pending_review/private，同创建口径）"
+    field(:status, :string)
   end
 
   object :flashback_admin_wish_inbox_entry do

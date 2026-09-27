@@ -5187,6 +5187,18 @@ type RootQueryType {
   "回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed\/public\/unhidden\/未删），按挂树时间倒序，附回响计数"
   flashbackAdminListedWishes: [FlashbackAdminListedWishEntry!]!
 
+  "公开愿望巡检（#817 PlatformAdmin）：作者已授权挂树（listing_consent_at）的公开愿望，待审置前 → 已下架 → 已挂树；三态标记 listed\/pending_review\/hidden；未授权与软删不出现"
+  flashbackAdminPublicWishes(
+    "返回上限（默认 50，最大 200）"
+    limit: Int
+  ): [FlashbackAdminPublicWishEntry!]!
+
+  "附议留言聚合（#817 PlatformAdmin）：有附议的未删愿望按最新附议倒序；分布 + 明细（留言\/出力类型\/时间）；附议者登录账号 phone\/email 仅 admin，公开响应禁出（KTD5 双层断言）"
+  flashbackAdminWishEndorsements(
+    "返回愿望数上限（默认 50，最大 100）"
+    limit: Int
+  ): [FlashbackAdminWishEndorsementEntry!]!
+
   "平台管理员：脱敏 workflow 运行元数据（不含 facts\/input snapshot）"
   platformWorkflowAudit(workspaceId: ID, status: String, startedAfter: DateTime, startedBefore: DateTime): [PlatformWorkflowAudit!]!
 
@@ -6142,6 +6154,72 @@ type FlashbackAdminListedWishEntry {
   draftEchoCount: Int!
 }
 
+"#817 admin 巡检行：已授权挂树的公开愿望（三态 listed\/pending_review\/hidden）"
+type FlashbackAdminPublicWishEntry {
+  wishId: ID!
+
+  content: String!
+
+  signature: String
+
+  city: String
+
+  insertedAt: DateTime!
+
+  listedAt: DateTime
+
+  hiddenAt: DateTime
+
+  "listed=挂树可见 \/ pending_review=待审 \/ hidden=挂树后被下架"
+  status: String!
+
+  "期待数"
+  expectationCount: Int!
+
+  "附议数"
+  endorsementCount: Int!
+
+  "作者处于信用降级（wishes_review_required_at 置位）"
+  authorCreditReduced: Boolean!
+}
+
+"出力类型计数（admin 附议聚合）"
+type FlashbackAdminContributionCount {
+  type: String!
+  count: Int!
+}
+
+"附议明细（#817 admin）：留言与联系方式仅 admin 面，公开响应禁出（KTD5）"
+type FlashbackAdminWishEndorsementDetail {
+  id: ID!
+
+  "出力类型（venue\/organize\/speak\/sponsor\/other）"
+  contributionTypes: [String!]!
+
+  "给平台的留言（≤500 字）"
+  message: String
+
+  insertedAt: DateTime!
+
+  "附议者登录账号手机号（仅 platform admin；token 存量附议为 null）"
+  endorserPhone: String
+
+  "附议者登录账号邮箱（仅 platform admin；token 存量附议为 null）"
+  endorserEmail: String
+}
+
+"附议聚合行（#817 admin）：按愿望分组"
+type FlashbackAdminWishEndorsementEntry {
+  wishId: ID!
+  content: String!
+  signature: String
+  city: String
+  listedAt: DateTime
+  endorsementCount: Int!
+  contributionDistribution: [FlashbackAdminContributionCount!]!
+  endorsements: [FlashbackAdminWishEndorsementDetail!]!
+}
+
 type FlashbackWishComment {
   id: ID!
 
@@ -6650,6 +6728,16 @@ type FlashbackWishHiddenResult {
 
   "操作后的下架态（true=已下架）"
   hidden: Boolean!
+}
+
+type FlashbackWishListingApproveResult {
+  wishId: ID!
+
+  "放行后的挂树时间（幂等时为原值）"
+  listedAt: DateTime
+
+  "放行后对客户端的三态反馈（listed\/pending_review\/private，同创建口径）"
+  status: String
 }
 
 type FlashbackAdminWishInboxEntry {
@@ -7251,6 +7339,9 @@ type RootMutationType {
     "true=下架；false=恢复"
     hidden: Boolean!
   ): FlashbackWishHiddenResult
+
+  "放行待审愿望 = 挂树（#817 PlatformAdmin）：置 listed_at + 清 hidden_at；仅作者授权过挂树（listing_consent_at）的公开愿望可放行，无授权证据被拒（授权不扩大红线）；不动作者信用字段；已挂树幂等"
+  flashbackAdminApproveWishListing(wishId: ID!): FlashbackWishListingApproveResult
 
   "创建愿望回响草稿（#834，PlatformAdmin；仅当前公开挂树且可见的愿望）"
   flashbackAdminCreateWishEcho(wishId: ID!, content: String!): FlashbackAdminWishEcho
