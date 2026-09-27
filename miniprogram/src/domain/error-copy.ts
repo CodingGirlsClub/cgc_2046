@@ -27,6 +27,8 @@ export const COPY: Record<string, string> = {
   flashback_wish_invalid_request_id: '提交标识无效，请重新打开页面。',
   flashback_wish_request_conflict: '这次提交的内容已改变，请重新提交。',
   flashback_wish_quota_exceeded: '今年许愿名额已用完（每年最多 3 条，删除不退还名额）。',
+  // #817：无挂树授权证据（listing_consent_at 缺失）——admin 放行被拒（授权不扩大红线）
+  flashback_wish_listing_not_authorized: '这条愿望没有有效的挂树授权，不能放行到公开树。',
   // wish2 U6/U9：机审拒绝（fail-closed）——不评判内容，引导换说法
   flashback_content_rejected: '这句话没能挂上树，换种说法试试。',
   // 期望地名单外（fail-closed，带 ≤3 候选城市）
