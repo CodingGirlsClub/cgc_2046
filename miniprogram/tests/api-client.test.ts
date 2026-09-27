@@ -190,6 +190,38 @@ describe('失败分类与状态清理', () => {
   it('isAuthenticationError 对普通 Error 返回 false', () => {
     expect(client.isAuthenticationError(new Error('boom'))).toBe(false)
   })
+
+  it('请求在飞时 token 已换新 → 迟到 401 不清新 token', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    let resolveRequest!: (value: ReturnType<typeof httpResponse>) => void
+    mocks.request.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
+    const pending = client.graphqlRequest('q', {})
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: 'GraphQLRequestError',
+      statusCode: 401
+    })
+    // 请求在飞时用户已重新登录：authToken 换新
+    client.setAuthToken('fresh-token')
+    resolveRequest(httpResponse(401))
+    await rejection
+    expect(client.getAuthToken()).toBe('fresh-token')
+    expect(mocks.storage.get(AUTH_TOKEN_KEY)).toBe('fresh-token')
+  })
+
+  it('请求在飞时 token 已换新 → 迟到 GraphQL unauthorized 不清新 token', async () => {
+    mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
+    await loadClient()
+    let resolveRequest!: (value: ReturnType<typeof httpResponse>) => void
+    mocks.request.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }))
+    const pending = client.graphqlRequest('q', {})
+    const rejection = expect(pending).rejects.toMatchObject({ name: 'GraphQLRequestError' })
+    client.setAuthToken('fresh-token')
+    resolveRequest(httpResponse(200, { data: null, errors: [{ message: 'x', code: 'unauthorized' }] }))
+    await rejection
+    expect(client.getAuthToken()).toBe('fresh-token')
+    expect(mocks.storage.get(AUTH_TOKEN_KEY)).toBe('fresh-token')
+  })
 })
 
 describe('认证提交顺序（candidate cookie 只在成功响应后落盘）', () => {

@@ -46,6 +46,12 @@ export function clearExpiredAuthentication(): void {
   clearAccountState({ clearPendingScene: true })
 }
 
+// 迟到的认证错误只作废它自己带的 token：请求在飞时用户已重新登录（authToken 已换新），
+// 旧请求回 401 不得清掉新会话（#929–#933 同类「刚登录又掉线」）
+function clearIfStillCurrent(sentToken: string | null): void {
+  if (authToken === sentToken) clearExpiredAuthentication()
+}
+
 export function setAuthToken(token: string | null): void {
   authToken = token
   if (token) Taro.setStorageSync(AUTH_TOKEN_KEY, token)
@@ -93,8 +99,9 @@ export async function graphqlRequest<TData, TVariables extends object>(
     return body
   }
 
+  const sentToken = authToken
   const header: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (authToken) header.Authorization = `Bearer ${authToken}`
+  if (sentToken) header.Authorization = `Bearer ${sentToken}`
 
   const response = await Taro.request<GraphQLResponse<TData>>({
     url: __GRAPHQL_ENDPOINT__,
@@ -112,7 +119,7 @@ export async function graphqlRequest<TData, TVariables extends object>(
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     const error = new GraphQLRequestError(`请求失败（HTTP ${response.statusCode}）`, response.statusCode)
-    if (isAuthenticationError(error)) clearExpiredAuthentication()
+    if (isAuthenticationError(error)) clearIfStillCurrent(sentToken)
     throw error
   }
   if (response.data.errors?.length) {
@@ -121,7 +128,7 @@ export async function graphqlRequest<TData, TVariables extends object>(
       response.statusCode,
       response.data.errors
     )
-    if (isAuthenticationError(error)) clearExpiredAuthentication()
+    if (isAuthenticationError(error)) clearIfStillCurrent(sentToken)
     throw error
   }
   if (!response.data.data) {
