@@ -66,7 +66,7 @@ const allTouchpoints = () => [
 const UNCOVERED_SCENARIOS: SubscriptionScenario[] = []
 
 describe('场景键集', () => {
-  test('恰好 26 个场景，无重复', () => {
+  test('恰好 27 个场景，无重复', () => {
     assert.equal(ALL_SCENARIOS.length, 27)  // wish2 U9：+flashback_wish_echo
     assert.equal(new Set(ALL_SCENARIOS).size, 27)
   })
