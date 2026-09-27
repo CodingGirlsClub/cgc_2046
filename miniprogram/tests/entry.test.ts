@@ -14,19 +14,29 @@ import { CUT_TAB_PATHS, FULL_TAB_PATHS, tabPathsForPlatform } from '../src/domai
 
 const PENDING_SCENE_KEY = 'cgc.pending_scene'
 
-function fakeTaro(pages: EntryPage[] = []) {
+function fakeTaro(
+  pages: EntryPage[] = [],
+  overrides: {
+    navigateTo?: (url: string) => unknown
+    switchTab?: (url: string) => unknown
+    reLaunch?: (url: string) => unknown
+  } = {}
+) {
   const navigated: string[] = []
   const switched: string[] = []
   const stored: Array<[string, string]> = []
+  const relaunched: string[] = []
   return {
     navigated,
     switched,
     stored,
+    relaunched,
     taro: {
       getCurrentPages: () => pages,
-      navigateTo: ({ url }: { url: string }) => navigated.push(url),
-      switchTab: ({ url }: { url: string }) => switched.push(url),
-      setStorageSync: (key: string, value: string) => stored.push([key, value])
+      navigateTo: ({ url }: { url: string }) => (overrides.navigateTo ? overrides.navigateTo(url) : navigated.push(url)),
+      switchTab: ({ url }: { url: string }) => (overrides.switchTab ? overrides.switchTab(url) : switched.push(url)),
+      setStorageSync: (key: string, value: string) => stored.push([key, value]),
+      reLaunch: ({ url }: { url: string }) => (overrides.reLaunch ? overrides.reLaunch(url) : relaunched.push(url))
     }
   }
 }
@@ -193,4 +203,55 @@ test('P0-4 tabPathsForPlatform：Tab 集合按平台分派（不再永远按微�
   assert.deepEqual(tabPathsForPlatform('tt'), CUT_TAB_PATHS)
   assert.equal(tabPathsForPlatform('xhs').includes('/pages/profile-lite/index'), true)
   assert.equal(tabPathsForPlatform('xhs').includes('/pages/discover/index'), true)
+})
+
+// ── 跳转失败回落：页面栈满 10 层 / 目标暂不可达时，navigateTo/switchTab 的 rejection
+// 不能无人接（分享链接「没反应」+ 未处理 rejection）；reLaunch 清栈重开同一目标 ──
+
+const tick = () => new Promise<void>(resolve => setImmediate(resolve))
+
+test('跳转失败回落：navigateTo 失败 → reLaunch 以同一 url 调用', async () => {
+  const { taro, relaunched } = fakeTaro([{ route: 'pages/discover/index' }], {
+    navigateTo: () => Promise.reject(new Error('navigateTo:fail webview count limit exceed'))
+  })
+  applyEntry(taro, { path: 'pages/discover/index', query: { id: 'evt-1', kind: 'event' } }, PENDING_SCENE_KEY)
+  await tick()
+  assert.deepEqual(relaunched, ['/pages/event-detail/index?id=evt-1&kind=event'])
+})
+
+test('跳转失败回落：switchTab 失败 → reLaunch 以 tab path 调用', async () => {
+  const { taro, relaunched } = fakeTaro([{ route: 'pages/discover/index' }], {
+    switchTab: () => Promise.reject(new Error('switchTab:fail'))
+  })
+  applyEntry(taro, { path: 'pages/flashback-corridor/index', query: {} }, PENDING_SCENE_KEY, 'xhs')
+  await tick()
+  assert.deepEqual(relaunched, ['/pages/flashback-corridor/index'])
+})
+
+test('跳转失败回落：navigateTo 成功（同步返回非 Promise）→ reLaunch 不调用（向后兼容）', async () => {
+  const { taro, navigated, relaunched } = fakeTaro([{ route: 'pages/discover/index' }])
+  applyEntry(taro, { path: 'pages/discover/index', query: { id: 'evt-1', kind: 'event' } }, PENDING_SCENE_KEY)
+  await tick()
+  assert.deepEqual(navigated, ['/pages/event-detail/index?id=evt-1&kind=event'])
+  assert.deepEqual(relaunched, [])
+})
+
+test('跳转失败回落：reLaunch 也失败 → 不抛出、无未处理 rejection', async () => {
+  let unhandled = 0
+  const onUnhandled = () => { unhandled++ }
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const { taro } = fakeTaro([{ route: 'pages/discover/index' }], {
+      navigateTo: () => Promise.reject(new Error('navigateTo:fail webview count limit exceed')),
+      reLaunch: () => Promise.reject(new Error('reLaunch:fail'))
+    })
+    assert.doesNotThrow(() => {
+      applyEntry(taro, { path: 'pages/discover/index', query: { id: 'evt-1', kind: 'event' } }, PENDING_SCENE_KEY)
+    })
+    await tick()
+    await tick()
+    assert.equal(unhandled, 0)
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
 })
