@@ -55,6 +55,18 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
   })
 })
 
+describe('campaign + 志愿者招募页注册（advisor-plans/010：迁入小红书，tt 不注册）', () => {
+  test('xhs 已注册 campaign 与 volunteer-apply', () => {
+    assert.ok(pageRegistered('/pages/campaign/index', 'xhs'))
+    assert.ok(pageRegistered('/pages/volunteer-apply/index', 'xhs'))
+  })
+
+  test('tt 未注册 campaign 与 volunteer-apply（无 campaign 页，显示即死链）', () => {
+    assert.ok(!pageRegistered('/pages/campaign/index', 'tt'))
+    assert.ok(!pageRegistered('/pages/volunteer-apply/index', 'tt'))
+  })
+})
+
 describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
   // reLaunch 清空页面栈：落点若不是 Tab 页，用户既无 TabBar 也无返回——死胡同。
   // D2a 把小红书的「我的报名」降为普通页后，落点必须改为「我的」Tab。
