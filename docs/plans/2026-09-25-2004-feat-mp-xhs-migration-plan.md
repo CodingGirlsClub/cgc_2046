@@ -60,8 +60,8 @@ execution: code
 | 账号与合规 | `privacy`（隐私政策） | 开发者协议 4.3 要求有隐私政策；现有正文含「微信」，过不了禁用词扫描 | P0，出小红书版正文（D7） |
 | 交易 | `order-pay`（定价 / 押金支付 + 押金同意门） | 只能用担保交易；需要资质和类目；平台没有押金能力 | P3，依赖资质（D3） |
 | 组织者 | `workspace`（审批）、`check-in`（扫码核销） | `xhs.scanCode` 可用 | 不迁（原则①） |
-| 运营 | `campaign`（Hacker Start 1024） | 外部出口（剪贴板复制品牌邮箱，`miniprogram/src/domain/campaign.ts:62`）属于导流 | P1，视 D6 决定 |
-| 运营 | `volunteer-apply`（招募 + 简历上传） | 没有 `chooseMessageFile`；表单留资可能被判「过度营销」（规范 6.13.1） | 不迁（web 已有 `apply/volunteer`） |
+| 运营 | `campaign`（Hacker Start 1024） | 外部出口（剪贴板复制品牌邮箱，`miniprogram/src/domain/campaign.ts:62`）属于导流 | 已迁（去掉邮箱出口，2026-09-27 修订，见文末） |
+| 运营 | `volunteer-apply`（招募 + 简历上传） | 没有 `chooseMessageFile`；表单留资可能被判「过度营销」（规范 6.13.1） | 已迁，完整版（简历用 `chooseSystemFile`，2026-09-27 修订，见文末） |
 | 闪念间 | `flashback-journey / -corridor / -event / -today` | 页面文案含「微信」；Canvas 2D 不可用 | P2 本人面 |
 | 闪念间 | `flashback-shared-card / -voices / -wishes` | 平台没有社区 / 社交类目，公开 UGC 属高风险（6.5.3） | P2 公开面，等平台确认（D4） |
 | 闪念间 | `flashback-wish-write / -my-wishes` | 平台没有内容安全 API | P2 写面，先补审核 |
@@ -128,7 +128,7 @@ execution: code
 |---|---|---|
 | P1-1 触达通道替换 | 只有小红书身份的用户，学习者类通知（审批结果、活动提醒、改期、报名成功、核销码）改发 SendCloud 短信。按用户去重：已有微信订阅额度的走微信，没有的才发短信。同一切片内**删除** xhs 小程序通知的整条链路：`request_notification(:xhs)`、`runtime.exs` 里 27 个 xhs 模板键和发送路径、`config.exs` 和 `.env.example` 里的占位、前端 passthrough，不保留兼容层 | D5；短信模板审核（人工） |
 | P1-2 活动群聊 | 先做 spike：验证 `GroupChatCard` 在 Taro 4.2.1 + 插件 1.2.2 + 2.0 架构下能否编译和渲染。通过后，组织者在 web 为活动绑定小红书群，报名成功的用户看到入群卡片。注意规范 7.1，不能诱导加群 | spike；可能涉及 migration，需人工合并 |
-| P1-3 Hacker Start 1024 小红书版 | campaign 页和发现页入口卡迁到小红书，去掉剪贴板复制邮箱、志愿者网申入口。押金报名依赖 P3，所以在小红书上只能做宣传（D6）。时间点：10-24 启动，发版审核 3–5 个工作日，还隔着国庆假期，最晚要在 9-30 前提审，或者接受节后提审的风险 | D6 |
+| P1-3 Hacker Start 1024 小红书版 | campaign 页和发现页入口卡迁到小红书，去掉剪贴板复制邮箱、志愿者网申入口。押金报名依赖 P3，所以在小红书上只能做宣传（D6）。时间点：10-24 启动，发版审核 3–5 个工作日，还隔着国庆假期，最晚要在 9-30 前提审，或者接受节后提审的风险 | 完成（2026-09-27 修订，见文末） |
 | P1-4 专业号运营（人工） | 专业号主页挂小程序入口（最多 3 个）；官方笔记挂载小程序（需专业号认证，并遵守规范 7.4） | 专业号认证 |
 
 ### P2 · 闪念间分层迁移
@@ -160,7 +160,7 @@ execution: code
 
 - `openclacky`：导流红线。
 - 工作台审批、扫码核销、主理人订阅、生成邀请码：组织者面，按原则①保留在微信端和 web。等出现真实的「只用小红书的组织者」时再重新评估。
-- `volunteer-apply`：web 已有 `apply/volunteer`；在小红书端做表单留资有规范 6.13.1 的风险；选 PDF 需要客户端 9.2 以上。
+- ~~`volunteer-apply`：web 已有 `apply/volunteer`；在小红书端做表单留资有规范 6.13.1 的风险；选 PDF 需要客户端 9.2 以上。~~ 已迁（完整版，简历改用 `chooseSystemFile`，2026-09-27 修订，见文末）。
 - 「朋友圈」分享入口：由 P2-7 的发笔记替代。
 
 ### 横切工程
@@ -200,7 +200,7 @@ P3-0(人工,周期不可控) ──→ P3-1 ──→ P3-2/P3-3
 | D3 | 是否启动交易资质申请 | 是 / 否（否则 P3 搁置） | 先做 P3-0 ①，核验主体类型，再决定 |
 | D4 | 闪念间公开面是否先向平台发工单确认 | 是 / 否 | 是；确认前只迁本人面 |
 | D5 | 小红书用户的触达是否改走短信 | 是（需申请短信模板，按条计费）/ 否 | 是 |
-| D6 | Hacker Start 1024 是否在 10-24 前上小红书（押金报名仍不可用，只做宣传） | 是 / 否 | 由运营判断宣传价值 |
+| D6 | Hacker Start 1024 是否在 10-24 前上小红书（押金报名仍不可用，只做宣传） | 是 / 否 | 是（2026-09-27 修订，见文末） |
 | D7 | 隐私政策小红书版的正文 | 需法务确认；源档 `docs/合规上架/隐私政策.md`、web 页、小程序页三方同步 | — |
 | D8 | 本次过审的小红书版本号，以及小红书小程序的 ICP 备案号 | 需人工提供 | — |
 
@@ -225,3 +225,7 @@ P3-0(人工,周期不可控) ──→ P3-1 ──→ P3-2/P3-3
 - canvas（无 2D）：https://miniapp.xiaohongshu.com/doc/DC045922 ；chooseSystemFile：https://miniapp.xiaohongshu.com/doc/DC777404
 - 客服消息（唯一的服务端下行通道）：https://miniapp.xiaohongshu.com/doc/DC234367
 - 消息推送（事件回调、地址校验、5 秒超时 / 重试 3 次）：https://miniapp.xiaohongshu.com/doc/DC577113 ；业务域名（仅供 web-view 使用）：https://miniapp.xiaohongshu.com/doc/DC508424 ；网络使用说明（服务器域名不做限制）：https://miniapp.xiaohongshu.com/doc/DC452619 （以上三份已独立核对原文）
+
+## 修订记录
+
+- 2026-09-27（Owner 决策，落地 PR #993 / #998）：campaign 与志愿者招募迁入小红书（原「volunteer-apply 不迁」作废；P1-3 完成；D6 = 是，10-24 前一次发版）。要点：只去掉邮箱出口（规范 2.5）与站外引导文案（6.13.3）；志愿者完整版，简历走 `chooseSystemFile`（模拟器 3.133.1 不可用，真机待验）；押金场维持置灰，端内不引导去网站缴费（7.9）；`check:diversion` 不变；渠道归因为平台级。主体为公司——担保支付主体门槛已过，剩企业专业号法人认证 / 类目开白 / 押金形态工单（P3-0 其余项）。
