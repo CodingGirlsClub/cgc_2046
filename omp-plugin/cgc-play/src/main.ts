@@ -1,7 +1,6 @@
 // main.ts — cgc-play 入口。`cgc-play [--location <location.json>]`，缺省载入内置的潜水课 c21「急救甲板」。
-// 设置 CGC_PLAY_TRACE=<file> 时把 socket 请求与引擎事件逐行追加到该文件（排障用，不是验收日志）。
 
-import { appendFileSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import c21 from "../fixtures/c21/location.json";
 import c21Initial from "../fixtures/c21/initial.png" with { type: "file" };
@@ -47,11 +46,7 @@ function fail(msg: string): never {
 }
 
 const { loc, images } = await load();
-const trace = process.env.CGC_PLAY_TRACE;
-const log = (m: string) => trace && appendFileSync(trace, `${Date.now()} ${m}\n`);
-
 const session = new Session(loc);
-session.onEvent((e) => log(`event ${JSON.stringify(e)}`));
 
 let ui: Awaited<ReturnType<typeof runUi>> | undefined;
 let server: Awaited<ReturnType<typeof serve>> | undefined;
@@ -61,10 +56,7 @@ const exit = (code = 0) => {
 };
 
 try {
-  server = await serve(session, undefined, (line) => {
-    log(`recv ${line}`);
-    ui?.render();
-  });
+  server = await serve(session, undefined, () => ui?.render());
 } catch (e) {
   fail((e as Error).message);
 }

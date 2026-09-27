@@ -37,8 +37,6 @@ OMP 侧：装好 `cgc-2046` plugin 后，在 Herdr 里输入 `/cgc play`。开�
 | 应答 | `{"id":…,"ok":true,"state"?:…}` / `{"id":…,"ok":false,"error":"…"}` |
 | 事件 | `{"ev":"mouth_stage","location","checklist","prompt","judge_questions"}`、`{"ev":"location_complete","location"}` |
 
-`CGC_PLAY_TRACE=<file>` 会把收到的请求与引擎事件逐行追加到该文件（排障用）。
-
 ## 占位素材
 
 `fixtures/c21/*.png` 是程序生成的几何占位图，只用于验证渲染链路；正式插画由教研出图（#1011）。
