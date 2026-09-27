@@ -115,6 +115,37 @@ describe('campaign 三入口（R19）', () => {
   })
 })
 
+describe('campaign 页渲染（advisor-plans/010：小红书端不渲染品牌合作卡）', () => {
+  async function renderCampaignPage(platform: string) {
+    const original = process.env.TARO_ENV
+    process.env.TARO_ENV = platform
+    try {
+      vi.resetModules()
+      const { default: Page } = await import('../src/pages/campaign')
+      return renderToStaticMarkup(createElement(Page))
+    } finally {
+      process.env.TARO_ENV = original
+    }
+  }
+
+  it('xhs 端：不渲染 PARTNERSHIP 卡（品牌邮箱出口属规范 2.5 禁止的站外联系方式），标题降级 TWO WAYS IN', async () => {
+    const html = await renderCampaignPage('xhs')
+    expect(html).not.toContain('data-testid="campaign-entry-brand"')
+    expect(html).not.toContain('data-testid="campaign-copy-email"')
+    expect(html).not.toContain('复制邮箱')
+    expect(html).not.toContain(CAMPAIGN_BRAND_EMAIL)
+    expect(html).toContain('TWO WAYS IN')
+    expect(html).not.toContain('THREE WAYS IN')
+  })
+
+  it('wechat 端：仍渲染 PARTNERSHIP 卡（原样迁移，Owner 决策 1 只改三处硬违规点）', async () => {
+    const html = await renderCampaignPage('wechat')
+    expect(html).toContain('data-testid="campaign-entry-brand"')
+    expect(html).toContain('data-testid="campaign-copy-email"')
+    expect(html).toContain('THREE WAYS IN')
+  })
+})
+
 describe('campaign 入口可见性判据（advisor-plans/010：迁入小红书，tt 不注册）', () => {
   it('campaignEntryVisible：本端注册了 campaign 页才显示', () => {
     expect(campaignEntryVisible('wechat')).toBe(true)

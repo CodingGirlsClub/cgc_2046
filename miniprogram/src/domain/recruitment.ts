@@ -25,6 +25,7 @@
  */
 
 import { formatDateTime } from './format'
+import type { RoutePlatform } from './platform-pages'
 import type {
   RecruitmentCohort,
   RecruitmentCohortStatus,
@@ -43,6 +44,38 @@ export const RECRUITMENT_WORKSPACE_SLUG = '2046'
 
 /** 招募流页面路径（campaign 页「成为志愿者」入口的落点，U9 已引用） */
 export const VOLUNTEER_APPLY_PATH = '/pages/volunteer-apply/index'
+
+/**
+ * 登录门说明（advisor-plans/010）：小红书端不提其他端——「网页端」属零导流
+ * 禁用词（规范 6.13.3「引导至小红书客户端外进行操作」），小红书构建会撞
+ * check:diversion。tt 与 wechat 同文（tt 不注册本页，仅为类型完备）。
+ *
+ * 两条文案各自导出为常量（而非只在函数体内 if/else）：调用处按
+ * `process.env.TARO_ENV` 直接三元取值，Terser 才能在编译期把非本端分支连同其
+ * 常量声明一起当死代码删掉——包进一个运行时按参数分支的函数会让两条文案在
+ * 任何端的产物里都完整出现（已用 xhs 产物实测验证，函数版本会漏 check:diversion）。
+ */
+export const VOLUNTEER_LOGIN_GATE_COPY_WECHAT = '用手机号快捷登录（与网页端同一个账号），登录后即可看到当前批次并填写两步网申。'
+export const VOLUNTEER_LOGIN_GATE_COPY_XHS = '用手机号快捷登录，登录后即可看到当前批次并填写两步网申。'
+
+/** 纯函数版本仅供测试钉住文案内容；页面渲染改走上面两个常量的字面量三元（见注释）。 */
+export function volunteerLoginGateCopy(platform: RoutePlatform): string {
+  return platform === 'xhs' ? VOLUNTEER_LOGIN_GATE_COPY_XHS : VOLUNTEER_LOGIN_GATE_COPY_WECHAT
+}
+
+/**
+ * 旅程脚注（advisor-plans/010）：小红书无订阅消息能力，只承诺邮件通道——不
+ * 出现「小程序通知需逐次授权」这句在小红书端不成立的话。同上，拆成常量供页面
+ * 按 process.env.TARO_ENV 字面量三元选用（本文案两条都不含禁用词，理论上函数
+ * 版本也不会撞 check:diversion，仍拆常量是为了两处写法一致、意图统一）。
+ */
+export const VOLUNTEER_JOURNEY_FOOTNOTE_WECHAT = '每段结果都会发到你的联系邮箱；小程序通知需你在提交时逐次授权。'
+export const VOLUNTEER_JOURNEY_FOOTNOTE_XHS = '每段结果都会发到你的联系邮箱。'
+
+/** 纯函数版本仅供测试钉住文案内容；页面渲染改走上面两个常量的字面量三元。 */
+export function volunteerJourneyFootnote(platform: RoutePlatform): string {
+  return platform === 'xhs' ? VOLUNTEER_JOURNEY_FOOTNOTE_XHS : VOLUNTEER_JOURNEY_FOOTNOTE_WECHAT
+}
 
 /** 三职位（R20；kicker/文案取自原型 weapp-host，与 web 申请页同口径） */
 export const VOLUNTEER_POSITIONS: readonly {
