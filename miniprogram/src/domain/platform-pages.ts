@@ -115,3 +115,20 @@ export function pageRegistered(path: string, platform: RoutePlatform): boolean {
   const normalized = path.replace(/^\/+/, '').split('?')[0]
   return pagesForPlatform(platform).includes(normalized)
 }
+
+/**
+ * 登录回跳目标校验：只放行本端已注册的站内页（`/pages/...`，可带 query）。
+ * 深链可以任意构造 returnUrl——不校验时未注册页（裁剪端）会让回跳静默失败、
+ * 用户卡在登录页。null = 调用方回落本端默认落点。
+ */
+export function safeReturnUrl(raw: string | undefined, platform: RoutePlatform): string | null {
+  if (!raw) return null
+  let target: string
+  try {
+    target = decodeURIComponent(raw)
+  } catch {
+    return null
+  }
+  if (!target.startsWith('/pages/')) return null
+  return pageRegistered(target, platform) ? target : null
+}

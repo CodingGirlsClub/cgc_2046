@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { CUT_TABS, XHS_TABS, XHS_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
-import { XHS_PAGES, TT_PAGES, pageRegistered } from '../src/domain/platform-pages.ts'
+import { XHS_PAGES, TT_PAGES, pageRegistered, safeReturnUrl } from '../src/domain/platform-pages.ts'
 
 describe('小红书 Tab 结构（P2：发现 / 闪念间 / 我的）', () => {
   test('XHS_TABS = 发现 + 闪念间（长廊）+ 我的（我的报名收进「我的」）', () => {
@@ -68,6 +68,27 @@ describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
   test('xhs 落「我的」（我的报名入口在其中），tt 落「我的报名」', () => {
     assert.equal(cutJoinLanding('xhs'), '/pages/profile-lite/index')
     assert.equal(cutJoinLanding('tt'), '/pages/my-enrollments/index')
+  })
+})
+
+describe('safeReturnUrl', () => {
+  test('已注册页（编码过，含 query）→ wechat 和 xhs 都原样解码返回', () => {
+    const encoded = encodeURIComponent('/pages/flashback-journey/index?claim=1')
+    assert.equal(safeReturnUrl(encoded, 'wechat'), '/pages/flashback-journey/index?claim=1')
+    assert.equal(safeReturnUrl(encoded, 'xhs'), '/pages/flashback-journey/index?claim=1')
+  })
+
+  test('未注册页：xhs 下 → null；wechat 下 → 原样', () => {
+    assert.equal(safeReturnUrl('/pages/workspace/index', 'xhs'), null)
+    assert.equal(safeReturnUrl('/pages/workspace/index', 'wechat'), '/pages/workspace/index')
+  })
+
+  test('非站内 / 畸形 returnUrl 一律 null', () => {
+    assert.equal(safeReturnUrl(undefined, 'wechat'), null)
+    assert.equal(safeReturnUrl('', 'wechat'), null)
+    assert.equal(safeReturnUrl('https://example.com', 'wechat'), null)
+    assert.equal(safeReturnUrl('pages/discover/index', 'wechat'), null)
+    assert.equal(safeReturnUrl('%E0%A4%A', 'wechat'), null)
   })
 })
 
