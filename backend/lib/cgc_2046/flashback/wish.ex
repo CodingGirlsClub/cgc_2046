@@ -38,12 +38,20 @@ defmodule Cgc2046.Flashback.Wish do
     # U1（KTD1）：署名快照——创建时按作者选择定型，之后不回溯改名
     attribute(:signature, :string, allow_nil?: false, default: "", public?: true, writable?: true)
 
+    # #817：作者挂树授权证据持久化——`visibility=public AND consent=true` 时创建
+    # 即写入（无论是否待审）；admin 放行（approve_wish_listing）只对本列非空的
+    # 愿望置 listed_at（授权不扩大红线：作者从未授权挂树的愿望不能经 admin
+    # 放行进公开树）。存量回填见对应 migration（5s 启发式，漏标优于误标）。
+    attribute(:listing_consent_at, :utc_datetime_usec, public?: true, writable?: true)
+
     # U1（KTD1）：公开树授权标记——`visibility=public AND publicListingConsent=true`
-    # 才写入；nil 即未授权公开（成员面仍可见）
+    # 才写入；nil 即未授权公开（成员面仍可见）。#817 起授权证据另存
+    # listing_consent_at（listed_at 仍是「当前挂树事实」，与授权证据分离）。
     attribute(:listed_at, :utc_datetime_usec, public?: true, writable?: true)
 
     # U1（KTD1/KTD5）：admin 下架标记——与作者撤回 `deleted_at` 区分；hidden 后
-    # 公开树移除但成员面保留（admin 编辑权走 U5 的专用 action）
+    # 公开树移除但成员面保留（admin 编辑权走 U5 的专用 action）。待审愿望复用
+    # 本列（listed nil + hidden 置位 = FIX-3/机审待审形态）。
     attribute(:hidden_at, :utc_datetime_usec, public?: true, writable?: true)
 
     create_timestamp(:inserted_at)
@@ -66,9 +74,20 @@ defmodule Cgc2046.Flashback.Wish do
     defaults([:read, :destroy])
 
     create :create do
-      # signature/listed_at/hidden_at 在 server 层（Wishes.create_wish/4）赋值，不进
-      # GraphQL 写面（U6 公开 schema 不暴露）；「仅 server 写」由 domain 边界保证。
-      accept([:person_id, :content, :visibility, :city, :signature, :listed_at, :hidden_at])
+      # signature/listing_consent_at/listed_at/hidden_at 在 server 层
+      # （WishWriting.insert/6）赋值，不进 GraphQL 写面（U6 公开 schema 不暴露）；
+      # 「仅 server 写」由 domain 边界保证。
+      accept([
+        :person_id,
+        :content,
+        :visibility,
+        :city,
+        :signature,
+        :listing_consent_at,
+        :listed_at,
+        :hidden_at
+      ])
+
       # Ownership and publication snapshots are assigned only by WishWriting.
       change(fn changeset, _ ->
         Ash.Changeset.force_change_attributes(
@@ -79,9 +98,11 @@ defmodule Cgc2046.Flashback.Wish do
     end
 
     update :update do
-      # 软删 / U5 admin set_hidden 共用（admin 走 domain 层 authorize 而非 GraphQL
-      # 公开面——U6 GraphQL whitelist 不暴露任何 update 入口）。
-      accept([:deleted_at, :hidden_at])
+      # 软删 / U5 admin set_hidden / #817 admin approve_wish_listing（放行挂树）
+      # 共用（admin 走 domain 层 authorize 而非 GraphQL 公开面——U6 GraphQL
+      # whitelist 不暴露任何 update 入口）。listed_at 仅 #817 放行路径写
+      # （approve_wish_listing 守卫 listing_consent_at 授权不变量）。
+      accept([:deleted_at, :hidden_at, :listed_at])
     end
   end
 
