@@ -1974,6 +1974,8 @@
     "fbLineMemory": "Memory",
     "fbLineDream": "Dream",
     "fbLineOverall": "Overall",
+    "fbBatchAll": "All batches",
+    "fbBatchFilter": "Batch",
     "fbExport": "Export CSV",
     "fbRedeemTitle": "Redemption requests (manual)",
     "fbRedeemNote": "Queue for unredeemed prizes (e.g. the bitcoins): payout channels are submitted by the alumna and settled offline — no in-product payments.",

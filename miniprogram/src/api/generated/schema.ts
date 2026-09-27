@@ -5726,11 +5726,13 @@ export type RootQueryType = {
   eventModerators: Array<EventModerator>;
   /** 场次列表（R7 发送入口数据源，PlatformAdmin） */
   flashbackAdminArchives: Array<FlashbackAdminArchive>;
+  /** 波次下拉选项（#984，PlatformAdmin）：outreaches distinct batch 倒序，含 resend-* 补救批次；空库为 [] */
+  flashbackAdminBatches: Array<Scalars['String']['output']>;
   /** 回响管理队列（#835 PlatformAdmin）：公开树可见愿望（listed/public/unhidden/未删），按挂树时间倒序，附回响计数 */
   flashbackAdminListedWishes: Array<FlashbackAdminListedWishEntry>;
   /** 兑换申请队列（U11/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only） */
   flashbackAdminRedemptions: Array<FlashbackRedemption>;
-  /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线 */
+  /** 看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线。batch 可选——按波次筛（#984，拆批=放弃跨批去重） */
   flashbackAdminStats?: Maybe<FlashbackAdminStats>;
   /** 许愿树回响（#834，PlatformAdmin）：读取某愿望全部回响及当前可通知附议数 */
   flashbackAdminWishEchoes?: Maybe<FlashbackAdminWishEchoesResult>;
@@ -5947,6 +5949,11 @@ export type RootQueryTypeEventModeratorsArgs = {
 
 export type RootQueryTypeFlashbackAdminRedemptionsArgs = {
   limit?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type RootQueryTypeFlashbackAdminStatsArgs = {
+  batch?: InputMaybe<Scalars['String']['input']>;
 };
 
 

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, screen, fireEvent } from "@testing-library/react";
+import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
 import AdminFlashbackPage from "./page";
 
 const fetchFlashbackAdminStats = vi.hoisted(() => vi.fn());
+const fetchFlashbackAdminBatches = vi.hoisted(() => vi.fn());
 const fetchFlashbackAdminRedemptions = vi.hoisted(() => vi.fn());
 const updateFlashbackRedemption = vi.hoisted(() => vi.fn());
 const fetchFlashbackAdminArchives = vi.hoisted(() => vi.fn());
@@ -18,6 +19,7 @@ const fetchFlashbackAdminListedWishes = vi.hoisted(() =>
 
 vi.mock("@/lib/admin", () => ({
 	fetchFlashbackAdminStats,
+	fetchFlashbackAdminBatches,
 	fetchFlashbackAdminRedemptions,
 	updateFlashbackRedemption,
 	fetchFlashbackAdminArchives,
@@ -70,6 +72,7 @@ beforeEach(() => {
 		{ key: "2014-01-11-bj", name: "Rails Girls Beijing", city: "北京", occurredOn: "2014-01-11" },
 	]);
 	fetchFlashbackOutreachBatches.mockResolvedValue([]);
+	fetchFlashbackAdminBatches.mockResolvedValue([]);
 	fetchFlashbackOutreachRoster.mockResolvedValue([]);
 });
 
@@ -283,6 +286,89 @@ describe("/admin/flashback 闪念间看板", () => {
 
 		expect(await screen.findByText("加载失败。")).toBeInTheDocument();
 		expect(screen.queryByText("记忆线")).not.toBeInTheDocument();
+	});
+
+	it("波次筛选（#984）：下拉渲染批次，选中后带 batch 重取统计", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminBatches.mockResolvedValue(["w2", "w1a"]);
+
+		render(<AdminFlashbackPage />);
+
+		// 初始：全局加载（batch undefined）+ 选项齐（全部 + 两批）
+		const select = await screen.findByLabelText("波次");
+		await screen.findByText("记忆线");
+		expect(fetchFlashbackAdminStats.mock.calls[0]).toHaveLength(0);
+		expect(screen.getByRole("option", { name: "全部波次" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "w1a" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "w2" })).toBeInTheDocument();
+
+		// 选中 w1a：带参重取，矩阵换成该批数字
+		const filtered = {
+			memory: { delivered: 2, linkOpened: 1, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			dream: { delivered: 0, linkOpened: 0, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			overall: { delivered: 2, linkOpened: 1, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+		};
+		fetchFlashbackAdminStats.mockResolvedValue(filtered);
+		fireEvent.change(select, { target: { value: "w1a" } });
+
+		await waitFor(() => expect(fetchFlashbackAdminStats).toHaveBeenCalledWith("w1a"));
+		await waitFor(() =>
+			expect(screen.getByText("合计").closest("tr")).toHaveTextContent("1 (50%)"),
+		);
+	});
+
+	it("波次切换竞态（#984）：过期响应不覆盖新选择", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminBatches.mockResolvedValue(["w2", "w1a"]);
+
+		render(<AdminFlashbackPage />);
+		const select = await screen.findByLabelText("波次");
+		await screen.findByText("记忆线");
+
+		// w1a 请求慢（挂起）、w2 请求快（先回）
+		const stale = {
+			memory: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			dream: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			overall: { delivered: 9, linkOpened: 9, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+		};
+		const fresh = {
+			memory: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			dream: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+			overall: { delivered: 4, linkOpened: 2, revealed: 0, sentToWall: 0, intentSubmitted: 0 },
+		};
+		let resolveStale: (v: typeof stale) => void;
+		fetchFlashbackAdminStats.mockImplementationOnce(
+			() => new Promise<typeof stale>((r) => (resolveStale = r)),
+		);
+		fetchFlashbackAdminStats.mockResolvedValueOnce(fresh);
+
+		fireEvent.change(select, { target: { value: "w1a" } });
+		fireEvent.change(select, { target: { value: "w2" } });
+
+		// w2 先回 → 合计行显示 w2 数字
+		await waitFor(() =>
+			expect(screen.getByText("合计").closest("tr")).toHaveTextContent("2 (50%)"),
+		);
+
+		// w1a 后回（过期）→ 不覆盖 w2 的显示
+		resolveStale!(stale);
+		await waitFor(() => expect(fetchFlashbackAdminStats).toHaveBeenCalledTimes(3));
+		expect(screen.getByText("合计").closest("tr")).toHaveTextContent("2 (50%)");
+		expect(screen.getByText("合计").closest("tr")).not.toHaveTextContent("9 (100%)");
+	});
+
+	it("波次下拉空态（#984）：batches=[] 只显示「全部波次」，不报错", async () => {
+		fetchFlashbackAdminStats.mockResolvedValue(stats);
+		fetchFlashbackAdminRedemptions.mockResolvedValue([]);
+		fetchFlashbackAdminBatches.mockResolvedValue([]);
+
+		render(<AdminFlashbackPage />);
+
+		const select = await screen.findByLabelText("波次");
+		await screen.findByText("记忆线");
+		expect(select.querySelectorAll("option")).toHaveLength(1);
 	});
 });
 

@@ -59,6 +59,7 @@ import {
   RECONCILIATION_FINDINGS,
   REJECT_WORKSPACE_APPLICATION,
   FLASHBACK_ADMIN_STATS,
+  FLASHBACK_ADMIN_BATCHES,
   FLASHBACK_ADMIN_REDEMPTIONS,
   FLASHBACK_ADMIN_WISH_INBOX,
   FLASHBACK_ADMIN_WISH_REPORTS,
@@ -672,13 +673,25 @@ export async function reassignWorkspaceOwner(
   );
 }
 
-/** 闪念间看板：四率 + 分线（U11/R24/KTD10）。 */
-export async function fetchFlashbackAdminStats(): Promise<FlashbackAdminStats | null> {
+/** 闪念间看板：四率 + 分线（U11/R24/KTD10）；batch 可选——按波次筛（#984）。 */
+export async function fetchFlashbackAdminStats(
+  batch?: string,
+): Promise<FlashbackAdminStats | null> {
   const { data } = await client.query({
     query: FLASHBACK_ADMIN_STATS,
+    variables: { batch: batch ?? null },
     fetchPolicy: "network-only",
   });
   return data?.flashbackAdminStats ?? null;
+}
+
+/** 波次下拉选项（#984）：distinct batch 倒序，含 resend-*；失败降级 []（统计卡仍可用）。 */
+export async function fetchFlashbackAdminBatches(): Promise<string[]> {
+  const { data } = await client.query({
+    query: FLASHBACK_ADMIN_BATCHES,
+    fetchPolicy: "network-only",
+  });
+  return data?.flashbackAdminBatches ?? [];
 }
 
 /** 闪念间兑换申请队列（U11/R25）：倒序封顶，channel_note 为用户提交的收款渠道。 */

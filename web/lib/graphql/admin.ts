@@ -895,10 +895,10 @@ export interface FlashbackRedemption {
 
 export const FLASHBACK_ADMIN_STATS: TypedDocumentNode<
 	{ flashbackAdminStats: FlashbackAdminStats },
-	Record<string, never>
+	{ batch?: string | null }
 > = gql`
-	query FlashbackAdminStats {
-		flashbackAdminStats {
+	query FlashbackAdminStats($batch: String) {
+		flashbackAdminStats(batch: $batch) {
 			memory {
 				delivered
 				linkOpened
@@ -921,6 +921,16 @@ export const FLASHBACK_ADMIN_STATS: TypedDocumentNode<
 				intentSubmitted
 			}
 		}
+	}
+`;
+
+/** 波次下拉选项（#984）：distinct batch 倒序，含 resend-* 补救批次。 */
+export const FLASHBACK_ADMIN_BATCHES: TypedDocumentNode<
+	{ flashbackAdminBatches: string[] },
+	Record<string, never>
+> = gql`
+	query FlashbackAdminBatches {
+		flashbackAdminBatches
 	}
 `;
 

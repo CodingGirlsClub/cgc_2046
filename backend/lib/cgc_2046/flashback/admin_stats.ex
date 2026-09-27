@@ -12,6 +12,11 @@ defmodule Cgc2046.Flashback.AdminStats do
     拒绝继续触达，不再构成漏斗基数）；
   - **分线** = person.participation（attended = 记忆线 / not_selected =
     圆梦线），分子分母同维度切分；
+  - **波次筛选（#984）** = 可选 batch：分母限定该批 outreaches，分子计入
+    「该批**成功送达**名单内的人产生的 touch」（touches 无批次列，join
+    该批 outreaches 且 status = 'sent' 判名单——与分母同口径，跨批
+    failed 行不带入：批内率恒 ≤ 100%）；同一人多批触达则批批都计她
+    ——拆批 = 放弃跨批去重（issue 已声明取舍）；
   - 删除档案者不剔除（admin 漏斗是运营真实口径——她们确实经历了触达与
     行为；公开统计层才排除，见 `Public.stats/0`）。
 
@@ -50,37 +55,32 @@ defmodule Cgc2046.Flashback.AdminStats do
   @doc """
   四率看板：分母（成功送达）+ 四事件分子，按线（memory/dream）分开统计。
 
+  `batch` 为 nil 时全库聚合；传 batch 时按波次筛（口径见 moduledoc）。
+
   返回 `%{lines: %{memory => rates, dream => rates}, overall: rates}`，其中
   `rates = %{delivered, link_opened, revealed, sent_to_wall, intent_submitted}`。
   空库各计数为 0（除零守卫：分母 0 时各率为 0）。
   """
-  @spec stats() :: {:ok, map()}
-  def stats do
+  @spec stats(String.t() | nil) :: {:ok, map()}
+  def stats(batch \\ nil) do
     # 分母：sent 的 distinct person（退订者剔除），按线分组。
     delivered_by_line =
-      Repo.all(
-        from(o in "flashback_outreaches",
-          join: p in "flashback_people",
-          on: p.id == o.person_id,
-          where: o.status == "sent" and is_nil(p.outreach_unsubscribed_at),
-          group_by: p.participation,
-          select: {p.participation, count(o.person_id, :distinct)}
-        )
+      from(o in "flashback_outreaches",
+        join: p in "flashback_people",
+        on: p.id == o.person_id,
+        where: o.status == "sent" and is_nil(p.outreach_unsubscribed_at),
+        group_by: p.participation,
+        select: {p.participation, count(o.person_id, :distinct)}
       )
+      |> maybe_batch_filter(batch)
+      |> Repo.all()
       |> Map.new()
 
     # 分子：各事件 distinct person，按线分组。退订者与分母同口径剔除
     # （她已退出触达漏斗——分子含她会造成率 > 100% 的怪相）。
     touches_by_line =
-      Repo.all(
-        from(t in "flashback_touches",
-          join: p in "flashback_people",
-          on: p.id == t.person_id,
-          where: is_nil(p.outreach_unsubscribed_at),
-          group_by: [p.participation, t.event],
-          select: {p.participation, t.event, count(t.person_id, :distinct)}
-        )
-      )
+      touches_query(batch)
+      |> Repo.all()
       |> Enum.group_by(
         fn {participation, _event, _count} -> participation end,
         fn {_participation, event, count} -> {event, count} end
@@ -111,6 +111,55 @@ defmodule Cgc2046.Flashback.AdminStats do
        dream: Map.fetch!(lines, "dream"),
        overall: rates_for(total_delivered, total_touches)
      }}
+  end
+
+  @doc """
+  波次下拉选项（#984）：outreaches distinct batch，倒序（新波次在前）；
+  resend-* 补救批次一并返回，空库为 []。
+  """
+  @spec batches() :: {:ok, [String.t()]}
+  def batches do
+    rows =
+      Repo.all(
+        from(o in "flashback_outreaches",
+          order_by: [desc: o.batch],
+          distinct: true,
+          select: o.batch
+        )
+      )
+
+    {:ok, rows}
+  end
+
+  defp maybe_batch_filter(query, nil), do: query
+
+  # 分母限定该批触达行（batch 有索引）。
+  defp maybe_batch_filter(query, batch),
+    do: where(query, [o], o.batch == ^batch)
+
+  # 分子（batch 版）：touches 无批次列——join 该批 outreaches（且
+  # status = 'sent'，与分母同口径）判「成功送达名单」，名单内的人的
+  # touch 才计入；同批多通道行造成的 join 扇出被 distinct person 抵消。
+  defp touches_query(nil) do
+    from(t in "flashback_touches",
+      join: p in "flashback_people",
+      on: p.id == t.person_id,
+      where: is_nil(p.outreach_unsubscribed_at),
+      group_by: [p.participation, t.event],
+      select: {p.participation, t.event, count(t.person_id, :distinct)}
+    )
+  end
+
+  defp touches_query(batch) do
+    from(t in "flashback_touches",
+      join: p in "flashback_people",
+      on: p.id == t.person_id,
+      join: o in "flashback_outreaches",
+      on: o.person_id == t.person_id and o.batch == ^batch and o.status == "sent",
+      where: is_nil(p.outreach_unsubscribed_at),
+      group_by: [p.participation, t.event],
+      select: {p.participation, t.event, count(t.person_id, :distinct)}
+    )
   end
 
   defp line_participation("memory"), do: "attended"

@@ -239,10 +239,19 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线"
+    @desc "看板四率（U11/R24/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线/圆梦线。batch 可选——按波次筛（#984，拆批=放弃跨批去重）"
     field :flashback_admin_stats, :flashback_admin_stats do
+      arg(:batch, :string)
+
+      resolve(fn _, args, %{context: context} ->
+        with_admin(context, fn _actor -> Cgc2046.Flashback.AdminStats.stats(args[:batch]) end)
+      end)
+    end
+
+    @desc "波次下拉选项（#984，PlatformAdmin）：outreaches distinct batch 倒序，含 resend-* 补救批次；空库为 []"
+    field :flashback_admin_batches, non_null(list_of(non_null(:string))) do
       resolve(fn _, _, %{context: context} ->
-        with_admin(context, fn _actor -> Cgc2046.Flashback.AdminStats.stats() end)
+        with_admin(context, fn _actor -> Cgc2046.Flashback.AdminStats.batches() end)
       end)
     end
 
