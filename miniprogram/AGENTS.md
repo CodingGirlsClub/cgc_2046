@@ -10,7 +10,7 @@
 | --- | --- |
 | 类型 | `./node_modules/.bin/tsc --noEmit` |
 | 单测 · 纯逻辑（node --test） | `node --experimental-strip-types --test tests/payment-domain.test.ts …` |
-| 单测 · transport 层（vitest） | `./node_modules/.bin/vitest run tests/api-client.test.ts …` |
+| 单测 · transport 层（vitest） | `./node_modules/.bin/vitest run tests/api-client.vitest.ts …`（`*.vitest.ts` 后缀即归 vitest） |
 | 构建 | `./node_modules/.bin/taro build --type weapp｜tt｜xhs` |
 | 依赖许可 / 零导流 | `node scripts/check-licenses.mjs` / `node scripts/check-no-diversion.mjs`（导流检查需先建出 `dist/tt`、`dist/xhs`） |
 | CI 全量门 | `pnpm check:ci`（codegen 新鲜度 + typecheck + 许可 + 单测 + 三端构建 + 零导流 + mock 构建） |
