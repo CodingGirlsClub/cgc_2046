@@ -18,6 +18,27 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+
+- 唤醒邮件直达微信端（#770）：触达邮件主 CTA 从 Web 链接切微信 URL Link 直达小程序，批次级缓存 + 生成失败 fail-open 回落旧通道；正文与通道区同步重排。
+- admin 愿望看板补公开愿望巡检与附议留言分区（#817）：新增 ApproveWishListing 放行挂树，wishes 落 listing_consent_at 授权证据列并回填存量。
+- 闪念间统计看板支持按波次（batch）筛选（#984）：统计卡波次下拉 + AdminStats 四率分线带波次维度。
+- MCP 新工具 list_acquisition_stats：按首个登录身份平台统计新用户/报名/志愿者申请。
+- [小红书] campaign 与志愿者招募页注册：发现页入口卡按 campaignEntryVisible 分流、简历选择适配 chooseSystemFile、campaign 页隐藏邮箱出口（规范 2.5）。
+- [微信] 回访页承接 URL Link 直达（#770，待过审）。
+
+### Changed
+
+- [微信] 主包体积治理：地图素材 PNG→JPEG，腾出约 400KB 主包余量（待过审）。
+
+### Fixed
+
+- 无订单的 payment_pending 报名超支付窗口自动释放名额。
+- 闪念间波次漏斗口径（#984）：分子限定该批成功送达名单（批内率 ≤ 100%），切换波次时过期响应不再覆盖新选择。
+- 金句墙分享弹窗入场统一淡入，消除面板透明窗口期（#825）。
+- [微信] 支付调起成功后重开支付轮询窗口，结果确认不再漏（待过审）。
+- [微信] 登录回跳 returnUrl 白名单只接受本端已注册页、主动退出清闪念间链接身份、迟到 401 只清发请求时的 token（待过审）。
+
 ## [2026-09-27]
 
 ### Added
