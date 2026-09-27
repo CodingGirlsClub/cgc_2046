@@ -5068,8 +5068,11 @@ type RootQueryType {
     city: String
   ): FlashbackArchivesResult
 
-  "看板四率（U11\/R24\/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线\/圆梦线"
-  flashbackAdminStats: FlashbackAdminStats
+  "看板四率（U11\/R24\/KTD10，PlatformAdmin）：分子=FlashbackTouch 各事件 distinct person；分母=成功送达（硬退信与退订剔除）；分线=记忆线\/圆梦线。batch 可选——按波次筛（#984，拆批=放弃跨批去重）"
+  flashbackAdminStats(batch: String): FlashbackAdminStats
+
+  "波次下拉选项（#984，PlatformAdmin）：outreaches distinct batch 倒序，含 resend-* 补救批次；空库为 []"
+  flashbackAdminBatches: [String!]!
 
   "兑换申请队列（U11\/R25，PlatformAdmin）：倒序封顶；channel_note 为用户提交的收款渠道（admin-only）"
   flashbackAdminRedemptions(limit: Int): [FlashbackRedemption!]!
