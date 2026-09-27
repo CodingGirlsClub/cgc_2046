@@ -33,10 +33,11 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/openclacky/index',
   // #508-A：主理人现场核销（管理面，裁剪端不挂）
   'pages/check-in/index',
-  // R19：campaign 宣传页（微信端专属——发现页入口卡同款分流，见 pages/discover/index）
+  // R19：campaign 宣传页（微信 + 小红书；tt 不注册——发现页入口卡同款分流，见
+  // pages/discover/index。advisor-plans/010，Owner 2026-09-27 拍板）
   'pages/campaign/index',
-  // R20/R21：志愿者招募流（微信端专属——campaign 页「成为志愿者」入口的落点；
-  // 审核面板不进小程序，管理面在 web）
+  // R20/R21：志愿者招募流（微信 + 小红书；tt 不注册——campaign 页「成为志愿者」
+  // 入口的落点；审核面板不进小程序，管理面在 web）
   'pages/volunteer-apply/index',
   // U9/R28：闪念间主容器=长廊（页内 Tab：时间廊|我的卡，U2 完整化后卡面单源
   // 在 components/MyCard）。旧独立页曾仅保留给裁剪端——#770 起微信端重新
@@ -89,6 +90,11 @@ export const XHS_PAGES: readonly string[] = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
+  // Hacker Start 1024（advisor-plans/010，Owner 2026-09-27 拍板）：campaign 宣传页 +
+  // 志愿者招募（完整两步网申）迁入小红书。押金场报名仍由 enrollmentBlockedNotice
+  // 置灰；campaign 页的邮箱出口在本端不渲染（小红书规范 2.5）。
+  'pages/campaign/index',
+  'pages/volunteer-apply/index',
   // P2 闪念间全端：本人面（长廊/首程/场次/今天）+ 公开面（金句墙/许愿树/公开卡）+
   // 写面（写愿望/我的愿望）。组织者与管理页仍不注册（原则①）。
   'pages/flashback-corridor/index',

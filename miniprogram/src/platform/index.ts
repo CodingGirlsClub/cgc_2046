@@ -10,6 +10,22 @@ const wechatTemplateIds: Record<SubscriptionScenario, string> = __WECHAT_TEMPLAT
 
 const ttTemplateIds: Partial<Record<SubscriptionScenario, string>> = __TT_TEMPLATE_IDS__
 
+// 小红书原生全局（Taro xhs 插件 1.2.2 停更，未代理 chooseSystemFile——迁移规划
+// X-3）。字段名按小红书官方文档 https://miniapp.xiaohongshu.com/doc/DC777404
+// （2026-09-27 抓取）；真机可用性未核实（xhs 模拟器 3.133.1 实测 2026-09-27：
+// chooseSystemFile 为 undefined，canIUse('chooseSystemFile') 为 false——见下方
+// chooseResumeTempFile 的 canIUse 守卫，release 前需在真机复核）。不要写进
+// types/global.d.ts（那是 global script，见其头注释的 import 陷阱）。
+declare const xhs: {
+  canIUse(name: string): boolean
+  chooseSystemFile(option: {
+    type: 'file'
+    extension: string[]
+    success: (res: { tempFiles: { fileName: string; fileSize: number; path: string }[] }) => void
+    fail: (err: unknown) => void
+  }): void
+}
+
 export function currentPlatform(): 'wechat' | 'tt' | 'xhs' {
   if (process.env.TARO_ENV === 'tt') return 'tt'
   if (process.env.TARO_ENV === 'xhs') return 'xhs'
@@ -147,4 +163,43 @@ export async function requestPlatformSubscriptions(
   if ('errCode' in result) throw new Error(result.errMsg || '订阅授权失败')
 
   return acceptedScenarios(requested, tmplIds, result as Record<string, string>)
+}
+
+/**
+ * 选一个本地文件，结果已归一为 `{ name, path, size }`（advisor-plans/010，简历
+ * 上传适配小红书）：微信「从聊天记录选择文件」`chooseMessageFile` 的
+ * `tempFiles[i].{name,size}` / 小红书 `chooseSystemFile` 的
+ * `tempFiles[i].{fileName,fileSize}` 字段名不同，此处统一。
+ *
+ * 用户取消 / 选择失败 → null（静默，不提示）；小红书端 `canIUse` 为 false（当前
+ * 不支持选文件）→ toast 提示后返回 null。
+ */
+export async function chooseResumeTempFile(
+  extension: string[]
+): Promise<{ name: string; path: string; size: number } | null> {
+  if (currentPlatform() === 'xhs') {
+    if (!xhs.canIUse('chooseSystemFile')) {
+      Taro.showToast({ title: '当前版本不支持选择文件，请升级小红书后重试', icon: 'none' })
+      return null
+    }
+    return new Promise((resolve) => {
+      xhs.chooseSystemFile({
+        type: 'file',
+        extension,
+        success: (res) => {
+          const file = res.tempFiles?.[0]
+          resolve(file ? { name: file.fileName, path: file.path, size: file.fileSize } : null)
+        },
+        fail: () => resolve(null)
+      })
+    })
+  }
+  try {
+    const result = await Taro.chooseMessageFile({ count: 1, type: 'file', extension })
+    const file = result.tempFiles?.[0]
+    return file ? { name: file.name, path: file.path, size: file.size } : null
+  } catch {
+    // 取消也走 fail 回调：不提示（用户主动放弃不是错误）
+    return null
+  }
 }
