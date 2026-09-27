@@ -35,11 +35,16 @@ def check(name, ok):
     assert ok,name
 W='flashback-wish-write'; M='flashback-my-wishes'; L='login'
 if __name__ == '__main__':
+    # 清 storage 后登录态仍可能被 DevTools 会话持久化重新注入；带登录态跑「未登录」断言会假红。
+    keys = evaluate('return wx.getStorageInfoSync().keys') or []
+    if 'cgc.auth_token' in keys or 'cgc.active_user_id' in keys:
+        raise SystemExit('复位失败：会话带登录态')
     call('automation_navigate',action='reLaunch',url='/pages/flashback-wish-write/index')
     check('无档案游客可直接进入写愿望页',element(W,'title')=='写下我的愿望')
     element(W,'contentInput','input',value='合成验收：和新朋友一起做一个小作品。')
     element(W,'cityInput','input',value='成都')
     tap(W,'submit')
+    time.sleep(3)  # 跳转 1–3s；call() 自带的 1.2s 限速等待不够稳
     check('提交时才进入登录',evaluate('return getCurrentPages().slice(-1)[0].route')=='pages/login/index')
     evaluate('wx.navigateBack(); return true')
     check('取消登录保留草稿',evaluate('return wx.getStorageSync("cgc.wish-draft.guest").content')=='合成验收：和新朋友一起做一个小作品。')
