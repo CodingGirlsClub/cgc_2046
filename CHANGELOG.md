@@ -18,6 +18,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [2026-09-27]（第二发）
+
 ### Added
 
 - 唤醒邮件直达微信端（#770）：触达邮件主 CTA 从 Web 链接切微信 URL Link 直达小程序，批次级缓存 + 生成失败 fail-open 回落旧通道；正文与通道区同步重排。
