@@ -22,7 +22,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   @quote_text "虽然我后来一直没有进入 IT 界，还在原岗位上，但刚刚一闪念间想起来曾经参加的这个活动，很想感谢你，感谢你的热情和付出，曾经那么早让我有一小扇窗得以窥见编程世界。"
   @subject "程序媛汇：月亮刚圆过，宜重逢——闪念回当年，系愿于今朝"
   @quote_sign "—— 一位 2013 年 5 月参加 Rails Girls 的学员"
-  @mini_program_line "手机上也可以在微信里搜索小程序「程序媛汇」，体验更顺手。"
+  @mini_program_line "手机上也可以在微信、小红书里搜索小程序「程序媛汇」。"
 
   # 比特币奖品兑付联系邮箱（R25 人工通道）：显影页提醒（R7 全场告知）在 web 有、
   # 小程序/邮件此前没有；邮件是唯一主动触达「不记得这事的人」的通道，补一行 P.S.。
@@ -118,6 +118,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     #{entry_text(mp_url, enter_url)}
 
     打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。
+    你当年随手写下的某句话，也许藏着另一个人此刻需要的那点勇气。要不要让它被看见，由你决定。
     #{@mini_program_line}
 
     #{@redeem_text}
@@ -145,7 +146,7 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
   defp fallback_html(nil, _enter_url), do: ""
 
   defp fallback_html(_mp_url, enter_url) do
-    "<p style=\"font-size:12px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 22px;\">电脑上打不开？复制此地址在手机浏览器打开：<a href=\"#{enter_url}\" style=\"color:#918c82;text-decoration:underline;\">#{enter_url}</a></p>"
+    "电脑上打不开？复制此地址在手机浏览器打开：<a href=\"#{enter_url}\" style=\"color:#918c82;text-decoration:underline;\">#{enter_url}</a><br>"
   end
 
   # 视觉稿即实现（全内联）：暗房底 + 金 kicker + 拍立得白框原图 + 小字引文
@@ -174,8 +175,9 @@ defmodule Cgc2046.Flashback.Outreach.Emails do
     <p style="font-size:12px;color:#918c82;line-height:1.9;margin:0 0 32px;text-align:center;">“#{@quote_text}”<br>#{@quote_sign}</p>
     <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 32px;">一扇窗，开了一个人的十年。#{period(occurred_on)}，你也在一张报名表上写下过自己——那份报名表，每个字都还在。</p>
     <div style="text-align:center;margin:0 0 22px;"><a href="#{mp_url || enter_url}" style="display:inline-block;background:#cfcabf;color:#2b2723;font-size:15px;font-weight:600;letter-spacing:2px;padding:13px 46px;border-radius:999px;text-decoration:none;">打开我的闪念间</a></div>
-    #{fallback_html(mp_url, enter_url)}
-    <p style="font-size:13px;color:#918c82;line-height:1.9;text-align:center;margin:0 0 26px;">打开后，你可以把那份报名表做成卡片保存，<br>也可以找找当年的同伴和教练。<br>#{@mini_program_line}</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 14px;">打开后，你可以把那份报名表做成卡片保存，也可以找找当年的同伴和教练。</p>
+    <p style="font-size:15px;color:#d9d4ca;line-height:1.9;margin:0 0 26px;">你当年随手写下的某句话，也许藏着另一个人此刻需要的那点勇气。要不要让它被看见，由你决定。</p>
+    <div style="font-size:12px;color:#918c82;line-height:2;text-align:center;margin:0 0 26px;">#{fallback_html(mp_url, enter_url)}#{@mini_program_line}</div>
     <p style="font-size:13px;color:#918c82;line-height:1.9;margin:0 0 40px;">对了——2014 年 1 月的北京活动现场，赞助方发放过少量比特币作为奖品，此前只有一位同学来兑领过。如果你恰好也是当年的获奖者，欢迎<a href="#{@redeem_mailto}" style="color:#cbbf8f;text-decoration:underline;">联系我们</a>兑付。</p>
     <div style="border-top:1px solid #26262a;padding-top:22px;font-size:12px;color:#918c82;line-height:1.9;">这封信来自 CGC 2046「闪念间」——#{footer_line(occurred_on, archive_name)}<br>不想再收到此类邮件？<a href="#{unsub_url}" style="color:#918c82;">取消订阅</a></div>
     </div>
