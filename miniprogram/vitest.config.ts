@@ -24,7 +24,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tests/api-client.test.ts', 'tests/account-state.test.ts', 'tests/wish-draft-state.test.ts', 'tests/real-auth.test.ts', 'tests/real-content.test.ts', 'tests/initiative.test.ts', 'tests/campaign.test.ts', 'tests/volunteer-apply.test.ts', 'tests/enrollment-payment-status.test.ts', 'tests/error-codes.contract.test.ts', 'tests/real-moderation.test.ts', 'tests/real-flashback-claim.test.ts'],
+    // runner 按后缀分派：*.vitest.ts → vitest，*.test.ts|mjs → node --test；新增测试无需登记
+    include: ['tests/**/*.vitest.ts'],
     clearMocks: true,
     restoreMocks: true
   }
