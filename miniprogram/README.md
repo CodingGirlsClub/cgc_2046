@@ -34,7 +34,7 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
    - D8 余量：到开放平台后台「版本管理」确认**线上首发版本号**并回填 CHANGELOG（ICP 备案号已到位：京ICP备16008426号-7X，已渲染在「我的」页脚；过审后 CHANGELOG 按 ADR-0016 立 `## [小红书 vX.Y.Z]` 节点）。
 2. **门禁**：`pnpm check:ci` 全绿；`check:ci` 已含 `node scripts/check-no-diversion.mjs`（解码 `\uXXXX` 转义后扫 dist/tt、dist/xhs，禁用词含「网页端」）。**不要用纯文本 `grep` 自检**：Taro 产物把中文写成转义，grep 看不见（曾因此假绿）。
 3. **构建**：`pnpm build:xhs`，产物 `dist/xhs/`（不入库）。
-4. **上传/提审**：上传前在**IDE 实际指向的那个 checkout** 里跑 `pnpm build:xhs && pnpm check:xhs-patch`，必须 ✓（插件补丁未生效会导致全页 RUNTIME ERROR）。小红书开发者工具打开 `dist/xhs/` → 右上角「上传」→ 手填平台版本号（本次 `0.2.0`）+ 版本描述 → 开放平台后台「版本管理」→ 开发版本「设为体验版」（真机验收扫码用）→ 验收通过后「提交审核」→ 过审后手动「全量发布」。上传与设体验版/提审是两个权限面：前者本地 IDE，后者需后台管理员。
+4. **上传/提审**：上传前在**IDE 实际指向的那个 checkout** 里跑 `pnpm build:xhs && pnpm check:xhs-patch && pnpm check:release-endpoint xhs`，必须 ✓（插件补丁未生效会导致全页 RUNTIME ERROR；endpoint 指向开发回落值会导致全部请求失败）。小红书开发者工具打开 `dist/xhs/` → 右上角「上传」→ 手填平台版本号（本次 `0.2.0`）+ 版本描述 → 开放平台后台「版本管理」→ 开发版本「设为体验版」（真机验收扫码用）→ 验收通过后「提交审核」→ 过审后手动「全量发布」。上传与设体验版/提审是两个权限面：前者本地 IDE，后者需后台管理员。
 5. **真机冒烟（提审前必做）**：N1 登录全流程（xhs.login → 建号/挂 Identity → legacy `encryptedData/iv` 解密拿号）、退出并重新登录；N3 页面无订阅触点；F2/F3 缴费门置灰；N4 分享面板仅「转发」。
 6. **发布后验证**：`e2e/DOUYIN_REDNOTE_CHECKLIST.md` 真机清单全项过一遍并落档。
 
@@ -46,6 +46,7 @@ CI 只做质量门（`pnpm check:ci`），**不上传小程序**；版本更新�
 2. **门禁**：`pnpm check:ci` 全绿（CI 已跑则以 PR 绿记录为准）。
 3. **构建**：`pnpm build:weapp`，产物 `dist/weapp/`（不入库）。
 4. **上传**（生成开发版本）：
+   - 上传前跑 `pnpm build:weapp && pnpm check:release-endpoint weapp`，必须 ✓。
    - CLI：`wechatide upload --project <本目录绝对路径> --upload-version <version> --desc "<一句话>"`
    - 或微信开发者工具打开本目录点「上传」。
    - 真实 AppID 只写工具本地 `project.private.config.json`（不入库）；上传后 `git status` 确认 tracked `project.config.json` 未被改动。

@@ -16,6 +16,7 @@ export interface EntryTaro {
   setStorageSync(key: string, value: string): void
   navigateTo(options: { url: string }): unknown
   switchTab(options: { url: string }): unknown
+  reLaunch(options: { url: string }): unknown
 }
 
 /**
@@ -36,11 +37,18 @@ export function applyEntry(
   if (scene) taro.setStorageSync(pendingSceneKey, scene)
   if (!(url && navigate)) return
   const [path] = url.split('?')
+  // 跳转失败（页面栈满 10 层 / 目标暂不可达）不能让分享链接「没反应」：reLaunch 清栈重开同一目标；
+  // reLaunch 也失败就放弃（已在可用页面上），并吞掉 rejection
+  const settle = (result: unknown, target: string) => {
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      ;(result as Promise<unknown>).catch(() => Promise.resolve(taro.reLaunch({ url: target })).catch(() => {}))
+    }
+  }
   // Tab 判定必须取本端 Tab 集合（裁剪端：发现/我的报名）——固定按微信 tabs
   // 会把裁剪端 tab 页误判成普通页（switchTab 唯一合法入口，I6）
   if (isTabPath(path, tabPathsForPlatform(platform))) {
-    taro.switchTab({ url: path })
+    settle(taro.switchTab({ url: path }), path)
   } else {
-    taro.navigateTo({ url })
+    settle(taro.navigateTo({ url }), url)
   }
 }
