@@ -1,0 +1,73 @@
+{
+  "version": 0,
+  "location": "c21",
+  "region": "ch3",
+  "title": "急救甲板",
+  "unlock_after": ["o-c16"],
+  "intro": "傍晚的潜水船甲板。潜伴出水后开始说手臂麻木——船上只有一瓶急救氧和受过训练的你。",
+  "scene": {
+    "initial": "initial",
+    "states": { "initial": "initial.png", "worse": "worse.png" }
+  },
+  "stages": [
+    {
+      "checklist": "c21-1",
+      "mode": "hand",
+      "kind": "sequence",
+      "prompt": "按顺序完成现场处置",
+      "answer": ["确保现场安全", "检查 ABC", "平卧", "保温", "补水", "安排后送"],
+      "distractors": [
+        {
+          "card": "头低脚高位",
+          "consequence": "worse",
+          "explain": "头低脚高位已被废弃：可能把动脉气泡推向大脑，又妨碍心肺复苏；动物实验显示水平位时脑恢复更好。平躺就是最好的。",
+          "anchor": "tb:ch3#p98-99"
+        },
+        {
+          "card": "扶他坐起休息",
+          "consequence": "worse",
+          "explain": "疑似减压病时不要让伤员坐起或走动：竖立体位让气泡更容易上行入脑，也增加跌倒风险。",
+          "anchor": "tb:ch3#p98-99"
+        }
+      ]
+    },
+    {
+      "checklist": "c21-2",
+      "mode": "hand",
+      "kind": "select",
+      "prompt": "选出对疑似减压病「禁止」的全部做法",
+      "answer": ["用 Entonox 镇痛", "让他起身走动"],
+      "distractors": [
+        {
+          "card": "给 100% 氧",
+          "explain": "给氧是现场处置的核心，不是禁用项。",
+          "anchor": "tb:ch3#p100"
+        },
+        {
+          "card": "每小时补约 1 升无汽饮品",
+          "explain": "补水是正确处置（避开茶、咖啡、酒精），不是禁用项。",
+          "anchor": "tb:ch3#p98-99"
+        }
+      ]
+    },
+    {
+      "checklist": "c21-3",
+      "mode": "mouth",
+      "prompt": "潜伴吸氧 5 分钟后说手臂更麻了。你会停氧吗？为什么？",
+      "judge_questions": [
+        "回答是否给出了「不应停止给氧」的结论",
+        "回答是否说明初期症状加重可能是氧进入气泡造成的暂时变化，而不是给氧无效",
+        "回答是否提到至少一条给氧机理：拉大排氮梯度、缩小已有气泡、溶解氧绕道供养缺血组织"
+      ]
+    },
+    {
+      "checklist": "c21-4",
+      "mode": "mouth",
+      "prompt": "吸氧 20 分钟后，潜伴说症状全没了，想自己回船舱休息。接下来怎么办？",
+      "judge_questions": [
+        "回答是否指出症状消失可能是假性痊愈",
+        "回答是否给出仍须后送到加压舱评估的结论"
+      ]
+    }
+  ]
+}

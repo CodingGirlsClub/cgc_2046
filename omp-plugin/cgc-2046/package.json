@@ -5,7 +5,8 @@
   "license": "AGPL-3.0-only",
   "omp": {
     "extensions": [
-      "./extensions/cgc-command.ts"
+      "./extensions/cgc-command.ts",
+      "./extensions/cgc-play.ts"
     ]
   }
 }

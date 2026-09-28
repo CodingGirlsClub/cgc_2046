@@ -15,12 +15,20 @@
  *   - 连接失败（401/网络错误）：显示错误与重试入口，不静默
  */
 
+import { launchPlay } from "./cgc-play.ts";
+
 export default function cgcCommand(pi) {
   // 共享 handler：/cgc 与 /cgc-help 双入口（别名兜死——若 /cgc help 的 args 形态不是 string，别名仍可达）
   const handler = async (args, ctx) => {
     // 宽容归一化：args 可能是 string / array / object，统一转 string 再判定
     const a = typeof args === "string" ? args : Array.isArray(args) ? args.join(" ") : String(args?.args ?? args?.text ?? args?.rest ?? "");
     const argText = a.trim().toLowerCase();
+
+    // /cgc play：打开心流学习游戏窗格（实现见 cgc-play.ts）
+    if (argText === "play") {
+      await launchPlay(ctx);
+      return;
+    }
 
     // /cgc help 或 /cgc-help：完整命令参考（小白友好：「你说什么」+「会发生什么」）
     if (/help|帮助/.test(argText)) {
@@ -29,6 +37,7 @@ export default function cgcCommand(pi) {
           "你说什么 → 会发生什么：\n\n" +
           "  /cgc → 查看连接状态、待办、可进入角色\n" +
           "  /cgc help → 显示本参考\n" +
+          "  /cgc play → 在右侧打开学习游戏窗格（需要 Herdr）\n" +
           "  「连接 CGC」→ 连接你的 CGC 账号（自动或手工）\n" +
           "  「断开连接」→ 我来指导你断开\n" +
           "  「开始 CGC 工作」→ 以 cgc agent 身份开始角色工作\n" +
