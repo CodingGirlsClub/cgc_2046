@@ -249,24 +249,41 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
-  # ── 邮箱死信抑制（服务商硬退信 → 按人抑制 email 腿；不留重试通道） ────
+  # ── 邮箱死信抑制（置位后 email 腿坏死、sms 腿照走；人不被整体抑制） ──
 
-  describe "邮箱死信抑制（outreach_email_bounced_at 置位即不再入队）" do
-    test "死信者：不再入队；未标记者照常入队" do
+  describe "邮箱死信抑制（outreach_email_bounced_at 置位后 email 腿坏死）" do
+    test ":email 派发：死信者跳过；未标记者照常入队" do
       archive = create_archive()
-      bounced = create_person(archive, full_name: "邮箱已死", email: "dead@example.com")
-      normal = create_person(archive, email: "alive@example.com")
+      bounced = create_person(archive, full_name: "邮箱已死", email: "dead@example.com", phone: nil)
+      normal = create_person(archive, email: "alive@example.com", phone: nil)
 
       :ok = Dispatch.mark_email_bounced(bounced.id)
 
       assert {:ok, %{queued: 1, skipped: 1}} =
-               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :email)
 
       assert outreach_count(%{person_id: bounced.id}) == 0
       assert outreach_count(%{person_id: normal.id, channel: :email}) == 1
     end
 
-    test "mark_email_bounced 幂等（重复置位不报错）" do
+    test ":all 派发：死信者不消失——自动回落 sms 腿" do
+      Application.put_env(:cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template")
+      on_exit(fn -> Application.put_env(:cgc_2046, :flashback_sms, template_id: nil) end)
+
+      archive = create_archive()
+      bounced = create_person(archive, full_name: "邮箱死", email: "dead2@example.com")
+
+      :ok = Dispatch.mark_email_bounced(bounced.id)
+
+      assert {:ok, %{queued: 1, skipped: 0}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      # email 腿坏死≠人死：email 行零条，sms 行一条
+      assert outreach_count(%{person_id: bounced.id, channel: :email}) == 0
+      assert outreach_count(%{person_id: bounced.id, channel: :sms}) == 1
+    end
+
+    test "mark_email_bounced 幂等（重复置位与不存在人均静默）" do
       archive = create_archive()
       person = create_person(archive)
 

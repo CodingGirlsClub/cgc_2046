@@ -83,11 +83,11 @@ defmodule Cgc2046.Flashback.Person do
     # 退订时尚无发送行。
     attribute(:outreach_unsubscribed_at, :utc_datetime_usec, public?: true, writable?: false)
 
-    # 邮箱死信抑制（服务商硬退信，KTD-死信 2026-09-28）：置位后任何批次不再
-    # 入队（与退订同闸 suppressed_person_ids）。真源在 person 行——SendCloud
-    # 在收单后异步判死，outreach 行内 status 停在 sent 看不到。时间戳而非
-    # boolean：判死时刻可溯源，误杀清空即平反。只死 email 腿——本人档案/
-    # 卡片/链接不受影响，将来 sms 腿照触达。
+    # 邮箱死信抑制（服务商硬退信，KTD-死信 2026-09-28）：置位后 email 腿视为
+    # 不存在——:email 派发跳过、:all 自动回落 sms 腿；人不被整体抑制。真源在
+    # person 行——SendCloud 在收单后异步判死，outreach 行内 status 停在 sent
+    # 看不到。时间戳而非 boolean：判死时刻可溯源，误杀清空即平反。本人档案/
+    # 卡片/链接不受影响，sms 腿照触达。
     attribute(:outreach_email_bounced_at, :utc_datetime_usec, public?: true, writable?: false)
 
     # 档案删除（U10/R30/ADR-0015）：置位 = 名册/统计/找回全面排除 + token

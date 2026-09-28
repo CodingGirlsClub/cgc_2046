@@ -116,6 +116,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
           {non_neg_integer(), non_neg_integer(), non_neg_integer()}
   def enqueue_persons(person_ids, template, batch, channel \\ :all) when is_list(person_ids) do
     suppressed = suppressed_person_ids()
+    bounced = email_bounced_person_ids()
     persons = persons_by_id(person_ids)
     now = DateTime.utc_now()
 
@@ -123,7 +124,7 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
       Enum.uniq(person_ids)
       |> Enum.reduce({[], 0, 0, campaign_contacts(batch)}, fn person_id,
                                                               {acc, skipped, deduped, contacts} ->
-        person = Map.get(persons, person_id)
+        person = persons |> Map.get(person_id) |> mask_bounced_email(bounced)
 
         cond do
           MapSet.member?(suppressed, person_id) ->
@@ -364,10 +365,11 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   end
 
   @doc """
-  标记邮箱死信（幂等）：置 person 的 `outreach_email_bounced_at`——此后
-  任何批次不再入队（与退订同闸 suppressed_person_ids）。真源在 person 行：
-  SendCloud 收单后异步判死，outreach 行 status 停在 sent 看不到。人不存在
-  时静默 :ok（回填脚本按邮箱匹配，漏配不炸批）。
+  标记邮箱死信（幂等）：置 person 的 `outreach_email_bounced_at`——消费面
+  将其 email 视为不存在：:email 派发跳过、:all 自动回落 sms 腿。人不被
+  整体抑制（sms 照触达）。真源在 person 行：SendCloud 收单后异步判死，
+  outreach 行 status 停在 sent 看不到。人不存在时静默 :ok（回填脚本按
+  邮箱匹配，漏配不炸批）。
   """
   @spec mark_email_bounced(String.t()) :: :ok
   def mark_email_bounced(person_id) do
@@ -550,12 +552,14 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   # 人数计入 skipped（运营面从 enqueue 计数即可读出触达面收窄了多少）。
   defp reachable_person_ids(archive_id, channel) do
     suppressed = suppressed_person_ids()
+    bounced = email_bounced_person_ids()
 
     {ids, filtered_out} =
       Person
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(archive_event_id == ^archive_id)
       |> Ash.read!(authorize?: false, page: false)
+      |> Enum.map(&mask_bounced_email(&1, bounced))
       |> Enum.reduce({[], 0}, fn person, {ids, out} ->
         if MapSet.member?(suppressed, person.id) or channel_for(person, channel) == nil do
           {ids, out + 1}
@@ -624,15 +628,30 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
 
   defp present?(_), do: false
 
+  # 退订抑制（R30：用户主动动作；任何通道都不再入队）。
   defp suppressed_person_ids do
     Person
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      not is_nil(outreach_unsubscribed_at) or not is_nil(outreach_email_bounced_at)
-    )
+    |> Ash.Query.filter(not is_nil(outreach_unsubscribed_at))
     |> Ash.read!(authorize?: false, page: false)
     |> MapSet.new(& &1.id)
   end
+
+  # 邮箱死信集（服务商硬退信）：消费面将其人的 email 视为不存在——
+  # :email 派发自然跳过、:all 自动回落 sms 腿，人不被整体抑制。
+  defp email_bounced_person_ids do
+    Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(not is_nil(outreach_email_bounced_at))
+    |> Ash.read!(authorize?: false, page: false)
+    |> MapSet.new(& &1.id)
+  end
+
+  defp mask_bounced_email(%Person{} = person, bounced) do
+    if MapSet.member?(bounced, person.id), do: %{person | email: nil}, else: person
+  end
+
+  defp mask_bounced_email(nil, _bounced), do: nil
 
   # ── campaign 触达面（联系方式级去重；批次边界见 moduledoc） ──────────
 
