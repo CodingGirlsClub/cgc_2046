@@ -249,6 +249,32 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── 邮箱死信抑制（服务商硬退信 → 按人抑制 email 腿；不留重试通道） ────
+
+  describe "邮箱死信抑制（outreach_email_bounced_at 置位即不再入队）" do
+    test "死信者：不再入队；未标记者照常入队" do
+      archive = create_archive()
+      bounced = create_person(archive, full_name: "邮箱已死", email: "dead@example.com")
+      normal = create_person(archive, email: "alive@example.com")
+
+      :ok = Dispatch.mark_email_bounced(bounced.id)
+
+      assert {:ok, %{queued: 1, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      assert outreach_count(%{person_id: bounced.id}) == 0
+      assert outreach_count(%{person_id: normal.id, channel: :email}) == 1
+    end
+
+    test "mark_email_bounced 幂等（重复置位不报错）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert :ok = Dispatch.mark_email_bounced(person.id)
+      assert :ok = Dispatch.mark_email_bounced("00000000-0000-0000-0000-000000000000")
+    end
+  end
+
   # ── 单人重发（R2/R5：拒绝语义 + resend-* 批次；KD8 不频控） ──────────
 
   describe "单人重发（resend_for_person）" do

@@ -363,6 +363,36 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
     end
   end
 
+  @doc """
+  标记邮箱死信（幂等）：置 person 的 `outreach_email_bounced_at`——此后
+  任何批次不再入队（与退订同闸 suppressed_person_ids）。真源在 person 行：
+  SendCloud 收单后异步判死，outreach 行 status 停在 sent 看不到。人不存在
+  时静默 :ok（回填脚本按邮箱匹配，漏配不炸批）。
+  """
+  @spec mark_email_bounced(String.t()) :: :ok
+  def mark_email_bounced(person_id) do
+    Person
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^person_id)
+    |> Ash.read_one!(authorize?: false)
+    |> case do
+      nil ->
+        :ok
+
+      person ->
+        _ =
+          person
+          |> Ash.Changeset.for_update(:update, %{})
+          |> Ash.Changeset.force_change_attribute(
+            :outreach_email_bounced_at,
+            DateTime.utc_now()
+          )
+          |> Ash.update(authorize?: false)
+
+        :ok
+    end
+  end
+
   @doc "铸造退订 token（邮件页脚与短信短链共用；HMAC 签名，90 天窗）。"
   @spec unsubscribe_token(String.t()) :: String.t()
   def unsubscribe_token(person_id) do
@@ -597,7 +627,9 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   defp suppressed_person_ids do
     Person
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(not is_nil(outreach_unsubscribed_at))
+    |> Ash.Query.filter(
+      not is_nil(outreach_unsubscribed_at) or not is_nil(outreach_email_bounced_at)
+    )
     |> Ash.read!(authorize?: false, page: false)
     |> MapSet.new(& &1.id)
   end
