@@ -234,12 +234,14 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
           | {:error, term()}
   def archive_channel_breakdown(archive_id) do
     suppressed = suppressed_person_ids()
+    bounced = email_bounced_person_ids()
 
     counts =
       Person
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(archive_event_id == ^archive_id)
       |> Ash.read!(authorize?: false, page: false)
+      |> Enum.map(&mask_bounced_email(&1, bounced))
       |> Enum.reduce(%{email_only: 0, sms_only: 0, both: 0, unsubscribed: 0, unreachable: 0}, fn
         person, acc ->
           cond do
@@ -274,10 +276,13 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   def campaign_dedup_count(archive_id, channel, batch) do
     {person_ids, _filtered_out} = reachable_person_ids(archive_id, channel)
     contacts = campaign_contacts(batch)
+    bounced = email_bounced_person_ids()
 
+    # persons_by_id 重新装载未 mask 的行——预览口径须与入队行为一致（Codex P2-2）。
     person_ids
     |> persons_by_id()
     |> Map.values()
+    |> Enum.map(&mask_bounced_email(&1, bounced))
     |> Enum.count(&contact_hit?(contacts, &1))
   end
 
@@ -379,6 +384,11 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
     |> Ash.read_one!(authorize?: false)
     |> case do
       nil ->
+        :ok
+
+      %{outreach_email_bounced_at: ts} when not is_nil(ts) ->
+        # 已判死者不覆盖（Codex P2-3）：首次判死时间戳是「何时死」的溯源事实，
+        # 回填重放/重复通知不得刷新它。
         :ok
 
       person ->

@@ -81,6 +81,11 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
     |> case do
       # 档案已删除（U10 级联匿名化后通道字段为空）→ 不再触达，静默终态。
       {:ok, %Person{} = person} ->
+        # 执行时死信闸（Codex P2-1）：入队后判死的 email 行，发送前把死信人的
+        # email 视为不存在——与入队面 Dispatch 的 mask 同构（sms 腿不受影响）。
+        person =
+          if is_nil(person.outreach_email_bounced_at), do: person, else: %{person | email: nil}
+
         if reachable?(person, channel) do
           {:ok, person}
         else
