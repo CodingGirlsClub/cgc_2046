@@ -370,13 +370,12 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
   end
 
   @doc """
-  标记邮箱死信（幂等）：置 person 的 `outreach_email_bounced_at`——消费面
-  将其 email 视为不存在：:email 派发跳过、:all 自动回落 sms 腿。人不被
-  整体抑制（sms 照触达）。真源在 person 行：SendCloud 收单后异步判死，
-  outreach 行 status 停在 sent 看不到。人不存在时静默 :ok（回填脚本按
-  邮箱匹配，漏配不炸批）。
+  标记邮箱死信：置 person 的 `outreach_email_bounced_at`。返回 `:ok`（含
+  三个幂等无害态：人不存在／已标记不覆盖）或 `{:error, reason}`——Ash
+  写失败须传播，回填批据此区分「置位失败仍在发」与「已生效」。消费面
+  将其 email 视为不存在：:email 派发跳过、:all 自动回落 sms 腿。
   """
-  @spec mark_email_bounced(String.t()) :: :ok
+  @spec mark_email_bounced(String.t()) :: :ok | {:error, term()}
   def mark_email_bounced(person_id) do
     Person
     |> Ash.Query.for_read(:read)
@@ -392,16 +391,17 @@ defmodule Cgc2046.Flashback.Outreach.Dispatch do
         :ok
 
       person ->
-        _ =
-          person
-          |> Ash.Changeset.for_update(:update, %{})
-          |> Ash.Changeset.force_change_attribute(
-            :outreach_email_bounced_at,
-            DateTime.utc_now()
-          )
-          |> Ash.update(authorize?: false)
-
-        :ok
+        person
+        |> Ash.Changeset.for_update(:update, %{})
+        |> Ash.Changeset.force_change_attribute(
+          :outreach_email_bounced_at,
+          DateTime.utc_now()
+        )
+        |> Ash.update(authorize?: false)
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 

@@ -129,6 +129,31 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
              }
     end
 
+    test "死信者剔除分母与分子（sent 行停在 sent 但人已判死——不得计进送达）" do
+      archive = create_archive("2020-01-01-x")
+
+      alive = create_person(archive, :attended)
+      dead = create_person(archive, :attended)
+
+      outreach(alive, :sent)
+      outreach(dead, :sent)
+
+      touch(alive, [:link_opened])
+      touch(dead, [:link_opened])
+
+      :ok = Flashback.Outreach.Dispatch.mark_email_bounced(dead.id)
+
+      assert {:ok, stats} = AdminStats.stats()
+
+      assert stats.memory == %{
+               delivered: 1,
+               link_opened: 1,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+    end
+
     test "空库全零（pilot 前看板可用）" do
       assert {:ok, stats} = AdminStats.stats()
 
