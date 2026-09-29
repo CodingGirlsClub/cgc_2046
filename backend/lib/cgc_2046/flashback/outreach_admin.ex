@@ -183,7 +183,11 @@ defmodule Cgc2046.Flashback.OutreachAdmin do
             participation: Atom.to_string(person.participation),
             unsubscribed: not is_nil(person.outreach_unsubscribed_at),
             deleted: not is_nil(person.deleted_at),
-            email_reachable: present?(person.email),
+            # 死信人的 email 不计可达（与 Dispatch mask 同口径）——否则名册把
+            # 死地址标「可发」、sms_only 过滤器漏掉回落手机的人。
+            # 死信人的 email 不计可达（与 Dispatch mask 同口径）——否则名册把
+            # 死地址标「可发」、sms_only 过滤器漏掉回落手机的人。
+            email_reachable: present?(person.email) and is_nil(person.outreach_email_bounced_at),
             sms_reachable: present?(person.phone),
             last_outreach: last
           }

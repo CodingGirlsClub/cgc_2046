@@ -249,6 +249,114 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  # ── 邮箱死信抑制（置位后 email 腿坏死、sms 腿照走；人不被整体抑制） ──
+
+  describe "邮箱死信抑制（outreach_email_bounced_at 置位后 email 腿坏死）" do
+    test ":email 派发：死信者跳过；未标记者照常入队" do
+      archive = create_archive()
+      bounced = create_person(archive, full_name: "邮箱已死", email: "dead@example.com", phone: nil)
+      normal = create_person(archive, email: "alive@example.com", phone: nil)
+
+      :ok = Dispatch.mark_email_bounced(bounced.id)
+
+      assert {:ok, %{queued: 1, skipped: 1}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect", :email)
+
+      assert outreach_count(%{person_id: bounced.id}) == 0
+      assert outreach_count(%{person_id: normal.id, channel: :email}) == 1
+    end
+
+    test ":all 派发：死信者不消失——自动回落 sms 腿" do
+      Application.put_env(:cgc_2046, :flashback_sms, template_id: "test-flashback-sms-template")
+      on_exit(fn -> Application.put_env(:cgc_2046, :flashback_sms, template_id: nil) end)
+
+      archive = create_archive()
+      bounced = create_person(archive, full_name: "邮箱死", email: "dead2@example.com")
+
+      :ok = Dispatch.mark_email_bounced(bounced.id)
+
+      assert {:ok, %{queued: 1, skipped: 0}} =
+               Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      # email 腿坏死≠人死：email 行零条，sms 行一条
+      assert outreach_count(%{person_id: bounced.id, channel: :email}) == 0
+      assert outreach_count(%{person_id: bounced.id, channel: :sms}) == 1
+    end
+
+    test "mark_email_bounced 幂等（重复置位与不存在人均静默）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      assert :ok = Dispatch.mark_email_bounced(person.id)
+      assert :ok = Dispatch.mark_email_bounced("00000000-0000-0000-0000-000000000000")
+    end
+
+    test "重复置位保留首次判死时间戳（回填重放/重复通知不覆盖）" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      :ok = Dispatch.mark_email_bounced(person.id)
+
+      sentinel = ~U[2020-01-01 00:00:00.000000Z]
+
+      person
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:outreach_email_bounced_at, sentinel)
+      |> Ash.update!(authorize?: false)
+
+      assert :ok = Dispatch.mark_email_bounced(person.id)
+
+      reloaded =
+        Person
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(id == ^person.id)
+        |> Ash.read_one!(authorize?: false)
+
+      assert reloaded.outreach_email_bounced_at == sentinel
+    end
+
+    test "worker 执行前标记死信 → 已入队的 email 行静默不发（与退订同构）" do
+      archive = create_archive()
+      person = create_person(archive, phone: nil)
+
+      {:ok, %{queued: 1}} = Dispatch.enqueue_for_archive(archive.key, "reconnect", :email)
+      :ok = Dispatch.mark_email_bounced(person.id)
+
+      assert [%{args: args}] = enqueued_outreach_jobs("archive-" <> archive.key)
+      assert :ok = perform_job(OutreachWorker, args)
+
+      refute_receive {:email, _}, 50
+      assert token_count(person.id) == 0
+      assert outreach_row!(person.id, :email).status == :queued
+    end
+
+    test "preview 通道分布：死信人的 email 不计可达（phone 在则计 sms_only）" do
+      archive = create_archive()
+      bounced_phoneless = create_person(archive, full_name: "死无手机", email: "d3@e.com", phone: nil)
+      _bounced_with_phone = create_person(archive, full_name: "死有手机", email: "d4@e.com")
+      _normal = create_person(archive, email: "ok@e.com", phone: nil)
+
+      :ok = Dispatch.mark_email_bounced(bounced_phoneless.id)
+
+      bounced_with_phone_id =
+        Person
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(full_name == "死有手机")
+        |> Ash.read_one!(authorize?: false)
+        |> Map.fetch!(:id)
+
+      :ok = Dispatch.mark_email_bounced(bounced_with_phone_id)
+
+      assert {:ok, breakdown} = Dispatch.archive_channel_breakdown(archive.id)
+
+      # 死信+无手机 → unreachable；死信+有手机 → sms_only；正常 → email_only
+      assert breakdown.unreachable == 1
+      assert breakdown.sms_only == 1
+      assert breakdown.email_only == 1
+      assert breakdown.both == 0
+    end
+  end
+
   # ── 单人重发（R2/R5：拒绝语义 + resend-* 批次；KD8 不频控） ──────────
 
   describe "单人重发（resend_for_person）" do

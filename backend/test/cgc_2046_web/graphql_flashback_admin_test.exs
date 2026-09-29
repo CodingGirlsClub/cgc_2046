@@ -304,4 +304,36 @@ defmodule Cgc2046Web.GraphqlFlashbackAdminTest do
 
     assert [%{"fullName" => "短丙"}] = res["data"]["flashbackOutreachRoster"]
   end
+
+  test "名册：死信人的 email 不计可达，sms_only 过滤器含回落手机者" do
+    admin = AccountsFixtures.platform_admin("roster-bounce-admin")
+    archive = create_archive()
+
+    bounced_with_phone =
+      create_person(archive, %{full_name: "死有手机", email: "dead-p@e.com", phone: "13900000008"})
+
+    bounced_email_only =
+      create_person(archive, %{full_name: "死仅邮", email: "dead-o@e.com", phone: nil})
+
+    _normal = create_person(archive, %{full_name: "活正常", email: "live@e.com", phone: nil})
+
+    :ok = Dispatch.mark_email_bounced(bounced_with_phone.id)
+    :ok = Dispatch.mark_email_bounced(bounced_email_only.id)
+
+    res = post_graphql(@roster_query, admin, %{"key" => archive.key})
+    by_name = Map.new(res["data"]["flashbackOutreachRoster"], &{&1["fullName"], &1})
+
+    # 死信人 email 不计可达（在库 email 仍在，可达性按死信口径）
+    assert by_name["死有手机"]["emailReachable"] == false
+    assert by_name["死有手机"]["smsReachable"] == true
+    assert by_name["死仅邮"]["emailReachable"] == false
+    assert by_name["活正常"]["emailReachable"] == true
+
+    # sms_only 过滤器：含「死信+有手机」，不含死信仅邮/正常人
+    res = post_graphql(@roster_query, admin, %{"key" => archive.key, "filter" => "sms_only"})
+    filtered = res["data"]["flashbackOutreachRoster"] |> Enum.map(& &1["fullName"])
+    assert "死有手机" in filtered
+    refute "死仅邮" in filtered
+    refute "活正常" in filtered
+  end
 end
