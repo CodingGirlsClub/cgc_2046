@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `/cgc play`（别名 `/cgc-play`）：在 Herdr 内向右 split 窗格启动心流学习游戏 `cgc-play`；不在 Herdr 内时提示新开标签页运行。`cgc-play` 从 PATH 查找，`CGC_PLAY_BIN` 可指定路径（#1006）
+- `cgc-play.ts` extension：经本地 socket（`~/.cgc2046/play.sock`）与游戏进程交接——游戏的口头关卡事件经 `sendUserMessage` 交给 agent；注册 `game_state` / `game_apply` 两个工具，`game_apply` 只收换情境与回写口头关卡结果两种合法动作，合法性由游戏引擎终判（#1006）
+
 ## [0.1.6] - 2026-09-26
 
 ### Added

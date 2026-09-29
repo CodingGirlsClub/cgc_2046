@@ -60,6 +60,7 @@ omp
 | `skills/cgc2046-onboarding/SKILL.md` | `~/.omp/agent/skills/cgc2046-onboarding/SKILL.md` | 连接引导（自动/手工） |
 | `skills/cgc-quality-eval/SKILL.md` | `~/.omp/agent/skills/cgc-quality-eval/SKILL.md` | 质检报告判据化评审（三层：grep 终判 / judge triage / 教材配对终判） |
 | `extensions/cgc-command.ts` | `~/.omp/agent/extensions/cgc-command.ts` | `/cgc` 斜杠命令（状态/待办/角色/快捷操作） |
+| `extensions/cgc-play.ts` | `~/.omp/agent/extensions/cgc-play.ts` | `/cgc play` 打开学习游戏窗格；游戏 ⇄ agent 交接桥（`game_state` / `game_apply` 工具） |
 | — | `~/.omp/agent/mcp.json` | merge 写入 `cgc-2046` MCP server 条目（0600） |
 | — | `~/.omp/agent/config.yml` | merge 写入守门配置（`confirm_operation` 弹原生审批框） |
 

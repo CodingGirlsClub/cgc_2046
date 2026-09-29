@@ -63,12 +63,16 @@ defmodule Cgc2046.Flashback.AdminStats do
   """
   @spec stats(String.t() | nil) :: {:ok, map()}
   def stats(batch \\ nil) do
-    # 分母：sent 的 distinct person（退订者剔除），按线分组。
+    # 分母：有成功送达腿的 distinct person（退订者剔除；仅 email 腿的死信
+    # 剔除；同一人若 sms 腿成功，仍保留在送达人数中）。provider 收单后异步
+    # 判死，email 行仍停在 sent，因此过滤必须按 channel 而不是按 person。
     delivered_by_line =
       from(o in "flashback_outreaches",
         join: p in "flashback_people",
         on: p.id == o.person_id,
-        where: o.status == "sent" and is_nil(p.outreach_unsubscribed_at),
+        where:
+          o.status == "sent" and is_nil(p.outreach_unsubscribed_at) and
+            (o.channel != "email" or is_nil(p.outreach_email_bounced_at)),
         group_by: p.participation,
         select: {p.participation, count(o.person_id, :distinct)}
       )
@@ -144,7 +148,11 @@ defmodule Cgc2046.Flashback.AdminStats do
     from(t in "flashback_touches",
       join: p in "flashback_people",
       on: p.id == t.person_id,
-      where: is_nil(p.outreach_unsubscribed_at),
+      join: o in "flashback_outreaches",
+      on: o.person_id == t.person_id and o.status == "sent",
+      where:
+        is_nil(p.outreach_unsubscribed_at) and
+          (o.channel != "email" or is_nil(p.outreach_email_bounced_at)),
       group_by: [p.participation, t.event],
       select: {p.participation, t.event, count(t.person_id, :distinct)}
     )
@@ -156,7 +164,9 @@ defmodule Cgc2046.Flashback.AdminStats do
       on: p.id == t.person_id,
       join: o in "flashback_outreaches",
       on: o.person_id == t.person_id and o.batch == ^batch and o.status == "sent",
-      where: is_nil(p.outreach_unsubscribed_at),
+      where:
+        is_nil(p.outreach_unsubscribed_at) and
+          (o.channel != "email" or is_nil(p.outreach_email_bounced_at)),
       group_by: [p.participation, t.event],
       select: {p.participation, t.event, count(t.person_id, :distinct)}
     )

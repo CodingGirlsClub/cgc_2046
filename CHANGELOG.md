@@ -20,6 +20,18 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Added
 
+- 邮箱死信按人抑制入队：退信后不再继续给同一人发邮件（`outreach_email_bounced_at`），只闸 email 腿、sms 腿照常触达。
+- cgc-play 曳光弹（omp-plugin）：`/cgc play` 启动游戏窗格，支持 c21 手关卡与口头关卡交接。
+
+### Fixed
+
+- cgc-play 新客户端连上时补发未完成的口头关卡事件；已存在的 socket 目录收紧为 0700。
+- 死信抑制度量面对齐（退信计数只含成功投递、口径三处一致）。
+
+## [2026-09-27]（第二发）
+
+### Added
+
 - 唤醒邮件直达微信端（#770）：触达邮件主 CTA 从 Web 链接切微信 URL Link 直达小程序，批次级缓存 + 生成失败 fail-open 回落旧通道；正文与通道区同步重排。
 - admin 愿望看板补公开愿望巡检与附议留言分区（#817）：新增 ApproveWishListing 放行挂树，wishes 落 listing_consent_at 授权证据列并回填存量。
 - 闪念间统计看板支持按波次（batch）筛选（#984）：统计卡波次下拉 + AdminStats 四率分线带波次维度。

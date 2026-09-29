@@ -196,3 +196,30 @@ describe("/cgc version check", () => {
     }
   });
 });
+
+describe("/cgc play", () => {
+  test("路由到游戏启动：不在 Herdr 内时提示新开标签页运行 cgc-play，不注入 agent 消息", async () => {
+    const saved = { HERDR_ENV: process.env.HERDR_ENV, HERDR_PANE_ID: process.env.HERDR_PANE_ID, CGC_PLAY_BIN: process.env.CGC_PLAY_BIN };
+    delete process.env.HERDR_ENV;
+    delete process.env.HERDR_PANE_ID;
+    process.env.CGC_PLAY_BIN = "/opt/test/cgc-play";
+    try {
+      const notes: string[] = [];
+      const mod = await import(MODULE_PATH);
+      const pi = createStubPi();
+      (mod as { default: (pi: StubPi) => void }).default(pi);
+      const ctx = createStubCtx("/Users/test/cgc2046_workspace", CGC_TOOLS);
+      (ctx as Record<string, unknown>).ui = { notify: (m: string) => { notes.push(m); } };
+      if (!pi._handler) throw new Error("handler not registered");
+      await pi._handler("play", ctx);
+      expect(notes.join()).toContain("/opt/test/cgc-play");
+      expect(notes.join()).toContain("新开一个终端标签页");
+      expect(pi._calls.filter((c) => c.method === "sendUserMessage").length).toBe(0);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});
