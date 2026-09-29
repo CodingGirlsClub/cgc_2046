@@ -113,3 +113,21 @@ describe("金句授权面板", () => {
 		expect(mutations.get(FLASHBACK_SET_QUOTE_LICENSE)!.mock.calls[0][0].variables.chosenQuoteSpans).toEqual([]);
 	});
 });
+
+// #1022：开了档却一句没勾 = 墙上什么都没有；面板必须说出来，不让「已保存 ✓」冒充上墙
+describe("金句授权面板 · 开档零句提示", () => {
+	const hint = "还没选句子——墙上暂不显示。";
+
+	it("开档且零句 → 提示；勾上一句 → 提示消失；切回关闭 → 不提示", () => {
+		render(<QuoteLicensePanel me={me({ quoteLevel: "anonymous", quoteSpans: [] })} token={null} />);
+		expect(screen.getByText(hint)).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "一个刚毕业的文科生。" }));
+		expect(screen.queryByText(hint)).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "一个刚毕业的文科生。" }));
+		expect(screen.getByText(hint)).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("radio", { name: "关闭（默认）" }));
+		expect(screen.queryByText(hint)).not.toBeInTheDocument();
+	});
+});

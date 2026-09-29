@@ -268,20 +268,10 @@ describe("纸面卡片（写今天的你）：原生控件与选句在纸底上�
 		expect(block(".fb-write-form")).toMatch(/color-scheme:\s*light/);
 	});
 
-	it("选句选项在纸底用墨色字（≥4.5），选中态单独成立（特异性压过 .fb-root .fb-option）", () => {
-		expect(block(".fb-root .fb-write-form .fb-option")).not.toBeNull();
-		expect(declaredColor(".fb-root .fb-write-form .fb-option")).toBe("var(--fb-ink)");
-		expect(contrastRatio("#2b2723", PAPER_BG)).toBeGreaterThanOrEqual(4.5);
-		const selected = block(".fb-root .fb-write-form .fb-option-selected");
-		expect(selected).toMatch(/border-color:/);
-		expect(selected).toMatch(/background:/);
-	});
-
 	it("Newsletter 单项复选与文字同一行：不复用分组容器类 fb-checks（grid 会把框和字拆成两行）", () => {
 		render(
 			<Write
 				role="learner"
-				answers={[]}
 				progress={{ today: null, quoteLevel: "off", maskedPhone: null, maskedEmail: null } as never}
 				onNext={() => {}}
 			/>,

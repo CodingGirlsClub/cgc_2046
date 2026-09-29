@@ -43,6 +43,7 @@ const PROFILE: FlashbackProfile = {
 	gender: "女",
 	role: "learner",
 	participation: "attended",
+	anonymousAttribution: "李* · 2013 · 杭州",
 	archive: { key: "rails-girls-hangzhou-2013", name: "Rails Girls 杭州", city: "杭州", occurredOn: "2013-06-15" },
 	answers: FREE_ANSWERS,
 };
@@ -58,7 +59,6 @@ function renderFront() {
 			quizChoice="correct"
 			onRevealed={() => {}}
 			role="learner"
-			answers={FREE_ANSWERS}
 			progress={PROGRESS}
 			onWriteNext={() => {}}
 		/>,

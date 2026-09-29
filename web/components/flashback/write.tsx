@@ -2,15 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
-import {
-	type FlashbackAnswer,
-	type FlashbackProgress,
-	type FlashbackTodayInput,
-	TODAY_FIELDS,
-	sentencesWithFogMark,
-} from "@/lib/graphql/flashback";
+import { type FlashbackProgress, type FlashbackTodayInput } from "@/lib/graphql/flashback";
 import { useStageTitleFocus } from "./use-reduced-motion";
-import QuoteLicenseFields from "./quote-license-fields";
 
 /** Want/Give 勾选候选（R8：数据层按 Want/Give 分类存储，KTD「回信即参与」） */
 const WANT_TAGS = ["want_offline", "want_online", "want_ai_course"] as const;
@@ -20,63 +13,24 @@ const GIVE_TAGS = ["give_promote", "give_venue", "give_org", "give_share"] as co
 const RECONNECT_TAGS = ["job", "project", "social", "hobby"] as const;
 
 /** 表单状态（受控；提交由父级 send-register 在寄出前统一落库） */
-export interface TodayFormState extends FlashbackTodayInput {
-	quoteLevel: "off" | "anonymous" | "credited";
-	/** 句子白名单（多选 toggle）；提交为 chosenQuoteSpans 列表 */
-	quotePicks?: { questionKey: string; start: number; len: number }[];
-	creditedNote?: string;
-}
+export type TodayFormState = FlashbackTodayInput;
 
-/** 金句候选：非雾面句（R14 纪律——雾面句不进候选），grapheme 偏移随句携带 */
-export interface QuoteCandidate {
-	questionKey: string;
-	sentence: string;
-	start: number;
-	len: number;
-}
-
-function quoteCandidatesOf(answers: FlashbackAnswer[], today?: Partial<FlashbackTodayInput>): QuoteCandidate[] {
-	const result: QuoteCandidate[] = [];
-	for (const answer of answers) {
-		for (const sentence of sentencesWithFogMark(answer.rawText, answer.fogSpans)) {
-			if (!sentence.fogged) {
-				result.push({ questionKey: answer.questionKey, sentence: sentence.text, start: sentence.start, len: sentence.len });
-			}
-		}
-	}
-	// 今天正在写的句子也是金句候选(首程表单值,此刻尚无雾面)
-	if (today) {
-		for (const host of TODAY_FIELDS) {
-			const raw = today[host.field];
-			if (!raw) continue;
-			for (const sentence of sentencesWithFogMark(raw, null)) {
-				result.push({ questionKey: host.questionKey, sentence: sentence.text, start: sentence.start, len: sentence.len });
-			}
-		}
-	}
-	return result;
-}
-
-export const emptyTodayForm: TodayFormState = {
-	quoteLevel: "off",
-};
+export const emptyTodayForm: TodayFormState = {};
 
 /**
  * 翻面写字（R8）：「今天的你」选填问卷 + Want/Give + 动员勾选（R20）+
- * Newsletter（R18）+ Reconnect（R19）+ 金句授权两档（R31）+ 联系方式
- * 确认/更新入口（R17 掩码回显 + 防劫持验证通道）。
+ * Newsletter（R18）+ Reconnect（R19）+ 联系方式确认/更新入口（R17 掩码回显 +
+ * 防劫持验证通道）。
  *
  * 志愿者多一问（AE6）：mobilizationVolunteerLead 仅 role=volunteer 显示。
- * 金句候选只从非雾面句取（R14 摘要卡纪律的同源规则）。
+ * 金句授权不在这里：#1022 起挪到寄出那一刻（send-register 两按钮），写字面只管写。
  */
 export default function Write({
 	role,
-	answers,
 	progress,
 	onNext,
 }: {
 	role: string;
-	answers: FlashbackAnswer[];
 	progress: FlashbackProgress;
 	onNext: (form: TodayFormState) => void;
 }) {
@@ -85,7 +39,6 @@ export default function Write({
 	const titleRef = useStageTitleFocus<HTMLHeadingElement>([]);
 
 	const [form, setForm] = useState<TodayFormState>(emptyTodayForm);
-	const quoteCandidates = quoteCandidatesOf(answers, form);
 
 	const set = <K extends keyof TodayFormState>(key: K, value: TodayFormState[K]) =>
 		setForm((prev) => ({ ...prev, [key]: value }));
@@ -100,25 +53,6 @@ export default function Write({
 					: [...current, tag],
 			};
 		});
-
-	/** 圈选 toggle（多选）：再点取消；顺序 = 提交顺序（首句优先展示）。
-	    三件套规则在共用字段组（QuoteLicenseFields）里，这里只接上抛 */
-	const pickQuote = (pick: { questionKey: string; start: number; len: number }) => {
-		setForm((prev) => {
-			const current = prev.quotePicks ?? [];
-			const exists = current.some(
-				(item) => item.questionKey === pick.questionKey && item.start === pick.start,
-			);
-			return {
-				...prev,
-				quotePicks: exists
-					? current.filter(
-							(item) => !(item.questionKey === pick.questionKey && item.start === pick.start),
-						)
-					: [...current, pick],
-			};
-		});
-	};
 
 	const handleSubmit = (event: FormEvent) => {
 		event.preventDefault();
@@ -244,29 +178,6 @@ export default function Write({
 					</p>
 				</div>
 
-				<QuoteLicenseFields
-					level={form.quoteLevel ?? "off"}
-					onLevelChange={(value) => set("quoteLevel", value)}
-					candidates={quoteCandidates}
-					picks={form.quotePicks ?? []}
-					onTogglePick={pickQuote}
-					legend={<legend className="fb-field-label">{t("quoteLegend")}</legend>}
-				>
-					{form.quoteLevel === "credited" && (
-						<div>
-							<label className="fb-field-label" htmlFor="fb-credited-note">
-								{t("creditedNoteLabel")}
-							</label>
-							<input
-								id="fb-credited-note"
-								className="fb-field-input"
-								placeholder={t("creditedNotePlaceholder")}
-								value={form.creditedNote ?? ""}
-								onChange={(event) => set("creditedNote", event.target.value)}
-							/>
-						</div>
-					)}
-				</QuoteLicenseFields>
 			</div>
 
 			<button type="submit" className="fb-cta fb-cta-primary">

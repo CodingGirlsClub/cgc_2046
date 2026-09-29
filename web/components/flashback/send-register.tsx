@@ -11,8 +11,11 @@ import {
 	type FlashbackFogSpan,
 } from "@/lib/graphql/flashback";
 import { normalizeSpans, sameSpans, toggleSpanIn } from "./fog-toggle";
+import { currentSuggestion, nextSuggestion, quoteSuggestions, type QuoteSuggestion } from "./quote-suggestion";
 import { useStageTitleFocus } from "./use-reduced-motion";
 import type { TodayFormState } from "./write";
+
+type QuotePick = Pick<QuoteSuggestion, "questionKey" | "start" | "len">;
 
 /**
  * 寄出浮层（原型 E/F：覆盖在显影场景上，不换页）+ 注册引导（R11/R27/R29）。
@@ -22,7 +25,11 @@ import type { TodayFormState } from "./write";
  * 视觉标记不模糊文字）；点「确认寄出」才把**相对载荷有变化**的雾区间逐条
  * 落库（flashbackAdjustFog，任一失败即中止寄出——此刻尚未上墙，retry 整段
  * 重来无副作用），全部成功后才按原序列寄出（submitToday → setQuoteLicense
- * （非 off）→ sendToWall），保证卡上墙第一眼的对外可见状态就是用户的选择。
+ * （选了放句时）→ sendToWall），保证卡上墙第一眼的对外可见状态就是用户的选择。
+ *
+ * 金句授权在寄出这一刻明确地问（#1022，单独同意）：未授权且有推荐句时，
+ * 预览这句 + 墙上署名，两个同分量按钮「寄出，并把这句匿名放进金句墙」/
+ * 「寄出到相册」，永不预选；已开授权档则不再询问、也不改档。
  * 寄出成功后原地转为一步注册引导——手机验证码 find-or-create + 绑定（会话经
  * httpOnly cookie），**可跳过**：跳过后同样寄出成功，凭链接继续回访（R1）。
  * 失败给「再试一次」（可重试）；检查步「再想想」返回写字面，零 mutation。
@@ -32,6 +39,10 @@ import type { TodayFormState } from "./write";
 export default function SendRegister({
 	form,
 	answers,
+	fullName,
+	surname,
+	anonymousAttribution,
+	quoteLevel,
 	initialTodayFogSpans,
 	maskedPhone,
 	maskedEmail,
@@ -50,6 +61,13 @@ export default function SendRegister({
 	form: TodayFormState;
 	/** 当年答案（enter 载荷；检查步逐句列出的数据源） */
 	answers: FlashbackAnswer[];
+	/** 本人姓名（推荐句排除含全名/名的句子，防匿名被自己的名字戳破） */
+	fullName: string;
+	surname?: string | null;
+	/** 墙上匿名署名（后端单源，与上墙后逐字一致） */
+	anonymousAttribution: string;
+	/** 现有授权档（enter progress）：非 off 即已授权，寄出时不再询问 */
+	quoteLevel: string;
 	/** 服务端既有 today 雾区间（enter 载荷；预填 review 的初始雾态——盲初值闭环；null/缺省从空起步） */
 	initialTodayFogSpans?: Record<string, FlashbackFogSpan[]> | null;
 	maskedPhone?: string | null;
@@ -58,7 +76,8 @@ export default function SendRegister({
 	onClaim: () => Promise<boolean>;
 	onSubmitToday: (input: TodayFormState) => Promise<boolean>;
 	onSendToWall: () => Promise<boolean>;
-	onSetQuoteLicense: (form: TodayFormState) => Promise<boolean>;
+	/** 匿名档 + 这一句（寄出时的授权只有匿名一档；实名在长廊授权面板改） */
+	onSetQuoteLicense: (picks: QuotePick[]) => Promise<boolean>;
 	onAdjustFog: (answerId: string, spans: FlashbackFogSpan[]) => Promise<boolean>;
 	/** today 字段（now/want/need/say）句级雾面落库（U9 双入口：末段寄出必须按服务端最新文本校验） */
 	onAdjustTodayFog: (field: string, spans: FlashbackFogSpan[]) => Promise<boolean>;
@@ -97,6 +116,14 @@ export default function SendRegister({
 	);
 	// 脏比对直接以 initialTodayFogSpans prop 为基线：闪层期间服务端基线不变
 
+	/** 推荐句随检查页雾态实时重算；已开授权档不再询问（空候选 = 单按钮寄出） */
+	const suggestions =
+		quoteLevel === "off" ? quoteSuggestions(answers, spansByAnswer, fullName, surname) : [];
+	const [chosen, setChosen] = useState<QuoteSuggestion | null>(null);
+	const suggestion = currentSuggestion(suggestions, chosen);
+	/** 本次寄出带的那句（确认时定格，失败重试沿用；null = 只寄出到相册） */
+	const [sendingQuote, setSendingQuote] = useState<QuotePick | null>(null);
+
 	const toggleSentence = (answerId: string, sentence: { start: number; len: number }) =>
 		setSpansByAnswer((prev) => toggleSpanIn(prev, answerId, sentence));
 
@@ -116,8 +143,8 @@ export default function SendRegister({
 		}
 	};
 
-	/** 寄出（「确认寄出」与失败重试共用）：先把变化的雾区间落库再上墙 */
-	const handleSend = useCallback(async () => {
+	/** 寄出（确认与失败重试共用）：先把变化的雾区间落库再上墙；quote 非空则先授权这一句 */
+	const handleSend = useCallback(async (quote: QuotePick | null) => {
 		for (const answer of answers) {
 			const next = normalizeSpans(spansByAnswer[answer.id]);
 			if (sameSpans(next, normalizeSpans(answer.fogSpans))) continue;
@@ -146,9 +173,9 @@ export default function SendRegister({
 				return;
 			}
 		}
-		if (form.quoteLevel !== "off") {
+		if (quote) {
 			// 授权失败同样暂停寄出（D3 历史静默吞：用户以为已授权、卡照样上墙）
-			const licenseOk = await onSetQuoteLicense(form);
+			const licenseOk = await onSetQuoteLicense([quote]);
 			if (!licenseOk) {
 				setError(t("errorLicense"));
 				setPhase("failed");
@@ -164,11 +191,13 @@ export default function SendRegister({
 		setPhase("sent");
 	}, [answers, initialTodayFogSpans, spansByAnswer, spansByField, onAdjustFog, onAdjustTodayFog, errorT, form, onSubmitToday, onSendToWall, onSetQuoteLicense, t]);
 
-	const handleConfirm = () => {
+	const handleConfirm = (quote: QuoteSuggestion | null) => {
+		const pick = quote && { questionKey: quote.questionKey, start: quote.start, len: quote.len };
+		setSendingQuote(pick);
 		setError(null);
 		setErrorShowLogin(false);
 		setPhase("sending");
-		void handleSend();
+		void handleSend(pick);
 	};
 
 	const handleRequestCode = async () => {
@@ -295,9 +324,41 @@ export default function SendRegister({
 						</div>
 					</>
 				)}
-				<button type="button" className="fb-cta fb-cta-primary" onClick={handleConfirm}>
-					{t("confirmSend")}
-				</button>
+				{suggestion ? (
+					<>
+						{/* 与金句墙同一张卡（样式同源）：所见即所得 */}
+						<figure className="fb-quote-item fb-quote-choice" data-testid="fb-quote-choice">
+							<figcaption className="fb-quote-cite">{t("quoteChoiceTitle")}</figcaption>
+							<blockquote className="fb-quote-text">{`「${suggestion.sentence}」`}</blockquote>
+							<div className="fb-quote-choice-meta">
+								<cite className="fb-quote-cite">{anonymousAttribution}</cite>
+								{suggestions.length > 1 && (
+									<button
+										type="button"
+										className="fb-quote-like"
+										onClick={() => setChosen(nextSuggestion(suggestions, suggestion))}
+									>
+										{t("quoteShuffle")}
+									</button>
+								)}
+							</div>
+						</figure>
+						{/* 单独同意：两按钮同分量（同样式、同宽），永不预选 */}
+						<div className="fb-quote-choice-actions">
+							<button type="button" className="fb-cta fb-cta-primary" onClick={() => handleConfirm(suggestion)}>
+								{t("confirmSendWithQuote")}
+							</button>
+							<button type="button" className="fb-cta fb-cta-primary" onClick={() => handleConfirm(null)}>
+								{t("confirmSendAlbumOnly")}
+							</button>
+						</div>
+						<p className="fb-hint">{t("quoteChoiceNote")}</p>
+					</>
+				) : (
+					<button type="button" className="fb-cta fb-cta-primary" onClick={() => handleConfirm(null)}>
+						{t("confirmSend")}
+					</button>
+				)}
 				<button type="button" className="fb-cta" onClick={onBack}>
 					{t("thinkMore")}
 				</button>
@@ -333,7 +394,7 @@ export default function SendRegister({
 						setError(null);
 		setErrorShowLogin(false);
 						setPhase("sending");
-						void handleSend();
+						void handleSend(sendingQuote);
 					}}
 				>
 					{t("retry")}
@@ -355,6 +416,12 @@ export default function SendRegister({
 				</p>
 			) : (
 				<>
+					{/* 授权在寄出之前落库，走到 sent 即已上墙 */}
+					{sendingQuote && (
+						<p className="fb-promise">
+							{t("sentWithQuote")} <Link href="/flashback/voices">{t("voicesLink")}</Link>
+						</p>
+					)}
 					{/* 期望管理（R29）：愿望不会消失 */}
 					<p className="fb-promise">{t("promise")}</p>
 					<div className="fb-register-card">

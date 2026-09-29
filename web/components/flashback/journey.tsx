@@ -236,7 +236,6 @@ export default function Journey() {
 					quizChoice={quizChoice}
 					startOnBack={startOnBack}
 					role={profile.role}
-					answers={freeAnswers}
 					progress={entry.progress ?? { bound: false, quoteLevel: "off" }}
 					scatter={entry.scatter?.entries ?? []}
 					onAnswer={(choice) => setQuizChoice(choice)}
@@ -262,6 +261,10 @@ export default function Journey() {
 						return true;
 					}}
 					answers={freeAnswers}
+					fullName={profile.fullName}
+					surname={profile.surname}
+					anonymousAttribution={profile.anonymousAttribution}
+					quoteLevel={entry.progress?.quoteLevel ?? "off"}
 					initialTodayFogSpans={entry.progress?.today?.fogSpans}
 					maskedPhone={entry.progress?.maskedPhone}
 					maskedEmail={entry.progress?.maskedEmail}
@@ -280,18 +283,10 @@ export default function Journey() {
 						});
 						return Boolean(data?.flashbackSubmitToday.today);
 					}}
-					onSetQuoteLicense={async (formState) => {
+					onSetQuoteLicense={async (picks) => {
+						// 寄出时只给匿名一档（#1022）；creditedNote 不随发，resolver 省略即保留
 						const { data } = await runSetQuoteLicense({
-							variables: {
-								token,
-								level: formState.quoteLevel,
-								chosenQuoteSpans:
-									formState.quoteLevel !== "off" && (formState.quotePicks?.length ?? 0) > 0
-										? formState.quotePicks
-										: undefined,
-								creditedNote:
-									formState.quoteLevel === "credited" ? formState.creditedNote : undefined,
-							},
+							variables: { token, level: "anonymous", chosenQuoteSpans: picks },
 						});
 						return Boolean(data?.flashbackSetQuoteLicense);
 					}}
