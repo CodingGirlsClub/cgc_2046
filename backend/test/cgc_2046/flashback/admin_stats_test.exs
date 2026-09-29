@@ -58,11 +58,11 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
 
   # outreach 行：sent（送达）/ failed（硬退信）；退订由 person 字段承载。
   # status 是 writable?: false（只由 worker 推进）——测试 force 落列。
-  defp outreach(person, status, batch \\ "test-batch") do
+  defp outreach(person, status, batch \\ "test-batch", channel \\ :email) do
     Flashback.Outreach
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
-      channel: :email,
+      channel: channel,
       template: "reconnect",
       batch: batch
     })
@@ -152,6 +152,31 @@ defmodule Cgc2046.Flashback.AdminStatsTest do
                sent_to_wall: 0,
                intent_submitted: 0
              }
+    end
+
+    test "死信只剔除 email 腿；同一人的成功 sms 腿仍计入分母和分子" do
+      archive = create_archive("2020-01-01-sms-fallback")
+      bounced = create_person(archive, :attended, email: "dead-with-sms@example.com")
+
+      outreach(bounced, :sent, "test-batch", :email)
+      outreach(bounced, :sent, "test-batch", :sms)
+      touch(bounced, [:link_opened])
+
+      :ok = Flashback.Outreach.Dispatch.mark_email_bounced(bounced.id)
+
+      assert {:ok, stats} = AdminStats.stats()
+
+      assert stats.memory == %{
+               delivered: 1,
+               link_opened: 1,
+               revealed: 0,
+               sent_to_wall: 0,
+               intent_submitted: 0
+             }
+
+      assert {:ok, batch_stats} = AdminStats.stats("test-batch")
+      assert batch_stats.memory.delivered == 1
+      assert batch_stats.memory.link_opened == 1
     end
 
     test "空库全零（pilot 前看板可用）" do
