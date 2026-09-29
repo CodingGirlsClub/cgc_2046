@@ -2381,6 +2381,8 @@ export type FlashbackCapsuleArchive = {
 };
 
 export type FlashbackCapsuleMe = {
+  /** 匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致 */
+  anonymousAttribution: Scalars['String']['output'];
   /** 本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版） */
   answers: Array<FlashbackMeAnswer>;
   appliedAt?: Maybe<Scalars['String']['output']>;
@@ -2598,6 +2600,8 @@ export type FlashbackOwnedWish = {
 };
 
 export type FlashbackProfile = {
+  /** 匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致 */
+  anonymousAttribution: Scalars['String']['output'];
   answers?: Maybe<Array<Maybe<FlashbackAnswer>>>;
   appliedAt?: Maybe<Scalars['String']['output']>;
   archive?: Maybe<FlashbackArchiveRef>;
