@@ -25,6 +25,7 @@ defmodule Cgc2046.Flashback.AlumniProjection do
   import Ecto.Query
 
   alias Cgc2046.Flashback.FogSpans
+  alias Cgc2046.Flashback.Public
   alias Cgc2046.Flashback.Tokens
   alias Cgc2046.Flashback.WishEchoes
   alias Cgc2046.Repo
@@ -316,6 +317,8 @@ defmodule Cgc2046.Flashback.AlumniProjection do
       # 多句白名单：quote = 首句文本（摘要卡/分享卡消费面取首句），quote_spans = 全量（圈选器回显）
       quote: quote.quote,
       quote_spans: quote.quote_spans,
+      # 寄出前「放进金句墙」预览的署名（#1022）：与墙上逐字一致，前端不自拼
+      anonymous_attribution: Public.anonymous_attribution(person.id),
       # 作者侧点赞数（R36）：仅授权档 ∈ {anonymous, credited} 时返回——
       # 未授权者不在墙上，0 赞的「战绩」对本人无意义（前端只在上墙且 >0 时展示）。
       quote_stats: quote_stats(person.id),

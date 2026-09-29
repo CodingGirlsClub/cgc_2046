@@ -44,6 +44,8 @@ defmodule Cgc2046Web.GraphqlSchema.Flashback.Types do
     field(:quote, :string)
     @desc "句子白名单区间列表（首句 = 消费面展示句;圈选器回显全量）"
     field(:quote_spans, list_of(:flashback_quote_span))
+    @desc "匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致"
+    field(:anonymous_attribution, non_null(:string))
     @desc "本人金句的点赞数（R36；仅匿名/实名授权档返回，未授权为 null）"
     field(:quote_stats, :flashback_quote_stats)
     @desc "本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版）"

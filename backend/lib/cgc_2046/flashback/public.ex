@@ -10,7 +10,7 @@ defmodule Cgc2046.Flashback.Public do
 
   import Ecto.Query
 
-  alias Cgc2046.Flashback.{FogSpans, Quotes}
+  alias Cgc2046.Flashback.{AlumniProjection, FogSpans, Person, Quotes}
   alias Cgc2046.Repo
 
   @fog_placeholder "▓▓"
@@ -363,21 +363,20 @@ defmodule Cgc2046.Flashback.Public do
     person_id = Ecto.UUID.load!(row.person_id)
 
     quote_text =
-      case Quotes.host_text(person_id, row.question_key) do
-        {:ok, raw_text} ->
-          raw_text
-          |> String.slice(start, len)
-          |> FogSpans.mask(Quotes.host_fog_spans(person_id, row.question_key), @fog_placeholder)
-
-        :error ->
-          @fog_placeholder
+      with {:ok, raw_text} <- Quotes.host_text(person_id, row.question_key),
+           {:ok, fog} <-
+             FogSpans.validate(Quotes.host_fog_spans(person_id, row.question_key), raw_text) do
+        raw_text
+        |> String.slice(start, len)
+        |> FogSpans.mask(fog_in_window(fog, start, len), @fog_placeholder)
+      else
+        _ -> @fog_placeholder
       end
 
     %{
       quote_id: Ecto.UUID.load!(row.quote_id),
       text: quote_text,
-      attribution:
-        "#{masked(row.full_name, row.surname)} · #{row.year && trunc(row.year)} · #{row.city || ""}",
+      attribution: attribution(row.full_name, row.surname, row.year && trunc(row.year), row.city),
       level: row.level,
       public_slug: if(row.level == "credited", do: row.public_slug),
       city: row.city,
@@ -449,17 +448,36 @@ defmodule Cgc2046.Flashback.Public do
 
   def profile(_), do: {:ok, nil}
 
+  # ── 匿名署名单源（#1022） ───────────────────────────────────────────
+
+  @doc """
+  寄出前的匿名署名预览「王** · 年 · 城」：与金句墙逐句署名同一格式、同一快照
+  （`Quotes.snapshot_of/1` 即生成 Quote 行时所用），预览与上墙后逐字一致。
+
+  按 id 取档案：长廊登录路径的 person 是裸 map 投影（无 archive_event），
+  token 路径是 Ash 结构——两条路径统一在这里加载。
+  """
+  @spec anonymous_attribution(String.t()) :: String.t()
+  def anonymous_attribution(person_id) when is_binary(person_id) do
+    person = Ash.get!(Person, person_id, load: [:archive_event], authorize?: false)
+    %{city: city, year: year} = Quotes.snapshot_of(person)
+    attribution(person.full_name, person.surname, year, city)
+  end
+
   # ── 内部 ─────────────────────────────────────────────────────────────
 
-  defp masked(full_name, surname) when is_binary(full_name) do
-    if is_binary(surname) and surname != "" and String.starts_with?(full_name, surname) do
-      surname <> String.duplicate("*", max(String.length(full_name) - String.length(surname), 1))
-    else
-      case String.graphemes(full_name) do
-        [first | rest] -> first <> String.duplicate("*", max(length(rest), 1))
-        [] -> ""
-      end
-    end
+  defp attribution(full_name, surname, year, city),
+    do: "#{AlumniProjection.masked_name(full_name, surname)} · #{year} · #{city || ""}"
+
+  # 宿主雾区间是整段原文坐标；切片后遮蔽前裁到 [start, start + len) 并平移到切片坐标，
+  # 否则同题任一他句带雾即越界 → 整句 ▓▓（或遮错位置）。选句写入时已拒绝与雾重叠，
+  # 正常为空；非空只出现在雾剪句同步失败的失同步态（此时遮住的正是句内雾段）。
+  defp fog_in_window(fog, start, len) do
+    Enum.flat_map(fog, fn %{"start" => fog_start, "len" => fog_len} ->
+      from = max(fog_start, start)
+      to = min(fog_start + fog_len, start + len)
+      if to > from, do: [%{"start" => from - start, "len" => to - from}], else: []
+    end)
   end
 
   # 裸 SQL 绕过 Ecto 类型加载，utc_datetime 列返回 NaiveDateTime；

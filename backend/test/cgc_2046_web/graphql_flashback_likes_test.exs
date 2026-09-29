@@ -363,4 +363,51 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
       assert Enum.any?(quotes, &(&1["quoteId"] == quote.id))
     end
   end
+
+  describe "anonymousAttribution（#1022 寄出前预览与墙上署名同源）" do
+    test "长廊 me 与首程 profile 的预览署名与墙上逐字一致" do
+      # 三处易漂移点：两字名（王*）、跨年报名（报名 2013 / 场次 2014）、本人城市缺省回落场次城市
+      {person, _quote} =
+        wall_person(archive(), %{
+          full_name: "王芳",
+          city: nil,
+          applied_at: ~U[2013-12-20 10:00:00.000000Z],
+          email: "attribution@example.com"
+        })
+
+      [%{"attribution" => on_wall}] = post_graphql(@quotes_query)["data"]["flashbackPublicQuotes"]
+      assert on_wall == "王* · 2014 · 北京"
+
+      token = token_for(person)
+
+      me =
+        post_graphql(
+          "query($token: String) { flashbackCapsule(token: $token) { me { anonymousAttribution } } }",
+          %{"token" => token}
+        )
+
+      assert me["data"]["flashbackCapsule"]["me"]["anonymousAttribution"] == on_wall
+
+      # 登录账号路径（小程序回访主路径）：person 是裸 map 投影，不带 archive_event
+      user = AccountsFixtures.register_user("fb-attribution-session")
+
+      person
+      |> Ash.Changeset.for_update(:update, %{})
+      |> Ash.Changeset.force_change_attribute(:user_id, user.id)
+      |> Ash.update!(authorize?: false)
+
+      session_me =
+        post_graphql("query { flashbackCapsule { me { anonymousAttribution } } }", %{}, user)
+
+      assert session_me["data"]["flashbackCapsule"]["me"]["anonymousAttribution"] == on_wall
+
+      enter =
+        post_graphql(
+          "mutation($token: String!) { flashbackEnter(token: $token) { profile { anonymousAttribution } } }",
+          %{"token" => token}
+        )
+
+      assert enter["data"]["flashbackEnter"]["profile"]["anonymousAttribution"] == on_wall
+    end
+  end
 end

@@ -812,6 +812,8 @@ defmodule Cgc2046.Flashback.Tokens do
       role: Atom.to_string(person.role),
       participation: Atom.to_string(person.participation),
       applied_at: person.applied_at && DateTime.to_iso8601(person.applied_at),
+      # 首程寄出前「放进金句墙」预览的署名（#1022）：与墙上逐字一致
+      anonymous_attribution: Cgc2046.Flashback.Public.anonymous_attribution(person.id),
       archive:
         person.archive_event &&
           %{

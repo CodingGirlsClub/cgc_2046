@@ -224,6 +224,8 @@ defmodule Cgc2046Web.GraphqlSchema.Flashback.WishTypes do
     field(:role, non_null(:string))
     field(:participation, non_null(:string))
     field(:applied_at, :string)
+    @desc "匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致"
+    field(:anonymous_attribution, non_null(:string))
     field(:archive, :flashback_archive_ref)
     field(:answers, list_of(:flashback_answer))
   end
