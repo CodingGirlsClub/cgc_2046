@@ -50,10 +50,12 @@ const FOGGED_ANSWER: FlashbackAnswer = {
 	fogSpans: [{ start: 0, len: 5 }],
 };
 
+type QuotePick = { questionKey: string; start: number; len: number };
+
 type Stubs = {
 	onSubmitToday: ReturnType<typeof vi.fn<(input: TodayFormState) => Promise<boolean>>>;
 	onSendToWall: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
-	onSetQuoteLicense: ReturnType<typeof vi.fn<(form: TodayFormState) => Promise<boolean>>>;
+	onSetQuoteLicense: ReturnType<typeof vi.fn<(picks: QuotePick[]) => Promise<boolean>>>;
 	onRegisterBind: ReturnType<typeof vi.fn<(phone: string, code: string) => Promise<boolean>>>;
 	onRequestPhoneCode: ReturnType<
 		typeof vi.fn<(phone: string, purpose: "REGISTER" | "CHANGE_PHONE") => Promise<boolean>>
@@ -70,7 +72,7 @@ function makeStubs(): Stubs {
 	return {
 		onSubmitToday: vi.fn<(input: TodayFormState) => Promise<boolean>>().mockResolvedValue(true),
 		onSendToWall: vi.fn<() => Promise<boolean>>().mockResolvedValue(true),
-		onSetQuoteLicense: vi.fn<(form: TodayFormState) => Promise<boolean>>().mockResolvedValue(true),
+		onSetQuoteLicense: vi.fn<(picks: QuotePick[]) => Promise<boolean>>().mockResolvedValue(true),
 		onRegisterBind: vi.fn<(phone: string, code: string) => Promise<boolean>>().mockResolvedValue(true),
 		onRequestPhoneCode:
 			vi.fn<(phone: string, purpose: "REGISTER" | "CHANGE_PHONE") => Promise<boolean>>().mockResolvedValue(true),
@@ -84,12 +86,25 @@ function makeStubs(): Stubs {
 }
 
 function renderSend(stubs: Stubs, answers: FlashbackAnswer[], form: TodayFormState = emptyTodayForm) {
-	return render(<SendRegister onClaim={vi.fn()} answers={answers} form={form} {...stubs} />);
+	return render(
+		<SendRegister
+			onClaim={vi.fn()}
+			answers={answers}
+			form={form}
+			fullName="王晓雨"
+			surname="王"
+			anonymousAttribution="王** · 2014 · 北京"
+			quoteLevel="off"
+			{...stubs}
+		/>,
+	);
 }
 
-/** 确认寄出（检查步 CTA） */
+/** 确认寄出（检查步 CTA）：本文件只管雾——一律不带金句寄出（有推荐句时是「寄出到相册」，#1022） */
 function confirmSend() {
-	fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+	fireEvent.click(
+		screen.queryByRole("button", { name: "寄出到相册" }) ?? screen.getByRole("button", { name: /^确认寄出/ }),
+	);
 }
 
 afterEach(() => cleanup());

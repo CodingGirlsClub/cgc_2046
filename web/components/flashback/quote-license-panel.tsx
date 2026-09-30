@@ -98,6 +98,8 @@ export default function QuoteLicensePanel({
 				onTogglePick={togglePick}
 				radioName="fb-license-level"
 			/>
+			{/* #1022：开档却零句 = 墙上什么都没有，说出来，不让「已保存」冒充上墙 */}
+			{level !== "off" && picks.length === 0 && <p className="fb-hint">{t("noPickHint")}</p>}
 			<div className="fb-license-actions">
 				<button type="button" className="fb-cta" disabled={busy} onClick={() => void save()}>
 					{busy ? t("saving") : t("save")}
