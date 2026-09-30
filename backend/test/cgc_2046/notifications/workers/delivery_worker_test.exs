@@ -37,31 +37,81 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
     row
   end
 
-  test "末拍（attempt = max_attempts）pending_reason → 终态 failed，last_error 带原因" do
-    user = Fixtures.register_user("dw-final")
+  # #1040：确定性终态原因（template_not_configured / consent_exhausted /
+  # platform_not_configured）重试不能自愈——首拍即终态静默：行落 :failed 带原因
+  # （规15 报表）、job 返回 :ok（不重试、不 discard）。identity_not_found 不走
+  # 此面（Q5 哨兵重解析依赖重试窗口，见下方既有测试）。
+  test "consent_exhausted → 首拍即终态静默：job :ok、行 :failed 带原因（#1040）" do
+    user = Fixtures.register_user("dw-consent")
     row = enqueue_delivery(user.id)
 
-    # consent_exhausted 是 pending_reason（未订阅授权）——非末拍只重试不落终态；
-    # 末拍（第 5 次，max_attempts=5）终态化
-    assert {:error, :consent_exhausted} =
-             perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 5)
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
 
     reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
     assert reloaded.status == :failed
     assert reloaded.last_error =~ "consent_exhausted"
     assert reloaded.attempts == 1
+
+    # 末拍同果（终态判定不依赖 attempt 计数）
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 5)
+
+    assert %{status: :failed} = Ash.get!(NotificationDelivery, row.id, authorize?: false)
   end
 
-  test "非末拍 pending_reason → 仍 pending（重试语义不变）" do
-    user = Fixtures.register_user("dw-retry")
+  test "template_not_configured → 首拍即终态静默：job :ok、行 :failed 带原因（#1040）" do
+    templates = Application.get_env(:cgc_2046, :miniprogram_templates)
+    Application.put_env(:cgc_2046, :miniprogram_templates, %{wechat: %{}})
+
+    on_exit(fn ->
+      Application.put_env(:cgc_2046, :miniprogram_templates, templates)
+    end)
+
+    user = Fixtures.register_user("dw-tmpl")
     row = enqueue_delivery(user.id)
 
-    assert {:error, :consent_exhausted} =
-             perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 2)
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
 
     reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
-    assert reloaded.status == :pending
-    assert reloaded.attempts == 0
+    assert reloaded.status == :failed
+    assert reloaded.last_error =~ "template_not_configured"
+  end
+
+  # 瞬态渠道错误语义锚（#1040 回归守卫）：首拍落 :failed 但 job 仍 {:error, _}
+  # 交给 Oban 重试——:failed 行不被 perform 短路，渠道恢复后可翻盘至 :sent。
+  test "瞬态渠道错误 → 行首拍 :failed、job {:error, _}，下拍渠道恢复翻盘 :sent（#1040 回归锚）" do
+    user = Fixtures.register_user("dw-transient")
+    insert_identity(user.id, "dw-transient-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
+
+    row =
+      enqueue_key(user.id, "dw-transient-openid", "approval_result", %{
+        "status" => "confirmed",
+        "enrollment_id" => "e-transient"
+      })
+
+    # 渠道侧瞬态失败（微信 47003）；setup 的全局 mock 在本用例覆盖为失败面
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} ->
+        Tesla.Mock.json(%{"errcode" => 47_003, "errmsg" => "page rendering failed"})
+    end)
+
+    assert {:error, _} = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+    reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+    assert reloaded.status == :failed
+    assert reloaded.attempts == 1
+
+    # 渠道恢复（回到成功 mock）：同一 :failed 行重试投递成功 —— 未被 :failed 短路
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} = env ->
+        send(self(), {:notification, :wechat, Jason.decode!(env.body)})
+        Tesla.Mock.json(%{"errcode" => 0})
+    end)
+
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 2)
+
+    assert %{status: :sent} = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+    assert_receive {:notification, :wechat, _}
   end
 
   test "已 sent 行幂等 no-op（不重复投递、不落终态）" do

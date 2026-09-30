@@ -17,7 +17,16 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
     max_attempts: 5,
     unique: [period: :infinity, states: :incomplete]
 
+  require Logger
+
   alias Cgc2046.Notifications.{NotificationDelivery, Service, Staleness}
+
+  # 确定性终态原因（#1040）：重试不能自愈——模板/平台配置只随部署变、授权
+  # 配额不回填——首拍即终态静默：行落 :failed（规15 报表）、job 返回 :ok
+  # （不重试、不 discard），落实 deploy.yml「静默跳过，不阻塞」原意；可见性
+  # = Logger.warning（配置事故可 grep）+ 规15 :failed 行。identity_not_found
+  # **不在此列**：Q5 哨兵语义（用户稍绑身份经重解析补投）依赖重试窗口。
+  @terminal_reasons [:template_not_configured, :consent_exhausted, :platform_not_configured]
 
   @impl true
   def perform(%Oban.Job{args: %{"delivery_id" => id}} = job) do
@@ -106,16 +115,32 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
           end
 
         {:error, reason} ->
-          if pending_reason?(reason) do
-            {:error, reason}
-          else
-            row
-            |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
-              authorize?: false
-            )
-            |> Ash.update()
+          cond do
+            reason in @terminal_reasons ->
+              Logger.warning(
+                "notification delivery suppressed terminally " <>
+                  "(delivery_id=#{row.id} template_key=#{row.template_key} reason=#{reason})"
+              )
 
-            {:error, inspect(reason)}
+              row
+              |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
+                authorize?: false
+              )
+              |> Ash.update()
+
+              :ok
+
+            pending_reason?(reason) ->
+              {:error, reason}
+
+            true ->
+              row
+              |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
+                authorize?: false
+              )
+              |> Ash.update()
+
+              {:error, inspect(reason)}
           end
       end
     end
@@ -125,9 +150,6 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
     do:
       reason in [
         :identity_not_found,
-        :platform_identity_not_found,
-        :template_not_configured,
-        :consent_exhausted,
-        :platform_not_configured
+        :platform_identity_not_found
       ]
 end
