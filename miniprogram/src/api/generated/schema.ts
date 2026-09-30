@@ -2616,6 +2616,7 @@ export type FlashbackProfile = {
 
 export type FlashbackProgress = {
   bound: Scalars['Boolean']['output'];
+  hasSelectedQuotes: Scalars['Boolean']['output'];
   maskedEmail?: Maybe<Scalars['String']['output']>;
   maskedPhone?: Maybe<Scalars['String']['output']>;
   quoteLevel: Scalars['String']['output'];

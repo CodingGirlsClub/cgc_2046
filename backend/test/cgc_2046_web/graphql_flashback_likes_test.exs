@@ -364,6 +364,25 @@ defmodule Cgc2046Web.GraphqlFlashbackLikesTest do
     end
   end
 
+  test "首程区分只开授权档和已经选句" do
+    {person, _quote} = wall_person(archive(), %{})
+    token = token_for(person)
+
+    query =
+      "mutation($token: String!) { flashbackEnter(token: $token) { progress { quoteLevel hasSelectedQuotes } } }"
+
+    assert post_graphql(query, %{"token" => token})["data"]["flashbackEnter"]["progress"] ==
+             %{"quoteLevel" => "anonymous", "hasSelectedQuotes" => true}
+
+    mutation =
+      "mutation($token: String!, $level: String!) { flashbackSetQuoteLicense(token: $token, level: $level, chosenQuoteSpans: []) { level } }"
+
+    refute post_graphql(mutation, %{"token" => token, "level" => "anonymous"})["errors"]
+
+    assert post_graphql(query, %{"token" => token})["data"]["flashbackEnter"]["progress"] ==
+             %{"quoteLevel" => "anonymous", "hasSelectedQuotes" => false}
+  end
+
   describe "anonymousAttribution（#1022 寄出前预览与墙上署名同源）" do
     test "长廊 me 与首程 profile 的预览署名与墙上逐字一致" do
       # 三处易漂移点：两字名（王*）、跨年报名（报名 2013 / 场次 2014）、本人城市缺省回落场次城市
