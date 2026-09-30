@@ -23,7 +23,7 @@ export default function CampaignHero() {
 			<div className="hs24-container">
 				<section className="hs24-hero" aria-labelledby="hs24-hero-title">
 					<p className="hs24-hero__eyebrow">{t("eyebrow")}</p>
-					<span className="hs24-hero__slot">{t("slot")}</span>
+					<span className="hs24-hero__slogan">{t("slogan")}</span>
 					<h1 className="hs24-hero__title" id="hs24-hero-title">
 						{t("title")}
 					</h1>

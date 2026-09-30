@@ -10,6 +10,7 @@
 .brandAccent { color: #ea5504; }
 .title { display: block; margin: 16rpx 0 12rpx; font-size: 58rpx; line-height: 1.15; font-weight: 700; letter-spacing: -2rpx; }
 .subtitle { display: block; color: #4b4d54; font-size: 26rpx; line-height: 1.55; }
+.slogan { display: inline-block; align-self: flex-start; margin-top: 16rpx; padding: 8rpx 24rpx; border: 2rpx solid rgba(234, 85, 4, 0.55); border-radius: 999px; color: #ea5504; font-size: 24rpx; font-weight: 600; line-height: 1.5; }
 .numbers { display: flex; flex-wrap: wrap; gap: 12rpx 32rpx; margin-top: 24rpx; font-size: 26rpx; font-weight: 600; }
 .number { display: block; }
 .numberValue { font-weight: 700; }
