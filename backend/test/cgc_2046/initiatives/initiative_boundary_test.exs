@@ -761,8 +761,11 @@ defmodule Cgc2046.InitiativeBoundaryTest do
              )
 
     [row] = Ash.read!(NotificationDelivery, authorize?: false)
-    assert {:error, :consent_exhausted} = perform_job(DeliveryWorker, %{"delivery_id" => row.id})
-    assert Ash.get!(NotificationDelivery, row.id, authorize?: false).status == :pending
+
+    # #1040：consent_exhausted 改判确定性终态静默——job :ok（不重试不 discard）、
+    # 行落 :failed 且发送未发生；「等授权」兜底可见性由规15 :failed 行承载
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id})
+    assert Ash.get!(NotificationDelivery, row.id, authorize?: false).status == :failed
   end
 
   test "replayed notification enqueue is idempotent", ctx do
